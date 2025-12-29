@@ -69,6 +69,17 @@ func (f *fakeFactory) Start(command string, args ...string) (Pty, *exec.Cmd, err
 	return pty, nil, nil
 }
 
+type commandCaptureFactory struct {
+	command string
+	args    []string
+}
+
+func (f *commandCaptureFactory) Start(command string, args ...string) (Pty, *exec.Cmd, error) {
+	f.command = command
+	f.args = append([]string(nil), args...)
+	return newFakePty(), nil, nil
+}
+
 type fixedClock struct {
 	now time.Time
 }
@@ -222,6 +233,38 @@ func TestManagerLifecycle(t *testing.T) {
 
 	if err := manager.Delete("missing"); !errors.Is(err, ErrSessionNotFound) {
 		t.Fatalf("expected ErrSessionNotFound, got %v", err)
+	}
+}
+
+func TestManagerCreateShellArgs(t *testing.T) {
+	factory := &commandCaptureFactory{}
+	manager := NewManager(ManagerOptions{
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"copilot": {
+				Name:     "Architect",
+				Shell:    "copilot --allow-all-tools --disable-builtin-mcps",
+				LLMType:  "copilot",
+				LLMModel: "default",
+			},
+		},
+	})
+
+	if _, err := manager.Create("copilot", "run", "args"); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	if factory.command != "copilot" {
+		t.Fatalf("expected command copilot, got %q", factory.command)
+	}
+	wantArgs := []string{"--allow-all-tools", "--disable-builtin-mcps"}
+	if len(factory.args) != len(wantArgs) {
+		t.Fatalf("expected args %v, got %v", wantArgs, factory.args)
+	}
+	for i, arg := range wantArgs {
+		if factory.args[i] != arg {
+			t.Fatalf("expected args %v, got %v", wantArgs, factory.args)
+		}
 	}
 }
 

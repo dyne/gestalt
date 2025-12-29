@@ -130,7 +130,16 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 		}
 	}
 
-	pty, cmd, err := m.factory.Start(shell)
+	command, args, err := splitCommandLine(shell)
+	if err != nil {
+		m.logger.Warn("shell command parse failed", map[string]string{
+			"shell": shell,
+			"error": err.Error(),
+		})
+		return nil, err
+	}
+
+	pty, cmd, err := m.factory.Start(command, args...)
 	if err != nil {
 		return nil, err
 	}

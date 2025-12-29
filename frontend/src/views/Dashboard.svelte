@@ -52,12 +52,9 @@
 <section class="dashboard">
   <header class="dashboard__header">
     <div>
-      <p class="eyebrow">Gestalt IDE</p>
-      <h1>Session dashboard</h1>
+      <p class="eyebrow">Dyne.org presents...</p>
+      <h1>Gestalt</h1>
     </div>
-    <button class="cta" on:click={createTerminal} disabled={creating || loading}>
-      {creating ? 'Creating…' : 'New terminal'}
-    </button>
   </header>
 
   <section class="dashboard__status">

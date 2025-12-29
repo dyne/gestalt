@@ -1,4 +1,5 @@
 import { writable } from 'svelte/store'
+import { apiFetch } from './api.js'
 
 const defaultConfig = {
   info: { autoClose: true, duration: 5000 },
@@ -87,17 +88,55 @@ const resolveOptions = (level, options = {}) => {
   }
 }
 
+const normalizeContext = (context) => {
+  if (!context || typeof context !== 'object') {
+    return {}
+  }
+  const normalized = {}
+  for (const [key, value] of Object.entries(context)) {
+    if (!key) continue
+    if (value === undefined || value === null) continue
+    normalized[key] = String(value)
+  }
+  return normalized
+}
+
+const logToast = (level, message, context) => {
+  if (typeof window === 'undefined') {
+    return
+  }
+  const payload = {
+    level,
+    message,
+    context,
+  }
+  void apiFetch('/api/logs', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }).catch(() => {
+    // Ignore log transport errors to avoid loops.
+  })
+}
+
 const addNotification = (level, message, options = {}) => {
   const normalized = normalizeLevel(level)
+  const text = String(message ?? '')
+  const id = nextId()
+  const context = {
+    toast_id: id,
+    ...normalizeContext(options.context),
+  }
+  if (text.trim()) {
+    logToast(normalized, text, context)
+  }
   if (!shouldDisplay(normalized)) {
     return null
   }
-  const id = nextId()
   const { autoClose, duration } = resolveOptions(normalized, options)
   const notification = {
     id,
     level: normalized,
-    message,
+    message: text,
     timestamp: new Date().toISOString(),
     autoClose,
     duration,

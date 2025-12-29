@@ -1,12 +1,22 @@
 package terminal
 
 import (
+	"errors"
 	"os"
 	"runtime"
+	"strings"
 )
 
 func DefaultShell() string {
 	return defaultShellFor(runtime.GOOS, os.Getenv)
+}
+
+func splitCommandLine(commandLine string) (string, []string, error) {
+	fields := strings.Fields(commandLine)
+	if len(fields) == 0 {
+		return "", nil, errors.New("shell command is empty")
+	}
+	return fields[0], fields[1:], nil
 }
 
 func defaultShellFor(goos string, getenv func(string) string) string {

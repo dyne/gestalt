@@ -55,6 +55,12 @@ type logQuery struct {
 	Since *time.Time
 }
 
+type clientLogRequest struct {
+	Level   string            `json:"level"`
+	Message string            `json:"message"`
+	Context map[string]string `json:"context"`
+}
+
 type createTerminalRequest struct {
 	Title string `json:"title"`
 	Role  string `json:"role"`
@@ -134,19 +140,22 @@ func (h *RestHandler) handleLogs(w http.ResponseWriter, r *http.Request) *apiErr
 	if err := h.requireLogger(); err != nil {
 		return err
 	}
-	if r.Method != http.MethodGet {
-		return methodNotAllowed(w, "GET")
-	}
+	switch r.Method {
+	case http.MethodGet:
+		query, err := parseLogQuery(r)
+		if err != nil {
+			return err
+		}
 
-	query, err := parseLogQuery(r)
-	if err != nil {
-		return err
+		entries := h.Logger.Buffer().List()
+		filtered := filterLogEntries(entries, query)
+		writeJSON(w, http.StatusOK, filtered)
+		return nil
+	case http.MethodPost:
+		return h.createLogEntry(w, r)
+	default:
+		return methodNotAllowed(w, "GET, POST")
 	}
-
-	entries := h.Logger.Buffer().List()
-	filtered := filterLogEntries(entries, query)
-	writeJSON(w, http.StatusOK, filtered)
-	return nil
 }
 
 func (h *RestHandler) requireManager() *apiError {
@@ -237,6 +246,61 @@ func (h *RestHandler) handleTerminalDelete(w http.ResponseWriter, r *http.Reques
 			return &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
 		}
 		return &apiError{Status: http.StatusInternalServerError, Message: "failed to delete terminal"}
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+func (h *RestHandler) createLogEntry(w http.ResponseWriter, r *http.Request) *apiError {
+	if r.Body == nil {
+		return &apiError{Status: http.StatusBadRequest, Message: "invalid request body"}
+	}
+
+	var request clientLogRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil && err != io.EOF {
+		return &apiError{Status: http.StatusBadRequest, Message: "invalid request body"}
+	}
+
+	message := strings.TrimSpace(request.Message)
+	if message == "" {
+		return &apiError{Status: http.StatusBadRequest, Message: "missing log message"}
+	}
+
+	level := logging.LevelInfo
+	if rawLevel := strings.TrimSpace(request.Level); rawLevel != "" {
+		parsed, ok := logging.ParseLevel(rawLevel)
+		if !ok {
+			return &apiError{Status: http.StatusBadRequest, Message: "invalid log level"}
+		}
+		level = parsed
+	}
+
+	fields := make(map[string]string, len(request.Context)+2)
+	for key, value := range request.Context {
+		if strings.TrimSpace(key) == "" {
+			continue
+		}
+		fields[key] = value
+	}
+	if _, ok := fields["source"]; !ok {
+		fields["source"] = "frontend"
+	}
+	if _, ok := fields["toast"]; !ok {
+		fields["toast"] = "true"
+	}
+
+	switch level {
+	case logging.LevelDebug:
+		h.Logger.Debug(message, fields)
+	case logging.LevelWarning:
+		h.Logger.Warn(message, fields)
+	case logging.LevelError:
+		h.Logger.Error(message, fields)
+	default:
+		h.Logger.Info(message, fields)
 	}
 
 	w.WriteHeader(http.StatusNoContent)

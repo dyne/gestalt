@@ -428,6 +428,43 @@ func TestLogsEndpointFilters(t *testing.T) {
 	}
 }
 
+func TestLogsEndpointCreateEntry(t *testing.T) {
+	buffer := logging.NewLogBuffer(10)
+	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, io.Discard)
+	handler := &RestHandler{Logger: logger}
+
+	body := `{"level":"warning","message":"toast error","context":{"component":"terminal"}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/logs", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", handler.handleLogs)(res, req)
+	if res.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", res.Code)
+	}
+
+	entries := buffer.List()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	entry := entries[0]
+	if entry.Level != logging.LevelWarning {
+		t.Fatalf("expected warning level, got %q", entry.Level)
+	}
+	if entry.Message != "toast error" {
+		t.Fatalf("expected message %q, got %q", "toast error", entry.Message)
+	}
+	if entry.Context["component"] != "terminal" {
+		t.Fatalf("expected component context, got %q", entry.Context["component"])
+	}
+	if entry.Context["source"] != "frontend" {
+		t.Fatalf("expected source context, got %q", entry.Context["source"])
+	}
+	if entry.Context["toast"] != "true" {
+		t.Fatalf("expected toast context, got %q", entry.Context["toast"])
+	}
+}
+
 func waitForOutput(session *terminal.Session) bool {
 	deadline := time.Now().Add(200 * time.Millisecond)
 	for time.Now().Before(deadline) {

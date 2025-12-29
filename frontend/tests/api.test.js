@@ -1,0 +1,50 @@
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { apiFetch, buildWebSocketUrl } from '../src/lib/api.js'
+
+const mockFetch = (response) => {
+  const fetchMock = vi.fn().mockResolvedValue(response)
+  vi.stubGlobal('fetch', fetchMock)
+  return fetchMock
+}
+
+describe('api helpers', () => {
+  afterEach(() => {
+    localStorage.clear()
+    vi.unstubAllGlobals()
+  })
+
+  it('buildWebSocketUrl appends token', () => {
+    localStorage.setItem('gestalt_token', 'abc123')
+    const url = buildWebSocketUrl('/ws/terminal/1')
+    expect(url.startsWith('ws://')).toBe(true)
+    expect(url).toContain('/ws/terminal/1')
+    expect(url).toContain('token=abc123')
+  })
+
+  it('apiFetch attaches auth and content headers', async () => {
+    localStorage.setItem('gestalt_token', 'secret')
+    const fetchMock = mockFetch({ ok: true, status: 200, text: vi.fn().mockResolvedValue('') })
+
+    await apiFetch('/api/status', {
+      method: 'POST',
+      body: JSON.stringify({ ok: true }),
+    })
+
+    const [, options] = fetchMock.mock.calls[0]
+    expect(options.headers.get('Authorization')).toBe('Bearer secret')
+    expect(options.headers.get('Content-Type')).toBe('application/json')
+  })
+
+  it('apiFetch throws on non-ok responses', async () => {
+    mockFetch({
+      ok: false,
+      status: 500,
+      text: vi.fn().mockResolvedValue('boom'),
+    })
+
+    await expect(apiFetch('/api/status')).rejects.toMatchObject({
+      message: 'boom',
+      status: 500,
+    })
+  })
+})

@@ -4,7 +4,7 @@ build:
 
 test:
 	go test ./...
-	node --test ./frontend/tests/notificationStore.test.js
+	cd frontend && npm test
 
 clean:
 	rm -rf frontend/dist

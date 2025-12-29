@@ -1,3 +1,298 @@
+* TODO [#B] Org-mode PLAN.org viewer component
+  Goal: Add a pleasant, compact Svelte outliner component to visualize PLAN.org with foldable sections, syntax highlighting for TODO/WIP/DONE keywords, priorities, and eventual sidebar integration.
+  Notes:
+  - Target users: casual users who don't use Emacs org-mode
+  - Style inspiration: Emacs org-mode rendering but more polished and user-friendly
+  - Must support: folding/expanding headings, keyword highlighting (TODO/WIP/DONE), priority badges ([#A], [#B], [#C])
+  - Must be compact: designed for eventual sidebar placement alongside terminals
+  - Parser: lightweight custom parser (no external org-mode lib dependencies)
+  - Features: collapse/expand all, collapse by level, keyword filtering, search (optional)
+  - Interaction: click to expand/collapse, visual hierarchy with indentation
+  - Backend: serve PLAN.org via GET /api/plan endpoint (read-only for now)
+  - Frontend: new OrgViewer.svelte component, add "Plan" tab to dashboard
+  - Future: editing support, sync with file changes, real-time updates
+  Date: 2025-12-29
+
+** TODO [#B] Create backend endpoint to serve PLAN.org
+   Why: Frontend needs access to PLAN.org contents via API
+   Change:
+   - Add GET /api/plan endpoint in api/routes.go
+   - Read PLAN.org file from project root
+   - Return raw text content with text/plain or application/json (wrap in {"content": "..."})
+   - Handle file not found gracefully (return empty or error)
+   - No auth required initially (read-only public data)
+   - Consider: ETag/Last-Modified headers for caching
+   Tests: GET /api/plan returns PLAN.org contents
+   Done when: API endpoint serves PLAN.org file contents
+
+** TODO [#B] Create org-mode parser for outline structure
+   Why: Need to parse org-mode syntax into structured data for rendering
+   Change:
+   - Create frontend/src/lib/orgParser.js
+   - Parse org headings: detect * ** *** heading levels
+   - Extract TODO keywords: TODO, WIP, DONE (configurable array)
+   - Extract priority: [#A], [#B], [#C] patterns
+   - Extract heading text (after keywords/priority)
+   - Build tree structure: {level, keyword, priority, text, children, collapsed}
+   - Parse body text: lines between headings belong to parent heading
+   - Handle edge cases: empty lines, malformed headings, missing keywords
+   - Return array of top-level nodes with nested children
+   Tests: Unit tests with sample org-mode text; verify tree structure
+   Done when: Parser converts org text to structured tree
+
+** TODO [#B] Create OrgViewer Svelte component
+   Why: Main UI component for displaying parsed org-mode outline
+   Change:
+   - Create frontend/src/components/OrgViewer.svelte
+   - Accept props: orgText (string) or orgTree (parsed structure)
+   - If orgText provided, parse on mount using orgParser
+   - Render tree recursively: OrgNode components for each heading
+   - Styling: compact vertical spacing, clear hierarchy with indentation
+   - Responsive: works in full tab or sidebar (flexible width)
+   - Handle empty/loading state gracefully
+   Tests: Manual rendering test with sample org-mode content
+   Done when: Component renders parsed org-mode structure
+
+** TODO [#B] Create OrgNode component for heading rendering
+   Why: Recursive component for each outline node with expand/collapse
+   Change:
+   - Create frontend/src/components/OrgNode.svelte
+   - Props: node (heading data), level (indent depth), onToggle callback
+   - Render: expand/collapse icon + keyword badge + priority badge + heading text
+   - Expand icon: ▶ (collapsed) or ▼ (expanded), click to toggle
+   - Keyword styling: TODO (blue), WIP (yellow/orange), DONE (green/gray), none (default)
+   - Priority styling: [#A] (red), [#B] (orange), [#C] (gray/muted)
+   - Body text: render in muted color below heading when expanded
+   - Children: recursively render child nodes when expanded
+   - Indentation: left padding based on level (e.g., level * 1.5rem)
+   Tests: Manual test with nested headings, toggle behavior
+   Done when: Individual nodes render with proper styling and expand/collapse
+
+** TODO [#C] Add expand/collapse controls
+   Why: Users need convenient ways to navigate large outlines
+   Change:
+   - Add toolbar buttons: "Expand All", "Collapse All"
+   - Add level-based collapse: "Collapse to L1", "Collapse to L2"
+   - Implement recursive state updates in OrgViewer
+   - Persist expand/collapse state in component state (not localStorage yet)
+   - Keyboard shortcuts: Space to toggle focused node (optional)
+   Tests: Manual test expand/collapse functionality
+   Done when: Toolbar controls work correctly
+
+** TODO [#C] Add keyword filtering
+   Why: Users may want to focus on TODO/WIP items only
+   Change:
+   - Add filter dropdown: "All", "TODO only", "WIP only", "DONE only", "TODO+WIP"
+   - Filter at render time: hide nodes that don't match filter
+   - Show/hide body text based on filter setting
+   - Preserve expand/collapse state during filtering
+   Tests: Manual test filtering with various keyword combinations
+   Done when: Filter dropdown correctly shows/hides nodes
+
+** TODO [#C] Add search functionality (optional)
+   Why: Large plans benefit from text search
+   Change:
+   - Add search input box in toolbar
+   - Highlight matching text in headings and body
+   - Auto-expand nodes containing matches
+   - Clear highlights on search clear
+   - Debounce search input (300ms)
+   Tests: Manual test search with various queries
+   Done when: Search highlights and expands matching nodes
+
+** TODO [#B] Integrate OrgViewer into dashboard
+   Why: Users need access to plan viewer in the UI
+   Change:
+   - Add "Plan" tab to TabBar (after Dashboard, before terminal tabs)
+   - Create PlanView.svelte wrapper component
+   - Fetch /api/plan on mount, pass to OrgViewer
+   - Handle loading and error states
+   - Add refresh button to reload plan
+   - Style consistent with rest of app
+   Tests: Manual test Plan tab in UI
+   Done when: Plan tab shows PLAN.org outline
+
+** TODO [#C] Polish styling and responsiveness
+   Why: Ensure component is pleasant and usable as specified
+   Change:
+   - Refine color scheme: match Gestalt design language
+   - Ensure compact spacing: maximize information density
+   - Test in narrow sidebar width (e.g., 300px)
+   - Smooth animations for expand/collapse (CSS transitions)
+   - Hover effects on headings
+   - Focus states for accessibility
+   - Dark mode support (if app has dark mode)
+   Tests: Manual visual testing at various widths
+   Done when: Component looks polished and works in sidebar
+
+** TODO [#C] Add CSS for compact sidebar layout (future)
+   Why: Component should eventually work as sidebar alongside terminals
+   Change:
+   - Design sidebar layout: resizable splitter between plan and terminals
+   - Add sidebar toggle button
+   - Persist sidebar width and visibility in localStorage
+   - Ensure terminals resize correctly when sidebar shown/hidden
+   - This step is future work, not blocking initial implementation
+   Tests: Manual test sidebar integration
+   Done when: Plan viewer works as collapsible sidebar (defer to later)
+
+* DONE [#A] Comprehensive testing strategy and regression protection
+  Goal: Establish robust test coverage for all Gestalt features to prevent regressions and ensure reliability.
+  Notes:
+  - Current state: 11 test files, ~1939 lines of tests, all tests passing
+  - Coverage: agent (excellent), api (good), logging (good), terminal (good), orchestrator (none), cmd (none)
+  - Backend: 25 source files, 11 test files (44% file coverage, likely lower line coverage)
+  - Frontend: No test infrastructure currently configured
+  - Testing philosophy: pragmatic, focus on critical paths and integration points
+  - Tools: Go standard testing + table-driven tests, consider testify/assert for readability
+  - Frontend tools: Vitest + Svelte Testing Library (matches Vite/Svelte stack)
+  - Integration: E2E tests for WebSocket flows, API interactions, terminal lifecycle
+  - Strategy: unit tests for logic, integration tests for I/O and state, E2E for user flows
+  Date: 2025-12-29
+
+** [#B] Audit and document current test coverage
+   Why: Understand what's tested, what's missing, establish baseline metrics
+   Change:
+   - Run `go test -cover ./...` and document coverage percentages per package
+   - Identify untested packages: orchestrator (no tests), cmd/gestalt (no tests)
+   - List critical untested code paths: prompt injection, session lifecycle, WebSocket reconnection
+   - Document existing test patterns: fakePty, table-driven tests, integration test helpers
+   - Create TESTING.md documenting testing approach, conventions, and how to run tests
+   - Set coverage targets: aim for 70% overall, 80%+ for critical packages (agent, terminal, api)
+   Tests: Document current coverage; no new tests in this step
+   Done when: TESTING.md exists with coverage audit and testing guidelines
+
+** [#B] Add missing unit tests for terminal package
+   Why: Terminal session/manager is core functionality with some untested paths
+   Change:
+   - Test session lifecycle: creation, input/output, close, cleanup
+   - Test prompt injection: single prompt, multiple prompts, missing files, timing
+   - Test output buffer: circular behavior, line extraction, race conditions
+   - Test broadcaster: multi-subscriber fanout, slow subscriber handling, close behavior
+   - Test shell selection logic: SHELL env var, fallbacks, Windows vs Unix
+   - Add table-driven tests for edge cases (empty input, large buffers, concurrent access)
+   - Test onair_string detection and prompt injection gating
+   Tests: Increase terminal package coverage to 80%+
+   Done when: Critical terminal paths have test coverage; go test ./... passes
+
+** [#B] Add unit tests for orchestrator package
+   Why: Currently has no tests; future inter-terminal communication depends on it
+   Change:
+   - Test any existing orchestrator logic (currently minimal/stub)
+   - If orchestrator is empty stub, add placeholder test file with package structure
+   - Document intended orchestrator responsibilities in doc.go
+   - Add tests as orchestrator features are implemented
+   Tests: Basic orchestrator test file exists
+   Done when: orchestrator package has test foundation ready for future features
+
+** [#C] Add integration tests for cmd/gestalt
+   Why: Main entry point has no tests; configuration loading and wiring needs validation
+   Change:
+   - Test config loading: env vars (PORT, SHELL, TOKEN), defaults
+   - Test agent loading integration: valid/invalid agent files, missing prompts
+   - Test static file serving: frontend dist directory detection
+   - Consider: spin up test server, verify endpoints respond (heavy, may defer)
+   - Document why some paths are hard to test (server startup, signal handling)
+   Tests: Basic cmd/gestalt test coverage for config and initialization
+   Done when: Config loading and agent wiring have test coverage
+
+** [#B] Add WebSocket integration tests
+   Why: WebSocket flows are critical but complex; need end-to-end validation
+   Change:
+   - Test terminal WebSocket: connect, send input, receive output, resize, disconnect
+   - Test logs WebSocket: connect, receive log stream, filter by level, disconnect
+   - Test auth: token validation, unauthorized access, missing token
+   - Test reconnection: connection drop, exponential backoff, auth failure
+   - Test concurrent connections: multiple clients to same terminal
+   - Use gorilla/websocket test client or real WebSocket connections
+   - Mock PTY for deterministic terminal output in tests
+   Tests: WebSocket integration tests pass reliably
+   Done when: Critical WebSocket paths tested; can detect regressions
+
+** [#B] Setup frontend testing infrastructure
+   Why: Frontend has zero tests; UI regressions go unnoticed
+   Change:
+   - Install Vitest: `npm install -D vitest @testing-library/svelte jsdom`
+   - Configure vitest.config.js for Svelte component testing
+   - Add test script to package.json: `"test": "vitest run"`
+   - Create example test: terminalStore.test.js or api.test.js
+   - Document frontend testing approach in TESTING.md
+   - Consider: Playwright for E2E UI tests (defer if too heavy initially)
+   Tests: npm test runs and passes
+   Done when: Frontend test infrastructure is functional
+
+** [#B] Add frontend unit tests for core modules
+   Why: Store logic and API client are testable without full component rendering
+   Change:
+   - Test api.js: apiFetch error handling, buildWebSocketUrl, token handling
+   - Test terminalStore.js: state management, WebSocket lifecycle, reconnection logic
+   - Test notificationStore.js: add/dismiss/auto-dismiss, toast lifecycle
+   - Mock fetch API and WebSocket for deterministic tests
+   - Use vi.mock() for module mocking in Vitest
+   Tests: Core frontend logic has unit test coverage
+   Done when: API client and stores have 70%+ test coverage
+
+** [#C] Add frontend component tests
+   Why: UI components need testing but are lower priority than logic
+   Change:
+   - Test Dashboard.svelte: agent buttons, terminal creation, error display
+   - Test TabBar.svelte: tab switching, close button, active state
+   - Test Toast.svelte: display, auto-dismiss, dismiss button
+   - Test LogsView.svelte: log filtering, refresh, display
+   - Use @testing-library/svelte for component testing (render, user events)
+   - Focus on behavior, not implementation details
+   Tests: Key UI components have test coverage
+   Done when: Dashboard and TabBar have basic component tests
+
+** [#B] Add E2E integration test suite
+   Why: Validate complete user flows across backend and frontend
+   Change:
+   - Setup E2E test harness: start server, create test client, cleanup
+   - Test flow: start server → create terminal via API → connect WebSocket → send input → verify output
+   - Test flow: create agent terminal → verify prompt injection → verify onair_string gating
+   - Test flow: trigger log event → verify toast appears → verify log in logs tab
+   - Test auth flow: missing token → 401 → provide token → success
+   - Consider: Playwright for browser-based E2E (can defer if too heavy)
+   - Document E2E test execution in TESTING.md
+   Tests: E2E test suite passes reliably
+   Done when: Critical user flows have E2E test coverage
+
+** [#C] Add test coverage reporting and CI integration
+   Why: Track coverage over time, prevent coverage regressions
+   Change:
+   - Setup Go coverage reporting: `go test -coverprofile=coverage.out ./...`
+   - Setup frontend coverage: configure Vitest coverage (c8 or istanbul)
+   - Add coverage thresholds: fail if coverage drops below targets
+   - Consider: upload coverage to codecov.io or similar (optional)
+   - Document coverage commands in TESTING.md
+   - Add CI workflow if using GitHub Actions (run tests on PR/push)
+   Tests: Coverage reports generate successfully
+   Done when: Coverage tracking is automated and documented
+
+** [#C] Add property-based and fuzz testing (optional)
+   Why: Find edge cases that manual test cases miss
+   Change:
+   - Identify good candidates: agent JSON parsing, prompt name validation, log filtering
+   - Use Go testing.F for fuzz testing (built into Go 1.18+)
+   - Consider: rapid for property-based testing (external dep, may skip)
+   - Add fuzz tests for JSON unmarshaling with malformed input
+   - Add fuzz tests for path parsing with unusual characters
+   - Document fuzz testing in TESTING.md
+   Tests: Fuzz tests run and find no crashes
+   Done when: Critical parsing logic has fuzz test coverage (optional)
+
+** [#C] Document testing best practices and conventions
+   Why: Maintain test quality as codebase grows
+   Change:
+   - Extend TESTING.md with best practices: table-driven tests, test naming, mocking
+   - Document when to unit test vs integration test vs E2E test
+   - Document test fixture patterns: fakePty, test servers, temp directories
+   - Add examples of good tests from existing codebase
+   - Document how to debug failing tests
+   - Document test performance: keep unit tests fast (<10ms), integration tests moderate (<100ms)
+   Tests: None (documentation only)
+   Done when: TESTING.md has comprehensive testing guidelines
+
 * DONE [#B] Fix agent shell args + toast-to-log parity
   Goal: Allow agent shell strings to include arguments, and ensure every toast is also logged.
   Notes:

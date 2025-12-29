@@ -1,5 +1,4 @@
-import assert from 'node:assert/strict'
-import test from 'node:test'
+import { describe, it, expect } from 'vitest'
 import { notificationPreferences, notificationStore } from '../src/lib/notificationStore.js'
 
 const resetPreferences = () => {
@@ -10,107 +9,102 @@ const resetPreferences = () => {
   })
 }
 
-test('notificationStore adds and dismisses entries', async () => {
-  resetPreferences()
-  notificationStore.clear()
+const subscribeToStore = () => {
   let current = []
   const unsubscribe = notificationStore.subscribe((value) => {
     current = value
   })
+  return { get: () => current, unsubscribe }
+}
 
-  const id = notificationStore.addNotification('info', 'hello', { duration: 10 })
-  assert.equal(current.length, 1)
-  assert.equal(current[0].id, id)
-  assert.equal(current[0].level, 'info')
+describe('notificationStore', () => {
+  it('adds and dismisses entries', async () => {
+    resetPreferences()
+    notificationStore.clear()
+    const { get, unsubscribe } = subscribeToStore()
 
-  await new Promise((resolve) => setTimeout(resolve, 30))
-  assert.equal(current.length, 0)
-  unsubscribe()
-})
+    const id = notificationStore.addNotification('info', 'hello', { duration: 10 })
+    expect(get().length).toBe(1)
+    expect(get()[0].id).toBe(id)
+    expect(get()[0].level).toBe('info')
 
-test('notificationStore does not auto-dismiss errors by default', async () => {
-  resetPreferences()
-  notificationStore.clear()
-  let current = []
-  const unsubscribe = notificationStore.subscribe((value) => {
-    current = value
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(get().length).toBe(0)
+    unsubscribe()
   })
 
-  const id = notificationStore.addNotification('error', 'boom')
-  assert.equal(current.length, 1)
+  it('does not auto-dismiss errors by default', async () => {
+    resetPreferences()
+    notificationStore.clear()
+    const { get, unsubscribe } = subscribeToStore()
 
-  await new Promise((resolve) => setTimeout(resolve, 30))
-  assert.equal(current.length, 1)
+    const id = notificationStore.addNotification('error', 'boom')
+    expect(get().length).toBe(1)
 
-  notificationStore.dismiss(id)
-  assert.equal(current.length, 0)
-  unsubscribe()
-})
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(get().length).toBe(1)
 
-test('notificationStore clear removes active timers', async () => {
-  resetPreferences()
-  notificationStore.clear()
-  let current = []
-  const unsubscribe = notificationStore.subscribe((value) => {
-    current = value
+    notificationStore.dismiss(id)
+    expect(get().length).toBe(0)
+    unsubscribe()
   })
 
-  notificationStore.addNotification('warning', 'heads up', { duration: 100 })
-  assert.equal(current.length, 1)
+  it('clear removes active timers', async () => {
+    resetPreferences()
+    notificationStore.clear()
+    const { get, unsubscribe } = subscribeToStore()
 
-  notificationStore.clear()
-  assert.equal(current.length, 0)
+    notificationStore.addNotification('warning', 'heads up', { duration: 100 })
+    expect(get().length).toBe(1)
 
-  await new Promise((resolve) => setTimeout(resolve, 120))
-  assert.equal(current.length, 0)
-  unsubscribe()
-})
+    notificationStore.clear()
+    expect(get().length).toBe(0)
 
-test('notificationStore honors level filter', async () => {
-  resetPreferences()
-  notificationStore.clear()
-  notificationPreferences.set({
-    enabled: true,
-    durationMs: 0,
-    levelFilter: 'warning',
+    await new Promise((resolve) => setTimeout(resolve, 120))
+    expect(get().length).toBe(0)
+    unsubscribe()
   })
 
-  let current = []
-  const unsubscribe = notificationStore.subscribe((value) => {
-    current = value
+  it('honors level filter', async () => {
+    resetPreferences()
+    notificationStore.clear()
+    notificationPreferences.set({
+      enabled: true,
+      durationMs: 0,
+      levelFilter: 'warning',
+    })
+
+    const { get, unsubscribe } = subscribeToStore()
+
+    const ignored = notificationStore.addNotification('info', 'skip me')
+    expect(ignored).toBeNull()
+    expect(get().length).toBe(0)
+
+    const id = notificationStore.addNotification('warning', 'show me', { duration: 10 })
+    expect(get().length).toBe(1)
+    expect(get()[0].id).toBe(id)
+
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(get().length).toBe(0)
+    unsubscribe()
   })
 
-  const ignored = notificationStore.addNotification('info', 'skip me')
-  assert.equal(ignored, null)
-  assert.equal(current.length, 0)
+  it('applies duration override', async () => {
+    resetPreferences()
+    notificationStore.clear()
+    notificationPreferences.set({
+      enabled: true,
+      durationMs: 5,
+      levelFilter: 'all',
+    })
 
-  const id = notificationStore.addNotification('warning', 'show me', { duration: 10 })
-  assert.equal(current.length, 1)
-  assert.equal(current[0].id, id)
+    const { get, unsubscribe } = subscribeToStore()
 
-  await new Promise((resolve) => setTimeout(resolve, 30))
-  assert.equal(current.length, 0)
-  unsubscribe()
-})
+    notificationStore.addNotification('info', 'short')
+    expect(get().length).toBe(1)
 
-test('notificationStore applies duration override', async () => {
-  resetPreferences()
-  notificationStore.clear()
-  notificationPreferences.set({
-    enabled: true,
-    durationMs: 5,
-    levelFilter: 'all',
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(get().length).toBe(0)
+    unsubscribe()
   })
-
-  let current = []
-  const unsubscribe = notificationStore.subscribe((value) => {
-    current = value
-  })
-
-  notificationStore.addNotification('info', 'short')
-  assert.equal(current.length, 1)
-
-  await new Promise((resolve) => setTimeout(resolve, 20))
-  assert.equal(current.length, 0)
-  unsubscribe()
 })

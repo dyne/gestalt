@@ -63,6 +63,28 @@ Auth
 - REST endpoints expect `Authorization: Bearer <token>` when `GESTALT_TOKEN` is set.
 - WebSocket connections accept `?token=<token>` for browser compatibility.
 
+## Agent profiles
+
+Agent profiles live in `config/agents/*.json` and are loaded at startup.
+
+Fields:
+- `name` (required)
+- `shell` (required)
+- `prompt_file` (optional)
+- `llm_type` (required: `copilot`, `codex`, `promptline`)
+- `llm_model` (optional; use `default`)
+
+Example:
+```
+{
+  "name": "Codex",
+  "shell": "/bin/bash",
+  "prompt_file": "config/prompts/codex.txt",
+  "llm_type": "codex",
+  "llm_model": "default"
+}
+```
+
 ## License
 
 Copyright (C) 2025-2026 Dyne.org foundation

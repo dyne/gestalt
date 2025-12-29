@@ -49,11 +49,11 @@
     }
   }
 
-  const createTerminal = async () => {
+  const createTerminal = async (agentId = '') => {
     error = ''
     const response = await apiFetch('/api/terminals', {
       method: 'POST',
-      body: JSON.stringify({}),
+      body: JSON.stringify(agentId ? { agent: agentId } : {}),
     })
     const created = await response.json()
     terminals = [...terminals, created]

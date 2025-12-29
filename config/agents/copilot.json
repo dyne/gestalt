@@ -1,0 +1,6 @@
+{
+  "name": "Copilot",
+  "shell": "/bin/bash",
+  "llm_type": "copilot",
+  "llm_model": "default"
+}

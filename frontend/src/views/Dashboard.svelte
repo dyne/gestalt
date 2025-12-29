@@ -1,4 +1,7 @@
 <script>
+  import { onMount } from 'svelte'
+  import { apiFetch } from '../lib/api.js'
+
   export let terminals = []
   export let status = null
   export let loading = false
@@ -7,16 +10,32 @@
 
   let creating = false
   let localError = ''
+  let agents = []
+  let agentsLoading = false
+  let agentsError = ''
 
-  const createTerminal = async () => {
+  const createTerminal = async (agentId = '') => {
     creating = true
     localError = ''
     try {
-      await onCreate()
+      await onCreate(agentId)
     } catch (err) {
       localError = err?.message || 'Failed to create terminal.'
     } finally {
       creating = false
+    }
+  }
+
+  const loadAgents = async () => {
+    agentsLoading = true
+    agentsError = ''
+    try {
+      const response = await apiFetch('/api/agents')
+      agents = await response.json()
+    } catch (err) {
+      agentsError = err?.message || 'Failed to load agents.'
+    } finally {
+      agentsLoading = false
     }
   }
 
@@ -26,6 +45,8 @@
     if (Number.isNaN(parsed.getTime())) return '—'
     return parsed.toLocaleString()
   }
+
+  onMount(loadAgents)
 </script>
 
 <section class="dashboard">
@@ -48,6 +69,33 @@
       <span class="label">Server time</span>
       <strong class="value">{formatTime(status?.server_time)}</strong>
     </div>
+  </section>
+
+  <section class="dashboard__agents">
+    <div class="list-header">
+      <h2>Agent terminals</h2>
+      <p class="subtle">{agents.length} profile(s)</p>
+    </div>
+
+    {#if agentsLoading}
+      <p class="muted">Loading agents…</p>
+    {:else if agentsError}
+      <p class="error">{agentsError}</p>
+    {:else if agents.length === 0}
+      <p class="muted">No agent profiles found.</p>
+    {:else}
+      <div class="agent-grid">
+        {#each agents as agent}
+          <button
+            class="agent-button"
+            on:click={() => createTerminal(agent.id)}
+            disabled={creating || loading}
+          >
+            {agent.name}
+          </button>
+        {/each}
+      </div>
+    {/if}
   </section>
 
   <section class="dashboard__list">
@@ -174,6 +222,41 @@
     border-radius: 24px;
     background: #ffffff;
     border: 1px solid rgba(20, 20, 20, 0.08);
+  }
+
+  .dashboard__agents {
+    padding: 1.5rem;
+    border-radius: 24px;
+    background: #fff6ec;
+    border: 1px solid rgba(20, 20, 20, 0.08);
+  }
+
+  .agent-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 0.75rem;
+  }
+
+  .agent-button {
+    border: 1px solid rgba(20, 20, 20, 0.2);
+    border-radius: 14px;
+    padding: 0.75rem 1rem;
+    background: #ffffff;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
+  }
+
+  .agent-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+    transform: none;
+    box-shadow: none;
+  }
+
+  .agent-button:not(:disabled):hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 20px rgba(10, 10, 10, 0.12);
   }
 
   .list-header {

@@ -9,6 +9,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"gestalt/internal/agent"
 )
 
 var ErrSessionClosed = errors.New("terminal session closed")
@@ -40,6 +42,8 @@ type Session struct {
 	Title     string
 	Role      string
 	CreatedAt time.Time
+	LLMType   string
+	LLMModel  string
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -50,6 +54,7 @@ type Session struct {
 	pty      Pty
 	cmd      *exec.Cmd
 	bcast    *Broadcaster
+	agent    *agent.Agent
 	closing  sync.Once
 	closeErr error
 	state    uint32
@@ -61,17 +66,27 @@ type SessionInfo struct {
 	Role      string
 	CreatedAt time.Time
 	Status    string
+	LLMType   string
+	LLMModel  string
 }
 
-func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt time.Time, bufferLines int) *Session {
+func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt time.Time, bufferLines int, profile *agent.Agent) *Session {
 	// readLoop -> output, writeLoop -> PTY, broadcastLoop -> subscribers.
 	// Close cancels context and closes input so loops drain and exit cleanly.
 	ctx, cancel := context.WithCancel(context.Background())
+	llmType := ""
+	llmModel := ""
+	if profile != nil {
+		llmType = profile.LLMType
+		llmModel = profile.LLMModel
+	}
 	session := &Session{
 		ID:        id,
 		Title:     title,
 		Role:      role,
 		CreatedAt: createdAt,
+		LLMType:   llmType,
+		LLMModel:  llmModel,
 		ctx:       ctx,
 		cancel:    cancel,
 		input:     make(chan []byte, 64),
@@ -79,6 +94,7 @@ func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt
 		pty:       pty,
 		cmd:       cmd,
 		bcast:     NewBroadcaster(bufferLines),
+		agent:     profile,
 		state:     uint32(sessionStateStarting),
 	}
 
@@ -97,6 +113,8 @@ func (s *Session) Info() SessionInfo {
 		Role:      s.Role,
 		CreatedAt: s.CreatedAt,
 		Status:    s.State().String(),
+		LLMType:   s.LLMType,
+		LLMModel:  s.LLMModel,
 	}
 }
 

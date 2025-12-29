@@ -1,0 +1,6 @@
+{
+  "name": "Codex",
+  "shell": "/bin/bash",
+  "llm_type": "codex",
+  "llm_model": "default"
+}

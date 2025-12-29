@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"gestalt/internal/agent"
 	"gestalt/internal/api"
 	"gestalt/internal/terminal"
 )
@@ -20,9 +21,14 @@ type Config struct {
 
 func main() {
 	cfg := loadConfig()
+	agents, err := loadAgents()
+	if err != nil {
+		log.Fatalf("load agents: %v", err)
+	}
 
 	manager := terminal.NewManager(terminal.ManagerOptions{
-		Shell: cfg.Shell,
+		Shell:  cfg.Shell,
+		Agents: agents,
 	})
 
 	staticDir := findStaticDir()
@@ -67,4 +73,9 @@ func findStaticDir() string {
 	}
 
 	return ""
+}
+
+func loadAgents() (map[string]agent.Agent, error) {
+	loader := agent.Loader{}
+	return loader.Load(filepath.Join("config", "agents"))
 }

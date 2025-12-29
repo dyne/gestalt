@@ -6,10 +6,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"gestalt/internal/agent"
 	"gestalt/internal/terminal"
 )
 
@@ -41,8 +43,9 @@ func (p *fakePty) Resize(cols, rows uint16) error {
 }
 
 type fakeFactory struct {
-	mu   sync.Mutex
-	ptys []*fakePty
+	mu       sync.Mutex
+	ptys     []*fakePty
+	commands []string
 }
 
 func (f *fakeFactory) Start(command string, args ...string) (terminal.Pty, *exec.Cmd, error) {
@@ -50,6 +53,7 @@ func (f *fakeFactory) Start(command string, args ...string) (terminal.Pty, *exec
 
 	f.mu.Lock()
 	f.ptys = append(f.ptys, pty)
+	f.commands = append(f.commands, command)
 	f.mu.Unlock()
 
 	return pty, nil, nil
@@ -72,7 +76,7 @@ func TestStatusHandlerReturnsCount(t *testing.T) {
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
 	})
-	created, err := manager.Create("", "")
+	created, err := manager.Create("", "", "")
 	if err != nil {
 		t.Fatalf("create terminal: %v", err)
 	}
@@ -105,7 +109,7 @@ func TestTerminalOutputEndpoint(t *testing.T) {
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
 	})
-	created, err := manager.Create("", "")
+	created, err := manager.Create("", "", "")
 	if err != nil {
 		t.Fatalf("create terminal: %v", err)
 	}
@@ -140,6 +144,199 @@ func TestTerminalOutputEndpoint(t *testing.T) {
 	}
 	if !containsLine(payload.Lines, "hello") {
 		t.Fatalf("expected output lines to contain hello, got %v", payload.Lines)
+	}
+}
+
+func TestCreateTerminalWithoutAgent(t *testing.T) {
+	factory := &fakeFactory{}
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+	})
+	handler := &RestHandler{Manager: manager}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/terminals", strings.NewReader(`{"title":"plain","role":"shell"}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", handler.handleTerminals)(res, req)
+	if res.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", res.Code)
+	}
+
+	var payload terminalSummary
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Title != "plain" {
+		t.Fatalf("title mismatch: %q", payload.Title)
+	}
+	if payload.Role != "shell" {
+		t.Fatalf("role mismatch: %q", payload.Role)
+	}
+	if payload.ID == "" {
+		t.Fatalf("missing id")
+	}
+	defer func() {
+		_ = manager.Delete(payload.ID)
+	}()
+
+	factory.mu.Lock()
+	defer factory.mu.Unlock()
+	if len(factory.commands) != 1 {
+		t.Fatalf("expected 1 command, got %d", len(factory.commands))
+	}
+	if factory.commands[0] != "/bin/sh" {
+		t.Fatalf("expected /bin/sh, got %q", factory.commands[0])
+	}
+}
+
+func TestCreateTerminalWithAgent(t *testing.T) {
+	factory := &fakeFactory{}
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:    "Codex",
+				Shell:   "/bin/zsh",
+				LLMType: "codex",
+			},
+		},
+	})
+	handler := &RestHandler{Manager: manager}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/terminals", strings.NewReader(`{"title":"ignored","role":"shell","agent":"codex"}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", handler.handleTerminals)(res, req)
+	if res.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", res.Code)
+	}
+
+	var payload terminalSummary
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Title != "Codex" {
+		t.Fatalf("expected title Codex, got %q", payload.Title)
+	}
+	if payload.ID == "" {
+		t.Fatalf("missing id")
+	}
+	defer func() {
+		_ = manager.Delete(payload.ID)
+	}()
+
+	factory.mu.Lock()
+	defer factory.mu.Unlock()
+	if len(factory.commands) != 1 {
+		t.Fatalf("expected 1 command, got %d", len(factory.commands))
+	}
+	if factory.commands[0] != "/bin/zsh" {
+		t.Fatalf("expected /bin/zsh, got %q", factory.commands[0])
+	}
+}
+
+func TestListTerminalsIncludesLLMMetadata(t *testing.T) {
+	factory := &fakeFactory{}
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:     "Codex",
+				Shell:    "/bin/zsh",
+				LLMType:  "codex",
+				LLMModel: "default",
+			},
+		},
+	})
+
+	defaultSession, err := manager.Create("", "build", "plain")
+	if err != nil {
+		t.Fatalf("create default session: %v", err)
+	}
+	agentSession, err := manager.Create("codex", "build", "ignored")
+	if err != nil {
+		t.Fatalf("create agent session: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(defaultSession.ID)
+		_ = manager.Delete(agentSession.ID)
+	}()
+
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodGet, "/api/terminals", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", handler.handleTerminals)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var payload []terminalSummary
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	var agentSummary *terminalSummary
+	for i := range payload {
+		if payload[i].ID == agentSession.ID {
+			agentSummary = &payload[i]
+			break
+		}
+	}
+	if agentSummary == nil {
+		t.Fatalf("expected agent session in list")
+	}
+	if agentSummary.LLMType != "codex" {
+		t.Fatalf("expected llm_type codex, got %q", agentSummary.LLMType)
+	}
+	if agentSummary.LLMModel != "default" {
+		t.Fatalf("expected llm_model default, got %q", agentSummary.LLMModel)
+	}
+}
+
+func TestAgentsEndpoint(t *testing.T) {
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:     "Codex",
+				Shell:    "/bin/zsh",
+				LLMType:  "codex",
+				LLMModel: "default",
+			},
+			"copilot": {
+				Name:     "Copilot",
+				Shell:    "/bin/bash",
+				LLMType:  "copilot",
+				LLMModel: "default",
+			},
+		},
+	})
+
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodGet, "/api/agents", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", handler.handleAgents)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var payload []agentSummary
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(payload) != 2 {
+		t.Fatalf("expected 2 agents, got %d", len(payload))
+	}
+	if payload[0].ID != "codex" && payload[1].ID != "codex" {
+		t.Fatalf("missing codex agent")
 	}
 }
 

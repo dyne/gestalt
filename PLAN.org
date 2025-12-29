@@ -1,3 +1,126 @@
+* DONE [#B] Agent profiles system
+  Goal: Allow customizable terminal configurations for AI agents stored as JSON files in config/agents/.
+  Notes:
+  - Each agent profile defines: shell/program, initial prompt file, terminal name, LLM type, LLM model
+  - Agent profiles live in config/agents/ as JSON files (one per agent)
+  - LLM types: copilot, codex, promptline (hardcoded for now)
+  - LLM model: "default" for now (future: configurable)
+  - Agent selection: via REST API (POST /api/terminals with "agent" parameter)
+  - Default behavior: if no agent specified, use current shell-based creation
+  - Initial prompt: if specified, write to terminal stdin after spawn
+  - UI: one button per agent file, labeled with agent's name attribute
+  Date: 2025-12-29
+
+** [#B] Create agent data structure and JSON schema
+   Why: Define the agent profile format before loading/using agents
+   Change:
+   - Create internal/agent/ package with Agent struct
+   - Fields: Name (string), Shell (string), PromptFile (string), LLMType (string), LLMModel (string)
+   - Add JSON tags for serialization: name, shell, prompt_file, llm_type, llm_model
+   - Document schema with example JSON in agent/doc.go
+   - Add validation: LLMType must be one of [copilot, codex, promptline]
+   - Add validation: required fields (Name, Shell), optional (PromptFile)
+   Tests: Unit test JSON marshaling/unmarshaling; validate edge cases
+   Done when: Agent struct exists with JSON support and validation
+
+** [#B] Implement agent loader from config/agents/
+   Why: Load agent profiles from filesystem at startup
+   Change:
+   - Create agent.Loader with Load(dir string) (map[string]Agent, error)
+   - Scan config/agents/*.json files
+   - Parse each JSON file into Agent struct
+   - Use filename (without .json) as agent ID
+   - Return map[agentID]Agent for easy lookup
+   - Handle errors: invalid JSON, validation failures, missing directory
+   - If directory doesn't exist, return empty map (not an error)
+   Tests: Unit tests with temp directories; valid/invalid JSON files
+   Done when: Loader successfully reads agent profiles from directory
+
+** [#B] Wire agent loader into Manager initialization
+   Why: Manager needs access to agent profiles for terminal creation
+   Change:
+   - Add Agents field to ManagerOptions: map[string]agent.Agent
+   - Load agents in cmd/gestalt/main.go before creating Manager
+   - Pass agents to Manager via ManagerOptions
+   - Store agents in Manager struct for lookup during Create
+   - Add method Manager.GetAgent(id string) (Agent, bool)
+   Tests: Integration test verifying Manager has agents after init
+   Done when: Manager has access to loaded agent profiles
+
+** [#B] Extend terminal creation API to accept agent
+   Why: Frontend needs to specify which agent to use
+   Change:
+   - Extend createTerminalRequest to include Agent (optional string)
+   - Modify Manager.Create signature: Create(agentID, role, title string) (*Session, error)
+   - If agentID empty: use default behavior (current shell, no prompt, title/role as-is)
+   - If agentID specified: lookup agent, use agent.Shell, override title with agent.Name
+   - Pass agent to Session creation (extend newSession parameters)
+   - Store agent reference in Session struct for later use
+   Tests: REST API test with/without agent; verify correct shell launched
+   Done when: POST /api/terminals accepts "agent" field
+
+** [#C] Implement initial prompt injection
+   Why: Agent profiles can specify a prompt file to execute on terminal start
+   Change:
+   - If agent.PromptFile is not empty, read file contents
+   - After PTY starts, write prompt contents to session.input channel
+   - Add newline at end if not present
+   - Handle errors: file not found, read errors (log warning, continue)
+   - Consider delay (50-100ms) after shell spawn before writing prompt
+   Tests: Manual test with agent containing prompt file; verify execution
+   Done when: Terminal executes prompt commands on startup
+
+** [#C] Store LLM metadata in Session
+   Why: Future features (orchestration, AI coordination) need to know terminal's LLM type/model
+   Change:
+   - Add LLMType and LLMModel fields to Session struct
+   - Populate from agent profile during creation
+   - Expose in SessionInfo for API responses
+   - Extend terminalSummary JSON response to include llm_type and llm_model
+   Tests: GET /api/terminals includes LLM metadata
+   Done when: Session stores and exposes LLM configuration
+
+** [#C] Add example agent profiles to config/agents/
+   Why: Provide working examples for users
+   Change:
+   - Create config/agents/ directory
+   - Add example agent profiles: copilot.json, codex.json, promptline.json
+   - Each example uses /bin/bash (or appropriate shell)
+   - Document agent profile format in main README.md
+   Tests: Load examples; verify they parse correctly
+   Done when: Example agent profiles exist and are documented
+
+** [#C] Add GET /api/agents endpoint
+   Why: Frontend needs to fetch available agent profiles
+   Change:
+   - Add GET /api/agents REST endpoint
+   - Return array of agent metadata: id, name, llm_type, llm_model
+   - Use Manager.Agents map to build response
+   - Add unit tests for endpoint
+   Tests: GET /api/agents returns agent list
+   Done when: API endpoint exposes available agents
+
+** [#C] Update frontend with agent buttons
+   Why: Users need UI to spawn terminals with specific agents
+   Change:
+   - Fetch agents via GET /api/agents in Dashboard.svelte on mount
+   - Render one button per agent using agent.name as button label
+   - On button click: POST /api/terminals with {"agent": agentID}
+   - Open new terminal tab after creation
+   - Update terminal tab label to show agent.Name if used
+   Tests: Manual test agent buttons in UI; verify correct terminal created
+   Done when: Dashboard shows agent buttons; clicking spawns agent terminal
+
+** [#B] Fix terminal tab close freeze and ensure deletion
+   Why: Closing a tab freezes the UI and leaves a disconnected session
+   Change:
+   - Reproduce the close flow in App.svelte/TabBar.svelte
+   - Ensure tab close triggers DELETE and removes the tab from UI
+   - Fix any stale TerminalView/terminalStore references on close
+   - Validate WebSocket shutdown cleanup on close
+   Tests: npm run build; go test ./...
+   Done when: Closing a tab removes it and the server session cleanly
+
 * DONE [#B] Code quality: maintainability, clarity, and minimalism review
   Goal: Improve code maintainability, modularity, clarity, and minimize dependencies where practical.
   Notes:

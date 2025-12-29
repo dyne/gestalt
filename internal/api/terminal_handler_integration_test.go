@@ -91,7 +91,7 @@ func TestTerminalWebSocketBridge(t *testing.T) {
 		PtyFactory: factory,
 	})
 
-	session, err := manager.Create("test", "ws")
+	session, err := manager.Create("", "test", "ws")
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}

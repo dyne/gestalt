@@ -2,18 +2,27 @@ package terminal
 
 import (
 	"errors"
+	"log"
+	"os"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
+
+	"gestalt/internal/agent"
 )
 
 var ErrSessionNotFound = errors.New("terminal session not found")
+var ErrAgentNotFound = errors.New("agent profile not found")
 
 type ManagerOptions struct {
 	Shell       string
 	PtyFactory  PtyFactory
 	BufferLines int
 	Clock       Clock
+	Agents      map[string]agent.Agent
 }
 
 // Manager is safe for concurrent use; mu guards the sessions map and lifecycle.
@@ -26,6 +35,16 @@ type Manager struct {
 	factory     PtyFactory
 	bufferLines int
 	clock       Clock
+	agents      map[string]agent.Agent
+}
+
+const promptDelay = 75 * time.Millisecond
+
+type AgentInfo struct {
+	ID       string
+	Name     string
+	LLMType  string
+	LLMModel string
 }
 
 func NewManager(opts ManagerOptions) *Manager {
@@ -49,28 +68,69 @@ func NewManager(opts ManagerOptions) *Manager {
 		clock = realClock{}
 	}
 
+	agents := make(map[string]agent.Agent)
+	for id, profile := range opts.Agents {
+		agents[id] = profile
+	}
+
 	return &Manager{
 		sessions:    make(map[string]*Session),
 		shell:       shell,
 		factory:     factory,
 		bufferLines: bufferLines,
 		clock:       clock,
+		agents:      agents,
 	}
 }
 
-func (m *Manager) Create(role, title string) (*Session, error) {
-	pty, cmd, err := m.factory.Start(m.shell)
+func (m *Manager) Create(agentID, role, title string) (*Session, error) {
+	shell := m.shell
+	var profile *agent.Agent
+	var prompt []byte
+	if agentID != "" {
+		agentProfile, ok := m.GetAgent(agentID)
+		if !ok {
+			return nil, ErrAgentNotFound
+		}
+		profileCopy := agentProfile
+		profile = &profileCopy
+		if strings.TrimSpace(agentProfile.Shell) != "" {
+			shell = agentProfile.Shell
+		}
+		if strings.TrimSpace(agentProfile.Name) != "" {
+			title = agentProfile.Name
+		}
+		if strings.TrimSpace(agentProfile.PromptFile) != "" {
+			data, err := os.ReadFile(agentProfile.PromptFile)
+			if err != nil {
+				log.Printf("agent %s prompt file %s: %v", agentID, agentProfile.PromptFile, err)
+			} else {
+				prompt = ensureTrailingNewline(data)
+			}
+		}
+	}
+
+	pty, cmd, err := m.factory.Start(shell)
 	if err != nil {
 		return nil, err
 	}
 
 	id := m.nextIDValue()
 	createdAt := m.clock.Now().UTC()
-	session := newSession(id, pty, cmd, title, role, createdAt, m.bufferLines)
+	session := newSession(id, pty, cmd, title, role, createdAt, m.bufferLines, profile)
 
 	m.mu.Lock()
 	m.sessions[id] = session
 	m.mu.Unlock()
+
+	if len(prompt) > 0 {
+		go func() {
+			time.Sleep(promptDelay)
+			if err := session.Write(prompt); err != nil {
+				log.Printf("agent %s prompt write: %v", agentID, err)
+			}
+		}()
+	}
 
 	return session, nil
 }
@@ -99,6 +159,33 @@ func (m *Manager) List() []SessionInfo {
 	return infos
 }
 
+func (m *Manager) GetAgent(id string) (agent.Agent, bool) {
+	m.mu.RLock()
+	profile, ok := m.agents[id]
+	m.mu.RUnlock()
+
+	return profile, ok
+}
+
+func (m *Manager) ListAgents() []AgentInfo {
+	m.mu.RLock()
+	infos := make([]AgentInfo, 0, len(m.agents))
+	for id, profile := range m.agents {
+		infos = append(infos, AgentInfo{
+			ID:       id,
+			Name:     profile.Name,
+			LLMType:  profile.LLMType,
+			LLMModel: profile.LLMModel,
+		})
+	}
+	m.mu.RUnlock()
+
+	sort.Slice(infos, func(i, j int) bool {
+		return infos[i].ID < infos[j].ID
+	})
+	return infos
+}
+
 func (m *Manager) Delete(id string) error {
 	m.mu.Lock()
 	session, ok := m.sessions[id]
@@ -111,5 +198,21 @@ func (m *Manager) Delete(id string) error {
 		return ErrSessionNotFound
 	}
 
-	return session.Close()
+	if err := session.Close(); err != nil {
+		log.Printf("close session %s: %v", id, err)
+	}
+	return nil
+}
+
+func ensureTrailingNewline(data []byte) []byte {
+	if len(data) == 0 {
+		return nil
+	}
+	if data[len(data)-1] == '\n' {
+		return data
+	}
+	out := make([]byte, len(data)+1)
+	copy(out, data)
+	out[len(out)-1] = '\n'
+	return out
 }

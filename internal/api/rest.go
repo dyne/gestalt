@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -20,6 +21,8 @@ type terminalSummary struct {
 	Role      string    `json:"role"`
 	CreatedAt time.Time `json:"created_at"`
 	Status    string    `json:"status"`
+	LLMType   string    `json:"llm_type"`
+	LLMModel  string    `json:"llm_model"`
 }
 
 type terminalOutputResponse struct {
@@ -36,9 +39,17 @@ type errorResponse struct {
 	Error string `json:"error"`
 }
 
+type agentSummary struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	LLMType  string `json:"llm_type"`
+	LLMModel string `json:"llm_model"`
+}
+
 type createTerminalRequest struct {
 	Title string `json:"title"`
 	Role  string `json:"role"`
+	Agent string `json:"agent"`
 }
 
 func (h *RestHandler) handleStatus(w http.ResponseWriter, r *http.Request) *apiError {
@@ -88,6 +99,28 @@ func (h *RestHandler) handleTerminal(w http.ResponseWriter, r *http.Request) *ap
 	return h.handleTerminalDelete(w, r, id)
 }
 
+func (h *RestHandler) handleAgents(w http.ResponseWriter, r *http.Request) *apiError {
+	if err := h.requireManager(); err != nil {
+		return err
+	}
+	if r.Method != http.MethodGet {
+		return methodNotAllowed(w, "GET")
+	}
+
+	infos := h.Manager.ListAgents()
+	response := make([]agentSummary, 0, len(infos))
+	for _, info := range infos {
+		response = append(response, agentSummary{
+			ID:       info.ID,
+			Name:     info.Name,
+			LLMType:  info.LLMType,
+			LLMModel: info.LLMModel,
+		})
+	}
+	writeJSON(w, http.StatusOK, response)
+	return nil
+}
+
 func (h *RestHandler) requireManager() *apiError {
 	if h.Manager == nil {
 		return &apiError{Status: http.StatusInternalServerError, Message: "terminal manager unavailable"}
@@ -105,6 +138,8 @@ func (h *RestHandler) listTerminals(w http.ResponseWriter) *apiError {
 			Role:      info.Role,
 			CreatedAt: info.CreatedAt,
 			Status:    info.Status,
+			LLMType:   info.LLMType,
+			LLMModel:  info.LLMModel,
 		})
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -117,8 +152,11 @@ func (h *RestHandler) createTerminal(w http.ResponseWriter, r *http.Request) *ap
 		return err
 	}
 
-	session, createErr := h.Manager.Create(request.Role, request.Title)
+	session, createErr := h.Manager.Create(request.Agent, request.Role, request.Title)
 	if createErr != nil {
+		if errors.Is(createErr, terminal.ErrAgentNotFound) {
+			return &apiError{Status: http.StatusBadRequest, Message: "unknown agent"}
+		}
 		return &apiError{Status: http.StatusInternalServerError, Message: "failed to create terminal"}
 	}
 
@@ -129,6 +167,8 @@ func (h *RestHandler) createTerminal(w http.ResponseWriter, r *http.Request) *ap
 		Role:      info.Role,
 		CreatedAt: info.CreatedAt,
 		Status:    info.Status,
+		LLMType:   info.LLMType,
+		LLMModel:  info.LLMModel,
 	}
 	writeJSON(w, http.StatusCreated, response)
 	return nil

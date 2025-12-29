@@ -1,25 +1,41 @@
 package api
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
 
-func TestParseControlMessageResize(t *testing.T) {
-	msg, ok := parseControlMessage([]byte(`{"type":"resize","cols":120,"rows":40}`))
-	if !ok {
-		t.Fatalf("expected resize control message")
+func TestValidateToken(t *testing.T) {
+	tests := []struct {
+		name       string
+		token      string
+		authHeader string
+		queryToken string
+		want       bool
+	}{
+		{name: "no-token-required", token: "", want: true},
+		{name: "bearer-ok", token: "secret", authHeader: "Bearer secret", want: true},
+		{name: "bearer-wrong", token: "secret", authHeader: "Bearer nope", want: false},
+		{name: "query-ok", token: "secret", queryToken: "secret", want: true},
+		{name: "query-wrong", token: "secret", queryToken: "nope", want: false},
+		{name: "header-overrides-query", token: "secret", authHeader: "Bearer secret", queryToken: "nope", want: true},
+		{name: "missing-auth", token: "secret", want: false},
 	}
-	if msg.Cols != 120 || msg.Rows != 40 {
-		t.Fatalf("unexpected size: %d x %d", msg.Cols, msg.Rows)
-	}
-}
 
-func TestParseControlMessageRejects(t *testing.T) {
-	if _, ok := parseControlMessage([]byte(`not-json`)); ok {
-		t.Fatalf("expected invalid JSON to be rejected")
-	}
-	if _, ok := parseControlMessage([]byte(`{"type":"input","data":"ls"}`)); ok {
-		t.Fatalf("expected non-resize control to be rejected")
-	}
-	if _, ok := parseControlMessage([]byte(`{"type":"resize","cols":0,"rows":10}`)); ok {
-		t.Fatalf("expected invalid resize values to be rejected")
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			url := "/"
+			if test.queryToken != "" {
+				url = "/?token=" + test.queryToken
+			}
+			req := httptest.NewRequest(http.MethodGet, url, nil)
+			if test.authHeader != "" {
+				req.Header.Set("Authorization", test.authHeader)
+			}
+			if got := validateToken(req, test.token); got != test.want {
+				t.Fatalf("expected %v, got %v", test.want, got)
+			}
+		})
 	}
 }

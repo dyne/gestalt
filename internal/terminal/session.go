@@ -1,7 +1,10 @@
 package terminal
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"os"
 	"os/exec"
 	"sync"
 	"sync/atomic"
@@ -10,24 +13,46 @@ import (
 
 var ErrSessionClosed = errors.New("terminal session closed")
 
+type SessionState uint32
+
+const (
+	sessionStateStarting SessionState = iota
+	sessionStateRunning
+	sessionStateClosing
+	sessionStateClosed
+)
+
+func (s SessionState) String() string {
+	switch s {
+	case sessionStateStarting:
+		return "starting"
+	case sessionStateClosing:
+		return "closing"
+	case sessionStateClosed:
+		return "closed"
+	default:
+		return "running"
+	}
+}
+
 type Session struct {
 	ID        string
 	Title     string
 	Role      string
 	CreatedAt time.Time
 
+	ctx    context.Context
+	cancel context.CancelFunc
+
 	input  chan []byte
 	output chan []byte
 
-	pty     Pty
-	cmd     *exec.Cmd
-	buffer  *OutputBuffer
-	closed  chan struct{}
-	closing sync.Once
-
-	subMu       sync.Mutex
-	subscribers map[uint64]chan []byte
-	nextSubID   uint64
+	pty      Pty
+	cmd      *exec.Cmd
+	bcast    *Broadcaster
+	closing  sync.Once
+	closeErr error
+	state    uint32
 }
 
 type SessionInfo struct {
@@ -38,24 +63,29 @@ type SessionInfo struct {
 	Status    string
 }
 
-func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, bufferLines int) *Session {
+func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt time.Time, bufferLines int) *Session {
+	// readLoop -> output, writeLoop -> PTY, broadcastLoop -> subscribers.
+	// Close cancels context and closes input so loops drain and exit cleanly.
+	ctx, cancel := context.WithCancel(context.Background())
 	session := &Session{
-		ID:          id,
-		Title:       title,
-		Role:        role,
-		CreatedAt:   time.Now().UTC(),
-		input:       make(chan []byte, 64),
-		output:      make(chan []byte, 64),
-		pty:         pty,
-		cmd:         cmd,
-		buffer:      NewOutputBuffer(bufferLines),
-		closed:      make(chan struct{}),
-		subscribers: make(map[uint64]chan []byte),
+		ID:        id,
+		Title:     title,
+		Role:      role,
+		CreatedAt: createdAt,
+		ctx:       ctx,
+		cancel:    cancel,
+		input:     make(chan []byte, 64),
+		output:    make(chan []byte, 64),
+		pty:       pty,
+		cmd:       cmd,
+		bcast:     NewBroadcaster(bufferLines),
+		state:     uint32(sessionStateStarting),
 	}
 
 	go session.readLoop()
 	go session.writeLoop()
 	go session.broadcastLoop()
+	session.setState(sessionStateRunning)
 
 	return session
 }
@@ -66,28 +96,12 @@ func (s *Session) Info() SessionInfo {
 		Title:     s.Title,
 		Role:      s.Role,
 		CreatedAt: s.CreatedAt,
-		Status:    "running",
+		Status:    s.State().String(),
 	}
 }
 
 func (s *Session) Subscribe() (<-chan []byte, func()) {
-	ch := make(chan []byte, 128)
-	id := atomic.AddUint64(&s.nextSubID, 1)
-
-	s.subMu.Lock()
-	s.subscribers[id] = ch
-	s.subMu.Unlock()
-
-	cancel := func() {
-		s.subMu.Lock()
-		if existing, ok := s.subscribers[id]; ok {
-			delete(s.subscribers, id)
-			close(existing)
-		}
-		s.subMu.Unlock()
-	}
-
-	return ch, cancel
+	return s.bcast.Subscribe()
 }
 
 func (s *Session) Write(data []byte) error {
@@ -98,7 +112,7 @@ func (s *Session) Write(data []byte) error {
 	select {
 	case s.input <- data:
 		return nil
-	case <-s.closed:
+	case <-s.ctx.Done():
 		return ErrSessionClosed
 	}
 }
@@ -108,26 +122,59 @@ func (s *Session) Resize(cols, rows uint16) error {
 		return ErrSessionClosed
 	}
 
-	return s.pty.Resize(cols, rows)
+	if err := s.pty.Resize(cols, rows); err != nil {
+		return fmt.Errorf("resize pty: %w", err)
+	}
+	return nil
 }
 
 func (s *Session) OutputLines() []string {
-	return s.buffer.Lines()
+	return s.bcast.OutputLines()
 }
 
 func (s *Session) Close() error {
 	s.closing.Do(func() {
-		close(s.closed)
+		s.setState(sessionStateClosing)
+		if s.cancel != nil {
+			s.cancel()
+		}
 		close(s.input)
-		if s.pty != nil {
-			_ = s.pty.Close()
-		}
-		if s.cmd != nil && s.cmd.Process != nil {
-			_ = s.cmd.Process.Kill()
-		}
+		s.closeErr = s.closeResources()
+		s.setState(sessionStateClosed)
 	})
 
-	return nil
+	return s.closeErr
+}
+
+func (s *Session) State() SessionState {
+	return SessionState(atomic.LoadUint32(&s.state))
+}
+
+func (s *Session) setState(state SessionState) {
+	atomic.StoreUint32(&s.state, uint32(state))
+}
+
+func (s *Session) closeResources() error {
+	var errs []error
+	if s.pty != nil {
+		if err := s.pty.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+			errs = append(errs, fmt.Errorf("close pty: %w", err))
+		}
+	}
+	if s.cmd != nil && s.cmd.Process != nil {
+		killErr := s.cmd.Process.Kill()
+		if killErr != nil && !errors.Is(killErr, os.ErrProcessDone) {
+			errs = append(errs, fmt.Errorf("kill process: %w", killErr))
+		}
+		if killErr == nil || errors.Is(killErr, os.ErrProcessDone) {
+			if s.cmd.ProcessState == nil {
+				if err := s.cmd.Wait(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+					errs = append(errs, fmt.Errorf("wait process: %w", err))
+				}
+			}
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func (s *Session) readLoop() {
@@ -135,13 +182,18 @@ func (s *Session) readLoop() {
 
 	buf := make([]byte, 4096)
 	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		default:
+		}
 		n, err := s.pty.Read(buf)
 		if n > 0 {
 			chunk := make([]byte, n)
 			copy(chunk, buf[:n])
 			select {
 			case s.output <- chunk:
-			case <-s.closed:
+			case <-s.ctx.Done():
 				return
 			}
 		}
@@ -163,21 +215,7 @@ func (s *Session) writeLoop() {
 
 func (s *Session) broadcastLoop() {
 	for chunk := range s.output {
-		s.buffer.Append(chunk)
-		s.subMu.Lock()
-		for _, ch := range s.subscribers {
-			select {
-			case ch <- chunk:
-			default:
-			}
-		}
-		s.subMu.Unlock()
+		s.bcast.Broadcast(chunk)
 	}
-
-	s.subMu.Lock()
-	for id, ch := range s.subscribers {
-		delete(s.subscribers, id)
-		close(ch)
-	}
-	s.subMu.Unlock()
+	s.bcast.Close()
 }

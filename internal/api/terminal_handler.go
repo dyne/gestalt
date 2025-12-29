@@ -19,6 +19,10 @@ type TerminalHandler struct {
 	AllowedOrigins []string
 }
 
+// We keep gorilla/websocket because stdlib has no WebSocket server support and
+// x/net/websocket is effectively frozen; gorilla provides a maintained upgrader,
+// origin checks, and explicit binary/text frame handling.
+// controlMessage is JSON-encoded in text frames to carry resize updates.
 type controlMessage struct {
 	Type string `json:"type"`
 	Cols uint16 `json:"cols"`
@@ -75,7 +79,9 @@ func (h *TerminalHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				if !ok {
 					return
 				}
-				conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+				if err := conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+					return
+				}
 				if err := conn.WriteMessage(websocket.BinaryMessage, chunk); err != nil {
 					return
 				}
@@ -95,13 +101,19 @@ func (h *TerminalHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case websocket.TextMessage:
 			if control, ok := parseControlMessage(msg); ok {
 				if control.Type == "resize" {
-					_ = session.Resize(control.Cols, control.Rows)
+					if err := session.Resize(control.Cols, control.Rows); err != nil {
+						return
+					}
 				}
 				continue
 			}
-			_ = session.Write(msg)
+			if err := session.Write(msg); err != nil {
+				return
+			}
 		case websocket.BinaryMessage:
-			_ = session.Write(msg)
+			if err := session.Write(msg); err != nil {
+				return
+			}
 		}
 	}
 }

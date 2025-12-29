@@ -4,6 +4,7 @@
   import TerminalView from './views/TerminalView.svelte'
   import TabBar from './components/TabBar.svelte'
   import { apiFetch } from './lib/api.js'
+  import { releaseTerminalState } from './lib/terminalStore.js'
 
   let tabs = [{ id: 'dashboard', label: 'Dashboard', isHome: true }]
   let activeId = 'dashboard'
@@ -66,6 +67,7 @@
   const deleteTerminal = async (id) => {
     error = ''
     await apiFetch(`/api/terminals/${id}`, { method: 'DELETE' })
+    releaseTerminalState(id)
     terminals = terminals.filter((terminal) => terminal.id !== id)
     if (status) {
       status = { ...status, terminal_count: Math.max(0, status.terminal_count - 1) }

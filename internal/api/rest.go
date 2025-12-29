@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -10,8 +11,7 @@ import (
 )
 
 type RestHandler struct {
-	Manager   *terminal.Manager
-	AuthToken string
+	Manager *terminal.Manager
 }
 
 type terminalSummary struct {
@@ -32,18 +32,18 @@ type statusResponse struct {
 	ServerTime    time.Time `json:"server_time"`
 }
 
+type errorResponse struct {
+	Error string `json:"error"`
+}
+
 type createTerminalRequest struct {
 	Title string `json:"title"`
 	Role  string `json:"role"`
 }
 
-func (h *RestHandler) handleStatus(w http.ResponseWriter, r *http.Request) {
-	if !h.authorize(w, r) {
-		return
-	}
-	if h.Manager == nil {
-		http.Error(w, "terminal manager unavailable", http.StatusInternalServerError)
-		return
+func (h *RestHandler) handleStatus(w http.ResponseWriter, r *http.Request) *apiError {
+	if err := h.requireManager(); err != nil {
+		return err
 	}
 
 	terminals := h.Manager.List()
@@ -53,124 +53,119 @@ func (h *RestHandler) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, response)
+	return nil
 }
 
-func (h *RestHandler) handleTerminals(w http.ResponseWriter, r *http.Request) {
-	if !h.authorize(w, r) {
-		return
-	}
-	if h.Manager == nil {
-		http.Error(w, "terminal manager unavailable", http.StatusInternalServerError)
-		return
+func (h *RestHandler) handleTerminals(w http.ResponseWriter, r *http.Request) *apiError {
+	if err := h.requireManager(); err != nil {
+		return err
 	}
 
 	switch r.Method {
 	case http.MethodGet:
-		infos := h.Manager.List()
-		response := make([]terminalSummary, 0, len(infos))
-		for _, info := range infos {
-			response = append(response, terminalSummary{
-				ID:        info.ID,
-				Title:     info.Title,
-				Role:      info.Role,
-				CreatedAt: info.CreatedAt,
-				Status:    info.Status,
-			})
-		}
-		writeJSON(w, http.StatusOK, response)
+		return h.listTerminals(w)
 	case http.MethodPost:
-		var request createTerminalRequest
-		if r.Body != nil {
-			decoder := json.NewDecoder(r.Body)
-			decoder.DisallowUnknownFields()
-			if err := decoder.Decode(&request); err != nil && err.Error() != "EOF" {
-				http.Error(w, "invalid request body", http.StatusBadRequest)
-				return
-			}
-		}
+		return h.createTerminal(w, r)
+	default:
+		return methodNotAllowed(w, "GET, POST")
+	}
+}
 
-		session, err := h.Manager.Create(request.Role, request.Title)
-		if err != nil {
-			http.Error(w, "failed to create terminal", http.StatusInternalServerError)
-			return
-		}
+func (h *RestHandler) handleTerminal(w http.ResponseWriter, r *http.Request) *apiError {
+	if err := h.requireManager(); err != nil {
+		return err
+	}
 
-		info := session.Info()
-		response := terminalSummary{
+	id, wantsOutput := parseTerminalPath(r.URL.Path)
+	if err := validateTerminalID(id); err != nil {
+		return err
+	}
+
+	if wantsOutput {
+		return h.handleTerminalOutput(w, r, id)
+	}
+
+	return h.handleTerminalDelete(w, r, id)
+}
+
+func (h *RestHandler) requireManager() *apiError {
+	if h.Manager == nil {
+		return &apiError{Status: http.StatusInternalServerError, Message: "terminal manager unavailable"}
+	}
+	return nil
+}
+
+func (h *RestHandler) listTerminals(w http.ResponseWriter) *apiError {
+	infos := h.Manager.List()
+	response := make([]terminalSummary, 0, len(infos))
+	for _, info := range infos {
+		response = append(response, terminalSummary{
 			ID:        info.ID,
 			Title:     info.Title,
 			Role:      info.Role,
 			CreatedAt: info.CreatedAt,
 			Status:    info.Status,
-		}
-		writeJSON(w, http.StatusCreated, response)
-	default:
-		w.Header().Set("Allow", "GET, POST")
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		})
 	}
+	writeJSON(w, http.StatusOK, response)
+	return nil
 }
 
-func (h *RestHandler) handleTerminal(w http.ResponseWriter, r *http.Request) {
-	if !h.authorize(w, r) {
-		return
-	}
-	if h.Manager == nil {
-		http.Error(w, "terminal manager unavailable", http.StatusInternalServerError)
-		return
+func (h *RestHandler) createTerminal(w http.ResponseWriter, r *http.Request) *apiError {
+	request, err := decodeCreateTerminalRequest(r)
+	if err != nil {
+		return err
 	}
 
-	id, wantsOutput := parseTerminalPath(r.URL.Path)
-	if id == "" {
-		http.Error(w, "missing terminal id", http.StatusBadRequest)
-		return
+	session, createErr := h.Manager.Create(request.Role, request.Title)
+	if createErr != nil {
+		return &apiError{Status: http.StatusInternalServerError, Message: "failed to create terminal"}
 	}
 
-	if wantsOutput {
-		if r.Method != http.MethodGet {
-			w.Header().Set("Allow", "GET")
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
+	info := session.Info()
+	response := terminalSummary{
+		ID:        info.ID,
+		Title:     info.Title,
+		Role:      info.Role,
+		CreatedAt: info.CreatedAt,
+		Status:    info.Status,
+	}
+	writeJSON(w, http.StatusCreated, response)
+	return nil
+}
 
-		session, ok := h.Manager.Get(id)
-		if !ok {
-			http.Error(w, "terminal not found", http.StatusNotFound)
-			return
-		}
-
-		response := terminalOutputResponse{
-			ID:    id,
-			Lines: session.OutputLines(),
-		}
-		writeJSON(w, http.StatusOK, response)
-		return
+func (h *RestHandler) handleTerminalOutput(w http.ResponseWriter, r *http.Request, id string) *apiError {
+	if r.Method != http.MethodGet {
+		return methodNotAllowed(w, "GET")
 	}
 
+	session, ok := h.Manager.Get(id)
+	if !ok {
+		return &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
+	}
+
+	response := terminalOutputResponse{
+		ID:    id,
+		Lines: session.OutputLines(),
+	}
+	writeJSON(w, http.StatusOK, response)
+	return nil
+}
+
+func (h *RestHandler) handleTerminalDelete(w http.ResponseWriter, r *http.Request, id string) *apiError {
 	if r.Method != http.MethodDelete {
-		w.Header().Set("Allow", "DELETE")
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
+		return methodNotAllowed(w, "DELETE")
 	}
 
 	if err := h.Manager.Delete(id); err != nil {
 		if err == terminal.ErrSessionNotFound {
-			http.Error(w, "terminal not found", http.StatusNotFound)
-			return
+			return &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
 		}
-		http.Error(w, "failed to delete terminal", http.StatusInternalServerError)
-		return
+		return &apiError{Status: http.StatusInternalServerError, Message: "failed to delete terminal"}
 	}
 
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func (h *RestHandler) authorize(w http.ResponseWriter, r *http.Request) bool {
-	if validateToken(r, h.AuthToken) {
-		return true
-	}
-
-	http.Error(w, "unauthorized", http.StatusUnauthorized)
-	return false
+	return nil
 }
 
 func parseTerminalPath(path string) (string, bool) {
@@ -179,18 +174,46 @@ func parseTerminalPath(path string) (string, bool) {
 		return "", false
 	}
 
-	if strings.HasSuffix(trimmed, "/output") {
-		id := strings.TrimSuffix(trimmed, "/output")
-		id = strings.TrimSuffix(id, "/")
-		return id, true
+	trimmed = strings.TrimSuffix(trimmed, "/")
+	if trimmed == "" {
+		return "", false
 	}
 
-	trimmed = strings.TrimSuffix(trimmed, "/")
+	if strings.HasSuffix(trimmed, "/output") {
+		id := strings.TrimSuffix(trimmed, "/output")
+		return id, true
+	}
 	return trimmed, false
+}
+
+func validateTerminalID(id string) *apiError {
+	if strings.TrimSpace(id) == "" {
+		return &apiError{Status: http.StatusBadRequest, Message: "missing terminal id"}
+	}
+	return nil
+}
+
+func decodeCreateTerminalRequest(r *http.Request) (createTerminalRequest, *apiError) {
+	var request createTerminalRequest
+	if r.Body == nil {
+		return request, nil
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil && err != io.EOF {
+		return request, &apiError{Status: http.StatusBadRequest, Message: "invalid request body"}
+	}
+
+	return request, nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func writeJSONError(w http.ResponseWriter, status int, message string) {
+	writeJSON(w, status, errorResponse{Error: message})
 }

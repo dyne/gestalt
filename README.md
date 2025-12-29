@@ -22,6 +22,19 @@ Default listens to 0.0.0.0 port 8080
 
 When running local open browser at http://localhost:8080
 
+## Testing
+
+Backend:
+```
+go test ./...
+```
+
+Frontend:
+```
+cd frontend
+npm run build
+```
+
 ### Token authentication
 
 If you don’t set GESTALT_TOKEN, auth is disabled.

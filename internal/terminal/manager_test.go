@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"sync"
 	"testing"
+	"time"
 )
 
 type fakePty struct {
@@ -50,6 +51,14 @@ func (f *fakeFactory) Start(command string, args ...string) (Pty, *exec.Cmd, err
 	return pty, nil, nil
 }
 
+type fixedClock struct {
+	now time.Time
+}
+
+func (c fixedClock) Now() time.Time {
+	return c.now
+}
+
 func TestManagerLifecycle(t *testing.T) {
 	factory := &fakeFactory{}
 	manager := NewManager(ManagerOptions{
@@ -87,5 +96,24 @@ func TestManagerLifecycle(t *testing.T) {
 
 	if err := manager.Delete("missing"); !errors.Is(err, ErrSessionNotFound) {
 		t.Fatalf("expected ErrSessionNotFound, got %v", err)
+	}
+}
+
+func TestManagerUsesClock(t *testing.T) {
+	factory := &fakeFactory{}
+	now := time.Date(2024, 2, 10, 8, 30, 0, 0, time.FixedZone("test", 2*60*60))
+	manager := NewManager(ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+		Clock:      fixedClock{now: now},
+	})
+
+	session, err := manager.Create("build", "clocked")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	if !session.CreatedAt.Equal(now.UTC()) {
+		t.Fatalf("expected CreatedAt %v, got %v", now.UTC(), session.CreatedAt)
 	}
 }

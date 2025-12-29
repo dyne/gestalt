@@ -1,117 +1,83 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
-  import { Terminal } from '@xterm/xterm'
-  import { FitAddon } from '@xterm/addon-fit'
   import '@xterm/xterm/css/xterm.css'
 
-  import { buildWebSocketUrl } from '../lib/api.js'
+  import { getTerminalState } from '../lib/terminalStore.js'
 
   export let terminalId = ''
   export let visible = true
 
   let container
-  let term
-  let fitAddon
-  let socket
+  let state
   let bellCount = 0
   let status = 'disconnected'
+  let canReconnect = false
+  let statusLabel = ''
+  let unsubscribeStatus
+  let unsubscribeBell
+  let unsubscribeReconnect
 
-  const encoder = new TextEncoder()
-
-  const sendResize = () => {
-    if (!socket || socket.readyState !== WebSocket.OPEN || !term) return
-    const payload = {
-      type: 'resize',
-      cols: term.cols,
-      rows: term.rows,
-    }
-    socket.send(JSON.stringify(payload))
+  const statusLabels = {
+    connecting: 'Connecting...',
+    connected: 'Connected',
+    retrying: 'Connection lost, retrying...',
+    disconnected: 'Disconnected',
+    unauthorized: 'Authentication required',
   }
 
-  const scheduleFit = () => {
-    if (!fitAddon || !term || !container) return
-    requestAnimationFrame(() => {
-      fitAddon.fit()
-      sendResize()
-    })
-  }
-
-  const connect = () => {
+  const attachState = () => {
     if (!terminalId) return
-
-    term = new Terminal({
-      cursorBlink: true,
-      fontSize: 14,
-      fontFamily: '"IBM Plex Mono", "JetBrains Mono", monospace',
-      theme: {
-        background: '#101010',
-        foreground: '#f2efe9',
-        cursor: '#f2efe9',
-        selectionBackground: '#3a3a3a',
-      },
+    state = getTerminalState(terminalId)
+    if (!state) return
+    state.attach(container)
+    unsubscribeStatus = state.status.subscribe((value) => {
+      status = value
     })
-    fitAddon = new FitAddon()
-    term.loadAddon(fitAddon)
-    term.open(container)
-    scheduleFit()
-
-    socket = new WebSocket(buildWebSocketUrl(`/ws/terminal/${terminalId}`))
-    socket.binaryType = 'arraybuffer'
-    status = 'connecting'
-
-    socket.addEventListener('open', () => {
-      status = 'connected'
-      scheduleFit()
+    unsubscribeBell = state.bellCount.subscribe((value) => {
+      bellCount = value
     })
-
-    socket.addEventListener('message', (event) => {
-      if (!term) return
-      if (typeof event.data === 'string') {
-        term.write(event.data)
-        return
-      }
-      term.write(new Uint8Array(event.data))
+    unsubscribeReconnect = state.canReconnect.subscribe((value) => {
+      canReconnect = value
     })
+  }
 
-    socket.addEventListener('close', () => {
-      status = 'disconnected'
-    })
-
-    socket.addEventListener('error', () => {
-      status = 'error'
-    })
-
-    term.onData((data) => {
-      if (socket.readyState !== WebSocket.OPEN) return
-      socket.send(encoder.encode(data))
-    })
-
-    term.onBell(() => {
-      bellCount += 1
-    })
+  const handleReconnect = () => {
+    if (state) {
+      state.reconnect()
+    }
   }
 
   const resizeHandler = () => {
-    if (!visible) return
-    scheduleFit()
+    if (!visible || !state) return
+    state.scheduleFit()
   }
 
   onMount(() => {
-    connect()
+    attachState()
     window.addEventListener('resize', resizeHandler)
   })
 
   $: if (visible) {
-    scheduleFit()
+    if (state) {
+      state.scheduleFit()
+    }
   }
+
+  $: statusLabel = statusLabels[status] || status
 
   onDestroy(() => {
     window.removeEventListener('resize', resizeHandler)
-    if (socket) {
-      socket.close()
+    if (unsubscribeStatus) {
+      unsubscribeStatus()
     }
-    if (term) {
-      term.dispose()
+    if (unsubscribeBell) {
+      unsubscribeBell()
+    }
+    if (unsubscribeReconnect) {
+      unsubscribeReconnect()
+    }
+    if (state) {
+      state.detach()
     }
   })
 </script>
@@ -120,7 +86,14 @@
   <header class="terminal-shell__header">
     <div>
       <p class="label">Terminal {terminalId || '—'}</p>
-      <p class="status">{status}</p>
+      <div class="status-row">
+        <p class="status">{statusLabel}</p>
+        {#if canReconnect}
+          <button class="reconnect" type="button" on:click={handleReconnect}>
+            Reconnect
+          </button>
+        {/if}
+      </div>
     </div>
     <div class="bell" aria-live="polite">
       <span>Bell</span>
@@ -166,6 +139,28 @@
     color: rgba(242, 239, 233, 0.5);
     text-transform: uppercase;
     letter-spacing: 0.12em;
+  }
+
+  .status-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  .reconnect {
+    border: 0;
+    border-radius: 999px;
+    padding: 0.2rem 0.7rem;
+    background: rgba(242, 239, 233, 0.16);
+    color: rgba(242, 239, 233, 0.95);
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    cursor: pointer;
+  }
+
+  .reconnect:hover {
+    background: rgba(242, 239, 233, 0.24);
   }
 
   .bell {

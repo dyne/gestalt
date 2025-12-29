@@ -1,3 +1,120 @@
+* DONE [#B] Code quality: maintainability, clarity, and minimalism review
+  Goal: Improve code maintainability, modularity, clarity, and minimize dependencies where practical.
+  Notes:
+  - Focus on making code easier to understand, modify, and extend without breaking things
+  - Remove unnecessary complexity and improve separation of concerns
+  - Better error handling and resource cleanup patterns
+  - Evaluate if dependencies can be reduced (prefer stdlib when sufficient)
+  - Document key architectural decisions inline
+  - All changes must preserve existing functionality (zero regressions)
+  Date: 2025-12-29
+
+** [#C] Backend: improve error handling and resource cleanup
+   Why: Several functions ignore errors; goroutine cleanup paths unclear; better patterns improve robustness
+   Change:
+   - session.Write currently drops errors silently; add error return or log
+   - Review session close: ensure all 3 goroutines terminate cleanly on Close()
+   - Add context-based cancellation for clean shutdown
+   - Audit all defer statements for proper error handling
+   - Add error wrapping with context where helpful
+   Tests: go test ./...; verify no test regressions
+   Done when: Error paths properly handled; goroutine lifecycle is clear and leak-free
+
+** [#C] Backend: evaluate gorilla/websocket dependency
+   Why: Minimalism goal; check if golang.org/x/net/websocket or stdlib alternatives sufficient
+   Change:
+   - Research: does gorilla provide critical features we need? (check origin, control frames, etc)
+   - If x/net/websocket is sufficient, migrate to reduce dependencies
+   - If gorilla is best choice, document why (e.g., better API, production-ready, control frame handling)
+   - Decision: keep or replace, but document the reasoning
+   Tests: go test ./...; manual WebSocket connection test if migrating
+   Done when: Dependency decision documented; migration complete if chosen
+
+** [#C] Backend: improve modularity in manager and session
+   Why: Manager and Session mix multiple concerns; better separation aids testing and future changes
+   Change:
+   - Extract broadcast/subscriber logic into separate Broadcaster type
+   - Consider separating Manager's ID generation, session registry, and lifecycle management
+   - Make Session goroutine coordination more explicit (use explicit done channels, context)
+   - Add state machine to Session (e.g., connecting → ready → closing → closed)
+   - Reduce coupling: Session shouldn't need to know about subscribers; Broadcaster should
+   Tests: go test ./...; maintain or improve test coverage
+   Done when: Each type has single clear responsibility; easier to modify independently
+
+** [#C] Backend: clarify Windows PTY support and build tags
+   Why: Windows returns stub error; status unclear to users/contributors
+   Change:
+   - Add detailed doc comment in pty_windows.go explaining ConPTY implementation status
+   - Document options: implement ConPTY, use github.com/UserExistsError/conpty, or stay stub
+   - Add build tag documentation explaining Unix vs Windows behavior
+   - If keeping stub, improve error message to guide Windows users
+   Tests: Build on Windows; verify error message is helpful
+   Done when: Windows support status is crystal clear; path forward documented
+
+** [#C] Backend: refactor API handlers for clarity
+   Why: REST handlers mix parsing, validation, auth, business logic; hard to test and modify
+   Change:
+   - Extract middleware: authMiddleware, loggingMiddleware, jsonErrorMiddleware
+   - Create path parsing helpers with unit tests (parseTerminalPath is buried in handler)
+   - Centralize validation (e.g., validateTerminalID, validateCreateRequest)
+   - Standardize JSON error responses (consistent structure)
+   - Consider thin handler layer that delegates to service methods
+   Tests: Add unit tests for parsing and validation; go test ./...
+   Done when: Handlers are <20 lines; logic is tested; auth/validation centralized
+
+** [#C] Frontend: fix terminal lifecycle to preserve state on tab switch
+   Why: Terminal.svelte recreates xterm on every mount; destroys on unmount; loses state
+   Change:
+   - Move terminal instance ownership to parent or store (don't create in component)
+   - Terminal.svelte becomes presentation-only: receives term instance, renders it
+   - Preserve WebSocket connections across tab switches or implement reconnection
+   - Use CSS display:none for hidden terminals instead of destroying components
+   Tests: npm run build; manual tab switching; verify terminal state preserved
+   Done when: Switching tabs keeps terminal scrollback and state intact
+
+** [#C] Frontend: remove unused dependencies
+   Why: Minimalism; addon-attach is installed but not imported anywhere
+   Change:
+   - Remove @xterm/addon-attach from package.json (unused)
+   - Evaluate @xterm/addon-fit: it's ~10 lines of math; could inline if desired
+   - If keeping addon-fit, document why (convenience, maintenance, tested)
+   - Check for other unused dependencies
+   Tests: npm run build; manual resize test
+   Done when: Only necessary deps remain; decision documented if keeping addon-fit
+
+** [#C] Frontend: improve WebSocket error handling
+   Why: Connection failures show generic "disconnected"; no retry logic; poor UX
+   Change:
+   - Add exponential backoff reconnection for WebSocket failures
+   - Show user-friendly messages: "Connecting...", "Connection lost, retrying...", "Connected"
+   - Handle auth failures (401) differently from network errors
+   - Add manual reconnect button after repeated failures
+   - Log errors to console for debugging
+   Tests: npm run build; manual test with network interruption
+   Done when: Users get clear feedback; auto-reconnect works for transient failures
+
+** [#C] Documentation: add architectural inline comments
+   Why: Code lacks context on design decisions; onboarding is harder than needed
+   Change:
+   - Add package doc comments to internal/terminal, internal/api, internal/orchestrator
+   - Document goroutine coordination pattern in session.go (who owns what, shutdown order)
+   - Explain WebSocket control message protocol in terminal_handler.go
+   - Document thread-safety guarantees in Manager (what locks protect what)
+   - Add comment explaining why we use fan-out pattern for subscribers
+   Tests: None (documentation only)
+   Done when: Key patterns and decisions are documented; code is self-explanatory
+
+** [#C] Testing: improve coverage and testability
+   Why: Some code paths untested; mocking is hard; no integration tests
+   Change:
+   - Add tests for parseTerminalPath, validateToken, path parsing edge cases
+   - Make Manager testable: inject clock interface for testing timeouts/timestamps
+   - Add table-driven tests for shell selection logic
+   - Create integration test: spawn terminal, connect WebSocket, send/receive data
+   - Document testing approach in README or TESTING.md
+   Tests: go test ./...; verify coverage increases
+   Done when: Critical paths tested; testing strategy documented
+
 * DONE [#A] Initial project structure with multi-terminal dashboard
   Goal: Set up Gestalt IDE foundation with Go backend, Svelte frontend, and WebSocket-based terminal management system that supports inter-terminal communication.
 
@@ -128,10 +245,7 @@
 
 ** Add basic inter-terminal read capability (foundation)
 
-* WIP [#A] Fix frontend bugs following user driven testing feedback
-  Goal: create a smooth pipeline straightening all bugs encountered by a user testing gestalt
-
-** DONE [#B] Preserve terminal screen buffer across tab switches
+** Preserve terminal screen buffer across tab switches
    Why: Switching away and back currently wipes the terminal display while the session is still running.
    Change: Rework terminal view lifecycle so xterm DOM/state is preserved or restored on tab reselect (avoid dispose on hide or buffer snapshot/restore).
    Tests: Manual verify tab switching retains visible terminal content; existing go tests still pass.

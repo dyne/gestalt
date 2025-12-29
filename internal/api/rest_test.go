@@ -56,11 +56,11 @@ func (f *fakeFactory) Start(command string, args ...string) (terminal.Pty, *exec
 }
 
 func TestStatusHandlerRequiresAuth(t *testing.T) {
-	handler := &RestHandler{AuthToken: "secret"}
+	handler := &RestHandler{}
 	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
 	res := httptest.NewRecorder()
 
-	handler.handleStatus(res, req)
+	restHandler("secret", handler.handleStatus)(res, req)
 	if res.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", res.Code)
 	}
@@ -80,12 +80,12 @@ func TestStatusHandlerReturnsCount(t *testing.T) {
 		_ = manager.Delete(created.ID)
 	}()
 
-	handler := &RestHandler{Manager: manager, AuthToken: "secret"}
+	handler := &RestHandler{Manager: manager}
 	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	handler.handleStatus(res, req)
+	restHandler("secret", handler.handleStatus)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -124,12 +124,12 @@ func TestTerminalOutputEndpoint(t *testing.T) {
 		t.Fatalf("expected output buffer to receive data")
 	}
 
-	handler := &RestHandler{Manager: manager, AuthToken: "secret"}
+	handler := &RestHandler{Manager: manager}
 	req := httptest.NewRequest(http.MethodGet, "/api/terminals/"+created.ID+"/output", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	handler.handleTerminal(res, req)
+	restHandler("secret", handler.handleTerminal)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -161,4 +161,32 @@ func containsLine(lines []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func TestParseTerminalPath(t *testing.T) {
+	tests := []struct {
+		name        string
+		path        string
+		id          string
+		wantsOutput bool
+	}{
+		{name: "terminal", path: "/api/terminals/123", id: "123", wantsOutput: false},
+		{name: "terminal-trailing-slash", path: "/api/terminals/123/", id: "123", wantsOutput: false},
+		{name: "output", path: "/api/terminals/123/output", id: "123", wantsOutput: true},
+		{name: "output-trailing-slash", path: "/api/terminals/123/output/", id: "123", wantsOutput: true},
+		{name: "missing-prefix", path: "/api/terminal/123", id: "", wantsOutput: false},
+		{name: "empty-id", path: "/api/terminals/", id: "", wantsOutput: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			id, wantsOutput := parseTerminalPath(test.path)
+			if id != test.id {
+				t.Fatalf("expected id %q, got %q", test.id, id)
+			}
+			if wantsOutput != test.wantsOutput {
+				t.Fatalf("expected wantsOutput %v, got %v", test.wantsOutput, wantsOutput)
+			}
+		})
+	}
 }

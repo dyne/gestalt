@@ -13,8 +13,11 @@ type ManagerOptions struct {
 	Shell       string
 	PtyFactory  PtyFactory
 	BufferLines int
+	Clock       Clock
 }
 
+// Manager is safe for concurrent use; mu guards the sessions map and lifecycle.
+// ID generation uses an atomic counter and does not require the mutex.
 type Manager struct {
 	mu          sync.RWMutex
 	sessions    map[string]*Session
@@ -22,6 +25,7 @@ type Manager struct {
 	shell       string
 	factory     PtyFactory
 	bufferLines int
+	clock       Clock
 }
 
 func NewManager(opts ManagerOptions) *Manager {
@@ -40,11 +44,17 @@ func NewManager(opts ManagerOptions) *Manager {
 		bufferLines = DefaultBufferLines
 	}
 
+	clock := opts.Clock
+	if clock == nil {
+		clock = realClock{}
+	}
+
 	return &Manager{
 		sessions:    make(map[string]*Session),
 		shell:       shell,
 		factory:     factory,
 		bufferLines: bufferLines,
+		clock:       clock,
 	}
 }
 
@@ -54,14 +64,19 @@ func (m *Manager) Create(role, title string) (*Session, error) {
 		return nil, err
 	}
 
-	id := strconv.FormatUint(atomic.AddUint64(&m.nextID, 1), 10)
-	session := newSession(id, pty, cmd, title, role, m.bufferLines)
+	id := m.nextIDValue()
+	createdAt := m.clock.Now().UTC()
+	session := newSession(id, pty, cmd, title, role, createdAt, m.bufferLines)
 
 	m.mu.Lock()
 	m.sessions[id] = session
 	m.mu.Unlock()
 
 	return session, nil
+}
+
+func (m *Manager) nextIDValue() string {
+	return strconv.FormatUint(atomic.AddUint64(&m.nextID, 1), 10)
 }
 
 func (m *Manager) Get(id string) (*Session, bool) {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -111,6 +112,68 @@ func (p *capturePty) Resize(cols, rows uint16) error {
 	return nil
 }
 
+type scriptedPty struct {
+	mu        sync.Mutex
+	writes    [][]byte
+	output    chan []byte
+	closed    chan struct{}
+	closeOnce sync.Once
+}
+
+func newScriptedPty() *scriptedPty {
+	return &scriptedPty{
+		output: make(chan []byte, 8),
+		closed: make(chan struct{}),
+	}
+}
+
+func (p *scriptedPty) Read(data []byte) (int, error) {
+	select {
+	case chunk, ok := <-p.output:
+		if !ok {
+			return 0, io.EOF
+		}
+		n := copy(data, chunk)
+		return n, nil
+	case <-p.closed:
+		return 0, io.EOF
+	}
+}
+
+func (p *scriptedPty) Write(data []byte) (int, error) {
+	p.mu.Lock()
+	p.writes = append(p.writes, append([]byte(nil), data...))
+	p.mu.Unlock()
+	return len(data), nil
+}
+
+func (p *scriptedPty) Close() error {
+	p.closeOnce.Do(func() {
+		close(p.closed)
+		close(p.output)
+	})
+	return nil
+}
+
+func (p *scriptedPty) Resize(cols, rows uint16) error {
+	return nil
+}
+
+func (p *scriptedPty) Emit(text string) {
+	p.output <- []byte(text)
+}
+
+type scriptedFactory struct {
+	pty *scriptedPty
+}
+
+func (f *scriptedFactory) Start(command string, args ...string) (Pty, *exec.Cmd, error) {
+	if f.pty == nil {
+		f.pty = newScriptedPty()
+	}
+	return f.pty, nil, nil
+}
+
 type captureFactory struct {
 	pty *capturePty
 }
@@ -205,21 +268,41 @@ func TestManagerGetAgent(t *testing.T) {
 }
 
 func TestManagerInjectsPrompt(t *testing.T) {
-	dir := t.TempDir()
-	promptPath := filepath.Join(dir, "prompt.sh")
-	if err := os.WriteFile(promptPath, []byte("echo hello"), 0644); err != nil {
+	root := t.TempDir()
+	promptsDir := filepath.Join(root, "config", "prompts")
+	if err := os.MkdirAll(promptsDir, 0755); err != nil {
+		t.Fatalf("mkdir prompts: %v", err)
+	}
+	firstPrompt := filepath.Join(promptsDir, "first.txt")
+	if err := os.WriteFile(firstPrompt, []byte("echo hello\n"), 0644); err != nil {
 		t.Fatalf("write prompt: %v", err)
 	}
+	secondPrompt := filepath.Join(promptsDir, "second.txt")
+	if err := os.WriteFile(secondPrompt, []byte("echo world\n"), 0644); err != nil {
+		t.Fatalf("write prompt: %v", err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("restore cwd: %v", err)
+		}
+	}()
 
 	factory := &captureFactory{}
 	manager := NewManager(ManagerOptions{
 		PtyFactory: factory,
 		Agents: map[string]agent.Agent{
 			"codex": {
-				Name:       "Codex",
-				Shell:      "/bin/bash",
-				PromptFile: promptPath,
-				LLMType:    "codex",
+				Name:    "Codex",
+				Shell:   "/bin/bash",
+				Prompts: agent.PromptList{"first", "second"},
+				LLMType: "codex",
 			},
 		},
 	})
@@ -232,21 +315,196 @@ func TestManagerInjectsPrompt(t *testing.T) {
 		_ = manager.Delete(session.ID)
 	}()
 
-	deadline := time.Now().Add(500 * time.Millisecond)
+	deadline := time.Now().Add(6 * time.Second)
+	expectedPrefix := "echo hello\necho world\n"
 	for time.Now().Before(deadline) {
 		factory.pty.mu.Lock()
 		writes := append([][]byte(nil), factory.pty.writes...)
 		factory.pty.mu.Unlock()
-		if len(writes) > 0 {
-			got := string(writes[0])
-			if got != "echo hello\n" {
-				t.Fatalf("prompt mismatch: %q", got)
+		if len(writes) >= 2 {
+			payload := ""
+			for _, chunk := range writes {
+				payload += string(chunk)
+			}
+			if len(payload) >= len(expectedPrefix) && !strings.HasPrefix(payload, expectedPrefix) {
+				t.Fatalf("prompt payload mismatch: %q", payload)
+			}
+			if !strings.HasSuffix(payload, "\r\n") {
+				time.Sleep(10 * time.Millisecond)
+				continue
 			}
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for prompt write")
+}
+
+func TestManagerOnAirStringDelaysPrompt(t *testing.T) {
+	oldTimeout := onAirTimeout
+	onAirTimeout = 500 * time.Millisecond
+	defer func() {
+		onAirTimeout = oldTimeout
+	}()
+
+	root := t.TempDir()
+	promptsDir := filepath.Join(root, "config", "prompts")
+	if err := os.MkdirAll(promptsDir, 0755); err != nil {
+		t.Fatalf("mkdir prompts: %v", err)
+	}
+	promptPath := filepath.Join(promptsDir, "first.txt")
+	if err := os.WriteFile(promptPath, []byte("echo hello\n"), 0644); err != nil {
+		t.Fatalf("write prompt: %v", err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("restore cwd: %v", err)
+		}
+	}()
+
+	factory := &scriptedFactory{}
+	manager := NewManager(ManagerOptions{
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:        "Codex",
+				Shell:       "/bin/bash",
+				Prompts:     agent.PromptList{"first"},
+				OnAirString: "READY",
+				LLMType:     "codex",
+			},
+		},
+	})
+
+	session, err := manager.Create("codex", "build", "ignored")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(session.ID)
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	factory.pty.mu.Lock()
+	pending := len(factory.pty.writes)
+	factory.pty.mu.Unlock()
+	if pending != 0 {
+		t.Fatalf("expected no prompt writes before onair, got %d", pending)
+	}
+
+	factory.pty.Emit("ready\n")
+
+	deadline := time.Now().Add(2 * time.Second)
+	expectedPrefix := "echo hello\n"
+	for time.Now().Before(deadline) {
+		factory.pty.mu.Lock()
+		writes := append([][]byte(nil), factory.pty.writes...)
+		factory.pty.mu.Unlock()
+		if len(writes) > 0 {
+			payload := ""
+			for _, chunk := range writes {
+				payload += string(chunk)
+			}
+			if len(payload) >= len(expectedPrefix) && !strings.HasPrefix(payload, expectedPrefix) {
+				t.Fatalf("prompt payload mismatch: %q", payload)
+			}
+			if strings.HasSuffix(payload, "\r\n") {
+				return
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for prompt after onair")
+}
+
+func TestManagerOnAirTimeoutInjectsAnyway(t *testing.T) {
+	oldTimeout := onAirTimeout
+	onAirTimeout = 150 * time.Millisecond
+	defer func() {
+		onAirTimeout = oldTimeout
+	}()
+
+	root := t.TempDir()
+	promptsDir := filepath.Join(root, "config", "prompts")
+	if err := os.MkdirAll(promptsDir, 0755); err != nil {
+		t.Fatalf("mkdir prompts: %v", err)
+	}
+	promptPath := filepath.Join(promptsDir, "first.txt")
+	if err := os.WriteFile(promptPath, []byte("echo hello\n"), 0644); err != nil {
+		t.Fatalf("write prompt: %v", err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("restore cwd: %v", err)
+		}
+	}()
+
+	buffer := logging.NewLogBuffer(10)
+	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, nil)
+	factory := &scriptedFactory{}
+	manager := NewManager(ManagerOptions{
+		PtyFactory: factory,
+		Logger:     logger,
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:        "Codex",
+				Shell:       "/bin/bash",
+				Prompts:     agent.PromptList{"first"},
+				OnAirString: "READY",
+				LLMType:     "codex",
+			},
+		},
+	})
+
+	session, err := manager.Create("codex", "build", "ignored")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(session.ID)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	wrotePrompt := false
+	for time.Now().Before(deadline) {
+		factory.pty.mu.Lock()
+		writes := append([][]byte(nil), factory.pty.writes...)
+		factory.pty.mu.Unlock()
+		if len(writes) > 0 {
+			wrotePrompt = true
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !wrotePrompt {
+		t.Fatalf("expected prompt writes after onair timeout")
+	}
+
+	entries := buffer.List()
+	found := false
+	for _, entry := range entries {
+		if entry.Level == logging.LevelError && entry.Message == "agent onair string not found" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected error log for onair timeout")
+	}
 }
 
 func TestManagerDeleteIgnoresCloseError(t *testing.T) {

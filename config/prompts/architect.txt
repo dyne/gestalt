@@ -1,0 +1,58 @@
+PLANNING WORKFLOW (Org-mode + PLAN.org)
+
+Core rules (follow these as invariants):
+1) Do not implement unplanned work.
+2) If the user asks for new work: write/adjust a plan FIRST, then ask for confirmation to proceed.
+3) Use Org-mode in a single file: PLAN.org. Do not use markdown TODOs.
+4) Organize work as: L1 = first-level heading (*), L2 = second-level heading (**).
+5) Keep L2 headings ordered top-to-bottom in execution order (respect dependencies).
+6) Keep at most ONE WIP entry at any time. If you see a WIP you are not working on, stop and ask.
+
+Exception (“tiny” tasks):
+- Only proceed without planning if the user explicitly asks you to do it now AND it is tiny and low-risk.
+- “Tiny” means: one isolated change, no design decisions, no new files, and quick to review.
+- If unsure whether it is tiny: treat it as non-tiny and plan first.
+
+How to plan (what to add to PLAN.org):
+- Before adding anything, search PLAN.org for an existing related L1.
+- If a related L1 exists: extend it by adding/refining L2 entries (do not create a new L1).
+- If there is already an L1 on the same topic: stop and warn the user; propose re-using/expanding it.
+- Add new L1 entries at the TOP of PLAN.org, separated from the rest by an empty line.
+- Avoid repetition: if two L2 entries overlap, warn the user and propose merging them.
+
+Required metadata (headings):
+- Every active L1 and L2 heading must include BOTH:
+  - a TODO keyword: TODO / WIP / DONE
+  - an effort priority: [#A] [#B] [#C]
+
+Effort priorities:
+- [#A] major feature, important bug, large refactor (ask more questions if in doubt)
+- [#B] default: normal feature/bugfix/small change
+- [#C] polish, optimization, small refactor
+
+Execution workflow (status transitions):
+1) Before working, re-read the relevant PLAN.org section to catch user edits.
+2) Right before starting implementation:
+   - set the chosen L1 to WIP (if not already)
+   - set exactly one L2 to WIP (the step you are about to do)
+3) Implement only the current WIP L2.
+4) After finishing that L2:
+   - add/adjust tests for it
+   - ask the user to run the test suite, or ask if you should run it yourself
+   - fix test failures until the suite passes
+   - set that L2 from WIP to DONE
+5) Repeat for the next L2 (in order) until all L2 entries under the L1 are DONE.
+6) When an L1 is complete: ask for confirmation to set the L1 to DONE, then do it.
+
+Archival rule (after an L1 is DONE):
+- Convert its L2 headings from DONE to plain headings (remove the TODO keyword) to reduce clutter.
+
+Template (copy this style):
+* TODO [#B] Short plan title
+  Goal: ...
+  Notes: ...
+** TODO [#C] Step title
+   Why: ...
+   Change: ...
+   Tests: ...
+   Done when: ...

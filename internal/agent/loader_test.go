@@ -4,11 +4,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"gestalt/internal/logging"
 )
 
 func TestLoaderMissingDir(t *testing.T) {
 	loader := Loader{}
-	agents, err := loader.Load(filepath.Join(t.TempDir(), "missing"))
+	agents, err := loader.Load(filepath.Join(t.TempDir(), "missing"), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -32,7 +34,7 @@ func TestLoaderValidAgents(t *testing.T) {
 	}
 
 	loader := Loader{}
-	agents, err := loader.Load(dir)
+	agents, err := loader.Load(dir, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -55,7 +57,7 @@ func TestLoaderInvalidJSON(t *testing.T) {
 	}
 
 	loader := Loader{}
-	if _, err := loader.Load(dir); err == nil {
+	if _, err := loader.Load(dir, ""); err == nil {
 		t.Fatalf("expected error")
 	}
 }
@@ -71,7 +73,7 @@ func TestLoaderInvalidAgent(t *testing.T) {
 	}
 
 	loader := Loader{}
-	if _, err := loader.Load(dir); err == nil {
+	if _, err := loader.Load(dir, ""); err == nil {
 		t.Fatalf("expected error")
 	}
 }
@@ -83,9 +85,10 @@ func TestLoaderExampleAgents(t *testing.T) {
 	}
 	root := filepath.Dir(filepath.Dir(wd))
 	dir := filepath.Join(root, "config", "agents")
+	promptsDir := filepath.Join(root, "config", "prompts")
 
 	loader := Loader{}
-	agents, err := loader.Load(dir)
+	agents, err := loader.Load(dir, promptsDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -98,5 +101,43 @@ func TestLoaderExampleAgents(t *testing.T) {
 		if _, ok := agents[id]; !ok {
 			t.Fatalf("missing agent %q", id)
 		}
+	}
+}
+
+func TestLoaderMissingPromptLogsWarning(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "codex.json"), []byte(`{
+		"name": "Codex",
+		"shell": "/bin/bash",
+		"prompt": ["missing"],
+		"llm_type": "codex"
+	}`), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	promptsDir := t.TempDir()
+
+	buffer := logging.NewLogBuffer(10)
+	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, nil)
+	loader := Loader{Logger: logger}
+	if _, err := loader.Load(dir, promptsDir); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	entries := buffer.List()
+	if len(entries) == 0 {
+		t.Fatalf("expected warning log entry")
+	}
+	found := false
+	for _, entry := range entries {
+		if entry.Level == logging.LevelWarning && entry.Message == "agent prompt file missing" {
+			found = true
+			if entry.Context["prompt"] != "missing" {
+				t.Fatalf("prompt context mismatch: %q", entry.Context["prompt"])
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected warning log for missing prompt")
 	}
 }

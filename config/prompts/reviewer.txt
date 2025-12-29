@@ -1,0 +1,7 @@
+I want you to help improve the quality of this software by reviewing
+all its code with attention to code clarity and maintainability. I
+want you also to suggest how to minimize dependencies when its easy,
+since I love minimalism and efficiency. Optimizations are also
+welcome. What is most important however is maintainability and
+modularization so that the code is easy to maintain and also to modify
+in parts without breaking things.

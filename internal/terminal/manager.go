@@ -3,6 +3,7 @@ package terminal
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -40,7 +41,16 @@ type Manager struct {
 	logger      *logging.Logger
 }
 
-const promptDelay = 75 * time.Millisecond
+const (
+	promptDelay      = 3 * time.Second
+	interPromptDelay = 100 * time.Millisecond
+	finalEnterDelay  = 500 * time.Millisecond
+	promptChunkDelay = 25 * time.Millisecond
+	promptChunkSize  = 64
+	enterKeyDelay    = 75 * time.Millisecond
+)
+
+var onAirTimeout = 5 * time.Second
 
 type AgentInfo struct {
 	ID       string
@@ -94,7 +104,8 @@ func NewManager(opts ManagerOptions) *Manager {
 func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 	shell := m.shell
 	var profile *agent.Agent
-	var prompt []byte
+	var promptNames []string
+	var onAirString string
 	if agentID != "" {
 		agentProfile, ok := m.GetAgent(agentID)
 		if !ok {
@@ -111,17 +122,11 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 		if strings.TrimSpace(agentProfile.Name) != "" {
 			title = agentProfile.Name
 		}
-		if strings.TrimSpace(agentProfile.PromptFile) != "" {
-			data, err := os.ReadFile(agentProfile.PromptFile)
-			if err != nil {
-				m.logger.Warn("agent prompt file read failed", map[string]string{
-					"agent_id":    agentID,
-					"prompt_file": agentProfile.PromptFile,
-					"error":       err.Error(),
-				})
-			} else {
-				prompt = ensureTrailingNewline(data)
-			}
+		if len(agentProfile.Prompts) > 0 {
+			promptNames = append(promptNames, agentProfile.Prompts...)
+		}
+		if strings.TrimSpace(agentProfile.OnAirString) != "" {
+			onAirString = agentProfile.OnAirString
 		}
 	}
 
@@ -148,14 +153,78 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 	}
 	m.logger.Info("terminal created", fields)
 
-	if len(prompt) > 0 {
+	if len(promptNames) > 0 {
 		go func() {
-			time.Sleep(promptDelay)
-			if err := session.Write(prompt); err != nil {
-				m.logger.Warn("agent prompt write failed", map[string]string{
-					"agent_id": agentID,
-					"error":    err.Error(),
-				})
+			if strings.TrimSpace(onAirString) != "" {
+				if !waitForOnAir(session, onAirString, onAirTimeout) {
+					m.logger.Error("agent onair string not found", map[string]string{
+						"agent_id":     agentID,
+						"onair_string": onAirString,
+						"timeout_ms":   strconv.FormatInt(onAirTimeout.Milliseconds(), 10),
+					})
+				}
+			} else {
+				time.Sleep(promptDelay)
+			}
+			cleaned := make([]string, 0, len(promptNames))
+			for _, promptName := range promptNames {
+				promptName = strings.TrimSpace(promptName)
+				if promptName != "" {
+					cleaned = append(cleaned, promptName)
+				}
+			}
+			wrotePrompt := false
+			for i, promptName := range cleaned {
+				promptPath := filepath.Join("config", "prompts", promptName+".txt")
+				data, err := os.ReadFile(promptPath)
+				if err != nil {
+					m.logger.Warn("agent prompt file read failed", map[string]string{
+						"agent_id":    agentID,
+						"prompt":      promptName,
+						"prompt_path": promptPath,
+						"error":       err.Error(),
+					})
+					continue
+				}
+				payload := data
+				for offset := 0; offset < len(payload); offset += promptChunkSize {
+					end := offset + promptChunkSize
+					if end > len(payload) {
+						end = len(payload)
+					}
+					if err := session.Write(payload[offset:end]); err != nil {
+						m.logger.Warn("agent prompt write failed", map[string]string{
+							"agent_id": agentID,
+							"prompt":   promptName,
+							"error":    err.Error(),
+						})
+						return
+					}
+					if end < len(payload) {
+						time.Sleep(promptChunkDelay)
+					}
+				}
+				wrotePrompt = true
+				if i < len(cleaned)-1 {
+					time.Sleep(interPromptDelay)
+				}
+			}
+			if wrotePrompt {
+				time.Sleep(finalEnterDelay)
+				if err := session.Write([]byte("\r")); err != nil {
+					m.logger.Warn("agent prompt final enter failed", map[string]string{
+						"agent_id": agentID,
+						"error":    err.Error(),
+					})
+					return
+				}
+				time.Sleep(enterKeyDelay)
+				if err := session.Write([]byte("\n")); err != nil {
+					m.logger.Warn("agent prompt final enter failed", map[string]string{
+						"agent_id": agentID,
+						"error":    err.Error(),
+					})
+				}
 			}
 		}()
 	}
@@ -238,15 +307,45 @@ func (m *Manager) Delete(id string) error {
 	return nil
 }
 
-func ensureTrailingNewline(data []byte) []byte {
-	if len(data) == 0 {
-		return nil
+func waitForOnAir(session *Session, target string, timeout time.Duration) bool {
+	if session == nil {
+		return false
 	}
-	if data[len(data)-1] == '\n' {
-		return data
+	if strings.TrimSpace(target) == "" {
+		return true
 	}
-	out := make([]byte, len(data)+1)
-	copy(out, data)
-	out[len(out)-1] = '\n'
-	return out
+	output, cancel := session.Subscribe()
+	defer cancel()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	buffer := ""
+	for {
+		select {
+		case chunk, ok := <-output:
+			if !ok {
+				return false
+			}
+			text := strings.ReplaceAll(string(chunk), "\r\n", "\n")
+			text = strings.ReplaceAll(text, "\r", "\n")
+			buffer += text
+			for {
+				idx := strings.IndexByte(buffer, '\n')
+				if idx < 0 {
+					break
+				}
+				line := buffer[:idx]
+				buffer = buffer[idx+1:]
+				if strings.EqualFold(line, target) {
+					return true
+				}
+			}
+			if strings.EqualFold(buffer, target) {
+				return true
+			}
+		case <-timer.C:
+			return false
+		}
+	}
 }

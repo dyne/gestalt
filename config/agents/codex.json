@@ -1,6 +1,8 @@
 {
   "name": "Codex",
-  "shell": "/bin/bash",
+  "shell": "codex",
+  "prompt": "coder",
   "llm_type": "codex",
-  "llm_model": "default"
+  "llm_model": "default",
+  "onair_string": "Connected to GitHub MCP Server"
 }

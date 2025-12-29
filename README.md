@@ -101,7 +101,7 @@ Agent profiles live in `config/agents/*.json` and are loaded at startup.
 Fields:
 - `name` (required)
 - `shell` (required)
-- `prompt_file` (optional)
+- `prompt` (optional: string or array of strings)
 - `llm_type` (required: `copilot`, `codex`, `promptline`)
 - `llm_model` (optional; use `default`)
 
@@ -110,11 +110,16 @@ Example:
 {
   "name": "Codex",
   "shell": "/bin/bash",
-  "prompt_file": "config/prompts/codex.txt",
+  "prompt": ["coder", "architect"],
   "llm_type": "codex",
   "llm_model": "default"
 }
 ```
+
+Prompt behavior:
+- `prompt` accepts a single string or array of strings.
+- Each string is a prompt name, resolved to `config/prompts/{name}.txt`.
+- Prompts are injected in order, with a small delay between each.
 
 ## License
 

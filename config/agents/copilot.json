@@ -1,6 +1,7 @@
 {
-  "name": "Copilot",
-  "shell": "/bin/bash",
+  "name": "Architect",
+  "shell": "copilot --allow-all-tools --disable-builtin-mcps",
+  "prompt": ["coder", "architect"],
   "llm_type": "copilot",
-  "llm_model": "default"
+  "llm_model": "claude-sonnet-4.5"
 }

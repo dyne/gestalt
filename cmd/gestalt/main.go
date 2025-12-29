@@ -25,7 +25,7 @@ func main() {
 	logBuffer := logging.NewLogBuffer(logging.DefaultBufferSize)
 	logger := logging.NewLogger(logBuffer, logging.LevelInfo)
 
-	agents, err := loadAgents()
+	agents, err := loadAgents(logger)
 	if err != nil {
 		logger.Error("load agents failed", map[string]string{
 			"error": err.Error(),
@@ -92,7 +92,7 @@ func findStaticDir() string {
 	return ""
 }
 
-func loadAgents() (map[string]agent.Agent, error) {
-	loader := agent.Loader{}
-	return loader.Load(filepath.Join("config", "agents"))
+func loadAgents(logger *logging.Logger) (map[string]agent.Agent, error) {
+	loader := agent.Loader{Logger: logger}
+	return loader.Load(filepath.Join("config", "agents"), filepath.Join("config", "prompts"))
 }

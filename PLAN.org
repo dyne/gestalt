@@ -1,3 +1,131 @@
+* DONE [#B] Multi-prompt injection on agent startup
+  Goal: Extend agent configuration to support multiple prompts injected sequentially on terminal start.
+  Notes:
+  - Current: agent has "prompt_file" (string) that references a single file
+  - Desired: agent has "prompt" field that can be string OR array of strings
+  - Each string is a prompt name (not full path); resolve to config/prompts/{name}.txt
+  - Example: "prompt": ["coder", "architect"] → inject coder.txt then architect.txt
+  - Backward compatibility for "prompt_file" requires explicit decision
+  - Prompts injected sequentially with small delay between each (e.g., 100ms)
+  - Empty/missing prompt field means no injection (current default behavior)
+  Date: 2025-12-29
+
+** [#B] Confirm prompt_file compatibility decision
+   Why: Avoid breaking existing configs without explicit approval
+   Change: Decide whether to keep supporting "prompt_file" or remove it
+   Tests: None (decision only)
+   Done when: Compatibility approach is confirmed
+
+** [#B] Update Agent struct to support prompt array
+   Why: Need to accept both single string and array of strings for prompts
+   Change:
+   - Add new field: Prompts []string `json:"prompt"` to Agent struct
+   - Remove PromptFile string `json:"prompt_file"` field entirely
+   - Update Validate() to handle new format
+   - Update JSON unmarshaling to accept both "prompt": "single" and "prompt": ["multi"]
+   - Implement custom UnmarshalJSON if needed for flexible string/array parsing
+   Tests: Unit tests for JSON parsing with string, array, empty, nil; validation logic
+   Done when: Agent struct accepts prompt field as string or string array
+
+** [#B] Update agent loader to resolve prompt names to paths
+   Why: Prompts are stored as names but need to be validated/resolved to file paths
+   Change:
+   - Add PromptsDir parameter to Loader.Load() (default: "config/prompts")
+   - After loading each agent JSON, validate that all prompt names exist as .txt files
+   - Keep names in Agent struct; resolve paths during injection (more flexible)
+   - Use structured logger to log warning if prompt file doesn't exist
+   - Don't fail agent load on missing prompt (graceful degradation)
+   - Update loader tests to check prompt file existence validation
+   Tests: Unit tests with missing prompt files; verify warnings logged
+   Done when: Loader validates prompt names against config/prompts/*.txt
+
+** [#B] Implement sequential prompt injection in session startup
+   Why: Multiple prompts need to be injected in order with proper timing
+   Change:
+   - Locate current prompt injection code (likely in terminal/session.go or manager.go)
+   - Replace single prompt file read with loop over agent.Prompts
+   - For each prompt name: resolve to config/prompts/{name}.txt, read contents, inject
+   - Add configurable delay between prompts (default 100ms) to allow shell processing
+   - Use structured logger for warnings if file missing/unreadable, continue with next prompt
+   - Consider: inject after shell is ready (existing delay before first prompt)
+   - Ensure newlines are properly handled (add \n at end if missing)
+   Tests: Manual test with agent using multiple prompts; verify execution order
+   Done when: Agent terminals execute all prompts in sequence on startup
+
+** [#C] Update example agent configs to use new format
+   Why: Demonstrate new prompt field format and provide working examples
+   Change:
+   - Update config/agents/*.json to use "prompt" field instead of "prompt_file"
+   - Create example with single prompt: "prompt": "coder"
+   - Create example with multiple prompts: "prompt": ["coder", "architect"]
+   - Keep one example without prompts to show optional nature
+   Tests: Load examples; verify they parse and execute correctly
+   Done when: Example configs demonstrate new prompt field usage
+
+** [#C] Update documentation for prompt configuration
+   Why: Users need to understand new prompt field format and behavior
+   Change:
+   - Update README.md Agent Profiles section with prompt field documentation
+   - Document both formats: "prompt": "single" and "prompt": ["multi"]
+   - Document prompt resolution: names → config/prompts/{name}.txt
+   - Document injection timing and sequential behavior
+   Tests: None (documentation only)
+   Done when: README clearly explains prompt field usage
+
+** [#C] Delay initial prompt injection by 1s
+   Why: Give shells time to initialize before prompt injection
+   Change: Increase the initial prompt delay to 1s before the first prompt
+   Tests: Go tests covering prompt injection timing
+   Done when: First prompt waits ~1s before injection
+
+** [#C] Inject trailing enter after prompts
+   Why: Ensure shell executes prompts cleanly after all injections
+   Change: Write a final newline after all prompts are injected
+   Tests: Go tests for prompt injection order with trailing enter
+   Done when: Prompt injection sends a trailing enter after the last prompt
+
+** [#C] Ensure prompt injection sends terminal enter key
+   Why: Some shells/CLI tools may require carriage return to submit input
+   Change: Normalize prompt line endings and final enter to use terminal enter semantics
+   Tests: Go tests verifying injected input uses the correct enter sequence
+   Done when: Injected prompts are accepted by the LLM CLI
+
+** [#C] Increase initial prompt delay to 3s
+   Why: Some agents need more startup time before accepting prompt injection
+   Change: Increase initial prompt delay from 1s to 3s
+   Tests: Go tests covering prompt injection timing
+   Done when: First prompt waits ~3s before injection
+
+** [#B] Align injected enter with actual terminal input
+   Why: Prompt text appears but is not submitted without manual Enter
+   Change: Match injected enter sequence to what the web terminal sends (CR vs CRLF) and adjust prompt normalization
+   Tests: Go tests to verify injected bytes match expected enter sequence
+   Done when: Prompts submit without manual Enter across agents
+
+** [#C] Delay final enter after prompt injection
+   Why: Prompt text appears but enter may be arriving before the CLI is ready
+   Change: Add a ~500ms delay before sending the final enter after all prompts
+   Tests: Go tests covering prompt injection timing
+   Done when: Prompts submit without manual Enter
+
+** [#B] Pace prompt injection to mimic keystrokes
+   Why: Prompt text appears but is not submitted; fast bulk writes may be treated differently
+   Change: Write prompt content in small chunks with brief delays, then send a delayed enter
+   Tests: Go tests for prompt injection ordering and final enter timing
+   Done when: Prompts submit without manual Enter across agents
+
+** [#B] Use raw prompt content with typed enter sequence
+   Why: Copilot CLI may not accept normalized line endings
+   Change: Stop normalizing prompt content; send raw bytes then a simulated enter sequence
+   Tests: Go tests verifying raw prompt payload and enter write
+   Done when: Copilot accepts injected prompts without manual Enter
+
+** [#A] Gate prompt injection on onair_string output
+   Why: Ensure prompts are only injected after the CLI is ready
+   Change: Add per-agent onair_string configuration; wait for terminal output to contain it before injecting
+   Tests: Go tests simulating output detection and deferred injection
+   Done when: Prompt injection waits for onair_string before sending prompts
+
 * DONE [#A] System logging and notification infrastructure
   Goal: Add comprehensive logging system with UI visibility through both toast notifications and dedicated logs tab.
   Notes:
@@ -125,74 +253,6 @@
    - Document how to add logs in backend code (logger usage)
    Tests: None (documentation only)
    Done when: Logging system is documented in README
-
-* TODO [#B] Multi-prompt injection on agent startup
-  Goal: Extend agent configuration to support multiple prompts injected sequentially on terminal start.
-  Notes:
-  - Current: agent has "prompt_file" (string) that references a single file
-  - Desired: agent has "prompt" field that can be string OR array of strings
-  - Each string is a prompt name (not full path); resolve to config/prompts/{name}.txt
-  - Example: "prompt": ["coder", "architect"] → inject coder.txt then architect.txt
-  - Maintain backward compatibility not needed: drop "prompt_file"
-  - Prompts injected sequentially with small delay between each (e.g., 100ms)
-  - Empty/missing prompt field means no injection (current default behavior)
-  Date: 2025-12-29
-
-** TODO [#B] Update Agent struct to support prompt array
-   Why: Need to accept both single string and array of strings for prompts
-   Change:
-   - Add new field: Prompts []string `json:"prompt"` to Agent struct
-   - Remove PromptFile string `json:"prompt_file"` field entirely
-   - Update Validate() to handle new format
-   - Update JSON unmarshaling to accept both "prompt": "single" and "prompt": ["multi"]
-   - Implement custom UnmarshalJSON if needed for flexible string/array parsing
-   Tests: Unit tests for JSON parsing with string, array, empty, nil; validation logic
-   Done when: Agent struct accepts prompt field as string or string array
-
-** TODO [#B] Update agent loader to resolve prompt names to paths
-   Why: Prompts are stored as names but need to be validated/resolved to file paths
-   Change:
-   - Add PromptsDir parameter to Loader.Load() (default: "config/prompts")
-   - After loading each agent JSON, validate that all prompt names exist as .txt files
-   - Keep names in Agent struct; resolve paths during injection (more flexible)
-   - Use structured logger to log warning if prompt file doesn't exist
-   - Don't fail agent load on missing prompt (graceful degradation)
-   - Update loader tests to check prompt file existence validation
-   Tests: Unit tests with missing prompt files; verify warnings logged
-   Done when: Loader validates prompt names against config/prompts/*.txt
-
-** TODO [#B] Implement sequential prompt injection in session startup
-   Why: Multiple prompts need to be injected in order with proper timing
-   Change:
-   - Locate current prompt injection code (likely in terminal/session.go or manager.go)
-   - Replace single prompt file read with loop over agent.Prompts
-   - For each prompt name: resolve to config/prompts/{name}.txt, read contents, inject
-   - Add configurable delay between prompts (default 100ms) to allow shell processing
-   - Use structured logger for warnings if file missing/unreadable, continue with next prompt
-   - Consider: inject after shell is ready (existing delay before first prompt)
-   - Ensure newlines are properly handled (add \n at end if missing)
-   Tests: Manual test with agent using multiple prompts; verify execution order
-   Done when: Agent terminals execute all prompts in sequence on startup
-
-** TODO [#C] Update example agent configs to use new format
-   Why: Demonstrate new prompt field format and provide working examples
-   Change:
-   - Update config/agents/*.json to use "prompt" field instead of "prompt_file"
-   - Create example with single prompt: "prompt": "coder"
-   - Create example with multiple prompts: "prompt": ["coder", "architect"]
-   - Keep one example without prompts to show optional nature
-   Tests: Load examples; verify they parse and execute correctly
-   Done when: Example configs demonstrate new prompt field usage
-
-** TODO [#C] Update documentation for prompt configuration
-   Why: Users need to understand new prompt field format and behavior
-   Change:
-   - Update README.md Agent Profiles section with prompt field documentation
-   - Document both formats: "prompt": "single" and "prompt": ["multi"]
-   - Document prompt resolution: names → config/prompts/{name}.txt
-   - Document injection timing and sequential behavior
-   Tests: None (documentation only)
-   Done when: README clearly explains prompt field usage
 
 * DONE [#B] Agent profiles system
   Goal: Allow customizable terminal configurations for AI agents stored as JSON files in config/agents/.

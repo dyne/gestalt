@@ -6,13 +6,17 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"gestalt/internal/logging"
 )
 
 // Loader reads agent profiles from JSON files.
-type Loader struct{}
+type Loader struct {
+	Logger *logging.Logger
+}
 
 // Load scans dir for *.json files and returns a map keyed by agent ID.
-func (l Loader) Load(dir string) (map[string]Agent, error) {
+func (l Loader) Load(dir, promptsDir string) (map[string]Agent, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -22,6 +26,9 @@ func (l Loader) Load(dir string) (map[string]Agent, error) {
 	}
 
 	agents := make(map[string]Agent)
+	if strings.TrimSpace(promptsDir) == "" {
+		promptsDir = filepath.Join("config", "prompts")
+	}
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -39,6 +46,7 @@ func (l Loader) Load(dir string) (map[string]Agent, error) {
 		if _, exists := agents[agentID]; exists {
 			return nil, fmt.Errorf("duplicate agent id %q", agentID)
 		}
+		validatePromptNames(l.Logger, agentID, agent, promptsDir)
 		agents[agentID] = agent
 	}
 
@@ -58,4 +66,26 @@ func readAgentFile(path string) (Agent, error) {
 		return Agent{}, fmt.Errorf("validate agent file %s: %w", path, err)
 	}
 	return agent, nil
+}
+
+func validatePromptNames(logger *logging.Logger, agentID string, agent Agent, promptsDir string) {
+	if len(agent.Prompts) == 0 {
+		return
+	}
+	for _, promptName := range agent.Prompts {
+		promptName = strings.TrimSpace(promptName)
+		if promptName == "" {
+			continue
+		}
+		promptPath := filepath.Join(promptsDir, promptName+".txt")
+		if _, err := os.Stat(promptPath); err != nil {
+			if logger != nil {
+				logger.Warn("agent prompt file missing", map[string]string{
+					"agent_id": agentID,
+					"prompt":   promptName,
+					"error":    err.Error(),
+				})
+			}
+		}
+	}
 }

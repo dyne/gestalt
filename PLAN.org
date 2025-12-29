@@ -1,0 +1,137 @@
+* DONE [#A] Initial project structure with multi-terminal dashboard
+  Goal: Set up Gestalt IDE foundation with Go backend, Svelte frontend, and WebSocket-based terminal management system that supports inter-terminal communication.
+  
+  Notes: 
+  - Terminals are not just user-interactive but can read/write to each other
+  - AI agents (like Copilot) should be able to monitor and inject commands into terminals
+  - Dashboard shows splash page with status + terminal tabs
+  - Architecture must be modular from the start to support terminal orchestration
+  - Use github.com/creack/pty for PTY management
+  - Use gorilla/websocket for WebSocket handling
+  - Keep dependencies minimal
+  - Decisions confirmed: repo layout = cmd/gestalt + internal, terminal IDs = short incremental, auth = origin checks + token
+  - Decisions confirmed: Windows PTY = ConPTY only (no fallback), auth token = Bearer header for REST and WS, Windows shell = system default unless overridden
+  - Decisions pending/implicit: shell selection policy on Unix (use $SHELL vs fallback), WebSocket control framing (text JSON for control + binary for data), bell handling (client-side on xterm onBell)
+  - Frontend choice: use Vite + Svelte (not SvelteKit) for a lighter integration with Go server
+
+** Set up Go backend structure and dependencies
+   Why: Need the server foundation before implementing terminal logic
+   Change: 
+   - Initialize go.mod with module name
+   - Decide repo layout (e.g., cmd/gestalt/main.go + internal/{api,terminal,orchestrator})
+   - Create main.go with basic HTTP server and config (port, shell command, auth token)
+   - Add OS-aware shell default (use $SHELL on Unix; configurable fallback on Windows)
+   - Add gorilla/websocket and creack/pty dependencies
+   - Create modular package structure:
+     - terminal/ - PTY and terminal session management
+     - api/ - HTTP/WebSocket handlers
+     - orchestrator/ - Inter-terminal communication logic (stub for now)
+   Tests: Server starts and responds on port 8080
+   Done when: Go project compiles, dependencies resolved, basic server runs
+
+** Implement terminal session manager with inter-terminal awareness
+   Why: Core abstraction for managing multiple terminal instances and their communication
+   Change:
+   - Create terminal/session.go with Terminal session struct
+   - Each terminal has: ID, PTY, input/output channels, metadata (including role/purpose)
+   - Create terminal/manager.go to track all active sessions
+   - Manager provides: Create, Get, List, Delete operations
+   - Add hooks for inter-terminal communication (Reader/Writer interfaces or fan-out)
+   - Support terminal output broadcast to multiple listeners
+   - Define lifecycle rules (close cleanup, optional idle timeout)
+   - Decide output buffer size/format for later API (lines vs bytes)
+   - Implement incremental ID generator (atomic counter) with string rendering
+   Tests: Can create multiple terminal sessions, list them, retrieve by ID
+   Done when: Manager can spawn/track terminals with communication hooks
+
+** Implement WebSocket terminal bridge
+   Why: Connect browser frontend to backend PTY sessions
+   Change:
+   - Create api/terminal_handler.go for WebSocket upgrade
+   - Implement bidirectional bridge: WebSocket ↔ PTY (binary data frames)
+   - Define control message framing for resize (text JSON messages, e.g. {"type":"resize","cols":...,"rows":...})
+   - Handle terminal resize events (apply to PTY; SIGWINCH optional)
+   - Support multiplexing: one WebSocket can subscribe to terminal output (fan-out)
+   - Add basic origin checks (and optional token auth if required)
+   - Add endpoints: /ws/terminal/:id for connecting to specific terminal
+   Tests: Can connect via WebSocket, send input, receive output
+   Done when: WebSocket bidirectionally bridges to PTY with resize support
+
+** Create REST API for terminal management
+   Why: Dashboard needs to query status and create/delete terminals
+   Change:
+   - Create api/routes.go with REST endpoints
+   - GET /api/terminals - list all terminals with metadata
+   - POST /api/terminals - create new terminal session
+   - DELETE /api/terminals/:id - terminate terminal
+   - GET /api/status - system status (terminal count, etc)
+   - Define response schema (id, title, role, created_at, status)
+   - Require token for REST endpoints (Authorization header or query param)
+   Tests: Can create/list/delete terminals via REST API
+   Done when: All CRUD operations work via HTTP
+
+** Initialize Svelte frontend structure
+   Why: Need frontend framework before building UI components
+   Change:
+   - Use Vite + Svelte (not SvelteKit) for minimal integration with Go server
+   - Run `npm create vite@latest frontend -- --template svelte`
+   - Install xterm.js and addons: xterm, xterm-addon-fit, xterm-addon-attach
+   - Configure Vite to proxy API calls to Go backend (port 8080)
+   - Create basic app structure with routing (splash, terminal views)
+   Tests: Frontend dev server runs, builds successfully
+   Done when: Svelte app runs with xterm.js dependencies installed
+
+** Build splash page dashboard component
+   Why: Entry point showing system status and terminal management
+   Change:
+   - Create Dashboard.svelte component
+   - Fetch /api/status and /api/terminals on mount
+   - Display: terminal count, system info, list of active terminals
+   - Add "New Terminal" button (calls POST /api/terminals)
+   - Style with minimal CSS (clean, functional)
+   Tests: Dashboard loads, shows correct terminal count, button creates terminal
+   Done when: Splash page displays status and can create terminals
+
+** Build terminal tab component with xterm.js
+   Why: Display interactive terminals in browser
+   Change:
+   - Create Terminal.svelte component
+   - Initialize xterm.js instance with fit addon
+   - Connect to WebSocket /ws/terminal/:id (send resize control JSON on fit)
+   - Handle terminal resize on window resize
+   - Hook xterm onBell for bell interception/notifications
+   - Implement terminal cleanup on component destroy
+   Tests: Terminal renders, accepts input, displays output correctly
+   Done when: Fully interactive terminal works in browser
+
+** Implement tab switching UI
+   Why: Users need to switch between multiple terminals
+   Change:
+   - Create TabBar.svelte component
+   - Maintain array of open terminal tabs (IDs + labels)
+   - Switch active terminal on tab click
+   - Add close button per tab (calls DELETE /api/terminals/:id)
+   - Keep splash page as special "tab 0"
+   Tests: Can switch between splash and terminal tabs, close tabs
+   Done when: Tab navigation works smoothly
+
+** Wire up complete application flow
+   Why: Connect all pieces into working application
+   Change:
+   - Create App.svelte as main component orchestrator
+   - Manage global state: active terminals, current tab
+   - Route between splash and terminal views
+   - Handle terminal creation → open new tab → connect WebSocket
+   - Serve frontend build from Go backend in production
+   Tests: Full flow works: splash → create terminal → interact → switch tabs → close
+   Done when: Complete application runs end-to-end
+
+** Add basic inter-terminal read capability (foundation)
+   Why: Lay groundwork for terminal orchestration features
+   Change:
+   - Add GET /api/terminals/:id/output endpoint (recent output buffer)
+   - Each terminal maintains circular buffer of recent output (~1000 lines)
+   - Document API for reading terminal state (for future AI agent integration)
+   - Add metadata field for terminal "role" or "purpose" (future use)
+   Tests: Can retrieve recent output from terminal via API
+   Done when: API endpoint returns buffered terminal output

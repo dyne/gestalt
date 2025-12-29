@@ -2,7 +2,6 @@ package terminal
 
 import (
 	"errors"
-	"log"
 	"os"
 	"sort"
 	"strconv"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"gestalt/internal/agent"
+	"gestalt/internal/logging"
 )
 
 var ErrSessionNotFound = errors.New("terminal session not found")
@@ -23,6 +23,7 @@ type ManagerOptions struct {
 	BufferLines int
 	Clock       Clock
 	Agents      map[string]agent.Agent
+	Logger      *logging.Logger
 }
 
 // Manager is safe for concurrent use; mu guards the sessions map and lifecycle.
@@ -36,6 +37,7 @@ type Manager struct {
 	bufferLines int
 	clock       Clock
 	agents      map[string]agent.Agent
+	logger      *logging.Logger
 }
 
 const promptDelay = 75 * time.Millisecond
@@ -68,6 +70,11 @@ func NewManager(opts ManagerOptions) *Manager {
 		clock = realClock{}
 	}
 
+	logger := opts.Logger
+	if logger == nil {
+		logger = logging.NewLoggerWithOutput(logging.NewLogBuffer(logging.DefaultBufferSize), logging.LevelInfo, nil)
+	}
+
 	agents := make(map[string]agent.Agent)
 	for id, profile := range opts.Agents {
 		agents[id] = profile
@@ -80,6 +87,7 @@ func NewManager(opts ManagerOptions) *Manager {
 		bufferLines: bufferLines,
 		clock:       clock,
 		agents:      agents,
+		logger:      logger,
 	}
 }
 
@@ -90,6 +98,9 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 	if agentID != "" {
 		agentProfile, ok := m.GetAgent(agentID)
 		if !ok {
+			m.logger.Warn("agent not found", map[string]string{
+				"agent_id": agentID,
+			})
 			return nil, ErrAgentNotFound
 		}
 		profileCopy := agentProfile
@@ -103,7 +114,11 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 		if strings.TrimSpace(agentProfile.PromptFile) != "" {
 			data, err := os.ReadFile(agentProfile.PromptFile)
 			if err != nil {
-				log.Printf("agent %s prompt file %s: %v", agentID, agentProfile.PromptFile, err)
+				m.logger.Warn("agent prompt file read failed", map[string]string{
+					"agent_id":    agentID,
+					"prompt_file": agentProfile.PromptFile,
+					"error":       err.Error(),
+				})
 			} else {
 				prompt = ensureTrailingNewline(data)
 			}
@@ -123,11 +138,24 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 	m.sessions[id] = session
 	m.mu.Unlock()
 
+	fields := map[string]string{
+		"terminal_id": id,
+		"role":        role,
+		"title":       title,
+	}
+	if agentID != "" {
+		fields["agent_id"] = agentID
+	}
+	m.logger.Info("terminal created", fields)
+
 	if len(prompt) > 0 {
 		go func() {
 			time.Sleep(promptDelay)
 			if err := session.Write(prompt); err != nil {
-				log.Printf("agent %s prompt write: %v", agentID, err)
+				m.logger.Warn("agent prompt write failed", map[string]string{
+					"agent_id": agentID,
+					"error":    err.Error(),
+				})
 			}
 		}()
 	}
@@ -199,8 +227,14 @@ func (m *Manager) Delete(id string) error {
 	}
 
 	if err := session.Close(); err != nil {
-		log.Printf("close session %s: %v", id, err)
+		m.logger.Warn("terminal close error", map[string]string{
+			"terminal_id": id,
+			"error":       err.Error(),
+		})
 	}
+	m.logger.Info("terminal deleted", map[string]string{
+		"terminal_id": id,
+	})
 	return nil
 }
 

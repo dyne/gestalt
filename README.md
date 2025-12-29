@@ -58,10 +58,41 @@ API (development snapshot)
 - POST /api/terminals - create a new terminal
 - DELETE /api/terminals/:id - terminate a terminal
 - GET /api/terminals/:id/output - recent output lines (buffered)
+- GET /api/logs - recent system logs (query: level, since, limit)
 
 Auth
 - REST endpoints expect `Authorization: Bearer <token>` when `GESTALT_TOKEN` is set.
 - WebSocket connections accept `?token=<token>` for browser compatibility.
+
+## Logging and notifications
+
+Backend logging is structured and buffered in memory (ring buffer). Logs are
+available via REST and WebSocket, and the UI shows toasts plus a Logs tab.
+
+Log levels:
+- debug
+- info
+- warning
+- error
+
+REST log retrieval:
+- GET `/api/logs?level=warning&since=2025-01-01T12:00:00Z&limit=100`
+  - `level` filters by minimum severity (warning includes warning+error)
+  - `since` is RFC3339 UTC timestamp
+  - `limit` returns the last N entries (default 100)
+
+WebSocket log streaming:
+- `/ws/logs` sends JSON log entries in real time.
+- Clients can send `{"level":"warning"}` to adjust minimum severity.
+
+Toast notifications:
+- Automatically surface key events (API errors, terminal connection issues).
+- Auto-dismiss defaults: info 5s, warning 7s, errors stay until dismissed.
+- Preferences are available via the “Notifications” button and stored in localStorage.
+
+Backend logging usage:
+- Use the structured logger (`Logger.Info/Warn/Error`) with context fields.
+- Avoid `log.Printf` in new code so logs remain visible in the UI.
 
 ## Agent profiles
 

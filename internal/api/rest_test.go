@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"gestalt/internal/agent"
+	"gestalt/internal/logging"
 	"gestalt/internal/terminal"
 )
 
@@ -337,6 +338,93 @@ func TestAgentsEndpoint(t *testing.T) {
 	}
 	if payload[0].ID != "codex" && payload[1].ID != "codex" {
 		t.Fatalf("missing codex agent")
+	}
+}
+
+func TestLogsEndpointDefaults(t *testing.T) {
+	buffer := logging.NewLogBuffer(10)
+	buffer.Add(logging.LogEntry{Timestamp: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), Level: logging.LevelInfo, Message: "one"})
+	buffer.Add(logging.LogEntry{Timestamp: time.Date(2024, 1, 1, 1, 0, 0, 0, time.UTC), Level: logging.LevelWarning, Message: "two"})
+	buffer.Add(logging.LogEntry{Timestamp: time.Date(2024, 1, 1, 2, 0, 0, 0, time.UTC), Level: logging.LevelError, Message: "three"})
+	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, io.Discard)
+
+	handler := &RestHandler{Logger: logger}
+	req := httptest.NewRequest(http.MethodGet, "/api/logs", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", handler.handleLogs)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var payload []logging.LogEntry
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(payload) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(payload))
+	}
+	if payload[0].Message != "one" {
+		t.Fatalf("expected first entry 'one', got %q", payload[0].Message)
+	}
+}
+
+func TestLogsEndpointFilters(t *testing.T) {
+	buffer := logging.NewLogBuffer(10)
+	buffer.Add(logging.LogEntry{Timestamp: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), Level: logging.LevelInfo, Message: "one"})
+	buffer.Add(logging.LogEntry{Timestamp: time.Date(2024, 1, 1, 1, 0, 0, 0, time.UTC), Level: logging.LevelWarning, Message: "two"})
+	buffer.Add(logging.LogEntry{Timestamp: time.Date(2024, 1, 1, 2, 0, 0, 0, time.UTC), Level: logging.LevelError, Message: "three"})
+	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, io.Discard)
+
+	handler := &RestHandler{Logger: logger}
+	req := httptest.NewRequest(http.MethodGet, "/api/logs?level=warning&limit=1", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", handler.handleLogs)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var payload []logging.LogEntry
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(payload) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(payload))
+	}
+	if payload[0].Message != "three" {
+		t.Fatalf("expected last entry 'three', got %q", payload[0].Message)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/logs?since=2024-01-01T01:00:00Z", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res = httptest.NewRecorder()
+
+	restHandler("secret", handler.handleLogs)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	payload = nil
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(payload) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(payload))
+	}
+	if payload[0].Message != "two" {
+		t.Fatalf("expected entry 'two', got %q", payload[0].Message)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/logs?level=unknown", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res = httptest.NewRecorder()
+
+	restHandler("secret", handler.handleLogs)(res, req)
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", res.Code)
 	}
 }
 

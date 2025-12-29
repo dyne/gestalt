@@ -1,8 +1,9 @@
 package api
 
 import (
-	"log"
 	"net/http"
+
+	"gestalt/internal/logging"
 )
 
 type apiError struct {
@@ -29,9 +30,14 @@ func jsonErrorMiddleware(next apiHandler) http.HandlerFunc {
 	}
 }
 
-func loggingMiddleware(next http.Handler) http.Handler {
+func loggingMiddleware(logger *logging.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("api %s %s", r.Method, r.URL.Path)
+		if logger != nil {
+			logger.Debug("api request", map[string]string{
+				"method": r.Method,
+				"path":   r.URL.Path,
+			})
+		}
 		next.ServeHTTP(w, r)
 	})
 }

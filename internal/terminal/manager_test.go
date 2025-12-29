@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"gestalt/internal/agent"
+	"gestalt/internal/logging"
 )
 
 type fakePty struct {
@@ -266,5 +267,29 @@ func TestManagerDeleteIgnoresCloseError(t *testing.T) {
 	}
 	if err := manager.Delete(session.ID); err != nil {
 		t.Fatalf("expected nil error, got %v", err)
+	}
+}
+
+func TestManagerCreateUnknownAgentLogsWarning(t *testing.T) {
+	buffer := logging.NewLogBuffer(10)
+	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, io.Discard)
+	manager := NewManager(ManagerOptions{
+		Logger: logger,
+	})
+
+	if _, err := manager.Create("missing", "role", "title"); !errors.Is(err, ErrAgentNotFound) {
+		t.Fatalf("expected ErrAgentNotFound, got %v", err)
+	}
+
+	entries := buffer.List()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 log entry, got %d", len(entries))
+	}
+	entry := entries[0]
+	if entry.Message != "agent not found" {
+		t.Fatalf("expected agent not found log, got %q", entry.Message)
+	}
+	if entry.Context["agent_id"] != "missing" {
+		t.Fatalf("expected agent_id missing, got %v", entry.Context)
 	}
 }

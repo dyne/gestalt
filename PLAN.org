@@ -1,3 +1,199 @@
+* DONE [#A] System logging and notification infrastructure
+  Goal: Add comprehensive logging system with UI visibility through both toast notifications and dedicated logs tab.
+  Notes:
+  - Backend warnings (missing prompt files, agent load errors, etc.) must be visible in UI
+  - Two-layer approach: ephemeral toasts for immediate feedback + persistent logs tab
+  - Backend maintains circular log buffer accessible via REST API
+  - Frontend uses Svelte store for notifications with auto-dismiss
+  - Toast notifications: auto-dismiss after 3-5s (configurable), support info/warning/error levels
+  - Logs tab: persistent view showing all system logs with filtering by level/time
+  - WebSocket optional for real-time log streaming (can start with polling)
+  - Log levels: DEBUG, INFO, WARNING, ERROR (standard severity)
+  Date: 2025-12-29
+
+** [#B] Create backend log buffer and structured logging
+   Why: Need centralized log collection that both stdout and API can access
+   Change:
+   - Create internal/logging package with LogBuffer (circular buffer, thread-safe)
+   - LogEntry struct: Timestamp, Level (debug/info/warning/error), Message, Context (map)
+   - Default buffer size: 1000 entries (configurable)
+   - Create Logger wrapper that writes to both stdout and LogBuffer
+   - Replace log.Printf calls with structured logger throughout codebase
+   - Logger methods: Debug(), Info(), Warn(), Error()
+   - Include contextual fields (e.g., agent_id, terminal_id where relevant)
+   Tests: Unit tests for LogBuffer thread-safety, circular behavior, entry limits
+   Done when: All backend logging goes through structured logger with buffer
+
+** [#B] Add REST endpoint for log retrieval
+   Why: Frontend needs to fetch logs for display in logs tab
+   Change:
+   - Add GET /api/logs endpoint with query parameters: since (timestamp), level (filter), limit
+   - Return JSON array of log entries with timestamp, level, message, context
+   - Support pagination: last N entries or entries since timestamp
+   - Default: return last 100 entries
+   - Add filtering by log level (e.g., ?level=warning returns warning+error only)
+   - Consider: HEAD request for log count or latest timestamp (polling optimization)
+   Tests: REST endpoint tests with various query parameters
+   Done when: Frontend can fetch filtered log history via REST
+
+** [#C] Add WebSocket endpoint for real-time log streaming (optional)
+   Why: Real-time log updates provide better UX than polling
+   Change:
+   - Add GET /ws/logs WebSocket endpoint for log streaming
+   - Send log entries as JSON messages when they occur
+   - Support client-side level filtering (client sends filter on connect)
+   - Reuse existing WebSocket auth pattern (token in query param)
+   - Handle subscriber cleanup on disconnect
+   - Optional: implement later if REST polling is sufficient initially
+   Tests: WebSocket connection test, message delivery test
+   Done when: Logs stream to connected WebSocket clients in real-time
+
+** [#B] Create frontend notification store
+   Why: Centralized notification state management for toast display
+   Change:
+   - Create src/lib/notificationStore.js with Svelte writable store
+   - Notification object: id, level, message, timestamp, autoClose, duration
+   - Methods: addNotification(level, message, opts), dismiss(id), clear()
+   - Auto-dismiss logic: setTimeout for toasts, optional permanent notifications
+   - Default duration: 5000ms for info, 7000ms for warning, manual for error
+   - Unique ID generation (timestamp + counter)
+   - Export subscribe() for reactive updates
+   Tests: Store tests for add/dismiss/auto-dismiss behavior
+   Done when: Notification store manages toast lifecycle
+
+** [#B] Create toast notification component
+   Why: Visual display of ephemeral notifications
+   Change:
+   - Create src/components/Toast.svelte for individual toast
+   - Create src/components/ToastContainer.svelte for positioning/stacking
+   - Position: top-right or bottom-right corner (configurable)
+   - Stack vertically with smooth enter/exit animations (slide + fade)
+   - Visual styling: color-coded by level (info=blue, warning=yellow, error=red)
+   - Include dismiss button (X) and auto-close progress indicator
+   - Support click-to-dismiss
+   - Accessibility: ARIA live region for screen readers
+   Tests: Manual visual testing; verify animations and auto-dismiss
+   Done when: Toasts display and auto-dismiss correctly
+
+** [#B] Create logs tab view
+   Why: Persistent access to system logs with filtering and search
+   Change:
+   - Create src/views/LogsView.svelte as dedicated tab
+   - Add "Logs" tab to TabBar (between Dashboard and terminal tabs)
+   - Display log entries in scrollable list/table: timestamp, level badge, message
+   - Add level filter dropdown (All, Info, Warning, Error)
+   - Add auto-refresh toggle (poll every 5s) and manual refresh button
+   - Show entry count and latest update time
+   - Expand log entry on click to show full context/details
+   - Reverse chronological order (newest first)
+   - Consider: virtualized scrolling for large log lists
+   Tests: Manual testing with various log volumes and filters
+   Done when: Logs tab displays backend logs with filtering
+
+** [#B] Wire notifications into existing code paths
+   Why: Emit notifications for key user-facing events
+   Change:
+   - Backend: emit warning logs for missing prompt files, agent load failures
+   - Backend: emit info logs for terminal create/destroy, agent startup
+   - Frontend: subscribe to notifications in App.svelte
+   - Frontend: show toast on terminal connection errors, auth failures
+   - Frontend: show toast on API errors (replace inline error text where appropriate)
+   - Frontend: poll /api/logs on logs tab mount, display in LogsView
+   - Optional: WebSocket log streaming if implemented
+   Tests: Trigger various scenarios; verify toasts and logs appear
+   Done when: Users see notifications for all important system events
+
+** [#C] Add notification preferences (optional enhancement)
+   Why: Users may want to customize notification behavior
+   Change:
+   - Add settings panel (modal or dedicated view) for notification prefs
+   - Toggles: enable/disable toasts, auto-dismiss duration, log level filter
+   - Store preferences in localStorage
+   - Apply prefs to notification store configuration
+   - Default: all notifications enabled
+   Tests: Manual testing of preference persistence and application
+   Done when: Users can customize notification behavior (optional)
+
+** [#C] Update documentation for logging system
+   Why: Developers and users need to understand logging capabilities
+   Change:
+   - Add "Logging and Notifications" section to README.md
+   - Document log levels and when each is used
+   - Document /api/logs endpoint and query parameters
+   - Document toast notification behavior and auto-dismiss
+   - Add screenshot or description of logs tab
+   - Document how to add logs in backend code (logger usage)
+   Tests: None (documentation only)
+   Done when: Logging system is documented in README
+
+* TODO [#B] Multi-prompt injection on agent startup
+  Goal: Extend agent configuration to support multiple prompts injected sequentially on terminal start.
+  Notes:
+  - Current: agent has "prompt_file" (string) that references a single file
+  - Desired: agent has "prompt" field that can be string OR array of strings
+  - Each string is a prompt name (not full path); resolve to config/prompts/{name}.txt
+  - Example: "prompt": ["coder", "architect"] → inject coder.txt then architect.txt
+  - Maintain backward compatibility not needed: drop "prompt_file"
+  - Prompts injected sequentially with small delay between each (e.g., 100ms)
+  - Empty/missing prompt field means no injection (current default behavior)
+  Date: 2025-12-29
+
+** TODO [#B] Update Agent struct to support prompt array
+   Why: Need to accept both single string and array of strings for prompts
+   Change:
+   - Add new field: Prompts []string `json:"prompt"` to Agent struct
+   - Remove PromptFile string `json:"prompt_file"` field entirely
+   - Update Validate() to handle new format
+   - Update JSON unmarshaling to accept both "prompt": "single" and "prompt": ["multi"]
+   - Implement custom UnmarshalJSON if needed for flexible string/array parsing
+   Tests: Unit tests for JSON parsing with string, array, empty, nil; validation logic
+   Done when: Agent struct accepts prompt field as string or string array
+
+** TODO [#B] Update agent loader to resolve prompt names to paths
+   Why: Prompts are stored as names but need to be validated/resolved to file paths
+   Change:
+   - Add PromptsDir parameter to Loader.Load() (default: "config/prompts")
+   - After loading each agent JSON, validate that all prompt names exist as .txt files
+   - Keep names in Agent struct; resolve paths during injection (more flexible)
+   - Use structured logger to log warning if prompt file doesn't exist
+   - Don't fail agent load on missing prompt (graceful degradation)
+   - Update loader tests to check prompt file existence validation
+   Tests: Unit tests with missing prompt files; verify warnings logged
+   Done when: Loader validates prompt names against config/prompts/*.txt
+
+** TODO [#B] Implement sequential prompt injection in session startup
+   Why: Multiple prompts need to be injected in order with proper timing
+   Change:
+   - Locate current prompt injection code (likely in terminal/session.go or manager.go)
+   - Replace single prompt file read with loop over agent.Prompts
+   - For each prompt name: resolve to config/prompts/{name}.txt, read contents, inject
+   - Add configurable delay between prompts (default 100ms) to allow shell processing
+   - Use structured logger for warnings if file missing/unreadable, continue with next prompt
+   - Consider: inject after shell is ready (existing delay before first prompt)
+   - Ensure newlines are properly handled (add \n at end if missing)
+   Tests: Manual test with agent using multiple prompts; verify execution order
+   Done when: Agent terminals execute all prompts in sequence on startup
+
+** TODO [#C] Update example agent configs to use new format
+   Why: Demonstrate new prompt field format and provide working examples
+   Change:
+   - Update config/agents/*.json to use "prompt" field instead of "prompt_file"
+   - Create example with single prompt: "prompt": "coder"
+   - Create example with multiple prompts: "prompt": ["coder", "architect"]
+   - Keep one example without prompts to show optional nature
+   Tests: Load examples; verify they parse and execute correctly
+   Done when: Example configs demonstrate new prompt field usage
+
+** TODO [#C] Update documentation for prompt configuration
+   Why: Users need to understand new prompt field format and behavior
+   Change:
+   - Update README.md Agent Profiles section with prompt field documentation
+   - Document both formats: "prompt": "single" and "prompt": ["multi"]
+   - Document prompt resolution: names → config/prompts/{name}.txt
+   - Document injection timing and sequential behavior
+   Tests: None (documentation only)
+   Done when: README clearly explains prompt field usage
+
 * DONE [#B] Agent profiles system
   Goal: Allow customizable terminal configurations for AI agents stored as JSON files in config/agents/.
   Notes:

@@ -5,14 +5,17 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
+	"gestalt/internal/logging"
 	"gestalt/internal/terminal"
 )
 
 type RestHandler struct {
 	Manager *terminal.Manager
+	Logger  *logging.Logger
 }
 
 type terminalSummary struct {
@@ -44,6 +47,12 @@ type agentSummary struct {
 	Name     string `json:"name"`
 	LLMType  string `json:"llm_type"`
 	LLMModel string `json:"llm_model"`
+}
+
+type logQuery struct {
+	Limit int
+	Level logging.Level
+	Since *time.Time
 }
 
 type createTerminalRequest struct {
@@ -121,9 +130,35 @@ func (h *RestHandler) handleAgents(w http.ResponseWriter, r *http.Request) *apiE
 	return nil
 }
 
+func (h *RestHandler) handleLogs(w http.ResponseWriter, r *http.Request) *apiError {
+	if err := h.requireLogger(); err != nil {
+		return err
+	}
+	if r.Method != http.MethodGet {
+		return methodNotAllowed(w, "GET")
+	}
+
+	query, err := parseLogQuery(r)
+	if err != nil {
+		return err
+	}
+
+	entries := h.Logger.Buffer().List()
+	filtered := filterLogEntries(entries, query)
+	writeJSON(w, http.StatusOK, filtered)
+	return nil
+}
+
 func (h *RestHandler) requireManager() *apiError {
 	if h.Manager == nil {
 		return &apiError{Status: http.StatusInternalServerError, Message: "terminal manager unavailable"}
+	}
+	return nil
+}
+
+func (h *RestHandler) requireLogger() *apiError {
+	if h.Logger == nil || h.Logger.Buffer() == nil {
+		return &apiError{Status: http.StatusInternalServerError, Message: "log buffer unavailable"}
 	}
 	return nil
 }
@@ -246,6 +281,58 @@ func decodeCreateTerminalRequest(r *http.Request) (createTerminalRequest, *apiEr
 	}
 
 	return request, nil
+}
+
+func parseLogQuery(r *http.Request) (logQuery, *apiError) {
+	values := r.URL.Query()
+	query := logQuery{
+		Limit: 100,
+	}
+
+	if rawLimit := strings.TrimSpace(values.Get("limit")); rawLimit != "" {
+		limit, err := strconv.Atoi(rawLimit)
+		if err != nil || limit <= 0 {
+			return query, &apiError{Status: http.StatusBadRequest, Message: "invalid limit"}
+		}
+		query.Limit = limit
+	}
+
+	if rawSince := strings.TrimSpace(values.Get("since")); rawSince != "" {
+		parsed, err := time.Parse(time.RFC3339, rawSince)
+		if err != nil {
+			return query, &apiError{Status: http.StatusBadRequest, Message: "invalid since timestamp"}
+		}
+		query.Since = &parsed
+	}
+
+	if rawLevel := strings.TrimSpace(values.Get("level")); rawLevel != "" {
+		level, ok := logging.ParseLevel(rawLevel)
+		if !ok {
+			return query, &apiError{Status: http.StatusBadRequest, Message: "invalid log level"}
+		}
+		query.Level = level
+	}
+
+	return query, nil
+}
+
+func filterLogEntries(entries []logging.LogEntry, query logQuery) []logging.LogEntry {
+	filtered := make([]logging.LogEntry, 0, len(entries))
+	for _, entry := range entries {
+		if query.Level != "" && !logging.LevelAtLeast(entry.Level, query.Level) {
+			continue
+		}
+		if query.Since != nil && entry.Timestamp.Before(*query.Since) {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+
+	if query.Limit > 0 && len(filtered) > query.Limit {
+		filtered = filtered[len(filtered)-query.Limit:]
+	}
+
+	return filtered
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

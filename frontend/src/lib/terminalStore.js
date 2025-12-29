@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 // FitAddon keeps terminal sizing logic centralized and maintained.
 
 import { apiFetch, buildWebSocketUrl } from './api.js'
+import { notificationStore } from './notificationStore.js'
 
 const terminals = new Map()
 const MAX_RETRIES = 5
@@ -51,6 +52,8 @@ const createTerminalState = (terminalId) => {
   let disposed = false
   let retryCount = 0
   let reconnectTimer
+  let notifiedUnauthorized = false
+  let notifiedDisconnect = false
 
   const sendResize = () => {
     if (!socket || socket.readyState !== WebSocket.OPEN) return
@@ -118,6 +121,13 @@ const createTerminalState = (terminalId) => {
     if (retryCount >= MAX_RETRIES) {
       status.set('disconnected')
       canReconnect.set(true)
+      if (!notifiedDisconnect) {
+        notificationStore.addNotification(
+          'warning',
+          `Terminal ${terminalId} connection lost.`
+        )
+        notifiedDisconnect = true
+      }
       return
     }
     const delay = Math.min(BASE_DELAY_MS * 2 ** retryCount, MAX_DELAY_MS)
@@ -150,6 +160,8 @@ const createTerminalState = (terminalId) => {
       retryCount = 0
       status.set('connected')
       canReconnect.set(false)
+      notifiedUnauthorized = false
+      notifiedDisconnect = false
       scheduleFit()
     })
 
@@ -172,6 +184,13 @@ const createTerminalState = (terminalId) => {
       if (await checkAuthFailure(event)) {
         status.set('unauthorized')
         canReconnect.set(true)
+        if (!notifiedUnauthorized) {
+          notificationStore.addNotification(
+            'error',
+            `Terminal ${terminalId} requires authentication.`
+          )
+          notifiedUnauthorized = true
+        }
         return
       }
       scheduleReconnect()
@@ -179,6 +198,13 @@ const createTerminalState = (terminalId) => {
 
     socket.addEventListener('error', (event) => {
       console.error('terminal websocket error', event)
+      if (!notifiedDisconnect) {
+        notificationStore.addNotification(
+          'warning',
+          `Terminal ${terminalId} connection error.`
+        )
+        notifiedDisconnect = true
+      }
     })
 
   }

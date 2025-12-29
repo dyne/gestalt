@@ -1,24 +1,34 @@
 <script>
   import { onMount } from 'svelte'
   import Dashboard from './views/Dashboard.svelte'
+  import LogsView from './views/LogsView.svelte'
   import TerminalView from './views/TerminalView.svelte'
   import TabBar from './components/TabBar.svelte'
+  import ToastContainer from './components/ToastContainer.svelte'
+  import NotificationSettings from './components/NotificationSettings.svelte'
   import { apiFetch } from './lib/api.js'
   import { releaseTerminalState } from './lib/terminalStore.js'
+  import { notificationStore } from './lib/notificationStore.js'
 
-  let tabs = [{ id: 'dashboard', label: 'Dashboard', isHome: true }]
+  let tabs = [
+    { id: 'dashboard', label: 'Dashboard', isHome: true },
+    { id: 'logs', label: 'Logs', isHome: true },
+  ]
   let activeId = 'dashboard'
 
   let terminals = []
   let status = null
   let loading = false
   let error = ''
+  let showSettings = false
 
-  $: activeView = activeId === 'dashboard' ? 'dashboard' : 'terminal'
+  $: activeView =
+    activeId === 'dashboard' ? 'dashboard' : activeId === 'logs' ? 'logs' : 'terminal'
 
   const syncTabs = (terminalList) => {
     tabs = [
       { id: 'dashboard', label: 'Dashboard', isHome: true },
+      { id: 'logs', label: 'Logs', isHome: true },
       ...terminalList.map((terminal) => ({
         id: terminal.id,
         label: terminal.title || `Terminal ${terminal.id}`,
@@ -43,7 +53,9 @@
       terminals = await terminalsResponse.json()
       syncTabs(terminals)
     } catch (err) {
-      error = err?.message || 'Failed to load dashboard data.'
+      const message = err?.message || 'Failed to load dashboard data.'
+      error = message
+      notificationStore.addNotification('error', message)
     } finally {
       loading = false
     }
@@ -51,30 +63,47 @@
 
   const createTerminal = async (agentId = '') => {
     error = ''
-    const response = await apiFetch('/api/terminals', {
-      method: 'POST',
-      body: JSON.stringify(agentId ? { agent: agentId } : {}),
-    })
-    const created = await response.json()
-    terminals = [...terminals, created]
-    if (status) {
-      status = { ...status, terminal_count: status.terminal_count + 1 }
+    try {
+      const response = await apiFetch('/api/terminals', {
+        method: 'POST',
+        body: JSON.stringify(agentId ? { agent: agentId } : {}),
+      })
+      const created = await response.json()
+      terminals = [...terminals, created]
+      if (status) {
+        status = { ...status, terminal_count: status.terminal_count + 1 }
+      }
+      syncTabs(terminals)
+      activeId = created.id
+      notificationStore.addNotification(
+        'info',
+        `Terminal ${created.title || created.id} created.`
+      )
+    } catch (err) {
+      const message = err?.message || 'Failed to create terminal.'
+      notificationStore.addNotification('error', message)
+      throw err
     }
-    syncTabs(terminals)
-    activeId = created.id
   }
 
   const deleteTerminal = async (id) => {
     error = ''
-    await apiFetch(`/api/terminals/${id}`, { method: 'DELETE' })
-    releaseTerminalState(id)
-    terminals = terminals.filter((terminal) => terminal.id !== id)
-    if (status) {
-      status = { ...status, terminal_count: Math.max(0, status.terminal_count - 1) }
-    }
-    syncTabs(terminals)
-    if (activeId === id) {
-      activeId = 'dashboard'
+    try {
+      await apiFetch(`/api/terminals/${id}`, { method: 'DELETE' })
+      releaseTerminalState(id)
+      terminals = terminals.filter((terminal) => terminal.id !== id)
+      if (status) {
+        status = { ...status, terminal_count: Math.max(0, status.terminal_count - 1) }
+      }
+      syncTabs(terminals)
+      if (activeId === id) {
+        activeId = 'dashboard'
+      }
+      notificationStore.addNotification('info', `Terminal ${id} closed.`)
+    } catch (err) {
+      const message = err?.message || 'Failed to close terminal.'
+      notificationStore.addNotification('error', message)
+      throw err
     }
   }
 
@@ -83,16 +112,32 @@
   }
 
   const handleClose = (id) => {
-    if (id === 'dashboard') return
+    if (id === 'dashboard' || id === 'logs') return
     deleteTerminal(id).catch((err) => {
       error = err?.message || 'Failed to close terminal.'
     })
   }
 
+  const openSettings = () => {
+    showSettings = true
+  }
+
+  const closeSettings = () => {
+    showSettings = false
+  }
+
   onMount(refresh)
 </script>
 
-<TabBar {tabs} {activeId} onSelect={handleSelect} onClose={handleClose} />
+<TabBar
+  {tabs}
+  {activeId}
+  onSelect={handleSelect}
+  onClose={handleClose}
+  onOpenSettings={openSettings}
+/>
+<ToastContainer notifications={$notificationStore} onDismiss={notificationStore.dismiss} />
+<NotificationSettings open={showSettings} onClose={closeSettings} />
 
 <main class="app">
   <section class="view" data-active={activeView === 'dashboard'}>
@@ -103,6 +148,9 @@
       {error}
       onCreate={createTerminal}
     />
+  </section>
+  <section class="view" data-active={activeView === 'logs'}>
+    <LogsView />
   </section>
   <section class="view view--terminals" data-active={activeView === 'terminal'}>
     {#each terminals as terminal (terminal.id)}

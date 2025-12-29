@@ -3,23 +3,30 @@ package api
 import (
 	"net/http"
 
+	"gestalt/internal/logging"
 	"gestalt/internal/terminal"
 )
 
-func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken string, staticDir string) {
+func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken string, staticDir string, logger *logging.Logger) {
 	rest := &RestHandler{
 		Manager: manager,
+		Logger:  logger,
 	}
 
 	mux.Handle("/ws/terminal/", &TerminalHandler{
 		Manager:   manager,
 		AuthToken: authToken,
 	})
+	mux.Handle("/ws/logs", &LogsHandler{
+		Logger:    logger,
+		AuthToken: authToken,
+	})
 
-	mux.Handle("/api/status", loggingMiddleware(restHandler(authToken, rest.handleStatus)))
-	mux.Handle("/api/agents", loggingMiddleware(restHandler(authToken, rest.handleAgents)))
-	mux.Handle("/api/terminals", loggingMiddleware(restHandler(authToken, rest.handleTerminals)))
-	mux.Handle("/api/terminals/", loggingMiddleware(restHandler(authToken, rest.handleTerminal)))
+	mux.Handle("/api/status", loggingMiddleware(logger, restHandler(authToken, rest.handleStatus)))
+	mux.Handle("/api/agents", loggingMiddleware(logger, restHandler(authToken, rest.handleAgents)))
+	mux.Handle("/api/logs", loggingMiddleware(logger, restHandler(authToken, rest.handleLogs)))
+	mux.Handle("/api/terminals", loggingMiddleware(logger, restHandler(authToken, rest.handleTerminals)))
+	mux.Handle("/api/terminals/", loggingMiddleware(logger, restHandler(authToken, rest.handleTerminal)))
 
 	if staticDir != "" {
 		mux.Handle("/", NewSPAHandler(staticDir))

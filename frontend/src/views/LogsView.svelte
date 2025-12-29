@@ -1,0 +1,368 @@
+<script>
+  import { onDestroy, onMount } from 'svelte'
+  import { apiFetch } from '../lib/api.js'
+  import { notificationStore } from '../lib/notificationStore.js'
+
+  let logs = []
+  let orderedLogs = []
+  let loading = false
+  let error = ''
+  let levelFilter = 'all'
+  let autoRefresh = true
+  let lastUpdated = null
+  let refreshTimer = null
+  let mounted = false
+  let expanded = new Set()
+  let lastErrorMessage = ''
+
+  const levelOptions = [
+    { value: 'all', label: 'All' },
+    { value: 'info', label: 'Info' },
+    { value: 'warning', label: 'Warning' },
+    { value: 'error', label: 'Error' },
+  ]
+
+  const formatTime = (value) => {
+    if (!value) return '—'
+    const parsed = new Date(value)
+    if (Number.isNaN(parsed.getTime())) return '—'
+    return parsed.toLocaleString()
+  }
+
+  const buildQuery = () => {
+    const params = new URLSearchParams()
+    if (levelFilter !== 'all') {
+      params.set('level', levelFilter)
+    }
+    return params.toString()
+  }
+
+  const fetchLogs = async () => {
+    loading = true
+    error = ''
+    try {
+      const query = buildQuery()
+      const response = await apiFetch(`/api/logs${query ? `?${query}` : ''}`)
+      logs = await response.json()
+      lastUpdated = new Date().toISOString()
+      lastErrorMessage = ''
+    } catch (err) {
+      const message = err?.message || 'Failed to load logs.'
+      error = message
+      if (message !== lastErrorMessage) {
+        notificationStore.addNotification('error', message)
+        lastErrorMessage = message
+      }
+    } finally {
+      loading = false
+    }
+  }
+
+  const resetAutoRefresh = () => {
+    if (refreshTimer) {
+      clearInterval(refreshTimer)
+      refreshTimer = null
+    }
+    if (autoRefresh) {
+      refreshTimer = setInterval(fetchLogs, 5000)
+    }
+  }
+
+  const handleFilterChange = (event) => {
+    levelFilter = event.target.value
+    fetchLogs()
+  }
+
+  const toggleExpanded = (entryId) => {
+    const next = new Set(expanded)
+    if (next.has(entryId)) {
+      next.delete(entryId)
+    } else {
+      next.add(entryId)
+    }
+    expanded = next
+  }
+
+  const entryKey = (entry, index) => `${entry.timestamp}-${entry.message}-${index}`
+
+  $: orderedLogs = [...logs].reverse()
+
+  $: if (mounted) {
+    resetAutoRefresh()
+  }
+
+  onMount(async () => {
+    mounted = true
+    await fetchLogs()
+    resetAutoRefresh()
+  })
+
+  onDestroy(() => {
+    mounted = false
+    if (refreshTimer) {
+      clearInterval(refreshTimer)
+    }
+  })
+</script>
+
+<section class="logs">
+  <header class="logs__header">
+    <div>
+      <p class="eyebrow">System Logs</p>
+      <h1>Activity stream</h1>
+    </div>
+    <div class="controls">
+      <label class="control">
+        <span>Level</span>
+        <select on:change={handleFilterChange} bind:value={levelFilter}>
+          {#each levelOptions as option}
+            <option value={option.value}>{option.label}</option>
+          {/each}
+        </select>
+      </label>
+      <label class="control control--toggle">
+        <input type="checkbox" bind:checked={autoRefresh} />
+        <span>Auto refresh</span>
+      </label>
+      <button class="refresh" type="button" on:click={fetchLogs} disabled={loading}>
+        {loading ? 'Refreshing…' : 'Refresh'}
+      </button>
+    </div>
+  </header>
+
+  <section class="logs__meta">
+    <div>
+      <span class="label">Entries</span>
+      <strong>{logs.length}</strong>
+    </div>
+    <div>
+      <span class="label">Last updated</span>
+      <strong>{formatTime(lastUpdated)}</strong>
+    </div>
+  </section>
+
+  <section class="logs__list">
+    {#if loading && logs.length === 0}
+      <p class="muted">Loading logs…</p>
+    {:else if error}
+      <p class="error">{error}</p>
+    {:else if orderedLogs.length === 0}
+      <p class="muted">No logs yet.</p>
+    {:else}
+      <ul>
+        {#each orderedLogs as entry, index (entryKey(entry, index))}
+          <li class={`log-entry log-entry--${entry.level}`}>
+            <button
+              class="log-entry__button"
+              type="button"
+              on:click={() => toggleExpanded(entryKey(entry, index))}
+            >
+              <div class="log-entry__summary">
+                <div class="log-entry__meta">
+                  <span class="badge">{entry.level}</span>
+                  <span>{formatTime(entry.timestamp)}</span>
+                </div>
+                <p>{entry.message}</p>
+              </div>
+            </button>
+            {#if expanded.has(entryKey(entry, index)) && entry.context}
+              <pre class="log-entry__context">{JSON.stringify(entry.context, null, 2)}</pre>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+    {/if}
+  </section>
+</section>
+
+<style>
+  .logs {
+    padding: 2.5rem clamp(1.5rem, 4vw, 3.5rem) 3.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+  }
+
+  .logs__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1.5rem;
+  }
+
+  .eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.24em;
+    font-size: 0.7rem;
+    color: #6d6a61;
+    margin: 0 0 0.6rem;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: clamp(2rem, 3.5vw, 3rem);
+    font-weight: 600;
+    color: #161616;
+  }
+
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .control {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-size: 0.8rem;
+    color: #6f6b62;
+  }
+
+  select {
+    border-radius: 12px;
+    border: 1px solid rgba(20, 20, 20, 0.2);
+    padding: 0.4rem 0.6rem;
+    background: #fff;
+  }
+
+  .control--toggle {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .refresh {
+    border: none;
+    border-radius: 999px;
+    padding: 0.7rem 1.4rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    background: #151515;
+    color: #f6f3ed;
+    cursor: pointer;
+  }
+
+  .refresh:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  .logs__meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1rem;
+  }
+
+  .logs__meta > div {
+    background: #ffffffd9;
+    padding: 1rem 1.2rem;
+    border-radius: 18px;
+    border: 1px solid rgba(20, 20, 20, 0.08);
+  }
+
+  .label {
+    display: block;
+    font-size: 0.75rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #6c6860;
+    margin-bottom: 0.35rem;
+  }
+
+  .logs__list {
+    background: #ffffff;
+    border-radius: 24px;
+    border: 1px solid rgba(20, 20, 20, 0.08);
+    padding: 1.5rem;
+  }
+
+  ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+  }
+
+  .log-entry {
+    margin: 0;
+  }
+
+  .log-entry__button {
+    width: 100%;
+    padding: 0.9rem 1rem;
+    border-radius: 16px;
+    border: 1px solid rgba(20, 20, 20, 0.08);
+    background: #f9f7f2;
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+  }
+
+  .log-entry__button:focus-visible {
+    outline: 2px solid rgba(20, 20, 20, 0.4);
+    outline-offset: 2px;
+  }
+
+  .log-entry__summary {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .log-entry__meta {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.75rem;
+    color: #6f6b62;
+  }
+
+  .badge {
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 0.7rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    background: #151515;
+    color: #f4f1eb;
+  }
+
+  .log-entry--warning .badge {
+    background: #b8770d;
+  }
+
+  .log-entry--error .badge {
+    background: #b04a39;
+  }
+
+  .log-entry__context {
+    margin: 0.6rem 0 0;
+    background: rgba(0, 0, 0, 0.05);
+    padding: 0.6rem;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    white-space: pre-wrap;
+  }
+
+  .muted {
+    color: #7d7a73;
+    margin: 0;
+  }
+
+  .error {
+    color: #b04a39;
+    margin: 0;
+  }
+
+  @media (max-width: 720px) {
+    .logs__header {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+  }
+</style>

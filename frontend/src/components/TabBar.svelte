@@ -3,6 +3,7 @@
   export let activeId = ''
   export let onSelect = () => {}
   export let onClose = () => {}
+  export let onOpenSettings = () => {}
 </script>
 
 <nav class="tabbar" aria-label="Terminal tabs">
@@ -28,6 +29,11 @@
       {/if}
     </div>
   {/each}
+  <div class="tabbar__actions">
+    <button class="tabbar__settings" type="button" on:click={onOpenSettings}>
+      Notifications
+    </button>
+  </div>
 </nav>
 
 <style>
@@ -85,6 +91,20 @@
     display: grid;
     place-items: center;
     font-size: 0.9rem;
+  }
+
+  .tabbar__actions {
+    margin-left: auto;
+  }
+
+  .tabbar__settings {
+    border: 1px solid rgba(20, 20, 20, 0.2);
+    border-radius: 999px;
+    padding: 0.4rem 0.9rem;
+    background: #ffffff;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
   }
 
   .tabbar__item[data-active='true'] .tabbar__close {

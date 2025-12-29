@@ -1,7 +1,7 @@
 package main
 
 import (
-	"log"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -10,6 +10,7 @@ import (
 
 	"gestalt/internal/agent"
 	"gestalt/internal/api"
+	"gestalt/internal/logging"
 	"gestalt/internal/terminal"
 )
 
@@ -21,20 +22,30 @@ type Config struct {
 
 func main() {
 	cfg := loadConfig()
+	logBuffer := logging.NewLogBuffer(logging.DefaultBufferSize)
+	logger := logging.NewLogger(logBuffer, logging.LevelInfo)
+
 	agents, err := loadAgents()
 	if err != nil {
-		log.Fatalf("load agents: %v", err)
+		logger.Error("load agents failed", map[string]string{
+			"error": err.Error(),
+		})
+		os.Exit(1)
 	}
+	logger.Info("agents loaded", map[string]string{
+		"count": strconv.Itoa(len(agents)),
+	})
 
 	manager := terminal.NewManager(terminal.ManagerOptions{
 		Shell:  cfg.Shell,
 		Agents: agents,
+		Logger: logger,
 	})
 
 	staticDir := findStaticDir()
 
 	mux := http.NewServeMux()
-	api.RegisterRoutes(mux, manager, cfg.AuthToken, staticDir)
+	api.RegisterRoutes(mux, manager, cfg.AuthToken, staticDir, logger)
 
 	server := &http.Server{
 		Addr:              ":" + strconv.Itoa(cfg.Port),
@@ -42,8 +53,14 @@ func main() {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	log.Printf("gestalt listening on %s", server.Addr)
-	log.Fatal(server.ListenAndServe())
+	logger.Info("gestalt listening", map[string]string{
+		"addr": server.Addr,
+	})
+	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		logger.Error("http server stopped", map[string]string{
+			"error": err.Error(),
+		})
+	}
 }
 
 func loadConfig() Config {

@@ -14,7 +14,6 @@
   let error = ''
 
   $: activeView = activeId === 'dashboard' ? 'dashboard' : 'terminal'
-  $: activeTerminalId = activeId === 'dashboard' ? '' : activeId
 
   const syncTabs = (terminalList) => {
     tabs = [
@@ -94,7 +93,7 @@
 <TabBar {tabs} {activeId} onSelect={handleSelect} onClose={handleClose} />
 
 <main class="app">
-  {#if activeView === 'dashboard'}
+  <section class="view" data-active={activeView === 'dashboard'}>
     <Dashboard
       {terminals}
       {status}
@@ -102,9 +101,14 @@
       {error}
       onCreate={createTerminal}
     />
-  {:else}
-    <TerminalView terminalId={activeTerminalId} />
-  {/if}
+  </section>
+  <section class="view view--terminals" data-active={activeView === 'terminal'}>
+    {#each terminals as terminal (terminal.id)}
+      <div class="terminal-tab" data-active={terminal.id === activeId}>
+        <TerminalView terminalId={terminal.id} visible={terminal.id === activeId} />
+      </div>
+    {/each}
+  </section>
 </main>
 
 <style>
@@ -112,5 +116,26 @@
     min-height: calc(100vh - 64px);
     display: flex;
     flex-direction: column;
+  }
+
+  .view {
+    flex: 1 1 auto;
+    display: none;
+  }
+
+  .view[data-active='true'] {
+    display: block;
+  }
+
+  .view--terminals {
+    display: block;
+  }
+
+  .terminal-tab {
+    display: none;
+  }
+
+  .terminal-tab[data-active='true'] {
+    display: block;
   }
 </style>

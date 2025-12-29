@@ -7,6 +7,7 @@
   import { buildWebSocketUrl } from '../lib/api.js'
 
   export let terminalId = ''
+  export let visible = true
 
   let container
   let term
@@ -27,6 +28,14 @@
     socket.send(JSON.stringify(payload))
   }
 
+  const scheduleFit = () => {
+    if (!fitAddon || !term || !container) return
+    requestAnimationFrame(() => {
+      fitAddon.fit()
+      sendResize()
+    })
+  }
+
   const connect = () => {
     if (!terminalId) return
 
@@ -44,7 +53,7 @@
     fitAddon = new FitAddon()
     term.loadAddon(fitAddon)
     term.open(container)
-    fitAddon.fit()
+    scheduleFit()
 
     socket = new WebSocket(buildWebSocketUrl(`/ws/terminal/${terminalId}`))
     socket.binaryType = 'arraybuffer'
@@ -52,7 +61,7 @@
 
     socket.addEventListener('open', () => {
       status = 'connected'
-      sendResize()
+      scheduleFit()
     })
 
     socket.addEventListener('message', (event) => {
@@ -83,15 +92,18 @@
   }
 
   const resizeHandler = () => {
-    if (!fitAddon || !term) return
-    fitAddon.fit()
-    sendResize()
+    if (!visible) return
+    scheduleFit()
   }
 
   onMount(() => {
     connect()
     window.addEventListener('resize', resizeHandler)
   })
+
+  $: if (visible) {
+    scheduleFit()
+  }
 
   onDestroy(() => {
     window.removeEventListener('resize', resizeHandler)

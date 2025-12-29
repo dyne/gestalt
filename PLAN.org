@@ -1,7 +1,7 @@
 * DONE [#A] Initial project structure with multi-terminal dashboard
   Goal: Set up Gestalt IDE foundation with Go backend, Svelte frontend, and WebSocket-based terminal management system that supports inter-terminal communication.
-  
-  Notes: 
+
+  Notes:
   - Terminals are not just user-interactive but can read/write to each other
   - AI agents (like Copilot) should be able to monitor and inject commands into terminals
   - Dashboard shows splash page with status + terminal tabs
@@ -16,7 +16,7 @@
 
 ** Set up Go backend structure and dependencies
    Why: Need the server foundation before implementing terminal logic
-   Change: 
+   Change:
    - Initialize go.mod with module name
    - Decide repo layout (e.g., cmd/gestalt/main.go + internal/{api,terminal,orchestrator})
    - Create main.go with basic HTTP server and config (port, shell command, auth token)
@@ -127,6 +127,15 @@
    Done when: Complete application runs end-to-end
 
 ** Add basic inter-terminal read capability (foundation)
+
+* WIP [#A] Fix frontend bugs following user driven testing feedback
+  Goal: create a smooth pipeline straightening all bugs encountered by a user testing gestalt
+
+** DONE [#B] Preserve terminal screen buffer across tab switches
+   Why: Switching away and back currently wipes the terminal display while the session is still running.
+   Change: Rework terminal view lifecycle so xterm DOM/state is preserved or restored on tab reselect (avoid dispose on hide or buffer snapshot/restore).
+   Tests: Manual verify tab switching retains visible terminal content; existing go tests still pass.
+   Done when: Returning to a terminal shows the same screen contents without requiring a reflow or replay.
    Why: Lay groundwork for terminal orchestration features
    Change:
    - Add GET /api/terminals/:id/output endpoint (recent output buffer)

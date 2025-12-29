@@ -1,11 +1,11 @@
-* WIP [#B] Fix agent shell args + toast-to-log parity
+* DONE [#B] Fix agent shell args + toast-to-log parity
   Goal: Allow agent shell strings to include arguments, and ensure every toast is also logged.
   Notes:
   - Current agent shell field appears to be a single string passed to exec without args.
   - Desired: support space-separated args (and optionally quoted args) in the shell string.
   - Ensure frontend toasts also emit structured log entries so they appear in Logs view and /api/logs.
   - Keep behavior minimal and explicit; avoid new dependencies unless required.
-** DONE [#B] Support shell string arguments in agent config
+** [#B] Support shell string arguments in agent config
    Why: Agents like copilot require a shell/command plus flags in config.
    Change:
    - Parse agent.Shell into command + args (define parsing rules, e.g., shlex-like or simple split)
@@ -13,7 +13,7 @@
    - Update validation and tests for parsing edge cases
    Tests: Unit tests for parsing; go test ./...
    Done when: Agent shell config accepts args and agent launches correctly
-** DONE [#B] Log all toast notifications to backend logs
+** [#B] Log all toast notifications to backend logs
    Why: User-facing toasts must be discoverable in the Logs tab and /api/logs.
    Change:
    - Identify toast creation flow in frontend

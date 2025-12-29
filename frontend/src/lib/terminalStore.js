@@ -10,6 +10,119 @@ const terminals = new Map()
 const MAX_RETRIES = 5
 const BASE_DELAY_MS = 500
 const MAX_DELAY_MS = 8000
+const MOUSE_MODE_PARAMS = new Set([
+  9,
+  1000,
+  1001,
+  1002,
+  1003,
+  1005,
+  1006,
+  1007,
+  1015,
+  1016,
+])
+
+const hasModifierKey = (event) => event.ctrlKey || event.metaKey
+
+const isCopyKey = (event) =>
+  hasModifierKey(event) &&
+  !event.altKey &&
+  event.key.toLowerCase() === 'c'
+
+const isPasteKey = (event) =>
+  hasModifierKey(event) &&
+  !event.altKey &&
+  event.key.toLowerCase() === 'v'
+
+const writeClipboardText = async (text) => {
+  if (!text) return false
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch (err) {
+      // Fall back to legacy clipboard handling.
+    }
+  }
+  return writeClipboardTextFallback(text)
+}
+
+const writeClipboardTextFallback = (text) => {
+  try {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.setAttribute('readonly', '')
+    textarea.style.position = 'fixed'
+    textarea.style.top = '-9999px'
+    textarea.style.left = '-9999px'
+    document.body.appendChild(textarea)
+    textarea.select()
+    const ok = document.execCommand?.('copy')
+    document.body.removeChild(textarea)
+    return Boolean(ok)
+  } catch (err) {
+    return false
+  }
+}
+
+const readClipboardText = async () => {
+  if (navigator.clipboard?.readText) {
+    try {
+      return await navigator.clipboard.readText()
+    } catch (err) {
+      // Fall back to legacy clipboard handling.
+    }
+  }
+  return readClipboardTextFallback()
+}
+
+const readClipboardTextFallback = () => {
+  try {
+    const textarea = document.createElement('textarea')
+    textarea.style.position = 'fixed'
+    textarea.style.top = '-9999px'
+    textarea.style.left = '-9999px'
+    document.body.appendChild(textarea)
+    textarea.focus()
+    textarea.select()
+    document.execCommand?.('paste')
+    const text = textarea.value
+    document.body.removeChild(textarea)
+    return text
+  } catch (err) {
+    return ''
+  }
+}
+
+const flattenParams = (params) => {
+  const flattened = []
+  for (const param of params) {
+    if (Array.isArray(param)) {
+      for (const value of param) {
+        flattened.push(value)
+      }
+    } else {
+      flattened.push(param)
+    }
+  }
+  return flattened
+}
+
+const shouldSuppressMouseMode = (params) => {
+  const flattened = flattenParams(params)
+  if (!flattened.length) return false
+  const hasMouse = flattened.some((value) => MOUSE_MODE_PARAMS.has(value))
+  if (!hasMouse) return false
+  return flattened.every((value) => MOUSE_MODE_PARAMS.has(value))
+}
+
+const isMouseReport = (data) => {
+  if (data.startsWith('\x1b[<')) {
+    return /^\x1b\[<\d+;\d+;\d+[mM]$/.test(data)
+  }
+  return data.startsWith('\x1b[M') && data.length === 6
+}
 
 export const getTerminalState = (terminalId) => {
   if (!terminalId) return null
@@ -32,6 +145,7 @@ const createTerminalState = (terminalId) => {
   const canReconnect = writable(false)
 
   const term = new Terminal({
+    allowProposedApi: true,
     cursorBlink: true,
     fontSize: 14,
     fontFamily: '"IBM Plex Mono", "JetBrains Mono", monospace',
@@ -54,6 +168,7 @@ const createTerminalState = (terminalId) => {
   let reconnectTimer
   let notifiedUnauthorized = false
   let notifiedDisconnect = false
+  let disposeMouseHandlers
 
   const sendResize = () => {
     if (!socket || socket.readyState !== WebSocket.OPEN) return
@@ -63,6 +178,11 @@ const createTerminalState = (terminalId) => {
       rows: term.rows,
     }
     socket.send(JSON.stringify(payload))
+  }
+
+  const sendData = (data) => {
+    if (!socket || socket.readyState !== WebSocket.OPEN) return
+    socket.send(encoder.encode(data))
   }
 
   const scheduleFit = () => {
@@ -90,13 +210,52 @@ const createTerminalState = (terminalId) => {
   }
 
   term.onData((data) => {
-    if (!socket || socket.readyState !== WebSocket.OPEN) return
-    socket.send(encoder.encode(data))
+    if (isMouseReport(data)) return
+    sendData(data)
   })
 
   term.onBell(() => {
     bellCount.update((count) => count + 1)
   })
+
+  term.attachCustomKeyEventHandler((event) => {
+    if (event.type !== 'keydown') return true
+    if (isCopyKey(event)) {
+      event.preventDefault()
+      event.stopPropagation()
+      if (!term.hasSelection()) {
+        return false
+      }
+      const selection = term.getSelection()
+      if (selection) {
+        writeClipboardText(selection).catch(() => {})
+      }
+      return false
+    }
+    if (isPasteKey(event)) {
+      event.preventDefault()
+      event.stopPropagation()
+      readClipboardText()
+        .then((text) => {
+          if (!text) return
+          sendData(text)
+        })
+        .catch(() => {})
+      return false
+    }
+    return true
+  })
+
+  if (term.parser?.registerCsiHandler) {
+    const handler = (params) => shouldSuppressMouseMode(params)
+    const handlerSet = [
+      term.parser.registerCsiHandler({ prefix: '?', final: 'h' }, handler),
+      term.parser.registerCsiHandler({ prefix: '?', final: 'l' }, handler),
+    ]
+    disposeMouseHandlers = () => {
+      handlerSet.forEach((item) => item.dispose())
+    }
+  }
 
   const clearReconnectTimer = () => {
     if (!reconnectTimer) return
@@ -226,6 +385,9 @@ const createTerminalState = (terminalId) => {
     canReconnect.set(false)
     if (socket) {
       socket.close()
+    }
+    if (disposeMouseHandlers) {
+      disposeMouseHandlers()
     }
     term.dispose()
   }

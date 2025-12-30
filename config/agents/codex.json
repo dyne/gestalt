@@ -1,7 +1,7 @@
 {
   "name": "Coder",
   "shell": "codex --full-auto --add-dir /tmp",
-  "prompt": "coder",
+  "prompt": ["coder","architect"],
   "llm_type": "codex",
   "llm_model": "default",
   "onair_string": "Connected to GitHub MCP Server"

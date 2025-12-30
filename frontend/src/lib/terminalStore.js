@@ -141,6 +141,7 @@ export const releaseTerminalState = (terminalId) => {
 
 const createTerminalState = (terminalId) => {
   const status = writable('disconnected')
+  const historyStatus = writable('idle')
   const bellCount = writable(0)
   const canReconnect = writable(false)
 
@@ -169,6 +170,9 @@ const createTerminalState = (terminalId) => {
   let notifiedUnauthorized = false
   let notifiedDisconnect = false
   let disposeMouseHandlers
+  let historyLoaded = false
+  let pendingHistory = ''
+  let historyLoadPromise
 
   const sendResize = () => {
     if (!socket || socket.readyState !== WebSocket.OPEN) return
@@ -202,6 +206,7 @@ const createTerminalState = (terminalId) => {
     } else if (term.element.parentElement !== container) {
       container.appendChild(term.element)
     }
+    flushPendingHistory()
     scheduleFit()
   }
 
@@ -263,6 +268,47 @@ const createTerminalState = (terminalId) => {
     reconnectTimer = null
   }
 
+  const flushPendingHistory = () => {
+    if (!pendingHistory || disposed || !term.element) return
+    term.write(pendingHistory)
+    pendingHistory = ''
+  }
+
+  const loadHistory = () => {
+    if (historyLoaded) {
+      return Promise.resolve()
+    }
+    if (historyLoadPromise) {
+      return historyLoadPromise
+    }
+
+    historyStatus.set('loading')
+    historyLoadPromise = (async () => {
+      try {
+        const response = await apiFetch(`/api/terminals/${terminalId}/output`)
+        const payload = await response.json()
+        const lines = Array.isArray(payload?.lines) ? payload.lines : []
+        if (lines.length > 0) {
+          const historyText = lines.join('\n')
+          if (term.element) {
+            term.write(historyText)
+          } else {
+            pendingHistory = historyText
+          }
+        }
+        historyLoaded = true
+        historyStatus.set('loaded')
+      } catch (err) {
+        console.warn('failed to load terminal history', err)
+        historyStatus.set('error')
+      } finally {
+        historyLoadPromise = null
+      }
+    })()
+
+    return historyLoadPromise
+  }
+
   const checkAuthFailure = async (event) => {
     if (event?.code === 1008 || event?.code === 4401) {
       return true
@@ -299,7 +345,7 @@ const createTerminalState = (terminalId) => {
     }, delay)
   }
 
-  const connect = (isRetry = false) => {
+  const connect = async (isRetry = false) => {
     if (disposed) return
     if (
       socket &&
@@ -311,6 +357,10 @@ const createTerminalState = (terminalId) => {
 
     status.set(isRetry ? 'retrying' : 'connecting')
     canReconnect.set(false)
+
+    if (!isRetry) {
+      await loadHistory()
+    }
 
     socket = new WebSocket(buildWebSocketUrl(`/ws/terminal/${terminalId}`))
     socket.binaryType = 'arraybuffer'
@@ -365,7 +415,6 @@ const createTerminalState = (terminalId) => {
         notifiedDisconnect = true
       }
     })
-
   }
 
   const reconnect = () => {
@@ -392,11 +441,12 @@ const createTerminalState = (terminalId) => {
     term.dispose()
   }
 
-  connect()
+  void connect()
 
   return {
     term,
     status,
+    historyStatus,
     bellCount,
     canReconnect,
     attach,

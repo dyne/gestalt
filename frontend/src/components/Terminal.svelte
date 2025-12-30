@@ -12,8 +12,10 @@
   let bellCount = 0
   let status = 'disconnected'
   let canReconnect = false
+  let historyStatus = 'idle'
   let statusLabel = ''
   let unsubscribeStatus
+  let unsubscribeHistory
   let unsubscribeBell
   let unsubscribeReconnect
 
@@ -32,6 +34,9 @@
     state.attach(container)
     unsubscribeStatus = state.status.subscribe((value) => {
       status = value
+    })
+    unsubscribeHistory = state.historyStatus.subscribe((value) => {
+      historyStatus = value
     })
     unsubscribeBell = state.bellCount.subscribe((value) => {
       bellCount = value
@@ -70,6 +75,9 @@
     if (unsubscribeStatus) {
       unsubscribeStatus()
     }
+    if (unsubscribeHistory) {
+      unsubscribeHistory()
+    }
     if (unsubscribeBell) {
       unsubscribeBell()
     }
@@ -88,6 +96,9 @@
       <p class="label">Terminal {terminalId || '—'}</p>
       <div class="status-row">
         <p class="status">{statusLabel}</p>
+        {#if historyStatus === 'loading'}
+          <p class="status history-status">Loading history...</p>
+        {/if}
         {#if canReconnect}
           <button class="reconnect" type="button" on:click={handleReconnect}>
             Reconnect

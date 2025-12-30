@@ -1,3 +1,199 @@
+* TODO [#B] Semantic versioning with automated releases
+  Goal: Implement semantic versioning throughout Gestalt with automated version generation in GitHub Actions based on conventional commits (feat:/fix:), compile version into backend and frontend, and display version in UI near the Gestalt title.
+  Notes:
+  - Use conventional commits (feat:, fix:) to drive semantic versioning
+  - GitHub Action should detect commit types and bump version appropriately
+  - Version must be passed at build time to both Go backend and Vite frontend
+  - Backend: compile version as const or var, expose via /api/status
+  - Frontend: inject version at build time via Vite define, display in Dashboard header
+  - UI: show version text near "Gestalt" title (small, subtle styling)
+  - Tools: use semantic-release or similar for automatic version bumping and tagging
+  - No manual version file edits; version is driven by git tags
+  - Initial version: start from v0.1.0 if no tags exist
+  Date: 2025-12-30
+
+** TODO [#B] Setup semantic-release in GitHub Actions
+   Why: Need automated version detection and git tagging based on conventional commits
+   Change:
+   - Create .releaserc.json configuration for semantic-release
+   - Configure plugins: @semantic-release/commit-analyzer, @semantic-release/release-notes-generator, @semantic-release/github
+   - Update .github/workflows/tests.yml to include release job
+   - Release job: runs on push to main, analyzes commits, creates git tag, generates release notes
+   - Set up GITHUB_TOKEN permissions for creating releases
+   - Configure conventional commit rules: feat → minor, fix → patch, BREAKING CHANGE → major
+   - Dry-run mode for testing before enabling actual releases
+   Tests: Run workflow, verify it analyzes commits correctly
+   Done when: GitHub Action can determine next version from commit history
+
+** TODO [#B] Pass version to Go backend at build time
+   Why: Backend needs to know its version for /api/status and logging
+   Change:
+   - Add internal/version/version.go with var Version string
+   - Use Go linker flags in Makefile and GitHub Action: -ldflags "-X gestalt/internal/version.Version=$VERSION"
+   - Default Version to "dev" if not set at build time
+   - Export version in /api/status response as "version" field
+   - Add version to startup log message
+   - Update GNUmakefile to accept VERSION variable: make VERSION=1.2.3
+   Tests: go test ./...; verify version appears in /api/status
+   Done when: Backend binary contains version compiled at build time
+
+** TODO [#B] Pass version to frontend at build time
+   Why: Frontend needs to display version in UI
+   Change:
+   - Use Vite's define option to inject version at build time
+   - Update vite.config.js: define: { __APP_VERSION__: JSON.stringify(process.env.VERSION || 'dev') }
+   - Create frontend/src/lib/version.js exporting VERSION constant
+   - Pass VERSION env var from Makefile and GitHub Action to npm build
+   - Vite replaces __APP_VERSION__ at bundle time (tree-shakeable)
+   Tests: npm run build; verify version is in bundle
+   Done when: Frontend bundle contains version from build-time env var
+
+** TODO [#C] Display version in Dashboard header
+   Why: Users should see which version of Gestalt they're running
+   Change:
+   - Import VERSION from lib/version.js in Dashboard.svelte
+   - Add version display near "Gestalt" h1: small text, subtle color, positioned elegantly
+   - Use semantic HTML: <span class="version">v{VERSION}</span>
+   - Style: small font (0.7-0.8rem), muted color (#7a776f), positioned near title
+   - Consider placement: "Gestalt v1.2.3" or separate line below title
+   - Match existing design language from Dashboard styling
+   Tests: npm run build; visually verify version displays correctly
+   Done when: Version appears in Dashboard header with subtle styling
+
+** TODO [#C] Update Makefile to integrate versioning
+   Why: Local builds should support version injection
+   Change:
+   - Add VERSION ?= dev to Makefile
+   - Update build target to pass VERSION to both Go and npm
+   - Go build: add -ldflags flag with version
+   - npm build: export VERSION env var before running npm run build
+   - Document in comments: how to build with specific version
+   - Add version target that prints current version from git tag
+   Tests: make VERSION=1.0.0; verify both binaries have correct version
+   Done when: Makefile supports VERSION variable for local builds
+
+** TODO [#C] Integrate versioning into CI workflow
+   Why: Automated builds should use detected version from semantic-release
+   Change:
+   - Update .github/workflows/tests.yml to include release steps
+   - Add step to determine version: use semantic-release dry-run or git describe
+   - Pass version to build steps as environment variable
+   - Trigger release job only on main branch
+   - Create artifacts with version in filename (optional)
+   - Tag docker images with version (if docker build added later)
+   Tests: Push commit with feat: or fix:, verify workflow tags correctly
+   Done when: CI builds contain correct version from semantic analysis
+
+** TODO [#C] Document versioning workflow
+   Why: Contributors need to understand commit message conventions
+   Change:
+   - Add "Versioning" section to README.md
+   - Document conventional commit format: feat:, fix:, BREAKING CHANGE:
+   - Explain semantic versioning rules (major.minor.patch)
+   - Document how version is injected at build time
+   - Show example: "feat: add terminal history → 0.2.0", "fix: resolve connection bug → 0.1.1"
+   - Link to conventional commits specification
+   Tests: None (documentation only)
+   Done when: README documents versioning workflow clearly
+
+* WIP [#B] Terminal history persistence across disconnects
+  Goal: Preserve terminal output history when users disconnect and reconnect, allowing them to see what happened while they were away.
+  Notes:
+  - Current problem: OutputBuffer (1000 lines) exists in memory but xterm.js instance is fresh on reconnect
+  - When WebSocket connects, it only receives new output (fire-and-forget broadcast)
+  - Users lose scrollback history if they close browser or reload page
+  - Existing GET /api/terminals/:id/output endpoint returns buffer lines but frontend doesn't use it
+  - Solutions considered:
+    1. Simple: Fetch buffer via REST on connect, write to xterm before attaching WebSocket
+    2. Enhanced: Persist to disk (logs/sessions/{id}.txt), survive server restarts
+    3. Hybrid: In-memory buffer + optional disk persistence (configurable)
+  - Decision: Start with solution 1 (REST fetch on connect), then add optional disk persistence
+  - Disk format: logs/sessions/{terminalId}-{timestamp}.txt with append-only writes
+  - Cleanup policy: keep last N sessions per terminal, or files from last 7 days
+  - Performance: async file writes, buffered I/O, don't block terminal operations
+  Date: 2025-12-30
+
+** DONE [#B] Wire existing /output endpoint into frontend on connect
+   Why: Backend already buffers 1000 lines; frontend just needs to fetch and display them
+   Change:
+   - In terminalStore.js, fetch GET /api/terminals/{id}/output before connecting WebSocket
+   - Write buffered lines to xterm using term.write() or term.writeln()
+   - Handle edge cases: empty buffer, API errors, slow responses
+   - Add loading state: "Loading history..." status message
+   - Preserve terminal state: don't clear xterm on reconnect
+   - Consider: ANSI escape sequences in buffer may need processing
+   Tests: Manual test: connect, type output, disconnect, reconnect → verify history appears
+   Done when: Reconnecting shows buffered output from OutputBuffer
+
+** WIP [#C] Add optional disk persistence for terminal output
+   Why: Survive server restarts and provide longer history than in-memory buffer
+   Change:
+   - Create internal/terminal/persistence.go with SessionLogger
+   - SessionLogger: async writer that appends to logs/sessions/{terminalId}-{timestamp}.txt
+   - Hook into Session.broadcastLoop: write chunks to both Broadcaster and SessionLogger
+   - Use buffered writer (bufio.Writer) with periodic flush (every 1s or 4KB)
+   - Handle file creation errors gracefully: log warning, continue without persistence
+   - Add Close() method to flush and close file on session termination
+   Tests: Unit test SessionLogger; integration test verifies file contents
+   Done when: Terminal output is written to disk asynchronously
+
+** TODO [#C] Load persisted history on session reconnect
+   Why: Restore history beyond in-memory buffer limit after server restart
+   Change:
+   - On WebSocket connect, check if session file exists
+   - If exists: read last N lines (e.g., 2000) from file
+   - Send historical lines to subscriber before live output
+   - Handle large files: use tail-like reading (seek to end, read backwards)
+   - Combine with in-memory buffer: prefer buffer if available, fall back to file
+   - Add GET /api/terminals/:id/history?lines=N endpoint for REST access
+   Tests: Restart server, reconnect → verify persisted history loads
+   Done when: Reconnect shows persisted history from disk
+
+** TODO [#C] Add session file cleanup policy
+   Why: Prevent unbounded disk usage from accumulating session logs
+   Change:
+   - Create cleanup goroutine in Manager: runs hourly
+   - Policy: keep last 5 sessions per terminal ID, or files modified in last 7 days
+   - Delete oldest files that don't match retention policy
+   - Make retention configurable: GESTALT_SESSION_RETENTION_DAYS (default 7)
+   - Log cleanup actions at info level
+   - Handle concurrent file access: ignore "file not found" errors during cleanup
+   Tests: Create old files, run cleanup, verify correct files deleted
+   Done when: Old session logs are automatically cleaned up
+
+** TODO [#C] Add configuration options for persistence
+   Why: Users may want to disable persistence or tune buffer sizes
+   Change:
+   - Add env vars: GESTALT_SESSION_PERSIST (true/false), GESTALT_SESSION_DIR (default logs/sessions)
+   - Add GESTALT_SESSION_BUFFER_LINES (default 1000) for in-memory buffer size
+   - Document in README.md under configuration section
+   - Make persistence opt-in or opt-out (decide based on disk usage concerns)
+   - Add /api/status field showing persistence status
+   Tests: Test with persistence disabled; verify no files created
+   Done when: Persistence is configurable via env vars
+
+** TODO [#C] Optimize file I/O for high-throughput terminals
+   Why: Avoid blocking or degrading terminal performance with disk writes
+   Change:
+   - Use channel-based async writes: SessionLogger has write channel (buffered)
+   - Goroutine drains channel and writes to disk
+   - If channel fills, drop oldest chunks (lossy under extreme load)
+   - Add metrics: dropped chunks counter, flush latency
+   - Consider: rotate files after size threshold (e.g., 10MB)
+   Tests: Stress test with high output rate; verify no blocking
+   Done when: Disk persistence doesn't impact terminal responsiveness
+
+** TODO [#C] Update frontend to indicate history loading state
+   Why: Users should know when history is being loaded vs live output
+   Change:
+   - Add status indicator: "Loading history..." during fetch
+   - Show visual separator between history and live output (optional)
+   - Add timestamp annotations if loading persisted history
+   - Handle slow history loads: timeout after 5s, show warning
+   - Consider: virtualized scrolling for very long history
+   Tests: Manual test with large history buffer
+   Done when: Users see clear feedback during history load
+
 * DONE [#B] Org-mode PLAN.org viewer component
   Goal: Add a pleasant, compact Svelte outliner component to visualize PLAN.org with foldable sections, syntax highlighting for TODO/WIP/DONE keywords, priorities, and eventual sidebar integration.
   Notes:
@@ -13,7 +209,7 @@
   - Future: editing support, sync with file changes, real-time updates
   Date: 2025-12-29
 
-** DONE [#B] Create backend endpoint to serve PLAN.org
+** [#B] Create backend endpoint to serve PLAN.org
    Why: Frontend needs access to PLAN.org contents via API
    Change:
    - Add GET /api/plan endpoint in api/routes.go
@@ -25,7 +221,7 @@
    Tests: GET /api/plan returns PLAN.org contents
    Done when: API endpoint serves PLAN.org file contents
 
-** DONE [#B] Create org-mode parser for outline structure
+** [#B] Create org-mode parser for outline structure
    Why: Need to parse org-mode syntax into structured data for rendering
    Change:
    - Create frontend/src/lib/orgParser.js
@@ -40,7 +236,7 @@
    Tests: Unit tests with sample org-mode text; verify tree structure
    Done when: Parser converts org text to structured tree
 
-** DONE [#B] Create OrgViewer Svelte component
+** [#B] Create OrgViewer Svelte component
    Why: Main UI component for displaying parsed org-mode outline
    Change:
    - Create frontend/src/components/OrgViewer.svelte
@@ -53,7 +249,7 @@
    Tests: Manual rendering test with sample org-mode content
    Done when: Component renders parsed org-mode structure
 
-** DONE [#B] Create OrgNode component for heading rendering
+** [#B] Create OrgNode component for heading rendering
    Why: Recursive component for each outline node with expand/collapse
    Change:
    - Create frontend/src/components/OrgNode.svelte
@@ -68,7 +264,7 @@
    Tests: Manual test with nested headings, toggle behavior
    Done when: Individual nodes render with proper styling and expand/collapse
 
-** DONE [#C] Add expand/collapse controls
+** [#C] Add expand/collapse controls
    Why: Users need convenient ways to navigate large outlines
    Change:
    - Add toolbar buttons: "Expand All", "Collapse All"
@@ -79,7 +275,7 @@
    Tests: Manual test expand/collapse functionality
    Done when: Toolbar controls work correctly
 
-** DONE [#C] Add keyword filtering
+** [#C] Add keyword filtering
    Why: Users may want to focus on TODO/WIP items only
    Change:
    - Add filter dropdown: "All", "TODO only", "WIP only", "DONE only", "TODO+WIP"
@@ -89,7 +285,7 @@
    Tests: Manual test filtering with various keyword combinations
    Done when: Filter dropdown correctly shows/hides nodes
 
-** DONE [#C] Add search functionality (optional)
+** [#C] Add search functionality (optional)
    Why: Large plans benefit from text search
    Change:
    - Add search input box in toolbar
@@ -100,7 +296,7 @@
    Tests: Manual test search with various queries
    Done when: Search highlights and expands matching nodes
 
-** DONE [#B] Integrate OrgViewer into dashboard
+** [#B] Integrate OrgViewer into dashboard
    Why: Users need access to plan viewer in the UI
    Change:
    - Add "Plan" tab to TabBar (after Dashboard, before terminal tabs)
@@ -112,7 +308,7 @@
    Tests: Manual test Plan tab in UI
    Done when: Plan tab shows PLAN.org outline
 
-** DONE [#C] Polish styling and responsiveness
+** [#C] Polish styling and responsiveness
    Why: Ensure component is pleasant and usable as specified
    Change:
    - Refine color scheme: match Gestalt design language

@@ -54,6 +54,7 @@ type Session struct {
 	pty      Pty
 	cmd      *exec.Cmd
 	bcast    *Broadcaster
+	logger   *SessionLogger
 	agent    *agent.Agent
 	closing  sync.Once
 	closeErr error
@@ -70,7 +71,7 @@ type SessionInfo struct {
 	LLMModel  string
 }
 
-func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt time.Time, bufferLines int, profile *agent.Agent) *Session {
+func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt time.Time, bufferLines int, profile *agent.Agent, sessionLogger *SessionLogger) *Session {
 	// readLoop -> output, writeLoop -> PTY, broadcastLoop -> subscribers.
 	// Close cancels context and closes input so loops drain and exit cleanly.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -94,6 +95,7 @@ func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt
 		pty:       pty,
 		cmd:       cmd,
 		bcast:     NewBroadcaster(bufferLines),
+		logger:    sessionLogger,
 		agent:     profile,
 		state:     uint32(sessionStateStarting),
 	}
@@ -233,7 +235,13 @@ func (s *Session) writeLoop() {
 
 func (s *Session) broadcastLoop() {
 	for chunk := range s.output {
+		if s.logger != nil {
+			s.logger.Write(chunk)
+		}
 		s.bcast.Broadcast(chunk)
 	}
 	s.bcast.Close()
+	if s.logger != nil {
+		_ = s.logger.Close()
+	}
 }

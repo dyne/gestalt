@@ -11,6 +11,7 @@ const MockTerminal = vi.hoisted(
         this.cols = 80
         this.rows = 24
         this.element = null
+        this.writes = []
         this.parser = {
           registerCsiHandler: () => ({ dispose() {} }),
         }
@@ -20,7 +21,9 @@ const MockTerminal = vi.hoisted(
         this.element = document.createElement('div')
         container.appendChild(this.element)
       }
-      write() {}
+      write(data) {
+        this.writes.push(data)
+      }
       onData(handler) {
         this._onData = handler
       }
@@ -113,6 +116,14 @@ class MockWebSocket {
 }
 
 const flush = () => Promise.resolve()
+const waitForSocket = async () => {
+  for (let i = 0; i < 5; i += 1) {
+    if (MockWebSocket.instances.length > 0) {
+      return
+    }
+    await flush()
+  }
+}
 
 describe('terminalStore', () => {
   let originalWebSocket
@@ -126,6 +137,18 @@ describe('terminalStore', () => {
     MockWebSocket.instances = []
     buildWebSocketUrl.mockClear()
     apiFetch.mockReset()
+    apiFetch.mockImplementation((path) => {
+      if (path.includes('/output')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ lines: [] }),
+        })
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({}),
+      })
+    })
     addNotification.mockReset()
   })
 
@@ -135,11 +158,11 @@ describe('terminalStore', () => {
   })
 
   it('connects and updates status on open', async () => {
-    apiFetch.mockResolvedValue({ ok: true })
     const state = getTerminalState('abc')
     const seen = []
     const unsubscribe = state.status.subscribe((value) => seen.push(value))
 
+    await waitForSocket()
     const socket = MockWebSocket.instances[0]
     expect(socket.url).toBe('ws://test/ws/terminal/abc')
     socket.open()
@@ -152,13 +175,25 @@ describe('terminalStore', () => {
   })
 
   it('marks unauthorized when auth fails on close', async () => {
-    apiFetch.mockRejectedValue({ status: 401 })
+    apiFetch.mockImplementation((path) => {
+      if (path.includes('/output')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ lines: [] }),
+        })
+      }
+      if (path.includes('/api/status')) {
+        return Promise.reject({ status: 401 })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    })
     const state = getTerminalState('auth')
     let status = ''
     const unsubscribe = state.status.subscribe((value) => {
       status = value
     })
 
+    await waitForSocket()
     const socket = MockWebSocket.instances[0]
     socket.open()
     socket.close(1008)
@@ -175,13 +210,13 @@ describe('terminalStore', () => {
 
   it('retries after non-auth close', async () => {
     vi.useFakeTimers()
-    apiFetch.mockResolvedValue({ ok: true })
     const state = getTerminalState('retry')
     let status = ''
     const unsubscribe = state.status.subscribe((value) => {
       status = value
     })
 
+    await waitForSocket()
     const socket = MockWebSocket.instances[0]
     socket.open()
     socket.close(1006)
@@ -198,5 +233,36 @@ describe('terminalStore', () => {
     vi.useRealTimers()
     unsubscribe()
     releaseTerminalState('retry')
+  })
+
+  it('loads history before attaching terminal output', async () => {
+    apiFetch.mockImplementation((path) => {
+      if (path.includes('/output')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ lines: ['first', 'second'] }),
+        })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    })
+
+    const state = getTerminalState('history')
+    let historyStatus = ''
+    const unsubscribe = state.historyStatus.subscribe((value) => {
+      historyStatus = value
+    })
+
+    await flush()
+    await flush()
+    expect(historyStatus).toBe('loaded')
+    expect(state.term.writes.length).toBe(0)
+
+    const container = document.createElement('div')
+    state.attach(container)
+
+    expect(state.term.writes).toContain('first\nsecond')
+
+    unsubscribe()
+    releaseTerminalState('history')
   })
 })

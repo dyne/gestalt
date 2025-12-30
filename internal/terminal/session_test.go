@@ -7,7 +7,7 @@ import (
 
 func TestSessionWriteAndOutput(t *testing.T) {
 	pty := newScriptedPty()
-	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, nil)
+	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, nil, nil)
 	defer func() {
 		_ = session.Close()
 	}()
@@ -42,7 +42,7 @@ func TestSessionWriteAndOutput(t *testing.T) {
 
 func TestSessionCloseTransitionsState(t *testing.T) {
 	pty := newScriptedPty()
-	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, nil)
+	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, nil, nil)
 
 	if err := session.Close(); err != nil {
 		t.Fatalf("close session: %v", err)

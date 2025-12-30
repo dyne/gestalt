@@ -19,12 +19,13 @@ var ErrSessionNotFound = errors.New("terminal session not found")
 var ErrAgentNotFound = errors.New("agent profile not found")
 
 type ManagerOptions struct {
-	Shell       string
-	PtyFactory  PtyFactory
-	BufferLines int
-	Clock       Clock
-	Agents      map[string]agent.Agent
-	Logger      *logging.Logger
+	Shell         string
+	PtyFactory    PtyFactory
+	BufferLines   int
+	Clock         Clock
+	Agents        map[string]agent.Agent
+	Logger        *logging.Logger
+	SessionLogDir string
 }
 
 // Manager is safe for concurrent use; mu guards the sessions map and lifecycle.
@@ -39,6 +40,7 @@ type Manager struct {
 	clock       Clock
 	agents      map[string]agent.Agent
 	logger      *logging.Logger
+	sessionLogs string
 }
 
 const (
@@ -85,6 +87,8 @@ func NewManager(opts ManagerOptions) *Manager {
 		logger = logging.NewLoggerWithOutput(logging.NewLogBuffer(logging.DefaultBufferSize), logging.LevelInfo, nil)
 	}
 
+	sessionLogs := strings.TrimSpace(opts.SessionLogDir)
+
 	agents := make(map[string]agent.Agent)
 	for id, profile := range opts.Agents {
 		agents[id] = profile
@@ -98,6 +102,7 @@ func NewManager(opts ManagerOptions) *Manager {
 		clock:       clock,
 		agents:      agents,
 		logger:      logger,
+		sessionLogs: sessionLogs,
 	}
 }
 
@@ -146,7 +151,20 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 
 	id := m.nextIDValue()
 	createdAt := m.clock.Now().UTC()
-	session := newSession(id, pty, cmd, title, role, createdAt, m.bufferLines, profile)
+	var sessionLogger *SessionLogger
+	if m.sessionLogs != "" {
+		logger, err := NewSessionLogger(m.sessionLogs, id, createdAt)
+		if err != nil {
+			m.logger.Warn("session log create failed", map[string]string{
+				"terminal_id": id,
+				"error":       err.Error(),
+				"path":        m.sessionLogs,
+			})
+		} else {
+			sessionLogger = logger
+		}
+	}
+	session := newSession(id, pty, cmd, title, role, createdAt, m.bufferLines, profile, sessionLogger)
 
 	m.mu.Lock()
 	m.sessions[id] = session

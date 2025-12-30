@@ -10,6 +10,7 @@ const terminals = new Map()
 const MAX_RETRIES = 5
 const BASE_DELAY_MS = 500
 const MAX_DELAY_MS = 8000
+const HISTORY_WARNING_MS = 5000
 const MOUSE_MODE_PARAMS = new Set([
   9,
   1000,
@@ -173,6 +174,9 @@ const createTerminalState = (terminalId) => {
   let historyLoaded = false
   let pendingHistory = ''
   let historyLoadPromise
+  let historyWarningTimer
+  let notifiedHistorySlow = false
+  let notifiedHistoryError = false
 
   const sendResize = () => {
     if (!socket || socket.readyState !== WebSocket.OPEN) return
@@ -268,10 +272,32 @@ const createTerminalState = (terminalId) => {
     reconnectTimer = null
   }
 
+  const clearHistoryWarning = () => {
+    if (!historyWarningTimer) return
+    clearTimeout(historyWarningTimer)
+    historyWarningTimer = null
+  }
+
   const flushPendingHistory = () => {
     if (!pendingHistory || disposed || !term.element) return
     term.write(pendingHistory)
     pendingHistory = ''
+  }
+
+  const scheduleHistoryWarning = () => {
+    if (historyWarningTimer || notifiedHistorySlow) return
+    historyWarningTimer = setTimeout(() => {
+      historyWarningTimer = null
+      if (historyLoaded || disposed) return
+      historyStatus.set('slow')
+      if (!notifiedHistorySlow) {
+        notificationStore.addNotification(
+          'warning',
+          `Terminal ${terminalId} history is taking longer to load.`
+        )
+        notifiedHistorySlow = true
+      }
+    }, HISTORY_WARNING_MS)
   }
 
   const loadHistory = () => {
@@ -283,6 +309,7 @@ const createTerminalState = (terminalId) => {
     }
 
     historyStatus.set('loading')
+    scheduleHistoryWarning()
     historyLoadPromise = (async () => {
       try {
         const response = await apiFetch(`/api/terminals/${terminalId}/output`)
@@ -301,7 +328,15 @@ const createTerminalState = (terminalId) => {
       } catch (err) {
         console.warn('failed to load terminal history', err)
         historyStatus.set('error')
+        if (!notifiedHistoryError) {
+          notificationStore.addNotification(
+            'warning',
+            `Terminal ${terminalId} history could not be loaded.`
+          )
+          notifiedHistoryError = true
+        }
       } finally {
+        clearHistoryWarning()
         historyLoadPromise = null
       }
     })()

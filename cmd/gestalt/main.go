@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"gestalt/internal/agent"
@@ -15,9 +16,13 @@ import (
 )
 
 type Config struct {
-	Port      int
-	Shell     string
-	AuthToken string
+	Port                  int
+	Shell                 string
+	AuthToken             string
+	SessionRetentionDays  int
+	SessionPersist        bool
+	SessionLogDir         string
+	SessionBufferLines    int
 }
 
 func main() {
@@ -37,9 +42,12 @@ func main() {
 	})
 
 	manager := terminal.NewManager(terminal.ManagerOptions{
-		Shell:  cfg.Shell,
-		Agents: agents,
-		Logger: logger,
+		Shell:                cfg.Shell,
+		Agents:               agents,
+		Logger:               logger,
+		SessionLogDir:         cfg.SessionLogDir,
+		SessionRetentionDays:  cfg.SessionRetentionDays,
+		BufferLines:           cfg.SessionBufferLines,
 	})
 
 	staticDir := findStaticDir()
@@ -76,10 +84,43 @@ func loadConfig() Config {
 		shell = terminal.DefaultShell()
 	}
 
+	retentionDays := terminal.DefaultSessionRetentionDays
+	if rawRetention := os.Getenv("GESTALT_SESSION_RETENTION_DAYS"); rawRetention != "" {
+		if parsed, err := strconv.Atoi(rawRetention); err == nil && parsed > 0 {
+			retentionDays = parsed
+		}
+	}
+
+	sessionPersist := true
+	if rawPersist := os.Getenv("GESTALT_SESSION_PERSIST"); rawPersist != "" {
+		if parsed, err := strconv.ParseBool(rawPersist); err == nil {
+			sessionPersist = parsed
+		}
+	}
+
+	sessionLogDir := filepath.Join("logs", "sessions")
+	if rawDir := strings.TrimSpace(os.Getenv("GESTALT_SESSION_DIR")); rawDir != "" {
+		sessionLogDir = rawDir
+	}
+	if !sessionPersist {
+		sessionLogDir = ""
+	}
+
+	sessionBufferLines := terminal.DefaultBufferLines
+	if rawLines := os.Getenv("GESTALT_SESSION_BUFFER_LINES"); rawLines != "" {
+		if parsed, err := strconv.Atoi(rawLines); err == nil && parsed > 0 {
+			sessionBufferLines = parsed
+		}
+	}
+
 	return Config{
-		Port:      port,
-		Shell:     shell,
-		AuthToken: os.Getenv("GESTALT_TOKEN"),
+		Port:                 port,
+		Shell:                shell,
+		AuthToken:            os.Getenv("GESTALT_TOKEN"),
+		SessionRetentionDays: retentionDays,
+		SessionPersist:       sessionPersist,
+		SessionLogDir:        sessionLogDir,
+		SessionBufferLines:   sessionBufferLines,
 	}
 }
 

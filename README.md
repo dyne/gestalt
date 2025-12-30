@@ -50,6 +50,17 @@ token. To generate a random token:
 - macOS/Linux: `export GESTALT_TOKEN=$(openssl rand -hex 16)`
 - Windows PowerShell `$env:GESTALT_TOKEN = -join ((48..57)+(97..102) | Get-Random -Count 32 | % {[char]$_})`
 
+## Configuration
+
+Environment variables:
+- `GESTALT_PORT` (default 8080)
+- `GESTALT_SHELL` (default: system shell)
+- `GESTALT_TOKEN` (default: empty, disables auth)
+- `GESTALT_SESSION_PERSIST` (default true)
+- `GESTALT_SESSION_DIR` (default `logs/sessions`)
+- `GESTALT_SESSION_BUFFER_LINES` (default 1000)
+- `GESTALT_SESSION_RETENTION_DAYS` (default 7)
+
 ## API endpoints
 
 API (development snapshot)

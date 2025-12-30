@@ -36,8 +36,9 @@ type terminalOutputResponse struct {
 }
 
 type statusResponse struct {
-	TerminalCount int       `json:"terminal_count"`
-	ServerTime    time.Time `json:"server_time"`
+	TerminalCount  int       `json:"terminal_count"`
+	ServerTime     time.Time `json:"server_time"`
+	SessionPersist bool      `json:"session_persist"`
 }
 
 type planResponse struct {
@@ -73,6 +74,14 @@ type createTerminalRequest struct {
 	Agent string `json:"agent"`
 }
 
+type terminalPathAction int
+
+const (
+	terminalPathTerminal terminalPathAction = iota
+	terminalPathOutput
+	terminalPathHistory
+)
+
 func (h *RestHandler) handleStatus(w http.ResponseWriter, r *http.Request) *apiError {
 	if err := h.requireManager(); err != nil {
 		return err
@@ -80,8 +89,9 @@ func (h *RestHandler) handleStatus(w http.ResponseWriter, r *http.Request) *apiE
 
 	terminals := h.Manager.List()
 	response := statusResponse{
-		TerminalCount: len(terminals),
-		ServerTime:    time.Now().UTC(),
+		TerminalCount:  len(terminals),
+		ServerTime:     time.Now().UTC(),
+		SessionPersist: h.Manager.SessionPersistenceEnabled(),
 	}
 
 	writeJSON(w, http.StatusOK, response)
@@ -108,13 +118,16 @@ func (h *RestHandler) handleTerminal(w http.ResponseWriter, r *http.Request) *ap
 		return err
 	}
 
-	id, wantsOutput := parseTerminalPath(r.URL.Path)
+	id, action := parseTerminalPath(r.URL.Path)
 	if err := validateTerminalID(id); err != nil {
 		return err
 	}
 
-	if wantsOutput {
+	switch action {
+	case terminalPathOutput:
 		return h.handleTerminalOutput(w, r, id)
+	case terminalPathHistory:
+		return h.handleTerminalHistory(w, r, id)
 	}
 
 	return h.handleTerminalDelete(w, r, id)
@@ -274,6 +287,32 @@ func (h *RestHandler) handleTerminalOutput(w http.ResponseWriter, r *http.Reques
 	return nil
 }
 
+func (h *RestHandler) handleTerminalHistory(w http.ResponseWriter, r *http.Request, id string) *apiError {
+	if r.Method != http.MethodGet {
+		return methodNotAllowed(w, "GET")
+	}
+
+	lines, err := parseHistoryLines(r)
+	if err != nil {
+		return err
+	}
+
+	history, historyErr := h.Manager.HistoryLines(id, lines)
+	if historyErr != nil {
+		if errors.Is(historyErr, terminal.ErrSessionNotFound) {
+			return &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
+		}
+		return &apiError{Status: http.StatusInternalServerError, Message: "failed to read terminal history"}
+	}
+
+	response := terminalOutputResponse{
+		ID:    id,
+		Lines: history,
+	}
+	writeJSON(w, http.StatusOK, response)
+	return nil
+}
+
 func (h *RestHandler) handleTerminalDelete(w http.ResponseWriter, r *http.Request, id string) *apiError {
 	if r.Method != http.MethodDelete {
 		return methodNotAllowed(w, "DELETE")
@@ -345,22 +384,26 @@ func (h *RestHandler) createLogEntry(w http.ResponseWriter, r *http.Request) *ap
 	return nil
 }
 
-func parseTerminalPath(path string) (string, bool) {
+func parseTerminalPath(path string) (string, terminalPathAction) {
 	trimmed := strings.TrimPrefix(path, "/api/terminals/")
 	if trimmed == path {
-		return "", false
+		return "", terminalPathTerminal
 	}
 
 	trimmed = strings.TrimSuffix(trimmed, "/")
 	if trimmed == "" {
-		return "", false
+		return "", terminalPathTerminal
 	}
 
 	if strings.HasSuffix(trimmed, "/output") {
 		id := strings.TrimSuffix(trimmed, "/output")
-		return id, true
+		return id, terminalPathOutput
 	}
-	return trimmed, false
+	if strings.HasSuffix(trimmed, "/history") {
+		id := strings.TrimSuffix(trimmed, "/history")
+		return id, terminalPathHistory
+	}
+	return trimmed, terminalPathTerminal
 }
 
 func validateTerminalID(id string) *apiError {
@@ -383,6 +426,18 @@ func decodeCreateTerminalRequest(r *http.Request) (createTerminalRequest, *apiEr
 	}
 
 	return request, nil
+}
+
+func parseHistoryLines(r *http.Request) (int, *apiError) {
+	lines := terminal.DefaultHistoryLines
+	if rawLines := strings.TrimSpace(r.URL.Query().Get("lines")); rawLines != "" {
+		parsed, err := strconv.Atoi(rawLines)
+		if err != nil || parsed <= 0 {
+			return lines, &apiError{Status: http.StatusBadRequest, Message: "invalid lines"}
+		}
+		lines = parsed
+	}
+	return lines, nil
 }
 
 func parseLogQuery(r *http.Request) (logQuery, *apiError) {

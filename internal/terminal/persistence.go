@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	sessionLogFlushInterval = time.Second
+	sessionLogFlushInterval  = time.Second
 	sessionLogFlushThreshold = 4 * 1024
-	sessionLogChannelSize = 256
+	sessionLogChannelSize    = 256
 )
 
 type SessionLogger struct {
@@ -25,6 +25,8 @@ type SessionLogger struct {
 	done      chan struct{}
 	closeOnce sync.Once
 	closed    uint32
+	dropped   uint64
+	lastFlush int64
 	closeErr  error
 }
 
@@ -65,7 +67,38 @@ func (l *SessionLogger) Write(chunk []byte) {
 	select {
 	case l.writeCh <- chunk:
 	default:
+		select {
+		case <-l.writeCh:
+			atomic.AddUint64(&l.dropped, 1)
+		default:
+		}
+		select {
+		case l.writeCh <- chunk:
+		default:
+			atomic.AddUint64(&l.dropped, 1)
+		}
 	}
+}
+
+func (l *SessionLogger) Path() string {
+	if l == nil {
+		return ""
+	}
+	return l.path
+}
+
+func (l *SessionLogger) DroppedChunks() uint64 {
+	if l == nil {
+		return 0
+	}
+	return atomic.LoadUint64(&l.dropped)
+}
+
+func (l *SessionLogger) LastFlushDuration() time.Duration {
+	if l == nil {
+		return 0
+	}
+	return time.Duration(atomic.LoadInt64(&l.lastFlush))
 }
 
 func (l *SessionLogger) Close() error {
@@ -91,9 +124,11 @@ func (l *SessionLogger) run() {
 		if pending == 0 && !force {
 			return
 		}
+		start := time.Now()
 		if err := l.writer.Flush(); err != nil && l.closeErr == nil {
 			l.closeErr = err
 		}
+		atomic.StoreInt64(&l.lastFlush, time.Since(start).Nanoseconds())
 		pending = 0
 	}
 

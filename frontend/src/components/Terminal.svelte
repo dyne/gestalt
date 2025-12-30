@@ -96,7 +96,7 @@
       <p class="label">Terminal {terminalId || '—'}</p>
       <div class="status-row">
         <p class="status">{statusLabel}</p>
-        {#if historyStatus === 'loading'}
+        {#if historyStatus === 'loading' || historyStatus === 'slow'}
           <p class="status history-status">Loading history...</p>
         {/if}
         {#if canReconnect}

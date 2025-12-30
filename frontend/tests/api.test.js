@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { apiFetch, buildWebSocketUrl } from '../src/lib/api.js'
 
 const mockFetch = (response) => {
@@ -7,9 +7,36 @@ const mockFetch = (response) => {
   return fetchMock
 }
 
+const ensureLocalStorage = () => {
+  if (
+    !globalThis.localStorage ||
+    typeof globalThis.localStorage.setItem !== 'function'
+  ) {
+    const store = new Map()
+    vi.stubGlobal('localStorage', {
+      getItem: (key) => (store.has(key) ? store.get(key) : null),
+      setItem: (key, value) => {
+        store.set(key, String(value))
+      },
+      removeItem: (key) => {
+        store.delete(key)
+      },
+      clear: () => {
+        store.clear()
+      },
+    })
+  }
+}
+
 describe('api helpers', () => {
+  beforeEach(() => {
+    ensureLocalStorage()
+  })
+
   afterEach(() => {
-    localStorage.clear()
+    if (typeof localStorage?.clear === 'function') {
+      localStorage.clear()
+    }
     vi.unstubAllGlobals()
   })
 

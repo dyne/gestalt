@@ -26,6 +26,7 @@ type ManagerOptions struct {
 	Agents        map[string]agent.Agent
 	Logger        *logging.Logger
 	SessionLogDir string
+	SessionRetentionDays int
 }
 
 // Manager is safe for concurrent use; mu guards the sessions map and lifecycle.
@@ -41,6 +42,7 @@ type Manager struct {
 	agents      map[string]agent.Agent
 	logger      *logging.Logger
 	sessionLogs string
+	retentionDays int
 }
 
 const (
@@ -88,13 +90,17 @@ func NewManager(opts ManagerOptions) *Manager {
 	}
 
 	sessionLogs := strings.TrimSpace(opts.SessionLogDir)
+	retentionDays := opts.SessionRetentionDays
+	if retentionDays <= 0 {
+		retentionDays = DefaultSessionRetentionDays
+	}
 
 	agents := make(map[string]agent.Agent)
 	for id, profile := range opts.Agents {
 		agents[id] = profile
 	}
 
-	return &Manager{
+	manager := &Manager{
 		sessions:    make(map[string]*Session),
 		shell:       shell,
 		factory:     factory,
@@ -103,7 +109,10 @@ func NewManager(opts ManagerOptions) *Manager {
 		agents:      agents,
 		logger:      logger,
 		sessionLogs: sessionLogs,
+		retentionDays: retentionDays,
 	}
+	manager.startSessionCleanup()
+	return manager
 }
 
 func (m *Manager) Create(agentID, role, title string) (*Session, error) {
@@ -271,6 +280,35 @@ func (m *Manager) Get(id string) (*Session, bool) {
 	return session, ok
 }
 
+func (m *Manager) HistoryLines(id string, maxLines int) ([]string, error) {
+	if maxLines <= 0 {
+		maxLines = DefaultHistoryLines
+	}
+	if session, ok := m.Get(id); ok {
+		return session.HistoryLines(maxLines)
+	}
+	if m.sessionLogs == "" {
+		return nil, ErrSessionNotFound
+	}
+
+	path, err := latestSessionLogPath(m.sessionLogs, id)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, ErrSessionNotFound
+		}
+		return nil, err
+	}
+
+	lines, err := readLastLines(path, maxLines)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, ErrSessionNotFound
+		}
+		return nil, err
+	}
+	return lines, nil
+}
+
 func (m *Manager) List() []SessionInfo {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -281,6 +319,13 @@ func (m *Manager) List() []SessionInfo {
 	}
 
 	return infos
+}
+
+func (m *Manager) SessionPersistenceEnabled() bool {
+	if m == nil {
+		return false
+	}
+	return m.sessionLogs != ""
 }
 
 func (m *Manager) GetAgent(id string) (agent.Agent, bool) {

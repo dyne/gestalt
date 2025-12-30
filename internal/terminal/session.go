@@ -152,6 +152,21 @@ func (s *Session) OutputLines() []string {
 	return s.bcast.OutputLines()
 }
 
+func (s *Session) HistoryLines(maxLines int) ([]string, error) {
+	lines := s.OutputLines()
+	if len(lines) > 0 {
+		return tailLines(lines, maxLines), nil
+	}
+	if s.logger == nil {
+		return []string{}, nil
+	}
+	path := s.logger.Path()
+	if path == "" {
+		return []string{}, nil
+	}
+	return readLastLines(path, maxLines)
+}
+
 func (s *Session) Close() error {
 	s.closing.Do(func() {
 		s.setState(sessionStateClosing)

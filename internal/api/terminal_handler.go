@@ -69,6 +69,22 @@ func (h *TerminalHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	output, cancel := session.Subscribe()
 	defer cancel()
 
+	// Avoid duplicating scrollback for clients that already hydrate via /output.
+	if len(session.OutputLines()) == 0 {
+		historyLines, err := session.HistoryLines(terminal.DefaultHistoryLines)
+		if err == nil && len(historyLines) > 0 {
+			payload := strings.Join(historyLines, "\n")
+			if payload != "" {
+				if err := conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+					return
+				}
+				if err := conn.WriteMessage(websocket.BinaryMessage, []byte(payload)); err != nil {
+					return
+				}
+			}
+		}
+	}
+
 	done := make(chan struct{})
 	defer close(done)
 

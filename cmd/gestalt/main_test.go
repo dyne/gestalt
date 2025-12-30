@@ -13,6 +13,10 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	t.Setenv("GESTALT_PORT", "9090")
 	t.Setenv("GESTALT_SHELL", "/bin/zsh")
 	t.Setenv("GESTALT_TOKEN", "secret")
+	t.Setenv("GESTALT_SESSION_RETENTION_DAYS", "9")
+	t.Setenv("GESTALT_SESSION_PERSIST", "true")
+	t.Setenv("GESTALT_SESSION_DIR", "/tmp/gestalt-logs")
+	t.Setenv("GESTALT_SESSION_BUFFER_LINES", "2048")
 
 	cfg := loadConfig()
 	if cfg.Port != 9090 {
@@ -24,6 +28,18 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	if cfg.AuthToken != "secret" {
 		t.Fatalf("expected token secret, got %q", cfg.AuthToken)
 	}
+	if cfg.SessionRetentionDays != 9 {
+		t.Fatalf("expected retention days 9, got %d", cfg.SessionRetentionDays)
+	}
+	if !cfg.SessionPersist {
+		t.Fatalf("expected session persistence true")
+	}
+	if cfg.SessionLogDir != "/tmp/gestalt-logs" {
+		t.Fatalf("expected session log dir /tmp/gestalt-logs, got %q", cfg.SessionLogDir)
+	}
+	if cfg.SessionBufferLines != 2048 {
+		t.Fatalf("expected session buffer lines 2048, got %d", cfg.SessionBufferLines)
+	}
 }
 
 func TestLoadConfigDefaultsOnInvalidPort(t *testing.T) {
@@ -31,6 +47,25 @@ func TestLoadConfigDefaultsOnInvalidPort(t *testing.T) {
 	cfg := loadConfig()
 	if cfg.Port != 8080 {
 		t.Fatalf("expected default port 8080, got %d", cfg.Port)
+	}
+	if cfg.SessionLogDir != filepath.Join("logs", "sessions") {
+		t.Fatalf("expected default session log dir, got %q", cfg.SessionLogDir)
+	}
+	if cfg.SessionBufferLines != 1000 {
+		t.Fatalf("expected default session buffer lines 1000, got %d", cfg.SessionBufferLines)
+	}
+}
+
+func TestLoadConfigDisablesSessionPersistence(t *testing.T) {
+	t.Setenv("GESTALT_SESSION_PERSIST", "false")
+	t.Setenv("GESTALT_SESSION_DIR", "/tmp/gestalt-logs")
+
+	cfg := loadConfig()
+	if cfg.SessionPersist {
+		t.Fatalf("expected session persistence disabled")
+	}
+	if cfg.SessionLogDir != "" {
+		t.Fatalf("expected empty session log dir when disabled, got %q", cfg.SessionLogDir)
 	}
 }
 

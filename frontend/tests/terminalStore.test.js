@@ -265,4 +265,40 @@ describe('terminalStore', () => {
     unsubscribe()
     releaseTerminalState('history')
   })
+
+  it('warns when history load is slow', async () => {
+    vi.useFakeTimers()
+    let resolveFetch
+    apiFetch.mockImplementation((path) => {
+      if (path.includes('/output')) {
+        return new Promise((resolve) => {
+          resolveFetch = resolve
+        })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    })
+
+    const state = getTerminalState('slow')
+    let historyStatus = ''
+    const unsubscribe = state.historyStatus.subscribe((value) => {
+      historyStatus = value
+    })
+
+    await flush()
+    vi.advanceTimersByTime(5000)
+    await flush()
+
+    expect(historyStatus).toBe('slow')
+    expect(addNotification).toHaveBeenCalled()
+
+    resolveFetch({ ok: true, json: async () => ({ lines: [] }) })
+    await flush()
+    await flush()
+
+    expect(historyStatus).toBe('loaded')
+
+    vi.useRealTimers()
+    unsubscribe()
+    releaseTerminalState('slow')
+  })
 })

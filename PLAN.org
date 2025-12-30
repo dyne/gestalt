@@ -2,28 +2,52 @@
   Goal: Implement semantic versioning throughout Gestalt with automated version generation in GitHub Actions based on conventional commits (feat:/fix:), compile version into backend and frontend, and display version in UI near the Gestalt title.
   Notes:
   - Use conventional commits (feat:, fix:) to drive semantic versioning
-  - GitHub Action should detect commit types and bump version appropriately
+  - Use npm semver package for version parsing and bumping
+  - Node.js script analyzes git log since last tag, detects feat:/fix:/BREAKING CHANGE:
+  - Script uses semver.inc() to bump version appropriately
   - Version must be passed at build time to both Go backend and Vite frontend
   - Backend: compile version as const or var, expose via /api/status
   - Frontend: inject version at build time via Vite define, display in Dashboard header
-  - UI: show version text near "Gestalt" title (small, subtle styling)
-  - Tools: use semantic-release or similar for automatic version bumping and tagging
-  - No manual version file edits; version is driven by git tags
-  - Initial version: start from v0.1.0 if no tags exist
+  - UI: reuse .cta class styling (gray, small text) as .version class for version display
+  - Version appears near "Gestalt" title in Dashboard header
+  - Minimal dependency: only semver package (already Node.js project)
+  - Initial version: v1.0.0 (project is mature enough)
+  - Git tags are source of truth; no manual version files
   Date: 2025-12-30
 
-** TODO [#B] Setup semantic-release in GitHub Actions
-   Why: Need automated version detection and git tagging based on conventional commits
+** TODO [#B] Create Node.js script for version detection using semver
+   Why: Need reliable version bumping based on conventional commits using semver package
    Change:
-   - Create .releaserc.json configuration for semantic-release
-   - Configure plugins: @semantic-release/commit-analyzer, @semantic-release/release-notes-generator, @semantic-release/github
-   - Update .github/workflows/tests.yml to include release job
-   - Release job: runs on push to main, analyzes commits, creates git tag, generates release notes
-   - Set up GITHUB_TOKEN permissions for creating releases
-   - Configure conventional commit rules: feat → minor, fix → patch, BREAKING CHANGE → major
-   - Dry-run mode for testing before enabling actual releases
-   Tests: Run workflow, verify it analyzes commits correctly
-   Done when: GitHub Action can determine next version from commit history
+   - Install semver package as dev dependency in root: npm install --save-dev semver
+   - Create scripts/get-next-version.js Node.js script
+   - Logic: read git log from last tag to HEAD, parse commit messages
+   - Use git describe or git tag to get current version
+   - Detect patterns: "feat:" → semver.inc('minor'), "fix:" → semver.inc('patch'), "BREAKING CHANGE:" → semver.inc('major')
+   - If no tag exists, output 1.0.0 as initial version
+   - Use semver.valid() to validate versions, semver.clean() to normalize
+   - Output format: semantic version string without 'v' prefix (e.g., "1.2.3")
+   - Handle edge cases: no commits since tag, multiple types in range, invalid existing tags
+   - Script should be idempotent and fast
+   - Priority order: BREAKING CHANGE > feat > fix (highest precedence wins)
+   - Exit with code 0 and output version to stdout for easy capture in workflows
+   Tests: Run script manually with various commit histories
+   Done when: Script correctly determines next version from git history using semver
+
+** TODO [#B] Create GitHub Actions release workflow
+   Why: Automate version detection, tagging, and release creation on main branch
+   Change:
+   - Create .github/workflows/release.yml (separate from tests.yml)
+   - Trigger: on push to main branch only
+   - Setup steps: checkout → setup Node.js → npm install semver
+   - Run scripts/get-next-version.js to determine next version
+   - Compare with current tag (git describe --tags); skip if no change
+   - Create git tag with 'v' prefix: v1.2.3
+   - Use GitHub API or gh CLI to create release with auto-generated notes
+   - Set up GITHUB_TOKEN permissions: contents: write (for tags)
+   - Generate release notes from commits since last tag using GitHub's API
+   - Tag format: v1.2.3 (with 'v' prefix for git, script outputs without prefix)
+   Tests: Push feat: or fix: commit to main, verify tag and release created
+   Done when: GitHub Action automatically tags and releases on conventional commits
 
 ** TODO [#B] Pass version to Go backend at build time
    Why: Backend needs to know its version for /api/status and logging
@@ -52,37 +76,39 @@
    Why: Users should see which version of Gestalt they're running
    Change:
    - Import VERSION from lib/version.js in Dashboard.svelte
-   - Add version display near "Gestalt" h1: small text, subtle color, positioned elegantly
-   - Use semantic HTML: <span class="version">v{VERSION}</span>
-   - Style: small font (0.7-0.8rem), muted color (#7a776f), positioned near title
-   - Consider placement: "Gestalt v1.2.3" or separate line below title
-   - Match existing design language from Dashboard styling
+   - Add version display near "Gestalt" h1 in the header div
+   - Reuse existing .cta class styling as .version class (small, gray text)
+   - Markup: <span class="version">v{VERSION}</span>
+   - Placement: after the h1, same container, visually subtle
+   - Keep existing .cta styles, duplicate as .version for semantic clarity
+   - Version should be understated, not competing with main title
    Tests: npm run build; visually verify version displays correctly
-   Done when: Version appears in Dashboard header with subtle styling
+   Done when: Version appears in Dashboard header with .cta-inspired styling
 
 ** TODO [#C] Update Makefile to integrate versioning
    Why: Local builds should support version injection
    Change:
-   - Add VERSION ?= dev to Makefile
+   - Add VERSION ?= dev to Makefile (default to "dev" for local builds)
+   - Alternatively: VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
    - Update build target to pass VERSION to both Go and npm
-   - Go build: add -ldflags flag with version
-   - npm build: export VERSION env var before running npm run build
-   - Document in comments: how to build with specific version
-   - Add version target that prints current version from git tag
+   - Go build: add -ldflags "-X gestalt/internal/version.Version=$(VERSION)"
+   - npm build: export VERSION=$(VERSION) before running npm run build
+   - Document in comments: "make VERSION=1.2.3 to build with specific version"
+   - Add phony target "version" that prints current version from git
    Tests: make VERSION=1.0.0; verify both binaries have correct version
    Done when: Makefile supports VERSION variable for local builds
 
-** TODO [#C] Integrate versioning into CI workflow
-   Why: Automated builds should use detected version from semantic-release
+** TODO [#C] Integrate versioning into test workflow
+   Why: Test builds should include version info for debugging
    Change:
-   - Update .github/workflows/tests.yml to include release steps
-   - Add step to determine version: use semantic-release dry-run or git describe
-   - Pass version to build steps as environment variable
-   - Trigger release job only on main branch
-   - Create artifacts with version in filename (optional)
-   - Tag docker images with version (if docker build added later)
-   Tests: Push commit with feat: or fix:, verify workflow tags correctly
-   Done when: CI builds contain correct version from semantic analysis
+   - Update .github/workflows/tests.yml to detect version during build
+   - Add step: run scripts/get-next-version.sh or git describe for current version
+   - Pass VERSION env var to build steps (Go and npm)
+   - This workflow does NOT create tags (release.yml handles that)
+   - Display version in test summary output for visibility
+   - Handle case where no tags exist yet (use "dev" or "1.0.0-dev")
+   Tests: Push to PR or branch, verify tests run with version info
+   Done when: Test workflow builds contain version from git tags
 
 ** TODO [#C] Document versioning workflow
    Why: Contributors need to understand commit message conventions
@@ -90,13 +116,16 @@
    - Add "Versioning" section to README.md
    - Document conventional commit format: feat:, fix:, BREAKING CHANGE:
    - Explain semantic versioning rules (major.minor.patch)
-   - Document how version is injected at build time
-   - Show example: "feat: add terminal history → 0.2.0", "fix: resolve connection bug → 0.1.1"
-   - Link to conventional commits specification
+   - Document how version is injected at build time (Go ldflags, Vite define)
+   - Explain automatic tagging: "Push feat: commit to main → v1.1.0 tag created"
+   - Show examples: "feat: add terminal history → bumps minor", "fix: resolve connection bug → bumps patch"
+   - Mention initial version is v1.0.0
+   - Document local build with version: make VERSION=1.2.3
+   - Link to conventional commits specification (optional)
    Tests: None (documentation only)
-   Done when: README documents versioning workflow clearly
+   Done when: README clearly documents versioning workflow and conventions
 
-* WIP [#B] Terminal history persistence across disconnects
+* DONE [#B] Terminal history persistence across disconnects
   Goal: Preserve terminal output history when users disconnect and reconnect, allowing them to see what happened while they were away.
   Notes:
   - Current problem: OutputBuffer (1000 lines) exists in memory but xterm.js instance is fresh on reconnect
@@ -113,7 +142,7 @@
   - Performance: async file writes, buffered I/O, don't block terminal operations
   Date: 2025-12-30
 
-** DONE [#B] Wire existing /output endpoint into frontend on connect
+** Wire existing /output endpoint into frontend on connect
    Why: Backend already buffers 1000 lines; frontend just needs to fetch and display them
    Change:
    - In terminalStore.js, fetch GET /api/terminals/{id}/output before connecting WebSocket
@@ -125,7 +154,7 @@
    Tests: Manual test: connect, type output, disconnect, reconnect → verify history appears
    Done when: Reconnecting shows buffered output from OutputBuffer
 
-** WIP [#C] Add optional disk persistence for terminal output
+** Add optional disk persistence for terminal output
    Why: Survive server restarts and provide longer history than in-memory buffer
    Change:
    - Create internal/terminal/persistence.go with SessionLogger
@@ -137,7 +166,7 @@
    Tests: Unit test SessionLogger; integration test verifies file contents
    Done when: Terminal output is written to disk asynchronously
 
-** TODO [#C] Load persisted history on session reconnect
+** Load persisted history on session reconnect
    Why: Restore history beyond in-memory buffer limit after server restart
    Change:
    - On WebSocket connect, check if session file exists
@@ -149,7 +178,7 @@
    Tests: Restart server, reconnect → verify persisted history loads
    Done when: Reconnect shows persisted history from disk
 
-** TODO [#C] Add session file cleanup policy
+** Add session file cleanup policy
    Why: Prevent unbounded disk usage from accumulating session logs
    Change:
    - Create cleanup goroutine in Manager: runs hourly
@@ -161,7 +190,7 @@
    Tests: Create old files, run cleanup, verify correct files deleted
    Done when: Old session logs are automatically cleaned up
 
-** TODO [#C] Add configuration options for persistence
+** Add configuration options for persistence
    Why: Users may want to disable persistence or tune buffer sizes
    Change:
    - Add env vars: GESTALT_SESSION_PERSIST (true/false), GESTALT_SESSION_DIR (default logs/sessions)
@@ -172,7 +201,7 @@
    Tests: Test with persistence disabled; verify no files created
    Done when: Persistence is configurable via env vars
 
-** TODO [#C] Optimize file I/O for high-throughput terminals
+** Optimize file I/O for high-throughput terminals
    Why: Avoid blocking or degrading terminal performance with disk writes
    Change:
    - Use channel-based async writes: SessionLogger has write channel (buffered)
@@ -183,7 +212,7 @@
    Tests: Stress test with high output rate; verify no blocking
    Done when: Disk persistence doesn't impact terminal responsiveness
 
-** TODO [#C] Update frontend to indicate history loading state
+** Update frontend to indicate history loading state
    Why: Users should know when history is being loaded vs live output
    Change:
    - Add status indicator: "Loading history..." during fetch

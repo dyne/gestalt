@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import Dashboard from './views/Dashboard.svelte'
   import LogsView from './views/LogsView.svelte'
+  import PlanView from './views/PlanView.svelte'
   import TerminalView from './views/TerminalView.svelte'
   import TabBar from './components/TabBar.svelte'
   import ToastContainer from './components/ToastContainer.svelte'
@@ -12,6 +13,7 @@
 
   let tabs = [
     { id: 'dashboard', label: 'Dashboard', isHome: true },
+    { id: 'plan', label: 'Plan', isHome: true },
     { id: 'logs', label: 'Logs', isHome: true },
   ]
   let activeId = 'dashboard'
@@ -23,11 +25,18 @@
   let showSettings = false
 
   $: activeView =
-    activeId === 'dashboard' ? 'dashboard' : activeId === 'logs' ? 'logs' : 'terminal'
+    activeId === 'dashboard'
+      ? 'dashboard'
+      : activeId === 'plan'
+        ? 'plan'
+        : activeId === 'logs'
+          ? 'logs'
+          : 'terminal'
 
   const syncTabs = (terminalList) => {
     tabs = [
       { id: 'dashboard', label: 'Dashboard', isHome: true },
+      { id: 'plan', label: 'Plan', isHome: true },
       { id: 'logs', label: 'Logs', isHome: true },
       ...terminalList.map((terminal) => ({
         id: terminal.id,
@@ -112,7 +121,7 @@
   }
 
   const handleClose = (id) => {
-    if (id === 'dashboard' || id === 'logs') return
+    if (id === 'dashboard' || id === 'plan' || id === 'logs') return
     deleteTerminal(id).catch((err) => {
       error = err?.message || 'Failed to close terminal.'
     })
@@ -148,6 +157,9 @@
       {error}
       onCreate={createTerminal}
     />
+  </section>
+  <section class="view" data-active={activeView === 'plan'}>
+    <PlanView />
   </section>
   <section class="view" data-active={activeView === 'logs'}>
     <LogsView />

@@ -6,7 +6,7 @@
   export let onOpenSettings = () => {}
 </script>
 
-<nav class="tabbar" aria-label="Terminal tabs">
+<nav class="tabbar" aria-label="App tabs">
   {#each tabs as tab}
     <div class="tabbar__item" data-active={tab.id === activeId}>
       <button

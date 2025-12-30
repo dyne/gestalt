@@ -1,4 +1,4 @@
-* TODO [#B] Org-mode PLAN.org viewer component
+* DONE [#B] Org-mode PLAN.org viewer component
   Goal: Add a pleasant, compact Svelte outliner component to visualize PLAN.org with foldable sections, syntax highlighting for TODO/WIP/DONE keywords, priorities, and eventual sidebar integration.
   Notes:
   - Target users: casual users who don't use Emacs org-mode
@@ -13,7 +13,7 @@
   - Future: editing support, sync with file changes, real-time updates
   Date: 2025-12-29
 
-** TODO [#B] Create backend endpoint to serve PLAN.org
+** DONE [#B] Create backend endpoint to serve PLAN.org
    Why: Frontend needs access to PLAN.org contents via API
    Change:
    - Add GET /api/plan endpoint in api/routes.go
@@ -25,7 +25,7 @@
    Tests: GET /api/plan returns PLAN.org contents
    Done when: API endpoint serves PLAN.org file contents
 
-** TODO [#B] Create org-mode parser for outline structure
+** DONE [#B] Create org-mode parser for outline structure
    Why: Need to parse org-mode syntax into structured data for rendering
    Change:
    - Create frontend/src/lib/orgParser.js
@@ -40,7 +40,7 @@
    Tests: Unit tests with sample org-mode text; verify tree structure
    Done when: Parser converts org text to structured tree
 
-** TODO [#B] Create OrgViewer Svelte component
+** DONE [#B] Create OrgViewer Svelte component
    Why: Main UI component for displaying parsed org-mode outline
    Change:
    - Create frontend/src/components/OrgViewer.svelte
@@ -53,7 +53,7 @@
    Tests: Manual rendering test with sample org-mode content
    Done when: Component renders parsed org-mode structure
 
-** TODO [#B] Create OrgNode component for heading rendering
+** DONE [#B] Create OrgNode component for heading rendering
    Why: Recursive component for each outline node with expand/collapse
    Change:
    - Create frontend/src/components/OrgNode.svelte
@@ -68,7 +68,7 @@
    Tests: Manual test with nested headings, toggle behavior
    Done when: Individual nodes render with proper styling and expand/collapse
 
-** TODO [#C] Add expand/collapse controls
+** DONE [#C] Add expand/collapse controls
    Why: Users need convenient ways to navigate large outlines
    Change:
    - Add toolbar buttons: "Expand All", "Collapse All"
@@ -79,7 +79,7 @@
    Tests: Manual test expand/collapse functionality
    Done when: Toolbar controls work correctly
 
-** TODO [#C] Add keyword filtering
+** DONE [#C] Add keyword filtering
    Why: Users may want to focus on TODO/WIP items only
    Change:
    - Add filter dropdown: "All", "TODO only", "WIP only", "DONE only", "TODO+WIP"
@@ -89,7 +89,7 @@
    Tests: Manual test filtering with various keyword combinations
    Done when: Filter dropdown correctly shows/hides nodes
 
-** TODO [#C] Add search functionality (optional)
+** DONE [#C] Add search functionality (optional)
    Why: Large plans benefit from text search
    Change:
    - Add search input box in toolbar
@@ -100,7 +100,7 @@
    Tests: Manual test search with various queries
    Done when: Search highlights and expands matching nodes
 
-** TODO [#B] Integrate OrgViewer into dashboard
+** DONE [#B] Integrate OrgViewer into dashboard
    Why: Users need access to plan viewer in the UI
    Change:
    - Add "Plan" tab to TabBar (after Dashboard, before terminal tabs)
@@ -112,7 +112,7 @@
    Tests: Manual test Plan tab in UI
    Done when: Plan tab shows PLAN.org outline
 
-** TODO [#C] Polish styling and responsiveness
+** DONE [#C] Polish styling and responsiveness
    Why: Ensure component is pleasant and usable as specified
    Change:
    - Refine color scheme: match Gestalt design language

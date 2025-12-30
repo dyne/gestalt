@@ -58,6 +58,7 @@ API (development snapshot)
 - POST /api/terminals - create a new terminal
 - DELETE /api/terminals/:id - terminate a terminal
 - GET /api/terminals/:id/output - recent output lines (buffered)
+- GET /api/plan - read PLAN.org contents
 - GET /api/logs - recent system logs (query: level, since, limit)
 
 Auth

@@ -9,8 +9,9 @@ import (
 
 func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken string, staticDir string, logger *logging.Logger) {
 	rest := &RestHandler{
-		Manager: manager,
-		Logger:  logger,
+		Manager:  manager,
+		Logger:   logger,
+		PlanPath: "PLAN.org",
 	}
 
 	mux.Handle("/ws/terminal/", &TerminalHandler{
@@ -27,6 +28,7 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 	mux.Handle("/api/logs", loggingMiddleware(logger, restHandler(authToken, rest.handleLogs)))
 	mux.Handle("/api/terminals", loggingMiddleware(logger, restHandler(authToken, rest.handleTerminals)))
 	mux.Handle("/api/terminals/", loggingMiddleware(logger, restHandler(authToken, rest.handleTerminal)))
+	mux.Handle("/api/plan", loggingMiddleware(logger, jsonErrorMiddleware(rest.handlePlan)))
 
 	if staticDir != "" {
 		mux.Handle("/", NewSPAHandler(staticDir))

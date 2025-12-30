@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -14,8 +15,9 @@ import (
 )
 
 type RestHandler struct {
-	Manager *terminal.Manager
-	Logger  *logging.Logger
+	Manager  *terminal.Manager
+	Logger   *logging.Logger
+	PlanPath string
 }
 
 type terminalSummary struct {
@@ -36,6 +38,10 @@ type terminalOutputResponse struct {
 type statusResponse struct {
 	TerminalCount int       `json:"terminal_count"`
 	ServerTime    time.Time `json:"server_time"`
+}
+
+type planResponse struct {
+	Content string `json:"content"`
 }
 
 type errorResponse struct {
@@ -156,6 +162,38 @@ func (h *RestHandler) handleLogs(w http.ResponseWriter, r *http.Request) *apiErr
 	default:
 		return methodNotAllowed(w, "GET, POST")
 	}
+}
+
+func (h *RestHandler) handlePlan(w http.ResponseWriter, r *http.Request) *apiError {
+	if r.Method != http.MethodGet {
+		return methodNotAllowed(w, "GET")
+	}
+
+	planPath := h.PlanPath
+	if planPath == "" {
+		planPath = "PLAN.org"
+	}
+
+	info, statErr := os.Stat(planPath)
+	content, err := os.ReadFile(planPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			if h.Logger != nil {
+				h.Logger.Warn("plan file not found", map[string]string{
+					"path": planPath,
+				})
+			}
+			writeJSON(w, http.StatusOK, planResponse{Content: ""})
+			return nil
+		}
+		return &apiError{Status: http.StatusInternalServerError, Message: "failed to read plan file"}
+	}
+	if statErr == nil {
+		w.Header().Set("Last-Modified", info.ModTime().UTC().Format(http.TimeFormat))
+	}
+
+	writeJSON(w, http.StatusOK, planResponse{Content: string(content)})
+	return nil
 }
 
 func (h *RestHandler) requireManager() *apiError {

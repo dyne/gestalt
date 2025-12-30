@@ -5,7 +5,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -462,6 +464,53 @@ func TestLogsEndpointCreateEntry(t *testing.T) {
 	}
 	if entry.Context["toast"] != "true" {
 		t.Fatalf("expected toast context, got %q", entry.Context["toast"])
+	}
+}
+
+func TestPlanEndpointReturnsContent(t *testing.T) {
+	dir := t.TempDir()
+	planPath := filepath.Join(dir, "PLAN.org")
+	content := "* TODO [#A] Sample\n"
+	if err := os.WriteFile(planPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write plan file: %v", err)
+	}
+
+	handler := &RestHandler{PlanPath: planPath}
+	req := httptest.NewRequest(http.MethodGet, "/api/plan", nil)
+	res := httptest.NewRecorder()
+
+	jsonErrorMiddleware(handler.handlePlan)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var payload planResponse
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Content != content {
+		t.Fatalf("expected content %q, got %q", content, payload.Content)
+	}
+}
+
+func TestPlanEndpointMissingFileReturnsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	planPath := filepath.Join(dir, "missing.org")
+	handler := &RestHandler{PlanPath: planPath}
+	req := httptest.NewRequest(http.MethodGet, "/api/plan", nil)
+	res := httptest.NewRecorder()
+
+	jsonErrorMiddleware(handler.handlePlan)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var payload planResponse
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Content != "" {
+		t.Fatalf("expected empty content, got %q", payload.Content)
 	}
 }
 

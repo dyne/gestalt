@@ -7,6 +7,8 @@
   import { getTerminalState } from '../lib/terminalStore.js'
 
   export let terminalId = ''
+  export let title = ''
+  export let skills = []
   export let visible = true
 
   let container
@@ -23,6 +25,8 @@
   let unsubscribeHistory
   let unsubscribeBell
   let unsubscribeReconnect
+  let displayTitle = ''
+  let skillsLabel = ''
 
   const statusLabels = {
     connecting: 'Connecting...',
@@ -106,6 +110,13 @@
 
   $: statusLabel = statusLabels[status] || status
   $: inputDisabled = status !== 'connected' || !terminalId
+  $: displayTitle = title?.trim()
+    ? title.trim()
+    : terminalId
+      ? `Terminal ${terminalId}`
+      : 'Terminal —'
+  $: skillsLabel =
+    Array.isArray(skills) && skills.length > 0 ? skills.filter(Boolean).join(', ') : ''
 
   onDestroy(() => {
     window.removeEventListener('resize', resizeHandler)
@@ -130,7 +141,10 @@
 <section class="terminal-shell">
   <header class="terminal-shell__header">
     <div>
-      <p class="label">Terminal {terminalId || '—'}</p>
+      <p class="label">{displayTitle}</p>
+      {#if skillsLabel}
+        <p class="subtitle">Skills: {skillsLabel}</p>
+      {/if}
       <div class="status-row">
         <p class="status">{statusLabel}</p>
         {#if historyStatus === 'loading' || historyStatus === 'slow'}
@@ -187,6 +201,14 @@
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: rgba(242, 239, 233, 0.7);
+  }
+
+  .subtitle {
+    margin: 0.2rem 0 0;
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(242, 239, 233, 0.5);
   }
 
   .status {

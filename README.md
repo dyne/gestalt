@@ -155,7 +155,18 @@ Assign skills to agents by adding a `skills` array:
 ```
 
 Discovery and activation:
-- On startup, skills are loaded and metadata is injected into agent prompts as XML.
+- On startup, skills are loaded and metadata is injected into agent terminals as XML.
+- The XML format provides skill discovery information to the LLM:
+  ```xml
+  <available_skills>
+    <skill>
+      <name>terminal-navigation</name>
+      <description>Terminal navigation shortcuts and safe command patterns.</description>
+      <location>config/skills/terminal-navigation/SKILL.md</location>
+    </skill>
+  </available_skills>
+  ```
+- Skills are injected before agent prompts when the terminal starts.
 - Agents can read the full `SKILL.md` at the provided `<location>` to activate a skill.
 - Use scripts/references/assets only from trusted sources.
 

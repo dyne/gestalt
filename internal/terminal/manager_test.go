@@ -414,6 +414,109 @@ func TestManagerInjectsPrompt(t *testing.T) {
 	t.Fatalf("timed out waiting for prompt write")
 }
 
+func TestManagerWritesSkillsMetadata(t *testing.T) {
+	root := t.TempDir()
+	promptsDir := filepath.Join(root, "config", "prompts")
+	if err := os.MkdirAll(promptsDir, 0755); err != nil {
+		t.Fatalf("mkdir prompts: %v", err)
+	}
+	firstPrompt := filepath.Join(promptsDir, "first.txt")
+	if err := os.WriteFile(firstPrompt, []byte("echo hello\n"), 0644); err != nil {
+		t.Fatalf("write prompt: %v", err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("restore cwd: %v", err)
+		}
+	}()
+
+	factory := &captureFactory{}
+	manager := NewManager(ManagerOptions{
+		PtyFactory: factory,
+		Skills: map[string]*skill.Skill{
+			"beta": {
+				Name:        "beta",
+				Description: "Second skill",
+				Path:        "config/skills/beta",
+				Content:     "# Beta Skill\nBeta body\n",
+			},
+			"alpha": {
+				Name:        "alpha",
+				Description: "First skill",
+				Path:        "config/skills/alpha",
+				Content:     "# Alpha Skill\nAlpha body\n",
+			},
+		},
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:    "Codex",
+				Shell:   "/bin/bash",
+				Prompts: agent.PromptList{"first"},
+				Skills:  []string{"beta", "alpha"},
+				LLMType: "codex",
+			},
+		},
+	})
+
+	session, err := manager.Create("codex", "build", "ignored")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(session.ID)
+	}()
+
+	deadline := time.Now().Add(6 * time.Second)
+	payload := ""
+	for time.Now().Before(deadline) {
+		factory.pty.mu.Lock()
+		writes := append([][]byte(nil), factory.pty.writes...)
+		factory.pty.mu.Unlock()
+		if len(writes) > 0 {
+			builder := strings.Builder{}
+			for _, chunk := range writes {
+				builder.Write(chunk)
+			}
+			payload = builder.String()
+			if strings.HasSuffix(payload, "\r\n") {
+				break
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if payload == "" {
+		t.Fatalf("timed out waiting for prompt write")
+	}
+	// Skills metadata should be injected as XML
+	if !strings.Contains(payload, "<available_skills>") {
+		t.Fatalf("expected skills metadata in payload: %q", payload)
+	}
+	if !strings.Contains(payload, "<name>beta</name>") {
+		t.Fatalf("expected beta skill in metadata: %q", payload)
+	}
+	if !strings.Contains(payload, "<name>alpha</name>") {
+		t.Fatalf("expected alpha skill in metadata: %q", payload)
+	}
+	if !strings.Contains(payload, "<location>config/skills/beta/SKILL.md</location>") {
+		t.Fatalf("expected beta skill location in metadata: %q", payload)
+	}
+	// Prompt should still be there after skills
+	if !strings.Contains(payload, "echo hello\n") {
+		t.Fatalf("prompt payload missing: %q", payload)
+	}
+	// Full skill content should NOT be in payload
+	if strings.Contains(payload, "# Beta Skill") || strings.Contains(payload, "# Alpha Skill") {
+		t.Fatalf("unexpected full skill content in payload: %q", payload)
+	}
+}
+
 func TestManagerOnAirStringDelaysPrompt(t *testing.T) {
 	oldTimeout := onAirTimeout
 	onAirTimeout = 500 * time.Millisecond
@@ -618,8 +721,8 @@ func TestManagerCreateUnknownAgentLogsWarning(t *testing.T) {
 		t.Fatalf("expected 1 log entry, got %d", len(entries))
 	}
 	entry := entries[0]
-	if entry.Message != "agent not found" {
-		t.Fatalf("expected agent not found log, got %q", entry.Message)
+	if entry.Message != "agent not found or invalid" {
+		t.Fatalf("expected agent not found or invalid log, got %q", entry.Message)
 	}
 	if entry.Context["agent_id"] != "missing" {
 		t.Fatalf("expected agent_id missing, got %v", entry.Context)

@@ -167,7 +167,12 @@
   <section class="view view--terminals" data-active={activeView === 'terminal'}>
     {#each terminals as terminal (terminal.id)}
       <div class="terminal-tab" data-active={terminal.id === activeId}>
-        <TerminalView terminalId={terminal.id} visible={terminal.id === activeId} />
+        <TerminalView
+          terminalId={terminal.id}
+          title={terminal.title}
+          skills={terminal.skills || []}
+          visible={terminal.id === activeId}
+        />
       </div>
     {/each}
   </section>

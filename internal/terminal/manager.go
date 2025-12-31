@@ -57,7 +57,6 @@ const (
 	promptChunkDelay = 25 * time.Millisecond
 	promptChunkSize  = 64
 	enterKeyDelay    = 75 * time.Millisecond
-	skillPromptDelay = 100 * time.Millisecond
 )
 
 var onAirTimeout = 5 * time.Second
@@ -140,11 +139,10 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 	var profile *agent.Agent
 	var promptNames []string
 	var onAirString string
-	var skillEntries []*skill.Skill
 	if agentID != "" {
 		agentProfile, ok := m.GetAgent(agentID)
-		if !ok {
-			m.logger.Warn("agent not found", map[string]string{
+		if !ok || agentProfile.Name == "" {
+			m.logger.Warn("agent not found or invalid", map[string]string{
 				"agent_id": agentID,
 			})
 			return nil, ErrAgentNotFound
@@ -162,15 +160,6 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 		}
 		if strings.TrimSpace(agentProfile.OnAirString) != "" {
 			onAirString = agentProfile.OnAirString
-		}
-		if len(agentProfile.Skills) > 0 {
-			for _, skillName := range agentProfile.Skills {
-				skillEntry, ok := m.GetSkill(skillName)
-				if !ok || skillEntry == nil {
-					continue
-				}
-				skillEntries = append(skillEntries, skillEntry)
-			}
 		}
 	}
 
@@ -236,8 +225,10 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 	}
 	m.logger.Info("terminal created", fields)
 
-	if len(promptNames) > 0 || len(skillEntries) > 0 {
+	// Inject skill metadata and prompts if agent is configured
+	if profile != nil && (len(profile.Skills) > 0 || len(promptNames) > 0) {
 		go func() {
+			// Wait for shell to be ready
 			if strings.TrimSpace(onAirString) != "" {
 				if !waitForOnAir(session, onAirString, onAirTimeout) {
 					m.logger.Error("agent onair string not found", map[string]string{
@@ -249,54 +240,59 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 			} else {
 				time.Sleep(promptDelay)
 			}
-			wrotePrompt := false
-			if len(skillEntries) > 0 {
-				payload := skill.GeneratePromptXML(skillEntries)
-				if strings.TrimSpace(payload) != "" {
-					if err := session.Write([]byte(payload + "\n")); err != nil {
-						m.logger.Warn("agent skills write failed", map[string]string{
-							"agent_id": agentID,
-							"error":    err.Error(),
-						})
-						return
+
+			// Inject skill metadata first if agent has skills
+			if len(profile.Skills) > 0 {
+				agentSkills := make([]*skill.Skill, 0, len(profile.Skills))
+				for _, skillName := range profile.Skills {
+					if skillEntry, ok := m.skills[skillName]; ok {
+						agentSkills = append(agentSkills, skillEntry)
 					}
-					wrotePrompt = true
-					m.logger.Info("agent skills injected", map[string]string{
-						"agent_id":    agentID,
-						"skill_count": strconv.Itoa(len(skillEntries)),
-					})
-					if len(promptNames) > 0 {
-						time.Sleep(skillPromptDelay)
+				}
+				
+				if len(agentSkills) > 0 {
+					skillXML := skill.GeneratePromptXML(agentSkills)
+					if skillXML != "" {
+						skillData := []byte(skillXML)
+						if err := writePromptPayload(session, skillData); err != nil {
+							m.logger.Warn("agent skill metadata write failed", map[string]string{
+								"agent_id": agentID,
+								"error":    err.Error(),
+							})
+						} else {
+							m.logger.Info("agent skill metadata injected", map[string]string{
+								"agent_id":    agentID,
+								"skill_count": strconv.Itoa(len(agentSkills)),
+							})
+						}
+						time.Sleep(interPromptDelay)
 					}
 				}
 			}
 
-			cleaned := make([]string, 0, len(promptNames))
-			for _, promptName := range promptNames {
-				promptName = strings.TrimSpace(promptName)
-				if promptName != "" {
-					cleaned = append(cleaned, promptName)
-				}
-			}
-			for i, promptName := range cleaned {
-				promptPath := filepath.Join("config", "prompts", promptName+".txt")
-				data, err := os.ReadFile(promptPath)
-				if err != nil {
-					m.logger.Warn("agent prompt file read failed", map[string]string{
-						"agent_id":    agentID,
-						"prompt":      promptName,
-						"prompt_path": promptPath,
-						"error":       err.Error(),
-					})
-					continue
-				}
-				payload := data
-				for offset := 0; offset < len(payload); offset += promptChunkSize {
-					end := offset + promptChunkSize
-					if end > len(payload) {
-						end = len(payload)
+			// Inject custom prompts
+			if len(promptNames) > 0 {
+				wrotePrompt := false
+				cleaned := make([]string, 0, len(promptNames))
+				for _, promptName := range promptNames {
+					promptName = strings.TrimSpace(promptName)
+					if promptName != "" {
+						cleaned = append(cleaned, promptName)
 					}
-					if err := session.Write(payload[offset:end]); err != nil {
+				}
+				for i, promptName := range cleaned {
+					promptPath := filepath.Join("config", "prompts", promptName+".txt")
+					data, err := os.ReadFile(promptPath)
+					if err != nil {
+						m.logger.Warn("agent prompt file read failed", map[string]string{
+							"agent_id":    agentID,
+							"prompt":      promptName,
+							"prompt_path": promptPath,
+							"error":       err.Error(),
+						})
+						continue
+					}
+					if err := writePromptPayload(session, data); err != nil {
 						m.logger.Warn("agent prompt write failed", map[string]string{
 							"agent_id": agentID,
 							"prompt":   promptName,
@@ -304,36 +300,52 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 						})
 						return
 					}
-					if end < len(payload) {
-						time.Sleep(promptChunkDelay)
+					wrotePrompt = true
+					if i < len(cleaned)-1 {
+						time.Sleep(interPromptDelay)
 					}
 				}
-				wrotePrompt = true
-				if i < len(cleaned)-1 {
-					time.Sleep(interPromptDelay)
-				}
-			}
-			if wrotePrompt {
-				time.Sleep(finalEnterDelay)
-				if err := session.Write([]byte("\r")); err != nil {
-					m.logger.Warn("agent prompt final enter failed", map[string]string{
-						"agent_id": agentID,
-						"error":    err.Error(),
-					})
-					return
-				}
-				time.Sleep(enterKeyDelay)
-				if err := session.Write([]byte("\n")); err != nil {
-					m.logger.Warn("agent prompt final enter failed", map[string]string{
-						"agent_id": agentID,
-						"error":    err.Error(),
-					})
+				if wrotePrompt {
+					time.Sleep(finalEnterDelay)
+					if err := session.Write([]byte("\r")); err != nil {
+						m.logger.Warn("agent prompt final enter failed", map[string]string{
+							"agent_id": agentID,
+							"error":    err.Error(),
+						})
+						return
+					}
+					time.Sleep(enterKeyDelay)
+					if err := session.Write([]byte("\n")); err != nil {
+						m.logger.Warn("agent prompt final enter failed", map[string]string{
+							"agent_id": agentID,
+							"error":    err.Error(),
+						})
+					}
 				}
 			}
 		}()
 	}
 
 	return session, nil
+}
+
+func writePromptPayload(session *Session, payload []byte) error {
+	if len(payload) == 0 {
+		return nil
+	}
+	for offset := 0; offset < len(payload); offset += promptChunkSize {
+		end := offset + promptChunkSize
+		if end > len(payload) {
+			end = len(payload)
+		}
+		if err := session.Write(payload[offset:end]); err != nil {
+			return err
+		}
+		if end < len(payload) {
+			time.Sleep(promptChunkDelay)
+		}
+	}
+	return nil
 }
 
 func (m *Manager) nextIDValue() string {

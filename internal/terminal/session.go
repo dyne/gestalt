@@ -78,6 +78,7 @@ type SessionInfo struct {
 	Status    string
 	LLMType   string
 	LLMModel  string
+	Skills    []string
 }
 
 func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt time.Time, bufferLines int, profile *agent.Agent, sessionLogger *SessionLogger, inputLogger *InputLogger) *Session {
@@ -120,6 +121,10 @@ func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt
 }
 
 func (s *Session) Info() SessionInfo {
+	skills := []string{}
+	if s.agent != nil && len(s.agent.Skills) > 0 {
+		skills = append(skills, s.agent.Skills...)
+	}
 	return SessionInfo{
 		ID:        s.ID,
 		Title:     s.Title,
@@ -128,6 +133,7 @@ func (s *Session) Info() SessionInfo {
 		Status:    s.State().String(),
 		LLMType:   s.LLMType,
 		LLMModel:  s.LLMModel,
+		Skills:    skills,
 	}
 }
 

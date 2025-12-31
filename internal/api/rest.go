@@ -30,6 +30,7 @@ type terminalSummary struct {
 	Status    string    `json:"status"`
 	LLMType   string    `json:"llm_type"`
 	LLMModel  string    `json:"llm_model"`
+	Skills    []string  `json:"skills"`
 }
 
 type terminalOutputResponse struct {
@@ -354,6 +355,7 @@ func (h *RestHandler) listTerminals(w http.ResponseWriter) *apiError {
 			Status:    info.Status,
 			LLMType:   info.LLMType,
 			LLMModel:  info.LLMModel,
+			Skills:    info.Skills,
 		})
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -383,6 +385,7 @@ func (h *RestHandler) createTerminal(w http.ResponseWriter, r *http.Request) *ap
 		Status:    info.Status,
 		LLMType:   info.LLMType,
 		LLMModel:  info.LLMModel,
+		Skills:    info.Skills,
 	}
 	writeJSON(w, http.StatusCreated, response)
 	return nil

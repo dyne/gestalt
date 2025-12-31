@@ -2,12 +2,14 @@
   import Terminal from '../components/Terminal.svelte'
 
   export let terminalId = ''
+  export let title = ''
+  export let skills = []
   export let visible = true
 </script>
 
 <section class="terminal-view">
   {#if terminalId}
-    <Terminal {terminalId} {visible} />
+    <Terminal {terminalId} {title} {skills} {visible} />
   {:else}
     <div class="empty">
       <h1>No terminal selected</h1>

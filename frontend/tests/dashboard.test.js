@@ -16,9 +16,26 @@ describe('Dashboard', () => {
   })
 
   it('renders agent buttons and calls onCreate', async () => {
-    apiFetch.mockResolvedValue({
-      json: vi.fn().mockResolvedValue([{ id: 'codex', name: 'Codex' }]),
+    // Mock agents API call
+    apiFetch.mockImplementation((url) => {
+      if (url === '/api/agents') {
+        return Promise.resolve({
+          json: vi.fn().mockResolvedValue([{ id: 'codex', name: 'Codex' }]),
+        })
+      }
+      if (url === '/api/skills') {
+        return Promise.resolve({
+          json: vi.fn().mockResolvedValue([]),
+        })
+      }
+      if (url.startsWith('/api/skills?agent=')) {
+        return Promise.resolve({
+          json: vi.fn().mockResolvedValue([]),
+        })
+      }
+      return Promise.reject(new Error('Unexpected API call'))
     })
+    
     const onCreate = vi.fn().mockResolvedValue()
 
     const { findByText } = render(Dashboard, {

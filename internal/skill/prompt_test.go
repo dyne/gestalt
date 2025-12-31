@@ -1,9 +1,6 @@
 package skill
 
-import (
-	"path/filepath"
-	"testing"
-)
+import "testing"
 
 func TestGeneratePromptXMLEmpty(t *testing.T) {
 	if got := GeneratePromptXML(nil); got != "" {
@@ -12,23 +9,77 @@ func TestGeneratePromptXMLEmpty(t *testing.T) {
 }
 
 func TestGeneratePromptXMLSingleSkill(t *testing.T) {
-	dir := t.TempDir()
-	skillDir := filepath.Join(dir, "git-workflows")
 	entry := &Skill{
 		Name:        "git-workflows",
 		Description: "Use git & stay safe",
-		Path:        skillDir,
+		Path:        "config/skills/git-workflows",
 	}
 
 	got := GeneratePromptXML([]*Skill{entry})
-	absPath, err := filepath.Abs(filepath.Join(skillDir, "SKILL.md"))
-	if err != nil {
-		t.Fatalf("abs: %v", err)
+
+	expected := `<available_skills>
+  <skill>
+    <name>git-workflows</name>
+    <description>Use git &amp; stay safe</description>
+    <location>config/skills/git-workflows/SKILL.md</location>
+  </skill>
+</available_skills>`
+	if got != expected {
+		t.Fatalf("xml mismatch:\ngot:\n%s\nexpected:\n%s", got, expected)
+	}
+}
+
+func TestGeneratePromptXMLMultipleSkills(t *testing.T) {
+	skills := []*Skill{
+		{
+			Name:        "terminal-navigation",
+			Description: "Terminal navigation shortcuts and safe command patterns.",
+			Path:        "config/skills/terminal-navigation",
+		},
+		{
+			Name:        "code-review",
+			Description: "Code review best practices",
+			Path:        "config/skills/code-review",
+		},
 	}
 
-	expected := "<available_skills><skill><name>git-workflows</name><description>Use git &amp; stay safe</description><location>" +
-		absPath + "</location></skill></available_skills>"
+	got := GeneratePromptXML(skills)
+
+	expected := `<available_skills>
+  <skill>
+    <name>terminal-navigation</name>
+    <description>Terminal navigation shortcuts and safe command patterns.</description>
+    <location>config/skills/terminal-navigation/SKILL.md</location>
+  </skill>
+  <skill>
+    <name>code-review</name>
+    <description>Code review best practices</description>
+    <location>config/skills/code-review/SKILL.md</location>
+  </skill>
+</available_skills>`
 	if got != expected {
-		t.Fatalf("xml mismatch:\n%s\n!=\n%s", got, expected)
+		t.Fatalf("xml mismatch:\ngot:\n%s\nexpected:\n%s", got, expected)
+	}
+}
+
+func TestGeneratePromptXMLSkipInvalidSkills(t *testing.T) {
+	skills := []*Skill{
+		nil,
+		{Name: "", Description: "No name"},
+		{Name: "valid", Description: "", Path: "/tmp/valid"},
+		{Name: "good", Description: "Good skill", Path: "/tmp/good"},
+	}
+
+	got := GeneratePromptXML(skills)
+
+	expected := `<available_skills>
+  <skill>
+    <name>good</name>
+    <description>Good skill</description>
+    <location>/tmp/good/SKILL.md</location>
+  </skill>
+</available_skills>`
+	if got != expected {
+		t.Fatalf("xml mismatch:\ngot:\n%s\nexpected:\n%s", got, expected)
 	}
 }

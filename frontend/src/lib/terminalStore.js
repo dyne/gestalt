@@ -195,6 +195,14 @@ const createTerminalState = (terminalId) => {
     socket.send(encoder.encode(data))
   }
 
+  const sendCommand = (command) => {
+    const payload = typeof command === 'string' ? command : ''
+    if (payload) {
+      sendData(payload)
+    }
+    sendData('\r')
+  }
+
   const setDirectInput = (enabled) => {
     directInputEnabled = Boolean(enabled)
   }
@@ -509,6 +517,7 @@ const createTerminalState = (terminalId) => {
     bellCount,
     canReconnect,
     sendData,
+    sendCommand,
     setDirectInput,
     focus,
     attach,

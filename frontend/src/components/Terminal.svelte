@@ -60,7 +60,11 @@
   const handleSubmit = (command) => {
     if (!state) return
     const payload = typeof command === 'string' ? command : ''
-    state.sendData?.(`${payload}\n`)
+    if (state.sendCommand) {
+      state.sendCommand(payload)
+    } else {
+      state.sendData?.(`${payload}\r\n`)
+    }
     const trimmed = payload.trim()
     if (!trimmed || !terminalId) return
     apiFetch(`/api/terminals/${terminalId}/input-history`, {

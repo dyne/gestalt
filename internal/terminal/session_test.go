@@ -96,6 +96,33 @@ func TestSessionAutoRespondsToCursorPosition(t *testing.T) {
 	t.Fatalf("expected cursor position response")
 }
 
+func TestSessionFallbacksCursorPositionWithSubscriber(t *testing.T) {
+	pty := newScriptedPty()
+	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, nil, nil, nil)
+	defer func() {
+		_ = session.Close()
+	}()
+
+	_, cancel := session.Subscribe()
+	defer cancel()
+
+	pty.Emit("\x1b[6n")
+
+	deadline := time.Now().Add(dsrFallbackDelay + 150*time.Millisecond)
+	for time.Now().Before(deadline) {
+		pty.mu.Lock()
+		writes := append([][]byte(nil), pty.writes...)
+		pty.mu.Unlock()
+		for _, write := range writes {
+			if string(write) == "\x1b[1;1R" {
+				return
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("expected fallback cursor position response")
+}
+
 func TestSessionRecordsInputHistory(t *testing.T) {
 	pty := newScriptedPty()
 	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, nil, nil, nil)

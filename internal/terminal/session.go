@@ -25,6 +25,8 @@ const (
 	sessionStateClosed
 )
 
+const dsrFallbackDelay = 250 * time.Millisecond
+
 func (s SessionState) String() string {
 	switch s {
 	case sessionStateStarting:
@@ -60,6 +62,9 @@ type Session struct {
 	inputLog *InputLogger
 	agent    *agent.Agent
 	subs     int32
+	dsrMu    sync.Mutex
+	dsrTimer *time.Timer
+	dsrOpen  bool
 	closing  sync.Once
 	closeErr error
 	state    uint32
@@ -156,6 +161,9 @@ func (s *Session) Write(data []byte) (err error) {
 	if state == sessionStateClosing || state == sessionStateClosed {
 		return ErrSessionClosed
 	}
+	if containsDSRResponse(data) {
+		s.clearDSRFallback()
+	}
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -234,6 +242,7 @@ func (s *Session) HistoryLines(maxLines int) ([]string, error) {
 func (s *Session) Close() error {
 	s.closing.Do(func() {
 		s.setState(sessionStateClosing)
+		s.clearDSRFallback()
 		if s.cancel != nil {
 			s.cancel()
 		}
@@ -296,8 +305,12 @@ func (s *Session) readLoop() {
 		if n > 0 {
 			chunk := make([]byte, n)
 			copy(chunk, buf[:n])
-			if !s.hasSubscribers() && containsDSR(dsrTail, chunk) {
-				_ = s.Write([]byte("\x1b[1;1R"))
+			if containsDSR(dsrTail, chunk) {
+				if s.hasSubscribers() {
+					s.scheduleDSRFallback()
+				} else {
+					_ = s.Write([]byte("\x1b[1;1R"))
+				}
 			}
 			dsrTail = updateDSRTail(dsrTail, chunk)
 			select {
@@ -323,6 +336,38 @@ func containsDSR(tail, chunk []byte) bool {
 	return bytes.Contains(combined, []byte("\x1b[6n"))
 }
 
+func containsDSRResponse(data []byte) bool {
+	if len(data) == 0 {
+		return false
+	}
+	for i := 0; i < len(data); i++ {
+		if data[i] != 0x1b || i+2 >= len(data) || data[i+1] != '[' {
+			continue
+		}
+		j := i + 2
+		if j < len(data) && data[j] == '?' {
+			j++
+		}
+		start := j
+		for j < len(data) && data[j] >= '0' && data[j] <= '9' {
+			j++
+		}
+		if j == start || j >= len(data) || data[j] != ';' {
+			continue
+		}
+		j++
+		start = j
+		for j < len(data) && data[j] >= '0' && data[j] <= '9' {
+			j++
+		}
+		if j == start || j >= len(data) || data[j] != 'R' {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
 func updateDSRTail(tail, chunk []byte) []byte {
 	const dsrSize = 4
 	const tailSize = dsrSize - 1
@@ -339,6 +384,39 @@ func updateDSRTail(tail, chunk []byte) []byte {
 		return combined
 	}
 	return append([]byte(nil), combined[len(combined)-tailSize:]...)
+}
+
+func (s *Session) scheduleDSRFallback() {
+	if s == nil {
+		return
+	}
+	s.dsrMu.Lock()
+	s.dsrOpen = true
+	if s.dsrTimer != nil {
+		s.dsrTimer.Stop()
+	}
+	s.dsrTimer = time.AfterFunc(dsrFallbackDelay, func() {
+		s.dsrMu.Lock()
+		pending := s.dsrOpen
+		s.dsrOpen = false
+		s.dsrMu.Unlock()
+		if pending {
+			_ = s.Write([]byte("\x1b[1;1R"))
+		}
+	})
+	s.dsrMu.Unlock()
+}
+
+func (s *Session) clearDSRFallback() {
+	if s == nil {
+		return
+	}
+	s.dsrMu.Lock()
+	s.dsrOpen = false
+	if s.dsrTimer != nil {
+		s.dsrTimer.Stop()
+	}
+	s.dsrMu.Unlock()
 }
 
 func (s *Session) writeLoop() {

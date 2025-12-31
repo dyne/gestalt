@@ -92,9 +92,31 @@
     }
 
     if (event.key !== 'Enter') return
-    if (event.shiftKey) return
+    if (event.ctrlKey || event.shiftKey) {
+      event.preventDefault()
+      insertNewline()
+      return
+    }
     event.preventDefault()
     submit()
+  }
+
+  const insertNewline = () => {
+    if (!textarea) {
+      value = `${value}\n`
+      resizeTextarea()
+      return
+    }
+    const start = textarea.selectionStart ?? value.length
+    const end = textarea.selectionEnd ?? value.length
+    value = `${value.slice(0, start)}\n${value.slice(end)}`
+    resizeTextarea()
+    requestAnimationFrame(() => {
+      if (!textarea) return
+      const next = start + 1
+      textarea.selectionStart = next
+      textarea.selectionEnd = next
+    })
   }
 
   const handleDirectToggle = (event) => {
@@ -143,7 +165,7 @@
       bind:this={textarea}
       bind:value
       rows="3"
-      placeholder="Type command... (Enter to submit, Shift+Enter for newline)"
+      placeholder="Type command... (One Enter sends, double Enter to run, Shift/Ctrl+Enter newline, Ctrl+Up/Down history)"
       on:input={resizeTextarea}
       on:keydown={handleKeydown}
       disabled={disabled}

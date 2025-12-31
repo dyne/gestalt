@@ -89,6 +89,13 @@ const shouldSuppressMouseMode = (params) => {
   return flattened.every((value) => MOUSE_MODE_PARAMS.has(value))
 }
 
+const isMouseReport = (data) => {
+  if (data.startsWith('\x1b[<')) {
+    return /^\x1b\[<\d+;\d+;\d+[mM]$/.test(data)
+  }
+  return data.startsWith('\x1b[M') && data.length === 6
+}
+
 export const getTerminalState = (terminalId) => {
   if (!terminalId) return null
   if (!terminals.has(terminalId)) {
@@ -113,7 +120,6 @@ const createTerminalState = (terminalId) => {
   const term = new Terminal({
     allowProposedApi: true,
     cursorBlink: true,
-    disableStdin: true,
     fontSize: 14,
     fontFamily: '"IBM Plex Mono", "JetBrains Mono", monospace',
     theme: {
@@ -184,6 +190,11 @@ const createTerminalState = (terminalId) => {
     container = null
   }
 
+  term.onData((data) => {
+    if (isMouseReport(data)) return
+    sendData(data)
+  })
+
   term.onBell(() => {
     bellCount.update((count) => count + 1)
   })
@@ -207,7 +218,9 @@ const createTerminalState = (terminalId) => {
       event.stopPropagation()
       return false
     }
-    return true
+    event.preventDefault()
+    event.stopPropagation()
+    return false
   })
 
   if (term.parser?.registerCsiHandler) {

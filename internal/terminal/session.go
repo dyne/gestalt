@@ -128,10 +128,23 @@ func (s *Session) Subscribe() (<-chan []byte, func()) {
 	return s.bcast.Subscribe()
 }
 
-func (s *Session) Write(data []byte) error {
+func (s *Session) Write(data []byte) (err error) {
 	if len(data) == 0 {
 		return nil
 	}
+	if s == nil {
+		return ErrSessionClosed
+	}
+	state := s.State()
+	if state == sessionStateClosing || state == sessionStateClosed {
+		return ErrSessionClosed
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			err = ErrSessionClosed
+		}
+	}()
 
 	select {
 	case s.input <- data:

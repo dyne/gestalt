@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -49,6 +50,25 @@ func TestSessionCloseTransitionsState(t *testing.T) {
 	}
 	if session.State() != sessionStateClosed {
 		t.Fatalf("expected state closed, got %v", session.State())
+	}
+}
+
+func TestSessionWriteAfterClose(t *testing.T) {
+	pty := newScriptedPty()
+	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, nil, nil, nil)
+
+	if err := session.Close(); err != nil {
+		t.Fatalf("close session: %v", err)
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("expected no panic, got %v", r)
+		}
+	}()
+
+	if err := session.Write([]byte("ls\n")); !errors.Is(err, ErrSessionClosed) {
+		t.Fatalf("expected ErrSessionClosed, got %v", err)
 	}
 }
 

@@ -1,200 +1,187 @@
-* TODO [#B] gestalt-send CLI tool and agent instance management
-  Goal: Create a CLI tool for piping stdin to agent terminals (e.g., `cat file | gestalt-send agent-name`), ensure agent profiles have unique names, enforce single-instance agents (only one terminal per agent), and use agent names for tab labels instead of "Terminal 1/2/3".
+* TODO [#B] Agent Skills integration
+  Goal: Integrate the Agent Skills standard (agentskills.io) into Gestalt to provide agents with discoverable, on-demand capabilities through structured skill packages stored in config/skills/
   Notes:
-  - CLI tool: gestalt-send command that reads stdin and sends to agent's PTY via REST API
-  - Usage: `cat file | gestalt-send architect` or `echo "command" | gestalt-send copilot`
-  - Target agent by name (not terminal ID) for ease of use
-  - Agent name uniqueness: enforce at load time in agent.Loader, reject duplicate names
-  - Single-instance agents: Manager tracks agent→terminal mapping, prevent duplicate agent starts
-  - Tab labeling: use agent.Name instead of generic "Terminal N"
-  - API: add POST /api/agents/:name/input endpoint to send data to agent's terminal
-  - If agent not running: return 404 or optionally auto-start (configurable)
-  - Authentication: gestalt-send uses GESTALT_TOKEN env var (same as server)
-  - Server URL: gestalt-send uses GESTALT_URL env var (default http://localhost:8080)
-  - CLI flags: --url, --token, --start (auto-start agent if not running)
-  - Error handling: clear messages if agent not found, not running, or network errors
-  - Build: add cmd/gestalt-send/main.go, build with `make gestalt-send`
-  - Install: copy binary to PATH or document usage from repo
+  - Agent Skills are folders containing SKILL.md (YAML frontmatter + Markdown instructions)
+  - Progressive disclosure: load metadata at startup, full instructions on activation
+  - Skills can include optional directories: scripts/, references/, assets/
+  - Each skill has: name, description (for discovery), license, compatibility, metadata
+  - Agents in config/agents/*.json can reference skills via "skills": ["skill-name", ...]
+  - Skill metadata injected into agent system prompt for discovery
+  - When agent activates a skill, full SKILL.md is provided to the LLM
+  - Scripts in skills/ can be executed by the agent
+  - Reference files loaded on-demand to save context
+  - Validation: skill names must match directory names, required frontmatter fields
+  - Security: consider sandboxing script execution, logging, confirmation prompts
+  - Integration approach: filesystem-based (agents use shell commands to access skills)
+  - Skills are portable, versionable, and shareable across different agent tools
   Date: 2025-12-31
 
-** TODO [#B] Enforce unique agent names in agent loader
-   Why: Agent names must be unique to support instance management and CLI tool
+** TODO [#B] Create skill data structure and parser
+   Why: Need to parse SKILL.md frontmatter and validate skill format
    Change:
-   - Modify internal/agent/loader.go Load() function
-   - Track seen agent names during load, detect duplicates
-   - If duplicate name found: return error with both file paths
-   - Error message: "Duplicate agent name 'copilot' in files: agents/a.json, agents/b.json"
-   - Validation happens after all files are parsed but before returning map
-   - Use case-sensitive name comparison (names must match exactly)
-   - Add unit test for duplicate detection with temp agent files
-   Tests: Loader test with duplicate agent names; verify error returned
-   Done when: Agent loader rejects duplicate names with clear error
+   - Create internal/skill/ package with Skill struct
+   - Fields: Name, Description, License, Compatibility, Metadata (map), AllowedTools ([]string)
+   - Fields: Path (skill directory), Content (markdown body after frontmatter)
+   - Add YAML frontmatter parser (use gopkg.in/yaml.v3 for minimal dependency)
+   - Parse both frontmatter and body content from SKILL.md
+   - Validate: name format (lowercase, hyphens, 1-64 chars, no leading/trailing hyphen)
+   - Validate: description (1-1024 chars, non-empty)
+   - Validate: name matches parent directory name
+   - Add optional validation for scripts/, references/, assets/ directories
+   - Document skill struct in internal/skill/doc.go
+   Tests: Unit tests for parsing valid/invalid SKILL.md files, validation edge cases
+   Done when: Skill struct exists with YAML parsing and validation
 
-** TODO [#B] Add agent instance tracking to Manager
-   Why: Enforce single-instance agents (only one terminal per agent)
+** TODO [#B] Implement skill loader from config/skills/
+   Why: Load skill packages from filesystem at startup
    Change:
-   - Add field to Manager: agentSessions map[string]string (agentName → terminalID)
-   - Update Manager.Create() to check if agent already has a running terminal
-   - If agentSessions[agentName] exists: return error ErrAgentAlreadyRunning
-   - On session creation: record agentSessions[agentName] = session.ID
-   - On session deletion: remove agentSessions[agentName]
-   - Add method Manager.GetSessionByAgent(agentName string) (*Session, bool)
-   - Handle case where agent profile is nil (non-agent terminals, allow multiple)
-   - Thread-safe: protect agentSessions with Manager.mu mutex
-   Tests: Manager tests for duplicate agent prevention, cleanup on delete
-   Done when: Manager prevents duplicate agent instances
+   - Create skill.Loader with Load(dir string) (map[string]*Skill, error)
+   - Scan config/skills/*/ directories for SKILL.md files
+   - Parse each SKILL.md into Skill struct (frontmatter + body)
+   - Use directory name as skill ID, validate against frontmatter name
+   - Return map[skillID]*Skill for easy lookup
+   - Handle errors: missing SKILL.md, invalid YAML, validation failures
+   - If config/skills/ doesn't exist, return empty map (not an error)
+   - Log warnings for invalid skills but don't fail entire load
+   - Check for optional directories (scripts/, references/, assets/)
+   Tests: Unit tests with temp directories; valid/invalid skill structures
+   Done when: Loader successfully reads skill packages from directory
 
-** TODO [#B] Update createTerminal API to handle duplicate agents
-   Why: REST API needs to return appropriate error for duplicate agents
+** TODO [#B] Wire skill loader into Manager initialization
+   Why: Manager needs access to skills for agent initialization
    Change:
-   - Modify internal/api/rest.go createTerminal handler
-   - Catch terminal.ErrAgentAlreadyRunning error from Manager.Create()
-   - Return 409 Conflict with message: "Agent 'name' is already running in terminal ID"
-   - Include existing terminal ID in error response for frontend
-   - Update error type: add Field string to apiError for terminal_id
-   - Frontend can use this to switch to existing terminal tab instead of failing silently
-   Tests: API integration test for duplicate agent creation
-   Done when: API returns 409 for duplicate agents with terminal ID
+   - Add Skills field to ManagerOptions: map[string]*skill.Skill
+   - Load skills in cmd/gestalt/main.go before creating Manager
+   - Pass skills to Manager via ManagerOptions
+   - Store skills in Manager struct for lookup during terminal creation
+   - Add method Manager.GetSkill(name string) (*Skill, bool)
+   - Add method Manager.ListSkills() []SkillMetadata (for API)
+   Tests: Integration test verifying Manager has skills after init
+   Done when: Manager has access to loaded skill packages
 
-** TODO [#B] Update frontend to use agent name for tab labels
-   Why: Tab labels should show agent name, not "Terminal N"
+** TODO [#B] Extend agent profiles to reference skills
+   Why: Agents need to declare which skills they have access to
    Change:
-   - Modify frontend/src/App.svelte openTerminalTab() or tab creation logic
-   - Currently: `label: terminal.title || Terminal ${terminal.id}`
-   - Change to prioritize agent name: if terminal has agent, use agent.name
-   - Backend already sets Title from agent.Name in Manager.Create()
-   - Verify terminal.title comes from API response correctly
-   - Keep fallback for non-agent terminals: "Terminal {id}"
-   Tests: Manual test: create agent terminal, verify tab shows agent name
-   Done when: Agent terminal tabs display agent name
+   - Add Skills field to Agent struct: []string `json:"skills"`
+   - Skills field is optional array of skill names
+   - Validate skill references during agent load: warn if skill doesn't exist
+   - Store resolved skill references in agent for prompt generation
+   - Update example agent configs to demonstrate skills usage
+   - Example: "skills": ["git-workflows", "code-review", "data-analysis"]
+   Tests: Agent loader tests with valid/invalid skill references
+   Done when: Agent profiles can declare skill dependencies
 
-** TODO [#B] Handle duplicate agent in frontend gracefully
-   Why: When duplicate agent detected, switch to existing tab instead of error toast
+** TODO [#C] Generate skill metadata for agent prompts
+   Why: Agents need skill discovery information in system prompt
    Change:
-   - Modify Dashboard.svelte createTerminal() handler
-   - Catch 409 response from POST /api/terminals
-   - Parse terminal_id from error response
-   - Find existing tab with that terminal ID and switch to it
-   - Show info toast: "Agent 'name' is already running" (not error)
-   - Optional: add visual feedback (tab highlight/flash)
-   Tests: Manual test: create agent twice, verify switch to existing tab
-   Done when: Duplicate agent creation switches to existing tab
+   - Create skill.GeneratePromptXML(skills []*Skill) string function
+   - Generate XML format: <available_skills><skill><name>...</name><description>...</description><location>...</location></skill></available_skills>
+   - Include absolute path to SKILL.md in <location> for filesystem access
+   - Keep metadata concise (~50-100 tokens per skill)
+   - Only include skills referenced by the agent (from agent.Skills array)
+   - Document XML format for prompt injection
+   Tests: Unit tests for XML generation with various skill sets
+   Done when: Function generates proper XML for agent system prompts
 
-** TODO [#B] Add REST API endpoint for sending input to agent by name
-   Why: CLI tool needs to send data to agent without knowing terminal ID
+** TODO [#B] Inject skill metadata into agent prompts
+   Why: Agents must know which skills are available at startup
    Change:
-   - Add POST /api/agents/:name/input endpoint in internal/api/routes.go
-   - Look up agent terminal using Manager.GetSessionByAgent(name)
-   - If not found: return 404 "Agent 'name' is not running"
-   - Read request body as raw bytes (stdin data)
-   - Write to session.input channel (same as WebSocket input)
-   - Content-Type: application/octet-stream or text/plain
-   - Return 200 OK with bytes written count
-   - Auth: require token (same as other endpoints)
-   Tests: API integration test for agent input endpoint
-   Done when: API endpoint accepts input for agent by name
+   - Modify prompt injection logic in terminal/session.go
+   - After shell starts, before custom prompts, inject skill metadata
+   - Generate XML from agent's skill list: GeneratePromptXML(agent.Skills)
+   - Write skill metadata as initial prompt content
+   - Add delay (100ms) before custom prompts
+   - Log skill injection at info level
+   - Handle case where agent has no skills (skip injection)
+   Tests: Manual test: create agent with skills, verify XML in terminal
+   Done when: Skill metadata appears in agent terminal on startup
 
-** TODO [#B] Create gestalt-send CLI binary structure
-   Why: Need separate CLI tool for piping data to agents
+** TODO [#C] Add GET /api/skills endpoint
+   Why: Frontend and external tools need to query available skills
    Change:
-   - Create cmd/gestalt-send/main.go
-   - CLI flags: --url (default $GESTALT_URL or http://localhost:8080)
-   - CLI flags: --token (default $GESTALT_TOKEN)
-   - CLI flags: --start (auto-start agent if not running, future feature)
-   - Positional arg: agent name (required)
-   - Usage: gestalt-send [flags] <agent-name>
-   - Read stdin until EOF using io.Copy or bufio.Reader
-   - Basic structure: flag parsing, stdin read, HTTP POST
-   - Exit codes: 0 (success), 1 (usage error), 2 (agent not found), 3 (network error)
-   Tests: Build binary, verify flag parsing
-   Done when: CLI binary structure exists with flag handling
+   - Add GET /api/skills REST endpoint
+   - Return array of skill metadata: name, description, path, license
+   - Optionally filter by agent: GET /api/skills?agent=copilot
+   - Include skill directory structure info (has scripts, references, assets)
+   - Add unit tests for endpoint
+   Tests: GET /api/skills returns skill list with metadata
+   Done when: API endpoint exposes available skills
 
-** TODO [#B] Implement stdin-to-HTTP POST in gestalt-send
-   Why: Core functionality: pipe stdin to agent terminal via API
+** TODO [#C] Add GET /api/skills/:name endpoint
+   Why: Agents/users may need to read full skill content
    Change:
-   - Read stdin: io.ReadAll(os.Stdin) or streaming with bufio
-   - Build URL: {baseURL}/api/agents/{agentName}/input
-   - Create HTTP POST request with Authorization: Bearer {token}
-   - Set Content-Type: application/octet-stream
-   - Body: stdin bytes
-   - Send request using http.DefaultClient with timeout (30s)
-   - Handle responses: 200 (success), 404 (agent not running), 401 (auth), 500 (server error)
-   - Print errors to stderr with helpful messages
-   Tests: Manual test: echo "test" | gestalt-send agent-name
-   Done when: stdin data is sent to agent terminal successfully
+   - Add GET /api/skills/:name endpoint
+   - Return full skill details: metadata + markdown body + directory structure
+   - Include list of files in scripts/, references/, assets/
+   - Optionally: GET /api/skills/:name/files/:path to read specific files
+   - Handle file not found errors gracefully
+   Tests: GET /api/skills/:name returns complete skill information
+   Done when: API endpoint exposes full skill content
 
-** TODO [#C] Add auto-start option to gestalt-send (optional)
-   Why: Convenience feature to start agent if not already running
+** TODO [#C] Create example skills in config/skills/
+   Why: Provide working examples for users
    Change:
-   - Add --start flag to gestalt-send CLI
-   - If POST /api/agents/:name/input returns 404 and --start is set:
-   - Call POST /api/terminals with agent name to create terminal
-   - Retry POST /api/agents/:name/input after short delay (1s)
-   - Handle race condition if another process starts agent simultaneously
-   - This is optional enhancement; basic version requires agent running
-   Tests: Manual test with --start flag
-   Done when: Auto-start flag creates agent terminal if missing (optional)
+   - Create config/skills/ directory
+   - Add example skill: config/skills/git-workflows/SKILL.md
+   - Add example skill: config/skills/code-review/SKILL.md
+   - Add example skill: config/skills/terminal-navigation/SKILL.md
+   - Each example includes: proper frontmatter, clear instructions, references
+   - Optional: include example scripts in scripts/ directory
+   - Document skill format in README.md
+   Tests: Load examples; verify they parse correctly
+   Done when: Example skills exist and demonstrate the format
 
-** TODO [#C] Add verbose and debug output to gestalt-send
-   Why: Help users diagnose connection and authentication issues
+** TODO [#C] Update frontend to display skills
+   Why: Users should see which skills are available
    Change:
-   - Add --verbose flag: print HTTP request/response details to stderr
-   - Add --debug flag: print full request body preview (first 100 bytes)
-   - Show: URL, token (masked), response status, bytes sent
-   - Do not print sensitive data (full token) unless --debug explicitly set
-   - Use structured output: "Sending N bytes to agent 'X' at URL..."
-   Tests: Manual test with --verbose and --debug flags
-   Done when: CLI provides helpful diagnostic output
+   - Add "Skills" section to Dashboard.svelte
+   - Fetch skills via GET /api/skills on mount
+   - Display skill cards: name, description, associated agents
+   - Optional: clicking skill shows full SKILL.md content in modal
+   - Show skill count in dashboard status
+   - Update UI to show which skills an agent has when creating terminal
+   Tests: Manual test skills display in UI
+   Done when: Dashboard shows available skills
 
-** TODO [#C] Build and install gestalt-send in Makefile
-   Why: Users need easy way to build and install CLI tool
+** TODO [#C] Document Agent Skills integration
+   Why: Users and contributors need to understand skills system
    Change:
-   - Add gestalt-send target to GNUmakefile
-   - Build: go build -o gestalt-send cmd/gestalt-send/main.go
-   - Add to default build target (alongside gestalt server)
-   - Add install target: copy gestalt-send to /usr/local/bin or ~/.local/bin
-   - Document in README: make gestalt-send, sudo make install
-   - Consider: version stamping with ldflags (same as server)
-   Tests: make gestalt-send; verify binary works
-   Done when: gestalt-send builds via Makefile
-
-** TODO [#C] Add shell completion for gestalt-send (optional)
-   Why: Improve CLI UX with agent name tab-completion
-   Change:
-   - Generate bash/zsh completion scripts
-   - Completion: fetch agent names from GET /api/agents
-   - Cache agent names for 60s to avoid repeated API calls
-   - Install completion: gestalt-send completion bash > /etc/bash_completion.d/gestalt-send
-   - This is optional enhancement for better UX
-   Tests: Manual test tab-completion in bash/zsh
-   Done when: Shell completion works for agent names (optional)
-
-** TODO [#C] Document gestalt-send usage and examples
-   Why: Users need to understand CLI tool usage patterns
-   Change:
-   - Add "gestalt-send CLI Tool" section to README.md
-   - Document installation: make gestalt-send, copy to PATH
-   - Document environment variables: GESTALT_URL, GESTALT_TOKEN
-   - Document usage: cat file | gestalt-send agent-name
-   - Add examples: piping file contents, command output, multi-line input
-   - Example use cases: send logs to agent, feed data for analysis, scripting
-   - Document error codes and troubleshooting
-   - Document --start flag (if implemented)
+   - Add "Agent Skills" section to README.md
+   - Document skill directory structure and SKILL.md format
+   - Document how to create new skills
+   - Document how to assign skills to agents
+   - Link to agentskills.io specification
+   - Document skill discovery and activation process
+   - Add examples of skill usage patterns
    Tests: None (documentation only)
-   Done when: gestalt-send is fully documented with examples
+   Done when: Agent Skills system is fully documented
 
-** TODO [#C] Add integration test for end-to-end CLI workflow
-   Why: Verify complete workflow from CLI to agent terminal
+** TODO [#C] Add skill validation CLI command (optional)
+   Why: Help users create valid skills
    Change:
-   - Create test: start server, create agent terminal, run gestalt-send
-   - Verify data appears in terminal output buffer
-   - Test error cases: agent not found, wrong token, network errors
-   - Use temp config directory with test agent profiles
-   - Clean up terminals after test
-   Tests: Integration test in cmd/gestalt-send/
-   Done when: End-to-end CLI test passes reliably
+   - Add CLI command: gestalt validate-skill <path>
+   - Use internal/skill package to validate skill structure
+   - Check frontmatter format, name rules, required fields
+   - Check for optional directories and common mistakes
+   - Print validation results and suggestions
+   - Exit with code 0 (valid) or 1 (invalid)
+   - Alternative: document using skills-ref CLI from agentskills.io
+   Tests: Manual test with valid/invalid skill directories
+   Done when: Users can validate skills before deployment (optional)
 
-* WIP [#B] Enhanced input UX with multiline input box and command history
+** TODO [#C] Consider script execution security (future)
+   Why: Executing skill scripts has security implications
+   Change:
+   - Document security considerations in README
+   - Consider: sandboxing, allowlisting, user confirmation prompts
+   - Consider: logging all script executions for auditing
+   - Consider: skill signature verification for trusted sources
+   - This is future work; initial implementation trusts all skills in config/
+   - Add warning in docs about only using trusted skills
+   Tests: None (documentation and future planning)
+   Done when: Security considerations documented (implementation deferred)
+
+* TODO [#B] Enhanced input UX with multiline input box and command history
   Goal: Replace direct PTY keyboard input with a dedicated multiline input box at the bottom of agent pages, featuring browsable command history, future-proof for assisted input features, and independent clipboard handling.
   Notes:
   - Current state: all keyboard input is intercepted by terminalStore.js, only Ctrl+C and Ctrl+V handled externally
@@ -534,6 +521,331 @@
    Tests: None (documentation only)
    Done when: Widget system is fully documented in README
 
+* TODO [#B] gestalt-send CLI tool and agent instance management
+  Goal: Create a CLI tool for piping stdin to agent terminals (e.g., `cat file | gestalt-send agent-name`), ensure agent profiles have unique names, enforce single-instance agents (only one terminal per agent), and use agent names for tab labels instead of "Terminal 1/2/3".
+  Notes:
+  - CLI tool: gestalt-send command that reads stdin and sends to agent's PTY via REST API
+  - Usage: `cat file | gestalt-send architect` or `echo "command" | gestalt-send copilot`
+  - Target agent by name (not terminal ID) for ease of use
+  - Agent name uniqueness: enforce at load time in agent.Loader, reject duplicate names
+  - Single-instance agents: Manager tracks agent→terminal mapping, prevent duplicate agent starts
+  - Tab labeling: use agent.Name instead of generic "Terminal N"
+  - API: add POST /api/agents/:name/input endpoint to send data to agent's terminal
+  - If agent not running: return 404 or optionally auto-start (configurable)
+  - Authentication: gestalt-send uses GESTALT_TOKEN env var (same as server)
+  - Server URL: gestalt-send uses GESTALT_URL env var (default http://localhost:8080)
+  - CLI flags: --url, --token, --start (auto-start agent if not running)
+  - Error handling: clear messages if agent not found, not running, or network errors
+  - Build: add cmd/gestalt-send/main.go, build with `make gestalt-send`
+  - Install: copy binary to PATH or document usage from repo
+  Date: 2025-12-31
+
+** TODO [#B] Enforce unique agent names in agent loader
+   Why: Agent names must be unique to support instance management and CLI tool
+   Change:
+   - Modify internal/agent/loader.go Load() function
+   - Track seen agent names during load, detect duplicates
+   - If duplicate name found: return error with both file paths
+   - Error message: "Duplicate agent name 'copilot' in files: agents/a.json, agents/b.json"
+   - Validation happens after all files are parsed but before returning map
+   - Use case-sensitive name comparison (names must match exactly)
+   - Add unit test for duplicate detection with temp agent files
+   Tests: Loader test with duplicate agent names; verify error returned
+   Done when: Agent loader rejects duplicate names with clear error
+
+** TODO [#B] Add agent instance tracking to Manager
+   Why: Enforce single-instance agents (only one terminal per agent)
+   Change:
+   - Add field to Manager: agentSessions map[string]string (agentName → terminalID)
+   - Update Manager.Create() to check if agent already has a running terminal
+   - If agentSessions[agentName] exists: return error ErrAgentAlreadyRunning
+   - On session creation: record agentSessions[agentName] = session.ID
+   - On session deletion: remove agentSessions[agentName]
+   - Add method Manager.GetSessionByAgent(agentName string) (*Session, bool)
+   - Handle case where agent profile is nil (non-agent terminals, allow multiple)
+   - Thread-safe: protect agentSessions with Manager.mu mutex
+   Tests: Manager tests for duplicate agent prevention, cleanup on delete
+   Done when: Manager prevents duplicate agent instances
+
+** TODO [#B] Update createTerminal API to handle duplicate agents
+   Why: REST API needs to return appropriate error for duplicate agents
+   Change:
+   - Modify internal/api/rest.go createTerminal handler
+   - Catch terminal.ErrAgentAlreadyRunning error from Manager.Create()
+   - Return 409 Conflict with message: "Agent 'name' is already running in terminal ID"
+   - Include existing terminal ID in error response for frontend
+   - Update error type: add Field string to apiError for terminal_id
+   - Frontend can use this to switch to existing terminal tab instead of failing silently
+   Tests: API integration test for duplicate agent creation
+   Done when: API returns 409 for duplicate agents with terminal ID
+
+** TODO [#B] Update frontend to use agent name for tab labels
+   Why: Tab labels should show agent name, not "Terminal N"
+   Change:
+   - Modify frontend/src/App.svelte openTerminalTab() or tab creation logic
+   - Currently: `label: terminal.title || Terminal ${terminal.id}`
+   - Change to prioritize agent name: if terminal has agent, use agent.name
+   - Backend already sets Title from agent.Name in Manager.Create()
+   - Verify terminal.title comes from API response correctly
+   - Keep fallback for non-agent terminals: "Terminal {id}"
+   Tests: Manual test: create agent terminal, verify tab shows agent name
+   Done when: Agent terminal tabs display agent name
+
+** TODO [#B] Handle duplicate agent in frontend gracefully
+   Why: When duplicate agent detected, switch to existing tab instead of error toast
+   Change:
+   - Modify Dashboard.svelte createTerminal() handler
+   - Catch 409 response from POST /api/terminals
+   - Parse terminal_id from error response
+   - Find existing tab with that terminal ID and switch to it
+   - Show info toast: "Agent 'name' is already running" (not error)
+   - Optional: add visual feedback (tab highlight/flash)
+   Tests: Manual test: create agent twice, verify switch to existing tab
+   Done when: Duplicate agent creation switches to existing tab
+
+** TODO [#B] Add REST API endpoint for sending input to agent by name
+   Why: CLI tool needs to send data to agent without knowing terminal ID
+   Change:
+   - Add POST /api/agents/:name/input endpoint in internal/api/routes.go
+   - Look up agent terminal using Manager.GetSessionByAgent(name)
+   - If not found: return 404 "Agent 'name' is not running"
+   - Read request body as raw bytes (stdin data)
+   - Write to session.input channel (same as WebSocket input)
+   - Content-Type: application/octet-stream or text/plain
+   - Return 200 OK with bytes written count
+   - Auth: require token (same as other endpoints)
+   Tests: API integration test for agent input endpoint
+   Done when: API endpoint accepts input for agent by name
+
+** TODO [#B] Create gestalt-send CLI binary structure
+   Why: Need separate CLI tool for piping data to agents
+   Change:
+   - Create cmd/gestalt-send/main.go
+   - CLI flags: --url (default $GESTALT_URL or http://localhost:8080)
+   - CLI flags: --token (default $GESTALT_TOKEN)
+   - CLI flags: --start (auto-start agent if not running, future feature)
+   - Positional arg: agent name (required)
+   - Usage: gestalt-send [flags] <agent-name>
+   - Read stdin until EOF using io.Copy or bufio.Reader
+   - Basic structure: flag parsing, stdin read, HTTP POST
+   - Exit codes: 0 (success), 1 (usage error), 2 (agent not found), 3 (network error)
+   Tests: Build binary, verify flag parsing
+   Done when: CLI binary structure exists with flag handling
+
+** TODO [#B] Implement stdin-to-HTTP POST in gestalt-send
+   Why: Core functionality: pipe stdin to agent terminal via API
+   Change:
+   - Read stdin: io.ReadAll(os.Stdin) or streaming with bufio
+   - Build URL: {baseURL}/api/agents/{agentName}/input
+   - Create HTTP POST request with Authorization: Bearer {token}
+   - Set Content-Type: application/octet-stream
+   - Body: stdin bytes
+   - Send request using http.DefaultClient with timeout (30s)
+   - Handle responses: 200 (success), 404 (agent not running), 401 (auth), 500 (server error)
+   - Print errors to stderr with helpful messages
+   Tests: Manual test: echo "test" | gestalt-send agent-name
+   Done when: stdin data is sent to agent terminal successfully
+
+** TODO [#C] Add auto-start option to gestalt-send (optional)
+   Why: Convenience feature to start agent if not already running
+   Change:
+   - Add --start flag to gestalt-send CLI
+   - If POST /api/agents/:name/input returns 404 and --start is set:
+   - Call POST /api/terminals with agent name to create terminal
+   - Retry POST /api/agents/:name/input after short delay (1s)
+   - Handle race condition if another process starts agent simultaneously
+   - This is optional enhancement; basic version requires agent running
+   Tests: Manual test with --start flag
+   Done when: Auto-start flag creates agent terminal if missing (optional)
+
+** TODO [#C] Add verbose and debug output to gestalt-send
+   Why: Help users diagnose connection and authentication issues
+   Change:
+   - Add --verbose flag: print HTTP request/response details to stderr
+   - Add --debug flag: print full request body preview (first 100 bytes)
+   - Show: URL, token (masked), response status, bytes sent
+   - Do not print sensitive data (full token) unless --debug explicitly set
+   - Use structured output: "Sending N bytes to agent 'X' at URL..."
+   Tests: Manual test with --verbose and --debug flags
+   Done when: CLI provides helpful diagnostic output
+
+** TODO [#C] Build and install gestalt-send in Makefile
+   Why: Users need easy way to build and install CLI tool
+   Change:
+   - Add gestalt-send target to GNUmakefile
+   - Build: go build -o gestalt-send cmd/gestalt-send/main.go
+   - Add to default build target (alongside gestalt server)
+   - Add install target: copy gestalt-send to /usr/local/bin or ~/.local/bin
+   - Document in README: make gestalt-send, sudo make install
+   - Consider: version stamping with ldflags (same as server)
+   Tests: make gestalt-send; verify binary works
+   Done when: gestalt-send builds via Makefile
+
+** TODO [#C] Add shell completion for gestalt-send (optional)
+   Why: Improve CLI UX with agent name tab-completion
+   Change:
+   - Generate bash/zsh completion scripts
+   - Completion: fetch agent names from GET /api/agents
+   - Cache agent names for 60s to avoid repeated API calls
+   - Install completion: gestalt-send completion bash > /etc/bash_completion.d/gestalt-send
+   - This is optional enhancement for better UX
+   Tests: Manual test tab-completion in bash/zsh
+   Done when: Shell completion works for agent names (optional)
+
+** TODO [#C] Document gestalt-send usage and examples
+   Why: Users need to understand CLI tool usage patterns
+   Change:
+   - Add "gestalt-send CLI Tool" section to README.md
+   - Document installation: make gestalt-send, copy to PATH
+   - Document environment variables: GESTALT_URL, GESTALT_TOKEN
+   - Document usage: cat file | gestalt-send agent-name
+   - Add examples: piping file contents, command output, multi-line input
+   - Example use cases: send logs to agent, feed data for analysis, scripting
+   - Document error codes and troubleshooting
+   - Document --start flag (if implemented)
+   Tests: None (documentation only)
+   Done when: gestalt-send is fully documented with examples
+
+** TODO [#C] Add integration test for end-to-end CLI workflow
+   Why: Verify complete workflow from CLI to agent terminal
+   Change:
+   - Create test: start server, create agent terminal, run gestalt-send
+   - Verify data appears in terminal output buffer
+   - Test error cases: agent not found, wrong token, network errors
+   - Use temp config directory with test agent profiles
+   - Clean up terminals after test
+   Tests: Integration test in cmd/gestalt-send/
+   Done when: End-to-end CLI test passes reliably
+
+
+* TODO [#B] Semantic versioning with automated releases
+  Goal: Implement semantic versioning throughout Gestalt with automated version generation in GitHub Actions based on conventional commits (feat:/fix:), compile version into backend and frontend, and display version in UI near the Gestalt title.
+  Notes:
+  - Use conventional commits (feat:, fix:) to drive semantic versioning
+  - Use npm semver package for version parsing and bumping
+  - Node.js script analyzes git log since last tag, detects feat:/fix:/BREAKING CHANGE:
+  - Script uses semver.inc() to bump version appropriately
+  - Version must be passed at build time to both Go backend and Vite frontend
+  - Backend: compile version as const or var, expose via /api/status
+  - Frontend: inject version at build time via Vite define, display in Dashboard header
+  - UI: reuse .cta class styling (gray, small text) as .version class for version display
+  - Version appears near "Gestalt" title in Dashboard header
+  - Minimal dependency: only semver package (already Node.js project)
+  - Initial version: v1.0.0 (project is mature enough)
+  - Git tags are source of truth; no manual version files
+  Date: 2025-12-30
+
+** TODO [#B] Create Node.js script for version detection using semver
+   Why: Need reliable version bumping based on conventional commits using semver package
+   Change:
+   - Install semver package as dev dependency in root: npm install --save-dev semver
+   - Create scripts/get-next-version.js Node.js script
+   - Logic: read git log from last tag to HEAD, parse commit messages
+   - Use git describe or git tag to get current version
+   - Detect patterns: "feat:" → semver.inc('minor'), "fix:" → semver.inc('patch'), "BREAKING CHANGE:" → semver.inc('major')
+   - If no tag exists, output 1.0.0 as initial version
+   - Use semver.valid() to validate versions, semver.clean() to normalize
+   - Output format: semantic version string without 'v' prefix (e.g., "1.2.3")
+   - Handle edge cases: no commits since tag, multiple types in range, invalid existing tags
+   - Script should be idempotent and fast
+   - Priority order: BREAKING CHANGE > feat > fix (highest precedence wins)
+   - Exit with code 0 and output version to stdout for easy capture in workflows
+   Tests: Run script manually with various commit histories
+   Done when: Script correctly determines next version from git history using semver
+
+** TODO [#B] Create GitHub Actions release workflow
+   Why: Automate version detection, tagging, and release creation on main branch
+   Change:
+   - Create .github/workflows/release.yml (separate from tests.yml)
+   - Trigger: on push to main branch only
+   - Setup steps: checkout → setup Node.js → npm install semver
+   - Run scripts/get-next-version.js to determine next version
+   - Compare with current tag (git describe --tags); skip if no change
+   - Create git tag with 'v' prefix: v1.2.3
+   - Use GitHub API or gh CLI to create release with auto-generated notes
+   - Set up GITHUB_TOKEN permissions: contents: write (for tags)
+   - Generate release notes from commits since last tag using GitHub's API
+   - Tag format: v1.2.3 (with 'v' prefix for git, script outputs without prefix)
+   Tests: Push feat: or fix: commit to main, verify tag and release created
+   Done when: GitHub Action automatically tags and releases on conventional commits
+
+** TODO [#B] Pass version to Go backend at build time
+   Why: Backend needs to know its version for /api/status and logging
+   Change:
+   - Add internal/version/version.go with var Version string
+   - Use Go linker flags in Makefile and GitHub Action: -ldflags "-X gestalt/internal/version.Version=$VERSION"
+   - Default Version to "dev" if not set at build time
+   - Export version in /api/status response as "version" field
+   - Add version to startup log message
+   - Update GNUmakefile to accept VERSION variable: make VERSION=1.2.3
+   Tests: go test ./...; verify version appears in /api/status
+   Done when: Backend binary contains version compiled at build time
+
+** TODO [#B] Pass version to frontend at build time
+   Why: Frontend needs to display version in UI
+   Change:
+   - Use Vite's define option to inject version at build time
+   - Update vite.config.js: define: { __APP_VERSION__: JSON.stringify(process.env.VERSION || 'dev') }
+   - Create frontend/src/lib/version.js exporting VERSION constant
+   - Pass VERSION env var from Makefile and GitHub Action to npm build
+   - Vite replaces __APP_VERSION__ at bundle time (tree-shakeable)
+   Tests: npm run build; verify version is in bundle
+   Done when: Frontend bundle contains version from build-time env var
+
+** TODO [#C] Display version in Dashboard header
+   Why: Users should see which version of Gestalt they're running
+   Change:
+   - Import VERSION from lib/version.js in Dashboard.svelte
+   - Add version display near "Gestalt" h1 in the header div
+   - Reuse existing .cta class styling as .version class (small, gray text)
+   - Markup: <span class="version">v{VERSION}</span>
+   - Placement: after the h1, same container, visually subtle
+   - Keep existing .cta styles, duplicate as .version for semantic clarity
+   - Version should be understated, not competing with main title
+   Tests: npm run build; visually verify version displays correctly
+   Done when: Version appears in Dashboard header with .cta-inspired styling
+
+** TODO [#C] Update Makefile to integrate versioning
+   Why: Local builds should support version injection
+   Change:
+   - Add VERSION ?= dev to Makefile (default to "dev" for local builds)
+   - Alternatively: VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+   - Update build target to pass VERSION to both Go and npm
+   - Go build: add -ldflags "-X gestalt/internal/version.Version=$(VERSION)"
+   - npm build: export VERSION=$(VERSION) before running npm run build
+   - Document in comments: "make VERSION=1.2.3 to build with specific version"
+   - Add phony target "version" that prints current version from git
+   Tests: make VERSION=1.0.0; verify both binaries have correct version
+   Done when: Makefile supports VERSION variable for local builds
+
+** TODO [#C] Integrate versioning into test workflow
+   Why: Test builds should include version info for debugging
+   Change:
+   - Update .github/workflows/tests.yml to detect version during build
+   - Add step: run scripts/get-next-version.sh or git describe for current version
+   - Pass VERSION env var to build steps (Go and npm)
+   - This workflow does NOT create tags (release.yml handles that)
+   - Display version in test summary output for visibility
+   - Handle case where no tags exist yet (use "dev" or "1.0.0-dev")
+   Tests: Push to PR or branch, verify tests run with version info
+   Done when: Test workflow builds contain version from git tags
+
+** TODO [#C] Document versioning workflow
+   Why: Contributors need to understand commit message conventions
+   Change:
+   - Add "Versioning" section to README.md
+   - Document conventional commit format: feat:, fix:, BREAKING CHANGE:
+   - Explain semantic versioning rules (major.minor.patch)
+   - Document how version is injected at build time (Go ldflags, Vite define)
+   - Explain automatic tagging: "Push feat: commit to main → v1.1.0 tag created"
+   - Show examples: "feat: add terminal history → bumps minor", "fix: resolve connection bug → bumps patch"
+   - Mention initial version is v1.0.0
+   - Document local build with version: make VERSION=1.2.3
+   - Link to conventional commits specification (optional)
+   Tests: None (documentation only)
+   Done when: README clearly documents versioning workflow and conventions
+
+
 * TODO [#A] Temporal workflow integration for HITL session lifecycle
   Goal: Integrate Temporal.io workflows to manage durable, semi-interactive agent sessions with human-in-the-loop (HITL) coordination, tracking agent work phases (start: L1/L2 plan tasks) and stops (terminal bells requiring user attention).
   Notes:
@@ -784,316 +1096,6 @@
    - This is future work; defer until core HITL is stable
    Tests: Design document and prototype; implementation TBD
    Done when: Handoff design documented (implementation deferred)
-
-* TODO [#B] Agent Skills integration
-  Goal: Integrate the Agent Skills standard (agentskills.io) into Gestalt to provide agents with discoverable, on-demand capabilities through structured skill packages stored in config/skills/
-  Notes:
-  - Agent Skills are folders containing SKILL.md (YAML frontmatter + Markdown instructions)
-  - Progressive disclosure: load metadata at startup, full instructions on activation
-  - Skills can include optional directories: scripts/, references/, assets/
-  - Each skill has: name, description (for discovery), license, compatibility, metadata
-  - Agents in config/agents/*.json can reference skills via "skills": ["skill-name", ...]
-  - Skill metadata injected into agent system prompt for discovery
-  - When agent activates a skill, full SKILL.md is provided to the LLM
-  - Scripts in skills/ can be executed by the agent
-  - Reference files loaded on-demand to save context
-  - Validation: skill names must match directory names, required frontmatter fields
-  - Security: consider sandboxing script execution, logging, confirmation prompts
-  - Integration approach: filesystem-based (agents use shell commands to access skills)
-  - Skills are portable, versionable, and shareable across different agent tools
-  Date: 2025-12-31
-
-** TODO [#B] Create skill data structure and parser
-   Why: Need to parse SKILL.md frontmatter and validate skill format
-   Change:
-   - Create internal/skill/ package with Skill struct
-   - Fields: Name, Description, License, Compatibility, Metadata (map), AllowedTools ([]string)
-   - Fields: Path (skill directory), Content (markdown body after frontmatter)
-   - Add YAML frontmatter parser (use gopkg.in/yaml.v3 for minimal dependency)
-   - Parse both frontmatter and body content from SKILL.md
-   - Validate: name format (lowercase, hyphens, 1-64 chars, no leading/trailing hyphen)
-   - Validate: description (1-1024 chars, non-empty)
-   - Validate: name matches parent directory name
-   - Add optional validation for scripts/, references/, assets/ directories
-   - Document skill struct in internal/skill/doc.go
-   Tests: Unit tests for parsing valid/invalid SKILL.md files, validation edge cases
-   Done when: Skill struct exists with YAML parsing and validation
-
-** TODO [#B] Implement skill loader from config/skills/
-   Why: Load skill packages from filesystem at startup
-   Change:
-   - Create skill.Loader with Load(dir string) (map[string]*Skill, error)
-   - Scan config/skills/*/ directories for SKILL.md files
-   - Parse each SKILL.md into Skill struct (frontmatter + body)
-   - Use directory name as skill ID, validate against frontmatter name
-   - Return map[skillID]*Skill for easy lookup
-   - Handle errors: missing SKILL.md, invalid YAML, validation failures
-   - If config/skills/ doesn't exist, return empty map (not an error)
-   - Log warnings for invalid skills but don't fail entire load
-   - Check for optional directories (scripts/, references/, assets/)
-   Tests: Unit tests with temp directories; valid/invalid skill structures
-   Done when: Loader successfully reads skill packages from directory
-
-** TODO [#B] Wire skill loader into Manager initialization
-   Why: Manager needs access to skills for agent initialization
-   Change:
-   - Add Skills field to ManagerOptions: map[string]*skill.Skill
-   - Load skills in cmd/gestalt/main.go before creating Manager
-   - Pass skills to Manager via ManagerOptions
-   - Store skills in Manager struct for lookup during terminal creation
-   - Add method Manager.GetSkill(name string) (*Skill, bool)
-   - Add method Manager.ListSkills() []SkillMetadata (for API)
-   Tests: Integration test verifying Manager has skills after init
-   Done when: Manager has access to loaded skill packages
-
-** TODO [#B] Extend agent profiles to reference skills
-   Why: Agents need to declare which skills they have access to
-   Change:
-   - Add Skills field to Agent struct: []string `json:"skills"`
-   - Skills field is optional array of skill names
-   - Validate skill references during agent load: warn if skill doesn't exist
-   - Store resolved skill references in agent for prompt generation
-   - Update example agent configs to demonstrate skills usage
-   - Example: "skills": ["git-workflows", "code-review", "data-analysis"]
-   Tests: Agent loader tests with valid/invalid skill references
-   Done when: Agent profiles can declare skill dependencies
-
-** TODO [#C] Generate skill metadata for agent prompts
-   Why: Agents need skill discovery information in system prompt
-   Change:
-   - Create skill.GeneratePromptXML(skills []*Skill) string function
-   - Generate XML format: <available_skills><skill><name>...</name><description>...</description><location>...</location></skill></available_skills>
-   - Include absolute path to SKILL.md in <location> for filesystem access
-   - Keep metadata concise (~50-100 tokens per skill)
-   - Only include skills referenced by the agent (from agent.Skills array)
-   - Document XML format for prompt injection
-   Tests: Unit tests for XML generation with various skill sets
-   Done when: Function generates proper XML for agent system prompts
-
-** TODO [#B] Inject skill metadata into agent prompts
-   Why: Agents must know which skills are available at startup
-   Change:
-   - Modify prompt injection logic in terminal/session.go
-   - After shell starts, before custom prompts, inject skill metadata
-   - Generate XML from agent's skill list: GeneratePromptXML(agent.Skills)
-   - Write skill metadata as initial prompt content
-   - Add delay (100ms) before custom prompts
-   - Log skill injection at info level
-   - Handle case where agent has no skills (skip injection)
-   Tests: Manual test: create agent with skills, verify XML in terminal
-   Done when: Skill metadata appears in agent terminal on startup
-
-** TODO [#C] Add GET /api/skills endpoint
-   Why: Frontend and external tools need to query available skills
-   Change:
-   - Add GET /api/skills REST endpoint
-   - Return array of skill metadata: name, description, path, license
-   - Optionally filter by agent: GET /api/skills?agent=copilot
-   - Include skill directory structure info (has scripts, references, assets)
-   - Add unit tests for endpoint
-   Tests: GET /api/skills returns skill list with metadata
-   Done when: API endpoint exposes available skills
-
-** TODO [#C] Add GET /api/skills/:name endpoint
-   Why: Agents/users may need to read full skill content
-   Change:
-   - Add GET /api/skills/:name endpoint
-   - Return full skill details: metadata + markdown body + directory structure
-   - Include list of files in scripts/, references/, assets/
-   - Optionally: GET /api/skills/:name/files/:path to read specific files
-   - Handle file not found errors gracefully
-   Tests: GET /api/skills/:name returns complete skill information
-   Done when: API endpoint exposes full skill content
-
-** TODO [#C] Create example skills in config/skills/
-   Why: Provide working examples for users
-   Change:
-   - Create config/skills/ directory
-   - Add example skill: config/skills/git-workflows/SKILL.md
-   - Add example skill: config/skills/code-review/SKILL.md
-   - Add example skill: config/skills/terminal-navigation/SKILL.md
-   - Each example includes: proper frontmatter, clear instructions, references
-   - Optional: include example scripts in scripts/ directory
-   - Document skill format in README.md
-   Tests: Load examples; verify they parse correctly
-   Done when: Example skills exist and demonstrate the format
-
-** TODO [#C] Update frontend to display skills
-   Why: Users should see which skills are available
-   Change:
-   - Add "Skills" section to Dashboard.svelte
-   - Fetch skills via GET /api/skills on mount
-   - Display skill cards: name, description, associated agents
-   - Optional: clicking skill shows full SKILL.md content in modal
-   - Show skill count in dashboard status
-   - Update UI to show which skills an agent has when creating terminal
-   Tests: Manual test skills display in UI
-   Done when: Dashboard shows available skills
-
-** TODO [#C] Document Agent Skills integration
-   Why: Users and contributors need to understand skills system
-   Change:
-   - Add "Agent Skills" section to README.md
-   - Document skill directory structure and SKILL.md format
-   - Document how to create new skills
-   - Document how to assign skills to agents
-   - Link to agentskills.io specification
-   - Document skill discovery and activation process
-   - Add examples of skill usage patterns
-   Tests: None (documentation only)
-   Done when: Agent Skills system is fully documented
-
-** TODO [#C] Add skill validation CLI command (optional)
-   Why: Help users create valid skills
-   Change:
-   - Add CLI command: gestalt validate-skill <path>
-   - Use internal/skill package to validate skill structure
-   - Check frontmatter format, name rules, required fields
-   - Check for optional directories and common mistakes
-   - Print validation results and suggestions
-   - Exit with code 0 (valid) or 1 (invalid)
-   - Alternative: document using skills-ref CLI from agentskills.io
-   Tests: Manual test with valid/invalid skill directories
-   Done when: Users can validate skills before deployment (optional)
-
-** TODO [#C] Consider script execution security (future)
-   Why: Executing skill scripts has security implications
-   Change:
-   - Document security considerations in README
-   - Consider: sandboxing, allowlisting, user confirmation prompts
-   - Consider: logging all script executions for auditing
-   - Consider: skill signature verification for trusted sources
-   - This is future work; initial implementation trusts all skills in config/
-   - Add warning in docs about only using trusted skills
-   Tests: None (documentation and future planning)
-   Done when: Security considerations documented (implementation deferred)
-
-* TODO [#B] Semantic versioning with automated releases
-  Goal: Implement semantic versioning throughout Gestalt with automated version generation in GitHub Actions based on conventional commits (feat:/fix:), compile version into backend and frontend, and display version in UI near the Gestalt title.
-  Notes:
-  - Use conventional commits (feat:, fix:) to drive semantic versioning
-  - Use npm semver package for version parsing and bumping
-  - Node.js script analyzes git log since last tag, detects feat:/fix:/BREAKING CHANGE:
-  - Script uses semver.inc() to bump version appropriately
-  - Version must be passed at build time to both Go backend and Vite frontend
-  - Backend: compile version as const or var, expose via /api/status
-  - Frontend: inject version at build time via Vite define, display in Dashboard header
-  - UI: reuse .cta class styling (gray, small text) as .version class for version display
-  - Version appears near "Gestalt" title in Dashboard header
-  - Minimal dependency: only semver package (already Node.js project)
-  - Initial version: v1.0.0 (project is mature enough)
-  - Git tags are source of truth; no manual version files
-  Date: 2025-12-30
-
-** TODO [#B] Create Node.js script for version detection using semver
-   Why: Need reliable version bumping based on conventional commits using semver package
-   Change:
-   - Install semver package as dev dependency in root: npm install --save-dev semver
-   - Create scripts/get-next-version.js Node.js script
-   - Logic: read git log from last tag to HEAD, parse commit messages
-   - Use git describe or git tag to get current version
-   - Detect patterns: "feat:" → semver.inc('minor'), "fix:" → semver.inc('patch'), "BREAKING CHANGE:" → semver.inc('major')
-   - If no tag exists, output 1.0.0 as initial version
-   - Use semver.valid() to validate versions, semver.clean() to normalize
-   - Output format: semantic version string without 'v' prefix (e.g., "1.2.3")
-   - Handle edge cases: no commits since tag, multiple types in range, invalid existing tags
-   - Script should be idempotent and fast
-   - Priority order: BREAKING CHANGE > feat > fix (highest precedence wins)
-   - Exit with code 0 and output version to stdout for easy capture in workflows
-   Tests: Run script manually with various commit histories
-   Done when: Script correctly determines next version from git history using semver
-
-** TODO [#B] Create GitHub Actions release workflow
-   Why: Automate version detection, tagging, and release creation on main branch
-   Change:
-   - Create .github/workflows/release.yml (separate from tests.yml)
-   - Trigger: on push to main branch only
-   - Setup steps: checkout → setup Node.js → npm install semver
-   - Run scripts/get-next-version.js to determine next version
-   - Compare with current tag (git describe --tags); skip if no change
-   - Create git tag with 'v' prefix: v1.2.3
-   - Use GitHub API or gh CLI to create release with auto-generated notes
-   - Set up GITHUB_TOKEN permissions: contents: write (for tags)
-   - Generate release notes from commits since last tag using GitHub's API
-   - Tag format: v1.2.3 (with 'v' prefix for git, script outputs without prefix)
-   Tests: Push feat: or fix: commit to main, verify tag and release created
-   Done when: GitHub Action automatically tags and releases on conventional commits
-
-** TODO [#B] Pass version to Go backend at build time
-   Why: Backend needs to know its version for /api/status and logging
-   Change:
-   - Add internal/version/version.go with var Version string
-   - Use Go linker flags in Makefile and GitHub Action: -ldflags "-X gestalt/internal/version.Version=$VERSION"
-   - Default Version to "dev" if not set at build time
-   - Export version in /api/status response as "version" field
-   - Add version to startup log message
-   - Update GNUmakefile to accept VERSION variable: make VERSION=1.2.3
-   Tests: go test ./...; verify version appears in /api/status
-   Done when: Backend binary contains version compiled at build time
-
-** TODO [#B] Pass version to frontend at build time
-   Why: Frontend needs to display version in UI
-   Change:
-   - Use Vite's define option to inject version at build time
-   - Update vite.config.js: define: { __APP_VERSION__: JSON.stringify(process.env.VERSION || 'dev') }
-   - Create frontend/src/lib/version.js exporting VERSION constant
-   - Pass VERSION env var from Makefile and GitHub Action to npm build
-   - Vite replaces __APP_VERSION__ at bundle time (tree-shakeable)
-   Tests: npm run build; verify version is in bundle
-   Done when: Frontend bundle contains version from build-time env var
-
-** TODO [#C] Display version in Dashboard header
-   Why: Users should see which version of Gestalt they're running
-   Change:
-   - Import VERSION from lib/version.js in Dashboard.svelte
-   - Add version display near "Gestalt" h1 in the header div
-   - Reuse existing .cta class styling as .version class (small, gray text)
-   - Markup: <span class="version">v{VERSION}</span>
-   - Placement: after the h1, same container, visually subtle
-   - Keep existing .cta styles, duplicate as .version for semantic clarity
-   - Version should be understated, not competing with main title
-   Tests: npm run build; visually verify version displays correctly
-   Done when: Version appears in Dashboard header with .cta-inspired styling
-
-** TODO [#C] Update Makefile to integrate versioning
-   Why: Local builds should support version injection
-   Change:
-   - Add VERSION ?= dev to Makefile (default to "dev" for local builds)
-   - Alternatively: VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-   - Update build target to pass VERSION to both Go and npm
-   - Go build: add -ldflags "-X gestalt/internal/version.Version=$(VERSION)"
-   - npm build: export VERSION=$(VERSION) before running npm run build
-   - Document in comments: "make VERSION=1.2.3 to build with specific version"
-   - Add phony target "version" that prints current version from git
-   Tests: make VERSION=1.0.0; verify both binaries have correct version
-   Done when: Makefile supports VERSION variable for local builds
-
-** TODO [#C] Integrate versioning into test workflow
-   Why: Test builds should include version info for debugging
-   Change:
-   - Update .github/workflows/tests.yml to detect version during build
-   - Add step: run scripts/get-next-version.sh or git describe for current version
-   - Pass VERSION env var to build steps (Go and npm)
-   - This workflow does NOT create tags (release.yml handles that)
-   - Display version in test summary output for visibility
-   - Handle case where no tags exist yet (use "dev" or "1.0.0-dev")
-   Tests: Push to PR or branch, verify tests run with version info
-   Done when: Test workflow builds contain version from git tags
-
-** TODO [#C] Document versioning workflow
-   Why: Contributors need to understand commit message conventions
-   Change:
-   - Add "Versioning" section to README.md
-   - Document conventional commit format: feat:, fix:, BREAKING CHANGE:
-   - Explain semantic versioning rules (major.minor.patch)
-   - Document how version is injected at build time (Go ldflags, Vite define)
-   - Explain automatic tagging: "Push feat: commit to main → v1.1.0 tag created"
-   - Show examples: "feat: add terminal history → bumps minor", "fix: resolve connection bug → bumps patch"
-   - Mention initial version is v1.0.0
-   - Document local build with version: make VERSION=1.2.3
-   - Link to conventional commits specification (optional)
-   Tests: None (documentation only)
-   Done when: README clearly documents versioning workflow and conventions
 
 * DONE [#B] Terminal history persistence across disconnects
   Goal: Preserve terminal output history when users disconnect and reconnect, allowing them to see what happened while they were away.
@@ -2151,24 +2153,3 @@
    - Add metadata field for terminal "role" or "purpose" (future use)
    Tests: Can retrieve recent output from terminal via API
    Done when: API endpoint returns buffered terminal output
-* DONE [#B] Enable Ctrl+V paste in terminal sessions
-  Goal: Make Ctrl+V paste clipboard content into xterm-backed PTY terminals without breaking Ctrl+C.
-  Notes:
-  - Prefer minimal, browser-safe handling (no extra dependencies).
-  - Keep existing keybindings and selection behavior intact.
-
-** Diagnose current key handling and paste flow
-   Why: Identify whether Ctrl+V is blocked or not forwarded to the PTY.
-   Change:
-   - Review frontend xterm setup and any key handlers.
-   - Trace input path from browser events to WebSocket.
-   Tests: Manual reproduction in the browser terminal.
-   Done when: Root cause and best fix approach are confirmed.
-
-** Implement paste handling for Ctrl+V
-   Why: Provide expected paste behavior inside PTY terminals.
-   Change:
-   - Add a key/paste handler that reads clipboard text and writes to terminal input.
-   - Ensure Ctrl+C behavior is unchanged.
-   Tests: Manual test pasting into a running shell.
-   Done when: Ctrl+V reliably pastes into the terminal.

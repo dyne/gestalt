@@ -1,3 +1,964 @@
+* TODO [#B] gestalt-send CLI tool and agent instance management
+  Goal: Create a CLI tool for piping stdin to agent terminals (e.g., `cat file | gestalt-send agent-name`), ensure agent profiles have unique names, enforce single-instance agents (only one terminal per agent), and use agent names for tab labels instead of "Terminal 1/2/3".
+  Notes:
+  - CLI tool: gestalt-send command that reads stdin and sends to agent's PTY via REST API
+  - Usage: `cat file | gestalt-send architect` or `echo "command" | gestalt-send copilot`
+  - Target agent by name (not terminal ID) for ease of use
+  - Agent name uniqueness: enforce at load time in agent.Loader, reject duplicate names
+  - Single-instance agents: Manager tracks agent→terminal mapping, prevent duplicate agent starts
+  - Tab labeling: use agent.Name instead of generic "Terminal N"
+  - API: add POST /api/agents/:name/input endpoint to send data to agent's terminal
+  - If agent not running: return 404 or optionally auto-start (configurable)
+  - Authentication: gestalt-send uses GESTALT_TOKEN env var (same as server)
+  - Server URL: gestalt-send uses GESTALT_URL env var (default http://localhost:8080)
+  - CLI flags: --url, --token, --start (auto-start agent if not running)
+  - Error handling: clear messages if agent not found, not running, or network errors
+  - Build: add cmd/gestalt-send/main.go, build with `make gestalt-send`
+  - Install: copy binary to PATH or document usage from repo
+  Date: 2025-12-31
+
+** TODO [#B] Enforce unique agent names in agent loader
+   Why: Agent names must be unique to support instance management and CLI tool
+   Change:
+   - Modify internal/agent/loader.go Load() function
+   - Track seen agent names during load, detect duplicates
+   - If duplicate name found: return error with both file paths
+   - Error message: "Duplicate agent name 'copilot' in files: agents/a.json, agents/b.json"
+   - Validation happens after all files are parsed but before returning map
+   - Use case-sensitive name comparison (names must match exactly)
+   - Add unit test for duplicate detection with temp agent files
+   Tests: Loader test with duplicate agent names; verify error returned
+   Done when: Agent loader rejects duplicate names with clear error
+
+** TODO [#B] Add agent instance tracking to Manager
+   Why: Enforce single-instance agents (only one terminal per agent)
+   Change:
+   - Add field to Manager: agentSessions map[string]string (agentName → terminalID)
+   - Update Manager.Create() to check if agent already has a running terminal
+   - If agentSessions[agentName] exists: return error ErrAgentAlreadyRunning
+   - On session creation: record agentSessions[agentName] = session.ID
+   - On session deletion: remove agentSessions[agentName]
+   - Add method Manager.GetSessionByAgent(agentName string) (*Session, bool)
+   - Handle case where agent profile is nil (non-agent terminals, allow multiple)
+   - Thread-safe: protect agentSessions with Manager.mu mutex
+   Tests: Manager tests for duplicate agent prevention, cleanup on delete
+   Done when: Manager prevents duplicate agent instances
+
+** TODO [#B] Update createTerminal API to handle duplicate agents
+   Why: REST API needs to return appropriate error for duplicate agents
+   Change:
+   - Modify internal/api/rest.go createTerminal handler
+   - Catch terminal.ErrAgentAlreadyRunning error from Manager.Create()
+   - Return 409 Conflict with message: "Agent 'name' is already running in terminal ID"
+   - Include existing terminal ID in error response for frontend
+   - Update error type: add Field string to apiError for terminal_id
+   - Frontend can use this to switch to existing terminal tab instead of failing silently
+   Tests: API integration test for duplicate agent creation
+   Done when: API returns 409 for duplicate agents with terminal ID
+
+** TODO [#B] Update frontend to use agent name for tab labels
+   Why: Tab labels should show agent name, not "Terminal N"
+   Change:
+   - Modify frontend/src/App.svelte openTerminalTab() or tab creation logic
+   - Currently: `label: terminal.title || Terminal ${terminal.id}`
+   - Change to prioritize agent name: if terminal has agent, use agent.name
+   - Backend already sets Title from agent.Name in Manager.Create()
+   - Verify terminal.title comes from API response correctly
+   - Keep fallback for non-agent terminals: "Terminal {id}"
+   Tests: Manual test: create agent terminal, verify tab shows agent name
+   Done when: Agent terminal tabs display agent name
+
+** TODO [#B] Handle duplicate agent in frontend gracefully
+   Why: When duplicate agent detected, switch to existing tab instead of error toast
+   Change:
+   - Modify Dashboard.svelte createTerminal() handler
+   - Catch 409 response from POST /api/terminals
+   - Parse terminal_id from error response
+   - Find existing tab with that terminal ID and switch to it
+   - Show info toast: "Agent 'name' is already running" (not error)
+   - Optional: add visual feedback (tab highlight/flash)
+   Tests: Manual test: create agent twice, verify switch to existing tab
+   Done when: Duplicate agent creation switches to existing tab
+
+** TODO [#B] Add REST API endpoint for sending input to agent by name
+   Why: CLI tool needs to send data to agent without knowing terminal ID
+   Change:
+   - Add POST /api/agents/:name/input endpoint in internal/api/routes.go
+   - Look up agent terminal using Manager.GetSessionByAgent(name)
+   - If not found: return 404 "Agent 'name' is not running"
+   - Read request body as raw bytes (stdin data)
+   - Write to session.input channel (same as WebSocket input)
+   - Content-Type: application/octet-stream or text/plain
+   - Return 200 OK with bytes written count
+   - Auth: require token (same as other endpoints)
+   Tests: API integration test for agent input endpoint
+   Done when: API endpoint accepts input for agent by name
+
+** TODO [#B] Create gestalt-send CLI binary structure
+   Why: Need separate CLI tool for piping data to agents
+   Change:
+   - Create cmd/gestalt-send/main.go
+   - CLI flags: --url (default $GESTALT_URL or http://localhost:8080)
+   - CLI flags: --token (default $GESTALT_TOKEN)
+   - CLI flags: --start (auto-start agent if not running, future feature)
+   - Positional arg: agent name (required)
+   - Usage: gestalt-send [flags] <agent-name>
+   - Read stdin until EOF using io.Copy or bufio.Reader
+   - Basic structure: flag parsing, stdin read, HTTP POST
+   - Exit codes: 0 (success), 1 (usage error), 2 (agent not found), 3 (network error)
+   Tests: Build binary, verify flag parsing
+   Done when: CLI binary structure exists with flag handling
+
+** TODO [#B] Implement stdin-to-HTTP POST in gestalt-send
+   Why: Core functionality: pipe stdin to agent terminal via API
+   Change:
+   - Read stdin: io.ReadAll(os.Stdin) or streaming with bufio
+   - Build URL: {baseURL}/api/agents/{agentName}/input
+   - Create HTTP POST request with Authorization: Bearer {token}
+   - Set Content-Type: application/octet-stream
+   - Body: stdin bytes
+   - Send request using http.DefaultClient with timeout (30s)
+   - Handle responses: 200 (success), 404 (agent not running), 401 (auth), 500 (server error)
+   - Print errors to stderr with helpful messages
+   Tests: Manual test: echo "test" | gestalt-send agent-name
+   Done when: stdin data is sent to agent terminal successfully
+
+** TODO [#C] Add auto-start option to gestalt-send (optional)
+   Why: Convenience feature to start agent if not already running
+   Change:
+   - Add --start flag to gestalt-send CLI
+   - If POST /api/agents/:name/input returns 404 and --start is set:
+   - Call POST /api/terminals with agent name to create terminal
+   - Retry POST /api/agents/:name/input after short delay (1s)
+   - Handle race condition if another process starts agent simultaneously
+   - This is optional enhancement; basic version requires agent running
+   Tests: Manual test with --start flag
+   Done when: Auto-start flag creates agent terminal if missing (optional)
+
+** TODO [#C] Add verbose and debug output to gestalt-send
+   Why: Help users diagnose connection and authentication issues
+   Change:
+   - Add --verbose flag: print HTTP request/response details to stderr
+   - Add --debug flag: print full request body preview (first 100 bytes)
+   - Show: URL, token (masked), response status, bytes sent
+   - Do not print sensitive data (full token) unless --debug explicitly set
+   - Use structured output: "Sending N bytes to agent 'X' at URL..."
+   Tests: Manual test with --verbose and --debug flags
+   Done when: CLI provides helpful diagnostic output
+
+** TODO [#C] Build and install gestalt-send in Makefile
+   Why: Users need easy way to build and install CLI tool
+   Change:
+   - Add gestalt-send target to GNUmakefile
+   - Build: go build -o gestalt-send cmd/gestalt-send/main.go
+   - Add to default build target (alongside gestalt server)
+   - Add install target: copy gestalt-send to /usr/local/bin or ~/.local/bin
+   - Document in README: make gestalt-send, sudo make install
+   - Consider: version stamping with ldflags (same as server)
+   Tests: make gestalt-send; verify binary works
+   Done when: gestalt-send builds via Makefile
+
+** TODO [#C] Add shell completion for gestalt-send (optional)
+   Why: Improve CLI UX with agent name tab-completion
+   Change:
+   - Generate bash/zsh completion scripts
+   - Completion: fetch agent names from GET /api/agents
+   - Cache agent names for 60s to avoid repeated API calls
+   - Install completion: gestalt-send completion bash > /etc/bash_completion.d/gestalt-send
+   - This is optional enhancement for better UX
+   Tests: Manual test tab-completion in bash/zsh
+   Done when: Shell completion works for agent names (optional)
+
+** TODO [#C] Document gestalt-send usage and examples
+   Why: Users need to understand CLI tool usage patterns
+   Change:
+   - Add "gestalt-send CLI Tool" section to README.md
+   - Document installation: make gestalt-send, copy to PATH
+   - Document environment variables: GESTALT_URL, GESTALT_TOKEN
+   - Document usage: cat file | gestalt-send agent-name
+   - Add examples: piping file contents, command output, multi-line input
+   - Example use cases: send logs to agent, feed data for analysis, scripting
+   - Document error codes and troubleshooting
+   - Document --start flag (if implemented)
+   Tests: None (documentation only)
+   Done when: gestalt-send is fully documented with examples
+
+** TODO [#C] Add integration test for end-to-end CLI workflow
+   Why: Verify complete workflow from CLI to agent terminal
+   Change:
+   - Create test: start server, create agent terminal, run gestalt-send
+   - Verify data appears in terminal output buffer
+   - Test error cases: agent not found, wrong token, network errors
+   - Use temp config directory with test agent profiles
+   - Clean up terminals after test
+   Tests: Integration test in cmd/gestalt-send/
+   Done when: End-to-end CLI test passes reliably
+
+* TODO [#B] Enhanced input UX with multiline input box and command history
+  Goal: Replace direct PTY keyboard input with a dedicated multiline input box at the bottom of agent pages, featuring browsable command history, future-proof for assisted input features, and independent clipboard handling.
+  Notes:
+  - Current state: all keyboard input is intercepted by terminalStore.js, only Ctrl+C and Ctrl+V handled externally
+  - New approach: dedicated input box outside PTY, commands sent to PTY only on submission (Enter)
+  - Input box: 3 lines default height, multiline capable, bottom of agent page (below terminal)
+  - History navigation: Ctrl+Up/Down to browse previous commands (like readline but in-app)
+  - History storage: in-memory circular buffer + file persistence (reuse OutputBuffer/SessionLogger patterns)
+  - File format: logs/input-history/{terminalId}-{timestamp}.txt (one command per line)
+  - Future features enabled: search history, AI-assisted input, command review/editing, templates
+  - PTY isolation: eventually all PTY input can be isolated, Ctrl+V only works in input box
+  - Backward compat: existing terminals without input box continue to work (gradual migration)
+  - Use Svelte best practices for multiline input: textarea with proper resize, autosize, or contenteditable
+  - History buffer: 1000 commands default (configurable), persist to disk async
+  - Navigation: Ctrl+Up (previous), Ctrl+Down (next), Enter (submit), Shift+Enter (newline in multiline)
+  - Empty commands not recorded in history (skip whitespace-only)
+  Date: 2025-12-31
+
+** TODO [#B] Create input history buffer backend structure
+   Why: Need reusable in-memory circular buffer for command history similar to OutputBuffer
+   Change:
+   - Create internal/terminal/input_buffer.go with InputBuffer struct
+   - Similar to OutputBuffer: maxCommands int, commands []string, mutex for thread-safety
+   - Methods: Append(command string), GetAll() []string, GetRecent(n int) []string
+   - Skip empty/whitespace-only commands in Append
+   - Trim whitespace from commands before storing
+   - Default capacity: 1000 commands (DefaultInputBufferSize constant)
+   - Thread-safe for concurrent access from WebSocket and persistence goroutines
+   - Circular buffer behavior: oldest commands dropped when limit reached
+   Tests: Unit tests for InputBuffer: append, circular behavior, concurrent access
+   Done when: InputBuffer struct exists with tests matching OutputBuffer quality
+
+** TODO [#B] Create input history persistence logger
+   Why: Persist command history to disk for durability across restarts
+   Change:
+   - Create internal/terminal/input_logger.go with InputLogger struct (similar to SessionLogger)
+   - File path: logs/input-history/{terminalId}-{timestamp}.txt
+   - One command per line, newlines within multiline commands escaped or base64 encoded
+   - Async write via channel (reuse SessionLogger pattern: write channel, flush goroutine)
+   - Flush policy: every 1s or after N commands (consistent with SessionLogger)
+   - Create logs/input-history/ directory if missing
+   - Handle errors gracefully: log warning, continue without persistence if file ops fail
+   - Close/flush on session termination
+   Tests: Unit tests for InputLogger; verify file creation and content
+   Done when: Input history persists to disk asynchronously
+
+** TODO [#B] Integrate input buffer into Session
+   Why: Each terminal session needs its own input history
+   Change:
+   - Add InputBuffer and InputLogger fields to Session struct in internal/terminal/session.go
+   - Initialize InputBuffer and InputLogger in newSession() (alongside OutputBuffer/SessionLogger)
+   - InputLogger uses same logs/input-history/ directory (configurable via env var)
+   - Expose input history via Session methods: RecordInput(command string), GetInputHistory() []string
+   - RecordInput: appends to buffer and writes to logger
+   - Handle nil InputLogger gracefully if persistence disabled
+   - Add env var: GESTALT_INPUT_HISTORY_PERSIST (default true), GESTALT_INPUT_HISTORY_DIR (default logs/input-history)
+   Tests: Session tests verify input recording and retrieval
+   Done when: Sessions track and persist input history
+
+** TODO [#B] Add REST API endpoint for input history
+   Why: Frontend needs to fetch command history for navigation
+   Change:
+   - Add GET /api/terminals/:id/input-history endpoint in internal/api/routes.go
+   - Query parameters: limit (default 100), since (timestamp/index for pagination)
+   - Return JSON array of commands: [{command: string, timestamp: ISO8601}, ...]
+   - Read from session.InputBuffer.GetRecent(limit)
+   - Timestamps: track command submission time (extend InputBuffer to store timestamps)
+   - Handle session not found errors
+   - Auth: same as other terminal endpoints (token-based)
+   Tests: API tests for input-history endpoint
+   Done when: Frontend can fetch command history via REST
+
+** TODO [#B] Create multiline input component
+   Why: Need UI component for command input at bottom of terminal page
+   Change:
+   - Create frontend/src/components/CommandInput.svelte
+   - Use <textarea> with rows={3} for 3-line default height
+   - Props: terminalId, onSubmit callback, disabled state
+   - Styling: match terminal theme (dark background, light text, monospace font)
+   - Auto-resize: consider textarea autosize behavior (expand on content, max height)
+   - Placeholder: "Type command... (Enter to submit, Shift+Enter for newline)"
+   - Submit behavior: Enter key (without Shift) submits, calls onSubmit(value), clears textarea
+   - Shift+Enter: inserts newline (standard multiline textarea behavior)
+   - Focus behavior: auto-focus on mount, restore focus after submission
+   - Styling: border, padding, consistent with terminal shell styling
+   Tests: Manual test: type commands, submit, verify clearing and focus
+   Done when: CommandInput component renders and submits input
+
+** TODO [#B] Add history navigation to CommandInput
+   Why: Users need Ctrl+Up/Down to browse command history
+   Change:
+   - Maintain history array in component state (fetched from API)
+   - Track current history index (starts at -1, meaning no history navigation)
+   - Fetch history on mount: call GET /api/terminals/:id/input-history
+   - Store fetched history in local state for navigation
+   - Keydown handler: detect Ctrl+ArrowUp and Ctrl+ArrowDown
+   - Ctrl+Up: navigate backwards (index++), load command into textarea
+   - Ctrl+Down: navigate forwards (index--), restore empty or latest command
+   - Edge behavior: at oldest command, Ctrl+Up does nothing; at newest, Ctrl+Down restores empty
+   - Reset index to -1 after submission (fresh command)
+   - Handle empty history gracefully (no navigation)
+   Tests: Manual test: submit commands, use Ctrl+Up/Down to navigate
+   Done when: History navigation works with Ctrl+Up/Down
+
+** TODO [#B] Wire CommandInput into Terminal.svelte layout
+   Why: Input box needs to appear at bottom of terminal page
+   Change:
+   - Modify Terminal.svelte to add CommandInput below terminal body
+   - Layout: CSS Grid with rows: header (auto) / terminal body (1fr) / input (auto)
+   - Input area: fixed height based on CommandInput (3 lines default)
+   - Pass terminalId prop to CommandInput
+   - onSubmit handler: send command to PTY via existing sendData/WebSocket
+   - Ensure terminal and input are visually distinct: border/separator between them
+   - Responsive: input box should work on mobile (adjust height/font size)
+   Tests: Manual test: render terminal with input box, submit commands
+   Done when: Input box appears at bottom and sends commands to PTY
+
+** TODO [#B] Send submitted commands to PTY with newline
+   Why: Commands from input box need to execute in the shell
+   Change:
+   - onSubmit handler in Terminal.svelte receives command string
+   - Append '\n' to command before sending to PTY (shell needs newline to execute)
+   - Use existing terminalStore sendData mechanism: state.sendData(command + '\n')
+   - Handle multiline commands: preserve internal newlines, append final newline
+   - Record command in session history: POST to /api/terminals/:id/input-history
+   - Update local history state in CommandInput after submission
+   Tests: Manual test: submit commands, verify execution in PTY, check history
+   Done when: Commands from input box execute in shell
+
+** TODO [#B] Add POST endpoint to record input history
+   Why: Frontend needs to record commands in backend history
+   Change:
+   - Add POST /api/terminals/:id/input-history endpoint
+   - Request body: {command: string}
+   - Call session.RecordInput(command) to store in buffer and persist
+   - Return success or error response
+   - Validation: reject empty commands (trimmed whitespace check)
+   - Auth: same token-based auth as other endpoints
+   Tests: API tests for POST input-history endpoint
+   Done when: Frontend can record commands via REST
+
+** TODO [#C] Optionally disable direct PTY keyboard input (future)
+   Why: Eventually isolate PTY input to prevent accidental keystrokes
+   Change:
+   - This is future work; current implementation keeps PTY input for compatibility
+   - Add option to disable term.onData handler in terminalStore.js
+   - Make input box the sole input method (no direct keyboard to PTY)
+   - Requires testing with various shells and use cases
+   - Consider escape hatch: Ctrl+Shift+I to toggle direct input mode
+   - Document input isolation mode in README when implemented
+   Tests: Manual test with input-only mode; verify no direct PTY input
+   Done when: PTY input can be optionally disabled (deferred)
+
+** TODO [#C] Add input history search functionality (future)
+   Why: Users may want to search through command history
+   Change:
+   - Add search input box above CommandInput (or modal dialog)
+   - Filter history by substring match
+   - Show filtered results with highlighting
+   - Select result to populate CommandInput
+   - This is future enhancement; basic navigation is sufficient initially
+   Tests: Manual test search and selection
+   Done when: History search is functional (deferred)
+
+** TODO [#C] Add AI-assisted input features (future)
+   Why: Enable future features like command suggestions, templates, corrections
+   Change:
+   - Integration point: CommandInput can call AI APIs for suggestions
+   - Examples: command completion, syntax checking, template expansion
+   - This is future work enabled by input box architecture
+   - Document architecture for extensions in README
+   Tests: None (future work)
+   Done when: Architecture documented for AI-assisted input (deferred)
+
+** TODO [#C] Add input history cleanup policy
+   Why: Prevent unbounded disk usage from command history files
+   Change:
+   - Reuse session log cleanup logic from persistence.go
+   - Cleanup policy: keep last N files per terminal, or files from last 7 days
+   - Run cleanup goroutine in Manager (similar to session log cleanup)
+   - Make retention configurable: GESTALT_INPUT_HISTORY_RETENTION_DAYS (default 7)
+   - Log cleanup actions at info level
+   Tests: Create old files, run cleanup, verify deletion
+   Done when: Old input history files are cleaned up automatically
+
+** TODO [#C] Document input history system
+   Why: Users and contributors need to understand input box and history
+   Change:
+   - Add "Command Input and History" section to README.md
+   - Document input box usage: Enter to submit, Shift+Enter for multiline, Ctrl+Up/Down for history
+   - Document history persistence: file format, location, retention policy
+   - Document configuration: env vars for history dir, persistence, retention
+   - Document REST API endpoints: GET/POST /api/terminals/:id/input-history
+   - Document future features: search, AI-assisted input, PTY isolation
+   Tests: None (documentation only)
+   Done when: Input history system is fully documented
+
+* TODO [#B] Agent profile widgets: configurable UI composition
+  Goal: Extend agent profiles with a "widgets" array that controls which UI elements appear in an agent's terminal tab, starting with a Plan sidebar widget that displays PLAN.org alongside the terminal.
+  Notes:
+  - Agent profiles get new optional field: "widgets": ["plan-sidebar", ...] (array of widget names)
+  - First widget implementation: "plan-sidebar" - shows OrgViewer component in a sidebar
+  - Layout: when "plan-sidebar" widget is present, split terminal tab into 3/5 terminal + 2/5 plan sidebar
+  - OrgViewer component already exists and was designed for sidebar use (from completed PLAN.org viewer work)
+  - Widgets are opt-in per agent: agents without "widgets" field show full-width terminal (current behavior)
+  - Future widgets could include: logs, metrics, file browser, skill library, workflow status
+  - Layout system should be flexible: different widgets may have different sizes/positions
+  - Use CSS Grid or Flexbox for responsive layout
+  - Backend: Agent struct gets Widgets []string field, validation, JSON parsing
+  - Frontend: Terminal tab reads agent.widgets and renders layout with appropriate components
+  - Sidebar should be responsive: collapsible/expandable, maybe resizable in future
+  Date: 2025-12-31
+
+** TODO [#B] Add widgets field to Agent struct and JSON schema
+   Why: Backend needs to store and validate widget configuration from agent JSON files
+   Change:
+   - Add Widgets []string `json:"widgets,omitempty"` field to Agent struct in internal/agent/agent.go
+   - Widget names use kebab-case: "plan-sidebar", "logs-panel", etc.
+   - Validation: warn (don't fail) if unknown widget name is referenced
+   - Add validation helper: ValidateWidget(name string) that checks against known widgets
+   - Known widgets initially: ["plan-sidebar"]
+   - Update Agent.Validate() to check widget names and log warnings for unknown ones
+   - Empty/missing widgets field is valid (means no widgets, current behavior)
+   Tests: Unit tests for Agent with widgets field; valid/invalid widget names
+   Done when: Agent struct accepts and validates widgets array
+
+** TODO [#B] Update agent loader to support widgets field
+   Why: Agent loader must parse and validate widgets from JSON files
+   Change:
+   - Loader already handles JSON unmarshaling; widgets will be parsed automatically
+   - Add logging when widgets are loaded: info level "Agent 'X' has widgets: [...]"
+   - Warn if unknown widget referenced: "Unknown widget 'foo' in agent 'bar', ignoring"
+   - No special handling needed beyond Agent struct changes (automatic via JSON tags)
+   - Update example agent configs to demonstrate widgets usage
+   Tests: Loader tests with agents containing widgets field
+   Done when: Agent JSON files with widgets load and validate correctly
+
+** TODO [#B] Extend API to expose agent widgets
+   Why: Frontend needs to know which widgets to render for each agent
+   Change:
+   - GET /api/agents already returns agent metadata; ensure widgets field is included
+   - GET /api/terminals/:id should include agent.widgets in SessionInfo/terminalSummary
+   - Widgets array should be in JSON response for both endpoints
+   - Add widgets to terminalSummary struct in internal/api/types.go (if exists) or inline response
+   Tests: API tests verify widgets field in responses
+   Done when: Frontend can fetch widget configuration via API
+
+** TODO [#B] Create terminal layout container component
+   Why: Need flexible layout system for terminal + sidebar widgets
+   Change:
+   - Create frontend/src/components/TerminalLayout.svelte
+   - Props: widgets (array of widget names), terminalId, agent
+   - Default layout: full-width terminal (no widgets)
+   - If widgets includes "plan-sidebar": use CSS Grid with 3fr / 2fr layout (60% / 40%)
+   - Left area: terminal component, Right area: widget container
+   - Make layout responsive: handle narrow screens (stack vertically on mobile?)
+   - Add CSS classes: .terminal-layout, .terminal-area, .widget-area
+   - Widget area should have overflow: auto and independent scrolling
+   Tests: Manual test with/without widgets; verify layout proportions
+   Done when: Layout component renders terminal with/without sidebar
+
+** TODO [#B] Create widget container and widget factory
+   Why: Need system to dynamically render different widget types
+   Change:
+   - Create frontend/src/components/WidgetContainer.svelte
+   - Props: widgetName (string), terminalId, agent
+   - Use switch/case or component map to render correct widget component
+   - Handle unknown widgets gracefully: show placeholder or warning message
+   - For "plan-sidebar": render OrgViewer component
+   - Add styling: consistent padding, borders, background matching app theme
+   - Widget container should handle loading states for async widgets
+   Tests: Manual test with "plan-sidebar" widget; verify OrgViewer renders
+   Done when: Widget container correctly renders plan-sidebar widget
+
+** TODO [#B] Integrate OrgViewer as plan-sidebar widget
+   Why: Plan sidebar is the first widget implementation
+   Change:
+   - OrgViewer.svelte already exists in frontend/src/components/
+   - Ensure OrgViewer works in sidebar context: compact styling, responsive width
+   - OrgViewer should fetch /api/plan on mount (already implemented)
+   - Add CSS adjustments for sidebar context: reduce padding, smaller fonts if needed
+   - Verify expand/collapse, filtering work in narrow width (~40% of screen)
+   - Add subtle visual separator between terminal and sidebar (border or shadow)
+   Tests: Manual test OrgViewer in sidebar; verify usability at ~2/5 screen width
+   Done when: Plan sidebar displays PLAN.org alongside terminal
+
+** TODO [#B] Wire layout system into Terminal.svelte
+   Why: Terminal component needs to use new layout when agent has widgets
+   Change:
+   - Terminal.svelte currently renders xterm instance directly
+   - Wrap xterm in TerminalLayout component
+   - Pass agent.widgets array to TerminalLayout
+   - TerminalLayout decides whether to show sidebar based on widgets
+   - Ensure xterm still gets proper resize events and fit addon works
+   - Terminal should occupy full 60% of its container (not affected by sidebar)
+   Tests: Manual test: create agent with/without plan-sidebar widget
+   Done when: Agent terminals with plan-sidebar show split layout
+
+** TODO [#C] Update example agent configs with widgets
+   Why: Demonstrate widget usage and provide working examples
+   Change:
+   - Update one example agent (e.g., config/agents/copilot.json) to include widgets
+   - Add: "widgets": ["plan-sidebar"]
+   - Keep other example agents without widgets (show both patterns)
+   - Document widget field in README.md under Agent Profiles section
+   Tests: Load example agents; verify copilot shows plan-sidebar
+   Done when: Example demonstrates plan-sidebar widget usage
+
+** TODO [#C] Add widget resizing capability (optional enhancement)
+   Why: Users may want to adjust sidebar width
+   Change:
+   - Add draggable splitter between terminal and sidebar
+   - Use mouse events to adjust CSS Grid proportions on drag
+   - Store width preference in localStorage per widget type
+   - Default: 60/40 split, allow range 40-80% for terminal
+   - This is optional enhancement; can defer if too complex initially
+   Tests: Manual test dragging splitter; verify layout adjusts smoothly
+   Done when: Users can resize plan-sidebar width (optional)
+
+** TODO [#C] Document widgets system
+   Why: Users and contributors need to understand widget configuration
+   Change:
+   - Add "Agent Widgets" section to README.md
+   - Document widgets field in agent profile JSON format
+   - Document available widgets: plan-sidebar (with description and screenshot if possible)
+   - Document layout behavior: how widgets affect terminal tab composition
+   - Document future widget ideas: logs, metrics, file browser, etc.
+   - Add example JSON with widgets configuration
+   Tests: None (documentation only)
+   Done when: Widget system is fully documented in README
+
+* TODO [#A] Temporal workflow integration for HITL session lifecycle
+  Goal: Integrate Temporal.io workflows to manage durable, semi-interactive agent sessions with human-in-the-loop (HITL) coordination, tracking agent work phases (start: L1/L2 plan tasks) and stops (terminal bells requiring user attention).
+  Notes:
+  - Core Gestalt functionality: agents record start (which PLAN.org L1/L2 they're working on) and stop (terminal bell signals)
+  - Terminal sessions modeled as Temporal workflows with durable state across crashes
+  - Signals enable HITL: pause for user input, request another agent's analysis, approval gates
+  - Activities: spawn terminal (PTY), execute commands, read output, detect bells
+  - Workflow state: session ID, current L1/L2 task, start time, pause/resume events, bell events
+  - Terminal bell detection triggers workflow signal → pause → await user action or agent handoff
+  - Event history provides full audit trail of agent work sessions
+  - Future: wire stops to actions (ask user, delegate to another agent, approval workflows)
+  - Temporal SDK: use Go SDK (go.temporal.io/sdk) - matches existing Go backend
+  - Temporal server: run local dev server initially, production deployment later
+  - Integration: extend Manager/Session to optionally use Temporal workflows
+  - Backward compat: existing sessions work without Temporal; opt-in for workflow-managed sessions
+  - PLAN.org parsing: read current WIP L1/L2 to record what agent is working on
+  - Bell detection: already exists in xterm.js frontend; needs backend signal propagation
+  Date: 2025-12-31
+  Ref: https://github.com/dyne/gestalt/issues/4
+
+** TODO [#B] Setup Temporal development environment
+   Why: Need Temporal server running locally for development and testing
+   Change:
+   - Add Temporal CLI to development dependencies (temporalio/cli)
+   - Document installation: `brew install temporal` (macOS) or download binary
+   - Add `make temporal-dev` target to start Temporal dev server
+   - Default: temporal server start-dev (includes UI at localhost:8233)
+   - Dev server uses built-in SQLite (perfect for local-only Gestalt deployment)
+   - Add Temporal server health check to startup logs
+   - Document Temporal UI access in README.md
+   - Document data persistence: SQLite file persists workflows across restarts
+   Tests: Start temporal dev server, verify UI accessible
+   Done when: Temporal dev server runs locally and is documented
+
+** TODO [#B] Add Temporal Go SDK dependency
+   Why: Need Temporal client and worker SDK in Go backend
+   Change:
+   - Add dependency: go get go.temporal.io/sdk@latest
+   - Add dependency: go get go.temporal.io/api@latest (for API types)
+   - Create internal/temporal/ package for Temporal integration
+   - Initialize Temporal client in cmd/gestalt/main.go
+   - Configure client: namespace (default), host (localhost:7233 for dev)
+   - Add GESTALT_TEMPORAL_HOST env var (default: localhost:7233)
+   - Add GESTALT_TEMPORAL_NAMESPACE env var (default: "default")
+   - Handle connection errors gracefully: warn and continue without Temporal if unavailable
+   Tests: go test ./...; verify Temporal client initializes
+   Done when: Temporal SDK integrated and client connects to server
+
+** TODO [#B] Create session workflow definition
+   Why: Define workflow for terminal session lifecycle management
+   Change:
+   - Create internal/temporal/workflows/session_workflow.go
+   - SessionWorkflow(ctx workflow.Context, req SessionWorkflowRequest) (SessionWorkflowResult, error)
+   - Request: SessionID, AgentID, L1Task, L2Task, Shell, StartTime
+   - Result: SessionID, EndTime, FinalStatus, EventCount
+   - Workflow state: CurrentL1, CurrentL2, Status (running/paused/stopped), BellEvents
+   - Signal: UpdateTaskSignal(l1, l2 string) - agent updates which task they're working on
+   - Signal: BellSignal(timestamp, context string) - terminal bell detected, pause for HITL
+   - Signal: ResumeSignal(action string) - user resumes after bell (continue/abort/handoff)
+   - Signal: TerminateSignal(reason string) - graceful shutdown
+   - Query: GetStatusQuery() - return current workflow state
+   - Implement workflow logic: await signals, record events, manage lifecycle
+   Tests: Unit tests for workflow logic with mock activities
+   Done when: SessionWorkflow defined with signals and queries
+
+** TODO [#B] Create session activities
+   Why: Activities perform actual operations (spawn PTY, detect bells, read output)
+   Change:
+   - Create internal/temporal/activities/session_activities.go
+   - SpawnTerminalActivity(ctx, sessionID, shell string) error - creates terminal session
+   - TerminateTerminalActivity(ctx, sessionID string) error - cleanly closes terminal
+   - RecordBellActivity(ctx, sessionID, timestamp, context string) error - logs bell event
+   - UpdateTaskActivity(ctx, sessionID, l1, l2 string) error - records task switch
+   - GetOutputActivity(ctx, sessionID string) (string, error) - retrieves terminal output
+   - Activities interact with existing Manager/Session infrastructure
+   - Activities are idempotent (safe to retry on failure)
+   - Activities log all actions for audit trail
+   Tests: Unit tests for each activity; integration test with real Manager
+   Done when: Activities connect workflow to terminal operations
+
+** TODO [#B] Extend Session to integrate with Temporal workflow
+   Why: Terminal sessions need to optionally participate in Temporal workflows
+   Change:
+   - Add WorkflowID and RunID fields to Session struct (optional, nil if not using Temporal)
+   - Add method Session.StartWorkflow(client, l1, l2 string) error - initiates workflow
+   - Add method Session.SendBellSignal(context string) error - sends bell event to workflow
+   - Add method Session.UpdateTask(l1, l2 string) error - updates current task in workflow
+   - Modify Session.Close() to send TerminateSignal if workflow active
+   - Terminal bell detection → call SendBellSignal → workflow pauses
+   - Make workflow integration opt-in: only create workflow if GESTALT_TEMPORAL_ENABLED=true
+   Tests: Unit tests for workflow integration; manual test with Temporal UI
+   Done when: Sessions can optionally be managed by Temporal workflows
+
+** TODO [#B] Parse PLAN.org to extract current WIP tasks
+   Why: Agents need to know which L1/L2 they're working on to record in workflow
+   Change:
+   - Extend internal/plan/ package (or create if doesn't exist) with parser
+   - Parse PLAN.org to find WIP entries (TODO/WIP keywords)
+   - Find current WIP L1 heading and its WIP L2 child
+   - Return (l1Title, l2Title string) for current work
+   - Handle multiple WIP entries: warn user, return first or fail
+   - Handle no WIP entries: return empty strings
+   - Cache parsed plan; reload on file change (fsnotify) or API call
+   - Add GET /api/plan/current endpoint returning current WIP L1/L2
+   Tests: Unit tests with sample PLAN.org content; various WIP scenarios
+   Done when: Can extract current WIP L1/L2 from PLAN.org
+
+** TODO [#B] Wire terminal bell detection to workflow signals
+   Why: Terminal bells must trigger workflow pause for HITL
+   Change:
+   - Frontend already handles xterm.js onBell event
+   - Add POST /api/terminals/:id/bell endpoint to receive bell notifications
+   - Endpoint extracts recent terminal output as context (last 50 lines)
+   - Call session.SendBellSignal(context) to notify workflow
+   - Workflow receives BellSignal → pauses → waits for ResumeSignal
+   - Log bell events at warning level (visible in logs tab)
+   - Optional: show toast notification on bell (configurable)
+   Tests: Manual test: trigger bell in terminal, verify workflow pauses
+   Done when: Terminal bells propagate to Temporal workflows
+
+** TODO [#C] Create Temporal worker process
+   Why: Workers execute workflow and activity code
+   Change:
+   - Create internal/temporal/worker.go with StartWorker(client, manager) error
+   - Worker registers SessionWorkflow and all activities
+   - Worker uses Manager to access terminal sessions for activities
+   - Worker runs in separate goroutine, lifecycle tied to main process
+   - Add graceful shutdown: stop worker before closing manager
+   - Worker logs activity execution for debugging
+   - Configure worker options: max concurrent activities, timeouts
+   Tests: Start worker, verify workflows execute successfully
+   Done when: Worker processes workflows and activities
+
+** TODO [#B] Create Flow tab for workflow visualization
+   Why: Users need dedicated UI to monitor all active workflows and HITL pauses
+   Change:
+   - Add "Flow" tab to TabBar (after Dashboard, Plan, Logs tabs)
+   - Create frontend/src/views/FlowView.svelte as main component
+   - Display list of all active workflow sessions (not just current terminal)
+   - For each workflow: session ID, agent name, current L1/L2 task, status badge
+   - Status badges: running (green), paused (yellow), stopped (gray)
+   - Click workflow to expand details: start time, event timeline, current output context
+   - Paused workflows highlighted prominently with action buttons
+   - Action buttons: Resume, Abort, View Terminal (switches to terminal tab)
+   - Auto-refresh every 5s to show live workflow state
+   - Empty state: "No active workflows" when no sessions using Temporal
+   - Compact design: matches Plan and Logs tab styling
+   Tests: Manual test: create workflow sessions, verify Flow tab displays them
+   Done when: Flow tab shows all workflow sessions with status and actions
+
+** TODO [#C] Add workflow detail components
+   Why: Flow tab needs detailed views for individual workflows
+   Change:
+   - Create frontend/src/components/WorkflowCard.svelte for list items
+   - Create frontend/src/components/WorkflowDetail.svelte for expanded view
+   - WorkflowCard: compact single-line display with expand button
+   - WorkflowDetail: full timeline, bell events, task history, output snippets
+   - Display bell context (last 50 lines of output that triggered pause)
+   - Show pause duration and waiting time
+   - Add copy button for workflow ID (for debugging with Temporal UI)
+   - Link to Temporal UI: "View in Temporal" button (opens localhost:8233)
+   Tests: Manual test: expand workflow details, verify all info displayed
+   Done when: Flow tab has rich workflow detail views
+
+** TODO [#C] Implement resume actions for paused workflows
+   Why: Users need to respond to bell-triggered pauses
+   Change:
+   - Add POST /api/terminals/:id/workflow/resume endpoint
+   - Accept action parameter: "continue" (resume as-is), "abort" (terminate), "handoff" (future)
+   - Send ResumeSignal to workflow with chosen action
+   - Workflow resumes based on action: continue → unpause, abort → terminate workflow
+   - Log resume actions for audit trail
+   - Frontend: show resume buttons when workflow is paused
+   - Future: "handoff" triggers another agent to take over (defer to later)
+   Tests: Manual test: pause via bell, resume via UI, verify workflow continues
+   Done when: Users can resume paused workflows
+
+** TODO [#C] Add workflow event history API
+   Why: Users and admins need full audit trail of agent sessions
+   Change:
+   - Add GET /api/terminals/:id/workflow/history endpoint
+   - Query Temporal for workflow execution history
+   - Return events: task updates, bell events, pause/resume, signals
+   - Format as JSON array with timestamps and event types
+   - Optional: export as CSV for external analysis
+   - Add WorkflowHistory.svelte component to display timeline
+   Tests: Manual test: run workflow, view history, verify all events recorded
+   Done when: Full workflow history is accessible via API and UI
+
+** TODO [#C] Configure workflow retry and timeout policies
+   Why: Workflows need robust error handling and bounded execution
+   Change:
+   - Add workflow options: execution timeout (24 hours default)
+   - Add activity retry policies: exponential backoff, max attempts
+   - Add workflow retry policy: retry on transient failures
+   - Add heartbeat timeout for long-running activities
+   - Configure activity timeouts based on operation (spawn: 30s, read: 5s)
+   - Document timeout policies in README
+   Tests: Test timeout scenarios; verify retries work correctly
+   Done when: Workflows have production-ready error handling
+
+** TODO [#C] Add workflow metrics and monitoring
+   Why: Operators need visibility into workflow health
+   Change:
+   - Add Prometheus metrics for workflows: started, completed, failed, paused
+   - Add metrics for activities: execution time, retry count, failure rate
+   - Add GET /api/metrics endpoint exposing Prometheus format
+   - Log workflow start/stop events at info level
+   - Optional: integrate with Temporal's built-in observability
+   - Document metrics in README
+   Tests: Start workflows, verify metrics appear in /api/metrics
+   Done when: Workflow metrics are exposed and documented
+
+** TODO [#C] Document Temporal integration
+   Why: Users and contributors need to understand workflow system
+   Change:
+   - Add "Temporal Workflows" section to README.md
+   - Document HITL workflow concept and benefits
+   - Document how agent sessions map to workflows
+   - Document L1/L2 task tracking and bell-triggered pauses
+   - Document resume actions and future handoff capabilities
+   - Document local deployment: temporal server start-dev with SQLite
+   - Add architecture diagram showing workflow interaction with sessions
+   - Link to Temporal docs for advanced usage
+   Tests: None (documentation only)
+   Done when: Temporal integration is fully documented
+
+** TODO [#C] Add workflow-managed session creation option
+   Why: Users should choose whether to use Temporal workflows
+   Change:
+   - Add "workflow" boolean to POST /api/terminals request
+   - If workflow=true, create session with Temporal workflow
+   - If workflow=false, create standard session (current behavior)
+   - Update agent profiles: add "use_workflow" boolean field
+   - UI: checkbox on dashboard "Enable workflow tracking" (per agent or global)
+   - Default: workflow disabled (opt-in) to avoid breaking existing usage
+   Tests: Create both workflow and non-workflow sessions, verify both work
+   Done when: Users can choose workflow mode per session
+
+** TODO [#B] Implement future handoff capability (deferred)
+   Why: Bell stops should eventually trigger agent-to-agent handoffs
+   Change:
+   - Design handoff protocol: paused agent → new agent receives context + task
+   - Add HandoffSignal(targetAgentID, context, reason string) to workflow
+   - Implement agent selection logic: which agent to handoff to?
+   - Create new workflow for target agent, link to original workflow
+   - Transfer terminal control or create new terminal for handoff agent
+   - This is future work; defer until core HITL is stable
+   Tests: Design document and prototype; implementation TBD
+   Done when: Handoff design documented (implementation deferred)
+
+* TODO [#B] Agent Skills integration
+  Goal: Integrate the Agent Skills standard (agentskills.io) into Gestalt to provide agents with discoverable, on-demand capabilities through structured skill packages stored in config/skills/
+  Notes:
+  - Agent Skills are folders containing SKILL.md (YAML frontmatter + Markdown instructions)
+  - Progressive disclosure: load metadata at startup, full instructions on activation
+  - Skills can include optional directories: scripts/, references/, assets/
+  - Each skill has: name, description (for discovery), license, compatibility, metadata
+  - Agents in config/agents/*.json can reference skills via "skills": ["skill-name", ...]
+  - Skill metadata injected into agent system prompt for discovery
+  - When agent activates a skill, full SKILL.md is provided to the LLM
+  - Scripts in skills/ can be executed by the agent
+  - Reference files loaded on-demand to save context
+  - Validation: skill names must match directory names, required frontmatter fields
+  - Security: consider sandboxing script execution, logging, confirmation prompts
+  - Integration approach: filesystem-based (agents use shell commands to access skills)
+  - Skills are portable, versionable, and shareable across different agent tools
+  Date: 2025-12-31
+
+** TODO [#B] Create skill data structure and parser
+   Why: Need to parse SKILL.md frontmatter and validate skill format
+   Change:
+   - Create internal/skill/ package with Skill struct
+   - Fields: Name, Description, License, Compatibility, Metadata (map), AllowedTools ([]string)
+   - Fields: Path (skill directory), Content (markdown body after frontmatter)
+   - Add YAML frontmatter parser (use gopkg.in/yaml.v3 for minimal dependency)
+   - Parse both frontmatter and body content from SKILL.md
+   - Validate: name format (lowercase, hyphens, 1-64 chars, no leading/trailing hyphen)
+   - Validate: description (1-1024 chars, non-empty)
+   - Validate: name matches parent directory name
+   - Add optional validation for scripts/, references/, assets/ directories
+   - Document skill struct in internal/skill/doc.go
+   Tests: Unit tests for parsing valid/invalid SKILL.md files, validation edge cases
+   Done when: Skill struct exists with YAML parsing and validation
+
+** TODO [#B] Implement skill loader from config/skills/
+   Why: Load skill packages from filesystem at startup
+   Change:
+   - Create skill.Loader with Load(dir string) (map[string]*Skill, error)
+   - Scan config/skills/*/ directories for SKILL.md files
+   - Parse each SKILL.md into Skill struct (frontmatter + body)
+   - Use directory name as skill ID, validate against frontmatter name
+   - Return map[skillID]*Skill for easy lookup
+   - Handle errors: missing SKILL.md, invalid YAML, validation failures
+   - If config/skills/ doesn't exist, return empty map (not an error)
+   - Log warnings for invalid skills but don't fail entire load
+   - Check for optional directories (scripts/, references/, assets/)
+   Tests: Unit tests with temp directories; valid/invalid skill structures
+   Done when: Loader successfully reads skill packages from directory
+
+** TODO [#B] Wire skill loader into Manager initialization
+   Why: Manager needs access to skills for agent initialization
+   Change:
+   - Add Skills field to ManagerOptions: map[string]*skill.Skill
+   - Load skills in cmd/gestalt/main.go before creating Manager
+   - Pass skills to Manager via ManagerOptions
+   - Store skills in Manager struct for lookup during terminal creation
+   - Add method Manager.GetSkill(name string) (*Skill, bool)
+   - Add method Manager.ListSkills() []SkillMetadata (for API)
+   Tests: Integration test verifying Manager has skills after init
+   Done when: Manager has access to loaded skill packages
+
+** TODO [#B] Extend agent profiles to reference skills
+   Why: Agents need to declare which skills they have access to
+   Change:
+   - Add Skills field to Agent struct: []string `json:"skills"`
+   - Skills field is optional array of skill names
+   - Validate skill references during agent load: warn if skill doesn't exist
+   - Store resolved skill references in agent for prompt generation
+   - Update example agent configs to demonstrate skills usage
+   - Example: "skills": ["git-workflows", "code-review", "data-analysis"]
+   Tests: Agent loader tests with valid/invalid skill references
+   Done when: Agent profiles can declare skill dependencies
+
+** TODO [#C] Generate skill metadata for agent prompts
+   Why: Agents need skill discovery information in system prompt
+   Change:
+   - Create skill.GeneratePromptXML(skills []*Skill) string function
+   - Generate XML format: <available_skills><skill><name>...</name><description>...</description><location>...</location></skill></available_skills>
+   - Include absolute path to SKILL.md in <location> for filesystem access
+   - Keep metadata concise (~50-100 tokens per skill)
+   - Only include skills referenced by the agent (from agent.Skills array)
+   - Document XML format for prompt injection
+   Tests: Unit tests for XML generation with various skill sets
+   Done when: Function generates proper XML for agent system prompts
+
+** TODO [#B] Inject skill metadata into agent prompts
+   Why: Agents must know which skills are available at startup
+   Change:
+   - Modify prompt injection logic in terminal/session.go
+   - After shell starts, before custom prompts, inject skill metadata
+   - Generate XML from agent's skill list: GeneratePromptXML(agent.Skills)
+   - Write skill metadata as initial prompt content
+   - Add delay (100ms) before custom prompts
+   - Log skill injection at info level
+   - Handle case where agent has no skills (skip injection)
+   Tests: Manual test: create agent with skills, verify XML in terminal
+   Done when: Skill metadata appears in agent terminal on startup
+
+** TODO [#C] Add GET /api/skills endpoint
+   Why: Frontend and external tools need to query available skills
+   Change:
+   - Add GET /api/skills REST endpoint
+   - Return array of skill metadata: name, description, path, license
+   - Optionally filter by agent: GET /api/skills?agent=copilot
+   - Include skill directory structure info (has scripts, references, assets)
+   - Add unit tests for endpoint
+   Tests: GET /api/skills returns skill list with metadata
+   Done when: API endpoint exposes available skills
+
+** TODO [#C] Add GET /api/skills/:name endpoint
+   Why: Agents/users may need to read full skill content
+   Change:
+   - Add GET /api/skills/:name endpoint
+   - Return full skill details: metadata + markdown body + directory structure
+   - Include list of files in scripts/, references/, assets/
+   - Optionally: GET /api/skills/:name/files/:path to read specific files
+   - Handle file not found errors gracefully
+   Tests: GET /api/skills/:name returns complete skill information
+   Done when: API endpoint exposes full skill content
+
+** TODO [#C] Create example skills in config/skills/
+   Why: Provide working examples for users
+   Change:
+   - Create config/skills/ directory
+   - Add example skill: config/skills/git-workflows/SKILL.md
+   - Add example skill: config/skills/code-review/SKILL.md
+   - Add example skill: config/skills/terminal-navigation/SKILL.md
+   - Each example includes: proper frontmatter, clear instructions, references
+   - Optional: include example scripts in scripts/ directory
+   - Document skill format in README.md
+   Tests: Load examples; verify they parse correctly
+   Done when: Example skills exist and demonstrate the format
+
+** TODO [#C] Update frontend to display skills
+   Why: Users should see which skills are available
+   Change:
+   - Add "Skills" section to Dashboard.svelte
+   - Fetch skills via GET /api/skills on mount
+   - Display skill cards: name, description, associated agents
+   - Optional: clicking skill shows full SKILL.md content in modal
+   - Show skill count in dashboard status
+   - Update UI to show which skills an agent has when creating terminal
+   Tests: Manual test skills display in UI
+   Done when: Dashboard shows available skills
+
+** TODO [#C] Document Agent Skills integration
+   Why: Users and contributors need to understand skills system
+   Change:
+   - Add "Agent Skills" section to README.md
+   - Document skill directory structure and SKILL.md format
+   - Document how to create new skills
+   - Document how to assign skills to agents
+   - Link to agentskills.io specification
+   - Document skill discovery and activation process
+   - Add examples of skill usage patterns
+   Tests: None (documentation only)
+   Done when: Agent Skills system is fully documented
+
+** TODO [#C] Add skill validation CLI command (optional)
+   Why: Help users create valid skills
+   Change:
+   - Add CLI command: gestalt validate-skill <path>
+   - Use internal/skill package to validate skill structure
+   - Check frontmatter format, name rules, required fields
+   - Check for optional directories and common mistakes
+   - Print validation results and suggestions
+   - Exit with code 0 (valid) or 1 (invalid)
+   - Alternative: document using skills-ref CLI from agentskills.io
+   Tests: Manual test with valid/invalid skill directories
+   Done when: Users can validate skills before deployment (optional)
+
+** TODO [#C] Consider script execution security (future)
+   Why: Executing skill scripts has security implications
+   Change:
+   - Document security considerations in README
+   - Consider: sandboxing, allowlisting, user confirmation prompts
+   - Consider: logging all script executions for auditing
+   - Consider: skill signature verification for trusted sources
+   - This is future work; initial implementation trusts all skills in config/
+   - Add warning in docs about only using trusted skills
+   Tests: None (documentation and future planning)
+   Done when: Security considerations documented (implementation deferred)
+
 * TODO [#B] Semantic versioning with automated releases
   Goal: Implement semantic versioning throughout Gestalt with automated version generation in GitHub Actions based on conventional commits (feat:/fix:), compile version into backend and frontend, and display version in UI near the Gestalt title.
   Notes:
@@ -1181,3 +2142,24 @@
    - Add metadata field for terminal "role" or "purpose" (future use)
    Tests: Can retrieve recent output from terminal via API
    Done when: API endpoint returns buffered terminal output
+* DONE [#B] Enable Ctrl+V paste in terminal sessions
+  Goal: Make Ctrl+V paste clipboard content into xterm-backed PTY terminals without breaking Ctrl+C.
+  Notes:
+  - Prefer minimal, browser-safe handling (no extra dependencies).
+  - Keep existing keybindings and selection behavior intact.
+
+** Diagnose current key handling and paste flow
+   Why: Identify whether Ctrl+V is blocked or not forwarded to the PTY.
+   Change:
+   - Review frontend xterm setup and any key handlers.
+   - Trace input path from browser events to WebSocket.
+   Tests: Manual reproduction in the browser terminal.
+   Done when: Root cause and best fix approach are confirmed.
+
+** Implement paste handling for Ctrl+V
+   Why: Provide expected paste behavior inside PTY terminals.
+   Change:
+   - Add a key/paste handler that reads clipboard text and writes to terminal input.
+   - Ensure Ctrl+C behavior is unchanged.
+   Tests: Manual test pasting into a running shell.
+   Done when: Ctrl+V reliably pastes into the terminal.

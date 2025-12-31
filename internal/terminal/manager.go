@@ -19,30 +19,32 @@ var ErrSessionNotFound = errors.New("terminal session not found")
 var ErrAgentNotFound = errors.New("agent profile not found")
 
 type ManagerOptions struct {
-	Shell         string
-	PtyFactory    PtyFactory
-	BufferLines   int
-	Clock         Clock
-	Agents        map[string]agent.Agent
-	Logger        *logging.Logger
-	SessionLogDir string
+	Shell                string
+	PtyFactory           PtyFactory
+	BufferLines          int
+	Clock                Clock
+	Agents               map[string]agent.Agent
+	Logger               *logging.Logger
+	SessionLogDir        string
+	InputHistoryDir      string
 	SessionRetentionDays int
 }
 
 // Manager is safe for concurrent use; mu guards the sessions map and lifecycle.
 // ID generation uses an atomic counter and does not require the mutex.
 type Manager struct {
-	mu          sync.RWMutex
-	sessions    map[string]*Session
-	nextID      uint64
-	shell       string
-	factory     PtyFactory
-	bufferLines int
-	clock       Clock
-	agents      map[string]agent.Agent
-	logger      *logging.Logger
-	sessionLogs string
-	retentionDays int
+	mu              sync.RWMutex
+	sessions        map[string]*Session
+	nextID          uint64
+	shell           string
+	factory         PtyFactory
+	bufferLines     int
+	clock           Clock
+	agents          map[string]agent.Agent
+	logger          *logging.Logger
+	sessionLogs     string
+	inputHistoryDir string
+	retentionDays   int
 }
 
 const (
@@ -90,6 +92,7 @@ func NewManager(opts ManagerOptions) *Manager {
 	}
 
 	sessionLogs := strings.TrimSpace(opts.SessionLogDir)
+	inputHistoryDir := strings.TrimSpace(opts.InputHistoryDir)
 	retentionDays := opts.SessionRetentionDays
 	if retentionDays <= 0 {
 		retentionDays = DefaultSessionRetentionDays
@@ -101,15 +104,16 @@ func NewManager(opts ManagerOptions) *Manager {
 	}
 
 	manager := &Manager{
-		sessions:    make(map[string]*Session),
-		shell:       shell,
-		factory:     factory,
-		bufferLines: bufferLines,
-		clock:       clock,
-		agents:      agents,
-		logger:      logger,
-		sessionLogs: sessionLogs,
-		retentionDays: retentionDays,
+		sessions:        make(map[string]*Session),
+		shell:           shell,
+		factory:         factory,
+		bufferLines:     bufferLines,
+		clock:           clock,
+		agents:          agents,
+		logger:          logger,
+		sessionLogs:     sessionLogs,
+		inputHistoryDir: inputHistoryDir,
+		retentionDays:   retentionDays,
 	}
 	manager.startSessionCleanup()
 	return manager
@@ -173,7 +177,24 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 			sessionLogger = logger
 		}
 	}
-	session := newSession(id, pty, cmd, title, role, createdAt, m.bufferLines, profile, sessionLogger)
+	var inputLogger *InputLogger
+	if m.inputHistoryDir != "" {
+		historyName := id
+		if profile != nil && strings.TrimSpace(profile.Name) != "" {
+			historyName = profile.Name
+		}
+		logger, err := NewInputLogger(m.inputHistoryDir, historyName, createdAt)
+		if err != nil {
+			m.logger.Warn("input history log create failed", map[string]string{
+				"terminal_id": id,
+				"error":       err.Error(),
+				"path":        m.inputHistoryDir,
+			})
+		} else {
+			inputLogger = logger
+		}
+	}
+	session := newSession(id, pty, cmd, title, role, createdAt, m.bufferLines, profile, sessionLogger, inputLogger)
 
 	m.mu.Lock()
 	m.sessions[id] = session

@@ -55,6 +55,8 @@ type Session struct {
 	cmd      *exec.Cmd
 	bcast    *Broadcaster
 	logger   *SessionLogger
+	inputBuf *InputBuffer
+	inputLog *InputLogger
 	agent    *agent.Agent
 	closing  sync.Once
 	closeErr error
@@ -71,7 +73,7 @@ type SessionInfo struct {
 	LLMModel  string
 }
 
-func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt time.Time, bufferLines int, profile *agent.Agent, sessionLogger *SessionLogger) *Session {
+func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt time.Time, bufferLines int, profile *agent.Agent, sessionLogger *SessionLogger, inputLogger *InputLogger) *Session {
 	// readLoop -> output, writeLoop -> PTY, broadcastLoop -> subscribers.
 	// Close cancels context and closes input so loops drain and exit cleanly.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -96,6 +98,8 @@ func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt
 		cmd:       cmd,
 		bcast:     NewBroadcaster(bufferLines),
 		logger:    sessionLogger,
+		inputBuf:  NewInputBuffer(DefaultInputBufferSize),
+		inputLog:  inputLogger,
 		agent:     profile,
 		state:     uint32(sessionStateStarting),
 	}
@@ -150,6 +154,29 @@ func (s *Session) Resize(cols, rows uint16) error {
 
 func (s *Session) OutputLines() []string {
 	return s.bcast.OutputLines()
+}
+
+func (s *Session) RecordInput(command string) {
+	if s == nil {
+		return
+	}
+	entry := InputEntry{
+		Command:   command,
+		Timestamp: time.Now().UTC(),
+	}
+	if s.inputBuf != nil {
+		s.inputBuf.AppendEntry(entry)
+	}
+	if s.inputLog != nil {
+		s.inputLog.Write(entry)
+	}
+}
+
+func (s *Session) GetInputHistory() []InputEntry {
+	if s == nil || s.inputBuf == nil {
+		return []InputEntry{}
+	}
+	return s.inputBuf.GetAll()
 }
 
 func (s *Session) HistoryLines(maxLines int) ([]string, error) {
@@ -207,6 +234,11 @@ func (s *Session) closeResources() error {
 					errs = append(errs, fmt.Errorf("wait process: %w", err))
 				}
 			}
+		}
+	}
+	if s.inputLog != nil {
+		if err := s.inputLog.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close input log: %w", err))
 		}
 	}
 	return errors.Join(errs...)

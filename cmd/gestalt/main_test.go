@@ -17,6 +17,8 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	t.Setenv("GESTALT_SESSION_PERSIST", "true")
 	t.Setenv("GESTALT_SESSION_DIR", "/tmp/gestalt-logs")
 	t.Setenv("GESTALT_SESSION_BUFFER_LINES", "2048")
+	t.Setenv("GESTALT_INPUT_HISTORY_PERSIST", "true")
+	t.Setenv("GESTALT_INPUT_HISTORY_DIR", "/tmp/gestalt-input")
 
 	cfg := loadConfig()
 	if cfg.Port != 9090 {
@@ -40,6 +42,12 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	if cfg.SessionBufferLines != 2048 {
 		t.Fatalf("expected session buffer lines 2048, got %d", cfg.SessionBufferLines)
 	}
+	if !cfg.InputHistoryPersist {
+		t.Fatalf("expected input history persistence true")
+	}
+	if cfg.InputHistoryDir != "/tmp/gestalt-input" {
+		t.Fatalf("expected input history dir /tmp/gestalt-input, got %q", cfg.InputHistoryDir)
+	}
 }
 
 func TestLoadConfigDefaultsOnInvalidPort(t *testing.T) {
@@ -54,6 +62,9 @@ func TestLoadConfigDefaultsOnInvalidPort(t *testing.T) {
 	if cfg.SessionBufferLines != 1000 {
 		t.Fatalf("expected default session buffer lines 1000, got %d", cfg.SessionBufferLines)
 	}
+	if cfg.InputHistoryDir != filepath.Join("logs", "input-history") {
+		t.Fatalf("expected default input history dir, got %q", cfg.InputHistoryDir)
+	}
 }
 
 func TestLoadConfigDisablesSessionPersistence(t *testing.T) {
@@ -66,6 +77,19 @@ func TestLoadConfigDisablesSessionPersistence(t *testing.T) {
 	}
 	if cfg.SessionLogDir != "" {
 		t.Fatalf("expected empty session log dir when disabled, got %q", cfg.SessionLogDir)
+	}
+}
+
+func TestLoadConfigDisablesInputHistory(t *testing.T) {
+	t.Setenv("GESTALT_INPUT_HISTORY_PERSIST", "false")
+	t.Setenv("GESTALT_INPUT_HISTORY_DIR", "/tmp/gestalt-input")
+
+	cfg := loadConfig()
+	if cfg.InputHistoryPersist {
+		t.Fatalf("expected input history persistence disabled")
+	}
+	if cfg.InputHistoryDir != "" {
+		t.Fatalf("expected empty input history dir when disabled, got %q", cfg.InputHistoryDir)
 	}
 }
 

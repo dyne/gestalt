@@ -194,7 +194,7 @@
    Tests: Integration test in cmd/gestalt-send/
    Done when: End-to-end CLI test passes reliably
 
-* TODO [#B] Enhanced input UX with multiline input box and command history
+* WIP [#B] Enhanced input UX with multiline input box and command history
   Goal: Replace direct PTY keyboard input with a dedicated multiline input box at the bottom of agent pages, featuring browsable command history, future-proof for assisted input features, and independent clipboard handling.
   Notes:
   - Current state: all keyboard input is intercepted by terminalStore.js, only Ctrl+C and Ctrl+V handled externally
@@ -202,22 +202,24 @@
   - Input box: 3 lines default height, multiline capable, bottom of agent page (below terminal)
   - History navigation: Ctrl+Up/Down to browse previous commands (like readline but in-app)
   - History storage: in-memory circular buffer + file persistence (reuse OutputBuffer/SessionLogger patterns)
-  - File format: logs/input-history/{terminalId}-{timestamp}.txt (one command per line)
+  - File format: logs/input-history/{agentName}-{timestamp}.jsonl (JSON lines, one command per line)
+  - History grouping: by agent name when available; fallback to terminal ID for non-agent terminals
   - Future features enabled: search history, AI-assisted input, command review/editing, templates
-  - PTY isolation: eventually all PTY input can be isolated, Ctrl+V only works in input box
-  - Backward compat: existing terminals without input box continue to work (gradual migration)
+  - PTY isolation: disable direct PTY keyboard input; input box is the only entry path
+  - Backward compat: not required for this L1; prioritize readability and clean UX
   - Use Svelte best practices for multiline input: textarea with proper resize, autosize, or contenteditable
   - History buffer: 1000 commands default (configurable), persist to disk async
   - Navigation: Ctrl+Up (previous), Ctrl+Down (next), Enter (submit), Shift+Enter (newline in multiline)
   - Empty commands not recorded in history (skip whitespace-only)
   Date: 2025-12-31
 
-** TODO [#B] Create input history buffer backend structure
+** DONE [#B] Create input history buffer backend structure
    Why: Need reusable in-memory circular buffer for command history similar to OutputBuffer
    Change:
    - Create internal/terminal/input_buffer.go with InputBuffer struct
-   - Similar to OutputBuffer: maxCommands int, commands []string, mutex for thread-safety
-   - Methods: Append(command string), GetAll() []string, GetRecent(n int) []string
+   - Similar to OutputBuffer: maxCommands int, entries []InputEntry, mutex for thread-safety
+   - InputEntry fields: Command string, Timestamp time.Time
+   - Methods: Append(command string), GetAll() []InputEntry, GetRecent(n int) []InputEntry
    - Skip empty/whitespace-only commands in Append
    - Trim whitespace from commands before storing
    - Default capacity: 1000 commands (DefaultInputBufferSize constant)
@@ -226,12 +228,12 @@
    Tests: Unit tests for InputBuffer: append, circular behavior, concurrent access
    Done when: InputBuffer struct exists with tests matching OutputBuffer quality
 
-** TODO [#B] Create input history persistence logger
+** DONE [#B] Create input history persistence logger
    Why: Persist command history to disk for durability across restarts
    Change:
    - Create internal/terminal/input_logger.go with InputLogger struct (similar to SessionLogger)
-   - File path: logs/input-history/{terminalId}-{timestamp}.txt
-   - One command per line, newlines within multiline commands escaped or base64 encoded
+   - File path: logs/input-history/{agentName}-{timestamp}.jsonl
+   - One JSON object per line: {"command":"...","timestamp":"..."}
    - Async write via channel (reuse SessionLogger pattern: write channel, flush goroutine)
    - Flush policy: every 1s or after N commands (consistent with SessionLogger)
    - Create logs/input-history/ directory if missing
@@ -240,33 +242,34 @@
    Tests: Unit tests for InputLogger; verify file creation and content
    Done when: Input history persists to disk asynchronously
 
-** TODO [#B] Integrate input buffer into Session
+** DONE [#B] Integrate input buffer into Session
    Why: Each terminal session needs its own input history
    Change:
    - Add InputBuffer and InputLogger fields to Session struct in internal/terminal/session.go
    - Initialize InputBuffer and InputLogger in newSession() (alongside OutputBuffer/SessionLogger)
    - InputLogger uses same logs/input-history/ directory (configurable via env var)
-   - Expose input history via Session methods: RecordInput(command string), GetInputHistory() []string
+   - Use agent name for history file prefix when available, fallback to terminal ID otherwise
+   - Expose input history via Session methods: RecordInput(command string), GetInputHistory() []InputEntry
    - RecordInput: appends to buffer and writes to logger
    - Handle nil InputLogger gracefully if persistence disabled
    - Add env var: GESTALT_INPUT_HISTORY_PERSIST (default true), GESTALT_INPUT_HISTORY_DIR (default logs/input-history)
    Tests: Session tests verify input recording and retrieval
    Done when: Sessions track and persist input history
 
-** TODO [#B] Add REST API endpoint for input history
+** DONE [#B] Add REST API endpoint for input history
    Why: Frontend needs to fetch command history for navigation
    Change:
    - Add GET /api/terminals/:id/input-history endpoint in internal/api/routes.go
    - Query parameters: limit (default 100), since (timestamp/index for pagination)
    - Return JSON array of commands: [{command: string, timestamp: ISO8601}, ...]
    - Read from session.InputBuffer.GetRecent(limit)
-   - Timestamps: track command submission time (extend InputBuffer to store timestamps)
+   - Timestamps: track command submission time (InputBuffer InputEntry)
    - Handle session not found errors
    - Auth: same as other terminal endpoints (token-based)
    Tests: API tests for input-history endpoint
    Done when: Frontend can fetch command history via REST
 
-** TODO [#B] Create multiline input component
+** DONE [#B] Create multiline input component
    Why: Need UI component for command input at bottom of terminal page
    Change:
    - Create frontend/src/components/CommandInput.svelte
@@ -282,7 +285,7 @@
    Tests: Manual test: type commands, submit, verify clearing and focus
    Done when: CommandInput component renders and submits input
 
-** TODO [#B] Add history navigation to CommandInput
+** DONE [#B] Add history navigation to CommandInput
    Why: Users need Ctrl+Up/Down to browse command history
    Change:
    - Maintain history array in component state (fetched from API)
@@ -298,7 +301,7 @@
    Tests: Manual test: submit commands, use Ctrl+Up/Down to navigate
    Done when: History navigation works with Ctrl+Up/Down
 
-** TODO [#B] Wire CommandInput into Terminal.svelte layout
+** DONE [#B] Wire CommandInput into Terminal.svelte layout
    Why: Input box needs to appear at bottom of terminal page
    Change:
    - Modify Terminal.svelte to add CommandInput below terminal body
@@ -311,7 +314,7 @@
    Tests: Manual test: render terminal with input box, submit commands
    Done when: Input box appears at bottom and sends commands to PTY
 
-** TODO [#B] Send submitted commands to PTY with newline
+** DONE [#B] Send submitted commands to PTY with newline
    Why: Commands from input box need to execute in the shell
    Change:
    - onSubmit handler in Terminal.svelte receives command string
@@ -323,7 +326,7 @@
    Tests: Manual test: submit commands, verify execution in PTY, check history
    Done when: Commands from input box execute in shell
 
-** TODO [#B] Add POST endpoint to record input history
+** DONE [#B] Add POST endpoint to record input history
    Why: Frontend needs to record commands in backend history
    Change:
    - Add POST /api/terminals/:id/input-history endpoint
@@ -335,9 +338,15 @@
    Tests: API tests for POST input-history endpoint
    Done when: Frontend can record commands via REST
 
-** TODO [#C] Optionally disable direct PTY keyboard input (future)
-   Why: Eventually isolate PTY input to prevent accidental keystrokes
+** DONE [#B] Disable direct PTY keyboard input
+   Why: Ensure all input flows through CommandInput for a clean, consistent UX
    Change:
+   - Remove or gate terminalStore.js key handlers that send keystrokes to PTY
+   - Keep copy selection behavior and output rendering intact
+   - Ensure Ctrl+C no longer sends to PTY from the terminal canvas
+   - Document the new interaction model in README or UI hint text if needed
+   Tests: Manual test: typing in terminal canvas does nothing; CommandInput works
+   Done when: PTY only receives input from the CommandInput component
    - This is future work; current implementation keeps PTY input for compatibility
    - Add option to disable term.onData handler in terminalStore.js
    - Make input box the sole input method (no direct keyboard to PTY)

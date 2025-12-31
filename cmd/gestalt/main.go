@@ -16,13 +16,15 @@ import (
 )
 
 type Config struct {
-	Port                  int
-	Shell                 string
-	AuthToken             string
-	SessionRetentionDays  int
-	SessionPersist        bool
-	SessionLogDir         string
-	SessionBufferLines    int
+	Port                 int
+	Shell                string
+	AuthToken            string
+	SessionRetentionDays int
+	SessionPersist       bool
+	SessionLogDir        string
+	SessionBufferLines   int
+	InputHistoryPersist  bool
+	InputHistoryDir      string
 }
 
 func main() {
@@ -45,9 +47,10 @@ func main() {
 		Shell:                cfg.Shell,
 		Agents:               agents,
 		Logger:               logger,
-		SessionLogDir:         cfg.SessionLogDir,
-		SessionRetentionDays:  cfg.SessionRetentionDays,
-		BufferLines:           cfg.SessionBufferLines,
+		SessionLogDir:        cfg.SessionLogDir,
+		InputHistoryDir:      cfg.InputHistoryDir,
+		SessionRetentionDays: cfg.SessionRetentionDays,
+		BufferLines:          cfg.SessionBufferLines,
 	})
 
 	staticDir := findStaticDir()
@@ -113,6 +116,21 @@ func loadConfig() Config {
 		}
 	}
 
+	inputHistoryPersist := true
+	if rawPersist := os.Getenv("GESTALT_INPUT_HISTORY_PERSIST"); rawPersist != "" {
+		if parsed, err := strconv.ParseBool(rawPersist); err == nil {
+			inputHistoryPersist = parsed
+		}
+	}
+
+	inputHistoryDir := filepath.Join("logs", "input-history")
+	if rawDir := strings.TrimSpace(os.Getenv("GESTALT_INPUT_HISTORY_DIR")); rawDir != "" {
+		inputHistoryDir = rawDir
+	}
+	if !inputHistoryPersist {
+		inputHistoryDir = ""
+	}
+
 	return Config{
 		Port:                 port,
 		Shell:                shell,
@@ -121,6 +139,8 @@ func loadConfig() Config {
 		SessionPersist:       sessionPersist,
 		SessionLogDir:        sessionLogDir,
 		SessionBufferLines:   sessionBufferLines,
+		InputHistoryPersist:  inputHistoryPersist,
+		InputHistoryDir:      inputHistoryDir,
 	}
 }
 

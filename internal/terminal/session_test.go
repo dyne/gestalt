@@ -7,7 +7,7 @@ import (
 
 func TestSessionWriteAndOutput(t *testing.T) {
 	pty := newScriptedPty()
-	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, nil, nil)
+	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, nil, nil, nil)
 	defer func() {
 		_ = session.Close()
 	}()
@@ -42,12 +42,34 @@ func TestSessionWriteAndOutput(t *testing.T) {
 
 func TestSessionCloseTransitionsState(t *testing.T) {
 	pty := newScriptedPty()
-	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, nil, nil)
+	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, nil, nil, nil)
 
 	if err := session.Close(); err != nil {
 		t.Fatalf("close session: %v", err)
 	}
 	if session.State() != sessionStateClosed {
 		t.Fatalf("expected state closed, got %v", session.State())
+	}
+}
+
+func TestSessionRecordsInputHistory(t *testing.T) {
+	pty := newScriptedPty()
+	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, nil, nil, nil)
+	defer func() {
+		_ = session.Close()
+	}()
+
+	session.RecordInput(" ls ")
+	session.RecordInput("   ")
+
+	entries := session.GetInputHistory()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %v", entries)
+	}
+	if entries[0].Command != "ls" {
+		t.Fatalf("expected command ls, got %q", entries[0].Command)
+	}
+	if entries[0].Timestamp.IsZero() {
+		t.Fatalf("expected timestamp to be set")
 	}
 }

@@ -2,6 +2,8 @@
   import { onDestroy, onMount } from 'svelte'
   import '@xterm/xterm/css/xterm.css'
 
+  import CommandInput from './CommandInput.svelte'
+  import { apiFetch } from '../lib/api.js'
   import { getTerminalState } from '../lib/terminalStore.js'
 
   export let terminalId = ''
@@ -14,6 +16,7 @@
   let canReconnect = false
   let historyStatus = 'idle'
   let statusLabel = ''
+  let inputDisabled = true
   let unsubscribeStatus
   let unsubscribeHistory
   let unsubscribeBell
@@ -52,6 +55,20 @@
     }
   }
 
+  const handleSubmit = (command) => {
+    if (!state) return
+    const payload = typeof command === 'string' ? command : ''
+    state.sendData?.(`${payload}\n`)
+    const trimmed = payload.trim()
+    if (!trimmed || !terminalId) return
+    apiFetch(`/api/terminals/${terminalId}/input-history`, {
+      method: 'POST',
+      body: JSON.stringify({ command: trimmed }),
+    }).catch((err) => {
+      console.warn('failed to record input history', err)
+    })
+  }
+
   const resizeHandler = () => {
     if (!visible || !state) return
     state.scheduleFit()
@@ -69,6 +86,7 @@
   }
 
   $: statusLabel = statusLabels[status] || status
+  $: inputDisabled = status !== 'connected' || !terminalId
 
   onDestroy(() => {
     window.removeEventListener('resize', resizeHandler)
@@ -112,12 +130,13 @@
     </div>
   </header>
   <div class="terminal-shell__body" bind:this={container}></div>
+  <CommandInput {terminalId} onSubmit={handleSubmit} disabled={inputDisabled} />
 </section>
 
 <style>
   .terminal-shell {
     display: grid;
-    grid-template-rows: auto 1fr;
+    grid-template-rows: auto 1fr auto;
     height: 100%;
     min-height: 70vh;
     background: #101010;

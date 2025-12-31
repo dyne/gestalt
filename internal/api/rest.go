@@ -35,6 +35,15 @@ type terminalOutputResponse struct {
 	Lines []string `json:"lines"`
 }
 
+type inputHistoryEntry struct {
+	Command   string    `json:"command"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+type inputHistoryRequest struct {
+	Command string `json:"command"`
+}
+
 type statusResponse struct {
 	TerminalCount  int       `json:"terminal_count"`
 	ServerTime     time.Time `json:"server_time"`
@@ -80,6 +89,7 @@ const (
 	terminalPathTerminal terminalPathAction = iota
 	terminalPathOutput
 	terminalPathHistory
+	terminalPathInputHistory
 )
 
 func (h *RestHandler) handleStatus(w http.ResponseWriter, r *http.Request) *apiError {
@@ -128,6 +138,8 @@ func (h *RestHandler) handleTerminal(w http.ResponseWriter, r *http.Request) *ap
 		return h.handleTerminalOutput(w, r, id)
 	case terminalPathHistory:
 		return h.handleTerminalHistory(w, r, id)
+	case terminalPathInputHistory:
+		return h.handleTerminalInputHistory(w, r, id)
 	}
 
 	return h.handleTerminalDelete(w, r, id)
@@ -313,6 +325,80 @@ func (h *RestHandler) handleTerminalHistory(w http.ResponseWriter, r *http.Reque
 	return nil
 }
 
+func (h *RestHandler) handleTerminalInputHistory(w http.ResponseWriter, r *http.Request, id string) *apiError {
+	switch r.Method {
+	case http.MethodGet:
+		return h.handleTerminalInputHistoryGet(w, r, id)
+	case http.MethodPost:
+		return h.handleTerminalInputHistoryPost(w, r, id)
+	default:
+		return methodNotAllowed(w, "GET, POST")
+	}
+}
+
+func (h *RestHandler) handleTerminalInputHistoryGet(w http.ResponseWriter, r *http.Request, id string) *apiError {
+	limit, since, err := parseInputHistoryQuery(r)
+	if err != nil {
+		return err
+	}
+
+	session, ok := h.Manager.Get(id)
+	if !ok {
+		return &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
+	}
+
+	entries := session.GetInputHistory()
+	if since != nil {
+		filtered := make([]terminal.InputEntry, 0, len(entries))
+		for _, entry := range entries {
+			if entry.Timestamp.After(*since) || entry.Timestamp.Equal(*since) {
+				filtered = append(filtered, entry)
+			}
+		}
+		entries = filtered
+	}
+	if limit > 0 && len(entries) > limit {
+		entries = entries[len(entries)-limit:]
+	}
+
+	response := make([]inputHistoryEntry, 0, len(entries))
+	for _, entry := range entries {
+		response = append(response, inputHistoryEntry{
+			Command:   entry.Command,
+			Timestamp: entry.Timestamp,
+		})
+	}
+	writeJSON(w, http.StatusOK, response)
+	return nil
+}
+
+func (h *RestHandler) handleTerminalInputHistoryPost(w http.ResponseWriter, r *http.Request, id string) *apiError {
+	if r.Body == nil {
+		return &apiError{Status: http.StatusBadRequest, Message: "invalid request body"}
+	}
+
+	var request inputHistoryRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil && err != io.EOF {
+		return &apiError{Status: http.StatusBadRequest, Message: "invalid request body"}
+	}
+
+	command := strings.TrimSpace(request.Command)
+	if command == "" {
+		return &apiError{Status: http.StatusBadRequest, Message: "missing command"}
+	}
+
+	session, ok := h.Manager.Get(id)
+	if !ok {
+		return &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
+	}
+
+	session.RecordInput(command)
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
 func (h *RestHandler) handleTerminalDelete(w http.ResponseWriter, r *http.Request, id string) *apiError {
 	if r.Method != http.MethodDelete {
 		return methodNotAllowed(w, "DELETE")
@@ -403,6 +489,10 @@ func parseTerminalPath(path string) (string, terminalPathAction) {
 		id := strings.TrimSuffix(trimmed, "/history")
 		return id, terminalPathHistory
 	}
+	if strings.HasSuffix(trimmed, "/input-history") {
+		id := strings.TrimSuffix(trimmed, "/input-history")
+		return id, terminalPathInputHistory
+	}
 	return trimmed, terminalPathTerminal
 }
 
@@ -438,6 +528,27 @@ func parseHistoryLines(r *http.Request) (int, *apiError) {
 		lines = parsed
 	}
 	return lines, nil
+}
+
+func parseInputHistoryQuery(r *http.Request) (int, *time.Time, *apiError) {
+	limit := 100
+	if rawLimit := strings.TrimSpace(r.URL.Query().Get("limit")); rawLimit != "" {
+		parsed, err := strconv.Atoi(rawLimit)
+		if err != nil || parsed <= 0 {
+			return limit, nil, &apiError{Status: http.StatusBadRequest, Message: "invalid limit"}
+		}
+		limit = parsed
+	}
+
+	if rawSince := strings.TrimSpace(r.URL.Query().Get("since")); rawSince != "" {
+		parsed, err := time.Parse(time.RFC3339, rawSince)
+		if err != nil {
+			return limit, nil, &apiError{Status: http.StatusBadRequest, Message: "invalid since timestamp"}
+		}
+		return limit, &parsed, nil
+	}
+
+	return limit, nil, nil
 }
 
 func parseLogQuery(r *http.Request) (logQuery, *apiError) {

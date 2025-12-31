@@ -194,6 +194,95 @@ func TestTerminalHistoryEndpoint(t *testing.T) {
 	}
 }
 
+func TestTerminalInputHistoryEndpoint(t *testing.T) {
+	factory := &fakeFactory{}
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+	})
+	created, err := manager.Create("", "", "")
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	created.RecordInput("one")
+	created.RecordInput("two")
+
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodGet, "/api/terminals/"+created.ID+"/input-history?limit=1", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", handler.handleTerminal)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var payload []inputHistoryEntry
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(payload) != 1 || payload[0].Command != "two" {
+		t.Fatalf("expected last command, got %v", payload)
+	}
+	if payload[0].Timestamp.IsZero() {
+		t.Fatalf("expected timestamp to be set")
+	}
+}
+
+func TestTerminalInputHistoryPostEndpoint(t *testing.T) {
+	factory := &fakeFactory{}
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+	})
+	created, err := manager.Create("", "", "")
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/terminals/"+created.ID+"/input-history",
+		strings.NewReader(`{"command":"echo hi"}`),
+	)
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", handler.handleTerminal)(res, req)
+	if res.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", res.Code)
+	}
+
+	getReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/terminals/"+created.ID+"/input-history?limit=1",
+		nil,
+	)
+	getReq.Header.Set("Authorization", "Bearer secret")
+	getRes := httptest.NewRecorder()
+
+	restHandler("secret", handler.handleTerminal)(getRes, getReq)
+	if getRes.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", getRes.Code)
+	}
+
+	var payload []inputHistoryEntry
+	if err := json.NewDecoder(getRes.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(payload) != 1 || payload[0].Command != "echo hi" {
+		t.Fatalf("unexpected history payload: %v", payload)
+	}
+}
+
 func TestCreateTerminalWithoutAgent(t *testing.T) {
 	factory := &fakeFactory{}
 	manager := terminal.NewManager(terminal.ManagerOptions{
@@ -580,10 +669,10 @@ func containsLine(lines []string, target string) bool {
 
 func TestParseTerminalPath(t *testing.T) {
 	tests := []struct {
-		name        string
-		path        string
-		id          string
-		action      terminalPathAction
+		name   string
+		path   string
+		id     string
+		action terminalPathAction
 	}{
 		{name: "terminal", path: "/api/terminals/123", id: "123", action: terminalPathTerminal},
 		{name: "terminal-trailing-slash", path: "/api/terminals/123/", id: "123", action: terminalPathTerminal},
@@ -591,6 +680,8 @@ func TestParseTerminalPath(t *testing.T) {
 		{name: "output-trailing-slash", path: "/api/terminals/123/output/", id: "123", action: terminalPathOutput},
 		{name: "history", path: "/api/terminals/123/history", id: "123", action: terminalPathHistory},
 		{name: "history-trailing-slash", path: "/api/terminals/123/history/", id: "123", action: terminalPathHistory},
+		{name: "input-history", path: "/api/terminals/123/input-history", id: "123", action: terminalPathInputHistory},
+		{name: "input-history-trailing-slash", path: "/api/terminals/123/input-history/", id: "123", action: terminalPathInputHistory},
 		{name: "missing-prefix", path: "/api/terminal/123", id: "", action: terminalPathTerminal},
 		{name: "empty-id", path: "/api/terminals/", id: "", action: terminalPathTerminal},
 	}

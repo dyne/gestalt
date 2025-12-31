@@ -67,35 +67,6 @@ const writeClipboardTextFallback = (text) => {
   }
 }
 
-const readClipboardText = async () => {
-  if (navigator.clipboard?.readText) {
-    try {
-      return await navigator.clipboard.readText()
-    } catch (err) {
-      // Fall back to legacy clipboard handling.
-    }
-  }
-  return readClipboardTextFallback()
-}
-
-const readClipboardTextFallback = () => {
-  try {
-    const textarea = document.createElement('textarea')
-    textarea.style.position = 'fixed'
-    textarea.style.top = '-9999px'
-    textarea.style.left = '-9999px'
-    document.body.appendChild(textarea)
-    textarea.focus()
-    textarea.select()
-    document.execCommand?.('paste')
-    const text = textarea.value
-    document.body.removeChild(textarea)
-    return text
-  } catch (err) {
-    return ''
-  }
-}
-
 const flattenParams = (params) => {
   const flattened = []
   for (const param of params) {
@@ -116,13 +87,6 @@ const shouldSuppressMouseMode = (params) => {
   const hasMouse = flattened.some((value) => MOUSE_MODE_PARAMS.has(value))
   if (!hasMouse) return false
   return flattened.every((value) => MOUSE_MODE_PARAMS.has(value))
-}
-
-const isMouseReport = (data) => {
-  if (data.startsWith('\x1b[<')) {
-    return /^\x1b\[<\d+;\d+;\d+[mM]$/.test(data)
-  }
-  return data.startsWith('\x1b[M') && data.length === 6
 }
 
 export const getTerminalState = (terminalId) => {
@@ -149,6 +113,7 @@ const createTerminalState = (terminalId) => {
   const term = new Terminal({
     allowProposedApi: true,
     cursorBlink: true,
+    disableStdin: true,
     fontSize: 14,
     fontFamily: '"IBM Plex Mono", "JetBrains Mono", monospace',
     theme: {
@@ -190,6 +155,7 @@ const createTerminalState = (terminalId) => {
 
   const sendData = (data) => {
     if (!socket || socket.readyState !== WebSocket.OPEN) return
+    if (!data) return
     socket.send(encoder.encode(data))
   }
 
@@ -218,11 +184,6 @@ const createTerminalState = (terminalId) => {
     container = null
   }
 
-  term.onData((data) => {
-    if (isMouseReport(data)) return
-    sendData(data)
-  })
-
   term.onBell(() => {
     bellCount.update((count) => count + 1)
   })
@@ -244,12 +205,6 @@ const createTerminalState = (terminalId) => {
     if (isPasteKey(event)) {
       event.preventDefault()
       event.stopPropagation()
-      readClipboardText()
-        .then((text) => {
-          if (!text) return
-          sendData(text)
-        })
-        .catch(() => {})
       return false
     }
     return true
@@ -484,6 +439,7 @@ const createTerminalState = (terminalId) => {
     historyStatus,
     bellCount,
     canReconnect,
+    sendData,
     attach,
     detach,
     scheduleFit,

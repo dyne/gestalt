@@ -17,6 +17,8 @@
   let historyStatus = 'idle'
   let statusLabel = ''
   let inputDisabled = true
+  let directInputEnabled = false
+  let commandInput
   let unsubscribeStatus
   let unsubscribeHistory
   let unsubscribeBell
@@ -69,6 +71,16 @@
     })
   }
 
+  const handleDirectInputChange = (enabled) => {
+    directInputEnabled = enabled
+    state?.setDirectInput?.(enabled)
+    if (enabled) {
+      requestAnimationFrame(() => state?.focus?.())
+    } else {
+      requestAnimationFrame(() => commandInput?.focusInput?.())
+    }
+  }
+
   const resizeHandler = () => {
     if (!visible || !state) return
     state.scheduleFit()
@@ -76,6 +88,9 @@
 
   onMount(() => {
     attachState()
+    if (state) {
+      state.setDirectInput?.(directInputEnabled)
+    }
     window.addEventListener('resize', resizeHandler)
   })
 
@@ -130,7 +145,14 @@
     </div>
   </header>
   <div class="terminal-shell__body" bind:this={container}></div>
-  <CommandInput {terminalId} onSubmit={handleSubmit} disabled={inputDisabled} />
+  <CommandInput
+    {terminalId}
+    bind:this={commandInput}
+    onSubmit={handleSubmit}
+    disabled={inputDisabled}
+    directInput={directInputEnabled}
+    onDirectInputChange={handleDirectInputChange}
+  />
 </section>
 
 <style>

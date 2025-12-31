@@ -6,6 +6,8 @@
   export let terminalId = ''
   export let onSubmit = () => {}
   export let disabled = false
+  export let directInput = false
+  export let onDirectInputChange = () => {}
 
   let value = ''
   let textarea
@@ -95,6 +97,14 @@
     submit()
   }
 
+  const handleDirectToggle = (event) => {
+    onDirectInputChange(event.target.checked)
+  }
+
+  export function focusInput() {
+    textarea?.focus()
+  }
+
   const loadHistory = async () => {
     if (!terminalId) return
     try {
@@ -127,16 +137,28 @@
 
 <div class="command-input">
   <label class="sr-only" for={`command-${terminalId}`}>Command input</label>
-  <textarea
-    id={`command-${terminalId}`}
-    bind:this={textarea}
-    bind:value
-    rows="3"
-    placeholder="Type command... (Enter to submit, Shift+Enter for newline)"
-    on:input={resizeTextarea}
-    on:keydown={handleKeydown}
-    disabled={disabled}
-  ></textarea>
+  <div class="command-input__row">
+    <textarea
+      id={`command-${terminalId}`}
+      bind:this={textarea}
+      bind:value
+      rows="3"
+      placeholder="Type command... (Enter to submit, Shift+Enter for newline)"
+      on:input={resizeTextarea}
+      on:keydown={handleKeydown}
+      disabled={disabled}
+    ></textarea>
+    <label class="direct-toggle" title="Direct input switch">
+      <input
+        type="checkbox"
+        checked={directInput}
+        on:change={handleDirectToggle}
+        aria-label="Direct input switch"
+        disabled={disabled}
+      />
+      <span class="direct-toggle__switch"></span>
+    </label>
+  </div>
 </div>
 
 <style>
@@ -144,6 +166,13 @@
     padding: 0.85rem 1rem 1rem;
     background: #171717;
     border-top: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .command-input__row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.85rem;
+    align-items: end;
   }
 
   textarea {
@@ -169,6 +198,59 @@
 
   textarea:disabled {
     opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .direct-toggle {
+    position: relative;
+    width: 20px;
+    height: 54px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+  }
+
+  .direct-toggle input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .direct-toggle__switch {
+    position: relative;
+    display: block;
+    width: 18px;
+    height: 48px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.15);
+    transition: background 0.2s ease;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  }
+
+  .direct-toggle__switch::after {
+    content: '';
+    position: absolute;
+    left: 2px;
+    bottom: 2px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #f2efe9;
+    transition: transform 0.2s ease;
+  }
+
+  .direct-toggle input:checked + .direct-toggle__switch {
+    background: rgba(111, 196, 129, 0.6);
+  }
+
+  .direct-toggle input:checked + .direct-toggle__switch::after {
+    transform: translateY(-28px);
+  }
+
+  .direct-toggle input:disabled + .direct-toggle__switch {
+    opacity: 0.5;
     cursor: not-allowed;
   }
 

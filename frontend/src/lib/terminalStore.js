@@ -67,6 +67,35 @@ const writeClipboardTextFallback = (text) => {
   }
 }
 
+const readClipboardText = async () => {
+  if (navigator.clipboard?.readText) {
+    try {
+      return await navigator.clipboard.readText()
+    } catch (err) {
+      // Fall back to legacy clipboard handling.
+    }
+  }
+  return readClipboardTextFallback()
+}
+
+const readClipboardTextFallback = () => {
+  try {
+    const textarea = document.createElement('textarea')
+    textarea.style.position = 'fixed'
+    textarea.style.top = '-9999px'
+    textarea.style.left = '-9999px'
+    document.body.appendChild(textarea)
+    textarea.focus()
+    textarea.select()
+    document.execCommand?.('paste')
+    const text = textarea.value
+    document.body.removeChild(textarea)
+    return text
+  } catch (err) {
+    return ''
+  }
+}
+
 const flattenParams = (params) => {
   const flattened = []
   for (const param of params) {
@@ -137,6 +166,7 @@ const createTerminalState = (terminalId) => {
   let socket
   let container
   let disposed = false
+  let directInputEnabled = false
   let retryCount = 0
   let reconnectTimer
   let notifiedUnauthorized = false
@@ -163,6 +193,15 @@ const createTerminalState = (terminalId) => {
     if (!socket || socket.readyState !== WebSocket.OPEN) return
     if (!data) return
     socket.send(encoder.encode(data))
+  }
+
+  const setDirectInput = (enabled) => {
+    directInputEnabled = Boolean(enabled)
+  }
+
+  const focus = () => {
+    if (disposed) return
+    term.focus()
   }
 
   const scheduleFit = () => {
@@ -202,6 +241,9 @@ const createTerminalState = (terminalId) => {
   term.attachCustomKeyEventHandler((event) => {
     if (event.type !== 'keydown') return true
     if (isCopyKey(event)) {
+      if (directInputEnabled && !term.hasSelection()) {
+        return true
+      }
       event.preventDefault()
       event.stopPropagation()
       if (!term.hasSelection()) {
@@ -214,9 +256,23 @@ const createTerminalState = (terminalId) => {
       return false
     }
     if (isPasteKey(event)) {
+      if (directInputEnabled) {
+        event.preventDefault()
+        event.stopPropagation()
+        readClipboardText()
+          .then((text) => {
+            if (!text) return
+            sendData(text)
+          })
+          .catch(() => {})
+        return false
+      }
       event.preventDefault()
       event.stopPropagation()
       return false
+    }
+    if (directInputEnabled) {
+      return true
     }
     event.preventDefault()
     event.stopPropagation()
@@ -453,6 +509,8 @@ const createTerminalState = (terminalId) => {
     bellCount,
     canReconnect,
     sendData,
+    setDirectInput,
+    focus,
     attach,
     detach,
     scheduleFit,

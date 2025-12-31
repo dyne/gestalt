@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -58,6 +59,7 @@ type Session struct {
 	inputBuf *InputBuffer
 	inputLog *InputLogger
 	agent    *agent.Agent
+	subs     int32
 	closing  sync.Once
 	closeErr error
 	state    uint32
@@ -125,7 +127,22 @@ func (s *Session) Info() SessionInfo {
 }
 
 func (s *Session) Subscribe() (<-chan []byte, func()) {
-	return s.bcast.Subscribe()
+	if s == nil || s.bcast == nil || s.State() == sessionStateClosed {
+		ch := make(chan []byte)
+		close(ch)
+		return ch, func() {}
+	}
+
+	ch, cancel := s.bcast.Subscribe()
+	atomic.AddInt32(&s.subs, 1)
+	var once sync.Once
+	wrapped := func() {
+		once.Do(func() {
+			cancel()
+			atomic.AddInt32(&s.subs, -1)
+		})
+	}
+	return ch, wrapped
 }
 
 func (s *Session) Write(data []byte) (err error) {
@@ -167,6 +184,13 @@ func (s *Session) Resize(cols, rows uint16) error {
 
 func (s *Session) OutputLines() []string {
 	return s.bcast.OutputLines()
+}
+
+func (s *Session) hasSubscribers() bool {
+	if s == nil {
+		return false
+	}
+	return atomic.LoadInt32(&s.subs) > 0
 }
 
 func (s *Session) RecordInput(command string) {
@@ -261,6 +285,7 @@ func (s *Session) readLoop() {
 	defer close(s.output)
 
 	buf := make([]byte, 4096)
+	dsrTail := []byte{}
 	for {
 		select {
 		case <-s.ctx.Done():
@@ -271,6 +296,10 @@ func (s *Session) readLoop() {
 		if n > 0 {
 			chunk := make([]byte, n)
 			copy(chunk, buf[:n])
+			if !s.hasSubscribers() && containsDSR(dsrTail, chunk) {
+				_ = s.Write([]byte("\x1b[1;1R"))
+			}
+			dsrTail = updateDSRTail(dsrTail, chunk)
 			select {
 			case s.output <- chunk:
 			case <-s.ctx.Done():
@@ -282,6 +311,34 @@ func (s *Session) readLoop() {
 			return
 		}
 	}
+}
+
+func containsDSR(tail, chunk []byte) bool {
+	if len(chunk) == 0 {
+		return false
+	}
+	combined := make([]byte, 0, len(tail)+len(chunk))
+	combined = append(combined, tail...)
+	combined = append(combined, chunk...)
+	return bytes.Contains(combined, []byte("\x1b[6n"))
+}
+
+func updateDSRTail(tail, chunk []byte) []byte {
+	const dsrSize = 4
+	const tailSize = dsrSize - 1
+	if tailSize <= 0 {
+		return nil
+	}
+	if len(chunk) >= tailSize {
+		return append([]byte(nil), chunk[len(chunk)-tailSize:]...)
+	}
+	combined := make([]byte, 0, len(tail)+len(chunk))
+	combined = append(combined, tail...)
+	combined = append(combined, chunk...)
+	if len(combined) <= tailSize {
+		return combined
+	}
+	return append([]byte(nil), combined[len(combined)-tailSize:]...)
 }
 
 func (s *Session) writeLoop() {

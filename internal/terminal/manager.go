@@ -13,6 +13,7 @@ import (
 
 	"gestalt/internal/agent"
 	"gestalt/internal/logging"
+	"gestalt/internal/skill"
 )
 
 var ErrSessionNotFound = errors.New("terminal session not found")
@@ -24,6 +25,7 @@ type ManagerOptions struct {
 	BufferLines          int
 	Clock                Clock
 	Agents               map[string]agent.Agent
+	Skills               map[string]*skill.Skill
 	Logger               *logging.Logger
 	SessionLogDir        string
 	InputHistoryDir      string
@@ -41,6 +43,7 @@ type Manager struct {
 	bufferLines     int
 	clock           Clock
 	agents          map[string]agent.Agent
+	skills          map[string]*skill.Skill
 	logger          *logging.Logger
 	sessionLogs     string
 	inputHistoryDir string
@@ -54,6 +57,7 @@ const (
 	promptChunkDelay = 25 * time.Millisecond
 	promptChunkSize  = 64
 	enterKeyDelay    = 75 * time.Millisecond
+	skillPromptDelay = 100 * time.Millisecond
 )
 
 var onAirTimeout = 5 * time.Second
@@ -63,6 +67,13 @@ type AgentInfo struct {
 	Name     string
 	LLMType  string
 	LLMModel string
+}
+
+type SkillMetadata struct {
+	Name        string
+	Description string
+	Path        string
+	License     string
 }
 
 func NewManager(opts ManagerOptions) *Manager {
@@ -102,6 +113,10 @@ func NewManager(opts ManagerOptions) *Manager {
 	for id, profile := range opts.Agents {
 		agents[id] = profile
 	}
+	skills := make(map[string]*skill.Skill)
+	for id, entry := range opts.Skills {
+		skills[id] = entry
+	}
 
 	manager := &Manager{
 		sessions:        make(map[string]*Session),
@@ -110,6 +125,7 @@ func NewManager(opts ManagerOptions) *Manager {
 		bufferLines:     bufferLines,
 		clock:           clock,
 		agents:          agents,
+		skills:          skills,
 		logger:          logger,
 		sessionLogs:     sessionLogs,
 		inputHistoryDir: inputHistoryDir,
@@ -124,6 +140,7 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 	var profile *agent.Agent
 	var promptNames []string
 	var onAirString string
+	var skillEntries []*skill.Skill
 	if agentID != "" {
 		agentProfile, ok := m.GetAgent(agentID)
 		if !ok {
@@ -145,6 +162,15 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 		}
 		if strings.TrimSpace(agentProfile.OnAirString) != "" {
 			onAirString = agentProfile.OnAirString
+		}
+		if len(agentProfile.Skills) > 0 {
+			for _, skillName := range agentProfile.Skills {
+				skillEntry, ok := m.GetSkill(skillName)
+				if !ok || skillEntry == nil {
+					continue
+				}
+				skillEntries = append(skillEntries, skillEntry)
+			}
 		}
 	}
 
@@ -210,7 +236,7 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 	}
 	m.logger.Info("terminal created", fields)
 
-	if len(promptNames) > 0 {
+	if len(promptNames) > 0 || len(skillEntries) > 0 {
 		go func() {
 			if strings.TrimSpace(onAirString) != "" {
 				if !waitForOnAir(session, onAirString, onAirTimeout) {
@@ -223,6 +249,28 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 			} else {
 				time.Sleep(promptDelay)
 			}
+			wrotePrompt := false
+			if len(skillEntries) > 0 {
+				payload := skill.GeneratePromptXML(skillEntries)
+				if strings.TrimSpace(payload) != "" {
+					if err := session.Write([]byte(payload + "\n")); err != nil {
+						m.logger.Warn("agent skills write failed", map[string]string{
+							"agent_id": agentID,
+							"error":    err.Error(),
+						})
+						return
+					}
+					wrotePrompt = true
+					m.logger.Info("agent skills injected", map[string]string{
+						"agent_id":    agentID,
+						"skill_count": strconv.Itoa(len(skillEntries)),
+					})
+					if len(promptNames) > 0 {
+						time.Sleep(skillPromptDelay)
+					}
+				}
+			}
+
 			cleaned := make([]string, 0, len(promptNames))
 			for _, promptName := range promptNames {
 				promptName = strings.TrimSpace(promptName)
@@ -230,7 +278,6 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 					cleaned = append(cleaned, promptName)
 				}
 			}
-			wrotePrompt := false
 			for i, promptName := range cleaned {
 				promptPath := filepath.Join("config", "prompts", promptName+".txt")
 				data, err := os.ReadFile(promptPath)
@@ -372,6 +419,36 @@ func (m *Manager) ListAgents() []AgentInfo {
 
 	sort.Slice(infos, func(i, j int) bool {
 		return infos[i].ID < infos[j].ID
+	})
+	return infos
+}
+
+func (m *Manager) GetSkill(name string) (*skill.Skill, bool) {
+	m.mu.RLock()
+	entry, ok := m.skills[name]
+	m.mu.RUnlock()
+
+	return entry, ok
+}
+
+func (m *Manager) ListSkills() []SkillMetadata {
+	m.mu.RLock()
+	infos := make([]SkillMetadata, 0, len(m.skills))
+	for _, entry := range m.skills {
+		if entry == nil {
+			continue
+		}
+		infos = append(infos, SkillMetadata{
+			Name:        entry.Name,
+			Description: entry.Description,
+			Path:        entry.Path,
+			License:     entry.License,
+		})
+	}
+	m.mu.RUnlock()
+
+	sort.Slice(infos, func(i, j int) bool {
+		return infos[i].Name < infos[j].Name
 	})
 	return infos
 }

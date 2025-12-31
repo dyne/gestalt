@@ -1,4 +1,4 @@
-* TODO [#B] Agent Skills integration
+* WIP [#B] Agent Skills integration
   Goal: Integrate the Agent Skills standard (agentskills.io) into Gestalt to provide agents with discoverable, on-demand capabilities through structured skill packages stored in config/skills/
   Notes:
   - Agent Skills are folders containing SKILL.md (YAML frontmatter + Markdown instructions)
@@ -16,7 +16,7 @@
   - Skills are portable, versionable, and shareable across different agent tools
   Date: 2025-12-31
 
-** TODO [#B] Create skill data structure and parser
+** DONE [#B] Create skill data structure and parser
    Why: Need to parse SKILL.md frontmatter and validate skill format
    Change:
    - Create internal/skill/ package with Skill struct
@@ -32,7 +32,7 @@
    Tests: Unit tests for parsing valid/invalid SKILL.md files, validation edge cases
    Done when: Skill struct exists with YAML parsing and validation
 
-** TODO [#B] Implement skill loader from config/skills/
+** DONE [#B] Implement skill loader from config/skills/
    Why: Load skill packages from filesystem at startup
    Change:
    - Create skill.Loader with Load(dir string) (map[string]*Skill, error)
@@ -47,7 +47,7 @@
    Tests: Unit tests with temp directories; valid/invalid skill structures
    Done when: Loader successfully reads skill packages from directory
 
-** TODO [#B] Wire skill loader into Manager initialization
+** DONE [#B] Wire skill loader into Manager initialization
    Why: Manager needs access to skills for agent initialization
    Change:
    - Add Skills field to ManagerOptions: map[string]*skill.Skill
@@ -59,7 +59,7 @@
    Tests: Integration test verifying Manager has skills after init
    Done when: Manager has access to loaded skill packages
 
-** TODO [#B] Extend agent profiles to reference skills
+** DONE [#B] Extend agent profiles to reference skills
    Why: Agents need to declare which skills they have access to
    Change:
    - Add Skills field to Agent struct: []string `json:"skills"`
@@ -71,7 +71,7 @@
    Tests: Agent loader tests with valid/invalid skill references
    Done when: Agent profiles can declare skill dependencies
 
-** TODO [#C] Generate skill metadata for agent prompts
+** DONE [#C] Generate skill metadata for agent prompts
    Why: Agents need skill discovery information in system prompt
    Change:
    - Create skill.GeneratePromptXML(skills []*Skill) string function
@@ -83,7 +83,7 @@
    Tests: Unit tests for XML generation with various skill sets
    Done when: Function generates proper XML for agent system prompts
 
-** TODO [#B] Inject skill metadata into agent prompts
+** DONE [#B] Inject skill metadata into agent prompts
    Why: Agents must know which skills are available at startup
    Change:
    - Modify prompt injection logic in terminal/session.go
@@ -96,7 +96,7 @@
    Tests: Manual test: create agent with skills, verify XML in terminal
    Done when: Skill metadata appears in agent terminal on startup
 
-** TODO [#C] Add GET /api/skills endpoint
+** DONE [#C] Add GET /api/skills endpoint
    Why: Frontend and external tools need to query available skills
    Change:
    - Add GET /api/skills REST endpoint
@@ -107,7 +107,7 @@
    Tests: GET /api/skills returns skill list with metadata
    Done when: API endpoint exposes available skills
 
-** TODO [#C] Add GET /api/skills/:name endpoint
+** DONE [#C] Add GET /api/skills/:name endpoint
    Why: Agents/users may need to read full skill content
    Change:
    - Add GET /api/skills/:name endpoint
@@ -118,7 +118,7 @@
    Tests: GET /api/skills/:name returns complete skill information
    Done when: API endpoint exposes full skill content
 
-** TODO [#C] Create example skills in config/skills/
+** DONE [#C] Create example skills in config/skills/
    Why: Provide working examples for users
    Change:
    - Create config/skills/ directory
@@ -131,7 +131,7 @@
    Tests: Load examples; verify they parse correctly
    Done when: Example skills exist and demonstrate the format
 
-** TODO [#C] Update frontend to display skills
+** DONE [#C] Update frontend to display skills
    Why: Users should see which skills are available
    Change:
    - Add "Skills" section to Dashboard.svelte
@@ -143,7 +143,7 @@
    Tests: Manual test skills display in UI
    Done when: Dashboard shows available skills
 
-** TODO [#C] Document Agent Skills integration
+** DONE [#C] Document Agent Skills integration
    Why: Users and contributors need to understand skills system
    Change:
    - Add "Agent Skills" section to README.md
@@ -156,7 +156,7 @@
    Tests: None (documentation only)
    Done when: Agent Skills system is fully documented
 
-** TODO [#C] Add skill validation CLI command (optional)
+** DONE [#C] Add skill validation CLI command (optional)
    Why: Help users create valid skills
    Change:
    - Add CLI command: gestalt validate-skill <path>
@@ -169,7 +169,7 @@
    Tests: Manual test with valid/invalid skill directories
    Done when: Users can validate skills before deployment (optional)
 
-** TODO [#C] Consider script execution security (future)
+** DONE [#C] Consider script execution security (future)
    Why: Executing skill scripts has security implications
    Change:
    - Document security considerations in README

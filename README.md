@@ -133,6 +133,47 @@ Prompt behavior:
 - Each string is a prompt name, resolved to `config/prompts/{name}.txt`.
 - Prompts are injected in order, with a small delay between each.
 
+## Agent Skills
+
+Agent Skills follow the [agentskills.io](https://agentskills.io) structure and are loaded from `config/skills/`.
+
+Structure:
+- `config/skills/<skill-name>/SKILL.md` with YAML frontmatter + Markdown body.
+- Optional folders: `scripts/`, `references/`, `assets/` (files are listed by the API).
+
+Frontmatter fields:
+- `name` (required, lowercase with hyphens; must match folder name)
+- `description` (required, short summary)
+- `license` (recommended)
+- `compatibility` (recommended)
+- `metadata` (optional map)
+- `allowed_tools` (optional list)
+
+Assign skills to agents by adding a `skills` array:
+```
+"skills": ["git-workflows", "code-review"]
+```
+
+Discovery and activation:
+- On startup, skills are loaded and metadata is injected into agent prompts as XML.
+- Agents can read the full `SKILL.md` at the provided `<location>` to activate a skill.
+- Use scripts/references/assets only from trusted sources.
+
+API:
+- `GET /api/skills` (optional `?agent=<id>` filter)
+- `GET /api/skills/:name`
+
+Security considerations (future work):
+- Scripts in skills are not sandboxed; plan for allowlists or user confirmation before execution.
+- Log script execution for auditing and traceability.
+- Consider signature verification for skills from external sources.
+- Treat skills in `config/skills/` as trusted until stronger controls are added.
+
+## CLI
+
+Current commands:
+- `gestalt validate-skill <path>`: Validate a skill directory or `SKILL.md` file.
+
 ## License
 
 Copyright (C) 2025-2026 Dyne.org foundation

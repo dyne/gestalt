@@ -15,6 +15,7 @@ import (
 
 	"gestalt/internal/agent"
 	"gestalt/internal/logging"
+	"gestalt/internal/skill"
 	"gestalt/internal/terminal"
 )
 
@@ -473,6 +474,198 @@ func TestAgentsEndpoint(t *testing.T) {
 	}
 	if payload[0].ID != "codex" && payload[1].ID != "codex" {
 		t.Fatalf("missing codex agent")
+	}
+}
+
+func TestSkillsEndpoint(t *testing.T) {
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "git-workflows")
+	if err := os.MkdirAll(filepath.Join(skillDir, "scripts"), 0755); err != nil {
+		t.Fatalf("mkdir scripts: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(skillDir, "references"), 0755); err != nil {
+		t.Fatalf("mkdir references: %v", err)
+	}
+
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Skills: map[string]*skill.Skill{
+			"git-workflows": {
+				Name:        "git-workflows",
+				Description: "Helpful git workflows",
+				Path:        skillDir,
+				License:     "MIT",
+			},
+		},
+	})
+
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodGet, "/api/skills", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", handler.handleSkills)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var payload []skillSummary
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(payload) != 1 {
+		t.Fatalf("expected 1 skill, got %d", len(payload))
+	}
+	if payload[0].Name != "git-workflows" {
+		t.Fatalf("unexpected skill name: %q", payload[0].Name)
+	}
+	if !payload[0].HasScripts || !payload[0].HasReferences || payload[0].HasAssets {
+		t.Fatalf("unexpected directory flags: %+v", payload[0])
+	}
+}
+
+func TestSkillsEndpointFiltersByAgent(t *testing.T) {
+	root := t.TempDir()
+	gitDir := filepath.Join(root, "git-workflows")
+	if err := os.MkdirAll(gitDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	reviewDir := filepath.Join(root, "code-review")
+	if err := os.MkdirAll(reviewDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:   "Codex",
+				Shell:  "/bin/bash",
+				Skills: []string{"git-workflows"},
+			},
+		},
+		Skills: map[string]*skill.Skill{
+			"git-workflows": {
+				Name:        "git-workflows",
+				Description: "Helpful git workflows",
+				Path:        gitDir,
+			},
+			"code-review": {
+				Name:        "code-review",
+				Description: "Review code carefully",
+				Path:        reviewDir,
+			},
+		},
+	})
+
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodGet, "/api/skills?agent=codex", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", handler.handleSkills)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var payload []skillSummary
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(payload) != 1 || payload[0].Name != "git-workflows" {
+		t.Fatalf("unexpected skills response: %+v", payload)
+	}
+}
+
+func TestSkillsEndpointUnknownAgent(t *testing.T) {
+	manager := terminal.NewManager(terminal.ManagerOptions{})
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodGet, "/api/skills?agent=missing", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", handler.handleSkills)(res, req)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", res.Code)
+	}
+}
+
+func TestSkillEndpoint(t *testing.T) {
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "git-workflows")
+	if err := os.MkdirAll(filepath.Join(skillDir, "scripts"), 0755); err != nil {
+		t.Fatalf("mkdir scripts: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(skillDir, "references"), 0755); err != nil {
+		t.Fatalf("mkdir references: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(skillDir, "assets"), 0755); err != nil {
+		t.Fatalf("mkdir assets: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "scripts", "run.sh"), []byte("echo hi"), 0644); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "references", "guide.md"), []byte("guide"), 0644); err != nil {
+		t.Fatalf("write reference: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "assets", "icon.png"), []byte("png"), 0644); err != nil {
+		t.Fatalf("write asset: %v", err)
+	}
+
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Skills: map[string]*skill.Skill{
+			"git-workflows": {
+				Name:          "git-workflows",
+				Description:   "Helpful git workflows",
+				License:       "MIT",
+				Compatibility: ">=1.0",
+				Metadata:      map[string]any{"owner": "dyne"},
+				AllowedTools:  []string{"bash"},
+				Path:          skillDir,
+				Content:       "# Git Workflows\n",
+			},
+		},
+	})
+
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodGet, "/api/skills/git-workflows", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", handler.handleSkill)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var payload skillDetail
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Name != "git-workflows" {
+		t.Fatalf("unexpected name: %q", payload.Name)
+	}
+	if payload.Content == "" {
+		t.Fatalf("expected content to be set")
+	}
+	if len(payload.Scripts) != 1 || payload.Scripts[0] != "run.sh" {
+		t.Fatalf("unexpected scripts: %v", payload.Scripts)
+	}
+	if len(payload.References) != 1 || payload.References[0] != "guide.md" {
+		t.Fatalf("unexpected references: %v", payload.References)
+	}
+	if len(payload.Assets) != 1 || payload.Assets[0] != "icon.png" {
+		t.Fatalf("unexpected assets: %v", payload.Assets)
+	}
+}
+
+func TestSkillEndpointMissing(t *testing.T) {
+	manager := terminal.NewManager(terminal.ManagerOptions{})
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodGet, "/api/skills/missing", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", handler.handleSkill)(res, req)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", res.Code)
 	}
 }
 

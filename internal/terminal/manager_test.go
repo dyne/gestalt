@@ -13,6 +13,7 @@ import (
 
 	"gestalt/internal/agent"
 	"gestalt/internal/logging"
+	"gestalt/internal/skill"
 )
 
 type fakePty struct {
@@ -307,6 +308,36 @@ func TestManagerGetAgent(t *testing.T) {
 	}
 	if _, ok := manager.GetAgent("missing"); ok {
 		t.Fatalf("expected missing agent to be false")
+	}
+}
+
+func TestManagerSkillsLoaded(t *testing.T) {
+	entries := map[string]*skill.Skill{
+		"git-workflows": {
+			Name:        "git-workflows",
+			Description: "Helpful git workflows",
+			License:     "MIT",
+			Path:        "config/skills/git-workflows",
+		},
+	}
+	manager := NewManager(ManagerOptions{
+		Skills: entries,
+	})
+
+	skillEntry, ok := manager.GetSkill("git-workflows")
+	if !ok {
+		t.Fatalf("expected git-workflows skill")
+	}
+	if skillEntry.Name != "git-workflows" {
+		t.Fatalf("name mismatch: %q", skillEntry.Name)
+	}
+
+	infos := manager.ListSkills()
+	if len(infos) != 1 {
+		t.Fatalf("expected 1 skill, got %d", len(infos))
+	}
+	if infos[0].Name != "git-workflows" {
+		t.Fatalf("metadata name mismatch: %q", infos[0].Name)
 	}
 }
 

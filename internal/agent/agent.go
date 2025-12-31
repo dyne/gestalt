@@ -52,6 +52,7 @@ type Agent struct {
 	Name        string     `json:"name"`
 	Shell       string     `json:"shell"`
 	Prompts     PromptList `json:"prompt,omitempty"`
+	Skills      []string   `json:"skills,omitempty"`
 	OnAirString string     `json:"onair_string,omitempty"`
 	LLMType     string     `json:"llm_type"`
 	LLMModel    string     `json:"llm_model"`
@@ -65,15 +66,15 @@ func (a Agent) Validate() error {
 	if strings.TrimSpace(a.Shell) == "" {
 		return fmt.Errorf("agent shell is required")
 	}
-	if strings.TrimSpace(a.LLMType) == "" {
-		return fmt.Errorf("agent llm_type is required")
-	}
-	switch a.LLMType {
-	case "copilot", "codex", "promptline":
-		// continue
-	default:
-		return fmt.Errorf("agent llm_type %q is invalid", a.LLMType)
-	}
+	// if strings.TrimSpace(a.LLMType) == "" {
+	// 	return fmt.Errorf("agent llm_type is required")
+	// }
+	// switch a.LLMType {
+	// case "copilot", "codex", "promptline":
+	// 	// continue
+	// default:
+	// 	return fmt.Errorf("agent llm_type %q is invalid", a.LLMType)
+	// }
 
 	for i, prompt := range a.Prompts {
 		if strings.TrimSpace(prompt) == "" {

@@ -1,7 +1,4 @@
 {
-  "name": "Promptline",
-  "shell": "/bin/bash",
-  "llm_type": "promptline",
-  "llm_model": "default",
-  "prompt": "tmux"
+  "name": "Shell",
+  "shell": "/bin/bash"
 }

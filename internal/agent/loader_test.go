@@ -10,7 +10,7 @@ import (
 
 func TestLoaderMissingDir(t *testing.T) {
 	loader := Loader{}
-	agents, err := loader.Load(filepath.Join(t.TempDir(), "missing"), "")
+	agents, err := loader.Load(filepath.Join(t.TempDir(), "missing"), "", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -34,7 +34,7 @@ func TestLoaderValidAgents(t *testing.T) {
 	}
 
 	loader := Loader{}
-	agents, err := loader.Load(dir, "")
+	agents, err := loader.Load(dir, "", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestLoaderInvalidJSON(t *testing.T) {
 	}
 
 	loader := Loader{}
-	if _, err := loader.Load(dir, ""); err == nil {
+	if _, err := loader.Load(dir, "", nil); err == nil {
 		t.Fatalf("expected error")
 	}
 }
@@ -66,14 +66,13 @@ func TestLoaderInvalidAgent(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "bad.json"), []byte(`{
 		"name": "Bad",
-		"shell": "/bin/bash",
-		"llm_type": "other"
+		"shell": " "
 	}`), 0644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
 
 	loader := Loader{}
-	if _, err := loader.Load(dir, ""); err == nil {
+	if _, err := loader.Load(dir, "", nil); err == nil {
 		t.Fatalf("expected error")
 	}
 }
@@ -88,7 +87,7 @@ func TestLoaderExampleAgents(t *testing.T) {
 	promptsDir := filepath.Join(root, "config", "prompts")
 
 	loader := Loader{}
-	agents, err := loader.Load(dir, promptsDir)
+	agents, err := loader.Load(dir, promptsDir, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -119,7 +118,7 @@ func TestLoaderMissingPromptLogsWarning(t *testing.T) {
 	buffer := logging.NewLogBuffer(10)
 	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, nil)
 	loader := Loader{Logger: logger}
-	if _, err := loader.Load(dir, promptsDir); err != nil {
+	if _, err := loader.Load(dir, promptsDir, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -139,5 +138,52 @@ func TestLoaderMissingPromptLogsWarning(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected warning log for missing prompt")
+	}
+}
+
+func TestLoaderMissingSkillLogsWarning(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "codex.json"), []byte(`{
+		"name": "Codex",
+		"shell": "/bin/bash",
+		"skills": ["git-workflows", "missing-skill"]
+	}`), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	buffer := logging.NewLogBuffer(10)
+	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, nil)
+	loader := Loader{Logger: logger}
+	skillIndex := map[string]struct{}{
+		"git-workflows": {},
+	}
+	agents, err := loader.Load(dir, "", skillIndex)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	agent, ok := agents["codex"]
+	if !ok {
+		t.Fatalf("missing codex agent")
+	}
+	if len(agent.Skills) != 1 || agent.Skills[0] != "git-workflows" {
+		t.Fatalf("skills mismatch: %v", agent.Skills)
+	}
+
+	entries := buffer.List()
+	if len(entries) == 0 {
+		t.Fatalf("expected warning log entry")
+	}
+	found := false
+	for _, entry := range entries {
+		if entry.Level == logging.LevelWarning && entry.Message == "agent skill missing" {
+			found = true
+			if entry.Context["skill"] != "missing-skill" {
+				t.Fatalf("skill context mismatch: %q", entry.Context["skill"])
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected warning log for missing skill")
 	}
 }

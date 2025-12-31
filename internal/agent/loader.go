@@ -16,7 +16,7 @@ type Loader struct {
 }
 
 // Load scans dir for *.json files and returns a map keyed by agent ID.
-func (l Loader) Load(dir, promptsDir string) (map[string]Agent, error) {
+func (l Loader) Load(dir, promptsDir string, skillIndex map[string]struct{}) (map[string]Agent, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -47,6 +47,7 @@ func (l Loader) Load(dir, promptsDir string) (map[string]Agent, error) {
 			return nil, fmt.Errorf("duplicate agent id %q", agentID)
 		}
 		validatePromptNames(l.Logger, agentID, agent, promptsDir)
+		agent.Skills = resolveSkills(l.Logger, agentID, agent.Skills, skillIndex)
 		agents[agentID] = agent
 	}
 
@@ -88,4 +89,40 @@ func validatePromptNames(logger *logging.Logger, agentID string, agent Agent, pr
 			}
 		}
 	}
+}
+
+func resolveSkills(logger *logging.Logger, agentID string, skills []string, skillIndex map[string]struct{}) []string {
+	if len(skills) == 0 {
+		return nil
+	}
+
+	cleaned := make([]string, 0, len(skills))
+	seen := make(map[string]struct{}, len(skills))
+	for _, skillName := range skills {
+		skillName = strings.TrimSpace(skillName)
+		if skillName == "" {
+			continue
+		}
+		if _, exists := seen[skillName]; exists {
+			continue
+		}
+		if skillIndex != nil {
+			if _, ok := skillIndex[skillName]; !ok {
+				if logger != nil {
+					logger.Warn("agent skill missing", map[string]string{
+						"agent_id": agentID,
+						"skill":    skillName,
+					})
+				}
+				continue
+			}
+		}
+		cleaned = append(cleaned, skillName)
+		seen[skillName] = struct{}{}
+	}
+
+	if len(cleaned) == 0 {
+		return nil
+	}
+	return cleaned
 }

@@ -146,7 +146,7 @@ func TestLoadAgentsIntegration(t *testing.T) {
 	})
 
 	logger := logging.NewLoggerWithOutput(logging.NewLogBuffer(10), logging.LevelInfo, io.Discard)
-	agents, err := loadAgents(logger)
+	agents, err := loadAgents(logger, nil)
 	if err != nil {
 		t.Fatalf("load agents: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestLoadAgentsReportsInvalidJSON(t *testing.T) {
 	})
 
 	logger := logging.NewLoggerWithOutput(logging.NewLogBuffer(10), logging.LevelInfo, io.Discard)
-	if _, err := loadAgents(logger); err == nil {
+	if _, err := loadAgents(logger, nil); err == nil {
 		t.Fatalf("expected error for invalid agent json")
 	}
 }

@@ -12,6 +12,7 @@ func TestAgentJSONRoundTrip(t *testing.T) {
 		"name": "Codex",
 		"shell": "/bin/bash",
 		"prompt": "coder",
+		"skills": ["git-workflows", "code-review"],
 		"onair_string": "READY",
 		"llm_type": "codex",
 		"llm_model": "default"
@@ -29,6 +30,9 @@ func TestAgentJSONRoundTrip(t *testing.T) {
 	}
 	if len(a.Prompts) != 1 || a.Prompts[0] != "coder" {
 		t.Fatalf("prompt mismatch: %v", a.Prompts)
+	}
+	if len(a.Skills) != 2 || a.Skills[0] != "git-workflows" || a.Skills[1] != "code-review" {
+		t.Fatalf("skills mismatch: %v", a.Skills)
 	}
 	if a.OnAirString != "READY" {
 		t.Fatalf("onair_string mismatch: %q", a.OnAirString)
@@ -48,6 +52,7 @@ func TestAgentJSONRoundTrip(t *testing.T) {
 		Name     string   `json:"name"`
 		Shell    string   `json:"shell"`
 		Prompt   []string `json:"prompt"`
+		Skills   []string `json:"skills"`
 		OnAir    string   `json:"onair_string"`
 		LLMType  string   `json:"llm_type"`
 		LLMModel string   `json:"llm_model"`
@@ -63,6 +68,9 @@ func TestAgentJSONRoundTrip(t *testing.T) {
 	}
 	if len(roundTrip.Prompt) != 1 || roundTrip.Prompt[0] != "coder" {
 		t.Fatalf("roundtrip prompt mismatch: %v", roundTrip.Prompt)
+	}
+	if len(roundTrip.Skills) != 2 || roundTrip.Skills[0] != "git-workflows" || roundTrip.Skills[1] != "code-review" {
+		t.Fatalf("roundtrip skills mismatch: %v", roundTrip.Skills)
 	}
 	if roundTrip.OnAir != "READY" {
 		t.Fatalf("roundtrip onair_string mismatch: %q", roundTrip.OnAir)
@@ -128,6 +136,21 @@ func TestAgentValidate(t *testing.T) {
 			},
 		},
 		{
+			name: "missing llm_type allowed",
+			agent: Agent{
+				Name:  "Codex",
+				Shell: "/bin/bash",
+			},
+		},
+		{
+			name: "invalid llm_type allowed",
+			agent: Agent{
+				Name:    "Codex",
+				Shell:   "/bin/bash",
+				LLMType: "other",
+			},
+		},
+		{
 			name: "missing name",
 			agent: Agent{
 				Name:    " ",
@@ -144,23 +167,6 @@ func TestAgentValidate(t *testing.T) {
 				LLMType: "codex",
 			},
 			wantErr: "agent shell is required",
-		},
-		{
-			name: "missing llm_type",
-			agent: Agent{
-				Name:  "Codex",
-				Shell: "/bin/bash",
-			},
-			wantErr: "agent llm_type is required",
-		},
-		{
-			name: "invalid llm_type",
-			agent: Agent{
-				Name:    "Codex",
-				Shell:   "/bin/bash",
-				LLMType: "other",
-			},
-			wantErr: "agent llm_type",
 		},
 	}
 

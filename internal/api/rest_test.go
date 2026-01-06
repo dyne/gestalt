@@ -376,6 +376,62 @@ func TestCreateTerminalWithAgent(t *testing.T) {
 	}
 }
 
+func TestCreateTerminalDuplicateAgent(t *testing.T) {
+	factory := &fakeFactory{}
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:    "Codex",
+				Shell:   "/bin/zsh",
+				LLMType: "codex",
+			},
+		},
+	})
+	handler := &RestHandler{Manager: manager}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/terminals", strings.NewReader(`{"agent":"codex"}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", handler.handleTerminals)(res, req)
+	if res.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", res.Code)
+	}
+
+	var created terminalSummary
+	if err := json.NewDecoder(res.Body).Decode(&created); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if created.ID == "" {
+		t.Fatalf("missing id")
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	req = httptest.NewRequest(http.MethodPost, "/api/terminals", strings.NewReader(`{"agent":"codex"}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	res = httptest.NewRecorder()
+
+	restHandler("secret", handler.handleTerminals)(res, req)
+	if res.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d", res.Code)
+	}
+
+	var payload errorResponse
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.TerminalID != created.ID {
+		t.Fatalf("expected terminal_id %q, got %q", created.ID, payload.TerminalID)
+	}
+	if payload.Error == "" {
+		t.Fatalf("expected error message")
+	}
+}
+
 func TestListTerminalsIncludesLLMMetadata(t *testing.T) {
 	factory := &fakeFactory{}
 	manager := terminal.NewManager(terminal.ManagerOptions{
@@ -474,6 +530,45 @@ func TestAgentsEndpoint(t *testing.T) {
 	}
 	if payload[0].ID != "codex" && payload[1].ID != "codex" {
 		t.Fatalf("missing codex agent")
+	}
+}
+
+func TestAgentInputEndpoint(t *testing.T) {
+	factory := &fakeFactory{}
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:  "Codex",
+				Shell: "/bin/bash",
+			},
+		},
+	})
+	created, err := manager.Create("codex", "shell", "Codex")
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodPost, "/api/agents/Codex/input", strings.NewReader("hello"))
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", handler.handleAgentInput)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var payload agentInputResponse
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Bytes != len("hello") {
+		t.Fatalf("expected %d bytes, got %d", len("hello"), payload.Bytes)
 	}
 }
 

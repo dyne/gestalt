@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -18,6 +19,15 @@ import (
 
 var ErrSessionNotFound = errors.New("terminal session not found")
 var ErrAgentNotFound = errors.New("agent profile not found")
+
+type AgentAlreadyRunningError struct {
+	AgentName  string
+	TerminalID string
+}
+
+func (e *AgentAlreadyRunningError) Error() string {
+	return fmt.Sprintf("agent %q already running in terminal %s", e.AgentName, e.TerminalID)
+}
 
 type ManagerOptions struct {
 	Shell                string
@@ -37,6 +47,7 @@ type ManagerOptions struct {
 type Manager struct {
 	mu              sync.RWMutex
 	sessions        map[string]*Session
+	agentSessions   map[string]string
 	nextID          uint64
 	shell           string
 	factory         PtyFactory
@@ -119,6 +130,7 @@ func NewManager(opts ManagerOptions) *Manager {
 
 	manager := &Manager{
 		sessions:        make(map[string]*Session),
+		agentSessions:   make(map[string]string),
 		shell:           shell,
 		factory:         factory,
 		bufferLines:     bufferLines,
@@ -139,6 +151,8 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 	var profile *agent.Agent
 	var promptNames []string
 	var onAirString string
+	var agentName string
+	var reservedID string
 	if agentID != "" {
 		agentProfile, ok := m.GetAgent(agentID)
 		if !ok || agentProfile.Name == "" {
@@ -154,6 +168,7 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 		}
 		if strings.TrimSpace(agentProfile.Name) != "" {
 			title = agentProfile.Name
+			agentName = agentProfile.Name
 		}
 		if len(agentProfile.Prompts) > 0 {
 			promptNames = append(promptNames, agentProfile.Prompts...)
@@ -163,21 +178,48 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 		}
 	}
 
+	if agentName != "" {
+		reservedID = m.nextIDValue()
+		m.mu.Lock()
+		if existingID, ok := m.agentSessions[agentName]; ok {
+			m.mu.Unlock()
+			return nil, &AgentAlreadyRunningError{AgentName: agentName, TerminalID: existingID}
+		}
+		m.agentSessions[agentName] = reservedID
+		m.mu.Unlock()
+	}
+
+	releaseReservation := func() {
+		if agentName == "" || reservedID == "" {
+			return
+		}
+		m.mu.Lock()
+		if existingID, ok := m.agentSessions[agentName]; ok && existingID == reservedID {
+			delete(m.agentSessions, agentName)
+		}
+		m.mu.Unlock()
+	}
+
 	command, args, err := splitCommandLine(shell)
 	if err != nil {
 		m.logger.Warn("shell command parse failed", map[string]string{
 			"shell": shell,
 			"error": err.Error(),
 		})
+		releaseReservation()
 		return nil, err
 	}
 
 	pty, cmd, err := m.factory.Start(command, args...)
 	if err != nil {
+		releaseReservation()
 		return nil, err
 	}
 
-	id := m.nextIDValue()
+	id := reservedID
+	if id == "" {
+		id = m.nextIDValue()
+	}
 	createdAt := m.clock.Now().UTC()
 	var sessionLogger *SessionLogger
 	if m.sessionLogs != "" {
@@ -360,6 +402,21 @@ func (m *Manager) Get(id string) (*Session, bool) {
 	return session, ok
 }
 
+func (m *Manager) GetSessionByAgent(agentName string) (*Session, bool) {
+	if strings.TrimSpace(agentName) == "" {
+		return nil, false
+	}
+	m.mu.RLock()
+	id, ok := m.agentSessions[agentName]
+	if !ok {
+		m.mu.RUnlock()
+		return nil, false
+	}
+	session, ok := m.sessions[id]
+	m.mu.RUnlock()
+	return session, ok
+}
+
 func (m *Manager) HistoryLines(id string, maxLines int) ([]string, error) {
 	if maxLines <= 0 {
 		maxLines = DefaultHistoryLines
@@ -470,6 +527,12 @@ func (m *Manager) Delete(id string) error {
 	session, ok := m.sessions[id]
 	if ok {
 		delete(m.sessions, id)
+		if session != nil && session.agent != nil && session.agent.Name != "" {
+			agentName := session.agent.Name
+			if existingID, ok := m.agentSessions[agentName]; ok && existingID == id {
+				delete(m.agentSessions, agentName)
+			}
+		}
 	}
 	m.mu.Unlock()
 

@@ -8,6 +8,7 @@
   import ToastContainer from './components/ToastContainer.svelte'
   import NotificationSettings from './components/NotificationSettings.svelte'
   import { apiFetch } from './lib/api.js'
+  import { formatTerminalLabel } from './lib/terminalTabs.js'
   import { releaseTerminalState } from './lib/terminalStore.js'
   import { notificationStore } from './lib/notificationStore.js'
 
@@ -40,7 +41,7 @@
       { id: 'logs', label: 'Logs', isHome: true },
       ...terminalList.map((terminal) => ({
         id: terminal.id,
-        label: terminal.title || `Terminal ${terminal.id}`,
+        label: formatTerminalLabel(terminal),
         isHome: false,
       })),
     ]
@@ -89,6 +90,18 @@
         `Terminal ${created.title || created.id} created.`
       )
     } catch (err) {
+      if (err?.status === 409 && err?.data?.terminal_id) {
+        const existingId = err.data.terminal_id
+        if (!terminals.find((terminal) => terminal.id === existingId)) {
+          await refresh()
+        }
+        activeId = existingId
+        notificationStore.addNotification(
+          'info',
+          err?.message || `Agent ${agentId} is already running.`
+        )
+        return
+      }
       const message = err?.message || 'Failed to create terminal.'
       notificationStore.addNotification('error', message)
       throw err

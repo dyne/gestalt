@@ -7,8 +7,9 @@ import (
 )
 
 type apiError struct {
-	Status  int
-	Message string
+	Status     int
+	Message    string
+	TerminalID string
 }
 
 type apiHandler func(http.ResponseWriter, *http.Request) *apiError
@@ -25,7 +26,7 @@ func authMiddleware(token string, next apiHandler) apiHandler {
 func jsonErrorMiddleware(next apiHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := next(w, r); err != nil {
-			writeJSONError(w, err.Status, err.Message)
+			writeJSONError(w, err)
 		}
 	}
 }

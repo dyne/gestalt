@@ -3,6 +3,7 @@ package agent
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gestalt/internal/logging"
@@ -59,6 +60,29 @@ func TestLoaderInvalidJSON(t *testing.T) {
 	loader := Loader{}
 	if _, err := loader.Load(dir, "", nil); err == nil {
 		t.Fatalf("expected error")
+	}
+}
+
+func TestLoaderDuplicateAgentName(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "alpha.json"), []byte(`{
+		"name": "Coder",
+		"shell": "/bin/bash"
+	}`), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "beta.json"), []byte(`{
+		"name": "Coder",
+		"shell": "/bin/zsh"
+	}`), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	loader := Loader{}
+	if _, err := loader.Load(dir, "", nil); err == nil {
+		t.Fatalf("expected error")
+	} else if !strings.Contains(err.Error(), "duplicate agent name") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

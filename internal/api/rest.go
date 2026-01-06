@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -58,7 +59,8 @@ type planResponse struct {
 }
 
 type errorResponse struct {
-	Error string `json:"error"`
+	Error      string `json:"error"`
+	TerminalID string `json:"terminal_id,omitempty"`
 }
 
 type agentSummary struct {
@@ -66,6 +68,10 @@ type agentSummary struct {
 	Name     string `json:"name"`
 	LLMType  string `json:"llm_type"`
 	LLMModel string `json:"llm_model"`
+}
+
+type agentInputResponse struct {
+	Bytes int `json:"bytes"`
 }
 
 type skillSummary struct {
@@ -191,6 +197,37 @@ func (h *RestHandler) handleAgents(w http.ResponseWriter, r *http.Request) *apiE
 		})
 	}
 	writeJSON(w, http.StatusOK, response)
+	return nil
+}
+
+func (h *RestHandler) handleAgentInput(w http.ResponseWriter, r *http.Request) *apiError {
+	if err := h.requireManager(); err != nil {
+		return err
+	}
+	if r.Method != http.MethodPost {
+		return methodNotAllowed(w, "POST")
+	}
+
+	agentName, err := parseAgentInputPath(r.URL.Path)
+	if err != nil {
+		return err
+	}
+
+	session, ok := h.Manager.GetSessionByAgent(agentName)
+	if !ok {
+		return &apiError{Status: http.StatusNotFound, Message: fmt.Sprintf("agent %q is not running", agentName)}
+	}
+
+	payload, readErr := io.ReadAll(r.Body)
+	if readErr != nil {
+		return &apiError{Status: http.StatusBadRequest, Message: "invalid request body"}
+	}
+
+	if writeErr := session.Write(payload); writeErr != nil {
+		return &apiError{Status: http.StatusInternalServerError, Message: "failed to send agent input"}
+	}
+
+	writeJSON(w, http.StatusOK, agentInputResponse{Bytes: len(payload)})
 	return nil
 }
 
@@ -372,6 +409,14 @@ func (h *RestHandler) createTerminal(w http.ResponseWriter, r *http.Request) *ap
 	if createErr != nil {
 		if errors.Is(createErr, terminal.ErrAgentNotFound) {
 			return &apiError{Status: http.StatusBadRequest, Message: "unknown agent"}
+		}
+		var dupErr *terminal.AgentAlreadyRunningError
+		if errors.As(createErr, &dupErr) {
+			return &apiError{
+				Status:     http.StatusConflict,
+				Message:    fmt.Sprintf("agent %q is already running", dupErr.AgentName),
+				TerminalID: dupErr.TerminalID,
+			}
 		}
 		return &apiError{Status: http.StatusInternalServerError, Message: "failed to create terminal"}
 	}
@@ -606,6 +651,24 @@ func parseTerminalPath(path string) (string, terminalPathAction) {
 	return trimmed, terminalPathTerminal
 }
 
+func parseAgentInputPath(path string) (string, *apiError) {
+	trimmed := strings.TrimSuffix(path, "/")
+	const prefix = "/api/agents/"
+	if !strings.HasPrefix(trimmed, prefix) {
+		return "", &apiError{Status: http.StatusNotFound, Message: "agent not found"}
+	}
+	rest := strings.TrimPrefix(trimmed, prefix)
+	parts := strings.Split(rest, "/")
+	if len(parts) != 2 || parts[1] != "input" {
+		return "", &apiError{Status: http.StatusNotFound, Message: "agent not found"}
+	}
+	agentName := parts[0]
+	if strings.TrimSpace(agentName) == "" {
+		return "", &apiError{Status: http.StatusBadRequest, Message: "missing agent name"}
+	}
+	return agentName, nil
+}
+
 func validateTerminalID(id string) *apiError {
 	if strings.TrimSpace(id) == "" {
 		return &apiError{Status: http.StatusBadRequest, Message: "missing terminal id"}
@@ -750,6 +813,12 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	_ = json.NewEncoder(w).Encode(payload)
 }
 
-func writeJSONError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, errorResponse{Error: message})
+func writeJSONError(w http.ResponseWriter, err *apiError) {
+	if err == nil {
+		return
+	}
+	writeJSON(w, err.Status, errorResponse{
+		Error:      err.Message,
+		TerminalID: err.TerminalID,
+	})
 }

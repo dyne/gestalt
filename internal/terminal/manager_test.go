@@ -311,6 +311,55 @@ func TestManagerGetAgent(t *testing.T) {
 	}
 }
 
+func TestManagerAgentSingleInstance(t *testing.T) {
+	factory := &fakeFactory{}
+	manager := NewManager(ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:  "Codex",
+				Shell: "/bin/bash",
+			},
+		},
+	})
+
+	first, err := manager.Create("codex", "build", "first")
+	if err != nil {
+		t.Fatalf("create first: %v", err)
+	}
+
+	if _, ok := manager.GetSessionByAgent("Codex"); !ok {
+		t.Fatalf("expected session for agent Codex")
+	}
+
+	if _, err := manager.Create("codex", "build", "second"); err == nil {
+		t.Fatalf("expected duplicate agent error")
+	} else {
+		var dup *AgentAlreadyRunningError
+		if !errors.As(err, &dup) {
+			t.Fatalf("expected AgentAlreadyRunningError, got %v", err)
+		}
+		if dup.TerminalID != first.ID {
+			t.Fatalf("expected terminal id %q, got %q", first.ID, dup.TerminalID)
+		}
+		if dup.AgentName != "Codex" {
+			t.Fatalf("expected agent name Codex, got %q", dup.AgentName)
+		}
+	}
+
+	if err := manager.Delete(first.ID); err != nil {
+		t.Fatalf("delete first: %v", err)
+	}
+	if _, ok := manager.GetSessionByAgent("Codex"); ok {
+		t.Fatalf("expected no session after delete")
+	}
+
+	if _, err := manager.Create("codex", "build", "third"); err != nil {
+		t.Fatalf("create after delete: %v", err)
+	}
+}
+
 func TestManagerSkillsLoaded(t *testing.T) {
 	entries := map[string]*skill.Skill{
 		"git-workflows": {

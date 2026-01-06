@@ -185,6 +185,39 @@ Security considerations (future work):
 Current commands:
 - `gestalt validate-skill <path>`: Validate a skill directory or `SKILL.md` file.
 
+### gestalt-send CLI Tool
+
+Send stdin to a running agent terminal by agent name or id.
+
+Install:
+- `make gestalt-send`
+- `make install` (installs to `/usr/local/bin` by default; override with `PREFIX=/path`)
+
+Usage:
+- `cat file.txt | gestalt-send Codex`
+- `echo "status" | gestalt-send Architect`
+
+Flags:
+- `--url`: server URL (default `GESTALT_URL` or `http://localhost:8080`)
+- `--token`: auth token (default `GESTALT_TOKEN`)
+- `--start`: auto-start the agent if not running, then retry input
+- `--verbose`: log request/response details to stderr (token masked)
+- `--debug`: include payload preview and unmasked token
+
+Shell completion:
+- `gestalt-send completion bash > /etc/bash_completion.d/gestalt-send`
+- `gestalt-send completion zsh > ~/.zfunc/_gestalt-send`
+
+Exit codes:
+- `0`: success
+- `1`: usage error
+- `2`: agent not running
+- `3`: network or server error
+
+Notes:
+- Agent names must be unique and match the `name` field in `config/agents/*.json`.
+- If auth is enabled, set `GESTALT_TOKEN` to the same token used by the server.
+
 ## License
 
 Copyright (C) 2025-2026 Dyne.org foundation

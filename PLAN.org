@@ -338,7 +338,7 @@
    Tests: None (documentation only)
    Done when: Widget system is fully documented in README
 
-* TODO [#B] gestalt-send CLI tool and agent instance management
+* DONE [#B] gestalt-send CLI tool and agent instance management
   Goal: Create a CLI tool for piping stdin to agent terminals (e.g., `cat file | gestalt-send agent-name`), ensure agent profiles have unique names, enforce single-instance agents (only one terminal per agent), and use agent names for tab labels instead of "Terminal 1/2/3".
   Notes:
   - CLI tool: gestalt-send command that reads stdin and sends to agent's PTY via REST API
@@ -357,7 +357,7 @@
   - Install: copy binary to PATH or document usage from repo
   Date: 2025-12-31
 
-** TODO [#B] Enforce unique agent names in agent loader
+** [#B] Enforce unique agent names in agent loader
    Why: Agent names must be unique to support instance management and CLI tool
    Change:
    - Modify internal/agent/loader.go Load() function
@@ -370,7 +370,7 @@
    Tests: Loader test with duplicate agent names; verify error returned
    Done when: Agent loader rejects duplicate names with clear error
 
-** TODO [#B] Add agent instance tracking to Manager
+** [#B] Add agent instance tracking to Manager
    Why: Enforce single-instance agents (only one terminal per agent)
    Change:
    - Add field to Manager: agentSessions map[string]string (agentName → terminalID)
@@ -384,7 +384,7 @@
    Tests: Manager tests for duplicate agent prevention, cleanup on delete
    Done when: Manager prevents duplicate agent instances
 
-** TODO [#B] Update createTerminal API to handle duplicate agents
+** [#B] Update createTerminal API to handle duplicate agents
    Why: REST API needs to return appropriate error for duplicate agents
    Change:
    - Modify internal/api/rest.go createTerminal handler
@@ -396,7 +396,7 @@
    Tests: API integration test for duplicate agent creation
    Done when: API returns 409 for duplicate agents with terminal ID
 
-** TODO [#B] Update frontend to use agent name for tab labels
+** [#B] Update frontend to use agent name for tab labels
    Why: Tab labels should show agent name, not "Terminal N"
    Change:
    - Modify frontend/src/App.svelte openTerminalTab() or tab creation logic
@@ -405,10 +405,10 @@
    - Backend already sets Title from agent.Name in Manager.Create()
    - Verify terminal.title comes from API response correctly
    - Keep fallback for non-agent terminals: "Terminal {id}"
-   Tests: Manual test: create agent terminal, verify tab shows agent name
+   Tests: Frontend unit test for tab label selection (agent title vs fallback), run `npm test -- tests/app.test.js`
    Done when: Agent terminal tabs display agent name
 
-** TODO [#B] Handle duplicate agent in frontend gracefully
+** [#B] Handle duplicate agent in frontend gracefully
    Why: When duplicate agent detected, switch to existing tab instead of error toast
    Change:
    - Modify Dashboard.svelte createTerminal() handler
@@ -417,10 +417,10 @@
    - Find existing tab with that terminal ID and switch to it
    - Show info toast: "Agent 'name' is already running" (not error)
    - Optional: add visual feedback (tab highlight/flash)
-   Tests: Manual test: create agent twice, verify switch to existing tab
+   Tests: Frontend unit test for 409 handling (switch to existing tab + info toast), run `npm test -- tests/app.test.js`
    Done when: Duplicate agent creation switches to existing tab
 
-** TODO [#B] Add REST API endpoint for sending input to agent by name
+** [#B] Add REST API endpoint for sending input to agent by name
    Why: CLI tool needs to send data to agent without knowing terminal ID
    Change:
    - Add POST /api/agents/:name/input endpoint in internal/api/routes.go
@@ -434,7 +434,7 @@
    Tests: API integration test for agent input endpoint
    Done when: API endpoint accepts input for agent by name
 
-** TODO [#B] Create gestalt-send CLI binary structure
+** [#B] Create gestalt-send CLI binary structure
    Why: Need separate CLI tool for piping data to agents
    Change:
    - Create cmd/gestalt-send/main.go
@@ -446,10 +446,10 @@
    - Read stdin until EOF using io.Copy or bufio.Reader
    - Basic structure: flag parsing, stdin read, HTTP POST
    - Exit codes: 0 (success), 1 (usage error), 2 (agent not found), 3 (network error)
-   Tests: Build binary, verify flag parsing
+   Tests: Go unit test for CLI arg parsing/usage errors in cmd/gestalt-send; run `go test ./cmd/gestalt-send`
    Done when: CLI binary structure exists with flag handling
 
-** TODO [#B] Implement stdin-to-HTTP POST in gestalt-send
+** [#B] Implement stdin-to-HTTP POST in gestalt-send
    Why: Core functionality: pipe stdin to agent terminal via API
    Change:
    - Read stdin: io.ReadAll(os.Stdin) or streaming with bufio
@@ -460,10 +460,21 @@
    - Send request using http.DefaultClient with timeout (30s)
    - Handle responses: 200 (success), 404 (agent not running), 401 (auth), 500 (server error)
    - Print errors to stderr with helpful messages
-   Tests: Manual test: echo "test" | gestalt-send agent-name
+   Tests: Go unit test with httptest server validating POST payload and exit codes, run `go test ./cmd/gestalt-send`
    Done when: stdin data is sent to agent terminal successfully
 
-** TODO [#C] Add auto-start option to gestalt-send (optional)
+** [#B] Resolve agent name or id in gestalt-send
+   Why: Allow CLI input to match either agent ID or agent name.
+   Change:
+   - Query /api/agents and resolve input to agent ID + agent name.
+   - If input matches agent ID, use corresponding agent name for /api/agents/:name/input.
+   - If input matches agent name, use corresponding agent ID for /api/terminals (auto-start).
+   - If input matches both with different agents, return a clear error.
+   - Cache agent list for 60s (reuse completion cache dir or in-memory).
+   Tests: Go unit test for name/id resolution and ambiguous cases; run `go test ./cmd/gestalt-send`
+   Done when: CLI accepts either id or name without ambiguity.
+
+** [#C] Add auto-start option to gestalt-send (optional)
    Why: Convenience feature to start agent if not already running
    Change:
    - Add --start flag to gestalt-send CLI
@@ -475,7 +486,7 @@
    Tests: Manual test with --start flag
    Done when: Auto-start flag creates agent terminal if missing (optional)
 
-** TODO [#C] Add verbose and debug output to gestalt-send
+** [#C] Add verbose and debug output to gestalt-send
    Why: Help users diagnose connection and authentication issues
    Change:
    - Add --verbose flag: print HTTP request/response details to stderr
@@ -486,7 +497,7 @@
    Tests: Manual test with --verbose and --debug flags
    Done when: CLI provides helpful diagnostic output
 
-** TODO [#C] Build and install gestalt-send in Makefile
+** [#C] Build and install gestalt-send in Makefile
    Why: Users need easy way to build and install CLI tool
    Change:
    - Add gestalt-send target to GNUmakefile
@@ -498,7 +509,7 @@
    Tests: make gestalt-send; verify binary works
    Done when: gestalt-send builds via Makefile
 
-** TODO [#C] Add shell completion for gestalt-send (optional)
+** [#C] Add shell completion for gestalt-send (optional)
    Why: Improve CLI UX with agent name tab-completion
    Change:
    - Generate bash/zsh completion scripts
@@ -509,7 +520,7 @@
    Tests: Manual test tab-completion in bash/zsh
    Done when: Shell completion works for agent names (optional)
 
-** TODO [#C] Document gestalt-send usage and examples
+** [#C] Document gestalt-send usage and examples
    Why: Users need to understand CLI tool usage patterns
    Change:
    - Add "gestalt-send CLI Tool" section to README.md
@@ -523,7 +534,7 @@
    Tests: None (documentation only)
    Done when: gestalt-send is fully documented with examples
 
-** TODO [#C] Add integration test for end-to-end CLI workflow
+** [#C] Add integration test for end-to-end CLI workflow
    Why: Verify complete workflow from CLI to agent terminal
    Change:
    - Create test: start server, create agent terminal, run gestalt-send

@@ -26,6 +26,10 @@ func (l Loader) Load(dir, promptsDir string, skillIndex map[string]struct{}) (ma
 	}
 
 	agents := make(map[string]Agent)
+	agentNames := make(map[string]string)
+	var duplicateName string
+	var duplicateFirst string
+	var duplicateSecond string
 	if strings.TrimSpace(promptsDir) == "" {
 		promptsDir = filepath.Join("config", "prompts")
 	}
@@ -49,6 +53,19 @@ func (l Loader) Load(dir, promptsDir string, skillIndex map[string]struct{}) (ma
 		validatePromptNames(l.Logger, agentID, agent, promptsDir)
 		agent.Skills = resolveSkills(l.Logger, agentID, agent.Skills, skillIndex)
 		agents[agentID] = agent
+		if prior, ok := agentNames[agent.Name]; ok {
+			if duplicateName == "" {
+				duplicateName = agent.Name
+				duplicateFirst = prior
+				duplicateSecond = path
+			}
+		} else {
+			agentNames[agent.Name] = path
+		}
+	}
+
+	if duplicateName != "" {
+		return nil, fmt.Errorf("duplicate agent name %q in files: %s, %s", duplicateName, duplicateFirst, duplicateSecond)
 	}
 
 	return agents, nil

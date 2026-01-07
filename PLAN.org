@@ -1,209 +1,3 @@
-* TODO [#B] Enhanced input UX with multiline input box and command history
-  Goal: Replace direct PTY keyboard input with a dedicated multiline input box at the bottom of agent pages, featuring browsable command history, future-proof for assisted input features, and independent clipboard handling.
-  Notes:
-  - Current state: all keyboard input is intercepted by terminalStore.js, only Ctrl+C and Ctrl+V handled externally
-  - New approach: dedicated input box outside PTY, commands sent to PTY only on submission (Enter)
-  - Input box: 3 lines default height, multiline capable, bottom of agent page (below terminal)
-  - History navigation: Ctrl+Up/Down to browse previous commands (like readline but in-app)
-  - History storage: in-memory circular buffer + file persistence (reuse OutputBuffer/SessionLogger patterns)
-  - File format: logs/input-history/{agentName}-{timestamp}.jsonl (JSON lines, one command per line)
-  - History grouping: by agent name when available; fallback to terminal ID for non-agent terminals
-  - Future features enabled: search history, AI-assisted input, command review/editing, templates
-  - PTY isolation: disable direct PTY keyboard input; input box is the only entry path
-  - Backward compat: not required for this L1; prioritize readability and clean UX
-  - Use Svelte best practices for multiline input: textarea with proper resize, autosize, or contenteditable
-  - History buffer: 1000 commands default (configurable), persist to disk async
-  - Navigation: Ctrl+Up (previous), Ctrl+Down (next), Enter (submit), Shift+Enter (newline in multiline)
-  - Empty commands not recorded in history (skip whitespace-only)
-  Date: 2025-12-31
-
-** DONE [#B] Create input history buffer backend structure
-   Why: Need reusable in-memory circular buffer for command history similar to OutputBuffer
-   Change:
-   - Create internal/terminal/input_buffer.go with InputBuffer struct
-   - Similar to OutputBuffer: maxCommands int, entries []InputEntry, mutex for thread-safety
-   - InputEntry fields: Command string, Timestamp time.Time
-   - Methods: Append(command string), GetAll() []InputEntry, GetRecent(n int) []InputEntry
-   - Skip empty/whitespace-only commands in Append
-   - Trim whitespace from commands before storing
-   - Default capacity: 1000 commands (DefaultInputBufferSize constant)
-   - Thread-safe for concurrent access from WebSocket and persistence goroutines
-   - Circular buffer behavior: oldest commands dropped when limit reached
-   Tests: Unit tests for InputBuffer: append, circular behavior, concurrent access
-   Done when: InputBuffer struct exists with tests matching OutputBuffer quality
-
-** DONE [#B] Create input history persistence logger
-   Why: Persist command history to disk for durability across restarts
-   Change:
-   - Create internal/terminal/input_logger.go with InputLogger struct (similar to SessionLogger)
-   - File path: logs/input-history/{agentName}-{timestamp}.jsonl
-   - One JSON object per line: {"command":"...","timestamp":"..."}
-   - Async write via channel (reuse SessionLogger pattern: write channel, flush goroutine)
-   - Flush policy: every 1s or after N commands (consistent with SessionLogger)
-   - Create logs/input-history/ directory if missing
-   - Handle errors gracefully: log warning, continue without persistence if file ops fail
-   - Close/flush on session termination
-   Tests: Unit tests for InputLogger; verify file creation and content
-   Done when: Input history persists to disk asynchronously
-
-** DONE [#B] Integrate input buffer into Session
-   Why: Each terminal session needs its own input history
-   Change:
-   - Add InputBuffer and InputLogger fields to Session struct in internal/terminal/session.go
-   - Initialize InputBuffer and InputLogger in newSession() (alongside OutputBuffer/SessionLogger)
-   - InputLogger uses same logs/input-history/ directory (configurable via env var)
-   - Use agent name for history file prefix when available, fallback to terminal ID otherwise
-   - Expose input history via Session methods: RecordInput(command string), GetInputHistory() []InputEntry
-   - RecordInput: appends to buffer and writes to logger
-   - Handle nil InputLogger gracefully if persistence disabled
-   - Add env var: GESTALT_INPUT_HISTORY_PERSIST (default true), GESTALT_INPUT_HISTORY_DIR (default logs/input-history)
-   Tests: Session tests verify input recording and retrieval
-   Done when: Sessions track and persist input history
-
-** DONE [#B] Add REST API endpoint for input history
-   Why: Frontend needs to fetch command history for navigation
-   Change:
-   - Add GET /api/terminals/:id/input-history endpoint in internal/api/routes.go
-   - Query parameters: limit (default 100), since (timestamp/index for pagination)
-   - Return JSON array of commands: [{command: string, timestamp: ISO8601}, ...]
-   - Read from session.InputBuffer.GetRecent(limit)
-   - Timestamps: track command submission time (InputBuffer InputEntry)
-   - Handle session not found errors
-   - Auth: same as other terminal endpoints (token-based)
-   Tests: API tests for input-history endpoint
-   Done when: Frontend can fetch command history via REST
-
-** DONE [#B] Create multiline input component
-   Why: Need UI component for command input at bottom of terminal page
-   Change:
-   - Create frontend/src/components/CommandInput.svelte
-   - Use <textarea> with rows={3} for 3-line default height
-   - Props: terminalId, onSubmit callback, disabled state
-   - Styling: match terminal theme (dark background, light text, monospace font)
-   - Auto-resize: consider textarea autosize behavior (expand on content, max height)
-   - Placeholder: "Type command... (Enter to submit, Shift+Enter for newline)"
-   - Submit behavior: Enter key (without Shift) submits, calls onSubmit(value), clears textarea
-   - Shift+Enter: inserts newline (standard multiline textarea behavior)
-   - Focus behavior: auto-focus on mount, restore focus after submission
-   - Styling: border, padding, consistent with terminal shell styling
-   Tests: Manual test: type commands, submit, verify clearing and focus
-   Done when: CommandInput component renders and submits input
-
-** DONE [#B] Add history navigation to CommandInput
-   Why: Users need Ctrl+Up/Down to browse command history
-   Change:
-   - Maintain history array in component state (fetched from API)
-   - Track current history index (starts at -1, meaning no history navigation)
-   - Fetch history on mount: call GET /api/terminals/:id/input-history
-   - Store fetched history in local state for navigation
-   - Keydown handler: detect Ctrl+ArrowUp and Ctrl+ArrowDown
-   - Ctrl+Up: navigate backwards (index++), load command into textarea
-   - Ctrl+Down: navigate forwards (index--), restore empty or latest command
-   - Edge behavior: at oldest command, Ctrl+Up does nothing; at newest, Ctrl+Down restores empty
-   - Reset index to -1 after submission (fresh command)
-   - Handle empty history gracefully (no navigation)
-   Tests: Manual test: submit commands, use Ctrl+Up/Down to navigate
-   Done when: History navigation works with Ctrl+Up/Down
-
-** DONE [#B] Wire CommandInput into Terminal.svelte layout
-   Why: Input box needs to appear at bottom of terminal page
-   Change:
-   - Modify Terminal.svelte to add CommandInput below terminal body
-   - Layout: CSS Grid with rows: header (auto) / terminal body (1fr) / input (auto)
-   - Input area: fixed height based on CommandInput (3 lines default)
-   - Pass terminalId prop to CommandInput
-   - onSubmit handler: send command to PTY via existing sendData/WebSocket
-   - Ensure terminal and input are visually distinct: border/separator between them
-   - Responsive: input box should work on mobile (adjust height/font size)
-   Tests: Manual test: render terminal with input box, submit commands
-   Done when: Input box appears at bottom and sends commands to PTY
-
-** DONE [#B] Send submitted commands to PTY with newline
-   Why: Commands from input box need to execute in the shell
-   Change:
-   - onSubmit handler in Terminal.svelte receives command string
-   - Append '\n' to command before sending to PTY (shell needs newline to execute)
-   - Use existing terminalStore sendData mechanism: state.sendData(command + '\n')
-   - Handle multiline commands: preserve internal newlines, append final newline
-   - Record command in session history: POST to /api/terminals/:id/input-history
-   - Update local history state in CommandInput after submission
-   Tests: Manual test: submit commands, verify execution in PTY, check history
-   Done when: Commands from input box execute in shell
-
-** DONE [#B] Add POST endpoint to record input history
-   Why: Frontend needs to record commands in backend history
-   Change:
-   - Add POST /api/terminals/:id/input-history endpoint
-   - Request body: {command: string}
-   - Call session.RecordInput(command) to store in buffer and persist
-   - Return success or error response
-   - Validation: reject empty commands (trimmed whitespace check)
-   - Auth: same token-based auth as other endpoints
-   Tests: API tests for POST input-history endpoint
-   Done when: Frontend can record commands via REST
-
-** DONE [#B] Disable direct PTY keyboard input
-   Why: Ensure all input flows through CommandInput for a clean, consistent UX
-   Change:
-   - Remove or gate terminalStore.js key handlers that send keystrokes to PTY
-   - Keep copy selection behavior and output rendering intact
-   - Ensure Ctrl+C no longer sends to PTY from the terminal canvas
-   - Document the new interaction model in README or UI hint text if needed
-   Tests: Manual test: typing in terminal canvas does nothing; CommandInput works
-   Done when: PTY only receives input from the CommandInput component
-   - This is future work; current implementation keeps PTY input for compatibility
-   - Add option to disable term.onData handler in terminalStore.js
-   - Make input box the sole input method (no direct keyboard to PTY)
-   - Requires testing with various shells and use cases
-   - Consider escape hatch: Ctrl+Shift+I to toggle direct input mode
-   - Document input isolation mode in README when implemented
-   Tests: Manual test with input-only mode; verify no direct PTY input
-   Done when: PTY input can be optionally disabled (deferred)
-
-** TODO [#C] Add input history search functionality (future)
-   Why: Users may want to search through command history
-   Change:
-   - Add search input box above CommandInput (or modal dialog)
-   - Filter history by substring match
-   - Show filtered results with highlighting
-   - Select result to populate CommandInput
-   - This is future enhancement; basic navigation is sufficient initially
-   Tests: Manual test search and selection
-   Done when: History search is functional (deferred)
-
-** TODO [#C] Add AI-assisted input features (future)
-   Why: Enable future features like command suggestions, templates, corrections
-   Change:
-   - Integration point: CommandInput can call AI APIs for suggestions
-   - Examples: command completion, syntax checking, template expansion
-   - This is future work enabled by input box architecture
-   - Document architecture for extensions in README
-   Tests: None (future work)
-   Done when: Architecture documented for AI-assisted input (deferred)
-
-** TODO [#C] Add input history cleanup policy
-   Why: Prevent unbounded disk usage from command history files
-   Change:
-   - Reuse session log cleanup logic from persistence.go
-   - Cleanup policy: keep last N files per terminal, or files from last 7 days
-   - Run cleanup goroutine in Manager (similar to session log cleanup)
-   - Make retention configurable: GESTALT_INPUT_HISTORY_RETENTION_DAYS (default 7)
-   - Log cleanup actions at info level
-   Tests: Create old files, run cleanup, verify deletion
-   Done when: Old input history files are cleaned up automatically
-
-** TODO [#C] Document input history system
-   Why: Users and contributors need to understand input box and history
-   Change:
-   - Add "Command Input and History" section to README.md
-   - Document input box usage: Enter to submit, Shift+Enter for multiline, Ctrl+Up/Down for history
-   - Document history persistence: file format, location, retention policy
-   - Document configuration: env vars for history dir, persistence, retention
-   - Document REST API endpoints: GET/POST /api/terminals/:id/input-history
-   - Document future features: search, AI-assisted input, PTY isolation
-   Tests: None (documentation only)
-   Done when: Input history system is fully documented
-
 * TODO [#B] Agent profile widgets: configurable UI composition
   Goal: Extend agent profiles with a "widgets" array that controls which UI elements appear in an agent's terminal tab, starting with a Plan sidebar widget that displays PLAN.org alongside the terminal.
   Notes:
@@ -337,214 +131,6 @@
    - Add example JSON with widgets configuration
    Tests: None (documentation only)
    Done when: Widget system is fully documented in README
-
-* DONE [#B] gestalt-send CLI tool and agent instance management
-  Goal: Create a CLI tool for piping stdin to agent terminals (e.g., `cat file | gestalt-send agent-name`), ensure agent profiles have unique names, enforce single-instance agents (only one terminal per agent), and use agent names for tab labels instead of "Terminal 1/2/3".
-  Notes:
-  - CLI tool: gestalt-send command that reads stdin and sends to agent's PTY via REST API
-  - Usage: `cat file | gestalt-send architect` or `echo "command" | gestalt-send copilot`
-  - Target agent by name (not terminal ID) for ease of use
-  - Agent name uniqueness: enforce at load time in agent.Loader, reject duplicate names
-  - Single-instance agents: Manager tracks agent→terminal mapping, prevent duplicate agent starts
-  - Tab labeling: use agent.Name instead of generic "Terminal N"
-  - API: add POST /api/agents/:name/input endpoint to send data to agent's terminal
-  - If agent not running: return 404 or optionally auto-start (configurable)
-  - Authentication: gestalt-send uses GESTALT_TOKEN env var (same as server)
-  - Server URL: gestalt-send uses GESTALT_URL env var (default http://localhost:8080)
-  - CLI flags: --url, --token, --start (auto-start agent if not running)
-  - Error handling: clear messages if agent not found, not running, or network errors
-  - Build: add cmd/gestalt-send/main.go, build with `make gestalt-send`
-  - Install: copy binary to PATH or document usage from repo
-  Date: 2025-12-31
-
-** [#B] Enforce unique agent names in agent loader
-   Why: Agent names must be unique to support instance management and CLI tool
-   Change:
-   - Modify internal/agent/loader.go Load() function
-   - Track seen agent names during load, detect duplicates
-   - If duplicate name found: return error with both file paths
-   - Error message: "Duplicate agent name 'copilot' in files: agents/a.json, agents/b.json"
-   - Validation happens after all files are parsed but before returning map
-   - Use case-sensitive name comparison (names must match exactly)
-   - Add unit test for duplicate detection with temp agent files
-   Tests: Loader test with duplicate agent names; verify error returned
-   Done when: Agent loader rejects duplicate names with clear error
-
-** [#B] Add agent instance tracking to Manager
-   Why: Enforce single-instance agents (only one terminal per agent)
-   Change:
-   - Add field to Manager: agentSessions map[string]string (agentName → terminalID)
-   - Update Manager.Create() to check if agent already has a running terminal
-   - If agentSessions[agentName] exists: return error ErrAgentAlreadyRunning
-   - On session creation: record agentSessions[agentName] = session.ID
-   - On session deletion: remove agentSessions[agentName]
-   - Add method Manager.GetSessionByAgent(agentName string) (*Session, bool)
-   - Handle case where agent profile is nil (non-agent terminals, allow multiple)
-   - Thread-safe: protect agentSessions with Manager.mu mutex
-   Tests: Manager tests for duplicate agent prevention, cleanup on delete
-   Done when: Manager prevents duplicate agent instances
-
-** [#B] Update createTerminal API to handle duplicate agents
-   Why: REST API needs to return appropriate error for duplicate agents
-   Change:
-   - Modify internal/api/rest.go createTerminal handler
-   - Catch terminal.ErrAgentAlreadyRunning error from Manager.Create()
-   - Return 409 Conflict with message: "Agent 'name' is already running in terminal ID"
-   - Include existing terminal ID in error response for frontend
-   - Update error type: add Field string to apiError for terminal_id
-   - Frontend can use this to switch to existing terminal tab instead of failing silently
-   Tests: API integration test for duplicate agent creation
-   Done when: API returns 409 for duplicate agents with terminal ID
-
-** [#B] Update frontend to use agent name for tab labels
-   Why: Tab labels should show agent name, not "Terminal N"
-   Change:
-   - Modify frontend/src/App.svelte openTerminalTab() or tab creation logic
-   - Currently: `label: terminal.title || Terminal ${terminal.id}`
-   - Change to prioritize agent name: if terminal has agent, use agent.name
-   - Backend already sets Title from agent.Name in Manager.Create()
-   - Verify terminal.title comes from API response correctly
-   - Keep fallback for non-agent terminals: "Terminal {id}"
-   Tests: Frontend unit test for tab label selection (agent title vs fallback), run `npm test -- tests/app.test.js`
-   Done when: Agent terminal tabs display agent name
-
-** [#B] Handle duplicate agent in frontend gracefully
-   Why: When duplicate agent detected, switch to existing tab instead of error toast
-   Change:
-   - Modify Dashboard.svelte createTerminal() handler
-   - Catch 409 response from POST /api/terminals
-   - Parse terminal_id from error response
-   - Find existing tab with that terminal ID and switch to it
-   - Show info toast: "Agent 'name' is already running" (not error)
-   - Optional: add visual feedback (tab highlight/flash)
-   Tests: Frontend unit test for 409 handling (switch to existing tab + info toast), run `npm test -- tests/app.test.js`
-   Done when: Duplicate agent creation switches to existing tab
-
-** [#B] Add REST API endpoint for sending input to agent by name
-   Why: CLI tool needs to send data to agent without knowing terminal ID
-   Change:
-   - Add POST /api/agents/:name/input endpoint in internal/api/routes.go
-   - Look up agent terminal using Manager.GetSessionByAgent(name)
-   - If not found: return 404 "Agent 'name' is not running"
-   - Read request body as raw bytes (stdin data)
-   - Write to session.input channel (same as WebSocket input)
-   - Content-Type: application/octet-stream or text/plain
-   - Return 200 OK with bytes written count
-   - Auth: require token (same as other endpoints)
-   Tests: API integration test for agent input endpoint
-   Done when: API endpoint accepts input for agent by name
-
-** [#B] Create gestalt-send CLI binary structure
-   Why: Need separate CLI tool for piping data to agents
-   Change:
-   - Create cmd/gestalt-send/main.go
-   - CLI flags: --url (default $GESTALT_URL or http://localhost:8080)
-   - CLI flags: --token (default $GESTALT_TOKEN)
-   - CLI flags: --start (auto-start agent if not running, future feature)
-   - Positional arg: agent name (required)
-   - Usage: gestalt-send [flags] <agent-name>
-   - Read stdin until EOF using io.Copy or bufio.Reader
-   - Basic structure: flag parsing, stdin read, HTTP POST
-   - Exit codes: 0 (success), 1 (usage error), 2 (agent not found), 3 (network error)
-   Tests: Go unit test for CLI arg parsing/usage errors in cmd/gestalt-send; run `go test ./cmd/gestalt-send`
-   Done when: CLI binary structure exists with flag handling
-
-** [#B] Implement stdin-to-HTTP POST in gestalt-send
-   Why: Core functionality: pipe stdin to agent terminal via API
-   Change:
-   - Read stdin: io.ReadAll(os.Stdin) or streaming with bufio
-   - Build URL: {baseURL}/api/agents/{agentName}/input
-   - Create HTTP POST request with Authorization: Bearer {token}
-   - Set Content-Type: application/octet-stream
-   - Body: stdin bytes
-   - Send request using http.DefaultClient with timeout (30s)
-   - Handle responses: 200 (success), 404 (agent not running), 401 (auth), 500 (server error)
-   - Print errors to stderr with helpful messages
-   Tests: Go unit test with httptest server validating POST payload and exit codes, run `go test ./cmd/gestalt-send`
-   Done when: stdin data is sent to agent terminal successfully
-
-** [#B] Resolve agent name or id in gestalt-send
-   Why: Allow CLI input to match either agent ID or agent name.
-   Change:
-   - Query /api/agents and resolve input to agent ID + agent name.
-   - If input matches agent ID, use corresponding agent name for /api/agents/:name/input.
-   - If input matches agent name, use corresponding agent ID for /api/terminals (auto-start).
-   - If input matches both with different agents, return a clear error.
-   - Cache agent list for 60s (reuse completion cache dir or in-memory).
-   Tests: Go unit test for name/id resolution and ambiguous cases; run `go test ./cmd/gestalt-send`
-   Done when: CLI accepts either id or name without ambiguity.
-
-** [#C] Add auto-start option to gestalt-send (optional)
-   Why: Convenience feature to start agent if not already running
-   Change:
-   - Add --start flag to gestalt-send CLI
-   - If POST /api/agents/:name/input returns 404 and --start is set:
-   - Call POST /api/terminals with agent name to create terminal
-   - Retry POST /api/agents/:name/input after short delay (1s)
-   - Handle race condition if another process starts agent simultaneously
-   - This is optional enhancement; basic version requires agent running
-   Tests: Manual test with --start flag
-   Done when: Auto-start flag creates agent terminal if missing (optional)
-
-** [#C] Add verbose and debug output to gestalt-send
-   Why: Help users diagnose connection and authentication issues
-   Change:
-   - Add --verbose flag: print HTTP request/response details to stderr
-   - Add --debug flag: print full request body preview (first 100 bytes)
-   - Show: URL, token (masked), response status, bytes sent
-   - Do not print sensitive data (full token) unless --debug explicitly set
-   - Use structured output: "Sending N bytes to agent 'X' at URL..."
-   Tests: Manual test with --verbose and --debug flags
-   Done when: CLI provides helpful diagnostic output
-
-** [#C] Build and install gestalt-send in Makefile
-   Why: Users need easy way to build and install CLI tool
-   Change:
-   - Add gestalt-send target to GNUmakefile
-   - Build: go build -o gestalt-send cmd/gestalt-send/main.go
-   - Add to default build target (alongside gestalt server)
-   - Add install target: copy gestalt-send to /usr/local/bin or ~/.local/bin
-   - Document in README: make gestalt-send, sudo make install
-   - Consider: version stamping with ldflags (same as server)
-   Tests: make gestalt-send; verify binary works
-   Done when: gestalt-send builds via Makefile
-
-** [#C] Add shell completion for gestalt-send (optional)
-   Why: Improve CLI UX with agent name tab-completion
-   Change:
-   - Generate bash/zsh completion scripts
-   - Completion: fetch agent names from GET /api/agents
-   - Cache agent names for 60s to avoid repeated API calls
-   - Install completion: gestalt-send completion bash > /etc/bash_completion.d/gestalt-send
-   - This is optional enhancement for better UX
-   Tests: Manual test tab-completion in bash/zsh
-   Done when: Shell completion works for agent names (optional)
-
-** [#C] Document gestalt-send usage and examples
-   Why: Users need to understand CLI tool usage patterns
-   Change:
-   - Add "gestalt-send CLI Tool" section to README.md
-   - Document installation: make gestalt-send, copy to PATH
-   - Document environment variables: GESTALT_URL, GESTALT_TOKEN
-   - Document usage: cat file | gestalt-send agent-name
-   - Add examples: piping file contents, command output, multi-line input
-   - Example use cases: send logs to agent, feed data for analysis, scripting
-   - Document error codes and troubleshooting
-   - Document --start flag (if implemented)
-   Tests: None (documentation only)
-   Done when: gestalt-send is fully documented with examples
-
-** [#C] Add integration test for end-to-end CLI workflow
-   Why: Verify complete workflow from CLI to agent terminal
-   Change:
-   - Create test: start server, create agent terminal, run gestalt-send
-   - Verify data appears in terminal output buffer
-   - Test error cases: agent not found, wrong token, network errors
-   - Use temp config directory with test agent profiles
-   - Clean up terminals after test
-   Tests: Integration test in cmd/gestalt-send/
-   Done when: End-to-end CLI test passes reliably
-
 
 * TODO [#B] Semantic versioning with automated releases
   Goal: Implement semantic versioning throughout Gestalt with automated version generation in GitHub Actions based on conventional commits (feat:/fix:), compile version into backend and frontend, and display version in UI near the Gestalt title.
@@ -924,6 +510,548 @@
    - This is future work; defer until core HITL is stable
    Tests: Design document and prototype; implementation TBD
    Done when: Handoff design documented (implementation deferred)
+
+* TODO [#B] Enhanced input UX with multiline input box and command history
+  Goal: Replace direct PTY keyboard input with a dedicated multiline input box at the bottom of agent pages, featuring browsable command history, future-proof for assisted input features, and independent clipboard handling.
+  Notes:
+  - Current state: all keyboard input is intercepted by terminalStore.js, only Ctrl+C and Ctrl+V handled externally
+  - New approach: dedicated input box outside PTY, commands sent to PTY only on submission (Enter)
+  - Input box: 3 lines default height, multiline capable, bottom of agent page (below terminal)
+  - History navigation: Ctrl+Up/Down to browse previous commands (like readline but in-app)
+  - History storage: in-memory circular buffer + file persistence (reuse OutputBuffer/SessionLogger patterns)
+  - File format: logs/input-history/{agentName}-{timestamp}.jsonl (JSON lines, one command per line)
+  - History grouping: by agent name when available; fallback to terminal ID for non-agent terminals
+  - Future features enabled: search history, AI-assisted input, command review/editing, templates
+  - PTY isolation: disable direct PTY keyboard input; input box is the only entry path
+  - Backward compat: not required for this L1; prioritize readability and clean UX
+  - Use Svelte best practices for multiline input: textarea with proper resize, autosize, or contenteditable
+  - History buffer: 1000 commands default (configurable), persist to disk async
+  - Navigation: Ctrl+Up (previous), Ctrl+Down (next), Enter (submit), Shift+Enter (newline in multiline)
+  - Empty commands not recorded in history (skip whitespace-only)
+  Date: 2025-12-31
+
+** DONE [#B] Create input history buffer backend structure
+   Why: Need reusable in-memory circular buffer for command history similar to OutputBuffer
+   Change:
+   - Create internal/terminal/input_buffer.go with InputBuffer struct
+   - Similar to OutputBuffer: maxCommands int, entries []InputEntry, mutex for thread-safety
+   - InputEntry fields: Command string, Timestamp time.Time
+   - Methods: Append(command string), GetAll() []InputEntry, GetRecent(n int) []InputEntry
+   - Skip empty/whitespace-only commands in Append
+   - Trim whitespace from commands before storing
+   - Default capacity: 1000 commands (DefaultInputBufferSize constant)
+   - Thread-safe for concurrent access from WebSocket and persistence goroutines
+   - Circular buffer behavior: oldest commands dropped when limit reached
+   Tests: Unit tests for InputBuffer: append, circular behavior, concurrent access
+   Done when: InputBuffer struct exists with tests matching OutputBuffer quality
+
+** DONE [#B] Create input history persistence logger
+   Why: Persist command history to disk for durability across restarts
+   Change:
+   - Create internal/terminal/input_logger.go with InputLogger struct (similar to SessionLogger)
+   - File path: logs/input-history/{agentName}-{timestamp}.jsonl
+   - One JSON object per line: {"command":"...","timestamp":"..."}
+   - Async write via channel (reuse SessionLogger pattern: write channel, flush goroutine)
+   - Flush policy: every 1s or after N commands (consistent with SessionLogger)
+   - Create logs/input-history/ directory if missing
+   - Handle errors gracefully: log warning, continue without persistence if file ops fail
+   - Close/flush on session termination
+   Tests: Unit tests for InputLogger; verify file creation and content
+   Done when: Input history persists to disk asynchronously
+
+** DONE [#B] Integrate input buffer into Session
+   Why: Each terminal session needs its own input history
+   Change:
+   - Add InputBuffer and InputLogger fields to Session struct in internal/terminal/session.go
+   - Initialize InputBuffer and InputLogger in newSession() (alongside OutputBuffer/SessionLogger)
+   - InputLogger uses same logs/input-history/ directory (configurable via env var)
+   - Use agent name for history file prefix when available, fallback to terminal ID otherwise
+   - Expose input history via Session methods: RecordInput(command string), GetInputHistory() []InputEntry
+   - RecordInput: appends to buffer and writes to logger
+   - Handle nil InputLogger gracefully if persistence disabled
+   - Add env var: GESTALT_INPUT_HISTORY_PERSIST (default true), GESTALT_INPUT_HISTORY_DIR (default logs/input-history)
+   Tests: Session tests verify input recording and retrieval
+   Done when: Sessions track and persist input history
+
+** DONE [#B] Add REST API endpoint for input history
+   Why: Frontend needs to fetch command history for navigation
+   Change:
+   - Add GET /api/terminals/:id/input-history endpoint in internal/api/routes.go
+   - Query parameters: limit (default 100), since (timestamp/index for pagination)
+   - Return JSON array of commands: [{command: string, timestamp: ISO8601}, ...]
+   - Read from session.InputBuffer.GetRecent(limit)
+   - Timestamps: track command submission time (InputBuffer InputEntry)
+   - Handle session not found errors
+   - Auth: same as other terminal endpoints (token-based)
+   Tests: API tests for input-history endpoint
+   Done when: Frontend can fetch command history via REST
+
+** DONE [#B] Create multiline input component
+   Why: Need UI component for command input at bottom of terminal page
+   Change:
+   - Create frontend/src/components/CommandInput.svelte
+   - Use <textarea> with rows={3} for 3-line default height
+   - Props: terminalId, onSubmit callback, disabled state
+   - Styling: match terminal theme (dark background, light text, monospace font)
+   - Auto-resize: consider textarea autosize behavior (expand on content, max height)
+   - Placeholder: "Type command... (Enter to submit, Shift+Enter for newline)"
+   - Submit behavior: Enter key (without Shift) submits, calls onSubmit(value), clears textarea
+   - Shift+Enter: inserts newline (standard multiline textarea behavior)
+   - Focus behavior: auto-focus on mount, restore focus after submission
+   - Styling: border, padding, consistent with terminal shell styling
+   Tests: Manual test: type commands, submit, verify clearing and focus
+   Done when: CommandInput component renders and submits input
+
+** DONE [#B] Add history navigation to CommandInput
+   Why: Users need Ctrl+Up/Down to browse command history
+   Change:
+   - Maintain history array in component state (fetched from API)
+   - Track current history index (starts at -1, meaning no history navigation)
+   - Fetch history on mount: call GET /api/terminals/:id/input-history
+   - Store fetched history in local state for navigation
+   - Keydown handler: detect Ctrl+ArrowUp and Ctrl+ArrowDown
+   - Ctrl+Up: navigate backwards (index++), load command into textarea
+   - Ctrl+Down: navigate forwards (index--), restore empty or latest command
+   - Edge behavior: at oldest command, Ctrl+Up does nothing; at newest, Ctrl+Down restores empty
+   - Reset index to -1 after submission (fresh command)
+   - Handle empty history gracefully (no navigation)
+   Tests: Manual test: submit commands, use Ctrl+Up/Down to navigate
+   Done when: History navigation works with Ctrl+Up/Down
+
+** DONE [#B] Wire CommandInput into Terminal.svelte layout
+   Why: Input box needs to appear at bottom of terminal page
+   Change:
+   - Modify Terminal.svelte to add CommandInput below terminal body
+   - Layout: CSS Grid with rows: header (auto) / terminal body (1fr) / input (auto)
+   - Input area: fixed height based on CommandInput (3 lines default)
+   - Pass terminalId prop to CommandInput
+   - onSubmit handler: send command to PTY via existing sendData/WebSocket
+   - Ensure terminal and input are visually distinct: border/separator between them
+   - Responsive: input box should work on mobile (adjust height/font size)
+   Tests: Manual test: render terminal with input box, submit commands
+   Done when: Input box appears at bottom and sends commands to PTY
+
+** DONE [#B] Send submitted commands to PTY with newline
+   Why: Commands from input box need to execute in the shell
+   Change:
+   - onSubmit handler in Terminal.svelte receives command string
+   - Append '\n' to command before sending to PTY (shell needs newline to execute)
+   - Use existing terminalStore sendData mechanism: state.sendData(command + '\n')
+   - Handle multiline commands: preserve internal newlines, append final newline
+   - Record command in session history: POST to /api/terminals/:id/input-history
+   - Update local history state in CommandInput after submission
+   Tests: Manual test: submit commands, verify execution in PTY, check history
+   Done when: Commands from input box execute in shell
+
+** DONE [#B] Add POST endpoint to record input history
+   Why: Frontend needs to record commands in backend history
+   Change:
+   - Add POST /api/terminals/:id/input-history endpoint
+   - Request body: {command: string}
+   - Call session.RecordInput(command) to store in buffer and persist
+   - Return success or error response
+   - Validation: reject empty commands (trimmed whitespace check)
+   - Auth: same token-based auth as other endpoints
+   Tests: API tests for POST input-history endpoint
+   Done when: Frontend can record commands via REST
+
+** DONE [#B] Disable direct PTY keyboard input
+   Why: Ensure all input flows through CommandInput for a clean, consistent UX
+   Change:
+   - Remove or gate terminalStore.js key handlers that send keystrokes to PTY
+   - Keep copy selection behavior and output rendering intact
+   - Ensure Ctrl+C no longer sends to PTY from the terminal canvas
+   - Document the new interaction model in README or UI hint text if needed
+   Tests: Manual test: typing in terminal canvas does nothing; CommandInput works
+   Done when: PTY only receives input from the CommandInput component
+   - This is future work; current implementation keeps PTY input for compatibility
+   - Add option to disable term.onData handler in terminalStore.js
+   - Make input box the sole input method (no direct keyboard to PTY)
+   - Requires testing with various shells and use cases
+   - Consider escape hatch: Ctrl+Shift+I to toggle direct input mode
+   - Document input isolation mode in README when implemented
+   Tests: Manual test with input-only mode; verify no direct PTY input
+   Done when: PTY input can be optionally disabled (deferred)
+
+** TODO [#C] Add input history search functionality (future)
+   Why: Users may want to search through command history
+   Change:
+   - Add search input box above CommandInput (or modal dialog)
+   - Filter history by substring match
+   - Show filtered results with highlighting
+   - Select result to populate CommandInput
+   - This is future enhancement; basic navigation is sufficient initially
+   Tests: Manual test search and selection
+   Done when: History search is functional (deferred)
+
+** TODO [#C] Add AI-assisted input features (future)
+   Why: Enable future features like command suggestions, templates, corrections
+   Change:
+   - Integration point: CommandInput can call AI APIs for suggestions
+   - Examples: command completion, syntax checking, template expansion
+   - This is future work enabled by input box architecture
+   - Document architecture for extensions in README
+   Tests: None (future work)
+   Done when: Architecture documented for AI-assisted input (deferred)
+
+** TODO [#C] Add input history cleanup policy
+   Why: Prevent unbounded disk usage from command history files
+   Change:
+   - Reuse session log cleanup logic from persistence.go
+   - Cleanup policy: keep last N files per terminal, or files from last 7 days
+   - Run cleanup goroutine in Manager (similar to session log cleanup)
+   - Make retention configurable: GESTALT_INPUT_HISTORY_RETENTION_DAYS (default 7)
+   - Log cleanup actions at info level
+   Tests: Create old files, run cleanup, verify deletion
+   Done when: Old input history files are cleaned up automatically
+
+** TODO [#C] Document input history system
+   Why: Users and contributors need to understand input box and history
+   Change:
+   - Add "Command Input and History" section to README.md
+   - Document input box usage: Enter to submit, Shift+Enter for multiline, Ctrl+Up/Down for history
+   - Document history persistence: file format, location, retention policy
+   - Document configuration: env vars for history dir, persistence, retention
+   - Document REST API endpoints: GET/POST /api/terminals/:id/input-history
+   - Document future features: search, AI-assisted input, PTY isolation
+   Tests: None (documentation only)
+   Done when: Input history system is fully documented
+
+* DONE [#B] Embed all resources into gestalt binary
+  Goal: Make gestalt binary fully self-contained by embedding frontend dist/, config/agents/, config/prompts/, and config/skills/ so it can run from anywhere without external files.
+  Notes:
+  - Use Go 1.16+ embed.FS for embedding files at compile time
+  - Embed frontend/dist/ (built frontend assets)
+  - Embed config/agents/*.json, config/prompts/*.txt, config/skills/*/ (default configs)
+  - External override directory: ./gestalt/ (relative to binary location)
+  - Runtime override: if ./gestalt/config/ exists, use it instead of embedded
+  - Search order: ./gestalt/config/agents → embedded config/agents (same for prompts, skills)
+  - Log which source is used: "using embedded config" or "using external config at ./gestalt/"
+  - Update loaders to accept io.FS interface for embedded or real filesystem
+  - Keep PLAN.org external (runtime-only, not embedded)
+  - --extract-config flag writes all embedded resources to ./gestalt/ (config + frontend dist)
+  - Extraction creates: ./gestalt/config/agents/, ./gestalt/config/prompts/, ./gestalt/config/skills/, ./gestalt/dist/
+  Date: 2026-01-07
+
+** Update agent loader to support embed.FS
+   Why: Agent loader needs to read from embedded filesystem or real filesystem
+   Change:
+   - Add io.FS parameter to agent.Loader.Load()
+   - Use fs.ReadDir and fs.ReadFile instead of os.ReadDir/os.ReadFile
+   - Keep backward compatibility: if FS is nil, use os.DirFS as default
+   - Update internal/agent/loader.go Load signature and implementation
+   - Pass prompts directory as separate FS or combined with agents
+   Tests: Unit tests with embed.FS mock; verify existing tests still pass
+   Done when: Agent loader works with both embedded and real filesystems
+
+** Update skill loader to support embed.FS
+   Why: Skill loader needs to read from embedded filesystem
+   Change:
+   - Add io.FS parameter to skill.Loader.Load()
+   - Use fs.ReadDir, fs.ReadFile, fs.Sub for nested directories
+   - Support skills with scripts/, references/, assets/ from embedded FS
+   - Keep backward compatibility: if FS is nil, use os.DirFS
+   - Update internal/skill/loader.go
+   Tests: Unit tests with embed.FS; verify nested directory handling
+   Done when: Skill loader works with embedded filesystem
+
+** Create embedded resources in cmd/gestalt/embed.go
+   Why: Single place to define all embedded resources
+   Change:
+   - Create cmd/gestalt/embed.go with //go:embed directives
+   - Embed frontend/dist/* as frontendFS (embed.FS)
+   - Embed config/agents as agentsFS
+   - Embed config/prompts as promptsFS
+   - Embed config/skills as skillsFS
+   - Export embedded FS variables or getter functions
+   - Document each embedded directory in comments
+   Tests: Build and verify embedded files are in binary (check binary size)
+   Done when: All resources are embedded at compile time
+
+** Update main.go to use embedded or external resources
+   Why: Support runtime override of embedded defaults from ./gestalt/ directory
+   Change:
+   - Check if ./gestalt/config/agents/ exists; if yes, use os.DirFS("./gestalt/config")
+   - If not, use embedded configFS from embed.go
+   - Log decision: "using embedded config" or "using external config at ./gestalt/config"
+   - Pass appropriate FS to agent and skill loaders
+   - Check ./gestalt/dist/ for frontend; if exists, use it; else use embedded frontendFS
+   - Update findStaticDir to return "./gestalt/dist" if it exists
+   - Serve embedded frontend via http.FS if no ./gestalt/dist/
+   Tests: Run binary with/without ./gestalt/ directory; verify correct source used
+   Done when: Binary prefers ./gestalt/ overrides but falls back to embedded
+
+** Update API static handler to serve embedded frontend
+   Why: Serve embedded frontend when no external dist/ directory
+   Change:
+   - Modify RegisterRoutes to accept embed.FS for frontend
+   - If staticDir is empty, check if embedded frontendFS is available
+   - Use http.FileServer(http.FS(frontendFS)) for embedded serving
+   - Ensure SPA routing works with embedded FS (index.html fallback)
+   - Keep existing SPAHandler logic compatible
+   Tests: Test static file serving with embedded FS
+   Done when: Embedded frontend serves correctly via HTTP
+
+** Add --extract-config CLI flag
+   Why: Users may want to customize embedded defaults
+   Change:
+   - Add --extract-config flag to main.go
+   - Extract all embedded resources to ./gestalt/ directory
+   - Create: ./gestalt/config/agents/, ./gestalt/config/prompts/, ./gestalt/config/skills/
+   - Create: ./gestalt/dist/ (frontend assets)
+   - Write all embedded files preserving directory structure
+   - Skip if files already exist (or add --force flag to overwrite)
+   - Print extraction summary: "Extracted N agents, M prompts, P skills, frontend assets to ./gestalt/"
+   - Exit after extraction (don't start server)
+   Tests: Run gestalt --extract-config; verify ./gestalt/ structure created
+   Done when: Users can extract all embedded resources to ./gestalt/ for customization
+
+** Update Makefile build to ensure frontend is built
+   Why: Embedded frontend requires dist/ to exist at build time
+   Change:
+   - Update make gestalt target to depend on frontend build
+   - Add target: make build-frontend (cd frontend && npm run build)
+   - Ensure make gestalt runs build-frontend first
+   - Document build order in Makefile comments
+   - Consider: make gestalt-dev (no embed) vs make gestalt (with embed)
+   Tests: make clean && make gestalt; verify binary works standalone
+   Done when: make gestalt produces fully self-contained binary
+
+** Document embedded binary usage
+   Why: Users need to understand embedded vs external config behavior
+   Change:
+   - Add "Embedded Resources" section to README.md
+   - Document: binary contains default config and frontend
+   - Document: ./gestalt/ directory overrides embedded defaults
+   - Document: search order: ./gestalt/config → embedded config
+   - Document: --extract-config flag to extract all resources to ./gestalt/
+   - Document: how to build from source with embedding
+   - Show example: copy gestalt binary anywhere and run
+   - Show example: gestalt --extract-config, then customize ./gestalt/config/
+   Tests: None (documentation only)
+   Done when: README explains embedded resources and ./gestalt/ override
+
+** Test standalone binary deployment
+   Why: Verify binary truly works outside source tree
+   Change:
+   - Build binary: make gestalt
+   - Copy to /tmp/gestalt-test/ (clean directory)
+   - Run from there: ./gestalt (should use embedded resources)
+   - Verify: frontend loads, agents/skills available, terminals work
+   - Test: ./gestalt --extract-config (creates ./gestalt/ directory)
+   - Modify ./gestalt/config/agents/example.json
+   - Restart: ./gestalt (should use ./gestalt/config/)
+   - Verify: modified config is active
+   Tests: Integration test of standalone deployment and override
+   Done when: Binary runs with embedded defaults and ./gestalt/ overrides work
+
+* DONE [#B] gestalt-send CLI tool and agent instance management
+  Goal: Create a CLI tool for piping stdin to agent terminals (e.g., `cat file | gestalt-send agent-name`), ensure agent profiles have unique names, enforce single-instance agents (only one terminal per agent), and use agent names for tab labels instead of "Terminal 1/2/3".
+  Notes:
+  - CLI tool: gestalt-send command that reads stdin and sends to agent's PTY via REST API
+  - Usage: `cat file | gestalt-send architect` or `echo "command" | gestalt-send copilot`
+  - Target agent by name (not terminal ID) for ease of use
+  - Agent name uniqueness: enforce at load time in agent.Loader, reject duplicate names
+  - Single-instance agents: Manager tracks agent→terminal mapping, prevent duplicate agent starts
+  - Tab labeling: use agent.Name instead of generic "Terminal N"
+  - API: add POST /api/agents/:name/input endpoint to send data to agent's terminal
+  - If agent not running: return 404 or optionally auto-start (configurable)
+  - Authentication: gestalt-send uses GESTALT_TOKEN env var (same as server)
+  - Server URL: gestalt-send uses GESTALT_URL env var (default http://localhost:8080)
+  - CLI flags: --url, --token, --start (auto-start agent if not running)
+  - Error handling: clear messages if agent not found, not running, or network errors
+  - Build: add cmd/gestalt-send/main.go, build with `make gestalt-send`
+  - Install: copy binary to PATH or document usage from repo
+  Date: 2025-12-31
+
+** [#B] Enforce unique agent names in agent loader
+   Why: Agent names must be unique to support instance management and CLI tool
+   Change:
+   - Modify internal/agent/loader.go Load() function
+   - Track seen agent names during load, detect duplicates
+   - If duplicate name found: return error with both file paths
+   - Error message: "Duplicate agent name 'copilot' in files: agents/a.json, agents/b.json"
+   - Validation happens after all files are parsed but before returning map
+   - Use case-sensitive name comparison (names must match exactly)
+   - Add unit test for duplicate detection with temp agent files
+   Tests: Loader test with duplicate agent names; verify error returned
+   Done when: Agent loader rejects duplicate names with clear error
+
+** [#B] Add agent instance tracking to Manager
+   Why: Enforce single-instance agents (only one terminal per agent)
+   Change:
+   - Add field to Manager: agentSessions map[string]string (agentName → terminalID)
+   - Update Manager.Create() to check if agent already has a running terminal
+   - If agentSessions[agentName] exists: return error ErrAgentAlreadyRunning
+   - On session creation: record agentSessions[agentName] = session.ID
+   - On session deletion: remove agentSessions[agentName]
+   - Add method Manager.GetSessionByAgent(agentName string) (*Session, bool)
+   - Handle case where agent profile is nil (non-agent terminals, allow multiple)
+   - Thread-safe: protect agentSessions with Manager.mu mutex
+   Tests: Manager tests for duplicate agent prevention, cleanup on delete
+   Done when: Manager prevents duplicate agent instances
+
+** [#B] Update createTerminal API to handle duplicate agents
+   Why: REST API needs to return appropriate error for duplicate agents
+   Change:
+   - Modify internal/api/rest.go createTerminal handler
+   - Catch terminal.ErrAgentAlreadyRunning error from Manager.Create()
+   - Return 409 Conflict with message: "Agent 'name' is already running in terminal ID"
+   - Include existing terminal ID in error response for frontend
+   - Update error type: add Field string to apiError for terminal_id
+   - Frontend can use this to switch to existing terminal tab instead of failing silently
+   Tests: API integration test for duplicate agent creation
+   Done when: API returns 409 for duplicate agents with terminal ID
+
+** [#B] Update frontend to use agent name for tab labels
+   Why: Tab labels should show agent name, not "Terminal N"
+   Change:
+   - Modify frontend/src/App.svelte openTerminalTab() or tab creation logic
+   - Currently: `label: terminal.title || Terminal ${terminal.id}`
+   - Change to prioritize agent name: if terminal has agent, use agent.name
+   - Backend already sets Title from agent.Name in Manager.Create()
+   - Verify terminal.title comes from API response correctly
+   - Keep fallback for non-agent terminals: "Terminal {id}"
+   Tests: Frontend unit test for tab label selection (agent title vs fallback), run `npm test -- tests/app.test.js`
+   Done when: Agent terminal tabs display agent name
+
+** [#B] Handle duplicate agent in frontend gracefully
+   Why: When duplicate agent detected, switch to existing tab instead of error toast
+   Change:
+   - Modify Dashboard.svelte createTerminal() handler
+   - Catch 409 response from POST /api/terminals
+   - Parse terminal_id from error response
+   - Find existing tab with that terminal ID and switch to it
+   - Show info toast: "Agent 'name' is already running" (not error)
+   - Optional: add visual feedback (tab highlight/flash)
+   Tests: Frontend unit test for 409 handling (switch to existing tab + info toast), run `npm test -- tests/app.test.js`
+   Done when: Duplicate agent creation switches to existing tab
+
+** [#B] Add REST API endpoint for sending input to agent by name
+   Why: CLI tool needs to send data to agent without knowing terminal ID
+   Change:
+   - Add POST /api/agents/:name/input endpoint in internal/api/routes.go
+   - Look up agent terminal using Manager.GetSessionByAgent(name)
+   - If not found: return 404 "Agent 'name' is not running"
+   - Read request body as raw bytes (stdin data)
+   - Write to session.input channel (same as WebSocket input)
+   - Content-Type: application/octet-stream or text/plain
+   - Return 200 OK with bytes written count
+   - Auth: require token (same as other endpoints)
+   Tests: API integration test for agent input endpoint
+   Done when: API endpoint accepts input for agent by name
+
+** [#B] Create gestalt-send CLI binary structure
+   Why: Need separate CLI tool for piping data to agents
+   Change:
+   - Create cmd/gestalt-send/main.go
+   - CLI flags: --url (default $GESTALT_URL or http://localhost:8080)
+   - CLI flags: --token (default $GESTALT_TOKEN)
+   - CLI flags: --start (auto-start agent if not running, future feature)
+   - Positional arg: agent name (required)
+   - Usage: gestalt-send [flags] <agent-name>
+   - Read stdin until EOF using io.Copy or bufio.Reader
+   - Basic structure: flag parsing, stdin read, HTTP POST
+   - Exit codes: 0 (success), 1 (usage error), 2 (agent not found), 3 (network error)
+   Tests: Go unit test for CLI arg parsing/usage errors in cmd/gestalt-send; run `go test ./cmd/gestalt-send`
+   Done when: CLI binary structure exists with flag handling
+
+** [#B] Implement stdin-to-HTTP POST in gestalt-send
+   Why: Core functionality: pipe stdin to agent terminal via API
+   Change:
+   - Read stdin: io.ReadAll(os.Stdin) or streaming with bufio
+   - Build URL: {baseURL}/api/agents/{agentName}/input
+   - Create HTTP POST request with Authorization: Bearer {token}
+   - Set Content-Type: application/octet-stream
+   - Body: stdin bytes
+   - Send request using http.DefaultClient with timeout (30s)
+   - Handle responses: 200 (success), 404 (agent not running), 401 (auth), 500 (server error)
+   - Print errors to stderr with helpful messages
+   Tests: Go unit test with httptest server validating POST payload and exit codes, run `go test ./cmd/gestalt-send`
+   Done when: stdin data is sent to agent terminal successfully
+
+** [#B] Resolve agent name or id in gestalt-send
+   Why: Allow CLI input to match either agent ID or agent name.
+   Change:
+   - Query /api/agents and resolve input to agent ID + agent name.
+   - If input matches agent ID, use corresponding agent name for /api/agents/:name/input.
+   - If input matches agent name, use corresponding agent ID for /api/terminals (auto-start).
+   - If input matches both with different agents, return a clear error.
+   - Cache agent list for 60s (reuse completion cache dir or in-memory).
+   Tests: Go unit test for name/id resolution and ambiguous cases; run `go test ./cmd/gestalt-send`
+   Done when: CLI accepts either id or name without ambiguity.
+
+** [#C] Add auto-start option to gestalt-send (optional)
+   Why: Convenience feature to start agent if not already running
+   Change:
+   - Add --start flag to gestalt-send CLI
+   - If POST /api/agents/:name/input returns 404 and --start is set:
+   - Call POST /api/terminals with agent name to create terminal
+   - Retry POST /api/agents/:name/input after short delay (1s)
+   - Handle race condition if another process starts agent simultaneously
+   - This is optional enhancement; basic version requires agent running
+   Tests: Manual test with --start flag
+   Done when: Auto-start flag creates agent terminal if missing (optional)
+
+** [#C] Add verbose and debug output to gestalt-send
+   Why: Help users diagnose connection and authentication issues
+   Change:
+   - Add --verbose flag: print HTTP request/response details to stderr
+   - Add --debug flag: print full request body preview (first 100 bytes)
+   - Show: URL, token (masked), response status, bytes sent
+   - Do not print sensitive data (full token) unless --debug explicitly set
+   - Use structured output: "Sending N bytes to agent 'X' at URL..."
+   Tests: Manual test with --verbose and --debug flags
+   Done when: CLI provides helpful diagnostic output
+
+** [#C] Build and install gestalt-send in Makefile
+   Why: Users need easy way to build and install CLI tool
+   Change:
+   - Add gestalt-send target to GNUmakefile
+   - Build: go build -o gestalt-send cmd/gestalt-send/main.go
+   - Add to default build target (alongside gestalt server)
+   - Add install target: copy gestalt-send to /usr/local/bin or ~/.local/bin
+   - Document in README: make gestalt-send, sudo make install
+   - Consider: version stamping with ldflags (same as server)
+   Tests: make gestalt-send; verify binary works
+   Done when: gestalt-send builds via Makefile
+
+** [#C] Add shell completion for gestalt-send (optional)
+   Why: Improve CLI UX with agent name tab-completion
+   Change:
+   - Generate bash/zsh completion scripts
+   - Completion: fetch agent names from GET /api/agents
+   - Cache agent names for 60s to avoid repeated API calls
+   - Install completion: gestalt-send completion bash > /etc/bash_completion.d/gestalt-send
+   - This is optional enhancement for better UX
+   Tests: Manual test tab-completion in bash/zsh
+   Done when: Shell completion works for agent names (optional)
+
+** [#C] Document gestalt-send usage and examples
+   Why: Users need to understand CLI tool usage patterns
+   Change:
+   - Add "gestalt-send CLI Tool" section to README.md
+   - Document installation: make gestalt-send, copy to PATH
+   - Document environment variables: GESTALT_URL, GESTALT_TOKEN
+   - Document usage: cat file | gestalt-send agent-name
+   - Add examples: piping file contents, command output, multi-line input
+   - Example use cases: send logs to agent, feed data for analysis, scripting
+   - Document error codes and troubleshooting
+   - Document --start flag (if implemented)
+   Tests: None (documentation only)
+   Done when: gestalt-send is fully documented with examples
+
+** [#C] Add integration test for end-to-end CLI workflow
+   Why: Verify complete workflow from CLI to agent terminal
+   Change:
+   - Create test: start server, create agent terminal, run gestalt-send
+   - Verify data appears in terminal output buffer
+   - Test error cases: agent not found, wrong token, network errors
+   - Use temp config directory with test agent profiles
+   - Clean up terminals after test
+   Tests: Integration test in cmd/gestalt-send/
+   Done when: End-to-end CLI test passes reliably
+
 
 * DONE [#B] Agent Skills integration
   Goal: Integrate the Agent Skills standard (agentskills.io) into Gestalt to provide agents with discoverable, on-demand capabilities through structured skill packages stored in config/skills/

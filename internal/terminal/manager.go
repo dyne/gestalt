@@ -3,7 +3,9 @@ package terminal
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -40,6 +42,8 @@ type ManagerOptions struct {
 	SessionLogDir        string
 	InputHistoryDir      string
 	SessionRetentionDays int
+	PromptFS             fs.FS
+	PromptDir            string
 }
 
 // Manager is safe for concurrent use; mu guards the sessions map and lifecycle.
@@ -59,6 +63,8 @@ type Manager struct {
 	sessionLogs     string
 	inputHistoryDir string
 	retentionDays   int
+	promptFS        fs.FS
+	promptDir       string
 }
 
 const (
@@ -119,6 +125,15 @@ func NewManager(opts ManagerOptions) *Manager {
 		retentionDays = DefaultSessionRetentionDays
 	}
 
+	promptFS := opts.PromptFS
+	promptDir := strings.TrimSpace(opts.PromptDir)
+	if promptDir == "" {
+		promptDir = filepath.Join("config", "prompts")
+	}
+	if promptFS != nil {
+		promptDir = filepath.ToSlash(promptDir)
+	}
+
 	agents := make(map[string]agent.Agent)
 	for id, profile := range opts.Agents {
 		agents[id] = profile
@@ -141,6 +156,8 @@ func NewManager(opts ManagerOptions) *Manager {
 		sessionLogs:     sessionLogs,
 		inputHistoryDir: inputHistoryDir,
 		retentionDays:   retentionDays,
+		promptFS:        promptFS,
+		promptDir:       promptDir,
 	}
 	manager.startSessionCleanup()
 	return manager
@@ -291,7 +308,7 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 						agentSkills = append(agentSkills, skillEntry)
 					}
 				}
-				
+
 				if len(agentSkills) > 0 {
 					skillXML := skill.GeneratePromptXML(agentSkills)
 					if skillXML != "" {
@@ -323,8 +340,7 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 					}
 				}
 				for i, promptName := range cleaned {
-					promptPath := filepath.Join("config", "prompts", promptName+".txt")
-					data, err := os.ReadFile(promptPath)
+					data, promptPath, err := m.readPromptFile(promptName)
 					if err != nil {
 						m.logger.Warn("agent prompt file read failed", map[string]string{
 							"agent_id":    agentID,
@@ -388,6 +404,18 @@ func writePromptPayload(session *Session, payload []byte) error {
 		}
 	}
 	return nil
+}
+
+func (m *Manager) readPromptFile(promptName string) ([]byte, string, error) {
+	if m.promptFS != nil {
+		promptPath := path.Join(m.promptDir, promptName+".txt")
+		data, err := fs.ReadFile(m.promptFS, promptPath)
+		return data, promptPath, err
+	}
+
+	promptPath := filepath.Join(m.promptDir, promptName+".txt")
+	data, err := os.ReadFile(promptPath)
+	return data, promptPath, err
 }
 
 func (m *Manager) nextIDValue() string {

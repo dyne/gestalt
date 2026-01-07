@@ -61,6 +61,29 @@ Environment variables:
 - `GESTALT_SESSION_BUFFER_LINES` (default 1000)
 - `GESTALT_SESSION_RETENTION_DAYS` (default 7)
 
+## Embedded Resources
+
+The `gestalt` binary embeds the frontend bundle and default config so it can run
+from any directory without external files.
+
+Overrides (per subdirectory, relative to the current working directory):
+- `./gestalt/config/agents` overrides embedded agents
+- `./gestalt/config/prompts` overrides embedded prompts
+- `./gestalt/config/skills` overrides embedded skills
+- `./gestalt/dist` overrides embedded frontend assets
+
+Extract embedded defaults:
+```
+gestalt --extract-config
+```
+This creates `./gestalt/` with `config/` and `dist/`. Existing files are left in
+place and reported as warnings.
+
+Build from source with embedded assets:
+```
+make gestalt
+```
+
 ## API endpoints
 
 API (development snapshot)

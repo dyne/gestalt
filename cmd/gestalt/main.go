@@ -3,13 +3,16 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
+	"gestalt"
 	"gestalt/internal/agent"
 	"gestalt/internal/api"
 	"gestalt/internal/logging"
@@ -33,12 +36,16 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "validate-skill" {
 		os.Exit(runValidateSkill(os.Args[2:]))
 	}
+	if hasFlag(os.Args[1:], "--extract-config") {
+		os.Exit(runExtractConfig())
+	}
 
 	cfg := loadConfig()
 	logBuffer := logging.NewLogBuffer(logging.DefaultBufferSize)
 	logger := logging.NewLogger(logBuffer, logging.LevelInfo)
 
-	skills, err := loadSkills(logger)
+	configFS := buildConfigFS(logger)
+	skills, err := loadSkills(logger, configFS)
 	if err != nil {
 		logger.Error("load skills failed", map[string]string{
 			"error": err.Error(),
@@ -49,7 +56,7 @@ func main() {
 		"count": strconv.Itoa(len(skills)),
 	})
 
-	agents, err := loadAgents(logger, buildSkillIndex(skills))
+	agents, err := loadAgents(logger, configFS, buildSkillIndex(skills))
 	if err != nil {
 		logger.Error("load agents failed", map[string]string{
 			"error": err.Error(),
@@ -69,12 +76,22 @@ func main() {
 		InputHistoryDir:      cfg.InputHistoryDir,
 		SessionRetentionDays: cfg.SessionRetentionDays,
 		BufferLines:          cfg.SessionBufferLines,
+		PromptFS:             configFS,
+		PromptDir:            path.Join("config", "prompts"),
 	})
 
 	staticDir := findStaticDir()
+	frontendFS := fs.FS(nil)
+	if sub, err := fs.Sub(gestalt.EmbeddedFrontendFS, path.Join("frontend", "dist")); err == nil {
+		frontendFS = sub
+	} else if logger != nil {
+		logger.Warn("embedded frontend unavailable", map[string]string{
+			"error": err.Error(),
+		})
+	}
 
 	mux := http.NewServeMux()
-	api.RegisterRoutes(mux, manager, cfg.AuthToken, staticDir, logger)
+	api.RegisterRoutes(mux, manager, cfg.AuthToken, staticDir, frontendFS, logger)
 
 	server := &http.Server{
 		Addr:              ":" + strconv.Itoa(cfg.Port),
@@ -163,7 +180,7 @@ func loadConfig() Config {
 }
 
 func findStaticDir() string {
-	distPath := filepath.Join("frontend", "dist")
+	distPath := filepath.Join("gestalt", "dist")
 	if info, err := os.Stat(distPath); err == nil && info.IsDir() {
 		return distPath
 	}
@@ -171,14 +188,14 @@ func findStaticDir() string {
 	return ""
 }
 
-func loadAgents(logger *logging.Logger, skillIndex map[string]struct{}) (map[string]agent.Agent, error) {
+func loadAgents(logger *logging.Logger, configFS fs.FS, skillIndex map[string]struct{}) (map[string]agent.Agent, error) {
 	loader := agent.Loader{Logger: logger}
-	return loader.Load(filepath.Join("config", "agents"), filepath.Join("config", "prompts"), skillIndex)
+	return loader.Load(configFS, path.Join("config", "agents"), path.Join("config", "prompts"), skillIndex)
 }
 
-func loadSkills(logger *logging.Logger) (map[string]*skill.Skill, error) {
+func loadSkills(logger *logging.Logger, configFS fs.FS) (map[string]*skill.Skill, error) {
 	loader := skill.Loader{Logger: logger}
-	return loader.Load(filepath.Join("config", "skills"))
+	return loader.Load(configFS, path.Join("config", "skills"))
 }
 
 func buildSkillIndex(skills map[string]*skill.Skill) map[string]struct{} {
@@ -247,6 +264,43 @@ func runValidateSkill(args []string) int {
 
 func hasOptionalSkillDir(base, name string) bool {
 	info, err := os.Stat(filepath.Join(base, name))
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
+}
+
+func buildConfigFS(logger *logging.Logger) fs.FS {
+	overrideRoot := "gestalt"
+	configDir := filepath.Join(overrideRoot, "config")
+	useExternal := map[string]bool{
+		"agents":  dirExists(filepath.Join(configDir, "agents")),
+		"prompts": dirExists(filepath.Join(configDir, "prompts")),
+		"skills":  dirExists(filepath.Join(configDir, "skills")),
+	}
+
+	if logger != nil {
+		if useExternal["agents"] || useExternal["prompts"] || useExternal["skills"] {
+			logger.Info("using external config at ./gestalt/", map[string]string{
+				"agents":  strconv.FormatBool(useExternal["agents"]),
+				"prompts": strconv.FormatBool(useExternal["prompts"]),
+				"skills":  strconv.FormatBool(useExternal["skills"]),
+			})
+		} else {
+			logger.Info("using embedded config", nil)
+		}
+	}
+
+	return configFS{
+		embedded:     gestalt.EmbeddedConfigFS,
+		external:     os.DirFS("."),
+		externalRoot: filepath.ToSlash(overrideRoot),
+		useExternal:  useExternal,
+	}
+}
+
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
 	if err != nil {
 		return false
 	}

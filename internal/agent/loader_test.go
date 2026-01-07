@@ -5,13 +5,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"gestalt/internal/logging"
 )
 
 func TestLoaderMissingDir(t *testing.T) {
 	loader := Loader{}
-	agents, err := loader.Load(filepath.Join(t.TempDir(), "missing"), "", nil)
+	agents, err := loader.Load(nil, filepath.Join(t.TempDir(), "missing"), "", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -35,7 +36,7 @@ func TestLoaderValidAgents(t *testing.T) {
 	}
 
 	loader := Loader{}
-	agents, err := loader.Load(dir, "", nil)
+	agents, err := loader.Load(nil, dir, "", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -58,7 +59,7 @@ func TestLoaderInvalidJSON(t *testing.T) {
 	}
 
 	loader := Loader{}
-	if _, err := loader.Load(dir, "", nil); err == nil {
+	if _, err := loader.Load(nil, dir, "", nil); err == nil {
 		t.Fatalf("expected error")
 	}
 }
@@ -79,7 +80,7 @@ func TestLoaderDuplicateAgentName(t *testing.T) {
 	}
 
 	loader := Loader{}
-	if _, err := loader.Load(dir, "", nil); err == nil {
+	if _, err := loader.Load(nil, dir, "", nil); err == nil {
 		t.Fatalf("expected error")
 	} else if !strings.Contains(err.Error(), "duplicate agent name") {
 		t.Fatalf("unexpected error: %v", err)
@@ -96,7 +97,7 @@ func TestLoaderInvalidAgent(t *testing.T) {
 	}
 
 	loader := Loader{}
-	if _, err := loader.Load(dir, "", nil); err == nil {
+	if _, err := loader.Load(nil, dir, "", nil); err == nil {
 		t.Fatalf("expected error")
 	}
 }
@@ -111,7 +112,7 @@ func TestLoaderExampleAgents(t *testing.T) {
 	promptsDir := filepath.Join(root, "config", "prompts")
 
 	loader := Loader{}
-	agents, err := loader.Load(dir, promptsDir, nil)
+	agents, err := loader.Load(nil, dir, promptsDir, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -142,7 +143,7 @@ func TestLoaderMissingPromptLogsWarning(t *testing.T) {
 	buffer := logging.NewLogBuffer(10)
 	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, nil)
 	loader := Loader{Logger: logger}
-	if _, err := loader.Load(dir, promptsDir, nil); err != nil {
+	if _, err := loader.Load(nil, dir, promptsDir, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -181,7 +182,7 @@ func TestLoaderMissingSkillLogsWarning(t *testing.T) {
 	skillIndex := map[string]struct{}{
 		"git-workflows": {},
 	}
-	agents, err := loader.Load(dir, "", skillIndex)
+	agents, err := loader.Load(nil, dir, "", skillIndex)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -209,5 +210,32 @@ func TestLoaderMissingSkillLogsWarning(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected warning log for missing skill")
+	}
+}
+
+func TestLoaderWithFS(t *testing.T) {
+	fsys := fstest.MapFS{
+		"config/agents/codex.json": &fstest.MapFile{
+			Data: []byte(`{
+				"name": "Codex",
+				"shell": "/bin/bash",
+				"llm_type": "codex"
+			}`),
+		},
+		"config/prompts/init.txt": &fstest.MapFile{
+			Data: []byte("echo ok"),
+		},
+	}
+
+	loader := Loader{}
+	agents, err := loader.Load(fsys, "config/agents", "config/prompts", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(agents) != 1 {
+		t.Fatalf("expected 1 agent, got %d", len(agents))
+	}
+	if _, ok := agents["codex"]; !ok {
+		t.Fatalf("missing codex agent")
 	}
 }

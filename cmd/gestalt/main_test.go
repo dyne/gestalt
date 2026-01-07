@@ -95,8 +95,8 @@ func TestLoadConfigDisablesInputHistory(t *testing.T) {
 
 func TestFindStaticDir(t *testing.T) {
 	root := t.TempDir()
-	frontendDist := filepath.Join(root, "frontend", "dist")
-	if err := os.MkdirAll(frontendDist, 0755); err != nil {
+	overrideDist := filepath.Join(root, "gestalt", "dist")
+	if err := os.MkdirAll(overrideDist, 0755); err != nil {
 		t.Fatalf("mkdir dist: %v", err)
 	}
 
@@ -111,15 +111,15 @@ func TestFindStaticDir(t *testing.T) {
 		_ = os.Chdir(cwd)
 	})
 
-	if got := findStaticDir(); got != filepath.Join("frontend", "dist") {
-		t.Fatalf("expected %q, got %q", filepath.Join("frontend", "dist"), got)
+	if got := findStaticDir(); got != filepath.Join("gestalt", "dist") {
+		t.Fatalf("expected %q, got %q", filepath.Join("gestalt", "dist"), got)
 	}
 }
 
 func TestLoadAgentsIntegration(t *testing.T) {
 	root := t.TempDir()
-	agentsDir := filepath.Join(root, "config", "agents")
-	promptsDir := filepath.Join(root, "config", "prompts")
+	agentsDir := filepath.Join(root, "gestalt", "config", "agents")
+	promptsDir := filepath.Join(root, "gestalt", "config", "prompts")
 	if err := os.MkdirAll(agentsDir, 0755); err != nil {
 		t.Fatalf("mkdir agents: %v", err)
 	}
@@ -146,7 +146,8 @@ func TestLoadAgentsIntegration(t *testing.T) {
 	})
 
 	logger := logging.NewLoggerWithOutput(logging.NewLogBuffer(10), logging.LevelInfo, io.Discard)
-	agents, err := loadAgents(logger, nil)
+	configFS := buildConfigFS(logger)
+	agents, err := loadAgents(logger, configFS, nil)
 	if err != nil {
 		t.Fatalf("load agents: %v", err)
 	}
@@ -160,8 +161,8 @@ func TestLoadAgentsIntegration(t *testing.T) {
 
 func TestLoadAgentsReportsInvalidJSON(t *testing.T) {
 	root := t.TempDir()
-	agentsDir := filepath.Join(root, "config", "agents")
-	promptsDir := filepath.Join(root, "config", "prompts")
+	agentsDir := filepath.Join(root, "gestalt", "config", "agents")
+	promptsDir := filepath.Join(root, "gestalt", "config", "prompts")
 	if err := os.MkdirAll(agentsDir, 0755); err != nil {
 		t.Fatalf("mkdir agents: %v", err)
 	}
@@ -184,7 +185,8 @@ func TestLoadAgentsReportsInvalidJSON(t *testing.T) {
 	})
 
 	logger := logging.NewLoggerWithOutput(logging.NewLogBuffer(10), logging.LevelInfo, io.Discard)
-	if _, err := loadAgents(logger, nil); err == nil {
+	configFS := buildConfigFS(logger)
+	if _, err := loadAgents(logger, configFS, nil); err == nil {
 		t.Fatalf("expected error for invalid agent json")
 	}
 }

@@ -1,13 +1,14 @@
 package api
 
 import (
+	"io/fs"
 	"net/http"
 
 	"gestalt/internal/logging"
 	"gestalt/internal/terminal"
 )
 
-func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken string, staticDir string, logger *logging.Logger) {
+func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken string, staticDir string, frontendFS fs.FS, logger *logging.Logger) {
 	rest := &RestHandler{
 		Manager:  manager,
 		Logger:   logger,
@@ -35,6 +36,11 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 
 	if staticDir != "" {
 		mux.Handle("/", NewSPAHandler(staticDir))
+		return
+	}
+
+	if frontendFS != nil {
+		mux.Handle("/", NewSPAHandlerFS(frontendFS))
 		return
 	}
 

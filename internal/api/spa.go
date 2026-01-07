@@ -1,36 +1,48 @@
 package api
 
 import (
+	"io/fs"
 	"net/http"
 	"os"
-	"path/filepath"
+	"path"
+	"strings"
 )
 
 type SPAHandler struct {
-	staticDir string
-	indexPath string
+	fs         fs.FS
+	fileServer http.Handler
+	indexPath  string
 }
 
 func NewSPAHandler(staticDir string) *SPAHandler {
+	return NewSPAHandlerFS(os.DirFS(staticDir))
+}
+
+func NewSPAHandlerFS(staticFS fs.FS) *SPAHandler {
+	httpFS := http.FS(staticFS)
 	return &SPAHandler{
-		staticDir: staticDir,
-		indexPath: "index.html",
+		fs:         staticFS,
+		fileServer: http.FileServer(httpFS),
+		indexPath:  "index.html",
 	}
 }
 
 func (h *SPAHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	path := filepath.Clean(r.URL.Path)
-	if path == "." || path == "/" {
-		path = "/" + h.indexPath
+	requested := path.Clean(r.URL.Path)
+	if requested == "." || requested == "/" {
+		requested = "/" + h.indexPath
+	}
+	requested = strings.TrimPrefix(requested, "/")
+	if requested == "" {
+		requested = h.indexPath
 	}
 
-	requested := filepath.Join(h.staticDir, path)
-	info, err := os.Stat(requested)
-	if err == nil && !info.IsDir() {
-		http.ServeFile(w, r, requested)
+	if info, err := fs.Stat(h.fs, requested); err == nil && !info.IsDir() {
+		r.URL.Path = "/" + requested
+		h.fileServer.ServeHTTP(w, r)
 		return
 	}
 
-	index := filepath.Join(h.staticDir, h.indexPath)
-	http.ServeFile(w, r, index)
+	r.URL.Path = "/" + h.indexPath
+	h.fileServer.ServeHTTP(w, r)
 }

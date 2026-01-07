@@ -4,13 +4,14 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/fstest"
 
 	"gestalt/internal/logging"
 )
 
 func TestLoaderMissingDir(t *testing.T) {
 	loader := Loader{}
-	skills, err := loader.Load(filepath.Join(t.TempDir(), "missing"))
+	skills, err := loader.Load(nil, filepath.Join(t.TempDir(), "missing"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -37,7 +38,7 @@ description: Helpful git workflows
 	}
 
 	loader := Loader{}
-	skills, err := loader.Load(dir)
+	skills, err := loader.Load(nil, dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -62,7 +63,7 @@ func TestLoaderMissingSkillFileLogsWarning(t *testing.T) {
 	buffer := logging.NewLogBuffer(10)
 	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, nil)
 	loader := Loader{Logger: logger}
-	skills, err := loader.Load(dir)
+	skills, err := loader.Load(nil, dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -107,7 +108,7 @@ description: invalid name format
 	buffer := logging.NewLogBuffer(10)
 	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, nil)
 	loader := Loader{Logger: logger}
-	skills, err := loader.Load(dir)
+	skills, err := loader.Load(nil, dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -131,5 +132,37 @@ description: invalid name format
 	}
 	if !found {
 		t.Fatalf("expected warning log for invalid SKILL.md")
+	}
+}
+
+func TestLoaderWithFS(t *testing.T) {
+	fsys := fstest.MapFS{
+		"config/skills/git-workflows/SKILL.md": &fstest.MapFile{
+			Data: []byte(`---
+name: git-workflows
+description: Helpful git workflows
+---
+
+# Git Workflows
+`),
+		},
+		"config/skills/git-workflows/scripts/run.sh": &fstest.MapFile{
+			Data: []byte("#!/bin/sh\necho ok\n"),
+		},
+		"config/skills/git-workflows/references/README.md": &fstest.MapFile{
+			Data: []byte("refs"),
+		},
+	}
+
+	loader := Loader{}
+	skills, err := loader.Load(fsys, "config/skills")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(skills) != 1 {
+		t.Fatalf("expected 1 skill, got %d", len(skills))
+	}
+	if _, ok := skills["git-workflows"]; !ok {
+		t.Fatalf("missing git-workflows skill")
 	}
 }

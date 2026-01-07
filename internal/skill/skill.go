@@ -1,8 +1,11 @@
 package skill
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -119,6 +122,43 @@ func (s Skill) Validate() error {
 	return nil
 }
 
+// ValidateFS ensures required fields and structural rules are satisfied using the provided filesystem.
+func (s Skill) ValidateFS(skillFS fs.FS) error {
+	if skillFS == nil {
+		return s.Validate()
+	}
+
+	name := strings.TrimSpace(s.Name)
+	if name == "" {
+		return fmt.Errorf("skill name is required")
+	}
+	if len(name) > 64 {
+		return fmt.Errorf("skill name must be 1-64 characters")
+	}
+	if !namePattern.MatchString(name) {
+		return fmt.Errorf("skill name %q is invalid", name)
+	}
+
+	description := strings.TrimSpace(s.Description)
+	if len(description) == 0 || len(description) > 1024 {
+		return fmt.Errorf("skill description must be 1-1024 characters")
+	}
+
+	if s.Path != "" {
+		dirName := path.Base(path.Clean(s.Path))
+		if dirName != name {
+			return fmt.Errorf("skill name %q does not match directory %q", name, dirName)
+		}
+		for _, dir := range []string{"scripts", "references", "assets"} {
+			if err := validateOptionalDirFS(skillFS, s.Path, dir); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
 func splitFrontmatter(data []byte) ([]byte, string, error) {
 	if len(data) == 0 {
 		return nil, "", fmt.Errorf("missing frontmatter")
@@ -162,6 +202,24 @@ func validateOptionalDir(base, name string) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("check %s directory: %w", name, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", name)
+	}
+	return nil
+}
+
+func validateOptionalDirFS(skillFS fs.FS, base, name string) error {
+	if skillFS == nil {
+		return validateOptionalDir(base, name)
+	}
+	pathValue := path.Join(base, name)
+	info, err := fs.Stat(skillFS, pathValue)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
 			return nil
 		}
 		return fmt.Errorf("check %s directory: %w", name, err)

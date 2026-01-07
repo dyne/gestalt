@@ -30,11 +30,16 @@ func NewSPAHandlerFS(staticFS fs.FS) *SPAHandler {
 func (h *SPAHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	requested := path.Clean(r.URL.Path)
 	if requested == "." || requested == "/" {
-		requested = "/" + h.indexPath
+		r.URL.Path = "/"
+		h.fileServer.ServeHTTP(w, r)
+		return
 	}
+
 	requested = strings.TrimPrefix(requested, "/")
 	if requested == "" {
-		requested = h.indexPath
+		r.URL.Path = "/"
+		h.fileServer.ServeHTTP(w, r)
+		return
 	}
 
 	if info, err := fs.Stat(h.fs, requested); err == nil && !info.IsDir() {
@@ -43,6 +48,6 @@ func (h *SPAHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.URL.Path = "/" + h.indexPath
+	r.URL.Path = "/"
 	h.fileServer.ServeHTTP(w, r)
 }

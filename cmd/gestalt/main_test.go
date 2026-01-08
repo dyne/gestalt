@@ -20,7 +20,10 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	t.Setenv("GESTALT_INPUT_HISTORY_PERSIST", "true")
 	t.Setenv("GESTALT_INPUT_HISTORY_DIR", "/tmp/gestalt-input")
 
-	cfg := loadConfig()
+	cfg, err := loadConfig(nil)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
 	if cfg.Port != 9090 {
 		t.Fatalf("expected port 9090, got %d", cfg.Port)
 	}
@@ -52,7 +55,10 @@ func TestLoadConfigFromEnv(t *testing.T) {
 
 func TestLoadConfigDefaultsOnInvalidPort(t *testing.T) {
 	t.Setenv("GESTALT_PORT", "not-a-number")
-	cfg := loadConfig()
+	cfg, err := loadConfig(nil)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
 	if cfg.Port != 8080 {
 		t.Fatalf("expected default port 8080, got %d", cfg.Port)
 	}
@@ -71,7 +77,10 @@ func TestLoadConfigDisablesSessionPersistence(t *testing.T) {
 	t.Setenv("GESTALT_SESSION_PERSIST", "false")
 	t.Setenv("GESTALT_SESSION_DIR", "/tmp/gestalt-logs")
 
-	cfg := loadConfig()
+	cfg, err := loadConfig(nil)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
 	if cfg.SessionPersist {
 		t.Fatalf("expected session persistence disabled")
 	}
@@ -84,7 +93,10 @@ func TestLoadConfigDisablesInputHistory(t *testing.T) {
 	t.Setenv("GESTALT_INPUT_HISTORY_PERSIST", "false")
 	t.Setenv("GESTALT_INPUT_HISTORY_DIR", "/tmp/gestalt-input")
 
-	cfg := loadConfig()
+	cfg, err := loadConfig(nil)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
 	if cfg.InputHistoryPersist {
 		t.Fatalf("expected input history persistence disabled")
 	}

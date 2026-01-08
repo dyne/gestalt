@@ -30,7 +30,7 @@
    Tests: None (documentation only)
    Done when: CLI conventions documented and agreed upon
 
-** TODO [#B] Add flag package and help infrastructure to gestalt
+** DONE [#B] Add flag package and help infrastructure to gestalt
    Why: gestalt currently has no CLI flag parsing, only env vars
    Change:
    - Update cmd/gestalt/main.go to use flag.FlagSet

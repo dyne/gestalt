@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"os"
@@ -37,6 +39,46 @@ type Config struct {
 	InputHistoryPersist  bool
 	InputHistoryDir      string
 	MaxWatches           int
+	Verbose              bool
+	Sources              map[string]configSource
+}
+
+type configSource string
+
+const (
+	sourceDefault configSource = "default"
+	sourceEnv     configSource = "env"
+	sourceFlag    configSource = "flag"
+)
+
+type configDefaults struct {
+	Port                 int
+	Shell                string
+	AuthToken            string
+	SessionRetentionDays int
+	SessionPersist       bool
+	SessionLogDir        string
+	SessionBufferLines   int
+	InputHistoryPersist  bool
+	InputHistoryDir      string
+	MaxWatches           int
+}
+
+type flagValues struct {
+	Port                 int
+	Shell                string
+	Token                string
+	SessionRetentionDays int
+	SessionPersist       bool
+	SessionLogDir        string
+	SessionBufferLines   int
+	InputHistoryPersist  bool
+	InputHistoryDir      string
+	MaxWatches           int
+	Verbose              bool
+	Help                 bool
+	Version              bool
+	Set                  map[string]bool
 }
 
 func main() {
@@ -47,7 +89,14 @@ func main() {
 		os.Exit(runExtractConfig())
 	}
 
-	cfg := loadConfig()
+	cfg, err := loadConfig(os.Args[1:])
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return
+		}
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	logBuffer := logging.NewLogBuffer(logging.DefaultBufferSize)
 	logger := logging.NewLogger(logBuffer, logging.LevelInfo)
 	ensureStateDir(cfg, logger)
@@ -219,82 +268,270 @@ func watchPlanFile(eventHub *watcher.EventHub, logger *logging.Logger, planPath 
 	})
 }
 
-func loadConfig() Config {
-	port := 8080
+func loadConfig(args []string) (Config, error) {
+	defaults := defaultConfigValues()
+	flags, err := parseFlags(args, defaults)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg := Config{
+		Sources: make(map[string]configSource),
+	}
+
+	port := defaults.Port
+	portSource := sourceDefault
 	if rawPort := os.Getenv("GESTALT_PORT"); rawPort != "" {
-		if parsed, err := strconv.Atoi(rawPort); err == nil {
+		if parsed, err := strconv.Atoi(rawPort); err == nil && parsed > 0 {
 			port = parsed
+			portSource = sourceEnv
 		}
 	}
-
-	shell := os.Getenv("GESTALT_SHELL")
-	if shell == "" {
-		shell = terminal.DefaultShell()
+	if flags.Set["port"] {
+		if flags.Port <= 0 {
+			return Config{}, fmt.Errorf("invalid --port: must be > 0")
+		}
+		port = flags.Port
+		portSource = sourceFlag
 	}
+	cfg.Port = port
+	cfg.Sources["port"] = portSource
 
-	retentionDays := terminal.DefaultSessionRetentionDays
+	shell := defaults.Shell
+	shellSource := sourceDefault
+	if rawShell := strings.TrimSpace(os.Getenv("GESTALT_SHELL")); rawShell != "" {
+		shell = rawShell
+		shellSource = sourceEnv
+	}
+	if flags.Set["shell"] {
+		trimmed := strings.TrimSpace(flags.Shell)
+		if trimmed == "" {
+			return Config{}, fmt.Errorf("invalid --shell: value cannot be empty")
+		}
+		shell = trimmed
+		shellSource = sourceFlag
+	}
+	cfg.Shell = shell
+	cfg.Sources["shell"] = shellSource
+
+	token := os.Getenv("GESTALT_TOKEN")
+	tokenSource := sourceDefault
+	if token != "" {
+		tokenSource = sourceEnv
+	}
+	if flags.Set["token"] {
+		token = flags.Token
+		tokenSource = sourceFlag
+	}
+	cfg.AuthToken = token
+	cfg.Sources["token"] = tokenSource
+
+	retentionDays := defaults.SessionRetentionDays
+	retentionSource := sourceDefault
 	if rawRetention := os.Getenv("GESTALT_SESSION_RETENTION_DAYS"); rawRetention != "" {
 		if parsed, err := strconv.Atoi(rawRetention); err == nil && parsed > 0 {
 			retentionDays = parsed
+			retentionSource = sourceEnv
 		}
 	}
+	if flags.Set["session-retention-days"] {
+		if flags.SessionRetentionDays <= 0 {
+			return Config{}, fmt.Errorf("invalid --session-retention-days: must be > 0")
+		}
+		retentionDays = flags.SessionRetentionDays
+		retentionSource = sourceFlag
+	}
+	cfg.SessionRetentionDays = retentionDays
+	cfg.Sources["session-retention-days"] = retentionSource
 
-	sessionPersist := true
+	sessionPersist := defaults.SessionPersist
+	sessionPersistSource := sourceDefault
 	if rawPersist := os.Getenv("GESTALT_SESSION_PERSIST"); rawPersist != "" {
 		if parsed, err := strconv.ParseBool(rawPersist); err == nil {
 			sessionPersist = parsed
+			sessionPersistSource = sourceEnv
 		}
 	}
-
-	sessionLogDir := filepath.Join(".gestalt", "sessions")
-	if rawDir := strings.TrimSpace(os.Getenv("GESTALT_SESSION_DIR")); rawDir != "" {
-		sessionLogDir = rawDir
+	if flags.Set["session-persist"] {
+		sessionPersist = flags.SessionPersist
+		sessionPersistSource = sourceFlag
 	}
-	if !sessionPersist {
-		sessionLogDir = ""
-	}
+	cfg.SessionPersist = sessionPersist
+	cfg.Sources["session-persist"] = sessionPersistSource
 
-	sessionBufferLines := terminal.DefaultBufferLines
+	sessionLogDir := ""
+	sessionDirSource := sessionPersistSource
+	if sessionPersist {
+		sessionLogDir = defaults.SessionLogDir
+		sessionDirSource = sourceDefault
+		if rawDir := strings.TrimSpace(os.Getenv("GESTALT_SESSION_DIR")); rawDir != "" {
+			sessionLogDir = rawDir
+			sessionDirSource = sourceEnv
+		}
+		if flags.Set["session-dir"] {
+			trimmed := strings.TrimSpace(flags.SessionLogDir)
+			if trimmed == "" {
+				return Config{}, fmt.Errorf("invalid --session-dir: value cannot be empty")
+			}
+			sessionLogDir = trimmed
+			sessionDirSource = sourceFlag
+		}
+	}
+	cfg.SessionLogDir = sessionLogDir
+	cfg.Sources["session-dir"] = sessionDirSource
+
+	sessionBufferLines := defaults.SessionBufferLines
+	sessionBufferSource := sourceDefault
 	if rawLines := os.Getenv("GESTALT_SESSION_BUFFER_LINES"); rawLines != "" {
 		if parsed, err := strconv.Atoi(rawLines); err == nil && parsed > 0 {
 			sessionBufferLines = parsed
+			sessionBufferSource = sourceEnv
 		}
 	}
+	if flags.Set["session-buffer-lines"] {
+		if flags.SessionBufferLines <= 0 {
+			return Config{}, fmt.Errorf("invalid --session-buffer-lines: must be > 0")
+		}
+		sessionBufferLines = flags.SessionBufferLines
+		sessionBufferSource = sourceFlag
+	}
+	cfg.SessionBufferLines = sessionBufferLines
+	cfg.Sources["session-buffer-lines"] = sessionBufferSource
 
-	inputHistoryPersist := true
+	inputHistoryPersist := defaults.InputHistoryPersist
+	inputHistoryPersistSource := sourceDefault
 	if rawPersist := os.Getenv("GESTALT_INPUT_HISTORY_PERSIST"); rawPersist != "" {
 		if parsed, err := strconv.ParseBool(rawPersist); err == nil {
 			inputHistoryPersist = parsed
+			inputHistoryPersistSource = sourceEnv
 		}
 	}
-
-	inputHistoryDir := filepath.Join(".gestalt", "input-history")
-	if rawDir := strings.TrimSpace(os.Getenv("GESTALT_INPUT_HISTORY_DIR")); rawDir != "" {
-		inputHistoryDir = rawDir
+	if flags.Set["input-history-persist"] {
+		inputHistoryPersist = flags.InputHistoryPersist
+		inputHistoryPersistSource = sourceFlag
 	}
-	if !inputHistoryPersist {
-		inputHistoryDir = ""
-	}
+	cfg.InputHistoryPersist = inputHistoryPersist
+	cfg.Sources["input-history-persist"] = inputHistoryPersistSource
 
-	maxWatches := 100
+	inputHistoryDir := ""
+	inputHistoryDirSource := inputHistoryPersistSource
+	if inputHistoryPersist {
+		inputHistoryDir = defaults.InputHistoryDir
+		inputHistoryDirSource = sourceDefault
+		if rawDir := strings.TrimSpace(os.Getenv("GESTALT_INPUT_HISTORY_DIR")); rawDir != "" {
+			inputHistoryDir = rawDir
+			inputHistoryDirSource = sourceEnv
+		}
+		if flags.Set["input-history-dir"] {
+			trimmed := strings.TrimSpace(flags.InputHistoryDir)
+			if trimmed == "" {
+				return Config{}, fmt.Errorf("invalid --input-history-dir: value cannot be empty")
+			}
+			inputHistoryDir = trimmed
+			inputHistoryDirSource = sourceFlag
+		}
+	}
+	cfg.InputHistoryDir = inputHistoryDir
+	cfg.Sources["input-history-dir"] = inputHistoryDirSource
+
+	maxWatches := defaults.MaxWatches
+	maxWatchesSource := sourceDefault
 	if rawMax := strings.TrimSpace(os.Getenv("GESTALT_MAX_WATCHES")); rawMax != "" {
 		if parsed, err := strconv.Atoi(rawMax); err == nil && parsed > 0 {
 			maxWatches = parsed
+			maxWatchesSource = sourceEnv
 		}
 	}
-
-	return Config{
-		Port:                 port,
-		Shell:                shell,
-		AuthToken:            os.Getenv("GESTALT_TOKEN"),
-		SessionRetentionDays: retentionDays,
-		SessionPersist:       sessionPersist,
-		SessionLogDir:        sessionLogDir,
-		SessionBufferLines:   sessionBufferLines,
-		InputHistoryPersist:  inputHistoryPersist,
-		InputHistoryDir:      inputHistoryDir,
-		MaxWatches:           maxWatches,
+	if flags.Set["max-watches"] {
+		if flags.MaxWatches <= 0 {
+			return Config{}, fmt.Errorf("invalid --max-watches: must be > 0")
+		}
+		maxWatches = flags.MaxWatches
+		maxWatchesSource = sourceFlag
 	}
+	cfg.MaxWatches = maxWatches
+	cfg.Sources["max-watches"] = maxWatchesSource
+
+	verboseSource := sourceDefault
+	if flags.Set["verbose"] {
+		cfg.Verbose = flags.Verbose
+		verboseSource = sourceFlag
+	}
+	cfg.Sources["verbose"] = verboseSource
+
+	return cfg, nil
+}
+
+func defaultConfigValues() configDefaults {
+	return configDefaults{
+		Port:                 8080,
+		Shell:                terminal.DefaultShell(),
+		AuthToken:            "",
+		SessionRetentionDays: terminal.DefaultSessionRetentionDays,
+		SessionPersist:       true,
+		SessionLogDir:        filepath.Join(".gestalt", "sessions"),
+		SessionBufferLines:   terminal.DefaultBufferLines,
+		InputHistoryPersist:  true,
+		InputHistoryDir:      filepath.Join(".gestalt", "input-history"),
+		MaxWatches:           100,
+	}
+}
+
+func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
+	fs := flag.NewFlagSet("gestalt", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	port := fs.Int("port", defaults.Port, "HTTP server port")
+	shell := fs.String("shell", defaults.Shell, "Default shell command")
+	token := fs.String("token", defaults.AuthToken, "Auth token for REST/WS")
+	sessionPersist := fs.Bool("session-persist", defaults.SessionPersist, "Persist terminal sessions to disk")
+	sessionDir := fs.String("session-dir", defaults.SessionLogDir, "Session log directory")
+	sessionRetentionDays := fs.Int("session-retention-days", defaults.SessionRetentionDays, "Session retention days")
+	sessionBufferLines := fs.Int("session-buffer-lines", defaults.SessionBufferLines, "Session buffer lines")
+	inputHistoryPersist := fs.Bool("input-history-persist", defaults.InputHistoryPersist, "Persist input history")
+	inputHistoryDir := fs.String("input-history-dir", defaults.InputHistoryDir, "Input history directory")
+	maxWatches := fs.Int("max-watches", defaults.MaxWatches, "Max active watches")
+	verbose := fs.Bool("verbose", false, "Enable verbose logging")
+	help := fs.Bool("help", false, "Show help")
+	version := fs.Bool("version", false, "Print version and exit")
+
+	fs.Usage = func() {
+		fmt.Fprintln(fs.Output(), "Usage: gestalt [options]")
+		fs.PrintDefaults()
+	}
+
+	if err := fs.Parse(args); err != nil {
+		return flagValues{}, err
+	}
+
+	set := make(map[string]bool)
+	fs.Visit(func(flag *flag.Flag) {
+		set[flag.Name] = true
+	})
+
+	flags := flagValues{
+		Port:                 *port,
+		Shell:                *shell,
+		Token:                *token,
+		SessionRetentionDays: *sessionRetentionDays,
+		SessionPersist:       *sessionPersist,
+		SessionLogDir:        *sessionDir,
+		SessionBufferLines:   *sessionBufferLines,
+		InputHistoryPersist:  *inputHistoryPersist,
+		InputHistoryDir:      *inputHistoryDir,
+		MaxWatches:           *maxWatches,
+		Verbose:              *verbose,
+		Help:                 *help,
+		Version:              *version,
+		Set:                  set,
+	}
+
+	if flags.Help {
+		fs.SetOutput(os.Stdout)
+		fs.Usage()
+		return flags, flag.ErrHelp
+	}
+
+	return flags, nil
 }
 
 func ensureStateDir(cfg Config, logger *logging.Logger) {

@@ -19,6 +19,14 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 		GitOrigin: gitOrigin,
 		GitBranch: gitBranch,
 	}
+	if eventHub != nil {
+		eventHub.Subscribe(watcher.EventTypeGitBranchChanged, func(event watcher.Event) {
+			if event.Path == "" {
+				return
+			}
+			rest.setGitBranch(event.Path)
+		})
+	}
 
 	mux.Handle("/ws/terminal/", &TerminalHandler{
 		Manager:   manager,

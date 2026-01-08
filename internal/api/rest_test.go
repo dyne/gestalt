@@ -114,6 +114,36 @@ func TestStatusHandlerReturnsCount(t *testing.T) {
 	}
 }
 
+func TestStatusHandlerIncludesGitInfo(t *testing.T) {
+	manager := terminal.NewManager(terminal.ManagerOptions{Shell: "/bin/sh"})
+	handler := &RestHandler{
+		Manager:   manager,
+		GitOrigin: "origin",
+		GitBranch: "main",
+	}
+	handler.setGitBranch("feature")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", handler.handleStatus)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var payload statusResponse
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.GitOrigin != "origin" {
+		t.Fatalf("expected origin, got %q", payload.GitOrigin)
+	}
+	if payload.GitBranch != "feature" {
+		t.Fatalf("expected branch feature, got %q", payload.GitBranch)
+	}
+}
+
 func TestTerminalOutputEndpoint(t *testing.T) {
 	factory := &fakeFactory{}
 	manager := terminal.NewManager(terminal.ManagerOptions{

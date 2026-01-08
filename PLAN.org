@@ -125,7 +125,7 @@
    - Tests: Unit tests with temp git repo, simulate branch change
    Done when: Git branch changes trigger git_branch_changed events
 
-** TODO [#B] Add git origin and branch to /api/status
+** DONE [#B] Add git origin and branch to /api/status
    Why: Dashboard needs current git context
    Change:
    - Extend statusResponse in internal/api/rest.go: GitOrigin, GitBranch strings

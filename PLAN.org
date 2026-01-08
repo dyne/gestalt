@@ -1,4 +1,4 @@
-* WIP [#B] Improve CLI tools with proper flags and help
+* DONE [#B] Improve CLI tools with proper flags and help
   Goal: Add comprehensive --help documentation and command-line flags to gestalt, gestalt-desktop, and gestalt-send, with flags named after env vars (lowercase) and CLI flags overriding env vars.
   Notes:
   - Current state: gestalt has no CLI flags (only env vars), gestalt-send has minimal flags
@@ -16,7 +16,7 @@
   - Future: consider cobra/viper for richer CLI (defer unless needed)
   Date: 2026-01-08
 
-** DONE [#B] Define consistent CLI flag structure and conventions
+** [#B] Define consistent CLI flag structure and conventions
    Why: Need unified approach across all three binaries before implementation
    Change:
    - Document flag naming convention: GESTALT_FOO_BAR → --foo-bar
@@ -30,7 +30,7 @@
    Tests: None (documentation only)
    Done when: CLI conventions documented and agreed upon
 
-** DONE [#B] Add flag package and help infrastructure to gestalt
+** [#B] Add flag package and help infrastructure to gestalt
    Why: gestalt currently has no CLI flag parsing, only env vars
    Change:
    - Update cmd/gestalt/main.go to use flag.FlagSet
@@ -52,7 +52,7 @@
    Tests: Unit tests for flag parsing, priority order
    Done when: gestalt accepts all config via CLI flags
 
-** DONE [#B] Implement comprehensive --help for gestalt
+** [#B] Implement comprehensive --help for gestalt
    Why: Users need to discover available options without reading README
    Change:
    - Implement custom flag.Usage function for gestalt
@@ -84,7 +84,7 @@
    Tests: Manual test --help output, verify formatting
    Done when: gestalt --help shows comprehensive documentation
 
-** DONE [#B] Add --version flag to gestalt
+** [#B] Add --version flag to gestalt
    Why: Users need to check installed version easily
    Change:
    - Add --version flag to gestalt flag set
@@ -95,7 +95,7 @@
    Tests: Test --version output matches version.Version
    Done when: gestalt --version prints version and exits
 
-** DONE [#B] Refactor gestalt-send to use consistent flag naming
+** [#B] Refactor gestalt-send to use consistent flag naming
    Why: gestalt-send uses --url/--token, should match naming convention
    Change:
    - Rename flags to match env vars (already close):
@@ -109,7 +109,7 @@
    Tests: Update gestalt-send tests for new flag behavior
    Done when: gestalt-send flags follow conventions
 
-** DONE [#B] Implement comprehensive --help for gestalt-send
+** [#B] Implement comprehensive --help for gestalt-send
    Why: gestalt-send help is minimal, needs improvement
    Change:
    - Expand fs.Usage function with full documentation
@@ -147,7 +147,7 @@
    Tests: Manual test --help output
    Done when: gestalt-send --help shows comprehensive documentation
 
-** DONE [#B] Add --version flag to gestalt-send
+** [#B] Add --version flag to gestalt-send
    Why: Consistency with gestalt, users need version info
    Change:
    - Add --version flag to gestalt-send
@@ -157,7 +157,7 @@
    Tests: Test --version output
    Done when: gestalt-send --version prints version and exits
 
-** DONE [#B] Create gestalt-desktop CLI with same flag structure
+** [#B] Create gestalt-desktop CLI with same flag structure
    Why: Desktop app needs same CLI interface as web mode for consistency
    Change:
    - When implementing cmd/gestalt-desktop, use same flag structure as gestalt
@@ -173,7 +173,7 @@
    Tests: gestalt-desktop --help shows all options
    Done when: Desktop CLI matches web CLI conventions (defer to Wails L1)
 
-** DONE [#C] Add shell completion subcommand to gestalt
+** [#C] Add shell completion subcommand to gestalt
    Why: Improve CLI UX with tab-completion for flags and subcommands
    Change:
    - Add "gestalt completion bash|zsh" subcommand
@@ -185,7 +185,7 @@
    Tests: Manual test completion installation
    Done when: gestalt completion generates working scripts (optional)
 
-** DONE [#C] Add verbose/debug logging flags to gestalt
+** [#C] Add verbose/debug logging flags to gestalt
    Why: Help users and developers troubleshoot issues
    Change:
    - Add --verbose flag: increase log level to debug
@@ -197,7 +197,7 @@
    Tests: Test log output at different verbosity levels
    Done when: Verbosity flags control log output (optional)
 
-** DONE [#B] Add CLI flag parsing tests
+** [#B] Add CLI flag parsing tests
    Why: Ensure flag parsing and priority order work correctly
    Change:
    - Create cmd/gestalt/flags_test.go with tests for:
@@ -213,7 +213,7 @@
    Tests: go test ./cmd/gestalt ./cmd/gestalt-send
    Done when: Flag parsing has comprehensive test coverage
 
-** DONE [#B] Update README with CLI flag documentation
+** [#B] Update README with CLI flag documentation
    Why: Users need to know about new CLI flag interface
    Change:
    - Add "Command-Line Interface" section to README.md
@@ -229,7 +229,7 @@
    Tests: None (documentation only)
    Done when: README documents CLI flags with examples
 
-** DONE [#C] Consider migrating to cobra for richer CLI (future)
+** [#C] Consider migrating to cobra for richer CLI (future)
    Why: stdlib flag is limited; cobra provides better UX and structure
    Change:
    - Research cobra/viper for CLI and config management
@@ -240,7 +240,6 @@
    - Document decision and future migration path
    Tests: None (research only)
    Done when: Decision documented on CLI framework (defer migration)
-
 * TODO [#A] Wails desktop application packaging
   Goal: Package Gestalt as a native desktop application using Wails v3, providing a standalone executable for macOS, Windows, and Linux while preserving the existing web server mode as default.
   Notes:

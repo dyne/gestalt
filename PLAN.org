@@ -157,7 +157,7 @@
    Tests: Test --version output
    Done when: gestalt-send --version prints version and exits
 
-** TODO [#B] Create gestalt-desktop CLI with same flag structure
+** DONE [#B] Create gestalt-desktop CLI with same flag structure
    Why: Desktop app needs same CLI interface as web mode for consistency
    Change:
    - When implementing cmd/gestalt-desktop, use same flag structure as gestalt

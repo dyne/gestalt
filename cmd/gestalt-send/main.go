@@ -117,8 +117,7 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 	helpFlag := fs.Bool("help", false, "Show this help message")
 	versionFlag := fs.Bool("version", false, "Print version and exit")
 	fs.Usage = func() {
-		fmt.Fprintln(errOut, "Usage: gestalt-send [options] <agent-name-or-id>")
-		fs.PrintDefaults()
+		printSendHelp(fs.Output())
 	}
 
 	if err := fs.Parse(args); err != nil {
@@ -166,6 +165,39 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 		Verbose:  *verboseFlag,
 		Debug:    *debugFlag,
 	}, nil
+}
+
+func printSendHelp(out io.Writer) {
+	fmt.Fprintln(out, "Usage: gestalt-send [options] <agent-name-or-id>")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Send stdin to a running Gestalt agent terminal")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Options:")
+	writeSendOption(out, "--url URL", "Gestalt server URL (env: GESTALT_URL, default: http://localhost:8080)")
+	writeSendOption(out, "--token TOKEN", "Auth token (env: GESTALT_TOKEN, default: none)")
+	writeSendOption(out, "--start", "Auto-start agent if not running")
+	writeSendOption(out, "--verbose", "Show request/response details")
+	writeSendOption(out, "--debug", "Show detailed debug info (implies --verbose)")
+	writeSendOption(out, "--help", "Show this help message")
+	writeSendOption(out, "--version", "Print version and exit")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Arguments:")
+	fmt.Fprintln(out, "  agent-name-or-id  Agent name or ID to send input to")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Examples:")
+	fmt.Fprintln(out, "  cat file.txt | gestalt-send copilot")
+	fmt.Fprintln(out, "  echo \"status\" | gestalt-send --start architect")
+	fmt.Fprintln(out, "  gestalt-send --url http://remote:8080 --token abc123 agent-id")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Exit codes:")
+	fmt.Fprintln(out, "  0  Success")
+	fmt.Fprintln(out, "  1  Usage error")
+	fmt.Fprintln(out, "  2  Agent not running")
+	fmt.Fprintln(out, "  3  Network or server error")
+}
+
+func writeSendOption(out io.Writer, name, desc string) {
+	fmt.Fprintf(out, "  %-14s %s\n", name, desc)
 }
 
 func handleSendError(err error, errOut io.Writer) int {

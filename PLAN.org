@@ -185,7 +185,7 @@
    Tests: Manual test completion installation
    Done when: gestalt completion generates working scripts (optional)
 
-** TODO [#C] Add verbose/debug logging flags to gestalt
+** DONE [#C] Add verbose/debug logging flags to gestalt
    Why: Help users and developers troubleshoot issues
    Change:
    - Add --verbose flag: increase log level to debug

@@ -44,7 +44,7 @@ _gestalt_complete() {
   fi
 
   if [[ "$cur" == -* ]]; then
-    COMPREPLY=( $(compgen -W "--port --shell --token --session-persist --session-dir --session-buffer-lines --session-retention-days --input-history-persist --input-history-dir --max-watches --verbose --help --version --extract-config" -- "$cur") )
+    COMPREPLY=( $(compgen -W "--port --shell --token --session-persist --session-dir --session-buffer-lines --session-retention-days --input-history-persist --input-history-dir --max-watches --verbose --quiet --help --version --extract-config" -- "$cur") )
     return
   fi
 
@@ -71,6 +71,7 @@ _gestalt_complete() {
     '--input-history-dir[Input history directory]'
     '--max-watches[Max active watches]'
     '--verbose[Enable verbose logging]'
+    '--quiet[Reduce logging to warnings]'
     '--help[Show help]'
     '--version[Print version and exit]'
     '--extract-config[Extract embedded defaults]'

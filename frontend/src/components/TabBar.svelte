@@ -1,4 +1,6 @@
 <script>
+  import { VERSION } from '../lib/version.js'
+
   export let tabs = []
   export let activeId = ''
   export let onSelect = () => {}
@@ -14,7 +16,7 @@
     aria-label="Open dashboard"
   >
     <span class="tabbar__brand-title">Gestalt</span>
-    <span class="tabbar__brand-by">by Dyne.org</span>
+    <span class="tabbar__brand-by">v{VERSION}</span>
   </button>
   {#each tabs as tab}
     <div class="tabbar__item" data-active={tab.id === activeId}>

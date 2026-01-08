@@ -732,7 +732,7 @@
    Tests: npm run build; visually verify version displays correctly
    Done when: Version appears in Dashboard header with .cta-inspired styling
 
-** TODO [#C] Update Makefile to integrate versioning
+** DONE [#C] Update Makefile to integrate versioning
    Why: Local builds should support version injection
    Change:
    - Add VERSION ?= dev to Makefile (default to "dev" for local builds)

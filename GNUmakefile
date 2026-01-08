@@ -2,17 +2,19 @@
 GO ?= go
 PREFIX ?= $(DESTDIR)/usr/local
 BINDIR ?= $(PREFIX)/bin
+VERSION ?= dev
 
-.PHONY: build test clean
+.PHONY: build test clean version
 
 build: gestalt gestalt-send
 
 # Frontend build is required before embedding.
 frontend/dist:
-	cd frontend && npm install && npm run build
+	cd frontend && npm install && VERSION=$(VERSION) npm run build
 
 gestalt: frontend/dist
-	$(GO) build -o gestalt ./cmd/gestalt
+	# make VERSION=1.2.3 to build with specific version
+	$(GO) build -ldflags "-X gestalt/internal/version.Version=$(VERSION)" -o gestalt ./cmd/gestalt
 
 gestalt-send:
 	$(GO) build -o gestalt-send ./cmd/gestalt-send
@@ -24,6 +26,9 @@ install: gestalt gestalt-send
 test:
 	go test ./...
 	cd frontend && npm test
+
+version:
+	@git describe --tags --always --dirty 2>/dev/null || echo "dev"
 
 clean:
 	rm -rf frontend/dist

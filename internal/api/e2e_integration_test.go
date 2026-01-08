@@ -74,10 +74,19 @@ func TestEndToEndTerminalFlow(t *testing.T) {
 	}
 	defer conn.Close()
 
+	interactionTimeout := time.Second
+	readyPayload := []byte("ready\n")
+	if err := conn.WriteMessage(websocket.BinaryMessage, readyPayload); err != nil {
+		t.Fatalf("write readiness payload: %v", err)
+	}
+	if !pty.waitForWrite(readyPayload, interactionTimeout) {
+		t.Fatalf("expected PTY to receive readiness payload")
+	}
+
 	if err := pty.emitOutput([]byte("hello\n")); err != nil {
 		t.Fatalf("emit output: %v", err)
 	}
-	_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	_ = conn.SetReadDeadline(time.Now().Add(interactionTimeout))
 	_, msg, err := conn.ReadMessage()
 	if err != nil {
 		t.Fatalf("read websocket: %v", err)
@@ -90,7 +99,7 @@ func TestEndToEndTerminalFlow(t *testing.T) {
 	if err := conn.WriteMessage(websocket.BinaryMessage, payload); err != nil {
 		t.Fatalf("write websocket: %v", err)
 	}
-	if !pty.waitForWrite(payload, 500*time.Millisecond) {
+	if !pty.waitForWrite(payload, interactionTimeout) {
 		t.Fatalf("expected PTY to receive %q", string(payload))
 	}
 }

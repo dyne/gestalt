@@ -12,12 +12,12 @@ build: gestalt gestalt-send
 frontend/dist:
 	cd frontend && npm install && VERSION=$(VERSION) npm run build
 
+# make VERSION=1.2.3 to build with specific version
 gestalt: frontend/dist
-	# make VERSION=1.2.3 to build with specific version
 	$(GO) build -ldflags "-X gestalt/internal/version.Version=$(VERSION)" -o gestalt ./cmd/gestalt
 
 gestalt-send:
-	$(GO) build -o gestalt-send ./cmd/gestalt-send
+	$(GO) build  -ldflags "-X gestalt/internal/version.Version=$(VERSION)" -o gestalt-send ./cmd/gestalt-send
 
 install: gestalt gestalt-send
 	install -m 0755 gestalt $(BINDIR)/gestalt

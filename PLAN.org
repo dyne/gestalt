@@ -137,7 +137,7 @@
    - Tests: API test with/without git repo; go test ./internal/api
    Done when: GET /api/status returns git origin and current branch
 
-** TODO [#B] Update Dashboard to show git branch live
+** DONE [#B] Update Dashboard to show git branch live
    Why: Users need to see current git context in Dashboard
    Change:
    - Add git origin/branch display to Dashboard.svelte status section

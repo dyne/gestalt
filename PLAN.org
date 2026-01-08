@@ -645,7 +645,7 @@
    Tests: None (documentation only)
    Done when: Widget system is fully documented in README
 
-* WIP [#B] Semantic versioning with automated releases
+* DONE [#B] Semantic versioning with automated releases
   Goal: Implement semantic versioning throughout Gestalt with automated version generation in GitHub Actions based on conventional commits (feat:/fix:), compile version into backend and frontend, and display version in UI near the Gestalt title.
   Notes:
   - Use conventional commits (feat:, fix:) to drive semantic versioning
@@ -662,7 +662,7 @@
   - Git tags are source of truth; no manual version files
   Date: 2025-12-30
 
-** DONE [#B] Create Node.js script for version detection using semver
+** [#B] Create Node.js script for version detection using semver
    Why: Need reliable version bumping based on conventional commits using semver package
    Change:
    - Install semver package as dev dependency in root: npm install --save-dev semver
@@ -680,7 +680,7 @@
    Tests: Run script manually with various commit histories
    Done when: Script correctly determines next version from git history using semver
 
-** DONE [#B] Create GitHub Actions release workflow
+** [#B] Create GitHub Actions release workflow
    Why: Automate version detection, tagging, and release creation on main branch
    Change:
    - Create .github/workflows/release.yml (separate from tests.yml)
@@ -696,7 +696,7 @@
    Tests: Push feat: or fix: commit to main, verify tag and release created
    Done when: GitHub Action automatically tags and releases on conventional commits
 
-** DONE [#B] Pass version to Go backend at build time
+** [#B] Pass version to Go backend at build time
    Why: Backend needs to know its version for /api/status and logging
    Change:
    - Add internal/version/version.go with var Version string
@@ -708,7 +708,7 @@
    Tests: go test ./...; verify version appears in /api/status
    Done when: Backend binary contains version compiled at build time
 
-** DONE [#B] Pass version to frontend at build time
+** [#B] Pass version to frontend at build time
    Why: Frontend needs to display version in UI
    Change:
    - Use Vite's define option to inject version at build time
@@ -719,7 +719,7 @@
    Tests: npm run build; verify version is in bundle
    Done when: Frontend bundle contains version from build-time env var
 
-** DONE [#C] Display version in Dashboard header
+** [#C] Display version in Dashboard header
    Why: Users should see which version of Gestalt they're running
    Change:
    - Import VERSION from lib/version.js in Dashboard.svelte
@@ -732,7 +732,7 @@
    Tests: npm run build; visually verify version displays correctly
    Done when: Version appears in Dashboard header with .cta-inspired styling
 
-** DONE [#C] Update Makefile to integrate versioning
+** [#C] Update Makefile to integrate versioning
    Why: Local builds should support version injection
    Change:
    - Add VERSION ?= dev to Makefile (default to "dev" for local builds)
@@ -745,7 +745,7 @@
    Tests: make VERSION=1.0.0; verify both binaries have correct version
    Done when: Makefile supports VERSION variable for local builds
 
-** DONE [#C] Integrate versioning into test workflow
+** [#C] Integrate versioning into test workflow
    Why: Test builds should include version info for debugging
    Change:
    - Update .github/workflows/tests.yml to detect version during build
@@ -757,7 +757,7 @@
    Tests: Push to PR or branch, verify tests run with version info
    Done when: Test workflow builds contain version from git tags
 
-** DONE [#C] Document versioning workflow
+** [#C] Document versioning workflow
    Why: Contributors need to understand commit message conventions
    Change:
    - Add "Versioning" section to README.md

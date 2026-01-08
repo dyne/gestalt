@@ -1,0 +1,7 @@
+{
+  "name": "gestalt",
+  "private": true,
+  "devDependencies": {
+    "semver": "^7.6.3"
+  }
+}

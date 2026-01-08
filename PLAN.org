@@ -645,7 +645,7 @@
    Tests: None (documentation only)
    Done when: Widget system is fully documented in README
 
-* TODO [#B] Semantic versioning with automated releases
+* WIP [#B] Semantic versioning with automated releases
   Goal: Implement semantic versioning throughout Gestalt with automated version generation in GitHub Actions based on conventional commits (feat:/fix:), compile version into backend and frontend, and display version in UI near the Gestalt title.
   Notes:
   - Use conventional commits (feat:, fix:) to drive semantic versioning
@@ -662,7 +662,7 @@
   - Git tags are source of truth; no manual version files
   Date: 2025-12-30
 
-** TODO [#B] Create Node.js script for version detection using semver
+** DONE [#B] Create Node.js script for version detection using semver
    Why: Need reliable version bumping based on conventional commits using semver package
    Change:
    - Install semver package as dev dependency in root: npm install --save-dev semver

@@ -31,7 +31,7 @@
    Tests: go mod tidy; verify module resolves
    Done when: fsnotify added as dependency with justification documented
 
-** TODO [#B] Create internal/watcher package structure
+** DONE [#B] Create internal/watcher package structure
    Why: Need reusable abstraction for filesystem watching
    Change:
    - Create internal/watcher/ package with doc.go documenting purpose

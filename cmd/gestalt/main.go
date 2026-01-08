@@ -40,6 +40,7 @@ type Config struct {
 	InputHistoryDir      string
 	MaxWatches           int
 	Verbose              bool
+	Quiet                bool
 	ShowVersion          bool
 	Sources              map[string]configSource
 }
@@ -77,6 +78,7 @@ type flagValues struct {
 	InputHistoryDir      string
 	MaxWatches           int
 	Verbose              bool
+	Quiet                bool
 	Help                 bool
 	Version              bool
 	Set                  map[string]bool
@@ -110,7 +112,16 @@ func main() {
 		return
 	}
 	logBuffer := logging.NewLogBuffer(logging.DefaultBufferSize)
-	logger := logging.NewLogger(logBuffer, logging.LevelInfo)
+	logLevel := logging.LevelInfo
+	if cfg.Verbose {
+		logLevel = logging.LevelDebug
+	} else if cfg.Quiet {
+		logLevel = logging.LevelWarning
+	}
+	logger := logging.NewLogger(logBuffer, logLevel)
+	if cfg.Verbose {
+		logStartupFlags(logger, cfg)
+	}
 	ensureStateDir(cfg, logger)
 
 	configFS := buildConfigFS(logger)
@@ -471,6 +482,13 @@ func loadConfig(args []string) (Config, error) {
 	}
 	cfg.Sources["verbose"] = verboseSource
 
+	quietSource := sourceDefault
+	if flags.Set["quiet"] {
+		cfg.Quiet = flags.Quiet
+		quietSource = sourceFlag
+	}
+	cfg.Sources["quiet"] = quietSource
+
 	versionSource := sourceDefault
 	cfg.ShowVersion = flags.Version
 	if flags.Set["version"] {
@@ -510,6 +528,7 @@ func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
 	inputHistoryDir := fs.String("input-history-dir", defaults.InputHistoryDir, "Input history directory")
 	maxWatches := fs.Int("max-watches", defaults.MaxWatches, "Max active watches")
 	verbose := fs.Bool("verbose", false, "Enable verbose logging")
+	quiet := fs.Bool("quiet", false, "Reduce logging to warnings")
 	help := fs.Bool("help", false, "Show help")
 	version := fs.Bool("version", false, "Print version and exit")
 
@@ -538,6 +557,7 @@ func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
 		InputHistoryDir:      *inputHistoryDir,
 		MaxWatches:           *maxWatches,
 		Verbose:              *verbose,
+		Quiet:                *quiet,
 		Help:                 *help,
 		Version:              *version,
 		Set:                  set,
@@ -622,6 +642,10 @@ func printHelp(out io.Writer, defaults configDefaults) {
 			Desc: "Enable verbose logging (default: false)",
 		},
 		{
+			Name: "--quiet",
+			Desc: "Reduce logging to warnings (default: false)",
+		},
+		{
 			Name: "--help",
 			Desc: "Show this help message",
 		},
@@ -649,6 +673,77 @@ func writeOptionGroup(out io.Writer, title string, options []helpOption) {
 		fmt.Fprintf(out, "    %-30s %s\n", option.Name, option.Desc)
 	}
 	fmt.Fprintln(out, "")
+}
+
+func logStartupFlags(logger *logging.Logger, cfg Config) {
+	if logger == nil || cfg.Sources == nil {
+		return
+	}
+	var flags []string
+	if cfg.Sources["port"] == sourceFlag {
+		flags = append(flags, fmt.Sprintf("--port %d", cfg.Port))
+	}
+	if cfg.Sources["shell"] == sourceFlag {
+		flags = append(flags, formatStringFlag("--shell", cfg.Shell))
+	}
+	if cfg.Sources["token"] == sourceFlag {
+		flags = append(flags, formatTokenFlag(cfg.AuthToken))
+	}
+	if cfg.Sources["session-persist"] == sourceFlag {
+		flags = append(flags, formatBoolFlag("--session-persist", cfg.SessionPersist))
+	}
+	if cfg.Sources["session-dir"] == sourceFlag {
+		flags = append(flags, formatStringFlag("--session-dir", cfg.SessionLogDir))
+	}
+	if cfg.Sources["session-buffer-lines"] == sourceFlag {
+		flags = append(flags, fmt.Sprintf("--session-buffer-lines %d", cfg.SessionBufferLines))
+	}
+	if cfg.Sources["session-retention-days"] == sourceFlag {
+		flags = append(flags, fmt.Sprintf("--session-retention-days %d", cfg.SessionRetentionDays))
+	}
+	if cfg.Sources["input-history-persist"] == sourceFlag {
+		flags = append(flags, formatBoolFlag("--input-history-persist", cfg.InputHistoryPersist))
+	}
+	if cfg.Sources["input-history-dir"] == sourceFlag {
+		flags = append(flags, formatStringFlag("--input-history-dir", cfg.InputHistoryDir))
+	}
+	if cfg.Sources["max-watches"] == sourceFlag {
+		flags = append(flags, fmt.Sprintf("--max-watches %d", cfg.MaxWatches))
+	}
+	if cfg.Sources["verbose"] == sourceFlag {
+		flags = append(flags, formatBoolFlag("--verbose", cfg.Verbose))
+	}
+	if cfg.Sources["quiet"] == sourceFlag {
+		flags = append(flags, formatBoolFlag("--quiet", cfg.Quiet))
+	}
+
+	if len(flags) == 0 {
+		return
+	}
+	logger.Debug("starting with flags", map[string]string{
+		"flags": strings.Join(flags, " "),
+	})
+}
+
+func formatBoolFlag(name string, value bool) string {
+	if value {
+		return name
+	}
+	return fmt.Sprintf("%s=%t", name, value)
+}
+
+func formatStringFlag(name, value string) string {
+	if strings.TrimSpace(value) == "" {
+		return fmt.Sprintf("%s=\"\"", name)
+	}
+	return fmt.Sprintf("%s %s", name, value)
+}
+
+func formatTokenFlag(token string) string {
+	if strings.TrimSpace(token) == "" {
+		return "--token=\"\""
+	}
+	return "--token [set]"
 }
 
 func ensureStateDir(cfg Config, logger *logging.Logger) {

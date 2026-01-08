@@ -95,3 +95,4 @@ GitHub Actions runs Go unit tests plus frontend Vitest runs (including coverage)
 - Tool-specific flags: gestalt (server config), gestalt-send (client config), gestalt-desktop (gestalt flags plus window config).
 - Exit codes: 0 success, 1 usage error, 2 runtime error, 3 network error.
 - Subcommands: gestalt validate-skill, gestalt completion.
+- CLI framework: stdlib flag stays for now; cobra/viper deferred until CLI complexity grows.

@@ -1779,7 +1779,7 @@
    Tests: Start temporal dev server, verify UI accessible
    Done when: Temporal dev server runs locally and is documented
 
-** WIP [#B] Add Temporal Go SDK dependency
+** DONE [#B] Add Temporal Go SDK dependency
    Why: Need Temporal client and worker SDK in Go backend
    Change:
    - Add dependency: go get go.temporal.io/sdk@latest
@@ -1793,7 +1793,7 @@
    Tests: go test ./...; verify Temporal client initializes
    Done when: Temporal SDK integrated and client connects to server
 
-** TODO [#B] Create session workflow definition
+** WIP [#B] Create session workflow definition
    Why: Define workflow for terminal session lifecycle management
    Change:
    - Create internal/temporal/workflows/session_workflow.go

@@ -22,6 +22,7 @@ import (
 	"gestalt/internal/api"
 	"gestalt/internal/logging"
 	"gestalt/internal/skill"
+	"gestalt/internal/temporal"
 	"gestalt/internal/terminal"
 	"gestalt/internal/version"
 	"gestalt/internal/watcher"
@@ -33,6 +34,8 @@ type Config struct {
 	Port                 int
 	Shell                string
 	AuthToken            string
+	TemporalHost         string
+	TemporalNamespace    string
 	SessionRetentionDays int
 	SessionPersist       bool
 	SessionLogDir        string
@@ -54,13 +57,15 @@ const (
 	sourceFlag    configSource = "flag"
 )
 
-const temporalDevServerHost = "localhost:7233"
-const temporalDevServerTimeout = 500 * time.Millisecond
+const temporalDefaultHost = "localhost:7233"
+const temporalHealthCheckTimeout = 500 * time.Millisecond
 
 type configDefaults struct {
 	Port                 int
 	Shell                string
 	AuthToken            string
+	TemporalHost         string
+	TemporalNamespace    string
 	SessionRetentionDays int
 	SessionPersist       bool
 	SessionLogDir        string
@@ -74,6 +79,8 @@ type flagValues struct {
 	Port                 int
 	Shell                string
 	Token                string
+	TemporalHost         string
+	TemporalNamespace    string
 	SessionRetentionDays int
 	SessionPersist       bool
 	SessionLogDir        string
@@ -127,7 +134,25 @@ func main() {
 		logStartupFlags(logger, cfg)
 	}
 	ensureStateDir(cfg, logger)
-	logTemporalDevServerHealth(logger)
+	logTemporalServerHealth(logger, cfg.TemporalHost)
+
+	temporalClient, temporalClientError := temporal.NewClient(temporal.ClientConfig{
+		HostPort:  cfg.TemporalHost,
+		Namespace: cfg.TemporalNamespace,
+	})
+	if temporalClientError != nil {
+		logger.Warn("temporal client unavailable", map[string]string{
+			"host":      cfg.TemporalHost,
+			"namespace": cfg.TemporalNamespace,
+			"error":     temporalClientError.Error(),
+		})
+	} else if temporalClient != nil {
+		defer temporalClient.Close()
+		logger.Info("temporal client connected", map[string]string{
+			"host":      cfg.TemporalHost,
+			"namespace": cfg.TemporalNamespace,
+		})
+	}
 
 	configFS := buildConfigFS(logger)
 	skills, err := loadSkills(logger, configFS)
@@ -354,6 +379,40 @@ func loadConfig(args []string) (Config, error) {
 	cfg.AuthToken = token
 	cfg.Sources["token"] = tokenSource
 
+	temporalHost := defaults.TemporalHost
+	temporalHostSource := sourceDefault
+	if rawHost := strings.TrimSpace(os.Getenv("GESTALT_TEMPORAL_HOST")); rawHost != "" {
+		temporalHost = rawHost
+		temporalHostSource = sourceEnv
+	}
+	if flags.Set["temporal-host"] {
+		trimmed := strings.TrimSpace(flags.TemporalHost)
+		if trimmed == "" {
+			return Config{}, fmt.Errorf("invalid --temporal-host: value cannot be empty")
+		}
+		temporalHost = trimmed
+		temporalHostSource = sourceFlag
+	}
+	cfg.TemporalHost = temporalHost
+	cfg.Sources["temporal-host"] = temporalHostSource
+
+	temporalNamespace := defaults.TemporalNamespace
+	temporalNamespaceSource := sourceDefault
+	if rawNamespace := strings.TrimSpace(os.Getenv("GESTALT_TEMPORAL_NAMESPACE")); rawNamespace != "" {
+		temporalNamespace = rawNamespace
+		temporalNamespaceSource = sourceEnv
+	}
+	if flags.Set["temporal-namespace"] {
+		trimmed := strings.TrimSpace(flags.TemporalNamespace)
+		if trimmed == "" {
+			return Config{}, fmt.Errorf("invalid --temporal-namespace: value cannot be empty")
+		}
+		temporalNamespace = trimmed
+		temporalNamespaceSource = sourceFlag
+	}
+	cfg.TemporalNamespace = temporalNamespace
+	cfg.Sources["temporal-namespace"] = temporalNamespaceSource
+
 	retentionDays := defaults.SessionRetentionDays
 	retentionSource := sourceDefault
 	if rawRetention := os.Getenv("GESTALT_SESSION_RETENTION_DAYS"); rawRetention != "" {
@@ -509,6 +568,8 @@ func defaultConfigValues() configDefaults {
 		Port:                 8080,
 		Shell:                terminal.DefaultShell(),
 		AuthToken:            "",
+		TemporalHost:         temporalDefaultHost,
+		TemporalNamespace:    "default",
 		SessionRetentionDays: terminal.DefaultSessionRetentionDays,
 		SessionPersist:       true,
 		SessionLogDir:        filepath.Join(".gestalt", "sessions"),
@@ -528,6 +589,8 @@ func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
 	port := fs.Int("port", defaults.Port, "HTTP server port")
 	shell := fs.String("shell", defaults.Shell, "Default shell command")
 	token := fs.String("token", defaults.AuthToken, "Auth token for REST/WS")
+	temporalHost := fs.String("temporal-host", defaults.TemporalHost, "Temporal server host:port")
+	temporalNamespace := fs.String("temporal-namespace", defaults.TemporalNamespace, "Temporal namespace")
 	sessionPersist := fs.Bool("session-persist", defaults.SessionPersist, "Persist terminal sessions to disk")
 	sessionDir := fs.String("session-dir", defaults.SessionLogDir, "Session log directory")
 	sessionRetentionDays := fs.Int("session-retention-days", defaults.SessionRetentionDays, "Session retention days")
@@ -559,6 +622,8 @@ func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
 		Port:                 *port,
 		Shell:                *shell,
 		Token:                *token,
+		TemporalHost:         *temporalHost,
+		TemporalNamespace:    *temporalNamespace,
 		SessionRetentionDays: *sessionRetentionDays,
 		SessionPersist:       *sessionPersist,
 		SessionLogDir:        *sessionDir,
@@ -611,6 +676,17 @@ func printHelp(out io.Writer, defaults configDefaults) {
 		{
 			Name: "--token TOKEN",
 			Desc: "Auth token for REST/WS (env: GESTALT_TOKEN, default: none)",
+		},
+	})
+
+	writeOptionGroup(out, "Temporal", []helpOption{
+		{
+			Name: "--temporal-host HOST:PORT",
+			Desc: fmt.Sprintf("Temporal server address (env: GESTALT_TEMPORAL_HOST, default: %s)", defaults.TemporalHost),
+		},
+		{
+			Name: "--temporal-namespace NAME",
+			Desc: fmt.Sprintf("Temporal namespace (env: GESTALT_TEMPORAL_NAMESPACE, default: %s)", defaults.TemporalNamespace),
 		},
 	})
 
@@ -704,6 +780,12 @@ func logStartupFlags(logger *logging.Logger, cfg Config) {
 	if cfg.Sources["token"] == sourceFlag {
 		flags = append(flags, formatTokenFlag(cfg.AuthToken))
 	}
+	if cfg.Sources["temporal-host"] == sourceFlag {
+		flags = append(flags, formatStringFlag("--temporal-host", cfg.TemporalHost))
+	}
+	if cfg.Sources["temporal-namespace"] == sourceFlag {
+		flags = append(flags, formatStringFlag("--temporal-namespace", cfg.TemporalNamespace))
+	}
 	if cfg.Sources["session-persist"] == sourceFlag {
 		flags = append(flags, formatBoolFlag("--session-persist", cfg.SessionPersist))
 	}
@@ -774,12 +856,15 @@ func ensureStateDir(cfg Config, logger *logging.Logger) {
 	}
 }
 
-func logTemporalDevServerHealth(logger *logging.Logger) {
+func logTemporalServerHealth(logger *logging.Logger, host string) {
 	if logger == nil {
 		return
 	}
-	address := temporalDevServerHost
-	dialer := net.Dialer{Timeout: temporalDevServerTimeout}
+	address := strings.TrimSpace(host)
+	if address == "" {
+		address = temporalDefaultHost
+	}
+	dialer := net.Dialer{Timeout: temporalHealthCheckTimeout}
 	connection, dialError := dialer.Dial("tcp", address)
 	if dialError != nil {
 		logger.Warn("temporal server unavailable", map[string]string{

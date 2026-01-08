@@ -179,8 +179,9 @@
           type="button"
           on:click={onScrollToBottom}
           disabled={disabled}
+          aria-label="Scroll to bottom"
         >
-          Scroll to bottom
+          &dArr;
         </button>
       {/if}
       <label class="direct-toggle" title="Direct input switch">

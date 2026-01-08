@@ -28,3 +28,4 @@ test:
 clean:
 	rm -rf frontend/dist
 	rm -rf .cache
+	rm -rf gestalt gestalt-send

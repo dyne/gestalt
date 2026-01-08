@@ -27,6 +27,8 @@
   let unsubscribeBell
   let unsubscribeReconnect
   let unsubscribeAtBottom
+  let wasVisible = false
+  let pendingFocus = false
   let displayTitle = ''
   let skillsLabel = ''
 
@@ -110,6 +112,9 @@
     if (state) {
       state.setDirectInput?.(directInputEnabled)
     }
+    if (visible) {
+      pendingFocus = true
+    }
     window.addEventListener('resize', resizeHandler)
   })
 
@@ -117,6 +122,27 @@
     if (state) {
       state.scheduleFit()
     }
+  }
+
+  $: {
+    if (visible && !wasVisible) {
+      pendingFocus = true
+    }
+    if (visible && pendingFocus) {
+      requestAnimationFrame(() => {
+        if (!visible || !pendingFocus) return
+        if (directInputEnabled) {
+          if (status !== 'connected') return
+          state?.focus?.()
+          pendingFocus = false
+          return
+        }
+        if (inputDisabled) return
+        commandInput?.focusInput?.()
+        pendingFocus = false
+      })
+    }
+    wasVisible = visible
   }
 
   $: statusLabel = statusLabels[status] || status
@@ -154,22 +180,23 @@
 
 <section class="terminal-shell">
   <header class="terminal-shell__header">
-    <div>
-      <p class="label">{displayTitle}</p>
+    <div class="header-line">
+      <span class="label">{displayTitle}</span>
       {#if skillsLabel}
-        <p class="subtitle">Skills: {skillsLabel}</p>
+        <span class="separator">|</span>
+        <span class="subtitle">Skills: {skillsLabel}</span>
       {/if}
-      <div class="status-row">
-        <p class="status">{statusLabel}</p>
-        {#if historyStatus === 'loading' || historyStatus === 'slow'}
-          <p class="status history-status">Loading history...</p>
-        {/if}
-        {#if canReconnect}
-          <button class="reconnect" type="button" on:click={handleReconnect}>
-            Reconnect
-          </button>
-        {/if}
-      </div>
+      <span class="separator">|</span>
+      <span class="status">{statusLabel}</span>
+      {#if historyStatus === 'loading' || historyStatus === 'slow'}
+        <span class="separator">|</span>
+        <span class="status history-status">Loading history...</span>
+      {/if}
+      {#if canReconnect}
+        <button class="reconnect" type="button" on:click={handleReconnect}>
+          Reconnect
+        </button>
+      {/if}
     </div>
     <div class="bell" aria-live="polite">
       <span>Bell</span>
@@ -204,6 +231,8 @@
 
   .terminal-shell__body {
     min-height: 0;
+    touch-action: pan-y;
+    overscroll-behavior: contain;
   }
 
   .terminal-shell__header {
@@ -213,10 +242,20 @@
     padding: 0.9rem 1.2rem;
     background: #171717;
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    gap: 1rem;
+  }
+
+  .header-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    max-width: calc(100% - 140px);
   }
 
   .label {
     margin: 0;
+    display: inline-flex;
     font-size: 0.85rem;
     letter-spacing: 0.1em;
     text-transform: uppercase;
@@ -224,7 +263,8 @@
   }
 
   .subtitle {
-    margin: 0.2rem 0 0;
+    margin: 0;
+    display: inline-flex;
     font-size: 0.7rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -232,17 +272,19 @@
   }
 
   .status {
-    margin: 0.2rem 0 0;
+    margin: 0;
+    display: inline-flex;
     font-size: 0.75rem;
     color: rgba(242, 239, 233, 0.5);
     text-transform: uppercase;
     letter-spacing: 0.12em;
   }
 
-  .status-row {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
+  .separator {
+    color: rgba(242, 239, 233, 0.25);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
   }
 
   .reconnect {
@@ -288,6 +330,7 @@
 
   :global(.xterm-viewport) {
     border-radius: 12px;
+    -webkit-overflow-scrolling: touch;
   }
 
   @media (max-width: 720px) {

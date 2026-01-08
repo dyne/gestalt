@@ -176,6 +176,8 @@ const createTerminalState = (terminalId) => {
   let notifiedUnauthorized = false
   let notifiedDisconnect = false
   let disposeMouseHandlers
+  let disposeTouchHandlers
+  let touchTarget
   let historyLoaded = false
   let pendingHistory = ''
   let historyLoadPromise
@@ -191,6 +193,8 @@ const createTerminalState = (terminalId) => {
     }
     atBottom.set(buffer.viewportY >= buffer.baseY)
   }
+
+  const getViewportElement = () => term.element?.querySelector('.xterm-viewport')
 
   const sendResize = () => {
     if (!socket || socket.readyState !== WebSocket.OPEN) return
@@ -239,6 +243,77 @@ const createTerminalState = (terminalId) => {
     })
   }
 
+  const setupTouchScroll = (element) => {
+    if (!element) return () => {}
+    let touchActive = false
+    let lastTouchY = 0
+
+    const getAverageTouchY = (touches) => {
+      if (!touches || touches.length === 0) return null
+      let total = 0
+      for (const touch of touches) {
+        total += touch.clientY
+      }
+      return total / touches.length
+    }
+
+    const handleTouchStart = (event) => {
+      const averageY = getAverageTouchY(event.touches)
+      if (averageY === null) return
+      touchActive = true
+      lastTouchY = averageY
+    }
+
+    const handleTouchMove = (event) => {
+      if (!touchActive) return
+      const averageY = getAverageTouchY(event.touches)
+      if (averageY === null) return
+      const deltaY = averageY - lastTouchY
+      if (!deltaY) return
+      lastTouchY = averageY
+      const viewport = getViewportElement()
+      if (!viewport) return
+      viewport.scrollTop -= deltaY
+      syncScrollState()
+      event.preventDefault()
+    }
+
+    const handleTouchEnd = (event) => {
+      if (event.touches && event.touches.length > 0) {
+        const averageY = getAverageTouchY(event.touches)
+        if (averageY !== null) {
+          lastTouchY = averageY
+        }
+        return
+      }
+      touchActive = false
+    }
+
+    element.addEventListener('touchstart', handleTouchStart, {
+      passive: true,
+      capture: true,
+    })
+    element.addEventListener('touchmove', handleTouchMove, {
+      passive: false,
+      capture: true,
+    })
+    element.addEventListener('touchend', handleTouchEnd, {
+      passive: true,
+      capture: true,
+    })
+    element.addEventListener('touchcancel', handleTouchEnd, {
+      passive: true,
+      capture: true,
+    })
+
+    return () => {
+      element.removeEventListener('touchstart', handleTouchStart, { capture: true })
+      element.removeEventListener('touchmove', handleTouchMove, { capture: true })
+      element.removeEventListener('touchend', handleTouchEnd, { capture: true })
+      element.removeEventListener('touchcancel', handleTouchEnd, { capture: true })
+    }
+  }
+
   const attach = (element) => {
     container = element
     if (!container || disposed) return
@@ -246,6 +321,14 @@ const createTerminalState = (terminalId) => {
       term.open(container)
     } else if (term.element.parentElement !== container) {
       container.appendChild(term.element)
+    }
+    const nextTouchTarget = term.element || container
+    if (touchTarget !== nextTouchTarget) {
+      if (disposeTouchHandlers) {
+        disposeTouchHandlers()
+      }
+      touchTarget = nextTouchTarget
+      disposeTouchHandlers = setupTouchScroll(nextTouchTarget)
     }
     flushPendingHistory()
     syncScrollState()
@@ -547,6 +630,9 @@ const createTerminalState = (terminalId) => {
     }
     if (disposeMouseHandlers) {
       disposeMouseHandlers()
+    }
+    if (disposeTouchHandlers) {
+      disposeTouchHandlers()
     }
     term.dispose()
   }

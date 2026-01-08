@@ -7,6 +7,15 @@
 </script>
 
 <nav class="tabbar" aria-label="App tabs">
+  <button
+    class="tabbar__brand"
+    type="button"
+    on:click={() => onSelect('dashboard')}
+    aria-label="Open dashboard"
+  >
+    <span class="tabbar__brand-title">Gestalt</span>
+    <span class="tabbar__brand-by">by Dyne.org</span>
+  </button>
   {#each tabs as tab}
     <div class="tabbar__item" data-active={tab.id === activeId}>
       <button
@@ -48,6 +57,32 @@
     position: sticky;
     top: 0;
     z-index: 10;
+  }
+
+  .tabbar__brand {
+    border: none;
+    background: transparent;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    padding: 0;
+    cursor: pointer;
+    color: #151515;
+    white-space: nowrap;
+  }
+
+  .tabbar__brand-title {
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+
+  .tabbar__brand-by {
+    font-size: 0.65rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #6d6a61;
   }
 
   .tabbar__item {

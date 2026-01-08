@@ -41,6 +41,7 @@
     localError = ''
     try {
       await onCreate(agentId)
+      await loadAgents()
     } catch (err) {
       localError = err?.message || 'Failed to create terminal.'
     } finally {
@@ -57,6 +58,7 @@
     localError = ''
     try {
       await onDelete(terminalId)
+      await loadAgents()
     } catch (err) {
       localError = err?.message || 'Failed to stop terminal.'
     } finally {
@@ -183,18 +185,22 @@
 </script>
 
 <section class="dashboard" data-terminal-count={terminals.length}>
-  <header class="dashboard__header">
-    <div>
-      <p class="eyebrow">Dyne.org presents...</p>
-      <h1>Gestalt</h1>
-      <span class="mt-3 inline-block h-1 w-10 rounded-full bg-blue-500/70"></span>
-    </div>
-  </header>
-
   <section class="dashboard__status">
     <div class="status-card status-card--wide">
-      <span class="label">Working directory</span>
-      <strong class="value value--path">{status?.working_dir || '—'}</strong>
+      <div class="status-meta">
+        <div class="status-item">
+          <span class="label">Working directory</span>
+          <span class="status-pill status-pill--path">{status?.working_dir || '—'}</span>
+        </div>
+        <div class="status-item">
+          <span class="label">Git origin</span>
+          <span class="status-pill">{status?.git_origin || '—'}</span>
+        </div>
+        <div class="status-item">
+          <span class="label">Git branch</span>
+          <span class="status-pill">{status?.git_branch || '—'}</span>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -302,28 +308,6 @@
     gap: 2.5rem;
   }
 
-  .dashboard__header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1.5rem;
-  }
-
-  .eyebrow {
-    text-transform: uppercase;
-    letter-spacing: 0.24em;
-    font-size: 0.7rem;
-    color: #6d6a61;
-    margin: 0 0 0.6rem;
-  }
-
-  h1 {
-    margin: 0;
-    font-size: clamp(2rem, 3.5vw, 3rem);
-    font-weight: 600;
-    color: #161616;
-  }
-
   .cta {
     border: none;
     border-radius: 999px;
@@ -383,11 +367,33 @@
     gap: 0.4rem;
   }
 
-  .value--path {
-    margin-top: 0;
+  .status-meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.85rem 1rem;
+    align-items: start;
+  }
+
+  .status-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.35rem 0.6rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.85);
+    border: 1px solid rgba(20, 20, 20, 0.12);
     font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
-    font-size: 1rem;
+    font-size: 0.85rem;
     word-break: break-all;
+  }
+
+  .status-pill--path {
+    font-size: 0.95rem;
   }
 
   .dashboard__agents {

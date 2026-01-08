@@ -9,6 +9,7 @@ import (
 	"gestalt/internal/temporal/workflows"
 
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/converter"
 )
 
 type fakeWorkflowRun struct {
@@ -66,6 +67,10 @@ func (client *fakeWorkflowClient) SignalWorkflow(ctx context.Context, workflowID
 		payload:    arg,
 	})
 	return nil
+}
+
+func (client *fakeWorkflowClient) QueryWorkflow(ctx context.Context, workflowID, runID, queryType string, args ...interface{}) (converter.EncodedValue, error) {
+	return nil, nil
 }
 
 func (client *fakeWorkflowClient) Close() {

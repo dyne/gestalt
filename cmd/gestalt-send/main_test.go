@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
+
+	"gestalt/internal/version"
 )
 
 type roundTripperFunc func(*http.Request) (*http.Response, error)
@@ -32,6 +35,25 @@ func withAgentCacheDisabled(t *testing.T, fn func()) {
 		agentCacheTTL = previous
 	})
 	fn()
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	previous := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stdout: %v", err)
+	}
+	os.Stdout = writer
+	fn()
+	_ = writer.Close()
+	os.Stdout = previous
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read stdout: %v", err)
+	}
+	_ = reader.Close()
+	return string(data)
 }
 
 func TestParseArgsMissingAgent(t *testing.T) {
@@ -61,6 +83,42 @@ func TestParseArgsUsesEnvDefaults(t *testing.T) {
 	}
 	if cfg.AgentRef != "codex" {
 		t.Fatalf("expected agent ref codex, got %q", cfg.AgentRef)
+	}
+}
+
+func TestRunWithSenderVersionFlag(t *testing.T) {
+	previous := version.Version
+	version.Version = "1.2.3"
+	t.Cleanup(func() {
+		version.Version = previous
+	})
+
+	output := captureStdout(t, func() {
+		exitCode := runWithSender([]string{"--version"}, strings.NewReader(""), io.Discard, nil)
+		if exitCode != 0 {
+			t.Fatalf("expected exit code 0, got %d", exitCode)
+		}
+	})
+	if output != "gestalt-send version 1.2.3\n" {
+		t.Fatalf("unexpected version output: %q", output)
+	}
+}
+
+func TestRunWithSenderVersionFlagDev(t *testing.T) {
+	previous := version.Version
+	version.Version = "dev"
+	t.Cleanup(func() {
+		version.Version = previous
+	})
+
+	output := captureStdout(t, func() {
+		exitCode := runWithSender([]string{"--version"}, strings.NewReader(""), io.Discard, nil)
+		if exitCode != 0 {
+			t.Fatalf("expected exit code 0, got %d", exitCode)
+		}
+	})
+	if output != "gestalt-send dev\n" {
+		t.Fatalf("unexpected version output: %q", output)
 	}
 }
 

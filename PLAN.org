@@ -745,7 +745,7 @@
    Tests: make VERSION=1.0.0; verify both binaries have correct version
    Done when: Makefile supports VERSION variable for local builds
 
-** TODO [#C] Integrate versioning into test workflow
+** DONE [#C] Integrate versioning into test workflow
    Why: Test builds should include version info for debugging
    Change:
    - Update .github/workflows/tests.yml to detect version during build

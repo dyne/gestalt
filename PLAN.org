@@ -84,7 +84,7 @@
    Tests: Manual test --help output, verify formatting
    Done when: gestalt --help shows comprehensive documentation
 
-** TODO [#B] Add --version flag to gestalt
+** DONE [#B] Add --version flag to gestalt
    Why: Users need to check installed version easily
    Change:
    - Add --version flag to gestalt flag set

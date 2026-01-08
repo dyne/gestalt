@@ -40,6 +40,7 @@ type Config struct {
 	InputHistoryDir      string
 	MaxWatches           int
 	Verbose              bool
+	ShowVersion          bool
 	Sources              map[string]configSource
 }
 
@@ -96,6 +97,14 @@ func main() {
 		}
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+	if cfg.ShowVersion {
+		if version.Version == "" || version.Version == "dev" {
+			fmt.Fprintln(os.Stdout, "gestalt dev")
+		} else {
+			fmt.Fprintf(os.Stdout, "gestalt version %s\n", version.Version)
+		}
+		return
 	}
 	logBuffer := logging.NewLogBuffer(logging.DefaultBufferSize)
 	logger := logging.NewLogger(logBuffer, logging.LevelInfo)
@@ -458,6 +467,13 @@ func loadConfig(args []string) (Config, error) {
 		verboseSource = sourceFlag
 	}
 	cfg.Sources["verbose"] = verboseSource
+
+	versionSource := sourceDefault
+	cfg.ShowVersion = flags.Version
+	if flags.Set["version"] {
+		versionSource = sourceFlag
+	}
+	cfg.Sources["version"] = versionSource
 
 	return cfg, nil
 }

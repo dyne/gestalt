@@ -147,7 +147,7 @@
    Tests: Manual test --help output
    Done when: gestalt-send --help shows comprehensive documentation
 
-** TODO [#B] Add --version flag to gestalt-send
+** DONE [#B] Add --version flag to gestalt-send
    Why: Consistency with gestalt, users need version info
    Change:
    - Add --version flag to gestalt-send

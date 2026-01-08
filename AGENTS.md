@@ -62,3 +62,9 @@ This repo is a Go backend + Svelte frontend for a multi-terminal dashboard with 
 - Backend version is `internal/version.Version`, exposed in `/api/status` and startup logs.
 - Frontend version comes from `frontend/src/lib/version.js` with Vite define `__GESTALT_VERSION__`.
 - Makefile supports `VERSION=...` for builds; CI workflows set VERSION and release tags.
+
+## CLI flags and help
+- gestalt and gestalt-send use stdlib flag parsing with priority: CLI flag > env var > default.
+- gestalt flags mirror GESTALT_* env vars; `Config.Sources` records the source for each value.
+- `gestalt --help`, `gestalt --version`, `gestalt completion bash|zsh`, plus `--verbose`/`--quiet` log level control.
+- gestalt-send supports `--url`, `--token`, `--start`, `--verbose`, `--debug`, `--help`, `--version`.

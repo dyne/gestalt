@@ -3,6 +3,9 @@ import { svelte } from '@sveltejs/vite-plugin-svelte'
 
 // https://vite.dev/config/
 export default defineConfig({
+  define: {
+    __GESTALT_VERSION__: JSON.stringify(process.env.GESTALT_VERSION || 'dev'),
+  },
   plugins: [svelte()],
   server: {
     proxy: {

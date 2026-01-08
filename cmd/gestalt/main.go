@@ -515,6 +515,9 @@ func defaultConfigValues() configDefaults {
 }
 
 func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
+	if args == nil {
+		args = []string{}
+	}
 	fs := flag.NewFlagSet("gestalt", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	port := fs.Int("port", defaults.Port, "HTTP server port")

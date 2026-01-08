@@ -163,7 +163,7 @@
    Tests: Test watch limit enforcement; verify cleanup works
    Done when: Watcher respects resource limits and cleans up unused watches
 
-** TODO [#C] Add debouncing and event coalescing
+** DONE [#C] Add debouncing and event coalescing
    Why: Prevent event flooding from rapid file changes (e.g., editor autosave)
    Change:
    - Add 100ms debounce window per path

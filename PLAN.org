@@ -173,7 +173,7 @@
    Tests: gestalt-desktop --help shows all options
    Done when: Desktop CLI matches web CLI conventions (defer to Wails L1)
 
-** TODO [#C] Add shell completion subcommand to gestalt
+** DONE [#C] Add shell completion subcommand to gestalt
    Why: Improve CLI UX with tab-completion for flags and subcommands
    Change:
    - Add "gestalt completion bash|zsh" subcommand

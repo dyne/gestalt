@@ -86,6 +86,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "validate-skill" {
 		os.Exit(runValidateSkill(os.Args[2:]))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "completion" {
+		os.Exit(runCompletion(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	if hasFlag(os.Args[1:], "--extract-config") {
 		os.Exit(runExtractConfig())
 	}
@@ -631,6 +634,11 @@ func printHelp(out io.Writer, defaults configDefaults) {
 	fmt.Fprintln(out, "Subcommands:")
 	fmt.Fprintln(out, "  gestalt validate-skill PATH  Validate an Agent Skill directory or SKILL.md file")
 	fmt.Fprintln(out, "  gestalt completion SHELL     Generate shell completion script (bash, zsh)")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Shell completion:")
+	fmt.Fprintln(out, "  gestalt completion bash > /usr/local/share/bash-completion/completions/gestalt")
+	fmt.Fprintln(out, "  gestalt completion zsh > /usr/local/share/zsh/site-functions/_gestalt")
+	fmt.Fprintln(out, "  source <(gestalt completion bash)")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Environment variables override defaults; CLI flags override environment variables.")
 }

@@ -9,18 +9,20 @@ This repo is a Go backend + Svelte frontend for a multi-terminal dashboard with 
   - `internal/api`: REST/WS handlers, auth middleware, JSON errors.
   - `internal/agent`: agent profile parsing/validation (`loader.go`, `agent.go`).
   - `internal/skill`: skill metadata/loader and prompt XML.
+  - `internal/watcher`: fsnotify watcher, EventHub, git branch monitoring.
   - `internal/logging`: structured logs + buffer.
-- Frontend (Svelte, Vite): `frontend/src/App.svelte` orchestrates tabs; `frontend/src/views/Dashboard.svelte` shows agents/skills/terminals; `frontend/src/lib/terminalStore.js` owns xterm + WebSocket.
+- Frontend (Svelte, Vite): `frontend/src/App.svelte` orchestrates tabs; `frontend/src/views/Dashboard.svelte` shows agents/skills/terminals; `frontend/src/lib/terminalStore.js` owns xterm + WebSocket; `frontend/src/lib/eventStore.js` shares /ws/events.
 - CLI: `cmd/gestalt-send` pipes stdin to agent terminals over REST.
 
 ## Runtime flow (high level)
 - REST: `/api/terminals` create/list/delete sessions; `/api/agents` lists agent profiles.
-- WS: `/ws/terminal/:id` streams PTY data to xterm.
+- WS: `/ws/terminal/:id` streams PTY data to xterm; `/ws/events` streams filesystem events.
 - Agents:
   - Agent ID = filename in `config/agents/*.json` (without `.json`).
   - Agent name = `name` field (must be unique).
   - Single-instance enforced: one running terminal per agent name.
   - Terminal tabs use agent name as label.
+  - Event types: `file_changed`, `git_branch_changed`, `watch_error`.
 
 ## Key API endpoints
 - `/api/status` system status
@@ -28,6 +30,7 @@ This repo is a Go backend + Svelte frontend for a multi-terminal dashboard with 
 - `/api/terminals/:id/output`, `/api/terminals/:id/input-history` (GET/POST)
 - `/api/agents` (GET)
 - `/api/agents/:name/input` (POST raw bytes to agent terminal)
+- `/ws/events` (WebSocket; subscribe message supported)
 
 ## CLI (gestalt-send)
 - `gestalt-send <agent-name-or-id>` posts stdin to `/api/agents/:name/input`.
@@ -38,6 +41,11 @@ This repo is a Go backend + Svelte frontend for a multi-terminal dashboard with 
 ## Tests
 - Backend: `GOCACHE=/tmp/gocache /usr/local/go/bin/go test ./...`
 - Frontend: `cd frontend && npm test`
+
+## Filesystem events
+- Uses `github.com/fsnotify/fsnotify` + EventHub to publish updates to `/ws/events`.
+- PLAN.org changes and git branch changes are watched on startup.
+- `GESTALT_MAX_WATCHES` caps active watches (default 100).
 
 ## Planning workflow (must follow)
 - Work is tracked in `PLAN.org` (Org-mode). L1 = feature, L2 = steps.

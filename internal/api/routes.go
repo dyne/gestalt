@@ -6,9 +6,10 @@ import (
 
 	"gestalt/internal/logging"
 	"gestalt/internal/terminal"
+	"gestalt/internal/watcher"
 )
 
-func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken string, staticDir string, frontendFS fs.FS, logger *logging.Logger) {
+func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken string, staticDir string, frontendFS fs.FS, logger *logging.Logger, eventHub *watcher.EventHub) {
 	// Git info is read once on boot to avoid polling; refresh can be added later.
 	gitOrigin, gitBranch := loadGitInfo()
 	rest := &RestHandler{
@@ -18,6 +19,14 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 		GitOrigin: gitOrigin,
 		GitBranch: gitBranch,
 	}
+	if eventHub != nil {
+		eventHub.Subscribe(watcher.EventTypeGitBranchChanged, func(event watcher.Event) {
+			if event.Path == "" {
+				return
+			}
+			rest.setGitBranch(event.Path)
+		})
+	}
 
 	mux.Handle("/ws/terminal/", &TerminalHandler{
 		Manager:   manager,
@@ -25,6 +34,10 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 	})
 	mux.Handle("/ws/logs", &LogsHandler{
 		Logger:    logger,
+		AuthToken: authToken,
+	})
+	mux.Handle("/ws/events", &EventsHandler{
+		Hub:       eventHub,
 		AuthToken: authToken,
 	})
 

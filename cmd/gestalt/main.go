@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gestalt"
@@ -18,6 +20,9 @@ import (
 	"gestalt/internal/logging"
 	"gestalt/internal/skill"
 	"gestalt/internal/terminal"
+	"gestalt/internal/watcher"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 type Config struct {
@@ -30,6 +35,7 @@ type Config struct {
 	SessionBufferLines   int
 	InputHistoryPersist  bool
 	InputHistoryDir      string
+	MaxWatches           int
 }
 
 func main() {
@@ -81,6 +87,37 @@ func main() {
 		PromptDir:            path.Join("config", "prompts"),
 	})
 
+	fsWatcher, err := watcher.NewWithOptions(watcher.Options{
+		Logger:     logger,
+		MaxWatches: cfg.MaxWatches,
+	})
+	if err != nil && logger != nil {
+		logger.Warn("filesystem watcher unavailable", map[string]string{
+			"error": err.Error(),
+		})
+	}
+	eventHub := watcher.NewEventHub(context.Background(), fsWatcher)
+	if fsWatcher != nil {
+		fsWatcher.SetErrorHandler(func(err error) {
+			eventHub.Publish(watcher.Event{
+				Type:      watcher.EventTypeWatchError,
+				Timestamp: time.Now().UTC(),
+			})
+		})
+		watchPlanFile(eventHub, logger, "PLAN.org")
+		if workDir, err := os.Getwd(); err == nil {
+			if _, err := watcher.StartGitWatcher(eventHub, workDir); err != nil && logger != nil {
+				logger.Warn("git watcher unavailable", map[string]string{
+					"error": err.Error(),
+				})
+			}
+		} else if logger != nil {
+			logger.Warn("git watcher unavailable", map[string]string{
+				"error": err.Error(),
+			})
+		}
+	}
+
 	staticDir := findStaticDir()
 	frontendFS := fs.FS(nil)
 	if sub, err := fs.Sub(gestalt.EmbeddedFrontendFS, path.Join("frontend", "dist")); err == nil {
@@ -92,7 +129,7 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	api.RegisterRoutes(mux, manager, cfg.AuthToken, staticDir, frontendFS, logger)
+	api.RegisterRoutes(mux, manager, cfg.AuthToken, staticDir, frontendFS, logger, eventHub)
 
 	server := &http.Server{
 		Addr:              ":" + strconv.Itoa(cfg.Port),
@@ -108,6 +145,76 @@ func main() {
 			"error": err.Error(),
 		})
 	}
+}
+
+func watchPlanFile(eventHub *watcher.EventHub, logger *logging.Logger, planPath string) {
+	if eventHub == nil {
+		return
+	}
+	if planPath == "" {
+		planPath = "PLAN.org"
+	}
+
+	var retryMutex sync.Mutex
+	retrying := false
+
+	startRetry := func() {
+		retryMutex.Lock()
+		if retrying {
+			retryMutex.Unlock()
+			return
+		}
+		retrying = true
+		retryMutex.Unlock()
+
+		go func() {
+			defer func() {
+				retryMutex.Lock()
+				retrying = false
+				retryMutex.Unlock()
+			}()
+			backoff := 100 * time.Millisecond
+			for {
+				if err := eventHub.WatchFile(planPath); err == nil {
+					if logger != nil {
+						logger.Info("Watching PLAN.org for changes", map[string]string{
+							"path": planPath,
+						})
+					}
+					return
+				}
+				time.Sleep(backoff)
+				if backoff < 2*time.Second {
+					backoff *= 2
+				}
+			}
+		}()
+	}
+
+	if err := eventHub.WatchFile(planPath); err != nil {
+		if logger != nil {
+			logger.Warn("plan watch failed", map[string]string{
+				"path":  planPath,
+				"error": err.Error(),
+			})
+		}
+		startRetry()
+	} else if logger != nil {
+		logger.Info("Watching PLAN.org for changes", map[string]string{
+			"path": planPath,
+		})
+	}
+
+	eventHub.Subscribe(watcher.EventTypeFileChanged, func(event watcher.Event) {
+		if event.Path != planPath {
+			return
+		}
+		if event.Op&(fsnotify.Remove|fsnotify.Rename) == 0 {
+			return
+		}
+		_ = eventHub.UnwatchFile(planPath)
+		startRetry()
+	})
 }
 
 func loadConfig() Config {
@@ -167,6 +274,13 @@ func loadConfig() Config {
 		inputHistoryDir = ""
 	}
 
+	maxWatches := 100
+	if rawMax := strings.TrimSpace(os.Getenv("GESTALT_MAX_WATCHES")); rawMax != "" {
+		if parsed, err := strconv.Atoi(rawMax); err == nil && parsed > 0 {
+			maxWatches = parsed
+		}
+	}
+
 	return Config{
 		Port:                 port,
 		Shell:                shell,
@@ -177,6 +291,7 @@ func loadConfig() Config {
 		SessionBufferLines:   sessionBufferLines,
 		InputHistoryPersist:  inputHistoryPersist,
 		InputHistoryDir:      inputHistoryDir,
+		MaxWatches:           maxWatches,
 	}
 }
 

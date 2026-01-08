@@ -1,7 +1,7 @@
 {
-  "name": "Coder",
+  "name": "Fixer",
   "shell": "codex --full-auto --add-dir /tmp",
-  "prompt": ["coder"],
+  "prompt": ["fixer"],
   "skills": ["git-workflows", "code-review"],
   "llm_type": "codex",
   "llm_model": "default"

@@ -1,6 +1,7 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
   import { apiFetch } from '../lib/api.js'
+  import { eventConnectionStatus, subscribe as subscribeEvents } from '../lib/eventStore.js'
   import OrgViewer from '../components/OrgViewer.svelte'
 
   let loading = false
@@ -9,11 +10,28 @@
   let content = ''
   let lastContent = ''
   let etag = ''
-  let refreshTimer = null
+  let fallbackTimer = null
+  let updateNotice = false
+  let updateNoticeTimer = null
+  let eventUnsubscribe = null
+  let watchErrorUnsubscribe = null
+  let statusUnsubscribe = null
+  let watchUnavailable = false
+  let connectionStatus = 'disconnected'
 
-  const refreshIntervalMs = 5000
+  const fallbackIntervalMs = 10000
 
-  const loadPlan = async ({ silent = false } = {}) => {
+  const showUpdateNotice = () => {
+    updateNotice = true
+    if (updateNoticeTimer) {
+      clearTimeout(updateNoticeTimer)
+    }
+    updateNoticeTimer = setTimeout(() => {
+      updateNotice = false
+    }, 2000)
+  }
+
+  const loadPlan = async ({ silent = false, notify = false } = {}) => {
     if (loading || refreshing) return
     if (silent) {
       refreshing = true
@@ -38,6 +56,9 @@
       if (nextContent !== lastContent) {
         content = nextContent
         lastContent = nextContent
+        if (notify) {
+          showUpdateNotice()
+        }
       }
     } catch (err) {
       error = err?.message || 'Failed to load plan.'
@@ -47,17 +68,64 @@
     }
   }
 
+  const stopFallbackPolling = () => {
+    if (fallbackTimer) {
+      clearInterval(fallbackTimer)
+      fallbackTimer = null
+    }
+  }
+
+  const startFallbackPolling = () => {
+    if (fallbackTimer) return
+    fallbackTimer = setInterval(() => {
+      loadPlan({ silent: true })
+    }, fallbackIntervalMs)
+  }
+
   onMount(() => {
     loadPlan()
-    refreshTimer = setInterval(() => {
-      loadPlan({ silent: true })
-    }, refreshIntervalMs)
+    eventUnsubscribe = subscribeEvents('file_changed', (payload) => {
+      if (!payload?.path) return
+      if (payload.path !== 'PLAN.org' && !payload.path.endsWith('/PLAN.org')) {
+        return
+      }
+      watchUnavailable = false
+      if (connectionStatus === 'connected') {
+        stopFallbackPolling()
+      }
+      loadPlan({ silent: true, notify: true })
+    })
+    watchErrorUnsubscribe = subscribeEvents('watch_error', () => {
+      watchUnavailable = true
+      startFallbackPolling()
+    })
+    statusUnsubscribe = eventConnectionStatus.subscribe((value) => {
+      connectionStatus = value
+      if (value === 'connected' && !watchUnavailable) {
+        stopFallbackPolling()
+      } else {
+        startFallbackPolling()
+      }
+    })
   })
 
   onDestroy(() => {
-    if (refreshTimer) {
-      clearInterval(refreshTimer)
-      refreshTimer = null
+    stopFallbackPolling()
+    if (updateNoticeTimer) {
+      clearTimeout(updateNoticeTimer)
+      updateNoticeTimer = null
+    }
+    if (eventUnsubscribe) {
+      eventUnsubscribe()
+      eventUnsubscribe = null
+    }
+    if (watchErrorUnsubscribe) {
+      watchErrorUnsubscribe()
+      watchErrorUnsubscribe = null
+    }
+    if (statusUnsubscribe) {
+      statusUnsubscribe()
+      statusUnsubscribe = null
     }
   })
 </script>
@@ -69,6 +137,9 @@
       <h1>PLAN.org</h1>
     </div>
     <div class="refresh-actions">
+      {#if updateNotice}
+        <span class="updated">Plan updated</span>
+      {/if}
       {#if refreshing}
         <span class="refreshing">Updating...</span>
       {/if}
@@ -141,6 +212,13 @@
     text-transform: uppercase;
     letter-spacing: 0.12em;
     color: #6f6b62;
+  }
+
+  .updated {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #2e6b46;
   }
 
   .muted {

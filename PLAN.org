@@ -1,3 +1,232 @@
+* DONE [#A] Event-based filesystem monitoring with WebSocket notifications
+  Goal: Replace polling with an event-driven filesystem monitoring component that uses fsnotify to watch files and notify the frontend via WebSocket when changes occur.
+  Notes:
+  - Core component: internal/watcher package with reusable Watch service
+  - Use github.com/fsnotify/fsnotify (de-facto standard, cross-platform, stable, actively maintained)
+  - Architecture: Watch service → event hub → WebSocket broadcaster
+  - WebSocket endpoint: /ws/events for real-time notifications to frontend
+  - Event types: file_changed, git_branch_changed (extensible for future events)
+  - First use case: PLAN.org live updates (replace 5s polling in PlanView)
+  - Second use case: git branch monitoring (live updates in Dashboard)
+  - Internal API: watcher.Watch(path, callback) returns handle for cleanup
+  - Frontend: single WebSocket connection handles all filesystem events
+  - Thread-safe: concurrent watchers, multiple subscribers, graceful shutdown
+  - Error handling: log warnings on watch failures, auto-restart watcher on error
+  - Resource limits: max watched files (configurable), cleanup on unsubscribe
+  - Git branch detection: watch .git/HEAD + .git/refs/heads/* for branch changes
+  - Event payload: {"type": "file_changed", "path": "PLAN.org", "timestamp": "..."}
+  - Minimize dependencies: fsnotify only (stdlib for everything else)
+  - Testing: mock fsnotify for unit tests, integration tests with real files
+  Date: 2026-01-08
+
+** [#B] Evaluate and add fsnotify dependency
+   Why: Need cross-platform filesystem watching; fsnotify is the standard Go library for this
+   Change:
+   - Research: fsnotify vs alternatives (stdlib has none, inotify is Linux-only, kqueue is BSD-only)
+   - fsnotify abstracts platform differences (inotify/kqueue/ReadDirectoryChangesW)
+   - Mature library: v1.7.0, 9k+ stars, used by Docker/Kubernetes/etc
+   - Add dependency: go get github.com/fsnotify/fsnotify@latest
+   - Document in README: why fsnotify chosen (cross-platform, stable, standard)
+   - Check license: BSD 3-Clause (compatible with AGPL)
+   Tests: go mod tidy; verify module resolves
+   Done when: fsnotify added as dependency with justification documented
+
+** [#B] Create internal/watcher package structure
+   Why: Need reusable abstraction for filesystem watching
+   Change:
+   - Create internal/watcher/ package with doc.go documenting purpose
+   - Define Watch interface: Watch(path string, callback func(Event)) (Handle, error)
+   - Define Event struct: Path, Op (create/write/remove/rename/chmod), Timestamp
+   - Define Handle interface: Close() error for cleanup
+   - Create Watcher struct wrapping fsnotify.Watcher
+   - Thread-safe design: mutex protecting watched paths and callbacks
+   - Support multiple callbacks per path (fan-out pattern)
+   - Document design: event delivery guarantees, error handling, cleanup
+   Tests: Package structure compiles; interfaces defined
+   Done when: Watcher package structure exists with documented interfaces
+
+** [#B] Implement core Watcher with fsnotify integration
+   Why: Bridge fsnotify events to Gestalt's callback architecture
+   Change:
+   - Implement New() (*Watcher, error) that creates fsnotify.Watcher
+   - Implement Watch(path, callback) that calls fsnotify.Add(path)
+   - Start event loop goroutine reading from fsnotify.Events channel
+   - On fsnotify event: look up registered callbacks, invoke each
+   - Handle fsnotify.Errors channel: log warnings, attempt recovery
+   - Implement Close() that stops fsnotify watcher and event loop
+   - Add WatchDir option for recursive directory watching (future)
+   - Debounce rapid events: 100ms window to collapse duplicate events
+   - Tests: Unit tests with mock filesystem (os.CreateTemp, write, remove)
+   Done when: Watcher receives fsnotify events and dispatches to callbacks
+
+** [#B] Add event hub for centralized event management
+   Why: Decouple watchers from WebSocket broadcasting
+   Change:
+   - Create internal/watcher/hub.go with EventHub struct
+   - EventHub maintains: map of watched paths, registered listeners
+   - Method: Subscribe(eventType string, listener func(Event)) → subscription ID
+   - Method: Unsubscribe(id string) for cleanup
+   - Method: Publish(Event) to notify all subscribers for event type
+   - Event types: file_changed, git_branch_changed, (extensible)
+   - EventHub wraps Watcher and translates low-level fs events to domain events
+   - Add context support for graceful shutdown
+   - Tests: Unit tests for subscribe/publish/unsubscribe
+   Done when: EventHub can manage subscriptions and fan-out events
+
+** [#B] Implement WebSocket /ws/events endpoint
+   Why: Frontend needs real-time event notifications
+   Change:
+   - Add /ws/events WebSocket endpoint in internal/api/routes.go
+   - On connect: subscribe client to EventHub
+   - On event: send JSON message to WebSocket client
+   - Message format: {"type": "file_changed", "path": "PLAN.org", "timestamp": "2026-01-08T12:00:00Z"}
+   - Support client-side filtering: client sends {"subscribe": ["file_changed", "git_branch_changed"]}
+   - Handle client disconnect: unsubscribe from EventHub
+   - Reuse existing WebSocket auth pattern (token in query param)
+   - Add rate limiting: max 100 events/minute per client (prevent abuse)
+   - Tests: WebSocket connection test, event delivery test
+   Done when: /ws/events streams filesystem events to connected clients
+
+** [#B] Implement PLAN.org file watching
+   Why: First use case - live updates for Plan tab
+   Change:
+   - In cmd/gestalt/main.go: watch PLAN.org file on startup
+   - Register callback with EventHub to publish file_changed events
+   - Handle PLAN.org creation/deletion gracefully (re-watch if recreated)
+   - Add GET /api/plan ETag header (hash of file content) for efficient polling fallback
+   - Log watch activation: "Watching PLAN.org for changes"
+   - Tests: Integration test: modify PLAN.org, verify event fired
+   Done when: PLAN.org changes trigger file_changed events
+
+** [#B] Update PlanView to use WebSocket events
+   Why: Replace polling with event-based updates
+   Change:
+   - Remove 5s polling interval in frontend/src/views/PlanView.svelte
+   - Connect to /ws/events on component mount
+   - Subscribe to file_changed events for PLAN.org
+   - On event: fetch updated content via GET /api/plan
+   - Show subtle notification: "Plan updated" (auto-dismiss)
+   - Handle WebSocket disconnection: reconnect with exponential backoff
+   - Fallback: if WebSocket unavailable, revert to 10s polling (degraded mode)
+   - Tests: Manual test: edit PLAN.org, verify UI updates immediately
+   Done when: Plan tab updates instantly when PLAN.org changes
+
+** [#B] Implement git branch monitoring
+   Why: Second use case - live git branch updates in Dashboard
+   Change:
+   - Create internal/watcher/git.go with GitWatcher
+   - Watch .git/HEAD file for branch changes
+   - Parse .git/HEAD: "ref: refs/heads/main" → extract branch name
+   - Handle detached HEAD state (HEAD contains commit SHA)
+   - Watch .git/refs/heads/* for new branches (optional, future)
+   - On change: publish git_branch_changed event with branch name
+   - Add to EventHub on startup if .git directory exists
+   - Handle non-git repos gracefully (skip watching, no errors)
+   - Tests: Unit tests with temp git repo, simulate branch change
+   Done when: Git branch changes trigger git_branch_changed events
+
+** [#B] Add git origin and branch to /api/status
+   Why: Dashboard needs current git context
+   Change:
+   - Extend statusResponse in internal/api/rest.go: GitOrigin, GitBranch strings
+   - Read git origin from .git/config: parse [remote "origin"] section
+   - Read git branch from .git/HEAD (reuse GitWatcher logic)
+   - Cache on startup, update on git_branch_changed events
+   - Handle errors gracefully: empty strings if not git repo
+   - Add working_dir field (already in plan) for full context
+   - Tests: API test with/without git repo; go test ./internal/api
+   Done when: GET /api/status returns git origin and current branch
+
+** [#B] Update Dashboard to show git branch live
+   Why: Users need to see current git context in Dashboard
+   Change:
+   - Add git origin/branch display to Dashboard.svelte status section
+   - Show: "origin/branch-name" in compact format
+   - Connect to /ws/events on Dashboard mount
+   - Subscribe to git_branch_changed events
+   - On event: update status display without full page refresh
+   - Style: monospace font, subtle color, near working directory
+   - Handle missing git info: show "not a git repo" or hide section
+   - Tests: Manual test: git checkout, verify Dashboard updates
+   Done when: Dashboard shows live git branch without polling
+
+** [#C] Add configurable watcher limits and cleanup
+   Why: Prevent resource exhaustion from too many watchers
+   Change:
+   - Add GESTALT_MAX_WATCHES env var (default 100)
+   - Track active watch count in Watcher
+   - Return error if max watches exceeded
+   - Implement periodic cleanup: remove watchers with no subscribers
+   - Add metrics: active watches, events delivered, errors
+   - Log watcher lifecycle: add/remove at debug level
+   - Document limits in README under configuration
+   Tests: Test watch limit enforcement; verify cleanup works
+   Done when: Watcher respects resource limits and cleans up unused watches
+
+** [#C] Add debouncing and event coalescing
+   Why: Prevent event flooding from rapid file changes (e.g., editor autosave)
+   Change:
+   - Add 100ms debounce window per path
+   - Collect events during window, deliver once at window end
+   - Preserve latest event data (e.g., timestamp, op type)
+   - Configurable debounce duration per watcher
+   - Special case: git operations often touch multiple files rapidly
+   - Tests: Unit test with rapid file modifications; verify single event
+   Done when: Rapid changes trigger single event after debounce window
+
+** [#C] Add frontend WebSocket event store
+   Why: Centralize WebSocket event handling in frontend
+   Change:
+   - Create frontend/src/lib/eventStore.js for /ws/events connection
+   - Single WebSocket connection shared by all components
+   - Export subscribe(eventType, callback) for component usage
+   - Handle reconnection with exponential backoff
+   - Log connection state changes (connecting/connected/disconnected)
+   - Provide connection status for UI feedback
+   - Clean up subscriptions on component unmount (prevent leaks)
+   Tests: Frontend unit tests for store; manual connection test
+   Done when: Frontend has reusable WebSocket event infrastructure
+
+** [#C] Add error handling and recovery
+   Why: Filesystem watching can fail (permission, filesystem full, etc)
+   Change:
+   - Catch fsnotify errors: log at warning level with context
+   - Attempt watcher recreation on failure (max 3 retries)
+   - Exponential backoff between retry attempts
+   - Notify frontend of watch failures via error events
+   - Show toast notification: "File watching unavailable" (for PLAN.org/git)
+   - Fall back to polling if watching fails persistently
+   - Document failure modes in README
+   Tests: Simulate watch failures (permissions, invalid paths)
+   Done when: Watcher handles errors gracefully with fallback options
+
+** [#C] Add integration tests for end-to-end event flow
+   Why: Verify complete flow from filesystem change to frontend update
+   Change:
+   - Create test: start server, connect WebSocket, modify watched file
+   - Verify event delivery within 200ms (including debounce)
+   - Test multiple concurrent clients receiving same event
+   - Test git branch change detection end-to-end
+   - Test WebSocket reconnection and event recovery
+   - Test resource cleanup: watchers removed when clients disconnect
+   - Use temp directories and temp git repos for isolation
+   Tests: go test ./... integration suite passes
+   Done when: E2E tests cover critical paths with real filesystem operations
+
+** [#C] Document event system and usage patterns
+   Why: Developers need to understand how to add new watchers
+   Change:
+   - Add "Filesystem Event System" section to README.md
+   - Document EventHub API: how to subscribe/publish events
+   - Document WebSocket /ws/events protocol and message format
+   - Provide example: adding a new watched file or event type
+   - Document debouncing behavior and configuration
+   - Document resource limits and cleanup policies
+   - Add architecture diagram (optional): Watcher → EventHub → WebSocket
+   - Document frontend eventStore.js usage pattern
+   Tests: None (documentation only)
+   Done when: Event system is fully documented with examples
+
 * DONE [#B] Dashboard and Plan UI improvements
   Goal: Streamline dashboard UX by showing working directory, adding agent start/stop controls, embedding logs directly, removing redundant sections, and enabling real-time plan file watching.
   Notes:
@@ -247,6 +476,41 @@
    Tests: None (documentation only)
    Done when: README reflects new dashboard structure and features
 
+<<<<<<< HEAD
+=======
+** FIX Touch scroll terminal history (multi-touch + touch-anywhere)
+   Why: Touch devices should scroll terminal history from any point in the viewport
+   Change:
+   - Add touch handlers to scroll xterm viewport on single or multi-touch gestures
+   - Keep mouse selection behavior intact
+   Tests: go test ./...; npm test
+   Done when: Swipe anywhere in terminal scrolls history on touch devices
+
+** FIX Focus command input on terminal tab activation/creation
+   Why: Command input should be ready immediately after opening or switching tabs
+   Change:
+   - Focus command input on tab activation and initial terminal creation
+   - Respect direct input mode to focus xterm instead
+   Tests: go test ./...; npm test
+   Done when: Input focus lands correctly on tab switch and creation
+
+** FIX Agent start/stop button state updates immediately
+   Why: Running state should reflect changes without page reload
+   Change:
+   - Refresh agent list after start/stop actions
+   Tests: go test ./...; npm test
+   Done when: Agent buttons flip to running/stopped immediately
+
+** FIX Show git origin/branch in dashboard status
+   Why: Dashboard should show repo context alongside working directory
+   Change:
+   - Extend /api/status with git_origin and git_branch fields (read once on boot)
+   - Parse .git/config for origin and .git/HEAD for branch
+   - Update status card to show working directory, origin, and branch on one line
+   Tests: go test ./...; npm test
+   Done when: Status shows origin/branch with working directory
+
+>>>>>>> 13091cc (refine prompts and new fixer agent)
 * TODO [#B] Agent profile widgets: configurable UI composition
   Goal: Extend agent profiles with a "widgets" array that controls which UI elements appear in an agent's terminal tab, starting with a Plan sidebar widget that displays PLAN.org alongside the terminal.
   Notes:

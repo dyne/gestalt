@@ -1,6 +1,7 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
   import { apiFetch } from '../lib/api.js'
+  import { subscribe as subscribeEvents } from '../lib/eventStore.js'
   import { notificationStore } from '../lib/notificationStore.js'
 
   export let terminals = []
@@ -28,6 +29,10 @@
   let logsRefreshTimer = null
   let logsMounted = false
   let lastLogErrorMessage = ''
+  let gitOrigin = ''
+  let gitBranch = ''
+  let gitContext = 'not a git repo'
+  let gitUnsubscribe = null
 
   const logLevelOptions = [
     { value: 'all', label: 'All' },
@@ -162,6 +167,16 @@
 
   $: orderedLogs = [...logs].reverse()
   $: visibleLogs = orderedLogs.slice(0, 15)
+  $: if (status && !gitOrigin) {
+    gitOrigin = status.git_origin || ''
+  }
+  $: if (status && !gitBranch) {
+    gitBranch = status.git_branch || ''
+  }
+  $: gitContext =
+    gitOrigin && gitBranch
+      ? `${gitOrigin}/${gitBranch}`
+      : gitOrigin || gitBranch || 'not a git repo'
 
   $: if (logsMounted) {
     logsAutoRefresh
@@ -173,6 +188,10 @@
     logsMounted = true
     fetchLogs()
     resetLogRefresh()
+    gitUnsubscribe = subscribeEvents('git_branch_changed', (payload) => {
+      if (!payload?.path) return
+      gitBranch = payload.path
+    })
   })
 
   onDestroy(() => {
@@ -180,6 +199,10 @@
     if (logsRefreshTimer) {
       clearInterval(logsRefreshTimer)
       logsRefreshTimer = null
+    }
+    if (gitUnsubscribe) {
+      gitUnsubscribe()
+      gitUnsubscribe = null
     }
   })
 </script>
@@ -193,12 +216,8 @@
           <span class="status-pill status-pill--path">{status?.working_dir || '—'}</span>
         </div>
         <div class="status-item">
-          <span class="label">Git origin</span>
-          <span class="status-pill">{status?.git_origin || '—'}</span>
-        </div>
-        <div class="status-item">
-          <span class="label">Git branch</span>
-          <span class="status-pill">{status?.git_branch || '—'}</span>
+          <span class="label">Git</span>
+          <span class="status-pill status-pill--git">{gitContext}</span>
         </div>
       </div>
     </div>
@@ -394,6 +413,10 @@
 
   .status-pill--path {
     font-size: 0.95rem;
+  }
+
+  .status-pill--git {
+    color: #5a5a54;
   }
 
   .dashboard__agents {

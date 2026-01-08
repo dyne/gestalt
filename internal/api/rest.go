@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gestalt/internal/logging"
@@ -25,6 +26,7 @@ type RestHandler struct {
 	PlanPath  string
 	GitOrigin string
 	GitBranch string
+	gitMutex  sync.RWMutex
 }
 
 type terminalSummary struct {
@@ -150,17 +152,38 @@ func (h *RestHandler) handleStatus(w http.ResponseWriter, r *http.Request) *apiE
 	}
 
 	terminals := h.Manager.List()
+	gitOrigin, gitBranch := h.gitInfo()
 	response := statusResponse{
 		TerminalCount:  len(terminals),
 		ServerTime:     time.Now().UTC(),
 		SessionPersist: h.Manager.SessionPersistenceEnabled(),
 		WorkingDir:     workDir,
-		GitOrigin:      h.GitOrigin,
-		GitBranch:      h.GitBranch,
+		GitOrigin:      gitOrigin,
+		GitBranch:      gitBranch,
 	}
 
 	writeJSON(w, http.StatusOK, response)
 	return nil
+}
+
+func (h *RestHandler) setGitBranch(branch string) {
+	if h == nil {
+		return
+	}
+	h.gitMutex.Lock()
+	h.GitBranch = branch
+	h.gitMutex.Unlock()
+}
+
+func (h *RestHandler) gitInfo() (string, string) {
+	if h == nil {
+		return "", ""
+	}
+	h.gitMutex.RLock()
+	origin := h.GitOrigin
+	branch := h.GitBranch
+	h.gitMutex.RUnlock()
+	return origin, branch
 }
 
 func (h *RestHandler) handleTerminals(w http.ResponseWriter, r *http.Request) *apiError {

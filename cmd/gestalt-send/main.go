@@ -459,7 +459,7 @@ func fetchAgents(cfg Config) ([]agentInfo, error) {
 		if message == "" {
 			message = response.Status
 		}
-		return nil, fmt.Errorf(message)
+		return nil, errors.New(message)
 	}
 
 	var payload []agentInfo

@@ -56,3 +56,9 @@ This repo is a Go backend + Svelte frontend for a multi-terminal dashboard with 
 - Prefer minimal changes and minimal dependencies.
 - Use ASCII-only edits unless the file already uses non-ASCII.
 - Avoid destructive git commands unless explicitly requested.
+
+## Versioning and releases
+- Conventional commits drive semantic version bumps via `scripts/get-next-version.js` (semver).
+- Backend version is `internal/version.Version`, exposed in `/api/status` and startup logs.
+- Frontend version comes from `frontend/src/lib/version.js` with Vite define `__GESTALT_VERSION__`.
+- Makefile supports `VERSION=...` for builds; CI workflows set VERSION and release tags.

@@ -73,7 +73,7 @@
    - Tests: Unit tests for subscribe/publish/unsubscribe
    Done when: EventHub can manage subscriptions and fan-out events
 
-** TODO [#B] Implement WebSocket /ws/events endpoint
+** DONE [#B] Implement WebSocket /ws/events endpoint
    Why: Frontend needs real-time event notifications
    Change:
    - Add /ws/events WebSocket endpoint in internal/api/routes.go

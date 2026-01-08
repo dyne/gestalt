@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -18,6 +19,7 @@ import (
 	"gestalt/internal/logging"
 	"gestalt/internal/skill"
 	"gestalt/internal/terminal"
+	"gestalt/internal/watcher"
 )
 
 type Config struct {
@@ -81,6 +83,14 @@ func main() {
 		PromptDir:            path.Join("config", "prompts"),
 	})
 
+	fsWatcher, err := watcher.New()
+	if err != nil && logger != nil {
+		logger.Warn("filesystem watcher unavailable", map[string]string{
+			"error": err.Error(),
+		})
+	}
+	eventHub := watcher.NewEventHub(context.Background(), fsWatcher)
+
 	staticDir := findStaticDir()
 	frontendFS := fs.FS(nil)
 	if sub, err := fs.Sub(gestalt.EmbeddedFrontendFS, path.Join("frontend", "dist")); err == nil {
@@ -92,7 +102,7 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	api.RegisterRoutes(mux, manager, cfg.AuthToken, staticDir, frontendFS, logger)
+	api.RegisterRoutes(mux, manager, cfg.AuthToken, staticDir, frontendFS, logger, eventHub)
 
 	server := &http.Server{
 		Addr:              ":" + strconv.Itoa(cfg.Port),

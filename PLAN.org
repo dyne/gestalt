@@ -1,4 +1,4 @@
-* TODO [#B] Improve CLI tools with proper flags and help
+* WIP [#B] Improve CLI tools with proper flags and help
   Goal: Add comprehensive --help documentation and command-line flags to gestalt, gestalt-desktop, and gestalt-send, with flags named after env vars (lowercase) and CLI flags overriding env vars.
   Notes:
   - Current state: gestalt has no CLI flags (only env vars), gestalt-send has minimal flags
@@ -16,7 +16,7 @@
   - Future: consider cobra/viper for richer CLI (defer unless needed)
   Date: 2026-01-08
 
-** TODO [#B] Define consistent CLI flag structure and conventions
+** DONE [#B] Define consistent CLI flag structure and conventions
    Why: Need unified approach across all three binaries before implementation
    Change:
    - Document flag naming convention: GESTALT_FOO_BAR → --foo-bar

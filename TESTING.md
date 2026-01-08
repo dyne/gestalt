@@ -85,3 +85,13 @@ Coverage targets:
 ## CI
 
 GitHub Actions runs Go unit tests plus frontend Vitest runs (including coverage).
+
+## CLI flag conventions
+
+- Flag names are lowercase env var names with underscores replaced by dashes (GESTALT_FOO_BAR -> --foo-bar).
+- Priority: CLI flag overrides env var, env var overrides default.
+- Help format: "Description (env: GESTALT_FOO, default: value)" for each flag.
+- Common flags: --help, --version, --verbose.
+- Tool-specific flags: gestalt (server config), gestalt-send (client config), gestalt-desktop (gestalt flags plus window config).
+- Exit codes: 0 success, 1 usage error, 2 runtime error, 3 network error.
+- Subcommands: gestalt validate-skill, gestalt completion.

@@ -680,7 +680,7 @@
    Tests: Run script manually with various commit histories
    Done when: Script correctly determines next version from git history using semver
 
-** TODO [#B] Create GitHub Actions release workflow
+** DONE [#B] Create GitHub Actions release workflow
    Why: Automate version detection, tagging, and release creation on main branch
    Change:
    - Create .github/workflows/release.yml (separate from tests.yml)

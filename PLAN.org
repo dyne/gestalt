@@ -723,12 +723,9 @@
    Why: Users should see which version of Gestalt they're running
    Change:
    - Import VERSION from lib/version.js in Dashboard.svelte
-   - Add version display near "Gestalt" h1 in the header div
-   - Reuse existing .cta class styling as .version class (small, gray text)
-   - Markup: <span class="version">v{VERSION}</span>
-   - Placement: after the h1, same container, visually subtle
-   - Keep existing .cta styles, duplicate as .version for semantic clarity
-   - Version should be understated, not competing with main title
+   - Add version display in the header brand area
+   - Replace the "by Dyne.org" text with version label
+   - Reuse existing brand-by styling for the version display
    Tests: npm run build; visually verify version displays correctly
    Done when: Version appears in Dashboard header with .cta-inspired styling
 

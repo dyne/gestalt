@@ -1,4 +1,4 @@
-* WIP [#A] Event-based filesystem monitoring with WebSocket notifications
+* DONE [#A] Event-based filesystem monitoring with WebSocket notifications
   Goal: Replace polling with an event-driven filesystem monitoring component that uses fsnotify to watch files and notify the frontend via WebSocket when changes occur.
   Notes:
   - Core component: internal/watcher package with reusable Watch service
@@ -19,7 +19,7 @@
   - Testing: mock fsnotify for unit tests, integration tests with real files
   Date: 2026-01-08
 
-** DONE [#B] Evaluate and add fsnotify dependency
+** [#B] Evaluate and add fsnotify dependency
    Why: Need cross-platform filesystem watching; fsnotify is the standard Go library for this
    Change:
    - Research: fsnotify vs alternatives (stdlib has none, inotify is Linux-only, kqueue is BSD-only)
@@ -31,7 +31,7 @@
    Tests: go mod tidy; verify module resolves
    Done when: fsnotify added as dependency with justification documented
 
-** DONE [#B] Create internal/watcher package structure
+** [#B] Create internal/watcher package structure
    Why: Need reusable abstraction for filesystem watching
    Change:
    - Create internal/watcher/ package with doc.go documenting purpose
@@ -45,7 +45,7 @@
    Tests: Package structure compiles; interfaces defined
    Done when: Watcher package structure exists with documented interfaces
 
-** DONE [#B] Implement core Watcher with fsnotify integration
+** [#B] Implement core Watcher with fsnotify integration
    Why: Bridge fsnotify events to Gestalt's callback architecture
    Change:
    - Implement New() (*Watcher, error) that creates fsnotify.Watcher
@@ -59,7 +59,7 @@
    - Tests: Unit tests with mock filesystem (os.CreateTemp, write, remove)
    Done when: Watcher receives fsnotify events and dispatches to callbacks
 
-** DONE [#B] Add event hub for centralized event management
+** [#B] Add event hub for centralized event management
    Why: Decouple watchers from WebSocket broadcasting
    Change:
    - Create internal/watcher/hub.go with EventHub struct
@@ -73,7 +73,7 @@
    - Tests: Unit tests for subscribe/publish/unsubscribe
    Done when: EventHub can manage subscriptions and fan-out events
 
-** DONE [#B] Implement WebSocket /ws/events endpoint
+** [#B] Implement WebSocket /ws/events endpoint
    Why: Frontend needs real-time event notifications
    Change:
    - Add /ws/events WebSocket endpoint in internal/api/routes.go
@@ -87,7 +87,7 @@
    - Tests: WebSocket connection test, event delivery test
    Done when: /ws/events streams filesystem events to connected clients
 
-** DONE [#B] Implement PLAN.org file watching
+** [#B] Implement PLAN.org file watching
    Why: First use case - live updates for Plan tab
    Change:
    - In cmd/gestalt/main.go: watch PLAN.org file on startup
@@ -98,7 +98,7 @@
    - Tests: Integration test: modify PLAN.org, verify event fired
    Done when: PLAN.org changes trigger file_changed events
 
-** DONE [#B] Update PlanView to use WebSocket events
+** [#B] Update PlanView to use WebSocket events
    Why: Replace polling with event-based updates
    Change:
    - Remove 5s polling interval in frontend/src/views/PlanView.svelte
@@ -111,7 +111,7 @@
    - Tests: Manual test: edit PLAN.org, verify UI updates immediately
    Done when: Plan tab updates instantly when PLAN.org changes
 
-** DONE [#B] Implement git branch monitoring
+** [#B] Implement git branch monitoring
    Why: Second use case - live git branch updates in Dashboard
    Change:
    - Create internal/watcher/git.go with GitWatcher
@@ -125,7 +125,7 @@
    - Tests: Unit tests with temp git repo, simulate branch change
    Done when: Git branch changes trigger git_branch_changed events
 
-** DONE [#B] Add git origin and branch to /api/status
+** [#B] Add git origin and branch to /api/status
    Why: Dashboard needs current git context
    Change:
    - Extend statusResponse in internal/api/rest.go: GitOrigin, GitBranch strings
@@ -137,7 +137,7 @@
    - Tests: API test with/without git repo; go test ./internal/api
    Done when: GET /api/status returns git origin and current branch
 
-** DONE [#B] Update Dashboard to show git branch live
+** [#B] Update Dashboard to show git branch live
    Why: Users need to see current git context in Dashboard
    Change:
    - Add git origin/branch display to Dashboard.svelte status section
@@ -150,7 +150,7 @@
    - Tests: Manual test: git checkout, verify Dashboard updates
    Done when: Dashboard shows live git branch without polling
 
-** DONE [#C] Add configurable watcher limits and cleanup
+** [#C] Add configurable watcher limits and cleanup
    Why: Prevent resource exhaustion from too many watchers
    Change:
    - Add GESTALT_MAX_WATCHES env var (default 100)
@@ -163,7 +163,7 @@
    Tests: Test watch limit enforcement; verify cleanup works
    Done when: Watcher respects resource limits and cleans up unused watches
 
-** DONE [#C] Add debouncing and event coalescing
+** [#C] Add debouncing and event coalescing
    Why: Prevent event flooding from rapid file changes (e.g., editor autosave)
    Change:
    - Add 100ms debounce window per path
@@ -174,7 +174,7 @@
    - Tests: Unit test with rapid file modifications; verify single event
    Done when: Rapid changes trigger single event after debounce window
 
-** DONE [#C] Add frontend WebSocket event store
+** [#C] Add frontend WebSocket event store
    Why: Centralize WebSocket event handling in frontend
    Change:
    - Create frontend/src/lib/eventStore.js for /ws/events connection
@@ -187,7 +187,7 @@
    Tests: Frontend unit tests for store; manual connection test
    Done when: Frontend has reusable WebSocket event infrastructure
 
-** DONE [#C] Add error handling and recovery
+** [#C] Add error handling and recovery
    Why: Filesystem watching can fail (permission, filesystem full, etc)
    Change:
    - Catch fsnotify errors: log at warning level with context
@@ -200,7 +200,7 @@
    Tests: Simulate watch failures (permissions, invalid paths)
    Done when: Watcher handles errors gracefully with fallback options
 
-** DONE [#C] Add integration tests for end-to-end event flow
+** [#C] Add integration tests for end-to-end event flow
    Why: Verify complete flow from filesystem change to frontend update
    Change:
    - Create test: start server, connect WebSocket, modify watched file
@@ -213,7 +213,7 @@
    Tests: go test ./... integration suite passes
    Done when: E2E tests cover critical paths with real filesystem operations
 
-** DONE [#C] Document event system and usage patterns
+** [#C] Document event system and usage patterns
    Why: Developers need to understand how to add new watchers
    Change:
    - Add "Filesystem Event System" section to README.md

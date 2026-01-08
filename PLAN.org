@@ -1,3 +1,440 @@
+* TODO [#A] Comprehensive architecture and code quality review
+  Goal: Conduct a thorough review of the entire Gestalt codebase (backend + frontend) to identify opportunities for simplification, improved maintainability, better readability, dependency reduction, and architectural improvements.
+  Notes:
+  - Scope: Every internal package, command, frontend component, and external dependency
+  - Current state: ~14k LOC backend (Go), ~4.4k LOC frontend (Svelte), 67% avg test coverage
+  - Dependencies: Minimal (4 Go deps, 2 npm deps) - good foundation to maintain
+  - Focus areas: code clarity, separation of concerns, reducing coupling, eliminating redundancy
+  - Approach: component-by-component analysis with concrete improvement proposals
+  - Changes can range from small refactors to full component rewrites if justified
+  - Preserve: existing functionality, test coverage, backward compatibility where possible
+  - Outcome: prioritized list of improvements with effort estimates and impact assessment
+  - This is a planning and analysis L1; implementation will be separate follow-up work
+  Date: 2026-01-08
+  
+  Context for implementation:
+  - Gestalt is a multi-terminal dashboard with AI agent profiles and skills
+  - Core value: orchestrate multiple terminal sessions with agent coordination
+  - Architecture: Go HTTP/WS server + Svelte SPA frontend
+  - Key components: PTY management, WebSocket streaming, agent profiles, skill system
+  - Recent additions: filesystem watching, input history, org-mode viewer, logging system
+  - Quality baseline: good test coverage, minimal deps, modular structure
+  - Pain points to investigate: coupling, complexity, unclear boundaries, potential over-engineering
+
+** TODO [#A] Review and document current architecture
+   Why: Need complete understanding before proposing changes; establish baseline
+   Change:
+   - Document current architecture in detail:
+     - Backend: 9 internal packages (agent, api, logging, orchestrator, skill, terminal, version, watcher, plus root)
+     - Frontend: 4 views, 8 components, 5 lib modules
+     - Data flow: REST API, WebSocket streams, embedded resources, config files
+     - State management: backend (Manager holds sessions), frontend (Svelte stores)
+   - Create architecture diagram (text-based or mermaid) showing:
+     - Component dependencies and communication paths
+     - Data flow: user → frontend → API → terminal → PTY
+     - WebSocket fan-out pattern (broadcaster → multiple subscribers)
+     - Config loading: embedded → external override → env vars
+   - Identify architectural patterns in use:
+     - Manager pattern (terminal.Manager), Hub pattern (watcher.EventHub)
+     - Circular buffers (output/input buffers)
+     - Fan-out/broadcast (WebSocket, event hub)
+     - Embedded resources with override (embed.FS)
+   - Document key design decisions and their rationale
+   - List implicit coupling and hidden dependencies
+   - Measure: lines of code per component, cyclomatic complexity (if tools available)
+   Tests: None (documentation only)
+   Done when: Complete architecture documented with diagrams and metrics
+
+** TODO [#B] Analyze internal/terminal package (850 LOC, core domain)
+   Why: Largest and most complex internal package; core business logic
+   Change:
+   - Review files: session.go, manager.go, pty.go, broadcaster.go, input_buffer.go, output_buffer.go, persistence.go, input_logger.go
+   - Session struct: 20+ fields, 3 goroutines - is this too complex?
+   - Manager: CRUD for sessions + agent tracking - single responsibility?
+   - Broadcaster: fan-out pattern - could be extracted to reusable utility?
+   - Buffers: circular buffer pattern repeated twice (input/output) - DRY opportunity?
+   - Persistence: async file logging - is this pattern reusable for other logs?
+   - PTY handling: OS-specific (pty_unix.go, pty_windows.go) - stub on Windows, document or implement ConPTY?
+   - Questions to answer:
+     - Can Session be split into smaller types? (SessionState, SessionIO, SessionLifecycle?)
+     - Is Manager doing too much? (session registry vs lifecycle vs agent tracking)
+     - Are the 3 goroutines per session necessary? Can any be combined?
+     - Should Broadcaster be promoted to internal/broadcast package?
+     - Can input/output buffers share a generic circular buffer implementation?
+   - Coverage: 74.2% - identify untested paths and why
+   - Proposed improvements: extract, simplify, reduce goroutine count, clearer boundaries
+   Tests: Ensure refactoring maintains coverage
+   Done when: Detailed analysis with concrete improvement proposals documented
+
+** TODO [#B] Analyze internal/api package (1100+ LOC, HTTP/WS layer)
+   Why: Second largest package; handles all HTTP and WebSocket traffic
+   Change:
+   - Review files: routes.go, rest.go, terminal_handler.go, logs_handler.go, events_handler.go, spa.go, middleware.go
+   - Current structure: handlers mixed with routing, validation, and business logic
+   - REST endpoints: ~15 endpoints in rest.go - is this file too large?
+   - WebSocket handlers: 3 separate files (terminal, logs, events) - consistent pattern?
+   - Middleware: auth middleware in separate file - good, but is it sufficient?
+   - SPA handler: custom fallback logic - could this be simpler?
+   - Questions to answer:
+     - Should REST handlers be split by domain? (terminals.go, agents.go, skills.go, logs.go, plan.go)
+     - Is error handling consistent across all endpoints?
+     - Are validation patterns repeated? Extract to shared validators?
+     - Do WebSocket handlers share common patterns? Extract base WebSocket handler?
+     - Is middleware testable in isolation?
+   - Dependencies: gorilla/websocket - is this necessary or can stdlib x/net/websocket suffice?
+   - Coverage: 64.9% - lower than average, why? Handler testing complexity?
+   - Proposed improvements: split by domain, extract validators, reduce duplication
+   Tests: Add integration tests for missing coverage
+   Done when: API layer analyzed with refactoring proposals
+
+** TODO [#B] Analyze internal/watcher package (1426 LOC, filesystem monitoring)
+   Why: Recent addition, significant size, uses fsnotify, complex coordination
+   Change:
+   - Review files: watcher.go (550 LOC!), hub.go, git.go, types.go + tests
+   - Watcher.go is largest single file - is it doing too much?
+   - EventHub: pub/sub pattern - clean design or over-engineered for current needs?
+   - Git watching: branch detection - is this separate concern from file watching?
+   - Questions to answer:
+     - Can watcher.go be split? (WatcherCore, WatcherCoordination, WatcherCleanup?)
+     - Is EventHub necessary or could simpler callback pattern work?
+     - Should git watching be separate package? (internal/git)
+     - Is debouncing logic complex? Could it be simplified?
+     - Are 100 max watches sufficient? Is this limit well-enforced?
+   - Dependency: fsnotify (only ~9k lines) - well-justified for cross-platform
+   - Coverage: 63.9% - lowest backend coverage, integration test heavy?
+   - Proposed improvements: split large file, simplify if over-designed, better tests
+   Tests: Unit tests for watcher logic separate from integration tests
+   Done when: Watcher package analyzed with simplification opportunities identified
+
+** TODO [#C] Analyze internal/agent package (400 LOC, agent profiles)
+   Why: Core domain model, high coverage (85%), well-tested
+   Change:
+   - Review files: agent.go, loader.go + tests
+   - Agent struct: simple data model with validation - clean design
+   - Loader: reads JSON files, validates, returns map - straightforward
+   - Questions to answer:
+     - Is validation complete and correct?
+     - Is error handling helpful for users?
+     - Should agent name uniqueness be enforced at load or elsewhere?
+     - Is prompt name resolution in the right place?
+   - Coverage: 85% - excellent, what's missing?
+   - Proposed improvements: likely minimal, validate completeness
+   Tests: Review test quality, add edge cases if needed
+   Done when: Agent package reviewed, minor improvements identified if any
+
+** TODO [#C] Analyze internal/skill package (350 LOC, Agent Skills)
+   Why: Domain model for skills, YAML parsing, prompt generation
+   Change:
+   - Review files: skill.go, loader.go, prompt.go + tests
+   - Skill struct: YAML frontmatter + markdown body - clean
+   - Loader: scans directories, parses SKILL.md files - similar to agent loader
+   - Prompt generation: XML output for LLM context - is format optimal?
+   - Questions to answer:
+     - Is YAML parsing robust? (using gopkg.in/yaml.v3)
+     - Should skill/agent loaders share common base code? (both scan dirs, parse, validate)
+     - Is XML generation testable? Are there edge cases?
+     - Is skill metadata complete for agentskills.io spec?
+   - Dependency: gopkg.in/yaml.v3 - well-justified for YAML parsing
+   - Coverage: 80.5% - good, what's untested?
+   - Proposed improvements: extract common loader pattern if beneficial
+   Tests: Ensure YAML edge cases covered
+   Done when: Skill package reviewed with improvement proposals
+
+** TODO [#C] Analyze internal/logging package (200 LOC, structured logging)
+   Why: Recent addition, circular buffer, WebSocket streaming
+   Change:
+   - Review files: logger.go, buffer.go + tests
+   - LogBuffer: circular buffer pattern (same as terminal buffers) - DRY opportunity?
+   - Logger: structured fields (map[string]string) - sufficient or needs types?
+   - WebSocket streaming: integrated with api package - clean separation?
+   - Questions to answer:
+     - Should circular buffer be extracted to internal/buffer package?
+     - Is structured logging interface sufficient for all use cases?
+     - Should log levels be enum/constants instead of strings?
+     - Is buffer size (1000 entries) appropriate?
+   - Coverage: 73% - what's missing?
+   - Proposed improvements: extract buffer, strengthen types
+   Tests: Concurrent logging tests
+   Done when: Logging package analyzed with reuse opportunities identified
+
+** TODO [#C] Analyze internal/orchestrator package (empty stub)
+   Why: Placeholder for future inter-terminal communication
+   Change:
+   - Review: currently empty, only doc.go with intent
+   - Questions to answer:
+     - Is this needed now? Should it be removed?
+     - What will orchestrator do? (design future features)
+     - Will it become complex? Plan for simplicity early
+   - Proposed improvements: remove if unused, or sketch minimal design
+   Tests: None currently
+   Done when: Decision made on orchestrator future (keep stub or remove)
+
+** TODO [#C] Analyze internal/version package (5 LOC, version string)
+   Why: Minimal package, check if necessary
+   Change:
+   - Review: single var Version string for ldflags injection
+   - Questions to answer:
+     - Does this need to be a separate package?
+     - Could version be in main package?
+   - Proposed improvements: keep as-is (clean separation) or inline
+   Tests: None needed
+   Done when: Version package reviewed (likely no changes)
+
+** TODO [#B] Analyze cmd/gestalt (910 LOC, main entrypoint)
+   Why: Largest command file, wires everything together
+   Change:
+   - Review files: main.go, completion.go, extract.go, config_fs.go + tests
+   - Main.go: config loading, agent/skill loading, manager creation, server start
+   - Questions to answer:
+     - Is main.go too long? Should initialization be extracted?
+     - Config loading: is loadConfig() function clear and testable?
+     - Should config have its own package? (internal/config)
+     - Are subcommands (validate-skill, extract-config, completion) well-organized?
+     - Is flag parsing clean? (will improve in CLI L1)
+   - Coverage: 54.3% - low for main, acceptable or improve?
+   - Proposed improvements: extract initialization, clarify config, simplify main flow
+   Tests: More config loading tests
+   Done when: Main entrypoint analyzed with simplification proposals
+
+** TODO [#B] Analyze cmd/gestalt-send (761 LOC, CLI tool)
+   Why: Separate binary, client-side tool, moderate complexity
+   Change:
+   - Review files: main.go, completion support, agent resolution, HTTP client
+   - Main.go: flag parsing, agent resolution, HTTP POST, completion generation
+   - Agent resolution: fetches /api/agents, matches name/id - is caching robust?
+   - Questions to answer:
+     - Is error handling clear and helpful?
+     - Are exit codes consistent with conventions?
+     - Is agent resolution logic too complex for CLI tool?
+     - Should HTTP client logic be extracted to package?
+     - Is completion generation maintainable?
+   - Coverage: 48.9% - lowest, is this acceptable for CLI?
+   - Proposed improvements: simplify agent resolution, improve error messages
+   Tests: More CLI integration tests
+   Done when: gestalt-send analyzed with UX improvement proposals
+
+** TODO [#B] Analyze frontend architecture (4357 LOC, Svelte SPA)
+   Why: Entire frontend needs review for consistency and simplicity
+   Change:
+   - Review structure:
+     - Views: Dashboard, PlanView, LogsView, TerminalView (4 main views)
+     - Components: Terminal, TabBar, Toast, OrgViewer, CommandInput, etc (8 components)
+     - Libs: api.js, terminalStore.js, eventStore.js, notificationStore.js, orgParser.js, terminalTabs.js (6 modules)
+   - Questions to answer:
+     - Is component hierarchy clear? Are responsibilities well-defined?
+     - Do views mix too much logic? Should business logic move to stores?
+     - Are Svelte stores used consistently? (writable, readable, derived)
+     - Is terminalStore.js too large (660 LOC)? Can it be split?
+     - Are there repeated patterns that could be extracted?
+     - Is error handling consistent across components?
+     - Are API calls centralized properly?
+   - State management: is it clear where state lives and how it flows?
+   - Proposed improvements: extract logic from views, simplify stores, reduce component size
+   Tests: Frontend has tests but coverage unknown, identify gaps
+   Done when: Frontend architecture analyzed with refactoring proposals
+
+** TODO [#B] Analyze frontend/src/lib (store and utility modules)
+   Why: Core frontend logic, state management, API client
+   Change:
+   - Review files:
+     - api.js (63 LOC): HTTP/WS URL building, fetch wrapper - clean and minimal
+     - terminalStore.js (660 LOC): HUGE - xterm management, WebSocket, input handling
+     - eventStore.js (144 LOC): filesystem event WebSocket - clean
+     - notificationStore.js (185 LOC): toast notifications - clean
+     - orgParser.js (85 LOC): Org-mode parsing - minimal parser, good
+     - terminalTabs.js (7 LOC): unused? just exports writable, may be obsolete
+   - terminalStore.js deep dive:
+     - Manages xterm instance, WebSocket, input modes, history, focus, scrolling
+     - Is this too much? Split into: xtermManager.js, terminalWebSocket.js, terminalInput.js?
+     - Can WebSocket reconnection logic be shared with eventStore?
+     - Is input mode toggle (direct vs command box) too complex?
+   - Questions to answer:
+     - Should terminal state be split into multiple stores?
+     - Can WebSocket connection logic be extracted to wsClient.js?
+     - Is terminalTabs.js used? Remove if not
+     - Are stores reactive enough? Any unnecessary re-renders?
+   - Proposed improvements: split terminalStore, extract WebSocket client, remove dead code
+   Tests: Add unit tests for store logic
+   Done when: Frontend lib modules analyzed with refactoring plan
+
+** TODO [#B] Analyze frontend components (largest: Terminal 347 LOC, CommandInput 332 LOC)
+   Why: Components are UI building blocks, need to be maintainable
+   Change:
+   - Review each component:
+     - Terminal.svelte (347 LOC): xterm rendering, WebSocket connection, input handling
+     - CommandInput.svelte (332 LOC): multiline input, history navigation, direct input toggle
+     - OrgViewer.svelte (244 LOC): org-mode rendering, filtering, expanding
+     - OrgNode.svelte (208 LOC): recursive org-mode node rendering
+     - NotificationSettings.svelte (182 LOC): toast preferences UI
+     - TabBar.svelte (157 LOC): tab navigation, close buttons
+     - Toast.svelte (137 LOC): individual toast notification
+     - ToastContainer.svelte (46 LOC): toast positioning and stacking
+     - TerminalView.svelte (44 LOC): thin wrapper for Terminal component
+   - Questions to answer:
+     - Is Terminal.svelte doing too much? (WebSocket + xterm + layout)
+     - Should Terminal be split into Terminal (layout) + XtermCanvas (xterm only)?
+     - Is CommandInput too complex? Can it be simplified?
+     - Are OrgViewer/OrgNode well-factored? (recursive component pattern)
+     - Can any components be further decomposed?
+     - Is component communication clean? (props down, events up)
+     - Are there repeated patterns? (WebSocket connection, error handling)
+   - Proposed improvements: simplify large components, extract sub-components
+   Tests: Component tests for complex logic
+   Done when: All components reviewed with simplification proposals
+
+** TODO [#B] Analyze frontend views (4 main views, thin layer over components)
+   Why: Views coordinate components, should be minimal
+   Change:
+   - Review each view:
+     - Dashboard.svelte: agent list, skills display, recent logs, status
+     - PlanView.svelte: OrgViewer wrapper, refresh button, event subscription
+     - LogsView.svelte: log filtering, auto-refresh, log list rendering
+     - TerminalView.svelte: thin wrapper, just passes props to Terminal
+   - Questions to answer:
+     - Are views thin enough? (ideally < 100 LOC)
+     - Do views have business logic that should move to stores?
+     - Is Dashboard too complex? (shows agents, skills, logs)
+     - Can view logic be extracted to composable functions?
+   - Proposed improvements: move logic to stores, simplify views
+   Tests: View rendering tests
+   Done when: Views analyzed, logic extraction opportunities identified
+
+** TODO [#B] Analyze Go dependencies (4 external, all justified?)
+   Why: Minimize dependencies for maintainability and security
+   Change:
+   - Review each dependency:
+     - github.com/creack/pty v1.1.21 (REQUIRED: cross-platform PTY, no stdlib alternative)
+     - github.com/gorilla/websocket v1.5.3 (QUESTION: can we use golang.org/x/net/websocket or stdlib?)
+     - github.com/fsnotify/fsnotify v1.9.0 (REQUIRED: cross-platform fs watching, stdlib has none)
+     - gopkg.in/yaml.v3 v3.0.1 (REQUIRED: YAML parsing for skills, no stdlib alternative)
+   - Deep dive on gorilla/websocket:
+     - What features does gestalt use? (control frames, origin checking, binary/text messages)
+     - Can stdlib (removed) or x/net/websocket provide these?
+     - Is migration effort worth the dependency reduction?
+     - Decision: likely keep gorilla (production-ready, widely used), but verify
+   - Transitive deps: golang.org/x/sys (from pty/fsnotify, acceptable)
+   - Proposed improvements: investigate gorilla alternatives, document decisions
+   Tests: No changes unless migration happens
+   Done when: Dependencies reviewed, justified, migration assessed
+
+** TODO [#C] Analyze frontend dependencies (2 + dev deps)
+   Why: Frontend is already minimal, but verify necessity
+   Change:
+   - Production dependencies:
+     - @xterm/xterm (REQUIRED: terminal emulator, core feature)
+     - @xterm/addon-fit (CONVENIENCE: 10 lines of math, could inline but not worth it)
+   - Dev dependencies: vite, svelte, testing-library, vitest, tailwind, postcss (all justified for dev)
+   - Questions to answer:
+     - Is addon-fit worth keeping? (yes, 10 lines but tested and maintained)
+     - Are all tailwind utilities used? (yes, recently added)
+     - Any unused dev deps? (check for obsolete testing or build tools)
+   - Proposed improvements: likely none, already minimal
+   Tests: No changes
+   Done when: Frontend deps reviewed and justified
+
+** TODO [#B] Identify code duplication and extraction opportunities
+   Why: DRY principle - reduce maintenance burden
+   Change:
+   - Search for duplication patterns:
+     - Circular buffers: OutputBuffer, InputBuffer, LogBuffer - extract generic Buffer[T]?
+     - Async file loggers: SessionLogger, InputLogger - extract generic AsyncFileLogger?
+     - Config loading: agent loader, skill loader - extract common dirScanner/jsonLoader?
+     - WebSocket patterns: terminal, logs, events handlers - extract base wsHandler?
+     - Frontend WebSocket clients: terminalStore, eventStore - extract wsClient?
+     - Error handling: repeated patterns in API handlers - extract errorResponder?
+   - Measure duplication:
+     - Identify repeated code blocks (>10 lines similar)
+     - Calculate potential LOC reduction
+   - Assess extraction value:
+     - Will abstraction simplify or complicate?
+     - Is pattern used 3+ times? (rule of three)
+     - Will it reduce bugs or increase cognitive load?
+   - Proposed improvements: prioritize high-value extractions
+   Tests: Ensure extracted code is well-tested
+   Done when: Duplication catalog created with extraction proposals
+
+** TODO [#B] Review error handling consistency
+   Why: Poor error handling leads to unclear failures and debugging difficulty
+   Change:
+   - Backend error handling review:
+     - Are errors wrapped with context? (fmt.Errorf with %w)
+     - Are errors logged at appropriate levels?
+     - Are HTTP error responses consistent? (status codes, JSON structure)
+     - Are panics avoided? (use recover only in critical goroutines)
+     - Are errors tested? (error paths have test coverage)
+   - Frontend error handling review:
+     - Are API errors caught and displayed to user?
+     - Are network errors retried appropriately?
+     - Are WebSocket disconnections handled gracefully?
+     - Are errors logged to console for debugging?
+     - Do users see helpful error messages?
+   - Questions to answer:
+     - Should we use pkg/errors for error wrapping? (stdlib %w is sufficient)
+     - Should API errors have error codes? (for programmatic handling)
+     - Should frontend have centralized error handler?
+   - Proposed improvements: consistent error patterns, better user messages
+   Tests: Error path test coverage
+   Done when: Error handling reviewed, consistency proposals documented
+
+** TODO [#B] Review testing strategy and coverage gaps
+   Why: Tests prevent regressions and document behavior
+   Change:
+   - Current coverage analysis:
+     - cmd/gestalt: 54.3% - low, but main is hard to test
+     - cmd/gestalt-send: 48.9% - low for CLI, integration-heavy
+     - internal/agent: 85.0% - excellent
+     - internal/api: 64.9% - acceptable, integration tests exist
+     - internal/logging: 73.0% - good
+     - internal/skill: 80.5% - good
+     - internal/terminal: 74.2% - good
+     - internal/watcher: 63.9% - low, complex integration tests
+   - Identify untested paths:
+     - What's not covered in each package?
+     - Are tests integration-heavy or unit-heavy?
+     - Are error paths tested?
+     - Are edge cases covered?
+   - Review test quality:
+     - Are tests readable and maintainable?
+     - Do tests use table-driven patterns?
+     - Are tests isolated or do they share state?
+     - Are integration tests reliable?
+   - Frontend testing:
+     - Are components tested?
+     - Are stores tested?
+     - Are API mocks used?
+     - Is coverage measured?
+   - Proposed improvements: target 80% coverage, add missing tests
+   Tests: This is meta-testing review
+   Done when: Coverage gaps identified, test improvement plan created
+
+** TODO [#A] Create prioritized improvement roadmap
+   Why: Consolidate all analysis into actionable plan
+   Change:
+   - Compile all findings from previous L2 steps
+   - Categorize improvements:
+     - Quick wins: <1 day effort, high impact (rename, extract small function, add test)
+     - Medium refactors: 1-3 days, medium-high impact (split large file, extract pattern)
+     - Large refactors: 1+ weeks, high impact (redesign component, migrate dependency)
+   - Prioritize by:
+     - Impact: simplification, maintainability, readability, performance
+     - Risk: breaking changes, test coverage, complexity
+     - Effort: time to implement and test
+   - Create matrix: Impact (H/M/L) x Effort (H/M/L) → priority
+   - Propose implementation order:
+     - Phase 1: Quick wins and high-impact/low-effort improvements
+     - Phase 2: Medium refactors with clear value
+     - Phase 3: Large refactors if justified
+   - Document each improvement:
+     - What: specific change
+     - Why: problem it solves
+     - How: implementation approach
+     - Effort: estimated time
+     - Risk: what could break
+     - Tests: what tests to add/modify
+   - Create follow-up L1 work plans for top priorities
+   Tests: N/A (planning)
+   Done when: Prioritized roadmap with detailed improvement proposals ready for implementation
+
 * DONE [#B] Improve CLI tools with proper flags and help
   Goal: Add comprehensive --help documentation and command-line flags to gestalt, gestalt-desktop, and gestalt-send, with flags named after env vars (lowercase) and CLI flags overriding env vars.
   Notes:

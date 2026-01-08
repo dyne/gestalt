@@ -1745,7 +1745,7 @@
    Done when: README clearly documents versioning workflow and conventions
 
 
-* TODO [#A] Temporal workflow integration for HITL session lifecycle
+* WIP [#A] Temporal workflow integration for HITL session lifecycle
   Goal: Integrate Temporal.io workflows to manage durable, semi-interactive agent sessions with human-in-the-loop (HITL) coordination, tracking agent work phases (start: L1/L2 plan tasks) and stops (terminal bells requiring user attention).
   Notes:
   - Core Gestalt functionality: agents record start (which PLAN.org L1/L2 they're working on) and stop (terminal bell signals)
@@ -1765,7 +1765,7 @@
   Date: 2025-12-31
   Ref: https://github.com/dyne/gestalt/issues/4
 
-** TODO [#B] Setup Temporal development environment
+** DONE [#B] Setup Temporal development environment
    Why: Need Temporal server running locally for development and testing
    Change:
    - Add Temporal CLI to development dependencies (temporalio/cli)
@@ -1779,7 +1779,7 @@
    Tests: Start temporal dev server, verify UI accessible
    Done when: Temporal dev server runs locally and is documented
 
-** TODO [#B] Add Temporal Go SDK dependency
+** WIP [#B] Add Temporal Go SDK dependency
    Why: Need Temporal client and worker SDK in Go backend
    Change:
    - Add dependency: go get go.temporal.io/sdk@latest

@@ -2,6 +2,7 @@ package api
 
 import (
 	"bufio"
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -18,8 +19,12 @@ import (
 
 	"gestalt/internal/logging"
 	"gestalt/internal/plan"
+	"gestalt/internal/temporal"
+	"gestalt/internal/temporal/workflows"
 	"gestalt/internal/terminal"
 	"gestalt/internal/version"
+
+	"go.temporal.io/api/serviceerror"
 )
 
 type RestHandler struct {
@@ -41,6 +46,25 @@ type terminalSummary struct {
 	LLMType   string    `json:"llm_type"`
 	LLMModel  string    `json:"llm_model"`
 	Skills    []string  `json:"skills"`
+}
+
+type workflowSummary struct {
+	SessionID     string              `json:"session_id"`
+	WorkflowID    string              `json:"workflow_id"`
+	WorkflowRunID string              `json:"workflow_run_id"`
+	Title         string              `json:"title"`
+	Role          string              `json:"role"`
+	AgentName     string              `json:"agent_name"`
+	CurrentL1     string              `json:"current_l1"`
+	CurrentL2     string              `json:"current_l2"`
+	Status        string              `json:"status"`
+	StartTime     time.Time           `json:"start_time"`
+	BellEvents    []workflowBellEvent `json:"bell_events"`
+}
+
+type workflowBellEvent struct {
+	Timestamp time.Time `json:"timestamp"`
+	Context   string    `json:"context"`
 }
 
 type terminalOutputResponse struct {
@@ -146,6 +170,9 @@ const (
 	terminalPathBell
 )
 
+const workflowQueryTimeout = 3 * time.Second
+const workflowStatusUnknown = "unknown"
+
 func (h *RestHandler) handleStatus(w http.ResponseWriter, r *http.Request) *apiError {
 	if err := h.requireManager(); err != nil {
 		return err
@@ -174,6 +201,23 @@ func (h *RestHandler) handleStatus(w http.ResponseWriter, r *http.Request) *apiE
 	}
 
 	writeJSON(w, http.StatusOK, response)
+	return nil
+}
+
+func (h *RestHandler) handleWorkflows(w http.ResponseWriter, r *http.Request) *apiError {
+	if err := h.requireManager(); err != nil {
+		return err
+	}
+	if r.Method != http.MethodGet {
+		return methodNotAllowed(w, "GET")
+	}
+	if !h.Manager.TemporalEnabled() || h.Manager.TemporalClient() == nil {
+		writeJSON(w, http.StatusOK, []workflowSummary{})
+		return nil
+	}
+
+	summaries := h.listWorkflowSummaries(r.Context())
+	writeJSON(w, http.StatusOK, summaries)
 	return nil
 }
 
@@ -510,6 +554,108 @@ func (h *RestHandler) listTerminals(w http.ResponseWriter) *apiError {
 	}
 	writeJSON(w, http.StatusOK, response)
 	return nil
+}
+
+func (h *RestHandler) listWorkflowSummaries(ctx context.Context) []workflowSummary {
+	temporalClient := h.Manager.TemporalClient()
+	if temporalClient == nil {
+		return []workflowSummary{}
+	}
+
+	infos := h.Manager.List()
+	summaries := make([]workflowSummary, 0, len(infos))
+	for _, info := range infos {
+		session, ok := h.Manager.Get(info.ID)
+		if !ok {
+			continue
+		}
+		workflowID, workflowRunID, ok := session.WorkflowIdentifiers()
+		if !ok {
+			continue
+		}
+
+		summary := workflowSummary{
+			SessionID:     info.ID,
+			WorkflowID:    workflowID,
+			WorkflowRunID: workflowRunID,
+			Title:         info.Title,
+			Role:          info.Role,
+		}
+
+		state, err := queryWorkflowState(ctx, temporalClient, workflowID, workflowRunID)
+		if err != nil {
+			var notFound *serviceerror.NotFound
+			if errors.As(err, &notFound) {
+				summary.Status = workflows.SessionStatusStopped
+			} else {
+				summary.Status = workflowStatusUnknown
+			}
+			summary.StartTime = info.CreatedAt
+			if h.Logger != nil {
+				h.Logger.Warn("workflow status query failed", map[string]string{
+					"workflow_id": workflowID,
+					"run_id":      workflowRunID,
+					"error":       err.Error(),
+				})
+			}
+		} else {
+			summary.AgentName = state.AgentID
+			summary.CurrentL1 = state.CurrentL1
+			summary.CurrentL2 = state.CurrentL2
+			summary.Status = state.Status
+			if summary.Status == "" {
+				summary.Status = workflowStatusUnknown
+			}
+			summary.StartTime = state.StartTime
+			if summary.StartTime.IsZero() {
+				summary.StartTime = info.CreatedAt
+			}
+			if len(state.BellEvents) > 0 {
+				summary.BellEvents = make([]workflowBellEvent, 0, len(state.BellEvents))
+				for _, event := range state.BellEvents {
+					summary.BellEvents = append(summary.BellEvents, workflowBellEvent{
+						Timestamp: event.Timestamp,
+						Context:   event.Context,
+					})
+				}
+			}
+		}
+		summaries = append(summaries, summary)
+	}
+
+	sort.Slice(summaries, func(i, j int) bool {
+		if summaries[i].StartTime.Equal(summaries[j].StartTime) {
+			return summaries[i].SessionID < summaries[j].SessionID
+		}
+		return summaries[i].StartTime.After(summaries[j].StartTime)
+	})
+
+	return summaries
+}
+
+func queryWorkflowState(ctx context.Context, temporalClient temporal.WorkflowClient, workflowID, workflowRunID string) (workflows.SessionWorkflowState, error) {
+	var state workflows.SessionWorkflowState
+	if temporalClient == nil {
+		return state, errors.New("temporal client unavailable")
+	}
+	if workflowID == "" {
+		return state, errors.New("workflow id required")
+	}
+
+	queryContext, cancel := context.WithTimeout(ctx, workflowQueryTimeout)
+	defer cancel()
+
+	encodedValue, err := temporalClient.QueryWorkflow(queryContext, workflowID, workflowRunID, workflows.StatusQueryName)
+	if err != nil {
+		return state, err
+	}
+	if encodedValue == nil || !encodedValue.HasValue() {
+		return state, errors.New("workflow status unavailable")
+	}
+	if err := encodedValue.Get(&state); err != nil {
+		return state, err
+	}
+	return state, nil
 }
 
 func (h *RestHandler) createTerminal(w http.ResponseWriter, r *http.Request) *apiError {

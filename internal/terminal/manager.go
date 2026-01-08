@@ -594,6 +594,20 @@ func (m *Manager) Logger() *logging.Logger {
 	return m.logger
 }
 
+func (m *Manager) TemporalEnabled() bool {
+	if m == nil {
+		return false
+	}
+	return m.temporalEnabled
+}
+
+func (m *Manager) TemporalClient() temporal.WorkflowClient {
+	if m == nil {
+		return nil
+	}
+	return m.temporalClient
+}
+
 func (m *Manager) GetAgent(id string) (agent.Agent, bool) {
 	m.mu.RLock()
 	profile, ok := m.agents[id]

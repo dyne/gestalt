@@ -1878,7 +1878,7 @@
    Tests: Start worker, verify workflows execute successfully
    Done when: Worker processes workflows and activities
 
-** WIP [#B] Create Flow tab for workflow visualization
+** DONE [#B] Create Flow tab for workflow visualization
    Why: Users need dedicated UI to monitor all active workflows and HITL pauses
    Change:
    - Add "Flow" tab to TabBar (after Dashboard, Plan, Logs tabs)

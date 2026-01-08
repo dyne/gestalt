@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte'
   import Dashboard from './views/Dashboard.svelte'
+  import FlowView from './views/FlowView.svelte'
   import PlanView from './views/PlanView.svelte'
   import TerminalView from './views/TerminalView.svelte'
   import TabBar from './components/TabBar.svelte'
@@ -15,6 +16,7 @@
   let tabs = [
     { id: 'dashboard', label: 'Dashboard', isHome: true },
     { id: 'plan', label: 'Plan', isHome: true },
+    { id: 'flow', label: 'Flow', isHome: true },
   ]
   let activeId = 'dashboard'
 
@@ -30,12 +32,15 @@
       ? 'dashboard'
       : activeId === 'plan'
         ? 'plan'
-        : 'terminal'
+        : activeId === 'flow'
+          ? 'flow'
+          : 'terminal'
 
   const syncTabs = (terminalList) => {
     tabs = [
       { id: 'dashboard', label: 'Dashboard', isHome: true },
       { id: 'plan', label: 'Plan', isHome: true },
+      { id: 'flow', label: 'Flow', isHome: true },
       ...terminalList.map((terminal) => ({
         id: terminal.id,
         label: formatTerminalLabel(terminal),
@@ -131,7 +136,7 @@
   }
 
   const handleClose = (id) => {
-    if (id === 'dashboard' || id === 'plan') return
+    if (id === 'dashboard' || id === 'plan' || id === 'flow') return
     deleteTerminal(id).catch((err) => {
       error = err?.message || 'Failed to close terminal.'
     })
@@ -181,6 +186,9 @@
   </section>
   <section class="view" data-active={activeView === 'plan'}>
     <PlanView />
+  </section>
+  <section class="view" data-active={activeView === 'flow'}>
+    <FlowView onViewTerminal={handleSelect} />
   </section>
   <section class="view view--terminals" data-active={activeView === 'terminal'}>
     {#each terminals as terminal (terminal.id)}

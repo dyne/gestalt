@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -17,8 +19,12 @@ import (
 	"gestalt/internal/logging"
 	"gestalt/internal/plan"
 	"gestalt/internal/skill"
+	"gestalt/internal/temporal/workflows"
 	"gestalt/internal/terminal"
 	"gestalt/internal/version"
+
+	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/converter"
 )
 
 type fakePty struct {
@@ -63,6 +69,73 @@ func (f *fakeFactory) Start(command string, args ...string) (terminal.Pty, *exec
 	f.mu.Unlock()
 
 	return pty, nil, nil
+}
+
+type fakeEncodedValue struct {
+	payload interface{}
+}
+
+func (value fakeEncodedValue) HasValue() bool {
+	return value.payload != nil
+}
+
+func (value fakeEncodedValue) Get(valuePtr interface{}) error {
+	if value.payload == nil {
+		return errors.New("no payload")
+	}
+	data, err := json.Marshal(value.payload)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, valuePtr)
+}
+
+type fakeWorkflowRun struct {
+	workflowID string
+	runID      string
+}
+
+func (run *fakeWorkflowRun) GetID() string {
+	return run.workflowID
+}
+
+func (run *fakeWorkflowRun) GetRunID() string {
+	return run.runID
+}
+
+func (run *fakeWorkflowRun) Get(ctx context.Context, valuePtr interface{}) error {
+	return nil
+}
+
+func (run *fakeWorkflowRun) GetWithOptions(ctx context.Context, valuePtr interface{}, options client.WorkflowRunGetOptions) error {
+	return nil
+}
+
+type fakeWorkflowQueryClient struct {
+	runID        string
+	queryResults map[string]workflows.SessionWorkflowState
+}
+
+func (client *fakeWorkflowQueryClient) ExecuteWorkflow(ctx context.Context, options client.StartWorkflowOptions, workflow interface{}, args ...interface{}) (client.WorkflowRun, error) {
+	return &fakeWorkflowRun{workflowID: options.ID, runID: client.runID}, nil
+}
+
+func (client *fakeWorkflowQueryClient) QueryWorkflow(ctx context.Context, workflowID, runID, queryType string, args ...interface{}) (converter.EncodedValue, error) {
+	if client.queryResults == nil {
+		return nil, errors.New("no query results")
+	}
+	result, ok := client.queryResults[workflowID]
+	if !ok {
+		return nil, errors.New("workflow not found")
+	}
+	return fakeEncodedValue{payload: result}, nil
+}
+
+func (client *fakeWorkflowQueryClient) SignalWorkflow(ctx context.Context, workflowID, runID, signalName string, arg interface{}) error {
+	return nil
+}
+
+func (client *fakeWorkflowQueryClient) Close() {
 }
 
 func TestStatusHandlerRequiresAuth(t *testing.T) {
@@ -116,6 +189,87 @@ func TestStatusHandlerReturnsCount(t *testing.T) {
 	}
 	if payload.Version != version.Version {
 		t.Fatalf("expected version %q, got %q", version.Version, payload.Version)
+	}
+}
+
+func TestWorkflowsEndpointReturnsSummary(t *testing.T) {
+	factory := &fakeFactory{}
+	temporalClient := &fakeWorkflowQueryClient{
+		runID:        "run-42",
+		queryResults: make(map[string]workflows.SessionWorkflowState),
+	}
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:           "/bin/sh",
+		PtyFactory:      factory,
+		TemporalClient:  temporalClient,
+		TemporalEnabled: true,
+	})
+	created, err := manager.Create("", "", "")
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	workflowID := "session-" + created.ID
+	startTime := time.Date(2025, 2, 2, 9, 0, 0, 0, time.UTC)
+	bellTime := startTime.Add(5 * time.Minute)
+	temporalClient.queryResults[workflowID] = workflows.SessionWorkflowState{
+		SessionID: created.ID,
+		AgentID:   "Codex",
+		CurrentL1: "L1",
+		CurrentL2: "L2",
+		Status:    workflows.SessionStatusPaused,
+		StartTime: startTime,
+		BellEvents: []workflows.BellEvent{
+			{Timestamp: bellTime, Context: "bell context"},
+		},
+	}
+
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodGet, "/api/workflows", nil)
+	res := httptest.NewRecorder()
+
+	restHandler("", handler.handleWorkflows)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var payload []workflowSummary
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(payload) != 1 {
+		t.Fatalf("expected 1 workflow, got %d", len(payload))
+	}
+	got := payload[0]
+	if got.SessionID != created.ID {
+		t.Fatalf("expected session id %q, got %q", created.ID, got.SessionID)
+	}
+	if got.WorkflowID != workflowID {
+		t.Fatalf("expected workflow id %q, got %q", workflowID, got.WorkflowID)
+	}
+	if got.WorkflowRunID != temporalClient.runID {
+		t.Fatalf("expected workflow run id %q, got %q", temporalClient.runID, got.WorkflowRunID)
+	}
+	if got.AgentName != "Codex" {
+		t.Fatalf("expected agent name %q, got %q", "Codex", got.AgentName)
+	}
+	if got.CurrentL1 != "L1" || got.CurrentL2 != "L2" {
+		t.Fatalf("unexpected tasks: %q/%q", got.CurrentL1, got.CurrentL2)
+	}
+	if got.Status != workflows.SessionStatusPaused {
+		t.Fatalf("expected status %q, got %q", workflows.SessionStatusPaused, got.Status)
+	}
+	if !got.StartTime.Equal(startTime) {
+		t.Fatalf("expected start time %v, got %v", startTime, got.StartTime)
+	}
+	if len(got.BellEvents) != 1 {
+		t.Fatalf("expected 1 bell event, got %d", len(got.BellEvents))
+	}
+	if got.BellEvents[0].Context != "bell context" || !got.BellEvents[0].Timestamp.Equal(bellTime) {
+		t.Fatalf("unexpected bell event: %#v", got.BellEvents[0])
 	}
 }
 

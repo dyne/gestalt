@@ -1,3 +1,542 @@
+* TODO [#B] Improve CLI tools with proper flags and help
+  Goal: Add comprehensive --help documentation and command-line flags to gestalt, gestalt-desktop, and gestalt-send, with flags named after env vars (lowercase) and CLI flags overriding env vars.
+  Notes:
+  - Current state: gestalt has no CLI flags (only env vars), gestalt-send has minimal flags
+  - Desired: all three tools have consistent CLI flag interface
+  - Flag naming: lowercase version of env vars (GESTALT_PORT → --port)
+  - Priority: CLI flags override env vars override defaults
+  - Use Go stdlib flag package (already in use) for consistency
+  - Help text: --help shows all flags, env var names, defaults, descriptions
+  - Version flag: --version prints version and exits
+  - Subcommands: gestalt validate-skill, gestalt completion (for shell completion)
+  - Error handling: clear error messages, proper exit codes
+  - Testing: add CLI flag parsing tests, verify env var override behavior
+  - Documentation: update README with CLI flag examples
+  - Keep backward compatibility: existing env var usage unchanged
+  - Future: consider cobra/viper for richer CLI (defer unless needed)
+  Date: 2026-01-08
+
+** TODO [#B] Define consistent CLI flag structure and conventions
+   Why: Need unified approach across all three binaries before implementation
+   Change:
+   - Document flag naming convention: GESTALT_FOO_BAR → --foo-bar
+   - Document priority: CLI flag > env var > default
+   - Define help text format: "Description (env: GESTALT_FOO, default: value)"
+   - Define common flags for all tools: --help, --version, --verbose
+   - Define tool-specific flags: gestalt (server config), gestalt-send (client config)
+   - Define exit codes: 0 (success), 1 (usage error), 2 (runtime error), 3 (network error)
+   - Decide on subcommand structure: keep gestalt validate-skill, add gestalt completion
+   - Document in internal notes or TESTING.md
+   Tests: None (documentation only)
+   Done when: CLI conventions documented and agreed upon
+
+** TODO [#B] Add flag package and help infrastructure to gestalt
+   Why: gestalt currently has no CLI flag parsing, only env vars
+   Change:
+   - Update cmd/gestalt/main.go to use flag.FlagSet
+   - Create flags for all GESTALT_* env vars:
+     - --port (GESTALT_PORT, default: 8080)
+     - --shell (GESTALT_SHELL, default: system shell)
+     - --token (GESTALT_TOKEN, default: empty)
+     - --session-persist (GESTALT_SESSION_PERSIST, default: true)
+     - --session-dir (GESTALT_SESSION_DIR, default: .gestalt/sessions)
+     - --session-buffer-lines (GESTALT_SESSION_BUFFER_LINES, default: 1000)
+     - --session-retention-days (GESTALT_SESSION_RETENTION_DAYS, default: 7)
+     - --input-history-persist (GESTALT_INPUT_HISTORY_PERSIST, default: true)
+     - --input-history-dir (GESTALT_INPUT_HISTORY_DIR, default: .gestalt/input-history)
+     - --max-watches (GESTALT_MAX_WATCHES, default: 100)
+   - Add common flags: --help, --version, --verbose
+   - Parse flags before env vars in loadConfig()
+   - Update Config struct to track source (flag vs env vs default) for debugging
+   - Keep existing env var behavior as fallback
+   Tests: Unit tests for flag parsing, priority order
+   Done when: gestalt accepts all config via CLI flags
+
+** TODO [#B] Implement comprehensive --help for gestalt
+   Why: Users need to discover available options without reading README
+   Change:
+   - Implement custom flag.Usage function for gestalt
+   - Help format:
+     ```
+     Usage: gestalt [options]
+     
+     Gestalt multi-terminal dashboard with agent profiles
+     
+     Options:
+       --port PORT                  HTTP server port (env: GESTALT_PORT, default: 8080)
+       --shell SHELL                Default shell command (env: GESTALT_SHELL, default: system shell)
+       --token TOKEN                Auth token for REST/WS (env: GESTALT_TOKEN, default: none)
+       --session-persist            Persist terminal sessions to disk (env: GESTALT_SESSION_PERSIST, default: true)
+       --session-dir DIR            Session log directory (env: GESTALT_SESSION_DIR, default: .gestalt/sessions)
+       ...
+       --help                       Show this help message
+       --version                    Print version and exit
+     
+     Subcommands:
+       gestalt validate-skill PATH  Validate an Agent Skill directory or SKILL.md file
+       gestalt completion SHELL     Generate shell completion script (bash, zsh)
+     
+     Environment variables override defaults; CLI flags override environment variables.
+     ```
+   - Show defaults and env var names for each flag
+   - Group related flags (server config, session config, etc)
+   - Add examples section at bottom (optional)
+   Tests: Manual test --help output, verify formatting
+   Done when: gestalt --help shows comprehensive documentation
+
+** TODO [#B] Add --version flag to gestalt
+   Why: Users need to check installed version easily
+   Change:
+   - Add --version flag to gestalt flag set
+   - If --version specified: print version and exit 0
+   - Version format: "gestalt version X.Y.Z" or "gestalt dev" (if not built with VERSION)
+   - Print to stdout (not stderr) for scripting
+   - Handle --version before other processing (early exit)
+   Tests: Test --version output matches version.Version
+   Done when: gestalt --version prints version and exits
+
+** TODO [#B] Refactor gestalt-send to use consistent flag naming
+   Why: gestalt-send uses --url/--token, should match naming convention
+   Change:
+   - Rename flags to match env vars (already close):
+     - Keep --url (env: GESTALT_URL)
+     - Keep --token (env: GESTALT_TOKEN)
+     - Keep --start, --verbose, --debug (no env equivalent)
+   - Add --help flag with comprehensive documentation
+   - Add --version flag
+   - Update flag descriptions to include env var names and defaults
+   - Update fs.Usage function with better formatting
+   Tests: Update gestalt-send tests for new flag behavior
+   Done when: gestalt-send flags follow conventions
+
+** TODO [#B] Implement comprehensive --help for gestalt-send
+   Why: gestalt-send help is minimal, needs improvement
+   Change:
+   - Expand fs.Usage function with full documentation
+   - Help format:
+     ```
+     Usage: gestalt-send [options] <agent-name-or-id>
+     
+     Send stdin to a running Gestalt agent terminal
+     
+     Options:
+       --url URL        Gestalt server URL (env: GESTALT_URL, default: http://localhost:8080)
+       --token TOKEN    Auth token (env: GESTALT_TOKEN, default: none)
+       --start          Auto-start agent if not running
+       --verbose        Show request/response details
+       --debug          Show detailed debug info (implies --verbose)
+       --help           Show this help message
+       --version        Print version and exit
+     
+     Arguments:
+       agent-name-or-id  Agent name or ID to send input to
+     
+     Examples:
+       cat file.txt | gestalt-send copilot
+       echo "status" | gestalt-send --start architect
+       gestalt-send --url http://remote:8080 --token abc123 agent-id
+     
+     Exit codes:
+       0  Success
+       1  Usage error
+       2  Agent not running
+       3  Network or server error
+     ```
+   - Include examples and exit codes
+   - Show env var names and defaults
+   Tests: Manual test --help output
+   Done when: gestalt-send --help shows comprehensive documentation
+
+** TODO [#B] Add --version flag to gestalt-send
+   Why: Consistency with gestalt, users need version info
+   Change:
+   - Add --version flag to gestalt-send
+   - Version comes from internal/version.Version (already compiled in)
+   - Handle --version before other processing
+   - Version format: "gestalt-send version X.Y.Z"
+   Tests: Test --version output
+   Done when: gestalt-send --version prints version and exits
+
+** TODO [#B] Create gestalt-desktop CLI with same flag structure
+   Why: Desktop app needs same CLI interface as web mode for consistency
+   Change:
+   - When implementing cmd/gestalt-desktop, use same flag structure as gestalt
+   - All GESTALT_* env vars become CLI flags
+   - Additional desktop-specific flags:
+     - --window-width (default: 1400)
+     - --window-height (default: 900)
+     - --no-window (run headless with server only, for testing)
+   - Same --help, --version flags
+   - Same subcommands: validate-skill, completion
+   - Same Config struct and loadConfig pattern
+   - This step is for the Wails L1 implementation
+   Tests: gestalt-desktop --help shows all options
+   Done when: Desktop CLI matches web CLI conventions (defer to Wails L1)
+
+** TODO [#C] Add shell completion subcommand to gestalt
+   Why: Improve CLI UX with tab-completion for flags and subcommands
+   Change:
+   - Add "gestalt completion bash|zsh" subcommand
+   - Generate completion script for flag names, subcommands
+   - Reuse pattern from gestalt-send completion (already implemented)
+   - Completion for flag values where possible (e.g., --shell lists available shells)
+   - Installation instructions in help text
+   - This is optional enhancement; low priority
+   Tests: Manual test completion installation
+   Done when: gestalt completion generates working scripts (optional)
+
+** TODO [#C] Add verbose/debug logging flags to gestalt
+   Why: Help users and developers troubleshoot issues
+   Change:
+   - Add --verbose flag: increase log level to debug
+   - Add --quiet flag: decrease log level to warning
+   - Default: info level (current behavior)
+   - Override default logger level based on flags
+   - Show flag values at startup when verbose: "starting with --port 8080 --verbose"
+   - This is optional enhancement; defer if complexity is high
+   Tests: Test log output at different verbosity levels
+   Done when: Verbosity flags control log output (optional)
+
+** TODO [#B] Add CLI flag parsing tests
+   Why: Ensure flag parsing and priority order work correctly
+   Change:
+   - Create cmd/gestalt/flags_test.go with tests for:
+     - Default values (no flags, no env)
+     - Env var values (env set, no flags)
+     - Flag values (flags set, override env)
+     - Invalid flag values (error handling)
+     - --help and --version early exits
+   - Create cmd/gestalt-send/flags_test.go with similar tests
+   - Test priority: flag > env > default
+   - Test all flag types: string, int, bool
+   - Use table-driven tests for coverage
+   Tests: go test ./cmd/gestalt ./cmd/gestalt-send
+   Done when: Flag parsing has comprehensive test coverage
+
+** TODO [#B] Update README with CLI flag documentation
+   Why: Users need to know about new CLI flag interface
+   Change:
+   - Add "Command-Line Interface" section to README.md
+   - Document all flags for gestalt and gestalt-send
+   - Show examples of CLI usage:
+     - gestalt --port 9090 --token abc123
+     - gestalt-send --url http://remote:8080 agent-name
+   - Explain priority: CLI > env > default
+   - Update "Configuration" section to mention CLI flags first, env vars second
+   - Add note: env vars still work (backward compatible)
+   - Document --help and --version flags
+   - Document subcommands: validate-skill, completion
+   Tests: None (documentation only)
+   Done when: README documents CLI flags with examples
+
+** TODO [#C] Consider migrating to cobra for richer CLI (future)
+   Why: stdlib flag is limited; cobra provides better UX and structure
+   Change:
+   - Research cobra/viper for CLI and config management
+   - Benefits: better help formatting, nested subcommands, config files, env var binding
+   - Drawbacks: additional dependency, migration effort
+   - Decision: defer unless CLI complexity grows significantly
+   - Current stdlib flag approach is sufficient for gestalt's needs
+   - Document decision and future migration path
+   Tests: None (research only)
+   Done when: Decision documented on CLI framework (defer migration)
+
+* TODO [#A] Wails desktop application packaging
+  Goal: Package Gestalt as a native desktop application using Wails v3, providing a standalone executable for macOS, Windows, and Linux while preserving the existing web server mode as default.
+  Notes:
+  - Dual-mode architecture: web server (default) + desktop app (opt-in build target)
+  - Desktop mode: Wails v3 wraps existing Gestalt server with native window
+  - Hybrid approach: keep HTTP/WebSocket server, Wails bindings call it
+  - Desktop app starts embedded server on random port, frontend connects via localhost
+  - Separate binaries: `gestalt` (web mode, current) + `gestalt-desktop` (Wails app)
+  - PTY/terminal handling unchanged (works in desktop apps)
+  - Frontend: reuse existing Svelte app, minimal Wails-specific changes
+  - Wails bindings: thin wrapper over HTTP API for native features (file dialogs, etc)
+  - Build system: extend Makefile with wails targets
+  - Svelte adapter: use static adapter (SPA mode), output to build/ directory
+  - Embed frontend build/ in Wails app (not dist/, separate from web mode)
+  - Desktop-specific features (optional): native menus, tray icon, better window management
+  - Keep configuration compatible: same env vars, same config files
+  - Distribution: single binary per platform (gestalt-desktop.app, gestalt-desktop.exe, gestalt-desktop)
+  - Documentation: separate desktop build/run instructions in README
+  - Testing: desktop app should pass same test suite as web mode
+  Date: 2026-01-08
+  Ref: Wails v3 docs, agentskills.io packaging patterns
+
+** TODO [#B] Research Wails v3 architecture and requirements
+   Why: Understand Wails v3 capabilities, limitations, and integration patterns before committing
+   Change:
+   - Read Wails v3 documentation: application structure, binding patterns, build process
+   - Understand differences from v2: breaking changes, new features, migration path
+   - Research Svelte + Wails v3 integration: does v3 have Svelte template/examples?
+   - Investigate frontend build output requirements: static SPA vs other modes
+   - Check Wails CLI capabilities: dev mode, build targets, cross-compilation
+   - Understand Wails runtime: how Go functions are bound, TypeScript generation
+   - Research window management: native menus, system tray, multi-window support
+   - Check PTY compatibility: any known issues with terminal apps in Wails?
+   - Review Wails licensing: MIT (compatible with AGPL)
+   - Document findings and any potential blockers
+   Tests: None (research only)
+   Done when: Wails v3 architecture understood, integration approach validated
+
+** TODO [#B] Install Wails v3 CLI and create skeleton project
+   Why: Need Wails tooling and project structure to build desktop app
+   Change:
+   - Install Wails CLI: `go install github.com/wailsapp/wails/v3/cmd/wails3@latest`
+   - Verify installation: `wails3 version`
+   - Create skeleton in separate directory first (experiment): `wails3 init -n gestalt-desktop -t svelte`
+   - Study generated structure: main.go, wails.json, frontend setup
+   - Compare skeleton with Gestalt structure: identify differences
+   - Document Wails project structure requirements in internal notes
+   - Test skeleton builds: `wails3 dev` and `wails3 build`
+   - Verify dev mode works: hot reload, frontend/backend communication
+   - Clean up experimental skeleton after study
+   Tests: Skeleton app builds and runs successfully
+   Done when: Wails CLI installed, skeleton studied, requirements understood
+
+** TODO [#B] Create cmd/gestalt-desktop for Wails application
+   Why: Separate entrypoint for desktop mode to avoid mixing web/desktop logic
+   Change:
+   - Create cmd/gestalt-desktop/main.go as Wails application entrypoint
+   - Copy structure from cmd/gestalt/main.go as starting point
+   - Add Wails application initialization: wails.Run(&options.App{...})
+   - Configure embedded server: start on random port (e.g., localhost:0)
+   - Pass server URL to frontend via Wails config or environment
+   - Bind Go struct with methods for Wails frontend to call
+   - Initial bindings (minimal): GetServerURL() string, OpenExternal(url string) error
+   - Wire up existing Manager, agent loader, skill loader (reuse all internal packages)
+   - Add graceful shutdown: close Wails app → stop server → cleanup sessions
+   - Desktop-specific config: window size (1280x800), title ("Gestalt"), resizable
+   Tests: gestalt-desktop compiles; go build ./cmd/gestalt-desktop
+   Done when: Desktop entrypoint exists with Wails initialization
+
+** TODO [#B] Configure Svelte frontend for Wails compatibility
+   Why: Wails requires static SPA build; ensure Vite config produces correct output
+   Change:
+   - Frontend already uses Vite + Svelte (not SvelteKit), perfect for Wails
+   - Verify vite.config.js build.outDir: keep as 'dist' for web, add 'build' for desktop
+   - Add separate build command for desktop: "build:desktop" in package.json
+   - Desktop build: `vite build --outDir build --base ./` (relative paths for file:// protocol)
+   - Ensure no hardcoded localhost:8080 URLs in frontend code (use relative paths)
+   - Update API client (api.js): detect Wails mode, use dynamic server URL
+   - Add Wails detection: `window.wails !== undefined`
+   - If Wails mode: fetch server URL via Wails binding (e.g., `window.wails.GetServerURL()`)
+   - If web mode: use relative paths (current behavior)
+   - Keep WebSocket connection logic compatible (ws://localhost:RANDOM_PORT)
+   - Test build output: verify build/ contains static SPA assets
+   Tests: npm run build:desktop produces clean SPA in build/
+   Done when: Frontend builds for both web and desktop modes
+
+** TODO [#B] Create wails.json configuration file
+   Why: Wails CLI requires configuration for build, dev mode, and bindings
+   Change:
+   - Create wails.json in project root
+   - Set name: "gestalt-desktop"
+   - Set frontend:build: "cd frontend && npm run build:desktop"
+   - Set frontend:install: "cd frontend && npm install"
+   - Set frontend:dev:build: same as build
+   - Set frontend:dev:serverUrl: "auto" (Vite dev server)
+   - Set wailsjsdir: "./frontend/src/lib/wails" (generated bindings)
+   - Set outputfilename: "gestalt-desktop" (per-platform extension added by Wails)
+   - Set debounceMS: 100 (rebuild debounce)
+   - Configure build targets: darwin/amd64, darwin/arm64, windows/amd64, linux/amd64
+   - Set icon paths (optional, use default for now)
+   - Document wails.json fields inline with comments (JSON5 if supported, else separate doc)
+   Tests: wails3 dev reads config correctly
+   Done when: wails.json exists and Wails CLI uses it
+
+** TODO [#B] Implement Wails bindings for core operations
+   Why: Desktop frontend needs Go bindings for native operations and server coordination
+   Change:
+   - Create internal/desktop/app.go with App struct for Wails bindings
+   - App struct holds: server URL, Manager reference, shutdown channel
+   - Bind methods (exported, Wails auto-generates JS/TS):
+     - GetServerURL() string - returns localhost:PORT of embedded server
+     - GetVersion() string - returns version.Version
+     - OpenExternal(url string) error - opens URL in system browser
+     - SelectDirectory() (string, error) - native directory picker (future feature)
+     - Quit() - graceful shutdown
+   - Register App struct in cmd/gestalt-desktop main.go: app.Bind(appInstance)
+   - Start embedded Gestalt server before Wails window opens
+   - Capture dynamic port from listener: `ln, _ := net.Listen("tcp", "127.0.0.1:0")`
+   - Pass server URL to App struct for GetServerURL binding
+   - Implement startup lifecycle: server → Wails → frontend connects
+   - Implement shutdown lifecycle: Wails close → stop server → cleanup
+   Tests: Bindings generate correctly; wails3 dev shows methods in console
+   Done when: Frontend can call bound Go methods via window.wails
+
+** TODO [#B] Update frontend to detect and use Wails mode
+   Why: Frontend must adapt behavior for desktop vs web mode
+   Change:
+   - Update frontend/src/lib/api.js to detect Wails
+   - Detection: `const isWails = typeof window !== 'undefined' && window.wails !== undefined`
+   - Export isWails flag for other components to check
+   - Update buildApiUrl(): if Wails mode, fetch server URL via window.wails.GetServerURL()
+   - Update buildWebSocketUrl(): use server URL from Wails binding
+   - Cache server URL on first fetch to avoid repeated binding calls
+   - Handle binding call errors: fallback to localhost:8080 with warning
+   - Update App.svelte: show "Desktop Mode" indicator in UI (optional)
+   - Ensure all HTTP/WebSocket connections use dynamic URL in desktop mode
+   - Keep web mode behavior unchanged (relative URLs)
+   Tests: Frontend connects to embedded server in desktop mode; go test ./...
+   Done when: Desktop frontend communicates with embedded Gestalt server
+
+** TODO [#B] Wire embedded server into desktop app lifecycle
+   Why: Desktop app must start/stop server cleanly with window lifecycle
+   Change:
+   - In cmd/gestalt-desktop/main.go, start server before wails.Run()
+   - Use same server initialization as cmd/gestalt/main.go (share code if possible)
+   - Start on random port: listener := net.Listen("tcp", "127.0.0.1:0")
+   - Extract port: serverURL := "http://" + listener.Addr().String()
+   - Pass serverURL to App struct for bindings
+   - Add OnStartup hook: ensure server is ready before showing window
+   - Add OnShutdown hook: gracefully stop server, close all terminals
+   - Add OnBeforeClose hook: confirm if terminals are running (optional UX)
+   - Handle server start failures: show error dialog, exit gracefully
+   - Log server URL at startup (desktop app log location)
+   Tests: Desktop app starts server on random port, frontend connects
+   Done when: Server lifecycle synchronized with desktop app
+
+** TODO [#C] Extend Makefile with Wails build targets
+   Why: Developers need simple commands to build desktop app
+   Change:
+   - Add wails-dev target: `wails3 dev` (runs dev mode)
+   - Add gestalt-desktop target: `wails3 build -clean` (production build)
+   - Add wails-deps target: install Wails CLI if missing
+   - Desktop build depends on frontend build:desktop
+   - Consider: make install-desktop (copy to /Applications on macOS, etc)
+   - Add clean target for desktop artifacts: build/bin/gestalt-desktop*
+   - Document desktop build in Makefile comments
+   - Add platform-specific targets (optional): gestalt-desktop-darwin, gestalt-desktop-windows
+   Tests: make gestalt-desktop produces working binary
+   Done when: Desktop app builds via Makefile
+
+** TODO [#C] Add desktop-specific window configuration
+   Why: Native desktop app needs proper window sizing, title, and behavior
+   Change:
+   - Configure initial window size: 1400x900 (accommodate dashboard + terminal)
+   - Set minimum window size: 800x600 (prevent unusable small windows)
+   - Set window title: "Gestalt" (shows in title bar, taskbar)
+   - Enable window resize, maximize, minimize (standard desktop behavior)
+   - Disable fullscreen initially (can add later if desired)
+   - Configure window position: center on startup
+   - Consider: save/restore window size and position (future feature)
+   - macOS specific: set window role, subtitle if needed
+   - Windows specific: set app ID for taskbar grouping
+   - Linux specific: set WM_CLASS for desktop integration
+   Tests: Window appears with correct size and title
+   Done when: Desktop window has proper size, title, and behavior
+
+** TODO [#C] Add desktop-specific native menus (optional)
+   Why: Desktop apps typically have native menu bar (File, Edit, etc)
+   Change:
+   - Use Wails menu API to create native menus
+   - File menu: New Terminal, Quit (Cmd+Q / Ctrl+Q)
+   - Edit menu: Copy, Paste (standard shortcuts)
+   - View menu: Toggle Developer Tools (Wails built-in)
+   - Help menu: About, Documentation (opens in browser)
+   - macOS: standard macOS menu structure (app menu, etc)
+   - Bind menu actions to Wails methods or frontend events
+   - This is optional enhancement; can defer if complexity is high
+   Tests: Menus appear and actions work
+   Done when: Desktop app has native menus (optional, can defer)
+
+** TODO [#C] Handle desktop-specific file paths and resources
+   Why: Desktop app bundle has different resource locations than web server
+   Change:
+   - Ensure config/agents, config/prompts, config/skills load correctly
+   - Desktop app: resources relative to executable or app bundle
+   - Use embedded resources (already done) with external override in ~/.gestalt/ or user home
+   - Update path resolution in cmd/gestalt-desktop to check:
+     1. ~/.gestalt/config/ (user customization)
+     2. Embedded resources (compiled into binary)
+   - Document desktop config location in README
+   - macOS: support ~/Library/Application Support/Gestalt/config/ (optional)
+   - Windows: support %APPDATA%/Gestalt/config/ (optional)
+   - Linux: support ~/.config/gestalt/ (optional, XDG standard)
+   Tests: Desktop app loads config from correct locations
+   Done when: Desktop app finds config in user-specific locations
+
+** TODO [#C] Add system tray icon (optional enhancement)
+   Why: Desktop apps often minimize to system tray for background operation
+   Change:
+   - Use Wails system tray API to add tray icon
+   - Tray menu: Show Window, Quit
+   - Click tray icon: restore window if minimized
+   - Show notification count badge (optional, if terminals have alerts)
+   - macOS: proper retina icon support
+   - Windows: proper icon sizes
+   - Linux: works with various desktop environments
+   - This is optional enhancement; low priority
+   Tests: Tray icon appears, click actions work
+   Done when: System tray integration works (optional, defer if complex)
+
+** TODO [#B] Test desktop app on all target platforms
+   Why: Ensure desktop app works correctly on macOS, Windows, Linux
+   Change:
+   - Build for macOS (amd64 and arm64): verify app bundle structure
+   - Build for Windows (amd64): verify .exe runs, no console window appears
+   - Build for Linux (amd64): verify binary runs, window appears correctly
+   - Test core functionality on each platform: create terminal, connect, send input
+   - Test agent profiles: load, execute, prompt injection
+   - Test skills loading and display
+   - Test window management: resize, minimize, maximize, close
+   - Test graceful shutdown: close window → server stops → terminals cleaned up
+   - Document any platform-specific issues or workarounds
+   Tests: Desktop app fully functional on macOS, Windows, Linux
+   Done when: Desktop app passes smoke tests on all platforms
+
+** TODO [#C] Update CI/CD for desktop builds (optional)
+   Why: Automate desktop app builds for releases
+   Change:
+   - Extend .github/workflows to build desktop binaries
+   - Add matrix build for platforms: darwin/amd64, darwin/arm64, windows/amd64, linux/amd64
+   - Install Wails CLI in CI environment
+   - Build desktop app: wails3 build -platform <platform>
+   - Upload build artifacts to GitHub releases
+   - Sign macOS app (requires Apple Developer account and certificates)
+   - Notarize macOS app (for Gatekeeper compatibility)
+   - Windows: consider code signing (requires certificate)
+   - Linux: no signing required (provide checksums)
+   - Add desktop binaries to release notes
+   - This is optional; manual builds acceptable initially
+   Tests: CI builds produce working binaries
+   Done when: CI automatically builds desktop releases (optional, defer if complex)
+
+** TODO [#B] Document desktop build and usage
+   Why: Users and contributors need desktop-specific documentation
+   Change:
+   - Add "Desktop Application" section to README.md
+   - Document installation: download gestalt-desktop binary for your platform
+   - Document building from source: make gestalt-desktop
+   - Document Wails CLI installation (prerequisite for building)
+   - Explain dual-mode architecture: web server (default) vs desktop app
+   - Document desktop app features: native window, system integration
+   - Document configuration: where desktop app looks for config files
+   - Document differences from web mode (if any)
+   - Add troubleshooting section: common issues, logs location
+   - macOS: explain Gatekeeper warning on first run (unsigned app)
+   - Windows: explain SmartScreen warning (unsigned app)
+   - Linux: explain permission requirements
+   - Add screenshots of desktop app (optional)
+   Tests: None (documentation only)
+   Done when: Desktop app fully documented in README
+
+** TODO [#C] Consider desktop-specific enhancements (future work)
+   Why: Desktop apps can leverage native features unavailable in web
+   Change:
+   - Native file pickers: SelectFile, SelectDirectory via Wails bindings
+   - Drag-and-drop files into terminal (future)
+   - Native notifications: use OS notification system instead of toasts
+   - Global keyboard shortcuts: Cmd+N for new terminal (Wails GlobalShortcuts)
+   - Multiple windows: separate window per terminal (advanced)
+   - Dock/taskbar integration: show running terminal count (macOS dock badge)
+   - Auto-update mechanism: Wails update framework (complex, defer)
+   - URL scheme handler: gestalt:// URLs to open terminals (advanced)
+   - These are future enhancements; document ideas, implement later
+   Tests: None (future planning)
+   Done when: Enhancement ideas documented for future work
+
 * DONE [#A] Event-based filesystem monitoring with WebSocket notifications
   Goal: Replace polling with an event-driven filesystem monitoring component that uses fsnotify to watch files and notify the frontend via WebSocket when changes occur.
   Notes:

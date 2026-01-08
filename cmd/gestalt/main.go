@@ -23,6 +23,7 @@ import (
 	"gestalt/internal/logging"
 	"gestalt/internal/skill"
 	"gestalt/internal/temporal"
+	temporalworker "gestalt/internal/temporal/worker"
 	"gestalt/internal/terminal"
 	"gestalt/internal/version"
 	"gestalt/internal/watcher"
@@ -199,6 +200,21 @@ func main() {
 		PromptFS:             configFS,
 		PromptDir:            path.Join("config", "prompts"),
 	})
+
+	workerStarted := false
+	if temporalEnabled && temporalClient != nil {
+		workerError := temporalworker.StartWorker(temporalClient, manager)
+		if workerError != nil {
+			logger.Warn("temporal worker start failed", map[string]string{
+				"error": workerError.Error(),
+			})
+		} else {
+			workerStarted = true
+		}
+	}
+	if workerStarted {
+		defer temporalworker.StopWorker()
+	}
 
 	fsWatcher, err := watcher.NewWithOptions(watcher.Options{
 		Logger:     logger,

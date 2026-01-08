@@ -212,6 +212,16 @@ const createTerminalState = (terminalId) => {
     socket.send(encoder.encode(data))
   }
 
+  const sendBell = async () => {
+    try {
+      await apiFetch(`/api/terminals/${terminalId}/bell`, {
+        method: 'POST',
+      })
+    } catch (bellError) {
+      console.warn('failed to report terminal bell', bellError)
+    }
+  }
+
   const sendCommand = (command) => {
     const payload = typeof command === 'string' ? command : ''
     if (payload) {
@@ -346,6 +356,7 @@ const createTerminalState = (terminalId) => {
 
   term.onBell(() => {
     bellCount.update((count) => count + 1)
+    sendBell()
   })
 
   term.onScroll?.(() => {

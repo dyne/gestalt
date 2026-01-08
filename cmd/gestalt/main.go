@@ -35,6 +35,7 @@ type Config struct {
 	SessionBufferLines   int
 	InputHistoryPersist  bool
 	InputHistoryDir      string
+	MaxWatches           int
 }
 
 func main() {
@@ -86,7 +87,10 @@ func main() {
 		PromptDir:            path.Join("config", "prompts"),
 	})
 
-	fsWatcher, err := watcher.New()
+	fsWatcher, err := watcher.NewWithOptions(watcher.Options{
+		Logger:     logger,
+		MaxWatches: cfg.MaxWatches,
+	})
 	if err != nil && logger != nil {
 		logger.Warn("filesystem watcher unavailable", map[string]string{
 			"error": err.Error(),
@@ -264,6 +268,13 @@ func loadConfig() Config {
 		inputHistoryDir = ""
 	}
 
+	maxWatches := 100
+	if rawMax := strings.TrimSpace(os.Getenv("GESTALT_MAX_WATCHES")); rawMax != "" {
+		if parsed, err := strconv.Atoi(rawMax); err == nil && parsed > 0 {
+			maxWatches = parsed
+		}
+	}
+
 	return Config{
 		Port:                 port,
 		Shell:                shell,
@@ -274,6 +285,7 @@ func loadConfig() Config {
 		SessionBufferLines:   sessionBufferLines,
 		InputHistoryPersist:  inputHistoryPersist,
 		InputHistoryDir:      inputHistoryDir,
+		MaxWatches:           maxWatches,
 	}
 }
 

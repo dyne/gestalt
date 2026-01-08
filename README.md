@@ -60,6 +60,7 @@ Environment variables:
 - `GESTALT_SESSION_DIR` (default `.gestalt/sessions`)
 - `GESTALT_SESSION_BUFFER_LINES` (default 1000)
 - `GESTALT_SESSION_RETENTION_DAYS` (default 7)
+- `GESTALT_MAX_WATCHES` (default 100)
 - `GESTALT_INPUT_HISTORY_DIR` (default `.gestalt/input-history`)
 
 Session logs and input history now live under `.gestalt/` by default. If you

@@ -150,7 +150,7 @@
    - Tests: Manual test: git checkout, verify Dashboard updates
    Done when: Dashboard shows live git branch without polling
 
-** TODO [#C] Add configurable watcher limits and cleanup
+** DONE [#C] Add configurable watcher limits and cleanup
    Why: Prevent resource exhaustion from too many watchers
    Change:
    - Add GESTALT_MAX_WATCHES env var (default 100)

@@ -28,9 +28,18 @@ type Watch interface {
 
 // Options controls watcher behavior.
 type Options struct {
-	Logger   *logging.Logger
-	Debounce time.Duration
-	WatchDir bool
+	Logger          *logging.Logger
+	Debounce        time.Duration
+	WatchDir        bool
+	MaxWatches      int
+	CleanupInterval time.Duration
+}
+
+// Metrics describes watcher activity.
+type Metrics struct {
+	ActiveWatches   int
+	EventsDelivered uint64
+	Errors          uint64
 }
 
 // Watcher is the concrete fsnotify-backed implementation.
@@ -47,4 +56,9 @@ type Watcher struct {
 	logger            *logging.Logger
 	watchDirRecursive bool
 	nextID            uint64
+	maxWatches        int
+	activeWatches     int
+	cleanupInterval   time.Duration
+	eventsDelivered   uint64
+	errorCount        uint64
 }

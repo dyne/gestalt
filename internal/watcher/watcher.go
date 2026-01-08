@@ -2,14 +2,22 @@ package watcher
 
 import (
 	"errors"
+	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gestalt/internal/logging"
 	"github.com/fsnotify/fsnotify"
 )
 
-const defaultDebounce = 100 * time.Millisecond
+const (
+	defaultDebounce        = 100 * time.Millisecond
+	defaultMaxWatches      = 100
+	defaultCleanupInterval = time.Minute
+)
+
+var ErrMaxWatchesExceeded = errors.New("max watches exceeded")
 
 type debounceEntry struct {
 	timer *time.Timer
@@ -22,10 +30,10 @@ type callbackEntry struct {
 }
 
 type watchHandle struct {
-	watcher  *Watcher
-	path     string
-	id       uint64
-	once     sync.Once
+	watcher *Watcher
+	path    string
+	id      uint64
+	once    sync.Once
 }
 
 func (handle *watchHandle) Close() error {
@@ -61,6 +69,16 @@ func NewWithOptions(options Options) (*Watcher, error) {
 		debounce = defaultDebounce
 	}
 
+	maxWatches := options.MaxWatches
+	if maxWatches <= 0 {
+		maxWatches = defaultMaxWatches
+	}
+
+	cleanupInterval := options.CleanupInterval
+	if cleanupInterval <= 0 {
+		cleanupInterval = defaultCleanupInterval
+	}
+
 	instance := &Watcher{
 		watcher:           watcher,
 		callbacks:         make(map[string][]callbackEntry),
@@ -71,10 +89,13 @@ func NewWithOptions(options Options) (*Watcher, error) {
 		done:              make(chan struct{}),
 		logger:            logger,
 		watchDirRecursive: options.WatchDir,
+		maxWatches:        maxWatches,
+		cleanupInterval:   cleanupInterval,
 	}
 
 	instance.startForwarder(watcher)
 	go instance.run()
+	go instance.cleanupLoop()
 	return instance, nil
 }
 
@@ -97,9 +118,17 @@ func (watcher *Watcher) Watch(path string, callback func(Event)) (Handle, error)
 	}
 
 	needsAdd := watcher.callbacks[path] == nil
+	if needsAdd && watcher.activeWatches >= watcher.maxWatches {
+		watcher.mutex.Unlock()
+		return nil, ErrMaxWatchesExceeded
+	}
 	watcher.nextID++
 	entry := callbackEntry{callback: callback, id: watcher.nextID}
 	watcher.callbacks[path] = append(watcher.callbacks[path], entry)
+	if needsAdd {
+		watcher.activeWatches++
+	}
+	activeCount := watcher.activeWatches
 	watcher.mutex.Unlock()
 
 	if needsAdd {
@@ -111,6 +140,7 @@ func (watcher *Watcher) Watch(path string, callback func(Event)) (Handle, error)
 			})
 			return nil, err
 		}
+		watcher.logDebug("watch added", path, activeCount)
 	}
 
 	return &watchHandle{watcher: watcher, path: path, id: entry.id}, nil
@@ -244,6 +274,7 @@ func (watcher *Watcher) flush(path string) {
 
 	for _, callback := range callbacks {
 		callback(event)
+		atomic.AddUint64(&watcher.eventsDelivered, 1)
 	}
 }
 
@@ -251,6 +282,7 @@ func (watcher *Watcher) handleError(err error) {
 	if err == nil {
 		return
 	}
+	atomic.AddUint64(&watcher.errorCount, 1)
 	watcher.logWarn("watcher error", map[string]string{
 		"error": err.Error(),
 	})
@@ -311,6 +343,7 @@ func (watcher *Watcher) removeCallback(path string, id uint64) error {
 	}
 
 	shouldRemove := false
+	activeCount := 0
 	watcher.mutex.Lock()
 	callbacks := watcher.callbacks[path]
 	if len(callbacks) > 0 {
@@ -323,6 +356,10 @@ func (watcher *Watcher) removeCallback(path string, id uint64) error {
 		if len(callbacks) == 0 {
 			delete(watcher.callbacks, path)
 			shouldRemove = true
+			if watcher.activeWatches > 0 {
+				watcher.activeWatches--
+			}
+			activeCount = watcher.activeWatches
 		} else {
 			watcher.callbacks[path] = callbacks
 		}
@@ -337,6 +374,7 @@ func (watcher *Watcher) removeCallback(path string, id uint64) error {
 			})
 			return err
 		}
+		watcher.logDebug("watch removed", path, activeCount)
 	}
 	return nil
 }
@@ -357,6 +395,9 @@ func (watcher *Watcher) dropCallback(path string, id uint64) {
 		}
 		if len(callbacks) == 0 {
 			delete(watcher.callbacks, path)
+			if watcher.activeWatches > 0 {
+				watcher.activeWatches--
+			}
 		} else {
 			watcher.callbacks[path] = callbacks
 		}
@@ -369,4 +410,80 @@ func (watcher *Watcher) logWarn(message string, fields map[string]string) {
 		return
 	}
 	watcher.logger.Warn(message, fields)
+}
+
+func (watcher *Watcher) logDebug(message, path string, activeCount int) {
+	if watcher == nil || watcher.logger == nil {
+		return
+	}
+	watcher.logger.Debug(message, map[string]string{
+		"path":           path,
+		"active_watches": strconv.Itoa(activeCount),
+	})
+}
+
+func (watcher *Watcher) cleanupLoop() {
+	ticker := time.NewTicker(watcher.cleanupInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			watcher.cleanup()
+		case <-watcher.done:
+			return
+		}
+	}
+}
+
+func (watcher *Watcher) cleanup() {
+	if watcher == nil {
+		return
+	}
+	paths := make([]string, 0)
+	watcher.mutex.Lock()
+	if watcher.closed {
+		watcher.mutex.Unlock()
+		return
+	}
+	for path, callbacks := range watcher.callbacks {
+		if len(callbacks) == 0 {
+			delete(watcher.callbacks, path)
+			if watcher.activeWatches > 0 {
+				watcher.activeWatches--
+			}
+			paths = append(paths, path)
+		}
+	}
+	activeCount := watcher.activeWatches
+	watcher.mutex.Unlock()
+
+	for _, path := range paths {
+		if watcher.watcher == nil {
+			continue
+		}
+		if err := watcher.watcher.Remove(path); err != nil {
+			watcher.logWarn("watch cleanup failed", map[string]string{
+				"path":  path,
+				"error": err.Error(),
+			})
+			continue
+		}
+		watcher.logDebug("watch cleaned", path, activeCount)
+	}
+}
+
+// Metrics reports current watcher stats.
+func (watcher *Watcher) Metrics() Metrics {
+	if watcher == nil {
+		return Metrics{}
+	}
+	watcher.mutex.Lock()
+	active := watcher.activeWatches
+	watcher.mutex.Unlock()
+	return Metrics{
+		ActiveWatches:   active,
+		EventsDelivered: atomic.LoadUint64(&watcher.eventsDelivered),
+		Errors:          atomic.LoadUint64(&watcher.errorCount),
+	}
 }

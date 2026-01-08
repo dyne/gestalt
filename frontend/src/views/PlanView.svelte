@@ -1,6 +1,7 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
-  import { apiFetch, buildWebSocketUrl } from '../lib/api.js'
+  import { apiFetch } from '../lib/api.js'
+  import { eventConnectionStatus, subscribe as subscribeEvents } from '../lib/eventStore.js'
   import OrgViewer from '../components/OrgViewer.svelte'
 
   let loading = false
@@ -10,15 +11,12 @@
   let lastContent = ''
   let etag = ''
   let fallbackTimer = null
-  let socket = null
-  let reconnectTimer = null
-  let reconnectAttempts = 0
   let updateNotice = false
   let updateNoticeTimer = null
+  let eventUnsubscribe = null
+  let statusUnsubscribe = null
 
   const fallbackIntervalMs = 10000
-  const baseReconnectDelayMs = 500
-  const maxReconnectDelayMs = 10000
 
   const showUpdateNotice = () => {
     updateNotice = true
@@ -81,81 +79,37 @@
     }, fallbackIntervalMs)
   }
 
-  const scheduleReconnect = () => {
-    if (reconnectTimer) return
-    const delay = Math.min(maxReconnectDelayMs, baseReconnectDelayMs * 2 ** reconnectAttempts)
-    reconnectAttempts += 1
-    reconnectTimer = setTimeout(() => {
-      reconnectTimer = null
-      connectEvents()
-    }, delay)
-  }
-
-  const connectEvents = () => {
-    if (socket) {
-      socket.close()
-      socket = null
-    }
-
-    try {
-      socket = new WebSocket(buildWebSocketUrl('/ws/events'))
-    } catch {
-      startFallbackPolling()
-      scheduleReconnect()
-      return
-    }
-
-    socket.addEventListener('open', () => {
-      reconnectAttempts = 0
-      stopFallbackPolling()
-      socket?.send(JSON.stringify({ subscribe: ['file_changed'] }))
-    })
-
-    socket.addEventListener('message', (event) => {
-      let payload = null
-      try {
-        payload = JSON.parse(event.data)
-      } catch {
-        return
-      }
-      if (payload?.type !== 'file_changed' || !payload?.path) {
-        return
-      }
+  onMount(() => {
+    loadPlan()
+    eventUnsubscribe = subscribeEvents('file_changed', (payload) => {
+      if (!payload?.path) return
       if (payload.path !== 'PLAN.org' && !payload.path.endsWith('/PLAN.org')) {
         return
       }
       loadPlan({ silent: true, notify: true })
     })
-
-    socket.addEventListener('close', () => {
-      socket = null
-      startFallbackPolling()
-      scheduleReconnect()
+    statusUnsubscribe = eventConnectionStatus.subscribe((value) => {
+      if (value === 'connected') {
+        stopFallbackPolling()
+      } else {
+        startFallbackPolling()
+      }
     })
-
-    socket.addEventListener('error', () => {
-      socket?.close()
-    })
-  }
-
-  onMount(() => {
-    loadPlan()
-    connectEvents()
   })
 
   onDestroy(() => {
     stopFallbackPolling()
-    if (reconnectTimer) {
-      clearTimeout(reconnectTimer)
-      reconnectTimer = null
-    }
     if (updateNoticeTimer) {
       clearTimeout(updateNoticeTimer)
       updateNoticeTimer = null
     }
-    if (socket) {
-      socket.close()
-      socket = null
+    if (eventUnsubscribe) {
+      eventUnsubscribe()
+      eventUnsubscribe = null
+    }
+    if (statusUnsubscribe) {
+      statusUnsubscribe()
+      statusUnsubscribe = null
     }
   })
 </script>

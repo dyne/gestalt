@@ -174,7 +174,7 @@
    - Tests: Unit test with rapid file modifications; verify single event
    Done when: Rapid changes trigger single event after debounce window
 
-** TODO [#C] Add frontend WebSocket event store
+** DONE [#C] Add frontend WebSocket event store
    Why: Centralize WebSocket event handling in frontend
    Change:
    - Create frontend/src/lib/eventStore.js for /ws/events connection

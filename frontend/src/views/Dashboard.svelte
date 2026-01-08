@@ -1,6 +1,7 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
-  import { apiFetch, buildWebSocketUrl } from '../lib/api.js'
+  import { apiFetch } from '../lib/api.js'
+  import { subscribe as subscribeEvents } from '../lib/eventStore.js'
   import { notificationStore } from '../lib/notificationStore.js'
 
   export let terminals = []
@@ -31,9 +32,7 @@
   let gitOrigin = ''
   let gitBranch = ''
   let gitContext = 'not a git repo'
-  let gitSocket = null
-  let gitReconnectTimer = null
-  let gitReconnectAttempts = 0
+  let gitUnsubscribe = null
 
   const logLevelOptions = [
     { value: 'all', label: 'All' },
@@ -184,63 +183,15 @@
     resetLogRefresh()
   }
 
-  const scheduleGitReconnect = () => {
-    if (gitReconnectTimer) return
-    const delay = Math.min(10000, 500 * 2 ** gitReconnectAttempts)
-    gitReconnectAttempts += 1
-    gitReconnectTimer = setTimeout(() => {
-      gitReconnectTimer = null
-      connectGitEvents()
-    }, delay)
-  }
-
-  const connectGitEvents = () => {
-    if (gitSocket) {
-      gitSocket.close()
-      gitSocket = null
-    }
-
-    try {
-      gitSocket = new WebSocket(buildWebSocketUrl('/ws/events'))
-    } catch {
-      scheduleGitReconnect()
-      return
-    }
-
-    gitSocket.addEventListener('open', () => {
-      gitReconnectAttempts = 0
-      gitSocket?.send(JSON.stringify({ subscribe: ['git_branch_changed'] }))
-    })
-
-    gitSocket.addEventListener('message', (event) => {
-      let payload = null
-      try {
-        payload = JSON.parse(event.data)
-      } catch {
-        return
-      }
-      if (payload?.type !== 'git_branch_changed' || !payload?.path) {
-        return
-      }
-      gitBranch = payload.path
-    })
-
-    gitSocket.addEventListener('close', () => {
-      gitSocket = null
-      scheduleGitReconnect()
-    })
-
-    gitSocket.addEventListener('error', () => {
-      gitSocket?.close()
-    })
-  }
-
   onMount(() => {
     loadAgents()
     logsMounted = true
     fetchLogs()
     resetLogRefresh()
-    connectGitEvents()
+    gitUnsubscribe = subscribeEvents('git_branch_changed', (payload) => {
+      if (!payload?.path) return
+      gitBranch = payload.path
+    })
   })
 
   onDestroy(() => {
@@ -249,13 +200,9 @@
       clearInterval(logsRefreshTimer)
       logsRefreshTimer = null
     }
-    if (gitReconnectTimer) {
-      clearTimeout(gitReconnectTimer)
-      gitReconnectTimer = null
-    }
-    if (gitSocket) {
-      gitSocket.close()
-      gitSocket = null
+    if (gitUnsubscribe) {
+      gitUnsubscribe()
+      gitUnsubscribe = null
     }
   })
 </script>

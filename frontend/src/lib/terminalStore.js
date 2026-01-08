@@ -7,10 +7,12 @@ import { apiFetch, buildWebSocketUrl } from './api.js'
 import { notificationStore } from './notificationStore.js'
 
 const terminals = new Map()
+const historyCache = new Map()
 const MAX_RETRIES = 5
 const BASE_DELAY_MS = 500
 const MAX_DELAY_MS = 8000
 const HISTORY_WARNING_MS = 5000
+const HISTORY_LINES = 2000
 const MOUSE_MODE_PARAMS = new Set([
   9,
   1000,
@@ -138,6 +140,7 @@ export const releaseTerminalState = (terminalId) => {
   if (!state) return
   state.dispose()
   terminals.delete(terminalId)
+  historyCache.delete(terminalId)
 }
 
 const createTerminalState = (terminalId) => {
@@ -145,6 +148,7 @@ const createTerminalState = (terminalId) => {
   const historyStatus = writable('idle')
   const bellCount = writable(0)
   const canReconnect = writable(false)
+  const atBottom = writable(true)
 
   const term = new Terminal({
     allowProposedApi: true,
@@ -172,12 +176,25 @@ const createTerminalState = (terminalId) => {
   let notifiedUnauthorized = false
   let notifiedDisconnect = false
   let disposeMouseHandlers
+  let disposeTouchHandlers
+  let touchTarget
   let historyLoaded = false
   let pendingHistory = ''
   let historyLoadPromise
   let historyWarningTimer
   let notifiedHistorySlow = false
   let notifiedHistoryError = false
+
+  const syncScrollState = () => {
+    const buffer = term.buffer?.active
+    if (!buffer) {
+      atBottom.set(true)
+      return
+    }
+    atBottom.set(buffer.viewportY >= buffer.baseY)
+  }
+
+  const getViewportElement = () => term.element?.querySelector('.xterm-viewport')
 
   const sendResize = () => {
     if (!socket || socket.readyState !== WebSocket.OPEN) return
@@ -207,6 +224,11 @@ const createTerminalState = (terminalId) => {
     directInputEnabled = Boolean(enabled)
   }
 
+  const scrollToBottom = () => {
+    term.scrollToBottom()
+    syncScrollState()
+  }
+
   const focus = () => {
     if (disposed) return
     term.focus()
@@ -221,6 +243,77 @@ const createTerminalState = (terminalId) => {
     })
   }
 
+  const setupTouchScroll = (element) => {
+    if (!element) return () => {}
+    let touchActive = false
+    let lastTouchY = 0
+
+    const getAverageTouchY = (touches) => {
+      if (!touches || touches.length === 0) return null
+      let total = 0
+      for (const touch of touches) {
+        total += touch.clientY
+      }
+      return total / touches.length
+    }
+
+    const handleTouchStart = (event) => {
+      const averageY = getAverageTouchY(event.touches)
+      if (averageY === null) return
+      touchActive = true
+      lastTouchY = averageY
+    }
+
+    const handleTouchMove = (event) => {
+      if (!touchActive) return
+      const averageY = getAverageTouchY(event.touches)
+      if (averageY === null) return
+      const deltaY = averageY - lastTouchY
+      if (!deltaY) return
+      lastTouchY = averageY
+      const viewport = getViewportElement()
+      if (!viewport) return
+      viewport.scrollTop -= deltaY
+      syncScrollState()
+      event.preventDefault()
+    }
+
+    const handleTouchEnd = (event) => {
+      if (event.touches && event.touches.length > 0) {
+        const averageY = getAverageTouchY(event.touches)
+        if (averageY !== null) {
+          lastTouchY = averageY
+        }
+        return
+      }
+      touchActive = false
+    }
+
+    element.addEventListener('touchstart', handleTouchStart, {
+      passive: true,
+      capture: true,
+    })
+    element.addEventListener('touchmove', handleTouchMove, {
+      passive: false,
+      capture: true,
+    })
+    element.addEventListener('touchend', handleTouchEnd, {
+      passive: true,
+      capture: true,
+    })
+    element.addEventListener('touchcancel', handleTouchEnd, {
+      passive: true,
+      capture: true,
+    })
+
+    return () => {
+      element.removeEventListener('touchstart', handleTouchStart, { capture: true })
+      element.removeEventListener('touchmove', handleTouchMove, { capture: true })
+      element.removeEventListener('touchend', handleTouchEnd, { capture: true })
+      element.removeEventListener('touchcancel', handleTouchEnd, { capture: true })
+    }
+  }
+
   const attach = (element) => {
     container = element
     if (!container || disposed) return
@@ -229,7 +322,16 @@ const createTerminalState = (terminalId) => {
     } else if (term.element.parentElement !== container) {
       container.appendChild(term.element)
     }
+    const nextTouchTarget = term.element || container
+    if (touchTarget !== nextTouchTarget) {
+      if (disposeTouchHandlers) {
+        disposeTouchHandlers()
+      }
+      touchTarget = nextTouchTarget
+      disposeTouchHandlers = setupTouchScroll(nextTouchTarget)
+    }
     flushPendingHistory()
+    syncScrollState()
     scheduleFit()
   }
 
@@ -244,6 +346,10 @@ const createTerminalState = (terminalId) => {
 
   term.onBell(() => {
     bellCount.update((count) => count + 1)
+  })
+
+  term.onScroll?.(() => {
+    syncScrollState()
   })
 
   term.attachCustomKeyEventHandler((event) => {
@@ -314,6 +420,7 @@ const createTerminalState = (terminalId) => {
     if (!pendingHistory || disposed || !term.element) return
     term.write(pendingHistory)
     pendingHistory = ''
+    syncScrollState()
   }
 
   const scheduleHistoryWarning = () => {
@@ -339,22 +446,39 @@ const createTerminalState = (terminalId) => {
     if (historyLoadPromise) {
       return historyLoadPromise
     }
+    if (historyCache.has(terminalId)) {
+      const cachedHistory = historyCache.get(terminalId) || ''
+      if (term.element) {
+        term.write(cachedHistory)
+      } else {
+        pendingHistory = cachedHistory
+      }
+      historyLoaded = true
+      historyStatus.set('loaded')
+      return Promise.resolve()
+    }
 
     historyStatus.set('loading')
     scheduleHistoryWarning()
     historyLoadPromise = (async () => {
       try {
-        const response = await apiFetch(`/api/terminals/${terminalId}/output`)
+        const response = await apiFetch(
+          `/api/terminals/${terminalId}/history?lines=${HISTORY_LINES}`
+        )
         const payload = await response.json()
         const lines = Array.isArray(payload?.lines) ? payload.lines : []
-        if (lines.length > 0) {
-          const historyText = lines.join('\n')
+        const historyText = lines.join('\n')
+        if (historyText) {
           if (term.element) {
             term.write(historyText)
           } else {
             pendingHistory = historyText
           }
+          if (term.element) {
+            syncScrollState()
+          }
         }
+        historyCache.set(terminalId, historyText)
         historyLoaded = true
         historyStatus.set('loaded')
       } catch (err) {
@@ -445,9 +569,11 @@ const createTerminalState = (terminalId) => {
       if (disposed) return
       if (typeof event.data === 'string') {
         term.write(event.data)
+        syncScrollState()
         return
       }
       term.write(new Uint8Array(event.data))
+      syncScrollState()
     })
 
     socket.addEventListener('close', async (event) => {
@@ -505,6 +631,9 @@ const createTerminalState = (terminalId) => {
     if (disposeMouseHandlers) {
       disposeMouseHandlers()
     }
+    if (disposeTouchHandlers) {
+      disposeTouchHandlers()
+    }
     term.dispose()
   }
 
@@ -516,9 +645,11 @@ const createTerminalState = (terminalId) => {
     historyStatus,
     bellCount,
     canReconnect,
+    atBottom,
     sendData,
     sendCommand,
     setDirectInput,
+    scrollToBottom,
     focus,
     attach,
     detach,

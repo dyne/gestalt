@@ -23,12 +23,12 @@ describe('Dashboard', () => {
           json: vi.fn().mockResolvedValue([{ id: 'codex', name: 'Codex' }]),
         })
       }
-      if (url === '/api/skills') {
+      if (url.startsWith('/api/skills?agent=')) {
         return Promise.resolve({
           json: vi.fn().mockResolvedValue([]),
         })
       }
-      if (url.startsWith('/api/skills?agent=')) {
+      if (url.startsWith('/api/logs')) {
         return Promise.resolve({
           json: vi.fn().mockResolvedValue([]),
         })

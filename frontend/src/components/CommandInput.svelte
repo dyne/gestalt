@@ -8,6 +8,8 @@
   export let disabled = false
   export let directInput = false
   export let onDirectInputChange = () => {}
+  export let showScrollButton = false
+  export let onScrollToBottom = () => {}
 
   let value = ''
   let textarea
@@ -170,24 +172,41 @@
       on:keydown={handleKeydown}
       disabled={disabled}
     ></textarea>
-    <label class="direct-toggle" title="Direct input switch">
-      <input
-        type="checkbox"
-        checked={directInput}
-        on:change={handleDirectToggle}
-        aria-label="Direct input switch"
-        disabled={disabled}
-      />
-      <span class="direct-toggle__switch"></span>
-    </label>
+    <div class="command-input__actions">
+      {#if showScrollButton}
+        <button
+          class="scroll-bottom"
+          type="button"
+          on:click={onScrollToBottom}
+          disabled={disabled}
+          aria-label="Scroll to bottom"
+        >
+          &dArr;
+        </button>
+      {/if}
+      <label class="direct-toggle" title="Direct input switch">
+        <input
+          type="checkbox"
+          checked={directInput}
+          on:change={handleDirectToggle}
+          aria-label="Direct input switch"
+          disabled={disabled}
+        />
+        <span class="direct-toggle__switch"></span>
+      </label>
+    </div>
   </div>
 </div>
 
 <style>
   .command-input {
+    position: sticky;
+    bottom: 0;
+    z-index: 10;
     padding: 0.85rem 1rem 1rem;
     background: #171717;
     border-top: 1px solid rgba(255, 255, 255, 0.06);
+    box-shadow: 0 -12px 24px rgba(0, 0, 0, 0.35);
   }
 
   .command-input__row {
@@ -195,6 +214,30 @@
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 0.85rem;
     align-items: end;
+  }
+
+  .command-input__actions {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .scroll-bottom {
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 999px;
+    padding: 0.35rem 0.6rem;
+    background: #0f0f0f;
+    color: #f2efe9;
+    font-size: 0.65rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+
+  .scroll-bottom:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
   }
 
   textarea {

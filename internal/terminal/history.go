@@ -18,6 +18,39 @@ func tailLines(lines []string, maxLines int) []string {
 	return lines[len(lines)-maxLines:]
 }
 
+func mergeHistoryLines(fileLines, bufferLines []string, maxLines int) []string {
+	if len(fileLines) == 0 {
+		return tailLines(bufferLines, maxLines)
+	}
+	if len(bufferLines) == 0 {
+		return tailLines(fileLines, maxLines)
+	}
+
+	maxOverlap := len(fileLines)
+	if len(bufferLines) < maxOverlap {
+		maxOverlap = len(bufferLines)
+	}
+	overlap := 0
+	for size := maxOverlap; size > 0; size-- {
+		matched := true
+		for i := 0; i < size; i++ {
+			if fileLines[len(fileLines)-size+i] != bufferLines[i] {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			overlap = size
+			break
+		}
+	}
+
+	combined := make([]string, 0, len(fileLines)+len(bufferLines)-overlap)
+	combined = append(combined, fileLines[:len(fileLines)-overlap]...)
+	combined = append(combined, bufferLines...)
+	return tailLines(combined, maxLines)
+}
+
 func readLastLines(path string, maxLines int) ([]string, error) {
 	if maxLines <= 0 {
 		return []string{}, nil

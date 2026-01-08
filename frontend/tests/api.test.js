@@ -74,4 +74,16 @@ describe('api helpers', () => {
       status: 500,
     })
   })
+
+  it('apiFetch allows 304 when allowNotModified is set', async () => {
+    const response = {
+      ok: false,
+      status: 304,
+      text: vi.fn().mockResolvedValue(''),
+    }
+    mockFetch(response)
+
+    const result = await apiFetch('/api/plan', { allowNotModified: true })
+    expect(result).toBe(response)
+  })
 })

@@ -360,6 +360,46 @@ func TestManagerAgentSingleInstance(t *testing.T) {
 	}
 }
 
+func TestManagerGetAgentTerminal(t *testing.T) {
+	factory := &fakeFactory{}
+	manager := NewManager(ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:  "Codex",
+				Shell: "/bin/bash",
+			},
+		},
+	})
+
+	session, err := manager.Create("codex", "build", "first")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	id, ok := manager.GetAgentTerminal("Codex")
+	if !ok {
+		t.Fatalf("expected running terminal for Codex")
+	}
+	if id != session.ID {
+		t.Fatalf("expected terminal id %q, got %q", session.ID, id)
+	}
+	if id, ok := manager.GetAgentTerminal("Missing"); ok || id != "" {
+		t.Fatalf("expected missing agent to return empty and false")
+	}
+	if id, ok := manager.GetAgentTerminal(""); ok || id != "" {
+		t.Fatalf("expected empty agent name to return empty and false")
+	}
+
+	if err := manager.Delete(session.ID); err != nil {
+		t.Fatalf("delete session: %v", err)
+	}
+	if id, ok := manager.GetAgentTerminal("Codex"); ok || id != "" {
+		t.Fatalf("expected no terminal after delete")
+	}
+}
+
 func TestManagerSkillsLoaded(t *testing.T) {
 	entries := map[string]*skill.Skill{
 		"git-workflows": {

@@ -57,9 +57,20 @@ Environment variables:
 - `GESTALT_SHELL` (default: system shell)
 - `GESTALT_TOKEN` (default: empty, disables auth)
 - `GESTALT_SESSION_PERSIST` (default true)
-- `GESTALT_SESSION_DIR` (default `logs/sessions`)
+- `GESTALT_SESSION_DIR` (default `.gestalt/sessions`)
 - `GESTALT_SESSION_BUFFER_LINES` (default 1000)
 - `GESTALT_SESSION_RETENTION_DAYS` (default 7)
+- `GESTALT_INPUT_HISTORY_DIR` (default `.gestalt/input-history`)
+
+Session logs and input history now live under `.gestalt/` by default. If you
+previously stored data in `logs/`, move it manually if you want to keep it.
+
+## Dashboard
+
+- Working directory is shown prominently so you can confirm the server context.
+- Agent cards show Start/Stop controls based on whether the agent is running.
+- Logs are embedded on the dashboard; the Logs tab is removed.
+- The Plan view auto-refreshes every 5s (manual refresh is still available).
 
 ## Embedded Resources
 

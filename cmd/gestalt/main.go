@@ -43,6 +43,7 @@ func main() {
 	cfg := loadConfig()
 	logBuffer := logging.NewLogBuffer(logging.DefaultBufferSize)
 	logger := logging.NewLogger(logBuffer, logging.LevelInfo)
+	ensureStateDir(cfg, logger)
 
 	configFS := buildConfigFS(logger)
 	skills, err := loadSkills(logger, configFS)
@@ -136,7 +137,7 @@ func loadConfig() Config {
 		}
 	}
 
-	sessionLogDir := filepath.Join("logs", "sessions")
+	sessionLogDir := filepath.Join(".gestalt", "sessions")
 	if rawDir := strings.TrimSpace(os.Getenv("GESTALT_SESSION_DIR")); rawDir != "" {
 		sessionLogDir = rawDir
 	}
@@ -158,7 +159,7 @@ func loadConfig() Config {
 		}
 	}
 
-	inputHistoryDir := filepath.Join("logs", "input-history")
+	inputHistoryDir := filepath.Join(".gestalt", "input-history")
 	if rawDir := strings.TrimSpace(os.Getenv("GESTALT_INPUT_HISTORY_DIR")); rawDir != "" {
 		inputHistoryDir = rawDir
 	}
@@ -177,6 +178,31 @@ func loadConfig() Config {
 		InputHistoryPersist:  inputHistoryPersist,
 		InputHistoryDir:      inputHistoryDir,
 	}
+}
+
+func ensureStateDir(cfg Config, logger *logging.Logger) {
+	stateRoot := ".gestalt"
+	if !usesStateRoot(cfg.SessionLogDir, stateRoot) && !usesStateRoot(cfg.InputHistoryDir, stateRoot) {
+		return
+	}
+	if err := os.MkdirAll(stateRoot, 0o755); err != nil && logger != nil {
+		logger.Warn("create state dir failed", map[string]string{
+			"path":  stateRoot,
+			"error": err.Error(),
+		})
+	}
+}
+
+func usesStateRoot(dir, root string) bool {
+	if strings.TrimSpace(dir) == "" {
+		return false
+	}
+	cleanDir := filepath.Clean(dir)
+	cleanRoot := filepath.Clean(root)
+	if cleanDir == cleanRoot {
+		return true
+	}
+	return strings.HasPrefix(cleanDir, cleanRoot+string(os.PathSeparator))
 }
 
 func findStaticDir() string {

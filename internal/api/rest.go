@@ -1,6 +1,8 @@
 package api
 
 import (
+	"bufio"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,9 +20,11 @@ import (
 )
 
 type RestHandler struct {
-	Manager  *terminal.Manager
-	Logger   *logging.Logger
-	PlanPath string
+	Manager   *terminal.Manager
+	Logger    *logging.Logger
+	PlanPath  string
+	GitOrigin string
+	GitBranch string
 }
 
 type terminalSummary struct {
@@ -52,6 +56,9 @@ type statusResponse struct {
 	TerminalCount  int       `json:"terminal_count"`
 	ServerTime     time.Time `json:"server_time"`
 	SessionPersist bool      `json:"session_persist"`
+	WorkingDir     string    `json:"working_dir"`
+	GitOrigin      string    `json:"git_origin"`
+	GitBranch      string    `json:"git_branch"`
 }
 
 type planResponse struct {
@@ -64,10 +71,12 @@ type errorResponse struct {
 }
 
 type agentSummary struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	LLMType  string `json:"llm_type"`
-	LLMModel string `json:"llm_model"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	LLMType    string `json:"llm_type"`
+	LLMModel   string `json:"llm_model"`
+	TerminalID string `json:"terminal_id"`
+	Running    bool   `json:"running"`
 }
 
 type agentInputResponse struct {
@@ -130,11 +139,24 @@ func (h *RestHandler) handleStatus(w http.ResponseWriter, r *http.Request) *apiE
 		return err
 	}
 
+	workDir, err := os.Getwd()
+	if err != nil {
+		workDir = "unknown"
+		if h.Logger != nil {
+			h.Logger.Warn("failed to get working directory", map[string]string{
+				"error": err.Error(),
+			})
+		}
+	}
+
 	terminals := h.Manager.List()
 	response := statusResponse{
 		TerminalCount:  len(terminals),
 		ServerTime:     time.Now().UTC(),
 		SessionPersist: h.Manager.SessionPersistenceEnabled(),
+		WorkingDir:     workDir,
+		GitOrigin:      h.GitOrigin,
+		GitBranch:      h.GitBranch,
 	}
 
 	writeJSON(w, http.StatusOK, response)
@@ -189,11 +211,14 @@ func (h *RestHandler) handleAgents(w http.ResponseWriter, r *http.Request) *apiE
 	infos := h.Manager.ListAgents()
 	response := make([]agentSummary, 0, len(infos))
 	for _, info := range infos {
+		terminalID, running := h.Manager.GetAgentTerminal(info.Name)
 		response = append(response, agentSummary{
-			ID:       info.ID,
-			Name:     info.Name,
-			LLMType:  info.LLMType,
-			LLMModel: info.LLMModel,
+			ID:         info.ID,
+			Name:       info.Name,
+			LLMType:    info.LLMType,
+			LLMModel:   info.LLMModel,
+			TerminalID: terminalID,
+			Running:    running,
 		})
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -353,17 +378,44 @@ func (h *RestHandler) handlePlan(w http.ResponseWriter, r *http.Request) *apiErr
 					"path": planPath,
 				})
 			}
-			writeJSON(w, http.StatusOK, planResponse{Content: ""})
-			return nil
+			content = []byte{}
+		} else {
+			return &apiError{Status: http.StatusInternalServerError, Message: "failed to read plan file"}
 		}
-		return &apiError{Status: http.StatusInternalServerError, Message: "failed to read plan file"}
 	}
 	if statErr == nil {
 		w.Header().Set("Last-Modified", info.ModTime().UTC().Format(http.TimeFormat))
 	}
 
+	etag := planETag(content)
+	w.Header().Set("ETag", etag)
+	if matchesETag(r.Header.Get("If-None-Match"), etag) {
+		w.WriteHeader(http.StatusNotModified)
+		return nil
+	}
+
 	writeJSON(w, http.StatusOK, planResponse{Content: string(content)})
 	return nil
+}
+
+func planETag(content []byte) string {
+	sum := sha256.Sum256(content)
+	return fmt.Sprintf("\"%x\"", sum)
+}
+
+func matchesETag(header, etag string) bool {
+	if header == "" {
+		return false
+	}
+	if header == "*" {
+		return true
+	}
+	for _, part := range strings.Split(header, ",") {
+		if strings.TrimSpace(part) == etag {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *RestHandler) requireManager() *apiError {
@@ -805,6 +857,106 @@ func listSkillFiles(base, name string) []string {
 	}
 	sort.Strings(files)
 	return files
+}
+
+func loadGitInfo() (string, string) {
+	workDir, err := os.Getwd()
+	if err != nil {
+		return "", ""
+	}
+	gitDir := resolveGitDir(workDir)
+	if gitDir == "" {
+		return "", ""
+	}
+	origin := readGitOrigin(filepath.Join(gitDir, "config"))
+	branch := readGitBranch(filepath.Join(gitDir, "HEAD"))
+	return origin, branch
+}
+
+func resolveGitDir(workDir string) string {
+	gitPath := filepath.Join(workDir, ".git")
+	info, err := os.Stat(gitPath)
+	if err != nil {
+		return ""
+	}
+	if info.IsDir() {
+		return gitPath
+	}
+	if !info.Mode().IsRegular() {
+		return ""
+	}
+	contents, err := os.ReadFile(gitPath)
+	if err != nil {
+		return ""
+	}
+	line := strings.TrimSpace(string(contents))
+	const prefix = "gitdir:"
+	if !strings.HasPrefix(line, prefix) {
+		return ""
+	}
+	gitDir := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+	if gitDir == "" {
+		return ""
+	}
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(workDir, gitDir)
+	}
+	return gitDir
+}
+
+func readGitOrigin(configPath string) string {
+	file, err := os.Open(configPath)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	section := ""
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			section = strings.TrimSpace(line[1 : len(line)-1])
+			continue
+		}
+		if section != `remote "origin"` {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		if key != "url" {
+			continue
+		}
+		return strings.TrimSpace(parts[1])
+	}
+	return ""
+}
+
+func readGitBranch(headPath string) string {
+	contents, err := os.ReadFile(headPath)
+	if err != nil {
+		return ""
+	}
+	line := strings.TrimSpace(string(contents))
+	if line == "" {
+		return ""
+	}
+	const prefix = "ref: "
+	if strings.HasPrefix(line, prefix) {
+		ref := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		return strings.TrimPrefix(ref, "refs/heads/")
+	}
+	short := line
+	if len(short) > 12 {
+		short = short[:12]
+	}
+	return fmt.Sprintf("detached@%s", short)
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

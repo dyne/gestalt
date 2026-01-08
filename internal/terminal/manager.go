@@ -445,6 +445,29 @@ func (m *Manager) GetSessionByAgent(agentName string) (*Session, bool) {
 	return session, ok
 }
 
+func (m *Manager) GetAgentTerminal(agentName string) (string, bool) {
+	if strings.TrimSpace(agentName) == "" {
+		return "", false
+	}
+	m.mu.RLock()
+	id, ok := m.agentSessions[agentName]
+	if !ok {
+		m.mu.RUnlock()
+		return "", false
+	}
+	_, exists := m.sessions[id]
+	m.mu.RUnlock()
+	if !exists {
+		m.mu.Lock()
+		if existingID, ok := m.agentSessions[agentName]; ok && existingID == id {
+			delete(m.agentSessions, agentName)
+		}
+		m.mu.Unlock()
+		return "", false
+	}
+	return id, true
+}
+
 func (m *Manager) HistoryLines(id string, maxLines int) ([]string, error) {
 	if maxLines <= 0 {
 		maxLines = DefaultHistoryLines

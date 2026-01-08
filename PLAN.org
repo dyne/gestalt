@@ -1,3 +1,252 @@
+* DONE [#B] Dashboard and Plan UI improvements
+  Goal: Streamline dashboard UX by showing working directory, adding agent start/stop controls, embedding logs directly, removing redundant sections, and enabling real-time plan file watching.
+  Notes:
+  - Dashboard is the primary control surface; reduce clutter, increase information density
+  - Agent terminals: show play/stop button instead of always creating new terminals
+  - Only one active terminal per agent (enforced by backend, UI reflects state)
+  - Visual feedback: running vs stopped state with color changes
+  - Working directory prominently displayed (users need to know context)
+  - Logs embedded in dashboard (remove separate tab, reduce navigation)
+  - Skills list removed (redundant; shown in agent cards already)
+  - Live terminals section removed (state now clear from agent cards)
+  - Plan tab: fix file watching to update on changes (currently only loads at startup)
+  - All changes must maintain clean separation: components remain modular and testable
+  - Backend changes minimal: add working directory to status API, ensure agent state tracking
+  Date: 2026-01-08
+
+** [#B] Setup Tailwind CSS for Svelte frontend
+   Why: Streamline styling and reduce custom CSS; perfect timing with dashboard overhaul
+   Change:
+   - Install tailwindcss, postcss, autoprefixer as dev dependencies
+   - Create tailwind.config.js with Svelte content paths: './src/**/*.{html,js,svelte,ts}'
+   - Create postcss.config.js with tailwindcss and autoprefixer plugins
+   - Create or update src/app.css with Tailwind directives (@tailwind base/components/utilities)
+   - Import app.css in src/main.js or App.svelte
+   - Configure Vite to process Tailwind (already works with PostCSS out of box)
+   - Test with simple utility class (e.g., bg-blue-500) in Dashboard.svelte
+   - Keep existing component styles working during transition (gradual migration)
+   - Document Tailwind usage in comments: "New code uses Tailwind, old code migrates as touched"
+   Tests: npm run build; verify Tailwind classes render; npm test still passes
+   Done when: Tailwind configured, builds successfully, ready for use in new code
+
+** [#B] Add working directory to status API
+   Why: Dashboard needs to prominently display where Gestalt is running
+   Change:
+   - Extend statusResponse struct in internal/api/rest.go to include WorkDir string
+   - Populate with os.Getwd() in status handler
+   - Handle error if getwd fails (log warning, use "unknown" or empty string)
+   - Update API response: "working_dir" field in JSON
+   Tests: GET /api/status includes working_dir; go test ./internal/api
+   Done when: Status endpoint returns current working directory
+
+** [#B] Update Dashboard status section with working directory
+   Why: Users need prominent display of working directory; remove useless metrics
+   Change:
+   - Remove "Active terminals" and "Skills available" status cards from Dashboard.svelte
+   - Remove "Server time" status card (not useful)
+   - Add single prominent "Working directory" card showing full path from status.working_dir
+   - Style: make working directory card span full width or prominent position
+   - Use monospace font for path display
+   - Keep eyebrow and h1 (Gestalt title) unchanged
+   Tests: npm test -- tests/dashboard.test.js (if exists); manual visual check
+   Done when: Dashboard shows working directory prominently, other metrics removed
+
+** [#B] Add agent state tracking to Manager
+   Why: Need to track which agents are running vs stopped for play/stop UI
+   Change:
+   - Manager already tracks agentSessions map (agent name → terminal ID)
+   - Add method Manager.GetAgentTerminal(agentName string) (terminalID string, running bool)
+   - Returns terminal ID if agent has running session, empty string if stopped
+   - This is for UI state; existing single-instance enforcement unchanged
+   Tests: Unit tests for Manager.GetAgentTerminal; go test ./internal/terminal
+   Done when: Manager can report agent running state by name
+
+** [#B] Extend agents API to include terminal state
+   Why: Frontend needs to know which agents are currently running
+   Change:
+   - Extend agentSummary struct in internal/api/rest.go to include TerminalID string and Running bool
+   - In GET /api/agents handler, check Manager.GetAgentTerminal(agent.Name) for each agent
+   - Populate terminal_id and running fields in response
+   - If agent running, include terminal ID; if stopped, terminal_id is empty and running is false
+   Tests: API test verifies running/stopped agents; go test ./internal/api
+   Done when: GET /api/agents returns terminal state per agent
+
+** [#B] Transform agent buttons to play/stop controls
+   Why: Dashboard should show start/stop controls instead of always creating new terminals
+   Change:
+   - Replace agent buttons in Dashboard.svelte agent-grid section
+   - If agent.running: show stop button (⏹ or "Stop") with agent.name
+   - If !agent.running: show play button (▶ or "Start") with agent.name
+   - Play button: calls createTerminal(agent.id) (existing behavior)
+   - Stop button: calls deleteTerminal(agent.terminal_id) (existing function)
+   - Update button styling: .agent-button--running and .agent-button--stopped classes
+   - Running state: slightly different background color (e.g., light green/blue tint)
+   - Stopped state: default/muted color
+   - Keep agent skills display below button (unchanged)
+   Tests: npm test -- tests/dashboard.test.js; manual test play/stop
+   Done when: Agent cards show play/stop based on state; visual feedback works
+
+** [#B] Remove skills section from Dashboard
+   Why: Skills list is redundant; already shown in agent cards
+   Change:
+   - Remove entire .dashboard__skills section from Dashboard.svelte
+   - Remove loadSkills() function and related state (skills, skillsLoading, skillsError)
+   - Remove agentNamesForSkill() function (no longer needed)
+   - Keep agentSkills loading for agent cards (still need skills per agent)
+   - Remove associated styles for .dashboard__skills, .skill-grid, .skill-card
+   Tests: npm test; manual check no regression in agent skills display
+   Done when: Skills section removed; agent cards still show skills correctly
+
+** [#B] Remove live terminals section from Dashboard
+   Why: Agent state is now clear from agent cards; separate list is redundant
+   Change:
+   - Remove entire .dashboard__list section from Dashboard.svelte
+   - Keep terminals prop and state (needed for App.svelte tab management)
+   - Remove formatTime function if only used for terminal list
+   - Remove associated styles for .dashboard__list, .terminal-list, .terminal-row
+   Tests: npm test; verify tabs still work (terminals tracked in App.svelte)
+   Done when: Live terminals section removed; terminal tabs still functional
+
+** [#B] Embed logs directly in Dashboard
+   Why: Logs should be visible without switching tabs; reduce navigation overhead
+   Change:
+   - Add compact logs section to Dashboard.svelte below agent section
+   - Import log fetching logic from LogsView.svelte (fetchLogs, filtering)
+   - Display last 10-20 log entries in compact format (timestamp, level badge, message)
+   - Keep filter dropdown (level filter) and auto-refresh toggle
+   - Style: compact cards, smaller font, less padding than full LogsView
+   - Add "View all logs" link that switches to Logs tab (keep tab for full view)
+   - Refresh logs on mount and every 5s (same as LogsView auto-refresh)
+   Tests: npm test -- tests/dashboard.test.js; verify logs display and refresh
+   Done when: Dashboard shows recent logs; full Logs tab still accessible
+
+** [#C] Remove Logs tab from navigation
+   Why: Logs are now in Dashboard; separate tab is redundant
+   Change:
+   - Remove logs tab from tabs array in App.svelte initialization
+   - Remove 'logs' case from activeView computed property
+   - Remove LogsView import and section from App.svelte template
+   - Keep LogsView.svelte file (might be useful for "view all" link in future)
+   - Update TabBar to not show logs tab
+   Tests: npm test; manual check tab navigation works
+   Done when: Logs tab not visible; logs accessible via dashboard
+
+** [#B] Move all session storage to .gestalt directory
+   Why: Keep working directory clean; make session data accessible and organized
+   Change:
+   - Change default session log directory from "logs/sessions" to ".gestalt/sessions"
+   - Change default input history directory from "logs/input-history" to ".gestalt/input-history"
+   - Update ManagerOptions defaults in cmd/gestalt/main.go
+   - Update env var documentation: GESTALT_SESSION_DIR, GESTALT_INPUT_HISTORY_DIR
+   - Create .gestalt directory in current working directory on startup
+   - Update persistence.go and input_logger.go to use new paths
+   - Add .gestalt to .gitignore if not already present
+   - Migrate existing logs/ data on first startup (optional, or document manual migration)
+   Tests: go test ./internal/terminal; verify files created in .gestalt/
+   Done when: All session data stored in .gestalt/ directory
+
+** [#B] Fix terminal history persistence on reconnect
+   Why: Terminal loses history when frontend closes and reopens
+   Change:
+   - Issue: frontend doesn't fetch full history on reconnect
+   - On WebSocket connect in terminalStore.js, fetch GET /api/terminals/:id/output
+   - Write buffered history to xterm before starting live WebSocket stream
+   - Backend already maintains OutputBuffer (1000 lines) and SessionLogger (disk)
+   - Fetch should get max 2000 lines from both buffer and disk (if session file exists)
+   - Handle loading state: show "Loading history..." in terminal header
+   - Add sessionStorage or memory cache to avoid re-fetching if already loaded
+   - Ensure history lines don't duplicate when WebSocket starts streaming
+   Tests: Manual test: connect, type output, close browser, reopen → verify history visible
+   Done when: Terminal history fully restored on frontend reconnect
+
+** [#B] Fix terminal layout: full width and page-level scrolling
+   Why: Terminal is boxed with double scrollbars; should be full-page and directly scrollable
+   Change:
+   - TerminalView.svelte removes padding wrapper (currently adds 2rem padding)
+   - Terminal.svelte should fill viewport: use viewport height (100vh minus header)
+   - Change grid-template-rows in .terminal-shell to use vh units
+   - Remove min-height: 70vh, use height: calc(100vh - 64px - [input-box-height])
+   - Make xterm container grow to fill available space
+   - Page scrollbar should scroll xterm viewport directly (no nested scrolling)
+   - Test with different content heights and window sizes
+   Tests: Manual test: resize window, scroll terminal, verify no double scrollbars
+   Done when: Terminal is full-width, full-height, single scrollbar
+
+** [#B] Make command input box fixed at bottom
+   Why: Input box should always be visible regardless of terminal scroll position
+   Change:
+   - CommandInput should be position: sticky or fixed at bottom of viewport
+   - Adjust Terminal.svelte layout: input box outside scrollable terminal area
+   - Use CSS: position: sticky; bottom: 0; z-index: 10;
+   - Add subtle shadow or border-top to separate from terminal content
+   - Ensure input box doesn't cover terminal content (adjust terminal bottom padding)
+   - Keep input box within .terminal-shell bounds (not floating over page)
+   Tests: Manual test: scroll terminal, verify input box stays at bottom
+   Done when: Input box always visible at bottom during scroll
+
+** [#B] Add scroll-to-bottom button to command input
+   Why: Users need quick way to jump to bottom of long terminal output
+   Change:
+   - Add button to CommandInput.svelte above/beside textarea
+   - Button label: "↓ Scroll to bottom" or just icon ⬇
+   - On click: scroll xterm viewport to bottom
+   - Access xterm via terminalStore state: state.scrollToBottom() method
+   - Add scrollToBottom() method to terminalStore.js: calls term.scrollToBottom()
+   - Show button only when not already at bottom (detect scroll position)
+   - Style: small, subtle button that doesn't interfere with input
+   - Position: inline with "Direct input" toggle, or above textarea
+   Tests: Manual test: scroll up, click button, verify jumps to bottom
+   Done when: Scroll-to-bottom button works in command input area
+
+** [#B] Implement file watching for PLAN.org updates
+   Why: Plan view should update when file changes, not just at startup
+   Change:
+   - Add file watching to PlanView.svelte using backend polling or native file watch
+   - Option 1 (simple): poll /api/plan every 5-10s, compare content hash or timestamp
+   - Option 2 (better): add ETag header to /api/plan, use If-None-Match for efficient polling
+   - Option 3 (ideal): add WebSocket endpoint for plan updates (more complex)
+   - Start with Option 1: poll every 5s, compare content, reload OrgViewer if changed
+   - Add loading indicator for refreshes (subtle, non-intrusive)
+   - Keep manual refresh button for user control
+   Tests: Manual test: edit PLAN.org, verify UI updates; npm test
+   Done when: Plan view updates automatically when file changes
+
+** [#C] Add ETag support to plan endpoint (optional enhancement)
+   Why: Efficient polling without transferring full file every time
+   Change:
+   - Compute ETag for /api/plan response (hash of file content or mtime)
+   - Return ETag header in response
+   - Support If-None-Match request header, return 304 Not Modified if unchanged
+   - PlanView sends If-None-Match with stored ETag
+   - Only reload content if server returns 200 (content changed)
+   - This is optional enhancement; basic polling sufficient initially
+   Tests: API test for ETag and 304 responses; go test ./internal/api
+   Done when: Plan polling uses ETags for efficiency (optional)
+
+** [#C] Polish agent card styling for running state
+   Why: Visual feedback should be clear and pleasant
+   Change:
+   - Running state: subtle green or blue tint in .agent-button--running
+   - Stopped state: neutral/muted colors in .agent-button--stopped
+   - Add transition for smooth color change on state change
+   - Consider adding pulsing animation or indicator dot for running state
+   - Ensure colors work in both light and dark themes (if applicable)
+   - Keep buttons accessible: sufficient contrast, clear labels
+   Tests: Manual visual testing; accessibility check
+   Done when: Running/stopped states have clear, pleasant visual feedback
+
+** [#C] Update documentation for Dashboard changes
+   Why: Users need to understand new dashboard layout and controls
+   Change:
+   - Update README.md to document dashboard features
+   - Document working directory display
+   - Document agent play/stop controls
+   - Document embedded logs section
+   - Note that Logs tab is removed (logs in dashboard)
+   - Document plan auto-refresh behavior
+   Tests: None (documentation only)
+   Done when: README reflects new dashboard structure and features
+
 * TODO [#B] Agent profile widgets: configurable UI composition
   Goal: Extend agent profiles with a "widgets" array that controls which UI elements appear in an agent's terminal tab, starting with a Plan sidebar widget that displays PLAN.org alongside the terminal.
   Notes:

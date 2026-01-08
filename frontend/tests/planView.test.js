@@ -23,6 +23,6 @@ describe('PlanView', () => {
     const { findByText } = render(PlanView)
 
     expect(await findByText('Hello')).toBeTruthy()
-    expect(apiFetch).toHaveBeenCalledWith('/api/plan')
+    expect(apiFetch).toHaveBeenCalledWith('/api/plan', expect.any(Object))
   })
 })

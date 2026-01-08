@@ -20,7 +20,8 @@
 
 <style>
   .terminal-view {
-    padding: 2rem clamp(1.5rem, 4vw, 3.5rem) 3.5rem;
+    width: 100%;
+    height: 100%;
   }
 
   .empty {

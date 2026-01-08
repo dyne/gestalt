@@ -1,27 +1,65 @@
 <script>
-  import { onMount } from 'svelte'
+  import { onDestroy, onMount } from 'svelte'
   import { apiFetch } from '../lib/api.js'
   import OrgViewer from '../components/OrgViewer.svelte'
 
   let loading = false
+  let refreshing = false
   let error = ''
   let content = ''
+  let lastContent = ''
+  let etag = ''
+  let refreshTimer = null
 
-  const loadPlan = async () => {
-    loading = true
+  const refreshIntervalMs = 5000
+
+  const loadPlan = async ({ silent = false } = {}) => {
+    if (loading || refreshing) return
+    if (silent) {
+      refreshing = true
+    } else {
+      loading = true
+    }
     error = ''
     try {
-      const response = await apiFetch('/api/plan')
+      const response = await apiFetch('/api/plan', {
+        allowNotModified: true,
+        headers: etag ? { 'If-None-Match': etag } : {},
+      })
+      const responseEtag = response.headers?.get?.('ETag')
+      if (responseEtag) {
+        etag = responseEtag
+      }
+      if (response.status === 304) {
+        return
+      }
       const payload = await response.json()
-      content = payload?.content || ''
+      const nextContent = payload?.content || ''
+      if (nextContent !== lastContent) {
+        content = nextContent
+        lastContent = nextContent
+      }
     } catch (err) {
       error = err?.message || 'Failed to load plan.'
     } finally {
       loading = false
+      refreshing = false
     }
   }
 
-  onMount(loadPlan)
+  onMount(() => {
+    loadPlan()
+    refreshTimer = setInterval(() => {
+      loadPlan({ silent: true })
+    }, refreshIntervalMs)
+  })
+
+  onDestroy(() => {
+    if (refreshTimer) {
+      clearInterval(refreshTimer)
+      refreshTimer = null
+    }
+  })
 </script>
 
 <section class="plan-view">
@@ -30,16 +68,24 @@
       <p class="eyebrow">Project plan</p>
       <h1>PLAN.org</h1>
     </div>
-    <button class="refresh" type="button" on:click={loadPlan} disabled={loading}>
-      {loading ? 'Refreshing...' : 'Refresh'}
-    </button>
+    <div class="refresh-actions">
+      {#if refreshing}
+        <span class="refreshing">Updating...</span>
+      {/if}
+      <button class="refresh" type="button" on:click={loadPlan} disabled={loading}>
+        {loading ? 'Refreshing...' : 'Refresh'}
+      </button>
+    </div>
   </header>
 
   {#if loading && !content}
     <p class="muted">Loading plan...</p>
-  {:else if error}
+  {:else if error && !content}
     <p class="error">{error}</p>
   {:else}
+    {#if error}
+      <p class="error error--inline">{error}</p>
+    {/if}
     <OrgViewer orgText={content} />
   {/if}
 </section>
@@ -84,6 +130,19 @@
     cursor: pointer;
   }
 
+  .refresh-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .refreshing {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #6f6b62;
+  }
+
   .muted {
     color: #7d7a73;
     margin: 0.5rem 0 0;
@@ -92,6 +151,10 @@
   .error {
     color: #b04a39;
     margin: 0.5rem 0 0;
+  }
+
+  .error--inline {
+    margin: 0 0 1rem;
   }
 
   @media (max-width: 720px) {

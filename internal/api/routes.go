@@ -9,10 +9,14 @@ import (
 )
 
 func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken string, staticDir string, frontendFS fs.FS, logger *logging.Logger) {
+	// Git info is read once on boot to avoid polling; refresh can be added later.
+	gitOrigin, gitBranch := loadGitInfo()
 	rest := &RestHandler{
-		Manager:  manager,
-		Logger:   logger,
-		PlanPath: "PLAN.org",
+		Manager:   manager,
+		Logger:    logger,
+		PlanPath:  "PLAN.org",
+		GitOrigin: gitOrigin,
+		GitBranch: gitBranch,
 	}
 
 	mux.Handle("/ws/terminal/", &TerminalHandler{

@@ -11,6 +11,8 @@ const (
 	SessionStatusPaused  = "paused"
 	SessionStatusStopped = "stopped"
 
+	SessionTaskQueueName = "gestalt-session"
+
 	UpdateTaskSignalName = "session.update_task"
 	BellSignalName       = "session.bell"
 	ResumeSignalName     = "session.resume"

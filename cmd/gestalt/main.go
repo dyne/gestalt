@@ -36,6 +36,7 @@ type Config struct {
 	AuthToken            string
 	TemporalHost         string
 	TemporalNamespace    string
+	TemporalEnabled      bool
 	SessionRetentionDays int
 	SessionPersist       bool
 	SessionLogDir        string
@@ -66,6 +67,7 @@ type configDefaults struct {
 	AuthToken            string
 	TemporalHost         string
 	TemporalNamespace    string
+	TemporalEnabled      bool
 	SessionRetentionDays int
 	SessionPersist       bool
 	SessionLogDir        string
@@ -81,6 +83,7 @@ type flagValues struct {
 	Token                string
 	TemporalHost         string
 	TemporalNamespace    string
+	TemporalEnabled      bool
 	SessionRetentionDays int
 	SessionPersist       bool
 	SessionLogDir        string
@@ -134,24 +137,29 @@ func main() {
 		logStartupFlags(logger, cfg)
 	}
 	ensureStateDir(cfg, logger)
-	logTemporalServerHealth(logger, cfg.TemporalHost)
 
-	temporalClient, temporalClientError := temporal.NewClient(temporal.ClientConfig{
-		HostPort:  cfg.TemporalHost,
-		Namespace: cfg.TemporalNamespace,
-	})
-	if temporalClientError != nil {
-		logger.Warn("temporal client unavailable", map[string]string{
-			"host":      cfg.TemporalHost,
-			"namespace": cfg.TemporalNamespace,
-			"error":     temporalClientError.Error(),
+	temporalEnabled := cfg.TemporalEnabled
+	var temporalClient temporal.WorkflowClient
+	if temporalEnabled {
+		logTemporalServerHealth(logger, cfg.TemporalHost)
+		temporalClient, temporalClientError := temporal.NewClient(temporal.ClientConfig{
+			HostPort:  cfg.TemporalHost,
+			Namespace: cfg.TemporalNamespace,
 		})
-	} else if temporalClient != nil {
-		defer temporalClient.Close()
-		logger.Info("temporal client connected", map[string]string{
-			"host":      cfg.TemporalHost,
-			"namespace": cfg.TemporalNamespace,
-		})
+		if temporalClientError != nil {
+			temporalEnabled = false
+			logger.Warn("temporal client unavailable", map[string]string{
+				"host":      cfg.TemporalHost,
+				"namespace": cfg.TemporalNamespace,
+				"error":     temporalClientError.Error(),
+			})
+		} else if temporalClient != nil {
+			defer temporalClient.Close()
+			logger.Info("temporal client connected", map[string]string{
+				"host":      cfg.TemporalHost,
+				"namespace": cfg.TemporalNamespace,
+			})
+		}
 	}
 
 	configFS := buildConfigFS(logger)
@@ -182,6 +190,8 @@ func main() {
 		Agents:               agents,
 		Skills:               skills,
 		Logger:               logger,
+		TemporalClient:       temporalClient,
+		TemporalEnabled:      temporalEnabled,
 		SessionLogDir:        cfg.SessionLogDir,
 		InputHistoryDir:      cfg.InputHistoryDir,
 		SessionRetentionDays: cfg.SessionRetentionDays,
@@ -413,6 +423,21 @@ func loadConfig(args []string) (Config, error) {
 	cfg.TemporalNamespace = temporalNamespace
 	cfg.Sources["temporal-namespace"] = temporalNamespaceSource
 
+	temporalEnabled := defaults.TemporalEnabled
+	temporalEnabledSource := sourceDefault
+	if rawEnabled := strings.TrimSpace(os.Getenv("GESTALT_TEMPORAL_ENABLED")); rawEnabled != "" {
+		if parsed, err := strconv.ParseBool(rawEnabled); err == nil {
+			temporalEnabled = parsed
+			temporalEnabledSource = sourceEnv
+		}
+	}
+	if flags.Set["temporal-enabled"] {
+		temporalEnabled = flags.TemporalEnabled
+		temporalEnabledSource = sourceFlag
+	}
+	cfg.TemporalEnabled = temporalEnabled
+	cfg.Sources["temporal-enabled"] = temporalEnabledSource
+
 	retentionDays := defaults.SessionRetentionDays
 	retentionSource := sourceDefault
 	if rawRetention := os.Getenv("GESTALT_SESSION_RETENTION_DAYS"); rawRetention != "" {
@@ -570,6 +595,7 @@ func defaultConfigValues() configDefaults {
 		AuthToken:            "",
 		TemporalHost:         temporalDefaultHost,
 		TemporalNamespace:    "default",
+		TemporalEnabled:      false,
 		SessionRetentionDays: terminal.DefaultSessionRetentionDays,
 		SessionPersist:       true,
 		SessionLogDir:        filepath.Join(".gestalt", "sessions"),
@@ -591,6 +617,7 @@ func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
 	token := fs.String("token", defaults.AuthToken, "Auth token for REST/WS")
 	temporalHost := fs.String("temporal-host", defaults.TemporalHost, "Temporal server host:port")
 	temporalNamespace := fs.String("temporal-namespace", defaults.TemporalNamespace, "Temporal namespace")
+	temporalEnabled := fs.Bool("temporal-enabled", defaults.TemporalEnabled, "Enable Temporal workflows")
 	sessionPersist := fs.Bool("session-persist", defaults.SessionPersist, "Persist terminal sessions to disk")
 	sessionDir := fs.String("session-dir", defaults.SessionLogDir, "Session log directory")
 	sessionRetentionDays := fs.Int("session-retention-days", defaults.SessionRetentionDays, "Session retention days")
@@ -624,6 +651,7 @@ func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
 		Token:                *token,
 		TemporalHost:         *temporalHost,
 		TemporalNamespace:    *temporalNamespace,
+		TemporalEnabled:      *temporalEnabled,
 		SessionRetentionDays: *sessionRetentionDays,
 		SessionPersist:       *sessionPersist,
 		SessionLogDir:        *sessionDir,
@@ -687,6 +715,10 @@ func printHelp(out io.Writer, defaults configDefaults) {
 		{
 			Name: "--temporal-namespace NAME",
 			Desc: fmt.Sprintf("Temporal namespace (env: GESTALT_TEMPORAL_NAMESPACE, default: %s)", defaults.TemporalNamespace),
+		},
+		{
+			Name: "--temporal-enabled",
+			Desc: fmt.Sprintf("Enable Temporal workflows (env: GESTALT_TEMPORAL_ENABLED, default: %t)", defaults.TemporalEnabled),
 		},
 	})
 
@@ -785,6 +817,9 @@ func logStartupFlags(logger *logging.Logger, cfg Config) {
 	}
 	if cfg.Sources["temporal-namespace"] == sourceFlag {
 		flags = append(flags, formatStringFlag("--temporal-namespace", cfg.TemporalNamespace))
+	}
+	if cfg.Sources["temporal-enabled"] == sourceFlag {
+		flags = append(flags, formatBoolFlag("--temporal-enabled", cfg.TemporalEnabled))
 	}
 	if cfg.Sources["session-persist"] == sourceFlag {
 		flags = append(flags, formatBoolFlag("--session-persist", cfg.SessionPersist))

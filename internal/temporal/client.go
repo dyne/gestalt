@@ -1,13 +1,23 @@
 package temporal
 
-import "go.temporal.io/sdk/client"
+import (
+	"context"
+
+	"go.temporal.io/sdk/client"
+)
+
+type WorkflowClient interface {
+	ExecuteWorkflow(ctx context.Context, options client.StartWorkflowOptions, workflow interface{}, args ...interface{}) (client.WorkflowRun, error)
+	SignalWorkflow(ctx context.Context, workflowID, runID, signalName string, arg interface{}) error
+	Close()
+}
 
 type ClientConfig struct {
 	HostPort  string
 	Namespace string
 }
 
-func NewClient(config ClientConfig) (client.Client, error) {
+func NewClient(config ClientConfig) (WorkflowClient, error) {
 	options := client.Options{
 		HostPort:  config.HostPort,
 		Namespace: config.Namespace,

@@ -1793,7 +1793,7 @@
    Tests: go test ./...; verify Temporal client initializes
    Done when: Temporal SDK integrated and client connects to server
 
-** WIP [#B] Create session workflow definition
+** DONE [#B] Create session workflow definition
    Why: Define workflow for terminal session lifecycle management
    Change:
    - Create internal/temporal/workflows/session_workflow.go
@@ -1810,7 +1810,7 @@
    Tests: Unit tests for workflow logic with mock activities
    Done when: SessionWorkflow defined with signals and queries
 
-** TODO [#B] Create session activities
+** WIP [#B] Create session activities
    Why: Activities perform actual operations (spawn PTY, detect bells, read output)
    Change:
    - Create internal/temporal/activities/session_activities.go

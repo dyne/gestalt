@@ -708,7 +708,7 @@
    Tests: go test ./...; verify version appears in /api/status
    Done when: Backend binary contains version compiled at build time
 
-** TODO [#B] Pass version to frontend at build time
+** DONE [#B] Pass version to frontend at build time
    Why: Frontend needs to display version in UI
    Change:
    - Use Vite's define option to inject version at build time

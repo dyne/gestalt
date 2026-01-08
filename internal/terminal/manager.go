@@ -67,6 +67,14 @@ type Manager struct {
 	promptDir       string
 }
 
+type sessionCreateRequest struct {
+	SessionID string
+	AgentID   string
+	Role      string
+	Title     string
+	Shell     string
+}
+
 const (
 	promptDelay      = 3 * time.Second
 	interPromptDelay = 100 * time.Millisecond
@@ -164,27 +172,64 @@ func NewManager(opts ManagerOptions) *Manager {
 }
 
 func (m *Manager) Create(agentID, role, title string) (*Session, error) {
+	return m.createSession(sessionCreateRequest{
+		AgentID: agentID,
+		Role:    role,
+		Title:   title,
+	})
+}
+
+func (m *Manager) CreateWithID(sessionID, agentID, role, title, shell string) (*Session, error) {
+	trimmedID := strings.TrimSpace(sessionID)
+	if trimmedID == "" {
+		return nil, errors.New("session id is required")
+	}
+	if existingSession, ok := m.Get(trimmedID); ok {
+		return existingSession, nil
+	}
+	return m.createSession(sessionCreateRequest{
+		SessionID: trimmedID,
+		AgentID:   agentID,
+		Role:      role,
+		Title:     title,
+		Shell:     shell,
+	})
+}
+
+func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) {
+	if request.SessionID != "" {
+		if existingSession, ok := m.Get(request.SessionID); ok {
+			return existingSession, nil
+		}
+	}
+
 	shell := m.shell
+	shellOverride := strings.TrimSpace(request.Shell)
+	shellOverrideSet := shellOverride != ""
+	if shellOverrideSet {
+		shell = shellOverride
+	}
+
 	var profile *agent.Agent
 	var promptNames []string
 	var onAirString string
 	var agentName string
-	var reservedID string
-	if agentID != "" {
-		agentProfile, ok := m.GetAgent(agentID)
+	reservedID := strings.TrimSpace(request.SessionID)
+	if request.AgentID != "" {
+		agentProfile, ok := m.GetAgent(request.AgentID)
 		if !ok || agentProfile.Name == "" {
 			m.logger.Warn("agent not found or invalid", map[string]string{
-				"agent_id": agentID,
+				"agent_id": request.AgentID,
 			})
 			return nil, ErrAgentNotFound
 		}
 		profileCopy := agentProfile
 		profile = &profileCopy
-		if strings.TrimSpace(agentProfile.Shell) != "" {
+		if !shellOverrideSet && strings.TrimSpace(agentProfile.Shell) != "" {
 			shell = agentProfile.Shell
 		}
 		if strings.TrimSpace(agentProfile.Name) != "" {
-			title = agentProfile.Name
+			request.Title = agentProfile.Name
 			agentName = agentProfile.Name
 		}
 		if len(agentProfile.Prompts) > 0 {
@@ -196,7 +241,9 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 	}
 
 	if agentName != "" {
-		reservedID = m.nextIDValue()
+		if reservedID == "" {
+			reservedID = m.nextIDValue()
+		}
 		m.mu.Lock()
 		if existingID, ok := m.agentSessions[agentName]; ok {
 			m.mu.Unlock()
@@ -268,7 +315,7 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 			inputLogger = logger
 		}
 	}
-	session := newSession(id, pty, cmd, title, role, createdAt, m.bufferLines, profile, sessionLogger, inputLogger)
+	session := newSession(id, pty, cmd, request.Title, request.Role, createdAt, m.bufferLines, profile, sessionLogger, inputLogger)
 
 	m.mu.Lock()
 	m.sessions[id] = session
@@ -276,11 +323,11 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 
 	fields := map[string]string{
 		"terminal_id": id,
-		"role":        role,
-		"title":       title,
+		"role":        request.Role,
+		"title":       request.Title,
 	}
-	if agentID != "" {
-		fields["agent_id"] = agentID
+	if request.AgentID != "" {
+		fields["agent_id"] = request.AgentID
 	}
 	m.logger.Info("terminal created", fields)
 
@@ -291,7 +338,7 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 			if strings.TrimSpace(onAirString) != "" {
 				if !waitForOnAir(session, onAirString, onAirTimeout) {
 					m.logger.Error("agent onair string not found", map[string]string{
-						"agent_id":     agentID,
+						"agent_id":     request.AgentID,
 						"onair_string": onAirString,
 						"timeout_ms":   strconv.FormatInt(onAirTimeout.Milliseconds(), 10),
 					})
@@ -315,12 +362,12 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 						skillData := []byte(skillXML)
 						if err := writePromptPayload(session, skillData); err != nil {
 							m.logger.Warn("agent skill metadata write failed", map[string]string{
-								"agent_id": agentID,
+								"agent_id": request.AgentID,
 								"error":    err.Error(),
 							})
 						} else {
 							m.logger.Info("agent skill metadata injected", map[string]string{
-								"agent_id":    agentID,
+								"agent_id":    request.AgentID,
 								"skill_count": strconv.Itoa(len(agentSkills)),
 							})
 						}
@@ -343,7 +390,7 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 					data, promptPath, err := m.readPromptFile(promptName)
 					if err != nil {
 						m.logger.Warn("agent prompt file read failed", map[string]string{
-							"agent_id":    agentID,
+							"agent_id":    request.AgentID,
 							"prompt":      promptName,
 							"prompt_path": promptPath,
 							"error":       err.Error(),
@@ -352,7 +399,7 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 					}
 					if err := writePromptPayload(session, data); err != nil {
 						m.logger.Warn("agent prompt write failed", map[string]string{
-							"agent_id": agentID,
+							"agent_id": request.AgentID,
 							"prompt":   promptName,
 							"error":    err.Error(),
 						})
@@ -367,7 +414,7 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 					time.Sleep(finalEnterDelay)
 					if err := session.Write([]byte("\r")); err != nil {
 						m.logger.Warn("agent prompt final enter failed", map[string]string{
-							"agent_id": agentID,
+							"agent_id": request.AgentID,
 							"error":    err.Error(),
 						})
 						return
@@ -375,7 +422,7 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 					time.Sleep(enterKeyDelay)
 					if err := session.Write([]byte("\n")); err != nil {
 						m.logger.Warn("agent prompt final enter failed", map[string]string{
-							"agent_id": agentID,
+							"agent_id": request.AgentID,
 							"error":    err.Error(),
 						})
 					}

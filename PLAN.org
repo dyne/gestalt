@@ -213,7 +213,7 @@
    Tests: go test ./... integration suite passes
    Done when: E2E tests cover critical paths with real filesystem operations
 
-** TODO [#C] Document event system and usage patterns
+** DONE [#C] Document event system and usage patterns
    Why: Developers need to understand how to add new watchers
    Change:
    - Add "Filesystem Event System" section to README.md

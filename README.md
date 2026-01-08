@@ -107,6 +107,47 @@ exponential backoff (up to 3 attempts). If watching remains unavailable, the
 server emits `watch_error` events and the UI falls back to polling with a toast
 ("File watching unavailable").
 
+## Filesystem Event System
+
+Architecture: Watcher (fsnotify) → EventHub → `/ws/events` broadcaster.
+
+Event types:
+- `file_changed` (path + timestamp)
+- `git_branch_changed` (path holds branch name)
+- `watch_error` (watch failures)
+
+WebSocket protocol:
+- Connect to `/ws/events` (token in query when auth is enabled).
+- Optional filter message: `{"subscribe":["file_changed","git_branch_changed","watch_error"]}`.
+- Server messages: `{"type":"file_changed","path":"PLAN.org","timestamp":"..."}`.
+
+Backend usage example:
+```
+hub.WatchFile("PLAN.org")
+hub.Subscribe(watcher.EventTypeFileChanged, func(event watcher.Event) {
+  // React to changes.
+})
+```
+
+Debouncing:
+- Per-path 100ms coalescing (configurable in code via `watcher.Options.Debounce`).
+- Latest event data wins within the debounce window.
+
+Limits and cleanup:
+- `GESTALT_MAX_WATCHES` caps active watches (default 100).
+- Watchers drop paths with no subscribers; a cleanup loop trims stale entries.
+
+Frontend event store:
+```
+import { subscribe, eventConnectionStatus } from './lib/eventStore.js'
+
+const unsubscribe = subscribe('file_changed', (event) => {
+  // Refresh UI.
+})
+```
+Use `eventConnectionStatus` to drive fallback polling if needed, and unsubscribe
+on teardown to avoid leaks.
+
 ## API endpoints
 
 API (development snapshot)

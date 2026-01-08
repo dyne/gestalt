@@ -587,6 +587,13 @@ func (m *Manager) SessionPersistenceEnabled() bool {
 	return m.sessionLogs != ""
 }
 
+func (m *Manager) Logger() *logging.Logger {
+	if m == nil {
+		return nil
+	}
+	return m.logger
+}
+
 func (m *Manager) GetAgent(id string) (agent.Agent, bool) {
 	m.mu.RLock()
 	profile, ok := m.agents[id]

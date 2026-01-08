@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"gestalt/internal/logging"
+	"gestalt/internal/plan"
 	"gestalt/internal/terminal"
 	"gestalt/internal/version"
 )
@@ -25,6 +26,7 @@ type RestHandler struct {
 	Manager   *terminal.Manager
 	Logger    *logging.Logger
 	PlanPath  string
+	PlanCache *plan.Cache
 	GitOrigin string
 	GitBranch string
 	gitMutex  sync.RWMutex
@@ -67,6 +69,11 @@ type statusResponse struct {
 
 type planResponse struct {
 	Content string `json:"content"`
+}
+
+type planCurrentResponse struct {
+	L1 string `json:"l1"`
+	L2 string `json:"l2"`
 }
 
 type errorResponse struct {
@@ -421,6 +428,31 @@ func (h *RestHandler) handlePlan(w http.ResponseWriter, r *http.Request) *apiErr
 	}
 
 	writeJSON(w, http.StatusOK, planResponse{Content: string(content)})
+	return nil
+}
+
+func (h *RestHandler) handlePlanCurrent(w http.ResponseWriter, r *http.Request) *apiError {
+	if r.Method != http.MethodGet {
+		return methodNotAllowed(w, "GET")
+	}
+	if h.PlanCache == nil {
+		return &apiError{Status: http.StatusInternalServerError, Message: "plan cache unavailable"}
+	}
+
+	currentWork, currentError := h.PlanCache.Current()
+	if currentError != nil {
+		if h.Logger != nil {
+			h.Logger.Warn("plan current read failed", map[string]string{
+				"error": currentError.Error(),
+			})
+		}
+		return &apiError{Status: http.StatusInternalServerError, Message: "failed to parse plan file"}
+	}
+
+	writeJSON(w, http.StatusOK, planCurrentResponse{
+		L1: currentWork.L1,
+		L2: currentWork.L2,
+	})
 	return nil
 }
 

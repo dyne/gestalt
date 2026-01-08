@@ -197,7 +197,7 @@
    Tests: Test log output at different verbosity levels
    Done when: Verbosity flags control log output (optional)
 
-** TODO [#B] Add CLI flag parsing tests
+** DONE [#B] Add CLI flag parsing tests
    Why: Ensure flag parsing and priority order work correctly
    Change:
    - Create cmd/gestalt/flags_test.go with tests for:

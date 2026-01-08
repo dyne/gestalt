@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"gestalt/internal/version"
 )
 
 const defaultServerURL = "http://localhost:8080"
@@ -22,15 +24,16 @@ var startRetryDelay = time.Second
 var agentCacheTTL = 60 * time.Second
 
 type Config struct {
-	URL       string
-	Token     string
-	AgentRef  string
-	AgentID   string
-	AgentName string
-	Start     bool
-	Verbose   bool
-	Debug     bool
-	LogWriter io.Writer
+	URL         string
+	Token       string
+	AgentRef    string
+	AgentID     string
+	AgentName   string
+	Start       bool
+	Verbose     bool
+	Debug       bool
+	ShowVersion bool
+	LogWriter   io.Writer
 }
 
 type sendError struct {
@@ -66,7 +69,18 @@ func run(args []string, in io.Reader, errOut io.Writer) int {
 func runWithSender(args []string, in io.Reader, errOut io.Writer, send func(Config, []byte) error) int {
 	cfg, err := parseArgs(args, errOut)
 	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 1
+	}
+	if cfg.ShowVersion {
+		if version.Version == "" || version.Version == "dev" {
+			fmt.Fprintln(os.Stdout, "gestalt-send dev")
+		} else {
+			fmt.Fprintf(os.Stdout, "gestalt-send version %s\n", version.Version)
+		}
+		return 0
 	}
 	if cfg.Debug {
 		cfg.Verbose = true
@@ -95,17 +109,29 @@ func runWithSender(args []string, in io.Reader, errOut io.Writer, send func(Conf
 func parseArgs(args []string, errOut io.Writer) (Config, error) {
 	fs := flag.NewFlagSet("gestalt-send", flag.ContinueOnError)
 	fs.SetOutput(errOut)
-	urlFlag := fs.String("url", "", "Gestalt server URL")
-	tokenFlag := fs.String("token", "", "Gestalt auth token")
+	urlFlag := fs.String("url", "", "Gestalt server URL (env: GESTALT_URL, default: http://localhost:8080)")
+	tokenFlag := fs.String("token", "", "Auth token (env: GESTALT_TOKEN, default: none)")
 	startFlag := fs.Bool("start", false, "Start agent if not running")
 	verboseFlag := fs.Bool("verbose", false, "Verbose output")
-	debugFlag := fs.Bool("debug", false, "Debug output")
+	debugFlag := fs.Bool("debug", false, "Debug output (implies --verbose)")
+	helpFlag := fs.Bool("help", false, "Show this help message")
+	versionFlag := fs.Bool("version", false, "Print version and exit")
 	fs.Usage = func() {
-		fmt.Fprintln(errOut, "usage: gestalt-send [flags] <agent-name-or-id>")
+		fmt.Fprintln(errOut, "Usage: gestalt-send [options] <agent-name-or-id>")
+		fs.PrintDefaults()
 	}
 
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
+	}
+
+	if *helpFlag {
+		fs.Usage()
+		return Config{}, flag.ErrHelp
+	}
+
+	if *versionFlag {
+		return Config{ShowVersion: true}, nil
 	}
 
 	if fs.NArg() != 1 {

@@ -95,7 +95,7 @@
    Tests: Test --version output matches version.Version
    Done when: gestalt --version prints version and exits
 
-** TODO [#B] Refactor gestalt-send to use consistent flag naming
+** DONE [#B] Refactor gestalt-send to use consistent flag naming
    Why: gestalt-send uses --url/--token, should match naming convention
    Change:
    - Rename flags to match env vars (already close):

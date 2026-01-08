@@ -39,7 +39,7 @@ func TestParseArgsMissingAgent(t *testing.T) {
 	if _, err := parseArgs([]string{}, &stderr); err == nil {
 		t.Fatalf("expected error")
 	}
-	if !strings.Contains(stderr.String(), "usage: gestalt-send") {
+	if !strings.Contains(stderr.String(), "Usage: gestalt-send") {
 		t.Fatalf("expected usage output, got %q", stderr.String())
 	}
 }

@@ -87,7 +87,7 @@
    - Tests: WebSocket connection test, event delivery test
    Done when: /ws/events streams filesystem events to connected clients
 
-** TODO [#B] Implement PLAN.org file watching
+** DONE [#B] Implement PLAN.org file watching
    Why: First use case - live updates for Plan tab
    Change:
    - In cmd/gestalt/main.go: watch PLAN.org file on startup

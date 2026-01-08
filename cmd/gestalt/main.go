@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gestalt"
@@ -20,6 +21,8 @@ import (
 	"gestalt/internal/skill"
 	"gestalt/internal/terminal"
 	"gestalt/internal/watcher"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 type Config struct {
@@ -90,6 +93,9 @@ func main() {
 		})
 	}
 	eventHub := watcher.NewEventHub(context.Background(), fsWatcher)
+	if fsWatcher != nil {
+		watchPlanFile(eventHub, logger, "PLAN.org")
+	}
 
 	staticDir := findStaticDir()
 	frontendFS := fs.FS(nil)
@@ -118,6 +124,76 @@ func main() {
 			"error": err.Error(),
 		})
 	}
+}
+
+func watchPlanFile(eventHub *watcher.EventHub, logger *logging.Logger, planPath string) {
+	if eventHub == nil {
+		return
+	}
+	if planPath == "" {
+		planPath = "PLAN.org"
+	}
+
+	var retryMutex sync.Mutex
+	retrying := false
+
+	startRetry := func() {
+		retryMutex.Lock()
+		if retrying {
+			retryMutex.Unlock()
+			return
+		}
+		retrying = true
+		retryMutex.Unlock()
+
+		go func() {
+			defer func() {
+				retryMutex.Lock()
+				retrying = false
+				retryMutex.Unlock()
+			}()
+			backoff := 100 * time.Millisecond
+			for {
+				if err := eventHub.WatchFile(planPath); err == nil {
+					if logger != nil {
+						logger.Info("Watching PLAN.org for changes", map[string]string{
+							"path": planPath,
+						})
+					}
+					return
+				}
+				time.Sleep(backoff)
+				if backoff < 2*time.Second {
+					backoff *= 2
+				}
+			}
+		}()
+	}
+
+	if err := eventHub.WatchFile(planPath); err != nil {
+		if logger != nil {
+			logger.Warn("plan watch failed", map[string]string{
+				"path":  planPath,
+				"error": err.Error(),
+			})
+		}
+		startRetry()
+	} else if logger != nil {
+		logger.Info("Watching PLAN.org for changes", map[string]string{
+			"path": planPath,
+		})
+	}
+
+	eventHub.Subscribe(watcher.EventTypeFileChanged, func(event watcher.Event) {
+		if event.Path != planPath {
+			return
+		}
+		if event.Op&(fsnotify.Remove|fsnotify.Rename) == 0 {
+			return
+		}
+		_ = eventHub.UnwatchFile(planPath)
+		startRetry()
+	})
 }
 
 func loadConfig() Config {

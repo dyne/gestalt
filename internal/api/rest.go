@@ -143,6 +143,7 @@ const (
 	terminalPathOutput
 	terminalPathHistory
 	terminalPathInputHistory
+	terminalPathBell
 )
 
 func (h *RestHandler) handleStatus(w http.ResponseWriter, r *http.Request) *apiError {
@@ -228,6 +229,8 @@ func (h *RestHandler) handleTerminal(w http.ResponseWriter, r *http.Request) *ap
 		return h.handleTerminalHistory(w, r, id)
 	case terminalPathInputHistory:
 		return h.handleTerminalInputHistory(w, r, id)
+	case terminalPathBell:
+		return h.handleTerminalBell(w, r, id)
 	}
 
 	return h.handleTerminalDelete(w, r, id)
@@ -664,6 +667,39 @@ func (h *RestHandler) handleTerminalInputHistoryPost(w http.ResponseWriter, r *h
 	return nil
 }
 
+func (h *RestHandler) handleTerminalBell(w http.ResponseWriter, r *http.Request, id string) *apiError {
+	if r.Method != http.MethodPost {
+		return methodNotAllowed(w, "POST")
+	}
+
+	session, ok := h.Manager.Get(id)
+	if !ok {
+		return &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
+	}
+
+	const bellContextLines = 50
+	contextLines, historyError := session.HistoryLines(bellContextLines)
+	if historyError != nil {
+		return &apiError{Status: http.StatusInternalServerError, Message: "failed to read terminal history"}
+	}
+	contextText := strings.Join(contextLines, "\n")
+
+	signalError := session.SendBellSignal(contextText)
+	if signalError != nil {
+		return &apiError{Status: http.StatusInternalServerError, Message: "failed to signal terminal bell"}
+	}
+
+	if h.Logger != nil {
+		h.Logger.Warn("terminal bell detected", map[string]string{
+			"terminal_id":   id,
+			"context_lines": strconv.Itoa(len(contextLines)),
+		})
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
 func (h *RestHandler) handleTerminalDelete(w http.ResponseWriter, r *http.Request, id string) *apiError {
 	if r.Method != http.MethodDelete {
 		return methodNotAllowed(w, "DELETE")
@@ -757,6 +793,10 @@ func parseTerminalPath(path string) (string, terminalPathAction) {
 	if strings.HasSuffix(trimmed, "/input-history") {
 		id := strings.TrimSuffix(trimmed, "/input-history")
 		return id, terminalPathInputHistory
+	}
+	if strings.HasSuffix(trimmed, "/bell") {
+		id := strings.TrimSuffix(trimmed, "/bell")
+		return id, terminalPathBell
 	}
 	return trimmed, terminalPathTerminal
 }

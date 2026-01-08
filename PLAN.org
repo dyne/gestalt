@@ -1852,7 +1852,7 @@
    Tests: Unit tests with sample PLAN.org content; various WIP scenarios
    Done when: Can extract current WIP L1/L2 from PLAN.org
 
-** WIP [#B] Wire terminal bell detection to workflow signals
+** DONE [#B] Wire terminal bell detection to workflow signals
    Why: Terminal bells must trigger workflow pause for HITL
    Change:
    - Frontend already handles xterm.js onBell event
@@ -1865,7 +1865,7 @@
    Tests: Manual test: trigger bell in terminal, verify workflow pauses
    Done when: Terminal bells propagate to Temporal workflows
 
-** TODO [#C] Create Temporal worker process
+** WIP [#C] Create Temporal worker process
    Why: Workers execute workflow and activity code
    Change:
    - Create internal/temporal/worker.go with StartWorker(client, manager) error

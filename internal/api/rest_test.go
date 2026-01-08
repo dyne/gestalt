@@ -1094,6 +1094,42 @@ func TestPlanCurrentEndpointMissingFileReturnsEmpty(t *testing.T) {
 	}
 }
 
+func TestTerminalBellEndpointReturnsNoContent(t *testing.T) {
+	factory := &fakeFactory{}
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+	})
+	created, err := manager.Create("", "", "")
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodPost, "/api/terminals/"+created.ID+"/bell", nil)
+	res := httptest.NewRecorder()
+
+	restHandler("", handler.handleTerminal)(res, req)
+	if res.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", res.Code)
+	}
+}
+
+func TestTerminalBellEndpointMissingSession(t *testing.T) {
+	manager := terminal.NewManager(terminal.ManagerOptions{Shell: "/bin/sh"})
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodPost, "/api/terminals/unknown/bell", nil)
+	res := httptest.NewRecorder()
+
+	restHandler("", handler.handleTerminal)(res, req)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", res.Code)
+	}
+}
+
 func waitForOutput(session *terminal.Session) bool {
 	deadline := time.Now().Add(200 * time.Millisecond)
 	for time.Now().Before(deadline) {

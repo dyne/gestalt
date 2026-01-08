@@ -229,7 +229,7 @@
    Tests: None (documentation only)
    Done when: README documents CLI flags with examples
 
-** TODO [#C] Consider migrating to cobra for richer CLI (future)
+** DONE [#C] Consider migrating to cobra for richer CLI (future)
    Why: stdlib flag is limited; cobra provides better UX and structure
    Change:
    - Research cobra/viper for CLI and config management

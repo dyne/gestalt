@@ -2,6 +2,9 @@ name: Release
 
 on:
   push:
+    paths-ignore:
+      - '*.md'
+      - '*.org'
     branches:
       - main
 
@@ -11,13 +14,18 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      GO111MODULE: on
+      GOWORK: off
+      GOFLAGS: -mod=mod
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
-          fetch-depth: 0
+          go-version: '1.24.x'
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '25'
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Install version tooling

@@ -45,7 +45,7 @@
    Tests: Package structure compiles; interfaces defined
    Done when: Watcher package structure exists with documented interfaces
 
-** TODO [#B] Implement core Watcher with fsnotify integration
+** DONE [#B] Implement core Watcher with fsnotify integration
    Why: Bridge fsnotify events to Gestalt's callback architecture
    Change:
    - Implement New() (*Watcher, error) that creates fsnotify.Watcher

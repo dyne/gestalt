@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"gestalt/internal/logging"
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -24,9 +25,25 @@ type Watch interface {
 	Watch(path string, callback func(Event)) (Handle, error)
 }
 
+// Options controls watcher behavior.
+type Options struct {
+	Logger   *logging.Logger
+	Debounce time.Duration
+	WatchDir bool
+}
+
 // Watcher is the concrete fsnotify-backed implementation.
 type Watcher struct {
-	watcher   *fsnotify.Watcher
-	mutex     sync.Mutex
-	callbacks map[string][]func(Event)
+	watcher           *fsnotify.Watcher
+	mutex             sync.Mutex
+	callbacks         map[string][]callbackEntry
+	debounce          map[string]debounceEntry
+	debounceDuration  time.Duration
+	events            chan fsnotify.Event
+	errors            chan error
+	done              chan struct{}
+	closed            bool
+	logger            *logging.Logger
+	watchDirRecursive bool
+	nextID            uint64
 }

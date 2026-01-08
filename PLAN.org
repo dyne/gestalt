@@ -719,7 +719,7 @@
    Tests: npm run build; verify version is in bundle
    Done when: Frontend bundle contains version from build-time env var
 
-** TODO [#C] Display version in Dashboard header
+** DONE [#C] Display version in Dashboard header
    Why: Users should see which version of Gestalt they're running
    Change:
    - Import VERSION from lib/version.js in Dashboard.svelte

@@ -3,6 +3,7 @@
   import { apiFetch } from '../lib/api.js'
   import { subscribe as subscribeEvents } from '../lib/eventStore.js'
   import { notificationStore } from '../lib/notificationStore.js'
+  import { VERSION } from '../lib/version.js'
 
   export let terminals = []
   export let status = null
@@ -208,6 +209,12 @@
 </script>
 
 <section class="dashboard" data-terminal-count={terminals.length}>
+  <header class="dashboard__header">
+    <div class="dashboard__title">
+      <h1>Gestalt</h1>
+      <span class="version">v{VERSION}</span>
+    </div>
+  </header>
   <section class="dashboard__status">
     <div class="status-card status-card--wide">
       <div class="status-meta">
@@ -327,7 +334,27 @@
     gap: 2.5rem;
   }
 
-  .cta {
+  .dashboard__header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+
+  .dashboard__title {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+  }
+
+  .dashboard__title h1 {
+    margin: 0;
+    font-size: 2rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  .cta,
+  .version {
     border: none;
     border-radius: 999px;
     padding: 0.85rem 1.6rem;
@@ -338,6 +365,10 @@
     cursor: pointer;
     transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
     box-shadow: 0 10px 30px rgba(10, 10, 10, 0.2);
+  }
+
+  .version {
+    cursor: default;
   }
 
   .cta:disabled {

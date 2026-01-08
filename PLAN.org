@@ -757,7 +757,7 @@
    Tests: Push to PR or branch, verify tests run with version info
    Done when: Test workflow builds contain version from git tags
 
-** TODO [#C] Document versioning workflow
+** DONE [#C] Document versioning workflow
    Why: Contributors need to understand commit message conventions
    Change:
    - Add "Versioning" section to README.md

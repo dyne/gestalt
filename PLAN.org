@@ -111,7 +111,7 @@
    - Tests: Manual test: edit PLAN.org, verify UI updates immediately
    Done when: Plan tab updates instantly when PLAN.org changes
 
-** TODO [#B] Implement git branch monitoring
+** DONE [#B] Implement git branch monitoring
    Why: Second use case - live git branch updates in Dashboard
    Change:
    - Create internal/watcher/git.go with GitWatcher

@@ -95,6 +95,17 @@ func main() {
 	eventHub := watcher.NewEventHub(context.Background(), fsWatcher)
 	if fsWatcher != nil {
 		watchPlanFile(eventHub, logger, "PLAN.org")
+		if workDir, err := os.Getwd(); err == nil {
+			if _, err := watcher.StartGitWatcher(eventHub, workDir); err != nil && logger != nil {
+				logger.Warn("git watcher unavailable", map[string]string{
+					"error": err.Error(),
+				})
+			}
+		} else if logger != nil {
+			logger.Warn("git watcher unavailable", map[string]string{
+				"error": err.Error(),
+			})
+		}
 	}
 
 	staticDir := findStaticDir()

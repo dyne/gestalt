@@ -109,7 +109,7 @@
    Tests: Update gestalt-send tests for new flag behavior
    Done when: gestalt-send flags follow conventions
 
-** TODO [#B] Implement comprehensive --help for gestalt-send
+** DONE [#B] Implement comprehensive --help for gestalt-send
    Why: gestalt-send help is minimal, needs improvement
    Change:
    - Expand fs.Usage function with full documentation

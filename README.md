@@ -22,6 +22,21 @@ Default listens to 0.0.0.0 port 8080
 
 When running local open browser at http://localhost:8080
 
+## Temporal (dev server)
+
+Gestalt's HITL workflow integration uses the Temporal CLI (`temporalio/cli`) for local development.
+
+Install the Temporal CLI:
+- macOS: `brew install temporal`
+- Other platforms: download a release from https://github.com/temporalio/cli/releases
+
+Start the local Temporal dev server (includes the UI at http://localhost:8233):
+```
+make temporal-dev
+```
+
+The dev server stores workflow state in a local SQLite file in the working directory so sessions persist across restarts.
+
 ## Testing
 
 Backend:

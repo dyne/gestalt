@@ -4,7 +4,7 @@ PREFIX ?= $(DESTDIR)/usr/local
 BINDIR ?= $(PREFIX)/bin
 VERSION ?= dev
 
-.PHONY: build test clean version
+.PHONY: build test clean version temporal-dev
 
 build: gestalt gestalt-send
 
@@ -26,6 +26,9 @@ install: gestalt gestalt-send
 test:
 	go test ./...
 	cd frontend && npm test
+
+temporal-dev:
+	temporal server start-dev
 
 version:
 	@git describe --tags --always --dirty 2>/dev/null || echo "dev"

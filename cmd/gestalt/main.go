@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"os"
 	"path"
@@ -52,6 +53,9 @@ const (
 	sourceEnv     configSource = "env"
 	sourceFlag    configSource = "flag"
 )
+
+const temporalDevServerHost = "localhost:7233"
+const temporalDevServerTimeout = 500 * time.Millisecond
 
 type configDefaults struct {
 	Port                 int
@@ -123,6 +127,7 @@ func main() {
 		logStartupFlags(logger, cfg)
 	}
 	ensureStateDir(cfg, logger)
+	logTemporalDevServerHealth(logger)
 
 	configFS := buildConfigFS(logger)
 	skills, err := loadSkills(logger, configFS)
@@ -767,6 +772,33 @@ func ensureStateDir(cfg Config, logger *logging.Logger) {
 			"error": err.Error(),
 		})
 	}
+}
+
+func logTemporalDevServerHealth(logger *logging.Logger) {
+	if logger == nil {
+		return
+	}
+	address := temporalDevServerHost
+	dialer := net.Dialer{Timeout: temporalDevServerTimeout}
+	connection, dialError := dialer.Dial("tcp", address)
+	if dialError != nil {
+		logger.Warn("temporal server unavailable", map[string]string{
+			"host":  address,
+			"error": dialError.Error(),
+		})
+		return
+	}
+	closeError := connection.Close()
+	if closeError != nil {
+		logger.Warn("temporal server connection close failed", map[string]string{
+			"host":  address,
+			"error": closeError.Error(),
+		})
+		return
+	}
+	logger.Info("temporal server reachable", map[string]string{
+		"host": address,
+	})
 }
 
 func usesStateRoot(dir, root string) bool {

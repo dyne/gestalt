@@ -18,6 +18,7 @@ import (
 
 	"gestalt/internal/logging"
 	"gestalt/internal/terminal"
+	"gestalt/internal/version"
 )
 
 type RestHandler struct {
@@ -61,6 +62,7 @@ type statusResponse struct {
 	WorkingDir     string    `json:"working_dir"`
 	GitOrigin      string    `json:"git_origin"`
 	GitBranch      string    `json:"git_branch"`
+	Version        string    `json:"version"`
 }
 
 type planResponse struct {
@@ -160,6 +162,7 @@ func (h *RestHandler) handleStatus(w http.ResponseWriter, r *http.Request) *apiE
 		WorkingDir:     workDir,
 		GitOrigin:      gitOrigin,
 		GitBranch:      gitBranch,
+		Version:        version.Version,
 	}
 
 	writeJSON(w, http.StatusOK, response)

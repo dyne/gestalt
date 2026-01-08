@@ -95,6 +95,12 @@ Build from source with embedded assets:
 make gestalt
 ```
 
+## Filesystem watching
+
+Gestalt uses `github.com/fsnotify/fsnotify` for filesystem events because it is
+the de-facto, cross-platform watcher (inotify/kqueue/ReadDirectoryChangesW),
+stable, widely used, and BSD 3-Clause licensed (compatible with AGPL).
+
 ## API endpoints
 
 API (development snapshot)

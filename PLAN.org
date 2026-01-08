@@ -98,7 +98,7 @@
    - Tests: Integration test: modify PLAN.org, verify event fired
    Done when: PLAN.org changes trigger file_changed events
 
-** TODO [#B] Update PlanView to use WebSocket events
+** DONE [#B] Update PlanView to use WebSocket events
    Why: Replace polling with event-based updates
    Change:
    - Remove 5s polling interval in frontend/src/views/PlanView.svelte

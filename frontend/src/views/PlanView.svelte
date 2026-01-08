@@ -1,6 +1,6 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
-  import { apiFetch } from '../lib/api.js'
+  import { apiFetch, buildWebSocketUrl } from '../lib/api.js'
   import OrgViewer from '../components/OrgViewer.svelte'
 
   let loading = false
@@ -9,11 +9,28 @@
   let content = ''
   let lastContent = ''
   let etag = ''
-  let refreshTimer = null
+  let fallbackTimer = null
+  let socket = null
+  let reconnectTimer = null
+  let reconnectAttempts = 0
+  let updateNotice = false
+  let updateNoticeTimer = null
 
-  const refreshIntervalMs = 5000
+  const fallbackIntervalMs = 10000
+  const baseReconnectDelayMs = 500
+  const maxReconnectDelayMs = 10000
 
-  const loadPlan = async ({ silent = false } = {}) => {
+  const showUpdateNotice = () => {
+    updateNotice = true
+    if (updateNoticeTimer) {
+      clearTimeout(updateNoticeTimer)
+    }
+    updateNoticeTimer = setTimeout(() => {
+      updateNotice = false
+    }, 2000)
+  }
+
+  const loadPlan = async ({ silent = false, notify = false } = {}) => {
     if (loading || refreshing) return
     if (silent) {
       refreshing = true
@@ -38,6 +55,9 @@
       if (nextContent !== lastContent) {
         content = nextContent
         lastContent = nextContent
+        if (notify) {
+          showUpdateNotice()
+        }
       }
     } catch (err) {
       error = err?.message || 'Failed to load plan.'
@@ -47,17 +67,95 @@
     }
   }
 
+  const stopFallbackPolling = () => {
+    if (fallbackTimer) {
+      clearInterval(fallbackTimer)
+      fallbackTimer = null
+    }
+  }
+
+  const startFallbackPolling = () => {
+    if (fallbackTimer) return
+    fallbackTimer = setInterval(() => {
+      loadPlan({ silent: true })
+    }, fallbackIntervalMs)
+  }
+
+  const scheduleReconnect = () => {
+    if (reconnectTimer) return
+    const delay = Math.min(maxReconnectDelayMs, baseReconnectDelayMs * 2 ** reconnectAttempts)
+    reconnectAttempts += 1
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null
+      connectEvents()
+    }, delay)
+  }
+
+  const connectEvents = () => {
+    if (socket) {
+      socket.close()
+      socket = null
+    }
+
+    try {
+      socket = new WebSocket(buildWebSocketUrl('/ws/events'))
+    } catch {
+      startFallbackPolling()
+      scheduleReconnect()
+      return
+    }
+
+    socket.addEventListener('open', () => {
+      reconnectAttempts = 0
+      stopFallbackPolling()
+      socket?.send(JSON.stringify({ subscribe: ['file_changed'] }))
+    })
+
+    socket.addEventListener('message', (event) => {
+      let payload = null
+      try {
+        payload = JSON.parse(event.data)
+      } catch {
+        return
+      }
+      if (payload?.type !== 'file_changed' || !payload?.path) {
+        return
+      }
+      if (payload.path !== 'PLAN.org' && !payload.path.endsWith('/PLAN.org')) {
+        return
+      }
+      loadPlan({ silent: true, notify: true })
+    })
+
+    socket.addEventListener('close', () => {
+      socket = null
+      startFallbackPolling()
+      scheduleReconnect()
+    })
+
+    socket.addEventListener('error', () => {
+      socket?.close()
+    })
+  }
+
   onMount(() => {
     loadPlan()
-    refreshTimer = setInterval(() => {
-      loadPlan({ silent: true })
-    }, refreshIntervalMs)
+    connectEvents()
   })
 
   onDestroy(() => {
-    if (refreshTimer) {
-      clearInterval(refreshTimer)
-      refreshTimer = null
+    stopFallbackPolling()
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
+    if (updateNoticeTimer) {
+      clearTimeout(updateNoticeTimer)
+      updateNoticeTimer = null
+    }
+    if (socket) {
+      socket.close()
+      socket = null
     }
   })
 </script>
@@ -69,6 +167,9 @@
       <h1>PLAN.org</h1>
     </div>
     <div class="refresh-actions">
+      {#if updateNotice}
+        <span class="updated">Plan updated</span>
+      {/if}
       {#if refreshing}
         <span class="refreshing">Updating...</span>
       {/if}
@@ -141,6 +242,13 @@
     text-transform: uppercase;
     letter-spacing: 0.12em;
     color: #6f6b62;
+  }
+
+  .updated {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #2e6b46;
   }
 
   .muted {

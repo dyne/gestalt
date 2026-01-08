@@ -168,8 +168,25 @@ func TestLoadConfigHelp(t *testing.T) {
 	}
 }
 
+func TestLoadConfigHelpShort(t *testing.T) {
+	_, err := loadConfig([]string{"-h"})
+	if !errors.Is(err, flag.ErrHelp) {
+		t.Fatalf("expected ErrHelp, got %v", err)
+	}
+}
+
 func TestLoadConfigVersion(t *testing.T) {
 	cfg, err := loadConfig([]string{"--version"})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !cfg.ShowVersion {
+		t.Fatalf("expected version flag to be set")
+	}
+}
+
+func TestLoadConfigVersionShort(t *testing.T) {
+	cfg, err := loadConfig([]string{"-v"})
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}

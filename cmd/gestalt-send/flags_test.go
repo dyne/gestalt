@@ -78,9 +78,31 @@ func TestParseArgsHelp(t *testing.T) {
 	}
 }
 
+func TestParseArgsHelpShort(t *testing.T) {
+	var stderr bytes.Buffer
+	_, err := parseArgs([]string{"-h"}, &stderr)
+	if !errors.Is(err, flag.ErrHelp) {
+		t.Fatalf("expected ErrHelp, got %v", err)
+	}
+	if !strings.Contains(stderr.String(), "Usage: gestalt-send") {
+		t.Fatalf("expected help output, got %q", stderr.String())
+	}
+}
+
 func TestParseArgsVersion(t *testing.T) {
 	var stderr bytes.Buffer
 	cfg, err := parseArgs([]string{"--version"}, &stderr)
+	if err != nil {
+		t.Fatalf("parse args: %v", err)
+	}
+	if !cfg.ShowVersion {
+		t.Fatalf("expected version flag to be set")
+	}
+}
+
+func TestParseArgsVersionShort(t *testing.T) {
+	var stderr bytes.Buffer
+	cfg, err := parseArgs([]string{"-v"}, &stderr)
 	if err != nil {
 		t.Fatalf("parse args: %v", err)
 	}

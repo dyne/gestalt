@@ -495,8 +495,7 @@ func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
 	version := fs.Bool("version", false, "Print version and exit")
 
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "Usage: gestalt [options]")
-		fs.PrintDefaults()
+		printHelp(fs.Output(), defaults)
 	}
 
 	if err := fs.Parse(args); err != nil {
@@ -532,6 +531,100 @@ func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
 	}
 
 	return flags, nil
+}
+
+type helpOption struct {
+	Name string
+	Desc string
+}
+
+func printHelp(out io.Writer, defaults configDefaults) {
+	fmt.Fprintln(out, "Usage: gestalt [options]")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Gestalt multi-terminal dashboard with agent profiles")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Options:")
+
+	writeOptionGroup(out, "Server", []helpOption{
+		{
+			Name: "--port PORT",
+			Desc: fmt.Sprintf("HTTP server port (env: GESTALT_PORT, default: %d)", defaults.Port),
+		},
+		{
+			Name: "--shell SHELL",
+			Desc: "Default shell command (env: GESTALT_SHELL, default: system shell)",
+		},
+		{
+			Name: "--token TOKEN",
+			Desc: "Auth token for REST/WS (env: GESTALT_TOKEN, default: none)",
+		},
+	})
+
+	writeOptionGroup(out, "Sessions", []helpOption{
+		{
+			Name: "--session-persist",
+			Desc: fmt.Sprintf("Persist terminal sessions to disk (env: GESTALT_SESSION_PERSIST, default: %t)", defaults.SessionPersist),
+		},
+		{
+			Name: "--session-dir DIR",
+			Desc: fmt.Sprintf("Session log directory (env: GESTALT_SESSION_DIR, default: %s)", defaults.SessionLogDir),
+		},
+		{
+			Name: "--session-buffer-lines N",
+			Desc: fmt.Sprintf("Session buffer lines (env: GESTALT_SESSION_BUFFER_LINES, default: %d)", defaults.SessionBufferLines),
+		},
+		{
+			Name: "--session-retention-days DAYS",
+			Desc: fmt.Sprintf("Session retention days (env: GESTALT_SESSION_RETENTION_DAYS, default: %d)", defaults.SessionRetentionDays),
+		},
+	})
+
+	writeOptionGroup(out, "Input history", []helpOption{
+		{
+			Name: "--input-history-persist",
+			Desc: fmt.Sprintf("Persist input history (env: GESTALT_INPUT_HISTORY_PERSIST, default: %t)", defaults.InputHistoryPersist),
+		},
+		{
+			Name: "--input-history-dir DIR",
+			Desc: fmt.Sprintf("Input history directory (env: GESTALT_INPUT_HISTORY_DIR, default: %s)", defaults.InputHistoryDir),
+		},
+	})
+
+	writeOptionGroup(out, "Watching", []helpOption{
+		{
+			Name: "--max-watches N",
+			Desc: fmt.Sprintf("Max active watches (env: GESTALT_MAX_WATCHES, default: %d)", defaults.MaxWatches),
+		},
+	})
+
+	writeOptionGroup(out, "Common", []helpOption{
+		{
+			Name: "--verbose",
+			Desc: "Enable verbose logging (default: false)",
+		},
+		{
+			Name: "--help",
+			Desc: "Show this help message",
+		},
+		{
+			Name: "--version",
+			Desc: "Print version and exit",
+		},
+	})
+
+	fmt.Fprintln(out, "Subcommands:")
+	fmt.Fprintln(out, "  gestalt validate-skill PATH  Validate an Agent Skill directory or SKILL.md file")
+	fmt.Fprintln(out, "  gestalt completion SHELL     Generate shell completion script (bash, zsh)")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Environment variables override defaults; CLI flags override environment variables.")
+}
+
+func writeOptionGroup(out io.Writer, title string, options []helpOption) {
+	fmt.Fprintf(out, "  %s:\n", title)
+	for _, option := range options {
+		fmt.Fprintf(out, "    %-30s %s\n", option.Name, option.Desc)
+	}
+	fmt.Fprintln(out, "")
 }
 
 func ensureStateDir(cfg Config, logger *logging.Logger) {

@@ -52,7 +52,7 @@
    Tests: Unit tests for flag parsing, priority order
    Done when: gestalt accepts all config via CLI flags
 
-** TODO [#B] Implement comprehensive --help for gestalt
+** DONE [#B] Implement comprehensive --help for gestalt
    Why: Users need to discover available options without reading README
    Change:
    - Implement custom flag.Usage function for gestalt

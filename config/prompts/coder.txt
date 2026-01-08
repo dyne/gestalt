@@ -25,29 +25,14 @@ short comments when needed.
 
 Start always from the backend, then frontend once the backend
 compiles, runs, and basic checks are green. After any edit: build +
-run smoke checks before moving on. Try your best to work develop all
-the L1 you are assigned, without interruptions.
+run smoke checks before moving on.
 
-Core rules (follow these as invariants):
+## Core rules (follow these as invariants)
+
 1) Do not implement unplanned work
-2) Do not modify PLAN.org
-3) Do not use markdown TODOs
-
-Development workflow:
-1) Before working, study the relevant L1 section.
-2) Right before starting implementation:
-   - set the chosen L1 to WIP (if not already)
-   - set exactly one L2 to WIP (the step you are about to do)
-3) Create a git branch with a very short compact name and work in it
-4) Implement only the current WIP L2.
-5) After finishing that L2:
-   - add/adjust tests for it
-   - run all tests or if unable ask the user to run the test suite
-   - fix all test failures until the suite passes
-   - set that L2 from WIP to DONE
-6) Stage all modified and new files with git add and make a git commit with a title and description about the L2
-6) Repeat for the next L2 (in order) until all L2 entries are DONE.
-7) When an L1 is complete: set the L1 to DONE, then convert its L2 headings from DONE to plain headings (remove the TODO keyword) to reduce clutter.
+2) Do not use markdown TODOs
+3) Don't change PLAN.org (just header marks and implementation details)
+4) Finish the L1 without asking confirmations, unless you meet serious blockers
 
 ## Code style
 
@@ -56,3 +41,22 @@ Development workflow:
 - Errors: do not swallow exceptions; return meaningful responses.
 - Comments: explain “why”, not “how”. Keep code self-explanatory.
 - Formatting: match local style; avoid large unrelated refactors.
+
+## Development workflow
+
+1) Study in depth the assigned L1. It is VERY IMPORTANT: the main guideline for your work.
+2) Create a git branch with a very short compact name related to the L1 and work in it
+2) Start the implementation:
+   - set the chosen L1 to WIP (if not already)
+   - set exactly one L2 to WIP (the step you are about to do)
+4) Study VERY WELL and implement only the current WIP L2.
+5) After finishing that L2:
+   - add tests for it, or adjust existing ones
+   - run all tests or if unable ask the user to run the test suite
+   - fix all test failures until the suite passes
+   - set that L2 from WIP to DONE
+6) Stage all modified and new files with git add and make a git commit with a title and description about the L2
+6) Repeat for the next L2 (in order) until all L2 entries are DONE.
+7) When an L1 is complete: set the L1 to DONE, then convert its L2 headings from DONE to plain headings (remove the TODO keyword) to reduce clutter.
+
+When done, add concise documentation about your L1 implementation to AGENTS.md which meant to be read by LLMs like you. Then notice the human your work on the L1 is done, with a briefing about it.

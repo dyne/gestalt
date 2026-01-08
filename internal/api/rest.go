@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -52,6 +53,7 @@ type statusResponse struct {
 	TerminalCount  int       `json:"terminal_count"`
 	ServerTime     time.Time `json:"server_time"`
 	SessionPersist bool      `json:"session_persist"`
+	WorkingDir     string    `json:"working_dir"`
 }
 
 type planResponse struct {
@@ -64,10 +66,12 @@ type errorResponse struct {
 }
 
 type agentSummary struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	LLMType  string `json:"llm_type"`
-	LLMModel string `json:"llm_model"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	LLMType    string `json:"llm_type"`
+	LLMModel   string `json:"llm_model"`
+	TerminalID string `json:"terminal_id"`
+	Running    bool   `json:"running"`
 }
 
 type agentInputResponse struct {
@@ -130,11 +134,22 @@ func (h *RestHandler) handleStatus(w http.ResponseWriter, r *http.Request) *apiE
 		return err
 	}
 
+	workDir, err := os.Getwd()
+	if err != nil {
+		workDir = "unknown"
+		if h.Logger != nil {
+			h.Logger.Warn("failed to get working directory", map[string]string{
+				"error": err.Error(),
+			})
+		}
+	}
+
 	terminals := h.Manager.List()
 	response := statusResponse{
 		TerminalCount:  len(terminals),
 		ServerTime:     time.Now().UTC(),
 		SessionPersist: h.Manager.SessionPersistenceEnabled(),
+		WorkingDir:     workDir,
 	}
 
 	writeJSON(w, http.StatusOK, response)
@@ -189,11 +204,14 @@ func (h *RestHandler) handleAgents(w http.ResponseWriter, r *http.Request) *apiE
 	infos := h.Manager.ListAgents()
 	response := make([]agentSummary, 0, len(infos))
 	for _, info := range infos {
+		terminalID, running := h.Manager.GetAgentTerminal(info.Name)
 		response = append(response, agentSummary{
-			ID:       info.ID,
-			Name:     info.Name,
-			LLMType:  info.LLMType,
-			LLMModel: info.LLMModel,
+			ID:         info.ID,
+			Name:       info.Name,
+			LLMType:    info.LLMType,
+			LLMModel:   info.LLMModel,
+			TerminalID: terminalID,
+			Running:    running,
 		})
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -353,17 +371,44 @@ func (h *RestHandler) handlePlan(w http.ResponseWriter, r *http.Request) *apiErr
 					"path": planPath,
 				})
 			}
-			writeJSON(w, http.StatusOK, planResponse{Content: ""})
-			return nil
+			content = []byte{}
+		} else {
+			return &apiError{Status: http.StatusInternalServerError, Message: "failed to read plan file"}
 		}
-		return &apiError{Status: http.StatusInternalServerError, Message: "failed to read plan file"}
 	}
 	if statErr == nil {
 		w.Header().Set("Last-Modified", info.ModTime().UTC().Format(http.TimeFormat))
 	}
 
+	etag := planETag(content)
+	w.Header().Set("ETag", etag)
+	if matchesETag(r.Header.Get("If-None-Match"), etag) {
+		w.WriteHeader(http.StatusNotModified)
+		return nil
+	}
+
 	writeJSON(w, http.StatusOK, planResponse{Content: string(content)})
 	return nil
+}
+
+func planETag(content []byte) string {
+	sum := sha256.Sum256(content)
+	return fmt.Sprintf("\"%x\"", sum)
+}
+
+func matchesETag(header, etag string) bool {
+	if header == "" {
+		return false
+	}
+	if header == "*" {
+		return true
+	}
+	for _, part := range strings.Split(header, ",") {
+		if strings.TrimSpace(part) == etag {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *RestHandler) requireManager() *apiError {

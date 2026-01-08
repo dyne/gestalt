@@ -20,11 +20,13 @@
   let statusLabel = ''
   let inputDisabled = true
   let directInputEnabled = false
+  let atBottom = true
   let commandInput
   let unsubscribeStatus
   let unsubscribeHistory
   let unsubscribeBell
   let unsubscribeReconnect
+  let unsubscribeAtBottom
   let displayTitle = ''
   let skillsLabel = ''
 
@@ -53,12 +55,21 @@
     unsubscribeReconnect = state.canReconnect.subscribe((value) => {
       canReconnect = value
     })
+    if (state.atBottom) {
+      unsubscribeAtBottom = state.atBottom.subscribe((value) => {
+        atBottom = value
+      })
+    }
   }
 
   const handleReconnect = () => {
     if (state) {
       state.reconnect()
     }
+  }
+
+  const handleScrollToBottom = () => {
+    state?.scrollToBottom?.()
   }
 
   const handleSubmit = (command) => {
@@ -132,6 +143,9 @@
     if (unsubscribeReconnect) {
       unsubscribeReconnect()
     }
+    if (unsubscribeAtBottom) {
+      unsubscribeAtBottom()
+    }
     if (state) {
       state.detach()
     }
@@ -170,20 +184,26 @@
     disabled={inputDisabled}
     directInput={directInputEnabled}
     onDirectInputChange={handleDirectInputChange}
+    showScrollButton={!atBottom}
+    onScrollToBottom={handleScrollToBottom}
   />
 </section>
 
 <style>
   .terminal-shell {
     display: grid;
-    grid-template-rows: auto 1fr auto;
-    height: 100%;
-    min-height: 70vh;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    height: calc(100vh - 64px);
     background: #101010;
     border-radius: 20px;
     border: 1px solid rgba(255, 255, 255, 0.08);
     box-shadow: 0 20px 50px rgba(10, 10, 10, 0.35);
     overflow: hidden;
+    position: relative;
+  }
+
+  .terminal-shell__body {
+    min-height: 0;
   }
 
   .terminal-shell__header {

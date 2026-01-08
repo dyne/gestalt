@@ -1,34 +1,66 @@
 <script>
-  import { onMount } from 'svelte'
+  import { onDestroy, onMount } from 'svelte'
   import { apiFetch } from '../lib/api.js'
+  import { notificationStore } from '../lib/notificationStore.js'
 
   export let terminals = []
   export let status = null
   export let loading = false
   export let error = ''
   export let onCreate = () => {}
+  export let onDelete = () => {}
 
-  let creating = false
+  let actionPending = false
   let localError = ''
   let agents = []
   let agentsLoading = false
   let agentsError = ''
-  let skills = []
-  let skillsLoading = false
-  let skillsError = ''
   let agentSkills = {}
   let agentSkillsLoading = false
   let agentSkillsError = ''
+  let logs = []
+  let orderedLogs = []
+  let visibleLogs = []
+  let logsLoading = false
+  let logsError = ''
+  let logLevelFilter = 'all'
+  let logsAutoRefresh = true
+  let logsRefreshTimer = null
+  let logsMounted = false
+  let lastLogErrorMessage = ''
+
+  const logLevelOptions = [
+    { value: 'all', label: 'All' },
+    { value: 'info', label: 'Info' },
+    { value: 'warning', label: 'Warning' },
+    { value: 'error', label: 'Error' },
+  ]
 
   const createTerminal = async (agentId = '') => {
-    creating = true
+    actionPending = true
     localError = ''
     try {
       await onCreate(agentId)
     } catch (err) {
       localError = err?.message || 'Failed to create terminal.'
     } finally {
-      creating = false
+      actionPending = false
+    }
+  }
+
+  const stopTerminal = async (terminalId) => {
+    if (!terminalId) {
+      localError = 'No running terminal found.'
+      return
+    }
+    actionPending = true
+    localError = ''
+    try {
+      await onDelete(terminalId)
+    } catch (err) {
+      localError = err?.message || 'Failed to stop terminal.'
+    } finally {
+      actionPending = false
     }
   }
 
@@ -43,19 +75,6 @@
       agentsError = err?.message || 'Failed to load agents.'
     } finally {
       agentsLoading = false
-    }
-  }
-
-  const loadSkills = async () => {
-    skillsLoading = true
-    skillsError = ''
-    try {
-      const response = await apiFetch('/api/skills')
-      skills = await response.json()
-    } catch (err) {
-      skillsError = err?.message || 'Failed to load skills.'
-    } finally {
-      skillsLoading = false
     }
   }
 
@@ -87,46 +106,95 @@
     }
   }
 
-  const agentNamesForSkill = (skillName) => {
-    if (!skillName || agents.length === 0) return []
-    return agents
-      .filter((agent) => (agentSkills[agent.id] || []).includes(skillName))
-      .map((agent) => agent.name)
-  }
-
-  const formatTime = (value) => {
+  const formatLogTime = (value) => {
     if (!value) return '—'
     const parsed = new Date(value)
     if (Number.isNaN(parsed.getTime())) return '—'
     return parsed.toLocaleString()
   }
 
+  const buildLogQuery = () => {
+    const params = new URLSearchParams()
+    if (logLevelFilter !== 'all') {
+      params.set('level', logLevelFilter)
+    }
+    return params.toString()
+  }
+
+  const fetchLogs = async () => {
+    logsLoading = true
+    logsError = ''
+    try {
+      const query = buildLogQuery()
+      const response = await apiFetch(`/api/logs${query ? `?${query}` : ''}`)
+      logs = await response.json()
+      lastLogErrorMessage = ''
+    } catch (err) {
+      const message = err?.message || 'Failed to load logs.'
+      logsError = message
+      if (message !== lastLogErrorMessage) {
+        notificationStore.addNotification('error', message)
+        lastLogErrorMessage = message
+      }
+    } finally {
+      logsLoading = false
+    }
+  }
+
+  const resetLogRefresh = () => {
+    if (logsRefreshTimer) {
+      clearInterval(logsRefreshTimer)
+      logsRefreshTimer = null
+    }
+    if (logsAutoRefresh) {
+      logsRefreshTimer = setInterval(fetchLogs, 5000)
+    }
+  }
+
+  const handleLogFilterChange = (event) => {
+    logLevelFilter = event.target.value
+    fetchLogs()
+  }
+
+  const logEntryKey = (entry, index) => `${entry.timestamp}-${entry.message}-${index}`
+
+  $: orderedLogs = [...logs].reverse()
+  $: visibleLogs = orderedLogs.slice(0, 15)
+
+  $: if (logsMounted) {
+    logsAutoRefresh
+    resetLogRefresh()
+  }
+
   onMount(() => {
     loadAgents()
-    loadSkills()
+    logsMounted = true
+    fetchLogs()
+    resetLogRefresh()
+  })
+
+  onDestroy(() => {
+    logsMounted = false
+    if (logsRefreshTimer) {
+      clearInterval(logsRefreshTimer)
+      logsRefreshTimer = null
+    }
   })
 </script>
 
-<section class="dashboard">
+<section class="dashboard" data-terminal-count={terminals.length}>
   <header class="dashboard__header">
     <div>
       <p class="eyebrow">Dyne.org presents...</p>
       <h1>Gestalt</h1>
+      <span class="mt-3 inline-block h-1 w-10 rounded-full bg-blue-500/70"></span>
     </div>
   </header>
 
   <section class="dashboard__status">
-    <div class="status-card">
-      <span class="label">Active terminals</span>
-      <strong class="value">{status?.terminal_count ?? '—'}</strong>
-    </div>
-    <div class="status-card">
-      <span class="label">Server time</span>
-      <strong class="value">{formatTime(status?.server_time)}</strong>
-    </div>
-    <div class="status-card">
-      <span class="label">Skills available</span>
-      <strong class="value">{skillsLoading ? '…' : skills.length}</strong>
+    <div class="status-card status-card--wide">
+      <span class="label">Working directory</span>
+      <strong class="value value--path">{status?.working_dir || '—'}</strong>
     </div>
   </section>
 
@@ -147,10 +215,15 @@
         {#each agents as agent}
           <button
             class="agent-button"
-            on:click={() => createTerminal(agent.id)}
-            disabled={creating || loading}
+            class:agent-button--running={agent.running}
+            class:agent-button--stopped={!agent.running}
+            on:click={() =>
+              agent.running ? stopTerminal(agent.terminal_id) : createTerminal(agent.id)
+            }
+            disabled={actionPending || loading}
           >
             <span class="agent-name">{agent.name}</span>
+            <span class="agent-action">{agent.running ? 'Stop' : 'Start'}</span>
             {#if agentSkillsLoading}
               <span class="agent-skills muted">Loading skills…</span>
             {:else if agentSkillsError}
@@ -164,83 +237,56 @@
         {/each}
       </div>
     {/if}
-  </section>
 
-  <section class="dashboard__skills">
-    <div class="list-header">
-      <h2>Skills</h2>
-      <p class="subtle">{skills.length} available</p>
-    </div>
-
-    {#if skillsLoading}
-      <p class="muted">Loading skills…</p>
-    {:else if skillsError}
-      <p class="error">{skillsError}</p>
-    {:else if skills.length === 0}
-      <p class="muted">No skills found.</p>
-    {:else}
-      <div class="skill-grid">
-        {#each skills as skill}
-          <article class="skill-card">
-            <div class="skill-card__header">
-              <h3>{skill.name}</h3>
-              {#if skill.license}
-                <span class="chip chip--muted">{skill.license}</span>
-              {/if}
-            </div>
-            <p class="skill-desc">{skill.description}</p>
-            <div class="skill-meta">
-              <span class="meta-label">Agents</span>
-              <span class="meta-value">
-                {agentNamesForSkill(skill.name).join(', ') || 'None'}
-              </span>
-            </div>
-            <div class="skill-tags">
-              {#if skill.has_scripts}
-                <span class="tag">scripts</span>
-              {/if}
-              {#if skill.has_references}
-                <span class="tag">references</span>
-              {/if}
-              {#if skill.has_assets}
-                <span class="tag">assets</span>
-              {/if}
-            </div>
-          </article>
-        {/each}
-      </div>
-    {/if}
-  </section>
-
-  <section class="dashboard__list">
-    <div class="list-header">
-      <h2>Live terminals</h2>
-      <p class="subtle">{terminals.length} session(s)</p>
-    </div>
-
-    {#if loading}
-      <p class="muted">Loading sessions…</p>
-    {:else if error || localError}
+    {#if error || localError}
       <p class="error">{error || localError}</p>
-    {:else if terminals.length === 0}
-      <p class="muted">No terminals running. Create one to get started.</p>
-    {:else}
-      <ul class="terminal-list">
-        {#each terminals as terminal}
-          <li class="terminal-row">
-            <div>
-              <p class="terminal-title">
-                {terminal.title || 'Untitled terminal'}
-              </p>
-              <p class="terminal-meta">
-                ID {terminal.id} · {terminal.role || 'general'} · {formatTime(terminal.created_at)}
-              </p>
-            </div>
-            <span class="chip">{terminal.status}</span>
-          </li>
-        {/each}
-      </ul>
     {/if}
+  </section>
+
+  <section class="dashboard__logs">
+    <div class="list-header">
+      <h2>Recent logs</h2>
+    </div>
+
+    <div class="logs-controls">
+      <label class="logs-control">
+        <span>Level</span>
+        <select on:change={handleLogFilterChange} bind:value={logLevelFilter}>
+          {#each logLevelOptions as option}
+            <option value={option.value}>{option.label}</option>
+          {/each}
+        </select>
+      </label>
+      <label class="logs-control logs-control--toggle">
+        <input type="checkbox" bind:checked={logsAutoRefresh} />
+        <span>Auto refresh</span>
+      </label>
+      <button class="logs-refresh" type="button" on:click={fetchLogs} disabled={logsLoading}>
+        {logsLoading ? 'Refreshing…' : 'Refresh'}
+      </button>
+    </div>
+
+    <div class="logs-list">
+      {#if logsLoading && logs.length === 0}
+        <p class="muted">Loading logs…</p>
+      {:else if logsError}
+        <p class="error">{logsError}</p>
+      {:else if visibleLogs.length === 0}
+        <p class="muted">No logs yet.</p>
+      {:else}
+        <ul>
+          {#each visibleLogs as entry, index (logEntryKey(entry, index))}
+            <li class={`log-entry log-entry--${entry.level}`}>
+              <div class="log-entry__meta">
+                <span class="log-badge">{entry.level}</span>
+                <span class="log-time">{formatLogTime(entry.timestamp)}</span>
+              </div>
+              <p class="log-message">{entry.message}</p>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </div>
   </section>
 </section>
 
@@ -331,11 +377,17 @@
     color: #141414;
   }
 
-  .dashboard__list {
-    padding: 1.5rem;
-    border-radius: 24px;
-    background: #ffffff;
-    border: 1px solid rgba(20, 20, 20, 0.08);
+  .status-card--wide {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .value--path {
+    margin-top: 0;
+    font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
+    font-size: 1rem;
+    word-break: break-all;
   }
 
   .dashboard__agents {
@@ -345,11 +397,114 @@
     border: 1px solid rgba(20, 20, 20, 0.08);
   }
 
-  .dashboard__skills {
+  .dashboard__logs {
     padding: 1.5rem;
     border-radius: 24px;
-    background: #eef3f2;
+    background: #f5f7fb;
     border: 1px solid rgba(20, 20, 20, 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .logs-controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .logs-control {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-size: 0.75rem;
+    color: #6f6b62;
+  }
+
+  .logs-control select {
+    border: 1px solid rgba(20, 20, 20, 0.16);
+    border-radius: 10px;
+    padding: 0.35rem 0.6rem;
+    font-size: 0.85rem;
+    background: #ffffff;
+  }
+
+  .logs-control--toggle {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .logs-refresh {
+    border: 1px solid rgba(20, 20, 20, 0.2);
+    border-radius: 999px;
+    padding: 0.45rem 0.95rem;
+    background: #ffffff;
+    font-size: 0.7rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+
+  .logs-refresh:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  .logs-list ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+
+  .log-entry {
+    padding: 0.65rem 0.85rem;
+    border-radius: 16px;
+    background: #ffffff;
+    border: 1px solid rgba(20, 20, 20, 0.06);
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .log-entry__meta {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.75rem;
+    color: #5f5b54;
+  }
+
+  .log-badge {
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    background: #151515;
+    color: #f4f1eb;
+    font-size: 0.65rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .log-entry--info .log-badge {
+    background: #2b4b76;
+  }
+
+  .log-entry--warning .log-badge {
+    background: #b07219;
+  }
+
+  .log-entry--error .log-badge {
+    background: #9a3535;
+  }
+
+  .log-message {
+    margin: 0;
+    font-size: 0.85rem;
+    color: #2b2b2b;
   }
 
   .agent-grid {
@@ -369,11 +524,54 @@
     align-items: flex-start;
     gap: 0.35rem;
     cursor: pointer;
-    transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
+    transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease,
+      background 160ms ease, border-color 160ms ease;
+  }
+
+  .agent-button--running {
+    background: #e4f4ef;
+    border-color: rgba(22, 94, 66, 0.35);
+    box-shadow: 0 12px 20px rgba(22, 94, 66, 0.12);
+  }
+
+  .agent-button--stopped {
+    background: #ffffff;
+    border-color: rgba(20, 20, 20, 0.16);
   }
 
   .agent-name {
     font-size: 0.95rem;
+  }
+
+  .agent-button--running .agent-name::before {
+    content: '';
+    display: inline-block;
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 999px;
+    margin-right: 0.4rem;
+    background: #1f7a5f;
+    box-shadow: 0 0 0 0 rgba(31, 122, 95, 0.4);
+    animation: pulseDot 2.4s ease-in-out infinite;
+  }
+
+  .agent-action {
+    font-size: 0.7rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #5f5b54;
+  }
+
+  @keyframes pulseDot {
+    0% {
+      box-shadow: 0 0 0 0 rgba(31, 122, 95, 0.4);
+    }
+    70% {
+      box-shadow: 0 0 0 0.4rem rgba(31, 122, 95, 0);
+    }
+    100% {
+      box-shadow: 0 0 0 0 rgba(31, 122, 95, 0);
+    }
   }
 
   .agent-skills {
@@ -381,74 +579,6 @@
     font-weight: 500;
     color: #5f5b54;
     text-align: left;
-  }
-
-  .skill-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 0.9rem;
-  }
-
-  .skill-card {
-    background: #ffffff;
-    border-radius: 18px;
-    border: 1px solid rgba(20, 20, 20, 0.08);
-    padding: 1rem 1.1rem 1.1rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.6rem;
-  }
-
-  .skill-card__header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
-  }
-
-  .skill-card__header h3 {
-    margin: 0;
-    font-size: 1rem;
-  }
-
-  .skill-desc {
-    margin: 0;
-    font-size: 0.9rem;
-    color: #5c5851;
-  }
-
-  .skill-meta {
-    display: flex;
-    gap: 0.4rem;
-    font-size: 0.8rem;
-    color: #5c5851;
-  }
-
-  .meta-label {
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    font-size: 0.7rem;
-    color: #6c6860;
-  }
-
-  .meta-value {
-    font-weight: 600;
-  }
-
-  .skill-tags {
-    display: flex;
-    gap: 0.4rem;
-    flex-wrap: wrap;
-  }
-
-  .tag {
-    padding: 0.2rem 0.5rem;
-    border-radius: 999px;
-    background: #f0ede7;
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: #5e5a53;
   }
 
   .agent-button:disabled {
@@ -476,53 +606,6 @@
     color: #7a776f;
   }
 
-  .terminal-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-  }
-
-  .terminal-row {
-    padding: 1rem 1.2rem;
-    border-radius: 16px;
-    border: 1px solid rgba(20, 20, 20, 0.06);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    background: #f9f7f2;
-  }
-
-  .terminal-title {
-    margin: 0 0 0.3rem;
-    font-size: 1rem;
-    font-weight: 600;
-  }
-
-  .terminal-meta {
-    margin: 0;
-    font-size: 0.85rem;
-    color: #6f6b62;
-  }
-
-  .chip {
-    padding: 0.3rem 0.75rem;
-    border-radius: 999px;
-    background: #151515;
-    color: #f4f1eb;
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-  }
-
-  .chip--muted {
-    background: #f0ede7;
-    color: #5b5851;
-  }
-
   .muted {
     color: #7d7a73;
     margin: 0.5rem 0 0;
@@ -543,11 +626,6 @@
       flex-direction: column;
       align-items: flex-start;
       gap: 0.4rem;
-    }
-
-    .terminal-row {
-      flex-direction: column;
-      align-items: flex-start;
     }
   }
 </style>

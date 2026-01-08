@@ -105,6 +105,13 @@ func TestStatusHandlerReturnsCount(t *testing.T) {
 	if payload.TerminalCount != 1 {
 		t.Fatalf("expected 1 terminal, got %d", payload.TerminalCount)
 	}
+	expectedDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if payload.WorkingDir != expectedDir {
+		t.Fatalf("expected working dir %q, got %q", expectedDir, payload.WorkingDir)
+	}
 }
 
 func TestTerminalOutputEndpoint(t *testing.T) {
@@ -494,7 +501,10 @@ func TestListTerminalsIncludesLLMMetadata(t *testing.T) {
 }
 
 func TestAgentsEndpoint(t *testing.T) {
+	factory := &fakeFactory{}
 	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
 		Agents: map[string]agent.Agent{
 			"codex": {
 				Name:     "Codex",
@@ -510,6 +520,13 @@ func TestAgentsEndpoint(t *testing.T) {
 			},
 		},
 	})
+	created, err := manager.Create("codex", "shell", "Codex")
+	if err != nil {
+		t.Fatalf("create codex session: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
 
 	handler := &RestHandler{Manager: manager}
 	req := httptest.NewRequest(http.MethodGet, "/api/agents", nil)
@@ -528,8 +545,30 @@ func TestAgentsEndpoint(t *testing.T) {
 	if len(payload) != 2 {
 		t.Fatalf("expected 2 agents, got %d", len(payload))
 	}
-	if payload[0].ID != "codex" && payload[1].ID != "codex" {
-		t.Fatalf("missing codex agent")
+	var codex *agentSummary
+	var copilot *agentSummary
+	for i := range payload {
+		if payload[i].ID == "codex" {
+			codex = &payload[i]
+		}
+		if payload[i].ID == "copilot" {
+			copilot = &payload[i]
+		}
+	}
+	if codex == nil || copilot == nil {
+		t.Fatalf("missing expected agents")
+	}
+	if !codex.Running {
+		t.Fatalf("expected codex to be running")
+	}
+	if codex.TerminalID != created.ID {
+		t.Fatalf("expected codex terminal id %q, got %q", created.ID, codex.TerminalID)
+	}
+	if copilot.Running {
+		t.Fatalf("expected copilot to be stopped")
+	}
+	if copilot.TerminalID != "" {
+		t.Fatalf("expected copilot terminal id to be empty, got %q", copilot.TerminalID)
 	}
 }
 
@@ -912,6 +951,9 @@ func TestPlanEndpointReturnsContent(t *testing.T) {
 	if payload.Content != content {
 		t.Fatalf("expected content %q, got %q", content, payload.Content)
 	}
+	if res.Header().Get("ETag") == "" {
+		t.Fatalf("expected ETag header to be set")
+	}
 }
 
 func TestPlanEndpointMissingFileReturnsEmpty(t *testing.T) {
@@ -932,6 +974,38 @@ func TestPlanEndpointMissingFileReturnsEmpty(t *testing.T) {
 	}
 	if payload.Content != "" {
 		t.Fatalf("expected empty content, got %q", payload.Content)
+	}
+}
+
+func TestPlanEndpointETagNotModified(t *testing.T) {
+	dir := t.TempDir()
+	planPath := filepath.Join(dir, "PLAN.org")
+	content := "* TODO [#B] Cached\n"
+	if err := os.WriteFile(planPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write plan file: %v", err)
+	}
+
+	handler := &RestHandler{PlanPath: planPath}
+	req := httptest.NewRequest(http.MethodGet, "/api/plan", nil)
+	res := httptest.NewRecorder()
+	jsonErrorMiddleware(handler.handlePlan)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+	etag := res.Header().Get("ETag")
+	if etag == "" {
+		t.Fatalf("expected ETag header")
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/plan", nil)
+	req.Header.Set("If-None-Match", etag)
+	res = httptest.NewRecorder()
+	jsonErrorMiddleware(handler.handlePlan)(res, req)
+	if res.Code != http.StatusNotModified {
+		t.Fatalf("expected 304, got %d", res.Code)
+	}
+	if res.Body.Len() != 0 {
+		t.Fatalf("expected empty body on 304 response")
 	}
 }
 

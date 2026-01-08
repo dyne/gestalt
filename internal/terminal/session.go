@@ -231,18 +231,22 @@ func (s *Session) GetInputHistory() []InputEntry {
 }
 
 func (s *Session) HistoryLines(maxLines int) ([]string, error) {
-	lines := s.OutputLines()
-	if len(lines) > 0 {
-		return tailLines(lines, maxLines), nil
-	}
+	bufferLines := s.OutputLines()
 	if s.logger == nil {
-		return []string{}, nil
+		return tailLines(bufferLines, maxLines), nil
 	}
 	path := s.logger.Path()
 	if path == "" {
-		return []string{}, nil
+		return tailLines(bufferLines, maxLines), nil
 	}
-	return readLastLines(path, maxLines)
+	fileLines, err := readLastLines(path, maxLines)
+	if err != nil {
+		if len(bufferLines) > 0 {
+			return tailLines(bufferLines, maxLines), nil
+		}
+		return []string{}, err
+	}
+	return mergeHistoryLines(fileLines, bufferLines, maxLines), nil
 }
 
 func (s *Session) Close() error {

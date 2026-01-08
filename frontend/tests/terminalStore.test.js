@@ -138,7 +138,7 @@ describe('terminalStore', () => {
     buildWebSocketUrl.mockClear()
     apiFetch.mockReset()
     apiFetch.mockImplementation((path) => {
-      if (path.includes('/output')) {
+      if (path.includes('/history')) {
         return Promise.resolve({
           ok: true,
           json: async () => ({ lines: [] }),
@@ -176,7 +176,7 @@ describe('terminalStore', () => {
 
   it('marks unauthorized when auth fails on close', async () => {
     apiFetch.mockImplementation((path) => {
-      if (path.includes('/output')) {
+      if (path.includes('/history')) {
         return Promise.resolve({
           ok: true,
           json: async () => ({ lines: [] }),
@@ -237,7 +237,7 @@ describe('terminalStore', () => {
 
   it('loads history before attaching terminal output', async () => {
     apiFetch.mockImplementation((path) => {
-      if (path.includes('/output')) {
+      if (path.includes('/history')) {
         return Promise.resolve({
           ok: true,
           json: async () => ({ lines: ['first', 'second'] }),
@@ -270,7 +270,7 @@ describe('terminalStore', () => {
     vi.useFakeTimers()
     let resolveFetch
     apiFetch.mockImplementation((path) => {
-      if (path.includes('/output')) {
+      if (path.includes('/history')) {
         return new Promise((resolve) => {
           resolveFetch = resolve
         })

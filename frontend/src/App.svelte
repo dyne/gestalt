@@ -1,7 +1,6 @@
 <script>
   import { onMount } from 'svelte'
   import Dashboard from './views/Dashboard.svelte'
-  import LogsView from './views/LogsView.svelte'
   import PlanView from './views/PlanView.svelte'
   import TerminalView from './views/TerminalView.svelte'
   import TabBar from './components/TabBar.svelte'
@@ -15,7 +14,6 @@
   let tabs = [
     { id: 'dashboard', label: 'Dashboard', isHome: true },
     { id: 'plan', label: 'Plan', isHome: true },
-    { id: 'logs', label: 'Logs', isHome: true },
   ]
   let activeId = 'dashboard'
 
@@ -30,15 +28,12 @@
       ? 'dashboard'
       : activeId === 'plan'
         ? 'plan'
-        : activeId === 'logs'
-          ? 'logs'
-          : 'terminal'
+        : 'terminal'
 
   const syncTabs = (terminalList) => {
     tabs = [
       { id: 'dashboard', label: 'Dashboard', isHome: true },
       { id: 'plan', label: 'Plan', isHome: true },
-      { id: 'logs', label: 'Logs', isHome: true },
       ...terminalList.map((terminal) => ({
         id: terminal.id,
         label: formatTerminalLabel(terminal),
@@ -134,7 +129,7 @@
   }
 
   const handleClose = (id) => {
-    if (id === 'dashboard' || id === 'plan' || id === 'logs') return
+    if (id === 'dashboard' || id === 'plan') return
     deleteTerminal(id).catch((err) => {
       error = err?.message || 'Failed to close terminal.'
     })
@@ -169,13 +164,11 @@
       {loading}
       {error}
       onCreate={createTerminal}
+      onDelete={deleteTerminal}
     />
   </section>
   <section class="view" data-active={activeView === 'plan'}>
     <PlanView />
-  </section>
-  <section class="view" data-active={activeView === 'logs'}>
-    <LogsView />
   </section>
   <section class="view view--terminals" data-active={activeView === 'terminal'}>
     {#each terminals as terminal (terminal.id)}

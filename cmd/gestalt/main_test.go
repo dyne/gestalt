@@ -56,13 +56,13 @@ func TestLoadConfigDefaultsOnInvalidPort(t *testing.T) {
 	if cfg.Port != 8080 {
 		t.Fatalf("expected default port 8080, got %d", cfg.Port)
 	}
-	if cfg.SessionLogDir != filepath.Join("logs", "sessions") {
+	if cfg.SessionLogDir != filepath.Join(".gestalt", "sessions") {
 		t.Fatalf("expected default session log dir, got %q", cfg.SessionLogDir)
 	}
 	if cfg.SessionBufferLines != 1000 {
 		t.Fatalf("expected default session buffer lines 1000, got %d", cfg.SessionBufferLines)
 	}
-	if cfg.InputHistoryDir != filepath.Join("logs", "input-history") {
+	if cfg.InputHistoryDir != filepath.Join(".gestalt", "input-history") {
 		t.Fatalf("expected default input history dir, got %q", cfg.InputHistoryDir)
 	}
 }

@@ -7,10 +7,12 @@ import { apiFetch, buildWebSocketUrl } from './api.js'
 import { notificationStore } from './notificationStore.js'
 
 const terminals = new Map()
+const historyCache = new Map()
 const MAX_RETRIES = 5
 const BASE_DELAY_MS = 500
 const MAX_DELAY_MS = 8000
 const HISTORY_WARNING_MS = 5000
+const HISTORY_LINES = 2000
 const MOUSE_MODE_PARAMS = new Set([
   9,
   1000,
@@ -138,6 +140,7 @@ export const releaseTerminalState = (terminalId) => {
   if (!state) return
   state.dispose()
   terminals.delete(terminalId)
+  historyCache.delete(terminalId)
 }
 
 const createTerminalState = (terminalId) => {
@@ -145,6 +148,7 @@ const createTerminalState = (terminalId) => {
   const historyStatus = writable('idle')
   const bellCount = writable(0)
   const canReconnect = writable(false)
+  const atBottom = writable(true)
 
   const term = new Terminal({
     allowProposedApi: true,
@@ -179,6 +183,15 @@ const createTerminalState = (terminalId) => {
   let notifiedHistorySlow = false
   let notifiedHistoryError = false
 
+  const syncScrollState = () => {
+    const buffer = term.buffer?.active
+    if (!buffer) {
+      atBottom.set(true)
+      return
+    }
+    atBottom.set(buffer.viewportY >= buffer.baseY)
+  }
+
   const sendResize = () => {
     if (!socket || socket.readyState !== WebSocket.OPEN) return
     const payload = {
@@ -207,6 +220,11 @@ const createTerminalState = (terminalId) => {
     directInputEnabled = Boolean(enabled)
   }
 
+  const scrollToBottom = () => {
+    term.scrollToBottom()
+    syncScrollState()
+  }
+
   const focus = () => {
     if (disposed) return
     term.focus()
@@ -230,6 +248,7 @@ const createTerminalState = (terminalId) => {
       container.appendChild(term.element)
     }
     flushPendingHistory()
+    syncScrollState()
     scheduleFit()
   }
 
@@ -244,6 +263,10 @@ const createTerminalState = (terminalId) => {
 
   term.onBell(() => {
     bellCount.update((count) => count + 1)
+  })
+
+  term.onScroll?.(() => {
+    syncScrollState()
   })
 
   term.attachCustomKeyEventHandler((event) => {
@@ -314,6 +337,7 @@ const createTerminalState = (terminalId) => {
     if (!pendingHistory || disposed || !term.element) return
     term.write(pendingHistory)
     pendingHistory = ''
+    syncScrollState()
   }
 
   const scheduleHistoryWarning = () => {
@@ -339,22 +363,39 @@ const createTerminalState = (terminalId) => {
     if (historyLoadPromise) {
       return historyLoadPromise
     }
+    if (historyCache.has(terminalId)) {
+      const cachedHistory = historyCache.get(terminalId) || ''
+      if (term.element) {
+        term.write(cachedHistory)
+      } else {
+        pendingHistory = cachedHistory
+      }
+      historyLoaded = true
+      historyStatus.set('loaded')
+      return Promise.resolve()
+    }
 
     historyStatus.set('loading')
     scheduleHistoryWarning()
     historyLoadPromise = (async () => {
       try {
-        const response = await apiFetch(`/api/terminals/${terminalId}/output`)
+        const response = await apiFetch(
+          `/api/terminals/${terminalId}/history?lines=${HISTORY_LINES}`
+        )
         const payload = await response.json()
         const lines = Array.isArray(payload?.lines) ? payload.lines : []
-        if (lines.length > 0) {
-          const historyText = lines.join('\n')
+        const historyText = lines.join('\n')
+        if (historyText) {
           if (term.element) {
             term.write(historyText)
           } else {
             pendingHistory = historyText
           }
+          if (term.element) {
+            syncScrollState()
+          }
         }
+        historyCache.set(terminalId, historyText)
         historyLoaded = true
         historyStatus.set('loaded')
       } catch (err) {
@@ -445,9 +486,11 @@ const createTerminalState = (terminalId) => {
       if (disposed) return
       if (typeof event.data === 'string') {
         term.write(event.data)
+        syncScrollState()
         return
       }
       term.write(new Uint8Array(event.data))
+      syncScrollState()
     })
 
     socket.addEventListener('close', async (event) => {
@@ -516,9 +559,11 @@ const createTerminalState = (terminalId) => {
     historyStatus,
     bellCount,
     canReconnect,
+    atBottom,
     sendData,
     sendCommand,
     setDirectInput,
+    scrollToBottom,
     focus,
     attach,
     detach,

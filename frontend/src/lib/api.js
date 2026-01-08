@@ -21,22 +21,23 @@ export function buildWebSocketUrl(path) {
 }
 
 export async function apiFetch(path, options = {}) {
-  const headers = new Headers(options.headers || {})
+  const { allowNotModified, ...fetchOptions } = options
+  const headers = new Headers(fetchOptions.headers || {})
   const token = getToken()
   if (token) {
     headers.set('Authorization', `Bearer ${token}`)
   }
 
-  if (options.body && !headers.has('Content-Type')) {
+  if (fetchOptions.body && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
   }
 
   const response = await fetch(path, {
-    ...options,
+    ...fetchOptions,
     headers,
   })
 
-  if (!response.ok) {
+  if (!response.ok && !(allowNotModified && response.status === 304)) {
     const bodyText = await response.text()
     let payload = null
     let message = bodyText

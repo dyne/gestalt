@@ -116,6 +116,8 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 	debugFlag := fs.Bool("debug", false, "Debug output (implies --verbose)")
 	helpFlag := fs.Bool("help", false, "Show this help message")
 	versionFlag := fs.Bool("version", false, "Print version and exit")
+	helpShort := fs.Bool("h", false, "Show this help message")
+	versionShort := fs.Bool("v", false, "Print version and exit")
 	fs.Usage = func() {
 		printSendHelp(fs.Output())
 	}
@@ -124,12 +126,12 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 		return Config{}, err
 	}
 
-	if *helpFlag {
+	if *helpFlag || *helpShort {
 		fs.Usage()
 		return Config{}, flag.ErrHelp
 	}
 
-	if *versionFlag {
+	if *versionFlag || *versionShort {
 		return Config{ShowVersion: true}, nil
 	}
 

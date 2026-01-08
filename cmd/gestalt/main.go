@@ -534,6 +534,8 @@ func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
 	quiet := fs.Bool("quiet", false, "Reduce logging to warnings")
 	help := fs.Bool("help", false, "Show help")
 	version := fs.Bool("version", false, "Print version and exit")
+	helpShort := fs.Bool("h", false, "Show help")
+	versionShort := fs.Bool("v", false, "Print version and exit")
 
 	fs.Usage = func() {
 		printHelp(fs.Output(), defaults)
@@ -561,15 +563,20 @@ func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
 		MaxWatches:           *maxWatches,
 		Verbose:              *verbose,
 		Quiet:                *quiet,
-		Help:                 *help,
-		Version:              *version,
+		Help:                 *help || *helpShort,
+		Version:              *version || *versionShort,
 		Set:                  set,
 	}
 
 	if flags.Help {
+		set["help"] = true
 		fs.SetOutput(os.Stdout)
 		fs.Usage()
 		return flags, flag.ErrHelp
+	}
+
+	if flags.Version {
+		set["version"] = true
 	}
 
 	return flags, nil

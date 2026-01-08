@@ -33,6 +33,7 @@ type Options struct {
 	WatchDir        bool
 	MaxWatches      int
 	CleanupInterval time.Duration
+	ErrorHandler    func(error)
 }
 
 // Metrics describes watcher activity.
@@ -61,4 +62,8 @@ type Watcher struct {
 	cleanupInterval   time.Duration
 	eventsDelivered   uint64
 	errorCount        uint64
+	errorHandler      func(error)
+	restartMutex      sync.Mutex
+	restartAttempts   int
+	restartTimer      *time.Timer
 }

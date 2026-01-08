@@ -187,7 +187,7 @@
    Tests: Frontend unit tests for store; manual connection test
    Done when: Frontend has reusable WebSocket event infrastructure
 
-** TODO [#C] Add error handling and recovery
+** DONE [#C] Add error handling and recovery
    Why: Filesystem watching can fail (permission, filesystem full, etc)
    Change:
    - Catch fsnotify errors: log at warning level with context

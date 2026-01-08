@@ -3,6 +3,7 @@ package watcher
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -238,5 +239,46 @@ func TestWatcherDebounceCoalescesEvents(t *testing.T) {
 			}
 			return
 		}
+	}
+}
+
+func TestWatcherInvalidPathReturnsError(t *testing.T) {
+	watcher, err := New()
+	if err != nil {
+		t.Fatalf("new watcher: %v", err)
+	}
+	defer watcher.Close()
+
+	invalidPath := filepath.Join(os.TempDir(), "gestalt-watcher-missing", "missing.txt")
+	if _, err := watcher.Watch(invalidPath, func(Event) {}); err == nil {
+		t.Fatalf("expected error for invalid path")
+	}
+}
+
+func TestWatcherErrorHandlerAfterRetryLimit(t *testing.T) {
+	watcher, err := New()
+	if err != nil {
+		t.Fatalf("new watcher: %v", err)
+	}
+	defer watcher.Close()
+
+	done := make(chan error, 1)
+	watcher.SetErrorHandler(func(err error) {
+		done <- err
+	})
+
+	watcher.restartMutex.Lock()
+	watcher.restartAttempts = maxRestartAttempts
+	watcher.restartMutex.Unlock()
+
+	watcher.handleError(errors.New("boom"))
+
+	select {
+	case err := <-done:
+		if err == nil || err.Error() != "boom" {
+			t.Fatalf("expected boom error, got %v", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected error handler to be called")
 	}
 }

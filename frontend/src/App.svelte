@@ -7,6 +7,7 @@
   import ToastContainer from './components/ToastContainer.svelte'
   import NotificationSettings from './components/NotificationSettings.svelte'
   import { apiFetch } from './lib/api.js'
+  import { subscribe as subscribeEvents } from './lib/eventStore.js'
   import { formatTerminalLabel } from './lib/terminalTabs.js'
   import { releaseTerminalState } from './lib/terminalStore.js'
   import { notificationStore } from './lib/notificationStore.js'
@@ -22,6 +23,7 @@
   let loading = false
   let error = ''
   let showSettings = false
+  let watchErrorNotified = false
 
   $: activeView =
     activeId === 'dashboard'
@@ -143,7 +145,17 @@
     showSettings = false
   }
 
-  onMount(refresh)
+  onMount(() => {
+    refresh()
+    const unsubscribe = subscribeEvents('watch_error', () => {
+      if (watchErrorNotified) return
+      watchErrorNotified = true
+      notificationStore.addNotification('warning', 'File watching unavailable.')
+    })
+    return () => {
+      unsubscribe()
+    }
+  })
 </script>
 
 <TabBar

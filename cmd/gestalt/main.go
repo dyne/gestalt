@@ -98,6 +98,12 @@ func main() {
 	}
 	eventHub := watcher.NewEventHub(context.Background(), fsWatcher)
 	if fsWatcher != nil {
+		fsWatcher.SetErrorHandler(func(err error) {
+			eventHub.Publish(watcher.Event{
+				Type:      watcher.EventTypeWatchError,
+				Timestamp: time.Now().UTC(),
+			})
+		})
 		watchPlanFile(eventHub, logger, "PLAN.org")
 		if workDir, err := os.Getwd(); err == nil {
 			if _, err := watcher.StartGitWatcher(eventHub, workDir); err != nil && logger != nil {

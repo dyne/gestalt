@@ -105,6 +105,7 @@ func (h *EventsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	allowed := map[string]struct{}{
 		watcher.EventTypeFileChanged:      {},
 		watcher.EventTypeGitBranchChanged: {},
+		watcher.EventTypeWatchError:       {},
 	}
 
 	filter := newEventFilter(allowed)

@@ -14,7 +14,10 @@
   let updateNotice = false
   let updateNoticeTimer = null
   let eventUnsubscribe = null
+  let watchErrorUnsubscribe = null
   let statusUnsubscribe = null
+  let watchUnavailable = false
+  let connectionStatus = 'disconnected'
 
   const fallbackIntervalMs = 10000
 
@@ -86,10 +89,19 @@
       if (payload.path !== 'PLAN.org' && !payload.path.endsWith('/PLAN.org')) {
         return
       }
+      watchUnavailable = false
+      if (connectionStatus === 'connected') {
+        stopFallbackPolling()
+      }
       loadPlan({ silent: true, notify: true })
     })
+    watchErrorUnsubscribe = subscribeEvents('watch_error', () => {
+      watchUnavailable = true
+      startFallbackPolling()
+    })
     statusUnsubscribe = eventConnectionStatus.subscribe((value) => {
-      if (value === 'connected') {
+      connectionStatus = value
+      if (value === 'connected' && !watchUnavailable) {
         stopFallbackPolling()
       } else {
         startFallbackPolling()
@@ -106,6 +118,10 @@
     if (eventUnsubscribe) {
       eventUnsubscribe()
       eventUnsubscribe = null
+    }
+    if (watchErrorUnsubscribe) {
+      watchErrorUnsubscribe()
+      watchErrorUnsubscribe = null
     }
     if (statusUnsubscribe) {
       statusUnsubscribe()

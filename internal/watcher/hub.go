@@ -10,6 +10,7 @@ import (
 const (
 	EventTypeFileChanged      = "file_changed"
 	EventTypeGitBranchChanged = "git_branch_changed"
+	EventTypeWatchError       = "watch_error"
 )
 
 // EventHub manages subscriptions and publishes higher-level events.

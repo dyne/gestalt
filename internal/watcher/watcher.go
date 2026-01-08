@@ -15,6 +15,8 @@ const (
 	defaultDebounce        = 100 * time.Millisecond
 	defaultMaxWatches      = 100
 	defaultCleanupInterval = time.Minute
+	maxRestartAttempts     = 3
+	restartBaseDelay       = 200 * time.Millisecond
 )
 
 var ErrMaxWatchesExceeded = errors.New("max watches exceeded")
@@ -91,6 +93,7 @@ func NewWithOptions(options Options) (*Watcher, error) {
 		watchDirRecursive: options.WatchDir,
 		maxWatches:        maxWatches,
 		cleanupInterval:   cleanupInterval,
+		errorHandler:      options.ErrorHandler,
 	}
 
 	instance.startForwarder(watcher)
@@ -286,11 +289,59 @@ func (watcher *Watcher) handleError(err error) {
 	watcher.logWarn("watcher error", map[string]string{
 		"error": err.Error(),
 	})
-	if restartErr := watcher.restart(); restartErr != nil {
-		watcher.logWarn("watcher restart failed", map[string]string{
-			"error": restartErr.Error(),
-		})
+	watcher.scheduleRestart(err)
+}
+
+func (watcher *Watcher) scheduleRestart(err error) {
+	if watcher == nil {
+		return
 	}
+	watcher.restartMutex.Lock()
+	if watcher.closed {
+		watcher.restartMutex.Unlock()
+		return
+	}
+	if watcher.restartTimer != nil {
+		watcher.restartMutex.Unlock()
+		return
+	}
+	if watcher.restartAttempts >= maxRestartAttempts {
+		watcher.restartMutex.Unlock()
+		watcher.notifyError(err)
+		return
+	}
+	delay := restartBaseDelay * time.Duration(1<<watcher.restartAttempts)
+	watcher.restartAttempts++
+	watcher.restartTimer = time.AfterFunc(delay, watcher.performRestart)
+	watcher.restartMutex.Unlock()
+}
+
+func (watcher *Watcher) performRestart() {
+	if watcher == nil {
+		return
+	}
+	restartErr := watcher.restart()
+
+	watcher.restartMutex.Lock()
+	watcher.restartTimer = nil
+	if restartErr == nil {
+		watcher.restartAttempts = 0
+		watcher.restartMutex.Unlock()
+		return
+	}
+	watcher.restartMutex.Unlock()
+
+	watcher.logWarn("watcher restart failed", map[string]string{
+		"error": restartErr.Error(),
+	})
+	watcher.scheduleRestart(restartErr)
+}
+
+func (watcher *Watcher) notifyError(err error) {
+	if watcher == nil || watcher.errorHandler == nil || err == nil {
+		return
+	}
+	watcher.errorHandler(err)
 }
 
 func (watcher *Watcher) restart() error {
@@ -410,6 +461,16 @@ func (watcher *Watcher) logWarn(message string, fields map[string]string) {
 		return
 	}
 	watcher.logger.Warn(message, fields)
+}
+
+// SetErrorHandler configures a callback for unrecoverable watcher failures.
+func (watcher *Watcher) SetErrorHandler(handler func(error)) {
+	if watcher == nil {
+		return
+	}
+	watcher.mutex.Lock()
+	watcher.errorHandler = handler
+	watcher.mutex.Unlock()
 }
 
 func (watcher *Watcher) logDebug(message, path string, activeCount int) {

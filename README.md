@@ -102,6 +102,11 @@ Gestalt uses `github.com/fsnotify/fsnotify` for filesystem events because it is
 the de-facto, cross-platform watcher (inotify/kqueue/ReadDirectoryChangesW),
 stable, widely used, and BSD 3-Clause licensed (compatible with AGPL).
 
+Failure handling: watcher errors are logged at warning level and retried with
+exponential backoff (up to 3 attempts). If watching remains unavailable, the
+server emits `watch_error` events and the UI falls back to polling with a toast
+("File watching unavailable").
+
 ## API endpoints
 
 API (development snapshot)

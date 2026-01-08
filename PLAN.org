@@ -59,7 +59,7 @@
    - Tests: Unit tests with mock filesystem (os.CreateTemp, write, remove)
    Done when: Watcher receives fsnotify events and dispatches to callbacks
 
-** TODO [#B] Add event hub for centralized event management
+** DONE [#B] Add event hub for centralized event management
    Why: Decouple watchers from WebSocket broadcasting
    Change:
    - Create internal/watcher/hub.go with EventHub struct

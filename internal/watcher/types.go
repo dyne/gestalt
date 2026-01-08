@@ -10,6 +10,7 @@ import (
 
 // Event represents a single filesystem change.
 type Event struct {
+	Type      string
 	Path      string
 	Op        fsnotify.Op
 	Timestamp time.Time

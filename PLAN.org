@@ -200,7 +200,7 @@
    Tests: Simulate watch failures (permissions, invalid paths)
    Done when: Watcher handles errors gracefully with fallback options
 
-** TODO [#C] Add integration tests for end-to-end event flow
+** DONE [#C] Add integration tests for end-to-end event flow
    Why: Verify complete flow from filesystem change to frontend update
    Change:
    - Create test: start server, connect WebSocket, modify watched file

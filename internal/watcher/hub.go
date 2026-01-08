@@ -202,3 +202,17 @@ func (hub *EventHub) Close() error {
 	})
 	return closeErr
 }
+
+// SubscriberCount reports the number of active subscriptions.
+func (hub *EventHub) SubscriberCount() int {
+	if hub == nil {
+		return 0
+	}
+	hub.mutex.Lock()
+	defer hub.mutex.Unlock()
+	count := 0
+	for _, listeners := range hub.subscribers {
+		count += len(listeners)
+	}
+	return count
+}

@@ -17,6 +17,7 @@ import (
 	"gestalt/internal/agent"
 	"gestalt/internal/logging"
 	"gestalt/internal/skill"
+	"gestalt/internal/temporal"
 )
 
 var ErrSessionNotFound = errors.New("terminal session not found")
@@ -39,6 +40,8 @@ type ManagerOptions struct {
 	Agents               map[string]agent.Agent
 	Skills               map[string]*skill.Skill
 	Logger               *logging.Logger
+	TemporalClient       temporal.WorkflowClient
+	TemporalEnabled      bool
 	SessionLogDir        string
 	InputHistoryDir      string
 	SessionRetentionDays int
@@ -60,6 +63,8 @@ type Manager struct {
 	agents          map[string]agent.Agent
 	skills          map[string]*skill.Skill
 	logger          *logging.Logger
+	temporalClient  temporal.WorkflowClient
+	temporalEnabled bool
 	sessionLogs     string
 	inputHistoryDir string
 	retentionDays   int
@@ -126,6 +131,13 @@ func NewManager(opts ManagerOptions) *Manager {
 		logger = logging.NewLoggerWithOutput(logging.NewLogBuffer(logging.DefaultBufferSize), logging.LevelInfo, nil)
 	}
 
+	temporalClient := opts.TemporalClient
+	temporalEnabled := opts.TemporalEnabled
+	if temporalEnabled && temporalClient == nil {
+		temporalEnabled = false
+		logger.Warn("temporal enabled without client", nil)
+	}
+
 	sessionLogs := strings.TrimSpace(opts.SessionLogDir)
 	inputHistoryDir := strings.TrimSpace(opts.InputHistoryDir)
 	retentionDays := opts.SessionRetentionDays
@@ -161,6 +173,8 @@ func NewManager(opts ManagerOptions) *Manager {
 		agents:          agents,
 		skills:          skills,
 		logger:          logger,
+		temporalClient:  temporalClient,
+		temporalEnabled: temporalEnabled,
 		sessionLogs:     sessionLogs,
 		inputHistoryDir: inputHistoryDir,
 		retentionDays:   retentionDays,
@@ -330,6 +344,16 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		fields["agent_id"] = request.AgentID
 	}
 	m.logger.Info("terminal created", fields)
+
+	if m.temporalEnabled && m.temporalClient != nil {
+		startError := session.StartWorkflow(m.temporalClient, "", "")
+		if startError != nil {
+			m.logger.Warn("temporal workflow start failed", map[string]string{
+				"terminal_id": id,
+				"error":       startError.Error(),
+			})
+		}
+	}
 
 	// Inject skill metadata and prompts if agent is configured
 	if profile != nil && (len(profile.Skills) > 0 || len(promptNames) > 0) {

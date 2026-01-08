@@ -1825,7 +1825,7 @@
    Tests: Unit tests for each activity; integration test with real Manager
    Done when: Activities connect workflow to terminal operations
 
-** WIP [#B] Extend Session to integrate with Temporal workflow
+** DONE [#B] Extend Session to integrate with Temporal workflow
    Why: Terminal sessions need to optionally participate in Temporal workflows
    Change:
    - Add WorkflowID and RunID fields to Session struct (optional, nil if not using Temporal)
@@ -1838,7 +1838,7 @@
    Tests: Unit tests for workflow integration; manual test with Temporal UI
    Done when: Sessions can optionally be managed by Temporal workflows
 
-** TODO [#B] Parse PLAN.org to extract current WIP tasks
+** WIP [#B] Parse PLAN.org to extract current WIP tasks
    Why: Agents need to know which L1/L2 they're working on to record in workflow
    Change:
    - Extend internal/plan/ package (or create if doesn't exist) with parser

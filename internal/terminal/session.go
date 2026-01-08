@@ -12,6 +12,10 @@ import (
 	"time"
 
 	"gestalt/internal/agent"
+	"gestalt/internal/temporal"
+	"gestalt/internal/temporal/workflows"
+
+	"go.temporal.io/sdk/client"
 )
 
 var ErrSessionClosed = errors.New("terminal session closed")
@@ -26,6 +30,8 @@ const (
 )
 
 const dsrFallbackDelay = 250 * time.Millisecond
+const temporalWorkflowStartTimeout = 5 * time.Second
+const temporalSignalTimeout = 5 * time.Second
 
 func (s SessionState) String() string {
 	switch s {
@@ -41,12 +47,14 @@ func (s SessionState) String() string {
 }
 
 type Session struct {
-	ID        string
-	Title     string
-	Role      string
-	CreatedAt time.Time
-	LLMType   string
-	LLMModel  string
+	ID            string
+	Title         string
+	Role          string
+	CreatedAt     time.Time
+	LLMType       string
+	LLMModel      string
+	WorkflowID    *string
+	WorkflowRunID *string
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -68,6 +76,9 @@ type Session struct {
 	closing  sync.Once
 	closeErr error
 	state    uint32
+
+	workflowClient temporal.WorkflowClient
+	workflowMutex  sync.RWMutex
 }
 
 type SessionInfo struct {
@@ -230,6 +241,113 @@ func (s *Session) GetInputHistory() []InputEntry {
 	return s.inputBuf.GetAll()
 }
 
+func (s *Session) StartWorkflow(temporalClient temporal.WorkflowClient, l1Task, l2Task string) error {
+	if s == nil {
+		return ErrSessionClosed
+	}
+	if temporalClient == nil {
+		return errors.New("temporal client is required")
+	}
+	s.workflowMutex.RLock()
+	workflowAlreadyStarted := s.WorkflowID != nil && s.WorkflowRunID != nil
+	s.workflowMutex.RUnlock()
+	if workflowAlreadyStarted {
+		return nil
+	}
+
+	workflowID := "session-" + s.ID
+	agentName := ""
+	agentShell := ""
+	if s.agent != nil {
+		agentName = s.agent.Name
+		agentShell = s.agent.Shell
+	}
+	request := workflows.SessionWorkflowRequest{
+		SessionID: s.ID,
+		AgentID:   agentName,
+		L1Task:    l1Task,
+		L2Task:    l2Task,
+		Shell:     agentShell,
+		StartTime: s.CreatedAt,
+	}
+	startOptions := client.StartWorkflowOptions{
+		ID:        workflowID,
+		TaskQueue: workflows.SessionTaskQueueName,
+	}
+
+	startContext, cancel := context.WithTimeout(context.Background(), temporalWorkflowStartTimeout)
+	defer cancel()
+
+	workflowRun, startError := temporalClient.ExecuteWorkflow(startContext, startOptions, workflows.SessionWorkflow, request)
+	if startError != nil {
+		return startError
+	}
+	if workflowRun == nil {
+		return errors.New("temporal workflow run unavailable")
+	}
+	runID := workflowRun.GetRunID()
+
+	s.workflowMutex.Lock()
+	if s.WorkflowID == nil && s.WorkflowRunID == nil {
+		s.workflowClient = temporalClient
+		s.WorkflowID = &workflowID
+		s.WorkflowRunID = &runID
+	}
+	s.workflowMutex.Unlock()
+
+	return nil
+}
+
+func (s *Session) SendBellSignal(contextText string) error {
+	bellSignal := workflows.BellSignal{
+		Timestamp: time.Now().UTC(),
+		Context:   contextText,
+	}
+	return s.sendWorkflowSignal(workflows.BellSignalName, bellSignal)
+}
+
+func (s *Session) UpdateTask(l1Task, l2Task string) error {
+	taskSignal := workflows.UpdateTaskSignal{
+		L1: l1Task,
+		L2: l2Task,
+	}
+	return s.sendWorkflowSignal(workflows.UpdateTaskSignalName, taskSignal)
+}
+
+func (s *Session) sendTerminateSignal(reason string) error {
+	terminateSignal := workflows.TerminateSignal{
+		Reason: reason,
+	}
+	return s.sendWorkflowSignal(workflows.TerminateSignalName, terminateSignal)
+}
+
+func (s *Session) sendWorkflowSignal(signalName string, payload interface{}) error {
+	if s == nil {
+		return ErrSessionClosed
+	}
+	temporalClient, workflowID, workflowRunID, ok := s.workflowIdentifiers()
+	if !ok {
+		return nil
+	}
+	signalContext, cancel := context.WithTimeout(context.Background(), temporalSignalTimeout)
+	defer cancel()
+	return temporalClient.SignalWorkflow(signalContext, workflowID, workflowRunID, signalName, payload)
+}
+
+func (s *Session) workflowIdentifiers() (temporal.WorkflowClient, string, string, bool) {
+	s.workflowMutex.RLock()
+	defer s.workflowMutex.RUnlock()
+
+	if s.workflowClient == nil || s.WorkflowID == nil {
+		return nil, "", "", false
+	}
+	runID := ""
+	if s.WorkflowRunID != nil {
+		runID = *s.WorkflowRunID
+	}
+	return s.workflowClient, *s.WorkflowID, runID, true
+}
+
 func (s *Session) HistoryLines(maxLines int) ([]string, error) {
 	bufferLines := s.OutputLines()
 	if s.logger == nil {
@@ -252,12 +370,14 @@ func (s *Session) HistoryLines(maxLines int) ([]string, error) {
 func (s *Session) Close() error {
 	s.closing.Do(func() {
 		s.setState(sessionStateClosing)
+		terminateError := s.sendTerminateSignal("session closed")
 		s.clearDSRFallback()
 		if s.cancel != nil {
 			s.cancel()
 		}
 		close(s.input)
-		s.closeErr = s.closeResources()
+		closeError := s.closeResources()
+		s.closeErr = errors.Join(closeError, terminateError)
 		s.setState(sessionStateClosed)
 	})
 

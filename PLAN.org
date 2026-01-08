@@ -213,7 +213,7 @@
    Tests: go test ./cmd/gestalt ./cmd/gestalt-send
    Done when: Flag parsing has comprehensive test coverage
 
-** TODO [#B] Update README with CLI flag documentation
+** DONE [#B] Update README with CLI flag documentation
    Why: Users need to know about new CLI flag interface
    Change:
    - Add "Command-Line Interface" section to README.md

@@ -78,7 +78,54 @@ token. To generate a random token:
 - macOS/Linux: `export GESTALT_TOKEN=$(openssl rand -hex 16)`
 - Windows PowerShell `$env:GESTALT_TOKEN = -join ((48..57)+(97..102) | Get-Random -Count 32 | % {[char]$_})`
 
+## Command-Line Interface
+
+CLI flags override environment variables, and environment variables override
+defaults. Use `--help` to see the full flag list.
+
+### gestalt
+
+Flags:
+- `--port PORT` (env: GESTALT_PORT, default: 8080)
+- `--shell SHELL` (env: GESTALT_SHELL, default: system shell)
+- `--token TOKEN` (env: GESTALT_TOKEN, default: none)
+- `--session-persist` (env: GESTALT_SESSION_PERSIST, default: true)
+- `--session-dir DIR` (env: GESTALT_SESSION_DIR, default: `.gestalt/sessions`)
+- `--session-buffer-lines N` (env: GESTALT_SESSION_BUFFER_LINES, default: 1000)
+- `--session-retention-days DAYS` (env: GESTALT_SESSION_RETENTION_DAYS, default: 7)
+- `--input-history-persist` (env: GESTALT_INPUT_HISTORY_PERSIST, default: true)
+- `--input-history-dir DIR` (env: GESTALT_INPUT_HISTORY_DIR, default: `.gestalt/input-history`)
+- `--max-watches N` (env: GESTALT_MAX_WATCHES, default: 100)
+- `--verbose` / `--quiet`
+- `--help` / `--version`
+
+Subcommands:
+- `gestalt validate-skill PATH`
+- `gestalt completion bash|zsh`
+
+Examples:
+- `gestalt --port 9090 --token abc123`
+- `gestalt --session-persist=false --input-history-persist=false`
+
+### gestalt-send
+
+Flags:
+- `--url URL` (env: GESTALT_URL, default: http://localhost:8080)
+- `--token TOKEN` (env: GESTALT_TOKEN, default: none)
+- `--start` (auto-start agent if not running)
+- `--verbose` / `--debug`
+- `--help` / `--version`
+
+Examples:
+- `cat file.txt | gestalt-send copilot`
+- `gestalt-send --url http://remote:8080 --token abc123 agent-id`
+
 ## Configuration
+
+Configuration can be provided via CLI flags or environment variables. CLI flags
+override environment variables, and environment variables override defaults.
+Run `gestalt --help` or `gestalt-send --help` for the full list. Environment
+variables remain supported for backward compatibility.
 
 Environment variables:
 - `GESTALT_PORT` (default 8080)
@@ -88,6 +135,7 @@ Environment variables:
 - `GESTALT_SESSION_DIR` (default `.gestalt/sessions`)
 - `GESTALT_SESSION_BUFFER_LINES` (default 1000)
 - `GESTALT_SESSION_RETENTION_DAYS` (default 7)
+- `GESTALT_INPUT_HISTORY_PERSIST` (default true)
 - `GESTALT_MAX_WATCHES` (default 100)
 - `GESTALT_INPUT_HISTORY_DIR` (default `.gestalt/input-history`)
 

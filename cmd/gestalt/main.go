@@ -20,6 +20,7 @@ import (
 	"gestalt/internal/logging"
 	"gestalt/internal/skill"
 	"gestalt/internal/terminal"
+	"gestalt/internal/version"
 	"gestalt/internal/watcher"
 
 	"github.com/fsnotify/fsnotify"
@@ -138,7 +139,8 @@ func main() {
 	}
 
 	logger.Info("gestalt listening", map[string]string{
-		"addr": server.Addr,
+		"addr":    server.Addr,
+		"version": version.Version,
 	})
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Error("http server stopped", map[string]string{

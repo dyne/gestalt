@@ -696,7 +696,7 @@
    Tests: Push feat: or fix: commit to main, verify tag and release created
    Done when: GitHub Action automatically tags and releases on conventional commits
 
-** TODO [#B] Pass version to Go backend at build time
+** DONE [#B] Pass version to Go backend at build time
    Why: Backend needs to know its version for /api/status and logging
    Change:
    - Add internal/version/version.go with var Version string

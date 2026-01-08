@@ -17,6 +17,7 @@ import (
 	"gestalt/internal/logging"
 	"gestalt/internal/skill"
 	"gestalt/internal/terminal"
+	"gestalt/internal/version"
 )
 
 type fakePty struct {
@@ -111,6 +112,9 @@ func TestStatusHandlerReturnsCount(t *testing.T) {
 	}
 	if payload.WorkingDir != expectedDir {
 		t.Fatalf("expected working dir %q, got %q", expectedDir, payload.WorkingDir)
+	}
+	if payload.Version != version.Version {
+		t.Fatalf("expected version %q, got %q", version.Version, payload.Version)
 	}
 }
 

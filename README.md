@@ -35,6 +35,34 @@ cd frontend
 npm run build
 ```
 
+## Versioning
+
+Gestalt follows conventional commits and semantic versioning. Tags are the
+source of truth and use the `vX.Y.Z` format.
+
+Rules:
+- `feat:` bumps minor (X.Y+1.Z)
+- `fix:` bumps patch (X.Y.Z+1)
+- `BREAKING CHANGE:` (or `!` in the header) bumps major (X+1.0.0)
+
+Examples:
+- `feat: add terminal history` → minor bump
+- `fix: resolve connection bug` → patch bump
+
+Automation:
+- Push a conventional commit to `main` and GitHub Actions tags a release
+  (e.g., `feat:` → `v1.1.0`).
+- Initial release version is `v1.0.0`.
+
+Build-time injection:
+- Backend: `-ldflags "-X gestalt/internal/version.Version=$VERSION"`
+- Frontend: Vite define uses the `VERSION` environment variable.
+
+Local build with an explicit version:
+```
+make VERSION=1.2.3
+```
+
 ### Token authentication
 
 If you don’t set GESTALT_TOKEN, auth is disabled.

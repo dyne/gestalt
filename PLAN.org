@@ -1838,7 +1838,7 @@
    Tests: Unit tests for workflow integration; manual test with Temporal UI
    Done when: Sessions can optionally be managed by Temporal workflows
 
-** WIP [#B] Parse PLAN.org to extract current WIP tasks
+** DONE [#B] Parse PLAN.org to extract current WIP tasks
    Why: Agents need to know which L1/L2 they're working on to record in workflow
    Change:
    - Extend internal/plan/ package (or create if doesn't exist) with parser
@@ -1852,7 +1852,7 @@
    Tests: Unit tests with sample PLAN.org content; various WIP scenarios
    Done when: Can extract current WIP L1/L2 from PLAN.org
 
-** TODO [#B] Wire terminal bell detection to workflow signals
+** WIP [#B] Wire terminal bell detection to workflow signals
    Why: Terminal bells must trigger workflow pause for HITL
    Change:
    - Frontend already handles xterm.js onBell event

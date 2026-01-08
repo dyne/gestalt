@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"gestalt/internal/logging"
+	"gestalt/internal/plan"
 	"gestalt/internal/terminal"
 	"gestalt/internal/watcher"
 )
@@ -12,10 +13,13 @@ import (
 func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken string, staticDir string, frontendFS fs.FS, logger *logging.Logger, eventHub *watcher.EventHub) {
 	// Git info is read once on boot to avoid polling; refresh can be added later.
 	gitOrigin, gitBranch := loadGitInfo()
+	planPath := "PLAN.org"
+	planCache := plan.NewCache(planPath, logger)
 	rest := &RestHandler{
 		Manager:   manager,
 		Logger:    logger,
-		PlanPath:  "PLAN.org",
+		PlanPath:  planPath,
+		PlanCache: planCache,
 		GitOrigin: gitOrigin,
 		GitBranch: gitBranch,
 	}
@@ -26,6 +30,19 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 			}
 			rest.setGitBranch(event.Path)
 		})
+		if planCache != nil {
+			eventHub.Subscribe(watcher.EventTypeFileChanged, func(event watcher.Event) {
+				if !planCache.MatchesPath(event.Path) {
+					return
+				}
+				if _, err := planCache.Reload(); err != nil && logger != nil {
+					logger.Warn("plan cache reload failed", map[string]string{
+						"path":  event.Path,
+						"error": err.Error(),
+					})
+				}
+			})
+		}
 	}
 
 	mux.Handle("/ws/terminal/", &TerminalHandler{
@@ -50,6 +67,7 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 	mux.Handle("/api/terminals", loggingMiddleware(logger, restHandler(authToken, rest.handleTerminals)))
 	mux.Handle("/api/terminals/", loggingMiddleware(logger, restHandler(authToken, rest.handleTerminal)))
 	mux.Handle("/api/plan", loggingMiddleware(logger, jsonErrorMiddleware(rest.handlePlan)))
+	mux.Handle("/api/plan/current", loggingMiddleware(logger, jsonErrorMiddleware(rest.handlePlanCurrent)))
 
 	if staticDir != "" {
 		mux.Handle("/", NewSPAHandler(staticDir))

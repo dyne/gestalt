@@ -15,6 +15,7 @@ import (
 
 	"gestalt/internal/agent"
 	"gestalt/internal/logging"
+	"gestalt/internal/plan"
 	"gestalt/internal/skill"
 	"gestalt/internal/terminal"
 	"gestalt/internal/version"
@@ -1040,6 +1041,56 @@ func TestPlanEndpointETagNotModified(t *testing.T) {
 	}
 	if res.Body.Len() != 0 {
 		t.Fatalf("expected empty body on 304 response")
+	}
+}
+
+func TestPlanCurrentEndpointReturnsWip(t *testing.T) {
+	dir := t.TempDir()
+	planPath := filepath.Join(dir, "PLAN.org")
+	content := "* WIP [#A] Feature One\n** WIP [#B] Step One\n"
+	if err := os.WriteFile(planPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write plan file: %v", err)
+	}
+
+	planCache := plan.NewCache(planPath, nil)
+	handler := &RestHandler{PlanPath: planPath, PlanCache: planCache}
+	req := httptest.NewRequest(http.MethodGet, "/api/plan/current", nil)
+	res := httptest.NewRecorder()
+
+	jsonErrorMiddleware(handler.handlePlanCurrent)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var payload planCurrentResponse
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.L1 != "Feature One" || payload.L2 != "Step One" {
+		t.Fatalf("unexpected plan current payload: %#v", payload)
+	}
+}
+
+func TestPlanCurrentEndpointMissingFileReturnsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	planPath := filepath.Join(dir, "missing.org")
+
+	planCache := plan.NewCache(planPath, nil)
+	handler := &RestHandler{PlanPath: planPath, PlanCache: planCache}
+	req := httptest.NewRequest(http.MethodGet, "/api/plan/current", nil)
+	res := httptest.NewRecorder()
+
+	jsonErrorMiddleware(handler.handlePlanCurrent)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var payload planCurrentResponse
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.L1 != "" || payload.L2 != "" {
+		t.Fatalf("expected empty payload, got %#v", payload)
 	}
 }
 

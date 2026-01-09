@@ -49,6 +49,6 @@ describe('Dashboard', () => {
     const button = await findByText('Codex')
     await fireEvent.click(button)
 
-    expect(onCreate).toHaveBeenCalledWith('codex')
+    expect(onCreate).toHaveBeenCalledWith('codex', false)
   })
 })

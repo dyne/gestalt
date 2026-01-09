@@ -73,11 +73,19 @@ type Manager struct {
 }
 
 type sessionCreateRequest struct {
-	SessionID string
-	AgentID   string
-	Role      string
-	Title     string
-	Shell     string
+	SessionID   string
+	AgentID     string
+	Role        string
+	Title       string
+	Shell       string
+	UseWorkflow *bool
+}
+
+type CreateOptions struct {
+	AgentID     string
+	Role        string
+	Title       string
+	UseWorkflow *bool
 }
 
 const (
@@ -92,10 +100,11 @@ const (
 var onAirTimeout = 5 * time.Second
 
 type AgentInfo struct {
-	ID       string
-	Name     string
-	LLMType  string
-	LLMModel string
+	ID          string
+	Name        string
+	LLMType     string
+	LLMModel    string
+	UseWorkflow bool
 }
 
 type SkillMetadata struct {
@@ -193,6 +202,15 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 	})
 }
 
+func (m *Manager) CreateWithOptions(options CreateOptions) (*Session, error) {
+	return m.createSession(sessionCreateRequest{
+		AgentID:     options.AgentID,
+		Role:        options.Role,
+		Title:       options.Title,
+		UseWorkflow: options.UseWorkflow,
+	})
+}
+
 func (m *Manager) CreateWithID(sessionID, agentID, role, title, shell string) (*Session, error) {
 	trimmedID := strings.TrimSpace(sessionID)
 	if trimmedID == "" {
@@ -252,6 +270,13 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		if strings.TrimSpace(agentProfile.OnAirString) != "" {
 			onAirString = agentProfile.OnAirString
 		}
+	}
+
+	useWorkflow := false
+	if request.UseWorkflow != nil {
+		useWorkflow = *request.UseWorkflow
+	} else if profile != nil {
+		useWorkflow = profile.UseWorkflow
 	}
 
 	if agentName != "" {
@@ -345,7 +370,7 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 	}
 	m.logger.Info("terminal created", fields)
 
-	if m.temporalEnabled && m.temporalClient != nil {
+	if useWorkflow && m.temporalEnabled && m.temporalClient != nil {
 		startError := session.StartWorkflow(m.temporalClient, "", "")
 		if startError != nil {
 			m.logger.Warn("temporal workflow start failed", map[string]string{
@@ -627,10 +652,11 @@ func (m *Manager) ListAgents() []AgentInfo {
 	infos := make([]AgentInfo, 0, len(m.agents))
 	for id, profile := range m.agents {
 		infos = append(infos, AgentInfo{
-			ID:       id,
-			Name:     profile.Name,
-			LLMType:  profile.LLMType,
-			LLMModel: profile.LLMModel,
+			ID:          id,
+			Name:        profile.Name,
+			LLMType:     profile.LLMType,
+			LLMModel:    profile.LLMModel,
+			UseWorkflow: profile.UseWorkflow,
 		})
 	}
 	m.mu.RUnlock()

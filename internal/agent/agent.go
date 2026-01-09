@@ -54,6 +54,7 @@ type Agent struct {
 	Prompts     PromptList `json:"prompt,omitempty"`
 	Skills      []string   `json:"skills,omitempty"`
 	OnAirString string     `json:"onair_string,omitempty"`
+	UseWorkflow bool       `json:"use_workflow,omitempty"`
 	LLMType     string     `json:"llm_type"`
 	LLMModel    string     `json:"llm_model"`
 }

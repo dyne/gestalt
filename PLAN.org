@@ -1972,7 +1972,7 @@
    Tests: None (documentation only)
    Done when: Temporal integration is fully documented
 
-** WIP [#C] Add workflow-managed session creation option
+** DONE [#C] Add workflow-managed session creation option
    Why: Users should choose whether to use Temporal workflows
    Change:
    - Add "workflow" boolean to POST /api/terminals request
@@ -1984,7 +1984,7 @@
    Tests: Create both workflow and non-workflow sessions, verify both work
    Done when: Users can choose workflow mode per session
 
-** TODO [#B] Implement future handoff capability (deferred)
+** WIP [#B] Implement future handoff capability (deferred)
    Why: Bell stops should eventually trigger agent-to-agent handoffs
    Change:
    - Design handoff protocol: paused agent → new agent receives context + task

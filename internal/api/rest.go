@@ -129,12 +129,13 @@ type errorResponse struct {
 }
 
 type agentSummary struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	LLMType    string `json:"llm_type"`
-	LLMModel   string `json:"llm_model"`
-	TerminalID string `json:"terminal_id"`
-	Running    bool   `json:"running"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	LLMType     string `json:"llm_type"`
+	LLMModel    string `json:"llm_model"`
+	TerminalID  string `json:"terminal_id"`
+	Running     bool   `json:"running"`
+	UseWorkflow bool   `json:"use_workflow"`
 }
 
 type agentInputResponse struct {
@@ -178,9 +179,10 @@ type clientLogRequest struct {
 }
 
 type createTerminalRequest struct {
-	Title string `json:"title"`
-	Role  string `json:"role"`
-	Agent string `json:"agent"`
+	Title    string `json:"title"`
+	Role     string `json:"role"`
+	Agent    string `json:"agent"`
+	Workflow *bool  `json:"workflow,omitempty"`
 }
 
 type workflowResumeRequest struct {
@@ -338,12 +340,13 @@ func (h *RestHandler) handleAgents(w http.ResponseWriter, r *http.Request) *apiE
 	for _, info := range infos {
 		terminalID, running := h.Manager.GetAgentTerminal(info.Name)
 		response = append(response, agentSummary{
-			ID:         info.ID,
-			Name:       info.Name,
-			LLMType:    info.LLMType,
-			LLMModel:   info.LLMModel,
-			TerminalID: terminalID,
-			Running:    running,
+			ID:          info.ID,
+			Name:        info.Name,
+			LLMType:     info.LLMType,
+			LLMModel:    info.LLMModel,
+			TerminalID:  terminalID,
+			Running:     running,
+			UseWorkflow: info.UseWorkflow,
 		})
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -834,7 +837,12 @@ func (h *RestHandler) createTerminal(w http.ResponseWriter, r *http.Request) *ap
 		return err
 	}
 
-	session, createErr := h.Manager.Create(request.Agent, request.Role, request.Title)
+	session, createErr := h.Manager.CreateWithOptions(terminal.CreateOptions{
+		AgentID:     request.Agent,
+		Role:        request.Role,
+		Title:       request.Title,
+		UseWorkflow: request.Workflow,
+	})
 	if createErr != nil {
 		if errors.Is(createErr, terminal.ErrAgentNotFound) {
 			return &apiError{Status: http.StatusBadRequest, Message: "unknown agent"}

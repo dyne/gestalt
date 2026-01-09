@@ -73,12 +73,16 @@
     }
   }
 
-  const createTerminal = async (agentId = '') => {
+  const createTerminal = async (agentId = '', useWorkflow) => {
     error = ''
     try {
+      const payload = agentId ? { agent: agentId } : {}
+      if (typeof useWorkflow === 'boolean') {
+        payload.workflow = useWorkflow
+      }
       const response = await apiFetch('/api/terminals', {
         method: 'POST',
-        body: JSON.stringify(agentId ? { agent: agentId } : {}),
+        body: JSON.stringify(payload),
       })
       const created = await response.json()
       terminals = [...terminals, created]

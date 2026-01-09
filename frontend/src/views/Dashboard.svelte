@@ -19,6 +19,7 @@
   let agentSkills = {}
   let agentSkillsLoading = false
   let agentSkillsError = ''
+  let agentWorkflow = {}
   let logs = []
   let orderedLogs = []
   let visibleLogs = []
@@ -45,7 +46,11 @@
     actionPending = true
     localError = ''
     try {
-      await onCreate(agentId)
+      const useWorkflow =
+        agentId && typeof agentWorkflow[agentId] === 'boolean'
+          ? agentWorkflow[agentId]
+          : undefined
+      await onCreate(agentId, useWorkflow)
       await loadAgents()
     } catch (err) {
       localError = err?.message || 'Failed to create terminal.'
@@ -77,6 +82,7 @@
     try {
       const response = await apiFetch('/api/agents')
       agents = await response.json()
+      syncAgentWorkflow(agents)
       await loadAgentSkills(agents)
     } catch (err) {
       agentsError = err?.message || 'Failed to load agents.'
@@ -111,6 +117,20 @@
     } finally {
       agentSkillsLoading = false
     }
+  }
+
+  const syncAgentWorkflow = (agentList) => {
+    const next = {}
+    if (agentList && agentList.length > 0) {
+      agentList.forEach((agent) => {
+        if (typeof agentWorkflow[agent.id] === 'boolean') {
+          next[agent.id] = agentWorkflow[agent.id]
+        } else {
+          next[agent.id] = Boolean(agent.use_workflow)
+        }
+      })
+    }
+    agentWorkflow = next
   }
 
   const formatLogTime = (value) => {
@@ -238,27 +258,37 @@
     {:else}
       <div class="agent-grid">
         {#each agents as agent}
-          <button
-            class="agent-button"
-            class:agent-button--running={agent.running}
-            class:agent-button--stopped={!agent.running}
-            on:click={() =>
-              agent.running ? stopTerminal(agent.terminal_id) : createTerminal(agent.id)
-            }
-            disabled={actionPending || loading}
-          >
-            <span class="agent-name">{agent.name}</span>
-            <span class="agent-action">{agent.running ? 'Stop' : 'Start'}</span>
-            {#if agentSkillsLoading}
-              <span class="agent-skills muted">Loading skills…</span>
-            {:else if agentSkillsError}
-              <span class="agent-skills error">Skills unavailable</span>
-            {:else if (agentSkills[agent.id] || []).length === 0}
-              <span class="agent-skills muted">No skills assigned</span>
-            {:else}
-              <span class="agent-skills">{agentSkills[agent.id].join(', ')}</span>
-            {/if}
-          </button>
+          <div class="agent-card">
+            <button
+              class="agent-button"
+              class:agent-button--running={agent.running}
+              class:agent-button--stopped={!agent.running}
+              on:click={() =>
+                agent.running ? stopTerminal(agent.terminal_id) : createTerminal(agent.id)
+              }
+              disabled={actionPending || loading}
+            >
+              <span class="agent-name">{agent.name}</span>
+              <span class="agent-action">{agent.running ? 'Stop' : 'Start'}</span>
+              {#if agentSkillsLoading}
+                <span class="agent-skills muted">Loading skills…</span>
+              {:else if agentSkillsError}
+                <span class="agent-skills error">Skills unavailable</span>
+              {:else if (agentSkills[agent.id] || []).length === 0}
+                <span class="agent-skills muted">No skills assigned</span>
+              {:else}
+                <span class="agent-skills">{agentSkills[agent.id].join(', ')}</span>
+              {/if}
+            </button>
+            <label class="agent-toggle">
+              <input
+                type="checkbox"
+                bind:checked={agentWorkflow[agent.id]}
+                disabled={actionPending || loading}
+              />
+              <span>Enable workflow tracking</span>
+            </label>
+          </div>
         {/each}
       </div>
     {/if}
@@ -542,6 +572,12 @@
     gap: 0.75rem;
   }
 
+  .agent-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
   .agent-button {
     border: 1px solid rgba(20, 20, 20, 0.2);
     border-radius: 14px;
@@ -555,6 +591,21 @@
     cursor: pointer;
     transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease,
       background 160ms ease, border-color 160ms ease;
+    width: 100%;
+  }
+
+  .agent-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.65rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #6c6860;
+  }
+
+  .agent-toggle input {
+    margin: 0;
   }
 
   .agent-button--running {

@@ -2007,6 +2007,15 @@
    Tests: Manual run; verify temporal files created under .gestalt/temporal and server stops on exit
    Done when: gestalt starts/stops Temporal dev server and persists data under .gestalt/temporal
 
+** [#B] Default workflow tracking on
+   Why: All sessions should be workflow-managed unless explicitly disabled
+   Change:
+   - Default workflow tracking to enabled when not specified
+   - Keep API `workflow=false` and agent `use_workflow=false` as overrides
+   - Keep GUI toggle; default to enabled when unspecified
+   Tests: Start agent/terminal without options and confirm workflow appears; test explicit disable
+   Done when: Unspecified sessions start workflows, with explicit disables honored
+
 * TODO [#B] Enhanced input UX with multiline input box and command history
   Goal: Replace direct PTY keyboard input with a dedicated multiline input box at the bottom of agent pages, featuring browsable command history, future-proof for assisted input features, and independent clipboard handling.
   Notes:

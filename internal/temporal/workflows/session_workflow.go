@@ -3,6 +3,8 @@ package workflows
 import (
 	"time"
 
+	"gestalt/internal/metrics"
+
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 )
@@ -97,14 +99,24 @@ type TerminateSignal struct {
 	Reason string
 }
 
-func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRequest) (SessionWorkflowResult, error) {
+func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRequest) (result SessionWorkflowResult, err error) {
+	metrics.Default.IncWorkflowStarted()
+	defer func() {
+		if err != nil {
+			metrics.Default.IncWorkflowFailed()
+		} else {
+			metrics.Default.IncWorkflowCompleted()
+		}
+	}()
+
 	spawnContext := workflow.WithActivityOptions(workflowContext, workflow.ActivityOptions{
 		StartToCloseTimeout: SpawnTerminalTimeout,
 		HeartbeatTimeout:    DefaultActivityHeartbeat,
 		RetryPolicy:         defaultActivityRetryPolicy(),
 	})
-	if err := workflow.ExecuteActivity(spawnContext, SpawnTerminalActivityName, request.SessionID, request.Shell).Get(spawnContext, nil); err != nil {
-		return SessionWorkflowResult{}, err
+	if activityErr := workflow.ExecuteActivity(spawnContext, SpawnTerminalActivityName, request.SessionID, request.Shell).Get(spawnContext, nil); activityErr != nil {
+		err = activityErr
+		return SessionWorkflowResult{}, activityErr
 	}
 
 	state := SessionWorkflowState{
@@ -130,6 +142,7 @@ func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRe
 		return state, nil
 	})
 	if queryError != nil {
+		err = queryError
 		return SessionWorkflowResult{}, queryError
 	}
 
@@ -161,8 +174,8 @@ func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRe
 			L1:        state.CurrentL1,
 			L2:        state.CurrentL2,
 		})
-		if err := workflow.ExecuteActivity(activityContext, UpdateTaskActivityName, request.SessionID, signal.L1, signal.L2).Get(activityContext, nil); err != nil {
-			logger.Warn("update task activity failed", "error", err)
+		if activityErr := workflow.ExecuteActivity(activityContext, UpdateTaskActivityName, request.SessionID, signal.L1, signal.L2).Get(activityContext, nil); activityErr != nil {
+			logger.Warn("update task activity failed", "error", activityErr)
 		}
 		eventCount++
 	})
@@ -177,8 +190,8 @@ func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRe
 		contextText := signal.Context
 		if contextText == "" {
 			var output string
-			if err := workflow.ExecuteActivity(readContext, GetOutputActivityName, request.SessionID).Get(readContext, &output); err != nil {
-				logger.Warn("get output activity failed", "error", err)
+			if activityErr := workflow.ExecuteActivity(readContext, GetOutputActivityName, request.SessionID).Get(readContext, &output); activityErr != nil {
+				logger.Warn("get output activity failed", "error", activityErr)
 			} else {
 				contextText = output
 			}
@@ -187,10 +200,11 @@ func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRe
 			Timestamp: timestamp,
 			Context:   contextText,
 		})
-		if err := workflow.ExecuteActivity(activityContext, RecordBellActivityName, request.SessionID, timestamp, contextText).Get(activityContext, nil); err != nil {
-			logger.Warn("record bell activity failed", "error", err)
+		if activityErr := workflow.ExecuteActivity(activityContext, RecordBellActivityName, request.SessionID, timestamp, contextText).Get(activityContext, nil); activityErr != nil {
+			logger.Warn("record bell activity failed", "error", activityErr)
 		}
 		state.Status = SessionStatusPaused
+		metrics.Default.IncWorkflowPaused()
 		eventCount++
 	})
 
@@ -220,12 +234,13 @@ func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRe
 		selector.Select(workflowContext)
 	}
 
-	return SessionWorkflowResult{
+	result = SessionWorkflowResult{
 		SessionID:   state.SessionID,
 		EndTime:     workflow.Now(workflowContext),
 		FinalStatus: state.Status,
 		EventCount:  eventCount,
-	}, nil
+	}
+	return result, nil
 }
 
 func defaultActivityRetryPolicy() *temporal.RetryPolicy {

@@ -278,6 +278,24 @@ func TestStatusHandlerReturnsCount(t *testing.T) {
 	}
 }
 
+func TestMetricsEndpointReturnsText(t *testing.T) {
+	handler := &RestHandler{}
+	req := httptest.NewRequest(http.MethodGet, "/api/metrics", nil)
+	res := httptest.NewRecorder()
+
+	restHandler("", handler.handleMetrics)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+	if contentType := res.Header().Get("Content-Type"); !strings.Contains(contentType, "text/plain") {
+		t.Fatalf("unexpected content type: %s", contentType)
+	}
+	body := res.Body.String()
+	if !strings.Contains(body, "gestalt_workflows_started_total") {
+		t.Fatalf("expected workflow metrics, got %q", body)
+	}
+}
+
 func TestWorkflowsEndpointReturnsSummary(t *testing.T) {
 	factory := &fakeFactory{}
 	temporalClient := &fakeWorkflowQueryClient{

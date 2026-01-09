@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"gestalt/internal/logging"
+	"gestalt/internal/metrics"
 	"gestalt/internal/plan"
 	"gestalt/internal/temporal"
 	"gestalt/internal/temporal/workflows"
@@ -230,6 +231,17 @@ func (h *RestHandler) handleStatus(w http.ResponseWriter, r *http.Request) *apiE
 	}
 
 	writeJSON(w, http.StatusOK, response)
+	return nil
+}
+
+func (h *RestHandler) handleMetrics(w http.ResponseWriter, r *http.Request) *apiError {
+	if r.Method != http.MethodGet {
+		return methodNotAllowed(w, "GET")
+	}
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	if err := metrics.Default.WritePrometheus(w); err != nil {
+		return &apiError{Status: http.StatusInternalServerError, Message: "failed to write metrics"}
+	}
 	return nil
 }
 

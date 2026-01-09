@@ -42,6 +42,9 @@ Timeouts and retries (defaults):
 - Activity timeouts: spawn 30s, output read 5s, default 10s (heartbeat 10s)
 - Retry policy: exponential backoff, max 5 attempts
 
+Metrics:
+- `GET /api/metrics` exposes Prometheus metrics for workflows and activities.
+
 ## Testing
 
 Backend:

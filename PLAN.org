@@ -1946,7 +1946,7 @@
    Tests: Test timeout scenarios; verify retries work correctly
    Done when: Workflows have production-ready error handling
 
-** WIP [#C] Add workflow metrics and monitoring
+** DONE [#C] Add workflow metrics and monitoring
    Why: Operators need visibility into workflow health
    Change:
    - Add Prometheus metrics for workflows: started, completed, failed, paused
@@ -1958,7 +1958,7 @@
    Tests: Start workflows, verify metrics appear in /api/metrics
    Done when: Workflow metrics are exposed and documented
 
-** TODO [#C] Document Temporal integration
+** WIP [#C] Document Temporal integration
    Why: Users and contributors need to understand workflow system
    Change:
    - Add "Temporal Workflows" section to README.md

@@ -1745,7 +1745,7 @@
    Done when: README clearly documents versioning workflow and conventions
 
 
-* WIP [#A] Temporal workflow integration for HITL session lifecycle
+* DONE [#A] Temporal workflow integration for HITL session lifecycle
   Goal: Integrate Temporal.io workflows to manage durable, semi-interactive agent sessions with human-in-the-loop (HITL) coordination, tracking agent work phases (start: L1/L2 plan tasks) and stops (terminal bells requiring user attention).
   Notes:
   - Core Gestalt functionality: agents record start (which PLAN.org L1/L2 they're working on) and stop (terminal bell signals)
@@ -1765,7 +1765,7 @@
   Date: 2025-12-31
   Ref: https://github.com/dyne/gestalt/issues/4
 
-** DONE [#B] Setup Temporal development environment
+** [#B] Setup Temporal development environment
    Why: Need Temporal server running locally for development and testing
    Change:
    - Add Temporal CLI to development dependencies (temporalio/cli)
@@ -1779,7 +1779,7 @@
    Tests: Start temporal dev server, verify UI accessible
    Done when: Temporal dev server runs locally and is documented
 
-** DONE [#B] Add Temporal Go SDK dependency
+** [#B] Add Temporal Go SDK dependency
    Why: Need Temporal client and worker SDK in Go backend
    Change:
    - Add dependency: go get go.temporal.io/sdk@latest
@@ -1793,7 +1793,7 @@
    Tests: go test ./...; verify Temporal client initializes
    Done when: Temporal SDK integrated and client connects to server
 
-** DONE [#B] Create session workflow definition
+** [#B] Create session workflow definition
    Why: Define workflow for terminal session lifecycle management
    Change:
    - Create internal/temporal/workflows/session_workflow.go
@@ -1810,7 +1810,7 @@
    Tests: Unit tests for workflow logic with mock activities
    Done when: SessionWorkflow defined with signals and queries
 
-** DONE [#B] Create session activities
+** [#B] Create session activities
    Why: Activities perform actual operations (spawn PTY, detect bells, read output)
    Change:
    - Create internal/temporal/activities/session_activities.go
@@ -1825,7 +1825,7 @@
    Tests: Unit tests for each activity; integration test with real Manager
    Done when: Activities connect workflow to terminal operations
 
-** DONE [#B] Extend Session to integrate with Temporal workflow
+** [#B] Extend Session to integrate with Temporal workflow
    Why: Terminal sessions need to optionally participate in Temporal workflows
    Change:
    - Add WorkflowID and RunID fields to Session struct (optional, nil if not using Temporal)
@@ -1838,7 +1838,7 @@
    Tests: Unit tests for workflow integration; manual test with Temporal UI
    Done when: Sessions can optionally be managed by Temporal workflows
 
-** DONE [#B] Parse PLAN.org to extract current WIP tasks
+** [#B] Parse PLAN.org to extract current WIP tasks
    Why: Agents need to know which L1/L2 they're working on to record in workflow
    Change:
    - Extend internal/plan/ package (or create if doesn't exist) with parser
@@ -1852,7 +1852,7 @@
    Tests: Unit tests with sample PLAN.org content; various WIP scenarios
    Done when: Can extract current WIP L1/L2 from PLAN.org
 
-** DONE [#B] Wire terminal bell detection to workflow signals
+** [#B] Wire terminal bell detection to workflow signals
    Why: Terminal bells must trigger workflow pause for HITL
    Change:
    - Frontend already handles xterm.js onBell event
@@ -1865,7 +1865,7 @@
    Tests: Manual test: trigger bell in terminal, verify workflow pauses
    Done when: Terminal bells propagate to Temporal workflows
 
-** DONE [#C] Create Temporal worker process
+** [#C] Create Temporal worker process
    Why: Workers execute workflow and activity code
    Change:
    - Create internal/temporal/worker.go with StartWorker(client, manager) error
@@ -1878,7 +1878,7 @@
    Tests: Start worker, verify workflows execute successfully
    Done when: Worker processes workflows and activities
 
-** DONE [#B] Create Flow tab for workflow visualization
+** [#B] Create Flow tab for workflow visualization
    Why: Users need dedicated UI to monitor all active workflows and HITL pauses
    Change:
    - Add "Flow" tab to TabBar (after Dashboard, Plan, Logs tabs)
@@ -1895,7 +1895,7 @@
    Tests: Manual test: create workflow sessions, verify Flow tab displays them
    Done when: Flow tab shows all workflow sessions with status and actions
 
-** DONE [#C] Add workflow detail components
+** [#C] Add workflow detail components
    Why: Flow tab needs detailed views for individual workflows
    Change:
    - Create frontend/src/components/WorkflowCard.svelte for list items
@@ -1909,7 +1909,7 @@
    Tests: Manual test: expand workflow details, verify all info displayed
    Done when: Flow tab has rich workflow detail views
 
-** DONE [#C] Implement resume actions for paused workflows
+** [#C] Implement resume actions for paused workflows
    Why: Users need to respond to bell-triggered pauses
    Change:
    - Add POST /api/terminals/:id/workflow/resume endpoint
@@ -1922,7 +1922,7 @@
    Tests: Manual test: pause via bell, resume via UI, verify workflow continues
    Done when: Users can resume paused workflows
 
-** DONE [#C] Add workflow event history API
+** [#C] Add workflow event history API
    Why: Users and admins need full audit trail of agent sessions
    Change:
    - Add GET /api/terminals/:id/workflow/history endpoint
@@ -1934,7 +1934,7 @@
    Tests: Manual test: run workflow, view history, verify all events recorded
    Done when: Full workflow history is accessible via API and UI
 
-** DONE [#C] Configure workflow retry and timeout policies
+** [#C] Configure workflow retry and timeout policies
    Why: Workflows need robust error handling and bounded execution
    Change:
    - Add workflow options: execution timeout (24 hours default)
@@ -1946,7 +1946,7 @@
    Tests: Test timeout scenarios; verify retries work correctly
    Done when: Workflows have production-ready error handling
 
-** DONE [#C] Add workflow metrics and monitoring
+** [#C] Add workflow metrics and monitoring
    Why: Operators need visibility into workflow health
    Change:
    - Add Prometheus metrics for workflows: started, completed, failed, paused
@@ -1958,7 +1958,7 @@
    Tests: Start workflows, verify metrics appear in /api/metrics
    Done when: Workflow metrics are exposed and documented
 
-** DONE [#C] Document Temporal integration
+** [#C] Document Temporal integration
    Why: Users and contributors need to understand workflow system
    Change:
    - Add "Temporal Workflows" section to README.md
@@ -1972,7 +1972,7 @@
    Tests: None (documentation only)
    Done when: Temporal integration is fully documented
 
-** DONE [#C] Add workflow-managed session creation option
+** [#C] Add workflow-managed session creation option
    Why: Users should choose whether to use Temporal workflows
    Change:
    - Add "workflow" boolean to POST /api/terminals request
@@ -1984,7 +1984,7 @@
    Tests: Create both workflow and non-workflow sessions, verify both work
    Done when: Users can choose workflow mode per session
 
-** WIP [#B] Implement future handoff capability (deferred)
+** [#B] Implement future handoff capability (deferred)
    Why: Bell stops should eventually trigger agent-to-agent handoffs
    Change:
    - Design handoff protocol: paused agent → new agent receives context + task

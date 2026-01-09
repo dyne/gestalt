@@ -75,6 +75,19 @@ flowchart LR
 
 Learn more: https://docs.temporal.io/
 
+## Future handoff design (deferred)
+
+Handoff is planned for paused workflows so operators can delegate work to another agent without losing context.
+The implementation is deferred; this is the proposed design only.
+
+Design outline:
+- `session.handoff` signal carries target agent id (optional), reason, and context snapshot.
+- Manager selects a target agent when none is provided (round-robin or skill-based).
+- A new session workflow starts for the target agent and records the parent workflow id.
+- The original workflow marks itself as handed-off and stops accepting input.
+- Context includes last output lines, current L1/L2, and recent task/bell history.
+- Terminal control can be transferred or a new terminal spawned, based on agent availability.
+
 ## Testing
 
 Backend:

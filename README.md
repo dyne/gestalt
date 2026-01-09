@@ -45,6 +45,36 @@ Timeouts and retries (defaults):
 Metrics:
 - `GET /api/metrics` exposes Prometheus metrics for workflows and activities.
 
+## Temporal workflows (HITL)
+
+Gestalt models terminal sessions as Temporal workflows so HITL pauses and resumes survive restarts. Each session workflow
+tracks the agent, task context, and bell events so operators can see what is running and when human input is needed.
+
+Session mapping:
+- Workflow ID: `session-<terminal-id>`
+- Workflow state: agent name, current L1/L2, bell events, status (running/paused/stopped)
+- Task updates: send `session.update_task` signals to record L1/L2 changes (UI integration is forthcoming)
+- Bell pauses: terminal bells send `session.bell` signals that pause the workflow
+- Resume actions: `session.resume` with `continue` or `abort` (handoff reserved for future work)
+
+Key endpoints:
+- `GET /api/workflows`: list workflow summaries for the Flow tab
+- `GET /api/terminals/:id/workflow/history`: workflow history (signals + events)
+- `POST /api/terminals/:id/workflow/resume`: resume a paused workflow
+
+Architecture:
+```mermaid
+flowchart LR
+  UI[Flow UI] -->|REST| API[/api/workflows + history/]
+  UI -->|bell| API
+  API --> Manager[terminal.Manager]
+  Manager --> Session[terminal.Session]
+  Session --> Temporal[Temporal workflow]
+  Temporal -->|activities| Manager
+```
+
+Learn more: https://docs.temporal.io/
+
 ## Testing
 
 Backend:

@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path"
 	"path/filepath"
@@ -32,6 +31,11 @@ import (
 	"gestalt/internal/watcher"
 
 	"github.com/fsnotify/fsnotify"
+	temporalconfig "go.temporal.io/server/common/config"
+	"go.temporal.io/server/common/dynamicconfig"
+	_ "go.temporal.io/server/common/persistence/sql/sqlplugin/sqlite"
+	temporalsrv "go.temporal.io/server/temporal"
+	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
@@ -983,19 +987,270 @@ func ensureStateDir(cfg Config, logger *logging.Logger) {
 	}
 }
 
+const temporalDevServerConfigYAML = `log:
+  stdout: true
+  level: info
+
+persistence:
+  defaultStore: sqlite-default
+  visibilityStore: sqlite-visibility
+  numHistoryShards: 1
+  datastores:
+    sqlite-default:
+      sql:
+        user: ""
+        password: ""
+        pluginName: "sqlite"
+        databaseName: "default"
+        connectAddr: "localhost"
+        connectProtocol: "tcp"
+        connectAttributes:
+          cache: "private"
+          setup: true
+          journal_mode: wal
+          synchronous: 2
+        maxConns: 1
+        maxIdleConns: 1
+        maxConnLifetime: "1h"
+        tls:
+          enabled: false
+          caFile: ""
+          certFile: ""
+          keyFile: ""
+          enableHostVerification: false
+          serverName: ""
+
+    sqlite-visibility:
+      sql:
+        user: ""
+        password: ""
+        pluginName: "sqlite"
+        databaseName: "default"
+        connectAddr: "localhost"
+        connectProtocol: "tcp"
+        connectAttributes:
+          cache: "private"
+          setup: true
+          journal_mode: wal
+          synchronous: 2
+        maxConns: 1
+        maxIdleConns: 1
+        maxConnLifetime: "1h"
+        tls:
+          enabled: false
+          caFile: ""
+          certFile: ""
+          keyFile: ""
+          enableHostVerification: false
+          serverName: ""
+global:
+  membership:
+    maxJoinDuration: 30s
+    broadcastAddress: "127.0.0.1"
+  pprof:
+    port: 7936
+  metrics:
+    prometheus:
+      framework: "tally"
+      timerType: "histogram"
+      listenAddress: "127.0.0.1:8000"
+
+services:
+  frontend:
+    rpc:
+      grpcPort: 7233
+      membershipPort: 6933
+      bindOnLocalHost: true
+      httpPort: 7243
+
+  matching:
+    rpc:
+      grpcPort: 7235
+      membershipPort: 6935
+      bindOnLocalHost: true
+
+  history:
+    rpc:
+      grpcPort: 7234
+      membershipPort: 6934
+      bindOnLocalHost: true
+
+  worker:
+    rpc:
+      grpcPort: 7239
+      membershipPort: 6939
+      bindOnLocalHost: true
+
+clusterMetadata:
+  enableGlobalNamespace: false
+  failoverVersionIncrement: 10
+  masterClusterName: "active"
+  currentClusterName: "active"
+  clusterInformation:
+    active:
+      enabled: true
+      initialFailoverVersion: 1
+      rpcName: "frontend"
+      rpcAddress: "localhost:7233"
+      httpAddress: "localhost:7243"
+
+dcRedirectionPolicy:
+  policy: "noop"
+
+archival:
+  history:
+    state: "enabled"
+    enableRead: true
+    provider:
+      filestore:
+        fileMode: "0666"
+        dirMode: "0766"
+      gstorage:
+        credentialsPath: "/tmp/gcloud/keyfile.json"
+  visibility:
+    state: "enabled"
+    enableRead: true
+    provider:
+      filestore:
+        fileMode: "0666"
+        dirMode: "0766"
+
+namespaceDefaults:
+  archival:
+    history:
+      state: "disabled"
+      URI: "file:///tmp/temporal_archival/development"
+    visibility:
+      state: "disabled"
+      URI: "file:///tmp/temporal_vis_archival/development"
+
+dynamicConfigClient:
+  filepath: "config/dynamicconfig/development-sql.yaml"
+  pollInterval: "10s"
+`
+
+const temporalDevServerDynamicConfigYAML = `system.enableEagerWorkflowStart:
+  - value: true
+limit.maxIDLength:
+  - value: 255
+    constraints: {}
+frontend.workerVersioningDataAPIs:
+  - value: true
+frontend.workerVersioningWorkflowAPIs:
+  - value: true
+frontend.workerVersioningRuleAPIs:
+  - value: true
+system.enableDeploymentVersions:
+  - value: true
+system.enableDeployments:
+  - value: true
+frontend.enableExecuteMultiOperation:
+  - value: true
+system.enableNexus:
+  - value: true
+component.nexusoperations.callback.endpoint.template:
+  - value: http://localhost:7243/namespaces/{{.NamespaceName}}/nexus/callback
+component.callbacks.allowedAddresses:
+  - value:
+      - Pattern: "*"
+        AllowInsecure: true
+matching.queryWorkflowTaskTimeoutLogRate:
+  - value: 1.0
+history.ReplicationEnableUpdateWithNewTaskMerge:
+  - value: true
+history.enableWorkflowExecutionTimeoutTimer:
+  - value: true
+history.hostLevelCacheMaxSize:
+  - value: 8192
+`
+
+type temporalDevConfigPaths struct {
+	LogPath               string
+	DatabasePath          string
+	DynamicConfigPath     string
+	ArchivalHistoryURI    string
+	ArchivalVisibilityURI string
+}
+
+func buildTemporalDevConfig(paths temporalDevConfigPaths) (*temporalconfig.Config, error) {
+	if strings.TrimSpace(paths.LogPath) == "" {
+		return nil, errors.New("temporal log path is required")
+	}
+	if strings.TrimSpace(paths.DatabasePath) == "" {
+		return nil, errors.New("temporal database path is required")
+	}
+	if strings.TrimSpace(paths.DynamicConfigPath) == "" {
+		return nil, errors.New("temporal dynamic config path is required")
+	}
+
+	var serverConfig temporalconfig.Config
+	if err := yaml.Unmarshal([]byte(temporalDevServerConfigYAML), &serverConfig); err != nil {
+		return nil, fmt.Errorf("parse temporal config: %w", err)
+	}
+
+	if serverConfig.DynamicConfigClient == nil {
+		serverConfig.DynamicConfigClient = &dynamicconfig.FileBasedClientConfig{}
+	}
+	serverConfig.DynamicConfigClient.Filepath = paths.DynamicConfigPath
+	serverConfig.Log.Stdout = false
+	serverConfig.Log.OutputFile = paths.LogPath
+
+	if err := updateTemporalSQLiteDatastore(&serverConfig, "sqlite-default", paths.DatabasePath); err != nil {
+		return nil, err
+	}
+	if err := updateTemporalSQLiteDatastore(&serverConfig, "sqlite-visibility", paths.DatabasePath); err != nil {
+		return nil, err
+	}
+
+	if strings.TrimSpace(paths.ArchivalHistoryURI) != "" {
+		serverConfig.NamespaceDefaults.Archival.History.URI = paths.ArchivalHistoryURI
+	}
+	if strings.TrimSpace(paths.ArchivalVisibilityURI) != "" {
+		serverConfig.NamespaceDefaults.Archival.Visibility.URI = paths.ArchivalVisibilityURI
+	}
+
+	if err := serverConfig.Validate(); err != nil {
+		return nil, fmt.Errorf("validate temporal config: %w", err)
+	}
+
+	return &serverConfig, nil
+}
+
+func updateTemporalSQLiteDatastore(cfg *temporalconfig.Config, storeName, databasePath string) error {
+	if cfg == nil {
+		return errors.New("temporal config is required")
+	}
+	if strings.TrimSpace(databasePath) == "" {
+		return fmt.Errorf("temporal database path is required for %s", storeName)
+	}
+	datastore, ok := cfg.Persistence.DataStores[storeName]
+	if !ok {
+		return fmt.Errorf("temporal datastore %q not found", storeName)
+	}
+	if datastore.SQL == nil {
+		return fmt.Errorf("temporal datastore %q missing sql config", storeName)
+	}
+	datastore.SQL.DatabaseName = databasePath
+	cfg.Persistence.DataStores[storeName] = datastore
+	return nil
+}
+
+func writeTemporalDynamicConfig(path string) error {
+	if strings.TrimSpace(path) == "" {
+		return errors.New("temporal dynamic config path is required")
+	}
+	return os.WriteFile(path, []byte(temporalDevServerDynamicConfigYAML), 0o644)
+}
+
 type temporalDevServer struct {
-	cmd     *exec.Cmd
-	logFile *os.File
-	done    chan error
+	server   temporalsrv.Server
+	done     chan error
+	stopOnce sync.Once
 }
 
 func startTemporalDevServer(cfg Config, logger *logging.Logger) (*temporalDevServer, error) {
 	if !cfg.TemporalDevServer {
 		return nil, nil
-	}
-	temporalPath, err := exec.LookPath("temporal")
-	if err != nil {
-		return nil, fmt.Errorf("temporal CLI not found")
 	}
 
 	dataDir := filepath.Join(".gestalt", "temporal")
@@ -1003,56 +1258,60 @@ func startTemporalDevServer(cfg Config, logger *logging.Logger) (*temporalDevSer
 	if err != nil {
 		absDataDir = dataDir
 	}
-	cacheDir := filepath.Join(absDataDir, "cache")
 	configDir := filepath.Join(absDataDir, "config")
-	stateDir := filepath.Join(absDataDir, "state")
-	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
-		return nil, fmt.Errorf("create temporal cache dir: %w", err)
-	}
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
+	dynamicConfigDir := filepath.Join(configDir, "dynamicconfig")
+	historyArchivalDir := filepath.Join(absDataDir, "archival", "history")
+	visibilityArchivalDir := filepath.Join(absDataDir, "archival", "visibility")
+	if err := os.MkdirAll(dynamicConfigDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create temporal config dir: %w", err)
 	}
-	if err := os.MkdirAll(stateDir, 0o755); err != nil {
-		return nil, fmt.Errorf("create temporal state dir: %w", err)
+	if err := os.MkdirAll(historyArchivalDir, 0o755); err != nil {
+		return nil, fmt.Errorf("create temporal history archival dir: %w", err)
+	}
+	if err := os.MkdirAll(visibilityArchivalDir, 0o755); err != nil {
+		return nil, fmt.Errorf("create temporal visibility archival dir: %w", err)
 	}
 
 	logPath := filepath.Join(absDataDir, "temporal.log")
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	databasePath := filepath.Join(absDataDir, "temporal.db")
+	dynamicConfigPath := filepath.Join(dynamicConfigDir, "development-sql.yaml")
+	if err := writeTemporalDynamicConfig(dynamicConfigPath); err != nil {
+		return nil, fmt.Errorf("write temporal dynamic config: %w", err)
+	}
+	archivalHistoryURI := "file://" + filepath.ToSlash(historyArchivalDir)
+	archivalVisibilityURI := "file://" + filepath.ToSlash(visibilityArchivalDir)
+	serverConfig, err := buildTemporalDevConfig(temporalDevConfigPaths{
+		LogPath:               logPath,
+		DatabasePath:          databasePath,
+		DynamicConfigPath:     dynamicConfigPath,
+		ArchivalHistoryURI:    archivalHistoryURI,
+		ArchivalVisibilityURI: archivalVisibilityURI,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("open temporal log: %w", err)
+		return nil, err
 	}
-
-	cmd := exec.Command(temporalPath, "server", "start-dev")
-	cmd.Dir = absDataDir
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
-	cmd.Env = append(os.Environ(),
-		"HOME="+absDataDir,
-		"XDG_CACHE_HOME="+cacheDir,
-		"XDG_CONFIG_HOME="+configDir,
-		"XDG_STATE_HOME="+stateDir,
+	server, err := temporalsrv.NewServer(
+		temporalsrv.WithConfig(serverConfig),
+		temporalsrv.ForServices(temporalsrv.DefaultServices),
 	)
-	if err := cmd.Start(); err != nil {
-		_ = logFile.Close()
-		return nil, fmt.Errorf("start temporal dev server: %w", err)
+	if err != nil {
+		return nil, fmt.Errorf("create temporal server: %w", err)
 	}
-
-	done := make(chan error, 1)
-	go func() {
-		done <- cmd.Wait()
-	}()
+	if err := server.Start(); err != nil {
+		return nil, fmt.Errorf("start temporal server: %w", err)
+	}
 
 	if logger != nil {
 		logger.Info("temporal dev server started", map[string]string{
 			"dir": absDataDir,
 			"log": logPath,
+			"db":  databasePath,
 		})
 	}
 
 	return &temporalDevServer{
-		cmd:     cmd,
-		logFile: logFile,
-		done:    done,
+		server: server,
+		done:   make(chan error, 1),
 	}, nil
 }
 
@@ -1067,45 +1326,38 @@ func (server *temporalDevServer) Stop(logger *logging.Logger) {
 	if server == nil {
 		return
 	}
-	if server.cmd == nil || server.cmd.Process == nil {
-		if server.logFile != nil {
-			_ = server.logFile.Close()
-		}
-		return
-	}
+	server.stopOnce.Do(func() {
+		stopResult := make(chan error, 1)
+		go func() {
+			if server.server == nil {
+				stopResult <- nil
+				return
+			}
+			stopResult <- server.server.Stop()
+		}()
 
-	select {
-	case err := <-server.done:
-		if logger != nil && err != nil {
-			logger.Warn("temporal dev server exited", map[string]string{
-				"error": err.Error(),
-			})
-		}
-	default:
-		if err := server.cmd.Process.Signal(os.Interrupt); err != nil && logger != nil {
-			logger.Warn("temporal dev server signal failed", map[string]string{
-				"error": err.Error(),
-			})
-		}
+		var stopErr error
 		select {
-		case err := <-server.done:
-			if logger != nil && err != nil {
-				logger.Warn("temporal dev server stopped", map[string]string{
-					"error": err.Error(),
-				})
-			}
+		case stopErr = <-stopResult:
 		case <-time.After(temporalDevServerStopTimeout):
-			if killErr := server.cmd.Process.Kill(); killErr != nil && logger != nil {
-				logger.Warn("temporal dev server kill failed", map[string]string{
-					"error": killErr.Error(),
-				})
-			}
+			stopErr = fmt.Errorf("timed out after %s", temporalDevServerStopTimeout)
 		}
-	}
 
-	if server.logFile != nil {
-		_ = server.logFile.Close()
-	}
+		if stopErr != nil && logger != nil {
+			logger.Warn("temporal dev server stop failed", map[string]string{
+				"error": stopErr.Error(),
+			})
+		}
+		if server.done != nil {
+			if stopErr != nil {
+				select {
+				case server.done <- stopErr:
+				default:
+				}
+			}
+			close(server.done)
+		}
+	})
 }
 
 func logTemporalServerHealth(logger *logging.Logger, host string) {

@@ -37,6 +37,11 @@ make temporal-dev
 
 The dev server stores workflow state in a local SQLite file in the working directory so sessions persist across restarts.
 
+Timeouts and retries (defaults):
+- Workflow execution/run timeout: 24h (task timeout: 10s)
+- Activity timeouts: spawn 30s, output read 5s, default 10s (heartbeat 10s)
+- Retry policy: exponential backoff, max 5 attempts
+
 ## Testing
 
 Backend:

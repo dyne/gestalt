@@ -107,6 +107,18 @@ func TestSessionStartWorkflowAndSignals(testingContext *testing.T) {
 	if !workflowClient.lastRequest.StartTime.Equal(session.CreatedAt) {
 		testingContext.Fatalf("unexpected request start time: %v", workflowClient.lastRequest.StartTime)
 	}
+	if workflowClient.startOptions.WorkflowExecutionTimeout != temporalWorkflowExecutionTimeout {
+		testingContext.Fatalf("unexpected workflow execution timeout: %v", workflowClient.startOptions.WorkflowExecutionTimeout)
+	}
+	if workflowClient.startOptions.WorkflowRunTimeout != temporalWorkflowRunTimeout {
+		testingContext.Fatalf("unexpected workflow run timeout: %v", workflowClient.startOptions.WorkflowRunTimeout)
+	}
+	if workflowClient.startOptions.WorkflowTaskTimeout != temporalWorkflowTaskTimeout {
+		testingContext.Fatalf("unexpected workflow task timeout: %v", workflowClient.startOptions.WorkflowTaskTimeout)
+	}
+	if workflowClient.startOptions.RetryPolicy == nil || workflowClient.startOptions.RetryPolicy.MaximumAttempts != 5 {
+		testingContext.Fatalf("unexpected workflow retry policy: %#v", workflowClient.startOptions.RetryPolicy)
+	}
 
 	bellError := session.SendBellSignal("bell context")
 	if bellError != nil {

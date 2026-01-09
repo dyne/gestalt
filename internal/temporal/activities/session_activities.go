@@ -11,6 +11,14 @@ import (
 	"gestalt/internal/terminal"
 )
 
+const (
+	SpawnTerminalActivityName     = "SpawnTerminalActivity"
+	TerminateTerminalActivityName = "TerminateTerminalActivity"
+	RecordBellActivityName        = "RecordBellActivity"
+	UpdateTaskActivityName        = "UpdateTaskActivity"
+	GetOutputActivityName         = "GetOutputActivity"
+)
+
 type SessionActivities struct {
 	Manager *terminal.Manager
 	Logger  *logging.Logger

@@ -16,6 +16,7 @@ import (
 	"gestalt/internal/temporal/workflows"
 
 	"go.temporal.io/sdk/client"
+	temporalapi "go.temporal.io/sdk/temporal"
 )
 
 var ErrSessionClosed = errors.New("terminal session closed")
@@ -32,6 +33,9 @@ const (
 const dsrFallbackDelay = 250 * time.Millisecond
 const temporalWorkflowStartTimeout = 5 * time.Second
 const temporalSignalTimeout = 5 * time.Second
+const temporalWorkflowExecutionTimeout = workflows.DefaultWorkflowExecutionTimeout
+const temporalWorkflowRunTimeout = workflows.DefaultWorkflowRunTimeout
+const temporalWorkflowTaskTimeout = workflows.DefaultWorkflowTaskTimeout
 
 func (s SessionState) String() string {
 	switch s {
@@ -271,8 +275,12 @@ func (s *Session) StartWorkflow(temporalClient temporal.WorkflowClient, l1Task, 
 		StartTime: s.CreatedAt,
 	}
 	startOptions := client.StartWorkflowOptions{
-		ID:        workflowID,
-		TaskQueue: workflows.SessionTaskQueueName,
+		ID:                       workflowID,
+		TaskQueue:                workflows.SessionTaskQueueName,
+		WorkflowExecutionTimeout: temporalWorkflowExecutionTimeout,
+		WorkflowRunTimeout:       temporalWorkflowRunTimeout,
+		WorkflowTaskTimeout:      temporalWorkflowTaskTimeout,
+		RetryPolicy:              defaultWorkflowRetryPolicy(),
 	}
 
 	startContext, cancel := context.WithTimeout(context.Background(), temporalWorkflowStartTimeout)
@@ -296,6 +304,15 @@ func (s *Session) StartWorkflow(temporalClient temporal.WorkflowClient, l1Task, 
 	s.workflowMutex.Unlock()
 
 	return nil
+}
+
+func defaultWorkflowRetryPolicy() *temporalapi.RetryPolicy {
+	return &temporalapi.RetryPolicy{
+		InitialInterval:    time.Second,
+		BackoffCoefficient: 2.0,
+		MaximumInterval:    5 * time.Minute,
+		MaximumAttempts:    5,
+	}
 }
 
 func (s *Session) SendBellSignal(contextText string) error {

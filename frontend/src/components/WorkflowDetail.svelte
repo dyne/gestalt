@@ -1,5 +1,6 @@
 <script>
   import { onDestroy } from 'svelte'
+  import WorkflowHistory from './WorkflowHistory.svelte'
 
   export let workflow = {}
   export let onViewTerminal = () => {}
@@ -101,19 +102,6 @@
     ? [...workflow.task_events].sort((a, b) => timestampValue(a.timestamp) - timestampValue(b.timestamp))
     : []
 
-  $: timeline = [
-    ...taskEvents.map((event) => ({
-      type: 'task',
-      timestamp: event.timestamp,
-      label: `Task: ${event.l1 || '-'} / ${event.l2 || '-'}`,
-    })),
-    ...bellEvents.map((event) => ({
-      type: 'bell',
-      timestamp: event.timestamp,
-      label: 'Bell',
-    })),
-  ].sort((a, b) => timestampValue(a.timestamp) - timestampValue(b.timestamp))
-
   $: latestBell = bellEvents.length > 0 ? bellEvents[bellEvents.length - 1] : null
   $: latestBellContext = latestBell?.context || ''
   $: pauseDuration =
@@ -159,21 +147,7 @@
     </div>
   </div>
 
-  <div class="detail-section">
-    <span class="label">Timeline</span>
-    {#if timeline.length === 0}
-      <p class="muted">No events yet.</p>
-    {:else}
-      <ul class="timeline">
-        {#each timeline as event}
-          <li class={`timeline__item timeline__item--${event.type}`}>
-            <span class="timeline__time">{formatTime(event.timestamp)}</span>
-            <span class="timeline__label">{event.label}</span>
-          </li>
-        {/each}
-      </ul>
-    {/if}
-  </div>
+  <WorkflowHistory terminalId={workflow.session_id} />
 
   <div class="detail-section">
     <span class="label">Task history</span>
@@ -321,7 +295,6 @@
     margin: 0;
   }
 
-  .timeline,
   .task-list,
   .bell-list {
     list-style: none;
@@ -332,7 +305,6 @@
     gap: 0.5rem;
   }
 
-  .timeline__item,
   .task-list li,
   .bell-list li {
     display: flex;
@@ -342,19 +314,10 @@
     color: #4c4a45;
   }
 
-  .timeline__time,
   .task-time,
   .bell-time {
     font-weight: 600;
     min-width: 140px;
-  }
-
-  .timeline__item--task .timeline__label {
-    color: #1f6a48;
-  }
-
-  .timeline__item--bell .timeline__label {
-    color: #915c00;
   }
 
   .bell-context {

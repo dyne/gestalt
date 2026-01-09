@@ -24,7 +24,10 @@ import (
 	"gestalt/internal/terminal"
 	"gestalt/internal/version"
 
+	commonpb "go.temporal.io/api/common/v1"
+	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
+	"go.temporal.io/sdk/converter"
 )
 
 type RestHandler struct {
@@ -72,6 +75,18 @@ type workflowTaskEvent struct {
 	Timestamp time.Time `json:"timestamp"`
 	L1        string    `json:"l1"`
 	L2        string    `json:"l2"`
+}
+
+type workflowHistoryEntry struct {
+	EventID    int64     `json:"event_id"`
+	Type       string    `json:"type"`
+	Timestamp  time.Time `json:"timestamp"`
+	SignalName string    `json:"signal_name,omitempty"`
+	Action     string    `json:"action,omitempty"`
+	L1         string    `json:"l1,omitempty"`
+	L2         string    `json:"l2,omitempty"`
+	Context    string    `json:"context,omitempty"`
+	Reason     string    `json:"reason,omitempty"`
 }
 
 type terminalOutputResponse struct {
@@ -180,10 +195,12 @@ const (
 	terminalPathInputHistory
 	terminalPathBell
 	terminalPathWorkflowResume
+	terminalPathWorkflowHistory
 )
 
 const workflowQueryTimeout = 3 * time.Second
 const workflowStatusUnknown = "unknown"
+const workflowHistoryTimeout = 5 * time.Second
 
 func (h *RestHandler) handleStatus(w http.ResponseWriter, r *http.Request) *apiError {
 	if err := h.requireManager(); err != nil {
@@ -289,6 +306,8 @@ func (h *RestHandler) handleTerminal(w http.ResponseWriter, r *http.Request) *ap
 		return h.handleTerminalBell(w, r, id)
 	case terminalPathWorkflowResume:
 		return h.handleTerminalWorkflowResume(w, r, id)
+	case terminalPathWorkflowHistory:
+		return h.handleTerminalWorkflowHistory(w, r, id)
 	}
 
 	return h.handleTerminalDelete(w, r, id)
@@ -682,6 +701,121 @@ func queryWorkflowState(ctx context.Context, temporalClient temporal.WorkflowCli
 	return state, nil
 }
 
+func fetchWorkflowHistoryEntries(ctx context.Context, temporalClient temporal.WorkflowClient, workflowID, workflowRunID string, logger *logging.Logger) ([]workflowHistoryEntry, error) {
+	if temporalClient == nil {
+		return nil, errors.New("temporal client unavailable")
+	}
+	if workflowID == "" {
+		return nil, errors.New("workflow id required")
+	}
+
+	historyContext, cancel := context.WithTimeout(ctx, workflowHistoryTimeout)
+	defer cancel()
+
+	iterator := temporalClient.GetWorkflowHistory(historyContext, workflowID, workflowRunID, false, enumspb.HISTORY_EVENT_FILTER_TYPE_ALL_EVENT)
+	if iterator == nil {
+		return nil, errors.New("workflow history unavailable")
+	}
+
+	entries := []workflowHistoryEntry{}
+	dataConverter := converter.GetDefaultDataConverter()
+
+	for iterator.HasNext() {
+		event, err := iterator.Next()
+		if err != nil {
+			return nil, err
+		}
+		if event == nil {
+			continue
+		}
+
+		eventTime := time.Time{}
+		if timestamp := event.GetEventTime(); timestamp != nil {
+			eventTime = timestamp.AsTime()
+		}
+
+		if event.GetEventType() != enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED {
+			continue
+		}
+
+		attributes := event.GetWorkflowExecutionSignaledEventAttributes()
+		if attributes == nil {
+			continue
+		}
+
+		signalName := attributes.GetSignalName()
+		entry := workflowHistoryEntry{
+			EventID:    event.GetEventId(),
+			Timestamp:  eventTime,
+			SignalName: signalName,
+		}
+
+		switch signalName {
+		case workflows.UpdateTaskSignalName:
+			var payload workflows.UpdateTaskSignal
+			if decodeSignalPayload(dataConverter, attributes.GetInput(), &payload, logger, signalName) {
+				entry.Type = "task_update"
+				entry.L1 = payload.L1
+				entry.L2 = payload.L2
+			} else {
+				entry.Type = "signal"
+			}
+		case workflows.BellSignalName:
+			var payload workflows.BellSignal
+			if decodeSignalPayload(dataConverter, attributes.GetInput(), &payload, logger, signalName) {
+				entry.Type = "bell"
+				entry.Context = payload.Context
+				if !payload.Timestamp.IsZero() {
+					entry.Timestamp = payload.Timestamp
+				}
+			} else {
+				entry.Type = "signal"
+			}
+		case workflows.ResumeSignalName:
+			var payload workflows.ResumeSignal
+			if decodeSignalPayload(dataConverter, attributes.GetInput(), &payload, logger, signalName) {
+				entry.Type = "resume"
+				entry.Action = payload.Action
+			} else {
+				entry.Type = "signal"
+			}
+		case workflows.TerminateSignalName:
+			var payload workflows.TerminateSignal
+			if decodeSignalPayload(dataConverter, attributes.GetInput(), &payload, logger, signalName) {
+				entry.Type = "terminate"
+				entry.Reason = payload.Reason
+			} else {
+				entry.Type = "signal"
+			}
+		default:
+			entry.Type = "signal"
+		}
+
+		entries = append(entries, entry)
+	}
+
+	return entries, nil
+}
+
+func decodeSignalPayload(dataConverter converter.DataConverter, payloads *commonpb.Payloads, destination interface{}, logger *logging.Logger, signalName string) bool {
+	if payloads == nil {
+		return false
+	}
+	if dataConverter == nil {
+		dataConverter = converter.GetDefaultDataConverter()
+	}
+	if err := dataConverter.FromPayloads(payloads, destination); err != nil {
+		if logger != nil {
+			logger.Warn("failed to decode workflow signal", map[string]string{
+				"signal": signalName,
+				"error":  err.Error(),
+			})
+		}
+		return false
+	}
+	return true
+}
+
 func (h *RestHandler) createTerminal(w http.ResponseWriter, r *http.Request) *apiError {
 	request, err := decodeCreateTerminalRequest(r)
 	if err != nil {
@@ -910,6 +1044,34 @@ func (h *RestHandler) handleTerminalWorkflowResume(w http.ResponseWriter, r *htt
 	return nil
 }
 
+func (h *RestHandler) handleTerminalWorkflowHistory(w http.ResponseWriter, r *http.Request, id string) *apiError {
+	if r.Method != http.MethodGet {
+		return methodNotAllowed(w, "GET")
+	}
+
+	if err := h.requireManager(); err != nil {
+		return err
+	}
+
+	session, ok := h.Manager.Get(id)
+	if !ok {
+		return &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
+	}
+	workflowID, workflowRunID, hasWorkflow := session.WorkflowIdentifiers()
+	if !hasWorkflow {
+		return &apiError{Status: http.StatusConflict, Message: "workflow not active"}
+	}
+
+	temporalClient := h.Manager.TemporalClient()
+	events, err := fetchWorkflowHistoryEntries(r.Context(), temporalClient, workflowID, workflowRunID, h.Logger)
+	if err != nil {
+		return &apiError{Status: http.StatusInternalServerError, Message: "failed to load workflow history"}
+	}
+
+	writeJSON(w, http.StatusOK, events)
+	return nil
+}
+
 func (h *RestHandler) handleTerminalDelete(w http.ResponseWriter, r *http.Request, id string) *apiError {
 	if r.Method != http.MethodDelete {
 		return methodNotAllowed(w, "DELETE")
@@ -995,6 +1157,10 @@ func parseTerminalPath(path string) (string, terminalPathAction) {
 	if strings.HasSuffix(trimmed, "/output") {
 		id := strings.TrimSuffix(trimmed, "/output")
 		return id, terminalPathOutput
+	}
+	if strings.HasSuffix(trimmed, "/workflow/history") {
+		id := strings.TrimSuffix(trimmed, "/workflow/history")
+		return id, terminalPathWorkflowHistory
 	}
 	if strings.HasSuffix(trimmed, "/history") {
 		id := strings.TrimSuffix(trimmed, "/history")

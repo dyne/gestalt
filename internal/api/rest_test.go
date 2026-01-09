@@ -23,8 +23,11 @@ import (
 	"gestalt/internal/terminal"
 	"gestalt/internal/version"
 
+	enumspb "go.temporal.io/api/enums/v1"
+	historypb "go.temporal.io/api/history/v1"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type fakePty struct {
@@ -120,6 +123,10 @@ func (client *fakeWorkflowQueryClient) ExecuteWorkflow(ctx context.Context, opti
 	return &fakeWorkflowRun{workflowID: options.ID, runID: client.runID}, nil
 }
 
+func (client *fakeWorkflowQueryClient) GetWorkflowHistory(ctx context.Context, workflowID string, runID string, isLongPoll bool, filterType enumspb.HistoryEventFilterType) client.HistoryEventIterator {
+	return nil
+}
+
 func (client *fakeWorkflowQueryClient) QueryWorkflow(ctx context.Context, workflowID, runID, queryType string, args ...interface{}) (converter.EncodedValue, error) {
 	if client.queryResults == nil {
 		return nil, errors.New("no query results")
@@ -154,6 +161,10 @@ func (client *fakeWorkflowSignalClient) ExecuteWorkflow(ctx context.Context, opt
 	return &fakeWorkflowRun{workflowID: options.ID, runID: client.runID}, nil
 }
 
+func (client *fakeWorkflowSignalClient) GetWorkflowHistory(ctx context.Context, workflowID string, runID string, isLongPoll bool, filterType enumspb.HistoryEventFilterType) client.HistoryEventIterator {
+	return nil
+}
+
 func (client *fakeWorkflowSignalClient) QueryWorkflow(ctx context.Context, workflowID, runID, queryType string, args ...interface{}) (converter.EncodedValue, error) {
 	return nil, errors.New("query not supported")
 }
@@ -169,6 +180,48 @@ func (client *fakeWorkflowSignalClient) SignalWorkflow(ctx context.Context, work
 }
 
 func (client *fakeWorkflowSignalClient) Close() {
+}
+
+type fakeHistoryIterator struct {
+	events []*historypb.HistoryEvent
+	index  int
+}
+
+func (iterator *fakeHistoryIterator) HasNext() bool {
+	return iterator.index < len(iterator.events)
+}
+
+func (iterator *fakeHistoryIterator) Next() (*historypb.HistoryEvent, error) {
+	if !iterator.HasNext() {
+		return nil, errors.New("no more events")
+	}
+	event := iterator.events[iterator.index]
+	iterator.index++
+	return event, nil
+}
+
+type fakeWorkflowHistoryClient struct {
+	runID  string
+	events []*historypb.HistoryEvent
+}
+
+func (client *fakeWorkflowHistoryClient) ExecuteWorkflow(ctx context.Context, options client.StartWorkflowOptions, workflow interface{}, args ...interface{}) (client.WorkflowRun, error) {
+	return &fakeWorkflowRun{workflowID: options.ID, runID: client.runID}, nil
+}
+
+func (client *fakeWorkflowHistoryClient) GetWorkflowHistory(ctx context.Context, workflowID string, runID string, isLongPoll bool, filterType enumspb.HistoryEventFilterType) client.HistoryEventIterator {
+	return &fakeHistoryIterator{events: client.events}
+}
+
+func (client *fakeWorkflowHistoryClient) QueryWorkflow(ctx context.Context, workflowID, runID, queryType string, args ...interface{}) (converter.EncodedValue, error) {
+	return nil, errors.New("query not supported")
+}
+
+func (client *fakeWorkflowHistoryClient) SignalWorkflow(ctx context.Context, workflowID, runID, signalName string, arg interface{}) error {
+	return nil
+}
+
+func (client *fakeWorkflowHistoryClient) Close() {
 }
 
 func TestStatusHandlerRequiresAuth(t *testing.T) {
@@ -374,6 +427,108 @@ func TestTerminalWorkflowResumeEndpointMissingWorkflow(t *testing.T) {
 	restHandler("", handler.handleTerminal)(res, req)
 	if res.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d", res.Code)
+	}
+}
+
+func TestTerminalWorkflowHistoryEndpoint(t *testing.T) {
+	factory := &fakeFactory{}
+	dataConverter := converter.GetDefaultDataConverter()
+	taskPayloads, err := dataConverter.ToPayloads(workflows.UpdateTaskSignal{L1: "L1", L2: "L2"})
+	if err != nil {
+		t.Fatalf("build task payloads: %v", err)
+	}
+	bellTime := time.Date(2025, 4, 1, 10, 0, 0, 0, time.UTC)
+	bellPayloads, err := dataConverter.ToPayloads(workflows.BellSignal{Timestamp: bellTime, Context: "bell"})
+	if err != nil {
+		t.Fatalf("build bell payloads: %v", err)
+	}
+	resumePayloads, err := dataConverter.ToPayloads(workflows.ResumeSignal{Action: workflows.ResumeActionContinue})
+	if err != nil {
+		t.Fatalf("build resume payloads: %v", err)
+	}
+
+	eventTime := time.Date(2025, 4, 1, 9, 30, 0, 0, time.UTC)
+	events := []*historypb.HistoryEvent{
+		{
+			EventId:   1,
+			EventTime: timestamppb.New(eventTime),
+			EventType: enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED,
+			Attributes: &historypb.HistoryEvent_WorkflowExecutionSignaledEventAttributes{
+				WorkflowExecutionSignaledEventAttributes: &historypb.WorkflowExecutionSignaledEventAttributes{
+					SignalName: workflows.UpdateTaskSignalName,
+					Input:      taskPayloads,
+				},
+			},
+		},
+		{
+			EventId:   2,
+			EventTime: timestamppb.New(eventTime.Add(time.Minute)),
+			EventType: enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED,
+			Attributes: &historypb.HistoryEvent_WorkflowExecutionSignaledEventAttributes{
+				WorkflowExecutionSignaledEventAttributes: &historypb.WorkflowExecutionSignaledEventAttributes{
+					SignalName: workflows.BellSignalName,
+					Input:      bellPayloads,
+				},
+			},
+		},
+		{
+			EventId:   3,
+			EventTime: timestamppb.New(eventTime.Add(2 * time.Minute)),
+			EventType: enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED,
+			Attributes: &historypb.HistoryEvent_WorkflowExecutionSignaledEventAttributes{
+				WorkflowExecutionSignaledEventAttributes: &historypb.WorkflowExecutionSignaledEventAttributes{
+					SignalName: workflows.ResumeSignalName,
+					Input:      resumePayloads,
+				},
+			},
+		},
+	}
+
+	temporalClient := &fakeWorkflowHistoryClient{
+		runID:  "run-55",
+		events: events,
+	}
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:           "/bin/sh",
+		PtyFactory:      factory,
+		TemporalClient:  temporalClient,
+		TemporalEnabled: true,
+	})
+	created, err := manager.Create("", "", "")
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodGet, "/api/terminals/"+created.ID+"/workflow/history", nil)
+	res := httptest.NewRecorder()
+
+	restHandler("", handler.handleTerminal)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var payload []workflowHistoryEntry
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(payload) != 3 {
+		t.Fatalf("expected 3 history events, got %d", len(payload))
+	}
+	if payload[0].Type != "task_update" || payload[0].L1 != "L1" || payload[0].L2 != "L2" {
+		t.Fatalf("unexpected task event: %#v", payload[0])
+	}
+	if payload[1].Type != "bell" || payload[1].Context != "bell" {
+		t.Fatalf("unexpected bell event: %#v", payload[1])
+	}
+	if !payload[1].Timestamp.Equal(bellTime) {
+		t.Fatalf("expected bell timestamp %v, got %v", bellTime, payload[1].Timestamp)
+	}
+	if payload[2].Type != "resume" || payload[2].Action != workflows.ResumeActionContinue {
+		t.Fatalf("unexpected resume event: %#v", payload[2])
 	}
 }
 
@@ -1425,6 +1580,8 @@ func TestParseTerminalPath(t *testing.T) {
 		{name: "input-history-trailing-slash", path: "/api/terminals/123/input-history/", id: "123", action: terminalPathInputHistory},
 		{name: "workflow-resume", path: "/api/terminals/123/workflow/resume", id: "123", action: terminalPathWorkflowResume},
 		{name: "workflow-resume-trailing-slash", path: "/api/terminals/123/workflow/resume/", id: "123", action: terminalPathWorkflowResume},
+		{name: "workflow-history", path: "/api/terminals/123/workflow/history", id: "123", action: terminalPathWorkflowHistory},
+		{name: "workflow-history-trailing-slash", path: "/api/terminals/123/workflow/history/", id: "123", action: terminalPathWorkflowHistory},
 		{name: "missing-prefix", path: "/api/terminal/123", id: "", action: terminalPathTerminal},
 		{name: "empty-id", path: "/api/terminals/", id: "", action: terminalPathTerminal},
 	}

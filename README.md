@@ -22,6 +22,61 @@ Default listens to 0.0.0.0 port 8080
 
 When running local open browser at http://localhost:8080
 
+## Run Gestalt on your project
+
+Gestalt uses its current working directory as the project context (for git events, `PLAN.org`, and
+local session data). To use it on a real repo, run the server from that repo's root.
+
+1) Install the `gestalt` binary (from this repo):
+```
+go install ./cmd/gestalt
+```
+
+2) In your project root, extract a per-project config bundle (recommended):
+```
+gestalt --extract-config
+```
+
+This creates `./gestalt/config/` (agents/prompts/skills) and `./gestalt/dist/`. When present,
+Gestalt prefers these over the embedded defaults.
+
+3) Edit agent profiles in `./gestalt/config/agents/*.json`.
+
+Quick tips:
+- The agent ID is the filename (without `.json`).
+- `shell` is the interactive command Gestalt runs (it must accept typed stdin as chat input).
+- `prompt` entries reference `./gestalt/config/prompts/<name>.txt`.
+
+Example mapping:
+- Coder: `copilot --allow-all-tools --disable-builtin-mcps`
+- Architect: `gemini`
+- Fixer: `amp`
+
+4) Start Gestalt from the same project root and open the UI:
+```
+GESTALT_TOKEN=$(openssl rand -hex 16) gestalt --port 8080
+```
+
+If your project has a `PLAN.org` in its root, Gestalt will watch it for changes.
+
+### Authentication (GESTALT_TOKEN)
+
+`GESTALT_TOKEN` is an optional shared secret that protects the Gestalt HTTP API.
+
+- If you don't set `GESTALT_TOKEN`, auth is disabled.
+- If you set `GESTALT_TOKEN`, every REST and WebSocket request must present the same token.
+
+Auth mechanics:
+- REST: `Authorization: Bearer <token>`
+- WebSocket: `?token=<token>`
+
+Because the default bind is `0.0.0.0:8080`, setting a token is strongly recommended whenever the
+server is reachable from other machines on your network.
+
+Generate a token:
+- macOS/Linux: `export GESTALT_TOKEN=$(openssl rand -hex 16)`
+- Windows PowerShell `$env:GESTALT_TOKEN = -join ((48..57)+(97..102) | Get-Random -Count 32 | % {[char]$_})`
+
 ## Temporal (dev server)
 
 Gestalt's HITL workflow integration uses the Temporal CLI (`temporalio/cli`) for local development.
@@ -132,60 +187,6 @@ Local build with an explicit version:
 ```
 make VERSION=1.2.3
 ```
-
-### Token authentication
-
-`GESTALT_TOKEN` is an optional shared secret that protects the Gestalt HTTP API.
-
-- If you don't set `GESTALT_TOKEN`, auth is disabled (anyone who can reach the server can use it).
-- If you set `GESTALT_TOKEN`, every REST and WebSocket request must present the same token.
-
-- REST auth is Authorization: Bearer <token> when `GESTALT_TOKEN` is set (handled in frontend/src/lib/api.js).
-- WS auth uses ?token=<token> in the URL (also handled in frontend/src/lib/api.js).
-- Default port is 8080; override with `GESTALT_PORT`.
-
-`GESTALT_TOKEN` is just an arbitrary shared secret you choose. The server only checks that
-incoming REST/WS requests present the same token.
-
-Because the default bind is `0.0.0.0:8080`, setting a token is strongly recommended whenever
-the server is reachable from other machines on your network.
-
-To generate a random token:
-
-- macOS/Linux: `export GESTALT_TOKEN=$(openssl rand -hex 16)`
-- Windows PowerShell `$env:GESTALT_TOKEN = -join ((48..57)+(97..102) | Get-Random -Count 32 | % {[char]$_})`
-
-## Using Gestalt on a real project
-
-Gestalt operates relative to its current working directory. To use it on another repository,
-run the server from that repo's root.
-
-1) Install Gestalt (from this repo):
-```
-go install ./cmd/gestalt
-```
-
-2) In your project root, extract a per-project config bundle:
-```
-gestalt --extract-config
-```
-
-This creates `./gestalt/config/` (agents/prompts/skills) and `./gestalt/dist/`. When these
-directories exist, Gestalt prefers them over the embedded defaults.
-
-3) Customize agent commands in `./gestalt/config/agents/*.json`.
-
-Example mapping:
-- Coder: `copilot ...`
-- Architect: `gemini`
-- Fixer: `amp`
-
-4) Start Gestalt from the same project root and open the UI:
-```
-GESTALT_TOKEN=$(openssl rand -hex 16) gestalt --port 8080
-```
-
-If your project has a `PLAN.org` in its root, Gestalt will watch it for changes.
 
 ## Command-Line Interface
 
@@ -382,20 +383,24 @@ Backend logging usage:
 
 Agent profiles live in `config/agents/*.json` and are loaded at startup.
 
+The agent ID is the filename (without `.json`).
+
 Fields:
 - `name` (required)
 - `shell` (required)
 - `prompt` (optional: string or array of strings)
-- `llm_type` (required: `copilot`, `codex`, `promptline`)
-- `llm_model` (optional; use `default`)
+- `skills` (optional)
+- `llm_type` (optional metadata; shown in the UI)
+- `llm_model` (optional metadata; shown in the UI)
 
 Example:
 ```
 {
-  "name": "Codex",
+  "name": "Coder",
   "shell": "/bin/bash",
-  "prompt": ["coder", "architect"],
-  "llm_type": "codex",
+  "prompt": ["coder"],
+  "skills": ["git-workflows", "code-review"],
+  "llm_type": "copilot",
   "llm_model": "default"
 }
 ```

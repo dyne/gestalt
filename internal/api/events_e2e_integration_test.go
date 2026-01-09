@@ -185,16 +185,13 @@ func TestEventsWebSocketGitBranchChange(t *testing.T) {
 		t.Fatalf("update head: %v", err)
 	}
 
-	deadline := time.Now().Add(200 * time.Millisecond)
+	_ = conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
 	var payload eventWireMessage
-	for {
-		_ = conn.SetReadDeadline(deadline)
-		if err := conn.ReadJSON(&payload); err != nil {
-			t.Fatalf("read websocket: %v", err)
-		}
-		if payload.Type == watcher.EventTypeGitBranchChanged {
-			break
-		}
+	if err := conn.ReadJSON(&payload); err != nil {
+		t.Fatalf("read websocket: %v", err)
+	}
+	if payload.Type != watcher.EventTypeGitBranchChanged {
+		t.Fatalf("expected git_branch_changed, got %q", payload.Type)
 	}
 	if payload.Path != "feature" {
 		t.Fatalf("expected branch feature, got %q", payload.Path)

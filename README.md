@@ -24,11 +24,22 @@ When running local open browser at http://localhost:8080
 
 ## Temporal (dev server)
 
-Gestalt embeds the Temporal server for local development and auto-starts it by default.
-State, logs, and config are stored under `.gestalt/temporal`.
+Gestalt's HITL workflow integration uses the Temporal CLI (`temporalio/cli`) for local development.
+
+Install the Temporal CLI:
+- macOS: `brew install temporal`
+- Other platforms: download a release from https://github.com/temporalio/cli/releases
+
+Gestalt auto-starts the Temporal dev server by default and stores its data/logs under `.gestalt/temporal`.
 Disable auto-start with `--temporal-dev-server=false` or `GESTALT_TEMPORAL_DEV_SERVER=false`.
 
-The dev server stores workflow state in `.gestalt/temporal/temporal.db` so sessions persist across restarts.
+Start the local Temporal dev server (includes the UI at http://localhost:8233):
+```
+make temporal-dev
+```
+
+The dev server stores workflow state in a local SQLite file in the working directory so sessions persist across restarts.
+Auto-started servers use `.gestalt/temporal` instead.
 
 Timeouts and retries (defaults):
 - Workflow execution/run timeout: 24h (task timeout: 10s)

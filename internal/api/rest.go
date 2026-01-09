@@ -60,11 +60,18 @@ type workflowSummary struct {
 	Status        string              `json:"status"`
 	StartTime     time.Time           `json:"start_time"`
 	BellEvents    []workflowBellEvent `json:"bell_events"`
+	TaskEvents    []workflowTaskEvent `json:"task_events"`
 }
 
 type workflowBellEvent struct {
 	Timestamp time.Time `json:"timestamp"`
 	Context   string    `json:"context"`
+}
+
+type workflowTaskEvent struct {
+	Timestamp time.Time `json:"timestamp"`
+	L1        string    `json:"l1"`
+	L2        string    `json:"l2"`
 }
 
 type terminalOutputResponse struct {
@@ -160,6 +167,10 @@ type createTerminalRequest struct {
 	Agent string `json:"agent"`
 }
 
+type workflowResumeRequest struct {
+	Action string `json:"action"`
+}
+
 type terminalPathAction int
 
 const (
@@ -168,6 +179,7 @@ const (
 	terminalPathHistory
 	terminalPathInputHistory
 	terminalPathBell
+	terminalPathWorkflowResume
 )
 
 const workflowQueryTimeout = 3 * time.Second
@@ -275,6 +287,8 @@ func (h *RestHandler) handleTerminal(w http.ResponseWriter, r *http.Request) *ap
 		return h.handleTerminalInputHistory(w, r, id)
 	case terminalPathBell:
 		return h.handleTerminalBell(w, r, id)
+	case terminalPathWorkflowResume:
+		return h.handleTerminalWorkflowResume(w, r, id)
 	}
 
 	return h.handleTerminalDelete(w, r, id)
@@ -619,6 +633,16 @@ func (h *RestHandler) listWorkflowSummaries(ctx context.Context) []workflowSumma
 					})
 				}
 			}
+			if len(state.TaskEvents) > 0 {
+				summary.TaskEvents = make([]workflowTaskEvent, 0, len(state.TaskEvents))
+				for _, event := range state.TaskEvents {
+					summary.TaskEvents = append(summary.TaskEvents, workflowTaskEvent{
+						Timestamp: event.Timestamp,
+						L1:        event.L1,
+						L2:        event.L2,
+					})
+				}
+			}
 		}
 		summaries = append(summaries, summary)
 	}
@@ -846,6 +870,46 @@ func (h *RestHandler) handleTerminalBell(w http.ResponseWriter, r *http.Request,
 	return nil
 }
 
+func (h *RestHandler) handleTerminalWorkflowResume(w http.ResponseWriter, r *http.Request, id string) *apiError {
+	if r.Method != http.MethodPost {
+		return methodNotAllowed(w, "POST")
+	}
+
+	request, err := decodeWorkflowResumeRequest(r)
+	if err != nil {
+		return err
+	}
+	action, err := normalizeWorkflowResumeAction(request)
+	if err != nil {
+		return err
+	}
+
+	session, ok := h.Manager.Get(id)
+	if !ok {
+		return &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
+	}
+	workflowID, workflowRunID, hasWorkflow := session.WorkflowIdentifiers()
+	if !hasWorkflow {
+		return &apiError{Status: http.StatusConflict, Message: "workflow not active"}
+	}
+
+	if signalErr := session.SendResumeSignal(action); signalErr != nil {
+		return &apiError{Status: http.StatusInternalServerError, Message: "failed to resume workflow"}
+	}
+
+	if h.Logger != nil {
+		h.Logger.Info("workflow resume action", map[string]string{
+			"terminal_id": id,
+			"workflow_id": workflowID,
+			"run_id":      workflowRunID,
+			"action":      action,
+		})
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
 func (h *RestHandler) handleTerminalDelete(w http.ResponseWriter, r *http.Request, id string) *apiError {
 	if r.Method != http.MethodDelete {
 		return methodNotAllowed(w, "DELETE")
@@ -944,6 +1008,10 @@ func parseTerminalPath(path string) (string, terminalPathAction) {
 		id := strings.TrimSuffix(trimmed, "/bell")
 		return id, terminalPathBell
 	}
+	if strings.HasSuffix(trimmed, "/workflow/resume") {
+		id := strings.TrimSuffix(trimmed, "/workflow/resume")
+		return id, terminalPathWorkflowResume
+	}
 	return trimmed, terminalPathTerminal
 }
 
@@ -985,6 +1053,34 @@ func decodeCreateTerminalRequest(r *http.Request) (createTerminalRequest, *apiEr
 	}
 
 	return request, nil
+}
+
+func decodeWorkflowResumeRequest(r *http.Request) (workflowResumeRequest, *apiError) {
+	var request workflowResumeRequest
+	if r.Body == nil {
+		return request, nil
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil && err != io.EOF {
+		return request, &apiError{Status: http.StatusBadRequest, Message: "invalid request body"}
+	}
+
+	return request, nil
+}
+
+func normalizeWorkflowResumeAction(request workflowResumeRequest) (string, *apiError) {
+	action := strings.ToLower(strings.TrimSpace(request.Action))
+	if action == "" {
+		return workflows.ResumeActionContinue, nil
+	}
+	switch action {
+	case workflows.ResumeActionContinue, workflows.ResumeActionAbort, workflows.ResumeActionHandoff:
+		return action, nil
+	default:
+		return "", &apiError{Status: http.StatusBadRequest, Message: "invalid resume action"}
+	}
 }
 
 func parseHistoryLines(r *http.Request) (int, *apiError) {

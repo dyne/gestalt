@@ -3,8 +3,10 @@
 
   export let workflow = {}
   export let expanded = false
+  export let actionPending = false
   export let onToggle = () => {}
   export let onViewTerminal = () => {}
+  export let onResume = () => {}
 
   const formatTime = (value) => {
     if (!value) return '-'
@@ -67,7 +69,7 @@
   </div>
 
   {#if expanded}
-    <WorkflowDetail {workflow} {onViewTerminal} />
+    <WorkflowDetail {workflow} {onViewTerminal} {onResume} {actionPending} />
   {/if}
 </article>
 

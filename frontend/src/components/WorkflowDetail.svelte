@@ -3,6 +3,8 @@
 
   export let workflow = {}
   export let onViewTerminal = () => {}
+  export let onResume = () => {}
+  export let actionPending = false
 
   let copyStatus = ''
   let copyTimer = null
@@ -217,10 +219,18 @@
 
   <div class="detail-actions">
     {#if workflow.status === 'paused'}
-      <button type="button" disabled title="Resume actions are not available yet">
+      <button
+        type="button"
+        disabled={actionPending}
+        on:click={() => onResume(workflow.session_id, 'continue')}
+      >
         Resume
       </button>
-      <button type="button" disabled title="Abort actions are not available yet">
+      <button
+        type="button"
+        disabled={actionPending}
+        on:click={() => onResume(workflow.session_id, 'abort')}
+      >
         Abort
       </button>
     {/if}

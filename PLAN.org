@@ -1909,7 +1909,7 @@
    Tests: Manual test: expand workflow details, verify all info displayed
    Done when: Flow tab has rich workflow detail views
 
-** WIP [#C] Implement resume actions for paused workflows
+** DONE [#C] Implement resume actions for paused workflows
    Why: Users need to respond to bell-triggered pauses
    Change:
    - Add POST /api/terminals/:id/workflow/resume endpoint
@@ -1922,7 +1922,7 @@
    Tests: Manual test: pause via bell, resume via UI, verify workflow continues
    Done when: Users can resume paused workflows
 
-** TODO [#C] Add workflow event history API
+** WIP [#C] Add workflow event history API
    Why: Users and admins need full audit trail of agent sessions
    Change:
    - Add GET /api/terminals/:id/workflow/history endpoint

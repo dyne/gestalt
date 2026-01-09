@@ -138,6 +138,39 @@ func (client *fakeWorkflowQueryClient) SignalWorkflow(ctx context.Context, workf
 func (client *fakeWorkflowQueryClient) Close() {
 }
 
+type workflowSignalRecord struct {
+	workflowID string
+	runID      string
+	signalName string
+	payload    interface{}
+}
+
+type fakeWorkflowSignalClient struct {
+	runID   string
+	signals []workflowSignalRecord
+}
+
+func (client *fakeWorkflowSignalClient) ExecuteWorkflow(ctx context.Context, options client.StartWorkflowOptions, workflow interface{}, args ...interface{}) (client.WorkflowRun, error) {
+	return &fakeWorkflowRun{workflowID: options.ID, runID: client.runID}, nil
+}
+
+func (client *fakeWorkflowSignalClient) QueryWorkflow(ctx context.Context, workflowID, runID, queryType string, args ...interface{}) (converter.EncodedValue, error) {
+	return nil, errors.New("query not supported")
+}
+
+func (client *fakeWorkflowSignalClient) SignalWorkflow(ctx context.Context, workflowID, runID, signalName string, arg interface{}) error {
+	client.signals = append(client.signals, workflowSignalRecord{
+		workflowID: workflowID,
+		runID:      runID,
+		signalName: signalName,
+		payload:    arg,
+	})
+	return nil
+}
+
+func (client *fakeWorkflowSignalClient) Close() {
+}
+
 func TestStatusHandlerRequiresAuth(t *testing.T) {
 	handler := &RestHandler{}
 	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
@@ -225,6 +258,9 @@ func TestWorkflowsEndpointReturnsSummary(t *testing.T) {
 		BellEvents: []workflows.BellEvent{
 			{Timestamp: bellTime, Context: "bell context"},
 		},
+		TaskEvents: []workflows.TaskEvent{
+			{Timestamp: startTime, L1: "L1", L2: "L2"},
+		},
 	}
 
 	handler := &RestHandler{Manager: manager}
@@ -270,6 +306,74 @@ func TestWorkflowsEndpointReturnsSummary(t *testing.T) {
 	}
 	if got.BellEvents[0].Context != "bell context" || !got.BellEvents[0].Timestamp.Equal(bellTime) {
 		t.Fatalf("unexpected bell event: %#v", got.BellEvents[0])
+	}
+	if len(got.TaskEvents) != 1 {
+		t.Fatalf("expected 1 task event, got %d", len(got.TaskEvents))
+	}
+	if got.TaskEvents[0].L1 != "L1" || got.TaskEvents[0].L2 != "L2" {
+		t.Fatalf("unexpected task event: %#v", got.TaskEvents[0])
+	}
+}
+
+func TestTerminalWorkflowResumeEndpoint(t *testing.T) {
+	factory := &fakeFactory{}
+	temporalClient := &fakeWorkflowSignalClient{runID: "run-9"}
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:           "/bin/sh",
+		PtyFactory:      factory,
+		TemporalClient:  temporalClient,
+		TemporalEnabled: true,
+	})
+	created, err := manager.Create("", "", "")
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodPost, "/api/terminals/"+created.ID+"/workflow/resume", strings.NewReader(`{"action":"continue"}`))
+	res := httptest.NewRecorder()
+
+	restHandler("", handler.handleTerminal)(res, req)
+	if res.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", res.Code)
+	}
+	if len(temporalClient.signals) != 1 {
+		t.Fatalf("expected 1 signal, got %d", len(temporalClient.signals))
+	}
+	signal := temporalClient.signals[0]
+	if signal.signalName != workflows.ResumeSignalName {
+		t.Fatalf("expected resume signal, got %q", signal.signalName)
+	}
+	payload, ok := signal.payload.(workflows.ResumeSignal)
+	if !ok || payload.Action != workflows.ResumeActionContinue {
+		t.Fatalf("unexpected resume payload: %#v", signal.payload)
+	}
+}
+
+func TestTerminalWorkflowResumeEndpointMissingWorkflow(t *testing.T) {
+	factory := &fakeFactory{}
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+	})
+	created, err := manager.Create("", "", "")
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodPost, "/api/terminals/"+created.ID+"/workflow/resume", strings.NewReader(`{"action":"continue"}`))
+	res := httptest.NewRecorder()
+
+	restHandler("", handler.handleTerminal)(res, req)
+	if res.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d", res.Code)
 	}
 }
 
@@ -1319,6 +1423,8 @@ func TestParseTerminalPath(t *testing.T) {
 		{name: "history-trailing-slash", path: "/api/terminals/123/history/", id: "123", action: terminalPathHistory},
 		{name: "input-history", path: "/api/terminals/123/input-history", id: "123", action: terminalPathInputHistory},
 		{name: "input-history-trailing-slash", path: "/api/terminals/123/input-history/", id: "123", action: terminalPathInputHistory},
+		{name: "workflow-resume", path: "/api/terminals/123/workflow/resume", id: "123", action: terminalPathWorkflowResume},
+		{name: "workflow-resume-trailing-slash", path: "/api/terminals/123/workflow/resume/", id: "123", action: terminalPathWorkflowResume},
 		{name: "missing-prefix", path: "/api/terminal/123", id: "", action: terminalPathTerminal},
 		{name: "empty-id", path: "/api/terminals/", id: "", action: terminalPathTerminal},
 	}

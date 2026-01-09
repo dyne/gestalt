@@ -352,6 +352,12 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 				"terminal_id": id,
 				"error":       startError.Error(),
 			})
+		} else if workflowID, workflowRunID, ok := session.WorkflowIdentifiers(); ok {
+			m.logger.Info("workflow started", map[string]string{
+				"terminal_id": id,
+				"workflow_id": workflowID,
+				"run_id":      workflowRunID,
+			})
 		}
 	}
 
@@ -687,6 +693,13 @@ func (m *Manager) Delete(id string) error {
 		m.logger.Warn("terminal close error", map[string]string{
 			"terminal_id": id,
 			"error":       err.Error(),
+		})
+	}
+	if workflowID, workflowRunID, ok := session.WorkflowIdentifiers(); ok {
+		m.logger.Info("workflow stopped", map[string]string{
+			"terminal_id": id,
+			"workflow_id": workflowID,
+			"run_id":      workflowRunID,
 		})
 	}
 	m.logger.Info("terminal deleted", map[string]string{

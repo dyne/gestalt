@@ -8,7 +8,10 @@ import (
 	"time"
 
 	"gestalt/internal/logging"
+	"gestalt/internal/metrics"
 	"gestalt/internal/terminal"
+
+	"go.temporal.io/sdk/activity"
 )
 
 const (
@@ -31,19 +34,28 @@ func NewSessionActivities(manager *terminal.Manager, logger *logging.Logger) *Se
 	}
 }
 
-func (activities *SessionActivities) SpawnTerminalActivity(activityContext context.Context, sessionID, shell string) error {
+func (activities *SessionActivities) SpawnTerminalActivity(activityContext context.Context, sessionID, shell string) (activityErr error) {
+	start := time.Now()
+	attempt := activityAttempt(activityContext)
+	defer func() {
+		metrics.Default.RecordActivity(SpawnTerminalActivityName, time.Since(start), activityErr, attempt)
+	}()
+
 	if activityContext != nil {
-		if activityError := activityContext.Err(); activityError != nil {
-			return activityError
+		if contextError := activityContext.Err(); contextError != nil {
+			activityErr = contextError
+			return contextError
 		}
 	}
 	manager, managerError := activities.ensureManager()
 	if managerError != nil {
+		activityErr = managerError
 		return managerError
 	}
 	trimmedID := strings.TrimSpace(sessionID)
 	if trimmedID == "" {
-		return errors.New("session id is required")
+		activityErr = errors.New("session id is required")
+		return activityErr
 	}
 	if _, ok := manager.Get(trimmedID); ok {
 		activities.logInfo("temporal terminal already exists", map[string]string{
@@ -57,6 +69,7 @@ func (activities *SessionActivities) SpawnTerminalActivity(activityContext conte
 			"terminal_id": trimmedID,
 			"error":       createError.Error(),
 		})
+		activityErr = createError
 		return createError
 	}
 	if createdSession != nil {
@@ -67,19 +80,28 @@ func (activities *SessionActivities) SpawnTerminalActivity(activityContext conte
 	return nil
 }
 
-func (activities *SessionActivities) TerminateTerminalActivity(activityContext context.Context, sessionID string) error {
+func (activities *SessionActivities) TerminateTerminalActivity(activityContext context.Context, sessionID string) (activityErr error) {
+	start := time.Now()
+	attempt := activityAttempt(activityContext)
+	defer func() {
+		metrics.Default.RecordActivity(TerminateTerminalActivityName, time.Since(start), activityErr, attempt)
+	}()
+
 	if activityContext != nil {
-		if activityError := activityContext.Err(); activityError != nil {
-			return activityError
+		if contextError := activityContext.Err(); contextError != nil {
+			activityErr = contextError
+			return contextError
 		}
 	}
 	manager, managerError := activities.ensureManager()
 	if managerError != nil {
+		activityErr = managerError
 		return managerError
 	}
 	trimmedID := strings.TrimSpace(sessionID)
 	if trimmedID == "" {
-		return errors.New("session id is required")
+		activityErr = errors.New("session id is required")
+		return activityErr
 	}
 	deleteError := manager.Delete(trimmedID)
 	if deleteError != nil {
@@ -93,6 +115,7 @@ func (activities *SessionActivities) TerminateTerminalActivity(activityContext c
 			"terminal_id": trimmedID,
 			"error":       deleteError.Error(),
 		})
+		activityErr = deleteError
 		return deleteError
 	}
 	activities.logInfo("temporal terminal deleted", map[string]string{
@@ -101,22 +124,32 @@ func (activities *SessionActivities) TerminateTerminalActivity(activityContext c
 	return nil
 }
 
-func (activities *SessionActivities) RecordBellActivity(activityContext context.Context, sessionID string, timestamp time.Time, contextText string) error {
+func (activities *SessionActivities) RecordBellActivity(activityContext context.Context, sessionID string, timestamp time.Time, contextText string) (activityErr error) {
+	start := time.Now()
+	attempt := activityAttempt(activityContext)
+	defer func() {
+		metrics.Default.RecordActivity(RecordBellActivityName, time.Since(start), activityErr, attempt)
+	}()
+
 	if activityContext != nil {
-		if activityError := activityContext.Err(); activityError != nil {
-			return activityError
+		if contextError := activityContext.Err(); contextError != nil {
+			activityErr = contextError
+			return contextError
 		}
 	}
 	manager, managerError := activities.ensureManager()
 	if managerError != nil {
+		activityErr = managerError
 		return managerError
 	}
 	trimmedID := strings.TrimSpace(sessionID)
 	if trimmedID == "" {
-		return errors.New("session id is required")
+		activityErr = errors.New("session id is required")
+		return activityErr
 	}
 	if _, ok := manager.Get(trimmedID); !ok {
-		return terminal.ErrSessionNotFound
+		activityErr = terminal.ErrSessionNotFound
+		return activityErr
 	}
 	activities.logInfo("temporal bell recorded", map[string]string{
 		"terminal_id": trimmedID,
@@ -126,22 +159,32 @@ func (activities *SessionActivities) RecordBellActivity(activityContext context.
 	return nil
 }
 
-func (activities *SessionActivities) UpdateTaskActivity(activityContext context.Context, sessionID, l1Task, l2Task string) error {
+func (activities *SessionActivities) UpdateTaskActivity(activityContext context.Context, sessionID, l1Task, l2Task string) (activityErr error) {
+	start := time.Now()
+	attempt := activityAttempt(activityContext)
+	defer func() {
+		metrics.Default.RecordActivity(UpdateTaskActivityName, time.Since(start), activityErr, attempt)
+	}()
+
 	if activityContext != nil {
-		if activityError := activityContext.Err(); activityError != nil {
-			return activityError
+		if contextError := activityContext.Err(); contextError != nil {
+			activityErr = contextError
+			return contextError
 		}
 	}
 	manager, managerError := activities.ensureManager()
 	if managerError != nil {
+		activityErr = managerError
 		return managerError
 	}
 	trimmedID := strings.TrimSpace(sessionID)
 	if trimmedID == "" {
-		return errors.New("session id is required")
+		activityErr = errors.New("session id is required")
+		return activityErr
 	}
 	if _, ok := manager.Get(trimmedID); !ok {
-		return terminal.ErrSessionNotFound
+		activityErr = terminal.ErrSessionNotFound
+		return activityErr
 	}
 	activities.logInfo("temporal task update recorded", map[string]string{
 		"terminal_id": trimmedID,
@@ -151,25 +194,35 @@ func (activities *SessionActivities) UpdateTaskActivity(activityContext context.
 	return nil
 }
 
-func (activities *SessionActivities) GetOutputActivity(activityContext context.Context, sessionID string) (string, error) {
+func (activities *SessionActivities) GetOutputActivity(activityContext context.Context, sessionID string) (output string, activityErr error) {
+	start := time.Now()
+	attempt := activityAttempt(activityContext)
+	defer func() {
+		metrics.Default.RecordActivity(GetOutputActivityName, time.Since(start), activityErr, attempt)
+	}()
+
 	if activityContext != nil {
-		if activityError := activityContext.Err(); activityError != nil {
-			return "", activityError
+		if contextError := activityContext.Err(); contextError != nil {
+			activityErr = contextError
+			return "", contextError
 		}
 	}
 	manager, managerError := activities.ensureManager()
 	if managerError != nil {
+		activityErr = managerError
 		return "", managerError
 	}
 	trimmedID := strings.TrimSpace(sessionID)
 	if trimmedID == "" {
-		return "", errors.New("session id is required")
+		activityErr = errors.New("session id is required")
+		return "", activityErr
 	}
 	lines, historyError := manager.HistoryLines(trimmedID, terminal.DefaultHistoryLines)
 	if historyError != nil {
+		activityErr = historyError
 		return "", historyError
 	}
-	output := strings.Join(lines, "\n")
+	output = strings.Join(lines, "\n")
 	activities.logInfo("temporal output retrieved", map[string]string{
 		"terminal_id": trimmedID,
 		"line_count":  strconv.Itoa(len(lines)),
@@ -196,4 +249,15 @@ func (activities *SessionActivities) logWarn(message string, fields map[string]s
 		return
 	}
 	activities.Logger.Warn(message, fields)
+}
+
+func activityAttempt(activityContext context.Context) int32 {
+	if activityContext == nil || !activity.IsActivity(activityContext) {
+		return 1
+	}
+	info := activity.GetInfo(activityContext)
+	if info.Attempt <= 0 {
+		return 1
+	}
+	return info.Attempt
 }

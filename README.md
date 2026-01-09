@@ -135,18 +135,57 @@ make VERSION=1.2.3
 
 ### Token authentication
 
-If you don’t set GESTALT_TOKEN, auth is disabled.
+`GESTALT_TOKEN` is an optional shared secret that protects the Gestalt HTTP API.
+
+- If you don't set `GESTALT_TOKEN`, auth is disabled (anyone who can reach the server can use it).
+- If you set `GESTALT_TOKEN`, every REST and WebSocket request must present the same token.
 
 - REST auth is Authorization: Bearer <token> when `GESTALT_TOKEN` is set (handled in frontend/src/lib/api.js).
 - WS auth uses ?token=<token> in the URL (also handled in frontend/src/lib/api.js).
 - Default port is 8080; override with `GESTALT_PORT`.
 
-`GESTALT_TOKEN` is just an arbitrary shared secret you choose. The
-server only checks that incoming REST/WS requests present the same
-token. To generate a random token:
+`GESTALT_TOKEN` is just an arbitrary shared secret you choose. The server only checks that
+incoming REST/WS requests present the same token.
+
+Because the default bind is `0.0.0.0:8080`, setting a token is strongly recommended whenever
+the server is reachable from other machines on your network.
+
+To generate a random token:
 
 - macOS/Linux: `export GESTALT_TOKEN=$(openssl rand -hex 16)`
 - Windows PowerShell `$env:GESTALT_TOKEN = -join ((48..57)+(97..102) | Get-Random -Count 32 | % {[char]$_})`
+
+## Using Gestalt on a real project
+
+Gestalt operates relative to its current working directory. To use it on another repository,
+run the server from that repo's root.
+
+1) Install Gestalt (from this repo):
+```
+go install ./cmd/gestalt
+```
+
+2) In your project root, extract a per-project config bundle:
+```
+gestalt --extract-config
+```
+
+This creates `./gestalt/config/` (agents/prompts/skills) and `./gestalt/dist/`. When these
+directories exist, Gestalt prefers them over the embedded defaults.
+
+3) Customize agent commands in `./gestalt/config/agents/*.json`.
+
+Example mapping:
+- Coder: `copilot ...`
+- Architect: `gemini`
+- Fixer: `amp`
+
+4) Start Gestalt from the same project root and open the UI:
+```
+GESTALT_TOKEN=$(openssl rand -hex 16) gestalt --port 8080
+```
+
+If your project has a `PLAN.org` in its root, Gestalt will watch it for changes.
 
 ## Command-Line Interface
 

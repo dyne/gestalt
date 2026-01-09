@@ -68,3 +68,10 @@ This repo is a Go backend + Svelte frontend for a multi-terminal dashboard with 
 - gestalt flags mirror GESTALT_* env vars; `Config.Sources` records the source for each value.
 - `gestalt --help`, `gestalt --version`, `gestalt completion bash|zsh`, plus `--verbose`/`--quiet` log level control.
 - gestalt-send supports `--url`, `--token`, `--start`, `--verbose`, `--debug`, `--help`, `--version`.
+
+## Temporal HITL integration notes
+- Session workflows are opt-in: POST `/api/terminals` with `workflow=true` or agent `use_workflow`.
+- Workflow list/detail: `GET /api/workflows`, `GET /api/terminals/:id/workflow/history`.
+- Resume/abort: `POST /api/terminals/:id/workflow/resume` with `continue` or `abort`.
+- Metrics: `GET /api/metrics` exposes workflow/activity counters and timings.
+- Handoff is design-only: `session.handoff` is reserved; implementation deferred.

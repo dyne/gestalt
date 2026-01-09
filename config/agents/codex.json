@@ -2,7 +2,7 @@
   "name": "Coder",
   "shell": "codex --full-auto --add-dir /tmp",
   "prompt": ["coder"],
-  "skills": ["git-workflows", "code-review"],
+  "skills": ["git-workflows"],
   "llm_type": "codex",
   "llm_model": "default"
 }

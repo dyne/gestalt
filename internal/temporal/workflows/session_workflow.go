@@ -22,6 +22,7 @@ const (
 
 	ResumeActionContinue = "continue"
 	ResumeActionAbort    = "abort"
+	ResumeActionHandoff  = "handoff"
 )
 
 type SessionWorkflowRequest struct {
@@ -48,11 +49,18 @@ type SessionWorkflowState struct {
 	Status     string
 	StartTime  time.Time
 	BellEvents []BellEvent
+	TaskEvents []TaskEvent
 }
 
 type BellEvent struct {
 	Timestamp time.Time
 	Context   string
+}
+
+type TaskEvent struct {
+	Timestamp time.Time
+	L1        string
+	L2        string
 }
 
 type UpdateTaskSignal struct {
@@ -85,6 +93,13 @@ func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRe
 	if state.StartTime.IsZero() {
 		state.StartTime = workflow.Now(workflowContext)
 	}
+	if state.CurrentL1 != "" || state.CurrentL2 != "" {
+		state.TaskEvents = append(state.TaskEvents, TaskEvent{
+			Timestamp: state.StartTime,
+			L1:        state.CurrentL1,
+			L2:        state.CurrentL2,
+		})
+	}
 
 	queryError := workflow.SetQueryHandler(workflowContext, StatusQueryName, func() (SessionWorkflowState, error) {
 		return state, nil
@@ -107,6 +122,11 @@ func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRe
 		channel.Receive(workflowContext, &signal)
 		state.CurrentL1 = signal.L1
 		state.CurrentL2 = signal.L2
+		state.TaskEvents = append(state.TaskEvents, TaskEvent{
+			Timestamp: workflow.Now(workflowContext),
+			L1:        state.CurrentL1,
+			L2:        state.CurrentL2,
+		})
 		eventCount++
 	})
 
@@ -131,7 +151,7 @@ func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRe
 		switch signal.Action {
 		case ResumeActionAbort:
 			state.Status = SessionStatusStopped
-		case ResumeActionContinue, "":
+		case ResumeActionContinue, ResumeActionHandoff, "":
 			state.Status = SessionStatusRunning
 		default:
 			logger.Warn("unknown resume action", "action", signal.Action)

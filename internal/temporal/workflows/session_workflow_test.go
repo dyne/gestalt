@@ -89,6 +89,18 @@ func TestSessionWorkflowSignals(testingContext *testing.T) {
 	if statusAfterUpdate.CurrentL1 != "Updated L1" || statusAfterUpdate.CurrentL2 != "Updated L2" {
 		testingContext.Fatalf("task update not recorded: %#v", statusAfterUpdate)
 	}
+	if len(statusAfterUpdate.TaskEvents) != 2 {
+		testingContext.Fatalf("expected 2 task events, got %d", len(statusAfterUpdate.TaskEvents))
+	}
+	if statusAfterUpdate.TaskEvents[0].L1 != "Initial L1" || statusAfterUpdate.TaskEvents[0].L2 != "Initial L2" {
+		testingContext.Fatalf("unexpected initial task event: %#v", statusAfterUpdate.TaskEvents[0])
+	}
+	if !statusAfterUpdate.TaskEvents[0].Timestamp.Equal(startTime) {
+		testingContext.Fatalf("unexpected initial task timestamp: %v", statusAfterUpdate.TaskEvents[0].Timestamp)
+	}
+	if statusAfterUpdate.TaskEvents[1].L1 != "Updated L1" || statusAfterUpdate.TaskEvents[1].L2 != "Updated L2" {
+		testingContext.Fatalf("unexpected updated task event: %#v", statusAfterUpdate.TaskEvents[1])
+	}
 	if statusAfterUpdate.Status != SessionStatusRunning {
 		testingContext.Fatalf("expected running after task update, got %s", statusAfterUpdate.Status)
 	}

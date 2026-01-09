@@ -314,6 +314,13 @@ func (s *Session) UpdateTask(l1Task, l2Task string) error {
 	return s.sendWorkflowSignal(workflows.UpdateTaskSignalName, taskSignal)
 }
 
+func (s *Session) SendResumeSignal(action string) error {
+	resumeSignal := workflows.ResumeSignal{
+		Action: action,
+	}
+	return s.sendWorkflowSignal(workflows.ResumeSignalName, resumeSignal)
+}
+
 func (s *Session) WorkflowIdentifiers() (string, string, bool) {
 	if s == nil {
 		return "", "", false

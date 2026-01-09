@@ -11,6 +11,7 @@
   let error = ''
   let refreshTimer = null
   let expandedIds = new Set()
+  let pendingActions = new Set()
 
   const refreshIntervalMs = 5000
 
@@ -54,6 +55,27 @@
       next.add(id)
     }
     expandedIds = next
+  }
+
+  const resumeWorkflow = async (sessionId, action) => {
+    if (!sessionId || pendingActions.has(sessionId)) return
+    const next = new Set(pendingActions)
+    next.add(sessionId)
+    pendingActions = next
+    error = ''
+    try {
+      await apiFetch(`/api/terminals/${sessionId}/workflow/resume`, {
+        method: 'POST',
+        body: JSON.stringify({ action }),
+      })
+      await loadWorkflows({ silent: true })
+    } catch (err) {
+      error = err?.message || 'Failed to resume workflow.'
+    } finally {
+      const cleared = new Set(pendingActions)
+      cleared.delete(sessionId)
+      pendingActions = cleared
+    }
   }
 
   onMount(() => {
@@ -100,8 +122,10 @@
         <WorkflowCard
           {workflow}
           expanded={expandedIds.has(workflow.session_id)}
+          actionPending={pendingActions.has(workflow.session_id)}
           onToggle={toggleExpanded}
           {onViewTerminal}
+          onResume={resumeWorkflow}
         />
       {/each}
     </div>

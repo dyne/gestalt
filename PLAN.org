@@ -1895,7 +1895,7 @@
    Tests: Manual test: create workflow sessions, verify Flow tab displays them
    Done when: Flow tab shows all workflow sessions with status and actions
 
-** TODO [#C] Add workflow detail components
+** DONE [#C] Add workflow detail components
    Why: Flow tab needs detailed views for individual workflows
    Change:
    - Create frontend/src/components/WorkflowCard.svelte for list items
@@ -1909,7 +1909,7 @@
    Tests: Manual test: expand workflow details, verify all info displayed
    Done when: Flow tab has rich workflow detail views
 
-** TODO [#C] Implement resume actions for paused workflows
+** WIP [#C] Implement resume actions for paused workflows
    Why: Users need to respond to bell-triggered pauses
    Change:
    - Add POST /api/terminals/:id/workflow/resume endpoint

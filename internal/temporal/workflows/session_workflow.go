@@ -3,6 +3,7 @@ package workflows
 import (
 	"time"
 
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 )
 
@@ -12,6 +13,21 @@ const (
 	SessionStatusStopped = "stopped"
 
 	SessionTaskQueueName = "gestalt-session"
+
+	SpawnTerminalActivityName = "SpawnTerminalActivity"
+	UpdateTaskActivityName    = "UpdateTaskActivity"
+	RecordBellActivityName    = "RecordBellActivity"
+	GetOutputActivityName     = "GetOutputActivity"
+
+	DefaultWorkflowExecutionTimeout = 24 * time.Hour
+	DefaultWorkflowRunTimeout       = 24 * time.Hour
+	DefaultWorkflowTaskTimeout      = 10 * time.Second
+
+	DefaultActivityTimeout       = 10 * time.Second
+	SpawnTerminalTimeout         = 30 * time.Second
+	ReadOutputTimeout            = 5 * time.Second
+	DefaultActivityHeartbeat     = 10 * time.Second
+	DefaultActivityRetryAttempts = 5
 
 	UpdateTaskSignalName = "session.update_task"
 	BellSignalName       = "session.bell"
@@ -82,6 +98,15 @@ type TerminateSignal struct {
 }
 
 func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRequest) (SessionWorkflowResult, error) {
+	spawnContext := workflow.WithActivityOptions(workflowContext, workflow.ActivityOptions{
+		StartToCloseTimeout: SpawnTerminalTimeout,
+		HeartbeatTimeout:    DefaultActivityHeartbeat,
+		RetryPolicy:         defaultActivityRetryPolicy(),
+	})
+	if err := workflow.ExecuteActivity(spawnContext, SpawnTerminalActivityName, request.SessionID, request.Shell).Get(spawnContext, nil); err != nil {
+		return SessionWorkflowResult{}, err
+	}
+
 	state := SessionWorkflowState{
 		SessionID: request.SessionID,
 		AgentID:   request.AgentID,
@@ -115,6 +140,15 @@ func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRe
 
 	eventCount := 0
 	logger := workflow.GetLogger(workflowContext)
+	activityContext := workflow.WithActivityOptions(workflowContext, workflow.ActivityOptions{
+		StartToCloseTimeout: DefaultActivityTimeout,
+		HeartbeatTimeout:    DefaultActivityHeartbeat,
+		RetryPolicy:         defaultActivityRetryPolicy(),
+	})
+	readContext := workflow.WithActivityOptions(workflowContext, workflow.ActivityOptions{
+		StartToCloseTimeout: ReadOutputTimeout,
+		RetryPolicy:         defaultActivityRetryPolicy(),
+	})
 	selector := workflow.NewSelector(workflowContext)
 
 	selector.AddReceive(updateTaskChannel, func(channel workflow.ReceiveChannel, more bool) {
@@ -127,6 +161,9 @@ func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRe
 			L1:        state.CurrentL1,
 			L2:        state.CurrentL2,
 		})
+		if err := workflow.ExecuteActivity(activityContext, UpdateTaskActivityName, request.SessionID, signal.L1, signal.L2).Get(activityContext, nil); err != nil {
+			logger.Warn("update task activity failed", "error", err)
+		}
 		eventCount++
 	})
 
@@ -137,10 +174,22 @@ func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRe
 		if timestamp.IsZero() {
 			timestamp = workflow.Now(workflowContext)
 		}
+		contextText := signal.Context
+		if contextText == "" {
+			var output string
+			if err := workflow.ExecuteActivity(readContext, GetOutputActivityName, request.SessionID).Get(readContext, &output); err != nil {
+				logger.Warn("get output activity failed", "error", err)
+			} else {
+				contextText = output
+			}
+		}
 		state.BellEvents = append(state.BellEvents, BellEvent{
 			Timestamp: timestamp,
-			Context:   signal.Context,
+			Context:   contextText,
 		})
+		if err := workflow.ExecuteActivity(activityContext, RecordBellActivityName, request.SessionID, timestamp, contextText).Get(activityContext, nil); err != nil {
+			logger.Warn("record bell activity failed", "error", err)
+		}
 		state.Status = SessionStatusPaused
 		eventCount++
 	})
@@ -177,4 +226,13 @@ func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRe
 		FinalStatus: state.Status,
 		EventCount:  eventCount,
 	}, nil
+}
+
+func defaultActivityRetryPolicy() *temporal.RetryPolicy {
+	return &temporal.RetryPolicy{
+		InitialInterval:    time.Second,
+		BackoffCoefficient: 2.0,
+		MaximumInterval:    30 * time.Second,
+		MaximumAttempts:    DefaultActivityRetryAttempts,
+	}
 }

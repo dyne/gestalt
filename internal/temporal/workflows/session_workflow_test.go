@@ -1,9 +1,11 @@
 package workflows
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/testsuite"
 )
 
@@ -11,6 +13,7 @@ func TestSessionWorkflowSignals(testingContext *testing.T) {
 	workflowTestSuite := &testsuite.WorkflowTestSuite{}
 	workflowEnvironment := workflowTestSuite.NewTestWorkflowEnvironment()
 	workflowEnvironment.RegisterWorkflow(SessionWorkflow)
+	registerSessionActivities(workflowEnvironment)
 
 	startTime := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
 	bellTime := time.Date(2025, 1, 1, 12, 1, 0, 0, time.UTC)
@@ -131,6 +134,7 @@ func TestSessionWorkflowAbortAction(testingContext *testing.T) {
 	workflowTestSuite := &testsuite.WorkflowTestSuite{}
 	workflowEnvironment := workflowTestSuite.NewTestWorkflowEnvironment()
 	workflowEnvironment.RegisterWorkflow(SessionWorkflow)
+	registerSessionActivities(workflowEnvironment)
 
 	var statusAfterBell SessionWorkflowState
 	var bellQueryError error
@@ -189,4 +193,31 @@ func TestSessionWorkflowAbortAction(testingContext *testing.T) {
 	if workflowResult.EventCount != 2 {
 		testingContext.Fatalf("expected 2 events, got %d", workflowResult.EventCount)
 	}
+}
+
+func registerSessionActivities(workflowEnvironment *testsuite.TestWorkflowEnvironment) {
+	workflowEnvironment.RegisterActivityWithOptions(
+		func(ctx context.Context, sessionID, shell string) error {
+			return nil
+		},
+		activity.RegisterOptions{Name: SpawnTerminalActivityName},
+	)
+	workflowEnvironment.RegisterActivityWithOptions(
+		func(ctx context.Context, sessionID, l1Task, l2Task string) error {
+			return nil
+		},
+		activity.RegisterOptions{Name: UpdateTaskActivityName},
+	)
+	workflowEnvironment.RegisterActivityWithOptions(
+		func(ctx context.Context, sessionID string, timestamp time.Time, contextText string) error {
+			return nil
+		},
+		activity.RegisterOptions{Name: RecordBellActivityName},
+	)
+	workflowEnvironment.RegisterActivityWithOptions(
+		func(ctx context.Context, sessionID string) (string, error) {
+			return "", nil
+		},
+		activity.RegisterOptions{Name: GetOutputActivityName},
+	)
 }

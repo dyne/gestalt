@@ -126,7 +126,7 @@
         if (typeof agentWorkflow[agent.id] === 'boolean') {
           next[agent.id] = agentWorkflow[agent.id]
         } else {
-          next[agent.id] = Boolean(agent.use_workflow)
+          next[agent.id] = agent.use_workflow !== false
         }
       })
     }

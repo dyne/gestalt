@@ -114,6 +114,10 @@ func (run *fakeWorkflowRun) GetWithOptions(ctx context.Context, valuePtr interfa
 	return nil
 }
 
+func boolPtr(value bool) *bool {
+	return &value
+}
+
 type fakeWorkflowQueryClient struct {
 	runID        string
 	queryResults map[string]workflows.SessionWorkflowState
@@ -821,7 +825,7 @@ func TestCreateTerminalWorkflowFlag(t *testing.T) {
 	})
 	handler := &RestHandler{Manager: manager}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/terminals", strings.NewReader(`{"workflow":true}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/terminals", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
@@ -850,6 +854,30 @@ func TestCreateTerminalWorkflowFlag(t *testing.T) {
 	}
 	if runID != temporalClient.runID {
 		t.Fatalf("expected run id %q, got %q", temporalClient.runID, runID)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/terminals", strings.NewReader(`{"workflow":true}`))
+	req.Header.Set("Authorization", "Bearer secret")
+	res = httptest.NewRecorder()
+
+	restHandler("secret", handler.handleTerminals)(res, req)
+	if res.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", res.Code)
+	}
+
+	var payloadExplicit terminalSummary
+	if err := json.NewDecoder(res.Body).Decode(&payloadExplicit); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	explicitSession, ok := manager.Get(payloadExplicit.ID)
+	if !ok {
+		t.Fatalf("expected session %q", payloadExplicit.ID)
+	}
+	defer func() {
+		_ = manager.Delete(payloadExplicit.ID)
+	}()
+	if _, _, ok := explicitSession.WorkflowIdentifiers(); !ok {
+		t.Fatalf("expected workflow identifiers for explicit enable")
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/terminals", strings.NewReader(`{"workflow":false}`))
@@ -935,10 +963,9 @@ func TestCreateTerminalUsesAgentWorkflowDefault(t *testing.T) {
 		TemporalEnabled: true,
 		Agents: map[string]agent.Agent{
 			"codex": {
-				Name:        "Codex",
-				Shell:       "/bin/zsh",
-				LLMType:     "codex",
-				UseWorkflow: true,
+				Name:    "Codex",
+				Shell:   "/bin/zsh",
+				LLMType: "codex",
 			},
 		},
 	})
@@ -1097,13 +1124,14 @@ func TestAgentsEndpoint(t *testing.T) {
 				Shell:       "/bin/zsh",
 				LLMType:     "codex",
 				LLMModel:    "default",
-				UseWorkflow: true,
+				UseWorkflow: boolPtr(true),
 			},
 			"copilot": {
-				Name:     "Copilot",
-				Shell:    "/bin/bash",
-				LLMType:  "copilot",
-				LLMModel: "default",
+				Name:        "Copilot",
+				Shell:       "/bin/bash",
+				LLMType:     "copilot",
+				LLMModel:    "default",
+				UseWorkflow: boolPtr(false),
 			},
 		},
 	})

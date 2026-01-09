@@ -114,6 +114,13 @@ type SkillMetadata struct {
 	License     string
 }
 
+func resolveWorkflowPreference(preference *bool) bool {
+	if preference == nil {
+		return true
+	}
+	return *preference
+}
+
 func NewManager(opts ManagerOptions) *Manager {
 	shell := opts.Shell
 	if shell == "" {
@@ -272,11 +279,9 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		}
 	}
 
-	useWorkflow := false
-	if request.UseWorkflow != nil {
-		useWorkflow = *request.UseWorkflow
-	} else if profile != nil {
-		useWorkflow = profile.UseWorkflow
+	useWorkflow := resolveWorkflowPreference(request.UseWorkflow)
+	if request.UseWorkflow == nil && profile != nil {
+		useWorkflow = resolveWorkflowPreference(profile.UseWorkflow)
 	}
 
 	if agentName != "" {
@@ -656,7 +661,7 @@ func (m *Manager) ListAgents() []AgentInfo {
 			Name:        profile.Name,
 			LLMType:     profile.LLMType,
 			LLMModel:    profile.LLMModel,
-			UseWorkflow: profile.UseWorkflow,
+			UseWorkflow: resolveWorkflowPreference(profile.UseWorkflow),
 		})
 	}
 	m.mu.RUnlock()

@@ -36,8 +36,11 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.MaxWatches != 100 {
 		t.Fatalf("expected max watches 100, got %d", cfg.MaxWatches)
 	}
-	if cfg.TemporalDevServer {
-		t.Fatalf("expected temporal dev server disabled by default")
+	if !cfg.TemporalDevServer {
+		t.Fatalf("expected temporal dev server enabled by default")
+	}
+	if !cfg.TemporalEnabled {
+		t.Fatalf("expected temporal enabled by default")
 	}
 	if cfg.Verbose {
 		t.Fatalf("expected verbose false by default")

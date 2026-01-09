@@ -1996,6 +1996,17 @@
    Tests: Design document and prototype; implementation TBD
    Done when: Handoff design documented (implementation deferred)
 
+** [#B] Auto-manage Temporal dev server in .gestalt
+   Why: Local dev should not require manual Temporal start/stop and should keep data under .gestalt/temporal
+   Change:
+   - Add config/env to enable Temporal dev server auto-management
+   - On startup, spawn Temporal dev server with SQLite in .gestalt/temporal
+   - Store Temporal logs, cache, and data under .gestalt/temporal
+   - On shutdown, terminate the Temporal dev server cleanly
+   - Keep existing manual workflow for users who prefer it
+   Tests: Manual run; verify temporal files created under .gestalt/temporal and server stops on exit
+   Done when: gestalt starts/stops Temporal dev server and persists data under .gestalt/temporal
+
 * TODO [#B] Enhanced input UX with multiline input box and command history
   Goal: Replace direct PTY keyboard input with a dedicated multiline input box at the bottom of agent pages, featuring browsable command history, future-proof for assisted input features, and independent clipboard handling.
   Notes:

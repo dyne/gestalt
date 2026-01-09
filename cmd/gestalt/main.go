@@ -10,11 +10,14 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
+	"os/signal"
 	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"gestalt"
@@ -38,6 +41,7 @@ type Config struct {
 	TemporalHost         string
 	TemporalNamespace    string
 	TemporalEnabled      bool
+	TemporalDevServer    bool
 	SessionRetentionDays int
 	SessionPersist       bool
 	SessionLogDir        string
@@ -61,6 +65,9 @@ const (
 
 const temporalDefaultHost = "localhost:7233"
 const temporalHealthCheckTimeout = 500 * time.Millisecond
+const temporalDevServerStartTimeout = 10 * time.Second
+const temporalDevServerStopTimeout = 5 * time.Second
+const httpServerShutdownTimeout = 5 * time.Second
 
 type configDefaults struct {
 	Port                 int
@@ -69,6 +76,7 @@ type configDefaults struct {
 	TemporalHost         string
 	TemporalNamespace    string
 	TemporalEnabled      bool
+	TemporalDevServer    bool
 	SessionRetentionDays int
 	SessionPersist       bool
 	SessionLogDir        string
@@ -85,6 +93,7 @@ type flagValues struct {
 	TemporalHost         string
 	TemporalNamespace    string
 	TemporalEnabled      bool
+	TemporalDevServer    bool
 	SessionRetentionDays int
 	SessionPersist       bool
 	SessionLogDir        string
@@ -139,10 +148,27 @@ func main() {
 	}
 	ensureStateDir(cfg, logger)
 
+	temporalDevServer, devServerError := startTemporalDevServer(cfg, logger)
+	if devServerError != nil {
+		logger.Warn("temporal dev server start failed", map[string]string{
+			"error": devServerError.Error(),
+		})
+	}
+	if temporalDevServer != nil {
+		defer temporalDevServer.Stop(logger)
+	}
+	if cfg.TemporalDevServer && !cfg.TemporalEnabled {
+		logger.Warn("temporal dev server running while workflows disabled", nil)
+	}
+
 	temporalEnabled := cfg.TemporalEnabled
 	var temporalClient temporal.WorkflowClient
 	if temporalEnabled {
-		logTemporalServerHealth(logger, cfg.TemporalHost)
+		if temporalDevServer != nil {
+			waitForTemporalServer(cfg.TemporalHost, temporalDevServerStartTimeout, temporalDevServer.Done(), logger)
+		} else {
+			logTemporalServerHealth(logger, cfg.TemporalHost)
+		}
 		temporalClient, temporalClientError := temporal.NewClient(temporal.ClientConfig{
 			HostPort:  cfg.TemporalHost,
 			Namespace: cfg.TemporalNamespace,
@@ -270,10 +296,34 @@ func main() {
 		"addr":    server.Addr,
 		"version": version.Version,
 	})
-	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		logger.Error("http server stopped", map[string]string{
-			"error": err.Error(),
+
+	serverErrors := make(chan error, 1)
+	go func() {
+		serverErrors <- server.ListenAndServe()
+	}()
+
+	stopSignals := make(chan os.Signal, 1)
+	signal.Notify(stopSignals, os.Interrupt, syscall.SIGTERM)
+
+	select {
+	case err := <-serverErrors:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Error("http server stopped", map[string]string{
+				"error": err.Error(),
+			})
+		}
+	case sig := <-stopSignals:
+		logger.Info("shutdown signal received", map[string]string{
+			"signal": sig.String(),
 		})
+		shutdownContext, cancel := context.WithTimeout(context.Background(), httpServerShutdownTimeout)
+		defer cancel()
+		if err := server.Shutdown(shutdownContext); err != nil {
+			logger.Warn("http server shutdown failed", map[string]string{
+				"error": err.Error(),
+			})
+		}
+		<-serverErrors
 	}
 }
 
@@ -454,6 +504,21 @@ func loadConfig(args []string) (Config, error) {
 	cfg.TemporalEnabled = temporalEnabled
 	cfg.Sources["temporal-enabled"] = temporalEnabledSource
 
+	temporalDevServer := defaults.TemporalDevServer
+	temporalDevServerSource := sourceDefault
+	if rawDevServer := strings.TrimSpace(os.Getenv("GESTALT_TEMPORAL_DEV_SERVER")); rawDevServer != "" {
+		if parsed, err := strconv.ParseBool(rawDevServer); err == nil {
+			temporalDevServer = parsed
+			temporalDevServerSource = sourceEnv
+		}
+	}
+	if flags.Set["temporal-dev-server"] {
+		temporalDevServer = flags.TemporalDevServer
+		temporalDevServerSource = sourceFlag
+	}
+	cfg.TemporalDevServer = temporalDevServer
+	cfg.Sources["temporal-dev-server"] = temporalDevServerSource
+
 	retentionDays := defaults.SessionRetentionDays
 	retentionSource := sourceDefault
 	if rawRetention := os.Getenv("GESTALT_SESSION_RETENTION_DAYS"); rawRetention != "" {
@@ -612,6 +677,7 @@ func defaultConfigValues() configDefaults {
 		TemporalHost:         temporalDefaultHost,
 		TemporalNamespace:    "default",
 		TemporalEnabled:      false,
+		TemporalDevServer:    false,
 		SessionRetentionDays: terminal.DefaultSessionRetentionDays,
 		SessionPersist:       true,
 		SessionLogDir:        filepath.Join(".gestalt", "sessions"),
@@ -634,6 +700,7 @@ func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
 	temporalHost := fs.String("temporal-host", defaults.TemporalHost, "Temporal server host:port")
 	temporalNamespace := fs.String("temporal-namespace", defaults.TemporalNamespace, "Temporal namespace")
 	temporalEnabled := fs.Bool("temporal-enabled", defaults.TemporalEnabled, "Enable Temporal workflows")
+	temporalDevServer := fs.Bool("temporal-dev-server", defaults.TemporalDevServer, "Auto-start Temporal dev server")
 	sessionPersist := fs.Bool("session-persist", defaults.SessionPersist, "Persist terminal sessions to disk")
 	sessionDir := fs.String("session-dir", defaults.SessionLogDir, "Session log directory")
 	sessionRetentionDays := fs.Int("session-retention-days", defaults.SessionRetentionDays, "Session retention days")
@@ -668,6 +735,7 @@ func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
 		TemporalHost:         *temporalHost,
 		TemporalNamespace:    *temporalNamespace,
 		TemporalEnabled:      *temporalEnabled,
+		TemporalDevServer:    *temporalDevServer,
 		SessionRetentionDays: *sessionRetentionDays,
 		SessionPersist:       *sessionPersist,
 		SessionLogDir:        *sessionDir,
@@ -735,6 +803,10 @@ func printHelp(out io.Writer, defaults configDefaults) {
 		{
 			Name: "--temporal-enabled",
 			Desc: fmt.Sprintf("Enable Temporal workflows (env: GESTALT_TEMPORAL_ENABLED, default: %t)", defaults.TemporalEnabled),
+		},
+		{
+			Name: "--temporal-dev-server",
+			Desc: fmt.Sprintf("Auto-start Temporal dev server (env: GESTALT_TEMPORAL_DEV_SERVER, default: %t)", defaults.TemporalDevServer),
 		},
 	})
 
@@ -837,6 +909,9 @@ func logStartupFlags(logger *logging.Logger, cfg Config) {
 	if cfg.Sources["temporal-enabled"] == sourceFlag {
 		flags = append(flags, formatBoolFlag("--temporal-enabled", cfg.TemporalEnabled))
 	}
+	if cfg.Sources["temporal-dev-server"] == sourceFlag {
+		flags = append(flags, formatBoolFlag("--temporal-dev-server", cfg.TemporalDevServer))
+	}
 	if cfg.Sources["session-persist"] == sourceFlag {
 		flags = append(flags, formatBoolFlag("--session-persist", cfg.SessionPersist))
 	}
@@ -907,34 +982,206 @@ func ensureStateDir(cfg Config, logger *logging.Logger) {
 	}
 }
 
+type temporalDevServer struct {
+	cmd     *exec.Cmd
+	logFile *os.File
+	done    chan error
+}
+
+func startTemporalDevServer(cfg Config, logger *logging.Logger) (*temporalDevServer, error) {
+	if !cfg.TemporalDevServer {
+		return nil, nil
+	}
+	temporalPath, err := exec.LookPath("temporal")
+	if err != nil {
+		return nil, fmt.Errorf("temporal CLI not found")
+	}
+
+	dataDir := filepath.Join(".gestalt", "temporal")
+	absDataDir, err := filepath.Abs(dataDir)
+	if err != nil {
+		absDataDir = dataDir
+	}
+	cacheDir := filepath.Join(absDataDir, "cache")
+	configDir := filepath.Join(absDataDir, "config")
+	stateDir := filepath.Join(absDataDir, "state")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		return nil, fmt.Errorf("create temporal cache dir: %w", err)
+	}
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		return nil, fmt.Errorf("create temporal config dir: %w", err)
+	}
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		return nil, fmt.Errorf("create temporal state dir: %w", err)
+	}
+
+	logPath := filepath.Join(absDataDir, "temporal.log")
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("open temporal log: %w", err)
+	}
+
+	cmd := exec.Command(temporalPath, "server", "start-dev")
+	cmd.Dir = absDataDir
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+	cmd.Env = append(os.Environ(),
+		"HOME="+absDataDir,
+		"XDG_CACHE_HOME="+cacheDir,
+		"XDG_CONFIG_HOME="+configDir,
+		"XDG_STATE_HOME="+stateDir,
+	)
+	if err := cmd.Start(); err != nil {
+		_ = logFile.Close()
+		return nil, fmt.Errorf("start temporal dev server: %w", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	if logger != nil {
+		logger.Info("temporal dev server started", map[string]string{
+			"dir": absDataDir,
+			"log": logPath,
+		})
+	}
+
+	return &temporalDevServer{
+		cmd:     cmd,
+		logFile: logFile,
+		done:    done,
+	}, nil
+}
+
+func (server *temporalDevServer) Done() <-chan error {
+	if server == nil {
+		return nil
+	}
+	return server.done
+}
+
+func (server *temporalDevServer) Stop(logger *logging.Logger) {
+	if server == nil {
+		return
+	}
+	if server.cmd == nil || server.cmd.Process == nil {
+		if server.logFile != nil {
+			_ = server.logFile.Close()
+		}
+		return
+	}
+
+	select {
+	case err := <-server.done:
+		if logger != nil && err != nil {
+			logger.Warn("temporal dev server exited", map[string]string{
+				"error": err.Error(),
+			})
+		}
+	default:
+		if err := server.cmd.Process.Signal(os.Interrupt); err != nil && logger != nil {
+			logger.Warn("temporal dev server signal failed", map[string]string{
+				"error": err.Error(),
+			})
+		}
+		select {
+		case err := <-server.done:
+			if logger != nil && err != nil {
+				logger.Warn("temporal dev server stopped", map[string]string{
+					"error": err.Error(),
+				})
+			}
+		case <-time.After(temporalDevServerStopTimeout):
+			if killErr := server.cmd.Process.Kill(); killErr != nil && logger != nil {
+				logger.Warn("temporal dev server kill failed", map[string]string{
+					"error": killErr.Error(),
+				})
+			}
+		}
+	}
+
+	if server.logFile != nil {
+		_ = server.logFile.Close()
+	}
+}
+
 func logTemporalServerHealth(logger *logging.Logger, host string) {
 	if logger == nil {
 		return
 	}
-	address := strings.TrimSpace(host)
-	if address == "" {
-		address = temporalDefaultHost
-	}
-	dialer := net.Dialer{Timeout: temporalHealthCheckTimeout}
-	connection, dialError := dialer.Dial("tcp", address)
-	if dialError != nil {
+	if err := temporalServerReachable(host); err != nil {
 		logger.Warn("temporal server unavailable", map[string]string{
-			"host":  address,
-			"error": dialError.Error(),
-		})
-		return
-	}
-	closeError := connection.Close()
-	if closeError != nil {
-		logger.Warn("temporal server connection close failed", map[string]string{
-			"host":  address,
-			"error": closeError.Error(),
+			"host":  normalizeTemporalHost(host),
+			"error": err.Error(),
 		})
 		return
 	}
 	logger.Info("temporal server reachable", map[string]string{
-		"host": address,
+		"host": normalizeTemporalHost(host),
 	})
+}
+
+func waitForTemporalServer(host string, timeout time.Duration, done <-chan error, logger *logging.Logger) bool {
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		if err := temporalServerReachable(host); err == nil {
+			if logger != nil {
+				logger.Info("temporal server ready", map[string]string{
+					"host": normalizeTemporalHost(host),
+				})
+			}
+			return true
+		}
+
+		if time.Now().After(deadline) {
+			if logger != nil {
+				logger.Warn("temporal server wait timed out", map[string]string{
+					"host": normalizeTemporalHost(host),
+				})
+			}
+			return false
+		}
+
+		select {
+		case err := <-done:
+			if logger != nil {
+				message := "temporal dev server exited"
+				fields := map[string]string{}
+				if err != nil {
+					fields["error"] = err.Error()
+				}
+				logger.Warn(message, fields)
+			}
+			return false
+		case <-ticker.C:
+		}
+	}
+}
+
+func temporalServerReachable(host string) error {
+	address := normalizeTemporalHost(host)
+	dialer := net.Dialer{Timeout: temporalHealthCheckTimeout}
+	connection, dialError := dialer.Dial("tcp", address)
+	if dialError != nil {
+		return dialError
+	}
+	if err := connection.Close(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func normalizeTemporalHost(host string) string {
+	address := strings.TrimSpace(host)
+	if address == "" {
+		return temporalDefaultHost
+	}
+	return address
 }
 
 func usesStateRoot(dir, root string) bool {

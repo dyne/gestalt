@@ -36,6 +36,9 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.MaxWatches != 100 {
 		t.Fatalf("expected max watches 100, got %d", cfg.MaxWatches)
 	}
+	if cfg.TemporalDevServer {
+		t.Fatalf("expected temporal dev server disabled by default")
+	}
 	if cfg.Verbose {
 		t.Fatalf("expected verbose false by default")
 	}
@@ -55,6 +58,7 @@ func TestLoadConfigEnvOverridesDefaults(t *testing.T) {
 	t.Setenv("GESTALT_INPUT_HISTORY_PERSIST", "false")
 	t.Setenv("GESTALT_INPUT_HISTORY_DIR", "/tmp/gestalt-input")
 	t.Setenv("GESTALT_MAX_WATCHES", "55")
+	t.Setenv("GESTALT_TEMPORAL_DEV_SERVER", "true")
 
 	cfg, err := loadConfig(nil)
 	if err != nil {
@@ -90,6 +94,9 @@ func TestLoadConfigEnvOverridesDefaults(t *testing.T) {
 	if cfg.MaxWatches != 55 {
 		t.Fatalf("expected max watches 55, got %d", cfg.MaxWatches)
 	}
+	if !cfg.TemporalDevServer {
+		t.Fatalf("expected temporal dev server enabled")
+	}
 }
 
 func TestLoadConfigFlagOverridesEnv(t *testing.T) {
@@ -99,6 +106,7 @@ func TestLoadConfigFlagOverridesEnv(t *testing.T) {
 	t.Setenv("GESTALT_SESSION_DIR", "/tmp/gestalt-logs")
 	t.Setenv("GESTALT_SESSION_BUFFER_LINES", "400")
 	t.Setenv("GESTALT_MAX_WATCHES", "50")
+	t.Setenv("GESTALT_TEMPORAL_DEV_SERVER", "false")
 
 	cfg, err := loadConfig([]string{
 		"--port", "7070",
@@ -107,6 +115,7 @@ func TestLoadConfigFlagOverridesEnv(t *testing.T) {
 		"--session-dir", "/tmp/flag-sessions",
 		"--session-buffer-lines", "900",
 		"--max-watches", "200",
+		"--temporal-dev-server",
 		"--verbose",
 	})
 	if err != nil {
@@ -129,6 +138,9 @@ func TestLoadConfigFlagOverridesEnv(t *testing.T) {
 	}
 	if cfg.MaxWatches != 200 {
 		t.Fatalf("expected max watches 200, got %d", cfg.MaxWatches)
+	}
+	if !cfg.TemporalDevServer {
+		t.Fatalf("expected temporal dev server enabled")
 	}
 	if !cfg.Verbose {
 		t.Fatalf("expected verbose true")

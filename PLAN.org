@@ -1745,7 +1745,7 @@
    Done when: README clearly documents versioning workflow and conventions
 
 
-* DONE [#A] Temporal workflow integration for HITL session lifecycle
+* WIP [#A] Temporal workflow integration for HITL session lifecycle
   Goal: Integrate Temporal.io workflows to manage durable, semi-interactive agent sessions with human-in-the-loop (HITL) coordination, tracking agent work phases (start: L1/L2 plan tasks) and stops (terminal bells requiring user attention).
   Notes:
   - Core Gestalt functionality: agents record start (which PLAN.org L1/L2 they're working on) and stop (terminal bell signals)
@@ -2015,6 +2015,17 @@
    - Keep GUI toggle; default to enabled when unspecified
    Tests: Start agent/terminal without options and confirm workflow appears; test explicit disable
    Done when: Unspecified sessions start workflows, with explicit disables honored
+
+** DONE [#B] Embed Temporal server via go.temporal.io/server
+   Why: Bundle Temporal server inside Gestalt without external CLI dependencies
+   Change:
+   - Add go.temporal.io/server dependency
+   - Start embedded Temporal server when Temporal dev server is enabled
+   - Store Temporal SQLite/data/logs under .gestalt/temporal
+   - Replace CLI-based dev server start/stop with embedded lifecycle
+   - Keep config/flags compatible with existing Temporal settings
+   Tests: go test ./...; manual run to confirm server boot and client connection
+   Done when: Temporal server is embedded and running without external CLI
 
 * TODO [#B] Enhanced input UX with multiline input box and command history
   Goal: Replace direct PTY keyboard input with a dedicated multiline input box at the bottom of agent pages, featuring browsable command history, future-proof for assisted input features, and independent clipboard handling.

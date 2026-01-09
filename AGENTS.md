@@ -74,6 +74,6 @@ This repo is a Go backend + Svelte frontend for a multi-terminal dashboard with 
 - Workflow list/detail: `GET /api/workflows`, `GET /api/terminals/:id/workflow/history`.
 - Resume/abort: `POST /api/terminals/:id/workflow/resume` with `continue` or `abort`.
 - Metrics: `GET /api/metrics` exposes workflow/activity counters and timings.
-- Dev server auto-management: set `GESTALT_TEMPORAL_DEV_SERVER=true` or `--temporal-dev-server` to run Temporal in `.gestalt/temporal`.
+- Dev server auto-management: the embedded Temporal server runs in-process and stores sqlite/logs/config under `.gestalt/temporal` (toggle with `GESTALT_TEMPORAL_DEV_SERVER` / `--temporal-dev-server`).
 - Temporal defaults: workflows and dev server are enabled unless flags/env disable them.
 - Handoff is design-only: `session.handoff` is reserved; implementation deferred.

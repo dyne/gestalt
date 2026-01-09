@@ -15,7 +15,7 @@ make
 
 Launch (needs golang)
 ```
-go run cmd/gestalt/main.go
+go run cmd/gestalt
 ```
 
 Default listens to 0.0.0.0 port 8080

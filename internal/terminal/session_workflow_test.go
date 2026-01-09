@@ -8,6 +8,7 @@ import (
 	"gestalt/internal/temporal"
 	"gestalt/internal/temporal/workflows"
 
+	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
 )
@@ -71,6 +72,10 @@ func (client *fakeWorkflowClient) SignalWorkflow(ctx context.Context, workflowID
 
 func (client *fakeWorkflowClient) QueryWorkflow(ctx context.Context, workflowID, runID, queryType string, args ...interface{}) (converter.EncodedValue, error) {
 	return nil, nil
+}
+
+func (client *fakeWorkflowClient) GetWorkflowHistory(ctx context.Context, workflowID, runID string, isLongPoll bool, filterType enumspb.HistoryEventFilterType) client.HistoryEventIterator {
+	return nil
 }
 
 func (client *fakeWorkflowClient) Close() {

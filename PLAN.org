@@ -1922,7 +1922,7 @@
    Tests: Manual test: pause via bell, resume via UI, verify workflow continues
    Done when: Users can resume paused workflows
 
-** WIP [#C] Add workflow event history API
+** DONE [#C] Add workflow event history API
    Why: Users and admins need full audit trail of agent sessions
    Change:
    - Add GET /api/terminals/:id/workflow/history endpoint
@@ -1934,7 +1934,7 @@
    Tests: Manual test: run workflow, view history, verify all events recorded
    Done when: Full workflow history is accessible via API and UI
 
-** TODO [#C] Configure workflow retry and timeout policies
+** WIP [#C] Configure workflow retry and timeout policies
    Why: Workflows need robust error handling and bounded execution
    Change:
    - Add workflow options: execution timeout (24 hours default)

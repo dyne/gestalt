@@ -1958,7 +1958,7 @@
    Tests: Start workflows, verify metrics appear in /api/metrics
    Done when: Workflow metrics are exposed and documented
 
-** WIP [#C] Document Temporal integration
+** DONE [#C] Document Temporal integration
    Why: Users and contributors need to understand workflow system
    Change:
    - Add "Temporal Workflows" section to README.md
@@ -1972,7 +1972,7 @@
    Tests: None (documentation only)
    Done when: Temporal integration is fully documented
 
-** TODO [#C] Add workflow-managed session creation option
+** WIP [#C] Add workflow-managed session creation option
    Why: Users should choose whether to use Temporal workflows
    Change:
    - Add "workflow" boolean to POST /api/terminals request

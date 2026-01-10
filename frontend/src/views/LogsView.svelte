@@ -2,6 +2,7 @@
   import { onDestroy, onMount } from 'svelte'
   import { apiFetch } from '../lib/api.js'
   import { notificationStore } from '../lib/notificationStore.js'
+  import { formatRelativeTime } from '../lib/timeUtils.js'
 
   let logs = []
   let orderedLogs = []
@@ -23,10 +24,7 @@
   ]
 
   const formatTime = (value) => {
-    if (!value) return '—'
-    const parsed = new Date(value)
-    if (Number.isNaN(parsed.getTime())) return '—'
-    return parsed.toLocaleString()
+    return formatRelativeTime(value) || '—'
   }
 
   const buildQuery = () => {
@@ -137,7 +135,7 @@
     </div>
     <div>
       <span class="label">Last updated</span>
-      <strong>{formatTime(lastUpdated)}</strong>
+      <strong title={lastUpdated || ''}>{formatTime(lastUpdated)}</strong>
     </div>
   </section>
 
@@ -160,7 +158,7 @@
               <div class="log-entry__summary">
                 <div class="log-entry__meta">
                   <span class="badge">{entry.level}</span>
-                  <span>{formatTime(entry.timestamp)}</span>
+                  <span title={entry.timestamp || ''}>{formatTime(entry.timestamp)}</span>
                 </div>
                 <p>{entry.message}</p>
               </div>

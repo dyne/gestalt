@@ -26,7 +26,7 @@
    Tests: Run `npm run build` and verify CSS bundle size unchanged
    Done when: Tailwind removed, build works, no regressions
 
-** WIP [#C] Add human-readable timestamp formatting utility
+** DONE [#C] Add human-readable timestamp formatting utility
    Why: Absolute timestamps (ISO 8601) are hard to scan; relative times (1 minute ago, 2 hours ago) improve readability
    Change:
    - Create `frontend/src/lib/timeUtils.js` with `formatRelativeTime(timestamp)` function
@@ -41,7 +41,7 @@
    Tests: Unit tests for edge cases (now, 1 sec, 59 sec, 1 min, 59 min, 1 hour, 23 hours, 1 day, 6 days, 7+ days)
    Done when: Utility function exists, tested, and ready to import
 
-** TODO [#C] Apply human-readable timestamps throughout UI
+** WIP [#C] Apply human-readable timestamps throughout UI
    Why: Consistency across all views; easier scanning of temporal information
    Change:
    - Import `formatRelativeTime` from timeUtils in relevant components

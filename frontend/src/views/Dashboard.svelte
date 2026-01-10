@@ -3,6 +3,7 @@
   import { apiFetch } from '../lib/api.js'
   import { subscribe as subscribeEvents } from '../lib/eventStore.js'
   import { notificationStore } from '../lib/notificationStore.js'
+  import { formatRelativeTime } from '../lib/timeUtils.js'
 
   export let terminals = []
   export let status = null
@@ -134,10 +135,7 @@
   }
 
   const formatLogTime = (value) => {
-    if (!value) return '—'
-    const parsed = new Date(value)
-    if (Number.isNaN(parsed.getTime())) return '—'
-    return parsed.toLocaleString()
+    return formatRelativeTime(value) || '—'
   }
 
   const buildLogQuery = () => {
@@ -334,7 +332,9 @@
             <li class={`log-entry log-entry--${entry.level}`}>
               <div class="log-entry__meta">
                 <span class="log-badge">{entry.level}</span>
-                <span class="log-time">{formatLogTime(entry.timestamp)}</span>
+                <span class="log-time" title={entry.timestamp || ''}>
+                  {formatLogTime(entry.timestamp)}
+                </span>
               </div>
               <p class="log-message">{entry.message}</p>
             </li>

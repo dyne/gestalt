@@ -1,6 +1,7 @@
 <script>
   import { onDestroy } from 'svelte'
   import WorkflowHistory from './WorkflowHistory.svelte'
+  import { formatRelativeTime } from '../lib/timeUtils.js'
 
   export let workflow = {}
   export let onViewTerminal = () => {}
@@ -11,10 +12,7 @@
   let copyTimer = null
 
   const formatTime = (value) => {
-    if (!value) return '-'
-    const parsed = new Date(value)
-    if (Number.isNaN(parsed.getTime())) return '-'
-    return parsed.toLocaleString()
+    return formatRelativeTime(value) || '-'
   }
 
   const timestampValue = (value) => {
@@ -143,7 +141,7 @@
     </div>
     <div class="detail-item">
       <span class="label">Waiting since</span>
-      <span class="value">{waitingSince}</span>
+      <span class="value" title={latestBell?.timestamp || ''}>{waitingSince}</span>
     </div>
   </div>
 
@@ -157,7 +155,9 @@
       <ul class="task-list">
         {#each taskEvents as event}
           <li>
-            <span class="task-time">{formatTime(event.timestamp)}</span>
+            <span class="task-time" title={event.timestamp || ''}>
+              {formatTime(event.timestamp)}
+            </span>
             <span class="task-label">{event.l1 || '-'} / {event.l2 || '-'}</span>
           </li>
         {/each}
@@ -173,7 +173,9 @@
       <ul class="bell-list">
         {#each bellEvents as event}
           <li>
-            <span class="bell-time">{formatTime(event.timestamp)}</span>
+            <span class="bell-time" title={event.timestamp || ''}>
+              {formatTime(event.timestamp)}
+            </span>
             <span class="bell-label">Bell</span>
             <span class="bell-context">{truncateText(event.context)}</span>
           </li>

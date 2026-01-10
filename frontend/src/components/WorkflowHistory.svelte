@@ -1,6 +1,7 @@
 <script>
   import { onDestroy } from 'svelte'
   import { apiFetch } from '../lib/api.js'
+  import { formatRelativeTime } from '../lib/timeUtils.js'
 
   export let terminalId = ''
 
@@ -11,10 +12,7 @@
   let lastTerminalId = ''
 
   const formatTime = (value) => {
-    if (!value) return '-'
-    const parsed = new Date(value)
-    if (Number.isNaN(parsed.getTime())) return '-'
-    return parsed.toLocaleString()
+    return formatRelativeTime(value) || '-'
   }
 
   const eventLabel = (event) => {
@@ -91,7 +89,9 @@
     <ul class="history__list">
       {#each events as event}
         <li class={`history__item history__item--${event.type || 'unknown'}`}>
-          <span class="history__time">{formatTime(event.timestamp)}</span>
+          <span class="history__time" title={event.timestamp || ''}>
+            {formatTime(event.timestamp)}
+          </span>
           <span class="history__label">{eventLabel(event)}</span>
         </li>
       {/each}

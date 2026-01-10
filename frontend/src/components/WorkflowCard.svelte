@@ -1,5 +1,6 @@
 <script>
   import WorkflowDetail from './WorkflowDetail.svelte'
+  import { formatRelativeTime } from '../lib/timeUtils.js'
 
   export let workflow = {}
   export let expanded = false
@@ -9,10 +10,7 @@
   export let onResume = () => {}
 
   const formatTime = (value) => {
-    if (!value) return '-'
-    const parsed = new Date(value)
-    if (Number.isNaN(parsed.getTime())) return '-'
-    return parsed.toLocaleString()
+    return formatRelativeTime(value) || '-'
   }
 
   const statusLabel = (status = '') => {
@@ -61,7 +59,9 @@
       <span class={`status-badge status-badge--${statusClass(workflow.status)}`}>
         {statusLabel(workflow.status)}
       </span>
-      <span class="workflow-card__time">Started {formatTime(workflow.start_time)}</span>
+      <span class="workflow-card__time" title={workflow.start_time || ''}>
+        Started {formatTime(workflow.start_time)}
+      </span>
       <button class="workflow-card__toggle" type="button" on:click={() => onToggle(workflow.session_id)}>
         {expanded ? 'Hide details' : 'Show details'}
       </button>

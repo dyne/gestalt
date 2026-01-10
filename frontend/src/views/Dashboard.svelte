@@ -10,7 +10,7 @@
   export let loading = false
   export let error = ''
   export let onCreate = () => {}
-  export let onDelete = () => {}
+  export let onSelect = () => {}
 
   let actionPending = false
   let localError = ''
@@ -60,21 +60,12 @@
     }
   }
 
-  const stopTerminal = async (terminalId) => {
+  const switchToTerminal = (terminalId) => {
     if (!terminalId) {
       localError = 'No running terminal found.'
       return
     }
-    actionPending = true
-    localError = ''
-    try {
-      await onDelete(terminalId)
-      await loadAgents()
-    } catch (err) {
-      localError = err?.message || 'Failed to stop terminal.'
-    } finally {
-      actionPending = false
-    }
+    onSelect(terminalId)
   }
 
   const loadAgents = async () => {
@@ -82,9 +73,11 @@
     agentsError = ''
     try {
       const response = await apiFetch('/api/agents')
-      agents = await response.json()
-      syncAgentWorkflow(agents)
-      await loadAgentSkills(agents)
+      const fetched = await response.json()
+      const nextAgents = syncAgentRunning(fetched)
+      agents = nextAgents
+      syncAgentWorkflow(nextAgents)
+      await loadAgentSkills(nextAgents)
     } catch (err) {
       agentsError = err?.message || 'Failed to load agents.'
     } finally {
@@ -132,6 +125,30 @@
       })
     }
     agentWorkflow = next
+  }
+
+  const syncAgentRunning = (agentList) => {
+    if (!Array.isArray(agentList)) return []
+    const terminalByAgent = new Map()
+    terminals.forEach((terminal) => {
+      if (!terminal?.agent_id || terminalByAgent.has(terminal.agent_id)) return
+      terminalByAgent.set(terminal.agent_id, terminal.id)
+    })
+    let changed = false
+    const nextAgents = agentList.map((agent) => {
+      const terminalId = terminalByAgent.get(agent.id) || ''
+      const running = Boolean(terminalId)
+      if (agent.running === running && (agent.terminal_id || '') === terminalId) {
+        return agent
+      }
+      changed = true
+      return {
+        ...agent,
+        running,
+        terminal_id: terminalId,
+      }
+    })
+    return changed ? nextAgents : agentList
   }
 
   const formatLogTime = (value) => {
@@ -200,6 +217,12 @@
     logsAutoRefresh
     resetLogRefresh()
   }
+  $: {
+    const nextAgents = syncAgentRunning(agents)
+    if (nextAgents !== agents) {
+      agents = nextAgents
+    }
+  }
 
   onMount(() => {
     loadAgents()
@@ -259,15 +282,13 @@
           <div class="agent-card">
             <button
               class="agent-button"
-              class:agent-button--running={agent.running}
-              class:agent-button--stopped={!agent.running}
               on:click={() =>
-                agent.running ? stopTerminal(agent.terminal_id) : createTerminal(agent.id)
+                agent.running ? switchToTerminal(agent.terminal_id) : createTerminal(agent.id)
               }
               disabled={actionPending || loading}
             >
               <span class="agent-name">{agent.name}</span>
-              <span class="agent-action">{agent.running ? 'Stop' : 'Start'}</span>
+              <span class="agent-action">{agent.running ? 'Open' : 'Start'}</span>
               {#if agentSkillsLoading}
                 <span class="agent-skills muted">Loading skills…</span>
               {:else if agentSkillsError}
@@ -608,31 +629,8 @@
     margin: 0;
   }
 
-  .agent-button--running {
-    background: #e4f4ef;
-    border-color: rgba(22, 94, 66, 0.35);
-    box-shadow: 0 12px 20px rgba(22, 94, 66, 0.12);
-  }
-
-  .agent-button--stopped {
-    background: #ffffff;
-    border-color: rgba(20, 20, 20, 0.16);
-  }
-
   .agent-name {
     font-size: 0.95rem;
-  }
-
-  .agent-button--running .agent-name::before {
-    content: '';
-    display: inline-block;
-    width: 0.45rem;
-    height: 0.45rem;
-    border-radius: 999px;
-    margin-right: 0.4rem;
-    background: #1f7a5f;
-    box-shadow: 0 0 0 0 rgba(31, 122, 95, 0.4);
-    animation: pulseDot 2.4s ease-in-out infinite;
   }
 
   .agent-action {
@@ -640,18 +638,6 @@
     letter-spacing: 0.16em;
     text-transform: uppercase;
     color: #5f5b54;
-  }
-
-  @keyframes pulseDot {
-    0% {
-      box-shadow: 0 0 0 0 rgba(31, 122, 95, 0.4);
-    }
-    70% {
-      box-shadow: 0 0 0 0.4rem rgba(31, 122, 95, 0);
-    }
-    100% {
-      box-shadow: 0 0 0 0 rgba(31, 122, 95, 0);
-    }
   }
 
   .agent-skills {

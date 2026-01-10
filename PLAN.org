@@ -41,7 +41,7 @@
    Tests: Unit tests for edge cases (now, 1 sec, 59 sec, 1 min, 59 min, 1 hour, 23 hours, 1 day, 6 days, 7+ days)
    Done when: Utility function exists, tested, and ready to import
 
-** WIP [#C] Apply human-readable timestamps throughout UI
+** DONE [#C] Apply human-readable timestamps throughout UI
    Why: Consistency across all views; easier scanning of temporal information
    Change:
    - Import `formatRelativeTime` from timeUtils in relevant components
@@ -56,7 +56,7 @@
    Tests: Visual inspection of all views; verify tooltips show full timestamp
    Done when: All timestamp displays use relative format with hover tooltips
 
-** TODO [#C] Change agent terminal buttons to start or switch (remove stop action)
+** WIP [#C] Change agent terminal buttons to start or switch (remove stop action)
    Why: Closing terminals from dashboard is error-prone; terminals should only close from terminal view with confirmation
    Root cause analysis:
    - Dashboard.svelte maintains `terminals` array as local state (line 23)

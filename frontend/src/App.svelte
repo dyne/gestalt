@@ -185,7 +185,7 @@
       {loading}
       {error}
       onCreate={createTerminal}
-      onDelete={deleteTerminal}
+      onSelect={handleSelect}
     />
   </section>
   <section class="view" data-active={activeView === 'plan'}>

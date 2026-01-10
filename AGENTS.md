@@ -24,6 +24,9 @@ This repo is a Go backend + Svelte frontend for a multi-terminal dashboard with 
   - Terminal tabs use agent name as label.
   - Event types: `file_changed`, `git_branch_changed`, `watch_error`.
 
+## Agent profiles
+- Prompt names in `config/agents/*.json` can reference `.tmpl` or `.txt` files (backward compatible).
+
 ## Key API endpoints
 - `/api/status` system status
 - `/api/terminals` (GET/POST), `/api/terminals/:id` (DELETE)
@@ -37,6 +40,13 @@ This repo is a Go backend + Svelte frontend for a multi-terminal dashboard with 
 - Resolves agent name/id case-insensitively via `/api/agents` and errors on ambiguity.
 - `--start` auto-creates agent via `/api/terminals` using agent ID.
 - Completions: `gestalt-send completion bash|zsh` (uses cached agent list).
+
+## Prompt templating
+- Prompt files can be `.txt` (plain) or `.tmpl` (templated); templates render at agent start.
+- Include syntax: `{{include filename}}` on its own line.
+- Include resolution: try the name as-is first, then with `.txt` appended; top-level prompts prefer `.tmpl` then `.txt`.
+- Failed includes are silent (the directive line is skipped).
+- Use cases: shared fragments, DRY prompts, easier maintenance.
 
 ## Tests
 - Backend: `GOCACHE=/tmp/gocache /usr/local/go/bin/go test ./...`

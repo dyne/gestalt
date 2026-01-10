@@ -236,7 +236,7 @@
    Tests: Run go test -v ./internal/prompt/... and verify >90% coverage
    Done when: All test cases implemented, pass consistently, coverage >90%
 
-** TODO [#C] Update AGENTS.md with templating documentation
+** DONE [#C] Update AGENTS.md with templating documentation
    Why: Document new capability for future LLMs and developers
    Change:
    - File: AGENTS.md

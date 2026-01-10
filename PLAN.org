@@ -171,7 +171,7 @@
    - Frontend test: verify terminal header shows prompt file list
    Done when: Prompt file list visible in terminal header instead of/alongside skills
 
-** TODO [#B] Comprehensive test coverage for prompt templating
+** DONE [#B] Comprehensive test coverage for prompt templating
    Why: Template system is foundational; must be robust and well-tested
    Scope: Unit tests, integration tests, edge cases, error conditions
    Change:

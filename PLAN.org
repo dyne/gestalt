@@ -1,4 +1,4 @@
-* DONE [#B] UI/UX polish and visual identity improvements
+* WIP [#B] UI/UX polish and visual identity improvements
   Goal: Improve user experience with human-readable timestamps, better terminal state feedback, streamlined tab management, branded visual identity, and improved close confirmation.
   Notes:
   - Scope: Frontend only (Svelte components, stores, and static assets)
@@ -277,6 +277,14 @@
    - Import logo assets in `frontend/src/components/TabBar.svelte` instead of using `/assets/...` URLs
    Tests: Manual smoke check; header logos render in dev and build
    Done when: Logos render correctly without broken asset URLs
+
+** WIP [#C] Add make dev target for live preview
+   Why: Provide a single command to run the Go backend and Vite dev server with live UI updates.
+   Change:
+   - Add a `dev` target in `GNUmakefile` that runs the Go server and `npm run dev` concurrently
+   - Ensure the backend runs on port 8080 to match the Vite proxy
+   Tests: Manual smoke check; edits in `frontend/src` hot-reload in the GUI
+   Done when: `make dev` starts both servers and the UI updates live
 
 * TODO [#A] Comprehensive architecture and code quality review
   Goal: Conduct a thorough review of the entire Gestalt codebase (backend + frontend) to identify opportunities for simplification, improved maintainability, better readability, dependency reduction, and architectural improvements.

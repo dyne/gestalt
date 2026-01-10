@@ -4,7 +4,7 @@ PREFIX ?= $(DESTDIR)/usr/local
 BINDIR ?= $(PREFIX)/bin
 VERSION ?= dev
 
-.PHONY: build test clean version temporal-dev
+.PHONY: build test clean version temporal-dev dev
 
 build: gestalt gestalt-send
 
@@ -26,6 +26,13 @@ install: gestalt gestalt-send
 test:
 	go test ./...
 	cd frontend && npm test
+
+dev:
+	@echo "Starting backend on http://localhost:8080 and Vite on http://localhost:5173"
+	@trap 'pkill -P $$; exit 0' INT TERM; \
+	( $(GO) run ./cmd/gestalt ) & \
+	( cd frontend && npm run dev ) & \
+	wait
 
 temporal-dev:
 	temporal server start-dev

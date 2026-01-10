@@ -10,7 +10,7 @@
   - Real-time feedback: ensure terminal state (running/stopped) updates immediately without page refresh
   Date: 2026-01-10
 
-** WIP [#C] Remove unused Tailwind CSS dependency
+** DONE [#C] Remove unused Tailwind CSS dependency
    Why: Tailwind is installed but never used (~0% adoption); adds 6MB to node_modules and build complexity for no benefit
    Change:
    - Uninstall packages: `npm uninstall tailwindcss autoprefixer postcss`
@@ -26,7 +26,7 @@
    Tests: Run `npm run build` and verify CSS bundle size unchanged
    Done when: Tailwind removed, build works, no regressions
 
-** TODO [#C] Add human-readable timestamp formatting utility
+** WIP [#C] Add human-readable timestamp formatting utility
    Why: Absolute timestamps (ISO 8601) are hard to scan; relative times (1 minute ago, 2 hours ago) improve readability
    Change:
    - Create `frontend/src/lib/timeUtils.js` with `formatRelativeTime(timestamp)` function

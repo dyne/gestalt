@@ -128,7 +128,7 @@
    Tests: Manual test: click close → dialog opens with focus on "Close" → press Enter → terminal closes and navigates to dashboard
    Done when: Close button exists, native dialog works, keyboard navigation correct, terminal closes on confirm
 
-** WIP [#C] Download and add Dyne.org logo assets
+** DONE [#C] Download and add Dyne.org logo assets
    Why: Replace generic "Notifications" button with branded logos for visual identity
    Change:
    - Download logos from dyne.org:
@@ -140,7 +140,7 @@
    Tests: Visual inspection of downloaded SVGs in browser
    Done when: Logo files exist in `frontend/src/assets/`
 
-** TODO [#C] Copy Gestalt typography logo to assets
+** WIP [#C] Copy Gestalt typography logo to assets
    Why: Replace "Gestalt" text title with branded SVG logo
    Change:
    - Copy `logosvg/typography/t_glogo_greyonwhite.svg` to `frontend/src/assets/gestalt-logo.svg`

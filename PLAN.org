@@ -93,7 +93,7 @@
    - Manual test: close terminal via terminal view close button → agent button returns to "Start" state
    Done when: Agent buttons show "Start"/"Open", clicking navigates to terminal, no stop action in dashboard
 
-** WIP [#C] Remove close (X) buttons from terminal tabs
+** DONE [#C] Remove close (X) buttons from terminal tabs
    Why: Accidental clicks cause data loss; tabs are for navigation, not lifecycle management
    Change:
    - Edit `frontend/src/components/TabBar.svelte`
@@ -103,7 +103,7 @@
    Tests: Visual inspection; verify tabs are clickable for navigation but have no X buttons
    Done when: Terminal tabs have no close buttons, remain clickable
 
-** TODO [#B] Add close button with confirmation dialog to terminal view
+** WIP [#B] Add close button with confirmation dialog to terminal view
    Why: Users still need a way to close terminals, but with intentional action and confirmation
    Architecture decision: Use native `<dialog>` element (best accessibility, zero dependencies)
    Change:

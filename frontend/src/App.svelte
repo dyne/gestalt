@@ -194,6 +194,7 @@
           title={terminal.title}
           skills={terminal.skills || []}
           visible={terminal.id === activeId}
+          onDelete={deleteTerminal}
         />
       </div>
     {/each}

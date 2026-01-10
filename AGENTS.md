@@ -77,3 +77,9 @@ This repo is a Go backend + Svelte frontend for a multi-terminal dashboard with 
 - Dev server auto-management: set `GESTALT_TEMPORAL_DEV_SERVER=true` or `--temporal-dev-server` to run Temporal in `.gestalt/temporal`.
 - Temporal defaults: workflows and dev server are enabled unless flags/env disable them.
 - Handoff is design-only: `session.handoff` is reserved; implementation deferred.
+
+## UI/UX polish notes (2026-01-10)
+- Relative time formatting lives in `frontend/src/lib/timeUtils.js` and is used across logs and workflow UI with ISO tooltips.
+- Dashboard agent buttons are Start/Open only; running state is derived from the `terminals` prop for live updates.
+- Terminal tabs no longer have close icons; terminal shutdown is via TerminalView "Close Terminal" with a native dialog.
+- Header branding uses `/assets/gestalt-logo.svg` plus Dyne icon/logotype links.

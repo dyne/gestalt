@@ -1,4 +1,4 @@
-* WIP [#B] UI/UX polish and visual identity improvements
+* DONE [#B] UI/UX polish and visual identity improvements
   Goal: Improve user experience with human-readable timestamps, better terminal state feedback, streamlined tab management, branded visual identity, and improved close confirmation.
   Notes:
   - Scope: Frontend only (Svelte components, stores, and static assets)
@@ -10,7 +10,7 @@
   - Real-time feedback: ensure terminal state (running/stopped) updates immediately without page refresh
   Date: 2026-01-10
 
-** DONE [#C] Remove unused Tailwind CSS dependency
+** [#C] Remove unused Tailwind CSS dependency
    Why: Tailwind is installed but never used (~0% adoption); adds 6MB to node_modules and build complexity for no benefit
    Change:
    - Uninstall packages: `npm uninstall tailwindcss autoprefixer postcss`
@@ -26,7 +26,7 @@
    Tests: Run `npm run build` and verify CSS bundle size unchanged
    Done when: Tailwind removed, build works, no regressions
 
-** DONE [#C] Add human-readable timestamp formatting utility
+** [#C] Add human-readable timestamp formatting utility
    Why: Absolute timestamps (ISO 8601) are hard to scan; relative times (1 minute ago, 2 hours ago) improve readability
    Change:
    - Create `frontend/src/lib/timeUtils.js` with `formatRelativeTime(timestamp)` function
@@ -41,7 +41,7 @@
    Tests: Unit tests for edge cases (now, 1 sec, 59 sec, 1 min, 59 min, 1 hour, 23 hours, 1 day, 6 days, 7+ days)
    Done when: Utility function exists, tested, and ready to import
 
-** DONE [#C] Apply human-readable timestamps throughout UI
+** [#C] Apply human-readable timestamps throughout UI
    Why: Consistency across all views; easier scanning of temporal information
    Change:
    - Import `formatRelativeTime` from timeUtils in relevant components
@@ -56,7 +56,7 @@
    Tests: Visual inspection of all views; verify tooltips show full timestamp
    Done when: All timestamp displays use relative format with hover tooltips
 
-** DONE [#C] Change agent terminal buttons to start or switch (remove stop action)
+** [#C] Change agent terminal buttons to start or switch (remove stop action)
    Why: Closing terminals from dashboard is error-prone; terminals should only close from terminal view with confirmation
    Root cause analysis:
    - Dashboard.svelte maintains `terminals` array as local state (line 23)
@@ -93,7 +93,7 @@
    - Manual test: close terminal via terminal view close button → agent button returns to "Start" state
    Done when: Agent buttons show "Start"/"Open", clicking navigates to terminal, no stop action in dashboard
 
-** DONE [#C] Remove close (X) buttons from terminal tabs
+** [#C] Remove close (X) buttons from terminal tabs
    Why: Accidental clicks cause data loss; tabs are for navigation, not lifecycle management
    Change:
    - Edit `frontend/src/components/TabBar.svelte`
@@ -103,7 +103,7 @@
    Tests: Visual inspection; verify tabs are clickable for navigation but have no X buttons
    Done when: Terminal tabs have no close buttons, remain clickable
 
-** DONE [#B] Add close button with confirmation dialog to terminal view
+** [#B] Add close button with confirmation dialog to terminal view
    Why: Users still need a way to close terminals, but with intentional action and confirmation
    Architecture decision: Use native `<dialog>` element (best accessibility, zero dependencies)
    Change:
@@ -128,7 +128,7 @@
    Tests: Manual test: click close → dialog opens with focus on "Close" → press Enter → terminal closes and navigates to dashboard
    Done when: Close button exists, native dialog works, keyboard navigation correct, terminal closes on confirm
 
-** DONE [#C] Download and add Dyne.org logo assets
+** [#C] Download and add Dyne.org logo assets
    Why: Replace generic "Notifications" button with branded logos for visual identity
    Change:
    - Download logos from dyne.org:
@@ -140,7 +140,7 @@
    Tests: Visual inspection of downloaded SVGs in browser
    Done when: Logo files exist in `frontend/src/assets/`
 
-** DONE [#C] Copy Gestalt typography logo to assets
+** [#C] Copy Gestalt typography logo to assets
    Why: Replace "Gestalt" text title with branded SVG logo
    Change:
    - Copy `logosvg/typography/t_glogo_greyonwhite.svg` to `frontend/src/assets/gestalt-logo.svg`
@@ -149,7 +149,7 @@
    Tests: Visual inspection of logo in browser
    Done when: Gestalt logo exists in `frontend/src/assets/`
 
-** DONE [#C] Replace notifications button with Dyne.org logos in header
+** [#C] Replace notifications button with Dyne.org logos in header
    Why: Visual identity; logos are more recognizable than generic button
    Architecture decision: Remove notification settings button entirely (preferences are persisted in localStorage, rarely changed)
    Current state:
@@ -179,7 +179,7 @@
    Tests: Visual inspection; verify logos render correctly, link to dyne.org, open in new tab
    Done when: Notifications button removed, logos visible and clickable, no console errors
 
-** DONE [#C] Replace "Gestalt" text title with typography logo
+** [#C] Replace "Gestalt" text title with typography logo
    Why: Consistent visual branding; professional appearance
    Current state:
    - Brand area is in TabBar.svelte (lines 12-20)
@@ -200,7 +200,7 @@
    Tests: Visual inspection; verify logo renders at correct size, aligns with version text, click navigates to dashboard
    Done when: Text title replaced with SVG logo, button still functional, visual alignment correct
 
-** WIP [#C] Rename "Flow" tab to "Status"
+** [#C] Rename "Flow" tab to "Status"
    Why: "Status" is clearer and more descriptive of workflow monitoring content
    Current state:
    - Tab defined in App.svelte line 19: `{ id: 'flow', label: 'Flow', isHome: true }`

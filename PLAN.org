@@ -140,7 +140,7 @@
    Tests: Visual inspection of downloaded SVGs in browser
    Done when: Logo files exist in `frontend/src/assets/`
 
-** WIP [#C] Copy Gestalt typography logo to assets
+** DONE [#C] Copy Gestalt typography logo to assets
    Why: Replace "Gestalt" text title with branded SVG logo
    Change:
    - Copy `logosvg/typography/t_glogo_greyonwhite.svg` to `frontend/src/assets/gestalt-logo.svg`
@@ -149,7 +149,7 @@
    Tests: Visual inspection of logo in browser
    Done when: Gestalt logo exists in `frontend/src/assets/`
 
-** TODO [#C] Replace notifications button with Dyne.org logos in header
+** WIP [#C] Replace notifications button with Dyne.org logos in header
    Why: Visual identity; logos are more recognizable than generic button
    Architecture decision: Remove notification settings button entirely (preferences are persisted in localStorage, rarely changed)
    Current state:

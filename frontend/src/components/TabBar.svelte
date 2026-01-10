@@ -4,7 +4,6 @@
   export let tabs = []
   export let activeId = ''
   export let onSelect = () => {}
-  export let onOpenSettings = () => {}
 </script>
 
 <nav class="tabbar" aria-label="App tabs">
@@ -29,10 +28,21 @@
       </button>
     </div>
   {/each}
-  <div class="tabbar__actions">
-    <button class="tabbar__settings" type="button" on:click={onOpenSettings}>
-      Notifications
-    </button>
+  <div class="tabbar__logos">
+    <a href="https://dyne.org" target="_blank" rel="noopener noreferrer">
+      <img
+        class="tabbar__logo tabbar__logo--icon"
+        src="/assets/dyne-icon-black.svg"
+        alt="Dyne.org"
+      />
+    </a>
+    <a href="https://dyne.org" target="_blank" rel="noopener noreferrer">
+      <img
+        class="tabbar__logo tabbar__logo--type"
+        src="/assets/dyne-logotype-white.svg"
+        alt="Dyne.org"
+      />
+    </a>
   </div>
 </nav>
 
@@ -106,18 +116,30 @@
     color: #f6f3ed;
   }
 
-  .tabbar__actions {
+  .tabbar__logos {
     margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 1.2rem;
   }
 
-  .tabbar__settings {
-    border: 1px solid rgba(20, 20, 20, 0.2);
-    border-radius: 999px;
-    padding: 0.4rem 0.9rem;
-    background: #ffffff;
-    font-size: 0.8rem;
-    font-weight: 600;
-    cursor: pointer;
+  .tabbar__logo {
+    display: block;
+    transition: opacity 160ms ease;
+  }
+
+  .tabbar__logo--icon {
+    width: 28px;
+    height: 28px;
+  }
+
+  .tabbar__logo--type {
+    height: 20px;
+    width: auto;
+  }
+
+  .tabbar__logos a:hover .tabbar__logo {
+    opacity: 0.7;
   }
 
   @media (max-width: 720px) {

@@ -6,7 +6,6 @@
   import TerminalView from './views/TerminalView.svelte'
   import TabBar from './components/TabBar.svelte'
   import ToastContainer from './components/ToastContainer.svelte'
-  import NotificationSettings from './components/NotificationSettings.svelte'
   import { apiFetch } from './lib/api.js'
   import { subscribe as subscribeEvents } from './lib/eventStore.js'
   import { formatTerminalLabel } from './lib/terminalTabs.js'
@@ -24,7 +23,6 @@
   let status = null
   let loading = false
   let error = ''
-  let showSettings = false
   let watchErrorNotified = false
 
   $: activeView =
@@ -139,14 +137,6 @@
     activeId = id
   }
 
-  const openSettings = () => {
-    showSettings = true
-  }
-
-  const closeSettings = () => {
-    showSettings = false
-  }
-
   onMount(() => {
     refresh()
     const unsubscribe = subscribeEvents('watch_error', () => {
@@ -164,10 +154,8 @@
   {tabs}
   {activeId}
   onSelect={handleSelect}
-  onOpenSettings={openSettings}
 />
 <ToastContainer notifications={$notificationStore} onDismiss={notificationStore.dismiss} />
-<NotificationSettings open={showSettings} onClose={closeSettings} />
 
 <main class="app">
   <section class="view" data-active={activeView === 'dashboard'}>

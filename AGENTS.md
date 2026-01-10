@@ -81,5 +81,6 @@ This repo is a Go backend + Svelte frontend for a multi-terminal dashboard with 
 ## UI/UX polish notes (2026-01-10)
 - Relative time formatting lives in `frontend/src/lib/timeUtils.js` and is used across logs and workflow UI with ISO tooltips.
 - Dashboard agent buttons are Start/Open only; running state is derived from the `terminals` prop for live updates.
-- Terminal tabs no longer have close icons; terminal shutdown is via TerminalView "Close Terminal" with a native dialog.
-- Header branding uses `/assets/gestalt-logo.svg` plus Dyne icon/logotype links.
+- Terminal tabs no longer have close icons; terminal shutdown is via the Terminal header close pill with a native dialog.
+- Terminal start success is logged to the console instead of a toast notification.
+- Header branding uses imported SVG assets for the Gestalt logo and Dyne icon/logotype.

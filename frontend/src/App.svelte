@@ -139,13 +139,6 @@
     activeId = id
   }
 
-  const handleClose = (id) => {
-    if (id === 'dashboard' || id === 'plan' || id === 'flow') return
-    deleteTerminal(id).catch((err) => {
-      error = err?.message || 'Failed to close terminal.'
-    })
-  }
-
   const openSettings = () => {
     showSettings = true
   }
@@ -171,7 +164,6 @@
   {tabs}
   {activeId}
   onSelect={handleSelect}
-  onClose={handleClose}
   onOpenSettings={openSettings}
 />
 <ToastContainer notifications={$notificationStore} onDismiss={notificationStore.dismiss} />

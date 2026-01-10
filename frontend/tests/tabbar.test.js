@@ -8,11 +8,10 @@ describe('TabBar', () => {
     cleanup()
   })
 
-  it('selects and closes tabs', async () => {
+  it('selects tabs', async () => {
     const onSelect = vi.fn()
-    const onClose = vi.fn()
 
-    const { getByText, getByLabelText } = render(TabBar, {
+    const { getByText, queryByLabelText } = render(TabBar, {
       props: {
         tabs: [
           { id: 'home', label: 'Home', isHome: true },
@@ -20,14 +19,11 @@ describe('TabBar', () => {
         ],
         activeId: 'home',
         onSelect,
-        onClose,
       },
     })
 
     await fireEvent.click(getByText('Shell'))
     expect(onSelect).toHaveBeenCalledWith('t1')
-
-    await fireEvent.click(getByLabelText('Close Shell'))
-    expect(onClose).toHaveBeenCalledWith('t1')
+    expect(queryByLabelText('Close Shell')).toBeNull()
   })
 })

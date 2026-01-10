@@ -56,7 +56,7 @@
    Tests: Visual inspection of all views; verify tooltips show full timestamp
    Done when: All timestamp displays use relative format with hover tooltips
 
-** WIP [#C] Change agent terminal buttons to start or switch (remove stop action)
+** DONE [#C] Change agent terminal buttons to start or switch (remove stop action)
    Why: Closing terminals from dashboard is error-prone; terminals should only close from terminal view with confirmation
    Root cause analysis:
    - Dashboard.svelte maintains `terminals` array as local state (line 23)
@@ -93,7 +93,7 @@
    - Manual test: close terminal via terminal view close button → agent button returns to "Start" state
    Done when: Agent buttons show "Start"/"Open", clicking navigates to terminal, no stop action in dashboard
 
-** TODO [#C] Remove close (X) buttons from terminal tabs
+** WIP [#C] Remove close (X) buttons from terminal tabs
    Why: Accidental clicks cause data loss; tabs are for navigation, not lifecycle management
    Change:
    - Edit `frontend/src/components/TabBar.svelte`

@@ -4,7 +4,6 @@
   export let tabs = []
   export let activeId = ''
   export let onSelect = () => {}
-  export let onClose = () => {}
   export let onOpenSettings = () => {}
 </script>
 
@@ -28,16 +27,6 @@
       >
         <span class="tabbar__label">{tab.label}</span>
       </button>
-      {#if !tab.isHome}
-        <button
-          class="tabbar__close"
-          type="button"
-          on:click|stopPropagation={() => onClose(tab.id)}
-          aria-label={`Close ${tab.label}`}
-        >
-          ×
-        </button>
-      {/if}
     </div>
   {/each}
   <div class="tabbar__actions">
@@ -117,19 +106,6 @@
     color: #f6f3ed;
   }
 
-  .tabbar__close {
-    border: none;
-    background: rgba(255, 255, 255, 0.2);
-    color: inherit;
-    width: 1.4rem;
-    height: 1.4rem;
-    border-radius: 999px;
-    cursor: pointer;
-    display: grid;
-    place-items: center;
-    font-size: 0.9rem;
-  }
-
   .tabbar__actions {
     margin-left: auto;
   }
@@ -142,11 +118,6 @@
     font-size: 0.8rem;
     font-weight: 600;
     cursor: pointer;
-  }
-
-  .tabbar__item[data-active='true'] .tabbar__close {
-    color: #f6f3ed;
-    background: rgba(255, 255, 255, 0.2);
   }
 
   @media (max-width: 720px) {

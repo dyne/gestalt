@@ -1113,6 +1113,55 @@ func TestListTerminalsIncludesLLMMetadata(t *testing.T) {
 	}
 }
 
+func TestListTerminalsIncludesPromptFiles(t *testing.T) {
+	factory := &fakeFactory{}
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+	})
+
+	session, err := manager.Create("", "build", "plain")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	session.PromptFiles = []string{"main.tmpl", "fragment.txt"}
+	defer func() {
+		_ = manager.Delete(session.ID)
+	}()
+
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodGet, "/api/terminals", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", handler.handleTerminals)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var payload []terminalSummary
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	var summary *terminalSummary
+	for i := range payload {
+		if payload[i].ID == session.ID {
+			summary = &payload[i]
+			break
+		}
+	}
+	if summary == nil {
+		t.Fatalf("expected session in list")
+	}
+	if len(summary.PromptFiles) != 2 {
+		t.Fatalf("expected 2 prompt files, got %d", len(summary.PromptFiles))
+	}
+	if summary.PromptFiles[0] != "main.tmpl" || summary.PromptFiles[1] != "fragment.txt" {
+		t.Fatalf("unexpected prompt files: %#v", summary.PromptFiles)
+	}
+}
+
 func TestAgentsEndpoint(t *testing.T) {
 	factory := &fakeFactory{}
 	manager := terminal.NewManager(terminal.ManagerOptions{

@@ -87,7 +87,7 @@
      - Include with and without .txt extension
    Done when: Parser module exists, returns RenderResult with content + file list, fully tested
 
-** TODO [#C] Integrate template parser into terminal manager with file list logging
+** DONE [#C] Integrate template parser into terminal manager with file list logging
    Why: Replace direct file reads with template rendering; expose prompt composition metadata to agent
    Current state:
    - internal/terminal/manager.go line 450: calls readPromptFile(promptName)

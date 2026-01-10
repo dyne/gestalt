@@ -480,6 +480,7 @@ func TestManagerInjectsPrompt(t *testing.T) {
 
 	deadline := time.Now().Add(6 * time.Second)
 	expectedPrefix := "echo hello\necho world\n"
+	promptDone := false
 	for time.Now().Before(deadline) {
 		factory.pty.mu.Lock()
 		writes := append([][]byte(nil), factory.pty.writes...)
@@ -496,11 +497,125 @@ func TestManagerInjectsPrompt(t *testing.T) {
 				time.Sleep(10 * time.Millisecond)
 				continue
 			}
-			return
+			promptDone = true
+			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("timed out waiting for prompt write")
+	if !promptDone {
+		t.Fatalf("timed out waiting for prompt write")
+	}
+	if len(session.PromptFiles) != 2 {
+		t.Fatalf("expected 2 prompt files, got %d", len(session.PromptFiles))
+	}
+	if session.PromptFiles[0] != "first.txt" || session.PromptFiles[1] != "second.txt" {
+		t.Fatalf("unexpected prompt files: %#v", session.PromptFiles)
+	}
+}
+
+func TestManagerInjectsTemplatePrompt(t *testing.T) {
+	root := t.TempDir()
+	promptsDir := filepath.Join(root, "config", "prompts")
+	if err := os.MkdirAll(promptsDir, 0755); err != nil {
+		t.Fatalf("mkdir prompts: %v", err)
+	}
+	mainPrompt := filepath.Join(promptsDir, "main.tmpl")
+	if err := os.WriteFile(mainPrompt, []byte("echo start\n{{include fragment.txt}}\necho end\n"), 0644); err != nil {
+		t.Fatalf("write prompt: %v", err)
+	}
+	fragmentPrompt := filepath.Join(promptsDir, "fragment.txt")
+	if err := os.WriteFile(fragmentPrompt, []byte("echo mid\n"), 0644); err != nil {
+		t.Fatalf("write fragment: %v", err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("restore cwd: %v", err)
+		}
+	}()
+
+	buffer := logging.NewLogBuffer(10)
+	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, nil)
+	factory := &captureFactory{}
+	manager := NewManager(ManagerOptions{
+		PtyFactory: factory,
+		Logger:     logger,
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:    "Codex",
+				Shell:   "/bin/bash",
+				Prompts: agent.PromptList{"main"},
+				LLMType: "codex",
+			},
+		},
+	})
+
+	session, err := manager.Create("codex", "build", "ignored")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(session.ID)
+	}()
+
+	deadline := time.Now().Add(6 * time.Second)
+	expectedPrefix := "echo start\necho mid\necho end\n"
+	promptDone := false
+	for time.Now().Before(deadline) {
+		factory.pty.mu.Lock()
+		writes := append([][]byte(nil), factory.pty.writes...)
+		factory.pty.mu.Unlock()
+		if len(writes) > 0 {
+			payload := ""
+			for _, chunk := range writes {
+				payload += string(chunk)
+			}
+			if len(payload) >= len(expectedPrefix) && !strings.HasPrefix(payload, expectedPrefix) {
+				t.Fatalf("prompt payload mismatch: %q", payload)
+			}
+			if !strings.HasSuffix(payload, "\r\n") {
+				time.Sleep(10 * time.Millisecond)
+				continue
+			}
+			promptDone = true
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !promptDone {
+		t.Fatalf("timed out waiting for prompt write")
+	}
+	if len(session.PromptFiles) != 2 {
+		t.Fatalf("expected 2 prompt files, got %d", len(session.PromptFiles))
+	}
+	if session.PromptFiles[0] != "main.tmpl" || session.PromptFiles[1] != "fragment.txt" {
+		t.Fatalf("unexpected prompt files: %#v", session.PromptFiles)
+	}
+
+	entries := buffer.List()
+	found := false
+	for _, entry := range entries {
+		if entry.Level != logging.LevelInfo || entry.Message != "agent prompt rendered" {
+			continue
+		}
+		if entry.Context["prompt_files"] != "main.tmpl, fragment.txt" {
+			t.Fatalf("unexpected prompt_files: %v", entry.Context["prompt_files"])
+		}
+		if entry.Context["file_count"] != "2" {
+			t.Fatalf("unexpected file_count: %v", entry.Context["file_count"])
+		}
+		found = true
+		break
+	}
+	if !found {
+		t.Fatalf("expected prompt rendered log entry")
+	}
 }
 
 func TestManagerWritesSkillsMetadata(t *testing.T) {

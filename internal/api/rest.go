@@ -50,6 +50,7 @@ type terminalSummary struct {
 	LLMType   string    `json:"llm_type"`
 	LLMModel  string    `json:"llm_model"`
 	Skills    []string  `json:"skills"`
+	PromptFiles []string `json:"prompt_files"`
 }
 
 type workflowSummary struct {
@@ -598,6 +599,7 @@ func (h *RestHandler) listTerminals(w http.ResponseWriter) *apiError {
 			LLMType:   info.LLMType,
 			LLMModel:  info.LLMModel,
 			Skills:    info.Skills,
+			PromptFiles: info.PromptFiles,
 		})
 	}
 	writeJSON(w, http.StatusOK, response)

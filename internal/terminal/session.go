@@ -57,6 +57,7 @@ type Session struct {
 	CreatedAt     time.Time
 	LLMType       string
 	LLMModel      string
+	PromptFiles   []string
 	WorkflowID    *string
 	WorkflowRunID *string
 
@@ -94,6 +95,7 @@ type SessionInfo struct {
 	LLMType   string
 	LLMModel  string
 	Skills    []string
+	PromptFiles []string
 }
 
 func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt time.Time, bufferLines int, profile *agent.Agent, sessionLogger *SessionLogger, inputLogger *InputLogger) *Session {
@@ -140,6 +142,10 @@ func (s *Session) Info() SessionInfo {
 	if s.agent != nil && len(s.agent.Skills) > 0 {
 		skills = append(skills, s.agent.Skills...)
 	}
+	promptFiles := []string{}
+	if len(s.PromptFiles) > 0 {
+		promptFiles = append(promptFiles, s.PromptFiles...)
+	}
 	return SessionInfo{
 		ID:        s.ID,
 		Title:     s.Title,
@@ -149,6 +155,7 @@ func (s *Session) Info() SessionInfo {
 		LLMType:   s.LLMType,
 		LLMModel:  s.LLMModel,
 		Skills:    skills,
+		PromptFiles: promptFiles,
 	}
 }
 

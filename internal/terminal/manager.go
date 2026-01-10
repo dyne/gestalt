@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -16,6 +15,7 @@ import (
 
 	"gestalt/internal/agent"
 	"gestalt/internal/logging"
+	"gestalt/internal/prompt"
 	"gestalt/internal/skill"
 	"gestalt/internal/temporal"
 )
@@ -70,6 +70,7 @@ type Manager struct {
 	retentionDays   int
 	promptFS        fs.FS
 	promptDir       string
+	promptParser    *prompt.Parser
 }
 
 type sessionCreateRequest struct {
@@ -169,6 +170,7 @@ func NewManager(opts ManagerOptions) *Manager {
 	if promptFS != nil {
 		promptDir = filepath.ToSlash(promptDir)
 	}
+	promptParser := prompt.NewParser(promptFS, promptDir)
 
 	agents := make(map[string]agent.Agent)
 	for id, profile := range opts.Agents {
@@ -196,6 +198,7 @@ func NewManager(opts ManagerOptions) *Manager {
 		retentionDays:   retentionDays,
 		promptFS:        promptFS,
 		promptDir:       promptDir,
+		promptParser:    promptParser,
 	}
 	manager.startSessionCleanup()
 	return manager
@@ -447,13 +450,12 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 					}
 				}
 				for i, promptName := range cleaned {
-					data, promptPath, err := m.readPromptFile(promptName)
+					data, files, err := m.readPromptFile(promptName)
 					if err != nil {
 						m.logger.Warn("agent prompt file read failed", map[string]string{
-							"agent_id":    request.AgentID,
-							"prompt":      promptName,
-							"prompt_path": promptPath,
-							"error":       err.Error(),
+							"agent_id": request.AgentID,
+							"prompt":   promptName,
+							"error":    err.Error(),
 						})
 						continue
 					}
@@ -465,6 +467,12 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 						})
 						return
 					}
+					session.PromptFiles = append(session.PromptFiles, files...)
+					m.logger.Info("agent prompt rendered", map[string]string{
+						"agent_id":     request.AgentID,
+						"prompt_files": strings.Join(files, ", "),
+						"file_count":   strconv.Itoa(len(files)),
+					})
 					wrotePrompt = true
 					if i < len(cleaned)-1 {
 						time.Sleep(interPromptDelay)
@@ -513,16 +521,15 @@ func writePromptPayload(session *Session, payload []byte) error {
 	return nil
 }
 
-func (m *Manager) readPromptFile(promptName string) ([]byte, string, error) {
-	if m.promptFS != nil {
-		promptPath := path.Join(m.promptDir, promptName+".txt")
-		data, err := fs.ReadFile(m.promptFS, promptPath)
-		return data, promptPath, err
+func (m *Manager) readPromptFile(promptName string) ([]byte, []string, error) {
+	if m.promptParser == nil {
+		return nil, nil, errors.New("prompt parser unavailable")
 	}
-
-	promptPath := filepath.Join(m.promptDir, promptName+".txt")
-	data, err := os.ReadFile(promptPath)
-	return data, promptPath, err
+	result, err := m.promptParser.Render(promptName)
+	if err != nil {
+		return nil, nil, err
+	}
+	return result.Content, result.Files, nil
 }
 
 func (m *Manager) nextIDValue() string {

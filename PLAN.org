@@ -1,3 +1,226 @@
+* WIP [#B] UI/UX polish and visual identity improvements
+  Goal: Improve user experience with human-readable timestamps, better terminal state feedback, streamlined tab management, branded visual identity, and improved close confirmation.
+  Notes:
+  - Scope: Frontend only (Svelte components, stores, and static assets)
+  - Changes affect: Dashboard, Terminal view, TabBar, App header, timestamp displays
+  - New assets: Dyne.org logos (icon + logotype), Gestalt typography logo
+  - Backend: no changes required (all REST/WS endpoints already provide necessary data)
+  - Visual identity: replace generic UI elements with branded logos from Dyne.org
+  - User safety: add confirmation dialog for terminal close to prevent accidental data loss
+  - Real-time feedback: ensure terminal state (running/stopped) updates immediately without page refresh
+  Date: 2026-01-10
+
+** WIP [#C] Remove unused Tailwind CSS dependency
+   Why: Tailwind is installed but never used (~0% adoption); adds 6MB to node_modules and build complexity for no benefit
+   Change:
+   - Uninstall packages: `npm uninstall tailwindcss autoprefixer postcss`
+   - Remove config files: `tailwind.config.js`, `postcss.config.js`
+   - Update `frontend/src/app.css`: remove `@tailwind` directives, keep custom CSS
+   - Verify build still works: `npm run build`
+   - Check bundle size (should be unchanged since utilities aren't used)
+   - Update package.json: verify devDependencies are clean
+   Notes:
+   - Current approach (scoped component styles) is working well and more maintainable
+   - Custom CSS is readable, consistent (BEM-ish naming), and performant (38KB / 7.78KB gzipped)
+   - Zero Tailwind utilities in codebase (only custom classes like `.agent-grid`)
+   Tests: Run `npm run build` and verify CSS bundle size unchanged
+   Done when: Tailwind removed, build works, no regressions
+
+** TODO [#C] Add human-readable timestamp formatting utility
+   Why: Absolute timestamps (ISO 8601) are hard to scan; relative times (1 minute ago, 2 hours ago) improve readability
+   Change:
+   - Create `frontend/src/lib/timeUtils.js` with `formatRelativeTime(timestamp)` function
+   - Logic:
+     - < 1 minute: "just now"
+     - < 60 minutes: "X minutes ago"
+     - < 24 hours: "X hours ago"
+     - < 7 days: "X days ago"
+     - >= 7 days: fall back to short date format (e.g., "Jan 8, 2026")
+   - Handle both ISO 8601 strings and Date objects
+   - Add unit tests in `frontend/src/lib/timeUtils.test.js`
+   Tests: Unit tests for edge cases (now, 1 sec, 59 sec, 1 min, 59 min, 1 hour, 23 hours, 1 day, 6 days, 7+ days)
+   Done when: Utility function exists, tested, and ready to import
+
+** TODO [#C] Apply human-readable timestamps throughout UI
+   Why: Consistency across all views; easier scanning of temporal information
+   Change:
+   - Import `formatRelativeTime` from timeUtils in relevant components
+   - Update timestamp displays in:
+     - Dashboard: agent status timestamps, system status
+     - FlowView (Status): workflow start/end times, last event times
+     - LogsView: log entry timestamps
+     - TerminalView: session start time (if displayed)
+     - WorkflowCard/WorkflowDetail: all temporal fields
+   - Add title attribute with full ISO timestamp for hover tooltip (best of both worlds)
+   - Keep backend responses unchanged (ISO 8601); transform in frontend only
+   Tests: Visual inspection of all views; verify tooltips show full timestamp
+   Done when: All timestamp displays use relative format with hover tooltips
+
+** TODO [#C] Change agent terminal buttons to start or switch (remove stop action)
+   Why: Closing terminals from dashboard is error-prone; terminals should only close from terminal view with confirmation
+   Root cause analysis:
+   - Dashboard.svelte maintains `terminals` array as local state (line 23)
+   - Agent running state comes from `/api/agents` response (agent.running field)
+   - Dashboard calls `loadAgents()` after stop/create, which re-fetches `/api/agents`
+   - Problem: App.svelte also maintains separate `terminals` array from `/api/terminals`
+   - These two sources are not synchronized in real-time when terminals close
+   Behavioral change:
+   - Current: button toggles between "Start" and "Stop", clicking "Stop" closes terminal
+   - New: button shows "Start" or "Open", clicking always navigates to terminal (start if stopped, switch if running)
+   - Terminal closure: only via close button in TerminalView with confirmation dialog (see L2 #6)
+   Change:
+   - File: `frontend/src/views/Dashboard.svelte`
+   - Add new prop: `export let onSelect = () => {}` (for switching to terminal tabs)
+   - Modify `loadAgents()` to cross-reference `terminals` prop (passed from App.svelte)
+   - Agent running state logic: `agent.running = terminals.some(t => t.agent_id === agent.id)`
+   - Update agent card button (lines 261-272):
+     - Current: `agent.running ? stopTerminal(agent.terminal_id) : createTerminal(agent.id)`
+     - New: `agent.running ? switchToTerminal(agent.terminal_id) : createTerminal(agent.id)`
+     - Button label: `agent.running ? 'Open' : 'Start'`
+     - Button class: remove `.agent-button--running` / `.agent-button--stopped` distinction (both are positive actions now)
+   - Add `switchToTerminal(terminalId)` function: calls `onSelect(terminalId)` to switch active tab
+   - Remove `stopTerminal()` function (no longer needed in Dashboard)
+   - Update button styling: both states use same positive action style (no destructive red for "running")
+   - File: `frontend/src/App.svelte`
+   - Pass `onSelect={handleSelect}` prop to Dashboard component (add to Dashboard component invocation)
+   - No terminalStore changes needed (terminalStore manages xterm state, not agent button state)
+   Data flow: 
+   - App.svelte terminals → Dashboard.svelte prop → agent.running computed property
+   - Dashboard agent button click → App.svelte onSelect(terminalId) → tab switches to terminal
+   Tests: 
+   - Manual test: agent not running → click "Start" → terminal created and opened
+   - Manual test: agent running → click "Open" → switches to existing terminal tab (no close action)
+   - Manual test: close terminal via terminal view close button → agent button returns to "Start" state
+   Done when: Agent buttons show "Start"/"Open", clicking navigates to terminal, no stop action in dashboard
+
+** TODO [#C] Remove close (X) buttons from terminal tabs
+   Why: Accidental clicks cause data loss; tabs are for navigation, not lifecycle management
+   Change:
+   - Edit `frontend/src/components/TabBar.svelte`
+   - Remove X button from each terminal tab (keep tab label clickable for navigation)
+   - Tabs become read-only indicators of running terminals (click to switch, but no inline close)
+   - Non-terminal tabs (Dashboard, Status, Plan, Logs) stay as-is (no X buttons already)
+   Tests: Visual inspection; verify tabs are clickable for navigation but have no X buttons
+   Done when: Terminal tabs have no close buttons, remain clickable
+
+** TODO [#B] Add close button with confirmation dialog to terminal view
+   Why: Users still need a way to close terminals, but with intentional action and confirmation
+   Architecture decision: Use native `<dialog>` element (best accessibility, zero dependencies)
+   Change:
+   - File: `frontend/src/views/TerminalView.svelte`
+   - Add "Close Terminal" button at top-right of terminal view (before Terminal component)
+   - Add `<dialog>` element with:
+     - `id="close-confirm-dialog"`
+     - Title: "Close Terminal?"
+     - Message: "This will stop the terminal session. Any unsaved work will be lost."
+     - Two buttons: "Close" (autofocus, destructive style) and "Cancel" (secondary style)
+   - Button click handler: `dialog.showModal()` to display
+   - Focus management: `autofocus` attribute on "Close" button so Enter immediately confirms
+   - Keyboard: native dialog handles Escape (closes without action), Enter on focused button
+   - Close button handler: emit event to parent or call onDelete callback prop
+   - Terminal closure flow: TerminalView receives `onDelete` prop from App.svelte → calls it → App.svelte.deleteTerminal(id)
+   - After deletion: App.svelte already navigates to dashboard (line 122: `activeId = 'dashboard'`)
+   Styling approach:
+   - Scoped `<style>` block in TerminalView.svelte
+   - Match existing design system (similar to NotificationSettings modal overlay)
+   - Destructive button: red background, white text
+   - Cancel button: secondary style (border, transparent bg)
+   Tests: Manual test: click close → dialog opens with focus on "Close" → press Enter → terminal closes and navigates to dashboard
+   Done when: Close button exists, native dialog works, keyboard navigation correct, terminal closes on confirm
+
+** TODO [#C] Download and add Dyne.org logo assets
+   Why: Replace generic "Notifications" button with branded logos for visual identity
+   Change:
+   - Download logos from dyne.org:
+     - Black/transparent icon: https://dyne.org/images/logos/black-transparent-Icon.svg
+     - White logotype: https://dyne.org/images/logos/white-Logotype.svg
+   - Save to `frontend/src/assets/` (create directory if needed)
+   - Name files clearly: `dyne-icon-black.svg`, `dyne-logotype-white.svg`
+   - Verify SVGs are valid and render correctly (open in browser)
+   Tests: Visual inspection of downloaded SVGs in browser
+   Done when: Logo files exist in `frontend/src/assets/`
+
+** TODO [#C] Copy Gestalt typography logo to assets
+   Why: Replace "Gestalt" text title with branded SVG logo
+   Change:
+   - Copy `logosvg/typography/t_glogo_greyonwhite.svg` to `frontend/src/assets/gestalt-logo.svg`
+   - Verify SVG renders correctly (check viewBox, width/height attributes)
+   - Optional: optimize SVG if it has unnecessary metadata (use svgo or manual cleanup)
+   Tests: Visual inspection of logo in browser
+   Done when: Gestalt logo exists in `frontend/src/assets/`
+
+** TODO [#C] Replace notifications button with Dyne.org logos in header
+   Why: Visual identity; logos are more recognizable than generic button
+   Architecture decision: Remove notification settings button entirely (preferences are persisted in localStorage, rarely changed)
+   Current state:
+   - Notifications button at line 44 in TabBar.svelte (`.tabbar__actions` → `.tabbar__settings`)
+   - Button triggers `onOpenSettings()` callback → App.svelte shows NotificationSettings modal
+   - NotificationSettings is fully functional but rarely used by users
+   Change:
+   - File: `frontend/src/components/TabBar.svelte`
+   - Replace `.tabbar__actions` section (lines 43-47) with `.tabbar__logos`
+   - Add two `<a>` links with external logos:
+     - Dyne icon (black): `/assets/dyne-icon-black.svg`, size 28px, link to https://dyne.org, target="_blank"
+     - Dyne logotype (white): `/assets/dyne-logotype-white.svg`, height 20px, link to https://dyne.org, target="_blank"
+   - Style logos: `display: flex; align-items: center; gap: 1.2rem; margin-left: auto;`
+   - Hover effect: `opacity: 0.7` on hover, `transition: opacity 160ms ease`
+   - Logo colors: keep as-is (black icon + white logotype work on light background)
+   - Remove `onOpenSettings` prop from TabBar (line 8)
+   - File: `frontend/src/App.svelte`
+   - Remove `showSettings` state variable (line 27)
+   - Remove `openSettings` and `closeSettings` functions (lines 149-156)
+   - Remove `onOpenSettings={openSettings}` prop from TabBar (line 173)
+   - Remove `<NotificationSettings>` component (line 175)
+   - Keep NotificationSettings.svelte file (users can still open via browser devtools or future settings page)
+   Notification preferences remain functional:
+   - notificationStore and notificationPreferences persist in localStorage
+   - Toast behavior continues working with saved preferences
+   - Advanced users can edit localStorage directly if needed
+   Tests: Visual inspection; verify logos render correctly, link to dyne.org, open in new tab
+   Done when: Notifications button removed, logos visible and clickable, no console errors
+
+** TODO [#C] Replace "Gestalt" text title with typography logo
+   Why: Consistent visual branding; professional appearance
+   Current state:
+   - Brand area is in TabBar.svelte (lines 12-20)
+   - `.tabbar__brand` button contains `.tabbar__brand-title` (text "Gestalt") and `.tabbar__brand-by` (version)
+   - Button already clickable and navigates to dashboard via `onSelect('dashboard')`
+   Change:
+   - File: `frontend/src/components/TabBar.svelte`
+   - Replace line 18 (`<span class="tabbar__brand-title">Gestalt</span>`) with:
+     `<img src="/assets/gestalt-logo.svg" alt="Gestalt" class="tabbar__brand-logo" />`
+   - Update CSS `.tabbar__brand-title` → `.tabbar__brand-logo`:
+     - `height: 24px;` (matches text height)
+     - `width: auto;`
+     - `display: block;`
+     - Remove font-size, font-weight, letter-spacing, text-transform
+   - Keep `.tabbar__brand-by` (version) as-is for visual balance
+   - Keep button behavior (click → dashboard) unchanged
+   - Verify logo SVG has proper viewBox for scaling
+   Tests: Visual inspection; verify logo renders at correct size, aligns with version text, click navigates to dashboard
+   Done when: Text title replaced with SVG logo, button still functional, visual alignment correct
+
+** TODO [#C] Rename "Flow" tab to "Status"
+   Why: "Status" is clearer and more descriptive of workflow monitoring content
+   Current state:
+   - Tab defined in App.svelte line 19: `{ id: 'flow', label: 'Flow', isHome: true }`
+   - Also in `syncTabs` function line 43 (duplicate definition)
+   - Tab ID 'flow' used in routing logic (lines 32-37)
+   - Component import: FlowView (line 4)
+   Change:
+   - File: `frontend/src/App.svelte`
+   - Line 19: change `label: 'Flow'` to `label: 'Status'`
+   - Line 43: change `label: 'Flow'` to `label: 'Status'`
+   - Keep `id: 'flow'` unchanged (internal routing ID, no user-facing impact)
+   - Keep FlowView component name unchanged (internal, no user-facing impact)
+   - No URL changes needed (activeId drives routing, not labels)
+   Rationale for keeping id='flow':
+   - Changing IDs would require localStorage migration (if any saved state uses it)
+   - Label is user-facing; ID is internal implementation detail
+   - Minimal change principle: only touch what users see
+   Tests: Visual inspection; verify tab label shows "Status", click navigates to workflow view
+   Done when: Tab label displays "Status", routing unchanged, no regressions
+
 * TODO [#A] Comprehensive architecture and code quality review
   Goal: Conduct a thorough review of the entire Gestalt codebase (backend + frontend) to identify opportunities for simplification, improved maintainability, better readability, dependency reduction, and architectural improvements.
   Notes:

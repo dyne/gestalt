@@ -20,7 +20,6 @@
   let agentSkills = {}
   let agentSkillsLoading = false
   let agentSkillsError = ''
-  let agentWorkflow = {}
   let logs = []
   let orderedLogs = []
   let visibleLogs = []
@@ -47,11 +46,7 @@
     actionPending = true
     localError = ''
     try {
-      const useWorkflow =
-        agentId && typeof agentWorkflow[agentId] === 'boolean'
-          ? agentWorkflow[agentId]
-          : undefined
-      await onCreate(agentId, useWorkflow)
+      await onCreate(agentId)
       await loadAgents()
     } catch (err) {
       localError = err?.message || 'Failed to create terminal.'
@@ -74,9 +69,8 @@
     try {
       const response = await apiFetch('/api/agents')
       const fetched = await response.json()
-      const nextAgents = syncAgentRunning(fetched)
+      const nextAgents = syncAgentRunning(fetched, terminals)
       agents = nextAgents
-      syncAgentWorkflow(nextAgents)
       await loadAgentSkills(nextAgents)
     } catch (err) {
       agentsError = err?.message || 'Failed to load agents.'
@@ -113,39 +107,22 @@
     }
   }
 
-  const syncAgentWorkflow = (agentList) => {
-    const next = {}
-    if (agentList && agentList.length > 0) {
-      agentList.forEach((agent) => {
-        if (typeof agentWorkflow[agent.id] === 'boolean') {
-          next[agent.id] = agentWorkflow[agent.id]
-        } else {
-          next[agent.id] = agent.use_workflow !== false
-        }
-      })
-    }
-    agentWorkflow = next
-  }
-
-  const syncAgentRunning = (agentList) => {
+  const syncAgentRunning = (agentList, terminalList) => {
     if (!Array.isArray(agentList)) return []
-    const terminalByAgent = new Map()
-    terminals.forEach((terminal) => {
-      if (!terminal?.agent_id || terminalByAgent.has(terminal.agent_id)) return
-      terminalByAgent.set(terminal.agent_id, terminal.id)
-    })
+    const terminalIds = new Set((terminalList || []).map((terminal) => terminal?.id).filter(Boolean))
     let changed = false
     const nextAgents = agentList.map((agent) => {
-      const terminalId = terminalByAgent.get(agent.id) || ''
-      const running = Boolean(terminalId)
-      if (agent.running === running && (agent.terminal_id || '') === terminalId) {
+      const terminalId = agent.terminal_id || ''
+      const running = Boolean(terminalId && terminalIds.has(terminalId))
+      const nextTerminalId = running ? terminalId : ''
+      if (agent.running === running && (agent.terminal_id || '') === nextTerminalId) {
         return agent
       }
       changed = true
       return {
         ...agent,
         running,
-        terminal_id: terminalId,
+        terminal_id: nextTerminalId,
       }
     })
     return changed ? nextAgents : agentList
@@ -218,7 +195,7 @@
     resetLogRefresh()
   }
   $: {
-    const nextAgents = syncAgentRunning(agents)
+    const nextAgents = syncAgentRunning(agents, terminals)
     if (nextAgents !== agents) {
       agents = nextAgents
     }
@@ -301,14 +278,6 @@
                 <span class="agent-skills">{agentSkills[agent.id].join(', ')}</span>
               {/if}
             </button>
-            <label class="agent-toggle">
-              <input
-                type="checkbox"
-                bind:checked={agentWorkflow[agent.id]}
-                disabled={actionPending || loading}
-              />
-              <span>Enable workflow tracking</span>
-            </label>
           </div>
         {/each}
       </div>
@@ -615,20 +584,6 @@
     transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease,
       background 160ms ease, border-color 160ms ease;
     width: 100%;
-  }
-
-  .agent-toggle {
-    display: flex;
-    align-items: center;
-    gap: 0.45rem;
-    font-size: 0.65rem;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: #6c6860;
-  }
-
-  .agent-toggle input {
-    margin: 0;
   }
 
   .agent-name {

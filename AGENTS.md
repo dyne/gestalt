@@ -85,3 +85,4 @@ This repo is a Go backend + Svelte frontend for a multi-terminal dashboard with 
 - Terminal start success is logged to the console instead of a toast notification.
 - Header branding uses imported SVG assets for the Gestalt logo and Dyne icon/logotype.
 - Workflow tracking is always on; the dashboard toggle was removed and running state is synced from agent terminal IDs.
+- Terminal resizing uses a ResizeObserver to refit xterm and send PTY resize updates on width changes.

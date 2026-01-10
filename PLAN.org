@@ -103,7 +103,7 @@
    Tests: Visual inspection; verify tabs are clickable for navigation but have no X buttons
    Done when: Terminal tabs have no close buttons, remain clickable
 
-** WIP [#B] Add close button with confirmation dialog to terminal view
+** DONE [#B] Add close button with confirmation dialog to terminal view
    Why: Users still need a way to close terminals, but with intentional action and confirmation
    Architecture decision: Use native `<dialog>` element (best accessibility, zero dependencies)
    Change:
@@ -128,7 +128,7 @@
    Tests: Manual test: click close → dialog opens with focus on "Close" → press Enter → terminal closes and navigates to dashboard
    Done when: Close button exists, native dialog works, keyboard navigation correct, terminal closes on confirm
 
-** TODO [#C] Download and add Dyne.org logo assets
+** WIP [#C] Download and add Dyne.org logo assets
    Why: Replace generic "Notifications" button with branded logos for visual identity
    Change:
    - Download logos from dyne.org:

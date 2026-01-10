@@ -1,5 +1,8 @@
 <script>
   import { VERSION } from '../lib/version.js'
+  import dyneIcon from '../assets/dyne-icon-black.svg'
+  import dyneLogotype from '../assets/dyne-logotype-white.svg'
+  import gestaltLogo from '../assets/gestalt-logo.svg'
 
   export let tabs = []
   export let activeId = ''
@@ -13,7 +16,7 @@
     on:click={() => onSelect('dashboard')}
     aria-label="Open dashboard"
   >
-    <img class="tabbar__brand-logo" src="/assets/gestalt-logo.svg" alt="Gestalt" />
+    <img class="tabbar__brand-logo" src={gestaltLogo} alt="Gestalt" />
     <span class="tabbar__brand-by">v{VERSION}</span>
   </button>
   {#each tabs as tab}
@@ -32,14 +35,14 @@
     <a href="https://dyne.org" target="_blank" rel="noopener noreferrer">
       <img
         class="tabbar__logo tabbar__logo--icon"
-        src="/assets/dyne-icon-black.svg"
+        src={dyneIcon}
         alt="Dyne.org"
       />
     </a>
     <a href="https://dyne.org" target="_blank" rel="noopener noreferrer">
       <img
         class="tabbar__logo tabbar__logo--type"
-        src="/assets/dyne-logotype-white.svg"
+        src={dyneLogotype}
         alt="Dyne.org"
       />
     </a>

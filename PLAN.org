@@ -237,7 +237,7 @@
    Tests: Manual smoke check; running agents show the highlighted state
    Done when: Agent buttons visibly indicate running state again
 
-** WIP [#B] Move terminal close control into terminal header
+** DONE [#B] Move terminal close control into terminal header
    Why: The close action should live inside the terminal canvas next to the Bell indicator.
    Change:
    - Remove the standalone header/close button in `frontend/src/views/TerminalView.svelte`
@@ -246,7 +246,7 @@
    Tests: Manual smoke check; close button appears in terminal header and opens the dialog
    Done when: Close button sits in the terminal header and triggers confirmation
 
-** TODO [#C] Fix header logo asset loading
+** WIP [#C] Fix header logo asset loading
    Why: Header SVGs should load reliably in Vite builds.
    Change:
    - Import logo assets in `frontend/src/components/TabBar.svelte` instead of using `/assets/...` URLs

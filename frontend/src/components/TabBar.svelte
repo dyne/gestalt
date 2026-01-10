@@ -13,7 +13,7 @@
     on:click={() => onSelect('dashboard')}
     aria-label="Open dashboard"
   >
-    <span class="tabbar__brand-title">Gestalt</span>
+    <img class="tabbar__brand-logo" src="/assets/gestalt-logo.svg" alt="Gestalt" />
     <span class="tabbar__brand-by">v{VERSION}</span>
   </button>
   {#each tabs as tab}
@@ -72,11 +72,10 @@
     white-space: nowrap;
   }
 
-  .tabbar__brand-title {
-    font-size: 1rem;
-    font-weight: 700;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
+  .tabbar__brand-logo {
+    height: 24px;
+    width: auto;
+    display: block;
   }
 
   .tabbar__brand-by {

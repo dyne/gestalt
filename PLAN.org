@@ -149,7 +149,7 @@
    Tests: Visual inspection of logo in browser
    Done when: Gestalt logo exists in `frontend/src/assets/`
 
-** WIP [#C] Replace notifications button with Dyne.org logos in header
+** DONE [#C] Replace notifications button with Dyne.org logos in header
    Why: Visual identity; logos are more recognizable than generic button
    Architecture decision: Remove notification settings button entirely (preferences are persisted in localStorage, rarely changed)
    Current state:
@@ -179,7 +179,7 @@
    Tests: Visual inspection; verify logos render correctly, link to dyne.org, open in new tab
    Done when: Notifications button removed, logos visible and clickable, no console errors
 
-** TODO [#C] Replace "Gestalt" text title with typography logo
+** WIP [#C] Replace "Gestalt" text title with typography logo
    Why: Consistent visual branding; professional appearance
    Current state:
    - Brand area is in TabBar.svelte (lines 12-20)

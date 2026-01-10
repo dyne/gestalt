@@ -86,3 +86,4 @@ This repo is a Go backend + Svelte frontend for a multi-terminal dashboard with 
 - Header branding uses imported SVG assets for the Gestalt logo and Dyne icon/logotype.
 - Workflow tracking is always on; the dashboard toggle was removed and running state is synced from agent terminal IDs.
 - Terminal resizing uses a ResizeObserver to refit xterm and send PTY resize updates on width changes.
+- `make dev` runs the Go backend and Vite dev server together for live UI updates.

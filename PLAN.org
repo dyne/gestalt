@@ -1,4 +1,4 @@
-* WIP [#B] UI/UX polish and visual identity improvements
+* DONE [#B] UI/UX polish and visual identity improvements
   Goal: Improve user experience with human-readable timestamps, better terminal state feedback, streamlined tab management, branded visual identity, and improved close confirmation.
   Notes:
   - Scope: Frontend only (Svelte components, stores, and static assets)
@@ -278,7 +278,7 @@
    Tests: Manual smoke check; header logos render in dev and build
    Done when: Logos render correctly without broken asset URLs
 
-** WIP [#C] Add make dev target for live preview
+** [#C] Add make dev target for live preview
    Why: Provide a single command to run the Go backend and Vite dev server with live UI updates.
    Change:
    - Add a `dev` target in `GNUmakefile` that runs the Go server and `npm run dev` concurrently

@@ -470,6 +470,7 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 					session.PromptFiles = append(session.PromptFiles, files...)
 					m.logger.Info("agent prompt rendered", map[string]string{
 						"agent_id":     request.AgentID,
+						"agent_name":   profile.Name,
 						"prompt_files": strings.Join(files, ", "),
 						"file_count":   strconv.Itoa(len(files)),
 					})

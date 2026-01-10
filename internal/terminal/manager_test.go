@@ -604,6 +604,9 @@ func TestManagerInjectsTemplatePrompt(t *testing.T) {
 		if entry.Level != logging.LevelInfo || entry.Message != "agent prompt rendered" {
 			continue
 		}
+		if entry.Context["agent_name"] != "Codex" {
+			t.Fatalf("unexpected agent_name: %v", entry.Context["agent_name"])
+		}
 		if entry.Context["prompt_files"] != "main.tmpl, fragment.txt" {
 			t.Fatalf("unexpected prompt_files: %v", entry.Context["prompt_files"])
 		}

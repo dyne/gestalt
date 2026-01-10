@@ -1,4 +1,4 @@
-* WIP [#B] Prompt templating system with include directives
+* DONE [#B] Prompt templating system with include directives
   Goal: Support .tmpl prompt files that can include .txt fragments, rendering templates at agent start before injection into terminal.
   Notes:
   - Current system: prompts are plain .txt files read directly from config/prompts/ and injected to agent terminals
@@ -10,7 +10,7 @@
   - Benefits: DRY principle for prompts, shared fragments (e.g., common "Workplan structure" section), easier maintenance
   Date: 2026-01-10
 
-** DONE [#C] Research and decide include directive syntax
+** [#C] Research and decide include directive syntax
    Why: Need clear, unambiguous syntax that doesn't conflict with existing prompt content
    Research needed:
    - Current prompt content analysis: check if any existing prompts contain syntax we might choose
@@ -39,7 +39,7 @@
    - Strip the include line entirely during rendering.
    - Rationale: concise, familiar templating syntax, easy to parse, and safe with current prompt content.
 
-** DONE [#C] Create prompt template parser module
+** [#C] Create prompt template parser module
    Why: Separate concern from terminal manager; reusable and testable
    Architecture decision:
    - New package: internal/prompt for template parsing logic
@@ -87,7 +87,7 @@
      - Include with and without .txt extension
    Done when: Parser module exists, returns RenderResult with content + file list, fully tested
 
-** DONE [#C] Integrate template parser into terminal manager with file list logging
+** [#C] Integrate template parser into terminal manager with file list logging
    Why: Replace direct file reads with template rendering; expose prompt composition metadata to agent
    Current state:
    - internal/terminal/manager.go line 450: calls readPromptFile(promptName)
@@ -138,7 +138,7 @@
    - Regression test: existing .txt prompts still work, file list has one entry
    Done when: Template parser integrated, file list logged and stored, tests pass
 
-** DONE [#C] Display prompt file list in agent terminal header
+** [#C] Display prompt file list in agent terminal header
    Why: Prompt composition is more interesting than skills; shows what instructions the agent received
    Current state:
    - frontend/src/components/Terminal.svelte shows skills in terminal header (if agent has skills)
@@ -171,7 +171,7 @@
    - Frontend test: verify terminal header shows prompt file list
    Done when: Prompt file list visible in terminal header instead of/alongside skills
 
-** DONE [#B] Comprehensive test coverage for prompt templating
+** [#B] Comprehensive test coverage for prompt templating
    Why: Template system is foundational; must be robust and well-tested
    Scope: Unit tests, integration tests, edge cases, error conditions
    Change:
@@ -236,7 +236,7 @@
    Tests: Run go test -v ./internal/prompt/... and verify >90% coverage
    Done when: All test cases implemented, pass consistently, coverage >90%
 
-** DONE [#C] Update AGENTS.md with templating documentation
+** [#C] Update AGENTS.md with templating documentation
    Why: Document new capability for future LLMs and developers
    Change:
    - File: AGENTS.md

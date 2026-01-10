@@ -51,7 +51,7 @@
    Change:
    - Create internal/prompt/parser.go with:
      - type Parser struct with fields: fs fs.FS, dir string
-     - func NewParser(promptFS fs.FS, promptDir string) *Parser
+     - func NewParser(promptFS fs.FS, promptDir, includeRoot string) *Parser
      - type RenderResult struct with fields:
        - Content []byte (rendered prompt content)
        - Files []string (ordered list: first the main .tmpl or .txt, then all successfully included files)
@@ -67,7 +67,9 @@
    - Include resolution:
      - Strip include directive line from output (don't leave markers)
      - Try included filename as-is first, then with .txt appended (e.g., "common" → "common.txt")
-     - Cycle detection: track include stack, return error if depth > 10 or if filename already in stack
+     - Resolve includes from the workdir root (allow any text file path), fallback to promptDir if needed
+     - Skip includes that are binary or non-text
+     - Cycle detection: track include stack, return error if depth > 3 or if filename already in stack
    - Error handling:
      - Top-level prompt not found: return error (same as current behavior)
      - Included file not found: silently skip (per requirements)
@@ -99,7 +101,7 @@
    - Add field to Manager struct: promptParser *prompt.Parser
    - In NewManager() (line ~150-200):
      - After setting m.promptFS and m.promptDir
-     - Initialize: m.promptParser = prompt.NewParser(promptFS, promptDir)
+     - Initialize: m.promptParser = prompt.NewParser(promptFS, promptDir, ".")
    - Replace readPromptFile() implementation (line 516):
      - Old: fs.ReadFile(m.promptFS, promptPath) or os.ReadFile(promptPath)
      - New: result, err := m.promptParser.Render(promptName); return result.Content, result.Files, err
@@ -110,6 +112,7 @@
    - Add logging after successful render (line ~470, after prompt injection):
      - m.logger.Info("agent prompt rendered", map[string]string{
          "agent_id": request.AgentID,
+         "agent_name": profile.Name,
          "prompt_files": strings.Join(files, ", "),
          "file_count": strconv.Itoa(len(files)),
        })

@@ -1,3 +1,252 @@
+* TODO [#B] Prompt templating system with include directives
+  Goal: Support .tmpl prompt files that can include .txt fragments, rendering templates at agent start before injection into terminal.
+  Notes:
+  - Current system: prompts are plain .txt files read directly from config/prompts/ and injected to agent terminals
+  - New capability: .tmpl files can use include directives to compose prompts from reusable .txt fragments
+  - Template rendering happens backend-side before prompt injection (not at read time)
+  - Include syntax: simple directive like {{include filename}} or <!-- include: filename --> (decision needed)
+  - Failed includes: fail silently (no error, just skip the line) to allow optional fragments
+  - Agent configs remain unchanged: prompt names can reference .tmpl or .txt (backward compatible)
+  - Benefits: DRY principle for prompts, shared fragments (e.g., common "Workplan structure" section), easier maintenance
+  Date: 2026-01-10
+
+** TODO [#C] Research and decide include directive syntax
+   Why: Need clear, unambiguous syntax that doesn't conflict with existing prompt content
+   Research needed:
+   - Current prompt content analysis: check if any existing prompts contain syntax we might choose
+   - Syntax options to evaluate:
+     1. {{include filename}} - Handlebars/Mustache style (simple, widely recognized)
+     2. <!-- include: filename --> - HTML comment style (safe, won't render if not processed)
+     3. @include filename - Simple directive (clean, but might appear in natural text)
+     4. #include "filename" - C preprocessor style (familiar to developers)
+   - Consider: should includes be on their own line, or inline? (recommend: own line for clarity)
+   - Consider: should we strip the include line from output, or leave a marker? (recommend: strip entirely)
+   - Consider: should includes support .txt extension auto-append? (recommend: yes, try with/without .txt)
+   Change:
+   - Review all existing .txt prompts in config/prompts/ for potential syntax conflicts
+   - Document findings in this L2 "Implementation details" section below
+   - Make recommendation with rationale
+   - Get user confirmation before proceeding to implementation
+   Tests: Manual review of all prompt files
+   Done when: Include syntax decided, documented, and approved by user
+   Implementation details:
+   (Architect will add findings and recommendation here after research)
+
+** TODO [#C] Create prompt template parser module
+   Why: Separate concern from terminal manager; reusable and testable
+   Architecture decision:
+   - New package: internal/prompt for template parsing logic
+   - Single responsibility: read prompt file, resolve includes, return rendered content and metadata
+   Current state:
+   - internal/terminal/manager.go line 516: readPromptFile(promptName) reads .txt files directly
+   - Returns raw bytes, no processing
+   - Used during agent terminal creation (line 450)
+   Change:
+   - Create internal/prompt/parser.go with:
+     - type Parser struct with fields: fs fs.FS, dir string
+     - func NewParser(promptFS fs.FS, promptDir string) *Parser
+     - type RenderResult struct with fields:
+       - Content []byte (rendered prompt content)
+       - Files []string (ordered list: first the main .tmpl or .txt, then all successfully included files)
+     - func (p *Parser) Render(promptName string) (*RenderResult, error)
+   - Render logic:
+     1. Try to read promptName.tmpl first; if not found, try promptName.txt
+     2. Track all files in order: main file goes first in Files slice
+     3. If .tmpl found, parse line-by-line for include directives
+     4. For each include directive: recursively call Render() with included filename
+     5. Append successfully included files to Files slice (in order of inclusion)
+     6. Concatenate results and return final rendered content + file list
+     7. Failed includes: silently skip, do NOT add to Files list
+   - Include resolution:
+     - Strip include directive line from output (don't leave markers)
+     - Try included filename as-is first, then with .txt appended (e.g., "common" → "common.txt")
+     - Cycle detection: track include stack, return error if depth > 10 or if filename already in stack
+   - Error handling:
+     - Top-level prompt not found: return error (same as current behavior)
+     - Included file not found: silently skip (per requirements)
+     - Cycle detected: return error (prevent infinite loops)
+   - File list metadata:
+     - Preserve order: main template first, then includes in order of appearance
+     - Use relative paths (relative to promptDir) for consistency
+     - Example: ["architect.tmpl", "common-project-docs.txt", "common-workplan.txt"]
+   Tests:
+   - Unit tests in internal/prompt/parser_test.go:
+     - Basic .txt file (no includes) - verify Files list has one entry
+     - .tmpl with single include - verify Files list has two entries in order
+     - .tmpl with multiple includes - verify Files list preserves order
+     - Nested includes (include within include) - verify all files tracked
+     - Failed include (file not found) - verify skipped file NOT in Files list
+     - Cycle detection
+     - Include with and without .txt extension
+   Done when: Parser module exists, returns RenderResult with content + file list, fully tested
+
+** TODO [#C] Integrate template parser into terminal manager with file list logging
+   Why: Replace direct file reads with template rendering; expose prompt composition metadata to agent
+   Current state:
+   - internal/terminal/manager.go line 450: calls readPromptFile(promptName)
+   - Returns raw bytes directly from fs.ReadFile() or os.ReadFile()
+   - No template processing, no metadata
+   - Agent profiles have Skills field but prompts are invisible
+   Change:
+   - File: internal/terminal/manager.go
+   - Add field to Manager struct: promptParser *prompt.Parser
+   - In NewManager() (line ~150-200):
+     - After setting m.promptFS and m.promptDir
+     - Initialize: m.promptParser = prompt.NewParser(promptFS, promptDir)
+   - Replace readPromptFile() implementation (line 516):
+     - Old: fs.ReadFile(m.promptFS, promptPath) or os.ReadFile(promptPath)
+     - New: result, err := m.promptParser.Render(promptName); return result.Content, result.Files, err
+     - Update signature: ([]byte, []string, error) to return file list
+   - Update caller at line 450:
+     - Old: data, promptPath, err := m.readPromptFile(promptName)
+     - New: data, files, err := m.readPromptFile(promptName)
+   - Add logging after successful render (line ~470, after prompt injection):
+     - m.logger.Info("agent prompt rendered", map[string]string{
+         "agent_id": request.AgentID,
+         "prompt_files": strings.Join(files, ", "),
+         "file_count": strconv.Itoa(len(files)),
+       })
+   - Store file list in session for UI exposure:
+     - Add PromptFiles []string field to Session struct
+     - Set session.PromptFiles = files after successful render
+     - Update SessionInfo struct (for /api/terminals response) to include prompt_files field
+   - Error handling: parser errors bubble up same as before (logged at line 453-457)
+   - No changes needed to prompt injection logic - already handles byte slices
+   Backward compatibility:
+   - Existing .txt prompts work unchanged (parser tries .tmpl first, falls back to .txt)
+   - Agent configs unchanged (prompt names remain the same)
+   - SessionInfo gains new prompt_files field (additive, no breaking change)
+   Data flow:
+   - Parser renders template → returns RenderResult{Content, Files}
+   - Manager logs file list at Info level
+   - Manager stores Files in Session.PromptFiles
+   - Session serializes to SessionInfo with prompt_files for API
+   - Frontend can display prompt composition (see next L2)
+   Tests:
+   - Integration test: create test .tmpl file with includes, verify:
+     - Content injected correctly
+     - File list logged at Info level
+     - Session.PromptFiles populated
+     - /api/terminals response includes prompt_files
+   - Regression test: existing .txt prompts still work, file list has one entry
+   Done when: Template parser integrated, file list logged and stored, tests pass
+
+** TODO [#C] Display prompt file list in agent terminal header
+   Why: Prompt composition is more interesting than skills; shows what instructions the agent received
+   Current state:
+   - frontend/src/components/Terminal.svelte shows skills in terminal header (if agent has skills)
+   - Skills are loaded via /api/skills?agent=<id>
+   - No visibility into prompt composition
+   - Session API response includes skills array but no prompt metadata
+   Architecture decision: Replace skills display with prompt files display in terminal header
+   Change:
+   - Backend (already done in previous L2):
+     - SessionInfo includes prompt_files []string field
+     - /api/terminals response serializes prompt_files for each terminal
+   - Frontend: frontend/src/components/Terminal.svelte
+     - Current: line ~12 shows skills prop (array of skill names)
+     - Change: add promptFiles prop from terminal data
+     - Terminal header currently shows skills (if any) below title
+     - Replace or augment skills display with prompt files display
+   - Frontend: update terminal store to include prompt_files
+     - File: frontend/src/lib/terminalStore.js (if it fetches terminal info)
+     - Or: ensure /api/terminals response includes prompt_files field
+   - UI display decision (architect to specify):
+     - Option A: Replace "Skills: X, Y, Z" with "Prompts: file1.tmpl, file2.txt, file3.txt"
+     - Option B: Show both skills and prompt files as separate lines
+     - Recommendation: Replace skills display with prompt files (per user: "more interesting than skills")
+   - Terminal header location:
+     - File: frontend/src/components/Terminal.svelte (displays terminal metadata)
+     - Current: shows skills if present (check line ~30-50)
+     - New: replace or augment with prompt_files display
+   Tests:
+   - Backend test: verify SessionInfo.PromptFiles serializes correctly
+   - Frontend test: verify terminal header shows prompt file list
+   Done when: Prompt file list visible in terminal header instead of/alongside skills
+
+** TODO [#B] Comprehensive test coverage for prompt templating
+   Why: Template system is foundational; must be robust and well-tested
+   Scope: Unit tests, integration tests, edge cases, error conditions
+   Change:
+   - File: internal/prompt/parser_test.go (unit tests)
+     - Test file reading:
+       - .txt file (no templating)
+       - .tmpl file with no includes
+       - Non-existent file (error case)
+     - Test include directives:
+       - Single include
+       - Multiple includes (sequential)
+       - Nested includes (include within include)
+       - Include with explicit .txt extension
+       - Include without extension (auto-append)
+       - Include with wrong extension (should fail silently)
+       - Include non-existent file (silent fail, not in Files list)
+     - Test cycle detection:
+       - Direct cycle (A includes A)
+       - Indirect cycle (A includes B, B includes A)
+       - Deep cycle (A → B → C → A)
+       - Max depth limit (depth > 10)
+     - Test file list metadata:
+       - Order preserved (main file first, then includes in order)
+       - Failed includes not in list
+       - Nested includes all tracked
+       - Deduplicate or allow repeats? (architect to decide)
+     - Test whitespace and formatting:
+       - Include directive with extra whitespace
+       - Include directive with tabs
+       - Include directive at start/middle/end of file
+       - Empty lines around includes
+     - Test error messages:
+       - Top-level file not found (descriptive error)
+       - Cycle detected (clear error with cycle path)
+   - File: internal/terminal/manager_test.go (integration tests)
+     - Test prompt injection with templates:
+       - Agent with .tmpl prompt (verify rendered content)
+       - Agent with .txt prompt (verify backward compat)
+       - Agent with .tmpl using includes (verify all files tracked)
+       - Verify Session.PromptFiles populated correctly
+       - Verify SessionInfo serialization includes prompt_files
+     - Test logging:
+       - Verify Info log emitted with prompt_files
+       - Verify file_count logged correctly
+       - Verify log format matches expectations
+   - File: internal/prompt/parser_integration_test.go (filesystem integration)
+     - Test with real filesystem (not just embed.FS):
+       - Create temp dir with .tmpl and .txt files
+       - Verify includes resolve correctly
+       - Verify file list uses relative paths
+     - Test with embed.FS:
+       - Verify embedded prompts work
+       - Verify override behavior (local files override embedded)
+   Test data setup:
+   - Create test fixtures in internal/prompt/testdata/:
+     - simple.txt (plain file)
+     - basic.tmpl (single include)
+     - nested.tmpl (multi-level includes)
+     - cycle-a.tmpl, cycle-b.tmpl (circular includes)
+     - missing-include.tmpl (references non-existent file)
+     - common-fragment.txt (reusable fragment)
+   Tests: Run go test -v ./internal/prompt/... and verify >90% coverage
+   Done when: All test cases implemented, pass consistently, coverage >90%
+
+** TODO [#C] Update AGENTS.md with templating documentation
+   Why: Document new capability for future LLMs and developers
+   Change:
+   - File: AGENTS.md
+   - Add new section: "## Prompt templating"
+   - Content:
+     - Prompt files can be .txt (plain) or .tmpl (templated)
+     - Include directive syntax: (syntax from L2 #1)
+     - Include resolution: tries .tmpl first, then .txt; tries with/without .txt extension
+     - Failed includes are silent (no error)
+     - Templates render at agent start, before injection
+     - Use cases: shared fragments, DRY prompts, easier maintenance
+   - Update "Agent profiles" section:
+     - Note that prompt names can reference .tmpl or .txt
+     - Backward compatible (existing .txt prompts work unchanged)
+   Tests: Manual review of documentation
+   Done when: AGENTS.md documents prompt templating clearly
+
 * DONE [#B] UI/UX polish and visual identity improvements
   Goal: Improve user experience with human-readable timestamps, better terminal state feedback, streamlined tab management, branded visual identity, and improved close confirmation.
   Notes:

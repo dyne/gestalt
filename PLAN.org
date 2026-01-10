@@ -221,7 +221,7 @@
    Tests: Visual inspection; verify tab label shows "Status", click navigates to workflow view
    Done when: Tab label displays "Status", routing unchanged, no regressions
 
-** WIP [#C] Stop terminal-created toasts and log the event
+** DONE [#C] Stop terminal-created toasts and log the event
    Why: Terminal creation should not interrupt users with a toast, but still be traceable in logs.
    Change:
    - Remove the info toast emitted after terminal creation in `frontend/src/App.svelte`
@@ -229,7 +229,7 @@
    Tests: Manual smoke check; no toast appears when starting a terminal
    Done when: Terminal create no longer triggers a toast; a console log entry records it
 
-** TODO [#C] Restore dashboard running-state styling
+** WIP [#C] Restore dashboard running-state styling
    Why: Users need an immediate visual indicator when an agent is running.
    Change:
    - Reintroduce a running-state class for agent cards in `frontend/src/views/Dashboard.svelte`

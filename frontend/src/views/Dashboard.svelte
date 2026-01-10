@@ -282,6 +282,8 @@
           <div class="agent-card">
             <button
               class="agent-button"
+              class:agent-button--running={agent.running}
+              class:agent-button--stopped={!agent.running}
               on:click={() =>
                 agent.running ? switchToTerminal(agent.terminal_id) : createTerminal(agent.id)
               }
@@ -633,11 +635,46 @@
     font-size: 0.95rem;
   }
 
+  .agent-button--running {
+    background: #e4f4ef;
+    border-color: rgba(22, 94, 66, 0.35);
+    box-shadow: 0 12px 20px rgba(22, 94, 66, 0.12);
+  }
+
+  .agent-button--stopped {
+    background: #ffffff;
+    border-color: rgba(20, 20, 20, 0.16);
+  }
+
+  .agent-button--running .agent-name::before {
+    content: '';
+    display: inline-block;
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 999px;
+    margin-right: 0.4rem;
+    background: #1f7a5f;
+    box-shadow: 0 0 0 0 rgba(31, 122, 95, 0.4);
+    animation: pulseDot 2.4s ease-in-out infinite;
+  }
+
   .agent-action {
     font-size: 0.7rem;
     letter-spacing: 0.16em;
     text-transform: uppercase;
     color: #5f5b54;
+  }
+
+  @keyframes pulseDot {
+    0% {
+      box-shadow: 0 0 0 0 rgba(31, 122, 95, 0.4);
+    }
+    70% {
+      box-shadow: 0 0 0 0.4rem rgba(31, 122, 95, 0);
+    }
+    100% {
+      box-shadow: 0 0 0 0 rgba(31, 122, 95, 0);
+    }
   }
 
   .agent-skills {

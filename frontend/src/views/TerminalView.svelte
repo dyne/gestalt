@@ -8,10 +8,12 @@
   export let onDelete = () => {}
 
   let closeDialog
+  let confirmButton
 
   const openCloseDialog = () => {
     if (!closeDialog || closeDialog.open) return
     closeDialog.showModal()
+    requestAnimationFrame(() => confirmButton?.focus())
   }
 
   const confirmClose = () => {
@@ -32,7 +34,12 @@
       <h2>Close Terminal?</h2>
       <p>This will stop the terminal session. Any unsaved work will be lost.</p>
       <div class="close-dialog__actions">
-        <button class="close-dialog__confirm" type="button" on:click={confirmClose} autofocus>
+        <button
+          class="close-dialog__confirm"
+          type="button"
+          on:click={confirmClose}
+          bind:this={confirmButton}
+        >
           Close
         </button>
         <button class="close-dialog__cancel" type="button" on:click={cancelClose}>

@@ -229,7 +229,7 @@
    Tests: Manual smoke check; no toast appears when starting a terminal
    Done when: Terminal create no longer triggers a toast; a console log entry records it
 
-** WIP [#C] Restore dashboard running-state styling
+** DONE [#C] Restore dashboard running-state styling
    Why: Users need an immediate visual indicator when an agent is running.
    Change:
    - Reintroduce a running-state class for agent cards in `frontend/src/views/Dashboard.svelte`
@@ -237,7 +237,7 @@
    Tests: Manual smoke check; running agents show the highlighted state
    Done when: Agent buttons visibly indicate running state again
 
-** TODO [#B] Move terminal close control into terminal header
+** WIP [#B] Move terminal close control into terminal header
    Why: The close action should live inside the terminal canvas next to the Bell indicator.
    Change:
    - Remove the standalone header/close button in `frontend/src/views/TerminalView.svelte`

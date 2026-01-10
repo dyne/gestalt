@@ -10,6 +10,7 @@
   export let title = ''
   export let skills = []
   export let visible = true
+  export let onRequestClose = () => {}
 
   let container
   let state
@@ -198,9 +199,14 @@
         </button>
       {/if}
     </div>
-    <div class="bell" aria-live="polite">
-      <span>Bell</span>
-      <strong>{bellCount}</strong>
+    <div class="header-actions">
+      <div class="bell" aria-live="polite">
+        <span>Bell</span>
+        <strong>{bellCount}</strong>
+      </div>
+      <button class="terminal-close" type="button" on:click={onRequestClose}>
+        Close
+      </button>
     </div>
   </header>
   <div class="terminal-shell__body" bind:this={container}></div>
@@ -250,7 +256,7 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 0.35rem;
-    max-width: calc(100% - 140px);
+    max-width: calc(100% - 220px);
   }
 
   .label {
@@ -303,6 +309,12 @@
     background: rgba(242, 239, 233, 0.24);
   }
 
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
   .bell {
     display: flex;
     align-items: center;
@@ -318,6 +330,22 @@
 
   .bell strong {
     font-size: 0.9rem;
+  }
+
+  .terminal-close {
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+    padding: 0.4rem 0.9rem;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(242, 239, 233, 0.9);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    cursor: pointer;
+  }
+
+  .terminal-close:hover {
+    background: rgba(255, 255, 255, 0.16);
   }
 
   .terminal-shell__body {

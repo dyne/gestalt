@@ -27,12 +27,7 @@
 
 <section class="terminal-view">
   {#if terminalId}
-    <div class="terminal-view__header">
-      <button class="terminal-view__close" type="button" on:click={openCloseDialog}>
-        Close Terminal
-      </button>
-    </div>
-    <Terminal {terminalId} {title} {skills} {visible} />
+    <Terminal {terminalId} {title} {skills} {visible} onRequestClose={openCloseDialog} />
     <dialog id="close-confirm-dialog" class="close-dialog" bind:this={closeDialog}>
       <h2>Close Terminal?</h2>
       <p>This will stop the terminal session. Any unsaved work will be lost.</p>
@@ -56,32 +51,8 @@
 <style>
   .terminal-view {
     width: 100%;
-    height: calc(100vh - 64px);
-    display: flex;
-    flex-direction: column;
+    height: 100%;
     position: relative;
-  }
-
-  .terminal-view__header {
-    display: flex;
-    justify-content: flex-end;
-    padding: 1rem 1.5rem 0;
-  }
-
-  .terminal-view__close {
-    border: 1px solid rgba(20, 20, 20, 0.2);
-    border-radius: 999px;
-    padding: 0.45rem 0.95rem;
-    background: #ffffff;
-    font-size: 0.75rem;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  :global(.terminal-shell) {
-    flex: 1 1 auto;
-    min-height: 0;
-    height: auto;
   }
 
   .close-dialog {

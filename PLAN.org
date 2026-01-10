@@ -1,4 +1,4 @@
-* DONE [#B] UI/UX polish and visual identity improvements
+* WIP [#B] UI/UX polish and visual identity improvements
   Goal: Improve user experience with human-readable timestamps, better terminal state feedback, streamlined tab management, branded visual identity, and improved close confirmation.
   Notes:
   - Scope: Frontend only (Svelte components, stores, and static assets)
@@ -220,6 +220,38 @@
    - Minimal change principle: only touch what users see
    Tests: Visual inspection; verify tab label shows "Status", click navigates to workflow view
    Done when: Tab label displays "Status", routing unchanged, no regressions
+
+** WIP [#C] Stop terminal-created toasts and log the event
+   Why: Terminal creation should not interrupt users with a toast, but still be traceable in logs.
+   Change:
+   - Remove the info toast emitted after terminal creation in `frontend/src/App.svelte`
+   - Log the creation event to the console with terminal id/name
+   Tests: Manual smoke check; no toast appears when starting a terminal
+   Done when: Terminal create no longer triggers a toast; a console log entry records it
+
+** TODO [#C] Restore dashboard running-state styling
+   Why: Users need an immediate visual indicator when an agent is running.
+   Change:
+   - Reintroduce a running-state class for agent cards in `frontend/src/views/Dashboard.svelte`
+   - Keep button action as Start/Open only (no stop action)
+   Tests: Manual smoke check; running agents show the highlighted state
+   Done when: Agent buttons visibly indicate running state again
+
+** TODO [#B] Move terminal close control into terminal header
+   Why: The close action should live inside the terminal canvas next to the Bell indicator.
+   Change:
+   - Remove the standalone header/close button in `frontend/src/views/TerminalView.svelte`
+   - Add a close button in `frontend/src/components/Terminal.svelte` positioned to the right of Bell
+   - Wire the button to open the existing confirmation dialog in TerminalView
+   Tests: Manual smoke check; close button appears in terminal header and opens the dialog
+   Done when: Close button sits in the terminal header and triggers confirmation
+
+** TODO [#C] Fix header logo asset loading
+   Why: Header SVGs should load reliably in Vite builds.
+   Change:
+   - Import logo assets in `frontend/src/components/TabBar.svelte` instead of using `/assets/...` URLs
+   Tests: Manual smoke check; header logos render in dev and build
+   Done when: Logos render correctly without broken asset URLs
 
 * TODO [#A] Comprehensive architecture and code quality review
   Goal: Conduct a thorough review of the entire Gestalt codebase (backend + frontend) to identify opportunities for simplification, improved maintainability, better readability, dependency reduction, and architectural improvements.

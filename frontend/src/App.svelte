@@ -89,10 +89,11 @@
       }
       syncTabs(terminals)
       activeId = created.id
-      notificationStore.addNotification(
-        'info',
-        `Terminal ${created.title || created.id} created.`
-      )
+      console.info('terminal created', {
+        id: created.id,
+        title: created.title,
+        agentId: created.agent_id,
+      })
     } catch (err) {
       if (err?.status === 409 && err?.data?.terminal_id) {
         const existingId = err.data.terminal_id

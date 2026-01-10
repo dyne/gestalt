@@ -1,4 +1,4 @@
-* TODO [#B] Prompt templating system with include directives
+* WIP [#B] Prompt templating system with include directives
   Goal: Support .tmpl prompt files that can include .txt fragments, rendering templates at agent start before injection into terminal.
   Notes:
   - Current system: prompts are plain .txt files read directly from config/prompts/ and injected to agent terminals
@@ -10,7 +10,7 @@
   - Benefits: DRY principle for prompts, shared fragments (e.g., common "Workplan structure" section), easier maintenance
   Date: 2026-01-10
 
-** TODO [#C] Research and decide include directive syntax
+** DONE [#C] Research and decide include directive syntax
    Why: Need clear, unambiguous syntax that doesn't conflict with existing prompt content
    Research needed:
    - Current prompt content analysis: check if any existing prompts contain syntax we might choose
@@ -30,9 +30,16 @@
    Tests: Manual review of all prompt files
    Done when: Include syntax decided, documented, and approved by user
    Implementation details:
-   (Architect will add findings and recommendation here after research)
+   Findings:
+   - Reviewed config/prompts/*.txt (architect, coder, fixer, reviewer, tmux).
+   - No occurrences of {{include ...}}, <!-- include: ... -->, @include, or #include.
+   - No {{ or <!-- markers at all; low risk of accidental collisions.
+   Recommendation:
+   - Use {{include filename}} as the only directive, on its own line.
+   - Strip the include line entirely during rendering.
+   - Rationale: concise, familiar templating syntax, easy to parse, and safe with current prompt content.
 
-** TODO [#C] Create prompt template parser module
+** DONE [#C] Create prompt template parser module
    Why: Separate concern from terminal manager; reusable and testable
    Architecture decision:
    - New package: internal/prompt for template parsing logic

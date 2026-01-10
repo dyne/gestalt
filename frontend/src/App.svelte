@@ -15,7 +15,7 @@
   let tabs = [
     { id: 'dashboard', label: 'Dashboard', isHome: true },
     { id: 'plan', label: 'Plan', isHome: true },
-    { id: 'flow', label: 'Flow', isHome: true },
+    { id: 'flow', label: 'Status', isHome: true },
   ]
   let activeId = 'dashboard'
 
@@ -38,7 +38,7 @@
     tabs = [
       { id: 'dashboard', label: 'Dashboard', isHome: true },
       { id: 'plan', label: 'Plan', isHome: true },
-      { id: 'flow', label: 'Flow', isHome: true },
+      { id: 'flow', label: 'Status', isHome: true },
       ...terminalList.map((terminal) => ({
         id: terminal.id,
         label: formatTerminalLabel(terminal),

@@ -179,7 +179,7 @@
    Tests: Visual inspection; verify logos render correctly, link to dyne.org, open in new tab
    Done when: Notifications button removed, logos visible and clickable, no console errors
 
-** WIP [#C] Replace "Gestalt" text title with typography logo
+** DONE [#C] Replace "Gestalt" text title with typography logo
    Why: Consistent visual branding; professional appearance
    Current state:
    - Brand area is in TabBar.svelte (lines 12-20)
@@ -200,7 +200,7 @@
    Tests: Visual inspection; verify logo renders at correct size, aligns with version text, click navigates to dashboard
    Done when: Text title replaced with SVG logo, button still functional, visual alignment correct
 
-** TODO [#C] Rename "Flow" tab to "Status"
+** WIP [#C] Rename "Flow" tab to "Status"
    Why: "Status" is clearer and more descriptive of workflow monitoring content
    Current state:
    - Tab defined in App.svelte line 19: `{ id: 'flow', label: 'Flow', isHome: true }`

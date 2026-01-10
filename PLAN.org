@@ -138,7 +138,7 @@
    - Regression test: existing .txt prompts still work, file list has one entry
    Done when: Template parser integrated, file list logged and stored, tests pass
 
-** TODO [#C] Display prompt file list in agent terminal header
+** DONE [#C] Display prompt file list in agent terminal header
    Why: Prompt composition is more interesting than skills; shows what instructions the agent received
    Current state:
    - frontend/src/components/Terminal.svelte shows skills in terminal header (if agent has skills)

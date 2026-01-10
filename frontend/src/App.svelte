@@ -181,7 +181,7 @@
         <TerminalView
           terminalId={terminal.id}
           title={terminal.title}
-          skills={terminal.skills || []}
+          promptFiles={terminal.prompt_files || []}
           visible={terminal.id === activeId}
           onDelete={deleteTerminal}
         />

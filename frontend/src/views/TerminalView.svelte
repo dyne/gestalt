@@ -3,7 +3,7 @@
 
   export let terminalId = ''
   export let title = ''
-  export let skills = []
+  export let promptFiles = []
   export let visible = true
   export let onDelete = () => {}
 
@@ -29,7 +29,7 @@
 
 <section class="terminal-view">
   {#if terminalId}
-    <Terminal {terminalId} {title} {skills} {visible} onRequestClose={openCloseDialog} />
+    <Terminal {terminalId} {title} {promptFiles} {visible} onRequestClose={openCloseDialog} />
     <dialog id="close-confirm-dialog" class="close-dialog" bind:this={closeDialog}>
       <h2>Close Terminal?</h2>
       <p>This will stop the terminal session. Any unsaved work will be lost.</p>

@@ -8,7 +8,7 @@
 
   export let terminalId = ''
   export let title = ''
-  export let skills = []
+  export let promptFiles = []
   export let visible = true
   export let onRequestClose = () => {}
 
@@ -31,7 +31,7 @@
   let wasVisible = false
   let pendingFocus = false
   let displayTitle = ''
-  let skillsLabel = ''
+  let promptFilesLabel = ''
 
   const statusLabels = {
     connecting: 'Connecting...',
@@ -153,8 +153,10 @@
     : terminalId
       ? `Terminal ${terminalId}`
       : 'Terminal —'
-  $: skillsLabel =
-    Array.isArray(skills) && skills.length > 0 ? skills.filter(Boolean).join(', ') : ''
+  $: promptFilesLabel =
+    Array.isArray(promptFiles) && promptFiles.length > 0
+      ? promptFiles.filter(Boolean).join(', ')
+      : ''
 
   onDestroy(() => {
     window.removeEventListener('resize', resizeHandler)
@@ -183,9 +185,9 @@
   <header class="terminal-shell__header">
     <div class="header-line">
       <span class="label">{displayTitle}</span>
-      {#if skillsLabel}
+      {#if promptFilesLabel}
         <span class="separator">|</span>
-        <span class="subtitle">Skills: {skillsLabel}</span>
+        <span class="subtitle">Prompts: {promptFilesLabel}</span>
       {/if}
       <span class="separator">|</span>
       <span class="status">{statusLabel}</span>

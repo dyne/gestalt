@@ -227,6 +227,8 @@
     display: grid;
     grid-template-rows: auto minmax(0, 1fr) auto;
     height: calc(100vh - 64px);
+    width: 100%;
+    min-width: 0;
     background: #101010;
     border-radius: 20px;
     border: 1px solid rgba(255, 255, 255, 0.08);
@@ -242,14 +244,13 @@
   }
 
   .terminal-shell__header {
-    display: flex;
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
     padding: 0.9rem 1.2rem;
     background: #171717;
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     gap: 1rem;
-    flex-wrap: wrap;
   }
 
   .header-line {
@@ -268,6 +269,7 @@
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: rgba(242, 239, 233, 0.7);
+    overflow-wrap: anywhere;
   }
 
   .subtitle {
@@ -277,6 +279,7 @@
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: rgba(242, 239, 233, 0.5);
+    overflow-wrap: anywhere;
   }
 
   .status {
@@ -319,6 +322,7 @@
     flex-wrap: wrap;
     justify-content: flex-end;
     min-width: 0;
+    justify-self: end;
   }
 
   .bell {
@@ -357,6 +361,7 @@
 
   .terminal-shell__body {
     padding: 0.6rem;
+    min-width: 0;
   }
 
   :global(.xterm) {
@@ -374,6 +379,7 @@
     }
 
     .terminal-shell__header {
+      grid-template-columns: 1fr;
       align-items: flex-start;
       gap: 0.75rem;
     }

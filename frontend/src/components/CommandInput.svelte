@@ -210,18 +210,17 @@
   }
 
   .command-input__row {
-    display: flex;
-    align-items: flex-end;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 0.85rem;
-    flex-wrap: wrap;
+    align-items: end;
   }
 
   .command-input__actions {
     display: flex;
-    flex-direction: row;
+    flex-direction: column;
     align-items: center;
     gap: 0.5rem;
-    flex: 0 0 auto;
   }
 
   .scroll-bottom {
@@ -243,7 +242,7 @@
 
   textarea {
     width: 100%;
-    min-width: 220px;
+    min-width: 0;
     min-height: 4.8rem;
     max-height: 15rem;
     padding: 0.75rem 0.85rem;
@@ -319,18 +318,6 @@
   .direct-toggle input:disabled + .direct-toggle__switch {
     opacity: 0.5;
     cursor: not-allowed;
-  }
-
-  @media (max-width: 720px) {
-    .command-input__row {
-      flex-direction: column;
-      align-items: stretch;
-    }
-
-    .command-input__actions {
-      justify-content: flex-end;
-      width: 100%;
-    }
   }
 
   .sr-only {

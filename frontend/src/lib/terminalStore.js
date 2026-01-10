@@ -184,6 +184,7 @@ const createTerminalState = (terminalId) => {
   let historyWarningTimer
   let notifiedHistorySlow = false
   let notifiedHistoryError = false
+  let resizeObserver
 
   const syncScrollState = () => {
     const buffer = term.buffer?.active
@@ -343,9 +344,20 @@ const createTerminalState = (terminalId) => {
     flushPendingHistory()
     syncScrollState()
     scheduleFit()
+    if (!resizeObserver && typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => {
+        scheduleFit()
+      })
+    }
+    if (resizeObserver) {
+      resizeObserver.observe(container)
+    }
   }
 
   const detach = () => {
+    if (resizeObserver) {
+      resizeObserver.disconnect()
+    }
     container = null
   }
 

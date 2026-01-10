@@ -1,4 +1,4 @@
-* DONE [#B] UI/UX polish and visual identity improvements
+* WIP [#B] UI/UX polish and visual identity improvements
   Goal: Improve user experience with human-readable timestamps, better terminal state feedback, streamlined tab management, branded visual identity, and improved close confirmation.
   Notes:
   - Scope: Frontend only (Svelte components, stores, and static assets)
@@ -236,6 +236,15 @@
    - Remove the "Enable workflow tracking" checkbox and related state, always using default workflow behavior
    Tests: Manual smoke check
    Done when: Running agents highlight correctly and the workflow toggle is gone
+
+** WIP [#B] Fix terminal view resizing and PTY fit
+   Why: Narrow layouts clip header controls and input actions, and the PTY needs correct sizing.
+   Change:
+   - Update terminal header layout to wrap without clipping in `frontend/src/components/Terminal.svelte`
+   - Update command input layout to keep actions visible on narrow widths in `frontend/src/components/CommandInput.svelte`
+   - Add a ResizeObserver to trigger `scheduleFit()` when the terminal container width changes
+   Tests: Manual resize smoke check; verify PTY resizes (columns) and controls remain visible
+   Done when: Header/actions remain accessible and terminal content fits after resizing
 
 ** [#C] Stop terminal-created toasts and log the event
    Why: Terminal creation should not interrupt users with a toast, but still be traceable in logs.

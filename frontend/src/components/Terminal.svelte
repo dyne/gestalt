@@ -249,6 +249,7 @@
     background: #171717;
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     gap: 1rem;
+    flex-wrap: wrap;
   }
 
   .header-line {
@@ -256,7 +257,8 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 0.35rem;
-    max-width: calc(100% - 220px);
+    min-width: 0;
+    flex: 1 1 240px;
   }
 
   .label {
@@ -313,6 +315,10 @@
     display: flex;
     align-items: center;
     gap: 0.6rem;
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    min-width: 0;
   }
 
   .bell {
@@ -342,6 +348,7 @@
     text-transform: uppercase;
     letter-spacing: 0.12em;
     cursor: pointer;
+    white-space: nowrap;
   }
 
   .terminal-close:hover {
@@ -367,9 +374,13 @@
     }
 
     .terminal-shell__header {
-      flex-direction: column;
       align-items: flex-start;
-      gap: 0.5rem;
+      gap: 0.75rem;
+    }
+
+    .header-actions {
+      width: 100%;
+      justify-content: flex-start;
     }
   }
 </style>

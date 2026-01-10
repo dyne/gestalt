@@ -1,7 +1,7 @@
 <script>
   import { VERSION } from '../lib/version.js'
   import dyneIcon from '../assets/dyne-icon-black.svg'
-  import dyneLogotype from '../assets/dyne-logotype-white.svg'
+  import dyneLogotype from '../assets/dyne-logotype-black.svg'
   import gestaltLogo from '../assets/gestalt-logo.svg'
 
   export let tabs = []
@@ -31,22 +31,22 @@
       </button>
     </div>
   {/each}
-  <div class="tabbar__logos">
-    <a href="https://dyne.org" target="_blank" rel="noopener noreferrer">
-      <img
-        class="tabbar__logo tabbar__logo--icon"
-        src={dyneIcon}
-        alt="Dyne.org"
-      />
-    </a>
-    <a href="https://dyne.org" target="_blank" rel="noopener noreferrer">
-      <img
-        class="tabbar__logo tabbar__logo--type"
-        src={dyneLogotype}
-        alt="Dyne.org"
-      />
-    </a>
-  </div>
+    <div class="tabbar__logos">
+      <a href="https://dyne.org" target="_blank" rel="noopener noreferrer">
+        <img
+          class="tabbar__logo tabbar__logo--type"
+          src={dyneLogotype}
+          alt="Dyne.org"
+          />
+      </a>
+      <a href="https://dyne.org" target="_blank" rel="noopener noreferrer">
+        <img
+          class="tabbar__logo tabbar__logo--icon"
+          src={dyneIcon}
+          alt="Dyne.org"
+          />
+      </a>
+    </div>
 </nav>
 
 <style>

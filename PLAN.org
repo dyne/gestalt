@@ -221,6 +221,22 @@
    Tests: Visual inspection; verify tab label shows "Status", click navigates to workflow view
    Done when: Tab label displays "Status", routing unchanged, no regressions
 
+** [#C] Enlarge header logotype
+   Why: The brand mark should match the header height for stronger visual presence.
+   Change:
+   - Increase the Gestalt logotype height in `frontend/src/components/TabBar.svelte`
+   Tests: Manual visual check
+   Done when: The logotype matches the header height
+
+** [#B] Fix dashboard running-state and remove workflow toggle
+   Why: Running agents should show a live state indicator and workflow tracking is always on.
+   Change:
+   - Restore running-state highlighting for running agents in `frontend/src/views/Dashboard.svelte`
+   - Sync running state using agent terminal IDs instead of terminal agent IDs
+   - Remove the "Enable workflow tracking" checkbox and related state, always using default workflow behavior
+   Tests: Manual smoke check
+   Done when: Running agents highlight correctly and the workflow toggle is gone
+
 ** [#C] Stop terminal-created toasts and log the event
    Why: Terminal creation should not interrupt users with a toast, but still be traceable in logs.
    Change:

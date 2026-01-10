@@ -84,3 +84,4 @@ This repo is a Go backend + Svelte frontend for a multi-terminal dashboard with 
 - Terminal tabs no longer have close icons; terminal shutdown is via the Terminal header close pill with a native dialog.
 - Terminal start success is logged to the console instead of a toast notification.
 - Header branding uses imported SVG assets for the Gestalt logo and Dyne icon/logotype.
+- Workflow tracking is always on; the dashboard toggle was removed and running state is synced from agent terminal IDs.

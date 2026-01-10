@@ -51,7 +51,7 @@ func TestRenderFromFilesystem(t *testing.T) {
 		t.Fatalf("write fragment: %v", err)
 	}
 
-	parser := NewParser(os.DirFS(root), "config/prompts")
+	parser := NewParser(os.DirFS(root), "config/prompts", root)
 	result, err := parser.Render("local")
 	if err != nil {
 		t.Fatalf("render local: %v", err)
@@ -66,8 +66,65 @@ func TestRenderFromFilesystem(t *testing.T) {
 	}
 }
 
+func TestRenderIncludeFromWorkdirRoot(t *testing.T) {
+	root := t.TempDir()
+	promptsDir := filepath.Join(root, "config", "prompts")
+	if err := os.MkdirAll(promptsDir, 0755); err != nil {
+		t.Fatalf("mkdir prompts: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "notes.md"), []byte("root notes\n"), 0644); err != nil {
+		t.Fatalf("write root include: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(promptsDir, "root-include.tmpl"), []byte("Start\n{{include notes.md}}\nEnd\n"), 0644); err != nil {
+		t.Fatalf("write template: %v", err)
+	}
+
+	parser := NewParser(os.DirFS(root), "config/prompts", root)
+	result, err := parser.Render("root-include")
+	if err != nil {
+		t.Fatalf("render root-include: %v", err)
+	}
+	expectedContent := "Start\nroot notes\nEnd\n"
+	if string(result.Content) != expectedContent {
+		t.Fatalf("unexpected content: %q", string(result.Content))
+	}
+	expectedFiles := []string{"root-include.tmpl", "notes.md"}
+	if strings.Join(result.Files, ",") != strings.Join(expectedFiles, ",") {
+		t.Fatalf("unexpected files: %#v", result.Files)
+	}
+}
+
+func TestRenderSkipsBinaryInclude(t *testing.T) {
+	root := t.TempDir()
+	promptsDir := filepath.Join(root, "config", "prompts")
+	if err := os.MkdirAll(promptsDir, 0755); err != nil {
+		t.Fatalf("mkdir prompts: %v", err)
+	}
+	binaryPath := filepath.Join(root, "binary.dat")
+	if err := os.WriteFile(binaryPath, []byte{0x00, 0x01, 0x02}, 0644); err != nil {
+		t.Fatalf("write binary: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(promptsDir, "binary-include.tmpl"), []byte("Before\n{{include binary.dat}}\nAfter\n"), 0644); err != nil {
+		t.Fatalf("write template: %v", err)
+	}
+
+	parser := NewParser(os.DirFS(root), "config/prompts", root)
+	result, err := parser.Render("binary-include")
+	if err != nil {
+		t.Fatalf("render binary-include: %v", err)
+	}
+	expectedContent := "Before\nAfter\n"
+	if string(result.Content) != expectedContent {
+		t.Fatalf("unexpected content: %q", string(result.Content))
+	}
+	expectedFiles := []string{"binary-include.tmpl"}
+	if strings.Join(result.Files, ",") != strings.Join(expectedFiles, ",") {
+		t.Fatalf("unexpected files: %#v", result.Files)
+	}
+}
+
 func TestRenderFromEmbeddedFS(t *testing.T) {
-	parser := NewParser(embeddedConfigFS(t), "config/prompts")
+	parser := NewParser(embeddedConfigFS(t), "config/prompts", ".")
 	result, err := parser.Render("embedded")
 	if err != nil {
 		t.Fatalf("render embedded: %v", err)
@@ -95,7 +152,7 @@ func TestRenderOverlayFSUsesExternal(t *testing.T) {
 	parser := NewParser(overlayFS{
 		primary:  os.DirFS(externalRoot),
 		fallback: embeddedConfigFS(t),
-	}, "config/prompts")
+	}, "config/prompts", externalRoot)
 
 	result, err := parser.Render("override")
 	if err != nil {

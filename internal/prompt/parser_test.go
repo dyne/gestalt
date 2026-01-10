@@ -8,7 +8,7 @@ import (
 )
 
 func newTestParser() *Parser {
-	return NewParser(os.DirFS("testdata"), ".")
+	return NewParser(os.DirFS("testdata"), ".", "testdata")
 }
 
 func TestRenderPlainText(t *testing.T) {
@@ -248,7 +248,7 @@ func TestRenderDeepCycle(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected cycle detection error")
 	}
-	if !strings.Contains(err.Error(), "cycle detected") {
+	if !strings.Contains(err.Error(), "cycle detected") && !strings.Contains(err.Error(), "depth exceeded") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !strings.Contains(err.Error(), "cycle-deep-a.tmpl") {

@@ -13,11 +13,14 @@ import (
 	"strings"
 )
 
-const maxIncludeDepth = 10
+const maxIncludeDepth = 3
+
+var errBinaryInclude = errors.New("include file is binary")
 
 type Parser struct {
-	promptFS  fs.FS
-	promptDir string
+	promptFS    fs.FS
+	promptDir   string
+	includeRoot string
 }
 
 type RenderResult struct {
@@ -25,10 +28,15 @@ type RenderResult struct {
 	Files   []string
 }
 
-func NewParser(promptFS fs.FS, promptDir string) *Parser {
+func NewParser(promptFS fs.FS, promptDir, includeRoot string) *Parser {
+	includeRoot = strings.TrimSpace(includeRoot)
+	if includeRoot == "" {
+		includeRoot = "."
+	}
 	return &Parser{
-		promptFS:  promptFS,
-		promptDir: promptDir,
+		promptFS:    promptFS,
+		promptDir:   promptDir,
+		includeRoot: includeRoot,
 	}
 }
 
@@ -42,7 +50,7 @@ func (p *Parser) Render(promptName string) (*RenderResult, error) {
 
 func (p *Parser) renderPrompt(promptName string, stack []string) (*RenderResult, error) {
 	candidates := promptCandidates(promptName)
-	result, found, err := p.renderFromCandidates(candidates, stack)
+	result, found, err := p.renderFromCandidates(candidates, stack, p.readPromptFile)
 	if err != nil {
 		return nil, err
 	}
@@ -54,23 +62,34 @@ func (p *Parser) renderPrompt(promptName string, stack []string) (*RenderResult,
 
 func (p *Parser) renderInclude(includeName string, stack []string) (*RenderResult, bool, error) {
 	candidates := includeCandidates(includeName)
-	result, found, err := p.renderFromCandidates(candidates, stack)
-	if err != nil {
-		return nil, false, err
-	}
-	if !found {
-		return nil, false, nil
-	}
-	return result, true, nil
-}
-
-func (p *Parser) renderFromCandidates(candidates []string, stack []string) (*RenderResult, bool, error) {
 	for _, candidate := range candidates {
 		candidate = strings.TrimSpace(candidate)
 		if candidate == "" {
 			continue
 		}
-		data, err := p.readFile(candidate)
+		data, err := p.readIncludeFile(candidate)
+		if err != nil {
+			if isNotExist(err) || errors.Is(err, errBinaryInclude) {
+				continue
+			}
+			return nil, false, err
+		}
+		result, err := p.renderFile(candidate, data, stack)
+		if err != nil {
+			return nil, false, err
+		}
+		return result, true, nil
+	}
+	return nil, false, nil
+}
+
+func (p *Parser) renderFromCandidates(candidates []string, stack []string, reader func(string) ([]byte, error)) (*RenderResult, bool, error) {
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		data, err := reader(candidate)
 		if err != nil {
 			if isNotExist(err) {
 				continue
@@ -131,13 +150,52 @@ func (p *Parser) renderFile(filename string, data []byte, stack []string) (*Rend
 	}, nil
 }
 
-func (p *Parser) readFile(filename string) ([]byte, error) {
+func (p *Parser) readPromptFile(filename string) ([]byte, error) {
 	if p.promptFS != nil {
 		promptPath := path.Join(p.promptDir, filename)
 		return fs.ReadFile(p.promptFS, promptPath)
 	}
 	promptPath := filepath.Join(p.promptDir, filename)
 	return os.ReadFile(promptPath)
+}
+
+func (p *Parser) readIncludeFile(filename string) ([]byte, error) {
+	cleaned, ok := cleanIncludePath(filename)
+	if !ok {
+		return nil, fs.ErrNotExist
+	}
+	data, err := readTextFile(filepath.Join(p.includeRoot, cleaned))
+	if err == nil {
+		return data, nil
+	}
+	if errors.Is(err, errBinaryInclude) {
+		return nil, err
+	}
+	if !isNotExist(err) {
+		return nil, err
+	}
+
+	if p.promptFS != nil {
+		promptPath := path.Join(p.promptDir, cleaned)
+		data, err := fs.ReadFile(p.promptFS, promptPath)
+		if err != nil {
+			return nil, err
+		}
+		if !isTextData(data) {
+			return nil, errBinaryInclude
+		}
+		return data, nil
+	}
+
+	promptPath := filepath.Join(p.promptDir, cleaned)
+	data, err = os.ReadFile(promptPath)
+	if err != nil {
+		return nil, err
+	}
+	if !isTextData(data) {
+		return nil, errBinaryInclude
+	}
+	return data, nil
 }
 
 func promptCandidates(promptName string) []string {
@@ -198,4 +256,53 @@ func pushStack(filename string, stack []string) ([]string, error) {
 
 func isNotExist(err error) bool {
 	return errors.Is(err, fs.ErrNotExist) || os.IsNotExist(err)
+}
+
+func readTextFile(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if !isTextData(data) {
+		return nil, errBinaryInclude
+	}
+	return data, nil
+}
+
+func isTextData(data []byte) bool {
+	if len(data) == 0 {
+		return true
+	}
+	nonPrintable := 0
+	for _, b := range data {
+		if b == 0 {
+			return false
+		}
+		if b == '\n' || b == '\r' || b == '\t' {
+			continue
+		}
+		if b < 0x20 {
+			nonPrintable++
+			continue
+		}
+		if b >= 0x7f && b < 0xa0 {
+			nonPrintable++
+			continue
+		}
+	}
+	return nonPrintable*5 <= len(data)
+}
+
+func cleanIncludePath(name string) (string, bool) {
+	cleaned := filepath.Clean(strings.TrimSpace(name))
+	if cleaned == "." || cleaned == "" {
+		return "", false
+	}
+	if filepath.IsAbs(cleaned) {
+		return "", false
+	}
+	if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return filepath.ToSlash(cleaned), true
 }

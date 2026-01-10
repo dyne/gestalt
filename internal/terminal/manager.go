@@ -170,7 +170,7 @@ func NewManager(opts ManagerOptions) *Manager {
 	if promptFS != nil {
 		promptDir = filepath.ToSlash(promptDir)
 	}
-	promptParser := prompt.NewParser(promptFS, promptDir)
+	promptParser := prompt.NewParser(promptFS, promptDir, ".")
 
 	agents := make(map[string]agent.Agent)
 	for id, profile := range opts.Agents {

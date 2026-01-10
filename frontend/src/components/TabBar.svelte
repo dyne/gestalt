@@ -67,7 +67,7 @@
     border: none;
     background: transparent;
     display: inline-flex;
-    align-items: baseline;
+    align-items: center;
     gap: 0.35rem;
     padding: 0;
     cursor: pointer;
@@ -76,7 +76,7 @@
   }
 
   .tabbar__brand-logo {
-    height: 24px;
+    height: 40px;
     width: auto;
     display: block;
   }

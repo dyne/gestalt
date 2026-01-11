@@ -97,7 +97,7 @@
    Tests: Unit tests with temp directories, various conflict scenarios
    Done when: Extractor safely extracts with hash verification and backups
 
-** TODO [#A] Implement version compatibility checking
+** DONE [#A] Implement version compatibility checking
    Why: Prevent running incompatible Gestalt versions on existing .gestalt/ directories
    Change:
    - Create internal/config/version.go with version compatibility logic

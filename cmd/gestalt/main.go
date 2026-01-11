@@ -57,6 +57,7 @@ type Config struct {
 	Verbose              bool
 	Quiet                bool
 	ShowVersion          bool
+	ForceUpgrade         bool
 	Sources              map[string]configSource
 }
 
@@ -90,6 +91,7 @@ type configDefaults struct {
 	InputHistoryPersist  bool
 	InputHistoryDir      string
 	MaxWatches           int
+	ForceUpgrade         bool
 }
 
 type flagValues struct {
@@ -112,6 +114,7 @@ type flagValues struct {
 	Quiet                bool
 	Help                 bool
 	Version              bool
+	ForceUpgrade         bool
 	Set                  map[string]bool
 }
 
@@ -839,6 +842,14 @@ func loadConfig(args []string) (Config, error) {
 	}
 	cfg.Sources["version"] = versionSource
 
+	forceUpgradeSource := sourceDefault
+	cfg.ForceUpgrade = defaults.ForceUpgrade
+	if flags.Set["force-upgrade"] {
+		cfg.ForceUpgrade = flags.ForceUpgrade
+		forceUpgradeSource = sourceFlag
+	}
+	cfg.Sources["force-upgrade"] = forceUpgradeSource
+
 	return cfg, nil
 }
 
@@ -859,6 +870,7 @@ func defaultConfigValues() configDefaults {
 		InputHistoryPersist:  true,
 		InputHistoryDir:      filepath.Join(".gestalt", "input-history"),
 		MaxWatches:           100,
+		ForceUpgrade:         false,
 	}
 }
 
@@ -883,6 +895,7 @@ func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
 	inputHistoryPersist := fs.Bool("input-history-persist", defaults.InputHistoryPersist, "Persist input history")
 	inputHistoryDir := fs.String("input-history-dir", defaults.InputHistoryDir, "Input history directory")
 	maxWatches := fs.Int("max-watches", defaults.MaxWatches, "Max active watches")
+	forceUpgrade := fs.Bool("force-upgrade", defaults.ForceUpgrade, "Bypass config version compatibility checks")
 	verbose := fs.Bool("verbose", false, "Enable verbose logging")
 	quiet := fs.Bool("quiet", false, "Reduce logging to warnings")
 	help := fs.Bool("help", false, "Show help")
@@ -919,6 +932,7 @@ func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
 		InputHistoryPersist:  *inputHistoryPersist,
 		InputHistoryDir:      *inputHistoryDir,
 		MaxWatches:           *maxWatches,
+		ForceUpgrade:         *forceUpgrade,
 		Verbose:              *verbose,
 		Quiet:                *quiet,
 		Help:                 *help || *helpShort,
@@ -1037,6 +1051,10 @@ func printHelp(out io.Writer, defaults configDefaults) {
 			Desc: "Reduce logging to warnings (default: false)",
 		},
 		{
+			Name: "--force-upgrade",
+			Desc: "Bypass config version compatibility checks (dangerous)",
+		},
+		{
 			Name: "--help",
 			Desc: "Show this help message",
 		},
@@ -1121,6 +1139,9 @@ func logStartupFlags(logger *logging.Logger, cfg Config) {
 	}
 	if cfg.Sources["quiet"] == sourceFlag {
 		flags = append(flags, formatBoolFlag("--quiet", cfg.Quiet))
+	}
+	if cfg.Sources["force-upgrade"] == sourceFlag {
+		flags = append(flags, formatBoolFlag("--force-upgrade", cfg.ForceUpgrade))
 	}
 
 	if len(flags) == 0 {

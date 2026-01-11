@@ -51,6 +51,9 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.Quiet {
 		t.Fatalf("expected quiet false by default")
 	}
+	if cfg.ForceUpgrade {
+		t.Fatalf("expected force upgrade false by default")
+	}
 }
 
 func TestLoadConfigEnvOverridesDefaults(t *testing.T) {
@@ -223,5 +226,18 @@ func TestLoadConfigVersionShort(t *testing.T) {
 	}
 	if !cfg.ShowVersion {
 		t.Fatalf("expected version flag to be set")
+	}
+}
+
+func TestLoadConfigForceUpgradeFlag(t *testing.T) {
+	cfg, err := loadConfig([]string{"--force-upgrade"})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !cfg.ForceUpgrade {
+		t.Fatalf("expected force upgrade flag to be set")
+	}
+	if cfg.Sources["force-upgrade"] != sourceFlag {
+		t.Fatalf("expected force upgrade source flag, got %q", cfg.Sources["force-upgrade"])
 	}
 }

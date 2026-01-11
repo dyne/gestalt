@@ -182,7 +182,7 @@
    Tests: Test flag behavior matches documentation
    Done when: Flag behavior clear and documented
 
-** WIP [#B] Update documentation for new config behavior
+** DONE [#B] Update documentation for new config behavior
    Why: Users and contributors need to understand config extraction
    Change:
    - Update README.md "Embedded Resources" section
@@ -196,7 +196,7 @@
    Tests: None (documentation only)
    Done when: Config extraction fully documented
 
-** TODO [#B] Add config validation on extraction
+** WIP [#B] Add config validation on extraction
    Why: Detect malformed config files early in startup
    Change:
    - After extraction, validate all config files

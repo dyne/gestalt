@@ -3,7 +3,7 @@
 This repo is a Go backend + Svelte frontend for a multi-terminal dashboard with optional agent profiles, skills, and a small CLI. Use this as the minimum context to start any plan task.
 
 ## Project shape
-- Backend entrypoint: `cmd/gestalt/main.go` loads config/env, skills (`config/skills`), agents (`config/agents`), builds a `terminal.Manager`, and registers REST/WS routes in `internal/api/routes.go`.
+- Backend entrypoint: `cmd/gestalt/main.go` loads config/env, skills (`.gestalt/config/skills`), agents (`.gestalt/config/agents`), builds a `terminal.Manager`, and registers REST/WS routes in `internal/api/routes.go`.
 - Core backend packages:
   - `internal/terminal`: PTY sessions (`session.go`), manager (`manager.go`), history buffers/loggers.
   - `internal/api`: REST/WS handlers, auth middleware, JSON errors.
@@ -18,14 +18,14 @@ This repo is a Go backend + Svelte frontend for a multi-terminal dashboard with 
 - REST: `/api/terminals` create/list/delete sessions; `/api/agents` lists agent profiles.
 - WS: `/ws/terminal/:id` streams PTY data to xterm; `/ws/events` streams filesystem events.
 - Agents:
-  - Agent ID = filename in `config/agents/*.json` (without `.json`).
+  - Agent ID = filename in `.gestalt/config/agents/*.json` (without `.json`).
   - Agent name = `name` field (must be unique).
   - Single-instance enforced: one running terminal per agent name.
   - Terminal tabs use agent name as label.
   - Event types: `file_changed`, `git_branch_changed`, `watch_error`.
 
 ## Agent profiles
-- Prompt names in `config/agents/*.json` can reference `.tmpl` or `.txt` files (backward compatible).
+- Prompt names in `.gestalt/config/agents/*.json` can reference `.tmpl` or `.txt` files (backward compatible).
 - The `skills` field lists optional skills the agent may load later (Claude-style skills); treat them as available but not auto-applied at start.
 
 ## Key API endpoints
@@ -50,7 +50,7 @@ This repo is a Go backend + Svelte frontend for a multi-terminal dashboard with 
 ## Prompt templating
 - Prompt files can be `.txt` (plain) or `.tmpl` (templated); templates render at agent start.
 - Include syntax: `{{include filename}}` on its own line.
-- Include resolution: if an include uses a path (contains `/` or starts with `./`), load that exact path from the workdir root; otherwise search `config/prompts` first (bare names try `.tmpl`, `.md`, then `.txt`), then fall back to `.gestalt/prompts`.
+- Include resolution: if an include uses a path (contains `/` or starts with `./`), load that exact path from the workdir root; otherwise search `.gestalt/config/prompts` first (bare names try `.tmpl`, `.md`, then `.txt`), then fall back to `.gestalt/prompts`.
 - Includes are text-only (binary files are skipped) and depth-limited to 3.
 - Includes are de-duplicated by canonical file path within a single render.
 - Failed includes are silent (the directive line is skipped).

@@ -322,14 +322,24 @@ Overrides (per subdirectory, relative to the current working directory):
 - `./gestalt/dist` overrides embedded frontend assets
 
 Config extraction runs automatically at startup into `.gestalt/config/`.
+Gestalt uses embedded SHA-256 hashes to skip unchanged files; mismatches are backed up as `.bck`
+before replacement. Control retention with `GESTALT_CONFIG_BACKUP_LIMIT` (default `1`, `0` disables backups).
 `gestalt --extract-config` is now a no-op and exits after printing this notice.
-If a config file must be replaced, Gestalt writes a `.bck` backup alongside it.
-Control retention with `GESTALT_CONFIG_BACKUP_LIMIT` (default `1`, `0` disables backups).
+Project plan files live at `.gestalt/PLAN.org` (legacy root `PLAN.org` files are copied on startup).
 
 Build from source with embedded assets:
 ```
 make gestalt
 ```
+
+## Troubleshooting config extraction
+
+- Conflicts: if `.gestalt/config` differs from the embedded default, Gestalt writes a `.bck` file next to the
+  existing file before overwriting it.
+- Backup retention: set `GESTALT_CONFIG_BACKUP_LIMIT=0` to disable backups, or set a value >1 to keep timestamped
+  backups alongside the latest `.bck`.
+- Manual overrides: edit files in `.gestalt/config/` directly; delete a file to let Gestalt re-extract it on the
+  next startup.
 
 ## Filesystem watching
 

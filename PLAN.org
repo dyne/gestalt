@@ -1,4 +1,4 @@
-* WIP [#A] Unified event architecture with generic event bus
+* DONE [#A] Unified event architecture with generic event bus
   Goal: Refactor disparate event systems (EventHub, Broadcaster, LogHub) into a single reusable generic event bus, then extend event-driven patterns throughout Gestalt for agent lifecycle, config changes, terminal events, and workflow state.
   Notes:
   - Current state: 3 separate event implementations (watcher/EventHub, terminal/Broadcaster, logging/LogHub)
@@ -27,7 +27,7 @@
   - Breaking changes OK (pre-production), but frontend must never break
   Date: 2026-01-11
 
-** DONE [#A] Design unified event bus architecture
+** [#A] Design unified event bus architecture
    Why: Need clear architecture before implementation to avoid over-engineering or under-designing
    Change:
    - Design event.Bus[T any] generic interface
@@ -46,7 +46,7 @@
    Tests: None (design only)
    Done when: Architecture documented with interfaces, patterns, and usage guidelines
 
-** DONE [#B] Create internal/event package with generic Bus implementation
+** [#B] Create internal/event package with generic Bus implementation
    Why: Core reusable event bus that all systems can use
    Change:
    - Create internal/event/bus.go with concrete Bus[T any] struct (NOT interface)
@@ -66,7 +66,7 @@
    Tests: Unit tests for concurrent subscribe/publish, slow subscribers, metrics, drop vs block modes
    Done when: Generic Bus[T] works, fully tested, metrics integrated, ready to use
 
-** DONE [#B] Create typed event interfaces and base types
+** [#B] Create typed event interfaces and base types
    Why: Establish event type conventions before migrating systems
    Change:
    - Create internal/event/types.go with Event interface
@@ -86,7 +86,7 @@
    Tests: Unit tests for event construction, interface satisfaction
    Done when: Event types defined, tested, documented
 
-** DONE [#B] Add filtered subscription support
+** [#B] Add filtered subscription support
    Why: Subscribers often care about specific event types, not all events
    Change:
    - Extend Bus[T] to support filtered subscriptions
@@ -101,7 +101,7 @@
    Tests: Unit tests for filtered subscriptions, type-based filtering
    Done when: Filtered subscriptions work, type-based helpers available
 
-** DONE [#B] Migrate watcher EventHub to generic event bus
+** [#B] Migrate watcher EventHub to generic event bus
    Why: Validate event bus design with real-world usage, remove duplicate code
    Change:
    - Replace internal/watcher/hub.go EventHub with event.Bus[Event]
@@ -117,7 +117,7 @@
    Tests: All watcher tests pass, integration tests for PLAN.org watching
    Done when: EventHub uses generic event bus, no functionality lost
 
-** DONE [#B] Migrate terminal Broadcaster to generic event bus
+** [#B] Migrate terminal Broadcaster to generic event bus
    Why: Unify terminal output streaming with event architecture (code reuse, not semantic unification)
    Change:
    - Replace internal/terminal/broadcaster.go with event.Bus[[]byte]
@@ -135,7 +135,7 @@
    Tests: Terminal output tests pass, WebSocket streaming works, no data loss under load
    Done when: Terminal output uses event bus, Broadcaster code removed, streaming semantics preserved
 
-** DONE [#B] Migrate logging to generic event bus
+** [#B] Migrate logging to generic event bus
    Why: Unify log streaming with event architecture
    Change:
    - Replace LogHub in internal/logging with event.Bus[LogEntry]
@@ -152,7 +152,7 @@
    Tests: Logging tests pass, log WebSocket streaming works, no dropped logs
    Done when: Log streaming uses event bus, LogHub code removed, observability preserved
 
-** DONE [#B] Add agent lifecycle events
+** [#B] Add agent lifecycle events
    Why: New capability enabled by event bus - track agent state changes
    Change:
    - Create AgentBus in Manager: event.Bus[AgentEvent]
@@ -167,7 +167,7 @@
    Tests: Unit tests for agent event emission, WebSocket integration test
    Done when: Agent lifecycle observable via events, dashboard updates live
 
-** DONE [#B] Add terminal lifecycle events
+** [#B] Add terminal lifecycle events
    Why: Separate terminal events from terminal I/O for better observability
    Change:
    - Create TerminalBus in Manager: event.Bus[TerminalEvent]
@@ -182,7 +182,7 @@
    Tests: Unit tests for terminal event emission, verify event timing
    Done when: Terminal lifecycle observable via events, not mixed with I/O
 
-** DONE [#B] Add config change events for future config refactor
+** [#B] Add config change events for future config refactor
    Why: Enable reactive config updates, needed for config refactor L1
    Change:
    - Create ConfigBus: event.Bus[ConfigEvent]
@@ -197,7 +197,7 @@
    Tests: Unit tests for event emission during extraction (mock extraction)
    Done when: Config events defined, infrastructure ready for config refactor
 
-** DONE [#C] Add workflow state events for Temporal integration
+** [#C] Add workflow state events for Temporal integration
    Why: Better observability of workflow pauses/resumes, bell handling
    Change:
    - Create WorkflowBus: event.Bus[WorkflowEvent]
@@ -211,7 +211,7 @@
    Tests: Integration test with mock workflow, verify event emission
    Done when: Workflow state changes observable via events
 
-** DONE [#B] Add event bus metrics and monitoring
+** [#B] Add event bus metrics and monitoring
    Why: Observability into event system health and performance
    Change:
    - Integrate Bus[T] with existing internal/metrics package
@@ -227,7 +227,7 @@
    Tests: Verify metrics accuracy, test metric aggregation
    Done when: Event bus health observable via metrics.Registry, OTel-ready
 
-** DONE [#B] Create event bus testing utilities
+** [#B] Create event bus testing utilities
    Why: Make it easy to test event-driven code
    Change:
    - Create internal/event/testing.go with test helpers
@@ -241,7 +241,7 @@
    Tests: Test the test utilities (meta-testing)
    Done when: Testing utilities make event testing easy and reliable
 
-** DONE [#C] Add event replay and debugging features
+** [#C] Add event replay and debugging features
    Why: Help developers debug event-driven flows
    Change:
    - Add optional event history to Bus[T]: keep last N events
@@ -254,7 +254,7 @@
    Tests: Test history buffer, replay correctness
    Done when: Event system is debuggable in development
 
-** DONE [#B] Update documentation for event-driven architecture
+** [#B] Update documentation for event-driven architecture
    Why: Developers need to understand when and how to use events
    Change:
    - Add "Event-Driven Architecture" section to AGENTS.md
@@ -270,7 +270,7 @@
    Tests: None (documentation only)
    Done when: Event architecture fully documented with examples
 
-** DONE [#B] Add integration tests for event flows
+** [#B] Add integration tests for event flows
    Why: Verify end-to-end event propagation across system boundaries, prevent frontend breakage
    Change:
    - Test scenario: file change → EventHub → WebSocket → frontend
@@ -308,7 +308,7 @@
    Tests: Test event store implementation, verify persistence and replay (if implemented)
    Done when: Event persistence available as opt-in feature (OPTIONAL - can skip for now)
 
-** DONE [#B] Deprecate old event implementations
+** [#B] Deprecate old event implementations
    Why: Remove duplicate code after successful migration
    Change:
    - Mark EventHub as deprecated (in comments and docs)
@@ -322,7 +322,7 @@
    Tests: Verify deprecated APIs still work (backward compatibility)
    Done when: Old implementations deprecated, migration path clear
 
-** DONE [#C] Performance optimization and benchmarking
+** [#C] Performance optimization and benchmarking
    Why: Ensure event bus doesn't become bottleneck under load
    Change:
    - Benchmark Bus[T] operations: Subscribe, Publish, Unsubscribe
@@ -336,7 +336,7 @@
    Tests: Benchmark suite, load tests with many subscribers
    Done when: Event bus meets performance targets, benchmarked
 
-** DONE [#A] Validate event architecture before config refactor
+** [#A] Validate event architecture before config refactor
    Why: Ensure event system is stable before building on top of it
    Change:
    - Run full test suite: all tests must pass

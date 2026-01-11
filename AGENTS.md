@@ -91,6 +91,11 @@ event.MatchEvent(t, received).Require("expected agent_started", func(evt event.A
 })
 ```
 
+Implementation notes (Unified event architecture):
+- Event buses now back filesystem, agent, terminal lifecycle, workflow state, config, and log streams.
+- Bus features include filtered subscriptions, drop/backpressure policies, history/replay, metrics, and debug logging.
+- New endpoints: `/api/agents/events`, `/api/terminals/events`, `/api/config/events`, `/api/workflows/events`, `/api/events/debug`.
+
 ## Tests
 - Backend: `GOCACHE=/tmp/gocache /usr/local/go/bin/go test ./...`
 - Frontend: `cd frontend && npm test`

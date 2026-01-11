@@ -368,6 +368,15 @@
    Tests: Backend and frontend tests pass
    Done when: `GESTALT_PORT=9090 make dev` runs without shell errors
 
+** TODO [#B] Move make dev port logic into script
+   Why: Keep Makefile readable and avoid inline scripting
+   Change:
+   - Move backend URL/port resolution into `scripts/` (prefer JS)
+   - Keep selection behavior unchanged for GESTALT_PORT/GESTALT_BACKEND_URL
+   - Make GNUmakefile call the script for env setup
+   Tests: Backend and frontend tests pass
+   Done when: `make dev` works with overrides without python in GNUmakefile
+
 ** [#B] Remove deprecated EventHub wrapper
    Why: Deprecated wrappers should be removed now that breaking changes are acceptable
    Change:

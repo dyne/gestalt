@@ -66,7 +66,7 @@
    Tests: Unit tests for concurrent subscribe/publish, slow subscribers, metrics, drop vs block modes
    Done when: Generic Bus[T] works, fully tested, metrics integrated, ready to use
 
-** WIP [#B] Create typed event interfaces and base types
+** DONE [#B] Create typed event interfaces and base types
    Why: Establish event type conventions before migrating systems
    Change:
    - Create internal/event/types.go with Event interface
@@ -86,7 +86,7 @@
    Tests: Unit tests for event construction, interface satisfaction
    Done when: Event types defined, tested, documented
 
-** TODO [#B] Add filtered subscription support
+** WIP [#B] Add filtered subscription support
    Why: Subscribers often care about specific event types, not all events
    Change:
    - Extend Bus[T] to support filtered subscriptions

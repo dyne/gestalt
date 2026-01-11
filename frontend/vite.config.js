@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 
-const defaultBackend = 'http://localhost:8080'
+const defaultBackend = 'http://localhost:57417'
 const backendTarget = process.env.GESTALT_BACKEND_URL || defaultBackend
 let backendUrl = null
 let websocketUrl = null

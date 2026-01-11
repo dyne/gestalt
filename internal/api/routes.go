@@ -11,18 +11,23 @@ import (
 	"gestalt/internal/watcher"
 )
 
-func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken string, staticDir string, frontendFS fs.FS, logger *logging.Logger, eventBus *event.Bus[watcher.Event]) {
+type StatusConfig struct {
+	TemporalUIPort int
+}
+
+func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken string, statusConfig StatusConfig, staticDir string, frontendFS fs.FS, logger *logging.Logger, eventBus *event.Bus[watcher.Event]) {
 	// Git info is read once on boot to avoid polling; refresh can be added later.
 	gitOrigin, gitBranch := loadGitInfo()
 	planPath := "PLAN.org"
 	planCache := plan.NewCache(planPath, logger)
 	rest := &RestHandler{
-		Manager:   manager,
-		Logger:    logger,
-		PlanPath:  planPath,
-		PlanCache: planCache,
-		GitOrigin: gitOrigin,
-		GitBranch: gitBranch,
+		Manager:        manager,
+		Logger:         logger,
+		PlanPath:       planPath,
+		PlanCache:      planCache,
+		GitOrigin:      gitOrigin,
+		GitBranch:      gitBranch,
+		TemporalUIPort: statusConfig.TemporalUIPort,
 	}
 	if eventBus != nil {
 		gitEvents, _ := eventBus.SubscribeFiltered(func(event watcher.Event) bool {

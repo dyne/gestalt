@@ -283,6 +283,36 @@ func TestStatusHandlerReturnsCount(t *testing.T) {
 	}
 }
 
+func TestStatusHandlerIncludesTemporalURL(t *testing.T) {
+	factory := &fakeFactory{}
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+	})
+	handler := &RestHandler{
+		Manager:        manager,
+		TemporalUIPort: 8233,
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	req.Header.Set("X-Forwarded-Host", "example.com:57417")
+	req.Header.Set("X-Forwarded-Proto", "https")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", handler.handleStatus)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var payload statusResponse
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.TemporalUIURL != "https://example.com:8233" {
+		t.Fatalf("expected temporal url %q, got %q", "https://example.com:8233", payload.TemporalUIURL)
+	}
+}
+
 func TestMetricsEndpointReturnsText(t *testing.T) {
 	handler := &RestHandler{}
 	req := httptest.NewRequest(http.MethodGet, "/api/metrics", nil)

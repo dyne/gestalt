@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -38,6 +39,7 @@ type RestHandler struct {
 	PlanCache *plan.Cache
 	GitOrigin string
 	GitBranch string
+	TemporalUIPort int
 	gitMutex  sync.RWMutex
 }
 
@@ -113,6 +115,7 @@ type statusResponse struct {
 	GitOrigin      string    `json:"git_origin"`
 	GitBranch      string    `json:"git_branch"`
 	Version        string    `json:"version"`
+	TemporalUIURL  string    `json:"temporal_ui_url,omitempty"`
 }
 
 type eventBusDebug struct {
@@ -237,10 +240,58 @@ func (h *RestHandler) handleStatus(w http.ResponseWriter, r *http.Request) *apiE
 		GitOrigin:      gitOrigin,
 		GitBranch:      gitBranch,
 		Version:        version.Version,
+		TemporalUIURL:  buildTemporalUIURL(r, h.TemporalUIPort),
 	}
 
 	writeJSON(w, http.StatusOK, response)
 	return nil
+}
+
+func buildTemporalUIURL(r *http.Request, uiPort int) string {
+	if uiPort <= 0 || r == nil {
+		return ""
+	}
+	host := forwardedHeaderValue(r, "X-Forwarded-Host")
+	if host == "" {
+		host = r.Host
+	}
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return ""
+	}
+	if idx := strings.Index(host, ","); idx >= 0 {
+		host = strings.TrimSpace(host[:idx])
+	}
+	hostname := host
+	if splitHost, _, err := net.SplitHostPort(host); err == nil {
+		hostname = splitHost
+	}
+	if strings.TrimSpace(hostname) == "" {
+		return ""
+	}
+	scheme := forwardedHeaderValue(r, "X-Forwarded-Proto")
+	if scheme == "" {
+		if r.TLS != nil {
+			scheme = "https"
+		} else {
+			scheme = "http"
+		}
+	}
+	return fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(hostname, strconv.Itoa(uiPort)))
+}
+
+func forwardedHeaderValue(r *http.Request, header string) string {
+	if r == nil {
+		return ""
+	}
+	value := strings.TrimSpace(r.Header.Get(header))
+	if value == "" {
+		return ""
+	}
+	if idx := strings.Index(value, ","); idx >= 0 {
+		value = strings.TrimSpace(value[:idx])
+	}
+	return value
 }
 
 func (h *RestHandler) handleMetrics(w http.ResponseWriter, r *http.Request) *apiError {

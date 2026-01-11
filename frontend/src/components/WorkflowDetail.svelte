@@ -7,6 +7,7 @@
   export let onViewTerminal = () => {}
   export let onResume = () => {}
   export let actionPending = false
+  export let temporalUiUrl = ''
 
   let copyStatus = ''
   let copyTimer = null
@@ -41,12 +42,19 @@
     return `${text.slice(0, maxLength)}...`
   }
 
-  const buildTemporalUrl = (workflowId, runId) => {
+  const buildTemporalUrl = (workflowId, runId, baseUrl) => {
     if (!workflowId) return ''
+    const base = (baseUrl || '').trim().replace(/\/+$/, '')
+    if (!base) return ''
+    try {
+      new URL(base)
+    } catch {
+      return ''
+    }
     const namespace = 'default'
     const encodedId = encodeURIComponent(workflowId)
     const encodedRun = runId ? `/${encodeURIComponent(runId)}` : ''
-    return `http://localhost:8233/namespaces/${namespace}/workflows/${encodedId}${encodedRun}`
+    return `${base}/namespaces/${namespace}/workflows/${encodedId}${encodedRun}`
   }
 
   const writeClipboardText = async (text) => {
@@ -107,7 +115,7 @@
       ? formatDuration(Date.now() - timestampValue(latestBell.timestamp))
       : '-'
   $: waitingSince = latestBell ? formatTime(latestBell.timestamp) : '-'
-  $: temporalUrl = buildTemporalUrl(workflow?.workflow_id, workflow?.workflow_run_id)
+  $: temporalUrl = buildTemporalUrl(workflow?.workflow_id, workflow?.workflow_run_id, temporalUiUrl)
 
   onDestroy(() => {
     if (copyTimer) {

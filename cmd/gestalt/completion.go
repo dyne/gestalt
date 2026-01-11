@@ -44,7 +44,7 @@ _gestalt_complete() {
   fi
 
   if [[ "$cur" == -* ]]; then
-    COMPREPLY=( $(compgen -W "--port --shell --token --session-persist --session-dir --session-buffer-lines --session-retention-days --input-history-persist --input-history-dir --max-watches --verbose --quiet --help --version --extract-config" -- "$cur") )
+    COMPREPLY=( $(compgen -W "--port --backend-port --shell --token --session-persist --session-dir --session-buffer-lines --session-retention-days --input-history-persist --input-history-dir --max-watches --verbose --quiet --help --version --extract-config" -- "$cur") )
     return
   fi
 
@@ -60,7 +60,8 @@ const zshCompletionScript = `#compdef gestalt
 _gestalt_complete() {
   local -a flags
   flags=(
-    '--port[HTTP server port]'
+    '--port[HTTP frontend port]'
+    '--backend-port[Backend API port]'
     '--shell[Default shell command]'
     '--token[Auth token for REST/WS]'
     '--session-persist[Persist terminal sessions to disk]'

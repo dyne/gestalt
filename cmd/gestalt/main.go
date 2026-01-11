@@ -9,6 +9,8 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -36,13 +38,15 @@ import (
 )
 
 type Config struct {
-	Port                 int
+	FrontendPort         int
+	BackendPort          int
 	Shell                string
 	AuthToken            string
 	TemporalHost         string
 	TemporalNamespace    string
 	TemporalEnabled      bool
 	TemporalDevServer    bool
+	TemporalUIPort       int
 	SessionRetentionDays int
 	SessionPersist       bool
 	SessionLogDir        string
@@ -71,7 +75,8 @@ const temporalDevServerStopTimeout = 5 * time.Second
 const httpServerShutdownTimeout = 5 * time.Second
 
 type configDefaults struct {
-	Port                 int
+	FrontendPort         int
+	BackendPort          int
 	Shell                string
 	AuthToken            string
 	TemporalHost         string
@@ -88,7 +93,8 @@ type configDefaults struct {
 }
 
 type flagValues struct {
-	Port                 int
+	FrontendPort         int
+	BackendPort          int
 	Shell                string
 	Token                string
 	TemporalHost         string
@@ -149,7 +155,7 @@ func main() {
 	}
 	ensureStateDir(cfg, logger)
 
-	temporalDevServer, devServerError := startTemporalDevServer(cfg, logger)
+	temporalDevServer, devServerError := startTemporalDevServer(&cfg, logger)
 	if devServerError != nil {
 		logger.Warn("temporal dev server start failed", map[string]string{
 			"error": devServerError.Error(),
@@ -287,48 +293,166 @@ func main() {
 		})
 	}
 
-	mux := http.NewServeMux()
-	api.RegisterRoutes(mux, manager, cfg.AuthToken, staticDir, frontendFS, logger, eventBus)
-
-	server := &http.Server{
-		Addr:              ":" + strconv.Itoa(cfg.Port),
-		Handler:           mux,
+	backendMux := http.NewServeMux()
+	api.RegisterRoutes(backendMux, manager, cfg.AuthToken, api.StatusConfig{
+		TemporalUIPort: cfg.TemporalUIPort,
+	}, "", nil, logger, eventBus)
+	backendListener, backendPort, err := listenOnPort(cfg.BackendPort)
+	if err != nil {
+		logger.Error("backend listen failed", map[string]string{
+			"error": err.Error(),
+		})
+		os.Exit(1)
+	}
+	cfg.BackendPort = backendPort
+	backendServer := &http.Server{
+		Handler:           backendMux,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-
-	logger.Info("gestalt listening", map[string]string{
-		"addr":    server.Addr,
+	backendAddress := backendListener.Addr().String()
+	logger.Info("gestalt backend listening", map[string]string{
+		"addr":    backendAddress,
 		"version": version.Version,
 	})
 
-	serverErrors := make(chan error, 1)
+	backendURL := &url.URL{
+		Scheme: "http",
+		Host:   fmt.Sprintf("localhost:%d", backendPort),
+	}
+	frontendHandler := buildFrontendHandler(staticDir, frontendFS, backendURL, cfg.AuthToken, logger)
+	frontendServer := &http.Server{
+		Addr:              ":" + strconv.Itoa(cfg.FrontendPort),
+		Handler:           frontendHandler,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	logger.Info("gestalt frontend listening", map[string]string{
+		"addr":    frontendServer.Addr,
+		"version": version.Version,
+	})
+
+	serverErrors := make(chan serverError, 2)
 	go func() {
-		serverErrors <- server.ListenAndServe()
+		serverErrors <- serverError{name: "backend", err: backendServer.Serve(backendListener)}
+	}()
+	go func() {
+		serverErrors <- serverError{name: "frontend", err: frontendServer.ListenAndServe()}
 	}()
 
 	stopSignals := make(chan os.Signal, 1)
 	signal.Notify(stopSignals, os.Interrupt, syscall.SIGTERM)
 
+	var initialError *serverError
 	select {
 	case err := <-serverErrors:
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Error("http server stopped", map[string]string{
-				"error": err.Error(),
-			})
-		}
+		initialError = &err
 	case sig := <-stopSignals:
 		logger.Info("shutdown signal received", map[string]string{
 			"signal": sig.String(),
 		})
-		shutdownContext, cancel := context.WithTimeout(context.Background(), httpServerShutdownTimeout)
-		defer cancel()
-		if err := server.Shutdown(shutdownContext); err != nil {
-			logger.Warn("http server shutdown failed", map[string]string{
+	}
+
+	logServerError(logger, initialError)
+	shutdownContext, cancel := context.WithTimeout(context.Background(), httpServerShutdownTimeout)
+	defer cancel()
+	if err := backendServer.Shutdown(shutdownContext); err != nil {
+		logger.Warn("backend server shutdown failed", map[string]string{
+			"error": err.Error(),
+		})
+	}
+	if err := frontendServer.Shutdown(shutdownContext); err != nil {
+		logger.Warn("frontend server shutdown failed", map[string]string{
+			"error": err.Error(),
+		})
+	}
+	drainServerErrors(serverErrors, logger, initialError != nil)
+}
+
+type serverError struct {
+	name string
+	err  error
+}
+
+func logServerError(logger *logging.Logger, serverErr *serverError) {
+	if logger == nil || serverErr == nil || serverErr.err == nil {
+		return
+	}
+	if errors.Is(serverErr.err, http.ErrServerClosed) {
+		return
+	}
+	logger.Error("http server stopped", map[string]string{
+		"server": serverErr.name,
+		"error":  serverErr.err.Error(),
+	})
+}
+
+func drainServerErrors(errorsChan <-chan serverError, logger *logging.Logger, initialLogged bool) {
+	pending := 2
+	if initialLogged {
+		pending = 1
+	}
+	for i := 0; i < pending; i++ {
+		select {
+		case err := <-errorsChan:
+			logServerError(logger, &err)
+		case <-time.After(httpServerShutdownTimeout):
+			return
+		}
+	}
+}
+
+func listenOnPort(port int) (net.Listener, int, error) {
+	address := ":" + strconv.Itoa(port)
+	if port == 0 {
+		address = ":0"
+	}
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		return nil, 0, err
+	}
+	tcpAddress, ok := listener.Addr().(*net.TCPAddr)
+	if !ok {
+		_ = listener.Close()
+		return nil, 0, fmt.Errorf("unexpected listener address: %T", listener.Addr())
+	}
+	return listener, tcpAddress.Port, nil
+}
+
+func buildFrontendHandler(staticDir string, frontendFS fs.FS, backendURL *url.URL, authToken string, logger *logging.Logger) http.Handler {
+	mux := http.NewServeMux()
+	proxy := httputil.NewSingleHostReverseProxy(backendURL)
+	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		if logger != nil {
+			logger.Warn("frontend proxy error", map[string]string{
 				"error": err.Error(),
 			})
 		}
-		<-serverErrors
+		http.Error(w, "backend unavailable", http.StatusBadGateway)
 	}
+
+	mux.Handle("/api", proxy)
+	mux.Handle("/api/", proxy)
+	mux.Handle("/ws", proxy)
+	mux.Handle("/ws/", proxy)
+
+	if staticDir != "" {
+		mux.Handle("/", api.NewSPAHandler(staticDir))
+		return mux
+	}
+
+	if frontendFS != nil {
+		mux.Handle("/", api.NewSPAHandlerFS(frontendFS))
+		return mux
+	}
+
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if authToken != "" {
+			w.Header().Set("X-Gestalt-Auth", "required")
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("gestalt ok\n"))
+	})
+	return mux
 }
 
 func watchPlanFile(bus *event.Bus[watcher.Event], watch watcher.Watch, logger *logging.Logger, planPath string) {
@@ -439,23 +563,41 @@ func loadConfig(args []string) (Config, error) {
 		Sources: make(map[string]configSource),
 	}
 
-	port := defaults.Port
-	portSource := sourceDefault
+	frontendPort := defaults.FrontendPort
+	frontendPortSource := sourceDefault
 	if rawPort := os.Getenv("GESTALT_PORT"); rawPort != "" {
 		if parsed, err := strconv.Atoi(rawPort); err == nil && parsed > 0 {
-			port = parsed
-			portSource = sourceEnv
+			frontendPort = parsed
+			frontendPortSource = sourceEnv
 		}
 	}
 	if flags.Set["port"] {
-		if flags.Port <= 0 {
+		if flags.FrontendPort <= 0 {
 			return Config{}, fmt.Errorf("invalid --port: must be > 0")
 		}
-		port = flags.Port
-		portSource = sourceFlag
+		frontendPort = flags.FrontendPort
+		frontendPortSource = sourceFlag
 	}
-	cfg.Port = port
-	cfg.Sources["port"] = portSource
+	cfg.FrontendPort = frontendPort
+	cfg.Sources["port"] = frontendPortSource
+
+	backendPort := defaults.BackendPort
+	backendPortSource := sourceDefault
+	if rawPort := os.Getenv("GESTALT_BACKEND_PORT"); rawPort != "" {
+		if parsed, err := strconv.Atoi(rawPort); err == nil && parsed > 0 {
+			backendPort = parsed
+			backendPortSource = sourceEnv
+		}
+	}
+	if flags.Set["backend-port"] {
+		if flags.BackendPort <= 0 {
+			return Config{}, fmt.Errorf("invalid --backend-port: must be > 0")
+		}
+		backendPort = flags.BackendPort
+		backendPortSource = sourceFlag
+	}
+	cfg.BackendPort = backendPort
+	cfg.Sources["backend-port"] = backendPortSource
 
 	shell := defaults.Shell
 	shellSource := sourceDefault
@@ -702,7 +844,8 @@ func loadConfig(args []string) (Config, error) {
 
 func defaultConfigValues() configDefaults {
 	return configDefaults{
-		Port:                 8080,
+		FrontendPort:         57417,
+		BackendPort:          0,
 		Shell:                terminal.DefaultShell(),
 		AuthToken:            "",
 		TemporalHost:         temporalDefaultHost,
@@ -725,7 +868,8 @@ func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
 	}
 	fs := flag.NewFlagSet("gestalt", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	port := fs.Int("port", defaults.Port, "HTTP server port")
+	port := fs.Int("port", defaults.FrontendPort, "HTTP frontend port")
+	backendPort := fs.Int("backend-port", defaults.BackendPort, "Backend API port")
 	shell := fs.String("shell", defaults.Shell, "Default shell command")
 	token := fs.String("token", defaults.AuthToken, "Auth token for REST/WS")
 	temporalHost := fs.String("temporal-host", defaults.TemporalHost, "Temporal server host:port")
@@ -760,7 +904,8 @@ func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
 	})
 
 	flags := flagValues{
-		Port:                 *port,
+		FrontendPort:         *port,
+		BackendPort:          *backendPort,
 		Shell:                *shell,
 		Token:                *token,
 		TemporalHost:         *temporalHost,
@@ -810,7 +955,11 @@ func printHelp(out io.Writer, defaults configDefaults) {
 	writeOptionGroup(out, "Server", []helpOption{
 		{
 			Name: "--port PORT",
-			Desc: fmt.Sprintf("HTTP server port (env: GESTALT_PORT, default: %d)", defaults.Port),
+			Desc: fmt.Sprintf("HTTP frontend port (env: GESTALT_PORT, default: %d)", defaults.FrontendPort),
+		},
+		{
+			Name: "--backend-port PORT",
+			Desc: "Backend API port (env: GESTALT_BACKEND_PORT, default: random)",
 		},
 		{
 			Name: "--shell SHELL",
@@ -923,7 +1072,10 @@ func logStartupFlags(logger *logging.Logger, cfg Config) {
 	}
 	var flags []string
 	if cfg.Sources["port"] == sourceFlag {
-		flags = append(flags, fmt.Sprintf("--port %d", cfg.Port))
+		flags = append(flags, fmt.Sprintf("--port %d", cfg.FrontendPort))
+	}
+	if cfg.Sources["backend-port"] == sourceFlag {
+		flags = append(flags, fmt.Sprintf("--backend-port %d", cfg.BackendPort))
 	}
 	if cfg.Sources["shell"] == sourceFlag {
 		flags = append(flags, formatStringFlag("--shell", cfg.Shell))
@@ -1019,8 +1171,8 @@ type temporalDevServer struct {
 	done    chan error
 }
 
-func startTemporalDevServer(cfg Config, logger *logging.Logger) (*temporalDevServer, error) {
-	if !cfg.TemporalDevServer {
+func startTemporalDevServer(cfg *Config, logger *logging.Logger) (*temporalDevServer, error) {
+	if cfg == nil || !cfg.TemporalDevServer {
 		return nil, nil
 	}
 	temporalPath, err := exec.LookPath("temporal")
@@ -1052,7 +1204,18 @@ func startTemporalDevServer(cfg Config, logger *logging.Logger) (*temporalDevSer
 		return nil, fmt.Errorf("open temporal log: %w", err)
 	}
 
-	cmd := exec.Command(temporalPath, "server", "start-dev")
+	temporalPort, uiPort, err := resolveTemporalDevPorts(cfg, logger)
+	if err != nil {
+		_ = logFile.Close()
+		return nil, err
+	}
+
+	cmd := exec.Command(temporalPath, "server", "start-dev",
+		"--ip", "0.0.0.0",
+		"--port", strconv.Itoa(temporalPort),
+		"--ui-port", strconv.Itoa(uiPort),
+	)
+	cfg.TemporalUIPort = uiPort
 	cmd.Dir = absDataDir
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
@@ -1074,8 +1237,10 @@ func startTemporalDevServer(cfg Config, logger *logging.Logger) (*temporalDevSer
 
 	if logger != nil {
 		logger.Info("temporal dev server started", map[string]string{
-			"dir": absDataDir,
-			"log": logPath,
+			"dir":     absDataDir,
+			"log":     logPath,
+			"host":    normalizeTemporalHost(cfg.TemporalHost),
+			"ui_port": strconv.Itoa(uiPort),
 		})
 	}
 
@@ -1084,6 +1249,67 @@ func startTemporalDevServer(cfg Config, logger *logging.Logger) (*temporalDevSer
 		logFile: logFile,
 		done:    done,
 	}, nil
+}
+
+func resolveTemporalDevPorts(cfg *Config, logger *logging.Logger) (int, int, error) {
+	if cfg == nil {
+		return 0, 0, fmt.Errorf("missing temporal config")
+	}
+	temporalPort := 0
+	temporalHostSource := sourceDefault
+	if cfg.Sources != nil {
+		temporalHostSource = cfg.Sources["temporal-host"]
+	}
+	if temporalHostSource != sourceDefault && strings.TrimSpace(cfg.TemporalHost) != "" {
+		if _, port, err := net.SplitHostPort(cfg.TemporalHost); err == nil {
+			if parsed, err := strconv.Atoi(port); err == nil && parsed > 0 {
+				temporalPort = parsed
+			}
+		} else if logger != nil {
+			logger.Warn("temporal host missing port; using random port", map[string]string{
+				"host": cfg.TemporalHost,
+			})
+		}
+	}
+
+	if temporalPort == 0 {
+		port, err := pickRandomPort()
+		if err != nil {
+			return 0, 0, fmt.Errorf("select temporal port: %w", err)
+		}
+		temporalPort = port
+		cfg.TemporalHost = fmt.Sprintf("localhost:%d", temporalPort)
+	}
+
+	uiPort, err := pickRandomPortExcluding(temporalPort)
+	if err != nil {
+		return 0, 0, fmt.Errorf("select temporal UI port: %w", err)
+	}
+	return temporalPort, uiPort, nil
+}
+
+func pickRandomPort() (int, error) {
+	listener, port, err := listenOnPort(0)
+	if err != nil {
+		return 0, err
+	}
+	if err := listener.Close(); err != nil {
+		return 0, err
+	}
+	return port, nil
+}
+
+func pickRandomPortExcluding(excluded int) (int, error) {
+	for attempt := 0; attempt < 10; attempt++ {
+		port, err := pickRandomPort()
+		if err != nil {
+			return 0, err
+		}
+		if port != excluded {
+			return port, nil
+		}
+	}
+	return 0, fmt.Errorf("failed to select distinct port")
 }
 
 func (server *temporalDevServer) Done() <-chan error {

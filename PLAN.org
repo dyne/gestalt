@@ -366,16 +366,17 @@
    - Avoid heredoc command substitutions in GNUmakefile dev target
    - Keep port selection behavior unchanged
    Tests: Backend and frontend tests pass
-   Done when: `GESTALT_PORT=9090 make dev` runs without shell errors
+   Done when: `GESTALT_BACKEND_PORT=9090 make dev` runs without shell errors
 
 ** [#B] Move make dev port logic into script
    Why: Keep Makefile readable and avoid inline scripting
    Change:
    - Move backend URL/port resolution into `scripts/` (prefer JS)
-   - Keep selection behavior unchanged for GESTALT_PORT/GESTALT_BACKEND_URL
+   - Keep selection behavior unchanged for GESTALT_BACKEND_PORT/GESTALT_BACKEND_URL
    - Make GNUmakefile call the script for env setup
    Tests: Backend and frontend tests pass
    Done when: `make dev` works with overrides without python in GNUmakefile
+
 
 ** [#B] Remove deprecated EventHub wrapper
    Why: Deprecated wrappers should be removed now that breaking changes are acceptable
@@ -388,6 +389,37 @@
    - Update docs to remove EventHub references
    Tests: Update event flow tests to use bus, ensure /ws/events still works
    Done when: EventHub is removed and filesystem events flow through event.Bus
+
+* DONE [#B] Separate frontend and backend ports
+  Goal: Allow multiple Gestalt instances by decoupling UI and API ports.
+
+** [#B] Randomize backend port for multi-instance runs
+   Why: Allow multiple released Gestalt binaries to run without port collisions
+   Change:
+   - Pick a free port automatically when no backend port is specified
+   - Respect GESTALT_BACKEND_PORT/--backend-port when set
+   - Keep GESTALT_PORT/--port for frontend/UI bind
+   - Proxy /api and /ws from the frontend server to the backend
+   - Log backend and frontend listen addresses
+   - Update docs/tests for the new default behavior
+   Tests: Backend and frontend tests pass
+   Done when: Multiple binaries start on distinct backend ports by default and env overrides still work
+
+** [#B] Multi-instance daemon ports
+  Goal: Ensure all per-instance daemons bind safely for multi-instance use.
+
+** [#B] Fix Temporal dev bind and UI link
+   Why: Temporal dev server should bind publicly for sharing and the UI link should match the random port
+   Change:
+   - Bind Temporal dev server to 0.0.0.0 by default
+   - Expose the actual Temporal UI port in /api/status (or equivalent)
+   - Update frontend "View in Temporal" link to use the reported UI URL
+   Tests: Backend and frontend tests pass
+   Done when: Temporal dev UI is reachable on the reported port and the link matches the active port
+
+** Temporal dev server bind + UI link
+   - Bind Temporal dev server to 0.0.0.0 with random gRPC/UI ports.
+   - Expose Temporal UI URL in /api/status and use it for the Flow "View in Temporal" link.
 * TODO [#B] Fix terminal natural touch scrolling
   Goal: Enable natural touch scrolling anywhere on the terminal (not just scrollbar) while preserving mouse text selection for clipboard copy.
   Notes:

@@ -17,7 +17,7 @@ import (
 	"gestalt/internal/version"
 )
 
-const defaultServerURL = "http://localhost:8080"
+const defaultServerURL = "http://localhost:57417"
 
 var httpClient = &http.Client{Timeout: 30 * time.Second}
 var startRetryDelay = time.Second
@@ -109,7 +109,7 @@ func runWithSender(args []string, in io.Reader, errOut io.Writer, send func(Conf
 func parseArgs(args []string, errOut io.Writer) (Config, error) {
 	fs := flag.NewFlagSet("gestalt-send", flag.ContinueOnError)
 	fs.SetOutput(errOut)
-	urlFlag := fs.String("url", "", "Gestalt server URL (env: GESTALT_URL, default: http://localhost:8080)")
+	urlFlag := fs.String("url", "", "Gestalt server URL (env: GESTALT_URL, default: http://localhost:57417)")
 	tokenFlag := fs.String("token", "", "Auth token (env: GESTALT_TOKEN, default: none)")
 	startFlag := fs.Bool("start", false, "Start agent if not running")
 	verboseFlag := fs.Bool("verbose", false, "Verbose output")
@@ -175,7 +175,7 @@ func printSendHelp(out io.Writer) {
 	fmt.Fprintln(out, "Send stdin to a running Gestalt agent terminal")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Options:")
-	writeSendOption(out, "--url URL", "Gestalt server URL (env: GESTALT_URL, default: http://localhost:8080)")
+	writeSendOption(out, "--url URL", "Gestalt server URL (env: GESTALT_URL, default: http://localhost:57417)")
 	writeSendOption(out, "--token TOKEN", "Auth token (env: GESTALT_TOKEN, default: none)")
 	writeSendOption(out, "--start", "Auto-start agent if not running")
 	writeSendOption(out, "--verbose", "Show request/response details")
@@ -189,7 +189,7 @@ func printSendHelp(out io.Writer) {
 	fmt.Fprintln(out, "Examples:")
 	fmt.Fprintln(out, "  cat file.txt | gestalt-send copilot")
 	fmt.Fprintln(out, "  echo \"status\" | gestalt-send --start architect")
-	fmt.Fprintln(out, "  gestalt-send --url http://remote:8080 --token abc123 agent-id")
+	fmt.Fprintln(out, "  gestalt-send --url http://remote:57417 --token abc123 agent-id")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Exit codes:")
 	fmt.Fprintln(out, "  0  Success")

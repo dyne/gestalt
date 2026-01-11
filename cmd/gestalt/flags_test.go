@@ -12,8 +12,11 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if cfg.Port != 8080 {
-		t.Fatalf("expected port 8080, got %d", cfg.Port)
+	if cfg.FrontendPort != 57417 {
+		t.Fatalf("expected frontend port 57417, got %d", cfg.FrontendPort)
+	}
+	if cfg.BackendPort != 0 {
+		t.Fatalf("expected backend port 0, got %d", cfg.BackendPort)
 	}
 	if cfg.Shell == "" {
 		t.Fatalf("expected default shell to be set")
@@ -52,6 +55,7 @@ func TestLoadConfigDefaults(t *testing.T) {
 
 func TestLoadConfigEnvOverridesDefaults(t *testing.T) {
 	t.Setenv("GESTALT_PORT", "9090")
+	t.Setenv("GESTALT_BACKEND_PORT", "9091")
 	t.Setenv("GESTALT_SHELL", "/bin/zsh")
 	t.Setenv("GESTALT_TOKEN", "secret")
 	t.Setenv("GESTALT_SESSION_RETENTION_DAYS", "9")
@@ -67,8 +71,11 @@ func TestLoadConfigEnvOverridesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if cfg.Port != 9090 {
-		t.Fatalf("expected port 9090, got %d", cfg.Port)
+	if cfg.FrontendPort != 9090 {
+		t.Fatalf("expected frontend port 9090, got %d", cfg.FrontendPort)
+	}
+	if cfg.BackendPort != 9091 {
+		t.Fatalf("expected backend port 9091, got %d", cfg.BackendPort)
 	}
 	if cfg.Shell != "/bin/zsh" {
 		t.Fatalf("expected shell /bin/zsh, got %q", cfg.Shell)
@@ -104,6 +111,7 @@ func TestLoadConfigEnvOverridesDefaults(t *testing.T) {
 
 func TestLoadConfigFlagOverridesEnv(t *testing.T) {
 	t.Setenv("GESTALT_PORT", "9090")
+	t.Setenv("GESTALT_BACKEND_PORT", "6060")
 	t.Setenv("GESTALT_SHELL", "/bin/zsh")
 	t.Setenv("GESTALT_SESSION_PERSIST", "false")
 	t.Setenv("GESTALT_SESSION_DIR", "/tmp/gestalt-logs")
@@ -113,6 +121,7 @@ func TestLoadConfigFlagOverridesEnv(t *testing.T) {
 
 	cfg, err := loadConfig([]string{
 		"--port", "7070",
+		"--backend-port", "5050",
 		"--shell", "/bin/bash",
 		"--session-persist=true",
 		"--session-dir", "/tmp/flag-sessions",
@@ -124,8 +133,11 @@ func TestLoadConfigFlagOverridesEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if cfg.Port != 7070 {
-		t.Fatalf("expected port 7070, got %d", cfg.Port)
+	if cfg.FrontendPort != 7070 {
+		t.Fatalf("expected frontend port 7070, got %d", cfg.FrontendPort)
+	}
+	if cfg.BackendPort != 5050 {
+		t.Fatalf("expected backend port 5050, got %d", cfg.BackendPort)
 	}
 	if cfg.Shell != "/bin/bash" {
 		t.Fatalf("expected shell /bin/bash, got %q", cfg.Shell)
@@ -151,6 +163,9 @@ func TestLoadConfigFlagOverridesEnv(t *testing.T) {
 	if cfg.Sources["port"] != sourceFlag {
 		t.Fatalf("expected port source flag, got %q", cfg.Sources["port"])
 	}
+	if cfg.Sources["backend-port"] != sourceFlag {
+		t.Fatalf("expected backend port source flag, got %q", cfg.Sources["backend-port"])
+	}
 }
 
 func TestLoadConfigInvalidFlags(t *testing.T) {
@@ -159,6 +174,7 @@ func TestLoadConfigInvalidFlags(t *testing.T) {
 		args []string
 	}{
 		{name: "port", args: []string{"--port", "0"}},
+		{name: "backend-port", args: []string{"--backend-port", "0"}},
 		{name: "buffer", args: []string{"--session-buffer-lines", "0"}},
 		{name: "retention", args: []string{"--session-retention-days", "0"}},
 		{name: "max-watches", args: []string{"--max-watches", "0"}},

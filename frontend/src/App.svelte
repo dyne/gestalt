@@ -187,7 +187,7 @@
     <PlanView />
   </section>
   <section class="view" data-active={activeView === 'flow'}>
-    <FlowView onViewTerminal={handleSelect} />
+    <FlowView onViewTerminal={handleSelect} temporalUiUrl={status?.temporal_ui_url || ''} />
   </section>
   <section class="view view--terminals" data-active={activeView === 'terminal'}>
     {#each terminals as terminal (terminal.id)}

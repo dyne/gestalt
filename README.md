@@ -18,14 +18,14 @@ Launch (needs golang)
 go run cmd/gestalt
 ```
 
-Default listens to 0.0.0.0 port 8080
+Default frontend listens on 0.0.0.0:57417; the backend binds to a random free port unless `GESTALT_BACKEND_PORT` is set.
 
-When running local open browser at http://localhost:8080
+When running local open browser at http://localhost:57417
 
 ## Development (Vite)
 
 `make dev` starts the backend plus Vite. The Vite dev server proxies `/api` and `/ws`
-to `GESTALT_BACKEND_URL` (default `http://localhost:8080`).
+to `GESTALT_BACKEND_URL` (default `http://localhost:57417`).
 
 Run multiple isolated instances by choosing unique backend URLs:
 ```
@@ -33,8 +33,8 @@ GESTALT_BACKEND_URL=http://localhost:9101 make dev
 GESTALT_BACKEND_URL=http://localhost:9102 make dev
 ```
 
-If you set `GESTALT_BACKEND_URL`, keep `GESTALT_PORT` in sync when you need a specific port
-(`make dev` will otherwise derive the port from the URL).
+If you set `GESTALT_BACKEND_URL`, it should point at the backend API port. `GESTALT_PORT`
+controls the UI bind port for `gestalt`.
 
 ## Run Gestalt on your project
 
@@ -68,7 +68,7 @@ Example mapping:
 
 4) Start Gestalt from the same project root and open the UI:
 ```
-GESTALT_TOKEN=$(openssl rand -hex 16) gestalt --port 8080
+GESTALT_TOKEN=$(openssl rand -hex 16) gestalt --port 57417
 ```
 
 If your project has a `PLAN.org` in its root, Gestalt will watch it for changes.
@@ -84,7 +84,7 @@ Auth mechanics:
 - REST: `Authorization: Bearer <token>`
 - WebSocket: `?token=<token>`
 
-Because the default bind is `0.0.0.0:8080`, setting a token is strongly recommended whenever the
+Because the default bind is `0.0.0.0:57417`, setting a token is strongly recommended whenever the
 server is reachable from other machines on your network.
 
 Generate a token:
@@ -132,6 +132,7 @@ Install the Temporal CLI:
 - Other platforms: download a release from https://github.com/temporalio/cli/releases
 
 Gestalt auto-starts the Temporal dev server by default and stores its data/logs under `.gestalt/temporal`.
+Auto-start binds to `0.0.0.0` and picks random gRPC/UI ports unless you set `GESTALT_TEMPORAL_HOST`.
 Disable auto-start with `--temporal-dev-server=false` or `GESTALT_TEMPORAL_DEV_SERVER=false`.
 
 Start the local Temporal dev server (includes the UI at http://localhost:8233):
@@ -242,7 +243,8 @@ defaults. Use `--help` to see the full flag list.
 ### gestalt
 
 Flags:
-- `--port PORT` (env: GESTALT_PORT, default: 8080)
+- `--port PORT` (env: GESTALT_PORT, default: 57417)
+- `--backend-port PORT` (env: GESTALT_BACKEND_PORT, default: random)
 - `--shell SHELL` (env: GESTALT_SHELL, default: system shell)
 - `--token TOKEN` (env: GESTALT_TOKEN, default: none)
 - `--session-persist` (env: GESTALT_SESSION_PERSIST, default: true)
@@ -260,13 +262,13 @@ Subcommands:
 - `gestalt completion bash|zsh`
 
 Examples:
-- `gestalt --port 9090 --token abc123`
+- `gestalt --port 9090 --backend-port 9091 --token abc123`
 - `gestalt --session-persist=false --input-history-persist=false`
 
 ### gestalt-send
 
 Flags:
-- `--url URL` (env: GESTALT_URL, default: http://localhost:8080)
+- `--url URL` (env: GESTALT_URL, default: http://localhost:57417)
 - `--token TOKEN` (env: GESTALT_TOKEN, default: none)
 - `--start` (auto-start agent if not running)
 - `--verbose` / `--debug`
@@ -274,7 +276,7 @@ Flags:
 
 Examples:
 - `cat file.txt | gestalt-send copilot`
-- `gestalt-send --url http://remote:8080 --token abc123 agent-id`
+- `gestalt-send --url http://remote:57417 --token abc123 agent-id`
 
 ## Configuration
 
@@ -284,7 +286,8 @@ Run `gestalt --help` or `gestalt-send --help` for the full list. Environment
 variables remain supported for backward compatibility.
 
 Environment variables:
-- `GESTALT_PORT` (default 8080)
+- `GESTALT_PORT` (default 57417)
+- `GESTALT_BACKEND_PORT` (default random)
 - `GESTALT_SHELL` (default: system shell)
 - `GESTALT_TOKEN` (default: empty, disables auth)
 - `GESTALT_SESSION_PERSIST` (default true)
@@ -522,7 +525,7 @@ Usage:
 - `echo "status" | gestalt-send Architect`
 
 Flags:
-- `--url`: server URL (default `GESTALT_URL` or `http://localhost:8080`)
+- `--url`: server URL (default `GESTALT_URL` or `http://localhost:57417`)
 - `--token`: auth token (default `GESTALT_TOKEN`)
 - `--start`: auto-start the agent if not running, then retry input
 - `--verbose`: log request/response details to stderr (token masked)

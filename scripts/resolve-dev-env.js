@@ -58,7 +58,7 @@ function getFreePort() {
 }
 
 async function main() {
-  let backendPort = process.env.GESTALT_PORT || "";
+  let backendPort = process.env.GESTALT_BACKEND_PORT || "";
   let backendURL = process.env.GESTALT_BACKEND_URL || "";
 
   if (!backendPort && backendURL) {

@@ -5,6 +5,7 @@
   import WorkflowCard from '../components/WorkflowCard.svelte'
 
   export let onViewTerminal = () => {}
+  export let temporalUiUrl = ''
 
   let workflows = []
   let loading = false
@@ -146,6 +147,7 @@
       {#each workflows as workflow (workflow.session_id)}
         <WorkflowCard
           {workflow}
+          {temporalUiUrl}
           expanded={expandedIds.has(workflow.session_id)}
           actionPending={pendingActions.has(workflow.session_id)}
           onToggle={toggleExpanded}

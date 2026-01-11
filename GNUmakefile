@@ -31,7 +31,7 @@ dev:
 	@eval "$$(node scripts/resolve-dev-env.js)"; \
 	echo "Starting backend on $$BACKEND_URL and Vite on http://localhost:5173"; \
 	trap 'pkill -P $$; exit 0' INT TERM; \
-	( $(GO) run ./cmd/gestalt --port $$BACKEND_PORT ) & \
+	( $(GO) run ./cmd/gestalt --backend-port $$BACKEND_PORT ) & \
 	( cd frontend && GESTALT_BACKEND_URL=$$BACKEND_URL npm run dev ) & \
 	wait
 

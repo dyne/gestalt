@@ -8,6 +8,7 @@
   export let onToggle = () => {}
   export let onViewTerminal = () => {}
   export let onResume = () => {}
+  export let temporalUiUrl = ''
 
   const formatTime = (value) => {
     return formatRelativeTime(value) || '-'
@@ -69,7 +70,7 @@
   </div>
 
   {#if expanded}
-    <WorkflowDetail {workflow} {onViewTerminal} {onResume} {actionPending} />
+    <WorkflowDetail {workflow} {onViewTerminal} {onResume} {actionPending} {temporalUiUrl} />
   {/if}
 </article>
 

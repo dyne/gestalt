@@ -20,6 +20,9 @@ const MockTerminal = vi.hoisted(
       loadAddon() {}
       open(container) {
         this.element = document.createElement('div')
+        this.viewport = document.createElement('div')
+        this.viewport.className = 'xterm-viewport'
+        this.element.appendChild(this.viewport)
         this.element.setPointerCapture = () => {}
         this.element.releasePointerCapture = () => {}
         container.appendChild(this.element)
@@ -555,5 +558,27 @@ describe('terminalStore', () => {
     expect(state.term.scrollLinesCalls).toEqual([])
 
     releaseTerminalState('mouse-scroll')
+  })
+
+  it('allows scrollbar touch drag without custom scroll handling', async () => {
+    const state = getTerminalState('scrollbar-touch')
+    const container = document.createElement('div')
+    state.attach(container)
+
+    const element = state.term.element
+    const viewport = state.term.viewport
+    viewport.dispatchEvent(
+      createPointerEvent('pointerdown', { pointerType: 'touch', clientY: 100, pointerId: 1 })
+    )
+    viewport.dispatchEvent(
+      createPointerEvent('pointermove', { pointerType: 'touch', clientY: 0, pointerId: 1 })
+    )
+    viewport.dispatchEvent(
+      createPointerEvent('pointerup', { pointerType: 'touch', clientY: 0, pointerId: 1 })
+    )
+
+    expect(state.term.scrollLinesCalls).toEqual([])
+
+    releaseTerminalState('scrollbar-touch')
   })
 })

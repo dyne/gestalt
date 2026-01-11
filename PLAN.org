@@ -741,7 +741,7 @@
    Tests: Update/extend touch inertia unit tests as needed; confirm on device.
    Done when: Momentum lasts longer, decelerates smoothly, and successive swipes add speed.
 
-** TODO [#B] Preserve scrollbar drag behavior on touch
+** DONE [#B] Preserve scrollbar drag behavior on touch
    Why: Touching the scrollbar should drag the viewport rather than triggering touch scroll handlers.
    Change:
    - Detect touch interaction on `.xterm-scrollbar`/`.xterm-viewport` scrollbar area.

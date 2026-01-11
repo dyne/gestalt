@@ -364,6 +364,10 @@ const createTerminalState = (terminalId) => {
     const handlePointerDown = (event) => {
       if (event.pointerType !== 'touch') return
       if (activePointerId !== null) return
+      if (event.target instanceof Element) {
+        const onScrollbar = event.target.closest('.xterm-viewport')
+        if (onScrollbar) return
+      }
       if (inertiaActive) {
         inertiaVelocityPxPerMs = clampVelocity(
           inertiaVelocityPxPerMs * INERTIA_VELOCITY_BOOST + velocityPxPerMs

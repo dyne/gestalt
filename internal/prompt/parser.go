@@ -168,10 +168,7 @@ func (p *Parser) readIncludeFile(filename string) ([]byte, error) {
 	if err == nil {
 		return data, nil
 	}
-	if errors.Is(err, errBinaryInclude) {
-		return nil, err
-	}
-	if !isNotExist(err) {
+	if !isNotExist(err) && !errors.Is(err, errBinaryInclude) {
 		return nil, err
 	}
 
@@ -210,13 +207,26 @@ func promptCandidates(promptName string) []string {
 }
 
 func includeCandidates(includeName string) []string {
-	extension := strings.ToLower(path.Ext(includeName))
-	if extension == ".tmpl" || extension == ".txt" {
-		return []string{includeName}
+	cleaned := strings.TrimSpace(strings.ReplaceAll(includeName, "\\", "/"))
+	if cleaned == "" {
+		return nil
+	}
+	extension := strings.ToLower(path.Ext(cleaned))
+	if extension == ".tmpl" || extension == ".txt" || extension == ".md" {
+		return []string{cleaned}
+	}
+	if strings.Contains(cleaned, "/") {
+		return []string{
+			cleaned,
+			cleaned + ".txt",
+			cleaned + ".md",
+		}
 	}
 	return []string{
-		includeName,
-		includeName + ".txt",
+		cleaned,
+		cleaned + ".tmpl",
+		cleaned + ".txt",
+		cleaned + ".md",
 	}
 }
 

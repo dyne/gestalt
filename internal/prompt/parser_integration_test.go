@@ -66,6 +66,34 @@ func TestRenderFromFilesystem(t *testing.T) {
 	}
 }
 
+func TestRenderPromptDirExtensionLookup(t *testing.T) {
+	root := t.TempDir()
+	promptsDir := filepath.Join(root, "config", "prompts")
+	if err := os.MkdirAll(promptsDir, 0755); err != nil {
+		t.Fatalf("mkdir prompts: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(promptsDir, "snippet.md"), []byte("prompt snippet\n"), 0644); err != nil {
+		t.Fatalf("write snippet: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(promptsDir, "include-md.tmpl"), []byte("Before\n{{include snippet}}\nAfter\n"), 0644); err != nil {
+		t.Fatalf("write template: %v", err)
+	}
+
+	parser := NewParser(os.DirFS(root), "config/prompts", root)
+	result, err := parser.Render("include-md")
+	if err != nil {
+		t.Fatalf("render include-md: %v", err)
+	}
+	expectedContent := "Before\nprompt snippet\nAfter\n"
+	if string(result.Content) != expectedContent {
+		t.Fatalf("unexpected content: %q", string(result.Content))
+	}
+	expectedFiles := []string{"include-md.tmpl", "snippet.md"}
+	if strings.Join(result.Files, ",") != strings.Join(expectedFiles, ",") {
+		t.Fatalf("unexpected files: %#v", result.Files)
+	}
+}
+
 func TestRenderIncludeFromWorkdirRoot(t *testing.T) {
 	root := t.TempDir()
 	promptsDir := filepath.Join(root, "config", "prompts")

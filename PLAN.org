@@ -67,7 +67,7 @@
    - Include resolution:
      - Strip include directive line from output (don't leave markers)
      - Try included filename as-is first, then with .txt appended (e.g., "common" → "common.txt")
-     - Resolve includes from the workdir root (allow any text file path), fallback to promptDir if needed
+     - Resolve includes from the workdir root (allow any text file path), and for bare filenames also search promptDir with .tmpl/.txt/.md
      - Skip includes that are binary or non-text
      - Cycle detection: track include stack, return error if depth > 3 or if filename already in stack
    - Error handling:

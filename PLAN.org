@@ -67,7 +67,8 @@
    - Include resolution:
      - Strip include directive line from output (don't leave markers)
      - For includes without extensions, try .tmpl, .md, then .txt (e.g., "common" → "common.tmpl")
-     - Resolve includes from config/prompts first, then fall back to .gestalt/prompts
+     - If the include uses a path (contains / or starts with ./), load that exact path from the workdir root
+     - Resolve bare includes from config/prompts first, then fall back to .gestalt/prompts
      - Skip includes that are binary or non-text
      - Cycle detection: track include stack, return error if depth > 3 or if filename already in stack
    - Error handling:

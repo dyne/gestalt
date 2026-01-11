@@ -45,7 +45,7 @@ This repo is a Go backend + Svelte frontend for a multi-terminal dashboard with 
 ## Prompt templating
 - Prompt files can be `.txt` (plain) or `.tmpl` (templated); templates render at agent start.
 - Include syntax: `{{include filename}}` on its own line.
-- Include resolution: search `config/prompts` first (bare names try `.tmpl`, `.md`, then `.txt`), then fall back to `.gestalt/prompts`.
+- Include resolution: if an include uses a path (contains `/` or starts with `./`), load that exact path from the workdir root; otherwise search `config/prompts` first (bare names try `.tmpl`, `.md`, then `.txt`), then fall back to `.gestalt/prompts`.
 - Includes are text-only (binary files are skipped) and depth-limited to 3.
 - Failed includes are silent (the directive line is skipped).
 - Use cases: shared fragments, DRY prompts, easier maintenance.

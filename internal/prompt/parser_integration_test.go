@@ -160,6 +160,34 @@ func TestRenderIncludeFromGestaltPrompts(t *testing.T) {
 	}
 }
 
+func TestRenderIncludePathFromWorkdir(t *testing.T) {
+	root := t.TempDir()
+	promptsDir := filepath.Join(root, "config", "prompts")
+	if err := os.MkdirAll(promptsDir, 0755); err != nil {
+		t.Fatalf("mkdir prompts: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("root readme\n"), 0644); err != nil {
+		t.Fatalf("write readme: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(promptsDir, "path-include.tmpl"), []byte("Start\n{{include ./README.md}}\nEnd\n"), 0644); err != nil {
+		t.Fatalf("write template: %v", err)
+	}
+
+	parser := NewParser(os.DirFS(root), "config/prompts", root)
+	result, err := parser.Render("path-include")
+	if err != nil {
+		t.Fatalf("render path-include: %v", err)
+	}
+	expectedContent := "Start\nroot readme\nEnd\n"
+	if string(result.Content) != expectedContent {
+		t.Fatalf("unexpected content: %q", string(result.Content))
+	}
+	expectedFiles := []string{"path-include.tmpl", "README.md"}
+	if strings.Join(result.Files, ",") != strings.Join(expectedFiles, ",") {
+		t.Fatalf("unexpected files: %#v", result.Files)
+	}
+}
+
 func TestRenderIncludePrefersConfigPrompts(t *testing.T) {
 	root := t.TempDir()
 	promptsDir := filepath.Join(root, "config", "prompts")

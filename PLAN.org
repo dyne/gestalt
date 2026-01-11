@@ -619,7 +619,7 @@
    Tests: Manual test: tap without scrolling, small movements ignored, deliberate scroll works
    Done when: Threshold implemented, accidental scrolls prevented, feels responsive
 
-** TODO [#B] Preserve xterm text selection for mouse
+** DONE [#B] Preserve xterm text selection for mouse
    Why: Mouse users must still be able to select text for clipboard copy
    Change:
    - Verify mouse behavior: pointerType === 'mouse' events are NOT intercepted
@@ -632,6 +632,9 @@
    - Edge case: stylus/pen (pointerType === 'pen') → treat as mouse or touch?
    - Decision: treat pen as mouse (allow selection) - pens are precise like mice
    - Update handler: if (event.pointerType !== 'touch') return (allows mouse + pen)
+   Implementation notes:
+   - Pointer handlers return early for non-touch pointer types; mouse/pen events reach xterm unchanged.
+   - Added test coverage to ensure mouse pointer events do not trigger scrolling.
    Tests: Manual test with real mouse, verify selection works exactly as before
    Done when: Mouse selection verified working, no regression in mouse behavior
 

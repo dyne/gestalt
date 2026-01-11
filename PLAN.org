@@ -687,7 +687,7 @@
    Tests: Manual test with and without visual feedback, gather user preference
    Done when: Visual feedback decision made, implemented if desired (optional)
 
-** TODO [#B] Add touch scroll integration tests (automated)
+** DONE [#B] Add touch scroll integration tests (automated)
    Why: Prevent regressions, document expected behavior in code
    Change:
    - Create frontend/src/lib/terminalStore.test.js (if doesn't exist)
@@ -705,6 +705,9 @@
    - Challenge: PointerEvent not fully supported in jsdom (may need polyfill)
    - Alternative: manual testing + detailed documentation if mocking too complex
    - Document: "Touch scroll tested manually on iOS/Android, see TESTING.md"
+   Notes:
+   - Added pointer scroll tests in `frontend/tests/terminalStore.test.js` covering touch vs mouse,
+     thresholds, sensitivity, and inertial scroll behavior.
    Tests: Automated test suite (preferred) or manual test checklist (fallback)
    Done when: Touch scroll behavior covered by tests or documented test procedure
 

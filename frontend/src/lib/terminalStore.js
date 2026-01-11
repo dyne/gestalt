@@ -15,11 +15,12 @@ const HISTORY_WARNING_MS = 5000
 const HISTORY_LINES = 2000
 const DEFAULT_LINE_HEIGHT_PX = 20
 const TOUCH_SCROLL_THRESHOLD_PX = 10
-const INERTIA_MIN_VELOCITY_PX_PER_MS = 0.05
+const INERTIA_MIN_VELOCITY_PX_PER_MS = 0.02
 const INERTIA_MAX_VELOCITY_PX_PER_MS = 2
-const INERTIA_DECAY = 0.95
+const INERTIA_DECAY = 0.98
 const INERTIA_FRAME_MS = 16
-const INERTIA_VELOCITY_SMOOTHING = 0.8
+const INERTIA_VELOCITY_SMOOTHING = 0.6
+const INERTIA_VELOCITY_BOOST = 0.85
 const MOUSE_MODE_PARAMS = new Set([
   9,
   1000,
@@ -279,6 +280,7 @@ const createTerminalState = (terminalId) => {
     let inertiaVelocityPxPerMs = 0
     let inertiaActive = false
     let inertiaFrameId = null
+    let inertiaRemainderLines = 0
 
     const nowMs = () =>
       typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -306,6 +308,7 @@ const createTerminalState = (terminalId) => {
       }
       inertiaFrameId = null
       inertiaVelocityPxPerMs = 0
+      inertiaRemainderLines = 0
     }
 
     const startInertia = () => {
@@ -323,9 +326,11 @@ const createTerminalState = (terminalId) => {
         lastFrameTime = currentTime
         if (deltaTime > 0) {
           const pixelsPerLine = getPixelsPerLine()
-          const deltaLines = Math.round(
-            ((inertiaVelocityPxPerMs * deltaTime) / pixelsPerLine) * scrollSensitivity
-          )
+          const deltaLinesFloat =
+            ((inertiaVelocityPxPerMs * deltaTime) / pixelsPerLine) * scrollSensitivity +
+            inertiaRemainderLines
+          const deltaLines = Math.trunc(deltaLinesFloat)
+          inertiaRemainderLines = deltaLinesFloat - deltaLines
           if (deltaLines) {
             term.scrollLines(-deltaLines)
             syncScrollState()
@@ -359,13 +364,18 @@ const createTerminalState = (terminalId) => {
     const handlePointerDown = (event) => {
       if (event.pointerType !== 'touch') return
       if (activePointerId !== null) return
-      stopInertia()
+      if (inertiaActive) {
+        inertiaVelocityPxPerMs = clampVelocity(
+          inertiaVelocityPxPerMs * INERTIA_VELOCITY_BOOST + velocityPxPerMs
+        )
+        stopInertia()
+      }
       activePointerId = event.pointerId
       startY = event.clientY
       lastY = event.clientY
       lastMoveTime = typeof event.timeStamp === 'number' ? event.timeStamp : nowMs()
       isScrolling = false
-      velocityPxPerMs = 0
+      velocityPxPerMs = inertiaVelocityPxPerMs
       event.preventDefault()
       event.stopPropagation()
       if (element.setPointerCapture) {

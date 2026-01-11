@@ -451,6 +451,91 @@ describe('terminalStore', () => {
     globalThis.cancelAnimationFrame = originalCancel
   })
 
+  it('accumulates momentum with successive swipes', async () => {
+    const originalRaf = globalThis.requestAnimationFrame
+    const originalCancel = globalThis.cancelAnimationFrame
+    let rafTime = 32
+    let rafCallbacks = []
+
+    globalThis.requestAnimationFrame = (callback) => {
+      rafCallbacks.push(callback)
+      return rafCallbacks.length
+    }
+    globalThis.cancelAnimationFrame = () => {}
+
+    const runRaf = () => {
+      const callbacks = rafCallbacks
+      rafCallbacks = []
+      rafTime += 16
+      callbacks.forEach((callback) => callback(rafTime))
+    }
+
+    const state = getTerminalState('touch-inertia-boost')
+    const container = document.createElement('div')
+    state.attach(container)
+
+    const element = state.term.element
+    element.dispatchEvent(
+      createPointerEvent('pointerdown', {
+        pointerType: 'touch',
+        clientY: 120,
+        pointerId: 1,
+        timeStamp: 0,
+      })
+    )
+    element.dispatchEvent(
+      createPointerEvent('pointermove', {
+        pointerType: 'touch',
+        clientY: 0,
+        pointerId: 1,
+        timeStamp: 16,
+      })
+    )
+    element.dispatchEvent(
+      createPointerEvent('pointerup', {
+        pointerType: 'touch',
+        clientY: 0,
+        pointerId: 1,
+        timeStamp: 32,
+      })
+    )
+
+    runRaf()
+
+    element.dispatchEvent(
+      createPointerEvent('pointerdown', {
+        pointerType: 'touch',
+        clientY: 120,
+        pointerId: 2,
+        timeStamp: 48,
+      })
+    )
+    element.dispatchEvent(
+      createPointerEvent('pointermove', {
+        pointerType: 'touch',
+        clientY: 0,
+        pointerId: 2,
+        timeStamp: 64,
+      })
+    )
+    element.dispatchEvent(
+      createPointerEvent('pointerup', {
+        pointerType: 'touch',
+        clientY: 0,
+        pointerId: 2,
+        timeStamp: 80,
+      })
+    )
+
+    runRaf()
+
+    expect(state.term.scrollLinesCalls.length).toBeGreaterThan(2)
+
+    releaseTerminalState('touch-inertia-boost')
+    globalThis.requestAnimationFrame = originalRaf
+    globalThis.cancelAnimationFrame = originalCancel
+  })
+
   it('ignores mouse pointer events for scrolling', async () => {
     const state = getTerminalState('mouse-scroll')
     const container = document.createElement('div')

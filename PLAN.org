@@ -730,6 +730,28 @@
    Tests: None (documentation only)
    Done when: Touch scroll documented in user and developer docs
 
+** DONE [#C] Tune inertial scroll feel (duration + additive momentum)
+   Why: Improve momentum duration, deceleration feel, and allow successive swipes to add speed.
+   Change:
+   - Increase inertia duration with slower decay and lower cutoff threshold.
+   - Accumulate fractional scroll lines to avoid “stepy” deceleration.
+   - Preserve/add velocity when a new swipe happens during momentum for natural acceleration.
+   - Clamp velocity to avoid excessive jumps.
+   - Adjust smoothing to capture faster flicks without jitter.
+   Tests: Update/extend touch inertia unit tests as needed; confirm on device.
+   Done when: Momentum lasts longer, decelerates smoothly, and successive swipes add speed.
+
+** TODO [#B] Preserve scrollbar drag behavior on touch
+   Why: Touching the scrollbar should drag the viewport rather than triggering touch scroll handlers.
+   Change:
+   - Detect touch interaction on `.xterm-scrollbar`/`.xterm-viewport` scrollbar area.
+   - If touch starts on scrollbar, bypass custom touch scrolling and allow native drag.
+   - Ensure pointer capture is not set for scrollbar touches.
+   - Keep mouse selection behavior unchanged.
+   - Confirm on device that dragging the scrollbar works and touch scrolling still works elsewhere.
+   Tests: Manual test on touch devices; add unit coverage if feasible.
+   Done when: Touching the scrollbar uses native scrollbar drag without breaking touch scrolling.
+
 ** TODO [#A] Validate with user testing before marking done
    Why: Ensure solution actually solves the problem, not just technically correct
    Change:

@@ -799,7 +799,7 @@
    Tests: Unit tests for parser and each operation; verify edits stay within target section.
    Done when: CLI can read/update PLAN.org reliably and tests pass.
 
-** TODO [#B] Add LLM-focused documentation for planctl
+** DONE [#B] Add LLM-focused documentation for planctl
    Why: LLMs need concise guidance on how to call the tool safely.
    Change:
    - Add `scripts/planctl/README.md` with examples for each subcommand.

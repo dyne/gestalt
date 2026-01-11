@@ -115,6 +115,11 @@ type statusResponse struct {
 	GitOrigin      string    `json:"git_origin"`
 	GitBranch      string    `json:"git_branch"`
 	Version        string    `json:"version"`
+	Major          int       `json:"major"`
+	Minor          int       `json:"minor"`
+	Patch          int       `json:"patch"`
+	Built          string    `json:"built"`
+	GitCommit      string    `json:"git_commit,omitempty"`
 	TemporalUIURL  string    `json:"temporal_ui_url,omitempty"`
 }
 
@@ -232,6 +237,7 @@ func (h *RestHandler) handleStatus(w http.ResponseWriter, r *http.Request) *apiE
 
 	terminals := h.Manager.List()
 	gitOrigin, gitBranch := h.gitInfo()
+	versionInfo := version.GetVersionInfo()
 	response := statusResponse{
 		TerminalCount:  len(terminals),
 		ServerTime:     time.Now().UTC(),
@@ -239,7 +245,12 @@ func (h *RestHandler) handleStatus(w http.ResponseWriter, r *http.Request) *apiE
 		WorkingDir:     workDir,
 		GitOrigin:      gitOrigin,
 		GitBranch:      gitBranch,
-		Version:        version.Version,
+		Version:        versionInfo.Version,
+		Major:          versionInfo.Major,
+		Minor:          versionInfo.Minor,
+		Patch:          versionInfo.Patch,
+		Built:          versionInfo.Built,
+		GitCommit:      versionInfo.GitCommit,
 		TemporalUIURL:  buildTemporalUIURL(r, h.TemporalUIPort),
 	}
 

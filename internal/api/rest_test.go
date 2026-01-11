@@ -278,8 +278,18 @@ func TestStatusHandlerReturnsCount(t *testing.T) {
 	if payload.WorkingDir != expectedDir {
 		t.Fatalf("expected working dir %q, got %q", expectedDir, payload.WorkingDir)
 	}
-	if payload.Version != version.Version {
-		t.Fatalf("expected version %q, got %q", version.Version, payload.Version)
+	info := version.GetVersionInfo()
+	if payload.Version != info.Version {
+		t.Fatalf("expected version %q, got %q", info.Version, payload.Version)
+	}
+	if payload.Major != info.Major || payload.Minor != info.Minor || payload.Patch != info.Patch {
+		t.Fatalf("expected version %d.%d.%d, got %d.%d.%d", info.Major, info.Minor, info.Patch, payload.Major, payload.Minor, payload.Patch)
+	}
+	if payload.Built != info.Built {
+		t.Fatalf("expected built %q, got %q", info.Built, payload.Built)
+	}
+	if payload.GitCommit != info.GitCommit {
+		t.Fatalf("expected git commit %q, got %q", info.GitCommit, payload.GitCommit)
 	}
 }
 

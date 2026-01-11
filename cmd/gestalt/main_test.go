@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gestalt/internal/logging"
@@ -281,6 +282,20 @@ func TestPreparePlanFilePrefersExistingPlan(t *testing.T) {
 			t.Fatalf("expected duplicate plan warning")
 		}
 	})
+}
+
+func TestLogVersionInfo(t *testing.T) {
+	buffer := logging.NewLogBuffer(5)
+	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, io.Discard)
+	logVersionInfo(logger)
+
+	entries := buffer.List()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 log entry, got %d", len(entries))
+	}
+	if !strings.HasPrefix(entries[0].Message, "Gestalt version ") {
+		t.Fatalf("unexpected log message %q", entries[0].Message)
+	}
 }
 
 func withTempDir(t *testing.T, fn func(root string)) {

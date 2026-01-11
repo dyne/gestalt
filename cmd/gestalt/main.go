@@ -164,6 +164,7 @@ func main() {
 	if cfg.Verbose {
 		logStartupFlags(logger, cfg)
 	}
+	logVersionInfo(logger)
 	ensureStateDir(cfg, logger)
 
 	temporalDevServer, devServerError := startTemporalDevServer(&cfg, logger)
@@ -1201,6 +1202,26 @@ func logStartupFlags(logger *logging.Logger, cfg Config) {
 	})
 }
 
+func logVersionInfo(logger *logging.Logger) {
+	if logger == nil {
+		return
+	}
+	info := version.GetVersionInfo()
+	label := formatVersionInfo(info)
+	message := fmt.Sprintf("Gestalt version %s", label)
+	var details []string
+	if info.Built != "" {
+		details = append(details, fmt.Sprintf("built %s", info.Built))
+	}
+	if info.GitCommit != "" {
+		details = append(details, fmt.Sprintf("commit %s", info.GitCommit))
+	}
+	if len(details) > 0 {
+		message = fmt.Sprintf("%s (%s)", message, strings.Join(details, ", "))
+	}
+	logger.Info(message, nil)
+}
+
 func formatBoolFlag(name string, value bool) string {
 	if value {
 		return name
@@ -1643,7 +1664,7 @@ func prepareConfig(cfg Config, logger *logging.Logger) (configPaths, error) {
 		}
 	}
 	if err == nil {
-		if compatibilityErr := config.CheckVersionCompatibility(installed, current); compatibilityErr != nil {
+		if compatibilityErr := config.CheckVersionCompatibility(installed, current, logger); compatibilityErr != nil {
 			if cfg.ForceUpgrade {
 				if logger != nil {
 					logger.Warn("config version check overridden by --force-upgrade", map[string]string{

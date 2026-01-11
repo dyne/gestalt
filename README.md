@@ -397,7 +397,7 @@ on teardown to avoid leaks.
 ## API endpoints
 
 API (development snapshot)
-- GET /api/status - system status (terminal count, server time)
+- GET /api/status - system status (terminal count, server time, version fields: version/major/minor/patch/built/git_commit)
 - GET /api/terminals - list active terminals
 - POST /api/terminals - create a new terminal
 - DELETE /api/terminals/:id - terminate a terminal

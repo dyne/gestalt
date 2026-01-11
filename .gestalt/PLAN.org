@@ -221,7 +221,7 @@
    Tests: Benchmark extraction with large config sets
    Done when: Extraction completes in <100ms for typical configs
 
-** WIP [#B] Expose version info in API and logs
+** DONE [#B] Expose version info in API and logs
    Why: Users and monitoring tools need to see Gestalt version
    Change:
    - Update /api/status to include version object
@@ -233,7 +233,7 @@
    Tests: Verify version appears in /api/status and startup logs
    Done when: Version fully visible in API, logs, and UI
 
-** TODO [#B] Update frontend for .gestalt/PLAN.org
+** WIP [#B] Update frontend for .gestalt/PLAN.org
    Why: Ensure UI correctly fetches PLAN.org from new location
    Change:
    - Verify GET /api/plan still works (backend handles path change)

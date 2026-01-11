@@ -164,35 +164,32 @@ func (p *Parser) readIncludeFile(filename string) ([]byte, error) {
 	if !ok {
 		return nil, fs.ErrNotExist
 	}
-	data, err := readTextFile(filepath.Join(p.includeRoot, cleaned))
+
+	binaryFound := false
+	data, err := p.readPromptInclude(cleaned)
 	if err == nil {
 		return data, nil
 	}
-	if !isNotExist(err) && !errors.Is(err, errBinaryInclude) {
+	if errors.Is(err, errBinaryInclude) {
+		binaryFound = true
+	} else if !isNotExist(err) {
 		return nil, err
 	}
 
-	if p.promptFS != nil {
-		promptPath := path.Join(p.promptDir, cleaned)
-		data, err := fs.ReadFile(p.promptFS, promptPath)
-		if err != nil {
-			return nil, err
-		}
-		if !isTextData(data) {
-			return nil, errBinaryInclude
-		}
+	data, err = p.readGestaltInclude(cleaned)
+	if err == nil {
 		return data, nil
 	}
-
-	promptPath := filepath.Join(p.promptDir, cleaned)
-	data, err = os.ReadFile(promptPath)
-	if err != nil {
+	if errors.Is(err, errBinaryInclude) {
+		binaryFound = true
+	} else if !isNotExist(err) {
 		return nil, err
 	}
-	if !isTextData(data) {
+
+	if binaryFound {
 		return nil, errBinaryInclude
 	}
-	return data, nil
+	return nil, fs.ErrNotExist
 }
 
 func promptCandidates(promptName string) []string {
@@ -215,19 +212,32 @@ func includeCandidates(includeName string) []string {
 	if extension == ".tmpl" || extension == ".txt" || extension == ".md" {
 		return []string{cleaned}
 	}
-	if strings.Contains(cleaned, "/") {
-		return []string{
-			cleaned,
-			cleaned + ".md",
-			cleaned + ".txt",
-		}
-	}
 	return []string{
-		cleaned,
 		cleaned + ".tmpl",
 		cleaned + ".md",
 		cleaned + ".txt",
 	}
+}
+
+func (p *Parser) readPromptInclude(cleaned string) ([]byte, error) {
+	if p.promptFS != nil {
+		promptPath := path.Join(p.promptDir, cleaned)
+		data, err := fs.ReadFile(p.promptFS, promptPath)
+		if err != nil {
+			return nil, err
+		}
+		if !isTextData(data) {
+			return nil, errBinaryInclude
+		}
+		return data, nil
+	}
+	promptPath := filepath.Join(p.promptDir, cleaned)
+	return readTextFile(promptPath)
+}
+
+func (p *Parser) readGestaltInclude(cleaned string) ([]byte, error) {
+	gestaltPath := filepath.Join(p.includeRoot, ".gestalt", "prompts", filepath.FromSlash(cleaned))
+	return readTextFile(gestaltPath)
 }
 
 func parseIncludeDirective(line string) (string, bool) {

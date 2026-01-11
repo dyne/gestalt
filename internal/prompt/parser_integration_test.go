@@ -128,14 +128,18 @@ func TestRenderPromptDirExtensionPriority(t *testing.T) {
 	}
 }
 
-func TestRenderIncludeFromWorkdirRoot(t *testing.T) {
+func TestRenderIncludeFromGestaltPrompts(t *testing.T) {
 	root := t.TempDir()
 	promptsDir := filepath.Join(root, "config", "prompts")
 	if err := os.MkdirAll(promptsDir, 0755); err != nil {
 		t.Fatalf("mkdir prompts: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "notes.md"), []byte("root notes\n"), 0644); err != nil {
-		t.Fatalf("write root include: %v", err)
+	gestaltPrompts := filepath.Join(root, ".gestalt", "prompts")
+	if err := os.MkdirAll(gestaltPrompts, 0755); err != nil {
+		t.Fatalf("mkdir gestalt prompts: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(gestaltPrompts, "notes.md"), []byte("gestalt notes\n"), 0644); err != nil {
+		t.Fatalf("write gestalt include: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(promptsDir, "root-include.tmpl"), []byte("Start\n{{include notes.md}}\nEnd\n"), 0644); err != nil {
 		t.Fatalf("write template: %v", err)
@@ -146,11 +150,46 @@ func TestRenderIncludeFromWorkdirRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render root-include: %v", err)
 	}
-	expectedContent := "Start\nroot notes\nEnd\n"
+	expectedContent := "Start\ngestalt notes\nEnd\n"
 	if string(result.Content) != expectedContent {
 		t.Fatalf("unexpected content: %q", string(result.Content))
 	}
 	expectedFiles := []string{"root-include.tmpl", "notes.md"}
+	if strings.Join(result.Files, ",") != strings.Join(expectedFiles, ",") {
+		t.Fatalf("unexpected files: %#v", result.Files)
+	}
+}
+
+func TestRenderIncludePrefersConfigPrompts(t *testing.T) {
+	root := t.TempDir()
+	promptsDir := filepath.Join(root, "config", "prompts")
+	if err := os.MkdirAll(promptsDir, 0755); err != nil {
+		t.Fatalf("mkdir prompts: %v", err)
+	}
+	gestaltPrompts := filepath.Join(root, ".gestalt", "prompts")
+	if err := os.MkdirAll(gestaltPrompts, 0755); err != nil {
+		t.Fatalf("mkdir gestalt prompts: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(promptsDir, "notes.md"), []byte("config notes\n"), 0644); err != nil {
+		t.Fatalf("write config include: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(gestaltPrompts, "notes.md"), []byte("gestalt notes\n"), 0644); err != nil {
+		t.Fatalf("write gestalt include: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(promptsDir, "priority-include.tmpl"), []byte("Start\n{{include notes.md}}\nEnd\n"), 0644); err != nil {
+		t.Fatalf("write template: %v", err)
+	}
+
+	parser := NewParser(os.DirFS(root), "config/prompts", root)
+	result, err := parser.Render("priority-include")
+	if err != nil {
+		t.Fatalf("render priority-include: %v", err)
+	}
+	expectedContent := "Start\nconfig notes\nEnd\n"
+	if string(result.Content) != expectedContent {
+		t.Fatalf("unexpected content: %q", string(result.Content))
+	}
+	expectedFiles := []string{"priority-include.tmpl", "notes.md"}
 	if strings.Join(result.Files, ",") != strings.Join(expectedFiles, ",") {
 		t.Fatalf("unexpected files: %#v", result.Files)
 	}
@@ -162,7 +201,11 @@ func TestRenderSkipsBinaryInclude(t *testing.T) {
 	if err := os.MkdirAll(promptsDir, 0755); err != nil {
 		t.Fatalf("mkdir prompts: %v", err)
 	}
-	binaryPath := filepath.Join(root, "binary.dat")
+	gestaltPrompts := filepath.Join(root, ".gestalt", "prompts")
+	if err := os.MkdirAll(gestaltPrompts, 0755); err != nil {
+		t.Fatalf("mkdir gestalt prompts: %v", err)
+	}
+	binaryPath := filepath.Join(gestaltPrompts, "binary.dat")
 	if err := os.WriteFile(binaryPath, []byte{0x00, 0x01, 0x02}, 0644); err != nil {
 		t.Fatalf("write binary: %v", err)
 	}

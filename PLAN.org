@@ -477,7 +477,7 @@
    Tests: Manual touch testing with logging, document exact event flow
    Done when: Root cause documented with evidence, solution approach validated
 
-** TODO [#B] Choose between Touch Events vs Pointer Events API
+** DONE [#B] Choose between Touch Events vs Pointer Events API
    Why: Pointer Events unify mouse/touch/pen and provide pointerType detection
    Change:
    - Compare Touch Events API (touchstart/move/end) vs Pointer Events API (pointerdown/move/up)
@@ -491,6 +491,11 @@
    - Check event.pointerType === 'touch' to distinguish from mouse clicks
    - Pointer Events have better passive/active coordination (can preventDefault in move after checking type)
    - Document decision with rationale for future reference
+   Decision:
+   - Use Pointer Events API with `pointerType === 'touch'` filtering.
+   - Rationale: single unified API, reliable pointer type detection, fewer passive listener pitfalls,
+     and easier capture-phase interception before xterm handlers while leaving mouse/pen selection intact.
+   - Browser support is sufficient for target browsers (modern Safari/Chrome/Edge/Firefox).
    Tests: None (design decision)
    Done when: API choice documented with technical justification
 

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strconv"
 	"sync"
+
+	"gestalt/internal/event"
 )
 
 const (
@@ -15,15 +17,15 @@ const (
 
 // EventHub manages subscriptions and publishes higher-level events.
 type EventHub struct {
-	watcher           Watch
-	mutex             sync.Mutex
-	subscribers       map[string]map[string]func(Event)
-	subscriptionTypes map[string]string
-	watches           map[string]Handle
-	nextID            uint64
-	ctx               context.Context
-	cancel            context.CancelFunc
-	closeOnce         sync.Once
+	watcher       Watch
+	mutex         sync.Mutex
+	subscriptions map[string]func()
+	watches       map[string]Handle
+	nextID        uint64
+	ctx           context.Context
+	cancel        context.CancelFunc
+	closeOnce     sync.Once
+	bus           *event.Bus[Event]
 }
 
 // NewEventHub creates an EventHub tied to the provided context.
@@ -33,12 +35,14 @@ func NewEventHub(ctx context.Context, watcher Watch) *EventHub {
 	}
 	derived, cancel := context.WithCancel(ctx)
 	hub := &EventHub{
-		watcher:           watcher,
-		subscribers:       make(map[string]map[string]func(Event)),
-		subscriptionTypes: make(map[string]string),
-		watches:           make(map[string]Handle),
-		ctx:               derived,
-		cancel:            cancel,
+		watcher:       watcher,
+		subscriptions: make(map[string]func()),
+		watches:       make(map[string]Handle),
+		ctx:           derived,
+		cancel:        cancel,
+		bus: event.NewBus[Event](derived, event.BusOptions{
+			Name: "watcher_events",
+		}),
 	}
 	go func() {
 		<-derived.Done()
@@ -49,20 +53,26 @@ func NewEventHub(ctx context.Context, watcher Watch) *EventHub {
 
 // Subscribe registers a listener for an event type.
 func (hub *EventHub) Subscribe(eventType string, listener func(Event)) string {
-	if hub == nil || eventType == "" || listener == nil {
+	if hub == nil || hub.bus == nil || eventType == "" || listener == nil {
 		return ""
 	}
 
-	hub.mutex.Lock()
-	defer hub.mutex.Unlock()
+	events, cancel := hub.bus.SubscribeFiltered(func(event Event) bool {
+		return event.Type == eventType
+	})
 
+	hub.mutex.Lock()
 	hub.nextID++
 	id := strconv.FormatUint(hub.nextID, 10)
-	if hub.subscribers[eventType] == nil {
-		hub.subscribers[eventType] = make(map[string]func(Event))
-	}
-	hub.subscribers[eventType][id] = listener
-	hub.subscriptionTypes[id] = eventType
+	hub.subscriptions[id] = cancel
+	hub.mutex.Unlock()
+
+	go func() {
+		for event := range events {
+			listener(event)
+		}
+	}()
+
 	return id
 }
 
@@ -73,45 +83,21 @@ func (hub *EventHub) Unsubscribe(id string) {
 	}
 
 	hub.mutex.Lock()
-	defer hub.mutex.Unlock()
+	cancel, ok := hub.subscriptions[id]
+	delete(hub.subscriptions, id)
+	hub.mutex.Unlock()
 
-	eventType, ok := hub.subscriptionTypes[id]
-	if !ok {
-		return
-	}
-	delete(hub.subscriptionTypes, id)
-
-	listeners := hub.subscribers[eventType]
-	if listeners == nil {
-		return
-	}
-	delete(listeners, id)
-	if len(listeners) == 0 {
-		delete(hub.subscribers, eventType)
+	if ok && cancel != nil {
+		cancel()
 	}
 }
 
 // Publish broadcasts an event to subscribers of its type.
 func (hub *EventHub) Publish(event Event) {
-	if hub == nil || event.Type == "" {
+	if hub == nil || hub.bus == nil || event.Type == "" {
 		return
 	}
-
-	hub.mutex.Lock()
-	listeners := hub.subscribers[event.Type]
-	if len(listeners) == 0 {
-		hub.mutex.Unlock()
-		return
-	}
-	callbacks := make([]func(Event), 0, len(listeners))
-	for _, listener := range listeners {
-		callbacks = append(callbacks, listener)
-	}
-	hub.mutex.Unlock()
-
-	for _, callback := range callbacks {
-		callback(event)
-	}
+	hub.bus.Publish(event)
 }
 
 // WatchFile registers a filesystem watch and publishes file change events.
@@ -183,13 +169,22 @@ func (hub *EventHub) Close() error {
 		if hub.cancel != nil {
 			hub.cancel()
 		}
+		if hub.bus != nil {
+			hub.bus.Close()
+		}
 
 		hub.mutex.Lock()
 		watches := hub.watches
 		hub.watches = make(map[string]Handle)
-		hub.subscribers = make(map[string]map[string]func(Event))
-		hub.subscriptionTypes = make(map[string]string)
+		subscriptions := hub.subscriptions
+		hub.subscriptions = make(map[string]func())
 		hub.mutex.Unlock()
+
+		for _, cancel := range subscriptions {
+			if cancel != nil {
+				cancel()
+			}
+		}
 
 		for _, handle := range watches {
 			if handle == nil {
@@ -210,9 +205,5 @@ func (hub *EventHub) SubscriberCount() int {
 	}
 	hub.mutex.Lock()
 	defer hub.mutex.Unlock()
-	count := 0
-	for _, listeners := range hub.subscribers {
-		count += len(listeners)
-	}
-	return count
+	return len(hub.subscriptions)
 }

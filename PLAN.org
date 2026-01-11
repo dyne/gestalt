@@ -101,7 +101,7 @@
    Tests: Unit tests for filtered subscriptions, type-based filtering
    Done when: Filtered subscriptions work, type-based helpers available
 
-** WIP [#B] Migrate watcher EventHub to generic event bus
+** DONE [#B] Migrate watcher EventHub to generic event bus
    Why: Validate event bus design with real-world usage, remove duplicate code
    Change:
    - Replace internal/watcher/hub.go EventHub with event.Bus[Event]
@@ -117,7 +117,7 @@
    Tests: All watcher tests pass, integration tests for PLAN.org watching
    Done when: EventHub uses generic event bus, no functionality lost
 
-** TODO [#B] Migrate terminal Broadcaster to generic event bus
+** WIP [#B] Migrate terminal Broadcaster to generic event bus
    Why: Unify terminal output streaming with event architecture (code reuse, not semantic unification)
    Change:
    - Replace internal/terminal/broadcaster.go with event.Bus[[]byte]

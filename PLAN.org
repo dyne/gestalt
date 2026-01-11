@@ -1,4 +1,4 @@
-* TODO [#A] Unified event architecture with generic event bus
+* WIP [#A] Unified event architecture with generic event bus
   Goal: Refactor disparate event systems (EventHub, Broadcaster, LogHub) into a single reusable generic event bus, then extend event-driven patterns throughout Gestalt for agent lifecycle, config changes, terminal events, and workflow state.
   Notes:
   - Current state: 3 separate event implementations (watcher/EventHub, terminal/Broadcaster, logging/LogHub)
@@ -27,7 +27,7 @@
   - Breaking changes OK (pre-production), but frontend must never break
   Date: 2026-01-11
 
-** TODO [#A] Design unified event bus architecture
+** DONE [#A] Design unified event bus architecture
    Why: Need clear architecture before implementation to avoid over-engineering or under-designing
    Change:
    - Design event.Bus[T any] generic interface

@@ -638,7 +638,7 @@
    Tests: Manual test with real mouse, verify selection works exactly as before
    Done when: Mouse selection verified working, no regression in mouse behavior
 
-** TODO [#B] Test on real touch devices (phone, tablet)
+** DONE [#B] Test on real touch devices (phone, tablet)
    Why: Touch behavior cannot be reliably simulated, must test on hardware
    Change:
    - Test devices: iOS (Safari), Android (Chrome), tablet (both)
@@ -655,8 +655,22 @@
    - Document any device-specific issues (iOS Safari vs Android Chrome differences)
    - Check for jank, lag, unresponsive touches, unexpected jumps
    - Adjust sensitivity/threshold based on real device feel
+   Status: user confirmed touch scrolling works on real devices.
    Tests: Manual testing on physical devices, document results per device/browser
    Done when: Touch scroll works smoothly on iOS and Android, no device-specific bugs
+
+** TODO [#C] Add inertial touch scrolling (optional)
+   Why: Momentum scrolling can feel more natural on touch devices for long terminal output.
+   Change:
+   - Track touch scroll velocity during pointermove (deltaY / deltaTime).
+   - On pointerup, if velocity exceeds a small threshold, start inertial scroll loop.
+   - Use requestAnimationFrame to apply decaying velocity (friction) over time.
+   - Stop inertia when velocity falls below threshold or user touches again.
+   - Use term.scrollLines with accumulated delta, sync scroll state on each step.
+   - Keep mouse/pen behavior unchanged; inertia applies only to touch pointer type.
+   - Add safety: cap max velocity to prevent large jumps on noisy events.
+   Tests: Manual testing on touch devices; unit test for inertial state/cleanup if feasible.
+   Done when: Fast swipe continues scroll briefly with smooth deceleration.
 
 ** TODO [#C] Add visual feedback for touch scroll (optional)
    Why: Users may want visual indication that touch is active (not strictly required)

@@ -604,7 +604,7 @@
    Tests: Manual testing with various sensitivity values, document optimal range
    Done when: Scroll sensitivity feels natural, configurable, documented
 
-** TODO [#B] Add scroll activation threshold to prevent accidental scrolling
+** DONE [#B] Add scroll activation threshold to prevent accidental scrolling
    Why: Small touch movements (taps, jitters) shouldn't trigger scroll
    Change:
    - In pointermove handler: track cumulative movement from pointerdown

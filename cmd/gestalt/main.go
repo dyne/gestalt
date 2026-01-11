@@ -216,6 +216,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	validatePromptFiles(configPaths.ConfigDir, logger)
+
 	configFS := buildConfigFS(configPaths.Root)
 	skills, err := loadSkills(logger, configFS, configPaths.SubDir)
 	if err != nil {

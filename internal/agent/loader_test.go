@@ -3,7 +3,6 @@ package agent
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -58,9 +57,18 @@ func TestLoaderInvalidJSON(t *testing.T) {
 		t.Fatalf("write file: %v", err)
 	}
 
-	loader := Loader{}
-	if _, err := loader.Load(nil, dir, "", nil); err == nil {
-		t.Fatalf("expected error")
+	buffer := logging.NewLogBuffer(10)
+	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, nil)
+	loader := Loader{Logger: logger}
+	agents, err := loader.Load(nil, dir, "", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(agents) != 0 {
+		t.Fatalf("expected no agents, got %d", len(agents))
+	}
+	if !hasAgentWarning(buffer.List(), "agent load failed") {
+		t.Fatalf("expected warning for invalid agent json")
 	}
 }
 
@@ -79,11 +87,21 @@ func TestLoaderDuplicateAgentName(t *testing.T) {
 		t.Fatalf("write file: %v", err)
 	}
 
-	loader := Loader{}
-	if _, err := loader.Load(nil, dir, "", nil); err == nil {
-		t.Fatalf("expected error")
-	} else if !strings.Contains(err.Error(), "duplicate agent name") {
+	buffer := logging.NewLogBuffer(10)
+	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, nil)
+	loader := Loader{Logger: logger}
+	agents, err := loader.Load(nil, dir, "", nil)
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(agents) != 1 {
+		t.Fatalf("expected 1 agent, got %d", len(agents))
+	}
+	if _, ok := agents["alpha"]; !ok {
+		t.Fatalf("expected alpha agent to be kept")
+	}
+	if !hasAgentWarning(buffer.List(), "agent duplicate name ignored") {
+		t.Fatalf("expected warning for duplicate agent name")
 	}
 }
 
@@ -96,9 +114,18 @@ func TestLoaderInvalidAgent(t *testing.T) {
 		t.Fatalf("write file: %v", err)
 	}
 
-	loader := Loader{}
-	if _, err := loader.Load(nil, dir, "", nil); err == nil {
-		t.Fatalf("expected error")
+	buffer := logging.NewLogBuffer(10)
+	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, nil)
+	loader := Loader{Logger: logger}
+	agents, err := loader.Load(nil, dir, "", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(agents) != 0 {
+		t.Fatalf("expected no agents, got %d", len(agents))
+	}
+	if !hasAgentWarning(buffer.List(), "agent load failed") {
+		t.Fatalf("expected warning for invalid agent")
 	}
 }
 
@@ -238,4 +265,13 @@ func TestLoaderWithFS(t *testing.T) {
 	if _, ok := agents["codex"]; !ok {
 		t.Fatalf("missing codex agent")
 	}
+}
+
+func hasAgentWarning(entries []logging.LogEntry, message string) bool {
+	for _, entry := range entries {
+		if entry.Level == logging.LevelWarning && entry.Message == message {
+			return true
+		}
+	}
+	return false
 }

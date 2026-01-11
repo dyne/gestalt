@@ -196,7 +196,7 @@
    Tests: None (documentation only)
    Done when: Config extraction fully documented
 
-** WIP [#B] Add config validation on extraction
+** DONE [#B] Add config validation on extraction
    Why: Detect malformed config files early in startup
    Change:
    - After extraction, validate all config files
@@ -209,7 +209,7 @@
    Tests: Test with invalid config files, verify warnings logged
    Done when: Startup includes config validation step
 
-** TODO [#C] Optimize extraction performance
+** WIP [#C] Optimize extraction performance
    Why: Minimize startup time impact of extraction
    Change:
    - Skip hash computation for unchanged files (check mtime first)

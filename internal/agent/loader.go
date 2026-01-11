@@ -43,9 +43,6 @@ func (l Loader) Load(agentFS fs.FS, dir, promptsDir string, skillIndex map[strin
 
 	agents := make(map[string]Agent)
 	agentNames := make(map[string]string)
-	var duplicateName string
-	var duplicateFirst string
-	var duplicateSecond string
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -58,27 +55,21 @@ func (l Loader) Load(agentFS fs.FS, dir, promptsDir string, skillIndex map[strin
 		filePath := path.Join(dir, name)
 		agent, err := readAgentFile(agentFS, filePath)
 		if err != nil {
-			return nil, err
+			l.warnLoadError(agentID, filePath, err)
+			continue
 		}
 		if _, exists := agents[agentID]; exists {
-			return nil, fmt.Errorf("duplicate agent id %q", agentID)
+			l.warnDuplicateID(agentID, filePath)
+			continue
+		}
+		if prior, ok := agentNames[agent.Name]; ok {
+			l.warnDuplicateName(agent.Name, prior, filePath)
+			continue
 		}
 		validatePromptNames(l.Logger, agentFS, agentID, agent, promptsDir)
 		agent.Skills = resolveSkills(l.Logger, agentID, agent.Skills, skillIndex)
 		agents[agentID] = agent
-		if prior, ok := agentNames[agent.Name]; ok {
-			if duplicateName == "" {
-				duplicateName = agent.Name
-				duplicateFirst = prior
-				duplicateSecond = filePath
-			}
-		} else {
-			agentNames[agent.Name] = filePath
-		}
-	}
-
-	if duplicateName != "" {
-		return nil, fmt.Errorf("duplicate agent name %q in files: %s, %s", duplicateName, duplicateFirst, duplicateSecond)
+		agentNames[agent.Name] = filePath
 	}
 
 	return agents, nil
@@ -104,6 +95,38 @@ func readAgentFile(agentFS fs.FS, filePath string) (Agent, error) {
 
 func emitConfigValidationError(filePath string) {
 	config.Bus().Publish(event.NewConfigEvent("agent", filePath, "validation_error"))
+}
+
+func (l Loader) warnLoadError(agentID, path string, err error) {
+	if l.Logger == nil {
+		return
+	}
+	l.Logger.Warn("agent load failed", map[string]string{
+		"agent_id": agentID,
+		"path":     path,
+		"error":    err.Error(),
+	})
+}
+
+func (l Loader) warnDuplicateID(agentID, path string) {
+	if l.Logger == nil {
+		return
+	}
+	l.Logger.Warn("agent duplicate id ignored", map[string]string{
+		"agent_id": agentID,
+		"path":     path,
+	})
+}
+
+func (l Loader) warnDuplicateName(name, firstPath, secondPath string) {
+	if l.Logger == nil {
+		return
+	}
+	l.Logger.Warn("agent duplicate name ignored", map[string]string{
+		"name":     name,
+		"path":     secondPath,
+		"existing": firstPath,
+	})
 }
 
 func validatePromptNames(logger *logging.Logger, agentFS fs.FS, agentID string, agent Agent, promptsDir string) {

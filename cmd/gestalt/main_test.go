@@ -204,10 +204,18 @@ func TestLoadAgentsReportsInvalidJSON(t *testing.T) {
 		_ = os.Chdir(cwd)
 	})
 
-	logger := logging.NewLoggerWithOutput(logging.NewLogBuffer(10), logging.LevelInfo, io.Discard)
+	buffer := logging.NewLogBuffer(10)
+	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, io.Discard)
 	configFS := buildConfigFS(filepath.Join(root, ".gestalt"))
-	if _, err := loadAgents(logger, configFS, "config", nil); err == nil {
-		t.Fatalf("expected error for invalid agent json")
+	agents, err := loadAgents(logger, configFS, "config", nil)
+	if err != nil {
+		t.Fatalf("load agents: %v", err)
+	}
+	if len(agents) != 0 {
+		t.Fatalf("expected no agents, got %d", len(agents))
+	}
+	if !hasLogMessage(buffer.List(), "agent load failed") {
+		t.Fatalf("expected warning for invalid agent json")
 	}
 }
 

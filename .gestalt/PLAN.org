@@ -233,7 +233,7 @@
    Tests: Verify version appears in /api/status and startup logs
    Done when: Version fully visible in API, logs, and UI
 
-** WIP [#B] Update frontend for .gestalt/PLAN.org
+** DONE [#B] Update frontend for .gestalt/PLAN.org
    Why: Ensure UI correctly fetches PLAN.org from new location
    Change:
    - Verify GET /api/plan still works (backend handles path change)

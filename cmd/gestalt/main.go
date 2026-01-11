@@ -1098,6 +1098,10 @@ func printHelp(out io.Writer, defaults configDefaults) {
 			Desc: "Bypass config version compatibility checks (dangerous)",
 		},
 		{
+			Name: "--extract-config",
+			Desc: "No-op (config extraction runs automatically at startup)",
+		},
+		{
 			Name: "--help",
 			Desc: "Show this help message",
 		},

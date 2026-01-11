@@ -170,7 +170,7 @@
    Tests: Test migration scenarios with various file states
    Done when: Existing installations migrate smoothly
 
-** WIP [#C] Update --extract-config flag behavior
+** DONE [#C] Update --extract-config flag behavior
    Why: Flag becomes less relevant with automatic extraction
    Change:
    - Option 1: Remove flag entirely (extraction always happens)
@@ -182,7 +182,7 @@
    Tests: Test flag behavior matches documentation
    Done when: Flag behavior clear and documented
 
-** TODO [#B] Update documentation for new config behavior
+** WIP [#B] Update documentation for new config behavior
    Why: Users and contributors need to understand config extraction
    Change:
    - Update README.md "Embedded Resources" section

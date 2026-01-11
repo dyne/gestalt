@@ -76,7 +76,7 @@ _gestalt_complete() {
     '--force-upgrade[Bypass config version compatibility checks]'
     '--help[Show help]'
     '--version[Print version and exit]'
-    '--extract-config[Extract embedded defaults]'
+    '--extract-config[No-op (config extraction runs automatically)]'
   )
 
   case ${words[2]} in

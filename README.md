@@ -46,20 +46,15 @@ local session data). To use it on a real repo, run the server from that repo's r
 go install ./cmd/gestalt
 ```
 
-2) In your project root, extract a per-project config bundle (recommended):
-```
-gestalt --extract-config
-```
+2) Gestalt automatically extracts a per-project config bundle to `.gestalt/config/` on startup.
+   (No need to run `--extract-config`.)
 
-This creates `./gestalt/config/` (agents/prompts/skills) and `./gestalt/dist/`. When present,
-Gestalt prefers these over the embedded defaults.
-
-3) Edit agent profiles in `./gestalt/config/agents/*.json`.
+3) Edit agent profiles in `.gestalt/config/agents/*.json`.
 
 Quick tips:
 - The agent ID is the filename (without `.json`).
 - `shell` is the interactive command Gestalt runs (it must accept typed stdin as chat input).
-- `prompt` entries reference `./gestalt/config/prompts/<name>.txt`.
+- `prompt` entries reference `.gestalt/config/prompts/<name>.txt`.
 
 Example mapping:
 - Coder: `copilot --allow-all-tools --disable-builtin-mcps`
@@ -321,17 +316,13 @@ The `gestalt` binary embeds the frontend bundle and default config so it can run
 from any directory without external files.
 
 Overrides (per subdirectory, relative to the current working directory):
-- `./gestalt/config/agents` overrides embedded agents
-- `./gestalt/config/prompts` overrides embedded prompts
-- `./gestalt/config/skills` overrides embedded skills
+- `.gestalt/config/agents` overrides embedded agents
+- `.gestalt/config/prompts` overrides embedded prompts
+- `.gestalt/config/skills` overrides embedded skills
 - `./gestalt/dist` overrides embedded frontend assets
 
-Extract embedded defaults:
-```
-gestalt --extract-config
-```
-This creates `./gestalt/` with `config/` and `dist/`. Existing files are left in
-place and reported as warnings.
+Config extraction runs automatically at startup into `.gestalt/config/`.
+`gestalt --extract-config` is now a no-op and exits after printing this notice.
 If a config file must be replaced, Gestalt writes a `.bck` backup alongside it.
 Control retention with `GESTALT_CONFIG_BACKUP_LIMIT` (default `1`, `0` disables backups).
 

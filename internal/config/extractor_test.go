@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,7 +20,7 @@ func TestExtractorExtractsNewFiles(t *testing.T) {
 		"agents/codex.json": expectedHash,
 	}
 
-	extractor := Extractor{}
+	extractor := Extractor{BackupLimit: 1}
 	if err := extractor.Extract(gestalt.EmbeddedConfigFS, destDir, manifest); err != nil {
 		t.Fatalf("extract failed: %v", err)
 	}
@@ -42,7 +43,7 @@ func TestExtractorSkipsMatchingFiles(t *testing.T) {
 		"agents/codex.json": expectedHash,
 	}
 
-	extractor := Extractor{}
+	extractor := Extractor{BackupLimit: 1}
 	if err := extractor.Extract(gestalt.EmbeddedConfigFS, destDir, manifest); err != nil {
 		t.Fatalf("extract failed: %v", err)
 	}
@@ -84,7 +85,7 @@ func TestExtractorBacksUpModifiedFiles(t *testing.T) {
 		"agents/codex.json": expectedHash,
 	}
 
-	extractor := Extractor{}
+	extractor := Extractor{BackupLimit: 1}
 	if err := extractor.Extract(gestalt.EmbeddedConfigFS, destDir, manifest); err != nil {
 		t.Fatalf("extract failed: %v", err)
 	}
@@ -105,6 +106,89 @@ func TestExtractorBacksUpModifiedFiles(t *testing.T) {
 	expected := embeddedFile(t, "config/agents/codex.json")
 	if string(extracted) != string(expected) {
 		t.Fatalf("expected extracted contents to match embedded file")
+	}
+}
+
+func TestExtractorReplacesExistingBackup(t *testing.T) {
+	destDir := t.TempDir()
+	destPath := filepath.Join(destDir, "agents", "codex.json")
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(destPath, []byte("current"), 0o644); err != nil {
+		t.Fatalf("write current file: %v", err)
+	}
+	backupPath := destPath + ".bck"
+	if err := os.WriteFile(backupPath, []byte("old-backup"), 0o644); err != nil {
+		t.Fatalf("write backup file: %v", err)
+	}
+
+	expectedHash := embeddedHash(t, "config/agents/codex.json")
+	manifest := map[string]string{
+		"agents/codex.json": expectedHash,
+	}
+
+	extractor := Extractor{BackupLimit: 1}
+	if err := extractor.Extract(gestalt.EmbeddedConfigFS, destDir, manifest); err != nil {
+		t.Fatalf("extract failed: %v", err)
+	}
+
+	backup, err := os.ReadFile(backupPath)
+	if err != nil {
+		t.Fatalf("read backup: %v", err)
+	}
+	if string(backup) != "current" {
+		t.Fatalf("expected backup to be replaced with current contents")
+	}
+}
+
+func TestExtractorBackupLimit(t *testing.T) {
+	destDir := t.TempDir()
+	destPath := filepath.Join(destDir, "agents", "codex.json")
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(destPath, []byte("current"), 0o644); err != nil {
+		t.Fatalf("write current file: %v", err)
+	}
+	oldBackupOne := destPath + ".bck.20200101-000000-000000000"
+	oldBackupTwo := destPath + ".bck.20200102-000000-000000000"
+	if err := os.WriteFile(oldBackupOne, []byte("old1"), 0o644); err != nil {
+		t.Fatalf("write old backup 1: %v", err)
+	}
+	if err := os.WriteFile(oldBackupTwo, []byte("old2"), 0o644); err != nil {
+		t.Fatalf("write old backup 2: %v", err)
+	}
+	oldTime := time.Date(1999, time.January, 1, 0, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(oldBackupOne, oldTime, oldTime); err != nil {
+		t.Fatalf("set old backup 1 time: %v", err)
+	}
+	if err := os.Chtimes(oldBackupTwo, oldTime, oldTime); err != nil {
+		t.Fatalf("set old backup 2 time: %v", err)
+	}
+
+	expectedHash := embeddedHash(t, "config/agents/codex.json")
+	manifest := map[string]string{
+		"agents/codex.json": expectedHash,
+	}
+
+	extractor := Extractor{BackupLimit: 2}
+	if err := extractor.Extract(gestalt.EmbeddedConfigFS, destDir, manifest); err != nil {
+		t.Fatalf("extract failed: %v", err)
+	}
+
+	backups, err := os.ReadDir(filepath.Dir(destPath))
+	if err != nil {
+		t.Fatalf("list backups: %v", err)
+	}
+	var backupCount int
+	for _, entry := range backups {
+		if strings.HasPrefix(entry.Name(), filepath.Base(destPath)+".bck") {
+			backupCount++
+		}
+	}
+	if backupCount > 2 {
+		t.Fatalf("expected at most 2 backups, got %d", backupCount)
 	}
 }
 

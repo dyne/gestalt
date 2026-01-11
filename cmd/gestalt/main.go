@@ -57,6 +57,7 @@ type Config struct {
 	InputHistoryPersist  bool
 	InputHistoryDir      string
 	ConfigDir            string
+	ConfigBackupLimit    int
 	MaxWatches           int
 	Verbose              bool
 	Quiet                bool
@@ -95,6 +96,7 @@ type configDefaults struct {
 	InputHistoryPersist  bool
 	InputHistoryDir      string
 	ConfigDir            string
+	ConfigBackupLimit    int
 	MaxWatches           int
 	ForceUpgrade         bool
 }
@@ -828,6 +830,17 @@ func loadConfig(args []string) (Config, error) {
 	cfg.ConfigDir = configDir
 	cfg.Sources["config-dir"] = configDirSource
 
+	configBackupLimit := defaults.ConfigBackupLimit
+	configBackupLimitSource := sourceDefault
+	if rawLimit := strings.TrimSpace(os.Getenv("GESTALT_CONFIG_BACKUP_LIMIT")); rawLimit != "" {
+		if parsed, err := strconv.Atoi(rawLimit); err == nil && parsed >= 0 {
+			configBackupLimit = parsed
+			configBackupLimitSource = sourceEnv
+		}
+	}
+	cfg.ConfigBackupLimit = configBackupLimit
+	cfg.Sources["config-backup-limit"] = configBackupLimitSource
+
 	maxWatches := defaults.MaxWatches
 	maxWatchesSource := sourceDefault
 	if rawMax := strings.TrimSpace(os.Getenv("GESTALT_MAX_WATCHES")); rawMax != "" {
@@ -895,6 +908,7 @@ func defaultConfigValues() configDefaults {
 		InputHistoryPersist:  true,
 		InputHistoryDir:      filepath.Join(".gestalt", "input-history"),
 		ConfigDir:            filepath.Join(".gestalt", "config"),
+		ConfigBackupLimit:    1,
 		MaxWatches:           100,
 		ForceUpgrade:         false,
 	}
@@ -1640,7 +1654,7 @@ func prepareConfig(cfg Config, logger *logging.Logger) (configPaths, error) {
 		}
 	}
 
-	extractor := config.Extractor{Logger: logger}
+	extractor := config.Extractor{Logger: logger, BackupLimit: cfg.ConfigBackupLimit}
 	stats, err := extractor.ExtractWithStats(gestalt.EmbeddedConfigFS, paths.ConfigDir, manifest)
 	if err != nil {
 		return configPaths{}, err

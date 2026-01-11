@@ -132,7 +132,7 @@
    Tests: Integration test: start server, verify .gestalt/config/ and version.json
    Done when: Startup always checks version and extracts config
 
-** TODO [#C] Handle backup file cleanup policy
+** DONE [#C] Handle backup file cleanup policy
    Why: Prevent accumulation of .bck files over time
    Change:
    - Add cleanup logic: keep only latest .bck per file

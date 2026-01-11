@@ -330,6 +330,8 @@ gestalt --extract-config
 ```
 This creates `./gestalt/` with `config/` and `dist/`. Existing files are left in
 place and reported as warnings.
+If a config file must be replaced, Gestalt writes a `.bck` backup alongside it.
+Control retention with `GESTALT_CONFIG_BACKUP_LIMIT` (default `1`, `0` disables backups).
 
 Build from source with embedded assets:
 ```

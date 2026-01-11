@@ -332,6 +332,25 @@ Build from source with embedded assets:
 make gestalt
 ```
 
+## Upgrading Gestalt
+
+Gestalt follows semantic versioning. Upgrades may refresh embedded config files, and extraction will
+detect changes via hashes and back up local edits.
+
+- Major version mismatch: startup fails with a compatibility error; review `.bck` files and migrate manually.
+  Use `--force-upgrade` only if you understand the risk.
+- Minor version mismatch: startup continues with a warning; review `.bck` files to merge new defaults.
+- Patch version difference: startup continues automatically and logs the update at info level.
+
+Upgrade workflow:
+1. Update the binary.
+2. Start Gestalt and check for version compatibility logs.
+3. Review any `.bck` files alongside new config files in `.gestalt/config/`.
+4. Merge custom changes into the new defaults and remove stale backups when done.
+
+Version tracking lives in `.gestalt/version.json` and records the last extracted version
+(including `version`, `major`, `minor`, `patch`, and build metadata).
+
 ## Troubleshooting config extraction
 
 - Conflicts: if `.gestalt/config` differs from the embedded default, Gestalt writes a `.bck` file next to the

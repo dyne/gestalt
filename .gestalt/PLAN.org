@@ -280,7 +280,7 @@
    Tests: Integration test suite for extraction
    Done when: All extraction scenarios covered by tests
 
-** TODO [#B] Document upgrade path and version compatibility
+** DONE [#B] Document upgrade path and version compatibility
    Why: Users need to understand version compatibility and upgrade behavior
    Change:
    - Add "Upgrading Gestalt" section to README.md

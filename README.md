@@ -22,6 +22,20 @@ Default listens to 0.0.0.0 port 8080
 
 When running local open browser at http://localhost:8080
 
+## Development (Vite)
+
+`make dev` starts the backend plus Vite. The Vite dev server proxies `/api` and `/ws`
+to `GESTALT_BACKEND_URL` (default `http://localhost:8080`).
+
+Run multiple isolated instances by choosing unique backend URLs:
+```
+GESTALT_BACKEND_URL=http://localhost:9101 make dev
+GESTALT_BACKEND_URL=http://localhost:9102 make dev
+```
+
+If you set `GESTALT_BACKEND_URL`, keep `GESTALT_PORT` in sync when you need a specific port
+(`make dev` will otherwise derive the port from the URL).
+
 ## Run Gestalt on your project
 
 Gestalt uses its current working directory as the project context (for git events, `PLAN.org`, and

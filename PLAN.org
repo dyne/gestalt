@@ -1,4 +1,4 @@
-* DONE [#A] Unified event architecture with generic event bus
+* WIP [#A] Unified event architecture with generic event bus
   Goal: Refactor disparate event systems (EventHub, Broadcaster, LogHub) into a single reusable generic event bus, then extend event-driven patterns throughout Gestalt for agent lifecycle, config changes, terminal events, and workflow state.
   Notes:
   - Current state: 3 separate event implementations (watcher/EventHub, terminal/Broadcaster, logging/LogHub)
@@ -350,6 +350,27 @@
    - If no: identify gaps, create follow-up L2 tasks, re-validate
    Tests: Full test suite, integration tests, manual testing
    Done when: Event architecture is validated, ready for production use
+
+** DONE [#B] Isolate dev proxy per instance
+   Why: Multiple Gestalt instances on one machine should not share backend state unintentionally
+   Change:
+   - Make Vite dev proxy target configurable via environment (default remains localhost:8080)
+   - Document how to point each frontend at its own backend port
+   - Ensure /api and /ws proxy targets are derived from the configured backend URL
+   Tests: Frontend tests and backend tests pass
+   Done when: Running two instances with distinct backend ports shows isolated status
+
+** TODO [#B] Remove deprecated EventHub wrapper
+   Why: Deprecated wrappers should be removed now that breaking changes are acceptable
+   Change:
+   - Remove internal/watcher/hub.go (EventHub) and all references
+   - Replace EventHub usage with event.Bus[watcher.Event] and direct subscriptions
+   - Update watcher helpers (git watcher, plan watcher) to accept bus
+   - Update /ws/events handler to accept event bus directly
+   - Adjust tests to use event.Bus instead of EventHub
+   - Update docs to remove EventHub references
+   Tests: Update event flow tests to use bus, ensure /ws/events still works
+   Done when: EventHub is removed and filesystem events flow through event.Bus
 * TODO [#B] Fix terminal natural touch scrolling
   Goal: Enable natural touch scrolling anywhere on the terminal (not just scrollbar) while preserving mouse text selection for clipboard copy.
   Notes:

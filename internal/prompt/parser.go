@@ -218,15 +218,15 @@ func includeCandidates(includeName string) []string {
 	if strings.Contains(cleaned, "/") {
 		return []string{
 			cleaned,
-			cleaned + ".txt",
 			cleaned + ".md",
+			cleaned + ".txt",
 		}
 	}
 	return []string{
 		cleaned,
 		cleaned + ".tmpl",
-		cleaned + ".txt",
 		cleaned + ".md",
+		cleaned + ".txt",
 	}
 }
 

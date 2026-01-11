@@ -94,6 +94,40 @@ func TestRenderPromptDirExtensionLookup(t *testing.T) {
 	}
 }
 
+func TestRenderPromptDirExtensionPriority(t *testing.T) {
+	root := t.TempDir()
+	promptsDir := filepath.Join(root, "config", "prompts")
+	if err := os.MkdirAll(promptsDir, 0755); err != nil {
+		t.Fatalf("mkdir prompts: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(promptsDir, "snippet.md"), []byte("markdown snippet\n"), 0644); err != nil {
+		t.Fatalf("write md snippet: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(promptsDir, "snippet.txt"), []byte("text snippet\n"), 0644); err != nil {
+		t.Fatalf("write txt snippet: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(promptsDir, "snippet.tmpl"), []byte("tmpl snippet\n"), 0644); err != nil {
+		t.Fatalf("write tmpl snippet: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(promptsDir, "priority.tmpl"), []byte("Before\n{{include snippet}}\nAfter\n"), 0644); err != nil {
+		t.Fatalf("write template: %v", err)
+	}
+
+	parser := NewParser(os.DirFS(root), "config/prompts", root)
+	result, err := parser.Render("priority")
+	if err != nil {
+		t.Fatalf("render priority: %v", err)
+	}
+	expectedContent := "Before\ntmpl snippet\nAfter\n"
+	if string(result.Content) != expectedContent {
+		t.Fatalf("unexpected content: %q", string(result.Content))
+	}
+	expectedFiles := []string{"priority.tmpl", "snippet.tmpl"}
+	if strings.Join(result.Files, ",") != strings.Join(expectedFiles, ",") {
+		t.Fatalf("unexpected files: %#v", result.Files)
+	}
+}
+
 func TestRenderIncludeFromWorkdirRoot(t *testing.T) {
 	root := t.TempDir()
 	promptsDir := filepath.Join(root, "config", "prompts")

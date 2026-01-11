@@ -499,7 +499,7 @@
    Tests: None (design decision)
    Done when: API choice documented with technical justification
 
-** TODO [#B] Design pointer-based scroll architecture
+** DONE [#B] Design pointer-based scroll architecture
    Why: Clear architecture prevents implementation mistakes
    Change:
    - Architecture: Pointer Events on term.element with capture:true and passive:false
@@ -516,6 +516,14 @@
    - Add touch-action: none to xterm element (disable browser touch gestures, we handle all)
    - Update CSS: remove touch-action: pan-y, add touch-action: none to .xterm
    - Consider: threshold distance before activating scroll (avoid accidental scroll on tap)
+   Architecture notes:
+   - Use pointer events on `term.element` with capture + passive false to intercept touch before xterm.
+   - Track one active pointerId; ignore additional touches to avoid jumpy multi-touch.
+   - Use `term.scrollLines(deltaLines)` to keep xterm buffer state consistent; avoid `scrollTop` writes.
+   - Compute pixels-per-line from measured line height when available; fallback to 20px.
+   - State machine: idle -> tracking (pointerdown) -> scrolling (threshold exceeded) -> idle (pointerup/cancel).
+   - For touch pointers: call preventDefault + stopPropagation in capture phase; for mouse/pen do nothing.
+   - Sync scroll state after scrollLines to keep `atBottom` accurate.
    Tests: None (design only)
    Done when: Architecture documented with event flow diagram, edge cases identified
 

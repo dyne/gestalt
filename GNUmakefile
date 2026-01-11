@@ -28,17 +28,7 @@ test:
 	cd frontend && npm test
 
 dev:
-	@BACKEND_PORT=$${GESTALT_PORT}; \
-	BACKEND_URL=$${GESTALT_BACKEND_URL}; \
-	if [ -n "$$BACKEND_URL" ] && [ -z "$$BACKEND_PORT" ]; then \
-		BACKEND_PORT=$$(python3 -c 'import os,urllib.parse; url=os.environ.get("GESTALT_BACKEND_URL",""); parsed=urllib.parse.urlparse(url); port=parsed.port; print(port if port is not None else (443 if parsed.scheme=="https" else 80))'); \
-	fi; \
-	if [ -z "$$BACKEND_PORT" ]; then \
-		BACKEND_PORT=$$(python3 -c 'import socket; sock=socket.socket(); sock.bind(("",0)); print(sock.getsockname()[1]); sock.close()'); \
-	fi; \
-	if [ -z "$$BACKEND_URL" ]; then \
-		BACKEND_URL=http://localhost:$$BACKEND_PORT; \
-	fi; \
+	@eval "$$(node scripts/resolve-dev-env.js)"; \
 	echo "Starting backend on $$BACKEND_URL and Vite on http://localhost:5173"; \
 	trap 'pkill -P $$; exit 0' INT TERM; \
 	( $(GO) run ./cmd/gestalt --port $$BACKEND_PORT ) & \

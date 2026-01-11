@@ -270,7 +270,7 @@
    Tests: None (documentation only)
    Done when: Event architecture fully documented with examples
 
-** TODO [#B] Add integration tests for event flows
+** DONE [#B] Add integration tests for event flows
    Why: Verify end-to-end event propagation across system boundaries, prevent frontend breakage
    Change:
    - Test scenario: file change → EventHub → WebSocket → frontend

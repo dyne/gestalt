@@ -527,7 +527,7 @@
    Tests: None (design only)
    Done when: Architecture documented with event flow diagram, edge cases identified
 
-** TODO [#B] Implement pointer event handlers with type detection
+** DONE [#B] Implement pointer event handlers with type detection
    Why: Core of the solution - pointer handlers that distinguish touch from mouse
    Change:
    - Replace setupTouchScroll with setupPointerScroll in terminalStore.js

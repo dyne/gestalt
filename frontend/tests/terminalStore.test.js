@@ -12,6 +12,7 @@ const MockTerminal = vi.hoisted(
         this.rows = 24
         this.element = null
         this.writes = []
+        this.scrollLinesCalls = []
         this.parser = {
           registerCsiHandler: () => ({ dispose() {} }),
         }
@@ -19,6 +20,8 @@ const MockTerminal = vi.hoisted(
       loadAddon() {}
       open(container) {
         this.element = document.createElement('div')
+        this.element.setPointerCapture = () => {}
+        this.element.releasePointerCapture = () => {}
         container.appendChild(this.element)
       }
       write(data) {
@@ -29,6 +32,9 @@ const MockTerminal = vi.hoisted(
       }
       onBell(handler) {
         this._onBell = handler
+      }
+      scrollLines(lines) {
+        this.scrollLinesCalls.push(lines)
       }
       attachCustomKeyEventHandler(handler) {
         this._keyHandler = handler
@@ -123,6 +129,14 @@ const waitForSocket = async () => {
     }
     await flush()
   }
+}
+
+const createPointerEvent = (type, { pointerId = 1, pointerType = 'touch', clientY = 0 } = {}) => {
+  const event = new Event(type, { bubbles: true, cancelable: true })
+  Object.defineProperty(event, 'pointerId', { value: pointerId })
+  Object.defineProperty(event, 'pointerType', { value: pointerType })
+  Object.defineProperty(event, 'clientY', { value: clientY })
+  return event
 }
 
 describe('terminalStore', () => {
@@ -300,5 +314,50 @@ describe('terminalStore', () => {
     vi.useRealTimers()
     unsubscribe()
     releaseTerminalState('slow')
+  })
+
+  it('scrolls on touch pointer move', async () => {
+    const state = getTerminalState('touch-scroll')
+    const container = document.createElement('div')
+    state.attach(container)
+
+    const element = state.term.element
+    element.dispatchEvent(
+      createPointerEvent('pointerdown', { pointerType: 'touch', clientY: 100, pointerId: 1 })
+    )
+    element.dispatchEvent(
+      createPointerEvent('pointermove', { pointerType: 'touch', clientY: 80, pointerId: 1 })
+    )
+    element.dispatchEvent(
+      createPointerEvent('pointerup', { pointerType: 'touch', clientY: 80, pointerId: 1 })
+    )
+    element.dispatchEvent(
+      createPointerEvent('pointermove', { pointerType: 'touch', clientY: 60, pointerId: 1 })
+    )
+
+    expect(state.term.scrollLinesCalls).toEqual([1])
+
+    releaseTerminalState('touch-scroll')
+  })
+
+  it('ignores mouse pointer events for scrolling', async () => {
+    const state = getTerminalState('mouse-scroll')
+    const container = document.createElement('div')
+    state.attach(container)
+
+    const element = state.term.element
+    element.dispatchEvent(
+      createPointerEvent('pointerdown', { pointerType: 'mouse', clientY: 100, pointerId: 1 })
+    )
+    element.dispatchEvent(
+      createPointerEvent('pointermove', { pointerType: 'mouse', clientY: 80, pointerId: 1 })
+    )
+    element.dispatchEvent(
+      createPointerEvent('pointerup', { pointerType: 'mouse', clientY: 80, pointerId: 1 })
+    )
+
+    expect(state.term.scrollLinesCalls).toEqual([])
+
+    releaseTerminalState('mouse-scroll')
   })
 })

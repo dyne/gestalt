@@ -13,6 +13,8 @@ const BASE_DELAY_MS = 500
 const MAX_DELAY_MS = 8000
 const HISTORY_WARNING_MS = 5000
 const HISTORY_LINES = 2000
+const DEFAULT_LINE_HEIGHT_PX = 20
+const TOUCH_SCROLL_THRESHOLD_PX = 0
 const MOUSE_MODE_PARAMS = new Set([
   9,
   1000,
@@ -254,74 +256,109 @@ const createTerminalState = (terminalId) => {
     })
   }
 
-  const setupTouchScroll = (element) => {
+  const setupPointerScroll = (element) => {
     if (!element) return () => {}
-    let touchActive = false
-    let lastTouchY = 0
+    let activePointerId = null
+    let startY = 0
+    let lastY = 0
+    let isScrolling = false
 
-    const getAverageTouchY = (touches) => {
-      if (!touches || touches.length === 0) return null
-      let total = 0
-      for (const touch of touches) {
-        total += touch.clientY
-      }
-      return total / touches.length
+    const getPixelsPerLine = () => {
+      if (!term.rows) return DEFAULT_LINE_HEIGHT_PX
+      const rowsElement = element.querySelector('.xterm-rows')
+      if (!rowsElement) return DEFAULT_LINE_HEIGHT_PX
+      const height = rowsElement.getBoundingClientRect().height
+      if (!height) return DEFAULT_LINE_HEIGHT_PX
+      const pixelsPerLine = height / term.rows
+      return pixelsPerLine || DEFAULT_LINE_HEIGHT_PX
     }
 
-    const handleTouchStart = (event) => {
-      const averageY = getAverageTouchY(event.touches)
-      if (averageY === null) return
-      touchActive = true
-      lastTouchY = averageY
-    }
-
-    const handleTouchMove = (event) => {
-      if (!touchActive) return
-      const averageY = getAverageTouchY(event.touches)
-      if (averageY === null) return
-      const deltaY = averageY - lastTouchY
-      if (!deltaY) return
-      lastTouchY = averageY
-      const viewport = getViewportElement()
-      if (!viewport) return
-      viewport.scrollTop -= deltaY
-      syncScrollState()
-      event.preventDefault()
-    }
-
-    const handleTouchEnd = (event) => {
-      if (event.touches && event.touches.length > 0) {
-        const averageY = getAverageTouchY(event.touches)
-        if (averageY !== null) {
-          lastTouchY = averageY
+    const releasePointer = () => {
+      if (activePointerId === null) return
+      if (element.releasePointerCapture) {
+        try {
+          element.releasePointerCapture(activePointerId)
+        } catch (err) {
+          // Ignore capture release errors.
         }
+      }
+      activePointerId = null
+      isScrolling = false
+    }
+
+    const handlePointerDown = (event) => {
+      if (event.pointerType !== 'touch') return
+      if (activePointerId !== null) return
+      activePointerId = event.pointerId
+      startY = event.clientY
+      lastY = event.clientY
+      isScrolling = false
+      event.preventDefault()
+      event.stopPropagation()
+      if (element.setPointerCapture) {
+        try {
+          element.setPointerCapture(event.pointerId)
+        } catch (err) {
+          // Ignore capture errors.
+        }
+      }
+    }
+
+    const handlePointerMove = (event) => {
+      if (activePointerId === null || event.pointerId !== activePointerId) return
+      if (event.pointerType !== 'touch') return
+      const currentY = event.clientY
+      const totalDeltaY = currentY - startY
+      if (!isScrolling && Math.abs(totalDeltaY) < TOUCH_SCROLL_THRESHOLD_PX) {
         return
       }
-      touchActive = false
+      if (!isScrolling) {
+        isScrolling = true
+      }
+      const deltaY = currentY - lastY
+      lastY = currentY
+      const pixelsPerLine = getPixelsPerLine()
+      const deltaLines = Math.round(deltaY / pixelsPerLine)
+      if (deltaLines) {
+        term.scrollLines(-deltaLines)
+        syncScrollState()
+      }
+      event.preventDefault()
+      event.stopPropagation()
     }
 
-    element.addEventListener('touchstart', handleTouchStart, {
-      passive: true,
-      capture: true,
-    })
-    element.addEventListener('touchmove', handleTouchMove, {
+    const handlePointerUp = (event) => {
+      if (activePointerId === null || event.pointerId !== activePointerId) return
+      if (event.pointerType === 'touch') {
+        event.preventDefault()
+        event.stopPropagation()
+      }
+      releasePointer()
+    }
+
+    element.addEventListener('pointerdown', handlePointerDown, {
       passive: false,
       capture: true,
     })
-    element.addEventListener('touchend', handleTouchEnd, {
-      passive: true,
+    element.addEventListener('pointermove', handlePointerMove, {
+      passive: false,
       capture: true,
     })
-    element.addEventListener('touchcancel', handleTouchEnd, {
-      passive: true,
+    element.addEventListener('pointerup', handlePointerUp, {
+      passive: false,
+      capture: true,
+    })
+    element.addEventListener('pointercancel', handlePointerUp, {
+      passive: false,
       capture: true,
     })
 
     return () => {
-      element.removeEventListener('touchstart', handleTouchStart, { capture: true })
-      element.removeEventListener('touchmove', handleTouchMove, { capture: true })
-      element.removeEventListener('touchend', handleTouchEnd, { capture: true })
-      element.removeEventListener('touchcancel', handleTouchEnd, { capture: true })
+      releasePointer()
+      element.removeEventListener('pointerdown', handlePointerDown, { capture: true })
+      element.removeEventListener('pointermove', handlePointerMove, { capture: true })
+      element.removeEventListener('pointerup', handlePointerUp, { capture: true })
+      element.removeEventListener('pointercancel', handlePointerUp, { capture: true })
     }
   }
 
@@ -339,7 +376,7 @@ const createTerminalState = (terminalId) => {
         disposeTouchHandlers()
       }
       touchTarget = nextTouchTarget
-      disposeTouchHandlers = setupTouchScroll(nextTouchTarget)
+      disposeTouchHandlers = setupPointerScroll(nextTouchTarget)
     }
     flushPendingHistory()
     syncScrollState()

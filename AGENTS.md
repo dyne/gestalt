@@ -111,6 +111,11 @@ Implementation notes (Unified event architecture):
 - Exactly one WIP L1 and one WIP L2 at a time.
 - For non-tiny work: update the plan first, then ask for confirmation before implementing.
 
+## Plan tooling (LLM helper)
+- `scripts/planctl` is a Go CLI for PLAN.org automation (current/list/find/set/complete-l1/insert-l2/show/lint).
+- Prefer `planctl` for status updates to keep edits scoped to the target L1 section.
+- List/search commands emit tab-delimited rows: `<level> <status> <priority> <title> <line>`.
+
 ## Repo conventions
 - Prefer minimal changes and minimal dependencies.
 - Use ASCII-only edits unless the file already uses non-ASCII.

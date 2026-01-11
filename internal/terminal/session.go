@@ -56,6 +56,7 @@ func (s SessionState) String() string {
 
 type Session struct {
 	ID            string
+	AgentID       string
 	Title         string
 	Role          string
 	CreatedAt     time.Time

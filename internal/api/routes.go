@@ -57,6 +57,10 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 		Hub:       eventHub,
 		AuthToken: authToken,
 	})
+	mux.Handle("/api/agents/events", &AgentEventsHandler{
+		Manager:   manager,
+		AuthToken: authToken,
+	})
 
 	mux.Handle("/api/status", loggingMiddleware(logger, restHandler(authToken, rest.handleStatus)))
 	mux.Handle("/api/metrics", loggingMiddleware(logger, restHandler(authToken, rest.handleMetrics)))

@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"gestalt/internal/agent"
+	"gestalt/internal/event"
 	"gestalt/internal/logging"
 	"gestalt/internal/prompt"
 	"gestalt/internal/skill"
@@ -63,6 +65,7 @@ type Manager struct {
 	agents          map[string]agent.Agent
 	skills          map[string]*skill.Skill
 	logger          *logging.Logger
+	agentBus        *event.Bus[event.AgentEvent]
 	temporalClient  temporal.WorkflowClient
 	temporalEnabled bool
 	sessionLogs     string
@@ -172,6 +175,10 @@ func NewManager(opts ManagerOptions) *Manager {
 	}
 	promptParser := prompt.NewParser(promptFS, promptDir, ".")
 
+	agentBus := event.NewBus[event.AgentEvent](context.Background(), event.BusOptions{
+		Name: "agent_events",
+	})
+
 	agents := make(map[string]agent.Agent)
 	for id, profile := range opts.Agents {
 		agents[id] = profile
@@ -191,6 +198,7 @@ func NewManager(opts ManagerOptions) *Manager {
 		agents:          agents,
 		skills:          skills,
 		logger:          logger,
+		agentBus:        agentBus,
 		temporalClient:  temporalClient,
 		temporalEnabled: temporalEnabled,
 		sessionLogs:     sessionLogs,
@@ -363,6 +371,9 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		}
 	}
 	session := newSession(id, pty, cmd, request.Title, request.Role, createdAt, m.bufferLines, profile, sessionLogger, inputLogger)
+	if request.AgentID != "" {
+		session.AgentID = request.AgentID
+	}
 
 	m.mu.Lock()
 	m.sessions[id] = session
@@ -377,6 +388,9 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		fields["agent_id"] = request.AgentID
 	}
 	m.logger.Info("terminal created", fields)
+	if request.AgentID != "" && m.agentBus != nil {
+		m.agentBus.Publish(event.NewAgentEvent(request.AgentID, agentName, "agent_started"))
+	}
 
 	if useWorkflow && m.temporalEnabled && m.temporalClient != nil {
 		startError := session.StartWorkflow(m.temporalClient, "", "")
@@ -645,6 +659,13 @@ func (m *Manager) Logger() *logging.Logger {
 	return m.logger
 }
 
+func (m *Manager) AgentBus() *event.Bus[event.AgentEvent] {
+	if m == nil {
+		return nil
+	}
+	return m.agentBus
+}
+
 func (m *Manager) TemporalEnabled() bool {
 	if m == nil {
 		return false
@@ -735,11 +756,30 @@ func (m *Manager) Delete(id string) error {
 		return ErrSessionNotFound
 	}
 
+	agentID := ""
+	agentName := ""
+	if session != nil {
+		agentID = session.AgentID
+		if session.agent != nil {
+			agentName = session.agent.Name
+		}
+	}
+
 	if err := session.Close(); err != nil {
 		m.logger.Warn("terminal close error", map[string]string{
 			"terminal_id": id,
 			"error":       err.Error(),
 		})
+		if agentID != "" && m.agentBus != nil {
+			agentEvent := event.NewAgentEvent(agentID, agentName, "agent_error")
+			agentEvent.Context = map[string]any{
+				"error": err.Error(),
+			}
+			m.agentBus.Publish(agentEvent)
+		}
+	}
+	if agentID != "" && m.agentBus != nil {
+		m.agentBus.Publish(event.NewAgentEvent(agentID, agentName, "agent_stopped"))
 	}
 	if workflowID, workflowRunID, ok := session.WorkflowIdentifiers(); ok {
 		m.logger.Info("workflow stopped", map[string]string{

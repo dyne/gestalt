@@ -1,6 +1,7 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
   import { apiFetch } from '../lib/api.js'
+  import { subscribe as subscribeAgentEvents } from '../lib/agentEventStore.js'
   import { subscribe as subscribeEvents } from '../lib/eventStore.js'
   import { notificationStore } from '../lib/notificationStore.js'
   import { formatRelativeTime } from '../lib/timeUtils.js'
@@ -30,6 +31,7 @@
   let logsRefreshTimer = null
   let logsMounted = false
   let lastLogErrorMessage = ''
+  let agentEventsUnsubscribes = []
   let gitOrigin = ''
   let gitBranch = ''
   let gitContext = 'not a git repo'
@@ -206,6 +208,14 @@
     logsMounted = true
     fetchLogs()
     resetLogRefresh()
+    const handleAgentEvent = () => {
+      loadAgents()
+    }
+    agentEventsUnsubscribes = [
+      subscribeAgentEvents('agent_started', handleAgentEvent),
+      subscribeAgentEvents('agent_stopped', handleAgentEvent),
+      subscribeAgentEvents('agent_error', handleAgentEvent),
+    ]
     gitUnsubscribe = subscribeEvents('git_branch_changed', (payload) => {
       if (!payload?.path) return
       gitBranch = payload.path
@@ -217,6 +227,10 @@
     if (logsRefreshTimer) {
       clearInterval(logsRefreshTimer)
       logsRefreshTimer = null
+    }
+    if (agentEventsUnsubscribes.length > 0) {
+      agentEventsUnsubscribes.forEach((unsubscribe) => unsubscribe())
+      agentEventsUnsubscribes = []
     }
     if (gitUnsubscribe) {
       gitUnsubscribe()

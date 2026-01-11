@@ -152,7 +152,7 @@
    Tests: Logging tests pass, log WebSocket streaming works, no dropped logs
    Done when: Log streaming uses event bus, LogHub code removed, observability preserved
 
-** WIP [#B] Add agent lifecycle events
+** DONE [#B] Add agent lifecycle events
    Why: New capability enabled by event bus - track agent state changes
    Change:
    - Create AgentBus in Manager: event.Bus[AgentEvent]
@@ -167,7 +167,7 @@
    Tests: Unit tests for agent event emission, WebSocket integration test
    Done when: Agent lifecycle observable via events, dashboard updates live
 
-** TODO [#B] Add terminal lifecycle events
+** WIP [#B] Add terminal lifecycle events
    Why: Separate terminal events from terminal I/O for better observability
    Change:
    - Create TerminalBus in Manager: event.Bus[TerminalEvent]

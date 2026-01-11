@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"gestalt/internal/agent"
+	"gestalt/internal/event"
 	"gestalt/internal/logging"
 	"gestalt/internal/skill"
 )
@@ -944,5 +945,57 @@ func TestManagerCreateUnknownAgentLogsWarning(t *testing.T) {
 	}
 	if entry.Context["agent_id"] != "missing" {
 		t.Fatalf("expected agent_id missing, got %v", entry.Context)
+	}
+}
+
+func TestManagerAgentEvents(t *testing.T) {
+	factory := &fakeFactory{}
+	manager := NewManager(ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {Name: "Codex"},
+		},
+	})
+
+	events, cancel := manager.AgentBus().Subscribe()
+	defer cancel()
+
+	session, err := manager.Create("codex", "role", "title")
+	if err != nil {
+		t.Fatalf("create agent session: %v", err)
+	}
+
+	started := receiveAgentEvent(t, events)
+	if started.Type() != "agent_started" {
+		t.Fatalf("expected agent_started, got %q", started.Type())
+	}
+	if started.AgentID != "codex" {
+		t.Fatalf("expected agent_id codex, got %q", started.AgentID)
+	}
+	if started.AgentName != "Codex" {
+		t.Fatalf("expected agent_name Codex, got %q", started.AgentName)
+	}
+
+	if err := manager.Delete(session.ID); err != nil {
+		t.Fatalf("delete agent session: %v", err)
+	}
+	stopped := receiveAgentEvent(t, events)
+	if stopped.Type() != "agent_stopped" {
+		t.Fatalf("expected agent_stopped, got %q", stopped.Type())
+	}
+	if stopped.AgentID != "codex" {
+		t.Fatalf("expected agent_id codex, got %q", stopped.AgentID)
+	}
+}
+
+func receiveAgentEvent(t *testing.T, ch <-chan event.AgentEvent) event.AgentEvent {
+	t.Helper()
+	select {
+	case evt := <-ch:
+		return evt
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for agent event")
+		return event.AgentEvent{}
 	}
 }

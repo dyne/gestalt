@@ -3,6 +3,7 @@ package logging
 import (
 	"io"
 	"testing"
+	"time"
 )
 
 func TestLoggerWritesToBuffer(t *testing.T) {
@@ -41,4 +42,32 @@ func TestLoggerFiltersByLevel(t *testing.T) {
 	if entries[0].Level != LevelWarning {
 		t.Fatalf("expected warning level, got %q", entries[0].Level)
 	}
+}
+
+func TestLoggerStreamDeliversAllEntries(t *testing.T) {
+	logger := NewLoggerWithOutput(NewLogBuffer(50), LevelInfo, io.Discard)
+	output, cancel := logger.Subscribe()
+	defer cancel()
+
+	const total = 200
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < total; i++ {
+			logger.Info("message", nil)
+		}
+		close(done)
+	}()
+
+	received := 0
+	deadline := time.After(2 * time.Second)
+	for received < total {
+		select {
+		case <-output:
+			received++
+		case <-deadline:
+			t.Fatalf("timed out after receiving %d entries", received)
+		}
+	}
+
+	<-done
 }

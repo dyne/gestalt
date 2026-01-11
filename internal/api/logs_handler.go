@@ -49,19 +49,24 @@ func (h *LogsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	output, cancel := h.Logger.Subscribe()
-	if output == nil {
-		http.Error(w, "log stream unavailable", http.StatusInternalServerError)
-		return
-	}
-	defer cancel()
-
 	filter := &levelFilter{}
 	if rawLevel := r.URL.Query().Get("level"); rawLevel != "" {
 		if level, ok := logging.ParseLevel(rawLevel); ok {
 			filter.Set(level)
 		}
 	}
+	output, cancel := h.Logger.SubscribeFiltered(func(entry logging.LogEntry) bool {
+		minLevel := filter.Get()
+		if minLevel == "" {
+			return true
+		}
+		return logging.LevelAtLeast(entry.Level, minLevel)
+	})
+	if output == nil {
+		http.Error(w, "log stream unavailable", http.StatusInternalServerError)
+		return
+	}
+	defer cancel()
 
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
@@ -86,10 +91,6 @@ func (h *LogsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			case entry, ok := <-output:
 				if !ok {
 					return
-				}
-				minLevel := filter.Get()
-				if minLevel != "" && !logging.LevelAtLeast(entry.Level, minLevel) {
-					continue
 				}
 				if err := conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
 					return

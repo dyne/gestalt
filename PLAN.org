@@ -135,7 +135,7 @@
    Tests: Terminal output tests pass, WebSocket streaming works, no data loss under load
    Done when: Terminal output uses event bus, Broadcaster code removed, streaming semantics preserved
 
-** WIP [#B] Migrate logging to generic event bus
+** DONE [#B] Migrate logging to generic event bus
    Why: Unify log streaming with event architecture
    Change:
    - Replace LogHub in internal/logging with event.Bus[LogEntry]
@@ -152,7 +152,7 @@
    Tests: Logging tests pass, log WebSocket streaming works, no dropped logs
    Done when: Log streaming uses event bus, LogHub code removed, observability preserved
 
-** TODO [#B] Add agent lifecycle events
+** WIP [#B] Add agent lifecycle events
    Why: New capability enabled by event bus - track agent state changes
    Change:
    - Create AgentBus in Manager: event.Bus[AgentEvent]

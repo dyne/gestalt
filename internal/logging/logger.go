@@ -1,6 +1,7 @@
 package logging
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -9,16 +10,19 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"gestalt/internal/event"
 )
 
 const DefaultBufferSize = 1000
+const defaultLogSubscriberBuffer = 100
 
 type Logger struct {
 	buffer      *LogBuffer
 	output      *log.Logger
 	minLevel    Level
 	baseContext map[string]string
-	hub         *LogHub
+	logBus      *event.Bus[LogEntry]
 }
 
 func NewLogger(buffer *LogBuffer, minLevel Level) *Logger {
@@ -32,11 +36,17 @@ func NewLoggerWithOutput(buffer *LogBuffer, minLevel Level, output io.Writer) *L
 	if output == nil {
 		output = io.Discard
 	}
+	logBus := event.NewBus[LogEntry](context.Background(), event.BusOptions{
+		Name:                 "logs",
+		SubscriberBufferSize: defaultLogSubscriberBuffer,
+		BlockOnFull:          true,
+		WriteTimeout:         100 * time.Millisecond,
+	})
 	return &Logger{
 		buffer:   buffer,
 		output:   log.New(output, "", log.LstdFlags),
 		minLevel: normalizeLevel(minLevel),
-		hub:      NewLogHub(),
+		logBus:   logBus,
 	}
 }
 
@@ -48,10 +58,17 @@ func (l *Logger) Buffer() *LogBuffer {
 }
 
 func (l *Logger) Subscribe() (<-chan LogEntry, func()) {
-	if l == nil || l.hub == nil {
+	if l == nil || l.logBus == nil {
 		return nil, func() {}
 	}
-	return l.hub.Subscribe(0)
+	return l.logBus.Subscribe()
+}
+
+func (l *Logger) SubscribeFiltered(filter func(LogEntry) bool) (<-chan LogEntry, func()) {
+	if l == nil || l.logBus == nil {
+		return nil, func() {}
+	}
+	return l.logBus.SubscribeFiltered(filter)
 }
 
 func (l *Logger) With(fields map[string]string) *Logger {
@@ -63,7 +80,7 @@ func (l *Logger) With(fields map[string]string) *Logger {
 		output:      l.output,
 		minLevel:    l.minLevel,
 		baseContext: cloneFields(l.baseContext, fields),
-		hub:         l.hub,
+		logBus:      l.logBus,
 	}
 }
 
@@ -108,8 +125,8 @@ func (l *Logger) log(level Level, message string, fields map[string]string) {
 	if l.buffer != nil {
 		l.buffer.Add(entry)
 	}
-	if l.hub != nil {
-		l.hub.Broadcast(entry)
+	if l.logBus != nil {
+		l.logBus.Publish(entry)
 	}
 	if l.output != nil {
 		l.output.Print(formatEntry(entry))

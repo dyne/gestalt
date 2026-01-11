@@ -8,6 +8,12 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
+const (
+	EventTypeFileChanged      = "file_changed"
+	EventTypeGitBranchChanged = "git_branch_changed"
+	EventTypeWatchError       = "watch_error"
+)
+
 // Event represents a single filesystem change.
 type Event struct {
 	Type      string

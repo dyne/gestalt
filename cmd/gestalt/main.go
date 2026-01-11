@@ -23,6 +23,7 @@ import (
 	"gestalt"
 	"gestalt/internal/agent"
 	"gestalt/internal/api"
+	"gestalt/internal/event"
 	"gestalt/internal/logging"
 	"gestalt/internal/skill"
 	"gestalt/internal/temporal"
@@ -252,17 +253,19 @@ func main() {
 			"error": err.Error(),
 		})
 	}
-	eventHub := watcher.NewEventHub(context.Background(), fsWatcher)
+	eventBus := event.NewBus[watcher.Event](context.Background(), event.BusOptions{
+		Name: "watcher_events",
+	})
 	if fsWatcher != nil {
 		fsWatcher.SetErrorHandler(func(err error) {
-			eventHub.Publish(watcher.Event{
+			eventBus.Publish(watcher.Event{
 				Type:      watcher.EventTypeWatchError,
 				Timestamp: time.Now().UTC(),
 			})
 		})
-		watchPlanFile(eventHub, logger, "PLAN.org")
+		watchPlanFile(eventBus, fsWatcher, logger, "PLAN.org")
 		if workDir, err := os.Getwd(); err == nil {
-			if _, err := watcher.StartGitWatcher(eventHub, workDir); err != nil && logger != nil {
+			if _, err := watcher.StartGitWatcher(eventBus, fsWatcher, workDir); err != nil && logger != nil {
 				logger.Warn("git watcher unavailable", map[string]string{
 					"error": err.Error(),
 				})
@@ -285,7 +288,7 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	api.RegisterRoutes(mux, manager, cfg.AuthToken, staticDir, frontendFS, logger, eventHub)
+	api.RegisterRoutes(mux, manager, cfg.AuthToken, staticDir, frontendFS, logger, eventBus)
 
 	server := &http.Server{
 		Addr:              ":" + strconv.Itoa(cfg.Port),
@@ -328,8 +331,8 @@ func main() {
 	}
 }
 
-func watchPlanFile(eventHub *watcher.EventHub, logger *logging.Logger, planPath string) {
-	if eventHub == nil {
+func watchPlanFile(bus *event.Bus[watcher.Event], watch watcher.Watch, logger *logging.Logger, planPath string) {
+	if bus == nil || watch == nil {
 		return
 	}
 	if planPath == "" {
@@ -338,6 +341,31 @@ func watchPlanFile(eventHub *watcher.EventHub, logger *logging.Logger, planPath 
 
 	var retryMutex sync.Mutex
 	retrying := false
+	var handleMu sync.Mutex
+	var handle watcher.Handle
+
+	stopWatch := func() {
+		handleMu.Lock()
+		if handle != nil {
+			_ = handle.Close()
+			handle = nil
+		}
+		handleMu.Unlock()
+	}
+
+	startWatch := func() error {
+		newHandle, err := watcher.WatchFile(bus, watch, planPath)
+		if err != nil {
+			return err
+		}
+		handleMu.Lock()
+		if handle != nil {
+			_ = handle.Close()
+		}
+		handle = newHandle
+		handleMu.Unlock()
+		return nil
+	}
 
 	startRetry := func() {
 		retryMutex.Lock()
@@ -356,7 +384,7 @@ func watchPlanFile(eventHub *watcher.EventHub, logger *logging.Logger, planPath 
 			}()
 			backoff := 100 * time.Millisecond
 			for {
-				if err := eventHub.WatchFile(planPath); err == nil {
+				if err := startWatch(); err == nil {
 					if logger != nil {
 						logger.Info("Watching PLAN.org for changes", map[string]string{
 							"path": planPath,
@@ -372,7 +400,7 @@ func watchPlanFile(eventHub *watcher.EventHub, logger *logging.Logger, planPath 
 		}()
 	}
 
-	if err := eventHub.WatchFile(planPath); err != nil {
+	if err := startWatch(); err != nil {
 		if logger != nil {
 			logger.Warn("plan watch failed", map[string]string{
 				"path":  planPath,
@@ -386,16 +414,18 @@ func watchPlanFile(eventHub *watcher.EventHub, logger *logging.Logger, planPath 
 		})
 	}
 
-	eventHub.Subscribe(watcher.EventTypeFileChanged, func(event watcher.Event) {
-		if event.Path != planPath {
-			return
-		}
-		if event.Op&(fsnotify.Remove|fsnotify.Rename) == 0 {
-			return
-		}
-		_ = eventHub.UnwatchFile(planPath)
-		startRetry()
+	events, _ := bus.SubscribeFiltered(func(event watcher.Event) bool {
+		return event.Type == watcher.EventTypeFileChanged && event.Path == planPath
 	})
+	go func() {
+		for event := range events {
+			if event.Op&(fsnotify.Remove|fsnotify.Rename) == 0 {
+				continue
+			}
+			stopWatch()
+			startRetry()
+		}
+	}()
 }
 
 func loadConfig(args []string) (Config, error) {

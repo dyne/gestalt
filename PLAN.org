@@ -368,7 +368,7 @@
    Tests: Backend and frontend tests pass
    Done when: `GESTALT_PORT=9090 make dev` runs without shell errors
 
-** TODO [#B] Remove deprecated EventHub wrapper
+** DONE [#B] Remove deprecated EventHub wrapper
    Why: Deprecated wrappers should be removed now that breaking changes are acceptable
    Change:
    - Remove internal/watcher/hub.go (EventHub) and all references

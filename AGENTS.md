@@ -9,7 +9,7 @@ This repo is a Go backend + Svelte frontend for a multi-terminal dashboard with 
   - `internal/api`: REST/WS handlers, auth middleware, JSON errors.
   - `internal/agent`: agent profile parsing/validation (`loader.go`, `agent.go`).
   - `internal/skill`: skill metadata/loader and prompt XML.
-  - `internal/watcher`: fsnotify watcher, EventHub, git branch monitoring.
+  - `internal/watcher`: fsnotify watcher, watcher_events bus helpers, git branch monitoring.
   - `internal/logging`: structured logs + buffer.
 - Frontend (Svelte, Vite): `frontend/src/App.svelte` orchestrates tabs; `frontend/src/views/Dashboard.svelte` shows agents/skills/terminals; `frontend/src/lib/terminalStore.js` owns xterm + WebSocket; `frontend/src/lib/eventStore.js` shares /ws/events.
 - CLI: `cmd/gestalt-send` pipes stdin to agent terminals over REST.
@@ -74,7 +74,7 @@ This repo is a Go backend + Svelte frontend for a multi-terminal dashboard with 
 
 Event flow sketch:
 ```
-filesystem -> watcher.EventHub -> /ws/events -> frontend eventStore -> UI
+filesystem -> watcher_events bus -> /ws/events -> frontend eventStore -> UI
 agent/terminal/workflow/config -> Manager/handlers -> /api/*/events -> frontend stores -> UI
 terminal output -> Session output bus -> /ws/terminal/:id -> xterm
 ```
@@ -101,7 +101,7 @@ Implementation notes (Unified event architecture):
 - Frontend: `cd frontend && npm test`
 
 ## Filesystem events
-- Uses `github.com/fsnotify/fsnotify` + EventHub to publish updates to `/ws/events`.
+- Uses `github.com/fsnotify/fsnotify` + `event.Bus[watcher.Event]` to publish updates to `/ws/events`.
 - PLAN.org changes and git branch changes are watched on startup.
 - `GESTALT_MAX_WATCHES` caps active watches (default 100).
 

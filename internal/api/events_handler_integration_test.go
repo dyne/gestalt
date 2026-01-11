@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"gestalt/internal/event"
 	"gestalt/internal/watcher"
 
 	"github.com/gorilla/websocket"
@@ -21,8 +22,8 @@ type eventMessage struct {
 }
 
 func TestEventsWebSocketStream(t *testing.T) {
-	hub := watcher.NewEventHub(context.Background(), nil)
-	defer hub.Close()
+	bus := event.NewBus[watcher.Event](context.Background(), event.BusOptions{Name: "watcher_events"})
+	defer bus.Close()
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -30,7 +31,7 @@ func TestEventsWebSocketStream(t *testing.T) {
 	}
 	server := &httptest.Server{
 		Listener: listener,
-		Config:   &http.Server{Handler: &EventsHandler{Hub: hub}},
+		Config:   &http.Server{Handler: &EventsHandler{Bus: bus}},
 	}
 	server.Start()
 	defer server.Close()
@@ -43,7 +44,7 @@ func TestEventsWebSocketStream(t *testing.T) {
 	defer conn.Close()
 
 	time.Sleep(10 * time.Millisecond)
-	hub.Publish(watcher.Event{
+	bus.Publish(watcher.Event{
 		Type:      watcher.EventTypeFileChanged,
 		Path:      "PLAN.org",
 		Timestamp: time.Now().UTC(),
@@ -66,8 +67,8 @@ func TestEventsWebSocketStream(t *testing.T) {
 }
 
 func TestEventsWebSocketAuth(t *testing.T) {
-	hub := watcher.NewEventHub(context.Background(), nil)
-	defer hub.Close()
+	bus := event.NewBus[watcher.Event](context.Background(), event.BusOptions{Name: "watcher_events"})
+	defer bus.Close()
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -76,7 +77,7 @@ func TestEventsWebSocketAuth(t *testing.T) {
 	server := &httptest.Server{
 		Listener: listener,
 		Config: &http.Server{Handler: &EventsHandler{
-			Hub:       hub,
+			Bus:       bus,
 			AuthToken: "secret",
 		}},
 	}

@@ -110,8 +110,8 @@ Debugging:
 Event flow:
 ```mermaid
 flowchart LR
-  FS[Filesystem] --> Hub[watcher.EventHub]
-  Hub --> WSEvents[/ws/events/]
+  FS[Filesystem] --> WatchBus[watcher_events bus]
+  WatchBus --> WSEvents[/ws/events/]
   Manager[terminal.Manager] --> AgentBus[/api/agents/events/]
   Manager --> TermBus[/api/terminals/events/]
   Manager --> WorkflowBus[/api/workflows/events/]
@@ -341,7 +341,7 @@ server emits `watch_error` events and the UI falls back to polling with a toast
 
 ## Filesystem Event System
 
-Architecture: Watcher (fsnotify) → EventHub → `/ws/events` broadcaster.
+Architecture: Watcher (fsnotify) → `event.Bus[watcher.Event]` → `/ws/events` broadcaster.
 
 Event types:
 - `file_changed` (path + timestamp)
@@ -355,10 +355,11 @@ WebSocket protocol:
 
 Backend usage example:
 ```
-hub.WatchFile("PLAN.org")
-hub.Subscribe(watcher.EventTypeFileChanged, func(event watcher.Event) {
-  // React to changes.
+watcher.WatchFile(bus, fsWatcher, "PLAN.org")
+events, cancel := bus.SubscribeFiltered(func(event watcher.Event) bool {
+  return event.Type == watcher.EventTypeFileChanged
 })
+defer cancel()
 ```
 
 Debouncing:
@@ -367,7 +368,7 @@ Debouncing:
 
 Limits and cleanup:
 - `GESTALT_MAX_WATCHES` caps active watches (default 100).
-- Watchers drop paths with no subscribers; a cleanup loop trims stale entries.
+- Watchers trim paths with no callbacks; a cleanup loop clears stale entries.
 
 Frontend event store:
 ```

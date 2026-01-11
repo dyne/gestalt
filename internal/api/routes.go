@@ -4,13 +4,14 @@ import (
 	"io/fs"
 	"net/http"
 
+	"gestalt/internal/event"
 	"gestalt/internal/logging"
 	"gestalt/internal/plan"
 	"gestalt/internal/terminal"
 	"gestalt/internal/watcher"
 )
 
-func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken string, staticDir string, frontendFS fs.FS, logger *logging.Logger, eventHub *watcher.EventHub) {
+func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken string, staticDir string, frontendFS fs.FS, logger *logging.Logger, eventBus *event.Bus[watcher.Event]) {
 	// Git info is read once on boot to avoid polling; refresh can be added later.
 	gitOrigin, gitBranch := loadGitInfo()
 	planPath := "PLAN.org"
@@ -23,25 +24,35 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 		GitOrigin: gitOrigin,
 		GitBranch: gitBranch,
 	}
-	if eventHub != nil {
-		eventHub.Subscribe(watcher.EventTypeGitBranchChanged, func(event watcher.Event) {
-			if event.Path == "" {
-				return
-			}
-			rest.setGitBranch(event.Path)
+	if eventBus != nil {
+		gitEvents, _ := eventBus.SubscribeFiltered(func(event watcher.Event) bool {
+			return event.Type == watcher.EventTypeGitBranchChanged
 		})
+		go func() {
+			for event := range gitEvents {
+				if event.Path == "" {
+					continue
+				}
+				rest.setGitBranch(event.Path)
+			}
+		}()
 		if planCache != nil {
-			eventHub.Subscribe(watcher.EventTypeFileChanged, func(event watcher.Event) {
-				if !planCache.MatchesPath(event.Path) {
-					return
-				}
-				if _, err := planCache.Reload(); err != nil && logger != nil {
-					logger.Warn("plan cache reload failed", map[string]string{
-						"path":  event.Path,
-						"error": err.Error(),
-					})
-				}
+			planEvents, _ := eventBus.SubscribeFiltered(func(event watcher.Event) bool {
+				return event.Type == watcher.EventTypeFileChanged
 			})
+			go func() {
+				for event := range planEvents {
+					if !planCache.MatchesPath(event.Path) {
+						continue
+					}
+					if _, err := planCache.Reload(); err != nil && logger != nil {
+						logger.Warn("plan cache reload failed", map[string]string{
+							"path":  event.Path,
+							"error": err.Error(),
+						})
+					}
+				}
+			}()
 		}
 	}
 
@@ -54,7 +65,7 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 		AuthToken: authToken,
 	})
 	mux.Handle("/ws/events", &EventsHandler{
-		Hub:       eventHub,
+		Bus:       eventBus,
 		AuthToken: authToken,
 	})
 	mux.Handle("/api/agents/events", &AgentEventsHandler{

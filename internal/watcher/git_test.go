@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"gestalt/internal/event"
 )
 
 func TestGitWatcherPublishesBranchChange(t *testing.T) {
@@ -26,10 +28,10 @@ func TestGitWatcherPublishesBranchChange(t *testing.T) {
 	if err != nil {
 		t.Skipf("skipping watcher test (fsnotify unavailable): %v", err)
 	}
-	hub := NewEventHub(context.Background(), fsWatcher)
-	defer hub.Close()
+	bus := event.NewBus[Event](context.Background(), event.BusOptions{Name: "watcher_events"})
+	defer bus.Close()
 
-	gitWatcher, err := StartGitWatcher(hub, workDir)
+	gitWatcher, err := StartGitWatcher(bus, fsWatcher, workDir)
 	if err != nil {
 		t.Fatalf("start git watcher: %v", err)
 	}
@@ -38,13 +40,18 @@ func TestGitWatcherPublishesBranchChange(t *testing.T) {
 	}
 
 	events := make(chan Event, 1)
-	id := hub.Subscribe(EventTypeGitBranchChanged, func(event Event) {
-		select {
-		case events <- event:
-		default:
-		}
+	subscription, cancel := bus.SubscribeFiltered(func(event Event) bool {
+		return event.Type == EventTypeGitBranchChanged
 	})
-	defer hub.Unsubscribe(id)
+	defer cancel()
+	go func() {
+		for event := range subscription {
+			select {
+			case events <- event:
+			default:
+			}
+		}
+	}()
 
 	time.Sleep(10 * time.Millisecond)
 	if err := os.WriteFile(headPath, []byte("ref: refs/heads/feature\n"), 0o644); err != nil {
@@ -77,10 +84,10 @@ func TestGitWatcherPublishesDetachedHead(t *testing.T) {
 	if err != nil {
 		t.Skipf("skipping watcher test (fsnotify unavailable): %v", err)
 	}
-	hub := NewEventHub(context.Background(), fsWatcher)
-	defer hub.Close()
+	bus := event.NewBus[Event](context.Background(), event.BusOptions{Name: "watcher_events"})
+	defer bus.Close()
 
-	gitWatcher, err := StartGitWatcher(hub, workDir)
+	gitWatcher, err := StartGitWatcher(bus, fsWatcher, workDir)
 	if err != nil {
 		t.Fatalf("start git watcher: %v", err)
 	}
@@ -89,13 +96,18 @@ func TestGitWatcherPublishesDetachedHead(t *testing.T) {
 	}
 
 	events := make(chan Event, 1)
-	id := hub.Subscribe(EventTypeGitBranchChanged, func(event Event) {
-		select {
-		case events <- event:
-		default:
-		}
+	subscription, cancel := bus.SubscribeFiltered(func(event Event) bool {
+		return event.Type == EventTypeGitBranchChanged
 	})
-	defer hub.Unsubscribe(id)
+	defer cancel()
+	go func() {
+		for event := range subscription {
+			select {
+			case events <- event:
+			default:
+			}
+		}
+	}()
 
 	time.Sleep(10 * time.Millisecond)
 	if err := os.WriteFile(headPath, []byte("9fceb02b1c9a1b2d3e4f5a6b7c8d9e0f1a2b3c4d\n"), 0o644); err != nil {

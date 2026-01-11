@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"gestalt/internal/event"
 	"gestalt/internal/watcher"
 
 	"github.com/gorilla/websocket"
@@ -14,7 +15,7 @@ import (
 const eventsPerMinuteLimit = 100
 
 type EventsHandler struct {
-	Hub            *watcher.EventHub
+	Bus            *event.Bus[watcher.Event]
 	AuthToken      string
 	AllowedOrigins []string
 }
@@ -97,8 +98,8 @@ func (h *EventsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.Hub == nil {
-		http.Error(w, "event hub unavailable", http.StatusInternalServerError)
+	if h.Bus == nil {
+		http.Error(w, "event bus unavailable", http.StatusInternalServerError)
 		return
 	}
 
@@ -125,53 +126,32 @@ func (h *EventsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	events := make(chan watcher.Event, 128)
-	done := make(chan struct{})
-	defer close(done)
-
-	subscriptions := make([]string, 0, len(allowed))
-	for eventType := range allowed {
-		id := h.Hub.Subscribe(eventType, func(event watcher.Event) {
-			select {
-			case events <- event:
-			default:
-			}
-		})
-		if id != "" {
-			subscriptions = append(subscriptions, id)
-		}
-	}
-	defer func() {
-		for _, id := range subscriptions {
-			h.Hub.Unsubscribe(id)
-		}
-	}()
+	events, cancel := h.Bus.SubscribeFiltered(func(event watcher.Event) bool {
+		_, ok := allowed[event.Type]
+		return ok
+	})
+	defer cancel()
 
 	go func() {
-		for {
-			select {
-			case event := <-events:
-				if !filter.Allows(event.Type) {
-					continue
-				}
-				if !limiter.Allow(time.Now()) {
-					continue
-				}
-				payload := eventPayload{
-					Type:      event.Type,
-					Path:      event.Path,
-					Timestamp: event.Timestamp,
-				}
-				if payload.Timestamp.IsZero() {
-					payload.Timestamp = time.Now().UTC()
-				}
-				if err := conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
-					return
-				}
-				if err := conn.WriteJSON(payload); err != nil {
-					return
-				}
-			case <-done:
+		for event := range events {
+			if !filter.Allows(event.Type) {
+				continue
+			}
+			if !limiter.Allow(time.Now()) {
+				continue
+			}
+			payload := eventPayload{
+				Type:      event.Type,
+				Path:      event.Path,
+				Timestamp: event.Timestamp,
+			}
+			if payload.Timestamp.IsZero() {
+				payload.Timestamp = time.Now().UTC()
+			}
+			if err := conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+				return
+			}
+			if err := conn.WriteJSON(payload); err != nil {
 				return
 			}
 		}

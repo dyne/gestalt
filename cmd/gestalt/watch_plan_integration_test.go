@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"gestalt/internal/event"
 	"gestalt/internal/logging"
 	"gestalt/internal/watcher"
 )
@@ -27,22 +28,25 @@ func TestWatchPlanFilePublishesEvents(t *testing.T) {
 	if err != nil {
 		t.Skipf("skipping watcher test (fsnotify unavailable): %v", err)
 	}
-	hub := watcher.NewEventHub(context.Background(), fsWatcher)
-	defer hub.Close()
+	bus := event.NewBus[watcher.Event](context.Background(), event.BusOptions{Name: "watcher_events"})
+	defer bus.Close()
 
 	logger := logging.NewLoggerWithOutput(logging.NewLogBuffer(10), logging.LevelInfo, nil)
-	watchPlanFile(hub, logger, path)
+	watchPlanFile(bus, fsWatcher, logger, path)
 
 	events := make(chan watcher.Event, 1)
-	id := hub.Subscribe(watcher.EventTypeFileChanged, func(event watcher.Event) {
-		if event.Path == path {
+	subscription, cancel := bus.SubscribeFiltered(func(event watcher.Event) bool {
+		return event.Type == watcher.EventTypeFileChanged && event.Path == path
+	})
+	defer cancel()
+	go func() {
+		for event := range subscription {
 			select {
 			case events <- event:
 			default:
 			}
 		}
-	})
-	defer hub.Unsubscribe(id)
+	}()
 
 	if err := os.WriteFile(path, []byte("update"), 0600); err != nil {
 		t.Fatalf("write plan file: %v", err)

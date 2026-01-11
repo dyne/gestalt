@@ -356,6 +356,15 @@ func (b *Bus[T]) countSubscribersLocked() (filtered int, unfiltered int) {
 	return filtered, unfiltered
 }
 
+func (b *Bus[T]) SubscriberCount() int {
+	if b == nil {
+		return 0
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.subscribers)
+}
+
 func (b *Bus[T]) busName() string {
 	if b.options.Name == "" {
 		return "event_bus"

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"gestalt/internal/event"
 	"gestalt/internal/watcher"
 
 	"github.com/gorilla/websocket"
@@ -27,8 +28,8 @@ func TestEventsWebSocketFileChange(t *testing.T) {
 	if err != nil {
 		t.Skipf("skipping watcher test (fsnotify unavailable): %v", err)
 	}
-	hub := watcher.NewEventHub(context.Background(), fsWatcher)
-	defer hub.Close()
+	bus := event.NewBus[watcher.Event](context.Background(), event.BusOptions{Name: "watcher_events"})
+	defer bus.Close()
 
 	file, err := os.CreateTemp("", "gestalt-events-*")
 	if err != nil {
@@ -42,11 +43,11 @@ func TestEventsWebSocketFileChange(t *testing.T) {
 		_ = os.Remove(path)
 	})
 
-	if err := hub.WatchFile(path); err != nil {
+	if _, err := watcher.WatchFile(bus, fsWatcher, path); err != nil {
 		t.Fatalf("watch file: %v", err)
 	}
 
-	server := startEventServer(t, hub)
+	server := startEventServer(t, bus)
 	defer server.Close()
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/events"
@@ -100,8 +101,8 @@ func TestEventsWebSocketReconnect(t *testing.T) {
 	if err != nil {
 		t.Skipf("skipping watcher test (fsnotify unavailable): %v", err)
 	}
-	hub := watcher.NewEventHub(context.Background(), fsWatcher)
-	defer hub.Close()
+	bus := event.NewBus[watcher.Event](context.Background(), event.BusOptions{Name: "watcher_events"})
+	defer bus.Close()
 
 	file, err := os.CreateTemp("", "gestalt-events-reconnect-*")
 	if err != nil {
@@ -115,11 +116,11 @@ func TestEventsWebSocketReconnect(t *testing.T) {
 		_ = os.Remove(path)
 	})
 
-	if err := hub.WatchFile(path); err != nil {
+	if _, err := watcher.WatchFile(bus, fsWatcher, path); err != nil {
 		t.Fatalf("watch file: %v", err)
 	}
 
-	server := startEventServer(t, hub)
+	server := startEventServer(t, bus)
 	defer server.Close()
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/events"
@@ -154,8 +155,8 @@ func TestEventsWebSocketGitBranchChange(t *testing.T) {
 	if err != nil {
 		t.Skipf("skipping watcher test (fsnotify unavailable): %v", err)
 	}
-	hub := watcher.NewEventHub(context.Background(), fsWatcher)
-	defer hub.Close()
+	bus := event.NewBus[watcher.Event](context.Background(), event.BusOptions{Name: "watcher_events"})
+	defer bus.Close()
 
 	workDir := t.TempDir()
 	gitDir := filepath.Join(workDir, ".git")
@@ -167,11 +168,11 @@ func TestEventsWebSocketGitBranchChange(t *testing.T) {
 		t.Fatalf("write head: %v", err)
 	}
 
-	if _, err := watcher.StartGitWatcher(hub, workDir); err != nil {
+	if _, err := watcher.StartGitWatcher(bus, fsWatcher, workDir); err != nil {
 		t.Fatalf("start git watcher: %v", err)
 	}
 
-	server := startEventServer(t, hub)
+	server := startEventServer(t, bus)
 	defer server.Close()
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/events"
@@ -199,14 +200,10 @@ func TestEventsWebSocketGitBranchChange(t *testing.T) {
 }
 
 func TestEventsWebSocketSubscriberCleanup(t *testing.T) {
-	fsWatcher, err := watcher.NewWithOptions(watcher.Options{Debounce: 20 * time.Millisecond})
-	if err != nil {
-		t.Skipf("skipping watcher test (fsnotify unavailable): %v", err)
-	}
-	hub := watcher.NewEventHub(context.Background(), fsWatcher)
-	defer hub.Close()
+	bus := event.NewBus[watcher.Event](context.Background(), event.BusOptions{Name: "watcher_events"})
+	defer bus.Close()
 
-	server := startEventServer(t, hub)
+	server := startEventServer(t, bus)
 	defer server.Close()
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/events"
@@ -216,13 +213,13 @@ func TestEventsWebSocketSubscriberCleanup(t *testing.T) {
 	}
 
 	waitForCondition(t, 200*time.Millisecond, func() bool {
-		return hub.SubscriberCount() > 0
+		return bus.SubscriberCount() > 0
 	})
 
 	conn.Close()
 
 	waitForCondition(t, 200*time.Millisecond, func() bool {
-		return hub.SubscriberCount() == 0
+		return bus.SubscriberCount() == 0
 	})
 }
 
@@ -238,7 +235,7 @@ func waitForCondition(t *testing.T, timeout time.Duration, condition func() bool
 	t.Fatalf("condition not met within %s", timeout)
 }
 
-func startEventServer(t *testing.T, hub *watcher.EventHub) *httptest.Server {
+func startEventServer(t *testing.T, bus *event.Bus[watcher.Event]) *httptest.Server {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -246,7 +243,7 @@ func startEventServer(t *testing.T, hub *watcher.EventHub) *httptest.Server {
 	}
 	server := &httptest.Server{
 		Listener: listener,
-		Config:   &http.Server{Handler: &EventsHandler{Hub: hub}},
+		Config:   &http.Server{Handler: &EventsHandler{Bus: bus}},
 	}
 	server.Start()
 	return server

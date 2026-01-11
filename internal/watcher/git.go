@@ -8,21 +8,27 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"gestalt/internal/event"
 )
 
 // GitWatcher monitors HEAD changes and emits git branch change events.
 type GitWatcher struct {
-	hub           *EventHub
+	bus           *event.Bus[Event]
 	headPath      string
 	currentBranch string
-	subscription  string
+	watchHandle   Handle
+	cancel        func()
 	mutex         sync.Mutex
 }
 
 // StartGitWatcher creates a GitWatcher if the working directory is a git repo.
-func StartGitWatcher(hub *EventHub, workDir string) (*GitWatcher, error) {
-	if hub == nil {
-		return nil, errors.New("event hub is nil")
+func StartGitWatcher(bus *event.Bus[Event], watch Watch, workDir string) (*GitWatcher, error) {
+	if bus == nil {
+		return nil, errors.New("event bus is nil")
+	}
+	if watch == nil {
+		return nil, errors.New("watcher is nil")
 	}
 	if strings.TrimSpace(workDir) == "" {
 		workDir = "."
@@ -35,27 +41,43 @@ func StartGitWatcher(hub *EventHub, workDir string) (*GitWatcher, error) {
 
 	headPath := filepath.Join(gitDir, "HEAD")
 	watcher := &GitWatcher{
-		hub:           hub,
+		bus:           bus,
 		headPath:      headPath,
 		currentBranch: readGitBranch(headPath),
 	}
 
-	if err := hub.WatchFile(headPath); err != nil {
+	handle, err := WatchFile(bus, watch, headPath)
+	if err != nil {
 		return nil, err
 	}
+	watcher.watchHandle = handle
 
-	watcher.subscription = hub.Subscribe(EventTypeFileChanged, watcher.handleFileChanged)
+	events, cancel := bus.SubscribeFiltered(func(event Event) bool {
+		return event.Type == EventTypeFileChanged && event.Path == headPath
+	})
+	watcher.cancel = cancel
+	go watcher.consume(events)
 	return watcher, nil
 }
 
 // Close stops watching git branch changes.
 func (watcher *GitWatcher) Close() {
-	if watcher == nil || watcher.hub == nil {
+	if watcher == nil {
 		return
 	}
-	if watcher.subscription != "" {
-		watcher.hub.Unsubscribe(watcher.subscription)
-		watcher.subscription = ""
+	if watcher.cancel != nil {
+		watcher.cancel()
+		watcher.cancel = nil
+	}
+	if watcher.watchHandle != nil {
+		_ = watcher.watchHandle.Close()
+		watcher.watchHandle = nil
+	}
+}
+
+func (watcher *GitWatcher) consume(events <-chan Event) {
+	for event := range events {
+		watcher.handleFileChanged(event)
 	}
 }
 
@@ -76,7 +98,10 @@ func (watcher *GitWatcher) handleFileChanged(event Event) {
 	watcher.currentBranch = branch
 	watcher.mutex.Unlock()
 
-	watcher.hub.Publish(Event{
+	if watcher.bus == nil {
+		return
+	}
+	watcher.bus.Publish(Event{
 		Type:      EventTypeGitBranchChanged,
 		Path:      branch,
 		Timestamp: time.Now().UTC(),

@@ -336,7 +336,7 @@
    Tests: Benchmark suite, load tests with many subscribers
    Done when: Event bus meets performance targets, benchmarked
 
-** TODO [#A] Validate event architecture before config refactor
+** DONE [#A] Validate event architecture before config refactor
    Why: Ensure event system is stable before building on top of it
    Change:
    - Run full test suite: all tests must pass

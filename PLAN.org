@@ -1,3 +1,1039 @@
+* WIP [#A] Config extraction refactor with hash verification and version tracking
+  Goal: Refactor config/ handling to always extract embedded resources to .gestalt/config/ on startup with SHA-256 hash verification, semantic version compatibility checks, backup on conflicts, and relocate PLAN.org to .gestalt/.
+  Notes:
+  - Current state: config/ is embedded, optional override from ./gestalt/config/
+  - New behavior: always extract embedded config/* to .gestalt/config/ on startup
+  - Hash verification: store SHA-256 hashes of embedded files at compile time
+  - Version tracking: .gestalt/version.json with semantic version and build date
+  - Version compatibility: major mismatch=error, minor=warning, patch=info log
+  - Conflict resolution: if existing file differs, warn + backup (.bck suffix) + overwrite
+  - If hash matches: skip extraction (file already up-to-date)
+  - Efficient hash storage: embed single manifest file (JSON or binary) with paths→hashes
+  - PLAN.org relocation: move from workdir root to .gestalt/PLAN.org
+  - Update all PLAN.org references: API endpoints, watchers, UI, documentation
+  - Benefits: consistent config state, upgrade path, user customization with safety, version compatibility enforcement
+  - Extract-config flag becomes no-op (extraction happens automatically)
+  - Preserve user overrides: hash check prevents accidental overwrites
+  Date: 2026-01-11
+
+** DONE [#B] Research and design version.json and manifest formats
+   Why: Need efficient compile-time hash storage, runtime lookup, and version compatibility tracking
+   Change:
+   - Design version.json format for .gestalt/ directory
+   - Version structure: {"version": "1.2.3", "major": 1, "minor": 2, "patch": 3, "built": "2026-01-11T12:34:56Z", "git_commit": "abc123..."}
+   - Optional fields: git_commit (short SHA), build_host, go_version for debugging
+   - Design manifest format: JSON or binary for embedded hash map
+   - Manifest structure: {"path/to/file.json": "sha256hex", ...}
+   - Consider: single manifest.json vs separate hash files per resource type
+   - Research: Go crypto/sha256 for hash generation at build time
+   - Research: embed.FS walking pattern to enumerate all files
+   - Decision: JSON manifest for simplicity (human-readable, easy to generate)
+   - Manifest location: embedded as config/manifest.json or separate
+   - Build-time generation: script or Makefile target to compute hashes and version
+   Decision:
+   - version.json location: .gestalt/version.json (written at startup)
+   - Required fields: version (semver string), major, minor, patch, built (RFC3339 UTC)
+   - Optional fields: git_commit (short SHA), build_host, go_version
+   - manifest.json location: config/manifest.json embedded with config FS
+   - Manifest format: JSON object of config-relative path -> sha256 hex (file bytes)
+   - Manifest keys use forward slashes, no leading "./"
+   - Manifest excludes itself and directories (files only)
+   - Example version.json: {"version":"1.2.3","major":1,"minor":2,"patch":3,"built":"2026-01-11T12:34:56Z","git_commit":"abc1234"}
+   - Example manifest.json: {"agents/copilot.json":"<sha256>","skills/core/SKILL.md":"<sha256>"}
+   Tests: None (design only)
+   Done when: Version and manifest formats designed, documented in this L2
+
+** TODO [#B] Create build-time manifest and version generator
+   Why: Need to compute SHA-256 hashes and embed version info at compile time
+   Change:
+   - Create scripts/generate-config-manifest.go or shell script
+   - Walk config/agents/, config/prompts/, config/skills/ directories
+   - Compute SHA-256 hash of each file content
+   - Output manifest JSON: {"agents/copilot.json": "abc123...", ...}
+   - Use relative paths from config/ root for portability
+   - Handle nested directories (skills with subdirectories)
+   - Deterministic output: sort keys for reproducible builds
+   - Write to config/manifest.json (embedded with other resources)
+   - Generate version template from VERSION env var or git describe
+   - Parse semantic version: extract major, minor, patch components
+   - Capture build date as RFC3339 timestamp
+   - Optional: capture git commit SHA (git rev-parse --short HEAD)
+   - Write template version data to be embedded (or use ldflags for version fields)
+   - Integrate into Makefile: run before go build, pass VERSION
+   Tests: Run script, verify manifest.json and version data generated correctly
+   Done when: Build generates manifest.json with hashes and version metadata
+
+** TODO [#B] Embed manifest and version metadata
+   Why: Manifest and version info must be available at runtime for verification
+   Change:
+   - Update cmd/gestalt/embed.go or root embed.go
+   - Add manifest.json to embedded configFS
+   - Ensure manifest is included in binary at compile time
+   - Create internal/version package with embedded version data
+   - Use ldflags to inject: Version, Major, Minor, Patch, Built, GitCommit
+   - Add function LoadManifest(fs embed.FS) (map[string]string, error)
+   - Parse manifest JSON into path→hash map
+   - Handle missing manifest gracefully: warn and proceed without verification
+   - Add function GetVersionInfo() VersionInfo to return structured version data
+   Tests: Build binary, verify manifest and version accessible at runtime
+   Done when: Manifest and version embedded and loadable at runtime
+
+** TODO [#B] Implement hash verification logic
+   Why: Core of extraction safety - verify existing files before overwriting
+   Change:
+   - Create internal/config/extractor.go with Extractor struct
+   - Method: Extractor.Extract(sourceFS embed.FS, destDir string, manifest map[string]string) error
+   - For each file in manifest:
+     1. Compute destination path: destDir + relative path
+     2. Check if destination exists
+     3. If exists: compute SHA-256 of existing file
+     4. Compare hashes: if match, skip (log at debug level)
+     5. If differ: warn, rename existing to .bck, extract new
+     6. If not exists: extract new
+   - Handle directories: create parent dirs as needed
+   - Preserve file permissions from embedded FS
+   - Use atomic writes: write to temp, rename (avoid partial writes)
+   - Structured logging: log each action (skip/backup/extract)
+   Tests: Unit tests with temp directories, various conflict scenarios
+   Done when: Extractor safely extracts with hash verification and backups
+
+** TODO [#A] Implement version compatibility checking
+   Why: Prevent running incompatible Gestalt versions on existing .gestalt/ directories
+   Change:
+   - Create internal/config/version.go with version compatibility logic
+   - Function: CheckVersionCompatibility(installed, current VersionInfo) error
+   - Compare major versions: if differ, return error "Incompatible major version"
+   - Compare minor versions: if differ, log warning "Minor version mismatch"
+   - Compare patch versions: if differ, log info "Patch version difference"
+   - Error message must guide user: "Breaking changes detected. Backup .gestalt/ and run with --force-upgrade"
+   - Warning message: "Config may be outdated. Review .bck files after startup."
+   - Info message: "Config updated from X.Y.Z to X.Y.W"
+   - Add --force-upgrade flag to bypass major version check (dangerous)
+   Tests: Unit tests for all version comparison scenarios
+   Done when: Version checking prevents incompatible upgrades
+
+** TODO [#B] Integrate version tracking and extraction into startup
+   Why: Ensure config and version are always checked and extracted on start
+   Change:
+   - Modify cmd/gestalt/main.go startup sequence
+   - After flag parsing, before agent/skill loading:
+     1. Create .gestalt/ directory if missing
+     2. Check for existing .gestalt/version.json
+     3. If exists: load and compare with current version
+     4. Run version compatibility check (may error/warn/info)
+     5. Load manifest from embedded FS
+     6. Extract config/* to .gestalt/config/ with verification
+     7. Write/update .gestalt/version.json with current version
+     8. Log summary: version check result, N files extracted, M skipped, K backed up
+   - Update agent/skill loaders to read from .gestalt/config/
+   - Remove fallback to embedded FS (always use .gestalt/config/)
+   - Handle extraction errors: log and exit if critical failure
+   - Add env var: GESTALT_CONFIG_DIR (default .gestalt/config) for testing
+   Tests: Integration test: start server, verify .gestalt/config/ and version.json
+   Done when: Startup always checks version and extracts config
+
+** TODO [#C] Handle backup file cleanup policy
+   Why: Prevent accumulation of .bck files over time
+   Change:
+   - Add cleanup logic: keep only latest .bck per file
+   - On backup creation: check for existing .bck, replace if older
+   - Optional: keep timestamped backups (file.json.bck.YYYYMMDD-HHMMSS)
+   - Add env var: GESTALT_CONFIG_BACKUP_LIMIT (default 1, 0=disable backups)
+   - Log cleanup actions at debug level
+   - Document backup behavior in README
+   Tests: Test backup replacement logic
+   Done when: Backup policy prevents unbounded file accumulation
+
+** TODO [#B] Relocate PLAN.org to .gestalt/PLAN.org
+   Why: Centralize all Gestalt state in .gestalt/ directory
+   Change:
+   - Update all PLAN.org references to .gestalt/PLAN.org
+   - Backend: internal/watcher/watcher.go - update watched path
+   - Backend: internal/api/rest.go - GET /api/plan endpoint path
+   - Backend: cmd/gestalt/main.go - startup PLAN.org check
+   - Frontend: views/PlanView.svelte - API still works (backend handles path)
+   - Documentation: README.md, AGENTS.md - update PLAN.org references
+   - On startup: if workdir/PLAN.org exists, offer to migrate to .gestalt/
+   - Migration: copy PLAN.org to .gestalt/, optionally rename original
+   Tests: Manual test: create PLAN.org, verify .gestalt/PLAN.org watched
+   Done when: All code references .gestalt/PLAN.org, migration path documented
+
+** TODO [#C] Add migration helper for existing installations
+   Why: Users with existing PLAN.org in workdir need smooth transition
+   Change:
+   - On startup, check if workdir/PLAN.org exists
+   - If yes and .gestalt/PLAN.org doesn't exist: auto-migrate (copy)
+   - If both exist: warn user, use .gestalt/PLAN.org
+   - Log migration action: "Migrated PLAN.org to .gestalt/"
+   - Optional: add --migrate-plan CLI flag for manual control
+   - Document migration behavior in README
+   Tests: Test migration scenarios with various file states
+   Done when: Existing installations migrate smoothly
+
+** TODO [#C] Update --extract-config flag behavior
+   Why: Flag becomes less relevant with automatic extraction
+   Change:
+   - Option 1: Remove flag entirely (extraction always happens)
+   - Option 2: Keep flag, make it force re-extraction (ignore hashes)
+   - Option 3: Rename to --force-config-extract or --reset-config
+   - Document new behavior: extraction happens automatically
+   - Update --help text to reflect automatic extraction
+   - Consider: add --skip-config-extract for fast startup (advanced users)
+   Tests: Test flag behavior matches documentation
+   Done when: Flag behavior clear and documented
+
+** TODO [#B] Update documentation for new config behavior
+   Why: Users and contributors need to understand config extraction
+   Change:
+   - Update README.md "Embedded Resources" section
+   - Document: config always extracted to .gestalt/config/ on startup
+   - Document: hash verification prevents accidental overwrites
+   - Document: .bck files created on conflicts, include resolution steps
+   - Document: PLAN.org now lives in .gestalt/PLAN.org
+   - Document: migration behavior for existing installations
+   - Add troubleshooting section: conflicts, backup files, manual overrides
+   - Update AGENTS.md with new config locations
+   Tests: None (documentation only)
+   Done when: Config extraction fully documented
+
+** TODO [#B] Add config validation on extraction
+   Why: Detect malformed config files early in startup
+   Change:
+   - After extraction, validate all config files
+   - Agents: parse and validate all JSON files
+   - Prompts: check .txt files are readable text
+   - Skills: validate SKILL.md frontmatter and structure
+   - Log validation warnings/errors with file paths
+   - Continue startup on non-critical validation failures
+   - Critical failures: malformed manifest, extraction I/O errors
+   Tests: Test with invalid config files, verify warnings logged
+   Done when: Startup includes config validation step
+
+** TODO [#C] Optimize extraction performance
+   Why: Minimize startup time impact of extraction
+   Change:
+   - Skip hash computation for unchanged files (check mtime first)
+   - Parallel extraction: goroutines for independent files
+   - Buffered I/O for hash computation and file writes
+   - Cache manifest in memory: single parse per startup
+   - Measure: log extraction duration at debug level
+   - Add benchmark: compare cold start vs warm start (all skipped)
+   Tests: Benchmark extraction with large config sets
+   Done when: Extraction completes in <100ms for typical configs
+
+** TODO [#B] Expose version info in API and logs
+   Why: Users and monitoring tools need to see Gestalt version
+   Change:
+   - Update /api/status to include version object
+   - Response format: {"version": "1.2.3", "major": 1, "minor": 2, "patch": 3, "built": "...", "git_commit": "..."}
+   - Log version at startup: "Gestalt version X.Y.Z (built YYYY-MM-DD, commit abc123)"
+   - Log config version compatibility check results
+   - Include version in startup banner/splash
+   - Document version fields in API documentation
+   Tests: Verify version appears in /api/status and startup logs
+   Done when: Version fully visible in API, logs, and UI
+
+** TODO [#B] Update frontend for .gestalt/PLAN.org
+   Why: Ensure UI correctly fetches PLAN.org from new location
+   Change:
+   - Verify GET /api/plan still works (backend handles path change)
+   - No frontend changes needed if backend path abstracted correctly
+   - Update any hardcoded PLAN.org references in comments/docs
+   - Test PlanView.svelte with new backend path
+   - Verify filesystem watcher events still trigger UI updates
+   Tests: Manual test Plan tab, verify content loads and updates
+   Done when: Frontend works seamlessly with .gestalt/PLAN.org
+
+** TODO [#C] Add developer mode for config override
+   Why: Developers may want to bypass extraction for faster iteration
+   Change:
+   - Add env var: GESTALT_DEV_MODE=true
+   - In dev mode: skip extraction, read directly from config/ directory
+   - Or: add --dev flag to skip extraction and validation
+   - Document dev mode in TESTING.md or CONTRIBUTING.md
+   - Only for development; production always extracts
+   Tests: Test dev mode skips extraction
+   Done when: Dev mode documented and functional
+
+** TODO [#B] Add integration tests for config extraction flow
+   Why: Critical path needs comprehensive test coverage
+   Change:
+   - Test scenarios:
+     1. Fresh start: .gestalt/ doesn't exist
+     2. Warm start: files unchanged (all skipped)
+     3. Conflict: file modified (backup + overwrite)
+     4. Migration: PLAN.org in workdir
+     5. Partial extraction: some files exist, some don't
+   - Use temp directories for isolation
+   - Mock embedded FS with test data
+   - Verify file contents, hashes, backups
+   - Verify logs contain expected messages
+   Tests: Integration test suite for extraction
+   Done when: All extraction scenarios covered by tests
+
+** TODO [#B] Document upgrade path and version compatibility
+   Why: Users need to understand version compatibility and upgrade behavior
+   Change:
+   - Add "Upgrading Gestalt" section to README.md
+   - Explain semantic versioning: major (breaking), minor (features), patch (fixes)
+   - Explain version compatibility checks:
+     - Major version mismatch: error, must backup and migrate
+     - Minor version mismatch: warning, review .bck files
+     - Patch version difference: automatic, logged at info level
+   - Explain: new versions may update config files
+   - Explain: hash verification detects changes
+   - Explain: .bck files preserve customizations
+   - Provide merge instructions: diff .bck vs new file
+   - Document: how to keep customizations across upgrades
+   - Document --force-upgrade flag (use with caution)
+   - Example workflow: update binary → check version compatibility → review .bck files → merge changes
+   - Document .gestalt/version.json format and purpose
+   Tests: None (documentation only)
+   Done when: Upgrade path and version compatibility clearly documented
+
+** TODO [#C] Add telemetry for config extraction metrics
+   Why: Monitor extraction behavior in production (if telemetry exists)
+   Change:
+   - Log metrics: files extracted, skipped, backed up
+   - Track extraction duration and success rate
+   - Log to structured logger for aggregation
+   - Optional: expose in /api/metrics if metrics endpoint exists
+   - Help diagnose config-related issues in the field
+   Tests: Verify metrics appear in logs
+   Done when: Extraction metrics logged and observable
+* TODO [#A] Comprehensive architecture and code quality review
+  Goal: Conduct a thorough review of the entire Gestalt codebase (backend + frontend) to identify opportunities for simplification, improved maintainability, better readability, dependency reduction, and architectural improvements.
+  Notes:
+  - Scope: Every internal package, command, frontend component, and external dependency
+  - Current state: ~14k LOC backend (Go), ~4.4k LOC frontend (Svelte), 67% avg test coverage
+  - Dependencies: Minimal (4 Go deps, 2 npm deps) - good foundation to maintain
+  - Focus areas: code clarity, separation of concerns, reducing coupling, eliminating redundancy
+  - Approach: component-by-component analysis with concrete improvement proposals
+  - Changes can range from small refactors to full component rewrites if justified
+  - Preserve: existing functionality, test coverage, backward compatibility where possible
+  - Outcome: prioritized list of improvements with effort estimates and impact assessment
+  - This is a planning and analysis L1; implementation will be separate follow-up work
+  Date: 2026-01-08
+
+  Context for implementation:
+  - Gestalt is a multi-terminal dashboard with AI agent profiles and skills
+  - Core value: orchestrate multiple terminal sessions with agent coordination
+  - Architecture: Go HTTP/WS server + Svelte SPA frontend
+  - Key components: PTY management, WebSocket streaming, agent profiles, skill system
+  - Recent additions: filesystem watching, input history, org-mode viewer, logging system
+  - Quality baseline: good test coverage, minimal deps, modular structure
+  - Pain points to investigate: coupling, complexity, unclear boundaries, potential over-engineering
+
+** TODO [#A] Review and document current architecture
+   Why: Need complete understanding before proposing changes; establish baseline
+   Change:
+   - Document current architecture in detail:
+     - Backend: 9 internal packages (agent, api, logging, orchestrator, skill, terminal, version, watcher, plus root)
+     - Frontend: 4 views, 8 components, 5 lib modules
+     - Data flow: REST API, WebSocket streams, embedded resources, config files
+     - State management: backend (Manager holds sessions), frontend (Svelte stores)
+   - Create architecture diagram (text-based or mermaid) showing:
+     - Component dependencies and communication paths
+     - Data flow: user → frontend → API → terminal → PTY
+     - WebSocket fan-out pattern (broadcaster → multiple subscribers)
+     - Config loading: embedded → external override → env vars
+   - Identify architectural patterns in use:
+     - Manager pattern (terminal.Manager), Hub pattern (watcher.EventHub)
+     - Circular buffers (output/input buffers)
+     - Fan-out/broadcast (WebSocket, event hub)
+     - Embedded resources with override (embed.FS)
+   - Document key design decisions and their rationale
+   - List implicit coupling and hidden dependencies
+   - Measure: lines of code per component, cyclomatic complexity (if tools available)
+   Tests: None (documentation only)
+   Done when: Complete architecture documented with diagrams and metrics
+
+** TODO [#B] Analyze internal/terminal package (850 LOC, core domain)
+   Why: Largest and most complex internal package; core business logic
+   Change:
+   - Review files: session.go, manager.go, pty.go, broadcaster.go, input_buffer.go, output_buffer.go, persistence.go, input_logger.go
+   - Session struct: 20+ fields, 3 goroutines - is this too complex?
+   - Manager: CRUD for sessions + agent tracking - single responsibility?
+   - Broadcaster: fan-out pattern - could be extracted to reusable utility?
+   - Buffers: circular buffer pattern repeated twice (input/output) - DRY opportunity?
+   - Persistence: async file logging - is this pattern reusable for other logs?
+   - PTY handling: OS-specific (pty_unix.go, pty_windows.go) - stub on Windows, document or implement ConPTY?
+   - Questions to answer:
+     - Can Session be split into smaller types? (SessionState, SessionIO, SessionLifecycle?)
+     - Is Manager doing too much? (session registry vs lifecycle vs agent tracking)
+     - Are the 3 goroutines per session necessary? Can any be combined?
+     - Should Broadcaster be promoted to internal/broadcast package?
+     - Can input/output buffers share a generic circular buffer implementation?
+   - Coverage: 74.2% - identify untested paths and why
+   - Proposed improvements: extract, simplify, reduce goroutine count, clearer boundaries
+   Tests: Ensure refactoring maintains coverage
+   Done when: Detailed analysis with concrete improvement proposals documented
+
+** TODO [#B] Analyze internal/api package (1100+ LOC, HTTP/WS layer)
+   Why: Second largest package; handles all HTTP and WebSocket traffic
+   Change:
+   - Review files: routes.go, rest.go, terminal_handler.go, logs_handler.go, events_handler.go, spa.go, middleware.go
+   - Current structure: handlers mixed with routing, validation, and business logic
+   - REST endpoints: ~15 endpoints in rest.go - is this file too large?
+   - WebSocket handlers: 3 separate files (terminal, logs, events) - consistent pattern?
+   - Middleware: auth middleware in separate file - good, but is it sufficient?
+   - SPA handler: custom fallback logic - could this be simpler?
+   - Questions to answer:
+     - Should REST handlers be split by domain? (terminals.go, agents.go, skills.go, logs.go, plan.go)
+     - Is error handling consistent across all endpoints?
+     - Are validation patterns repeated? Extract to shared validators?
+     - Do WebSocket handlers share common patterns? Extract base WebSocket handler?
+     - Is middleware testable in isolation?
+   - Dependencies: gorilla/websocket - is this necessary or can stdlib x/net/websocket suffice?
+   - Coverage: 64.9% - lower than average, why? Handler testing complexity?
+   - Proposed improvements: split by domain, extract validators, reduce duplication
+   Tests: Add integration tests for missing coverage
+   Done when: API layer analyzed with refactoring proposals
+
+** TODO [#B] Analyze internal/watcher package (1426 LOC, filesystem monitoring)
+   Why: Recent addition, significant size, uses fsnotify, complex coordination
+   Change:
+   - Review files: watcher.go (550 LOC!), hub.go, git.go, types.go + tests
+   - Watcher.go is largest single file - is it doing too much?
+   - EventHub: pub/sub pattern - clean design or over-engineered for current needs?
+   - Git watching: branch detection - is this separate concern from file watching?
+   - Questions to answer:
+     - Can watcher.go be split? (WatcherCore, WatcherCoordination, WatcherCleanup?)
+     - Is EventHub necessary or could simpler callback pattern work?
+     - Should git watching be separate package? (internal/git)
+     - Is debouncing logic complex? Could it be simplified?
+     - Are 100 max watches sufficient? Is this limit well-enforced?
+   - Dependency: fsnotify (only ~9k lines) - well-justified for cross-platform
+   - Coverage: 63.9% - lowest backend coverage, integration test heavy?
+   - Proposed improvements: split large file, simplify if over-designed, better tests
+   Tests: Unit tests for watcher logic separate from integration tests
+   Done when: Watcher package analyzed with simplification opportunities identified
+
+** TODO [#C] Analyze internal/agent package (400 LOC, agent profiles)
+   Why: Core domain model, high coverage (85%), well-tested
+   Change:
+   - Review files: agent.go, loader.go + tests
+   - Agent struct: simple data model with validation - clean design
+   - Loader: reads JSON files, validates, returns map - straightforward
+   - Questions to answer:
+     - Is validation complete and correct?
+     - Is error handling helpful for users?
+     - Should agent name uniqueness be enforced at load or elsewhere?
+     - Is prompt name resolution in the right place?
+   - Coverage: 85% - excellent, what's missing?
+   - Proposed improvements: likely minimal, validate completeness
+   Tests: Review test quality, add edge cases if needed
+   Done when: Agent package reviewed, minor improvements identified if any
+
+** TODO [#C] Analyze internal/skill package (350 LOC, Agent Skills)
+   Why: Domain model for skills, YAML parsing, prompt generation
+   Change:
+   - Review files: skill.go, loader.go, prompt.go + tests
+   - Skill struct: YAML frontmatter + markdown body - clean
+   - Loader: scans directories, parses SKILL.md files - similar to agent loader
+   - Prompt generation: XML output for LLM context - is format optimal?
+   - Questions to answer:
+     - Is YAML parsing robust? (using gopkg.in/yaml.v3)
+     - Should skill/agent loaders share common base code? (both scan dirs, parse, validate)
+     - Is XML generation testable? Are there edge cases?
+     - Is skill metadata complete for agentskills.io spec?
+   - Dependency: gopkg.in/yaml.v3 - well-justified for YAML parsing
+   - Coverage: 80.5% - good, what's untested?
+   - Proposed improvements: extract common loader pattern if beneficial
+   Tests: Ensure YAML edge cases covered
+   Done when: Skill package reviewed with improvement proposals
+
+** TODO [#C] Analyze internal/logging package (200 LOC, structured logging)
+   Why: Recent addition, circular buffer, WebSocket streaming
+   Change:
+   - Review files: logger.go, buffer.go + tests
+   - LogBuffer: circular buffer pattern (same as terminal buffers) - DRY opportunity?
+   - Logger: structured fields (map[string]string) - sufficient or needs types?
+   - WebSocket streaming: integrated with api package - clean separation?
+   - Questions to answer:
+     - Should circular buffer be extracted to internal/buffer package?
+     - Is structured logging interface sufficient for all use cases?
+     - Should log levels be enum/constants instead of strings?
+     - Is buffer size (1000 entries) appropriate?
+   - Coverage: 73% - what's missing?
+   - Proposed improvements: extract buffer, strengthen types
+   Tests: Concurrent logging tests
+   Done when: Logging package analyzed with reuse opportunities identified
+
+** TODO [#C] Analyze internal/orchestrator package (empty stub)
+   Why: Placeholder for future inter-terminal communication
+   Change:
+   - Review: currently empty, only doc.go with intent
+   - Questions to answer:
+     - Is this needed now? Should it be removed?
+     - What will orchestrator do? (design future features)
+     - Will it become complex? Plan for simplicity early
+   - Proposed improvements: remove if unused, or sketch minimal design
+   Tests: None currently
+   Done when: Decision made on orchestrator future (keep stub or remove)
+
+** TODO [#C] Analyze internal/version package (5 LOC, version string)
+   Why: Minimal package, check if necessary
+   Change:
+   - Review: single var Version string for ldflags injection
+   - Questions to answer:
+     - Does this need to be a separate package?
+     - Could version be in main package?
+   - Proposed improvements: keep as-is (clean separation) or inline
+   Tests: None needed
+   Done when: Version package reviewed (likely no changes)
+
+** TODO [#B] Analyze cmd/gestalt (910 LOC, main entrypoint)
+   Why: Largest command file, wires everything together
+   Change:
+   - Review files: main.go, completion.go, extract.go, config_fs.go + tests
+   - Main.go: config loading, agent/skill loading, manager creation, server start
+   - Questions to answer:
+     - Is main.go too long? Should initialization be extracted?
+     - Config loading: is loadConfig() function clear and testable?
+     - Should config have its own package? (internal/config)
+     - Are subcommands (validate-skill, extract-config, completion) well-organized?
+     - Is flag parsing clean? (will improve in CLI L1)
+   - Coverage: 54.3% - low for main, acceptable or improve?
+   - Proposed improvements: extract initialization, clarify config, simplify main flow
+   Tests: More config loading tests
+   Done when: Main entrypoint analyzed with simplification proposals
+
+** TODO [#B] Analyze cmd/gestalt-send (761 LOC, CLI tool)
+   Why: Separate binary, client-side tool, moderate complexity
+   Change:
+   - Review files: main.go, completion support, agent resolution, HTTP client
+   - Main.go: flag parsing, agent resolution, HTTP POST, completion generation
+   - Agent resolution: fetches /api/agents, matches name/id - is caching robust?
+   - Questions to answer:
+     - Is error handling clear and helpful?
+     - Are exit codes consistent with conventions?
+     - Is agent resolution logic too complex for CLI tool?
+     - Should HTTP client logic be extracted to package?
+     - Is completion generation maintainable?
+   - Coverage: 48.9% - lowest, is this acceptable for CLI?
+   - Proposed improvements: simplify agent resolution, improve error messages
+   Tests: More CLI integration tests
+   Done when: gestalt-send analyzed with UX improvement proposals
+
+** TODO [#B] Analyze frontend architecture (4357 LOC, Svelte SPA)
+   Why: Entire frontend needs review for consistency and simplicity
+   Change:
+   - Review structure:
+     - Views: Dashboard, PlanView, LogsView, TerminalView (4 main views)
+     - Components: Terminal, TabBar, Toast, OrgViewer, CommandInput, etc (8 components)
+     - Libs: api.js, terminalStore.js, eventStore.js, notificationStore.js, orgParser.js, terminalTabs.js (6 modules)
+   - Questions to answer:
+     - Is component hierarchy clear? Are responsibilities well-defined?
+     - Do views mix too much logic? Should business logic move to stores?
+     - Are Svelte stores used consistently? (writable, readable, derived)
+     - Is terminalStore.js too large (660 LOC)? Can it be split?
+     - Are there repeated patterns that could be extracted?
+     - Is error handling consistent across components?
+     - Are API calls centralized properly?
+   - State management: is it clear where state lives and how it flows?
+   - Proposed improvements: extract logic from views, simplify stores, reduce component size
+   Tests: Frontend has tests but coverage unknown, identify gaps
+   Done when: Frontend architecture analyzed with refactoring proposals
+
+** TODO [#B] Analyze frontend/src/lib (store and utility modules)
+   Why: Core frontend logic, state management, API client
+   Change:
+   - Review files:
+     - api.js (63 LOC): HTTP/WS URL building, fetch wrapper - clean and minimal
+     - terminalStore.js (660 LOC): HUGE - xterm management, WebSocket, input handling
+     - eventStore.js (144 LOC): filesystem event WebSocket - clean
+     - notificationStore.js (185 LOC): toast notifications - clean
+     - orgParser.js (85 LOC): Org-mode parsing - minimal parser, good
+     - terminalTabs.js (7 LOC): unused? just exports writable, may be obsolete
+   - terminalStore.js deep dive:
+     - Manages xterm instance, WebSocket, input modes, history, focus, scrolling
+     - Is this too much? Split into: xtermManager.js, terminalWebSocket.js, terminalInput.js?
+     - Can WebSocket reconnection logic be shared with eventStore?
+     - Is input mode toggle (direct vs command box) too complex?
+   - Questions to answer:
+     - Should terminal state be split into multiple stores?
+     - Can WebSocket connection logic be extracted to wsClient.js?
+     - Is terminalTabs.js used? Remove if not
+     - Are stores reactive enough? Any unnecessary re-renders?
+   - Proposed improvements: split terminalStore, extract WebSocket client, remove dead code
+   Tests: Add unit tests for store logic
+   Done when: Frontend lib modules analyzed with refactoring plan
+
+** TODO [#B] Analyze frontend components (largest: Terminal 347 LOC, CommandInput 332 LOC)
+   Why: Components are UI building blocks, need to be maintainable
+   Change:
+   - Review each component:
+     - Terminal.svelte (347 LOC): xterm rendering, WebSocket connection, input handling
+     - CommandInput.svelte (332 LOC): multiline input, history navigation, direct input toggle
+     - OrgViewer.svelte (244 LOC): org-mode rendering, filtering, expanding
+     - OrgNode.svelte (208 LOC): recursive org-mode node rendering
+     - NotificationSettings.svelte (182 LOC): toast preferences UI
+     - TabBar.svelte (157 LOC): tab navigation, close buttons
+     - Toast.svelte (137 LOC): individual toast notification
+     - ToastContainer.svelte (46 LOC): toast positioning and stacking
+     - TerminalView.svelte (44 LOC): thin wrapper for Terminal component
+   - Questions to answer:
+     - Is Terminal.svelte doing too much? (WebSocket + xterm + layout)
+     - Should Terminal be split into Terminal (layout) + XtermCanvas (xterm only)?
+     - Is CommandInput too complex? Can it be simplified?
+     - Are OrgViewer/OrgNode well-factored? (recursive component pattern)
+     - Can any components be further decomposed?
+     - Is component communication clean? (props down, events up)
+     - Are there repeated patterns? (WebSocket connection, error handling)
+   - Proposed improvements: simplify large components, extract sub-components
+   Tests: Component tests for complex logic
+   Done when: All components reviewed with simplification proposals
+
+** TODO [#B] Analyze frontend views (4 main views, thin layer over components)
+   Why: Views coordinate components, should be minimal
+   Change:
+   - Review each view:
+     - Dashboard.svelte: agent list, skills display, recent logs, status
+     - PlanView.svelte: OrgViewer wrapper, refresh button, event subscription
+     - LogsView.svelte: log filtering, auto-refresh, log list rendering
+     - TerminalView.svelte: thin wrapper, just passes props to Terminal
+   - Questions to answer:
+     - Are views thin enough? (ideally < 100 LOC)
+     - Do views have business logic that should move to stores?
+     - Is Dashboard too complex? (shows agents, skills, logs)
+     - Can view logic be extracted to composable functions?
+   - Proposed improvements: move logic to stores, simplify views
+   Tests: View rendering tests
+   Done when: Views analyzed, logic extraction opportunities identified
+
+** TODO [#B] Analyze Go dependencies (4 external, all justified?)
+   Why: Minimize dependencies for maintainability and security
+   Change:
+   - Review each dependency:
+     - github.com/creack/pty v1.1.21 (REQUIRED: cross-platform PTY, no stdlib alternative)
+     - github.com/gorilla/websocket v1.5.3 (QUESTION: can we use golang.org/x/net/websocket or stdlib?)
+     - github.com/fsnotify/fsnotify v1.9.0 (REQUIRED: cross-platform fs watching, stdlib has none)
+     - gopkg.in/yaml.v3 v3.0.1 (REQUIRED: YAML parsing for skills, no stdlib alternative)
+   - Deep dive on gorilla/websocket:
+     - What features does gestalt use? (control frames, origin checking, binary/text messages)
+     - Can stdlib (removed) or x/net/websocket provide these?
+     - Is migration effort worth the dependency reduction?
+     - Decision: likely keep gorilla (production-ready, widely used), but verify
+   - Transitive deps: golang.org/x/sys (from pty/fsnotify, acceptable)
+   - Proposed improvements: investigate gorilla alternatives, document decisions
+   Tests: No changes unless migration happens
+   Done when: Dependencies reviewed, justified, migration assessed
+
+** TODO [#C] Analyze frontend dependencies (2 + dev deps)
+   Why: Frontend is already minimal, but verify necessity
+   Change:
+   - Production dependencies:
+     - @xterm/xterm (REQUIRED: terminal emulator, core feature)
+     - @xterm/addon-fit (CONVENIENCE: 10 lines of math, could inline but not worth it)
+   - Dev dependencies: vite, svelte, testing-library, vitest, tailwind, postcss (all justified for dev)
+   - Questions to answer:
+     - Is addon-fit worth keeping? (yes, 10 lines but tested and maintained)
+     - Are all tailwind utilities used? (yes, recently added)
+     - Any unused dev deps? (check for obsolete testing or build tools)
+   - Proposed improvements: likely none, already minimal
+   Tests: No changes
+   Done when: Frontend deps reviewed and justified
+
+** TODO [#B] Identify code duplication and extraction opportunities
+   Why: DRY principle - reduce maintenance burden
+   Change:
+   - Search for duplication patterns:
+     - Circular buffers: OutputBuffer, InputBuffer, LogBuffer - extract generic Buffer[T]?
+     - Async file loggers: SessionLogger, InputLogger - extract generic AsyncFileLogger?
+     - Config loading: agent loader, skill loader - extract common dirScanner/jsonLoader?
+     - WebSocket patterns: terminal, logs, events handlers - extract base wsHandler?
+     - Frontend WebSocket clients: terminalStore, eventStore - extract wsClient?
+     - Error handling: repeated patterns in API handlers - extract errorResponder?
+   - Measure duplication:
+     - Identify repeated code blocks (>10 lines similar)
+     - Calculate potential LOC reduction
+   - Assess extraction value:
+     - Will abstraction simplify or complicate?
+     - Is pattern used 3+ times? (rule of three)
+     - Will it reduce bugs or increase cognitive load?
+   - Proposed improvements: prioritize high-value extractions
+   Tests: Ensure extracted code is well-tested
+   Done when: Duplication catalog created with extraction proposals
+
+** TODO [#B] Review error handling consistency
+   Why: Poor error handling leads to unclear failures and debugging difficulty
+   Change:
+   - Backend error handling review:
+     - Are errors wrapped with context? (fmt.Errorf with %w)
+     - Are errors logged at appropriate levels?
+     - Are HTTP error responses consistent? (status codes, JSON structure)
+     - Are panics avoided? (use recover only in critical goroutines)
+     - Are errors tested? (error paths have test coverage)
+   - Frontend error handling review:
+     - Are API errors caught and displayed to user?
+     - Are network errors retried appropriately?
+     - Are WebSocket disconnections handled gracefully?
+     - Are errors logged to console for debugging?
+     - Do users see helpful error messages?
+   - Questions to answer:
+     - Should we use pkg/errors for error wrapping? (stdlib %w is sufficient)
+     - Should API errors have error codes? (for programmatic handling)
+     - Should frontend have centralized error handler?
+   - Proposed improvements: consistent error patterns, better user messages
+   Tests: Error path test coverage
+   Done when: Error handling reviewed, consistency proposals documented
+
+** TODO [#B] Review testing strategy and coverage gaps
+   Why: Tests prevent regressions and document behavior
+   Change:
+   - Current coverage analysis:
+     - cmd/gestalt: 54.3% - low, but main is hard to test
+     - cmd/gestalt-send: 48.9% - low for CLI, integration-heavy
+     - internal/agent: 85.0% - excellent
+     - internal/api: 64.9% - acceptable, integration tests exist
+     - internal/logging: 73.0% - good
+     - internal/skill: 80.5% - good
+     - internal/terminal: 74.2% - good
+     - internal/watcher: 63.9% - low, complex integration tests
+   - Identify untested paths:
+     - What's not covered in each package?
+     - Are tests integration-heavy or unit-heavy?
+     - Are error paths tested?
+     - Are edge cases covered?
+   - Review test quality:
+     - Are tests readable and maintainable?
+     - Do tests use table-driven patterns?
+     - Are tests isolated or do they share state?
+     - Are integration tests reliable?
+   - Frontend testing:
+     - Are components tested?
+     - Are stores tested?
+     - Are API mocks used?
+     - Is coverage measured?
+   - Proposed improvements: target 80% coverage, add missing tests
+   Tests: This is meta-testing review
+   Done when: Coverage gaps identified, test improvement plan created
+
+** TODO [#A] Create prioritized improvement roadmap
+   Why: Consolidate all analysis into actionable plan
+   Change:
+   - Compile all findings from previous L2 steps
+   - Categorize improvements:
+     - Quick wins: <1 day effort, high impact (rename, extract small function, add test)
+     - Medium refactors: 1-3 days, medium-high impact (split large file, extract pattern)
+     - Large refactors: 1+ weeks, high impact (redesign component, migrate dependency)
+   - Prioritize by:
+     - Impact: simplification, maintainability, readability, performance
+     - Risk: breaking changes, test coverage, complexity
+     - Effort: time to implement and test
+   - Create matrix: Impact (H/M/L) x Effort (H/M/L) → priority
+   - Propose implementation order:
+     - Phase 1: Quick wins and high-impact/low-effort improvements
+     - Phase 2: Medium refactors with clear value
+     - Phase 3: Large refactors if justified
+   - Document each improvement:
+     - What: specific change
+     - Why: problem it solves
+     - How: implementation approach
+     - Effort: estimated time
+     - Risk: what could break
+     - Tests: what tests to add/modify
+   - Create follow-up L1 work plans for top priorities
+   Tests: N/A (planning)
+   Done when: Prioritized roadmap with detailed improvement proposals ready for implementation
+
+* TODO [#A] Wails desktop application packaging
+  Goal: Package Gestalt as a native desktop application using Wails v3, providing a standalone executable for macOS, Windows, and Linux while preserving the existing web server mode as default.
+  Notes:
+  - Dual-mode architecture: web server (default) + desktop app (opt-in build target)
+  - Desktop mode: Wails v3 wraps existing Gestalt server with native window
+  - Hybrid approach: keep HTTP/WebSocket server, Wails bindings call it
+  - Desktop app starts embedded server on random port, frontend connects via localhost
+  - Separate binaries: `gestalt` (web mode, current) + `gestalt-desktop` (Wails app)
+  - PTY/terminal handling unchanged (works in desktop apps)
+  - Frontend: reuse existing Svelte app, minimal Wails-specific changes
+  - Wails bindings: thin wrapper over HTTP API for native features (file dialogs, etc)
+  - Build system: extend Makefile with wails targets
+  - Svelte adapter: use static adapter (SPA mode), output to build/ directory
+  - Embed frontend build/ in Wails app (not dist/, separate from web mode)
+  - Desktop-specific features (optional): native menus, tray icon, better window management
+  - Keep configuration compatible: same env vars, same config files
+  - Distribution: single binary per platform (gestalt-desktop.app, gestalt-desktop.exe, gestalt-desktop)
+  - Documentation: separate desktop build/run instructions in README
+  - Testing: desktop app should pass same test suite as web mode
+  Date: 2026-01-08
+  Ref: Wails v3 docs, agentskills.io packaging patterns
+
+** TODO [#B] Research Wails v3 architecture and requirements
+   Why: Understand Wails v3 capabilities, limitations, and integration patterns before committing
+   Change:
+   - Read Wails v3 documentation: application structure, binding patterns, build process
+   - Understand differences from v2: breaking changes, new features, migration path
+   - Research Svelte + Wails v3 integration: does v3 have Svelte template/examples?
+   - Investigate frontend build output requirements: static SPA vs other modes
+   - Check Wails CLI capabilities: dev mode, build targets, cross-compilation
+   - Understand Wails runtime: how Go functions are bound, TypeScript generation
+   - Research window management: native menus, system tray, multi-window support
+   - Check PTY compatibility: any known issues with terminal apps in Wails?
+   - Review Wails licensing: MIT (compatible with AGPL)
+   - Document findings and any potential blockers
+   Tests: None (research only)
+   Done when: Wails v3 architecture understood, integration approach validated
+
+** TODO [#B] Install Wails v3 CLI and create skeleton project
+   Why: Need Wails tooling and project structure to build desktop app
+   Change:
+   - Install Wails CLI: `go install github.com/wailsapp/wails/v3/cmd/wails3@latest`
+   - Verify installation: `wails3 version`
+   - Create skeleton in separate directory first (experiment): `wails3 init -n gestalt-desktop -t svelte`
+   - Study generated structure: main.go, wails.json, frontend setup
+   - Compare skeleton with Gestalt structure: identify differences
+   - Document Wails project structure requirements in internal notes
+   - Test skeleton builds: `wails3 dev` and `wails3 build`
+   - Verify dev mode works: hot reload, frontend/backend communication
+   - Clean up experimental skeleton after study
+   Tests: Skeleton app builds and runs successfully
+   Done when: Wails CLI installed, skeleton studied, requirements understood
+
+** TODO [#B] Create cmd/gestalt-desktop for Wails application
+   Why: Separate entrypoint for desktop mode to avoid mixing web/desktop logic
+   Change:
+   - Create cmd/gestalt-desktop/main.go as Wails application entrypoint
+   - Copy structure from cmd/gestalt/main.go as starting point
+   - Add Wails application initialization: wails.Run(&options.App{...})
+   - Configure embedded server: start on random port (e.g., localhost:0)
+   - Pass server URL to frontend via Wails config or environment
+   - Bind Go struct with methods for Wails frontend to call
+   - Initial bindings (minimal): GetServerURL() string, OpenExternal(url string) error
+   - Wire up existing Manager, agent loader, skill loader (reuse all internal packages)
+   - Add graceful shutdown: close Wails app → stop server → cleanup sessions
+   - Desktop-specific config: window size (1280x800), title ("Gestalt"), resizable
+   Tests: gestalt-desktop compiles; go build ./cmd/gestalt-desktop
+   Done when: Desktop entrypoint exists with Wails initialization
+
+** TODO [#B] Configure Svelte frontend for Wails compatibility
+   Why: Wails requires static SPA build; ensure Vite config produces correct output
+   Change:
+   - Frontend already uses Vite + Svelte (not SvelteKit), perfect for Wails
+   - Verify vite.config.js build.outDir: keep as 'dist' for web, add 'build' for desktop
+   - Add separate build command for desktop: "build:desktop" in package.json
+   - Desktop build: `vite build --outDir build --base ./` (relative paths for file:// protocol)
+   - Ensure no hardcoded localhost:8080 URLs in frontend code (use relative paths)
+   - Update API client (api.js): detect Wails mode, use dynamic server URL
+   - Add Wails detection: `window.wails !== undefined`
+   - If Wails mode: fetch server URL via Wails binding (e.g., `window.wails.GetServerURL()`)
+   - If web mode: use relative paths (current behavior)
+   - Keep WebSocket connection logic compatible (ws://localhost:RANDOM_PORT)
+   - Test build output: verify build/ contains static SPA assets
+   Tests: npm run build:desktop produces clean SPA in build/
+   Done when: Frontend builds for both web and desktop modes
+
+** TODO [#B] Create wails.json configuration file
+   Why: Wails CLI requires configuration for build, dev mode, and bindings
+   Change:
+   - Create wails.json in project root
+   - Set name: "gestalt-desktop"
+   - Set frontend:build: "cd frontend && npm run build:desktop"
+   - Set frontend:install: "cd frontend && npm install"
+   - Set frontend:dev:build: same as build
+   - Set frontend:dev:serverUrl: "auto" (Vite dev server)
+   - Set wailsjsdir: "./frontend/src/lib/wails" (generated bindings)
+   - Set outputfilename: "gestalt-desktop" (per-platform extension added by Wails)
+   - Set debounceMS: 100 (rebuild debounce)
+   - Configure build targets: darwin/amd64, darwin/arm64, windows/amd64, linux/amd64
+   - Set icon paths (optional, use default for now)
+   - Document wails.json fields inline with comments (JSON5 if supported, else separate doc)
+   Tests: wails3 dev reads config correctly
+   Done when: wails.json exists and Wails CLI uses it
+
+** TODO [#B] Implement Wails bindings for core operations
+   Why: Desktop frontend needs Go bindings for native operations and server coordination
+   Change:
+   - Create internal/desktop/app.go with App struct for Wails bindings
+   - App struct holds: server URL, Manager reference, shutdown channel
+   - Bind methods (exported, Wails auto-generates JS/TS):
+     - GetServerURL() string - returns localhost:PORT of embedded server
+     - GetVersion() string - returns version.Version
+     - OpenExternal(url string) error - opens URL in system browser
+     - SelectDirectory() (string, error) - native directory picker (future feature)
+     - Quit() - graceful shutdown
+   - Register App struct in cmd/gestalt-desktop main.go: app.Bind(appInstance)
+   - Start embedded Gestalt server before Wails window opens
+   - Capture dynamic port from listener: `ln, _ := net.Listen("tcp", "127.0.0.1:0")`
+   - Pass server URL to App struct for GetServerURL binding
+   - Implement startup lifecycle: server → Wails → frontend connects
+   - Implement shutdown lifecycle: Wails close → stop server → cleanup
+   Tests: Bindings generate correctly; wails3 dev shows methods in console
+   Done when: Frontend can call bound Go methods via window.wails
+
+** TODO [#B] Update frontend to detect and use Wails mode
+   Why: Frontend must adapt behavior for desktop vs web mode
+   Change:
+   - Update frontend/src/lib/api.js to detect Wails
+   - Detection: `const isWails = typeof window !== 'undefined' && window.wails !== undefined`
+   - Export isWails flag for other components to check
+   - Update buildApiUrl(): if Wails mode, fetch server URL via window.wails.GetServerURL()
+   - Update buildWebSocketUrl(): use server URL from Wails binding
+   - Cache server URL on first fetch to avoid repeated binding calls
+   - Handle binding call errors: fallback to localhost:8080 with warning
+   - Update App.svelte: show "Desktop Mode" indicator in UI (optional)
+   - Ensure all HTTP/WebSocket connections use dynamic URL in desktop mode
+   - Keep web mode behavior unchanged (relative URLs)
+   Tests: Frontend connects to embedded server in desktop mode; go test ./...
+   Done when: Desktop frontend communicates with embedded Gestalt server
+
+** TODO [#B] Wire embedded server into desktop app lifecycle
+   Why: Desktop app must start/stop server cleanly with window lifecycle
+   Change:
+   - In cmd/gestalt-desktop/main.go, start server before wails.Run()
+   - Use same server initialization as cmd/gestalt/main.go (share code if possible)
+   - Start on random port: listener := net.Listen("tcp", "127.0.0.1:0")
+   - Extract port: serverURL := "http://" + listener.Addr().String()
+   - Pass serverURL to App struct for bindings
+   - Add OnStartup hook: ensure server is ready before showing window
+   - Add OnShutdown hook: gracefully stop server, close all terminals
+   - Add OnBeforeClose hook: confirm if terminals are running (optional UX)
+   - Handle server start failures: show error dialog, exit gracefully
+   - Log server URL at startup (desktop app log location)
+   Tests: Desktop app starts server on random port, frontend connects
+   Done when: Server lifecycle synchronized with desktop app
+
+** TODO [#C] Extend Makefile with Wails build targets
+   Why: Developers need simple commands to build desktop app
+   Change:
+   - Add wails-dev target: `wails3 dev` (runs dev mode)
+   - Add gestalt-desktop target: `wails3 build -clean` (production build)
+   - Add wails-deps target: install Wails CLI if missing
+   - Desktop build depends on frontend build:desktop
+   - Consider: make install-desktop (copy to /Applications on macOS, etc)
+   - Add clean target for desktop artifacts: build/bin/gestalt-desktop*
+   - Document desktop build in Makefile comments
+   - Add platform-specific targets (optional): gestalt-desktop-darwin, gestalt-desktop-windows
+   Tests: make gestalt-desktop produces working binary
+   Done when: Desktop app builds via Makefile
+
+** TODO [#C] Add desktop-specific window configuration
+   Why: Native desktop app needs proper window sizing, title, and behavior
+   Change:
+   - Configure initial window size: 1400x900 (accommodate dashboard + terminal)
+   - Set minimum window size: 800x600 (prevent unusable small windows)
+   - Set window title: "Gestalt" (shows in title bar, taskbar)
+   - Enable window resize, maximize, minimize (standard desktop behavior)
+   - Disable fullscreen initially (can add later if desired)
+   - Configure window position: center on startup
+   - Consider: save/restore window size and position (future feature)
+   - macOS specific: set window role, subtitle if needed
+   - Windows specific: set app ID for taskbar grouping
+   - Linux specific: set WM_CLASS for desktop integration
+   Tests: Window appears with correct size and title
+   Done when: Desktop window has proper size, title, and behavior
+
+** TODO [#C] Add desktop-specific native menus (optional)
+   Why: Desktop apps typically have native menu bar (File, Edit, etc)
+   Change:
+   - Use Wails menu API to create native menus
+   - File menu: New Terminal, Quit (Cmd+Q / Ctrl+Q)
+   - Edit menu: Copy, Paste (standard shortcuts)
+   - View menu: Toggle Developer Tools (Wails built-in)
+   - Help menu: About, Documentation (opens in browser)
+   - macOS: standard macOS menu structure (app menu, etc)
+   - Bind menu actions to Wails methods or frontend events
+   - This is optional enhancement; can defer if complexity is high
+   Tests: Menus appear and actions work
+   Done when: Desktop app has native menus (optional, can defer)
+
+** TODO [#C] Handle desktop-specific file paths and resources
+   Why: Desktop app bundle has different resource locations than web server
+   Change:
+   - Ensure config/agents, config/prompts, config/skills load correctly
+   - Desktop app: resources relative to executable or app bundle
+   - Use embedded resources (already done) with external override in ~/.gestalt/ or user home
+   - Update path resolution in cmd/gestalt-desktop to check:
+     1. ~/.gestalt/config/ (user customization)
+     2. Embedded resources (compiled into binary)
+   - Document desktop config location in README
+   - macOS: support ~/Library/Application Support/Gestalt/config/ (optional)
+   - Windows: support %APPDATA%/Gestalt/config/ (optional)
+   - Linux: support ~/.config/gestalt/ (optional, XDG standard)
+   Tests: Desktop app loads config from correct locations
+   Done when: Desktop app finds config in user-specific locations
+
+** TODO [#C] Add system tray icon (optional enhancement)
+   Why: Desktop apps often minimize to system tray for background operation
+   Change:
+   - Use Wails system tray API to add tray icon
+   - Tray menu: Show Window, Quit
+   - Click tray icon: restore window if minimized
+   - Show notification count badge (optional, if terminals have alerts)
+   - macOS: proper retina icon support
+   - Windows: proper icon sizes
+   - Linux: works with various desktop environments
+   - This is optional enhancement; low priority
+   Tests: Tray icon appears, click actions work
+   Done when: System tray integration works (optional, defer if complex)
+
+** TODO [#B] Test desktop app on all target platforms
+   Why: Ensure desktop app works correctly on macOS, Windows, Linux
+   Change:
+   - Build for macOS (amd64 and arm64): verify app bundle structure
+   - Build for Windows (amd64): verify .exe runs, no console window appears
+   - Build for Linux (amd64): verify binary runs, window appears correctly
+   - Test core functionality on each platform: create terminal, connect, send input
+   - Test agent profiles: load, execute, prompt injection
+   - Test skills loading and display
+   - Test window management: resize, minimize, maximize, close
+   - Test graceful shutdown: close window → server stops → terminals cleaned up
+   - Document any platform-specific issues or workarounds
+   Tests: Desktop app fully functional on macOS, Windows, Linux
+   Done when: Desktop app passes smoke tests on all platforms
+
+** TODO [#C] Update CI/CD for desktop builds (optional)
+   Why: Automate desktop app builds for releases
+   Change:
+   - Extend .github/workflows to build desktop binaries
+   - Add matrix build for platforms: darwin/amd64, darwin/arm64, windows/amd64, linux/amd64
+   - Install Wails CLI in CI environment
+   - Build desktop app: wails3 build -platform <platform>
+   - Upload build artifacts to GitHub releases
+   - Sign macOS app (requires Apple Developer account and certificates)
+   - Notarize macOS app (for Gatekeeper compatibility)
+   - Windows: consider code signing (requires certificate)
+   - Linux: no signing required (provide checksums)
+   - Add desktop binaries to release notes
+   - This is optional; manual builds acceptable initially
+   Tests: CI builds produce working binaries
+   Done when: CI automatically builds desktop releases (optional, defer if complex)
+
+** TODO [#B] Document desktop build and usage
+   Why: Users and contributors need desktop-specific documentation
+   Change:
+   - Add "Desktop Application" section to README.md
+   - Document installation: download gestalt-desktop binary for your platform
+   - Document building from source: make gestalt-desktop
+   - Document Wails CLI installation (prerequisite for building)
+   - Explain dual-mode architecture: web server (default) vs desktop app
+   - Document desktop app features: native window, system integration
+   - Document configuration: where desktop app looks for config files
+   - Document differences from web mode (if any)
+   - Add troubleshooting section: common issues, logs location
+   - macOS: explain Gatekeeper warning on first run (unsigned app)
+   - Windows: explain SmartScreen warning (unsigned app)
+   - Linux: explain permission requirements
+   - Add screenshots of desktop app (optional)
+   Tests: None (documentation only)
+   Done when: Desktop app fully documented in README
+
+** TODO [#C] Consider desktop-specific enhancements (future work)
+   Why: Desktop apps can leverage native features unavailable in web
+   Change:
+   - Native file pickers: SelectFile, SelectDirectory via Wails bindings
+   - Drag-and-drop files into terminal (future)
+   - Native notifications: use OS notification system instead of toasts
+   - Global keyboard shortcuts: Cmd+N for new terminal (Wails GlobalShortcuts)
+   - Multiple windows: separate window per terminal (advanced)
+   - Dock/taskbar integration: show running terminal count (macOS dock badge)
+   - Auto-update mechanism: Wails update framework (complex, defer)
+   - URL scheme handler: gestalt:// URLs to open terminals (advanced)
+   - These are future enhancements; document ideas, implement later
+   Tests: None (future planning)
+   Done when: Enhancement ideas documented for future work
+
 * DONE [#A] Unified event architecture with generic event bus
   Goal: Refactor disparate event systems (EventHub, Broadcaster, LogHub) into a single reusable generic event bus, then extend event-driven patterns throughout Gestalt for agent lifecycle, config changes, terminal events, and workflow state.
   Notes:
@@ -771,299 +1807,6 @@
    - Sign-off: get confirmation from original requester that problem is solved
    Tests: User acceptance testing, real-world usage scenarios
    Done when: User confirms touch scroll works as expected, problem solved
-* DONE [#A] Config extraction refactor with hash verification and version tracking
-  Goal: Refactor config/ handling to always extract embedded resources to .gestalt/config/ on startup with SHA-256 hash verification, semantic version compatibility checks, backup on conflicts, and relocate PLAN.org to .gestalt/.
-  Notes:
-  - Current state: config/ is embedded, optional override from ./gestalt/config/
-  - New behavior: always extract embedded config/* to .gestalt/config/ on startup
-  - Hash verification: store SHA-256 hashes of embedded files at compile time
-  - Version tracking: .gestalt/version.json with semantic version and build date
-  - Version compatibility: major mismatch=error, minor=warning, patch=info log
-  - Conflict resolution: if existing file differs, warn + backup (.bck suffix) + overwrite
-  - If hash matches: skip extraction (file already up-to-date)
-  - Efficient hash storage: embed single manifest file (JSON or binary) with paths→hashes
-  - PLAN.org relocation: move from workdir root to .gestalt/PLAN.org
-  - Update all PLAN.org references: API endpoints, watchers, UI, documentation
-  - Benefits: consistent config state, upgrade path, user customization with safety, version compatibility enforcement
-  - Extract-config flag becomes no-op (extraction happens automatically)
-  - Preserve user overrides: hash check prevents accidental overwrites
-  Date: 2026-01-11
-
-** TODO [#B] Research and design version.json and manifest formats
-   Why: Need efficient compile-time hash storage, runtime lookup, and version compatibility tracking
-   Change:
-   - Design version.json format for .gestalt/ directory
-   - Version structure: {"version": "1.2.3", "major": 1, "minor": 2, "patch": 3, "built": "2026-01-11T12:34:56Z", "git_commit": "abc123..."}
-   - Optional fields: git_commit (short SHA), build_host, go_version for debugging
-   - Design manifest format: JSON or binary for embedded hash map
-   - Manifest structure: {"path/to/file.json": "sha256hex", ...}
-   - Consider: single manifest.json vs separate hash files per resource type
-   - Research: Go crypto/sha256 for hash generation at build time
-   - Research: embed.FS walking pattern to enumerate all files
-   - Decision: JSON manifest for simplicity (human-readable, easy to generate)
-   - Manifest location: embedded as config/manifest.json or separate
-   - Build-time generation: script or Makefile target to compute hashes and version
-   Tests: None (design only)
-   Done when: Version and manifest formats designed, documented in this L2
-
-** TODO [#B] Create build-time manifest and version generator
-   Why: Need to compute SHA-256 hashes and embed version info at compile time
-   Change:
-   - Create scripts/generate-config-manifest.go or shell script
-   - Walk config/agents/, config/prompts/, config/skills/ directories
-   - Compute SHA-256 hash of each file content
-   - Output manifest JSON: {"agents/copilot.json": "abc123...", ...}
-   - Use relative paths from config/ root for portability
-   - Handle nested directories (skills with subdirectories)
-   - Deterministic output: sort keys for reproducible builds
-   - Write to config/manifest.json (embedded with other resources)
-   - Generate version template from VERSION env var or git describe
-   - Parse semantic version: extract major, minor, patch components
-   - Capture build date as RFC3339 timestamp
-   - Optional: capture git commit SHA (git rev-parse --short HEAD)
-   - Write template version data to be embedded (or use ldflags for version fields)
-   - Integrate into Makefile: run before go build, pass VERSION
-   Tests: Run script, verify manifest.json and version data generated correctly
-   Done when: Build generates manifest.json with hashes and version metadata
-
-** TODO [#B] Embed manifest and version metadata
-   Why: Manifest and version info must be available at runtime for verification
-   Change:
-   - Update cmd/gestalt/embed.go or root embed.go
-   - Add manifest.json to embedded configFS
-   - Ensure manifest is included in binary at compile time
-   - Create internal/version package with embedded version data
-   - Use ldflags to inject: Version, Major, Minor, Patch, Built, GitCommit
-   - Add function LoadManifest(fs embed.FS) (map[string]string, error)
-   - Parse manifest JSON into path→hash map
-   - Handle missing manifest gracefully: warn and proceed without verification
-   - Add function GetVersionInfo() VersionInfo to return structured version data
-   Tests: Build binary, verify manifest and version accessible at runtime
-   Done when: Manifest and version embedded and loadable at runtime
-
-** TODO [#B] Implement hash verification logic
-   Why: Core of extraction safety - verify existing files before overwriting
-   Change:
-   - Create internal/config/extractor.go with Extractor struct
-   - Method: Extractor.Extract(sourceFS embed.FS, destDir string, manifest map[string]string) error
-   - For each file in manifest:
-     1. Compute destination path: destDir + relative path
-     2. Check if destination exists
-     3. If exists: compute SHA-256 of existing file
-     4. Compare hashes: if match, skip (log at debug level)
-     5. If differ: warn, rename existing to .bck, extract new
-     6. If not exists: extract new
-   - Handle directories: create parent dirs as needed
-   - Preserve file permissions from embedded FS
-   - Use atomic writes: write to temp, rename (avoid partial writes)
-   - Structured logging: log each action (skip/backup/extract)
-   Tests: Unit tests with temp directories, various conflict scenarios
-   Done when: Extractor safely extracts with hash verification and backups
-
-** TODO [#A] Implement version compatibility checking
-   Why: Prevent running incompatible Gestalt versions on existing .gestalt/ directories
-   Change:
-   - Create internal/config/version.go with version compatibility logic
-   - Function: CheckVersionCompatibility(installed, current VersionInfo) error
-   - Compare major versions: if differ, return error "Incompatible major version"
-   - Compare minor versions: if differ, log warning "Minor version mismatch"
-   - Compare patch versions: if differ, log info "Patch version difference"
-   - Error message must guide user: "Breaking changes detected. Backup .gestalt/ and run with --force-upgrade"
-   - Warning message: "Config may be outdated. Review .bck files after startup."
-   - Info message: "Config updated from X.Y.Z to X.Y.W"
-   - Add --force-upgrade flag to bypass major version check (dangerous)
-   Tests: Unit tests for all version comparison scenarios
-   Done when: Version checking prevents incompatible upgrades
-
-** TODO [#B] Integrate version tracking and extraction into startup
-   Why: Ensure config and version are always checked and extracted on start
-   Change:
-   - Modify cmd/gestalt/main.go startup sequence
-   - After flag parsing, before agent/skill loading:
-     1. Create .gestalt/ directory if missing
-     2. Check for existing .gestalt/version.json
-     3. If exists: load and compare with current version
-     4. Run version compatibility check (may error/warn/info)
-     5. Load manifest from embedded FS
-     6. Extract config/* to .gestalt/config/ with verification
-     7. Write/update .gestalt/version.json with current version
-     8. Log summary: version check result, N files extracted, M skipped, K backed up
-   - Update agent/skill loaders to read from .gestalt/config/
-   - Remove fallback to embedded FS (always use .gestalt/config/)
-   - Handle extraction errors: log and exit if critical failure
-   - Add env var: GESTALT_CONFIG_DIR (default .gestalt/config) for testing
-   Tests: Integration test: start server, verify .gestalt/config/ and version.json
-   Done when: Startup always checks version and extracts config
-
-** TODO [#C] Handle backup file cleanup policy
-   Why: Prevent accumulation of .bck files over time
-   Change:
-   - Add cleanup logic: keep only latest .bck per file
-   - On backup creation: check for existing .bck, replace if older
-   - Optional: keep timestamped backups (file.json.bck.YYYYMMDD-HHMMSS)
-   - Add env var: GESTALT_CONFIG_BACKUP_LIMIT (default 1, 0=disable backups)
-   - Log cleanup actions at debug level
-   - Document backup behavior in README
-   Tests: Test backup replacement logic
-   Done when: Backup policy prevents unbounded file accumulation
-
-** TODO [#B] Relocate PLAN.org to .gestalt/PLAN.org
-   Why: Centralize all Gestalt state in .gestalt/ directory
-   Change:
-   - Update all PLAN.org references to .gestalt/PLAN.org
-   - Backend: internal/watcher/watcher.go - update watched path
-   - Backend: internal/api/rest.go - GET /api/plan endpoint path
-   - Backend: cmd/gestalt/main.go - startup PLAN.org check
-   - Frontend: views/PlanView.svelte - API still works (backend handles path)
-   - Documentation: README.md, AGENTS.md - update PLAN.org references
-   - On startup: if workdir/PLAN.org exists, offer to migrate to .gestalt/
-   - Migration: copy PLAN.org to .gestalt/, optionally rename original
-   Tests: Manual test: create PLAN.org, verify .gestalt/PLAN.org watched
-   Done when: All code references .gestalt/PLAN.org, migration path documented
-
-** TODO [#C] Add migration helper for existing installations
-   Why: Users with existing PLAN.org in workdir need smooth transition
-   Change:
-   - On startup, check if workdir/PLAN.org exists
-   - If yes and .gestalt/PLAN.org doesn't exist: auto-migrate (copy)
-   - If both exist: warn user, use .gestalt/PLAN.org
-   - Log migration action: "Migrated PLAN.org to .gestalt/"
-   - Optional: add --migrate-plan CLI flag for manual control
-   - Document migration behavior in README
-   Tests: Test migration scenarios with various file states
-   Done when: Existing installations migrate smoothly
-
-** TODO [#C] Update --extract-config flag behavior
-   Why: Flag becomes less relevant with automatic extraction
-   Change:
-   - Option 1: Remove flag entirely (extraction always happens)
-   - Option 2: Keep flag, make it force re-extraction (ignore hashes)
-   - Option 3: Rename to --force-config-extract or --reset-config
-   - Document new behavior: extraction happens automatically
-   - Update --help text to reflect automatic extraction
-   - Consider: add --skip-config-extract for fast startup (advanced users)
-   Tests: Test flag behavior matches documentation
-   Done when: Flag behavior clear and documented
-
-** TODO [#B] Update documentation for new config behavior
-   Why: Users and contributors need to understand config extraction
-   Change:
-   - Update README.md "Embedded Resources" section
-   - Document: config always extracted to .gestalt/config/ on startup
-   - Document: hash verification prevents accidental overwrites
-   - Document: .bck files created on conflicts, include resolution steps
-   - Document: PLAN.org now lives in .gestalt/PLAN.org
-   - Document: migration behavior for existing installations
-   - Add troubleshooting section: conflicts, backup files, manual overrides
-   - Update AGENTS.md with new config locations
-   Tests: None (documentation only)
-   Done when: Config extraction fully documented
-
-** TODO [#B] Add config validation on extraction
-   Why: Detect malformed config files early in startup
-   Change:
-   - After extraction, validate all config files
-   - Agents: parse and validate all JSON files
-   - Prompts: check .txt files are readable text
-   - Skills: validate SKILL.md frontmatter and structure
-   - Log validation warnings/errors with file paths
-   - Continue startup on non-critical validation failures
-   - Critical failures: malformed manifest, extraction I/O errors
-   Tests: Test with invalid config files, verify warnings logged
-   Done when: Startup includes config validation step
-
-** TODO [#C] Optimize extraction performance
-   Why: Minimize startup time impact of extraction
-   Change:
-   - Skip hash computation for unchanged files (check mtime first)
-   - Parallel extraction: goroutines for independent files
-   - Buffered I/O for hash computation and file writes
-   - Cache manifest in memory: single parse per startup
-   - Measure: log extraction duration at debug level
-   - Add benchmark: compare cold start vs warm start (all skipped)
-   Tests: Benchmark extraction with large config sets
-   Done when: Extraction completes in <100ms for typical configs
-
-** TODO [#B] Expose version info in API and logs
-   Why: Users and monitoring tools need to see Gestalt version
-   Change:
-   - Update /api/status to include version object
-   - Response format: {"version": "1.2.3", "major": 1, "minor": 2, "patch": 3, "built": "...", "git_commit": "..."}
-   - Log version at startup: "Gestalt version X.Y.Z (built YYYY-MM-DD, commit abc123)"
-   - Log config version compatibility check results
-   - Include version in startup banner/splash
-   - Document version fields in API documentation
-   Tests: Verify version appears in /api/status and startup logs
-   Done when: Version fully visible in API, logs, and UI
-
-** TODO [#B] Update frontend for .gestalt/PLAN.org
-   Why: Ensure UI correctly fetches PLAN.org from new location
-   Change:
-   - Verify GET /api/plan still works (backend handles path change)
-   - No frontend changes needed if backend path abstracted correctly
-   - Update any hardcoded PLAN.org references in comments/docs
-   - Test PlanView.svelte with new backend path
-   - Verify filesystem watcher events still trigger UI updates
-   Tests: Manual test Plan tab, verify content loads and updates
-   Done when: Frontend works seamlessly with .gestalt/PLAN.org
-
-** TODO [#C] Add developer mode for config override
-   Why: Developers may want to bypass extraction for faster iteration
-   Change:
-   - Add env var: GESTALT_DEV_MODE=true
-   - In dev mode: skip extraction, read directly from config/ directory
-   - Or: add --dev flag to skip extraction and validation
-   - Document dev mode in TESTING.md or CONTRIBUTING.md
-   - Only for development; production always extracts
-   Tests: Test dev mode skips extraction
-   Done when: Dev mode documented and functional
-
-** TODO [#B] Add integration tests for config extraction flow
-   Why: Critical path needs comprehensive test coverage
-   Change:
-   - Test scenarios:
-     1. Fresh start: .gestalt/ doesn't exist
-     2. Warm start: files unchanged (all skipped)
-     3. Conflict: file modified (backup + overwrite)
-     4. Migration: PLAN.org in workdir
-     5. Partial extraction: some files exist, some don't
-   - Use temp directories for isolation
-   - Mock embedded FS with test data
-   - Verify file contents, hashes, backups
-   - Verify logs contain expected messages
-   Tests: Integration test suite for extraction
-   Done when: All extraction scenarios covered by tests
-
-** TODO [#B] Document upgrade path and version compatibility
-   Why: Users need to understand version compatibility and upgrade behavior
-   Change:
-   - Add "Upgrading Gestalt" section to README.md
-   - Explain semantic versioning: major (breaking), minor (features), patch (fixes)
-   - Explain version compatibility checks:
-     - Major version mismatch: error, must backup and migrate
-     - Minor version mismatch: warning, review .bck files
-     - Patch version difference: automatic, logged at info level
-   - Explain: new versions may update config files
-   - Explain: hash verification detects changes
-   - Explain: .bck files preserve customizations
-   - Provide merge instructions: diff .bck vs new file
-   - Document: how to keep customizations across upgrades
-   - Document --force-upgrade flag (use with caution)
-   - Example workflow: update binary → check version compatibility → review .bck files → merge changes
-   - Document .gestalt/version.json format and purpose
-   Tests: None (documentation only)
-   Done when: Upgrade path and version compatibility clearly documented
-
-** TODO [#C] Add telemetry for config extraction metrics
-   Why: Monitor extraction behavior in production (if telemetry exists)
-   Change:
-   - Log metrics: files extracted, skipped, backed up
-   - Track extraction duration and success rate
-   - Log to structured logger for aggregation
-   - Optional: expose in /api/metrics if metrics endpoint exists
-   - Help diagnose config-related issues in the field
-   Tests: Verify metrics appear in logs
-   Done when: Extraction metrics logged and observable
 * DONE [#B] Prompt templating system with include directives
   Goal: Support .tmpl prompt files that can include .txt fragments, rendering templates at agent start before injection into terminal.
   Notes:
@@ -1615,443 +2358,6 @@
    Tests: Manual smoke check; edits in `frontend/src` hot-reload in the GUI
    Done when: `make dev` starts both servers and the UI updates live
 
-* TODO [#A] Comprehensive architecture and code quality review
-  Goal: Conduct a thorough review of the entire Gestalt codebase (backend + frontend) to identify opportunities for simplification, improved maintainability, better readability, dependency reduction, and architectural improvements.
-  Notes:
-  - Scope: Every internal package, command, frontend component, and external dependency
-  - Current state: ~14k LOC backend (Go), ~4.4k LOC frontend (Svelte), 67% avg test coverage
-  - Dependencies: Minimal (4 Go deps, 2 npm deps) - good foundation to maintain
-  - Focus areas: code clarity, separation of concerns, reducing coupling, eliminating redundancy
-  - Approach: component-by-component analysis with concrete improvement proposals
-  - Changes can range from small refactors to full component rewrites if justified
-  - Preserve: existing functionality, test coverage, backward compatibility where possible
-  - Outcome: prioritized list of improvements with effort estimates and impact assessment
-  - This is a planning and analysis L1; implementation will be separate follow-up work
-  Date: 2026-01-08
-
-  Context for implementation:
-  - Gestalt is a multi-terminal dashboard with AI agent profiles and skills
-  - Core value: orchestrate multiple terminal sessions with agent coordination
-  - Architecture: Go HTTP/WS server + Svelte SPA frontend
-  - Key components: PTY management, WebSocket streaming, agent profiles, skill system
-  - Recent additions: filesystem watching, input history, org-mode viewer, logging system
-  - Quality baseline: good test coverage, minimal deps, modular structure
-  - Pain points to investigate: coupling, complexity, unclear boundaries, potential over-engineering
-
-** TODO [#A] Review and document current architecture
-   Why: Need complete understanding before proposing changes; establish baseline
-   Change:
-   - Document current architecture in detail:
-     - Backend: 9 internal packages (agent, api, logging, orchestrator, skill, terminal, version, watcher, plus root)
-     - Frontend: 4 views, 8 components, 5 lib modules
-     - Data flow: REST API, WebSocket streams, embedded resources, config files
-     - State management: backend (Manager holds sessions), frontend (Svelte stores)
-   - Create architecture diagram (text-based or mermaid) showing:
-     - Component dependencies and communication paths
-     - Data flow: user → frontend → API → terminal → PTY
-     - WebSocket fan-out pattern (broadcaster → multiple subscribers)
-     - Config loading: embedded → external override → env vars
-   - Identify architectural patterns in use:
-     - Manager pattern (terminal.Manager), Hub pattern (watcher.EventHub)
-     - Circular buffers (output/input buffers)
-     - Fan-out/broadcast (WebSocket, event hub)
-     - Embedded resources with override (embed.FS)
-   - Document key design decisions and their rationale
-   - List implicit coupling and hidden dependencies
-   - Measure: lines of code per component, cyclomatic complexity (if tools available)
-   Tests: None (documentation only)
-   Done when: Complete architecture documented with diagrams and metrics
-
-** TODO [#B] Analyze internal/terminal package (850 LOC, core domain)
-   Why: Largest and most complex internal package; core business logic
-   Change:
-   - Review files: session.go, manager.go, pty.go, broadcaster.go, input_buffer.go, output_buffer.go, persistence.go, input_logger.go
-   - Session struct: 20+ fields, 3 goroutines - is this too complex?
-   - Manager: CRUD for sessions + agent tracking - single responsibility?
-   - Broadcaster: fan-out pattern - could be extracted to reusable utility?
-   - Buffers: circular buffer pattern repeated twice (input/output) - DRY opportunity?
-   - Persistence: async file logging - is this pattern reusable for other logs?
-   - PTY handling: OS-specific (pty_unix.go, pty_windows.go) - stub on Windows, document or implement ConPTY?
-   - Questions to answer:
-     - Can Session be split into smaller types? (SessionState, SessionIO, SessionLifecycle?)
-     - Is Manager doing too much? (session registry vs lifecycle vs agent tracking)
-     - Are the 3 goroutines per session necessary? Can any be combined?
-     - Should Broadcaster be promoted to internal/broadcast package?
-     - Can input/output buffers share a generic circular buffer implementation?
-   - Coverage: 74.2% - identify untested paths and why
-   - Proposed improvements: extract, simplify, reduce goroutine count, clearer boundaries
-   Tests: Ensure refactoring maintains coverage
-   Done when: Detailed analysis with concrete improvement proposals documented
-
-** TODO [#B] Analyze internal/api package (1100+ LOC, HTTP/WS layer)
-   Why: Second largest package; handles all HTTP and WebSocket traffic
-   Change:
-   - Review files: routes.go, rest.go, terminal_handler.go, logs_handler.go, events_handler.go, spa.go, middleware.go
-   - Current structure: handlers mixed with routing, validation, and business logic
-   - REST endpoints: ~15 endpoints in rest.go - is this file too large?
-   - WebSocket handlers: 3 separate files (terminal, logs, events) - consistent pattern?
-   - Middleware: auth middleware in separate file - good, but is it sufficient?
-   - SPA handler: custom fallback logic - could this be simpler?
-   - Questions to answer:
-     - Should REST handlers be split by domain? (terminals.go, agents.go, skills.go, logs.go, plan.go)
-     - Is error handling consistent across all endpoints?
-     - Are validation patterns repeated? Extract to shared validators?
-     - Do WebSocket handlers share common patterns? Extract base WebSocket handler?
-     - Is middleware testable in isolation?
-   - Dependencies: gorilla/websocket - is this necessary or can stdlib x/net/websocket suffice?
-   - Coverage: 64.9% - lower than average, why? Handler testing complexity?
-   - Proposed improvements: split by domain, extract validators, reduce duplication
-   Tests: Add integration tests for missing coverage
-   Done when: API layer analyzed with refactoring proposals
-
-** TODO [#B] Analyze internal/watcher package (1426 LOC, filesystem monitoring)
-   Why: Recent addition, significant size, uses fsnotify, complex coordination
-   Change:
-   - Review files: watcher.go (550 LOC!), hub.go, git.go, types.go + tests
-   - Watcher.go is largest single file - is it doing too much?
-   - EventHub: pub/sub pattern - clean design or over-engineered for current needs?
-   - Git watching: branch detection - is this separate concern from file watching?
-   - Questions to answer:
-     - Can watcher.go be split? (WatcherCore, WatcherCoordination, WatcherCleanup?)
-     - Is EventHub necessary or could simpler callback pattern work?
-     - Should git watching be separate package? (internal/git)
-     - Is debouncing logic complex? Could it be simplified?
-     - Are 100 max watches sufficient? Is this limit well-enforced?
-   - Dependency: fsnotify (only ~9k lines) - well-justified for cross-platform
-   - Coverage: 63.9% - lowest backend coverage, integration test heavy?
-   - Proposed improvements: split large file, simplify if over-designed, better tests
-   Tests: Unit tests for watcher logic separate from integration tests
-   Done when: Watcher package analyzed with simplification opportunities identified
-
-** TODO [#C] Analyze internal/agent package (400 LOC, agent profiles)
-   Why: Core domain model, high coverage (85%), well-tested
-   Change:
-   - Review files: agent.go, loader.go + tests
-   - Agent struct: simple data model with validation - clean design
-   - Loader: reads JSON files, validates, returns map - straightforward
-   - Questions to answer:
-     - Is validation complete and correct?
-     - Is error handling helpful for users?
-     - Should agent name uniqueness be enforced at load or elsewhere?
-     - Is prompt name resolution in the right place?
-   - Coverage: 85% - excellent, what's missing?
-   - Proposed improvements: likely minimal, validate completeness
-   Tests: Review test quality, add edge cases if needed
-   Done when: Agent package reviewed, minor improvements identified if any
-
-** TODO [#C] Analyze internal/skill package (350 LOC, Agent Skills)
-   Why: Domain model for skills, YAML parsing, prompt generation
-   Change:
-   - Review files: skill.go, loader.go, prompt.go + tests
-   - Skill struct: YAML frontmatter + markdown body - clean
-   - Loader: scans directories, parses SKILL.md files - similar to agent loader
-   - Prompt generation: XML output for LLM context - is format optimal?
-   - Questions to answer:
-     - Is YAML parsing robust? (using gopkg.in/yaml.v3)
-     - Should skill/agent loaders share common base code? (both scan dirs, parse, validate)
-     - Is XML generation testable? Are there edge cases?
-     - Is skill metadata complete for agentskills.io spec?
-   - Dependency: gopkg.in/yaml.v3 - well-justified for YAML parsing
-   - Coverage: 80.5% - good, what's untested?
-   - Proposed improvements: extract common loader pattern if beneficial
-   Tests: Ensure YAML edge cases covered
-   Done when: Skill package reviewed with improvement proposals
-
-** TODO [#C] Analyze internal/logging package (200 LOC, structured logging)
-   Why: Recent addition, circular buffer, WebSocket streaming
-   Change:
-   - Review files: logger.go, buffer.go + tests
-   - LogBuffer: circular buffer pattern (same as terminal buffers) - DRY opportunity?
-   - Logger: structured fields (map[string]string) - sufficient or needs types?
-   - WebSocket streaming: integrated with api package - clean separation?
-   - Questions to answer:
-     - Should circular buffer be extracted to internal/buffer package?
-     - Is structured logging interface sufficient for all use cases?
-     - Should log levels be enum/constants instead of strings?
-     - Is buffer size (1000 entries) appropriate?
-   - Coverage: 73% - what's missing?
-   - Proposed improvements: extract buffer, strengthen types
-   Tests: Concurrent logging tests
-   Done when: Logging package analyzed with reuse opportunities identified
-
-** TODO [#C] Analyze internal/orchestrator package (empty stub)
-   Why: Placeholder for future inter-terminal communication
-   Change:
-   - Review: currently empty, only doc.go with intent
-   - Questions to answer:
-     - Is this needed now? Should it be removed?
-     - What will orchestrator do? (design future features)
-     - Will it become complex? Plan for simplicity early
-   - Proposed improvements: remove if unused, or sketch minimal design
-   Tests: None currently
-   Done when: Decision made on orchestrator future (keep stub or remove)
-
-** TODO [#C] Analyze internal/version package (5 LOC, version string)
-   Why: Minimal package, check if necessary
-   Change:
-   - Review: single var Version string for ldflags injection
-   - Questions to answer:
-     - Does this need to be a separate package?
-     - Could version be in main package?
-   - Proposed improvements: keep as-is (clean separation) or inline
-   Tests: None needed
-   Done when: Version package reviewed (likely no changes)
-
-** TODO [#B] Analyze cmd/gestalt (910 LOC, main entrypoint)
-   Why: Largest command file, wires everything together
-   Change:
-   - Review files: main.go, completion.go, extract.go, config_fs.go + tests
-   - Main.go: config loading, agent/skill loading, manager creation, server start
-   - Questions to answer:
-     - Is main.go too long? Should initialization be extracted?
-     - Config loading: is loadConfig() function clear and testable?
-     - Should config have its own package? (internal/config)
-     - Are subcommands (validate-skill, extract-config, completion) well-organized?
-     - Is flag parsing clean? (will improve in CLI L1)
-   - Coverage: 54.3% - low for main, acceptable or improve?
-   - Proposed improvements: extract initialization, clarify config, simplify main flow
-   Tests: More config loading tests
-   Done when: Main entrypoint analyzed with simplification proposals
-
-** TODO [#B] Analyze cmd/gestalt-send (761 LOC, CLI tool)
-   Why: Separate binary, client-side tool, moderate complexity
-   Change:
-   - Review files: main.go, completion support, agent resolution, HTTP client
-   - Main.go: flag parsing, agent resolution, HTTP POST, completion generation
-   - Agent resolution: fetches /api/agents, matches name/id - is caching robust?
-   - Questions to answer:
-     - Is error handling clear and helpful?
-     - Are exit codes consistent with conventions?
-     - Is agent resolution logic too complex for CLI tool?
-     - Should HTTP client logic be extracted to package?
-     - Is completion generation maintainable?
-   - Coverage: 48.9% - lowest, is this acceptable for CLI?
-   - Proposed improvements: simplify agent resolution, improve error messages
-   Tests: More CLI integration tests
-   Done when: gestalt-send analyzed with UX improvement proposals
-
-** TODO [#B] Analyze frontend architecture (4357 LOC, Svelte SPA)
-   Why: Entire frontend needs review for consistency and simplicity
-   Change:
-   - Review structure:
-     - Views: Dashboard, PlanView, LogsView, TerminalView (4 main views)
-     - Components: Terminal, TabBar, Toast, OrgViewer, CommandInput, etc (8 components)
-     - Libs: api.js, terminalStore.js, eventStore.js, notificationStore.js, orgParser.js, terminalTabs.js (6 modules)
-   - Questions to answer:
-     - Is component hierarchy clear? Are responsibilities well-defined?
-     - Do views mix too much logic? Should business logic move to stores?
-     - Are Svelte stores used consistently? (writable, readable, derived)
-     - Is terminalStore.js too large (660 LOC)? Can it be split?
-     - Are there repeated patterns that could be extracted?
-     - Is error handling consistent across components?
-     - Are API calls centralized properly?
-   - State management: is it clear where state lives and how it flows?
-   - Proposed improvements: extract logic from views, simplify stores, reduce component size
-   Tests: Frontend has tests but coverage unknown, identify gaps
-   Done when: Frontend architecture analyzed with refactoring proposals
-
-** TODO [#B] Analyze frontend/src/lib (store and utility modules)
-   Why: Core frontend logic, state management, API client
-   Change:
-   - Review files:
-     - api.js (63 LOC): HTTP/WS URL building, fetch wrapper - clean and minimal
-     - terminalStore.js (660 LOC): HUGE - xterm management, WebSocket, input handling
-     - eventStore.js (144 LOC): filesystem event WebSocket - clean
-     - notificationStore.js (185 LOC): toast notifications - clean
-     - orgParser.js (85 LOC): Org-mode parsing - minimal parser, good
-     - terminalTabs.js (7 LOC): unused? just exports writable, may be obsolete
-   - terminalStore.js deep dive:
-     - Manages xterm instance, WebSocket, input modes, history, focus, scrolling
-     - Is this too much? Split into: xtermManager.js, terminalWebSocket.js, terminalInput.js?
-     - Can WebSocket reconnection logic be shared with eventStore?
-     - Is input mode toggle (direct vs command box) too complex?
-   - Questions to answer:
-     - Should terminal state be split into multiple stores?
-     - Can WebSocket connection logic be extracted to wsClient.js?
-     - Is terminalTabs.js used? Remove if not
-     - Are stores reactive enough? Any unnecessary re-renders?
-   - Proposed improvements: split terminalStore, extract WebSocket client, remove dead code
-   Tests: Add unit tests for store logic
-   Done when: Frontend lib modules analyzed with refactoring plan
-
-** TODO [#B] Analyze frontend components (largest: Terminal 347 LOC, CommandInput 332 LOC)
-   Why: Components are UI building blocks, need to be maintainable
-   Change:
-   - Review each component:
-     - Terminal.svelte (347 LOC): xterm rendering, WebSocket connection, input handling
-     - CommandInput.svelte (332 LOC): multiline input, history navigation, direct input toggle
-     - OrgViewer.svelte (244 LOC): org-mode rendering, filtering, expanding
-     - OrgNode.svelte (208 LOC): recursive org-mode node rendering
-     - NotificationSettings.svelte (182 LOC): toast preferences UI
-     - TabBar.svelte (157 LOC): tab navigation, close buttons
-     - Toast.svelte (137 LOC): individual toast notification
-     - ToastContainer.svelte (46 LOC): toast positioning and stacking
-     - TerminalView.svelte (44 LOC): thin wrapper for Terminal component
-   - Questions to answer:
-     - Is Terminal.svelte doing too much? (WebSocket + xterm + layout)
-     - Should Terminal be split into Terminal (layout) + XtermCanvas (xterm only)?
-     - Is CommandInput too complex? Can it be simplified?
-     - Are OrgViewer/OrgNode well-factored? (recursive component pattern)
-     - Can any components be further decomposed?
-     - Is component communication clean? (props down, events up)
-     - Are there repeated patterns? (WebSocket connection, error handling)
-   - Proposed improvements: simplify large components, extract sub-components
-   Tests: Component tests for complex logic
-   Done when: All components reviewed with simplification proposals
-
-** TODO [#B] Analyze frontend views (4 main views, thin layer over components)
-   Why: Views coordinate components, should be minimal
-   Change:
-   - Review each view:
-     - Dashboard.svelte: agent list, skills display, recent logs, status
-     - PlanView.svelte: OrgViewer wrapper, refresh button, event subscription
-     - LogsView.svelte: log filtering, auto-refresh, log list rendering
-     - TerminalView.svelte: thin wrapper, just passes props to Terminal
-   - Questions to answer:
-     - Are views thin enough? (ideally < 100 LOC)
-     - Do views have business logic that should move to stores?
-     - Is Dashboard too complex? (shows agents, skills, logs)
-     - Can view logic be extracted to composable functions?
-   - Proposed improvements: move logic to stores, simplify views
-   Tests: View rendering tests
-   Done when: Views analyzed, logic extraction opportunities identified
-
-** TODO [#B] Analyze Go dependencies (4 external, all justified?)
-   Why: Minimize dependencies for maintainability and security
-   Change:
-   - Review each dependency:
-     - github.com/creack/pty v1.1.21 (REQUIRED: cross-platform PTY, no stdlib alternative)
-     - github.com/gorilla/websocket v1.5.3 (QUESTION: can we use golang.org/x/net/websocket or stdlib?)
-     - github.com/fsnotify/fsnotify v1.9.0 (REQUIRED: cross-platform fs watching, stdlib has none)
-     - gopkg.in/yaml.v3 v3.0.1 (REQUIRED: YAML parsing for skills, no stdlib alternative)
-   - Deep dive on gorilla/websocket:
-     - What features does gestalt use? (control frames, origin checking, binary/text messages)
-     - Can stdlib (removed) or x/net/websocket provide these?
-     - Is migration effort worth the dependency reduction?
-     - Decision: likely keep gorilla (production-ready, widely used), but verify
-   - Transitive deps: golang.org/x/sys (from pty/fsnotify, acceptable)
-   - Proposed improvements: investigate gorilla alternatives, document decisions
-   Tests: No changes unless migration happens
-   Done when: Dependencies reviewed, justified, migration assessed
-
-** TODO [#C] Analyze frontend dependencies (2 + dev deps)
-   Why: Frontend is already minimal, but verify necessity
-   Change:
-   - Production dependencies:
-     - @xterm/xterm (REQUIRED: terminal emulator, core feature)
-     - @xterm/addon-fit (CONVENIENCE: 10 lines of math, could inline but not worth it)
-   - Dev dependencies: vite, svelte, testing-library, vitest, tailwind, postcss (all justified for dev)
-   - Questions to answer:
-     - Is addon-fit worth keeping? (yes, 10 lines but tested and maintained)
-     - Are all tailwind utilities used? (yes, recently added)
-     - Any unused dev deps? (check for obsolete testing or build tools)
-   - Proposed improvements: likely none, already minimal
-   Tests: No changes
-   Done when: Frontend deps reviewed and justified
-
-** TODO [#B] Identify code duplication and extraction opportunities
-   Why: DRY principle - reduce maintenance burden
-   Change:
-   - Search for duplication patterns:
-     - Circular buffers: OutputBuffer, InputBuffer, LogBuffer - extract generic Buffer[T]?
-     - Async file loggers: SessionLogger, InputLogger - extract generic AsyncFileLogger?
-     - Config loading: agent loader, skill loader - extract common dirScanner/jsonLoader?
-     - WebSocket patterns: terminal, logs, events handlers - extract base wsHandler?
-     - Frontend WebSocket clients: terminalStore, eventStore - extract wsClient?
-     - Error handling: repeated patterns in API handlers - extract errorResponder?
-   - Measure duplication:
-     - Identify repeated code blocks (>10 lines similar)
-     - Calculate potential LOC reduction
-   - Assess extraction value:
-     - Will abstraction simplify or complicate?
-     - Is pattern used 3+ times? (rule of three)
-     - Will it reduce bugs or increase cognitive load?
-   - Proposed improvements: prioritize high-value extractions
-   Tests: Ensure extracted code is well-tested
-   Done when: Duplication catalog created with extraction proposals
-
-** TODO [#B] Review error handling consistency
-   Why: Poor error handling leads to unclear failures and debugging difficulty
-   Change:
-   - Backend error handling review:
-     - Are errors wrapped with context? (fmt.Errorf with %w)
-     - Are errors logged at appropriate levels?
-     - Are HTTP error responses consistent? (status codes, JSON structure)
-     - Are panics avoided? (use recover only in critical goroutines)
-     - Are errors tested? (error paths have test coverage)
-   - Frontend error handling review:
-     - Are API errors caught and displayed to user?
-     - Are network errors retried appropriately?
-     - Are WebSocket disconnections handled gracefully?
-     - Are errors logged to console for debugging?
-     - Do users see helpful error messages?
-   - Questions to answer:
-     - Should we use pkg/errors for error wrapping? (stdlib %w is sufficient)
-     - Should API errors have error codes? (for programmatic handling)
-     - Should frontend have centralized error handler?
-   - Proposed improvements: consistent error patterns, better user messages
-   Tests: Error path test coverage
-   Done when: Error handling reviewed, consistency proposals documented
-
-** TODO [#B] Review testing strategy and coverage gaps
-   Why: Tests prevent regressions and document behavior
-   Change:
-   - Current coverage analysis:
-     - cmd/gestalt: 54.3% - low, but main is hard to test
-     - cmd/gestalt-send: 48.9% - low for CLI, integration-heavy
-     - internal/agent: 85.0% - excellent
-     - internal/api: 64.9% - acceptable, integration tests exist
-     - internal/logging: 73.0% - good
-     - internal/skill: 80.5% - good
-     - internal/terminal: 74.2% - good
-     - internal/watcher: 63.9% - low, complex integration tests
-   - Identify untested paths:
-     - What's not covered in each package?
-     - Are tests integration-heavy or unit-heavy?
-     - Are error paths tested?
-     - Are edge cases covered?
-   - Review test quality:
-     - Are tests readable and maintainable?
-     - Do tests use table-driven patterns?
-     - Are tests isolated or do they share state?
-     - Are integration tests reliable?
-   - Frontend testing:
-     - Are components tested?
-     - Are stores tested?
-     - Are API mocks used?
-     - Is coverage measured?
-   - Proposed improvements: target 80% coverage, add missing tests
-   Tests: This is meta-testing review
-   Done when: Coverage gaps identified, test improvement plan created
-
-** TODO [#A] Create prioritized improvement roadmap
-   Why: Consolidate all analysis into actionable plan
-   Change:
-   - Compile all findings from previous L2 steps
-   - Categorize improvements:
-     - Quick wins: <1 day effort, high impact (rename, extract small function, add test)
-     - Medium refactors: 1-3 days, medium-high impact (split large file, extract pattern)
-     - Large refactors: 1+ weeks, high impact (redesign component, migrate dependency)
-   - Prioritize by:
-     - Impact: simplification, maintainability, readability, performance
-     - Risk: breaking changes, test coverage, complexity
-     - Effort: time to implement and test
-   - Create matrix: Impact (H/M/L) x Effort (H/M/L) → priority
-   - Propose implementation order:
-     - Phase 1: Quick wins and high-impact/low-effort improvements
-     - Phase 2: Medium refactors with clear value
-     - Phase 3: Large refactors if justified
-   - Document each improvement:
-     - What: specific change
-     - Why: problem it solves
-     - How: implementation approach
-     - Effort: estimated time
-     - Risk: what could break
-     - Tests: what tests to add/modify
-   - Create follow-up L1 work plans for top priorities
-   Tests: N/A (planning)
-   Done when: Prioritized roadmap with detailed improvement proposals ready for implementation
-
 * DONE [#B] Improve CLI tools with proper flags and help
   Goal: Add comprehensive --help documentation and command-line flags to gestalt, gestalt-desktop, and gestalt-send, with flags named after env vars (lowercase) and CLI flags overriding env vars.
   Notes:
@@ -2294,302 +2600,6 @@
    - Document decision and future migration path
    Tests: None (research only)
    Done when: Decision documented on CLI framework (defer migration)
-* TODO [#A] Wails desktop application packaging
-  Goal: Package Gestalt as a native desktop application using Wails v3, providing a standalone executable for macOS, Windows, and Linux while preserving the existing web server mode as default.
-  Notes:
-  - Dual-mode architecture: web server (default) + desktop app (opt-in build target)
-  - Desktop mode: Wails v3 wraps existing Gestalt server with native window
-  - Hybrid approach: keep HTTP/WebSocket server, Wails bindings call it
-  - Desktop app starts embedded server on random port, frontend connects via localhost
-  - Separate binaries: `gestalt` (web mode, current) + `gestalt-desktop` (Wails app)
-  - PTY/terminal handling unchanged (works in desktop apps)
-  - Frontend: reuse existing Svelte app, minimal Wails-specific changes
-  - Wails bindings: thin wrapper over HTTP API for native features (file dialogs, etc)
-  - Build system: extend Makefile with wails targets
-  - Svelte adapter: use static adapter (SPA mode), output to build/ directory
-  - Embed frontend build/ in Wails app (not dist/, separate from web mode)
-  - Desktop-specific features (optional): native menus, tray icon, better window management
-  - Keep configuration compatible: same env vars, same config files
-  - Distribution: single binary per platform (gestalt-desktop.app, gestalt-desktop.exe, gestalt-desktop)
-  - Documentation: separate desktop build/run instructions in README
-  - Testing: desktop app should pass same test suite as web mode
-  Date: 2026-01-08
-  Ref: Wails v3 docs, agentskills.io packaging patterns
-
-** TODO [#B] Research Wails v3 architecture and requirements
-   Why: Understand Wails v3 capabilities, limitations, and integration patterns before committing
-   Change:
-   - Read Wails v3 documentation: application structure, binding patterns, build process
-   - Understand differences from v2: breaking changes, new features, migration path
-   - Research Svelte + Wails v3 integration: does v3 have Svelte template/examples?
-   - Investigate frontend build output requirements: static SPA vs other modes
-   - Check Wails CLI capabilities: dev mode, build targets, cross-compilation
-   - Understand Wails runtime: how Go functions are bound, TypeScript generation
-   - Research window management: native menus, system tray, multi-window support
-   - Check PTY compatibility: any known issues with terminal apps in Wails?
-   - Review Wails licensing: MIT (compatible with AGPL)
-   - Document findings and any potential blockers
-   Tests: None (research only)
-   Done when: Wails v3 architecture understood, integration approach validated
-
-** TODO [#B] Install Wails v3 CLI and create skeleton project
-   Why: Need Wails tooling and project structure to build desktop app
-   Change:
-   - Install Wails CLI: `go install github.com/wailsapp/wails/v3/cmd/wails3@latest`
-   - Verify installation: `wails3 version`
-   - Create skeleton in separate directory first (experiment): `wails3 init -n gestalt-desktop -t svelte`
-   - Study generated structure: main.go, wails.json, frontend setup
-   - Compare skeleton with Gestalt structure: identify differences
-   - Document Wails project structure requirements in internal notes
-   - Test skeleton builds: `wails3 dev` and `wails3 build`
-   - Verify dev mode works: hot reload, frontend/backend communication
-   - Clean up experimental skeleton after study
-   Tests: Skeleton app builds and runs successfully
-   Done when: Wails CLI installed, skeleton studied, requirements understood
-
-** TODO [#B] Create cmd/gestalt-desktop for Wails application
-   Why: Separate entrypoint for desktop mode to avoid mixing web/desktop logic
-   Change:
-   - Create cmd/gestalt-desktop/main.go as Wails application entrypoint
-   - Copy structure from cmd/gestalt/main.go as starting point
-   - Add Wails application initialization: wails.Run(&options.App{...})
-   - Configure embedded server: start on random port (e.g., localhost:0)
-   - Pass server URL to frontend via Wails config or environment
-   - Bind Go struct with methods for Wails frontend to call
-   - Initial bindings (minimal): GetServerURL() string, OpenExternal(url string) error
-   - Wire up existing Manager, agent loader, skill loader (reuse all internal packages)
-   - Add graceful shutdown: close Wails app → stop server → cleanup sessions
-   - Desktop-specific config: window size (1280x800), title ("Gestalt"), resizable
-   Tests: gestalt-desktop compiles; go build ./cmd/gestalt-desktop
-   Done when: Desktop entrypoint exists with Wails initialization
-
-** TODO [#B] Configure Svelte frontend for Wails compatibility
-   Why: Wails requires static SPA build; ensure Vite config produces correct output
-   Change:
-   - Frontend already uses Vite + Svelte (not SvelteKit), perfect for Wails
-   - Verify vite.config.js build.outDir: keep as 'dist' for web, add 'build' for desktop
-   - Add separate build command for desktop: "build:desktop" in package.json
-   - Desktop build: `vite build --outDir build --base ./` (relative paths for file:// protocol)
-   - Ensure no hardcoded localhost:8080 URLs in frontend code (use relative paths)
-   - Update API client (api.js): detect Wails mode, use dynamic server URL
-   - Add Wails detection: `window.wails !== undefined`
-   - If Wails mode: fetch server URL via Wails binding (e.g., `window.wails.GetServerURL()`)
-   - If web mode: use relative paths (current behavior)
-   - Keep WebSocket connection logic compatible (ws://localhost:RANDOM_PORT)
-   - Test build output: verify build/ contains static SPA assets
-   Tests: npm run build:desktop produces clean SPA in build/
-   Done when: Frontend builds for both web and desktop modes
-
-** TODO [#B] Create wails.json configuration file
-   Why: Wails CLI requires configuration for build, dev mode, and bindings
-   Change:
-   - Create wails.json in project root
-   - Set name: "gestalt-desktop"
-   - Set frontend:build: "cd frontend && npm run build:desktop"
-   - Set frontend:install: "cd frontend && npm install"
-   - Set frontend:dev:build: same as build
-   - Set frontend:dev:serverUrl: "auto" (Vite dev server)
-   - Set wailsjsdir: "./frontend/src/lib/wails" (generated bindings)
-   - Set outputfilename: "gestalt-desktop" (per-platform extension added by Wails)
-   - Set debounceMS: 100 (rebuild debounce)
-   - Configure build targets: darwin/amd64, darwin/arm64, windows/amd64, linux/amd64
-   - Set icon paths (optional, use default for now)
-   - Document wails.json fields inline with comments (JSON5 if supported, else separate doc)
-   Tests: wails3 dev reads config correctly
-   Done when: wails.json exists and Wails CLI uses it
-
-** TODO [#B] Implement Wails bindings for core operations
-   Why: Desktop frontend needs Go bindings for native operations and server coordination
-   Change:
-   - Create internal/desktop/app.go with App struct for Wails bindings
-   - App struct holds: server URL, Manager reference, shutdown channel
-   - Bind methods (exported, Wails auto-generates JS/TS):
-     - GetServerURL() string - returns localhost:PORT of embedded server
-     - GetVersion() string - returns version.Version
-     - OpenExternal(url string) error - opens URL in system browser
-     - SelectDirectory() (string, error) - native directory picker (future feature)
-     - Quit() - graceful shutdown
-   - Register App struct in cmd/gestalt-desktop main.go: app.Bind(appInstance)
-   - Start embedded Gestalt server before Wails window opens
-   - Capture dynamic port from listener: `ln, _ := net.Listen("tcp", "127.0.0.1:0")`
-   - Pass server URL to App struct for GetServerURL binding
-   - Implement startup lifecycle: server → Wails → frontend connects
-   - Implement shutdown lifecycle: Wails close → stop server → cleanup
-   Tests: Bindings generate correctly; wails3 dev shows methods in console
-   Done when: Frontend can call bound Go methods via window.wails
-
-** TODO [#B] Update frontend to detect and use Wails mode
-   Why: Frontend must adapt behavior for desktop vs web mode
-   Change:
-   - Update frontend/src/lib/api.js to detect Wails
-   - Detection: `const isWails = typeof window !== 'undefined' && window.wails !== undefined`
-   - Export isWails flag for other components to check
-   - Update buildApiUrl(): if Wails mode, fetch server URL via window.wails.GetServerURL()
-   - Update buildWebSocketUrl(): use server URL from Wails binding
-   - Cache server URL on first fetch to avoid repeated binding calls
-   - Handle binding call errors: fallback to localhost:8080 with warning
-   - Update App.svelte: show "Desktop Mode" indicator in UI (optional)
-   - Ensure all HTTP/WebSocket connections use dynamic URL in desktop mode
-   - Keep web mode behavior unchanged (relative URLs)
-   Tests: Frontend connects to embedded server in desktop mode; go test ./...
-   Done when: Desktop frontend communicates with embedded Gestalt server
-
-** TODO [#B] Wire embedded server into desktop app lifecycle
-   Why: Desktop app must start/stop server cleanly with window lifecycle
-   Change:
-   - In cmd/gestalt-desktop/main.go, start server before wails.Run()
-   - Use same server initialization as cmd/gestalt/main.go (share code if possible)
-   - Start on random port: listener := net.Listen("tcp", "127.0.0.1:0")
-   - Extract port: serverURL := "http://" + listener.Addr().String()
-   - Pass serverURL to App struct for bindings
-   - Add OnStartup hook: ensure server is ready before showing window
-   - Add OnShutdown hook: gracefully stop server, close all terminals
-   - Add OnBeforeClose hook: confirm if terminals are running (optional UX)
-   - Handle server start failures: show error dialog, exit gracefully
-   - Log server URL at startup (desktop app log location)
-   Tests: Desktop app starts server on random port, frontend connects
-   Done when: Server lifecycle synchronized with desktop app
-
-** TODO [#C] Extend Makefile with Wails build targets
-   Why: Developers need simple commands to build desktop app
-   Change:
-   - Add wails-dev target: `wails3 dev` (runs dev mode)
-   - Add gestalt-desktop target: `wails3 build -clean` (production build)
-   - Add wails-deps target: install Wails CLI if missing
-   - Desktop build depends on frontend build:desktop
-   - Consider: make install-desktop (copy to /Applications on macOS, etc)
-   - Add clean target for desktop artifacts: build/bin/gestalt-desktop*
-   - Document desktop build in Makefile comments
-   - Add platform-specific targets (optional): gestalt-desktop-darwin, gestalt-desktop-windows
-   Tests: make gestalt-desktop produces working binary
-   Done when: Desktop app builds via Makefile
-
-** TODO [#C] Add desktop-specific window configuration
-   Why: Native desktop app needs proper window sizing, title, and behavior
-   Change:
-   - Configure initial window size: 1400x900 (accommodate dashboard + terminal)
-   - Set minimum window size: 800x600 (prevent unusable small windows)
-   - Set window title: "Gestalt" (shows in title bar, taskbar)
-   - Enable window resize, maximize, minimize (standard desktop behavior)
-   - Disable fullscreen initially (can add later if desired)
-   - Configure window position: center on startup
-   - Consider: save/restore window size and position (future feature)
-   - macOS specific: set window role, subtitle if needed
-   - Windows specific: set app ID for taskbar grouping
-   - Linux specific: set WM_CLASS for desktop integration
-   Tests: Window appears with correct size and title
-   Done when: Desktop window has proper size, title, and behavior
-
-** TODO [#C] Add desktop-specific native menus (optional)
-   Why: Desktop apps typically have native menu bar (File, Edit, etc)
-   Change:
-   - Use Wails menu API to create native menus
-   - File menu: New Terminal, Quit (Cmd+Q / Ctrl+Q)
-   - Edit menu: Copy, Paste (standard shortcuts)
-   - View menu: Toggle Developer Tools (Wails built-in)
-   - Help menu: About, Documentation (opens in browser)
-   - macOS: standard macOS menu structure (app menu, etc)
-   - Bind menu actions to Wails methods or frontend events
-   - This is optional enhancement; can defer if complexity is high
-   Tests: Menus appear and actions work
-   Done when: Desktop app has native menus (optional, can defer)
-
-** TODO [#C] Handle desktop-specific file paths and resources
-   Why: Desktop app bundle has different resource locations than web server
-   Change:
-   - Ensure config/agents, config/prompts, config/skills load correctly
-   - Desktop app: resources relative to executable or app bundle
-   - Use embedded resources (already done) with external override in ~/.gestalt/ or user home
-   - Update path resolution in cmd/gestalt-desktop to check:
-     1. ~/.gestalt/config/ (user customization)
-     2. Embedded resources (compiled into binary)
-   - Document desktop config location in README
-   - macOS: support ~/Library/Application Support/Gestalt/config/ (optional)
-   - Windows: support %APPDATA%/Gestalt/config/ (optional)
-   - Linux: support ~/.config/gestalt/ (optional, XDG standard)
-   Tests: Desktop app loads config from correct locations
-   Done when: Desktop app finds config in user-specific locations
-
-** TODO [#C] Add system tray icon (optional enhancement)
-   Why: Desktop apps often minimize to system tray for background operation
-   Change:
-   - Use Wails system tray API to add tray icon
-   - Tray menu: Show Window, Quit
-   - Click tray icon: restore window if minimized
-   - Show notification count badge (optional, if terminals have alerts)
-   - macOS: proper retina icon support
-   - Windows: proper icon sizes
-   - Linux: works with various desktop environments
-   - This is optional enhancement; low priority
-   Tests: Tray icon appears, click actions work
-   Done when: System tray integration works (optional, defer if complex)
-
-** TODO [#B] Test desktop app on all target platforms
-   Why: Ensure desktop app works correctly on macOS, Windows, Linux
-   Change:
-   - Build for macOS (amd64 and arm64): verify app bundle structure
-   - Build for Windows (amd64): verify .exe runs, no console window appears
-   - Build for Linux (amd64): verify binary runs, window appears correctly
-   - Test core functionality on each platform: create terminal, connect, send input
-   - Test agent profiles: load, execute, prompt injection
-   - Test skills loading and display
-   - Test window management: resize, minimize, maximize, close
-   - Test graceful shutdown: close window → server stops → terminals cleaned up
-   - Document any platform-specific issues or workarounds
-   Tests: Desktop app fully functional on macOS, Windows, Linux
-   Done when: Desktop app passes smoke tests on all platforms
-
-** TODO [#C] Update CI/CD for desktop builds (optional)
-   Why: Automate desktop app builds for releases
-   Change:
-   - Extend .github/workflows to build desktop binaries
-   - Add matrix build for platforms: darwin/amd64, darwin/arm64, windows/amd64, linux/amd64
-   - Install Wails CLI in CI environment
-   - Build desktop app: wails3 build -platform <platform>
-   - Upload build artifacts to GitHub releases
-   - Sign macOS app (requires Apple Developer account and certificates)
-   - Notarize macOS app (for Gatekeeper compatibility)
-   - Windows: consider code signing (requires certificate)
-   - Linux: no signing required (provide checksums)
-   - Add desktop binaries to release notes
-   - This is optional; manual builds acceptable initially
-   Tests: CI builds produce working binaries
-   Done when: CI automatically builds desktop releases (optional, defer if complex)
-
-** TODO [#B] Document desktop build and usage
-   Why: Users and contributors need desktop-specific documentation
-   Change:
-   - Add "Desktop Application" section to README.md
-   - Document installation: download gestalt-desktop binary for your platform
-   - Document building from source: make gestalt-desktop
-   - Document Wails CLI installation (prerequisite for building)
-   - Explain dual-mode architecture: web server (default) vs desktop app
-   - Document desktop app features: native window, system integration
-   - Document configuration: where desktop app looks for config files
-   - Document differences from web mode (if any)
-   - Add troubleshooting section: common issues, logs location
-   - macOS: explain Gatekeeper warning on first run (unsigned app)
-   - Windows: explain SmartScreen warning (unsigned app)
-   - Linux: explain permission requirements
-   - Add screenshots of desktop app (optional)
-   Tests: None (documentation only)
-   Done when: Desktop app fully documented in README
-
-** TODO [#C] Consider desktop-specific enhancements (future work)
-   Why: Desktop apps can leverage native features unavailable in web
-   Change:
-   - Native file pickers: SelectFile, SelectDirectory via Wails bindings
-   - Drag-and-drop files into terminal (future)
-   - Native notifications: use OS notification system instead of toasts
-   - Global keyboard shortcuts: Cmd+N for new terminal (Wails GlobalShortcuts)
-   - Multiple windows: separate window per terminal (advanced)
-   - Dock/taskbar integration: show running terminal count (macOS dock badge)
-   - Auto-update mechanism: Wails update framework (complex, defer)
-   - URL scheme handler: gestalt:// URLs to open terminals (advanced)
-   - These are future enhancements; document ideas, implement later
-   Tests: None (future planning)
-   Done when: Enhancement ideas documented for future work
-
 * DONE [#A] Event-based filesystem monitoring with WebSocket notifications
   Goal: Replace polling with an event-driven filesystem monitoring component that uses fsnotify to watch files and notify the frontend via WebSocket when changes occur.
   Notes:

@@ -64,6 +64,9 @@ function hashFile(filePath) {
 function walkConfig(dir, baseDir, manifest) {
   const entries = fs.readdirSync(dir, { withFileTypes: true });
   for (const entry of entries) {
+    if (entry.name.startsWith(".") || entry.name.startsWith("_")) {
+      continue;
+    }
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       walkConfig(fullPath, baseDir, manifest);

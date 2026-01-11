@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -25,6 +27,7 @@ import (
 	"gestalt"
 	"gestalt/internal/agent"
 	"gestalt/internal/api"
+	"gestalt/internal/config"
 	"gestalt/internal/event"
 	"gestalt/internal/logging"
 	"gestalt/internal/skill"
@@ -53,6 +56,7 @@ type Config struct {
 	SessionBufferLines   int
 	InputHistoryPersist  bool
 	InputHistoryDir      string
+	ConfigDir            string
 	MaxWatches           int
 	Verbose              bool
 	Quiet                bool
@@ -90,6 +94,7 @@ type configDefaults struct {
 	SessionBufferLines   int
 	InputHistoryPersist  bool
 	InputHistoryDir      string
+	ConfigDir            string
 	MaxWatches           int
 	ForceUpgrade         bool
 }
@@ -200,8 +205,16 @@ func main() {
 		}
 	}
 
-	configFS := buildConfigFS(logger)
-	skills, err := loadSkills(logger, configFS)
+	configPaths, err := prepareConfig(cfg, logger)
+	if err != nil {
+		logger.Error("config extraction failed", map[string]string{
+			"error": err.Error(),
+		})
+		os.Exit(1)
+	}
+
+	configFS := buildConfigFS(configPaths.Root)
+	skills, err := loadSkills(logger, configFS, configPaths.SubDir)
 	if err != nil {
 		logger.Error("load skills failed", map[string]string{
 			"error": err.Error(),
@@ -212,7 +225,7 @@ func main() {
 		"count": strconv.Itoa(len(skills)),
 	})
 
-	agents, err := loadAgents(logger, configFS, buildSkillIndex(skills))
+	agents, err := loadAgents(logger, configFS, configPaths.SubDir, buildSkillIndex(skills))
 	if err != nil {
 		logger.Error("load agents failed", map[string]string{
 			"error": err.Error(),
@@ -235,7 +248,7 @@ func main() {
 		SessionRetentionDays: cfg.SessionRetentionDays,
 		BufferLines:          cfg.SessionBufferLines,
 		PromptFS:             configFS,
-		PromptDir:            path.Join("config", "prompts"),
+		PromptDir:            path.Join(configPaths.SubDir, "prompts"),
 	})
 
 	workerStarted := false
@@ -803,6 +816,18 @@ func loadConfig(args []string) (Config, error) {
 	cfg.InputHistoryDir = inputHistoryDir
 	cfg.Sources["input-history-dir"] = inputHistoryDirSource
 
+	configDir := defaults.ConfigDir
+	configDirSource := sourceDefault
+	if rawDir := strings.TrimSpace(os.Getenv("GESTALT_CONFIG_DIR")); rawDir != "" {
+		configDir = rawDir
+		configDirSource = sourceEnv
+	}
+	if strings.TrimSpace(configDir) == "" {
+		return Config{}, fmt.Errorf("invalid config dir: value cannot be empty")
+	}
+	cfg.ConfigDir = configDir
+	cfg.Sources["config-dir"] = configDirSource
+
 	maxWatches := defaults.MaxWatches
 	maxWatchesSource := sourceDefault
 	if rawMax := strings.TrimSpace(os.Getenv("GESTALT_MAX_WATCHES")); rawMax != "" {
@@ -869,6 +894,7 @@ func defaultConfigValues() configDefaults {
 		SessionBufferLines:   terminal.DefaultBufferLines,
 		InputHistoryPersist:  true,
 		InputHistoryDir:      filepath.Join(".gestalt", "input-history"),
+		ConfigDir:            filepath.Join(".gestalt", "config"),
 		MaxWatches:           100,
 		ForceUpgrade:         false,
 	}
@@ -1175,7 +1201,7 @@ func formatTokenFlag(token string) string {
 
 func ensureStateDir(cfg Config, logger *logging.Logger) {
 	stateRoot := ".gestalt"
-	if !usesStateRoot(cfg.SessionLogDir, stateRoot) && !usesStateRoot(cfg.InputHistoryDir, stateRoot) {
+	if !usesStateRoot(cfg.SessionLogDir, stateRoot) && !usesStateRoot(cfg.InputHistoryDir, stateRoot) && !usesStateRoot(cfg.ConfigDir, stateRoot) {
 		return
 	}
 	if err := os.MkdirAll(stateRoot, 0o755); err != nil && logger != nil {
@@ -1483,14 +1509,14 @@ func findStaticDir() string {
 	return ""
 }
 
-func loadAgents(logger *logging.Logger, configFS fs.FS, skillIndex map[string]struct{}) (map[string]agent.Agent, error) {
+func loadAgents(logger *logging.Logger, configFS fs.FS, configRoot string, skillIndex map[string]struct{}) (map[string]agent.Agent, error) {
 	loader := agent.Loader{Logger: logger}
-	return loader.Load(configFS, path.Join("config", "agents"), path.Join("config", "prompts"), skillIndex)
+	return loader.Load(configFS, path.Join(configRoot, "agents"), path.Join(configRoot, "prompts"), skillIndex)
 }
 
-func loadSkills(logger *logging.Logger, configFS fs.FS) (map[string]*skill.Skill, error) {
+func loadSkills(logger *logging.Logger, configFS fs.FS, configRoot string) (map[string]*skill.Skill, error) {
 	loader := skill.Loader{Logger: logger}
-	return loader.Load(configFS, path.Join("config", "skills"))
+	return loader.Load(configFS, path.Join(configRoot, "skills"))
 }
 
 func buildSkillIndex(skills map[string]*skill.Skill) map[string]struct{} {
@@ -1565,39 +1591,135 @@ func hasOptionalSkillDir(base, name string) bool {
 	return info.IsDir()
 }
 
-func buildConfigFS(logger *logging.Logger) fs.FS {
-	overrideRoot := "gestalt"
-	configDir := filepath.Join(overrideRoot, "config")
-	useExternal := map[string]bool{
-		"agents":  dirExists(filepath.Join(configDir, "agents")),
-		"prompts": dirExists(filepath.Join(configDir, "prompts")),
-		"skills":  dirExists(filepath.Join(configDir, "skills")),
+type configPaths struct {
+	Root       string
+	SubDir     string
+	ConfigDir  string
+	VersionLoc string
+}
+
+func prepareConfig(cfg Config, logger *logging.Logger) (configPaths, error) {
+	paths, err := resolveConfigPaths(cfg.ConfigDir)
+	if err != nil {
+		return configPaths{}, err
+	}
+	if err := os.MkdirAll(paths.ConfigDir, 0o755); err != nil {
+		return configPaths{}, fmt.Errorf("create config dir: %w", err)
 	}
 
-	if logger != nil {
-		if useExternal["agents"] || useExternal["prompts"] || useExternal["skills"] {
-			logger.Info("using external config at ./gestalt/", map[string]string{
-				"agents":  strconv.FormatBool(useExternal["agents"]),
-				"prompts": strconv.FormatBool(useExternal["prompts"]),
-				"skills":  strconv.FormatBool(useExternal["skills"]),
-			})
-		} else {
-			logger.Info("using embedded config", nil)
+	current := version.GetVersionInfo()
+	installed, err := config.LoadVersionFile(paths.VersionLoc)
+	if err != nil && !errors.Is(err, config.ErrVersionFileMissing) {
+		return configPaths{}, fmt.Errorf("load version file: %w", err)
+	}
+	hadInstalled := err == nil
+	if err == nil {
+		if compatibilityErr := config.CheckVersionCompatibility(installed, current); compatibilityErr != nil {
+			if cfg.ForceUpgrade {
+				if logger != nil {
+					logger.Warn("config version check overridden by --force-upgrade", map[string]string{
+						"error": compatibilityErr.Error(),
+					})
+				}
+			} else {
+				return configPaths{}, compatibilityErr
+			}
 		}
 	}
 
-	return configFS{
-		embedded:     gestalt.EmbeddedConfigFS,
-		external:     os.DirFS("."),
-		externalRoot: filepath.ToSlash(overrideRoot),
-		useExternal:  useExternal,
+	manifest, err := config.LoadManifest(gestalt.EmbeddedConfigFS)
+	if err != nil {
+		if errors.Is(err, config.ErrManifestMissing) {
+			if logger != nil {
+				logger.Warn("config manifest missing, computing hashes at startup", nil)
+			}
+			manifest, err = buildManifestFromFS(gestalt.EmbeddedConfigFS)
+		}
+		if err != nil {
+			return configPaths{}, fmt.Errorf("load manifest: %w", err)
+		}
 	}
+
+	extractor := config.Extractor{Logger: logger}
+	stats, err := extractor.ExtractWithStats(gestalt.EmbeddedConfigFS, paths.ConfigDir, manifest)
+	if err != nil {
+		return configPaths{}, err
+	}
+	if err := config.WriteVersionFile(paths.VersionLoc, current); err != nil {
+		return configPaths{}, fmt.Errorf("write version file: %w", err)
+	}
+
+	logConfigSummary(logger, paths, installed, current, stats, hadInstalled)
+	return paths, nil
 }
 
-func dirExists(path string) bool {
-	info, err := os.Stat(path)
-	if err != nil {
-		return false
+func resolveConfigPaths(configDir string) (configPaths, error) {
+	cleaned := filepath.Clean(configDir)
+	if strings.TrimSpace(cleaned) == "" {
+		return configPaths{}, fmt.Errorf("config dir cannot be empty")
 	}
-	return info.IsDir()
+	root := filepath.Dir(cleaned)
+	subDir := filepath.Base(cleaned)
+	return configPaths{
+		Root:       root,
+		SubDir:     filepath.ToSlash(subDir),
+		ConfigDir:  cleaned,
+		VersionLoc: filepath.Join(root, "version.json"),
+	}, nil
+}
+
+func buildConfigFS(configRoot string) fs.FS {
+	return os.DirFS(configRoot)
+}
+
+func buildManifestFromFS(sourceFS fs.FS) (map[string]string, error) {
+	manifest := make(map[string]string)
+	if err := fs.WalkDir(sourceFS, "config", func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if path == "config/manifest.json" {
+			return nil
+		}
+		data, err := fs.ReadFile(sourceFS, path)
+		if err != nil {
+			return err
+		}
+		sum := sha256.Sum256(data)
+		relative := strings.TrimPrefix(path, "config/")
+		manifest[relative] = hex.EncodeToString(sum[:])
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return manifest, nil
+}
+
+func logConfigSummary(logger *logging.Logger, paths configPaths, installed, current version.VersionInfo, stats config.ExtractStats, hadInstalled bool) {
+	if logger == nil {
+		return
+	}
+	fields := map[string]string{
+		"config_dir": paths.ConfigDir,
+		"current":    formatVersionInfo(current),
+		"extracted":  strconv.Itoa(stats.Extracted),
+		"skipped":    strconv.Itoa(stats.Skipped),
+		"backed_up":  strconv.Itoa(stats.BackedUp),
+	}
+	if hadInstalled {
+		fields["installed"] = formatVersionInfo(installed)
+	} else {
+		fields["installed"] = "none"
+	}
+	logger.Info("config extraction complete", fields)
+}
+
+func formatVersionInfo(info version.VersionInfo) string {
+	if strings.TrimSpace(info.Version) != "" {
+		return info.Version
+	}
+	return fmt.Sprintf("%d.%d.%d", info.Major, info.Minor, info.Patch)
 }

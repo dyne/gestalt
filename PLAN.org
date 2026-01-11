@@ -112,7 +112,7 @@
    Tests: Unit tests for all version comparison scenarios
    Done when: Version checking prevents incompatible upgrades
 
-** TODO [#B] Integrate version tracking and extraction into startup
+** DONE [#B] Integrate version tracking and extraction into startup
    Why: Ensure config and version are always checked and extracted on start
    Change:
    - Modify cmd/gestalt/main.go startup sequence

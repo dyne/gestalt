@@ -36,6 +36,9 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.InputHistoryDir != filepath.Join(".gestalt", "input-history") {
 		t.Fatalf("expected default input history dir, got %q", cfg.InputHistoryDir)
 	}
+	if cfg.ConfigDir != filepath.Join(".gestalt", "config") {
+		t.Fatalf("expected default config dir, got %q", cfg.ConfigDir)
+	}
 	if cfg.MaxWatches != 100 {
 		t.Fatalf("expected max watches 100, got %d", cfg.MaxWatches)
 	}
@@ -69,6 +72,7 @@ func TestLoadConfigEnvOverridesDefaults(t *testing.T) {
 	t.Setenv("GESTALT_INPUT_HISTORY_DIR", "/tmp/gestalt-input")
 	t.Setenv("GESTALT_MAX_WATCHES", "55")
 	t.Setenv("GESTALT_TEMPORAL_DEV_SERVER", "true")
+	t.Setenv("GESTALT_CONFIG_DIR", "/tmp/gestalt-config")
 
 	cfg, err := loadConfig(nil)
 	if err != nil {
@@ -103,6 +107,9 @@ func TestLoadConfigEnvOverridesDefaults(t *testing.T) {
 	}
 	if cfg.InputHistoryDir != "" {
 		t.Fatalf("expected input history dir empty when disabled, got %q", cfg.InputHistoryDir)
+	}
+	if cfg.ConfigDir != "/tmp/gestalt-config" {
+		t.Fatalf("expected config dir /tmp/gestalt-config, got %q", cfg.ConfigDir)
 	}
 	if cfg.MaxWatches != 55 {
 		t.Fatalf("expected max watches 55, got %d", cfg.MaxWatches)

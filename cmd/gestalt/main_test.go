@@ -137,8 +137,8 @@ func TestFindStaticDir(t *testing.T) {
 
 func TestLoadAgentsIntegration(t *testing.T) {
 	root := t.TempDir()
-	agentsDir := filepath.Join(root, "gestalt", "config", "agents")
-	promptsDir := filepath.Join(root, "gestalt", "config", "prompts")
+	agentsDir := filepath.Join(root, ".gestalt", "config", "agents")
+	promptsDir := filepath.Join(root, ".gestalt", "config", "prompts")
 	if err := os.MkdirAll(agentsDir, 0755); err != nil {
 		t.Fatalf("mkdir agents: %v", err)
 	}
@@ -165,8 +165,8 @@ func TestLoadAgentsIntegration(t *testing.T) {
 	})
 
 	logger := logging.NewLoggerWithOutput(logging.NewLogBuffer(10), logging.LevelInfo, io.Discard)
-	configFS := buildConfigFS(logger)
-	agents, err := loadAgents(logger, configFS, nil)
+	configFS := buildConfigFS(filepath.Join(root, ".gestalt"))
+	agents, err := loadAgents(logger, configFS, "config", nil)
 	if err != nil {
 		t.Fatalf("load agents: %v", err)
 	}
@@ -180,8 +180,8 @@ func TestLoadAgentsIntegration(t *testing.T) {
 
 func TestLoadAgentsReportsInvalidJSON(t *testing.T) {
 	root := t.TempDir()
-	agentsDir := filepath.Join(root, "gestalt", "config", "agents")
-	promptsDir := filepath.Join(root, "gestalt", "config", "prompts")
+	agentsDir := filepath.Join(root, ".gestalt", "config", "agents")
+	promptsDir := filepath.Join(root, ".gestalt", "config", "prompts")
 	if err := os.MkdirAll(agentsDir, 0755); err != nil {
 		t.Fatalf("mkdir agents: %v", err)
 	}
@@ -204,8 +204,8 @@ func TestLoadAgentsReportsInvalidJSON(t *testing.T) {
 	})
 
 	logger := logging.NewLoggerWithOutput(logging.NewLogBuffer(10), logging.LevelInfo, io.Discard)
-	configFS := buildConfigFS(logger)
-	if _, err := loadAgents(logger, configFS, nil); err == nil {
+	configFS := buildConfigFS(filepath.Join(root, ".gestalt"))
+	if _, err := loadAgents(logger, configFS, "config", nil); err == nil {
 		t.Fatalf("expected error for invalid agent json")
 	}
 }

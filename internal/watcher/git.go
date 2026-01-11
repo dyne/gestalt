@@ -18,7 +18,6 @@ type GitWatcher struct {
 	headPath      string
 	currentBranch string
 	watchHandle   Handle
-	cancel        func()
 	mutex         sync.Mutex
 }
 
@@ -46,17 +45,14 @@ func StartGitWatcher(bus *event.Bus[Event], watch Watch, workDir string) (*GitWa
 		currentBranch: readGitBranch(headPath),
 	}
 
-	handle, err := WatchFile(bus, watch, headPath)
+	handle, err := watch.Watch(headPath, func(event Event) {
+		watcher.handleFileChanged(event)
+	})
 	if err != nil {
 		return nil, err
 	}
 	watcher.watchHandle = handle
 
-	events, cancel := bus.SubscribeFiltered(func(event Event) bool {
-		return event.Type == EventTypeFileChanged && event.Path == headPath
-	})
-	watcher.cancel = cancel
-	go watcher.consume(events)
 	return watcher, nil
 }
 
@@ -65,19 +61,9 @@ func (watcher *GitWatcher) Close() {
 	if watcher == nil {
 		return
 	}
-	if watcher.cancel != nil {
-		watcher.cancel()
-		watcher.cancel = nil
-	}
 	if watcher.watchHandle != nil {
 		_ = watcher.watchHandle.Close()
 		watcher.watchHandle = nil
-	}
-}
-
-func (watcher *GitWatcher) consume(events <-chan Event) {
-	for event := range events {
-		watcher.handleFileChanged(event)
 	}
 }
 

@@ -46,7 +46,7 @@
    Tests: None (design only)
    Done when: Architecture documented with interfaces, patterns, and usage guidelines
 
-** TODO [#B] Create internal/event package with generic Bus implementation
+** DONE [#B] Create internal/event package with generic Bus implementation
    Why: Core reusable event bus that all systems can use
    Change:
    - Create internal/event/bus.go with concrete Bus[T any] struct (NOT interface)
@@ -66,7 +66,7 @@
    Tests: Unit tests for concurrent subscribe/publish, slow subscribers, metrics, drop vs block modes
    Done when: Generic Bus[T] works, fully tested, metrics integrated, ready to use
 
-** TODO [#B] Create typed event interfaces and base types
+** WIP [#B] Create typed event interfaces and base types
    Why: Establish event type conventions before migrating systems
    Change:
    - Create internal/event/types.go with Event interface

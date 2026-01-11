@@ -1,0 +1,284 @@
+package event
+
+import (
+	"context"
+	"log"
+	"reflect"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"gestalt/internal/metrics"
+)
+
+const defaultSubscriberBufferSize = 128
+
+type BusOptions struct {
+	Name                    string
+	SubscriberBufferSize    int
+	BlockOnFull             bool
+	WriteTimeout            time.Duration
+	MaxSubscribers          int
+	SlowSubscriberThreshold time.Duration
+	Registry                *metrics.Registry
+}
+
+type Bus[T any] struct {
+	mu          sync.Mutex
+	subscribers map[uint64]chan T
+	nextSubID   uint64
+	closed      bool
+	closeOnce   sync.Once
+	options     BusOptions
+	registry    *metrics.Registry
+}
+
+type typedEvent interface {
+	Type() string
+}
+
+func NewBus[T any](ctx context.Context, opts BusOptions) *Bus[T] {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if opts.SubscriberBufferSize <= 0 {
+		opts.SubscriberBufferSize = defaultSubscriberBufferSize
+	}
+	bus := &Bus[T]{
+		subscribers: make(map[uint64]chan T),
+		options:     opts,
+		registry:    opts.Registry,
+	}
+	if bus.registry == nil {
+		bus.registry = metrics.Default
+	}
+	if done := ctx.Done(); done != nil {
+		go func() {
+			<-done
+			bus.Close()
+		}()
+	}
+	return bus
+}
+
+func (b *Bus[T]) Subscribe() (<-chan T, func()) {
+	if b == nil {
+		ch := make(chan T)
+		close(ch)
+		return ch, func() {}
+	}
+
+	ch := make(chan T, b.options.SubscriberBufferSize)
+	id := atomic.AddUint64(&b.nextSubID, 1)
+
+	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		close(ch)
+		return ch, func() {}
+	}
+	if b.options.MaxSubscribers > 0 && len(b.subscribers) >= b.options.MaxSubscribers {
+		b.mu.Unlock()
+		close(ch)
+		return ch, func() {}
+	}
+	b.subscribers[id] = ch
+	count := len(b.subscribers)
+	b.mu.Unlock()
+
+	b.setSubscriberCount(count)
+
+	cancel := func() {
+		b.removeSubscriber(id)
+	}
+
+	return ch, cancel
+}
+
+func (b *Bus[T]) Publish(event T) {
+	if b == nil {
+		return
+	}
+	if isNil(event) {
+		return
+	}
+
+	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return
+	}
+	subscribers := make([]subscription[T], 0, len(b.subscribers))
+	for id, ch := range b.subscribers {
+		subscribers = append(subscribers, subscription[T]{id: id, ch: ch})
+	}
+	b.mu.Unlock()
+
+	eventType := b.eventType(event)
+	b.incPublished(eventType)
+
+	for _, sub := range subscribers {
+		b.sendToSubscriber(sub, event, eventType)
+	}
+}
+
+func (b *Bus[T]) Close() {
+	if b == nil {
+		return
+	}
+	b.closeOnce.Do(func() {
+		b.mu.Lock()
+		b.closed = true
+		subscribers := b.subscribers
+		b.subscribers = make(map[uint64]chan T)
+		b.mu.Unlock()
+
+		for _, ch := range subscribers {
+			close(ch)
+		}
+		b.setSubscriberCount(0)
+	})
+}
+
+type subscription[T any] struct {
+	id uint64
+	ch chan T
+}
+
+func (b *Bus[T]) sendToSubscriber(sub subscription[T], event T, eventType string) {
+	if b.options.BlockOnFull {
+		b.blockingSend(sub, event, eventType)
+		return
+	}
+	b.nonBlockingSend(sub, event, eventType)
+}
+
+func (b *Bus[T]) nonBlockingSend(sub subscription[T], event T, eventType string) {
+	delivered := b.safeSend(sub, func() bool {
+		select {
+		case sub.ch <- event:
+			return true
+		default:
+			return false
+		}
+	})
+	if !delivered {
+		b.incDropped(eventType)
+	}
+}
+
+func (b *Bus[T]) blockingSend(sub subscription[T], event T, eventType string) {
+	start := time.Now()
+	delivered := b.safeSend(sub, func() bool {
+		if b.options.WriteTimeout <= 0 {
+			sub.ch <- event
+			return true
+		}
+		timer := time.NewTimer(b.options.WriteTimeout)
+		defer timer.Stop()
+		select {
+		case sub.ch <- event:
+			return true
+		case <-timer.C:
+			return false
+		}
+	})
+	elapsed := time.Since(start)
+
+	if !delivered {
+		b.incDropped(eventType)
+		b.removeSubscriber(sub.id)
+		if b.options.SlowSubscriberThreshold > 0 && elapsed >= b.options.SlowSubscriberThreshold {
+			log.Printf("event bus %s: subscriber blocked for %s and timed out", b.busName(), elapsed)
+		}
+		return
+	}
+
+	if b.options.SlowSubscriberThreshold > 0 && elapsed >= b.options.SlowSubscriberThreshold {
+		log.Printf("event bus %s: subscriber blocked for %s", b.busName(), elapsed)
+	}
+}
+
+func (b *Bus[T]) safeSend(sub subscription[T], send func() bool) (delivered bool) {
+	defer func() {
+		if recover() != nil {
+			b.removeSubscriber(sub.id)
+			delivered = false
+		}
+	}()
+	return send()
+}
+
+func (b *Bus[T]) removeSubscriber(id uint64) {
+	if b == nil {
+		return
+	}
+	var ch chan T
+	b.mu.Lock()
+	if existing, ok := b.subscribers[id]; ok {
+		delete(b.subscribers, id)
+		ch = existing
+	}
+	count := len(b.subscribers)
+	b.mu.Unlock()
+
+	if ch != nil {
+		close(ch)
+	}
+	if ch != nil {
+		b.setSubscriberCount(count)
+	}
+}
+
+func (b *Bus[T]) busName() string {
+	if b.options.Name == "" {
+		return "event_bus"
+	}
+	return b.options.Name
+}
+
+func (b *Bus[T]) eventType(event T) string {
+	typed, ok := any(event).(typedEvent)
+	if !ok {
+		return "unknown"
+	}
+	value := typed.Type()
+	if value == "" {
+		return "unknown"
+	}
+	return value
+}
+
+func (b *Bus[T]) incPublished(eventType string) {
+	if b.registry == nil {
+		return
+	}
+	b.registry.IncEventPublished(b.busName(), eventType)
+}
+
+func (b *Bus[T]) incDropped(eventType string) {
+	if b.registry == nil {
+		return
+	}
+	b.registry.IncEventDropped(b.busName(), eventType)
+}
+
+func (b *Bus[T]) setSubscriberCount(count int) {
+	if b.registry == nil {
+		return
+	}
+	b.registry.SetEventSubscribers(b.busName(), count)
+}
+
+func isNil[T any](value T) bool {
+	kind := reflect.ValueOf(value)
+	if !kind.IsValid() {
+		return true
+	}
+	switch kind.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Map, reflect.Pointer, reflect.Interface, reflect.Slice:
+		return kind.IsNil()
+	default:
+		return false
+	}
+}

@@ -145,5 +145,5 @@ Implementation notes (Unified event architecture):
 - Header branding uses imported SVG assets for the Gestalt logo and Dyne icon/logotype.
 - Workflow tracking is always on; the dashboard toggle was removed and running state is synced from agent terminal IDs.
 - Terminal resizing uses a ResizeObserver to refit xterm and send PTY resize updates on width changes.
-- Terminal touch scrolling uses pointer events with a 10px activation threshold and inertial scrolling; mouse selection remains untouched. The `scrollSensitivity` prop in `frontend/src/components/Terminal.svelte` controls speed.
+- Terminal touch scrolling uses pointer events with a 10px activation threshold, inertial momentum, and scrollbar-gutter detection (native drag); mouse selection remains untouched. The `scrollSensitivity` prop in `frontend/src/components/Terminal.svelte` controls speed.
 - `make dev` runs the Go backend and Vite dev server together for live UI updates.

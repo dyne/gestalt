@@ -420,7 +420,7 @@
 ** Temporal dev server bind + UI link
    - Bind Temporal dev server to 0.0.0.0 with random gRPC/UI ports.
    - Expose Temporal UI URL in /api/status and use it for the Flow "View in Temporal" link.
-* WIP [#B] Fix terminal natural touch scrolling
+* DONE [#B] Fix terminal natural touch scrolling
   Goal: Enable natural touch scrolling anywhere on the terminal (not just scrollbar) while preserving mouse text selection for clipboard copy.
   Notes:
   - Current state: touch scroll code EXISTS in terminalStore.js (setupTouchScroll, lines 257-326) but DOES NOT WORK
@@ -439,7 +439,7 @@
   - Testing requirements: manual touch device testing (no good automated touch simulation)
   Date: 2026-01-11
 
-** DONE [#A] Research and analyze why current touch scroll fails
+** [#A] Research and analyze why current touch scroll fails
    Why: Must understand root cause before designing solution, avoid repeating past mistakes
    Change:
    - Document current implementation: setupTouchScroll in terminalStore.js (lines 257-326)
@@ -477,7 +477,7 @@
    Tests: Manual touch testing with logging, document exact event flow
    Done when: Root cause documented with evidence, solution approach validated
 
-** DONE [#B] Choose between Touch Events vs Pointer Events API
+** [#B] Choose between Touch Events vs Pointer Events API
    Why: Pointer Events unify mouse/touch/pen and provide pointerType detection
    Change:
    - Compare Touch Events API (touchstart/move/end) vs Pointer Events API (pointerdown/move/up)
@@ -499,7 +499,7 @@
    Tests: None (design decision)
    Done when: API choice documented with technical justification
 
-** DONE [#B] Design pointer-based scroll architecture
+** [#B] Design pointer-based scroll architecture
    Why: Clear architecture prevents implementation mistakes
    Change:
    - Architecture: Pointer Events on term.element with capture:true and passive:false
@@ -527,7 +527,7 @@
    Tests: None (design only)
    Done when: Architecture documented with event flow diagram, edge cases identified
 
-** DONE [#B] Implement pointer event handlers with type detection
+** [#B] Implement pointer event handlers with type detection
    Why: Core of the solution - pointer handlers that distinguish touch from mouse
    Change:
    - Replace setupTouchScroll with setupPointerScroll in terminalStore.js
@@ -558,7 +558,7 @@
    Tests: Unit test pointer type filtering, state machine transitions (mock PointerEvents)
    Done when: Pointer handlers implemented, mouse ignored, touch captured and scrolled
 
-** DONE [#B] Integrate pointer scroll into attach/detach lifecycle
+** [#B] Integrate pointer scroll into attach/detach lifecycle
    Why: Ensure handlers are properly registered and cleaned up with terminal lifecycle
    Change:
    - In terminalStore.js attach() function (line ~328):
@@ -574,7 +574,7 @@
    Tests: Integration test: attach → handlers active, detach → handlers removed, no leaks
    Done when: Pointer scroll integrated into terminal lifecycle, cleanup verified
 
-** DONE [#C] Add CSS touch-action: none to xterm element
+** [#C] Add CSS touch-action: none to xterm element
    Why: Disable browser default touch gestures so we fully control touch behavior
    Change:
    - In Terminal.svelte <style> section (line ~369):
@@ -588,7 +588,7 @@
    Tests: Manual test: verify no browser gestures interfere with custom scroll
    Done when: CSS updated, browser touch gestures disabled on terminal
 
-** DONE [#B] Calculate scroll sensitivity (deltaY to scrollLines conversion)
+** [#B] Calculate scroll sensitivity (deltaY to scrollLines conversion)
    Why: Touch scroll needs to feel natural, not too fast or too slow
    Change:
    - Determine pixels-per-line for terminal: term.element.offsetHeight / term.rows
@@ -604,7 +604,7 @@
    Tests: Manual testing with various sensitivity values, document optimal range
    Done when: Scroll sensitivity feels natural, configurable, documented
 
-** DONE [#B] Add scroll activation threshold to prevent accidental scrolling
+** [#B] Add scroll activation threshold to prevent accidental scrolling
    Why: Small touch movements (taps, jitters) shouldn't trigger scroll
    Change:
    - In pointermove handler: track cumulative movement from pointerdown
@@ -619,7 +619,7 @@
    Tests: Manual test: tap without scrolling, small movements ignored, deliberate scroll works
    Done when: Threshold implemented, accidental scrolls prevented, feels responsive
 
-** DONE [#B] Preserve xterm text selection for mouse
+** [#B] Preserve xterm text selection for mouse
    Why: Mouse users must still be able to select text for clipboard copy
    Change:
    - Verify mouse behavior: pointerType === 'mouse' events are NOT intercepted
@@ -638,7 +638,7 @@
    Tests: Manual test with real mouse, verify selection works exactly as before
    Done when: Mouse selection verified working, no regression in mouse behavior
 
-** DONE [#B] Test on real touch devices (phone, tablet)
+** [#B] Test on real touch devices (phone, tablet)
    Why: Touch behavior cannot be reliably simulated, must test on hardware
    Change:
    - Test devices: iOS (Safari), Android (Chrome), tablet (both)
@@ -659,7 +659,7 @@
    Tests: Manual testing on physical devices, document results per device/browser
    Done when: Touch scroll works smoothly on iOS and Android, no device-specific bugs
 
-** DONE [#C] Add inertial touch scrolling (optional)
+** [#C] Add inertial touch scrolling (optional)
    Why: Momentum scrolling can feel more natural on touch devices for long terminal output.
    Change:
    - Track touch scroll velocity during pointermove (deltaY / deltaTime).
@@ -672,7 +672,7 @@
    Tests: Manual testing on touch devices; unit test for inertial state/cleanup if feasible.
    Done when: Fast swipe continues scroll briefly with smooth deceleration.
 
-** DONE [#C] Add visual feedback for touch scroll (optional)
+** [#C] Add visual feedback for touch scroll (optional)
    Why: Users may want visual indication that touch is active (not strictly required)
    Change:
    - Optional: add subtle visual cue during touch scroll (e.g., fade in scroll indicator)
@@ -687,7 +687,7 @@
    Tests: Manual test with and without visual feedback, gather user preference
    Done when: Visual feedback decision made, implemented if desired (optional)
 
-** DONE [#B] Add touch scroll integration tests (automated)
+** [#B] Add touch scroll integration tests (automated)
    Why: Prevent regressions, document expected behavior in code
    Change:
    - Create frontend/src/lib/terminalStore.test.js (if doesn't exist)
@@ -711,7 +711,7 @@
    Tests: Automated test suite (preferred) or manual test checklist (fallback)
    Done when: Touch scroll behavior covered by tests or documented test procedure
 
-** DONE [#B] Update documentation for touch scroll feature
+** [#B] Update documentation for touch scroll feature
    Why: Users and developers need to know touch scroll exists and how it works
    Change:
    - Update README.md: add "Touch Scrolling" section under Terminal features
@@ -730,7 +730,7 @@
    Tests: None (documentation only)
    Done when: Touch scroll documented in user and developer docs
 
-** DONE [#C] Tune inertial scroll feel (duration + additive momentum)
+** [#C] Tune inertial scroll feel (duration + additive momentum)
    Why: Improve momentum duration, deceleration feel, and allow successive swipes to add speed.
    Change:
    - Increase inertia duration with slower decay and lower cutoff threshold.
@@ -741,7 +741,7 @@
    Tests: Update/extend touch inertia unit tests as needed; confirm on device.
    Done when: Momentum lasts longer, decelerates smoothly, and successive swipes add speed.
 
-** DONE [#B] Preserve scrollbar drag behavior on touch
+** [#B] Preserve scrollbar drag behavior on touch
    Why: Touching the scrollbar should drag the viewport rather than triggering touch scroll handlers.
    Change:
    - Detect touch interaction on `.xterm-scrollbar`/`.xterm-viewport` scrollbar area.
@@ -752,7 +752,7 @@
    Tests: Manual test on touch devices; add unit coverage if feasible.
    Done when: Touching the scrollbar uses native scrollbar drag without breaking touch scrolling.
 
-** DONE [#A] Validate with user testing before marking done
+** [#A] Validate with user testing before marking done
    Why: Ensure solution actually solves the problem, not just technically correct
    Change:
    - User testing: hand device to non-technical user, ask them to scroll terminal

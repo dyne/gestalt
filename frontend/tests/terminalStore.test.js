@@ -136,11 +136,12 @@ const waitForSocket = async () => {
 
 const createPointerEvent = (
   type,
-  { pointerId = 1, pointerType = 'touch', clientY = 0, timeStamp = 0 } = {}
+  { pointerId = 1, pointerType = 'touch', clientX = 0, clientY = 0, timeStamp = 0 } = {}
 ) => {
   const event = new Event(type, { bubbles: true, cancelable: true })
   Object.defineProperty(event, 'pointerId', { value: pointerId })
   Object.defineProperty(event, 'pointerType', { value: pointerType })
+  Object.defineProperty(event, 'clientX', { value: clientX })
   Object.defineProperty(event, 'clientY', { value: clientY })
   Object.defineProperty(event, 'timeStamp', { value: timeStamp })
   return event
@@ -565,16 +566,40 @@ describe('terminalStore', () => {
     const container = document.createElement('div')
     state.attach(container)
 
-    const element = state.term.element
     const viewport = state.term.viewport
+    Object.defineProperty(viewport, 'offsetWidth', { value: 100 })
+    Object.defineProperty(viewport, 'clientWidth', { value: 80 })
+    viewport.getBoundingClientRect = () => ({
+      left: 0,
+      right: 100,
+      top: 0,
+      bottom: 100,
+      width: 100,
+      height: 100,
+    })
     viewport.dispatchEvent(
-      createPointerEvent('pointerdown', { pointerType: 'touch', clientY: 100, pointerId: 1 })
+      createPointerEvent('pointerdown', {
+        pointerType: 'touch',
+        clientX: 95,
+        clientY: 100,
+        pointerId: 1,
+      })
     )
     viewport.dispatchEvent(
-      createPointerEvent('pointermove', { pointerType: 'touch', clientY: 0, pointerId: 1 })
+      createPointerEvent('pointermove', {
+        pointerType: 'touch',
+        clientX: 95,
+        clientY: 0,
+        pointerId: 1,
+      })
     )
     viewport.dispatchEvent(
-      createPointerEvent('pointerup', { pointerType: 'touch', clientY: 0, pointerId: 1 })
+      createPointerEvent('pointerup', {
+        pointerType: 'touch',
+        clientX: 95,
+        clientY: 0,
+        pointerId: 1,
+      })
     )
 
     expect(state.term.scrollLinesCalls).toEqual([])

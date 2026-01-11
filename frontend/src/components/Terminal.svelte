@@ -376,6 +376,7 @@
   :global(.xterm-viewport) {
     border-radius: 12px;
     -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
   }
 
   @media (max-width: 720px) {

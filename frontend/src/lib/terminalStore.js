@@ -300,6 +300,16 @@ const createTerminalState = (terminalId) => {
     const clampVelocity = (value) =>
       Math.max(-INERTIA_MAX_VELOCITY_PX_PER_MS, Math.min(INERTIA_MAX_VELOCITY_PX_PER_MS, value))
 
+    const shouldAllowScrollbarDrag = (event) => {
+      if (!(event.target instanceof Element)) return false
+      const viewport = getViewportElement()
+      if (!viewport || !viewport.contains(event.target)) return false
+      const scrollbarWidth = viewport.offsetWidth - viewport.clientWidth
+      if (scrollbarWidth <= 0) return false
+      const rect = viewport.getBoundingClientRect()
+      return event.clientX >= rect.right - scrollbarWidth
+    }
+
     const stopInertia = () => {
       if (!inertiaActive) return
       inertiaActive = false
@@ -364,10 +374,7 @@ const createTerminalState = (terminalId) => {
     const handlePointerDown = (event) => {
       if (event.pointerType !== 'touch') return
       if (activePointerId !== null) return
-      if (event.target instanceof Element) {
-        const onScrollbar = event.target.closest('.xterm-viewport')
-        if (onScrollbar) return
-      }
+      if (shouldAllowScrollbarDrag(event)) return
       if (inertiaActive) {
         inertiaVelocityPxPerMs = clampVelocity(
           inertiaVelocityPxPerMs * INERTIA_VELOCITY_BOOST + velocityPxPerMs

@@ -254,7 +254,7 @@
    Tests: Test history buffer, replay correctness
    Done when: Event system is debuggable in development
 
-** TODO [#B] Update documentation for event-driven architecture
+** DONE [#B] Update documentation for event-driven architecture
    Why: Developers need to understand when and how to use events
    Change:
    - Add "Event-Driven Architecture" section to AGENTS.md

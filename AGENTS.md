@@ -30,10 +30,15 @@ This repo is a Go backend + Svelte frontend for a multi-terminal dashboard with 
 
 ## Key API endpoints
 - `/api/status` system status
+- `/api/events/debug` event bus subscriber counts
 - `/api/terminals` (GET/POST), `/api/terminals/:id` (DELETE)
 - `/api/terminals/:id/output`, `/api/terminals/:id/input-history` (GET/POST)
 - `/api/agents` (GET)
 - `/api/agents/:name/input` (POST raw bytes to agent terminal)
+- `/api/agents/events` (WebSocket)
+- `/api/terminals/events` (WebSocket)
+- `/api/config/events` (WebSocket)
+- `/api/workflows/events` (WebSocket)
 - `/ws/events` (WebSocket; subscribe message supported)
 
 ## CLI (gestalt-send)
@@ -50,6 +55,41 @@ This repo is a Go backend + Svelte frontend for a multi-terminal dashboard with 
 - Includes are de-duplicated by canonical file path within a single render.
 - Failed includes are silent (the directive line is skipped).
 - Use cases: shared fragments, DRY prompts, easier maintenance.
+
+## Event-driven architecture
+- Core type: `internal/event.Bus[T]` (sync fan-out, optional history, typed events).
+- Buses are named for metrics/diagnostics: `watcher_events`, `agent_events`, `terminal_events`, `terminal_output`, `workflow_events`, `config_events`, `logs`.
+- WebSocket streams map to buses: `/ws/events` (filesystem), `/api/agents/events`, `/api/terminals/events`, `/api/config/events`, `/api/workflows/events`.
+- Debugging: `GESTALT_EVENT_DEBUG=true` logs every published event; `/api/events/debug` lists subscriber counts.
+- Optional history: set `BusOptions.HistorySize` and use `ReplayLast` or `DumpHistory` for recent events.
+- Prefer events for fan-out, async UI updates, and decoupling; prefer direct calls for tight request/response flows.
+- Core event payloads:
+  - `FileEvent`: `path`, `operation`, `timestamp`
+  - `TerminalEvent`: `terminal_id`, `event_type`, `data`
+  - `AgentEvent`: `agent_id`, `agent_name`, `event_type`, `context`
+  - `ConfigEvent`: `config_type`, `path`, `change_type`
+  - `WorkflowEvent`: `workflow_id`, `session_id`, `event_type`, `context`
+  - `LogEvent`: `level`, `message`, `context`
+- Publishing/subscribing: `bus.Publish(event)`; `bus.Subscribe()` or `bus.SubscribeFiltered()` with cancel to cleanup.
+
+Event flow sketch:
+```
+filesystem -> watcher.EventHub -> /ws/events -> frontend eventStore -> UI
+agent/terminal/workflow/config -> Manager/handlers -> /api/*/events -> frontend stores -> UI
+terminal output -> Session output bus -> /ws/terminal/:id -> xterm
+```
+
+Testing patterns:
+- Use `internal/event/testing.go` helpers (`MockBus`, `EventCollector`, `ReceiveWithTimeout`, `MatchEvent`).
+- Example: filter a bus by type and assert events are delivered.
+```
+output, cancel := bus.SubscribeTypes("agent_started")
+defer cancel()
+received := event.ReceiveWithTimeout(t, output, 200*time.Millisecond)
+event.MatchEvent(t, received).Require("expected agent_started", func(evt event.AgentEvent) bool {
+  return evt.Type() == "agent_started"
+})
+```
 
 ## Tests
 - Backend: `GOCACHE=/tmp/gocache /usr/local/go/bin/go test ./...`

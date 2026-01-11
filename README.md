@@ -77,6 +77,38 @@ Generate a token:
 - macOS/Linux: `export GESTALT_TOKEN=$(openssl rand -hex 16)`
 - Windows PowerShell `$env:GESTALT_TOKEN = -join ((48..57)+(97..102) | Get-Random -Count 32 | % {[char]$_})`
 
+## Event-driven architecture
+
+Gestalt uses typed event buses to decouple backend state changes from UI updates. WebSocket streams expose
+filesystem, agent, terminal, config, and workflow events for realtime dashboards.
+
+Key event streams:
+- `/ws/events` (filesystem)
+- `/api/agents/events`
+- `/api/terminals/events`
+- `/api/config/events`
+- `/api/workflows/events`
+
+Debugging:
+- `GET /api/events/debug` lists active buses and subscriber counts.
+- `GESTALT_EVENT_DEBUG=true` logs all published events.
+
+Event flow:
+```mermaid
+flowchart LR
+  FS[Filesystem] --> Hub[watcher.EventHub]
+  Hub --> WSEvents[/ws/events/]
+  Manager[terminal.Manager] --> AgentBus[/api/agents/events/]
+  Manager --> TermBus[/api/terminals/events/]
+  Manager --> WorkflowBus[/api/workflows/events/]
+  Config[config extract/validate] --> ConfigBus[/api/config/events/]
+  WSEvents --> UI[Frontend stores]
+  AgentBus --> UI
+  TermBus --> UI
+  WorkflowBus --> UI
+  ConfigBus --> UI
+```
+
 ## Temporal (dev server)
 
 Gestalt's HITL workflow integration uses the Temporal CLI (`temporalio/cli`) for local development.

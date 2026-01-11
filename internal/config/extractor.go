@@ -1,9 +1,8 @@
 package config
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"io/fs"
 	"os"
@@ -219,12 +218,12 @@ func hashFile(path string) (string, error) {
 	}
 	defer file.Close()
 
-	hasher := sha256.New()
+	hasher := fnv.New64a()
 	buffer := make([]byte, ioBufferSize)
 	if _, err := io.CopyBuffer(hasher, file, buffer); err != nil {
 		return "", err
 	}
-	return hex.EncodeToString(hasher.Sum(nil)), nil
+	return fmt.Sprintf("%016x", hasher.Sum64()), nil
 }
 
 func removeFileIfExists(path string) error {

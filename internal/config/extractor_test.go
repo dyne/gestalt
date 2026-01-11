@@ -1,8 +1,8 @@
 package config
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
+	"fmt"
+	"hash/fnv"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -204,7 +204,7 @@ func embeddedFile(t *testing.T, path string) []byte {
 func embeddedHash(t *testing.T, path string) string {
 	t.Helper()
 	data := embeddedFile(t, path)
-	hasher := sha256.New()
-	hasher.Write(data)
-	return hex.EncodeToString(hasher.Sum(nil))
+	hasher := fnv.New64a()
+	_, _ = hasher.Write(data)
+	return fmt.Sprintf("%016x", hasher.Sum64())
 }

@@ -322,7 +322,7 @@ Overrides (per subdirectory, relative to the current working directory):
 - `./gestalt/dist` overrides embedded frontend assets
 
 Config extraction runs automatically at startup into `.gestalt/config/`.
-Gestalt uses embedded SHA-256 hashes to skip unchanged files; mismatches are backed up as `.bck`
+Gestalt uses embedded FNV-1a 64-bit hashes to skip unchanged files; mismatches are backed up as `.bck`
 before replacement. Control retention with `GESTALT_CONFIG_BACKUP_LIMIT` (default `1`, `0` disables backups).
 `gestalt --extract-config` is now a no-op and exits after printing this notice.
 Project plan files live at `.gestalt/PLAN.org` (legacy root `PLAN.org` files are copied on startup).

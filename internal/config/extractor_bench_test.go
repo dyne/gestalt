@@ -2,9 +2,8 @@ package config
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
+	"hash/fnv"
 	"path"
 	"testing"
 	"testing/fstest"
@@ -54,8 +53,9 @@ func buildBenchmarkFS(fileCount, payloadSize int) (fstest.MapFS, map[string]stri
 		if payloadSize > len(content) {
 			content = append(content, bytes.Repeat([]byte("x"), payloadSize-len(content))...)
 		}
-		sum := sha256.Sum256(content)
-		manifest[relPath] = hex.EncodeToString(sum[:])
+		hasher := fnv.New64a()
+		_, _ = hasher.Write(content)
+		manifest[relPath] = fmt.Sprintf("%016x", hasher.Sum64())
 		fsys[path.Join("config", relPath)] = &fstest.MapFile{Data: content}
 	}
 	return fsys, manifest

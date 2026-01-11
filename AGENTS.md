@@ -15,7 +15,7 @@ This repo is a Go backend + Svelte frontend for a multi-terminal dashboard with 
 - CLI: `cmd/gestalt-send` pipes stdin to agent terminals over REST.
 
 ## Config extraction refactor notes
-- Embedded config extracts to `.gestalt/config/` on startup using `config/manifest.json` SHA-256 hashes; mismatches back up to `.bck`.
+- Embedded config extracts to `.gestalt/config/` on startup using `config/manifest.json` FNV-1a 64-bit hashes; mismatches back up to `.bck`.
 - `.gestalt/version.json` tracks build version and drives compatibility checks; `--force-upgrade` bypasses major mismatches.
 - Agent/skill validation logs warnings and skips invalid entries; prompt files are validated for text content.
 - PLAN moved to `.gestalt/PLAN.org` with startup migration from root `PLAN.org`; `--extract-config` is now a no-op.

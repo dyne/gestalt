@@ -711,7 +711,7 @@
    Tests: Automated test suite (preferred) or manual test checklist (fallback)
    Done when: Touch scroll behavior covered by tests or documented test procedure
 
-** TODO [#B] Update documentation for touch scroll feature
+** DONE [#B] Update documentation for touch scroll feature
    Why: Users and developers need to know touch scroll exists and how it works
    Change:
    - Update README.md: add "Touch Scrolling" section under Terminal features
@@ -724,6 +724,9 @@
    - Troubleshooting: "Touch scroll not working? Check browser supports Pointer Events"
    - Known limitations: "No momentum scrolling (tap to stop), may add in future"
    - Document scroll sensitivity config (if exposed as prop): default 1.0
+   Notes:
+   - Documented touch scrolling and momentum in README.md.
+   - Added LLM context in AGENTS.md and manual checklist in TESTING.md.
    Tests: None (documentation only)
    Done when: Touch scroll documented in user and developer docs
 

@@ -308,6 +308,11 @@ previously stored data in `logs/`, move it manually if you want to keep it.
 - Logs are embedded on the dashboard; the Logs tab is removed.
 - The Plan view auto-refreshes every 5s (manual refresh is still available).
 
+## Touch scrolling
+
+Terminals support touch scrolling anywhere in the viewport, with a short momentum glide on fast swipes.
+Mouse text selection still behaves normally on desktop.
+
 ## Embedded Resources
 
 The `gestalt` binary embeds the frontend bundle and default config so it can run

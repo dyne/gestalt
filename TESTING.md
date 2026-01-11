@@ -41,6 +41,13 @@ Coverage targets:
 - Session lifecycle teardown under error conditions.
 - WebSocket reconnection behavior (frontend store + backend integration).
 
+## Touch scrolling (manual)
+
+- iOS Safari: single-finger scroll, fast swipe inertia, tap without scroll.
+- Android Chrome: scroll response, threshold behavior, no overscroll at bounds.
+- Multi-touch: ignored without crashes.
+- Mouse selection on desktop remains unchanged.
+
 ## Test patterns in this repo
 
 - Fake PTYs: `internal/api/rest_test.go`, `internal/terminal/manager_test.go`.

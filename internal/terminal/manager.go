@@ -429,6 +429,13 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 								"error":    err.Error(),
 							})
 						} else {
+							separator := "\n\n" + strings.Repeat("-", 72) + "\n\n"
+							if err := writePromptPayload(session, []byte(separator)); err != nil {
+								m.logger.Warn("agent prompt separator write failed", map[string]string{
+									"agent_id": request.AgentID,
+									"error":    err.Error(),
+								})
+							}
 							m.logger.Info("agent skill metadata injected", map[string]string{
 								"agent_id":    request.AgentID,
 								"skill_count": strconv.Itoa(len(agentSkills)),

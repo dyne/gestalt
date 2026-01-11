@@ -714,9 +714,20 @@ func TestManagerWritesSkillsMetadata(t *testing.T) {
 	if !strings.Contains(payload, "<location>config/skills/beta/SKILL.md</location>") {
 		t.Fatalf("expected beta skill location in metadata: %q", payload)
 	}
+	ruler := strings.Repeat("-", 72)
+	separator := "\n\n" + ruler + "\n\n"
+	separatorIndex := strings.Index(payload, separator)
+	if separatorIndex == -1 {
+		t.Fatalf("expected separator after skills metadata: %q", payload)
+	}
 	// Prompt should still be there after skills
 	if !strings.Contains(payload, "echo hello\n") {
 		t.Fatalf("prompt payload missing: %q", payload)
+	}
+	skillsIndex := strings.Index(payload, "<available_skills>")
+	promptIndex := strings.Index(payload, "echo hello\n")
+	if skillsIndex == -1 || promptIndex == -1 || skillsIndex > separatorIndex || separatorIndex > promptIndex {
+		t.Fatalf("expected skills then separator then prompt payload: %q", payload)
 	}
 	// Full skill content should NOT be in payload
 	if strings.Contains(payload, "# Beta Skill") || strings.Contains(payload, "# Alpha Skill") {

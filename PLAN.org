@@ -142,6 +142,8 @@
      - /api/terminals response includes prompt_files
    - Regression test: existing .txt prompts still work, file list has one entry
    Done when: Template parser integrated, file list logged and stored, tests pass
+   Implementation details:
+   - After skill metadata injection, insert a prompt separator line before prompts.
 
 ** [#C] Display prompt file list in agent terminal header
    Why: Prompt composition is more interesting than skills; shows what instructions the agent received

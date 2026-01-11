@@ -1,4 +1,4 @@
-* WIP [#A] Config extraction refactor with hash verification and version tracking
+* DONE [#A] Config extraction refactor with hash verification and version tracking
   Goal: Refactor config/ handling to always extract embedded resources to .gestalt/config/ on startup with FNV-1a 64 hash verification, semantic version compatibility checks, backup on conflicts, and relocate PLAN.org to .gestalt/.
   Notes:
   - Current state: config/ is embedded, optional override from ./gestalt/config/
@@ -244,7 +244,7 @@
    Tests: Manual test Plan tab, verify content loads and updates
    Done when: Frontend works seamlessly with .gestalt/PLAN.org
 
-** DONE [#B] Switch config hash algorithm to FNV-1a 64
+** [#B] Switch config hash algorithm to FNV-1a 64
    Why: Requested change to use the stdlib FNV-1a 64 hash for manifest and comparisons
    Change:
    - Update config manifest generator to use FNV-1a 64
@@ -253,7 +253,7 @@
    Tests: Unit tests for hash verification still pass; manifest generator updated
    Done when: Manifest and extraction use FNV-1a 64 and tests pass
 
-** DONE [#C] Add developer mode for config override
+** [#C] Add developer mode for config override
    Why: Developers may want to bypass extraction for faster iteration
    Change:
    - Add env var: GESTALT_DEV_MODE=true
@@ -264,7 +264,7 @@
    Tests: Test dev mode skips extraction
    Done when: Dev mode documented and functional
 
-** DONE [#B] Add integration tests for config extraction flow
+** [#B] Add integration tests for config extraction flow
    Why: Critical path needs comprehensive test coverage
    Change:
    - Test scenarios:
@@ -280,7 +280,7 @@
    Tests: Integration test suite for extraction
    Done when: All extraction scenarios covered by tests
 
-** DONE [#B] Document upgrade path and version compatibility
+** [#B] Document upgrade path and version compatibility
    Why: Users need to understand version compatibility and upgrade behavior
    Change:
    - Add "Upgrading Gestalt" section to README.md
@@ -300,7 +300,7 @@
    Tests: None (documentation only)
    Done when: Upgrade path and version compatibility clearly documented
 
-** DONE [#C] Add telemetry for config extraction metrics
+** [#C] Add telemetry for config extraction metrics
    Why: Monitor extraction behavior in production (if telemetry exists)
    Change:
    - Log metrics: files extracted, skipped, backed up

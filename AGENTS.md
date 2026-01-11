@@ -16,8 +16,10 @@ This repo is a Go backend + Svelte frontend for a multi-terminal dashboard with 
 
 ## Config extraction refactor notes
 - Embedded config extracts to `.gestalt/config/` on startup using `config/manifest.json` FNV-1a 64-bit hashes; mismatches back up to `.bck`.
+- Dev mode (`GESTALT_DEV_MODE=true` or `--dev`) skips extraction/validation and reads directly from `config/` (or `GESTALT_CONFIG_DIR` if set).
 - `.gestalt/version.json` tracks build version and drives compatibility checks; `--force-upgrade` bypasses major mismatches.
 - Agent/skill validation logs warnings and skips invalid entries; prompt files are validated for text content.
+- Config extraction emits structured metrics logs (`config extraction metrics`) with counts, duration, and success flag.
 - PLAN moved to `.gestalt/PLAN.org` with startup migration from root `PLAN.org`; `--extract-config` is now a no-op.
 
 ## Runtime flow (high level)

@@ -28,7 +28,8 @@ type activityStats struct {
 }
 
 type eventBusStats struct {
-	subscribers atomic.Int64
+	filtered   atomic.Int64
+	unfiltered atomic.Int64
 }
 
 type eventTypeStats struct {
@@ -109,16 +110,20 @@ func (r *Registry) IncEventDropped(busName, eventType string) {
 	stats.dropped.Add(1)
 }
 
-func (r *Registry) SetEventSubscribers(busName string, count int) {
+func (r *Registry) SetEventSubscriberCounts(busName string, filtered, unfiltered int) {
 	if r == nil {
 		return
 	}
 	busName = normalizeMetricLabel(busName, "unknown")
-	if count < 0 {
-		count = 0
+	if filtered < 0 {
+		filtered = 0
+	}
+	if unfiltered < 0 {
+		unfiltered = 0
 	}
 	stats := r.eventBusStats(busName)
-	stats.subscribers.Store(int64(count))
+	stats.filtered.Store(int64(filtered))
+	stats.unfiltered.Store(int64(unfiltered))
 }
 
 func (r *Registry) WritePrometheus(writer io.Writer) error {
@@ -158,7 +163,9 @@ func (r *Registry) WritePrometheus(writer io.Writer) error {
 
 	for _, busName := range eventBusNames {
 		stats := r.eventBusStats(busName)
-		fmt.Fprintf(writer, "gestalt_event_subscribers{bus=%s} %d\n", formatLabel(busName), stats.subscribers.Load())
+		label := formatLabel(busName)
+		fmt.Fprintf(writer, "gestalt_event_subscribers{bus=%s,filtered=\"true\"} %d\n", label, stats.filtered.Load())
+		fmt.Fprintf(writer, "gestalt_event_subscribers{bus=%s,filtered=\"false\"} %d\n", label, stats.unfiltered.Load())
 	}
 
 	activityNames := r.activityNames()

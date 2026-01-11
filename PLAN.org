@@ -86,7 +86,7 @@
    Tests: Unit tests for event construction, interface satisfaction
    Done when: Event types defined, tested, documented
 
-** WIP [#B] Add filtered subscription support
+** DONE [#B] Add filtered subscription support
    Why: Subscribers often care about specific event types, not all events
    Change:
    - Extend Bus[T] to support filtered subscriptions
@@ -101,7 +101,7 @@
    Tests: Unit tests for filtered subscriptions, type-based filtering
    Done when: Filtered subscriptions work, type-based helpers available
 
-** TODO [#B] Migrate watcher EventHub to generic event bus
+** WIP [#B] Migrate watcher EventHub to generic event bus
    Why: Validate event bus design with real-world usage, remove duplicate code
    Change:
    - Replace internal/watcher/hub.go EventHub with event.Bus[Event]

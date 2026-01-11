@@ -25,7 +25,7 @@ type BusOptions struct {
 
 type Bus[T any] struct {
 	mu          sync.Mutex
-	subscribers map[uint64]chan T
+	subscribers map[uint64]subscription[T]
 	nextSubID   uint64
 	closed      bool
 	closeOnce   sync.Once
@@ -45,7 +45,7 @@ func NewBus[T any](ctx context.Context, opts BusOptions) *Bus[T] {
 		opts.SubscriberBufferSize = defaultSubscriberBufferSize
 	}
 	bus := &Bus[T]{
-		subscribers: make(map[uint64]chan T),
+		subscribers: make(map[uint64]subscription[T]),
 		options:     opts,
 		registry:    opts.Registry,
 	}
@@ -62,6 +62,10 @@ func NewBus[T any](ctx context.Context, opts BusOptions) *Bus[T] {
 }
 
 func (b *Bus[T]) Subscribe() (<-chan T, func()) {
+	return b.SubscribeFiltered(nil)
+}
+
+func (b *Bus[T]) SubscribeFiltered(filter func(T) bool) (<-chan T, func()) {
 	if b == nil {
 		ch := make(chan T)
 		close(ch)
@@ -82,17 +86,53 @@ func (b *Bus[T]) Subscribe() (<-chan T, func()) {
 		close(ch)
 		return ch, func() {}
 	}
-	b.subscribers[id] = ch
-	count := len(b.subscribers)
+	b.subscribers[id] = subscription[T]{id: id, ch: ch, filter: filter}
+	filtered, unfiltered := b.countSubscribersLocked()
 	b.mu.Unlock()
 
-	b.setSubscriberCount(count)
+	b.setSubscriberCounts(filtered, unfiltered)
 
 	cancel := func() {
 		b.removeSubscriber(id)
 	}
 
 	return ch, cancel
+}
+
+func (b *Bus[T]) SubscribeType(eventType string) (<-chan T, func()) {
+	return b.SubscribeTypes(eventType)
+}
+
+func (b *Bus[T]) SubscribeTypes(eventTypes ...string) (<-chan T, func()) {
+	if len(eventTypes) == 0 {
+		ch := make(chan T)
+		close(ch)
+		return ch, func() {}
+	}
+
+	typeSet := make(map[string]struct{}, len(eventTypes))
+	for _, eventType := range eventTypes {
+		if eventType == "" {
+			continue
+		}
+		typeSet[eventType] = struct{}{}
+	}
+	if len(typeSet) == 0 {
+		ch := make(chan T)
+		close(ch)
+		return ch, func() {}
+	}
+
+	filter := func(event T) bool {
+		typed, ok := any(event).(Event)
+		if !ok {
+			return false
+		}
+		_, matched := typeSet[typed.Type()]
+		return matched
+	}
+
+	return b.SubscribeFiltered(filter)
 }
 
 func (b *Bus[T]) Publish(event T) {
@@ -109,8 +149,8 @@ func (b *Bus[T]) Publish(event T) {
 		return
 	}
 	subscribers := make([]subscription[T], 0, len(b.subscribers))
-	for id, ch := range b.subscribers {
-		subscribers = append(subscribers, subscription[T]{id: id, ch: ch})
+	for _, sub := range b.subscribers {
+		subscribers = append(subscribers, sub)
 	}
 	b.mu.Unlock()
 
@@ -118,6 +158,9 @@ func (b *Bus[T]) Publish(event T) {
 	b.incPublished(eventType)
 
 	for _, sub := range subscribers {
+		if !b.filterAllows(sub, event) {
+			continue
+		}
 		b.sendToSubscriber(sub, event, eventType)
 	}
 }
@@ -130,19 +173,20 @@ func (b *Bus[T]) Close() {
 		b.mu.Lock()
 		b.closed = true
 		subscribers := b.subscribers
-		b.subscribers = make(map[uint64]chan T)
+		b.subscribers = make(map[uint64]subscription[T])
 		b.mu.Unlock()
 
-		for _, ch := range subscribers {
-			close(ch)
+		for _, sub := range subscribers {
+			close(sub.ch)
 		}
-		b.setSubscriberCount(0)
+		b.setSubscriberCounts(0, 0)
 	})
 }
 
 type subscription[T any] struct {
-	id uint64
-	ch chan T
+	id     uint64
+	ch     chan T
+	filter func(T) bool
 }
 
 func (b *Bus[T]) sendToSubscriber(sub subscription[T], event T, eventType string) {
@@ -214,20 +258,51 @@ func (b *Bus[T]) removeSubscriber(id uint64) {
 		return
 	}
 	var ch chan T
+	var filtered int
+	var unfiltered int
+	removed := false
 	b.mu.Lock()
 	if existing, ok := b.subscribers[id]; ok {
 		delete(b.subscribers, id)
-		ch = existing
+		ch = existing.ch
+		removed = true
 	}
-	count := len(b.subscribers)
+	if removed {
+		filtered, unfiltered = b.countSubscribersLocked()
+	}
 	b.mu.Unlock()
 
-	if ch != nil {
+	if removed && ch != nil {
 		close(ch)
 	}
-	if ch != nil {
-		b.setSubscriberCount(count)
+	if removed {
+		b.setSubscriberCounts(filtered, unfiltered)
 	}
+}
+
+func (b *Bus[T]) filterAllows(sub subscription[T], event T) (allowed bool) {
+	if sub.filter == nil {
+		return true
+	}
+	defer func() {
+		if recover() != nil {
+			log.Printf("event bus %s: subscriber filter panicked", b.busName())
+			b.removeSubscriber(sub.id)
+			allowed = false
+		}
+	}()
+	return sub.filter(event)
+}
+
+func (b *Bus[T]) countSubscribersLocked() (filtered int, unfiltered int) {
+	for _, sub := range b.subscribers {
+		if sub.filter == nil {
+			unfiltered++
+		} else {
+			filtered++
+		}
+	}
+	return filtered, unfiltered
 }
 
 func (b *Bus[T]) busName() string {
@@ -263,11 +338,11 @@ func (b *Bus[T]) incDropped(eventType string) {
 	b.registry.IncEventDropped(b.busName(), eventType)
 }
 
-func (b *Bus[T]) setSubscriberCount(count int) {
+func (b *Bus[T]) setSubscriberCounts(filtered, unfiltered int) {
 	if b.registry == nil {
 		return
 	}
-	b.registry.SetEventSubscribers(b.busName(), count)
+	b.registry.SetEventSubscriberCounts(b.busName(), filtered, unfiltered)
 }
 
 func isNil[T any](value T) bool {

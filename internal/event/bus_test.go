@@ -159,6 +159,99 @@ func TestBusBlockOnFullTimeout(t *testing.T) {
 	}
 }
 
+func TestBusSubscribeFiltered(t *testing.T) {
+	bus := NewBus[int](context.Background(), BusOptions{})
+	t.Cleanup(bus.Close)
+
+	ch, _ := bus.SubscribeFiltered(func(value int) bool {
+		return value%2 == 0
+	})
+
+	bus.Publish(1)
+	bus.Publish(2)
+
+	select {
+	case got := <-ch:
+		if got != 2 {
+			t.Fatalf("expected filtered event 2, got %d", got)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timed out waiting for filtered event")
+	}
+
+	select {
+	case got := <-ch:
+		t.Fatalf("unexpected event %d", got)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestBusSubscribeType(t *testing.T) {
+	bus := NewBus[Event](context.Background(), BusOptions{})
+	t.Cleanup(bus.Close)
+
+	ch, _ := bus.SubscribeType("agent_started")
+
+	bus.Publish(NewAgentEvent("agent-1", "Ada", "agent_started"))
+
+	select {
+	case event := <-ch:
+		if event.Type() != "agent_started" {
+			t.Fatalf("expected agent_started, got %q", event.Type())
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timed out waiting for typed event")
+	}
+}
+
+func TestBusSubscribeTypes(t *testing.T) {
+	bus := NewBus[Event](context.Background(), BusOptions{})
+	t.Cleanup(bus.Close)
+
+	ch, _ := bus.SubscribeTypes("agent_started", "agent_stopped")
+
+	bus.Publish(NewAgentEvent("agent-1", "Ada", "agent_started"))
+	bus.Publish(NewAgentEvent("agent-1", "Ada", "agent_stopped"))
+
+	first := readEvent(t, ch)
+	second := readEvent(t, ch)
+
+	if first.Type() != "agent_started" {
+		t.Fatalf("expected agent_started, got %q", first.Type())
+	}
+	if second.Type() != "agent_stopped" {
+		t.Fatalf("expected agent_stopped, got %q", second.Type())
+	}
+}
+
+func TestBusSubscriberMetrics(t *testing.T) {
+	registry := &metrics.Registry{}
+	bus := NewBus[int](context.Background(), BusOptions{
+		Name:     "subs",
+		Registry: registry,
+	})
+	t.Cleanup(bus.Close)
+
+	_, cancelUnfiltered := bus.Subscribe()
+	_, cancelFiltered := bus.SubscribeFiltered(func(value int) bool {
+		return value > 0
+	})
+	defer cancelUnfiltered()
+	defer cancelFiltered()
+
+	var output bytes.Buffer
+	if err := registry.WritePrometheus(&output); err != nil {
+		t.Fatalf("write metrics: %v", err)
+	}
+	body := output.String()
+	if !strings.Contains(body, "gestalt_event_subscribers{bus=\"subs\",filtered=\"true\"} 1") {
+		t.Fatalf("expected filtered subscriber metric, got %q", body)
+	}
+	if !strings.Contains(body, "gestalt_event_subscribers{bus=\"subs\",filtered=\"false\"} 1") {
+		t.Fatalf("expected unfiltered subscriber metric, got %q", body)
+	}
+}
+
 func TestBusContextCancelCloses(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	bus := NewBus[int](ctx, BusOptions{})
@@ -229,6 +322,17 @@ func TestBusNilEventIgnored(t *testing.T) {
 	case <-ch:
 		t.Fatal("expected nil event to be ignored")
 	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func readEvent(t *testing.T, ch <-chan Event) Event {
+	t.Helper()
+	select {
+	case event := <-ch:
+		return event
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timed out waiting for event")
+		return nil
 	}
 }
 

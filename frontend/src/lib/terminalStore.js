@@ -178,8 +178,8 @@ const createTerminalState = (terminalId) => {
   let notifiedUnauthorized = false
   let notifiedDisconnect = false
   let disposeMouseHandlers
-  let disposeTouchHandlers
-  let touchTarget
+  let disposePointerHandlers
+  let pointerTarget
   let historyLoaded = false
   let pendingHistory = ''
   let historyLoadPromise
@@ -370,13 +370,13 @@ const createTerminalState = (terminalId) => {
     } else if (term.element.parentElement !== container) {
       container.appendChild(term.element)
     }
-    const nextTouchTarget = term.element || container
-    if (touchTarget !== nextTouchTarget) {
-      if (disposeTouchHandlers) {
-        disposeTouchHandlers()
+    const nextPointerTarget = term.element || container
+    if (pointerTarget !== nextPointerTarget) {
+      if (disposePointerHandlers) {
+        disposePointerHandlers()
       }
-      touchTarget = nextTouchTarget
-      disposeTouchHandlers = setupPointerScroll(nextTouchTarget)
+      pointerTarget = nextPointerTarget
+      disposePointerHandlers = setupPointerScroll(nextPointerTarget)
     }
     flushPendingHistory()
     syncScrollState()
@@ -394,6 +394,11 @@ const createTerminalState = (terminalId) => {
   const detach = () => {
     if (resizeObserver) {
       resizeObserver.disconnect()
+    }
+    if (disposePointerHandlers) {
+      disposePointerHandlers()
+      disposePointerHandlers = null
+      pointerTarget = null
     }
     container = null
   }
@@ -691,8 +696,8 @@ const createTerminalState = (terminalId) => {
     if (disposeMouseHandlers) {
       disposeMouseHandlers()
     }
-    if (disposeTouchHandlers) {
-      disposeTouchHandlers()
+    if (disposePointerHandlers) {
+      disposePointerHandlers()
     }
     term.dispose()
   }

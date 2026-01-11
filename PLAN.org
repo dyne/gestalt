@@ -558,7 +558,7 @@
    Tests: Unit test pointer type filtering, state machine transitions (mock PointerEvents)
    Done when: Pointer handlers implemented, mouse ignored, touch captured and scrolled
 
-** TODO [#B] Integrate pointer scroll into attach/detach lifecycle
+** DONE [#B] Integrate pointer scroll into attach/detach lifecycle
    Why: Ensure handlers are properly registered and cleaned up with terminal lifecycle
    Change:
    - In terminalStore.js attach() function (line ~328):

@@ -209,7 +209,7 @@
    Tests: Test with invalid config files, verify warnings logged
    Done when: Startup includes config validation step
 
-** WIP [#C] Optimize extraction performance
+** DONE [#C] Optimize extraction performance
    Why: Minimize startup time impact of extraction
    Change:
    - Skip hash computation for unchanged files (check mtime first)
@@ -221,7 +221,7 @@
    Tests: Benchmark extraction with large config sets
    Done when: Extraction completes in <100ms for typical configs
 
-** TODO [#B] Expose version info in API and logs
+** WIP [#B] Expose version info in API and logs
    Why: Users and monitoring tools need to see Gestalt version
    Change:
    - Update /api/status to include version object

@@ -1636,6 +1636,12 @@ func prepareConfig(cfg Config, logger *logging.Logger) (configPaths, error) {
 		return configPaths{}, fmt.Errorf("load version file: %w", err)
 	}
 	hadInstalled := err == nil
+	var lastVersionWrite time.Time
+	if err == nil {
+		if info, statErr := os.Stat(paths.VersionLoc); statErr == nil {
+			lastVersionWrite = info.ModTime()
+		}
+	}
 	if err == nil {
 		if compatibilityErr := config.CheckVersionCompatibility(installed, current); compatibilityErr != nil {
 			if cfg.ForceUpgrade {
@@ -1663,10 +1669,20 @@ func prepareConfig(cfg Config, logger *logging.Logger) (configPaths, error) {
 		}
 	}
 
-	extractor := config.Extractor{Logger: logger, BackupLimit: cfg.ConfigBackupLimit}
+	extractor := config.Extractor{
+		Logger:      logger,
+		BackupLimit: cfg.ConfigBackupLimit,
+		LastUpdated: lastVersionWrite,
+	}
+	start := time.Now()
 	stats, err := extractor.ExtractWithStats(gestalt.EmbeddedConfigFS, paths.ConfigDir, manifest)
 	if err != nil {
 		return configPaths{}, err
+	}
+	if logger != nil {
+		logger.Debug("config extraction duration", map[string]string{
+			"duration_ms": strconv.FormatInt(time.Since(start).Milliseconds(), 10),
+		})
 	}
 	if err := config.WriteVersionFile(paths.VersionLoc, current); err != nil {
 		return configPaths{}, fmt.Errorf("write version file: %w", err)

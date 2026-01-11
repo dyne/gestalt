@@ -2,7 +2,6 @@ package config
 
 import (
 	"crypto/sha256"
-	"embed"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -10,16 +9,21 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"gestalt/internal/logging"
 )
 
+const ioBufferSize = 32 * 1024
+
 type Extractor struct {
 	Logger      *logging.Logger
 	BackupLimit int
+	LastUpdated time.Time
 }
 
 type ExtractStats struct {
@@ -28,12 +32,12 @@ type ExtractStats struct {
 	BackedUp  int
 }
 
-func (e *Extractor) Extract(sourceFS embed.FS, destDir string, manifest map[string]string) error {
+func (e *Extractor) Extract(sourceFS fs.FS, destDir string, manifest map[string]string) error {
 	_, err := e.ExtractWithStats(sourceFS, destDir, manifest)
 	return err
 }
 
-func (e *Extractor) ExtractWithStats(sourceFS embed.FS, destDir string, manifest map[string]string) (ExtractStats, error) {
+func (e *Extractor) ExtractWithStats(sourceFS fs.FS, destDir string, manifest map[string]string) (ExtractStats, error) {
 	stats := ExtractStats{}
 	if len(manifest) == 0 {
 		return stats, nil
@@ -44,19 +48,70 @@ func (e *Extractor) ExtractWithStats(sourceFS embed.FS, destDir string, manifest
 	}
 	sort.Strings(paths)
 
-	for _, relPath := range paths {
-		expectedHash := manifest[relPath]
-		sourcePath := path.Join("config", relPath)
-		destPath := filepath.Join(destDir, filepath.FromSlash(relPath))
-		fileStats, err := e.extractFile(sourceFS, sourcePath, destPath, expectedHash)
-		if err != nil {
-			return stats, err
+	workerCount := runtime.NumCPU()
+	if workerCount < 1 {
+		workerCount = 1
+	}
+	if workerCount > len(paths) {
+		workerCount = len(paths)
+	}
+	if workerCount <= 1 {
+		for _, relPath := range paths {
+			fileStats, err := e.extractRel(sourceFS, destDir, relPath, manifest[relPath])
+			if err != nil {
+				return stats, err
+			}
+			stats.Extracted += fileStats.Extracted
+			stats.Skipped += fileStats.Skipped
+			stats.BackedUp += fileStats.BackedUp
 		}
-		stats.Extracted += fileStats.Extracted
-		stats.Skipped += fileStats.Skipped
-		stats.BackedUp += fileStats.BackedUp
+		return stats, nil
+	}
+
+	jobs := make(chan string)
+	var waitGroup sync.WaitGroup
+	var statsMu sync.Mutex
+	var errOnce sync.Once
+	var firstErr error
+
+	worker := func() {
+		defer waitGroup.Done()
+		for relPath := range jobs {
+			fileStats, err := e.extractRel(sourceFS, destDir, relPath, manifest[relPath])
+			if err != nil {
+				errOnce.Do(func() {
+					firstErr = err
+				})
+				continue
+			}
+			statsMu.Lock()
+			stats.Extracted += fileStats.Extracted
+			stats.Skipped += fileStats.Skipped
+			stats.BackedUp += fileStats.BackedUp
+			statsMu.Unlock()
+		}
+	}
+
+	waitGroup.Add(workerCount)
+	for i := 0; i < workerCount; i++ {
+		go worker()
+	}
+	for _, relPath := range paths {
+		jobs <- relPath
+	}
+	close(jobs)
+	waitGroup.Wait()
+
+	if firstErr != nil {
+		return stats, firstErr
 	}
 	return stats, nil
+}
+
+func (e *Extractor) extractRel(sourceFS fs.FS, destDir, relPath, expectedHash string) (ExtractStats, error) {
+	sourcePath := path.Join("config", relPath)
+	destPath := filepath.Join(destDir, filepath.FromSlash(relPath))
+	return e.extractFile(sourceFS, sourcePath, destPath, expectedHash)
 }
 
 func (e *Extractor) extractFile(sourceFS fs.FS, sourcePath, destPath, expectedHash string) (ExtractStats, error) {
@@ -66,6 +121,13 @@ func (e *Extractor) extractFile(sourceFS fs.FS, sourcePath, destPath, expectedHa
 			return stats, fmt.Errorf("destination is a directory: %s", destPath)
 		}
 		if expectedHash != "" {
+			if !e.LastUpdated.IsZero() && !info.ModTime().After(e.LastUpdated) {
+				e.logDebug("config file unchanged since last extraction, skipping", map[string]string{
+					"path": destPath,
+				})
+				stats.Skipped++
+				return stats, nil
+			}
 			existingHash, err := hashFile(destPath)
 			if err != nil {
 				return stats, fmt.Errorf("hash existing file: %w", err)
@@ -131,7 +193,8 @@ func writeFileAtomic(destPath string, mode fs.FileMode, reader io.Reader) error 
 		os.Remove(tempFile.Name())
 	}()
 
-	if _, err := io.Copy(tempFile, reader); err != nil {
+	buffer := make([]byte, ioBufferSize)
+	if _, err := io.CopyBuffer(tempFile, reader, buffer); err != nil {
 		return err
 	}
 	if err := tempFile.Sync(); err != nil {
@@ -157,7 +220,8 @@ func hashFile(path string) (string, error) {
 	defer file.Close()
 
 	hasher := sha256.New()
-	if _, err := io.Copy(hasher, file); err != nil {
+	buffer := make([]byte, ioBufferSize)
+	if _, err := io.CopyBuffer(hasher, file, buffer); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(hasher.Sum(nil)), nil

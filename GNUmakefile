@@ -31,10 +31,10 @@ dev:
 	@BACKEND_PORT=$${GESTALT_PORT}; \
 	BACKEND_URL=$${GESTALT_BACKEND_URL}; \
 	if [ -n "$$BACKEND_URL" ] && [ -z "$$BACKEND_PORT" ]; then \
-		BACKEND_PORT=$$(python3 - <<'PY'\nimport os\nimport urllib.parse\nurl = os.environ.get('GESTALT_BACKEND_URL', '')\nparsed = urllib.parse.urlparse(url)\nport = parsed.port\nif port is None:\n    port = 443 if parsed.scheme == 'https' else 80\nprint(port)\nPY\n); \
+		BACKEND_PORT=$$(python3 -c 'import os,urllib.parse; url=os.environ.get("GESTALT_BACKEND_URL",""); parsed=urllib.parse.urlparse(url); port=parsed.port; print(port if port is not None else (443 if parsed.scheme=="https" else 80))'); \
 	fi; \
 	if [ -z "$$BACKEND_PORT" ]; then \
-		BACKEND_PORT=$$(python3 - <<'PY'\nimport socket\nsock = socket.socket()\nsock.bind(('', 0))\nprint(sock.getsockname()[1])\nsock.close()\nPY\n); \
+		BACKEND_PORT=$$(python3 -c 'import socket; sock=socket.socket(); sock.bind(("",0)); print(sock.getsockname()[1]); sock.close()'); \
 	fi; \
 	if [ -z "$$BACKEND_URL" ]; then \
 		BACKEND_URL=http://localhost:$$BACKEND_PORT; \

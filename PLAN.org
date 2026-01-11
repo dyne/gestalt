@@ -360,6 +360,14 @@
    Tests: Frontend tests and backend tests pass
    Done when: Running two instances with distinct backend ports shows isolated status
 
+** DONE [#B] Fix make dev shell compatibility
+   Why: `make dev` should work under /bin/sh with custom env overrides
+   Change:
+   - Avoid heredoc command substitutions in GNUmakefile dev target
+   - Keep port selection behavior unchanged
+   Tests: Backend and frontend tests pass
+   Done when: `GESTALT_PORT=9090 make dev` runs without shell errors
+
 ** TODO [#B] Remove deprecated EventHub wrapper
    Why: Deprecated wrappers should be removed now that breaking changes are acceptable
    Change:

@@ -672,7 +672,7 @@
    Tests: Manual testing on touch devices; unit test for inertial state/cleanup if feasible.
    Done when: Fast swipe continues scroll briefly with smooth deceleration.
 
-** TODO [#C] Add visual feedback for touch scroll (optional)
+** DONE [#C] Add visual feedback for touch scroll (optional)
    Why: Users may want visual indication that touch is active (not strictly required)
    Change:
    - Optional: add subtle visual cue during touch scroll (e.g., fade in scroll indicator)
@@ -683,6 +683,7 @@
    - Recommendation: DEFER this step, test without visual feedback first
    - If users request it later, add minimal scrollbar fade animation
    - Document: visual feedback is optional enhancement, not core requirement
+   Decision: defer; no additional visual feedback requested after touch scroll fix.
    Tests: Manual test with and without visual feedback, gather user preference
    Done when: Visual feedback decision made, implemented if desired (optional)
 

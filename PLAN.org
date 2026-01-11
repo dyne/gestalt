@@ -227,7 +227,7 @@
    Tests: Verify metrics accuracy, test metric aggregation
    Done when: Event bus health observable via metrics.Registry, OTel-ready
 
-** TODO [#B] Create event bus testing utilities
+** DONE [#B] Create event bus testing utilities
    Why: Make it easy to test event-driven code
    Change:
    - Create internal/event/testing.go with test helpers

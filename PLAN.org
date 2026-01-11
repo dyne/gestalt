@@ -241,7 +241,7 @@
    Tests: Test the test utilities (meta-testing)
    Done when: Testing utilities make event testing easy and reliable
 
-** TODO [#C] Add event replay and debugging features
+** DONE [#C] Add event replay and debugging features
    Why: Help developers debug event-driven flows
    Change:
    - Add optional event history to Bus[T]: keep last N events

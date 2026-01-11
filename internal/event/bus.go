@@ -3,7 +3,9 @@ package event
 import (
 	"context"
 	"log"
+	"os"
 	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,20 +26,24 @@ type BusOptions struct {
 	SlowSubscriberThreshold time.Duration
 	DropWarningThreshold    float64
 	DropWarningInterval     time.Duration
+	HistorySize             int
 	Registry                *metrics.Registry
 }
 
 type Bus[T any] struct {
-	mu          sync.Mutex
-	subscribers map[uint64]subscription[T]
-	nextSubID   uint64
-	closed      bool
-	closeOnce   sync.Once
-	options     BusOptions
-	registry    *metrics.Registry
-	published   atomic.Int64
-	dropped     atomic.Int64
-	lastWarning atomic.Int64
+	mu           sync.Mutex
+	subscribers  map[uint64]subscription[T]
+	nextSubID    uint64
+	closed       bool
+	closeOnce    sync.Once
+	options      BusOptions
+	registry     *metrics.Registry
+	published    atomic.Int64
+	dropped      atomic.Int64
+	lastWarning  atomic.Int64
+	history      []T
+	historyNext  int
+	historyCount int
 }
 
 type typedEvent interface {
@@ -61,6 +67,9 @@ func NewBus[T any](ctx context.Context, opts BusOptions) *Bus[T] {
 		subscribers: make(map[uint64]subscription[T]),
 		options:     opts,
 		registry:    opts.Registry,
+	}
+	if opts.HistorySize > 0 {
+		bus.history = make([]T, opts.HistorySize)
 	}
 	if bus.registry == nil {
 		bus.registry = metrics.Default
@@ -161,6 +170,7 @@ func (b *Bus[T]) Publish(event T) {
 		b.mu.Unlock()
 		return
 	}
+	b.appendHistoryLocked(event)
 	subscribers := make([]subscription[T], 0, len(b.subscribers))
 	for _, sub := range b.subscribers {
 		subscribers = append(subscribers, sub)
@@ -169,6 +179,9 @@ func (b *Bus[T]) Publish(event T) {
 
 	eventType := b.eventType(event)
 	b.incPublished(eventType)
+	if debugEventsEnabled {
+		log.Printf("event bus %s: event %s", b.busName(), eventType)
+	}
 
 	for _, sub := range subscribers {
 		if !b.filterAllows(sub, event) {
@@ -194,6 +207,22 @@ func (b *Bus[T]) Close() {
 		}
 		b.setSubscriberCounts(0, 0)
 	})
+}
+
+// ReplayLast replays the most recent events into the provided channel in order.
+func (b *Bus[T]) ReplayLast(count int, subscriber chan<- T) {
+	if b == nil || subscriber == nil {
+		return
+	}
+	events := b.historySnapshot(count)
+	for _, event := range events {
+		subscriber <- event
+	}
+}
+
+// DumpHistory returns a copy of the stored event history in order.
+func (b *Bus[T]) DumpHistory() []T {
+	return b.historySnapshot(0)
 }
 
 type subscription[T any] struct {
@@ -368,6 +397,46 @@ func (b *Bus[T]) setSubscriberCounts(filtered, unfiltered int) {
 	b.registry.SetEventSubscriberCounts(b.busName(), filtered, unfiltered)
 }
 
+func (b *Bus[T]) appendHistoryLocked(event T) {
+	if len(b.history) == 0 {
+		return
+	}
+	b.history[b.historyNext] = event
+	if b.historyCount < len(b.history) {
+		b.historyCount++
+	}
+	b.historyNext = (b.historyNext + 1) % len(b.history)
+}
+
+func (b *Bus[T]) historySnapshot(count int) []T {
+	if b == nil {
+		return nil
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if len(b.history) == 0 || b.historyCount == 0 {
+		return nil
+	}
+	total := b.historyCount
+	if count <= 0 || count > total {
+		count = total
+	}
+	start := 0
+	if total == len(b.history) {
+		start = (b.historyNext - count + len(b.history)) % len(b.history)
+	} else {
+		start = total - count
+	}
+
+	events := make([]T, 0, count)
+	for i := 0; i < count; i++ {
+		index := (start + i) % len(b.history)
+		events = append(events, b.history[index])
+	}
+	return events
+}
+
 func (b *Bus[T]) maybeWarnDropRate() {
 	if b == nil {
 		return
@@ -404,6 +473,18 @@ func (b *Bus[T]) maybeWarnDropRate() {
 		return
 	}
 	log.Printf("event bus %s: drop rate %.2f%% (%d dropped of %d published)", b.busName(), rate*100, dropped, published)
+}
+
+var debugEventsEnabled = isEventDebugEnabled()
+
+func isEventDebugEnabled() bool {
+	value := strings.TrimSpace(strings.ToLower(os.Getenv("GESTALT_EVENT_DEBUG")))
+	switch value {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func isNil[T any](value T) bool {

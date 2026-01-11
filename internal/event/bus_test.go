@@ -109,6 +109,45 @@ func TestBusDropOnFull(t *testing.T) {
 	}
 }
 
+func TestBusHistoryStoresRecentEvents(t *testing.T) {
+	bus := NewBus[int](context.Background(), BusOptions{
+		HistorySize: 2,
+	})
+	t.Cleanup(bus.Close)
+
+	bus.Publish(1)
+	bus.Publish(2)
+	bus.Publish(3)
+
+	history := bus.DumpHistory()
+	if len(history) != 2 {
+		t.Fatalf("expected 2 history events, got %d", len(history))
+	}
+	if history[0] != 2 || history[1] != 3 {
+		t.Fatalf("unexpected history events: %#v", history)
+	}
+}
+
+func TestBusReplayLastSendsRecentEvents(t *testing.T) {
+	bus := NewBus[int](context.Background(), BusOptions{
+		HistorySize: 3,
+	})
+	t.Cleanup(bus.Close)
+
+	bus.Publish(1)
+	bus.Publish(2)
+	bus.Publish(3)
+
+	replay := make(chan int, 2)
+	bus.ReplayLast(2, replay)
+
+	first := ReceiveWithTimeout(t, replay, 100*time.Millisecond)
+	second := ReceiveWithTimeout(t, replay, 100*time.Millisecond)
+	if first != 2 || second != 3 {
+		t.Fatalf("unexpected replay events: %d, %d", first, second)
+	}
+}
+
 func TestBusBlockOnFullTimeout(t *testing.T) {
 	bus := NewBus[int](context.Background(), BusOptions{
 		Name:                 "block",

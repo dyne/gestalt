@@ -44,7 +44,7 @@ _gestalt_complete() {
   fi
 
   if [[ "$cur" == -* ]]; then
-    COMPREPLY=( $(compgen -W "--port --backend-port --shell --token --session-persist --session-dir --session-buffer-lines --session-retention-days --input-history-persist --input-history-dir --max-watches --verbose --quiet --force-upgrade --help --version --extract-config" -- "$cur") )
+    COMPREPLY=( $(compgen -W "--port --backend-port --shell --token --session-persist --session-dir --session-buffer-lines --session-retention-days --input-history-persist --input-history-dir --max-watches --verbose --quiet --force-upgrade --dev --help --version --extract-config" -- "$cur") )
     return
   fi
 
@@ -74,6 +74,7 @@ _gestalt_complete() {
     '--verbose[Enable verbose logging]'
     '--quiet[Reduce logging to warnings]'
     '--force-upgrade[Bypass config version compatibility checks]'
+    '--dev[Enable developer mode]'
     '--help[Show help]'
     '--version[Print version and exit]'
     '--extract-config[No-op (config extraction runs automatically)]'

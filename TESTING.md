@@ -17,6 +17,14 @@ npm test
 npm run test:coverage
 ```
 
+## Developer mode
+
+Use dev mode to skip config extraction and read directly from the local `config/` directory.
+
+- Set `GESTALT_DEV_MODE=true` or run `gestalt --dev`.
+- If `GESTALT_CONFIG_DIR` is set, dev mode uses that directory instead.
+- Prompt validation is skipped in dev mode.
+
 ## Coverage audit (baseline)
 
 Coverage captured with `go test -cover ./...`.

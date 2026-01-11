@@ -42,6 +42,9 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.ConfigBackupLimit != 1 {
 		t.Fatalf("expected config backup limit 1, got %d", cfg.ConfigBackupLimit)
 	}
+	if cfg.DevMode {
+		t.Fatalf("expected dev mode false by default")
+	}
 	if cfg.MaxWatches != 100 {
 		t.Fatalf("expected max watches 100, got %d", cfg.MaxWatches)
 	}
@@ -77,6 +80,7 @@ func TestLoadConfigEnvOverridesDefaults(t *testing.T) {
 	t.Setenv("GESTALT_TEMPORAL_DEV_SERVER", "true")
 	t.Setenv("GESTALT_CONFIG_DIR", "/tmp/gestalt-config")
 	t.Setenv("GESTALT_CONFIG_BACKUP_LIMIT", "2")
+	t.Setenv("GESTALT_DEV_MODE", "true")
 
 	cfg, err := loadConfig(nil)
 	if err != nil {
@@ -118,6 +122,9 @@ func TestLoadConfigEnvOverridesDefaults(t *testing.T) {
 	if cfg.ConfigBackupLimit != 2 {
 		t.Fatalf("expected config backup limit 2, got %d", cfg.ConfigBackupLimit)
 	}
+	if !cfg.DevMode {
+		t.Fatalf("expected dev mode enabled")
+	}
 	if cfg.MaxWatches != 55 {
 		t.Fatalf("expected max watches 55, got %d", cfg.MaxWatches)
 	}
@@ -135,6 +142,7 @@ func TestLoadConfigFlagOverridesEnv(t *testing.T) {
 	t.Setenv("GESTALT_SESSION_BUFFER_LINES", "400")
 	t.Setenv("GESTALT_MAX_WATCHES", "50")
 	t.Setenv("GESTALT_TEMPORAL_DEV_SERVER", "false")
+	t.Setenv("GESTALT_DEV_MODE", "false")
 
 	cfg, err := loadConfig([]string{
 		"--port", "7070",
@@ -146,6 +154,7 @@ func TestLoadConfigFlagOverridesEnv(t *testing.T) {
 		"--max-watches", "200",
 		"--temporal-dev-server",
 		"--verbose",
+		"--dev",
 	})
 	if err != nil {
 		t.Fatalf("load config: %v", err)
@@ -177,11 +186,26 @@ func TestLoadConfigFlagOverridesEnv(t *testing.T) {
 	if !cfg.Verbose {
 		t.Fatalf("expected verbose true")
 	}
+	if !cfg.DevMode {
+		t.Fatalf("expected dev mode enabled")
+	}
 	if cfg.Sources["port"] != sourceFlag {
 		t.Fatalf("expected port source flag, got %q", cfg.Sources["port"])
 	}
 	if cfg.Sources["backend-port"] != sourceFlag {
 		t.Fatalf("expected backend port source flag, got %q", cfg.Sources["backend-port"])
+	}
+}
+
+func TestLoadConfigDevModeDefaultsToConfigDir(t *testing.T) {
+	t.Setenv("GESTALT_DEV_MODE", "true")
+
+	cfg, err := loadConfig(nil)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.ConfigDir != "config" {
+		t.Fatalf("expected dev mode config dir to default to config, got %q", cfg.ConfigDir)
 	}
 }
 

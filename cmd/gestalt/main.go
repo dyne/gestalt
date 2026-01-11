@@ -2,11 +2,10 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"io/fs"
 	"net"
@@ -59,6 +58,7 @@ type Config struct {
 	InputHistoryDir      string
 	ConfigDir            string
 	ConfigBackupLimit    int
+	DevMode              bool
 	MaxWatches           int
 	Verbose              bool
 	Quiet                bool
@@ -98,6 +98,7 @@ type configDefaults struct {
 	InputHistoryDir      string
 	ConfigDir            string
 	ConfigBackupLimit    int
+	DevMode              bool
 	MaxWatches           int
 	ForceUpgrade         bool
 }
@@ -123,6 +124,7 @@ type flagValues struct {
 	Help                 bool
 	Version              bool
 	ForceUpgrade         bool
+	DevMode              bool
 	Set                  map[string]bool
 }
 
@@ -217,7 +219,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	validatePromptFiles(configPaths.ConfigDir, logger)
+	if !cfg.DevMode {
+		validatePromptFiles(configPaths.ConfigDir, logger)
+	}
 
 	configFS := buildConfigFS(configPaths.Root)
 	skills, err := loadSkills(logger, configFS, configPaths.SubDir)
@@ -824,11 +828,29 @@ func loadConfig(args []string) (Config, error) {
 	cfg.InputHistoryDir = inputHistoryDir
 	cfg.Sources["input-history-dir"] = inputHistoryDirSource
 
+	devMode := defaults.DevMode
+	devModeSource := sourceDefault
+	if rawDev := strings.TrimSpace(os.Getenv("GESTALT_DEV_MODE")); rawDev != "" {
+		if parsed, err := strconv.ParseBool(rawDev); err == nil {
+			devMode = parsed
+			devModeSource = sourceEnv
+		}
+	}
+	if flags.Set["dev"] {
+		devMode = flags.DevMode
+		devModeSource = sourceFlag
+	}
+	cfg.DevMode = devMode
+	cfg.Sources["dev-mode"] = devModeSource
+
 	configDir := defaults.ConfigDir
 	configDirSource := sourceDefault
 	if rawDir := strings.TrimSpace(os.Getenv("GESTALT_CONFIG_DIR")); rawDir != "" {
 		configDir = rawDir
 		configDirSource = sourceEnv
+	}
+	if devMode && configDirSource == sourceDefault {
+		configDir = "config"
 	}
 	if strings.TrimSpace(configDir) == "" {
 		return Config{}, fmt.Errorf("invalid config dir: value cannot be empty")
@@ -915,6 +937,7 @@ func defaultConfigValues() configDefaults {
 		InputHistoryDir:      filepath.Join(".gestalt", "input-history"),
 		ConfigDir:            filepath.Join(".gestalt", "config"),
 		ConfigBackupLimit:    1,
+		DevMode:              false,
 		MaxWatches:           100,
 		ForceUpgrade:         false,
 	}
@@ -942,6 +965,7 @@ func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
 	inputHistoryDir := fs.String("input-history-dir", defaults.InputHistoryDir, "Input history directory")
 	maxWatches := fs.Int("max-watches", defaults.MaxWatches, "Max active watches")
 	forceUpgrade := fs.Bool("force-upgrade", defaults.ForceUpgrade, "Bypass config version compatibility checks")
+	devMode := fs.Bool("dev", defaults.DevMode, "Enable developer mode (skip config extraction)")
 	verbose := fs.Bool("verbose", false, "Enable verbose logging")
 	quiet := fs.Bool("quiet", false, "Reduce logging to warnings")
 	help := fs.Bool("help", false, "Show help")
@@ -979,6 +1003,7 @@ func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
 		InputHistoryDir:      *inputHistoryDir,
 		MaxWatches:           *maxWatches,
 		ForceUpgrade:         *forceUpgrade,
+		DevMode:              *devMode,
 		Verbose:              *verbose,
 		Quiet:                *quiet,
 		Help:                 *help || *helpShort,
@@ -1101,6 +1126,10 @@ func printHelp(out io.Writer, defaults configDefaults) {
 			Desc: "Bypass config version compatibility checks (dangerous)",
 		},
 		{
+			Name: "--dev",
+			Desc: fmt.Sprintf("Enable developer mode (env: GESTALT_DEV_MODE, default: %t)", defaults.DevMode),
+		},
+		{
 			Name: "--extract-config",
 			Desc: "No-op (config extraction runs automatically at startup)",
 		},
@@ -1192,6 +1221,9 @@ func logStartupFlags(logger *logging.Logger, cfg Config) {
 	}
 	if cfg.Sources["force-upgrade"] == sourceFlag {
 		flags = append(flags, formatBoolFlag("--force-upgrade", cfg.ForceUpgrade))
+	}
+	if cfg.Sources["dev-mode"] == sourceFlag {
+		flags = append(flags, "--dev")
 	}
 
 	if len(flags) == 0 {
@@ -1647,6 +1679,24 @@ func prepareConfig(cfg Config, logger *logging.Logger) (configPaths, error) {
 	if err != nil {
 		return configPaths{}, err
 	}
+	if cfg.DevMode {
+		info, err := os.Stat(paths.ConfigDir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return configPaths{}, fmt.Errorf("dev mode config dir missing: %s", paths.ConfigDir)
+			}
+			return configPaths{}, fmt.Errorf("stat dev config dir: %w", err)
+		}
+		if !info.IsDir() {
+			return configPaths{}, fmt.Errorf("dev mode config path is not a directory: %s", paths.ConfigDir)
+		}
+		if logger != nil {
+			logger.Warn("dev mode enabled, skipping config extraction", map[string]string{
+				"config_dir": paths.ConfigDir,
+			})
+		}
+		return paths, nil
+	}
 	if err := os.MkdirAll(paths.ConfigDir, 0o755); err != nil {
 		return configPaths{}, fmt.Errorf("create config dir: %w", err)
 	}
@@ -1800,9 +1850,10 @@ func buildManifestFromFS(sourceFS fs.FS) (map[string]string, error) {
 		if err != nil {
 			return err
 		}
-		sum := sha256.Sum256(data)
+		hasher := fnv.New64a()
+		_, _ = hasher.Write(data)
 		relative := strings.TrimPrefix(path, "config/")
-		manifest[relative] = hex.EncodeToString(sum[:])
+		manifest[relative] = fmt.Sprintf("%016x", hasher.Sum64())
 		return nil
 	}); err != nil {
 		return nil, err

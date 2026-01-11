@@ -253,7 +253,7 @@
    Tests: Unit tests for hash verification still pass; manifest generator updated
    Done when: Manifest and extraction use FNV-1a 64 and tests pass
 
-** TODO [#C] Add developer mode for config override
+** DONE [#C] Add developer mode for config override
    Why: Developers may want to bypass extraction for faster iteration
    Change:
    - Add env var: GESTALT_DEV_MODE=true

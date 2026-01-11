@@ -63,7 +63,7 @@
    Tests: Run script, verify manifest.json and version data generated correctly
    Done when: Build generates manifest.json with hashes and version metadata
 
-** TODO [#B] Embed manifest and version metadata
+** DONE [#B] Embed manifest and version metadata
    Why: Manifest and version info must be available at runtime for verification
    Change:
    - Update cmd/gestalt/embed.go or root embed.go

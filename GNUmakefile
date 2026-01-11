@@ -20,10 +20,12 @@ $(CONFIG_MANIFEST) $(VERSION_INFO): scripts/generate-config-manifest.js
 
 # make VERSION=1.2.3 to build with specific version
 gestalt: frontend/dist $(CONFIG_MANIFEST) $(VERSION_INFO)
-	$(GO) build -ldflags "-X gestalt/internal/version.Version=$(VERSION)" -o gestalt ./cmd/gestalt
+	VERSION_LDFLAGS=$$(node scripts/format-version-ldflags.js); \
+	$(GO) build -ldflags "$$VERSION_LDFLAGS" -o gestalt ./cmd/gestalt
 
 gestalt-send: $(VERSION_INFO)
-	$(GO) build  -ldflags "-X gestalt/internal/version.Version=$(VERSION)" -o gestalt-send ./cmd/gestalt-send
+	VERSION_LDFLAGS=$$(node scripts/format-version-ldflags.js); \
+	$(GO) build  -ldflags "$$VERSION_LDFLAGS" -o gestalt-send ./cmd/gestalt-send
 
 install: gestalt gestalt-send
 	install -m 0755 gestalt $(BINDIR)/gestalt

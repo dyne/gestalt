@@ -588,7 +588,7 @@
    Tests: Manual test: verify no browser gestures interfere with custom scroll
    Done when: CSS updated, browser touch gestures disabled on terminal
 
-** TODO [#B] Calculate scroll sensitivity (deltaY to scrollLines conversion)
+** DONE [#B] Calculate scroll sensitivity (deltaY to scrollLines conversion)
    Why: Touch scroll needs to feel natural, not too fast or too slow
    Change:
    - Determine pixels-per-line for terminal: term.element.offsetHeight / term.rows

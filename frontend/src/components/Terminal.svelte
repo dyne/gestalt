@@ -10,6 +10,7 @@
   export let title = ''
   export let promptFiles = []
   export let visible = true
+  export let scrollSensitivity = 1
   export let onRequestClose = () => {}
 
   let container
@@ -46,6 +47,7 @@
     state = getTerminalState(terminalId)
     if (!state) return
     state.attach(container)
+    state.setScrollSensitivity?.(scrollSensitivity)
     unsubscribeStatus = state.status.subscribe((value) => {
       status = value
     })

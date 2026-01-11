@@ -340,6 +340,28 @@ describe('terminalStore', () => {
     releaseTerminalState('touch-scroll')
   })
 
+  it('applies scroll sensitivity multiplier', async () => {
+    const state = getTerminalState('touch-sensitivity')
+    const container = document.createElement('div')
+    state.attach(container)
+    state.setScrollSensitivity(2)
+
+    const element = state.term.element
+    element.dispatchEvent(
+      createPointerEvent('pointerdown', { pointerType: 'touch', clientY: 100, pointerId: 1 })
+    )
+    element.dispatchEvent(
+      createPointerEvent('pointermove', { pointerType: 'touch', clientY: 80, pointerId: 1 })
+    )
+    element.dispatchEvent(
+      createPointerEvent('pointerup', { pointerType: 'touch', clientY: 80, pointerId: 1 })
+    )
+
+    expect(state.term.scrollLinesCalls).toEqual([2])
+
+    releaseTerminalState('touch-sensitivity')
+  })
+
   it('ignores mouse pointer events for scrolling', async () => {
     const state = getTerminalState('mouse-scroll')
     const container = document.createElement('div')

@@ -175,6 +175,7 @@ const createTerminalState = (terminalId) => {
   let directInputEnabled = false
   let retryCount = 0
   let reconnectTimer
+  let scrollSensitivity = 1
   let notifiedUnauthorized = false
   let notifiedDisconnect = false
   let disposeMouseHandlers
@@ -256,6 +257,12 @@ const createTerminalState = (terminalId) => {
     })
   }
 
+  const setScrollSensitivity = (value) => {
+    const next = Number(value)
+    if (!Number.isFinite(next) || next <= 0) return
+    scrollSensitivity = next
+  }
+
   const setupPointerScroll = (element) => {
     if (!element) return () => {}
     let activePointerId = null
@@ -318,7 +325,7 @@ const createTerminalState = (terminalId) => {
       const deltaY = currentY - lastY
       lastY = currentY
       const pixelsPerLine = getPixelsPerLine()
-      const deltaLines = Math.round(deltaY / pixelsPerLine)
+      const deltaLines = Math.round((deltaY / pixelsPerLine) * scrollSensitivity)
       if (deltaLines) {
         term.scrollLines(-deltaLines)
         syncScrollState()
@@ -716,6 +723,7 @@ const createTerminalState = (terminalId) => {
     setDirectInput,
     scrollToBottom,
     focus,
+    setScrollSensitivity,
     attach,
     detach,
     scheduleFit,

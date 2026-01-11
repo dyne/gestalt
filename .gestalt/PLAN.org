@@ -23,9 +23,9 @@
    - Version structure: {"version": "1.2.3", "major": 1, "minor": 2, "patch": 3, "built": "2026-01-11T12:34:56Z", "git_commit": "abc123..."}
    - Optional fields: git_commit (short SHA), build_host, go_version for debugging
    - Design manifest format: JSON or binary for embedded hash map
-   - Manifest structure: {"path/to/file.json": "sha256hex", ...}
+   - Manifest structure: {"path/to/file.json": "fnv1a", ...}
    - Consider: single manifest.json vs separate hash files per resource type
-   - Research: Go crypto/sha256 for hash generation at build time
+   - Research: Go stdlib/fnv1a for hash generation at build time
    - Research: embed.FS walking pattern to enumerate all files
    - Decision: JSON manifest for simplicity (human-readable, easy to generate)
    - Manifest location: embedded as config/manifest.json or separate
@@ -35,20 +35,20 @@
    - Required fields: version (semver string), major, minor, patch, built (RFC3339 UTC)
    - Optional fields: git_commit (short SHA), build_host, go_version
    - manifest.json location: config/manifest.json embedded with config FS
-   - Manifest format: JSON object of config-relative path -> sha256 hex (file bytes)
+   - Manifest format: JSON object of config-relative path -> fnv1a hex (file bytes)
    - Manifest keys use forward slashes, no leading "./"
    - Manifest excludes itself and directories (files only)
    - Example version.json: {"version":"1.2.3","major":1,"minor":2,"patch":3,"built":"2026-01-11T12:34:56Z","git_commit":"abc1234"}
-   - Example manifest.json: {"agents/copilot.json":"<sha256>","skills/core/SKILL.md":"<sha256>"}
+   - Example manifest.json: {"agents/copilot.json":"<fnv1a>","skills/core/SKILL.md":"<fnv1a>"}
    Tests: None (design only)
    Done when: Version and manifest formats designed, documented in this L2
 
 ** [#B] Create build-time manifest and version generator
-   Why: Need to compute SHA-256 hashes and embed version info at compile time
+   Why: Need to compute FNV1a 64 hashes and embed version info at compile time
    Change:
    - Create scripts/generate-config-manifest.go or shell script
    - Walk config/agents/, config/prompts/, config/skills/ directories
-   - Compute SHA-256 hash of each file content
+   - Compute FNV1a 64 hash of each file content
    - Output manifest JSON: {"agents/copilot.json": "abc123...", ...}
    - Use relative paths from config/ root for portability
    - Handle nested directories (skills with subdirectories)
@@ -86,7 +86,7 @@
    - For each file in manifest:
      1. Compute destination path: destDir + relative path
      2. Check if destination exists
-     3. If exists: compute SHA-256 of existing file
+     3. If exists: compute FNV1a 64 of existing file
      4. Compare hashes: if match, skip (log at debug level)
      5. If differ: warn, rename existing to .bck, extract new
      6. If not exists: extract new
@@ -3380,7 +3380,6 @@
    Tests: None (documentation only)
    Done when: README clearly documents versioning workflow and conventions
 
-
 * DONE [#A] Temporal workflow integration for HITL session lifecycle
   Goal: Integrate Temporal.io workflows to manage durable, semi-interactive agent sessions with human-in-the-loop (HITL) coordination, tracking agent work phases (start: L1/L2 plan tasks) and stops (terminal bells requiring user attention).
   Notes:
@@ -4192,7 +4191,6 @@
    - Clean up terminals after test
    Tests: Integration test in cmd/gestalt-send/
    Done when: End-to-end CLI test passes reliably
-
 
 * DONE [#B] Agent Skills integration
   Goal: Integrate the Agent Skills standard (agentskills.io) into Gestalt to provide agents with discoverable, on-demand capabilities through structured skill packages stored in config/skills/

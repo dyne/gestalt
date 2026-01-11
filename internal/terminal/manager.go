@@ -67,6 +67,7 @@ type Manager struct {
 	logger          *logging.Logger
 	agentBus        *event.Bus[event.AgentEvent]
 	terminalBus     *event.Bus[event.TerminalEvent]
+	workflowBus     *event.Bus[event.WorkflowEvent]
 	temporalClient  temporal.WorkflowClient
 	temporalEnabled bool
 	sessionLogs     string
@@ -182,6 +183,9 @@ func NewManager(opts ManagerOptions) *Manager {
 	terminalBus := event.NewBus[event.TerminalEvent](context.Background(), event.BusOptions{
 		Name: "terminal_events",
 	})
+	workflowBus := event.NewBus[event.WorkflowEvent](context.Background(), event.BusOptions{
+		Name: "workflow_events",
+	})
 
 	agents := make(map[string]agent.Agent)
 	for id, profile := range opts.Agents {
@@ -204,6 +208,7 @@ func NewManager(opts ManagerOptions) *Manager {
 		logger:          logger,
 		agentBus:        agentBus,
 		terminalBus:     terminalBus,
+		workflowBus:     workflowBus,
 		temporalClient:  temporalClient,
 		temporalEnabled: temporalEnabled,
 		sessionLogs:     sessionLogs,
@@ -679,6 +684,13 @@ func (m *Manager) TerminalBus() *event.Bus[event.TerminalEvent] {
 		return nil
 	}
 	return m.terminalBus
+}
+
+func (m *Manager) WorkflowBus() *event.Bus[event.WorkflowEvent] {
+	if m == nil {
+		return nil
+	}
+	return m.workflowBus
 }
 
 func (m *Manager) TemporalEnabled() bool {

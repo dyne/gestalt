@@ -65,6 +65,10 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 		Manager:   manager,
 		AuthToken: authToken,
 	})
+	mux.Handle("/api/workflows/events", &WorkflowEventsHandler{
+		Manager:   manager,
+		AuthToken: authToken,
+	})
 	mux.Handle("/api/config/events", &ConfigEventsHandler{
 		AuthToken: authToken,
 	})

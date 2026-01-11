@@ -3,6 +3,7 @@ package workflows
 import (
 	"time"
 
+	"gestalt/internal/event"
 	"gestalt/internal/metrics"
 
 	"go.temporal.io/sdk/temporal"
@@ -16,10 +17,11 @@ const (
 
 	SessionTaskQueueName = "gestalt-session"
 
-	SpawnTerminalActivityName = "SpawnTerminalActivity"
-	UpdateTaskActivityName    = "UpdateTaskActivity"
-	RecordBellActivityName    = "RecordBellActivity"
-	GetOutputActivityName     = "GetOutputActivity"
+	SpawnTerminalActivityName     = "SpawnTerminalActivity"
+	UpdateTaskActivityName        = "UpdateTaskActivity"
+	RecordBellActivityName        = "RecordBellActivity"
+	GetOutputActivityName         = "GetOutputActivity"
+	EmitWorkflowEventActivityName = "EmitWorkflowEventActivity"
 
 	DefaultWorkflowExecutionTimeout = 24 * time.Hour
 	DefaultWorkflowRunTimeout       = 24 * time.Hour
@@ -109,12 +111,44 @@ func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRe
 		}
 	}()
 
+	logger := workflow.GetLogger(workflowContext)
+	workflowInfo := workflow.GetInfo(workflowContext)
+	workflowID := workflowInfo.WorkflowExecution.ID
+	eventContext := workflow.WithActivityOptions(workflowContext, workflow.ActivityOptions{
+		StartToCloseTimeout: DefaultActivityTimeout,
+		HeartbeatTimeout:    DefaultActivityHeartbeat,
+		RetryPolicy:         defaultActivityRetryPolicy(),
+	})
+	emitWorkflowEvent := func(eventType string, occurredAt time.Time, context map[string]any) {
+		if eventType == "" {
+			return
+		}
+		timestamp := occurredAt
+		if timestamp.IsZero() {
+			timestamp = workflow.Now(workflowContext)
+		}
+		payload := event.WorkflowEvent{
+			EventType:  eventType,
+			WorkflowID: workflowID,
+			SessionID:  request.SessionID,
+			OccurredAt: timestamp,
+			Context:    context,
+		}
+		if activityErr := workflow.ExecuteActivity(eventContext, EmitWorkflowEventActivityName, payload).Get(eventContext, nil); activityErr != nil {
+			logger.Warn("workflow event activity failed", "error", activityErr, "event_type", eventType)
+		}
+	}
+
 	spawnContext := workflow.WithActivityOptions(workflowContext, workflow.ActivityOptions{
 		StartToCloseTimeout: SpawnTerminalTimeout,
 		HeartbeatTimeout:    DefaultActivityHeartbeat,
 		RetryPolicy:         defaultActivityRetryPolicy(),
 	})
 	if activityErr := workflow.ExecuteActivity(spawnContext, SpawnTerminalActivityName, request.SessionID, request.Shell).Get(spawnContext, nil); activityErr != nil {
+		emitWorkflowEvent("workflow_error", workflow.Now(workflowContext), map[string]any{
+			"error": activityErr.Error(),
+			"stage": "spawn",
+		})
 		err = activityErr
 		return SessionWorkflowResult{}, activityErr
 	}
@@ -137,11 +171,22 @@ func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRe
 			L2:        state.CurrentL2,
 		})
 	}
+	var startedContext map[string]any
+	if request.AgentID != "" {
+		startedContext = map[string]any{
+			"agent_id": request.AgentID,
+		}
+	}
+	emitWorkflowEvent("workflow_started", state.StartTime, startedContext)
 
 	queryError := workflow.SetQueryHandler(workflowContext, StatusQueryName, func() (SessionWorkflowState, error) {
 		return state, nil
 	})
 	if queryError != nil {
+		emitWorkflowEvent("workflow_error", workflow.Now(workflowContext), map[string]any{
+			"error": queryError.Error(),
+			"stage": "query_handler",
+		})
 		err = queryError
 		return SessionWorkflowResult{}, queryError
 	}
@@ -152,7 +197,7 @@ func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRe
 	terminateChannel := workflow.GetSignalChannel(workflowContext, TerminateSignalName)
 
 	eventCount := 0
-	logger := workflow.GetLogger(workflowContext)
+	var completionContext map[string]any
 	activityContext := workflow.WithActivityOptions(workflowContext, workflow.ActivityOptions{
 		StartToCloseTimeout: DefaultActivityTimeout,
 		HeartbeatTimeout:    DefaultActivityHeartbeat,
@@ -205,6 +250,13 @@ func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRe
 		}
 		state.Status = SessionStatusPaused
 		metrics.Default.IncWorkflowPaused()
+		var pauseContext map[string]any
+		if contextText != "" {
+			pauseContext = map[string]any{
+				"bell_context": contextText,
+			}
+		}
+		emitWorkflowEvent("workflow_paused", timestamp, pauseContext)
 		eventCount++
 	})
 
@@ -214,11 +266,23 @@ func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRe
 		switch signal.Action {
 		case ResumeActionAbort:
 			state.Status = SessionStatusStopped
+			completionContext = map[string]any{
+				"action": signal.Action,
+			}
 		case ResumeActionContinue, ResumeActionHandoff, "":
 			state.Status = SessionStatusRunning
 		default:
 			logger.Warn("unknown resume action", "action", signal.Action)
 			state.Status = SessionStatusRunning
+		}
+		if state.Status == SessionStatusRunning {
+			var resumeContext map[string]any
+			if signal.Action != "" {
+				resumeContext = map[string]any{
+					"action": signal.Action,
+				}
+			}
+			emitWorkflowEvent("workflow_resumed", workflow.Now(workflowContext), resumeContext)
 		}
 		eventCount++
 	})
@@ -227,6 +291,11 @@ func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRe
 		var signal TerminateSignal
 		channel.Receive(workflowContext, &signal)
 		state.Status = SessionStatusStopped
+		if signal.Reason != "" {
+			completionContext = map[string]any{
+				"reason": signal.Reason,
+			}
+		}
 		eventCount++
 	})
 
@@ -240,6 +309,7 @@ func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRe
 		FinalStatus: state.Status,
 		EventCount:  eventCount,
 	}
+	emitWorkflowEvent("workflow_completed", result.EndTime, completionContext)
 	return result, nil
 }
 

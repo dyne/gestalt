@@ -197,7 +197,7 @@
    Tests: Unit tests for event emission during extraction (mock extraction)
    Done when: Config events defined, infrastructure ready for config refactor
 
-** WIP [#C] Add workflow state events for Temporal integration
+** DONE [#C] Add workflow state events for Temporal integration
    Why: Better observability of workflow pauses/resumes, bell handling
    Change:
    - Create WorkflowBus: event.Bus[WorkflowEvent]

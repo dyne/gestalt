@@ -84,6 +84,9 @@ func TestNewWorkflowEvent(t *testing.T) {
 	if event.SessionID != "session-1" {
 		t.Fatalf("expected session ID, got %q", event.SessionID)
 	}
+	if event.Context != nil {
+		t.Fatalf("expected nil context, got %#v", event.Context)
+	}
 	assertUTC(t, event.Timestamp())
 }
 

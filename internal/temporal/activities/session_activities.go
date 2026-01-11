@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"gestalt/internal/event"
 	"gestalt/internal/logging"
 	"gestalt/internal/metrics"
 	"gestalt/internal/terminal"
@@ -20,6 +21,7 @@ const (
 	RecordBellActivityName        = "RecordBellActivity"
 	UpdateTaskActivityName        = "UpdateTaskActivity"
 	GetOutputActivityName         = "GetOutputActivity"
+	EmitWorkflowEventActivityName = "EmitWorkflowEventActivity"
 )
 
 type SessionActivities struct {
@@ -191,6 +193,50 @@ func (activities *SessionActivities) UpdateTaskActivity(activityContext context.
 		"l1_task":     l1Task,
 		"l2_task":     l2Task,
 	})
+	return nil
+}
+
+func (activities *SessionActivities) EmitWorkflowEventActivity(activityContext context.Context, payload event.WorkflowEvent) (activityErr error) {
+	start := time.Now()
+	attempt := activityAttempt(activityContext)
+	defer func() {
+		metrics.Default.RecordActivity(EmitWorkflowEventActivityName, time.Since(start), activityErr, attempt)
+	}()
+
+	if activityContext != nil {
+		if contextError := activityContext.Err(); contextError != nil {
+			activityErr = contextError
+			return contextError
+		}
+	}
+	manager, managerError := activities.ensureManager()
+	if managerError != nil {
+		activityErr = managerError
+		return managerError
+	}
+	if strings.TrimSpace(payload.EventType) == "" {
+		activityErr = errors.New("workflow event type is required")
+		return activityErr
+	}
+	if strings.TrimSpace(payload.WorkflowID) == "" {
+		activityErr = errors.New("workflow id is required")
+		return activityErr
+	}
+	if strings.TrimSpace(payload.SessionID) == "" {
+		activityErr = errors.New("session id is required")
+		return activityErr
+	}
+
+	bus := manager.WorkflowBus()
+	if bus == nil {
+		activityErr = errors.New("workflow event bus unavailable")
+		return activityErr
+	}
+
+	if payload.OccurredAt.IsZero() {
+		payload.OccurredAt = time.Now().UTC()
+	}
+	bus.Publish(payload)
 	return nil
 }
 

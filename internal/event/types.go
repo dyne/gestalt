@@ -116,6 +116,7 @@ type WorkflowEvent struct {
 	EventType  string
 	WorkflowID string
 	SessionID  string
+	Context    map[string]any
 	OccurredAt time.Time
 }
 

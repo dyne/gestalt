@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"gestalt/internal/event"
+
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/testsuite"
 )
@@ -13,7 +15,10 @@ func TestSessionWorkflowSignals(testingContext *testing.T) {
 	workflowTestSuite := &testsuite.WorkflowTestSuite{}
 	workflowEnvironment := workflowTestSuite.NewTestWorkflowEnvironment()
 	workflowEnvironment.RegisterWorkflow(SessionWorkflow)
-	registerSessionActivities(workflowEnvironment)
+	var emittedEvents []event.WorkflowEvent
+	registerSessionActivities(workflowEnvironment, func(payload event.WorkflowEvent) {
+		emittedEvents = append(emittedEvents, payload)
+	})
 
 	startTime := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
 	bellTime := time.Date(2025, 1, 1, 12, 1, 0, 0, time.UTC)
@@ -128,13 +133,50 @@ func TestSessionWorkflowSignals(testingContext *testing.T) {
 	if workflowResult.EventCount != 4 {
 		testingContext.Fatalf("expected 4 events, got %d", workflowResult.EventCount)
 	}
+
+	expectedEvents := []string{"workflow_started", "workflow_paused", "workflow_resumed", "workflow_completed"}
+	if len(emittedEvents) != len(expectedEvents) {
+		testingContext.Fatalf("expected %d workflow events, got %d", len(expectedEvents), len(emittedEvents))
+	}
+	for index, eventType := range expectedEvents {
+		if emittedEvents[index].Type() != eventType {
+			testingContext.Fatalf("expected event %q at index %d, got %q", eventType, index, emittedEvents[index].Type())
+		}
+		if emittedEvents[index].WorkflowID == "" {
+			testingContext.Fatalf("expected workflow id for %q event", emittedEvents[index].Type())
+		}
+		if emittedEvents[index].SessionID != "session-1" {
+			testingContext.Fatalf("expected session id session-1, got %q", emittedEvents[index].SessionID)
+		}
+	}
+	if !emittedEvents[0].Timestamp().Equal(startTime) {
+		testingContext.Fatalf("expected start timestamp %v, got %v", startTime, emittedEvents[0].Timestamp())
+	}
+	pausedContext, ok := emittedEvents[1].Context["bell_context"].(string)
+	if !ok || pausedContext != "bell context" {
+		testingContext.Fatalf("unexpected paused context: %#v", emittedEvents[1].Context)
+	}
+	if !emittedEvents[1].Timestamp().Equal(bellTime) {
+		testingContext.Fatalf("expected bell timestamp %v, got %v", bellTime, emittedEvents[1].Timestamp())
+	}
+	resumeAction, ok := emittedEvents[2].Context["action"].(string)
+	if !ok || resumeAction != ResumeActionContinue {
+		testingContext.Fatalf("unexpected resume context: %#v", emittedEvents[2].Context)
+	}
+	completionReason, ok := emittedEvents[3].Context["reason"].(string)
+	if !ok || completionReason != "complete" {
+		testingContext.Fatalf("unexpected completion context: %#v", emittedEvents[3].Context)
+	}
 }
 
 func TestSessionWorkflowAbortAction(testingContext *testing.T) {
 	workflowTestSuite := &testsuite.WorkflowTestSuite{}
 	workflowEnvironment := workflowTestSuite.NewTestWorkflowEnvironment()
 	workflowEnvironment.RegisterWorkflow(SessionWorkflow)
-	registerSessionActivities(workflowEnvironment)
+	var emittedEvents []event.WorkflowEvent
+	registerSessionActivities(workflowEnvironment, func(payload event.WorkflowEvent) {
+		emittedEvents = append(emittedEvents, payload)
+	})
 
 	var statusAfterBell SessionWorkflowState
 	var bellQueryError error
@@ -193,9 +235,23 @@ func TestSessionWorkflowAbortAction(testingContext *testing.T) {
 	if workflowResult.EventCount != 2 {
 		testingContext.Fatalf("expected 2 events, got %d", workflowResult.EventCount)
 	}
+
+	expectedEvents := []string{"workflow_started", "workflow_paused", "workflow_completed"}
+	if len(emittedEvents) != len(expectedEvents) {
+		testingContext.Fatalf("expected %d workflow events, got %d", len(expectedEvents), len(emittedEvents))
+	}
+	for index, eventType := range expectedEvents {
+		if emittedEvents[index].Type() != eventType {
+			testingContext.Fatalf("expected event %q at index %d, got %q", eventType, index, emittedEvents[index].Type())
+		}
+	}
+	completionAction, ok := emittedEvents[2].Context["action"].(string)
+	if !ok || completionAction != ResumeActionAbort {
+		testingContext.Fatalf("unexpected completion context: %#v", emittedEvents[2].Context)
+	}
 }
 
-func registerSessionActivities(workflowEnvironment *testsuite.TestWorkflowEnvironment) {
+func registerSessionActivities(workflowEnvironment *testsuite.TestWorkflowEnvironment, emitEvent func(event.WorkflowEvent)) {
 	workflowEnvironment.RegisterActivityWithOptions(
 		func(ctx context.Context, sessionID, shell string) error {
 			return nil
@@ -219,5 +275,14 @@ func registerSessionActivities(workflowEnvironment *testsuite.TestWorkflowEnviro
 			return "", nil
 		},
 		activity.RegisterOptions{Name: GetOutputActivityName},
+	)
+	workflowEnvironment.RegisterActivityWithOptions(
+		func(ctx context.Context, payload event.WorkflowEvent) error {
+			if emitEvent != nil {
+				emitEvent(payload)
+			}
+			return nil
+		},
+		activity.RegisterOptions{Name: EmitWorkflowEventActivityName},
 	)
 }

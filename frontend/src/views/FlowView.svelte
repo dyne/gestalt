@@ -1,6 +1,7 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
   import { apiFetch } from '../lib/api.js'
+  import { subscribe as subscribeWorkflowEvents } from '../lib/workflowEventStore.js'
   import WorkflowCard from '../components/WorkflowCard.svelte'
 
   export let onViewTerminal = () => {}
@@ -10,6 +11,7 @@
   let refreshing = false
   let error = ''
   let refreshTimer = null
+  let eventRefreshTimer = null
   let expandedIds = new Set()
   let pendingActions = new Set()
 
@@ -47,6 +49,14 @@
     }
   }
 
+  const scheduleEventRefresh = () => {
+    if (eventRefreshTimer) return
+    eventRefreshTimer = setTimeout(() => {
+      eventRefreshTimer = null
+      loadWorkflows({ silent: true })
+    }, 250)
+  }
+
   const toggleExpanded = (id) => {
     const next = new Set(expandedIds)
     if (next.has(id)) {
@@ -81,12 +91,27 @@
   onMount(() => {
     loadWorkflows()
     refreshTimer = setInterval(() => loadWorkflows({ silent: true }), refreshIntervalMs)
+    const eventTypes = [
+      'workflow_started',
+      'workflow_paused',
+      'workflow_resumed',
+      'workflow_completed',
+      'workflow_error',
+    ]
+    const unsubscribers = eventTypes.map((eventType) => subscribeWorkflowEvents(eventType, scheduleEventRefresh))
+    return () => {
+      unsubscribers.forEach((unsubscribe) => unsubscribe())
+    }
   })
 
   onDestroy(() => {
     if (refreshTimer) {
       clearInterval(refreshTimer)
       refreshTimer = null
+    }
+    if (eventRefreshTimer) {
+      clearTimeout(eventRefreshTimer)
+      eventRefreshTimer = null
     }
   })
 </script>

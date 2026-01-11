@@ -752,7 +752,7 @@
    Tests: Manual test on touch devices; add unit coverage if feasible.
    Done when: Touching the scrollbar uses native scrollbar drag without breaking touch scrolling.
 
-** TODO [#A] Validate with user testing before marking done
+** DONE [#A] Validate with user testing before marking done
    Why: Ensure solution actually solves the problem, not just technically correct
    Change:
    - User testing: hand device to non-technical user, ask them to scroll terminal

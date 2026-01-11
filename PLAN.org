@@ -1,3 +1,920 @@
+* TODO [#A] Unified event architecture with generic event bus
+  Goal: Refactor disparate event systems (EventHub, Broadcaster, LogHub) into a single reusable generic event bus, then extend event-driven patterns throughout Gestalt for agent lifecycle, config changes, terminal events, and workflow state.
+  Notes:
+  - Current state: 3 separate event implementations (watcher/EventHub, terminal/Broadcaster, logging/LogHub)
+  - Pattern overlap: all implement subscribe/publish/fan-out, but with different APIs
+  - New approach: single generic event.Bus[T] with type safety (Go 1.18+ generics)
+  - Benefits: DRY, consistent patterns, easier testing, better observability
+  - Core events to support: filesystem, terminal I/O, agent lifecycle, config changes, workflow state, logs
+  - Event bus features: typed events, filtering, async delivery, backpressure handling, metrics
+  - Migration strategy: create new package, migrate existing systems, add new event sources
+  - Backward compatibility: maintain existing APIs during migration, deprecate gradually
+  - Architecture: event.Bus[T] is core, specialized buses (TerminalBus, AgentBus) wrap it
+  - Testing: event bus must be mockable, events must be deterministic for tests
+  Sequencing recommendation: DO THIS BEFORE CONFIG REFACTOR
+  - Rationale: Config refactor will need events (config changes, extraction progress, conflicts)
+  - If event system exists first, config refactor naturally emits events
+  - Otherwise, config refactor reinvents event patterns or uses inconsistent approach
+  - Event system is foundational; config is a consumer of events
+  Key architectural decisions (LOCKED IN):
+  - Bus[T] is concrete struct (not interface) for simplicity and generic compatibility
+  - Bus is passive (no goroutines): callers own threading, Publish is synchronous fanout
+  - Bus integrates with metrics.Registry for observability (OpenTelemetry-ready)
+  - Terminal I/O uses Bus for code reuse but is semantically a stream (not discrete events)
+  - Logs NEVER drop (BlockOnFull=true), events can drop (BlockOnFull=false)
+  - Storage (LogBuffer, OutputBuffer) stays separate from Bus (fanout only)
+  - Frontend/backend ship together: no event versioning, use contract tests instead
+  - Breaking changes OK (pre-production), but frontend must never break
+  Date: 2026-01-11
+
+** TODO [#A] Design unified event bus architecture
+   Why: Need clear architecture before implementation to avoid over-engineering or under-designing
+   Change:
+   - Design event.Bus[T any] generic interface
+   - Core operations: Subscribe, Unsubscribe, Publish, Close
+   - Subscribe returns: (<-chan T, func()) for receive channel + cancel function
+   - Publish is non-blocking: drops events if all subscribers are slow (configurable)
+   - Thread-safety: concurrent Subscribe/Publish/Unsubscribe safe
+   - Event interface: all events implement Type() string, Timestamp() time.Time
+   - Consider: filtered subscriptions (subscribe to event types), event history (last N events)
+   - Consider: synchronous vs asynchronous publish (default async for non-blocking)
+   - Consider: subscriber priorities (critical subscribers never drop events)
+   - Design metrics: events published, dropped, active subscribers per event type
+   - Design error handling: what happens on channel send failure, subscriber panic
+   - Decide on buffering: per-subscriber buffer size (default 128), configurable
+   - Document: when to use event bus vs direct function calls (events = decoupling, async, fanout)
+   Tests: None (design only)
+   Done when: Architecture documented with interfaces, patterns, and usage guidelines
+
+** TODO [#B] Create internal/event package with generic Bus implementation
+   Why: Core reusable event bus that all systems can use
+   Change:
+   - Create internal/event/bus.go with concrete Bus[T any] struct (NOT interface)
+   - Implement Subscribe() (<-chan T, func()) with unique subscription IDs
+   - Implement Publish(event T) with synchronous fan-out (passive, no goroutines)
+   - Publish iterates subscribers, does non-blocking send (default) or blocking send (if BlockOnFull)
+   - Implement Close() to shut down bus and close all subscriber channels
+   - Use sync.Mutex for thread-safe subscriber map
+   - Use buffered channels per subscriber (default 128, configurable)
+   - BusOptions.BlockOnFull: false (drop) for events/logs, true (block with timeout) for terminal I/O
+   - Context-aware: accept optional context for cancellation, close on context.Done()
+   - Add NewBus[T](ctx context.Context, opts BusOptions) *Bus[T] constructor
+   - BusOptions: SubscriberBufferSize, BlockOnFull, WriteTimeout (if blocking), MaxSubscribers
+   - Integrate with metrics.Registry: report published, dropped, subscriber counts
+   - Handle edge cases: nil event, closed bus, subscriber cleanup on cancel
+   - Document: Bus is passive (no goroutines), callers own threading model
+   Tests: Unit tests for concurrent subscribe/publish, slow subscribers, metrics, drop vs block modes
+   Done when: Generic Bus[T] works, fully tested, metrics integrated, ready to use
+
+** TODO [#B] Create typed event interfaces and base types
+   Why: Establish event type conventions before migrating systems
+   Change:
+   - Create internal/event/types.go with Event interface
+   - Event interface: Type() string, Timestamp() time.Time
+   - Create base event types for common patterns:
+     - FileEvent: path, operation, timestamp
+     - TerminalEvent: terminal_id, event_type (created/closed/resized), data
+     - AgentEvent: agent_id, agent_name, event_type (started/stopped/error), context
+     - ConfigEvent: config_type (agent/skill/prompt), path, change_type (added/modified/removed)
+     - WorkflowEvent: workflow_id, session_id, event_type (paused/resumed/completed)
+     - LogEvent: level, message, context (wraps LogEntry)
+   - Each type implements Event interface
+   - Add helper constructors: NewFileEvent(path, op), NewTerminalEvent(id, type), etc
+   - Use time.Now().UTC() for all timestamps (consistency)
+   - Events are immutable: all fields read-only after construction
+   - Document event type naming: lowercase, underscore-separated (terminal_created, agent_started)
+   Tests: Unit tests for event construction, interface satisfaction
+   Done when: Event types defined, tested, documented
+
+** TODO [#B] Add filtered subscription support
+   Why: Subscribers often care about specific event types, not all events
+   Change:
+   - Extend Bus[T] to support filtered subscriptions
+   - Add SubscribeFiltered(filter func(T) bool) (<-chan T, func())
+   - Filter evaluated on each Publish before sending to subscriber
+   - If filter returns false, event is not sent (no buffer usage)
+   - Optimize: if no filter, skip filter check (direct send)
+   - For Event interface types, add convenience: SubscribeType(eventType string)
+   - SubscribeType creates filter: event.Type() == eventType
+   - Consider: multiple type subscription SubscribeTypes(types ...string)
+   - Update metrics to track filtered vs unfiltered subscriptions
+   Tests: Unit tests for filtered subscriptions, type-based filtering
+   Done when: Filtered subscriptions work, type-based helpers available
+
+** TODO [#B] Migrate watcher EventHub to generic event bus
+   Why: Validate event bus design with real-world usage, remove duplicate code
+   Change:
+   - Replace internal/watcher/hub.go EventHub with event.Bus[Event]
+   - EventHub.Subscribe(eventType, callback) → bus.SubscribeType(eventType, callback)
+   - EventHub.Publish(event) → bus.Publish(event)
+   - Keep WatchFile/UnwatchFile methods (higher-level abstractions)
+   - Update event type constants: keep existing names for compatibility
+   - Migrate tests: update to use new Bus API
+   - Verify /ws/events WebSocket handler still works
+   - Verify PLAN.org watching still works
+   - Update main.go to use new EventHub (should be minimal API changes)
+   - Keep backward compatibility: deprecated aliases if needed
+   Tests: All watcher tests pass, integration tests for PLAN.org watching
+   Done when: EventHub uses generic event bus, no functionality lost
+
+** TODO [#B] Migrate terminal Broadcaster to generic event bus
+   Why: Unify terminal output streaming with event architecture (code reuse, not semantic unification)
+   Change:
+   - Replace internal/terminal/broadcaster.go with event.Bus[[]byte]
+   - Broadcaster.Subscribe() → bus.Subscribe()
+   - Broadcaster.Broadcast(chunk) → bus.Publish(chunk)
+   - CRITICAL: Use BlockOnFull=false with generous buffer (256+) for terminal I/O
+   - Terminal I/O is a STREAM, not discrete events: order matters, cannot be dropped safely
+   - Keep OutputBuffer separate (history storage, not event delivery)
+   - Session.broadcastLoop() stays (goroutine reads s.output channel, calls bus.Publish)
+   - Update Session to use event bus for output fan-out (replace bcast field)
+   - Update WebSocket terminal handler: subscribe to terminal output bus
+   - Verify terminal output streaming still works after migration
+   - Check: no output corruption, no latency increase, handles multiple subscribers
+   - Document: terminal I/O uses Bus for implementation, but semantically is streaming not eventing
+   Tests: Terminal output tests pass, WebSocket streaming works, no data loss under load
+   Done when: Terminal output uses event bus, Broadcaster code removed, streaming semantics preserved
+
+** TODO [#B] Migrate logging to generic event bus
+   Why: Unify log streaming with event architecture
+   Change:
+   - Replace LogHub in internal/logging with event.Bus[LogEntry]
+   - Logger.Subscribe() → logBus.Subscribe()
+   - Logger.log() → logBus.Publish(entry) after writing to buffer
+   - CRITICAL: Use BlockOnFull=true for logs - NEVER drop log entries (loss of observability)
+   - Use reasonable timeout (100ms) to prevent indefinite blocking
+   - Keep LogBuffer separate (persistent log storage, only bus does fanout)
+   - Update /ws/logs WebSocket handler to use event bus
+   - Maintain level filtering: use SubscribeFiltered for log level filtering
+   - Remove duplicate LogHub struct
+   - Verify log streaming still works (WebSocket + tests)
+   - Add test: verify no logs dropped under high load
+   Tests: Logging tests pass, log WebSocket streaming works, no dropped logs
+   Done when: Log streaming uses event bus, LogHub code removed, observability preserved
+
+** TODO [#B] Add agent lifecycle events
+   Why: New capability enabled by event bus - track agent state changes
+   Change:
+   - Create AgentBus in Manager: event.Bus[AgentEvent]
+   - Emit events: agent_started, agent_stopped, agent_error
+   - Manager.Create(): publish AgentEvent{Type: "agent_started", AgentID, AgentName}
+   - Manager.Delete(): publish AgentEvent{Type: "agent_stopped", AgentID}
+   - Session error handling: publish AgentEvent{Type: "agent_error", AgentID, Error}
+   - Add GET /api/agents/events WebSocket endpoint for live agent events
+   - Frontend: subscribe to agent events, update dashboard in real-time
+   - Document agent event types and payloads
+   - Consider: emit agent_prompt_injected, agent_bell events for workflow integration
+   Tests: Unit tests for agent event emission, WebSocket integration test
+   Done when: Agent lifecycle observable via events, dashboard updates live
+
+** TODO [#B] Add terminal lifecycle events
+   Why: Separate terminal events from terminal I/O for better observability
+   Change:
+   - Create TerminalBus in Manager: event.Bus[TerminalEvent]
+   - Emit events: terminal_created, terminal_closed, terminal_resized, terminal_error
+   - Manager.Create(): publish TerminalEvent{Type: "terminal_created", TerminalID}
+   - Manager.Delete(): publish TerminalEvent{Type: "terminal_closed", TerminalID}
+   - Session resize: publish TerminalEvent{Type: "terminal_resized", Cols, Rows}
+   - Keep terminal I/O separate (uses Bus[[]byte] for output streaming)
+   - Add GET /api/terminals/events WebSocket for terminal lifecycle events
+   - Frontend: subscribe to terminal events, show toast on terminal_error
+   - Document terminal event types and when they're emitted
+   Tests: Unit tests for terminal event emission, verify event timing
+   Done when: Terminal lifecycle observable via events, not mixed with I/O
+
+** TODO [#B] Add config change events for future config refactor
+   Why: Enable reactive config updates, needed for config refactor L1
+   Change:
+   - Create ConfigBus: event.Bus[ConfigEvent]
+   - Event types: config_extracted, config_modified, config_conflict, config_validated
+   - Emit during config extraction: publish after each file extracted/backed up
+   - Emit on config validation: publish validation_error events with file path
+   - Emit on runtime config changes (future: hot reload agents/skills)
+   - Add GET /api/config/events WebSocket endpoint
+   - Frontend: subscribe to config events, show extraction progress, conflicts
+   - Document: this sets up infrastructure for config refactor L1
+   - Config refactor L1 will consume these events for progress reporting
+   Tests: Unit tests for event emission during extraction (mock extraction)
+   Done when: Config events defined, infrastructure ready for config refactor
+
+** TODO [#C] Add workflow state events for Temporal integration
+   Why: Better observability of workflow pauses/resumes, bell handling
+   Change:
+   - Create WorkflowBus: event.Bus[WorkflowEvent]
+   - Event types: workflow_started, workflow_paused, workflow_resumed, workflow_completed, workflow_error
+   - Emit from Temporal activities: publish after state changes
+   - Emit on bell detection: workflow_paused with bell context
+   - Add GET /api/workflows/events WebSocket endpoint
+   - Frontend Flow tab: subscribe to workflow events, update status live
+   - Document workflow event types and payloads
+   - Consider: unify with Temporal's built-in event history vs custom events
+   Tests: Integration test with mock workflow, verify event emission
+   Done when: Workflow state changes observable via events
+
+** TODO [#B] Add event bus metrics and monitoring
+   Why: Observability into event system health and performance
+   Change:
+   - Integrate Bus[T] with existing internal/metrics package
+   - Bus reports to metrics.Registry on Publish: increment counters for published, dropped
+   - Registry should be extended to track event bus metrics (not just Temporal)
+   - Track per-bus-type metrics: filesystem events, agent events, terminal I/O, logs
+   - Metrics exposed via existing /api/metrics endpoint
+   - Future: metrics.Registry will support OpenTelemetry (not just Prometheus)
+   - Keep metrics integration simple: Registry.IncEventPublished(busType), Registry.IncEventDropped(busType)
+   - Log warnings when drop rate exceeds threshold (e.g., >1% of events)
+   - Add /api/events/debug endpoint: list all active buses, subscriber counts
+   - Document: metrics design accommodates future OpenTelemetry migration
+   Tests: Verify metrics accuracy, test metric aggregation
+   Done when: Event bus health observable via metrics.Registry, OTel-ready
+
+** TODO [#B] Create event bus testing utilities
+   Why: Make it easy to test event-driven code
+   Change:
+   - Create internal/event/testing.go with test helpers
+   - MockBus[T]: synchronous bus for deterministic tests
+   - EventCollector[T]: captures published events for assertion
+   - Example: collector := NewEventCollector[AgentEvent](); bus.Subscribe(collector.Collect)
+   - TimeoutSubscriber: fails test if event not received within duration
+   - EventMatcher: fluent assertions for event properties
+   - Document testing patterns: how to test event publishers, subscribers
+   - Add examples in test files
+   Tests: Test the test utilities (meta-testing)
+   Done when: Testing utilities make event testing easy and reliable
+
+** TODO [#C] Add event replay and debugging features
+   Why: Help developers debug event-driven flows
+   Change:
+   - Add optional event history to Bus[T]: keep last N events
+   - NewBus option: WithHistory(size int) enables event replay
+   - Add ReplayLast(n int, subscriber chan T) to resend recent events
+   - Add DumpHistory() []T for debugging
+   - Consider: event tracing (assign trace IDs, track event chains)
+   - Add GESTALT_EVENT_DEBUG env var: log all events at debug level
+   - Document debugging workflow: capture history, replay, trace chains
+   Tests: Test history buffer, replay correctness
+   Done when: Event system is debuggable in development
+
+** TODO [#B] Update documentation for event-driven architecture
+   Why: Developers need to understand when and how to use events
+   Change:
+   - Add "Event-Driven Architecture" section to AGENTS.md
+   - Document: what events are, when to use them vs direct calls
+   - Document: core event types and their payloads
+   - Document: how to publish events (Bus.Publish)
+   - Document: how to subscribe (Bus.Subscribe, SubscribeFiltered)
+   - Document: event bus lifecycle and cleanup
+   - Document: testing patterns for event-driven code
+   - Add architecture diagram: event flows (filesystem → agent → terminal → UI)
+   - Update README.md: mention event-driven architecture as core feature
+   - Add examples: subscribing to agent events, filtering terminal events
+   Tests: None (documentation only)
+   Done when: Event architecture fully documented with examples
+
+** TODO [#B] Add integration tests for event flows
+   Why: Verify end-to-end event propagation across system boundaries, prevent frontend breakage
+   Change:
+   - Test scenario: file change → EventHub → WebSocket → frontend
+   - Test scenario: agent start → AgentBus → dashboard update
+   - Test scenario: terminal output → TerminalBus → WebSocket → xterm
+   - Test scenario: config extraction → ConfigBus → progress UI
+   - Test scenario: workflow pause → WorkflowBus → Flow tab update
+   - Use real components (not mocks) for integration tests
+   - Verify event timing: events arrive in correct order
+   - Verify event delivery: no lost events under load
+   - Stress test: many subscribers, high event rate
+   - CRITICAL: Add WebSocket message format contract tests
+   - Test: JSON shape of events matches frontend expectations (eventStore.js, terminalStore.js)
+   - Test: WebSocket reconnection logic still works after event bus migration
+   - Document WebSocket contracts: message formats, event types, expected fields
+   - Frontend and backend ship together: no versioning needed, just contract tests
+   Tests: Integration test suite for event flows, WebSocket contract tests prevent frontend breakage
+   Done when: Event propagation works reliably end-to-end, frontend guaranteed compatible
+
+** TODO [#C] Consider event persistence for audit trail (OPTIONAL - DEFER)
+   Why: Events are valuable for debugging, compliance, analytics
+   Change:
+   - This is OPTIONAL and can be deferred to future work
+   - Design optional event persistence: write events to disk/DB
+   - Use case: audit trail (who started which agent when)
+   - Use case: replay for debugging (what happened before crash)
+   - Use case: analytics (event frequency, patterns)
+   - Decide: SQLite for local storage, or structured log files
+   - Decide: which events to persist (all vs high-value only)
+   - Add EventStore interface: Append(event), Query(filters), Replay()
+   - Make persistence opt-in: GESTALT_EVENT_STORE_ENABLED
+   - Document retention policy: keep last N days or M events
+   - Consider: OpenTelemetry already provides tracing/spans, may overlap with event persistence
+   - Decision: DEFER this step, focus on core event bus first, add persistence later if needed
+   Tests: Test event store implementation, verify persistence and replay (if implemented)
+   Done when: Event persistence available as opt-in feature (OPTIONAL - can skip for now)
+
+** TODO [#B] Deprecate old event implementations
+   Why: Remove duplicate code after successful migration
+   Change:
+   - Mark EventHub as deprecated (in comments and docs)
+   - Mark Broadcaster as deprecated
+   - Mark LogHub as deprecated
+   - Add deprecation warnings in code: "Use event.Bus instead"
+   - Set deprecation timeline: remove in 2.0.0 (major version bump)
+   - Update all internal code to use event.Bus directly
+   - Keep deprecated APIs as thin wrappers during transition
+   - Document migration guide for external users (if any)
+   Tests: Verify deprecated APIs still work (backward compatibility)
+   Done when: Old implementations deprecated, migration path clear
+
+** TODO [#C] Performance optimization and benchmarking
+   Why: Ensure event bus doesn't become bottleneck under load
+   Change:
+   - Benchmark Bus[T] operations: Subscribe, Publish, Unsubscribe
+   - Target: Publish should be <1µs for non-blocking mode
+   - Target: Support 10k+ events/sec with 100+ subscribers
+   - Optimize hot paths: reduce allocations, use sync.Pool for channels
+   - Optimize locking: consider lock-free data structures for metrics
+   - Profile under load: identify bottlenecks, optimize
+   - Add benchmark suite: go test -bench -benchmem
+   - Document performance characteristics and limits
+   Tests: Benchmark suite, load tests with many subscribers
+   Done when: Event bus meets performance targets, benchmarked
+
+** TODO [#A] Validate event architecture before config refactor
+   Why: Ensure event system is stable before building on top of it
+   Change:
+   - Run full test suite: all tests must pass
+   - Run integration tests: verify event flows work end-to-end
+   - Manual testing: trigger all event types, observe in UI
+   - Code review: ensure Bus[T] API is clean and ergonomic
+   - Documentation review: ensure examples are clear and correct
+   - Performance review: ensure benchmarks meet targets
+   - Decision point: is event architecture ready for config refactor to use?
+   - If yes: proceed with config refactor L1 (which will emit config events)
+   - If no: identify gaps, create follow-up L2 tasks, re-validate
+   Tests: Full test suite, integration tests, manual testing
+   Done when: Event architecture is validated, ready for production use
+* TODO [#B] Fix terminal natural touch scrolling
+  Goal: Enable natural touch scrolling anywhere on the terminal (not just scrollbar) while preserving mouse text selection for clipboard copy.
+  Notes:
+  - Current state: touch scroll code EXISTS in terminalStore.js (setupTouchScroll, lines 257-326) but DOES NOT WORK
+  - Problem analysis: code is implemented but has multiple architectural and interaction issues
+  - Root cause 1: xterm.js intercepts touch events for its own text selection before our handlers fire
+  - Root cause 2: passive:true on touchstart prevents preventDefault coordination with touchmove
+  - Root cause 3: xterm viewport scrolling conflicts with our manual scrollTop manipulation
+  - Root cause 4: no pointer type detection (touch vs mouse) leads to conflicting behaviors
+  - Root cause 5: touch-action: pan-y on terminal-shell__body may be insufficient for xterm internals
+  - Desired behavior: Touch = scroll anywhere, Mouse = text selection (current behavior preserved)
+  - Browser touch API: touchstart (identify gesture) → touchmove (scroll) → touchend (cleanup)
+  - Pointer Events API alternative: unifies mouse/touch/pen with pointerType detection
+  - xterm.js version: 6.0.0 (latest) - uses own touch handlers for text selection
+  - Previous attempts failed: likely due to event ordering, passive listeners, xterm conflicts
+  - Solution approach: Pointer Events API + proper event capture ordering + xterm mode coordination
+  - Testing requirements: manual touch device testing (no good automated touch simulation)
+  Date: 2026-01-11
+
+** TODO [#A] Research and analyze why current touch scroll fails
+   Why: Must understand root cause before designing solution, avoid repeating past mistakes
+   Change:
+   - Document current implementation: setupTouchScroll in terminalStore.js (lines 257-326)
+   - Current approach: Touch Events API (touchstart/touchmove/touchend) with capture:true
+   - Issue 1: touchstart uses passive:true, cannot call preventDefault in touchmove (browser error)
+   - Issue 2: xterm.js has own touch handlers that fire first (even with capture:true on our side)
+   - Issue 3: Manual viewport.scrollTop manipulation conflicts with xterm's scroll manager
+   - Issue 4: No way to distinguish mouse (selection) from touch (scroll) in current code
+   - Issue 5: getViewportElement() gets .xterm-viewport but xterm may recreate/replace it
+   - Research xterm.js touch handling: check if options exist to disable touch selection
+   - Research xterm.js scroll API: term.scrollLines(), term.scrollToLine() vs direct scrollTop
+   - Research Pointer Events: pointerType property distinguishes 'mouse', 'touch', 'pen'
+   - Test current code: add console.log to handlers, verify if they even fire on touch
+   - Test hypothesis: touch events never reach our handlers due to xterm interception
+   Tests: Manual touch testing with logging, document exact event flow
+   Done when: Root cause documented with evidence, solution approach validated
+
+** TODO [#B] Choose between Touch Events vs Pointer Events API
+   Why: Pointer Events unify mouse/touch/pen and provide pointerType detection
+   Change:
+   - Compare Touch Events API (touchstart/move/end) vs Pointer Events API (pointerdown/move/up)
+   - Touch Events pros: explicit touch-only, no mouse interference
+   - Touch Events cons: separate from mouse events, harder to coordinate, passive issues
+   - Pointer Events pros: single API, pointerType='touch'/'mouse', better preventDefault control
+   - Pointer Events cons: need to filter by pointerType, slightly more complex
+   - Decision factors: browser support (Pointer Events supported everywhere modern), xterm compatibility
+   - Recommendation: Use Pointer Events API with pointerType filtering
+   - Pointer Events allow: pointerdown (identify touch), pointermove (scroll), pointerup (end)
+   - Check event.pointerType === 'touch' to distinguish from mouse clicks
+   - Pointer Events have better passive/active coordination (can preventDefault in move after checking type)
+   - Document decision with rationale for future reference
+   Tests: None (design decision)
+   Done when: API choice documented with technical justification
+
+** TODO [#B] Design pointer-based scroll architecture
+   Why: Clear architecture prevents implementation mistakes
+   Change:
+   - Architecture: Pointer Events on term.element with capture:true and passive:false
+   - Flow: pointerdown → check pointerType → if touch, track start position → pointermove → scroll
+   - Mouse flow: pointerdown (mouse) → ignore, let xterm handle selection
+   - Touch flow: pointerdown (touch) → track, pointermove → manual scroll, pointerup → cleanup
+   - Prevent xterm interference: call event.stopPropagation() for touch pointers in capture phase
+   - This intercepts touch before xterm sees it, but lets mouse through
+   - Scroll mechanism: use term.scrollLines(delta) instead of viewport.scrollTop (cleaner API)
+   - Or use viewport.scrollTop but wrap in term.refresh() call (force xterm to sync state)
+   - Inertial scrolling: track pointer velocity, continue scroll after pointerup (optional, defer)
+   - Edge cases: multi-touch (use primary pointer only), touch-and-hold (threshold before scroll)
+   - State machine: idle → tracking → scrolling → idle
+   - Add touch-action: none to xterm element (disable browser touch gestures, we handle all)
+   - Update CSS: remove touch-action: pan-y, add touch-action: none to .xterm
+   - Consider: threshold distance before activating scroll (avoid accidental scroll on tap)
+   Tests: None (design only)
+   Done when: Architecture documented with event flow diagram, edge cases identified
+
+** TODO [#B] Implement pointer event handlers with type detection
+   Why: Core of the solution - pointer handlers that distinguish touch from mouse
+   Change:
+   - Replace setupTouchScroll with setupPointerScroll in terminalStore.js
+   - Register pointerdown/pointermove/pointerup/pointercancel on term.element
+   - All handlers: { capture: true, passive: false } (need preventDefault control)
+   - Track state: isScrolling (bool), pointerId (number), startY (number), lastY (number)
+   - pointerdown handler:
+     - if (event.pointerType !== 'touch') return (let mouse through to xterm)
+     - if (isScrolling) return (prevent multi-touch conflicts)
+     - event.preventDefault(), event.stopPropagation() (intercept before xterm)
+     - capture pointer: event.target.setPointerCapture(event.pointerId)
+     - track: pointerId, startY, lastY, isScrolling=false
+   - pointermove handler:
+     - if (event.pointerId !== tracked pointerId) return
+     - if (event.pointerType !== 'touch') return
+     - calculate deltaY: event.clientY - lastY
+     - if (!isScrolling && Math.abs(deltaY) < threshold) return (avoid accidental scroll)
+     - isScrolling = true
+     - scroll terminal: term.scrollLines(-Math.round(deltaY / pixelsPerLine))
+     - or: viewport.scrollTop -= deltaY; term.refresh()
+     - update lastY
+     - event.preventDefault() (prevent browser scroll)
+   - pointerup/pointercancel handler:
+     - if (event.pointerId !== tracked pointerId) return
+     - release pointer capture
+     - reset state: isScrolling=false, pointerId=null
+   - Return cleanup function: remove all event listeners, release capture if active
+   Tests: Unit test pointer type filtering, state machine transitions (mock PointerEvents)
+   Done when: Pointer handlers implemented, mouse ignored, touch captured and scrolled
+
+** TODO [#B] Integrate pointer scroll into attach/detach lifecycle
+   Why: Ensure handlers are properly registered and cleaned up with terminal lifecycle
+   Change:
+   - In terminalStore.js attach() function (line ~328):
+   - Replace setupTouchScroll call with setupPointerScroll
+   - Target remains: term.element (xterm's root element)
+   - Ensure term.element exists before calling setupPointerScroll
+   - Store cleanup function in disposeTouchHandlers (rename to disposePointerHandlers for clarity)
+   - In dispose() function: call disposePointerHandlers if it exists
+   - In detach() function: call disposePointerHandlers if it exists
+   - Handle edge case: term.element recreated (e.g., on reconnect) → re-setup handlers
+   - Add defensive checks: if (!term.element) return in setupPointerScroll
+   - Update variable names: touchTarget → pointerTarget, disposeTouchHandlers → disposePointerHandlers
+   Tests: Integration test: attach → handlers active, detach → handlers removed, no leaks
+   Done when: Pointer scroll integrated into terminal lifecycle, cleanup verified
+
+** TODO [#C] Add CSS touch-action: none to xterm element
+   Why: Disable browser default touch gestures so we fully control touch behavior
+   Change:
+   - In Terminal.svelte <style> section (line ~369):
+   - Add: :global(.xterm) { touch-action: none; }
+   - Remove or update: .terminal-shell__body { touch-action: pan-y; } → { touch-action: none; }
+   - touch-action: none tells browser "don't do pinch-zoom, pull-to-refresh, etc"
+   - We handle all touch interactions via pointer events
+   - Note: this disables ALL browser touch gestures on terminal (intended)
+   - Alternative: touch-action: pan-x pan-y (allow scroll but prevent zoom) - test both
+   - Document: touch-action: none is required for custom touch handling to work correctly
+   Tests: Manual test: verify no browser gestures interfere with custom scroll
+   Done when: CSS updated, browser touch gestures disabled on terminal
+
+** TODO [#B] Calculate scroll sensitivity (deltaY to scrollLines conversion)
+   Why: Touch scroll needs to feel natural, not too fast or too slow
+   Change:
+   - Determine pixels-per-line for terminal: term.element.offsetHeight / term.rows
+   - Or use fixed value: ~20 pixels per line (typical terminal line height)
+   - Convert pointer deltaY (pixels) to scroll lines: deltaLines = deltaY / pixelsPerLine
+   - Round or floor deltaLines to avoid fractional scrolling (term.scrollLines takes integer)
+   - Add sensitivity multiplier: configurable value (default 1.0) to adjust scroll speed
+   - Expose in Terminal.svelte props: scrollSensitivity (number, default 1.0)
+   - Pass to terminalStore via options or direct call: state.setScrollSensitivity(value)
+   - Test different sensitivities: 0.5 (slow), 1.0 (normal), 1.5 (fast)
+   - Consider: momentum scrolling (track velocity, continue after pointerup) - OPTIONAL, defer
+   - Document recommended sensitivity range: 0.5 to 2.0
+   Tests: Manual testing with various sensitivity values, document optimal range
+   Done when: Scroll sensitivity feels natural, configurable, documented
+
+** TODO [#B] Add scroll activation threshold to prevent accidental scrolling
+   Why: Small touch movements (taps, jitters) shouldn't trigger scroll
+   Change:
+   - In pointermove handler: track cumulative movement from pointerdown
+   - Don't activate scrolling until |totalDeltaY| > threshold (e.g., 10 pixels)
+   - State: isScrolling starts false, becomes true when threshold exceeded
+   - Once isScrolling=true, all subsequent pointermove events scroll
+   - Threshold prevents: accidental scroll on tap, jitter during touch, small hand movements
+   - Recommended threshold: 8-15 pixels (test on real device)
+   - Also add time threshold (optional): must move AND hold for 100ms before scrolling
+   - This further prevents accidental scroll on quick taps
+   - Document: threshold values chosen based on mobile UI best practices
+   Tests: Manual test: tap without scrolling, small movements ignored, deliberate scroll works
+   Done when: Threshold implemented, accidental scrolls prevented, feels responsive
+
+** TODO [#B] Preserve xterm text selection for mouse
+   Why: Mouse users must still be able to select text for clipboard copy
+   Change:
+   - Verify mouse behavior: pointerType === 'mouse' events are NOT intercepted
+   - Our handlers return early for mouse, xterm sees events normally
+   - Test: click-drag with mouse → text selection works (selection highlight appears)
+   - Test: double-click with mouse → word selection works
+   - Test: triple-click with mouse → line selection works
+   - Test: Ctrl+C / Cmd+C → copies selected text to clipboard
+   - If selection breaks: ensure mouse pointers skip preventDefault/stopPropagation
+   - Edge case: stylus/pen (pointerType === 'pen') → treat as mouse or touch?
+   - Decision: treat pen as mouse (allow selection) - pens are precise like mice
+   - Update handler: if (event.pointerType !== 'touch') return (allows mouse + pen)
+   Tests: Manual test with real mouse, verify selection works exactly as before
+   Done when: Mouse selection verified working, no regression in mouse behavior
+
+** TODO [#B] Test on real touch devices (phone, tablet)
+   Why: Touch behavior cannot be reliably simulated, must test on hardware
+   Change:
+   - Test devices: iOS (Safari), Android (Chrome), tablet (both)
+   - Test scenarios:
+     1. Single-finger scroll up/down → terminal scrolls smoothly
+     2. Tap (no movement) → no scroll, no selection (just focus)
+     3. Small drag (<threshold) → no scroll (threshold works)
+     4. Fast swipe → scrolls, no overscroll or jank
+     5. Multi-touch (accidental) → ignored, no crashes
+     6. Scroll while typing → input not interrupted
+     7. Scroll near edges (top/bottom) → stops at buffer limits, no overscroll
+     8. Long terminal output (>1000 lines) → scrolls through all history
+   - Test with mouse on same devices (if available): selection still works
+   - Document any device-specific issues (iOS Safari vs Android Chrome differences)
+   - Check for jank, lag, unresponsive touches, unexpected jumps
+   - Adjust sensitivity/threshold based on real device feel
+   Tests: Manual testing on physical devices, document results per device/browser
+   Done when: Touch scroll works smoothly on iOS and Android, no device-specific bugs
+
+** TODO [#C] Add visual feedback for touch scroll (optional)
+   Why: Users may want visual indication that touch is active (not strictly required)
+   Change:
+   - Optional: add subtle visual cue during touch scroll (e.g., fade in scroll indicator)
+   - Show scrollbar on touch, hide when idle (like mobile apps)
+   - CSS transition: scrollbar opacity 0 → 1 on touch, fade out after 1s idle
+   - Or: add touch ripple effect at touch point (very subtle, doesn't obscure text)
+   - Or: do nothing - natural scrolling doesn't need extra feedback (iOS/Android style)
+   - Recommendation: DEFER this step, test without visual feedback first
+   - If users request it later, add minimal scrollbar fade animation
+   - Document: visual feedback is optional enhancement, not core requirement
+   Tests: Manual test with and without visual feedback, gather user preference
+   Done when: Visual feedback decision made, implemented if desired (optional)
+
+** TODO [#B] Add touch scroll integration tests (automated)
+   Why: Prevent regressions, document expected behavior in code
+   Change:
+   - Create frontend/src/lib/terminalStore.test.js (if doesn't exist)
+   - Use Vitest + jsdom + mock PointerEvent API
+   - Test suite: "Touch Scroll"
+   - Test 1: setupPointerScroll registers event listeners on element
+   - Test 2: pointerdown with type='touch' activates tracking
+   - Test 3: pointerdown with type='mouse' is ignored
+   - Test 4: pointermove scrolls terminal after threshold
+   - Test 5: pointerup cleans up state
+   - Test 6: cleanup function removes all listeners
+   - Test 7: multi-pointer scenario (second touch ignored)
+   - Mock: term.scrollLines or verify viewport.scrollTop changes
+   - Mock: term.element, PointerEvent constructor
+   - Challenge: PointerEvent not fully supported in jsdom (may need polyfill)
+   - Alternative: manual testing + detailed documentation if mocking too complex
+   - Document: "Touch scroll tested manually on iOS/Android, see TESTING.md"
+   Tests: Automated test suite (preferred) or manual test checklist (fallback)
+   Done when: Touch scroll behavior covered by tests or documented test procedure
+
+** TODO [#B] Update documentation for touch scroll feature
+   Why: Users and developers need to know touch scroll exists and how it works
+   Change:
+   - Update README.md: add "Touch Scrolling" section under Terminal features
+   - Document: "Terminal supports natural touch scrolling on mobile devices"
+   - Document: "Touch anywhere on terminal to scroll, mouse selection preserved"
+   - Document: "Works on iOS Safari, Android Chrome, and tablets"
+   - Update AGENTS.md: mention touch scroll implementation for LLM context
+   - Technical details: Pointer Events API, pointerType detection, scroll sensitivity
+   - Add to TESTING.md: touch scroll test checklist for manual QA
+   - Troubleshooting: "Touch scroll not working? Check browser supports Pointer Events"
+   - Known limitations: "No momentum scrolling (tap to stop), may add in future"
+   - Document scroll sensitivity config (if exposed as prop): default 1.0
+   Tests: None (documentation only)
+   Done when: Touch scroll documented in user and developer docs
+
+** TODO [#A] Validate with user testing before marking done
+   Why: Ensure solution actually solves the problem, not just technically correct
+   Change:
+   - User testing: hand device to non-technical user, ask them to scroll terminal
+   - Observe: do they naturally try to scroll? does it work? any confusion?
+   - Ask: "Does scrolling feel natural compared to other apps?"
+   - Test with previous failed attempts: ensure this solution actually works (not just theory)
+   - Compare to native apps: iOS Terminal app, Android Termux, etc.
+   - Acceptance criteria:
+     1. Touch scroll works immediately without instruction
+     2. No conflicts with typing or other interactions
+     3. Feels smooth and responsive (no lag or jank)
+     4. Mouse selection still works for desktop users
+     5. No regressions in existing terminal features
+   - If issues found: iterate on sensitivity, threshold, or pointer handling
+   - Document any edge cases or limitations discovered in user testing
+   - Sign-off: get confirmation from original requester that problem is solved
+   Tests: User acceptance testing, real-world usage scenarios
+   Done when: User confirms touch scroll works as expected, problem solved
+* TODO [#A] Config extraction refactor with hash verification and version tracking
+  Goal: Refactor config/ handling to always extract embedded resources to .gestalt/config/ on startup with SHA-256 hash verification, semantic version compatibility checks, backup on conflicts, and relocate PLAN.org to .gestalt/.
+  Notes:
+  - Current state: config/ is embedded, optional override from ./gestalt/config/
+  - New behavior: always extract embedded config/* to .gestalt/config/ on startup
+  - Hash verification: store SHA-256 hashes of embedded files at compile time
+  - Version tracking: .gestalt/version.json with semantic version and build date
+  - Version compatibility: major mismatch=error, minor=warning, patch=info log
+  - Conflict resolution: if existing file differs, warn + backup (.bck suffix) + overwrite
+  - If hash matches: skip extraction (file already up-to-date)
+  - Efficient hash storage: embed single manifest file (JSON or binary) with paths→hashes
+  - PLAN.org relocation: move from workdir root to .gestalt/PLAN.org
+  - Update all PLAN.org references: API endpoints, watchers, UI, documentation
+  - Benefits: consistent config state, upgrade path, user customization with safety, version compatibility enforcement
+  - Extract-config flag becomes no-op (extraction happens automatically)
+  - Preserve user overrides: hash check prevents accidental overwrites
+  Date: 2026-01-11
+
+** TODO [#B] Research and design version.json and manifest formats
+   Why: Need efficient compile-time hash storage, runtime lookup, and version compatibility tracking
+   Change:
+   - Design version.json format for .gestalt/ directory
+   - Version structure: {"version": "1.2.3", "major": 1, "minor": 2, "patch": 3, "built": "2026-01-11T12:34:56Z", "git_commit": "abc123..."}
+   - Optional fields: git_commit (short SHA), build_host, go_version for debugging
+   - Design manifest format: JSON or binary for embedded hash map
+   - Manifest structure: {"path/to/file.json": "sha256hex", ...}
+   - Consider: single manifest.json vs separate hash files per resource type
+   - Research: Go crypto/sha256 for hash generation at build time
+   - Research: embed.FS walking pattern to enumerate all files
+   - Decision: JSON manifest for simplicity (human-readable, easy to generate)
+   - Manifest location: embedded as config/manifest.json or separate
+   - Build-time generation: script or Makefile target to compute hashes and version
+   Tests: None (design only)
+   Done when: Version and manifest formats designed, documented in this L2
+
+** TODO [#B] Create build-time manifest and version generator
+   Why: Need to compute SHA-256 hashes and embed version info at compile time
+   Change:
+   - Create scripts/generate-config-manifest.go or shell script
+   - Walk config/agents/, config/prompts/, config/skills/ directories
+   - Compute SHA-256 hash of each file content
+   - Output manifest JSON: {"agents/copilot.json": "abc123...", ...}
+   - Use relative paths from config/ root for portability
+   - Handle nested directories (skills with subdirectories)
+   - Deterministic output: sort keys for reproducible builds
+   - Write to config/manifest.json (embedded with other resources)
+   - Generate version template from VERSION env var or git describe
+   - Parse semantic version: extract major, minor, patch components
+   - Capture build date as RFC3339 timestamp
+   - Optional: capture git commit SHA (git rev-parse --short HEAD)
+   - Write template version data to be embedded (or use ldflags for version fields)
+   - Integrate into Makefile: run before go build, pass VERSION
+   Tests: Run script, verify manifest.json and version data generated correctly
+   Done when: Build generates manifest.json with hashes and version metadata
+
+** TODO [#B] Embed manifest and version metadata
+   Why: Manifest and version info must be available at runtime for verification
+   Change:
+   - Update cmd/gestalt/embed.go or root embed.go
+   - Add manifest.json to embedded configFS
+   - Ensure manifest is included in binary at compile time
+   - Create internal/version package with embedded version data
+   - Use ldflags to inject: Version, Major, Minor, Patch, Built, GitCommit
+   - Add function LoadManifest(fs embed.FS) (map[string]string, error)
+   - Parse manifest JSON into path→hash map
+   - Handle missing manifest gracefully: warn and proceed without verification
+   - Add function GetVersionInfo() VersionInfo to return structured version data
+   Tests: Build binary, verify manifest and version accessible at runtime
+   Done when: Manifest and version embedded and loadable at runtime
+
+** TODO [#B] Implement hash verification logic
+   Why: Core of extraction safety - verify existing files before overwriting
+   Change:
+   - Create internal/config/extractor.go with Extractor struct
+   - Method: Extractor.Extract(sourceFS embed.FS, destDir string, manifest map[string]string) error
+   - For each file in manifest:
+     1. Compute destination path: destDir + relative path
+     2. Check if destination exists
+     3. If exists: compute SHA-256 of existing file
+     4. Compare hashes: if match, skip (log at debug level)
+     5. If differ: warn, rename existing to .bck, extract new
+     6. If not exists: extract new
+   - Handle directories: create parent dirs as needed
+   - Preserve file permissions from embedded FS
+   - Use atomic writes: write to temp, rename (avoid partial writes)
+   - Structured logging: log each action (skip/backup/extract)
+   Tests: Unit tests with temp directories, various conflict scenarios
+   Done when: Extractor safely extracts with hash verification and backups
+
+** TODO [#A] Implement version compatibility checking
+   Why: Prevent running incompatible Gestalt versions on existing .gestalt/ directories
+   Change:
+   - Create internal/config/version.go with version compatibility logic
+   - Function: CheckVersionCompatibility(installed, current VersionInfo) error
+   - Compare major versions: if differ, return error "Incompatible major version"
+   - Compare minor versions: if differ, log warning "Minor version mismatch"
+   - Compare patch versions: if differ, log info "Patch version difference"
+   - Error message must guide user: "Breaking changes detected. Backup .gestalt/ and run with --force-upgrade"
+   - Warning message: "Config may be outdated. Review .bck files after startup."
+   - Info message: "Config updated from X.Y.Z to X.Y.W"
+   - Add --force-upgrade flag to bypass major version check (dangerous)
+   Tests: Unit tests for all version comparison scenarios
+   Done when: Version checking prevents incompatible upgrades
+
+** TODO [#B] Integrate version tracking and extraction into startup
+   Why: Ensure config and version are always checked and extracted on start
+   Change:
+   - Modify cmd/gestalt/main.go startup sequence
+   - After flag parsing, before agent/skill loading:
+     1. Create .gestalt/ directory if missing
+     2. Check for existing .gestalt/version.json
+     3. If exists: load and compare with current version
+     4. Run version compatibility check (may error/warn/info)
+     5. Load manifest from embedded FS
+     6. Extract config/* to .gestalt/config/ with verification
+     7. Write/update .gestalt/version.json with current version
+     8. Log summary: version check result, N files extracted, M skipped, K backed up
+   - Update agent/skill loaders to read from .gestalt/config/
+   - Remove fallback to embedded FS (always use .gestalt/config/)
+   - Handle extraction errors: log and exit if critical failure
+   - Add env var: GESTALT_CONFIG_DIR (default .gestalt/config) for testing
+   Tests: Integration test: start server, verify .gestalt/config/ and version.json
+   Done when: Startup always checks version and extracts config
+
+** TODO [#C] Handle backup file cleanup policy
+   Why: Prevent accumulation of .bck files over time
+   Change:
+   - Add cleanup logic: keep only latest .bck per file
+   - On backup creation: check for existing .bck, replace if older
+   - Optional: keep timestamped backups (file.json.bck.YYYYMMDD-HHMMSS)
+   - Add env var: GESTALT_CONFIG_BACKUP_LIMIT (default 1, 0=disable backups)
+   - Log cleanup actions at debug level
+   - Document backup behavior in README
+   Tests: Test backup replacement logic
+   Done when: Backup policy prevents unbounded file accumulation
+
+** TODO [#B] Relocate PLAN.org to .gestalt/PLAN.org
+   Why: Centralize all Gestalt state in .gestalt/ directory
+   Change:
+   - Update all PLAN.org references to .gestalt/PLAN.org
+   - Backend: internal/watcher/watcher.go - update watched path
+   - Backend: internal/api/rest.go - GET /api/plan endpoint path
+   - Backend: cmd/gestalt/main.go - startup PLAN.org check
+   - Frontend: views/PlanView.svelte - API still works (backend handles path)
+   - Documentation: README.md, AGENTS.md - update PLAN.org references
+   - On startup: if workdir/PLAN.org exists, offer to migrate to .gestalt/
+   - Migration: copy PLAN.org to .gestalt/, optionally rename original
+   Tests: Manual test: create PLAN.org, verify .gestalt/PLAN.org watched
+   Done when: All code references .gestalt/PLAN.org, migration path documented
+
+** TODO [#C] Add migration helper for existing installations
+   Why: Users with existing PLAN.org in workdir need smooth transition
+   Change:
+   - On startup, check if workdir/PLAN.org exists
+   - If yes and .gestalt/PLAN.org doesn't exist: auto-migrate (copy)
+   - If both exist: warn user, use .gestalt/PLAN.org
+   - Log migration action: "Migrated PLAN.org to .gestalt/"
+   - Optional: add --migrate-plan CLI flag for manual control
+   - Document migration behavior in README
+   Tests: Test migration scenarios with various file states
+   Done when: Existing installations migrate smoothly
+
+** TODO [#C] Update --extract-config flag behavior
+   Why: Flag becomes less relevant with automatic extraction
+   Change:
+   - Option 1: Remove flag entirely (extraction always happens)
+   - Option 2: Keep flag, make it force re-extraction (ignore hashes)
+   - Option 3: Rename to --force-config-extract or --reset-config
+   - Document new behavior: extraction happens automatically
+   - Update --help text to reflect automatic extraction
+   - Consider: add --skip-config-extract for fast startup (advanced users)
+   Tests: Test flag behavior matches documentation
+   Done when: Flag behavior clear and documented
+
+** TODO [#B] Update documentation for new config behavior
+   Why: Users and contributors need to understand config extraction
+   Change:
+   - Update README.md "Embedded Resources" section
+   - Document: config always extracted to .gestalt/config/ on startup
+   - Document: hash verification prevents accidental overwrites
+   - Document: .bck files created on conflicts, include resolution steps
+   - Document: PLAN.org now lives in .gestalt/PLAN.org
+   - Document: migration behavior for existing installations
+   - Add troubleshooting section: conflicts, backup files, manual overrides
+   - Update AGENTS.md with new config locations
+   Tests: None (documentation only)
+   Done when: Config extraction fully documented
+
+** TODO [#B] Add config validation on extraction
+   Why: Detect malformed config files early in startup
+   Change:
+   - After extraction, validate all config files
+   - Agents: parse and validate all JSON files
+   - Prompts: check .txt files are readable text
+   - Skills: validate SKILL.md frontmatter and structure
+   - Log validation warnings/errors with file paths
+   - Continue startup on non-critical validation failures
+   - Critical failures: malformed manifest, extraction I/O errors
+   Tests: Test with invalid config files, verify warnings logged
+   Done when: Startup includes config validation step
+
+** TODO [#C] Optimize extraction performance
+   Why: Minimize startup time impact of extraction
+   Change:
+   - Skip hash computation for unchanged files (check mtime first)
+   - Parallel extraction: goroutines for independent files
+   - Buffered I/O for hash computation and file writes
+   - Cache manifest in memory: single parse per startup
+   - Measure: log extraction duration at debug level
+   - Add benchmark: compare cold start vs warm start (all skipped)
+   Tests: Benchmark extraction with large config sets
+   Done when: Extraction completes in <100ms for typical configs
+
+** TODO [#B] Expose version info in API and logs
+   Why: Users and monitoring tools need to see Gestalt version
+   Change:
+   - Update /api/status to include version object
+   - Response format: {"version": "1.2.3", "major": 1, "minor": 2, "patch": 3, "built": "...", "git_commit": "..."}
+   - Log version at startup: "Gestalt version X.Y.Z (built YYYY-MM-DD, commit abc123)"
+   - Log config version compatibility check results
+   - Include version in startup banner/splash
+   - Document version fields in API documentation
+   Tests: Verify version appears in /api/status and startup logs
+   Done when: Version fully visible in API, logs, and UI
+
+** TODO [#B] Update frontend for .gestalt/PLAN.org
+   Why: Ensure UI correctly fetches PLAN.org from new location
+   Change:
+   - Verify GET /api/plan still works (backend handles path change)
+   - No frontend changes needed if backend path abstracted correctly
+   - Update any hardcoded PLAN.org references in comments/docs
+   - Test PlanView.svelte with new backend path
+   - Verify filesystem watcher events still trigger UI updates
+   Tests: Manual test Plan tab, verify content loads and updates
+   Done when: Frontend works seamlessly with .gestalt/PLAN.org
+
+** TODO [#C] Add developer mode for config override
+   Why: Developers may want to bypass extraction for faster iteration
+   Change:
+   - Add env var: GESTALT_DEV_MODE=true
+   - In dev mode: skip extraction, read directly from config/ directory
+   - Or: add --dev flag to skip extraction and validation
+   - Document dev mode in TESTING.md or CONTRIBUTING.md
+   - Only for development; production always extracts
+   Tests: Test dev mode skips extraction
+   Done when: Dev mode documented and functional
+
+** TODO [#B] Add integration tests for config extraction flow
+   Why: Critical path needs comprehensive test coverage
+   Change:
+   - Test scenarios:
+     1. Fresh start: .gestalt/ doesn't exist
+     2. Warm start: files unchanged (all skipped)
+     3. Conflict: file modified (backup + overwrite)
+     4. Migration: PLAN.org in workdir
+     5. Partial extraction: some files exist, some don't
+   - Use temp directories for isolation
+   - Mock embedded FS with test data
+   - Verify file contents, hashes, backups
+   - Verify logs contain expected messages
+   Tests: Integration test suite for extraction
+   Done when: All extraction scenarios covered by tests
+
+** TODO [#B] Document upgrade path and version compatibility
+   Why: Users need to understand version compatibility and upgrade behavior
+   Change:
+   - Add "Upgrading Gestalt" section to README.md
+   - Explain semantic versioning: major (breaking), minor (features), patch (fixes)
+   - Explain version compatibility checks:
+     - Major version mismatch: error, must backup and migrate
+     - Minor version mismatch: warning, review .bck files
+     - Patch version difference: automatic, logged at info level
+   - Explain: new versions may update config files
+   - Explain: hash verification detects changes
+   - Explain: .bck files preserve customizations
+   - Provide merge instructions: diff .bck vs new file
+   - Document: how to keep customizations across upgrades
+   - Document --force-upgrade flag (use with caution)
+   - Example workflow: update binary → check version compatibility → review .bck files → merge changes
+   - Document .gestalt/version.json format and purpose
+   Tests: None (documentation only)
+   Done when: Upgrade path and version compatibility clearly documented
+
+** TODO [#C] Add telemetry for config extraction metrics
+   Why: Monitor extraction behavior in production (if telemetry exists)
+   Change:
+   - Log metrics: files extracted, skipped, backed up
+   - Track extraction duration and success rate
+   - Log to structured logger for aggregation
+   - Optional: expose in /api/metrics if metrics endpoint exists
+   - Help diagnose config-related issues in the field
+   Tests: Verify metrics appear in logs
+   Done when: Extraction metrics logged and observable
 * DONE [#B] Prompt templating system with include directives
   Goal: Support .tmpl prompt files that can include .txt fragments, rendering templates at agent start before injection into terminal.
   Notes:
@@ -347,10 +1264,10 @@
    - File: `frontend/src/App.svelte`
    - Pass `onSelect={handleSelect}` prop to Dashboard component (add to Dashboard component invocation)
    - No terminalStore changes needed (terminalStore manages xterm state, not agent button state)
-   Data flow: 
+   Data flow:
    - App.svelte terminals → Dashboard.svelte prop → agent.running computed property
    - Dashboard agent button click → App.svelte onSelect(terminalId) → tab switches to terminal
-   Tests: 
+   Tests:
    - Manual test: agent not running → click "Start" → terminal created and opened
    - Manual test: agent running → click "Open" → switches to existing terminal tab (no close action)
    - Manual test: close terminal via terminal view close button → agent button returns to "Start" state
@@ -562,7 +1479,7 @@
   - Outcome: prioritized list of improvements with effort estimates and impact assessment
   - This is a planning and analysis L1; implementation will be separate follow-up work
   Date: 2026-01-08
-  
+
   Context for implementation:
   - Gestalt is a multi-terminal dashboard with AI agent profiles and skills
   - Core value: orchestrate multiple terminal sessions with agent coordination
@@ -1047,9 +1964,9 @@
    - Help format:
      ```
      Usage: gestalt [options]
-     
+
      Gestalt multi-terminal dashboard with agent profiles
-     
+
      Options:
        --port PORT                  HTTP server port (env: GESTALT_PORT, default: 8080)
        --shell SHELL                Default shell command (env: GESTALT_SHELL, default: system shell)
@@ -1059,11 +1976,11 @@
        ...
        --help                       Show this help message
        --version                    Print version and exit
-     
+
      Subcommands:
        gestalt validate-skill PATH  Validate an Agent Skill directory or SKILL.md file
        gestalt completion SHELL     Generate shell completion script (bash, zsh)
-     
+
      Environment variables override defaults; CLI flags override environment variables.
      ```
    - Show defaults and env var names for each flag
@@ -1104,9 +2021,9 @@
    - Help format:
      ```
      Usage: gestalt-send [options] <agent-name-or-id>
-     
+
      Send stdin to a running Gestalt agent terminal
-     
+
      Options:
        --url URL        Gestalt server URL (env: GESTALT_URL, default: http://localhost:8080)
        --token TOKEN    Auth token (env: GESTALT_TOKEN, default: none)
@@ -1115,15 +2032,15 @@
        --debug          Show detailed debug info (implies --verbose)
        --help           Show this help message
        --version        Print version and exit
-     
+
      Arguments:
        agent-name-or-id  Agent name or ID to send input to
-     
+
      Examples:
        cat file.txt | gestalt-send copilot
        echo "status" | gestalt-send --start architect
        gestalt-send --url http://remote:8080 --token abc123 agent-id
-     
+
      Exit codes:
        0  Success
        1  Usage error

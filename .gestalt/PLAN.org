@@ -1,4 +1,4 @@
-* WIP [#A] Config extraction refactor with hash verification and version tracking
+* DONE [#A] Config extraction refactor with hash verification and version tracking
   Goal: Refactor config/ handling to always extract embedded resources to .gestalt/config/ on startup with SHA-256 hash verification, semantic version compatibility checks, backup on conflicts, and relocate PLAN.org to .gestalt/.
   Notes:
   - Current state: config/ is embedded, optional override from ./gestalt/config/
@@ -16,7 +16,7 @@
   - Preserve user overrides: hash check prevents accidental overwrites
   Date: 2026-01-11
 
-** DONE [#B] Research and design version.json and manifest formats
+** [#B] Research and design version.json and manifest formats
    Why: Need efficient compile-time hash storage, runtime lookup, and version compatibility tracking
    Change:
    - Design version.json format for .gestalt/ directory
@@ -43,7 +43,7 @@
    Tests: None (design only)
    Done when: Version and manifest formats designed, documented in this L2
 
-** DONE [#B] Create build-time manifest and version generator
+** [#B] Create build-time manifest and version generator
    Why: Need to compute SHA-256 hashes and embed version info at compile time
    Change:
    - Create scripts/generate-config-manifest.go or shell script
@@ -63,7 +63,7 @@
    Tests: Run script, verify manifest.json and version data generated correctly
    Done when: Build generates manifest.json with hashes and version metadata
 
-** DONE [#B] Embed manifest and version metadata
+** [#B] Embed manifest and version metadata
    Why: Manifest and version info must be available at runtime for verification
    Change:
    - Update cmd/gestalt/embed.go or root embed.go
@@ -78,7 +78,7 @@
    Tests: Build binary, verify manifest and version accessible at runtime
    Done when: Manifest and version embedded and loadable at runtime
 
-** DONE [#B] Implement hash verification logic
+** [#B] Implement hash verification logic
    Why: Core of extraction safety - verify existing files before overwriting
    Change:
    - Create internal/config/extractor.go with Extractor struct
@@ -97,7 +97,7 @@
    Tests: Unit tests with temp directories, various conflict scenarios
    Done when: Extractor safely extracts with hash verification and backups
 
-** DONE [#A] Implement version compatibility checking
+** [#A] Implement version compatibility checking
    Why: Prevent running incompatible Gestalt versions on existing .gestalt/ directories
    Change:
    - Create internal/config/version.go with version compatibility logic
@@ -112,7 +112,7 @@
    Tests: Unit tests for all version comparison scenarios
    Done when: Version checking prevents incompatible upgrades
 
-** DONE [#B] Integrate version tracking and extraction into startup
+** [#B] Integrate version tracking and extraction into startup
    Why: Ensure config and version are always checked and extracted on start
    Change:
    - Modify cmd/gestalt/main.go startup sequence
@@ -132,7 +132,7 @@
    Tests: Integration test: start server, verify .gestalt/config/ and version.json
    Done when: Startup always checks version and extracts config
 
-** DONE [#C] Handle backup file cleanup policy
+** [#C] Handle backup file cleanup policy
    Why: Prevent accumulation of .bck files over time
    Change:
    - Add cleanup logic: keep only latest .bck per file
@@ -144,7 +144,7 @@
    Tests: Test backup replacement logic
    Done when: Backup policy prevents unbounded file accumulation
 
-** DONE [#B] Relocate PLAN.org to .gestalt/PLAN.org
+** [#B] Relocate PLAN.org to .gestalt/PLAN.org
    Why: Centralize all Gestalt state in .gestalt/ directory
    Change:
    - Update all PLAN.org references to .gestalt/PLAN.org
@@ -158,7 +158,7 @@
    Tests: Manual test: create PLAN.org, verify .gestalt/PLAN.org watched
    Done when: All code references .gestalt/PLAN.org, migration path documented
 
-** DONE [#C] Add migration helper for existing installations
+** [#C] Add migration helper for existing installations
    Why: Users with existing PLAN.org in workdir need smooth transition
    Change:
    - On startup, check if workdir/PLAN.org exists
@@ -170,7 +170,7 @@
    Tests: Test migration scenarios with various file states
    Done when: Existing installations migrate smoothly
 
-** DONE [#C] Update --extract-config flag behavior
+** [#C] Update --extract-config flag behavior
    Why: Flag becomes less relevant with automatic extraction
    Change:
    - Option 1: Remove flag entirely (extraction always happens)
@@ -182,7 +182,7 @@
    Tests: Test flag behavior matches documentation
    Done when: Flag behavior clear and documented
 
-** DONE [#B] Update documentation for new config behavior
+** [#B] Update documentation for new config behavior
    Why: Users and contributors need to understand config extraction
    Change:
    - Update README.md "Embedded Resources" section
@@ -196,7 +196,7 @@
    Tests: None (documentation only)
    Done when: Config extraction fully documented
 
-** DONE [#B] Add config validation on extraction
+** [#B] Add config validation on extraction
    Why: Detect malformed config files early in startup
    Change:
    - After extraction, validate all config files
@@ -209,7 +209,7 @@
    Tests: Test with invalid config files, verify warnings logged
    Done when: Startup includes config validation step
 
-** DONE [#C] Optimize extraction performance
+** [#C] Optimize extraction performance
    Why: Minimize startup time impact of extraction
    Change:
    - Skip hash computation for unchanged files (check mtime first)
@@ -221,7 +221,7 @@
    Tests: Benchmark extraction with large config sets
    Done when: Extraction completes in <100ms for typical configs
 
-** DONE [#B] Expose version info in API and logs
+** [#B] Expose version info in API and logs
    Why: Users and monitoring tools need to see Gestalt version
    Change:
    - Update /api/status to include version object
@@ -233,7 +233,7 @@
    Tests: Verify version appears in /api/status and startup logs
    Done when: Version fully visible in API, logs, and UI
 
-** DONE [#B] Update frontend for .gestalt/PLAN.org
+** [#B] Update frontend for .gestalt/PLAN.org
    Why: Ensure UI correctly fetches PLAN.org from new location
    Change:
    - Verify GET /api/plan still works (backend handles path change)

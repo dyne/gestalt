@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"gestalt/internal/logging"
+	"gestalt/internal/plan"
 )
 
 func TestLoadConfigFromEnv(t *testing.T) {
@@ -208,4 +209,93 @@ func TestLoadAgentsReportsInvalidJSON(t *testing.T) {
 	if _, err := loadAgents(logger, configFS, "config", nil); err == nil {
 		t.Fatalf("expected error for invalid agent json")
 	}
+}
+
+func TestPreparePlanFileMigratesLegacyPlan(t *testing.T) {
+	withTempDir(t, func(root string) {
+		content := "* TODO [#A] Example\n"
+		legacyPath := filepath.Join(root, "PLAN.org")
+		if err := os.WriteFile(legacyPath, []byte(content), 0o644); err != nil {
+			t.Fatalf("write legacy plan: %v", err)
+		}
+
+		buffer := logging.NewLogBuffer(10)
+		logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, io.Discard)
+		planPath := preparePlanFile(logger)
+		if planPath != plan.DefaultPath() {
+			t.Fatalf("expected plan path %q, got %q", plan.DefaultPath(), planPath)
+		}
+
+		migratedPath := filepath.Join(root, planPath)
+		data, err := os.ReadFile(migratedPath)
+		if err != nil {
+			t.Fatalf("read migrated plan: %v", err)
+		}
+		if string(data) != content {
+			t.Fatalf("expected migrated content %q, got %q", content, string(data))
+		}
+		if !hasLogMessage(buffer.List(), "Migrated PLAN.org to .gestalt/PLAN.org") {
+			t.Fatalf("expected migration log entry")
+		}
+	})
+}
+
+func TestPreparePlanFilePrefersExistingPlan(t *testing.T) {
+	withTempDir(t, func(root string) {
+		legacyPath := filepath.Join(root, "PLAN.org")
+		gestaltPath := filepath.Join(root, plan.DefaultPath())
+		if err := os.MkdirAll(filepath.Dir(gestaltPath), 0o755); err != nil {
+			t.Fatalf("mkdir .gestalt: %v", err)
+		}
+
+		if err := os.WriteFile(legacyPath, []byte("legacy"), 0o644); err != nil {
+			t.Fatalf("write legacy plan: %v", err)
+		}
+		if err := os.WriteFile(gestaltPath, []byte("current"), 0o644); err != nil {
+			t.Fatalf("write .gestalt plan: %v", err)
+		}
+
+		buffer := logging.NewLogBuffer(10)
+		logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, io.Discard)
+		planPath := preparePlanFile(logger)
+		if planPath != plan.DefaultPath() {
+			t.Fatalf("expected plan path %q, got %q", plan.DefaultPath(), planPath)
+		}
+
+		data, err := os.ReadFile(gestaltPath)
+		if err != nil {
+			t.Fatalf("read .gestalt plan: %v", err)
+		}
+		if string(data) != "current" {
+			t.Fatalf("expected .gestalt plan content to stay %q, got %q", "current", string(data))
+		}
+		if !hasLogMessage(buffer.List(), "PLAN.org exists in multiple locations; using .gestalt/PLAN.org") {
+			t.Fatalf("expected duplicate plan warning")
+		}
+	})
+}
+
+func withTempDir(t *testing.T, fn func(root string)) {
+	t.Helper()
+	root := t.TempDir()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(cwd)
+	})
+	fn(root)
+}
+
+func hasLogMessage(entries []logging.LogEntry, message string) bool {
+	for _, entry := range entries {
+		if entry.Message == message {
+			return true
+		}
+	}
+	return false
 }

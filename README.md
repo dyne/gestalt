@@ -71,7 +71,9 @@ Example mapping:
 GESTALT_TOKEN=$(openssl rand -hex 16) gestalt --port 57417
 ```
 
-If your project has a `.gestalt/PLAN.org`, Gestalt will watch it for changes.
+If your project has a `.gestalt/PLAN.org`, Gestalt will watch it for changes. If a legacy `PLAN.org`
+exists in the repo root and `.gestalt/PLAN.org` is missing, Gestalt copies it into `.gestalt/PLAN.org`
+on startup.
 
 ### Authentication (GESTALT_TOKEN)
 

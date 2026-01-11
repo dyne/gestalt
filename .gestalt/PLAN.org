@@ -158,7 +158,7 @@
    Tests: Manual test: create PLAN.org, verify .gestalt/PLAN.org watched
    Done when: All code references .gestalt/PLAN.org, migration path documented
 
-** WIP [#C] Add migration helper for existing installations
+** DONE [#C] Add migration helper for existing installations
    Why: Users with existing PLAN.org in workdir need smooth transition
    Change:
    - On startup, check if workdir/PLAN.org exists
@@ -170,7 +170,7 @@
    Tests: Test migration scenarios with various file states
    Done when: Existing installations migrate smoothly
 
-** TODO [#C] Update --extract-config flag behavior
+** WIP [#C] Update --extract-config flag behavior
    Why: Flag becomes less relevant with automatic extraction
    Change:
    - Option 1: Remove flag entirely (extraction always happens)

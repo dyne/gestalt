@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"gestalt/internal/agent"
+	"gestalt/internal/event"
 	"gestalt/internal/temporal"
 	"gestalt/internal/temporal/workflows"
 
@@ -36,6 +37,9 @@ const temporalSignalTimeout = 5 * time.Second
 const temporalWorkflowExecutionTimeout = workflows.DefaultWorkflowExecutionTimeout
 const temporalWorkflowRunTimeout = workflows.DefaultWorkflowRunTimeout
 const temporalWorkflowTaskTimeout = workflows.DefaultWorkflowTaskTimeout
+const terminalOutputSubscriberBuffer = 256
+const terminalOutputWriteTimeout = 3 * time.Minute
+const terminalOutputSlowThreshold = 5 * time.Second
 
 func (s SessionState) String() string {
 	switch s {
@@ -67,34 +71,35 @@ type Session struct {
 	input  chan []byte
 	output chan []byte
 
-	pty      Pty
-	cmd      *exec.Cmd
-	bcast    *Broadcaster
-	logger   *SessionLogger
-	inputBuf *InputBuffer
-	inputLog *InputLogger
-	agent    *agent.Agent
-	subs     int32
-	dsrMu    sync.Mutex
-	dsrTimer *time.Timer
-	dsrOpen  bool
-	closing  sync.Once
-	closeErr error
-	state    uint32
+	pty          Pty
+	cmd          *exec.Cmd
+	outputBus    *event.Bus[[]byte]
+	outputBuffer *OutputBuffer
+	logger       *SessionLogger
+	inputBuf     *InputBuffer
+	inputLog     *InputLogger
+	agent        *agent.Agent
+	subs         int32
+	dsrMu        sync.Mutex
+	dsrTimer     *time.Timer
+	dsrOpen      bool
+	closing      sync.Once
+	closeErr     error
+	state        uint32
 
 	workflowClient temporal.WorkflowClient
 	workflowMutex  sync.RWMutex
 }
 
 type SessionInfo struct {
-	ID        string
-	Title     string
-	Role      string
-	CreatedAt time.Time
-	Status    string
-	LLMType   string
-	LLMModel  string
-	Skills    []string
+	ID          string
+	Title       string
+	Role        string
+	CreatedAt   time.Time
+	Status      string
+	LLMType     string
+	LLMModel    string
+	Skills      []string
 	PromptFiles []string
 }
 
@@ -108,25 +113,34 @@ func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt
 		llmType = profile.LLMType
 		llmModel = profile.LLMModel
 	}
+	outputBuffer := NewOutputBuffer(bufferLines)
+	outputBus := event.NewBus[[]byte](ctx, event.BusOptions{
+		Name:                    "terminal_output",
+		SubscriberBufferSize:    terminalOutputSubscriberBuffer,
+		BlockOnFull:             true,
+		WriteTimeout:            terminalOutputWriteTimeout,
+		SlowSubscriberThreshold: terminalOutputSlowThreshold,
+	})
 	session := &Session{
-		ID:        id,
-		Title:     title,
-		Role:      role,
-		CreatedAt: createdAt,
-		LLMType:   llmType,
-		LLMModel:  llmModel,
-		ctx:       ctx,
-		cancel:    cancel,
-		input:     make(chan []byte, 64),
-		output:    make(chan []byte, 64),
-		pty:       pty,
-		cmd:       cmd,
-		bcast:     NewBroadcaster(bufferLines),
-		logger:    sessionLogger,
-		inputBuf:  NewInputBuffer(DefaultInputBufferSize),
-		inputLog:  inputLogger,
-		agent:     profile,
-		state:     uint32(sessionStateStarting),
+		ID:           id,
+		Title:        title,
+		Role:         role,
+		CreatedAt:    createdAt,
+		LLMType:      llmType,
+		LLMModel:     llmModel,
+		ctx:          ctx,
+		cancel:       cancel,
+		input:        make(chan []byte, 64),
+		output:       make(chan []byte, 64),
+		pty:          pty,
+		cmd:          cmd,
+		outputBus:    outputBus,
+		outputBuffer: outputBuffer,
+		logger:       sessionLogger,
+		inputBuf:     NewInputBuffer(DefaultInputBufferSize),
+		inputLog:     inputLogger,
+		agent:        profile,
+		state:        uint32(sessionStateStarting),
 	}
 
 	go session.readLoop()
@@ -147,26 +161,26 @@ func (s *Session) Info() SessionInfo {
 		promptFiles = append(promptFiles, s.PromptFiles...)
 	}
 	return SessionInfo{
-		ID:        s.ID,
-		Title:     s.Title,
-		Role:      s.Role,
-		CreatedAt: s.CreatedAt,
-		Status:    s.State().String(),
-		LLMType:   s.LLMType,
-		LLMModel:  s.LLMModel,
-		Skills:    skills,
+		ID:          s.ID,
+		Title:       s.Title,
+		Role:        s.Role,
+		CreatedAt:   s.CreatedAt,
+		Status:      s.State().String(),
+		LLMType:     s.LLMType,
+		LLMModel:    s.LLMModel,
+		Skills:      skills,
 		PromptFiles: promptFiles,
 	}
 }
 
 func (s *Session) Subscribe() (<-chan []byte, func()) {
-	if s == nil || s.bcast == nil || s.State() == sessionStateClosed {
+	if s == nil || s.outputBus == nil || s.State() == sessionStateClosed {
 		ch := make(chan []byte)
 		close(ch)
 		return ch, func() {}
 	}
 
-	ch, cancel := s.bcast.Subscribe()
+	ch, cancel := s.outputBus.Subscribe()
 	atomic.AddInt32(&s.subs, 1)
 	var once sync.Once
 	wrapped := func() {
@@ -219,7 +233,10 @@ func (s *Session) Resize(cols, rows uint16) error {
 }
 
 func (s *Session) OutputLines() []string {
-	return s.bcast.OutputLines()
+	if s == nil || s.outputBuffer == nil {
+		return nil
+	}
+	return s.outputBuffer.Lines()
 }
 
 func (s *Session) hasSubscribers() bool {
@@ -602,9 +619,16 @@ func (s *Session) broadcastLoop() {
 		if s.logger != nil {
 			s.logger.Write(chunk)
 		}
-		s.bcast.Broadcast(chunk)
+		if s.outputBuffer != nil {
+			s.outputBuffer.Append(chunk)
+		}
+		if s.outputBus != nil {
+			s.outputBus.Publish(chunk)
+		}
 	}
-	s.bcast.Close()
+	if s.outputBus != nil {
+		s.outputBus.Close()
+	}
 	if s.logger != nil {
 		_ = s.logger.Close()
 	}

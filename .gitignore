@@ -4,3 +4,5 @@ node_modules
 dist
 logs
 .gestalt
+config/manifest.json
+internal/version/build_info.json

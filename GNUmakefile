@@ -3,6 +3,8 @@ GO ?= go
 PREFIX ?= $(DESTDIR)/usr/local
 BINDIR ?= $(PREFIX)/bin
 VERSION ?= dev
+CONFIG_MANIFEST := config/manifest.json
+VERSION_INFO := internal/version/build_info.json
 
 .PHONY: build test clean version temporal-dev dev
 
@@ -12,11 +14,15 @@ build: gestalt gestalt-send
 frontend/dist:
 	cd frontend && npm install && VERSION=$(VERSION) npm run build
 
+# Config manifest and version metadata are embedded in the backend binary.
+$(CONFIG_MANIFEST) $(VERSION_INFO): scripts/generate-config-manifest.js
+	VERSION=$(VERSION) node scripts/generate-config-manifest.js
+
 # make VERSION=1.2.3 to build with specific version
-gestalt: frontend/dist
+gestalt: frontend/dist $(CONFIG_MANIFEST) $(VERSION_INFO)
 	$(GO) build -ldflags "-X gestalt/internal/version.Version=$(VERSION)" -o gestalt ./cmd/gestalt
 
-gestalt-send:
+gestalt-send: $(VERSION_INFO)
 	$(GO) build  -ldflags "-X gestalt/internal/version.Version=$(VERSION)" -o gestalt-send ./cmd/gestalt-send
 
 install: gestalt gestalt-send

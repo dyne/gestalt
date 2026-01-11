@@ -43,7 +43,7 @@
    Tests: None (design only)
    Done when: Version and manifest formats designed, documented in this L2
 
-** TODO [#B] Create build-time manifest and version generator
+** DONE [#B] Create build-time manifest and version generator
    Why: Need to compute SHA-256 hashes and embed version info at compile time
    Change:
    - Create scripts/generate-config-manifest.go or shell script

@@ -771,6 +771,42 @@
    - Sign-off: get confirmation from original requester that problem is solved
    Tests: User acceptance testing, real-world usage scenarios
    Done when: User confirms touch scroll works as expected, problem solved
+
+* WIP [#B] Plan.org manipulation helper script
+  Goal: Provide a Go-based tool for LLMs to query/update PLAN.org safely (replace ad-hoc scripts).
+  Notes:
+  - Use stdlib only; keep edits scoped to targeted sections.
+  - Favor explicit subcommands so LLMs can call deterministic operations.
+  - Outputs should be stable and machine-readable where possible.
+
+** DONE [#B] Implement plan tooling CLI with parser + operations
+   Why: LLMs need a safe, repeatable way to read and update PLAN.org status headings.
+   Change:
+   - Create `scripts/planctl` Go CLI with subcommands for common PLAN operations.
+   - Parse Org headings for L1/L2, status keywords, priorities, and titles.
+   - Implement operations:
+     - `current`: show current WIP L1/L2 (or empty if none).
+     - `list`: list L1 or L2 headings with status filters.
+     - `find`: search headings by title substring (case-insensitive).
+     - `set`: set status on a specific heading by exact title and level.
+     - `complete-l1`: mark L1 DONE and clear DONE/WIP/TODO from its L2 children only.
+     - `insert-l2`: insert a new TODO L2 after the last L2 under a given L1.
+     - `show`: print a specific L1 (and its subtree) by exact title for quick context.
+     - `lint`: report multiple WIP L1/L2 entries to catch plan workflow violations.
+   - Support `--file` to target a specific PLAN.org path (default `PLAN.org`).
+   - Emit stable text (tab-delimited) for list/search commands to ease LLM parsing.
+   - Keep changes scoped to the selected L1 section when modifying.
+   Tests: Unit tests for parser and each operation; verify edits stay within target section.
+   Done when: CLI can read/update PLAN.org reliably and tests pass.
+
+** TODO [#B] Add LLM-focused documentation for planctl
+   Why: LLMs need concise guidance on how to call the tool safely.
+   Change:
+   - Add `scripts/planctl/README.md` with examples for each subcommand.
+   - Document output formats and error cases.
+   - Include a short "LLM usage" section with recommended command patterns.
+   Tests: Run tests after doc changes.
+   Done when: LLM-facing docs are present and accurate.
 * DONE [#A] Config extraction refactor with hash verification and version tracking
   Goal: Refactor config/ handling to always extract embedded resources to .gestalt/config/ on startup with SHA-256 hash verification, semantic version compatibility checks, backup on conflicts, and relocate PLAN.org to .gestalt/.
   Notes:

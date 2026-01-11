@@ -75,6 +75,8 @@
     }
   }
 
+  const planPath = '.gestalt/PLAN.org'
+
   const startFallbackPolling = () => {
     if (fallbackTimer) return
     fallbackTimer = setInterval(() => {
@@ -86,7 +88,7 @@
     loadPlan()
     eventUnsubscribe = subscribeEvents('file_changed', (payload) => {
       if (!payload?.path) return
-      if (payload.path !== 'PLAN.org' && !payload.path.endsWith('/PLAN.org')) {
+      if (payload.path !== planPath && !payload.path.endsWith(`/${planPath}`)) {
         return
       }
       watchUnavailable = false
@@ -134,7 +136,7 @@
   <header class="plan-view__header">
     <div>
       <p class="eyebrow">Project plan</p>
-      <h1>PLAN.org</h1>
+      <h1>.gestalt/PLAN.org</h1>
     </div>
     <div class="refresh-actions">
       {#if updateNotice}

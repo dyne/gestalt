@@ -1671,7 +1671,10 @@ func TestLogsEndpointCreateEntry(t *testing.T) {
 
 func TestPlanEndpointReturnsContent(t *testing.T) {
 	dir := t.TempDir()
-	planPath := filepath.Join(dir, "PLAN.org")
+	planPath := filepath.Join(dir, ".gestalt", "PLAN.org")
+	if err := os.MkdirAll(filepath.Dir(planPath), 0o755); err != nil {
+		t.Fatalf("mkdir plan dir: %v", err)
+	}
 	content := "* TODO [#A] Sample\n"
 	if err := os.WriteFile(planPath, []byte(content), 0o644); err != nil {
 		t.Fatalf("write plan file: %v", err)
@@ -1700,7 +1703,7 @@ func TestPlanEndpointReturnsContent(t *testing.T) {
 
 func TestPlanEndpointMissingFileReturnsEmpty(t *testing.T) {
 	dir := t.TempDir()
-	planPath := filepath.Join(dir, "missing.org")
+	planPath := filepath.Join(dir, ".gestalt", "PLAN.org")
 	handler := &RestHandler{PlanPath: planPath}
 	req := httptest.NewRequest(http.MethodGet, "/api/plan", nil)
 	res := httptest.NewRecorder()
@@ -1721,7 +1724,10 @@ func TestPlanEndpointMissingFileReturnsEmpty(t *testing.T) {
 
 func TestPlanEndpointETagNotModified(t *testing.T) {
 	dir := t.TempDir()
-	planPath := filepath.Join(dir, "PLAN.org")
+	planPath := filepath.Join(dir, ".gestalt", "PLAN.org")
+	if err := os.MkdirAll(filepath.Dir(planPath), 0o755); err != nil {
+		t.Fatalf("mkdir plan dir: %v", err)
+	}
 	content := "* TODO [#B] Cached\n"
 	if err := os.WriteFile(planPath, []byte(content), 0o644); err != nil {
 		t.Fatalf("write plan file: %v", err)
@@ -1753,7 +1759,10 @@ func TestPlanEndpointETagNotModified(t *testing.T) {
 
 func TestPlanCurrentEndpointReturnsWip(t *testing.T) {
 	dir := t.TempDir()
-	planPath := filepath.Join(dir, "PLAN.org")
+	planPath := filepath.Join(dir, ".gestalt", "PLAN.org")
+	if err := os.MkdirAll(filepath.Dir(planPath), 0o755); err != nil {
+		t.Fatalf("mkdir plan dir: %v", err)
+	}
 	content := "* WIP [#A] Feature One\n** WIP [#B] Step One\n"
 	if err := os.WriteFile(planPath, []byte(content), 0o644); err != nil {
 		t.Fatalf("write plan file: %v", err)

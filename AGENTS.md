@@ -103,11 +103,11 @@ Implementation notes (Unified event architecture):
 
 ## Filesystem events
 - Uses `github.com/fsnotify/fsnotify` + `event.Bus[watcher.Event]` to publish updates to `/ws/events`.
-- PLAN.org changes and git branch changes are watched on startup.
+- .gestalt/PLAN.org changes and git branch changes are watched on startup.
 - `GESTALT_MAX_WATCHES` caps active watches (default 100).
 
 ## Planning workflow (must follow)
-- Work is tracked in `PLAN.org` (Org-mode). L1 = feature, L2 = steps.
+- Work is tracked in `.gestalt/PLAN.org` (Org-mode). L1 = feature, L2 = steps.
 - Exactly one WIP L1 and one WIP L2 at a time.
 - For non-tiny work: update the plan first, then ask for confirmation before implementing.
 

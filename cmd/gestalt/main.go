@@ -30,6 +30,7 @@ import (
 	"gestalt/internal/config"
 	"gestalt/internal/event"
 	"gestalt/internal/logging"
+	"gestalt/internal/plan"
 	"gestalt/internal/skill"
 	"gestalt/internal/temporal"
 	temporalworker "gestalt/internal/temporal/worker"
@@ -268,6 +269,8 @@ func main() {
 		defer temporalworker.StopWorker()
 	}
 
+	planPath := preparePlanFile(logger)
+
 	fsWatcher, err := watcher.NewWithOptions(watcher.Options{
 		Logger:     logger,
 		MaxWatches: cfg.MaxWatches,
@@ -287,7 +290,7 @@ func main() {
 				Timestamp: time.Now().UTC(),
 			})
 		})
-		watchPlanFile(eventBus, fsWatcher, logger, "PLAN.org")
+		watchPlanFile(eventBus, fsWatcher, logger, planPath)
 		if workDir, err := os.Getwd(); err == nil {
 			if _, err := watcher.StartGitWatcher(eventBus, fsWatcher, workDir); err != nil && logger != nil {
 				logger.Warn("git watcher unavailable", map[string]string{
@@ -478,7 +481,7 @@ func watchPlanFile(bus *event.Bus[watcher.Event], watch watcher.Watch, logger *l
 		return
 	}
 	if planPath == "" {
-		planPath = "PLAN.org"
+		planPath = plan.DefaultPath()
 	}
 
 	var retryMutex sync.Mutex
@@ -528,7 +531,7 @@ func watchPlanFile(bus *event.Bus[watcher.Event], watch watcher.Watch, logger *l
 			for {
 				if err := startWatch(); err == nil {
 					if logger != nil {
-						logger.Info("Watching PLAN.org for changes", map[string]string{
+						logger.Info("Watching plan file for changes", map[string]string{
 							"path": planPath,
 						})
 					}
@@ -551,7 +554,7 @@ func watchPlanFile(bus *event.Bus[watcher.Event], watch watcher.Watch, logger *l
 		}
 		startRetry()
 	} else if logger != nil {
-		logger.Info("Watching PLAN.org for changes", map[string]string{
+		logger.Info("Watching plan file for changes", map[string]string{
 			"path": planPath,
 		})
 	}
@@ -1667,6 +1670,58 @@ func prepareConfig(cfg Config, logger *logging.Logger) (configPaths, error) {
 	return paths, nil
 }
 
+func preparePlanFile(logger *logging.Logger) string {
+	targetPath := plan.DefaultPath()
+	legacyPath := "PLAN.org"
+
+	legacyInfo, err := os.Stat(legacyPath)
+	if err != nil || legacyInfo.IsDir() {
+		return targetPath
+	}
+
+	if _, err := os.Stat(targetPath); err == nil {
+		if logger != nil {
+			logger.Warn("PLAN.org exists in multiple locations; using .gestalt/PLAN.org", map[string]string{
+				"path": targetPath,
+			})
+		}
+		return targetPath
+	} else if !os.IsNotExist(err) {
+		if logger != nil {
+			logger.Warn("plan path check failed", map[string]string{
+				"path":  targetPath,
+				"error": err.Error(),
+			})
+		}
+		return targetPath
+	}
+
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		if logger != nil {
+			logger.Warn("plan migration failed", map[string]string{
+				"path":  targetPath,
+				"error": err.Error(),
+			})
+		}
+		return targetPath
+	}
+	if err := copyFile(legacyPath, targetPath); err != nil {
+		if logger != nil {
+			logger.Warn("plan migration failed", map[string]string{
+				"path":  targetPath,
+				"error": err.Error(),
+			})
+		}
+		return targetPath
+	}
+	if logger != nil {
+		logger.Info("Migrated PLAN.org to .gestalt/PLAN.org", map[string]string{
+			"path": targetPath,
+		})
+	}
+	return targetPath
+}
+
 func resolveConfigPaths(configDir string) (configPaths, error) {
 	cleaned := filepath.Clean(configDir)
 	if strings.TrimSpace(cleaned) == "" {
@@ -1729,6 +1784,20 @@ func logConfigSummary(logger *logging.Logger, paths configPaths, installed, curr
 		fields["installed"] = "none"
 	}
 	logger.Info("config extraction complete", fields)
+}
+
+func copyFile(source, destination string) error {
+	payload, err := os.ReadFile(source)
+	if err != nil {
+		return err
+	}
+	perm := os.FileMode(0o644)
+	if info, err := os.Stat(source); err == nil {
+		if mode := info.Mode().Perm(); mode != 0 {
+			perm = mode
+		}
+	}
+	return os.WriteFile(destination, payload, perm)
 }
 
 func formatVersionInfo(info version.VersionInfo) string {

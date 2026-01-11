@@ -38,7 +38,7 @@ controls the UI bind port for `gestalt`.
 
 ## Run Gestalt on your project
 
-Gestalt uses its current working directory as the project context (for git events, `PLAN.org`, and
+Gestalt uses its current working directory as the project context (for git events, `.gestalt/PLAN.org`, and
 local session data). To use it on a real repo, run the server from that repo's root.
 
 1) Install the `gestalt` binary (from this repo):
@@ -71,7 +71,7 @@ Example mapping:
 GESTALT_TOKEN=$(openssl rand -hex 16) gestalt --port 57417
 ```
 
-If your project has a `PLAN.org` in its root, Gestalt will watch it for changes.
+If your project has a `.gestalt/PLAN.org`, Gestalt will watch it for changes.
 
 ### Authentication (GESTALT_TOKEN)
 
@@ -361,11 +361,11 @@ Event types:
 WebSocket protocol:
 - Connect to `/ws/events` (token in query when auth is enabled).
 - Optional filter message: `{"subscribe":["file_changed","git_branch_changed","watch_error"]}`.
-- Server messages: `{"type":"file_changed","path":"PLAN.org","timestamp":"..."}`.
+- Server messages: `{"type":"file_changed","path":".gestalt/PLAN.org","timestamp":"..."}`.
 
 Backend usage example:
 ```
-watcher.WatchFile(bus, fsWatcher, "PLAN.org")
+watcher.WatchFile(bus, fsWatcher, ".gestalt/PLAN.org")
 events, cancel := bus.SubscribeFiltered(func(event watcher.Event) bool {
   return event.Type == watcher.EventTypeFileChanged
 })
@@ -399,7 +399,7 @@ API (development snapshot)
 - POST /api/terminals - create a new terminal
 - DELETE /api/terminals/:id - terminate a terminal
 - GET /api/terminals/:id/output - recent output lines (buffered)
-- GET /api/plan - read PLAN.org contents
+- GET /api/plan - read .gestalt/PLAN.org contents
 - GET /api/logs - recent system logs (query: level, since, limit)
 
 Auth

@@ -18,7 +18,7 @@ type StatusConfig struct {
 func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken string, statusConfig StatusConfig, staticDir string, frontendFS fs.FS, logger *logging.Logger, eventBus *event.Bus[watcher.Event]) {
 	// Git info is read once on boot to avoid polling; refresh can be added later.
 	gitOrigin, gitBranch := loadGitInfo()
-	planPath := "PLAN.org"
+	planPath := plan.DefaultPath()
 	planCache := plan.NewCache(planPath, logger)
 	rest := &RestHandler{
 		Manager:        manager,

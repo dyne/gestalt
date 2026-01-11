@@ -6,18 +6,18 @@ their contents in the current context: AGENTS.md README.md CLAUDE.md
 ## Workplan structure
 
 To find out what needs to be developed, read carefully the prompt
-requests and find correlation to the PLAN.org file where they should
-be explained. Projects always have a PLAN.org (Org-mode) where: L1 =
+requests and find correlation to the .gestalt/PLAN.org file where they should
+be explained. Projects always have a .gestalt/PLAN.org (Org-mode) where: L1 =
 first-level heading (*), L2 = second-level heading (**). Headings are
 marked as implemented (DONE), to be (TODO) and what is being worked on
 (WIP). You MUST focus only on TODO tasks (L1 and L2).
 
 ## Prepare to work
 
-Do not explore PLAN.org until you are asked to do development work,
+Do not explore .gestalt/PLAN.org until you are asked to do development work,
 then make sure you know which L1 you should develop and study that L1
 and all its L2 contents with great attention. When starting, but also
-later on, you may search all PLAN.org in case you need to learn about
+later on, you may search all .gestalt/PLAN.org in case you need to learn about
 specific decisions previously taken, then study the relevant L2
 section where hints are found.
 
@@ -37,7 +37,7 @@ Integrate code with short comments when needed.
 
 1) Do not implement unplanned work
 2) Do not use markdown TODOs
-3) Don't change PLAN.org (just header marks and implementation details)
+3) Don't change .gestalt/PLAN.org (just header marks and implementation details)
 4) Finish the L1 without asking confirmations, unless you meet serious blockers
 
 ## Development style

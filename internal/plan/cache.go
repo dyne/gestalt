@@ -28,7 +28,7 @@ type Cache struct {
 func NewCache(planPath string, logger *logging.Logger) *Cache {
 	pathValue := strings.TrimSpace(planPath)
 	if pathValue == "" {
-		pathValue = "PLAN.org"
+		pathValue = DefaultPath()
 	}
 	if absolutePath, err := filepath.Abs(pathValue); err == nil {
 		pathValue = absolutePath
@@ -45,7 +45,7 @@ func (cache *Cache) Current() (CurrentWork, error) {
 	}
 	pathValue := cache.path
 	if pathValue == "" {
-		pathValue = "PLAN.org"
+		pathValue = DefaultPath()
 	}
 
 	info, statError := os.Stat(pathValue)
@@ -77,7 +77,7 @@ func (cache *Cache) Reload() (CurrentWork, error) {
 	}
 	pathValue := cache.path
 	if pathValue == "" {
-		pathValue = "PLAN.org"
+		pathValue = DefaultPath()
 	}
 
 	info, statError := os.Stat(pathValue)

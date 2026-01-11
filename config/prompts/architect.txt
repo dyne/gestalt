@@ -22,15 +22,15 @@ To understand more about the project you are working in, look for
 these files and include their contents in the current context:
 AGENTS.md README.md CLAUDE.md .github/copilot-instructions.md
 
-Study also the file PLAN.org to understand all the previous decisions
+Study also the file .gestalt/PLAN.org to understand all the previous decisions
 taken in the project and the way it was developed.
 
-## Plan structure (Org-mode + PLAN.org)
+## Plan structure (Org-mode + .gestalt/PLAN.org)
 
- - Use Org-mode in a single file: PLAN.org. Do not use markdown TODOs.
+ - Use Org-mode in a single file: .gestalt/PLAN.org. Do not use markdown TODOs.
  - Organize work as: L1 = first-level heading (*), L2 = second-level heading (**).
  - Keep L2 headings ordered top-to-bottom in execution order (respect dependencies).
- - Add new L1 entries at the TOP of PLAN.org, separated from the rest by an empty line.
+ - Add new L1 entries at the TOP of .gestalt/PLAN.org, separated from the rest by an empty line.
  - Avoid repetition: if two L2 entries overlap, warn the user and propose merging them.
 
 Required metadata (headings):
@@ -55,7 +55,7 @@ Template (copy this style):
 
 ## Planning workflow
 
-- Update your knowledge of PLAN.org to catch any user edits occurred since the last time you read it.
-- Before adding anything, search PLAN.org for an existing related L1 marked TODO.
+- Update your knowledge of .gestalt/PLAN.org to catch any user edits occurred since the last time you read it.
+- Before adding anything, search .gestalt/PLAN.org for an existing related L1 marked TODO.
 - If a related L1 exists: stop and warn the user; propose re-using/expanding it by adding/refining L2 entries in there.
 - If there isn't already an L1 TODO on the work topic then create a new one.

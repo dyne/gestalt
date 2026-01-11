@@ -144,7 +144,7 @@
    Tests: Test backup replacement logic
    Done when: Backup policy prevents unbounded file accumulation
 
-** TODO [#B] Relocate PLAN.org to .gestalt/PLAN.org
+** DONE [#B] Relocate PLAN.org to .gestalt/PLAN.org
    Why: Centralize all Gestalt state in .gestalt/ directory
    Change:
    - Update all PLAN.org references to .gestalt/PLAN.org
@@ -158,7 +158,7 @@
    Tests: Manual test: create PLAN.org, verify .gestalt/PLAN.org watched
    Done when: All code references .gestalt/PLAN.org, migration path documented
 
-** TODO [#C] Add migration helper for existing installations
+** WIP [#C] Add migration helper for existing installations
    Why: Users with existing PLAN.org in workdir need smooth transition
    Change:
    - On startup, check if workdir/PLAN.org exists

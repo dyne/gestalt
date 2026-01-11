@@ -1,4 +1,4 @@
-Projects always have a PLAN, it's in ./gestalt/PLAN.org (Org-mode):
+Projects always have a PLAN, it's in .gestalt/PLAN.org (Org-mode):
 1. L1 = first-level heading (*)
 2. L2 = second-level heading (**)
 Their headings are marked (XOR marks):

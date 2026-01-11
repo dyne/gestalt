@@ -33,14 +33,14 @@ import (
 )
 
 type RestHandler struct {
-	Manager   *terminal.Manager
-	Logger    *logging.Logger
-	PlanPath  string
-	PlanCache *plan.Cache
-	GitOrigin string
-	GitBranch string
+	Manager        *terminal.Manager
+	Logger         *logging.Logger
+	PlanPath       string
+	PlanCache      *plan.Cache
+	GitOrigin      string
+	GitBranch      string
 	TemporalUIPort int
-	gitMutex  sync.RWMutex
+	gitMutex       sync.RWMutex
 }
 
 type terminalSummary struct {
@@ -569,7 +569,7 @@ func (h *RestHandler) handlePlan(w http.ResponseWriter, r *http.Request) *apiErr
 
 	planPath := h.PlanPath
 	if planPath == "" {
-		planPath = "PLAN.org"
+		planPath = plan.DefaultPath()
 	}
 
 	info, statErr := os.Stat(planPath)

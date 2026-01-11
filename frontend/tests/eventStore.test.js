@@ -77,10 +77,10 @@ describe('eventStore', () => {
     expect(socket.sent[0]).toBe(JSON.stringify({ subscribe: ['file_changed'] }))
 
     socket.dispatch('message', {
-      data: JSON.stringify({ type: 'file_changed', path: 'PLAN.org' }),
+      data: JSON.stringify({ type: 'file_changed', path: '.gestalt/PLAN.org' }),
     })
 
-    expect(received).toEqual(['PLAN.org'])
+    expect(received).toEqual(['.gestalt/PLAN.org'])
     expect(statuses).toContain('connected')
 
     unsubscribe()

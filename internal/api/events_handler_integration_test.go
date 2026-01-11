@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -46,7 +47,7 @@ func TestEventsWebSocketStream(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 	bus.Publish(watcher.Event{
 		Type:      watcher.EventTypeFileChanged,
-		Path:      "PLAN.org",
+		Path:      filepath.Join(".gestalt", "PLAN.org"),
 		Timestamp: time.Now().UTC(),
 	})
 
@@ -58,8 +59,8 @@ func TestEventsWebSocketStream(t *testing.T) {
 	if payload.Type != watcher.EventTypeFileChanged {
 		t.Fatalf("expected type %q, got %q", watcher.EventTypeFileChanged, payload.Type)
 	}
-	if payload.Path != "PLAN.org" {
-		t.Fatalf("expected path PLAN.org, got %q", payload.Path)
+	if payload.Path != filepath.Join(".gestalt", "PLAN.org") {
+		t.Fatalf("expected path .gestalt/PLAN.org, got %q", payload.Path)
 	}
 	if payload.Timestamp.IsZero() {
 		t.Fatalf("expected timestamp to be set")

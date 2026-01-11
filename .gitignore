@@ -3,6 +3,7 @@ node_modules
 .gocache
 dist
 logs
-.gestalt
+.gestalt/*
+!.gestalt/PLAN.org
 config/manifest.json
 internal/version/build_info.json

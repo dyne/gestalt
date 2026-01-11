@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"gestalt/internal/event"
 	"gestalt/internal/terminal"
 
 	"github.com/gorilla/websocket"
@@ -119,6 +120,14 @@ func (h *TerminalHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				if control.Type == "resize" {
 					if err := session.Resize(control.Cols, control.Rows); err != nil {
 						return
+					}
+					if bus := h.Manager.TerminalBus(); bus != nil {
+						terminalEvent := event.NewTerminalEvent(session.ID, "terminal_resized")
+						terminalEvent.Data = map[string]any{
+							"cols": control.Cols,
+							"rows": control.Rows,
+						}
+						bus.Publish(terminalEvent)
 					}
 				}
 				continue

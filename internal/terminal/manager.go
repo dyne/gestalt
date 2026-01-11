@@ -66,6 +66,7 @@ type Manager struct {
 	skills          map[string]*skill.Skill
 	logger          *logging.Logger
 	agentBus        *event.Bus[event.AgentEvent]
+	terminalBus     *event.Bus[event.TerminalEvent]
 	temporalClient  temporal.WorkflowClient
 	temporalEnabled bool
 	sessionLogs     string
@@ -178,6 +179,9 @@ func NewManager(opts ManagerOptions) *Manager {
 	agentBus := event.NewBus[event.AgentEvent](context.Background(), event.BusOptions{
 		Name: "agent_events",
 	})
+	terminalBus := event.NewBus[event.TerminalEvent](context.Background(), event.BusOptions{
+		Name: "terminal_events",
+	})
 
 	agents := make(map[string]agent.Agent)
 	for id, profile := range opts.Agents {
@@ -199,6 +203,7 @@ func NewManager(opts ManagerOptions) *Manager {
 		skills:          skills,
 		logger:          logger,
 		agentBus:        agentBus,
+		terminalBus:     terminalBus,
 		temporalClient:  temporalClient,
 		temporalEnabled: temporalEnabled,
 		sessionLogs:     sessionLogs,
@@ -388,6 +393,9 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		fields["agent_id"] = request.AgentID
 	}
 	m.logger.Info("terminal created", fields)
+	if m.terminalBus != nil {
+		m.terminalBus.Publish(event.NewTerminalEvent(id, "terminal_created"))
+	}
 	if request.AgentID != "" && m.agentBus != nil {
 		m.agentBus.Publish(event.NewAgentEvent(request.AgentID, agentName, "agent_started"))
 	}
@@ -666,6 +674,13 @@ func (m *Manager) AgentBus() *event.Bus[event.AgentEvent] {
 	return m.agentBus
 }
 
+func (m *Manager) TerminalBus() *event.Bus[event.TerminalEvent] {
+	if m == nil {
+		return nil
+	}
+	return m.terminalBus
+}
+
 func (m *Manager) TemporalEnabled() bool {
 	if m == nil {
 		return false
@@ -770,6 +785,13 @@ func (m *Manager) Delete(id string) error {
 			"terminal_id": id,
 			"error":       err.Error(),
 		})
+		if m.terminalBus != nil {
+			terminalEvent := event.NewTerminalEvent(id, "terminal_error")
+			terminalEvent.Data = map[string]any{
+				"error": err.Error(),
+			}
+			m.terminalBus.Publish(terminalEvent)
+		}
 		if agentID != "" && m.agentBus != nil {
 			agentEvent := event.NewAgentEvent(agentID, agentName, "agent_error")
 			agentEvent.Context = map[string]any{
@@ -777,6 +799,9 @@ func (m *Manager) Delete(id string) error {
 			}
 			m.agentBus.Publish(agentEvent)
 		}
+	}
+	if m.terminalBus != nil {
+		m.terminalBus.Publish(event.NewTerminalEvent(id, "terminal_closed"))
 	}
 	if agentID != "" && m.agentBus != nil {
 		m.agentBus.Publish(event.NewAgentEvent(agentID, agentName, "agent_stopped"))

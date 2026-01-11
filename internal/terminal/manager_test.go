@@ -999,3 +999,49 @@ func receiveAgentEvent(t *testing.T, ch <-chan event.AgentEvent) event.AgentEven
 		return event.AgentEvent{}
 	}
 }
+
+func TestManagerTerminalEvents(t *testing.T) {
+	factory := &fakeFactory{}
+	manager := NewManager(ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+	})
+
+	events, cancel := manager.TerminalBus().Subscribe()
+	defer cancel()
+
+	session, err := manager.Create("", "role", "title")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	created := receiveTerminalEvent(t, events)
+	if created.Type() != "terminal_created" {
+		t.Fatalf("expected terminal_created, got %q", created.Type())
+	}
+	if created.TerminalID != session.ID {
+		t.Fatalf("expected terminal ID %q, got %q", session.ID, created.TerminalID)
+	}
+
+	if err := manager.Delete(session.ID); err != nil {
+		t.Fatalf("delete session: %v", err)
+	}
+	closed := receiveTerminalEvent(t, events)
+	if closed.Type() != "terminal_closed" {
+		t.Fatalf("expected terminal_closed, got %q", closed.Type())
+	}
+	if closed.TerminalID != session.ID {
+		t.Fatalf("expected terminal ID %q, got %q", session.ID, closed.TerminalID)
+	}
+}
+
+func receiveTerminalEvent(t *testing.T, ch <-chan event.TerminalEvent) event.TerminalEvent {
+	t.Helper()
+	select {
+	case evt := <-ch:
+		return evt
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for terminal event")
+		return event.TerminalEvent{}
+	}
+}

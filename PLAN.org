@@ -167,7 +167,7 @@
    Tests: Unit tests for agent event emission, WebSocket integration test
    Done when: Agent lifecycle observable via events, dashboard updates live
 
-** WIP [#B] Add terminal lifecycle events
+** DONE [#B] Add terminal lifecycle events
    Why: Separate terminal events from terminal I/O for better observability
    Change:
    - Create TerminalBus in Manager: event.Bus[TerminalEvent]
@@ -182,7 +182,7 @@
    Tests: Unit tests for terminal event emission, verify event timing
    Done when: Terminal lifecycle observable via events, not mixed with I/O
 
-** TODO [#B] Add config change events for future config refactor
+** WIP [#B] Add config change events for future config refactor
    Why: Enable reactive config updates, needed for config refactor L1
    Change:
    - Create ConfigBus: event.Bus[ConfigEvent]

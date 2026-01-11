@@ -8,6 +8,7 @@
   import ToastContainer from './components/ToastContainer.svelte'
   import { apiFetch } from './lib/api.js'
   import { subscribe as subscribeEvents } from './lib/eventStore.js'
+  import { subscribe as subscribeTerminalEvents } from './lib/terminalEventStore.js'
   import { formatTerminalLabel } from './lib/terminalTabs.js'
   import { releaseTerminalState } from './lib/terminalStore.js'
   import { notificationStore } from './lib/notificationStore.js'
@@ -24,6 +25,7 @@
   let loading = false
   let error = ''
   let watchErrorNotified = false
+  let terminalErrorUnsubscribe = null
 
   $: activeView =
     activeId === 'dashboard'
@@ -145,8 +147,20 @@
       watchErrorNotified = true
       notificationStore.addNotification('warning', 'File watching unavailable.')
     })
+    terminalErrorUnsubscribe = subscribeTerminalEvents('terminal_error', (payload) => {
+      const terminalId = payload?.terminal_id || 'unknown'
+      const detail = payload?.data?.error
+      const message = detail
+        ? `Terminal ${terminalId} error: ${detail}`
+        : `Terminal ${terminalId} error.`
+      notificationStore.addNotification('error', message)
+    })
     return () => {
       unsubscribe()
+      if (terminalErrorUnsubscribe) {
+        terminalErrorUnsubscribe()
+        terminalErrorUnsubscribe = null
+      }
     }
   })
 </script>

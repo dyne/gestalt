@@ -12,6 +12,8 @@ import (
 )
 
 const defaultSubscriberBufferSize = 128
+const defaultDropWarningThreshold = 0.01
+const defaultDropWarningInterval = 30 * time.Second
 
 type BusOptions struct {
 	Name                    string
@@ -20,6 +22,8 @@ type BusOptions struct {
 	WriteTimeout            time.Duration
 	MaxSubscribers          int
 	SlowSubscriberThreshold time.Duration
+	DropWarningThreshold    float64
+	DropWarningInterval     time.Duration
 	Registry                *metrics.Registry
 }
 
@@ -31,6 +35,9 @@ type Bus[T any] struct {
 	closeOnce   sync.Once
 	options     BusOptions
 	registry    *metrics.Registry
+	published   atomic.Int64
+	dropped     atomic.Int64
+	lastWarning atomic.Int64
 }
 
 type typedEvent interface {
@@ -43,6 +50,12 @@ func NewBus[T any](ctx context.Context, opts BusOptions) *Bus[T] {
 	}
 	if opts.SubscriberBufferSize <= 0 {
 		opts.SubscriberBufferSize = defaultSubscriberBufferSize
+	}
+	if opts.DropWarningThreshold <= 0 {
+		opts.DropWarningThreshold = defaultDropWarningThreshold
+	}
+	if opts.DropWarningInterval <= 0 {
+		opts.DropWarningInterval = defaultDropWarningInterval
 	}
 	bus := &Bus[T]{
 		subscribers: make(map[uint64]subscription[T]),
@@ -325,6 +338,10 @@ func (b *Bus[T]) eventType(event T) string {
 }
 
 func (b *Bus[T]) incPublished(eventType string) {
+	if b == nil {
+		return
+	}
+	b.published.Add(1)
 	if b.registry == nil {
 		return
 	}
@@ -332,10 +349,16 @@ func (b *Bus[T]) incPublished(eventType string) {
 }
 
 func (b *Bus[T]) incDropped(eventType string) {
+	if b == nil {
+		return
+	}
+	b.dropped.Add(1)
 	if b.registry == nil {
+		b.maybeWarnDropRate()
 		return
 	}
 	b.registry.IncEventDropped(b.busName(), eventType)
+	b.maybeWarnDropRate()
 }
 
 func (b *Bus[T]) setSubscriberCounts(filtered, unfiltered int) {
@@ -343,6 +366,44 @@ func (b *Bus[T]) setSubscriberCounts(filtered, unfiltered int) {
 		return
 	}
 	b.registry.SetEventSubscriberCounts(b.busName(), filtered, unfiltered)
+}
+
+func (b *Bus[T]) maybeWarnDropRate() {
+	if b == nil {
+		return
+	}
+	threshold := b.options.DropWarningThreshold
+	if threshold <= 0 {
+		return
+	}
+	published := b.published.Load()
+	if published == 0 {
+		return
+	}
+	dropped := b.dropped.Load()
+	if dropped == 0 {
+		return
+	}
+	rate := float64(dropped) / float64(published)
+	if rate < threshold {
+		return
+	}
+	interval := b.options.DropWarningInterval
+	if interval <= 0 {
+		interval = defaultDropWarningInterval
+	}
+	now := time.Now()
+	lastNanos := b.lastWarning.Load()
+	if lastNanos > 0 {
+		last := time.Unix(0, lastNanos)
+		if now.Sub(last) < interval {
+			return
+		}
+	}
+	if !b.lastWarning.CompareAndSwap(lastNanos, now.UnixNano()) {
+		return
+	}
+	log.Printf("event bus %s: drop rate %.2f%% (%d dropped of %d published)", b.busName(), rate*100, dropped, published)
 }
 
 func isNil[T any](value T) bool {

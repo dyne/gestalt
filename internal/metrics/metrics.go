@@ -42,6 +42,12 @@ type eventTypeKey struct {
 	eventType string
 }
 
+type EventBusSnapshot struct {
+	Name                  string
+	FilteredSubscribers   int64
+	UnfilteredSubscribers int64
+}
+
 var Default = &Registry{}
 
 func (r *Registry) IncWorkflowStarted() {
@@ -189,6 +195,24 @@ func (r *Registry) WritePrometheus(writer io.Writer) error {
 	}
 
 	return nil
+}
+
+func (r *Registry) EventBusSnapshots() []EventBusSnapshot {
+	if r == nil {
+		return nil
+	}
+	names := r.eventBusNames()
+	sort.Strings(names)
+	snapshots := make([]EventBusSnapshot, 0, len(names))
+	for _, name := range names {
+		stats := r.eventBusStats(name)
+		snapshots = append(snapshots, EventBusSnapshot{
+			Name:                  name,
+			FilteredSubscribers:   stats.filtered.Load(),
+			UnfilteredSubscribers: stats.unfiltered.Load(),
+		})
+	}
+	return snapshots
 }
 
 func (r *Registry) activityStats(name string) *activityStats {

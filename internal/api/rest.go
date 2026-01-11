@@ -42,15 +42,15 @@ type RestHandler struct {
 }
 
 type terminalSummary struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Role      string    `json:"role"`
-	CreatedAt time.Time `json:"created_at"`
-	Status    string    `json:"status"`
-	LLMType   string    `json:"llm_type"`
-	LLMModel  string    `json:"llm_model"`
-	Skills    []string  `json:"skills"`
-	PromptFiles []string `json:"prompt_files"`
+	ID          string    `json:"id"`
+	Title       string    `json:"title"`
+	Role        string    `json:"role"`
+	CreatedAt   time.Time `json:"created_at"`
+	Status      string    `json:"status"`
+	LLMType     string    `json:"llm_type"`
+	LLMModel    string    `json:"llm_model"`
+	Skills      []string  `json:"skills"`
+	PromptFiles []string  `json:"prompt_files"`
 }
 
 type workflowSummary struct {
@@ -113,6 +113,12 @@ type statusResponse struct {
 	GitOrigin      string    `json:"git_origin"`
 	GitBranch      string    `json:"git_branch"`
 	Version        string    `json:"version"`
+}
+
+type eventBusDebug struct {
+	Name                  string `json:"name"`
+	FilteredSubscribers   int64  `json:"filtered_subscribers"`
+	UnfilteredSubscribers int64  `json:"unfiltered_subscribers"`
 }
 
 type planResponse struct {
@@ -245,6 +251,23 @@ func (h *RestHandler) handleMetrics(w http.ResponseWriter, r *http.Request) *api
 	if err := metrics.Default.WritePrometheus(w); err != nil {
 		return &apiError{Status: http.StatusInternalServerError, Message: "failed to write metrics"}
 	}
+	return nil
+}
+
+func (h *RestHandler) handleEventDebug(w http.ResponseWriter, r *http.Request) *apiError {
+	if r.Method != http.MethodGet {
+		return methodNotAllowed(w, "GET")
+	}
+	snapshots := metrics.Default.EventBusSnapshots()
+	response := make([]eventBusDebug, 0, len(snapshots))
+	for _, snapshot := range snapshots {
+		response = append(response, eventBusDebug{
+			Name:                  snapshot.Name,
+			FilteredSubscribers:   snapshot.FilteredSubscribers,
+			UnfilteredSubscribers: snapshot.UnfilteredSubscribers,
+		})
+	}
+	writeJSON(w, http.StatusOK, response)
 	return nil
 }
 
@@ -591,14 +614,14 @@ func (h *RestHandler) listTerminals(w http.ResponseWriter) *apiError {
 	response := make([]terminalSummary, 0, len(infos))
 	for _, info := range infos {
 		response = append(response, terminalSummary{
-			ID:        info.ID,
-			Title:     info.Title,
-			Role:      info.Role,
-			CreatedAt: info.CreatedAt,
-			Status:    info.Status,
-			LLMType:   info.LLMType,
-			LLMModel:  info.LLMModel,
-			Skills:    info.Skills,
+			ID:          info.ID,
+			Title:       info.Title,
+			Role:        info.Role,
+			CreatedAt:   info.CreatedAt,
+			Status:      info.Status,
+			LLMType:     info.LLMType,
+			LLMModel:    info.LLMModel,
+			Skills:      info.Skills,
 			PromptFiles: info.PromptFiles,
 		})
 	}

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"gestalt/internal/agent"
+	"gestalt/internal/event"
 	"gestalt/internal/logging"
 	"gestalt/internal/plan"
 	"gestalt/internal/skill"
@@ -297,6 +298,47 @@ func TestMetricsEndpointReturnsText(t *testing.T) {
 	body := res.Body.String()
 	if !strings.Contains(body, "gestalt_workflows_started_total") {
 		t.Fatalf("expected workflow metrics, got %q", body)
+	}
+}
+
+func TestEventDebugEndpointReturnsBuses(t *testing.T) {
+	bus := event.NewBus[string](context.Background(), event.BusOptions{
+		Name: "debug_bus",
+	})
+	events, cancel := bus.Subscribe()
+	if events == nil {
+		t.Fatal("expected subscription channel")
+	}
+	t.Cleanup(cancel)
+	t.Cleanup(bus.Close)
+
+	handler := &RestHandler{}
+	req := httptest.NewRequest(http.MethodGet, "/api/events/debug", nil)
+	res := httptest.NewRecorder()
+
+	restHandler("", handler.handleEventDebug)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+	var payload []eventBusDebug
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	var found *eventBusDebug
+	for index := range payload {
+		if payload[index].Name == "debug_bus" {
+			found = &payload[index]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("expected debug_bus in response: %#v", payload)
+	}
+	if found.UnfilteredSubscribers != 1 {
+		t.Fatalf("expected 1 unfiltered subscriber, got %d", found.UnfilteredSubscribers)
+	}
+	if found.FilteredSubscribers != 0 {
+		t.Fatalf("expected 0 filtered subscribers, got %d", found.FilteredSubscribers)
 	}
 }
 

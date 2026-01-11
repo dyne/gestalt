@@ -211,7 +211,7 @@
    Tests: Integration test with mock workflow, verify event emission
    Done when: Workflow state changes observable via events
 
-** TODO [#B] Add event bus metrics and monitoring
+** DONE [#B] Add event bus metrics and monitoring
    Why: Observability into event system health and performance
    Change:
    - Integrate Bus[T] with existing internal/metrics package

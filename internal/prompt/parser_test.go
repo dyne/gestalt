@@ -202,11 +202,11 @@ func TestRenderIncludeRepeat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render include-repeat: %v", err)
 	}
-	expectedContent := "Start line\ncommon fragment line\ncommon fragment line\nEnd line\n"
+	expectedContent := "Start line\ncommon fragment line\nEnd line\n"
 	if string(result.Content) != expectedContent {
 		t.Fatalf("unexpected content: %q", string(result.Content))
 	}
-	expectedFiles := []string{"include-repeat.tmpl", "common-fragment.txt", "common-fragment.txt"}
+	expectedFiles := []string{"include-repeat.tmpl", "common-fragment.txt"}
 	if !reflect.DeepEqual(result.Files, expectedFiles) {
 		t.Fatalf("unexpected files: %#v", result.Files)
 	}

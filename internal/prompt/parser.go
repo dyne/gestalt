@@ -45,12 +45,13 @@ func (p *Parser) Render(promptName string) (*RenderResult, error) {
 	if promptName == "" {
 		return nil, errors.New("prompt name is required")
 	}
-	return p.renderPrompt(promptName, nil)
+	seen := make(map[string]struct{})
+	return p.renderPrompt(promptName, nil, seen)
 }
 
-func (p *Parser) renderPrompt(promptName string, stack []string) (*RenderResult, error) {
+func (p *Parser) renderPrompt(promptName string, stack []string, seen map[string]struct{}) (*RenderResult, error) {
 	candidates := promptCandidates(promptName)
-	result, found, err := p.renderFromCandidates(candidates, stack, p.readPromptFile)
+	result, found, err := p.renderFromCandidates(candidates, stack, seen)
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +61,7 @@ func (p *Parser) renderPrompt(promptName string, stack []string) (*RenderResult,
 	return result, nil
 }
 
-func (p *Parser) renderInclude(includeName string, stack []string) (*RenderResult, bool, error) {
+func (p *Parser) renderInclude(includeName string, stack []string, seen map[string]struct{}) (*RenderResult, bool, error) {
 	trimmed := strings.TrimSpace(includeName)
 	if trimmed == "" {
 		return nil, false, nil
@@ -77,7 +78,7 @@ func (p *Parser) renderInclude(includeName string, stack []string) (*RenderResul
 			}
 			return nil, false, err
 		}
-		result, err := p.renderFile(cleaned, data, stack)
+		result, err := p.renderFile(p.workdirKey(cleaned), cleaned, data, stack, seen)
 		if err != nil {
 			return nil, false, err
 		}
@@ -85,18 +86,18 @@ func (p *Parser) renderInclude(includeName string, stack []string) (*RenderResul
 	}
 	candidates := includeCandidates(trimmed)
 	for _, candidate := range candidates {
-		candidate = strings.TrimSpace(candidate)
-		if candidate == "" {
+		cleaned, ok := cleanIncludePath(candidate)
+		if !ok {
 			continue
 		}
-		data, err := p.readIncludeFile(candidate)
+		data, key, err := p.readBareInclude(cleaned)
 		if err != nil {
 			if isNotExist(err) || errors.Is(err, errBinaryInclude) {
 				continue
 			}
 			return nil, false, err
 		}
-		result, err := p.renderFile(candidate, data, stack)
+		result, err := p.renderFile(key, cleaned, data, stack, seen)
 		if err != nil {
 			return nil, false, err
 		}
@@ -105,20 +106,20 @@ func (p *Parser) renderInclude(includeName string, stack []string) (*RenderResul
 	return nil, false, nil
 }
 
-func (p *Parser) renderFromCandidates(candidates []string, stack []string, reader func(string) ([]byte, error)) (*RenderResult, bool, error) {
+func (p *Parser) renderFromCandidates(candidates []string, stack []string, seen map[string]struct{}) (*RenderResult, bool, error) {
 	for _, candidate := range candidates {
 		candidate = strings.TrimSpace(candidate)
 		if candidate == "" {
 			continue
 		}
-		data, err := reader(candidate)
+		data, key, err := p.readPromptFile(candidate)
 		if err != nil {
 			if isNotExist(err) {
 				continue
 			}
 			return nil, false, err
 		}
-		result, err := p.renderFile(candidate, data, stack)
+		result, err := p.renderFile(key, candidate, data, stack, seen)
 		if err != nil {
 			return nil, false, err
 		}
@@ -127,11 +128,15 @@ func (p *Parser) renderFromCandidates(candidates []string, stack []string, reade
 	return nil, false, nil
 }
 
-func (p *Parser) renderFile(filename string, data []byte, stack []string) (*RenderResult, error) {
-	updatedStack, err := pushStack(filename, stack)
+func (p *Parser) renderFile(key, filename string, data []byte, stack []string, seen map[string]struct{}) (*RenderResult, error) {
+	updatedStack, err := pushStack(key, stack)
 	if err != nil {
 		return nil, err
 	}
+	if _, ok := seen[key]; ok {
+		return &RenderResult{}, nil
+	}
+	seen[key] = struct{}{}
 	files := []string{filename}
 	if !strings.HasSuffix(strings.ToLower(filename), ".tmpl") {
 		return &RenderResult{
@@ -149,7 +154,7 @@ func (p *Parser) renderFile(filename string, data []byte, stack []string) (*Rend
 		}
 		if line != "" {
 			if includeName, ok := parseIncludeDirective(line); ok {
-				includeResult, found, includeErr := p.renderInclude(includeName, updatedStack)
+				includeResult, found, includeErr := p.renderInclude(includeName, updatedStack, seen)
 				if includeErr != nil {
 					return nil, includeErr
 				}
@@ -172,46 +177,43 @@ func (p *Parser) renderFile(filename string, data []byte, stack []string) (*Rend
 	}, nil
 }
 
-func (p *Parser) readPromptFile(filename string) ([]byte, error) {
+func (p *Parser) readPromptFile(filename string) ([]byte, string, error) {
 	if p.promptFS != nil {
 		promptPath := path.Join(p.promptDir, filename)
-		return fs.ReadFile(p.promptFS, promptPath)
+		data, err := fs.ReadFile(p.promptFS, promptPath)
+		return data, p.promptKey(filename), err
 	}
 	promptPath := filepath.Join(p.promptDir, filename)
-	return os.ReadFile(promptPath)
+	data, err := os.ReadFile(promptPath)
+	return data, p.promptKey(filename), err
 }
 
-func (p *Parser) readIncludeFile(filename string) ([]byte, error) {
-	cleaned, ok := cleanIncludePath(filename)
-	if !ok {
-		return nil, fs.ErrNotExist
-	}
-
+func (p *Parser) readBareInclude(cleaned string) ([]byte, string, error) {
 	binaryFound := false
 	data, err := p.readPromptInclude(cleaned)
 	if err == nil {
-		return data, nil
+		return data, p.promptKey(cleaned), nil
 	}
 	if errors.Is(err, errBinaryInclude) {
 		binaryFound = true
 	} else if !isNotExist(err) {
-		return nil, err
+		return nil, "", err
 	}
 
 	data, err = p.readGestaltInclude(cleaned)
 	if err == nil {
-		return data, nil
+		return data, p.gestaltKey(cleaned), nil
 	}
 	if errors.Is(err, errBinaryInclude) {
 		binaryFound = true
 	} else if !isNotExist(err) {
-		return nil, err
+		return nil, "", err
 	}
 
 	if binaryFound {
-		return nil, errBinaryInclude
+		return nil, "", errBinaryInclude
 	}
-	return nil, fs.ErrNotExist
+	return nil, "", fs.ErrNotExist
 }
 
 func promptCandidates(promptName string) []string {
@@ -247,6 +249,24 @@ func isPathInclude(includeName string) bool {
 		strings.HasPrefix(trimmed, ".\\") ||
 		strings.Contains(trimmed, "/") ||
 		strings.Contains(trimmed, "\\")
+}
+
+func (p *Parser) promptKey(cleaned string) string {
+	if p.promptFS != nil {
+		return path.Join(p.promptDir, cleaned)
+	}
+	joined := filepath.Join(p.includeRoot, p.promptDir, filepath.FromSlash(cleaned))
+	return filepath.ToSlash(joined)
+}
+
+func (p *Parser) workdirKey(cleaned string) string {
+	joined := filepath.Join(p.includeRoot, filepath.FromSlash(cleaned))
+	return filepath.ToSlash(joined)
+}
+
+func (p *Parser) gestaltKey(cleaned string) string {
+	joined := filepath.Join(p.includeRoot, ".gestalt", "prompts", filepath.FromSlash(cleaned))
+	return filepath.ToSlash(joined)
 }
 
 func (p *Parser) readPromptInclude(cleaned string) ([]byte, error) {

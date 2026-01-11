@@ -78,7 +78,7 @@
    Tests: Build binary, verify manifest and version accessible at runtime
    Done when: Manifest and version embedded and loadable at runtime
 
-** TODO [#B] Implement hash verification logic
+** DONE [#B] Implement hash verification logic
    Why: Core of extraction safety - verify existing files before overwriting
    Change:
    - Create internal/config/extractor.go with Extractor struct

@@ -2,6 +2,7 @@
   import { onDestroy, onMount } from 'svelte'
   import { apiFetch } from '../lib/api.js'
   import { subscribe as subscribeAgentEvents } from '../lib/agentEventStore.js'
+  import { subscribe as subscribeConfigEvents } from '../lib/configEventStore.js'
   import { subscribe as subscribeEvents } from '../lib/eventStore.js'
   import { notificationStore } from '../lib/notificationStore.js'
   import { formatRelativeTime } from '../lib/timeUtils.js'
@@ -32,6 +33,10 @@
   let logsMounted = false
   let lastLogErrorMessage = ''
   let agentEventsUnsubscribes = []
+  let configEventsUnsubscribes = []
+  let configExtractionCount = 0
+  let configExtractionLast = ''
+  let configExtractionTimer = null
   let gitOrigin = ''
   let gitBranch = ''
   let gitContext = 'not a git repo'
@@ -179,6 +184,26 @@
 
   const logEntryKey = (entry, index) => `${entry.timestamp}-${entry.message}-${index}`
 
+  const resetConfigExtraction = () => {
+    configExtractionCount = 0
+    configExtractionLast = ''
+    if (configExtractionTimer) {
+      clearTimeout(configExtractionTimer)
+      configExtractionTimer = null
+    }
+  }
+
+  const noteConfigExtraction = (payload) => {
+    configExtractionCount += 1
+    configExtractionLast = payload?.path || ''
+    if (configExtractionTimer) {
+      clearTimeout(configExtractionTimer)
+    }
+    configExtractionTimer = setTimeout(() => {
+      resetConfigExtraction()
+    }, 5000)
+  }
+
   $: orderedLogs = [...logs].reverse()
   $: visibleLogs = orderedLogs.slice(0, 15)
   $: if (status && !gitOrigin) {
@@ -216,6 +241,17 @@
       subscribeAgentEvents('agent_stopped', handleAgentEvent),
       subscribeAgentEvents('agent_error', handleAgentEvent),
     ]
+    configEventsUnsubscribes = [
+      subscribeConfigEvents('config_extracted', noteConfigExtraction),
+      subscribeConfigEvents('config_conflict', (payload) => {
+        const path = payload?.path || 'config file'
+        notificationStore.addNotification('warning', `Config conflict: ${path}`)
+      }),
+      subscribeConfigEvents('config_validation_error', (payload) => {
+        const path = payload?.path || 'config file'
+        notificationStore.addNotification('error', `Config validation failed: ${path}`)
+      }),
+    ]
     gitUnsubscribe = subscribeEvents('git_branch_changed', (payload) => {
       if (!payload?.path) return
       gitBranch = payload.path
@@ -231,6 +267,14 @@
     if (agentEventsUnsubscribes.length > 0) {
       agentEventsUnsubscribes.forEach((unsubscribe) => unsubscribe())
       agentEventsUnsubscribes = []
+    }
+    if (configEventsUnsubscribes.length > 0) {
+      configEventsUnsubscribes.forEach((unsubscribe) => unsubscribe())
+      configEventsUnsubscribes = []
+    }
+    if (configExtractionTimer) {
+      clearTimeout(configExtractionTimer)
+      configExtractionTimer = null
     }
     if (gitUnsubscribe) {
       gitUnsubscribe()
@@ -253,6 +297,15 @@
         </div>
       </div>
     </div>
+    {#if configExtractionCount > 0}
+      <div class="status-card">
+        <span class="label">Config extraction</span>
+        <span class="value">{configExtractionCount} file(s)</span>
+        {#if configExtractionLast}
+          <span class="status-pill status-pill--path">{configExtractionLast}</span>
+        {/if}
+      </div>
+    {/if}
   </section>
 
   <section class="dashboard__agents">

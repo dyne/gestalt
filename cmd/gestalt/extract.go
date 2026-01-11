@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"gestalt"
+	"gestalt/internal/config"
+	"gestalt/internal/event"
 )
 
 func hasFlag(args []string, flag string) bool {
@@ -62,14 +64,14 @@ func runExtractConfig() int {
 		case strings.HasPrefix(entry, "skills/") && path.Base(entry) == "SKILL.md":
 			skillsCount++
 		}
-	}); err != nil {
+	}, true); err != nil {
 		fmt.Fprintf(os.Stderr, "extract config failed: %v\n", err)
 		return 1
 	}
 
 	if err := extractEmbeddedTree(distFS, distDest, func(entry string) {
 		frontendCount++
-	}); err != nil {
+	}, false); err != nil {
 		fmt.Fprintf(os.Stderr, "extract frontend failed: %v\n", err)
 		return 1
 	}
@@ -79,7 +81,7 @@ func runExtractConfig() int {
 	return 0
 }
 
-func extractEmbeddedTree(src fs.FS, destRoot string, record func(string)) error {
+func extractEmbeddedTree(src fs.FS, destRoot string, record func(string), emitEvents bool) error {
 	return fs.WalkDir(src, ".", func(entry string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -93,6 +95,9 @@ func extractEmbeddedTree(src fs.FS, destRoot string, record func(string)) error 
 		}
 		if _, err := os.Stat(destPath); err == nil {
 			fmt.Fprintf(os.Stderr, "warning: %s already exists, skipping\n", destPath)
+			if emitEvents {
+				publishConfigEvent(entry, destPath, "conflict")
+			}
 			return nil
 		} else if !os.IsNotExist(err) {
 			return err
@@ -113,9 +118,30 @@ func extractEmbeddedTree(src fs.FS, destRoot string, record func(string)) error 
 		if err := os.WriteFile(destPath, data, perm); err != nil {
 			return err
 		}
+		if emitEvents {
+			publishConfigEvent(entry, destPath, "extracted")
+		}
 		if record != nil {
 			record(entry)
 		}
 		return nil
 	})
+}
+
+func publishConfigEvent(entry, destPath, changeType string) {
+	configType := configTypeForEntry(entry)
+	config.Bus().Publish(event.NewConfigEvent(configType, destPath, changeType))
+}
+
+func configTypeForEntry(entry string) string {
+	switch {
+	case strings.HasPrefix(entry, "agents/"):
+		return "agent"
+	case strings.HasPrefix(entry, "prompts/"):
+		return "prompt"
+	case strings.HasPrefix(entry, "skills/"):
+		return "skill"
+	default:
+		return "config"
+	}
 }

@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"gestalt/internal/config"
+	"gestalt/internal/event"
 	"gestalt/internal/logging"
 )
 
@@ -85,16 +87,23 @@ func (l Loader) Load(agentFS fs.FS, dir, promptsDir string, skillIndex map[strin
 func readAgentFile(agentFS fs.FS, filePath string) (Agent, error) {
 	data, err := fs.ReadFile(agentFS, filePath)
 	if err != nil {
+		emitConfigValidationError(filePath)
 		return Agent{}, fmt.Errorf("read agent file %s: %w", filePath, err)
 	}
 	var agent Agent
 	if err := json.Unmarshal(data, &agent); err != nil {
+		emitConfigValidationError(filePath)
 		return Agent{}, fmt.Errorf("parse agent file %s: %w", filePath, err)
 	}
 	if err := agent.Validate(); err != nil {
+		emitConfigValidationError(filePath)
 		return Agent{}, fmt.Errorf("validate agent file %s: %w", filePath, err)
 	}
 	return agent, nil
+}
+
+func emitConfigValidationError(filePath string) {
+	config.Bus().Publish(event.NewConfigEvent("agent", filePath, "validation_error"))
 }
 
 func validatePromptNames(logger *logging.Logger, agentFS fs.FS, agentID string, agent Agent, promptsDir string) {

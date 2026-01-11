@@ -65,6 +65,9 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 		Manager:   manager,
 		AuthToken: authToken,
 	})
+	mux.Handle("/api/config/events", &ConfigEventsHandler{
+		AuthToken: authToken,
+	})
 
 	mux.Handle("/api/status", loggingMiddleware(logger, restHandler(authToken, rest.handleStatus)))
 	mux.Handle("/api/metrics", loggingMiddleware(logger, restHandler(authToken, rest.handleMetrics)))

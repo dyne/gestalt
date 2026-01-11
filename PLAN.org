@@ -182,7 +182,7 @@
    Tests: Unit tests for terminal event emission, verify event timing
    Done when: Terminal lifecycle observable via events, not mixed with I/O
 
-** WIP [#B] Add config change events for future config refactor
+** DONE [#B] Add config change events for future config refactor
    Why: Enable reactive config updates, needed for config refactor L1
    Change:
    - Create ConfigBus: event.Bus[ConfigEvent]
@@ -197,7 +197,7 @@
    Tests: Unit tests for event emission during extraction (mock extraction)
    Done when: Config events defined, infrastructure ready for config refactor
 
-** TODO [#C] Add workflow state events for Temporal integration
+** WIP [#C] Add workflow state events for Temporal integration
    Why: Better observability of workflow pauses/resumes, bell handling
    Change:
    - Create WorkflowBus: event.Bus[WorkflowEvent]

@@ -26,6 +26,7 @@ This repo is a Go backend + Svelte frontend for a multi-terminal dashboard with 
 
 ## Agent profiles
 - Prompt names in `config/agents/*.json` can reference `.tmpl` or `.txt` files (backward compatible).
+- The `skills` field lists optional skills the agent may load later (Claude-style skills); treat them as available but not auto-applied at start.
 
 ## Key API endpoints
 - `/api/status` system status

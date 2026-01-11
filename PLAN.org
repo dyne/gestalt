@@ -420,7 +420,7 @@
 ** Temporal dev server bind + UI link
    - Bind Temporal dev server to 0.0.0.0 with random gRPC/UI ports.
    - Expose Temporal UI URL in /api/status and use it for the Flow "View in Temporal" link.
-* TODO [#B] Fix terminal natural touch scrolling
+* WIP [#B] Fix terminal natural touch scrolling
   Goal: Enable natural touch scrolling anywhere on the terminal (not just scrollbar) while preserving mouse text selection for clipboard copy.
   Notes:
   - Current state: touch scroll code EXISTS in terminalStore.js (setupTouchScroll, lines 257-326) but DOES NOT WORK
@@ -439,7 +439,7 @@
   - Testing requirements: manual touch device testing (no good automated touch simulation)
   Date: 2026-01-11
 
-** TODO [#A] Research and analyze why current touch scroll fails
+** DONE [#A] Research and analyze why current touch scroll fails
    Why: Must understand root cause before designing solution, avoid repeating past mistakes
    Change:
    - Document current implementation: setupTouchScroll in terminalStore.js (lines 257-326)
@@ -454,6 +454,26 @@
    - Research Pointer Events: pointerType property distinguishes 'mouse', 'touch', 'pen'
    - Test current code: add console.log to handlers, verify if they even fire on touch
    - Test hypothesis: touch events never reach our handlers due to xterm interception
+   Findings:
+   - setupTouchScroll is attached to `term.element` (the `.xterm` root), with `touchstart` passive true
+     and `touchmove` passive false, using `viewport.scrollTop` deltas and `syncScrollState()`.
+   - The CSS `touch-action: pan-y` is applied to `.terminal-shell__body`, not `.xterm`/`.xterm-viewport`,
+     so browser default scrolling/selection can still win inside xterm.
+   - xterm owns touch handling for selection and can call `stopPropagation` in its handlers; since our
+     listener is registered after xterm, its capture handler can still preempt ours.
+   - Direct `viewport.scrollTop` manipulation bypasses xterm's scroll APIs; xterm maintains its own
+     viewport state, so manual scrolling risks desync (and uses `.xterm-viewport` that can be rebuilt).
+   - There is no pointer type detection, so any non-touch gestures cannot be separated from selection.
+   Evidence/notes:
+   - `setupTouchScroll` in `frontend/src/lib/terminalStore.js` uses `event.touches` averaging and
+     updates `.xterm-viewport` scrollTop; `touchstart` is passive so the gesture is likely already
+     claimed by the browser/xterm before `touchmove` can prevent default in Safari/iOS.
+   - Terminal CSS sets `touch-action` only on `.terminal-shell__body` and uses
+     `-webkit-overflow-scrolling: touch` on `.xterm-viewport`, encouraging native scroll over JS.
+   - Manual device testing was not possible in this environment; confirm on a real touch device.
+   Open questions:
+   - xterm does not expose a stable "disable touch selection" option in our current config; will use
+     pointer events with `pointerType === 'touch'` and stop propagation in capture phase instead.
    Tests: Manual touch testing with logging, document exact event flow
    Done when: Root cause documented with evidence, solution approach validated
 

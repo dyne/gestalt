@@ -60,6 +60,7 @@ This repo is a Go backend + Svelte frontend for a multi-terminal dashboard with 
 - Core type: `internal/event.Bus[T]` (sync fan-out, optional history, typed events).
 - Buses are named for metrics/diagnostics: `watcher_events`, `agent_events`, `terminal_events`, `terminal_output`, `workflow_events`, `config_events`, `logs`.
 - WebSocket streams map to buses: `/ws/events` (filesystem), `/api/agents/events`, `/api/terminals/events`, `/api/config/events`, `/api/workflows/events`.
+- Filesystem events are published via `watcher.WatchFile` into the `watcher_events` bus (EventHub removed).
 - Debugging: `GESTALT_EVENT_DEBUG=true` logs every published event; `/api/events/debug` lists subscriber counts.
 - Optional history: set `BusOptions.HistorySize` and use `ReplayLast` or `DumpHistory` for recent events.
 - Prefer events for fan-out, async UI updates, and decoupling; prefer direct calls for tight request/response flows.

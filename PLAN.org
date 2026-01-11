@@ -1,4 +1,4 @@
-* WIP [#A] Unified event architecture with generic event bus
+* DONE [#A] Unified event architecture with generic event bus
   Goal: Refactor disparate event systems (EventHub, Broadcaster, LogHub) into a single reusable generic event bus, then extend event-driven patterns throughout Gestalt for agent lifecycle, config changes, terminal events, and workflow state.
   Notes:
   - Current state: 3 separate event implementations (watcher/EventHub, terminal/Broadcaster, logging/LogHub)
@@ -351,7 +351,7 @@
    Tests: Full test suite, integration tests, manual testing
    Done when: Event architecture is validated, ready for production use
 
-** DONE [#B] Isolate dev proxy per instance
+** [#B] Isolate dev proxy per instance
    Why: Multiple Gestalt instances on one machine should not share backend state unintentionally
    Change:
    - Make Vite dev proxy target configurable via environment (default remains localhost:8080)
@@ -360,7 +360,7 @@
    Tests: Frontend tests and backend tests pass
    Done when: Running two instances with distinct backend ports shows isolated status
 
-** DONE [#B] Fix make dev shell compatibility
+** [#B] Fix make dev shell compatibility
    Why: `make dev` should work under /bin/sh with custom env overrides
    Change:
    - Avoid heredoc command substitutions in GNUmakefile dev target
@@ -368,7 +368,7 @@
    Tests: Backend and frontend tests pass
    Done when: `GESTALT_PORT=9090 make dev` runs without shell errors
 
-** DONE [#B] Remove deprecated EventHub wrapper
+** [#B] Remove deprecated EventHub wrapper
    Why: Deprecated wrappers should be removed now that breaking changes are acceptable
    Change:
    - Remove internal/watcher/hub.go (EventHub) and all references
@@ -651,7 +651,7 @@
    - Sign-off: get confirmation from original requester that problem is solved
    Tests: User acceptance testing, real-world usage scenarios
    Done when: User confirms touch scroll works as expected, problem solved
-* TODO [#A] Config extraction refactor with hash verification and version tracking
+* DONE [#A] Config extraction refactor with hash verification and version tracking
   Goal: Refactor config/ handling to always extract embedded resources to .gestalt/config/ on startup with SHA-256 hash verification, semantic version compatibility checks, backup on conflicts, and relocate PLAN.org to .gestalt/.
   Notes:
   - Current state: config/ is embedded, optional override from ./gestalt/config/
@@ -2983,7 +2983,7 @@
    Done when: Status shows origin/branch with working directory
 
 >>>>>>> 13091cc (refine prompts and new fixer agent)
-* TODO [#B] Agent profile widgets: configurable UI composition
+* DONE [#B] Agent profile widgets: configurable UI composition
   Goal: Extend agent profiles with a "widgets" array that controls which UI elements appear in an agent's terminal tab, starting with a Plan sidebar widget that displays PLAN.org alongside the terminal.
   Notes:
   - Agent profiles get new optional field: "widgets": ["plan-sidebar", ...] (array of widget names)

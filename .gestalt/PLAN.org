@@ -300,7 +300,7 @@
    Tests: None (documentation only)
    Done when: Upgrade path and version compatibility clearly documented
 
-** TODO [#C] Add telemetry for config extraction metrics
+** DONE [#C] Add telemetry for config extraction metrics
    Why: Monitor extraction behavior in production (if telemetry exists)
    Change:
    - Log metrics: files extracted, skipped, backed up

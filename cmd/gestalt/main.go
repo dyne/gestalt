@@ -1747,14 +1747,17 @@ func prepareConfig(cfg Config, logger *logging.Logger) (configPaths, error) {
 	}
 	start := time.Now()
 	stats, err := extractor.ExtractWithStats(gestalt.EmbeddedConfigFS, paths.ConfigDir, manifest)
+	duration := time.Since(start)
 	if err != nil {
+		logConfigMetrics(logger, stats, duration, false, err)
 		return configPaths{}, err
 	}
 	if logger != nil {
 		logger.Debug("config extraction duration", map[string]string{
-			"duration_ms": strconv.FormatInt(time.Since(start).Milliseconds(), 10),
+			"duration_ms": strconv.FormatInt(duration.Milliseconds(), 10),
 		})
 	}
+	logConfigMetrics(logger, stats, duration, true, nil)
 	if err := config.WriteVersionFile(paths.VersionLoc, current); err != nil {
 		return configPaths{}, fmt.Errorf("write version file: %w", err)
 	}
@@ -1878,6 +1881,27 @@ func logConfigSummary(logger *logging.Logger, paths configPaths, installed, curr
 		fields["installed"] = "none"
 	}
 	logger.Info("config extraction complete", fields)
+}
+
+func logConfigMetrics(logger *logging.Logger, stats config.ExtractStats, duration time.Duration, success bool, err error) {
+	if logger == nil {
+		return
+	}
+	fields := map[string]string{
+		"extracted":   strconv.Itoa(stats.Extracted),
+		"skipped":     strconv.Itoa(stats.Skipped),
+		"backed_up":   strconv.Itoa(stats.BackedUp),
+		"duration_ms": strconv.FormatInt(duration.Milliseconds(), 10),
+		"success":     strconv.FormatBool(success),
+	}
+	if err != nil {
+		fields["error"] = err.Error()
+	}
+	if success {
+		logger.Info("config extraction metrics", fields)
+		return
+	}
+	logger.Warn("config extraction metrics", fields)
 }
 
 func copyFile(source, destination string) error {

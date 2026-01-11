@@ -48,6 +48,9 @@ func TestPrepareConfigWarmStartSkipsExtraction(t *testing.T) {
 		!logContains(logger.Buffer(), "config file up-to-date, skipping") {
 		t.Fatalf("expected skip log entry")
 	}
+	if !logContains(logger.Buffer(), "config extraction metrics") {
+		t.Fatalf("expected metrics log entry")
+	}
 }
 
 func TestPrepareConfigConflictBacksUp(t *testing.T) {

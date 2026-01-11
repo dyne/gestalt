@@ -241,7 +241,7 @@
 
   .terminal-shell__body {
     min-height: 0;
-    touch-action: pan-y;
+    touch-action: none;
     overscroll-behavior: contain;
   }
 
@@ -368,6 +368,7 @@
 
   :global(.xterm) {
     height: 100%;
+    touch-action: none;
   }
 
   :global(.xterm-viewport) {

@@ -574,7 +574,7 @@
    Tests: Integration test: attach → handlers active, detach → handlers removed, no leaks
    Done when: Pointer scroll integrated into terminal lifecycle, cleanup verified
 
-** TODO [#C] Add CSS touch-action: none to xterm element
+** DONE [#C] Add CSS touch-action: none to xterm element
    Why: Disable browser default touch gestures so we fully control touch behavior
    Change:
    - In Terminal.svelte <style> section (line ~369):

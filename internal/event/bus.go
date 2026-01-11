@@ -171,6 +171,15 @@ func (b *Bus[T]) Publish(event T) {
 		return
 	}
 	b.appendHistoryLocked(event)
+	if len(b.subscribers) == 0 {
+		b.mu.Unlock()
+		eventType := b.eventType(event)
+		b.incPublished(eventType)
+		if debugEventsEnabled {
+			log.Printf("event bus %s: event %s", b.busName(), eventType)
+		}
+		return
+	}
 	subscribers := make([]subscription[T], 0, len(b.subscribers))
 	for _, sub := range b.subscribers {
 		subscribers = append(subscribers, sub)

@@ -322,7 +322,7 @@
    Tests: Verify deprecated APIs still work (backward compatibility)
    Done when: Old implementations deprecated, migration path clear
 
-** TODO [#C] Performance optimization and benchmarking
+** DONE [#C] Performance optimization and benchmarking
    Why: Ensure event bus doesn't become bottleneck under load
    Change:
    - Benchmark Bus[T] operations: Subscribe, Publish, Unsubscribe

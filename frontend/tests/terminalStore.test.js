@@ -131,11 +131,15 @@ const waitForSocket = async () => {
   }
 }
 
-const createPointerEvent = (type, { pointerId = 1, pointerType = 'touch', clientY = 0 } = {}) => {
+const createPointerEvent = (
+  type,
+  { pointerId = 1, pointerType = 'touch', clientY = 0, timeStamp = 0 } = {}
+) => {
   const event = new Event(type, { bubbles: true, cancelable: true })
   Object.defineProperty(event, 'pointerId', { value: pointerId })
   Object.defineProperty(event, 'pointerType', { value: pointerType })
   Object.defineProperty(event, 'clientY', { value: clientY })
+  Object.defineProperty(event, 'timeStamp', { value: timeStamp })
   return event
 }
 
@@ -387,6 +391,64 @@ describe('terminalStore', () => {
     expect(state.term.scrollLinesCalls).toEqual([1])
 
     releaseTerminalState('touch-threshold')
+  })
+
+  it('continues with inertia after touch release', async () => {
+    const originalRaf = globalThis.requestAnimationFrame
+    const originalCancel = globalThis.cancelAnimationFrame
+    let rafTime = 32
+    let rafCallbacks = []
+
+    globalThis.requestAnimationFrame = (callback) => {
+      rafCallbacks.push(callback)
+      return rafCallbacks.length
+    }
+    globalThis.cancelAnimationFrame = () => {}
+
+    const runRaf = () => {
+      const callbacks = rafCallbacks
+      rafCallbacks = []
+      rafTime += 16
+      callbacks.forEach((callback) => callback(rafTime))
+    }
+
+    const state = getTerminalState('touch-inertia')
+    const container = document.createElement('div')
+    state.attach(container)
+
+    const element = state.term.element
+    element.dispatchEvent(
+      createPointerEvent('pointerdown', {
+        pointerType: 'touch',
+        clientY: 100,
+        pointerId: 1,
+        timeStamp: 0,
+      })
+    )
+    element.dispatchEvent(
+      createPointerEvent('pointermove', {
+        pointerType: 'touch',
+        clientY: 0,
+        pointerId: 1,
+        timeStamp: 16,
+      })
+    )
+    element.dispatchEvent(
+      createPointerEvent('pointerup', {
+        pointerType: 'touch',
+        clientY: 0,
+        pointerId: 1,
+        timeStamp: 32,
+      })
+    )
+
+    runRaf()
+
+    expect(state.term.scrollLinesCalls.length).toBeGreaterThan(1)
+
+    releaseTerminalState('touch-inertia')
+    globalThis.requestAnimationFrame = originalRaf
+    globalThis.cancelAnimationFrame = originalCancel
   })
 
   it('ignores mouse pointer events for scrolling', async () => {

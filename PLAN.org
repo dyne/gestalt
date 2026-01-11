@@ -659,7 +659,7 @@
    Tests: Manual testing on physical devices, document results per device/browser
    Done when: Touch scroll works smoothly on iOS and Android, no device-specific bugs
 
-** TODO [#C] Add inertial touch scrolling (optional)
+** DONE [#C] Add inertial touch scrolling (optional)
    Why: Momentum scrolling can feel more natural on touch devices for long terminal output.
    Change:
    - Track touch scroll velocity during pointermove (deltaY / deltaTime).

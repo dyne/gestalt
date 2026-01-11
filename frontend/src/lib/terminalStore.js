@@ -15,6 +15,11 @@ const HISTORY_WARNING_MS = 5000
 const HISTORY_LINES = 2000
 const DEFAULT_LINE_HEIGHT_PX = 20
 const TOUCH_SCROLL_THRESHOLD_PX = 10
+const INERTIA_MIN_VELOCITY_PX_PER_MS = 0.05
+const INERTIA_MAX_VELOCITY_PX_PER_MS = 2
+const INERTIA_DECAY = 0.95
+const INERTIA_FRAME_MS = 16
+const INERTIA_VELOCITY_SMOOTHING = 0.8
 const MOUSE_MODE_PARAMS = new Set([
   9,
   1000,
@@ -268,7 +273,17 @@ const createTerminalState = (terminalId) => {
     let activePointerId = null
     let startY = 0
     let lastY = 0
+    let lastMoveTime = 0
     let isScrolling = false
+    let velocityPxPerMs = 0
+    let inertiaVelocityPxPerMs = 0
+    let inertiaActive = false
+    let inertiaFrameId = null
+
+    const nowMs = () =>
+      typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now()
 
     const getPixelsPerLine = () => {
       if (!term.rows) return DEFAULT_LINE_HEIGHT_PX
@@ -278,6 +293,54 @@ const createTerminalState = (terminalId) => {
       if (!height) return DEFAULT_LINE_HEIGHT_PX
       const pixelsPerLine = height / term.rows
       return pixelsPerLine || DEFAULT_LINE_HEIGHT_PX
+    }
+
+    const clampVelocity = (value) =>
+      Math.max(-INERTIA_MAX_VELOCITY_PX_PER_MS, Math.min(INERTIA_MAX_VELOCITY_PX_PER_MS, value))
+
+    const stopInertia = () => {
+      if (!inertiaActive) return
+      inertiaActive = false
+      if (inertiaFrameId !== null && typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(inertiaFrameId)
+      }
+      inertiaFrameId = null
+      inertiaVelocityPxPerMs = 0
+    }
+
+    const startInertia = () => {
+      if (!isScrolling) return
+      const startVelocity = clampVelocity(velocityPxPerMs)
+      if (Math.abs(startVelocity) < INERTIA_MIN_VELOCITY_PX_PER_MS) return
+      inertiaVelocityPxPerMs = startVelocity
+      inertiaActive = true
+      let lastFrameTime = lastMoveTime > 0 ? lastMoveTime : nowMs()
+
+      const step = (frameTime) => {
+        if (!inertiaActive) return
+        const currentTime = typeof frameTime === 'number' ? frameTime : nowMs()
+        const deltaTime = Math.max(0, currentTime - lastFrameTime)
+        lastFrameTime = currentTime
+        if (deltaTime > 0) {
+          const pixelsPerLine = getPixelsPerLine()
+          const deltaLines = Math.round(
+            ((inertiaVelocityPxPerMs * deltaTime) / pixelsPerLine) * scrollSensitivity
+          )
+          if (deltaLines) {
+            term.scrollLines(-deltaLines)
+            syncScrollState()
+          }
+          const decay = Math.pow(INERTIA_DECAY, deltaTime / INERTIA_FRAME_MS)
+          inertiaVelocityPxPerMs *= decay
+        }
+        if (Math.abs(inertiaVelocityPxPerMs) < INERTIA_MIN_VELOCITY_PX_PER_MS) {
+          stopInertia()
+          return
+        }
+        inertiaFrameId = requestAnimationFrame(step)
+      }
+
+      inertiaFrameId = requestAnimationFrame(step)
     }
 
     const releasePointer = () => {
@@ -296,10 +359,13 @@ const createTerminalState = (terminalId) => {
     const handlePointerDown = (event) => {
       if (event.pointerType !== 'touch') return
       if (activePointerId !== null) return
+      stopInertia()
       activePointerId = event.pointerId
       startY = event.clientY
       lastY = event.clientY
+      lastMoveTime = typeof event.timeStamp === 'number' ? event.timeStamp : nowMs()
       isScrolling = false
+      velocityPxPerMs = 0
       event.preventDefault()
       event.stopPropagation()
       if (element.setPointerCapture) {
@@ -315,12 +381,15 @@ const createTerminalState = (terminalId) => {
       if (activePointerId === null || event.pointerId !== activePointerId) return
       if (event.pointerType !== 'touch') return
       const currentY = event.clientY
+      const currentTime = typeof event.timeStamp === 'number' ? event.timeStamp : nowMs()
       const totalDeltaY = currentY - startY
       if (!isScrolling && Math.abs(totalDeltaY) < TOUCH_SCROLL_THRESHOLD_PX) {
         return
       }
+      let deltaTime = currentTime - lastMoveTime
       if (!isScrolling) {
         isScrolling = true
+        deltaTime = INERTIA_FRAME_MS
       }
       const deltaY = currentY - lastY
       lastY = currentY
@@ -330,6 +399,13 @@ const createTerminalState = (terminalId) => {
         term.scrollLines(-deltaLines)
         syncScrollState()
       }
+      if (deltaTime > 0) {
+        const nextVelocity = deltaY / deltaTime
+        velocityPxPerMs =
+          velocityPxPerMs * INERTIA_VELOCITY_SMOOTHING +
+          nextVelocity * (1 - INERTIA_VELOCITY_SMOOTHING)
+      }
+      lastMoveTime = currentTime
       event.preventDefault()
       event.stopPropagation()
     }
@@ -339,6 +415,7 @@ const createTerminalState = (terminalId) => {
       if (event.pointerType === 'touch') {
         event.preventDefault()
         event.stopPropagation()
+        startInertia()
       }
       releasePointer()
     }
@@ -361,6 +438,7 @@ const createTerminalState = (terminalId) => {
     })
 
     return () => {
+      stopInertia()
       releasePointer()
       element.removeEventListener('pointerdown', handlePointerDown, { capture: true })
       element.removeEventListener('pointermove', handlePointerMove, { capture: true })

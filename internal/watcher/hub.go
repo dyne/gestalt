@@ -16,6 +16,7 @@ const (
 )
 
 // EventHub manages subscriptions and publishes higher-level events.
+// Deprecated: prefer event.Bus[Event] directly for new event sources.
 type EventHub struct {
 	watcher       Watch
 	mutex         sync.Mutex
@@ -29,6 +30,7 @@ type EventHub struct {
 }
 
 // NewEventHub creates an EventHub tied to the provided context.
+// Deprecated: prefer event.Bus[Event] directly for new event sources.
 func NewEventHub(ctx context.Context, watcher Watch) *EventHub {
 	if ctx == nil {
 		ctx = context.Background()

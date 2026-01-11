@@ -308,7 +308,7 @@
    Tests: Test event store implementation, verify persistence and replay (if implemented)
    Done when: Event persistence available as opt-in feature (OPTIONAL - can skip for now)
 
-** TODO [#B] Deprecate old event implementations
+** DONE [#B] Deprecate old event implementations
    Why: Remove duplicate code after successful migration
    Change:
    - Mark EventHub as deprecated (in comments and docs)

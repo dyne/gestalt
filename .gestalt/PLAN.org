@@ -264,7 +264,7 @@
    Tests: Test dev mode skips extraction
    Done when: Dev mode documented and functional
 
-** TODO [#B] Add integration tests for config extraction flow
+** DONE [#B] Add integration tests for config extraction flow
    Why: Critical path needs comprehensive test coverage
    Change:
    - Test scenarios:

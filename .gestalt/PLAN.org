@@ -1151,7 +1151,7 @@
    Tests: Manual test with agent prompts
    Done when: Agents understand how to use SCIP API
 
-** WIP [#C] Add indexing command to gestalt CLI
+** DONE [#C] Add indexing command to gestalt CLI
    Why: Users need simple way to index their codebases
    Change:
    - Add cmd/gestalt/index.go:

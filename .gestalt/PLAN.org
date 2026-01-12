@@ -1289,7 +1289,7 @@
    Tests: Bindings generate correctly; wails3 dev shows methods in console
    Done when: Frontend can call bound Go methods via window.wails
 
-** WIP [#B] Update frontend API client for Wails compatibility
+** DONE [#B] Update frontend API client for Wails compatibility
    Why: Frontend must detect desktop mode and use dynamic server URL from Go
    Change:
    - Update frontend/src/lib/api.js:
@@ -1397,7 +1397,7 @@
    Tests: Web mode unchanged, desktop mode connects to embedded server
    Done when: Frontend adapts to both web and desktop modes
 
-** TODO [#B] Wire embedded server into desktop app lifecycle
+** DONE [#B] Wire embedded server into desktop app lifecycle
    Why: Desktop app must start/stop server cleanly with window lifecycle
    Change:
    - In cmd/gestalt-desktop/main.go, start server before wails.Run()
@@ -1413,7 +1413,7 @@
    Tests: Desktop app starts server on random port, frontend connects
    Done when: Server lifecycle synchronized with desktop app
 
-** TODO [#B] Integrate Makefile build targets for desktop
+** DONE [#B] Integrate Makefile build targets for desktop
    Why: Developers need simple commands to build desktop app
    Change:
    - Add Makefile targets:
@@ -1483,7 +1483,7 @@
    Tests: `make gestalt-desktop` builds successfully
    Done when: Desktop builds via Makefile with documented targets
 
-** TODO [#C] Add desktop-specific window configuration
+** DONE [#C] Add desktop-specific window configuration
    Why: Native desktop app needs proper window sizing, title, and behavior
    Change:
    - Configure initial window size: 1400x900 (accommodate dashboard + terminal)
@@ -1499,7 +1499,7 @@
    Tests: Window appears with correct size and title
    Done when: Desktop window has proper size, title, and behavior
 
-** TODO [#C] Add desktop-specific native menus (optional)
+** DONE [#C] Add desktop-specific native menus (optional)
    Why: Desktop apps typically have native menu bar (File, Edit, etc)
    Change:
    - Use Wails menu API to create native menus
@@ -1513,7 +1513,7 @@
    Tests: Menus appear and actions work
    Done when: Desktop app has native menus (optional, can defer)
 
-** TODO [#C] Handle desktop-specific file paths and resources
+** DONE [#C] Handle desktop-specific file paths and resources
    Why: Desktop app bundle has different resource locations than web server
    Change:
    - Ensure config/agents, config/prompts, config/skills load correctly
@@ -1529,7 +1529,7 @@
    Tests: Desktop app loads config from correct locations
    Done when: Desktop app finds config in user-specific locations
 
-** TODO [#C] Add system tray icon (optional enhancement)
+** WIP [#C] Add system tray icon (optional enhancement)
    Why: Desktop apps often minimize to system tray for background operation
    Change:
    - Use Wails system tray API to add tray icon

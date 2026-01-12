@@ -1322,7 +1322,7 @@
      - Profile memory usage with large indexes
    Done when: Queries complete in <100ms for typical codebase
 
-** TODO [#C] Add index freshness checking and auto-reindexing
+** DONE [#C] Add index freshness checking and auto-reindexing
    Why: Code changes invalidate indexes, need to detect staleness
    Change:
    - Track index generation time in metadata:

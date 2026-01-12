@@ -697,7 +697,7 @@
    Tests: None (research and documentation)
    Done when: SCIP format understood, SQLite schema documented, query needs identified
 
-** TODO [#B] Create internal/scip package with SQLite query layer
+** DONE [#B] Create internal/scip package with SQLite query layer
    Why: Need Go API to query SCIP indexes efficiently
    Change:
    - Create internal/scip/index.go:
@@ -799,7 +799,7 @@
      - Test GetReferences finds all occurrences
    Done when: internal/scip package queries SQLite successfully with tests
 
-** TODO [#B] Implement indexer downloader and language detection
+** WIP [#B] Implement indexer downloader and language detection
    Why: Need to automatically download and run appropriate SCIP indexers
    Change:
    - Create internal/scip/indexers.go:

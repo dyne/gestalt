@@ -55,6 +55,14 @@ This repo is a Go backend + Svelte frontend for a multi-terminal dashboard with 
 - `--start` auto-creates agent via `/api/terminals` using agent ID.
 - Completions: `gestalt-send completion bash|zsh` (uses cached agent list).
 
+## Desktop Application (Wails)
+- Dual-mode: `gestalt` (web server) + `gestalt-desktop` (native window) using Wails v3.
+- Entry point: `cmd/gestalt-desktop/main.go` plus `internal/desktop` bindings.
+- Frontend: same Svelte app; detects Wails via `window.wails` and imports `/bindings/gestalt/internal/desktop/app.js`.
+- Embedded server: random localhost port passed through `GetServerURL()`.
+- Native helpers: `GetVersion()`, `OpenExternal()`, `SelectDirectory()`.
+- Build: `make wails-install`, `make gestalt-desktop` (outputs `bin/`).
+
 ## Prompt templating
 - Prompt files can be `.txt` (plain) or `.tmpl` (templated); templates render at agent start.
 - Include syntax: `{{include filename}}` on its own line.

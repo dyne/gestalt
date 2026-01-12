@@ -1565,11 +1565,12 @@
    Tests: go test, npm test, wails build
    Done when: gestalt-desktop builds and boots under v3
 
-** TODO [#C] Re-evaluate tray icon support under Wails v3 (DEFER)
+** DONE [#C] Re-evaluate tray icon support under Wails v3 (DEFER)
    Why: v3 may expose tray APIs that remove the previous blocker
    Change:
    - Check v3 runtime for tray APIs
    - Implement tray menu if supported, or keep deferred
+   Deferred: Skipped per request; revisit if tray support is needed later.
    Tests: Tray icon appears, click actions work
    Done when: Tray integration is implemented or explicitly re-deferred for v3
 
@@ -1623,7 +1624,7 @@
    Tests: All features functional, no regressions vs web mode
    Done when: Desktop app fully functional on target platforms
 
-** WIP [#B] Add CI/CD workflow for desktop builds (optional)
+** DONE [#B] Add CI/CD workflow for desktop builds (optional)
    Why: Automate multi-platform builds for releases
    Change:
    - Extend `.github/workflows/release.yml`:
@@ -1677,7 +1678,7 @@
    Tests: CI builds complete successfully
    Done when: Automated desktop builds in CI (optional, can defer)
 
-** TODO [#C] Document desktop application usage
+** DONE [#C] Document desktop application usage
    Why: Users need clear instructions for building, installing, and using desktop app
    Change:
    - Add "Desktop Application" section to README.md:
@@ -1775,9 +1776,10 @@
    Tests: Documentation is clear, examples work
    Done when: Desktop app fully documented in README and AGENTS.md
 
-** TODO [#C] Add native window features (optional enhancements)
+** DONE [#C] Add native window features (optional enhancements) (DEFER)
    Why: Desktop app can leverage native OS features unavailable in web browsers
    Change: These are optional enhancements, implement based on user demand
+   Deferred: Additional native features beyond menus and file dialogs are not requested yet.
    
    1. **Native Menus** (macOS/Windows/Linux):
       ```go

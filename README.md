@@ -40,7 +40,7 @@ controls the UI bind port for `gestalt`.
 
 Gestalt can be packaged as a native desktop application using Wails v3.
 
-Prerequisites:
+### Prerequisites
 - Go 1.21+ (already required for Gestalt)
 - Node.js 18+ (already required for the frontend)
 - Wails CLI: `go install github.com/wailsapp/wails/v3/cmd/wails3@latest`
@@ -49,7 +49,7 @@ Prerequisites:
   - Windows: WebView2 Runtime (pre-installed on Windows 11)
   - Linux: `libwebkit2gtk-4.1-dev` (Debian/Ubuntu)
 
-Building the desktop app:
+### Building the desktop app
 ```
 make wails-install
 make gestalt-desktop
@@ -62,18 +62,40 @@ make gestalt-desktop-linux    # Linux x64
 Outputs land in `bin/` (`gestalt-desktop`, `gestalt-desktop.exe`). For a macOS `.app` bundle,
 run `wails3 task darwin:package:universal`.
 
-Development mode (hot reload):
+### Development mode
 ```
 make wails-dev
 ```
 
-Desktop vs web mode:
+### Desktop vs web mode
 | Feature | Web mode | Desktop mode |
 | --- | --- | --- |
 | Distribution | Server binary | Native app binary |
 | Access | Browser at localhost | Native window |
 | Server port | Fixed/env | Random (embedded server) |
 | Install | Manual | App bundle (future) |
+
+### Configuration
+Desktop mode uses the same configuration as web mode:
+- Config directory: `.gestalt/config/`
+- Environment variables: all `GESTALT_*` vars supported
+- CLI flags: supported when launching the binary from a terminal
+
+### Known limitations
+- Desktop mode binds the embedded server to a random localhost port (not exposed externally).
+- `gestalt-send` targets the web server port; use web mode for CLI automation.
+
+### Troubleshooting
+macOS "App is damaged" warning:
+- Run: `xattr -cr bin/Gestalt.app`
+- Or: sign the app with a Developer ID certificate
+
+Windows SmartScreen warning:
+- Click "More info" and "Run anyway"
+- Or: sign the app with a code signing certificate
+
+Linux "cannot open shared object" error:
+- Install runtime libs: `sudo apt install libwebkit2gtk-4.1-0 libgtk-3-0`
 
 ## Run Gestalt on your project
 

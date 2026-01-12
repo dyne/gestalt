@@ -1451,6 +1451,34 @@
      - Unit test: download failure returns error
    Done when: Indexer downloads succeed via system tooling with coverage
 
+** DONE [#B] Restore Go downloader with versioned asset validation
+   Why: System downloader is unreliable; ensure assets match expected version.
+   Change:
+   - Revert download logic to Go HTTP downloader
+   - Ensure indexer asset filename includes the configured version string
+   - Surface a clear error when the asset name/version mismatch
+   Tests:
+     - Unit test: asset name must include version
+     - Unit test: download failure returns error
+   Done when: Go downloader restored with version-aware asset validation
+
+** TODO [#B] Embed SCIP indexer assets and extract to .gestalt/scip
+   Why: Avoid runtime downloads and ensure deterministic indexer availability.
+   Change:
+   - Add script in script/ to download scip_* indexers into assets/scip/
+     - Easy to edit list of URLs per language
+     - Download + unpack (if needed) into binary files
+     - Write assets/scip/manifest.json with FNV1a 64 hashes
+   - Embed assets/scip in gestalt binary
+   - Extract assets/scip to .gestalt/scip on startup
+     - Skip extraction when hash matches existing file
+     - Record/compare FNV1a 64 hash for equality
+   - Update indexer lookup path to prefer .gestalt/scip
+   Tests:
+     - Unit test: manifest extraction skips matching hash
+     - Unit test: indexer lookup uses .gestalt/scip
+   Done when: Embedded indexers extract on startup with hash checks
+
 ** TODO [#C] Consider MCP server adapter (future work)
    Why: May want to expose SCIP to external tools via MCP
    Change: Document design for future implementation

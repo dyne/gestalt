@@ -209,9 +209,10 @@ func writeStatsDB(t *testing.T, path string, documents, symbols, mentions int) {
 	defer db.Close()
 
 	statements := []string{
-		`CREATE TABLE documents (id INTEGER PRIMARY KEY);`,
-		`CREATE TABLE global_symbols (id INTEGER PRIMARY KEY);`,
-		`CREATE TABLE mentions (id INTEGER PRIMARY KEY);`,
+		`CREATE TABLE documents (id INTEGER PRIMARY KEY, relative_path TEXT);`,
+		`CREATE TABLE global_symbols (id INTEGER PRIMARY KEY, symbol TEXT, display_name TEXT);`,
+		`CREATE TABLE mentions (id INTEGER PRIMARY KEY, symbol_id INTEGER);`,
+		`CREATE TABLE defn_enclosing_ranges (id INTEGER PRIMARY KEY, document_id INTEGER, symbol_id INTEGER);`,
 	}
 	for _, stmt := range statements {
 		if _, err := db.Exec(stmt); err != nil {

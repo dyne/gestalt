@@ -34,11 +34,33 @@ func OpenIndex(path string) (*Index, error) {
 	db.SetMaxOpenConns(4)
 	db.SetMaxIdleConns(4)
 
+	if err := ensureQueryIndexes(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
 	return &Index{
 		db:          db,
 		path:        path,
 		symbolCache: newLRUCache(defaultCacheSize),
 	}, nil
+}
+
+func ensureQueryIndexes(db *sql.DB) error {
+	statements := []string{
+		`CREATE INDEX IF NOT EXISTS idx_global_symbols_symbol ON global_symbols(symbol);`,
+		`CREATE INDEX IF NOT EXISTS idx_global_symbols_display_name ON global_symbols(display_name);`,
+		`CREATE INDEX IF NOT EXISTS idx_mentions_symbol_id ON mentions(symbol_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_documents_relative_path ON documents(relative_path);`,
+		`CREATE INDEX IF NOT EXISTS idx_defn_ranges_symbol_id ON defn_enclosing_ranges(symbol_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_defn_ranges_document_id ON defn_enclosing_ranges(document_id);`,
+	}
+	for _, stmt := range statements {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("create scip index: %w", err)
+		}
+	}
+	return nil
 }
 
 // Close closes the underlying database connection.

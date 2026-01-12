@@ -18,6 +18,7 @@ type Registry struct {
 	activities        sync.Map
 	eventBuses        sync.Map
 	eventTypes        sync.Map
+	scipQueries       sync.Map
 }
 
 type activityStats struct {
@@ -35,6 +36,12 @@ type eventBusStats struct {
 type eventTypeStats struct {
 	published atomic.Int64
 	dropped   atomic.Int64
+}
+
+type scipQueryStats struct {
+	count         atomic.Int64
+	cacheHits     atomic.Int64
+	durationNanos atomic.Int64
 }
 
 type eventTypeKey struct {
@@ -93,6 +100,19 @@ func (r *Registry) RecordActivity(name string, duration time.Duration, err error
 	}
 	if attempt > 1 {
 		stats.retries.Add(1)
+	}
+}
+
+func (r *Registry) RecordSCIPQuery(queryType string, duration time.Duration, cacheHit bool) {
+	if r == nil {
+		return
+	}
+	queryType = normalizeMetricLabel(queryType, "unknown")
+	stats := r.scipQueryStats(queryType)
+	stats.count.Add(1)
+	stats.durationNanos.Add(duration.Nanoseconds())
+	if cacheHit {
+		stats.cacheHits.Add(1)
 	}
 }
 
@@ -174,6 +194,26 @@ func (r *Registry) WritePrometheus(writer io.Writer) error {
 		fmt.Fprintf(writer, "gestalt_event_subscribers{bus=%s,filtered=\"false\"} %d\n", label, stats.unfiltered.Load())
 	}
 
+	scipQueryTypes := r.scipQueryTypes()
+	sort.Strings(scipQueryTypes)
+
+	writeHelp(writer, "gestalt_scip_queries_total", "Total SCIP queries")
+	fmt.Fprintln(writer, "# TYPE gestalt_scip_queries_total counter")
+	writeHelp(writer, "gestalt_scip_cache_hits_total", "Total SCIP cache hits")
+	fmt.Fprintln(writer, "# TYPE gestalt_scip_cache_hits_total counter")
+	writeHelp(writer, "gestalt_scip_query_duration_seconds", "SCIP query duration in seconds")
+	fmt.Fprintln(writer, "# TYPE gestalt_scip_query_duration_seconds summary")
+
+	for _, queryType := range scipQueryTypes {
+		stats := r.scipQueryStats(queryType)
+		label := formatLabel(queryType)
+		durationSeconds := float64(stats.durationNanos.Load()) / float64(time.Second)
+		fmt.Fprintf(writer, "gestalt_scip_queries_total{type=%s} %d\n", label, stats.count.Load())
+		fmt.Fprintf(writer, "gestalt_scip_cache_hits_total{type=%s} %d\n", label, stats.cacheHits.Load())
+		fmt.Fprintf(writer, "gestalt_scip_query_duration_seconds_sum{type=%s} %.6f\n", label, durationSeconds)
+		fmt.Fprintf(writer, "gestalt_scip_query_duration_seconds_count{type=%s} %d\n", label, stats.count.Load())
+	}
+
 	activityNames := r.activityNames()
 	sort.Strings(activityNames)
 
@@ -231,12 +271,34 @@ func (r *Registry) eventTypeStats(busName, eventType string) *eventTypeStats {
 	return value.(*eventTypeStats)
 }
 
+func (r *Registry) scipQueryStats(queryType string) *scipQueryStats {
+	if r == nil {
+		return &scipQueryStats{}
+	}
+	value, _ := r.scipQueries.LoadOrStore(queryType, &scipQueryStats{})
+	return value.(*scipQueryStats)
+}
+
 func (r *Registry) activityNames() []string {
 	if r == nil {
 		return nil
 	}
 	var names []string
 	r.activities.Range(func(key, value interface{}) bool {
+		if name, ok := key.(string); ok {
+			names = append(names, name)
+		}
+		return true
+	})
+	return names
+}
+
+func (r *Registry) scipQueryTypes() []string {
+	if r == nil {
+		return nil
+	}
+	var names []string
+	r.scipQueries.Range(func(key, value interface{}) bool {
 		if name, ok := key.(string); ok {
 			names = append(names, name)
 		}

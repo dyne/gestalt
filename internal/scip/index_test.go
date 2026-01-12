@@ -145,6 +145,47 @@ func TestGetStats(t *testing.T) {
 	}
 }
 
+func TestOpenIndexCreatesIndexes(t *testing.T) {
+	path := createTestDB(t)
+	index, err := OpenIndex(path)
+	if err != nil {
+		t.Fatalf("OpenIndex failed: %v", err)
+	}
+	defer index.Close()
+
+	rows, err := index.db.Query(`SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%'`)
+	if err != nil {
+		t.Fatalf("query sqlite_master: %v", err)
+	}
+	defer rows.Close()
+
+	found := map[string]bool{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatalf("scan index name: %v", err)
+		}
+		found[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows error: %v", err)
+	}
+
+	expected := []string{
+		"idx_global_symbols_symbol",
+		"idx_global_symbols_display_name",
+		"idx_mentions_symbol_id",
+		"idx_documents_relative_path",
+		"idx_defn_ranges_symbol_id",
+		"idx_defn_ranges_document_id",
+	}
+	for _, name := range expected {
+		if !found[name] {
+			t.Fatalf("expected index %s to be created", name)
+		}
+	}
+}
+
 func createTestDB(t *testing.T) string {
 	t.Helper()
 

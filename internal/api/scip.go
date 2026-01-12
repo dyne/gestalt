@@ -1,6 +1,7 @@
 package api
 
 import (
+	"container/list"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,14 +15,20 @@ import (
 	"time"
 
 	"gestalt/internal/logging"
+	"gestalt/internal/metrics"
 	"gestalt/internal/scip"
 
 	"golang.org/x/time/rate"
 )
 
 const (
-	scipDefaultLimit = 20
-	scipCacheTTL     = 30 * time.Second
+	scipDefaultLimit     = 20
+	scipCacheTTL         = 30 * time.Second
+	scipCacheMaxEntries  = 256
+	scipQueryFindSymbols = "find_symbols"
+	scipQueryGetSymbol   = "get_symbol"
+	scipQueryReferences  = "get_references"
+	scipQueryFileSymbols = "file_symbols"
 )
 
 type SCIPHandler struct {
@@ -77,6 +84,7 @@ func (h *SCIPHandler) FindSymbols(w http.ResponseWriter, r *http.Request) *apiEr
 		return err
 	}
 
+	start := time.Now()
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	if query == "" {
 		return &apiError{Status: http.StatusBadRequest, Message: "missing query"}
@@ -88,6 +96,7 @@ func (h *SCIPHandler) FindSymbols(w http.ResponseWriter, r *http.Request) *apiEr
 
 	cacheKey := fmt.Sprintf("find:%s:%d", strings.ToLower(query), limit)
 	if cached, ok := h.cache.getSymbols(cacheKey); ok {
+		h.recordQuery(scipQueryFindSymbols, start, true)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"query":   query,
 			"symbols": cached,
@@ -105,6 +114,7 @@ func (h *SCIPHandler) FindSymbols(w http.ResponseWriter, r *http.Request) *apiEr
 	}
 
 	h.cache.setSymbols(cacheKey, symbols)
+	h.recordQuery(scipQueryFindSymbols, start, false)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"query":   query,
 		"symbols": symbols,
@@ -135,9 +145,17 @@ func (h *SCIPHandler) GetSymbol(w http.ResponseWriter, r *http.Request, rawSymbo
 	if r.Method != http.MethodGet {
 		return methodNotAllowed(w, http.MethodGet)
 	}
+	start := time.Now()
 	symbolID, err := url.PathUnescape(strings.TrimPrefix(rawSymbol, "/"))
 	if err != nil {
 		return &apiError{Status: http.StatusBadRequest, Message: "invalid symbol id"}
+	}
+
+	cacheKey := fmt.Sprintf("symbol:%s", symbolID)
+	if cached, ok := h.cache.getSymbol(cacheKey); ok {
+		h.recordQuery(scipQueryGetSymbol, start, true)
+		writeJSON(w, http.StatusOK, cached)
+		return nil
 	}
 
 	index, apiErr := h.withIndex()
@@ -153,6 +171,8 @@ func (h *SCIPHandler) GetSymbol(w http.ResponseWriter, r *http.Request, rawSymbo
 		return &apiError{Status: http.StatusInternalServerError, Message: err.Error()}
 	}
 
+	h.cache.setSymbol(cacheKey, symbol)
+	h.recordQuery(scipQueryGetSymbol, start, false)
 	writeJSON(w, http.StatusOK, symbol)
 	return nil
 }
@@ -162,6 +182,7 @@ func (h *SCIPHandler) GetReferences(w http.ResponseWriter, r *http.Request, rawS
 	if r.Method != http.MethodGet {
 		return methodNotAllowed(w, http.MethodGet)
 	}
+	start := time.Now()
 	symbolID, err := url.PathUnescape(strings.TrimPrefix(rawSymbol, "/"))
 	if err != nil {
 		return &apiError{Status: http.StatusBadRequest, Message: "invalid symbol id"}
@@ -169,6 +190,7 @@ func (h *SCIPHandler) GetReferences(w http.ResponseWriter, r *http.Request, rawS
 
 	cacheKey := fmt.Sprintf("refs:%s", symbolID)
 	if cached, ok := h.cache.getOccurrences(cacheKey); ok {
+		h.recordQuery(scipQueryReferences, start, true)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"symbol":     symbolID,
 			"references": cached,
@@ -190,6 +212,7 @@ func (h *SCIPHandler) GetReferences(w http.ResponseWriter, r *http.Request, rawS
 	}
 
 	h.cache.setOccurrences(cacheKey, refs)
+	h.recordQuery(scipQueryReferences, start, false)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"symbol":     symbolID,
 		"references": refs,
@@ -206,6 +229,7 @@ func (h *SCIPHandler) GetFileSymbols(w http.ResponseWriter, r *http.Request) *ap
 		return err
 	}
 
+	start := time.Now()
 	suffix := strings.TrimPrefix(r.URL.Path, "/api/scip/files/")
 	if suffix == "" {
 		return &apiError{Status: http.StatusBadRequest, Message: "missing file path"}
@@ -213,6 +237,16 @@ func (h *SCIPHandler) GetFileSymbols(w http.ResponseWriter, r *http.Request) *ap
 	filePath, err := url.PathUnescape(suffix)
 	if err != nil {
 		return &apiError{Status: http.StatusBadRequest, Message: "invalid file path"}
+	}
+
+	cacheKey := fmt.Sprintf("file:%s", filePath)
+	if cached, ok := h.cache.getSymbols(cacheKey); ok {
+		h.recordQuery(scipQueryFileSymbols, start, true)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"file":    filePath,
+			"symbols": cached,
+		})
+		return nil
 	}
 
 	index, apiErr := h.withIndex()
@@ -223,6 +257,8 @@ func (h *SCIPHandler) GetFileSymbols(w http.ResponseWriter, r *http.Request) *ap
 	if err != nil {
 		return &apiError{Status: http.StatusInternalServerError, Message: err.Error()}
 	}
+	h.cache.setSymbols(cacheKey, symbols)
+	h.recordQuery(scipQueryFileSymbols, start, false)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"file":    filePath,
 		"symbols": symbols,
@@ -309,6 +345,10 @@ func (h *SCIPHandler) withIndex() (*scip.Index, *apiError) {
 	return index, nil
 }
 
+func (h *SCIPHandler) recordQuery(queryType string, start time.Time, cacheHit bool) {
+	metrics.Default.RecordSCIPQuery(queryType, time.Since(start), cacheHit)
+}
+
 func (h *SCIPHandler) allowRequest() *apiError {
 	if h.rateLimiter == nil || h.rateLimiter.Allow() {
 		return nil
@@ -359,12 +399,15 @@ func parseLimit(r *http.Request, fallback int) (int, *apiError) {
 }
 
 type queryCache struct {
-	ttl     time.Duration
-	mu      sync.Mutex
-	entries map[string]cacheEntry
+	ttl        time.Duration
+	maxEntries int
+	mu         sync.Mutex
+	entries    map[string]*list.Element
+	order      *list.List
 }
 
 type cacheEntry struct {
+	key       string
 	expiresAt time.Time
 	payload   any
 }
@@ -374,8 +417,10 @@ func newQueryCache(ttl time.Duration) *queryCache {
 		ttl = scipCacheTTL
 	}
 	return &queryCache{
-		ttl:     ttl,
-		entries: make(map[string]cacheEntry),
+		ttl:        ttl,
+		maxEntries: scipCacheMaxEntries,
+		entries:    make(map[string]*list.Element),
+		order:      list.New(),
 	}
 }
 
@@ -393,6 +438,27 @@ func (cache *queryCache) getSymbols(key string) ([]scip.Symbol, bool) {
 
 func (cache *queryCache) setSymbols(key string, symbols []scip.Symbol) {
 	cache.set(key, cloneSymbols(symbols))
+}
+
+func (cache *queryCache) getSymbol(key string) (*scip.Symbol, bool) {
+	entry, ok := cache.get(key)
+	if !ok {
+		return nil, false
+	}
+	symbol, ok := entry.(scip.Symbol)
+	if !ok {
+		return nil, false
+	}
+	cloned := cloneSymbol(symbol)
+	return &cloned, true
+}
+
+func (cache *queryCache) setSymbol(key string, symbol *scip.Symbol) {
+	if symbol == nil {
+		return
+	}
+	clone := cloneSymbol(*symbol)
+	cache.set(key, clone)
 }
 
 func (cache *queryCache) getOccurrences(key string) ([]scip.Occurrence, bool) {
@@ -415,24 +481,58 @@ func (cache *queryCache) get(key string) (any, bool) {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
-	entry, ok := cache.entries[key]
+	element, ok := cache.entries[key]
 	if !ok {
 		return nil, false
 	}
+	entry := element.Value.(*cacheEntry)
 	if time.Now().After(entry.expiresAt) {
-		delete(cache.entries, key)
+		cache.removeElement(element)
 		return nil, false
 	}
+	cache.order.MoveToFront(element)
 	return entry.payload, true
 }
 
 func (cache *queryCache) set(key string, payload any) {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
-	cache.entries[key] = cacheEntry{
+
+	if element, ok := cache.entries[key]; ok {
+		entry := element.Value.(*cacheEntry)
+		entry.payload = payload
+		entry.expiresAt = time.Now().Add(cache.ttl)
+		cache.order.MoveToFront(element)
+		return
+	}
+
+	element := cache.order.PushFront(&cacheEntry{
+		key:       key,
 		expiresAt: time.Now().Add(cache.ttl),
 		payload:   payload,
+	})
+	cache.entries[key] = element
+
+	if cache.maxEntries <= 0 {
+		cache.maxEntries = scipCacheMaxEntries
 	}
+	if cache.order.Len() > cache.maxEntries {
+		cache.removeOldest()
+	}
+}
+
+func (cache *queryCache) removeOldest() {
+	element := cache.order.Back()
+	if element == nil {
+		return
+	}
+	cache.removeElement(element)
+}
+
+func (cache *queryCache) removeElement(element *list.Element) {
+	cache.order.Remove(element)
+	entry := element.Value.(*cacheEntry)
+	delete(cache.entries, entry.key)
 }
 
 func cloneSymbols(symbols []scip.Symbol) []scip.Symbol {
@@ -441,10 +541,15 @@ func cloneSymbols(symbols []scip.Symbol) []scip.Symbol {
 	}
 	cloned := make([]scip.Symbol, len(symbols))
 	for index, symbol := range symbols {
-		cloned[index] = symbol
-		if symbol.Documentation != nil {
-			cloned[index].Documentation = append([]string(nil), symbol.Documentation...)
-		}
+		cloned[index] = cloneSymbol(symbol)
+	}
+	return cloned
+}
+
+func cloneSymbol(symbol scip.Symbol) scip.Symbol {
+	cloned := symbol
+	if symbol.Documentation != nil {
+		cloned.Documentation = append([]string(nil), symbol.Documentation...)
 	}
 	return cloned
 }

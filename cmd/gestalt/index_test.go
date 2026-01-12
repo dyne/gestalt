@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"gestalt/internal/scip"
 
@@ -193,6 +194,45 @@ func TestIndexCommandUnsupportedLanguage(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "No supported languages detected") {
 		t.Fatalf("expected unsupported language message, got: %s", stderr.String())
+	}
+}
+
+func TestIndexCommandSkipsRecentIndex(t *testing.T) {
+	tempDir := t.TempDir()
+	outputPath := filepath.Join(tempDir, "index.db")
+	if err := os.WriteFile(outputPath, []byte("db"), 0o644); err != nil {
+		t.Fatalf("write output: %v", err)
+	}
+
+	meta := scip.IndexMetadata{
+		CreatedAt:   time.Now().UTC(),
+		ProjectRoot: tempDir,
+		Languages:   []string{"go"},
+		FilesHashed: "hash",
+	}
+	if err := scip.SaveMetadata(outputPath, meta); err != nil {
+		t.Fatalf("SaveMetadata failed: %v", err)
+	}
+
+	called := false
+	stubIndexCommandDeps(t, indexCommandDeps{
+		detectLanguages: func(string) ([]string, error) {
+			called = true
+			return nil, errors.New("unexpected language detection")
+		},
+	})
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := runIndexCommand([]string{"--path", tempDir, "--output", outputPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("expected success, got code %d: %s", code, stderr.String())
+	}
+	if called {
+		t.Fatalf("expected language detection to be skipped")
+	}
+	if !strings.Contains(stderr.String(), "Index was created") {
+		t.Fatalf("expected recent index warning, got: %s", stderr.String())
 	}
 }
 

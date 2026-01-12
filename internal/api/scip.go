@@ -24,15 +24,16 @@ import (
 )
 
 const (
-	scipDefaultLimit     = 20
-	scipCacheTTL         = 30 * time.Second
-	scipCacheMaxEntries  = 256
-	scipAutoReindexAge   = 24 * time.Hour
-	scipReindexDebounce  = 2 * time.Minute
-	scipQueryFindSymbols = "find_symbols"
-	scipQueryGetSymbol   = "get_symbol"
-	scipQueryReferences  = "get_references"
-	scipQueryFileSymbols = "file_symbols"
+	scipDefaultLimit            = 20
+	scipCacheTTL                = 30 * time.Second
+	scipCacheMaxEntries         = 256
+	scipAutoReindexAge          = 24 * time.Hour
+	scipReindexRecentThreshold  = 10 * time.Minute
+	scipReindexDebounce         = 2 * time.Minute
+	scipQueryFindSymbols        = "find_symbols"
+	scipQueryGetSymbol          = "get_symbol"
+	scipQueryReferences         = "get_references"
+	scipQueryFileSymbols        = "file_symbols"
 )
 
 type SCIPHandlerOptions struct {
@@ -342,7 +343,8 @@ func (h *SCIPHandler) ReIndex(w http.ResponseWriter, r *http.Request) *apiError 
 	}
 
 	var req struct {
-		Path string `json:"path"`
+		Path  string `json:"path"`
+		Force bool   `json:"force"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		return &apiError{Status: http.StatusBadRequest, Message: "invalid request body"}
@@ -353,6 +355,21 @@ func (h *SCIPHandler) ReIndex(w http.ResponseWriter, r *http.Request) *apiError 
 
 	if !h.beginReindex() {
 		return &apiError{Status: http.StatusConflict, Message: "indexing already in progress"}
+	}
+
+	if !req.Force {
+		recent, age, err := h.recentIndexAge(scipReindexRecentThreshold)
+		if err != nil {
+			h.logWarn("scip metadata read failed", err)
+		} else if recent {
+			h.endReindex()
+			h.logWarn("scip reindex skipped (recent index)", nil)
+			writeJSON(w, http.StatusOK, map[string]any{
+				"status":  "recent",
+				"message": fmt.Sprintf("Index was created %s ago. Use force to reindex.", age.Round(time.Second)),
+			})
+			return nil
+		}
 	}
 
 	go h.runReindex(strings.TrimSpace(req.Path))
@@ -436,6 +453,30 @@ func (h *SCIPHandler) withIndex() (*scip.Index, *apiError) {
 
 func (h *SCIPHandler) recordQuery(queryType string, start time.Time, cacheHit bool) {
 	metrics.Default.RecordSCIPQuery(queryType, time.Since(start), cacheHit)
+}
+
+func (h *SCIPHandler) recentIndexAge(threshold time.Duration) (bool, time.Duration, error) {
+	if _, err := os.Stat(h.indexPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, 0, nil
+		}
+		return false, 0, err
+	}
+	meta, err := scip.LoadMetadata(h.indexPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, 0, nil
+		}
+		return false, 0, err
+	}
+	if meta.CreatedAt.IsZero() {
+		return false, 0, nil
+	}
+	age := time.Since(meta.CreatedAt)
+	if age < 0 {
+		age = 0
+	}
+	return age < threshold, age, nil
 }
 
 func (h *SCIPHandler) buildStatus() (scipStatusResponse, error) {

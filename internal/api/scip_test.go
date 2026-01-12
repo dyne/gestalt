@@ -162,6 +162,55 @@ func TestSCIPReIndex(t *testing.T) {
 	}
 }
 
+func TestSCIPReIndexSkipsRecent(t *testing.T) {
+	handler := newTestSCIPHandler(t)
+
+	meta := scip.IndexMetadata{
+		CreatedAt:   time.Now().UTC(),
+		ProjectRoot: t.TempDir(),
+		Languages:   []string{"go"},
+		FilesHashed: "hash",
+	}
+	if err := scip.SaveMetadata(handler.indexPath, meta); err != nil {
+		t.Fatalf("SaveMetadata failed: %v", err)
+	}
+
+	handler.detectLangs = func(string) ([]string, error) {
+		t.Fatalf("detectLangs should not be called")
+		return nil, nil
+	}
+
+	body := bytes.NewBufferString(`{"path":"/tmp/repo"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/scip/index", body)
+	res := httptest.NewRecorder()
+	restHandler("", handler.ReIndex)(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", res.Code)
+	}
+
+	var payload struct {
+		Status  string `json:"status"`
+		Message string `json:"message"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Status != "recent" {
+		t.Fatalf("expected status recent, got %s", payload.Status)
+	}
+	if !strings.Contains(payload.Message, "Use force") {
+		t.Fatalf("expected warning message, got %s", payload.Message)
+	}
+
+	handler.reindexMu.Lock()
+	reindexing := handler.reindexing
+	handler.reindexMu.Unlock()
+	if reindexing {
+		t.Fatalf("expected reindexing to be false after skip")
+	}
+}
+
 func TestSCIPStatus(t *testing.T) {
 	projectDir := t.TempDir()
 	sourcePath := filepath.Join(projectDir, "main.go")

@@ -171,17 +171,22 @@ paths:
               properties:
                 path:
                   type: string
+                force:
+                  type: boolean
+                  description: Bypass recent-index guard.
               required:
                 - path
       responses:
         "200":
-          description: Indexing started.
+          description: Indexing started or skipped due to a recent index.
           content:
             application/json:
               schema:
                 type: object
                 properties:
                   status:
+                    type: string
+                  message:
                     type: string
         "401":
           description: Unauthorized.

@@ -8,9 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gestalt/internal/scip"
 )
+
+const scipReindexRecentThreshold = 10 * time.Minute
 
 var (
 	detectLanguages = scip.DetectLanguages
@@ -69,6 +72,12 @@ func runIndexCommand(args []string, out io.Writer, errOut io.Writer) int {
 
 	if !*force {
 		if _, err := os.Stat(*output); err == nil {
+			if recent, age, err := recentIndexAge(*output, scipReindexRecentThreshold); err != nil {
+				fmt.Fprintf(errOut, "Warning: Failed to read index metadata: %v\n", err)
+			} else if recent {
+				fmt.Fprintf(errOut, "Warning: Index was created %s ago. Use --force to re-index.\n", age.Round(time.Second))
+				return 0
+			}
 			fmt.Fprintf(out, "Index exists at %s. Use --force to re-index.\n", *output)
 			return 0
 		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -182,4 +191,22 @@ func printIndexHelp(out io.Writer) {
 	fmt.Fprintln(out, "  --path      Path to repository (default: current directory)")
 	fmt.Fprintln(out, "  --output    Output SQLite path (default: index.db)")
 	fmt.Fprintln(out, "  --force     Re-index even if index exists")
+}
+
+func recentIndexAge(indexPath string, threshold time.Duration) (bool, time.Duration, error) {
+	meta, err := scip.LoadMetadata(indexPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, 0, nil
+		}
+		return false, 0, err
+	}
+	if meta.CreatedAt.IsZero() {
+		return false, 0, nil
+	}
+	age := time.Since(meta.CreatedAt)
+	if age < 0 {
+		age = 0
+	}
+	return age < threshold, age, nil
 }

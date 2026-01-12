@@ -82,6 +82,35 @@ This generates `index.db` in the current directory.
 
 Supported languages: Go, TypeScript, Python, Java.
 
+## SCIP Best Practices
+
+When to index:
+- After cloning a repository
+- After major refactoring
+- Periodically (e.g., weekly)
+
+Index storage:
+- Commit `index.db` to the repo (optional, depends on size)
+- Or add it to `.gitignore` and regenerate locally
+- For large repos, use CI to pre-generate indexes
+
+Query tips:
+- Use specific symbol names for faster results
+- Combine SCIP queries with file content for full picture
+- Cache frequent queries (done automatically)
+
+Performance:
+- Indexing time: ~1-5 minutes for 10k LOC
+- Query time: <100ms for most queries
+- SQLite size: ~1-5x source code size
+
+## SCIP Troubleshooting
+
+- Index not loading: check file permissions and `GESTALT_SCIP_INDEX_PATH`
+- Indexing fails: check indexer binaries are executable
+- Symbols not found: verify language detection and index coverage
+- Slow queries: verify SQLite indexes exist (reindex if needed)
+
 ### Authentication (GESTALT_TOKEN)
 
 `GESTALT_TOKEN` is an optional shared secret that protects the Gestalt HTTP API.

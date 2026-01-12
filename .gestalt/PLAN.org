@@ -916,7 +916,7 @@
      - Test indexing (with real indexer if available)
    Done when: Indexers auto-download and run on detected languages
 
-** WIP [#B] Add REST API endpoints for SCIP queries
+** DONE [#B] Add REST API endpoints for SCIP queries
    Why: Agents need HTTP access to SCIP data
    Change:
    - Create internal/api/scip.go:
@@ -1048,7 +1048,7 @@
      - Test error handling (missing symbol, corrupt index)
    Done when: REST API exposes SCIP queries to agents
 
-** TODO [#B] Create agent prompt/skill documenting SCIP API usage
+** WIP [#B] Create agent prompt/skill documenting SCIP API usage
    Why: Agents need to know how to query SCIP effectively
    Change:
    - Create .gestalt/config/skills/code-intelligence/SKILL.md:

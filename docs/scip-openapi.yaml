@@ -1,0 +1,200 @@
+openapi: 3.0.3
+info:
+  title: Gestalt SCIP API
+  version: "1.0"
+  description: |
+    REST endpoints for querying SCIP code intelligence indexes.
+
+servers:
+  - url: http://localhost:8080
+
+paths:
+  /api/scip/symbols:
+    get:
+      summary: Search symbols
+      description: Search symbols by name or symbol string.
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 20
+      responses:
+        "200":
+          description: Symbols matching query.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query:
+                    type: string
+                  symbols:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Symbol"
+        "400":
+          description: Invalid query or limit.
+        "401":
+          description: Unauthorized.
+        "429":
+          description: Rate limited.
+  /api/scip/symbols/{id}:
+    get:
+      summary: Get symbol definition
+      description: |
+        Get a symbol definition by symbol ID. Symbol IDs should be URL-encoded.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Symbol definition.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Symbol"
+        "401":
+          description: Unauthorized.
+        "404":
+          description: Symbol not found.
+        "429":
+          description: Rate limited.
+  /api/scip/symbols/{id}/references:
+    get:
+      summary: Get symbol references
+      description: |
+        List references to a symbol. Symbol IDs should be URL-encoded.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Symbol references.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  symbol:
+                    type: string
+                  references:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Occurrence"
+        "401":
+          description: Unauthorized.
+        "404":
+          description: Symbol not found.
+        "429":
+          description: Rate limited.
+  /api/scip/files/{path}:
+    get:
+      summary: List symbols in a file
+      description: |
+        List symbols defined in a file. File paths should be URL-encoded.
+      parameters:
+        - in: path
+          name: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: File symbols.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  file:
+                    type: string
+                  symbols:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Symbol"
+        "401":
+          description: Unauthorized.
+        "429":
+          description: Rate limited.
+  /api/scip/index:
+    post:
+      summary: Trigger indexing
+      description: Trigger on-demand indexing of a repository path.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+              required:
+                - path
+      responses:
+        "200":
+          description: Indexing started.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+        "401":
+          description: Unauthorized.
+        "409":
+          description: Indexing already in progress.
+        "429":
+          description: Rate limited.
+
+components:
+  schemas:
+    Symbol:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+        signature:
+          type: string
+        documentation:
+          type: array
+          items:
+            type: string
+        file_path:
+          type: string
+        line:
+          type: integer
+        language:
+          type: string
+    Occurrence:
+      type: object
+      properties:
+        symbol:
+          type: string
+        file_path:
+          type: string
+        line:
+          type: integer
+        column:
+          type: integer
+        role:
+          type: string

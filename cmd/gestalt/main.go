@@ -45,6 +45,7 @@ type Config struct {
 	BackendPort          int
 	Shell                string
 	AuthToken            string
+	SCIPIndexPath        string
 	TemporalHost         string
 	TemporalNamespace    string
 	TemporalEnabled      bool
@@ -86,6 +87,7 @@ type configDefaults struct {
 	BackendPort          int
 	Shell                string
 	AuthToken            string
+	SCIPIndexPath        string
 	TemporalHost         string
 	TemporalNamespace    string
 	TemporalEnabled      bool
@@ -324,7 +326,7 @@ func main() {
 	backendMux := http.NewServeMux()
 	api.RegisterRoutes(backendMux, manager, cfg.AuthToken, api.StatusConfig{
 		TemporalUIPort: cfg.TemporalUIPort,
-	}, "", nil, logger, eventBus)
+	}, cfg.SCIPIndexPath, "", nil, logger, eventBus)
 	backendListener, backendPort, err := listenOnPort(cfg.BackendPort)
 	if err != nil {
 		logger.Error("backend listen failed", map[string]string{
@@ -656,6 +658,15 @@ func loadConfig(args []string) (Config, error) {
 	cfg.AuthToken = token
 	cfg.Sources["token"] = tokenSource
 
+	scipIndexPath := defaults.SCIPIndexPath
+	scipIndexPathSource := sourceDefault
+	if rawIndexPath := strings.TrimSpace(os.Getenv("GESTALT_SCIP_INDEX_PATH")); rawIndexPath != "" {
+		scipIndexPath = rawIndexPath
+		scipIndexPathSource = sourceEnv
+	}
+	cfg.SCIPIndexPath = scipIndexPath
+	cfg.Sources["scip-index-path"] = scipIndexPathSource
+
 	temporalHost := defaults.TemporalHost
 	temporalHostSource := sourceDefault
 	if rawHost := strings.TrimSpace(os.Getenv("GESTALT_TEMPORAL_HOST")); rawHost != "" {
@@ -925,6 +936,7 @@ func defaultConfigValues() configDefaults {
 		BackendPort:          0,
 		Shell:                terminal.DefaultShell(),
 		AuthToken:            "",
+		SCIPIndexPath:        filepath.Join(".gestalt", "index.db"),
 		TemporalHost:         temporalDefaultHost,
 		TemporalNamespace:    "default",
 		TemporalEnabled:      true,
@@ -1277,7 +1289,10 @@ func formatTokenFlag(token string) string {
 
 func ensureStateDir(cfg Config, logger *logging.Logger) {
 	stateRoot := ".gestalt"
-	if !usesStateRoot(cfg.SessionLogDir, stateRoot) && !usesStateRoot(cfg.InputHistoryDir, stateRoot) && !usesStateRoot(cfg.ConfigDir, stateRoot) {
+	if !usesStateRoot(cfg.SessionLogDir, stateRoot) &&
+		!usesStateRoot(cfg.InputHistoryDir, stateRoot) &&
+		!usesStateRoot(cfg.ConfigDir, stateRoot) &&
+		!usesStateRoot(cfg.SCIPIndexPath, stateRoot) {
 		return
 	}
 	if err := os.MkdirAll(stateRoot, 0o755); err != nil && logger != nil {

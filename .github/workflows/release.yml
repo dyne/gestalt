@@ -7,12 +7,15 @@ on:
       - '*.org'
     branches:
       - main
+    tags:
+      - 'v*'
 
 permissions:
   contents: write
 
 jobs:
   release:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     env:
       GO111MODULE: on
@@ -61,3 +64,86 @@ jobs:
               generate_release_notes: true,
               target_commitish: context.ref.replace('refs/heads/', ''),
             });
+
+  desktop-macos:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '25'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install Wails
+        shell: bash
+        run: |
+          go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Build
+        run: wails3 task darwin:build:universal
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gestalt-desktop-macos
+          path: bin/gestalt-desktop
+
+  desktop-windows:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '25'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install Wails
+        shell: bash
+        run: |
+          go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Build
+        shell: bash
+        run: wails3 task windows:build ARCH=amd64
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gestalt-desktop-windows
+          path: bin/gestalt-desktop.exe
+
+  desktop-linux:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '25'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev
+      - name: Install Wails
+        shell: bash
+        run: |
+          go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Build
+        run: wails3 task linux:build ARCH=amd64
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gestalt-desktop-linux
+          path: bin/gestalt-desktop

@@ -1269,7 +1269,7 @@
    Tests: Wails CLI accepts config, generates bindings correctly
    Done when: wails.json exists, gitignore updated, CLI reads config
 
-** WIP [#B] Implement Wails bindings for core operations
+** DONE [#B] Implement Wails bindings for core operations
    Why: Desktop frontend needs Go bindings for native operations and server coordination
    Change:
    - Create internal/desktop/app.go with App struct for Wails bindings
@@ -1289,7 +1289,7 @@
    Tests: Bindings generate correctly; wails3 dev shows methods in console
    Done when: Frontend can call bound Go methods via window.wails
 
-** TODO [#B] Update frontend API client for Wails compatibility
+** WIP [#B] Update frontend API client for Wails compatibility
    Why: Frontend must detect desktop mode and use dynamic server URL from Go
    Change:
    - Update frontend/src/lib/api.js:

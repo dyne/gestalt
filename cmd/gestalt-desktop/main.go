@@ -14,6 +14,7 @@ import (
 
 	"gestalt"
 	"gestalt/internal/api"
+	"gestalt/internal/desktop"
 	"gestalt/internal/event"
 	"gestalt/internal/logging"
 	"gestalt/internal/server"
@@ -249,7 +250,7 @@ func main() {
 		}
 	}()
 
-	app := NewApp(backendURL, manager, backendServer, logger)
+	app := desktop.NewApp(backendURL, manager, backendServer, logger)
 
 	err = wails.Run(&options.App{
 		Title:  "Gestalt",
@@ -258,9 +259,9 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: frontendFS,
 		},
-		OnStartup:     app.startup,
-		OnShutdown:    app.shutdown,
-		OnBeforeClose: app.beforeClose,
+		OnStartup:     app.Startup,
+		OnShutdown:    app.Shutdown,
+		OnBeforeClose: app.BeforeClose,
 		Bind: []interface{}{
 			app,
 		},

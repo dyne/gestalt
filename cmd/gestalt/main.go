@@ -30,6 +30,7 @@ import (
 	"gestalt/internal/event"
 	"gestalt/internal/logging"
 	"gestalt/internal/plan"
+	"gestalt/internal/server"
 	"gestalt/internal/skill"
 	"gestalt/internal/temporal"
 	temporalworker "gestalt/internal/temporal/worker"
@@ -139,7 +140,7 @@ func main() {
 		os.Exit(runExtractConfig())
 	}
 
-	cfg, err := loadConfig(os.Args[1:])
+	cfg, err := server.LoadConfig(os.Args[1:])
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return
@@ -164,12 +165,12 @@ func main() {
 	}
 	logger := logging.NewLogger(logBuffer, logLevel)
 	if cfg.Verbose {
-		logStartupFlags(logger, cfg)
+		server.LogStartupFlags(logger, cfg)
 	}
-	logVersionInfo(logger)
-	ensureStateDir(cfg, logger)
+	server.LogVersionInfo(logger)
+	server.EnsureStateDir(cfg, logger)
 
-	temporalDevServer, devServerError := startTemporalDevServer(&cfg, logger)
+	temporalDevServer, devServerError := server.StartTemporalDevServer(&cfg, logger)
 	if devServerError != nil {
 		logger.Warn("temporal dev server start failed", map[string]string{
 			"error": devServerError.Error(),
@@ -186,9 +187,9 @@ func main() {
 	var temporalClient temporal.WorkflowClient
 	if temporalEnabled {
 		if temporalDevServer != nil {
-			waitForTemporalServer(cfg.TemporalHost, temporalDevServerStartTimeout, temporalDevServer.Done(), logger)
+			server.WaitForTemporalServer(cfg.TemporalHost, temporalDevServerStartTimeout, temporalDevServer.Done(), logger)
 		} else {
-			logTemporalServerHealth(logger, cfg.TemporalHost)
+			server.LogTemporalServerHealth(logger, cfg.TemporalHost)
 		}
 		var temporalClientError error
 		temporalClient, temporalClientError = temporal.NewClient(temporal.ClientConfig{
@@ -211,7 +212,7 @@ func main() {
 		}
 	}
 
-	configPaths, err := prepareConfig(cfg, logger)
+	configPaths, err := server.PrepareConfig(cfg, logger)
 	if err != nil {
 		logger.Error("config extraction failed", map[string]string{
 			"error": err.Error(),
@@ -220,11 +221,11 @@ func main() {
 	}
 
 	if !cfg.DevMode {
-		validatePromptFiles(configPaths.ConfigDir, logger)
+		server.ValidatePromptFiles(configPaths.ConfigDir, logger)
 	}
 
-	configFS := buildConfigFS(configPaths.Root)
-	skills, err := loadSkills(logger, configFS, configPaths.SubDir)
+	configFS := server.BuildConfigFS(configPaths.Root)
+	skills, err := server.LoadSkills(logger, configFS, configPaths.SubDir)
 	if err != nil {
 		logger.Error("load skills failed", map[string]string{
 			"error": err.Error(),
@@ -235,7 +236,7 @@ func main() {
 		"count": strconv.Itoa(len(skills)),
 	})
 
-	agents, err := loadAgents(logger, configFS, configPaths.SubDir, buildSkillIndex(skills))
+	agents, err := server.LoadAgents(logger, configFS, configPaths.SubDir, server.BuildSkillIndex(skills))
 	if err != nil {
 		logger.Error("load agents failed", map[string]string{
 			"error": err.Error(),
@@ -276,7 +277,7 @@ func main() {
 		defer temporalworker.StopWorker()
 	}
 
-	planPath := preparePlanFile(logger)
+	planPath := server.PreparePlanFile(logger)
 
 	fsWatcher, err := watcher.NewWithOptions(watcher.Options{
 		Logger:     logger,
@@ -297,7 +298,7 @@ func main() {
 				Timestamp: time.Now().UTC(),
 			})
 		})
-		watchPlanFile(eventBus, fsWatcher, logger, planPath)
+		server.WatchPlanFile(eventBus, fsWatcher, logger, planPath)
 		if workDir, err := os.Getwd(); err == nil {
 			if _, err := watcher.StartGitWatcher(eventBus, fsWatcher, workDir); err != nil && logger != nil {
 				logger.Warn("git watcher unavailable", map[string]string{

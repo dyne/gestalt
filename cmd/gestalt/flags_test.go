@@ -5,10 +5,12 @@ import (
 	"flag"
 	"path/filepath"
 	"testing"
+
+	"gestalt/internal/server"
 )
 
 func TestLoadConfigDefaults(t *testing.T) {
-	cfg, err := loadConfig(nil)
+	cfg, err := server.LoadConfig(nil)
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -82,7 +84,7 @@ func TestLoadConfigEnvOverridesDefaults(t *testing.T) {
 	t.Setenv("GESTALT_CONFIG_BACKUP_LIMIT", "2")
 	t.Setenv("GESTALT_DEV_MODE", "true")
 
-	cfg, err := loadConfig(nil)
+	cfg, err := server.LoadConfig(nil)
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -144,7 +146,7 @@ func TestLoadConfigFlagOverridesEnv(t *testing.T) {
 	t.Setenv("GESTALT_TEMPORAL_DEV_SERVER", "false")
 	t.Setenv("GESTALT_DEV_MODE", "false")
 
-	cfg, err := loadConfig([]string{
+	cfg, err := server.LoadConfig([]string{
 		"--port", "7070",
 		"--backend-port", "5050",
 		"--shell", "/bin/bash",
@@ -189,10 +191,10 @@ func TestLoadConfigFlagOverridesEnv(t *testing.T) {
 	if !cfg.DevMode {
 		t.Fatalf("expected dev mode enabled")
 	}
-	if cfg.Sources["port"] != sourceFlag {
+	if string(cfg.Sources["port"]) != "flag" {
 		t.Fatalf("expected port source flag, got %q", cfg.Sources["port"])
 	}
-	if cfg.Sources["backend-port"] != sourceFlag {
+	if string(cfg.Sources["backend-port"]) != "flag" {
 		t.Fatalf("expected backend port source flag, got %q", cfg.Sources["backend-port"])
 	}
 }
@@ -200,7 +202,7 @@ func TestLoadConfigFlagOverridesEnv(t *testing.T) {
 func TestLoadConfigDevModeDefaultsToConfigDir(t *testing.T) {
 	t.Setenv("GESTALT_DEV_MODE", "true")
 
-	cfg, err := loadConfig(nil)
+	cfg, err := server.LoadConfig(nil)
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -226,7 +228,7 @@ func TestLoadConfigInvalidFlags(t *testing.T) {
 
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			if _, err := loadConfig(testCase.args); err == nil {
+			if _, err := server.LoadConfig(testCase.args); err == nil {
 				t.Fatalf("expected error")
 			}
 		})
@@ -234,21 +236,21 @@ func TestLoadConfigInvalidFlags(t *testing.T) {
 }
 
 func TestLoadConfigHelp(t *testing.T) {
-	_, err := loadConfig([]string{"--help"})
+	_, err := server.LoadConfig([]string{"--help"})
 	if !errors.Is(err, flag.ErrHelp) {
 		t.Fatalf("expected ErrHelp, got %v", err)
 	}
 }
 
 func TestLoadConfigHelpShort(t *testing.T) {
-	_, err := loadConfig([]string{"-h"})
+	_, err := server.LoadConfig([]string{"-h"})
 	if !errors.Is(err, flag.ErrHelp) {
 		t.Fatalf("expected ErrHelp, got %v", err)
 	}
 }
 
 func TestLoadConfigVersion(t *testing.T) {
-	cfg, err := loadConfig([]string{"--version"})
+	cfg, err := server.LoadConfig([]string{"--version"})
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -258,7 +260,7 @@ func TestLoadConfigVersion(t *testing.T) {
 }
 
 func TestLoadConfigVersionShort(t *testing.T) {
-	cfg, err := loadConfig([]string{"-v"})
+	cfg, err := server.LoadConfig([]string{"-v"})
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -268,14 +270,14 @@ func TestLoadConfigVersionShort(t *testing.T) {
 }
 
 func TestLoadConfigForceUpgradeFlag(t *testing.T) {
-	cfg, err := loadConfig([]string{"--force-upgrade"})
+	cfg, err := server.LoadConfig([]string{"--force-upgrade"})
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
 	if !cfg.ForceUpgrade {
 		t.Fatalf("expected force upgrade flag to be set")
 	}
-	if cfg.Sources["force-upgrade"] != sourceFlag {
+	if string(cfg.Sources["force-upgrade"]) != "flag" {
 		t.Fatalf("expected force upgrade source flag, got %q", cfg.Sources["force-upgrade"])
 	}
 }

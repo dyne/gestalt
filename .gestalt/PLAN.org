@@ -966,7 +966,7 @@
    Tests: Skeleton app builds, runs, bindings work, xterm renders
    Done when: Wails CLI installed, test project studied, xterm compatibility verified
 
-** WIP [#B] Create cmd/gestalt-desktop with Wails integration
+** DONE [#B] Create cmd/gestalt-desktop with Wails integration
    Why: Separate entrypoint for desktop mode, reuses all internal/ packages
    Change:
    - Create cmd/gestalt-desktop/main.go - desktop entry point
@@ -1131,7 +1131,7 @@
    Tests: `go build ./cmd/gestalt-desktop` succeeds, binary links correctly
    Done when: Desktop binary compiles, contains embedded server + Wails scaffolding
 
-** TODO [#B] Configure frontend build for Wails desktop mode
+** WIP [#B] Configure frontend build for Wails desktop mode
    Why: Frontend needs separate build output for desktop (different base path, output dir)
    Change:
    - Add desktop build script in frontend/package.json:

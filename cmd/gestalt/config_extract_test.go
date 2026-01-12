@@ -8,6 +8,7 @@ import (
 
 	"gestalt/internal/config"
 	"gestalt/internal/logging"
+	"gestalt/internal/server"
 	"gestalt/internal/version"
 )
 
@@ -24,13 +25,13 @@ func TestPrepareConfigExtractsEmbeddedConfig(t *testing.T) {
 		_ = os.Chdir(cwd)
 	})
 
-	cfg, err := loadConfig(nil)
+	cfg, err := server.LoadConfig(nil)
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
 	logger := logging.NewLoggerWithOutput(logging.NewLogBuffer(10), logging.LevelInfo, io.Discard)
 
-	paths, err := prepareConfig(cfg, logger)
+	paths, err := server.PrepareConfig(cfg, logger)
 	if err != nil {
 		t.Fatalf("prepare config: %v", err)
 	}
@@ -75,7 +76,7 @@ func TestPrepareConfigDevModeSkipsExtraction(t *testing.T) {
 	}
 
 	t.Setenv("GESTALT_DEV_MODE", "true")
-	cfg, err := loadConfig(nil)
+	cfg, err := server.LoadConfig(nil)
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -84,7 +85,7 @@ func TestPrepareConfigDevModeSkipsExtraction(t *testing.T) {
 	}
 	logger := logging.NewLoggerWithOutput(logging.NewLogBuffer(10), logging.LevelInfo, io.Discard)
 
-	paths, err := prepareConfig(cfg, logger)
+	paths, err := server.PrepareConfig(cfg, logger)
 	if err != nil {
 		t.Fatalf("prepare config: %v", err)
 	}

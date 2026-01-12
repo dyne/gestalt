@@ -11,18 +11,19 @@ import (
 
 	"gestalt"
 	"gestalt/internal/logging"
+	"gestalt/internal/server"
 )
 
 func TestPrepareConfigWarmStartSkipsExtraction(t *testing.T) {
 	root := withTempWorkdir(t)
 
-	cfg, err := loadConfig(nil)
+	cfg, err := server.LoadConfig(nil)
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
 
 	logger := newTestLogger(logging.LevelDebug)
-	if _, err := prepareConfig(cfg, logger); err != nil {
+	if _, err := server.PrepareConfig(cfg, logger); err != nil {
 		t.Fatalf("prepare config: %v", err)
 	}
 
@@ -33,7 +34,7 @@ func TestPrepareConfigWarmStartSkipsExtraction(t *testing.T) {
 	}
 
 	logger = newTestLogger(logging.LevelDebug)
-	if _, err := prepareConfig(cfg, logger); err != nil {
+	if _, err := server.PrepareConfig(cfg, logger); err != nil {
 		t.Fatalf("prepare config: %v", err)
 	}
 
@@ -56,13 +57,13 @@ func TestPrepareConfigWarmStartSkipsExtraction(t *testing.T) {
 func TestPrepareConfigConflictBacksUp(t *testing.T) {
 	root := withTempWorkdir(t)
 
-	cfg, err := loadConfig(nil)
+	cfg, err := server.LoadConfig(nil)
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
 
 	logger := newTestLogger(logging.LevelInfo)
-	if _, err := prepareConfig(cfg, logger); err != nil {
+	if _, err := server.PrepareConfig(cfg, logger); err != nil {
 		t.Fatalf("prepare config: %v", err)
 	}
 
@@ -79,7 +80,7 @@ func TestPrepareConfigConflictBacksUp(t *testing.T) {
 	}
 
 	logger = newTestLogger(logging.LevelInfo)
-	if _, err := prepareConfig(cfg, logger); err != nil {
+	if _, err := server.PrepareConfig(cfg, logger); err != nil {
 		t.Fatalf("prepare config: %v", err)
 	}
 
@@ -111,13 +112,13 @@ func TestPrepareConfigConflictBacksUp(t *testing.T) {
 func TestPrepareConfigPartialExtraction(t *testing.T) {
 	root := withTempWorkdir(t)
 
-	cfg, err := loadConfig(nil)
+	cfg, err := server.LoadConfig(nil)
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
 
 	logger := newTestLogger(logging.LevelInfo)
-	if _, err := prepareConfig(cfg, logger); err != nil {
+	if _, err := server.PrepareConfig(cfg, logger); err != nil {
 		t.Fatalf("prepare config: %v", err)
 	}
 
@@ -127,7 +128,7 @@ func TestPrepareConfigPartialExtraction(t *testing.T) {
 	}
 
 	logger = newTestLogger(logging.LevelInfo)
-	if _, err := prepareConfig(cfg, logger); err != nil {
+	if _, err := server.PrepareConfig(cfg, logger); err != nil {
 		t.Fatalf("prepare config: %v", err)
 	}
 
@@ -159,7 +160,7 @@ func TestPreparePlanFileMigration(t *testing.T) {
 	}
 
 	logger := newTestLogger(logging.LevelInfo)
-	planPath := preparePlanFile(logger)
+	planPath := server.PreparePlanFile(logger)
 	if planPath != filepath.Join(".gestalt", "PLAN.org") {
 		t.Fatalf("expected plan path .gestalt/PLAN.org, got %q", planPath)
 	}

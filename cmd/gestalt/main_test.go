@@ -9,6 +9,7 @@ import (
 
 	"gestalt/internal/logging"
 	"gestalt/internal/plan"
+	"gestalt/internal/server"
 )
 
 func TestLoadConfigFromEnv(t *testing.T) {
@@ -23,7 +24,7 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	t.Setenv("GESTALT_INPUT_HISTORY_PERSIST", "true")
 	t.Setenv("GESTALT_INPUT_HISTORY_DIR", "/tmp/gestalt-input")
 
-	cfg, err := loadConfig(nil)
+	cfg, err := server.LoadConfig(nil)
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -61,7 +62,7 @@ func TestLoadConfigFromEnv(t *testing.T) {
 
 func TestLoadConfigDefaultsOnInvalidPort(t *testing.T) {
 	t.Setenv("GESTALT_PORT", "not-a-number")
-	cfg, err := loadConfig(nil)
+	cfg, err := server.LoadConfig(nil)
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -86,7 +87,7 @@ func TestLoadConfigDisablesSessionPersistence(t *testing.T) {
 	t.Setenv("GESTALT_SESSION_PERSIST", "false")
 	t.Setenv("GESTALT_SESSION_DIR", "/tmp/gestalt-logs")
 
-	cfg, err := loadConfig(nil)
+	cfg, err := server.LoadConfig(nil)
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -102,7 +103,7 @@ func TestLoadConfigDisablesInputHistory(t *testing.T) {
 	t.Setenv("GESTALT_INPUT_HISTORY_PERSIST", "false")
 	t.Setenv("GESTALT_INPUT_HISTORY_DIR", "/tmp/gestalt-input")
 
-	cfg, err := loadConfig(nil)
+	cfg, err := server.LoadConfig(nil)
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -167,8 +168,8 @@ func TestLoadAgentsIntegration(t *testing.T) {
 	})
 
 	logger := logging.NewLoggerWithOutput(logging.NewLogBuffer(10), logging.LevelInfo, io.Discard)
-	configFS := buildConfigFS(filepath.Join(root, ".gestalt"))
-	agents, err := loadAgents(logger, configFS, "config", nil)
+	configFS := server.BuildConfigFS(filepath.Join(root, ".gestalt"))
+	agents, err := server.LoadAgents(logger, configFS, "config", nil)
 	if err != nil {
 		t.Fatalf("load agents: %v", err)
 	}
@@ -207,8 +208,8 @@ func TestLoadAgentsReportsInvalidJSON(t *testing.T) {
 
 	buffer := logging.NewLogBuffer(10)
 	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, io.Discard)
-	configFS := buildConfigFS(filepath.Join(root, ".gestalt"))
-	agents, err := loadAgents(logger, configFS, "config", nil)
+	configFS := server.BuildConfigFS(filepath.Join(root, ".gestalt"))
+	agents, err := server.LoadAgents(logger, configFS, "config", nil)
 	if err != nil {
 		t.Fatalf("load agents: %v", err)
 	}
@@ -230,7 +231,7 @@ func TestPreparePlanFileMigratesLegacyPlan(t *testing.T) {
 
 		buffer := logging.NewLogBuffer(10)
 		logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, io.Discard)
-		planPath := preparePlanFile(logger)
+		planPath := server.PreparePlanFile(logger)
 		if planPath != plan.DefaultPath() {
 			t.Fatalf("expected plan path %q, got %q", plan.DefaultPath(), planPath)
 		}
@@ -266,7 +267,7 @@ func TestPreparePlanFilePrefersExistingPlan(t *testing.T) {
 
 		buffer := logging.NewLogBuffer(10)
 		logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, io.Discard)
-		planPath := preparePlanFile(logger)
+		planPath := server.PreparePlanFile(logger)
 		if planPath != plan.DefaultPath() {
 			t.Fatalf("expected plan path %q, got %q", plan.DefaultPath(), planPath)
 		}

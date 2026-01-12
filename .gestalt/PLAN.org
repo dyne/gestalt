@@ -853,7 +853,7 @@
    Tests: None (research and documentation)
    Done when: Wails v2 architecture documented with implementation patterns
 
-** WIP [#B] Install Wails v2 CLI and create skeleton project for study
+** DONE [#B] Install Wails v2 CLI and create skeleton project for study
    Why: Need Wails tooling and hands-on experience with project structure
    Change:
    - Install Wails CLI: `go install github.com/wailsapp/wails/v2/cmd/wails@latest`
@@ -954,10 +954,19 @@
      - Performance observations
      - Differences from web mode
    - Clean up: `rm -rf /tmp/gestalt-test`
+   Notes:
+   - Wails CLI installed at v2.11.0 via Go toolchain in /tmp GOMODCACHE/GOPATH.
+   - `wails doctor` initially reported missing libgtk-3-dev and libwebkit2gtk-4.0-dev.
+   - `wails init -n gestalt-test` failed because /tmp/gestalt-test already existed; used /tmp/gestalt-wails-test instead.
+   - `wails dev` without escalation failed to bind Vite on ::1:5173 (EPERM).
+   - After installing webkit2gtk, `wails build` succeeds (binary at /tmp/gestalt-wails-test/build/bin/gestalt-wails-test).
+   - `wails dev` with escalation now compiles but panics: "failed to init GTK".
+   - Running the built binary also panics with "failed to init GTK" (likely missing display/GTK runtime session).
+   - xterm.js verification and binary run are blocked until GTK can initialize in this environment.
    Tests: Skeleton app builds, runs, bindings work, xterm renders
    Done when: Wails CLI installed, test project studied, xterm compatibility verified
 
-** TODO [#B] Create cmd/gestalt-desktop with Wails integration
+** WIP [#B] Create cmd/gestalt-desktop with Wails integration
    Why: Separate entrypoint for desktop mode, reuses all internal/ packages
    Change:
    - Create cmd/gestalt-desktop/main.go - desktop entry point

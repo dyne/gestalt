@@ -30,11 +30,11 @@ const scheduleReconnect = () => {
   reconnectAttempts += 1
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null
-    connect()
+    void connect()
   }, delay)
 }
 
-const connect = () => {
+const connect = async () => {
   if (typeof window === 'undefined') return
   if (!hasSubscribers()) {
     setStatus('disconnected')
@@ -46,7 +46,8 @@ const connect = () => {
 
   setStatus('connecting')
   try {
-    socket = new WebSocket(buildWebSocketUrl('/api/config/events'))
+    const url = await buildWebSocketUrl('/api/config/events')
+    socket = new WebSocket(url)
   } catch {
     socket = null
     setStatus('disconnected')
@@ -114,7 +115,7 @@ export const subscribe = (eventType, callback) => {
   }
   subscribers.get(eventType).set(id, callback)
 
-  connect()
+  void connect()
 
   return () => {
     const listeners = subscribers.get(eventType)

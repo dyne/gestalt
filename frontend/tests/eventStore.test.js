@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const buildWebSocketUrl = vi.hoisted(() => vi.fn((path) => `ws://test${path}`))
+const buildWebSocketUrl = vi.hoisted(() =>
+  vi.fn((path) => Promise.resolve(`ws://test${path}`))
+)
 
 vi.mock('../src/lib/api.js', () => ({
   buildWebSocketUrl,
@@ -70,6 +72,7 @@ describe('eventStore', () => {
       received.push(payload.path)
     })
 
+    await flush()
     const socket = MockWebSocket.instances[0]
     socket.open()
     await flush()
@@ -94,6 +97,7 @@ describe('eventStore', () => {
       received.push(payload.path)
     })
 
+    await flush()
     const socket = MockWebSocket.instances[0]
     socket.open()
     await flush()

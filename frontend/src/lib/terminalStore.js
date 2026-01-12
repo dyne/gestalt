@@ -724,7 +724,8 @@ const createTerminalState = (terminalId) => {
       await loadHistory()
     }
 
-    socket = new WebSocket(buildWebSocketUrl(`/ws/terminal/${terminalId}`))
+    const url = await buildWebSocketUrl(`/ws/terminal/${terminalId}`)
+    socket = new WebSocket(url)
     socket.binaryType = 'arraybuffer'
 
     socket.addEventListener('open', () => {

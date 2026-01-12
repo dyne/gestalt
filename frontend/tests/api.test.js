@@ -40,9 +40,9 @@ describe('api helpers', () => {
     vi.unstubAllGlobals()
   })
 
-  it('buildWebSocketUrl appends token', () => {
+  it('buildWebSocketUrl appends token', async () => {
     localStorage.setItem('gestalt_token', 'abc123')
-    const url = buildWebSocketUrl('/ws/terminal/1')
+    const url = await buildWebSocketUrl('/ws/terminal/1')
     expect(url.startsWith('ws://')).toBe(true)
     expect(url).toContain('/ws/terminal/1')
     expect(url).toContain('token=abc123')

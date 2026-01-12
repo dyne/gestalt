@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-const buildWebSocketUrl = vi.hoisted(() => vi.fn((path) => `ws://test${path}`))
+const buildWebSocketUrl = vi.hoisted(() =>
+  vi.fn((path) => Promise.resolve(`ws://test${path}`))
+)
 const apiFetch = vi.hoisted(() => vi.fn())
 const addNotification = vi.hoisted(() => vi.fn())
 

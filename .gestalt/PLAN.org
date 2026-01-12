@@ -1462,7 +1462,7 @@
      - Unit test: download failure returns error
    Done when: Go downloader restored with version-aware asset validation
 
-** TODO [#B] Embed SCIP indexer assets and extract to .gestalt/scip
+** DONE [#B] Embed SCIP indexer assets and extract to .gestalt/scip
    Why: Avoid runtime downloads and ensure deterministic indexer availability.
    Change:
    - Add script in script/ to download scip_* indexers into assets/scip/

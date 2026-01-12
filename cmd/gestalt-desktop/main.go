@@ -27,6 +27,8 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/linux"
+	"github.com/wailsapp/wails/v2/pkg/options/windows"
 )
 
 const httpServerShutdownTimeout = 5 * time.Second
@@ -251,11 +253,16 @@ func main() {
 	}()
 
 	app := desktop.NewApp(backendURL, manager, backendServer, logger)
+	menuBar := desktop.BuildMenu(app)
 
 	err = wails.Run(&options.App{
-		Title:  "Gestalt",
-		Width:  1400,
-		Height: 900,
+		Title:            "Gestalt",
+		Width:            1400,
+		Height:           900,
+		MinWidth:         800,
+		MinHeight:        600,
+		WindowStartState: options.Normal,
+		Menu:             menuBar,
 		AssetServer: &assetserver.Options{
 			Assets: frontendFS,
 		},
@@ -264,6 +271,12 @@ func main() {
 		OnBeforeClose: app.BeforeClose,
 		Bind: []interface{}{
 			app,
+		},
+		Linux: &linux.Options{
+			ProgramName: "gestalt",
+		},
+		Windows: &windows.Options{
+			WindowClassName: "Gestalt",
 		},
 	})
 	if err != nil {

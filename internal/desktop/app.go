@@ -36,6 +36,7 @@ func NewApp(url string, manager *terminal.Manager, server *http.Server, logger *
 
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
+	runtime.WindowCenter(ctx)
 }
 
 func (a *App) Shutdown(ctx context.Context) {

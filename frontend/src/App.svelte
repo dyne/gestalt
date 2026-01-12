@@ -27,6 +27,19 @@
   let watchErrorNotified = false
   let terminalErrorUnsubscribe = null
 
+  const handleMenuNewTerminal = () => {
+    void createTerminal().catch(() => {})
+  }
+
+  const handleMenuToggleDevtools = () => {
+    const runtime = typeof window !== 'undefined' ? window.runtime : null
+    if (!runtime || typeof runtime.OpenDevTools !== 'function') {
+      console.info('[desktop] devtools unavailable')
+      return
+    }
+    runtime.OpenDevTools()
+  }
+
   $: activeView =
     activeId === 'dashboard'
       ? 'dashboard'
@@ -155,7 +168,11 @@
         : `Terminal ${terminalId} error.`
       notificationStore.addNotification('error', message)
     })
+    window.addEventListener('gestalt:menu:new-terminal', handleMenuNewTerminal)
+    window.addEventListener('gestalt:menu:toggle-devtools', handleMenuToggleDevtools)
     return () => {
+      window.removeEventListener('gestalt:menu:new-terminal', handleMenuNewTerminal)
+      window.removeEventListener('gestalt:menu:toggle-devtools', handleMenuToggleDevtools)
       unsubscribe()
       if (terminalErrorUnsubscribe) {
         terminalErrorUnsubscribe()

@@ -1131,7 +1131,7 @@
    Tests: `go build ./cmd/gestalt-desktop` succeeds, binary links correctly
    Done when: Desktop binary compiles, contains embedded server + Wails scaffolding
 
-** WIP [#B] Configure frontend build for Wails desktop mode
+** DONE [#B] Configure frontend build for Wails desktop mode
    Why: Frontend needs separate build output for desktop (different base path, output dir)
    Change:
    - Add desktop build script in frontend/package.json:
@@ -1216,7 +1216,7 @@
    Tests: npm run build:desktop succeeds, relative paths in output
    Done when: Frontend builds for both web (dist/) and desktop (build/) modes
 
-** TODO [#B] Create wails.json configuration
+** WIP [#B] Create wails.json configuration
    Why: Wails CLI uses this for build, dev mode, and frontend integration
    Change:
    - Create wails.json in project root:

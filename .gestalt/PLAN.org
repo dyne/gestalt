@@ -747,11 +747,44 @@
    Tests: N/A (planning)
    Done when: Prioritized roadmap with detailed improvement proposals ready for implementation
 
-* TODO [#A] Wails desktop application packaging
-  Goal: Package Gestalt as a native desktop application using Wails v3, providing a standalone executable for macOS, Windows, and Linux while preserving the existing web server mode as default.
+* WIP [#A] Wails desktop application packaging
+  Goal: Package Gestalt as a native desktop application using Wails v2 (current stable), providing a standalone executable for macOS, Windows, and Linux while preserving the existing web server mode as default.
+  
+  ## Implementation Summary (for coder)
+  
+  This L1 creates a desktop application using Wails v2 that wraps the existing Gestalt server in a native window. The approach is **dual-mode**: the current web server (`gestalt`) continues to work unchanged, and a new desktop binary (`gestalt-desktop`) provides a native app experience.
+  
+  **Key Architecture Decisions:**
+  1. **Use Wails v2** (stable, production-ready) - NOT v3 (alpha)
+  2. **Hybrid approach**: Desktop app embeds the Go HTTP server (not Wails as pure frontend)
+  3. **Random port**: Desktop server starts on `127.0.0.1:0`, URL passed to frontend via Go binding
+  4. **Code reuse**: `cmd/gestalt-desktop` shares all `internal/` packages with `cmd/gestalt`
+  5. **Two build outputs**: `frontend/dist/` (web) and `frontend/build/` (desktop)
+  6. **Minimal frontend changes**: Detect Wails, use dynamic URL, otherwise identical
+  
+  **What Wails Provides:**
+  - Native window (WebView2/WebKit) hosting the Svelte frontend
+  - Go↔JavaScript bindings (exported Go methods → JS promises)
+  - Window lifecycle hooks (startup, shutdown, before close)
+  - Runtime functions (dialogs, events, window controls)
+  - Cross-platform builds (single command for each platform)
+  
+  **Implementation Steps Overview:**
+  1. Install Wails CLI, study skeleton project, understand bindings
+  2. Create `cmd/gestalt-desktop/` with main.go + app.go (reuse server code)
+  3. Add desktop frontend build (`npm run build:desktop` → `build/` dir)
+  4. Create `wails.json` configuration
+  5. Update frontend to detect Wails and use Go bindings for server URL
+  6. Add Makefile targets (`make gestalt-desktop`, `make wails-dev`)
+  7. Test thoroughly (PTY, WebSocket, all features)
+  8. Document build/usage for users
+  
+  **No Online Research Needed:**
+  All Wails v2 concepts, APIs, and patterns are documented in detail in the L2 tasks below. Coder can implement directly from these instructions.
+  
   Notes:
   - Dual-mode architecture: web server (default) + desktop app (opt-in build target)
-  - Desktop mode: Wails v3 wraps existing Gestalt server with native window
+  - Desktop mode: Wails v2 wraps existing Gestalt server with native window
   - Hybrid approach: keep HTTP/WebSocket server, Wails bindings call it
   - Desktop app starts embedded server on random port, frontend connects via localhost
   - Separate binaries: `gestalt` (web mode, current) + `gestalt-desktop` (Wails app)
@@ -767,89 +800,463 @@
   - Documentation: separate desktop build/run instructions in README
   - Testing: desktop app should pass same test suite as web mode
   Date: 2026-01-08
-  Ref: Wails v3 docs, agentskills.io packaging patterns
+  Updated: 2026-01-11 (switched from v3 to v2, added comprehensive implementation details)
 
-** TODO [#B] Research Wails v3 architecture and requirements
-   Why: Understand Wails v3 capabilities, limitations, and integration patterns before committing
+** DONE [#B] Research Wails v2 architecture and implementation patterns
+   Why: Understand Wails v2 (stable) capabilities and integration patterns before implementing
    Change:
-   - Read Wails v3 documentation: application structure, binding patterns, build process
-   - Understand differences from v2: breaking changes, new features, migration path
-   - Research Svelte + Wails v3 integration: does v3 have Svelte template/examples?
-   - Investigate frontend build output requirements: static SPA vs other modes
-   - Check Wails CLI capabilities: dev mode, build targets, cross-compilation
-   - Understand Wails runtime: how Go functions are bound, TypeScript generation
-   - Research window management: native menus, system tray, multi-window support
-   - Check PTY compatibility: any known issues with terminal apps in Wails?
-   - Review Wails licensing: MIT (compatible with AGPL)
-   - Document findings and any potential blockers
-   Tests: None (research only)
-   Done when: Wails v3 architecture understood, integration approach validated
+   - Install Wails v2 CLI: `go install github.com/wailsapp/wails/v2/cmd/wails@latest`
+   - Verify installation: `wails doctor` (checks Go version, npm, platform requirements)
+   - Read Wails v2 core concepts (skip tutorial):
+     - Application lifecycle: wails.Run(&options.App{}) is main entry
+     - OnStartup(ctx context.Context) - called before window shown, store ctx for runtime calls
+     - OnShutdown(ctx context.Context) - cleanup on app close
+     - OnBeforeClose(ctx context.Context) bool - return false to prevent close
+   - Understand binding system:
+     - Any exported method on bound struct auto-exposed to frontend
+     - Wails generates TypeScript bindings in frontend/wailsjs/go/
+     - Methods return (result, error) - frontend gets Promise
+     - Example: func (a *App) GetServerURL() string → GetServerURL().then(url => ...)
+   - Understand runtime package (import "github.com/wailsapp/wails/v2/pkg/runtime"):
+     - runtime.EventsEmit(ctx, "event-name", data) - Go → JS events
+     - runtime.EventsOn in JS - subscribe to events
+     - runtime.MessageDialog, runtime.OpenFileDialog - native dialogs
+     - runtime.WindowSetTitle, WindowSetSize, WindowMaximise, etc.
+   - Frontend integration with existing Svelte app:
+     - Wails embeds frontend dist/ at build time
+     - No special Svelte plugin needed - just build to dist/
+     - Use `base: "./"` in vite.config.js for desktop (relative paths)
+     - Frontend detects Wails: `typeof window.runtime !== 'undefined'`
+   - wails.json structure (documented below in L2 task)
+   - Build commands:
+     - `wails dev` - hot reload dev mode (launches window + watches frontend)
+     - `wails build` - production build (creates platform binary)
+     - `wails build -platform darwin/amd64,windows/amd64,linux/amd64` - multi-platform
+   - Desktop vs web mode strategy:
+     - cmd/gestalt-desktop/main.go - separate entry point
+     - Shares all internal/ packages with cmd/gestalt
+     - Starts HTTP server on random port (net.Listen("tcp", "127.0.0.1:0"))
+     - Passes server URL to frontend via binding method
+     - Frontend uses dynamic URL in desktop mode, relative in web mode
+   - PTY compatibility: No known issues, PTY works fine in Wails apps
+   - Licensing: Wails v2 is MIT license (compatible with AGPL)
+   - Platform requirements:
+     - macOS: requires Xcode command line tools
+     - Windows: requires WebView2 runtime (auto-installed on Win11)
+     - Linux: requires webkit2gtk (apt install webkit2gtk-4.0)
+   Implementation notes:
+   - Wails v2 is production-ready, widely used, stable API
+   - v3 is alpha/experimental, avoid for production use
+   - Existing Gestalt architecture (embedded server) fits Wails perfectly
+   - Frontend needs minimal changes (Wails detection + dynamic URL)
+   - Backend needs new entrypoint but reuses all existing code
+   Tests: None (research and documentation)
+   Done when: Wails v2 architecture documented with implementation patterns
 
-** TODO [#B] Install Wails v3 CLI and create skeleton project
-   Why: Need Wails tooling and project structure to build desktop app
+** WIP [#B] Install Wails v2 CLI and create skeleton project for study
+   Why: Need Wails tooling and hands-on experience with project structure
    Change:
-   - Install Wails CLI: `go install github.com/wailsapp/wails/v3/cmd/wails3@latest`
-   - Verify installation: `wails3 version`
-   - Create skeleton in separate directory first (experiment): `wails3 init -n gestalt-desktop -t svelte`
-   - Study generated structure: main.go, wails.json, frontend setup
-   - Compare skeleton with Gestalt structure: identify differences
-   - Document Wails project structure requirements in internal notes
-   - Test skeleton builds: `wails3 dev` and `wails3 build`
-   - Verify dev mode works: hot reload, frontend/backend communication
-   - Clean up experimental skeleton after study
-   Tests: Skeleton app builds and runs successfully
-   Done when: Wails CLI installed, skeleton studied, requirements understood
+   - Install Wails CLI: `go install github.com/wailsapp/wails/v2/cmd/wails@latest`
+   - Verify: `wails version` (should show v2.x.x)
+   - Run doctor: `wails doctor` - ensure all dependencies present
+   - Create test skeleton: `cd /tmp && wails init -n gestalt-test -t svelte`
+   - Study generated structure:
+     ```
+     gestalt-test/
+     ├── main.go              # Wails app entrypoint
+     ├── app.go               # App struct with bindings
+     ├── wails.json           # Build configuration
+     ├── frontend/            # Svelte app
+     │   ├── src/
+     │   ├── wailsjs/         # Generated bindings (git-ignored)
+     │   ├── package.json
+     │   └── vite.config.js
+     ├── build/               # Output directory
+     └── README.md
+     ```
+   - Test dev mode: `cd gestalt-test && wails dev`
+     - Should launch window with hot reload
+     - Try calling Go methods from frontend
+     - Verify xterm.js works in Wails window (add @xterm/xterm, test rendering)
+   - Test build: `wails build` - creates binary in build/bin/
+   - Run binary: `./build/bin/gestalt-test` - launches native window
+   - Study main.go structure:
+     ```go
+     package main
+     
+     import (
+         "context"
+         "github.com/wailsapp/wails/v2/pkg/options"
+         "github.com/wailsapp/wails/v2/pkg/options/assetserver"
+         "github.com/wailsapp/wails/v2/pkg/runtime"
+         "github.com/wailsapp/wails/v2/pkg/options/windows"
+     )
+     
+     func main() {
+         app := NewApp()
+         err := wails.Run(&options.App{
+             Title:  "Gestalt",
+             Width:  1400,
+             Height: 900,
+             AssetServer: &assetserver.Options{
+                 Assets: assets, // embed.FS
+             },
+             OnStartup:  app.startup,
+             OnShutdown: app.shutdown,
+             Bind: []interface{}{
+                 app,
+             },
+         })
+         if err != nil {
+             println("Error:", err.Error())
+         }
+     }
+     ```
+   - Study app.go binding pattern:
+     ```go
+     package main
+     
+     import "context"
+     
+     type App struct {
+         ctx context.Context
+     }
+     
+     func NewApp() *App {
+         return &App{}
+     }
+     
+     func (a *App) startup(ctx context.Context) {
+         a.ctx = ctx
+     }
+     
+     func (a *App) shutdown(ctx context.Context) {
+         // cleanup
+     }
+     
+     // Exported methods auto-bound to frontend
+     func (a *App) GetServerURL() string {
+         return "http://localhost:8080"
+     }
+     ```
+   - Study wails.json config (documented in next L2)
+   - Study frontend/wailsjs/ generated bindings:
+     - TypeScript definitions for all bound Go methods
+     - Automatic Promise wrapping
+     - Example: `import {GetServerURL} from './wailsjs/go/main/App'`
+   - Test xterm.js compatibility:
+     - Add xterm to test project: `cd frontend && npm install @xterm/xterm @xterm/addon-fit`
+     - Render terminal in Svelte component
+     - Verify input/output works in Wails window
+     - Check for any WebView rendering issues
+   - Document findings:
+     - Any gotchas or limitations
+     - Performance observations
+     - Differences from web mode
+   - Clean up: `rm -rf /tmp/gestalt-test`
+   Tests: Skeleton app builds, runs, bindings work, xterm renders
+   Done when: Wails CLI installed, test project studied, xterm compatibility verified
 
-** TODO [#B] Create cmd/gestalt-desktop for Wails application
-   Why: Separate entrypoint for desktop mode to avoid mixing web/desktop logic
+** TODO [#B] Create cmd/gestalt-desktop with Wails integration
+   Why: Separate entrypoint for desktop mode, reuses all internal/ packages
    Change:
-   - Create cmd/gestalt-desktop/main.go as Wails application entrypoint
-   - Copy structure from cmd/gestalt/main.go as starting point
-   - Add Wails application initialization: wails.Run(&options.App{...})
-   - Configure embedded server: start on random port (e.g., localhost:0)
-   - Pass server URL to frontend via Wails config or environment
-   - Bind Go struct with methods for Wails frontend to call
-   - Initial bindings (minimal): GetServerURL() string, OpenExternal(url string) error
-   - Wire up existing Manager, agent loader, skill loader (reuse all internal packages)
-   - Add graceful shutdown: close Wails app → stop server → cleanup sessions
-   - Desktop-specific config: window size (1280x800), title ("Gestalt"), resizable
-   Tests: gestalt-desktop compiles; go build ./cmd/gestalt-desktop
-   Done when: Desktop entrypoint exists with Wails initialization
+   - Create cmd/gestalt-desktop/main.go - desktop entry point
+   - Create cmd/gestalt-desktop/app.go - Wails binding struct
+   - Import Wails v2:
+     ```go
+     import (
+         "github.com/wailsapp/wails/v2/pkg/runtime"
+         "github.com/wailsapp/wails/v2/pkg/options"
+         "github.com/wailsapp/wails/v2/pkg/options/assetserver"
+     )
+     ```
+   - Main.go structure:
+     ```go
+     package main
+     
+     import (
+         "context"
+         "embed"
+         "log"
+         "net"
+         "net/http"
+         
+         "gestalt/internal/agent"
+         "gestalt/internal/api"
+         "gestalt/internal/terminal"
+         // ... other internal packages
+         
+         "github.com/wailsapp/wails/v2/pkg/options"
+         "github.com/wailsapp/wails/v2/pkg/options/assetserver"
+         wails "github.com/wailsapp/wails/v2/pkg/runtime"
+     )
+     
+     //go:embed all:build
+     var assets embed.FS
+     
+     func main() {
+         // 1. Initialize Gestalt server (reuse code from cmd/gestalt)
+         config := loadConfig() // shared function
+         agents := loadAgents()
+         skills := loadSkills()
+         manager := terminal.NewManager(...)
+         
+         // 2. Start embedded HTTP server on random port
+         listener, err := net.Listen("tcp", "127.0.0.1:0")
+         if err != nil {
+             log.Fatal("Failed to start server:", err)
+         }
+         serverURL := "http://" + listener.Addr().String()
+         log.Printf("Embedded server: %s", serverURL)
+         
+         // 3. Register routes (reuse from cmd/gestalt)
+         router := http.NewServeMux()
+         api.RegisterRoutes(router, manager, agents, skills, ...)
+         
+         // 4. Start server in goroutine
+         srv := &http.Server{Handler: router}
+         go func() {
+             srv.Serve(listener)
+         }()
+         
+         // 5. Create Wails app
+         app := NewApp(serverURL, manager, srv)
+         
+         // 6. Run Wails
+         err = wails.Run(&options.App{
+             Title:  "Gestalt",
+             Width:  1400,
+             Height: 900,
+             AssetServer: &assetserver.Options{
+                 Assets: assets,
+             },
+             OnStartup:  app.startup,
+             OnShutdown: app.shutdown,
+             OnBeforeClose: app.beforeClose,
+             Bind: []interface{}{
+                 app,
+             },
+         })
+         
+         if err != nil {
+             log.Fatal("Wails error:", err)
+         }
+     }
+     ```
+   - App.go structure:
+     ```go
+     package main
+     
+     import (
+         "context"
+         "net/http"
+         "gestalt/internal/terminal"
+         "gestalt/internal/version"
+     )
+     
+     type App struct {
+         ctx       context.Context
+         serverURL string
+         manager   *terminal.Manager
+         server    *http.Server
+     }
+     
+     func NewApp(url string, mgr *terminal.Manager, srv *http.Server) *App {
+         return &App{
+             serverURL: url,
+             manager:   mgr,
+             server:    srv,
+         }
+     }
+     
+     func (a *App) startup(ctx context.Context) {
+         a.ctx = ctx
+         // Server already running from main()
+     }
+     
+     func (a *App) shutdown(ctx context.Context) {
+         // Graceful shutdown
+         if a.server != nil {
+             a.server.Shutdown(ctx)
+         }
+         if a.manager != nil {
+             a.manager.Close()
+         }
+     }
+     
+     func (a *App) beforeClose(ctx context.Context) bool {
+         // Optional: check if terminals running, confirm exit
+         sessions := a.manager.ListSessions()
+         if len(sessions) > 0 {
+             // Could use runtime.MessageDialog here
+             // For now, allow close
+         }
+         return false // false = allow close
+     }
+     
+     // Bindings - exported methods auto-available in frontend
+     func (a *App) GetServerURL() string {
+         return a.serverURL
+     }
+     
+     func (a *App) GetVersion() string {
+         return version.Version
+     }
+     
+     func (a *App) OpenExternal(url string) error {
+         return runtime.BrowserOpenURL(a.ctx, url)
+     }
+     
+     // Future: native dialogs
+     func (a *App) SelectDirectory() (string, error) {
+         return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+             Title: "Select Directory",
+         })
+     }
+     ```
+   - Refactor cmd/gestalt/main.go to extract shared code:
+     - Move loadConfig(), loadAgents(), loadSkills() to internal/server/ or keep in main but make reusable
+     - Both cmd/gestalt and cmd/gestalt-desktop call same initialization logic
+     - Difference: gestalt starts on fixed/env port, desktop on random port + Wails window
+   - Error handling: fail fast on initialization errors (log.Fatal), surface in UI for runtime errors
+   Tests: `go build ./cmd/gestalt-desktop` succeeds, binary links correctly
+   Done when: Desktop binary compiles, contains embedded server + Wails scaffolding
 
-** TODO [#B] Configure Svelte frontend for Wails compatibility
-   Why: Wails requires static SPA build; ensure Vite config produces correct output
+** TODO [#B] Configure frontend build for Wails desktop mode
+   Why: Frontend needs separate build output for desktop (different base path, output dir)
    Change:
-   - Frontend already uses Vite + Svelte (not SvelteKit), perfect for Wails
-   - Verify vite.config.js build.outDir: keep as 'dist' for web, add 'build' for desktop
-   - Add separate build command for desktop: "build:desktop" in package.json
-   - Desktop build: `vite build --outDir build --base ./` (relative paths for file:// protocol)
-   - Ensure no hardcoded localhost:8080 URLs in frontend code (use relative paths)
-   - Update API client (api.js): detect Wails mode, use dynamic server URL
-   - Add Wails detection: `window.wails !== undefined`
-   - If Wails mode: fetch server URL via Wails binding (e.g., `window.wails.GetServerURL()`)
-   - If web mode: use relative paths (current behavior)
-   - Keep WebSocket connection logic compatible (ws://localhost:RANDOM_PORT)
-   - Test build output: verify build/ contains static SPA assets
-   Tests: npm run build:desktop produces clean SPA in build/
-   Done when: Frontend builds for both web and desktop modes
+   - Add desktop build script in frontend/package.json:
+     ```json
+     {
+       "scripts": {
+         "build": "vite build",
+         "build:desktop": "vite build --outDir build --base ./"
+       }
+     }
+     ```
+   - Explanation:
+     - `--outDir build` - desktop uses build/ instead of dist/ (web mode)
+     - `--base ./` - relative paths for file:// protocol (Wails serves locally)
+   - Verify vite.config.js handles dynamic base:
+     ```javascript
+     export default defineConfig({
+       base: process.env.VITE_BASE || '/',
+       build: {
+         outDir: process.env.VITE_OUT_DIR || 'dist',
+       },
+       // ... rest of config
+     })
+     ```
+   - Or keep config simple, use CLI flags only (simpler)
+   - Test desktop build: `cd frontend && npm run build:desktop`
+     - Verify build/ directory created
+     - Verify index.html uses relative paths (<script src="./assets/...")
+     - Verify assets/ directory structure matches expectations
+   - Frontend detects Wails mode in api.js:
+     ```javascript
+     // frontend/src/lib/api.js
+     const isWails = typeof window !== 'undefined' && 
+                     typeof window.runtime !== 'undefined'
+     
+     export { isWails }
+     
+     export function buildApiUrl(path) {
+       if (isWails) {
+         // Use dynamic server URL from Wails binding
+         // This requires async, so return promise
+         return getServerURL().then(url => url + path)
+       }
+       // Web mode: relative URL
+       return Promise.resolve('/api' + path)
+     }
+     
+     export function buildWebSocketUrl(path) {
+       if (isWails) {
+         return getServerURL().then(url => {
+           const wsUrl = url.replace('http://', 'ws://') + path
+           return wsUrl
+         })
+       }
+       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+       return Promise.resolve(protocol + '//' + window.location.host + '/ws' + path)
+     }
+     
+     // Cache server URL to avoid repeated binding calls
+     let cachedServerURL = null
+     async function getServerURL() {
+       if (cachedServerURL) return cachedServerURL
+       const { GetServerURL } = await import('../wailsjs/go/main/App')
+       cachedServerURL = await GetServerURL()
+       return cachedServerURL
+     }
+     ```
+   - Update all API call sites to handle Promise URLs:
+     - Current: `fetch('/api/terminals')`
+     - Desktop: `fetch(await buildApiUrl('/terminals'))`
+     - May need to refactor apiFetch() helper to be async-aware
+   - Alternative simpler approach: inject server URL at build time
+     ```javascript
+     // If window.wails exists, use __GESTALT_SERVER_URL__ injected by Wails
+     const serverURL = window.__GESTALT_SERVER_URL__ || ''
+     export function buildApiUrl(path) {
+       return serverURL + '/api' + path
+     }
+     ```
+     But this requires Wails to inject variable - binding method is cleaner
+   - Test in dev mode: ensure web mode still works unchanged
+   Tests: npm run build:desktop succeeds, relative paths in output
+   Done when: Frontend builds for both web (dist/) and desktop (build/) modes
 
-** TODO [#B] Create wails.json configuration file
-   Why: Wails CLI requires configuration for build, dev mode, and bindings
+** TODO [#B] Create wails.json configuration
+   Why: Wails CLI uses this for build, dev mode, and frontend integration
    Change:
-   - Create wails.json in project root
-   - Set name: "gestalt-desktop"
-   - Set frontend:build: "cd frontend && npm run build:desktop"
-   - Set frontend:install: "cd frontend && npm install"
-   - Set frontend:dev:build: same as build
-   - Set frontend:dev:serverUrl: "auto" (Vite dev server)
-   - Set wailsjsdir: "./frontend/src/lib/wails" (generated bindings)
-   - Set outputfilename: "gestalt-desktop" (per-platform extension added by Wails)
-   - Set debounceMS: 100 (rebuild debounce)
-   - Configure build targets: darwin/amd64, darwin/arm64, windows/amd64, linux/amd64
-   - Set icon paths (optional, use default for now)
-   - Document wails.json fields inline with comments (JSON5 if supported, else separate doc)
-   Tests: wails3 dev reads config correctly
-   Done when: wails.json exists and Wails CLI uses it
+   - Create wails.json in project root:
+     ```json
+     {
+       "$schema": "https://wails.io/schemas/config.v2.json",
+       "name": "gestalt-desktop",
+       "outputfilename": "gestalt-desktop",
+       "frontend:install": "cd frontend && npm install",
+       "frontend:build": "cd frontend && npm run build:desktop",
+       "frontend:dev:watcher": "npm run dev --prefix frontend",
+       "frontend:dev:serverUrl": "auto",
+       "wailsjsdir": "./frontend/src/lib/wails",
+       "author": {
+         "name": "Dyne.org",
+         "email": "info@dyne.org"
+       },
+       "info": {
+         "companyName": "Dyne.org",
+         "productName": "Gestalt",
+         "productVersion": "1.0.0",
+         "copyright": "Copyright © 2025 Dyne.org",
+         "comments": "Multi-terminal AI agent dashboard"
+       }
+     }
+     ```
+   - Field explanations:
+     - `name` - project name (lowercase, no spaces)
+     - `outputfilename` - binary name (platform extensions added automatically)
+     - `frontend:install` - command to install frontend deps
+     - `frontend:build` - command to build frontend for production
+     - `frontend:dev:watcher` - command for dev mode frontend (hot reload)
+     - `frontend:dev:serverUrl` - "auto" detects Vite dev server
+     - `wailsjsdir` - where Wails generates TypeScript bindings
+     - `author` / `info` - metadata for installers, about dialogs
+   - Add to .gitignore:
+     ```
+     # Wails
+     frontend/src/lib/wails/
+     build/
+     ```
+   - Frontend wails/ directory contains generated code:
+     - go/main/App.d.ts - TypeScript types for Go bindings
+     - go/main/App.js - JavaScript wrappers for bindings
+     - runtime/ - Wails runtime functions (EventsOn, etc.)
+   - Verification: `wails doctor` should pass
+   - Test: `wails dev` should read wails.json and launch correctly
+   Tests: Wails CLI accepts config, generates bindings correctly
+   Done when: wails.json exists, gitignore updated, CLI reads config
 
 ** TODO [#B] Implement Wails bindings for core operations
    Why: Desktop frontend needs Go bindings for native operations and server coordination
@@ -871,21 +1278,113 @@
    Tests: Bindings generate correctly; wails3 dev shows methods in console
    Done when: Frontend can call bound Go methods via window.wails
 
-** TODO [#B] Update frontend to detect and use Wails mode
-   Why: Frontend must adapt behavior for desktop vs web mode
+** TODO [#B] Update frontend API client for Wails compatibility
+   Why: Frontend must detect desktop mode and use dynamic server URL from Go
    Change:
-   - Update frontend/src/lib/api.js to detect Wails
-   - Detection: `const isWails = typeof window !== 'undefined' && window.wails !== undefined`
-   - Export isWails flag for other components to check
-   - Update buildApiUrl(): if Wails mode, fetch server URL via window.wails.GetServerURL()
-   - Update buildWebSocketUrl(): use server URL from Wails binding
-   - Cache server URL on first fetch to avoid repeated binding calls
-   - Handle binding call errors: fallback to localhost:8080 with warning
-   - Update App.svelte: show "Desktop Mode" indicator in UI (optional)
-   - Ensure all HTTP/WebSocket connections use dynamic URL in desktop mode
-   - Keep web mode behavior unchanged (relative URLs)
-   Tests: Frontend connects to embedded server in desktop mode; go test ./...
-   Done when: Desktop frontend communicates with embedded Gestalt server
+   - Update frontend/src/lib/api.js:
+     ```javascript
+     // Detect Wails environment
+     const isWails = typeof window !== 'undefined' && 
+                     typeof window.runtime !== 'undefined'
+     
+     let serverURL = null
+     
+     // Get server URL from Wails binding (cached after first call)
+     async function getServerURL() {
+       if (serverURL) return serverURL
+       
+       if (!isWails) {
+         serverURL = '' // Relative URLs in web mode
+         return serverURL
+       }
+       
+       try {
+         // Import generated Wails binding
+         const { GetServerURL } = await import('./wails/go/main/App.js')
+         serverURL = await GetServerURL()
+         console.log('[Desktop] Connected to server:', serverURL)
+         return serverURL
+       } catch (err) {
+         console.warn('[Desktop] Failed to get server URL, using default:', err)
+         serverURL = 'http://localhost:8080' // Fallback
+         return serverURL
+       }
+     }
+     
+     // Build API URL (async in desktop mode)
+     export async function buildApiUrl(path) {
+       const base = await getServerURL()
+       return base + '/api' + path
+     }
+     
+     // Build WebSocket URL (async in desktop mode)
+     export async function buildWebSocketUrl(path) {
+       const base = await getServerURL()
+       if (base) {
+         // Desktop mode: use server URL
+         const wsBase = base.replace('http://', 'ws://').replace('https://', 'wss://')
+         return wsBase + '/ws' + path
+       }
+       // Web mode: relative URL
+       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+       return protocol + '//' + window.location.host + '/ws' + path
+     }
+     
+     // Update apiFetch to handle async URL
+     export async function apiFetch(path, options = {}) {
+       const url = await buildApiUrl(path)
+       const token = localStorage.getItem('authToken')
+       
+       const headers = {
+         'Content-Type': 'application/json',
+         ...options.headers,
+       }
+       
+       if (token) {
+         headers['Authorization'] = `Bearer ${token}`
+       }
+       
+       return fetch(url, {
+         ...options,
+         headers,
+       })
+     }
+     
+     export { isWails }
+     ```
+   - Update terminalStore.js WebSocket connection:
+     ```javascript
+     import { buildWebSocketUrl } from './api.js'
+     
+     async function connect(terminalId) {
+       const url = await buildWebSocketUrl(`/terminal/${terminalId}`)
+       const ws = new WebSocket(url)
+       // ... rest of connection logic
+     }
+     ```
+   - Update all API call sites:
+     ```javascript
+     // Before: const response = await fetch('/api/terminals')
+     // After:  const response = await apiFetch('/terminals')
+     ```
+   - Add optional desktop mode indicator in App.svelte:
+     ```svelte
+     <script>
+       import { isWails } from './lib/api.js'
+     </script>
+     
+     {#if isWails}
+       <div class="desktop-badge">Desktop Mode</div>
+     {/if}
+     ```
+   - Handle Wails binding import errors gracefully:
+     - Binding files won't exist in web mode
+     - Dynamic import ensures no build-time errors
+     - Fallback to web mode if binding unavailable
+   - Test in dev mode (web): ensure no regressions
+   - Test after desktop build: verify bindings work
+   Tests: Web mode unchanged, desktop mode connects to embedded server
+   Done when: Frontend adapts to both web and desktop modes
 
 ** TODO [#B] Wire embedded server into desktop app lifecycle
    Why: Desktop app must start/stop server cleanly with window lifecycle
@@ -903,19 +1402,75 @@
    Tests: Desktop app starts server on random port, frontend connects
    Done when: Server lifecycle synchronized with desktop app
 
-** TODO [#C] Extend Makefile with Wails build targets
+** TODO [#B] Integrate Makefile build targets for desktop
    Why: Developers need simple commands to build desktop app
    Change:
-   - Add wails-dev target: `wails3 dev` (runs dev mode)
-   - Add gestalt-desktop target: `wails3 build -clean` (production build)
-   - Add wails-deps target: install Wails CLI if missing
-   - Desktop build depends on frontend build:desktop
-   - Consider: make install-desktop (copy to /Applications on macOS, etc)
-   - Add clean target for desktop artifacts: build/bin/gestalt-desktop*
-   - Document desktop build in Makefile comments
-   - Add platform-specific targets (optional): gestalt-desktop-darwin, gestalt-desktop-windows
-   Tests: make gestalt-desktop produces working binary
-   Done when: Desktop app builds via Makefile
+   - Add Makefile targets:
+     ```makefile
+     # Install Wails CLI (run once)
+     .PHONY: wails-install
+     wails-install:
+     	go install github.com/wailsapp/wails/v2/cmd/wails@latest
+     	wails doctor
+     
+     # Development mode (hot reload)
+     .PHONY: wails-dev
+     wails-dev:
+     	wails dev
+     
+     # Build desktop binary
+     .PHONY: gestalt-desktop
+     gestalt-desktop: frontend-build-desktop
+     	wails build -clean
+     
+     # Build frontend for desktop
+     .PHONY: frontend-build-desktop
+     frontend-build-desktop:
+     	cd frontend && npm run build:desktop
+     
+     # Platform-specific builds
+     .PHONY: gestalt-desktop-darwin
+     gestalt-desktop-darwin:
+     	wails build -platform darwin/universal -clean
+     
+     .PHONY: gestalt-desktop-windows
+     gestalt-desktop-windows:
+     	wails build -platform windows/amd64 -clean
+     
+     .PHONY: gestalt-desktop-linux
+     gestalt-desktop-linux:
+     	wails build -platform linux/amd64 -clean
+     
+     # Clean desktop artifacts
+     .PHONY: clean-desktop
+     clean-desktop:
+     	rm -rf build/
+     	rm -rf frontend/build/
+     	rm -rf frontend/src/lib/wails/
+     
+     # Add to main clean target
+     clean: clean-desktop
+     ```
+   - Update all target to include desktop:
+     ```makefile
+     .PHONY: all
+     all: gestalt gestalt-send gestalt-desktop
+     ```
+   - Document in Makefile comments:
+     ```makefile
+     # Desktop application targets (Wails required):
+     #   make wails-install      - Install Wails CLI (one-time setup)
+     #   make wails-dev          - Run desktop app in development mode
+     #   make gestalt-desktop    - Build desktop binary for current platform
+     #   make gestalt-desktop-*  - Build for specific platform
+     ```
+   - Add platform check (optional):
+     ```makefile
+     wails-dev gestalt-desktop:
+     	@which wails > /dev/null || (echo "Wails not installed. Run: make wails-install" && exit 1)
+     ```
+   Tests: `make gestalt-desktop` builds successfully
+   Done when: Desktop builds via Makefile with documented targets
 
 ** TODO [#C] Add desktop-specific window configuration
    Why: Native desktop app needs proper window sizing, title, and behavior
@@ -977,71 +1532,319 @@
    Tests: Tray icon appears, click actions work
    Done when: System tray integration works (optional, defer if complex)
 
-** TODO [#B] Test desktop app on all target platforms
-   Why: Ensure desktop app works correctly on macOS, Windows, Linux
+** TODO [#C] Test desktop app functionality end-to-end
+   Why: Verify desktop app works correctly and matches web mode behavior
    Change:
-   - Build for macOS (amd64 and arm64): verify app bundle structure
-   - Build for Windows (amd64): verify .exe runs, no console window appears
-   - Build for Linux (amd64): verify binary runs, window appears correctly
-   - Test core functionality on each platform: create terminal, connect, send input
-   - Test agent profiles: load, execute, prompt injection
-   - Test skills loading and display
-   - Test window management: resize, minimize, maximize, close
-   - Test graceful shutdown: close window → server stops → terminals cleaned up
-   - Document any platform-specific issues or workarounds
-   Tests: Desktop app fully functional on macOS, Windows, Linux
-   Done when: Desktop app passes smoke tests on all platforms
+   - Build desktop app: `make gestalt-desktop`
+   - Launch binary: `./build/bin/gestalt-desktop` (macOS/Linux) or `build/bin/gestalt-desktop.exe` (Windows)
+   - Verify window opens with correct size (1400x900)
+   - Test core features:
+     1. Dashboard loads with system status
+     2. Create agent terminal - verify PTY spawns
+     3. Terminal input/output works bidirectionally
+     4. WebSocket connection stable (no disconnects)
+     5. Terminal resize works (fit addon)
+     6. Multiple terminals can be created
+     7. Tab switching preserves terminal state
+     8. Close terminal cleanly terminates session
+     9. Plan tab loads PLAN.org correctly
+     10. Logs tab shows system logs
+     11. Skills display correctly
+     12. gestalt-send can pipe to desktop instance (if server URL exposed)
+   - Test Wails-specific features:
+     1. GetServerURL() binding returns correct URL
+     2. GetVersion() binding returns version
+     3. OpenExternal() opens URLs in system browser
+     4. Window resize works smoothly
+     5. Window minimize/maximize/close work
+     6. App responds to quit (Cmd+Q / Alt+F4)
+   - Test graceful shutdown:
+     1. Create terminals
+     2. Close window
+     3. Verify all sessions cleaned up
+     4. No zombie processes
+     5. No error logs on exit
+   - Cross-platform testing (if available):
+     - macOS: test .app bundle
+     - Windows: test .exe, check for DLL dependencies
+     - Linux: test binary, check library dependencies
+   - Performance check:
+     - Startup time < 3 seconds
+     - Terminal responsiveness (input lag < 50ms)
+     - Memory usage reasonable (< 200MB idle)
+   - Edge cases:
+     - Start with no .gestalt/ directory
+     - Start with existing config
+     - Multiple app instances (should work independently)
+     - Network issues (embedded server always works)
+   Tests: All features functional, no regressions vs web mode
+   Done when: Desktop app fully functional on target platforms
 
-** TODO [#C] Update CI/CD for desktop builds (optional)
-   Why: Automate desktop app builds for releases
+** TODO [#B] Add CI/CD workflow for desktop builds (optional)
+   Why: Automate multi-platform builds for releases
    Change:
-   - Extend .github/workflows to build desktop binaries
-   - Add matrix build for platforms: darwin/amd64, darwin/arm64, windows/amd64, linux/amd64
-   - Install Wails CLI in CI environment
-   - Build desktop app: wails3 build -platform <platform>
-   - Upload build artifacts to GitHub releases
-   - Sign macOS app (requires Apple Developer account and certificates)
-   - Notarize macOS app (for Gatekeeper compatibility)
-   - Windows: consider code signing (requires certificate)
-   - Linux: no signing required (provide checksums)
-   - Add desktop binaries to release notes
+   - Extend `.github/workflows/release.yml`:
+     ```yaml
+     name: Build Desktop Apps
+     
+     on:
+       push:
+         tags:
+           - 'v*'
+     
+     jobs:
+       desktop-macos:
+         runs-on: macos-latest
+         steps:
+           - uses: actions/checkout@v3
+           - uses: actions/setup-go@v4
+           - uses: actions/setup-node@v3
+           - name: Install Wails
+             run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+           - name: Build
+             run: make gestalt-desktop-darwin
+           - name: Upload artifact
+             uses: actions/upload-artifact@v3
+             with:
+               name: gestalt-desktop-macos
+               path: build/bin/Gestalt.app
+       
+       desktop-windows:
+         runs-on: windows-latest
+         steps:
+           # Similar to macOS, use windows runner
+       
+       desktop-linux:
+         runs-on: ubuntu-latest
+         steps:
+           # Similar to macOS, use linux runner
+     ```
+   - Code signing (requires certificates):
+     - macOS: `codesign --force --deep --sign "Developer ID" Gestalt.app`
+     - Windows: `signtool sign /f cert.pfx /p password gestalt-desktop.exe`
+   - Notarization (macOS only, requires Apple Developer account):
+     ```bash
+     xcrun altool --notarize-app --file Gestalt.app \
+       --primary-bundle-id org.dyne.gestalt \
+       --username developer@dyne.org \
+       --password @keychain:AC_PASSWORD
+     ```
+   - Upload to GitHub releases with checksums
    - This is optional; manual builds acceptable initially
-   Tests: CI builds produce working binaries
-   Done when: CI automatically builds desktop releases (optional, defer if complex)
+   Tests: CI builds complete successfully
+   Done when: Automated desktop builds in CI (optional, can defer)
 
-** TODO [#B] Document desktop build and usage
-   Why: Users and contributors need desktop-specific documentation
+** TODO [#C] Document desktop application usage
+   Why: Users need clear instructions for building, installing, and using desktop app
    Change:
-   - Add "Desktop Application" section to README.md
-   - Document installation: download gestalt-desktop binary for your platform
-   - Document building from source: make gestalt-desktop
-   - Document Wails CLI installation (prerequisite for building)
-   - Explain dual-mode architecture: web server (default) vs desktop app
-   - Document desktop app features: native window, system integration
-   - Document configuration: where desktop app looks for config files
-   - Document differences from web mode (if any)
-   - Add troubleshooting section: common issues, logs location
-   - macOS: explain Gatekeeper warning on first run (unsigned app)
-   - Windows: explain SmartScreen warning (unsigned app)
-   - Linux: explain permission requirements
-   - Add screenshots of desktop app (optional)
-   Tests: None (documentation only)
-   Done when: Desktop app fully documented in README
+   - Add "Desktop Application" section to README.md:
+     ```markdown
+     ## Desktop Application
+     
+     Gestalt can be packaged as a native desktop application using [Wails](https://wails.io/).
+     
+     ### Prerequisites
+     - Go 1.21+ (already required for Gestalt)
+     - Node.js 18+ (already required for frontend)
+     - Wails CLI: `go install github.com/wailsapp/wails/v2/cmd/wails@latest`
+     - Platform-specific dependencies:
+       - macOS: Xcode Command Line Tools
+       - Windows: WebView2 Runtime (pre-installed on Windows 11)
+       - Linux: `webkit2gtk-4.0` (`sudo apt install webkit2gtk-4.0` on Ubuntu/Debian)
+     
+     ### Building Desktop App
+     
+     ```bash
+     # Install Wails CLI (one-time setup)
+     make wails-install
+     
+     # Build for current platform
+     make gestalt-desktop
+     
+     # Build for specific platform
+     make gestalt-desktop-darwin     # macOS (universal binary)
+     make gestalt-desktop-windows    # Windows x64
+     make gestalt-desktop-linux      # Linux x64
+     
+     # Output: build/bin/gestalt-desktop[.exe|.app]
+     ```
+     
+     ### Development Mode
+     
+     ```bash
+     # Run with hot reload (window + Vite dev server)
+     make wails-dev
+     ```
+     
+     ### Running Desktop App
+     
+     - macOS: `open build/bin/Gestalt.app` or double-click in Finder
+     - Windows: `build\bin\gestalt-desktop.exe` or double-click
+     - Linux: `./build/bin/gestalt-desktop`
+     
+     ### Desktop vs Web Mode
+     
+     | Feature | Web Mode | Desktop Mode |
+     |---------|----------|--------------|
+     | Distribution | Server binary | Native app bundle |
+     | Access | Browser at localhost:8080 | Native window |
+     | Server port | Fixed (8080) or env var | Random (embedded) |
+     | Installation | Manual | App store (future) |
+     | Native features | None | File dialogs, menus |
+     
+     ### Configuration
+     
+     Desktop app uses same configuration as web mode:
+     - Config directory: `.gestalt/config/`
+     - Environment variables: all `GESTALT_*` vars supported
+     - Command-line flags: not exposed (use env vars)
+     
+     ### Known Limitations
+     
+     - Desktop app starts embedded server on random port (not accessible externally)
+     - `gestalt-send` cannot target desktop app (no exposed port)
+     - Single instance only (cannot run multiple desktop apps)
+     
+     ### Troubleshooting
+     
+     **macOS: "App is damaged" warning**
+     - Run: `xattr -cr build/bin/Gestalt.app`
+     - Or: sign the app with Developer ID
+     
+     **Windows: SmartScreen warning**
+     - Click "More info" → "Run anyway"
+     - Or: sign the app with code signing certificate
+     
+     **Linux: "cannot open shared object" error**
+     - Install webkit2gtk: `sudo apt install webkit2gtk-4.0 libgtk-3-0`
+     ```
+   - Add to AGENTS.md LLM context:
+     ```markdown
+     ## Desktop Application (Wails)
+     - Dual-mode: web server (default) + desktop app (Wails v2)
+     - Desktop: `cmd/gestalt-desktop/` wraps server in native window
+     - Frontend: same Svelte app, detects Wails mode (`window.runtime`)
+     - Server: embedded, starts on random port, URL passed via Go binding
+     - Bindings: `GetServerURL()`, `GetVersion()`, `OpenExternal()`
+     - Build: `wails build` produces platform-specific binary
+     - No code duplication: both modes share `internal/` packages
+     ```
+   Tests: Documentation is clear, examples work
+   Done when: Desktop app fully documented in README and AGENTS.md
 
-** TODO [#C] Consider desktop-specific enhancements (future work)
-   Why: Desktop apps can leverage native features unavailable in web
-   Change:
-   - Native file pickers: SelectFile, SelectDirectory via Wails bindings
-   - Drag-and-drop files into terminal (future)
-   - Native notifications: use OS notification system instead of toasts
-   - Global keyboard shortcuts: Cmd+N for new terminal (Wails GlobalShortcuts)
-   - Multiple windows: separate window per terminal (advanced)
-   - Dock/taskbar integration: show running terminal count (macOS dock badge)
-   - Auto-update mechanism: Wails update framework (complex, defer)
-   - URL scheme handler: gestalt:// URLs to open terminals (advanced)
-   - These are future enhancements; document ideas, implement later
-   Tests: None (future planning)
-   Done when: Enhancement ideas documented for future work
+** TODO [#C] Add native window features (optional enhancements)
+   Why: Desktop app can leverage native OS features unavailable in web browsers
+   Change: These are optional enhancements, implement based on user demand
+   
+   1. **Native Menus** (macOS/Windows/Linux):
+      ```go
+      import "github.com/wailsapp/wails/v2/pkg/menu"
+      import "github.com/wailsapp/wails/v2/pkg/menu/keys"
+      
+      func (a *App) getMenu() *menu.Menu {
+          appMenu := menu.NewMenu()
+          fileMenu := appMenu.AddSubmenu("File")
+          fileMenu.AddText("New Terminal", keys.CmdOrCtrl("n"), a.newTerminal)
+          fileMenu.AddSeparator()
+          fileMenu.AddText("Quit", keys.CmdOrCtrl("q"), func(cd *menu.CallbackData) {
+              runtime.Quit(a.ctx)
+          })
+          
+          editMenu := appMenu.AddSubmenu("Edit")
+          editMenu.AddText("Copy", keys.CmdOrCtrl("c"), nil) // native clipboard
+          editMenu.AddText("Paste", keys.CmdOrCtrl("v"), nil)
+          
+          viewMenu := appMenu.AddSubmenu("View")
+          viewMenu.AddText("Toggle Dev Tools", keys.Key("F12"), func(cd *menu.CallbackData) {
+              runtime.WindowToggleDevTools(a.ctx)
+          })
+          
+          return appMenu
+      }
+      
+      // In main.go:
+      App: &options.App{
+          Menu: app.getMenu(),
+          // ... other options
+      }
+      ```
+   
+   2. **System Tray Icon** (minimize to tray):
+      - Use `systray` package: `github.com/getlantern/systray`
+      - Icon in tray with menu: Show/Hide, Quit
+      - Click to restore window
+      - Show notification count badge (terminals running)
+   
+   3. **Native File Dialogs**:
+      ```go
+      func (a *App) SelectDirectory() (string, error) {
+          return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+              Title: "Select Working Directory",
+          })
+      }
+      
+      func (a *App) SelectFile() (string, error) {
+          return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+              Title: "Select File",
+              Filters: []runtime.FileFilter{
+                  {DisplayName: "Text Files", Pattern: "*.txt;*.md"},
+              },
+          })
+      }
+      ```
+   
+   4. **Drag and Drop** (files into terminals):
+      - Use Wails events for drag/drop
+      - Frontend: handle drop event, get file path
+      - Backend: inject file path into terminal
+   
+   5. **Global Keyboard Shortcuts**:
+      - Requires native integration (complex)
+      - Can use Wails events + OS-specific APIs
+      - Example: Cmd+Shift+T to toggle Gestalt window
+   
+   6. **Custom Window Controls**:
+      ```go
+      App: &options.App{
+          Frameless: true, // Custom titlebar
+          Windows: &windows.Options{
+              WebviewIsTransparent: false,
+              WindowIsTranslucent: false,
+              DisableWindowIcon: false,
+              Theme: windows.SystemDefault,
+          },
+      }
+      ```
+   
+   7. **macOS Dock Integration**:
+      - Badge with terminal count
+      - Menu with running terminals
+      - Requires macOS-specific code
+   
+   8. **URL Scheme Handler** (`gestalt://`):
+      - Register custom protocol
+      - Open terminals from browser/shell
+      - Example: `gestalt://agent/copilot`
+      - Platform-specific setup required
+   
+   9. **Auto-Update Mechanism**:
+      - Use Wails built-in updater or external tool
+      - Check for updates on startup
+      - Download and apply updates
+      - Requires release infrastructure
+   
+   10. **Native Notifications**:
+       ```go
+       runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
+           Type: runtime.InfoDialog,
+           Title: "Terminal Created",
+           Message: "Agent 'copilot' is ready",
+       })
+       ```
+   
+   Priority: Implement based on user requests, start with file dialogs and menus
+   Tests: Manual testing on each platform
+   Done when: Requested native features implemented and documented
 
 * DONE [#A] Unified event architecture with generic event bus
   Goal: Refactor disparate event systems (EventHub, Broadcaster, LogHub) into a single reusable generic event bus, then extend event-driven patterns throughout Gestalt for agent lifecycle, config changes, terminal events, and workflow state.

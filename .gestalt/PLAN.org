@@ -1529,7 +1529,7 @@
    Tests: Desktop app loads config from correct locations
    Done when: Desktop app finds config in user-specific locations
 
-** WIP [#C] Add system tray icon (optional enhancement)
+** DONE [#C] Add system tray icon (optional enhancement)
    Why: Desktop apps often minimize to system tray for background operation
    Change:
    - Use Wails system tray API to add tray icon
@@ -1540,10 +1540,11 @@
    - Windows: proper icon sizes
    - Linux: works with various desktop environments
    - This is optional enhancement; low priority
+   Deferred: Wails v2.11.0 does not expose a public tray API in the runtime.
    Tests: Tray icon appears, click actions work
    Done when: System tray integration works (optional, defer if complex)
 
-** TODO [#C] Test desktop app functionality end-to-end
+** WIP [#C] Test desktop app functionality end-to-end
    Why: Verify desktop app works correctly and matches web mode behavior
    Change:
    - Build desktop app: `make gestalt-desktop`

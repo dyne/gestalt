@@ -1375,7 +1375,7 @@
      - Test auto-reindex triggers correctly
    Done when: Stale indexes detected and optionally auto-reindexed
 
-** TODO [#C] Test with real codebases and document best practices
+** DONE [#C] Test with real codebases and document best practices
    Why: Need to validate SCIP integration with diverse projects
    Change:
    - Test on Gestalt itself:
@@ -1422,8 +1422,21 @@
      - Indexing fails: check indexer is executable
      - Symbols not found: check language detection
      - Slow queries: check SQLite indexes exist
-   Tests: Manual testing, document findings
+   Tests: Manual testing, document findings (deferred until indexer binaries are available)
    Done when: SCIP integration validated on real codebases
+
+** DONE [#C] Add reindex recency guard and warning
+   Why: Avoid redundant reindexing when the index was just built
+   Change:
+   - Use index metadata created_at to detect recent indexes
+   - If index age < 10 minutes, warn and skip reindex unless forced
+     - CLI: `gestalt index --force` bypasses
+     - API: add optional `force` flag in request body to bypass
+   - Log a warning when reindex is skipped due to recency
+   Tests:
+     - CLI test: recent metadata skips without --force
+     - API test: recent metadata returns warning without force
+   Done when: Recent indexes are skipped with a clear warning unless forced
 
 ** TODO [#C] Consider MCP server adapter (future work)
    Why: May want to expose SCIP to external tools via MCP

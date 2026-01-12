@@ -1555,7 +1555,7 @@
    Tests: `wails3 doctor`, `wails3 build` (or `wails3 dev`) works with v3
    Done when: v3 CLI runs successfully and config/build commands are updated
 
-** TODO [#A] Refactor desktop app for Wails v3 API changes
+** DONE [#A] Refactor desktop app for Wails v3 API changes
    Why: v3 introduces API/binding changes that may break the v2 integration
    Change:
    - Update Go imports and options structs for v3
@@ -1565,7 +1565,7 @@
    Tests: go test, npm test, wails build
    Done when: gestalt-desktop builds and boots under v3
 
-** TODO [#C] Re-evaluate tray icon support under Wails v3
+** TODO [#C] Re-evaluate tray icon support under Wails v3 (DEFER)
    Why: v3 may expose tray APIs that remove the previous blocker
    Change:
    - Check v3 runtime for tray APIs
@@ -1573,7 +1573,7 @@
    Tests: Tray icon appears, click actions work
    Done when: Tray integration is implemented or explicitly re-deferred for v3
 
-** TODO [#C] Test desktop app functionality end-to-end
+** DONE [#C] Test desktop app functionality end-to-end
    Why: Verify desktop app works correctly and matches web mode behavior
    Change:
    - Build desktop app: `make gestalt-desktop`
@@ -1623,7 +1623,7 @@
    Tests: All features functional, no regressions vs web mode
    Done when: Desktop app fully functional on target platforms
 
-** TODO [#B] Add CI/CD workflow for desktop builds (optional)
+** WIP [#B] Add CI/CD workflow for desktop builds (optional)
    Why: Automate multi-platform builds for releases
    Change:
    - Extend `.github/workflows/release.yml`:

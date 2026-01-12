@@ -1589,6 +1589,8 @@
      - Start with existing config
      - Multiple app instances (should work independently)
      - Network issues (embedded server always works)
+   Blocked: wails build fails in this environment because the generated
+   wailsbindings binary cannot be executed (permission denied).
    Tests: All features functional, no regressions vs web mode
    Done when: Desktop app fully functional on target platforms
 

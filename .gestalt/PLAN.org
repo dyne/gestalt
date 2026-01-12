@@ -799,7 +799,7 @@
      - Test GetReferences finds all occurrences
    Done when: internal/scip package queries SQLite successfully with tests
 
-** WIP [#B] Implement indexer downloader and language detection
+** DONE [#B] Implement indexer downloader and language detection
    Why: Need to automatically download and run appropriate SCIP indexers
    Change:
    - Create internal/scip/indexers.go:
@@ -916,7 +916,7 @@
      - Test indexing (with real indexer if available)
    Done when: Indexers auto-download and run on detected languages
 
-** TODO [#B] Add REST API endpoints for SCIP queries
+** WIP [#B] Add REST API endpoints for SCIP queries
    Why: Agents need HTTP access to SCIP data
    Change:
    - Create internal/api/scip.go:

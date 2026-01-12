@@ -32,12 +32,12 @@
   }
 
   const handleMenuToggleDevtools = () => {
-    const runtime = typeof window !== 'undefined' ? window.runtime : null
-    if (!runtime || typeof runtime.OpenDevTools !== 'function') {
+    const runtime = typeof window !== 'undefined' ? window.wails : null
+    if (!runtime || !runtime.Window || typeof runtime.Window.OpenDevTools !== 'function') {
       console.info('[desktop] devtools unavailable')
       return
     }
-    runtime.OpenDevTools()
+    runtime.Window.OpenDevTools()
   }
 
   $: activeView =

@@ -4,14 +4,13 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"sync"
 	"time"
 
 	"gestalt/internal/logging"
 	"gestalt/internal/terminal"
 	"gestalt/internal/version"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 type App struct {
@@ -19,9 +18,9 @@ type App struct {
 	serverURL    string
 	manager      *terminal.Manager
 	server       *http.Server
-	shutdown     chan struct{}
-	shutdownOnce sync.Once
 	logger       *logging.Logger
+	app          *application.App
+	window       *application.WebviewWindow
 }
 
 func NewApp(url string, manager *terminal.Manager, server *http.Server, logger *logging.Logger) *App {
@@ -29,17 +28,29 @@ func NewApp(url string, manager *terminal.Manager, server *http.Server, logger *
 		serverURL: url,
 		manager:   manager,
 		server:    server,
-		shutdown:  make(chan struct{}),
 		logger:    logger,
 	}
 }
 
-func (a *App) Startup(ctx context.Context) {
-	a.ctx = ctx
-	runtime.WindowCenter(ctx)
+func (a *App) AttachRuntime(app *application.App, window *application.WebviewWindow) {
+	if a == nil {
+		return
+	}
+	a.app = app
+	a.window = window
 }
 
-func (a *App) Shutdown(ctx context.Context) {
+func (a *App) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
+	a.ctx = ctx
+	return nil
+}
+
+func (a *App) ServiceShutdown() error {
+	a.Shutdown()
+	return nil
+}
+
+func (a *App) Shutdown() {
 	if a.server != nil {
 		shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -50,15 +61,6 @@ func (a *App) Shutdown(ctx context.Context) {
 		}
 	}
 	a.shutdownSessions()
-	if a.shutdown != nil {
-		a.shutdownOnce.Do(func() {
-			close(a.shutdown)
-		})
-	}
-}
-
-func (a *App) BeforeClose(ctx context.Context) bool {
-	return false
 }
 
 func (a *App) GetServerURL() string {
@@ -70,28 +72,32 @@ func (a *App) GetVersion() string {
 }
 
 func (a *App) OpenExternal(url string) error {
-	runtime.BrowserOpenURL(a.ctx, url)
-	return nil
+	if a == nil || a.app == nil {
+		return errors.New("desktop application not initialized")
+	}
+	return a.app.Browser.OpenURL(url)
 }
 
 func (a *App) SelectDirectory() (string, error) {
-	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "Select Directory",
+	if a == nil || a.app == nil {
+		return "", errors.New("desktop application not initialized")
+	}
+	dialog := a.app.Dialog.OpenFileWithOptions(&application.OpenFileDialogOptions{
+		Title:                "Select Directory",
+		CanChooseDirectories: true,
+		CanChooseFiles:       false,
 	})
+	if a.window != nil {
+		dialog.AttachToWindow(a.window)
+	}
+	return dialog.PromptForSingleSelection()
 }
 
 func (a *App) Quit() {
-	if a.ctx == nil {
+	if a == nil || a.app == nil {
 		return
 	}
-	runtime.Quit(a.ctx)
-}
-
-func (a *App) ShutdownDone() <-chan struct{} {
-	if a == nil {
-		return nil
-	}
-	return a.shutdown
+	a.app.Quit()
 }
 
 func (a *App) shutdownSessions() {

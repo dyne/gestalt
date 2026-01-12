@@ -1,7 +1,6 @@
 package desktop
 
 import (
-	"context"
 	"io"
 	"net/http"
 	"os/exec"
@@ -47,7 +46,7 @@ func TestShutdownClosesSessions(t *testing.T) {
 	}
 
 	app := NewApp("http://127.0.0.1:0", manager, &http.Server{}, nil)
-	app.Shutdown(context.Background())
+	app.Shutdown()
 
 	if sessions := manager.List(); len(sessions) != 0 {
 		t.Fatalf("expected no sessions after shutdown, got %d", len(sessions))

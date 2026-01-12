@@ -25,11 +25,7 @@ import (
 	"gestalt/internal/version"
 	"gestalt/internal/watcher"
 
-	"github.com/wailsapp/wails/v2"
-	"github.com/wailsapp/wails/v2/pkg/options"
-	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
-	"github.com/wailsapp/wails/v2/pkg/options/linux"
-	"github.com/wailsapp/wails/v2/pkg/options/windows"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 const httpServerShutdownTimeout = 5 * time.Second
@@ -255,39 +251,44 @@ func main() {
 	}()
 
 	app := desktop.NewApp(backendURL, manager, backendServer, logger)
-	menuBar := desktop.BuildMenu(app)
-
-	err = wails.Run(&options.App{
-		Title:            "Gestalt",
-		Width:            1400,
-		Height:           900,
-		MinWidth:         800,
-		MinHeight:        600,
-		WindowStartState: options.Normal,
-		Menu:             menuBar,
-		AssetServer: &assetserver.Options{
-			Assets: frontendFS,
+	wailsApp := application.New(application.Options{
+		Name:        "Gestalt",
+		Description: "Multi-terminal AI agent dashboard",
+		Services: []application.Service{
+			application.NewService(app),
 		},
-		OnStartup:     app.Startup,
-		OnShutdown:    app.Shutdown,
-		OnBeforeClose: app.BeforeClose,
-		Bind: []interface{}{
-			app,
+		Assets: application.AssetOptions{
+			Handler: application.AssetFileServerFS(frontendFS),
 		},
-		Linux: &linux.Options{
+		Mac: application.MacOptions{
+			ApplicationShouldTerminateAfterLastWindowClosed: true,
+		},
+		Linux: application.LinuxOptions{
 			ProgramName: "gestalt",
 		},
-		Windows: &windows.Options{
-			WindowClassName: "Gestalt",
+		Windows: application.WindowsOptions{
+			WndClass: "Gestalt",
 		},
 	})
+	mainWindow := wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title:           "Gestalt",
+		Width:           1400,
+		Height:          900,
+		MinWidth:        800,
+		MinHeight:       600,
+		InitialPosition: application.WindowCentered,
+		URL:             "/",
+	})
+	app.AttachRuntime(wailsApp, mainWindow)
+	menuBar := desktop.BuildMenu(app)
+	wailsApp.Menu.Set(menuBar)
+
+	err = wailsApp.Run()
 	if err != nil {
 		logger.Error("wails run failed", map[string]string{
 			"error": err.Error(),
 		})
-		shutdownContext, cancel := context.WithTimeout(context.Background(), httpServerShutdownTimeout)
-		defer cancel()
-		_ = backendServer.Shutdown(shutdownContext)
+		app.Shutdown()
 		os.Exit(1)
 	}
 }

@@ -6,7 +6,6 @@ require (
 	github.com/creack/pty v1.1.21
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/gorilla/websocket v1.5.3
-	github.com/wailsapp/wails/v2 v2.11.0
 	go.temporal.io/api v1.60.0
 	go.temporal.io/sdk v1.38.0
 	google.golang.org/protobuf v1.36.6
@@ -48,28 +47,19 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.2 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.22.0 // indirect
 	github.com/jchv/go-winloader v0.0.0-20210711035445-715c2860da7e // indirect
-	github.com/labstack/echo/v4 v4.13.3 // indirect
-	github.com/labstack/gommon v0.4.2 // indirect
 	github.com/leaanthony/go-ansi-parser v1.6.1 // indirect
-	github.com/leaanthony/gosod v1.0.4 // indirect
-	github.com/leaanthony/slicer v1.6.0 // indirect
 	github.com/leaanthony/u v1.1.1 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/nexus-rpc/sdk-go v0.5.1 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
-	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/robfig/cron v1.2.0 // indirect
 	github.com/samber/lo v1.49.1 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/stretchr/testify v1.10.0 // indirect
-	github.com/tkrajina/go-reflector v0.5.8 // indirect
-	github.com/valyala/bytebufferpool v1.0.0 // indirect
-	github.com/valyala/fasttemplate v1.2.2 // indirect
 	github.com/wailsapp/go-webview2 v1.0.22 // indirect
-	github.com/wailsapp/mimetype v1.4.1 // indirect
 	github.com/wailsapp/wails/v3 v3.0.0-alpha.59
 	golang.org/x/crypto v0.37.0 // indirect
 	golang.org/x/net v0.39.0 // indirect

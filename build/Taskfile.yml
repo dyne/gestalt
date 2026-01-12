@@ -37,6 +37,8 @@ tasks:
             ref: .BUILD_FLAGS
     cmds:
       - npm run build:desktop -q
+      - |
+        node -e "const fs = require('fs'); fs.rmSync('build/bindings', { recursive: true, force: true }); fs.mkdirSync('build/bindings', { recursive: true }); fs.cpSync('bindings', 'build/bindings', { recursive: true });"
 
 
   frontend:vendor:puppertino:
@@ -90,7 +92,7 @@ tasks:
     generates:
       - frontend/bindings/**/*
     cmds:
-      - wails3 generate bindings -f '{{.BUILD_FLAGS}}' -clean=true
+      - wails3 generate bindings -f '{{.BUILD_FLAGS}}' -clean=true ./cmd/gestalt-desktop
 
   generate:icons:
     summary: Generates Windows `.ico` and Mac `.icns` files from an image

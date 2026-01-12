@@ -1,6 +1,5 @@
 const TOKEN_KEY = 'gestalt_token'
-const isWails =
-  typeof window !== 'undefined' && typeof window.runtime !== 'undefined'
+const isWails = typeof window !== 'undefined' && typeof window.wails !== 'undefined'
 
 let cachedServerURL = null
 
@@ -20,7 +19,7 @@ async function getServerURL() {
     cachedServerURL = ''
     return cachedServerURL
   }
-  const modulePath = './wails/go/main/App'
+  const modulePath = '/bindings/gestalt/internal/desktop/app.js'
   const { GetServerURL } = await import(/* @vite-ignore */ modulePath)
   cachedServerURL = await GetServerURL()
   return cachedServerURL

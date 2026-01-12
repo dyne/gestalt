@@ -1,48 +1,53 @@
 package desktop
 
 import (
-	"github.com/wailsapp/wails/v2/pkg/menu"
-	"github.com/wailsapp/wails/v2/pkg/menu/keys"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 const documentationURL = "https://dyne.org/gestalt"
 
-func BuildMenu(app *App) *menu.Menu {
-	menuBar := menu.NewMenu()
+func BuildMenu(app *App) *application.Menu {
+	menuBar := application.NewMenu()
 
 	fileMenu := menuBar.AddSubmenu("File")
-	fileMenu.AddText("New Terminal", keys.CmdOrCtrl("n"), func(_ *menu.CallbackData) {
-		if app == nil {
-			return
-		}
-		app.EmitMenuEvent("gestalt:menu:new-terminal")
-	})
+	fileMenu.Add("New Terminal").
+		SetAccelerator("CmdOrCtrl+N").
+		OnClick(func(_ *application.Context) {
+			if app == nil {
+				return
+			}
+			app.EmitMenuEvent("gestalt:menu:new-terminal")
+		})
 	fileMenu.AddSeparator()
-	fileMenu.AddText("Quit", keys.CmdOrCtrl("q"), func(_ *menu.CallbackData) {
-		if app == nil {
-			return
-		}
-		app.Quit()
-	})
+	fileMenu.Add("Quit").
+		SetAccelerator("CmdOrCtrl+Q").
+		OnClick(func(_ *application.Context) {
+			if app == nil {
+				return
+			}
+			app.Quit()
+		})
 
-	menuBar.Append(menu.EditMenu())
+	menuBar.AddRole(application.EditMenu)
 
 	viewMenu := menuBar.AddSubmenu("View")
-	viewMenu.AddText("Toggle Developer Tools", keys.Combo("i", keys.CmdOrCtrlKey, keys.OptionOrAltKey), func(_ *menu.CallbackData) {
-		if app == nil {
-			return
-		}
-		app.EmitMenuEvent("gestalt:menu:toggle-devtools")
-	})
+	viewMenu.Add("Toggle Developer Tools").
+		SetAccelerator("CmdOrCtrl+OptionOrAlt+I").
+		OnClick(func(_ *application.Context) {
+			if app == nil {
+				return
+			}
+			app.EmitMenuEvent("gestalt:menu:toggle-devtools")
+		})
 
 	helpMenu := menuBar.AddSubmenu("Help")
-	helpMenu.AddText("Documentation", nil, func(_ *menu.CallbackData) {
+	helpMenu.Add("Documentation").OnClick(func(_ *application.Context) {
 		if app == nil {
 			return
 		}
 		_ = app.OpenExternal(documentationURL)
 	})
-	helpMenu.AddText("About Gestalt", nil, func(_ *menu.CallbackData) {
+	helpMenu.Add("About Gestalt").OnClick(func(_ *application.Context) {
 		if app == nil {
 			return
 		}

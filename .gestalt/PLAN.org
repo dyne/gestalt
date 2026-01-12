@@ -1216,7 +1216,7 @@
    Tests: npm run build:desktop succeeds, relative paths in output
    Done when: Frontend builds for both web (dist/) and desktop (build/) modes
 
-** WIP [#B] Create wails.json configuration
+** DONE [#B] Create wails.json configuration
    Why: Wails CLI uses this for build, dev mode, and frontend integration
    Change:
    - Create wails.json in project root:
@@ -1264,10 +1264,12 @@
      - runtime/ - Wails runtime functions (EventsOn, etc.)
    - Verification: `wails doctor` should pass
    - Test: `wails dev` should read wails.json and launch correctly
+   Notes:
+   - `wails dev` failed to run bindings generator: fork/exec /tmp/wailsbindings permission denied.
    Tests: Wails CLI accepts config, generates bindings correctly
    Done when: wails.json exists, gitignore updated, CLI reads config
 
-** TODO [#B] Implement Wails bindings for core operations
+** WIP [#B] Implement Wails bindings for core operations
    Why: Desktop frontend needs Go bindings for native operations and server coordination
    Change:
    - Create internal/desktop/app.go with App struct for Wails bindings

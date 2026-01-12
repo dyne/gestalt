@@ -7,3 +7,6 @@ logs
 !.gestalt/PLAN.org
 config/manifest.json
 internal/version/build_info.json
+# Wails
+frontend/src/lib/wails/
+build/

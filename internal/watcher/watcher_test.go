@@ -52,6 +52,40 @@ func TestWatcherDispatchesWriteEvent(t *testing.T) {
 	}
 }
 
+func TestWatcherDispatchesDirectoryEvent(t *testing.T) {
+	watcher, err := NewWithOptions(Options{WatchDir: true})
+	if err != nil {
+		t.Fatalf("new watcher: %v", err)
+	}
+	defer watcher.Close()
+
+	dir := t.TempDir()
+	events := make(chan Event, 1)
+	handle, err := watcher.Watch(dir, func(event Event) {
+		select {
+		case events <- event:
+		default:
+		}
+	})
+	if err != nil {
+		t.Fatalf("watch dir: %v", err)
+	}
+	defer handle.Close()
+
+	filePath := filepath.Join(dir, "sample.txt")
+	if err := os.WriteFile(filePath, []byte("data"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	event, ok := waitForEvent(events)
+	if !ok {
+		t.Fatal("timed out waiting for directory event")
+	}
+	if event.Path != filePath {
+		t.Fatalf("expected path %q, got %q", filePath, event.Path)
+	}
+}
+
 func TestWatcherDispatchesRemoveEvent(t *testing.T) {
 	watcher, err := New()
 	if err != nil {

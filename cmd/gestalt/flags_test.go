@@ -42,6 +42,9 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.SCIPIndexPath != filepath.Join(".gestalt", "index.db") {
 		t.Fatalf("expected default scip index path, got %q", cfg.SCIPIndexPath)
 	}
+	if cfg.SCIPAutoReindex {
+		t.Fatalf("expected scip auto reindex disabled by default")
+	}
 	if cfg.ConfigBackupLimit != 1 {
 		t.Fatalf("expected config backup limit 1, got %d", cfg.ConfigBackupLimit)
 	}
@@ -83,6 +86,7 @@ func TestLoadConfigEnvOverridesDefaults(t *testing.T) {
 	t.Setenv("GESTALT_TEMPORAL_DEV_SERVER", "true")
 	t.Setenv("GESTALT_CONFIG_DIR", "/tmp/gestalt-config")
 	t.Setenv("GESTALT_SCIP_INDEX_PATH", "/tmp/gestalt-index.db")
+	t.Setenv("GESTALT_SCIP_AUTO_REINDEX", "true")
 	t.Setenv("GESTALT_CONFIG_BACKUP_LIMIT", "2")
 	t.Setenv("GESTALT_DEV_MODE", "true")
 
@@ -125,6 +129,9 @@ func TestLoadConfigEnvOverridesDefaults(t *testing.T) {
 	}
 	if cfg.SCIPIndexPath != "/tmp/gestalt-index.db" {
 		t.Fatalf("expected scip index path /tmp/gestalt-index.db, got %q", cfg.SCIPIndexPath)
+	}
+	if !cfg.SCIPAutoReindex {
+		t.Fatalf("expected scip auto reindex enabled")
 	}
 	if cfg.ConfigBackupLimit != 2 {
 		t.Fatalf("expected config backup limit 2, got %d", cfg.ConfigBackupLimit)

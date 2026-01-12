@@ -19,6 +19,8 @@ var (
 	mergeIndexes    = scip.MergeIndexes
 	convertToSQLite = scip.ConvertToSQLite
 	openIndex       = scip.OpenIndex
+	buildMetadata   = scip.BuildMetadata
+	saveMetadata    = scip.SaveMetadata
 )
 
 func indexCommand() {
@@ -102,6 +104,7 @@ func runIndexCommand(args []string, out io.Writer, errOut io.Writer) int {
 	}
 
 	var scipIndexes []string
+	var indexedLanguages []string
 	for _, lang := range supported {
 		fmt.Fprintf(out, "Indexing %s code...\n", lang)
 		scipOut := filepath.Join(repoPath, fmt.Sprintf("index-%s.scip", lang))
@@ -110,6 +113,7 @@ func runIndexCommand(args []string, out io.Writer, errOut io.Writer) int {
 			continue
 		}
 		scipIndexes = append(scipIndexes, scipOut)
+		indexedLanguages = append(indexedLanguages, lang)
 	}
 	if len(scipIndexes) == 0 {
 		fmt.Fprintln(errOut, "No indexes were generated.")
@@ -137,6 +141,17 @@ func runIndexCommand(args []string, out io.Writer, errOut io.Writer) int {
 	if err := convertToSQLite(finalScip, *output); err != nil {
 		fmt.Fprintf(errOut, "Error converting to SQLite: %v\n", err)
 		return 1
+	}
+
+	projectRoot := repoPath
+	if absRoot, err := filepath.Abs(repoPath); err == nil {
+		projectRoot = absRoot
+	}
+	meta, err := buildMetadata(projectRoot, indexedLanguages)
+	if err != nil {
+		fmt.Fprintf(errOut, "Warning: Failed to build index metadata: %v\n", err)
+	} else if err := saveMetadata(*output, meta); err != nil {
+		fmt.Fprintf(errOut, "Warning: Failed to save index metadata: %v\n", err)
 	}
 
 	index, err := openIndex(*output)

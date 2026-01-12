@@ -23,6 +23,7 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	t.Setenv("GESTALT_INPUT_HISTORY_PERSIST", "true")
 	t.Setenv("GESTALT_INPUT_HISTORY_DIR", "/tmp/gestalt-input")
 	t.Setenv("GESTALT_SCIP_INDEX_PATH", "/tmp/gestalt-index.db")
+	t.Setenv("GESTALT_SCIP_AUTO_REINDEX", "true")
 
 	cfg, err := loadConfig(nil)
 	if err != nil {
@@ -61,6 +62,9 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	if cfg.SCIPIndexPath != "/tmp/gestalt-index.db" {
 		t.Fatalf("expected scip index path /tmp/gestalt-index.db, got %q", cfg.SCIPIndexPath)
 	}
+	if !cfg.SCIPAutoReindex {
+		t.Fatalf("expected scip auto reindex true")
+	}
 }
 
 func TestLoadConfigDefaultsOnInvalidPort(t *testing.T) {
@@ -86,6 +90,9 @@ func TestLoadConfigDefaultsOnInvalidPort(t *testing.T) {
 	}
 	if cfg.SCIPIndexPath != filepath.Join(".gestalt", "index.db") {
 		t.Fatalf("expected default scip index path, got %q", cfg.SCIPIndexPath)
+	}
+	if cfg.SCIPAutoReindex {
+		t.Fatalf("expected scip auto reindex false by default")
 	}
 }
 

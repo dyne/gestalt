@@ -46,6 +46,7 @@ type Config struct {
 	Shell                string
 	AuthToken            string
 	SCIPIndexPath        string
+	SCIPAutoReindex      bool
 	TemporalHost         string
 	TemporalNamespace    string
 	TemporalEnabled      bool
@@ -88,6 +89,7 @@ type configDefaults struct {
 	Shell                string
 	AuthToken            string
 	SCIPIndexPath        string
+	SCIPAutoReindex      bool
 	TemporalHost         string
 	TemporalNamespace    string
 	TemporalEnabled      bool
@@ -287,6 +289,7 @@ func main() {
 	fsWatcher, err := watcher.NewWithOptions(watcher.Options{
 		Logger:     logger,
 		MaxWatches: cfg.MaxWatches,
+		WatchDir:   cfg.SCIPAutoReindex,
 	})
 	if err != nil && logger != nil {
 		logger.Warn("filesystem watcher unavailable", map[string]string{
@@ -310,6 +313,14 @@ func main() {
 					"error": err.Error(),
 				})
 			}
+			if cfg.SCIPAutoReindex {
+				if _, err := watcher.WatchFile(eventBus, fsWatcher, workDir); err != nil && logger != nil {
+					logger.Warn("scip watcher unavailable", map[string]string{
+						"path":  workDir,
+						"error": err.Error(),
+					})
+				}
+			}
 		} else if logger != nil {
 			logger.Warn("git watcher unavailable", map[string]string{
 				"error": err.Error(),
@@ -330,7 +341,7 @@ func main() {
 	backendMux := http.NewServeMux()
 	api.RegisterRoutes(backendMux, manager, cfg.AuthToken, api.StatusConfig{
 		TemporalUIPort: cfg.TemporalUIPort,
-	}, cfg.SCIPIndexPath, "", nil, logger, eventBus)
+	}, cfg.SCIPIndexPath, cfg.SCIPAutoReindex, "", nil, logger, eventBus)
 	backendListener, backendPort, err := listenOnPort(cfg.BackendPort)
 	if err != nil {
 		logger.Error("backend listen failed", map[string]string{
@@ -671,6 +682,17 @@ func loadConfig(args []string) (Config, error) {
 	cfg.SCIPIndexPath = scipIndexPath
 	cfg.Sources["scip-index-path"] = scipIndexPathSource
 
+	scipAutoReindex := defaults.SCIPAutoReindex
+	scipAutoReindexSource := sourceDefault
+	if rawAutoReindex := strings.TrimSpace(os.Getenv("GESTALT_SCIP_AUTO_REINDEX")); rawAutoReindex != "" {
+		if parsed, err := strconv.ParseBool(rawAutoReindex); err == nil {
+			scipAutoReindex = parsed
+			scipAutoReindexSource = sourceEnv
+		}
+	}
+	cfg.SCIPAutoReindex = scipAutoReindex
+	cfg.Sources["scip-auto-reindex"] = scipAutoReindexSource
+
 	temporalHost := defaults.TemporalHost
 	temporalHostSource := sourceDefault
 	if rawHost := strings.TrimSpace(os.Getenv("GESTALT_TEMPORAL_HOST")); rawHost != "" {
@@ -941,6 +963,7 @@ func defaultConfigValues() configDefaults {
 		Shell:                terminal.DefaultShell(),
 		AuthToken:            "",
 		SCIPIndexPath:        filepath.Join(".gestalt", "index.db"),
+		SCIPAutoReindex:      false,
 		TemporalHost:         temporalDefaultHost,
 		TemporalNamespace:    "default",
 		TemporalEnabled:      true,

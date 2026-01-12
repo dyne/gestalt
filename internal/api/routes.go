@@ -15,7 +15,7 @@ type StatusConfig struct {
 	TemporalUIPort int
 }
 
-func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken string, statusConfig StatusConfig, scipIndexPath string, staticDir string, frontendFS fs.FS, logger *logging.Logger, eventBus *event.Bus[watcher.Event]) {
+func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken string, statusConfig StatusConfig, scipIndexPath string, scipAutoReindex bool, staticDir string, frontendFS fs.FS, logger *logging.Logger, eventBus *event.Bus[watcher.Event]) {
 	// Git info is read once on boot to avoid polling; refresh can be added later.
 	gitOrigin, gitBranch := loadGitInfo()
 	planPath := plan.DefaultPath()
@@ -104,7 +104,11 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 	mux.Handle("/api/plan/current", loggingMiddleware(logger, jsonErrorMiddleware(rest.handlePlanCurrent)))
 
 	if scipIndexPath != "" {
-		scipHandler, err := NewSCIPHandler(scipIndexPath, logger)
+		scipHandler, err := NewSCIPHandler(scipIndexPath, logger, SCIPHandlerOptions{
+			AutoReindex:        scipAutoReindex,
+			AutoReindexOnStart: scipAutoReindex,
+			EventBus:           eventBus,
+		})
 		if err != nil {
 			if logger != nil {
 				logger.Warn("scip handler unavailable", map[string]string{
@@ -112,6 +116,7 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 				})
 			}
 		} else {
+			mux.Handle("/api/scip/status", loggingMiddleware(logger, restHandler(authToken, scipHandler.Status)))
 			mux.Handle("/api/scip/symbols", loggingMiddleware(logger, restHandler(authToken, scipHandler.FindSymbols)))
 			mux.Handle("/api/scip/symbols/", loggingMiddleware(logger, restHandler(authToken, scipHandler.HandleSymbol)))
 			mux.Handle("/api/scip/files/", loggingMiddleware(logger, restHandler(authToken, scipHandler.GetFileSymbols)))

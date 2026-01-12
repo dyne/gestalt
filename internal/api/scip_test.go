@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -161,11 +162,78 @@ func TestSCIPReIndex(t *testing.T) {
 	}
 }
 
+func TestSCIPStatus(t *testing.T) {
+	projectDir := t.TempDir()
+	sourcePath := filepath.Join(projectDir, "main.go")
+	if err := os.WriteFile(sourcePath, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	indexPath := filepath.Join(projectDir, "index.db")
+	if err := buildTestSCIPDB(indexPath); err != nil {
+		t.Fatalf("build test db: %v", err)
+	}
+	meta, err := scip.BuildMetadata(projectDir, []string{"go"})
+	if err != nil {
+		t.Fatalf("BuildMetadata failed: %v", err)
+	}
+	if err := scip.SaveMetadata(indexPath, meta); err != nil {
+		t.Fatalf("SaveMetadata failed: %v", err)
+	}
+
+	handler, err := NewSCIPHandler(indexPath, nil, SCIPHandlerOptions{ProjectRoot: projectDir})
+	if err != nil {
+		t.Fatalf("NewSCIPHandler failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/scip/status", nil)
+	res := httptest.NewRecorder()
+	restHandler("", handler.Status)(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", res.Code)
+	}
+
+	var payload scipStatusResponse
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !payload.Indexed {
+		t.Fatalf("expected indexed true")
+	}
+	if !payload.Fresh {
+		t.Fatalf("expected fresh true")
+	}
+	if payload.Documents != 1 {
+		t.Fatalf("expected documents 1, got %d", payload.Documents)
+	}
+	if payload.CreatedAt == "" {
+		t.Fatalf("expected created_at to be set")
+	}
+
+	if err := os.WriteFile(sourcePath, []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatalf("rewrite source: %v", err)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/scip/status", nil)
+	res = httptest.NewRecorder()
+	restHandler("", handler.Status)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", res.Code)
+	}
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Fresh {
+		t.Fatalf("expected fresh false after change")
+	}
+}
+
 func newTestSCIPHandler(t *testing.T) *SCIPHandler {
 	t.Helper()
 
 	path := createTestSCIPDB(t)
-	handler, err := NewSCIPHandler(path, nil)
+	handler, err := NewSCIPHandler(path, nil, SCIPHandlerOptions{})
 	if err != nil {
 		t.Fatalf("NewSCIPHandler failed: %v", err)
 	}

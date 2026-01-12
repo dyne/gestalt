@@ -9,6 +9,34 @@ servers:
   - url: http://localhost:8080
 
 paths:
+  /api/scip/status:
+    get:
+      summary: Index status
+      description: Report SCIP index availability and freshness.
+      responses:
+        "200":
+          description: Index status.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  indexed:
+                    type: boolean
+                  fresh:
+                    type: boolean
+                  created_at:
+                    type: string
+                  documents:
+                    type: integer
+                  symbols:
+                    type: integer
+                  age_hours:
+                    type: integer
+        "401":
+          description: Unauthorized.
+        "429":
+          description: Rate limited.
   /api/scip/symbols:
     get:
       summary: Search symbols

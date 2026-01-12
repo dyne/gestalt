@@ -14,9 +14,11 @@ import (
 	"sync"
 	"time"
 
+	"gestalt/internal/event"
 	"gestalt/internal/logging"
 	"gestalt/internal/metrics"
 	"gestalt/internal/scip"
+	"gestalt/internal/watcher"
 
 	"golang.org/x/time/rate"
 )
@@ -25,15 +27,28 @@ const (
 	scipDefaultLimit     = 20
 	scipCacheTTL         = 30 * time.Second
 	scipCacheMaxEntries  = 256
+	scipAutoReindexAge   = 24 * time.Hour
+	scipReindexDebounce  = 2 * time.Minute
 	scipQueryFindSymbols = "find_symbols"
 	scipQueryGetSymbol   = "get_symbol"
 	scipQueryReferences  = "get_references"
 	scipQueryFileSymbols = "file_symbols"
 )
 
+type SCIPHandlerOptions struct {
+	ProjectRoot        string
+	AutoReindex        bool
+	AutoReindexMaxAge  time.Duration
+	WatchDebounce      time.Duration
+	EventBus           *event.Bus[watcher.Event]
+	AutoReindexOnStart bool
+}
+
 type SCIPHandler struct {
-	indexPath string
-	logger    *logging.Logger
+	indexPath   string
+	logger      *logging.Logger
+	projectRoot string
+	indexErr    error
 
 	indexMu sync.RWMutex
 	index   *scip.Index
@@ -47,32 +62,83 @@ type SCIPHandler struct {
 	runIndexer  func(string, string, string) error
 	convert     func(string, string) error
 	openIndex   func(string) (*scip.Index, error)
+
+	autoReindex       bool
+	autoReindexMaxAge time.Duration
+	watchDebounce     time.Duration
+	watchMu           sync.Mutex
+	watchTimer        *time.Timer
+	enqueueReindex    func(string)
 }
 
-func NewSCIPHandler(indexPath string, logger *logging.Logger) (*SCIPHandler, error) {
+type scipStatusResponse struct {
+	Indexed   bool   `json:"indexed"`
+	Fresh     bool   `json:"fresh"`
+	CreatedAt string `json:"created_at,omitempty"`
+	Documents int    `json:"documents"`
+	Symbols   int    `json:"symbols"`
+	AgeHours  int    `json:"age_hours"`
+}
+
+func NewSCIPHandler(indexPath string, logger *logging.Logger, options SCIPHandlerOptions) (*SCIPHandler, error) {
 	if strings.TrimSpace(indexPath) == "" {
 		return nil, fmt.Errorf("scip index path is required")
 	}
-	if _, err := os.Stat(indexPath); err != nil {
-		return nil, fmt.Errorf("scip index not available: %w", err)
+
+	projectRoot := strings.TrimSpace(options.ProjectRoot)
+	if projectRoot == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			projectRoot = cwd
+		}
+	}
+	if absRoot, err := filepath.Abs(projectRoot); err == nil {
+		projectRoot = absRoot
 	}
 
-	index, err := scip.OpenIndex(indexPath)
-	if err != nil {
-		return nil, err
+	handler := &SCIPHandler{
+		indexPath:         indexPath,
+		logger:            logger,
+		projectRoot:       projectRoot,
+		cache:             newQueryCache(scipCacheTTL),
+		rateLimiter:       rate.NewLimiter(rate.Limit(20), 40),
+		detectLangs:       scip.DetectLanguages,
+		runIndexer:        scip.RunIndexer,
+		convert:           scip.ConvertToSQLite,
+		openIndex:         scip.OpenIndex,
+		autoReindex:       options.AutoReindex,
+		autoReindexMaxAge: options.AutoReindexMaxAge,
+		watchDebounce:     options.WatchDebounce,
+	}
+	handler.enqueueReindex = handler.queueReindex
+
+	if handler.autoReindexMaxAge <= 0 {
+		handler.autoReindexMaxAge = scipAutoReindexAge
+	}
+	if handler.watchDebounce <= 0 {
+		handler.watchDebounce = scipReindexDebounce
 	}
 
-	return &SCIPHandler{
-		indexPath:   indexPath,
-		logger:      logger,
-		index:       index,
-		cache:       newQueryCache(scipCacheTTL),
-		rateLimiter: rate.NewLimiter(rate.Limit(20), 40),
-		detectLangs: scip.DetectLanguages,
-		runIndexer:  scip.RunIndexer,
-		convert:     scip.ConvertToSQLite,
-		openIndex:   scip.OpenIndex,
-	}, nil
+	if _, err := os.Stat(indexPath); err == nil {
+		index, err := scip.OpenIndex(indexPath)
+		if err != nil {
+			handler.indexErr = err
+		} else {
+			handler.index = index
+		}
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		handler.indexErr = err
+	}
+
+	handler.logIndexStatus()
+
+	if handler.autoReindex && options.AutoReindexOnStart {
+		handler.maybeAutoReindex()
+	}
+	if handler.autoReindex && options.EventBus != nil {
+		handler.watchFileEvents(options.EventBus)
+	}
+
+	return handler, nil
 }
 
 // GET /api/scip/symbols?q=FindUser&limit=10
@@ -295,6 +361,23 @@ func (h *SCIPHandler) ReIndex(w http.ResponseWriter, r *http.Request) *apiError 
 	return nil
 }
 
+// GET /api/scip/status
+func (h *SCIPHandler) Status(w http.ResponseWriter, r *http.Request) *apiError {
+	if r.Method != http.MethodGet {
+		return methodNotAllowed(w, http.MethodGet)
+	}
+	if err := h.allowRequest(); err != nil {
+		return err
+	}
+
+	status, err := h.buildStatus()
+	if err != nil {
+		return &apiError{Status: http.StatusInternalServerError, Message: err.Error()}
+	}
+	writeJSON(w, http.StatusOK, status)
+	return nil
+}
+
 func (h *SCIPHandler) runReindex(path string) {
 	defer h.endReindex()
 
@@ -319,6 +402,12 @@ func (h *SCIPHandler) runReindex(path string) {
 	if err := h.convert(scipPath, h.indexPath); err != nil {
 		h.logWarn("scip index conversion failed", err)
 		return
+	}
+	meta, err := scip.BuildMetadata(path, langs)
+	if err != nil {
+		h.logWarn("scip metadata build failed", err)
+	} else if err := scip.SaveMetadata(h.indexPath, meta); err != nil {
+		h.logWarn("scip metadata write failed", err)
 	}
 	index, err := h.openIndex(h.indexPath)
 	if err != nil {
@@ -347,6 +436,129 @@ func (h *SCIPHandler) withIndex() (*scip.Index, *apiError) {
 
 func (h *SCIPHandler) recordQuery(queryType string, start time.Time, cacheHit bool) {
 	metrics.Default.RecordSCIPQuery(queryType, time.Since(start), cacheHit)
+}
+
+func (h *SCIPHandler) buildStatus() (scipStatusResponse, error) {
+	indexed := fileExists(h.indexPath)
+	status := scipStatusResponse{
+		Indexed: indexed,
+	}
+
+	var createdAt time.Time
+	meta, metaErr := scip.LoadMetadata(h.indexPath)
+	if metaErr == nil && !meta.CreatedAt.IsZero() {
+		createdAt = meta.CreatedAt
+		if fresh, err := scip.IsFresh(meta); err == nil {
+			status.Fresh = fresh
+		}
+	} else if indexed {
+		if info, err := os.Stat(h.indexPath); err == nil {
+			createdAt = info.ModTime().UTC()
+		}
+	}
+
+	if !createdAt.IsZero() {
+		status.CreatedAt = createdAt.UTC().Format(time.RFC3339)
+		age := time.Since(createdAt)
+		if age > 0 {
+			status.AgeHours = int(age.Hours())
+		}
+	}
+
+	h.indexMu.RLock()
+	index := h.index
+	h.indexMu.RUnlock()
+	if index != nil {
+		stats, err := index.GetStats()
+		if err != nil {
+			return status, err
+		}
+		status.Documents = stats.Documents
+		status.Symbols = stats.Symbols
+	}
+
+	if !indexed {
+		status.Fresh = false
+	}
+
+	return status, nil
+}
+
+func (h *SCIPHandler) maybeAutoReindex() {
+	if !h.autoReindex || strings.TrimSpace(h.projectRoot) == "" {
+		return
+	}
+	status, err := h.buildStatus()
+	if err != nil {
+		h.logWarn("scip status check failed", err)
+		return
+	}
+	if !status.Indexed {
+		return
+	}
+	stale := !status.Fresh
+	if h.autoReindexMaxAge > 0 && status.AgeHours > 0 {
+		if time.Duration(status.AgeHours)*time.Hour >= h.autoReindexMaxAge {
+			stale = true
+		}
+	}
+	if !stale {
+		return
+	}
+	h.enqueueReindex(h.projectRoot)
+}
+
+func (h *SCIPHandler) watchFileEvents(bus *event.Bus[watcher.Event]) {
+	events, _ := bus.SubscribeFiltered(func(evt watcher.Event) bool {
+		return evt.Type == watcher.EventTypeFileChanged
+	})
+	go func() {
+		for evt := range events {
+			if !h.shouldReindexForPath(evt.Path) {
+				continue
+			}
+			h.scheduleReindex(h.projectRoot)
+		}
+	}()
+}
+
+func (h *SCIPHandler) scheduleReindex(path string) {
+	h.watchMu.Lock()
+	defer h.watchMu.Unlock()
+	if h.watchTimer == nil {
+		h.watchTimer = time.AfterFunc(h.watchDebounce, func() {
+			h.enqueueReindex(path)
+		})
+		return
+	}
+	h.watchTimer.Reset(h.watchDebounce)
+}
+
+func (h *SCIPHandler) queueReindex(path string) {
+	if !h.beginReindex() {
+		return
+	}
+	go h.runReindex(path)
+}
+
+func (h *SCIPHandler) shouldReindexForPath(path string) bool {
+	if strings.TrimSpace(path) == "" || strings.TrimSpace(h.projectRoot) == "" {
+		return false
+	}
+	absPath := path
+	if !filepath.IsAbs(absPath) {
+		if abs, err := filepath.Abs(absPath); err == nil {
+			absPath = abs
+		}
+	}
+	root := h.projectRoot
+	if !strings.HasPrefix(absPath, root) {
+		return false
+	}
+	if len(absPath) > len(root) && absPath[len(root)] != os.PathSeparator {
+		return false
+	}
+	return scip.IsSupportedSourcePath(absPath)
 }
 
 func (h *SCIPHandler) allowRequest() *apiError {
@@ -381,6 +593,37 @@ func (h *SCIPHandler) logWarn(message string, err error) {
 		fields["error"] = err.Error()
 	}
 	h.logger.Warn(message, fields)
+}
+
+func (h *SCIPHandler) logIndexStatus() {
+	if h.logger == nil {
+		return
+	}
+	status, err := h.buildStatus()
+	if err != nil {
+		h.logger.Warn("scip status unavailable", map[string]string{
+			"error": err.Error(),
+		})
+		return
+	}
+	if !status.Indexed {
+		h.logger.Warn("scip index missing", nil)
+		return
+	}
+	fields := map[string]string{
+		"documents": strconv.Itoa(status.Documents),
+		"symbols":   strconv.Itoa(status.Symbols),
+	}
+	if status.CreatedAt != "" {
+		fields["created_at"] = status.CreatedAt
+	}
+	if status.AgeHours > 0 {
+		fields["age_hours"] = strconv.Itoa(status.AgeHours)
+	}
+	h.logger.Info("scip index loaded", fields)
+	if !status.Fresh {
+		h.logger.Warn("scip index is stale, consider re-indexing", fields)
+	}
 }
 
 func parseLimit(r *http.Request, fallback int) (int, *apiError) {
@@ -561,4 +804,9 @@ func cloneOccurrences(occurrences []scip.Occurrence) []scip.Occurrence {
 	cloned := make([]scip.Occurrence, len(occurrences))
 	copy(cloned, occurrences)
 	return cloned
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }

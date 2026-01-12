@@ -2,7 +2,10 @@ package watcher
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -29,6 +32,7 @@ type debounceEntry struct {
 type callbackEntry struct {
 	id       uint64
 	callback func(Event)
+	isDir    bool
 }
 
 type watchHandle struct {
@@ -114,6 +118,11 @@ func (watcher *Watcher) Watch(path string, callback func(Event)) (Handle, error)
 		return nil, errors.New("callback is required")
 	}
 
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+
 	watcher.mutex.Lock()
 	if watcher.closed {
 		watcher.mutex.Unlock()
@@ -126,7 +135,7 @@ func (watcher *Watcher) Watch(path string, callback func(Event)) (Handle, error)
 		return nil, ErrMaxWatchesExceeded
 	}
 	watcher.nextID++
-	entry := callbackEntry{callback: callback, id: watcher.nextID}
+	entry := callbackEntry{callback: callback, id: watcher.nextID, isDir: info.IsDir()}
 	watcher.callbacks[path] = append(watcher.callbacks[path], entry)
 	if needsAdd {
 		watcher.activeWatches++
@@ -228,7 +237,19 @@ func (watcher *Watcher) handleEvent(event fsnotify.Event) {
 		watcher.mutex.Unlock()
 		return
 	}
-	if watcher.callbacks[event.Name] == nil {
+	callbacks := watcher.callbacks[event.Name]
+	if len(callbacks) == 0 && watcher.watchDirRecursive {
+		for path, entries := range watcher.callbacks {
+			if !hasDirWatch(entries) {
+				continue
+			}
+			if !isWithinPath(path, event.Name) {
+				continue
+			}
+			callbacks = append(callbacks, entries...)
+		}
+	}
+	if len(callbacks) == 0 {
 		watcher.mutex.Unlock()
 		return
 	}
@@ -268,9 +289,21 @@ func (watcher *Watcher) flush(path string) {
 	}
 	delete(watcher.debounce, path)
 	event = entry.event
-	if watcher.callbacks[path] != nil {
-		for _, entry := range watcher.callbacks[path] {
+	if entries := watcher.callbacks[path]; len(entries) > 0 {
+		for _, entry := range entries {
 			callbacks = append(callbacks, entry.callback)
+		}
+	} else if watcher.watchDirRecursive {
+		for watchPath, entries := range watcher.callbacks {
+			if !hasDirWatch(entries) {
+				continue
+			}
+			if !isWithinPath(watchPath, path) {
+				continue
+			}
+			for _, entry := range entries {
+				callbacks = append(callbacks, entry.callback)
+			}
 		}
 	}
 	watcher.mutex.Unlock()
@@ -454,6 +487,31 @@ func (watcher *Watcher) dropCallback(path string, id uint64) {
 		}
 	}
 	watcher.mutex.Unlock()
+}
+
+func hasDirWatch(entries []callbackEntry) bool {
+	for _, entry := range entries {
+		if entry.isDir {
+			return true
+		}
+	}
+	return false
+}
+
+func isWithinPath(parent, child string) bool {
+	parentPath := filepath.Clean(parent)
+	childPath := filepath.Clean(child)
+	rel, err := filepath.Rel(parentPath, childPath)
+	if err != nil {
+		return false
+	}
+	if rel == "." {
+		return true
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return false
+	}
+	return true
 }
 
 func (watcher *Watcher) logWarn(message string, fields map[string]string) {

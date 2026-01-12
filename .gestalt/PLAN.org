@@ -1438,6 +1438,19 @@
      - API test: recent metadata returns warning without force
    Done when: Recent indexes are skipped with a clear warning unless forced
 
+** DONE [#B] Use system curl/wget for indexer downloads
+   Why: Current Go download code appears unreliable; use system tools instead.
+   Change:
+   - Replace indexer download implementation with exec of `curl` or `wget`
+     - Prefer `curl` when available, otherwise fallback to `wget`
+     - Ensure exit codes/errors are surfaced with useful messages
+     - Preserve existing cache paths and file permissions
+   - Keep URL logic unchanged (still using release asset URLs)
+   Tests:
+     - Unit test: downloader selects curl/wget appropriately
+     - Unit test: download failure returns error
+   Done when: Indexer downloads succeed via system tooling with coverage
+
 ** TODO [#C] Consider MCP server adapter (future work)
    Why: May want to expose SCIP to external tools via MCP
    Change: Document design for future implementation

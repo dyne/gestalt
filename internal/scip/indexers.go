@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -288,16 +287,33 @@ func downloadBinary(url, destination string) error {
 		return copyToDestination(source, destination)
 	}
 
-	resp, err := http.Get(url)
+	tempPath := destination + ".tmp"
+	downloader, args, err := buildDownloadCommand(url, tempPath)
 	if err != nil {
+		return err
+	}
+	cmd := exec.Command(downloader, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		_ = os.Remove(tempPath)
+		message := strings.TrimSpace(string(output))
+		if message != "" {
+			return fmt.Errorf("download indexer: %w: %s", err, message)
+		}
 		return fmt.Errorf("download indexer: %w", err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("download indexer: unexpected status %d", resp.StatusCode)
-	}
 
-	return copyToDestination(resp.Body, destination)
+	return finalizeDownloadedBinary(tempPath, destination)
+}
+
+func buildDownloadCommand(url, destination string) (string, []string, error) {
+	if path, err := exec.LookPath("curl"); err == nil {
+		return path, []string{"-fL", "-o", destination, url}, nil
+	}
+	if path, err := exec.LookPath("wget"); err == nil {
+		return path, []string{"-O", destination, url}, nil
+	}
+	return "", nil, fmt.Errorf("download indexer: curl or wget is required")
 }
 
 func copyToDestination(source io.Reader, destination string) error {
@@ -317,6 +333,10 @@ func copyToDestination(source io.Reader, destination string) error {
 		return fmt.Errorf("close indexer: %w", err)
 	}
 
+	return finalizeDownloadedBinary(tempPath, destination)
+}
+
+func finalizeDownloadedBinary(tempPath, destination string) error {
 	if runtime.GOOS != "windows" {
 		if err := os.Chmod(tempPath, 0o755); err != nil {
 			_ = os.Remove(tempPath)

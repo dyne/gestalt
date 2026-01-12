@@ -70,6 +70,18 @@ If your project has a `.gestalt/PLAN.org`, Gestalt will watch it for changes. If
 exists in the repo root and `.gestalt/PLAN.org` is missing, Gestalt copies it into `.gestalt/PLAN.org`
 on startup.
 
+## Code Indexing
+
+Gestalt can index your codebase for code-aware agent queries:
+
+```
+gestalt index
+```
+
+This generates `index.db` in the current directory.
+
+Supported languages: Go, TypeScript, Python, Java.
+
 ### Authentication (GESTALT_TOKEN)
 
 `GESTALT_TOKEN` is an optional shared secret that protects the Gestalt HTTP API.

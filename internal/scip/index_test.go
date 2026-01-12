@@ -122,6 +122,29 @@ func TestGetSymbolsInFile(t *testing.T) {
 	}
 }
 
+func TestGetStats(t *testing.T) {
+	path := createTestDB(t)
+	index, err := OpenIndex(path)
+	if err != nil {
+		t.Fatalf("OpenIndex failed: %v", err)
+	}
+	defer index.Close()
+
+	stats, err := index.GetStats()
+	if err != nil {
+		t.Fatalf("GetStats failed: %v", err)
+	}
+	if stats.Documents != 2 {
+		t.Fatalf("unexpected documents count: %d", stats.Documents)
+	}
+	if stats.Symbols != 2 {
+		t.Fatalf("unexpected symbols count: %d", stats.Symbols)
+	}
+	if stats.Occurrences != 3 {
+		t.Fatalf("unexpected occurrences count: %d", stats.Occurrences)
+	}
+}
+
 func createTestDB(t *testing.T) string {
 	t.Helper()
 

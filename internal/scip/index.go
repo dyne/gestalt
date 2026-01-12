@@ -67,6 +67,13 @@ type Occurrence struct {
 	Role     string `json:"role"`
 }
 
+// IndexStats represents basic counts from an index.
+type IndexStats struct {
+	Documents   int `json:"documents"`
+	Symbols     int `json:"symbols"`
+	Occurrences int `json:"occurrences"`
+}
+
 // FindSymbols searches for symbols by name (fuzzy match).
 func (idx *Index) FindSymbols(query string, limit int) ([]Symbol, error) {
 	trimmed := strings.TrimSpace(query)
@@ -320,6 +327,28 @@ func (idx *Index) GetSymbolsInFile(filePath string) ([]Symbol, error) {
 		return nil, err
 	}
 	return results, nil
+}
+
+// GetStats retrieves basic counts from the index.
+func (idx *Index) GetStats() (IndexStats, error) {
+	var stats IndexStats
+
+	docRow := idx.db.QueryRow(`SELECT COUNT(*) FROM documents`)
+	if err := docRow.Scan(&stats.Documents); err != nil {
+		return IndexStats{}, err
+	}
+
+	symbolRow := idx.db.QueryRow(`SELECT COUNT(*) FROM global_symbols`)
+	if err := symbolRow.Scan(&stats.Symbols); err != nil {
+		return IndexStats{}, err
+	}
+
+	occurrenceRow := idx.db.QueryRow(`SELECT COUNT(*) FROM mentions`)
+	if err := occurrenceRow.Scan(&stats.Occurrences); err != nil {
+		return IndexStats{}, err
+	}
+
+	return stats, nil
 }
 
 // GetTypeInfo retrieves type information for a symbol.

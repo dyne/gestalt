@@ -137,6 +137,10 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "completion" {
 		os.Exit(runCompletion(os.Args[2:], os.Stdout, os.Stderr))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "index" {
+		indexCommand()
+		return
+	}
 	if hasFlag(os.Args[1:], "--extract-config") {
 		os.Exit(runExtractConfig())
 	}

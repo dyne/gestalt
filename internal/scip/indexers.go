@@ -1,11 +1,15 @@
 package scip
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -67,7 +71,9 @@ func DownloadIndexer(lang string) error {
 	if err != nil {
 		return err
 	}
-
+	if err := validateAssetVersion(indexer, url); err != nil {
+		return err
+	}
 	if err := downloadBinary(url, indexerPath); err != nil {
 		return err
 	}
@@ -185,7 +191,11 @@ func indexerURL(indexer Indexer) (string, error) {
 		return indexer.URL, nil
 	}
 	if indexer.URLTemplate != "" {
-		return fmt.Sprintf(indexer.URLTemplate, platformSuffix(indexer)), nil
+		asset, err := indexerAssetName(indexer)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf(indexer.URLTemplate, indexer.Version, asset), nil
 	}
 	if indexer.Version == "" {
 		return "", fmt.Errorf("indexer %s has no version", indexer.Name)
@@ -202,14 +212,10 @@ func platformSuffix(indexer Indexer) string {
 }
 
 func indexerAssetName(indexer Indexer) (string, error) {
-	exe := ""
-	if runtime.GOOS == "windows" {
-		exe = ".exe"
-	}
-
 	switch indexer.Name {
 	case "scip-go":
-		return fmt.Sprintf("scip-go-%s-%s%s", runtime.GOOS, runtime.GOARCH, exe), nil
+		version := normalizedVersion(indexer.Version)
+		return fmt.Sprintf("scip-go_%s_%s_%s.tar.gz", version, runtime.GOOS, runtime.GOARCH), nil
 	case "scip-typescript":
 		osName, err := nodeOSName(runtime.GOOS)
 		if err != nil {
@@ -219,7 +225,8 @@ func indexerAssetName(indexer Indexer) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("scip-typescript-%s-%s%s", osName, archName, exe), nil
+		version := normalizedVersion(indexer.Version)
+		return fmt.Sprintf("scip-typescript_%s_%s_%s.tar.gz", version, osName, archName), nil
 	case "scip-python":
 		osName, err := nodeOSName(runtime.GOOS)
 		if err != nil {
@@ -229,7 +236,8 @@ func indexerAssetName(indexer Indexer) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("scip-python-%s-%s%s", osName, archName, exe), nil
+		version := normalizedVersion(indexer.Version)
+		return fmt.Sprintf("scip-python_%s_%s_%s.tar.gz", version, osName, archName), nil
 	default:
 		return "", fmt.Errorf("unknown indexer asset pattern: %s", indexer.Name)
 	}
@@ -284,36 +292,25 @@ func downloadBinary(url, destination string) error {
 			return fmt.Errorf("open source indexer: %w", err)
 		}
 		defer source.Close()
+		if isTarGz(url) {
+			return extractTarGz(source, destination)
+		}
 		return copyToDestination(source, destination)
 	}
 
-	tempPath := destination + ".tmp"
-	downloader, args, err := buildDownloadCommand(url, tempPath)
+	resp, err := http.Get(url)
 	if err != nil {
-		return err
-	}
-	cmd := exec.Command(downloader, args...)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		_ = os.Remove(tempPath)
-		message := strings.TrimSpace(string(output))
-		if message != "" {
-			return fmt.Errorf("download indexer: %w: %s", err, message)
-		}
 		return fmt.Errorf("download indexer: %w", err)
 	}
-
-	return finalizeDownloadedBinary(tempPath, destination)
-}
-
-func buildDownloadCommand(url, destination string) (string, []string, error) {
-	if path, err := exec.LookPath("curl"); err == nil {
-		return path, []string{"-fL", "-o", destination, url}, nil
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("download indexer: unexpected status %d", resp.StatusCode)
 	}
-	if path, err := exec.LookPath("wget"); err == nil {
-		return path, []string{"-O", destination, url}, nil
+
+	if isTarGz(url) {
+		return extractTarGz(resp.Body, destination)
 	}
-	return "", nil, fmt.Errorf("download indexer: curl or wget is required")
+	return copyToDestination(resp.Body, destination)
 }
 
 func copyToDestination(source io.Reader, destination string) error {
@@ -348,6 +345,57 @@ func finalizeDownloadedBinary(tempPath, destination string) error {
 		return fmt.Errorf("rename indexer: %w", err)
 	}
 	return nil
+}
+
+func extractTarGz(source io.Reader, destination string) error {
+	gzipReader, err := gzip.NewReader(source)
+	if err != nil {
+		return fmt.Errorf("read gzip: %w", err)
+	}
+	defer gzipReader.Close()
+
+	tarReader := tar.NewReader(gzipReader)
+	target := filepath.Base(destination)
+	altTarget := strings.TrimSuffix(target, ".exe")
+
+	for {
+		header, err := tarReader.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("read tar: %w", err)
+		}
+		if header.Typeflag != tar.TypeReg {
+			continue
+		}
+		name := filepath.Base(header.Name)
+		if name != target && name != altTarget {
+			continue
+		}
+		return copyToDestination(tarReader, destination)
+	}
+	return fmt.Errorf("indexer archive missing %s", target)
+}
+
+func isTarGz(url string) bool {
+	return strings.HasSuffix(url, ".tar.gz") || strings.HasSuffix(url, ".tgz")
+}
+
+func normalizedVersion(version string) string {
+	return strings.TrimPrefix(strings.TrimSpace(version), "v")
+}
+
+func validateAssetVersion(indexer Indexer, url string) error {
+	version := normalizedVersion(indexer.Version)
+	if version == "" {
+		return nil
+	}
+	base := path.Base(url)
+	if strings.Contains(base, version) {
+		return nil
+	}
+	return fmt.Errorf("indexer asset %q does not include version %q", base, version)
 }
 
 func hasMarkerFile(dir, name string) bool {

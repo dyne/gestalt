@@ -30,6 +30,7 @@ import (
 	"gestalt/internal/event"
 	"gestalt/internal/logging"
 	"gestalt/internal/plan"
+	"gestalt/internal/scip"
 	"gestalt/internal/skill"
 	"gestalt/internal/temporal"
 	temporalworker "gestalt/internal/temporal/worker"
@@ -225,6 +226,12 @@ func main() {
 			"error": err.Error(),
 		})
 		os.Exit(1)
+	}
+
+	if err := prepareScipAssets(logger); err != nil {
+		logger.Warn("scip asset extraction failed", map[string]string{
+			"error": err.Error(),
+		})
 	}
 
 	if !cfg.DevMode {
@@ -1806,6 +1813,42 @@ func prepareConfig(cfg Config, logger *logging.Logger) (configPaths, error) {
 
 	logConfigSummary(logger, paths, installed, current, stats, hadInstalled)
 	return paths, nil
+}
+
+func prepareScipAssets(logger *logging.Logger) error {
+	destDir := filepath.Join(".gestalt", "scip")
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return fmt.Errorf("create scip assets dir: %w", err)
+	}
+
+	manifest, err := scip.LoadAssetsManifest(gestalt.EmbeddedScipAssetsFS)
+	if err != nil {
+		if errors.Is(err, scip.ErrAssetsManifestMissing) {
+			if logger != nil {
+				logger.Warn("scip assets manifest missing, computing hashes at startup", nil)
+			}
+			manifest, err = scip.BuildAssetsManifest(gestalt.EmbeddedScipAssetsFS)
+		}
+		if err != nil {
+			return fmt.Errorf("load scip assets manifest: %w", err)
+		}
+	}
+
+	if len(manifest) == 0 {
+		return nil
+	}
+
+	stats, err := scip.ExtractAssets(gestalt.EmbeddedScipAssetsFS, destDir, manifest)
+	if err != nil {
+		return fmt.Errorf("extract scip assets: %w", err)
+	}
+	if logger != nil {
+		logger.Info("scip assets extracted", map[string]string{
+			"extracted": strconv.Itoa(stats.Extracted),
+			"skipped":   strconv.Itoa(stats.Skipped),
+		})
+	}
+	return nil
 }
 
 func preparePlanFile(logger *logging.Logger) string {

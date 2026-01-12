@@ -167,11 +167,12 @@ func getIndexerDir() (string, error) {
 	if indexerDirOverride != "" {
 		return indexerDirOverride, nil
 	}
-	homeDir, err := os.UserHomeDir()
+	path := filepath.Join(".gestalt", "scip")
+	abs, err := filepath.Abs(path)
 	if err != nil {
-		return "", err
+		return path, nil
 	}
-	return filepath.Join(homeDir, ".gestalt", "indexers"), nil
+	return abs, nil
 }
 
 func indexerBinaryPath(indexer Indexer) (string, error) {

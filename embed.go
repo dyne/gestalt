@@ -12,3 +12,8 @@ var EmbeddedFrontendFS embed.FS
 //
 //go:embed config
 var EmbeddedConfigFS embed.FS
+
+// EmbeddedScipAssetsFS provides embedded SCIP indexer assets and manifest.
+//
+//go:embed assets/scip
+var EmbeddedScipAssetsFS embed.FS

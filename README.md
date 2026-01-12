@@ -36,6 +36,45 @@ GESTALT_BACKEND_URL=http://localhost:9102 make dev
 If you set `GESTALT_BACKEND_URL`, it should point at the backend API port. `GESTALT_PORT`
 controls the UI bind port for `gestalt`.
 
+## Desktop Application (Wails)
+
+Gestalt can be packaged as a native desktop application using Wails v3.
+
+Prerequisites:
+- Go 1.21+ (already required for Gestalt)
+- Node.js 18+ (already required for the frontend)
+- Wails CLI: `go install github.com/wailsapp/wails/v3/cmd/wails3@latest`
+- Platform dependencies:
+  - macOS: Xcode Command Line Tools
+  - Windows: WebView2 Runtime (pre-installed on Windows 11)
+  - Linux: `libwebkit2gtk-4.1-dev` (Debian/Ubuntu)
+
+Building the desktop app:
+```
+make wails-install
+make gestalt-desktop
+
+make gestalt-desktop-darwin   # macOS universal binary
+make gestalt-desktop-windows  # Windows x64
+make gestalt-desktop-linux    # Linux x64
+```
+
+Outputs land in `bin/` (`gestalt-desktop`, `gestalt-desktop.exe`). For a macOS `.app` bundle,
+run `wails3 task darwin:package:universal`.
+
+Development mode (hot reload):
+```
+make wails-dev
+```
+
+Desktop vs web mode:
+| Feature | Web mode | Desktop mode |
+| --- | --- | --- |
+| Distribution | Server binary | Native app binary |
+| Access | Browser at localhost | Native window |
+| Server port | Fixed/env | Random (embedded server) |
+| Install | Manual | App bundle (future) |
+
 ## Run Gestalt on your project
 
 Gestalt uses its current working directory as the project context (for git events, `.gestalt/PLAN.org`, and

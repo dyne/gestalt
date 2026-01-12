@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"sync"
 	"time"
@@ -47,6 +48,7 @@ func (a *App) Shutdown(ctx context.Context) {
 			})
 		}
 	}
+	a.shutdownSessions()
 	if a.shutdown != nil {
 		a.shutdownOnce.Do(func() {
 			close(a.shutdown)
@@ -89,4 +91,23 @@ func (a *App) ShutdownDone() <-chan struct{} {
 		return nil
 	}
 	return a.shutdown
+}
+
+func (a *App) shutdownSessions() {
+	if a == nil || a.manager == nil {
+		return
+	}
+	for _, session := range a.manager.List() {
+		if session.ID == "" {
+			continue
+		}
+		if err := a.manager.Delete(session.ID); err != nil && !errors.Is(err, terminal.ErrSessionNotFound) {
+			if a.logger != nil {
+				a.logger.Warn("desktop session shutdown failed", map[string]string{
+					"terminal_id": session.ID,
+					"error":       err.Error(),
+				})
+			}
+		}
+	}
 }

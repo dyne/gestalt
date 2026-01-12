@@ -8,5 +8,6 @@ logs
 config/manifest.json
 internal/version/build_info.json
 # Wails
-frontend/src/lib/wails/
-build/
+frontend/bindings/
+frontend/build/
+bin/

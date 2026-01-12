@@ -51,28 +51,28 @@ dev:
 	wait
 
 wails-install:
-	$(GO) install github.com/wailsapp/wails/v2/cmd/wails@latest
-	wails doctor
+	$(GO) install github.com/wailsapp/wails/v3/cmd/wails3@latest
+	wails3 doctor
 
 wails-dev:
-	@command -v wails >/dev/null || (echo "Wails not installed. Run: make wails-install" && exit 1)
-	wails dev
+	@command -v wails3 >/dev/null || (echo "Wails not installed. Run: make wails-install" && exit 1)
+	wails3 dev -config ./build/config.yml
 
-gestalt-desktop: frontend-build-desktop
-	@command -v wails >/dev/null || (echo "Wails not installed. Run: make wails-install" && exit 1)
-	wails build -clean
+gestalt-desktop:
+	@command -v wails3 >/dev/null || (echo "Wails not installed. Run: make wails-install" && exit 1)
+	wails3 build
 
-gestalt-desktop-darwin: frontend-build-desktop
-	@command -v wails >/dev/null || (echo "Wails not installed. Run: make wails-install" && exit 1)
-	wails build -platform darwin/universal -clean
+gestalt-desktop-darwin:
+	@command -v wails3 >/dev/null || (echo "Wails not installed. Run: make wails-install" && exit 1)
+	wails3 task darwin:build:universal
 
-gestalt-desktop-windows: frontend-build-desktop
-	@command -v wails >/dev/null || (echo "Wails not installed. Run: make wails-install" && exit 1)
-	wails build -platform windows/amd64 -clean
+gestalt-desktop-windows:
+	@command -v wails3 >/dev/null || (echo "Wails not installed. Run: make wails-install" && exit 1)
+	wails3 task windows:build ARCH=amd64
 
-gestalt-desktop-linux: frontend-build-desktop
-	@command -v wails >/dev/null || (echo "Wails not installed. Run: make wails-install" && exit 1)
-	wails build -platform linux/amd64 -clean
+gestalt-desktop-linux:
+	@command -v wails3 >/dev/null || (echo "Wails not installed. Run: make wails-install" && exit 1)
+	wails3 task linux:build ARCH=amd64
 
 temporal-dev:
 	temporal server start-dev
@@ -86,6 +86,6 @@ clean: clean-desktop
 	rm -rf gestalt gestalt-send
 
 clean-desktop:
-	rm -rf build
+	rm -rf bin
 	rm -rf frontend/build
-	rm -rf frontend/src/lib/wails
+	rm -rf frontend/bindings

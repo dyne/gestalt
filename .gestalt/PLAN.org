@@ -748,14 +748,14 @@
    Done when: Prioritized roadmap with detailed improvement proposals ready for implementation
 
 * WIP [#A] Wails desktop application packaging
-  Goal: Package Gestalt as a native desktop application using Wails v2 (current stable), providing a standalone executable for macOS, Windows, and Linux while preserving the existing web server mode as default.
+  Goal: Package Gestalt as a native desktop application using Wails v3 (latest), providing a standalone executable for macOS, Windows, and Linux while preserving the existing web server mode as default.
   
   ## Implementation Summary (for coder)
   
-  This L1 creates a desktop application using Wails v2 that wraps the existing Gestalt server in a native window. The approach is **dual-mode**: the current web server (`gestalt`) continues to work unchanged, and a new desktop binary (`gestalt-desktop`) provides a native app experience.
+  This L1 creates a desktop application using Wails v3 that wraps the existing Gestalt server in a native window. The approach is **dual-mode**: the current web server (`gestalt`) continues to work unchanged, and a new desktop binary (`gestalt-desktop`) provides a native app experience.
   
   **Key Architecture Decisions:**
-  1. **Use Wails v2** (stable, production-ready) - NOT v3 (alpha)
+  1. **Use Wails v3** (latest) - replace v2 scaffolding
   2. **Hybrid approach**: Desktop app embeds the Go HTTP server (not Wails as pure frontend)
   3. **Random port**: Desktop server starts on `127.0.0.1:0`, URL passed to frontend via Go binding
   4. **Code reuse**: `cmd/gestalt-desktop` shares all `internal/` packages with `cmd/gestalt`
@@ -780,11 +780,11 @@
   8. Document build/usage for users
   
   **No Online Research Needed:**
-  All Wails v2 concepts, APIs, and patterns are documented in detail in the L2 tasks below. Coder can implement directly from these instructions.
+  All Wails v3 concepts, APIs, and patterns are documented in detail in the L2 tasks below. Coder can implement directly from these instructions.
   
   Notes:
   - Dual-mode architecture: web server (default) + desktop app (opt-in build target)
-  - Desktop mode: Wails v2 wraps existing Gestalt server with native window
+  - Desktop mode: Wails v3 wraps existing Gestalt server with native window
   - Hybrid approach: keep HTTP/WebSocket server, Wails bindings call it
   - Desktop app starts embedded server on random port, frontend connects via localhost
   - Separate binaries: `gestalt` (web mode, current) + `gestalt-desktop` (Wails app)
@@ -800,7 +800,7 @@
   - Documentation: separate desktop build/run instructions in README
   - Testing: desktop app should pass same test suite as web mode
   Date: 2026-01-08
-  Updated: 2026-01-11 (switched from v3 to v2, added comprehensive implementation details)
+  Updated: 2026-01-12 (switched from v2 to v3)
 
 ** DONE [#B] Research Wails v2 architecture and implementation patterns
    Why: Understand Wails v2 (stable) capabilities and integration patterns before implementing
@@ -1540,11 +1540,40 @@
    - Windows: proper icon sizes
    - Linux: works with various desktop environments
    - This is optional enhancement; low priority
-   Deferred: Wails v2.11.0 does not expose a public tray API in the runtime.
+   Deferred: Wails v2.11.0 does not expose a public tray API in the runtime; revisit on v3.
    Tests: Tray icon appears, click actions work
    Done when: System tray integration works (optional, defer if complex)
 
-** WIP [#C] Test desktop app functionality end-to-end
+** DONE [#A] Upgrade to Wails v3 tooling and configuration
+   Why: Align desktop packaging with Wails v3 CLI and configuration changes
+   Change:
+   - Install Wails v3 CLI and verify `wails3 version`
+   - Update wails.json (or new config format) to v3-compatible schema
+   - Update bindings output directory if v3 changes the path/layout
+   - Adjust Makefile targets to use v3 CLI flags
+   - Update README/AGENTS references that assume v2 behavior
+   Tests: `wails3 doctor`, `wails3 build` (or `wails3 dev`) works with v3
+   Done when: v3 CLI runs successfully and config/build commands are updated
+
+** TODO [#A] Refactor desktop app for Wails v3 API changes
+   Why: v3 introduces API/binding changes that may break the v2 integration
+   Change:
+   - Update Go imports and options structs for v3
+   - Update binding generation and frontend import paths
+   - Adjust asset server configuration per v3 requirements
+   - Confirm menus/window options still apply in v3
+   Tests: go test, npm test, wails build
+   Done when: gestalt-desktop builds and boots under v3
+
+** TODO [#C] Re-evaluate tray icon support under Wails v3
+   Why: v3 may expose tray APIs that remove the previous blocker
+   Change:
+   - Check v3 runtime for tray APIs
+   - Implement tray menu if supported, or keep deferred
+   Tests: Tray icon appears, click actions work
+   Done when: Tray integration is implemented or explicitly re-deferred for v3
+
+** TODO [#C] Test desktop app functionality end-to-end
    Why: Verify desktop app works correctly and matches web mode behavior
    Change:
    - Build desktop app: `make gestalt-desktop`

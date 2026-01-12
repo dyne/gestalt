@@ -1,12 +1,5 @@
 {
-  "$schema": "https://wails.io/schemas/config.v2.json",
   "name": "gestalt-desktop",
-  "outputfilename": "gestalt-desktop",
-  "frontend:install": "cd frontend && npm install",
-  "frontend:build": "cd frontend && npm run build:desktop",
-  "frontend:dev:watcher": "npm run dev --prefix frontend",
-  "frontend:dev:serverUrl": "auto",
-  "wailsjsdir": "./frontend/src/lib/wails",
   "author": {
     "name": "Dyne.org",
     "email": "info@dyne.org"
@@ -14,8 +7,10 @@
   "info": {
     "companyName": "Dyne.org",
     "productName": "Gestalt",
-    "productVersion": "1.0.0",
-    "copyright": "Copyright (c) 2025 Dyne.org",
-    "comments": "Multi-terminal AI agent dashboard"
+    "productIdentifier": "org.dyne.gestalt",
+    "description": "Multi-terminal AI agent dashboard",
+    "version": "1.0.0",
+    "comments": "Multi-terminal AI agent dashboard",
+    "copyright": "Copyright (c) 2025 Dyne.org"
   }
 }

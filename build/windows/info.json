@@ -1,0 +1,15 @@
+{
+	"fixed": {
+		"file_version": "1.0.0"
+	},
+	"info": {
+		"0000": {
+			"ProductVersion": "1.0.0",
+			"CompanyName": "Dyne.org",
+			"FileDescription": "Multi-terminal AI agent dashboard",
+			"LegalCopyright": "Copyright (c) 2025 Dyne.org",
+			"ProductName": "Gestalt",
+			"Comments": "Multi-terminal AI agent dashboard"
+		}
+	}
+}

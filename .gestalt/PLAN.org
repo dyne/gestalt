@@ -647,6 +647,7 @@
   - Future: could add MCP server for external tool integration
   - Repository language detection: use go.mod, package.json, etc for initial pass
   - Multi-language repos: run multiple indexers, merge indexes
+  - DEFER: Downloader URLs and asset handling live in internal/scip/indexers.go (indexerURL/downloadBinary); revisit when embedding assets.
   Date: 2026-01-12
   Priority: High - directly improves agent code understanding
 
@@ -1275,13 +1276,13 @@
      - Test error handling (unsupported language)
    Done when: gestalt index command works
 
-** TODO [#C] Optimize query performance and add caching
+** DONE [#C] Optimize query performance and add caching
    Why: SCIP queries may be frequent, need to be fast
    Change:
    - Add in-memory caching for common queries:
      ```go
      type IndexCache struct {
-         symbols   *lru.Cache // Symbol definitions
+        symbols   *lru.Cache // Symbol definitions
          refs      *lru.Cache // References
          fileSyms  *lru.Cache // File symbols
      }

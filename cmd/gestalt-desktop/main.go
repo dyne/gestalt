@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 	"time"
 
 	"gestalt"
@@ -50,6 +51,7 @@ func main() {
 		}
 		return
 	}
+	cfg.ConfigDir = resolveDesktopConfigDir(cfg.ConfigDir)
 
 	logBuffer := logging.NewLogBuffer(logging.DefaultBufferSize)
 	logLevel := logging.LevelInfo
@@ -288,4 +290,24 @@ func main() {
 		_ = backendServer.Shutdown(shutdownContext)
 		os.Exit(1)
 	}
+}
+
+func resolveDesktopConfigDir(configDir string) string {
+	cleaned := filepath.Clean(configDir)
+	if cleaned != filepath.Join(".gestalt", "config") {
+		return configDir
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return configDir
+	}
+	legacyDir := filepath.Join(homeDir, ".gestalt", "config")
+	if info, err := os.Stat(legacyDir); err == nil && info.IsDir() {
+		return legacyDir
+	}
+	userConfigDir, err := os.UserConfigDir()
+	if err != nil {
+		return legacyDir
+	}
+	return filepath.Join(userConfigDir, "gestalt", "config")
 }

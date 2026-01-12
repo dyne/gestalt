@@ -321,6 +321,11 @@ Overrides (per subdirectory, relative to the current working directory):
 - `.gestalt/config/skills` overrides embedded skills
 - `./gestalt/dist` overrides embedded frontend assets
 
+Desktop builds read config from the user config directory (for example
+`~/.config/gestalt/config` on Linux, `%APPDATA%\\gestalt\\config` on Windows,
+or `~/Library/Application Support/gestalt/config` on macOS). If
+`~/.gestalt/config` exists, it takes precedence for compatibility.
+
 Config extraction runs automatically at startup into `.gestalt/config/`.
 Gestalt uses embedded FNV-1a 64-bit hashes to skip unchanged files; mismatches are backed up as `.bck`
 before replacement. Control retention with `GESTALT_CONFIG_BACKUP_LIMIT` (default `1`, `0` disables backups).

@@ -155,3 +155,10 @@ Implementation notes (Unified event architecture):
 - Terminal resizing uses a ResizeObserver to refit xterm and send PTY resize updates on width changes.
 - Terminal touch scrolling uses pointer events with a 10px activation threshold, inertial momentum, and scrollbar-gutter detection (native drag); mouse selection remains untouched. The `scrollSensitivity` prop in `frontend/src/components/Terminal.svelte` controls speed.
 - `make dev` runs the Go backend and Vite dev server together for live UI updates.
+
+## SCIP Code Intelligence (2026-01-12)
+- Code intelligence endpoints are available under `/api/scip/*` when `GESTALT_SCIP_INDEX_PATH` points to a valid `index.db` (default `.gestalt/index.db`).
+- Query sequence: `/api/scip/symbols?q=...`, then `/api/scip/symbols/<id>`, then `/api/scip/symbols/<id>/references`.
+- Use `/api/scip/files/<path>` to list symbols in a file; URL-encode symbol IDs and file paths.
+- On-demand indexing is available via `POST /api/scip/index` with `{ "path": "/repo/path" }`.
+- Responses use 0-based line numbers from SCIP; add +1 for editor display.

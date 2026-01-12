@@ -1048,7 +1048,7 @@
      - Test error handling (missing symbol, corrupt index)
    Done when: REST API exposes SCIP queries to agents
 
-** WIP [#B] Create agent prompt/skill documenting SCIP API usage
+** DONE [#B] Create agent prompt/skill documenting SCIP API usage
    Why: Agents need to know how to query SCIP effectively
    Change:
    - Create .gestalt/config/skills/code-intelligence/SKILL.md:
@@ -1151,7 +1151,7 @@
    Tests: Manual test with agent prompts
    Done when: Agents understand how to use SCIP API
 
-** TODO [#C] Add indexing command to gestalt CLI
+** WIP [#C] Add indexing command to gestalt CLI
    Why: Users need simple way to index their codebases
    Change:
    - Add cmd/gestalt/index.go:

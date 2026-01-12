@@ -747,7 +747,7 @@
    Tests: N/A (planning)
    Done when: Prioritized roadmap with detailed improvement proposals ready for implementation
 
-* WIP [#A] Wails desktop application packaging
+* DONE [#A] Wails desktop application packaging
   Goal: Package Gestalt as a native desktop application using Wails v3 (latest), providing a standalone executable for macOS, Windows, and Linux while preserving the existing web server mode as default.
   
   ## Implementation Summary (for coder)
@@ -802,7 +802,7 @@
   Date: 2026-01-08
   Updated: 2026-01-12 (switched from v2 to v3)
 
-** DONE [#B] Research Wails v2 architecture and implementation patterns
+** [#B] Research Wails v2 architecture and implementation patterns
    Why: Understand Wails v2 (stable) capabilities and integration patterns before implementing
    Change:
    - Install Wails v2 CLI: `go install github.com/wailsapp/wails/v2/cmd/wails@latest`
@@ -853,7 +853,7 @@
    Tests: None (research and documentation)
    Done when: Wails v2 architecture documented with implementation patterns
 
-** DONE [#B] Install Wails v2 CLI and create skeleton project for study
+** [#B] Install Wails v2 CLI and create skeleton project for study
    Why: Need Wails tooling and hands-on experience with project structure
    Change:
    - Install Wails CLI: `go install github.com/wailsapp/wails/v2/cmd/wails@latest`
@@ -966,7 +966,7 @@
    Tests: Skeleton app builds, runs, bindings work, xterm renders
    Done when: Wails CLI installed, test project studied, xterm compatibility verified
 
-** DONE [#B] Create cmd/gestalt-desktop with Wails integration
+** [#B] Create cmd/gestalt-desktop with Wails integration
    Why: Separate entrypoint for desktop mode, reuses all internal/ packages
    Change:
    - Create cmd/gestalt-desktop/main.go - desktop entry point
@@ -1131,7 +1131,7 @@
    Tests: `go build ./cmd/gestalt-desktop` succeeds, binary links correctly
    Done when: Desktop binary compiles, contains embedded server + Wails scaffolding
 
-** DONE [#B] Configure frontend build for Wails desktop mode
+** [#B] Configure frontend build for Wails desktop mode
    Why: Frontend needs separate build output for desktop (different base path, output dir)
    Change:
    - Add desktop build script in frontend/package.json:
@@ -1216,7 +1216,7 @@
    Tests: npm run build:desktop succeeds, relative paths in output
    Done when: Frontend builds for both web (dist/) and desktop (build/) modes
 
-** DONE [#B] Create wails.json configuration
+** [#B] Create wails.json configuration
    Why: Wails CLI uses this for build, dev mode, and frontend integration
    Change:
    - Create wails.json in project root:
@@ -1269,7 +1269,7 @@
    Tests: Wails CLI accepts config, generates bindings correctly
    Done when: wails.json exists, gitignore updated, CLI reads config
 
-** DONE [#B] Implement Wails bindings for core operations
+** [#B] Implement Wails bindings for core operations
    Why: Desktop frontend needs Go bindings for native operations and server coordination
    Change:
    - Create internal/desktop/app.go with App struct for Wails bindings
@@ -1289,7 +1289,7 @@
    Tests: Bindings generate correctly; wails3 dev shows methods in console
    Done when: Frontend can call bound Go methods via window.wails
 
-** DONE [#B] Update frontend API client for Wails compatibility
+** [#B] Update frontend API client for Wails compatibility
    Why: Frontend must detect desktop mode and use dynamic server URL from Go
    Change:
    - Update frontend/src/lib/api.js:
@@ -1397,7 +1397,7 @@
    Tests: Web mode unchanged, desktop mode connects to embedded server
    Done when: Frontend adapts to both web and desktop modes
 
-** DONE [#B] Wire embedded server into desktop app lifecycle
+** [#B] Wire embedded server into desktop app lifecycle
    Why: Desktop app must start/stop server cleanly with window lifecycle
    Change:
    - In cmd/gestalt-desktop/main.go, start server before wails.Run()
@@ -1413,7 +1413,7 @@
    Tests: Desktop app starts server on random port, frontend connects
    Done when: Server lifecycle synchronized with desktop app
 
-** DONE [#B] Integrate Makefile build targets for desktop
+** [#B] Integrate Makefile build targets for desktop
    Why: Developers need simple commands to build desktop app
    Change:
    - Add Makefile targets:
@@ -1483,7 +1483,7 @@
    Tests: `make gestalt-desktop` builds successfully
    Done when: Desktop builds via Makefile with documented targets
 
-** DONE [#C] Add desktop-specific window configuration
+** [#C] Add desktop-specific window configuration
    Why: Native desktop app needs proper window sizing, title, and behavior
    Change:
    - Configure initial window size: 1400x900 (accommodate dashboard + terminal)
@@ -1499,7 +1499,7 @@
    Tests: Window appears with correct size and title
    Done when: Desktop window has proper size, title, and behavior
 
-** DONE [#C] Add desktop-specific native menus (optional)
+** [#C] Add desktop-specific native menus (optional)
    Why: Desktop apps typically have native menu bar (File, Edit, etc)
    Change:
    - Use Wails menu API to create native menus
@@ -1513,7 +1513,7 @@
    Tests: Menus appear and actions work
    Done when: Desktop app has native menus (optional, can defer)
 
-** DONE [#C] Handle desktop-specific file paths and resources
+** [#C] Handle desktop-specific file paths and resources
    Why: Desktop app bundle has different resource locations than web server
    Change:
    - Ensure config/agents, config/prompts, config/skills load correctly
@@ -1529,7 +1529,7 @@
    Tests: Desktop app loads config from correct locations
    Done when: Desktop app finds config in user-specific locations
 
-** DONE [#C] Add system tray icon (optional enhancement)
+** [#C] Add system tray icon (optional enhancement)
    Why: Desktop apps often minimize to system tray for background operation
    Change:
    - Use Wails system tray API to add tray icon
@@ -1544,7 +1544,7 @@
    Tests: Tray icon appears, click actions work
    Done when: System tray integration works (optional, defer if complex)
 
-** DONE [#A] Upgrade to Wails v3 tooling and configuration
+** [#A] Upgrade to Wails v3 tooling and configuration
    Why: Align desktop packaging with Wails v3 CLI and configuration changes
    Change:
    - Install Wails v3 CLI and verify `wails3 version`
@@ -1555,7 +1555,7 @@
    Tests: `wails3 doctor`, `wails3 build` (or `wails3 dev`) works with v3
    Done when: v3 CLI runs successfully and config/build commands are updated
 
-** DONE [#A] Refactor desktop app for Wails v3 API changes
+** [#A] Refactor desktop app for Wails v3 API changes
    Why: v3 introduces API/binding changes that may break the v2 integration
    Change:
    - Update Go imports and options structs for v3
@@ -1565,7 +1565,7 @@
    Tests: go test, npm test, wails build
    Done when: gestalt-desktop builds and boots under v3
 
-** DONE [#C] Re-evaluate tray icon support under Wails v3 (DEFER)
+** [#C] Re-evaluate tray icon support under Wails v3 (DEFER)
    Why: v3 may expose tray APIs that remove the previous blocker
    Change:
    - Check v3 runtime for tray APIs
@@ -1574,7 +1574,7 @@
    Tests: Tray icon appears, click actions work
    Done when: Tray integration is implemented or explicitly re-deferred for v3
 
-** DONE [#C] Test desktop app functionality end-to-end
+** [#C] Test desktop app functionality end-to-end
    Why: Verify desktop app works correctly and matches web mode behavior
    Change:
    - Build desktop app: `make gestalt-desktop`
@@ -1624,7 +1624,7 @@
    Tests: All features functional, no regressions vs web mode
    Done when: Desktop app fully functional on target platforms
 
-** DONE [#B] Add CI/CD workflow for desktop builds (optional)
+** [#B] Add CI/CD workflow for desktop builds (optional)
    Why: Automate multi-platform builds for releases
    Change:
    - Extend `.github/workflows/release.yml`:
@@ -1678,7 +1678,7 @@
    Tests: CI builds complete successfully
    Done when: Automated desktop builds in CI (optional, can defer)
 
-** DONE [#C] Document desktop application usage
+** [#C] Document desktop application usage
    Why: Users need clear instructions for building, installing, and using desktop app
    Change:
    - Add "Desktop Application" section to README.md:
@@ -1776,7 +1776,7 @@
    Tests: Documentation is clear, examples work
    Done when: Desktop app fully documented in README and AGENTS.md
 
-** DONE [#C] Add native window features (optional enhancements) (DEFER)
+** [#C] Add native window features (optional enhancements) (DEFER)
    Why: Desktop app can leverage native OS features unavailable in web browsers
    Change: These are optional enhancements, implement based on user demand
    Deferred: Additional native features beyond menus and file dialogs are not requested yet.

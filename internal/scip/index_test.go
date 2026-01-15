@@ -61,6 +61,26 @@ func TestGetDefinition(t *testing.T) {
 	}
 }
 
+func TestGetDefinitionFallsBackToOccurrences(t *testing.T) {
+	path := createTestDBWithoutDefinitionRanges(t)
+	index, err := OpenIndex(path)
+	if err != nil {
+		t.Fatalf("OpenIndex failed: %v", err)
+	}
+	defer index.Close()
+
+	definition, err := index.GetDefinition(testSymbolFoo)
+	if err != nil {
+		t.Fatalf("GetDefinition failed: %v", err)
+	}
+	if definition.FilePath != "foo.go" {
+		t.Fatalf("unexpected definition file: %s", definition.FilePath)
+	}
+	if definition.Line != 1 {
+		t.Fatalf("unexpected definition line: %d", definition.Line)
+	}
+}
+
 func TestGetDefinitionMissing(t *testing.T) {
 	path := createTestDB(t)
 	index, err := OpenIndex(path)
@@ -119,6 +139,29 @@ func TestGetSymbolsInFile(t *testing.T) {
 	}
 	if symbols[0].ID != testSymbolFoo {
 		t.Fatalf("unexpected symbol ID: %s", symbols[0].ID)
+	}
+}
+
+func TestGetSymbolsInFileFallsBackToChunks(t *testing.T) {
+	path := createTestDBWithoutDefinitionRanges(t)
+	index, err := OpenIndex(path)
+	if err != nil {
+		t.Fatalf("OpenIndex failed: %v", err)
+	}
+	defer index.Close()
+
+	symbols, err := index.GetSymbolsInFile("foo.go")
+	if err != nil {
+		t.Fatalf("GetSymbolsInFile failed: %v", err)
+	}
+	if len(symbols) != 1 {
+		t.Fatalf("expected 1 symbol, got %d", len(symbols))
+	}
+	if symbols[0].ID != testSymbolFoo {
+		t.Fatalf("unexpected symbol ID: %s", symbols[0].ID)
+	}
+	if symbols[0].Line != 1 {
+		t.Fatalf("unexpected symbol line: %d", symbols[0].Line)
 	}
 }
 
@@ -187,15 +230,23 @@ func TestOpenIndexCreatesIndexes(t *testing.T) {
 }
 
 func createTestDB(t *testing.T) string {
+	return createTestDBWithDefinitionRanges(t, true)
+}
+
+func createTestDBWithoutDefinitionRanges(t *testing.T) string {
+	return createTestDBWithDefinitionRanges(t, false)
+}
+
+func createTestDBWithDefinitionRanges(t *testing.T, includeDefinitionRanges bool) string {
 	t.Helper()
 
 	path := filepath.Join(t.TempDir(), "index.db")
-	db, err := sql.Open("sqlite3", path)
+	database, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
 	t.Cleanup(func() {
-		db.Close()
+		database.Close()
 	})
 
 	schemaStatements := []string{
@@ -241,16 +292,16 @@ func createTestDB(t *testing.T) string {
 		);`,
 	}
 	for _, stmt := range schemaStatements {
-		if _, err := db.Exec(stmt); err != nil {
+		if _, err := database.Exec(stmt); err != nil {
 			t.Fatalf("schema exec failed: %v", err)
 		}
 	}
 
-	fooDocID := insertDocument(t, db, "foo.go", "go")
-	barDocID := insertDocument(t, db, "bar.go", "go")
+	fooDocID := insertDocument(t, database, "foo.go", "go")
+	barDocID := insertDocument(t, database, "bar.go", "go")
 
-	fooSymbolID := insertSymbol(t, db, testSymbolFoo, "Foo", scip.SymbolInformation_Function, "Foo docs")
-	barSymbolID := insertSymbol(t, db, testSymbolBar, "Bar", scip.SymbolInformation_Function, "Bar docs")
+	fooSymbolID := insertSymbol(t, database, testSymbolFoo, "Foo", scip.SymbolInformation_Function, "Foo docs")
+	barSymbolID := insertSymbol(t, database, testSymbolBar, "Bar", scip.SymbolInformation_Function, "Bar docs")
 
 	fooOccurrences := []*scip.Occurrence{
 		{
@@ -265,10 +316,12 @@ func createTestDB(t *testing.T) string {
 			SymbolRoles: int32(scip.SymbolRole_ReadAccess),
 		},
 	}
-	fooChunkID := insertChunk(t, db, fooDocID, 0, 1, 5, fooOccurrences)
-	insertMention(t, db, fooChunkID, fooSymbolID, int32(scip.SymbolRole_Definition))
-	insertMention(t, db, fooChunkID, fooSymbolID, int32(scip.SymbolRole_ReadAccess))
-	insertEnclosingRange(t, db, fooDocID, fooSymbolID, 1, 0, 1, 3)
+	fooChunkID := insertChunk(t, database, fooDocID, 0, 1, 5, fooOccurrences)
+	insertMention(t, database, fooChunkID, fooSymbolID, int32(scip.SymbolRole_Definition))
+	insertMention(t, database, fooChunkID, fooSymbolID, int32(scip.SymbolRole_ReadAccess))
+	if includeDefinitionRanges {
+		insertEnclosingRange(t, database, fooDocID, fooSymbolID, 1, 0, 1, 3)
+	}
 
 	barOccurrences := []*scip.Occurrence{
 		{
@@ -278,9 +331,11 @@ func createTestDB(t *testing.T) string {
 			EnclosingRange: []int32{2, 0, 2, 3},
 		},
 	}
-	barChunkID := insertChunk(t, db, barDocID, 0, 2, 2, barOccurrences)
-	insertMention(t, db, barChunkID, barSymbolID, int32(scip.SymbolRole_Definition))
-	insertEnclosingRange(t, db, barDocID, barSymbolID, 2, 0, 2, 3)
+	barChunkID := insertChunk(t, database, barDocID, 0, 2, 2, barOccurrences)
+	insertMention(t, database, barChunkID, barSymbolID, int32(scip.SymbolRole_Definition))
+	if includeDefinitionRanges {
+		insertEnclosingRange(t, database, barDocID, barSymbolID, 2, 0, 2, 3)
+	}
 
 	return path
 }

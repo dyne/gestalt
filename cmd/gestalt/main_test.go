@@ -88,7 +88,7 @@ func TestLoadConfigDefaultsOnInvalidPort(t *testing.T) {
 	if cfg.InputHistoryDir != filepath.Join(".gestalt", "input-history") {
 		t.Fatalf("expected default input history dir, got %q", cfg.InputHistoryDir)
 	}
-	if cfg.SCIPIndexPath != filepath.Join(".gestalt", "index.db") {
+	if cfg.SCIPIndexPath != filepath.Join(".gestalt", "scip", "index.db") {
 		t.Fatalf("expected default scip index path, got %q", cfg.SCIPIndexPath)
 	}
 	if cfg.SCIPAutoReindex {

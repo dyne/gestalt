@@ -78,7 +78,7 @@ Gestalt can index your codebase for code-aware agent queries:
 gestalt index
 ```
 
-This generates `index.db` in the current directory.
+This generates `.gestalt/scip/index.db` (and `.gestalt/scip/index.scip`).
 
 Supported languages: Go, TypeScript, Python, Java.
 
@@ -90,7 +90,7 @@ When to index:
 - Periodically (e.g., weekly)
 
 Index storage:
-- Commit `index.db` to the repo (optional, depends on size)
+- Commit `.gestalt/scip/index.db` to the repo (optional, depends on size)
 - Or add it to `.gitignore` and regenerate locally
 - For large repos, use CI to pre-generate indexes
 

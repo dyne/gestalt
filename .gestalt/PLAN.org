@@ -1438,6 +1438,31 @@
      - API test: recent metadata returns warning without force
    Done when: Recent indexes are skipped with a clear warning unless forced
 
+** DONE [#B] Add comprehensive SCIP API tests using internal/scip/index.go data
+   Why: Ensure all SCIP endpoints return correct data using a real Gestalt file and
+   catch schema/fallback behavior when defn_enclosing_ranges is empty.
+   Change:
+   - Build a test SCIP SQLite DB from internal/scip/index.go:
+     - Use the real file path (internal/scip/index.go).
+     - Derive symbol line numbers by scanning the file in the test.
+     - Create occurrences/mentions for definitions and references.
+   - Exercise /api/scip/symbols, /api/scip/symbols/:id, /api/scip/symbols/:id/references,
+     /api/scip/files/:path, /api/scip/status, and /api/scip/index, asserting all relevant
+     response fields (ids, names, paths, lines, roles, counts, freshness).
+   - Add explicit negative/edge cases:
+     - Missing/invalid query params, invalid limits, bad path escapes.
+     - Missing symbol/file cases (404/empty results).
+     - Rate limiting (429).
+     - Index unavailable (503).
+     - Reindex conflicts/recent-skip path.
+   - Include coverage where defn_enclosing_ranges is empty to verify fallback to
+     chunk occurrences for definitions and file symbols.
+   Tests:
+   - New API tests assert full payloads for success + error responses.
+   - Use internal/scip/index.go as the source of truth for expected paths/lines.
+   Done when: All SCIP endpoints have broad success/error assertions and fallback
+   behavior is covered against internal/scip/index.go.
+
 ** DONE [#B] Use system curl/wget for indexer downloads
    Why: Current Go download code appears unreliable; use system tools instead.
    Change:

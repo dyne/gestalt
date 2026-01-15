@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"github.com/klauspost/compress/zstd"
@@ -192,7 +193,7 @@ func (idx *Index) GetDefinition(symbolID string) (*Symbol, error) {
 		return nil, err
 	}
 
-	defRow := idx.db.QueryRow(
+	definitionRow := idx.db.QueryRow(
 		`SELECT d.relative_path, d.language, der.start_line
 		 FROM defn_enclosing_ranges der
 		 JOIN documents d ON d.id = der.document_id
@@ -205,8 +206,18 @@ func (idx *Index) GetDefinition(symbolID string) (*Symbol, error) {
 	var filePath sql.NullString
 	var language sql.NullString
 	var line sql.NullInt64
-	if err := defRow.Scan(&filePath, &language, &line); err != nil && err != sql.ErrNoRows {
-		return nil, err
+	definitionErr := definitionRow.Scan(&filePath, &language, &line)
+	if definitionErr != nil && definitionErr != sql.ErrNoRows {
+		return nil, definitionErr
+	}
+	if definitionErr == sql.ErrNoRows || !filePath.Valid {
+		fallbackPath, fallbackLanguage, fallbackLine, fallbackErr := idx.definitionLocationFromOccurrences(symbolID, dbID)
+		if fallbackErr != nil {
+			return nil, fallbackErr
+		}
+		filePath = fallbackPath
+		language = fallbackLanguage
+		line = fallbackLine
 	}
 
 	symbol := &Symbol{
@@ -286,69 +297,299 @@ func (idx *Index) GetReferences(symbolID string) ([]Occurrence, error) {
 
 // GetSymbolsInFile lists all symbols defined in a file.
 func (idx *Index) GetSymbolsInFile(filePath string) ([]Symbol, error) {
-	rows, err := idx.db.Query(
+	documentRows, queryErr := idx.db.Query(
 		`SELECT d.id, d.language
 		 FROM documents d
 		 WHERE d.relative_path = ?`,
 		filePath,
 	)
-	if err != nil {
-		return nil, err
+	if queryErr != nil {
+		return nil, queryErr
+	}
+	defer documentRows.Close()
+
+	var results []Symbol
+	for documentRows.Next() {
+		var documentID int64
+		var language sql.NullString
+		scanErr := documentRows.Scan(&documentID, &language)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+
+		definitionSymbols, definitionErr := idx.symbolsFromDefinitionRanges(documentID, filePath, language)
+		if definitionErr != nil {
+			return nil, definitionErr
+		}
+		if len(definitionSymbols) == 0 {
+			definitionSymbols, definitionErr = idx.symbolsFromChunks(documentID, filePath, language)
+			if definitionErr != nil {
+				return nil, definitionErr
+			}
+		}
+		results = append(results, definitionSymbols...)
+	}
+
+	if rowErr := documentRows.Err(); rowErr != nil {
+		return nil, rowErr
+	}
+	return results, nil
+}
+
+func (idx *Index) symbolsFromDefinitionRanges(documentID int64, filePath string, language sql.NullString) ([]Symbol, error) {
+	symbolRows, queryErr := idx.db.Query(
+		`SELECT gs.symbol, gs.display_name, gs.kind, gs.documentation, der.start_line
+		 FROM defn_enclosing_ranges der
+		 JOIN global_symbols gs ON gs.id = der.symbol_id
+		 WHERE der.document_id = ?
+		 ORDER BY der.start_line`,
+		documentID,
+	)
+	if queryErr != nil {
+		return nil, queryErr
+	}
+	defer symbolRows.Close()
+
+	var results []Symbol
+	for symbolRows.Next() {
+		var symbolID string
+		var displayName sql.NullString
+		var kind sql.NullInt64
+		var docText sql.NullString
+		var line sql.NullInt64
+		scanErr := symbolRows.Scan(&symbolID, &displayName, &kind, &docText, &line)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+
+		results = append(results, Symbol{
+			ID:            symbolID,
+			Name:          selectSymbolName(displayName, symbolID),
+			Kind:          kindToString(kind),
+			Documentation: splitDocumentation(docText),
+			FilePath:      filePath,
+			Line:          int(line.Int64),
+			Language:      nullStringValue(language),
+		})
+	}
+	if rowErr := symbolRows.Err(); rowErr != nil {
+		return nil, rowErr
+	}
+	return results, nil
+}
+
+func (idx *Index) symbolsFromChunks(documentID int64, filePath string, language sql.NullString) ([]Symbol, error) {
+	definitionLines, definitionErr := idx.definitionLinesForDocument(documentID)
+	if definitionErr != nil {
+		return nil, definitionErr
+	}
+	if len(definitionLines) == 0 {
+		return nil, nil
+	}
+
+	definitions := make([]symbolDefinition, 0, len(definitionLines))
+	symbolIDs := make([]string, 0, len(definitionLines))
+	for symbolID, line := range definitionLines {
+		definitions = append(definitions, symbolDefinition{
+			symbolID: symbolID,
+			line:     line,
+		})
+		symbolIDs = append(symbolIDs, symbolID)
+	}
+
+	sort.Slice(definitions, func(leftIndex, rightIndex int) bool {
+		if definitions[leftIndex].line == definitions[rightIndex].line {
+			return definitions[leftIndex].symbolID < definitions[rightIndex].symbolID
+		}
+		return definitions[leftIndex].line < definitions[rightIndex].line
+	})
+
+	metadataBySymbol, metadataErr := idx.loadSymbolMetadata(symbolIDs)
+	if metadataErr != nil {
+		return nil, metadataErr
+	}
+
+	results := make([]Symbol, 0, len(definitions))
+	for _, definition := range definitions {
+		metadata, metadataFound := metadataBySymbol[definition.symbolID]
+		displayName := metadata.displayName
+		kind := metadata.kind
+		documentation := metadata.documentation
+		if !metadataFound {
+			displayName = sql.NullString{}
+			kind = sql.NullInt64{}
+			documentation = sql.NullString{}
+		}
+		results = append(results, Symbol{
+			ID:            definition.symbolID,
+			Name:          selectSymbolName(displayName, definition.symbolID),
+			Kind:          kindToString(kind),
+			Documentation: splitDocumentation(documentation),
+			FilePath:      filePath,
+			Line:          definition.line,
+			Language:      nullStringValue(language),
+		})
+	}
+	return results, nil
+}
+
+type symbolDefinition struct {
+	symbolID string
+	line     int
+}
+
+type symbolMetadata struct {
+	displayName   sql.NullString
+	kind          sql.NullInt64
+	documentation sql.NullString
+}
+
+func (idx *Index) definitionLinesForDocument(documentID int64) (map[string]int, error) {
+	chunkRows, queryErr := idx.db.Query(
+		`SELECT c.occurrences
+		 FROM chunks c
+		 WHERE c.document_id = ?
+		 ORDER BY c.chunk_index`,
+		documentID,
+	)
+	if queryErr != nil {
+		return nil, queryErr
+	}
+	defer chunkRows.Close()
+
+	definitionLines := make(map[string]int)
+	for chunkRows.Next() {
+		var occurrencesBlob []byte
+		scanErr := chunkRows.Scan(&occurrencesBlob)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+
+		chunkOccurrences, decodeErr := decodeOccurrences(occurrencesBlob)
+		if decodeErr != nil {
+			return nil, IndexCorruptedError{Err: decodeErr}
+		}
+
+		for _, occurrence := range chunkOccurrences {
+			if !scip.SymbolRole_Definition.Matches(occurrence) {
+				continue
+			}
+			symbolID := strings.TrimSpace(occurrence.Symbol)
+			if symbolID == "" {
+				continue
+			}
+			rangeValue, rangeErr := scip.NewRange(occurrence.Range)
+			if rangeErr != nil {
+				return nil, IndexCorruptedError{Err: rangeErr}
+			}
+			lineValue := int(rangeValue.Start.Line)
+			existingLine, exists := definitionLines[symbolID]
+			if !exists || lineValue < existingLine {
+				definitionLines[symbolID] = lineValue
+			}
+		}
+	}
+	if rowErr := chunkRows.Err(); rowErr != nil {
+		return nil, rowErr
+	}
+	return definitionLines, nil
+}
+
+func (idx *Index) loadSymbolMetadata(symbolIDs []string) (map[string]symbolMetadata, error) {
+	metadata := make(map[string]symbolMetadata, len(symbolIDs))
+	if len(symbolIDs) == 0 {
+		return metadata, nil
+	}
+
+	placeholders := make([]string, len(symbolIDs))
+	queryArgs := make([]any, len(symbolIDs))
+	for index, symbolID := range symbolIDs {
+		placeholders[index] = "?"
+		queryArgs[index] = symbolID
+	}
+	query := fmt.Sprintf(
+		`SELECT symbol, display_name, kind, documentation
+		 FROM global_symbols
+		 WHERE symbol IN (%s)`,
+		strings.Join(placeholders, ","),
+	)
+
+	rows, queryErr := idx.db.Query(query, queryArgs...)
+	if queryErr != nil {
+		return nil, queryErr
 	}
 	defer rows.Close()
 
-	var results []Symbol
 	for rows.Next() {
-		var docID int64
+		var symbolID string
+		var displayName sql.NullString
+		var kind sql.NullInt64
+		var documentation sql.NullString
+		scanErr := rows.Scan(&symbolID, &displayName, &kind, &documentation)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		metadata[symbolID] = symbolMetadata{
+			displayName:   displayName,
+			kind:          kind,
+			documentation: documentation,
+		}
+	}
+	if rowErr := rows.Err(); rowErr != nil {
+		return nil, rowErr
+	}
+	return metadata, nil
+}
+
+func (idx *Index) definitionLocationFromOccurrences(symbolID string, symbolDatabaseID int64) (sql.NullString, sql.NullString, sql.NullInt64, error) {
+	rows, queryErr := idx.db.Query(
+		`SELECT c.occurrences, d.relative_path, d.language
+		 FROM mentions m
+		 JOIN chunks c ON c.id = m.chunk_id
+		 JOIN documents d ON d.id = c.document_id
+		 WHERE m.symbol_id = ?
+		   AND (m.role & ?) != 0
+		 ORDER BY d.relative_path, c.chunk_index`,
+		symbolDatabaseID,
+		int32(scip.SymbolRole_Definition),
+	)
+	if queryErr != nil {
+		return sql.NullString{}, sql.NullString{}, sql.NullInt64{}, queryErr
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var occurrencesBlob []byte
+		var relativePath sql.NullString
 		var language sql.NullString
-		if err := rows.Scan(&docID, &language); err != nil {
-			return nil, err
+		scanErr := rows.Scan(&occurrencesBlob, &relativePath, &language)
+		if scanErr != nil {
+			return sql.NullString{}, sql.NullString{}, sql.NullInt64{}, scanErr
 		}
 
-		symbolRows, err := idx.db.Query(
-			`SELECT gs.symbol, gs.display_name, gs.kind, gs.documentation, der.start_line
-			 FROM defn_enclosing_ranges der
-			 JOIN global_symbols gs ON gs.id = der.symbol_id
-			 WHERE der.document_id = ?
-			 ORDER BY der.start_line`,
-			docID,
-		)
-		if err != nil {
-			return nil, err
+		chunkOccurrences, decodeErr := decodeOccurrences(occurrencesBlob)
+		if decodeErr != nil {
+			return sql.NullString{}, sql.NullString{}, sql.NullInt64{}, IndexCorruptedError{Err: decodeErr}
 		}
 
-		for symbolRows.Next() {
-			var symbolID string
-			var displayName sql.NullString
-			var kind sql.NullInt64
-			var docText sql.NullString
-			var line sql.NullInt64
-			if err := symbolRows.Scan(&symbolID, &displayName, &kind, &docText, &line); err != nil {
-				symbolRows.Close()
-				return nil, err
+		for _, occurrence := range chunkOccurrences {
+			if occurrence.Symbol != symbolID {
+				continue
 			}
-
-			results = append(results, Symbol{
-				ID:            symbolID,
-				Name:          selectSymbolName(displayName, symbolID),
-				Kind:          kindToString(kind),
-				Documentation: splitDocumentation(docText),
-				FilePath:      filePath,
-				Line:          int(line.Int64),
-				Language:      nullStringValue(language),
-			})
+			if !scip.SymbolRole_Definition.Matches(occurrence) {
+				continue
+			}
+			rangeValue, rangeErr := scip.NewRange(occurrence.Range)
+			if rangeErr != nil {
+				return sql.NullString{}, sql.NullString{}, sql.NullInt64{}, IndexCorruptedError{Err: rangeErr}
+			}
+			return relativePath, language, sql.NullInt64{Int64: int64(rangeValue.Start.Line), Valid: true}, nil
 		}
-		if err := symbolRows.Err(); err != nil {
-			symbolRows.Close()
-			return nil, err
-		}
-		symbolRows.Close()
 	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
+	if rowErr := rows.Err(); rowErr != nil {
+		return sql.NullString{}, sql.NullString{}, sql.NullInt64{}, rowErr
 	}
-	return results, nil
+	return sql.NullString{}, sql.NullString{}, sql.NullInt64{}, nil
 }
 
 // GetStats retrieves basic counts from the index.

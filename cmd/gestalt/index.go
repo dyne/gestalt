@@ -34,7 +34,7 @@ func runIndexCommand(args []string, out io.Writer, errOut io.Writer) int {
 	indexFlags := flag.NewFlagSet("index", flag.ContinueOnError)
 	indexFlags.SetOutput(errOut)
 	path := indexFlags.String("path", ".", "Path to repository")
-	output := indexFlags.String("output", "index.db", "Output SQLite path")
+	output := indexFlags.String("output", filepath.Join(".gestalt", "scip", "index.db"), "Output SQLite path")
 	force := indexFlags.Bool("force", false, "Re-index even if index exists")
 	help := indexFlags.Bool("help", false, "Show help")
 	helpShort := indexFlags.Bool("h", false, "Show help")
@@ -60,6 +60,11 @@ func runIndexCommand(args []string, out io.Writer, errOut io.Writer) int {
 		fmt.Fprintln(errOut, "Path is required.")
 		return 1
 	}
+	outputPath := strings.TrimSpace(*output)
+	if outputPath == "" {
+		fmt.Fprintln(errOut, "Output path is required.")
+		return 1
+	}
 	info, err := os.Stat(repoPath)
 	if err != nil {
 		fmt.Fprintf(errOut, "Path not found: %v\n", err)
@@ -71,14 +76,14 @@ func runIndexCommand(args []string, out io.Writer, errOut io.Writer) int {
 	}
 
 	if !*force {
-		if _, err := os.Stat(*output); err == nil {
-			if recent, age, err := recentIndexAge(*output, scipReindexRecentThreshold); err != nil {
+		if _, err := os.Stat(outputPath); err == nil {
+			if recent, age, err := recentIndexAge(outputPath, scipReindexRecentThreshold); err != nil {
 				fmt.Fprintf(errOut, "Warning: Failed to read index metadata: %v\n", err)
 			} else if recent {
 				fmt.Fprintf(errOut, "Warning: Index was created %s ago. Use --force to re-index.\n", age.Round(time.Second))
 				return 0
 			}
-			fmt.Fprintf(out, "Index exists at %s. Use --force to re-index.\n", *output)
+			fmt.Fprintf(out, "Index exists at %s. Use --force to re-index.\n", outputPath)
 			return 0
 		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 			fmt.Fprintf(errOut, "Unable to access output path: %v\n", err)
@@ -112,11 +117,23 @@ func runIndexCommand(args []string, out io.Writer, errOut io.Writer) int {
 		return 1
 	}
 
+	outputDir := filepath.Dir(outputPath)
+	if outputDir != "." {
+		if err := os.MkdirAll(outputDir, 0o755); err != nil {
+			fmt.Fprintf(errOut, "Unable to create output directory: %v\n", err)
+			return 1
+		}
+	}
+	scipDir := outputDir
+	if scipDir == "" {
+		scipDir = "."
+	}
+
 	var scipIndexes []string
 	var indexedLanguages []string
 	for _, lang := range supported {
 		fmt.Fprintf(out, "Indexing %s code...\n", lang)
-		scipOut := filepath.Join(repoPath, fmt.Sprintf("index-%s.scip", lang))
+		scipOut := filepath.Join(scipDir, fmt.Sprintf("index-%s.scip", lang))
 		if err := runIndexer(lang, repoPath, scipOut); err != nil {
 			fmt.Fprintf(errOut, "Warning: Indexing %s failed: %v\n", lang, err)
 			continue
@@ -131,23 +148,15 @@ func runIndexCommand(args []string, out io.Writer, errOut io.Writer) int {
 
 	finalScip := scipIndexes[0]
 	if len(scipIndexes) > 1 {
-		finalScip = filepath.Join(repoPath, "index.scip")
+		finalScip = filepath.Join(scipDir, "index.scip")
 		if err := mergeIndexes(scipIndexes, finalScip); err != nil {
 			fmt.Fprintf(errOut, "Error merging indexes: %v\n", err)
 			return 1
 		}
 	}
 
-	outputDir := filepath.Dir(*output)
-	if outputDir != "." {
-		if err := os.MkdirAll(outputDir, 0o755); err != nil {
-			fmt.Fprintf(errOut, "Unable to create output directory: %v\n", err)
-			return 1
-		}
-	}
-
 	fmt.Fprintln(out, "Converting to SQLite...")
-	if err := convertToSQLite(finalScip, *output); err != nil {
+	if err := convertToSQLite(finalScip, outputPath); err != nil {
 		fmt.Fprintf(errOut, "Error converting to SQLite: %v\n", err)
 		return 1
 	}
@@ -159,11 +168,11 @@ func runIndexCommand(args []string, out io.Writer, errOut io.Writer) int {
 	meta, err := buildMetadata(projectRoot, indexedLanguages)
 	if err != nil {
 		fmt.Fprintf(errOut, "Warning: Failed to build index metadata: %v\n", err)
-	} else if err := saveMetadata(*output, meta); err != nil {
+	} else if err := saveMetadata(outputPath, meta); err != nil {
 		fmt.Fprintf(errOut, "Warning: Failed to save index metadata: %v\n", err)
 	}
 
-	index, err := openIndex(*output)
+	index, err := openIndex(outputPath)
 	if err != nil {
 		fmt.Fprintf(errOut, "Error opening SQLite index: %v\n", err)
 		return 1
@@ -180,7 +189,7 @@ func runIndexCommand(args []string, out io.Writer, errOut io.Writer) int {
 	fmt.Fprintf(out, "  Documents: %d\n", stats.Documents)
 	fmt.Fprintf(out, "  Symbols: %d\n", stats.Symbols)
 	fmt.Fprintf(out, "  Occurrences: %d\n", stats.Occurrences)
-	fmt.Fprintf(out, "  Index: %s\n", *output)
+	fmt.Fprintf(out, "  Index: %s\n", outputPath)
 	return 0
 }
 
@@ -189,7 +198,7 @@ func printIndexHelp(out io.Writer) {
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Options:")
 	fmt.Fprintln(out, "  --path      Path to repository (default: current directory)")
-	fmt.Fprintln(out, "  --output    Output SQLite path (default: index.db)")
+	fmt.Fprintln(out, "  --output    Output SQLite path (default: .gestalt/scip/index.db)")
 	fmt.Fprintln(out, "  --force     Re-index even if index exists")
 }
 

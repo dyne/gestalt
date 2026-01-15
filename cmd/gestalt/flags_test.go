@@ -39,7 +39,7 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.ConfigDir != filepath.Join(".gestalt", "config") {
 		t.Fatalf("expected default config dir, got %q", cfg.ConfigDir)
 	}
-	if cfg.SCIPIndexPath != filepath.Join(".gestalt", "index.db") {
+	if cfg.SCIPIndexPath != filepath.Join(".gestalt", "scip", "index.db") {
 		t.Fatalf("expected default scip index path, got %q", cfg.SCIPIndexPath)
 	}
 	if cfg.SCIPAutoReindex {

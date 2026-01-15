@@ -969,7 +969,7 @@ func defaultConfigValues() configDefaults {
 		BackendPort:          0,
 		Shell:                terminal.DefaultShell(),
 		AuthToken:            "",
-		SCIPIndexPath:        filepath.Join(".gestalt", "index.db"),
+		SCIPIndexPath:        filepath.Join(".gestalt", "scip", "index.db"),
 		SCIPAutoReindex:      false,
 		TemporalHost:         temporalDefaultHost,
 		TemporalNamespace:    "default",

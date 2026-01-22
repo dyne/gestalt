@@ -588,7 +588,7 @@
    - Tests verify memo storage and retrieval
    - Temporal UI shows config in workflow details
    - Documentation clarifies memo is creation-time snapshot
-* WIP [#A] SCIP code intelligence integration for LLM context enhancement
+* DONE [#A] SCIP code intelligence integration for LLM context enhancement
   Goal: Integrate Sourcegraph's SCIP (SCIP Code Intelligence Protocol) indexing into Gestalt to provide rich code context to LLM agents through symbol-aware code search and retrieval.
   
   ## Implementation Summary (for coder)
@@ -651,7 +651,7 @@
   Date: 2026-01-12
   Priority: High - directly improves agent code understanding
 
-** DONE [#B] Research SCIP format and understand SQLite schema
+** [#B] Research SCIP format and understand SQLite schema
    Why: Must understand SCIP data model before building query layer
    Change:
    - Read SCIP protobuf schema: https://github.com/sourcegraph/scip/blob/main/scip.proto
@@ -698,7 +698,7 @@
    Tests: None (research and documentation)
    Done when: SCIP format understood, SQLite schema documented, query needs identified
 
-** DONE [#B] Create internal/scip package with SQLite query layer
+** [#B] Create internal/scip package with SQLite query layer
    Why: Need Go API to query SCIP indexes efficiently
    Change:
    - Create internal/scip/index.go:
@@ -800,7 +800,7 @@
      - Test GetReferences finds all occurrences
    Done when: internal/scip package queries SQLite successfully with tests
 
-** DONE [#B] Implement indexer downloader and language detection
+** [#B] Implement indexer downloader and language detection
    Why: Need to automatically download and run appropriate SCIP indexers
    Change:
    - Create internal/scip/indexers.go:
@@ -917,7 +917,7 @@
      - Test indexing (with real indexer if available)
    Done when: Indexers auto-download and run on detected languages
 
-** DONE [#B] Add REST API endpoints for SCIP queries
+** [#B] Add REST API endpoints for SCIP queries
    Why: Agents need HTTP access to SCIP data
    Change:
    - Create internal/api/scip.go:
@@ -1049,7 +1049,7 @@
      - Test error handling (missing symbol, corrupt index)
    Done when: REST API exposes SCIP queries to agents
 
-** DONE [#B] Create agent prompt/skill documenting SCIP API usage
+** [#B] Create agent prompt/skill documenting SCIP API usage
    Why: Agents need to know how to query SCIP effectively
    Change:
    - Create .gestalt/config/skills/code-intelligence/SKILL.md:
@@ -1152,7 +1152,7 @@
    Tests: Manual test with agent prompts
    Done when: Agents understand how to use SCIP API
 
-** DONE [#C] Add indexing command to gestalt CLI
+** [#C] Add indexing command to gestalt CLI
    Why: Users need simple way to index their codebases
    Change:
    - Add cmd/gestalt/index.go:
@@ -1276,7 +1276,7 @@
      - Test error handling (unsupported language)
    Done when: gestalt index command works
 
-** DONE [#C] Optimize query performance and add caching
+** [#C] Optimize query performance and add caching
    Why: SCIP queries may be frequent, need to be fast
    Change:
    - Add in-memory caching for common queries:
@@ -1322,7 +1322,7 @@
      - Profile memory usage with large indexes
    Done when: Queries complete in <100ms for typical codebase
 
-** DONE [#C] Add index freshness checking and auto-reindexing
+** [#C] Add index freshness checking and auto-reindexing
    Why: Code changes invalidate indexes, need to detect staleness
    Change:
    - Track index generation time in metadata:
@@ -1375,7 +1375,7 @@
      - Test auto-reindex triggers correctly
    Done when: Stale indexes detected and optionally auto-reindexed
 
-** DONE [#C] Test with real codebases and document best practices
+** [#C] Test with real codebases and document best practices
    Why: Need to validate SCIP integration with diverse projects
    Change:
    - Test on Gestalt itself:
@@ -1425,7 +1425,7 @@
    Tests: Manual testing, document findings (deferred until indexer binaries are available)
    Done when: SCIP integration validated on real codebases
 
-** DONE [#C] Add reindex recency guard and warning
+** [#C] Add reindex recency guard and warning
    Why: Avoid redundant reindexing when the index was just built
    Change:
    - Use index metadata created_at to detect recent indexes
@@ -1438,7 +1438,7 @@
      - API test: recent metadata returns warning without force
    Done when: Recent indexes are skipped with a clear warning unless forced
 
-** DONE [#B] Add comprehensive SCIP API tests using internal/scip/index.go data
+** [#B] Add comprehensive SCIP API tests using internal/scip/index.go data
    Why: Ensure all SCIP endpoints return correct data using a real Gestalt file and
    catch schema/fallback behavior when defn_enclosing_ranges is empty.
    Change:
@@ -1463,7 +1463,7 @@
    Done when: All SCIP endpoints have broad success/error assertions and fallback
    behavior is covered against internal/scip/index.go.
 
-** DONE [#B] Use system curl/wget for indexer downloads
+** [#B] Use system curl/wget for indexer downloads
    Why: Current Go download code appears unreliable; use system tools instead.
    Change:
    - Replace indexer download implementation with exec of `curl` or `wget`
@@ -1476,7 +1476,7 @@
      - Unit test: download failure returns error
    Done when: Indexer downloads succeed via system tooling with coverage
 
-** DONE [#B] Restore Go downloader with versioned asset validation
+** [#B] Restore Go downloader with versioned asset validation
    Why: System downloader is unreliable; ensure assets match expected version.
    Change:
    - Revert download logic to Go HTTP downloader
@@ -1487,7 +1487,7 @@
      - Unit test: download failure returns error
    Done when: Go downloader restored with version-aware asset validation
 
-** DONE [#B] Embed SCIP indexer assets and extract to .gestalt/scip
+** [#B] Embed SCIP indexer assets and extract to .gestalt/scip
    Why: Avoid runtime downloads and ensure deterministic indexer availability.
    Change:
    - Add script in script/ to download scip_* indexers into assets/scip/
@@ -1504,7 +1504,7 @@
      - Unit test: indexer lookup uses .gestalt/scip
    Done when: Embedded indexers extract on startup with hash checks
 
-** DONE [#C] Consider MCP server adapter (future work)
+** [#C] Consider MCP server adapter (future work)
    Why: May want to expose SCIP to external tools via MCP
    Change: Document design for future implementation
    - MCP (Model Context Protocol) is Anthropic's standard for LLM context providers
@@ -1552,7 +1552,7 @@
    Tests: None (future design only)
    Done when: MCP adapter design documented for future
 
-** DONE [#B] Update documentation and add SCIP LLM prompt file
+** [#B] Update documentation and add SCIP LLM prompt file
    Why: LLMs and users need to know SCIP is available; LLMs need a concise prompt for API usage
    Change:
    - Add to README.md:

@@ -82,6 +82,21 @@ This generates `.gestalt/scip/index.db` (and `.gestalt/scip/index.scip`).
 
 Supported languages: Go, TypeScript, Python, Java.
 
+### SCIP API
+
+Once `.gestalt/scip/index.db` exists, SCIP queries are available over REST:
+
+- `GET /api/scip/status`
+- `GET /api/scip/symbols?q=Name&limit=20`
+- `GET /api/scip/symbols/{id}`
+- `GET /api/scip/symbols/{id}/references`
+- `GET /api/scip/files/{path}`
+- `POST /api/scip/index` with `{"path": ".", "force": true}`
+
+Notes:
+- URL-encode symbol IDs and file paths.
+- Use returned `file_path` and `line` to open source context without grep.
+
 ## SCIP Best Practices
 
 When to index:

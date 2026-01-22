@@ -1504,7 +1504,7 @@
      - Unit test: indexer lookup uses .gestalt/scip
    Done when: Embedded indexers extract on startup with hash checks
 
-** TODO [#C] Consider MCP server adapter (future work)
+** DONE [#C] Consider MCP server adapter (future work)
    Why: May want to expose SCIP to external tools via MCP
    Change: Document design for future implementation
    - MCP (Model Context Protocol) is Anthropic's standard for LLM context providers
@@ -1548,31 +1548,13 @@
      - Extra complexity (JSON-RPC server)
      - Authentication/security considerations
      - May not be needed if only Gestalt uses it
-   - Decision: Defer until there's demand from external tools
-   - For now: REST API sufficient for Gestalt agents
+   - Decision: No MCP adapter for now; REST API is sufficient for Gestalt agents
    Tests: None (future design only)
    Done when: MCP adapter design documented for future
 
-** TODO [#B] Update documentation and add SCIP to AGENTS.md
-   Why: LLMs and users need to know SCIP is available
+** DONE [#B] Update documentation and add SCIP LLM prompt file
+   Why: LLMs and users need to know SCIP is available; LLMs need a concise prompt for API usage
    Change:
-   - Add to AGENTS.md:
-     ```markdown
-     ## SCIP Code Intelligence
-     - Gestalt indexes codebases using SCIP (Sourcegraph Code Intelligence Protocol)
-     - Provides symbol-level understanding: functions, types, variables, etc
-     - REST API: `/api/scip/symbols`, `/api/scip/symbols/:id/references`
-     - Indexing: `gestalt index` command or auto-index on startup
-     - Supported languages: Go, TypeScript/JavaScript, Python, Java
-     - Index storage: `.gestalt/index.db` (SQLite)
-     - Query examples:
-       - Find function: GET /api/scip/symbols?q=ProcessOrder
-       - Get definition: GET /api/scip/symbols/:id
-       - Find callers: GET /api/scip/symbols/:id/references
-       - List file symbols: GET /api/scip/files/:path
-     - Use for: code understanding, tracing dependencies, finding usage patterns
-     - Agents should query SCIP before asking about code structure
-     ```
    - Add to README.md:
      ```markdown
      ## Code Intelligence (SCIP)
@@ -1612,9 +1594,11 @@
      
      See [SCIP documentation](https://github.com/sourcegraph/scip) for details.
      ```
-   - Add to agent prompt templates (optional skill):
-     - Create `.gestalt/config/skills/code-intelligence/SKILL.md` (see earlier L2)
-     - Or add to default agent system prompt
+   - Add concise LLM-facing prompt at `config/prompts/scip.txt`:
+     - Detect `.gestalt/scip/index.db` presence
+     - Prefer SCIP API queries over filesystem grep for symbols/context
+     - Show minimal request patterns and response usage
+     - Do not auto-wire into other prompts (manual inclusion only)
    - Update TESTING.md with SCIP testing instructions:
      ```markdown
      ## Testing SCIP Integration
@@ -1631,7 +1615,7 @@
      ```
      ```
    Tests: Documentation is clear and accurate
-   Done when: SCIP fully documented in README and AGENTS.md
+   Done when: SCIP documented in README and TESTING.md, prompt exists at config/prompts/scip.txt
 * DONE [#A] Config extraction refactor with hash verification and version tracking
   Goal: Refactor config/ handling to always extract embedded resources to .gestalt/config/ on startup with FNV-1a 64 hash verification, semantic version compatibility checks, backup on conflicts, and relocate PLAN.org to .gestalt/.
   Notes:

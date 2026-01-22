@@ -17,6 +17,24 @@ npm test
 npm run test:coverage
 ```
 
+## SCIP integration
+
+Generate or refresh the index:
+```
+gestalt index --path .
+```
+
+Query the API (use the backend port from logs or set `GESTALT_BACKEND_PORT`):
+```
+curl "http://localhost:8080/api/scip/status"
+curl "http://localhost:8080/api/scip/symbols?q=Manager&limit=5"
+```
+
+Run SCIP unit tests:
+```
+go test ./internal/scip/...
+```
+
 ## Developer mode
 
 Use dev mode to skip config extraction and read directly from the local `config/` directory.

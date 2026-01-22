@@ -78,18 +78,18 @@
   .workflow-card {
     padding: 1.4rem;
     border-radius: 20px;
-    background: #ffffffd9;
-    border: 1px solid rgba(20, 20, 20, 0.08);
-    box-shadow: 0 18px 40px rgba(20, 20, 20, 0.08);
+    background: rgba(var(--color-surface-rgb), 0.85);
+    border: 1px solid rgba(var(--color-text-rgb), 0.08);
+    box-shadow: 0 18px 40px rgba(var(--shadow-color-rgb), 0.08);
     display: flex;
     flex-direction: column;
     gap: 1.2rem;
   }
 
   .workflow-card--paused {
-    border-color: rgba(196, 135, 0, 0.5);
-    box-shadow: 0 24px 50px rgba(196, 135, 0, 0.2);
-    background: #fff7e3;
+    border-color: rgba(var(--color-warning-rgb), 0.5);
+    box-shadow: 0 24px 50px rgba(var(--color-warning-rgb), 0.2);
+    background: rgba(var(--color-warning-rgb), 0.12);
   }
 
   .workflow-card__summary {
@@ -109,18 +109,18 @@
     text-transform: uppercase;
     letter-spacing: 0.2em;
     font-size: 0.65rem;
-    color: #6c6860;
+    color: var(--color-text-muted);
   }
 
   .workflow-card__agent {
     font-size: 1rem;
     font-weight: 600;
-    color: #161616;
+    color: var(--color-text);
   }
 
   .workflow-card__task {
     font-size: 0.9rem;
-    color: #4c4a45;
+    color: var(--color-text-subtle);
   }
 
   .workflow-card__status {
@@ -140,34 +140,34 @@
   }
 
   .status-badge--running {
-    background: rgba(35, 125, 84, 0.15);
-    color: #1f6a48;
+    background: rgba(var(--color-success-rgb), 0.15);
+    color: var(--color-success);
   }
 
   .status-badge--paused {
-    background: rgba(196, 135, 0, 0.2);
-    color: #915c00;
+    background: rgba(var(--color-warning-rgb), 0.2);
+    color: var(--color-warning);
   }
 
   .status-badge--stopped {
-    background: rgba(90, 90, 90, 0.15);
-    color: #4a4a4a;
+    background: rgba(var(--color-text-rgb), 0.15);
+    color: var(--color-text-subtle);
   }
 
   .status-badge--unknown {
-    background: rgba(160, 160, 160, 0.2);
-    color: #5f5f5f;
+    background: rgba(var(--color-text-rgb), 0.2);
+    color: var(--color-text-subtle);
   }
 
   .workflow-card__time {
     font-size: 0.8rem;
-    color: #6c6860;
+    color: var(--color-text-muted);
   }
 
   .workflow-card__toggle {
     border: none;
     background: transparent;
-    color: #151515;
+    color: var(--color-text);
     font-size: 0.8rem;
     font-weight: 600;
     cursor: pointer;

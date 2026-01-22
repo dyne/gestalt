@@ -406,7 +406,7 @@
 
 <style>
   :global(body) {
-    background: radial-gradient(circle at top left, #f6f0e4, #f1f4f6 60%, #f6f6f1);
+    background: var(--gradient-bg);
   }
 
   .dashboard {
@@ -422,11 +422,11 @@
     padding: 0.85rem 1.6rem;
     font-size: 0.95rem;
     font-weight: 600;
-    background: #151515;
-    color: #f6f3ed;
+    background: var(--color-contrast-bg);
+    color: var(--color-contrast-text);
     cursor: pointer;
     transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
-    box-shadow: 0 10px 30px rgba(10, 10, 10, 0.2);
+    box-shadow: 0 10px 30px rgba(var(--shadow-color-rgb), 0.2);
   }
 
   .cta:disabled {
@@ -449,9 +449,9 @@
   .status-card {
     padding: 1.5rem;
     border-radius: 20px;
-    background: #ffffffd9;
-    border: 1px solid rgba(20, 20, 20, 0.08);
-    box-shadow: 0 20px 50px rgba(20, 20, 20, 0.08);
+    background: rgba(var(--color-surface-rgb), 0.85);
+    border: 1px solid rgba(var(--color-text-rgb), 0.08);
+    box-shadow: 0 20px 50px rgba(var(--shadow-color-rgb), 0.08);
   }
 
   .label {
@@ -459,14 +459,14 @@
     font-size: 0.8rem;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: #6c6860;
+    color: var(--color-text-muted);
   }
 
   .value {
     display: block;
     margin-top: 0.35rem;
     font-size: 1.6rem;
-    color: #141414;
+    color: var(--color-text);
   }
 
   .status-card--wide {
@@ -493,8 +493,8 @@
     align-items: center;
     padding: 0.35rem 0.6rem;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.85);
-    border: 1px solid rgba(20, 20, 20, 0.12);
+    background: rgba(var(--color-surface-rgb), 0.85);
+    border: 1px solid rgba(var(--color-text-rgb), 0.12);
     font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
     font-size: 0.85rem;
     word-break: break-all;
@@ -505,21 +505,21 @@
   }
 
   .status-pill--git {
-    color: #5a5a54;
+    color: var(--color-text-subtle);
   }
 
   .dashboard__agents {
     padding: 1.5rem;
     border-radius: 24px;
-    background: #fff6ec;
-    border: 1px solid rgba(20, 20, 20, 0.08);
+    background: rgba(var(--color-warning-rgb), 0.12);
+    border: 1px solid rgba(var(--color-text-rgb), 0.08);
   }
 
   .dashboard__logs {
     padding: 1.5rem;
     border-radius: 24px;
-    background: #f5f7fb;
-    border: 1px solid rgba(20, 20, 20, 0.08);
+    background: rgba(var(--color-info-rgb), 0.08);
+    border: 1px solid rgba(var(--color-text-rgb), 0.08);
     display: flex;
     flex-direction: column;
     gap: 1rem;
@@ -537,15 +537,16 @@
     flex-direction: column;
     gap: 0.3rem;
     font-size: 0.75rem;
-    color: #6f6b62;
+    color: var(--color-text-muted);
   }
 
   .logs-control select {
-    border: 1px solid rgba(20, 20, 20, 0.16);
+    border: 1px solid rgba(var(--color-text-rgb), 0.16);
     border-radius: 10px;
     padding: 0.35rem 0.6rem;
     font-size: 0.85rem;
-    background: #ffffff;
+    background: var(--color-surface);
+    color: var(--color-text);
   }
 
   .logs-control--toggle {
@@ -555,10 +556,10 @@
   }
 
   .logs-refresh {
-    border: 1px solid rgba(20, 20, 20, 0.2);
+    border: 1px solid rgba(var(--color-text-rgb), 0.2);
     border-radius: 999px;
     padding: 0.45rem 0.95rem;
-    background: #ffffff;
+    background: var(--color-surface);
     font-size: 0.7rem;
     letter-spacing: 0.16em;
     text-transform: uppercase;
@@ -582,8 +583,8 @@
   .log-entry {
     padding: 0.65rem 0.85rem;
     border-radius: 16px;
-    background: #ffffff;
-    border: 1px solid rgba(20, 20, 20, 0.06);
+    background: var(--color-surface);
+    border: 1px solid rgba(var(--color-text-rgb), 0.06);
     display: flex;
     flex-direction: column;
     gap: 0.35rem;
@@ -594,35 +595,35 @@
     align-items: center;
     gap: 0.6rem;
     font-size: 0.75rem;
-    color: #5f5b54;
+    color: var(--color-text-subtle);
   }
 
   .log-badge {
     padding: 0.2rem 0.5rem;
     border-radius: 999px;
-    background: #151515;
-    color: #f4f1eb;
+    background: var(--color-contrast-bg);
+    color: var(--color-contrast-text);
     font-size: 0.65rem;
     letter-spacing: 0.12em;
     text-transform: uppercase;
   }
 
   .log-entry--info .log-badge {
-    background: #2b4b76;
+    background: var(--color-info);
   }
 
   .log-entry--warning .log-badge {
-    background: #b07219;
+    background: var(--color-warning);
   }
 
   .log-entry--error .log-badge {
-    background: #9a3535;
+    background: var(--color-danger);
   }
 
   .log-message {
     margin: 0;
     font-size: 0.85rem;
-    color: #2b2b2b;
+    color: var(--color-text);
   }
 
   .agent-grid {
@@ -638,10 +639,10 @@
   }
 
   .agent-button {
-    border: 1px solid rgba(20, 20, 20, 0.2);
+    border: 1px solid rgba(var(--color-text-rgb), 0.2);
     border-radius: 14px;
     padding: 0.75rem 1rem;
-    background: #ffffff;
+    background: var(--color-surface);
     font-weight: 600;
     display: flex;
     flex-direction: column;
@@ -658,14 +659,14 @@
   }
 
   .agent-button--running {
-    background: #e4f4ef;
-    border-color: rgba(22, 94, 66, 0.35);
-    box-shadow: 0 12px 20px rgba(22, 94, 66, 0.12);
+    background: rgba(var(--color-success-rgb), 0.12);
+    border-color: rgba(var(--color-success-rgb), 0.35);
+    box-shadow: 0 12px 20px rgba(var(--color-success-rgb), 0.12);
   }
 
   .agent-button--stopped {
-    background: #ffffff;
-    border-color: rgba(20, 20, 20, 0.16);
+    background: var(--color-surface);
+    border-color: rgba(var(--color-text-rgb), 0.16);
   }
 
   .agent-button--running .agent-name::before {
@@ -675,8 +676,8 @@
     height: 0.45rem;
     border-radius: 999px;
     margin-right: 0.4rem;
-    background: #1f7a5f;
-    box-shadow: 0 0 0 0 rgba(31, 122, 95, 0.4);
+    background: var(--color-success);
+    box-shadow: 0 0 0 0 rgba(var(--color-success-rgb), 0.4);
     animation: pulseDot 2.4s ease-in-out infinite;
   }
 
@@ -684,25 +685,25 @@
     font-size: 0.7rem;
     letter-spacing: 0.16em;
     text-transform: uppercase;
-    color: #5f5b54;
+    color: var(--color-text-subtle);
   }
 
   @keyframes pulseDot {
     0% {
-      box-shadow: 0 0 0 0 rgba(31, 122, 95, 0.4);
+      box-shadow: 0 0 0 0 rgba(var(--color-success-rgb), 0.4);
     }
     70% {
-      box-shadow: 0 0 0 0.4rem rgba(31, 122, 95, 0);
+      box-shadow: 0 0 0 0.4rem rgba(var(--color-success-rgb), 0);
     }
     100% {
-      box-shadow: 0 0 0 0 rgba(31, 122, 95, 0);
+      box-shadow: 0 0 0 0 rgba(var(--color-success-rgb), 0);
     }
   }
 
   .agent-skills {
     font-size: 0.8rem;
     font-weight: 500;
-    color: #5f5b54;
+    color: var(--color-text-subtle);
     text-align: left;
   }
 
@@ -715,7 +716,7 @@
 
   .agent-button:not(:disabled):hover {
     transform: translateY(-2px);
-    box-shadow: 0 12px 20px rgba(10, 10, 10, 0.12);
+    box-shadow: 0 12px 20px rgba(var(--shadow-color-rgb), 0.12);
   }
 
   .list-header {
@@ -728,16 +729,16 @@
   .subtle {
     margin: 0;
     font-size: 0.9rem;
-    color: #7a776f;
+    color: var(--color-text-subtle);
   }
 
   .muted {
-    color: #7d7a73;
+    color: var(--color-text-subtle);
     margin: 0.5rem 0 0;
   }
 
   .error {
-    color: #b04a39;
+    color: var(--color-danger);
     margin: 0.5rem 0 0;
   }
 

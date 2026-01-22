@@ -233,10 +233,10 @@
     height: calc(100vh - 64px);
     width: 100%;
     min-width: 0;
-    background: #101010;
+    background: var(--terminal-bg);
     border-radius: 20px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 0 20px 50px rgba(10, 10, 10, 0.35);
+    border: 1px solid rgba(var(--terminal-border-rgb), 0.12);
+    box-shadow: 0 20px 50px rgba(var(--shadow-color-rgb), 0.35);
     overflow: hidden;
     position: relative;
   }
@@ -252,8 +252,8 @@
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
     padding: 0.9rem 1.2rem;
-    background: #171717;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--terminal-panel);
+    border-bottom: 1px solid rgba(var(--terminal-border-rgb), 0.12);
     gap: 1rem;
   }
 
@@ -272,7 +272,7 @@
     font-size: 0.85rem;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: rgba(242, 239, 233, 0.7);
+    color: rgba(var(--color-text-rgb), 0.7);
     overflow-wrap: anywhere;
   }
 
@@ -282,7 +282,7 @@
     font-size: 0.7rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: rgba(242, 239, 233, 0.5);
+    color: rgba(var(--color-text-rgb), 0.5);
     overflow-wrap: anywhere;
   }
 
@@ -290,13 +290,13 @@
     margin: 0;
     display: inline-flex;
     font-size: 0.75rem;
-    color: rgba(242, 239, 233, 0.5);
+    color: rgba(var(--color-text-rgb), 0.5);
     text-transform: uppercase;
     letter-spacing: 0.12em;
   }
 
   .separator {
-    color: rgba(242, 239, 233, 0.25);
+    color: rgba(var(--color-text-rgb), 0.25);
     font-size: 0.75rem;
     text-transform: uppercase;
     letter-spacing: 0.08em;
@@ -306,8 +306,8 @@
     border: 0;
     border-radius: 999px;
     padding: 0.2rem 0.7rem;
-    background: rgba(242, 239, 233, 0.16);
-    color: rgba(242, 239, 233, 0.95);
+    background: rgba(var(--color-text-rgb), 0.16);
+    color: rgba(var(--color-text-rgb), 0.95);
     font-size: 0.65rem;
     text-transform: uppercase;
     letter-spacing: 0.12em;
@@ -315,7 +315,7 @@
   }
 
   .reconnect:hover {
-    background: rgba(242, 239, 233, 0.24);
+    background: rgba(var(--color-text-rgb), 0.24);
   }
 
   .header-actions {
@@ -335,8 +335,8 @@
     gap: 0.6rem;
     padding: 0.4rem 0.9rem;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(242, 239, 233, 0.9);
+    background: rgba(var(--color-text-rgb), 0.08);
+    color: rgba(var(--color-text-rgb), 0.9);
     font-size: 0.75rem;
     text-transform: uppercase;
     letter-spacing: 0.12em;
@@ -347,11 +347,11 @@
   }
 
   .terminal-close {
-    border: 1px solid rgba(255, 255, 255, 0.18);
+    border: 1px solid rgba(var(--color-text-rgb), 0.18);
     border-radius: 999px;
     padding: 0.4rem 0.9rem;
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(242, 239, 233, 0.9);
+    background: rgba(var(--color-text-rgb), 0.08);
+    color: rgba(var(--color-text-rgb), 0.9);
     font-size: 0.7rem;
     text-transform: uppercase;
     letter-spacing: 0.12em;
@@ -360,7 +360,7 @@
   }
 
   .terminal-close:hover {
-    background: rgba(255, 255, 255, 0.16);
+    background: rgba(var(--color-text-rgb), 0.16);
   }
 
   .terminal-shell__body {

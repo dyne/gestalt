@@ -1,9 +1,13 @@
 <script>
   import { VERSION } from '../lib/version.js'
-  import dyneIcon from '../assets/dyne-icon-black.svg'
-  import dyneLogotype from '../assets/dyne-logotype-black.svg'
-  import gestaltIcon from '../assets/p_glogo_grey.svg'
-  import gestaltLogotype from '../assets/t_glogo_grey.svg'
+  import dyneIconLight from '../assets/dyne-icon-black.svg'
+  import dyneIconDark from '../assets/border-white-Icon.svg'
+  import dyneLogotypeLight from '../assets/dyne-logotype-black.svg'
+  import dyneLogotypeDark from '../assets/white-Logotype.svg'
+  import gestaltIconLight from '../assets/p_glogo_grey.svg'
+  import gestaltIconDark from '../assets/p_glogo_white.svg'
+  import gestaltLogotypeLight from '../assets/t_glogo_grey.svg'
+  import gestaltLogotypeDark from '../assets/t_glogo_white.svg'
 
   export let tabs = []
   export let activeId = ''
@@ -19,8 +23,26 @@
     on:click={() => onSelect('dashboard')}
     aria-label="Open dashboard"
   >
-    <img class="tabbar__brand-icon" src={gestaltIcon} alt="Gestalt icon" />
-    <img class="tabbar__brand-logotype" src={gestaltLogotype} alt="Gestalt" />
+    <img
+      class="tabbar__brand-icon tabbar__brand-icon--light"
+      src={gestaltIconLight}
+      alt="Gestalt icon"
+    />
+    <img
+      class="tabbar__brand-icon tabbar__brand-icon--dark"
+      src={gestaltIconDark}
+      alt="Gestalt icon"
+    />
+    <img
+      class="tabbar__brand-logotype tabbar__brand-logotype--light"
+      src={gestaltLogotypeLight}
+      alt="Gestalt"
+    />
+    <img
+      class="tabbar__brand-logotype tabbar__brand-logotype--dark"
+      src={gestaltLogotypeDark}
+      alt="Gestalt"
+    />
     <span class="tabbar__brand-by">v{VERSION}</span>
   </button>
   {#each visibleTabs as tab}
@@ -38,17 +60,27 @@
     <div class="tabbar__logos">
       <a href="https://dyne.org" target="_blank" rel="noopener noreferrer">
         <img
-          class="tabbar__logo tabbar__logo--type"
-          src={dyneLogotype}
+          class="tabbar__logo tabbar__logo--type tabbar__logo--light"
+          src={dyneLogotypeLight}
           alt="Dyne.org"
-          />
+        />
+        <img
+          class="tabbar__logo tabbar__logo--type tabbar__logo--dark"
+          src={dyneLogotypeDark}
+          alt="Dyne.org"
+        />
       </a>
       <a href="https://dyne.org" target="_blank" rel="noopener noreferrer">
         <img
-          class="tabbar__logo tabbar__logo--icon"
-          src={dyneIcon}
+          class="tabbar__logo tabbar__logo--icon tabbar__logo--light"
+          src={dyneIconLight}
           alt="Dyne.org"
-          />
+        />
+        <img
+          class="tabbar__logo tabbar__logo--icon tabbar__logo--dark"
+          src={dyneIconDark}
+          alt="Dyne.org"
+        />
       </a>
     </div>
 </nav>
@@ -59,8 +91,8 @@
     align-items: center;
     gap: 0.6rem;
     padding: 0.75rem clamp(1.5rem, 4vw, 3.5rem);
-    border-bottom: 1px solid rgba(20, 20, 20, 0.08);
-    background: rgba(255, 255, 255, 0.9);
+    border-bottom: 1px solid rgba(var(--color-text-rgb), 0.08);
+    background: rgba(var(--color-surface-rgb), 0.9);
     backdrop-filter: blur(12px);
     position: sticky;
     top: 0;
@@ -75,7 +107,7 @@
     gap: 0.35rem;
     padding: 0;
     cursor: pointer;
-    color: #151515;
+    color: var(--color-text);
     white-space: nowrap;
   }
 
@@ -95,7 +127,7 @@
     font-size: 0.65rem;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: #6d6a61;
+    color: var(--color-text-muted);
   }
 
   .tabbar__item {
@@ -110,8 +142,8 @@
   }
 
   .tabbar__item[data-active='true'] {
-    background: #151515;
-    border-color: #151515;
+    background: var(--color-contrast-bg);
+    border-color: var(--color-contrast-bg);
   }
 
   .tabbar__button {
@@ -119,13 +151,13 @@
     background: transparent;
     font-size: 0.85rem;
     font-weight: 600;
-    color: #151515;
+    color: var(--color-text);
     cursor: pointer;
     padding: 0 0.4rem;
   }
 
   .tabbar__item[data-active='true'] .tabbar__button {
-    color: #f6f3ed;
+    color: var(--color-contrast-text);
   }
 
   .tabbar__logos {
@@ -150,8 +182,34 @@
     width: auto;
   }
 
+  .tabbar__brand-icon--dark,
+  .tabbar__brand-logotype--dark,
+  .tabbar__logo--dark {
+    display: none;
+  }
+
+  .tabbar__brand-icon--light,
+  .tabbar__brand-logotype--light,
+  .tabbar__logo--light {
+    display: block;
+  }
+
   .tabbar__logos a:hover .tabbar__logo {
     opacity: 0.7;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .tabbar__brand-icon--light,
+    .tabbar__brand-logotype--light,
+    .tabbar__logo--light {
+      display: none;
+    }
+
+    .tabbar__brand-icon--dark,
+    .tabbar__brand-logotype--dark,
+    .tabbar__logo--dark {
+      display: block;
+    }
   }
 
   @media (max-width: 720px) {

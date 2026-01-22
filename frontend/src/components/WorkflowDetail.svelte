@@ -231,7 +231,7 @@
 
 <style>
   .workflow-detail {
-    border-top: 1px solid rgba(20, 20, 20, 0.08);
+    border-top: 1px solid rgba(var(--color-text-rgb), 0.08);
     padding-top: 1.2rem;
     display: flex;
     flex-direction: column;
@@ -262,10 +262,10 @@
   }
 
   .detail-copy button {
-    border: 1px solid rgba(20, 20, 20, 0.2);
+    border: 1px solid rgba(var(--color-text-rgb), 0.2);
     border-radius: 999px;
     padding: 0.35rem 0.9rem;
-    background: #ffffff;
+    background: var(--color-surface);
     font-size: 0.75rem;
     font-weight: 600;
     cursor: pointer;
@@ -278,19 +278,19 @@
 
   .copy-status {
     font-size: 0.75rem;
-    color: #2e6b46;
+    color: var(--color-success);
   }
 
   .label {
     font-size: 0.7rem;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: #6c6860;
+    color: var(--color-text-muted);
   }
 
   .value {
     font-size: 0.85rem;
-    color: #161616;
+    color: var(--color-text);
     word-break: break-all;
   }
 
@@ -301,7 +301,7 @@
   }
 
   .muted {
-    color: #7d7a73;
+    color: var(--color-text-subtle);
     margin: 0;
   }
 
@@ -321,7 +321,7 @@
     flex-wrap: wrap;
     gap: 0.75rem;
     font-size: 0.85rem;
-    color: #4c4a45;
+    color: var(--color-text-subtle);
   }
 
   .task-time,
@@ -331,15 +331,15 @@
   }
 
   .bell-context {
-    color: #6c6860;
+    color: var(--color-text-muted);
   }
 
   .context {
     margin: 0;
     padding: 0.75rem;
     border-radius: 12px;
-    background: #1b1b1b;
-    color: #f6f3ed;
+    background: var(--color-contrast-bg);
+    color: var(--color-contrast-text);
     font-size: 0.8rem;
     max-height: 200px;
     overflow: auto;
@@ -354,15 +354,15 @@
 
   .detail-actions button,
   .detail-actions a {
-    border: 1px solid rgba(20, 20, 20, 0.2);
+    border: 1px solid rgba(var(--color-text-rgb), 0.2);
     border-radius: 999px;
     padding: 0.5rem 1.2rem;
-    background: #ffffff;
+    background: var(--color-surface);
     font-size: 0.8rem;
     font-weight: 600;
     cursor: pointer;
     text-decoration: none;
-    color: #151515;
+    color: var(--color-text);
     display: inline-flex;
     align-items: center;
     justify-content: center;

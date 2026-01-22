@@ -125,20 +125,20 @@
     gap: 0.5rem;
     padding: 0.25rem 0.4rem;
     border-radius: 10px;
-    color: #1b1b1b;
+    color: var(--color-text);
   }
 
   .org-node__row:hover {
-    background: rgba(20, 20, 20, 0.05);
+    background: rgba(var(--color-text-rgb), 0.05);
   }
 
   .org-node__toggle {
     width: 1.1rem;
     height: 1.1rem;
     border: none;
-    background: rgba(20, 20, 20, 0.08);
+    background: rgba(var(--color-text-rgb), 0.08);
     border-radius: 6px;
-    color: #1b1b1b;
+    color: var(--color-text);
     font-size: 0.7rem;
     display: grid;
     place-items: center;
@@ -146,7 +146,7 @@
   }
 
   .org-node__toggle:focus-visible {
-    outline: 2px solid rgba(31, 74, 154, 0.35);
+    outline: 2px solid rgba(var(--color-info-rgb), 0.35);
     outline-offset: 2px;
   }
 
@@ -161,27 +161,27 @@
     text-transform: uppercase;
     padding: 0.1rem 0.4rem;
     border-radius: 999px;
-    background: rgba(20, 20, 20, 0.08);
+    background: rgba(var(--color-text-rgb), 0.08);
   }
 
   .org-node__badge--todo {
-    background: rgba(36, 88, 190, 0.16);
-    color: #1f4a9a;
+    background: rgba(var(--color-info-rgb), 0.16);
+    color: var(--color-info);
   }
 
   .org-node__badge--wip {
-    background: rgba(214, 143, 30, 0.18);
-    color: #a05405;
+    background: rgba(var(--color-warning-rgb), 0.18);
+    color: var(--color-warning);
   }
 
   .org-node__badge--done {
-    background: rgba(73, 132, 90, 0.2);
-    color: #2e6d3a;
+    background: rgba(var(--color-success-rgb), 0.2);
+    color: var(--color-success);
   }
 
   .org-node__badge--priority {
-    background: rgba(180, 60, 40, 0.18);
-    color: #8f2a1a;
+    background: rgba(var(--color-danger-rgb), 0.18);
+    color: var(--color-danger);
   }
 
   .org-node__text {
@@ -190,14 +190,14 @@
   }
 
   .org-node__highlight {
-    background: rgba(245, 214, 132, 0.7);
+    background: rgba(var(--color-warning-rgb), 0.4);
     border-radius: 4px;
     padding: 0 2px;
   }
 
   .org-node__body {
     margin: 0.2rem 0 0.4rem 1.6rem;
-    color: #5f5b52;
+    color: var(--color-text-subtle);
     font-size: 0.82rem;
     white-space: pre-wrap;
   }

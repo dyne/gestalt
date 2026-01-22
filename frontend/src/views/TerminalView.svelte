@@ -63,15 +63,16 @@
   }
 
   .close-dialog {
-    border: 1px solid rgba(20, 20, 20, 0.1);
+    background: var(--color-surface);
+    border: 1px solid rgba(var(--color-text-rgb), 0.1);
     border-radius: 20px;
     padding: 1.5rem;
     width: min(420px, 92vw);
-    box-shadow: 0 24px 60px rgba(10, 10, 10, 0.25);
+    box-shadow: 0 24px 60px rgba(var(--shadow-color-rgb), 0.25);
   }
 
   .close-dialog::backdrop {
-    background: rgba(15, 15, 15, 0.6);
+    background: rgba(var(--shadow-color-rgb), 0.6);
   }
 
   .close-dialog h2 {
@@ -81,7 +82,7 @@
 
   .close-dialog p {
     margin: 0;
-    color: #5f5b54;
+    color: var(--color-text-subtle);
   }
 
   .close-dialog__actions {
@@ -95,15 +96,15 @@
     border: none;
     border-radius: 999px;
     padding: 0.45rem 1.1rem;
-    background: #b34137;
-    color: #ffffff;
+    background: var(--color-danger);
+    color: var(--color-contrast-text);
     font-size: 0.8rem;
     font-weight: 600;
     cursor: pointer;
   }
 
   .close-dialog__cancel {
-    border: 1px solid rgba(20, 20, 20, 0.2);
+    border: 1px solid rgba(var(--color-text-rgb), 0.2);
     border-radius: 999px;
     padding: 0.45rem 1.1rem;
     background: transparent;
@@ -115,8 +116,8 @@
   .empty {
     padding: 2.5rem;
     border-radius: 24px;
-    background: #ffffff;
-    border: 1px solid rgba(20, 20, 20, 0.1);
+    background: var(--color-surface);
+    border: 1px solid rgba(var(--color-text-rgb), 0.1);
     max-width: 420px;
   }
 
@@ -127,6 +128,6 @@
 
   p {
     margin: 0;
-    color: #6d6a61;
+    color: var(--color-text-muted);
   }
 </style>

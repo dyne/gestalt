@@ -34,6 +34,22 @@ const MOUSE_MODE_PARAMS = new Set([
   1016,
 ])
 
+const readCssVar = (name, fallback) => {
+  if (typeof window === 'undefined') return fallback
+  const value = window
+    .getComputedStyle(document.documentElement)
+    .getPropertyValue(name)
+    .trim()
+  return value || fallback
+}
+
+const buildTerminalTheme = () => ({
+  background: readCssVar('--terminal-bg', '#11111b'),
+  foreground: readCssVar('--terminal-text', '#cdd6f4'),
+  cursor: readCssVar('--terminal-text', '#cdd6f4'),
+  selectionBackground: readCssVar('--terminal-selection', 'rgba(205, 214, 244, 0.2)'),
+})
+
 const hasModifierKey = (event) => event.ctrlKey || event.metaKey
 
 const isCopyKey = (event) =>
@@ -163,13 +179,25 @@ const createTerminalState = (terminalId) => {
     cursorBlink: true,
     fontSize: 14,
     fontFamily: '"IBM Plex Mono", "JetBrains Mono", monospace',
-    theme: {
-      background: '#101010',
-      foreground: '#f2efe9',
-      cursor: '#f2efe9',
-      selectionBackground: '#3a3a3a',
-    },
+    theme: buildTerminalTheme(),
   })
+
+  let disposeThemeListener
+  const syncTheme = () => {
+    term.options.theme = buildTerminalTheme()
+  }
+
+  if (typeof window !== 'undefined' && window.matchMedia) {
+    const media = window.matchMedia('(prefers-color-scheme: dark)')
+    const handler = () => syncTheme()
+    if (media.addEventListener) {
+      media.addEventListener('change', handler)
+      disposeThemeListener = () => media.removeEventListener('change', handler)
+    } else if (media.addListener) {
+      media.addListener(handler)
+      disposeThemeListener = () => media.removeListener(handler)
+    }
+  }
 
   const fitAddon = new FitAddon()
   term.loadAddon(fitAddon)
@@ -804,6 +832,9 @@ const createTerminalState = (terminalId) => {
     }
     if (disposePointerHandlers) {
       disposePointerHandlers()
+    }
+    if (disposeThemeListener) {
+      disposeThemeListener()
     }
     term.dispose()
   }

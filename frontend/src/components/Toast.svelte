@@ -60,27 +60,24 @@
     position: relative;
     padding: 0.9rem 1rem 1rem;
     border-radius: 16px;
-    background: var(--toast-bg, #1b1b1b);
-    color: #f4f1eb;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    box-shadow: 0 18px 40px rgba(10, 10, 10, 0.3);
+    background: var(--toast-bg, var(--color-contrast-bg));
+    color: var(--color-contrast-text);
+    border: 1px solid rgba(var(--color-contrast-text-rgb), 0.12);
+    box-shadow: 0 18px 40px rgba(var(--shadow-color-rgb), 0.3);
     cursor: pointer;
     overflow: hidden;
   }
 
   .toast--info {
-    --toast-bg: #1a2333;
-    --toast-accent: #66a2ff;
+    --toast-accent: var(--color-info);
   }
 
   .toast--warning {
-    --toast-bg: #2a2416;
-    --toast-accent: #f6c15d;
+    --toast-accent: var(--color-warning);
   }
 
   .toast--error {
-    --toast-bg: #2d1917;
-    --toast-accent: #ff8a7a;
+    --toast-accent: var(--color-danger);
   }
 
   .toast__header {
@@ -95,18 +92,18 @@
     font-size: 0.75rem;
     text-transform: uppercase;
     letter-spacing: 0.16em;
-    color: var(--toast-accent, #f4f1eb);
+    color: var(--toast-accent, var(--color-contrast-text));
   }
 
   .toast__message {
     margin: 0;
     font-size: 0.95rem;
-    color: #f4f1eb;
+    color: var(--color-contrast-text);
   }
 
   .toast__close {
     border: 0;
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba(var(--color-contrast-text-rgb), 0.1);
     color: inherit;
     width: 1.4rem;
     height: 1.4rem;
@@ -122,7 +119,7 @@
     left: 0;
     bottom: 0;
     height: 3px;
-    background: var(--toast-accent, #f4f1eb);
+    background: var(--toast-accent, var(--color-contrast-text));
     animation: toast-progress var(--duration) linear forwards;
   }
 

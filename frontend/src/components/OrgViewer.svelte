@@ -139,9 +139,9 @@
 <style>
   .org-viewer {
     border-radius: 24px;
-    border: 1px solid rgba(20, 20, 20, 0.08);
-    background: rgba(255, 255, 255, 0.88);
-    box-shadow: 0 25px 60px rgba(20, 20, 20, 0.08);
+    border: 1px solid rgba(var(--color-text-rgb), 0.08);
+    background: rgba(var(--color-surface-rgb), 0.88);
+    box-shadow: 0 25px 60px rgba(var(--shadow-color-rgb), 0.08);
     padding: 1.5rem;
     display: flex;
     flex-direction: column;
@@ -163,10 +163,10 @@
   }
 
   .org-viewer__actions button {
-    border: 1px solid rgba(20, 20, 20, 0.15);
+    border: 1px solid rgba(var(--color-text-rgb), 0.15);
     border-radius: 999px;
     padding: 0.35rem 0.9rem;
-    background: #ffffff;
+    background: var(--color-surface);
     font-size: 0.75rem;
     font-weight: 600;
     cursor: pointer;
@@ -175,7 +175,7 @@
   .org-viewer__actions button:focus-visible,
   .org-viewer__filters select:focus-visible,
   .org-viewer__filters input:focus-visible {
-    outline: 2px solid rgba(31, 74, 154, 0.35);
+    outline: 2px solid rgba(var(--color-info-rgb), 0.35);
     outline-offset: 2px;
   }
 
@@ -193,16 +193,18 @@
     font-size: 0.7rem;
     text-transform: uppercase;
     letter-spacing: 0.16em;
-    color: #6d6a61;
+    color: var(--color-text-muted);
   }
 
   .org-viewer__filters select,
   .org-viewer__filters input {
-    border: 1px solid rgba(20, 20, 20, 0.15);
+    border: 1px solid rgba(var(--color-text-rgb), 0.15);
     border-radius: 12px;
     padding: 0.45rem 0.7rem;
     font-size: 0.85rem;
     min-width: 160px;
+    background: var(--color-surface);
+    color: var(--color-text);
   }
 
   .org-viewer__search input {
@@ -217,7 +219,7 @@
   }
 
   .muted {
-    color: #7d7a73;
+    color: var(--color-text-subtle);
     margin: 0.4rem 0 0;
   }
 

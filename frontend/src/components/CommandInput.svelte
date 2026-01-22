@@ -204,9 +204,9 @@
     bottom: 0;
     z-index: 10;
     padding: 0.85rem 1rem 1rem;
-    background: #171717;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
-    box-shadow: 0 -12px 24px rgba(0, 0, 0, 0.35);
+    background: var(--terminal-panel);
+    border-top: 1px solid rgba(var(--terminal-border-rgb), 0.12);
+    box-shadow: 0 -12px 24px rgba(var(--shadow-color-rgb), 0.35);
   }
 
   .command-input__row {
@@ -224,11 +224,11 @@
   }
 
   .scroll-bottom {
-    border: 1px solid rgba(255, 255, 255, 0.16);
+    border: 1px solid rgba(var(--terminal-border-rgb), 0.2);
     border-radius: 999px;
     padding: 0.35rem 0.6rem;
-    background: #0f0f0f;
-    color: #f2efe9;
+    background: var(--terminal-bg);
+    color: var(--terminal-text);
     font-size: 0.65rem;
     letter-spacing: 0.12em;
     text-transform: uppercase;
@@ -247,9 +247,9 @@
     max-height: 15rem;
     padding: 0.75rem 0.85rem;
     border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: #0f0f0f;
-    color: #f2efe9;
+    border: 1px solid rgba(var(--terminal-border-rgb), 0.2);
+    background: var(--terminal-bg);
+    color: var(--terminal-text);
     font-family: '"IBM Plex Mono", "JetBrains Mono", monospace';
     font-size: 0.95rem;
     line-height: 1.45;
@@ -258,8 +258,8 @@
   }
 
   textarea:focus {
-    border-color: rgba(255, 255, 255, 0.3);
-    box-shadow: 0 0 0 2px rgba(242, 239, 233, 0.15);
+    border-color: rgba(var(--color-info-rgb), 0.35);
+    box-shadow: 0 0 0 2px rgba(var(--color-info-rgb), 0.2);
   }
 
   textarea:disabled {
@@ -290,9 +290,9 @@
     width: 18px;
     height: 48px;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.15);
+    background: rgba(var(--color-text-rgb), 0.15);
     transition: background 0.2s ease;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+    box-shadow: inset 0 0 0 1px rgba(var(--color-text-rgb), 0.1);
   }
 
   .direct-toggle__switch::after {
@@ -303,12 +303,12 @@
     width: 14px;
     height: 14px;
     border-radius: 50%;
-    background: #f2efe9;
+    background: var(--terminal-text);
     transition: transform 0.2s ease;
   }
 
   .direct-toggle input:checked + .direct-toggle__switch {
-    background: rgba(111, 196, 129, 0.6);
+    background: rgba(var(--color-success-rgb), 0.6);
   }
 
   .direct-toggle input:checked + .direct-toggle__switch::after {

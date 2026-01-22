@@ -103,7 +103,7 @@
   .settings-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(15, 15, 15, 0.6);
+    background: rgba(var(--shadow-color-rgb), 0.6);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -112,12 +112,12 @@
   }
 
   .settings-panel {
-    background: #ffffff;
+    background: var(--color-surface);
     border-radius: 20px;
     padding: 1.5rem;
     width: min(420px, 100%);
-    border: 1px solid rgba(20, 20, 20, 0.1);
-    box-shadow: 0 24px 60px rgba(10, 10, 10, 0.25);
+    border: 1px solid rgba(var(--color-text-rgb), 0.1);
+    box-shadow: 0 24px 60px rgba(var(--shadow-color-rgb), 0.25);
   }
 
   header {
@@ -136,8 +136,8 @@
     border: 0;
     border-radius: 999px;
     padding: 0.4rem 0.9rem;
-    background: #151515;
-    color: #f6f3ed;
+    background: var(--color-contrast-bg);
+    color: var(--color-contrast-text);
     font-size: 0.75rem;
     cursor: pointer;
   }
@@ -154,7 +154,7 @@
     flex-direction: column;
     gap: 0.5rem;
     font-size: 0.9rem;
-    color: #3b3832;
+    color: var(--color-text);
   }
 
   .checkbox {
@@ -165,9 +165,10 @@
   input[type='number'],
   select {
     border-radius: 12px;
-    border: 1px solid rgba(20, 20, 20, 0.2);
+    border: 1px solid rgba(var(--color-text-rgb), 0.2);
     padding: 0.5rem 0.6rem;
-    background: #fff;
+    background: var(--color-surface);
+    color: var(--color-text);
   }
 
   input[type='checkbox'] {
@@ -177,6 +178,6 @@
   .hint {
     margin: 0;
     font-size: 0.75rem;
-    color: #6f6b62;
+    color: var(--color-text-muted);
   }
 </style>

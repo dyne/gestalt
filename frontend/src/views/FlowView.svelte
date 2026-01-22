@@ -178,7 +178,7 @@
     text-transform: uppercase;
     letter-spacing: 0.24em;
     font-size: 0.7rem;
-    color: #6d6a61;
+    color: var(--color-text-muted);
     margin: 0 0 0.6rem;
   }
 
@@ -186,14 +186,14 @@
     margin: 0;
     font-size: clamp(2rem, 3.5vw, 3rem);
     font-weight: 600;
-    color: #161616;
+    color: var(--color-text);
   }
 
   .refresh {
-    border: 1px solid rgba(20, 20, 20, 0.2);
+    border: 1px solid rgba(var(--color-text-rgb), 0.2);
     border-radius: 999px;
     padding: 0.6rem 1.2rem;
-    background: #ffffff;
+    background: var(--color-surface);
     font-size: 0.8rem;
     font-weight: 600;
     cursor: pointer;
@@ -209,16 +209,16 @@
     font-size: 0.75rem;
     text-transform: uppercase;
     letter-spacing: 0.12em;
-    color: #6f6b62;
+    color: var(--color-text-muted);
   }
 
   .muted {
-    color: #7d7a73;
+    color: var(--color-text-subtle);
     margin: 0.5rem 0 0;
   }
 
   .error {
-    color: #b04a39;
+    color: var(--color-danger);
     margin: 0.5rem 0 0;
   }
 

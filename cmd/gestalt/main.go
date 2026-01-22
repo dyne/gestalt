@@ -239,6 +239,14 @@ func main() {
 	}
 
 	configFS := buildConfigFS(configPaths.Root)
+	configOverlay := configFS
+	if shouldPreferLocalConfig(configPaths) {
+		configOverlay = overlayFS{
+			primary:  os.DirFS("."),
+			fallback: configFS,
+		}
+	}
+
 	skills, err := loadSkills(logger, configFS, configPaths.SubDir)
 	if err != nil {
 		logger.Error("load skills failed", map[string]string{
@@ -250,7 +258,7 @@ func main() {
 		"count": strconv.Itoa(len(skills)),
 	})
 
-	agents, err := loadAgents(logger, configFS, configPaths.SubDir, buildSkillIndex(skills))
+	agents, err := loadAgents(logger, configOverlay, configPaths.SubDir, buildSkillIndex(skills))
 	if err != nil {
 		logger.Error("load agents failed", map[string]string{
 			"error": err.Error(),
@@ -272,7 +280,7 @@ func main() {
 		InputHistoryDir:      cfg.InputHistoryDir,
 		SessionRetentionDays: cfg.SessionRetentionDays,
 		BufferLines:          cfg.SessionBufferLines,
-		PromptFS:             configFS,
+		PromptFS:             configOverlay,
 		PromptDir:            path.Join(configPaths.SubDir, "prompts"),
 	})
 

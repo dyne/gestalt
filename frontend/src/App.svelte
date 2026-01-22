@@ -27,6 +27,15 @@
   let watchErrorNotified = false
   let terminalErrorUnsubscribe = null
 
+  const buildTitle = (workingDir) => {
+    if (!workingDir) {
+      return 'gestalt'
+    }
+    const trimmed = workingDir.replace(/[\\/]+$/, '')
+    const parts = trimmed.split(/[\\/]/).filter(Boolean)
+    return parts[parts.length - 1] || trimmed || 'gestalt'
+  }
+
   $: activeView =
     activeId === 'dashboard'
       ? 'dashboard'
@@ -35,6 +44,11 @@
         : activeId === 'flow'
           ? 'flow'
           : 'terminal'
+
+  $: if (typeof document !== 'undefined') {
+    const projectName = buildTitle(status?.working_dir || '')
+    document.title = `${projectName} | gestalt`
+  }
 
   const syncTabs = (terminalList) => {
     tabs = [

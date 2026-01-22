@@ -2,11 +2,14 @@
   import { VERSION } from '../lib/version.js'
   import dyneIcon from '../assets/dyne-icon-black.svg'
   import dyneLogotype from '../assets/dyne-logotype-black.svg'
-  import gestaltLogo from '../assets/gestalt-logo.svg'
+  import gestaltIcon from '../assets/p_glogo_grey.svg'
+  import gestaltLogotype from '../assets/t_glogo_grey.svg'
 
   export let tabs = []
   export let activeId = ''
   export let onSelect = () => {}
+
+  $: visibleTabs = tabs.filter((tab) => tab.id !== 'dashboard')
 </script>
 
 <nav class="tabbar" aria-label="App tabs">
@@ -16,10 +19,11 @@
     on:click={() => onSelect('dashboard')}
     aria-label="Open dashboard"
   >
-    <img class="tabbar__brand-logo" src={gestaltLogo} alt="Gestalt" />
+    <img class="tabbar__brand-icon" src={gestaltIcon} alt="Gestalt icon" />
+    <img class="tabbar__brand-logotype" src={gestaltLogotype} alt="Gestalt" />
     <span class="tabbar__brand-by">v{VERSION}</span>
   </button>
-  {#each tabs as tab}
+  {#each visibleTabs as tab}
     <div class="tabbar__item" data-active={tab.id === activeId}>
       <button
         class="tabbar__button"
@@ -75,7 +79,13 @@
     white-space: nowrap;
   }
 
-  .tabbar__brand-logo {
+  .tabbar__brand-icon {
+    height: 36px;
+    width: auto;
+    display: block;
+  }
+
+  .tabbar__brand-logotype {
     height: 40px;
     width: auto;
     display: block;
@@ -131,12 +141,12 @@
   }
 
   .tabbar__logo--icon {
-    width: 28px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
   }
 
   .tabbar__logo--type {
-    height: 20px;
+    height: 28px;
     width: auto;
   }
 

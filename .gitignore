@@ -3,6 +3,8 @@ node_modules
 .gocache
 dist
 logs
+frontend/build
+frontend/bindings
 .gestalt/*
 !.gestalt/PLAN.org
 config/manifest.json

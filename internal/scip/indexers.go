@@ -3,6 +3,7 @@ package scip
 import (
 	"archive/tar"
 	"compress/gzip"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -113,19 +114,23 @@ func RunIndexer(lang, dir, output string) error {
 	if err != nil {
 		return err
 	}
-	indexerPath, err := indexerBinaryPath(indexer)
+	indexerPath, err := resolveIndexerPath(indexer, dir)
 	if err != nil {
 		return err
-	}
-	if !fileExists(indexerPath) {
-		if err := DownloadIndexer(lang); err != nil {
-			return err
-		}
 	}
 
 	args, err := indexerArgs(indexer, output)
 	if err != nil {
 		return err
+	}
+	if indexer.Language == "typescript" {
+		projectPath, err := ensureTypeScriptProject(dir)
+		if err != nil {
+			return err
+		}
+		if projectPath != "" {
+			args = append(args, projectPath)
+		}
 	}
 
 	cmd := exec.Command(indexerPath, args...)
@@ -138,20 +143,25 @@ func RunIndexer(lang, dir, output string) error {
 }
 
 func EnsureIndexer(lang string) (string, error) {
+	return EnsureIndexerAtPath(lang, "")
+}
+
+func EnsureIndexerAtPath(lang, repoRoot string) (string, error) {
 	indexer, err := findIndexer(lang)
 	if err != nil {
 		return "", err
 	}
-	indexerPath, err := indexerBinaryPath(indexer)
+	indexerPath, err := findExistingIndexer(indexer, repoRoot)
 	if err != nil {
 		return "", err
 	}
-	if !fileExists(indexerPath) {
-		if err := DownloadIndexer(lang); err != nil {
-			return "", err
-		}
+	if indexerPath != "" {
+		return indexerPath, nil
 	}
-	return indexerPath, nil
+	if err := DownloadIndexer(lang); err != nil {
+		return "", err
+	}
+	return indexerBinaryPath(indexer)
 }
 
 func findIndexer(lang string) (Indexer, error) {
@@ -173,6 +183,134 @@ func getIndexerDir() (string, error) {
 		return path, nil
 	}
 	return abs, nil
+}
+
+func resolveIndexerPath(indexer Indexer, repoRoot string) (string, error) {
+	indexerPath, err := findExistingIndexer(indexer, repoRoot)
+	if err != nil {
+		return "", err
+	}
+	if indexerPath != "" {
+		return indexerPath, nil
+	}
+	if err := DownloadIndexer(indexer.Language); err != nil {
+		return "", err
+	}
+	return indexerBinaryPath(indexer)
+}
+
+func findExistingIndexer(indexer Indexer, repoRoot string) (string, error) {
+	indexerPath, err := indexerBinaryPath(indexer)
+	if err != nil {
+		return "", err
+	}
+	if fileExists(indexerPath) {
+		return indexerPath, nil
+	}
+	localPath := findNodeModulesIndexer(indexer, repoRoot)
+	if localPath != "" {
+		return localPath, nil
+	}
+	if path, err := exec.LookPath(indexer.Binary); err == nil {
+		return path, nil
+	}
+	return "", nil
+}
+
+func ensureTypeScriptProject(repoRoot string) (string, error) {
+	if strings.TrimSpace(repoRoot) == "" {
+		return "", nil
+	}
+	configPath := filepath.Join(repoRoot, "tsconfig.json")
+	if fileExists(configPath) {
+		return configPath, nil
+	}
+
+	scipDir := filepath.Join(repoRoot, ".gestalt", "scip")
+	if err := os.MkdirAll(scipDir, 0o755); err != nil {
+		return "", fmt.Errorf("create scip dir: %w", err)
+	}
+	configPath = filepath.Join(scipDir, "tsconfig.gestalt.json")
+	if fileExists(configPath) {
+		return configPath, nil
+	}
+
+	config := map[string]any{
+		"compilerOptions": map[string]any{
+			"allowJs":      true,
+			"checkJs":      false,
+			"jsx":          "preserve",
+			"module":       "ESNext",
+			"target":       "ES2020",
+			"noEmit":       true,
+			"skipLibCheck": true,
+		},
+		"include": []string{
+			"../**/*.ts",
+			"../**/*.tsx",
+			"../**/*.js",
+			"../**/*.jsx",
+		},
+		"exclude": []string{
+			"../**/node_modules/**",
+			"../**/.gestalt/**",
+			"../**/vendor/**",
+			"../**/.git/**",
+			"../**/dist/**",
+			"../**/build/**",
+			"../**/coverage/**",
+		},
+	}
+	payload, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshal tsconfig: %w", err)
+	}
+	payload = append(payload, '\n')
+	if err := os.WriteFile(configPath, payload, 0o644); err != nil {
+		return "", fmt.Errorf("write tsconfig: %w", err)
+	}
+	return configPath, nil
+}
+
+func findNodeModulesIndexer(indexer Indexer, repoRoot string) string {
+	if strings.TrimSpace(repoRoot) == "" {
+		return ""
+	}
+	binDir := filepath.Join(repoRoot, "node_modules", ".bin")
+	for _, candidate := range indexerBinaryCandidates(indexer.Binary) {
+		path := filepath.Join(binDir, candidate)
+		if fileExists(path) {
+			return path
+		}
+	}
+	return ""
+}
+
+func indexerBinaryCandidates(binary string) []string {
+	if runtime.GOOS != "windows" {
+		return []string{binary}
+	}
+
+	base := strings.TrimSuffix(binary, filepath.Ext(binary))
+	candidates := []string{
+		binary,
+		base + ".exe",
+		base + ".cmd",
+		base + ".ps1",
+	}
+	seen := make(map[string]struct{}, len(candidates))
+	unique := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if _, ok := seen[candidate]; ok {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		unique = append(unique, candidate)
+	}
+	return unique
 }
 
 func indexerBinaryPath(indexer Indexer) (string, error) {

@@ -17,7 +17,7 @@ import (
 
 type indexCommandDeps struct {
 	detectLanguages func(string) ([]string, error)
-	ensureIndexer   func(string) (string, error)
+	ensureIndexer   func(string, string) (string, error)
 	runIndexer      func(string, string, string) error
 	mergeIndexes    func([]string, string) error
 	convertToSQLite func(string, string) error
@@ -86,7 +86,7 @@ func TestIndexCommandGoRepo(t *testing.T) {
 
 	stubIndexCommandDeps(t, indexCommandDeps{
 		detectLanguages: scip.DetectLanguages,
-		ensureIndexer: func(lang string) (string, error) {
+		ensureIndexer: func(lang, repoPath string) (string, error) {
 			ensureCalls = append(ensureCalls, lang)
 			return "/tmp/indexer", nil
 		},
@@ -135,7 +135,7 @@ func TestIndexCommandMultiLanguage(t *testing.T) {
 
 	stubIndexCommandDeps(t, indexCommandDeps{
 		detectLanguages: scip.DetectLanguages,
-		ensureIndexer: func(lang string) (string, error) {
+		ensureIndexer: func(lang, repoPath string) (string, error) {
 			return "/tmp/indexer", nil
 		},
 		runIndexer: func(lang, dir, output string) error {
@@ -177,7 +177,7 @@ func TestIndexCommandUnsupportedLanguage(t *testing.T) {
 		detectLanguages: func(string) ([]string, error) {
 			return []string{"ruby"}, nil
 		},
-		ensureIndexer: func(lang string) (string, error) {
+		ensureIndexer: func(lang, repoPath string) (string, error) {
 			return "", errors.New("unknown indexer language")
 		},
 		runIndexer: func(string, string, string) error {

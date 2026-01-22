@@ -17,7 +17,7 @@ const scipReindexRecentThreshold = 10 * time.Minute
 
 var (
 	detectLanguages = scip.DetectLanguages
-	ensureIndexer   = scip.EnsureIndexer
+	ensureIndexer   = scip.EnsureIndexerAtPath
 	runIndexer      = scip.RunIndexer
 	mergeIndexes    = scip.MergeIndexes
 	convertToSQLite = scip.ConvertToSQLite
@@ -106,7 +106,7 @@ func runIndexCommand(args []string, out io.Writer, errOut io.Writer) int {
 	var supported []string
 	for _, lang := range languages {
 		fmt.Fprintf(out, "Checking indexer for %s...\n", lang)
-		if _, err := ensureIndexer(lang); err != nil {
+		if _, err := ensureIndexer(lang, repoPath); err != nil {
 			fmt.Fprintf(errOut, "Warning: Failed to get indexer for %s: %v\n", lang, err)
 			continue
 		}

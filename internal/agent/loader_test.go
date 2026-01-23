@@ -54,7 +54,7 @@ llm_model = "default"
 
 func TestLoaderInvalidTOML(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "bad.toml"), []byte(`name = "Bad"\ncli_config = {`), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "bad.toml"), []byte(`name = "Bad"\nmodel = {`), 0644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
 
@@ -243,10 +243,10 @@ shell = "/bin/bash"
 
 func TestLoaderSchemaViolationMessage(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "codex.toml"), []byte(`
+if err := os.WriteFile(filepath.Join(dir, "codex.toml"), []byte(`
 name = "Codex"
 cli_type = "codex"
-cli_config = { model = 123 }
+model = 123
 `), 0644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
@@ -265,8 +265,8 @@ cli_config = { model = 123 }
 	if entry == nil {
 		t.Fatalf("expected warning for schema violation")
 	}
-	if !strings.Contains(entry.Context["error"], "cli_config.model") {
-		t.Fatalf("expected cli_config.model in error, got %q", entry.Context["error"])
+	if !strings.Contains(entry.Context["error"], "model") {
+		t.Fatalf("expected model in error, got %q", entry.Context["error"])
 	}
 }
 

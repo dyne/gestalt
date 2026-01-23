@@ -1,6 +1,4 @@
 name = "Valid Codex"
 cli_type = "codex"
-
-[cli_config]
 model = "o3"
 approval_policy = "never"

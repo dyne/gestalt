@@ -89,16 +89,18 @@ type ConfigEvent struct {
 	ConfigType string
 	Path       string
 	ChangeType string
+	Message    string
 	OccurredAt time.Time
 }
 
-func NewConfigEvent(configType, path, changeType string) ConfigEvent {
+func NewConfigEvent(configType, path, changeType, message string) ConfigEvent {
 	eventType := "config_" + changeType
 	return ConfigEvent{
 		EventType:  eventType,
 		ConfigType: configType,
 		Path:       path,
 		ChangeType: changeType,
+		Message:    message,
 		OccurredAt: time.Now().UTC(),
 	}
 }

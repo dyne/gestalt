@@ -932,7 +932,7 @@ func (h *RestHandler) createTerminal(w http.ResponseWriter, r *http.Request) *ap
 			if errors.Is(loadErr, terminal.ErrAgentNotFound) {
 				return &apiError{Status: http.StatusBadRequest, Message: "unknown agent"}
 			}
-			return &apiError{Status: http.StatusInternalServerError, Message: "failed to refresh agent config"}
+			return &apiError{Status: http.StatusInternalServerError, Message: fmt.Sprintf("failed to refresh agent config: %s", loadErr.Error())}
 		}
 		if reloaded && h.Logger != nil && agentProfile != nil {
 			h.Logger.Info("agent config reloaded for new session", map[string]string{

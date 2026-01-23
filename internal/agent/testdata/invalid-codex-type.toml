@@ -1,5 +1,3 @@
 name = "Invalid Codex Type"
 cli_type = "codex"
-
-[cli_config]
 model = 123

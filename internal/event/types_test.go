@@ -55,7 +55,7 @@ func TestNewAgentEvent(t *testing.T) {
 }
 
 func TestNewConfigEvent(t *testing.T) {
-	event := NewConfigEvent("agent", "/config/agents/example.toml", "modified")
+	event := NewConfigEvent("agent", "/config/agents/example.toml", "modified", "changed")
 
 	if event.Type() != "config_modified" {
 		t.Fatalf("expected config_modified, got %q", event.Type())
@@ -68,6 +68,9 @@ func TestNewConfigEvent(t *testing.T) {
 	}
 	if event.ChangeType != "modified" {
 		t.Fatalf("expected change type modified, got %q", event.ChangeType)
+	}
+	if event.Message != "changed" {
+		t.Fatalf("expected message changed, got %q", event.Message)
 	}
 	assertUTC(t, event.Timestamp())
 }

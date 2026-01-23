@@ -12,10 +12,11 @@ import (
 )
 
 type ValidationError struct {
-	Path     string
-	Expected string
-	Actual   string
-	Message  string
+	Path        string
+	Expected    string
+	Actual      string
+	ActualValue any
+	Message     string
 }
 
 func (e *ValidationError) Error() string {
@@ -28,10 +29,11 @@ func (e *ValidationError) Error() string {
 		}
 		return fmt.Sprintf("%s: %s", e.Path, e.Message)
 	}
+	actualDetail := formatActualDetail(e.Actual, e.ActualValue)
 	if e.Path == "" {
-		return fmt.Sprintf("expected %s, got %s", e.Expected, e.Actual)
+		return fmt.Sprintf("expected %s, got %s", e.Expected, actualDetail)
 	}
-	return fmt.Sprintf("%s: expected %s, got %s", e.Path, e.Expected, e.Actual)
+	return fmt.Sprintf("%s: expected %s, got %s", e.Path, e.Expected, actualDetail)
 }
 
 func ValidateAgentConfig(cliType string, config map[string]interface{}) error {
@@ -77,6 +79,7 @@ func validateSchema(schema *jsonschema.Schema, value any, path string) error {
 			Path:     path,
 			Expected: expectedType(schema),
 			Actual:   actualType(value),
+			ActualValue: value,
 		}
 	}
 
@@ -94,6 +97,7 @@ func validateSchema(schema *jsonschema.Schema, value any, path string) error {
 			Path:     path,
 			Expected: expectedType(schema),
 			Actual:   actualType(value),
+			ActualValue: value,
 		}
 	}
 
@@ -105,6 +109,7 @@ func validateSchema(schema *jsonschema.Schema, value any, path string) error {
 				Path:     path,
 				Expected: "object",
 				Actual:   actualType(value),
+				ActualValue: value,
 			}
 		}
 		return validateObject(schema, object, path)
@@ -115,6 +120,7 @@ func validateSchema(schema *jsonschema.Schema, value any, path string) error {
 				Path:     path,
 				Expected: "array",
 				Actual:   actualType(value),
+				ActualValue: value,
 			}
 		}
 		if schema.Items == nil {
@@ -136,6 +142,7 @@ func validateSchema(schema *jsonschema.Schema, value any, path string) error {
 				Path:     path,
 				Expected: "string",
 				Actual:   actualType(value),
+				ActualValue: value,
 			}
 		}
 		return validateEnum(schema, value, path)
@@ -145,6 +152,7 @@ func validateSchema(schema *jsonschema.Schema, value any, path string) error {
 				Path:     path,
 				Expected: "boolean",
 				Actual:   actualType(value),
+				ActualValue: value,
 			}
 		}
 		return nil
@@ -154,6 +162,7 @@ func validateSchema(schema *jsonschema.Schema, value any, path string) error {
 				Path:     path,
 				Expected: "integer",
 				Actual:   actualType(value),
+				ActualValue: value,
 			}
 		}
 		return nil
@@ -163,6 +172,7 @@ func validateSchema(schema *jsonschema.Schema, value any, path string) error {
 				Path:     path,
 				Expected: "number",
 				Actual:   actualType(value),
+				ActualValue: value,
 			}
 		}
 		return nil
@@ -171,6 +181,7 @@ func validateSchema(schema *jsonschema.Schema, value any, path string) error {
 			Path:     path,
 			Expected: "null",
 			Actual:   actualType(value),
+			ActualValue: value,
 		}
 	default:
 		return nil
@@ -208,6 +219,7 @@ func validateObject(schema *jsonschema.Schema, object map[string]interface{}, pa
 				return &ValidationError{
 					Path:    propertyPath,
 					Message: "unknown field",
+					ActualValue: value,
 				}
 			}
 			if err := validateSchema(schema.AdditionalProperties, value, propertyPath); err != nil {
@@ -232,6 +244,7 @@ func validateEnum(schema *jsonschema.Schema, value any, path string) error {
 		Path:     path,
 		Expected: "enum",
 		Actual:   actualType(value),
+		ActualValue: value,
 	}
 }
 
@@ -407,4 +420,35 @@ func isNumber(value any) bool {
 		return true
 	}
 	return false
+}
+
+func formatActualDetail(actualType string, value any) string {
+	actualType = strings.TrimSpace(actualType)
+	if value == nil {
+		return actualType
+	}
+	formatted := formatValidationValue(value)
+	if formatted == "" {
+		return actualType
+	}
+	if actualType == "" {
+		return formatted
+	}
+	return fmt.Sprintf("%s (%s)", actualType, formatted)
+}
+
+func formatValidationValue(value any) string {
+	if value == nil {
+		return ""
+	}
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Sprint(value)
+	}
+	text := string(payload)
+	const maxLength = 160
+	if len(text) > maxLength {
+		return text[:maxLength-3] + "..."
+	}
+	return text
 }

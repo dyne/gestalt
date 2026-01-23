@@ -2,7 +2,6 @@ package agent
 
 import (
 	"fmt"
-	"log"
 	"strings"
 )
 
@@ -79,7 +78,7 @@ func (a *Agent) Validate() error {
 	}
 	if len(a.CLIConfig) > 0 {
 		if strings.TrimSpace(a.CLIType) == "" {
-			return fmt.Errorf("agent cli_type is required when cli_config is set")
+			return fmt.Errorf("agent cli_type is required when CLI config is set")
 		}
 		if err := ValidateAgentConfig(a.CLIType, a.CLIConfig); err != nil {
 			return err
@@ -87,9 +86,6 @@ func (a *Agent) Validate() error {
 		command := BuildShellCommand(a.CLIType, a.CLIConfig)
 		if strings.TrimSpace(command) == "" {
 			return fmt.Errorf("agent cli_type %q cannot build shell command", a.CLIType)
-		}
-		if strings.TrimSpace(a.Shell) != "" {
-			log.Printf("agent %q: both shell and cli_config provided, cli_config takes precedence", a.Name)
 		}
 		a.Shell = command
 	}

@@ -39,6 +39,7 @@ func TestConfigEventsWebSocketStream(t *testing.T) {
 		ConfigType: "agent",
 		Path:       "/config/agents/example.toml",
 		ChangeType: "extracted",
+		Message:    "ok",
 		OccurredAt: timestamp,
 	}
 
@@ -64,6 +65,9 @@ func TestConfigEventsWebSocketStream(t *testing.T) {
 	}
 	if payload.ChangeType != configEvent.ChangeType {
 		t.Fatalf("expected change type %q, got %q", configEvent.ChangeType, payload.ChangeType)
+	}
+	if payload.Message != configEvent.Message {
+		t.Fatalf("expected message %q, got %q", configEvent.Message, payload.Message)
 	}
 	if !payload.Timestamp.Equal(configEvent.OccurredAt) {
 		t.Fatalf("expected timestamp %v, got %v", configEvent.OccurredAt, payload.Timestamp)

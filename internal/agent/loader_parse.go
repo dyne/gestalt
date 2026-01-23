@@ -30,9 +30,18 @@ func parseAgentData(filePath string, data []byte) (Agent, error) {
 	if ext != ".toml" {
 		return Agent{}, fmt.Errorf("unsupported agent config extension %q", ext)
 	}
+	raw := map[string]interface{}{}
+	if _, err := toml.Decode(string(data), &raw); err != nil {
+		return Agent{}, err
+	}
 	if _, err := toml.Decode(string(data), &agent); err != nil {
 		return Agent{}, err
 	}
+	cliConfig, err := extractCLIConfig(raw)
+	if err != nil {
+		return Agent{}, err
+	}
+	agent.CLIConfig = cliConfig
 	return agent, nil
 }
 
@@ -51,9 +60,6 @@ func formatValidationError(agent Agent, filePath string, data []byte, err error)
 	var vErr *ValidationError
 	if errors.As(err, &vErr) {
 		path := strings.TrimSpace(vErr.Path)
-		if path != "" {
-			path = "cli_config." + path
-		}
 		line := lineForKey(data, path)
 		location := filepath.Base(filePath)
 		if agent.Name != "" {
@@ -63,9 +69,16 @@ func formatValidationError(agent Agent, filePath string, data []byte, err error)
 			location = fmt.Sprintf("%s:%d", location, line)
 		}
 
+		actualDetail := formatActualDetail(vErr.Actual, vErr.ActualValue)
 		message := vErr.Message
 		if message == "" {
-			message = fmt.Sprintf("expected %s, got %s", vErr.Expected, vErr.Actual)
+			message = fmt.Sprintf("expected %s, got %s", vErr.Expected, actualDetail)
+		}
+		if message == "unknown field" {
+			actualValue := formatValidationValue(vErr.ActualValue)
+			if actualValue != "" {
+				message = fmt.Sprintf("%s (value=%s)", message, actualValue)
+			}
 		}
 		if path != "" {
 			message = fmt.Sprintf("%s: %s", path, message)
@@ -101,4 +114,42 @@ func lineForKey(data []byte, keyPath string) int {
 		}
 	}
 	return 0
+}
+
+var agentRootKeys = map[string]struct{}{
+	"name":         {},
+	"shell":        {},
+	"prompt":       {},
+	"skills":       {},
+	"onair_string": {},
+	"use_workflow": {},
+	"cli_type":     {},
+	"llm_model":    {},
+	"cli_config":   {},
+}
+
+func extractCLIConfig(raw map[string]interface{}) (map[string]interface{}, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	config := map[string]interface{}{}
+	if rawCLI, ok := raw["cli_config"]; ok {
+		cliMap, ok := asStringMap(rawCLI)
+		if !ok {
+			return nil, fmt.Errorf("cli_config must be a table")
+		}
+		for key, value := range cliMap {
+			config[key] = value
+		}
+	}
+	for key, value := range raw {
+		if _, reserved := agentRootKeys[key]; reserved {
+			continue
+		}
+		config[key] = value
+	}
+	if len(config) == 0 {
+		return nil, nil
+	}
+	return config, nil
 }

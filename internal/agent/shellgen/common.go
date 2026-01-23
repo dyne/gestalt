@@ -16,7 +16,13 @@ type Entry struct {
 
 func FlattenConfig(config map[string]interface{}) []Entry {
 	entries := []Entry{}
-	flattenMap("", config, &entries)
+	flattenMap("", config, &entries, true)
+	return entries
+}
+
+func FlattenConfigPreserveArrays(config map[string]interface{}) []Entry {
+	entries := []Entry{}
+	flattenMap("", config, &entries, false)
 	return entries
 }
 
@@ -65,28 +71,36 @@ func NormalizeFlag(name string) string {
 	return name
 }
 
-func flattenMap(prefix string, value interface{}, entries *[]Entry) {
+func flattenMap(prefix string, value interface{}, entries *[]Entry, expandArrays bool) {
 	if isEmptyValue(value) {
 		return
 	}
 
 	if list, ok := value.([]interface{}); ok {
-		for _, item := range list {
-			if isEmptyValue(item) {
-				continue
+		if expandArrays {
+			for _, item := range list {
+				if isEmptyValue(item) {
+					continue
+				}
+				*entries = append(*entries, Entry{Key: prefix, Value: item})
 			}
-			*entries = append(*entries, Entry{Key: prefix, Value: item})
+			return
 		}
+		*entries = append(*entries, Entry{Key: prefix, Value: list})
 		return
 	}
 
 	if list, ok := value.([]string); ok {
-		for _, item := range list {
-			if strings.TrimSpace(item) == "" {
-				continue
+		if expandArrays {
+			for _, item := range list {
+				if strings.TrimSpace(item) == "" {
+					continue
+				}
+				*entries = append(*entries, Entry{Key: prefix, Value: item})
 			}
-			*entries = append(*entries, Entry{Key: prefix, Value: item})
+			return
 		}
+		*entries = append(*entries, Entry{Key: prefix, Value: list})
 		return
 	}
 
@@ -113,7 +127,7 @@ func flattenMap(prefix string, value interface{}, entries *[]Entry) {
 		if prefix != "" {
 			childKey = prefix + "." + key
 		}
-		flattenMap(childKey, child, entries)
+		flattenMap(childKey, child, entries, expandArrays)
 	}
 }
 

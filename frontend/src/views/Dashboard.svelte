@@ -27,7 +27,7 @@
   let visibleLogs = []
   let logsLoading = false
   let logsError = ''
-  let logLevelFilter = 'all'
+  let logLevelFilter = 'info'
   let logsAutoRefresh = true
   let logsRefreshTimer = null
   let logsMounted = false
@@ -43,7 +43,7 @@
   let gitUnsubscribe = null
 
   const logLevelOptions = [
-    { value: 'all', label: 'All' },
+    { value: 'debug', label: 'Debug' },
     { value: 'info', label: 'Info' },
     { value: 'warning', label: 'Warning' },
     { value: 'error', label: 'Error' },
@@ -141,7 +141,7 @@
 
   const buildLogQuery = () => {
     const params = new URLSearchParams()
-    if (logLevelFilter !== 'all') {
+    if (logLevelFilter) {
       params.set('level', logLevelFilter)
     }
     return params.toString()
@@ -248,8 +248,8 @@
         notificationStore.addNotification('warning', `Config conflict: ${path}`)
       }),
       subscribeConfigEvents('config_validation_error', (payload) => {
-        const path = payload?.path || 'config file'
-        notificationStore.addNotification('error', `Config validation failed: ${path}`)
+        const detail = payload?.message || payload?.path || 'config file'
+        notificationStore.addNotification('error', `Config validation failed: ${detail}`)
       }),
     ]
     gitUnsubscribe = subscribeEvents('git_branch_changed', (payload) => {
@@ -610,6 +610,11 @@
 
   .log-entry--info .log-badge {
     background: var(--color-info);
+  }
+
+  .log-entry--debug .log-badge {
+    background: var(--color-border);
+    color: var(--color-text);
   }
 
   .log-entry--warning .log-badge {

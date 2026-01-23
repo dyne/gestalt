@@ -39,7 +39,14 @@ func (e *Extractor) Extract(sourceFS fs.FS, destDir string, manifest map[string]
 func (e *Extractor) ExtractWithStats(sourceFS fs.FS, destDir string, manifest map[string]string) (ExtractStats, error) {
 	stats := ExtractStats{}
 	if len(manifest) == 0 {
-		return stats, nil
+		var err error
+		manifest, err = buildManifestFromFS(sourceFS)
+		if err != nil {
+			return stats, err
+		}
+		if len(manifest) == 0 {
+			return stats, nil
+		}
 	}
 	paths := make([]string, 0, len(manifest))
 	for relPath := range manifest {
@@ -224,6 +231,46 @@ func hashFile(path string) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("%016x", hasher.Sum64()), nil
+}
+
+func hashFileFromFS(sourceFS fs.FS, sourcePath string) (string, error) {
+	file, err := sourceFS.Open(sourcePath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	hasher := fnv.New64a()
+	buffer := make([]byte, ioBufferSize)
+	if _, err := io.CopyBuffer(hasher, file, buffer); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%016x", hasher.Sum64()), nil
+}
+
+func buildManifestFromFS(sourceFS fs.FS) (map[string]string, error) {
+	manifest := make(map[string]string)
+	if err := fs.WalkDir(sourceFS, "config", func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if path == "config/manifest.json" {
+			return nil
+		}
+		hash, err := hashFileFromFS(sourceFS, path)
+		if err != nil {
+			return err
+		}
+		relative := strings.TrimPrefix(path, "config/")
+		manifest[relative] = hash
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return manifest, nil
 }
 
 func removeFileIfExists(path string) error {

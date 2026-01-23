@@ -7,9 +7,8 @@ Gestalt agent profiles live in `.gestalt/config/agents/*.toml`. JSON agent confi
 All agent files support the following fields:
 
 - `name` (string, required): Human-readable name shown in the UI.
-- `shell` (string, optional): Explicit shell command. Required if `cli_config` is not set.
-- `cli_type` (string, optional): CLI type (e.g., `codex`, `copilot`). Required when `cli_config` is set.
-- `cli_config` (table, optional): CLI-specific configuration (validated by schema).
+- `shell` (string, optional): Explicit shell command. Required if no CLI config keys are set.
+- `cli_type` (string, optional): CLI type (e.g., `codex`, `copilot`). Required when CLI config keys are set.
 - `prompt` (string or array, optional): Prompt names (no extension) to inject.
 - `skills` (array, optional): Skill names to inject.
 - `onair_string` (string, optional): Wait for this string before prompt injection.
@@ -18,9 +17,11 @@ All agent files support the following fields:
 
 Prompt names resolve against `.gestalt/config/prompts`, trying `.tmpl`, `.md`, then `.txt`.
 
+Any additional top-level keys (outside the base fields) are treated as CLI config and validated. A legacy `[cli_config]` table is still accepted, but no longer required.
+
 ## CLI config validation
 
-- `cli_config` is validated against a per-CLI JSON Schema.
+- CLI config keys are validated against a per-CLI JSON Schema.
 - Validation errors include file name and (when possible) the line/field.
 - Invalid agent files are skipped with a warning.
 
@@ -30,16 +31,16 @@ Schemas live in `internal/agent/schemas/`:
 
 ## Shell command generation
 
-When `cli_config` is present, Gestalt generates the shell command at session creation:
+When CLI config keys are present, Gestalt generates the shell command at session creation:
 
-- **Codex:** `codex -c key:value` for each config entry.
+- **Codex:** `codex -c key=value` for each config entry.
   - Nested tables flatten to dot notation (e.g., `tui.scroll_mode`).
-  - Arrays repeat `-c key:value` for each entry.
+  - Arrays repeat `-c key=value` for each entry.
 - **Copilot:** `copilot --flag value` for each entry.
   - Boolean flags use `--flag` or `--no-flag`.
   - Arrays repeat `--flag value` for each entry.
 
-If `cli_config` is not set, `shell` is used as-is.
+If no CLI config keys are set, `shell` is used as-is.
 
 ## Examples
 
@@ -48,26 +49,22 @@ Example files live in `config/agents/`:
 - `copilot-example.toml`
 - `simple-shell-example.toml`
 
-### Codex (TOML + cli_config)
+### Codex (TOML)
 
 ```toml
 name = "Codex"
 cli_type = "codex"
 prompt = ["coder"]
-
-[cli_config]
 model = "o3"
 approval_policy = "on-request"
 sandbox_policy = "workspace-write"
 ```
 
-### Copilot (TOML + cli_config)
+### Copilot (TOML)
 
 ```toml
 name = "Copilot"
 cli_type = "copilot"
-
-[cli_config]
 model = "gpt-5"
 allow_all_tools = true
 ```
@@ -79,7 +76,7 @@ name = "Shell"
 shell = "/bin/bash"
 ```
 
-## Codex cli_config reference (schema keys)
+## Codex CLI config reference (schema keys)
 
 All fields are optional. Some keys live inside nested tables (e.g., `active_project.trust_level`); use TOML tables to nest as needed.
 

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"hash/fnv"
 	"io"
 	"io/fs"
 	"net"
@@ -1789,26 +1788,13 @@ func prepareConfig(cfg Config, logger *logging.Logger) (configPaths, error) {
 		}
 	}
 
-	manifest, err := config.LoadManifest(gestalt.EmbeddedConfigFS)
-	if err != nil {
-		if errors.Is(err, config.ErrManifestMissing) {
-			if logger != nil {
-				logger.Warn("config manifest missing, computing hashes at startup", nil)
-			}
-			manifest, err = buildManifestFromFS(gestalt.EmbeddedConfigFS)
-		}
-		if err != nil {
-			return configPaths{}, fmt.Errorf("load manifest: %w", err)
-		}
-	}
-
 	extractor := config.Extractor{
 		Logger:      logger,
 		BackupLimit: cfg.ConfigBackupLimit,
 		LastUpdated: lastVersionWrite,
 	}
 	start := time.Now()
-	stats, err := extractor.ExtractWithStats(gestalt.EmbeddedConfigFS, paths.ConfigDir, manifest)
+	stats, err := extractor.ExtractWithStats(gestalt.EmbeddedConfigFS, paths.ConfigDir, nil)
 	duration := time.Since(start)
 	if err != nil {
 		logConfigMetrics(logger, stats, duration, false, err)
@@ -1933,33 +1919,6 @@ func resolveConfigPaths(configDir string) (configPaths, error) {
 
 func buildConfigFS(configRoot string) fs.FS {
 	return os.DirFS(configRoot)
-}
-
-func buildManifestFromFS(sourceFS fs.FS) (map[string]string, error) {
-	manifest := make(map[string]string)
-	if err := fs.WalkDir(sourceFS, "config", func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() {
-			return nil
-		}
-		if path == "config/manifest.json" {
-			return nil
-		}
-		data, err := fs.ReadFile(sourceFS, path)
-		if err != nil {
-			return err
-		}
-		hasher := fnv.New64a()
-		_, _ = hasher.Write(data)
-		relative := strings.TrimPrefix(path, "config/")
-		manifest[relative] = fmt.Sprintf("%016x", hasher.Sum64())
-		return nil
-	}); err != nil {
-		return nil, err
-	}
-	return manifest, nil
 }
 
 func logConfigSummary(logger *logging.Logger, paths configPaths, installed, current version.VersionInfo, stats config.ExtractStats, hadInstalled bool) {

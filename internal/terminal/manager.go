@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -360,9 +361,45 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		releaseReservation()
 		return nil, err
 	}
+	if m.logger != nil && m.logger.Enabled(logging.LevelDebug) {
+		fields := map[string]string{
+			"shell":   shell,
+			"command": command,
+		}
+		if len(args) > 0 {
+			fields["args"] = strings.Join(args, " ")
+		}
+		if request.AgentID != "" {
+			fields["agent_id"] = request.AgentID
+		}
+		if reservedID != "" {
+			fields["terminal_id"] = reservedID
+		}
+		m.logger.Debug("shell command ready", fields)
+	}
 
 	pty, cmd, err := m.factory.Start(command, args...)
 	if err != nil {
+		if m.logger != nil {
+			fields := map[string]string{
+				"shell":   shell,
+				"command": command,
+				"error":   err.Error(),
+			}
+			if len(args) > 0 {
+				fields["args"] = strings.Join(args, " ")
+			}
+			if request.AgentID != "" {
+				fields["agent_id"] = request.AgentID
+			}
+			if reservedID != "" {
+				fields["terminal_id"] = reservedID
+			}
+			if stderr := stderrFromExecError(err); stderr != "" {
+				fields["stderr"] = stderr
+			}
+			m.logger.Error("shell command start failed", fields)
+		}
 		releaseReservation()
 		return nil, err
 	}
@@ -422,6 +459,9 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 	}
 	if request.AgentID != "" {
 		fields["agent_id"] = request.AgentID
+		if strings.TrimSpace(shell) != "" {
+			fields["shell"] = shell
+		}
 	}
 	m.logger.Info("terminal created", fields)
 	if m.terminalBus != nil {
@@ -504,11 +544,15 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 						continue
 					}
 					if err := writePromptPayload(session, data); err != nil {
-						m.logger.Error("agent prompt write failed", map[string]string{
+						fields := map[string]string{
 							"agent_id": request.AgentID,
 							"prompt":   promptName,
 							"error":    err.Error(),
-						})
+						}
+						if tail := renderOutputTail(session.OutputLines(), 12, 2000); tail != "" {
+							fields["output_tail"] = tail
+						}
+						m.logger.Error("agent prompt write failed", fields)
 						return
 					}
 					session.PromptFiles = append(session.PromptFiles, files...)
@@ -564,6 +608,24 @@ func writePromptPayload(session *Session, payload []byte) error {
 		}
 	}
 	return nil
+}
+
+func renderOutputTail(lines []string, maxLines, maxBytes int) string {
+	if len(lines) == 0 || maxLines <= 0 || maxBytes <= 0 {
+		return ""
+	}
+	start := len(lines) - maxLines
+	if start < 0 {
+		start = 0
+	}
+	joined := strings.Join(lines[start:], "\n")
+	if len(joined) <= maxBytes {
+		return joined
+	}
+	if maxBytes <= 3 {
+		return joined[len(joined)-maxBytes:]
+	}
+	return "..." + joined[len(joined)-(maxBytes-3):]
 }
 
 func (m *Manager) readPromptFile(promptName string) ([]byte, []string, error) {
@@ -835,10 +897,14 @@ func (m *Manager) Delete(id string) error {
 	}
 
 	if err := session.Close(); err != nil {
-		m.logger.Warn("terminal close error", map[string]string{
+		fields := map[string]string{
 			"terminal_id": id,
 			"error":       err.Error(),
-		})
+		}
+		if tail := renderOutputTail(session.OutputLines(), 12, 2000); tail != "" {
+			fields["output_tail"] = tail
+		}
+		m.logger.Warn("terminal close error", fields)
 		if m.terminalBus != nil {
 			terminalEvent := event.NewTerminalEvent(id, "terminal_error")
 			terminalEvent.Data = map[string]any{
@@ -871,6 +937,17 @@ func (m *Manager) Delete(id string) error {
 		"terminal_id": id,
 	})
 	return nil
+}
+
+func stderrFromExecError(err error) string {
+	if err == nil {
+		return ""
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && len(exitErr.Stderr) > 0 {
+		return strings.TrimSpace(string(exitErr.Stderr))
+	}
+	return ""
 }
 
 func waitForOnAir(session *Session, target string, timeout time.Duration) bool {

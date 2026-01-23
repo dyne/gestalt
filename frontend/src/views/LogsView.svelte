@@ -8,7 +8,7 @@
   let orderedLogs = []
   let loading = false
   let error = ''
-  let levelFilter = 'all'
+  let levelFilter = 'info'
   let autoRefresh = true
   let lastUpdated = null
   let refreshTimer = null
@@ -17,7 +17,7 @@
   let lastErrorMessage = ''
 
   const levelOptions = [
-    { value: 'all', label: 'All' },
+    { value: 'debug', label: 'Debug' },
     { value: 'info', label: 'Info' },
     { value: 'warning', label: 'Warning' },
     { value: 'error', label: 'Error' },
@@ -29,7 +29,7 @@
 
   const buildQuery = () => {
     const params = new URLSearchParams()
-    if (levelFilter !== 'all') {
+    if (levelFilter) {
       params.set('level', levelFilter)
     }
     return params.toString()
@@ -163,8 +163,8 @@
                 <p>{entry.message}</p>
               </div>
             </button>
-            {#if expanded.has(entryKey(entry, index)) && entry.context}
-              <pre class="log-entry__context">{JSON.stringify(entry.context, null, 2)}</pre>
+            {#if expanded.has(entryKey(entry, index))}
+              <pre class="log-entry__context">{JSON.stringify(entry, null, 2)}</pre>
             {/if}
           </li>
         {/each}
@@ -333,6 +333,11 @@
 
   .log-entry--warning .badge {
     background: var(--color-warning);
+  }
+
+  .log-entry--debug .badge {
+    background: var(--color-border);
+    color: var(--color-text);
   }
 
   .log-entry--error .badge {

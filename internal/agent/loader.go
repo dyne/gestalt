@@ -107,12 +107,12 @@ func LoadAgentByID(agentID string, agentsDir string) (*Agent, error) {
 	filePath := filepath.Join(agentsDir, agentID+".toml")
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		emitConfigValidationError(filePath)
+		emitConfigValidationError(filePath, err)
 		return nil, fmt.Errorf("read agent file %s: %w", filePath, err)
 	}
 	agent, err := loadAgentFromBytes(filePath, data)
 	if err != nil {
-		emitConfigValidationError(filePath)
+		emitConfigValidationError(filePath, err)
 		return nil, err
 	}
 	return &agent, nil
@@ -121,19 +121,27 @@ func LoadAgentByID(agentID string, agentsDir string) (*Agent, error) {
 func readAgentFile(agentFS fs.FS, filePath string) (Agent, error) {
 	data, err := fs.ReadFile(agentFS, filePath)
 	if err != nil {
-		emitConfigValidationError(filePath)
+		emitConfigValidationError(filePath, err)
 		return Agent{}, fmt.Errorf("read agent file %s: %w", filePath, err)
 	}
 	agent, err := loadAgentFromBytes(filePath, data)
 	if err != nil {
-		emitConfigValidationError(filePath)
+		emitConfigValidationError(filePath, err)
 		return Agent{}, err
 	}
 	return agent, nil
 }
 
-func emitConfigValidationError(filePath string) {
-	config.Bus().Publish(event.NewConfigEvent("agent", filePath, "validation_error"))
+func emitConfigValidationErrorWithMessage(filePath string, message string) {
+	config.Bus().Publish(event.NewConfigEvent("agent", filePath, "validation_error", message))
+}
+
+func emitConfigValidationError(filePath string, err error) {
+	message := ""
+	if err != nil {
+		message = err.Error()
+	}
+	emitConfigValidationErrorWithMessage(filePath, message)
 }
 
 func (l Loader) warnLoadError(agentID, path string, err error) {

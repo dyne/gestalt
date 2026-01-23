@@ -1,5 +1,3 @@
 name = "Invalid Codex Unknown"
 cli_type = "codex"
-
-[cli_config]
 unknown_field = "oops"

@@ -84,7 +84,7 @@ func TestIntegrationLoadAgentsAndValidate(t *testing.T) {
 	}
 
 	entries := buffer.List()
-	if !hasLogError(entries, "cli_config.model") {
+	if !hasLogError(entries, "model") {
 		t.Fatalf("expected model type error")
 	}
 	if !hasLogError(entries, "unknown_field") {

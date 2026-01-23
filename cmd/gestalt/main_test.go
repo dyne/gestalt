@@ -204,7 +204,7 @@ func TestLoadAgentsReportsInvalidTOML(t *testing.T) {
 	if err := os.MkdirAll(promptsDir, 0755); err != nil {
 		t.Fatalf("mkdir prompts: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(agentsDir, "bad.toml"), []byte("name = \"Bad\"\\ncli_config = {"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(agentsDir, "bad.toml"), []byte("name = \"Bad\"\\nmodel = {"), 0644); err != nil {
 		t.Fatalf("write agent: %v", err)
 	}
 

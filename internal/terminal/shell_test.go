@@ -74,10 +74,34 @@ func TestSplitCommandLine(t *testing.T) {
 			wantArgs: []string{"--allow-all-tools", "--disable-builtin-mcps"},
 		},
 		{
+			name:     "single-quoted-arg",
+			input:    "codex -c 'approval_policy=never'",
+			wantCmd:  "codex",
+			wantArgs: []string{"-c", "approval_policy=never"},
+		},
+		{
+			name:     "double-quoted-arg",
+			input:    "codex -c \"compact_prompt=Study your current L1\"",
+			wantCmd:  "codex",
+			wantArgs: []string{"-c", "compact_prompt=Study your current L1"},
+		},
+		{
+			name:     "mixed-quote-concat",
+			input:    "codex -c 'user_instructions=fix '\"'\"'this'\"'\"' now'",
+			wantCmd:  "codex",
+			wantArgs: []string{"-c", "user_instructions=fix 'this' now"},
+		},
+		{
 			name:     "extra-whitespace",
 			input:    "  /bin/bash   -l ",
 			wantCmd:  "/bin/bash",
 			wantArgs: []string{"-l"},
+		},
+		{
+			name:     "backslash-escape",
+			input:    "cmd path\\ with\\ spaces",
+			wantCmd:  "cmd",
+			wantArgs: []string{"path with spaces"},
 		},
 		{
 			name:      "empty",

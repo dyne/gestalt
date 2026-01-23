@@ -1,0 +1,54 @@
+package temporal
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"gestalt/internal/agent"
+
+	"github.com/BurntSushi/toml"
+)
+
+const memoLimitBytes = 2048
+
+func SerializeAgentConfig(profile *agent.Agent) (string, error) {
+	if profile == nil {
+		return "", nil
+	}
+	var buffer bytes.Buffer
+	if err := toml.NewEncoder(&buffer).Encode(profile); err == nil {
+		return truncateMemo(buffer.Bytes()), nil
+	}
+	payload, err := json.Marshal(profile)
+	if err != nil {
+		return "", err
+	}
+	return truncateMemo(payload), nil
+}
+
+func DeserializeAgentConfig(data string) (*agent.Agent, error) {
+	trimmed := strings.TrimSpace(data)
+	if trimmed == "" {
+		return nil, fmt.Errorf("agent config is empty")
+	}
+	var profile agent.Agent
+	if _, err := toml.Decode(trimmed, &profile); err == nil {
+		return &profile, nil
+	}
+	if err := json.Unmarshal([]byte(trimmed), &profile); err == nil {
+		return &profile, nil
+	}
+	return nil, fmt.Errorf("unable to parse agent config")
+}
+
+func truncateMemo(data []byte) string {
+	if len(data) <= memoLimitBytes {
+		return string(data)
+	}
+	if memoLimitBytes <= 3 {
+		return string(data[:memoLimitBytes])
+	}
+	return string(data[:memoLimitBytes-3]) + "..."
+}

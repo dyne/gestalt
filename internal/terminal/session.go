@@ -290,18 +290,34 @@ func (s *Session) StartWorkflow(temporalClient temporal.WorkflowClient, l1Task, 
 
 	workflowID := "session-" + s.ID
 	agentName := ""
-	agentShell := ""
+	agentShell := s.Command
+	agentConfig := ""
+	configHash := s.ConfigHash
+	cliType := ""
 	if s.agent != nil {
 		agentName = s.agent.Name
-		agentShell = s.agent.Shell
+		if agentShell == "" {
+			agentShell = s.agent.Shell
+		}
+		if configHash == "" {
+			configHash = s.agent.ConfigHash
+		}
+		cliType = s.agent.CLIType
+		serialized, err := temporal.SerializeAgentConfig(s.agent)
+		if err != nil {
+			return err
+		}
+		agentConfig = serialized
 	}
 	request := workflows.SessionWorkflowRequest{
-		SessionID: s.ID,
-		AgentID:   agentName,
-		L1Task:    l1Task,
-		L2Task:    l2Task,
-		Shell:     agentShell,
-		StartTime: s.CreatedAt,
+		SessionID:   s.ID,
+		AgentID:     agentName,
+		L1Task:      l1Task,
+		L2Task:      l2Task,
+		Shell:       agentShell,
+		AgentConfig: agentConfig,
+		ConfigHash:  configHash,
+		StartTime:   s.CreatedAt,
 	}
 	startOptions := client.StartWorkflowOptions{
 		ID:                       workflowID,
@@ -311,6 +327,19 @@ func (s *Session) StartWorkflow(temporalClient temporal.WorkflowClient, l1Task, 
 		WorkflowTaskTimeout:      temporalWorkflowTaskTimeout,
 		RetryPolicy:              defaultWorkflowRetryPolicy(),
 	}
+	memo := map[string]interface{}{
+		"created_at": s.CreatedAt,
+	}
+	if agentConfig != "" {
+		memo["agent_config"] = agentConfig
+	}
+	if configHash != "" {
+		memo["config_hash"] = configHash
+	}
+	if cliType != "" {
+		memo["cli_type"] = cliType
+	}
+	startOptions.Memo = memo
 
 	startContext, cancel := context.WithTimeout(context.Background(), temporalWorkflowStartTimeout)
 	defer cancel()

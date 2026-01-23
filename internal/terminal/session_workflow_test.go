@@ -2,9 +2,11 @@ package terminal
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
+	"gestalt/internal/agent"
 	"gestalt/internal/temporal"
 	"gestalt/internal/temporal/workflows"
 
@@ -86,7 +88,18 @@ var _ temporal.WorkflowClient = (*fakeWorkflowClient)(nil)
 func TestSessionStartWorkflowAndSignals(testingContext *testing.T) {
 	workflowClient := &fakeWorkflowClient{runID: "run-123"}
 	pty := newScriptedPty()
-	session := newSession("7", pty, nil, "title", "role", time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC), 10, nil, nil, nil)
+	profile := &agent.Agent{
+		Name:    "Codex",
+		CLIType: "codex",
+		CLIConfig: map[string]interface{}{
+			"model": "o3",
+		},
+		Shell: "codex -c model:o3",
+	}
+	profile.ConfigHash = agent.ComputeConfigHash(profile)
+	session := newSession("7", pty, nil, "title", "role", time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC), 10, profile, nil, nil)
+	session.Command = "codex -c model:o3"
+	session.ConfigHash = profile.ConfigHash
 
 	startError := session.StartWorkflow(workflowClient, "L1", "L2")
 	if startError != nil {
@@ -104,6 +117,15 @@ func TestSessionStartWorkflowAndSignals(testingContext *testing.T) {
 	if workflowClient.lastRequest.L1Task != "L1" || workflowClient.lastRequest.L2Task != "L2" {
 		testingContext.Fatalf("unexpected request tasks: %+v", workflowClient.lastRequest)
 	}
+	if workflowClient.lastRequest.Shell != session.Command {
+		testingContext.Fatalf("unexpected request shell: %q", workflowClient.lastRequest.Shell)
+	}
+	if workflowClient.lastRequest.ConfigHash != profile.ConfigHash {
+		testingContext.Fatalf("unexpected request config hash: %q", workflowClient.lastRequest.ConfigHash)
+	}
+	if workflowClient.lastRequest.AgentConfig == "" || !strings.Contains(workflowClient.lastRequest.AgentConfig, "name = \"Codex\"") {
+		testingContext.Fatalf("unexpected request agent config: %q", workflowClient.lastRequest.AgentConfig)
+	}
 	if !workflowClient.lastRequest.StartTime.Equal(session.CreatedAt) {
 		testingContext.Fatalf("unexpected request start time: %v", workflowClient.lastRequest.StartTime)
 	}
@@ -118,6 +140,19 @@ func TestSessionStartWorkflowAndSignals(testingContext *testing.T) {
 	}
 	if workflowClient.startOptions.RetryPolicy == nil || workflowClient.startOptions.RetryPolicy.MaximumAttempts != 5 {
 		testingContext.Fatalf("unexpected workflow retry policy: %#v", workflowClient.startOptions.RetryPolicy)
+	}
+	memo := workflowClient.startOptions.Memo
+	if memo == nil {
+		testingContext.Fatalf("expected workflow memo")
+	}
+	if memo["config_hash"] != profile.ConfigHash {
+		testingContext.Fatalf("unexpected memo config hash: %v", memo["config_hash"])
+	}
+	if memo["cli_type"] != "codex" {
+		testingContext.Fatalf("unexpected memo cli_type: %v", memo["cli_type"])
+	}
+	if memo["agent_config"] == nil {
+		testingContext.Fatalf("expected memo agent_config")
 	}
 
 	bellError := session.SendBellSignal("bell context")

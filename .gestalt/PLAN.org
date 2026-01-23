@@ -1,4 +1,4 @@
-* WIP [#B] CLI-specific agent configuration with TOML format and schema validation
+* DONE [#B] CLI-specific agent configuration with TOML format and schema validation
   Goal: Refactor agent configuration system to support per-CLI-type config directives
   with TOML format, JSON Schema validation using invopop/jsonschema, and comprehensive
   codex flag support.
@@ -28,7 +28,7 @@
   - Schema validation points to exact field/line for errors
   - TOML supports comments for better documentation
   
-** DONE [#B] Add invopop/jsonschema dependency and create schema infrastructure
+** [#B] Add invopop/jsonschema dependency and create schema infrastructure
    Why: Need schema validation foundation before implementing CLI configs
    
    Change:
@@ -56,7 +56,7 @@
    - Validation function returns clear errors for bad configs
    - All tests pass
 
-** DONE [#B] Implement codex configuration schema from codex-config-mod.rs
+** [#B] Implement codex configuration schema from codex-config-mod.rs
    Why: Codex is the primary target CLI with extensive configuration options
    
    Change:
@@ -103,7 +103,7 @@
    - Tests cover major config scenarios
    - Documentation matches Rust comments
 
-** DONE [#C] Implement copilot configuration schema
+** [#C] Implement copilot configuration schema
    Why: Second major CLI requiring configuration support
    
    Change:
@@ -128,7 +128,7 @@
    - Schema validates copilot-specific configs
    - Tests pass
 
-** DONE [#B] Extend Agent struct to support cli_config and TOML format
+** [#B] Extend Agent struct to support cli_config and TOML format
    Why: Core data model needs to accommodate new configuration approach
    
    Change:
@@ -170,7 +170,7 @@
    - All tests pass including backward compat
    - Deprecation warning logged for JSON files
 
-** DONE [#B] Update agent loader to support TOML files with proper validation
+** [#B] Update agent loader to support TOML files with proper validation
    Why: Need to load TOML agent configs and validate against schemas
    
    Change:
@@ -211,7 +211,7 @@
    - LoadAgentByID works for config refresh
    - All loader tests pass
 
-** DONE [#C] Implement codex shell command generation from cli_config
+** [#C] Implement codex shell command generation from cli_config
    Why: Transform cli_config into actual codex command with flags
    
    Change:
@@ -247,7 +247,7 @@
    - Tests cover common and edge cases
    - Shell escaping is safe
 
-** DONE [#C] Implement copilot shell command generation from cli_config
+** [#C] Implement copilot shell command generation from cli_config
    Why: Transform cli_config into copilot command with flags
    
    Change:
@@ -271,7 +271,7 @@
    - Boolean flags handled correctly
    - Tests pass
 
-** DONE [#B] Add config refresh before terminal session start
+** [#B] Add config refresh before terminal session start
    Why: Ensure NEW agent sessions always launch with latest config from disk
    
    IMPORTANT: Config refresh only affects NEW session creation. Running sessions
@@ -320,7 +320,7 @@
    - Running sessions explicitly left untouched
    - All cache tests pass
 
-** DONE [#B] Update terminal session creation to use generated shell commands
+** [#B] Update terminal session creation to use generated shell commands
    Why: Connect new cli_config system to actual terminal launching
    
    IMPORTANT: Each session is a snapshot of the agent config at creation time.
@@ -364,7 +364,7 @@
    - Session immutability documented and tested
    - Tests verify correct behavior
 
-** DONE [#C] Document new configuration system in docs/ and AGENTS.md
+** [#C] Document new configuration system in docs/ and AGENTS.md
    Why: Users and LLM assistants need clear documentation
    
    Change:
@@ -393,7 +393,7 @@
    - Example TOML files provided
    - All config fields documented
 
-** DONE [#C] Add integration tests for full config validation workflow
+** [#C] Add integration tests for full config validation workflow
    Why: Ensure end-to-end config system works correctly
    
    Change:
@@ -424,7 +424,7 @@
    - Error messages verified to be clear
    - All tests pass consistently
 
-** DONE [#C] Add CLI validation command for config files
+** [#C] Add CLI validation command for config files
    Why: Let users validate configs before runtime
    
    Change:
@@ -453,7 +453,7 @@
    - Useful for CI pipelines
    - Tests pass
 
-** DONE [#A] Update default agent configs to use TOML with cli_config
+** [#A] Update default agent configs to use TOML with cli_config
    Why: Shipping default configs should use new format
    
    Change:
@@ -484,7 +484,7 @@
    - Extraction preserves TOML format
    - All agents start successfully
 
-** WIP [#B] Store agent config and hash in Temporal workflow memo
+** [#B] Store agent config and hash in Temporal workflow memo
    Why: Make agent config traceable in workflow history for debugging and auditing
    
    IMPORTANT: Workflow memo captures the EXACT agent config used at session creation.

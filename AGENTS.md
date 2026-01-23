@@ -170,3 +170,10 @@ Implementation notes (Unified event architecture):
 - Use `/api/scip/files/<path>` to list symbols in a file; URL-encode symbol IDs and file paths.
 - On-demand indexing is available via `POST /api/scip/index` with `{ "path": "/repo/path" }`.
 - Responses use 0-based line numbers from SCIP; add +1 for editor display.
+
+## Agent config TOML rollout (2026-01-23)
+- Agent configs are TOML-only; loader rejects `.json` and validates `cli_config` by schema.
+- Shell generation uses `internal/agent/shellgen` (codex `-c key:value`, copilot `--flag`/`--no-flag`).
+- New sessions refresh agent configs via `agent.AgentCache`; sessions store `Command` + `ConfigHash` snapshots.
+- Temporal workflows store agent config + hash in memo via `internal/temporal/memo.go`.
+- CLI support: `gestalt config validate --agents-dir ...`; docs in `docs/agent-configuration.md` and examples in `config/agents/*.toml`.

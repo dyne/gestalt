@@ -46,12 +46,14 @@ const (
 )
 
 type SessionWorkflowRequest struct {
-	SessionID string
-	AgentID   string
-	L1Task    string
-	L2Task    string
-	Shell     string
-	StartTime time.Time
+	SessionID   string
+	AgentID     string
+	L1Task      string
+	L2Task      string
+	Shell       string
+	AgentConfig string
+	ConfigHash  string
+	StartTime   time.Time
 }
 
 type SessionWorkflowResult struct {

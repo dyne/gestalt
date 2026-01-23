@@ -1915,6 +1915,14 @@
    - Align codex/copilot shellgen behavior for missing fields
    Tests: Update shellgen and agent shell tests to cover omitted keys
    Done when: Missing cli_config keys emit no flags and tests pass
+** [#B] Update example agent TOML to comment-only defaults
+   Why: Example configs should not imply defaults or emit flags unless set.
+   Change:
+   - Ensure example `cli_config` sections only use commented keys
+   - Add comments listing allowed values for enum-like fields
+   - Keep active examples minimal (only required fields)
+   Tests: None (documentation/examples only)
+   Done when: Example TOML files show commented options and no empty values
 * TODO [#A] Comprehensive architecture and code quality review
   Goal: Conduct a thorough review of the entire Gestalt codebase (backend + frontend) to identify opportunities for simplification, improved maintainability, better readability, dependency reduction, and architectural improvements.
   Notes:

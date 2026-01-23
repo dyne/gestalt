@@ -43,7 +43,7 @@ func TestSerializeAgentConfigTruncates(t *testing.T) {
 		Name:    "Large",
 		CLIType: "codex",
 		CLIConfig: map[string]interface{}{
-			"user_instructions": strings.Repeat("a", memoLimitBytes+100),
+			"instructions": strings.Repeat("a", memoLimitBytes+100),
 		},
 	}
 	payload, err := SerializeAgentConfig(profile)

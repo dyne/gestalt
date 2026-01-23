@@ -87,9 +87,9 @@ func TestSplitCommandLine(t *testing.T) {
 		},
 		{
 			name:     "mixed-quote-concat",
-			input:    "codex -c 'user_instructions=fix '\"'\"'this'\"'\"' now'",
+			input:    "codex -c 'instructions=fix '\"'\"'this'\"'\"' now'",
 			wantCmd:  "codex",
-			wantArgs: []string{"-c", "user_instructions=fix 'this' now"},
+			wantArgs: []string{"-c", "instructions=fix 'this' now"},
 		},
 		{
 			name:     "extra-whitespace",

@@ -7,4 +7,4 @@ llm_model = "default"
 
 # model = "o3" # values: any supported model id
 # approval_policy = "never" # values: never | on-failure | untrusted | on-request
-# sandbox_policy = "workspace-write" # values: read-only | workspace-write | danger-full-access
+# sandbox_mode = "workspace-write" # values: read-only | workspace-write | danger-full-access

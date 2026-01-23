@@ -44,10 +44,10 @@ func TestBuildCodexCommandBooleans(t *testing.T) {
 
 func TestBuildCodexCommandEscapes(t *testing.T) {
 	config := map[string]interface{}{
-		"user_instructions": "fix this now",
+		"instructions": "fix this now",
 	}
 	got := BuildCodexCommand(config)
-	want := []string{"codex", "-c", "'user_instructions=fix this now'"}
+	want := []string{"codex", "-c", "'instructions=fix this now'"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("expected %v, got %v", want, got)
 	}

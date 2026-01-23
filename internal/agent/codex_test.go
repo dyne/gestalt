@@ -7,17 +7,19 @@ import (
 
 func TestCodexConfigValid(t *testing.T) {
 	config := map[string]interface{}{
-		"model":                         "o3",
-		"review_model":                  "gpt-5.1-codex-max",
-		"approval_policy":               "never",
-		"sandbox_policy":                "read-only",
-		"tui_notifications":             true,
-		"tui_scroll_events_per_tick":    2,
-		"tui_scroll_wheel_lines":         3,
-		"model_provider":                "openai",
-		"model_providers":               map[string]interface{}{"openai": map[string]interface{}{"base_url": "https://api.example.com"}},
-		"mcp_servers":                   map[string]interface{}{"local": map[string]interface{}{"command": "mcp"}},
-		"ghost_snapshot":                map[string]interface{}{"ignore_large_untracked_files": 2048},
+		"model":           "o3",
+		"review_model":    "gpt-5.1-codex-max",
+		"approval_policy": "never",
+		"sandbox_mode":    "read-only",
+		"tui": map[string]interface{}{
+			"notifications":          true,
+			"scroll_events_per_tick": 2,
+			"scroll_wheel_lines":     3,
+		},
+		"model_provider":                 "openai",
+		"model_providers":                map[string]interface{}{"openai": map[string]interface{}{"base_url": "https://api.example.com"}},
+		"mcp_servers":                    map[string]interface{}{"local": map[string]interface{}{"command": "mcp"}},
+		"ghost_snapshot":                 map[string]interface{}{"ignore_large_untracked_files": 2048},
 		"features":                       map[string]interface{}{"experimental_ui": true},
 		"check_for_update_on_startup":    false,
 		"windows_wsl_setup_acknowledged": true,
@@ -57,18 +59,22 @@ func TestCodexConfigTypeMismatch(t *testing.T) {
 
 func TestCodexConfigNotificationsVariant(t *testing.T) {
 	if err := ValidateAgentConfig("codex", map[string]interface{}{
-		"tui_notifications": []interface{}{"foo"},
+		"tui": map[string]interface{}{
+			"notifications": []interface{}{"foo"},
+		},
 	}); err != nil {
 		t.Fatalf("expected notifications array to be valid, got %v", err)
 	}
 
 	err := ValidateAgentConfig("codex", map[string]interface{}{
-		"tui_notifications": "nope",
+		"tui": map[string]interface{}{
+			"notifications": "nope",
+		},
 	})
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "tui_notifications") {
+	if !strings.Contains(err.Error(), "tui.notifications") {
 		t.Fatalf("expected field path in error, got %v", err)
 	}
 }

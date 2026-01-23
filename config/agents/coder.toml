@@ -9,10 +9,9 @@ model_reasoning_effort = "high"
 
 # Enum values:
 approval_policy = "never" # never | on-failure | untrusted | on-request
-sandbox_policy = "workspace-write" # read-only | workspace-write | danger-full-access
-tui_alternate_screen = "never" # auto | always | never
-# cli_auth_credentials_store_mode: file | keyring | auto
-# mcp_oauth_credentials_store_mode: keyring | file | auto
+sandbox_mode = "workspace-write" # read-only | workspace-write | danger-full-access
+# cli_auth_credentials_store: file | keyring | auto
+# mcp_oauth_credentials_store: keyring | file | auto
 # Core model selection
 # model = "gpt-5.1-codex" # values: any supported model id
 # review_model = "gpt-5.1-codex"
@@ -22,27 +21,29 @@ tui_alternate_screen = "never" # auto | always | never
 
 # Execution policies
 # approval_policy = "on-request" # values: never | on-failure | untrusted | on-request
-# sandbox_policy = "workspace-write" # values: read-only | workspace-write | danger-full-access
-did_user_set_custom_approval_policy_or_sandbox_mode = true
+# sandbox_mode = "workspace-write" # values: read-only | workspace-write | danger-full-access
 
 # Instructions
-# user_instructions = "Follow the repo plan strictly."
-# base_instructions = "Keep outputs concise."
+# instructions = "Follow the repo plan strictly."
 # developer_instructions = "Prefer minimal changes."
 compact_prompt = "Study your current L1, DONE L2 up to now and currently WIP L2. Continue from there. Be Brief"
 
-# UI/notifications
-notify = ["terminal"] # ["terminal", "desktop"]
-tui_notifications = true
-animations = false
-show_tooltips = false
-# tui_scroll_mode = "wheel"
-# tui_alternate_screen = "auto" # values: auto | always | never
-
 # Update + telemetry
 check_for_update_on_startup = false # true | false
-analytics_enabled = false
-feedback_enabled = false
+notify = ["terminal"] # ["terminal", "desktop"]
+[analytics]
+enabled = false
+
+[feedback]
+enabled = false
+
+# UI/notifications
+[tui]
+notifications = true
+animations = false
+show_tooltips = false
+# scroll_mode = "wheel"
+alternate_screen = "never" # values: auto | always | never
 
 # Filesystem + project
 # cwd = "/home/user/workspace"

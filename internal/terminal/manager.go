@@ -504,7 +504,7 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 						continue
 					}
 					if err := writePromptPayload(session, data); err != nil {
-						m.logger.Warn("agent prompt write failed", map[string]string{
+						m.logger.Error("agent prompt write failed", map[string]string{
 							"agent_id": request.AgentID,
 							"prompt":   promptName,
 							"error":    err.Error(),

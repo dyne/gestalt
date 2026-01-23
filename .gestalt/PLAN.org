@@ -393,7 +393,7 @@
    - Example TOML files provided
    - All config fields documented
 
-** WIP [#C] Add integration tests for full config validation workflow
+** DONE [#C] Add integration tests for full config validation workflow
    Why: Ensure end-to-end config system works correctly
    
    Change:
@@ -424,7 +424,7 @@
    - Error messages verified to be clear
    - All tests pass consistently
 
-** TODO [#C] Add CLI validation command for config files
+** WIP [#C] Add CLI validation command for config files
    Why: Let users validate configs before runtime
    
    Change:

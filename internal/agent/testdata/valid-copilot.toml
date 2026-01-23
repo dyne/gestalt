@@ -1,0 +1,6 @@
+name = "Valid Copilot"
+cli_type = "copilot"
+
+[cli_config]
+model = "gpt-5"
+allow_all_tools = true

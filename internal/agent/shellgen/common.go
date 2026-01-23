@@ -66,12 +66,15 @@ func NormalizeFlag(name string) string {
 }
 
 func flattenMap(prefix string, value interface{}, entries *[]Entry) {
-	if value == nil {
+	if isEmptyValue(value) {
 		return
 	}
 
 	if list, ok := value.([]interface{}); ok {
 		for _, item := range list {
+			if isEmptyValue(item) {
+				continue
+			}
 			*entries = append(*entries, Entry{Key: prefix, Value: item})
 		}
 		return
@@ -79,6 +82,9 @@ func flattenMap(prefix string, value interface{}, entries *[]Entry) {
 
 	if list, ok := value.([]string); ok {
 		for _, item := range list {
+			if strings.TrimSpace(item) == "" {
+				continue
+			}
 			*entries = append(*entries, Entry{Key: prefix, Value: item})
 		}
 		return
@@ -90,6 +96,9 @@ func flattenMap(prefix string, value interface{}, entries *[]Entry) {
 		return
 	}
 
+	if len(mapValue) == 0 {
+		return
+	}
 	keys := make([]string, 0, len(mapValue))
 	for key := range mapValue {
 		keys = append(keys, key)
@@ -97,6 +106,9 @@ func flattenMap(prefix string, value interface{}, entries *[]Entry) {
 	sort.Strings(keys)
 	for _, key := range keys {
 		child := mapValue[key]
+		if isEmptyValue(child) {
+			continue
+		}
 		childKey := key
 		if prefix != "" {
 			childKey = prefix + "." + key
@@ -132,6 +144,24 @@ func needsQuoting(value string) bool {
 		case ' ', '\t', '\n', '\r', '\'', '"', '\\', '$', '&', ';', '|', '>', '<', '(', ')', '*', '?', '[', ']', '{', '}', '!', '#':
 			return true
 		}
+	}
+	return false
+}
+
+func isEmptyValue(value interface{}) bool {
+	if value == nil {
+		return true
+	}
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed) == ""
+	case []interface{}:
+		return len(typed) == 0
+	case []string:
+		return len(typed) == 0
+	}
+	if mapValue, ok := asStringMap(value); ok {
+		return len(mapValue) == 0
 	}
 	return false
 }

@@ -49,3 +49,15 @@ func TestBuildCopilotCommandEscapes(t *testing.T) {
 		t.Fatalf("expected %v, got %v", want, got)
 	}
 }
+
+func TestBuildCopilotCommandSkipsEmptyValues(t *testing.T) {
+	config := map[string]interface{}{
+		"allow_all_tools": true,
+		"model":           "",
+	}
+	got := BuildCopilotCommand(config)
+	want := []string{"copilot", "--allow-all-tools"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected %v, got %v", want, got)
+	}
+}

@@ -11,7 +11,7 @@ func TestBuildShellCommandCodex(t *testing.T) {
 		},
 	}
 	got := BuildShellCommand("codex", config)
-	want := "codex -c approval_policy:never -c model:o3 -c tui.scroll_mode:wheel"
+	want := "codex -c approval_policy=never -c model=o3 -c tui.scroll_mode=wheel"
 	if got != want {
 		t.Fatalf("expected %q, got %q", want, got)
 	}
@@ -46,6 +46,18 @@ func TestBuildShellCommandEscapesValues(t *testing.T) {
 	}
 	got := BuildShellCommand("copilot", config)
 	want := "copilot --prompt 'fix this now'"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
+func TestBuildShellCommandSkipsEmptyValues(t *testing.T) {
+	config := map[string]interface{}{
+		"approval_policy": "never",
+		"model":           "",
+	}
+	got := BuildShellCommand("codex", config)
+	want := "codex -c approval_policy=never"
 	if got != want {
 		t.Fatalf("expected %q, got %q", want, got)
 	}

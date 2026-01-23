@@ -1907,6 +1907,14 @@
    - Help diagnose config-related issues in the field
    Tests: Verify metrics appear in logs
    Done when: Extraction metrics logged and observable
+** [#B] Avoid emitting CLI flags for unset config values
+   Why: Unset cli_config fields should not override CLI defaults.
+   Change:
+   - Ensure shell command generation only emits flags for explicitly set values
+   - Preserve CLI defaults when config omits a key
+   - Align codex/copilot shellgen behavior for missing fields
+   Tests: Update shellgen and agent shell tests to cover omitted keys
+   Done when: Missing cli_config keys emit no flags and tests pass
 * TODO [#A] Comprehensive architecture and code quality review
   Goal: Conduct a thorough review of the entire Gestalt codebase (backend + frontend) to identify opportunities for simplification, improved maintainability, better readability, dependency reduction, and architectural improvements.
   Notes:
@@ -7047,3 +7055,25 @@
    - Add metadata field for terminal "role" or "purpose" (future use)
    Tests: Can retrieve recent output from terminal via API
    Done when: API endpoint returns buffered terminal output
+* DONE [#B] Fix codex CLI override syntax and log generated commands
+  Effort: Small
+  Goal: Ensure codex CLI config overrides use the expected syntax and make the
+  generated shell commands visible at debug level for all agent configs.
+  Notes: Codex CLI now rejects "key:value" overrides; we should emit "key=value"
+  and log the rendered command for each agent.
+** DONE [#B] Switch codex shellgen to key=value and update tests
+   Effort: Small
+   Why: Codex CLI errors on overrides without '=' (e.g., approval_policy:never).
+   Change: Update codex shellgen to emit key=value; update tests expecting
+   key:value output.
+   Tests: internal/agent/shellgen/codex_test.go, internal/agent/shell_test.go,
+   internal/agent/integration_test.go, internal/terminal/manager_test.go.
+   Done when: Tests expect and pass with key=value overrides.
+** DONE [#C] Log rendered CLI commands at debug for all agent configs
+   Effort: Small
+   Why: Help debug CLI config rendering without waiting for session start.
+   Change: Log the generated shell command during agent load when cli_config is
+   present (and not empty).
+   Tests: If needed, add a unit test in internal/agent/loader_test.go to assert
+   debug log output.
+   Done when: Debug logs show each agent_id + rendered shell command.

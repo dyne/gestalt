@@ -14,7 +14,7 @@ func TestBuildCodexCommandSimple(t *testing.T) {
 		},
 	}
 	got := BuildCodexCommand(config)
-	want := []string{"codex", "-c", "approval_policy:never", "-c", "model:o3", "-c", "tui.scroll_mode:wheel"}
+	want := []string{"codex", "-c", "approval_policy=never", "-c", "model=o3", "-c", "tui.scroll_mode=wheel"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("expected %v, got %v", want, got)
 	}
@@ -25,7 +25,7 @@ func TestBuildCodexCommandArrays(t *testing.T) {
 		"notify": []string{"email", "slack"},
 	}
 	got := BuildCodexCommand(config)
-	want := []string{"codex", "-c", "notify:email", "-c", "notify:slack"}
+	want := []string{"codex", "-c", "notify=email", "-c", "notify=slack"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("expected %v, got %v", want, got)
 	}
@@ -36,7 +36,7 @@ func TestBuildCodexCommandBooleans(t *testing.T) {
 		"show_raw_agent_reasoning": true,
 	}
 	got := BuildCodexCommand(config)
-	want := []string{"codex", "-c", "show_raw_agent_reasoning:true"}
+	want := []string{"codex", "-c", "show_raw_agent_reasoning=true"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("expected %v, got %v", want, got)
 	}
@@ -47,7 +47,23 @@ func TestBuildCodexCommandEscapes(t *testing.T) {
 		"user_instructions": "fix this now",
 	}
 	got := BuildCodexCommand(config)
-	want := []string{"codex", "-c", "'user_instructions:fix this now'"}
+	want := []string{"codex", "-c", "'user_instructions=fix this now'"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected %v, got %v", want, got)
+	}
+}
+
+func TestBuildCodexCommandSkipsEmptyValues(t *testing.T) {
+	config := map[string]interface{}{
+		"approval_policy": "never",
+		"model":           "",
+		"notify":          []string{""},
+		"tui": map[string]interface{}{
+			"scroll_mode": "",
+		},
+	}
+	got := BuildCodexCommand(config)
+	want := []string{"codex", "-c", "approval_policy=never"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("expected %v, got %v", want, got)
 	}

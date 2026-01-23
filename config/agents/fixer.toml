@@ -1,0 +1,10 @@
+name = "Fixer"
+cli_type = "codex"
+prompt = ["fixer"]
+skills = ["code-review"]
+llm_model = "default"
+
+[cli_config]
+model = "o3"
+approval_policy = "never"
+sandbox_policy = "workspace-write"

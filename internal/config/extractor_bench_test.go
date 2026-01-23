@@ -48,7 +48,7 @@ func buildBenchmarkFS(fileCount, payloadSize int) (fstest.MapFS, map[string]stri
 	fsys := make(fstest.MapFS, fileCount)
 	manifest := make(map[string]string, fileCount)
 	for i := 0; i < fileCount; i++ {
-		relPath := fmt.Sprintf("agents/agent-%04d.json", i)
+		relPath := fmt.Sprintf("agents/agent-%04d.toml", i)
 		content := []byte(fmt.Sprintf(`{"name":"Agent %04d","shell":"/bin/bash"}`, i))
 		if payloadSize > len(content) {
 			content = append(content, bytes.Repeat([]byte("x"), payloadSize-len(content))...)

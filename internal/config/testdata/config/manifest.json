@@ -1,4 +1,4 @@
 {
-  "agents/example.json": "abc123",
+  "agents/example.toml": "abc123",
   "skills/core/SKILL.md": "def456"
 }

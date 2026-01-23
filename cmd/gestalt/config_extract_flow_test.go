@@ -26,7 +26,7 @@ func TestPrepareConfigWarmStartSkipsExtraction(t *testing.T) {
 		t.Fatalf("prepare config: %v", err)
 	}
 
-	agentPath := filepath.Join(root, cfg.ConfigDir, "agents", "codex.json")
+	agentPath := filepath.Join(root, cfg.ConfigDir, "agents", "codex.toml")
 	firstInfo, err := os.Stat(agentPath)
 	if err != nil {
 		t.Fatalf("stat extracted agent: %v", err)
@@ -66,7 +66,7 @@ func TestPrepareConfigConflictBacksUp(t *testing.T) {
 		t.Fatalf("prepare config: %v", err)
 	}
 
-	agentPath := filepath.Join(root, cfg.ConfigDir, "agents", "codex.json")
+	agentPath := filepath.Join(root, cfg.ConfigDir, "agents", "codex.toml")
 	if err := os.Chmod(agentPath, 0o644); err != nil {
 		t.Fatalf("chmod agent: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestPrepareConfigConflictBacksUp(t *testing.T) {
 		t.Fatalf("expected backup to contain custom data")
 	}
 
-	expected, err := fs.ReadFile(gestalt.EmbeddedConfigFS, "config/agents/codex.json")
+	expected, err := fs.ReadFile(gestalt.EmbeddedConfigFS, "config/agents/codex.toml")
 	if err != nil {
 		t.Fatalf("read embedded agent: %v", err)
 	}

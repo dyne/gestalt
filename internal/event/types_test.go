@@ -55,7 +55,7 @@ func TestNewAgentEvent(t *testing.T) {
 }
 
 func TestNewConfigEvent(t *testing.T) {
-	event := NewConfigEvent("agent", "/config/agents/example.json", "modified")
+	event := NewConfigEvent("agent", "/config/agents/example.toml", "modified")
 
 	if event.Type() != "config_modified" {
 		t.Fatalf("expected config_modified, got %q", event.Type())
@@ -63,7 +63,7 @@ func TestNewConfigEvent(t *testing.T) {
 	if event.ConfigType != "agent" {
 		t.Fatalf("expected config type agent, got %q", event.ConfigType)
 	}
-	if event.Path != "/config/agents/example.json" {
+	if event.Path != "/config/agents/example.toml" {
 		t.Fatalf("expected path, got %q", event.Path)
 	}
 	if event.ChangeType != "modified" {

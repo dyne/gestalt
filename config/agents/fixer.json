@@ -1,8 +1,0 @@
-{
-  "name": "Fixer",
-  "shell": "codex --full-auto --add-dir /tmp",
-  "prompt": ["fixer"],
-  "skills": ["code-review"],
-  "llm_type": "codex",
-  "llm_model": "default"
-}

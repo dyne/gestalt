@@ -453,7 +453,7 @@
    - Useful for CI pipelines
    - Tests pass
 
-** WIP [#A] Update default agent configs to use TOML with cli_config
+** DONE [#A] Update default agent configs to use TOML with cli_config
    Why: Shipping default configs should use new format
    
    Change:
@@ -484,7 +484,7 @@
    - Extraction preserves TOML format
    - All agents start successfully
 
-** TODO [#B] Store agent config and hash in Temporal workflow memo
+** WIP [#B] Store agent config and hash in Temporal workflow memo
    Why: Make agent config traceable in workflow history for debugging and auditing
    
    IMPORTANT: Workflow memo captures the EXACT agent config used at session creation.

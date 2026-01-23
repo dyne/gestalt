@@ -14,8 +14,8 @@ func TestLoadManifest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if manifest["agents/example.json"] != "abc123" {
-		t.Fatalf("expected agents/example.json hash to be abc123, got %q", manifest["agents/example.json"])
+	if manifest["agents/example.toml"] != "abc123" {
+		t.Fatalf("expected agents/example.toml hash to be abc123, got %q", manifest["agents/example.toml"])
 	}
 	if manifest["skills/core/SKILL.md"] != "def456" {
 		t.Fatalf("expected skills/core/SKILL.md hash to be def456, got %q", manifest["skills/core/SKILL.md"])

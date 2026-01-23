@@ -1,0 +1,10 @@
+name = "Coder"
+cli_type = "codex"
+prompt = ["coder"]
+skills = ["mcp-builder"]
+llm_model = "default"
+
+[cli_config]
+model = "o3"
+approval_policy = "never"
+sandbox_policy = "workspace-write"

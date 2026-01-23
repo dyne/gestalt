@@ -35,7 +35,7 @@ func TestPrepareConfigExtractsEmbeddedConfig(t *testing.T) {
 		t.Fatalf("prepare config: %v", err)
 	}
 
-	agentPath := filepath.Join(cfg.ConfigDir, "agents", "codex.json")
+	agentPath := filepath.Join(cfg.ConfigDir, "agents", "codex.toml")
 	if _, err := os.Stat(agentPath); err != nil {
 		t.Fatalf("expected extracted agent at %s: %v", agentPath, err)
 	}

@@ -1,0 +1,10 @@
+name = "Architect"
+cli_type = "copilot"
+prompt = ["coder", "architect"]
+skills = ["terminal-navigation"]
+llm_model = "claude-sonnet-4.5"
+
+[cli_config]
+model = "gpt-5"
+allow_all_tools = true
+disable_builtin_mcps = true

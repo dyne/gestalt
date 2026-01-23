@@ -15,9 +15,9 @@ import (
 
 func TestExtractorExtractsNewFiles(t *testing.T) {
 	destDir := t.TempDir()
-	expectedHash := embeddedHash(t, "config/agents/codex.json")
+	expectedHash := embeddedHash(t, "config/agents/codex.toml")
 	manifest := map[string]string{
-		"agents/codex.json": expectedHash,
+		"agents/codex.toml": expectedHash,
 	}
 
 	extractor := Extractor{BackupLimit: 1}
@@ -25,12 +25,12 @@ func TestExtractorExtractsNewFiles(t *testing.T) {
 		t.Fatalf("extract failed: %v", err)
 	}
 
-	destPath := filepath.Join(destDir, "agents", "codex.json")
+	destPath := filepath.Join(destDir, "agents", "codex.toml")
 	actual, err := os.ReadFile(destPath)
 	if err != nil {
 		t.Fatalf("read extracted file: %v", err)
 	}
-	expected := embeddedFile(t, "config/agents/codex.json")
+	expected := embeddedFile(t, "config/agents/codex.toml")
 	if string(actual) != string(expected) {
 		t.Fatalf("extracted contents mismatch")
 	}
@@ -38,9 +38,9 @@ func TestExtractorExtractsNewFiles(t *testing.T) {
 
 func TestExtractorSkipsMatchingFiles(t *testing.T) {
 	destDir := t.TempDir()
-	expectedHash := embeddedHash(t, "config/agents/codex.json")
+	expectedHash := embeddedHash(t, "config/agents/codex.toml")
 	manifest := map[string]string{
-		"agents/codex.json": expectedHash,
+		"agents/codex.toml": expectedHash,
 	}
 
 	extractor := Extractor{BackupLimit: 1}
@@ -48,7 +48,7 @@ func TestExtractorSkipsMatchingFiles(t *testing.T) {
 		t.Fatalf("extract failed: %v", err)
 	}
 
-	destPath := filepath.Join(destDir, "agents", "codex.json")
+	destPath := filepath.Join(destDir, "agents", "codex.toml")
 	oldTime := time.Date(2000, time.January, 1, 0, 0, 0, 0, time.UTC)
 	if err := os.Chtimes(destPath, oldTime, oldTime); err != nil {
 		t.Fatalf("set mod time: %v", err)
@@ -72,7 +72,7 @@ func TestExtractorSkipsMatchingFiles(t *testing.T) {
 
 func TestExtractorBacksUpModifiedFiles(t *testing.T) {
 	destDir := t.TempDir()
-	destPath := filepath.Join(destDir, "agents", "codex.json")
+	destPath := filepath.Join(destDir, "agents", "codex.toml")
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -80,9 +80,9 @@ func TestExtractorBacksUpModifiedFiles(t *testing.T) {
 		t.Fatalf("write custom file: %v", err)
 	}
 
-	expectedHash := embeddedHash(t, "config/agents/codex.json")
+	expectedHash := embeddedHash(t, "config/agents/codex.toml")
 	manifest := map[string]string{
-		"agents/codex.json": expectedHash,
+		"agents/codex.toml": expectedHash,
 	}
 
 	extractor := Extractor{BackupLimit: 1}
@@ -103,7 +103,7 @@ func TestExtractorBacksUpModifiedFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read extracted file: %v", err)
 	}
-	expected := embeddedFile(t, "config/agents/codex.json")
+	expected := embeddedFile(t, "config/agents/codex.toml")
 	if string(extracted) != string(expected) {
 		t.Fatalf("expected extracted contents to match embedded file")
 	}
@@ -111,7 +111,7 @@ func TestExtractorBacksUpModifiedFiles(t *testing.T) {
 
 func TestExtractorReplacesExistingBackup(t *testing.T) {
 	destDir := t.TempDir()
-	destPath := filepath.Join(destDir, "agents", "codex.json")
+	destPath := filepath.Join(destDir, "agents", "codex.toml")
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -123,9 +123,9 @@ func TestExtractorReplacesExistingBackup(t *testing.T) {
 		t.Fatalf("write backup file: %v", err)
 	}
 
-	expectedHash := embeddedHash(t, "config/agents/codex.json")
+	expectedHash := embeddedHash(t, "config/agents/codex.toml")
 	manifest := map[string]string{
-		"agents/codex.json": expectedHash,
+		"agents/codex.toml": expectedHash,
 	}
 
 	extractor := Extractor{BackupLimit: 1}
@@ -144,7 +144,7 @@ func TestExtractorReplacesExistingBackup(t *testing.T) {
 
 func TestExtractorBackupLimit(t *testing.T) {
 	destDir := t.TempDir()
-	destPath := filepath.Join(destDir, "agents", "codex.json")
+	destPath := filepath.Join(destDir, "agents", "codex.toml")
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -167,9 +167,9 @@ func TestExtractorBackupLimit(t *testing.T) {
 		t.Fatalf("set old backup 2 time: %v", err)
 	}
 
-	expectedHash := embeddedHash(t, "config/agents/codex.json")
+	expectedHash := embeddedHash(t, "config/agents/codex.toml")
 	manifest := map[string]string{
-		"agents/codex.json": expectedHash,
+		"agents/codex.toml": expectedHash,
 	}
 
 	extractor := Extractor{BackupLimit: 2}

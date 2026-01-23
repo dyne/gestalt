@@ -1,8 +1,0 @@
-{
-  "name": "Coder",
-  "shell": "codex --full-auto --add-dir /tmp",
-  "prompt": ["coder"],
-  "skills": ["mcp-builder"],
-  "llm_type": "codex",
-  "llm_model": "default"
-}

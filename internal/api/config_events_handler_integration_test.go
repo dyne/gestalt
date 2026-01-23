@@ -37,7 +37,7 @@ func TestConfigEventsWebSocketStream(t *testing.T) {
 	configEvent := event.ConfigEvent{
 		EventType:  "config_extracted",
 		ConfigType: "agent",
-		Path:       "/config/agents/example.json",
+		Path:       "/config/agents/example.toml",
 		ChangeType: "extracted",
 		OccurredAt: timestamp,
 	}

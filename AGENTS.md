@@ -1,4 +1,4 @@
-# Gestalt LLM Orientation (Compact)
+# Gestalt LLM Orientation
 
 Go backend + Svelte frontend for a multi-terminal dashboard with optional agent profiles, skills, and a small CLI.
 Use this as the minimum context to start any plan task.

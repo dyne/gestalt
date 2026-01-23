@@ -1,0 +1,276 @@
+* TODO [#A] Terminal/session refactor and logging consolidation
+  Goal: Reduce session complexity and unify async logging while preserving behavior.
+  Notes:
+  - Focus on internal/terminal + internal/logging duplication.
+  - Preserve current API behavior and tests.
+  - Keep default retention sizes and history merging semantics.
+  Date: 2026-01-24
+
+** TODO [#B] Extract AsyncFileLogger for session + input logs
+   Why: SessionLogger and InputLogger duplicate buffering, flush, and drop logic.
+   Change:
+   - Create shared async file logger utility with a payload writer hook.
+   - Replace SessionLogger/InputLogger internals with shared implementation.
+   - Preserve JSONL format for input history and text format for session logs.
+   Tests:
+   - Update persistence tests to validate new shared logger behavior.
+   Done when: Session and input logs use shared async logger with no behavior change.
+
+** TODO [#B] Split Session into focused sub-structs
+   Why: Session has many mixed concerns (IO, workflow, metadata, logging).
+   Change:
+   - Introduce SessionMeta, SessionIO, SessionWorkflow structs.
+   - Keep a small Session wrapper that composes sub-structs.
+   - Ensure concurrency boundaries are explicit (locks and atomics stay local).
+   Tests:
+   - Update session tests to cover the new struct boundaries.
+   Done when: Session struct is smaller and tests pass unchanged.
+
+** TODO [#C] Review DSR handling and backpressure
+   Why: DSR fallback + output fan-out can stall under slow subscribers.
+   Change:
+   - Document the current backpressure policy and DSR timing assumptions.
+   - Consider metrics or logging for slow subscribers.
+   Tests:
+   - Add targeted tests for DSR parsing and fallback timing.
+   Done when: DSR handling is documented and tests cover edge cases.
+
+* TODO [#A] WebSocket and event stream consolidation
+  Goal: Reduce WS boilerplate and make stream behavior consistent across backend/frontend.
+  Notes:
+  - Preserve existing message shapes and error semantics.
+  Date: 2026-01-24
+
+** TODO [#B] Create backend WS helper
+   Why: Terminal/logs/events handlers duplicate upgrade + write loop patterns.
+   Change:
+   - Extract helper to upgrade, authenticate, and run write loop.
+   - Standardize close/error handling with structured logging.
+   Tests:
+   - Add handler tests for close/error paths.
+   Done when: WS handlers share a common helper without behavior change.
+
+** TODO [#B] Create frontend wsStore helper
+   Why: event stores repeat connect/reconnect logic with subtle differences.
+   Change:
+   - Introduce a wsStore factory with subscribe, reconnect, and dispatch hooks.
+   - Migrate agent/config/terminal/workflow/event stores to shared helper.
+   Tests:
+   - Update store tests to validate shared helper behavior.
+   Done when: Event stores use the shared helper and tests pass.
+
+* TODO [#A] API layer restructuring
+  Goal: Split monolithic REST handler and centralize validation/error patterns.
+  Notes:
+  - Keep endpoint paths and response formats stable.
+  Date: 2026-01-24
+
+** TODO [#B] Split rest.go by domain
+   Why: rest.go mixes endpoints, helpers, and business logic.
+   Change:
+   - Move terminal/agent/skill/log/plan/workflow handlers into separate files.
+   - Keep RestHandler dependencies consistent across files.
+   Tests:
+   - Ensure existing REST tests still pass; add missing coverage where needed.
+   Done when: rest.go is smaller and endpoints are organized by domain.
+
+** TODO [#B] Standardize REST/WS error responses
+   Why: REST uses apiError; WS handlers use http.Error with inconsistent messaging.
+   Change:
+   - Introduce error codes for REST responses.
+   - Add optional WS close reasons or error payloads (non-breaking).
+   Tests:
+   - Add tests for error responses and close codes.
+   Done when: Error reporting is consistent and documented.
+
+* TODO [#B] Watcher and git helper cleanup
+  Goal: Reduce watcher complexity and remove duplicate git parsing logic.
+  Notes:
+  - Keep fsnotify behavior stable and avoid regressions.
+  Date: 2026-01-24
+
+** TODO [#B] Split watcher.go into focused files
+   Why: watcher.go contains registry, debounce, restart, and cleanup logic.
+   Change:
+   - Extract debounce and restart logic into separate files/modules.
+   - Keep public API unchanged.
+   Tests:
+   - Maintain existing watcher tests; add edge-case tests for restart/backoff.
+   Done when: watcher.go is smaller and responsibilities are clearer.
+
+** TODO [#C] Extract internal/git helper
+   Why: resolveGitDir/readGitBranch duplicated in watcher and api.
+   Change:
+   - Create internal/git package with shared helpers.
+   - Update watcher and api to use the helper.
+   Tests:
+   - Add unit tests for git parsing helper.
+   Done when: git parsing duplication is removed.
+
+* TODO [#B] Agent/skill loader utilities
+  Goal: Reduce duplication and clarify loader behavior.
+  Notes:
+  - Preserve TOML-only agent configs and skill validation rules.
+  Date: 2026-01-24
+
+** TODO [#C] Shared loader/path normalization helper
+   Why: cleanFSPath and directory scanning duplicate across loaders.
+   Change:
+   - Create a small helper package for FS path normalization and scanning.
+   - Update agent and skill loaders to use the helper.
+   Tests:
+   - Ensure loader tests cover the helper behavior.
+   Done when: loaders share common utilities without regressions.
+
+** TODO [#C] Clarify Agent.Validate side-effects
+   Why: Agent.Validate mutates Shell when cli_config is set.
+   Change:
+   - Document mutation or refactor validation to return derived shell.
+   Tests:
+   - Update validation tests if behavior changes.
+   Done when: validation behavior is explicit and tested.
+
+* TODO [#B] Frontend store and view simplification
+  Goal: Reduce large modules and centralize data fetching.
+  Notes:
+  - Keep UI behavior and tests stable.
+  Date: 2026-01-24
+
+** TODO [#B] Split terminalStore into modules
+   Why: terminalStore handles xterm setup, WS, input, clipboard, touch logic.
+   Change:
+   - Extract xterm setup, WS connection, and input handling into modules.
+   - Keep current store API surface.
+   Tests:
+   - Update terminalStore tests to cover new boundaries.
+   Done when: terminalStore is smaller and still passes tests.
+
+** TODO [#B] Move Dashboard orchestration into a store
+   Why: Dashboard view mixes data fetching and UI logic.
+   Change:
+   - Create dashboardStore for agents/skills/logs + loading/error state.
+   - Update Dashboard.svelte to consume store output.
+   Tests:
+   - Add store tests for loading/error flows.
+   Done when: Dashboard view is thinner with shared store logic.
+
+** TODO [#C] Extract polling fallback helper
+   Why: PlanView polling logic is embedded and not reusable.
+   Change:
+   - Create a reusable polling helper or store for event fallback.
+   Tests:
+   - Add tests for the helper to avoid timing flakiness.
+   Done when: PlanView uses the helper and behavior is unchanged.
+
+* TODO [#B] Frontend component refactors
+  Goal: Keep UI components focused on presentation logic.
+  Notes:
+  - Preserve component APIs to minimize changes.
+  Date: 2026-01-24
+
+** TODO [#C] Split Terminal component
+   Why: Terminal.svelte manages both UI shell and xterm attachment logic.
+   Change:
+   - Introduce TerminalShell + TerminalCanvas components.
+   - Keep public props consistent in TerminalView.
+   Tests:
+   - Add component tests for focus and reconnect behaviors.
+   Done when: Terminal.svelte is smaller and logic is separated.
+
+** TODO [#C] Isolate CommandInput history logic
+   Why: CommandInput mixes UI with history fetch and keyboard logic.
+   Change:
+   - Extract history fetch + submit handler helpers.
+   Tests:
+   - Add tests for history navigation edge cases.
+   Done when: CommandInput focuses on UI and helpers are tested.
+
+* TODO [#B] CLI refactor and shared client helpers
+  Goal: Simplify gestalt-send and make HTTP behaviors reusable.
+  Notes:
+  - Preserve CLI flags and exit codes.
+  Date: 2026-01-24
+
+** TODO [#B] Extract HTTP client helpers for gestalt-send
+   Why: main.go mixes parsing, HTTP, caching, and completions.
+   Change:
+   - Move fetchAgents/sendAgentInput/startAgent to a small internal client package.
+   Tests:
+   - Update CLI tests to use the new helpers.
+   Done when: gestalt-send main.go is smaller and tests pass.
+
+** TODO [#C] Formalize agent cache format
+   Why: Cache TSV is ad-hoc and fragile.
+   Change:
+   - Store cache as JSON with timestamp and entries.
+   Tests:
+   - Add unit tests for cache read/write.
+   Done when: Cache format is structured and tested.
+
+* TODO [#B] Error handling standardization
+  Goal: Make errors consistent across REST, WS, and UI.
+  Notes:
+  - Avoid breaking error messages used by tests or CLI.
+  Date: 2026-01-24
+
+** TODO [#B] Add error codes to API responses
+   Why: Frontend cannot reliably distinguish error causes.
+   Change:
+   - Extend errorResponse to include code field.
+   - Update apiFetch to surface code.
+   Tests:
+   - Update REST tests to verify error codes.
+   Done when: Error codes are present and used in UI.
+
+** TODO [#C] Centralize frontend error handling
+   Why: View-specific error handling is inconsistent.
+   Change:
+   - Create a shared error helper/store for notifications and UI errors.
+   Tests:
+   - Add tests for error helper behavior.
+   Done when: UI error handling is consistent across views.
+
+* TODO [#B] Testing and coverage improvements
+  Goal: Target consistent coverage and reduce flaky tests.
+  Notes:
+  - Prioritize error paths and WS handling.
+  Date: 2026-01-24
+
+** TODO [#B] Add WS error/close path tests
+   Why: WS handlers and stores have limited coverage for failure scenarios.
+   Change:
+   - Add tests for WS close/error handling in backend and frontend stores.
+   Tests:
+   - Ensure no flakes with explicit timeouts.
+   Done when: WS error paths are covered.
+
+** TODO [#C] Add coverage reporting for frontend
+   Why: Coverage visibility is missing for SPA tests.
+   Change:
+   - Add a documented test:coverage workflow or script usage.
+   Tests:
+   - Run vitest coverage locally as part of verification.
+   Done when: Coverage can be reported on demand.
+
+* TODO [#B] Optional SCIP build tags and dependency slimming
+  Goal: Allow builds without SCIP to reduce dependency surface.
+  Notes:
+  - Keep default behavior unchanged (SCIP on by default).
+  - This is optional and can be deferred.
+  Date: 2026-01-24
+
+** TODO [#B] Add build tags to gate SCIP features
+   Why: SCIP adds many direct and transitive dependencies.
+   Change:
+   - Introduce build tags for internal/scip and related API endpoints.
+   - Provide no-op handlers when SCIP is disabled.
+   Tests:
+   - Add build-tagged tests to verify both modes compile.
+   Done when: Build tags allow a SCIP-free build.
+
+** TODO [#C] Document SCIP optional build
+   Why: Users need to know how to enable/disable SCIP.
+   Change:
+   - Update README or docs with build tag instructions.
+   Tests: None.
+   Done when: Documentation explains SCIP build tags and defaults.

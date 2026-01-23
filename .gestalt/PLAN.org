@@ -1,3 +1,172 @@
+* TODO [#A] OpenTelemetry observability migration
+  Effort: 2-3 weeks
+  Goal: Replace Gestalt's custom event/logging system with OpenTelemetry for industry-standard observability, distributed tracing, and metrics.
+  Notes:
+  - Current state: internal/event.Bus[T] with custom event types, internal/logging package, ad-hoc metrics
+  - New approach: OpenTelemetry SDK for events/logs/traces, custom Collector binary, localhost OTLP
+  - Build custom otelcol-gestalt using OpenTelemetry Collector Builder (ocb) with minimal components
+  - Collector lifecycle: start at Gestalt launch (before Temporal dev server), stop on exit
+  - Temporal integration: record Collector start in workflow, ensure clean shutdown coordination
+  - Event format: map Gestalt events to OTel LogRecords with structured attributes (native OTel primitives)
+  - Frontend: query Collector's OTLP HTTP endpoint for logs, default to INFO level, expandable details
+  - Trace context: propagate through WebSocket connections, Temporal workflows, terminal sessions
+  - Metrics: expose as OTel metrics (terminal count, event rates, workflow states)
+  - API instrumentation: comprehensive metrics for all REST endpoints with agent identification
+  - API metrics: request count, duration, size, errors, active requests - all by endpoint, agent, category
+  - Agent profiling: track which agents call which APIs, frequency, performance, errors
+  - Dashboard queries: most called APIs, slowest endpoints, agent efficiency, error rates by category
+  - Migration strategy: parallel run custom events + OTel during transition, then cut over
+  - Collector components needed: otlpreceiver (gRPC+HTTP), batchprocessor, otlpexporter, fileexporter (for persistence)
+  - No vendor lock-in: use OTLP standard, can swap backends (Jaeger, Prometheus, Loki, etc.)
+  Date: 2026-01-23
+  Priority: [#A] - foundational change enabling better observability
+
+** TODO [#A] Research and design OpenTelemetry integration architecture
+** TODO [#B] Build custom OpenTelemetry Collector binary with ocb
+** TODO [#B] Implement Collector lifecycle management in Gestalt
+** TODO [#B] Integrate Collector start into Temporal workflow
+** TODO [#A] Add OpenTelemetry SDK to Gestalt Go backend
+** TODO [#A] Add comprehensive API instrumentation with agent-specific metrics
+   Effort: 2-3 days
+   Why: Need detailed observability of API performance, agent behavior, and usage patterns for profiling and optimization
+   Change:
+   - Create internal/otel/middleware.go with HTTP instrumentation middleware:
+     ```go
+     type APIMetrics struct {
+         requestCounter    metric.Int64Counter      // Total requests by endpoint, method, status
+         requestDuration   metric.Float64Histogram  // Response time distribution
+         requestSize       metric.Int64Histogram    // Request body size
+         responseSize      metric.Int64Histogram    // Response body size
+         activeRequests    metric.Int64UpDownCounter // Current in-flight requests
+         errorCounter      metric.Int64Counter      // Errors by endpoint, error type
+     }
+     
+     func NewAPIInstrumentationMiddleware(meter metric.Meter) func(http.Handler) http.Handler
+     ```
+   - Capture semantic HTTP attributes (follow OTel HTTP conventions):
+     - http.method (GET, POST, DELETE, etc.)
+     - http.route (template: /api/terminals/:id, not actual ID)
+     - http.status_code (200, 404, 500, etc.)
+     - http.scheme (http/https)
+     - http.target (full path with query params, sanitized)
+     - user_agent (client type: browser, CLI, etc.)
+   - Add agent identification attributes:
+     - agent.id (from Authorization header or request context)
+     - agent.name (resolved from agent profiles)
+     - agent.type (copilot, codex, promptline, human)
+     - terminal.id (for terminal-specific endpoints)
+   - Parse agent identity from requests:
+     - Check Authorization header for token
+     - Map token → agent via session lookup
+     - For /api/agents/:name/input: extract agent from URL path
+     - For /api/terminals/:id: resolve terminal → agent mapping
+     - Fallback: agent.type="unknown" if no auth or mapping
+   - API categorization (custom attributes):
+     - api.category: "terminals", "agents", "workflows", "config", "logs", "skills", "plan", "status"
+     - api.operation: "create", "read", "update", "delete", "stream", "query"
+   - Metrics to collect:
+     - http.server.request.count (counter) - by route, method, status, agent.name, api.category
+     - http.server.request.duration (histogram, seconds) - by route, agent.name, api.category
+       - Buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0] (1ms to 10s)
+     - http.server.request.size (histogram, bytes) - request body size
+     - http.server.response.size (histogram, bytes) - response body size
+     - http.server.active_requests (gauge) - current in-flight requests
+     - api.errors.count (counter) - by route, error_type, agent.name
+   - Create distributed traces for all API requests:
+     - Span: http.server.request (one per HTTP request)
+     - Span attributes: all HTTP semantic attributes + agent attributes
+     - Link to existing trace context if client sends traceparent header
+     - Propagate trace to downstream operations (database, Temporal, etc.)
+   - Add span events for key operations:
+     - request.body_read, request.validated, response.prepared, response.sent
+     - auth.token_validated, agent.resolved, terminal.session_found
+   - Instrument critical endpoints explicitly:
+     - POST /api/terminals - terminal.create span with agent.id attribute
+     - DELETE /api/terminals/:id - terminal.delete span
+     - POST /api/agents/:name/input - agent.input span with input size
+     - GET /api/terminals/:id/output - terminal.output span with output size
+     - WebSocket /ws/terminal/:id - websocket.connect span (separate instrumentation)
+   - Add error tracking:
+     - Capture error details as span events
+     - Record error type, message, stack trace (if available)
+     - Increment error counter with error_type label
+   - Performance optimization:
+     - Use attribute caching: resolve agent.name once, cache for request duration
+     - Lazy attribute resolution: don't resolve agent if not needed for metric
+     - Sampling: consider tail-based sampling for high-traffic endpoints
+   - Dashboard queries enabled by this instrumentation:
+     - "Most called APIs" - group by api.route, count requests
+     - "Slowest endpoints" - p99 of http.server.request.duration by route
+     - "Agent API usage" - group by agent.name, count requests
+     - "Error rate by endpoint" - api.errors.count / http.server.request.count
+     - "Agent efficiency" - requests per agent, avg duration per agent
+     - "API category breakdown" - requests by api.category (pie chart)
+     - "Request size distribution" - histogram of request/response sizes
+   - Add GET /api/metrics/summary endpoint:
+     - Returns JSON summary of API metrics (for UI display)
+     - Top 10 endpoints by request count
+     - Top 10 slowest endpoints (p99 latency)
+     - Top 10 agents by request count
+     - Error rate by category
+     - Refresh every 60s, cache results
+   Tests:
+   - Unit tests for middleware: verify metrics recorded, attributes set correctly
+   - Integration tests: make requests with/without auth, verify agent resolution
+   - Load test: verify overhead <5% with instrumentation enabled
+   Done when:
+   - All REST endpoints instrumented with OTel middleware
+   - Metrics captured: request count, duration, size, errors, active requests
+   - Agent identification working: requests tagged with agent.name, agent.id
+   - API categorization working: all endpoints tagged with api.category
+   - Traces created for all requests, linked to downstream operations
+   - Dashboard queries documented and tested
+   - /api/metrics/summary returns useful aggregations
+** TODO [#A] Migrate internal/logging to OpenTelemetry LogRecords
+** TODO [#B] Migrate event.Bus events to OpenTelemetry LogRecords
+** TODO [#B] Add distributed tracing for WebSocket connections
+** TODO [#B] Integrate OpenTelemetry with Temporal workflows
+** TODO [#A] Replace internal/metrics with OpenTelemetry metrics
+** TODO [#B] Create frontend OTel query client
+** TODO [#B] Update LogsView to use OpenTelemetry logs
+** TODO [#C] Create trace viewer component
+** TODO [#C] Add OpenTelemetry metrics dashboard
+** TODO [#B] Implement parallel run during migration
+** TODO [#B] Cut over to OpenTelemetry (remove custom systems)
+** TODO [#C] Add remote backend export capability
+** TODO [#C] Performance optimization and resource limits
+** TODO [#C] Update documentation for OpenTelemetry observability
+
+* WIP [#A] Fix CLI config warnings, debug logging, and log detail UX
+  Goal: Remove misleading CLI config warnings, ensure debug shell logs are visible,
+  and make dashboard log entries expandable with full payloads.
+
+** WIP [#A] Remove shell+CLI config warning and improve command failure logs
+   - Fix shell command parsing to honor quotes so CLI config values with spaces
+     (ex: compact_prompt) are passed intact to codex/copilot.
+   - Include the rendered command + args and stderr when a spawned command exits
+     with an error, and downgrade the "both shell and CLI config provided" log.
+   - Add tests for quoted argument parsing and CLI config with spaces.
+   - Align codex CLI config keys to ConfigToml (tui.*, analytics.enabled,
+     feedback.enabled, sandbox_mode) and update schema/tests/config examples.
+** TODO [#B] Ensure debug logs are visible with proper filter label defaults
+** TODO [#B] Expand dashboard log entries to show full payload details
+
+* DONE [#B] Remove config manifest and fix coder agent extraction
+  Goal: Stop relying on config/manifest.json, extract all embedded config files,
+  and restore missing agents (including coder) during startup extraction.
+
+** DONE [#B] Update config extraction to walk embedded files without hashes
+** DONE [#B] Remove manifest usage in startup and adjust tests
+
+* DONE [#A] Fix agent config validation, CLI config flattening, and log viewer UX
+  Goal: Provide actionable validation errors, flatten CLI config keys, log shell execution details, and improve frontend log filtering.
+
+** DONE [#A] Emit detailed validation errors with paths and actual values
+** DONE [#A] Flatten agent config keys (no cli_config section) and ensure shell args include all keys
+** DONE [#A] Log rendered shell commands + stderr on failure
+** DONE [#B] Update log viewer defaults and debug label
+** DONE [#B] Expand log detail view to show full event payload
+
 * DONE [#B] CLI-specific agent configuration with TOML format and schema validation
   Goal: Refactor agent configuration system to support per-CLI-type config directives
   with TOML format, JSON Schema validation using invopop/jsonschema, and comprehensive
@@ -1923,7 +2092,7 @@
    - Keep active examples minimal (only required fields)
    Tests: None (documentation/examples only)
    Done when: Example TOML files show commented options and no empty values
-* TODO [#A] Comprehensive architecture and code quality review
+* DONE [#A] Comprehensive architecture and code quality review
   Goal: Conduct a thorough review of the entire Gestalt codebase (backend + frontend) to identify opportunities for simplification, improved maintainability, better readability, dependency reduction, and architectural improvements.
   Notes:
   - Scope: Every internal package, command, frontend component, and external dependency
@@ -1946,7 +2115,7 @@
   - Quality baseline: good test coverage, minimal deps, modular structure
   - Pain points to investigate: coupling, complexity, unclear boundaries, potential over-engineering
 
-** TODO [#A] Review and document current architecture
+** [#A] Review and document current architecture
    Why: Need complete understanding before proposing changes; establish baseline
    Change:
    - Document current architecture in detail:
@@ -1969,8 +2138,9 @@
    - Measure: lines of code per component, cyclomatic complexity (if tools available)
    Tests: None (documentation only)
    Done when: Complete architecture documented with diagrams and metrics
+   Output: docs/architecture-review.md
 
-** TODO [#B] Analyze internal/terminal package (850 LOC, core domain)
+** [#B] Analyze internal/terminal package (850 LOC, core domain)
    Why: Largest and most complex internal package; core business logic
    Change:
    - Review files: session.go, manager.go, pty.go, broadcaster.go, input_buffer.go, output_buffer.go, persistence.go, input_logger.go
@@ -1990,8 +2160,9 @@
    - Proposed improvements: extract, simplify, reduce goroutine count, clearer boundaries
    Tests: Ensure refactoring maintains coverage
    Done when: Detailed analysis with concrete improvement proposals documented
+   Output: docs/architecture-review.md (section: Package analysis: internal/terminal)
 
-** TODO [#B] Analyze internal/api package (1100+ LOC, HTTP/WS layer)
+** [#B] Analyze internal/api package (1100+ LOC, HTTP/WS layer)
    Why: Second largest package; handles all HTTP and WebSocket traffic
    Change:
    - Review files: routes.go, rest.go, terminal_handler.go, logs_handler.go, events_handler.go, spa.go, middleware.go
@@ -2011,8 +2182,9 @@
    - Proposed improvements: split by domain, extract validators, reduce duplication
    Tests: Add integration tests for missing coverage
    Done when: API layer analyzed with refactoring proposals
+   Output: docs/architecture-review.md (section: Package analysis: internal/api)
 
-** TODO [#B] Analyze internal/watcher package (1426 LOC, filesystem monitoring)
+** [#B] Analyze internal/watcher package (1426 LOC, filesystem monitoring)
    Why: Recent addition, significant size, uses fsnotify, complex coordination
    Change:
    - Review files: watcher.go (550 LOC!), hub.go, git.go, types.go + tests
@@ -2030,8 +2202,9 @@
    - Proposed improvements: split large file, simplify if over-designed, better tests
    Tests: Unit tests for watcher logic separate from integration tests
    Done when: Watcher package analyzed with simplification opportunities identified
+   Output: docs/architecture-review.md (section: Package analysis: internal/watcher)
 
-** TODO [#C] Analyze internal/agent package (400 LOC, agent profiles)
+** [#C] Analyze internal/agent package (400 LOC, agent profiles)
    Why: Core domain model, high coverage (85%), well-tested
    Change:
    - Review files: agent.go, loader.go + tests
@@ -2046,8 +2219,9 @@
    - Proposed improvements: likely minimal, validate completeness
    Tests: Review test quality, add edge cases if needed
    Done when: Agent package reviewed, minor improvements identified if any
+   Output: docs/architecture-review.md (section: Package analysis: internal/agent)
 
-** TODO [#C] Analyze internal/skill package (350 LOC, Agent Skills)
+** [#C] Analyze internal/skill package (350 LOC, Agent Skills)
    Why: Domain model for skills, YAML parsing, prompt generation
    Change:
    - Review files: skill.go, loader.go, prompt.go + tests
@@ -2064,8 +2238,9 @@
    - Proposed improvements: extract common loader pattern if beneficial
    Tests: Ensure YAML edge cases covered
    Done when: Skill package reviewed with improvement proposals
+   Output: docs/architecture-review.md (section: Package analysis: internal/skill)
 
-** TODO [#C] Analyze internal/logging package (200 LOC, structured logging)
+** [#C] Analyze internal/logging package (200 LOC, structured logging)
    Why: Recent addition, circular buffer, WebSocket streaming
    Change:
    - Review files: logger.go, buffer.go + tests
@@ -2081,8 +2256,9 @@
    - Proposed improvements: extract buffer, strengthen types
    Tests: Concurrent logging tests
    Done when: Logging package analyzed with reuse opportunities identified
+   Output: docs/architecture-review.md (section: Package analysis: internal/logging)
 
-** TODO [#C] Analyze internal/orchestrator package (empty stub)
+** [#C] Analyze internal/orchestrator package (empty stub)
    Why: Placeholder for future inter-terminal communication
    Change:
    - Review: currently empty, only doc.go with intent
@@ -2093,8 +2269,9 @@
    - Proposed improvements: remove if unused, or sketch minimal design
    Tests: None currently
    Done when: Decision made on orchestrator future (keep stub or remove)
+   Output: docs/architecture-review.md (section: Package analysis: internal/orchestrator)
 
-** TODO [#C] Analyze internal/version package (5 LOC, version string)
+** [#C] Analyze internal/version package (5 LOC, version string)
    Why: Minimal package, check if necessary
    Change:
    - Review: single var Version string for ldflags injection
@@ -2104,8 +2281,9 @@
    - Proposed improvements: keep as-is (clean separation) or inline
    Tests: None needed
    Done when: Version package reviewed (likely no changes)
+   Output: docs/architecture-review.md (section: Package analysis: internal/version)
 
-** TODO [#B] Analyze cmd/gestalt (910 LOC, main entrypoint)
+** [#B] Analyze cmd/gestalt (910 LOC, main entrypoint)
    Why: Largest command file, wires everything together
    Change:
    - Review files: main.go, completion.go, extract.go, config_fs.go + tests
@@ -2120,8 +2298,9 @@
    - Proposed improvements: extract initialization, clarify config, simplify main flow
    Tests: More config loading tests
    Done when: Main entrypoint analyzed with simplification proposals
+   Output: docs/architecture-review.md (section: Package analysis: cmd/gestalt)
 
-** TODO [#B] Analyze cmd/gestalt-send (761 LOC, CLI tool)
+** [#B] Analyze cmd/gestalt-send (761 LOC, CLI tool)
    Why: Separate binary, client-side tool, moderate complexity
    Change:
    - Review files: main.go, completion support, agent resolution, HTTP client
@@ -2137,8 +2316,9 @@
    - Proposed improvements: simplify agent resolution, improve error messages
    Tests: More CLI integration tests
    Done when: gestalt-send analyzed with UX improvement proposals
+   Output: docs/architecture-review.md (section: Package analysis: cmd/gestalt-send)
 
-** TODO [#B] Analyze frontend architecture (4357 LOC, Svelte SPA)
+** [#B] Analyze frontend architecture (4357 LOC, Svelte SPA)
    Why: Entire frontend needs review for consistency and simplicity
    Change:
    - Review structure:
@@ -2157,8 +2337,9 @@
    - Proposed improvements: extract logic from views, simplify stores, reduce component size
    Tests: Frontend has tests but coverage unknown, identify gaps
    Done when: Frontend architecture analyzed with refactoring proposals
+   Output: docs/architecture-review.md (section: Package analysis: frontend architecture)
 
-** TODO [#B] Analyze frontend/src/lib (store and utility modules)
+** [#B] Analyze frontend/src/lib (store and utility modules)
    Why: Core frontend logic, state management, API client
    Change:
    - Review files:
@@ -2181,8 +2362,9 @@
    - Proposed improvements: split terminalStore, extract WebSocket client, remove dead code
    Tests: Add unit tests for store logic
    Done when: Frontend lib modules analyzed with refactoring plan
+   Output: docs/architecture-review.md (section: Package analysis: frontend/src/lib)
 
-** TODO [#B] Analyze frontend components (largest: Terminal 347 LOC, CommandInput 332 LOC)
+** [#B] Analyze frontend components (largest: Terminal 347 LOC, CommandInput 332 LOC)
    Why: Components are UI building blocks, need to be maintainable
    Change:
    - Review each component:
@@ -2206,8 +2388,9 @@
    - Proposed improvements: simplify large components, extract sub-components
    Tests: Component tests for complex logic
    Done when: All components reviewed with simplification proposals
+   Output: docs/architecture-review.md (section: Package analysis: frontend components)
 
-** TODO [#B] Analyze frontend views (4 main views, thin layer over components)
+** [#B] Analyze frontend views (4 main views, thin layer over components)
    Why: Views coordinate components, should be minimal
    Change:
    - Review each view:
@@ -2223,8 +2406,9 @@
    - Proposed improvements: move logic to stores, simplify views
    Tests: View rendering tests
    Done when: Views analyzed, logic extraction opportunities identified
+   Output: docs/architecture-review.md (section: Package analysis: frontend views)
 
-** TODO [#B] Analyze Go dependencies (4 external, all justified?)
+** [#B] Analyze Go dependencies (4 external, all justified?)
    Why: Minimize dependencies for maintainability and security
    Change:
    - Review each dependency:
@@ -2241,8 +2425,9 @@
    - Proposed improvements: investigate gorilla alternatives, document decisions
    Tests: No changes unless migration happens
    Done when: Dependencies reviewed, justified, migration assessed
+   Output: docs/architecture-review.md (section: Package analysis: Go dependencies)
 
-** TODO [#C] Analyze frontend dependencies (2 + dev deps)
+** [#C] Analyze frontend dependencies (2 + dev deps)
    Why: Frontend is already minimal, but verify necessity
    Change:
    - Production dependencies:
@@ -2256,8 +2441,9 @@
    - Proposed improvements: likely none, already minimal
    Tests: No changes
    Done when: Frontend deps reviewed and justified
+   Output: docs/architecture-review.md (section: Package analysis: frontend dependencies)
 
-** TODO [#B] Identify code duplication and extraction opportunities
+** [#B] Identify code duplication and extraction opportunities
    Why: DRY principle - reduce maintenance burden
    Change:
    - Search for duplication patterns:
@@ -2277,8 +2463,9 @@
    - Proposed improvements: prioritize high-value extractions
    Tests: Ensure extracted code is well-tested
    Done when: Duplication catalog created with extraction proposals
+   Output: docs/architecture-review.md (section: Cross-cutting analysis: duplication and extraction)
 
-** TODO [#B] Review error handling consistency
+** [#B] Review error handling consistency
    Why: Poor error handling leads to unclear failures and debugging difficulty
    Change:
    - Backend error handling review:
@@ -2300,8 +2487,9 @@
    - Proposed improvements: consistent error patterns, better user messages
    Tests: Error path test coverage
    Done when: Error handling reviewed, consistency proposals documented
+   Output: docs/architecture-review.md (section: Cross-cutting analysis: error handling consistency)
 
-** TODO [#B] Review testing strategy and coverage gaps
+** [#B] Review testing strategy and coverage gaps
    Why: Tests prevent regressions and document behavior
    Change:
    - Current coverage analysis:
@@ -2331,8 +2519,9 @@
    - Proposed improvements: target 80% coverage, add missing tests
    Tests: This is meta-testing review
    Done when: Coverage gaps identified, test improvement plan created
+   Output: docs/architecture-review.md (section: Cross-cutting analysis: testing strategy and coverage gaps)
 
-** TODO [#A] Create prioritized improvement roadmap
+** [#A] Create prioritized improvement roadmap
    Why: Consolidate all analysis into actionable plan
    Change:
    - Compile all findings from previous L2 steps
@@ -2359,6 +2548,17 @@
    - Create follow-up L1 work plans for top priorities
    Tests: N/A (planning)
    Done when: Prioritized roadmap with detailed improvement proposals ready for implementation
+   Output: docs/architecture-review.md (section: Prioritized improvement roadmap)
+
+** [#B] Create REFACTOR.org from architecture findings
+   Why: Provide a dedicated refactor backlog grouped by implementation theme
+   Change:
+   - Create REFACTOR.org in org-mode format mirroring PLAN structure
+   - Group findings into L1 themes with L2 actionable steps
+   - Include large refactors and optional SCIP build tags
+   Tests: None (documentation only)
+   Done when: REFACTOR.org exists with grouped L1/L2 entries
+   Output: REFACTOR.org
 
 * TODO [#A] Wails desktop application packaging
   Goal: Package Gestalt as a native desktop application using Wails v3, providing a standalone executable for macOS, Windows, and Linux while preserving the existing web server mode as default.
@@ -7085,3 +7285,36 @@
    Tests: If needed, add a unit test in internal/agent/loader_test.go to assert
    debug log output.
    Done when: Debug logs show each agent_id + rendered shell command.
+
+* TODO [#A] Terminal session refactor and logging consolidation
+  Goal: Reduce terminal/session complexity while preserving behavior and tests.
+** TODO [#B] Extract AsyncFileLogger for session and input logs
+   Effort: Medium
+   Change: Create shared async file logger for SessionLogger/InputLogger.
+   Tests: Update persistence tests to cover new shared logger.
+** TODO [#B] Split Session into focused sub-structs
+   Effort: Medium
+   Change: Introduce SessionMeta/SessionIO/SessionWorkflow with a wrapper type.
+   Tests: Adjust session tests to cover new struct boundaries.
+
+* TODO [#B] WebSocket and event stream consolidation
+  Goal: Reduce duplicated WS handling in backend and frontend.
+** TODO [#B] Create backend WS helper
+   Effort: Small
+   Change: Extract upgrade + write loop helper used by WS handlers.
+   Tests: Add handler tests for close/error handling.
+** TODO [#B] Create frontend wsStore helper
+   Effort: Small
+   Change: Introduce shared wsStore utility for event stores and migrate them.
+   Tests: Update store tests to exercise the shared helper.
+
+* TODO [#B] Frontend state/store simplification
+  Goal: Make large UI modules smaller and more testable.
+** TODO [#B] Split terminalStore into focused modules
+   Effort: Medium
+   Change: Separate xterm setup, ws connection, and input handling modules.
+   Tests: Keep terminalStore tests passing with new module boundaries.
+** TODO [#B] Move Dashboard data orchestration into a store
+   Effort: Medium
+   Change: Create a dashboardStore for agents/skills/logs fetching and state.
+   Tests: Add store tests for loading/error behavior.

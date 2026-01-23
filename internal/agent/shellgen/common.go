@@ -86,7 +86,17 @@ func flattenMap(prefix string, value interface{}, entries *[]Entry, expandArrays
 			}
 			return
 		}
-		*entries = append(*entries, Entry{Key: prefix, Value: list})
+		filtered := make([]interface{}, 0, len(list))
+		for _, item := range list {
+			if isEmptyValue(item) {
+				continue
+			}
+			filtered = append(filtered, item)
+		}
+		if len(filtered) == 0 {
+			return
+		}
+		*entries = append(*entries, Entry{Key: prefix, Value: filtered})
 		return
 	}
 
@@ -100,7 +110,17 @@ func flattenMap(prefix string, value interface{}, entries *[]Entry, expandArrays
 			}
 			return
 		}
-		*entries = append(*entries, Entry{Key: prefix, Value: list})
+		filtered := make([]string, 0, len(list))
+		for _, item := range list {
+			if strings.TrimSpace(item) == "" {
+				continue
+			}
+			filtered = append(filtered, item)
+		}
+		if len(filtered) == 0 {
+			return
+		}
+		*entries = append(*entries, Entry{Key: prefix, Value: filtered})
 		return
 	}
 

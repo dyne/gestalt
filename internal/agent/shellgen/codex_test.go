@@ -25,7 +25,7 @@ func TestBuildCodexCommandArrays(t *testing.T) {
 		"notify": []string{"email", "slack"},
 	}
 	got := BuildCodexCommand(config)
-	want := []string{"codex", "-c", "notify=[\"email\",\"slack\"]"}
+	want := []string{"codex", "-c", "'notify=[\"email\",\"slack\"]'"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("expected %v, got %v", want, got)
 	}
@@ -36,7 +36,7 @@ func TestBuildCodexCommandNotifyString(t *testing.T) {
 		"notify": "terminal",
 	}
 	got := BuildCodexCommand(config)
-	want := []string{"codex", "-c", "notify=[\"terminal\"]"}
+	want := []string{"codex", "-c", "'notify=[\"terminal\"]'"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("expected %v, got %v", want, got)
 	}

@@ -62,6 +62,8 @@ type Session struct {
 	CreatedAt     time.Time
 	LLMType       string
 	LLMModel      string
+	Command       string
+	ConfigHash    string
 	PromptFiles   []string
 	WorkflowID    *string
 	WorkflowRunID *string
@@ -100,6 +102,7 @@ type SessionInfo struct {
 	Status      string
 	LLMType     string
 	LLMModel    string
+	Command     string
 	Skills      []string
 	PromptFiles []string
 }
@@ -169,6 +172,7 @@ func (s *Session) Info() SessionInfo {
 		Status:      s.State().String(),
 		LLMType:     s.LLMType,
 		LLMModel:    s.LLMModel,
+		Command:     s.Command,
 		Skills:      skills,
 		PromptFiles: promptFiles,
 	}

@@ -270,6 +270,48 @@ func TestManagerCreateShellArgs(t *testing.T) {
 	}
 }
 
+func TestManagerCreateWithCLIConfigUsesGeneratedCommand(t *testing.T) {
+	factory := &commandCaptureFactory{}
+	profile := agent.Agent{
+		Name:    "Codex",
+		CLIType: "codex",
+		CLIConfig: map[string]interface{}{
+			"model": "o3",
+		},
+	}
+	profile.ConfigHash = agent.ComputeConfigHash(&profile)
+	manager := NewManager(ManagerOptions{
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": profile,
+		},
+	})
+
+	session, err := manager.Create("codex", "run", "cfg")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	if factory.command != "codex" {
+		t.Fatalf("expected command codex, got %q", factory.command)
+	}
+	wantArgs := []string{"-c", "model:o3"}
+	if len(factory.args) != len(wantArgs) {
+		t.Fatalf("expected args %v, got %v", wantArgs, factory.args)
+	}
+	for i, arg := range wantArgs {
+		if factory.args[i] != arg {
+			t.Fatalf("expected args %v, got %v", wantArgs, factory.args)
+		}
+	}
+	if session.ConfigHash != profile.ConfigHash {
+		t.Fatalf("expected config hash %q, got %q", profile.ConfigHash, session.ConfigHash)
+	}
+	if session.Command != "codex -c model:o3" {
+		t.Fatalf("expected command string %q, got %q", "codex -c model:o3", session.Command)
+	}
+}
+
 func TestManagerUsesClock(t *testing.T) {
 	factory := &fakeFactory{}
 	now := time.Date(2024, 2, 10, 8, 30, 0, 0, time.FixedZone("test", 2*60*60))

@@ -320,7 +320,7 @@
    - Running sessions explicitly left untouched
    - All cache tests pass
 
-** WIP [#B] Update terminal session creation to use generated shell commands
+** DONE [#B] Update terminal session creation to use generated shell commands
    Why: Connect new cli_config system to actual terminal launching
    
    IMPORTANT: Each session is a snapshot of the agent config at creation time.
@@ -364,7 +364,7 @@
    - Session immutability documented and tested
    - Tests verify correct behavior
 
-** TODO [#C] Document new configuration system in docs/ and AGENTS.md
+** WIP [#C] Document new configuration system in docs/ and AGENTS.md
    Why: Users and LLM assistants need clear documentation
    
    Change:

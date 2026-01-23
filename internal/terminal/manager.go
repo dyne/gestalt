@@ -292,8 +292,23 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		}
 		profileCopy := agentProfile
 		profile = &profileCopy
-		if !shellOverrideSet && strings.TrimSpace(agentProfile.Shell) != "" {
-			shell = agentProfile.Shell
+		if !shellOverrideSet {
+			if len(agentProfile.CLIConfig) > 0 {
+				generated := agent.BuildShellCommand(agentProfile.CLIType, agentProfile.CLIConfig)
+				if strings.TrimSpace(generated) != "" {
+					shell = generated
+					if m.logger != nil {
+						m.logger.Debug("agent shell command generated", map[string]string{
+							"agent_id": request.AgentID,
+							"shell":    shell,
+						})
+					}
+				} else if strings.TrimSpace(agentProfile.Shell) != "" {
+					shell = agentProfile.Shell
+				}
+			} else if strings.TrimSpace(agentProfile.Shell) != "" {
+				shell = agentProfile.Shell
+			}
 		}
 		if strings.TrimSpace(agentProfile.Name) != "" {
 			request.Title = agentProfile.Name
@@ -390,6 +405,10 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 	session := newSession(id, pty, cmd, request.Title, request.Role, createdAt, m.bufferLines, profile, sessionLogger, inputLogger)
 	if request.AgentID != "" {
 		session.AgentID = request.AgentID
+	}
+	session.Command = shell
+	if profile != nil {
+		session.ConfigHash = profile.ConfigHash
 	}
 
 	m.mu.Lock()

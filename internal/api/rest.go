@@ -51,6 +51,7 @@ type terminalSummary struct {
 	Status      string    `json:"status"`
 	LLMType     string    `json:"llm_type"`
 	LLMModel    string    `json:"llm_model"`
+	Command     string    `json:"command,omitempty"`
 	Skills      []string  `json:"skills"`
 	PromptFiles []string  `json:"prompt_files"`
 }
@@ -683,6 +684,7 @@ func (h *RestHandler) listTerminals(w http.ResponseWriter) *apiError {
 			Status:      info.Status,
 			LLMType:     info.LLMType,
 			LLMModel:    info.LLMModel,
+			Command:     info.Command,
 			Skills:      info.Skills,
 			PromptFiles: info.PromptFiles,
 		})
@@ -971,6 +973,7 @@ func (h *RestHandler) createTerminal(w http.ResponseWriter, r *http.Request) *ap
 		Status:    info.Status,
 		LLMType:   info.LLMType,
 		LLMModel:  info.LLMModel,
+		Command:   info.Command,
 		Skills:    info.Skills,
 	}
 	writeJSON(w, http.StatusCreated, response)

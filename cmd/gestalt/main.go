@@ -137,6 +137,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "validate-skill" {
 		os.Exit(runValidateSkill(os.Args[2:]))
 	}
+	if len(os.Args) > 2 && os.Args[1] == "config" && os.Args[2] == "validate" {
+		os.Exit(runValidateConfig(os.Args[3:]))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "completion" {
 		os.Exit(runCompletion(os.Args[2:], os.Stdout, os.Stderr))
 	}
@@ -1200,6 +1203,7 @@ func printHelp(out io.Writer, defaults configDefaults) {
 
 	fmt.Fprintln(out, "Subcommands:")
 	fmt.Fprintln(out, "  gestalt validate-skill PATH  Validate an Agent Skill directory or SKILL.md file")
+	fmt.Fprintln(out, "  gestalt config validate      Validate agent config files")
 	fmt.Fprintln(out, "  gestalt completion SHELL     Generate shell completion script (bash, zsh)")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Shell completion:")

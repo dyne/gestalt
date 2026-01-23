@@ -38,18 +38,23 @@ _gestalt_complete() {
     return
   fi
 
+  if [[ "$prev" == "config" ]]; then
+    COMPREPLY=( $(compgen -W "validate" -- "$cur") )
+    return
+  fi
+
   if [[ "$prev" == "--shell" ]]; then
     COMPREPLY=( $(compgen -W "/bin/bash /bin/zsh /bin/sh" -- "$cur") )
     return
   fi
 
   if [[ "$cur" == -* ]]; then
-    COMPREPLY=( $(compgen -W "--port --backend-port --shell --token --session-persist --session-dir --session-buffer-lines --session-retention-days --input-history-persist --input-history-dir --max-watches --verbose --quiet --force-upgrade --dev --help --version --extract-config" -- "$cur") )
+    COMPREPLY=( $(compgen -W "--port --backend-port --shell --token --session-persist --session-dir --session-buffer-lines --session-retention-days --input-history-persist --input-history-dir --max-watches --verbose --quiet --force-upgrade --dev --help --version --extract-config --agents-dir" -- "$cur") )
     return
   fi
 
   if [[ $COMP_CWORD -eq 1 ]]; then
-    COMPREPLY=( $(compgen -W "validate-skill completion" -- "$cur") )
+    COMPREPLY=( $(compgen -W "validate-skill config completion" -- "$cur") )
   fi
 }
 
@@ -78,6 +83,7 @@ _gestalt_complete() {
     '--help[Show help]'
     '--version[Print version and exit]'
     '--extract-config[No-op (config extraction runs automatically)]'
+    '--agents-dir[Agents directory]'
   )
 
   case ${words[2]} in
@@ -89,9 +95,13 @@ _gestalt_complete() {
       _files
       return
       ;;
+    config)
+      _values 'config commands' validate
+      return
+      ;;
   esac
 
-  _arguments -s $flags '1:subcommand:(validate-skill completion)' '*::arg:->args'
+  _arguments -s $flags '1:subcommand:(validate-skill config completion)' '*::arg:->args'
 }
 
 _gestalt_complete "$@"

@@ -424,7 +424,7 @@
    - Error messages verified to be clear
    - All tests pass consistently
 
-** WIP [#C] Add CLI validation command for config files
+** DONE [#C] Add CLI validation command for config files
    Why: Let users validate configs before runtime
    
    Change:
@@ -453,7 +453,7 @@
    - Useful for CI pipelines
    - Tests pass
 
-** TODO [#A] Update default agent configs to use TOML with cli_config
+** WIP [#A] Update default agent configs to use TOML with cli_config
    Why: Shipping default configs should use new format
    
    Change:

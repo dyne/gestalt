@@ -1,19 +1,21 @@
-name = "Codex Full Example"
+name = "Coder"
 shell = "codex"
 cli_type = "codex"
 prompt = ["coder"]
 llm_model = "default"
 
-[cli_config]
+model = "gpt-5.2-codex" # values: any supported model id
+model_reasoning_effort = "high"
+
 # Enum values:
-# approval_policy: never | on-failure | untrusted | on-request
-# sandbox_policy: read-only | workspace-write | danger-full-access
-# tui_alternate_screen: auto | always | never
+approval_policy = "never" # never | on-failure | untrusted | on-request
+sandbox_policy = "workspace-write" # read-only | workspace-write | danger-full-access
+tui_alternate_screen = "never" # auto | always | never
 # cli_auth_credentials_store_mode: file | keyring | auto
 # mcp_oauth_credentials_store_mode: keyring | file | auto
 # Core model selection
-# model = "o3" # values: any supported model id
-# review_model = "o3-mini"
+# model = "gpt-5.1-codex" # values: any supported model id
+# review_model = "gpt-5.1-codex"
 # model_context_window = 200000
 # model_auto_compact_token_limit = 120000
 # model_provider_id = "openai"
@@ -21,26 +23,26 @@ llm_model = "default"
 # Execution policies
 # approval_policy = "on-request" # values: never | on-failure | untrusted | on-request
 # sandbox_policy = "workspace-write" # values: read-only | workspace-write | danger-full-access
-# did_user_set_custom_approval_policy_or_sandbox_mode = true
+did_user_set_custom_approval_policy_or_sandbox_mode = true
 
 # Instructions
 # user_instructions = "Follow the repo plan strictly."
 # base_instructions = "Keep outputs concise."
 # developer_instructions = "Prefer minimal changes."
-# compact_prompt = "Be brief."
+compact_prompt = "Study your current L1, DONE L2 up to now and currently WIP L2. Continue from there. Be Brief"
 
 # UI/notifications
-# notify = ["terminal", "desktop"]
-# tui_notifications = true
-# animations = true
-# show_tooltips = true
+notify = ["terminal"] # ["terminal", "desktop"]
+tui_notifications = true
+animations = false
+show_tooltips = false
 # tui_scroll_mode = "wheel"
 # tui_alternate_screen = "auto" # values: auto | always | never
 
 # Update + telemetry
-# check_for_update_on_startup = true # values: true | false
-# analytics_enabled = false
-# feedback_enabled = false
+check_for_update_on_startup = false # true | false
+analytics_enabled = false
+feedback_enabled = false
 
 # Filesystem + project
 # cwd = "/home/user/workspace"
@@ -54,7 +56,7 @@ llm_model = "default"
 # model_providers = { openai = { } }
 # mcp_servers = { github = { } }
 # history = { enabled = true }
-# file_opener = { } 
+# file_opener = { }
 # ghost_snapshot = { ignore_large_untracked_files = 1000000 }
 # notices = { }
 # otel = { }

@@ -5,7 +5,6 @@ prompt = ["fixer"]
 skills = ["code-review"]
 llm_model = "default"
 
-[cli_config]
 # model = "o3" # values: any supported model id
 # approval_policy = "never" # values: never | on-failure | untrusted | on-request
 # sandbox_policy = "workspace-write" # values: read-only | workspace-write | danger-full-access

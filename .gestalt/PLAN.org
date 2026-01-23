@@ -211,7 +211,7 @@
    - LoadAgentByID works for config refresh
    - All loader tests pass
 
-** TODO [#C] Implement codex shell command generation from cli_config
+** DONE [#C] Implement codex shell command generation from cli_config
    Why: Transform cli_config into actual codex command with flags
    
    Change:
@@ -247,7 +247,7 @@
    - Tests cover common and edge cases
    - Shell escaping is safe
 
-** TODO [#C] Implement copilot shell command generation from cli_config
+** WIP [#C] Implement copilot shell command generation from cli_config
    Why: Transform cli_config into copilot command with flags
    
    Change:

@@ -1,0 +1,3 @@
+name = "Simple Shell Example"
+shell = "/bin/bash"
+prompt = ["coder"]

@@ -1,0 +1,12 @@
+name = "Copilot Example"
+cli_type = "copilot"
+prompt = ["coder"]
+
+[cli_config]
+model = "gpt-5"
+allow_all_tools = true
+# disable_builtin_mcps = true
+# allow_tool = ["filesystem.read", "filesystem.write"]
+# deny_tool = ["network.http"]
+# log_level = "info"
+# no_color = true

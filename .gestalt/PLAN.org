@@ -364,7 +364,7 @@
    - Session immutability documented and tested
    - Tests verify correct behavior
 
-** WIP [#C] Document new configuration system in docs/ and AGENTS.md
+** DONE [#C] Document new configuration system in docs/ and AGENTS.md
    Why: Users and LLM assistants need clear documentation
    
    Change:
@@ -393,7 +393,7 @@
    - Example TOML files provided
    - All config fields documented
 
-** TODO [#C] Add integration tests for full config validation workflow
+** WIP [#C] Add integration tests for full config validation workflow
    Why: Ensure end-to-end config system works correctly
    
    Change:

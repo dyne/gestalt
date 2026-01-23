@@ -26,15 +26,23 @@ This repo is a Go backend + Svelte frontend for a multi-terminal dashboard with 
 - REST: `/api/terminals` create/list/delete sessions; `/api/agents` lists agent profiles.
 - WS: `/ws/terminal/:id` streams PTY data to xterm; `/ws/events` streams filesystem events.
 - Agents:
-  - Agent ID = filename in `.gestalt/config/agents/*.json` (without `.json`).
+  - Agent ID = filename in `.gestalt/config/agents/*.toml` (without `.toml`).
   - Agent name = `name` field (must be unique).
   - Single-instance enforced: one running terminal per agent name.
   - Terminal tabs use agent name as label.
   - Event types: `file_changed`, `git_branch_changed`, `watch_error`.
 
 ## Agent profiles
-- Prompt names in `.gestalt/config/agents/*.json` can reference `.tmpl` or `.txt` files (backward compatible).
-- The `skills` field lists optional skills the agent may load later (Claude-style skills); treat them as available but not auto-applied at start.
+- Agent configs are TOML-only (`.gestalt/config/agents/*.toml`); JSON is not supported.
+- Prompt names can reference `.tmpl`, `.md`, or `.txt` files in `.gestalt/config/prompts`.
+- The `skills` field lists optional skills the agent may load later; treat them as available but not auto-applied at start.
+- `cli_type` + `cli_config` enable CLI-specific settings (schema-validated per CLI).
+
+## Agent configuration format (TOML)
+- Base fields: `name`, `shell`, `prompt`, `skills`, `onair_string`, `use_workflow`, `llm_model`.
+- CLI-specific: `cli_type` plus `cli_config` (validated; errors include file + field).
+- Shell commands are generated at session start from `cli_config` for `codex`/`copilot`.
+- Full reference and examples: `docs/agent-configuration.md`.
 
 ## Key API endpoints
 - `/api/status` system status

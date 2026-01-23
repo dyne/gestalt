@@ -1,0 +1,54 @@
+name = "Codex Full Example"
+cli_type = "codex"
+prompt = ["coder"]
+llm_model = "default"
+
+[cli_config]
+# Core model selection
+model = "o3"
+# review_model = "o3-mini"
+# model_context_window = 200000
+# model_auto_compact_token_limit = 120000
+# model_provider_id = "openai"
+
+# Execution policies
+approval_policy = "on-request"
+sandbox_policy = "workspace-write"
+# did_user_set_custom_approval_policy_or_sandbox_mode = true
+
+# Instructions
+# user_instructions = "Follow the repo plan strictly."
+# base_instructions = "Keep outputs concise."
+# developer_instructions = "Prefer minimal changes."
+# compact_prompt = "Be brief."
+
+# UI/notifications
+# notify = ["terminal", "desktop"]
+# tui_notifications = true
+# animations = true
+# show_tooltips = true
+# tui_scroll_mode = "wheel"
+# tui_alternate_screen = "auto"
+
+# Update + telemetry
+check_for_update_on_startup = true
+# analytics_enabled = false
+# feedback_enabled = false
+
+# Filesystem + project
+# cwd = "/home/user/workspace"
+# project_doc_max_bytes = 200000
+# project_doc_fallback_filenames = ["README.md"]
+# tool_output_token_limit = 4000
+
+# Advanced config maps (leave commented unless needed)
+# shell_environment_policy = { PATH = "/usr/bin:/bin" }
+# model_provider = { name = "openai" }
+# model_providers = { openai = { } }
+# mcp_servers = { github = { } }
+# history = { enabled = true }
+# file_opener = { } 
+# ghost_snapshot = { ignore_large_untracked_files = 1000000 }
+# notices = { }
+# otel = { }
+# active_project = { trust_level = "trusted" }

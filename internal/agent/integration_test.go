@@ -76,7 +76,7 @@ func TestIntegrationLoadAgentsAndValidate(t *testing.T) {
 	if strings.TrimSpace(codex.ConfigHash) == "" {
 		t.Fatalf("expected config hash")
 	}
-	if codex.Shell != "codex -c approval_policy:never -c model:o3" {
+	if codex.Shell != "codex -c approval_policy=never -c model=o3" {
 		t.Fatalf("unexpected shell: %q", codex.Shell)
 	}
 	if _, ok := agents["valid-copilot"]; !ok {
@@ -126,7 +126,7 @@ func TestIntegrationCreateSessionFromTOML(t *testing.T) {
 	if factory.command != "codex" {
 		t.Fatalf("expected command codex, got %q", factory.command)
 	}
-	wantArgs := []string{"-c", "approval_policy:never", "-c", "model:o3"}
+	wantArgs := []string{"-c", "approval_policy=never", "-c", "model=o3"}
 	if len(factory.args) != len(wantArgs) {
 		t.Fatalf("expected args %v, got %v", wantArgs, factory.args)
 	}
@@ -138,7 +138,7 @@ func TestIntegrationCreateSessionFromTOML(t *testing.T) {
 	if session.ConfigHash != codex.ConfigHash {
 		t.Fatalf("expected config hash %q, got %q", codex.ConfigHash, session.ConfigHash)
 	}
-	if session.Command != "codex -c approval_policy:never -c model:o3" {
+	if session.Command != "codex -c approval_policy=never -c model=o3" {
 		t.Fatalf("unexpected session command: %q", session.Command)
 	}
 }

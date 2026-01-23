@@ -121,7 +121,7 @@ func TestPrepareConfigPartialExtraction(t *testing.T) {
 		t.Fatalf("prepare config: %v", err)
 	}
 
-	promptPath := filepath.Join(root, cfg.ConfigDir, "prompts", "architect.txt")
+	promptPath := filepath.Join(root, cfg.ConfigDir, "prompts", "architect.tmpl")
 	if err := os.Remove(promptPath); err != nil {
 		t.Fatalf("remove prompt: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestPrepareConfigPartialExtraction(t *testing.T) {
 	if _, err := os.Stat(promptPath); err != nil {
 		t.Fatalf("expected prompt to be re-extracted: %v", err)
 	}
-	expected, err := fs.ReadFile(gestalt.EmbeddedConfigFS, "config/prompts/architect.txt")
+	expected, err := fs.ReadFile(gestalt.EmbeddedConfigFS, "config/prompts/architect.tmpl")
 	if err != nil {
 		t.Fatalf("read embedded prompt: %v", err)
 	}

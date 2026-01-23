@@ -347,7 +347,7 @@ func TestManagerCreateWithCLIConfigUsesGeneratedCommand(t *testing.T) {
 	if factory.command != "codex" {
 		t.Fatalf("expected command codex, got %q", factory.command)
 	}
-	wantArgs := []string{"-c", "model:o3"}
+	wantArgs := []string{"-c", "model=o3"}
 	if len(factory.args) != len(wantArgs) {
 		t.Fatalf("expected args %v, got %v", wantArgs, factory.args)
 	}
@@ -359,8 +359,8 @@ func TestManagerCreateWithCLIConfigUsesGeneratedCommand(t *testing.T) {
 	if session.ConfigHash != profile.ConfigHash {
 		t.Fatalf("expected config hash %q, got %q", profile.ConfigHash, session.ConfigHash)
 	}
-	if session.Command != "codex -c model:o3" {
-		t.Fatalf("expected command string %q, got %q", "codex -c model:o3", session.Command)
+	if session.Command != "codex -c model=o3" {
+		t.Fatalf("expected command string %q, got %q", "codex -c model=o3", session.Command)
 	}
 }
 

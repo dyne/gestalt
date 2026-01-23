@@ -94,11 +94,11 @@ func TestSessionStartWorkflowAndSignals(testingContext *testing.T) {
 		CLIConfig: map[string]interface{}{
 			"model": "o3",
 		},
-		Shell: "codex -c model:o3",
+		Shell: "codex -c model=o3",
 	}
 	profile.ConfigHash = agent.ComputeConfigHash(profile)
 	session := newSession("7", pty, nil, "title", "role", time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC), 10, profile, nil, nil)
-	session.Command = "codex -c model:o3"
+	session.Command = "codex -c model=o3"
 	session.ConfigHash = profile.ConfigHash
 
 	startError := session.StartWorkflow(workflowClient, "L1", "L2")

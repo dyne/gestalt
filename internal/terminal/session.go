@@ -111,7 +111,7 @@ func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt
 	llmType := ""
 	llmModel := ""
 	if profile != nil {
-		llmType = profile.LLMType
+		llmType = profile.CLIType
 		llmModel = profile.LLMModel
 	}
 	outputBuffer := NewOutputBuffer(bufferLines)

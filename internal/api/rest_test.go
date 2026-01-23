@@ -996,7 +996,7 @@ func TestCreateTerminalWithAgent(t *testing.T) {
 			"codex": {
 				Name:    "Codex",
 				Shell:   "/bin/zsh",
-				LLMType: "codex",
+				CLIType: "codex",
 			},
 		},
 	})
@@ -1047,7 +1047,7 @@ func TestCreateTerminalUsesAgentWorkflowDefault(t *testing.T) {
 			"codex": {
 				Name:    "Codex",
 				Shell:   "/bin/zsh",
-				LLMType: "codex",
+				CLIType: "codex",
 			},
 		},
 	})
@@ -1087,7 +1087,7 @@ func TestCreateTerminalDuplicateAgent(t *testing.T) {
 			"codex": {
 				Name:    "Codex",
 				Shell:   "/bin/zsh",
-				LLMType: "codex",
+				CLIType: "codex",
 			},
 		},
 	})
@@ -1143,7 +1143,7 @@ func TestListTerminalsIncludesLLMMetadata(t *testing.T) {
 			"codex": {
 				Name:     "Codex",
 				Shell:    "/bin/zsh",
-				LLMType:  "codex",
+				CLIType:  "codex",
 				LLMModel: "default",
 			},
 		},
@@ -1253,14 +1253,14 @@ func TestAgentsEndpoint(t *testing.T) {
 			"codex": {
 				Name:        "Codex",
 				Shell:       "/bin/zsh",
-				LLMType:     "codex",
+				CLIType:     "codex",
 				LLMModel:    "default",
 				UseWorkflow: boolPtr(true),
 			},
 			"copilot": {
 				Name:        "Copilot",
 				Shell:       "/bin/bash",
-				LLMType:     "copilot",
+				CLIType:     "copilot",
 				LLMModel:    "default",
 				UseWorkflow: boolPtr(false),
 			},

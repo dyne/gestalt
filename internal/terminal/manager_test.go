@@ -246,7 +246,7 @@ func TestManagerCreateShellArgs(t *testing.T) {
 			"copilot": {
 				Name:     "Architect",
 				Shell:    "copilot --allow-all-tools --disable-builtin-mcps",
-				LLMType:  "copilot",
+				CLIType:  "copilot",
 				LLMModel: "default",
 			},
 		},
@@ -295,7 +295,7 @@ func TestManagerGetAgent(t *testing.T) {
 			"codex": {
 				Name:    "Codex",
 				Shell:   "/bin/bash",
-				LLMType: "codex",
+				CLIType: "codex",
 			},
 		},
 	})
@@ -466,7 +466,7 @@ func TestManagerInjectsPrompt(t *testing.T) {
 				Name:    "Codex",
 				Shell:   "/bin/bash",
 				Prompts: agent.PromptList{"first", "second"},
-				LLMType: "codex",
+				CLIType: "codex",
 			},
 		},
 	})
@@ -552,7 +552,7 @@ func TestManagerInjectsTemplatePrompt(t *testing.T) {
 				Name:    "Codex",
 				Shell:   "/bin/bash",
 				Prompts: agent.PromptList{"main"},
-				LLMType: "codex",
+				CLIType: "codex",
 			},
 		},
 	})
@@ -668,7 +668,7 @@ func TestManagerWritesSkillsMetadata(t *testing.T) {
 				Shell:   "/bin/bash",
 				Prompts: agent.PromptList{"first"},
 				Skills:  []string{"beta", "alpha"},
-				LLMType: "codex",
+				CLIType: "codex",
 			},
 		},
 	})
@@ -774,7 +774,7 @@ func TestManagerOnAirStringDelaysPrompt(t *testing.T) {
 				Shell:       "/bin/bash",
 				Prompts:     agent.PromptList{"first"},
 				OnAirString: "READY",
-				LLMType:     "codex",
+				CLIType:     "codex",
 			},
 		},
 	})
@@ -861,7 +861,7 @@ func TestManagerOnAirTimeoutInjectsAnyway(t *testing.T) {
 				Shell:       "/bin/bash",
 				Prompts:     agent.PromptList{"first"},
 				OnAirString: "READY",
-				LLMType:     "codex",
+				CLIType:     "codex",
 			},
 		},
 	})

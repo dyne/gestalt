@@ -722,7 +722,7 @@ func (m *Manager) ListAgents() []AgentInfo {
 		infos = append(infos, AgentInfo{
 			ID:          id,
 			Name:        profile.Name,
-			LLMType:     profile.LLMType,
+			LLMType:     profile.CLIType,
 			LLMModel:    profile.LLMModel,
 			UseWorkflow: resolveWorkflowPreference(profile.UseWorkflow),
 		})

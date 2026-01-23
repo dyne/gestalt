@@ -37,8 +37,8 @@ func TestAgentJSONRoundTrip(t *testing.T) {
 	if a.OnAirString != "READY" {
 		t.Fatalf("onair_string mismatch: %q", a.OnAirString)
 	}
-	if a.LLMType != "codex" {
-		t.Fatalf("llm_type mismatch: %q", a.LLMType)
+	if a.CLIType != "codex" {
+		t.Fatalf("cli_type mismatch: %q", a.CLIType)
 	}
 	if a.LLMModel != "default" {
 		t.Fatalf("llm_model mismatch: %q", a.LLMModel)
@@ -54,7 +54,7 @@ func TestAgentJSONRoundTrip(t *testing.T) {
 		Prompt   []string `json:"prompt"`
 		Skills   []string `json:"skills"`
 		OnAir    string   `json:"onair_string"`
-		LLMType  string   `json:"llm_type"`
+		CLIType  string   `json:"cli_type"`
 		LLMModel string   `json:"llm_model"`
 	}
 	if err := json.Unmarshal(out, &roundTrip); err != nil {
@@ -75,8 +75,8 @@ func TestAgentJSONRoundTrip(t *testing.T) {
 	if roundTrip.OnAir != "READY" {
 		t.Fatalf("roundtrip onair_string mismatch: %q", roundTrip.OnAir)
 	}
-	if roundTrip.LLMType != "codex" {
-		t.Fatalf("roundtrip llm_type mismatch: %q", roundTrip.LLMType)
+	if roundTrip.CLIType != "codex" {
+		t.Fatalf("roundtrip cli_type mismatch: %q", roundTrip.CLIType)
 	}
 	if roundTrip.LLMModel != "default" {
 		t.Fatalf("roundtrip llm_model mismatch: %q", roundTrip.LLMModel)
@@ -123,39 +123,46 @@ func TestAgentJSONPromptParsing(t *testing.T) {
 
 func TestAgentValidate(t *testing.T) {
 	tests := []struct {
-		name    string
-		agent   Agent
-		wantErr string
+		name         string
+		agent        Agent
+		wantErr      string
+		wantShellSet bool
 	}{
 		{
-			name: "valid",
+			name: "valid shell",
 			agent: Agent{
 				Name:    "Codex",
 				Shell:   "/bin/bash",
-				LLMType: "codex",
+				CLIType: "codex",
 			},
 		},
 		{
-			name: "missing llm_type allowed",
-			agent: Agent{
-				Name:  "Codex",
-				Shell: "/bin/bash",
-			},
-		},
-		{
-			name: "invalid llm_type allowed",
+			name: "cli_config builds shell",
 			agent: Agent{
 				Name:    "Codex",
-				Shell:   "/bin/bash",
-				LLMType: "other",
+				CLIType: "codex",
+				CLIConfig: map[string]interface{}{
+					"model": "o3",
+				},
 			},
+			wantShellSet: true,
+		},
+		{
+			name: "missing cli_type with cli_config",
+			agent: Agent{
+				Name: "Codex",
+				CLIConfig: map[string]interface{}{
+					"model": "o3",
+				},
+			},
+			wantErr: "agent cli_type is required",
 		},
 		{
 			name: "missing name",
 			agent: Agent{
 				Name:    " ",
 				Shell:   "/bin/bash",
-				LLMType: "codex",
+				CLIType: "codex",
 			},
 			wantErr: "agent name is required",
 		},
@@ -164,7 +171,7 @@ func TestAgentValidate(t *testing.T) {
 			agent: Agent{
 				Name:    "Codex",
 				Shell:   " ",
-				LLMType: "codex",
+				CLIType: "codex",
 			},
 			wantErr: "agent shell is required",
 		},
@@ -172,10 +179,14 @@ func TestAgentValidate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.agent.Validate()
+			agent := tt.agent
+			err := agent.Validate()
 			if tt.wantErr == "" {
 				if err != nil {
 					t.Fatalf("unexpected error: %v", err)
+				}
+				if tt.wantShellSet && strings.TrimSpace(agent.Shell) == "" {
+					t.Fatalf("expected shell to be set")
 				}
 				return
 			}

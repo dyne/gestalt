@@ -21,7 +21,6 @@ func TestGeneratePromptXMLSingleSkill(t *testing.T) {
   <skill>
     <name>git-workflows</name>
     <description>Use git &amp; stay safe</description>
-    <location>config/skills/git-workflows/SKILL.md</location>
   </skill>
 </available_skills>`
 	if got != expected {
@@ -49,12 +48,10 @@ func TestGeneratePromptXMLMultipleSkills(t *testing.T) {
   <skill>
     <name>terminal-navigation</name>
     <description>Terminal navigation shortcuts and safe command patterns.</description>
-    <location>config/skills/terminal-navigation/SKILL.md</location>
   </skill>
   <skill>
     <name>code-review</name>
     <description>Code review best practices</description>
-    <location>config/skills/code-review/SKILL.md</location>
   </skill>
 </available_skills>`
 	if got != expected {
@@ -76,7 +73,6 @@ func TestGeneratePromptXMLSkipInvalidSkills(t *testing.T) {
   <skill>
     <name>good</name>
     <description>Good skill</description>
-    <location>/tmp/good/SKILL.md</location>
   </skill>
 </available_skills>`
 	if got != expected {

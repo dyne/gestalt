@@ -187,6 +187,58 @@ func (f *scriptedFactory) Start(command string, args ...string) (Pty, *exec.Cmd,
 	return f.pty, nil, nil
 }
 
+// timingPty records write times and can fail after a number of writes.
+type timingPty struct {
+	mu        sync.Mutex
+	writes    [][]byte
+	times     []time.Time
+	failAfter int // -1 means never fail
+	closed    chan struct{}
+}
+
+func newTimingPty(failAfter int) *timingPty {
+	return &timingPty{failAfter: failAfter, closed: make(chan struct{})}
+}
+
+func (p *timingPty) Read(data []byte) (int, error) {
+	<-p.closed
+	return 0, io.EOF
+}
+
+func (p *timingPty) Write(data []byte) (int, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.writes = append(p.writes, append([]byte(nil), data...))
+	p.times = append(p.times, time.Now())
+	if p.failAfter >= 0 && len(p.writes) > p.failAfter {
+		return 0, io.ErrClosedPipe
+	}
+	return len(data), nil
+}
+
+func (p *timingPty) Close() error {
+	select {
+	case <-p.closed:
+	default:
+		close(p.closed)
+	}
+	return nil
+}
+
+func (p *timingPty) Resize(cols, rows uint16) error { return nil }
+
+type timingFactory struct{
+	pty *timingPty
+	failAfter int
+}
+
+func (f *timingFactory) Start(command string, args ...string) (Pty, *exec.Cmd, error) {
+	if f.pty == nil {
+		f.pty = newTimingPty(f.failAfter)
+	}
+	return f.pty, nil, nil
+}
+
 type captureFactory struct {
 	pty *capturePty
 }
@@ -744,33 +796,13 @@ func TestManagerWritesSkillsMetadata(t *testing.T) {
 	if payload == "" {
 		t.Fatalf("timed out waiting for prompt write")
 	}
-	// Skills metadata should be injected as XML
-	if !strings.Contains(payload, "<available_skills>") {
-		t.Fatalf("expected skills metadata in payload: %q", payload)
+	// Skills metadata should NOT be written to terminal output
+	if strings.Contains(payload, "<available_skills>") {
+		t.Fatalf("unexpected skills metadata in payload: %q", payload)
 	}
-	if !strings.Contains(payload, "<name>beta</name>") {
-		t.Fatalf("expected beta skill in metadata: %q", payload)
-	}
-	if !strings.Contains(payload, "<name>alpha</name>") {
-		t.Fatalf("expected alpha skill in metadata: %q", payload)
-	}
-	if !strings.Contains(payload, "<location>config/skills/beta/SKILL.md</location>") {
-		t.Fatalf("expected beta skill location in metadata: %q", payload)
-	}
-	ruler := strings.Repeat("-", 72)
-	separator := "\n\n" + ruler + "\n\n"
-	separatorIndex := strings.Index(payload, separator)
-	if separatorIndex == -1 {
-		t.Fatalf("expected separator after skills metadata: %q", payload)
-	}
-	// Prompt should still be there after skills
+	// Prompt should still be present
 	if !strings.Contains(payload, "echo hello\n") {
 		t.Fatalf("prompt payload missing: %q", payload)
-	}
-	skillsIndex := strings.Index(payload, "<available_skills>")
-	promptIndex := strings.Index(payload, "echo hello\n")
-	if skillsIndex == -1 || promptIndex == -1 || skillsIndex > separatorIndex || separatorIndex > promptIndex {
-		t.Fatalf("expected skills then separator then prompt payload: %q", payload)
 	}
 	// Full skill content should NOT be in payload
 	if strings.Contains(payload, "# Beta Skill") || strings.Contains(payload, "# Alpha Skill") {
@@ -860,6 +892,81 @@ func TestManagerOnAirStringDelaysPrompt(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for prompt after onair")
+}
+
+func TestPromptInjectionTiming_WithMockAgent(t *testing.T) {
+	// Prepare a long prompt to force multiple chunks
+	root := t.TempDir()
+	promptsDir := filepath.Join(root, "config", "prompts")
+	if err := os.MkdirAll(promptsDir, 0755); err != nil {
+		t.Fatalf("mkdir prompts: %v", err)
+	}
+	// Create ~512 bytes to exceed multiple 64-byte chunks
+	var b strings.Builder
+	for i := 0; i < 16; i++ { // 16*32 = 512
+		b.WriteString("0123456789ABCDEFGHIJKLMNOPQRSTUV\n") // 32 bytes incl. \n
+	}
+	if err := os.WriteFile(filepath.Join(promptsDir, "long.txt"), []byte(b.String()), 0644); err != nil {
+		t.Fatalf("write prompt: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	defer os.Chdir(cwd)
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	buffer := logging.NewLogBuffer(100)
+	logger := logging.NewLoggerWithOutput(buffer, logging.LevelDebug, nil)
+
+	factory := &timingFactory{failAfter: -1} // never fail; measure timing
+	manager := NewManager(ManagerOptions{
+		PtyFactory: factory,
+		Logger:     logger,
+		Agents: map[string]agent.Agent{
+			"mock": {
+				Name:    "Mock",
+				Shell:   "/bin/bash",
+				Prompts: agent.PromptList{"long"},
+				CLIType: "mock",
+			},
+		},
+	})
+
+	session, err := manager.Create("mock", "role", "title")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	defer func(){ _ = manager.Delete(session.ID) }()
+
+	// Wait for multiple chunk writes (promptDelay is 3s)
+	deadline := time.Now().Add(7 * time.Second)
+	for time.Now().Before(deadline) {
+		factory.pty.mu.Lock()
+		count := len(factory.pty.writes)
+		factory.pty.mu.Unlock()
+		if count >= 2 { break }
+		time.Sleep(10 * time.Millisecond)
+	}
+	factory.pty.mu.Lock()
+	writes := append([][]byte(nil), factory.pty.writes...)
+	times := append([]time.Time(nil), factory.pty.times...)
+	factory.pty.mu.Unlock()
+	if len(writes) < 2 {
+		t.Fatalf("expected multiple chunk writes, got %d", len(writes))
+	}
+	// Verify timing gaps roughly respect chunk delay (>= ~20ms between first two)
+	if len(times) >= 2 {
+		delta := times[1].Sub(times[0])
+		if delta < 20*time.Millisecond {
+			t.Fatalf("expected inter-chunk delay >=20ms, got %v", delta)
+		}
+	}
+	// Ensure no skills XML is printed
+	payload := strings.Builder{}
+	for _, w := range writes { payload.Write(w) }
+	if strings.Contains(payload.String(), "<available_skills>") {
+		t.Fatalf("unexpected skills metadata in payload: %q", payload.String())
+	}
 }
 
 func TestManagerOnAirTimeoutInjectsAnyway(t *testing.T) {

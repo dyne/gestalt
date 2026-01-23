@@ -1,12 +1,11 @@
 package skill
 
 import (
-	"fmt"
 	"strings"
 )
 
-// GeneratePromptXML builds XML metadata for skill discovery with full skill elements.
-// Each skill includes name, description, and location (absolute path to SKILL.md).
+// GeneratePromptXML builds XML metadata for skill discovery using only name and description.
+// Note: location is intentionally omitted; skills content is not printed to the terminal.
 func GeneratePromptXML(skills []*Skill) string {
 	if len(skills) == 0 {
 		return ""
@@ -21,11 +20,10 @@ func GeneratePromptXML(skills []*Skill) string {
 		}
 		name := strings.TrimSpace(entry.Name)
 		description := strings.TrimSpace(entry.Description)
-		path := strings.TrimSpace(entry.Path)
 		if name == "" || description == "" {
 			continue
 		}
-		
+
 		builder.WriteString("  <skill>\n")
 		builder.WriteString("    <name>")
 		writeEscaped(&builder, name)
@@ -33,14 +31,6 @@ func GeneratePromptXML(skills []*Skill) string {
 		builder.WriteString("    <description>")
 		writeEscaped(&builder, description)
 		builder.WriteString("</description>\n")
-		
-		if path != "" {
-			location := fmt.Sprintf("%s/SKILL.md", path)
-			builder.WriteString("    <location>")
-			writeEscaped(&builder, location)
-			builder.WriteString("</location>\n")
-		}
-		
 		builder.WriteString("  </skill>\n")
 		wrote = true
 	}

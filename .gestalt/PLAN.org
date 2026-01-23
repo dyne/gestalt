@@ -485,6 +485,25 @@
    - All agents start successfully
 
 ** [#B] Store agent config and hash in Temporal workflow memo
+
+** [#C] Tighten memo JSON error and warn on legacy memo blobs
+   Why: Make memo format changes explicit and surface legacy JSON memo blobs during validation.
+
+   Change:
+   1. Update internal/temporal/memo.go:
+      - Detect JSON-looking memo payloads and return a clear error message
+      - TOML-only parsing (no JSON fallback)
+   2. Update cmd/gestalt/validate_agents.go:
+      - Scan for legacy memo blobs in the local Temporal dev dir (if present)
+      - Emit a migration warning when JSON agent_config memos are detected
+   3. Tests:
+      - memo_test.go asserts JSON rejection message
+      - validate_agents_test.go covers warning emission when legacy memo data exists
+
+   Done when:
+   - JSON-looking memos produce explicit errors
+   - Validation prints a migration warning when legacy memo blobs are found
+   - Tests pass
    Why: Make agent config traceable in workflow history for debugging and auditing
    
    IMPORTANT: Workflow memo captures the EXACT agent config used at session creation.
@@ -5953,7 +5972,7 @@
    Tests: None (documentation and future planning)
    Done when: Security considerations documented (implementation deferred)
 
-**  [#B] Fix skill prompt injection order and content
+** DONE [#B] Fix skill prompt injection order and content
    Why: Skill metadata is being injected into terminal output before agent prompts; skill instructions should appear after prompts as a marked Skills section.
    Change:
    - Trace the prompt/skill injection path to confirm where terminal output is written.
@@ -5962,7 +5981,7 @@
    Tests: Manual check: startup shows agent prompt first, then skills section with SKILL.md content.
    Done when: Terminal startup output order matches expected prompt -> skills section, and XML metadata is not printed to the terminal.
 
-**  [#B] Update available_skills metadata format and stop terminal printing
+** DONE [#B] Update available_skills metadata format and stop terminal printing
    Why: Skills should be provided as metadata-only context (name + description), not printed to the terminal.
    Change:
    - Replace the current skill metadata format with the requested <available_skills> block lines (name + description).

@@ -924,6 +924,23 @@ func (h *RestHandler) createTerminal(w http.ResponseWriter, r *http.Request) *ap
 		return err
 	}
 
+	if request.Agent != "" && h.Manager != nil {
+		agentProfile, reloaded, loadErr := h.Manager.LoadAgentForSession(request.Agent)
+		if loadErr != nil {
+			if errors.Is(loadErr, terminal.ErrAgentNotFound) {
+				return &apiError{Status: http.StatusBadRequest, Message: "unknown agent"}
+			}
+			return &apiError{Status: http.StatusInternalServerError, Message: "failed to refresh agent config"}
+		}
+		if reloaded && h.Logger != nil && agentProfile != nil {
+			h.Logger.Info("agent config reloaded for new session", map[string]string{
+				"agent_id":   request.Agent,
+				"agent_name": agentProfile.Name,
+				"hash":       agentProfile.ConfigHash,
+			})
+		}
+	}
+
 	session, createErr := h.Manager.CreateWithOptions(terminal.CreateOptions{
 		AgentID:     request.Agent,
 		Role:        request.Role,

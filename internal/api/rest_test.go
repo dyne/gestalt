@@ -988,6 +988,16 @@ func TestCreateTerminalWorkflowFlag(t *testing.T) {
 }
 
 func TestCreateTerminalWithAgent(t *testing.T) {
+	root := t.TempDir()
+	agentsDir := filepath.Join(root, "agents")
+	if err := os.MkdirAll(agentsDir, 0755); err != nil {
+		t.Fatalf("mkdir agents: %v", err)
+	}
+	agentTOML := "name = \"Codex\"\nshell = \"/bin/zsh\"\ncli_type = \"codex\"\n"
+	if err := os.WriteFile(filepath.Join(agentsDir, "codex.toml"), []byte(agentTOML), 0644); err != nil {
+		t.Fatalf("write agent: %v", err)
+	}
+
 	factory := &fakeFactory{}
 	manager := terminal.NewManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
@@ -999,6 +1009,7 @@ func TestCreateTerminalWithAgent(t *testing.T) {
 				CLIType: "codex",
 			},
 		},
+		AgentsDir: agentsDir,
 	})
 	handler := &RestHandler{Manager: manager}
 
@@ -1036,6 +1047,16 @@ func TestCreateTerminalWithAgent(t *testing.T) {
 }
 
 func TestCreateTerminalUsesAgentWorkflowDefault(t *testing.T) {
+	root := t.TempDir()
+	agentsDir := filepath.Join(root, "agents")
+	if err := os.MkdirAll(agentsDir, 0755); err != nil {
+		t.Fatalf("mkdir agents: %v", err)
+	}
+	agentTOML := "name = \"Codex\"\nshell = \"/bin/zsh\"\ncli_type = \"codex\"\n"
+	if err := os.WriteFile(filepath.Join(agentsDir, "codex.toml"), []byte(agentTOML), 0644); err != nil {
+		t.Fatalf("write agent: %v", err)
+	}
+
 	factory := &fakeFactory{}
 	temporalClient := &fakeWorkflowSignalClient{runID: "run-2"}
 	manager := terminal.NewManager(terminal.ManagerOptions{
@@ -1050,6 +1071,7 @@ func TestCreateTerminalUsesAgentWorkflowDefault(t *testing.T) {
 				CLIType: "codex",
 			},
 		},
+		AgentsDir: agentsDir,
 	})
 	handler := &RestHandler{Manager: manager}
 
@@ -1079,6 +1101,16 @@ func TestCreateTerminalUsesAgentWorkflowDefault(t *testing.T) {
 }
 
 func TestCreateTerminalDuplicateAgent(t *testing.T) {
+	root := t.TempDir()
+	agentsDir := filepath.Join(root, "agents")
+	if err := os.MkdirAll(agentsDir, 0755); err != nil {
+		t.Fatalf("mkdir agents: %v", err)
+	}
+	agentTOML := "name = \"Codex\"\nshell = \"/bin/zsh\"\ncli_type = \"codex\"\n"
+	if err := os.WriteFile(filepath.Join(agentsDir, "codex.toml"), []byte(agentTOML), 0644); err != nil {
+		t.Fatalf("write agent: %v", err)
+	}
+
 	factory := &fakeFactory{}
 	manager := terminal.NewManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
@@ -1090,6 +1122,7 @@ func TestCreateTerminalDuplicateAgent(t *testing.T) {
 				CLIType: "codex",
 			},
 		},
+		AgentsDir: agentsDir,
 	})
 	handler := &RestHandler{Manager: manager}
 

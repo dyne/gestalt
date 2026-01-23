@@ -40,6 +40,7 @@ type ManagerOptions struct {
 	BufferLines          int
 	Clock                Clock
 	Agents               map[string]agent.Agent
+	AgentsDir            string
 	Skills               map[string]*skill.Skill
 	Logger               *logging.Logger
 	TemporalClient       temporal.WorkflowClient
@@ -63,6 +64,8 @@ type Manager struct {
 	bufferLines     int
 	clock           Clock
 	agents          map[string]agent.Agent
+	agentCache      *agent.AgentCache
+	agentsDir       string
 	skills          map[string]*skill.Skill
 	logger          *logging.Logger
 	agentBus        *event.Bus[event.AgentEvent]
@@ -191,6 +194,8 @@ func NewManager(opts ManagerOptions) *Manager {
 	for id, profile := range opts.Agents {
 		agents[id] = profile
 	}
+	agentsDir := strings.TrimSpace(opts.AgentsDir)
+	agentCache := agent.NewAgentCache(agents)
 	skills := make(map[string]*skill.Skill)
 	for id, entry := range opts.Skills {
 		skills[id] = entry
@@ -204,6 +209,8 @@ func NewManager(opts ManagerOptions) *Manager {
 		bufferLines:     bufferLines,
 		clock:           clock,
 		agents:          agents,
+		agentCache:      agentCache,
+		agentsDir:       agentsDir,
 		skills:          skills,
 		logger:          logger,
 		agentBus:        agentBus,
@@ -713,6 +720,38 @@ func (m *Manager) GetAgent(id string) (agent.Agent, bool) {
 	m.mu.RUnlock()
 
 	return profile, ok
+}
+
+func (m *Manager) LoadAgentForSession(agentID string) (*agent.Agent, bool, error) {
+	if m == nil {
+		return nil, false, errors.New("manager is nil")
+	}
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return nil, false, errors.New("agent id is required")
+	}
+	if m.agentCache == nil {
+		profile, ok := m.GetAgent(agentID)
+		if !ok {
+			return nil, false, ErrAgentNotFound
+		}
+		profileCopy := profile
+		return &profileCopy, false, nil
+	}
+	profile, reloaded, err := m.agentCache.LoadOrReload(agentID, m.agentsDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, false, ErrAgentNotFound
+		}
+		return nil, false, err
+	}
+	if profile == nil {
+		return nil, false, ErrAgentNotFound
+	}
+	m.mu.Lock()
+	m.agents[agentID] = *profile
+	m.mu.Unlock()
+	return profile, reloaded, nil
 }
 
 func (m *Manager) ListAgents() []AgentInfo {

@@ -271,7 +271,7 @@
    - Boolean flags handled correctly
    - Tests pass
 
-** WIP [#B] Add config refresh before terminal session start
+** DONE [#B] Add config refresh before terminal session start
    Why: Ensure NEW agent sessions always launch with latest config from disk
    
    IMPORTANT: Config refresh only affects NEW session creation. Running sessions
@@ -320,7 +320,7 @@
    - Running sessions explicitly left untouched
    - All cache tests pass
 
-** TODO [#B] Update terminal session creation to use generated shell commands
+** WIP [#B] Update terminal session creation to use generated shell commands
    Why: Connect new cli_config system to actual terminal launching
    
    IMPORTANT: Each session is a snapshot of the agent config at creation time.

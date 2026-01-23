@@ -272,6 +272,7 @@ func main() {
 	manager := terminal.NewManager(terminal.ManagerOptions{
 		Shell:                cfg.Shell,
 		Agents:               agents,
+		AgentsDir:            filepath.Join(configPaths.ConfigDir, "agents"),
 		Skills:               skills,
 		Logger:               logger,
 		TemporalClient:       temporalClient,

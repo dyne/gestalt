@@ -482,7 +482,6 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 					time.Sleep(interPromptDelay)
 				}
 			}
-			}
 
 			// Inject custom prompts
 			if len(promptNames) > 0 {

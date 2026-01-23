@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -15,12 +14,12 @@ import (
 	"gestalt/internal/logging"
 )
 
-// Loader reads agent profiles from JSON files.
+// Loader reads agent profiles from TOML files.
 type Loader struct {
 	Logger *logging.Logger
 }
 
-// Load scans dir for *.json files and returns a map keyed by agent ID.
+// Load scans dir for *.toml files and returns a map keyed by agent ID.
 func (l Loader) Load(agentFS fs.FS, dir, promptsDir string, skillIndex map[string]struct{}) (map[string]Agent, error) {
 	if strings.TrimSpace(promptsDir) == "" {
 		promptsDir = filepath.Join("config", "prompts")
@@ -48,10 +47,16 @@ func (l Loader) Load(agentFS fs.FS, dir, promptsDir string, skillIndex map[strin
 			continue
 		}
 		name := entry.Name()
-		if filepath.Ext(name) != ".json" {
+		ext := strings.ToLower(filepath.Ext(name))
+		if ext != ".toml" {
+			if ext == ".json" {
+				agentID := strings.TrimSuffix(name, ext)
+				filePath := path.Join(dir, name)
+				l.warnLoadError(agentID, filePath, fmt.Errorf("only TOML agent configs are supported"))
+			}
 			continue
 		}
-		agentID := strings.TrimSuffix(name, ".json")
+		agentID := strings.TrimSuffix(name, ".toml")
 		filePath := path.Join(dir, name)
 		agent, err := readAgentFile(agentFS, filePath)
 		if err != nil {
@@ -75,20 +80,43 @@ func (l Loader) Load(agentFS fs.FS, dir, promptsDir string, skillIndex map[strin
 	return agents, nil
 }
 
+// LoadAgentByID loads a single agent config by ID from the filesystem.
+func LoadAgentByID(agentID string, agentsDir string) (*Agent, error) {
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return nil, fmt.Errorf("agent id is required")
+	}
+	agentsDir = strings.TrimSpace(agentsDir)
+	if agentsDir == "" {
+		agentsDir = filepath.Join("config", "agents")
+	}
+	if strings.HasSuffix(strings.ToLower(agentID), ".toml") {
+		agentID = strings.TrimSuffix(agentID, filepath.Ext(agentID))
+	}
+	filePath := filepath.Join(agentsDir, agentID+".toml")
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		emitConfigValidationError(filePath)
+		return nil, fmt.Errorf("read agent file %s: %w", filePath, err)
+	}
+	agent, err := loadAgentFromBytes(filePath, data)
+	if err != nil {
+		emitConfigValidationError(filePath)
+		return nil, err
+	}
+	return &agent, nil
+}
+
 func readAgentFile(agentFS fs.FS, filePath string) (Agent, error) {
 	data, err := fs.ReadFile(agentFS, filePath)
 	if err != nil {
 		emitConfigValidationError(filePath)
 		return Agent{}, fmt.Errorf("read agent file %s: %w", filePath, err)
 	}
-	var agent Agent
-	if err := json.Unmarshal(data, &agent); err != nil {
+	agent, err := loadAgentFromBytes(filePath, data)
+	if err != nil {
 		emitConfigValidationError(filePath)
-		return Agent{}, fmt.Errorf("parse agent file %s: %w", filePath, err)
-	}
-	if err := agent.Validate(); err != nil {
-		emitConfigValidationError(filePath)
-		return Agent{}, fmt.Errorf("validate agent file %s: %w", filePath, err)
+		return Agent{}, err
 	}
 	return agent, nil
 }
@@ -138,8 +166,7 @@ func validatePromptNames(logger *logging.Logger, agentFS fs.FS, agentID string, 
 		if promptName == "" {
 			continue
 		}
-		promptPath := path.Join(promptsDir, promptName+".txt")
-		if _, err := fs.Stat(agentFS, promptPath); err != nil {
+		if _, err := resolvePromptPath(agentFS, promptsDir, promptName); err != nil {
 			if logger != nil {
 				logger.Warn("agent prompt file missing", map[string]string{
 					"agent_id": agentID,
@@ -149,6 +176,17 @@ func validatePromptNames(logger *logging.Logger, agentFS fs.FS, agentID string, 
 			}
 		}
 	}
+}
+
+func resolvePromptPath(agentFS fs.FS, promptsDir, promptName string) (string, error) {
+	extensions := []string{".tmpl", ".md", ".txt"}
+	for _, ext := range extensions {
+		promptPath := path.Join(promptsDir, promptName+ext)
+		if _, err := fs.Stat(agentFS, promptPath); err == nil {
+			return promptPath, nil
+		}
+	}
+	return "", fmt.Errorf("prompt %q not found", promptName)
 }
 
 func resolveSkills(logger *logging.Logger, agentID string, skills []string, skillIndex map[string]struct{}) []string {

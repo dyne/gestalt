@@ -1,4 +1,4 @@
-* TODO [#B] CLI-specific agent configuration with TOML format and schema validation
+* WIP [#B] CLI-specific agent configuration with TOML format and schema validation
   Goal: Refactor agent configuration system to support per-CLI-type config directives
   with TOML format, JSON Schema validation using invopop/jsonschema, and comprehensive
   codex flag support.
@@ -19,9 +19,8 @@
   - Shell command construction uses CLI config to append flags
   
   Backward compatibility:
-  - JSON agent files remain supported during transition (deprecation warning)
+  - JSON agent files are no longer supported; TOML is required
   - Existing shell field remains but becomes optional if cli_config present
-  - Migration tool provided to convert JSON to TOML (gestalt config migrate-agents)
   
   Notes:
   - Codex source file (codex-config-mod.rs) provided for reference
@@ -29,7 +28,7 @@
   - Schema validation points to exact field/line for errors
   - TOML supports comments for better documentation
   
-** TODO [#B] Add invopop/jsonschema dependency and create schema infrastructure
+** DONE [#B] Add invopop/jsonschema dependency and create schema infrastructure
    Why: Need schema validation foundation before implementing CLI configs
    
    Change:
@@ -57,7 +56,7 @@
    - Validation function returns clear errors for bad configs
    - All tests pass
 
-** TODO [#B] Implement codex configuration schema from codex-config-mod.rs
+** DONE [#B] Implement codex configuration schema from codex-config-mod.rs
    Why: Codex is the primary target CLI with extensive configuration options
    
    Change:
@@ -104,7 +103,7 @@
    - Tests cover major config scenarios
    - Documentation matches Rust comments
 
-** TODO [#C] Implement copilot configuration schema
+** DONE [#C] Implement copilot configuration schema
    Why: Second major CLI requiring configuration support
    
    Change:
@@ -129,7 +128,7 @@
    - Schema validates copilot-specific configs
    - Tests pass
 
-** TODO [#B] Extend Agent struct to support cli_config and TOML format
+** DONE [#B] Extend Agent struct to support cli_config and TOML format
    Why: Core data model needs to accommodate new configuration approach
    
    Change:
@@ -156,14 +155,12 @@
    5. Update agent_test.go:
       - Test TOML parsing
       - Test shell command generation from cli_config
-      - Test backward compatibility with JSON
       - Test config hash computation and stability
    
    Tests:
    - TOML parsing works with cli_config
    - Shell generation creates valid commands
    - Validation catches schema violations
-   - JSON agents still load (with deprecation warning)
    - Config hash is consistent for same config
    
    Done when:
@@ -173,15 +170,14 @@
    - All tests pass including backward compat
    - Deprecation warning logged for JSON files
 
-** TODO [#B] Update agent loader to support TOML files with proper validation
+** DONE [#B] Update agent loader to support TOML files with proper validation
    Why: Need to load TOML agent configs and validate against schemas
    
    Change:
    1. Add github.com/BurntSushi/toml dependency
    2. Update internal/agent/loader.go LoadFromDir():
-      - Support both *.json and *.toml file extensions
-      - Try TOML parser first, fall back to JSON
-      - Log deprecation warning for JSON files
+      - Support *.toml file extension only
+      - Fail fast on non-TOML agent files
       - Call ValidateAgentConfig after parsing
       - Compute and store ConfigHash in each loaded agent
       - Include filename and line number in validation errors
@@ -196,13 +192,13 @@
    5. Update loader_test.go:
       - Test TOML loading
       - Test validation error messages
-      - Test mixed JSON/TOML directory
+      - Test mixed extension rejection
       - Test schema violation scenarios
       - Test single agent reload
    
    Tests:
    - TOML files load successfully
-   - JSON files load with warning
+   - Non-TOML files are rejected
    - Validation errors are actionable
    - Invalid TOML syntax produces clear error
    - Schema violations point to exact field
@@ -211,7 +207,7 @@
    Done when:
    - LoadFromDir handles *.toml files
    - Validation errors are clear and helpful
-   - JSON backward compatibility works
+   - Only TOML agent configs are accepted
    - LoadAgentByID works for config refresh
    - All loader tests pass
 
@@ -368,49 +364,15 @@
    - Session immutability documented and tested
    - Tests verify correct behavior
 
-** TODO [#B] Create config migration CLI command
-   Why: Help users migrate existing JSON configs to TOML
-   
-   Change:
-   1. Create cmd/gestalt/migrate_agents.go:
-      - Command: gestalt config migrate-agents
-      - Flags: --input-dir, --output-dir, --dry-run, --force
-   2. Implement migration logic:
-      - Read all *.json from input dir
-      - Parse as Agent structs
-      - Convert to TOML format with cli_config (if cli_type recognized)
-      - Write to output dir as *.toml files
-      - Print summary of migrated agents
-   3. Add comments to generated TOML:
-      - Field descriptions from schemas
-      - Migration notes if any manual steps needed
-   4. Create migrate_agents_test.go:
-      - Test JSON -> TOML conversion
-      - Test preserving agent semantics
-      - Test dry-run output
-   
-   Tests:
-   - Migration preserves agent behavior
-   - TOML output is valid and loads correctly
-   - Dry-run shows what would change
-   - Error handling for malformed JSON
-   
-   Done when:
-   - gestalt config migrate-agents works
-   - JSON agents convert to valid TOML
-   - Comments make TOML configs self-documenting
-   - Tests verify correct migration
-
 ** TODO [#C] Document new configuration system in docs/ and AGENTS.md
    Why: Users and LLM assistants need clear documentation
    
    Change:
    1. Create docs/agent-configuration.md:
-      - Overview of TOML vs JSON
+      - Overview of TOML format
       - CLI-specific config sections
       - Schema validation behavior
       - Shell command generation process
-      - Migration guide from JSON to TOML
       - Full codex config field reference
       - Copilot config examples
    2. Update AGENTS.md with new section:
@@ -440,14 +402,12 @@
       - Test schema validation catches errors
       - Test shell command generation
       - Test terminal session creation
-      - Test mixed JSON/TOML directory
-      - Test migration workflow
+      - Test mixed extension rejection
    2. Create test fixtures in testdata/:
       - valid-codex.toml
       - invalid-codex-type.toml (wrong type)
       - invalid-codex-unknown.toml (unknown field)
       - valid-copilot.toml
-      - legacy.json (old format)
    3. Test error messages:
       - Verify actionable error text
       - Verify field paths are correct
@@ -456,7 +416,7 @@
    Tests:
    - All integration tests pass
    - Error messages are helpful
-   - Mixed configs work together
+   - Mixed extension rejection behaves correctly
    
    Done when:
    - Integration tests cover full workflow
@@ -511,7 +471,7 @@
       - Update hashes
    4. Update config extraction in cmd/gestalt/main.go:
       - Ensure TOML files extract correctly
-   5. Keep JSON versions in config/ as examples of old format (with README)
+   5. Remove JSON versions in config/ to avoid confusion
    
    Tests:
    - Embedded TOML configs load successfully

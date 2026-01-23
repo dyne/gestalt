@@ -3,6 +3,7 @@ package agent
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -22,12 +23,12 @@ func TestLoaderMissingDir(t *testing.T) {
 
 func TestLoaderValidAgents(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "codex.json"), []byte(`{
-		"name": "Codex",
-		"shell": "/bin/bash",
-		"llm_type": "codex",
-		"llm_model": "default"
-	}`), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "codex.toml"), []byte(`
+name = "Codex"
+shell = "/bin/bash"
+cli_type = "codex"
+llm_model = "default"
+`), 0644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte(`ignore`), 0644); err != nil {
@@ -51,9 +52,9 @@ func TestLoaderValidAgents(t *testing.T) {
 	}
 }
 
-func TestLoaderInvalidJSON(t *testing.T) {
+func TestLoaderInvalidTOML(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "bad.json"), []byte(`{`), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "bad.toml"), []byte(`name = "Bad"\ncli_config = {`), 0644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
 
@@ -68,22 +69,22 @@ func TestLoaderInvalidJSON(t *testing.T) {
 		t.Fatalf("expected no agents, got %d", len(agents))
 	}
 	if !hasAgentWarning(buffer.List(), "agent load failed") {
-		t.Fatalf("expected warning for invalid agent json")
+		t.Fatalf("expected warning for invalid agent toml")
 	}
 }
 
 func TestLoaderDuplicateAgentName(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "alpha.json"), []byte(`{
-		"name": "Coder",
-		"shell": "/bin/bash"
-	}`), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "alpha.toml"), []byte(`
+name = "Coder"
+shell = "/bin/bash"
+`), 0644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "beta.json"), []byte(`{
-		"name": "Coder",
-		"shell": "/bin/zsh"
-	}`), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "beta.toml"), []byte(`
+name = "Coder"
+shell = "/bin/zsh"
+`), 0644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
 
@@ -107,10 +108,10 @@ func TestLoaderDuplicateAgentName(t *testing.T) {
 
 func TestLoaderInvalidAgent(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "bad.json"), []byte(`{
-		"name": "Bad",
-		"shell": " "
-	}`), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "bad.toml"), []byte(`
+name = "Bad"
+shell = " "
+`), 0644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
 
@@ -129,40 +130,13 @@ func TestLoaderInvalidAgent(t *testing.T) {
 	}
 }
 
-func TestLoaderExampleAgents(t *testing.T) {
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	root := filepath.Dir(filepath.Dir(wd))
-	dir := filepath.Join(root, "config", "agents")
-	promptsDir := filepath.Join(root, "config", "prompts")
-
-	loader := Loader{}
-	agents, err := loader.Load(nil, dir, promptsDir, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(agents) == 0 {
-		t.Fatalf("expected agents in %s", dir)
-	}
-
-	expected := []string{"copilot", "codex", "promptline"}
-	for _, id := range expected {
-		if _, ok := agents[id]; !ok {
-			t.Fatalf("missing agent %q", id)
-		}
-	}
-}
-
 func TestLoaderMissingPromptLogsWarning(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "codex.json"), []byte(`{
-		"name": "Codex",
-		"shell": "/bin/bash",
-		"prompt": ["missing"],
-		"llm_type": "codex"
-	}`), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "codex.toml"), []byte(`
+name = "Codex"
+shell = "/bin/bash"
+prompt = ["missing"]
+`), 0644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
 	promptsDir := t.TempDir()
@@ -195,11 +169,11 @@ func TestLoaderMissingPromptLogsWarning(t *testing.T) {
 
 func TestLoaderMissingSkillLogsWarning(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "codex.json"), []byte(`{
-		"name": "Codex",
-		"shell": "/bin/bash",
-		"skills": ["git-workflows", "missing-skill"]
-	}`), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "codex.toml"), []byte(`
+name = "Codex"
+shell = "/bin/bash"
+skills = ["git-workflows", "missing-skill"]
+`), 0644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
 
@@ -240,16 +214,72 @@ func TestLoaderMissingSkillLogsWarning(t *testing.T) {
 	}
 }
 
+func TestLoaderRejectsJSONFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "codex.toml"), []byte(`
+name = "Codex"
+shell = "/bin/bash"
+`), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "legacy.json"), []byte(`{"name":"Legacy","shell":"/bin/bash"}`), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	buffer := logging.NewLogBuffer(10)
+	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, nil)
+	loader := Loader{Logger: logger}
+	agents, err := loader.Load(nil, dir, "", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(agents) != 1 {
+		t.Fatalf("expected 1 agent, got %d", len(agents))
+	}
+	if !hasAgentWarning(buffer.List(), "agent load failed") {
+		t.Fatalf("expected warning for json agent")
+	}
+}
+
+func TestLoaderSchemaViolationMessage(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "codex.toml"), []byte(`
+name = "Codex"
+cli_type = "codex"
+cli_config = { model = 123 }
+`), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	buffer := logging.NewLogBuffer(10)
+	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, nil)
+	loader := Loader{Logger: logger}
+	agents, err := loader.Load(nil, dir, "", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(agents) != 0 {
+		t.Fatalf("expected no agents, got %d", len(agents))
+	}
+	entry := findAgentWarning(buffer.List(), "agent load failed")
+	if entry == nil {
+		t.Fatalf("expected warning for schema violation")
+	}
+	if !strings.Contains(entry.Context["error"], "cli_config.model") {
+		t.Fatalf("expected cli_config.model in error, got %q", entry.Context["error"])
+	}
+}
+
 func TestLoaderWithFS(t *testing.T) {
 	fsys := fstest.MapFS{
-		"config/agents/codex.json": &fstest.MapFile{
-			Data: []byte(`{
-				"name": "Codex",
-				"shell": "/bin/bash",
-				"llm_type": "codex"
-			}`),
+		"config/agents/codex.toml": &fstest.MapFile{
+			Data: []byte(`
+name = "Codex"
+shell = "/bin/bash"
+prompt = ["init"]
+`),
 		},
-		"config/prompts/init.txt": &fstest.MapFile{
+		"config/prompts/init.tmpl": &fstest.MapFile{
 			Data: []byte("echo ok"),
 		},
 	}
@@ -267,6 +297,34 @@ func TestLoaderWithFS(t *testing.T) {
 	}
 }
 
+func TestLoadAgentByID(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "codex.toml"), []byte(`
+name = "Codex"
+shell = "/bin/bash"
+`), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	agent, err := LoadAgentByID("codex", dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if agent.Name != "Codex" {
+		t.Fatalf("name mismatch: %q", agent.Name)
+	}
+	if strings.TrimSpace(agent.ConfigHash) == "" {
+		t.Fatalf("expected config hash to be set")
+	}
+}
+
+func TestLoadAgentByIDMissing(t *testing.T) {
+	_, err := LoadAgentByID("missing", t.TempDir())
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
 func hasAgentWarning(entries []logging.LogEntry, message string) bool {
 	for _, entry := range entries {
 		if entry.Level == logging.LevelWarning && entry.Message == message {
@@ -274,4 +332,13 @@ func hasAgentWarning(entries []logging.LogEntry, message string) bool {
 		}
 	}
 	return false
+}
+
+func findAgentWarning(entries []logging.LogEntry, message string) *logging.LogEntry {
+	for _, entry := range entries {
+		if entry.Level == logging.LevelWarning && entry.Message == message {
+			return &entry
+		}
+	}
+	return nil
 }

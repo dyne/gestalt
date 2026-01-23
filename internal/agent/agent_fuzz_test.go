@@ -1,14 +1,21 @@
 package agent
 
-import "testing"
+import (
+	"testing"
 
-func FuzzPromptListUnmarshal(f *testing.F) {
+	"github.com/BurntSushi/toml"
+)
+
+type promptWrapper struct {
+	Prompt PromptList `toml:"prompt"`
+}
+
+func FuzzPromptListUnmarshalTOML(f *testing.F) {
 	seeds := [][]byte{
 		[]byte(`"coder"`),
 		[]byte(`["coder","architect"]`),
 		[]byte(`""`),
 		[]byte(`[]`),
-		[]byte(`null`),
 		[]byte(`123`),
 		[]byte(`{}`),
 	}
@@ -17,7 +24,8 @@ func FuzzPromptListUnmarshal(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		var prompts PromptList
-		_ = prompts.UnmarshalJSON(data)
+		payload := append([]byte("prompt = "), data...)
+		var wrapper promptWrapper
+		_, _ = toml.Decode(string(payload), &wrapper)
 	})
 }

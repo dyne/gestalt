@@ -1,26 +1,26 @@
 package agent
 
 import (
-	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/BurntSushi/toml"
 )
 
-func TestAgentJSONRoundTrip(t *testing.T) {
-	input := `{
-		"name": "Codex",
-		"shell": "/bin/bash",
-		"prompt": "coder",
-		"skills": ["git-workflows", "code-review"],
-		"onair_string": "READY",
-		"llm_type": "codex",
-		"llm_model": "default"
-	}`
+func TestAgentTOMLDecode(t *testing.T) {
+	input := `
+name = "Codex"
+shell = "/bin/bash"
+prompt = "coder"
+skills = ["git-workflows", "code-review"]
+onair_string = "READY"
+cli_type = "codex"
+llm_model = "default"
+`
 
 	var a Agent
-	if err := json.Unmarshal([]byte(input), &a); err != nil {
-		t.Fatalf("unmarshal: %v", err)
+	if _, err := toml.Decode(input, &a); err != nil {
+		t.Fatalf("decode: %v", err)
 	}
 	if a.Name != "Codex" {
 		t.Fatalf("name mismatch: %q", a.Name)
@@ -43,71 +43,31 @@ func TestAgentJSONRoundTrip(t *testing.T) {
 	if a.LLMModel != "default" {
 		t.Fatalf("llm_model mismatch: %q", a.LLMModel)
 	}
-
-	out, err := json.Marshal(a)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	var roundTrip struct {
-		Name     string   `json:"name"`
-		Shell    string   `json:"shell"`
-		Prompt   []string `json:"prompt"`
-		Skills   []string `json:"skills"`
-		OnAir    string   `json:"onair_string"`
-		CLIType  string   `json:"cli_type"`
-		LLMModel string   `json:"llm_model"`
-	}
-	if err := json.Unmarshal(out, &roundTrip); err != nil {
-		t.Fatalf("unmarshal output: %v", err)
-	}
-	if roundTrip.Name != "Codex" {
-		t.Fatalf("roundtrip name mismatch: %q", roundTrip.Name)
-	}
-	if roundTrip.Shell != "/bin/bash" {
-		t.Fatalf("roundtrip shell mismatch: %q", roundTrip.Shell)
-	}
-	if len(roundTrip.Prompt) != 1 || roundTrip.Prompt[0] != "coder" {
-		t.Fatalf("roundtrip prompt mismatch: %v", roundTrip.Prompt)
-	}
-	if len(roundTrip.Skills) != 2 || roundTrip.Skills[0] != "git-workflows" || roundTrip.Skills[1] != "code-review" {
-		t.Fatalf("roundtrip skills mismatch: %v", roundTrip.Skills)
-	}
-	if roundTrip.OnAir != "READY" {
-		t.Fatalf("roundtrip onair_string mismatch: %q", roundTrip.OnAir)
-	}
-	if roundTrip.CLIType != "codex" {
-		t.Fatalf("roundtrip cli_type mismatch: %q", roundTrip.CLIType)
-	}
-	if roundTrip.LLMModel != "default" {
-		t.Fatalf("roundtrip llm_model mismatch: %q", roundTrip.LLMModel)
-	}
 }
 
-func TestAgentJSONPromptParsing(t *testing.T) {
+func TestAgentTOMLPromptParsing(t *testing.T) {
 	tests := []struct {
 		name       string
-		promptJSON string
+		promptTOML string
 		want       []string
 	}{
-		{name: "string", promptJSON: `"coder"`, want: []string{"coder"}},
-		{name: "array", promptJSON: `["coder","architect"]`, want: []string{"coder", "architect"}},
-		{name: "empty string", promptJSON: `""`, want: nil},
-		{name: "empty array", promptJSON: `[]`, want: nil},
-		{name: "null", promptJSON: `null`, want: nil},
-		{name: "missing", promptJSON: "", want: nil},
+		{name: "string", promptTOML: `prompt = "coder"`, want: []string{"coder"}},
+		{name: "array", promptTOML: `prompt = ["coder", "architect"]`, want: []string{"coder", "architect"}},
+		{name: "empty string", promptTOML: `prompt = ""`, want: nil},
+		{name: "empty array", promptTOML: `prompt = []`, want: nil},
+		{name: "missing", promptTOML: "", want: nil},
+		{name: "trim blanks", promptTOML: `prompt = ["", " coder "]`, want: []string{"coder"}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var input string
-			if tt.promptJSON == "" {
-				input = `{"name":"Codex","shell":"/bin/bash","llm_type":"codex"}`
-			} else {
-				input = fmt.Sprintf(`{"name":"Codex","shell":"/bin/bash","prompt":%s,"llm_type":"codex"}`, tt.promptJSON)
+			input := "name = \"Codex\"\nshell = \"/bin/bash\"\n"
+			if tt.promptTOML != "" {
+				input += tt.promptTOML + "\n"
 			}
 			var a Agent
-			if err := json.Unmarshal([]byte(input), &a); err != nil {
-				t.Fatalf("unmarshal: %v", err)
+			if _, err := toml.Decode(input, &a); err != nil {
+				t.Fatalf("decode: %v", err)
 			}
 			if len(a.Prompts) != len(tt.want) {
 				t.Fatalf("prompt length mismatch: %v", a.Prompts)

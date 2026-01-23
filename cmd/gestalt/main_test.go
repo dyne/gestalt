@@ -161,11 +161,11 @@ func TestLoadAgentsIntegration(t *testing.T) {
 	if err := os.MkdirAll(promptsDir, 0755); err != nil {
 		t.Fatalf("mkdir prompts: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(promptsDir, "hello.txt"), []byte("echo hi\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(promptsDir, "hello.tmpl"), []byte("echo hi\n"), 0644); err != nil {
 		t.Fatalf("write prompt: %v", err)
 	}
-	agentJSON := `{"name":"Codex","shell":"/bin/bash","prompt":"hello","llm_type":"codex","llm_model":"default"}`
-	if err := os.WriteFile(filepath.Join(agentsDir, "codex.json"), []byte(agentJSON), 0644); err != nil {
+	agentTOML := "name = \"Codex\"\nshell = \"/bin/bash\"\nprompt = \"hello\"\ncli_type = \"codex\"\nllm_model = \"default\"\n"
+	if err := os.WriteFile(filepath.Join(agentsDir, "codex.toml"), []byte(agentTOML), 0644); err != nil {
 		t.Fatalf("write agent: %v", err)
 	}
 
@@ -194,7 +194,7 @@ func TestLoadAgentsIntegration(t *testing.T) {
 	}
 }
 
-func TestLoadAgentsReportsInvalidJSON(t *testing.T) {
+func TestLoadAgentsReportsInvalidTOML(t *testing.T) {
 	root := t.TempDir()
 	agentsDir := filepath.Join(root, ".gestalt", "config", "agents")
 	promptsDir := filepath.Join(root, ".gestalt", "config", "prompts")
@@ -204,7 +204,7 @@ func TestLoadAgentsReportsInvalidJSON(t *testing.T) {
 	if err := os.MkdirAll(promptsDir, 0755); err != nil {
 		t.Fatalf("mkdir prompts: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(agentsDir, "bad.json"), []byte("{"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(agentsDir, "bad.toml"), []byte("name = \"Bad\"\\ncli_config = {"), 0644); err != nil {
 		t.Fatalf("write agent: %v", err)
 	}
 
@@ -230,7 +230,7 @@ func TestLoadAgentsReportsInvalidJSON(t *testing.T) {
 		t.Fatalf("expected no agents, got %d", len(agents))
 	}
 	if !hasLogMessage(buffer.List(), "agent load failed") {
-		t.Fatalf("expected warning for invalid agent json")
+		t.Fatalf("expected warning for invalid agent toml")
 	}
 }
 

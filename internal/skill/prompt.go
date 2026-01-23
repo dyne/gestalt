@@ -1,7 +1,6 @@
 package skill
 
 import (
-	"fmt"
 	"strings"
 )
 

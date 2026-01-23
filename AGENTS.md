@@ -177,3 +177,4 @@ Implementation notes (Unified event architecture):
 - New sessions refresh agent configs via `agent.AgentCache`; sessions store `Command` + `ConfigHash` snapshots.
 - Temporal workflows store agent config + hash in memo via `internal/temporal/memo.go`.
 - CLI support: `gestalt config validate --agents-dir ...`; docs in `docs/agent-configuration.md` and examples in `config/agents/*.toml`.
+- `gestalt config validate` warns when `.gestalt/temporal` contains legacy JSON `agent_config` memos; memo deserialization rejects JSON payloads.

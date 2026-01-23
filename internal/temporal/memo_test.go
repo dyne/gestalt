@@ -61,4 +61,7 @@ func TestDeserializeAgentConfigRejectsJSON(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error")
 	}
+	if !strings.Contains(err.Error(), "legacy JSON memo detected") {
+		t.Fatalf("expected legacy JSON memo error, got %v", err)
+	}
 }

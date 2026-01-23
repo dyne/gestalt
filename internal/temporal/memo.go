@@ -28,6 +28,9 @@ func DeserializeAgentConfig(data string) (*agent.Agent, error) {
 	if trimmed == "" {
 		return nil, fmt.Errorf("agent config is empty")
 	}
+	if looksLikeJSONMemo(trimmed) {
+		return nil, fmt.Errorf("legacy JSON memo detected; TOML agent config is required")
+	}
 	var profile agent.Agent
 	if _, err := toml.Decode(trimmed, &profile); err != nil {
 		return nil, fmt.Errorf("unable to parse agent config: %w", err)
@@ -43,4 +46,17 @@ func truncateMemo(data []byte) string {
 		return string(data[:memoLimitBytes])
 	}
 	return string(data[:memoLimitBytes-3]) + "..."
+}
+
+func looksLikeJSONMemo(data string) bool {
+	trimmed := strings.TrimSpace(data)
+	if trimmed == "" {
+		return false
+	}
+	switch trimmed[0] {
+	case '{', '[':
+		return true
+	default:
+		return false
+	}
 }

@@ -13,7 +13,7 @@ carefully drafted by software architects.
 You may challenge decisions made in the PLAN: ask questions if you
 spot errors and deem it really necessary to review some parts.
 
-# WORKPLAN
+# PLAN
 
 {{include plan-structure}}
 
@@ -34,46 +34,36 @@ Work only on TODO tasks (L1 and L2).
 
 # WORKFLOW
 
-Ask for being assigned an L1 and study it and all its L2 contents.
+Follow this routine:
 
-Now is the time to ask any questions that are not already answered in
-the L1, L2 or in any other part of the PLAN.
+## INIT
+- Request an L1 and study all L1/L2 content.
+- Ask only unanswered questions.
 
 ## START
+1. Create a short git branch (≤3 words) based on the L1.
+2. Mark L1 as WIP.
 
-1. Create a git branch with a very compact name (max 3 words) related to the L1
-2. Set the chosen L1 to WIP (if not already)
-
-## LOOP
-
-Work in a loop through the L2 sub-tasks
-
-1. Ask confirmation to proceed if explicitly required, then take the next TODO L2 and set it to WIP
-2. Study VERY WELL and implement only this WIP L2
-3. After finishing the L2:
-   - add tests for it, or adjust existing ones
-   - run all tests: if unable, stop to ask the user how, don't try too hard
-   - fix all test failures until the suite passes
-4. Stage all modified and new files with git add and make a git commit with a title and description about the L2. Reuse the contents of the L2 below the description if they contain useful details about the implementation.
-5. Set the completed L2 from WIP to DONE
-
-Repeat the previous 5 steps for the next L2 (in order) until all L2
-entries are DONE. Stop to ask confirmation to proceed to the next L2
-only if explicitly told to do so, else just move forward.
+## LOOP (per L2, in order)
+1. If the L2 requires confirmation, ask; else proceed.
+2. Take next TODO L2 → set WIP.
+3. Implement only this L2:
+   - Add/update tests.
+   - Run tests; if unable, stop and ask.
+   - Fix failures until all pass.
+4. `git add` all changes; commit with title + description referencing the L2.
+5. Mark L2 DONE.
+6. Repeat until all L2 entries are DONE.
 
 ## END
+- Mark L1 DONE.
+- Convert its L2 headings from DONE → plain (remove TODO).
+- Add concise L1 documentation to `AGENTS.md` (LLM‑oriented).
+- Notify the human with a brief summary.
 
-When the L1 is complete set it to DONE, then convert its L2 headings
-from DONE to plain headings (remove the TODO keyword) to reduce
-clutter. Add concise documentation about your L1 implementation to
-AGENTS.md meant to be read by LLMs like you. Then notice the human
-your work on the L1 is done, with a briefing about it.
-
-Expect more ad-hoc adjustments to be requested by the human and comply
-by adding them as new L2 entries right after the last DONE one. After
-completing an L1 it is reasonable to have a few interactive iterations
-and detailed customizations, accomodate any explicit request until the
-work is declared done.
+## POST-L1
+- Accept new adjustments as new L2 items appended after the last DONE.
+- Support interactive refinement until the human declares the work complete.
 
 # PROJECT
 

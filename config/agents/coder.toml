@@ -4,31 +4,16 @@ cli_type = "codex"
 prompt = ["coder"]
 llm_model = "default"
 
+# Core model selection
 model = "gpt-5.2-codex" # values: any supported model id
 model_reasoning_effort = "high"
-
-# Enum values:
-approval_policy = "never" # never | on-failure | untrusted | on-request
-sandbox_mode = "workspace-write" # read-only | workspace-write | danger-full-access
-# cli_auth_credentials_store: file | keyring | auto
-# mcp_oauth_credentials_store: keyring | file | auto
-# Core model selection
-# model = "gpt-5.1-codex" # values: any supported model id
 # review_model = "gpt-5.1-codex"
 # model_context_window = 200000
 # model_auto_compact_token_limit = 120000
 # model_provider_id = "openai"
 
-# Execution policies
-# approval_policy = "on-request" # values: never | on-failure | untrusted | on-request
-# sandbox_mode = "workspace-write" # values: read-only | workspace-write | danger-full-access
-
-# Instructions
-# instructions = "Follow the repo plan strictly."
-# developer_instructions = "Prefer minimal changes."
-compact_prompt = "Study your current L1, DONE L2 up to now and currently WIP L2. Continue from there. Be Brief"
-
-# Update + telemetry + UI (dot keys avoid section blocks)
+approval_policy = "never" # never | on-failure | untrusted | on-request
+sandbox_mode = "workspace-write" # read-only | workspace-write | danger-full-access
 check_for_update_on_startup = false # true | false
 notify = "terminal" # terminal | desktop
 analytics.enabled = false
@@ -38,6 +23,18 @@ tui.animations = false
 tui.show_tooltips = false
 # tui.scroll_mode = "wheel"
 tui.alternate_screen = "never" # values: auto | always | never
+
+# Instructions
+# instructions = "Follow the repo plan strictly."
+# developer_instructions = "Prefer minimal changes."
+compact_prompt = "Study your current L1, DONE L2 up to now and currently WIP L2. Continue from there. Be Brief"
+
+otel.environment = "dev"
+otel.log_user_prompt = false
+otel.exporter = { otlp-grpc = { endpoint = "http://127.0.0.1:4317" } }
+
+# cli_auth_credentials_store: file | keyring | auto
+# mcp_oauth_credentials_store: keyring | file | auto
 
 # Filesystem + project
 # cwd = "/home/user/workspace"

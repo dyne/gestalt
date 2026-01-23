@@ -247,7 +247,7 @@
    - Tests cover common and edge cases
    - Shell escaping is safe
 
-** WIP [#C] Implement copilot shell command generation from cli_config
+** DONE [#C] Implement copilot shell command generation from cli_config
    Why: Transform cli_config into copilot command with flags
    
    Change:
@@ -271,7 +271,7 @@
    - Boolean flags handled correctly
    - Tests pass
 
-** TODO [#B] Add config refresh before terminal session start
+** WIP [#B] Add config refresh before terminal session start
    Why: Ensure NEW agent sessions always launch with latest config from disk
    
    IMPORTANT: Config refresh only affects NEW session creation. Running sessions

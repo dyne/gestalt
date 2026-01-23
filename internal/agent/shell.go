@@ -25,22 +25,7 @@ func buildShellArgs(cliType string, config map[string]interface{}) []string {
 	case "codex":
 		return shellgen.BuildCodexCommand(config)
 	case "copilot":
-		entries := shellgen.FlattenConfig(config)
-		args := []string{"copilot"}
-		for _, entry := range entries {
-			flag := "--" + shellgen.NormalizeFlag(entry.Key)
-			switch value := entry.Value.(type) {
-			case bool:
-				if value {
-					args = append(args, flag)
-				} else {
-					args = append(args, "--no-"+shellgen.NormalizeFlag(entry.Key))
-				}
-			default:
-				args = append(args, flag, shellgen.EscapeShellArg(shellgen.FormatValue(value)))
-			}
-		}
-		return args
+		return shellgen.BuildCopilotCommand(config)
 	default:
 		return nil
 	}

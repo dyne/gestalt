@@ -2,7 +2,6 @@ package temporal
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -18,14 +17,10 @@ func SerializeAgentConfig(profile *agent.Agent) (string, error) {
 		return "", nil
 	}
 	var buffer bytes.Buffer
-	if err := toml.NewEncoder(&buffer).Encode(profile); err == nil {
-		return truncateMemo(buffer.Bytes()), nil
-	}
-	payload, err := json.Marshal(profile)
-	if err != nil {
+	if err := toml.NewEncoder(&buffer).Encode(profile); err != nil {
 		return "", err
 	}
-	return truncateMemo(payload), nil
+	return truncateMemo(buffer.Bytes()), nil
 }
 
 func DeserializeAgentConfig(data string) (*agent.Agent, error) {
@@ -34,13 +29,10 @@ func DeserializeAgentConfig(data string) (*agent.Agent, error) {
 		return nil, fmt.Errorf("agent config is empty")
 	}
 	var profile agent.Agent
-	if _, err := toml.Decode(trimmed, &profile); err == nil {
-		return &profile, nil
+	if _, err := toml.Decode(trimmed, &profile); err != nil {
+		return nil, fmt.Errorf("unable to parse agent config: %w", err)
 	}
-	if err := json.Unmarshal([]byte(trimmed), &profile); err == nil {
-		return &profile, nil
-	}
-	return nil, fmt.Errorf("unable to parse agent config")
+	return &profile, nil
 }
 
 func truncateMemo(data []byte) string {

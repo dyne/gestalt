@@ -1,7 +1,6 @@
 package temporal
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -56,23 +55,10 @@ func TestSerializeAgentConfigTruncates(t *testing.T) {
 	}
 }
 
-func TestDeserializeAgentConfigJSON(t *testing.T) {
-	profile := &agent.Agent{
-		Name:    "JSON",
-		CLIType: "codex",
-		CLIConfig: map[string]interface{}{
-			"model": "o3",
-		},
-	}
-	payload, err := json.Marshal(profile)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	parsed, err := DeserializeAgentConfig(string(payload))
-	if err != nil {
-		t.Fatalf("deserialize: %v", err)
-	}
-	if parsed.Name != "JSON" {
-		t.Fatalf("expected name JSON, got %q", parsed.Name)
+func TestDeserializeAgentConfigRejectsJSON(t *testing.T) {
+	payload := `{"name":"JSON","cli_type":"codex"}`
+	_, err := DeserializeAgentConfig(payload)
+	if err == nil {
+		t.Fatalf("expected error")
 	}
 }

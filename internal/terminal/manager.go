@@ -473,30 +473,15 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 				}
 
 				if len(agentSkills) > 0 {
-					skillXML := skill.GeneratePromptXML(agentSkills)
-					if skillXML != "" {
-						skillData := []byte(skillXML)
-						if err := writePromptPayload(session, skillData); err != nil {
-							m.logger.Warn("agent skill metadata write failed", map[string]string{
-								"agent_id": request.AgentID,
-								"error":    err.Error(),
-							})
-						} else {
-							separator := "\n\n" + strings.Repeat("-", 72) + "\n\n"
-							if err := writePromptPayload(session, []byte(separator)); err != nil {
-								m.logger.Warn("agent prompt separator write failed", map[string]string{
-									"agent_id": request.AgentID,
-									"error":    err.Error(),
-								})
-							}
-							m.logger.Info("agent skill metadata injected", map[string]string{
-								"agent_id":    request.AgentID,
-								"skill_count": strconv.Itoa(len(agentSkills)),
-							})
-						}
-						time.Sleep(interPromptDelay)
-					}
+					// Build metadata for LLM system prompt only; do not write to terminal.
+					_ = skill.GeneratePromptXML(agentSkills)
+					m.logger.Info("agent skill metadata prepared", map[string]string{
+						"agent_id":    request.AgentID,
+						"skill_count": strconv.Itoa(len(agentSkills)),
+					})
+					time.Sleep(interPromptDelay)
 				}
+			}
 			}
 
 			// Inject custom prompts

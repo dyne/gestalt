@@ -31,6 +31,17 @@ func TestBuildCodexCommandArrays(t *testing.T) {
 	}
 }
 
+func TestBuildCodexCommandNotifyString(t *testing.T) {
+	config := map[string]interface{}{
+		"notify": "terminal",
+	}
+	got := BuildCodexCommand(config)
+	want := []string{"codex", "-c", "notify=[\"terminal\"]"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected %v, got %v", want, got)
+	}
+}
+
 func TestBuildCodexCommandBooleans(t *testing.T) {
 	config := map[string]interface{}{
 		"show_raw_agent_reasoning": true,

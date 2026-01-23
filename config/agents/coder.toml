@@ -28,22 +28,16 @@ sandbox_mode = "workspace-write" # read-only | workspace-write | danger-full-acc
 # developer_instructions = "Prefer minimal changes."
 compact_prompt = "Study your current L1, DONE L2 up to now and currently WIP L2. Continue from there. Be Brief"
 
-# Update + telemetry
+# Update + telemetry + UI (dot keys avoid section blocks)
 check_for_update_on_startup = false # true | false
-notify = ["terminal"] # ["terminal", "desktop"]
-[analytics]
-enabled = false
-
-[feedback]
-enabled = false
-
-# UI/notifications
-[tui]
-notifications = true
-animations = false
-show_tooltips = false
-# scroll_mode = "wheel"
-alternate_screen = "never" # values: auto | always | never
+notify = "terminal" # terminal | desktop
+analytics.enabled = false
+feedback.enabled = false
+tui.notifications = true
+tui.animations = false
+tui.show_tooltips = false
+# tui.scroll_mode = "wheel"
+tui.alternate_screen = "never" # values: auto | always | never
 
 # Filesystem + project
 # cwd = "/home/user/workspace"

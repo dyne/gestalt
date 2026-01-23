@@ -11,6 +11,7 @@ func TestCodexConfigValid(t *testing.T) {
 		"review_model":    "gpt-5.1-codex-max",
 		"approval_policy": "never",
 		"sandbox_mode":    "read-only",
+		"notify":          "terminal",
 		"tui": map[string]interface{}{
 			"notifications":          true,
 			"scroll_events_per_tick": 2,

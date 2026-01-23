@@ -21,6 +21,21 @@ func (CodexNotifications) JSONSchema() *jsonschema.Schema {
 	}
 }
 
+// CodexNotify accepts a string or a list of strings.
+type CodexNotify struct{}
+
+func (CodexNotify) JSONSchema() *jsonschema.Schema {
+	return &jsonschema.Schema{
+		OneOf: []*jsonschema.Schema{
+			{Type: "string"},
+			{
+				Type:  "array",
+				Items: &jsonschema.Schema{Type: "string"},
+			},
+		},
+	}
+}
+
 // CodexShellEnvironmentPolicy holds shell environment policy configuration.
 type CodexShellEnvironmentPolicy map[string]interface{}
 
@@ -128,7 +143,7 @@ type CodexConfig struct {
 	ShellEnvironmentPolicy *CodexShellEnvironmentPolicy `json:"shell_environment_policy,omitempty"`
 
 	// Optional external notifier command (argv without JSON payload).
-	Notify []string `json:"notify,omitempty"`
+	Notify *CodexNotify `json:"notify,omitempty"`
 
 	// Base instructions.
 	Instructions *string `json:"instructions,omitempty"`

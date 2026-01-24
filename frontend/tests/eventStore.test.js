@@ -106,4 +106,25 @@ describe('eventStore', () => {
 
     expect(received).toEqual([])
   })
+
+  it('marks disconnected on close', async () => {
+    const { subscribe, eventConnectionStatus } = await import('../src/lib/eventStore.js')
+    const statuses = []
+    const unsubscribeStatus = eventConnectionStatus.subscribe((value) => {
+      statuses.push(value)
+    })
+    const unsubscribe = subscribe('file_changed', () => {})
+
+    const socket = MockWebSocket.instances[0]
+    socket.open()
+    await flush()
+
+    socket.close()
+    await flush()
+
+    expect(statuses).toContain('disconnected')
+
+    unsubscribe()
+    unsubscribeStatus()
+  })
 })

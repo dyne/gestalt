@@ -483,7 +483,7 @@
    - Add tests for history navigation edge cases.
    Done when: CommandInput focuses on UI.
 
-** WIP [#A] Extract PlanView polling fallback helper
+** DONE [#A] Extract PlanView polling fallback helper
    Why: Polling logic is embedded and not reusable.
    Change:
    - Create a polling helper/store and reuse in PlanView.
@@ -491,7 +491,7 @@
    - Add tests for polling helper behavior.
    Done when: polling logic is shared and stable.
 
-** TODO [#A] Document frontend data flow and store ownership
+** WIP [#A] Document frontend data flow and store ownership
    Why: Onboarding is harder without a store ownership guide.
    Change:
    - Add short doc outlining store responsibilities and data flow.

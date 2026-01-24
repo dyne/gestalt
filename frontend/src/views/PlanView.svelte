@@ -3,6 +3,7 @@
   import { apiFetch } from '../lib/api.js'
   import { eventConnectionStatus, subscribe as subscribeEvents } from '../lib/eventStore.js'
   import { getErrorMessage } from '../lib/errorUtils.js'
+  import { createPollingHelper } from '../lib/pollingHelper.js'
   import OrgViewer from '../components/OrgViewer.svelte'
 
   let loading = false
@@ -11,7 +12,6 @@
   let content = ''
   let lastContent = ''
   let etag = ''
-  let fallbackTimer = null
   let updateNotice = false
   let updateNoticeTimer = null
   let eventUnsubscribe = null
@@ -69,20 +69,21 @@
     }
   }
 
-  const stopFallbackPolling = () => {
-    if (fallbackTimer) {
-      clearInterval(fallbackTimer)
-      fallbackTimer = null
-    }
-  }
-
   const planPath = '.gestalt/PLAN.org'
 
-  const startFallbackPolling = () => {
-    if (fallbackTimer) return
-    fallbackTimer = setInterval(() => {
+  const fallbackPolling = createPollingHelper({
+    intervalMs: fallbackIntervalMs,
+    onPoll: () => {
       loadPlan({ silent: true })
-    }, fallbackIntervalMs)
+    },
+  })
+
+  const stopFallbackPolling = () => {
+    fallbackPolling.stop()
+  }
+
+  const startFallbackPolling = () => {
+    fallbackPolling.start()
   }
 
   onMount(() => {

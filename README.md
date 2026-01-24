@@ -82,6 +82,19 @@ This generates `.gestalt/scip/index.db` (and `.gestalt/scip/index.scip`).
 
 Supported languages: Go, TypeScript, Python, Java.
 
+### Disabling SCIP
+
+To build without SCIP (and its dependencies), use the `noscip` build tag.
+This disables `gestalt index` and returns `501 scip disabled at build time`
+for `/api/scip/*` endpoints.
+
+Examples:
+
+```
+go build -tags noscip ./cmd/gestalt
+go test -tags noscip ./...
+```
+
 ### SCIP API
 
 Once `.gestalt/scip/index.db` exists, SCIP queries are available over REST:

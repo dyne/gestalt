@@ -337,7 +337,7 @@
    - Run vitest coverage locally when adding the workflow.
    Done when: coverage can be reported on demand.
 
-** TODO [#B] Add API/WS integration tests for structured errors
+** DONE [#B] Add API/WS integration tests for structured errors
    Why: Error payloads may regress without end-to-end checks.
    Change:
    - Add integration tests for REST/WS error payloads.

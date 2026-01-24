@@ -132,6 +132,16 @@ func TestEndToEndAuthRequired(t *testing.T) {
 	if res.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", res.StatusCode)
 	}
+	var errPayload errorResponse
+	if err := json.NewDecoder(res.Body).Decode(&errPayload); err != nil {
+		t.Fatalf("decode error payload: %v", err)
+	}
+	if errPayload.Code != "unauthorized" {
+		t.Fatalf("expected error code unauthorized, got %q", errPayload.Code)
+	}
+	if errPayload.Message == "" {
+		t.Fatalf("expected error message to be set")
+	}
 
 	req, err = http.NewRequest(http.MethodGet, server.URL+"/api/status", nil)
 	if err != nil {

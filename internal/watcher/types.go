@@ -36,6 +36,7 @@ type Watch interface {
 type Options struct {
 	Logger          *logging.Logger
 	Debounce        time.Duration
+	// WatchDir enables fan-out from directory watches; it does not add recursive watches.
 	WatchDir        bool
 	MaxWatches      int
 	CleanupInterval time.Duration

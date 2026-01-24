@@ -2701,7 +2701,7 @@
   - Keep fsnotify behavior stable.
   Date: 2026-01-24
 
-** WIP [#A] Split watcher.go and document WatchDirRecursive
+** DONE [#A] Split watcher.go and document WatchDirRecursive
    Why: watcher.go is dense and WatchDirRecursive behavior is non-obvious.
    Change:
    - Split into watch_registry.go, debounce.go, restart.go, cleanup.go.
@@ -2710,7 +2710,7 @@
    - Ensure existing watcher tests still pass.
    Done when: watcher.go is smaller and behavior is documented.
 
-** TODO [#B] Extract internal/git helper
+** WIP [#B] Extract internal/git helper
    Why: resolveGitDir/readGitBranch are duplicated in watcher and api.
    Change:
    - Create internal/git package with shared helpers.

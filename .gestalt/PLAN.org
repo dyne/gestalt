@@ -2738,13 +2738,13 @@
    - Add tests for recursive registration and cancellation.
    Done when: recursion is optional and context cancels watches.
 
-* WIP [#A] Agent and skill loader consistency
+* DONE [#A] Agent and skill loader consistency
   Goal: Reduce duplication, clarify validation behavior, and improve parsing.
   Notes:
   - Preserve TOML-only agent configs and skill validation rules.
   Date: 2026-01-24
 
-** DONE [#A] Document Agent.Validate side-effects
+** [#A] Document Agent.Validate side-effects
    Why: Agent.Validate mutates Shell when cli_config is set.
    Change:
    - Document mutation behavior or return derived shell explicitly.
@@ -2752,7 +2752,7 @@
    - Update validation tests if behavior changes.
    Done when: validation behavior is explicit and tested.
 
-** DONE [#A] Reuse prompt resolver for agent prompt validation
+** [#A] Reuse prompt resolver for agent prompt validation
    Why: Prompt existence checks are duplicated outside internal/prompt.
    Change:
    - Use internal/prompt resolver for prompt presence checks.
@@ -2760,7 +2760,7 @@
    - Update loader tests to cover resolver behavior.
    Done when: prompt resolution is consistent across loaders.
 
-** DONE [#A] Use encoding/xml.EscapeText for SKILL XML
+** [#A] Use encoding/xml.EscapeText for SKILL XML
    Why: Manual escaping misses some XML entities.
    Change:
    - Replace custom escaping with encoding/xml.EscapeText.
@@ -2768,7 +2768,7 @@
    - Update skill XML tests for correct escaping.
    Done when: XML escaping is standards-compliant.
 
-** DONE [#B] Case-fold agent name uniqueness (if desired)
+** [#B] Case-fold agent name uniqueness (if desired)
    Why: Case-sensitive uniqueness allows subtle duplicates.
    Change:
    - Normalize agent names for uniqueness checks.
@@ -2776,7 +2776,7 @@
    - Add tests for case-insensitive duplicates.
    Done when: name uniqueness rules are explicit and tested.
 
-** DONE [#B] Shared loader/path normalization helper
+** [#B] Shared loader/path normalization helper
    Why: cleanFSPath and directory scanning duplicate across loaders.
    Change:
    - Create shared helper for path normalization and directory scanning.
@@ -2784,7 +2784,7 @@
    - Update agent/skill loader tests to cover helper behavior.
    Done when: loaders share common utilities without regressions.
 
-** DONE [#B] Separate validation from normalization
+** [#B] Separate validation from normalization
    Why: Validate mutates Agent, which hides side effects.
    Change:
    - Return a derived shell instead of mutating Agent, or isolate mutation.
@@ -2792,7 +2792,7 @@
    - Update validation tests accordingly.
    Done when: validation is pure or mutation is explicit.
 
-** DONE [#B] Centralize SKILL.md parsing rules
+** [#B] Centralize SKILL.md parsing rules
    Why: Parsing rules may need reuse by other features.
    Change:
    - Extract SKILL parsing into a small helper module.
@@ -2800,7 +2800,7 @@
    - Add unit tests for parsing edge cases.
    Done when: SKILL parsing is centralized and tested.
 
-** DONE [#C] AgentRegistry for cache + reload behavior
+** [#C] AgentRegistry for cache + reload behavior
    Why: Manager handles agent cache and terminal lifecycle together.
    Change:
    - Create AgentRegistry to own agent cache and reload events.
@@ -2808,7 +2808,7 @@
    - Add tests for registry reload and event emission.
    Done when: Manager focuses on terminal lifecycle.
 
-** DONE [#C] Expand skill metadata in prompt XML
+** [#C] Expand skill metadata in prompt XML
    Why: Future UI/agents may need richer skill discovery data.
    Change:
    - Extend prompt XML to include structured metadata fields.

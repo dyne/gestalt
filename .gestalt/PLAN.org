@@ -7542,13 +7542,13 @@
    debug log output.
    Done when: Debug logs show each agent_id + rendered shell command.
 
-* WIP [#A] Terminal session refactor and logging consolidation
+* DONE [#A] Terminal session refactor and logging consolidation
   Goal: Reduce terminal/session complexity while preserving behavior and tests.
-** DONE [#B] Extract AsyncFileLogger for session and input logs
+** [#B] Extract AsyncFileLogger for session and input logs
    Effort: Medium
    Change: Create shared async file logger for SessionLogger/InputLogger.
    Tests: Update persistence tests to cover new shared logger.
-** DONE [#B] Split Session into focused sub-structs
+** [#B] Split Session into focused sub-structs
    Effort: Medium
    Change: Introduce SessionMeta/SessionIO/SessionWorkflow with a wrapper type.
    Tests: Adjust session tests to cover new struct boundaries.

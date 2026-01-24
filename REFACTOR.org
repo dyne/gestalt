@@ -181,7 +181,7 @@
   - Preserve TOML-only agent configs and skill validation rules.
   Date: 2026-01-24
 
-** WIP [#A] Document Agent.Validate side-effects
+** DONE [#A] Document Agent.Validate side-effects
    Why: Agent.Validate mutates Shell when cli_config is set.
    Change:
    - Document mutation behavior or return derived shell explicitly.

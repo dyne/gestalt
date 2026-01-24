@@ -40,6 +40,8 @@ When CLI config keys are present, Gestalt generates the shell command at session
   - Boolean flags use `--flag` or `--no-flag`.
   - Arrays repeat `--flag value` for each entry.
 
+The generated command replaces any explicit `shell` value during validation.
+
 If no CLI config keys are set, `shell` is used as-is.
 
 ## Examples

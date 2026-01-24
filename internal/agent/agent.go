@@ -72,6 +72,7 @@ type Agent struct {
 }
 
 // Validate ensures required fields are present and values are supported.
+// When CLI config is set, Validate builds and overwrites Shell with the generated command.
 func (a *Agent) Validate() error {
 	if strings.TrimSpace(a.Name) == "" {
 		return fmt.Errorf("agent name is required")

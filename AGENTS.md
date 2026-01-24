@@ -108,7 +108,6 @@ terminal output -> Session output bus -> /ws/terminal/:id -> xterm
 - UI: workflow tracking always on; terminal resizing uses ResizeObserver; touch scrolling uses pointer events with 10px threshold + inertia; `scrollSensitivity` in `frontend/src/components/Terminal.svelte`.
 - Dev: `make dev` runs backend + Vite dev server.
 - Agents: TOML-only; loader rejects `.json`; `cli_config` schema-validated; shellgen skips empty values.
-- Agents/skills: prompt resolution unified with prompt parser (markdown prompts allowed), skill XML uses `xml.EscapeText`, loader path normalization shared in `internal/fsutil`, and shell normalization split from validation.
 - Agents: new sessions refresh configs via `agent.AgentCache`; sessions store `Command` + `ConfigHash` snapshots.
 - Temporal: workflows store agent config + hash in memo (`internal/temporal/memo.go`); legacy JSON memos in `.gestalt/temporal` are warned/rejected.
 - CLI: `gestalt config validate --agents-dir ...`.

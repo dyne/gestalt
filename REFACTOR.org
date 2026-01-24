@@ -175,13 +175,13 @@
    - Add integration tests for recursive watch behavior.
    Done when: recursive watch works without regressing max watch limits.
 
-* DONE [#A] Agent and skill loader consistency
+* WIP [#A] Agent and skill loader consistency
   Goal: Reduce duplication, clarify validation behavior, and improve parsing.
   Notes:
   - Preserve TOML-only agent configs and skill validation rules.
   Date: 2026-01-24
 
-** [#A] Document Agent.Validate side-effects
+** DONE [#A] Document Agent.Validate side-effects
    Why: Agent.Validate mutates Shell when cli_config is set.
    Change:
    - Document mutation behavior or return derived shell explicitly.
@@ -189,7 +189,7 @@
    - Update validation tests if behavior changes.
    Done when: validation behavior is explicit and tested.
 
-** [#A] Reuse prompt resolver for agent prompt validation
+** DONE [#A] Reuse prompt resolver for agent prompt validation
    Why: Prompt existence checks are duplicated outside internal/prompt.
    Change:
    - Use internal/prompt resolver for prompt presence checks.
@@ -197,7 +197,7 @@
    - Update loader tests to cover resolver behavior.
    Done when: prompt resolution is consistent across loaders.
 
-** [#A] Use encoding/xml.EscapeText for SKILL XML
+** DONE [#A] Use encoding/xml.EscapeText for SKILL XML
    Why: Manual escaping misses some XML entities.
    Change:
    - Replace custom escaping with encoding/xml.EscapeText.
@@ -205,7 +205,7 @@
    - Update skill XML tests for correct escaping.
    Done when: XML escaping is standards-compliant.
 
-** [#B] Case-fold agent name uniqueness (if desired)
+** DONE [#B] Case-fold agent name uniqueness (if desired)
    Why: Case-sensitive uniqueness allows subtle duplicates.
    Change:
    - Normalize agent names for uniqueness checks.
@@ -213,7 +213,7 @@
    - Add tests for case-insensitive duplicates.
    Done when: name uniqueness rules are explicit and tested.
 
-** [#B] Shared loader/path normalization helper
+** DONE [#B] Shared loader/path normalization helper
    Why: cleanFSPath and directory scanning duplicate across loaders.
    Change:
    - Create shared helper for path normalization and directory scanning.
@@ -221,7 +221,7 @@
    - Update agent/skill loader tests to cover helper behavior.
    Done when: loaders share common utilities without regressions.
 
-** [#B] Separate validation from normalization
+** DONE [#B] Separate validation from normalization
    Why: Validate mutates Agent, which hides side effects.
    Change:
    - Return a derived shell instead of mutating Agent, or isolate mutation.

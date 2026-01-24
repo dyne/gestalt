@@ -561,11 +561,6 @@ func (s *Session) readLoop() {
 	buf := make([]byte, 4096)
 	dsrTail := []byte{}
 	for {
-		select {
-		case <-s.ctx.Done():
-			return
-		default:
-		}
 		n, err := s.pty.Read(buf)
 		if n > 0 {
 			chunk := make([]byte, n)

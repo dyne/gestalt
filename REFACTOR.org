@@ -313,7 +313,7 @@
    - Ensure tests cover slow subscriber scenarios.
    Done when: DSR/backpressure edge cases are covered.
 
-** TODO [#A] Add watcher restart/backoff tests
+** DONE [#A] Add watcher restart/backoff tests
    Why: Restart logic is complex and lightly tested.
    Change:
    - Add tests for restart backoff and max retry behavior.

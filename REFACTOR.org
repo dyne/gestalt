@@ -229,7 +229,7 @@
    - Update validation tests accordingly.
    Done when: validation is pure or mutation is explicit.
 
-** TODO [#B] Centralize SKILL.md parsing rules
+** DONE [#B] Centralize SKILL.md parsing rules
    Why: Parsing rules may need reuse by other features.
    Change:
    - Extract SKILL parsing into a small helper module.

@@ -91,35 +91,11 @@ func Parse(data []byte) (*Skill, error) {
 
 // Validate ensures required fields and structural rules are satisfied.
 func (s Skill) Validate() error {
-	name := strings.TrimSpace(s.Name)
-	if name == "" {
-		return fmt.Errorf("skill name is required")
+	name, err := validateSkillFields(s.Name, s.Description)
+	if err != nil {
+		return err
 	}
-	if len(name) > 64 {
-		return fmt.Errorf("skill name must be 1-64 characters")
-	}
-	if !namePattern.MatchString(name) {
-		return fmt.Errorf("skill name %q is invalid", name)
-	}
-
-	description := strings.TrimSpace(s.Description)
-	if len(description) == 0 || len(description) > 1024 {
-		return fmt.Errorf("skill description must be 1-1024 characters")
-	}
-
-	if s.Path != "" {
-		dirName := filepath.Base(s.Path)
-		if dirName != name {
-			return fmt.Errorf("skill name %q does not match directory %q", name, dirName)
-		}
-		for _, dir := range []string{"scripts", "references", "assets"} {
-			if err := validateOptionalDir(s.Path, dir); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
+	return validateSkillPath(name, s.Path, filepath.Base, validateOptionalDir)
 }
 
 // ValidateFS ensures required fields and structural rules are satisfied using the provided filesystem.
@@ -127,35 +103,50 @@ func (s Skill) ValidateFS(skillFS fs.FS) error {
 	if skillFS == nil {
 		return s.Validate()
 	}
+	name, err := validateSkillFields(s.Name, s.Description)
+	if err != nil {
+		return err
+	}
+	return validateSkillPath(name, s.Path, func(value string) string {
+		return path.Base(path.Clean(value))
+	}, func(base, name string) error {
+		return validateOptionalDirFS(skillFS, base, name)
+	})
+}
 
-	name := strings.TrimSpace(s.Name)
+func validateSkillFields(name, description string) (string, error) {
+	name = strings.TrimSpace(name)
 	if name == "" {
-		return fmt.Errorf("skill name is required")
+		return "", fmt.Errorf("skill name is required")
 	}
 	if len(name) > 64 {
-		return fmt.Errorf("skill name must be 1-64 characters")
+		return "", fmt.Errorf("skill name must be 1-64 characters")
 	}
 	if !namePattern.MatchString(name) {
-		return fmt.Errorf("skill name %q is invalid", name)
+		return "", fmt.Errorf("skill name %q is invalid", name)
 	}
 
-	description := strings.TrimSpace(s.Description)
+	description = strings.TrimSpace(description)
 	if len(description) == 0 || len(description) > 1024 {
-		return fmt.Errorf("skill description must be 1-1024 characters")
+		return "", fmt.Errorf("skill description must be 1-1024 characters")
 	}
 
-	if s.Path != "" {
-		dirName := path.Base(path.Clean(s.Path))
-		if dirName != name {
-			return fmt.Errorf("skill name %q does not match directory %q", name, dirName)
-		}
-		for _, dir := range []string{"scripts", "references", "assets"} {
-			if err := validateOptionalDirFS(skillFS, s.Path, dir); err != nil {
-				return err
-			}
+	return name, nil
+}
+
+func validateSkillPath(name, skillPath string, baseName func(string) string, validateDir func(string, string) error) error {
+	if strings.TrimSpace(skillPath) == "" {
+		return nil
+	}
+	dirName := baseName(skillPath)
+	if dirName != name {
+		return fmt.Errorf("skill name %q does not match directory %q", name, dirName)
+	}
+	for _, dir := range []string{"scripts", "references", "assets"} {
+		if err := validateDir(skillPath, dir); err != nil {
+			return err
 		}
 	}
-
 	return nil
 }
 

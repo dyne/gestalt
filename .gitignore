@@ -9,3 +9,5 @@ frontend/bindings
 !.gestalt/PLAN.org
 config/manifest.json
 internal/version/build_info.json
+otel/ocb
+otel/otelcol-gestalt

@@ -22,7 +22,7 @@
   Priority: [#A] - foundational change enabling better observability
 
 ** DONE [#A] Research and design OpenTelemetry integration architecture
-** TODO [#B] Build custom OpenTelemetry Collector binary with ocb
+** DONE [#B] Build custom OpenTelemetry Collector binary with ocb
 ** TODO [#B] Implement Collector lifecycle management in Gestalt
 ** TODO [#B] Integrate Collector start into Temporal workflow
 ** TODO [#A] Add OpenTelemetry SDK to Gestalt Go backend

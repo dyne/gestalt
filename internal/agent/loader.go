@@ -11,6 +11,7 @@ import (
 
 	"gestalt/internal/config"
 	"gestalt/internal/event"
+	"gestalt/internal/fsutil"
 	"gestalt/internal/logging"
 	"gestalt/internal/prompt"
 )
@@ -33,11 +34,8 @@ func (l Loader) Load(agentFS fs.FS, dir, promptsDir string, skillIndex map[strin
 		return nil, err
 	}
 
-	entries, err := fs.ReadDir(agentFS, dir)
+	entries, err := fsutil.ReadDirOrEmpty(agentFS, dir)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return map[string]Agent{}, nil
-		}
 		return nil, fmt.Errorf("read agents dir: %w", err)
 	}
 
@@ -240,63 +238,12 @@ func resolveSkills(logger *logging.Logger, agentID string, skills []string, skil
 }
 
 func normalizeAgentPaths(agentFS fs.FS, dir, promptsDir string) (fs.FS, string, string, error) {
-	if agentFS != nil {
-		cleanDir, err := cleanFSPath(dir)
-		if err != nil {
-			return nil, "", "", err
-		}
-		cleanPrompts, err := cleanFSPath(promptsDir)
-		if err != nil {
-			return nil, "", "", err
-		}
-		return agentFS, cleanDir, cleanPrompts, nil
-	}
-
-	absDir, err := filepath.Abs(dir)
-	if err != nil {
-		absDir = dir
-	}
-	absPrompts, err := filepath.Abs(promptsDir)
-	if err != nil {
-		absPrompts = promptsDir
-	}
-
-	volume := filepath.VolumeName(absDir)
-	if promptsVolume := filepath.VolumeName(absPrompts); promptsVolume != volume {
-		return nil, "", "", fmt.Errorf("agent loader paths span volumes: %q, %q", absDir, absPrompts)
-	}
-
-	root := string(os.PathSeparator)
-	if volume != "" {
-		root = volume + string(os.PathSeparator)
-	}
-
-	relDir := strings.TrimPrefix(absDir, root)
-	relPrompts := strings.TrimPrefix(absPrompts, root)
-
-	cleanDir, err := cleanFSPath(relDir)
+	fsys, cleaned, err := fsutil.NormalizeFSPaths(agentFS, "agent loader", dir, promptsDir)
 	if err != nil {
 		return nil, "", "", err
 	}
-	cleanPrompts, err := cleanFSPath(relPrompts)
-	if err != nil {
-		return nil, "", "", err
+	if len(cleaned) < 2 {
+		return nil, "", "", fmt.Errorf("agent loader paths missing")
 	}
-	return os.DirFS(root), cleanDir, cleanPrompts, nil
-}
-
-func cleanFSPath(pathValue string) (string, error) {
-	slashPath := filepath.ToSlash(pathValue)
-	slashPath = strings.TrimPrefix(slashPath, "/")
-	if slashPath == "" {
-		return ".", nil
-	}
-	cleaned := path.Clean(slashPath)
-	if cleaned == "." {
-		return ".", nil
-	}
-	if !fs.ValidPath(cleaned) {
-		return "", fmt.Errorf("invalid fs path: %q", pathValue)
-	}
-	return cleaned, nil
+	return fsys, cleaned[0], cleaned[1], nil
 }

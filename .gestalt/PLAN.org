@@ -2776,7 +2776,7 @@
    - Add tests for case-insensitive duplicates.
    Done when: name uniqueness rules are explicit and tested.
 
-** TODO [#B] Shared loader/path normalization helper
+** DONE [#B] Shared loader/path normalization helper
    Why: cleanFSPath and directory scanning duplicate across loaders.
    Change:
    - Create shared helper for path normalization and directory scanning.

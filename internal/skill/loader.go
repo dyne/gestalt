@@ -4,11 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path"
-	"path/filepath"
-	"strings"
 
+	"gestalt/internal/fsutil"
 	"gestalt/internal/logging"
 )
 
@@ -27,11 +25,8 @@ func (l Loader) Load(skillFS fs.FS, dir string) (map[string]*Skill, error) {
 		return nil, err
 	}
 
-	entries, err := fs.ReadDir(skillFS, dir)
+	entries, err := fsutil.ReadDirOrEmpty(skillFS, dir)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return map[string]*Skill{}, nil
-		}
 		return nil, fmt.Errorf("read skills dir: %w", err)
 	}
 
@@ -74,47 +69,14 @@ func (l Loader) Load(skillFS fs.FS, dir string) (map[string]*Skill, error) {
 }
 
 func normalizeSkillPath(skillFS fs.FS, dir string) (fs.FS, string, error) {
-	if skillFS != nil {
-		cleanDir, err := cleanFSPath(dir)
-		if err != nil {
-			return nil, "", err
-		}
-		return skillFS, cleanDir, nil
-	}
-
-	absDir, err := filepath.Abs(dir)
-	if err != nil {
-		absDir = dir
-	}
-
-	volume := filepath.VolumeName(absDir)
-	root := string(os.PathSeparator)
-	if volume != "" {
-		root = volume + string(os.PathSeparator)
-	}
-
-	relDir := strings.TrimPrefix(absDir, root)
-	cleanDir, err := cleanFSPath(relDir)
+	fsys, cleaned, err := fsutil.NormalizeFSPaths(skillFS, "skill loader", dir)
 	if err != nil {
 		return nil, "", err
 	}
-	return os.DirFS(root), cleanDir, nil
-}
-
-func cleanFSPath(pathValue string) (string, error) {
-	slashPath := filepath.ToSlash(pathValue)
-	slashPath = strings.TrimPrefix(slashPath, "/")
-	if slashPath == "" {
-		return ".", nil
+	if len(cleaned) == 0 {
+		return fsys, ".", nil
 	}
-	cleaned := path.Clean(slashPath)
-	if cleaned == "." {
-		return ".", nil
-	}
-	if !fs.ValidPath(cleaned) {
-		return "", fmt.Errorf("invalid fs path: %q", pathValue)
-	}
-	return cleaned, nil
+	return fsys, cleaned[0], nil
 }
 
 func (l Loader) warnLoadError(skillID, path string, err error) {

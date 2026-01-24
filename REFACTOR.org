@@ -237,7 +237,7 @@
    - Add unit tests for parsing edge cases.
    Done when: SKILL parsing is centralized and tested.
 
-** TODO [#C] AgentRegistry for cache + reload behavior
+** DONE [#C] AgentRegistry for cache + reload behavior
    Why: Manager handles agent cache and terminal lifecycle together.
    Change:
    - Create AgentRegistry to own agent cache and reload events.

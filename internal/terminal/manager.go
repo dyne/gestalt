@@ -65,9 +65,7 @@ type Manager struct {
 	bufferLines     int
 	clock           Clock
 	sessionFactory  *SessionFactory
-	agents          map[string]agent.Agent
-	agentCache      *agent.AgentCache
-	agentsDir       string
+	agentRegistry   *agent.Registry
 	skills          map[string]*skill.Skill
 	logger          *logging.Logger
 	agentBus        *event.Bus[event.AgentEvent]
@@ -196,8 +194,10 @@ func NewManager(opts ManagerOptions) *Manager {
 	for id, profile := range opts.Agents {
 		agents[id] = profile
 	}
-	agentsDir := strings.TrimSpace(opts.AgentsDir)
-	agentCache := agent.NewAgentCache(agents)
+	agentRegistry := agent.NewRegistry(agent.RegistryOptions{
+		Agents:    agents,
+		AgentsDir: opts.AgentsDir,
+	})
 	skills := make(map[string]*skill.Skill)
 	for id, entry := range opts.Skills {
 		skills[id] = entry
@@ -210,9 +210,7 @@ func NewManager(opts ManagerOptions) *Manager {
 		factory:         factory,
 		bufferLines:     bufferLines,
 		clock:           clock,
-		agents:          agents,
-		agentCache:      agentCache,
-		agentsDir:       agentsDir,
+		agentRegistry:   agentRegistry,
 		skills:          skills,
 		logger:          logger,
 		agentBus:        agentBus,
@@ -584,11 +582,10 @@ func (m *Manager) TemporalClient() temporal.WorkflowClient {
 }
 
 func (m *Manager) GetAgent(id string) (agent.Agent, bool) {
-	m.mu.RLock()
-	profile, ok := m.agents[id]
-	m.mu.RUnlock()
-
-	return profile, ok
+	if m == nil || m.agentRegistry == nil {
+		return agent.Agent{}, false
+	}
+	return m.agentRegistry.Get(id)
 }
 
 func (m *Manager) LoadAgentForSession(agentID string) (*agent.Agent, bool, error) {
@@ -599,15 +596,10 @@ func (m *Manager) LoadAgentForSession(agentID string) (*agent.Agent, bool, error
 	if agentID == "" {
 		return nil, false, errors.New("agent id is required")
 	}
-	if m.agentCache == nil {
-		profile, ok := m.GetAgent(agentID)
-		if !ok {
-			return nil, false, ErrAgentNotFound
-		}
-		profileCopy := profile
-		return &profileCopy, false, nil
+	if m.agentRegistry == nil {
+		return nil, false, ErrAgentNotFound
 	}
-	profile, reloaded, err := m.agentCache.LoadOrReload(agentID, m.agentsDir)
+	profile, reloaded, err := m.agentRegistry.LoadOrReload(agentID)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, false, ErrAgentNotFound
@@ -617,16 +609,16 @@ func (m *Manager) LoadAgentForSession(agentID string) (*agent.Agent, bool, error
 	if profile == nil {
 		return nil, false, ErrAgentNotFound
 	}
-	m.mu.Lock()
-	m.agents[agentID] = *profile
-	m.mu.Unlock()
 	return profile, reloaded, nil
 }
 
 func (m *Manager) ListAgents() []AgentInfo {
-	m.mu.RLock()
-	infos := make([]AgentInfo, 0, len(m.agents))
-	for id, profile := range m.agents {
+	if m == nil || m.agentRegistry == nil {
+		return nil
+	}
+	agents := m.agentRegistry.Snapshot()
+	infos := make([]AgentInfo, 0, len(agents))
+	for id, profile := range agents {
 		infos = append(infos, AgentInfo{
 			ID:          id,
 			Name:        profile.Name,
@@ -635,7 +627,6 @@ func (m *Manager) ListAgents() []AgentInfo {
 			UseWorkflow: resolveWorkflowPreference(profile.UseWorkflow),
 		})
 	}
-	m.mu.RUnlock()
 
 	sort.Slice(infos, func(i, j int) bool {
 		return infos[i].ID < infos[j].ID

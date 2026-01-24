@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"sort"
@@ -8,6 +9,10 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	otelapi "go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 type Registry struct {
@@ -19,6 +24,8 @@ type Registry struct {
 	eventBuses        sync.Map
 	eventTypes        sync.Map
 	scipQueries       sync.Map
+	otelOnce          sync.Once
+	otelMetrics       *otelRegistry
 }
 
 type activityStats struct {
@@ -49,6 +56,25 @@ type eventTypeKey struct {
 	eventType string
 }
 
+type otelRegistry struct {
+	workflowStarted   metric.Int64Counter
+	workflowCompleted metric.Int64Counter
+	workflowFailed    metric.Int64Counter
+	workflowPaused    metric.Int64Counter
+
+	activityDuration metric.Float64Histogram
+	activityFailures metric.Int64Counter
+	activityRetries  metric.Int64Counter
+
+	eventPublished   metric.Int64Counter
+	eventDropped     metric.Int64Counter
+	eventSubscribers metric.Int64UpDownCounter
+
+	scipQueries      metric.Int64Counter
+	scipCacheHits    metric.Int64Counter
+	scipQueryLatency metric.Float64Histogram
+}
+
 type EventBusSnapshot struct {
 	Name                  string
 	FilteredSubscribers   int64
@@ -62,6 +88,9 @@ func (r *Registry) IncWorkflowStarted() {
 		return
 	}
 	r.workflowStarted.Add(1)
+	if otelMetrics := r.otel(); otelMetrics != nil && otelMetrics.workflowStarted != nil {
+		otelMetrics.workflowStarted.Add(context.Background(), 1)
+	}
 }
 
 func (r *Registry) IncWorkflowCompleted() {
@@ -69,6 +98,9 @@ func (r *Registry) IncWorkflowCompleted() {
 		return
 	}
 	r.workflowCompleted.Add(1)
+	if otelMetrics := r.otel(); otelMetrics != nil && otelMetrics.workflowCompleted != nil {
+		otelMetrics.workflowCompleted.Add(context.Background(), 1)
+	}
 }
 
 func (r *Registry) IncWorkflowFailed() {
@@ -76,6 +108,9 @@ func (r *Registry) IncWorkflowFailed() {
 		return
 	}
 	r.workflowFailed.Add(1)
+	if otelMetrics := r.otel(); otelMetrics != nil && otelMetrics.workflowFailed != nil {
+		otelMetrics.workflowFailed.Add(context.Background(), 1)
+	}
 }
 
 func (r *Registry) IncWorkflowPaused() {
@@ -83,6 +118,9 @@ func (r *Registry) IncWorkflowPaused() {
 		return
 	}
 	r.workflowPaused.Add(1)
+	if otelMetrics := r.otel(); otelMetrics != nil && otelMetrics.workflowPaused != nil {
+		otelMetrics.workflowPaused.Add(context.Background(), 1)
+	}
 }
 
 func (r *Registry) RecordActivity(name string, duration time.Duration, err error, attempt int32) {
@@ -101,6 +139,22 @@ func (r *Registry) RecordActivity(name string, duration time.Duration, err error
 	if attempt > 1 {
 		stats.retries.Add(1)
 	}
+
+	otelMetrics := r.otel()
+	if otelMetrics == nil {
+		return
+	}
+	attrs := []attribute.KeyValue{attribute.String("activity.name", name)}
+	ctx := context.Background()
+	if otelMetrics.activityDuration != nil {
+		otelMetrics.activityDuration.Record(ctx, duration.Seconds(), metric.WithAttributes(attrs...))
+	}
+	if err != nil && otelMetrics.activityFailures != nil {
+		otelMetrics.activityFailures.Add(ctx, 1, metric.WithAttributes(attrs...))
+	}
+	if attempt > 1 && otelMetrics.activityRetries != nil {
+		otelMetrics.activityRetries.Add(ctx, 1, metric.WithAttributes(attrs...))
+	}
 }
 
 func (r *Registry) RecordSCIPQuery(queryType string, duration time.Duration, cacheHit bool) {
@@ -114,6 +168,22 @@ func (r *Registry) RecordSCIPQuery(queryType string, duration time.Duration, cac
 	if cacheHit {
 		stats.cacheHits.Add(1)
 	}
+
+	otelMetrics := r.otel()
+	if otelMetrics == nil {
+		return
+	}
+	attrs := []attribute.KeyValue{attribute.String("scip.query_type", queryType)}
+	ctx := context.Background()
+	if otelMetrics.scipQueries != nil {
+		otelMetrics.scipQueries.Add(ctx, 1, metric.WithAttributes(attrs...))
+	}
+	if cacheHit && otelMetrics.scipCacheHits != nil {
+		otelMetrics.scipCacheHits.Add(ctx, 1, metric.WithAttributes(attrs...))
+	}
+	if otelMetrics.scipQueryLatency != nil {
+		otelMetrics.scipQueryLatency.Record(ctx, duration.Seconds(), metric.WithAttributes(attrs...))
+	}
 }
 
 func (r *Registry) IncEventPublished(busName, eventType string) {
@@ -124,6 +194,13 @@ func (r *Registry) IncEventPublished(busName, eventType string) {
 	eventType = normalizeMetricLabel(eventType, "unknown")
 	stats := r.eventTypeStats(busName, eventType)
 	stats.published.Add(1)
+	if otelMetrics := r.otel(); otelMetrics != nil && otelMetrics.eventPublished != nil {
+		attrs := []attribute.KeyValue{
+			attribute.String("event.bus", busName),
+			attribute.String("event.type", eventType),
+		}
+		otelMetrics.eventPublished.Add(context.Background(), 1, metric.WithAttributes(attrs...))
+	}
 }
 
 func (r *Registry) IncEventDropped(busName, eventType string) {
@@ -134,6 +211,13 @@ func (r *Registry) IncEventDropped(busName, eventType string) {
 	eventType = normalizeMetricLabel(eventType, "unknown")
 	stats := r.eventTypeStats(busName, eventType)
 	stats.dropped.Add(1)
+	if otelMetrics := r.otel(); otelMetrics != nil && otelMetrics.eventDropped != nil {
+		attrs := []attribute.KeyValue{
+			attribute.String("event.bus", busName),
+			attribute.String("event.type", eventType),
+		}
+		otelMetrics.eventDropped.Add(context.Background(), 1, metric.WithAttributes(attrs...))
+	}
 }
 
 func (r *Registry) SetEventSubscriberCounts(busName string, filtered, unfiltered int) {
@@ -148,8 +232,29 @@ func (r *Registry) SetEventSubscriberCounts(busName string, filtered, unfiltered
 		unfiltered = 0
 	}
 	stats := r.eventBusStats(busName)
-	stats.filtered.Store(int64(filtered))
-	stats.unfiltered.Store(int64(unfiltered))
+	prevFiltered := stats.filtered.Swap(int64(filtered))
+	prevUnfiltered := stats.unfiltered.Swap(int64(unfiltered))
+
+	otelMetrics := r.otel()
+	if otelMetrics != nil && otelMetrics.eventSubscribers != nil {
+		ctx := context.Background()
+		filteredDelta := int64(filtered) - prevFiltered
+		if filteredDelta != 0 {
+			attrs := []attribute.KeyValue{
+				attribute.String("event.bus", busName),
+				attribute.Bool("event.filtered", true),
+			}
+			otelMetrics.eventSubscribers.Add(ctx, filteredDelta, metric.WithAttributes(attrs...))
+		}
+		unfilteredDelta := int64(unfiltered) - prevUnfiltered
+		if unfilteredDelta != 0 {
+			attrs := []attribute.KeyValue{
+				attribute.String("event.bus", busName),
+				attribute.Bool("event.filtered", false),
+			}
+			otelMetrics.eventSubscribers.Add(ctx, unfilteredDelta, metric.WithAttributes(attrs...))
+		}
+	}
 }
 
 func (r *Registry) WritePrometheus(writer io.Writer) error {
@@ -333,6 +438,81 @@ func (r *Registry) eventTypeKeys() []eventTypeKey {
 		return true
 	})
 	return keys
+}
+
+func (r *Registry) otel() *otelRegistry {
+	if r == nil {
+		return nil
+	}
+	r.otelOnce.Do(func() {
+		r.otelMetrics = newOTelRegistry()
+	})
+	return r.otelMetrics
+}
+
+func newOTelRegistry() *otelRegistry {
+	meter := otelapi.GetMeterProvider().Meter("gestalt/metrics")
+	registry := &otelRegistry{}
+
+	registry.workflowStarted, _ = meter.Int64Counter(
+		"gestalt.workflow.started",
+		metric.WithDescription("Total workflows started"),
+	)
+	registry.workflowCompleted, _ = meter.Int64Counter(
+		"gestalt.workflow.completed",
+		metric.WithDescription("Total workflows completed"),
+	)
+	registry.workflowFailed, _ = meter.Int64Counter(
+		"gestalt.workflow.failed",
+		metric.WithDescription("Total workflows failed"),
+	)
+	registry.workflowPaused, _ = meter.Int64Counter(
+		"gestalt.workflow.paused",
+		metric.WithDescription("Total workflow pauses"),
+	)
+
+	registry.activityDuration, _ = meter.Float64Histogram(
+		"gestalt.activity.duration",
+		metric.WithDescription("Activity duration"),
+		metric.WithUnit("s"),
+	)
+	registry.activityFailures, _ = meter.Int64Counter(
+		"gestalt.activity.failures",
+		metric.WithDescription("Activity failures"),
+	)
+	registry.activityRetries, _ = meter.Int64Counter(
+		"gestalt.activity.retries",
+		metric.WithDescription("Activity retries"),
+	)
+
+	registry.eventPublished, _ = meter.Int64Counter(
+		"gestalt.event.published",
+		metric.WithDescription("Total events published"),
+	)
+	registry.eventDropped, _ = meter.Int64Counter(
+		"gestalt.event.dropped",
+		metric.WithDescription("Total events dropped"),
+	)
+	registry.eventSubscribers, _ = meter.Int64UpDownCounter(
+		"gestalt.event.subscribers",
+		metric.WithDescription("Active event bus subscribers"),
+	)
+
+	registry.scipQueries, _ = meter.Int64Counter(
+		"gestalt.scip.queries",
+		metric.WithDescription("Total SCIP queries"),
+	)
+	registry.scipCacheHits, _ = meter.Int64Counter(
+		"gestalt.scip.cache_hits",
+		metric.WithDescription("Total SCIP cache hits"),
+	)
+	registry.scipQueryLatency, _ = meter.Float64Histogram(
+		"gestalt.scip.query.duration",
+		metric.WithDescription("SCIP query duration"),
+		metric.WithUnit("s"),
+	)
+
+	return registry
 }
 
 func writeHelp(writer io.Writer, metric, help string) {

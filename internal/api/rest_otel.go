@@ -11,6 +11,8 @@ import (
 	"gestalt/internal/otel"
 )
 
+const maxOTelQueryLimit = 1000
+
 type otelLogQuery struct {
 	Limit int
 	Since *time.Time
@@ -195,6 +197,9 @@ func parseOTelLimit(raw string, defaultLimit int) (int, *apiError) {
 	limit, err := strconv.Atoi(raw)
 	if err != nil || limit <= 0 {
 		return 0, &apiError{Status: http.StatusBadRequest, Message: "invalid limit"}
+	}
+	if limit > maxOTelQueryLimit {
+		limit = maxOTelQueryLimit
 	}
 	return limit, nil
 }

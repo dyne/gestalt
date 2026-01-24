@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 )
 
 const (
 	defaultScanBufferSize = 64 * 1024
 	maxScanBufferSize     = 10 * 1024 * 1024
+	defaultMaxRecords     = 5000
 )
 
 func ReadLogRecords(path string) ([]map[string]any, error) {
@@ -31,6 +33,7 @@ func readOTelRecords(path string, resourceKeys, scopeKeys []string, recordKey st
 	}
 
 	records := make([]map[string]any, 0, 128)
+	maxRecords := maxRecordLimit()
 	err := scanOTelFile(path, func(payload map[string]any) {
 		resources := firstSlice(payload, resourceKeys...)
 		for _, resourceEntry := range resources {
@@ -57,6 +60,9 @@ func readOTelRecords(path string, resourceKeys, scopeKeys []string, recordKey st
 					}
 					if scope != nil {
 						record["scope"] = scope
+					}
+					if maxRecords > 0 && len(records) >= maxRecords {
+						records = records[1:]
 					}
 					records = append(records, record)
 				}
@@ -93,6 +99,18 @@ func scanOTelFile(path string, handle func(map[string]any)) error {
 		handle(payload)
 	}
 	return scanner.Err()
+}
+
+func maxRecordLimit() int {
+	raw := strings.TrimSpace(os.Getenv("GESTALT_OTEL_MAX_RECORDS"))
+	if raw == "" {
+		return defaultMaxRecords
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil || parsed <= 0 {
+		return defaultMaxRecords
+	}
+	return parsed
 }
 
 func firstSlice(values map[string]any, keys ...string) []any {

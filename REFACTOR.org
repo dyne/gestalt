@@ -498,7 +498,7 @@
    Tests: None (documentation only).
    Done when: doc exists and references current stores.
 
-** WIP [#B] Add a thin routing helper for tabs
+** DONE [#B] Add a thin routing helper for tabs
    Why: Active tab computation is repeated in App.svelte.
    Change:
    - Centralize tab selection logic in a small helper.
@@ -506,7 +506,7 @@
    - Update App tests if needed.
    Done when: tab logic is centralized.
 
-** TODO [#B] Introduce shared API client layer
+** WIP [#B] Introduce shared API client layer
    Why: Views repeat fetch + parse + error handling.
    Change:
    - Add an API client module (agents, terminals, logs, plan, workflows).

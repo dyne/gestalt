@@ -9,16 +9,12 @@
   import { apiFetch } from './lib/api.js'
   import { subscribe as subscribeEvents } from './lib/eventStore.js'
   import { subscribe as subscribeTerminalEvents } from './lib/terminalEventStore.js'
-  import { formatTerminalLabel } from './lib/terminalTabs.js'
+  import { buildTabs, ensureActiveTab, resolveActiveView } from './lib/tabRouting.js'
   import { releaseTerminalState } from './lib/terminalStore.js'
   import { notificationStore } from './lib/notificationStore.js'
   import { getErrorMessage, notifyError } from './lib/errorUtils.js'
 
-  let tabs = [
-    { id: 'dashboard', label: 'Dashboard', isHome: true },
-    { id: 'plan', label: 'Plan', isHome: true },
-    { id: 'flow', label: 'Status', isHome: true },
-  ]
+  let tabs = buildTabs([])
   let activeId = 'dashboard'
 
   let terminals = []
@@ -37,14 +33,7 @@
     return parts[parts.length - 1] || trimmed || 'gestalt'
   }
 
-  $: activeView =
-    activeId === 'dashboard'
-      ? 'dashboard'
-      : activeId === 'plan'
-        ? 'plan'
-        : activeId === 'flow'
-          ? 'flow'
-          : 'terminal'
+  $: activeView = resolveActiveView(activeId)
 
   $: if (typeof document !== 'undefined') {
     const projectName = buildTitle(status?.working_dir || '')
@@ -52,20 +41,8 @@
   }
 
   const syncTabs = (terminalList) => {
-    tabs = [
-      { id: 'dashboard', label: 'Dashboard', isHome: true },
-      { id: 'plan', label: 'Plan', isHome: true },
-      { id: 'flow', label: 'Status', isHome: true },
-      ...terminalList.map((terminal) => ({
-        id: terminal.id,
-        label: formatTerminalLabel(terminal),
-        isHome: false,
-      })),
-    ]
-
-    if (!tabs.find((tab) => tab.id === activeId)) {
-      activeId = 'dashboard'
-    }
+    tabs = buildTabs(terminalList)
+    activeId = ensureActiveTab(activeId, tabs, 'dashboard')
   }
 
   const refresh = async () => {

@@ -253,7 +253,199 @@
    - Update skill XML tests for new fields.
    Done when: skill metadata is richer and documented.
 
-* TODO [#A] Frontend store, view, and component hygiene
+* TODO [#B] Error handling standardization
+  Goal: Make errors consistent across REST, WS, and UI.
+  Notes:
+  - Avoid breaking error messages used by tests or CLI.
+  Date: 2026-01-24
+
+** TODO [#A] Standardize REST error field names
+   Why: REST errors vary across handlers.
+   Change:
+   - Ensure apiError responses use consistent fields (error, code, details).
+   Tests:
+   - Update REST tests to assert fields.
+   Done when: REST error payloads are consistent.
+
+** TODO [#A] Add WS error envelope
+   Why: WS handlers do not provide structured error feedback.
+   Change:
+   - Emit structured close reasons or error payloads (non-breaking).
+   Tests:
+   - Add tests for WS error payload/close codes.
+   Done when: WS error semantics are consistent.
+
+** TODO [#B] Add error codes to API responses
+   Why: UI cannot reliably distinguish error causes.
+   Change:
+   - Extend errorResponse to include code field.
+   Tests:
+   - Update REST tests for error codes.
+   Done when: API error codes are present.
+
+** TODO [#B] Centralize frontend error handling
+   Why: Error handling is inconsistent across views.
+   Change:
+   - Add a shared error helper/store and reuse in views.
+   Tests:
+   - Add tests for error helper behavior.
+   Done when: UI error handling is consistent.
+
+* TODO [#B] Testing and coverage improvements
+  Goal: Increase coverage of error paths and reduce flaky tests.
+  Notes:
+  - Prefer explicit timeouts and mockable interfaces.
+  Date: 2026-01-24
+
+** TODO [#A] Add WS close/error path tests
+   Why: WS handlers and stores have limited coverage for failure scenarios.
+   Change:
+   - Add backend and frontend WS close/error tests with explicit timeouts.
+   Tests:
+   - Ensure tests are stable with mocks and timeouts.
+   Done when: WS error paths are covered.
+
+** TODO [#A] Add terminal DSR/backpressure tests
+   Why: DSR fallback and slow subscribers can stall output.
+   Change:
+   - Add targeted tests for DSR parsing and backpressure behavior.
+   Tests:
+   - Ensure tests cover slow subscriber scenarios.
+   Done when: DSR/backpressure edge cases are covered.
+
+** TODO [#A] Add watcher restart/backoff tests
+   Why: Restart logic is complex and lightly tested.
+   Change:
+   - Add tests for restart backoff and max retry behavior.
+   Tests:
+   - Use deterministic timers to avoid flakes.
+   Done when: watcher restart/backoff is covered.
+
+** TODO [#B] Add CLI error mapping tests
+   Why: gestalt-send error handling is intertwined with HTTP logic.
+   Change:
+   - Add table-driven tests for error mapping and exit codes.
+   Tests:
+   - Ensure tests cover ambiguous agent resolution.
+   Done when: CLI error handling is covered.
+
+** TODO [#B] Add frontend coverage workflow
+   Why: Coverage visibility is missing for SPA tests.
+   Change:
+   - Add a documented coverage command/workflow.
+   Tests:
+   - Run vitest coverage locally when adding the workflow.
+   Done when: coverage can be reported on demand.
+
+** TODO [#B] Add API/WS integration tests for structured errors
+   Why: Error payloads may regress without end-to-end checks.
+   Change:
+   - Add integration tests for REST/WS error payloads.
+   Tests:
+   - Ensure tests do not rely on timing.
+   Done when: structured error payloads are covered.
+
+** TODO [#B] Add Terminal/CommandInput component tests
+   Why: Critical behaviors are only lightly tested.
+   Change:
+   - Add component tests for focus, submit, reconnect state.
+   Tests:
+   - Ensure component tests are stable.
+   Done when: key component behaviors are covered.
+
+* TODO [#B] cmd/gestalt modularization
+  Goal: Improve readability and testability of the main entrypoint.
+  Notes:
+  - Preserve CLI flags and config precedence.
+  Date: 2026-01-24
+
+** TODO [#A] Extract ServerRunner helper
+   Why: HTTP server lifecycle logic is embedded in main.go.
+   Change:
+   - Introduce ServerRunner to manage start/shutdown.
+   Tests:
+   - Add unit tests for ServerRunner lifecycle.
+   Done when: main.go is smaller and server lifecycle is isolated.
+
+** TODO [#A] Move prompt validation helper
+   Why: Prompt validation belongs in shared prompt/config helpers.
+   Change:
+   - Move prompt validation into internal/prompt or internal/config.
+   Tests:
+   - Add unit tests for prompt validation.
+   Done when: prompt validation is reusable.
+
+** TODO [#B] Split main.go into focused files
+   Why: main.go mixes config parsing, server setup, and watchers.
+   Change:
+   - Split into config_load.go, server.go, temporal.go, watchers.go.
+   Tests:
+   - Ensure cmd/gestalt tests still pass.
+   Done when: main.go is smaller and easier to navigate.
+
+** TODO [#B] Introduce internal app builder
+   Why: Dependency wiring is embedded in main.go.
+   Change:
+   - Add internal/app (or internal/config) builder for runtime deps.
+   Tests:
+   - Add tests for builder wiring outputs.
+   Done when: main.go is orchestration only.
+
+** TODO [#C] Command struct pattern for subcommands
+   Why: Subcommand logic is spread across helpers.
+   Change:
+   - Introduce command structs (runServer, runValidate, runIndex) with shared deps.
+   Tests:
+   - Add unit tests for command execution.
+   Done when: subcommand behavior is encapsulated.
+
+* TODO [#B] cmd/gestalt-send modularization
+  Goal: Simplify gestalt-send and make HTTP behavior reusable.
+  Notes:
+  - Preserve CLI flags and exit codes.
+  Date: 2026-01-24
+
+** TODO [#A] Split gestalt-send main.go into focused files
+   Why: main.go mixes parsing, HTTP, cache, and completion logic.
+   Change:
+   - Split into parse.go, http.go, completion.go.
+   Tests:
+   - Update CLI tests for new file boundaries.
+   Done when: gestalt-send is easier to follow.
+
+** TODO [#A] Centralize sendError handling
+   Why: Exit code mapping and error messages are duplicated.
+   Change:
+   - Add a sendError helper for consistent exit behavior.
+   Tests:
+   - Add tests for exit code mapping.
+   Done when: error handling is consistent.
+
+** TODO [#B] Extract HTTP client helpers
+   Why: HTTP logic is tightly coupled to CLI parsing.
+   Change:
+   - Move fetchAgents/sendAgentInput/startAgent into internal/client.
+   Tests:
+   - Add unit tests for client helpers.
+   Done when: CLI uses shared client helpers.
+
+** TODO [#B] Formalize agent cache format
+   Why: TSV cache is ad-hoc and fragile.
+   Change:
+   - Store cache as JSON with timestamp and entries.
+   Tests:
+   - Add tests for cache read/write.
+   Done when: cache format is structured and tested.
+
+** TODO [#C] Shared CLI framework for gestalt + gestalt-send
+   Why: Flag/env parsing and help output are duplicated.
+   Change:
+   - Introduce shared CLI helpers or small framework.
+   Tests:
+   - Add tests for shared parsing.
+   Done when: CLI behavior is unified.
+
+* TODO [#B] Frontend store, view, and component hygiene
   Goal: Reduce large modules, standardize data flow, and simplify view logic.
   Notes:
   - Preserve UI behavior and tests.
@@ -362,198 +554,6 @@
    Tests:
    - Add view state tests to avoid regressions.
    Done when: view async flows are explicit and testable.
-
-* TODO [#B] cmd/gestalt modularization
-  Goal: Improve readability and testability of the main entrypoint.
-  Notes:
-  - Preserve CLI flags and config precedence.
-  Date: 2026-01-24
-
-** TODO [#A] Extract ServerRunner helper
-   Why: HTTP server lifecycle logic is embedded in main.go.
-   Change:
-   - Introduce ServerRunner to manage start/shutdown.
-   Tests:
-   - Add unit tests for ServerRunner lifecycle.
-   Done when: main.go is smaller and server lifecycle is isolated.
-
-** TODO [#A] Move prompt validation helper
-   Why: Prompt validation belongs in shared prompt/config helpers.
-   Change:
-   - Move prompt validation into internal/prompt or internal/config.
-   Tests:
-   - Add unit tests for prompt validation.
-   Done when: prompt validation is reusable.
-
-** TODO [#B] Split main.go into focused files
-   Why: main.go mixes config parsing, server setup, and watchers.
-   Change:
-   - Split into config_load.go, server.go, temporal.go, watchers.go.
-   Tests:
-   - Ensure cmd/gestalt tests still pass.
-   Done when: main.go is smaller and easier to navigate.
-
-** TODO [#B] Introduce internal app builder
-   Why: Dependency wiring is embedded in main.go.
-   Change:
-   - Add internal/app (or internal/config) builder for runtime deps.
-   Tests:
-   - Add tests for builder wiring outputs.
-   Done when: main.go is orchestration only.
-
-** TODO [#C] Command struct pattern for subcommands
-   Why: Subcommand logic is spread across helpers.
-   Change:
-   - Introduce command structs (runServer, runValidate, runIndex) with shared deps.
-   Tests:
-   - Add unit tests for command execution.
-   Done when: subcommand behavior is encapsulated.
-
-* TODO [#B] cmd/gestalt-send modularization
-  Goal: Simplify gestalt-send and make HTTP behavior reusable.
-  Notes:
-  - Preserve CLI flags and exit codes.
-  Date: 2026-01-24
-
-** TODO [#A] Split gestalt-send main.go into focused files
-   Why: main.go mixes parsing, HTTP, cache, and completion logic.
-   Change:
-   - Split into parse.go, http.go, completion.go.
-   Tests:
-   - Update CLI tests for new file boundaries.
-   Done when: gestalt-send is easier to follow.
-
-** TODO [#A] Centralize sendError handling
-   Why: Exit code mapping and error messages are duplicated.
-   Change:
-   - Add a sendError helper for consistent exit behavior.
-   Tests:
-   - Add tests for exit code mapping.
-   Done when: error handling is consistent.
-
-** TODO [#B] Extract HTTP client helpers
-   Why: HTTP logic is tightly coupled to CLI parsing.
-   Change:
-   - Move fetchAgents/sendAgentInput/startAgent into internal/client.
-   Tests:
-   - Add unit tests for client helpers.
-   Done when: CLI uses shared client helpers.
-
-** TODO [#B] Formalize agent cache format
-   Why: TSV cache is ad-hoc and fragile.
-   Change:
-   - Store cache as JSON with timestamp and entries.
-   Tests:
-   - Add tests for cache read/write.
-   Done when: cache format is structured and tested.
-
-** TODO [#C] Shared CLI framework for gestalt + gestalt-send
-   Why: Flag/env parsing and help output are duplicated.
-   Change:
-   - Introduce shared CLI helpers or small framework.
-   Tests:
-   - Add tests for shared parsing.
-   Done when: CLI behavior is unified.
-
-* TODO [#B] Error handling standardization
-  Goal: Make errors consistent across REST, WS, and UI.
-  Notes:
-  - Avoid breaking error messages used by tests or CLI.
-  Date: 2026-01-24
-
-** TODO [#A] Standardize REST error field names
-   Why: REST errors vary across handlers.
-   Change:
-   - Ensure apiError responses use consistent fields (error, code, details).
-   Tests:
-   - Update REST tests to assert fields.
-   Done when: REST error payloads are consistent.
-
-** TODO [#A] Add WS error envelope
-   Why: WS handlers do not provide structured error feedback.
-   Change:
-   - Emit structured close reasons or error payloads (non-breaking).
-   Tests:
-   - Add tests for WS error payload/close codes.
-   Done when: WS error semantics are consistent.
-
-** TODO [#B] Add error codes to API responses
-   Why: UI cannot reliably distinguish error causes.
-   Change:
-   - Extend errorResponse to include code field.
-   Tests:
-   - Update REST tests for error codes.
-   Done when: API error codes are present.
-
-** TODO [#B] Centralize frontend error handling
-   Why: Error handling is inconsistent across views.
-   Change:
-   - Add a shared error helper/store and reuse in views.
-   Tests:
-   - Add tests for error helper behavior.
-   Done when: UI error handling is consistent.
-
-* TODO [#B] Testing and coverage improvements
-  Goal: Increase coverage of error paths and reduce flaky tests.
-  Notes:
-  - Prefer explicit timeouts and mockable interfaces.
-  Date: 2026-01-24
-
-** TODO [#A] Add WS close/error path tests
-   Why: WS handlers and stores have limited coverage for failure scenarios.
-   Change:
-   - Add backend and frontend WS close/error tests with explicit timeouts.
-   Tests:
-   - Ensure tests are stable with mocks and timeouts.
-   Done when: WS error paths are covered.
-
-** TODO [#A] Add terminal DSR/backpressure tests
-   Why: DSR fallback and slow subscribers can stall output.
-   Change:
-   - Add targeted tests for DSR parsing and backpressure behavior.
-   Tests:
-   - Ensure tests cover slow subscriber scenarios.
-   Done when: DSR/backpressure edge cases are covered.
-
-** TODO [#A] Add watcher restart/backoff tests
-   Why: Restart logic is complex and lightly tested.
-   Change:
-   - Add tests for restart backoff and max retry behavior.
-   Tests:
-   - Use deterministic timers to avoid flakes.
-   Done when: watcher restart/backoff is covered.
-
-** TODO [#B] Add CLI error mapping tests
-   Why: gestalt-send error handling is intertwined with HTTP logic.
-   Change:
-   - Add table-driven tests for error mapping and exit codes.
-   Tests:
-   - Ensure tests cover ambiguous agent resolution.
-   Done when: CLI error handling is covered.
-
-** TODO [#B] Add frontend coverage workflow
-   Why: Coverage visibility is missing for SPA tests.
-   Change:
-   - Add a documented coverage command/workflow.
-   Tests:
-   - Run vitest coverage locally when adding the workflow.
-   Done when: coverage can be reported on demand.
-
-** TODO [#B] Add API/WS integration tests for structured errors
-   Why: Error payloads may regress without end-to-end checks.
-   Change:
-   - Add integration tests for REST/WS error payloads.
-   Tests:
-   - Ensure tests do not rely on timing.
-   Done when: structured error payloads are covered.
-
-** TODO [#B] Add Terminal/CommandInput component tests
-   Why: Critical behaviors are only lightly tested.
-   Change:
-   - Add component tests for focus, submit, reconnect state.
-   Tests:
-   - Ensure component tests are stable.
-   Done when: key component behaviors are covered.
 
 * TODO [#B] Build surface and dependencies
   Goal: Keep dependency footprint transparent and optional where possible.

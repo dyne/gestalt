@@ -245,7 +245,7 @@
    - Add tests for registry reload and event emission.
    Done when: Manager focuses on terminal lifecycle.
 
-** TODO [#C] Expand skill metadata in prompt XML
+** DONE [#C] Expand skill metadata in prompt XML
    Why: Future UI/agents may need richer skill discovery data.
    Change:
    - Extend prompt XML to include structured metadata fields.

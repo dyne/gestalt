@@ -28,6 +28,35 @@ func TestGeneratePromptXMLSingleSkill(t *testing.T) {
 	}
 }
 
+func TestGeneratePromptXMLWithMetadata(t *testing.T) {
+	entry := &Skill{
+		Name:          "git-workflows",
+		Description:   "Use git safely",
+		License:       "MIT",
+		Compatibility: ">=1.0",
+		AllowedTools:  []string{"bash", "git"},
+		Path:          "config/skills/git-workflows",
+	}
+
+	got := GeneratePromptXML([]*Skill{entry})
+
+	expected := `<available_skills>
+  <skill>
+    <name>git-workflows</name>
+    <description>Use git safely</description>
+    <license>MIT</license>
+    <compatibility>&gt;=1.0</compatibility>
+    <allowed_tools>
+      <tool>bash</tool>
+      <tool>git</tool>
+    </allowed_tools>
+  </skill>
+</available_skills>`
+	if got != expected {
+		t.Fatalf("xml mismatch:\ngot:\n%s\nexpected:\n%s", got, expected)
+	}
+}
+
 func TestGeneratePromptXMLMultipleSkills(t *testing.T) {
 	skills := []*Skill{
 		{

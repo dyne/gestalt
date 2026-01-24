@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// GeneratePromptXML builds XML metadata for skill discovery using only name and description.
+// GeneratePromptXML builds XML metadata for skill discovery.
 // Note: location is intentionally omitted; skills content is not printed to the terminal.
 func GeneratePromptXML(skills []*Skill) string {
 	if len(skills) == 0 {
@@ -32,6 +32,19 @@ func GeneratePromptXML(skills []*Skill) string {
 		builder.WriteString("    <description>")
 		writeEscaped(&builder, description)
 		builder.WriteString("</description>\n")
+		if license := strings.TrimSpace(entry.License); license != "" {
+			builder.WriteString("    <license>")
+			writeEscaped(&builder, license)
+			builder.WriteString("</license>\n")
+		}
+		if compatibility := strings.TrimSpace(entry.Compatibility); compatibility != "" {
+			builder.WriteString("    <compatibility>")
+			writeEscaped(&builder, compatibility)
+			builder.WriteString("</compatibility>\n")
+		}
+		if len(entry.AllowedTools) > 0 {
+			writeAllowedTools(&builder, entry.AllowedTools)
+		}
 		builder.WriteString("  </skill>\n")
 		wrote = true
 	}
@@ -40,6 +53,26 @@ func GeneratePromptXML(skills []*Skill) string {
 	}
 	builder.WriteString("</available_skills>")
 	return builder.String()
+}
+
+func writeAllowedTools(builder *strings.Builder, tools []string) {
+	cleaned := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		tool = strings.TrimSpace(tool)
+		if tool != "" {
+			cleaned = append(cleaned, tool)
+		}
+	}
+	if len(cleaned) == 0 {
+		return
+	}
+	builder.WriteString("    <allowed_tools>\n")
+	for _, tool := range cleaned {
+		builder.WriteString("      <tool>")
+		writeEscaped(builder, tool)
+		builder.WriteString("</tool>\n")
+	}
+	builder.WriteString("    </allowed_tools>\n")
 }
 
 func writeEscaped(builder *strings.Builder, value string) {

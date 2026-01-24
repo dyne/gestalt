@@ -11,3 +11,5 @@ config/manifest.json
 internal/version/build_info.json
 otel/ocb
 otel/otelcol-gestalt
+otel/go.*
+otel/*.go

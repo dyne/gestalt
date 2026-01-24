@@ -413,7 +413,7 @@
    - Update CLI tests for new file boundaries.
    Done when: gestalt-send is easier to follow.
 
-** WIP [#A] Centralize sendError handling
+** DONE [#A] Centralize sendError handling
    Why: Exit code mapping and error messages are duplicated.
    Change:
    - Add a sendError helper for consistent exit behavior.
@@ -421,7 +421,7 @@
    - Add tests for exit code mapping.
    Done when: error handling is consistent.
 
-** TODO [#B] Extract HTTP client helpers
+** WIP [#B] Extract HTTP client helpers
    Why: HTTP logic is tightly coupled to CLI parsing.
    Change:
    - Move fetchAgents/sendAgentInput/startAgent into internal/client.

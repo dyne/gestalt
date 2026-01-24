@@ -27,6 +27,14 @@ func (e *sendError) Error() string {
 	return e.Message
 }
 
+func sendErr(code int, message string) *sendError {
+	return &sendError{Code: code, Message: message}
+}
+
+func sendErrf(code int, format string, args ...any) *sendError {
+	return &sendError{Code: code, Message: fmt.Sprintf(format, args...)}
+}
+
 type agentInfo struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
@@ -47,15 +55,15 @@ func handleSendError(err error, errOut io.Writer) int {
 func resolveAgent(cfg *Config) error {
 	agents, err := fetchAgents(*cfg)
 	if err != nil {
-		return &sendError{Code: 3, Message: fmt.Sprintf("failed to fetch agents: %v", err)}
+		return sendErrf(3, "failed to fetch agents: %v", err)
 	}
 	if len(agents) == 0 {
-		return &sendError{Code: 2, Message: "no agents available"}
+		return sendErr(2, "no agents available")
 	}
 
 	input := strings.TrimSpace(cfg.AgentRef)
 	if input == "" {
-		return &sendError{Code: 2, Message: "agent name or id required"}
+		return sendErr(2, "agent name or id required")
 	}
 
 	idMatches := make([]agentInfo, 0, 1)
@@ -70,10 +78,10 @@ func resolveAgent(cfg *Config) error {
 	}
 
 	if len(idMatches) > 1 {
-		return &sendError{Code: 2, Message: fmt.Sprintf("input %q matches multiple agent ids: %s", input, formatAgentList(idMatches))}
+		return sendErrf(2, "input %q matches multiple agent ids: %s", input, formatAgentList(idMatches))
 	}
 	if len(nameMatches) > 1 {
-		return &sendError{Code: 2, Message: fmt.Sprintf("input %q matches multiple agent names: %s", input, formatAgentList(nameMatches))}
+		return sendErrf(2, "input %q matches multiple agent names: %s", input, formatAgentList(nameMatches))
 	}
 
 	var idMatch *agentInfo
@@ -86,11 +94,11 @@ func resolveAgent(cfg *Config) error {
 	}
 
 	if idMatch == nil && nameMatch == nil {
-		return &sendError{Code: 2, Message: fmt.Sprintf("agent %q not found", input)}
+		return sendErrf(2, "agent %q not found", input)
 	}
 
 	if idMatch != nil && nameMatch != nil && idMatch.ID != nameMatch.ID {
-		return &sendError{Code: 2, Message: fmt.Sprintf("input %q matches agent id %q (name %q) and agent name %q (id %q)", input, idMatch.ID, idMatch.Name, nameMatch.Name, nameMatch.ID)}
+		return sendErrf(2, "input %q matches agent id %q (name %q) and agent name %q (id %q)", input, idMatch.ID, idMatch.Name, nameMatch.Name, nameMatch.ID)
 	}
 
 	if idMatch != nil {
@@ -130,7 +138,7 @@ func sendAgentInput(cfg Config, payload []byte) error {
 
 func sendAgentInputWithRetry(cfg Config, payload []byte, allowStart bool) error {
 	if strings.TrimSpace(cfg.AgentName) == "" {
-		return &sendError{Code: 2, Message: "agent name not resolved"}
+		return sendErr(2, "agent name not resolved")
 	}
 	baseURL := strings.TrimRight(cfg.URL, "/")
 	if baseURL == "" {
@@ -154,7 +162,7 @@ func sendAgentInputWithRetry(cfg Config, payload []byte, allowStart bool) error 
 
 	request, err := http.NewRequest(http.MethodPost, target, bytes.NewReader(payload))
 	if err != nil {
-		return &sendError{Code: 3, Message: fmt.Sprintf("build request failed: %v", err)}
+		return sendErrf(3, "build request failed: %v", err)
 	}
 	request.Header.Set("Content-Type", "application/octet-stream")
 	if strings.TrimSpace(cfg.Token) != "" {
@@ -163,7 +171,7 @@ func sendAgentInputWithRetry(cfg Config, payload []byte, allowStart bool) error 
 
 	response, err := httpClient.Do(request)
 	if err != nil {
-		return &sendError{Code: 3, Message: fmt.Sprintf("request failed: %v", err)}
+		return sendErrf(3, "request failed: %v", err)
 	}
 	defer response.Body.Close()
 
@@ -185,9 +193,9 @@ func sendAgentInputWithRetry(cfg Config, payload []byte, allowStart bool) error 
 			logf(cfg, "response status: %s", response.Status)
 		}
 		if response.StatusCode == http.StatusNotFound {
-			return &sendError{Code: 2, Message: message}
+			return sendErr(2, message)
 		}
-		return &sendError{Code: 3, Message: message}
+		return sendErr(3, message)
 	}
 
 	if cfg.Verbose {
@@ -215,17 +223,17 @@ func parseErrorMessage(body []byte) string {
 func startAgent(cfg Config, baseURL string) error {
 	agentID := strings.TrimSpace(cfg.AgentID)
 	if agentID == "" {
-		return &sendError{Code: 2, Message: "agent id not resolved"}
+		return sendErr(2, "agent id not resolved")
 	}
 	payload := map[string]string{"agent": agentID}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return &sendError{Code: 3, Message: fmt.Sprintf("encode start request: %v", err)}
+		return sendErrf(3, "encode start request: %v", err)
 	}
 
 	request, err := http.NewRequest(http.MethodPost, baseURL+"/api/terminals", bytes.NewReader(body))
 	if err != nil {
-		return &sendError{Code: 3, Message: fmt.Sprintf("build start request: %v", err)}
+		return sendErrf(3, "build start request: %v", err)
 	}
 	request.Header.Set("Content-Type", "application/json")
 	if strings.TrimSpace(cfg.Token) != "" {
@@ -234,7 +242,7 @@ func startAgent(cfg Config, baseURL string) error {
 
 	response, err := httpClient.Do(request)
 	if err != nil {
-		return &sendError{Code: 3, Message: fmt.Sprintf("start request failed: %v", err)}
+		return sendErrf(3, "start request failed: %v", err)
 	}
 	defer response.Body.Close()
 
@@ -250,7 +258,7 @@ func startAgent(cfg Config, baseURL string) error {
 	if message == "" {
 		message = response.Status
 	}
-	return &sendError{Code: 3, Message: message}
+	return sendErr(3, message)
 }
 
 func fetchAgents(cfg Config) ([]agentInfo, error) {

@@ -33,8 +33,7 @@ func runCompleteAgents(args []string, out io.Writer, errOut io.Writer) int {
 	}
 	names, err := fetchAgentNames(cfg)
 	if err != nil {
-		fmt.Fprintln(errOut, err.Error())
-		return 3
+		return handleSendError(err, errOut)
 	}
 	if len(names) == 0 {
 		return 0

@@ -363,13 +363,13 @@ func TestHandleSendErrorMapping(t *testing.T) {
 	}{
 		{
 			name:        "agent missing",
-			err:         &sendError{Code: 2, Message: "agent not running"},
+			err:         sendErr(2, "agent not running"),
 			wantCode:    2,
 			wantMessage: "agent not running",
 		},
 		{
 			name:        "server error",
-			err:         &sendError{Code: 3, Message: "server error"},
+			err:         sendErr(3, "server error"),
 			wantCode:    3,
 			wantMessage: "server error",
 		},

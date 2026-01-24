@@ -25,50 +25,20 @@ type workflowEventPayload struct {
 }
 
 func (h *WorkflowEventsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if !requireWSToken(w, r, h.AuthToken, h.Logger) {
-		return
-	}
-
-	conn, err := upgradeWebSocket(w, r, h.AllowedOrigins)
-	if err != nil {
-		logWSError(h.Logger, r, wsError{
-			Status:  http.StatusBadRequest,
-			Message: "websocket upgrade failed",
-			Err:     err,
-		})
-		return
-	}
+	var bus *eventtypes.Bus[eventtypes.WorkflowEvent]
+	reason := "workflow events unavailable"
 	if h.Manager == nil {
-		writeWSError(w, r, conn, h.Logger, wsError{
-			Status:  http.StatusInternalServerError,
-			Message: "manager unavailable",
-		})
-		return
+		reason = "manager unavailable"
+	} else {
+		bus = h.Manager.WorkflowBus()
 	}
 
-	bus := h.Manager.WorkflowBus()
-	if bus == nil {
-		writeWSError(w, r, conn, h.Logger, wsError{
-			Status:  http.StatusInternalServerError,
-			Message: "workflow events unavailable",
-		})
-		return
-	}
-	output, cancel := bus.Subscribe()
-	if output == nil {
-		writeWSError(w, r, conn, h.Logger, wsError{
-			Status:  http.StatusInternalServerError,
-			Message: "workflow events unavailable",
-		})
-		return
-	}
-	defer cancel()
-
-	serveWSStream(w, r, wsStreamConfig[eventtypes.WorkflowEvent]{
-		AllowedOrigins: h.AllowedOrigins,
-		Conn:           conn,
-		Logger:         h.Logger,
-		Output:         output,
+	serveWSBusStream(w, r, wsBusStreamConfig[eventtypes.WorkflowEvent]{
+		Logger:            h.Logger,
+		AuthToken:         h.AuthToken,
+		AllowedOrigins:    h.AllowedOrigins,
+		Bus:               bus,
+		UnavailableReason: reason,
 		BuildPayload: func(event eventtypes.WorkflowEvent) (any, bool) {
 			payload := workflowEventPayload{
 				Type:       event.Type(),

@@ -67,14 +67,14 @@
    - Add concurrency/backpressure tests around output publisher.
    Done when: Manager focuses on lifecycle and output backpressure is explicit.
 
-* WIP [#A] API and WebSocket consolidation
+* DONE [#A] API and WebSocket consolidation
   Goal: Reduce handler duplication, standardize WS behavior, and simplify rest.go.
   Notes:
   - Preserve endpoint paths and payload shapes.
   - Keep auth semantics unchanged.
   Date: 2026-01-24
 
-** DONE [#A] Create backend WS upgrade/write helper
+** [#A] Create backend WS upgrade/write helper
    Why: WS handlers repeat upgrade/auth/subscribe/write loops.
    Change:
    - Extract a helper to upgrade, authenticate, and run write/read loops.
@@ -83,7 +83,7 @@
    - Add WS handler tests for close and error paths.
    Done when: WS handlers share a common helper without behavior change.
 
-** DONE [#A] Add wsAuth helper for token validation
+** [#A] Add wsAuth helper for token validation
    Why: Auth checks are duplicated across WS handlers.
    Change:
    - Centralize WS auth checks and responses.
@@ -91,7 +91,7 @@
    - Add tests for auth failures on WS endpoints.
    Done when: WS auth behavior is consistent across handlers.
 
-** DONE [#A] Move JSON helpers out of rest.go
+** [#A] Move JSON helpers out of rest.go
    Why: writeJSON/decodeJSON utilities clutter rest.go.
    Change:
    - Move JSON encode/decode helpers to a small api helper file.
@@ -99,7 +99,7 @@
    - Update existing REST tests (no behavior change).
    Done when: rest.go is smaller and helpers are shared.
 
-** DONE [#B] Split rest.go by domain
+** [#B] Split rest.go by domain
    Why: rest.go mixes routing, validation, and business logic.
    Change:
    - Split into terminals.go, agents.go, skills.go, logs.go, status.go,
@@ -108,7 +108,7 @@
    - Ensure REST tests still pass; add missing coverage if needed.
    Done when: rest.go is reduced and endpoints are organized by domain.
 
-** DONE [#B] Add terminal route parsing helpers
+** [#B] Add terminal route parsing helpers
    Why: Terminal endpoints repeat path parsing and validation.
    Change:
    - Centralize parsing for /api/terminals/:id/* endpoints.
@@ -116,7 +116,7 @@
    - Add table-driven tests for edge cases (bad ids, missing ids).
    Done when: path parsing is centralized with tests.
 
-** DONE [#B] Standardize WS error wrapper
+** [#B] Standardize WS error wrapper
    Why: WS handlers use http.Error inconsistently.
    Change:
    - Add a WS error wrapper with close codes and structured logging.
@@ -124,7 +124,7 @@
    - Add tests for WS error close codes and reasons.
    Done when: WS error behavior is consistent and documented.
 
-** WIP [#C] Introduce domain routers or WS stream abstraction
+** [#C] Introduce domain routers or WS stream abstraction
    Why: RestHandler remains monolithic and WS handlers are repetitive.
    Change:
    - Add domain routers (TerminalAPI/AgentAPI/etc) or a shared WS stream
@@ -133,13 +133,13 @@
    - Add tests for router/stream boundary behavior.
    Done when: handler complexity is reduced without breaking payloads.
 
-* TODO [#A] Watcher and git monitoring cleanup
+* WIP [#A] Watcher and git monitoring cleanup
   Goal: Reduce watcher complexity and remove duplicated git parsing logic.
   Notes:
   - Keep fsnotify behavior stable.
   Date: 2026-01-24
 
-** TODO [#A] Split watcher.go and document WatchDirRecursive
+** WIP [#A] Split watcher.go and document WatchDirRecursive
    Why: watcher.go is dense and WatchDirRecursive behavior is non-obvious.
    Change:
    - Split into watch_registry.go, debounce.go, restart.go, cleanup.go.

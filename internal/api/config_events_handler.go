@@ -25,43 +25,12 @@ type configEventPayload struct {
 }
 
 func (h *ConfigEventsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if !requireWSToken(w, r, h.AuthToken, h.Logger) {
-		return
-	}
-
-	conn, err := upgradeWebSocket(w, r, h.AllowedOrigins)
-	if err != nil {
-		logWSError(h.Logger, r, wsError{
-			Status:  http.StatusBadRequest,
-			Message: "websocket upgrade failed",
-			Err:     err,
-		})
-		return
-	}
-
-	bus := config.Bus()
-	if bus == nil {
-		writeWSError(w, r, conn, h.Logger, wsError{
-			Status:  http.StatusInternalServerError,
-			Message: "config events unavailable",
-		})
-		return
-	}
-	output, cancel := bus.Subscribe()
-	if output == nil {
-		writeWSError(w, r, conn, h.Logger, wsError{
-			Status:  http.StatusInternalServerError,
-			Message: "config events unavailable",
-		})
-		return
-	}
-	defer cancel()
-
-	serveWSStream(w, r, wsStreamConfig[eventtypes.ConfigEvent]{
-		AllowedOrigins: h.AllowedOrigins,
-		Conn:           conn,
-		Logger:         h.Logger,
-		Output:         output,
+	serveWSBusStream(w, r, wsBusStreamConfig[eventtypes.ConfigEvent]{
+		Logger:            h.Logger,
+		AuthToken:         h.AuthToken,
+		AllowedOrigins:    h.AllowedOrigins,
+		Bus:               config.Bus(),
+		UnavailableReason: "config events unavailable",
 		BuildPayload: func(event eventtypes.ConfigEvent) (any, bool) {
 			payload := configEventPayload{
 				Type:       event.Type(),

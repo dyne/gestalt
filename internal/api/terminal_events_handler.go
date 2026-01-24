@@ -24,50 +24,20 @@ type terminalEventPayload struct {
 }
 
 func (h *TerminalEventsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if !requireWSToken(w, r, h.AuthToken, h.Logger) {
-		return
-	}
-
-	conn, err := upgradeWebSocket(w, r, h.AllowedOrigins)
-	if err != nil {
-		logWSError(h.Logger, r, wsError{
-			Status:  http.StatusBadRequest,
-			Message: "websocket upgrade failed",
-			Err:     err,
-		})
-		return
-	}
+	var bus *eventtypes.Bus[eventtypes.TerminalEvent]
+	reason := "terminal events unavailable"
 	if h.Manager == nil {
-		writeWSError(w, r, conn, h.Logger, wsError{
-			Status:  http.StatusInternalServerError,
-			Message: "terminal manager unavailable",
-		})
-		return
+		reason = "terminal manager unavailable"
+	} else {
+		bus = h.Manager.TerminalBus()
 	}
 
-	bus := h.Manager.TerminalBus()
-	if bus == nil {
-		writeWSError(w, r, conn, h.Logger, wsError{
-			Status:  http.StatusInternalServerError,
-			Message: "terminal events unavailable",
-		})
-		return
-	}
-	output, cancel := bus.Subscribe()
-	if output == nil {
-		writeWSError(w, r, conn, h.Logger, wsError{
-			Status:  http.StatusInternalServerError,
-			Message: "terminal events unavailable",
-		})
-		return
-	}
-	defer cancel()
-
-	serveWSStream(w, r, wsStreamConfig[eventtypes.TerminalEvent]{
-		AllowedOrigins: h.AllowedOrigins,
-		Conn:           conn,
-		Logger:         h.Logger,
-		Output:         output,
+	serveWSBusStream(w, r, wsBusStreamConfig[eventtypes.TerminalEvent]{
+		Logger:            h.Logger,
+		AuthToken:         h.AuthToken,
+		AllowedOrigins:    h.AllowedOrigins,
+		Bus:               bus,
+		UnavailableReason: reason,
 		BuildPayload: func(event eventtypes.TerminalEvent) (any, bool) {
 			payload := terminalEventPayload{
 				Type:       event.Type(),

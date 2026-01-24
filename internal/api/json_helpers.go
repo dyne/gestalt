@@ -15,9 +15,14 @@ func writeJSONError(w http.ResponseWriter, err *apiError) {
 	if err == nil {
 		return
 	}
+	code := err.Code
+	if code == "" {
+		code = errorCodeForStatus(err.Status)
+	}
 	writeJSON(w, err.Status, errorResponse{
 		Message:    err.Message,
 		Error:      err.Message,
+		Code:       code,
 		TerminalID: err.TerminalID,
 	})
 }

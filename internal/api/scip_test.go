@@ -1184,6 +1184,7 @@ func assertAPIError(t *testing.T, res *httptest.ResponseRecorder, expectedStatus
 	var payload struct {
 		Message string `json:"message"`
 		Error   string `json:"error"`
+		Code    string `json:"code"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode error response: %v", err)
@@ -1194,6 +1195,10 @@ func assertAPIError(t *testing.T, res *httptest.ResponseRecorder, expectedStatus
 	}
 	if message != expectedMessage {
 		t.Fatalf("expected error %q, got %q", expectedMessage, message)
+	}
+	expectedCode := errorCodeForStatus(expectedStatus)
+	if expectedCode != "" && payload.Code != expectedCode {
+		t.Fatalf("expected code %q, got %q", expectedCode, payload.Code)
 	}
 }
 

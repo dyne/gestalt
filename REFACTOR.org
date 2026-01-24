@@ -275,7 +275,7 @@
    - Add tests for WS error payload/close codes.
    Done when: WS error semantics are consistent.
 
-** TODO [#B] Add error codes to API responses
+** DONE [#B] Add error codes to API responses
    Why: UI cannot reliably distinguish error causes.
    Change:
    - Extend errorResponse to include code field.

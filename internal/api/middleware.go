@@ -9,6 +9,7 @@ import (
 type apiError struct {
 	Status     int
 	Message    string
+	Code       string
 	TerminalID string
 }
 

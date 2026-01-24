@@ -1165,6 +1165,9 @@ func TestCreateTerminalDuplicateAgent(t *testing.T) {
 	if payload.Message == "" {
 		t.Fatalf("expected error message")
 	}
+	if payload.Code != "conflict" {
+		t.Fatalf("expected error code %q, got %q", "conflict", payload.Code)
+	}
 }
 
 func TestListTerminalsIncludesLLMMetadata(t *testing.T) {

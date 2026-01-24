@@ -100,6 +100,13 @@ terminal output -> Session output bus -> /ws/terminal/:id -> xterm
 | Temporal HITL | Workflows on by default; disable via `workflow=false` / `use_workflow=false`. Dev server: `GESTALT_TEMPORAL_DEV_SERVER=true` or `--temporal-dev-server` (runs in `.gestalt/temporal`). | `GET /api/workflows`, `GET /api/terminals/:id/workflow/history`, `POST /api/terminals/:id/workflow/resume` (`continue`/`abort`), `GET /api/metrics`. |
 | SCIP | Enabled when `GESTALT_SCIP_INDEX_PATH` points to `index.db` (default `.gestalt/scip/index.db`). | `/api/scip/symbols?q=...` -> `/api/scip/symbols/<id>` -> `/api/scip/symbols/<id>/references`; `/api/scip/files/<path>`; `POST /api/scip/index` `{ "path": "/repo/path" }`. |
 
+## OpenTelemetry observability
+- Collector lifecycle lives in `internal/otel/collector.go`; config `.gestalt/otel/collector.yaml`, data file `.gestalt/otel/otel.json`.
+- SDK setup in `internal/otel/sdk.go`; env: `GESTALT_OTEL_SDK_ENABLED`, `GESTALT_OTEL_SERVICE_NAME`, `GESTALT_OTEL_RESOURCE_ATTRIBUTES`.
+- APIs: `/api/otel/logs`, `/api/otel/traces`, `/api/otel/metrics`; `/api/logs` GET proxies to OTel when collector is active; `/api/metrics/summary` exposes API stats.
+- Remote export: `GESTALT_OTEL_REMOTE_ENDPOINT` + `GESTALT_OTEL_REMOTE_INSECURE` adds otlpexporter to collector pipelines.
+- Limits: `GESTALT_OTEL_MAX_RECORDS` caps records read from `otel.json`; `/api/otel/*` limit is capped at 1000.
+
 ## Recent changes (2026-01-10 to 2026-01-23)
 - UI: relative time formatting in `frontend/src/lib/timeUtils.js` (ISO tooltips).
 - UI: dashboard agent buttons are Start/Open only; running state from `terminals` prop.

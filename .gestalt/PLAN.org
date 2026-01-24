@@ -1,4 +1,4 @@
-* WIP [#A] OpenTelemetry observability migration
+* DONE [#A] OpenTelemetry observability migration
   Effort: 2-3 weeks
   Goal: Replace Gestalt's custom event/logging system with OpenTelemetry for industry-standard observability, distributed tracing, and metrics.
   Notes:
@@ -21,12 +21,12 @@
   Date: 2026-01-23
   Priority: [#A] - foundational change enabling better observability
 
-** DONE [#A] Research and design OpenTelemetry integration architecture
-** DONE [#B] Build custom OpenTelemetry Collector binary with ocb
-** DONE [#B] Implement Collector lifecycle management in Gestalt
-** DONE [#B] Integrate Collector start into Temporal workflow
-** DONE [#A] Add OpenTelemetry SDK to Gestalt Go backend
-** DONE [#A] Add comprehensive API instrumentation with agent-specific metrics
+** [#A] Research and design OpenTelemetry integration architecture
+** [#B] Build custom OpenTelemetry Collector binary with ocb
+** [#B] Implement Collector lifecycle management in Gestalt
+** [#B] Integrate Collector start into Temporal workflow
+** [#A] Add OpenTelemetry SDK to Gestalt Go backend
+** [#A] Add comprehensive API instrumentation with agent-specific metrics
    Effort: 2-3 days
    Why: Need detailed observability of API performance, agent behavior, and usage patterns for profiling and optimization
    Change:
@@ -121,20 +121,20 @@
    - Traces created for all requests, linked to downstream operations
    - Dashboard queries documented and tested
    - /api/metrics/summary returns useful aggregations
-** DONE [#A] Migrate internal/logging to OpenTelemetry LogRecords
-** DONE [#B] Migrate event.Bus events to OpenTelemetry LogRecords
-** DONE [#B] Add distributed tracing for WebSocket connections
-** DONE [#B] Integrate OpenTelemetry with Temporal workflows
-** DONE [#A] Replace internal/metrics with OpenTelemetry metrics
-** DONE [#B] Create frontend OTel query client
-** DONE [#B] Update LogsView to use OpenTelemetry logs
-** DONE [#C] Create trace viewer component
-** DONE [#C] Add OpenTelemetry metrics dashboard
-** DONE [#B] Implement parallel run during migration
-** DONE [#B] Cut over to OpenTelemetry (remove custom systems)
-** DONE [#C] Add remote backend export capability
-** DONE [#C] Performance optimization and resource limits
-** DONE [#C] Update documentation for OpenTelemetry observability
+** [#A] Migrate internal/logging to OpenTelemetry LogRecords
+** [#B] Migrate event.Bus events to OpenTelemetry LogRecords
+** [#B] Add distributed tracing for WebSocket connections
+** [#B] Integrate OpenTelemetry with Temporal workflows
+** [#A] Replace internal/metrics with OpenTelemetry metrics
+** [#B] Create frontend OTel query client
+** [#B] Update LogsView to use OpenTelemetry logs
+** [#C] Create trace viewer component
+** [#C] Add OpenTelemetry metrics dashboard
+** [#B] Implement parallel run during migration
+** [#B] Cut over to OpenTelemetry (remove custom systems)
+** [#C] Add remote backend export capability
+** [#C] Performance optimization and resource limits
+** [#C] Update documentation for OpenTelemetry observability
 
 * DONE [#B] Remove config manifest and fix coder agent extraction
   Goal: Stop relying on config/manifest.json, extract all embedded config files,

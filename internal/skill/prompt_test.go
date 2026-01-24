@@ -11,7 +11,7 @@ func TestGeneratePromptXMLEmpty(t *testing.T) {
 func TestGeneratePromptXMLSingleSkill(t *testing.T) {
 	entry := &Skill{
 		Name:        "git-workflows",
-		Description: "Use git & stay safe",
+		Description: "Use \"git\" & stay <safe> 'always'",
 		Path:        "config/skills/git-workflows",
 	}
 
@@ -20,7 +20,7 @@ func TestGeneratePromptXMLSingleSkill(t *testing.T) {
 	expected := `<available_skills>
   <skill>
     <name>git-workflows</name>
-    <description>Use git &amp; stay safe</description>
+    <description>Use &#34;git&#34; &amp; stay &lt;safe&gt; &#39;always&#39;</description>
   </skill>
 </available_skills>`
 	if got != expected {

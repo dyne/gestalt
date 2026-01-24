@@ -2760,7 +2760,7 @@
    - Update loader tests to cover resolver behavior.
    Done when: prompt resolution is consistent across loaders.
 
-** TODO [#A] Use encoding/xml.EscapeText for SKILL XML
+** DONE [#A] Use encoding/xml.EscapeText for SKILL XML
    Why: Manual escaping misses some XML entities.
    Change:
    - Replace custom escaping with encoding/xml.EscapeText.

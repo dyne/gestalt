@@ -1,6 +1,7 @@
 package skill
 
 import (
+	"encoding/xml"
 	"strings"
 )
 
@@ -45,8 +46,6 @@ func writeEscaped(builder *strings.Builder, value string) {
 	if value == "" {
 		return
 	}
-	value = strings.ReplaceAll(value, "&", "&amp;")
-	value = strings.ReplaceAll(value, "<", "&lt;")
-	value = strings.ReplaceAll(value, ">", "&gt;")
-	builder.WriteString(value)
+	// strings.Builder writes never fail, so EscapeText errors are not expected here.
+	_ = xml.EscapeText(builder, []byte(value))
 }

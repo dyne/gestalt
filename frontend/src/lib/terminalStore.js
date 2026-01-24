@@ -1,155 +1,20 @@
 import { writable } from 'svelte/store'
-import { Terminal } from '@xterm/xterm'
-import { FitAddon } from '@xterm/addon-fit'
-// FitAddon keeps terminal sizing logic centralized and maintained.
 
-import { apiFetch, buildWebSocketUrl } from './api.js'
-import { notificationStore } from './notificationStore.js'
+import { apiFetch } from './api.js'
+import { createXtermTerminal } from './terminal/xterm.js'
+import {
+  isCopyKey,
+  isPasteKey,
+  isMouseReport,
+  readClipboardText,
+  setupPointerScroll,
+  shouldSuppressMouseMode,
+  writeClipboardText,
+} from './terminal/input.js'
+import { createTerminalSocket } from './terminal/socket.js'
 
 const terminals = new Map()
 const historyCache = new Map()
-const MAX_RETRIES = 5
-const BASE_DELAY_MS = 500
-const MAX_DELAY_MS = 8000
-const HISTORY_WARNING_MS = 5000
-const HISTORY_LINES = 2000
-const DEFAULT_LINE_HEIGHT_PX = 20
-const TOUCH_SCROLL_THRESHOLD_PX = 10
-const INERTIA_MIN_VELOCITY_PX_PER_MS = 0.02
-const INERTIA_MAX_VELOCITY_PX_PER_MS = 2
-const INERTIA_DECAY = 0.98
-const INERTIA_FRAME_MS = 16
-const INERTIA_VELOCITY_SMOOTHING = 0.6
-const INERTIA_VELOCITY_BOOST = 0.85
-const MOUSE_MODE_PARAMS = new Set([
-  9,
-  1000,
-  1001,
-  1002,
-  1003,
-  1005,
-  1006,
-  1007,
-  1015,
-  1016,
-])
-
-const readCssVar = (name, fallback) => {
-  if (typeof window === 'undefined') return fallback
-  const value = window
-    .getComputedStyle(document.documentElement)
-    .getPropertyValue(name)
-    .trim()
-  return value || fallback
-}
-
-const buildTerminalTheme = () => ({
-  background: readCssVar('--terminal-bg', '#11111b'),
-  foreground: readCssVar('--terminal-text', '#cdd6f4'),
-  cursor: readCssVar('--terminal-text', '#cdd6f4'),
-  selectionBackground: readCssVar('--terminal-selection', 'rgba(205, 214, 244, 0.2)'),
-})
-
-const hasModifierKey = (event) => event.ctrlKey || event.metaKey
-
-const isCopyKey = (event) =>
-  hasModifierKey(event) &&
-  !event.altKey &&
-  event.key.toLowerCase() === 'c'
-
-const isPasteKey = (event) =>
-  hasModifierKey(event) &&
-  !event.altKey &&
-  event.key.toLowerCase() === 'v'
-
-const writeClipboardText = async (text) => {
-  if (!text) return false
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text)
-      return true
-    } catch (err) {
-      // Fall back to legacy clipboard handling.
-    }
-  }
-  return writeClipboardTextFallback(text)
-}
-
-const writeClipboardTextFallback = (text) => {
-  try {
-    const textarea = document.createElement('textarea')
-    textarea.value = text
-    textarea.setAttribute('readonly', '')
-    textarea.style.position = 'fixed'
-    textarea.style.top = '-9999px'
-    textarea.style.left = '-9999px'
-    document.body.appendChild(textarea)
-    textarea.select()
-    const ok = document.execCommand?.('copy')
-    document.body.removeChild(textarea)
-    return Boolean(ok)
-  } catch (err) {
-    return false
-  }
-}
-
-const readClipboardText = async () => {
-  if (navigator.clipboard?.readText) {
-    try {
-      return await navigator.clipboard.readText()
-    } catch (err) {
-      // Fall back to legacy clipboard handling.
-    }
-  }
-  return readClipboardTextFallback()
-}
-
-const readClipboardTextFallback = () => {
-  try {
-    const textarea = document.createElement('textarea')
-    textarea.style.position = 'fixed'
-    textarea.style.top = '-9999px'
-    textarea.style.left = '-9999px'
-    document.body.appendChild(textarea)
-    textarea.focus()
-    textarea.select()
-    document.execCommand?.('paste')
-    const text = textarea.value
-    document.body.removeChild(textarea)
-    return text
-  } catch (err) {
-    return ''
-  }
-}
-
-const flattenParams = (params) => {
-  const flattened = []
-  for (const param of params) {
-    if (Array.isArray(param)) {
-      for (const value of param) {
-        flattened.push(value)
-      }
-    } else {
-      flattened.push(param)
-    }
-  }
-  return flattened
-}
-
-const shouldSuppressMouseMode = (params) => {
-  const flattened = flattenParams(params)
-  if (!flattened.length) return false
-  const hasMouse = flattened.some((value) => MOUSE_MODE_PARAMS.has(value))
-  if (!hasMouse) return false
-  return flattened.every((value) => MOUSE_MODE_PARAMS.has(value))
-}
-
-const isMouseReport = (data) => {
-  if (data.startsWith('\x1b[<')) {
-    return /^\x1b\[<\d+;\d+;\d+[mM]$/.test(data)
-  }
-  return data.startsWith('\x1b[M') && data.length === 6
-}
 
 export const getTerminalState = (terminalId) => {
   if (!terminalId) return null
@@ -174,53 +39,17 @@ const createTerminalState = (terminalId) => {
   const canReconnect = writable(false)
   const atBottom = writable(true)
 
-  const term = new Terminal({
-    allowProposedApi: true,
-    cursorBlink: true,
-    fontSize: 14,
-    fontFamily: '"IBM Plex Mono", "JetBrains Mono", monospace',
-    theme: buildTerminalTheme(),
-  })
-
-  let disposeThemeListener
-  const syncTheme = () => {
-    term.options.theme = buildTerminalTheme()
-  }
-
-  if (typeof window !== 'undefined' && window.matchMedia) {
-    const media = window.matchMedia('(prefers-color-scheme: dark)')
-    const handler = () => syncTheme()
-    if (media.addEventListener) {
-      media.addEventListener('change', handler)
-      disposeThemeListener = () => media.removeEventListener('change', handler)
-    } else if (media.addListener) {
-      media.addListener(handler)
-      disposeThemeListener = () => media.removeListener(handler)
-    }
-  }
-
-  const fitAddon = new FitAddon()
-  term.loadAddon(fitAddon)
+  const { term, fitAddon, disposeThemeListener } = createXtermTerminal()
 
   const encoder = new TextEncoder()
-  let socket
+  let socketManager
   let container
   let disposed = false
   let directInputEnabled = false
-  let retryCount = 0
-  let reconnectTimer
   let scrollSensitivity = 1
-  let notifiedUnauthorized = false
-  let notifiedDisconnect = false
   let disposeMouseHandlers
   let disposePointerHandlers
   let pointerTarget
-  let historyLoaded = false
-  let pendingHistory = ''
-  let historyLoadPromise
-  let historyWarningTimer
-  let notifiedHistorySlow = false
-  let notifiedHistoryError = false
   let resizeObserver
 
   const syncScrollState = () => {
@@ -232,22 +61,20 @@ const createTerminalState = (terminalId) => {
     atBottom.set(buffer.viewportY >= buffer.baseY)
   }
 
-  const getViewportElement = () => term.element?.querySelector('.xterm-viewport')
-
   const sendResize = () => {
-    if (!socket || socket.readyState !== WebSocket.OPEN) return
+    if (!socketManager) return
     const payload = {
       type: 'resize',
       cols: term.cols,
       rows: term.rows,
     }
-    socket.send(JSON.stringify(payload))
+    socketManager.send(JSON.stringify(payload))
   }
 
   const sendData = (data) => {
-    if (!socket || socket.readyState !== WebSocket.OPEN) return
+    if (!socketManager) return
     if (!data) return
-    socket.send(encoder.encode(data))
+    socketManager.send(encoder.encode(data))
   }
 
   const sendBell = async () => {
@@ -297,204 +124,18 @@ const createTerminalState = (terminalId) => {
     scrollSensitivity = next
   }
 
-  const setupPointerScroll = (element) => {
-    if (!element) return () => {}
-    let activePointerId = null
-    let startY = 0
-    let lastY = 0
-    let lastMoveTime = 0
-    let isScrolling = false
-    let velocityPxPerMs = 0
-    let inertiaVelocityPxPerMs = 0
-    let inertiaActive = false
-    let inertiaFrameId = null
-    let inertiaRemainderLines = 0
+  socketManager = createTerminalSocket({
+    terminalId,
+    term,
+    status,
+    historyStatus,
+    canReconnect,
+    historyCache,
+    syncScrollState,
+    scheduleFit,
+  })
 
-    const nowMs = () =>
-      typeof performance !== 'undefined' && typeof performance.now === 'function'
-        ? performance.now()
-        : Date.now()
-
-    const getPixelsPerLine = () => {
-      if (!term.rows) return DEFAULT_LINE_HEIGHT_PX
-      const rowsElement = element.querySelector('.xterm-rows')
-      if (!rowsElement) return DEFAULT_LINE_HEIGHT_PX
-      const height = rowsElement.getBoundingClientRect().height
-      if (!height) return DEFAULT_LINE_HEIGHT_PX
-      const pixelsPerLine = height / term.rows
-      return pixelsPerLine || DEFAULT_LINE_HEIGHT_PX
-    }
-
-    const clampVelocity = (value) =>
-      Math.max(-INERTIA_MAX_VELOCITY_PX_PER_MS, Math.min(INERTIA_MAX_VELOCITY_PX_PER_MS, value))
-
-    const shouldAllowScrollbarDrag = (event) => {
-      if (!(event.target instanceof Element)) return false
-      const viewport = getViewportElement()
-      if (!viewport || !viewport.contains(event.target)) return false
-      const scrollbarWidth = viewport.offsetWidth - viewport.clientWidth
-      if (scrollbarWidth <= 0) return false
-      const rect = viewport.getBoundingClientRect()
-      return event.clientX >= rect.right - scrollbarWidth
-    }
-
-    const stopInertia = () => {
-      if (!inertiaActive) return
-      inertiaActive = false
-      if (inertiaFrameId !== null && typeof cancelAnimationFrame === 'function') {
-        cancelAnimationFrame(inertiaFrameId)
-      }
-      inertiaFrameId = null
-      inertiaVelocityPxPerMs = 0
-      inertiaRemainderLines = 0
-    }
-
-    const startInertia = () => {
-      if (!isScrolling) return
-      const startVelocity = clampVelocity(velocityPxPerMs)
-      if (Math.abs(startVelocity) < INERTIA_MIN_VELOCITY_PX_PER_MS) return
-      inertiaVelocityPxPerMs = startVelocity
-      inertiaActive = true
-      let lastFrameTime = lastMoveTime > 0 ? lastMoveTime : nowMs()
-
-      const step = (frameTime) => {
-        if (!inertiaActive) return
-        const currentTime = typeof frameTime === 'number' ? frameTime : nowMs()
-        const deltaTime = Math.max(0, currentTime - lastFrameTime)
-        lastFrameTime = currentTime
-        if (deltaTime > 0) {
-          const pixelsPerLine = getPixelsPerLine()
-          const deltaLinesFloat =
-            ((inertiaVelocityPxPerMs * deltaTime) / pixelsPerLine) * scrollSensitivity +
-            inertiaRemainderLines
-          const deltaLines = Math.trunc(deltaLinesFloat)
-          inertiaRemainderLines = deltaLinesFloat - deltaLines
-          if (deltaLines) {
-            term.scrollLines(-deltaLines)
-            syncScrollState()
-          }
-          const decay = Math.pow(INERTIA_DECAY, deltaTime / INERTIA_FRAME_MS)
-          inertiaVelocityPxPerMs *= decay
-        }
-        if (Math.abs(inertiaVelocityPxPerMs) < INERTIA_MIN_VELOCITY_PX_PER_MS) {
-          stopInertia()
-          return
-        }
-        inertiaFrameId = requestAnimationFrame(step)
-      }
-
-      inertiaFrameId = requestAnimationFrame(step)
-    }
-
-    const releasePointer = () => {
-      if (activePointerId === null) return
-      if (element.releasePointerCapture) {
-        try {
-          element.releasePointerCapture(activePointerId)
-        } catch (err) {
-          // Ignore capture release errors.
-        }
-      }
-      activePointerId = null
-      isScrolling = false
-    }
-
-    const handlePointerDown = (event) => {
-      if (event.pointerType !== 'touch') return
-      if (activePointerId !== null) return
-      if (shouldAllowScrollbarDrag(event)) return
-      if (inertiaActive) {
-        inertiaVelocityPxPerMs = clampVelocity(
-          inertiaVelocityPxPerMs * INERTIA_VELOCITY_BOOST + velocityPxPerMs
-        )
-        stopInertia()
-      }
-      activePointerId = event.pointerId
-      startY = event.clientY
-      lastY = event.clientY
-      lastMoveTime = typeof event.timeStamp === 'number' ? event.timeStamp : nowMs()
-      isScrolling = false
-      velocityPxPerMs = inertiaVelocityPxPerMs
-      event.preventDefault()
-      event.stopPropagation()
-      if (element.setPointerCapture) {
-        try {
-          element.setPointerCapture(event.pointerId)
-        } catch (err) {
-          // Ignore capture errors.
-        }
-      }
-    }
-
-    const handlePointerMove = (event) => {
-      if (activePointerId === null || event.pointerId !== activePointerId) return
-      if (event.pointerType !== 'touch') return
-      const currentY = event.clientY
-      const currentTime = typeof event.timeStamp === 'number' ? event.timeStamp : nowMs()
-      const totalDeltaY = currentY - startY
-      if (!isScrolling && Math.abs(totalDeltaY) < TOUCH_SCROLL_THRESHOLD_PX) {
-        return
-      }
-      let deltaTime = currentTime - lastMoveTime
-      if (!isScrolling) {
-        isScrolling = true
-        deltaTime = INERTIA_FRAME_MS
-      }
-      const deltaY = currentY - lastY
-      lastY = currentY
-      const pixelsPerLine = getPixelsPerLine()
-      const deltaLines = Math.round((deltaY / pixelsPerLine) * scrollSensitivity)
-      if (deltaLines) {
-        term.scrollLines(-deltaLines)
-        syncScrollState()
-      }
-      if (deltaTime > 0) {
-        const nextVelocity = deltaY / deltaTime
-        velocityPxPerMs =
-          velocityPxPerMs * INERTIA_VELOCITY_SMOOTHING +
-          nextVelocity * (1 - INERTIA_VELOCITY_SMOOTHING)
-      }
-      lastMoveTime = currentTime
-      event.preventDefault()
-      event.stopPropagation()
-    }
-
-    const handlePointerUp = (event) => {
-      if (activePointerId === null || event.pointerId !== activePointerId) return
-      if (event.pointerType === 'touch') {
-        event.preventDefault()
-        event.stopPropagation()
-        startInertia()
-      }
-      releasePointer()
-    }
-
-    element.addEventListener('pointerdown', handlePointerDown, {
-      passive: false,
-      capture: true,
-    })
-    element.addEventListener('pointermove', handlePointerMove, {
-      passive: false,
-      capture: true,
-    })
-    element.addEventListener('pointerup', handlePointerUp, {
-      passive: false,
-      capture: true,
-    })
-    element.addEventListener('pointercancel', handlePointerUp, {
-      passive: false,
-      capture: true,
-    })
-
-    return () => {
-      stopInertia()
-      releasePointer()
-      element.removeEventListener('pointerdown', handlePointerDown, { capture: true })
-      element.removeEventListener('pointermove', handlePointerMove, { capture: true })
-      element.removeEventListener('pointerup', handlePointerUp, { capture: true })
-      element.removeEventListener('pointercancel', handlePointerUp, { capture: true })
-    }
-  }
+  const { connect, reconnect, dispose: disposeSocket, flushPendingHistory } = socketManager
 
   const attach = (element) => {
     container = element
@@ -510,7 +151,12 @@ const createTerminalState = (terminalId) => {
         disposePointerHandlers()
       }
       pointerTarget = nextPointerTarget
-      disposePointerHandlers = setupPointerScroll(nextPointerTarget)
+      disposePointerHandlers = setupPointerScroll({
+        element: nextPointerTarget,
+        term,
+        syncScrollState,
+        getScrollSensitivity: () => scrollSensitivity,
+      })
     }
     flushPendingHistory()
     syncScrollState()
@@ -603,230 +249,13 @@ const createTerminalState = (terminalId) => {
     }
   }
 
-  const clearReconnectTimer = () => {
-    if (!reconnectTimer) return
-    clearTimeout(reconnectTimer)
-    reconnectTimer = null
-  }
-
-  const clearHistoryWarning = () => {
-    if (!historyWarningTimer) return
-    clearTimeout(historyWarningTimer)
-    historyWarningTimer = null
-  }
-
-  const flushPendingHistory = () => {
-    if (!pendingHistory || disposed || !term.element) return
-    term.write(pendingHistory)
-    pendingHistory = ''
-    syncScrollState()
-  }
-
-  const scheduleHistoryWarning = () => {
-    if (historyWarningTimer || notifiedHistorySlow) return
-    historyWarningTimer = setTimeout(() => {
-      historyWarningTimer = null
-      if (historyLoaded || disposed) return
-      historyStatus.set('slow')
-      if (!notifiedHistorySlow) {
-        notificationStore.addNotification(
-          'warning',
-          `Terminal ${terminalId} history is taking longer to load.`
-        )
-        notifiedHistorySlow = true
-      }
-    }, HISTORY_WARNING_MS)
-  }
-
-  const loadHistory = () => {
-    if (historyLoaded) {
-      return Promise.resolve()
-    }
-    if (historyLoadPromise) {
-      return historyLoadPromise
-    }
-    if (historyCache.has(terminalId)) {
-      const cachedHistory = historyCache.get(terminalId) || ''
-      if (term.element) {
-        term.write(cachedHistory)
-      } else {
-        pendingHistory = cachedHistory
-      }
-      historyLoaded = true
-      historyStatus.set('loaded')
-      return Promise.resolve()
-    }
-
-    historyStatus.set('loading')
-    scheduleHistoryWarning()
-    historyLoadPromise = (async () => {
-      try {
-        const response = await apiFetch(
-          `/api/terminals/${terminalId}/history?lines=${HISTORY_LINES}`
-        )
-        const payload = await response.json()
-        const lines = Array.isArray(payload?.lines) ? payload.lines : []
-        const historyText = lines.join('\n')
-        if (historyText) {
-          if (term.element) {
-            term.write(historyText)
-          } else {
-            pendingHistory = historyText
-          }
-          if (term.element) {
-            syncScrollState()
-          }
-        }
-        historyCache.set(terminalId, historyText)
-        historyLoaded = true
-        historyStatus.set('loaded')
-      } catch (err) {
-        console.warn('failed to load terminal history', err)
-        historyStatus.set('error')
-        if (!notifiedHistoryError) {
-          notificationStore.addNotification(
-            'warning',
-            `Terminal ${terminalId} history could not be loaded.`
-          )
-          notifiedHistoryError = true
-        }
-      } finally {
-        clearHistoryWarning()
-        historyLoadPromise = null
-      }
-    })()
-
-    return historyLoadPromise
-  }
-
-  const checkAuthFailure = async (event) => {
-    if (event?.code === 1008 || event?.code === 4401) {
-      return true
-    }
-    try {
-      await apiFetch('/api/status')
-      return false
-    } catch (err) {
-      return err?.status === 401
-    }
-  }
-
-  const scheduleReconnect = () => {
-    if (disposed) return
-    if (retryCount >= MAX_RETRIES) {
-      status.set('disconnected')
-      canReconnect.set(true)
-      if (!notifiedDisconnect) {
-        notificationStore.addNotification(
-          'warning',
-          `Terminal ${terminalId} connection lost.`
-        )
-        notifiedDisconnect = true
-      }
-      return
-    }
-    const delay = Math.min(BASE_DELAY_MS * 2 ** retryCount, MAX_DELAY_MS)
-    retryCount += 1
-    status.set('retrying')
-    canReconnect.set(false)
-    clearReconnectTimer()
-    reconnectTimer = setTimeout(() => {
-      connect(true)
-    }, delay)
-  }
-
-  const connect = async (isRetry = false) => {
-    if (disposed) return
-    if (
-      socket &&
-      (socket.readyState === WebSocket.OPEN ||
-        socket.readyState === WebSocket.CONNECTING)
-    ) {
-      return
-    }
-
-    status.set(isRetry ? 'retrying' : 'connecting')
-    canReconnect.set(false)
-
-    if (!isRetry) {
-      await loadHistory()
-    }
-
-    socket = new WebSocket(buildWebSocketUrl(`/ws/terminal/${terminalId}`))
-    socket.binaryType = 'arraybuffer'
-
-    socket.addEventListener('open', () => {
-      retryCount = 0
-      status.set('connected')
-      canReconnect.set(false)
-      notifiedUnauthorized = false
-      notifiedDisconnect = false
-      scheduleFit()
-    })
-
-    socket.addEventListener('message', (event) => {
-      if (disposed) return
-      if (typeof event.data === 'string') {
-        term.write(event.data)
-        syncScrollState()
-        return
-      }
-      term.write(new Uint8Array(event.data))
-      syncScrollState()
-    })
-
-    socket.addEventListener('close', async (event) => {
-      if (disposed) return
-      console.warn('terminal websocket closed', {
-        terminalId,
-        code: event.code,
-        reason: event.reason,
-      })
-      if (await checkAuthFailure(event)) {
-        status.set('unauthorized')
-        canReconnect.set(true)
-        if (!notifiedUnauthorized) {
-          notificationStore.addNotification(
-            'error',
-            `Terminal ${terminalId} requires authentication.`
-          )
-          notifiedUnauthorized = true
-        }
-        return
-      }
-      scheduleReconnect()
-    })
-
-    socket.addEventListener('error', (event) => {
-      console.error('terminal websocket error', event)
-      if (!notifiedDisconnect) {
-        notificationStore.addNotification(
-          'warning',
-          `Terminal ${terminalId} connection error.`
-        )
-        notifiedDisconnect = true
-      }
-    })
-  }
-
-  const reconnect = () => {
-    if (disposed) return
-    clearReconnectTimer()
-    retryCount = 0
-    if (socket && socket.readyState !== WebSocket.CLOSED) {
-      socket.close()
-    }
-    connect(false)
-  }
-
   const dispose = () => {
     if (disposed) return
     disposed = true
-    clearReconnectTimer()
-    canReconnect.set(false)
-    if (socket) {
-      socket.close()
+    if (disposeSocket) {
+      disposeSocket()
     }
+    canReconnect.set(false)
     if (disposeMouseHandlers) {
       disposeMouseHandlers()
     }

@@ -445,13 +445,13 @@
    - Add tests for shared parsing.
    Done when: CLI behavior is unified.
 
-* TODO [#B] Frontend store, view, and component hygiene
+* WIP [#B] Frontend store, view, and component hygiene
   Goal: Reduce large modules, standardize data flow, and simplify view logic.
   Notes:
   - Preserve UI behavior and tests.
   Date: 2026-01-24
 
-** TODO [#A] Split terminalStore into modules
+** DONE [#A] Split terminalStore into modules
    Why: terminalStore handles xterm setup, WS, input, clipboard, touch logic.
    Change:
    - Extract xterm setup, WS connection, and input handling into modules.
@@ -459,7 +459,7 @@
    - Update terminalStore tests to cover new boundaries.
    Done when: terminalStore is smaller and API surface is unchanged.
 
-** TODO [#A] Create wsStore helper for event stores
+** WIP [#A] Create wsStore helper for event stores
    Why: WS lifecycle logic is repeated across event stores.
    Change:
    - Add a shared wsStore factory with reconnect + dispatch hooks.

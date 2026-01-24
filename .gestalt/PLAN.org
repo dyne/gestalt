@@ -7559,7 +7559,7 @@
    Effort: Small
    Change: Extract upgrade + write loop helper used by WS handlers.
    Tests: Add handler tests for close/error handling.
-** TODO [#B] Create frontend wsStore helper
+** DONE [#B] Create frontend wsStore helper
    Effort: Small
    Change: Introduce shared wsStore utility for event stores and migrate them.
    Tests: Update store tests to exercise the shared helper.

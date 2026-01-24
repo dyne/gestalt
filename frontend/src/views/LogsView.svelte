@@ -35,6 +35,17 @@
   const normalizeTimestamp = (value) => {
     if (!value) return ''
     if (value instanceof Date) return value.toISOString()
+    if (typeof value === 'string') {
+      const trimmed = value.trim()
+      if (!trimmed) return ''
+      if (/^\d+$/.test(trimmed)) {
+        const numeric = Number(trimmed)
+        if (!Number.isNaN(numeric)) {
+          return normalizeTimestamp(numeric)
+        }
+      }
+      return value
+    }
     if (typeof value === 'number') {
       if (value > 1e12) {
         return new Date(Math.floor(value / 1e6)).toISOString()
@@ -111,10 +122,22 @@
 
   const normalizeLogEntry = (entry) => {
     const timestamp = normalizeTimestamp(
-      entry?.timestamp ?? entry?.time ?? entry?.observed_timestamp ?? entry?.observedTimestamp,
+      entry?.timestamp ??
+        entry?.time ??
+        entry?.time_unix_nano ??
+        entry?.timeUnixNano ??
+        entry?.observed_timestamp ??
+        entry?.observedTimestamp ??
+        entry?.observed_time_unix_nano ??
+        entry?.observedTimeUnixNano,
     )
     const level = normalizeLevel(
-      entry?.severity ?? entry?.severity_text ?? entry?.severityText ?? entry?.level,
+      entry?.severity ??
+        entry?.severity_number ??
+        entry?.severityNumber ??
+        entry?.severity_text ??
+        entry?.severityText ??
+        entry?.level,
     )
     const message = normalizeMessage(entry)
     const attributes = normalizeAttributes(entry?.attributes ?? entry?.attrs ?? entry?.context)

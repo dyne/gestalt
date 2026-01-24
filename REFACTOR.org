@@ -305,7 +305,7 @@
    - Ensure tests are stable with mocks and timeouts.
    Done when: WS error paths are covered.
 
-** TODO [#A] Add terminal DSR/backpressure tests
+** DONE [#A] Add terminal DSR/backpressure tests
    Why: DSR fallback and slow subscribers can stall output.
    Change:
    - Add targeted tests for DSR parsing and backpressure behavior.

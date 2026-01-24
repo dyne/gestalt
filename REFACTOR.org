@@ -555,20 +555,20 @@
    - Add view state tests to avoid regressions.
    Done when: view async flows are explicit and testable.
 
-* WIP [#B] Build surface and dependencies
+* DONE [#B] Build surface and dependencies
   Goal: Keep dependency footprint transparent and optional where possible.
   Notes:
   - Default behavior should remain unchanged.
   Date: 2026-01-24
 
-** DONE [#A] Document direct Go dependencies
+** [#A] Document direct Go dependencies
    Why: Dependency footprint is larger than earlier documentation suggests.
    Change:
    - Document current direct Go dependencies and rationale.
    Tests: None (documentation only).
    Done when: dependency list is documented.
 
-** DONE [#B] Add optional SCIP build tags
+** [#B] Add optional SCIP build tags
    Why: SCIP adds many dependencies for users who do not need it.
    Change:
    - Introduce build tags for internal/scip and related API endpoints.
@@ -577,7 +577,7 @@
    - Add build-tagged tests to verify both modes compile.
    Done when: SCIP can be built out via tags.
 
-** DONE [#C] Document SCIP build tag usage
+** [#C] Document SCIP build tag usage
    Why: Users need to know how to enable/disable SCIP.
    Change:
    - Update docs with build tag instructions and defaults.

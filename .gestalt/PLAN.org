@@ -2670,7 +2670,7 @@
    - Ensure REST tests still pass; add missing coverage if needed.
    Done when: rest.go is reduced and endpoints are organized by domain.
 
-** WIP [#B] Add terminal route parsing helpers
+** DONE [#B] Add terminal route parsing helpers
    Why: Terminal endpoints repeat path parsing and validation.
    Change:
    - Centralize parsing for /api/terminals/:id/* endpoints.
@@ -2678,7 +2678,7 @@
    - Add table-driven tests for edge cases (bad ids, missing ids).
    Done when: path parsing is centralized with tests.
 
-** TODO [#B] Standardize WS error wrapper
+** WIP [#B] Standardize WS error wrapper
    Why: WS handlers use http.Error inconsistently.
    Change:
    - Add a WS error wrapper with close codes and structured logging.

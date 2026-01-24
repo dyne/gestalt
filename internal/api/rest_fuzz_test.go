@@ -18,6 +18,6 @@ func FuzzParseTerminalPath(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, path string) {
-		_, _ = parseTerminalPath(path)
+		_, _, _ = parseTerminalPath(path)
 	})
 }

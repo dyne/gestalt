@@ -1911,10 +1911,12 @@ func containsLine(lines []string, target string) bool {
 
 func TestParseTerminalPath(t *testing.T) {
 	tests := []struct {
-		name   string
-		path   string
-		id     string
-		action terminalPathAction
+		name    string
+		path    string
+		id      string
+		action  terminalPathAction
+		wantErr bool
+		status  int
 	}{
 		{name: "terminal", path: "/api/terminals/123", id: "123", action: terminalPathTerminal},
 		{name: "terminal-trailing-slash", path: "/api/terminals/123/", id: "123", action: terminalPathTerminal},
@@ -1928,13 +1930,30 @@ func TestParseTerminalPath(t *testing.T) {
 		{name: "workflow-resume-trailing-slash", path: "/api/terminals/123/workflow/resume/", id: "123", action: terminalPathWorkflowResume},
 		{name: "workflow-history", path: "/api/terminals/123/workflow/history", id: "123", action: terminalPathWorkflowHistory},
 		{name: "workflow-history-trailing-slash", path: "/api/terminals/123/workflow/history/", id: "123", action: terminalPathWorkflowHistory},
-		{name: "missing-prefix", path: "/api/terminal/123", id: "", action: terminalPathTerminal},
-		{name: "empty-id", path: "/api/terminals/", id: "", action: terminalPathTerminal},
+		{name: "missing-prefix", path: "/api/terminal/123", wantErr: true, status: http.StatusNotFound},
+		{name: "empty-id", path: "/api/terminals/", wantErr: true, status: http.StatusBadRequest},
+		{name: "empty-id-output", path: "/api/terminals//output", wantErr: true, status: http.StatusBadRequest},
+		{name: "unknown-action", path: "/api/terminals/123/extra", wantErr: true, status: http.StatusNotFound},
+		{name: "workflow-missing-action", path: "/api/terminals/123/workflow", wantErr: true, status: http.StatusNotFound},
+		{name: "workflow-unknown-action", path: "/api/terminals/123/workflow/extra", wantErr: true, status: http.StatusNotFound},
+		{name: "extra-segments", path: "/api/terminals/123/output/extra", wantErr: true, status: http.StatusNotFound},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			id, action := parseTerminalPath(test.path)
+			id, action, err := parseTerminalPath(test.path)
+			if test.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				if err.Status != test.status {
+					t.Fatalf("expected status %d, got %d", test.status, err.Status)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 			if id != test.id {
 				t.Fatalf("expected id %q, got %q", test.id, id)
 			}

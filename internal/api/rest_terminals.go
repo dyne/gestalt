@@ -34,8 +34,8 @@ func (h *RestHandler) handleTerminal(w http.ResponseWriter, r *http.Request) *ap
 		return err
 	}
 
-	id, action := parseTerminalPath(r.URL.Path)
-	if err := validateTerminalID(id); err != nil {
+	id, action, err := parseTerminalPath(r.URL.Path)
+	if err != nil {
 		return err
 	}
 
@@ -373,42 +373,54 @@ func (h *RestHandler) handleTerminalDelete(w http.ResponseWriter, r *http.Reques
 	return nil
 }
 
-func parseTerminalPath(path string) (string, terminalPathAction) {
+func parseTerminalPath(path string) (string, terminalPathAction, *apiError) {
 	trimmed := strings.TrimPrefix(path, "/api/terminals/")
 	if trimmed == path {
-		return "", terminalPathTerminal
+		return "", terminalPathTerminal, &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
 	}
 
 	trimmed = strings.TrimSuffix(trimmed, "/")
 	if trimmed == "" {
-		return "", terminalPathTerminal
+		return "", terminalPathTerminal, &apiError{Status: http.StatusBadRequest, Message: "missing terminal id"}
 	}
 
-	if strings.HasSuffix(trimmed, "/output") {
-		id := strings.TrimSuffix(trimmed, "/output")
-		return id, terminalPathOutput
+	parts := strings.Split(trimmed, "/")
+	id := parts[0]
+	if err := validateTerminalID(id); err != nil {
+		return "", terminalPathTerminal, err
 	}
-	if strings.HasSuffix(trimmed, "/workflow/history") {
-		id := strings.TrimSuffix(trimmed, "/workflow/history")
-		return id, terminalPathWorkflowHistory
+
+	switch len(parts) {
+	case 1:
+		return id, terminalPathTerminal, nil
+	case 2:
+		switch parts[1] {
+		case "output":
+			return id, terminalPathOutput, nil
+		case "history":
+			return id, terminalPathHistory, nil
+		case "input-history":
+			return id, terminalPathInputHistory, nil
+		case "bell":
+			return id, terminalPathBell, nil
+		default:
+			return "", terminalPathTerminal, &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
+		}
+	case 3:
+		if parts[1] != "workflow" {
+			return "", terminalPathTerminal, &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
+		}
+		switch parts[2] {
+		case "resume":
+			return id, terminalPathWorkflowResume, nil
+		case "history":
+			return id, terminalPathWorkflowHistory, nil
+		default:
+			return "", terminalPathTerminal, &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
+		}
+	default:
+		return "", terminalPathTerminal, &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
 	}
-	if strings.HasSuffix(trimmed, "/history") {
-		id := strings.TrimSuffix(trimmed, "/history")
-		return id, terminalPathHistory
-	}
-	if strings.HasSuffix(trimmed, "/input-history") {
-		id := strings.TrimSuffix(trimmed, "/input-history")
-		return id, terminalPathInputHistory
-	}
-	if strings.HasSuffix(trimmed, "/bell") {
-		id := strings.TrimSuffix(trimmed, "/bell")
-		return id, terminalPathBell
-	}
-	if strings.HasSuffix(trimmed, "/workflow/resume") {
-		id := strings.TrimSuffix(trimmed, "/workflow/resume")
-		return id, terminalPathWorkflowResume
-	}
-	return trimmed, terminalPathTerminal
 }
 
 func parseHistoryLines(r *http.Request) (int, *apiError) {

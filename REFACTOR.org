@@ -24,7 +24,7 @@
    - Add unit tests for prompt injection flow.
    Done when: createSession is smaller and prompt flow is testable in isolation.
 
-** WIP [#A] Add session lifecycle helper for logging/events
+** DONE [#A] Add session lifecycle helper for logging/events
    Why: Session create/close/error logging is repeated across Manager paths.
    Change:
    - Add a small helper to emit consistent lifecycle logs + events.
@@ -32,7 +32,7 @@
    - Update Manager tests to validate lifecycle event ordering.
    Done when: Lifecycle logging/event emission is centralized.
 
-** TODO [#B] Add explicit Windows PTY error message
+** WIP [#B] Add explicit Windows PTY error message
    Why: errConPTYUnavailable currently surfaces as a generic error.
    Change:
    - Return a clear, actionable error message when ConPTY is unavailable.

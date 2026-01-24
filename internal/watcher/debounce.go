@@ -12,81 +12,101 @@ type debounceEntry struct {
 	event Event
 }
 
+type debouncer struct {
+	duration time.Duration
+	entries  map[string]debounceEntry
+}
+
+func newDebouncer(duration time.Duration) *debouncer {
+	return &debouncer{
+		duration: duration,
+		entries:  make(map[string]debounceEntry),
+	}
+}
+
+func (debouncer *debouncer) schedule(path string, event Event, flush func(string)) bool {
+	if debouncer == nil {
+		return false
+	}
+	entry := debouncer.entries[path]
+	dropped := entry.timer != nil
+	entry.event = event
+	if entry.timer == nil {
+		entry.timer = time.AfterFunc(debouncer.duration, func() {
+			flush(path)
+		})
+	} else {
+		entry.timer.Reset(debouncer.duration)
+	}
+	debouncer.entries[path] = entry
+	return dropped
+}
+
+func (debouncer *debouncer) pop(path string) (Event, bool) {
+	if debouncer == nil {
+		return Event{}, false
+	}
+	entry, ok := debouncer.entries[path]
+	if !ok {
+		return Event{}, false
+	}
+	delete(debouncer.entries, path)
+	return entry.event, true
+}
+
+func (debouncer *debouncer) stop() {
+	if debouncer == nil {
+		return
+	}
+	for _, entry := range debouncer.entries {
+		if entry.timer != nil {
+			entry.timer.Stop()
+		}
+	}
+	debouncer.entries = nil
+}
+
 func (watcher *Watcher) handleEvent(event fsnotify.Event) {
 	watcher.mutex.Lock()
 	if watcher.closed {
 		watcher.mutex.Unlock()
 		return
 	}
-	callbacks := watcher.callbacks[event.Name]
-	if len(callbacks) == 0 && watcher.watchDirRecursive {
-		for path, entries := range watcher.callbacks {
-			if !hasDirWatch(entries) {
-				continue
-			}
-			if !isWithinPath(path, event.Name) {
-				continue
-			}
-			callbacks = append(callbacks, entries...)
-		}
-	}
-	if len(callbacks) == 0 {
+	if !watcher.hasCallbacksLocked(event.Name) {
 		watcher.mutex.Unlock()
 		return
 	}
 
-	entry := watcher.debounce[event.Name]
-	entry.event = Event{
+	entry := Event{
 		Path:      event.Name,
 		Op:        event.Op,
 		Timestamp: time.Now().UTC(),
 	}
-	if entry.timer == nil {
-		entry.timer = time.AfterFunc(watcher.debounceDuration, func() {
-			watcher.flush(event.Name)
-		})
-	} else {
-		entry.timer.Reset(watcher.debounceDuration)
+	if watcher.debouncer != nil {
+		dropped := watcher.debouncer.schedule(event.Name, entry, watcher.flush)
+		if dropped {
+			atomic.AddUint64(&watcher.eventsDropped, 1)
+		}
 	}
-	watcher.debounce[event.Name] = entry
 	watcher.mutex.Unlock()
 }
 
 func (watcher *Watcher) flush(path string) {
-	var (
-		callbacks []func(Event)
-		event     Event
-	)
-
 	watcher.mutex.Lock()
 	if watcher.closed {
 		watcher.mutex.Unlock()
 		return
 	}
-	entry, ok := watcher.debounce[path]
+	if watcher.debouncer == nil {
+		watcher.mutex.Unlock()
+		return
+	}
+	event, ok := watcher.debouncer.pop(path)
 	if !ok {
 		watcher.mutex.Unlock()
 		return
 	}
-	delete(watcher.debounce, path)
-	event = entry.event
-	if entries := watcher.callbacks[path]; len(entries) > 0 {
-		for _, entry := range entries {
-			callbacks = append(callbacks, entry.callback)
-		}
-	} else if watcher.watchDirRecursive {
-		for watchPath, entries := range watcher.callbacks {
-			if !hasDirWatch(entries) {
-				continue
-			}
-			if !isWithinPath(watchPath, path) {
-				continue
-			}
-			for _, entry := range entries {
-				callbacks = append(callbacks, entry.callback)
-			}
-		}
-	}
+	callbacks := watcher.callbacksForPathLocked(path)
 	watcher.mutex.Unlock()
 
 	for _, callback := range callbacks {

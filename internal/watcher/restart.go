@@ -18,6 +18,10 @@ func (watcher *Watcher) handleError(err error) {
 	watcher.scheduleRestart(err)
 }
 
+func restartDelay(attempt int) time.Duration {
+	return restartBaseDelay * time.Duration(1<<attempt)
+}
+
 func (watcher *Watcher) scheduleRestart(err error) {
 	if watcher == nil {
 		return
@@ -36,7 +40,7 @@ func (watcher *Watcher) scheduleRestart(err error) {
 		watcher.notifyError(err)
 		return
 	}
-	delay := restartBaseDelay * time.Duration(1<<watcher.restartAttempts)
+	delay := restartDelay(watcher.restartAttempts)
 	watcher.restartAttempts++
 	watcher.restartTimer = time.AfterFunc(delay, watcher.performRestart)
 	watcher.restartMutex.Unlock()

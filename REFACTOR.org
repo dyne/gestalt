@@ -156,7 +156,7 @@
    - Add unit tests for git parsing.
    Done when: git parsing duplication is removed.
 
-** WIP [#B] Isolate debounce and registration logic
+** DONE [#B] Isolate debounce and registration logic
    Why: debounce, registry, and restart logic are intertwined.
    Change:
    - Introduce a debounce helper with per-path timers.
@@ -166,7 +166,7 @@
    - Add tests for debounce timing and restart/backoff.
    Done when: watcher internals are clearer and observable.
 
-** TODO [#C] Optional recursive watch and context-based interface
+** WIP [#C] Optional recursive watch and context-based interface
    Why: Recursive watch and cancellation semantics are limited.
    Change:
    - Add optional recursive directory watch expansion (guarded by max watches).

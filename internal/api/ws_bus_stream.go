@@ -23,19 +23,9 @@ func serveWSBusStream[T any](w http.ResponseWriter, r *http.Request, config wsBu
 		return
 	}
 
-	conn, err := upgradeWebSocket(w, r, config.AllowedOrigins)
-	if err != nil {
-		logWSError(config.Logger, r, wsError{
-			Status:  http.StatusBadRequest,
-			Message: "websocket upgrade failed",
-			Err:     err,
-		})
-		return
-	}
-
 	bus := config.Bus
 	if bus == nil {
-		writeWSError(w, r, conn, config.Logger, wsError{
+		writeWSError(w, r, nil, config.Logger, wsError{
 			Status:  http.StatusInternalServerError,
 			Message: unavailableReason(config.UnavailableReason),
 		})
@@ -44,9 +34,20 @@ func serveWSBusStream[T any](w http.ResponseWriter, r *http.Request, config wsBu
 
 	output, cancel := bus.Subscribe()
 	if output == nil {
-		writeWSError(w, r, conn, config.Logger, wsError{
+		writeWSError(w, r, nil, config.Logger, wsError{
 			Status:  http.StatusInternalServerError,
 			Message: unavailableReason(config.UnavailableReason),
+		})
+		return
+	}
+
+	conn, err := upgradeWebSocket(w, r, config.AllowedOrigins)
+	if err != nil {
+		cancel()
+		logWSError(config.Logger, r, wsError{
+			Status:  http.StatusBadRequest,
+			Message: "websocket upgrade failed",
+			Err:     err,
 		})
 		return
 	}

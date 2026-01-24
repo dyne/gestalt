@@ -34,8 +34,8 @@ type Watch interface {
 
 // Options controls watcher behavior.
 type Options struct {
-	Logger          *logging.Logger
-	Debounce        time.Duration
+	Logger   *logging.Logger
+	Debounce time.Duration
 	// WatchDir enables fan-out from directory watches; it does not add recursive watches.
 	WatchDir        bool
 	MaxWatches      int
@@ -47,7 +47,9 @@ type Options struct {
 type Metrics struct {
 	ActiveWatches   int
 	EventsDelivered uint64
+	EventsDropped   uint64
 	Errors          uint64
+	RestartAttempts int
 }
 
 // Watcher is the concrete fsnotify-backed implementation.
@@ -55,8 +57,7 @@ type Watcher struct {
 	watcher           *fsnotify.Watcher
 	mutex             sync.Mutex
 	callbacks         map[string][]callbackEntry
-	debounce          map[string]debounceEntry
-	debounceDuration  time.Duration
+	debouncer         *debouncer
 	events            chan fsnotify.Event
 	errors            chan error
 	done              chan struct{}
@@ -68,6 +69,7 @@ type Watcher struct {
 	activeWatches     int
 	cleanupInterval   time.Duration
 	eventsDelivered   uint64
+	eventsDropped     uint64
 	errorCount        uint64
 	errorHandler      func(error)
 	restartMutex      sync.Mutex

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -61,26 +62,19 @@ func TestServeWSBusStreamUnavailableCloses(t *testing.T) {
 	defer srv.Close()
 
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if err != nil {
-		t.Fatalf("dial websocket: %v", err)
-	}
-	defer conn.Close()
-
-	_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-	_, _, err = conn.ReadMessage()
+	_, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err == nil {
-		t.Fatalf("expected close error")
+		t.Fatalf("expected handshake error")
 	}
-
-	closeErr, ok := err.(*websocket.CloseError)
-	if !ok {
-		t.Fatalf("expected close error, got %T", err)
+	if resp == nil {
+		t.Fatalf("expected http response")
 	}
-	if closeErr.Code != websocket.CloseInternalServerErr {
-		t.Fatalf("expected close code %d, got %d", websocket.CloseInternalServerErr, closeErr.Code)
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("expected status %d, got %d", http.StatusInternalServerError, resp.StatusCode)
 	}
-	if closeErr.Text != "stream unavailable" {
-		t.Fatalf("expected reason %q, got %q", "stream unavailable", closeErr.Text)
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if !strings.Contains(string(body), "stream unavailable") {
+		t.Fatalf("expected error body to mention stream unavailable, got %q", string(body))
 	}
 }

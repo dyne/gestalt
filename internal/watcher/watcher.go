@@ -55,8 +55,7 @@ func NewWithOptions(options Options) (*Watcher, error) {
 	instance := &Watcher{
 		watcher:           watcher,
 		callbacks:         make(map[string][]callbackEntry),
-		debounce:          make(map[string]debounceEntry),
-		debounceDuration:  debounce,
+		debouncer:         newDebouncer(debounce),
 		events:            make(chan fsnotify.Event, 16),
 		errors:            make(chan error, 4),
 		done:              make(chan struct{}),
@@ -85,12 +84,10 @@ func (watcher *Watcher) Close() error {
 		return nil
 	}
 	watcher.closed = true
-	for _, entry := range watcher.debounce {
-		if entry.timer != nil {
-			entry.timer.Stop()
-		}
+	if watcher.debouncer != nil {
+		watcher.debouncer.stop()
+		watcher.debouncer = nil
 	}
-	watcher.debounce = nil
 	watcher.mutex.Unlock()
 
 	close(watcher.done)
@@ -181,9 +178,14 @@ func (watcher *Watcher) Metrics() Metrics {
 	watcher.mutex.Lock()
 	active := watcher.activeWatches
 	watcher.mutex.Unlock()
+	watcher.restartMutex.Lock()
+	restartAttempts := watcher.restartAttempts
+	watcher.restartMutex.Unlock()
 	return Metrics{
 		ActiveWatches:   active,
 		EventsDelivered: atomic.LoadUint64(&watcher.eventsDelivered),
+		EventsDropped:   atomic.LoadUint64(&watcher.eventsDropped),
 		Errors:          atomic.LoadUint64(&watcher.errorCount),
+		RestartAttempts: restartAttempts,
 	}
 }

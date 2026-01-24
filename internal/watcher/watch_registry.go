@@ -152,6 +152,57 @@ func (watcher *Watcher) dropCallback(path string, id uint64) {
 	watcher.mutex.Unlock()
 }
 
+func (watcher *Watcher) hasCallbacksLocked(path string) bool {
+	if watcher == nil {
+		return false
+	}
+	if len(watcher.callbacks[path]) > 0 {
+		return true
+	}
+	if !watcher.watchDirRecursive {
+		return false
+	}
+	for watchPath, entries := range watcher.callbacks {
+		if !hasDirWatch(entries) {
+			continue
+		}
+		if isWithinPath(watchPath, path) {
+			return true
+		}
+	}
+	return false
+}
+
+func (watcher *Watcher) callbacksForPathLocked(path string) []func(Event) {
+	if watcher == nil {
+		return nil
+	}
+	if entries := watcher.callbacks[path]; len(entries) > 0 {
+		callbacks := make([]func(Event), 0, len(entries))
+		for _, entry := range entries {
+			callbacks = append(callbacks, entry.callback)
+		}
+		return callbacks
+	}
+	if !watcher.watchDirRecursive {
+		return nil
+	}
+
+	callbacks := []func(Event){}
+	for watchPath, entries := range watcher.callbacks {
+		if !hasDirWatch(entries) {
+			continue
+		}
+		if !isWithinPath(watchPath, path) {
+			continue
+		}
+		for _, entry := range entries {
+			callbacks = append(callbacks, entry.callback)
+		}
+	}
+	return callbacks
+}
+
 func hasDirWatch(entries []callbackEntry) bool {
 	for _, entry := range entries {
 		if entry.isDir {

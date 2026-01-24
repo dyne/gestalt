@@ -1,8 +1,6 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"gestalt/internal/client"
 )
 
 var httpClient = &http.Client{Timeout: 30 * time.Second}
@@ -35,10 +35,15 @@ func sendErrf(code int, format string, args ...any) *sendError {
 	return &sendError{Code: code, Message: fmt.Sprintf(format, args...)}
 }
 
-type agentInfo struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+func sendErrFromClient(err error) *sendError {
+	var httpErr *client.HTTPError
+	if errors.As(err, &httpErr) {
+		return sendErr(3, httpErr.Message)
+	}
+	return sendErrf(3, "%v", err)
 }
+
+type agentInfo = client.AgentInfo
 
 func handleSendError(err error, errOut io.Writer) int {
 	var sendErr *sendError
@@ -53,7 +58,7 @@ func handleSendError(err error, errOut io.Writer) int {
 }
 
 func resolveAgent(cfg *Config) error {
-	agents, err := fetchAgents(*cfg)
+	agents, err := loadAgents(*cfg)
 	if err != nil {
 		return sendErrf(3, "failed to fetch agents: %v", err)
 	}
@@ -159,109 +164,34 @@ func sendAgentInputWithRetry(cfg Config, payload []byte, allowStart bool) error 
 		}
 		logf(cfg, "payload preview: %q", string(preview))
 	}
-
-	request, err := http.NewRequest(http.MethodPost, target, bytes.NewReader(payload))
-	if err != nil {
-		return sendErrf(3, "build request failed: %v", err)
-	}
-	request.Header.Set("Content-Type", "application/octet-stream")
-	if strings.TrimSpace(cfg.Token) != "" {
-		request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(cfg.Token))
-	}
-
-	response, err := httpClient.Do(request)
-	if err != nil {
-		return sendErrf(3, "request failed: %v", err)
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(response.Body)
-		message := parseErrorMessage(body)
-		if message == "" {
-			message = response.Status
-		}
-		if response.StatusCode == http.StatusNotFound && allowStart && cfg.Start {
-			logf(cfg, "agent %q not running; attempting to start", cfg.AgentName)
-			if err := startAgent(cfg, baseURL); err != nil {
-				return err
+	if err := client.SendAgentInput(httpClient, baseURL, cfg.Token, cfg.AgentName, payload); err != nil {
+		var httpErr *client.HTTPError
+		if errors.As(err, &httpErr) {
+			if httpErr.StatusCode == http.StatusNotFound && allowStart && cfg.Start {
+				logf(cfg, "agent %q not running; attempting to start", cfg.AgentName)
+				if err := client.StartAgent(httpClient, baseURL, cfg.Token, cfg.AgentID); err != nil {
+					return sendErrFromClient(err)
+				}
+				time.Sleep(startRetryDelay)
+				return sendAgentInputWithRetry(cfg, payload, false)
 			}
-			time.Sleep(startRetryDelay)
-			return sendAgentInputWithRetry(cfg, payload, false)
+			if cfg.Verbose && httpErr.StatusCode != 0 {
+				logf(cfg, "response status: %d %s", httpErr.StatusCode, http.StatusText(httpErr.StatusCode))
+			}
+			if httpErr.StatusCode == http.StatusNotFound {
+				return sendErr(2, httpErr.Message)
+			}
+			return sendErr(3, httpErr.Message)
 		}
-		if cfg.Verbose {
-			logf(cfg, "response status: %s", response.Status)
-		}
-		if response.StatusCode == http.StatusNotFound {
-			return sendErr(2, message)
-		}
-		return sendErr(3, message)
+		return sendErrf(3, "%v", err)
 	}
-
 	if cfg.Verbose {
-		logf(cfg, "response status: %s", response.Status)
+		logf(cfg, "response status: %d %s", http.StatusOK, http.StatusText(http.StatusOK))
 	}
 	return nil
 }
 
-func parseErrorMessage(body []byte) string {
-	text := strings.TrimSpace(string(body))
-	if text == "" {
-		return ""
-	}
-	var payload struct {
-		Error string `json:"error"`
-	}
-	if err := json.Unmarshal(body, &payload); err == nil {
-		if strings.TrimSpace(payload.Error) != "" {
-			return payload.Error
-		}
-	}
-	return text
-}
-
-func startAgent(cfg Config, baseURL string) error {
-	agentID := strings.TrimSpace(cfg.AgentID)
-	if agentID == "" {
-		return sendErr(2, "agent id not resolved")
-	}
-	payload := map[string]string{"agent": agentID}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return sendErrf(3, "encode start request: %v", err)
-	}
-
-	request, err := http.NewRequest(http.MethodPost, baseURL+"/api/terminals", bytes.NewReader(body))
-	if err != nil {
-		return sendErrf(3, "build start request: %v", err)
-	}
-	request.Header.Set("Content-Type", "application/json")
-	if strings.TrimSpace(cfg.Token) != "" {
-		request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(cfg.Token))
-	}
-
-	response, err := httpClient.Do(request)
-	if err != nil {
-		return sendErrf(3, "start request failed: %v", err)
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode == http.StatusCreated || response.StatusCode == http.StatusOK || response.StatusCode == http.StatusConflict {
-		if cfg.Verbose {
-			logf(cfg, "agent start response: %s", response.Status)
-		}
-		return nil
-	}
-
-	respBody, _ := io.ReadAll(response.Body)
-	message := parseErrorMessage(respBody)
-	if message == "" {
-		message = response.Status
-	}
-	return sendErr(3, message)
-}
-
-func fetchAgents(cfg Config) ([]agentInfo, error) {
+func loadAgents(cfg Config) ([]agentInfo, error) {
 	if agentCacheTTL > 0 {
 		if cached, ok := readAgentCache(time.Now()); ok {
 			return cached, nil
@@ -272,40 +202,9 @@ func fetchAgents(cfg Config) ([]agentInfo, error) {
 	if baseURL == "" {
 		baseURL = defaultServerURL
 	}
-	request, err := http.NewRequest(http.MethodGet, baseURL+"/api/agents", nil)
+	agents, err := client.FetchAgents(httpClient, baseURL, cfg.Token)
 	if err != nil {
-		return nil, fmt.Errorf("build agents request failed: %w", err)
-	}
-	if strings.TrimSpace(cfg.Token) != "" {
-		request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(cfg.Token))
-	}
-	response, err := httpClient.Do(request)
-	if err != nil {
-		return nil, fmt.Errorf("agents request failed: %w", err)
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(response.Body)
-		message := parseErrorMessage(body)
-		if message == "" {
-			message = response.Status
-		}
-		return nil, errors.New(message)
-	}
-
-	var payload []agentInfo
-	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
-		return nil, fmt.Errorf("decode agents response: %w", err)
-	}
-	agents := make([]agentInfo, 0, len(payload))
-	for _, agent := range payload {
-		id := strings.TrimSpace(agent.ID)
-		name := strings.TrimSpace(agent.Name)
-		if id == "" || name == "" {
-			continue
-		}
-		agents = append(agents, agentInfo{ID: id, Name: name})
+		return nil, err
 	}
 	if agentCacheTTL > 0 {
 		writeAgentCache(agents, time.Now())
@@ -314,7 +213,7 @@ func fetchAgents(cfg Config) ([]agentInfo, error) {
 }
 
 func fetchAgentNames(cfg Config) ([]string, error) {
-	agents, err := fetchAgents(cfg)
+	agents, err := loadAgents(cfg)
 	if err != nil {
 		return nil, err
 	}

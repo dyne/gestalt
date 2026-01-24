@@ -421,7 +421,7 @@
    - Add tests for exit code mapping.
    Done when: error handling is consistent.
 
-** WIP [#B] Extract HTTP client helpers
+** DONE [#B] Extract HTTP client helpers
    Why: HTTP logic is tightly coupled to CLI parsing.
    Change:
    - Move fetchAgents/sendAgentInput/startAgent into internal/client.
@@ -429,7 +429,7 @@
    - Add unit tests for client helpers.
    Done when: CLI uses shared client helpers.
 
-** TODO [#B] Formalize agent cache format
+** WIP [#B] Formalize agent cache format
    Why: TSV cache is ad-hoc and fragile.
    Change:
    - Store cache as JSON with timestamp and entries.

@@ -23,7 +23,7 @@
 
 ** DONE [#A] Research and design OpenTelemetry integration architecture
 ** DONE [#B] Build custom OpenTelemetry Collector binary with ocb
-** TODO [#B] Implement Collector lifecycle management in Gestalt
+** DONE [#B] Implement Collector lifecycle management in Gestalt
 ** TODO [#B] Integrate Collector start into Temporal workflow
 ** TODO [#A] Add OpenTelemetry SDK to Gestalt Go backend
 ** TODO [#A] Add comprehensive API instrumentation with agent-specific metrics

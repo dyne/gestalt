@@ -21,6 +21,7 @@ import (
 	"gestalt/internal/app"
 	"gestalt/internal/event"
 	"gestalt/internal/logging"
+	"gestalt/internal/otel"
 	"gestalt/internal/prompt"
 	"gestalt/internal/temporal"
 	temporalworker "gestalt/internal/temporal/worker"
@@ -58,6 +59,29 @@ func runServer(args []string) int {
 	}
 	logVersionInfo(logger)
 	ensureStateDir(cfg, logger)
+	collectorOptions := otel.OptionsFromEnv(".gestalt")
+	collectorOptions.Logger = logger
+	collector, collectorErr := otel.StartCollector(collectorOptions)
+	if collectorErr != nil {
+		fields := map[string]string{
+			"error": collectorErr.Error(),
+		}
+		if errors.Is(collectorErr, otel.ErrCollectorNotFound) {
+			fields["path"] = collectorOptions.BinaryPath
+			logger.Warn("otel collector unavailable", fields)
+		} else {
+			logger.Warn("otel collector start failed", fields)
+		}
+	}
+	if collector != nil {
+		defer func() {
+			if err := otel.StopCollectorWithTimeout(collector, httpServerShutdownTimeout); err != nil && logger != nil {
+				logger.Warn("otel collector shutdown failed", map[string]string{
+					"error": err.Error(),
+				})
+			}
+		}()
+	}
 
 	temporalDevServer, devServerError := startTemporalDevServer(&cfg, logger)
 	if devServerError != nil {

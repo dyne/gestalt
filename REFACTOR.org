@@ -445,13 +445,13 @@
    - Add tests for shared parsing.
    Done when: CLI behavior is unified.
 
-* WIP [#B] Frontend store, view, and component hygiene
+* DONE [#B] Frontend store, view, and component hygiene
   Goal: Reduce large modules, standardize data flow, and simplify view logic.
   Notes:
   - Preserve UI behavior and tests.
   Date: 2026-01-24
 
-** DONE [#A] Split terminalStore into modules
+** [#A] Split terminalStore into modules
    Why: terminalStore handles xterm setup, WS, input, clipboard, touch logic.
    Change:
    - Extract xterm setup, WS connection, and input handling into modules.
@@ -459,7 +459,7 @@
    - Update terminalStore tests to cover new boundaries.
    Done when: terminalStore is smaller and API surface is unchanged.
 
-** DONE [#A] Create wsStore helper for event stores
+** [#A] Create wsStore helper for event stores
    Why: WS lifecycle logic is repeated across event stores.
    Change:
    - Add a shared wsStore factory with reconnect + dispatch hooks.
@@ -467,7 +467,7 @@
    - Update event store tests to validate shared helper behavior.
    Done when: event stores use shared helper and tests pass.
 
-** DONE [#A] Split Terminal component
+** [#A] Split Terminal component
    Why: Terminal.svelte handles UI plus xterm attachment logic.
    Change:
    - Introduce TerminalShell + TerminalCanvas components.
@@ -475,7 +475,7 @@
    - Add component tests for focus/reconnect behavior.
    Done when: Terminal.svelte is smaller and behavior is stable.
 
-** DONE [#A] Extract CommandInput history helper
+** [#A] Extract CommandInput history helper
    Why: CommandInput mixes UI and history/keyboard logic.
    Change:
    - Move history fetch + navigation into helper module.
@@ -483,7 +483,7 @@
    - Add tests for history navigation edge cases.
    Done when: CommandInput focuses on UI.
 
-** DONE [#A] Extract PlanView polling fallback helper
+** [#A] Extract PlanView polling fallback helper
    Why: Polling logic is embedded and not reusable.
    Change:
    - Create a polling helper/store and reuse in PlanView.
@@ -491,14 +491,14 @@
    - Add tests for polling helper behavior.
    Done when: polling logic is shared and stable.
 
-** DONE [#A] Document frontend data flow and store ownership
+** [#A] Document frontend data flow and store ownership
    Why: Onboarding is harder without a store ownership guide.
    Change:
    - Add short doc outlining store responsibilities and data flow.
    Tests: None (documentation only).
    Done when: doc exists and references current stores.
 
-** DONE [#B] Add a thin routing helper for tabs
+** [#B] Add a thin routing helper for tabs
    Why: Active tab computation is repeated in App.svelte.
    Change:
    - Centralize tab selection logic in a small helper.
@@ -506,7 +506,7 @@
    - Update App tests if needed.
    Done when: tab logic is centralized.
 
-** DONE [#B] Introduce shared API client layer
+** [#B] Introduce shared API client layer
    Why: Views repeat fetch + parse + error handling.
    Change:
    - Add an API client module (agents, terminals, logs, plan, workflows).
@@ -514,7 +514,7 @@
    - Add unit tests for API client functions.
    Done when: views call shared API functions.
 
-** DONE [#B] Move Dashboard orchestration into a store
+** [#B] Move Dashboard orchestration into a store
    Why: Dashboard.svelte mixes data fetching and UI logic.
    Change:
    - Create dashboardStore for agents/skills/logs and loading/error state.
@@ -522,7 +522,7 @@
    - Add store tests for loading/error flows.
    Done when: Dashboard view is thinner and uses the store.
 
-** DONE [#B] Standardize view loading/error UI patterns
+** [#B] Standardize view loading/error UI patterns
    Why: Views handle loading/errors inconsistently.
    Change:
    - Add shared helpers/components for loading and error UI.
@@ -530,7 +530,7 @@
    - Add tests for shared helpers.
    Done when: views share consistent loading/error patterns.
 
-** DONE [#B] Share workflow formatting helpers
+** [#B] Share workflow formatting helpers
    Why: Workflow components repeat formatting logic.
    Change:
    - Extract formatting helpers for timestamps/labels.
@@ -538,7 +538,7 @@
    - Add tests for formatting helpers.
    Done when: workflow components reuse shared formatting logic.
 
-** DONE [#C] Split terminalStore into service + store
+** [#C] Split terminalStore into service + store
    Why: Terminal lifecycle logic is intertwined with store state.
    Change:
    - Introduce a terminal service to manage xterm lifecycle and WS.
@@ -547,7 +547,7 @@
    - Update terminalStore tests for service boundaries.
    Done when: service + store separation is complete.
 
-** WIP [#C] Optional routing/state machine per view
+** [#C] Optional routing/state machine per view
    Why: Async flows (loading/error/refresh) are scattered.
    Change:
    - Introduce a small routing layer or state machine per view.
@@ -555,7 +555,7 @@
    - Add view state tests to avoid regressions.
    Done when: view async flows are explicit and testable.
 
-* TODO [#B] Build surface and dependencies
+* WIP [#B] Build surface and dependencies
   Goal: Keep dependency footprint transparent and optional where possible.
   Notes:
   - Default behavior should remain unchanged.

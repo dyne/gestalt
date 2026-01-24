@@ -5,6 +5,9 @@
   import { getErrorMessage } from '../lib/errorUtils.js'
   import { formatRelativeTime } from '../lib/timeUtils.js'
   import ViewState from '../components/ViewState.svelte'
+  import { createViewStateMachine } from '../lib/viewStateMachine.js'
+
+  const viewState = createViewStateMachine()
 
   let logs = []
   let orderedLogs = []
@@ -30,21 +33,20 @@
   }
 
   const loadLogs = async () => {
-    loading = true
-    error = ''
+    viewState.start()
     try {
       logs = await fetchLogsApi({ level: levelFilter })
       lastUpdated = new Date().toISOString()
       lastErrorMessage = ''
     } catch (err) {
       const message = getErrorMessage(err, 'Failed to load logs.')
-      error = message
+      viewState.setError(message)
       if (message !== lastErrorMessage) {
         notificationStore.addNotification('error', message)
         lastErrorMessage = message
       }
     } finally {
-      loading = false
+      viewState.finish()
     }
   }
 
@@ -93,6 +95,8 @@
       clearInterval(refreshTimer)
     }
   })
+
+  $: ({ loading, error } = $viewState)
 </script>
 
 <section class="logs">

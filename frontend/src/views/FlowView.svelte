@@ -3,11 +3,14 @@
   import { fetchWorkflows, resumeWorkflow as resumeWorkflowSession } from '../lib/apiClient.js'
   import { subscribe as subscribeWorkflowEvents } from '../lib/workflowEventStore.js'
   import { getErrorMessage } from '../lib/errorUtils.js'
+  import { createViewStateMachine } from '../lib/viewStateMachine.js'
   import WorkflowCard from '../components/WorkflowCard.svelte'
   import ViewState from '../components/ViewState.svelte'
 
   export let onViewTerminal = () => {}
   export let temporalUiUrl = ''
+
+  const viewState = createViewStateMachine()
 
   let workflows = []
   let loading = false
@@ -33,21 +36,15 @@
 
   const loadWorkflows = async ({ silent = false } = {}) => {
     if (loading || refreshing) return
-    if (silent) {
-      refreshing = true
-    } else {
-      loading = true
-    }
-    error = ''
+    viewState.start({ silent })
     try {
       const payload = await fetchWorkflows()
       workflows = Array.isArray(payload) ? payload : []
       syncExpanded(workflows)
     } catch (err) {
-      error = getErrorMessage(err, 'Failed to load workflows.')
+      viewState.setError(getErrorMessage(err, 'Failed to load workflows.'))
     } finally {
-      loading = false
-      refreshing = false
+      viewState.finish()
     }
   }
 
@@ -79,7 +76,7 @@
       await resumeWorkflowSession(sessionId, action)
       await loadWorkflows({ silent: true })
     } catch (err) {
-      error = getErrorMessage(err, 'Failed to resume workflow.')
+      viewState.setError(getErrorMessage(err, 'Failed to resume workflow.'))
     } finally {
       const cleared = new Set(pendingActions)
       cleared.delete(sessionId)
@@ -113,6 +110,8 @@
       eventRefreshTimer = null
     }
   })
+
+  $: ({ loading, refreshing, error } = $viewState)
 </script>
 
 <section class="flow-view">

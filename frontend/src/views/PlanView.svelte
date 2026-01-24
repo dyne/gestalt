@@ -4,8 +4,11 @@
   import { eventConnectionStatus, subscribe as subscribeEvents } from '../lib/eventStore.js'
   import { getErrorMessage } from '../lib/errorUtils.js'
   import { createPollingHelper } from '../lib/pollingHelper.js'
+  import { createViewStateMachine } from '../lib/viewStateMachine.js'
   import OrgViewer from '../components/OrgViewer.svelte'
   import ViewState from '../components/ViewState.svelte'
+
+  const viewState = createViewStateMachine()
 
   let loading = false
   let refreshing = false
@@ -35,12 +38,7 @@
 
   const loadPlan = async ({ silent = false, notify = false } = {}) => {
     if (loading || refreshing) return
-    if (silent) {
-      refreshing = true
-    } else {
-      loading = true
-    }
-    error = ''
+    viewState.start({ silent })
     try {
       const result = await fetchPlan({ etag })
       if (result.etag) {
@@ -58,10 +56,9 @@
         }
       }
     } catch (err) {
-      error = getErrorMessage(err, 'Failed to load plan.')
+      viewState.setError(getErrorMessage(err, 'Failed to load plan.'))
     } finally {
-      loading = false
-      refreshing = false
+      viewState.finish()
     }
   }
 
@@ -81,6 +78,8 @@
   const startFallbackPolling = () => {
     fallbackPolling.start()
   }
+
+  $: ({ loading, refreshing, error } = $viewState)
 
   onMount(() => {
     loadPlan()

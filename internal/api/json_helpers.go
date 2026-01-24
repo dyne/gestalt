@@ -16,6 +16,7 @@ func writeJSONError(w http.ResponseWriter, err *apiError) {
 		return
 	}
 	writeJSON(w, err.Status, errorResponse{
+		Message:    err.Message,
 		Error:      err.Message,
 		TerminalID: err.TerminalID,
 	})

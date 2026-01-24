@@ -39,11 +39,11 @@ type scipTestSymbol struct {
 }
 
 type scipTestFixture struct {
-	handler         *SCIPHandler
-	indexPath       string
-	filePath        string
-	openIndex       scipTestSymbol
-	getSymbolsInFile scipTestSymbol
+	handler           *SCIPHandler
+	indexPath         string
+	filePath          string
+	openIndex         scipTestSymbol
+	getSymbolsInFile  scipTestSymbol
 	decodeOccurrences scipTestSymbol
 }
 
@@ -265,7 +265,7 @@ func TestSCIPGetReferences(t *testing.T) {
 	}
 
 	var payload struct {
-		Symbol     string           `json:"symbol"`
+		Symbol     string            `json:"symbol"`
 		References []scip.Occurrence `json:"references"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
@@ -1182,13 +1182,18 @@ func assertAPIError(t *testing.T, res *httptest.ResponseRecorder, expectedStatus
 		t.Fatalf("expected status %d, got %d", expectedStatus, res.Code)
 	}
 	var payload struct {
-		Error string `json:"error"`
+		Message string `json:"message"`
+		Error   string `json:"error"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode error response: %v", err)
 	}
-	if payload.Error != expectedMessage {
-		t.Fatalf("expected error %q, got %q", expectedMessage, payload.Error)
+	message := payload.Message
+	if message == "" {
+		message = payload.Error
+	}
+	if message != expectedMessage {
+		t.Fatalf("expected error %q, got %q", expectedMessage, message)
 	}
 }
 

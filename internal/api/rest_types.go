@@ -117,7 +117,8 @@ type planCurrentResponse struct {
 }
 
 type errorResponse struct {
-	Error      string `json:"error"`
+	Message    string `json:"message"`
+	Error      string `json:"error,omitempty"`
 	TerminalID string `json:"terminal_id,omitempty"`
 }
 

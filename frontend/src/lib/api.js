@@ -44,7 +44,9 @@ export async function apiFetch(path, options = {}) {
     if (bodyText) {
       try {
         payload = JSON.parse(bodyText)
-        if (payload?.error) {
+        if (payload?.message) {
+          message = payload.message
+        } else if (payload?.error) {
           message = payload.error
         }
       } catch {

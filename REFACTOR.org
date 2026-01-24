@@ -253,13 +253,13 @@
    - Update skill XML tests for new fields.
    Done when: skill metadata is richer and documented.
 
-* TODO [#B] Error handling standardization
+* WIP [#B] Error handling standardization
   Goal: Make errors consistent across REST, WS, and UI.
   Notes:
   - Avoid breaking error messages used by tests or CLI.
   Date: 2026-01-24
 
-** TODO [#A] Standardize REST error field names
+** DONE [#A] Standardize REST error field names
    Why: REST errors vary across handlers.
    Change:
    - Ensure apiError responses use consistent fields (error, code, details).

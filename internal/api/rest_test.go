@@ -1162,7 +1162,7 @@ func TestCreateTerminalDuplicateAgent(t *testing.T) {
 	if payload.TerminalID != created.ID {
 		t.Fatalf("expected terminal_id %q, got %q", created.ID, payload.TerminalID)
 	}
-	if payload.Error == "" {
+	if payload.Message == "" {
 		t.Fatalf("expected error message")
 	}
 }

@@ -2636,7 +2636,7 @@
   - Keep auth semantics unchanged.
   Date: 2026-01-24
 
-** WIP [#A] Create backend WS upgrade/write helper
+** DONE [#A] Create backend WS upgrade/write helper
    Why: WS handlers repeat upgrade/auth/subscribe/write loops.
    Change:
    - Extract a helper to upgrade, authenticate, and run write/read loops.
@@ -2645,7 +2645,7 @@
    - Add WS handler tests for close and error paths.
    Done when: WS handlers share a common helper without behavior change.
 
-** TODO [#A] Add wsAuth helper for token validation
+** WIP [#A] Add wsAuth helper for token validation
    Why: Auth checks are duplicated across WS handlers.
    Change:
    - Centralize WS auth checks and responses.

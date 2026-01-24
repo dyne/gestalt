@@ -112,15 +112,7 @@ func (h *EventsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	filter := newEventFilter(allowed)
 	limiter := &rateLimiter{}
 
-	upgrader := websocket.Upgrader{
-		ReadBufferSize:  1024,
-		WriteBufferSize: 1024,
-		CheckOrigin: func(r *http.Request) bool {
-			return isOriginAllowed(r, h.AllowedOrigins)
-		},
-	}
-
-	conn, err := upgrader.Upgrade(w, r, nil)
+	conn, err := upgradeWebSocket(w, r, h.AllowedOrigins)
 	if err != nil {
 		return
 	}

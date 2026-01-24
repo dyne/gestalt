@@ -4,9 +4,8 @@ import (
 	"net/http"
 	"time"
 
+	eventtypes "gestalt/internal/event"
 	"gestalt/internal/terminal"
-
-	"github.com/gorilla/websocket"
 )
 
 type AgentEventsHandler struct {
@@ -45,55 +44,21 @@ func (h *AgentEventsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer cancel()
 
-	upgrader := websocket.Upgrader{
-		ReadBufferSize:  1024,
-		WriteBufferSize: 1024,
-		CheckOrigin: func(r *http.Request) bool {
-			return isOriginAllowed(r, h.AllowedOrigins)
-		},
-	}
-
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		return
-	}
-	defer conn.Close()
-
-	done := make(chan struct{})
-	defer close(done)
-
-	go func() {
-		for {
-			select {
-			case event, ok := <-output:
-				if !ok {
-					return
-				}
-				payload := agentEventPayload{
-					Type:      event.Type(),
-					AgentID:   event.AgentID,
-					AgentName: event.AgentName,
-					Timestamp: event.Timestamp(),
-					Context:   event.Context,
-				}
-				if payload.Timestamp.IsZero() {
-					payload.Timestamp = time.Now().UTC()
-				}
-				if err := conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
-					return
-				}
-				if err := conn.WriteJSON(payload); err != nil {
-					return
-				}
-			case <-done:
-				return
+	serveWSStream(w, r, wsStreamConfig[eventtypes.AgentEvent]{
+		AllowedOrigins: h.AllowedOrigins,
+		Output:         output,
+		BuildPayload: func(event eventtypes.AgentEvent) (any, bool) {
+			payload := agentEventPayload{
+				Type:      event.Type(),
+				AgentID:   event.AgentID,
+				AgentName: event.AgentName,
+				Timestamp: event.Timestamp(),
+				Context:   event.Context,
 			}
-		}
-	}()
-
-	for {
-		if _, _, err := conn.ReadMessage(); err != nil {
-			return
-		}
-	}
+			if payload.Timestamp.IsZero() {
+				payload.Timestamp = time.Now().UTC()
+			}
+			return payload, true
+		},
+	})
 }

@@ -42,7 +42,6 @@ Internal packages (Go):
 - internal/temporal: workflow orchestration, memo helpers, worker wiring.
 - internal/metrics: metrics counters exposed via /api/metrics.
 - internal/version: build version string for /api/status and logs.
-- internal/orchestrator: placeholder for future inter-terminal orchestration.
 
 Backend runtime wiring (main.go):
 - Loads config from flags/env/defaults; extracts embedded config to .gestalt/config
@@ -145,7 +144,6 @@ Backend Go packages (files, lines):
 - internal/plan: 4 files, 309 lines
 - internal/metrics: 1 file, 360 lines
 - internal/version: 2 files, 81 lines
-- internal/orchestrator: 2 files, 15 lines
 
 Commands:
 - cmd/gestalt: 16 files, 4126 lines
@@ -513,25 +511,12 @@ Large refactors (1+ week, if justified):
   or changing ordering affects frontend log views.
 
 ## Package analysis: internal/orchestrator
-Scope: empty placeholder for future inter-terminal orchestration.
+Scope: placeholder removed to avoid misleading APIs.
 
 ### Current state
-- Package contains only a doc.go with intended responsibilities.
-- No code, types, or references in the rest of the codebase.
-
-### Improvement proposals (concrete)
-Quick wins (<1 day):
-- Either remove the package to reduce noise, or add a minimal interface
-  (even a TODO stub with compile-time comment) to clarify current intent.
-
-Medium refactors (1-3 days):
-- If orchestration is on the roadmap, define a minimal API (e.g., message
-  routing interface) and add a no-op implementation to make dependencies
-  explicit.
-
-### Risks and hidden coupling
-- The package name suggests capabilities that do not exist; developers may
-  assume orchestration is present when it is not.
+- The package was removed; no orchestration API is defined.
+- Future orchestration should be introduced with a concrete interface and
+  implementation when requirements are clear.
 
 ## Package analysis: internal/version
 Scope: build-time version metadata.

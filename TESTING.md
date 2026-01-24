@@ -54,7 +54,6 @@ cmd/gestalt | 43.3% | Config + static dir coverage.
 internal/agent | 92.5% | Unit tests cover prompt parsing + loader behavior.
 internal/api | 44.1% | REST + websocket integration tests present.
 internal/logging | 73.0% | Buffer + hub + logger tests present.
-internal/orchestrator | [no statements] | Stub package.
 internal/terminal | 80.2% | Manager + session + buffer + broadcaster coverage.
 
 Coverage targets:

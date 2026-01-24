@@ -584,13 +584,13 @@
    Tests: None (documentation only).
    Done when: documentation explains SCIP build tags.
 
-* TODO [#C] Orchestrator package decision
+* WIP [#C] Orchestrator package decision
   Goal: Remove ambiguity around internal/orchestrator.
   Notes:
   - Current package is a stub with no references.
   Date: 2026-01-24
 
-** TODO [#C] Remove or formalize orchestrator stub
+** DONE [#C] Remove or formalize orchestrator stub
    Why: The package name implies capabilities that do not exist.
    Change:
    - Either remove the package or add a minimal interface + no-op impl.

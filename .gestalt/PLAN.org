@@ -2577,7 +2577,7 @@
    - Update persistence tests to validate unchanged behavior.
    Done when: Session and input logs use shared logger with identical outputs.
 
-** WIP [#A] Extract prompt injection helper
+** DONE [#A] Extract prompt injection helper
    Why: Prompt injection is a large inline goroutine in createSession.
    Change:
    - Move prompt injection into a helper (PromptInjector or manager_prompt.go).
@@ -2586,7 +2586,7 @@
    - Add unit tests for prompt injection flow.
    Done when: createSession is smaller and prompt flow is testable in isolation.
 
-** TODO [#A] Add session lifecycle helper for logging/events
+** WIP [#A] Add session lifecycle helper for logging/events
    Why: Session create/close/error logging is repeated across Manager paths.
    Change:
    - Add a small helper to emit consistent lifecycle logs + events.

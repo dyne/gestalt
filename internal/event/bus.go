@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"gestalt/internal/metrics"
+	otellog "go.opentelemetry.io/otel/log"
+	logglobal "go.opentelemetry.io/otel/log/global"
 )
 
 const defaultSubscriberBufferSize = 128
@@ -44,6 +46,7 @@ type Bus[T any] struct {
 	history      []T
 	historyNext  int
 	historyCount int
+	otelLogger   otellog.Logger
 }
 
 type typedEvent interface {
@@ -74,6 +77,11 @@ func NewBus[T any](ctx context.Context, opts BusOptions) *Bus[T] {
 	if bus.registry == nil {
 		bus.registry = metrics.Default
 	}
+	loggerName := "gestalt/internal/event"
+	if strings.TrimSpace(opts.Name) != "" {
+		loggerName = loggerName + "/" + strings.TrimSpace(opts.Name)
+	}
+	bus.otelLogger = logglobal.Logger(loggerName)
 	if done := ctx.Done(); done != nil {
 		go func() {
 			<-done
@@ -171,25 +179,22 @@ func (b *Bus[T]) Publish(event T) {
 		return
 	}
 	b.appendHistoryLocked(event)
-	if len(b.subscribers) == 0 {
-		b.mu.Unlock()
-		eventType := b.eventType(event)
-		b.incPublished(eventType)
-		if debugEventsEnabled {
-			log.Printf("event bus %s: event %s", b.busName(), eventType)
-		}
-		return
-	}
 	subscribers := make([]subscription[T], 0, len(b.subscribers))
 	for _, sub := range b.subscribers {
 		subscribers = append(subscribers, sub)
 	}
+	hasSubscribers := len(subscribers) > 0
 	b.mu.Unlock()
 
 	eventType := b.eventType(event)
 	b.incPublished(eventType)
 	if debugEventsEnabled {
 		log.Printf("event bus %s: event %s", b.busName(), eventType)
+	}
+	b.emitOTelEvent(event, eventType)
+
+	if !hasSubscribers {
+		return
 	}
 
 	for _, sub := range subscribers {

@@ -54,26 +54,25 @@ func (s SessionState) String() string {
 	}
 }
 
-type Session struct {
-	ID            string
-	AgentID       string
-	Title         string
-	Role          string
-	CreatedAt     time.Time
-	LLMType       string
-	LLMModel      string
-	Command       string
-	ConfigHash    string
-	PromptFiles   []string
-	WorkflowID    *string
-	WorkflowRunID *string
+type SessionMeta struct {
+	ID          string
+	AgentID     string
+	Title       string
+	Role        string
+	CreatedAt   time.Time
+	LLMType     string
+	LLMModel    string
+	Command     string
+	ConfigHash  string
+	PromptFiles []string
+	agent       *agent.Agent
+}
 
-	ctx    context.Context
-	cancel context.CancelFunc
-
-	input  chan []byte
-	output chan []byte
-
+type SessionIO struct {
+	ctx          context.Context
+	cancel       context.CancelFunc
+	input        chan []byte
+	output       chan []byte
 	pty          Pty
 	cmd          *exec.Cmd
 	outputBus    *event.Bus[[]byte]
@@ -81,7 +80,6 @@ type Session struct {
 	logger       *SessionLogger
 	inputBuf     *InputBuffer
 	inputLog     *InputLogger
-	agent        *agent.Agent
 	subs         int32
 	dsrMu        sync.Mutex
 	dsrTimer     *time.Timer
@@ -89,9 +87,19 @@ type Session struct {
 	closing      sync.Once
 	closeErr     error
 	state        uint32
+}
 
+type SessionWorkflow struct {
+	WorkflowID     *string
+	WorkflowRunID  *string
 	workflowClient temporal.WorkflowClient
 	workflowMutex  sync.RWMutex
+}
+
+type Session struct {
+	SessionMeta
+	SessionIO
+	SessionWorkflow
 }
 
 type SessionInfo struct {
@@ -126,25 +134,29 @@ func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt
 		SlowSubscriberThreshold: terminalOutputSlowThreshold,
 	})
 	session := &Session{
-		ID:           id,
-		Title:        title,
-		Role:         role,
-		CreatedAt:    createdAt,
-		LLMType:      llmType,
-		LLMModel:     llmModel,
-		ctx:          ctx,
-		cancel:       cancel,
-		input:        make(chan []byte, 64),
-		output:       make(chan []byte, 64),
-		pty:          pty,
-		cmd:          cmd,
-		outputBus:    outputBus,
-		outputBuffer: outputBuffer,
-		logger:       sessionLogger,
-		inputBuf:     NewInputBuffer(DefaultInputBufferSize),
-		inputLog:     inputLogger,
-		agent:        profile,
-		state:        uint32(sessionStateStarting),
+		SessionMeta: SessionMeta{
+			ID:        id,
+			Title:     title,
+			Role:      role,
+			CreatedAt: createdAt,
+			LLMType:   llmType,
+			LLMModel:  llmModel,
+			agent:     profile,
+		},
+		SessionIO: SessionIO{
+			ctx:          ctx,
+			cancel:       cancel,
+			input:        make(chan []byte, 64),
+			output:       make(chan []byte, 64),
+			pty:          pty,
+			cmd:          cmd,
+			outputBus:    outputBus,
+			outputBuffer: outputBuffer,
+			logger:       sessionLogger,
+			inputBuf:     NewInputBuffer(DefaultInputBufferSize),
+			inputLog:     inputLogger,
+			state:        uint32(sessionStateStarting),
+		},
 	}
 
 	go session.readLoop()

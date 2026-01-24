@@ -40,7 +40,7 @@
    - Add tests for the Windows-specific error message.
    Done when: Windows users see a specific ConPTY error message.
 
-** WIP [#B] Split Session into focused sub-structs
+** DONE [#B] Split Session into focused sub-structs
    Why: Session mixes metadata, IO, workflow, and logging concerns.
    Change:
    - Introduce SessionMeta, SessionIO, SessionWorkflow and compose in Session.
@@ -49,7 +49,7 @@
    - Update session tests to validate behavior across new boundaries.
    Done when: Session is smaller with unchanged behavior.
 
-** TODO [#B] Align buffer retention semantics across logs/terminal
+** WIP [#B] Align buffer retention semantics across logs/terminal
    Why: LogBuffer and terminal buffers share similar retention logic.
    Change:
    - Add a shared ring buffer helper or align behaviors explicitly.

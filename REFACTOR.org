@@ -375,7 +375,7 @@
    - Add unit tests for prompt validation.
    Done when: prompt validation is reusable.
 
-** TODO [#B] Split main.go into focused files
+** DONE [#B] Split main.go into focused files
    Why: main.go mixes config parsing, server setup, and watchers.
    Change:
    - Split into config_load.go, server.go, temporal.go, watchers.go.
@@ -383,7 +383,7 @@
    - Ensure cmd/gestalt tests still pass.
    Done when: main.go is smaller and easier to navigate.
 
-** TODO [#B] Introduce internal app builder
+** WIP [#B] Introduce internal app builder
    Why: Dependency wiring is embedded in main.go.
    Change:
    - Add internal/app (or internal/config) builder for runtime deps.

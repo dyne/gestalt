@@ -124,3 +124,7 @@ terminal output -> Session output bus -> /ws/terminal/:id -> xterm
 ## WebSocket consolidation notes
 - Backend WS streaming now uses a shared write-loop helper (`internal/api/ws_helpers.go`) with per-handler read logic; logs/events/terminal handlers were updated to use it and have close-handling tests.
 - Frontend WS helper tests live in `frontend/src/lib/wsStore.test.js` and cover reconnect, subscription payloads, and listener error handling.
+
+## Frontend store simplification notes
+- Dashboard orchestration (agent/config/git event handling, config extraction counts, git context) lives in `frontend/src/lib/dashboardStore.js`; Dashboard view now just binds store state.
+- Terminal input helpers have direct tests in `frontend/src/lib/terminal/input.test.js`.

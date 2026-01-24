@@ -7564,13 +7564,13 @@
    Change: Introduce shared wsStore utility for event stores and migrate them.
    Tests: Update store tests to exercise the shared helper.
 
-* WIP [#B] Frontend state/store simplification
+* DONE [#B] Frontend state/store simplification
   Goal: Make large UI modules smaller and more testable.
-** DONE [#B] Split terminalStore into focused modules
+** [#B] Split terminalStore into focused modules
    Effort: Medium
    Change: Separate xterm setup, ws connection, and input handling modules.
    Tests: Keep terminalStore tests passing with new module boundaries.
-** DONE [#B] Move Dashboard data orchestration into a store
+** [#B] Move Dashboard data orchestration into a store
    Effort: Medium
    Change: Create a dashboardStore for agents/skills/logs fetching and state.
    Tests: Add store tests for loading/error behavior.

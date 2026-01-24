@@ -167,6 +167,34 @@ prompt = ["missing"]
 	}
 }
 
+func TestLoaderPromptResolutionSupportsMarkdown(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "codex.toml"), []byte(`
+name = "Codex"
+shell = "/bin/bash"
+prompt = ["notes", "explicit.md"]
+`), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	promptsDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(promptsDir, "notes.md"), []byte("notes"), 0644); err != nil {
+		t.Fatalf("write prompt: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(promptsDir, "explicit.md"), []byte("explicit"), 0644); err != nil {
+		t.Fatalf("write prompt: %v", err)
+	}
+
+	buffer := logging.NewLogBuffer(10)
+	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, nil)
+	loader := Loader{Logger: logger}
+	if _, err := loader.Load(nil, dir, promptsDir, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if warning := findAgentWarning(buffer.List(), "agent prompt file missing"); warning != nil {
+		t.Fatalf("unexpected prompt warning: %v", warning.Context)
+	}
+}
+
 func TestLoaderMissingSkillLogsWarning(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "codex.toml"), []byte(`
@@ -243,7 +271,7 @@ shell = "/bin/bash"
 
 func TestLoaderSchemaViolationMessage(t *testing.T) {
 	dir := t.TempDir()
-if err := os.WriteFile(filepath.Join(dir, "codex.toml"), []byte(`
+	if err := os.WriteFile(filepath.Join(dir, "codex.toml"), []byte(`
 name = "Codex"
 cli_type = "codex"
 model = 123

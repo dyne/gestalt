@@ -189,7 +189,7 @@
    - Update validation tests if behavior changes.
    Done when: validation behavior is explicit and tested.
 
-** TODO [#A] Reuse prompt resolver for agent prompt validation
+** DONE [#A] Reuse prompt resolver for agent prompt validation
    Why: Prompt existence checks are duplicated outside internal/prompt.
    Change:
    - Use internal/prompt resolver for prompt presence checks.

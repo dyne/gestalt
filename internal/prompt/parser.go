@@ -218,11 +218,12 @@ func (p *Parser) readBareInclude(cleaned string) ([]byte, string, error) {
 
 func promptCandidates(promptName string) []string {
 	extension := strings.ToLower(path.Ext(promptName))
-	if extension == ".tmpl" || extension == ".txt" {
+	if extension == ".tmpl" || extension == ".txt" || extension == ".md" {
 		return []string{promptName}
 	}
 	return []string{
 		promptName + ".tmpl",
+		promptName + ".md",
 		promptName + ".txt",
 	}
 }

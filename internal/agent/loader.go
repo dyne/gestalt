@@ -12,6 +12,7 @@ import (
 	"gestalt/internal/config"
 	"gestalt/internal/event"
 	"gestalt/internal/logging"
+	"gestalt/internal/prompt"
 )
 
 // Loader reads agent profiles from TOML files.
@@ -185,7 +186,7 @@ func validatePromptNames(logger *logging.Logger, agentFS fs.FS, agentID string, 
 		if promptName == "" {
 			continue
 		}
-		if _, err := resolvePromptPath(agentFS, promptsDir, promptName); err != nil {
+		if _, err := prompt.ResolvePromptPath(agentFS, promptsDir, promptName); err != nil {
 			if logger != nil {
 				logger.Warn("agent prompt file missing", map[string]string{
 					"agent_id": agentID,
@@ -195,17 +196,6 @@ func validatePromptNames(logger *logging.Logger, agentFS fs.FS, agentID string, 
 			}
 		}
 	}
-}
-
-func resolvePromptPath(agentFS fs.FS, promptsDir, promptName string) (string, error) {
-	extensions := []string{".tmpl", ".md", ".txt"}
-	for _, ext := range extensions {
-		promptPath := path.Join(promptsDir, promptName+ext)
-		if _, err := fs.Stat(agentFS, promptPath); err == nil {
-			return promptPath, nil
-		}
-	}
-	return "", fmt.Errorf("prompt %q not found", promptName)
 }
 
 func resolveSkills(logger *logging.Logger, agentID string, skills []string, skillIndex map[string]struct{}) []string {

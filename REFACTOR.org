@@ -32,7 +32,7 @@
    - Update Manager tests to validate lifecycle event ordering.
    Done when: Lifecycle logging/event emission is centralized.
 
-** WIP [#B] Add explicit Windows PTY error message
+** DONE [#B] Add explicit Windows PTY error message
    Why: errConPTYUnavailable currently surfaces as a generic error.
    Change:
    - Return a clear, actionable error message when ConPTY is unavailable.
@@ -40,7 +40,7 @@
    - Add tests for the Windows-specific error message.
    Done when: Windows users see a specific ConPTY error message.
 
-** TODO [#B] Split Session into focused sub-structs
+** WIP [#B] Split Session into focused sub-structs
    Why: Session mixes metadata, IO, workflow, and logging concerns.
    Change:
    - Introduce SessionMeta, SessionIO, SessionWorkflow and compose in Session.

@@ -380,6 +380,7 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 
 	pty, cmd, err := m.factory.Start(command, args...)
 	if err != nil {
+		err = wrapPtyStartError(err)
 		if m.logger != nil {
 			fields := map[string]string{
 				"shell":   shell,

@@ -74,11 +74,7 @@ func (h *LogsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writer, err := startWSWriteLoop(w, r, wsStreamConfig[logging.LogEntry]{
-		AllowedOrigins: h.AllowedOrigins,
-		Output:         output,
-		Logger:         h.Logger,
-	})
+	conn, err := upgradeWebSocket(w, r, h.AllowedOrigins)
 	if err != nil {
 		cancel()
 		logWSError(h.Logger, r, wsError{
@@ -88,11 +84,30 @@ func (h *LogsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	defer conn.Close()
+
+	spanCtx, span := startWebSocketSpan(r, "/ws/logs")
+	defer span.End()
+	r = r.WithContext(spanCtx)
+
+	writer, err := startWSWriteLoop(w, r, wsStreamConfig[logging.LogEntry]{
+		Conn:           conn,
+		AllowedOrigins: h.AllowedOrigins,
+		Output:         output,
+		Logger:         h.Logger,
+	})
+	if err != nil {
+		cancel()
+		writeWSError(w, r, conn, h.Logger, wsError{
+			Status:       http.StatusInternalServerError,
+			Message:      "log stream unavailable",
+			Err:          err,
+			SendEnvelope: true,
+		})
+		return
+	}
 	defer cancel()
 	defer writer.Stop()
-
-	conn := writer.Conn
-	defer conn.Close()
 
 	for {
 		msgType, msg, err := conn.ReadMessage()

@@ -13,6 +13,7 @@ import (
 	"gestalt/internal/terminal"
 
 	"github.com/gorilla/websocket"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type TerminalHandler struct {
@@ -48,6 +49,10 @@ func (h *TerminalHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
+	spanCtx, span := startWebSocketSpan(r, "/ws/terminal/:id")
+	defer span.End()
+	r = r.WithContext(spanCtx)
+
 	if h.Manager == nil {
 		writeWSError(w, r, conn, h.Logger, wsError{
 			Status:  http.StatusInternalServerError,
@@ -64,6 +69,7 @@ func (h *TerminalHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	span.SetAttributes(attribute.String("terminal.id", id))
 
 	session, ok := h.Manager.Get(id)
 	if !ok {

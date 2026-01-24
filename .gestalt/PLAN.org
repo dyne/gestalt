@@ -123,7 +123,7 @@
    - /api/metrics/summary returns useful aggregations
 ** DONE [#A] Migrate internal/logging to OpenTelemetry LogRecords
 ** DONE [#B] Migrate event.Bus events to OpenTelemetry LogRecords
-** TODO [#B] Add distributed tracing for WebSocket connections
+** DONE [#B] Add distributed tracing for WebSocket connections
 ** TODO [#B] Integrate OpenTelemetry with Temporal workflows
 ** TODO [#A] Replace internal/metrics with OpenTelemetry metrics
 ** TODO [#B] Create frontend OTel query client

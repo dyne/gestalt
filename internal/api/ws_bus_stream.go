@@ -55,6 +55,10 @@ func serveWSBusStream[T any](w http.ResponseWriter, r *http.Request, config wsBu
 	}
 	defer cancel()
 
+	spanCtx, span := startWebSocketSpan(r, r.URL.Path)
+	defer span.End()
+	r = r.WithContext(spanCtx)
+
 	serveWSStream(w, r, wsStreamConfig[T]{
 		AllowedOrigins: config.AllowedOrigins,
 		Conn:           conn,

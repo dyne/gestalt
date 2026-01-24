@@ -119,6 +119,10 @@ func (h *EventsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
+	spanCtx, span := startWebSocketSpan(r, "/ws/events")
+	defer span.End()
+	r = r.WithContext(spanCtx)
+
 	if h.Bus == nil {
 		writeWSError(w, r, conn, h.Logger, wsError{
 			Status:       http.StatusInternalServerError,

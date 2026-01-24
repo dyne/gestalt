@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"gestalt/internal/logging"
+	"gestalt/internal/prompt"
 )
 
 func TestValidatePromptFilesLogsBinary(t *testing.T) {
@@ -22,7 +23,7 @@ func TestValidatePromptFilesLogsBinary(t *testing.T) {
 
 	buffer := logging.NewLogBuffer(10)
 	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, io.Discard)
-	validatePromptFiles(root, logger)
+	prompt.ValidatePromptFiles(root, logger)
 
 	if !hasLogMessage(buffer.List(), "prompt file is not valid text") {
 		t.Fatalf("expected warning for invalid prompt text")

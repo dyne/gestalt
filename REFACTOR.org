@@ -367,7 +367,7 @@
    - Add unit tests for ServerRunner lifecycle.
    Done when: main.go is smaller and server lifecycle is isolated.
 
-** TODO [#A] Move prompt validation helper
+** DONE [#A] Move prompt validation helper
    Why: Prompt validation belongs in shared prompt/config helpers.
    Change:
    - Move prompt validation into internal/prompt or internal/config.

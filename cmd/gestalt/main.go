@@ -29,6 +29,7 @@ import (
 	"gestalt/internal/event"
 	"gestalt/internal/logging"
 	"gestalt/internal/plan"
+	"gestalt/internal/prompt"
 	"gestalt/internal/scip"
 	"gestalt/internal/skill"
 	"gestalt/internal/temporal"
@@ -237,7 +238,7 @@ func main() {
 	}
 
 	if !cfg.DevMode {
-		validatePromptFiles(configPaths.ConfigDir, logger)
+		prompt.ValidatePromptFiles(configPaths.ConfigDir, logger)
 	}
 
 	configFS := buildConfigFS(configPaths.Root)

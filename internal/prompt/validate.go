@@ -1,12 +1,10 @@
-package main
+package prompt
 
 import (
-	"bytes"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
 
 	"gestalt/internal/logging"
 )
@@ -17,7 +15,7 @@ var promptExtensions = map[string]struct{}{
 	".txt":  {},
 }
 
-func validatePromptFiles(configDir string, logger *logging.Logger) {
+func ValidatePromptFiles(configDir string, logger *logging.Logger) {
 	configDir = strings.TrimSpace(configDir)
 	if configDir == "" {
 		return
@@ -61,16 +59,6 @@ func isPromptFile(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	_, ok := promptExtensions[ext]
 	return ok
-}
-
-func isTextData(data []byte) bool {
-	if len(data) == 0 {
-		return true
-	}
-	if bytes.IndexByte(data, 0) != -1 {
-		return false
-	}
-	return utf8.Valid(data)
 }
 
 func logPromptWarning(logger *logging.Logger, message, path string, err error) {

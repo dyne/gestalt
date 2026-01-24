@@ -459,7 +459,7 @@
    - Update terminalStore tests to cover new boundaries.
    Done when: terminalStore is smaller and API surface is unchanged.
 
-** WIP [#A] Create wsStore helper for event stores
+** DONE [#A] Create wsStore helper for event stores
    Why: WS lifecycle logic is repeated across event stores.
    Change:
    - Add a shared wsStore factory with reconnect + dispatch hooks.
@@ -467,7 +467,7 @@
    - Update event store tests to validate shared helper behavior.
    Done when: event stores use shared helper and tests pass.
 
-** TODO [#A] Split Terminal component
+** WIP [#A] Split Terminal component
    Why: Terminal.svelte handles UI plus xterm attachment logic.
    Change:
    - Introduce TerminalShell + TerminalCanvas components.

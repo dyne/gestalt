@@ -1,11 +1,11 @@
-* TODO [#A] Terminal/session and logging cleanup
+* WIP [#A] Terminal/session and logging cleanup
   Goal: Reduce session complexity and unify logging/buffer behavior without changing external behavior.
   Notes:
   - Prioritize hot-path changes that reduce duplication and improve testability.
   - Preserve existing API payloads and log formats.
   Date: 2026-01-24
 
-** TODO [#A] Extract AsyncFileLogger for session + input logs
+** DONE [#A] Extract AsyncFileLogger for session + input logs
    Why: SessionLogger and InputLogger duplicate buffering, flushing, and drop logic.
    Change:
    - Create a shared async file logger with a payload formatting hook.
@@ -15,7 +15,7 @@
    - Update persistence tests to validate unchanged behavior.
    Done when: Session and input logs use shared logger with identical outputs.
 
-** TODO [#A] Extract prompt injection helper
+** WIP [#A] Extract prompt injection helper
    Why: Prompt injection is a large inline goroutine in createSession.
    Change:
    - Move prompt injection into a helper (PromptInjector or manager_prompt.go).

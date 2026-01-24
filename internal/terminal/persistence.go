@@ -1,12 +1,9 @@
 package terminal
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -17,17 +14,7 @@ const (
 )
 
 type SessionLogger struct {
-	path      string
-	file      *os.File
-	writer    *bufio.Writer
-	writeCh   chan []byte
-	closeCh   chan struct{}
-	done      chan struct{}
-	closeOnce sync.Once
-	closed    uint32
-	dropped   uint64
-	lastFlush int64
-	closeErr  error
+	logger *asyncFileLogger[[]byte]
 }
 
 func NewSessionLogger(dir, terminalID string, createdAt time.Time) (*SessionLogger, error) {
@@ -45,133 +32,48 @@ func NewSessionLogger(dir, terminalID string, createdAt time.Time) (*SessionLogg
 		return nil, fmt.Errorf("open session log file: %w", err)
 	}
 
-	logger := &SessionLogger{
-		path:    path,
-		file:    file,
-		writer:  bufio.NewWriterSize(file, sessionLogFlushThreshold),
-		writeCh: make(chan []byte, sessionLogChannelSize),
-		closeCh: make(chan struct{}),
-		done:    make(chan struct{}),
-	}
-	go logger.run()
-	return logger, nil
+	logger := newAsyncFileLogger(path, file, sessionLogFlushInterval, sessionLogFlushThreshold, sessionLogChannelSize, encodeSessionChunk)
+	return &SessionLogger{logger: logger}, nil
 }
 
 func (l *SessionLogger) Write(chunk []byte) {
-	if l == nil || len(chunk) == 0 {
+	if l == nil || l.logger == nil {
 		return
 	}
-	if atomic.LoadUint32(&l.closed) == 1 {
-		return
-	}
-	select {
-	case l.writeCh <- chunk:
-	default:
-		select {
-		case <-l.writeCh:
-			atomic.AddUint64(&l.dropped, 1)
-		default:
-		}
-		select {
-		case l.writeCh <- chunk:
-		default:
-			atomic.AddUint64(&l.dropped, 1)
-		}
-	}
+	l.logger.Write(chunk)
 }
 
 func (l *SessionLogger) Path() string {
-	if l == nil {
+	if l == nil || l.logger == nil {
 		return ""
 	}
-	return l.path
+	return l.logger.Path()
 }
 
 func (l *SessionLogger) DroppedChunks() uint64 {
-	if l == nil {
+	if l == nil || l.logger == nil {
 		return 0
 	}
-	return atomic.LoadUint64(&l.dropped)
+	return l.logger.Dropped()
 }
 
 func (l *SessionLogger) LastFlushDuration() time.Duration {
-	if l == nil {
+	if l == nil || l.logger == nil {
 		return 0
 	}
-	return time.Duration(atomic.LoadInt64(&l.lastFlush))
+	return l.logger.LastFlushDuration()
 }
 
 func (l *SessionLogger) Close() error {
-	if l == nil {
+	if l == nil || l.logger == nil {
 		return nil
 	}
-	l.closeOnce.Do(func() {
-		atomic.StoreUint32(&l.closed, 1)
-		close(l.closeCh)
-		<-l.done
-	})
-	return l.closeErr
+	return l.logger.Close()
 }
 
-func (l *SessionLogger) run() {
-	defer close(l.done)
-
-	ticker := time.NewTicker(sessionLogFlushInterval)
-	defer ticker.Stop()
-
-	pending := 0
-	flush := func(force bool) {
-		if pending == 0 && !force {
-			return
-		}
-		start := time.Now()
-		if err := l.writer.Flush(); err != nil && l.closeErr == nil {
-			l.closeErr = err
-		}
-		atomic.StoreInt64(&l.lastFlush, time.Since(start).Nanoseconds())
-		pending = 0
+func encodeSessionChunk(chunk []byte) ([]byte, error) {
+	if len(chunk) == 0 {
+		return nil, nil
 	}
-
-	for {
-		select {
-		case chunk := <-l.writeCh:
-			if len(chunk) == 0 {
-				continue
-			}
-			n, err := l.writer.Write(chunk)
-			if err != nil && l.closeErr == nil {
-				l.closeErr = err
-			}
-			if err == nil {
-				pending += n
-			}
-			if pending >= sessionLogFlushThreshold {
-				flush(false)
-			}
-		case <-ticker.C:
-			flush(false)
-		case <-l.closeCh:
-			for {
-				select {
-				case chunk := <-l.writeCh:
-					if len(chunk) == 0 {
-						continue
-					}
-					n, err := l.writer.Write(chunk)
-					if err != nil && l.closeErr == nil {
-						l.closeErr = err
-					}
-					if err == nil {
-						pending += n
-					}
-				default:
-					flush(true)
-					if err := l.file.Close(); err != nil && l.closeErr == nil {
-						l.closeErr = err
-					}
-					return
-				}
-			}
-		}
-	}
+	return chunk, nil
 }

@@ -2560,6 +2560,75 @@
    Done when: REFACTOR.org exists with grouped L1/L2 entries
    Output: REFACTOR.org
 
+* WIP [#A] Terminal/session and logging cleanup
+  Goal: Reduce session complexity and unify logging/buffer behavior without changing external behavior.
+  Notes:
+  - Prioritize hot-path changes that reduce duplication and improve testability.
+  - Preserve existing API payloads and log formats.
+  Date: 2026-01-24
+
+** DONE [#A] Extract AsyncFileLogger for session + input logs
+   Why: SessionLogger and InputLogger duplicate buffering, flushing, and drop logic.
+   Change:
+   - Create a shared async file logger with a payload formatting hook.
+   - Replace SessionLogger/InputLogger internals with the shared helper.
+   - Preserve JSONL input history format and session log text format.
+   Tests:
+   - Update persistence tests to validate unchanged behavior.
+   Done when: Session and input logs use shared logger with identical outputs.
+
+** WIP [#A] Extract prompt injection helper
+   Why: Prompt injection is a large inline goroutine in createSession.
+   Change:
+   - Move prompt injection into a helper (PromptInjector or manager_prompt.go).
+   - Keep existing on-air detection and prompt ordering.
+   Tests:
+   - Add unit tests for prompt injection flow.
+   Done when: createSession is smaller and prompt flow is testable in isolation.
+
+** TODO [#A] Add session lifecycle helper for logging/events
+   Why: Session create/close/error logging is repeated across Manager paths.
+   Change:
+   - Add a small helper to emit consistent lifecycle logs + events.
+   Tests:
+   - Update Manager tests to validate lifecycle event ordering.
+   Done when: Lifecycle logging/event emission is centralized.
+
+** TODO [#B] Add explicit Windows PTY error message
+   Why: errConPTYUnavailable currently surfaces as a generic error.
+   Change:
+   - Return a clear, actionable error message when ConPTY is unavailable.
+   Tests:
+   - Add tests for the Windows-specific error message.
+   Done when: Windows users see a specific ConPTY error message.
+
+** TODO [#B] Split Session into focused sub-structs
+   Why: Session mixes metadata, IO, workflow, and logging concerns.
+   Change:
+   - Introduce SessionMeta, SessionIO, SessionWorkflow and compose in Session.
+   - Keep concurrency boundaries local to each sub-struct.
+   Tests:
+   - Update session tests to validate behavior across new boundaries.
+   Done when: Session is smaller with unchanged behavior.
+
+** TODO [#B] Align buffer retention semantics across logs/terminal
+   Why: LogBuffer and terminal buffers share similar retention logic.
+   Change:
+   - Add a shared ring buffer helper or align behaviors explicitly.
+   Tests:
+   - Add tests for buffer overflow and retention ordering.
+   Done when: buffer behaviors are consistent or intentionally documented.
+
+** TODO [#C] Introduce SessionFactory and output publisher
+   Why: Manager handles too many session wiring details; backpressure is unclear.
+   Change:
+   - Add SessionFactory for shell generation, PTY startup, and logger wiring.
+   - Replace output channel + broadcastLoop with an output publisher that can
+     apply backpressure policy (drop/sample/grow).
+   Tests:
+   - Add concurrency/backpressure tests around output publisher.
+   Done when: Manager focuses on lifecycle and output backpressure is explicit.
+
 * TODO [#A] Wails desktop application packaging
   Goal: Package Gestalt as a native desktop application using Wails v3, providing a standalone executable for macOS, Windows, and Linux while preserving the existing web server mode as default.
   Notes:

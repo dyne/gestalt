@@ -21,7 +21,7 @@ func TestSessionLoggerWritesToDisk(t *testing.T) {
 		t.Fatalf("close session logger: %v", err)
 	}
 
-	data, err := os.ReadFile(logger.path)
+	data, err := os.ReadFile(logger.Path())
 	if err != nil {
 		t.Fatalf("read session log: %v", err)
 	}
@@ -56,12 +56,12 @@ func TestSessionLoggerPersistsSessionOutput(t *testing.T) {
 	}
 
 	select {
-	case <-logger.done:
+	case <-logger.logger.done:
 	case <-time.After(200 * time.Millisecond):
 		t.Fatalf("timeout waiting for session logger")
 	}
 
-	data, err := os.ReadFile(logger.path)
+	data, err := os.ReadFile(logger.Path())
 	if err != nil {
 		t.Fatalf("read session log: %v", err)
 	}
@@ -119,9 +119,9 @@ func TestManagerHistoryLinesUsesLatestFile(t *testing.T) {
 
 func TestSessionLoggerDropsOldestChunk(t *testing.T) {
 	logger := &SessionLogger{
-		writeCh: make(chan []byte, 1),
-		closeCh: make(chan struct{}),
-		done:    make(chan struct{}),
+		logger: &asyncFileLogger[[]byte]{
+			writeCh: make(chan []byte, 1),
+		},
 	}
 
 	logger.Write([]byte("first"))
@@ -131,7 +131,7 @@ func TestSessionLoggerDropsOldestChunk(t *testing.T) {
 		t.Fatalf("expected 1 dropped chunk, got %d", logger.DroppedChunks())
 	}
 
-	got := <-logger.writeCh
+	got := <-logger.logger.writeCh
 	if string(got) != "second" {
 		t.Fatalf("expected newest chunk to remain, got %q", string(got))
 	}

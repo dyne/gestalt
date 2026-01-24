@@ -1,14 +1,11 @@
 package terminal
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -19,17 +16,7 @@ const (
 )
 
 type InputLogger struct {
-	path      string
-	file      *os.File
-	writer    *bufio.Writer
-	writeCh   chan InputEntry
-	closeCh   chan struct{}
-	done      chan struct{}
-	closeOnce sync.Once
-	closed    uint32
-	dropped   uint64
-	lastFlush int64
-	closeErr  error
+	logger *asyncFileLogger[InputEntry]
 }
 
 func NewInputLogger(dir, name string, createdAt time.Time) (*InputLogger, error) {
@@ -47,20 +34,12 @@ func NewInputLogger(dir, name string, createdAt time.Time) (*InputLogger, error)
 		return nil, fmt.Errorf("open input log file: %w", err)
 	}
 
-	logger := &InputLogger{
-		path:    path,
-		file:    file,
-		writer:  bufio.NewWriterSize(file, inputLogFlushThreshold),
-		writeCh: make(chan InputEntry, inputLogChannelSize),
-		closeCh: make(chan struct{}),
-		done:    make(chan struct{}),
-	}
-	go logger.run()
-	return logger, nil
+	logger := newAsyncFileLogger(path, file, inputLogFlushInterval, inputLogFlushThreshold, inputLogChannelSize, encodeInputEntry)
+	return &InputLogger{logger: logger}, nil
 }
 
 func (l *InputLogger) Write(entry InputEntry) {
-	if l == nil {
+	if l == nil || l.logger == nil {
 		return
 	}
 	entry.Command = strings.TrimSpace(entry.Command)
@@ -70,117 +49,42 @@ func (l *InputLogger) Write(entry InputEntry) {
 	if entry.Timestamp.IsZero() {
 		entry.Timestamp = time.Now().UTC()
 	}
-	if atomic.LoadUint32(&l.closed) == 1 {
-		return
-	}
-	select {
-	case l.writeCh <- entry:
-	default:
-		select {
-		case <-l.writeCh:
-			atomic.AddUint64(&l.dropped, 1)
-		default:
-		}
-		select {
-		case l.writeCh <- entry:
-		default:
-			atomic.AddUint64(&l.dropped, 1)
-		}
-	}
+	l.logger.Write(entry)
 }
 
 func (l *InputLogger) Path() string {
-	if l == nil {
+	if l == nil || l.logger == nil {
 		return ""
 	}
-	return l.path
+	return l.logger.Path()
 }
 
 func (l *InputLogger) DroppedEntries() uint64 {
-	if l == nil {
+	if l == nil || l.logger == nil {
 		return 0
 	}
-	return atomic.LoadUint64(&l.dropped)
+	return l.logger.Dropped()
 }
 
 func (l *InputLogger) LastFlushDuration() time.Duration {
-	if l == nil {
+	if l == nil || l.logger == nil {
 		return 0
 	}
-	return time.Duration(atomic.LoadInt64(&l.lastFlush))
+	return l.logger.LastFlushDuration()
 }
 
 func (l *InputLogger) Close() error {
-	if l == nil {
+	if l == nil || l.logger == nil {
 		return nil
 	}
-	l.closeOnce.Do(func() {
-		atomic.StoreUint32(&l.closed, 1)
-		close(l.closeCh)
-		<-l.done
-	})
-	return l.closeErr
+	return l.logger.Close()
 }
 
-func (l *InputLogger) run() {
-	defer close(l.done)
-
-	ticker := time.NewTicker(inputLogFlushInterval)
-	defer ticker.Stop()
-
-	pending := 0
-	flush := func(force bool) {
-		if pending == 0 && !force {
-			return
-		}
-		start := time.Now()
-		if err := l.writer.Flush(); err != nil && l.closeErr == nil {
-			l.closeErr = err
-		}
-		atomic.StoreInt64(&l.lastFlush, time.Since(start).Nanoseconds())
-		pending = 0
+func encodeInputEntry(entry InputEntry) ([]byte, error) {
+	payload, err := json.Marshal(entry)
+	if err != nil {
+		return nil, err
 	}
-
-	writeEntry := func(entry InputEntry) {
-		payload, err := json.Marshal(entry)
-		if err != nil {
-			if l.closeErr == nil {
-				l.closeErr = err
-			}
-			return
-		}
-		payload = append(payload, '\n')
-		n, err := l.writer.Write(payload)
-		if err != nil && l.closeErr == nil {
-			l.closeErr = err
-		}
-		if err == nil {
-			pending += n
-		}
-		if pending >= inputLogFlushThreshold {
-			flush(false)
-		}
-	}
-
-	for {
-		select {
-		case entry := <-l.writeCh:
-			writeEntry(entry)
-		case <-ticker.C:
-			flush(false)
-		case <-l.closeCh:
-			for {
-				select {
-				case entry := <-l.writeCh:
-					writeEntry(entry)
-				default:
-					flush(true)
-					if err := l.file.Close(); err != nil && l.closeErr == nil {
-						l.closeErr = err
-					}
-					return
-				}
-			}
-		}
-	}
+	payload = append(payload, '\n')
+	return payload, nil
 }

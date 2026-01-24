@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
 
 func TestFetchAgentsFiltersResults(t *testing.T) {
+	requireLocalListener(t)
 	var gotAuth string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -41,6 +43,7 @@ func TestFetchAgentsFiltersResults(t *testing.T) {
 }
 
 func TestFetchAgentsHTTPError(t *testing.T) {
+	requireLocalListener(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = io.WriteString(w, `{"error":"boom"}`)
@@ -61,6 +64,7 @@ func TestFetchAgentsHTTPError(t *testing.T) {
 }
 
 func TestSendAgentInputHTTPError(t *testing.T) {
+	requireLocalListener(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("expected POST, got %s", r.Method)
@@ -87,6 +91,7 @@ func TestSendAgentInputHTTPError(t *testing.T) {
 }
 
 func TestStartAgentSuccess(t *testing.T) {
+	requireLocalListener(t)
 	var gotPayload map[string]string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -110,6 +115,7 @@ func TestStartAgentSuccess(t *testing.T) {
 }
 
 func TestSendAgentInputAddsToken(t *testing.T) {
+	requireLocalListener(t)
 	var gotAuth string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
@@ -124,4 +130,14 @@ func TestSendAgentInputAddsToken(t *testing.T) {
 	if gotAuth != "Bearer token" {
 		t.Fatalf("expected auth header, got %q", gotAuth)
 	}
+}
+
+func requireLocalListener(t *testing.T) {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skip("local listener unavailable for httptest")
+	}
+	_ = listener.Close()
 }

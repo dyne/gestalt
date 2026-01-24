@@ -1,3 +1,5 @@
+//go:build !noscip
+
 package api
 
 import (

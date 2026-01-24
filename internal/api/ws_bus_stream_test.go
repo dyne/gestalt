@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,6 +16,9 @@ import (
 )
 
 func TestServeWSBusStreamDeliversPayload(t *testing.T) {
+	if !canListenLocal(t) {
+		t.Skip("local listener unavailable for websocket test")
+	}
 	bus := event.NewBus[string](context.Background(), event.BusOptions{})
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -50,6 +54,9 @@ func TestServeWSBusStreamDeliversPayload(t *testing.T) {
 }
 
 func TestServeWSBusStreamUnavailableCloses(t *testing.T) {
+	if !canListenLocal(t) {
+		t.Skip("local listener unavailable for websocket test")
+	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		serveWSBusStream(w, r, wsBusStreamConfig[string]{
 			Bus:               nil,
@@ -77,4 +84,15 @@ func TestServeWSBusStreamUnavailableCloses(t *testing.T) {
 	if !strings.Contains(string(body), "stream unavailable") {
 		t.Fatalf("expected error body to mention stream unavailable, got %q", string(body))
 	}
+}
+
+func canListenLocal(t *testing.T) bool {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return false
+	}
+	_ = listener.Close()
+	return true
 }

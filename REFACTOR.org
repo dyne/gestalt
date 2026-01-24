@@ -568,7 +568,7 @@
    Tests: None (documentation only).
    Done when: dependency list is documented.
 
-** TODO [#B] Add optional SCIP build tags
+** DONE [#B] Add optional SCIP build tags
    Why: SCIP adds many dependencies for users who do not need it.
    Change:
    - Introduce build tags for internal/scip and related API endpoints.

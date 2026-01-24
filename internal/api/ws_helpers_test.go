@@ -1,6 +1,7 @@
 package api
 
 import (
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +12,9 @@ import (
 )
 
 func TestServeWSStreamSendsPayloadAndCloses(t *testing.T) {
+	if !canListenLocalWS(t) {
+		t.Skip("local listener unavailable for websocket test")
+	}
 	output := make(chan string, 1)
 	handlerDone := make(chan struct{})
 
@@ -67,6 +71,9 @@ func TestRequireWSTokenUnauthorized(t *testing.T) {
 }
 
 func TestWriteWSErrorClosesWithCodeAndReason(t *testing.T) {
+	if !canListenLocalWS(t) {
+		t.Skip("local listener unavailable for websocket test")
+	}
 	handlerDone := make(chan struct{})
 	handlerErr := make(chan error, 1)
 
@@ -123,6 +130,9 @@ func TestWriteWSErrorClosesWithCodeAndReason(t *testing.T) {
 }
 
 func TestWriteWSErrorSendsEnvelope(t *testing.T) {
+	if !canListenLocalWS(t) {
+		t.Skip("local listener unavailable for websocket test")
+	}
 	handlerDone := make(chan struct{})
 	handlerErr := make(chan error, 1)
 
@@ -189,4 +199,15 @@ func TestWriteWSErrorSendsEnvelope(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 		t.Fatalf("handler did not exit after close")
 	}
+}
+
+func canListenLocalWS(t *testing.T) bool {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return false
+	}
+	_ = listener.Close()
+	return true
 }

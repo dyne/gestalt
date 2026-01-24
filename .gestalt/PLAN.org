@@ -124,7 +124,7 @@
 ** DONE [#A] Migrate internal/logging to OpenTelemetry LogRecords
 ** DONE [#B] Migrate event.Bus events to OpenTelemetry LogRecords
 ** DONE [#B] Add distributed tracing for WebSocket connections
-** TODO [#B] Integrate OpenTelemetry with Temporal workflows
+** DONE [#B] Integrate OpenTelemetry with Temporal workflows
 ** TODO [#A] Replace internal/metrics with OpenTelemetry metrics
 ** TODO [#B] Create frontend OTel query client
 ** TODO [#B] Update LogsView to use OpenTelemetry logs

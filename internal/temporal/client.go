@@ -6,6 +6,7 @@ import (
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
+	"go.temporal.io/sdk/interceptor"
 )
 
 type WorkflowClient interface {
@@ -26,5 +27,6 @@ func NewClient(config ClientConfig) (WorkflowClient, error) {
 		HostPort:  config.HostPort,
 		Namespace: config.Namespace,
 	}
+	options.Interceptors = []interceptor.ClientInterceptor{temporalTracingInterceptor()}
 	return client.Dial(options)
 }

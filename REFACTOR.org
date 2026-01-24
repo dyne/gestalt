@@ -253,13 +253,13 @@
    - Update skill XML tests for new fields.
    Done when: skill metadata is richer and documented.
 
-* WIP [#B] Error handling standardization
+* DONE [#B] Error handling standardization
   Goal: Make errors consistent across REST, WS, and UI.
   Notes:
   - Avoid breaking error messages used by tests or CLI.
   Date: 2026-01-24
 
-** DONE [#A] Standardize REST error field names
+** [#A] Standardize REST error field names
    Why: REST errors vary across handlers.
    Change:
    - Ensure apiError responses use consistent fields (error, code, details).
@@ -267,7 +267,7 @@
    - Update REST tests to assert fields.
    Done when: REST error payloads are consistent.
 
-** DONE [#A] Add WS error envelope
+** [#A] Add WS error envelope
    Why: WS handlers do not provide structured error feedback.
    Change:
    - Emit structured close reasons or error payloads (non-breaking).
@@ -275,7 +275,7 @@
    - Add tests for WS error payload/close codes.
    Done when: WS error semantics are consistent.
 
-** DONE [#B] Add error codes to API responses
+** [#B] Add error codes to API responses
    Why: UI cannot reliably distinguish error causes.
    Change:
    - Extend errorResponse to include code field.
@@ -283,7 +283,7 @@
    - Update REST tests for error codes.
    Done when: API error codes are present.
 
-** DONE [#B] Centralize frontend error handling
+** [#B] Centralize frontend error handling
    Why: Error handling is inconsistent across views.
    Change:
    - Add a shared error helper/store and reuse in views.

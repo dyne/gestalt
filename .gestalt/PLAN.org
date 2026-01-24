@@ -2560,14 +2560,14 @@
    Done when: REFACTOR.org exists with grouped L1/L2 entries
    Output: REFACTOR.org
 
-* WIP [#A] Terminal/session and logging cleanup
+* DONE [#A] Terminal/session and logging cleanup
   Goal: Reduce session complexity and unify logging/buffer behavior without changing external behavior.
   Notes:
   - Prioritize hot-path changes that reduce duplication and improve testability.
   - Preserve existing API payloads and log formats.
   Date: 2026-01-24
 
-** DONE [#A] Extract AsyncFileLogger for session + input logs
+** [#A] Extract AsyncFileLogger for session + input logs
    Why: SessionLogger and InputLogger duplicate buffering, flushing, and drop logic.
    Change:
    - Create a shared async file logger with a payload formatting hook.
@@ -2577,7 +2577,7 @@
    - Update persistence tests to validate unchanged behavior.
    Done when: Session and input logs use shared logger with identical outputs.
 
-** DONE [#A] Extract prompt injection helper
+** [#A] Extract prompt injection helper
    Why: Prompt injection is a large inline goroutine in createSession.
    Change:
    - Move prompt injection into a helper (PromptInjector or manager_prompt.go).
@@ -2586,7 +2586,7 @@
    - Add unit tests for prompt injection flow.
    Done when: createSession is smaller and prompt flow is testable in isolation.
 
-** DONE [#A] Add session lifecycle helper for logging/events
+** [#A] Add session lifecycle helper for logging/events
    Why: Session create/close/error logging is repeated across Manager paths.
    Change:
    - Add a small helper to emit consistent lifecycle logs + events.
@@ -2594,7 +2594,7 @@
    - Update Manager tests to validate lifecycle event ordering.
    Done when: Lifecycle logging/event emission is centralized.
 
-** DONE [#B] Add explicit Windows PTY error message
+** [#B] Add explicit Windows PTY error message
    Why: errConPTYUnavailable currently surfaces as a generic error.
    Change:
    - Return a clear, actionable error message when ConPTY is unavailable.
@@ -2602,7 +2602,7 @@
    - Add tests for the Windows-specific error message.
    Done when: Windows users see a specific ConPTY error message.
 
-** DONE [#B] Split Session into focused sub-structs
+** [#B] Split Session into focused sub-structs
    Why: Session mixes metadata, IO, workflow, and logging concerns.
    Change:
    - Introduce SessionMeta, SessionIO, SessionWorkflow and compose in Session.
@@ -2611,7 +2611,7 @@
    - Update session tests to validate behavior across new boundaries.
    Done when: Session is smaller with unchanged behavior.
 
-** DONE [#B] Align buffer retention semantics across logs/terminal
+** [#B] Align buffer retention semantics across logs/terminal
    Why: LogBuffer and terminal buffers share similar retention logic.
    Change:
    - Add a shared ring buffer helper or align behaviors explicitly.
@@ -2619,7 +2619,7 @@
    - Add tests for buffer overflow and retention ordering.
    Done when: buffer behaviors are consistent or intentionally documented.
 
-** WIP [#C] Introduce SessionFactory and output publisher
+** [#C] Introduce SessionFactory and output publisher
    Why: Manager handles too many session wiring details; backpressure is unclear.
    Change:
    - Add SessionFactory for shell generation, PTY startup, and logger wiring.
@@ -2628,6 +2628,72 @@
    Tests:
    - Add concurrency/backpressure tests around output publisher.
    Done when: Manager focuses on lifecycle and output backpressure is explicit.
+
+* WIP [#A] API and WebSocket consolidation
+  Goal: Reduce handler duplication, standardize WS behavior, and simplify rest.go.
+  Notes:
+  - Preserve endpoint paths and payload shapes.
+  - Keep auth semantics unchanged.
+  Date: 2026-01-24
+
+** WIP [#A] Create backend WS upgrade/write helper
+   Why: WS handlers repeat upgrade/auth/subscribe/write loops.
+   Change:
+   - Extract a helper to upgrade, authenticate, and run write/read loops.
+   - Standardize close/error logging.
+   Tests:
+   - Add WS handler tests for close and error paths.
+   Done when: WS handlers share a common helper without behavior change.
+
+** TODO [#A] Add wsAuth helper for token validation
+   Why: Auth checks are duplicated across WS handlers.
+   Change:
+   - Centralize WS auth checks and responses.
+   Tests:
+   - Add tests for auth failures on WS endpoints.
+   Done when: WS auth behavior is consistent across handlers.
+
+** TODO [#A] Move JSON helpers out of rest.go
+   Why: writeJSON/decodeJSON utilities clutter rest.go.
+   Change:
+   - Move JSON encode/decode helpers to a small api helper file.
+   Tests:
+   - Update existing REST tests (no behavior change).
+   Done when: rest.go is smaller and helpers are shared.
+
+** TODO [#B] Split rest.go by domain
+   Why: rest.go mixes routing, validation, and business logic.
+   Change:
+   - Split into terminals.go, agents.go, skills.go, logs.go, status.go,
+     workflows.go, plan.go, scip.go.
+   Tests:
+   - Ensure REST tests still pass; add missing coverage if needed.
+   Done when: rest.go is reduced and endpoints are organized by domain.
+
+** TODO [#B] Add terminal route parsing helpers
+   Why: Terminal endpoints repeat path parsing and validation.
+   Change:
+   - Centralize parsing for /api/terminals/:id/* endpoints.
+   Tests:
+   - Add table-driven tests for edge cases (bad ids, missing ids).
+   Done when: path parsing is centralized with tests.
+
+** TODO [#B] Standardize WS error wrapper
+   Why: WS handlers use http.Error inconsistently.
+   Change:
+   - Add a WS error wrapper with close codes and structured logging.
+   Tests:
+   - Add tests for WS error close codes and reasons.
+   Done when: WS error behavior is consistent and documented.
+
+** TODO [#C] Introduce domain routers or WS stream abstraction
+   Why: RestHandler remains monolithic and WS handlers are repetitive.
+   Change:
+   - Add domain routers (TerminalAPI/AgentAPI/etc) or a shared WS stream
+     abstraction (subscribe + marshal + send).
+   Tests:
+   - Add tests for router/stream boundary behavior.
+   Done when: handler complexity is reduced without breaking payloads.
 
 * TODO [#A] Wails desktop application packaging
   Goal: Package Gestalt as a native desktop application using Wails v3, providing a standalone executable for macOS, Windows, and Linux while preserving the existing web server mode as default.

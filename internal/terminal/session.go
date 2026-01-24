@@ -69,24 +69,24 @@ type SessionMeta struct {
 }
 
 type SessionIO struct {
-	ctx          context.Context
-	cancel       context.CancelFunc
-	input        chan []byte
-	output       chan []byte
-	pty          Pty
-	cmd          *exec.Cmd
-	outputBus    *event.Bus[[]byte]
-	outputBuffer *OutputBuffer
-	logger       *SessionLogger
-	inputBuf     *InputBuffer
-	inputLog     *InputLogger
-	subs         int32
-	dsrMu        sync.Mutex
-	dsrTimer     *time.Timer
-	dsrOpen      bool
-	closing      sync.Once
-	closeErr     error
-	state        uint32
+	ctx             context.Context
+	cancel          context.CancelFunc
+	input           chan []byte
+	outputPublisher *OutputPublisher
+	pty             Pty
+	cmd             *exec.Cmd
+	outputBus       *event.Bus[[]byte]
+	outputBuffer    *OutputBuffer
+	logger          *SessionLogger
+	inputBuf        *InputBuffer
+	inputLog        *InputLogger
+	subs            int32
+	dsrMu           sync.Mutex
+	dsrTimer        *time.Timer
+	dsrOpen         bool
+	closing         sync.Once
+	closeErr        error
+	state           uint32
 }
 
 type SessionWorkflow struct {
@@ -116,7 +116,7 @@ type SessionInfo struct {
 }
 
 func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt time.Time, bufferLines int, profile *agent.Agent, sessionLogger *SessionLogger, inputLogger *InputLogger) *Session {
-	// readLoop -> output, writeLoop -> PTY, broadcastLoop -> subscribers.
+	// readLoop -> output publisher, writeLoop -> PTY.
 	// Close cancels context and closes input so loops drain and exit cleanly.
 	ctx, cancel := context.WithCancel(context.Background())
 	llmType := ""
@@ -133,6 +133,13 @@ func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt
 		WriteTimeout:            terminalOutputWriteTimeout,
 		SlowSubscriberThreshold: terminalOutputSlowThreshold,
 	})
+	outputPublisher := NewOutputPublisher(OutputPublisherOptions{
+		Logger:   sessionLogger,
+		Buffer:   outputBuffer,
+		Bus:      outputBus,
+		MaxQueue: defaultOutputQueueSize,
+		Policy:   OutputBackpressureBlock,
+	})
 	session := &Session{
 		SessionMeta: SessionMeta{
 			ID:        id,
@@ -144,24 +151,23 @@ func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt
 			agent:     profile,
 		},
 		SessionIO: SessionIO{
-			ctx:          ctx,
-			cancel:       cancel,
-			input:        make(chan []byte, 64),
-			output:       make(chan []byte, 64),
-			pty:          pty,
-			cmd:          cmd,
-			outputBus:    outputBus,
-			outputBuffer: outputBuffer,
-			logger:       sessionLogger,
-			inputBuf:     NewInputBuffer(DefaultInputBufferSize),
-			inputLog:     inputLogger,
-			state:        uint32(sessionStateStarting),
+			ctx:             ctx,
+			cancel:          cancel,
+			input:           make(chan []byte, 64),
+			outputPublisher: outputPublisher,
+			pty:             pty,
+			cmd:             cmd,
+			outputBus:       outputBus,
+			outputBuffer:    outputBuffer,
+			logger:          sessionLogger,
+			inputBuf:        NewInputBuffer(DefaultInputBufferSize),
+			inputLog:        inputLogger,
+			state:           uint32(sessionStateStarting),
 		},
 	}
 
 	go session.readLoop()
 	go session.writeLoop()
-	go session.broadcastLoop()
 	session.setState(sessionStateRunning)
 
 	return session
@@ -523,7 +529,11 @@ func (s *Session) closeResources() error {
 }
 
 func (s *Session) readLoop() {
-	defer close(s.output)
+	defer func() {
+		if s.outputPublisher != nil {
+			s.outputPublisher.Close()
+		}
+	}()
 
 	buf := make([]byte, 4096)
 	dsrTail := []byte{}
@@ -545,10 +555,8 @@ func (s *Session) readLoop() {
 				}
 			}
 			dsrTail = updateDSRTail(dsrTail, chunk)
-			select {
-			case s.output <- chunk:
-			case <-s.ctx.Done():
-				return
+			if s.outputPublisher != nil {
+				s.outputPublisher.PublishWithContext(s.ctx, chunk)
 			}
 		}
 		if err != nil {
@@ -657,25 +665,5 @@ func (s *Session) writeLoop() {
 			_ = s.Close()
 			return
 		}
-	}
-}
-
-func (s *Session) broadcastLoop() {
-	for chunk := range s.output {
-		if s.logger != nil {
-			s.logger.Write(chunk)
-		}
-		if s.outputBuffer != nil {
-			s.outputBuffer.Append(chunk)
-		}
-		if s.outputBus != nil {
-			s.outputBus.Publish(chunk)
-		}
-	}
-	if s.outputBus != nil {
-		s.outputBus.Close()
-	}
-	if s.logger != nil {
-		_ = s.logger.Close()
 	}
 }

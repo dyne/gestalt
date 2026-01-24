@@ -64,6 +64,7 @@ type Manager struct {
 	factory         PtyFactory
 	bufferLines     int
 	clock           Clock
+	sessionFactory  *SessionFactory
 	agents          map[string]agent.Agent
 	agentCache      *agent.AgentCache
 	agentsDir       string
@@ -226,6 +227,15 @@ func NewManager(opts ManagerOptions) *Manager {
 		promptDir:       promptDir,
 		promptParser:    promptParser,
 	}
+	manager.sessionFactory = NewSessionFactory(SessionFactoryOptions{
+		Clock:           clock,
+		PtyFactory:      factory,
+		SessionLogDir:   sessionLogs,
+		InputHistoryDir: inputHistoryDir,
+		BufferLines:     bufferLines,
+		Logger:          logger,
+		NextID:          manager.nextIDValue,
+	})
 	manager.startSessionCleanup()
 	return manager
 }
@@ -352,101 +362,10 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		m.mu.Unlock()
 	}
 
-	command, args, err := splitCommandLine(shell)
+	session, id, err := m.sessionFactory.Start(request, profile, shell, reservedID)
 	if err != nil {
-		m.logger.Warn("shell command parse failed", map[string]string{
-			"shell": shell,
-			"error": err.Error(),
-		})
 		releaseReservation()
 		return nil, err
-	}
-	if m.logger != nil && m.logger.Enabled(logging.LevelDebug) {
-		fields := map[string]string{
-			"shell":   shell,
-			"command": command,
-		}
-		if len(args) > 0 {
-			fields["args"] = strings.Join(args, " ")
-		}
-		if request.AgentID != "" {
-			fields["agent_id"] = request.AgentID
-		}
-		if reservedID != "" {
-			fields["terminal_id"] = reservedID
-		}
-		m.logger.Debug("shell command ready", fields)
-	}
-
-	pty, cmd, err := m.factory.Start(command, args...)
-	if err != nil {
-		err = wrapPtyStartError(err)
-		if m.logger != nil {
-			fields := map[string]string{
-				"shell":   shell,
-				"command": command,
-				"error":   err.Error(),
-			}
-			if len(args) > 0 {
-				fields["args"] = strings.Join(args, " ")
-			}
-			if request.AgentID != "" {
-				fields["agent_id"] = request.AgentID
-			}
-			if reservedID != "" {
-				fields["terminal_id"] = reservedID
-			}
-			if stderr := stderrFromExecError(err); stderr != "" {
-				fields["stderr"] = stderr
-			}
-			m.logger.Error("shell command start failed", fields)
-		}
-		releaseReservation()
-		return nil, err
-	}
-
-	id := reservedID
-	if id == "" {
-		id = m.nextIDValue()
-	}
-	createdAt := m.clock.Now().UTC()
-	var sessionLogger *SessionLogger
-	if m.sessionLogs != "" {
-		logger, err := NewSessionLogger(m.sessionLogs, id, createdAt)
-		if err != nil {
-			m.logger.Warn("session log create failed", map[string]string{
-				"terminal_id": id,
-				"error":       err.Error(),
-				"path":        m.sessionLogs,
-			})
-		} else {
-			sessionLogger = logger
-		}
-	}
-	var inputLogger *InputLogger
-	if m.inputHistoryDir != "" {
-		historyName := id
-		if profile != nil && strings.TrimSpace(profile.Name) != "" {
-			historyName = profile.Name
-		}
-		logger, err := NewInputLogger(m.inputHistoryDir, historyName, createdAt)
-		if err != nil {
-			m.logger.Warn("input history log create failed", map[string]string{
-				"terminal_id": id,
-				"error":       err.Error(),
-				"path":        m.inputHistoryDir,
-			})
-		} else {
-			inputLogger = logger
-		}
-	}
-	session := newSession(id, pty, cmd, request.Title, request.Role, createdAt, m.bufferLines, profile, sessionLogger, inputLogger)
-	if request.AgentID != "" {
-		session.AgentID = request.AgentID
-	}
-	session.Command = shell
-	if profile != nil {
-		session.ConfigHash = profile.ConfigHash
 	}
 
 	m.mu.Lock()

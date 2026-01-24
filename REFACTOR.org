@@ -1,11 +1,11 @@
-* WIP [#A] Terminal/session and logging cleanup
+* DONE [#A] Terminal/session and logging cleanup
   Goal: Reduce session complexity and unify logging/buffer behavior without changing external behavior.
   Notes:
   - Prioritize hot-path changes that reduce duplication and improve testability.
   - Preserve existing API payloads and log formats.
   Date: 2026-01-24
 
-** DONE [#A] Extract AsyncFileLogger for session + input logs
+** [#A] Extract AsyncFileLogger for session + input logs
    Why: SessionLogger and InputLogger duplicate buffering, flushing, and drop logic.
    Change:
    - Create a shared async file logger with a payload formatting hook.
@@ -15,7 +15,7 @@
    - Update persistence tests to validate unchanged behavior.
    Done when: Session and input logs use shared logger with identical outputs.
 
-** DONE [#A] Extract prompt injection helper
+** [#A] Extract prompt injection helper
    Why: Prompt injection is a large inline goroutine in createSession.
    Change:
    - Move prompt injection into a helper (PromptInjector or manager_prompt.go).
@@ -24,7 +24,7 @@
    - Add unit tests for prompt injection flow.
    Done when: createSession is smaller and prompt flow is testable in isolation.
 
-** DONE [#A] Add session lifecycle helper for logging/events
+** [#A] Add session lifecycle helper for logging/events
    Why: Session create/close/error logging is repeated across Manager paths.
    Change:
    - Add a small helper to emit consistent lifecycle logs + events.
@@ -32,7 +32,7 @@
    - Update Manager tests to validate lifecycle event ordering.
    Done when: Lifecycle logging/event emission is centralized.
 
-** DONE [#B] Add explicit Windows PTY error message
+** [#B] Add explicit Windows PTY error message
    Why: errConPTYUnavailable currently surfaces as a generic error.
    Change:
    - Return a clear, actionable error message when ConPTY is unavailable.
@@ -40,7 +40,7 @@
    - Add tests for the Windows-specific error message.
    Done when: Windows users see a specific ConPTY error message.
 
-** DONE [#B] Split Session into focused sub-structs
+** [#B] Split Session into focused sub-structs
    Why: Session mixes metadata, IO, workflow, and logging concerns.
    Change:
    - Introduce SessionMeta, SessionIO, SessionWorkflow and compose in Session.
@@ -49,7 +49,7 @@
    - Update session tests to validate behavior across new boundaries.
    Done when: Session is smaller with unchanged behavior.
 
-** DONE [#B] Align buffer retention semantics across logs/terminal
+** [#B] Align buffer retention semantics across logs/terminal
    Why: LogBuffer and terminal buffers share similar retention logic.
    Change:
    - Add a shared ring buffer helper or align behaviors explicitly.
@@ -57,7 +57,7 @@
    - Add tests for buffer overflow and retention ordering.
    Done when: buffer behaviors are consistent or intentionally documented.
 
-** WIP [#C] Introduce SessionFactory and output publisher
+** [#C] Introduce SessionFactory and output publisher
    Why: Manager handles too many session wiring details; backpressure is unclear.
    Change:
    - Add SessionFactory for shell generation, PTY startup, and logger wiring.
@@ -67,14 +67,14 @@
    - Add concurrency/backpressure tests around output publisher.
    Done when: Manager focuses on lifecycle and output backpressure is explicit.
 
-* TODO [#A] API and WebSocket consolidation
+* WIP [#A] API and WebSocket consolidation
   Goal: Reduce handler duplication, standardize WS behavior, and simplify rest.go.
   Notes:
   - Preserve endpoint paths and payload shapes.
   - Keep auth semantics unchanged.
   Date: 2026-01-24
 
-** TODO [#A] Create backend WS upgrade/write helper
+** WIP [#A] Create backend WS upgrade/write helper
    Why: WS handlers repeat upgrade/auth/subscribe/write loops.
    Change:
    - Extract a helper to upgrade, authenticate, and run write/read loops.

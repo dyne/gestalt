@@ -561,7 +561,7 @@
   - Default behavior should remain unchanged.
   Date: 2026-01-24
 
-** TODO [#A] Document direct Go dependencies
+** DONE [#A] Document direct Go dependencies
    Why: Dependency footprint is larger than earlier documentation suggests.
    Change:
    - Document current direct Go dependencies and rationale.

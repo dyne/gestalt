@@ -1,0 +1,87 @@
+import { render, fireEvent, cleanup } from '@testing-library/svelte'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { writable } from 'svelte/store'
+import { tick } from 'svelte'
+
+const apiFetch = vi.hoisted(() => vi.fn())
+const getTerminalState = vi.hoisted(() => vi.fn())
+
+vi.mock('../src/lib/api.js', () => ({
+  apiFetch,
+}))
+
+vi.mock('../src/lib/terminalStore.js', () => ({
+  getTerminalState,
+}))
+
+import Terminal from '../src/components/Terminal.svelte'
+
+const buildState = () => {
+  return {
+    attach: vi.fn(),
+    detach: vi.fn(),
+    setScrollSensitivity: vi.fn(),
+    setDirectInput: vi.fn(),
+    reconnect: vi.fn(),
+    scheduleFit: vi.fn(),
+    sendCommand: vi.fn(),
+    sendData: vi.fn(),
+    focus: vi.fn(),
+    scrollToBottom: vi.fn(),
+    status: writable('connected'),
+    historyStatus: writable('idle'),
+    bellCount: writable(0),
+    canReconnect: writable(false),
+    atBottom: writable(true),
+  }
+}
+
+describe('Terminal', () => {
+  beforeEach(() => {
+    vi.stubGlobal('requestAnimationFrame', (cb) => {
+      cb()
+      return 0
+    })
+    apiFetch.mockResolvedValue({
+      json: vi.fn().mockResolvedValue([]),
+    })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    apiFetch.mockReset()
+    getTerminalState.mockReset()
+    cleanup()
+  })
+
+  it('shows reconnect button when reconnectable', async () => {
+    const state = buildState()
+    state.canReconnect.set(true)
+    getTerminalState.mockReturnValue(state)
+
+    const { getByText } = render(Terminal, { props: { terminalId: 't1' } })
+    const reconnectButton = getByText('Reconnect')
+    await fireEvent.click(reconnectButton)
+
+    expect(state.reconnect).toHaveBeenCalled()
+  })
+
+  it('focuses the command input when connected and visible', async () => {
+    const state = buildState()
+    getTerminalState.mockReturnValue(state)
+    const focusSpy = vi
+      .spyOn(HTMLTextAreaElement.prototype, 'focus')
+      .mockImplementation(() => {})
+
+    const { container } = render(Terminal, {
+      props: { terminalId: 't1', visible: true },
+    })
+    await tick()
+    await tick()
+
+    const textarea = container.querySelector('textarea')
+    expect(textarea).toBeTruthy()
+    expect(focusSpy).toHaveBeenCalled()
+    focusSpy.mockRestore()
+  })
+})

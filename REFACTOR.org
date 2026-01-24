@@ -345,7 +345,7 @@
    - Ensure tests do not rely on timing.
    Done when: structured error payloads are covered.
 
-** TODO [#B] Add Terminal/CommandInput component tests
+** DONE [#B] Add Terminal/CommandInput component tests
    Why: Critical behaviors are only lightly tested.
    Change:
    - Add component tests for focus, submit, reconnect state.

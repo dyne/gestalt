@@ -4,6 +4,7 @@
   import { notificationStore } from '../lib/notificationStore.js'
   import { getErrorMessage } from '../lib/errorUtils.js'
   import { formatRelativeTime } from '../lib/timeUtils.js'
+  import ViewState from '../components/ViewState.svelte'
 
   let logs = []
   let orderedLogs = []
@@ -131,13 +132,13 @@
   </section>
 
   <section class="logs__list">
-    {#if loading && logs.length === 0}
-      <p class="muted">Loading logs…</p>
-    {:else if error}
-      <p class="error">{error}</p>
-    {:else if orderedLogs.length === 0}
-      <p class="muted">No logs yet.</p>
-    {:else}
+    <ViewState
+      {loading}
+      {error}
+      hasContent={orderedLogs.length > 0}
+      loadingLabel="Loading logs…"
+      emptyLabel="No logs yet."
+    >
       <ul>
         {#each orderedLogs as entry, index (entryKey(entry, index))}
           <li class={`log-entry log-entry--${entry.level}`}>
@@ -160,7 +161,7 @@
           </li>
         {/each}
       </ul>
-    {/if}
+    </ViewState>
   </section>
 </section>
 
@@ -342,16 +343,6 @@
     border-radius: 12px;
     font-size: 0.75rem;
     white-space: pre-wrap;
-  }
-
-  .muted {
-    color: var(--color-text-subtle);
-    margin: 0;
-  }
-
-  .error {
-    color: var(--color-danger);
-    margin: 0;
   }
 
   @media (max-width: 720px) {

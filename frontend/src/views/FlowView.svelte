@@ -4,6 +4,7 @@
   import { subscribe as subscribeWorkflowEvents } from '../lib/workflowEventStore.js'
   import { getErrorMessage } from '../lib/errorUtils.js'
   import WorkflowCard from '../components/WorkflowCard.svelte'
+  import ViewState from '../components/ViewState.svelte'
 
   export let onViewTerminal = () => {}
   export let temporalUiUrl = ''
@@ -130,16 +131,13 @@
     </div>
   </header>
 
-  {#if loading && workflows.length === 0}
-    <p class="muted">Loading workflows...</p>
-  {:else if error && workflows.length === 0}
-    <p class="error">{error}</p>
-  {:else if workflows.length === 0}
-    <p class="muted">No active workflows.</p>
-  {:else}
-    {#if error}
-      <p class="error error--inline">{error}</p>
-    {/if}
+  <ViewState
+    {loading}
+    {error}
+    hasContent={workflows.length > 0}
+    loadingLabel="Loading workflows..."
+    emptyLabel="No active workflows."
+  >
     <div class="workflow-list">
       {#each workflows as workflow (workflow.session_id)}
         <WorkflowCard
@@ -153,7 +151,7 @@
         />
       {/each}
     </div>
-  {/if}
+  </ViewState>
 </section>
 
 <style>
@@ -207,20 +205,6 @@
     text-transform: uppercase;
     letter-spacing: 0.12em;
     color: var(--color-text-muted);
-  }
-
-  .muted {
-    color: var(--color-text-subtle);
-    margin: 0.5rem 0 0;
-  }
-
-  .error {
-    color: var(--color-danger);
-    margin: 0.5rem 0 0;
-  }
-
-  .error--inline {
-    margin: 0 0 1rem;
   }
 
   .workflow-list {

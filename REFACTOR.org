@@ -522,7 +522,7 @@
    - Add store tests for loading/error flows.
    Done when: Dashboard view is thinner and uses the store.
 
-** WIP [#B] Standardize view loading/error UI patterns
+** DONE [#B] Standardize view loading/error UI patterns
    Why: Views handle loading/errors inconsistently.
    Change:
    - Add shared helpers/components for loading and error UI.
@@ -530,7 +530,7 @@
    - Add tests for shared helpers.
    Done when: views share consistent loading/error patterns.
 
-** TODO [#B] Share workflow formatting helpers
+** WIP [#B] Share workflow formatting helpers
    Why: Workflow components repeat formatting logic.
    Change:
    - Extract formatting helpers for timestamps/labels.

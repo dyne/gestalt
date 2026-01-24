@@ -5,6 +5,7 @@
   import { getErrorMessage } from '../lib/errorUtils.js'
   import { createPollingHelper } from '../lib/pollingHelper.js'
   import OrgViewer from '../components/OrgViewer.svelte'
+  import ViewState from '../components/ViewState.svelte'
 
   let loading = false
   let refreshing = false
@@ -148,16 +149,15 @@
     </div>
   </header>
 
-  {#if loading && !content}
-    <p class="muted">Loading plan...</p>
-  {:else if error && !content}
-    <p class="error">{error}</p>
-  {:else}
-    {#if error}
-      <p class="error error--inline">{error}</p>
-    {/if}
+  <ViewState
+    {loading}
+    {error}
+    hasContent={Boolean(content)}
+    loadingLabel="Loading plan..."
+    showEmpty={false}
+  >
     <OrgViewer orgText={content} />
-  {/if}
+  </ViewState>
 </section>
 
 <style>
@@ -218,20 +218,6 @@
     text-transform: uppercase;
     letter-spacing: 0.12em;
     color: var(--color-success);
-  }
-
-  .muted {
-    color: var(--color-text-subtle);
-    margin: 0.5rem 0 0;
-  }
-
-  .error {
-    color: var(--color-danger);
-    margin: 0.5rem 0 0;
-  }
-
-  .error--inline {
-    margin: 0 0 1rem;
   }
 
   @media (max-width: 720px) {

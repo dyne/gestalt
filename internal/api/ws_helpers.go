@@ -25,10 +25,18 @@ type wsStreamConfig[T any] struct {
 }
 
 type wsError struct {
-	Status    int
-	CloseCode int
-	Message   string
-	Err       error
+	Status       int
+	CloseCode    int
+	Message      string
+	Err          error
+	SendEnvelope bool
+}
+
+type wsErrorPayload struct {
+	Type      string `json:"type"`
+	Message   string `json:"message"`
+	Status    int    `json:"status"`
+	CloseCode int    `json:"close_code,omitempty"`
 }
 
 func requireWSToken(w http.ResponseWriter, r *http.Request, token string, logger *logging.Logger) bool {
@@ -143,6 +151,15 @@ func writeWSError(w http.ResponseWriter, r *http.Request, conn *websocket.Conn, 
 	}
 
 	deadline := time.Now().Add(wsWriteTimeout)
+	if wsErr.SendEnvelope {
+		_ = conn.SetWriteDeadline(deadline)
+		_ = conn.WriteJSON(wsErrorPayload{
+			Type:      "error",
+			Message:   reason,
+			Status:    status,
+			CloseCode: closeCode,
+		})
+	}
 	_ = conn.SetWriteDeadline(deadline)
 	_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(closeCode, truncateCloseReason(reason)), deadline)
 	_ = conn.Close()

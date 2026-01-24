@@ -26,8 +26,9 @@ func serveWSBusStream[T any](w http.ResponseWriter, r *http.Request, config wsBu
 	bus := config.Bus
 	if bus == nil {
 		writeWSError(w, r, nil, config.Logger, wsError{
-			Status:  http.StatusInternalServerError,
-			Message: unavailableReason(config.UnavailableReason),
+			Status:       http.StatusInternalServerError,
+			Message:      unavailableReason(config.UnavailableReason),
+			SendEnvelope: true,
 		})
 		return
 	}
@@ -35,8 +36,9 @@ func serveWSBusStream[T any](w http.ResponseWriter, r *http.Request, config wsBu
 	output, cancel := bus.Subscribe()
 	if output == nil {
 		writeWSError(w, r, nil, config.Logger, wsError{
-			Status:  http.StatusInternalServerError,
-			Message: unavailableReason(config.UnavailableReason),
+			Status:       http.StatusInternalServerError,
+			Message:      unavailableReason(config.UnavailableReason),
+			SendEnvelope: true,
 		})
 		return
 	}

@@ -121,3 +121,72 @@ func TestWriteWSErrorClosesWithCodeAndReason(t *testing.T) {
 		t.Fatalf("handler did not exit after close")
 	}
 }
+
+func TestWriteWSErrorSendsEnvelope(t *testing.T) {
+	handlerDone := make(chan struct{})
+	handlerErr := make(chan error, 1)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgradeWebSocket(w, r, nil)
+		if err != nil {
+			handlerErr <- err
+			close(handlerDone)
+			return
+		}
+
+		writeWSError(w, r, conn, nil, wsError{
+			Status:       http.StatusBadRequest,
+			Message:      "bad request",
+			SendEnvelope: true,
+		})
+		handlerErr <- nil
+		close(handlerDone)
+	}))
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+
+	_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	var payload struct {
+		Type      string `json:"type"`
+		Message   string `json:"message"`
+		Status    int    `json:"status"`
+		CloseCode int    `json:"close_code"`
+	}
+	if err := conn.ReadJSON(&payload); err != nil {
+		t.Fatalf("read envelope: %v", err)
+	}
+	if payload.Type != "error" {
+		t.Fatalf("expected type error, got %q", payload.Type)
+	}
+	if payload.Message != "bad request" {
+		t.Fatalf("expected message %q, got %q", "bad request", payload.Message)
+	}
+	if payload.Status != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, payload.Status)
+	}
+	if payload.CloseCode != websocket.CloseProtocolError {
+		t.Fatalf("expected close code %d, got %d", websocket.CloseProtocolError, payload.CloseCode)
+	}
+
+	_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	_, _, err = conn.ReadMessage()
+	if err == nil {
+		t.Fatalf("expected close error")
+	}
+
+	if err := <-handlerErr; err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+
+	select {
+	case <-handlerDone:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("handler did not exit after close")
+	}
+}

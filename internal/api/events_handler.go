@@ -121,8 +121,9 @@ func (h *EventsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if h.Bus == nil {
 		writeWSError(w, r, conn, h.Logger, wsError{
-			Status:  http.StatusInternalServerError,
-			Message: "event bus unavailable",
+			Status:       http.StatusInternalServerError,
+			Message:      "event bus unavailable",
+			SendEnvelope: true,
 		})
 		return
 	}
@@ -133,8 +134,9 @@ func (h *EventsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 	if events == nil {
 		writeWSError(w, r, conn, h.Logger, wsError{
-			Status:  http.StatusInternalServerError,
-			Message: "event stream unavailable",
+			Status:       http.StatusInternalServerError,
+			Message:      "event stream unavailable",
+			SendEnvelope: true,
 		})
 		return
 	}

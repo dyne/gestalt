@@ -267,7 +267,7 @@
    - Update REST tests to assert fields.
    Done when: REST error payloads are consistent.
 
-** TODO [#A] Add WS error envelope
+** DONE [#A] Add WS error envelope
    Why: WS handlers do not provide structured error feedback.
    Change:
    - Emit structured close reasons or error payloads (non-breaking).

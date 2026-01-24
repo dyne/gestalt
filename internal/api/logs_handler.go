@@ -45,8 +45,9 @@ func (h *LogsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if h.Logger == nil {
 		writeWSError(w, r, nil, h.Logger, wsError{
-			Status:  http.StatusInternalServerError,
-			Message: "logger unavailable",
+			Status:       http.StatusInternalServerError,
+			Message:      "logger unavailable",
+			SendEnvelope: true,
 		})
 		return
 	}
@@ -67,8 +68,9 @@ func (h *LogsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 	if output == nil {
 		writeWSError(w, r, nil, h.Logger, wsError{
-			Status:  http.StatusInternalServerError,
-			Message: "log stream unavailable",
+			Status:       http.StatusInternalServerError,
+			Message:      "log stream unavailable",
+			SendEnvelope: true,
 		})
 		return
 	}

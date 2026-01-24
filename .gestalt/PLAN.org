@@ -132,8 +132,8 @@
 ** DONE [#C] Add OpenTelemetry metrics dashboard
 ** DONE [#B] Implement parallel run during migration
 ** DONE [#B] Cut over to OpenTelemetry (remove custom systems)
-** WIP [#C] Add remote backend export capability
-** TODO [#C] Performance optimization and resource limits
+** DONE [#C] Add remote backend export capability
+** WIP [#C] Performance optimization and resource limits
 ** TODO [#C] Update documentation for OpenTelemetry observability
 
 * DONE [#B] Remove config manifest and fix coder agent extraction

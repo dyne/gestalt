@@ -12,7 +12,7 @@ func TestWriteCollectorConfigWritesFile(t *testing.T) {
 	configPath := filepath.Join(tempDir, "collector.yaml")
 	dataPath := filepath.Join(tempDir, "otel", "otel.json")
 
-	err := WriteCollectorConfig(configPath, dataPath, "127.0.0.1:4317", "127.0.0.1:4318")
+	err := WriteCollectorConfig(configPath, dataPath, "127.0.0.1:4317", "127.0.0.1:4318", "", false)
 	if err != nil {
 		t.Fatalf("WriteCollectorConfig failed: %v", err)
 	}
@@ -43,6 +43,12 @@ func TestOptionsFromEnvDefaults(t *testing.T) {
 	if opts.HTTPEndpoint != defaultHTTPEndpoint {
 		t.Fatalf("expected default http endpoint, got %q", opts.HTTPEndpoint)
 	}
+	if opts.RemoteEndpoint != "" {
+		t.Fatalf("expected empty remote endpoint, got %q", opts.RemoteEndpoint)
+	}
+	if opts.RemoteInsecure {
+		t.Fatalf("expected RemoteInsecure false by default")
+	}
 	if opts.DataDir != filepath.Join("state", "otel") {
 		t.Fatalf("expected data dir under state root, got %q", opts.DataDir)
 	}
@@ -58,6 +64,8 @@ func TestOptionsFromEnvOverrides(t *testing.T) {
 	t.Setenv("GESTALT_OTEL_DATA_DIR", "/tmp/otel")
 	t.Setenv("GESTALT_OTEL_GRPC_ENDPOINT", "127.0.0.1:9999")
 	t.Setenv("GESTALT_OTEL_HTTP_ENDPOINT", "127.0.0.1:9998")
+	t.Setenv("GESTALT_OTEL_REMOTE_ENDPOINT", "remote:4317")
+	t.Setenv("GESTALT_OTEL_REMOTE_INSECURE", "true")
 
 	opts := OptionsFromEnv("state")
 	if opts.Enabled {
@@ -77,5 +85,36 @@ func TestOptionsFromEnvOverrides(t *testing.T) {
 	}
 	if opts.HTTPEndpoint != "127.0.0.1:9998" {
 		t.Fatalf("expected HTTPEndpoint override, got %q", opts.HTTPEndpoint)
+	}
+	if opts.RemoteEndpoint != "remote:4317" {
+		t.Fatalf("expected RemoteEndpoint override, got %q", opts.RemoteEndpoint)
+	}
+	if !opts.RemoteInsecure {
+		t.Fatalf("expected RemoteInsecure true with env override")
+	}
+}
+
+func TestWriteCollectorConfigRemoteExporter(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "collector.yaml")
+	dataPath := filepath.Join(tempDir, "otel", "otel.json")
+
+	err := WriteCollectorConfig(configPath, dataPath, "127.0.0.1:4317", "127.0.0.1:4318", "remote:4317", true)
+	if err != nil {
+		t.Fatalf("WriteCollectorConfig failed: %v", err)
+	}
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read config failed: %v", err)
+	}
+	text := string(content)
+	if !strings.Contains(text, "endpoint: \"remote:4317\"") {
+		t.Fatalf("expected remote endpoint in config: %s", text)
+	}
+	if !strings.Contains(text, "insecure: true") {
+		t.Fatalf("expected insecure true in config: %s", text)
+	}
+	if !strings.Contains(text, "exporters: [file, otlp]") {
+		t.Fatalf("expected otlp exporter in pipelines: %s", text)
 	}
 }

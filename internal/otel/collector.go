@@ -25,21 +25,25 @@ const (
 var ErrCollectorNotFound = errors.New("otel collector binary not found")
 
 type Options struct {
-	Enabled      bool
-	BinaryPath   string
-	ConfigPath   string
-	DataDir      string
-	GRPCEndpoint string
-	HTTPEndpoint string
-	Logger       *logging.Logger
+	Enabled        bool
+	BinaryPath     string
+	ConfigPath     string
+	DataDir        string
+	GRPCEndpoint   string
+	HTTPEndpoint   string
+	RemoteEndpoint string
+	RemoteInsecure bool
+	Logger         *logging.Logger
 }
 
 type CollectorInfo struct {
-	StartTime    time.Time
-	ConfigPath   string
-	DataPath     string
-	GRPCEndpoint string
-	HTTPEndpoint string
+	StartTime      time.Time
+	ConfigPath     string
+	DataPath       string
+	GRPCEndpoint   string
+	HTTPEndpoint   string
+	RemoteEndpoint string
+	RemoteInsecure bool
 }
 
 type Collector struct {
@@ -62,16 +66,22 @@ func OptionsFromEnv(stateDir string) Options {
 		stateDir = defaultStateDir
 	}
 	opts := Options{
-		Enabled:      true,
-		BinaryPath:   strings.TrimSpace(os.Getenv("GESTALT_OTEL_COLLECTOR")),
-		ConfigPath:   strings.TrimSpace(os.Getenv("GESTALT_OTEL_CONFIG")),
-		DataDir:      strings.TrimSpace(os.Getenv("GESTALT_OTEL_DATA_DIR")),
-		GRPCEndpoint: strings.TrimSpace(os.Getenv("GESTALT_OTEL_GRPC_ENDPOINT")),
-		HTTPEndpoint: strings.TrimSpace(os.Getenv("GESTALT_OTEL_HTTP_ENDPOINT")),
+		Enabled:        true,
+		BinaryPath:     strings.TrimSpace(os.Getenv("GESTALT_OTEL_COLLECTOR")),
+		ConfigPath:     strings.TrimSpace(os.Getenv("GESTALT_OTEL_CONFIG")),
+		DataDir:        strings.TrimSpace(os.Getenv("GESTALT_OTEL_DATA_DIR")),
+		GRPCEndpoint:   strings.TrimSpace(os.Getenv("GESTALT_OTEL_GRPC_ENDPOINT")),
+		HTTPEndpoint:   strings.TrimSpace(os.Getenv("GESTALT_OTEL_HTTP_ENDPOINT")),
+		RemoteEndpoint: strings.TrimSpace(os.Getenv("GESTALT_OTEL_REMOTE_ENDPOINT")),
 	}
 	if rawEnabled, ok := os.LookupEnv("GESTALT_OTEL_ENABLED"); ok {
 		if parsed, err := strconv.ParseBool(strings.TrimSpace(rawEnabled)); err == nil {
 			opts.Enabled = parsed
+		}
+	}
+	if rawInsecure, ok := os.LookupEnv("GESTALT_OTEL_REMOTE_INSECURE"); ok {
+		if parsed, err := strconv.ParseBool(strings.TrimSpace(rawInsecure)); err == nil {
+			opts.RemoteInsecure = parsed
 		}
 	}
 	if opts.DataDir == "" {
@@ -100,7 +110,7 @@ func StartCollector(options Options) (*Collector, error) {
 	}
 
 	dataPath := filepath.Join(options.DataDir, "otel.json")
-	if err := WriteCollectorConfig(options.ConfigPath, dataPath, options.GRPCEndpoint, options.HTTPEndpoint); err != nil {
+	if err := WriteCollectorConfig(options.ConfigPath, dataPath, options.GRPCEndpoint, options.HTTPEndpoint, options.RemoteEndpoint, options.RemoteInsecure); err != nil {
 		return nil, err
 	}
 
@@ -118,20 +128,27 @@ func StartCollector(options Options) (*Collector, error) {
 		stderr:     stderr,
 		configPath: options.ConfigPath,
 		info: CollectorInfo{
-			StartTime:    time.Now().UTC(),
-			ConfigPath:   options.ConfigPath,
-			DataPath:     dataPath,
-			GRPCEndpoint: options.GRPCEndpoint,
-			HTTPEndpoint: options.HTTPEndpoint,
+			StartTime:      time.Now().UTC(),
+			ConfigPath:     options.ConfigPath,
+			DataPath:       dataPath,
+			GRPCEndpoint:   options.GRPCEndpoint,
+			HTTPEndpoint:   options.HTTPEndpoint,
+			RemoteEndpoint: options.RemoteEndpoint,
+			RemoteInsecure: options.RemoteInsecure,
 		},
 		logger: options.Logger,
 	}
 	SetActiveCollector(collector.info)
 
-	collector.logInfo("otel collector started", map[string]string{
+	startFields := map[string]string{
 		"path":   binaryPath,
 		"config": options.ConfigPath,
-	})
+	}
+	if options.RemoteEndpoint != "" {
+		startFields["remote_endpoint"] = options.RemoteEndpoint
+		startFields["remote_insecure"] = strconv.FormatBool(options.RemoteInsecure)
+	}
+	collector.logInfo("otel collector started", startFields)
 
 	go collector.waitForExit()
 	return collector, nil

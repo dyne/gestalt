@@ -13,7 +13,7 @@ const (
 	defaultHTTPEndpoint = "127.0.0.1:4318"
 )
 
-func WriteCollectorConfig(path, dataPath, grpcEndpoint, httpEndpoint string) error {
+func WriteCollectorConfig(path, dataPath, grpcEndpoint, httpEndpoint, remoteEndpoint string, remoteInsecure bool) error {
 	if strings.TrimSpace(path) == "" {
 		return errors.New("collector config path is required")
 	}
@@ -36,11 +36,11 @@ func WriteCollectorConfig(path, dataPath, grpcEndpoint, httpEndpoint string) err
 		return err
 	}
 
-	config := buildCollectorConfig(grpcEndpoint, httpEndpoint, dataPath)
+	config := buildCollectorConfig(grpcEndpoint, httpEndpoint, dataPath, remoteEndpoint, remoteInsecure)
 	return os.WriteFile(path, []byte(config), 0o644)
 }
 
-func buildCollectorConfig(grpcEndpoint, httpEndpoint, dataPath string) string {
+func buildCollectorConfig(grpcEndpoint, httpEndpoint, dataPath, remoteEndpoint string, remoteInsecure bool) string {
 	grpcValue := strconv.Quote(grpcEndpoint)
 	httpValue := strconv.Quote(httpEndpoint)
 	pathValue := strconv.Quote(dataPath)
@@ -66,19 +66,41 @@ func buildCollectorConfig(grpcEndpoint, httpEndpoint, dataPath string) string {
 	builder.WriteString("    format: json\n")
 	builder.WriteString("    append: true\n")
 	builder.WriteString("    create_directory: true\n")
+	if strings.TrimSpace(remoteEndpoint) != "" {
+		builder.WriteString("  otlp:\n")
+		builder.WriteString("    endpoint: ")
+		builder.WriteString(strconv.Quote(strings.TrimSpace(remoteEndpoint)))
+		builder.WriteString("\n")
+		if remoteInsecure {
+			builder.WriteString("    tls:\n")
+			builder.WriteString("      insecure: true\n")
+		}
+	}
 	builder.WriteString("\nservice:\n")
 	builder.WriteString("  pipelines:\n")
 	builder.WriteString("    logs:\n")
 	builder.WriteString("      receivers: [otlp]\n")
 	builder.WriteString("      processors: [batch]\n")
-	builder.WriteString("      exporters: [file]\n")
+	builder.WriteString("      exporters: [file")
+	if strings.TrimSpace(remoteEndpoint) != "" {
+		builder.WriteString(", otlp")
+	}
+	builder.WriteString("]\n")
 	builder.WriteString("    metrics:\n")
 	builder.WriteString("      receivers: [otlp]\n")
 	builder.WriteString("      processors: [batch]\n")
-	builder.WriteString("      exporters: [file]\n")
+	builder.WriteString("      exporters: [file")
+	if strings.TrimSpace(remoteEndpoint) != "" {
+		builder.WriteString(", otlp")
+	}
+	builder.WriteString("]\n")
 	builder.WriteString("    traces:\n")
 	builder.WriteString("      receivers: [otlp]\n")
 	builder.WriteString("      processors: [batch]\n")
-	builder.WriteString("      exporters: [file]\n")
+	builder.WriteString("      exporters: [file")
+	if strings.TrimSpace(remoteEndpoint) != "" {
+		builder.WriteString(", otlp")
+	}
+	builder.WriteString("]\n")
 	return builder.String()
 }

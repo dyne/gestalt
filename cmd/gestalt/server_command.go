@@ -13,6 +13,7 @@ import (
 	"path"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -77,6 +78,25 @@ func runServer(args []string) int {
 		defer func() {
 			if err := otel.StopCollectorWithTimeout(collector, httpServerShutdownTimeout); err != nil && logger != nil {
 				logger.Warn("otel collector shutdown failed", map[string]string{
+					"error": err.Error(),
+				})
+			}
+		}()
+	}
+	sdkOptions := otel.SDKOptionsFromEnv(".gestalt")
+	sdkOptions.ServiceVersion = strings.TrimSpace(version.Version)
+	if sdkOptions.ServiceVersion == "" {
+		sdkOptions.ServiceVersion = "dev"
+	}
+	sdkShutdown, sdkErr := otel.SetupSDK(context.Background(), sdkOptions)
+	if sdkErr != nil {
+		logger.Warn("otel sdk init failed", map[string]string{
+			"error": sdkErr.Error(),
+		})
+	} else if sdkShutdown != nil {
+		defer func() {
+			if err := sdkShutdown(context.Background()); err != nil && logger != nil {
+				logger.Warn("otel sdk shutdown failed", map[string]string{
 					"error": err.Error(),
 				})
 			}

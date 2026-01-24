@@ -25,7 +25,7 @@
 ** DONE [#B] Build custom OpenTelemetry Collector binary with ocb
 ** DONE [#B] Implement Collector lifecycle management in Gestalt
 ** DONE [#B] Integrate Collector start into Temporal workflow
-** TODO [#A] Add OpenTelemetry SDK to Gestalt Go backend
+** DONE [#A] Add OpenTelemetry SDK to Gestalt Go backend
 ** TODO [#A] Add comprehensive API instrumentation with agent-specific metrics
    Effort: 2-3 days
    Why: Need detailed observability of API performance, agent behavior, and usage patterns for profiling and optimization

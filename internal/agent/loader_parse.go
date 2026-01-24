@@ -19,6 +19,9 @@ func loadAgentFromBytes(filePath string, data []byte) (Agent, error) {
 	if err := agent.Validate(); err != nil {
 		return Agent{}, formatValidationError(agent, filePath, data, err)
 	}
+	if err := agent.NormalizeShell(); err != nil {
+		return Agent{}, formatValidationError(agent, filePath, data, err)
+	}
 	agent.ConfigHash = ComputeConfigHash(&agent)
 	return agent, nil
 }

@@ -2784,7 +2784,7 @@
    - Update agent/skill loader tests to cover helper behavior.
    Done when: loaders share common utilities without regressions.
 
-** TODO [#B] Separate validation from normalization
+** DONE [#B] Separate validation from normalization
    Why: Validate mutates Agent, which hides side effects.
    Change:
    - Return a derived shell instead of mutating Agent, or isolate mutation.

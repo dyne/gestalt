@@ -72,26 +72,12 @@ type Agent struct {
 }
 
 // Validate ensures required fields are present and values are supported.
-// When CLI config is set, Validate builds and overwrites Shell with the generated command.
 func (a *Agent) Validate() error {
 	if strings.TrimSpace(a.Name) == "" {
 		return fmt.Errorf("agent name is required")
 	}
-	if len(a.CLIConfig) > 0 {
-		if strings.TrimSpace(a.CLIType) == "" {
-			return fmt.Errorf("agent cli_type is required when CLI config is set")
-		}
-		if err := ValidateAgentConfig(a.CLIType, a.CLIConfig); err != nil {
-			return err
-		}
-		command := BuildShellCommand(a.CLIType, a.CLIConfig)
-		if strings.TrimSpace(command) == "" {
-			return fmt.Errorf("agent cli_type %q cannot build shell command", a.CLIType)
-		}
-		a.Shell = command
-	}
-	if strings.TrimSpace(a.Shell) == "" {
-		return fmt.Errorf("agent shell is required")
+	if _, err := a.resolveShell(); err != nil {
+		return err
 	}
 
 	for i, prompt := range a.Prompts {
@@ -101,4 +87,35 @@ func (a *Agent) Validate() error {
 	}
 
 	return nil
+}
+
+// NormalizeShell applies CLI config shell generation using the resolved shell command.
+func (a *Agent) NormalizeShell() error {
+	command, err := a.resolveShell()
+	if err != nil {
+		return err
+	}
+	a.Shell = command
+	return nil
+}
+
+func (a *Agent) resolveShell() (string, error) {
+	if len(a.CLIConfig) > 0 {
+		if strings.TrimSpace(a.CLIType) == "" {
+			return "", fmt.Errorf("agent cli_type is required when CLI config is set")
+		}
+		if err := ValidateAgentConfig(a.CLIType, a.CLIConfig); err != nil {
+			return "", err
+		}
+		command := BuildShellCommand(a.CLIType, a.CLIConfig)
+		if strings.TrimSpace(command) == "" {
+			return "", fmt.Errorf("agent cli_type %q cannot build shell command", a.CLIType)
+		}
+		return command, nil
+	}
+	command := strings.TrimSpace(a.Shell)
+	if command == "" {
+		return "", fmt.Errorf("agent shell is required")
+	}
+	return command, nil
 }

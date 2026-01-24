@@ -83,10 +83,11 @@ func TestAgentTOMLPromptParsing(t *testing.T) {
 
 func TestAgentValidate(t *testing.T) {
 	tests := []struct {
-		name         string
-		agent        Agent
-		wantErr      string
-		wantShellSet bool
+		name       string
+		agent      Agent
+		wantErr    string
+		wantShell  string
+		checkShell bool
 	}{
 		{
 			name: "valid shell",
@@ -95,6 +96,8 @@ func TestAgentValidate(t *testing.T) {
 				Shell:   "/bin/bash",
 				CLIType: "codex",
 			},
+			wantShell:  "/bin/bash",
+			checkShell: true,
 		},
 		{
 			name: "cli_config builds shell",
@@ -105,7 +108,8 @@ func TestAgentValidate(t *testing.T) {
 					"model": "o3",
 				},
 			},
-			wantShellSet: true,
+			wantShell:  "",
+			checkShell: true,
 		},
 		{
 			name: "missing cli_type with cli_config",
@@ -145,8 +149,8 @@ func TestAgentValidate(t *testing.T) {
 				if err != nil {
 					t.Fatalf("unexpected error: %v", err)
 				}
-				if tt.wantShellSet && strings.TrimSpace(agent.Shell) == "" {
-					t.Fatalf("expected shell to be set")
+				if tt.checkShell && strings.TrimSpace(agent.Shell) != strings.TrimSpace(tt.wantShell) {
+					t.Fatalf("shell mismatch: %q", agent.Shell)
 				}
 				return
 			}
@@ -157,5 +161,33 @@ func TestAgentValidate(t *testing.T) {
 				t.Fatalf("error %q does not contain %q", err.Error(), tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestAgentNormalizeShell(t *testing.T) {
+	agent := Agent{
+		Name:    "Codex",
+		CLIType: "codex",
+		CLIConfig: map[string]interface{}{
+			"model": "o3",
+		},
+	}
+	if err := agent.NormalizeShell(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.TrimSpace(agent.Shell) == "" {
+		t.Fatalf("expected shell to be set")
+	}
+}
+
+func TestAgentNormalizeShellMissingType(t *testing.T) {
+	agent := Agent{
+		Name: "Codex",
+		CLIConfig: map[string]interface{}{
+			"model": "o3",
+		},
+	}
+	if err := agent.NormalizeShell(); err == nil {
+		t.Fatalf("expected error")
 	}
 }

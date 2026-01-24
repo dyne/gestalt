@@ -467,7 +467,7 @@
    - Update event store tests to validate shared helper behavior.
    Done when: event stores use shared helper and tests pass.
 
-** WIP [#A] Split Terminal component
+** DONE [#A] Split Terminal component
    Why: Terminal.svelte handles UI plus xterm attachment logic.
    Change:
    - Introduce TerminalShell + TerminalCanvas components.
@@ -475,7 +475,7 @@
    - Add component tests for focus/reconnect behavior.
    Done when: Terminal.svelte is smaller and behavior is stable.
 
-** TODO [#A] Extract CommandInput history helper
+** WIP [#A] Extract CommandInput history helper
    Why: CommandInput mixes UI and history/keyboard logic.
    Change:
    - Move history fetch + navigation into helper module.

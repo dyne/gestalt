@@ -26,10 +26,6 @@ var (
 	saveMetadata    = scip.SaveMetadata
 )
 
-func indexCommand() {
-	os.Exit(runIndexCommand(os.Args[2:], os.Stdout, os.Stderr))
-}
-
 func runIndexCommand(args []string, out io.Writer, errOut io.Writer) int {
 	indexFlags := flag.NewFlagSet("index", flag.ContinueOnError)
 	indexFlags.SetOutput(errOut)

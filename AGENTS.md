@@ -114,3 +114,6 @@ terminal output -> Session output bus -> /ws/terminal/:id -> xterm
 - Agents: new sessions refresh configs via `agent.AgentCache`; sessions store `Command` + `ConfigHash` snapshots.
 - Temporal: workflows store agent config + hash in memo (`internal/temporal/memo.go`); legacy JSON memos in `.gestalt/temporal` are warned/rejected.
 - CLI: `gestalt config validate --agents-dir ...`.
+- Backend: app wiring now lives in `internal/app` (`app.Build` loads skills/agents and constructs `terminal.Manager`).
+- Backend: `cmd/gestalt` subcommands dispatch via `cmd/gestalt/commands.go`; execution tests live in `cmd/gestalt/commands_test.go`.
+- Backend: server startup flow moved to `cmd/gestalt/server_command.go`; `cmd/gestalt/main.go` only resolves commands.

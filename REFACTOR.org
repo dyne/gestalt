@@ -353,13 +353,13 @@
    - Ensure component tests are stable.
    Done when: key component behaviors are covered.
 
-* WIP [#B] cmd/gestalt modularization
+* DONE [#B] cmd/gestalt modularization
   Goal: Improve readability and testability of the main entrypoint.
   Notes:
   - Preserve CLI flags and config precedence.
   Date: 2026-01-24
 
-** DONE [#A] Extract ServerRunner helper
+** [#A] Extract ServerRunner helper
    Why: HTTP server lifecycle logic is embedded in main.go.
    Change:
    - Introduce ServerRunner to manage start/shutdown.
@@ -367,7 +367,7 @@
    - Add unit tests for ServerRunner lifecycle.
    Done when: main.go is smaller and server lifecycle is isolated.
 
-** DONE [#A] Move prompt validation helper
+** [#A] Move prompt validation helper
    Why: Prompt validation belongs in shared prompt/config helpers.
    Change:
    - Move prompt validation into internal/prompt or internal/config.
@@ -375,7 +375,7 @@
    - Add unit tests for prompt validation.
    Done when: prompt validation is reusable.
 
-** DONE [#B] Split main.go into focused files
+** [#B] Split main.go into focused files
    Why: main.go mixes config parsing, server setup, and watchers.
    Change:
    - Split into config_load.go, server.go, temporal.go, watchers.go.
@@ -383,7 +383,7 @@
    - Ensure cmd/gestalt tests still pass.
    Done when: main.go is smaller and easier to navigate.
 
-** DONE [#B] Introduce internal app builder
+** [#B] Introduce internal app builder
    Why: Dependency wiring is embedded in main.go.
    Change:
    - Add internal/app (or internal/config) builder for runtime deps.
@@ -391,7 +391,7 @@
    - Add tests for builder wiring outputs.
    Done when: main.go is orchestration only.
 
-** WIP [#C] Command struct pattern for subcommands
+** [#C] Command struct pattern for subcommands
    Why: Subcommand logic is spread across helpers.
    Change:
    - Introduce command structs (runServer, runValidate, runIndex) with shared deps.

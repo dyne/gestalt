@@ -110,6 +110,7 @@ terminal output -> Session output bus -> /ws/terminal/:id -> xterm
 - Agents: TOML-only; loader rejects `.json`; `cli_config` schema-validated; shellgen skips empty values.
 - Agents/skills: prompt resolution unified with prompt parser (.md support), skill XML includes license/compatibility/allowed tools with `xml.EscapeText`, loader path normalization shared in `internal/fsutil`, validation no longer mutates shell (use `NormalizeShell`), and agent registry centralizes reloads.
 - Errors: REST errors include message + code (error alias retained), WS streams send error envelopes, and frontend error messages use `errorUtils`.
+- Testing: added DSR/output backpressure, watcher restart, CLI error mapping, structured error e2e, and Terminal/CommandInput component tests; frontend coverage workflow documented.
 - Agents: new sessions refresh configs via `agent.AgentCache`; sessions store `Command` + `ConfigHash` snapshots.
 - Temporal: workflows store agent config + hash in memo (`internal/temporal/memo.go`); legacy JSON memos in `.gestalt/temporal` are warned/rejected.
 - CLI: `gestalt config validate --agents-dir ...`.

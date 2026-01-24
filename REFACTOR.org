@@ -291,13 +291,13 @@
    - Add tests for error helper behavior.
    Done when: UI error handling is consistent.
 
-* WIP [#B] Testing and coverage improvements
+* DONE [#B] Testing and coverage improvements
   Goal: Increase coverage of error paths and reduce flaky tests.
   Notes:
   - Prefer explicit timeouts and mockable interfaces.
   Date: 2026-01-24
 
-** DONE [#A] Add WS close/error path tests
+** [#A] Add WS close/error path tests
    Why: WS handlers and stores have limited coverage for failure scenarios.
    Change:
    - Add backend and frontend WS close/error tests with explicit timeouts.
@@ -305,7 +305,7 @@
    - Ensure tests are stable with mocks and timeouts.
    Done when: WS error paths are covered.
 
-** DONE [#A] Add terminal DSR/backpressure tests
+** [#A] Add terminal DSR/backpressure tests
    Why: DSR fallback and slow subscribers can stall output.
    Change:
    - Add targeted tests for DSR parsing and backpressure behavior.
@@ -313,7 +313,7 @@
    - Ensure tests cover slow subscriber scenarios.
    Done when: DSR/backpressure edge cases are covered.
 
-** DONE [#A] Add watcher restart/backoff tests
+** [#A] Add watcher restart/backoff tests
    Why: Restart logic is complex and lightly tested.
    Change:
    - Add tests for restart backoff and max retry behavior.
@@ -321,7 +321,7 @@
    - Use deterministic timers to avoid flakes.
    Done when: watcher restart/backoff is covered.
 
-** DONE [#B] Add CLI error mapping tests
+** [#B] Add CLI error mapping tests
    Why: gestalt-send error handling is intertwined with HTTP logic.
    Change:
    - Add table-driven tests for error mapping and exit codes.
@@ -329,7 +329,7 @@
    - Ensure tests cover ambiguous agent resolution.
    Done when: CLI error handling is covered.
 
-** DONE [#B] Add frontend coverage workflow
+** [#B] Add frontend coverage workflow
    Why: Coverage visibility is missing for SPA tests.
    Change:
    - Add a documented coverage command/workflow.
@@ -337,7 +337,7 @@
    - Run vitest coverage locally when adding the workflow.
    Done when: coverage can be reported on demand.
 
-** DONE [#B] Add API/WS integration tests for structured errors
+** [#B] Add API/WS integration tests for structured errors
    Why: Error payloads may regress without end-to-end checks.
    Change:
    - Add integration tests for REST/WS error payloads.
@@ -345,7 +345,7 @@
    - Ensure tests do not rely on timing.
    Done when: structured error payloads are covered.
 
-** DONE [#B] Add Terminal/CommandInput component tests
+** [#B] Add Terminal/CommandInput component tests
    Why: Critical behaviors are only lightly tested.
    Change:
    - Add component tests for focus, submit, reconnect state.

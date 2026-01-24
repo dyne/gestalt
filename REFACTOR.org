@@ -83,7 +83,7 @@
    - Add WS handler tests for close and error paths.
    Done when: WS handlers share a common helper without behavior change.
 
-** WIP [#A] Add wsAuth helper for token validation
+** DONE [#A] Add wsAuth helper for token validation
    Why: Auth checks are duplicated across WS handlers.
    Change:
    - Centralize WS auth checks and responses.
@@ -91,7 +91,7 @@
    - Add tests for auth failures on WS endpoints.
    Done when: WS auth behavior is consistent across handlers.
 
-** TODO [#A] Move JSON helpers out of rest.go
+** WIP [#A] Move JSON helpers out of rest.go
    Why: writeJSON/decodeJSON utilities clutter rest.go.
    Change:
    - Move JSON encode/decode helpers to a small api helper file.

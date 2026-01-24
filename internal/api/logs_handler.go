@@ -39,8 +39,7 @@ func (f *levelFilter) Set(level logging.Level) {
 }
 
 func (h *LogsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if !validateToken(r, h.AuthToken) {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	if !requireWSToken(w, r, h.AuthToken) {
 		return
 	}
 

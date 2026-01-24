@@ -18,6 +18,14 @@ type wsStreamConfig[T any] struct {
 	WriteTimeout   time.Duration
 }
 
+func requireWSToken(w http.ResponseWriter, r *http.Request, token string) bool {
+	if !validateToken(r, token) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return false
+	}
+	return true
+}
+
 func upgradeWebSocket(w http.ResponseWriter, r *http.Request, allowedOrigins []string) (*websocket.Conn, error) {
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  wsReadBufferSize,

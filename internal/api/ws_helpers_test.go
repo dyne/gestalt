@@ -51,3 +51,17 @@ func TestServeWSStreamSendsPayloadAndCloses(t *testing.T) {
 		t.Fatalf("handler did not exit after close")
 	}
 }
+
+func TestRequireWSTokenUnauthorized(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/ws", nil)
+	recorder := httptest.NewRecorder()
+
+	if requireWSToken(recorder, req, "secret") {
+		t.Fatalf("expected unauthorized result")
+	}
+
+	resp := recorder.Result()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, resp.StatusCode)
+	}
+}

@@ -23,8 +23,7 @@ type workflowEventPayload struct {
 }
 
 func (h *WorkflowEventsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if !validateToken(r, h.AuthToken) {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	if !requireWSToken(w, r, h.AuthToken) {
 		return
 	}
 	if h.Manager == nil {

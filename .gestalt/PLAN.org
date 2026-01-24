@@ -128,8 +128,8 @@
 ** DONE [#A] Replace internal/metrics with OpenTelemetry metrics
 ** DONE [#B] Create frontend OTel query client
 ** DONE [#B] Update LogsView to use OpenTelemetry logs
-** TODO [#C] Create trace viewer component
-** TODO [#C] Add OpenTelemetry metrics dashboard
+** DONE [#C] Create trace viewer component
+** WIP [#C] Add OpenTelemetry metrics dashboard
 ** TODO [#B] Implement parallel run during migration
 ** TODO [#B] Cut over to OpenTelemetry (remove custom systems)
 ** TODO [#C] Add remote backend export capability

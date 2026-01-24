@@ -120,3 +120,7 @@ terminal output -> Session output bus -> /ws/terminal/:id -> xterm
 - CLI: `gestalt-send` split into `parse.go`, `http.go`, and `completion.go`; agent cache now JSON (`agents-cache.json`).
 - CLI: shared HTTP helpers live in `internal/client`; `gestalt-send` uses them for agent lookups and input sends.
 - CLI: common help/version flag wiring in `internal/cli`.
+
+## WebSocket consolidation notes
+- Backend WS streaming now uses a shared write-loop helper (`internal/api/ws_helpers.go`) with per-handler read logic; logs/events/terminal handlers were updated to use it and have close-handling tests.
+- Frontend WS helper tests live in `frontend/src/lib/wsStore.test.js` and cover reconnect, subscription payloads, and listener error handling.

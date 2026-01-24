@@ -2,6 +2,7 @@
   import { onDestroy, onMount } from 'svelte'
   import { apiFetch } from '../lib/api.js'
   import { notificationStore } from '../lib/notificationStore.js'
+  import { getErrorMessage } from '../lib/errorUtils.js'
   import { formatRelativeTime } from '../lib/timeUtils.js'
 
   let logs = []
@@ -45,7 +46,7 @@
       lastUpdated = new Date().toISOString()
       lastErrorMessage = ''
     } catch (err) {
-      const message = err?.message || 'Failed to load logs.'
+      const message = getErrorMessage(err, 'Failed to load logs.')
       error = message
       if (message !== lastErrorMessage) {
         notificationStore.addNotification('error', message)

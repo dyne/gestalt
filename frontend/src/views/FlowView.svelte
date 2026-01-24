@@ -2,6 +2,7 @@
   import { onDestroy, onMount } from 'svelte'
   import { apiFetch } from '../lib/api.js'
   import { subscribe as subscribeWorkflowEvents } from '../lib/workflowEventStore.js'
+  import { getErrorMessage } from '../lib/errorUtils.js'
   import WorkflowCard from '../components/WorkflowCard.svelte'
 
   export let onViewTerminal = () => {}
@@ -43,7 +44,7 @@
       workflows = Array.isArray(payload) ? payload : []
       syncExpanded(workflows)
     } catch (err) {
-      error = err?.message || 'Failed to load workflows.'
+      error = getErrorMessage(err, 'Failed to load workflows.')
     } finally {
       loading = false
       refreshing = false
@@ -81,7 +82,7 @@
       })
       await loadWorkflows({ silent: true })
     } catch (err) {
-      error = err?.message || 'Failed to resume workflow.'
+      error = getErrorMessage(err, 'Failed to resume workflow.')
     } finally {
       const cleared = new Set(pendingActions)
       cleared.delete(sessionId)

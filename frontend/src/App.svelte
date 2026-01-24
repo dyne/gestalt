@@ -12,6 +12,7 @@
   import { formatTerminalLabel } from './lib/terminalTabs.js'
   import { releaseTerminalState } from './lib/terminalStore.js'
   import { notificationStore } from './lib/notificationStore.js'
+  import { getErrorMessage, notifyError } from './lib/errorUtils.js'
 
   let tabs = [
     { id: 'dashboard', label: 'Dashboard', isHome: true },
@@ -79,9 +80,8 @@
       terminals = await terminalsResponse.json()
       syncTabs(terminals)
     } catch (err) {
-      const message = err?.message || 'Failed to load dashboard data.'
+      const message = notifyError(err, 'Failed to load dashboard data.')
       error = message
-      notificationStore.addNotification('error', message)
     } finally {
       loading = false
     }
@@ -117,14 +117,10 @@
           await refresh()
         }
         activeId = existingId
-        notificationStore.addNotification(
-          'info',
-          err?.message || `Agent ${agentId} is already running.`
-        )
+        notificationStore.addNotification('info', getErrorMessage(err, `Agent ${agentId} is already running.`))
         return
       }
-      const message = err?.message || 'Failed to create terminal.'
-      notificationStore.addNotification('error', message)
+      const message = notifyError(err, 'Failed to create terminal.')
       throw err
     }
   }
@@ -144,8 +140,7 @@
       }
       notificationStore.addNotification('info', `Terminal ${id} closed.`)
     } catch (err) {
-      const message = err?.message || 'Failed to close terminal.'
-      notificationStore.addNotification('error', message)
+      const message = notifyError(err, 'Failed to close terminal.')
       throw err
     }
   }

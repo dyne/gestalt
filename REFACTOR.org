@@ -283,7 +283,7 @@
    - Update REST tests for error codes.
    Done when: API error codes are present.
 
-** TODO [#B] Centralize frontend error handling
+** DONE [#B] Centralize frontend error handling
    Why: Error handling is inconsistent across views.
    Change:
    - Add a shared error helper/store and reuse in views.

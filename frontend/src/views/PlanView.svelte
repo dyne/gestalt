@@ -2,6 +2,7 @@
   import { onDestroy, onMount } from 'svelte'
   import { apiFetch } from '../lib/api.js'
   import { eventConnectionStatus, subscribe as subscribeEvents } from '../lib/eventStore.js'
+  import { getErrorMessage } from '../lib/errorUtils.js'
   import OrgViewer from '../components/OrgViewer.svelte'
 
   let loading = false
@@ -61,7 +62,7 @@
         }
       }
     } catch (err) {
-      error = err?.message || 'Failed to load plan.'
+      error = getErrorMessage(err, 'Failed to load plan.')
     } finally {
       loading = false
       refreshing = false

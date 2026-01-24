@@ -5,6 +5,7 @@
   import { subscribe as subscribeConfigEvents } from '../lib/configEventStore.js'
   import { subscribe as subscribeEvents } from '../lib/eventStore.js'
   import { notificationStore } from '../lib/notificationStore.js'
+  import { getErrorMessage } from '../lib/errorUtils.js'
   import { formatRelativeTime } from '../lib/timeUtils.js'
 
   export let terminals = []
@@ -56,7 +57,7 @@
       await onCreate(agentId)
       await loadAgents()
     } catch (err) {
-      localError = err?.message || 'Failed to create terminal.'
+      localError = getErrorMessage(err, 'Failed to create terminal.')
     } finally {
       actionPending = false
     }
@@ -80,7 +81,7 @@
       agents = nextAgents
       await loadAgentSkills(nextAgents)
     } catch (err) {
-      agentsError = err?.message || 'Failed to load agents.'
+      agentsError = getErrorMessage(err, 'Failed to load agents.')
     } finally {
       agentsLoading = false
     }
@@ -107,7 +108,7 @@
       )
       agentSkills = Object.fromEntries(entries)
     } catch (err) {
-      agentSkillsError = err?.message || 'Failed to load agent skills.'
+      agentSkillsError = getErrorMessage(err, 'Failed to load agent skills.')
       agentSkills = {}
     } finally {
       agentSkillsLoading = false
@@ -156,7 +157,7 @@
       logs = await response.json()
       lastLogErrorMessage = ''
     } catch (err) {
-      const message = err?.message || 'Failed to load logs.'
+      const message = getErrorMessage(err, 'Failed to load logs.')
       logsError = message
       if (message !== lastLogErrorMessage) {
         notificationStore.addNotification('error', message)

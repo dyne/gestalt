@@ -1,6 +1,6 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
-  import { apiFetch } from '../lib/api.js'
+  import { fetchLogs as fetchLogsApi } from '../lib/apiClient.js'
   import { notificationStore } from '../lib/notificationStore.js'
   import { getErrorMessage } from '../lib/errorUtils.js'
   import { formatRelativeTime } from '../lib/timeUtils.js'
@@ -28,21 +28,11 @@
     return formatRelativeTime(value) || '—'
   }
 
-  const buildQuery = () => {
-    const params = new URLSearchParams()
-    if (levelFilter) {
-      params.set('level', levelFilter)
-    }
-    return params.toString()
-  }
-
-  const fetchLogs = async () => {
+  const loadLogs = async () => {
     loading = true
     error = ''
     try {
-      const query = buildQuery()
-      const response = await apiFetch(`/api/logs${query ? `?${query}` : ''}`)
-      logs = await response.json()
+      logs = await fetchLogsApi({ level: levelFilter })
       lastUpdated = new Date().toISOString()
       lastErrorMessage = ''
     } catch (err) {
@@ -63,13 +53,13 @@
       refreshTimer = null
     }
     if (autoRefresh) {
-      refreshTimer = setInterval(fetchLogs, 5000)
+      refreshTimer = setInterval(loadLogs, 5000)
     }
   }
 
   const handleFilterChange = (event) => {
     levelFilter = event.target.value
-    fetchLogs()
+    loadLogs()
   }
 
   const toggleExpanded = (entryId) => {
@@ -92,7 +82,7 @@
 
   onMount(async () => {
     mounted = true
-    await fetchLogs()
+    await loadLogs()
     resetAutoRefresh()
   })
 
@@ -123,7 +113,7 @@
         <input type="checkbox" bind:checked={autoRefresh} />
         <span>Auto refresh</span>
       </label>
-      <button class="refresh" type="button" on:click={fetchLogs} disabled={loading}>
+      <button class="refresh" type="button" on:click={loadLogs} disabled={loading}>
         {loading ? 'Refreshing…' : 'Refresh'}
       </button>
     </div>

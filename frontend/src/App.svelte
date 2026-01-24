@@ -6,7 +6,12 @@
   import TerminalView from './views/TerminalView.svelte'
   import TabBar from './components/TabBar.svelte'
   import ToastContainer from './components/ToastContainer.svelte'
-  import { apiFetch } from './lib/api.js'
+  import {
+    createTerminal as createTerminalSession,
+    deleteTerminal as deleteTerminalSession,
+    fetchStatus,
+    fetchTerminals,
+  } from './lib/apiClient.js'
   import { subscribe as subscribeEvents } from './lib/eventStore.js'
   import { subscribe as subscribeTerminalEvents } from './lib/terminalEventStore.js'
   import { buildTabs, ensureActiveTab, resolveActiveView } from './lib/tabRouting.js'
@@ -49,12 +54,12 @@
     loading = true
     error = ''
     try {
-      const [statusResponse, terminalsResponse] = await Promise.all([
-        apiFetch('/api/status'),
-        apiFetch('/api/terminals'),
+      const [nextStatus, nextTerminals] = await Promise.all([
+        fetchStatus(),
+        fetchTerminals(),
       ])
-      status = await statusResponse.json()
-      terminals = await terminalsResponse.json()
+      status = nextStatus
+      terminals = nextTerminals
       syncTabs(terminals)
     } catch (err) {
       const message = notifyError(err, 'Failed to load dashboard data.')
@@ -67,15 +72,7 @@
   const createTerminal = async (agentId = '', useWorkflow) => {
     error = ''
     try {
-      const payload = agentId ? { agent: agentId } : {}
-      if (typeof useWorkflow === 'boolean') {
-        payload.workflow = useWorkflow
-      }
-      const response = await apiFetch('/api/terminals', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      })
-      const created = await response.json()
+      const created = await createTerminalSession({ agentId, workflow: useWorkflow })
       terminals = [...terminals, created]
       if (status) {
         status = { ...status, terminal_count: status.terminal_count + 1 }
@@ -105,7 +102,7 @@
   const deleteTerminal = async (id) => {
     error = ''
     try {
-      await apiFetch(`/api/terminals/${id}`, { method: 'DELETE' })
+      await deleteTerminalSession(id)
       releaseTerminalState(id)
       terminals = terminals.filter((terminal) => terminal.id !== id)
       if (status) {

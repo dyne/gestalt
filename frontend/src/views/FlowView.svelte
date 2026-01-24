@@ -1,6 +1,6 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
-  import { apiFetch } from '../lib/api.js'
+  import { fetchWorkflows, resumeWorkflow as resumeWorkflowSession } from '../lib/apiClient.js'
   import { subscribe as subscribeWorkflowEvents } from '../lib/workflowEventStore.js'
   import { getErrorMessage } from '../lib/errorUtils.js'
   import WorkflowCard from '../components/WorkflowCard.svelte'
@@ -39,8 +39,7 @@
     }
     error = ''
     try {
-      const response = await apiFetch('/api/workflows')
-      const payload = await response.json()
+      const payload = await fetchWorkflows()
       workflows = Array.isArray(payload) ? payload : []
       syncExpanded(workflows)
     } catch (err) {
@@ -76,10 +75,7 @@
     pendingActions = next
     error = ''
     try {
-      await apiFetch(`/api/terminals/${sessionId}/workflow/resume`, {
-        method: 'POST',
-        body: JSON.stringify({ action }),
-      })
+      await resumeWorkflowSession(sessionId, action)
       await loadWorkflows({ silent: true })
     } catch (err) {
       error = getErrorMessage(err, 'Failed to resume workflow.')

@@ -1,6 +1,6 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
-  import { apiFetch } from '../lib/api.js'
+  import { fetchAgentSkills, fetchAgents, fetchLogs as fetchLogsApi } from '../lib/apiClient.js'
   import { subscribe as subscribeAgentEvents } from '../lib/agentEventStore.js'
   import { subscribe as subscribeConfigEvents } from '../lib/configEventStore.js'
   import { subscribe as subscribeEvents } from '../lib/eventStore.js'
@@ -75,8 +75,7 @@
     agentsLoading = true
     agentsError = ''
     try {
-      const response = await apiFetch('/api/agents')
-      const fetched = await response.json()
+      const fetched = await fetchAgents()
       const nextAgents = syncAgentRunning(fetched, terminals)
       agents = nextAgents
       await loadAgentSkills(nextAgents)
@@ -98,8 +97,7 @@
       const entries = await Promise.all(
         agentList.map(async (agent) => {
           try {
-            const response = await apiFetch(`/api/skills?agent=${encodeURIComponent(agent.id)}`)
-            const data = await response.json()
+            const data = await fetchAgentSkills(agent.id)
             return [agent.id, data.map((skill) => skill.name)]
           } catch {
             return [agent.id, []]
@@ -140,21 +138,11 @@
     return formatRelativeTime(value) || '—'
   }
 
-  const buildLogQuery = () => {
-    const params = new URLSearchParams()
-    if (logLevelFilter) {
-      params.set('level', logLevelFilter)
-    }
-    return params.toString()
-  }
-
-  const fetchLogs = async () => {
+  const loadLogs = async () => {
     logsLoading = true
     logsError = ''
     try {
-      const query = buildLogQuery()
-      const response = await apiFetch(`/api/logs${query ? `?${query}` : ''}`)
-      logs = await response.json()
+      logs = await fetchLogsApi({ level: logLevelFilter })
       lastLogErrorMessage = ''
     } catch (err) {
       const message = getErrorMessage(err, 'Failed to load logs.')
@@ -174,13 +162,13 @@
       logsRefreshTimer = null
     }
     if (logsAutoRefresh) {
-      logsRefreshTimer = setInterval(fetchLogs, 5000)
+      logsRefreshTimer = setInterval(loadLogs, 5000)
     }
   }
 
   const handleLogFilterChange = (event) => {
     logLevelFilter = event.target.value
-    fetchLogs()
+    loadLogs()
   }
 
   const logEntryKey = (entry, index) => `${entry.timestamp}-${entry.message}-${index}`
@@ -232,7 +220,7 @@
   onMount(() => {
     loadAgents()
     logsMounted = true
-    fetchLogs()
+    loadLogs()
     resetLogRefresh()
     const handleAgentEvent = () => {
       loadAgents()
@@ -374,7 +362,7 @@
         <input type="checkbox" bind:checked={logsAutoRefresh} />
         <span>Auto refresh</span>
       </label>
-      <button class="logs-refresh" type="button" on:click={fetchLogs} disabled={logsLoading}>
+      <button class="logs-refresh" type="button" on:click={loadLogs} disabled={logsLoading}>
         {logsLoading ? 'Refreshing…' : 'Refresh'}
       </button>
     </div>

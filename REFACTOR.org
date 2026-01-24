@@ -506,7 +506,7 @@
    - Update App tests if needed.
    Done when: tab logic is centralized.
 
-** WIP [#B] Introduce shared API client layer
+** DONE [#B] Introduce shared API client layer
    Why: Views repeat fetch + parse + error handling.
    Change:
    - Add an API client module (agents, terminals, logs, plan, workflows).
@@ -514,7 +514,7 @@
    - Add unit tests for API client functions.
    Done when: views call shared API functions.
 
-** TODO [#B] Move Dashboard orchestration into a store
+** WIP [#B] Move Dashboard orchestration into a store
    Why: Dashboard.svelte mixes data fetching and UI logic.
    Change:
    - Create dashboardStore for agents/skills/logs and loading/error state.

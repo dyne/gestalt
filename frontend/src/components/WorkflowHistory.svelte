@@ -1,6 +1,6 @@
 <script>
   import { onDestroy } from 'svelte'
-  import { apiFetch } from '../lib/api.js'
+  import { fetchWorkflowHistory } from '../lib/apiClient.js'
   import { getErrorMessage } from '../lib/errorUtils.js'
   import { formatRelativeTime } from '../lib/timeUtils.js'
 
@@ -43,8 +43,7 @@
     }
     error = ''
     try {
-      const response = await apiFetch(`/api/terminals/${terminalId}/workflow/history`)
-      const payload = await response.json()
+      const payload = await fetchWorkflowHistory(terminalId)
       events = Array.isArray(payload) ? payload : []
     } catch (err) {
       error = getErrorMessage(err, 'Failed to load workflow history.')

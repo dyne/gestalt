@@ -1,6 +1,6 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
-  import { apiFetch } from '../lib/api.js'
+  import { fetchPlan } from '../lib/apiClient.js'
   import { eventConnectionStatus, subscribe as subscribeEvents } from '../lib/eventStore.js'
   import { getErrorMessage } from '../lib/errorUtils.js'
   import { createPollingHelper } from '../lib/pollingHelper.js'
@@ -41,19 +41,14 @@
     }
     error = ''
     try {
-      const response = await apiFetch('/api/plan', {
-        allowNotModified: true,
-        headers: etag ? { 'If-None-Match': etag } : {},
-      })
-      const responseEtag = response.headers?.get?.('ETag')
-      if (responseEtag) {
-        etag = responseEtag
+      const result = await fetchPlan({ etag })
+      if (result.etag) {
+        etag = result.etag
       }
-      if (response.status === 304) {
+      if (result.notModified) {
         return
       }
-      const payload = await response.json()
-      const nextContent = payload?.content || ''
+      const nextContent = result.content || ''
       if (nextContent !== lastContent) {
         content = nextContent
         lastContent = nextContent

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"sync"
-	"time"
 
 	"gestalt/internal/logging"
 
@@ -75,7 +74,11 @@ func (h *LogsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conn, err := upgradeWebSocket(w, r, h.AllowedOrigins)
+	writer, err := startWSWriteLoop(w, r, wsStreamConfig[logging.LogEntry]{
+		AllowedOrigins: h.AllowedOrigins,
+		Output:         output,
+		Logger:         h.Logger,
+	})
 	if err != nil {
 		cancel()
 		logWSError(h.Logger, r, wsError{
@@ -86,29 +89,10 @@ func (h *LogsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer cancel()
+	defer writer.Stop()
+
+	conn := writer.Conn
 	defer conn.Close()
-
-	done := make(chan struct{})
-	defer close(done)
-
-	go func() {
-		for {
-			select {
-			case entry, ok := <-output:
-				if !ok {
-					return
-				}
-				if err := conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
-					return
-				}
-				if err := conn.WriteJSON(entry); err != nil {
-					return
-				}
-			case <-done:
-				return
-			}
-		}
-	}()
 
 	for {
 		msgType, msg, err := conn.ReadMessage()

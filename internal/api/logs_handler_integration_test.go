@@ -164,3 +164,36 @@ func TestLogsWebSocketMessageFilter(t *testing.T) {
 		t.Fatalf("expected error msg, got %q", entry.Message)
 	}
 }
+
+func TestLogsWebSocketCloseEndsHandler(t *testing.T) {
+	logger := logging.NewLoggerWithOutput(logging.NewLogBuffer(10), logging.LevelInfo, nil)
+	handlerDone := make(chan struct{})
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("skipping websocket test (listener unavailable): %v", err)
+	}
+	server := &httptest.Server{
+		Listener: listener,
+		Config: &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			(&LogsHandler{Logger: logger}).ServeHTTP(w, r)
+			close(handlerDone)
+		})},
+	}
+	server.Start()
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/logs"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+
+	_ = conn.Close()
+
+	select {
+	case <-handlerDone:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("handler did not exit after close")
+	}
+}

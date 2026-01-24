@@ -56,6 +56,75 @@ func TestServeWSStreamSendsPayloadAndCloses(t *testing.T) {
 	}
 }
 
+func TestStartWSWriteLoopSendsPayloadAndStops(t *testing.T) {
+	if !canListenLocalWS(t) {
+		t.Skip("local listener unavailable for websocket test")
+	}
+	output := make(chan string, 1)
+	handlerDone := make(chan struct{})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		loop, err := startWSWriteLoop(w, r, wsStreamConfig[string]{
+			Output: output,
+			BuildPayload: func(value string) (any, bool) {
+				return map[string]string{"value": value}, true
+			},
+		})
+		if err != nil {
+			t.Errorf("start ws loop: %v", err)
+			close(handlerDone)
+			return
+		}
+		defer loop.Stop()
+
+		conn := loop.Conn
+		defer conn.Close()
+
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				close(handlerDone)
+				return
+			}
+		}
+	}))
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+
+	output <- "hello"
+
+	var payload map[string]string
+	if err := conn.ReadJSON(&payload); err != nil {
+		_ = conn.Close()
+		t.Fatalf("read websocket: %v", err)
+	}
+	if payload["value"] != "hello" {
+		_ = conn.Close()
+		t.Fatalf("unexpected payload: %v", payload)
+	}
+
+	_ = conn.Close()
+
+	select {
+	case <-handlerDone:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("handler did not exit after close")
+	}
+}
+
+func TestStartWSWriteLoopRequiresOutput(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/ws", nil)
+	recorder := httptest.NewRecorder()
+
+	if _, err := startWSWriteLoop(recorder, req, wsStreamConfig[string]{}); err == nil {
+		t.Fatalf("expected error for nil output")
+	}
+}
+
 func TestRequireWSTokenUnauthorized(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/ws", nil)
 	recorder := httptest.NewRecorder()
@@ -67,6 +136,12 @@ func TestRequireWSTokenUnauthorized(t *testing.T) {
 	resp := recorder.Result()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, resp.StatusCode)
+	}
+}
+
+func TestWriteBinaryPayloadTypeMismatch(t *testing.T) {
+	if err := writeBinaryPayload(nil, "not-bytes"); err == nil {
+		t.Fatalf("expected type mismatch error")
 	}
 }
 

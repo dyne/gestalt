@@ -18,18 +18,18 @@ import (
 )
 
 type testPty struct {
-	reader  *io.PipeReader
-	writer  *io.PipeWriter
-	writeCh chan []byte
+	reader   *io.PipeReader
+	writer   *io.PipeWriter
+	writeCh  chan []byte
 	resizeCh chan [2]uint16
 }
 
 func newTestPty() *testPty {
 	reader, writer := io.Pipe()
 	return &testPty{
-		reader:  reader,
-		writer:  writer,
-		writeCh: make(chan []byte, 4),
+		reader:   reader,
+		writer:   writer,
+		writeCh:  make(chan []byte, 4),
 		resizeCh: make(chan [2]uint16, 4),
 	}
 }
@@ -354,6 +354,50 @@ func TestTerminalWebSocketReconnect(t *testing.T) {
 	}
 	if !readWebSocketContains(t, conn, "reconnected") {
 		t.Fatalf("expected output after reconnect")
+	}
+}
+
+func TestTerminalWebSocketCloseEndsHandler(t *testing.T) {
+	factory := &testFactory{}
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+	})
+	session, err := manager.Create("", "test", "ws")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(session.ID)
+	}()
+
+	handlerDone := make(chan struct{})
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("skipping websocket test (listener unavailable): %v", err)
+	}
+	server := &httptest.Server{
+		Listener: listener,
+		Config: &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			(&TerminalHandler{Manager: manager}).ServeHTTP(w, r)
+			close(handlerDone)
+		})},
+	}
+	server.Start()
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/terminal/" + session.ID
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	_ = conn.Close()
+
+	select {
+	case <-handlerDone:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("handler did not exit after close")
 	}
 }
 

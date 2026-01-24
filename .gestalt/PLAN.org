@@ -7553,9 +7553,9 @@
    Change: Introduce SessionMeta/SessionIO/SessionWorkflow with a wrapper type.
    Tests: Adjust session tests to cover new struct boundaries.
 
-* TODO [#B] WebSocket and event stream consolidation
+* WIP [#B] WebSocket and event stream consolidation
   Goal: Reduce duplicated WS handling in backend and frontend.
-** TODO [#B] Create backend WS helper
+** DONE [#B] Create backend WS helper
    Effort: Small
    Change: Extract upgrade + write loop helper used by WS handlers.
    Tests: Add handler tests for close/error handling.

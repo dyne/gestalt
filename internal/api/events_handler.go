@@ -140,15 +140,18 @@ func (h *EventsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	defer cancel()
 
-	go func() {
-		for event := range events {
+	writer, err := startWSWriteLoop(w, r, wsStreamConfig[watcher.Event]{
+		Conn:           conn,
+		AllowedOrigins: h.AllowedOrigins,
+		Output:         events,
+		Logger:         h.Logger,
+		BuildPayload: func(event watcher.Event) (any, bool) {
 			if !filter.Allows(event.Type) {
-				continue
+				return nil, false
 			}
 			if !limiter.Allow(time.Now()) {
-				continue
+				return nil, false
 			}
 			payload := eventPayload{
 				Type:      event.Type,
@@ -158,14 +161,21 @@ func (h *EventsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if payload.Timestamp.IsZero() {
 				payload.Timestamp = time.Now().UTC()
 			}
-			if err := conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
-				return
-			}
-			if err := conn.WriteJSON(payload); err != nil {
-				return
-			}
-		}
-	}()
+			return payload, true
+		},
+	})
+	if err != nil {
+		cancel()
+		writeWSError(w, r, conn, h.Logger, wsError{
+			Status:       http.StatusInternalServerError,
+			Message:      "event stream unavailable",
+			Err:          err,
+			SendEnvelope: true,
+		})
+		return
+	}
+	defer cancel()
+	defer writer.Stop()
 
 	for {
 		msgType, msg, err := conn.ReadMessage()

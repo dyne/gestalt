@@ -92,28 +92,20 @@ func (h *TerminalHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-
-	done := make(chan struct{})
-	defer close(done)
-
-	go func() {
-		for {
-			select {
-			case chunk, ok := <-output:
-				if !ok {
-					return
-				}
-				if err := conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
-					return
-				}
-				if err := conn.WriteMessage(websocket.BinaryMessage, chunk); err != nil {
-					return
-				}
-			case <-done:
-				return
-			}
-		}
-	}()
+	writer, err := startWSWriteLoop(w, r, wsStreamConfig[[]byte]{
+		Conn:         conn,
+		Output:       output,
+		WritePayload: writeBinaryPayload,
+	})
+	if err != nil {
+		writeWSError(w, r, conn, h.Logger, wsError{
+			Status:  http.StatusInternalServerError,
+			Message: "terminal stream unavailable",
+			Err:     err,
+		})
+		return
+	}
+	defer writer.Stop()
 
 	for {
 		msgType, msg, err := conn.ReadMessage()

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"gestalt/internal/agent"
 )
 
 func TestSessionWriteAndOutput(t *testing.T) {
@@ -142,5 +144,57 @@ func TestSessionRecordsInputHistory(t *testing.T) {
 	}
 	if entries[0].Timestamp.IsZero() {
 		t.Fatalf("expected timestamp to be set")
+	}
+}
+
+func TestSessionInfoIncludesMetadata(t *testing.T) {
+	profile := &agent.Agent{
+		Name:     "Codex",
+		CLIType:  "codex",
+		LLMModel: "o3",
+		Skills:   []string{"skill-a", "skill-b"},
+	}
+	pty := newScriptedPty()
+	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, profile, nil, nil)
+	session.Command = "codex -c model=o3"
+	session.PromptFiles = []string{"prompt-a", "prompt-b"}
+	defer func() {
+		_ = session.Close()
+	}()
+
+	info := session.Info()
+	if info.ID != "1" {
+		t.Fatalf("expected id 1, got %q", info.ID)
+	}
+	if info.Title != "title" || info.Role != "role" {
+		t.Fatalf("unexpected meta: %#v", info)
+	}
+	if info.LLMType != "codex" || info.LLMModel != "o3" {
+		t.Fatalf("unexpected llm info: %#v", info)
+	}
+	if info.Command != session.Command {
+		t.Fatalf("expected command %q, got %q", session.Command, info.Command)
+	}
+	if len(info.Skills) != 2 || info.Skills[0] != "skill-a" || info.Skills[1] != "skill-b" {
+		t.Fatalf("unexpected skills: %v", info.Skills)
+	}
+	if len(info.PromptFiles) != 2 || info.PromptFiles[0] != "prompt-a" || info.PromptFiles[1] != "prompt-b" {
+		t.Fatalf("unexpected prompt files: %v", info.PromptFiles)
+	}
+}
+
+func TestSessionWorkflowIdentifiersEmpty(t *testing.T) {
+	pty := newScriptedPty()
+	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, nil, nil, nil)
+	defer func() {
+		_ = session.Close()
+	}()
+
+	workflowID, runID, ok := session.WorkflowIdentifiers()
+	if ok {
+		t.Fatalf("expected no workflow identifiers, got %q %q", workflowID, runID)
+	}
+	if workflowID != "" || runID != "" {
+		t.Fatalf("expected empty identifiers, got %q %q", workflowID, runID)
 	}
 }

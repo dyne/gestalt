@@ -7548,7 +7548,7 @@
    Effort: Medium
    Change: Create shared async file logger for SessionLogger/InputLogger.
    Tests: Update persistence tests to cover new shared logger.
-** TODO [#B] Split Session into focused sub-structs
+** DONE [#B] Split Session into focused sub-structs
    Effort: Medium
    Change: Introduce SessionMeta/SessionIO/SessionWorkflow with a wrapper type.
    Tests: Adjust session tests to cover new struct boundaries.

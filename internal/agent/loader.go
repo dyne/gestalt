@@ -79,14 +79,15 @@ func (l Loader) Load(agentFS fs.FS, dir, promptsDir string, skillIndex map[strin
 			l.warnDuplicateID(agentID, filePath)
 			continue
 		}
-		if prior, ok := agentNames[agent.Name]; ok {
+		normalizedName := normalizeAgentName(agent.Name)
+		if prior, ok := agentNames[normalizedName]; ok {
 			l.warnDuplicateName(agent.Name, prior, filePath)
 			continue
 		}
 		validatePromptNames(l.Logger, agentFS, agentID, agent, promptsDir)
 		agent.Skills = resolveSkills(l.Logger, agentID, agent.Skills, skillIndex)
 		agents[agentID] = agent
-		agentNames[agent.Name] = filePath
+		agentNames[normalizedName] = filePath
 	}
 
 	return agents, nil
@@ -196,6 +197,10 @@ func validatePromptNames(logger *logging.Logger, agentFS fs.FS, agentID string, 
 			}
 		}
 	}
+}
+
+func normalizeAgentName(name string) string {
+	return strings.ToLower(strings.TrimSpace(name))
 }
 
 func resolveSkills(logger *logging.Logger, agentID string, skills []string, skillIndex map[string]struct{}) []string {

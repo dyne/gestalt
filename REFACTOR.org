@@ -205,7 +205,7 @@
    - Update skill XML tests for correct escaping.
    Done when: XML escaping is standards-compliant.
 
-** TODO [#B] Case-fold agent name uniqueness (if desired)
+** DONE [#B] Case-fold agent name uniqueness (if desired)
    Why: Case-sensitive uniqueness allows subtle duplicates.
    Change:
    - Normalize agent names for uniqueness checks.

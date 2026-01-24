@@ -82,7 +82,7 @@ shell = "/bin/bash"
 		t.Fatalf("write file: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "beta.toml"), []byte(`
-name = "Coder"
+name = "coder"
 shell = "/bin/zsh"
 `), 0644); err != nil {
 		t.Fatalf("write file: %v", err)

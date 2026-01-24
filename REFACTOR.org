@@ -429,7 +429,7 @@
    - Add unit tests for client helpers.
    Done when: CLI uses shared client helpers.
 
-** WIP [#B] Formalize agent cache format
+** DONE [#B] Formalize agent cache format
    Why: TSV cache is ad-hoc and fragile.
    Change:
    - Store cache as JSON with timestamp and entries.
@@ -437,7 +437,7 @@
    - Add tests for cache read/write.
    Done when: cache format is structured and tested.
 
-** TODO [#C] Shared CLI framework for gestalt + gestalt-send
+** WIP [#C] Shared CLI framework for gestalt + gestalt-send
    Why: Flag/env parsing and help output are duplicated.
    Change:
    - Introduce shared CLI helpers or small framework.

@@ -1,13 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -44,6 +44,11 @@ func sendErrFromClient(err error) *sendError {
 }
 
 type agentInfo = client.AgentInfo
+
+type agentCache struct {
+	CreatedAt int64       `json:"created_at"`
+	Agents    []agentInfo `json:"agents"`
+}
 
 func handleSendError(err error, errOut io.Writer) int {
 	var sendErr *sendError
@@ -236,29 +241,20 @@ func readAgentCache(now time.Time) ([]agentInfo, bool) {
 	if err != nil {
 		return nil, false
 	}
-	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-	if len(lines) < 2 {
+	var cache agentCache
+	if err := json.Unmarshal(data, &cache); err != nil {
 		return nil, false
 	}
-	createdAt, err := strconv.ParseInt(strings.TrimSpace(lines[0]), 10, 64)
-	if err != nil {
+	if cache.CreatedAt <= 0 {
 		return nil, false
 	}
-	if now.Sub(time.Unix(createdAt, 0)) > agentCacheTTL {
+	if now.Sub(time.Unix(cache.CreatedAt, 0)) > agentCacheTTL {
 		return nil, false
 	}
-	agents := make([]agentInfo, 0, len(lines)-1)
-	for _, line := range lines[1:] {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		parts := strings.SplitN(line, "\t", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		id := strings.TrimSpace(parts[0])
-		name := strings.TrimSpace(parts[1])
+	agents := make([]agentInfo, 0, len(cache.Agents))
+	for _, agent := range cache.Agents {
+		id := strings.TrimSpace(agent.ID)
+		name := strings.TrimSpace(agent.Name)
 		if id == "" || name == "" {
 			continue
 		}
@@ -281,19 +277,25 @@ func writeAgentCache(agents []agentInfo, now time.Time) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return
 	}
-	var builder strings.Builder
-	builder.WriteString(strconv.FormatInt(now.Unix(), 10))
-	builder.WriteString("\n")
+	entries := make([]agentInfo, 0, len(agents))
 	for _, agent := range agents {
-		if agent.ID == "" || agent.Name == "" {
+		if strings.TrimSpace(agent.ID) == "" || strings.TrimSpace(agent.Name) == "" {
 			continue
 		}
-		builder.WriteString(agent.ID)
-		builder.WriteString("\t")
-		builder.WriteString(agent.Name)
-		builder.WriteString("\n")
+		entries = append(entries, agent)
 	}
-	_ = os.WriteFile(path, []byte(builder.String()), 0o644)
+	if len(entries) == 0 {
+		return
+	}
+	cache := agentCache{
+		CreatedAt: now.Unix(),
+		Agents:    entries,
+	}
+	payload, err := json.Marshal(cache)
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(path, payload, 0o644)
 }
 
 func agentCachePath() string {
@@ -307,7 +309,7 @@ func agentCachePath() string {
 	if cacheDir == "" {
 		return ""
 	}
-	return filepath.Join(cacheDir, "gestalt-send", "agents-cache.tsv")
+	return filepath.Join(cacheDir, "gestalt-send", "agents-cache.json")
 }
 
 func logf(cfg Config, format string, args ...any) {

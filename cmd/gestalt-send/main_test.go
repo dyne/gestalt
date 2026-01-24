@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"gestalt/internal/version"
 )
@@ -36,6 +37,23 @@ func withAgentCacheDisabled(t *testing.T, fn func()) {
 		agentCacheTTL = previous
 	})
 	fn()
+}
+
+func withAgentCacheTTL(t *testing.T, ttl time.Duration, fn func()) {
+	t.Helper()
+	previous := agentCacheTTL
+	agentCacheTTL = ttl
+	t.Cleanup(func() {
+		agentCacheTTL = previous
+	})
+	fn()
+}
+
+func withTempCacheDir(t *testing.T, fn func(cacheDir string)) {
+	t.Helper()
+	cacheDir := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheDir)
+	fn(cacheDir)
 }
 
 func captureStdout(t *testing.T, fn func()) string {
@@ -391,4 +409,30 @@ func TestHandleSendErrorMapping(t *testing.T) {
 			t.Fatalf("%s: expected message %q, got %q", testCase.name, testCase.wantMessage, stderr.String())
 		}
 	}
+}
+
+func TestAgentCacheRoundTrip(t *testing.T) {
+	withTempCacheDir(t, func(_ string) {
+		agents := []agentInfo{{ID: "coder", Name: "Coder"}}
+		now := time.Unix(100, 0)
+		writeAgentCache(agents, now)
+		got, ok := readAgentCache(now)
+		if !ok {
+			t.Fatalf("expected cache hit")
+		}
+		if len(got) != 1 || got[0].ID != "coder" || got[0].Name != "Coder" {
+			t.Fatalf("unexpected cache entries: %+v", got)
+		}
+	})
+}
+
+func TestAgentCacheExpires(t *testing.T) {
+	withTempCacheDir(t, func(_ string) {
+		withAgentCacheTTL(t, time.Second, func() {
+			writeAgentCache([]agentInfo{{ID: "coder", Name: "Coder"}}, time.Unix(0, 0))
+			if _, ok := readAgentCache(time.Unix(10, 0)); ok {
+				t.Fatalf("expected cache miss")
+			}
+		})
+	})
 }

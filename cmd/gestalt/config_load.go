@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"gestalt"
+	"gestalt/internal/cli"
 	"gestalt/internal/config"
 	"gestalt/internal/logging"
 	"gestalt/internal/plan"
@@ -546,10 +547,7 @@ func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
 	devMode := fs.Bool("dev", defaults.DevMode, "Enable developer mode (skip config extraction)")
 	verbose := fs.Bool("verbose", false, "Enable verbose logging")
 	quiet := fs.Bool("quiet", false, "Reduce logging to warnings")
-	help := fs.Bool("help", false, "Show help")
-	version := fs.Bool("version", false, "Print version and exit")
-	helpShort := fs.Bool("h", false, "Show help")
-	versionShort := fs.Bool("v", false, "Print version and exit")
+	helpVersion := cli.AddHelpVersionFlags(fs, "Show help", "Print version and exit")
 
 	fs.Usage = func() {
 		printHelp(fs.Output(), defaults)
@@ -588,8 +586,8 @@ func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
 		DevMode:              *devMode,
 		Verbose:              *verbose,
 		Quiet:                *quiet,
-		Help:                 *help || *helpShort,
-		Version:              *version || *versionShort,
+		Help:                 helpVersion.Help,
+		Version:              helpVersion.Version,
 		Set:                  set,
 	}
 

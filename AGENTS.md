@@ -117,3 +117,6 @@ terminal output -> Session output bus -> /ws/terminal/:id -> xterm
 - Backend: app wiring now lives in `internal/app` (`app.Build` loads skills/agents and constructs `terminal.Manager`).
 - Backend: `cmd/gestalt` subcommands dispatch via `cmd/gestalt/commands.go`; execution tests live in `cmd/gestalt/commands_test.go`.
 - Backend: server startup flow moved to `cmd/gestalt/server_command.go`; `cmd/gestalt/main.go` only resolves commands.
+- CLI: `gestalt-send` split into `parse.go`, `http.go`, and `completion.go`; agent cache now JSON (`agents-cache.json`).
+- CLI: shared HTTP helpers live in `internal/client`; `gestalt-send` uses them for agent lookups and input sends.
+- CLI: common help/version flag wiring in `internal/cli`.

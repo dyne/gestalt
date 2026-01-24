@@ -399,13 +399,13 @@
    - Add unit tests for command execution.
    Done when: subcommand behavior is encapsulated.
 
-* WIP [#B] cmd/gestalt-send modularization
+* DONE [#B] cmd/gestalt-send modularization
   Goal: Simplify gestalt-send and make HTTP behavior reusable.
   Notes:
   - Preserve CLI flags and exit codes.
   Date: 2026-01-24
 
-** DONE [#A] Split gestalt-send main.go into focused files
+** [#A] Split gestalt-send main.go into focused files
    Why: main.go mixes parsing, HTTP, cache, and completion logic.
    Change:
    - Split into parse.go, http.go, completion.go.
@@ -413,7 +413,7 @@
    - Update CLI tests for new file boundaries.
    Done when: gestalt-send is easier to follow.
 
-** DONE [#A] Centralize sendError handling
+** [#A] Centralize sendError handling
    Why: Exit code mapping and error messages are duplicated.
    Change:
    - Add a sendError helper for consistent exit behavior.
@@ -421,7 +421,7 @@
    - Add tests for exit code mapping.
    Done when: error handling is consistent.
 
-** DONE [#B] Extract HTTP client helpers
+** [#B] Extract HTTP client helpers
    Why: HTTP logic is tightly coupled to CLI parsing.
    Change:
    - Move fetchAgents/sendAgentInput/startAgent into internal/client.
@@ -429,7 +429,7 @@
    - Add unit tests for client helpers.
    Done when: CLI uses shared client helpers.
 
-** DONE [#B] Formalize agent cache format
+** [#B] Formalize agent cache format
    Why: TSV cache is ad-hoc and fragile.
    Change:
    - Store cache as JSON with timestamp and entries.
@@ -437,7 +437,7 @@
    - Add tests for cache read/write.
    Done when: cache format is structured and tested.
 
-** WIP [#C] Shared CLI framework for gestalt + gestalt-send
+** [#C] Shared CLI framework for gestalt + gestalt-send
    Why: Flag/env parsing and help output are duplicated.
    Change:
    - Introduce shared CLI helpers or small framework.

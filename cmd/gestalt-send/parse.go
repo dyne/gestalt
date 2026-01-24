@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	"gestalt/internal/cli"
 )
 
 const defaultServerURL = "http://localhost:57417"
@@ -31,10 +33,7 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 	startFlag := fs.Bool("start", false, "Start agent if not running")
 	verboseFlag := fs.Bool("verbose", false, "Verbose output")
 	debugFlag := fs.Bool("debug", false, "Debug output (implies --verbose)")
-	helpFlag := fs.Bool("help", false, "Show this help message")
-	versionFlag := fs.Bool("version", false, "Print version and exit")
-	helpShort := fs.Bool("h", false, "Show this help message")
-	versionShort := fs.Bool("v", false, "Print version and exit")
+	helpVersion := cli.AddHelpVersionFlags(fs, "Show this help message", "Print version and exit")
 	fs.Usage = func() {
 		printSendHelp(fs.Output())
 	}
@@ -43,12 +42,12 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 		return Config{}, err
 	}
 
-	if *helpFlag || *helpShort {
+	if helpVersion.Help {
 		fs.Usage()
 		return Config{}, flag.ErrHelp
 	}
 
-	if *versionFlag || *versionShort {
+	if helpVersion.Version {
 		return Config{ShowVersion: true}, nil
 	}
 

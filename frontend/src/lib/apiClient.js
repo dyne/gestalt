@@ -53,6 +53,11 @@ export const fetchLogs = async ({ level } = {}) => {
   return response.json()
 }
 
+export const fetchMetricsSummary = async () => {
+  const response = await apiFetch('/api/metrics/summary')
+  return response.json()
+}
+
 export const fetchPlan = async ({ etag } = {}) => {
   const response = await apiFetch('/api/plan', {
     allowNotModified: true,

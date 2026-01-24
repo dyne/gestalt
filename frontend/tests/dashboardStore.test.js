@@ -4,6 +4,7 @@ import { get } from 'svelte/store'
 const fetchAgents = vi.hoisted(() => vi.fn())
 const fetchAgentSkills = vi.hoisted(() => vi.fn())
 const fetchLogs = vi.hoisted(() => vi.fn())
+const fetchMetricsSummary = vi.hoisted(() => vi.fn())
 const addNotification = vi.hoisted(() => vi.fn())
 const subscribeAgentEvents = vi.hoisted(() => vi.fn())
 const subscribeConfigEvents = vi.hoisted(() => vi.fn())
@@ -13,6 +14,7 @@ vi.mock('../src/lib/apiClient.js', () => ({
   fetchAgents,
   fetchAgentSkills,
   fetchLogs,
+  fetchMetricsSummary,
 }))
 
 vi.mock('../src/lib/notificationStore.js', () => ({
@@ -68,6 +70,7 @@ describe('dashboardStore', () => {
     fetchAgents.mockReset()
     fetchAgentSkills.mockReset()
     fetchLogs.mockReset()
+    fetchMetricsSummary.mockReset()
     addNotification.mockReset()
     subscribeAgentEvents.mockReset()
     subscribeConfigEvents.mockReset()
@@ -108,6 +111,29 @@ describe('dashboardStore', () => {
     expect(addNotification).toHaveBeenCalledTimes(1)
   })
 
+  it('loads metrics summary', async () => {
+    fetchMetricsSummary.mockResolvedValue({
+      updated_at: '2026-01-24T00:00:00Z',
+      top_endpoints: [],
+      slowest_endpoints: [],
+      top_agents: [],
+      error_rates: [],
+    })
+
+    const store = createDashboardStore()
+    await store.loadMetricsSummary()
+
+    const value = get(store)
+    expect(value.metricsSummary).toEqual({
+      updated_at: '2026-01-24T00:00:00Z',
+      top_endpoints: [],
+      slowest_endpoints: [],
+      top_agents: [],
+      error_rates: [],
+    })
+    expect(value.metricsLoading).toBe(false)
+  })
+
   it('syncs agent running state when terminals change', async () => {
     fetchAgents.mockResolvedValue([{ id: 'a1', name: 'Agent 1', terminal_id: 't1' }])
     fetchAgentSkills.mockResolvedValue([])
@@ -130,6 +156,7 @@ describe('dashboardStore', () => {
     vi.useFakeTimers()
     fetchAgents.mockResolvedValue([])
     fetchLogs.mockResolvedValue([])
+    fetchMetricsSummary.mockResolvedValue({})
 
     const store = createDashboardStore()
     await store.start()
@@ -151,6 +178,7 @@ describe('dashboardStore', () => {
   it('updates git context from status and events', async () => {
     fetchAgents.mockResolvedValue([])
     fetchLogs.mockResolvedValue([])
+    fetchMetricsSummary.mockResolvedValue({})
 
     const store = createDashboardStore()
     store.setStatus({ git_origin: 'origin', git_branch: 'main' })
@@ -167,6 +195,7 @@ describe('dashboardStore', () => {
   it('notifies on config conflicts and validation errors', async () => {
     fetchAgents.mockResolvedValue([])
     fetchLogs.mockResolvedValue([])
+    fetchMetricsSummary.mockResolvedValue({})
 
     const store = createDashboardStore()
     await store.start()

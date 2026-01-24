@@ -2,11 +2,12 @@ import { get, writable } from 'svelte/store'
 import { subscribe as subscribeAgentEvents } from './agentEventStore.js'
 import { subscribe as subscribeConfigEvents } from './configEventStore.js'
 import { subscribe as subscribeEvents } from './eventStore.js'
-import { fetchAgentSkills, fetchAgents, fetchLogs } from './apiClient.js'
+import { fetchAgentSkills, fetchAgents, fetchLogs, fetchMetricsSummary } from './apiClient.js'
 import { getErrorMessage } from './errorUtils.js'
 import { notificationStore } from './notificationStore.js'
 
 const refreshIntervalMs = 5000
+const metricsRefreshIntervalMs = 60000
 
 export const createDashboardStore = () => {
   const state = writable({
@@ -21,6 +22,10 @@ export const createDashboardStore = () => {
     logsError: '',
     logLevelFilter: 'info',
     logsAutoRefresh: true,
+    metricsSummary: null,
+    metricsLoading: false,
+    metricsError: '',
+    metricsAutoRefresh: true,
     configExtractionCount: 0,
     configExtractionLast: '',
     gitOrigin: '',
@@ -32,6 +37,9 @@ export const createDashboardStore = () => {
   let logsRefreshTimer = null
   let logsMounted = false
   let lastLogErrorMessage = ''
+  let metricsRefreshTimer = null
+  let metricsMounted = false
+  let lastMetricsErrorMessage = ''
   let configExtractionTimer = null
   let agentEventsUnsubscribes = []
   let configEventsUnsubscribes = []
@@ -227,6 +235,31 @@ export const createDashboardStore = () => {
     }
   }
 
+  const loadMetricsSummary = async () => {
+    state.update((current) => ({ ...current, metricsLoading: true, metricsError: '' }))
+    try {
+      const summary = await fetchMetricsSummary()
+      state.update((current) => ({
+        ...current,
+        metricsSummary: summary,
+        metricsLoading: false,
+        metricsError: '',
+      }))
+      lastMetricsErrorMessage = ''
+    } catch (err) {
+      const message = getErrorMessage(err, 'Failed to load metrics summary.')
+      state.update((current) => ({
+        ...current,
+        metricsError: message,
+        metricsLoading: false,
+      }))
+      if (message !== lastMetricsErrorMessage) {
+        notificationStore.addNotification('error', message)
+        lastMetricsErrorMessage = message
+      }
+    }
+  }
+
   const resetLogRefresh = () => {
     if (logsRefreshTimer) {
       clearInterval(logsRefreshTimer)
@@ -235,6 +268,17 @@ export const createDashboardStore = () => {
     if (!logsMounted) return
     if (get(state).logsAutoRefresh) {
       logsRefreshTimer = setInterval(loadLogs, refreshIntervalMs)
+    }
+  }
+
+  const resetMetricsRefresh = () => {
+    if (metricsRefreshTimer) {
+      clearInterval(metricsRefreshTimer)
+      metricsRefreshTimer = null
+    }
+    if (!metricsMounted) return
+    if (get(state).metricsAutoRefresh) {
+      metricsRefreshTimer = setInterval(loadMetricsSummary, metricsRefreshIntervalMs)
     }
   }
 
@@ -248,10 +292,16 @@ export const createDashboardStore = () => {
     resetLogRefresh()
   }
 
+  const setMetricsAutoRefresh = (enabled) => {
+    state.update((current) => ({ ...current, metricsAutoRefresh: Boolean(enabled) }))
+    resetMetricsRefresh()
+  }
+
   const start = async () => {
     if (started) return
     started = true
     logsMounted = true
+    metricsMounted = true
     agentEventsUnsubscribes = [
       subscribeAgentEvents('agent_started', () => loadAgents()),
       subscribeAgentEvents('agent_stopped', () => loadAgents()),
@@ -274,15 +324,22 @@ export const createDashboardStore = () => {
     })
     await loadAgents()
     await loadLogs()
+    await loadMetricsSummary()
     resetLogRefresh()
+    resetMetricsRefresh()
   }
 
   const stop = () => {
     started = false
     logsMounted = false
+    metricsMounted = false
     if (logsRefreshTimer) {
       clearInterval(logsRefreshTimer)
       logsRefreshTimer = null
+    }
+    if (metricsRefreshTimer) {
+      clearInterval(metricsRefreshTimer)
+      metricsRefreshTimer = null
     }
     resetConfigExtraction()
     if (agentEventsUnsubscribes.length > 0) {
@@ -305,8 +362,10 @@ export const createDashboardStore = () => {
     setStatus,
     loadAgents,
     loadLogs,
+    loadMetricsSummary,
     setLogLevelFilter,
     setLogsAutoRefresh,
+    setMetricsAutoRefresh,
     start,
     stop,
   }

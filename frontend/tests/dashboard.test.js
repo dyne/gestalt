@@ -1,5 +1,5 @@
 import { render, fireEvent, cleanup } from '@testing-library/svelte'
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 
 const apiFetch = vi.hoisted(() => vi.fn())
 
@@ -10,8 +10,11 @@ vi.mock('../src/lib/api.js', () => ({
 import Dashboard from '../src/views/Dashboard.svelte'
 
 describe('Dashboard', () => {
-  afterEach(() => {
+  beforeEach(() => {
     apiFetch.mockReset()
+  })
+
+  afterEach(() => {
     cleanup()
   })
 
@@ -31,6 +34,17 @@ describe('Dashboard', () => {
       if (url.startsWith('/api/logs')) {
         return Promise.resolve({
           json: vi.fn().mockResolvedValue([]),
+        })
+      }
+      if (url === '/api/metrics/summary') {
+        return Promise.resolve({
+          json: vi.fn().mockResolvedValue({
+            updated_at: '2026-01-24T00:00:00Z',
+            top_endpoints: [],
+            slowest_endpoints: [],
+            top_agents: [],
+            error_rates: [],
+          }),
         })
       }
       return Promise.reject(new Error('Unexpected API call'))

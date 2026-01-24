@@ -99,7 +99,7 @@
    - Update existing REST tests (no behavior change).
    Done when: rest.go is smaller and helpers are shared.
 
-** WIP [#B] Split rest.go by domain
+** DONE [#B] Split rest.go by domain
    Why: rest.go mixes routing, validation, and business logic.
    Change:
    - Split into terminals.go, agents.go, skills.go, logs.go, status.go,
@@ -108,7 +108,7 @@
    - Ensure REST tests still pass; add missing coverage if needed.
    Done when: rest.go is reduced and endpoints are organized by domain.
 
-** TODO [#B] Add terminal route parsing helpers
+** WIP [#B] Add terminal route parsing helpers
    Why: Terminal endpoints repeat path parsing and validation.
    Change:
    - Centralize parsing for /api/terminals/:id/* endpoints.

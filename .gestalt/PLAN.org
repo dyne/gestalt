@@ -131,8 +131,8 @@
 ** DONE [#C] Create trace viewer component
 ** DONE [#C] Add OpenTelemetry metrics dashboard
 ** DONE [#B] Implement parallel run during migration
-** WIP [#B] Cut over to OpenTelemetry (remove custom systems)
-** TODO [#C] Add remote backend export capability
+** DONE [#B] Cut over to OpenTelemetry (remove custom systems)
+** WIP [#C] Add remote backend export capability
 ** TODO [#C] Performance optimization and resource limits
 ** TODO [#C] Update documentation for OpenTelemetry observability
 

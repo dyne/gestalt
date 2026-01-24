@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"gestalt/internal/logging"
+	"gestalt/internal/otel"
 )
 
 func (h *RestHandler) handleLogs(w http.ResponseWriter, r *http.Request) *apiError {
@@ -20,6 +22,16 @@ func (h *RestHandler) handleLogs(w http.ResponseWriter, r *http.Request) *apiErr
 		query, err := parseLogQuery(r)
 		if err != nil {
 			return err
+		}
+
+		if dataPath, ok := activeOTelDataPath(); ok {
+			entries, readErr := otelLogEntries(dataPath)
+			if readErr != nil {
+				return &apiError{Status: http.StatusServiceUnavailable, Message: "otel logs unavailable"}
+			}
+			filtered := filterLogEntries(entries, query)
+			writeJSON(w, http.StatusOK, filtered)
+			return nil
 		}
 
 		entries := h.Logger.Buffer().List()
@@ -138,4 +150,85 @@ func filterLogEntries(entries []logging.LogEntry, query logQuery) []logging.LogE
 	}
 
 	return filtered
+}
+
+func otelLogEntries(dataPath string) ([]logging.LogEntry, error) {
+	records, err := otel.ReadLogRecords(dataPath)
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]logging.LogEntry, 0, len(records))
+	for _, record := range records {
+		entries = append(entries, otelLogRecordToEntry(record))
+	}
+	return entries, nil
+}
+
+func otelLogRecordToEntry(record map[string]any) logging.LogEntry {
+	timestamp := time.Now().UTC()
+	if parsed, ok := extractTimestamp(record, logTimestampKeys()...); ok {
+		timestamp = parsed
+	}
+	level := otelLogLevel(record)
+	message := extractBodyString(record)
+	context := otelAttributesToContext(record)
+	if len(context) == 0 {
+		context = nil
+	}
+	return logging.LogEntry{
+		Timestamp: timestamp,
+		Level:     level,
+		Message:   message,
+		Context:   context,
+	}
+}
+
+func otelAttributesToContext(record map[string]any) map[string]string {
+	attributes := asSlice(record["attributes"])
+	if len(attributes) == 0 {
+		return nil
+	}
+	context := make(map[string]string, len(attributes))
+	for _, attr := range attributes {
+		attrMap := asMap(attr)
+		if attrMap == nil {
+			continue
+		}
+		key, _ := extractString(attrMap, "key")
+		if key == "" {
+			continue
+		}
+		value := otelValueToString(attrMap["value"])
+		if value == "" {
+			continue
+		}
+		context[key] = value
+	}
+	return context
+}
+
+func otelValueToString(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case float64:
+		return strconv.FormatFloat(typed, 'f', -1, 64)
+	case int:
+		return strconv.Itoa(typed)
+	case int64:
+		return strconv.FormatInt(typed, 10)
+	case bool:
+		return strconv.FormatBool(typed)
+	case map[string]any:
+		if text, ok := extractString(typed, "stringValue", "StringValue", "value", "Value"); ok {
+			return text
+		}
+		if number, ok := extractNumber(typed, "intValue", "doubleValue", "boolValue"); ok {
+			return strconv.FormatFloat(number, 'f', -1, 64)
+		}
+		if raw, err := json.Marshal(typed); err == nil {
+			return string(raw)
+		}
+	}
+	return fmt.Sprint(value)
 }

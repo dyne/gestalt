@@ -2,13 +2,16 @@ package api
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"gestalt/internal/logging"
 	"gestalt/internal/otel"
 )
 
@@ -85,6 +88,37 @@ func TestHandleOTelMetrics(t *testing.T) {
 	}
 	if metrics[0]["name"] != "gestalt.workflow.started" {
 		t.Fatalf("expected metric name gestalt.workflow.started, got %v", metrics[0]["name"])
+	}
+}
+
+func TestLogsEndpointUsesOTelWhenActive(t *testing.T) {
+	dataPath := writeOTelFixture(t)
+	otel.SetActiveCollector(otel.CollectorInfo{DataPath: dataPath})
+	t.Cleanup(otel.ClearActiveCollector)
+
+	buffer := logging.NewLogBuffer(10)
+	buffer.Add(logging.LogEntry{Timestamp: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), Level: logging.LevelInfo, Message: "legacy"})
+	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, io.Discard)
+	handler := &RestHandler{Logger: logger}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/logs?limit=1", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", handler.handleLogs)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var payload []logging.LogEntry
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(payload) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(payload))
+	}
+	if payload[0].Message != "second log" {
+		t.Fatalf("expected otel log entry, got %q", payload[0].Message)
 	}
 }
 

@@ -16,6 +16,7 @@ cd frontend
 npm test
 npm run test:coverage
 ```
+Coverage reports are written to `frontend/coverage` (open `coverage/index.html`).
 
 ## SCIP integration
 

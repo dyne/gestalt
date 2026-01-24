@@ -257,7 +257,8 @@ go test ./...
 Frontend:
 ```
 cd frontend
-npm run build
+npm test
+npm run test:coverage
 ```
 
 ## Versioning

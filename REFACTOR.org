@@ -329,7 +329,7 @@
    - Ensure tests cover ambiguous agent resolution.
    Done when: CLI error handling is covered.
 
-** TODO [#B] Add frontend coverage workflow
+** DONE [#B] Add frontend coverage workflow
    Why: Coverage visibility is missing for SPA tests.
    Change:
    - Add a documented coverage command/workflow.

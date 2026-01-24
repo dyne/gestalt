@@ -383,7 +383,7 @@
    - Ensure cmd/gestalt tests still pass.
    Done when: main.go is smaller and easier to navigate.
 
-** WIP [#B] Introduce internal app builder
+** DONE [#B] Introduce internal app builder
    Why: Dependency wiring is embedded in main.go.
    Change:
    - Add internal/app (or internal/config) builder for runtime deps.
@@ -391,7 +391,7 @@
    - Add tests for builder wiring outputs.
    Done when: main.go is orchestration only.
 
-** TODO [#C] Command struct pattern for subcommands
+** WIP [#C] Command struct pattern for subcommands
    Why: Subcommand logic is spread across helpers.
    Change:
    - Introduce command structs (runServer, runValidate, runIndex) with shared deps.

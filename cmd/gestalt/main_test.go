@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"gestalt/internal/app"
 	"gestalt/internal/logging"
 	"gestalt/internal/plan"
 )
@@ -182,7 +183,7 @@ func TestLoadAgentsIntegration(t *testing.T) {
 
 	logger := logging.NewLoggerWithOutput(logging.NewLogBuffer(10), logging.LevelInfo, io.Discard)
 	configFS := buildConfigFS(filepath.Join(root, ".gestalt"))
-	agents, err := loadAgents(logger, configFS, "config", nil)
+	agents, err := app.LoadAgents(logger, configFS, "config", nil)
 	if err != nil {
 		t.Fatalf("load agents: %v", err)
 	}
@@ -222,7 +223,7 @@ func TestLoadAgentsReportsInvalidTOML(t *testing.T) {
 	buffer := logging.NewLogBuffer(10)
 	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, io.Discard)
 	configFS := buildConfigFS(filepath.Join(root, ".gestalt"))
-	agents, err := loadAgents(logger, configFS, "config", nil)
+	agents, err := app.LoadAgents(logger, configFS, "config", nil)
 	if err != nil {
 		t.Fatalf("load agents: %v", err)
 	}

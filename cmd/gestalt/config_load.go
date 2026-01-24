@@ -7,14 +7,12 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"gestalt"
-	"gestalt/internal/agent"
 	"gestalt/internal/config"
 	"gestalt/internal/logging"
 	"gestalt/internal/plan"
@@ -893,27 +891,6 @@ func usesStateRoot(dir, root string) bool {
 		return true
 	}
 	return strings.HasPrefix(cleanDir, cleanRoot+string(os.PathSeparator))
-}
-
-func loadAgents(logger *logging.Logger, configFS fs.FS, configRoot string, skillIndex map[string]struct{}) (map[string]agent.Agent, error) {
-	loader := agent.Loader{Logger: logger}
-	return loader.Load(configFS, path.Join(configRoot, "agents"), path.Join(configRoot, "prompts"), skillIndex)
-}
-
-func loadSkills(logger *logging.Logger, configFS fs.FS, configRoot string) (map[string]*skill.Skill, error) {
-	loader := skill.Loader{Logger: logger}
-	return loader.Load(configFS, path.Join(configRoot, "skills"))
-}
-
-func buildSkillIndex(skills map[string]*skill.Skill) map[string]struct{} {
-	if len(skills) == 0 {
-		return map[string]struct{}{}
-	}
-	index := make(map[string]struct{}, len(skills))
-	for name := range skills {
-		index[name] = struct{}{}
-	}
-	return index
 }
 
 func runValidateSkill(args []string) int {

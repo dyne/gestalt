@@ -18,12 +18,12 @@ import (
 
 	"gestalt"
 	"gestalt/internal/api"
+	"gestalt/internal/app"
 	"gestalt/internal/event"
 	"gestalt/internal/logging"
 	"gestalt/internal/prompt"
 	"gestalt/internal/temporal"
 	temporalworker "gestalt/internal/temporal/worker"
-	"gestalt/internal/terminal"
 	"gestalt/internal/version"
 	"gestalt/internal/watcher"
 )
@@ -145,43 +145,48 @@ func main() {
 		}
 	}
 
-	skills, err := loadSkills(logger, configFS, configPaths.SubDir)
-	if err != nil {
-		logger.Error("load skills failed", map[string]string{
-			"error": err.Error(),
-		})
-		os.Exit(1)
-	}
-	logger.Info("skills loaded", map[string]string{
-		"count": strconv.Itoa(len(skills)),
-	})
-
-	agents, err := loadAgents(logger, configOverlay, configPaths.SubDir, buildSkillIndex(skills))
-	if err != nil {
-		logger.Error("load agents failed", map[string]string{
-			"error": err.Error(),
-		})
-		os.Exit(1)
-	}
-	logger.Info("agents loaded", map[string]string{
-		"count": strconv.Itoa(len(agents)),
-	})
-
-	manager := terminal.NewManager(terminal.ManagerOptions{
-		Shell:                cfg.Shell,
-		Agents:               agents,
-		AgentsDir:            filepath.Join(configPaths.ConfigDir, "agents"),
-		Skills:               skills,
+	buildResult, err := app.Build(app.BuildOptions{
 		Logger:               logger,
+		Shell:                cfg.Shell,
+		ConfigFS:             configFS,
+		ConfigOverlay:        configOverlay,
+		ConfigRoot:           configPaths.SubDir,
+		AgentsDir:            filepath.Join(configPaths.ConfigDir, "agents"),
 		TemporalClient:       temporalClient,
 		TemporalEnabled:      temporalEnabled,
 		SessionLogDir:        cfg.SessionLogDir,
 		InputHistoryDir:      cfg.InputHistoryDir,
 		SessionRetentionDays: cfg.SessionRetentionDays,
 		BufferLines:          cfg.SessionBufferLines,
-		PromptFS:             configOverlay,
-		PromptDir:            path.Join(configPaths.SubDir, "prompts"),
 	})
+	if err != nil {
+		var buildErr app.BuildError
+		if errors.As(err, &buildErr) {
+			switch buildErr.Stage {
+			case app.StageLoadSkills:
+				logger.Error("load skills failed", map[string]string{
+					"error": buildErr.Err.Error(),
+				})
+				os.Exit(1)
+			case app.StageLoadAgents:
+				logger.Error("load agents failed", map[string]string{
+					"error": buildErr.Err.Error(),
+				})
+				os.Exit(1)
+			}
+		}
+		logger.Error("app build failed", map[string]string{
+			"error": err.Error(),
+		})
+		os.Exit(1)
+	}
+	logger.Info("skills loaded", map[string]string{
+		"count": strconv.Itoa(len(buildResult.Skills)),
+	})
+	logger.Info("agents loaded", map[string]string{
+		"count": strconv.Itoa(len(buildResult.Agents)),
+	})
+	manager := buildResult.Manager
 
 	workerStarted := false
 	if temporalEnabled && temporalClient != nil {

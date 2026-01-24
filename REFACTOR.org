@@ -538,7 +538,7 @@
    - Add tests for formatting helpers.
    Done when: workflow components reuse shared formatting logic.
 
-** WIP [#C] Split terminalStore into service + store
+** DONE [#C] Split terminalStore into service + store
    Why: Terminal lifecycle logic is intertwined with store state.
    Change:
    - Introduce a terminal service to manage xterm lifecycle and WS.
@@ -547,7 +547,7 @@
    - Update terminalStore tests for service boundaries.
    Done when: service + store separation is complete.
 
-** TODO [#C] Optional routing/state machine per view
+** WIP [#C] Optional routing/state machine per view
    Why: Async flows (loading/error/refresh) are scattered.
    Change:
    - Introduce a small routing layer or state machine per view.

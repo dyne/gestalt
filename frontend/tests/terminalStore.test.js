@@ -79,6 +79,7 @@ vi.mock('@xterm/addon-fit', () => ({
   FitAddon: MockFitAddon,
 }))
 
+import { createTerminalService } from '../src/lib/terminal/service.js'
 import { getTerminalState, releaseTerminalState } from '../src/lib/terminalStore.js'
 
 class MockWebSocket {
@@ -177,6 +178,19 @@ describe('terminalStore', () => {
   afterEach(() => {
     globalThis.WebSocket = originalWebSocket
     globalThis.requestAnimationFrame = originalAnimationFrame
+  })
+
+  it('creates terminal service instances', async () => {
+    const service = createTerminalService({ terminalId: 'svc', historyCache: new Map() })
+    expect(service.term).toBeTruthy()
+    const seen = []
+    const unsubscribe = service.status.subscribe((value) => seen.push(value))
+
+    await waitForSocket()
+    expect(seen.length).toBeGreaterThan(0)
+
+    unsubscribe()
+    service.dispose()
   })
 
   it('connects and updates status on open', async () => {

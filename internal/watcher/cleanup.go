@@ -29,10 +29,12 @@ func (watcher *Watcher) cleanup() {
 	for path, callbacks := range watcher.callbacks {
 		if len(callbacks) == 0 {
 			delete(watcher.callbacks, path)
-			if watcher.activeWatches > 0 {
-				watcher.activeWatches--
+			if watcher.recursiveWatches[path] == 0 {
+				if watcher.activeWatches > 0 {
+					watcher.activeWatches--
+				}
+				paths = append(paths, path)
 			}
-			paths = append(paths, path)
 		}
 	}
 	activeCount := watcher.activeWatches

@@ -1,6 +1,7 @@
 package watcher
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -15,10 +16,11 @@ type callbackEntry struct {
 }
 
 type watchHandle struct {
-	watcher *Watcher
-	path    string
-	id      uint64
-	once    sync.Once
+	watcher        *Watcher
+	path           string
+	id             uint64
+	recursivePaths []string
+	once           sync.Once
 }
 
 func (handle *watchHandle) Close() error {
@@ -27,6 +29,9 @@ func (handle *watchHandle) Close() error {
 	}
 	var err error
 	handle.once.Do(func() {
+		if handle.recursivePaths != nil {
+			handle.watcher.removeRecursiveWatches(handle.recursivePaths)
+		}
 		err = handle.watcher.removeCallback(handle.path, handle.id)
 	})
 	return err
@@ -81,7 +86,38 @@ func (watcher *Watcher) Watch(path string, callback func(Event)) (Handle, error)
 		watcher.logDebug("watch added", path, activeCount)
 	}
 
-	return &watchHandle{watcher: watcher, path: path, id: entry.id}, nil
+	var recursivePaths []string
+	if entry.isDir && watcher.watchRecursive {
+		paths, err := watcher.addRecursiveWatches(path)
+		if err != nil {
+			if handleErr := watcher.removeCallback(path, entry.id); handleErr != nil {
+				watcher.logWarn("watch rollback failed", map[string]string{
+					"path":  path,
+					"error": handleErr.Error(),
+				})
+			}
+			return nil, err
+		}
+		recursivePaths = paths
+	}
+
+	return &watchHandle{watcher: watcher, path: path, id: entry.id, recursivePaths: recursivePaths}, nil
+}
+
+// WatchContext registers a callback and closes the handle when the context is done.
+func (watcher *Watcher) WatchContext(ctx context.Context, path string, callback func(Event)) (Handle, error) {
+	handle, err := watcher.Watch(path, callback)
+	if err != nil {
+		return nil, err
+	}
+	if ctx == nil {
+		return handle, nil
+	}
+	go func() {
+		<-ctx.Done()
+		_ = handle.Close()
+	}()
+	return handle, nil
 }
 
 func (watcher *Watcher) removeCallback(path string, id uint64) error {
@@ -102,11 +138,13 @@ func (watcher *Watcher) removeCallback(path string, id uint64) error {
 		}
 		if len(callbacks) == 0 {
 			delete(watcher.callbacks, path)
-			shouldRemove = true
-			if watcher.activeWatches > 0 {
-				watcher.activeWatches--
+			if watcher.recursiveWatches[path] == 0 {
+				shouldRemove = true
+				if watcher.activeWatches > 0 {
+					watcher.activeWatches--
+				}
+				activeCount = watcher.activeWatches
 			}
-			activeCount = watcher.activeWatches
 		} else {
 			watcher.callbacks[path] = callbacks
 		}
@@ -142,8 +180,10 @@ func (watcher *Watcher) dropCallback(path string, id uint64) {
 		}
 		if len(callbacks) == 0 {
 			delete(watcher.callbacks, path)
-			if watcher.activeWatches > 0 {
-				watcher.activeWatches--
+			if watcher.recursiveWatches[path] == 0 {
+				if watcher.activeWatches > 0 {
+					watcher.activeWatches--
+				}
 			}
 		} else {
 			watcher.callbacks[path] = callbacks

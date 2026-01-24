@@ -2695,13 +2695,13 @@
    - Add tests for router/stream boundary behavior.
    Done when: handler complexity is reduced without breaking payloads.
 
-* WIP [#A] Watcher and git monitoring cleanup
+* DONE [#A] Watcher and git monitoring cleanup
   Goal: Reduce watcher complexity and remove duplicated git parsing logic.
   Notes:
   - Keep fsnotify behavior stable.
   Date: 2026-01-24
 
-** DONE [#A] Split watcher.go and document WatchDirRecursive
+** [#A] Split watcher.go and document WatchDirRecursive
    Why: watcher.go is dense and WatchDirRecursive behavior is non-obvious.
    Change:
    - Split into watch_registry.go, debounce.go, restart.go, cleanup.go.
@@ -2710,7 +2710,7 @@
    - Ensure existing watcher tests still pass.
    Done when: watcher.go is smaller and behavior is documented.
 
-** DONE [#B] Extract internal/git helper
+** [#B] Extract internal/git helper
    Why: resolveGitDir/readGitBranch are duplicated in watcher and api.
    Change:
    - Create internal/git package with shared helpers.
@@ -2718,7 +2718,7 @@
    - Add unit tests for git parsing.
    Done when: git parsing duplication is removed.
 
-** DONE [#B] Isolate debounce and registration logic
+** [#B] Isolate debounce and registration logic
    Why: debounce, registry, and restart logic are intertwined.
    Change:
    - Introduce a debounce helper with per-path timers.
@@ -2728,7 +2728,7 @@
    - Add tests for debounce timing and restart/backoff.
    Done when: watcher internals are clearer and observable.
 
-** WIP [#C] Optional recursive watch and context-based interface
+** [#C] Optional recursive watch and context-based interface
    Why: Recursive watch and cancellation semantics are limited.
    Change:
    - Add optional recursive watch mode behind a flag.
@@ -2737,6 +2737,84 @@
    Tests:
    - Add tests for recursive registration and cancellation.
    Done when: recursion is optional and context cancels watches.
+
+* WIP [#A] Agent and skill loader consistency
+  Goal: Reduce duplication, clarify validation behavior, and improve parsing.
+  Notes:
+  - Preserve TOML-only agent configs and skill validation rules.
+  Date: 2026-01-24
+
+** WIP [#A] Document Agent.Validate side-effects
+   Why: Agent.Validate mutates Shell when cli_config is set.
+   Change:
+   - Document mutation behavior or return derived shell explicitly.
+   Tests:
+   - Update validation tests if behavior changes.
+   Done when: validation behavior is explicit and tested.
+
+** TODO [#A] Reuse prompt resolver for agent prompt validation
+   Why: Prompt existence checks are duplicated outside internal/prompt.
+   Change:
+   - Use internal/prompt resolver for prompt presence checks.
+   Tests:
+   - Update loader tests to cover resolver behavior.
+   Done when: prompt resolution is consistent across loaders.
+
+** TODO [#A] Use encoding/xml.EscapeText for SKILL XML
+   Why: Manual escaping misses some XML entities.
+   Change:
+   - Replace custom escaping with encoding/xml.EscapeText.
+   Tests:
+   - Update skill XML tests for correct escaping.
+   Done when: XML escaping is standards-compliant.
+
+** TODO [#B] Case-fold agent name uniqueness (if desired)
+   Why: Case-sensitive uniqueness allows subtle duplicates.
+   Change:
+   - Normalize agent names for uniqueness checks.
+   Tests:
+   - Add tests for case-insensitive duplicates.
+   Done when: name uniqueness rules are explicit and tested.
+
+** TODO [#B] Shared loader/path normalization helper
+   Why: cleanFSPath and directory scanning duplicate across loaders.
+   Change:
+   - Create shared helper for path normalization and directory scanning.
+   Tests:
+   - Update agent/skill loader tests to cover helper behavior.
+   Done when: loaders share common utilities without regressions.
+
+** TODO [#B] Separate validation from normalization
+   Why: Validate mutates Agent, which hides side effects.
+   Change:
+   - Return a derived shell instead of mutating Agent, or isolate mutation.
+   Tests:
+   - Update validation tests accordingly.
+   Done when: validation is pure or mutation is explicit.
+
+** TODO [#B] Centralize SKILL.md parsing rules
+   Why: Parsing rules may need reuse by other features.
+   Change:
+   - Extract SKILL parsing into a small helper module.
+   Tests:
+   - Add unit tests for parsing edge cases.
+   Done when: SKILL parsing is centralized and tested.
+
+** TODO [#C] AgentRegistry for cache + reload behavior
+   Why: Manager handles agent cache and terminal lifecycle together.
+   Change:
+   - Create AgentRegistry to own agent cache and reload events.
+   Tests:
+   - Add tests for registry reload and event emission.
+   Done when: Manager focuses on terminal lifecycle.
+
+** TODO [#C] Expand skill metadata in prompt XML
+   Why: Future UI/agents may need richer skill discovery data.
+   Change:
+   - Extend prompt XML to include structured metadata fields.
+   Tests:
+   - Update skill XML tests for new fields.
+   Done when: skill metadata is richer and documented.
 
 * TODO [#A] Wails desktop application packaging
   Goal: Package Gestalt as a native desktop application using Wails v3, providing a standalone executable for macOS, Windows, and Linux while preserving the existing web server mode as default.

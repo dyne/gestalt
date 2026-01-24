@@ -133,13 +133,13 @@
    - Add tests for router/stream boundary behavior.
    Done when: handler complexity is reduced without breaking payloads.
 
-* WIP [#A] Watcher and git monitoring cleanup
+* DONE [#A] Watcher and git monitoring cleanup
   Goal: Reduce watcher complexity and remove duplicated git parsing logic.
   Notes:
   - Keep fsnotify behavior stable.
   Date: 2026-01-24
 
-** DONE [#A] Split watcher.go and document WatchDirRecursive
+** [#A] Split watcher.go and document WatchDirRecursive
    Why: watcher.go is dense and WatchDirRecursive behavior is non-obvious.
    Change:
    - Split into watch_registry.go, debounce.go, restart.go, cleanup.go.
@@ -148,7 +148,7 @@
    - Ensure existing watcher tests still pass.
    Done when: watcher.go is smaller and behavior is documented.
 
-** DONE [#B] Extract internal/git helper
+** [#B] Extract internal/git helper
    Why: resolveGitDir/readGitBranch are duplicated in watcher and api.
    Change:
    - Create internal/git package with shared helpers.
@@ -156,7 +156,7 @@
    - Add unit tests for git parsing.
    Done when: git parsing duplication is removed.
 
-** DONE [#B] Isolate debounce and registration logic
+** [#B] Isolate debounce and registration logic
    Why: debounce, registry, and restart logic are intertwined.
    Change:
    - Introduce a debounce helper with per-path timers.
@@ -166,7 +166,7 @@
    - Add tests for debounce timing and restart/backoff.
    Done when: watcher internals are clearer and observable.
 
-** WIP [#C] Optional recursive watch and context-based interface
+** [#C] Optional recursive watch and context-based interface
    Why: Recursive watch and cancellation semantics are limited.
    Change:
    - Add optional recursive directory watch expansion (guarded by max watches).
@@ -175,13 +175,13 @@
    - Add integration tests for recursive watch behavior.
    Done when: recursive watch works without regressing max watch limits.
 
-* TODO [#A] Agent and skill loader consistency
+* WIP [#A] Agent and skill loader consistency
   Goal: Reduce duplication, clarify validation behavior, and improve parsing.
   Notes:
   - Preserve TOML-only agent configs and skill validation rules.
   Date: 2026-01-24
 
-** TODO [#A] Document Agent.Validate side-effects
+** WIP [#A] Document Agent.Validate side-effects
    Why: Agent.Validate mutates Shell when cli_config is set.
    Change:
    - Document mutation behavior or return derived shell explicitly.

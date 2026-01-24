@@ -1,6 +1,7 @@
 package watcher
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -30,6 +31,7 @@ type Handle interface {
 // Watch registers a callback for filesystem events on a path.
 type Watch interface {
 	Watch(path string, callback func(Event)) (Handle, error)
+	WatchContext(ctx context.Context, path string, callback func(Event)) (Handle, error)
 }
 
 // Options controls watcher behavior.
@@ -37,7 +39,10 @@ type Options struct {
 	Logger   *logging.Logger
 	Debounce time.Duration
 	// WatchDir enables fan-out from directory watches; it does not add recursive watches.
-	WatchDir        bool
+	WatchDir bool
+	// WatchRecursive enables best-effort recursive directory watches by walking subdirectories.
+	// Newly created subdirectories are not watched automatically.
+	WatchRecursive  bool
 	MaxWatches      int
 	CleanupInterval time.Duration
 	ErrorHandler    func(error)
@@ -64,9 +69,11 @@ type Watcher struct {
 	closed            bool
 	logger            *logging.Logger
 	watchDirRecursive bool
+	watchRecursive    bool
 	nextID            uint64
 	maxWatches        int
 	activeWatches     int
+	recursiveWatches  map[string]int
 	cleanupInterval   time.Duration
 	eventsDelivered   uint64
 	eventsDropped     uint64

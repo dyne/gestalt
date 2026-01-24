@@ -61,9 +61,11 @@ func NewWithOptions(options Options) (*Watcher, error) {
 		done:              make(chan struct{}),
 		logger:            logger,
 		watchDirRecursive: options.WatchDir,
+		watchRecursive:    options.WatchRecursive,
 		maxWatches:        maxWatches,
 		cleanupInterval:   cleanupInterval,
 		errorHandler:      options.ErrorHandler,
+		recursiveWatches:  make(map[string]int),
 	}
 
 	instance.startForwarder(watcher)

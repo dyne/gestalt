@@ -514,7 +514,7 @@
    - Add unit tests for API client functions.
    Done when: views call shared API functions.
 
-** WIP [#B] Move Dashboard orchestration into a store
+** DONE [#B] Move Dashboard orchestration into a store
    Why: Dashboard.svelte mixes data fetching and UI logic.
    Change:
    - Create dashboardStore for agents/skills/logs and loading/error state.
@@ -522,7 +522,7 @@
    - Add store tests for loading/error flows.
    Done when: Dashboard view is thinner and uses the store.
 
-** TODO [#B] Standardize view loading/error UI patterns
+** WIP [#B] Standardize view loading/error UI patterns
    Why: Views handle loading/errors inconsistently.
    Change:
    - Add shared helpers/components for loading and error UI.

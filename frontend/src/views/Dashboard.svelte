@@ -1,6 +1,6 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
-  import { fetchAgentSkills, fetchAgents, fetchLogs as fetchLogsApi } from '../lib/apiClient.js'
+  import { createDashboardStore } from '../lib/dashboardStore.js'
   import { subscribe as subscribeAgentEvents } from '../lib/agentEventStore.js'
   import { subscribe as subscribeConfigEvents } from '../lib/configEventStore.js'
   import { subscribe as subscribeEvents } from '../lib/eventStore.js'
@@ -14,6 +14,8 @@
   export let error = ''
   export let onCreate = () => {}
   export let onSelect = () => {}
+
+  const dashboardStore = createDashboardStore()
 
   let actionPending = false
   let localError = ''
@@ -30,9 +32,6 @@
   let logsError = ''
   let logLevelFilter = 'info'
   let logsAutoRefresh = true
-  let logsRefreshTimer = null
-  let logsMounted = false
-  let lastLogErrorMessage = ''
   let agentEventsUnsubscribes = []
   let configEventsUnsubscribes = []
   let configExtractionCount = 0
@@ -55,7 +54,7 @@
     localError = ''
     try {
       await onCreate(agentId)
-      await loadAgents()
+      await dashboardStore.loadAgents()
     } catch (err) {
       localError = getErrorMessage(err, 'Failed to create terminal.')
     } finally {
@@ -71,104 +70,20 @@
     onSelect(terminalId)
   }
 
-  const loadAgents = async () => {
-    agentsLoading = true
-    agentsError = ''
-    try {
-      const fetched = await fetchAgents()
-      const nextAgents = syncAgentRunning(fetched, terminals)
-      agents = nextAgents
-      await loadAgentSkills(nextAgents)
-    } catch (err) {
-      agentsError = getErrorMessage(err, 'Failed to load agents.')
-    } finally {
-      agentsLoading = false
-    }
-  }
-
-  const loadAgentSkills = async (agentList) => {
-    if (!agentList || agentList.length === 0) {
-      agentSkills = {}
-      return
-    }
-    agentSkillsLoading = true
-    agentSkillsError = ''
-    try {
-      const entries = await Promise.all(
-        agentList.map(async (agent) => {
-          try {
-            const data = await fetchAgentSkills(agent.id)
-            return [agent.id, data.map((skill) => skill.name)]
-          } catch {
-            return [agent.id, []]
-          }
-        }),
-      )
-      agentSkills = Object.fromEntries(entries)
-    } catch (err) {
-      agentSkillsError = getErrorMessage(err, 'Failed to load agent skills.')
-      agentSkills = {}
-    } finally {
-      agentSkillsLoading = false
-    }
-  }
-
-  const syncAgentRunning = (agentList, terminalList) => {
-    if (!Array.isArray(agentList)) return []
-    const terminalIds = new Set((terminalList || []).map((terminal) => terminal?.id).filter(Boolean))
-    let changed = false
-    const nextAgents = agentList.map((agent) => {
-      const terminalId = agent.terminal_id || ''
-      const running = Boolean(terminalId && terminalIds.has(terminalId))
-      const nextTerminalId = running ? terminalId : ''
-      if (agent.running === running && (agent.terminal_id || '') === nextTerminalId) {
-        return agent
-      }
-      changed = true
-      return {
-        ...agent,
-        running,
-        terminal_id: nextTerminalId,
-      }
-    })
-    return changed ? nextAgents : agentList
-  }
-
   const formatLogTime = (value) => {
     return formatRelativeTime(value) || '—'
   }
 
-  const loadLogs = async () => {
-    logsLoading = true
-    logsError = ''
-    try {
-      logs = await fetchLogsApi({ level: logLevelFilter })
-      lastLogErrorMessage = ''
-    } catch (err) {
-      const message = getErrorMessage(err, 'Failed to load logs.')
-      logsError = message
-      if (message !== lastLogErrorMessage) {
-        notificationStore.addNotification('error', message)
-        lastLogErrorMessage = message
-      }
-    } finally {
-      logsLoading = false
-    }
-  }
-
-  const resetLogRefresh = () => {
-    if (logsRefreshTimer) {
-      clearInterval(logsRefreshTimer)
-      logsRefreshTimer = null
-    }
-    if (logsAutoRefresh) {
-      logsRefreshTimer = setInterval(loadLogs, 5000)
-    }
-  }
-
   const handleLogFilterChange = (event) => {
-    logLevelFilter = event.target.value
-    loadLogs()
+    dashboardStore.setLogLevelFilter(event.target.value)
+  }
+
+  const handleLogsAutoRefreshChange = (event) => {
+    dashboardStore.setLogsAutoRefresh(event.target.checked)
+  }
+
+  const refreshLogs = () => {
+    dashboardStore.loadLogs()
   }
 
   const logEntryKey = (entry, index) => `${entry.timestamp}-${entry.message}-${index}`
@@ -193,6 +108,21 @@
     }, 5000)
   }
 
+  $: ({
+    agents,
+    agentsLoading,
+    agentsError,
+    agentSkills,
+    agentSkillsLoading,
+    agentSkillsError,
+    logs,
+    logsLoading,
+    logsError,
+    logLevelFilter,
+    logsAutoRefresh,
+  } = $dashboardStore)
+
+  $: dashboardStore.setTerminals(terminals)
   $: orderedLogs = [...logs].reverse()
   $: visibleLogs = orderedLogs.slice(0, 15)
   $: if (status && !gitOrigin) {
@@ -206,24 +136,10 @@
       ? `${gitOrigin}/${gitBranch}`
       : gitOrigin || gitBranch || 'not a git repo'
 
-  $: if (logsMounted) {
-    logsAutoRefresh
-    resetLogRefresh()
-  }
-  $: {
-    const nextAgents = syncAgentRunning(agents, terminals)
-    if (nextAgents !== agents) {
-      agents = nextAgents
-    }
-  }
-
   onMount(() => {
-    loadAgents()
-    logsMounted = true
-    loadLogs()
-    resetLogRefresh()
+    dashboardStore.start()
     const handleAgentEvent = () => {
-      loadAgents()
+      dashboardStore.loadAgents()
     }
     agentEventsUnsubscribes = [
       subscribeAgentEvents('agent_started', handleAgentEvent),
@@ -248,11 +164,7 @@
   })
 
   onDestroy(() => {
-    logsMounted = false
-    if (logsRefreshTimer) {
-      clearInterval(logsRefreshTimer)
-      logsRefreshTimer = null
-    }
+    dashboardStore.stop()
     if (agentEventsUnsubscribes.length > 0) {
       agentEventsUnsubscribes.forEach((unsubscribe) => unsubscribe())
       agentEventsUnsubscribes = []
@@ -359,10 +271,14 @@
         </select>
       </label>
       <label class="logs-control logs-control--toggle">
-        <input type="checkbox" bind:checked={logsAutoRefresh} />
+        <input
+          type="checkbox"
+          bind:checked={logsAutoRefresh}
+          on:change={handleLogsAutoRefreshChange}
+        />
         <span>Auto refresh</span>
       </label>
-      <button class="logs-refresh" type="button" on:click={loadLogs} disabled={logsLoading}>
+      <button class="logs-refresh" type="button" on:click={refreshLogs} disabled={logsLoading}>
         {logsLoading ? 'Refreshing…' : 'Refresh'}
       </button>
     </div>

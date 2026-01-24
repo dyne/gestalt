@@ -12,6 +12,9 @@ import (
 	"time"
 
 	"gestalt/internal/event"
+
+	otellog "go.opentelemetry.io/otel/log"
+	logglobal "go.opentelemetry.io/otel/log/global"
 )
 
 const DefaultBufferSize = 1000
@@ -23,6 +26,7 @@ type Logger struct {
 	minLevel    Level
 	baseContext map[string]string
 	logBus      *event.Bus[LogEntry]
+	otelLogger  otellog.Logger
 }
 
 func NewLogger(buffer *LogBuffer, minLevel Level) *Logger {
@@ -43,10 +47,11 @@ func NewLoggerWithOutput(buffer *LogBuffer, minLevel Level, output io.Writer) *L
 		WriteTimeout:         100 * time.Millisecond,
 	})
 	return &Logger{
-		buffer:   buffer,
-		output:   log.New(output, "", log.LstdFlags),
-		minLevel: normalizeLevel(minLevel),
-		logBus:   logBus,
+		buffer:     buffer,
+		output:     log.New(output, "", log.LstdFlags),
+		minLevel:   normalizeLevel(minLevel),
+		logBus:     logBus,
+		otelLogger: logglobal.Logger("gestalt/internal/logging"),
 	}
 }
 
@@ -81,6 +86,7 @@ func (l *Logger) With(fields map[string]string) *Logger {
 		minLevel:    l.minLevel,
 		baseContext: cloneFields(l.baseContext, fields),
 		logBus:      l.logBus,
+		otelLogger:  l.otelLogger,
 	}
 }
 
@@ -131,6 +137,7 @@ func (l *Logger) log(level Level, message string, fields map[string]string) {
 	if l.output != nil {
 		l.output.Print(formatEntry(entry))
 	}
+	l.emitOTel(entry)
 }
 
 func normalizeLevel(level Level) Level {
@@ -214,4 +221,49 @@ func formatEntry(entry LogEntry) string {
 		builder.WriteString(fmt.Sprintf("%s=%s", key, strconv.Quote(entry.Context[key])))
 	}
 	return builder.String()
+}
+
+func (l *Logger) emitOTel(entry LogEntry) {
+	if l == nil || l.otelLogger == nil {
+		return
+	}
+	severity := toOTelSeverity(entry.Level)
+	ctx := context.Background()
+	if !l.otelLogger.Enabled(ctx, otellog.EnabledParameters{Severity: severity}) {
+		return
+	}
+	var record otellog.Record
+	record.SetTimestamp(entry.Timestamp)
+	record.SetObservedTimestamp(time.Now().UTC())
+	record.SetSeverity(severity)
+	record.SetSeverityText(string(entry.Level))
+	record.SetBody(otellog.StringValue(entry.Message))
+
+	if len(entry.Context) > 0 {
+		attrs := make([]otellog.KeyValue, 0, len(entry.Context))
+		for key, value := range entry.Context {
+			if key == "" {
+				continue
+			}
+			attrs = append(attrs, otellog.String(key, value))
+		}
+		record.AddAttributes(attrs...)
+	}
+
+	l.otelLogger.Emit(ctx, record)
+}
+
+func toOTelSeverity(level Level) otellog.Severity {
+	switch level {
+	case LevelDebug:
+		return otellog.SeverityDebug
+	case LevelInfo:
+		return otellog.SeverityInfo
+	case LevelWarning:
+		return otellog.SeverityWarn
+	case LevelError:
+		return otellog.SeverityError
+	default:
+		return otellog.SeverityInfo
+	}
 }

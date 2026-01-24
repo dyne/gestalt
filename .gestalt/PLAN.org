@@ -121,7 +121,7 @@
    - Traces created for all requests, linked to downstream operations
    - Dashboard queries documented and tested
    - /api/metrics/summary returns useful aggregations
-** TODO [#A] Migrate internal/logging to OpenTelemetry LogRecords
+** DONE [#A] Migrate internal/logging to OpenTelemetry LogRecords
 ** TODO [#B] Migrate event.Bus events to OpenTelemetry LogRecords
 ** TODO [#B] Add distributed tracing for WebSocket connections
 ** TODO [#B] Integrate OpenTelemetry with Temporal workflows

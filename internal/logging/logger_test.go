@@ -1,9 +1,16 @@
 package logging
 
 import (
+	"context"
 	"io"
+	"sync"
 	"testing"
 	"time"
+
+	otellog "go.opentelemetry.io/otel/log"
+	logglobal "go.opentelemetry.io/otel/log/global"
+	lognoop "go.opentelemetry.io/otel/log/noop"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 )
 
 func TestLoggerWritesToBuffer(t *testing.T) {
@@ -70,4 +77,100 @@ func TestLoggerStreamDeliversAllEntries(t *testing.T) {
 	}
 
 	<-done
+}
+
+type testLogExporter struct {
+	mu      sync.Mutex
+	records []sdklog.Record
+}
+
+func (exporter *testLogExporter) Export(_ context.Context, records []sdklog.Record) error {
+	exporter.mu.Lock()
+	defer exporter.mu.Unlock()
+	for _, record := range records {
+		exporter.records = append(exporter.records, record.Clone())
+	}
+	return nil
+}
+
+func (exporter *testLogExporter) Shutdown(context.Context) error {
+	return nil
+}
+
+func (exporter *testLogExporter) ForceFlush(context.Context) error {
+	return nil
+}
+
+func (exporter *testLogExporter) snapshot() []sdklog.Record {
+	exporter.mu.Lock()
+	defer exporter.mu.Unlock()
+	records := make([]sdklog.Record, len(exporter.records))
+	copy(records, exporter.records)
+	return records
+}
+
+func TestLoggerEmitsOTelLogRecord(t *testing.T) {
+	exporter := &testLogExporter{}
+	processor := sdklog.NewSimpleProcessor(exporter)
+	provider := sdklog.NewLoggerProvider(sdklog.WithProcessor(processor))
+	logglobal.SetLoggerProvider(provider)
+	t.Cleanup(func() {
+		_ = provider.Shutdown(context.Background())
+		logglobal.SetLoggerProvider(lognoop.NewLoggerProvider())
+	})
+
+	logger := NewLoggerWithOutput(NewLogBuffer(10), LevelInfo, io.Discard).With(map[string]string{
+		"service": "gestalt",
+	})
+	logger.Info("started", map[string]string{
+		"terminal_id": "1",
+		"test_id":     "otel-log",
+	})
+
+	records := exporter.snapshot()
+	var record *sdklog.Record
+	for idx := range records {
+		entry := &records[idx]
+		matched := false
+		entry.WalkAttributes(func(attr otellog.KeyValue) bool {
+			if attr.Key == "test_id" && attr.Value.Kind() == otellog.KindString && attr.Value.AsString() == "otel-log" {
+				matched = true
+				return false
+			}
+			return true
+		})
+		if matched {
+			record = entry
+			break
+		}
+	}
+	if record == nil {
+		t.Fatalf("expected log record with test_id=otel-log, got %d records", len(records))
+	}
+	if record.Severity() != otellog.SeverityInfo {
+		t.Fatalf("expected severity info, got %v", record.Severity())
+	}
+	if record.SeverityText() != "info" {
+		t.Fatalf("expected severity text info, got %q", record.SeverityText())
+	}
+	if record.Body().AsString() != "started" {
+		t.Fatalf("expected body started, got %q", record.Body().AsString())
+	}
+
+	attrs := make(map[string]string)
+	record.WalkAttributes(func(attr otellog.KeyValue) bool {
+		if attr.Value.Kind() == otellog.KindString {
+			attrs[attr.Key] = attr.Value.AsString()
+		}
+		return true
+	})
+	if attrs["terminal_id"] != "1" {
+		t.Fatalf("expected terminal_id attribute, got %v", attrs["terminal_id"])
+	}
+	if attrs["service"] != "gestalt" {
+		t.Fatalf("expected service attribute, got %v", attrs["service"])
+	}
+	if attrs["test_id"] != "otel-log" {
+		t.Fatalf("expected test_id attribute, got %v", attrs["test_id"])
+	}
 }

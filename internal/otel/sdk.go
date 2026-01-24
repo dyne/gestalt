@@ -9,9 +9,12 @@ import (
 
 	otelapi "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	logglobal "go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/propagation"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	sdkresource "go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -75,6 +78,16 @@ func SetupSDK(ctx context.Context, options SDKOptions) (func(context.Context) er
 		return nil, err
 	}
 
+	logExporter, err := otlploghttp.New(ctx,
+		otlploghttp.WithEndpoint(endpoint),
+		otlploghttp.WithInsecure(),
+	)
+	if err != nil {
+		_ = traceExporter.Shutdown(ctx)
+		_ = metricExporter.Shutdown(ctx)
+		return nil, err
+	}
+
 	resourceAttrs := []attribute.KeyValue{
 		attribute.String("service.name", options.ServiceName),
 	}
@@ -96,6 +109,7 @@ func SetupSDK(ctx context.Context, options SDKOptions) (func(context.Context) er
 	if err != nil {
 		_ = traceExporter.Shutdown(ctx)
 		_ = metricExporter.Shutdown(ctx)
+		_ = logExporter.Shutdown(ctx)
 		return nil, err
 	}
 
@@ -116,9 +130,14 @@ func SetupSDK(ctx context.Context, options SDKOptions) (func(context.Context) er
 		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter)),
 		sdkmetric.WithView(durationView),
 	)
+	loggerProvider := sdklog.NewLoggerProvider(
+		sdklog.WithResource(res),
+		sdklog.WithProcessor(sdklog.NewBatchProcessor(logExporter)),
+	)
 
 	otelapi.SetTracerProvider(tracerProvider)
 	otelapi.SetMeterProvider(meterProvider)
+	logglobal.SetLoggerProvider(loggerProvider)
 	otelapi.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
 		propagation.TraceContext{},
 		propagation.Baggage{},
@@ -130,6 +149,9 @@ func SetupSDK(ctx context.Context, options SDKOptions) (func(context.Context) er
 			shutdownErr = errors.Join(shutdownErr, err)
 		}
 		if err := meterProvider.Shutdown(shutdownCtx); err != nil {
+			shutdownErr = errors.Join(shutdownErr, err)
+		}
+		if err := loggerProvider.Shutdown(shutdownCtx); err != nil {
 			shutdownErr = errors.Join(shutdownErr, err)
 		}
 		return shutdownErr

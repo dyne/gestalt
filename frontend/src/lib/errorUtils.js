@@ -1,4 +1,4 @@
-import notificationStore from './notificationStore.js'
+import { notificationStore } from './notificationStore.js'
 
 export const getErrorMessage = (error, fallback = 'Request failed.') => {
   if (error && typeof error.message === 'string' && error.message.trim()) {

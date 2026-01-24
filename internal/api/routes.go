@@ -63,6 +63,7 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 
 	mux.Handle("/ws/terminal/", &TerminalHandler{
 		Manager:   manager,
+		Logger:    logger,
 		AuthToken: authToken,
 	})
 	mux.Handle("/ws/logs", &LogsHandler{
@@ -71,21 +72,26 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 	})
 	mux.Handle("/ws/events", &EventsHandler{
 		Bus:       eventBus,
+		Logger:    logger,
 		AuthToken: authToken,
 	})
 	mux.Handle("/api/agents/events", &AgentEventsHandler{
 		Manager:   manager,
+		Logger:    logger,
 		AuthToken: authToken,
 	})
 	mux.Handle("/api/terminals/events", &TerminalEventsHandler{
 		Manager:   manager,
+		Logger:    logger,
 		AuthToken: authToken,
 	})
 	mux.Handle("/api/workflows/events", &WorkflowEventsHandler{
 		Manager:   manager,
+		Logger:    logger,
 		AuthToken: authToken,
 	})
 	mux.Handle("/api/config/events", &ConfigEventsHandler{
+		Logger:    logger,
 		AuthToken: authToken,
 	})
 

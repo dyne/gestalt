@@ -116,7 +116,7 @@
    - Add table-driven tests for edge cases (bad ids, missing ids).
    Done when: path parsing is centralized with tests.
 
-** WIP [#B] Standardize WS error wrapper
+** DONE [#B] Standardize WS error wrapper
    Why: WS handlers use http.Error inconsistently.
    Change:
    - Add a WS error wrapper with close codes and structured logging.
@@ -124,7 +124,7 @@
    - Add tests for WS error close codes and reasons.
    Done when: WS error behavior is consistent and documented.
 
-** TODO [#C] Introduce domain routers or WS stream abstraction
+** WIP [#C] Introduce domain routers or WS stream abstraction
    Why: RestHandler remains monolithic and WS handlers are repetitive.
    Change:
    - Add domain routers (TerminalAPI/AgentAPI/etc) or a shared WS stream

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"gestalt/internal/event"
+	"gestalt/internal/logging"
 	"gestalt/internal/terminal"
 
 	"github.com/gorilla/websocket"
@@ -16,6 +17,7 @@ import (
 
 type TerminalHandler struct {
 	Manager        *terminal.Manager
+	Logger         *logging.Logger
 	AuthToken      string
 	AllowedOrigins []string
 }
@@ -31,32 +33,46 @@ type controlMessage struct {
 }
 
 func (h *TerminalHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if !requireWSToken(w, r, h.AuthToken) {
-		return
-	}
-
-	if h.Manager == nil {
-		http.Error(w, "terminal manager unavailable", http.StatusInternalServerError)
-		return
-	}
-
-	id := strings.TrimPrefix(r.URL.Path, "/ws/terminal/")
-	if id == "" || id == r.URL.Path {
-		http.Error(w, "missing terminal id", http.StatusBadRequest)
-		return
-	}
-
-	session, ok := h.Manager.Get(id)
-	if !ok {
-		http.Error(w, "terminal not found", http.StatusNotFound)
+	if !requireWSToken(w, r, h.AuthToken, h.Logger) {
 		return
 	}
 
 	conn, err := upgradeWebSocket(w, r, h.AllowedOrigins)
 	if err != nil {
+		logWSError(h.Logger, r, wsError{
+			Status:  http.StatusBadRequest,
+			Message: "websocket upgrade failed",
+			Err:     err,
+		})
 		return
 	}
 	defer conn.Close()
+
+	if h.Manager == nil {
+		writeWSError(w, r, conn, h.Logger, wsError{
+			Status:  http.StatusInternalServerError,
+			Message: "terminal manager unavailable",
+		})
+		return
+	}
+
+	id := strings.TrimPrefix(r.URL.Path, "/ws/terminal/")
+	if id == "" || id == r.URL.Path {
+		writeWSError(w, r, conn, h.Logger, wsError{
+			Status:  http.StatusBadRequest,
+			Message: "missing terminal id",
+		})
+		return
+	}
+
+	session, ok := h.Manager.Get(id)
+	if !ok {
+		writeWSError(w, r, conn, h.Logger, wsError{
+			Status:  http.StatusNotFound,
+			Message: "terminal not found",
+		})
+		return
+	}
 
 	output, cancel := session.Subscribe()
 	defer cancel()

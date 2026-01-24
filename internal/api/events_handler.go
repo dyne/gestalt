@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gestalt/internal/event"
+	"gestalt/internal/logging"
 	"gestalt/internal/watcher"
 
 	"github.com/gorilla/websocket"
@@ -16,6 +17,7 @@ const eventsPerMinuteLimit = 100
 
 type EventsHandler struct {
 	Bus            *event.Bus[watcher.Event]
+	Logger         *logging.Logger
 	AuthToken      string
 	AllowedOrigins []string
 }
@@ -93,12 +95,7 @@ func (limiter *rateLimiter) Allow(now time.Time) bool {
 }
 
 func (h *EventsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if !requireWSToken(w, r, h.AuthToken) {
-		return
-	}
-
-	if h.Bus == nil {
-		http.Error(w, "event bus unavailable", http.StatusInternalServerError)
+	if !requireWSToken(w, r, h.AuthToken, h.Logger) {
 		return
 	}
 
@@ -113,14 +110,34 @@ func (h *EventsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	conn, err := upgradeWebSocket(w, r, h.AllowedOrigins)
 	if err != nil {
+		logWSError(h.Logger, r, wsError{
+			Status:  http.StatusBadRequest,
+			Message: "websocket upgrade failed",
+			Err:     err,
+		})
 		return
 	}
 	defer conn.Close()
+
+	if h.Bus == nil {
+		writeWSError(w, r, conn, h.Logger, wsError{
+			Status:  http.StatusInternalServerError,
+			Message: "event bus unavailable",
+		})
+		return
+	}
 
 	events, cancel := h.Bus.SubscribeFiltered(func(event watcher.Event) bool {
 		_, ok := allowed[event.Type]
 		return ok
 	})
+	if events == nil {
+		writeWSError(w, r, conn, h.Logger, wsError{
+			Status:  http.StatusInternalServerError,
+			Message: "event stream unavailable",
+		})
+		return
+	}
 	defer cancel()
 
 	go func() {

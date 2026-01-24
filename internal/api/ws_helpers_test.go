@@ -56,12 +56,68 @@ func TestRequireWSTokenUnauthorized(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/ws", nil)
 	recorder := httptest.NewRecorder()
 
-	if requireWSToken(recorder, req, "secret") {
+	if requireWSToken(recorder, req, "secret", nil) {
 		t.Fatalf("expected unauthorized result")
 	}
 
 	resp := recorder.Result()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, resp.StatusCode)
+	}
+}
+
+func TestWriteWSErrorClosesWithCodeAndReason(t *testing.T) {
+	handlerDone := make(chan struct{})
+	handlerErr := make(chan error, 1)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgradeWebSocket(w, r, nil)
+		if err != nil {
+			handlerErr <- err
+			close(handlerDone)
+			return
+		}
+
+		writeWSError(w, r, conn, nil, wsError{
+			Status:  http.StatusBadRequest,
+			Message: "bad request",
+		})
+		handlerErr <- nil
+		close(handlerDone)
+	}))
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+
+	_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	_, _, err = conn.ReadMessage()
+	if err == nil {
+		t.Fatalf("expected close error")
+	}
+
+	closeErr, ok := err.(*websocket.CloseError)
+	if !ok {
+		t.Fatalf("expected close error, got %T", err)
+	}
+	if closeErr.Code != websocket.CloseProtocolError {
+		t.Fatalf("expected close code %d, got %d", websocket.CloseProtocolError, closeErr.Code)
+	}
+	if closeErr.Text != "bad request" {
+		t.Fatalf("expected reason %q, got %q", "bad request", closeErr.Text)
+	}
+
+	if err := <-handlerErr; err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+
+	select {
+	case <-handlerDone:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("handler did not exit after close")
 	}
 }

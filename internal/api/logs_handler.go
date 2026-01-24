@@ -39,12 +39,7 @@ func (f *levelFilter) Set(level logging.Level) {
 }
 
 func (h *LogsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if !requireWSToken(w, r, h.AuthToken) {
-		return
-	}
-
-	if h.Logger == nil {
-		http.Error(w, "logger unavailable", http.StatusInternalServerError)
+	if !requireWSToken(w, r, h.AuthToken, h.Logger) {
 		return
 	}
 
@@ -54,6 +49,26 @@ func (h *LogsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			filter.Set(level)
 		}
 	}
+
+	conn, err := upgradeWebSocket(w, r, h.AllowedOrigins)
+	if err != nil {
+		logWSError(h.Logger, r, wsError{
+			Status:  http.StatusBadRequest,
+			Message: "websocket upgrade failed",
+			Err:     err,
+		})
+		return
+	}
+	defer conn.Close()
+
+	if h.Logger == nil {
+		writeWSError(w, r, conn, h.Logger, wsError{
+			Status:  http.StatusInternalServerError,
+			Message: "logger unavailable",
+		})
+		return
+	}
+
 	output, cancel := h.Logger.SubscribeFiltered(func(entry logging.LogEntry) bool {
 		minLevel := filter.Get()
 		if minLevel == "" {
@@ -62,16 +77,13 @@ func (h *LogsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return logging.LevelAtLeast(entry.Level, minLevel)
 	})
 	if output == nil {
-		http.Error(w, "log stream unavailable", http.StatusInternalServerError)
+		writeWSError(w, r, conn, h.Logger, wsError{
+			Status:  http.StatusInternalServerError,
+			Message: "log stream unavailable",
+		})
 		return
 	}
 	defer cancel()
-
-	conn, err := upgradeWebSocket(w, r, h.AllowedOrigins)
-	if err != nil {
-		return
-	}
-	defer conn.Close()
 
 	done := make(chan struct{})
 	defer close(done)

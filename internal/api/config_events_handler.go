@@ -6,11 +6,13 @@ import (
 
 	"gestalt/internal/config"
 	eventtypes "gestalt/internal/event"
+	"gestalt/internal/logging"
 )
 
 type ConfigEventsHandler struct {
 	AuthToken      string
 	AllowedOrigins []string
+	Logger         *logging.Logger
 }
 
 type configEventPayload struct {
@@ -23,24 +25,42 @@ type configEventPayload struct {
 }
 
 func (h *ConfigEventsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if !requireWSToken(w, r, h.AuthToken) {
+	if !requireWSToken(w, r, h.AuthToken, h.Logger) {
+		return
+	}
+
+	conn, err := upgradeWebSocket(w, r, h.AllowedOrigins)
+	if err != nil {
+		logWSError(h.Logger, r, wsError{
+			Status:  http.StatusBadRequest,
+			Message: "websocket upgrade failed",
+			Err:     err,
+		})
 		return
 	}
 
 	bus := config.Bus()
 	if bus == nil {
-		http.Error(w, "config events unavailable", http.StatusInternalServerError)
+		writeWSError(w, r, conn, h.Logger, wsError{
+			Status:  http.StatusInternalServerError,
+			Message: "config events unavailable",
+		})
 		return
 	}
 	output, cancel := bus.Subscribe()
 	if output == nil {
-		http.Error(w, "config events unavailable", http.StatusInternalServerError)
+		writeWSError(w, r, conn, h.Logger, wsError{
+			Status:  http.StatusInternalServerError,
+			Message: "config events unavailable",
+		})
 		return
 	}
 	defer cancel()
 
 	serveWSStream(w, r, wsStreamConfig[eventtypes.ConfigEvent]{
 		AllowedOrigins: h.AllowedOrigins,
+		Conn:           conn,
+		Logger:         h.Logger,
 		Output:         output,
 		BuildPayload: func(event eventtypes.ConfigEvent) (any, bool) {
 			payload := configEventPayload{

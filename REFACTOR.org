@@ -491,14 +491,14 @@
    - Add tests for polling helper behavior.
    Done when: polling logic is shared and stable.
 
-** WIP [#A] Document frontend data flow and store ownership
+** DONE [#A] Document frontend data flow and store ownership
    Why: Onboarding is harder without a store ownership guide.
    Change:
    - Add short doc outlining store responsibilities and data flow.
    Tests: None (documentation only).
    Done when: doc exists and references current stores.
 
-** TODO [#B] Add a thin routing helper for tabs
+** WIP [#B] Add a thin routing helper for tabs
    Why: Active tab computation is repeated in App.svelte.
    Change:
    - Centralize tab selection logic in a small helper.

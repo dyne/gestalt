@@ -7570,7 +7570,7 @@
    Effort: Medium
    Change: Separate xterm setup, ws connection, and input handling modules.
    Tests: Keep terminalStore tests passing with new module boundaries.
-** TODO [#B] Move Dashboard data orchestration into a store
+** DONE [#B] Move Dashboard data orchestration into a store
    Effort: Medium
    Change: Create a dashboardStore for agents/skills/logs fetching and state.
    Tests: Add store tests for loading/error behavior.

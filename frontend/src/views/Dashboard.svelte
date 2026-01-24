@@ -1,10 +1,6 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
   import { createDashboardStore } from '../lib/dashboardStore.js'
-  import { subscribe as subscribeAgentEvents } from '../lib/agentEventStore.js'
-  import { subscribe as subscribeConfigEvents } from '../lib/configEventStore.js'
-  import { subscribe as subscribeEvents } from '../lib/eventStore.js'
-  import { notificationStore } from '../lib/notificationStore.js'
   import { getErrorMessage } from '../lib/errorUtils.js'
   import { formatRelativeTime } from '../lib/timeUtils.js'
 
@@ -32,15 +28,9 @@
   let logsError = ''
   let logLevelFilter = 'info'
   let logsAutoRefresh = true
-  let agentEventsUnsubscribes = []
-  let configEventsUnsubscribes = []
   let configExtractionCount = 0
   let configExtractionLast = ''
-  let configExtractionTimer = null
-  let gitOrigin = ''
-  let gitBranch = ''
   let gitContext = 'not a git repo'
-  let gitUnsubscribe = null
 
   const logLevelOptions = [
     { value: 'debug', label: 'Debug' },
@@ -88,26 +78,6 @@
 
   const logEntryKey = (entry, index) => `${entry.timestamp}-${entry.message}-${index}`
 
-  const resetConfigExtraction = () => {
-    configExtractionCount = 0
-    configExtractionLast = ''
-    if (configExtractionTimer) {
-      clearTimeout(configExtractionTimer)
-      configExtractionTimer = null
-    }
-  }
-
-  const noteConfigExtraction = (payload) => {
-    configExtractionCount += 1
-    configExtractionLast = payload?.path || ''
-    if (configExtractionTimer) {
-      clearTimeout(configExtractionTimer)
-    }
-    configExtractionTimer = setTimeout(() => {
-      resetConfigExtraction()
-    }, 5000)
-  }
-
   $: ({
     agents,
     agentsLoading,
@@ -120,67 +90,22 @@
     logsError,
     logLevelFilter,
     logsAutoRefresh,
+    configExtractionCount,
+    configExtractionLast,
+    gitContext,
   } = $dashboardStore)
 
   $: dashboardStore.setTerminals(terminals)
+  $: dashboardStore.setStatus(status)
   $: orderedLogs = [...logs].reverse()
   $: visibleLogs = orderedLogs.slice(0, 15)
-  $: if (status && !gitOrigin) {
-    gitOrigin = status.git_origin || ''
-  }
-  $: if (status && !gitBranch) {
-    gitBranch = status.git_branch || ''
-  }
-  $: gitContext =
-    gitOrigin && gitBranch
-      ? `${gitOrigin}/${gitBranch}`
-      : gitOrigin || gitBranch || 'not a git repo'
 
   onMount(() => {
     dashboardStore.start()
-    const handleAgentEvent = () => {
-      dashboardStore.loadAgents()
-    }
-    agentEventsUnsubscribes = [
-      subscribeAgentEvents('agent_started', handleAgentEvent),
-      subscribeAgentEvents('agent_stopped', handleAgentEvent),
-      subscribeAgentEvents('agent_error', handleAgentEvent),
-    ]
-    configEventsUnsubscribes = [
-      subscribeConfigEvents('config_extracted', noteConfigExtraction),
-      subscribeConfigEvents('config_conflict', (payload) => {
-        const path = payload?.path || 'config file'
-        notificationStore.addNotification('warning', `Config conflict: ${path}`)
-      }),
-      subscribeConfigEvents('config_validation_error', (payload) => {
-        const detail = payload?.message || payload?.path || 'config file'
-        notificationStore.addNotification('error', `Config validation failed: ${detail}`)
-      }),
-    ]
-    gitUnsubscribe = subscribeEvents('git_branch_changed', (payload) => {
-      if (!payload?.path) return
-      gitBranch = payload.path
-    })
   })
 
   onDestroy(() => {
     dashboardStore.stop()
-    if (agentEventsUnsubscribes.length > 0) {
-      agentEventsUnsubscribes.forEach((unsubscribe) => unsubscribe())
-      agentEventsUnsubscribes = []
-    }
-    if (configEventsUnsubscribes.length > 0) {
-      configEventsUnsubscribes.forEach((unsubscribe) => unsubscribe())
-      configEventsUnsubscribes = []
-    }
-    if (configExtractionTimer) {
-      clearTimeout(configExtractionTimer)
-      configExtractionTimer = null
-    }
-    if (gitUnsubscribe) {
-      gitUnsubscribe()
-      gitUnsubscribe = null
-    }
   })
 </script>
 

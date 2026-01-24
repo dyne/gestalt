@@ -1,4 +1,7 @@
 import { get, writable } from 'svelte/store'
+import { subscribe as subscribeAgentEvents } from './agentEventStore.js'
+import { subscribe as subscribeConfigEvents } from './configEventStore.js'
+import { subscribe as subscribeEvents } from './eventStore.js'
 import { fetchAgentSkills, fetchAgents, fetchLogs } from './apiClient.js'
 import { getErrorMessage } from './errorUtils.js'
 import { notificationStore } from './notificationStore.js'
@@ -18,12 +21,61 @@ export const createDashboardStore = () => {
     logsError: '',
     logLevelFilter: 'info',
     logsAutoRefresh: true,
+    configExtractionCount: 0,
+    configExtractionLast: '',
+    gitOrigin: '',
+    gitBranch: '',
+    gitContext: 'not a git repo',
   })
 
   let terminals = []
   let logsRefreshTimer = null
   let logsMounted = false
   let lastLogErrorMessage = ''
+  let configExtractionTimer = null
+  let agentEventsUnsubscribes = []
+  let configEventsUnsubscribes = []
+  let gitUnsubscribe = null
+  let started = false
+
+  const buildGitContext = (origin, branch) => {
+    if (origin && branch) {
+      return `${origin}/${branch}`
+    }
+    return origin || branch || 'not a git repo'
+  }
+
+  const resetConfigExtraction = () => {
+    if (configExtractionTimer) {
+      clearTimeout(configExtractionTimer)
+      configExtractionTimer = null
+    }
+    state.update((current) => {
+      if (!current.configExtractionCount && !current.configExtractionLast) {
+        return current
+      }
+      return {
+        ...current,
+        configExtractionCount: 0,
+        configExtractionLast: '',
+      }
+    })
+  }
+
+  const noteConfigExtraction = (payload) => {
+    const path = payload?.path || ''
+    state.update((current) => ({
+      ...current,
+      configExtractionCount: current.configExtractionCount + 1,
+      configExtractionLast: path,
+    }))
+    if (configExtractionTimer) {
+      clearTimeout(configExtractionTimer)
+    }
+    configExtractionTimer = setTimeout(() => {
+      resetConfigExtraction()
+    }, 5000)
+  }
 
   const syncAgentRunning = (agentList, terminalList) => {
     if (!Array.isArray(agentList)) return []
@@ -52,6 +104,44 @@ export const createDashboardStore = () => {
       const nextAgents = syncAgentRunning(current.agents, terminals)
       if (nextAgents === current.agents) return current
       return { ...current, agents: nextAgents }
+    })
+  }
+
+  const setStatus = (status) => {
+    if (!status) return
+    const origin = status.git_origin || ''
+    const branch = status.git_branch || ''
+    state.update((current) => {
+      const nextOrigin = current.gitOrigin || origin
+      const nextBranch = current.gitBranch || branch
+      const nextContext = buildGitContext(nextOrigin, nextBranch)
+      if (
+        nextOrigin === current.gitOrigin &&
+        nextBranch === current.gitBranch &&
+        nextContext === current.gitContext
+      ) {
+        return current
+      }
+      return {
+        ...current,
+        gitOrigin: nextOrigin,
+        gitBranch: nextBranch,
+        gitContext: nextContext,
+      }
+    })
+  }
+
+  const setGitBranch = (branch) => {
+    const nextBranch = branch || ''
+    if (!nextBranch) return
+    state.update((current) => {
+      if (current.gitBranch === nextBranch) return current
+      const nextContext = buildGitContext(current.gitOrigin, nextBranch)
+      return {
+        ...current,
+        gitBranch: nextBranch,
+        gitContext: nextContext,
+      }
     })
   }
 
@@ -159,23 +249,60 @@ export const createDashboardStore = () => {
   }
 
   const start = async () => {
+    if (started) return
+    started = true
     logsMounted = true
+    agentEventsUnsubscribes = [
+      subscribeAgentEvents('agent_started', () => loadAgents()),
+      subscribeAgentEvents('agent_stopped', () => loadAgents()),
+      subscribeAgentEvents('agent_error', () => loadAgents()),
+    ]
+    configEventsUnsubscribes = [
+      subscribeConfigEvents('config_extracted', noteConfigExtraction),
+      subscribeConfigEvents('config_conflict', (payload) => {
+        const path = payload?.path || 'config file'
+        notificationStore.addNotification('warning', `Config conflict: ${path}`)
+      }),
+      subscribeConfigEvents('config_validation_error', (payload) => {
+        const detail = payload?.message || payload?.path || 'config file'
+        notificationStore.addNotification('error', `Config validation failed: ${detail}`)
+      }),
+    ]
+    gitUnsubscribe = subscribeEvents('git_branch_changed', (payload) => {
+      if (!payload?.path) return
+      setGitBranch(payload.path)
+    })
     await loadAgents()
     await loadLogs()
     resetLogRefresh()
   }
 
   const stop = () => {
+    started = false
     logsMounted = false
     if (logsRefreshTimer) {
       clearInterval(logsRefreshTimer)
       logsRefreshTimer = null
+    }
+    resetConfigExtraction()
+    if (agentEventsUnsubscribes.length > 0) {
+      agentEventsUnsubscribes.forEach((unsubscribe) => unsubscribe())
+      agentEventsUnsubscribes = []
+    }
+    if (configEventsUnsubscribes.length > 0) {
+      configEventsUnsubscribes.forEach((unsubscribe) => unsubscribe())
+      configEventsUnsubscribes = []
+    }
+    if (gitUnsubscribe) {
+      gitUnsubscribe()
+      gitUnsubscribe = null
     }
   }
 
   return {
     subscribe: state.subscribe,
     setTerminals,
+    setStatus,
     loadAgents,
     loadLogs,
     setLogLevelFilter,

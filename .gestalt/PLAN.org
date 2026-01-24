@@ -134,7 +134,7 @@
 ** DONE [#B] Cut over to OpenTelemetry (remove custom systems)
 ** DONE [#C] Add remote backend export capability
 ** DONE [#C] Performance optimization and resource limits
-** WIP [#C] Update documentation for OpenTelemetry observability
+** DONE [#C] Update documentation for OpenTelemetry observability
 
 * DONE [#B] Remove config manifest and fix coder agent extraction
   Goal: Stop relying on config/manifest.json, extract all embedded config files,

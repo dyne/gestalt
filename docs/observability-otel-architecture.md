@@ -42,6 +42,18 @@ Configuration
 - Collector config file:
   - Location: .gestalt/otel/collector.yaml
   - Owned by Gestalt (rendered at startup with ports and file paths)
+- Environment variables (runtime):
+  - GESTALT_OTEL_ENABLED (collector on/off)
+  - GESTALT_OTEL_COLLECTOR (collector binary path)
+  - GESTALT_OTEL_CONFIG (collector config path)
+  - GESTALT_OTEL_DATA_DIR (collector data dir)
+  - GESTALT_OTEL_GRPC_ENDPOINT / GESTALT_OTEL_HTTP_ENDPOINT (collector listen endpoints)
+  - GESTALT_OTEL_REMOTE_ENDPOINT (optional OTLP gRPC exporter target)
+  - GESTALT_OTEL_REMOTE_INSECURE (true to skip TLS verification for remote exporter)
+  - GESTALT_OTEL_MAX_RECORDS (cap records read from local otel.json for APIs)
+  - GESTALT_OTEL_SDK_ENABLED (SDK on/off)
+  - GESTALT_OTEL_SERVICE_NAME (service.name override)
+  - GESTALT_OTEL_RESOURCE_ATTRIBUTES (comma-separated key=value list)
 
 Resource model
 - Resource attributes (static):
@@ -81,9 +93,10 @@ Tracing model
   - into Temporal workflow start and activity contexts
 
 Frontend access
-- Logs: query Collector OTLP HTTP (log pipeline) with default INFO filter.
-- Metrics: query Collector OTLP HTTP for summary panels.
-- Add a backend proxy if direct access to Collector is blocked.
+- Logs: /api/otel/logs (level/since/until/limit/query).
+- Traces: /api/otel/traces (trace_id/span_name/since/until/limit/query).
+- Metrics: /api/otel/metrics (name/since/until/limit/query).
+- Legacy /api/logs now reads from OTel when the collector is active.
 
 Migration plan (high level)
 - Phase 1: run OTel in parallel with existing logging and event bus.

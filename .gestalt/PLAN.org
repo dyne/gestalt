@@ -127,7 +127,7 @@
 ** DONE [#B] Integrate OpenTelemetry with Temporal workflows
 ** DONE [#A] Replace internal/metrics with OpenTelemetry metrics
 ** DONE [#B] Create frontend OTel query client
-** TODO [#B] Update LogsView to use OpenTelemetry logs
+** DONE [#B] Update LogsView to use OpenTelemetry logs
 ** TODO [#C] Create trace viewer component
 ** TODO [#C] Add OpenTelemetry metrics dashboard
 ** TODO [#B] Implement parallel run during migration

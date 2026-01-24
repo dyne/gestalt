@@ -27,10 +27,10 @@ describe('LogsView', () => {
     apiFetch.mockResolvedValueOnce({
       json: vi.fn().mockResolvedValue([
         {
-          level: 'info',
-          message: 'hello',
+          severity_text: 'INFO',
+          body: 'hello',
           timestamp: '2025-01-01T00:00:00Z',
-          context: { scope: 'test' },
+          attributes: { scope: 'test' },
         },
       ]),
     })
@@ -59,7 +59,7 @@ describe('LogsView', () => {
     await fireEvent.change(select, { target: { value: 'error' } })
 
     await waitFor(() => {
-      expect(apiFetch).toHaveBeenLastCalledWith('/api/logs?level=error')
+      expect(apiFetch).toHaveBeenLastCalledWith('/api/otel/logs?level=error')
     })
   })
 })

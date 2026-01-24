@@ -1,6 +1,6 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
-  import { fetchLogs as fetchLogsApi } from '../lib/apiClient.js'
+  import { fetchOtelLogs } from '../lib/otelClient.js'
   import { notificationStore } from '../lib/notificationStore.js'
   import { getErrorMessage } from '../lib/errorUtils.js'
   import { formatRelativeTime } from '../lib/timeUtils.js'
@@ -32,10 +32,106 @@
     return formatRelativeTime(value) || '—'
   }
 
+  const normalizeTimestamp = (value) => {
+    if (!value) return ''
+    if (value instanceof Date) return value.toISOString()
+    if (typeof value === 'number') {
+      if (value > 1e12) {
+        return new Date(Math.floor(value / 1e6)).toISOString()
+      }
+      if (value > 1e10) {
+        return new Date(value).toISOString()
+      }
+      return new Date(value * 1000).toISOString()
+    }
+    return value
+  }
+
+  const normalizeLevel = (value) => {
+    if (value === null || value === undefined || value === '') {
+      return 'info'
+    }
+    if (typeof value === 'number') {
+      if (value >= 17) return 'error'
+      if (value >= 13) return 'warning'
+      if (value >= 9) return 'info'
+      return 'debug'
+    }
+    const normalized = String(value).toLowerCase()
+    if (normalized.startsWith('warn')) return 'warning'
+    if (normalized.startsWith('err') || normalized.startsWith('fatal')) return 'error'
+    if (normalized.startsWith('debug') || normalized.startsWith('trace')) return 'debug'
+    return normalized
+  }
+
+  const normalizeAttributes = (value) => {
+    if (!value) return {}
+    if (Array.isArray(value)) {
+      return value.reduce((acc, entry) => {
+        if (!entry || typeof entry !== 'object') return acc
+        const key = entry.key || entry.Key
+        if (!key) return acc
+        const rawValue = entry.value ?? entry.Value ?? entry.val
+        acc[key] = rawValue
+        return acc
+      }, {})
+    }
+    if (typeof value === 'object') {
+      return value
+    }
+    return {}
+  }
+
+  const normalizeMessage = (entry) => {
+    if (!entry) return ''
+    const body = entry.body ?? entry.Body
+    if (typeof body === 'string') {
+      return body
+    }
+    if (body && typeof body === 'object') {
+      if (body.stringValue) return body.stringValue
+      if (body.StringValue) return body.StringValue
+      if (body.value) return body.value
+      if (body.Value) return body.Value
+      try {
+        return JSON.stringify(body)
+      } catch {
+        return String(body)
+      }
+    }
+    return entry.message || entry.Message || entry.event_name || entry.eventName || ''
+  }
+
+  const extractLogs = (payload) => {
+    if (Array.isArray(payload)) return payload
+    if (Array.isArray(payload?.logs)) return payload.logs
+    if (Array.isArray(payload?.records)) return payload.records
+    return []
+  }
+
+  const normalizeLogEntry = (entry) => {
+    const timestamp = normalizeTimestamp(
+      entry?.timestamp ?? entry?.time ?? entry?.observed_timestamp ?? entry?.observedTimestamp,
+    )
+    const level = normalizeLevel(
+      entry?.severity ?? entry?.severity_text ?? entry?.severityText ?? entry?.level,
+    )
+    const message = normalizeMessage(entry)
+    const attributes = normalizeAttributes(entry?.attributes ?? entry?.attrs ?? entry?.context)
+    return {
+      level,
+      message,
+      timestamp,
+      attributes,
+      raw: entry,
+    }
+  }
+
   const loadLogs = async () => {
     viewState.start()
     try {
-      logs = await fetchLogsApi({ level: levelFilter })
+      const payload = await fetchOtelLogs({ level: levelFilter })
+      logs = extractLogs(payload).map(normalizeLogEntry)
       lastUpdated = new Date().toISOString()
       lastErrorMessage = ''
     } catch (err) {

@@ -321,7 +321,7 @@
    - Use deterministic timers to avoid flakes.
    Done when: watcher restart/backoff is covered.
 
-** TODO [#B] Add CLI error mapping tests
+** DONE [#B] Add CLI error mapping tests
    Why: gestalt-send error handling is intertwined with HTTP logic.
    Change:
    - Add table-driven tests for error mapping and exit codes.

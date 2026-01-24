@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -309,4 +310,85 @@ func TestSendAgentInputAutoStart(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
+}
+
+func TestRunWithSenderAmbiguousAgent(t *testing.T) {
+	withAgentCacheDisabled(t, func() {
+		withMockClient(t, func(r *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body: io.NopCloser(strings.NewReader(`[
+					{"id":"coder","name":"Architect"},
+					{"id":"assistant","name":"Coder"}
+				]`)),
+				Header:  make(http.Header),
+				Request: r,
+			}, nil
+		}, func() {
+			var stderr bytes.Buffer
+			code := runWithSender([]string{"Coder"}, strings.NewReader("hi"), &stderr, nil)
+			if code != 2 {
+				t.Fatalf("expected exit code 2, got %d", code)
+			}
+			if !strings.Contains(stderr.String(), "matches agent id") {
+				t.Fatalf("unexpected error message: %q", stderr.String())
+			}
+		})
+	})
+}
+
+func TestRunWithSenderAgentFetchFailure(t *testing.T) {
+	withAgentCacheDisabled(t, func() {
+		withMockClient(t, func(r *http.Request) (*http.Response, error) {
+			return nil, errors.New("boom")
+		}, func() {
+			var stderr bytes.Buffer
+			code := runWithSender([]string{"Coder"}, strings.NewReader("hi"), &stderr, nil)
+			if code != 3 {
+				t.Fatalf("expected exit code 3, got %d", code)
+			}
+			if !strings.Contains(stderr.String(), "failed to fetch agents") {
+				t.Fatalf("unexpected error message: %q", stderr.String())
+			}
+		})
+	})
+}
+
+func TestHandleSendErrorMapping(t *testing.T) {
+	cases := []struct {
+		name        string
+		err         error
+		wantCode    int
+		wantMessage string
+	}{
+		{
+			name:        "agent missing",
+			err:         &sendError{Code: 2, Message: "agent not running"},
+			wantCode:    2,
+			wantMessage: "agent not running",
+		},
+		{
+			name:        "server error",
+			err:         &sendError{Code: 3, Message: "server error"},
+			wantCode:    3,
+			wantMessage: "server error",
+		},
+		{
+			name:        "generic error",
+			err:         errors.New("boom"),
+			wantCode:    3,
+			wantMessage: "boom",
+		},
+	}
+
+	for _, testCase := range cases {
+		var stderr bytes.Buffer
+		code := handleSendError(testCase.err, &stderr)
+		if code != testCase.wantCode {
+			t.Fatalf("%s: expected code %d, got %d", testCase.name, testCase.wantCode, code)
+		}
+		if !strings.Contains(stderr.String(), testCase.wantMessage) {
+			t.Fatalf("%s: expected message %q, got %q", testCase.name, testCase.wantMessage, stderr.String())
+		}
+	}
 }

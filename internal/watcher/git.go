@@ -2,14 +2,13 @@ package watcher
 
 import (
 	"errors"
-	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"gestalt/internal/event"
+	"gestalt/internal/git"
 )
 
 // GitWatcher monitors HEAD changes and emits git branch change events.
@@ -33,7 +32,7 @@ func StartGitWatcher(bus *event.Bus[Event], watch Watch, workDir string) (*GitWa
 		workDir = "."
 	}
 
-	gitDir := resolveGitDir(workDir)
+	gitDir := git.ResolveGitDir(workDir)
 	if gitDir == "" {
 		return nil, nil
 	}
@@ -42,7 +41,7 @@ func StartGitWatcher(bus *event.Bus[Event], watch Watch, workDir string) (*GitWa
 	watcher := &GitWatcher{
 		bus:           bus,
 		headPath:      headPath,
-		currentBranch: readGitBranch(headPath),
+		currentBranch: git.ReadGitBranch(headPath),
 	}
 
 	handle, err := watch.Watch(headPath, func(event Event) {
@@ -71,7 +70,7 @@ func (watcher *GitWatcher) handleFileChanged(event Event) {
 	if event.Path != watcher.headPath {
 		return
 	}
-	branch := readGitBranch(watcher.headPath)
+	branch := git.ReadGitBranch(watcher.headPath)
 	if branch == "" {
 		return
 	}
@@ -92,56 +91,4 @@ func (watcher *GitWatcher) handleFileChanged(event Event) {
 		Path:      branch,
 		Timestamp: time.Now().UTC(),
 	})
-}
-
-func resolveGitDir(workDir string) string {
-	gitPath := filepath.Join(workDir, ".git")
-	info, err := os.Stat(gitPath)
-	if err != nil {
-		return ""
-	}
-	if info.IsDir() {
-		return gitPath
-	}
-	if !info.Mode().IsRegular() {
-		return ""
-	}
-	contents, err := os.ReadFile(gitPath)
-	if err != nil {
-		return ""
-	}
-	line := strings.TrimSpace(string(contents))
-	const prefix = "gitdir:"
-	if !strings.HasPrefix(line, prefix) {
-		return ""
-	}
-	gitDir := strings.TrimSpace(strings.TrimPrefix(line, prefix))
-	if gitDir == "" {
-		return ""
-	}
-	if !filepath.IsAbs(gitDir) {
-		gitDir = filepath.Join(workDir, gitDir)
-	}
-	return gitDir
-}
-
-func readGitBranch(headPath string) string {
-	contents, err := os.ReadFile(headPath)
-	if err != nil {
-		return ""
-	}
-	line := strings.TrimSpace(string(contents))
-	if line == "" {
-		return ""
-	}
-	const prefix = "ref: "
-	if strings.HasPrefix(line, prefix) {
-		ref := strings.TrimSpace(strings.TrimPrefix(line, prefix))
-		return strings.TrimPrefix(ref, "refs/heads/")
-	}
-	short := line
-	if len(short) > 12 {
-		short = short[:12]
-	}
-	return fmt.Sprintf("detached@%s", short)
 }

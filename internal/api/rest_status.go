@@ -1,7 +1,6 @@
 package api
 
 import (
-	"bufio"
 	"fmt"
 	"net"
 	"net/http"
@@ -11,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"gestalt/internal/git"
 	"gestalt/internal/metrics"
 	"gestalt/internal/version"
 )
@@ -166,97 +166,11 @@ func loadGitInfo() (string, string) {
 	if err != nil {
 		return "", ""
 	}
-	gitDir := resolveGitDir(workDir)
+	gitDir := git.ResolveGitDir(workDir)
 	if gitDir == "" {
 		return "", ""
 	}
-	origin := readGitOrigin(filepath.Join(gitDir, "config"))
-	branch := readGitBranch(filepath.Join(gitDir, "HEAD"))
+	origin := git.ReadGitOrigin(filepath.Join(gitDir, "config"))
+	branch := git.ReadGitBranch(filepath.Join(gitDir, "HEAD"))
 	return origin, branch
-}
-
-func resolveGitDir(workDir string) string {
-	gitPath := filepath.Join(workDir, ".git")
-	info, err := os.Stat(gitPath)
-	if err != nil {
-		return ""
-	}
-	if info.IsDir() {
-		return gitPath
-	}
-	if !info.Mode().IsRegular() {
-		return ""
-	}
-	contents, err := os.ReadFile(gitPath)
-	if err != nil {
-		return ""
-	}
-	line := strings.TrimSpace(string(contents))
-	const prefix = "gitdir:"
-	if !strings.HasPrefix(line, prefix) {
-		return ""
-	}
-	gitDir := strings.TrimSpace(strings.TrimPrefix(line, prefix))
-	if gitDir == "" {
-		return ""
-	}
-	if !filepath.IsAbs(gitDir) {
-		gitDir = filepath.Join(workDir, gitDir)
-	}
-	return gitDir
-}
-
-func readGitOrigin(configPath string) string {
-	file, err := os.Open(configPath)
-	if err != nil {
-		return ""
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	section := ""
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
-			continue
-		}
-		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			section = strings.TrimSpace(line[1 : len(line)-1])
-			continue
-		}
-		if section != `remote "origin"` {
-			continue
-		}
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		key := strings.TrimSpace(parts[0])
-		if key != "url" {
-			continue
-		}
-		return strings.TrimSpace(parts[1])
-	}
-	return ""
-}
-
-func readGitBranch(headPath string) string {
-	contents, err := os.ReadFile(headPath)
-	if err != nil {
-		return ""
-	}
-	line := strings.TrimSpace(string(contents))
-	if line == "" {
-		return ""
-	}
-	const prefix = "ref: "
-	if strings.HasPrefix(line, prefix) {
-		ref := strings.TrimSpace(strings.TrimPrefix(line, prefix))
-		return strings.TrimPrefix(ref, "refs/heads/")
-	}
-	short := line
-	if len(short) > 12 {
-		short = short[:12]
-	}
-	return fmt.Sprintf("detached@%s", short)
 }

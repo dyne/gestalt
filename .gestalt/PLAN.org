@@ -2710,7 +2710,7 @@
    - Ensure existing watcher tests still pass.
    Done when: watcher.go is smaller and behavior is documented.
 
-** WIP [#B] Extract internal/git helper
+** DONE [#B] Extract internal/git helper
    Why: resolveGitDir/readGitBranch are duplicated in watcher and api.
    Change:
    - Create internal/git package with shared helpers.
@@ -2718,7 +2718,7 @@
    - Add unit tests for git parsing.
    Done when: git parsing duplication is removed.
 
-** TODO [#B] Isolate debounce and registration logic
+** WIP [#B] Isolate debounce and registration logic
    Why: debounce, registry, and restart logic are intertwined.
    Change:
    - Introduce a debounce helper with per-path timers.

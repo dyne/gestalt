@@ -2,7 +2,7 @@
   import { onDestroy } from 'svelte'
   import { fetchWorkflowHistory } from '../lib/apiClient.js'
   import { getErrorMessage } from '../lib/errorUtils.js'
-  import { formatRelativeTime } from '../lib/timeUtils.js'
+  import { formatWorkflowTime } from '../lib/workflowFormat.js'
 
   export let terminalId = ''
 
@@ -11,10 +11,6 @@
   let refreshing = false
   let error = ''
   let lastTerminalId = ''
-
-  const formatTime = (value) => {
-    return formatRelativeTime(value) || '-'
-  }
 
   const eventLabel = (event) => {
     switch (event?.type) {
@@ -90,7 +86,7 @@
       {#each events as event}
         <li class={`history__item history__item--${event.type || 'unknown'}`}>
           <span class="history__time" title={event.timestamp || ''}>
-            {formatTime(event.timestamp)}
+            {formatWorkflowTime(event.timestamp)}
           </span>
           <span class="history__label">{eventLabel(event)}</span>
         </li>

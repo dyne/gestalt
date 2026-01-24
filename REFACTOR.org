@@ -530,7 +530,7 @@
    - Add tests for shared helpers.
    Done when: views share consistent loading/error patterns.
 
-** WIP [#B] Share workflow formatting helpers
+** DONE [#B] Share workflow formatting helpers
    Why: Workflow components repeat formatting logic.
    Change:
    - Extract formatting helpers for timestamps/labels.
@@ -538,7 +538,7 @@
    - Add tests for formatting helpers.
    Done when: workflow components reuse shared formatting logic.
 
-** TODO [#C] Split terminalStore into service + store
+** WIP [#C] Split terminalStore into service + store
    Why: Terminal lifecycle logic is intertwined with store state.
    Change:
    - Introduce a terminal service to manage xterm lifecycle and WS.

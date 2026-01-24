@@ -1,7 +1,13 @@
 <script>
   import { onDestroy } from 'svelte'
   import WorkflowHistory from './WorkflowHistory.svelte'
-  import { formatRelativeTime } from '../lib/timeUtils.js'
+  import {
+    buildTemporalUrl,
+    formatDuration,
+    formatWorkflowTime,
+    timestampValue,
+    truncateText,
+  } from '../lib/workflowFormat.js'
 
   export let workflow = {}
   export let onViewTerminal = () => {}
@@ -11,51 +17,6 @@
 
   let copyStatus = ''
   let copyTimer = null
-
-  const formatTime = (value) => {
-    return formatRelativeTime(value) || '-'
-  }
-
-  const timestampValue = (value) => {
-    const parsed = new Date(value)
-    const time = parsed.getTime()
-    return Number.isNaN(time) ? 0 : time
-  }
-
-  const formatDuration = (milliseconds) => {
-    if (!Number.isFinite(milliseconds) || milliseconds < 0) return '-'
-    const totalSeconds = Math.floor(milliseconds / 1000)
-    const seconds = totalSeconds % 60
-    const totalMinutes = Math.floor(totalSeconds / 60)
-    const minutes = totalMinutes % 60
-    const hours = Math.floor(totalMinutes / 60)
-    const parts = []
-    if (hours > 0) parts.push(`${hours}h`)
-    if (minutes > 0 || hours > 0) parts.push(`${minutes}m`)
-    parts.push(`${seconds}s`)
-    return parts.join(' ')
-  }
-
-  const truncateText = (text, maxLength = 160) => {
-    if (!text) return ''
-    if (text.length <= maxLength) return text
-    return `${text.slice(0, maxLength)}...`
-  }
-
-  const buildTemporalUrl = (workflowId, runId, baseUrl) => {
-    if (!workflowId) return ''
-    const base = (baseUrl || '').trim().replace(/\/+$/, '')
-    if (!base) return ''
-    try {
-      new URL(base)
-    } catch {
-      return ''
-    }
-    const namespace = 'default'
-    const encodedId = encodeURIComponent(workflowId)
-    const encodedRun = runId ? `/${encodeURIComponent(runId)}` : ''
-    return `${base}/namespaces/${namespace}/workflows/${encodedId}${encodedRun}`
-  }
 
   const writeClipboardText = async (text) => {
     if (!text) return false
@@ -114,7 +75,7 @@
     workflow?.status === 'paused' && latestBell
       ? formatDuration(Date.now() - timestampValue(latestBell.timestamp))
       : '-'
-  $: waitingSince = latestBell ? formatTime(latestBell.timestamp) : '-'
+  $: waitingSince = latestBell ? formatWorkflowTime(latestBell.timestamp) : '-'
   $: temporalUrl = buildTemporalUrl(workflow?.workflow_id, workflow?.workflow_run_id, temporalUiUrl)
 
   onDestroy(() => {
@@ -164,7 +125,7 @@
         {#each taskEvents as event}
           <li>
             <span class="task-time" title={event.timestamp || ''}>
-              {formatTime(event.timestamp)}
+              {formatWorkflowTime(event.timestamp)}
             </span>
             <span class="task-label">{event.l1 || '-'} / {event.l2 || '-'}</span>
           </li>
@@ -182,7 +143,7 @@
         {#each bellEvents as event}
           <li>
             <span class="bell-time" title={event.timestamp || ''}>
-              {formatTime(event.timestamp)}
+              {formatWorkflowTime(event.timestamp)}
             </span>
             <span class="bell-label">Bell</span>
             <span class="bell-context">{truncateText(event.context)}</span>

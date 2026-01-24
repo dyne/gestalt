@@ -1,6 +1,11 @@
 <script>
   import WorkflowDetail from './WorkflowDetail.svelte'
-  import { formatRelativeTime } from '../lib/timeUtils.js'
+  import {
+    formatWorkflowTime,
+    workflowStatusClass,
+    workflowStatusLabel,
+    workflowTaskSummary,
+  } from '../lib/workflowFormat.js'
 
   export let workflow = {}
   export let expanded = false
@@ -10,41 +15,6 @@
   export let onResume = () => {}
   export let temporalUiUrl = ''
 
-  const formatTime = (value) => {
-    return formatRelativeTime(value) || '-'
-  }
-
-  const statusLabel = (status = '') => {
-    switch (status) {
-      case 'running':
-        return 'Running'
-      case 'paused':
-        return 'Paused'
-      case 'stopped':
-        return 'Stopped'
-      default:
-        return 'Unknown'
-    }
-  }
-
-  const statusClass = (status = '') => {
-    switch (status) {
-      case 'running':
-        return 'running'
-      case 'paused':
-        return 'paused'
-      case 'stopped':
-        return 'stopped'
-      default:
-        return 'unknown'
-    }
-  }
-
-  const taskSummary = (workflow) => {
-    const l1 = workflow?.current_l1 || 'No L1 set'
-    const l2 = workflow?.current_l2 || 'No L2 set'
-    return `${l1} / ${l2}`
-  }
 </script>
 
 <article class="workflow-card" class:workflow-card--paused={workflow.status === 'paused'}>
@@ -55,13 +25,13 @@
         {workflow.agent_name || workflow.title || 'Workflow session'}
       </span>
     </div>
-    <div class="workflow-card__task">{taskSummary(workflow)}</div>
+    <div class="workflow-card__task">{workflowTaskSummary(workflow)}</div>
     <div class="workflow-card__status">
-      <span class={`status-badge status-badge--${statusClass(workflow.status)}`}>
-        {statusLabel(workflow.status)}
+      <span class={`status-badge status-badge--${workflowStatusClass(workflow.status)}`}>
+        {workflowStatusLabel(workflow.status)}
       </span>
       <span class="workflow-card__time" title={workflow.start_time || ''}>
-        Started {formatTime(workflow.start_time)}
+        Started {formatWorkflowTime(workflow.start_time)}
       </span>
       <button class="workflow-card__toggle" type="button" on:click={() => onToggle(workflow.session_id)}>
         {expanded ? 'Hide details' : 'Show details'}

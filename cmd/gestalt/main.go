@@ -393,74 +393,27 @@ func main() {
 		"version": version.Version,
 	})
 
-	serverErrors := make(chan serverError, 2)
-	go func() {
-		serverErrors <- serverError{name: "backend", err: backendServer.Serve(backendListener)}
-	}()
-	go func() {
-		serverErrors <- serverError{name: "frontend", err: frontendServer.ListenAndServe()}
-	}()
-
 	stopSignals := make(chan os.Signal, 1)
 	signal.Notify(stopSignals, os.Interrupt, syscall.SIGTERM)
 
-	var initialError *serverError
-	select {
-	case err := <-serverErrors:
-		initialError = &err
-	case sig := <-stopSignals:
-		logger.Info("shutdown signal received", map[string]string{
-			"signal": sig.String(),
-		})
+	runner := &ServerRunner{
+		Logger:          logger,
+		ShutdownTimeout: httpServerShutdownTimeout,
 	}
-
-	logServerError(logger, initialError)
-	shutdownContext, cancel := context.WithTimeout(context.Background(), httpServerShutdownTimeout)
-	defer cancel()
-	if err := backendServer.Shutdown(shutdownContext); err != nil {
-		logger.Warn("backend server shutdown failed", map[string]string{
-			"error": err.Error(),
-		})
-	}
-	if err := frontendServer.Shutdown(shutdownContext); err != nil {
-		logger.Warn("frontend server shutdown failed", map[string]string{
-			"error": err.Error(),
-		})
-	}
-	drainServerErrors(serverErrors, logger, initialError != nil)
-}
-
-type serverError struct {
-	name string
-	err  error
-}
-
-func logServerError(logger *logging.Logger, serverErr *serverError) {
-	if logger == nil || serverErr == nil || serverErr.err == nil {
-		return
-	}
-	if errors.Is(serverErr.err, http.ErrServerClosed) {
-		return
-	}
-	logger.Error("http server stopped", map[string]string{
-		"server": serverErr.name,
-		"error":  serverErr.err.Error(),
-	})
-}
-
-func drainServerErrors(errorsChan <-chan serverError, logger *logging.Logger, initialLogged bool) {
-	pending := 2
-	if initialLogged {
-		pending = 1
-	}
-	for i := 0; i < pending; i++ {
-		select {
-		case err := <-errorsChan:
-			logServerError(logger, &err)
-		case <-time.After(httpServerShutdownTimeout):
-			return
-		}
-	}
+	runner.Run(stopSignals,
+		ManagedServer{
+			Name: "backend",
+			Serve: func() error {
+				return backendServer.Serve(backendListener)
+			},
+			Shutdown: backendServer.Shutdown,
+		},
+		ManagedServer{
+			Name:     "frontend",
+			Serve:    frontendServer.ListenAndServe,
+			Shutdown: frontendServer.Shutdown,
+		},
+	)
 }
 
 func listenOnPort(port int) (net.Listener, int, error) {

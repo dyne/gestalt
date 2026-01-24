@@ -353,13 +353,13 @@
    - Ensure component tests are stable.
    Done when: key component behaviors are covered.
 
-* TODO [#B] cmd/gestalt modularization
+* WIP [#B] cmd/gestalt modularization
   Goal: Improve readability and testability of the main entrypoint.
   Notes:
   - Preserve CLI flags and config precedence.
   Date: 2026-01-24
 
-** TODO [#A] Extract ServerRunner helper
+** DONE [#A] Extract ServerRunner helper
    Why: HTTP server lifecycle logic is embedded in main.go.
    Change:
    - Introduce ServerRunner to manage start/shutdown.

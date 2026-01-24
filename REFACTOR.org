@@ -475,7 +475,7 @@
    - Add component tests for focus/reconnect behavior.
    Done when: Terminal.svelte is smaller and behavior is stable.
 
-** WIP [#A] Extract CommandInput history helper
+** DONE [#A] Extract CommandInput history helper
    Why: CommandInput mixes UI and history/keyboard logic.
    Change:
    - Move history fetch + navigation into helper module.
@@ -483,7 +483,7 @@
    - Add tests for history navigation edge cases.
    Done when: CommandInput focuses on UI.
 
-** TODO [#A] Extract PlanView polling fallback helper
+** WIP [#A] Extract PlanView polling fallback helper
    Why: Polling logic is embedded and not reusable.
    Change:
    - Create a polling helper/store and reuse in PlanView.

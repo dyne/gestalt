@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte'
 
-  import { apiFetch } from '../lib/api.js'
+  import { createCommandHistory } from '../lib/commandHistory.js'
 
   export let terminalId = ''
   export let onSubmit = () => {}
@@ -13,13 +13,10 @@
 
   let value = ''
   let textarea
-  let history = []
-  let historyIndex = -1
-  let draft = ''
-  let historyLoadedFor = ''
-
   const maxHeight = 240
   const historyLimit = 1000
+
+  const history = createCommandHistory({ historyLimit })
 
   const resizeTextarea = () => {
     if (!textarea) return
@@ -35,48 +32,22 @@
     onSubmit(next)
     const trimmed = next.trim()
     if (trimmed) {
-      history = [...history, trimmed]
-      if (history.length > historyLimit) {
-        history = history.slice(history.length - historyLimit)
-      }
+      history.record(trimmed)
     }
-    historyIndex = -1
-    draft = ''
+    history.resetNavigation()
     requestAnimationFrame(() => textarea?.focus())
   }
 
-  const applyHistory = () => {
-    if (historyIndex === -1) {
-      value = draft
-    } else {
-      value = history[historyIndex] || ''
-    }
+  const moveHistory = (direction) => {
+    const nextValue = history.move(direction, value)
+    if (nextValue === null) return
+    value = nextValue
     resizeTextarea()
     requestAnimationFrame(() => {
       if (!textarea) return
       textarea.selectionStart = textarea.value.length
       textarea.selectionEnd = textarea.value.length
     })
-  }
-
-  const moveHistory = (direction) => {
-    if (!history.length) return
-    if (direction < 0) {
-      if (historyIndex === -1) {
-        draft = value
-        historyIndex = history.length - 1
-      } else if (historyIndex > 0) {
-        historyIndex -= 1
-      }
-    } else if (direction > 0) {
-      if (historyIndex === -1) return
-      if (historyIndex < history.length - 1) {
-        historyIndex += 1
-      } else {
-        historyIndex = -1
-      }
-    }
-    applyHistory()
   }
 
   const handleKeydown = (event) => {
@@ -129,33 +100,13 @@
     textarea?.focus()
   }
 
-  const loadHistory = async () => {
-    if (!terminalId) return
-    try {
-      const response = await apiFetch(
-        `/api/terminals/${terminalId}/input-history?limit=100`
-      )
-      const payload = await response.json()
-      history = Array.isArray(payload)
-        ? payload
-            .map((entry) => entry?.command)
-            .filter((command) => typeof command === 'string' && command !== '')
-        : []
-      historyIndex = -1
-      draft = ''
-    } catch (err) {
-      console.warn('failed to load input history', err)
-    }
-  }
-
   onMount(() => {
     resizeTextarea()
     textarea?.focus()
   })
 
-  $: if (terminalId && terminalId !== historyLoadedFor) {
-    historyLoadedFor = terminalId
-    loadHistory()
+  $: if (terminalId) {
+    history.load(terminalId)
   }
 </script>
 

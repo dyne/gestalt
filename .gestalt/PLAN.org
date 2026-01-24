@@ -1,4 +1,4 @@
-* TODO [#A] OpenTelemetry observability migration
+* WIP [#A] OpenTelemetry observability migration
   Effort: 2-3 weeks
   Goal: Replace Gestalt's custom event/logging system with OpenTelemetry for industry-standard observability, distributed tracing, and metrics.
   Notes:
@@ -21,7 +21,7 @@
   Date: 2026-01-23
   Priority: [#A] - foundational change enabling better observability
 
-** TODO [#A] Research and design OpenTelemetry integration architecture
+** DONE [#A] Research and design OpenTelemetry integration architecture
 ** TODO [#B] Build custom OpenTelemetry Collector binary with ocb
 ** TODO [#B] Implement Collector lifecycle management in Gestalt
 ** TODO [#B] Integrate Collector start into Temporal workflow

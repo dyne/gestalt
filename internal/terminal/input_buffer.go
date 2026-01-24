@@ -4,6 +4,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"gestalt/internal/buffer"
 )
 
 const DefaultInputBufferSize = 1000
@@ -16,7 +18,7 @@ type InputEntry struct {
 type InputBuffer struct {
 	mu          sync.Mutex
 	maxCommands int
-	entries     []InputEntry
+	entries     *buffer.Ring[InputEntry]
 }
 
 func NewInputBuffer(maxCommands int) *InputBuffer {
@@ -24,7 +26,10 @@ func NewInputBuffer(maxCommands int) *InputBuffer {
 		maxCommands = DefaultInputBufferSize
 	}
 
-	return &InputBuffer{maxCommands: maxCommands}
+	return &InputBuffer{
+		maxCommands: maxCommands,
+		entries:     buffer.NewRing[InputEntry](maxCommands),
+	}
 }
 
 func (b *InputBuffer) Append(command string) {
@@ -38,8 +43,13 @@ func (b *InputBuffer) GetAll() []InputEntry {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	entries := make([]InputEntry, len(b.entries))
-	copy(entries, b.entries)
+	if b.entries == nil {
+		return []InputEntry{}
+	}
+	entries := b.entries.List()
+	if entries == nil {
+		return []InputEntry{}
+	}
 	return entries
 }
 
@@ -47,16 +57,17 @@ func (b *InputBuffer) GetRecent(n int) []InputEntry {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if n <= 0 || n >= len(b.entries) {
-		entries := make([]InputEntry, len(b.entries))
-		copy(entries, b.entries)
+	if b.entries == nil {
+		return []InputEntry{}
+	}
+	entries := b.entries.List()
+	if entries == nil {
+		return []InputEntry{}
+	}
+	if n <= 0 || n >= len(entries) {
 		return entries
 	}
-
-	start := len(b.entries) - n
-	entries := make([]InputEntry, n)
-	copy(entries, b.entries[start:])
-	return entries
+	return entries[len(entries)-n:]
 }
 
 func (b *InputBuffer) AppendEntry(entry InputEntry) {
@@ -71,9 +82,8 @@ func (b *InputBuffer) AppendEntry(entry InputEntry) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.entries = append(b.entries, entry)
-	if len(b.entries) > b.maxCommands {
-		drop := len(b.entries) - b.maxCommands
-		b.entries = b.entries[drop:]
+	if b.entries == nil {
+		b.entries = buffer.NewRing[InputEntry](b.maxCommands)
 	}
+	b.entries.Add(entry)
 }

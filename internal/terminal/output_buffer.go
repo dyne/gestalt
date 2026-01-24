@@ -3,6 +3,8 @@ package terminal
 import (
 	"strings"
 	"sync"
+
+	"gestalt/internal/buffer"
 )
 
 const DefaultBufferLines = 1000
@@ -10,7 +12,7 @@ const DefaultBufferLines = 1000
 type OutputBuffer struct {
 	mu       sync.Mutex
 	maxLines int
-	lines    []string
+	lines    *buffer.Ring[string]
 	carry    string
 }
 
@@ -19,7 +21,10 @@ func NewOutputBuffer(maxLines int) *OutputBuffer {
 		maxLines = DefaultBufferLines
 	}
 
-	return &OutputBuffer{maxLines: maxLines}
+	return &OutputBuffer{
+		maxLines: maxLines,
+		lines:    buffer.NewRing[string](maxLines),
+	}
 }
 
 func (b *OutputBuffer) Append(data []byte) {
@@ -52,8 +57,10 @@ func (b *OutputBuffer) Lines() []string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	lines := make([]string, len(b.lines))
-	copy(lines, b.lines)
+	lines := b.lines.List()
+	if lines == nil {
+		lines = []string{}
+	}
 	if b.carry != "" {
 		lines = append(lines, b.carry)
 	}
@@ -62,9 +69,8 @@ func (b *OutputBuffer) Lines() []string {
 }
 
 func (b *OutputBuffer) appendLine(line string) {
-	b.lines = append(b.lines, line)
-	if len(b.lines) > b.maxLines {
-		drop := len(b.lines) - b.maxLines
-		b.lines = b.lines[drop:]
+	if b.lines == nil {
+		b.lines = buffer.NewRing[string](b.maxLines)
 	}
+	b.lines.Add(line)
 }

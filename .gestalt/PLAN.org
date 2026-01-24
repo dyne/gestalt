@@ -2611,7 +2611,7 @@
    - Update session tests to validate behavior across new boundaries.
    Done when: Session is smaller with unchanged behavior.
 
-** WIP [#B] Align buffer retention semantics across logs/terminal
+** DONE [#B] Align buffer retention semantics across logs/terminal
    Why: LogBuffer and terminal buffers share similar retention logic.
    Change:
    - Add a shared ring buffer helper or align behaviors explicitly.
@@ -2619,7 +2619,7 @@
    - Add tests for buffer overflow and retention ordering.
    Done when: buffer behaviors are consistent or intentionally documented.
 
-** TODO [#C] Introduce SessionFactory and output publisher
+** WIP [#C] Introduce SessionFactory and output publisher
    Why: Manager handles too many session wiring details; backpressure is unclear.
    Change:
    - Add SessionFactory for shell generation, PTY startup, and logger wiring.

@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gestalt/internal/logging"
@@ -33,12 +34,27 @@ type Options struct {
 	Logger       *logging.Logger
 }
 
+type CollectorInfo struct {
+	StartTime    time.Time
+	ConfigPath   string
+	DataPath     string
+	GRPCEndpoint string
+	HTTPEndpoint string
+}
+
 type Collector struct {
 	cmd        *exec.Cmd
 	done       chan error
 	stderr     *bytes.Buffer
 	configPath string
+	info       CollectorInfo
 	logger     *logging.Logger
+}
+
+var activeCollector struct {
+	mu   sync.RWMutex
+	info CollectorInfo
+	ok   bool
 }
 
 func OptionsFromEnv(stateDir string) Options {
@@ -101,8 +117,16 @@ func StartCollector(options Options) (*Collector, error) {
 		done:       make(chan error, 1),
 		stderr:     stderr,
 		configPath: options.ConfigPath,
-		logger:     options.Logger,
+		info: CollectorInfo{
+			StartTime:    time.Now().UTC(),
+			ConfigPath:   options.ConfigPath,
+			DataPath:     dataPath,
+			GRPCEndpoint: options.GRPCEndpoint,
+			HTTPEndpoint: options.HTTPEndpoint,
+		},
+		logger: options.Logger,
 	}
+	SetActiveCollector(collector.info)
 
 	collector.logInfo("otel collector started", map[string]string{
 		"path":   binaryPath,
@@ -129,10 +153,12 @@ func (collector *Collector) Stop(ctx context.Context) error {
 
 	select {
 	case err := <-collector.done:
+		ClearActiveCollector()
 		return err
 	case <-ctx.Done():
 		_ = collector.cmd.Process.Kill()
 		<-collector.done
+		ClearActiveCollector()
 		return ctx.Err()
 	}
 }
@@ -236,4 +262,24 @@ func StopCollectorWithTimeout(collector *Collector, timeout time.Duration) error
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	return collector.Stop(ctx)
+}
+
+func ActiveCollector() (CollectorInfo, bool) {
+	activeCollector.mu.RLock()
+	defer activeCollector.mu.RUnlock()
+	return activeCollector.info, activeCollector.ok
+}
+
+func SetActiveCollector(info CollectorInfo) {
+	activeCollector.mu.Lock()
+	activeCollector.info = info
+	activeCollector.ok = true
+	activeCollector.mu.Unlock()
+}
+
+func ClearActiveCollector() {
+	activeCollector.mu.Lock()
+	activeCollector.info = CollectorInfo{}
+	activeCollector.ok = false
+	activeCollector.mu.Unlock()
 }

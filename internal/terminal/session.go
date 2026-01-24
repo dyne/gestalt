@@ -13,6 +13,7 @@ import (
 
 	"gestalt/internal/agent"
 	"gestalt/internal/event"
+	"gestalt/internal/otel"
 	"gestalt/internal/temporal"
 	"gestalt/internal/temporal/workflows"
 
@@ -337,6 +338,13 @@ func (s *Session) StartWorkflow(temporalClient temporal.WorkflowClient, l1Task, 
 		ConfigHash:  configHash,
 		StartTime:   s.CreatedAt,
 	}
+	if collectorInfo, ok := otel.ActiveCollector(); ok {
+		request.CollectorStartTime = collectorInfo.StartTime
+		request.CollectorGRPCEndpoint = collectorInfo.GRPCEndpoint
+		request.CollectorHTTPEndpoint = collectorInfo.HTTPEndpoint
+		request.CollectorConfigPath = collectorInfo.ConfigPath
+		request.CollectorDataPath = collectorInfo.DataPath
+	}
 	startOptions := client.StartWorkflowOptions{
 		ID:                       workflowID,
 		TaskQueue:                workflows.SessionTaskQueueName,
@@ -356,6 +364,21 @@ func (s *Session) StartWorkflow(temporalClient temporal.WorkflowClient, l1Task, 
 	}
 	if cliType != "" {
 		memo["cli_type"] = cliType
+	}
+	if !request.CollectorStartTime.IsZero() {
+		memo["otel_started_at"] = request.CollectorStartTime
+	}
+	if request.CollectorGRPCEndpoint != "" {
+		memo["otel_grpc_endpoint"] = request.CollectorGRPCEndpoint
+	}
+	if request.CollectorHTTPEndpoint != "" {
+		memo["otel_http_endpoint"] = request.CollectorHTTPEndpoint
+	}
+	if request.CollectorConfigPath != "" {
+		memo["otel_config_path"] = request.CollectorConfigPath
+	}
+	if request.CollectorDataPath != "" {
+		memo["otel_data_path"] = request.CollectorDataPath
 	}
 	startOptions.Memo = memo
 

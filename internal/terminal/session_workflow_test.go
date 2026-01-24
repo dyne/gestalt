@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gestalt/internal/agent"
+	"gestalt/internal/otel"
 	"gestalt/internal/temporal"
 	"gestalt/internal/temporal/workflows"
 
@@ -184,5 +185,60 @@ func TestSessionStartWorkflowAndSignals(testingContext *testing.T) {
 	terminateSignal, ok := workflowClient.signals[2].payload.(workflows.TerminateSignal)
 	if !ok || terminateSignal.Reason == "" {
 		testingContext.Fatalf("unexpected terminate signal: %#v", workflowClient.signals[2].payload)
+	}
+}
+
+func TestSessionStartWorkflowIncludesCollectorInfo(testingContext *testing.T) {
+	collectorStart := time.Date(2025, 1, 2, 8, 0, 0, 0, time.UTC)
+	collectorInfo := otel.CollectorInfo{
+		StartTime:    collectorStart,
+		ConfigPath:   "/tmp/collector.yaml",
+		DataPath:     "/tmp/otel.json",
+		GRPCEndpoint: "127.0.0.1:4317",
+		HTTPEndpoint: "127.0.0.1:4318",
+	}
+	otel.SetActiveCollector(collectorInfo)
+	defer otel.ClearActiveCollector()
+
+	workflowClient := &fakeWorkflowClient{runID: "run-456"}
+	pty := newScriptedPty()
+	session := newSession("9", pty, nil, "title", "role", time.Date(2025, 1, 2, 9, 0, 0, 0, time.UTC), 10, nil, nil, nil)
+	session.Command = "/bin/bash"
+
+	startError := session.StartWorkflow(workflowClient, "", "")
+	if startError != nil {
+		testingContext.Fatalf("start workflow error: %v", startError)
+	}
+	if !workflowClient.lastRequest.CollectorStartTime.Equal(collectorStart) {
+		testingContext.Fatalf("unexpected collector start time: %v", workflowClient.lastRequest.CollectorStartTime)
+	}
+	if workflowClient.lastRequest.CollectorGRPCEndpoint != collectorInfo.GRPCEndpoint {
+		testingContext.Fatalf("unexpected grpc endpoint: %q", workflowClient.lastRequest.CollectorGRPCEndpoint)
+	}
+	if workflowClient.lastRequest.CollectorHTTPEndpoint != collectorInfo.HTTPEndpoint {
+		testingContext.Fatalf("unexpected http endpoint: %q", workflowClient.lastRequest.CollectorHTTPEndpoint)
+	}
+	if workflowClient.lastRequest.CollectorConfigPath != collectorInfo.ConfigPath {
+		testingContext.Fatalf("unexpected config path: %q", workflowClient.lastRequest.CollectorConfigPath)
+	}
+	if workflowClient.lastRequest.CollectorDataPath != collectorInfo.DataPath {
+		testingContext.Fatalf("unexpected data path: %q", workflowClient.lastRequest.CollectorDataPath)
+	}
+
+	memo := workflowClient.startOptions.Memo
+	if memo["otel_grpc_endpoint"] != collectorInfo.GRPCEndpoint {
+		testingContext.Fatalf("unexpected memo grpc endpoint: %v", memo["otel_grpc_endpoint"])
+	}
+	if memo["otel_http_endpoint"] != collectorInfo.HTTPEndpoint {
+		testingContext.Fatalf("unexpected memo http endpoint: %v", memo["otel_http_endpoint"])
+	}
+	if memo["otel_config_path"] != collectorInfo.ConfigPath {
+		testingContext.Fatalf("unexpected memo config path: %v", memo["otel_config_path"])
+	}
+	if memo["otel_data_path"] != collectorInfo.DataPath {
+		testingContext.Fatalf("unexpected memo data path: %v", memo["otel_data_path"])
+	}
+	if memo["otel_started_at"] == nil {
+		testingContext.Fatalf("expected memo otel_started_at")
 	}
 }

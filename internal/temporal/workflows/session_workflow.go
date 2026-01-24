@@ -46,14 +46,19 @@ const (
 )
 
 type SessionWorkflowRequest struct {
-	SessionID   string
-	AgentID     string
-	L1Task      string
-	L2Task      string
-	Shell       string
-	AgentConfig string
-	ConfigHash  string
-	StartTime   time.Time
+	SessionID             string
+	AgentID               string
+	L1Task                string
+	L2Task                string
+	Shell                 string
+	AgentConfig           string
+	ConfigHash            string
+	StartTime             time.Time
+	CollectorStartTime    time.Time
+	CollectorGRPCEndpoint string
+	CollectorHTTPEndpoint string
+	CollectorConfigPath   string
+	CollectorDataPath     string
 }
 
 type SessionWorkflowResult struct {
@@ -178,6 +183,36 @@ func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRe
 		startedContext = map[string]any{
 			"agent_id": request.AgentID,
 		}
+	}
+	if !request.CollectorStartTime.IsZero() {
+		if startedContext == nil {
+			startedContext = map[string]any{}
+		}
+		startedContext["otel_started_at"] = request.CollectorStartTime
+	}
+	if request.CollectorGRPCEndpoint != "" {
+		if startedContext == nil {
+			startedContext = map[string]any{}
+		}
+		startedContext["otel_grpc_endpoint"] = request.CollectorGRPCEndpoint
+	}
+	if request.CollectorHTTPEndpoint != "" {
+		if startedContext == nil {
+			startedContext = map[string]any{}
+		}
+		startedContext["otel_http_endpoint"] = request.CollectorHTTPEndpoint
+	}
+	if request.CollectorConfigPath != "" {
+		if startedContext == nil {
+			startedContext = map[string]any{}
+		}
+		startedContext["otel_config_path"] = request.CollectorConfigPath
+	}
+	if request.CollectorDataPath != "" {
+		if startedContext == nil {
+			startedContext = map[string]any{}
+		}
+		startedContext["otel_data_path"] = request.CollectorDataPath
 	}
 	emitWorkflowEvent("workflow_started", state.StartTime, startedContext)
 

@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"gestalt/internal/logging"
+	"gestalt/internal/otel"
 )
 
 type apiError struct {
@@ -18,8 +19,10 @@ type apiHandler func(http.ResponseWriter, *http.Request) *apiError
 func authMiddleware(token string, next apiHandler) apiHandler {
 	return func(w http.ResponseWriter, r *http.Request) *apiError {
 		if !validateToken(r, token) {
+			otel.RecordSpanEvent(r.Context(), "auth.token_rejected")
 			return &apiError{Status: http.StatusUnauthorized, Message: "unauthorized"}
 		}
+		otel.RecordSpanEvent(r.Context(), "auth.token_validated")
 		return next(w, r)
 	}
 }
@@ -27,6 +30,15 @@ func authMiddleware(token string, next apiHandler) apiHandler {
 func jsonErrorMiddleware(next apiHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := next(w, r); err != nil {
+			code := err.Code
+			if code == "" {
+				code = errorCodeForStatus(err.Status)
+			}
+			otel.RecordAPIError(r.Context(), otel.APIErrorInfo{
+				Status:  err.Status,
+				Code:    code,
+				Message: err.Message,
+			})
 			writeJSONError(w, err)
 		}
 	}

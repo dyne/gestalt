@@ -103,9 +103,18 @@ func SetupSDK(ctx context.Context, options SDKOptions) (func(context.Context) er
 		sdktrace.WithResource(res),
 		sdktrace.WithBatcher(traceExporter),
 	)
+	durationView := sdkmetric.NewView(
+		sdkmetric.Instrument{Name: MetricRequestDuration},
+		sdkmetric.Stream{
+			Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
+				Boundaries: RequestDurationBuckets,
+			},
+		},
+	)
 	meterProvider := sdkmetric.NewMeterProvider(
 		sdkmetric.WithResource(res),
 		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter)),
+		sdkmetric.WithView(durationView),
 	)
 
 	otelapi.SetTracerProvider(tracerProvider)

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"gestalt/internal/logging"
+	"gestalt/internal/otel"
 	"gestalt/internal/plan"
 	"gestalt/internal/terminal"
 )
@@ -12,6 +13,7 @@ import (
 type RestHandler struct {
 	Manager        *terminal.Manager
 	Logger         *logging.Logger
+	MetricsSummary *otel.APISummaryStore
 	PlanPath       string
 	PlanCache      *plan.Cache
 	GitOrigin      string

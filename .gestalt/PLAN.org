@@ -40,7 +40,7 @@
          activeRequests    metric.Int64UpDownCounter // Current in-flight requests
          errorCounter      metric.Int64Counter      // Errors by endpoint, error type
      }
-     
+
      func NewAPIInstrumentationMiddleware(meter metric.Meter) func(http.Handler) http.Handler
      ```
    - Capture semantic HTTP attributes (follow OTel HTTP conventions):
@@ -136,21 +136,6 @@
 ** TODO [#C] Performance optimization and resource limits
 ** TODO [#C] Update documentation for OpenTelemetry observability
 
-* WIP [#A] Fix CLI config warnings, debug logging, and log detail UX
-  Goal: Remove misleading CLI config warnings, ensure debug shell logs are visible,
-  and make dashboard log entries expandable with full payloads.
-
-** WIP [#A] Remove shell+CLI config warning and improve command failure logs
-   - Fix shell command parsing to honor quotes so CLI config values with spaces
-     (ex: compact_prompt) are passed intact to codex/copilot.
-   - Include the rendered command + args and stderr when a spawned command exits
-     with an error, and downgrade the "both shell and CLI config provided" log.
-   - Add tests for quoted argument parsing and CLI config with spaces.
-   - Align codex CLI config keys to ConfigToml (tui.*, analytics.enabled,
-     feedback.enabled, sandbox_mode) and update schema/tests/config examples.
-** TODO [#B] Ensure debug logs are visible with proper filter label defaults
-** TODO [#B] Expand dashboard log entries to show full payload details
-
 * DONE [#B] Remove config manifest and fix coder agent extraction
   Goal: Stop relying on config/manifest.json, extract all embedded config files,
   and restore missing agents (including coder) during startup extraction.
@@ -178,7 +163,7 @@
   - First major implementation targets codex CLI with full flag support from source
   - Schema validation should catch errors early with clear, actionable messages
   - TOML format is more readable and maintainable than JSON
-  
+
   Architecture decisions:
   - CLI type remains string field (e.g., "codex", "copilot", "promptline")
   - New optional map field for CLI-specific config: cli_config map[string]interface{}
@@ -186,20 +171,20 @@
   - invopop/jsonschema generates schemas from Go structs (type-safe, no drift)
   - Validation happens at agent load time with detailed error reporting
   - Shell command construction uses CLI config to append flags
-  
+
   Backward compatibility:
   - JSON agent files are no longer supported; TOML is required
   - Existing shell field remains but becomes optional if cli_config present
-  
+
   Notes:
   - Codex source file (codex-config-mod.rs) provided for reference
   - All pub config::Config fields are settable via -c key:value
   - Schema validation points to exact field/line for errors
   - TOML supports comments for better documentation
-  
+
 ** [#B] Add invopop/jsonschema dependency and create schema infrastructure
    Why: Need schema validation foundation before implementing CLI configs
-   
+
    Change:
    1. Add invopop/jsonschema to go.mod:
       - Run: go get github.com/invopop/jsonschema
@@ -213,12 +198,12 @@
       - ValidateAgentConfig(cliType string, config map[string]interface{}) error
       - Detailed error formatting with field path and expected type
       - Schema loading/caching mechanism
-   
+
    Tests:
    - Unit tests for schema generation (schemas/generator_test.go)
    - Validation error formatting tests (validation_test.go)
    - Edge cases: unknown fields, type mismatches, required fields
-   
+
    Done when:
    - go get succeeds without conflicts
    - internal/agent/schemas/ directory exists with generator
@@ -227,7 +212,7 @@
 
 ** [#B] Implement codex configuration schema from codex-config-mod.rs
    Why: Codex is the primary target CLI with extensive configuration options
-   
+
    Change:
    1. Extract all pub fields from codex-config-mod.rs Config struct (lines 96-374)
    2. Create internal/agent/schemas/codex.go with CodexConfig struct:
@@ -242,7 +227,7 @@
       - Invalid type scenarios
       - Unknown field warnings
       - Required field enforcement
-   
+
    Reference fields (partial list from codex-config-mod.rs):
    - model (string)
    - review_model (string)
@@ -259,13 +244,13 @@
    - check_for_update_on_startup (bool)
    - analytics (nested: enabled)
    - And 50+ more fields...
-   
+
    Tests:
    - Schema generation produces valid JSON Schema
    - All Rust config fields represented in Go struct
    - Type validation catches common errors
    - Nested config validates recursively
-   
+
    Done when:
    - CodexConfig struct has all fields from Rust Config
    - Schema generation works and validates correctly
@@ -274,7 +259,7 @@
 
 ** [#C] Implement copilot configuration schema
    Why: Second major CLI requiring configuration support
-   
+
    Change:
    1. Research copilot CLI flags:
       - Run copilot --help to extract available flags
@@ -286,12 +271,12 @@
       - Auth/workspace settings
    3. Implement schema generation and validation
    4. Create copilot_test.go with validation tests
-   
+
    Tests:
    - Valid copilot configs validate successfully
    - Unknown flags produce warnings
    - Required fields enforced
-   
+
    Done when:
    - CopilotConfig struct defined with copilot flags
    - Schema validates copilot-specific configs
@@ -299,7 +284,7 @@
 
 ** [#B] Extend Agent struct to support cli_config and TOML format
    Why: Core data model needs to accommodate new configuration approach
-   
+
    Change:
    1. Update internal/agent/agent.go Agent struct:
       - Rename llm_type to cli_type (clearer semantics)
@@ -325,13 +310,13 @@
       - Test TOML parsing
       - Test shell command generation from cli_config
       - Test config hash computation and stability
-   
+
    Tests:
    - TOML parsing works with cli_config
    - Shell generation creates valid commands
    - Validation catches schema violations
    - Config hash is consistent for same config
-   
+
    Done when:
    - Agent struct supports cli_config field with hash
    - Shell command generation works for codex and copilot
@@ -341,7 +326,7 @@
 
 ** [#B] Update agent loader to support TOML files with proper validation
    Why: Need to load TOML agent configs and validate against schemas
-   
+
    Change:
    1. Add github.com/BurntSushi/toml dependency
    2. Update internal/agent/loader.go LoadFromDir():
@@ -364,7 +349,7 @@
       - Test mixed extension rejection
       - Test schema violation scenarios
       - Test single agent reload
-   
+
    Tests:
    - TOML files load successfully
    - Non-TOML files are rejected
@@ -372,7 +357,7 @@
    - Invalid TOML syntax produces clear error
    - Schema violations point to exact field
    - Single agent reload works
-   
+
    Done when:
    - LoadFromDir handles *.toml files
    - Validation errors are clear and helpful
@@ -382,7 +367,7 @@
 
 ** [#C] Implement codex shell command generation from cli_config
    Why: Transform cli_config into actual codex command with flags
-   
+
    Change:
    1. Create internal/agent/shellgen/ package:
       - shellgen/codex.go
@@ -403,13 +388,13 @@
       - Test nested config flattening
       - Test boolean and array handling
       - Test shell escaping for special chars
-   
+
    Tests:
    - Simple configs produce correct commands
    - Nested configs flatten properly
    - Special characters are escaped
    - Edge cases (empty config, nil values) handled
-   
+
    Done when:
    - BuildCodexCommand generates valid codex commands
    - All codex flags from config work correctly
@@ -418,7 +403,7 @@
 
 ** [#C] Implement copilot shell command generation from cli_config
    Why: Transform cli_config into copilot command with flags
-   
+
    Change:
    1. Implement BuildCopilotCommand(config CopilotConfig) []string:
       - Start with base: ["copilot"]
@@ -429,12 +414,12 @@
       - Test simple config -> command
       - Test boolean flag syntax
       - Test flag precedence
-   
+
    Tests:
    - Copilot configs produce correct commands
    - Boolean flags use correct syntax
    - Tests cover common scenarios
-   
+
    Done when:
    - BuildCopilotCommand generates valid copilot commands
    - Boolean flags handled correctly
@@ -442,12 +427,12 @@
 
 ** [#B] Add config refresh before terminal session start
    Why: Ensure NEW agent sessions always launch with latest config from disk
-   
+
    IMPORTANT: Config refresh only affects NEW session creation. Running sessions
    are NEVER touched or modified. Each session is immutable once started, using
    the config snapshot from its creation time. Config changes only apply to the
    NEXT session created for that agent.
-   
+
    Change:
    1. Create internal/agent/cache.go:
       - AgentCache struct with map[agentID]*Agent and sync.RWMutex
@@ -474,14 +459,14 @@
       - Test cache reload (hash changed)
       - Test concurrent access safety
       - Test that running sessions are unaffected by reload
-   
+
    Tests:
    - Cache correctly detects config changes via hash
    - Concurrent reloads are safe
    - Cache miss triggers reload
    - Hash match uses cached agent
    - Running sessions unaffected by config changes
-   
+
    Done when:
    - Agent configs reload before each NEW session start
    - Cache prevents redundant disk reads
@@ -491,12 +476,12 @@
 
 ** [#B] Update terminal session creation to use generated shell commands
    Why: Connect new cli_config system to actual terminal launching
-   
+
    IMPORTANT: Each session is a snapshot of the agent config at creation time.
    Once a session is created, it NEVER changes. The session runs with the exact
    config (shell command, cli_config, hash) that was loaded at creation time.
    Config changes only affect NEW sessions, never existing ones.
-   
+
    Change:
    1. Update internal/terminal/session.go NewSession():
       - Accept fresh agent from cache (may have different config than previous sessions)
@@ -518,14 +503,14 @@
       - Verify correct command is spawned
       - Test config hash stored in session
       - Test that session config doesn't change after creation
-   
+
    Tests:
    - Sessions created with cli_config use generated command
    - Sessions with old Shell field still work
    - Command logging helps debugging
    - Config hash stored in session immutably
    - Session config never changes after creation
-   
+
    Done when:
    - Terminal sessions use shell commands from fresh config at creation
    - Backward compat with Shell field maintained
@@ -535,7 +520,7 @@
 
 ** [#C] Document new configuration system in docs/ and AGENTS.md
    Why: Users and LLM assistants need clear documentation
-   
+
    Change:
    1. Create docs/agent-configuration.md:
       - Overview of TOML format
@@ -553,9 +538,9 @@
       - codex-full-example.toml (commented with all options)
       - copilot-example.toml
       - simple-shell-example.toml (backward compat)
-   
+
    Tests: N/A (documentation only)
-   
+
    Done when:
    - docs/agent-configuration.md complete
    - AGENTS.md updated with TOML format
@@ -564,7 +549,7 @@
 
 ** [#C] Add integration tests for full config validation workflow
    Why: Ensure end-to-end config system works correctly
-   
+
    Change:
    1. Create internal/agent/integration_test.go:
       - Test loading TOML agents from disk
@@ -581,12 +566,12 @@
       - Verify actionable error text
       - Verify field paths are correct
       - Verify line numbers when possible
-   
+
    Tests:
    - All integration tests pass
    - Error messages are helpful
    - Mixed extension rejection behaves correctly
-   
+
    Done when:
    - Integration tests cover full workflow
    - Test fixtures represent real scenarios
@@ -595,7 +580,7 @@
 
 ** [#C] Add CLI validation command for config files
    Why: Let users validate configs before runtime
-   
+
    Change:
    1. Create cmd/gestalt/validate_config.go:
       - Command: gestalt config validate
@@ -610,12 +595,12 @@
       - Green checkmark for valid agents
       - Red X with error details for invalid
       - Summary line at end
-   
+
    Tests:
    - Valid directory returns 0
    - Invalid config returns 1 with details
    - Empty directory handled gracefully
-   
+
    Done when:
    - gestalt config validate works
    - Clear success/failure output
@@ -624,7 +609,7 @@
 
 ** [#A] Update default agent configs to use TOML with cli_config
    Why: Shipping default configs should use new format
-   
+
    Change:
    1. Convert config/agents/*.json to *.toml:
       - codex.toml with full cli_config
@@ -641,12 +626,12 @@
    4. Update config extraction in cmd/gestalt/main.go:
       - Ensure TOML files extract correctly
    5. Remove JSON versions in config/ to avoid confusion
-   
+
    Tests:
    - Embedded TOML configs load successfully
    - Default agents start with correct commands
    - Config extraction handles TOML
-   
+
    Done when:
    - Default configs are TOML with cli_config
    - Embedded agents work out-of-box
@@ -674,12 +659,12 @@
    - Validation prints a migration warning when legacy memo blobs are found
    - Tests pass
    Why: Make agent config traceable in workflow history for debugging and auditing
-   
+
    IMPORTANT: Workflow memo captures the EXACT agent config used at session creation.
    This is an immutable snapshot. If the agent config changes on disk later, running
    workflows are unaffected. The memo preserves what config was actually used to
    launch each specific session.
-   
+
    Change:
    1. Update internal/temporal/workflows/session_workflow.go:
       - Extend SessionWorkflowRequest struct:
@@ -713,7 +698,7 @@
       - Test memo retrieval via GetWorkflowInfo
       - Test config serialization/deserialization round-trip
       - Test that memo is immutable (doesn't change with config file updates)
-   
+
    Reference: Temporal best practices
    - Memo: Small, immutable metadata attached to workflow execution
    - Used for: audit trails, debugging, filtering workflows
@@ -721,14 +706,14 @@
    - Size limit: ~2KB per memo entry
    - Alternative: SearchAttributes for indexing (not needed here)
    - Memo is snapshot: doesn't change even if source data changes
-   
+
    Tests:
    - Workflow memo contains agent config and hash
    - Config can be retrieved from completed workflows
    - Serialization round-trips correctly
    - Large configs are truncated gracefully
    - Memo immutability verified
-   
+
    Done when:
    - Workflows store agent config snapshot in memo
    - Config hash stored for quick comparison
@@ -738,11 +723,11 @@
    - Documentation clarifies memo is creation-time snapshot
 * DONE [#A] SCIP code intelligence integration for LLM context enhancement
   Goal: Integrate Sourcegraph's SCIP (SCIP Code Intelligence Protocol) indexing into Gestalt to provide rich code context to LLM agents through symbol-aware code search and retrieval.
-  
+
   ## Implementation Summary (for coder)
-  
+
   This L1 adds **code intelligence** to Gestalt agents using SCIP indexes. Agents can query code symbols (functions, types, variables) with semantic understanding rather than plain text search. This dramatically improves LLM context quality by providing relevant code snippets with type information, documentation, and relationships.
-  
+
   **What SCIP Provides:**
   - Symbol definitions with signatures and documentation
   - Symbol occurrences (definitions, references, implementations)
@@ -750,20 +735,20 @@
   - Language-agnostic format (Go, TypeScript, Python, Java, etc)
   - Efficient protobuf-based storage
   - SQLite export for queryability
-  
+
   **Architecture Decision: Built-in Module (not separate MCP server)**
   - Reasoning: Simpler deployment, tighter integration, less overhead
   - SCIP queries exposed as REST API endpoints (same pattern as existing APIs)
   - Agents use SCIP via HTTP (no new protocol)
   - Later: can add MCP adapter if external tools need it
-  
+
   **Key Components:**
   1. **Indexer Management**: Auto-download and run language-specific indexers
   2. **SQLite Conversion**: Convert SCIP protobuf → queryable SQLite DB
   3. **Query API**: Go package `internal/scip` with symbol search/retrieval
   4. **REST Endpoints**: `/api/scip/symbols`, `/api/scip/references`, etc
   5. **Agent Integration**: Prompts document SCIP APIs for agent use
-  
+
   **Implementation Steps Overview:**
   1. Add `internal/scip` package with SCIP → SQLite conversion
   2. Implement indexer downloader (embedded URLs for scip-go, scip-typescript, etc)
@@ -772,7 +757,7 @@
   5. Add indexing commands: `gestalt index` (or auto-index on startup)
   6. Document SCIP API usage in agent prompts (skill or prompt template)
   7. Test with real codebases (Gestalt itself, example repos)
-  
+
   **Cody's Pattern (what we're replicating):**
   1. Agent asks question about code
   2. Extract key symbols/types from question
@@ -781,10 +766,10 @@
   5. Rank by relevance (symbol name match, relationship strength)
   6. Include top N results in LLM context
   7. LLM answers with precise knowledge of codebase
-  
+
   **No Online Research Needed:**
   All SCIP concepts, indexer URLs, SQLite schema, and API patterns documented below in L2 tasks. Coder can implement from these instructions.
-  
+
   Notes:
   - SCIP is production-ready (used by Sourcegraph Cody, mature ecosystem)
   - Indexes are language-agnostic (single format for all languages)
@@ -812,7 +797,7 @@
      - **SymbolInformation**: Definition with signature, documentation, kind
        - Kind: Package, Class, Method, Function, Variable, etc
      - **Relationship**: Symbol relationships (implementation, type_definition, reference)
-   - Install SCIP CLI (if not present): 
+   - Install SCIP CLI (if not present):
      ```bash
      go install github.com/sourcegraph/scip/cmd/scip@latest
      ```
@@ -852,19 +837,19 @@
    - Create internal/scip/index.go:
      ```go
      package scip
-     
+
      import (
          "database/sql"
          "fmt"
          _ "github.com/mattn/go-sqlite3"
      )
-     
+
      // Index represents a SCIP SQLite database
      type Index struct {
          db *sql.DB
          path string
      }
-     
+
      // OpenIndex opens a SCIP SQLite database
      func OpenIndex(path string) (*Index, error) {
          db, err := sql.Open("sqlite3", path)
@@ -873,11 +858,11 @@
          }
          return &Index{db: db, path: path}, nil
      }
-     
+
      func (idx *Index) Close() error {
          return idx.db.Close()
      }
-     
+
      // Symbol represents a code symbol with metadata
      type Symbol struct {
          ID            string   `json:"id"`
@@ -889,7 +874,7 @@
          Line          int      `json:"line"`
          Language      string   `json:"language"`
      }
-     
+
      // Occurrence represents a symbol reference
      type Occurrence struct {
          Symbol   string `json:"symbol"`
@@ -898,30 +883,30 @@
          Column   int    `json:"column"`
          Role     string `json:"role"` // "definition", "reference", "implementation"
      }
-     
+
      // FindSymbols searches for symbols by name (fuzzy match)
      func (idx *Index) FindSymbols(query string, limit int) ([]Symbol, error) {
          // Implementation: query symbols table with LIKE or FTS
          // Return symbols matching query, ranked by relevance
      }
-     
+
      // GetDefinition retrieves symbol definition with documentation
      func (idx *Index) GetDefinition(symbolID string) (*Symbol, error) {
          // Implementation: join symbols + documents + occurrences
          // Find definition occurrence, extract location and metadata
      }
-     
+
      // GetReferences finds all references to a symbol
      func (idx *Index) GetReferences(symbolID string) ([]Occurrence, error) {
          // Implementation: query occurrences where symbol = symbolID
          // Decode range blobs, extract file paths and positions
      }
-     
+
      // GetSymbolsInFile lists all symbols defined in a file
      func (idx *Index) GetSymbolsInFile(filePath string) ([]Symbol, error) {
          // Implementation: join documents + occurrences (definition role only)
      }
-     
+
      // GetTypeInfo retrieves type information for a symbol
      func (idx *Index) GetTypeInfo(symbolID string) (string, error) {
          // Implementation: extract type from signature or relationships
@@ -954,7 +939,7 @@
    - Create internal/scip/indexers.go:
      ```go
      package scip
-     
+
      // Indexer represents a SCIP indexer for a language
      type Indexer struct {
          Language string
@@ -963,7 +948,7 @@
          URL      string // Direct download URL
          Binary   string // Binary name (e.g., "scip-go")
      }
-     
+
      var builtInIndexers = []Indexer{
          {
              Language: "go",
@@ -988,7 +973,7 @@
          },
          // Add more as needed
      }
-     
+
      // DownloadIndexer downloads indexer binary to ~/.gestalt/indexers/
      func DownloadIndexer(lang string) error {
          indexer := findIndexer(lang)
@@ -996,48 +981,48 @@
          // Download from URL, make executable
          return downloadBinary(indexer.URL, destPath)
      }
-     
+
      // DetectLanguages scans directory for language markers
      func DetectLanguages(dir string) ([]string, error) {
          languages := []string{}
-         
+
          // Go: go.mod or *.go files
          if fileExists(filepath.Join(dir, "go.mod")) {
              languages = append(languages, "go")
          }
-         
+
          // TypeScript/JavaScript: package.json or tsconfig.json
          if fileExists(filepath.Join(dir, "package.json")) ||
             fileExists(filepath.Join(dir, "tsconfig.json")) {
              languages = append(languages, "typescript")
          }
-         
+
          // Python: setup.py, requirements.txt, or *.py files
          if fileExists(filepath.Join(dir, "setup.py")) ||
             fileExists(filepath.Join(dir, "requirements.txt")) {
              languages = append(languages, "python")
          }
-         
+
          // Java: pom.xml, build.gradle, or *.java files
          if fileExists(filepath.Join(dir, "pom.xml")) ||
             fileExists(filepath.Join(dir, "build.gradle")) {
              languages = append(languages, "java")
          }
-         
+
          return languages, nil
      }
-     
+
      // RunIndexer executes indexer on directory, outputs index.scip
      func RunIndexer(lang, dir, output string) error {
          indexerPath := filepath.Join(getIndexerDir(), "scip-"+lang)
-         
+
          // Ensure indexer is downloaded
          if !fileExists(indexerPath) {
              if err := DownloadIndexer(lang); err != nil {
                  return err
              }
          }
-         
+
          // Run indexer: scip-go index (for Go), scip-typescript index, etc
          cmd := exec.Command(indexerPath, "index")
          cmd.Dir = dir
@@ -1071,17 +1056,17 @@
    - Create internal/api/scip.go:
      ```go
      package api
-     
+
      import (
          "encoding/json"
          "net/http"
          "gestalt/internal/scip"
      )
-     
+
      type SCIPHandler struct {
          index *scip.Index
      }
-     
+
      func NewSCIPHandler(indexPath string) (*SCIPHandler, error) {
          idx, err := scip.OpenIndex(indexPath)
          if err != nil {
@@ -1089,69 +1074,69 @@
          }
          return &SCIPHandler{index: idx}, nil
      }
-     
+
      // GET /api/scip/symbols?q=FindUser&limit=10
      func (h *SCIPHandler) FindSymbols(w http.ResponseWriter, r *http.Request) {
          query := r.URL.Query().Get("q")
          limit := getIntParam(r, "limit", 20)
-         
+
          symbols, err := h.index.FindSymbols(query, limit)
          if err != nil {
              writeError(w, http.StatusInternalServerError, err)
              return
          }
-         
+
          writeJSON(w, map[string]interface{}{
              "query": query,
              "symbols": symbols,
          })
      }
-     
+
      // GET /api/scip/symbols/:id
      func (h *SCIPHandler) GetSymbol(w http.ResponseWriter, r *http.Request) {
          symbolID := getPathParam(r, "id")
-         
+
          symbol, err := h.index.GetDefinition(symbolID)
          if err != nil {
              writeError(w, http.StatusNotFound, err)
              return
          }
-         
+
          writeJSON(w, symbol)
      }
-     
+
      // GET /api/scip/symbols/:id/references
      func (h *SCIPHandler) GetReferences(w http.ResponseWriter, r *http.Request) {
          symbolID := getPathParam(r, "id")
-         
+
          refs, err := h.index.GetReferences(symbolID)
          if err != nil {
              writeError(w, http.StatusInternalServerError, err)
              return
          }
-         
+
          writeJSON(w, map[string]interface{}{
              "symbol": symbolID,
              "references": refs,
          })
      }
-     
+
      // GET /api/scip/files/:path
      func (h *SCIPHandler) GetFileSymbols(w http.ResponseWriter, r *http.Request) {
          filePath := getPathParam(r, "path")
-         
+
          symbols, err := h.index.GetSymbolsInFile(filePath)
          if err != nil {
              writeError(w, http.StatusInternalServerError, err)
              return
          }
-         
+
          writeJSON(w, map[string]interface{}{
              "file": filePath,
              "symbols": symbols,
          })
      }
-     
+
      // POST /api/scip/index
      // Trigger re-indexing of repository
      func (h *SCIPHandler) ReIndex(w http.ResponseWriter, r *http.Request) {
@@ -1160,7 +1145,7 @@
              Path string `json:"path"`
          }
          json.NewDecoder(r.Body).Decode(&req)
-         
+
          // Run indexing asynchronously
          go func() {
              langs, _ := scip.DetectLanguages(req.Path)
@@ -1171,7 +1156,7 @@
              // Reload index
              h.index, _ = scip.OpenIndex("index.db")
          }()
-         
+
          writeJSON(w, map[string]string{"status": "indexing started"})
      }
      ```
@@ -1208,59 +1193,59 @@
      description: Query code symbols and structure using SCIP indexes
      tags: [code, search, analysis]
      ---
-     
+
      # Code Intelligence Skill
-     
+
      Use SCIP (Code Intelligence Protocol) to search and analyze code symbols.
-     
+
      ## Available APIs
-     
+
      ### Find Symbols by Name
      ```
      GET /api/scip/symbols?q=<query>&limit=<n>
      ```
      Returns symbols matching query (fuzzy match).
      Example: `q=FindUser` finds `FindUser`, `FindUserByID`, etc.
-     
+
      ### Get Symbol Definition
      ```
      GET /api/scip/symbols/<symbol-id>
      ```
      Returns definition with documentation, signature, file location.
-     
+
      ### Find References
      ```
      GET /api/scip/symbols/<symbol-id>/references
      ```
      Returns all places where symbol is referenced.
-     
+
      ### List Symbols in File
      ```
      GET /api/scip/files/<file-path>
      ```
      Returns all symbols defined in file.
-     
+
      ## Usage Patterns
-     
+
      **Understanding a function:**
      1. Search for function: `/api/scip/symbols?q=ProcessOrder`
      2. Get definition: `/api/scip/symbols/<id>` (includes documentation)
      3. Find callers: `/api/scip/symbols/<id>/references`
      4. Read source at definition location
-     
+
      **Finding related code:**
      1. Search for type: `/api/scip/symbols?q=User`
      2. Get type definition and fields
      3. Find methods on type (search `User.`)
      4. Find usage patterns via references
-     
+
      **Exploring a module:**
      1. List symbols in file: `/api/scip/files/internal/user/user.go`
      2. For each symbol, get references to see usage
      3. Build call graph mentally
-     
+
      ## Tips
-     
+
      - Use specific queries (function names, type names)
      - Start with definition, then explore references
      - Combine with file content API to see implementation
@@ -1270,16 +1255,16 @@
    - Alternatively: Add to default agent prompt template:
      ```markdown
      ## Code Intelligence (SCIP)
-     
+
      You have access to code intelligence APIs via SCIP indexes.
      These APIs provide symbol-level understanding of the codebase.
-     
+
      Available endpoints:
      - GET /api/scip/symbols?q=<query> - Search symbols
      - GET /api/scip/symbols/<id> - Get definition
      - GET /api/scip/symbols/<id>/references - Find usages
      - GET /api/scip/files/<path> - List symbols in file
-     
+
      Use these to understand code structure, find relevant code, trace
      dependencies, and answer questions about implementation details.
      ```
@@ -1306,36 +1291,36 @@
    - Add cmd/gestalt/index.go:
      ```go
      package main
-     
+
      import (
          "flag"
          "fmt"
          "gestalt/internal/scip"
      )
-     
+
      func indexCommand() {
          indexFlags := flag.NewFlagSet("index", flag.ExitOnError)
          path := indexFlags.String("path", ".", "Path to index")
          output := indexFlags.String("output", "index.db", "Output SQLite path")
          force := indexFlags.Bool("force", false, "Re-index even if index exists")
-         
+
          indexFlags.Parse(os.Args[2:])
-         
+
          // Check if index exists
          if !*force && fileExists(*output) {
              fmt.Println("Index exists. Use --force to re-index.")
              return
          }
-         
+
          // Detect languages
          langs, err := scip.DetectLanguages(*path)
          if err != nil || len(langs) == 0 {
              fmt.Println("No supported languages detected")
              return
          }
-         
+
          fmt.Printf("Detected languages: %v\n", langs)
-         
+
          // Download indexers if needed
          for _, lang := range langs {
              fmt.Printf("Checking indexer for %s...\n", lang)
@@ -1343,7 +1328,7 @@
                  fmt.Printf("Warning: Failed to get indexer for %s: %v\n", lang, err)
              }
          }
-         
+
          // Run indexers
          scipIndexes := []string{}
          for _, lang := range langs {
@@ -1355,7 +1340,7 @@
              }
              scipIndexes = append(scipIndexes, scipOut)
          }
-         
+
          // Merge indexes if multiple languages
          var finalScip string
          if len(scipIndexes) == 1 {
@@ -1367,18 +1352,18 @@
                  return
              }
          }
-         
+
          // Convert to SQLite
          fmt.Printf("Converting to SQLite...\n")
          if err := scip.ConvertToSQLite(finalScip, *output); err != nil {
              fmt.Printf("Error converting to SQLite: %v\n", err)
              return
          }
-         
+
          // Print stats
          idx, _ := scip.OpenIndex(*output)
          defer idx.Close()
-         
+
          stats, _ := idx.GetStats()
          fmt.Printf("Indexing complete!\n")
          fmt.Printf("  Documents: %d\n", stats.Documents)
@@ -1404,15 +1389,15 @@
    - Document in README.md:
      ```markdown
      ## Code Indexing
-     
+
      Gestalt can index your codebase for code-aware agent queries:
-     
+
      ```bash
      gestalt index
      ```
-     
+
      This generates `index.db` in the current directory.
-     
+
      Supported languages: Go, TypeScript, Python, Java.
      ```
    - Consider auto-indexing on startup (optional):
@@ -1434,18 +1419,18 @@
          refs      *lru.Cache // References
          fileSyms  *lru.Cache // File symbols
      }
-     
+
      func (h *SCIPHandler) FindSymbolsCached(query string) ([]Symbol, error) {
          key := "symbols:" + query
          if cached, ok := h.cache.symbols.Get(key); ok {
              return cached.([]Symbol), nil
          }
-         
+
          symbols, err := h.index.FindSymbols(query, 20)
          if err != nil {
              return nil, err
          }
-         
+
          h.cache.symbols.Add(key, symbols)
          return symbols, nil
      }
@@ -1489,10 +1474,10 @@
          if err != nil {
              return false, err
          }
-         
+
          // Hash all source files
          currentHash := hashSourceFiles(meta.ProjectRoot)
-         
+
          return currentHash == meta.FilesHashed, nil
      }
      ```
@@ -1544,22 +1529,22 @@
    - Document best practices in README:
      ```markdown
      ## SCIP Best Practices
-     
+
      **When to index:**
      - After cloning a repository
      - After major refactoring
      - Periodically (e.g., weekly)
-     
+
      **Index storage:**
      - Commit `index.db` to repo (optional, depends on size)
      - Or add to .gitignore, regenerate locally
      - For large repos, use CI to pre-generate indexes
-     
+
      **Query tips:**
      - Use specific symbol names for faster results
      - Combine SCIP queries with file content for full picture
      - Cache frequent queries (done automatically)
-     
+
      **Performance:**
      - Indexing time: ~1-5 minutes for 10k LOC
      - Query time: <100ms for most queries
@@ -1664,23 +1649,23 @@
      type MCPServer struct {
          scip *scip.Index
      }
-     
+
      // Implement MCP JSON-RPC protocol
      func (s *MCPServer) ListResources() []Resource {
          // Return list of symbol resources
      }
-     
+
      func (s *MCPServer) ReadResource(uri string) (string, error) {
          // Return symbol definition as text
      }
-     
+
      func (s *MCPServer) ListTools() []Tool {
          return []Tool{
              {Name: "find_symbol", Description: "Search for code symbols"},
              {Name: "get_references", Description: "Find symbol references"},
          }
      }
-     
+
      func (s *MCPServer) CallTool(name string, args map[string]interface{}) (interface{}, error) {
          // Dispatch to SCIP query methods
      }
@@ -1706,40 +1691,40 @@
    - Add to README.md:
      ```markdown
      ## Code Intelligence (SCIP)
-     
+
      Gestalt can index your codebase for intelligent code search:
-     
+
      ```bash
      # Index current repository
      gestalt index
-     
+
      # Index specific path
      gestalt index --path /path/to/repo
      ```
-     
+
      This enables agents to:
      - Find symbol definitions with documentation
      - Trace function calls and references
      - Understand type relationships
      - Navigate code structure semantically
-     
+
      Supported languages: Go, TypeScript/JavaScript, Python, Java.
-     
+
      ### How it works
-     
+
      1. SCIP indexers scan source code
      2. Generate symbol database (index.db)
      3. Agents query via REST API
      4. Relevant code snippets included in LLM context
-     
+
      ### API Endpoints
-     
+
      - `GET /api/scip/symbols?q=<query>` - Search symbols
      - `GET /api/scip/symbols/:id` - Get definition
      - `GET /api/scip/symbols/:id/references` - Find usages
      - `GET /api/scip/files/:path` - List symbols in file
      - `POST /api/scip/index` - Trigger re-indexing
-     
+
      See [SCIP documentation](https://github.com/sourcegraph/scip) for details.
      ```
    - Add concise LLM-facing prompt at `config/prompts/scip.txt`:
@@ -1750,14 +1735,14 @@
    - Update TESTING.md with SCIP testing instructions:
      ```markdown
      ## Testing SCIP Integration
-     
+
      ```bash
      # Generate test index
      gestalt index --path . --output test-index.db
-     
+
      # Query API
      curl http://localhost:8080/api/scip/symbols?q=Manager
-     
+
      # Run SCIP tests
      go test ./internal/scip/...
      ```
@@ -2816,7 +2801,7 @@
    - Update skill XML tests for new fields.
    Done when: skill metadata is richer and documented.
 
-* TODO [#A] Wails desktop application packaging
+* DONE [#A] Wails desktop application packaging
   Goal: Package Gestalt as a native desktop application using Wails v3, providing a standalone executable for macOS, Windows, and Linux while preserving the existing web server mode as default.
   Notes:
   - Dual-mode architecture: web server (default) + desktop app (opt-in build target)
@@ -5720,7 +5705,7 @@
    Tests: Start agent/terminal without options and confirm workflow appears; test explicit disable
    Done when: Unspecified sessions start workflows, with explicit disables honored
 
-* TODO [#B] Enhanced input UX with multiline input box and command history
+* DONE [#B] Enhanced input UX with multiline input box and command history
   Goal: Replace direct PTY keyboard input with a dedicated multiline input box at the bottom of agent pages, featuring browsable command history, future-proof for assisted input features, and independent clipboard handling.
   Notes:
   - Current state: all keyboard input is intercepted by terminalStore.js, only Ctrl+C and Ctrl+V handled externally

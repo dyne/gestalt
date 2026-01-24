@@ -399,13 +399,13 @@
    - Add unit tests for command execution.
    Done when: subcommand behavior is encapsulated.
 
-* TODO [#B] cmd/gestalt-send modularization
+* WIP [#B] cmd/gestalt-send modularization
   Goal: Simplify gestalt-send and make HTTP behavior reusable.
   Notes:
   - Preserve CLI flags and exit codes.
   Date: 2026-01-24
 
-** TODO [#A] Split gestalt-send main.go into focused files
+** DONE [#A] Split gestalt-send main.go into focused files
    Why: main.go mixes parsing, HTTP, cache, and completion logic.
    Change:
    - Split into parse.go, http.go, completion.go.
@@ -413,7 +413,7 @@
    - Update CLI tests for new file boundaries.
    Done when: gestalt-send is easier to follow.
 
-** TODO [#A] Centralize sendError handling
+** WIP [#A] Centralize sendError handling
    Why: Exit code mapping and error messages are duplicated.
    Change:
    - Add a sendError helper for consistent exit behavior.

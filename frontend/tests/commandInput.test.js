@@ -10,6 +10,8 @@ vi.mock('../src/lib/api.js', () => ({
 
 import CommandInput from '../src/components/CommandInput.svelte'
 
+let originalSecureContext = true
+
 class MockSpeechRecognition {
   constructor() {
     globalThis.__lastRecognition = this
@@ -46,9 +48,28 @@ describe('CommandInput', () => {
     })
     vi.stubGlobal('SpeechRecognition', MockSpeechRecognition)
     vi.stubGlobal('__lastRecognition', null)
+    originalSecureContext = window.isSecureContext
+    try {
+      Object.defineProperty(window, 'isSecureContext', { value: true, configurable: true })
+    } catch (error) {
+      window.isSecureContext = true
+    }
   })
 
   afterEach(() => {
+    try {
+      delete window.__gestaltVoiceInputInsecureLogged
+    } catch (error) {
+      window.__gestaltVoiceInputInsecureLogged = undefined
+    }
+    try {
+      Object.defineProperty(window, 'isSecureContext', {
+        value: originalSecureContext,
+        configurable: true,
+      })
+    } catch (error) {
+      window.isSecureContext = originalSecureContext
+    }
     vi.unstubAllGlobals()
     apiFetch.mockReset()
     cleanup()
@@ -69,14 +90,14 @@ describe('CommandInput', () => {
   })
 
   it('appends voice transcripts to the input value', async () => {
-    const { getByPlaceholderText, getByRole, getByText } = render(CommandInput, {
+    const { getByPlaceholderText, findByRole, getByText } = render(CommandInput, {
       props: { terminalId: '' },
     })
 
     const textarea = getByPlaceholderText(/Type command/i)
     await fireEvent.input(textarea, { target: { value: 'ls' } })
 
-    const voiceButton = getByRole('button', { name: /start voice input/i })
+    const voiceButton = await findByRole('button', { name: /start voice input/i })
     await fireEvent.click(voiceButton)
     await tick()
 

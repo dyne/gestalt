@@ -20,6 +20,7 @@
 
   const describeError = (errorCode) => {
     if (errorCode === 'not-allowed') return 'Microphone permission denied.'
+    if (errorCode === 'service-not-allowed') return 'Voice input is blocked by the browser.'
     if (errorCode === 'no-speech') return 'No speech detected.'
     if (errorCode === 'network') return 'Network error during recognition.'
     if (errorCode === 'language-not-supported') return 'Language not supported.'
@@ -89,6 +90,14 @@
     const RecognitionConstructor = getRecognitionConstructor()
     if (!RecognitionConstructor) {
       isSupported = false
+      return
+    }
+    if (!window.isSecureContext) {
+      isSupported = false
+      dispatch('error', {
+        error: 'insecure-context',
+        message: 'Voice input requires HTTPS (or localhost).',
+      })
       return
     }
 

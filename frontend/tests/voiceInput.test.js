@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import VoiceInput from '../src/components/VoiceInput.svelte'
 
 let vibrateMock = null
+let originalSecureContext = true
 
 class MockSpeechRecognition {
   constructor() {
@@ -44,6 +45,12 @@ describe('VoiceInput', () => {
   beforeEach(() => {
     vi.stubGlobal('SpeechRecognition', MockSpeechRecognition)
     vi.stubGlobal('__lastRecognition', null)
+    originalSecureContext = window.isSecureContext
+    try {
+      Object.defineProperty(window, 'isSecureContext', { value: true, configurable: true })
+    } catch (error) {
+      window.isSecureContext = true
+    }
     vibrateMock = vi.fn()
     try {
       Object.defineProperty(navigator, 'vibrate', { value: vibrateMock, configurable: true })
@@ -59,6 +66,14 @@ describe('VoiceInput', () => {
       } catch (error) {
         navigator.vibrate = undefined
       }
+    }
+    try {
+      Object.defineProperty(window, 'isSecureContext', {
+        value: originalSecureContext,
+        configurable: true,
+      })
+    } catch (error) {
+      window.isSecureContext = originalSecureContext
     }
     vi.unstubAllGlobals()
     cleanup()

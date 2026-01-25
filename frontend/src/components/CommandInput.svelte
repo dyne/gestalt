@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte'
 
+  import { apiFetch } from '../lib/api.js'
   import { createCommandHistory } from '../lib/commandHistory.js'
   import VoiceInput from './VoiceInput.svelte'
 
@@ -19,6 +20,40 @@
 
   const history = createCommandHistory({ historyLimit })
   let isVoiceListening = false
+  let voiceInputAvailable = false
+
+  const hasSpeechRecognition = () => {
+    if (typeof window === 'undefined') return false
+    return Boolean(window.SpeechRecognition || window.webkitSpeechRecognition)
+  }
+
+  const logInsecureVoiceInput = () => {
+    if (typeof window === 'undefined') return
+    if (window.__gestaltVoiceInputInsecureLogged) return
+    window.__gestaltVoiceInputInsecureLogged = true
+    const payload = {
+      level: 'warning',
+      message: 'voice input unavailable: insecure context (requires HTTPS or localhost)',
+      context: {
+        origin: window.location?.origin || '',
+      },
+    }
+    void apiFetch('/api/logs', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }).catch(() => {
+      // Ignore log transport errors to avoid loops.
+    })
+  }
+
+  const updateVoiceInputAvailability = () => {
+    const speechSupported = hasSpeechRecognition()
+    const secureContext = typeof window !== 'undefined' && window.isSecureContext
+    voiceInputAvailable = speechSupported && secureContext
+    if (speechSupported && !secureContext) {
+      logInsecureVoiceInput()
+    }
+  }
 
   const resizeTextarea = () => {
     if (!textarea) return
@@ -124,6 +159,7 @@
   }
 
   onMount(() => {
+    updateVoiceInputAvailability()
     resizeTextarea()
     textarea?.focus()
   })
@@ -147,13 +183,15 @@
       disabled={disabled}
     ></textarea>
     <div class="command-input__actions">
-      <VoiceInput
-        onTranscript={handleTranscript}
-        on:start={handleVoiceStart}
-        on:stop={handleVoiceStop}
-        on:error={handleVoiceError}
-        {disabled}
-      />
+      {#if voiceInputAvailable}
+        <VoiceInput
+          onTranscript={handleTranscript}
+          on:start={handleVoiceStart}
+          on:stop={handleVoiceStop}
+          on:error={handleVoiceError}
+          {disabled}
+        />
+      {/if}
       {#if showScrollButton}
         <button
           class="scroll-bottom"

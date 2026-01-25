@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/http"
 	"net/http/pprof"
 	"net/url"
@@ -24,6 +25,7 @@ import (
 	"gestalt/internal/event"
 	"gestalt/internal/logging"
 	"gestalt/internal/otel"
+	"gestalt/internal/ports"
 	"gestalt/internal/prompt"
 	"gestalt/internal/temporal"
 	temporalworker "gestalt/internal/temporal/worker"
@@ -61,6 +63,8 @@ func runServer(args []string) int {
 	}
 	logVersionInfo(logger)
 	ensureStateDir(cfg, logger)
+
+	portRegistry := ports.NewPortRegistry()
 	collectorOptions := otel.OptionsFromEnv(".gestalt")
 	collectorOptions.Logger = logger
 	collector, collectorErr := otel.StartCollector(collectorOptions)
@@ -76,6 +80,9 @@ func runServer(args []string) int {
 		}
 	}
 	if collector != nil {
+		if port, ok := parseEndpointPort(collectorOptions.HTTPEndpoint); ok {
+			portRegistry.Set("otel", port)
+		}
 		defer func() {
 			if err := otel.StopCollectorWithTimeout(collector, httpServerShutdownTimeout); err != nil && logger != nil {
 				logger.Warn("otel collector shutdown failed", map[string]string{
@@ -109,6 +116,9 @@ func runServer(args []string) int {
 		logger.Warn("temporal dev server start failed", map[string]string{
 			"error": devServerError.Error(),
 		})
+	}
+	if cfg.TemporalUIPort > 0 {
+		portRegistry.Set("temporal", cfg.TemporalUIPort)
 	}
 	if temporalDevServer != nil {
 		defer temporalDevServer.Stop(logger)
@@ -300,6 +310,7 @@ func runServer(args []string) int {
 		return 1
 	}
 	cfg.BackendPort = backendPort
+	portRegistry.Set("backend", backendPort)
 	backendServer := &http.Server{
 		Handler:           backendMux,
 		ReadHeaderTimeout: 5 * time.Second,
@@ -320,6 +331,7 @@ func runServer(args []string) int {
 		Handler:           frontendHandler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
+	portRegistry.Set("frontend", cfg.FrontendPort)
 	logger.Info("gestalt frontend listening", map[string]string{
 		"addr":    frontendServer.Addr,
 		"version": version.Version,
@@ -369,4 +381,26 @@ func registerPprofHandlers(mux *http.ServeMux, logger *logging.Logger) {
 			"path": "/debug/pprof/",
 		})
 	}
+}
+
+func parseEndpointPort(endpoint string) (int, bool) {
+	trimmed := strings.TrimSpace(endpoint)
+	if trimmed == "" {
+		return 0, false
+	}
+	if port, err := strconv.Atoi(trimmed); err == nil && port > 0 {
+		return port, true
+	}
+	if strings.HasPrefix(trimmed, ":") {
+		trimmed = "localhost" + trimmed
+	}
+	_, portText, err := net.SplitHostPort(trimmed)
+	if err != nil {
+		return 0, false
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil || port <= 0 {
+		return 0, false
+	}
+	return port, true
 }

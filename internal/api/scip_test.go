@@ -597,10 +597,20 @@ func TestSCIPReIndex(t *testing.T) {
 		}
 		return []string{"go"}, nil
 	}
+	handler.findIndexerPath = func(lang, dir string) (string, error) {
+		if lang != "go" || dir != "/tmp/repo" {
+			t.Fatalf("unexpected indexer lookup args: %s %s", lang, dir)
+		}
+		return "/bin/echo", nil
+	}
 	handler.runIndexer = func(lang, dir, output string) error {
 		if lang != "go" || dir != "/tmp/repo" {
 			t.Fatalf("unexpected indexer args: %s %s", lang, dir)
 		}
+		if !strings.HasSuffix(output, "index-go.scip") {
+			t.Fatalf("unexpected index output: %s", output)
+		}
+		writeTestSCIPFile(t, output, "go", "main.go")
 		return nil
 	}
 	handler.convert = func(scipPath, dbPath string) error {
@@ -645,6 +655,10 @@ func TestSCIPReIndexSkipsRecent(t *testing.T) {
 	if err := scip.SaveMetadata(fixture.indexPath, meta); err != nil {
 		t.Fatalf("SaveMetadata failed: %v", err)
 	}
+	fixture.handler.detectLangs = func(string) ([]string, error) {
+		t.Fatal("expected recent index check to skip indexing")
+		return nil, nil
+	}
 
 	body := bytes.NewBufferString(`{"path":"/tmp/repo"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/scip/index", body)
@@ -667,13 +681,6 @@ func TestSCIPReIndexSkipsRecent(t *testing.T) {
 	}
 	if !strings.Contains(payload.Message, "Use force") {
 		t.Fatalf("expected warning message, got %s", payload.Message)
-	}
-
-	fixture.handler.reindexMu.Lock()
-	reindexing := fixture.handler.reindexing
-	fixture.handler.reindexMu.Unlock()
-	if reindexing {
-		t.Fatalf("expected reindexing to be false after skip")
 	}
 }
 
@@ -701,21 +708,63 @@ func TestSCIPReIndexMissingPath(t *testing.T) {
 
 func TestSCIPReIndexConflict(t *testing.T) {
 	fixture := newSCIPFixture(t, true)
-	fixture.handler.reindexMu.Lock()
-	fixture.handler.reindexing = true
-	fixture.handler.reindexMu.Unlock()
-	defer func() {
-		fixture.handler.reindexMu.Lock()
-		fixture.handler.reindexing = false
-		fixture.handler.reindexMu.Unlock()
-	}()
+	handler := fixture.handler
+	started := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan struct{})
+
+	handler.detectLangs = func(string) ([]string, error) {
+		return []string{"go"}, nil
+	}
+	handler.findIndexerPath = func(string, string) (string, error) {
+		return "/bin/echo", nil
+	}
+	handler.runIndexer = func(_ string, _ string, output string) error {
+		writeTestSCIPFile(t, output, "go", "main.go")
+		return nil
+	}
+	handler.convert = func(scipPath, dbPath string) error {
+		if dbPath != handler.indexPath {
+			t.Fatalf("unexpected db path: %s", dbPath)
+		}
+		close(started)
+		<-release
+		return nil
+	}
+	handler.openIndex = func(path string) (*scip.Index, error) {
+		close(done)
+		return scip.OpenIndex(path)
+	}
+	handler.configureIndexer()
+
+	if !handler.asyncIndexer.StartAsync(scip.IndexRequest{
+		ProjectRoot: "/tmp/repo",
+		ScipDir:     handler.scipDir,
+		IndexPath:   handler.indexPath,
+		Languages:   []string{"go"},
+		Merge:       true,
+	}) {
+		t.Fatal("expected indexing to start")
+	}
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected indexing to reach convert step")
+	}
 
 	body := bytes.NewBufferString(`{"path":"/tmp/repo"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/scip/index", body)
 	res := httptest.NewRecorder()
-	restHandler("", fixture.handler.ReIndex)(res, req)
+	restHandler("", handler.ReIndex)(res, req)
 
 	assertAPIError(t, res, http.StatusConflict, "indexing already in progress")
+
+	close(release)
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected indexing to finish")
+	}
 }
 
 func TestSCIPReIndexMethodNotAllowed(t *testing.T) {
@@ -741,6 +790,58 @@ func TestSCIPReIndexRateLimited(t *testing.T) {
 	restHandler("", fixture.handler.ReIndex)(res, req)
 
 	assertAPIError(t, res, http.StatusTooManyRequests, "rate limit exceeded")
+}
+
+func TestSCIPStartAutoIndexingRunsWhenStale(t *testing.T) {
+	fixture := newSCIPFixture(t, true)
+	handler := fixture.handler
+
+	done := make(chan struct{})
+	handler.detectLangs = func(string) ([]string, error) {
+		return []string{"go"}, nil
+	}
+	handler.findIndexerPath = func(string, string) (string, error) {
+		return "/bin/echo", nil
+	}
+	handler.runIndexer = func(_ string, _ string, output string) error {
+		writeTestSCIPFile(t, output, "go", "main.go")
+		return nil
+	}
+	handler.convert = func(string, string) error { return nil }
+	handler.openIndex = func(path string) (*scip.Index, error) {
+		defer close(done)
+		return scip.OpenIndex(path)
+	}
+
+	if !handler.StartAutoIndexing() {
+		t.Fatal("expected auto indexing to start")
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected auto indexing to finish")
+	}
+}
+
+func TestSCIPStartAutoIndexingSkipsWhenFresh(t *testing.T) {
+	fixture := newSCIPFixture(t, true)
+	projectRoot := createProjectRootWithIndexFile(t)
+
+	meta, err := scip.BuildMetadata(projectRoot, []string{"go"})
+	if err != nil {
+		t.Fatalf("BuildMetadata failed: %v", err)
+	}
+	if err := scip.SaveMetadata(fixture.indexPath, meta); err != nil {
+		t.Fatalf("SaveMetadata failed: %v", err)
+	}
+	fixture.handler.detectLangs = func(string) ([]string, error) {
+		t.Fatal("expected fresh index to skip auto indexing")
+		return nil, nil
+	}
+
+	if fixture.handler.StartAutoIndexing() {
+		t.Fatal("expected auto indexing to be skipped for fresh index")
+	}
 }
 
 func newSCIPFixture(t *testing.T, includeDefnRanges bool) scipTestFixture {
@@ -1228,5 +1329,27 @@ func newRequestWithPath(method, path string) *http.Request {
 			RawPath: path,
 		},
 		Header: make(http.Header),
+	}
+}
+
+func writeTestSCIPFile(t *testing.T, path, language, relativePath string) {
+	t.Helper()
+	if strings.TrimSpace(relativePath) == "" {
+		relativePath = language + ".txt"
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("create scip dir: %v", err)
+	}
+	index := &scipproto.Index{
+		Documents: []*scipproto.Document{
+			{RelativePath: relativePath, Language: language},
+		},
+	}
+	payload, err := proto.Marshal(index)
+	if err != nil {
+		t.Fatalf("marshal scip index: %v", err)
+	}
+	if err := os.WriteFile(path, payload, 0o644); err != nil {
+		t.Fatalf("write scip index: %v", err)
 	}
 }

@@ -6,11 +6,13 @@ import { fetchAgentSkills, fetchAgents, fetchMetricsSummary } from './apiClient.
 import { getErrorMessage } from './errorUtils.js'
 import { notificationStore } from './notificationStore.js'
 import { createLogStream } from './logStream.js'
+import { createScipStore, initialScipStatus } from './scipStore.js'
 
 const metricsRefreshIntervalMs = 60000
 const maxLogEntries = 1000
 
 export const createDashboardStore = () => {
+  const scipStore = createScipStore()
   const state = writable({
     agents: [],
     agentsLoading: false,
@@ -32,6 +34,7 @@ export const createDashboardStore = () => {
     gitOrigin: '',
     gitBranch: '',
     gitContext: 'not a git repo',
+    scipStatus: { ...initialScipStatus },
   })
 
   let terminals = []
@@ -48,6 +51,7 @@ export const createDashboardStore = () => {
   let agentEventsUnsubscribes = []
   let configEventsUnsubscribes = []
   let gitUnsubscribe = null
+  let scipUnsubscribe = null
   let started = false
 
   const buildGitContext = (origin, branch) => {
@@ -354,11 +358,26 @@ export const createDashboardStore = () => {
     resetMetricsRefresh()
   }
 
+  const reindexScip = async () => {
+    try {
+      await scipStore.reindex()
+    } catch (err) {
+      notificationStore.addNotification(
+        'error',
+        getErrorMessage(err, 'Failed to start SCIP indexing.')
+      )
+    }
+  }
+
   const start = async () => {
     if (started) return
     started = true
     logsMounted = true
     metricsMounted = true
+    scipUnsubscribe = scipStore.status.subscribe((nextStatus) => {
+      state.update((current) => ({ ...current, scipStatus: nextStatus }))
+    })
+    void scipStore.start()
     agentEventsUnsubscribes = [
       subscribeAgentEvents('agent_started', () => loadAgents()),
       subscribeAgentEvents('agent_stopped', () => loadAgents()),
@@ -407,6 +426,11 @@ export const createDashboardStore = () => {
       gitUnsubscribe()
       gitUnsubscribe = null
     }
+    if (scipUnsubscribe) {
+      scipUnsubscribe()
+      scipUnsubscribe = null
+    }
+    scipStore.stop()
   }
 
   return {
@@ -419,6 +443,7 @@ export const createDashboardStore = () => {
     setLogLevelFilter,
     setLogsAutoRefresh,
     setMetricsAutoRefresh,
+    reindexScip,
     start,
     stop,
   }

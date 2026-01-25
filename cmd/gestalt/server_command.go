@@ -244,10 +244,11 @@ func runServer(args []string) int {
 
 	planPath := preparePlanFile(logger)
 
+	autoReindexEnabled := cfg.SCIPAutoReindex && !cfg.NoIndex
 	fsWatcher, err := watcher.NewWithOptions(watcher.Options{
 		Logger:     logger,
 		MaxWatches: cfg.MaxWatches,
-		WatchDir:   cfg.SCIPAutoReindex,
+		WatchDir:   autoReindexEnabled,
 	})
 	if err != nil && logger != nil {
 		logger.Warn("filesystem watcher unavailable", map[string]string{
@@ -256,6 +257,10 @@ func runServer(args []string) int {
 	}
 	eventBus := event.NewBus[watcher.Event](context.Background(), event.BusOptions{
 		Name: "watcher_events",
+	})
+	scipEventBus := event.NewBus[event.SCIPEvent](context.Background(), event.BusOptions{
+		Name:        "scip_events",
+		HistorySize: 16,
 	})
 	if fsWatcher != nil {
 		fsWatcher.SetErrorHandler(func(err error) {
@@ -271,7 +276,7 @@ func runServer(args []string) int {
 					"error": err.Error(),
 				})
 			}
-			if cfg.SCIPAutoReindex {
+			if autoReindexEnabled {
 				if _, err := watcher.WatchFile(eventBus, fsWatcher, workDir); err != nil && logger != nil {
 					logger.Warn("scip watcher unavailable", map[string]string{
 						"path":  workDir,
@@ -300,9 +305,9 @@ func runServer(args []string) int {
 	if cfg.PprofEnabled {
 		registerPprofHandlers(backendMux, logger)
 	}
-	api.RegisterRoutes(backendMux, manager, cfg.AuthToken, api.StatusConfig{
+	scipHandler := api.RegisterRoutes(backendMux, manager, cfg.AuthToken, api.StatusConfig{
 		TemporalUIPort: cfg.TemporalUIPort,
-	}, cfg.SCIPIndexPath, cfg.SCIPAutoReindex, "", nil, logger, eventBus)
+	}, cfg.SCIPIndexPath, autoReindexEnabled, "", nil, logger, eventBus, scipEventBus)
 	backendListener, backendPort, err := listenOnPort(cfg.BackendPort)
 	if err != nil {
 		logger.Error("backend listen failed", map[string]string{
@@ -321,6 +326,13 @@ func runServer(args []string) int {
 		"addr":    backendAddress,
 		"version": version.Version,
 	})
+	if scipHandler != nil && !cfg.NoIndex {
+		if scipHandler.StartAutoIndexing() {
+			logger.Info("scip indexing started", map[string]string{
+				"index_path": cfg.SCIPIndexPath,
+			})
+		}
+	}
 
 	backendURL := &url.URL{
 		Scheme: "http",

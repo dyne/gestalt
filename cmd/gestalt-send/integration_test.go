@@ -84,7 +84,7 @@ func TestGestaltSendEndToEnd(t *testing.T) {
 	}()
 
 	mux := http.NewServeMux()
-	api.RegisterRoutes(mux, manager, "secret", api.StatusConfig{}, "", false, "", nil, nil, nil)
+	api.RegisterRoutes(mux, manager, "secret", api.StatusConfig{}, "", false, "", nil, nil, nil, nil)
 
 	transport := roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 		recorder := httptest.NewRecorder()

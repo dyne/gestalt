@@ -15,6 +15,11 @@ export const fetchStatus = async () => {
   return response.json()
 }
 
+export const fetchScipStatus = async () => {
+  const response = await apiFetch('/api/scip/status')
+  return response.json()
+}
+
 export const fetchTerminals = async () => {
   const response = await apiFetch('/api/terminals')
   return response.json()
@@ -55,6 +60,11 @@ export const fetchLogs = async ({ level } = {}) => {
 
 export const fetchMetricsSummary = async () => {
   const response = await apiFetch('/api/metrics/summary')
+  return response.json()
+}
+
+export const triggerScipReindex = async () => {
+  const response = await apiFetch('/api/scip/reindex', { method: 'POST' })
   return response.json()
 }
 

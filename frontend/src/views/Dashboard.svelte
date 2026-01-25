@@ -35,6 +35,11 @@
   let configExtractionCount = 0
   let configExtractionLast = ''
   let gitContext = 'not a git repo'
+  let scipStatus = null
+  let scipLanguages = []
+  let scipLanguagesText = 'detected languages'
+  let scipLastIndexedAt = ''
+  let scipHasError = false
 
   const logLevelOptions = [
     { value: 'debug', label: 'Debug' },
@@ -72,6 +77,14 @@
 
   const formatMetricsTime = (value) => {
     return formatRelativeTime(value) || '—'
+  }
+
+  const formatScipTime = (value) => {
+    return formatRelativeTime(value) || '—'
+  }
+
+  const handleScipReindex = () => {
+    void dashboardStore.reindexScip()
   }
 
   const formatCount = (value) => {
@@ -145,10 +158,15 @@
     configExtractionCount,
     configExtractionLast,
     gitContext,
+    scipStatus,
   } = $dashboardStore)
 
   $: dashboardStore.setTerminals(terminals)
   $: dashboardStore.setStatus(status)
+  $: scipLanguages = Array.isArray(scipStatus?.languages) ? scipStatus.languages.filter(Boolean) : []
+  $: scipLanguagesText = scipLanguages.length > 0 ? scipLanguages.join(', ') : 'detected languages'
+  $: scipLastIndexedAt = scipStatus?.completed_at || scipStatus?.created_at || ''
+  $: scipHasError = Boolean(scipStatus?.error)
   $: orderedLogs = [...logs].reverse()
   $: visibleLogs = orderedLogs.slice(0, 15)
 
@@ -175,6 +193,42 @@
         </div>
       </div>
     </div>
+    <button
+      class="status-card status-card--scip"
+      class:status-card--scip-indexing={scipStatus?.in_progress}
+      class:status-card--scip-error={scipHasError && !scipStatus?.in_progress}
+      type="button"
+      on:click={handleScipReindex}
+      disabled={scipStatus?.in_progress}
+    >
+      <span class="label">SCIP indexing</span>
+      {#if scipStatus?.in_progress}
+        <div class="scip-row">
+          <span class="scip-spinner" aria-hidden="true"></span>
+          <span class="scip-text">Indexing code ({scipLanguagesText})…</span>
+        </div>
+      {:else if scipHasError}
+        <div class="scip-row scip-row--error">
+          <span class="scip-icon" aria-hidden="true">!</span>
+          <span class="scip-text">{scipStatus?.error || 'SCIP indexing failed.'}</span>
+        </div>
+        <span class="scip-hint">Click to retry</span>
+      {:else if scipLastIndexedAt}
+        <div class="scip-row scip-row--ready">
+          <span class="scip-icon" aria-hidden="true">✓</span>
+          <span class="scip-text">Indexed {formatScipTime(scipLastIndexedAt)}</span>
+        </div>
+        {#if scipLanguages.length > 0}
+          <span class="scip-hint">{scipLanguages.join(', ')}</span>
+        {/if}
+      {:else}
+        <div class="scip-row">
+          <span class="scip-icon" aria-hidden="true">•</span>
+          <span class="scip-text">Not indexed yet</span>
+        </div>
+        <span class="scip-hint">Click to index</span>
+      {/if}
+    </button>
     {#if configExtractionCount > 0}
       <div class="status-card">
         <span class="label">Config extraction</span>
@@ -513,6 +567,77 @@
 
   .status-pill--git {
     color: var(--color-text-subtle);
+  }
+
+  .status-card--scip {
+    text-align: left;
+    width: 100%;
+    cursor: pointer;
+    transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+  }
+
+  .status-card--scip:disabled {
+    cursor: progress;
+    opacity: 0.9;
+  }
+
+  .status-card--scip:not(:disabled):hover {
+    transform: translateY(-1px);
+    box-shadow: 0 24px 60px rgba(var(--shadow-color-rgb), 0.12);
+  }
+
+  .status-card--scip-indexing {
+    border-color: rgba(var(--color-info-rgb), 0.45);
+  }
+
+  .status-card--scip-error {
+    border-color: rgba(var(--color-danger-rgb), 0.55);
+  }
+
+  .scip-row {
+    margin-top: 0.35rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    color: var(--color-text);
+  }
+
+  .scip-row--ready {
+    color: rgb(var(--color-success-rgb));
+  }
+
+  .scip-row--error {
+    color: rgb(var(--color-danger-rgb));
+  }
+
+  .scip-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(var(--color-info-rgb), 0.25);
+    border-top-color: rgb(var(--color-info-rgb));
+    border-radius: 50%;
+    animation: scip-spin 0.9s linear infinite;
+  }
+
+  .scip-icon {
+    font-size: 1.1rem;
+    line-height: 1;
+  }
+
+  .scip-text {
+    font-weight: 600;
+  }
+
+  .scip-hint {
+    margin-top: 0.2rem;
+    font-size: 0.9rem;
+    color: var(--color-text-subtle);
+  }
+
+  @keyframes scip-spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .dashboard__agents {

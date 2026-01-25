@@ -148,6 +148,16 @@ func EnsureIndexer(lang string) (string, error) {
 	return EnsureIndexerAtPath(lang, "")
 }
 
+// FindIndexerPath returns an existing indexer binary path without downloading it.
+// It returns an empty string when the indexer is not available locally.
+func FindIndexerPath(lang, repoRoot string) (string, error) {
+	indexer, err := findIndexer(lang)
+	if err != nil {
+		return "", err
+	}
+	return findExistingIndexer(indexer, repoRoot)
+}
+
 func EnsureIndexerAtPath(lang, repoRoot string) (string, error) {
 	indexer, err := findIndexer(lang)
 	if err != nil {

@@ -475,8 +475,19 @@
    - Executable runs standalone
    - Integrated into GNUmakefile
 
-** TODO [#A] Add async SCIP indexing on gestalt startup with dashboard UI
+** DONE [#A] Add async SCIP indexing on gestalt startup with dashboard UI
    Effort: 5-6 hours
+
+   Note (2026-01-25): async indexing lives in internal/scip/async_indexer.go as
+   AsyncIndexer because internal/scip/indexers.go already defines type Indexer.
+   The indexer honors language filters for merge inputs and exposes SetDependencies
+   so api-layer tests can stub indexer behavior without downloading binaries.
+
+   Note (2026-01-25): --noindex is implemented with env support (GESTALT_SCIP_NO_INDEX)
+   and disables both startup indexing and scip-auto-reindex wiring in server_command.
+
+   Note (2026-01-25): frontend uses the existing createWsStore helper name via
+   frontend/src/lib/scipStore.js and integrates scip status into dashboardStore.js.
    
    Why: Keep SCIP indexes fresh automatically; users expect navigation to work
    without manual reindexing. Show progress in dashboard for visibility.

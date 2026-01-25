@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -26,16 +27,16 @@ import (
 )
 
 const (
-	scipDefaultLimit            = 20
-	scipCacheTTL                = 30 * time.Second
-	scipCacheMaxEntries         = 256
-	scipAutoReindexAge          = 24 * time.Hour
-	scipReindexRecentThreshold  = 10 * time.Minute
-	scipReindexDebounce         = 2 * time.Minute
-	scipQueryFindSymbols        = "find_symbols"
-	scipQueryGetSymbol          = "get_symbol"
-	scipQueryReferences         = "get_references"
-	scipQueryFileSymbols        = "file_symbols"
+	scipDefaultLimit           = 20
+	scipCacheTTL               = 30 * time.Second
+	scipCacheMaxEntries        = 256
+	scipAutoReindexAge         = 24 * time.Hour
+	scipReindexRecentThreshold = 10 * time.Minute
+	scipReindexDebounce        = 2 * time.Minute
+	scipQueryFindSymbols       = "find_symbols"
+	scipQueryGetSymbol         = "get_symbol"
+	scipQueryReferences        = "get_references"
+	scipQueryFileSymbols       = "file_symbols"
 )
 
 type SCIPHandlerOptions struct {
@@ -44,11 +45,13 @@ type SCIPHandlerOptions struct {
 	AutoReindexMaxAge  time.Duration
 	WatchDebounce      time.Duration
 	EventBus           *event.Bus[watcher.Event]
+	SCIPEventBus       *event.Bus[event.SCIPEvent]
 	AutoReindexOnStart bool
 }
 
 type SCIPHandler struct {
 	indexPath   string
+	scipDir     string
 	logger      *logging.Logger
 	projectRoot string
 	indexErr    error
@@ -59,12 +62,13 @@ type SCIPHandler struct {
 	cache       *queryCache
 	rateLimiter *rate.Limiter
 
-	reindexMu   sync.Mutex
-	reindexing  bool
-	detectLangs func(string) ([]string, error)
-	runIndexer  func(string, string, string) error
-	convert     func(string, string) error
-	openIndex   func(string) (*scip.Index, error)
+	asyncIndexer    *scip.AsyncIndexer
+	detectLangs     func(string) ([]string, error)
+	findIndexerPath func(string, string) (string, error)
+	runIndexer      func(string, string, string) error
+	mergeIndexes    func([]string, string) error
+	convert         func(string, string) error
+	openIndex       func(string) (*scip.Index, error)
 
 	autoReindex       bool
 	autoReindexMaxAge time.Duration
@@ -75,12 +79,25 @@ type SCIPHandler struct {
 }
 
 type scipStatusResponse struct {
-	Indexed   bool   `json:"indexed"`
-	Fresh     bool   `json:"fresh"`
-	CreatedAt string `json:"created_at,omitempty"`
-	Documents int    `json:"documents"`
-	Symbols   int    `json:"symbols"`
-	AgeHours  int    `json:"age_hours"`
+	Indexed     bool     `json:"indexed"`
+	Fresh       bool     `json:"fresh"`
+	InProgress  bool     `json:"in_progress"`
+	StartedAt   string   `json:"started_at,omitempty"`
+	CompletedAt string   `json:"completed_at,omitempty"`
+	Duration    string   `json:"duration,omitempty"`
+	Error       string   `json:"error,omitempty"`
+	CreatedAt   string   `json:"created_at,omitempty"`
+	Documents   int      `json:"documents"`
+	Symbols     int      `json:"symbols"`
+	AgeHours    int      `json:"age_hours"`
+	Languages   []string `json:"languages,omitempty"`
+}
+
+type reindexResult struct {
+	Started  bool
+	Conflict bool
+	Recent   bool
+	Age      time.Duration
 }
 
 func NewSCIPHandler(indexPath string, logger *logging.Logger, options SCIPHandlerOptions) (*SCIPHandler, error) {
@@ -100,12 +117,15 @@ func NewSCIPHandler(indexPath string, logger *logging.Logger, options SCIPHandle
 
 	handler := &SCIPHandler{
 		indexPath:         indexPath,
+		scipDir:           filepath.Dir(indexPath),
 		logger:            logger,
 		projectRoot:       projectRoot,
 		cache:             newQueryCache(scipCacheTTL),
 		rateLimiter:       rate.NewLimiter(rate.Limit(20), 40),
 		detectLangs:       scip.DetectLanguages,
+		findIndexerPath:   scip.FindIndexerPath,
 		runIndexer:        scip.RunIndexer,
+		mergeIndexes:      scip.MergeIndexes,
 		convert:           scip.ConvertToSQLite,
 		openIndex:         scip.OpenIndex,
 		autoReindex:       options.AutoReindex,
@@ -113,6 +133,9 @@ func NewSCIPHandler(indexPath string, logger *logging.Logger, options SCIPHandle
 		watchDebounce:     options.WatchDebounce,
 	}
 	handler.enqueueReindex = handler.queueReindex
+	handler.asyncIndexer = scip.NewAsyncIndexer(logger, options.SCIPEventBus)
+	handler.asyncIndexer.SetOnSuccess(handler.reloadIndex)
+	handler.configureIndexer()
 
 	if handler.autoReindexMaxAge <= 0 {
 		handler.autoReindexMaxAge = scipAutoReindexAge
@@ -345,38 +368,80 @@ func (h *SCIPHandler) ReIndex(w http.ResponseWriter, r *http.Request) *apiError 
 	}
 
 	var req struct {
-		Path  string `json:"path"`
-		Force bool   `json:"force"`
+		Path      string   `json:"path"`
+		Force     bool     `json:"force"`
+		Languages []string `json:"languages"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
 		return &apiError{Status: http.StatusBadRequest, Message: "invalid request body"}
 	}
-	if strings.TrimSpace(req.Path) == "" {
+	path := strings.TrimSpace(req.Path)
+	if path == "" {
 		return &apiError{Status: http.StatusBadRequest, Message: "path is required"}
 	}
 
-	if !h.beginReindex() {
+	result, err := h.triggerReindex(path, req.Languages, req.Force)
+	if err != nil {
+		return &apiError{Status: http.StatusInternalServerError, Message: err.Error()}
+	}
+
+	if result.Conflict {
 		return &apiError{Status: http.StatusConflict, Message: "indexing already in progress"}
 	}
-
-	if !req.Force {
-		recent, age, err := h.recentIndexAge(scipReindexRecentThreshold)
-		if err != nil {
-			h.logWarn("scip metadata read failed", err)
-		} else if recent {
-			h.endReindex()
-			h.logWarn("scip reindex skipped (recent index)", nil)
-			writeJSON(w, http.StatusOK, map[string]any{
-				"status":  "recent",
-				"message": fmt.Sprintf("Index was created %s ago. Use force to reindex.", age.Round(time.Second)),
-			})
-			return nil
-		}
+	if result.Recent {
+		h.logWarn("scip reindex skipped (recent index)", nil)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status":  "recent",
+			"message": fmt.Sprintf("Index was created %s ago. Use force to reindex.", result.Age.Round(time.Second)),
+		})
+		return nil
 	}
 
-	go h.runReindex(strings.TrimSpace(req.Path))
-
 	writeJSON(w, http.StatusOK, map[string]string{"status": "indexing started"})
+	return nil
+}
+
+// POST /api/scip/reindex
+func (h *SCIPHandler) Reindex(w http.ResponseWriter, r *http.Request) *apiError {
+	if r.Method != http.MethodPost {
+		return methodNotAllowed(w, http.MethodPost)
+	}
+	if err := h.allowRequest(); err != nil {
+		return err
+	}
+
+	var req struct {
+		Path      string   `json:"path"`
+		Languages []string `json:"languages"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		return &apiError{Status: http.StatusBadRequest, Message: "invalid request body"}
+	}
+
+	path := strings.TrimSpace(req.Path)
+	if path == "" {
+		path = h.projectRoot
+	}
+	if strings.TrimSpace(path) == "" {
+		return &apiError{Status: http.StatusBadRequest, Message: "path is required"}
+	}
+
+	result, err := h.triggerReindex(path, req.Languages, true)
+	if err != nil {
+		return &apiError{Status: http.StatusInternalServerError, Message: err.Error()}
+	}
+	if result.Conflict {
+		return &apiError{Status: http.StatusConflict, Message: "indexing already in progress"}
+	}
+	if result.Recent {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status":  "recent",
+			"message": fmt.Sprintf("Index was created %s ago.", result.Age.Round(time.Second)),
+		})
+		return nil
+	}
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "indexing started"})
 	return nil
 }
 
@@ -397,41 +462,67 @@ func (h *SCIPHandler) Status(w http.ResponseWriter, r *http.Request) *apiError {
 	return nil
 }
 
-func (h *SCIPHandler) runReindex(path string) {
-	defer h.endReindex()
-
-	langs, err := h.detectLangs(path)
-	if err != nil {
-		h.logWarn("scip language detection failed", err)
-		return
+func (h *SCIPHandler) triggerReindex(path string, languages []string, force bool) (reindexResult, error) {
+	root := strings.TrimSpace(path)
+	if root == "" {
+		root = h.projectRoot
 	}
-	if len(langs) == 0 {
-		h.logWarn("scip reindex skipped (no languages detected)", nil)
-		return
+	if strings.TrimSpace(root) == "" {
+		return reindexResult{}, fmt.Errorf("path is required")
+	}
+	if h.asyncIndexer == nil {
+		return reindexResult{}, fmt.Errorf("scip indexer unavailable")
 	}
 
-	dbDir := filepath.Dir(h.indexPath)
-	scipPath := filepath.Join(dbDir, "index.scip")
-	for _, lang := range langs {
-		if err := h.runIndexer(lang, path, scipPath); err != nil {
-			h.logWarn(fmt.Sprintf("scip indexer failed (%s)", lang), err)
-			return
+	if status := h.asyncIndexer.Status(); status.InProgress {
+		return reindexResult{Conflict: true}, nil
+	}
+
+	if !force {
+		recent, age, err := h.recentIndexAge(scipReindexRecentThreshold)
+		if err != nil {
+			h.logWarn("scip metadata read failed", err)
+		} else if recent {
+			return reindexResult{Recent: true, Age: age}, nil
 		}
 	}
-	if err := h.convert(scipPath, h.indexPath); err != nil {
-		h.logWarn("scip index conversion failed", err)
+
+	h.configureIndexer()
+	started := h.asyncIndexer.StartAsync(scip.IndexRequest{
+		ProjectRoot: root,
+		ScipDir:     h.scipDir,
+		IndexPath:   h.indexPath,
+		Languages:   languages,
+		Merge:       true,
+	})
+	if !started {
+		return reindexResult{Conflict: true}, nil
+	}
+	return reindexResult{Started: true}, nil
+}
+
+func (h *SCIPHandler) configureIndexer() {
+	if h.asyncIndexer == nil {
 		return
 	}
-	meta, err := scip.BuildMetadata(path, langs)
-	if err != nil {
-		h.logWarn("scip metadata build failed", err)
-	} else if err := scip.SaveMetadata(h.indexPath, meta); err != nil {
-		h.logWarn("scip metadata write failed", err)
+	h.asyncIndexer.SetDependencies(scip.AsyncIndexerDeps{
+		DetectLanguages: h.detectLangs,
+		FindIndexerPath: h.findIndexerPath,
+		RunIndexer:      h.runIndexer,
+		MergeIndexes:    h.mergeIndexes,
+		ConvertToSQLite: h.convert,
+	})
+}
+
+func (h *SCIPHandler) reloadIndex(status scip.IndexStatus) error {
+	openIndex := h.openIndex
+	if openIndex == nil {
+		openIndex = scip.OpenIndex
 	}
-	index, err := h.openIndex(h.indexPath)
+	index, err := openIndex(status.IndexPath)
 	if err != nil {
 		h.logWarn("scip index reload failed", err)
-		return
+		return err
 	}
 
 	h.indexMu.Lock()
@@ -441,6 +532,32 @@ func (h *SCIPHandler) runReindex(path string) {
 	if oldIndex != nil {
 		_ = oldIndex.Close()
 	}
+	if h.cache != nil {
+		h.cache.clear()
+	}
+	return nil
+}
+
+func (h *SCIPHandler) StartAutoIndexing() bool {
+	if h.asyncIndexer == nil {
+		return false
+	}
+	status, err := h.buildStatus()
+	if err != nil {
+		h.logWarn("scip status check failed", err)
+	}
+	if status.InProgress {
+		return false
+	}
+	if status.Indexed && status.Fresh {
+		return false
+	}
+	result, err := h.triggerReindex(h.projectRoot, nil, true)
+	if err != nil {
+		h.logWarn("scip auto indexing failed", err)
+		return false
+	}
+	return result.Started
 }
 
 func (h *SCIPHandler) withIndex() (*scip.Index, *apiError) {
@@ -486,11 +603,40 @@ func (h *SCIPHandler) buildStatus() (scipStatusResponse, error) {
 	status := scipStatusResponse{
 		Indexed: indexed,
 	}
+	indexerStatus := scip.IndexStatus{}
+	if h.asyncIndexer != nil {
+		indexerStatus = h.asyncIndexer.Status()
+	}
+	status.InProgress = indexerStatus.InProgress
+	if !indexerStatus.StartedAt.IsZero() {
+		status.StartedAt = indexerStatus.StartedAt.UTC().Format(time.RFC3339)
+	}
+	if !indexerStatus.CompletedAt.IsZero() {
+		status.CompletedAt = indexerStatus.CompletedAt.UTC().Format(time.RFC3339)
+	}
+	duration := indexerStatus.Duration
+	if indexerStatus.InProgress && duration <= 0 && !indexerStatus.StartedAt.IsZero() {
+		duration = time.Since(indexerStatus.StartedAt)
+	}
+	if duration < 0 {
+		duration = 0
+	}
+	if duration > 0 {
+		status.Duration = duration.Round(time.Second).String()
+	}
+	if strings.TrimSpace(indexerStatus.Error) != "" {
+		status.Error = strings.TrimSpace(indexerStatus.Error)
+	}
+	if len(indexerStatus.Languages) > 0 {
+		status.Languages = append([]string(nil), indexerStatus.Languages...)
+	}
 
 	var createdAt time.Time
+	var metaLanguages []string
 	meta, metaErr := scip.LoadMetadata(h.indexPath)
 	if metaErr == nil && !meta.CreatedAt.IsZero() {
 		createdAt = meta.CreatedAt
+		metaLanguages = append([]string(nil), meta.Languages...)
 		if fresh, err := scip.IsFresh(meta); err == nil {
 			status.Fresh = fresh
 		}
@@ -514,10 +660,15 @@ func (h *SCIPHandler) buildStatus() (scipStatusResponse, error) {
 	if index != nil {
 		stats, err := index.GetStats()
 		if err != nil {
-			return status, err
+			h.logWarn("scip stats unavailable", err)
+		} else {
+			status.Documents = stats.Documents
+			status.Symbols = stats.Symbols
 		}
-		status.Documents = stats.Documents
-		status.Symbols = stats.Symbols
+	}
+
+	if len(status.Languages) == 0 && len(metaLanguages) > 0 {
+		status.Languages = metaLanguages
 	}
 
 	if !indexed {
@@ -534,6 +685,9 @@ func (h *SCIPHandler) maybeAutoReindex() {
 	status, err := h.buildStatus()
 	if err != nil {
 		h.logWarn("scip status check failed", err)
+		return
+	}
+	if status.InProgress {
 		return
 	}
 	if !status.Indexed {
@@ -578,10 +732,9 @@ func (h *SCIPHandler) scheduleReindex(path string) {
 }
 
 func (h *SCIPHandler) queueReindex(path string) {
-	if !h.beginReindex() {
-		return
+	if _, err := h.triggerReindex(path, nil, true); err != nil {
+		h.logWarn("scip reindex failed", err)
 	}
-	go h.runReindex(path)
 }
 
 func (h *SCIPHandler) shouldReindexForPath(path string) bool {
@@ -609,22 +762,6 @@ func (h *SCIPHandler) allowRequest() *apiError {
 		return nil
 	}
 	return &apiError{Status: http.StatusTooManyRequests, Message: "rate limit exceeded"}
-}
-
-func (h *SCIPHandler) beginReindex() bool {
-	h.reindexMu.Lock()
-	defer h.reindexMu.Unlock()
-	if h.reindexing {
-		return false
-	}
-	h.reindexing = true
-	return true
-}
-
-func (h *SCIPHandler) endReindex() {
-	h.reindexMu.Lock()
-	h.reindexing = false
-	h.reindexMu.Unlock()
 }
 
 func (h *SCIPHandler) logWarn(message string, err error) {
@@ -662,6 +799,15 @@ func (h *SCIPHandler) logIndexStatus() {
 	}
 	if status.AgeHours > 0 {
 		fields["age_hours"] = strconv.Itoa(status.AgeHours)
+	}
+	if len(status.Languages) > 0 {
+		fields["languages"] = strings.Join(status.Languages, ",")
+	}
+	if status.InProgress {
+		fields["in_progress"] = "true"
+	}
+	if strings.TrimSpace(status.Error) != "" {
+		fields["error"] = status.Error
 	}
 	h.logger.Info("scip index loaded", fields)
 	if !status.Fresh {
@@ -708,6 +854,17 @@ func newQueryCache(ttl time.Duration) *queryCache {
 		entries:    make(map[string]*list.Element),
 		order:      list.New(),
 	}
+}
+
+func (cache *queryCache) clear() {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	cache.entries = make(map[string]*list.Element)
+	if cache.order == nil {
+		cache.order = list.New()
+		return
+	}
+	cache.order.Init()
 }
 
 func (cache *queryCache) getSymbols(key string) ([]scip.Symbol, bool) {

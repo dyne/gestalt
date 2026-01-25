@@ -10,7 +10,9 @@ import {
   createTerminal,
   fetchLogs,
   fetchPlan,
+  fetchScipStatus,
   fetchStatus,
+  triggerScipReindex,
 } from '../src/lib/apiClient.js'
 
 describe('apiClient', () => {
@@ -25,6 +27,15 @@ describe('apiClient', () => {
 
     expect(result).toEqual({ ok: true })
     expect(apiFetch).toHaveBeenCalledWith('/api/status')
+  })
+
+  it('fetches scip status payloads', async () => {
+    apiFetch.mockResolvedValue({ json: vi.fn().mockResolvedValue({ indexed: true }) })
+
+    const result = await fetchScipStatus()
+
+    expect(result).toEqual({ indexed: true })
+    expect(apiFetch).toHaveBeenCalledWith('/api/scip/status')
   })
 
   it('builds log queries', async () => {
@@ -61,5 +72,14 @@ describe('apiClient', () => {
       allowNotModified: true,
       headers: { 'If-None-Match': '"etag"' },
     })
+  })
+
+  it('triggers scip reindex', async () => {
+    apiFetch.mockResolvedValue({ json: vi.fn().mockResolvedValue({ status: 'indexing started' }) })
+
+    const result = await triggerScipReindex()
+
+    expect(result).toEqual({ status: 'indexing started' })
+    expect(apiFetch).toHaveBeenCalledWith('/api/scip/reindex', { method: 'POST' })
   })
 })

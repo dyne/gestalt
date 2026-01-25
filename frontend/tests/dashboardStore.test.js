@@ -9,6 +9,26 @@ const subscribeAgentEvents = vi.hoisted(() => vi.fn())
 const subscribeConfigEvents = vi.hoisted(() => vi.fn())
 const subscribeEvents = vi.hoisted(() => vi.fn())
 const createLogStream = vi.hoisted(() => vi.fn())
+const scipStart = vi.hoisted(() => vi.fn(() => Promise.resolve()))
+const scipStop = vi.hoisted(() => vi.fn())
+const scipReindex = vi.hoisted(() => vi.fn(() => Promise.resolve()))
+const scipStatusSubscribe = vi.hoisted(() => vi.fn())
+const createScipStore = vi.hoisted(() => vi.fn())
+const initialScipStatus = vi.hoisted(() => ({
+  indexed: false,
+  fresh: false,
+  in_progress: false,
+  started_at: '',
+  completed_at: '',
+  duration: '',
+  error: '',
+  created_at: '',
+  documents: 0,
+  symbols: 0,
+  age_hours: 0,
+  languages: [],
+}))
+const scipStatusValue = vi.hoisted(() => ({ ...initialScipStatus }))
 
 vi.mock('../src/lib/apiClient.js', () => ({
   fetchAgents,
@@ -36,6 +56,11 @@ vi.mock('../src/lib/eventStore.js', () => ({
 
 vi.mock('../src/lib/logStream.js', () => ({
   createLogStream,
+}))
+
+vi.mock('../src/lib/scipStore.js', () => ({
+  createScipStore,
+  initialScipStatus,
 }))
 
 import { createDashboardStore } from '../src/lib/dashboardStore.js'
@@ -73,6 +98,18 @@ describe('dashboardStore', () => {
       restart: vi.fn(() => options?.onOpen?.()),
       setLevel: vi.fn(),
     }))
+    Object.assign(scipStatusValue, { ...initialScipStatus, languages: [] })
+    scipStatusSubscribe.mockImplementation((callback) => {
+      callback({ ...scipStatusValue })
+      return () => {}
+    })
+    createScipStore.mockImplementation(() => ({
+      status: { subscribe: scipStatusSubscribe },
+      start: scipStart,
+      stop: scipStop,
+      reindex: scipReindex,
+      connectionStatus: { subscribe: () => () => {} },
+    }))
   })
 
   afterEach(() => {
@@ -84,6 +121,11 @@ describe('dashboardStore', () => {
     subscribeConfigEvents.mockReset()
     subscribeEvents.mockReset()
     createLogStream.mockReset()
+    scipStart.mockReset()
+    scipStop.mockReset()
+    scipReindex.mockReset()
+    scipStatusSubscribe.mockReset()
+    createScipStore.mockReset()
   })
 
   it('loads agents and skills', async () => {
@@ -206,6 +248,32 @@ describe('dashboardStore', () => {
     value = get(store)
     expect(value.gitContext).toBe('origin/feature-x')
     store.stop()
+  })
+
+  it('starts the scip store and syncs status', async () => {
+    fetchAgents.mockResolvedValue([])
+    fetchMetricsSummary.mockResolvedValue({})
+
+    const store = createDashboardStore()
+    await store.start()
+
+    const value = get(store)
+    expect(scipStart).toHaveBeenCalledTimes(1)
+    expect(value.scipStatus.in_progress).toBe(false)
+    store.stop()
+  })
+
+  it('triggers scip reindex and reports errors', async () => {
+    const store = createDashboardStore()
+    await store.reindexScip()
+    expect(scipReindex).toHaveBeenCalledTimes(1)
+
+    scipReindex.mockRejectedValueOnce(new Error('scip down'))
+    await store.reindexScip()
+    expect(addNotification).toHaveBeenCalled()
+    const [level, message] = addNotification.mock.calls[0]
+    expect(level).toBe('error')
+    expect(message).toContain('scip down')
   })
 
   it('notifies on config conflicts and validation errors', async () => {

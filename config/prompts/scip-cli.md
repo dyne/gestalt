@@ -1,4 +1,4 @@
-# Code navigation
+# CODE NAVIGATION
 
 Use SCIP to search symbols, definitions, references, or file context.
 

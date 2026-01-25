@@ -14,6 +14,7 @@ import (
 	"gestalt/internal/agent"
 	"gestalt/internal/event"
 	"gestalt/internal/logging"
+	"gestalt/internal/ports"
 	"gestalt/internal/skill"
 )
 
@@ -244,8 +245,8 @@ func TestRenderOutputTailFiltersOutput(t *testing.T) {
 
 func (p *timingPty) Resize(cols, rows uint16) error { return nil }
 
-type timingFactory struct{
-	pty *timingPty
+type timingFactory struct {
+	pty       *timingPty
 	failAfter int
 }
 
@@ -733,6 +734,89 @@ func TestManagerInjectsTemplatePrompt(t *testing.T) {
 	}
 }
 
+func TestManagerInjectsPortDirectivePrompt(t *testing.T) {
+	root := t.TempDir()
+	promptsDir := filepath.Join(root, "config", "prompts")
+	if err := os.MkdirAll(promptsDir, 0755); err != nil {
+		t.Fatalf("mkdir prompts: %v", err)
+	}
+	portPrompt := filepath.Join(promptsDir, "port.tmpl")
+	if err := os.WriteFile(portPrompt, []byte("echo start\n{{port backend}}\necho end\n"), 0644); err != nil {
+		t.Fatalf("write prompt: %v", err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("restore cwd: %v", err)
+		}
+	}()
+
+	buffer := logging.NewLogBuffer(10)
+	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, nil)
+	factory := &captureFactory{}
+	registry := ports.NewPortRegistry()
+	registry.Set("backend", 18080)
+
+	manager := NewManager(ManagerOptions{
+		PtyFactory:   factory,
+		Logger:       logger,
+		PortResolver: registry,
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:    "Codex",
+				Shell:   "/bin/bash",
+				Prompts: agent.PromptList{"port"},
+				CLIType: "codex",
+			},
+		},
+	})
+
+	session, err := manager.Create("codex", "build", "ignored")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(session.ID)
+	}()
+
+	deadline := time.Now().Add(6 * time.Second)
+	expectedPrefix := "echo start\n18080\necho end\n"
+	promptDone := false
+	for time.Now().Before(deadline) {
+		factory.pty.mu.Lock()
+		writes := append([][]byte(nil), factory.pty.writes...)
+		factory.pty.mu.Unlock()
+		if len(writes) > 0 {
+			payload := ""
+			for _, chunk := range writes {
+				payload += string(chunk)
+			}
+			if len(payload) >= len(expectedPrefix) && !strings.HasPrefix(payload, expectedPrefix) {
+				t.Fatalf("prompt payload mismatch: %q", payload)
+			}
+			if !strings.HasSuffix(payload, "\r\n") {
+				time.Sleep(10 * time.Millisecond)
+				continue
+			}
+			promptDone = true
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !promptDone {
+		t.Fatalf("timed out waiting for prompt write")
+	}
+	if len(session.PromptFiles) != 1 || session.PromptFiles[0] != "port.tmpl" {
+		t.Fatalf("unexpected prompt files: %#v", session.PromptFiles)
+	}
+}
+
 func TestManagerWritesSkillsMetadata(t *testing.T) {
 	root := t.TempDir()
 	promptsDir := filepath.Join(root, "config", "prompts")
@@ -953,7 +1037,7 @@ func TestPromptInjectionTiming_WithMockAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
-	defer func(){ _ = manager.Delete(session.ID) }()
+	defer func() { _ = manager.Delete(session.ID) }()
 
 	// Wait for multiple chunk writes (promptDelay is 3s)
 	deadline := time.Now().Add(7 * time.Second)
@@ -961,7 +1045,9 @@ func TestPromptInjectionTiming_WithMockAgent(t *testing.T) {
 		factory.pty.mu.Lock()
 		count := len(factory.pty.writes)
 		factory.pty.mu.Unlock()
-		if count >= 2 { break }
+		if count >= 2 {
+			break
+		}
 		time.Sleep(10 * time.Millisecond)
 	}
 	factory.pty.mu.Lock()
@@ -980,7 +1066,9 @@ func TestPromptInjectionTiming_WithMockAgent(t *testing.T) {
 	}
 	// Ensure no skills XML is printed
 	payload := strings.Builder{}
-	for _, w := range writes { payload.Write(w) }
+	for _, w := range writes {
+		payload.Write(w)
+	}
 	if strings.Contains(payload.String(), "<available_skills>") {
 		t.Fatalf("unexpected skills metadata in payload: %q", payload.String())
 	}

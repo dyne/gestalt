@@ -9,6 +9,7 @@ import (
 
 	"gestalt/internal/agent"
 	"gestalt/internal/logging"
+	"gestalt/internal/ports"
 	"gestalt/internal/skill"
 	"gestalt/internal/temporal"
 	"gestalt/internal/terminal"
@@ -27,6 +28,7 @@ type BuildOptions struct {
 	InputHistoryDir      string
 	SessionRetentionDays int
 	BufferLines          int
+	PortResolver         ports.PortResolver
 }
 
 type BuildResult struct {
@@ -96,6 +98,7 @@ func Build(options BuildOptions) (*BuildResult, error) {
 		BufferLines:          options.BufferLines,
 		PromptFS:             configOverlay,
 		PromptDir:            path.Join(options.ConfigRoot, "prompts"),
+		PortResolver:         options.PortResolver,
 	})
 
 	return &BuildResult{

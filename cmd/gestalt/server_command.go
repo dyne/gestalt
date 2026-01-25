@@ -196,6 +196,7 @@ func runServer(args []string) int {
 		InputHistoryDir:      cfg.InputHistoryDir,
 		SessionRetentionDays: cfg.SessionRetentionDays,
 		BufferLines:          cfg.SessionBufferLines,
+		PortResolver:         portRegistry,
 	})
 	if err != nil {
 		var buildErr app.BuildError

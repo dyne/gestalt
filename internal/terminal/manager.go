@@ -18,6 +18,7 @@ import (
 	"gestalt/internal/agent"
 	"gestalt/internal/event"
 	"gestalt/internal/logging"
+	"gestalt/internal/ports"
 	"gestalt/internal/prompt"
 	"gestalt/internal/skill"
 	"gestalt/internal/temporal"
@@ -51,6 +52,7 @@ type ManagerOptions struct {
 	SessionRetentionDays int
 	PromptFS             fs.FS
 	PromptDir            string
+	PortResolver         ports.PortResolver
 }
 
 // Manager is safe for concurrent use; mu guards the sessions map and lifecycle.
@@ -76,6 +78,7 @@ type Manager struct {
 	sessionLogs     string
 	inputHistoryDir string
 	retentionDays   int
+	portResolver    ports.PortResolver
 	promptFS        fs.FS
 	promptDir       string
 	promptParser    *prompt.Parser
@@ -178,7 +181,8 @@ func NewManager(opts ManagerOptions) *Manager {
 	if promptFS != nil {
 		promptDir = filepath.ToSlash(promptDir)
 	}
-	promptParser := prompt.NewParser(promptFS, promptDir, ".", nil)
+	portResolver := opts.PortResolver
+	promptParser := prompt.NewParser(promptFS, promptDir, ".", portResolver)
 
 	agentBus := event.NewBus[event.AgentEvent](context.Background(), event.BusOptions{
 		Name: "agent_events",
@@ -221,6 +225,7 @@ func NewManager(opts ManagerOptions) *Manager {
 		sessionLogs:     sessionLogs,
 		inputHistoryDir: inputHistoryDir,
 		retentionDays:   retentionDays,
+		portResolver:    portResolver,
 		promptFS:        promptFS,
 		promptDir:       promptDir,
 		promptParser:    promptParser,

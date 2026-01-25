@@ -1,3 +1,169 @@
+* WIP [#B] Port templating directives for runtime service discovery
+  Effort: 2-3 days
+  Goal: Extend prompt template parser to support {{port <service>}} directives that resolve to runtime-allocated port numbers for backend, temporal, otel, and frontend services.
+  Notes:
+  - Current: {{include file}} directive for composing prompts from fragments
+  - New: {{port backend}}, {{port temporal}}, {{port otel}}, {{port frontend}} directives
+  - Motivation: Agents need to know service ports for API calls, workflow queries, telemetry
+  - All daemon ports randomized at startup to allow multiple Gestalt instances in parallel
+  - Port registry: centralized runtime store of service→port mappings
+  - Parser receives port resolver function/interface at construction (dependency injection)
+  - Directive syntax: {{port <service-name>}} on its own line (like includes)
+  - Resolution: replace directive line with port number as plain text (e.g., "8080")
+  - Services: backend (REST/WS), temporal (Temporal UI), otel (collector HTTP), frontend (proxy)
+  - Future-proof: registry allows adding new services without parser changes
+  - Error handling: unknown service → skip directive silently (same as failed includes)
+  - Architecture: prompt.Parser gets PortResolver interface, server startup populates registry
+  - Testing: mock PortResolver for deterministic tests, integration test with real server ports
+  Date: 2026-01-25
+  Priority: [#B] - enables agents to discover services dynamically in multi-instance deployments
+
+** WIP [#B] Design port registry and resolver interface
+   Effort: 2-3 hours
+   Why: Need clean abstraction for service→port lookups that parser and server can share
+   Change:
+   - Create internal/ports package with PortRegistry and PortResolver interfaces
+   - PortRegistry: mutable map with Set(service, port), Get(service) methods
+   - Thread-safe with sync.RWMutex for concurrent reads from prompt rendering
+   - PortResolver: read-only interface with single Get(service) (int, bool) method
+   - Parser depends only on PortResolver (narrow interface, testable)
+   - Service names: "backend", "frontend", "temporal", "otel" (lowercase, extensible)
+   - Registry singleton or passed via server context (decide in implementation)
+   - Document service naming conventions: lowercase, no spaces, descriptive
+   Tests: Unit tests for registry Set/Get, concurrent access, unknown services
+   Done when: Port registry exists with clean resolver interface for parser
+
+** TODO [#B] Extend prompt parser to accept PortResolver
+   Effort: 3-4 hours
+   Why: Parser needs port information at render time to resolve {{port}} directives
+   Change:
+   - Add PortResolver field to Parser struct (optional, can be nil)
+   - Update NewParser signature: NewParser(promptFS, promptDir, includeRoot, resolver PortResolver)
+   - Existing callers without port support: pass nil resolver (backward compat)
+   - In renderFile loop: detect {{port <service>}} directives alongside {{include}}
+   - Add parsePortDirective(line string) (service string, ok bool) helper
+   - Directive syntax: "{{port backend}}" → extract "backend" as service name
+   - Validation: service name must be single word (no spaces), 1-32 chars
+   - If resolver is nil: skip port directives silently (no error)
+   - If resolver is non-nil but service unknown: skip directive silently
+   Tests: Unit tests for parsePortDirective, various formats, edge cases
+   Done when: Parser recognizes port directives and parses service names
+
+** TODO [#B] Implement port directive resolution in render loop
+   Effort: 2-3 hours
+   Why: Replace {{port}} directives with actual port numbers during template rendering
+   Change:
+   - In renderFile line-processing loop (after include check):
+   - Check if parsePortDirective(line) succeeds
+   - If yes and resolver non-nil: call resolver.Get(service)
+   - If port found: write port as string to output (fmt.Sprintf("%d", port))
+   - If port not found or resolver nil: skip directive line entirely (silent)
+   - Preserve line ordering: port replacement happens inline, not appended
+   - Add newline after port number to match line-based parsing
+   - Update RenderResult.Files: port directives don't add files (not includes)
+   Tests: Unit tests with mock resolver, verify port numbers appear in output
+   Done when: {{port backend}} in template renders as "8080" (from mock resolver)
+
+** TODO [#B] Populate port registry at server startup
+   Effort: 3-4 hours
+   Why: Server knows all allocated ports after daemon startup, must register them
+   Change:
+   - Create global or context-scoped PortRegistry in cmd/gestalt/server_command.go
+   - After backend listener created: registry.Set("backend", backendPort)
+   - After frontend server created: registry.Set("frontend", cfg.FrontendPort)
+   - After temporal dev server started: registry.Set("temporal", temporalUIPort)
+   - After otel collector started: registry.Set("otel", collectorHTTPPort)
+   - Extract port from listener/config/daemon structs (varies by service)
+   - Temporal UI port: read from temporalDevServer struct or config
+   - OTel port: read from collector options or running process
+   - Pass registry to app.Build or Manager creation (decide on wiring)
+   - Manager/Session needs registry to pass to prompt parser
+   Tests: Integration test verifying registry populated after startup
+   Done when: All service ports registered and available for lookup
+
+** TODO [#B] Wire port resolver into prompt rendering flow
+   Effort: 2-3 hours
+   Why: Manager/Session prompt rendering must use port-aware parser
+   Change:
+   - Update Manager to hold PortResolver reference (passed via ManagerOptions)
+   - Update Manager.readPromptFile to create Parser with resolver
+   - Current: NewParser(m.promptFS, m.promptDir, m.includeRoot)
+   - New: NewParser(m.promptFS, m.promptDir, m.includeRoot, m.portResolver)
+   - Session prompt injection receives resolved ports in rendered content
+   - Add PortResolver to ManagerOptions struct (optional field)
+   - Nil resolver is valid (ports not available, directives skipped)
+   Tests: Manager test with mock resolver, verify ports in prompt output
+   Done when: Agent prompts contain actual port numbers when {{port}} used
+
+** TODO [#C] Add tests for port directive rendering
+   Effort: 2-3 hours
+   Why: Ensure directive parsing and resolution work correctly in all scenarios
+   Change:
+   - Add test template: "API: {{port backend}}\nTemporal: {{port temporal}}"
+   - Mock resolver returns: backend=8080, temporal=7233, otel=4318
+   - Verify rendered output contains port numbers as plain text
+   - Test unknown service: {{port unknown}} → directive line skipped
+   - Test nil resolver: all directives skipped silently
+   - Test mixed template: includes + port directives in same file
+   - Test nested templates: port directives in included files work
+   - Add integration test: server startup → agent prompt → verify real ports
+   Tests: All test scenarios pass, parser_test.go and integration tests
+   Done when: Port directive feature has comprehensive test coverage
+
+** TODO [#C] Document port directive syntax and available services
+   Effort: 1-2 hours
+   Why: Users and LLMs need to know how to use port directives in prompts
+   Change:
+   - Update AGENTS.md prompt templating section with {{port}} directive
+   - Document syntax: "{{port <service>}}" on its own line
+   - List available services: backend, frontend, temporal, otel
+   - Explain use case: "Agents can query services using dynamic ports"
+   - Add example template showing port usage for API calls
+   - Document behavior: unknown services skipped silently
+   - Document multi-instance: ports randomized, agents get correct local ports
+   - Note: port directives only work when services are running
+   Tests: None (documentation only)
+   Done when: Port directive feature documented in AGENTS.md
+
+** TODO [#C] Add example prompt using port directives
+   Effort: 1 hour
+   Why: Demonstrate real-world usage of port directives in agent prompts
+   Change:
+   - Create example prompt: config/prompts/service-discovery.tmpl
+   - Content: API documentation referencing {{port backend}}
+   - Example: "Backend API: http://localhost:{{port backend}}/api/status"
+   - Example: "Temporal UI: http://localhost:{{port temporal}}"
+   - Example: "OpenTelemetry: http://localhost:{{port otel}}/v1/logs"
+   - Update example agent config to include service-discovery prompt
+   - Verify agent receives correct ports when prompt is rendered
+   Tests: Manual test with example agent, verify ports in terminal
+   Done when: Example prompt demonstrates port directive usage
+
+** TODO [#C] Consider adding port directive to skill XML (future)
+   Effort: 2-3 hours (future work)
+   Why: Skills may also need service port information for tool definitions
+   Change:
+   - Skill XML generation could benefit from port substitution
+   - Example: <api>http://localhost:{{port backend}}/api/skills</api>
+   - Requires: skill renderer to use same port resolver as prompt parser
+   - This is future enhancement; prompts are sufficient for initial implementation
+   - Document design consideration in this L2 for future reference
+   Tests: None (future work)
+   Done when: Design documented for future skill port support (optional)
+
+** TODO [#C] Handle edge case: daemon not started (port unavailable)
+   Effort: 1-2 hours
+   Why: Port directives should fail gracefully when services aren't running
+   Change:
+   - Current design: unknown service → skip directive silently
+   - Consider: add logging when port requested but service not registered
+   - Log at debug level: "port directive for 'temporal' skipped, service not available"
+   - Helps users debug why agent prompt doesn't contain expected ports
+   - Alternative: add metadata to rendered result indicating skipped directives
+   - Decision: silent skip is consistent with include behavior (decided above)
+   Tests: Test prompt with {{port temporal}} when Temporal not running
+   Done when: Graceful handling of unavailable services documented and tested
+
 * TODO [#B] Add Web Speech API voice dictation to agent input
   Effort: 2-3 days
   Goal: Integrate browser Web Speech API (SpeechRecognition) for voice-to-text dictation in agent command input boxes.

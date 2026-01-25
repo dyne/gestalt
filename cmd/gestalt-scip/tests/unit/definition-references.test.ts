@@ -124,6 +124,65 @@ test('referencesCommand returns references and excludes definitions', async () =
   );
 });
 
+test('definitionCommand supports TOON output format', async () => {
+  const definitionCommand = await loadDefinitionCommand();
+  const { scipDir } = createTempRepo();
+
+  const symbolId = 'scip-go gomod example v1 `internal/terminal`/Manager#';
+  const document = {
+    relativePath: 'internal/terminal/manager.go',
+    language: 'go',
+    symbols: [
+      {
+        symbol: symbolId,
+        documentation: ['```go\ntype Manager struct\n```'],
+        kind: 49,
+      },
+    ],
+    occurrences: [{ symbol: symbolId, symbolRoles: 1, range: [3, 0, 3, 7] }],
+  };
+
+  writeIndex(path.join(scipDir, 'index-go.scip'), [document]);
+
+  const output = await captureOutput(() =>
+    definitionCommand(symbolId, { scip: scipDir, format: 'toon' })
+  );
+
+  assert.match(output, /name: Manager/);
+  assert.match(output, /file_path: internal\/terminal\/manager.go/);
+});
+
+test('referencesCommand supports TOON output format', async () => {
+  const referencesCommand = await loadReferencesCommand();
+  const { scipDir } = createTempRepo();
+
+  const symbolId = 'scip-go gomod example v1 `internal/terminal`/Manager#';
+  const document = {
+    relativePath: 'internal/terminal/manager.go',
+    language: 'go',
+    symbols: [
+      {
+        symbol: symbolId,
+        documentation: ['```go\ntype Manager struct\n```'],
+        kind: 49,
+      },
+    ],
+    occurrences: [
+      { symbol: symbolId, symbolRoles: 1, range: [3, 0, 3, 7] },
+      { symbol: symbolId, symbolRoles: 0, range: [10, 2, 10, 9] },
+    ],
+  };
+
+  writeIndex(path.join(scipDir, 'index-go.scip'), [document]);
+
+  const output = await captureOutput(() =>
+    referencesCommand(symbolId, { scip: scipDir, format: 'toon' })
+  );
+
+  assert.match(output, /symbol: scip-go/);
+  assert.match(output, /references\[/);
+});
+
 test('definitionCommand reports missing symbols clearly', async () => {
   const definitionCommand = await loadDefinitionCommand();
   const { scipDir } = createTempRepo();

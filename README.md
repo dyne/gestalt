@@ -657,7 +657,7 @@ Usage:
 Options:
 - `--scip <path>`: path to a SCIP file or directory
 - `--language <lang>`: filter by language (for example `go`, `typescript`, `python`)
-- `--format <fmt>`: output format (`json` or `text`)
+- `--format <fmt>`: output format (`json`, `text`, or `toon`)
 
 ## License
 

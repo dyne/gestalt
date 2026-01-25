@@ -109,6 +109,35 @@ test('filesCommand includes occurrences when --symbols is set', async () => {
   assert.ok(payload.occurrences.some((occurrence: any) => occurrence.kind === 'definition'));
 });
 
+test('filesCommand supports TOON output format', async () => {
+  const filesCommand = await loadFilesCommand();
+  const { scipDir } = createTempRepo();
+
+  const symbolId = 'scip-go gomod example v1 `internal/terminal`/Manager#';
+  const document = {
+    relativePath: 'internal/terminal/manager.go',
+    language: 'go',
+    text: 'package terminal\n\ntype Manager struct{}',
+    symbols: [
+      {
+        symbol: symbolId,
+        documentation: ['```go\ntype Manager struct\n```'],
+        kind: 49,
+      },
+    ],
+    occurrences: [{ symbol: symbolId, symbolRoles: 1, range: [2, 0, 2, 7] }],
+  };
+
+  writeIndex(path.join(scipDir, 'index-go.scip'), [document]);
+
+  const output = await captureOutput(() =>
+    filesCommand('internal/terminal/manager.go', { scip: scipDir, format: 'toon' })
+  );
+
+  assert.match(output, /path: internal\/terminal\/manager.go/);
+  assert.match(output, /symbols\[/);
+});
+
 test('filesCommand reports missing files clearly', async () => {
   const filesCommand = await loadFilesCommand();
   const { scipDir } = createTempRepo();

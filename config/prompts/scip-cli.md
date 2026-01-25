@@ -31,6 +31,7 @@ CLI binary: `gestalt-scip`
 ## Output formats
 - Use `--format json` for machine-readable output you can parse and reuse.
 - Use `--format text` for quick human inspection.
+- Use `--format toon` for compact tabular output derived from the JSON payload.
 
 ## Index freshness and warnings
 - The server indexes asynchronously on startup unless `--noindex` (or

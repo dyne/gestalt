@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { encode } from '@toon-format/toon';
 
-export type OutputFormat = 'json' | 'text';
+export type OutputFormat = 'json' | 'text' | 'toon';
 
 export interface SymbolResult {
   id: string;
@@ -37,29 +38,32 @@ export interface FileResult {
 }
 
 export function normalizeFormat(format?: string): OutputFormat {
-  return format === 'json' ? 'json' : 'text';
+  if (!format) {
+    return 'text';
+  }
+  const normalized = format.toLowerCase();
+  if (normalized === 'json' || normalized === 'text' || normalized === 'toon') {
+    return normalized;
+  }
+  throw new Error(`Unsupported format "${format}". Expected one of: json, text, toon.`);
 }
 
 export function formatSymbols(query: string, symbols: SymbolResult[], format: OutputFormat): string {
-  return format === 'json' ? formatSymbolsJson(query, symbols) : formatSymbolsText(query, symbols);
+  const payload = { query, symbols };
+  return renderStructured(payload, format, () => formatSymbolsText(query, symbols));
 }
 
 export function formatDefinition(symbol: SymbolResult, format: OutputFormat): string {
-  return format === 'json' ? JSON.stringify(symbol, null, 2) : formatDefinitionText(symbol);
+  return renderStructured(symbol, format, () => formatDefinitionText(symbol));
 }
 
 export function formatReferences(symbolId: string, references: ReferenceResult[], format: OutputFormat): string {
-  return format === 'json'
-    ? JSON.stringify({ symbol: symbolId, references }, null, 2)
-    : formatReferencesText(symbolId, references);
+  const payload = { symbol: symbolId, references };
+  return renderStructured(payload, format, () => formatReferencesText(symbolId, references));
 }
 
 export function formatFile(file: FileResult, format: OutputFormat): string {
-  return format === 'json' ? JSON.stringify(file, null, 2) : formatFileText(file);
-}
-
-function formatSymbolsJson(query: string, symbols: SymbolResult[]): string {
-  return JSON.stringify({ query, symbols }, null, 2);
+  return renderStructured(file, format, () => formatFileText(file));
 }
 
 function formatSymbolsText(query: string, symbols: SymbolResult[]): string {
@@ -151,6 +155,16 @@ function formatFileText(file: FileResult): string {
   }
 
   return lines.join('\n');
+}
+
+function renderStructured(payload: unknown, format: OutputFormat, renderText: () => string): string {
+  if (format === 'text') {
+    return renderText();
+  }
+  if (format === 'json') {
+    return JSON.stringify(payload, null, 2);
+  }
+  return encode(payload);
 }
 
 function displayLine(line: number): number {

@@ -776,7 +776,38 @@
    - cd frontend && npm test
    - cd cmd/gestalt-scip && npm test
 
+  Done when:
+  - scip-cli.md exists alongside scip.tmpl
+  - Instructions are CLI-first and LLM-friendly
+  - All tests pass
+
+** [#B] Add TOON output format to gestalt-scip CLI
+   Effort: 1-2 hours
+
+   Why: TOON provides a compact, tabular output that is easy to scan for
+   humans while still being derived from the structured JSON responses.
+
+   Change:
+   1. Add @toon-format/toon dependency to cmd/gestalt-scip package.json
+   2. Extend formatter output type and normalization:
+      - Support 'toon' alongside 'json' and 'text'
+      - Validate --format and return a clear error for unsupported values
+   3. Render TOON from the same JSON payloads used by JSON output:
+      - symbols: encode({ query, symbols })
+      - definition: encode(symbol)
+      - references: encode({ symbol, references })
+      - files: encode(file)
+   4. Update CLI help text to advertise json|text|toon
+   5. Update README/docs examples to include --format toon
+
+   Tests:
+   - cmd/gestalt-scip unit tests cover 'toon' formatting for each command
+   - Invalid --format values return a helpful error
+   - cd cmd/gestalt-scip && npm test
+   - GOMODCACHE=/tmp/gomodcache GOPATH=/tmp/gopath GOCACHE=/tmp/gocache /usr/local/go/bin/go test ./...
+
    Done when:
-   - scip-cli.md exists alongside scip.tmpl
-   - Instructions are CLI-first and LLM-friendly
-   - All tests pass
+   - gestalt-scip supports --format toon across all commands
+   - TOON output is derived from JSON payloads via @toon-format/toon encode()
+   - Help text and docs mention toon
+   - Tests pass

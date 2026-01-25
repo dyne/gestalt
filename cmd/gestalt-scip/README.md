@@ -14,6 +14,7 @@ Search for symbols:
 ```bash
 gestalt-scip symbols Manager
 gestalt-scip symbols Manager --language go --limit 50 --format json
+gestalt-scip symbols Manager --format toon
 ```
 
 Get symbol definition:
@@ -35,6 +36,7 @@ gestalt-scip files internal/terminal/manager.go --symbols --format json
 
 - `json`: machine-readable output that matches the gestalt SCIP API schema
 - `text`: human-readable output with context
+- `toon`: compact tabular output rendered from the JSON payload
 
 ## Development
 

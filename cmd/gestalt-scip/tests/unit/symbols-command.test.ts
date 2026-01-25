@@ -152,3 +152,31 @@ test('symbolsCommand provides readable text output', async () => {
   assert.match(output, /internal\/terminal\/manager.go:5/);
   assert.match(output, /type Manager struct/);
 });
+
+test('symbolsCommand supports TOON output format', async () => {
+  const symbolsCommand = await loadSymbolsCommand();
+  const { scipDir } = createTempRepo();
+
+  const goSymbol = 'scip-go gomod example v1 `internal/terminal`/Manager#';
+  writeIndex(path.join(scipDir, 'index-go.scip'), [
+    makeDocument('internal/terminal/manager.go', 'go', goSymbol, 49, '```go\ntype Manager struct\n```', 4),
+  ]);
+
+  const output = await captureOutput(() =>
+    symbolsCommand('Manager', { scip: scipDir, format: 'toon' })
+  );
+
+  assert.match(output, /query: Manager/);
+  assert.match(output, /symbols\[/);
+});
+
+test('symbolsCommand rejects unsupported output formats', async () => {
+  const symbolsCommand = await loadSymbolsCommand();
+  const { scipDir } = createTempRepo();
+  writeIndex(path.join(scipDir, 'index-go.scip'), []);
+
+  await assert.rejects(
+    () => symbolsCommand('Manager', { scip: scipDir, format: 'yaml' }),
+    /Unsupported format/
+  );
+});

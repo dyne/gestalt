@@ -304,7 +304,7 @@
    - --language filtering works correctly
    - Multi-language merge works by default
 
-** TODO [#A] Implement definition and references commands
+** DONE [#A] Implement definition and references commands
    Effort: 3-4 hours
    
    Why: Complete symbol navigation needs definition lookup and references

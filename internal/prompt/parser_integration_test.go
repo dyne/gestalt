@@ -272,6 +272,38 @@ func TestRenderFromEmbeddedFS(t *testing.T) {
 	}
 }
 
+type embeddedPortResolver struct {
+	ports map[string]int
+}
+
+func (resolver *embeddedPortResolver) Get(service string) (int, bool) {
+	port, found := resolver.ports[service]
+	return port, found
+}
+
+func TestRenderServiceDiscoveryFromEmbeddedFS(t *testing.T) {
+	resolver := &embeddedPortResolver{
+		ports: map[string]int{
+			"backend":  8080,
+			"frontend": 57417,
+			"temporal": 7233,
+			"otel":     4318,
+		},
+	}
+	parser := NewParser(embeddedConfigFS(t), "config/prompts", ".", resolver)
+	result, err := parser.Render("service-discovery")
+	if err != nil {
+		t.Fatalf("render service-discovery: %v", err)
+	}
+	expectedContent := "Service ports:\nbackend\n8080\nfrontend\n57417\ntemporal\n7233\notel\n4318\n"
+	if string(result.Content) != expectedContent {
+		t.Fatalf("unexpected content: %q", string(result.Content))
+	}
+	if len(result.Files) != 1 || result.Files[0] != "service-discovery.tmpl" {
+		t.Fatalf("unexpected files: %#v", result.Files)
+	}
+}
+
 func TestRenderOverlayFSUsesExternal(t *testing.T) {
 	externalRoot := t.TempDir()
 	promptsDir := filepath.Join(externalRoot, "config", "prompts")

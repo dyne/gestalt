@@ -79,6 +79,27 @@ func TestRenderMarkdownPortDirective(t *testing.T) {
 	}
 }
 
+func TestRenderTextPortDirective(t *testing.T) {
+	resolver := &mockPortResolver{
+		ports: map[string]int{
+			"backend": 8080,
+		},
+	}
+	parser := newTestParserWithResolver(resolver)
+	result, err := parser.Render("text-port")
+	if err != nil {
+		t.Fatalf("render text-port: %v", err)
+	}
+	expectedContent := "Port:\n8080\n"
+	if string(result.Content) != expectedContent {
+		t.Fatalf("unexpected content: %q", string(result.Content))
+	}
+	expectedFiles := []string{"text-port.txt"}
+	if !reflect.DeepEqual(result.Files, expectedFiles) {
+		t.Fatalf("unexpected files: %#v", result.Files)
+	}
+}
+
 func TestRenderDirectiveRequiresOwnLine(t *testing.T) {
 	parser := newTestParser()
 	result, err := parser.Render("inline-directive")

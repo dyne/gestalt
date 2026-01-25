@@ -26,6 +26,12 @@
     return 'Voice recognition error.'
   }
 
+  const vibrate = (pattern) => {
+    if (typeof navigator === 'undefined') return
+    if (typeof navigator.vibrate !== 'function') return
+    navigator.vibrate(pattern)
+  }
+
   const handleResult = (event) => {
     const transcripts = []
     for (let index = event.resultIndex; index < event.results.length; index += 1) {
@@ -94,11 +100,13 @@
     recognition.onstart = () => {
       isListening = true
       errorMessage = ''
+      vibrate(10)
       dispatch('start')
     }
 
     recognition.onend = () => {
       isListening = false
+      vibrate(10)
       dispatch('stop')
     }
 
@@ -241,5 +249,17 @@
       transform: scale(1.1);
     }
   }
-</style>
 
+  @media (max-width: 640px) {
+    .voice-input {
+      width: 3rem;
+      height: 3rem;
+      border-radius: 14px;
+    }
+
+    .voice-input__icon {
+      width: 1.25rem;
+      height: 1.25rem;
+    }
+  }
+</style>

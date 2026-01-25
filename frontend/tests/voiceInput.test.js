@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import VoiceInput from '../src/components/VoiceInput.svelte'
 
+let vibrateMock = null
+
 class MockSpeechRecognition {
   constructor() {
     globalThis.__lastRecognition = this
@@ -42,9 +44,22 @@ describe('VoiceInput', () => {
   beforeEach(() => {
     vi.stubGlobal('SpeechRecognition', MockSpeechRecognition)
     vi.stubGlobal('__lastRecognition', null)
+    vibrateMock = vi.fn()
+    try {
+      Object.defineProperty(navigator, 'vibrate', { value: vibrateMock, configurable: true })
+    } catch (error) {
+      navigator.vibrate = vibrateMock
+    }
   })
 
   afterEach(() => {
+    if (navigator.vibrate === vibrateMock) {
+      try {
+        delete navigator.vibrate
+      } catch (error) {
+        navigator.vibrate = undefined
+      }
+    }
     vi.unstubAllGlobals()
     cleanup()
   })
@@ -56,6 +71,7 @@ describe('VoiceInput', () => {
     const button = getByRole('button', { name: /start voice input/i })
     await fireEvent.click(button)
 
+    expect(vibrateMock).toHaveBeenCalledWith(10)
     globalThis.__lastRecognition.emitResult('hello world')
 
     expect(onTranscript).toHaveBeenCalledWith('hello world')

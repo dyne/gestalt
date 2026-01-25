@@ -13,7 +13,7 @@
   Priority: [#A] - performance regression blocking production use
   Resolution: Fixed in commit 01b64ce
 
-** TODO [#A] Identify root cause via code inspection
+** DONE [#A] Identify root cause via code inspection
    Effort: 2-3 hours
    Why: Can't fix what we can't measure; need runtime profiling data to identify hot paths
    Change:
@@ -27,7 +27,7 @@
    Tests: Start gestalt with --pprof, curl /debug/pprof/profile, verify profile downloads
    Done when: Can capture CPU profiles from running gestalt process
 
-** TODO [#A] Capture and analyze baseline CPU profile
+** DONE [#A] Capture and analyze baseline CPU profile
    Effort: 1-2 hours
    Why: Need to see what functions are consuming CPU in idle state
    Change:
@@ -46,7 +46,7 @@
    Tests: Profile analysis documented with top CPU consumers identified
    Done when: Root cause identified with concrete function names and call stacks
 
-** TODO [#A] Fix identified CPU hotspot
+** DONE [#A] Fix identified CPU hotspot
    Effort: varies (2 hours - 1 day depending on cause)
    Why: Eliminate the busy-wait or excessive polling that's burning CPU
    Change:
@@ -66,7 +66,7 @@
    Tests: Unit tests for fixed component; go test ./...
    Done when: Fix implemented, tests pass, ready for verification
 
-** TODO [#B] Verify CPU usage fix with profiling
+** WIP [#B] Verify CPU usage fix with profiling
    Effort: 1 hour
    Why: Confirm fix actually reduced CPU usage to acceptable levels
    Change:
@@ -7745,7 +7745,7 @@
    - Idle CPU usage reduced and profile confirms hot path resolved
    - Tests pass
 
-** TODO [#B] Add regression coverage for idle CPU behavior
+** DONE [#B] Add regression coverage for idle CPU behavior
    Effort: 2-4 hours
    Change:
    - Add tests that ensure loops back off when idle (time-based or event-driven)

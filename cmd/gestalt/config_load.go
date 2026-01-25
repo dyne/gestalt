@@ -44,6 +44,7 @@ type Config struct {
 	ConfigBackupLimit    int
 	DevMode              bool
 	MaxWatches           int
+	PprofEnabled         bool
 	Verbose              bool
 	Quiet                bool
 	ShowVersion          bool
@@ -80,6 +81,7 @@ type configDefaults struct {
 	ConfigBackupLimit    int
 	DevMode              bool
 	MaxWatches           int
+	PprofEnabled         bool
 	ForceUpgrade         bool
 }
 
@@ -103,6 +105,7 @@ type flagValues struct {
 	ConfigDir            string
 	ConfigBackupLimit    int
 	MaxWatches           int
+	PprofEnabled         bool
 	Verbose              bool
 	Quiet                bool
 	Help                 bool
@@ -458,6 +461,21 @@ func loadConfig(args []string) (Config, error) {
 	cfg.MaxWatches = maxWatches
 	cfg.Sources["max-watches"] = maxWatchesSource
 
+	pprofEnabled := defaults.PprofEnabled
+	pprofSource := sourceDefault
+	if rawEnabled := strings.TrimSpace(os.Getenv("GESTALT_PPROF_ENABLED")); rawEnabled != "" {
+		if parsed, err := strconv.ParseBool(rawEnabled); err == nil {
+			pprofEnabled = parsed
+			pprofSource = sourceEnv
+		}
+	}
+	if flags.Set["pprof"] {
+		pprofEnabled = flags.PprofEnabled
+		pprofSource = sourceFlag
+	}
+	cfg.PprofEnabled = pprofEnabled
+	cfg.Sources["pprof"] = pprofSource
+
 	verboseSource := sourceDefault
 	cfg.Verbose = flags.Verbose
 	if flags.Set["verbose"] {
@@ -513,6 +531,7 @@ func defaultConfigValues() configDefaults {
 		ConfigBackupLimit:    1,
 		DevMode:              false,
 		MaxWatches:           100,
+		PprofEnabled:         false,
 		ForceUpgrade:         false,
 	}
 }
@@ -542,6 +561,7 @@ func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
 	configDir := fs.String("config-dir", defaults.ConfigDir, "Config directory")
 	configBackupLimit := fs.Int("config-backup-limit", defaults.ConfigBackupLimit, "Config backup limit")
 	maxWatches := fs.Int("max-watches", defaults.MaxWatches, "Max active watches")
+	pprofEnabled := fs.Bool("pprof", defaults.PprofEnabled, "Enable pprof debug endpoints")
 	forceUpgrade := fs.Bool("force-upgrade", defaults.ForceUpgrade, "Bypass config version compatibility checks")
 	devMode := fs.Bool("dev", defaults.DevMode, "Enable developer mode (skip config extraction)")
 	verbose := fs.Bool("verbose", false, "Enable verbose logging")
@@ -581,6 +601,7 @@ func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
 		ConfigDir:            *configDir,
 		ConfigBackupLimit:    *configBackupLimit,
 		MaxWatches:           *maxWatches,
+		PprofEnabled:         *pprofEnabled,
 		ForceUpgrade:         *forceUpgrade,
 		DevMode:              *devMode,
 		Verbose:              *verbose,
@@ -627,6 +648,10 @@ func printHelp(out io.Writer, defaults configDefaults) {
 		{
 			Name: "--token TOKEN",
 			Desc: "Auth token for REST/WS (env: GESTALT_TOKEN, default: none)",
+		},
+		{
+			Name: "--pprof",
+			Desc: fmt.Sprintf("Enable pprof endpoints (env: GESTALT_PPROF_ENABLED, default: %t)", defaults.PprofEnabled),
 		},
 	})
 
@@ -811,6 +836,9 @@ func logStartupFlags(logger *logging.Logger, cfg Config) {
 	}
 	if cfg.Sources["max-watches"] == sourceFlag {
 		flags = append(flags, formatBoolFlag("--max-watches", cfg.MaxWatches != 0))
+	}
+	if cfg.Sources["pprof"] == sourceFlag {
+		flags = append(flags, formatBoolFlag("--pprof", cfg.PprofEnabled))
 	}
 	if cfg.Sources["verbose"] == sourceFlag {
 		flags = append(flags, formatBoolFlag("--verbose", cfg.Verbose))

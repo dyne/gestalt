@@ -54,6 +54,9 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.MaxWatches != 100 {
 		t.Fatalf("expected max watches 100, got %d", cfg.MaxWatches)
 	}
+	if cfg.PprofEnabled {
+		t.Fatalf("expected pprof disabled by default")
+	}
 	if !cfg.TemporalDevServer {
 		t.Fatalf("expected temporal dev server enabled by default")
 	}
@@ -89,6 +92,7 @@ func TestLoadConfigEnvOverridesDefaults(t *testing.T) {
 	t.Setenv("GESTALT_SCIP_AUTO_REINDEX", "true")
 	t.Setenv("GESTALT_CONFIG_BACKUP_LIMIT", "2")
 	t.Setenv("GESTALT_DEV_MODE", "true")
+	t.Setenv("GESTALT_PPROF_ENABLED", "true")
 
 	cfg, err := loadConfig(nil)
 	if err != nil {
@@ -142,6 +146,9 @@ func TestLoadConfigEnvOverridesDefaults(t *testing.T) {
 	if cfg.MaxWatches != 55 {
 		t.Fatalf("expected max watches 55, got %d", cfg.MaxWatches)
 	}
+	if !cfg.PprofEnabled {
+		t.Fatalf("expected pprof enabled")
+	}
 	if !cfg.TemporalDevServer {
 		t.Fatalf("expected temporal dev server enabled")
 	}
@@ -157,6 +164,7 @@ func TestLoadConfigFlagOverridesEnv(t *testing.T) {
 	t.Setenv("GESTALT_MAX_WATCHES", "50")
 	t.Setenv("GESTALT_TEMPORAL_DEV_SERVER", "false")
 	t.Setenv("GESTALT_DEV_MODE", "false")
+	t.Setenv("GESTALT_PPROF_ENABLED", "false")
 
 	cfg, err := loadConfig([]string{
 		"--port", "7070",
@@ -167,6 +175,7 @@ func TestLoadConfigFlagOverridesEnv(t *testing.T) {
 		"--session-buffer-lines", "900",
 		"--max-watches", "200",
 		"--temporal-dev-server",
+		"--pprof",
 		"--verbose",
 		"--dev",
 	})
@@ -193,6 +202,9 @@ func TestLoadConfigFlagOverridesEnv(t *testing.T) {
 	}
 	if cfg.MaxWatches != 200 {
 		t.Fatalf("expected max watches 200, got %d", cfg.MaxWatches)
+	}
+	if !cfg.PprofEnabled {
+		t.Fatalf("expected pprof enabled")
 	}
 	if !cfg.TemporalDevServer {
 		t.Fatalf("expected temporal dev server enabled")

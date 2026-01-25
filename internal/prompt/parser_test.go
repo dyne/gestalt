@@ -318,6 +318,68 @@ func TestRenderPortDirectiveWithoutResolver(t *testing.T) {
 	}
 }
 
+func TestRenderPortDirectiveUnknownService(t *testing.T) {
+	resolver := &mockPortResolver{
+		ports: map[string]int{
+			"backend": 8080,
+		},
+	}
+	parser := newTestParserWithResolver(resolver)
+
+	result, err := parser.Render("port")
+	if err != nil {
+		t.Fatalf("render port: %v", err)
+	}
+	expectedContent := "Before\n8080\nBetween\nAfter\n"
+	if string(result.Content) != expectedContent {
+		t.Fatalf("unexpected content: %q", string(result.Content))
+	}
+}
+
+func TestRenderIncludeWithPortDirective(t *testing.T) {
+	resolver := &mockPortResolver{
+		ports: map[string]int{
+			"backend": 8080,
+		},
+	}
+	parser := newTestParserWithResolver(resolver)
+
+	result, err := parser.Render("include-port")
+	if err != nil {
+		t.Fatalf("render include-port: %v", err)
+	}
+	expectedContent := "Header\n8080\nFooter\n"
+	if string(result.Content) != expectedContent {
+		t.Fatalf("unexpected content: %q", string(result.Content))
+	}
+	expectedFiles := []string{"include-port.tmpl", "fragment-port.tmpl"}
+	if !reflect.DeepEqual(result.Files, expectedFiles) {
+		t.Fatalf("unexpected files: %#v", result.Files)
+	}
+}
+
+func TestRenderMixedIncludeAndPortDirective(t *testing.T) {
+	resolver := &mockPortResolver{
+		ports: map[string]int{
+			"backend": 8080,
+		},
+	}
+	parser := newTestParserWithResolver(resolver)
+
+	result, err := parser.Render("mixed-port")
+	if err != nil {
+		t.Fatalf("render mixed-port: %v", err)
+	}
+	expectedContent := "Alpha\n8080\ncommon fragment line\nOmega\n"
+	if string(result.Content) != expectedContent {
+		t.Fatalf("unexpected content: %q", string(result.Content))
+	}
+	expectedFiles := []string{"mixed-port.tmpl", "common-fragment.txt"}
+	if !reflect.DeepEqual(result.Files, expectedFiles) {
+		t.Fatalf("unexpected files: %#v", result.Files)
+	}
+}
+
 func TestParsePortDirective(t *testing.T) {
 	longService := strings.Repeat("a", 33)
 	tests := []struct {

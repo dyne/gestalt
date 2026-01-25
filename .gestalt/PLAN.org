@@ -270,7 +270,7 @@
    Tests: None (documentation only)
    Done when: Filtering behavior documented in AGENTS.md
 
-** DONE [#C] Add tests for real-world ANSI log samples
+** [#C] Add tests for real-world ANSI log samples
    Effort: 1 hour
    Why: Ensure filtering handles observed log output with dense ANSI/control sequences
    Change:

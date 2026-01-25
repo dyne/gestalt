@@ -40,28 +40,28 @@ program
   .option('--scip <path>', 'Path to SCIP file or directory')
   .option('--language <lang>', 'Filter by language (go, typescript, python)')
   .option('--limit <n>', 'Max results (default: 20, max: 1000)', '20')
-  .option('--format <fmt>', 'Output format (json|text|toon)', 'text')
+  .option('--format <fmt>', 'Output format (json|text|toon)', 'toon')
   .action(withErrorHandling(symbolsCommand));
 
 program
   .command('definition <symbol-id>')
   .description('Get symbol definition by ID (base64url from symbols output)')
   .option('--scip <path>', 'Path to SCIP file or directory')
-  .option('--format <fmt>', 'Output format (json|text|toon)', 'json')
+  .option('--format <fmt>', 'Output format (json|text|toon)', 'toon')
   .action(withErrorHandling(definitionCommand));
 
 program
   .command('references <symbol-id>')
   .description('Get all references to symbol by ID (base64url from symbols output)')
   .option('--scip <path>', 'Path to SCIP file or directory')
-  .option('--format <fmt>', 'Output format (json|text|toon)', 'json')
+  .option('--format <fmt>', 'Output format (json|text|toon)', 'toon')
   .action(withErrorHandling(referencesCommand));
 
 program
   .command('files <path>')
   .description('Get file content with optional symbol annotations')
   .option('--scip <path>', 'Path to SCIP file or directory')
-  .option('--format <fmt>', 'Output format (json|text|toon)', 'text')
+  .option('--format <fmt>', 'Output format (json|text|toon)', 'toon')
   .option('--symbols', 'Include symbol occurrences')
   .action(withErrorHandling(filesCommand));
 

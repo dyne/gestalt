@@ -107,6 +107,7 @@ terminal output -> Session output bus -> /ws/terminal/:id -> xterm
 ## SCIP CLI (2026-01-25)
 - Offline CLI lives in `cmd/gestalt-scip` and builds with `make build-scip`.
 - CLI commands: `symbols`, `definition`, `references`, `files`; default merges all `.scip` files, `--language` filters, `--format` supports `text|json|toon`.
+- CLI default output format is `toon`.
 - Symbol IDs in CLI output are base64url-encoded and safe for shells; `definition`/`references` accept encoded IDs and raw SCIP IDs.
 - CLI output omits `kind` when it would be `UnspecifiedKind` and strips fenced code markers plus language tag lines from `documentation`.
 - Backend async indexing: `/api/scip/status`, `/api/scip/reindex`, `/api/scip/events`; startup indexing runs unless `--noindex` or `GESTALT_SCIP_NO_INDEX=true`.

@@ -170,6 +170,23 @@ test('symbolsCommand supports TOON output format', async () => {
   assert.match(output, /symbols\[/);
 });
 
+test('symbolsCommand defaults to TOON output when format is omitted', async () => {
+  const symbolsCommand = await loadSymbolsCommand();
+  const { scipDir } = createTempRepo();
+
+  const goSymbol = 'scip-go gomod example v1 `internal/terminal`/Manager#';
+  writeIndex(path.join(scipDir, 'index-go.scip'), [
+    makeDocument('internal/terminal/manager.go', 'go', goSymbol, 49, '```go\ntype Manager struct\n```', 4),
+  ]);
+
+  const output = await captureOutput(() =>
+    symbolsCommand('Manager', { scip: scipDir })
+  );
+
+  assert.match(output, /query: Manager/);
+  assert.ok(!output.trimStart().startsWith('{'));
+});
+
 test('symbolsCommand rejects unsupported output formats', async () => {
   const symbolsCommand = await loadSymbolsCommand();
   const { scipDir } = createTempRepo();

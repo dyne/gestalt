@@ -887,3 +887,22 @@
    Done when:
    - TOON output does not render `kind: null`
    - Tests pass
+
+** DONE [#B] Make TOON the default CLI output format
+   Effort: 30-60 minutes
+
+   Why: TOON is now the preferred human-readable output and should be the
+   default format when `--format` is not specified.
+
+   Change:
+   1. Update CLI command defaults to `toon`
+   2. Update formatter default normalization to `toon`
+   3. Add a unit test that verifies default output is TOON
+
+   Tests:
+   - cd cmd/gestalt-scip && npm test
+   - GOMODCACHE=/tmp/gomodcache GOPATH=/tmp/gopath GOCACHE=/tmp/gocache /usr/local/go/bin/go test ./...
+
+   Done when:
+   - CLI defaults to TOON for all commands
+   - Tests pass

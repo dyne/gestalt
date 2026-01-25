@@ -42,6 +42,7 @@ gestalt-scip files internal/terminal/manager.go --symbols --format json
 - `json`: machine-readable output that matches the gestalt SCIP API schema
 - `text`: human-readable output with context
 - `toon`: compact tabular output rendered from the JSON payload
+- Default format: `toon`
 
 ## Development
 

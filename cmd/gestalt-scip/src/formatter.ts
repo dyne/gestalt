@@ -40,7 +40,7 @@ export interface FileResult {
 
 export function normalizeFormat(format?: string): OutputFormat {
   if (!format) {
-    return 'text';
+    return 'toon';
   }
   const normalized = format.toLowerCase();
   if (normalized === 'json' || normalized === 'text' || normalized === 'toon') {

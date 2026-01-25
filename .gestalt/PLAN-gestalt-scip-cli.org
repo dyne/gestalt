@@ -92,11 +92,17 @@
    - All tests green
    - package.json exports lib modules
 
-** TODO [#A] Create cmd/gestalt-scip TypeScript project structure
+** DONE [#A] Create cmd/gestalt-scip TypeScript project structure
    Effort: 3-4 hours
    
    Why: Need standalone CLI project that can import scip-typescript-finder lib
    modules and produce a single executable binary.
+
+   Note (2026-01-25): due to offline constraints, use existing toolchains in
+   ../../node_modules and ../../frontend/node_modules instead of npm install.
+   This CLI uses the local lib modules rather than a file dependency.
+   Use CommonJS output so the bundled binary runs correctly without a nearby
+   package.json.
    
    Change:
    1. Create directory structure:
@@ -122,13 +128,13 @@
       {
         "name": "gestalt-scip",
         "version": "0.1.0",
-        "type": "module",
+        "type": "commonjs",
         "bin": {
           "gestalt-scip": "./bin/gestalt-scip"
         },
         "dependencies": {
           "commander": "^12.0.0",
-          "scip-finder": "file:../../scip-typescript-finder"
+          "google-protobuf": "^3.21.4"
         },
         "devDependencies": {
           "@types/node": "^20.0.0",
@@ -136,8 +142,8 @@
           "typescript": "^5.3.0"
         },
         "scripts": {
-          "build": "tsc && esbuild dist/main.js --bundle --platform=node --outfile=bin/gestalt-scip --banner:js=\"#!/usr/bin/env node\"",
-          "dev": "tsc && node dist/main.js",
+          "build": "../../node_modules/typescript/bin/tsc -p tsconfig.json && mkdir -p dist/bundle && cp src/bundle/scip.proto dist/bundle/ && ../../frontend/node_modules/.bin/esbuild dist/src/main.js --bundle --platform=node --outfile=bin/gestalt-scip --banner:js=\"#!/usr/bin/env node\"",
+          "dev": "../../node_modules/typescript/bin/tsc -p tsconfig.json && node dist/src/main.js",
           "clean": "rm -rf dist bin"
         }
       }
@@ -145,12 +151,15 @@
    3. tsconfig.json:
       ```json
       {
-        "extends": "../../scip-typescript-finder/tsconfig.json",
         "compilerOptions": {
+          "target": "ES2022",
+          "module": "commonjs",
+          "moduleResolution": "node",
+          "lib": ["ES2022"],
           "outDir": "./dist",
-          "rootDir": "./src"
+          "rootDir": "."
         },
-        "include": ["src/**/*"]
+        "include": ["src/**/*", "tests/**/*"]
       }
       ```
    4. .gitignore:
@@ -170,7 +179,7 @@
    - Directory structure created
    - package.json + tsconfig.json configured
    - Build produces working executable
-   - Can import scip-finder lib modules
+   - Can import local lib modules
 
 ** TODO [#C] Implement SCIP file auto-discovery logic
    Effort: 2-3 hours

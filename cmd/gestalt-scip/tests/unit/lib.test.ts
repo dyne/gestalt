@@ -6,14 +6,20 @@ import fs from 'node:fs';
 process.env.SCIP_MODULE_DIR = path.join(process.cwd(), 'dist/src/lib');
 process.env.SCIP_PROTO_PATH = path.join(process.cwd(), 'dist/bundle/scip.proto');
 
-const { QueryEngine, SymbolParser, buildSymbolIndex, loadScipIndex } = await import(
-  '../../src/lib/index.js'
-);
+let cachedLib: any;
+
+async function loadLib(): Promise<any> {
+  if (!cachedLib) {
+    cachedLib = await import('../../src/lib/index.js');
+  }
+  return cachedLib;
+}
 
 const definitionRole = 0x1;
 const referenceRole = 0x2;
 
-test('SymbolParser handles go-style symbols', () => {
+test('SymbolParser handles go-style symbols', async () => {
+  const { SymbolParser } = await loadLib();
   const parser = new SymbolParser();
   const symbol =
     'scip-go gomod github.com/example/project v1.0.0 internal/terminal/`manager.go`/Manager#';
@@ -25,7 +31,8 @@ test('SymbolParser handles go-style symbols', () => {
   assert.equal(parsed.displayName, 'Manager');
 });
 
-test('buildSymbolIndex falls back to document path when symbol has no file path', () => {
+test('buildSymbolIndex falls back to document path when symbol has no file path', async () => {
+  const { buildSymbolIndex } = await loadLib();
   const symbol = 'scip-go gomod github.com/example/project v1.0.0 Manager#';
   const scipIndex = {
     documents: [
@@ -49,7 +56,8 @@ test('buildSymbolIndex falls back to document path when symbol has no file path'
   assert.equal(keys[0], 'github.com/example/project:internal/terminal/manager.go:Manager');
 });
 
-test('QueryEngine finds definitions and references by name', () => {
+test('QueryEngine finds definitions and references by name', async () => {
+  const { QueryEngine, buildSymbolIndex } = await loadLib();
   const symbol =
     'scip-go gomod github.com/example/project v1.0.0 internal/terminal/`manager.go`/Manager#';
   const scipIndex = {
@@ -77,10 +85,11 @@ test('QueryEngine finds definitions and references by name', () => {
   const results = engine.find('Manager');
 
   assert.equal(results.length, 2);
-  assert.equal(results.filter((result) => result.isDefinition).length, 1);
+  assert.equal(results.filter((result: any) => result.isDefinition).length, 1);
 });
 
-test('loadScipIndex reads JSON fixtures without protobuf parsing', () => {
+test('loadScipIndex reads JSON fixtures without protobuf parsing', async () => {
+  const { loadScipIndex } = await loadLib();
   const tempPath = path.join(process.cwd(), 'dist/tests/unit/temp-index.json');
   const fixture = {
     documents: [

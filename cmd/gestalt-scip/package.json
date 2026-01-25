@@ -1,7 +1,7 @@
 {
   "name": "gestalt-scip",
   "version": "0.1.0",
-  "type": "module",
+  "type": "commonjs",
   "main": "./dist/src/index.js",
   "bin": {
     "gestalt-scip": "./bin/gestalt-scip"

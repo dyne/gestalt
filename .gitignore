@@ -2,6 +2,9 @@ node_modules
 .cache
 .gocache
 dist
+cmd/gestalt-scip/dist
+cmd/gestalt-scip/bin
+cmd/gestalt-scip/node_modules
 logs
 frontend/build
 frontend/bindings

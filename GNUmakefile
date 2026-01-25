@@ -6,9 +6,9 @@ VERSION ?= dev
 CONFIG_MANIFEST := config/manifest.json
 VERSION_INFO := internal/version/build_info.json
 
-.PHONY: build test clean version temporal-dev dev
+.PHONY: build build-scip test clean version temporal-dev dev
 
-build: gestalt gestalt-send
+build: gestalt gestalt-send build-scip
 
 # Frontend build is required before embedding.
 frontend/dist:
@@ -27,9 +27,14 @@ gestalt-send: $(VERSION_INFO)
 	VERSION_LDFLAGS=$$(node scripts/format-version-ldflags.js); \
 	$(GO) build  -ldflags "$$VERSION_LDFLAGS" -o gestalt-send ./cmd/gestalt-send
 
-install: gestalt gestalt-send
+build-scip:
+	cd cmd/gestalt-scip && npm run build
+	chmod +x cmd/gestalt-scip/bin/gestalt-scip
+
+install: gestalt gestalt-send build-scip
 	install -m 0755 gestalt $(BINDIR)/gestalt
 	install -m 0755 gestalt-send $(BINDIR)/gestalt-send
+	install -m 0755 cmd/gestalt-scip/bin/gestalt-scip $(BINDIR)/gestalt-scip
 
 test:
 	go test ./...
@@ -52,4 +57,5 @@ version:
 clean:
 	rm -rf frontend/dist
 	rm -rf .cache
+	rm -rf cmd/gestalt-scip/dist cmd/gestalt-scip/bin
 	rm -rf gestalt gestalt-send

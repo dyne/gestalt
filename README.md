@@ -644,6 +644,21 @@ Notes:
 - Agent names must be unique and match the `name` field in `config/agents/*.json`.
 - If auth is enabled, set `GESTALT_TOKEN` to the same token used by the server.
 
+### gestalt-scip
+
+Query SCIP code intelligence indexes offline without running the server.
+
+Usage:
+- `gestalt-scip symbols <query>`
+- `gestalt-scip definition <symbol-id>`
+- `gestalt-scip references <symbol-id>`
+- `gestalt-scip files <path>`
+
+Options:
+- `--scip <path>`: path to a SCIP file or directory
+- `--language <lang>`: filter by language (for example `go`, `typescript`, `python`)
+- `--format <fmt>`: output format (`json` or `text`)
+
 ## License
 
 Copyright (C) 2025-2026 Dyne.org foundation

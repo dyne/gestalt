@@ -623,10 +623,13 @@
    - WebSocket events stream progress
    - Manual reindex API works
 
-** TODO [#C] Add gestalt-scip to build and install workflows
+** DONE [#C] Add gestalt-scip to build and install workflows
    Effort: 2 hours
    
    Why: gestalt-scip should be built and installed alongside gestalt main binary.
+
+   Note (2026-01-25): build-scip runs npm run build without npm install to
+   avoid network access; the CLI build already uses repo-local toolchains.
    
    Change:
    1. Update GNUmakefile build target:

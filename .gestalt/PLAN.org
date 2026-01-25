@@ -1,3 +1,274 @@
+* TODO [#B] Add Web Speech API voice dictation to agent input
+  Effort: 2-3 days
+  Goal: Integrate browser Web Speech API (SpeechRecognition) for voice-to-text dictation in agent command input boxes.
+  Notes:
+  - API: Web Speech API SpeechRecognition (built into modern browsers, no external service)
+  - UX: microphone button in/beside agent input box
+  - Behavior: click to start/stop listening; transcribed text appends to input field
+  - Visual feedback: recording indicator (red dot/pulsing mic icon)
+  - Error handling: permission denied, API not supported, recognition errors
+  - Browser support: Chrome/Edge (webkit), Firefox (limited), Safari (webkit)
+  - No backend changes needed (purely frontend feature)
+  - Accessibility: keyboard shortcut for voice input (e.g., Ctrl+Shift+V)
+  - Settings: optional continuous recognition vs single phrase
+  - Language: default browser language; optionally configurable
+  Date: 2026-01-25
+  Priority: [#B] - nice-to-have UX improvement for hands-free interaction
+
+** TODO [#B] Research Web Speech API and browser support
+   Effort: 2-3 hours
+   Why: Understand API capabilities, limitations, and cross-browser compatibility
+   Change:
+   - Read MDN docs: https://developer.mozilla.org/en-US/docs/Web/API/Web_Speech_API
+   - Understand SpeechRecognition interface: start(), stop(), onresult, onerror
+   - Document browser support: Chrome/Edge (full), Firefox (partial), Safari (webkit prefix)
+   - Identify key properties: continuous, interimResults, lang
+   - Test basic example in browser console to verify API availability
+   - Document fallback strategy for unsupported browsers
+   - Note: requires HTTPS or localhost (security requirement)
+   Tests: None (research only)
+   Done when: API capabilities and browser support documented
+
+** TODO [#B] Create voice input Svelte component
+   Effort: 4-6 hours
+   Why: Reusable component for microphone button + speech recognition
+   Change:
+   - Create frontend/src/components/VoiceInput.svelte
+   - Props: onTranscript (callback with text), continuous (boolean), lang (string)
+   - State: isListening, isSupported, error
+   - Initialize SpeechRecognition with webkit prefix fallback
+   - Implement start/stop methods
+   - Handle onresult event: extract transcript, call onTranscript callback
+   - Handle onerror event: set error state, emit error event
+   - Handle onend event: reset listening state
+   - Visual: microphone icon button (changes color when active)
+   - Pulsing animation during recognition
+   - Tooltip showing status (click to start, listening, processing)
+   - Emit custom events: start, stop, transcript, error
+   Tests: Manual testing in supported browsers; verify transcript callback
+   Done when: Component captures voice input and emits transcript
+
+** TODO [#B] Integrate voice input into CommandInput component
+   Effort: 2-3 hours
+   Why: Add voice input capability to agent input boxes
+   Change:
+   - Update frontend/src/components/CommandInput.svelte
+   - Add VoiceInput component beside text input field
+   - Position microphone button at right edge of input box
+   - On transcript callback: append text to input value
+   - Add space between existing text and new transcript
+   - Auto-focus input field after transcript
+   - Optional: show "Voice input not supported" if API unavailable
+   - Style: microphone button matches input field height
+   - Mobile: ensure button is touch-friendly (min 44px tap target)
+   Tests: Manual test voice input in Dashboard agent command boxes
+   Done when: Voice input works in agent input fields
+
+** TODO [#C] Add keyboard shortcut for voice input
+   Effort: 1-2 hours
+   Why: Accessibility and power user efficiency
+   Change:
+   - Add keyboard listener in CommandInput (e.g., Ctrl+Shift+V or Cmd+Shift+V)
+   - Toggle voice input on shortcut press
+   - Show shortcut hint in tooltip or help text
+   - Prevent conflict with browser paste shortcut
+   - Document shortcut in UI or README
+   Tests: Verify keyboard shortcut triggers voice input
+   Done when: Keyboard shortcut toggles voice input
+
+** TODO [#C] Add voice input settings and controls
+   Effort: 2-3 hours
+   Why: User preferences for language, continuous recognition, etc.
+   Change:
+   - Add settings panel for voice input (modal or inline)
+   - Setting: language selection (dropdown with common languages)
+   - Setting: continuous recognition vs single phrase mode
+   - Setting: interim results (show partial transcripts)
+   - Store settings in localStorage
+   - Apply settings to SpeechRecognition instance
+   - Default: browser language, single phrase mode, interim results off
+   - Settings icon beside microphone button or in app settings
+   Tests: Manual test settings persistence and application
+   Done when: Users can customize voice input behavior
+
+** TODO [#C] Improve error handling and user feedback
+   Effort: 2-3 hours
+   Why: Clear feedback when voice input fails or isn't available
+   Change:
+   - Check for SpeechRecognition support on mount
+   - Show clear message if API not available (browser not supported)
+   - Handle permission denied: show prompt to allow microphone access
+   - Handle no-speech error: show "No speech detected" message
+   - Handle network error: show "Network error, try again" message
+   - Handle aborted error: silent (user stopped intentionally)
+   - Add retry button for transient errors
+   - Log errors to console for debugging
+   - Optional: show error toast for critical failures
+   Tests: Manual test error scenarios; verify user-friendly messages
+   Done when: All error states have clear user feedback
+
+** TODO [#C] Add visual recording indicator
+   Effort: 1-2 hours
+   Why: Users need clear feedback that voice input is active
+   Change:
+   - Add red dot or pulsing animation to microphone button when recording
+   - Optional: show waveform or audio level indicator
+   - Add "Listening..." text near input field
+   - Change button color/icon when active (red microphone)
+   - Add CSS animation for pulsing effect
+   - Ensure indicator is visible but not distracting
+   Tests: Manual visual testing; verify indicator shows during recording
+   Done when: Recording state is visually obvious
+
+** TODO [#C] Test cross-browser compatibility
+   Effort: 2-3 hours
+   Why: Ensure voice input works across supported browsers
+   Change:
+   - Test in Chrome/Chromium (full support)
+   - Test in Edge (Chromium-based, full support)
+   - Test in Firefox (limited support, may need polyfill)
+   - Test in Safari (webkit prefix required)
+   - Document browser-specific quirks and limitations
+   - Add polyfill or fallback if needed
+   - Update README with browser support matrix
+   Tests: Manual testing in each browser; verify functionality
+   Done when: Voice input works in all major browsers or gracefully degrades
+
+** TODO [#C] Add documentation for voice input feature
+   Effort: 1 hour
+   Why: Users need to know voice input is available and how to use it
+   Change:
+   - Add "Voice Input" section to README.md
+   - Document browser support and requirements (HTTPS/localhost)
+   - Document keyboard shortcut
+   - Document settings (language, continuous mode)
+   - Add screenshot or GIF showing voice input in action
+   - Document troubleshooting (microphone permission, browser support)
+   Tests: None (documentation only)
+   Done when: Voice input feature is documented in README
+
+** TODO [#C] Optimize for mobile devices
+   Effort: 2-3 hours
+   Why: Mobile users benefit from voice input even more than desktop
+   Change:
+   - Ensure microphone button is touch-friendly (min 44px)
+   - Test on iOS Safari (webkit prefix)
+   - Test on Android Chrome (full support)
+   - Handle on-screen keyboard interaction (input focus)
+   - Consider fullscreen voice input mode for mobile
+   - Add haptic feedback on start/stop (if available)
+   - Test with mobile microphone permissions
+   Tests: Manual testing on iOS and Android devices
+   Done when: Voice input works smoothly on mobile browsers
+
+* WIP [#B] Strip ANSI escape sequences and noise from log context fields
+  Effort: 1-2 days
+  Goal: Clean up log output by filtering ANSI escape sequences, control codes, and repeated character sequences from terminal output stored in log context fields.
+  Notes:
+  - Problem: Terminal output in logs contains raw escape sequences from CLI agents (colors, animations, cursor positioning)
+  - Example: output_tail field shows "\x1b[0m\x1b[49m\x1b[K\x1b[71;2H..." making logs unreadable
+  - Affects: output_tail (terminal manager), context (Temporal bell), stderr (session factory)
+  - Solution: Filter at write time before adding to log context fields
+  - Keep: ASCII text, UTF-8 text, newlines, spaces, tabs
+  - Remove: ANSI escape sequences, control codes, repeated character sequences (e.g., ─────)
+  - Performance: minimal overhead (regex compile once, apply on small strings before logging)
+  - Testing: verify filtering works at write time, and filtered output appears in WebSocket streams
+  Date: 2026-01-25
+  Priority: [#B] - improves log readability and debugging experience
+
+** DONE [#B] Create ANSI/control code filter utility
+   Effort: 3-4 hours
+   Why: Need reusable function to strip escape sequences and noise from strings
+   Change:
+   - Create internal/terminal/textfilter.go with StripANSI(s string) string function
+   - Strip ANSI escape sequences: \x1b[...m (colors), \x1b[...H (cursor), \x1b[...J (clear), etc
+   - Pattern: \x1b\[[0-9;]*[A-Za-z] covers most ANSI CSI sequences
+   - Strip other control codes: \x00-\x1f except \t (tab), \n (newline), \r (return)
+   - Add StripRepeatedChars(s string, minLen int) string for repeated sequences
+   - Pattern: (.)\1{N,} where N = minLen-1 (e.g., ─── with minLen=3)
+   - Collapse to single instance: "────────" → "─"
+   - Combine: FilterTerminalOutput(s string) string calls both filters
+   - Use compiled regexps (compile once in init or var)
+   - Handle edge cases: empty strings, already-clean strings, UTF-8 characters
+   - Document filter behavior with examples in function comments
+   Tests: Unit tests in textfilter_test.go with various ANSI sequences, repeated chars, mixed content
+   Done when: Filter functions work correctly and efficiently
+
+** TODO [#B] Apply filter to output_tail in terminal manager
+   Effort: 1-2 hours
+   Why: output_tail is the primary source of noisy terminal output in logs
+   Change:
+   - Update internal/terminal/manager.go renderOutputTail function
+   - After joining lines, before truncation: apply FilterTerminalOutput
+   - Current flow: join lines → truncate to maxBytes → return
+   - New flow: join lines → FilterTerminalOutput → truncate to maxBytes → return
+   - Filtering happens before truncation to ensure clean text within byte limit
+   - Update call sites in manager_lifecycle.go and manager_prompt.go (no changes needed if renderOutputTail is updated)
+   - Add debug logging to show before/after lengths if filtering reduces size significantly
+   Tests: Update manager tests to verify filtered output in log context fields
+   Done when: output_tail fields in logs are ANSI-free
+
+** TODO [#B] Apply filter to bell context in Temporal activities
+   Effort: 1 hour
+   Why: Bell context contains terminal output with ANSI sequences
+   Change:
+   - Update internal/temporal/activities/session_activities.go RecordBellActivity
+   - Before logging, filter contextText parameter: contextText = textfilter.FilterTerminalOutput(contextText)
+   - Import internal/terminal (or extract textfilter to internal/textfilter if better separation)
+   - Keep filter call early in function (before any logging/storage)
+   Tests: Update session_activities_test.go to verify filtered context in logs
+   Done when: Bell context fields are ANSI-free
+
+** TODO [#B] Apply filter to stderr in session factory
+   Effort: 30 minutes
+   Why: stderr may contain ANSI output from shell/command startup
+   Change:
+   - Update internal/terminal/session_factory.go error logging
+   - Find where stderr is logged: fields["stderr"] = stderr
+   - Apply filter: fields["stderr"] = textfilter.FilterTerminalOutput(stderr)
+   - Same pattern as other context fields
+   Tests: Add test case with ANSI in stderr, verify filtered output
+   Done when: stderr fields in logs are ANSI-free
+
+** TODO [#B] Add integration test for WebSocket log stream filtering
+   Effort: 2-3 hours
+   Why: Verify filtered logs appear correctly in real-time WebSocket streams
+   Change:
+   - Create test in internal/api/ws_logs_test.go (or existing test file)
+   - Scenario: create terminal, trigger error with output_tail, connect to /ws/logs
+   - Mock terminal output with ANSI sequences
+   - Verify WebSocket message contains filtered text (no escape sequences)
+   - Test flow: terminal output → log context → WebSocket → client receives clean text
+   - Also test via GET /api/logs to verify REST endpoint returns filtered logs
+   - Add test case for bell context via Temporal workflow
+   Tests: Integration test passes; WebSocket and REST return filtered logs
+   Done when: End-to-end filtering verified through WebSocket and REST APIs
+
+** TODO [#C] Add performance benchmarks for text filtering
+   Effort: 1-2 hours
+   Why: Ensure filtering doesn't impact logging performance
+   Change:
+   - Create textfilter_bench_test.go with benchmarks
+   - Benchmark FilterTerminalOutput with various input sizes (100B, 1KB, 10KB)
+   - Benchmark ANSI-heavy vs clean text (should short-circuit on clean text)
+   - Benchmark repeated character detection
+   - Target: < 1µs for typical log context strings (~2KB)
+   - Document results in benchmark file comments
+   Tests: Run benchmarks; go test -bench=. ./internal/terminal/
+   Done when: Benchmarks show acceptable performance (< 1ms for 10KB)
+
+** TODO [#C] Update documentation for filtered logs
+   Effort: 30 minutes
+   Why: Users should know logs are cleaned for readability
+   Change:
+   - Add note to AGENTS.md under logging section
+   - Document: "Terminal output in log context fields is automatically cleaned"
+   - Explain what's removed: ANSI escape sequences, control codes, repeated characters
+   - Explain what's kept: text, newlines, spaces, tabs, UTF-8 characters
+   - Mention benefit: improved log readability, easier debugging
+   Tests: None (documentation only)
+   Done when: Filtering behavior documented in AGENTS.md
+
 * TODO [#A] Diagnose and fix high CPU usage in idle gestalt
   Effort: 1 hour (quick win!)
   Goal: Identify and eliminate the cause of ~40% CPU usage when gestalt is idle with no active terminals or agents doing work.

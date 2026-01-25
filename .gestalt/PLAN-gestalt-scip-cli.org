@@ -395,7 +395,7 @@
    - Output matches /api/scip/files response
    - Symbol annotations optional
 
-** TODO [#A] Wire up CLI with commander and build executable
+** DONE [#A] Wire up CLI with commander and build executable
    Effort: 3-4 hours
    
    Why: Need complete CLI interface with subcommands, help, and version.

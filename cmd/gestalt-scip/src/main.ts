@@ -1,10 +1,89 @@
-import { Command } from 'commander';
+import { Command, CommanderError } from 'commander';
+import { definitionCommand } from './commands/definition.js';
+import { filesCommand } from './commands/files.js';
+import { referencesCommand } from './commands/references.js';
+import { symbolsCommand } from './commands/symbols.js';
 
-const program = new Command();
+type AsyncCommand<TArgs extends unknown[]> = (...args: TArgs) => Promise<void>;
+
+function enableBlockingOutput(): void {
+  const stdoutHandle = (process.stdout as any)?._handle;
+  stdoutHandle?.setBlocking?.(true);
+  const stderrHandle = (process.stderr as any)?._handle;
+  stderrHandle?.setBlocking?.(true);
+}
+
+function withErrorHandling<TArgs extends unknown[]>(command: AsyncCommand<TArgs>): AsyncCommand<TArgs> {
+  return async (...args: TArgs) => {
+    try {
+      await command(...args);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Error: ${message}`);
+      process.exitCode = 1;
+    }
+  };
+}
+
+enableBlockingOutput();
+
+export const program = new Command();
 
 program
   .name('gestalt-scip')
   .description('Query SCIP code intelligence indexes offline')
   .version('0.1.0');
 
-program.parse();
+program
+  .command('symbols <query>')
+  .description('Search for symbols by name')
+  .option('--scip <path>', 'Path to SCIP file or directory')
+  .option('--language <lang>', 'Filter by language (go, typescript, python)')
+  .option('--limit <n>', 'Max results (default: 20, max: 1000)', '20')
+  .option('--format <fmt>', 'Output format (json|text)', 'text')
+  .action(withErrorHandling(symbolsCommand));
+
+program
+  .command('definition <symbol-id>')
+  .description('Get symbol definition by ID')
+  .option('--scip <path>', 'Path to SCIP file or directory')
+  .option('--format <fmt>', 'Output format (json|text)', 'json')
+  .action(withErrorHandling(definitionCommand));
+
+program
+  .command('references <symbol-id>')
+  .description('Get all references to symbol by ID')
+  .option('--scip <path>', 'Path to SCIP file or directory')
+  .option('--format <fmt>', 'Output format (json|text)', 'json')
+  .action(withErrorHandling(referencesCommand));
+
+program
+  .command('files <path>')
+  .description('Get file content with optional symbol annotations')
+  .option('--scip <path>', 'Path to SCIP file or directory')
+  .option('--format <fmt>', 'Output format (json|text)', 'text')
+  .option('--symbols', 'Include symbol occurrences')
+  .action(withErrorHandling(filesCommand));
+
+program.exitOverride();
+
+export async function run(argv: string[] = process.argv): Promise<void> {
+  try {
+    await program.parseAsync(argv);
+  } catch (error) {
+    if (error instanceof CommanderError) {
+      if (error.code === 'commander.helpDisplayed' || error.code === 'commander.version') {
+        return;
+      }
+      process.exitCode = 1;
+      return;
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Error: ${message}`);
+    process.exitCode = 1;
+  }
+}
+
+if (require.main === module) {
+  void run();
+}

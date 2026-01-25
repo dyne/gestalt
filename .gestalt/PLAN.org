@@ -270,6 +270,16 @@
    Tests: None (documentation only)
    Done when: Filtering behavior documented in AGENTS.md
 
+** DONE [#C] Add tests for real-world ANSI log samples
+   Effort: 1 hour
+   Why: Ensure filtering handles observed log output with dense ANSI/control sequences
+   Change:
+   - Add test coverage using provided real-world log samples
+   - Validate filtered output has no ANSI/control sequences and collapses repeated characters
+   - Ensure key text fragments remain readable
+   Tests: Extend textfilter_test.go or integration tests
+   Done when: Real-world samples are covered by tests and pass
+
 * TODO [#A] Diagnose and fix high CPU usage in idle gestalt
   Effort: 1 hour (quick win!)
   Goal: Identify and eliminate the cause of ~40% CPU usage when gestalt is idle with no active terminals or agents doing work.

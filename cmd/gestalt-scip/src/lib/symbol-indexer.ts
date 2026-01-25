@@ -37,7 +37,7 @@ function stripSuffix(name: string): string {
   return name;
 }
 
-function resolveDisplayName(
+export function resolveDisplayName(
   parsedDisplayName: string,
   fullDescriptor: string,
   symbol: string

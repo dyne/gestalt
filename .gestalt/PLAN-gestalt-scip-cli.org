@@ -232,7 +232,7 @@
    - Clear error messages for missing files
    - Unit tests for discovery logic
 
-** TODO [#A] Implement symbols search command (matches /api/scip/symbols)
+** DONE [#A] Implement symbols search command (matches /api/scip/symbols)
    Effort: 4-5 hours
    
    Why: Core command for finding symbols by name, matching API query capabilities.

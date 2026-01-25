@@ -8,7 +8,7 @@ export type {
   ScipDiagnostic,
 } from './scip-loader.js';
 
-export { buildSymbolIndex, mergeSymbolVariants } from './symbol-indexer.js';
+export { buildSymbolIndex, mergeSymbolVariants, resolveDisplayName } from './symbol-indexer.js';
 export type { Occurrence } from './symbol-indexer.js';
 
 export { QueryEngine } from './query-engine.js';

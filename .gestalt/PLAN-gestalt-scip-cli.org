@@ -3,7 +3,7 @@
 #+DATE: 2026-01-25
 #+KEYWORDS: scip, cli, typescript, offline, navigation, query
 
-* WIP [#A] Standalone gestalt-scip CLI tool for offline SCIP queries
+* DONE [#A] Standalone gestalt-scip CLI tool for offline SCIP queries
   Effort: 2-3 days
   
   Goal: Create a TypeScript CLI tool (cmd/gestalt-scip) that queries SCIP protobuf
@@ -46,7 +46,7 @@
   - Output formats: text (human) and JSON (machine/integration)
   - SCIP protobuf schema in scip-typescript-finder/src/bundle/scip.proto
   
-** DONE [#A] Extract reusable SCIP modules from scip-typescript-finder
+** [#A] Extract reusable SCIP modules from scip-typescript-finder
    Effort: 4-6 hours
    
    Why: Need core parsing/query logic decoupled from scip-finder CLI to reuse
@@ -92,7 +92,7 @@
    - All tests green
    - package.json exports lib modules
 
-** DONE [#A] Create cmd/gestalt-scip TypeScript project structure
+** [#A] Create cmd/gestalt-scip TypeScript project structure
    Effort: 3-4 hours
    
    Why: Need standalone CLI project that can import scip-typescript-finder lib
@@ -181,7 +181,7 @@
    - Build produces working executable
    - Can import local lib modules
 
-** DONE [#C] Implement SCIP file auto-discovery logic
+** [#C] Implement SCIP file auto-discovery logic
    Effort: 2-3 hours
    
    Why: gestalt-scip needs to find .scip files in .gestalt/scip/ without
@@ -232,7 +232,7 @@
    - Clear error messages for missing files
    - Unit tests for discovery logic
 
-** DONE [#A] Implement symbols search command (matches /api/scip/symbols)
+** [#A] Implement symbols search command (matches /api/scip/symbols)
    Effort: 4-5 hours
    
    Why: Core command for finding symbols by name, matching API query capabilities.
@@ -304,7 +304,7 @@
    - --language filtering works correctly
    - Multi-language merge works by default
 
-** DONE [#A] Implement definition and references commands
+** [#A] Implement definition and references commands
    Effort: 3-4 hours
    
    Why: Complete symbol navigation needs definition lookup and references
@@ -354,7 +354,7 @@
    - Output formats match API responses
    - Error handling for invalid IDs
 
-** DONE [#C] Implement files command (matches /api/scip/files/:path)
+** [#C] Implement files command (matches /api/scip/files/:path)
    Effort: 2 hours
    
    Why: Complete API parity for file content lookup with symbol highlighting.
@@ -395,7 +395,7 @@
    - Output matches /api/scip/files response
    - Symbol annotations optional
 
-** DONE [#A] Wire up CLI with commander and build executable
+** [#A] Wire up CLI with commander and build executable
    Effort: 3-4 hours
    
    Why: Need complete CLI interface with subcommands, help, and version.
@@ -475,7 +475,7 @@
    - Executable runs standalone
    - Integrated into GNUmakefile
 
-** DONE [#A] Add async SCIP indexing on gestalt startup with dashboard UI
+** [#A] Add async SCIP indexing on gestalt startup with dashboard UI
    Effort: 5-6 hours
 
    Note (2026-01-25): async indexing lives in internal/scip/async_indexer.go as
@@ -623,7 +623,7 @@
    - WebSocket events stream progress
    - Manual reindex API works
 
-** DONE [#C] Add gestalt-scip to build and install workflows
+** [#C] Add gestalt-scip to build and install workflows
    Effort: 2 hours
    
    Why: gestalt-scip should be built and installed alongside gestalt main binary.
@@ -678,7 +678,7 @@
    - Install target includes gestalt-scip
    - Documentation updated
 
-** DONE [#C] Write integration tests and documentation
+** [#C] Write integration tests and documentation
    Effort: 3-4 hours
    
    Why: Ensure gestalt-scip works correctly with real SCIP files and users

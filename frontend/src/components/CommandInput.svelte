@@ -18,6 +18,7 @@
   const historyLimit = 1000
 
   const history = createCommandHistory({ historyLimit })
+  let isVoiceListening = false
 
   const resizeTextarea = () => {
     if (!textarea) return
@@ -106,6 +107,18 @@
     requestAnimationFrame(() => textarea?.focus())
   }
 
+  const handleVoiceStart = () => {
+    isVoiceListening = true
+  }
+
+  const handleVoiceStop = () => {
+    isVoiceListening = false
+  }
+
+  const handleVoiceError = () => {
+    isVoiceListening = false
+  }
+
   export function focusInput() {
     textarea?.focus()
   }
@@ -134,7 +147,13 @@
       disabled={disabled}
     ></textarea>
     <div class="command-input__actions">
-      <VoiceInput onTranscript={handleTranscript} {disabled} />
+      <VoiceInput
+        onTranscript={handleTranscript}
+        on:start={handleVoiceStart}
+        on:stop={handleVoiceStop}
+        on:error={handleVoiceError}
+        {disabled}
+      />
       {#if showScrollButton}
         <button
           class="scroll-bottom"
@@ -158,6 +177,9 @@
       </label>
     </div>
   </div>
+  {#if isVoiceListening}
+    <div class="command-input__listening" role="status">Listening...</div>
+  {/if}
 </div>
 
 <style>
@@ -183,6 +205,13 @@
     flex-direction: column;
     align-items: center;
     gap: 0.5rem;
+  }
+
+  .command-input__listening {
+    margin-top: 0.5rem;
+    font-size: 0.8rem;
+    color: rgba(var(--terminal-text-rgb), 0.8);
+    letter-spacing: 0.02em;
   }
 
   .scroll-bottom {

@@ -69,7 +69,7 @@ describe('CommandInput', () => {
   })
 
   it('appends voice transcripts to the input value', async () => {
-    const { getByPlaceholderText, getByRole } = render(CommandInput, {
+    const { getByPlaceholderText, getByRole, getByText } = render(CommandInput, {
       props: { terminalId: '' },
     })
 
@@ -78,6 +78,9 @@ describe('CommandInput', () => {
 
     const voiceButton = getByRole('button', { name: /start voice input/i })
     await fireEvent.click(voiceButton)
+    await tick()
+
+    expect(getByText(/listening/i)).toBeTruthy()
 
     globalThis.__lastRecognition.emitResult('now')
     await tick()

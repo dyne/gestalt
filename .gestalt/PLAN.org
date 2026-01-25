@@ -244,7 +244,7 @@
    Tests: Integration test passes; WebSocket and REST return filtered logs
    Done when: End-to-end filtering verified through WebSocket and REST APIs
 
-** TODO [#C] Add performance benchmarks for text filtering
+** DONE [#C] Add performance benchmarks for text filtering
    Effort: 1-2 hours
    Why: Ensure filtering doesn't impact logging performance
    Change:

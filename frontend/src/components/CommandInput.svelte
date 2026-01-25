@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
 
   import { createCommandHistory } from '../lib/commandHistory.js'
+  import VoiceInput from './VoiceInput.svelte'
 
   export let terminalId = ''
   export let onSubmit = () => {}
@@ -96,6 +97,15 @@
     onDirectInputChange(event.target.checked)
   }
 
+  const handleTranscript = (text) => {
+    const transcript = text.trim()
+    if (!transcript) return
+    const hasContent = value.trim().length > 0
+    value = hasContent ? `${value.trimEnd()} ${transcript}` : transcript
+    resizeTextarea()
+    requestAnimationFrame(() => textarea?.focus())
+  }
+
   export function focusInput() {
     textarea?.focus()
   }
@@ -124,6 +134,7 @@
       disabled={disabled}
     ></textarea>
     <div class="command-input__actions">
+      <VoiceInput onTranscript={handleTranscript} {disabled} />
       {#if showScrollButton}
         <button
           class="scroll-bottom"

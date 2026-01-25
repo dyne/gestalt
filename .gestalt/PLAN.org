@@ -161,7 +161,7 @@
    Tests: Manual testing on iOS and Android devices
    Done when: Voice input works smoothly on mobile browsers
 
-* WIP [#B] Strip ANSI escape sequences and noise from log context fields
+* DONE [#B] Strip ANSI escape sequences and noise from log context fields
   Effort: 1-2 days
   Goal: Clean up log output by filtering ANSI escape sequences, control codes, and repeated character sequences from terminal output stored in log context fields.
   Notes:
@@ -176,7 +176,7 @@
   Date: 2026-01-25
   Priority: [#B] - improves log readability and debugging experience
 
-** DONE [#B] Create ANSI/control code filter utility
+** [#B] Create ANSI/control code filter utility
    Effort: 3-4 hours
    Why: Need reusable function to strip escape sequences and noise from strings
    Change:
@@ -194,7 +194,7 @@
    Tests: Unit tests in textfilter_test.go with various ANSI sequences, repeated chars, mixed content
    Done when: Filter functions work correctly and efficiently
 
-** DONE [#B] Apply filter to output_tail in terminal manager
+** [#B] Apply filter to output_tail in terminal manager
    Effort: 1-2 hours
    Why: output_tail is the primary source of noisy terminal output in logs
    Change:
@@ -208,7 +208,7 @@
    Tests: Update manager tests to verify filtered output in log context fields
    Done when: output_tail fields in logs are ANSI-free
 
-** DONE [#B] Apply filter to bell context in Temporal activities
+** [#B] Apply filter to bell context in Temporal activities
    Effort: 1 hour
    Why: Bell context contains terminal output with ANSI sequences
    Change:
@@ -219,7 +219,7 @@
    Tests: Update session_activities_test.go to verify filtered context in logs
    Done when: Bell context fields are ANSI-free
 
-** DONE [#B] Apply filter to stderr in session factory
+** [#B] Apply filter to stderr in session factory
    Effort: 30 minutes
    Why: stderr may contain ANSI output from shell/command startup
    Change:
@@ -230,7 +230,7 @@
    Tests: Add test case with ANSI in stderr, verify filtered output
    Done when: stderr fields in logs are ANSI-free
 
-** DONE [#B] Add integration test for WebSocket log stream filtering
+** [#B] Add integration test for WebSocket log stream filtering
    Effort: 2-3 hours
    Why: Verify filtered logs appear correctly in real-time WebSocket streams
    Change:
@@ -244,7 +244,7 @@
    Tests: Integration test passes; WebSocket and REST return filtered logs
    Done when: End-to-end filtering verified through WebSocket and REST APIs
 
-** DONE [#C] Add performance benchmarks for text filtering
+** [#C] Add performance benchmarks for text filtering
    Effort: 1-2 hours
    Why: Ensure filtering doesn't impact logging performance
    Change:
@@ -257,7 +257,7 @@
    Tests: Run benchmarks; go test -bench=. ./internal/terminal/
    Done when: Benchmarks show acceptable performance (< 1ms for 10KB)
 
-** DONE [#C] Update documentation for filtered logs
+** [#C] Update documentation for filtered logs
    Effort: 30 minutes
    Why: Users should know logs are cleaned for readability
    Change:

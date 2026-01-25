@@ -139,4 +139,4 @@ terminal output -> Session output bus -> /ws/terminal/:id -> xterm
 ## Terminal session logging notes
 - Async file logger behavior is covered by `internal/terminal/async_file_logger_test.go` to validate flush-on-close and drop behavior.
 - Session metadata boundaries are covered in `internal/terminal/session_test.go` (Info metadata + workflow identifier defaults).
-- Terminal output stored in log context fields is cleaned (ANSI escape sequences, control codes, repeated characters removed; text, tabs, and newlines preserved).
+- Log context fields (output_tail, bell context, stderr) are cleaned (ANSI escape sequences, control codes, repeated characters removed; text, tabs, and newlines preserved).

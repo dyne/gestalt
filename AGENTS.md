@@ -56,6 +56,7 @@ Use this as the minimum context to start any plan task.
 - Port syntax: `{{port <service>}}` on its own line; resolves to the runtime port number.
 - Available services: `backend`, `frontend`, `temporal`, `otel`.
 - Unknown services or missing port resolver skip silently (line removed).
+- Scope: port directives resolve in prompt templates only; skill XML does not substitute ports yet.
 - Resolve: absolute/relative path loads from workdir root; otherwise search `.gestalt/config/prompts` (`.tmpl`, `.md`, `.txt`), then `.gestalt/prompts`.
 - Text-only includes, depth limit 3, de-dup by canonical path; failed includes are silent.
 

@@ -1,0 +1,28 @@
+{
+  "name": "gestalt-scip",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "bin": {
+    "gestalt-scip": "./bin/gestalt-scip"
+  },
+  "exports": {
+    ".": "./dist/src/index.js",
+    "./lib/*": "./dist/src/lib/*.js"
+  },
+  "dependencies": {
+    "commander": "^12.0.0",
+    "google-protobuf": "^3.21.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.3.0"
+  },
+  "scripts": {
+    "build": "../../node_modules/typescript/bin/tsc -p tsconfig.json && mkdir -p dist/bundle && cp src/bundle/scip.proto dist/bundle/ && ../../frontend/node_modules/.bin/esbuild dist/src/main.js --bundle --platform=node --outfile=bin/gestalt-scip --banner:js=\"#!/usr/bin/env node\"",
+    "dev": "../../node_modules/typescript/bin/tsc -p tsconfig.json && node dist/src/main.js",
+    "test": "../../node_modules/typescript/bin/tsc -p tsconfig.json && node --test dist/tests/**/*.test.js",
+    "clean": "rm -rf dist bin"
+  }
+}

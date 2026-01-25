@@ -1,0 +1,727 @@
+#+TITLE: Gestalt SCIP CLI Tool
+#+SUBTITLE: Standalone TypeScript CLI for querying SCIP files without network dependency
+#+DATE: 2026-01-25
+#+KEYWORDS: scip, cli, typescript, offline, navigation, query
+
+* WIP [#A] Standalone gestalt-scip CLI tool for offline SCIP queries
+  Effort: 2-3 days
+  
+  Goal: Create a TypeScript CLI tool (cmd/gestalt-scip) that queries SCIP protobuf
+  files directly without requiring the HTTP API or database, reusing core logic from
+  scip-typescript-finder. Keep existing API functional and unchanged. Add automatic
+  SCIP indexing on gestalt startup with opt-out flag.
+  
+  Context:
+  - Current SCIP API (internal/scip) uses SQLite database (index.db) served over HTTP
+  - scip-typescript-finder already has working SCIP protobuf parsing + query engine
+  - SCIP files in .gestalt/scip/ are raw protobuf (index.scip, index-go.scip, etc.)
+  - Need offline capability for code navigation without running gestalt server
+  - Indexing currently manual or via API POST /api/scip/index
+  
+  Architecture decisions:
+  - New tool: cmd/gestalt-scip/ (TypeScript, compiled to executable via pkg or esbuild)
+  - Reuse modules from scip-typescript-finder: scip-loader, query-engine, symbol-indexer
+  - Output format matches current API: JSON compatible with /api/scip/symbols responses
+  - SCIP files location: .gestalt/scip/*.scip (auto-discover or --scip flag)
+  - Multi-language support: reads any SCIP protobuf (Go, TypeScript, Python, etc.)
+  - Startup indexing: async background task with dashboard progress indicator
+  - Query strategy: merge all .scip files by default; --language filters to specific language
+  - Missing indexer binaries log warnings (non-fatal)
+  
+  Backward compatibility:
+  - Existing /api/scip/* endpoints remain unchanged (no API breaking changes)
+  - Current database-backed API continues to work as-is
+  - Both tools (HTTP API + CLI) can coexist and serve different use cases
+  
+  Benefits:
+  - No network dependency for symbol lookups
+  - Faster startup (no HTTP overhead)
+  - Works when gestalt server is not running
+  - Reuses battle-tested scip-typescript-finder logic
+  - Language-agnostic (not TypeScript-only)
+  
+  Notes:
+  - scip-typescript-finder uses protobufjs to parse .scip files
+  - Query engine supports exact match, qualified names, folder filtering
+  - Output formats: text (human) and JSON (machine/integration)
+  - SCIP protobuf schema in scip-typescript-finder/src/bundle/scip.proto
+  
+** DONE [#A] Extract reusable SCIP modules from scip-typescript-finder
+   Effort: 4-6 hours
+   
+   Why: Need core parsing/query logic decoupled from scip-finder CLI to reuse
+   in gestalt-scip without duplicating code. Create a shared library approach.
+
+   Note (2026-01-25): scip-typescript-finder is reference-only in this repo.
+   We will not modify it. We will copy the relevant parsing/query logic into
+   cmd/gestalt-scip/src/lib while keeping behavior aligned.
+
+   Note (2026-01-25): network access is restricted, so npm install fails.
+   We reuse existing toolchains from the repo root and copy the generated
+   SCIP TypeScript bindings (scip/bindings/typescript/scip.ts) locally.
+   Protobuf parsing uses google-protobuf bindings instead of protobufjs.
+   
+   Change:
+   1. Create new directory: cmd/gestalt-scip/src/lib/ for shared modules
+   2. Copy core modules into lib/ (keep public API stable for CLI use):
+      - lib/scip-loader.ts (based on reference core/scip-loader.ts)
+      - lib/query-engine.ts (based on reference core/query-engine.ts)
+      - lib/symbol-indexer.ts (based on reference core/symbol-indexer.ts)
+      - lib/scip-types.ts (based on reference core/scip-types.ts)
+      - lib/scip-json-normalizer.ts (based on reference core/scip-json-normalizer.ts)
+      - lib/scip/ (SuffixType, SymbolIndexKey, SymbolParser)
+   3. Export lib modules via cmd/gestalt-scip/src/lib/index.ts
+   4. Ensure scip.proto is available to the loader in the built dist tree
+   5. Update package.json exports to expose lib modules:
+      ```json
+      "exports": {
+        ".": "./dist/index.js",
+        "./lib/*": "./dist/lib/*.js"
+      }
+      ```
+   6. Update tsconfig.json paths for lib resolution
+   7. Copy scip.proto to shared location: cmd/gestalt-scip/src/bundle/scip.proto
+   
+   Tests:
+   - cmd/gestalt-scip lib modules compile and test cleanly
+   - Imports resolve correctly from lib/ path
+   - No functionality regression vs reference behavior
+   
+   Done when:
+   - Core modules live in cmd/gestalt-scip/src/lib/ with stable exports
+   - All tests green
+   - package.json exports lib modules
+
+** TODO [#A] Create cmd/gestalt-scip TypeScript project structure
+   Effort: 3-4 hours
+   
+   Why: Need standalone CLI project that can import scip-typescript-finder lib
+   modules and produce a single executable binary.
+   
+   Change:
+   1. Create directory structure:
+      ```
+      cmd/gestalt-scip/
+        package.json
+        tsconfig.json
+        src/
+          main.ts           # CLI entry point
+          commands/
+            symbols.ts      # Symbol search command
+            definition.ts   # Symbol definition lookup
+            references.ts   # Symbol references lookup
+            files.ts        # File content lookup
+          formatter.ts      # JSON/text output formatting
+          scip-discovery.ts # Auto-discover .scip files
+        bin/
+          gestalt-scip      # Compiled executable (gitignored)
+        README.md
+      ```
+   2. package.json dependencies:
+      ```json
+      {
+        "name": "gestalt-scip",
+        "version": "0.1.0",
+        "type": "module",
+        "bin": {
+          "gestalt-scip": "./bin/gestalt-scip"
+        },
+        "dependencies": {
+          "commander": "^12.0.0",
+          "scip-finder": "file:../../scip-typescript-finder"
+        },
+        "devDependencies": {
+          "@types/node": "^20.0.0",
+          "esbuild": "^0.20.0",
+          "typescript": "^5.3.0"
+        },
+        "scripts": {
+          "build": "tsc && esbuild dist/main.js --bundle --platform=node --outfile=bin/gestalt-scip --banner:js=\"#!/usr/bin/env node\"",
+          "dev": "tsc && node dist/main.js",
+          "clean": "rm -rf dist bin"
+        }
+      }
+      ```
+   3. tsconfig.json:
+      ```json
+      {
+        "extends": "../../scip-typescript-finder/tsconfig.json",
+        "compilerOptions": {
+          "outDir": "./dist",
+          "rootDir": "./src"
+        },
+        "include": ["src/**/*"]
+      }
+      ```
+   4. .gitignore:
+      ```
+      dist/
+      bin/
+      node_modules/
+      ```
+   
+   Tests:
+   - npm install succeeds
+   - npm run build produces bin/gestalt-scip executable
+   - ./bin/gestalt-scip --help shows usage
+   - TypeScript compilation has no errors
+   
+   Done when:
+   - Directory structure created
+   - package.json + tsconfig.json configured
+   - Build produces working executable
+   - Can import scip-finder lib modules
+
+** TODO [#C] Implement SCIP file auto-discovery logic
+   Effort: 2-3 hours
+   
+   Why: gestalt-scip needs to find .scip files in .gestalt/scip/ without
+   explicit path, supporting multi-file indexes (index.scip, index-go.scip, etc.).
+   
+   Change:
+   1. Create cmd/gestalt-scip/src/scip-discovery.ts:
+      ```typescript
+      interface ScipFileInfo {
+        path: string;
+        language: string;  // extracted from filename
+        size: number;
+      }
+      
+      // Search order: CWD -> .gestalt/scip -> parent dirs up to 5 levels
+      function discoverScipFiles(startDir?: string): ScipFileInfo[]
+      
+      // Find specific language index: index-go.scip, index-typescript.scip
+      function findScipFileByLanguage(lang: string, startDir?: string): string | null
+      
+      // Default: load all .scip files in directory
+      function loadAllScipFiles(dir: string): Map<string, ScipIndex>
+      ```
+   2. Language extraction from filename patterns:
+      - index.scip -> "default"
+      - index-go.scip -> "go"
+      - index-typescript.scip -> "typescript"
+      - index-python.scip -> "python"
+   3. Search algorithm:
+      - Start from process.cwd() or --scip-dir flag
+      - Check .gestalt/scip/ subdirectory
+      - Walk up parent directories (max 5 levels) looking for .gestalt/scip/
+      - Return all *.scip files found
+   4. Error handling:
+      - No .scip files found -> clear error message with resolution steps
+      - Unreadable files -> warning, skip file
+      - Invalid protobuf -> error with file path
+   
+   Tests:
+   - Finds .scip files in .gestalt/scip/ from any subdirectory
+   - Extracts correct language from filename
+   - Returns empty array when no files found (no crash)
+   - Respects --scip-dir override flag
+   
+   Done when:
+   - Auto-discovery works from any project subdirectory
+   - Language detection from filenames
+   - Clear error messages for missing files
+   - Unit tests for discovery logic
+
+** TODO [#A] Implement symbols search command (matches /api/scip/symbols)
+   Effort: 4-5 hours
+   
+   Why: Core command for finding symbols by name, matching API query capabilities.
+   
+   Change:
+   1. Create cmd/gestalt-scip/src/commands/symbols.ts:
+      ```typescript
+      interface SymbolsOptions {
+        scip?: string;         // SCIP file path (overrides auto-discovery)
+        language?: string;     // Filter by language (go, typescript, etc.)
+        limit?: number;        // Max results (default 20)
+        format?: 'json' | 'text';  // Output format
+      }
+      
+      async function symbolsCommand(query: string, options: SymbolsOptions): Promise<void>
+      ```
+   2. Query execution flow:
+      - Auto-discover or load specified .scip file(s)
+      - If --language specified, only load matching language index (e.g., index-go.scip)
+      - Otherwise load and merge all .scip files found
+      - Build symbol index using scip-finder's buildSymbolIndex()
+      - Query with scip-finder's QueryEngine.find()
+      - Format results (JSON matches API response schema)
+   3. JSON output format (matches /api/scip/symbols):
+      ```json
+      {
+        "query": "Manager",
+        "symbols": [
+          {
+            "id": "scip-go gomod gestalt...",
+            "name": "Manager",
+            "kind": "struct",
+            "signature": "type Manager struct",
+            "documentation": ["..."],
+            "file_path": "internal/terminal/manager.go",
+            "line": 42,
+            "language": "go"
+          }
+        ]
+      }
+      ```
+   4. Text output format:
+      ```
+      Symbol: Manager (3 occurrences)
+      
+      internal/terminal/manager.go:42
+        type Manager struct
+        Manager is safe for concurrent use...
+      
+      internal/api/routes.go:105
+        field Manager *terminal.Manager
+      ```
+   5. Multi-file search: when multiple .scip files exist, merge results
+   6. Add --limit flag (default 20, max 1000)
+   
+   Tests:
+   - Finds symbols in index-go.scip
+   - JSON output matches API schema
+   - Text output is human-readable
+   - --language go filters to Go symbols only
+   - --language typescript loads only index-typescript.scip
+   - Default (no --language) merges all .scip files
+   - --limit caps results
+   
+   Done when:
+   - gestalt-scip symbols <query> works
+   - JSON output matches /api/scip/symbols format
+   - Text output is clear and useful
+   - --language filtering works correctly
+   - Multi-language merge works by default
+
+** TODO [#A] Implement definition and references commands
+   Effort: 3-4 hours
+   
+   Why: Complete symbol navigation needs definition lookup and references
+   (matches /api/scip/symbols/:id and /api/scip/symbols/:id/references).
+   
+   Change:
+   1. Create cmd/gestalt-scip/src/commands/definition.ts:
+      ```typescript
+      interface DefinitionOptions {
+        scip?: string;
+        format?: 'json' | 'text';
+      }
+      
+      // Get symbol definition by ID
+      async function definitionCommand(symbolId: string, options: DefinitionOptions)
+      ```
+   2. Create cmd/gestalt-scip/src/commands/references.ts:
+      ```typescript
+      interface ReferencesOptions {
+        scip?: string;
+        format?: 'json' | 'text';
+      }
+      
+      // Get all references to symbol by ID
+      async function referencesCommand(symbolId: string, options: ReferencesOptions)
+      ```
+   3. Symbol ID parsing and lookup:
+      - Parse SCIP symbol ID (scip-go gomod gestalt...)
+      - Find in symbol index
+      - Filter occurrences by role (definition vs reference)
+      - Extract file path, line, character range
+   4. JSON formats match API:
+      - Definition: single symbol with metadata
+      - References: array of occurrences with file/line/range
+   5. Text format shows file paths with context lines
+   
+   Tests:
+   - Definition command returns correct symbol
+   - References command finds all occurrences
+   - JSON output matches API schema
+   - Text output includes file context
+   - Invalid symbol ID shows clear error
+   
+   Done when:
+   - gestalt-scip definition <symbol-id> works
+   - gestalt-scip references <symbol-id> works
+   - Output formats match API responses
+   - Error handling for invalid IDs
+
+** TODO [#C] Implement files command (matches /api/scip/files/:path)
+   Effort: 2 hours
+   
+   Why: Complete API parity for file content lookup with symbol highlighting.
+   
+   Change:
+   1. Create cmd/gestalt-scip/src/commands/files.ts:
+      ```typescript
+      interface FilesOptions {
+        scip?: string;
+        format?: 'json' | 'text';
+        symbols?: boolean;  // Include symbol occurrences
+      }
+      
+      // Get file content with optional symbol annotations
+      async function filesCommand(filePath: string, options: FilesOptions)
+      ```
+   2. File lookup in SCIP index documents
+   3. JSON format:
+      ```json
+      {
+        "path": "internal/terminal/manager.go",
+        "content": "package terminal\n\ntype Manager struct {...}",
+        "symbols": [
+          {"line": 5, "character": 5, "symbol": "Manager", "kind": "definition"}
+        ]
+      }
+      ```
+   4. Text format: print file with line numbers
+   
+   Tests:
+   - Files command returns correct content
+   - Symbol annotations optional
+   - JSON matches API format
+   - Non-existent file shows error
+   
+   Done when:
+   - gestalt-scip files <path> works
+   - Output matches /api/scip/files response
+   - Symbol annotations optional
+
+** TODO [#A] Wire up CLI with commander and build executable
+   Effort: 3-4 hours
+   
+   Why: Need complete CLI interface with subcommands, help, and version.
+   
+   Change:
+   1. Update cmd/gestalt-scip/src/main.ts:
+      ```typescript
+      #!/usr/bin/env node
+      import { Command } from 'commander';
+      import { symbolsCommand } from './commands/symbols.js';
+      import { definitionCommand } from './commands/definition.js';
+      import { referencesCommand } from './commands/references.js';
+      import { filesCommand } from './commands/files.js';
+      
+      const program = new Command();
+      
+      program
+        .name('gestalt-scip')
+        .description('Query SCIP code intelligence indexes offline')
+        .version('0.1.0');
+      
+      program
+        .command('symbols <query>')
+        .description('Search for symbols by name')
+        .option('--scip <path>', 'Path to SCIP file or directory')
+        .option('--language <lang>', 'Filter by language (go, typescript, python)')
+        .option('--limit <n>', 'Max results', '20')
+        .option('--format <fmt>', 'Output format (json|text)', 'text')
+        .action(symbolsCommand);
+      
+      program
+        .command('definition <symbol-id>')
+        .description('Get symbol definition by ID')
+        .option('--scip <path>', 'Path to SCIP file or directory')
+        .option('--format <fmt>', 'Output format (json|text)', 'json')
+        .action(definitionCommand);
+      
+      program
+        .command('references <symbol-id>')
+        .description('Get all references to symbol by ID')
+        .option('--scip <path>', 'Path to SCIP file or directory')
+        .option('--format <fmt>', 'Output format (json|text)', 'json')
+        .action(referencesCommand);
+      
+      program
+        .command('files <path>')
+        .description('Get file content with symbol annotations')
+        .option('--scip <path>', 'Path to SCIP file or directory')
+        .option('--format <fmt>', 'Output format (json|text)', 'text')
+        .option('--symbols', 'Include symbol occurrences')
+        .action(filesCommand);
+      
+      program.parse();
+      ```
+   2. Build configuration in package.json:
+      - esbuild bundles all dependencies into single file
+      - Add shebang for direct execution
+      - Make output executable (chmod +x)
+   3. Add to root GNUmakefile:
+      ```makefile
+      .PHONY: build-scip
+      build-scip:
+      	cd cmd/gestalt-scip && npm install && npm run build
+      	chmod +x cmd/gestalt-scip/bin/gestalt-scip
+      ```
+   
+   Tests:
+   - gestalt-scip --help shows all commands
+   - gestalt-scip --version shows version
+   - Each subcommand --help works
+   - Executable runs without npm
+   - Error messages are clear
+   
+   Done when:
+   - All commands accessible via CLI
+   - Help and version work
+   - Executable runs standalone
+   - Integrated into GNUmakefile
+
+** TODO [#A] Add async SCIP indexing on gestalt startup with dashboard UI
+   Effort: 5-6 hours
+   
+   Why: Keep SCIP indexes fresh automatically; users expect navigation to work
+   without manual reindexing. Show progress in dashboard for visibility.
+   
+   Change:
+   1. Backend: Create internal/scip/indexer.go for async indexing:
+      ```go
+      type IndexStatus struct {
+          InProgress  bool      `json:"in_progress"`
+          StartedAt   time.Time `json:"started_at,omitempty"`
+          CompletedAt time.Time `json:"completed_at,omitempty"`
+          Duration    string    `json:"duration,omitempty"`
+          Error       string    `json:"error,omitempty"`
+          Languages   []string  `json:"languages"`  // ["go", "typescript"]
+      }
+      
+      type Indexer struct {
+          mu       sync.RWMutex
+          status   IndexStatus
+          eventBus *event.Bus[IndexEvent]
+          logger   *logging.Logger
+      }
+      
+      func (idx *Indexer) StartAsync(scipDir string, mergeIndexes bool) {
+          go idx.runIndexing(scipDir, mergeIndexes)
+      }
+      
+      func (idx *Indexer) runIndexing(scipDir string, merge bool) {
+          // Emit start event
+          // Run scip-go (warn if missing, don't fail)
+          // Run scip-typescript if tsconfig.json exists (warn if missing)
+          // Run scip-python if requirements.txt exists (warn if missing)
+          // Merge all .scip files into index.db if merge=true
+          // Emit completion/error event
+      }
+      ```
+   2. Backend: Add SCIP events to internal/event/types.go:
+      ```go
+      type SCIPEvent struct {
+          Type      string    `json:"type"`  // "start", "progress", "complete", "error"
+          Language  string    `json:"language,omitempty"`
+          Timestamp time.Time `json:"timestamp"`
+          Message   string    `json:"message,omitempty"`
+      }
+      ```
+   3. Backend: Add /api/scip/status endpoint (GET):
+      ```go
+      // Returns current IndexStatus
+      // Shows: in_progress, started_at, completed_at, duration, languages
+      ```
+   4. Backend: Add /api/scip/reindex endpoint (POST):
+      ```go
+      // Manually trigger reindexing
+      // Accepts: {"merge": true, "languages": ["go", "typescript"]}
+      // Returns: 202 Accepted or 409 Conflict if already running
+      ```
+   5. Backend: Add /api/scip/events WebSocket endpoint:
+      ```go
+      // Streams SCIPEvent updates during indexing
+      ```
+   6. Backend: Update cmd/gestalt/server_command.go:
+      ```go
+      // Start async indexing after server setup (non-blocking)
+      scipIndexer := scip.NewIndexer(logger, scipEventBus)
+      if !cfg.NoIndex {
+          scipIndexer.StartAsync(scipDir, true) // always merge
+      }
+      ```
+   7. Backend: Add flags to cmd/gestalt/config_load.go:
+      ```go
+      --noindex          Disable automatic SCIP indexing (default: false)
+      ```
+   8. Frontend: Add SCIP indexing indicator to Dashboard.svelte:
+      ```svelte
+      <script>
+        import { scipStatus } from '$lib/scipStore.js';
+        // Subscribe to /api/scip/events for real-time updates
+      </script>
+      
+      {#if $scipStatus.in_progress}
+        <div class="scip-indicator indexing">
+          <span class="spinner"></span>
+          Indexing code ({$scipStatus.languages.join(', ')})...
+        </div>
+      {:else if $scipStatus.completed_at}
+        <div class="scip-indicator completed" on:click={reindex}>
+          <span class="checkmark">✓</span>
+          Indexed {formatTimeAgo($scipStatus.completed_at)}
+        </div>
+      {/if}
+      ```
+   9. Frontend: Create frontend/src/lib/scipStore.js:
+      ```js
+      import { writable } from 'svelte/store';
+      import { createWSStore } from './wsStore.js';
+      
+      export const scipStatus = writable({
+          in_progress: false,
+          languages: [],
+      });
+      
+      export const scipEvents = createWSStore('/api/scip/events');
+      scipEvents.subscribe(event => {
+          if (event.type === 'complete') {
+              scipStatus.update(s => ({ ...s, in_progress: false, completed_at: event.timestamp }));
+          }
+      });
+      
+      export async function reindex() {
+          await fetch('/api/scip/reindex', { method: 'POST' });
+      }
+      ```
+   10. Frontend: Style SCIP indicator in Dashboard UI (top-right corner)
+   
+   Tests:
+   - gestalt starts and runs indexing in background (non-blocking)
+   - Dashboard shows progress spinner during indexing
+   - Dashboard shows "Indexed X ago" after completion
+   - Clicking completed indicator triggers reindex
+   - gestalt --noindex skips indexing
+   - Missing scip-go binary logs warning (doesn't crash)
+   - All .scip files merged into index.db
+   - /api/scip/status returns correct state
+   - /api/scip/events streams progress updates
+   - /api/scip/reindex triggers manual indexing
+   
+   Done when:
+   - Async indexing starts on gestalt startup
+   - Dashboard UI shows indexing status with click-to-reindex
+   - --noindex flag works
+   - Missing binaries log warnings only
+   - All .scip files always merged into index.db
+   - WebSocket events stream progress
+   - Manual reindex API works
+
+** TODO [#C] Add gestalt-scip to build and install workflows
+   Effort: 2 hours
+   
+   Why: gestalt-scip should be built and installed alongside gestalt main binary.
+   
+   Change:
+   1. Update GNUmakefile build target:
+      ```makefile
+      .PHONY: build
+      build: build-backend build-frontend build-scip
+      	@echo "Build complete"
+      
+      .PHONY: install
+      install: build
+      	install -m 755 gestalt $(DESTDIR)/usr/local/bin/gestalt
+      	install -m 755 gestalt-send $(DESTDIR)/usr/local/bin/gestalt-send
+      	install -m 755 cmd/gestalt-scip/bin/gestalt-scip $(DESTDIR)/usr/local/bin/gestalt-scip
+      ```
+   2. Update .gitignore:
+      ```
+      cmd/gestalt-scip/dist/
+      cmd/gestalt-scip/bin/
+      cmd/gestalt-scip/node_modules/
+      ```
+   3. Add to README.md CLI tools section:
+      ```markdown
+      ### gestalt-scip
+      
+      Query SCIP code intelligence indexes offline without running the server.
+      
+      Usage:
+        gestalt-scip symbols <query>           # Search for symbols
+        gestalt-scip definition <symbol-id>    # Get symbol definition
+        gestalt-scip references <symbol-id>    # Get symbol references
+        gestalt-scip files <path>              # Get file content
+      
+      Options:
+        --scip <path>      Path to SCIP file or directory
+        --language <lang>  Filter by language (go, typescript, python)
+        --format <fmt>     Output format (json|text)
+      ```
+   
+   Tests:
+   - make build produces cmd/gestalt-scip/bin/gestalt-scip
+   - make install copies gestalt-scip to PATH
+   - gestalt-scip works from any directory after install
+   
+   Done when:
+   - gestalt-scip built by default
+   - Install target includes gestalt-scip
+   - Documentation updated
+
+** TODO [#C] Write integration tests and documentation
+   Effort: 3-4 hours
+   
+   Why: Ensure gestalt-scip works correctly with real SCIP files and users
+   understand how to use it.
+   
+   Change:
+   1. Create cmd/gestalt-scip/tests/integration/cli.test.ts:
+      - Test with .gestalt/scip/index-go.scip
+      - Verify symbols command finds Go types
+      - Verify definition command returns correct info
+      - Verify references command finds all occurrences
+      - Verify JSON output is valid and matches schema
+   2. Create cmd/gestalt-scip/README.md:
+      ```markdown
+      # gestalt-scip
+      
+      Offline CLI tool for querying SCIP code intelligence indexes.
+      
+      ## Features
+      - No network dependency (reads .scip files directly)
+      - Multi-language support (Go, TypeScript, Python, etc.)
+      - JSON output compatible with gestalt SCIP API
+      - Auto-discovers SCIP files in .gestalt/scip/
+      
+      ## Usage
+      
+      Search for symbols:
+      ```bash
+      gestalt-scip symbols Manager
+      gestalt-scip symbols Manager --language go --limit 50
+      ```
+      
+      Get symbol definition:
+      ```bash
+      gestalt-scip definition "scip-go gomod gestalt..." --format json
+      ```
+      
+      Get symbol references:
+      ```bash
+      gestalt-scip references "scip-go gomod gestalt..." --format text
+      ```
+      
+      Get file content:
+      ```bash
+      gestalt-scip files internal/terminal/manager.go --symbols
+      ```
+      
+      ## Output Formats
+      
+      JSON format matches gestalt SCIP API responses (machine-readable).
+      Text format provides human-readable output.
+      
+      ## Development
+      
+      Build: `npm run build`
+      Test: `npm test`
+      ```
+   3. Update docs/scip-navigation.md with offline usage section
+   
+   Tests:
+   - All integration tests pass
+   - Documentation examples work
+   - README is clear and complete
+   
+   Done when:
+   - Integration tests validate CLI behavior
+   - README explains all commands
+   - Documentation updated
+   - Examples work correctly

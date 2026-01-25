@@ -257,7 +257,7 @@
    Tests: Run benchmarks; go test -bench=. ./internal/terminal/
    Done when: Benchmarks show acceptable performance (< 1ms for 10KB)
 
-** TODO [#C] Update documentation for filtered logs
+** DONE [#C] Update documentation for filtered logs
    Effort: 30 minutes
    Why: Users should know logs are cleaned for readability
    Change:

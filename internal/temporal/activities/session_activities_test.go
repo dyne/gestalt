@@ -110,9 +110,28 @@ func TestSessionActivitiesRecordBellAndUpdateTask(testingContext *testing.T) {
 		testingContext.Fatalf("spawn error: %v", spawnError)
 	}
 
-	bellError := activities.RecordBellActivity(activityContext, "bell-session", time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC), "bell")
+	bellContext := "bell\x1b[31m-alert\x1b[0m-----"
+	bellError := activities.RecordBellActivity(activityContext, "bell-session", time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC), bellContext)
 	if bellError != nil {
 		testingContext.Fatalf("bell error: %v", bellError)
+	}
+
+	var bellEntry logging.LogEntry
+	for _, entry := range activities.Logger.Buffer().List() {
+		if entry.Message == "temporal bell recorded" {
+			bellEntry = entry
+			break
+		}
+	}
+	if bellEntry.Message == "" {
+		testingContext.Fatal("expected bell log entry")
+	}
+	contextValue := bellEntry.Context["context"]
+	if strings.Contains(contextValue, "\x1b") {
+		testingContext.Fatalf("expected context filtered, got %q", contextValue)
+	}
+	if strings.Contains(contextValue, "-----") {
+		testingContext.Fatalf("expected repeated chars collapsed, got %q", contextValue)
 	}
 
 	updateError := activities.UpdateTaskActivity(activityContext, "bell-session", "L1", "L2")

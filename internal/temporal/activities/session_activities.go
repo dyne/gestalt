@@ -153,6 +153,7 @@ func (activities *SessionActivities) RecordBellActivity(activityContext context.
 		activityErr = terminal.ErrSessionNotFound
 		return activityErr
 	}
+	contextText = terminal.FilterTerminalOutput(contextText)
 	activities.logInfo("temporal bell recorded", map[string]string{
 		"terminal_id": trimmedID,
 		"timestamp":   timestamp.UTC().Format(time.RFC3339),

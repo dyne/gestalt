@@ -208,7 +208,7 @@
    Tests: Update manager tests to verify filtered output in log context fields
    Done when: output_tail fields in logs are ANSI-free
 
-** TODO [#B] Apply filter to bell context in Temporal activities
+** DONE [#B] Apply filter to bell context in Temporal activities
    Effort: 1 hour
    Why: Bell context contains terminal output with ANSI sequences
    Change:

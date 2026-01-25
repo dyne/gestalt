@@ -181,7 +181,7 @@
    - Build produces working executable
    - Can import local lib modules
 
-** TODO [#C] Implement SCIP file auto-discovery logic
+** DONE [#C] Implement SCIP file auto-discovery logic
    Effort: 2-3 hours
    
    Why: gestalt-scip needs to find .scip files in .gestalt/scip/ without

@@ -678,11 +678,14 @@
    - Install target includes gestalt-scip
    - Documentation updated
 
-** TODO [#C] Write integration tests and documentation
+** DONE [#C] Write integration tests and documentation
    Effort: 3-4 hours
    
    Why: Ensure gestalt-scip works correctly with real SCIP files and users
    understand how to use it.
+
+   Note (2026-01-25): docs/scip-navigation.md did not exist, so it was created
+   with the requested offline CLI usage section.
    
    Change:
    1. Create cmd/gestalt-scip/tests/integration/cli.test.ts:

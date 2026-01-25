@@ -109,6 +109,7 @@ terminal output -> Session output bus -> /ws/terminal/:id -> xterm
 - CLI commands: `symbols`, `definition`, `references`, `files`; default merges all `.scip` files, `--language` filters, `--format` supports `text|json`.
 - Backend async indexing: `/api/scip/status`, `/api/scip/reindex`, `/api/scip/events`; startup indexing runs unless `--noindex` or `GESTALT_SCIP_NO_INDEX=true`.
 - `scip-typescript-finder` is reference-only; parsing logic is copied into `cmd/gestalt-scip/src/lib`.
+- Prompt guidance: `config/prompts/scip.tmpl` prefers the API, while `config/prompts/scip-cli.md` documents offline CLI-first navigation.
 
 ## OpenTelemetry observability
 - Collector lifecycle lives in `internal/otel/collector.go`; config `.gestalt/otel/collector.yaml`, data file `.gestalt/otel/otel.json`.

@@ -3,7 +3,7 @@
 #+DATE: 2026-01-25
 #+KEYWORDS: scip, cli, typescript, offline, navigation, query
 
-* WIP [#A] Standalone gestalt-scip CLI tool for offline SCIP queries
+* DONE [#A] Standalone gestalt-scip CLI tool for offline SCIP queries
   Effort: 2-3 days
   
   Goal: Create a TypeScript CLI tool (cmd/gestalt-scip) that queries SCIP protobuf
@@ -752,7 +752,7 @@
    - Documentation updated
    - Examples work correctly
 
-** DONE [#C] Document SCIP CLI usage for LLM prompts
+** [#C] Document SCIP CLI usage for LLM prompts
    Effort: 1 hour
 
    Why: LLM prompts should have a concise, reliable reference for offline

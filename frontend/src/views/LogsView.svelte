@@ -1,13 +1,14 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
-  import { fetchOtelLogs } from '../lib/otelClient.js'
   import { notificationStore } from '../lib/notificationStore.js'
   import { getErrorMessage } from '../lib/errorUtils.js'
   import { formatRelativeTime } from '../lib/timeUtils.js'
   import ViewState from '../components/ViewState.svelte'
   import { createViewStateMachine } from '../lib/viewStateMachine.js'
+  import { createLogStream } from '../lib/logStream.js'
 
   const viewState = createViewStateMachine()
+  const maxLogEntries = 1000
 
   let logs = []
   let orderedLogs = []
@@ -16,10 +17,12 @@
   let levelFilter = 'info'
   let autoRefresh = true
   let lastUpdated = null
-  let refreshTimer = null
-  let mounted = false
   let expanded = new Set()
   let lastErrorMessage = ''
+  let logStream = null
+  let streamActive = false
+  let pendingStop = false
+  let stopTimer = null
 
   const levelOptions = [
     { value: 'debug', label: 'Debug' },
@@ -113,13 +116,6 @@
     return entry.message || entry.Message || entry.event_name || entry.eventName || ''
   }
 
-  const extractLogs = (payload) => {
-    if (Array.isArray(payload)) return payload
-    if (Array.isArray(payload?.logs)) return payload.logs
-    if (Array.isArray(payload?.records)) return payload.records
-    return []
-  }
-
   const normalizeLogEntry = (entry) => {
     const timestamp = normalizeTimestamp(
       entry?.timestamp ??
@@ -150,38 +146,93 @@
     }
   }
 
-  const loadLogs = async () => {
-    viewState.start()
-    try {
-      const payload = await fetchOtelLogs({ level: levelFilter })
-      logs = extractLogs(payload).map(normalizeLogEntry)
-      lastUpdated = new Date().toISOString()
-      lastErrorMessage = ''
-    } catch (err) {
-      const message = getErrorMessage(err, 'Failed to load logs.')
-      viewState.setError(message)
-      if (message !== lastErrorMessage) {
-        notificationStore.addNotification('error', message)
-        lastErrorMessage = message
-      }
-    } finally {
-      viewState.finish()
+  const clearStopTimer = () => {
+    if (stopTimer) {
+      clearTimeout(stopTimer)
+      stopTimer = null
     }
   }
 
-  const resetAutoRefresh = () => {
-    if (refreshTimer) {
-      clearInterval(refreshTimer)
-      refreshTimer = null
+  const stopStream = () => {
+    clearStopTimer()
+    pendingStop = false
+    if (logStream) {
+      logStream.stop()
     }
-    if (autoRefresh) {
-      refreshTimer = setInterval(loadLogs, 5000)
+    streamActive = false
+    viewState.finish()
+  }
+
+  const appendLogEntry = (entry) => {
+    if (!entry) return
+    const normalized = normalizeLogEntry(entry)
+    logs = [...logs, normalized]
+    if (logs.length > maxLogEntries) {
+      logs = logs.slice(logs.length - maxLogEntries)
     }
+    lastUpdated = new Date().toISOString()
+    viewState.finish()
+    lastErrorMessage = ''
+  }
+
+  const ensureLogStream = () => {
+    if (logStream) return logStream
+    logStream = createLogStream({
+      level: levelFilter,
+      onEntry: appendLogEntry,
+      onOpen: () => {
+        viewState.finish()
+        if (pendingStop) {
+          pendingStop = false
+          clearStopTimer()
+          stopTimer = setTimeout(() => {
+            stopStream()
+          }, 1500)
+        }
+        lastErrorMessage = ''
+      },
+      onError: (err) => {
+        const message = getErrorMessage(err, 'Failed to load logs.')
+        viewState.setError(message)
+        viewState.finish()
+        if (message !== lastErrorMessage) {
+          notificationStore.addNotification('error', message)
+          lastErrorMessage = message
+        }
+      },
+    })
+    return logStream
+  }
+
+  const loadLogs = ({ reset = true } = {}) => {
+    pendingStop = !autoRefresh
+    clearStopTimer()
+    if (reset) {
+      logs = []
+    }
+    viewState.start()
+    const stream = ensureLogStream()
+    stream.setLevel(levelFilter)
+    if (!streamActive) {
+      streamActive = true
+      stream.start()
+      return
+    }
+    stream.restart()
   }
 
   const handleFilterChange = (event) => {
     levelFilter = event.target.value
     loadLogs()
+  }
+
+  const handleAutoRefreshChange = (event) => {
+    autoRefresh = event.target.checked
+    if (autoRefresh) {
+      loadLogs({ reset: false })
+      return
+    }
+    stopStream()
   }
 
   const toggleExpanded = (entryId) => {
@@ -197,22 +248,13 @@
   const entryKey = (entry, index) => `${entry.timestamp}-${entry.message}-${index}`
 
   $: orderedLogs = [...logs].reverse()
-
-  $: if (mounted) {
-    resetAutoRefresh()
-  }
-
-  onMount(async () => {
-    mounted = true
-    await loadLogs()
-    resetAutoRefresh()
+ 
+  onMount(() => {
+    loadLogs()
   })
 
   onDestroy(() => {
-    mounted = false
-    if (refreshTimer) {
-      clearInterval(refreshTimer)
-    }
+    stopStream()
   })
 
   $: ({ loading, error } = $viewState)
@@ -234,8 +276,8 @@
         </select>
       </label>
       <label class="control control--toggle">
-        <input type="checkbox" bind:checked={autoRefresh} />
-        <span>Auto refresh</span>
+        <input type="checkbox" bind:checked={autoRefresh} on:change={handleAutoRefreshChange} />
+        <span>Live updates</span>
       </label>
       <button class="refresh" type="button" on:click={loadLogs} disabled={loading}>
         {loading ? 'Refreshing…' : 'Refresh'}

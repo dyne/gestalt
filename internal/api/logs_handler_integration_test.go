@@ -52,6 +52,44 @@ func TestLogsWebSocketStream(t *testing.T) {
 	}
 }
 
+func TestLogsWebSocketSnapshot(t *testing.T) {
+	logger := logging.NewLoggerWithOutput(logging.NewLogBuffer(10), logging.LevelInfo, nil)
+	logger.Warn("snapshot entry", map[string]string{"source": "preconnect"})
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("skipping websocket test (listener unavailable): %v", err)
+	}
+	server := &httptest.Server{
+		Listener: listener,
+		Config:   &http.Server{Handler: &LogsHandler{Logger: logger}},
+	}
+	server.Start()
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/logs"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+
+	_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	var entry logging.LogEntry
+	if err := conn.ReadJSON(&entry); err != nil {
+		t.Fatalf("read websocket: %v", err)
+	}
+	if entry.Message != "snapshot entry" {
+		t.Fatalf("expected snapshot entry, got %q", entry.Message)
+	}
+	if entry.Level != logging.LevelWarning {
+		t.Fatalf("expected level warning, got %q", entry.Level)
+	}
+	if entry.Context["source"] != "preconnect" {
+		t.Fatalf("expected context source=preconnect, got %v", entry.Context)
+	}
+}
+
 func TestLogsWebSocketAuth(t *testing.T) {
 	logger := logging.NewLoggerWithOutput(logging.NewLogBuffer(10), logging.LevelInfo, nil)
 

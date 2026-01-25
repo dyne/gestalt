@@ -378,7 +378,7 @@
           bind:checked={logsAutoRefresh}
           on:change={handleLogsAutoRefreshChange}
         />
-        <span>Auto refresh</span>
+        <span>Live updates</span>
       </label>
       <button class="logs-refresh" type="button" on:click={refreshLogs} disabled={logsLoading}>
         {logsLoading ? 'Refreshing…' : 'Refresh'}

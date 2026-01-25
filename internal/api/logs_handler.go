@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"sync"
+	"time"
 
 	"gestalt/internal/logging"
 
@@ -90,11 +91,15 @@ func (h *LogsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer span.End()
 	r = r.WithContext(spanCtx)
 
+	snapshot := logSnapshot(h.Logger)
 	writer, err := startWSWriteLoop(w, r, wsStreamConfig[logging.LogEntry]{
 		Conn:           conn,
 		AllowedOrigins: h.AllowedOrigins,
 		Output:         output,
 		Logger:         h.Logger,
+		PreWrite: func(conn *websocket.Conn) error {
+			return writeLogSnapshot(conn, snapshot, filter.Get())
+		},
 	})
 	if err != nil {
 		cancel()
@@ -128,4 +133,33 @@ func (h *LogsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		filter.Set(level)
 	}
+}
+
+func logSnapshot(logger *logging.Logger) []logging.LogEntry {
+	if logger == nil {
+		return nil
+	}
+	buffer := logger.Buffer()
+	if buffer == nil {
+		return nil
+	}
+	return buffer.List()
+}
+
+func writeLogSnapshot(conn *websocket.Conn, entries []logging.LogEntry, minLevel logging.Level) error {
+	if conn == nil || len(entries) == 0 {
+		return nil
+	}
+	for _, entry := range entries {
+		if minLevel != "" && !logging.LevelAtLeast(entry.Level, minLevel) {
+			continue
+		}
+		if err := conn.SetWriteDeadline(time.Now().Add(wsWriteTimeout)); err != nil {
+			return err
+		}
+		if err := writeJSONPayload(conn, entry); err != nil {
+			return err
+		}
+	}
+	return nil
 }

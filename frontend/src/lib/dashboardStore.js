@@ -2,12 +2,13 @@ import { get, writable } from 'svelte/store'
 import { subscribe as subscribeAgentEvents } from './agentEventStore.js'
 import { subscribe as subscribeConfigEvents } from './configEventStore.js'
 import { subscribe as subscribeEvents } from './eventStore.js'
-import { fetchAgentSkills, fetchAgents, fetchLogs, fetchMetricsSummary } from './apiClient.js'
+import { fetchAgentSkills, fetchAgents, fetchMetricsSummary } from './apiClient.js'
 import { getErrorMessage } from './errorUtils.js'
 import { notificationStore } from './notificationStore.js'
+import { createLogStream } from './logStream.js'
 
-const refreshIntervalMs = 5000
 const metricsRefreshIntervalMs = 60000
+const maxLogEntries = 1000
 
 export const createDashboardStore = () => {
   const state = writable({
@@ -34,8 +35,11 @@ export const createDashboardStore = () => {
   })
 
   let terminals = []
-  let logsRefreshTimer = null
+  let logsStream = null
   let logsMounted = false
+  let logsStopTimer = null
+  let logsStreaming = false
+  let pendingLogStop = false
   let lastLogErrorMessage = ''
   let metricsRefreshTimer = null
   let metricsMounted = false
@@ -210,29 +214,87 @@ export const createDashboardStore = () => {
     }
   }
 
-  const loadLogs = async () => {
-    state.update((current) => ({ ...current, logsLoading: true, logsError: '' }))
-    try {
-      const { logLevelFilter } = get(state)
-      const nextLogs = await fetchLogs({ level: logLevelFilter })
-      state.update((current) => ({
+  const clearLogStopTimer = () => {
+    if (logsStopTimer) {
+      clearTimeout(logsStopTimer)
+      logsStopTimer = null
+    }
+  }
+
+  const stopLogStream = () => {
+    clearLogStopTimer()
+    pendingLogStop = false
+    if (logsStream) {
+      logsStream.stop()
+    }
+    logsStreaming = false
+    state.update((current) => ({ ...current, logsLoading: false }))
+  }
+
+  const appendLogEntry = (entry) => {
+    if (!entry) return
+    state.update((current) => {
+      const nextLogs = [...current.logs, entry]
+      if (nextLogs.length > maxLogEntries) {
+        nextLogs.splice(0, nextLogs.length - maxLogEntries)
+      }
+      return {
         ...current,
         logs: nextLogs,
         logsLoading: false,
-      }))
-      lastLogErrorMessage = ''
-    } catch (err) {
-      const message = getErrorMessage(err, 'Failed to load logs.')
-      state.update((current) => ({
-        ...current,
-        logsError: message,
-        logsLoading: false,
-      }))
-      if (message !== lastLogErrorMessage) {
-        notificationStore.addNotification('error', message)
-        lastLogErrorMessage = message
+        logsError: '',
       }
+    })
+  }
+
+  const ensureLogStream = () => {
+    if (logsStream) return logsStream
+    logsStream = createLogStream({
+      level: get(state).logLevelFilter,
+      onEntry: appendLogEntry,
+      onOpen: () => {
+        state.update((current) => ({ ...current, logsLoading: false, logsError: '' }))
+        if (pendingLogStop) {
+          pendingLogStop = false
+          clearLogStopTimer()
+          logsStopTimer = setTimeout(() => {
+            stopLogStream()
+          }, 1500)
+        }
+        lastLogErrorMessage = ''
+      },
+      onError: (err) => {
+        const message = getErrorMessage(err, 'Failed to load logs.')
+        state.update((current) => ({
+          ...current,
+          logsError: message,
+          logsLoading: false,
+        }))
+        if (message !== lastLogErrorMessage) {
+          notificationStore.addNotification('error', message)
+          lastLogErrorMessage = message
+        }
+      },
+    })
+    return logsStream
+  }
+
+  const loadLogs = async ({ reset = true } = {}) => {
+    if (!logsMounted) return
+    pendingLogStop = !get(state).logsAutoRefresh
+    clearLogStopTimer()
+    if (reset) {
+      state.update((current) => ({ ...current, logs: [] }))
     }
+    state.update((current) => ({ ...current, logsLoading: true, logsError: '' }))
+    const stream = ensureLogStream()
+    stream.setLevel(get(state).logLevelFilter)
+    if (!logsStreaming) {
+      logsStreaming = true
+      stream.start()
+      return
+    }
+    stream.restart()
   }
 
   const loadMetricsSummary = async () => {
@@ -260,17 +322,6 @@ export const createDashboardStore = () => {
     }
   }
 
-  const resetLogRefresh = () => {
-    if (logsRefreshTimer) {
-      clearInterval(logsRefreshTimer)
-      logsRefreshTimer = null
-    }
-    if (!logsMounted) return
-    if (get(state).logsAutoRefresh) {
-      logsRefreshTimer = setInterval(loadLogs, refreshIntervalMs)
-    }
-  }
-
   const resetMetricsRefresh = () => {
     if (metricsRefreshTimer) {
       clearInterval(metricsRefreshTimer)
@@ -288,8 +339,14 @@ export const createDashboardStore = () => {
   }
 
   const setLogsAutoRefresh = (enabled) => {
-    state.update((current) => ({ ...current, logsAutoRefresh: Boolean(enabled) }))
-    resetLogRefresh()
+    const nextValue = Boolean(enabled)
+    state.update((current) => ({ ...current, logsAutoRefresh: nextValue }))
+    if (!logsMounted) return
+    if (nextValue) {
+      loadLogs({ reset: false })
+    } else {
+      stopLogStream()
+    }
   }
 
   const setMetricsAutoRefresh = (enabled) => {
@@ -325,7 +382,6 @@ export const createDashboardStore = () => {
     await loadAgents()
     await loadLogs()
     await loadMetricsSummary()
-    resetLogRefresh()
     resetMetricsRefresh()
   }
 
@@ -333,10 +389,7 @@ export const createDashboardStore = () => {
     started = false
     logsMounted = false
     metricsMounted = false
-    if (logsRefreshTimer) {
-      clearInterval(logsRefreshTimer)
-      logsRefreshTimer = null
-    }
+    stopLogStream()
     if (metricsRefreshTimer) {
       clearInterval(metricsRefreshTimer)
       metricsRefreshTimer = null

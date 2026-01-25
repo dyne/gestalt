@@ -3,17 +3,16 @@ import { get } from 'svelte/store'
 
 const fetchAgents = vi.hoisted(() => vi.fn())
 const fetchAgentSkills = vi.hoisted(() => vi.fn())
-const fetchLogs = vi.hoisted(() => vi.fn())
 const fetchMetricsSummary = vi.hoisted(() => vi.fn())
 const addNotification = vi.hoisted(() => vi.fn())
 const subscribeAgentEvents = vi.hoisted(() => vi.fn())
 const subscribeConfigEvents = vi.hoisted(() => vi.fn())
 const subscribeEvents = vi.hoisted(() => vi.fn())
+const createLogStream = vi.hoisted(() => vi.fn())
 
 vi.mock('../src/lib/apiClient.js', () => ({
   fetchAgents,
   fetchAgentSkills,
-  fetchLogs,
   fetchMetricsSummary,
 }))
 
@@ -33,6 +32,10 @@ vi.mock('../src/lib/configEventStore.js', () => ({
 
 vi.mock('../src/lib/eventStore.js', () => ({
   subscribe: subscribeEvents,
+}))
+
+vi.mock('../src/lib/logStream.js', () => ({
+  createLogStream,
 }))
 
 import { createDashboardStore } from '../src/lib/dashboardStore.js'
@@ -64,17 +67,23 @@ describe('dashboardStore', () => {
         delete eventHandlers[type]
       }
     })
+    createLogStream.mockImplementation((options) => ({
+      start: vi.fn(() => options?.onOpen?.()),
+      stop: vi.fn(),
+      restart: vi.fn(() => options?.onOpen?.()),
+      setLevel: vi.fn(),
+    }))
   })
 
   afterEach(() => {
     fetchAgents.mockReset()
     fetchAgentSkills.mockReset()
-    fetchLogs.mockReset()
     fetchMetricsSummary.mockReset()
     addNotification.mockReset()
     subscribeAgentEvents.mockReset()
     subscribeConfigEvents.mockReset()
     subscribeEvents.mockReset()
+    createLogStream.mockReset()
   })
 
   it('loads agents and skills', async () => {
@@ -102,13 +111,22 @@ describe('dashboardStore', () => {
   })
 
   it('notifies once for repeated log errors', async () => {
-    fetchLogs.mockRejectedValue(new Error('logs down'))
+    createLogStream.mockImplementation((options) => ({
+      start: vi.fn(() => options?.onError?.(new Error('logs down'))),
+      stop: vi.fn(),
+      restart: vi.fn(() => options?.onError?.(new Error('logs down'))),
+      setLevel: vi.fn(),
+    }))
+    fetchAgents.mockResolvedValue([])
+    fetchMetricsSummary.mockResolvedValue({})
 
     const store = createDashboardStore()
+    await store.start()
     await store.loadLogs()
     await store.loadLogs()
 
     expect(addNotification).toHaveBeenCalledTimes(1)
+    store.stop()
   })
 
   it('loads metrics summary', async () => {
@@ -155,7 +173,6 @@ describe('dashboardStore', () => {
   it('tracks config extraction events and resets', async () => {
     vi.useFakeTimers()
     fetchAgents.mockResolvedValue([])
-    fetchLogs.mockResolvedValue([])
     fetchMetricsSummary.mockResolvedValue({})
 
     const store = createDashboardStore()
@@ -177,7 +194,6 @@ describe('dashboardStore', () => {
 
   it('updates git context from status and events', async () => {
     fetchAgents.mockResolvedValue([])
-    fetchLogs.mockResolvedValue([])
     fetchMetricsSummary.mockResolvedValue({})
 
     const store = createDashboardStore()
@@ -194,7 +210,6 @@ describe('dashboardStore', () => {
 
   it('notifies on config conflicts and validation errors', async () => {
     fetchAgents.mockResolvedValue([])
-    fetchLogs.mockResolvedValue([])
     fetchMetricsSummary.mockResolvedValue({})
 
     const store = createDashboardStore()

@@ -1,3 +1,145 @@
+* TODO [#A] Diagnose and fix high CPU usage in idle gestalt
+  Effort: 1 hour (quick win!)
+  Goal: Identify and eliminate the cause of ~40% CPU usage when gestalt is idle with no active terminals or agents doing work.
+  Notes:
+  - Problem: gestalt process uses ~16% CPU constantly (62:35 CPU time over 6.5 hours) even when idle
+  - Root cause: busy-wait loop in session.go PTY read loop (lines 564-568)
+  - The select/default pattern prevented pty.Read() from blocking, causing tight polling loop
+  - Fix: removed select statement, let pty.Read() block naturally (PTY reads are blocking by default)
+  - Testing: all terminal tests pass after fix
+  - CPU usage should drop from ~40% to <1% when idle
+  - Future: add CPU regression test and pprof infrastructure for easier debugging
+  Date: 2026-01-24
+  Priority: [#A] - performance regression blocking production use
+  Resolution: Fixed in commit 01b64ce
+
+** TODO [#A] Identify root cause via code inspection
+   Effort: 2-3 hours
+   Why: Can't fix what we can't measure; need runtime profiling data to identify hot paths
+   Change:
+   - Add pprof HTTP endpoint to gestalt server
+   - Register net/http/pprof handlers on debug endpoint (e.g., /debug/pprof/)
+   - Make pprof endpoint optional: GESTALT_PPROF_ENABLED (default: false in production, true in dev)
+   - Add --pprof flag to enable profiling endpoints
+   - Document pprof endpoints: /debug/pprof/profile (30s CPU profile), /debug/pprof/goroutine (goroutine dump)
+   - Add helper script: scripts/profile-cpu.sh that fetches profile and opens it
+   - Test profiling on idle system: verify we can capture and analyze profiles
+   Tests: Start gestalt with --pprof, curl /debug/pprof/profile, verify profile downloads
+   Done when: Can capture CPU profiles from running gestalt process
+
+** TODO [#A] Capture and analyze baseline CPU profile
+   Effort: 1-2 hours
+   Why: Need to see what functions are consuming CPU in idle state
+   Change:
+   - Start gestalt with pprof enabled and let it idle with 2 shell terminals open
+   - Capture 30s CPU profile: go tool pprof http://localhost:8080/debug/pprof/profile?seconds=30
+   - Analyze with pprof interactive mode: top20, list (hot functions)
+   - Check for: tight loops, excessive channel operations, lock contention, GC pressure
+   - Generate flame graph: go tool pprof -http=:8081 profile.pb.gz
+   - Document findings in this L2 task (edit PLAN.org with analysis results)
+   - Common culprits to check:
+     - Event bus publish/subscribe in hot path
+     - OTel SDK metric recording in tight loop
+     - Terminal output buffer management
+     - WebSocket read/write loops without blocking
+     - Ticker/timer goroutines firing too frequently
+   Tests: Profile analysis documented with top CPU consumers identified
+   Done when: Root cause identified with concrete function names and call stacks
+
+** TODO [#A] Fix identified CPU hotspot
+   Effort: varies (2 hours - 1 day depending on cause)
+   Why: Eliminate the busy-wait or excessive polling that's burning CPU
+   Change:
+   - Based on profile analysis, implement targeted fix
+   - Common fixes:
+     - Add blocking reads instead of polling (select with timeout, not busy loop)
+     - Reduce event bus publish frequency (batch events, debounce)
+     - Fix goroutine that's spinning (add proper channel blocking)
+     - Reduce metric recording frequency (sample instead of every event)
+     - Add sleep/delay in tight loop (if loop is intentional)
+   - Specific areas to check based on recent OTel changes:
+     - internal/otel/middleware.go: check if metrics recorded synchronously on every request
+     - internal/otel/sdk.go: check if tracer/meter doing background work
+     - internal/event/*.go: check if Bus publish is O(n) subscribers without optimization
+     - internal/terminal/session.go: check broadcastLoop for busy-wait
+   - Add comments explaining the fix
+   Tests: Unit tests for fixed component; go test ./...
+   Done when: Fix implemented, tests pass, ready for verification
+
+** TODO [#B] Verify CPU usage fix with profiling
+   Effort: 1 hour
+   Why: Confirm fix actually reduced CPU usage to acceptable levels
+   Change:
+   - Rebuild gestalt with fix applied
+   - Run with same idle scenario: 2 shell terminals, no activity
+   - Capture new CPU profile after 10 minutes runtime
+   - Compare before/after profiles: verify hotspot is gone
+   - Monitor actual CPU usage with top/htop: should be <5% when idle
+   - If not fixed: return to analysis step, find next hotspot
+   - Document before/after metrics in PLAN.org
+   Tests: CPU usage < 5% when idle, profile shows no busy loops
+   Done when: Idle CPU usage reduced to acceptable baseline
+
+** TODO [#C] Add mock agent for testing (prevent real CLI dependencies)
+   Effort: 2-3 hours
+   Why: Tests must not require real codex/copilot accounts; need deterministic mock
+   Change:
+   - Create internal/terminal/mock_agent.sh shell script that simulates agent behavior
+   - Script echoes canned responses, accepts commands, doesn't invoke real LLM CLIs
+   - Add test agent config: config/agents/mock.toml using mock_agent.sh as shell
+   - Script features:
+     - Echoes startup message with onair_string
+     - Accepts prompt injection without errors
+     - Responds to simple commands with deterministic output
+     - Optionally: simulate bell signal after N commands
+   - Update tests to use mock agent instead of real agents
+   - Document mock agent in TESTING.md
+   Tests: Tests using mock agent run without real CLI dependencies
+   Done when: Test suite uses mock agent exclusively, no codex/copilot required
+
+** TODO [#C] Add CPU regression test
+   Effort: 2-3 hours
+   Why: Prevent future regressions; catch busy-wait issues in CI
+   Change:
+   - Add integration test: internal/terminal/cpu_test.go
+   - Test creates 2 mock agent terminals, lets them idle for 10s
+   - Measure goroutine count before/after: should be stable (no leaks)
+   - Measure CPU time used during idle: should be < 1% of wall time
+   - Use runtime.ReadMemStats, runtime.NumGoroutine for metrics
+   - Optional: use runtime/pprof to verify no hot paths during idle
+   - Test runs in CI but with generous thresholds (CI may be noisy)
+   - Document expected idle behavior in test
+   Tests: CPU regression test passes on idle system
+   Done when: Test catches excessive CPU usage in idle state
+
+** TODO [#C] Document profiling workflow for future debugging
+   Effort: 1 hour
+   Why: Make it easy to profile performance issues in the future
+   Change:
+   - Add "Performance Profiling" section to TESTING.md or new docs/profiling.md
+   - Document how to enable pprof endpoints
+   - Document how to capture CPU profiles: go tool pprof commands
+   - Document how to analyze profiles: top, list, web, flame graphs
+   - Document how to capture memory profiles: /debug/pprof/heap
+   - Document how to capture goroutine dumps: /debug/pprof/goroutine
+   - Add troubleshooting section: common issues and their profile signatures
+   - Link to Go pprof documentation and blog posts
+   Tests: None (documentation only)
+   Done when: Profiling workflow documented for contributors
+
+** TODO [#C] Review OTel middleware for synchronous overhead
+   Effort: 1-2 hours
+   Why: API instrumentation added today might be recording metrics synchronously on hot path
+   Change:
+   - Review internal/otel/middleware.go for potential performance issues
+   - Check if metrics recorded synchronously for every request (should be async/batched)
+   - Check if tracer spans created eagerly (should be lazy or sampled)
+   - Compare OTel SDK overhead to baseline: measure request latency before/after instrumentation
+   - If overhead > 5%, investigate SDK configuration (batch size, sampling rate)
+   - Document findings and optimizations
+   Tests: Benchmark middleware overhead; verify request latency unchanged
+   Done when: OTel middleware overhead is negligible (< 5% request latency)
+
 * DONE [#A] OpenTelemetry observability migration
   Effort: 2-3 weeks
   Goal: Replace Gestalt's custom event/logging system with OpenTelemetry for industry-standard observability, distributed tracing, and metrics.
@@ -7559,3 +7701,56 @@
    Effort: Medium
    Change: Create a dashboardStore for agents/skills/logs fetching and state.
    Tests: Add store tests for loading/error behavior.
+
+* WIP [#A] Diagnose and fix high CPU usage in idle gestalt
+  Effort: 1-2 days
+  Goal: Identify and eliminate idle CPU usage when Gestalt is not actively used.
+  Notes:
+  - Focus on server + watcher/event loops + WS write loops + frontend polling
+  - Prefer minimal changes; fix root causes instead of adding throttles unless needed
+  - Use profiling to locate hot paths before changing behavior
+
+** DONE [#A] Baseline idle CPU usage and capture profiles
+   Effort: 2-4 hours
+   Change:
+   - Reproduce idle state (no active terminals, no user interactions)
+   - Capture CPU profiles and goroutine profiles
+   - Record top hot paths with file/line notes
+   Notes:
+   - 2026-01-25: 30s CPU profile (pprof.gestalt.samples.cpu.003.pb.gz) shows 63% cumulative in
+     internal/api.(*RestHandler).handleLogs -> internal/otel.scanOTelFile -> encoding/json.Unmarshal.
+   - Hot functions are json.checkValid/unquote/stateInString plus GC/malloc, indicating heavy JSON
+     decoding churn from log reads.
+   - This points to frequent /api/logs (OTel log) polling while idle.
+   Tests:
+   - N/A (profiling-only step)
+   Done when:
+   - Profile artifacts collected and summarized in this L2 notes
+
+** DONE [#A] Identify root cause and implement fix
+   Effort: 4-6 hours
+   Change:
+   - Update the offending loop/timer/polling logic to be event-driven or throttled
+   - Ensure no regression in terminal/output streaming or watcher updates
+   - Add a small guard against tight loops where appropriate
+   Plan:
+   - Switch UI log consumption to the /ws/logs stream (event-driven) instead of polling /api/logs or /api/otel/logs.
+   - Add initial log snapshot on /ws/logs connect (send logger buffer before streaming) so UI can
+     populate without a REST fetch.
+   - Keep log level filtering via websocket message ({"level":"error"}).
+   Tests:
+   - Add/adjust unit tests to cover the new behavior
+   - Run backend tests
+   Done when:
+   - Idle CPU usage reduced and profile confirms hot path resolved
+   - Tests pass
+
+** TODO [#B] Add regression coverage for idle CPU behavior
+   Effort: 2-4 hours
+   Change:
+   - Add tests that ensure loops back off when idle (time-based or event-driven)
+   - Document the root cause and fix in AGENTS.md
+   Tests:
+   - Run backend and relevant frontend tests if touched
+   Done when:
+   - Tests pass and documentation updated

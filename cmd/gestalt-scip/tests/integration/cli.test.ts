@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import { run } from '../../src/main.js';
 import { scip as scipProto } from '../../src/bundle/scip.js';
+import { decodeSymbolId } from '../../src/symbol-id-codec.js';
 
 type RepoFixture = {
   root: string;
@@ -132,7 +133,9 @@ test('symbols command auto-discovers protobuf SCIP indexes', async () => {
   const payload = JSON.parse(result.stdout);
   assert.equal(payload.query, 'Manager');
   assert.equal(payload.symbols.length, 1);
-  assert.equal(payload.symbols[0].id, fixture.symbolId);
+  assert.equal(decodeSymbolId(payload.symbols[0].id), fixture.symbolId);
+  assert.ok(!payload.symbols[0].id.includes(' '));
+  assert.ok(!payload.symbols[0].id.includes('`'));
   assert.equal(payload.symbols[0].kind, 'Struct');
   assert.equal(payload.symbols[0].language, 'go');
   assert.equal(payload.symbols[0].file_path, fixture.filePath);
@@ -150,7 +153,7 @@ test('definition and references commands return protobuf-backed results', async 
   ]);
   assert.equal(definitionResult.exitCode, 0);
   const definitionPayload = JSON.parse(definitionResult.stdout);
-  assert.equal(definitionPayload.id, fixture.symbolId);
+  assert.equal(decodeSymbolId(definitionPayload.id), fixture.symbolId);
   assert.equal(definitionPayload.file_path, fixture.filePath);
   assert.equal(definitionPayload.line, 2);
 
@@ -162,10 +165,13 @@ test('definition and references commands return protobuf-backed results', async 
   ]);
   assert.equal(referencesResult.exitCode, 0);
   const referencesPayload = JSON.parse(referencesResult.stdout);
-  assert.equal(referencesPayload.symbol, fixture.symbolId);
+  assert.equal(decodeSymbolId(referencesPayload.symbol), fixture.symbolId);
   assert.deepEqual(
     referencesPayload.references.map((reference: any) => reference.line),
     [4, 5, 8]
+  );
+  assert.ok(
+    referencesPayload.references.every((reference: any) => decodeSymbolId(reference.symbol) === fixture.symbolId)
   );
 });
 

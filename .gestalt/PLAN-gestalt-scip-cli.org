@@ -811,3 +811,39 @@
    - TOON output is derived from JSON payloads via @toon-format/toon encode()
    - Help text and docs mention toon
    - Tests pass
+
+** DONE [#A] Add shell-safe symbol-id encoding and decoding
+   Effort: 2-3 hours
+
+   Why: Raw SCIP symbol IDs include backticks and spaces, which are
+   error-prone and potentially unsafe when pasted into a shell command.
+
+   Change:
+   1. Add a reversible symbol-id codec in cmd/gestalt-scip:
+      - Encode output IDs using base64url
+      - Decode input IDs from base64url, while accepting raw IDs
+   2. Apply encoding at output boundaries:
+      - symbols: encode id field in results
+      - definition/references/files: encode symbol identifiers in output
+   3. Apply decoding at input boundaries:
+      - definition <symbol-id>
+      - references <symbol-id>
+   4. Clean output payloads for readability:
+      - Remove kind field when value is UnspecifiedKind
+      - Remove ``` triple backticks from documentation strings
+   5. Document the codec behavior and add clear CLI help text that IDs
+      from `symbols` are safe to paste back into the CLI.
+   6. Keep behavior minimal and explicit; do not change any other fields.
+
+   Tests:
+   - Unit tests verify that encoded IDs from `symbols` work with
+     `definition` and `references`
+   - Tests cover raw IDs and invalid base64url inputs
+   - Tests cover kind omission and documentation cleanup
+   - cd cmd/gestalt-scip && npm test
+   - GOMODCACHE=/tmp/gomodcache GOPATH=/tmp/gopath GOCACHE=/tmp/gocache /usr/local/go/bin/go test ./...
+
+   Done when:
+   - definition/references accept encoded IDs from symbols output
+   - Output IDs are shell-safe per the defined codec
+   - Tests and docs are updated

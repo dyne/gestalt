@@ -1,5 +1,6 @@
 import { type Occurrence } from '../lib/index.js';
 import { formatDefinition, normalizeFormat, type OutputFormat, type SymbolResult } from '../formatter.js';
+import { decodeSymbolId } from '../symbol-id-codec.js';
 import {
   buildCombinedSymbolIndex,
   buildOccurrencesBySymbol,
@@ -21,11 +22,12 @@ export async function definitionCommand(symbolId: string, options: DefinitionOpt
     throw new Error('Symbol id must not be empty.');
   }
 
+  const resolvedSymbolId = decodeSymbolId(trimmedSymbolId);
   const format: OutputFormat = normalizeFormat(options.format ?? 'json');
   const indexes = loadIndexes(options);
   const combinedIndex = buildCombinedSymbolIndex(indexes);
   const occurrencesBySymbol = buildOccurrencesBySymbol(combinedIndex);
-  const occurrences = occurrencesBySymbol.get(trimmedSymbolId);
+  const occurrences = occurrencesBySymbol.get(resolvedSymbolId);
 
   if (!occurrences || occurrences.length === 0) {
     throw new Error(`Symbol not found: ${trimmedSymbolId}`);
@@ -33,7 +35,8 @@ export async function definitionCommand(symbolId: string, options: DefinitionOpt
 
   const metadata = buildSymbolMetadata(indexes);
   const definitionOccurrence = selectDefinitionOccurrence(occurrences);
-  const baseSymbol = metadata.get(trimmedSymbolId) ?? makeDefaultMetadata(trimmedSymbolId, 'unknown', definitionOccurrence.filePath);
+  const baseSymbol =
+    metadata.get(resolvedSymbolId) ?? makeDefaultMetadata(resolvedSymbolId, 'unknown', definitionOccurrence.filePath);
   const symbol = applyDefinitionOccurrence(baseSymbol, definitionOccurrence);
 
   console.log(formatDefinition(symbol, format));

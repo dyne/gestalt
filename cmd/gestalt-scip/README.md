@@ -32,6 +32,11 @@ Get file content:
 gestalt-scip files internal/terminal/manager.go --symbols --format json
 ```
 
+## Symbol IDs
+
+- Symbol IDs in output are base64url-encoded and safe to paste into the shell.
+- `definition` and `references` accept both encoded IDs and raw SCIP IDs.
+
 ## Output formats
 
 - `json`: machine-readable output that matches the gestalt SCIP API schema

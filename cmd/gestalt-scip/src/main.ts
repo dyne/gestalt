@@ -45,14 +45,14 @@ program
 
 program
   .command('definition <symbol-id>')
-  .description('Get symbol definition by ID')
+  .description('Get symbol definition by ID (base64url from symbols output)')
   .option('--scip <path>', 'Path to SCIP file or directory')
   .option('--format <fmt>', 'Output format (json|text|toon)', 'json')
   .action(withErrorHandling(definitionCommand));
 
 program
   .command('references <symbol-id>')
-  .description('Get all references to symbol by ID')
+  .description('Get all references to symbol by ID (base64url from symbols output)')
   .option('--scip <path>', 'Path to SCIP file or directory')
   .option('--format <fmt>', 'Output format (json|text|toon)', 'json')
   .action(withErrorHandling(referencesCommand));

@@ -1,5 +1,6 @@
 import { type Occurrence } from '../lib/index.js';
 import { formatReferences, normalizeFormat, type OutputFormat, type ReferenceResult } from '../formatter.js';
+import { decodeSymbolId } from '../symbol-id-codec.js';
 import {
   buildCombinedSymbolIndex,
   buildOccurrencesBySymbol,
@@ -19,11 +20,12 @@ export async function referencesCommand(symbolId: string, options: ReferencesOpt
     throw new Error('Symbol id must not be empty.');
   }
 
+  const resolvedSymbolId = decodeSymbolId(trimmedSymbolId);
   const format: OutputFormat = normalizeFormat(options.format ?? 'json');
   const indexes = loadIndexes(options);
   const combinedIndex = buildCombinedSymbolIndex(indexes);
   const occurrencesBySymbol = buildOccurrencesBySymbol(combinedIndex);
-  const occurrences = occurrencesBySymbol.get(trimmedSymbolId);
+  const occurrences = occurrencesBySymbol.get(resolvedSymbolId);
 
   if (!occurrences || occurrences.length === 0) {
     throw new Error(`Symbol not found: ${trimmedSymbolId}`);
@@ -32,9 +34,9 @@ export async function referencesCommand(symbolId: string, options: ReferencesOpt
   const references = occurrences
     .filter((occurrence) => (occurrence.roles & DEFINITION_ROLE) === 0)
     .sort(sortOccurrences)
-    .map((occurrence) => toReferenceResult(trimmedSymbolId, occurrence));
+    .map((occurrence) => toReferenceResult(resolvedSymbolId, occurrence));
 
-  console.log(formatReferences(trimmedSymbolId, references, format));
+  console.log(formatReferences(resolvedSymbolId, references, format));
 }
 
 function toReferenceResult(symbolId: string, occurrence: Occurrence): ReferenceResult {

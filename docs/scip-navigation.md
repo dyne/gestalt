@@ -20,6 +20,7 @@ Key options:
 - `--scip <path>`: path to a `.scip` file or directory
 - `--language <lang>`: limit results to a single language index
 - `--format <fmt>`: output format (`text`, `json`, or `toon`)
+- Symbol IDs in output are base64url-encoded and safe to paste into `definition` and `references`
 
 ## Index location and refresh
 

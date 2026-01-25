@@ -1,13 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { encode } from '@toon-format/toon';
+import { encodeSymbolIdForOutput } from './symbol-id-codec.js';
 
 export type OutputFormat = 'json' | 'text' | 'toon';
 
 export interface SymbolResult {
   id: string;
   name: string;
-  kind: string;
+  kind?: string;
   signature: string;
   documentation: string[];
   file_path: string;
@@ -49,21 +50,26 @@ export function normalizeFormat(format?: string): OutputFormat {
 }
 
 export function formatSymbols(query: string, symbols: SymbolResult[], format: OutputFormat): string {
-  const payload = { query, symbols };
-  return renderStructured(payload, format, () => formatSymbolsText(query, symbols));
+  const sanitizedSymbols = symbols.map(sanitizeSymbol);
+  const payload = { query, symbols: sanitizedSymbols };
+  return renderStructured(payload, format, () => formatSymbolsText(query, sanitizedSymbols));
 }
 
 export function formatDefinition(symbol: SymbolResult, format: OutputFormat): string {
-  return renderStructured(symbol, format, () => formatDefinitionText(symbol));
+  const sanitizedSymbol = sanitizeSymbol(symbol);
+  return renderStructured(sanitizedSymbol, format, () => formatDefinitionText(sanitizedSymbol));
 }
 
 export function formatReferences(symbolId: string, references: ReferenceResult[], format: OutputFormat): string {
-  const payload = { symbol: symbolId, references };
-  return renderStructured(payload, format, () => formatReferencesText(symbolId, references));
+  const encodedSymbolId = encodeSymbolIdForOutput(symbolId);
+  const sanitizedReferences = references.map(sanitizeReference);
+  const payload = { symbol: encodedSymbolId, references: sanitizedReferences };
+  return renderStructured(payload, format, () => formatReferencesText(encodedSymbolId, sanitizedReferences));
 }
 
 export function formatFile(file: FileResult, format: OutputFormat): string {
-  return renderStructured(file, format, () => formatFileText(file));
+  const sanitizedFile = sanitizeFile(file);
+  return renderStructured(sanitizedFile, format, () => formatFileText(sanitizedFile));
 }
 
 function formatSymbolsText(query: string, symbols: SymbolResult[]): string {
@@ -76,11 +82,12 @@ function formatSymbolsText(query: string, symbols: SymbolResult[]): string {
   lines.push('');
 
   for (const symbol of symbols) {
-    lines.push(`${symbol.file_path}:${displayLine(symbol.line)}  ${symbol.name} (${symbol.kind})`);
+    const kindSuffix = symbol.kind ? ` (${symbol.kind})` : '';
+    lines.push(`${symbol.file_path}:${displayLine(symbol.line)}  ${symbol.name}${kindSuffix}`);
     if (symbol.signature) {
       lines.push(`  ${symbol.signature}`);
     }
-    const docLine = symbol.documentation.find((line) => line.trim() !== '' && !line.trim().startsWith('```'));
+    const docLine = symbol.documentation.find((line) => line.trim() !== '');
     if (docLine && docLine !== symbol.signature) {
       lines.push(`  ${docLine.trim()}`);
     }
@@ -92,7 +99,8 @@ function formatSymbolsText(query: string, symbols: SymbolResult[]): string {
 
 function formatDefinitionText(symbol: SymbolResult): string {
   const lines: string[] = [];
-  lines.push(`Definition: ${symbol.name} (${symbol.kind})`);
+  const kindSuffix = symbol.kind ? ` (${symbol.kind})` : '';
+  lines.push(`Definition: ${symbol.name}${kindSuffix}`);
   lines.push(`${symbol.file_path}:${displayLine(symbol.line)}`);
   if (symbol.signature) {
     lines.push(`  ${symbol.signature}`);
@@ -165,6 +173,49 @@ function renderStructured(payload: unknown, format: OutputFormat, renderText: ()
     return JSON.stringify(payload, null, 2);
   }
   return encode(payload);
+}
+
+function sanitizeSymbol(symbol: SymbolResult): SymbolResult {
+  const kind = symbol.kind === 'UnspecifiedKind' ? undefined : symbol.kind;
+  return {
+    ...symbol,
+    id: encodeSymbolIdForOutput(symbol.id),
+    kind,
+    documentation: sanitizeDocumentation(symbol.documentation),
+  };
+}
+
+function sanitizeReference(reference: ReferenceResult): ReferenceResult {
+  return {
+    ...reference,
+    symbol: encodeSymbolIdForOutput(reference.symbol),
+  };
+}
+
+function sanitizeFileOccurrence(occurrence: FileOccurrenceResult): FileOccurrenceResult {
+  return {
+    ...occurrence,
+    symbol: encodeSymbolIdForOutput(occurrence.symbol),
+  };
+}
+
+function sanitizeFile(file: FileResult): FileResult {
+  return {
+    ...file,
+    symbols: file.symbols.map(sanitizeSymbol),
+    occurrences: file.occurrences?.map(sanitizeFileOccurrence),
+  };
+}
+
+function sanitizeDocumentation(documentation: string[]): string[] {
+  const cleaned: string[] = [];
+  for (const entry of documentation) {
+    const withoutFences = entry.replace(/```/g, '').trim();
+    if (withoutFences) {
+      cleaned.push(withoutFences);
+    }
+  }
+  return cleaned;
 }
 
 function displayLine(line: number): number {

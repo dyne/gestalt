@@ -281,14 +281,18 @@ function mergeDefinition(symbol: SymbolMetadata, definition?: DefinitionInfo): S
   };
 }
 
-function kindToString(kind?: number): string {
+function kindToString(kind?: number): string | undefined {
   if (kind === undefined || kind === null) {
-    return 'UnspecifiedKind';
+    return undefined;
   }
-  return scipProto.SymbolInformation.Kind[kind] ?? 'UnspecifiedKind';
+  const kindName = scipProto.SymbolInformation.Kind[kind];
+  if (!kindName || kindName === 'UnspecifiedKind') {
+    return undefined;
+  }
+  return kindName;
 }
 
-function isUnknownKind(kind: string): boolean {
+function isUnknownKind(kind?: string): boolean {
   return !kind || kind === 'UnspecifiedKind' || kind === 'unknown';
 }
 

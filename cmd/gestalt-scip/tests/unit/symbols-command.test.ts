@@ -180,3 +180,39 @@ test('symbolsCommand rejects unsupported output formats', async () => {
     /Unsupported format/
   );
 });
+
+test('symbolsCommand omits unspecified kind and strips documentation fences', async () => {
+  const symbolsCommand = await loadSymbolsCommand();
+  const { scipDir } = createTempRepo();
+
+  const symbolId = 'scip-go gomod example v1 `internal/terminal`/Manager#';
+  const document = {
+    relativePath: 'internal/terminal/manager.go',
+    language: 'go',
+    symbols: [
+      {
+        symbol: symbolId,
+        documentation: ['```go\ntype Manager struct\n```'],
+      },
+    ],
+    occurrences: [
+      {
+        symbol: symbolId,
+        symbolRoles: 1,
+        range: [4, 0, 4, 7],
+      },
+    ],
+  };
+
+  writeIndex(path.join(scipDir, 'index-go.scip'), [document]);
+
+  const output = await captureOutput(() =>
+    symbolsCommand('Manager', { scip: scipDir, format: 'json' })
+  );
+  const payload = JSON.parse(output);
+  const symbol = payload.symbols[0];
+
+  assert.equal(symbol.kind, undefined);
+  assert.equal('kind' in symbol, false);
+  assert.ok(symbol.documentation.every((entry: string) => !entry.includes('```')));
+});

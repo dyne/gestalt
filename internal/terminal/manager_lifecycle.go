@@ -34,7 +34,7 @@ func (m *Manager) emitSessionStopped(id string, session *Session, agentID, agent
 			"error":       closeErr.Error(),
 		}
 		if session != nil {
-			if tail := renderOutputTail(session.OutputLines(), 12, 2000); tail != "" {
+			if tail := renderOutputTail(m.logger, session.OutputLines(), 12, 2000); tail != "" {
 				fields["output_tail"] = tail
 			}
 		}

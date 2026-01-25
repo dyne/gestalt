@@ -412,7 +412,7 @@ func writePromptPayload(session *Session, payload []byte) error {
 	return nil
 }
 
-func renderOutputTail(lines []string, maxLines, maxBytes int) string {
+func renderOutputTail(logger *logging.Logger, lines []string, maxLines, maxBytes int) string {
 	if len(lines) == 0 || maxLines <= 0 || maxBytes <= 0 {
 		return ""
 	}
@@ -421,6 +421,18 @@ func renderOutputTail(lines []string, maxLines, maxBytes int) string {
 		start = 0
 	}
 	joined := strings.Join(lines[start:], "\n")
+	filtered := FilterTerminalOutput(joined)
+	if logger != nil && len(filtered) < len(joined) {
+		reduced := len(joined) - len(filtered)
+		if reduced >= 128 {
+			logger.Debug("terminal output tail filtered", map[string]string{
+				"before_bytes":  strconv.Itoa(len(joined)),
+				"after_bytes":   strconv.Itoa(len(filtered)),
+				"reduced_bytes": strconv.Itoa(reduced),
+			})
+		}
+	}
+	joined = filtered
 	if len(joined) <= maxBytes {
 		return joined
 	}

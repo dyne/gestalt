@@ -77,7 +77,7 @@ func (m *Manager) startPromptInjection(session *Session, agentID string, profile
 						"prompt":   promptName,
 						"error":    err.Error(),
 					}
-					if tail := renderOutputTail(session.OutputLines(), 12, 2000); tail != "" {
+					if tail := renderOutputTail(m.logger, session.OutputLines(), 12, 2000); tail != "" {
 						fields["output_tail"] = tail
 					}
 					m.logger.Error("agent prompt write failed", fields)

@@ -225,6 +225,23 @@ func (p *timingPty) Close() error {
 	return nil
 }
 
+func TestRenderOutputTailFiltersOutput(t *testing.T) {
+	lines := []string{
+		"hello\x1b[31mred\x1b[0m",
+		"-----",
+	}
+	output := renderOutputTail(nil, lines, 12, 2000)
+	if strings.Contains(output, "\x1b") {
+		t.Fatalf("expected ANSI sequences stripped, got %q", output)
+	}
+	if strings.Contains(output, "-----") {
+		t.Fatalf("expected repeated chars collapsed, got %q", output)
+	}
+	if !strings.Contains(output, "red") {
+		t.Fatalf("expected content preserved, got %q", output)
+	}
+}
+
 func (p *timingPty) Resize(cols, rows uint16) error { return nil }
 
 type timingFactory struct{

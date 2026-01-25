@@ -194,7 +194,7 @@
    Tests: Unit tests in textfilter_test.go with various ANSI sequences, repeated chars, mixed content
    Done when: Filter functions work correctly and efficiently
 
-** TODO [#B] Apply filter to output_tail in terminal manager
+** DONE [#B] Apply filter to output_tail in terminal manager
    Effort: 1-2 hours
    Why: output_tail is the primary source of noisy terminal output in logs
    Change:

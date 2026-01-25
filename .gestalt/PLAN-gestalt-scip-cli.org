@@ -354,7 +354,7 @@
    - Output formats match API responses
    - Error handling for invalid IDs
 
-** TODO [#C] Implement files command (matches /api/scip/files/:path)
+** DONE [#C] Implement files command (matches /api/scip/files/:path)
    Effort: 2 hours
    
    Why: Complete API parity for file content lookup with symbol highlighting.

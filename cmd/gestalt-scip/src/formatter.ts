@@ -22,6 +22,20 @@ export interface ReferenceResult {
   role: string;
 }
 
+export interface FileOccurrenceResult {
+  line: number;
+  character: number;
+  symbol: string;
+  kind: string;
+}
+
+export interface FileResult {
+  path: string;
+  content: string;
+  symbols: SymbolResult[];
+  occurrences?: FileOccurrenceResult[];
+}
+
 export function normalizeFormat(format?: string): OutputFormat {
   return format === 'json' ? 'json' : 'text';
 }
@@ -38,6 +52,10 @@ export function formatReferences(symbolId: string, references: ReferenceResult[]
   return format === 'json'
     ? JSON.stringify({ symbol: symbolId, references }, null, 2)
     : formatReferencesText(symbolId, references);
+}
+
+export function formatFile(file: FileResult, format: OutputFormat): string {
+  return format === 'json' ? JSON.stringify(file, null, 2) : formatFileText(file);
 }
 
 function formatSymbolsJson(query: string, symbols: SymbolResult[]): string {
@@ -105,6 +123,36 @@ function formatReferencesText(symbolId: string, references: ReferenceResult[]): 
   return lines.join('\n').trimEnd();
 }
 
+function formatFileText(file: FileResult): string {
+  const lines: string[] = [];
+  lines.push(`File: ${file.path}`);
+  lines.push('');
+
+  if (!file.content) {
+    lines.push('No file content available.');
+    return lines.join('\n');
+  }
+
+  const contentLines = file.content.split('\n');
+  const width = String(contentLines.length).length;
+  for (let index = 0; index < contentLines.length; index += 1) {
+    const lineNumber = String(index + 1).padStart(width, ' ');
+    lines.push(`${lineNumber} | ${contentLines[index]}`);
+  }
+
+  if (file.occurrences && file.occurrences.length > 0) {
+    lines.push('');
+    lines.push('Occurrences:');
+    for (const occurrence of file.occurrences) {
+      lines.push(
+        `${displayLine(occurrence.line)}:${displayColumn(occurrence.character)} ${occurrence.symbol} (${occurrence.kind})`
+      );
+    }
+  }
+
+  return lines.join('\n');
+}
+
 function displayLine(line: number): number {
   return line >= 0 ? line + 1 : line;
 }
@@ -131,7 +179,7 @@ function readContextLine(filePath: string, line: number): string | undefined {
   }
 }
 
-function resolveExistingPath(filePath: string): string | null {
+export function resolveExistingPath(filePath: string): string | null {
   if (path.isAbsolute(filePath)) {
     return fs.existsSync(filePath) ? filePath : null;
   }

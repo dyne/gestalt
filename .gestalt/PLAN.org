@@ -187,6 +187,7 @@
    - Add StripRepeatedChars(s string, minLen int) string for repeated sequences
    - Pattern: (.)\1{N,} where N = minLen-1 (e.g., ─── with minLen=3)
    - Collapse to single instance: "────────" → "─"
+   - Note: implemented repeated-char collapse via rune scan (Go regexp lacks backrefs)
    - Combine: FilterTerminalOutput(s string) string calls both filters
    - Use compiled regexps (compile once in init or var)
    - Handle edge cases: empty strings, already-clean strings, UTF-8 characters

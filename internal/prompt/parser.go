@@ -11,6 +11,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"gestalt/internal/ports"
 )
 
 const maxIncludeDepth = 3
@@ -18,9 +20,10 @@ const maxIncludeDepth = 3
 var errBinaryInclude = errors.New("include file is binary")
 
 type Parser struct {
-	promptFS    fs.FS
-	promptDir   string
-	includeRoot string
+	promptFS     fs.FS
+	promptDir    string
+	includeRoot  string
+	portResolver ports.PortResolver
 }
 
 type RenderResult struct {
@@ -28,15 +31,16 @@ type RenderResult struct {
 	Files   []string
 }
 
-func NewParser(promptFS fs.FS, promptDir, includeRoot string) *Parser {
+func NewParser(promptFS fs.FS, promptDir, includeRoot string, resolver ports.PortResolver) *Parser {
 	includeRoot = strings.TrimSpace(includeRoot)
 	if includeRoot == "" {
 		includeRoot = "."
 	}
 	return &Parser{
-		promptFS:    promptFS,
-		promptDir:   promptDir,
-		includeRoot: includeRoot,
+		promptFS:     promptFS,
+		promptDir:    promptDir,
+		includeRoot:  includeRoot,
+		portResolver: resolver,
 	}
 }
 
@@ -314,6 +318,26 @@ func parseIncludeDirective(line string) (string, bool) {
 		return "", false
 	}
 	return includeName, true
+}
+
+func parsePortDirective(line string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "{{") || !strings.HasSuffix(trimmed, "}}") {
+		return "", false
+	}
+	inner := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "{{"), "}}"))
+	if inner == "" {
+		return "", false
+	}
+	fields := strings.Fields(inner)
+	if len(fields) != 2 || fields[0] != "port" {
+		return "", false
+	}
+	service := strings.ToLower(strings.TrimSpace(fields[1]))
+	if len(service) == 0 || len(service) > 32 {
+		return "", false
+	}
+	return service, true
 }
 
 func pushStack(filename string, stack []string) ([]string, error) {

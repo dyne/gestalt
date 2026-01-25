@@ -178,7 +178,7 @@ func NewManager(opts ManagerOptions) *Manager {
 	if promptFS != nil {
 		promptDir = filepath.ToSlash(promptDir)
 	}
-	promptParser := prompt.NewParser(promptFS, promptDir, ".")
+	promptParser := prompt.NewParser(promptFS, promptDir, ".", nil)
 
 	agentBus := event.NewBus[event.AgentEvent](context.Background(), event.BusOptions{
 		Name: "agent_events",

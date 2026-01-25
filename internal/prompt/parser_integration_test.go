@@ -51,7 +51,7 @@ func TestRenderFromFilesystem(t *testing.T) {
 		t.Fatalf("write fragment: %v", err)
 	}
 
-	parser := NewParser(os.DirFS(root), "config/prompts", root)
+	parser := NewParser(os.DirFS(root), "config/prompts", root, nil)
 	result, err := parser.Render("local")
 	if err != nil {
 		t.Fatalf("render local: %v", err)
@@ -79,7 +79,7 @@ func TestRenderPromptDirExtensionLookup(t *testing.T) {
 		t.Fatalf("write template: %v", err)
 	}
 
-	parser := NewParser(os.DirFS(root), "config/prompts", root)
+	parser := NewParser(os.DirFS(root), "config/prompts", root, nil)
 	result, err := parser.Render("include-md")
 	if err != nil {
 		t.Fatalf("render include-md: %v", err)
@@ -113,7 +113,7 @@ func TestRenderPromptDirExtensionPriority(t *testing.T) {
 		t.Fatalf("write template: %v", err)
 	}
 
-	parser := NewParser(os.DirFS(root), "config/prompts", root)
+	parser := NewParser(os.DirFS(root), "config/prompts", root, nil)
 	result, err := parser.Render("priority")
 	if err != nil {
 		t.Fatalf("render priority: %v", err)
@@ -145,7 +145,7 @@ func TestRenderIncludeFromGestaltPrompts(t *testing.T) {
 		t.Fatalf("write template: %v", err)
 	}
 
-	parser := NewParser(os.DirFS(root), "config/prompts", root)
+	parser := NewParser(os.DirFS(root), "config/prompts", root, nil)
 	result, err := parser.Render("root-include")
 	if err != nil {
 		t.Fatalf("render root-include: %v", err)
@@ -173,7 +173,7 @@ func TestRenderIncludePathFromWorkdir(t *testing.T) {
 		t.Fatalf("write template: %v", err)
 	}
 
-	parser := NewParser(os.DirFS(root), "config/prompts", root)
+	parser := NewParser(os.DirFS(root), "config/prompts", root, nil)
 	result, err := parser.Render("path-include")
 	if err != nil {
 		t.Fatalf("render path-include: %v", err)
@@ -208,7 +208,7 @@ func TestRenderIncludePrefersConfigPrompts(t *testing.T) {
 		t.Fatalf("write template: %v", err)
 	}
 
-	parser := NewParser(os.DirFS(root), "config/prompts", root)
+	parser := NewParser(os.DirFS(root), "config/prompts", root, nil)
 	result, err := parser.Render("priority-include")
 	if err != nil {
 		t.Fatalf("render priority-include: %v", err)
@@ -241,7 +241,7 @@ func TestRenderSkipsBinaryInclude(t *testing.T) {
 		t.Fatalf("write template: %v", err)
 	}
 
-	parser := NewParser(os.DirFS(root), "config/prompts", root)
+	parser := NewParser(os.DirFS(root), "config/prompts", root, nil)
 	result, err := parser.Render("binary-include")
 	if err != nil {
 		t.Fatalf("render binary-include: %v", err)
@@ -257,7 +257,7 @@ func TestRenderSkipsBinaryInclude(t *testing.T) {
 }
 
 func TestRenderFromEmbeddedFS(t *testing.T) {
-	parser := NewParser(embeddedConfigFS(t), "config/prompts", ".")
+	parser := NewParser(embeddedConfigFS(t), "config/prompts", ".", nil)
 	result, err := parser.Render("embedded")
 	if err != nil {
 		t.Fatalf("render embedded: %v", err)
@@ -285,7 +285,7 @@ func TestRenderOverlayFSUsesExternal(t *testing.T) {
 	parser := NewParser(overlayFS{
 		primary:  os.DirFS(externalRoot),
 		fallback: embeddedConfigFS(t),
-	}, "config/prompts", externalRoot)
+	}, "config/prompts", externalRoot, nil)
 
 	result, err := parser.Render("override")
 	if err != nil {

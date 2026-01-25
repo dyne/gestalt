@@ -54,4 +54,3 @@ func normalizeService(service string) (string, bool) {
 	}
 	return normalizedService, true
 }
-

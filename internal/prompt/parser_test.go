@@ -8,7 +8,7 @@ import (
 )
 
 func newTestParser() *Parser {
-	return NewParser(os.DirFS("testdata"), ".", "testdata")
+	return NewParser(os.DirFS("testdata"), ".", "testdata", nil)
 }
 
 func TestRenderPlainText(t *testing.T) {
@@ -264,5 +264,60 @@ func TestRenderDepthLimit(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "depth exceeded") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestParsePortDirective(t *testing.T) {
+	longService := strings.Repeat("a", 33)
+	tests := []struct {
+		name        string
+		line        string
+		wantService string
+		wantOK      bool
+	}{
+		{
+			name:        "basic",
+			line:        "{{port backend}}\n",
+			wantService: "backend",
+			wantOK:      true,
+		},
+		{
+			name:        "whitespace and case",
+			line:        "  {{ port BACKEND }}  ",
+			wantService: "backend",
+			wantOK:      true,
+		},
+		{
+			name:   "missing service",
+			line:   "{{port}}",
+			wantOK: false,
+		},
+		{
+			name:   "extra fields",
+			line:   "{{port backend extra}}",
+			wantOK: false,
+		},
+		{
+			name:   "different directive",
+			line:   "{{include backend}}",
+			wantOK: false,
+		},
+		{
+			name:   "too long",
+			line:   "{{port " + longService + "}}",
+			wantOK: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service, ok := parsePortDirective(test.line)
+			if ok != test.wantOK {
+				t.Fatalf("expected ok=%v, got %v (service=%q)", test.wantOK, ok, service)
+			}
+			if ok && service != test.wantService {
+				t.Fatalf("expected service %q, got %q", test.wantService, service)
+			}
+		})
 	}
 }

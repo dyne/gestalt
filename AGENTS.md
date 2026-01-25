@@ -51,12 +51,12 @@ Use this as the minimum context to start any plan task.
 - Completions: `gestalt-send completion bash|zsh`.
 
 ## Prompt templating
-- `.txt` or `.tmpl` render at agent start.
+- Prompt files render at agent start and process directives (`.tmpl`, `.md`, `.txt`).
 - Include syntax: `{{include filename}}` on its own line.
 - Port syntax: `{{port <service>}}` on its own line; resolves to the runtime port number.
 - Available services: `backend`, `frontend`, `temporal`, `otel`.
 - Unknown services or missing port resolver skip silently (line removed).
-- Scope: port directives resolve in prompt templates only; skill XML does not substitute ports yet.
+- Scope: directives resolve in prompt files only; skill XML does not substitute ports yet.
 - Resolve: absolute/relative path loads from workdir root; otherwise search `.gestalt/config/prompts` (`.tmpl`, `.md`, `.txt`), then `.gestalt/prompts`.
 - Text-only includes, depth limit 3, de-dup by canonical path; failed includes are silent.
 

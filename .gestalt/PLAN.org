@@ -1,4 +1,4 @@
-* WIP [#B] Port templating directives for runtime service discovery
+* DONE [#B] Port templating directives for runtime service discovery
   Effort: 2-3 days
   Goal: Extend prompt template parser to support {{port <service>}} directives that resolve to runtime-allocated port numbers for backend, temporal, otel, and frontend services.
   Notes:
@@ -18,7 +18,7 @@
   Date: 2026-01-25
   Priority: [#B] - enables agents to discover services dynamically in multi-instance deployments
 
-** WIP [#B] Design port registry and resolver interface
+** [#B] Design port registry and resolver interface
    Effort: 2-3 hours
    Why: Need clean abstraction for service→port lookups that parser and server can share
    Change:
@@ -33,7 +33,7 @@
    Tests: Unit tests for registry Set/Get, concurrent access, unknown services
    Done when: Port registry exists with clean resolver interface for parser
 
-** TODO [#B] Extend prompt parser to accept PortResolver
+** [#B] Extend prompt parser to accept PortResolver
    Effort: 3-4 hours
    Why: Parser needs port information at render time to resolve {{port}} directives
    Change:
@@ -49,7 +49,7 @@
    Tests: Unit tests for parsePortDirective, various formats, edge cases
    Done when: Parser recognizes port directives and parses service names
 
-** TODO [#B] Implement port directive resolution in render loop
+** [#B] Implement port directive resolution in render loop
    Effort: 2-3 hours
    Why: Replace {{port}} directives with actual port numbers during template rendering
    Change:
@@ -64,7 +64,7 @@
    Tests: Unit tests with mock resolver, verify port numbers appear in output
    Done when: {{port backend}} in template renders as "8080" (from mock resolver)
 
-** TODO [#B] Populate port registry at server startup
+** [#B] Populate port registry at server startup
    Effort: 3-4 hours
    Why: Server knows all allocated ports after daemon startup, must register them
    Change:
@@ -81,7 +81,7 @@
    Tests: Integration test verifying registry populated after startup
    Done when: All service ports registered and available for lookup
 
-** TODO [#B] Wire port resolver into prompt rendering flow
+** [#B] Wire port resolver into prompt rendering flow
    Effort: 2-3 hours
    Why: Manager/Session prompt rendering must use port-aware parser
    Change:
@@ -95,7 +95,7 @@
    Tests: Manager test with mock resolver, verify ports in prompt output
    Done when: Agent prompts contain actual port numbers when {{port}} used
 
-** TODO [#C] Add tests for port directive rendering
+** [#C] Add tests for port directive rendering
    Effort: 2-3 hours
    Why: Ensure directive parsing and resolution work correctly in all scenarios
    Change:
@@ -110,7 +110,7 @@
    Tests: All test scenarios pass, parser_test.go and integration tests
    Done when: Port directive feature has comprehensive test coverage
 
-** TODO [#C] Document port directive syntax and available services
+** [#C] Document port directive syntax and available services
    Effort: 1-2 hours
    Why: Users and LLMs need to know how to use port directives in prompts
    Change:
@@ -125,21 +125,19 @@
    Tests: None (documentation only)
    Done when: Port directive feature documented in AGENTS.md
 
-** TODO [#C] Add example prompt using port directives
+** [#C] Add example prompt using port directives
    Effort: 1 hour
    Why: Demonstrate real-world usage of port directives in agent prompts
    Change:
    - Create example prompt: config/prompts/service-discovery.tmpl
-   - Content: API documentation referencing {{port backend}}
-   - Example: "Backend API: http://localhost:{{port backend}}/api/status"
-   - Example: "Temporal UI: http://localhost:{{port temporal}}"
-   - Example: "OpenTelemetry: http://localhost:{{port otel}}/v1/logs"
+   - Content: list service ports with {{port <service>}} directives on their own lines
+   - Example guidance: build URLs using the rendered port numbers (e.g., http://localhost:<backend-port>/api/status)
    - Update example agent config to include service-discovery prompt
    - Verify agent receives correct ports when prompt is rendered
    Tests: Manual test with example agent, verify ports in terminal
    Done when: Example prompt demonstrates port directive usage
 
-** TODO [#C] Consider adding port directive to skill XML (future)
+** [#C] Consider adding port directive to skill XML (future)
    Effort: 2-3 hours (future work)
    Why: Skills may also need service port information for tool definitions
    Change:

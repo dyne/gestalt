@@ -1,7 +1,7 @@
 name = "Coder"
 shell = "codex"
 cli_type = "codex"
-prompt = ["coder", "service-discovery"]
+prompt = ["coder"]
 llm_model = "default"
 
 # Core model selection

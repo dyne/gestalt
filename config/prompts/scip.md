@@ -5,6 +5,9 @@ Prefer SCIP API queries over grep/rg when search symbols, definitions,
 and references in code. Use the API to locate symbols, then open
 source files by path/line for context.
 
+API is running on localhost at port:
+{{port backend}}
+
 API endpoints (URL-encode symbol IDs and file paths):
 - GET /api/scip/status
 - GET /api/scip/symbols?q=<query>&limit=20

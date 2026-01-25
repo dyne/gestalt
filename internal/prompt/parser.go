@@ -142,12 +142,6 @@ func (p *Parser) renderFile(key, filename string, data []byte, stack []string, s
 	}
 	seen[key] = struct{}{}
 	files := []string{filename}
-	if !strings.HasSuffix(strings.ToLower(filename), ".tmpl") {
-		return &RenderResult{
-			Content: data,
-			Files:   files,
-		}, nil
-	}
 
 	reader := bufio.NewReader(bytes.NewReader(data))
 	var output bytes.Buffer

@@ -1,0 +1,3 @@
+Text start
+{{include common-fragment}}
+Text end

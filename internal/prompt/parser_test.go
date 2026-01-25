@@ -42,6 +42,59 @@ func TestRenderPlainText(t *testing.T) {
 	}
 }
 
+func TestRenderTextIncludeDirective(t *testing.T) {
+	parser := newTestParser()
+	result, err := parser.Render("text-include")
+	if err != nil {
+		t.Fatalf("render text-include: %v", err)
+	}
+	expectedContent := "Text start\ncommon fragment line\nText end\n"
+	if string(result.Content) != expectedContent {
+		t.Fatalf("unexpected content: %q", string(result.Content))
+	}
+	expectedFiles := []string{"text-include.txt", "common-fragment.txt"}
+	if !reflect.DeepEqual(result.Files, expectedFiles) {
+		t.Fatalf("unexpected files: %#v", result.Files)
+	}
+}
+
+func TestRenderMarkdownPortDirective(t *testing.T) {
+	resolver := &mockPortResolver{
+		ports: map[string]int{
+			"backend": 8080,
+		},
+	}
+	parser := newTestParserWithResolver(resolver)
+	result, err := parser.Render("markdown-port")
+	if err != nil {
+		t.Fatalf("render markdown-port: %v", err)
+	}
+	expectedContent := "Before\n8080\nAfter\n"
+	if string(result.Content) != expectedContent {
+		t.Fatalf("unexpected content: %q", string(result.Content))
+	}
+	expectedFiles := []string{"markdown-port.md"}
+	if !reflect.DeepEqual(result.Files, expectedFiles) {
+		t.Fatalf("unexpected files: %#v", result.Files)
+	}
+}
+
+func TestRenderDirectiveRequiresOwnLine(t *testing.T) {
+	parser := newTestParser()
+	result, err := parser.Render("inline-directive")
+	if err != nil {
+		t.Fatalf("render inline-directive: %v", err)
+	}
+	expectedContent := "Inline {{include common-fragment}} directive\n"
+	if string(result.Content) != expectedContent {
+		t.Fatalf("unexpected content: %q", string(result.Content))
+	}
+	expectedFiles := []string{"inline-directive.txt"}
+	if !reflect.DeepEqual(result.Files, expectedFiles) {
+		t.Fatalf("unexpected files: %#v", result.Files)
+	}
+}
+
 func TestRenderTemplateSingleInclude(t *testing.T) {
 	parser := newTestParser()
 	result, err := parser.Render("basic")

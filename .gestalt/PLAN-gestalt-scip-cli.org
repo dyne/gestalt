@@ -847,3 +847,23 @@
    - definition/references accept encoded IDs from symbols output
    - Output IDs are shell-safe per the defined codec
    - Tests and docs are updated
+
+** [#B] Elide code-fence language line in documentation output
+   Effort: 30-60 minutes
+
+   Why: Documentation currently strips ``` fences but leaves the first
+   line (for example "go") from fenced code blocks. This line is noise.
+
+   Change:
+   1. Update documentation sanitizer to remove the opening fence and its
+      language tag (for example ```go\n) plus the closing fence.
+   2. Keep the remaining documentation content intact and trimmed.
+   3. Add tests that assert the language tag line is removed.
+
+   Tests:
+   - cd cmd/gestalt-scip && npm test
+   - GOMODCACHE=/tmp/gomodcache GOPATH=/tmp/gopath GOCACHE=/tmp/gocache /usr/local/go/bin/go test ./...
+
+   Done when:
+   - Documentation output no longer includes the language tag line
+   - Tests pass

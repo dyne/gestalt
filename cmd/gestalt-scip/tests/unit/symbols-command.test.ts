@@ -215,4 +215,6 @@ test('symbolsCommand omits unspecified kind and strips documentation fences', as
   assert.equal(symbol.kind, undefined);
   assert.equal('kind' in symbol, false);
   assert.ok(symbol.documentation.every((entry: string) => !entry.includes('```')));
+  assert.equal(symbol.documentation[0], 'type Manager struct');
+  assert.ok(!symbol.documentation[0].startsWith('go\n'));
 });

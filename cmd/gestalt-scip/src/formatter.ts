@@ -210,7 +210,8 @@ function sanitizeFile(file: FileResult): FileResult {
 function sanitizeDocumentation(documentation: string[]): string[] {
   const cleaned: string[] = [];
   for (const entry of documentation) {
-    const withoutFences = entry.replace(/```/g, '').trim();
+    const withoutOpeningFence = entry.replace(/^```[^\n]*\n?/, '');
+    const withoutFences = withoutOpeningFence.replace(/\n?```$/, '').trim();
     if (withoutFences) {
       cleaned.push(withoutFences);
     }

@@ -5,10 +5,25 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"gestalt/internal/ports"
 )
 
+type mockPortResolver struct {
+	ports map[string]int
+}
+
+func (resolver *mockPortResolver) Get(service string) (int, bool) {
+	port, found := resolver.ports[service]
+	return port, found
+}
+
+func newTestParserWithResolver(resolver ports.PortResolver) *Parser {
+	return NewParser(os.DirFS("testdata"), ".", "testdata", resolver)
+}
+
 func newTestParser() *Parser {
-	return NewParser(os.DirFS("testdata"), ".", "testdata", nil)
+	return newTestParserWithResolver(nil)
 }
 
 func TestRenderPlainText(t *testing.T) {
@@ -264,6 +279,42 @@ func TestRenderDepthLimit(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "depth exceeded") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRenderPortDirectiveWithResolver(t *testing.T) {
+	resolver := &mockPortResolver{
+		ports: map[string]int{
+			"backend":  8080,
+			"temporal": 7233,
+		},
+	}
+	parser := newTestParserWithResolver(resolver)
+
+	result, err := parser.Render("port")
+	if err != nil {
+		t.Fatalf("render port: %v", err)
+	}
+	expectedContent := "Before\n8080\nBetween\n7233\nAfter\n"
+	if string(result.Content) != expectedContent {
+		t.Fatalf("unexpected content: %q", string(result.Content))
+	}
+	expectedFiles := []string{"port.tmpl"}
+	if !reflect.DeepEqual(result.Files, expectedFiles) {
+		t.Fatalf("unexpected files: %#v", result.Files)
+	}
+}
+
+func TestRenderPortDirectiveWithoutResolver(t *testing.T) {
+	parser := newTestParserWithResolver(nil)
+
+	result, err := parser.Render("port")
+	if err != nil {
+		t.Fatalf("render port: %v", err)
+	}
+	expectedContent := "Before\nBetween\nAfter\n"
+	if string(result.Content) != expectedContent {
+		t.Fatalf("unexpected content: %q", string(result.Content))
 	}
 }
 

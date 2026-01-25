@@ -166,6 +166,12 @@ func (p *Parser) renderFile(key, filename string, data []byte, stack []string, s
 					output.Write(includeResult.Content)
 					files = append(files, includeResult.Files...)
 				}
+			} else if service, ok := parsePortDirective(line); ok {
+				if p.portResolver == nil {
+					// Port directives are skipped silently when no resolver is available.
+				} else if port, found := p.portResolver.Get(service); found {
+					output.WriteString(fmt.Sprintf("%d\n", port))
+				}
 			} else {
 				output.WriteString(line)
 			}

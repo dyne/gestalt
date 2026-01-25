@@ -230,7 +230,7 @@
    Tests: Add test case with ANSI in stderr, verify filtered output
    Done when: stderr fields in logs are ANSI-free
 
-** TODO [#B] Add integration test for WebSocket log stream filtering
+** DONE [#B] Add integration test for WebSocket log stream filtering
    Effort: 2-3 hours
    Why: Verify filtered logs appear correctly in real-time WebSocket streams
    Change:

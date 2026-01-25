@@ -3,7 +3,7 @@
 #+DATE: 2026-01-25
 #+KEYWORDS: scip, cli, typescript, offline, navigation, query
 
-* DONE [#A] Standalone gestalt-scip CLI tool for offline SCIP queries
+* WIP [#A] Standalone gestalt-scip CLI tool for offline SCIP queries
   Effort: 2-3 days
   
   Goal: Create a TypeScript CLI tool (cmd/gestalt-scip) that queries SCIP protobuf
@@ -751,3 +751,32 @@
    - README explains all commands
    - Documentation updated
    - Examples work correctly
+
+** DONE [#C] Document SCIP CLI usage for LLM prompts
+   Effort: 1 hour
+
+   Why: LLM prompts should have a concise, reliable reference for offline
+   code navigation using gestalt-scip without depending on the HTTP API.
+
+   Change:
+   1. Review config/prompts/scip.tmpl for tone, structure, and expectations
+   2. Create config/prompts/scip-cli.md in the same style for CLI usage
+   3. Focus on offline commands and recommended call patterns:
+      - gestalt-scip symbols <query>
+      - gestalt-scip definition <symbol-id>
+      - gestalt-scip references <symbol-id>
+      - gestalt-scip files <path> --symbols
+   4. Include guidance for:
+      - default multi-language merge behavior
+      - --language filtering and --format json for machine use
+      - non-fatal missing binaries and --noindex server flag context
+
+   Tests:
+   - /usr/local/go/bin/go test ./...
+   - cd frontend && npm test
+   - cd cmd/gestalt-scip && npm test
+
+   Done when:
+   - scip-cli.md exists alongside scip.tmpl
+   - Instructions are CLI-first and LLM-friendly
+   - All tests pass

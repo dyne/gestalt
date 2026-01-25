@@ -219,7 +219,7 @@
    Tests: Update session_activities_test.go to verify filtered context in logs
    Done when: Bell context fields are ANSI-free
 
-** TODO [#B] Apply filter to stderr in session factory
+** DONE [#B] Apply filter to stderr in session factory
    Effort: 30 minutes
    Why: stderr may contain ANSI output from shell/command startup
    Change:

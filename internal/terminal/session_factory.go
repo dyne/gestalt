@@ -151,7 +151,7 @@ func (f *SessionFactory) logShellStartError(request sessionCreateRequest, reserv
 		fields["terminal_id"] = reservedID
 	}
 	if stderr := stderrFromExecError(err); stderr != "" {
-		fields["stderr"] = stderr
+		fields["stderr"] = FilterTerminalOutput(stderr)
 	}
 	f.logger.Error("shell command start failed", fields)
 }

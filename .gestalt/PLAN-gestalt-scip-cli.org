@@ -867,3 +867,23 @@
    Done when:
    - Documentation output no longer includes the language tag line
    - Tests pass
+
+** DONE [#B] Omit kind key entirely when value is unspecified
+   Effort: 30-60 minutes
+
+   Why: TOON rendering shows `kind: null` when the value is unspecified.
+   The key should be omitted entirely in that case.
+
+   Change:
+   1. Update symbol sanitization to avoid emitting a `kind` property when
+      it is missing or unspecified.
+   2. Add a unit test that verifies TOON output does not contain `kind:`
+      for an unspecified kind.
+
+   Tests:
+   - cd cmd/gestalt-scip && npm test
+   - GOMODCACHE=/tmp/gomodcache GOPATH=/tmp/gopath GOCACHE=/tmp/gocache /usr/local/go/bin/go test ./...
+
+   Done when:
+   - TOON output does not render `kind: null`
+   - Tests pass

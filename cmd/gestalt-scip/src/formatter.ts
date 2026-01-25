@@ -177,12 +177,19 @@ function renderStructured(payload: unknown, format: OutputFormat, renderText: ()
 
 function sanitizeSymbol(symbol: SymbolResult): SymbolResult {
   const kind = symbol.kind === 'UnspecifiedKind' ? undefined : symbol.kind;
-  return {
-    ...symbol,
+  const sanitized: SymbolResult = {
     id: encodeSymbolIdForOutput(symbol.id),
-    kind,
+    name: symbol.name,
+    signature: symbol.signature,
     documentation: sanitizeDocumentation(symbol.documentation),
+    file_path: symbol.file_path,
+    line: symbol.line,
+    language: symbol.language,
   };
+  if (kind) {
+    sanitized.kind = kind;
+  }
+  return sanitized;
 }
 
 function sanitizeReference(reference: ReferenceResult): ReferenceResult {

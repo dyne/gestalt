@@ -217,4 +217,9 @@ test('symbolsCommand omits unspecified kind and strips documentation fences', as
   assert.ok(symbol.documentation.every((entry: string) => !entry.includes('```')));
   assert.equal(symbol.documentation[0], 'type Manager struct');
   assert.ok(!symbol.documentation[0].startsWith('go\n'));
+
+  const toonOutput = await captureOutput(() =>
+    symbolsCommand('Manager', { scip: scipDir, format: 'toon' })
+  );
+  assert.ok(!toonOutput.includes('kind:'));
 });

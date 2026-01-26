@@ -70,6 +70,83 @@ test('searchCommand finds matches case-insensitively by default', async () => {
   assert.equal(payload.matches[0].column, 7);
 });
 
+test('searchCommand respects case-sensitive flag', async () => {
+  const searchCommand = await loadSearchCommand();
+  const { scipDir } = createTempRepo();
+
+  const document = {
+    relativePath: 'src/app.ts',
+    language: 'typescript',
+    text: 'const Value = 1;',
+  };
+
+  writeIndex(path.join(scipDir, 'index-typescript.scip'), [document]);
+
+  const output = await captureOutput(() =>
+    searchCommand('value', { scip: scipDir, format: 'json', caseSensitive: true })
+  );
+  const payload = JSON.parse(output);
+
+  assert.equal(payload.matches.length, 0);
+});
+
+test('searchCommand supports OR clauses and regex patterns', async () => {
+  const searchCommand = await loadSearchCommand();
+  const { scipDir } = createTempRepo();
+
+  const document = {
+    relativePath: 'src/app.ts',
+    language: 'typescript',
+    text: ['handleScipReindex', 'warning: be careful', 'all good'].join('\n'),
+  };
+
+  writeIndex(path.join(scipDir, 'index-typescript.scip'), [document]);
+
+  const orOutput = await captureOutput(() =>
+    searchCommand('error|warning|fail', { scip: scipDir, format: 'json' })
+  );
+  const orPayload = JSON.parse(orOutput);
+  assert.equal(orPayload.matches.length, 1);
+
+  const regexOutput = await captureOutput(() =>
+    searchCommand('handle.*Reindex', { scip: scipDir, format: 'json' })
+  );
+  const regexPayload = JSON.parse(regexOutput);
+  assert.equal(regexPayload.matches.length, 1);
+});
+
+test('searchCommand filters by language and applies limits', async () => {
+  const searchCommand = await loadSearchCommand();
+  const { scipDir } = createTempRepo();
+
+  const tsDocument = {
+    relativePath: 'src/app.ts',
+    language: 'typescript',
+    text: 'const match = 1;\nconst matchAgain = 2;',
+  };
+  const goDocument = {
+    relativePath: 'internal/app.go',
+    language: 'go',
+    text: 'var match = 1',
+  };
+
+  writeIndex(path.join(scipDir, 'index-typescript.scip'), [tsDocument]);
+  writeIndex(path.join(scipDir, 'index-go.scip'), [goDocument]);
+
+  const goOnlyOutput = await captureOutput(() =>
+    searchCommand('match', { scip: scipDir, format: 'json', language: 'go' })
+  );
+  const goOnlyPayload = JSON.parse(goOnlyOutput);
+  assert.equal(goOnlyPayload.matches.length, 1);
+  assert.equal(goOnlyPayload.matches[0].file_path, 'internal/app.go');
+
+  const limitedOutput = await captureOutput(() =>
+    searchCommand('match', { scip: scipDir, format: 'json', limit: 1 })
+  );
+  const limitedPayload = JSON.parse(limitedOutput);
+  assert.equal(limitedPayload.matches.length, 1);
+});
+
 test('searchCommand supports text output with context', async () => {
   const searchCommand = await loadSearchCommand();
   const { scipDir } = createTempRepo();
@@ -111,4 +188,15 @@ test('searchCommand supports TOON output format', async () => {
 
   assert.match(output, /pattern: match/);
   assert.match(output, /matches\[/);
+});
+
+test('searchCommand rejects invalid regex patterns', async () => {
+  const searchCommand = await loadSearchCommand();
+  const { scipDir } = createTempRepo();
+  writeIndex(path.join(scipDir, 'index-typescript.scip'), []);
+
+  await assert.rejects(
+    () => searchCommand('[invalid', { scip: scipDir }),
+    /Invalid regex pattern/
+  );
 });

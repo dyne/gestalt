@@ -7,7 +7,6 @@ import (
 	"gestalt/internal/event"
 	"gestalt/internal/logging"
 	"gestalt/internal/otel"
-	"gestalt/internal/plan"
 	"gestalt/internal/terminal"
 	"gestalt/internal/watcher"
 
@@ -21,15 +20,11 @@ type StatusConfig struct {
 func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken string, statusConfig StatusConfig, scipIndexPath string, scipAutoReindex bool, staticDir string, frontendFS fs.FS, logger *logging.Logger, eventBus *event.Bus[watcher.Event], scipEventBus *event.Bus[event.SCIPEvent]) *SCIPHandler {
 	// Git info is read once on boot to avoid polling; refresh can be added later.
 	gitOrigin, gitBranch := loadGitInfo()
-	planPath := plan.DefaultPath()
-	planCache := plan.NewCache(planPath, logger)
 	metricsSummary := otel.NewAPISummaryStore()
 	rest := &RestHandler{
 		Manager:        manager,
 		Logger:         logger,
 		MetricsSummary: metricsSummary,
-		PlanPath:       planPath,
-		PlanCache:      planCache,
 		GitOrigin:      gitOrigin,
 		GitBranch:      gitBranch,
 		TemporalUIPort: statusConfig.TemporalUIPort,
@@ -68,24 +63,6 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 				rest.setGitBranch(event.Path)
 			}
 		}()
-		if planCache != nil {
-			planEvents, _ := eventBus.SubscribeFiltered(func(event watcher.Event) bool {
-				return event.Type == watcher.EventTypeFileChanged
-			})
-			go func() {
-				for event := range planEvents {
-					if !planCache.MatchesPath(event.Path) {
-						continue
-					}
-					if _, err := planCache.Reload(); err != nil && logger != nil {
-						logger.Warn("plan cache reload failed", map[string]string{
-							"path":  event.Path,
-							"error": err.Error(),
-						})
-					}
-				}
-			}()
-		}
 	}
 
 	mux.Handle("/ws/terminal/", &TerminalHandler{
@@ -136,8 +113,7 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 	mux.Handle("/api/otel/metrics", wrap("/api/otel/metrics", "metrics", "query", restHandler(authToken, rest.handleOTelMetrics)))
 	mux.Handle("/api/terminals", wrap("/api/terminals", "terminals", "auto", restHandler(authToken, rest.handleTerminals)))
 	mux.Handle("/api/terminals/", wrap("/api/terminals/:id", "terminals", "auto", restHandler(authToken, rest.handleTerminal)))
-	mux.Handle("/api/plan", wrap("/api/plan", "plan", "read", jsonErrorMiddleware(rest.handlePlan)))
-	mux.Handle("/api/plan/current", wrap("/api/plan/current", "plan", "read", jsonErrorMiddleware(rest.handlePlanCurrent)))
+	mux.Handle("/api/plans", wrap("/api/plans", "plan", "read", restHandler(authToken, rest.handlePlansList)))
 
 	var scipHandler *SCIPHandler
 	if scipIndexPath != "" {

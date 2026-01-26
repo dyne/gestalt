@@ -6,7 +6,6 @@ import (
 
 	"gestalt/internal/logging"
 	"gestalt/internal/otel"
-	"gestalt/internal/plan"
 	"gestalt/internal/terminal"
 )
 
@@ -14,8 +13,6 @@ type RestHandler struct {
 	Manager        *terminal.Manager
 	Logger         *logging.Logger
 	MetricsSummary *otel.APISummaryStore
-	PlanPath       string
-	PlanCache      *plan.Cache
 	GitOrigin      string
 	GitBranch      string
 	TemporalUIPort int
@@ -109,13 +106,31 @@ type eventBusDebug struct {
 	UnfilteredSubscribers int64  `json:"unfiltered_subscribers"`
 }
 
-type planResponse struct {
-	Content string `json:"content"`
+type planHeading struct {
+	Level    int           `json:"level"`
+	Keyword  string        `json:"keyword"`
+	Priority string        `json:"priority"`
+	Text     string        `json:"text"`
+	Body     string        `json:"body"`
+	Children []planHeading `json:"children"`
 }
 
-type planCurrentResponse struct {
-	L1 string `json:"l1"`
-	L2 string `json:"l2"`
+type planDocument struct {
+	Filename  string        `json:"filename"`
+	Title     string        `json:"title"`
+	Subtitle  string        `json:"subtitle"`
+	Date      string        `json:"date"`
+	Keywords  string        `json:"keywords"`
+	Headings  []planHeading `json:"headings"`
+	L1Count   int           `json:"l1_count"`
+	L2Count   int           `json:"l2_count"`
+	PriorityA int           `json:"priority_a"`
+	PriorityB int           `json:"priority_b"`
+	PriorityC int           `json:"priority_c"`
+}
+
+type plansListResponse struct {
+	Plans []planDocument `json:"plans"`
 }
 
 type errorResponse struct {

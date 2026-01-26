@@ -2,6 +2,6 @@ package plan
 
 import "path/filepath"
 
-func DefaultPath() string {
-	return filepath.Join(".gestalt", "PLAN.org")
+func DefaultPlansDir() string {
+	return filepath.Join(".gestalt", "plans")
 }

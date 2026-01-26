@@ -11,6 +11,7 @@ import (
 
 	"gestalt"
 	"gestalt/internal/logging"
+	"gestalt/internal/plan"
 )
 
 func TestPrepareConfigWarmStartSkipsExtraction(t *testing.T) {
@@ -159,20 +160,23 @@ func TestPreparePlanFileMigration(t *testing.T) {
 	}
 
 	logger := newTestLogger(logging.LevelInfo)
-	planPath := preparePlanFile(logger)
-	if planPath != filepath.Join(".gestalt", "PLAN.org") {
-		t.Fatalf("expected plan path .gestalt/PLAN.org, got %q", planPath)
+	plansDir := preparePlanFile(logger)
+	if plansDir != plan.DefaultPlansDir() {
+		t.Fatalf("expected plans dir %q, got %q", plan.DefaultPlansDir(), plansDir)
 	}
 
-	contents, err := os.ReadFile(filepath.Join(root, planPath))
+	if _, err := os.Stat(filepath.Join(root, plansDir)); err != nil {
+		t.Fatalf("expected plans dir to exist: %v", err)
+	}
+	legacy, err := os.ReadFile(filepath.Join(root, "PLAN.org"))
 	if err != nil {
-		t.Fatalf("read migrated plan: %v", err)
+		t.Fatalf("read legacy plan: %v", err)
 	}
-	if string(contents) != string(payload) {
-		t.Fatalf("expected plan contents to match")
+	if string(legacy) != string(payload) {
+		t.Fatalf("expected legacy plan contents to remain")
 	}
-	if !logContains(logger.Buffer(), "Migrated PLAN.org to .gestalt/PLAN.org") {
-		t.Fatalf("expected migration log entry")
+	if logContains(logger.Buffer(), "Migrated PLAN.org") {
+		t.Fatalf("did not expect migration log entry")
 	}
 }
 

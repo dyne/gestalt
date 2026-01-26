@@ -1087,55 +1087,14 @@ func prepareConfig(cfg Config, logger *logging.Logger) (configPaths, error) {
 }
 
 func preparePlanFile(logger *logging.Logger) string {
-	targetPath := plan.DefaultPath()
-	legacyPath := "PLAN.org"
-
-	legacyInfo, err := os.Stat(legacyPath)
-	if err != nil || legacyInfo.IsDir() {
-		return targetPath
-	}
-
-	if _, err := os.Stat(targetPath); err == nil {
-		if logger != nil {
-			logger.Warn("PLAN.org exists in multiple locations; using .gestalt/PLAN.org", map[string]string{
-				"path": targetPath,
-			})
-		}
-		return targetPath
-	} else if !os.IsNotExist(err) {
-		if logger != nil {
-			logger.Warn("plan path check failed", map[string]string{
-				"path":  targetPath,
-				"error": err.Error(),
-			})
-		}
-		return targetPath
-	}
-
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
-		if logger != nil {
-			logger.Warn("plan migration failed", map[string]string{
-				"path":  targetPath,
-				"error": err.Error(),
-			})
-		}
-		return targetPath
-	}
-	if err := copyFile(legacyPath, targetPath); err != nil {
-		if logger != nil {
-			logger.Warn("plan migration failed", map[string]string{
-				"path":  targetPath,
-				"error": err.Error(),
-			})
-		}
-		return targetPath
-	}
-	if logger != nil {
-		logger.Info("Migrated PLAN.org to .gestalt/PLAN.org", map[string]string{
-			"path": targetPath,
+	plansDir := plan.DefaultPlansDir()
+	if err := os.MkdirAll(plansDir, 0o755); err != nil && logger != nil {
+		logger.Warn("plan directory create failed", map[string]string{
+			"path":  plansDir,
+			"error": err.Error(),
 		})
 	}
-	return targetPath
+	return plansDir
 }
 
 func resolveConfigPaths(configDir string) (configPaths, error) {

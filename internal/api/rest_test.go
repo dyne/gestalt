@@ -17,7 +17,6 @@ import (
 
 	"gestalt/internal/agent"
 	"gestalt/internal/event"
-	"gestalt/internal/plan"
 	"gestalt/internal/skill"
 	"gestalt/internal/temporal/workflows"
 	"gestalt/internal/terminal"
@@ -1590,144 +1589,97 @@ func TestSkillEndpointMissing(t *testing.T) {
 	}
 }
 
-func TestPlanEndpointReturnsContent(t *testing.T) {
-	dir := t.TempDir()
-	planPath := filepath.Join(dir, ".gestalt", "PLAN.org")
-	if err := os.MkdirAll(filepath.Dir(planPath), 0o755); err != nil {
-		t.Fatalf("mkdir plan dir: %v", err)
+func TestPlansEndpointReturnsEmptyList(t *testing.T) {
+	root := t.TempDir()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
 	}
-	content := "* TODO [#A] Sample\n"
-	if err := os.WriteFile(planPath, []byte(content), 0o644); err != nil {
-		t.Fatalf("write plan file: %v", err)
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("chdir: %v", err)
 	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
 
-	handler := &RestHandler{PlanPath: planPath}
-	req := httptest.NewRequest(http.MethodGet, "/api/plan", nil)
+	handler := &RestHandler{}
+	req := httptest.NewRequest(http.MethodGet, "/api/plans", nil)
 	res := httptest.NewRecorder()
 
-	jsonErrorMiddleware(handler.handlePlan)(res, req)
+	restHandler("", handler.handlePlansList)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
 
-	var payload planResponse
+	var payload plansListResponse
 	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if payload.Content != content {
-		t.Fatalf("expected content %q, got %q", content, payload.Content)
-	}
-	if res.Header().Get("ETag") == "" {
-		t.Fatalf("expected ETag header to be set")
+	if len(payload.Plans) != 0 {
+		t.Fatalf("expected empty plans list, got %d", len(payload.Plans))
 	}
 }
 
-func TestPlanEndpointMissingFileReturnsEmpty(t *testing.T) {
-	dir := t.TempDir()
-	planPath := filepath.Join(dir, ".gestalt", "PLAN.org")
-	handler := &RestHandler{PlanPath: planPath}
-	req := httptest.NewRequest(http.MethodGet, "/api/plan", nil)
+func TestPlansEndpointReturnsSortedPlans(t *testing.T) {
+	root := t.TempDir()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+
+	plansDir := filepath.Join(root, ".gestalt", "plans")
+	if err := os.MkdirAll(plansDir, 0o755); err != nil {
+		t.Fatalf("mkdir plans dir: %v", err)
+	}
+
+	alpha := `#+TITLE: Alpha
+#+SUBTITLE: First
+#+DATE: 2026-01-02
+* TODO [#A] Alpha L1
+** TODO [#B] Alpha L2
+`
+	beta := `#+TITLE: Beta
+#+SUBTITLE: Second
+#+DATE: 2026-01-03
+* WIP [#A] Beta L1
+** DONE [#C] Beta L2
+`
+	if err := os.WriteFile(filepath.Join(plansDir, "2026-01-02-alpha.org"), []byte(alpha), 0o644); err != nil {
+		t.Fatalf("write alpha plan: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(plansDir, "2026-01-03-beta.org"), []byte(beta), 0o644); err != nil {
+		t.Fatalf("write beta plan: %v", err)
+	}
+
+	handler := &RestHandler{}
+	req := httptest.NewRequest(http.MethodGet, "/api/plans", nil)
 	res := httptest.NewRecorder()
 
-	jsonErrorMiddleware(handler.handlePlan)(res, req)
+	restHandler("", handler.handlePlansList)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
 
-	var payload planResponse
+	var payload plansListResponse
 	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if payload.Content != "" {
-		t.Fatalf("expected empty content, got %q", payload.Content)
+	if len(payload.Plans) != 2 {
+		t.Fatalf("expected 2 plans, got %d", len(payload.Plans))
 	}
-}
-
-func TestPlanEndpointETagNotModified(t *testing.T) {
-	dir := t.TempDir()
-	planPath := filepath.Join(dir, ".gestalt", "PLAN.org")
-	if err := os.MkdirAll(filepath.Dir(planPath), 0o755); err != nil {
-		t.Fatalf("mkdir plan dir: %v", err)
+	if payload.Plans[0].Filename != "2026-01-03-beta.org" {
+		t.Fatalf("expected beta plan first, got %q", payload.Plans[0].Filename)
 	}
-	content := "* TODO [#B] Cached\n"
-	if err := os.WriteFile(planPath, []byte(content), 0o644); err != nil {
-		t.Fatalf("write plan file: %v", err)
+	if payload.Plans[0].Title != "Beta" {
+		t.Fatalf("expected beta title, got %q", payload.Plans[0].Title)
 	}
-
-	handler := &RestHandler{PlanPath: planPath}
-	req := httptest.NewRequest(http.MethodGet, "/api/plan", nil)
-	res := httptest.NewRecorder()
-	jsonErrorMiddleware(handler.handlePlan)(res, req)
-	if res.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", res.Code)
+	if payload.Plans[0].L1Count != 1 || payload.Plans[0].L2Count != 1 {
+		t.Fatalf("unexpected beta counts: L1 %d L2 %d", payload.Plans[0].L1Count, payload.Plans[0].L2Count)
 	}
-	etag := res.Header().Get("ETag")
-	if etag == "" {
-		t.Fatalf("expected ETag header")
-	}
-
-	req = httptest.NewRequest(http.MethodGet, "/api/plan", nil)
-	req.Header.Set("If-None-Match", etag)
-	res = httptest.NewRecorder()
-	jsonErrorMiddleware(handler.handlePlan)(res, req)
-	if res.Code != http.StatusNotModified {
-		t.Fatalf("expected 304, got %d", res.Code)
-	}
-	if res.Body.Len() != 0 {
-		t.Fatalf("expected empty body on 304 response")
-	}
-}
-
-func TestPlanCurrentEndpointReturnsWip(t *testing.T) {
-	dir := t.TempDir()
-	planPath := filepath.Join(dir, ".gestalt", "PLAN.org")
-	if err := os.MkdirAll(filepath.Dir(planPath), 0o755); err != nil {
-		t.Fatalf("mkdir plan dir: %v", err)
-	}
-	content := "* WIP [#A] Feature One\n** WIP [#B] Step One\n"
-	if err := os.WriteFile(planPath, []byte(content), 0o644); err != nil {
-		t.Fatalf("write plan file: %v", err)
-	}
-
-	planCache := plan.NewCache(planPath, nil)
-	handler := &RestHandler{PlanPath: planPath, PlanCache: planCache}
-	req := httptest.NewRequest(http.MethodGet, "/api/plan/current", nil)
-	res := httptest.NewRecorder()
-
-	jsonErrorMiddleware(handler.handlePlanCurrent)(res, req)
-	if res.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", res.Code)
-	}
-
-	var payload planCurrentResponse
-	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if payload.L1 != "Feature One" || payload.L2 != "Step One" {
-		t.Fatalf("unexpected plan current payload: %#v", payload)
-	}
-}
-
-func TestPlanCurrentEndpointMissingFileReturnsEmpty(t *testing.T) {
-	dir := t.TempDir()
-	planPath := filepath.Join(dir, "missing.org")
-
-	planCache := plan.NewCache(planPath, nil)
-	handler := &RestHandler{PlanPath: planPath, PlanCache: planCache}
-	req := httptest.NewRequest(http.MethodGet, "/api/plan/current", nil)
-	res := httptest.NewRecorder()
-
-	jsonErrorMiddleware(handler.handlePlanCurrent)(res, req)
-	if res.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", res.Code)
-	}
-
-	var payload planCurrentResponse
-	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if payload.L1 != "" || payload.L2 != "" {
-		t.Fatalf("expected empty payload, got %#v", payload)
+	if payload.Plans[0].PriorityC != 1 {
+		t.Fatalf("expected beta priority C to be 1")
 	}
 }
 

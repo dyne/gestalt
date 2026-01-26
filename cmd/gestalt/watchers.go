@@ -17,7 +17,7 @@ func watchPlanFile(bus *event.Bus[watcher.Event], watch watcher.Watch, logger *l
 		return
 	}
 	if planPath == "" {
-		planPath = plan.DefaultPath()
+		planPath = plan.DefaultPlansDir()
 	}
 
 	var retryMutex sync.Mutex
@@ -76,7 +76,7 @@ func watchPlanFile(bus *event.Bus[watcher.Event], watch watcher.Watch, logger *l
 				}
 				if logger != nil {
 					logger.Warn("plan watch retry failed", map[string]string{
-						"path": planPath,
+						"path":  planPath,
 						"error": err.Error(),
 					})
 				}

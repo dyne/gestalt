@@ -235,7 +235,7 @@ func TestLoadAgentsReportsInvalidTOML(t *testing.T) {
 	}
 }
 
-func TestPreparePlanFileMigratesLegacyPlan(t *testing.T) {
+func TestPreparePlanFileCreatesPlansDir(t *testing.T) {
 	withTempDir(t, func(root string) {
 		content := "* TODO [#A] Example\n"
 		legacyPath := filepath.Join(root, "PLAN.org")
@@ -245,56 +245,24 @@ func TestPreparePlanFileMigratesLegacyPlan(t *testing.T) {
 
 		buffer := logging.NewLogBuffer(10)
 		logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, io.Discard)
-		planPath := preparePlanFile(logger)
-		if planPath != plan.DefaultPath() {
-			t.Fatalf("expected plan path %q, got %q", plan.DefaultPath(), planPath)
+		plansDir := preparePlanFile(logger)
+		if plansDir != plan.DefaultPlansDir() {
+			t.Fatalf("expected plans dir %q, got %q", plan.DefaultPlansDir(), plansDir)
 		}
 
-		migratedPath := filepath.Join(root, planPath)
-		data, err := os.ReadFile(migratedPath)
+		fullPath := filepath.Join(root, plansDir)
+		if _, err := os.Stat(fullPath); err != nil {
+			t.Fatalf("expected plans dir to exist: %v", err)
+		}
+		legacyData, err := os.ReadFile(legacyPath)
 		if err != nil {
-			t.Fatalf("read migrated plan: %v", err)
+			t.Fatalf("read legacy plan: %v", err)
 		}
-		if string(data) != content {
-			t.Fatalf("expected migrated content %q, got %q", content, string(data))
+		if string(legacyData) != content {
+			t.Fatalf("expected legacy plan to remain unchanged")
 		}
-		if !hasLogMessage(buffer.List(), "Migrated PLAN.org to .gestalt/PLAN.org") {
-			t.Fatalf("expected migration log entry")
-		}
-	})
-}
-
-func TestPreparePlanFilePrefersExistingPlan(t *testing.T) {
-	withTempDir(t, func(root string) {
-		legacyPath := filepath.Join(root, "PLAN.org")
-		gestaltPath := filepath.Join(root, plan.DefaultPath())
-		if err := os.MkdirAll(filepath.Dir(gestaltPath), 0o755); err != nil {
-			t.Fatalf("mkdir .gestalt: %v", err)
-		}
-
-		if err := os.WriteFile(legacyPath, []byte("legacy"), 0o644); err != nil {
-			t.Fatalf("write legacy plan: %v", err)
-		}
-		if err := os.WriteFile(gestaltPath, []byte("current"), 0o644); err != nil {
-			t.Fatalf("write .gestalt plan: %v", err)
-		}
-
-		buffer := logging.NewLogBuffer(10)
-		logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, io.Discard)
-		planPath := preparePlanFile(logger)
-		if planPath != plan.DefaultPath() {
-			t.Fatalf("expected plan path %q, got %q", plan.DefaultPath(), planPath)
-		}
-
-		data, err := os.ReadFile(gestaltPath)
-		if err != nil {
-			t.Fatalf("read .gestalt plan: %v", err)
-		}
-		if string(data) != "current" {
-			t.Fatalf("expected .gestalt plan content to stay %q, got %q", "current", string(data))
-		}
-		if !hasLogMessage(buffer.List(), "PLAN.org exists in multiple locations; using .gestalt/PLAN.org") {
-			t.Fatalf("expected duplicate plan warning")
+		if hasLogMessage(buffer.List(), "Migrated PLAN.org") {
+			t.Fatalf("did not expect migration log entry")
 		}
 	})
 }

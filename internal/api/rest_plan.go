@@ -1,96 +1,68 @@
 package api
 
 import (
-	"crypto/sha256"
-	"errors"
-	"fmt"
 	"net/http"
-	"os"
-	"strings"
 
 	"gestalt/internal/plan"
 )
 
-func (h *RestHandler) handlePlan(w http.ResponseWriter, r *http.Request) *apiError {
+func (h *RestHandler) handlePlansList(w http.ResponseWriter, r *http.Request) *apiError {
 	if r.Method != http.MethodGet {
 		return methodNotAllowed(w, "GET")
 	}
 
-	planPath := h.PlanPath
-	if planPath == "" {
-		planPath = plan.DefaultPath()
-	}
-
-	info, statErr := os.Stat(planPath)
-	content, err := os.ReadFile(planPath)
+	plans, err := plan.ScanPlansDirectory(plan.DefaultPlansDir())
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			if h.Logger != nil {
-				h.Logger.Warn("plan file not found", map[string]string{
-					"path": planPath,
-				})
-			}
-			content = []byte{}
-		} else {
-			return &apiError{Status: http.StatusInternalServerError, Message: "failed to read plan file"}
-		}
-	}
-	if statErr == nil {
-		w.Header().Set("Last-Modified", info.ModTime().UTC().Format(http.TimeFormat))
-	}
-
-	etag := planETag(content)
-	w.Header().Set("ETag", etag)
-	if matchesETag(r.Header.Get("If-None-Match"), etag) {
-		w.WriteHeader(http.StatusNotModified)
-		return nil
-	}
-
-	writeJSON(w, http.StatusOK, planResponse{Content: string(content)})
-	return nil
-}
-
-func (h *RestHandler) handlePlanCurrent(w http.ResponseWriter, r *http.Request) *apiError {
-	if r.Method != http.MethodGet {
-		return methodNotAllowed(w, "GET")
-	}
-	if h.PlanCache == nil {
-		return &apiError{Status: http.StatusInternalServerError, Message: "plan cache unavailable"}
-	}
-
-	currentWork, currentError := h.PlanCache.Current()
-	if currentError != nil {
 		if h.Logger != nil {
-			h.Logger.Warn("plan current read failed", map[string]string{
-				"error": currentError.Error(),
+			h.Logger.Warn("plans scan failed", map[string]string{
+				"error": err.Error(),
 			})
 		}
-		return &apiError{Status: http.StatusInternalServerError, Message: "failed to parse plan file"}
+		return &apiError{Status: http.StatusInternalServerError, Message: "failed to read plans"}
 	}
 
-	writeJSON(w, http.StatusOK, planCurrentResponse{
-		L1: currentWork.L1,
-		L2: currentWork.L2,
-	})
+	response := plansListResponse{Plans: mapPlanDocuments(plans)}
+	writeJSON(w, http.StatusOK, response)
 	return nil
 }
 
-func planETag(content []byte) string {
-	sum := sha256.Sum256(content)
-	return fmt.Sprintf("\"%x\"", sum)
+func mapPlanDocuments(source []plan.PlanDocument) []planDocument {
+	if len(source) == 0 {
+		return []planDocument{}
+	}
+	result := make([]planDocument, 0, len(source))
+	for _, doc := range source {
+		result = append(result, planDocument{
+			Filename:  doc.Filename,
+			Title:     doc.Metadata.Title,
+			Subtitle:  doc.Metadata.Subtitle,
+			Date:      doc.Metadata.Date,
+			Keywords:  doc.Metadata.Keywords,
+			Headings:  mapPlanHeadings(doc.Headings),
+			L1Count:   doc.L1Count,
+			L2Count:   doc.L2Count,
+			PriorityA: doc.PriorityA,
+			PriorityB: doc.PriorityB,
+			PriorityC: doc.PriorityC,
+		})
+	}
+	return result
 }
 
-func matchesETag(header, etag string) bool {
-	if header == "" {
-		return false
+func mapPlanHeadings(source []plan.Heading) []planHeading {
+	if len(source) == 0 {
+		return []planHeading{}
 	}
-	if header == "*" {
-		return true
+	result := make([]planHeading, 0, len(source))
+	for _, heading := range source {
+		result = append(result, planHeading{
+			Level:    heading.Level,
+			Keyword:  heading.Keyword,
+			Priority: heading.Priority,
+			Text:     heading.Text,
+			Body:     heading.Body,
+			Children: mapPlanHeadings(heading.Children),
+		})
 	}
-	for _, part := range strings.Split(header, ",") {
-		if strings.TrimSpace(part) == etag {
-			return true
-		}
-	}
-	return false
+	return result
 }

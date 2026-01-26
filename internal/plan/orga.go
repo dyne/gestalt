@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -56,21 +57,36 @@ func ParseWithOrga(path string) (*OrgaDocument, error) {
 }
 
 func resolveOrgaScriptPath() (string, error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("get working dir: %w", err)
+	starts := []string{}
+	if cwd, err := os.Getwd(); err == nil {
+		starts = append(starts, cwd)
 	}
-	current := cwd
+	if executable, err := os.Executable(); err == nil {
+		starts = append(starts, filepath.Dir(executable))
+	}
+	if _, file, _, ok := runtime.Caller(0); ok {
+		starts = append(starts, filepath.Dir(filepath.Dir(file)))
+	}
+
+	for _, start := range starts {
+		if candidate, ok := findScriptPath(start); ok {
+			return candidate, nil
+		}
+	}
+	return "", errors.New("orga parser script not found")
+}
+
+func findScriptPath(start string) (string, bool) {
+	current := start
 	for {
 		candidate := filepath.Join(current, "scripts", "parse-org.js")
 		if _, err := os.Stat(candidate); err == nil {
-			return candidate, nil
+			return candidate, true
 		}
 		parent := filepath.Dir(current)
 		if parent == current {
-			break
+			return "", false
 		}
 		current = parent
 	}
-	return "", errors.New("orga parser script not found")
 }

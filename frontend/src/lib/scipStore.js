@@ -1,7 +1,11 @@
-import { writable } from 'svelte/store'
+import { get, writable } from 'svelte/store'
 import { fetchScipStatus, triggerScipReindex } from './apiClient.js'
 import { getErrorMessage } from './errorUtils.js'
 import { createWsStore } from './wsStore.js'
+
+const REINDEX_TIMEOUT_MS = 5 * 60 * 1000
+let reindexTimeoutId = null
+let reindexInFlight = false
 
 export const initialScipStatus = {
   indexed: false,
@@ -107,9 +111,27 @@ export const createScipStore = () => {
   }
 
   const handleEvent = (event) => {
-    status.update((current) => applyEvent(current, event))
+    if (reindexTimeoutId) {
+      clearTimeout(reindexTimeoutId)
+      reindexTimeoutId = null
+    }
+
+    try {
+      status.update((current) => applyEvent(current, event))
+    } catch (err) {
+      if (typeof console !== 'undefined') {
+        console.error('[scip-store] event handling error', err, event)
+      }
+    }
+
     if (event?.type === 'complete' || event?.type === 'error') {
-      void refreshStatus()
+      try {
+        void refreshStatus()
+      } catch (err) {
+        if (typeof console !== 'undefined') {
+          console.error('[scip-store] status refresh error', err)
+        }
+      }
     }
   }
 
@@ -134,19 +156,65 @@ export const createScipStore = () => {
   }
 
   const reindex = async () => {
-    status.update((current) => ({
-      ...current,
-      in_progress: true,
-      started_at: new Date().toISOString(),
-      completed_at: '',
-      error: '',
-    }))
+    if (reindexInFlight) {
+      if (typeof console !== 'undefined') {
+        console.warn('[scip-store] reindex already in progress')
+      }
+      return
+    }
+
+    reindexInFlight = true
     try {
+      const currentStatus = get(events.connectionStatus)
+      if (currentStatus !== 'connected') {
+        if (typeof console !== 'undefined') {
+          console.warn('[scip-store] WS not connected, waiting...')
+        }
+        await new Promise((resolve) => setTimeout(resolve, 2000))
+        const retryStatus = get(events.connectionStatus)
+        if (retryStatus !== 'connected') {
+          const err = new Error('SCIP events connection unavailable. Please refresh the page.')
+          status.update((current) => ({
+            ...current,
+            error: 'Event stream disconnected. Refresh and retry.',
+            in_progress: false,
+          }))
+          throw err
+        }
+      }
+
+      if (reindexTimeoutId) {
+        clearTimeout(reindexTimeoutId)
+        reindexTimeoutId = null
+      }
+
+      status.update((current) => ({
+        ...current,
+        in_progress: true,
+        started_at: new Date().toISOString(),
+        completed_at: '',
+        error: '',
+      }))
+
       await triggerScipReindex()
+
+      reindexTimeoutId = setTimeout(() => {
+        reindexTimeoutId = null
+        if (typeof console !== 'undefined') {
+          console.warn('[scip-store] reindex timeout, forcing status refresh')
+        }
+        void refreshStatus()
+      }, REINDEX_TIMEOUT_MS)
     } catch (err) {
+      if (reindexTimeoutId) {
+        clearTimeout(reindexTimeoutId)
+        reindexTimeoutId = null
+      }
       const message = getErrorMessage(err, 'Failed to start SCIP indexing.')
       status.update((current) => ({ ...current, in_progress: false, error: message }))
       throw err
+    } finally {
+      reindexInFlight = false
     }
   }
 

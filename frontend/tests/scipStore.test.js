@@ -4,6 +4,15 @@ import { get } from 'svelte/store'
 const fetchScipStatus = vi.hoisted(() => vi.fn())
 const triggerScipReindex = vi.hoisted(() => vi.fn())
 const wsHandlers = vi.hoisted(() => new Map())
+const connectionStatusValue = vi.hoisted(() => ({ current: 'connected' }))
+const connectionStatusSubscribers = vi.hoisted(() => new Set())
+const connectionStatusStore = vi.hoisted(() => ({
+  subscribe: (run) => {
+    run(connectionStatusValue.current)
+    connectionStatusSubscribers.add(run)
+    return () => connectionStatusSubscribers.delete(run)
+  },
+}))
 const subscribeMock = vi.hoisted(() =>
   vi.fn((type, callback) => {
     wsHandlers.set(type, callback)
@@ -13,7 +22,7 @@ const subscribeMock = vi.hoisted(() =>
 const createWsStore = vi.hoisted(() =>
   vi.fn(() => ({
     subscribe: subscribeMock,
-    connectionStatus: { subscribe: () => () => {} },
+    connectionStatus: connectionStatusStore,
   }))
 )
 
@@ -29,6 +38,10 @@ vi.mock('../src/lib/wsStore.js', () => ({
 import { createScipStore, initialScipStatus } from '../src/lib/scipStore.js'
 
 const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0))
+const setConnectionStatus = (status) => {
+  connectionStatusValue.current = status
+  connectionStatusSubscribers.forEach((run) => run(status))
+}
 
 const emitEvent = (type, payload = {}) => {
   const handler = wsHandlers.get(type)
@@ -39,6 +52,8 @@ const emitEvent = (type, payload = {}) => {
 describe('scipStore', () => {
   beforeEach(() => {
     wsHandlers.clear()
+    connectionStatusSubscribers.clear()
+    setConnectionStatus('connected')
     fetchScipStatus.mockReset()
     triggerScipReindex.mockReset()
     subscribeMock.mockClear()
@@ -47,6 +62,7 @@ describe('scipStore', () => {
 
   afterEach(() => {
     wsHandlers.clear()
+    connectionStatusSubscribers.clear()
   })
 
   it('loads scip status on start', async () => {

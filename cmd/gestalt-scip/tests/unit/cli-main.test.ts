@@ -34,6 +34,7 @@ test('CLI help lists all commands', async () => {
   assert.match(help, /definition/);
   assert.match(help, /references/);
   assert.match(help, /files/);
+  assert.match(help, /search/);
 });
 
 test('symbols help includes key options', async () => {

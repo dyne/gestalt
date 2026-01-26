@@ -2,6 +2,7 @@ import { Command, CommanderError } from 'commander';
 import { definitionCommand } from './commands/definition.js';
 import { filesCommand } from './commands/files.js';
 import { referencesCommand } from './commands/references.js';
+import { searchCommand } from './commands/search.js';
 import { symbolsCommand } from './commands/symbols.js';
 
 type AsyncCommand<TArgs extends unknown[]> = (...args: TArgs) => Promise<void>;
@@ -64,6 +65,17 @@ program
   .option('--format <fmt>', 'Output format (json|text|toon)', 'toon')
   .option('--symbols', 'Include symbol occurrences')
   .action(withErrorHandling(filesCommand));
+
+program
+  .command('search <pattern>')
+  .description('Search file contents with regex patterns (supports OR via |)')
+  .option('--scip <path>', 'Path to SCIP file or directory')
+  .option('--language <lang>', 'Filter by language (go, typescript, python)')
+  .option('--limit <n>', 'Max results (default: 50, max: 1000)', '50')
+  .option('--format <fmt>', 'Output format (json|text|toon)', 'toon')
+  .option('--case-sensitive', 'Enable case-sensitive search', false)
+  .option('--context <n>', 'Lines of context (default: 2, max: 10)', '2')
+  .action(withErrorHandling(searchCommand));
 
 program.exitOverride();
 

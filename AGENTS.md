@@ -153,6 +153,8 @@ terminal output -> Session output bus -> /ws/terminal/:id -> xterm
 
 ## Logs UI notes
 - Log entries are normalized via `frontend/src/lib/logEntry.js`; Dashboard and LogsView use inline `<details>/<summary>` disclosures with context tables and optional raw JSON.
+- Log disclosures include Copy JSON actions, and the Dashboard intel section shows logs + API metrics side-by-side with agent terminals above.
+- Dashboard status pills (workdir, git remote, git branch) are clickable and copy their values.
 
 ## Terminal session logging notes
 - Async file logger behavior is covered by `internal/terminal/async_file_logger_test.go` to validate flush-on-close and drop behavior.

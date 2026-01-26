@@ -1,11 +1,12 @@
 <script>
   import { onMount } from 'svelte'
 
-  import { apiFetch } from '../lib/api.js'
+  import { logUI } from '../lib/clientLog.js'
   import { createCommandHistory } from '../lib/commandHistory.js'
   import VoiceInput from './VoiceInput.svelte'
 
   export let terminalId = ''
+  export let agentName = ''
   export let onSubmit = () => {}
   export let disabled = false
   export let directInput = false
@@ -31,18 +32,12 @@
     if (typeof window === 'undefined') return
     if (window.__gestaltVoiceInputInsecureLogged) return
     window.__gestaltVoiceInputInsecureLogged = true
-    const payload = {
+    logUI({
       level: 'warning',
-      message: 'voice input unavailable: insecure context (requires HTTPS or localhost)',
-      context: {
+      body: 'voice input unavailable: insecure context (requires HTTPS or localhost)',
+      attributes: {
         origin: window.location?.origin || '',
       },
-    }
-    void apiFetch('/api/logs', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }).catch(() => {
-      // Ignore log transport errors to avoid loops.
     })
   }
 
@@ -70,6 +65,18 @@
     const trimmed = next.trim()
     if (trimmed) {
       history.record(trimmed)
+      const attributes = {}
+      if (terminalId) {
+        attributes['terminal.id'] = terminalId
+      }
+      if (agentName) {
+        attributes['agent.name'] = agentName
+      }
+      logUI({
+        level: 'info',
+        body: next,
+        attributes,
+      })
     }
     history.resetNavigation()
     requestAnimationFrame(() => textarea?.focus())

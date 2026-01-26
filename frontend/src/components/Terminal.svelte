@@ -185,6 +185,7 @@
   <CommandInput
     slot="input"
     {terminalId}
+    agentName={title}
     bind:this={commandInput}
     onSubmit={handleSubmit}
     disabled={inputDisabled}

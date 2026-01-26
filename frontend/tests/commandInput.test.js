@@ -54,6 +54,7 @@ describe('CommandInput', () => {
     } catch (error) {
       window.isSecureContext = true
     }
+    apiFetch.mockResolvedValue({ ok: true })
   })
 
   afterEach(() => {

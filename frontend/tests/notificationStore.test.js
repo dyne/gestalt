@@ -1,4 +1,11 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
+
+const logUI = vi.hoisted(() => vi.fn())
+
+vi.mock('../src/lib/clientLog.js', () => ({
+  logUI,
+}))
+
 import { notificationPreferences, notificationStore } from '../src/lib/notificationStore.js'
 
 const resetPreferences = () => {

@@ -1,5 +1,5 @@
 import { writable } from 'svelte/store'
-import { apiFetch } from './api.js'
+import { logUI } from './clientLog.js'
 
 const defaultConfig = {
   info: { autoClose: true, duration: 5000 },
@@ -105,16 +105,10 @@ const logToast = (level, message, context) => {
   if (typeof window === 'undefined') {
     return
   }
-  const payload = {
+  logUI({
     level,
-    message,
-    context,
-  }
-  void apiFetch('/api/logs', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  }).catch(() => {
-    // Ignore log transport errors to avoid loops.
+    body: message,
+    attributes: context,
   })
 }
 

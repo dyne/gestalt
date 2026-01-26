@@ -38,6 +38,8 @@ vi.mock('../src/lib/wsStore.js', () => ({
 import { createScipStore, initialScipStatus } from '../src/lib/scipStore.js'
 
 const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0))
+const flushMicrotasks = () => Promise.resolve()
+const REINDEX_TIMEOUT_MS = 5 * 60 * 1000
 const setConnectionStatus = (status) => {
   connectionStatusValue.current = status
   connectionStatusSubscribers.forEach((run) => run(status))
@@ -63,6 +65,7 @@ describe('scipStore', () => {
   afterEach(() => {
     wsHandlers.clear()
     connectionStatusSubscribers.clear()
+    vi.useRealTimers()
   })
 
   it('loads scip status on start', async () => {
@@ -116,5 +119,134 @@ describe('scipStore', () => {
     const status = get(store.status)
     expect(status.in_progress).toBe(false)
     expect(status.error).toContain('indexer missing')
+  })
+
+  it('waits for websocket connection before reindexing', async () => {
+    vi.useFakeTimers()
+    fetchScipStatus.mockResolvedValue(initialScipStatus)
+    triggerScipReindex.mockResolvedValueOnce({})
+
+    const store = createScipStore()
+    await store.start()
+
+    setConnectionStatus('disconnected')
+    const reindexPromise = store.reindex()
+
+    expect(triggerScipReindex).not.toHaveBeenCalled()
+
+    setConnectionStatus('connected')
+    vi.advanceTimersByTime(2000)
+    await reindexPromise
+
+    expect(triggerScipReindex).toHaveBeenCalledTimes(1)
+
+    emitEvent('complete', { timestamp: '2026-01-25T00:02:00Z' })
+    await flushMicrotasks()
+  })
+
+  it('fails fast if websocket never connects', async () => {
+    vi.useFakeTimers()
+    fetchScipStatus.mockResolvedValue(initialScipStatus)
+    triggerScipReindex.mockResolvedValueOnce({})
+
+    const store = createScipStore()
+    await store.start()
+
+    setConnectionStatus('disconnected')
+    const reindexPromise = store.reindex()
+
+    vi.advanceTimersByTime(2000)
+    await expect(reindexPromise).rejects.toThrow(
+      'SCIP events connection unavailable. Please refresh the page.'
+    )
+
+    expect(triggerScipReindex).not.toHaveBeenCalled()
+
+    const status = get(store.status)
+    expect(status.in_progress).toBe(false)
+    expect(status.error).toContain('SCIP events connection unavailable')
+  })
+
+  it('refreshes status when reindex times out', async () => {
+    vi.useFakeTimers()
+    fetchScipStatus.mockResolvedValue(initialScipStatus)
+    triggerScipReindex.mockResolvedValueOnce({})
+
+    const store = createScipStore()
+    await store.start()
+
+    await store.reindex()
+    vi.advanceTimersByTime(REINDEX_TIMEOUT_MS)
+    await flushMicrotasks()
+
+    expect(fetchScipStatus).toHaveBeenCalledTimes(2)
+  })
+
+  it('clears timeout when completion events arrive', async () => {
+    vi.useFakeTimers()
+    fetchScipStatus
+      .mockResolvedValueOnce(initialScipStatus)
+      .mockResolvedValueOnce({ indexed: true, languages: [] })
+    triggerScipReindex.mockResolvedValueOnce({})
+
+    const store = createScipStore()
+    await store.start()
+
+    await store.reindex()
+    emitEvent('complete', { timestamp: '2026-01-25T00:03:00Z' })
+    await flushMicrotasks()
+
+    expect(fetchScipStatus).toHaveBeenCalledTimes(2)
+
+    vi.advanceTimersByTime(REINDEX_TIMEOUT_MS)
+    await flushMicrotasks()
+
+    expect(fetchScipStatus).toHaveBeenCalledTimes(2)
+  })
+
+  it('debounces simultaneous reindex attempts', async () => {
+    fetchScipStatus.mockResolvedValue(initialScipStatus)
+    let resolveReindex = null
+    triggerScipReindex.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveReindex = resolve
+        })
+    )
+
+    const store = createScipStore()
+    await store.start()
+
+    const first = store.reindex()
+    const second = store.reindex()
+    await second
+
+    expect(triggerScipReindex).toHaveBeenCalledTimes(1)
+
+    resolveReindex()
+    await first
+
+    emitEvent('complete', { timestamp: '2026-01-25T00:04:00Z' })
+    await flushMicrotasks()
+  })
+
+  it('guards against event handling failures', async () => {
+    fetchScipStatus.mockResolvedValue(initialScipStatus)
+
+    const store = createScipStore()
+    await store.start()
+
+    const handler = wsHandlers.get('progress')
+    const event = {
+      type: 'progress',
+      get timestamp() {
+        throw new Error('timestamp broke')
+      },
+    }
+
+    expect(() => handler(event)).not.toThrow()
+
+    const status = get(store.status)
+    expect(status).toBeDefined()
   })
 })

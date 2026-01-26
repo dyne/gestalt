@@ -1,5 +1,6 @@
 import { render, fireEvent, cleanup } from '@testing-library/svelte'
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
+import { tick } from 'svelte'
 import { writable } from 'svelte/store'
 
 const createDashboardStore = vi.hoisted(() => vi.fn())
@@ -242,5 +243,70 @@ describe('Dashboard', () => {
 
     const copyButton = queryByRole('button', { name: 'Copy JSON' })
     expect(copyButton).toBeNull()
+  })
+
+  it('disables scip reindex button while reindex is pending', async () => {
+    let resolveReindex = null
+    let reindexPromise = null
+    const reindexScip = vi.fn(
+      () =>
+        (reindexPromise = new Promise((resolve) => {
+          resolveReindex = resolve
+        }))
+    )
+    const dashboardStore = buildDashboardStore()
+    dashboardStore.reindexScip = reindexScip
+    createDashboardStore.mockReturnValue(dashboardStore)
+
+    const { findByText } = render(Dashboard, {
+      props: {
+        terminals: [],
+        status: { terminal_count: 0 },
+      },
+    })
+
+    const notIndexed = await findByText('Not indexed yet')
+    const scipButton = notIndexed.closest('button')
+    expect(scipButton).not.toBeNull()
+
+    await fireEvent.click(scipButton)
+    await tick()
+
+    expect(reindexScip).toHaveBeenCalledTimes(1)
+    expect(scipButton.disabled).toBe(true)
+
+    resolveReindex()
+    await reindexPromise
+    await tick()
+
+    expect(scipButton.disabled).toBe(false)
+  })
+
+  it('recovers from scip reindex errors without throwing', async () => {
+    const reindexScip = vi.fn().mockRejectedValue(new Error('boom'))
+    const dashboardStore = buildDashboardStore()
+    dashboardStore.reindexScip = reindexScip
+    createDashboardStore.mockReturnValue(dashboardStore)
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const { findByText } = render(Dashboard, {
+      props: {
+        terminals: [],
+        status: { terminal_count: 0 },
+      },
+    })
+
+    const notIndexed = await findByText('Not indexed yet')
+    const scipButton = notIndexed.closest('button')
+    expect(scipButton).not.toBeNull()
+
+    await fireEvent.click(scipButton)
+    await tick()
+
+    expect(reindexScip).toHaveBeenCalledTimes(1)
+    expect(consoleError).toHaveBeenCalled()
+    expect(scipButton.disabled).toBe(false)
+
+    consoleError.mockRestore()
   })
 })

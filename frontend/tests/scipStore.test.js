@@ -249,4 +249,31 @@ describe('scipStore', () => {
     const status = get(store.status)
     expect(status).toBeDefined()
   })
+
+  it('allows reindex after stop clears in-flight state', async () => {
+    fetchScipStatus.mockResolvedValue(initialScipStatus)
+    let resolveReindex = null
+    triggerScipReindex.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveReindex = resolve
+        })
+    )
+
+    const store = createScipStore()
+    await store.start()
+
+    const first = store.reindex()
+    store.stop()
+
+    resolveReindex()
+    await first
+
+    await store.start()
+    const second = store.reindex()
+    resolveReindex()
+    await second
+
+    expect(triggerScipReindex).toHaveBeenCalledTimes(2)
+  })
 })

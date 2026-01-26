@@ -77,6 +77,10 @@ func buildCollectorConfig(grpcEndpoint, httpEndpoint, dataPath, remoteEndpoint s
 		}
 	}
 	builder.WriteString("\nservice:\n")
+	builder.WriteString("  telemetry:\n")
+	builder.WriteString("    metrics:\n")
+	builder.WriteString("      level: none\n")
+	builder.WriteString("      readers: []\n")
 	builder.WriteString("  pipelines:\n")
 	builder.WriteString("    logs:\n")
 	builder.WriteString("      receivers: [otlp]\n")

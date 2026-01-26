@@ -30,6 +30,9 @@ func TestWriteCollectorConfigWritesFile(t *testing.T) {
 	if !strings.Contains(text, "path: \""+dataPath+"\"") {
 		t.Fatalf("expected data path in config: %s", text)
 	}
+	if !strings.Contains(text, "telemetry:") || !strings.Contains(text, "level: none") || !strings.Contains(text, "readers: []") {
+		t.Fatalf("expected telemetry metrics disabled in config: %s", text)
+	}
 }
 
 func TestOptionsFromEnvDefaults(t *testing.T) {

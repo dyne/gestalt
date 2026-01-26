@@ -155,6 +155,18 @@ export const createScipStore = () => {
     }
   }
 
+  /**
+   * Trigger SCIP reindexing via API and await completion via WebSocket events.
+   *
+   * Flow:
+   * 1. Check WebSocket connection to /api/scip/events is active (wait 2s if not)
+   * 2. Call POST /api/scip/reindex to start background indexing
+   * 3. Set local state to in_progress=true
+   * 4. Wait for 'complete' or 'error' events via WebSocket
+   * 5. Fallback: After 5min timeout, poll /api/scip/status for final state
+   *
+   * @throws {Error} If WebSocket disconnected or API call fails
+   */
   const reindex = async () => {
     if (reindexInFlight) {
       if (typeof console !== 'undefined') {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { formatRelativeTime } from './timeUtils.js'
+import { formatRelativeTime, resetServerTimeOffset, setServerTimeOffset } from './timeUtils.js'
 
 describe('formatRelativeTime', () => {
   const baseTime = new Date('2026-01-08T12:00:00Z')
@@ -10,6 +10,7 @@ describe('formatRelativeTime', () => {
   })
 
   afterEach(() => {
+    resetServerTimeOffset()
     vi.useRealTimers()
   })
 
@@ -40,6 +41,12 @@ describe('formatRelativeTime', () => {
   it('handles ISO 8601 strings', () => {
     const timestamp = new Date(baseTime.getTime() - 2 * 60 * 60 * 1000).toISOString()
     expect(formatRelativeTime(timestamp)).toBe('2 hours ago')
+  })
+
+  it('uses server time offsets when provided', () => {
+    const serverNow = new Date(baseTime.getTime() - 24 * 60 * 1000)
+    setServerTimeOffset(serverNow)
+    expect(formatRelativeTime(serverNow)).toBe('just now')
   })
 
   it('falls back to a short date after a week', () => {

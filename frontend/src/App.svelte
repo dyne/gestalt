@@ -12,6 +12,7 @@
     fetchStatus,
     fetchTerminals,
   } from './lib/apiClient.js'
+  import { setServerTimeOffset } from './lib/timeUtils.js'
   import { subscribe as subscribeEvents } from './lib/eventStore.js'
   import { subscribe as subscribeTerminalEvents } from './lib/terminalEventStore.js'
   import { buildTabs, ensureActiveTab, resolveActiveView } from './lib/tabRouting.js'
@@ -58,6 +59,7 @@
         fetchStatus(),
         fetchTerminals(),
       ])
+      setServerTimeOffset(nextStatus?.server_time)
       status = nextStatus
       terminals = nextTerminals
       syncTabs(terminals)

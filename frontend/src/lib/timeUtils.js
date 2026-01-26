@@ -2,6 +2,8 @@ const MINUTE_MS = 60 * 1000
 const HOUR_MS = 60 * MINUTE_MS
 const DAY_MS = 24 * HOUR_MS
 
+let serverTimeOffsetMs = 0
+
 const shortDateFormatter = new Intl.DateTimeFormat('en-US', {
   month: 'short',
   day: 'numeric',
@@ -10,6 +12,23 @@ const shortDateFormatter = new Intl.DateTimeFormat('en-US', {
 
 function formatUnit(value, unit) {
   return `${value} ${unit}${value === 1 ? '' : 's'} ago`
+}
+
+export function setServerTimeOffset(serverTime) {
+  if (!serverTime) {
+    serverTimeOffsetMs = 0
+    return
+  }
+  const date = serverTime instanceof Date ? serverTime : new Date(serverTime)
+  const time = date.getTime()
+  if (Number.isNaN(time)) {
+    return
+  }
+  serverTimeOffsetMs = time - Date.now()
+}
+
+export function resetServerTimeOffset() {
+  serverTimeOffsetMs = 0
 }
 
 export function formatRelativeTime(timestamp) {
@@ -22,7 +41,7 @@ export function formatRelativeTime(timestamp) {
     return ''
   }
 
-  const diffMs = Date.now() - date.getTime()
+  const diffMs = Date.now() + serverTimeOffsetMs - date.getTime()
   if (diffMs < MINUTE_MS) {
     return 'just now'
   }

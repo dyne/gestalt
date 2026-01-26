@@ -152,7 +152,7 @@ terminal output -> Session output bus -> /ws/terminal/:id -> xterm
 - Terminal input helpers have direct tests in `frontend/src/lib/terminal/input.test.js`.
 
 ## Logs UI notes
-- Log entries are normalized via `frontend/src/lib/logEntry.js`, and details display in `frontend/src/components/LogDetailsDialog.svelte` (used by Dashboard and LogsView with clipboard copy actions).
+- Log entries are normalized via `frontend/src/lib/logEntry.js`; Dashboard and LogsView use inline `<details>/<summary>` disclosures with context tables and optional raw JSON.
 
 ## Terminal session logging notes
 - Async file logger behavior is covered by `internal/terminal/async_file_logger_test.go` to validate flush-on-close and drop behavior.

@@ -3,7 +3,6 @@
   import { createDashboardStore } from '../lib/dashboardStore.js'
   import { getErrorMessage } from '../lib/errorUtils.js'
   import { formatRelativeTime } from '../lib/timeUtils.js'
-  import LogDetailsDialog from '../components/LogDetailsDialog.svelte'
 
   export let terminals = []
   export let status = null
@@ -29,7 +28,6 @@
   let logsError = ''
   let logLevelFilter = 'info'
   let logsAutoRefresh = true
-  let selectedLogEntry = null
   let metricsSummary = null
   let metricsLoading = false
   let metricsError = ''
@@ -141,12 +139,10 @@
 
   const logEntryKey = (entry, index) => entry?.id || `${entry.timestamp}-${entry.message}-${index}`
 
-  const openLogDetails = (entry) => {
-    selectedLogEntry = entry
-  }
-
-  const closeLogDetails = () => {
-    selectedLogEntry = null
+  const contextEntriesFor = (entry) => {
+    return Object.entries(entry?.context || {}).sort(([left], [right]) =>
+      left.localeCompare(right),
+    )
   }
 
   $: ({
@@ -460,27 +456,50 @@
         <ul>
           {#each visibleLogs as entry, index (logEntryKey(entry, index))}
             <li class={`log-entry log-entry--${entry.level}`}>
-              <button class="log-entry__button" type="button" on:click={() => openLogDetails(entry)}>
-                <div class="log-entry__meta">
-                  <span class="log-badge">{entry.level}</span>
-                  <span class="log-time" title={entry.timestamp || ''}>
-                    {formatLogTime(entry.timestamp)}
-                  </span>
+              <details class="log-entry__details">
+                <summary class="log-entry__summary">
+                  <div class="log-entry__meta">
+                    <span class="log-badge">{entry.level}</span>
+                    <span class="log-time" title={entry.timestamp || ''}>
+                      {formatLogTime(entry.timestamp)}
+                    </span>
+                  </div>
+                  <p class="log-message">{entry.message}</p>
+                </summary>
+                <div class="log-entry__details-body">
+                  <div class="log-entry__detail-section">
+                    <span class="log-entry__label">Context</span>
+                    {#if contextEntriesFor(entry).length === 0}
+                      <p class="log-entry__empty">No context fields.</p>
+                    {:else}
+                      <div class="log-entry__context">
+                        <table>
+                          <tbody>
+                            {#each contextEntriesFor(entry) as [key, value]}
+                              <tr>
+                                <th scope="row">{key}</th>
+                                <td>{value}</td>
+                              </tr>
+                            {/each}
+                          </tbody>
+                        </table>
+                      </div>
+                    {/if}
+                  </div>
+                  {#if entry.raw}
+                    <details class="log-entry__raw">
+                      <summary>Raw JSON</summary>
+                      <pre>{JSON.stringify(entry.raw, null, 2)}</pre>
+                    </details>
+                  {/if}
                 </div>
-                <p class="log-message">{entry.message}</p>
-              </button>
+              </details>
             </li>
           {/each}
         </ul>
       {/if}
     </div>
   </section>
-
-  <LogDetailsDialog
-    entry={selectedLogEntry}
-    open={Boolean(selectedLogEntry)}
-    on:close={closeLogDetails}
-  />
 </section>
 
 <style>
@@ -873,7 +892,11 @@
     margin: 0;
   }
 
-  .log-entry__button {
+  .log-entry__details {
+    border-radius: 16px;
+  }
+
+  .log-entry__summary {
     width: 100%;
     padding: 0.65rem 0.85rem;
     border-radius: 16px;
@@ -886,11 +909,108 @@
     cursor: pointer;
     font: inherit;
     color: inherit;
+    list-style: none;
   }
 
-  .log-entry__button:focus-visible {
+  .log-entry__summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .log-entry__summary::marker {
+    content: '';
+  }
+
+  .log-entry__summary:focus-visible {
     outline: 2px solid rgba(var(--color-text-rgb), 0.4);
     outline-offset: 2px;
+  }
+
+  .log-entry__details[open] .log-entry__summary {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+
+  .log-entry__details-body {
+    border: 1px solid rgba(var(--color-text-rgb), 0.06);
+    border-top: none;
+    padding: 0.85rem;
+    border-bottom-left-radius: 16px;
+    border-bottom-right-radius: 16px;
+    background: rgba(var(--color-surface-rgb), 0.7);
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .log-entry__detail-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .log-entry__label {
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+
+  .log-entry__empty {
+    margin: 0;
+    color: var(--color-text-subtle);
+  }
+
+  .log-entry__context {
+    max-height: 220px;
+    overflow: auto;
+    border-radius: 12px;
+    border: 1px solid rgba(var(--color-text-rgb), 0.08);
+    background: rgba(var(--color-surface-rgb), 0.7);
+  }
+
+  .log-entry__context table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+  }
+
+  .log-entry__context th,
+  .log-entry__context td {
+    padding: 0.5rem 0.7rem;
+    border-bottom: 1px solid rgba(var(--color-text-rgb), 0.08);
+    text-align: left;
+  }
+
+  .log-entry__context th {
+    width: 30%;
+    font-weight: 600;
+    color: var(--color-text-muted);
+  }
+
+  .log-entry__context td {
+    font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
+    color: var(--color-text);
+    word-break: break-word;
+  }
+
+  .log-entry__raw {
+    border-top: 1px solid rgba(var(--color-text-rgb), 0.08);
+    padding-top: 0.75rem;
+  }
+
+  .log-entry__raw summary {
+    cursor: pointer;
+    font-weight: 600;
+  }
+
+  .log-entry__raw pre {
+    margin: 0.6rem 0 0;
+    background: rgba(var(--color-text-rgb), 0.05);
+    padding: 0.6rem;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    white-space: pre-wrap;
+    word-break: break-word;
   }
 
   .log-entry__meta {

@@ -96,7 +96,7 @@ describe('Dashboard', () => {
     expect(onCreate).toHaveBeenCalledWith('codex')
   })
 
-  it('opens log details from recent logs', async () => {
+  it('expands log details from recent logs', async () => {
     const dashboardStore = buildDashboardStore({
       logs: [
         {
@@ -115,7 +115,7 @@ describe('Dashboard', () => {
     })
     createDashboardStore.mockReturnValue(dashboardStore)
 
-    const { findByText, getByRole } = render(Dashboard, {
+    const { findByText } = render(Dashboard, {
       props: {
         terminals: [],
         status: { terminal_count: 0 },
@@ -125,8 +125,6 @@ describe('Dashboard', () => {
     const logButton = await findByText('Log entry')
     await fireEvent.click(logButton)
 
-    const dialog = getByRole('dialog')
-    expect(dialog).toBeTruthy()
     await findByText('source')
     await findByText('toast')
     await findByText('toast_id')

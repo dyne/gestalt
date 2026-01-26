@@ -121,6 +121,8 @@ terminal output -> Session output bus -> /ws/terminal/:id -> xterm
 - `frontend/src/lib/scipStore.js` clears reindex timers/in-flight state on stop to avoid sticky reindex guards.
 - `frontend/src/views/Dashboard.svelte` disables the SCIP reindex button while the action is pending.
 - Tests cover reindex pending/error UI paths and stop-reset behavior (`frontend/tests/scipStore.test.js`, `frontend/tests/dashboard.test.js`).
+- `frontend/src/views/PlanView.svelte` debounces plan refreshes from file watcher events to avoid request floods.
+- Event store regression tests cover malformed payloads and burst events (`frontend/tests/eventStore.test.js`, `frontend/src/lib/wsStore.test.js`).
 
 ## OpenTelemetry observability
 - Collector lifecycle lives in `internal/otel/collector.go`; config `.gestalt/otel/collector.yaml`, data file `.gestalt/otel/otel.json`.

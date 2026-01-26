@@ -163,18 +163,6 @@ type skillDetail struct {
 	Assets        []string       `json:"assets"`
 }
 
-type logQuery struct {
-	Limit int
-	Level logging.Level
-	Since *time.Time
-}
-
-type clientLogRequest struct {
-	Level   string            `json:"level"`
-	Message string            `json:"message"`
-	Context map[string]string `json:"context"`
-}
-
 type createTerminalRequest struct {
 	Title    string `json:"title"`
 	Role     string `json:"role"`

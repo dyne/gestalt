@@ -409,8 +409,8 @@ func categoryForPath(path string) string {
 		return "workflows"
 	case strings.HasPrefix(path, "/api/config"):
 		return "config"
-	case strings.HasPrefix(path, "/api/logs"):
-		return "logs"
+	case strings.HasPrefix(path, "/api/otel"):
+		return "otel"
 	case strings.HasPrefix(path, "/api/skills"):
 		return "skills"
 	case strings.HasPrefix(path, "/api/plan"):

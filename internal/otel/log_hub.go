@@ -40,6 +40,13 @@ func ActiveLogHub() *LogHub {
 	return activeLogHub
 }
 
+func SetActiveLogHub(hub *LogHub) {
+	if hub == nil {
+		hub = NewLogHub(defaultLogHubRetention)
+	}
+	activeLogHub = hub
+}
+
 func (hub *LogHub) Append(records ...map[string]any) {
 	if hub == nil || len(records) == 0 {
 		return

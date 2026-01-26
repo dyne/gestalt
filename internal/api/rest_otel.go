@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -9,9 +10,20 @@ import (
 
 	"gestalt/internal/logging"
 	"gestalt/internal/otel"
+
+	otellog "go.opentelemetry.io/otel/log"
+	logglobal "go.opentelemetry.io/otel/log/global"
 )
 
-const maxOTelQueryLimit = 1000
+const (
+	maxOTelQueryLimit      = 1000
+	maxOTelLogBodyBytes    = 256 * 1024
+	maxOTelLogAttributes   = 100
+	maxOTelLogKeyLength    = 256
+	maxOTelLogValueLength  = 2048
+	otlpUILoggerName       = "gestalt/ui"
+	defaultLogReplayWindow = time.Hour
+)
 
 type otelLogQuery struct {
 	Limit int
@@ -39,24 +51,32 @@ type otelMetricQuery struct {
 }
 
 func (h *RestHandler) handleOTelLogs(w http.ResponseWriter, r *http.Request) *apiError {
-	if r.Method != http.MethodGet {
-		return methodNotAllowed(w, "GET")
+	switch r.Method {
+	case http.MethodGet:
+		query, apiErr := parseOTelLogQuery(r)
+		if apiErr != nil {
+			return apiErr
+		}
+		var records []map[string]any
+		if dataPath, ok := activeOTelDataPath(); ok {
+			readRecords, readErr := otel.ReadLogRecordsTail(dataPath)
+			if readErr != nil {
+				return &apiError{Status: http.StatusInternalServerError, Message: "failed to read otel logs"}
+			}
+			records = readRecords
+		} else if hub := otel.ActiveLogHub(); hub != nil {
+			records = hub.SnapshotSince(time.Now().Add(-defaultLogReplayWindow))
+		} else {
+			return &apiError{Status: http.StatusServiceUnavailable, Message: "otel logs unavailable"}
+		}
+		filtered := filterOTelLogRecords(records, query)
+		writeJSON(w, http.StatusOK, filtered)
+		return nil
+	case http.MethodPost:
+		return ingestOTelLogRecord(w, r)
+	default:
+		return methodNotAllowed(w, "GET, POST")
 	}
-	query, apiErr := parseOTelLogQuery(r)
-	if apiErr != nil {
-		return apiErr
-	}
-	dataPath, ok := activeOTelDataPath()
-	if !ok {
-		return &apiError{Status: http.StatusServiceUnavailable, Message: "otel logs unavailable"}
-	}
-	records, readErr := otel.ReadLogRecords(dataPath)
-	if readErr != nil {
-		return &apiError{Status: http.StatusInternalServerError, Message: "failed to read otel logs"}
-	}
-	filtered := filterOTelLogRecords(records, query)
-	writeJSON(w, http.StatusOK, filtered)
-	return nil
 }
 
 func (h *RestHandler) handleOTelTraces(w http.ResponseWriter, r *http.Request) *apiError {
@@ -214,6 +234,298 @@ func parseTimeParam(raw string) (*time.Time, *apiError) {
 		return nil, &apiError{Status: http.StatusBadRequest, Message: "invalid timestamp"}
 	}
 	return &parsed, nil
+}
+
+func ingestOTelLogRecord(w http.ResponseWriter, r *http.Request) *apiError {
+	if r.Body == nil {
+		return &apiError{Status: http.StatusBadRequest, Message: "invalid request body"}
+	}
+	limited := http.MaxBytesReader(w, r.Body, maxOTelLogBodyBytes*2)
+	decoder := json.NewDecoder(limited)
+	decoder.UseNumber()
+	var payload map[string]any
+	if err := decoder.Decode(&payload); err != nil && err != io.EOF {
+		return &apiError{Status: http.StatusBadRequest, Message: "invalid request body"}
+	}
+
+	severityNumber, severityText, apiErr := parseOTelSeverity(payload)
+	if apiErr != nil {
+		return apiErr
+	}
+	bodyValue, apiErr := parseOTelLogBody(payload["body"])
+	if apiErr != nil {
+		return apiErr
+	}
+	attributes, apiErr := parseOTelLogAttributes(payload["attributes"])
+	if apiErr != nil {
+		return apiErr
+	}
+	attributes = ensureOTelLogDefaults(attributes)
+	if len(attributes) > maxOTelLogAttributes {
+		return &apiError{Status: http.StatusBadRequest, Message: "too many attributes"}
+	}
+
+	logger := logglobal.Logger(otlpUILoggerName)
+	now := time.Now().UTC()
+	var record otellog.Record
+	record.SetTimestamp(now)
+	record.SetObservedTimestamp(now)
+	if severityNumber > 0 {
+		record.SetSeverity(otellog.Severity(severityNumber))
+	}
+	if severityText != "" {
+		record.SetSeverityText(severityText)
+	}
+	record.SetBody(bodyValue)
+	if len(attributes) > 0 {
+		record.AddAttributes(attributes...)
+	}
+	logger.Emit(r.Context(), record)
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+func parseOTelSeverity(payload map[string]any) (int, string, *apiError) {
+	var severityNumber int
+	var severityText string
+	if raw, ok := payload["severity_text"].(string); ok {
+		severityText = strings.TrimSpace(raw)
+	}
+	if rawNumber, ok := payload["severity_number"]; ok {
+		parsed, ok := parseOTelSeverityNumber(rawNumber)
+		if !ok {
+			return 0, "", &apiError{Status: http.StatusBadRequest, Message: "invalid severity number"}
+		}
+		severityNumber = parsed
+	}
+	if severityText == "" && severityNumber == 0 {
+		severityText = "info"
+		severityNumber = int(otellog.SeverityInfo)
+	}
+	if severityNumber == 0 && severityText != "" {
+		severityNumber = int(severityFromText(severityText))
+	}
+	if severityText == "" && severityNumber > 0 {
+		severityText = otellog.Severity(severityNumber).String()
+	}
+	return severityNumber, severityText, nil
+}
+
+func parseOTelSeverityNumber(raw any) (int, bool) {
+	switch value := raw.(type) {
+	case json.Number:
+		if parsed, err := value.Int64(); err == nil {
+			return int(parsed), true
+		}
+		if parsed, err := value.Float64(); err == nil {
+			return int(parsed), true
+		}
+	case float64:
+		return int(value), true
+	case string:
+		if parsed, err := strconv.Atoi(strings.TrimSpace(value)); err == nil {
+			return parsed, true
+		}
+	}
+	return 0, false
+}
+
+func severityFromText(raw string) otellog.Severity {
+	normalized := strings.ToLower(strings.TrimSpace(raw))
+	switch {
+	case strings.HasPrefix(normalized, "debug"), strings.HasPrefix(normalized, "trace"):
+		return otellog.SeverityDebug
+	case strings.HasPrefix(normalized, "warn"):
+		return otellog.SeverityWarn
+	case strings.HasPrefix(normalized, "err"), strings.HasPrefix(normalized, "fatal"):
+		return otellog.SeverityError
+	default:
+		return otellog.SeverityInfo
+	}
+}
+
+func parseOTelLogBody(raw any) (otellog.Value, *apiError) {
+	if raw == nil {
+		return otellog.Value{}, &apiError{Status: http.StatusBadRequest, Message: "missing body"}
+	}
+	value, apiErr := parseOTLPAnyValue(raw)
+	if apiErr != nil {
+		return otellog.Value{}, apiErr
+	}
+	if value.Kind() == otellog.KindString {
+		if len([]byte(value.AsString())) > maxOTelLogBodyBytes {
+			return otellog.Value{}, &apiError{Status: http.StatusBadRequest, Message: "body too large"}
+		}
+	}
+	return value, nil
+}
+
+func parseOTelLogAttributes(raw any) ([]otellog.KeyValue, *apiError) {
+	if raw == nil {
+		return nil, nil
+	}
+	switch typed := raw.(type) {
+	case map[string]any:
+		attributes := make([]otellog.KeyValue, 0, len(typed))
+		for key, value := range typed {
+			if !validOTelKey(key) {
+				return nil, &apiError{Status: http.StatusBadRequest, Message: "invalid attribute key"}
+			}
+			parsed, apiErr := parseOTLPAnyValue(value)
+			if apiErr != nil {
+				return nil, apiErr
+			}
+			if err := validateOTelValueLength(parsed); err != nil {
+				return nil, err
+			}
+			attributes = append(attributes, otellog.KeyValue{Key: key, Value: parsed})
+		}
+		return attributes, nil
+	case []any:
+		attributes := make([]otellog.KeyValue, 0, len(typed))
+		for _, entry := range typed {
+			entryMap := asMap(entry)
+			if entryMap == nil {
+				continue
+			}
+			key, _ := extractString(entryMap, "key")
+			if !validOTelKey(key) {
+				return nil, &apiError{Status: http.StatusBadRequest, Message: "invalid attribute key"}
+			}
+			value, apiErr := parseOTLPAnyValue(entryMap["value"])
+			if apiErr != nil {
+				return nil, apiErr
+			}
+			if err := validateOTelValueLength(value); err != nil {
+				return nil, err
+			}
+			attributes = append(attributes, otellog.KeyValue{Key: key, Value: value})
+		}
+		return attributes, nil
+	default:
+		return nil, &apiError{Status: http.StatusBadRequest, Message: "invalid attributes"}
+	}
+}
+
+func parseOTLPAnyValue(raw any) (otellog.Value, *apiError) {
+	switch value := raw.(type) {
+	case string:
+		return otellog.StringValue(value), nil
+	case bool:
+		return otellog.BoolValue(value), nil
+	case json.Number:
+		if parsed, err := value.Int64(); err == nil {
+			return otellog.Int64Value(parsed), nil
+		}
+		if parsed, err := value.Float64(); err == nil {
+			return otellog.Float64Value(parsed), nil
+		}
+	case float64:
+		return otellog.Float64Value(value), nil
+	case map[string]any:
+		if stringValue, ok := extractString(value, "stringValue"); ok {
+			return otellog.StringValue(stringValue), nil
+		}
+		if boolValue, ok := value["boolValue"].(bool); ok {
+			return otellog.BoolValue(boolValue), nil
+		}
+		if intValue, ok := value["intValue"]; ok {
+			if parsed, ok := parseOTelIntValue(intValue); ok {
+				return otellog.Int64Value(parsed), nil
+			}
+		}
+		if doubleValue, ok := value["doubleValue"]; ok {
+			if parsed, ok := doubleValue.(float64); ok {
+				return otellog.Float64Value(parsed), nil
+			}
+		}
+		if arrayValue, ok := value["arrayValue"].(map[string]any); ok {
+			values := asSlice(arrayValue["values"])
+			converted := make([]otellog.Value, 0, len(values))
+			for _, entry := range values {
+				parsed, apiErr := parseOTLPAnyValue(entry)
+				if apiErr != nil {
+					return otellog.Value{}, apiErr
+				}
+				converted = append(converted, parsed)
+			}
+			return otellog.SliceValue(converted...), nil
+		}
+		if kvlistValue, ok := value["kvlistValue"].(map[string]any); ok {
+			values := asSlice(kvlistValue["values"])
+			converted := make([]otellog.KeyValue, 0, len(values))
+			for _, entry := range values {
+				entryMap := asMap(entry)
+				if entryMap == nil {
+					continue
+				}
+				key, _ := extractString(entryMap, "key")
+				if !validOTelKey(key) {
+					return otellog.Value{}, &apiError{Status: http.StatusBadRequest, Message: "invalid attribute key"}
+				}
+				parsed, apiErr := parseOTLPAnyValue(entryMap["value"])
+				if apiErr != nil {
+					return otellog.Value{}, apiErr
+				}
+				if err := validateOTelValueLength(parsed); err != nil {
+					return otellog.Value{}, err
+				}
+				converted = append(converted, otellog.KeyValue{Key: key, Value: parsed})
+			}
+			return otellog.MapValue(converted...), nil
+		}
+	}
+	return otellog.Value{}, &apiError{Status: http.StatusBadRequest, Message: "invalid value"}
+}
+
+func parseOTelIntValue(raw any) (int64, bool) {
+	switch value := raw.(type) {
+	case json.Number:
+		if parsed, err := value.Int64(); err == nil {
+			return parsed, true
+		}
+	case float64:
+		return int64(value), true
+	case string:
+		if parsed, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64); err == nil {
+			return parsed, true
+		}
+	}
+	return 0, false
+}
+
+func validateOTelValueLength(value otellog.Value) *apiError {
+	if value.Kind() == otellog.KindString && len(value.AsString()) > maxOTelLogValueLength {
+		return &apiError{Status: http.StatusBadRequest, Message: "attribute value too large"}
+	}
+	return nil
+}
+
+func validOTelKey(key string) bool {
+	if strings.TrimSpace(key) == "" {
+		return false
+	}
+	return len(key) <= maxOTelLogKeyLength
+}
+
+func ensureOTelLogDefaults(attributes []otellog.KeyValue) []otellog.KeyValue {
+	foundSource := false
+	foundCategory := false
+	for _, entry := range attributes {
+		switch entry.Key {
+		case "gestalt.source":
+			foundSource = true
+		case "gestalt.category":
+			foundCategory = true
+		}
+	}
+	if !foundSource {
+		attributes = append(attributes, otellog.String("gestalt.source", "frontend"))
+	}
+	if !foundCategory {
+		attributes = append(attributes, otellog.String("gestalt.category", "ui"))
+	}
+	return attributes
 }
 
 func filterOTelLogRecords(records []map[string]any, query otelLogQuery) []map[string]any {

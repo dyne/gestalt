@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -155,29 +154,4 @@ func TestLogsFilteringWebSocketAndREST(t *testing.T) {
 	}
 	assertFilteredContext(t, closeEntry.Context["output_tail"])
 
-	handler := &RestHandler{Logger: logger}
-	req := httptest.NewRequest(http.MethodGet, "/api/logs", nil)
-	req.Header.Set("Authorization", "Bearer secret")
-	res := httptest.NewRecorder()
-
-	restHandler("secret", handler.handleLogs)(res, req)
-	if res.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", res.Code)
-	}
-
-	var payload []logging.LogEntry
-	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
-		t.Fatalf("decode logs: %v", err)
-	}
-	bellEntry, ok := findLogEntry(payload, "temporal bell recorded")
-	if !ok {
-		t.Fatalf("expected bell entry in REST logs")
-	}
-	assertFilteredContext(t, bellEntry.Context["context"])
-
-	closeEntry, ok = findLogEntry(payload, "terminal close error")
-	if !ok {
-		t.Fatalf("expected close error entry in REST logs")
-	}
-	assertFilteredContext(t, closeEntry.Context["output_tail"])
 }

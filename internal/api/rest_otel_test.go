@@ -1,17 +1,17 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
-	"gestalt/internal/logging"
 	"gestalt/internal/otel"
 )
 
@@ -91,34 +91,90 @@ func TestHandleOTelMetrics(t *testing.T) {
 	}
 }
 
-func TestLogsEndpointUsesOTelWhenActive(t *testing.T) {
-	dataPath := writeOTelFixture(t)
-	otel.SetActiveCollector(otel.CollectorInfo{DataPath: dataPath})
-	t.Cleanup(otel.ClearActiveCollector)
+func TestHandleOTelLogsFallbackUsesHub(t *testing.T) {
+	hub := otel.NewLogHub(time.Hour)
+	previous := otel.ActiveLogHub()
+	otel.SetActiveLogHub(hub)
+	t.Cleanup(func() { otel.SetActiveLogHub(previous) })
 
-	buffer := logging.NewLogBuffer(10)
-	buffer.Add(logging.LogEntry{Timestamp: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), Level: logging.LevelInfo, Message: "legacy"})
-	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, io.Discard)
-	handler := &RestHandler{Logger: logger}
+	record := map[string]any{
+		"timeUnixNano": strconv.FormatInt(time.Now().UnixNano(), 10),
+		"severityText": "INFO",
+		"body":         map[string]any{"stringValue": "hub log"},
+	}
+	hub.Append(record)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/logs?limit=1", nil)
-	req.Header.Set("Authorization", "Bearer secret")
-	res := httptest.NewRecorder()
-
-	restHandler("secret", handler.handleLogs)(res, req)
-	if res.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", res.Code)
+	rest := &RestHandler{}
+	req := httptest.NewRequest(http.MethodGet, "/api/otel/logs?limit=1", nil)
+	resp := httptest.NewRecorder()
+	if err := rest.handleOTelLogs(resp, req); err != nil {
+		t.Fatalf("handleOTelLogs error: %v", err)
 	}
 
-	var payload []logging.LogEntry
-	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
-		t.Fatalf("decode response: %v", err)
+	var logs []map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&logs); err != nil {
+		t.Fatalf("decode logs: %v", err)
 	}
-	if len(payload) != 1 {
-		t.Fatalf("expected 1 entry, got %d", len(payload))
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 log entry, got %d", len(logs))
 	}
-	if payload[0].Message != "second log" {
-		t.Fatalf("expected otel log entry, got %q", payload[0].Message)
+	if logBody(logs[0]) != "hub log" {
+		t.Fatalf("expected hub log, got %q", logBody(logs[0]))
+	}
+}
+
+func TestHandleOTelLogsPostValidation(t *testing.T) {
+	rest := &RestHandler{}
+	req := httptest.NewRequest(http.MethodPost, "/api/otel/logs", strings.NewReader(`{}`))
+	resp := httptest.NewRecorder()
+	if err := rest.handleOTelLogs(resp, req); err == nil {
+		t.Fatalf("expected validation error")
+	}
+}
+
+func TestHandleOTelLogsPostAppearsInGet(t *testing.T) {
+	hub := otel.NewLogHub(time.Hour)
+	previous := otel.ActiveLogHub()
+	otel.SetActiveLogHub(hub)
+	t.Cleanup(func() { otel.SetActiveLogHub(previous) })
+
+	shutdown, err := otel.SetupSDK(context.Background(), otel.SDKOptions{
+		Enabled:        true,
+		HTTPEndpoint:   "127.0.0.1:4318",
+		ServiceName:    "gestalt-test",
+		ServiceVersion: "test",
+	})
+	if err != nil {
+		t.Fatalf("SetupSDK error: %v", err)
+	}
+	t.Cleanup(func() {
+		if shutdown != nil {
+			_ = shutdown(context.Background())
+		}
+	})
+
+	rest := &RestHandler{}
+	req := httptest.NewRequest(http.MethodPost, "/api/otel/logs", strings.NewReader(`{"severity_text":"info","body":"hello"}`))
+	resp := httptest.NewRecorder()
+	if err := rest.handleOTelLogs(resp, req); err != nil {
+		t.Fatalf("handleOTelLogs POST error: %v", err)
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/otel/logs?limit=1", nil)
+	getResp := httptest.NewRecorder()
+	if err := rest.handleOTelLogs(getResp, getReq); err != nil {
+		t.Fatalf("handleOTelLogs GET error: %v", err)
+	}
+
+	var logs []map[string]any
+	if err := json.NewDecoder(getResp.Body).Decode(&logs); err != nil {
+		t.Fatalf("decode logs: %v", err)
+	}
+	if len(logs) == 0 {
+		t.Fatalf("expected log entry")
+	}
+	if logBody(logs[len(logs)-1]) != "hello" {
+		t.Fatalf("expected ingested log, got %q", logBody(logs[len(logs)-1]))
 	}
 }
 

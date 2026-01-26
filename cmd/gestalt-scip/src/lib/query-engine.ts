@@ -1,3 +1,4 @@
+import type { ScipIndex } from './scip-loader.js';
 import type { Occurrence } from './symbol-indexer.js';
 import { SuffixType } from './scip/SuffixType.js';
 
@@ -9,6 +10,23 @@ export interface QueryOptions {
 
 export interface QueryResult extends Occurrence {
   isDefinition: boolean;
+}
+
+export interface ContentSearchOptions {
+  caseSensitive?: boolean;
+  contextLines?: number;
+  language?: string;
+  indexes: ScipIndex[];
+}
+
+export interface ContentSearchResult {
+  file_path: string;
+  line: number;
+  column: number;
+  match_text: string;
+  context_before: string[];
+  context_after: string[];
+  language?: string;
 }
 
 const DEFINITION_ROLE = 0x1;
@@ -47,6 +65,67 @@ export class QueryEngine {
       matchingOccurrences = filterByFolder(matchingOccurrences, folder);
       matchingOccurrences = filterBySuffix(matchingOccurrences, options?.suffixFilter);
       results.push(...matchingOccurrences.map(toQueryResult));
+    }
+
+    return results;
+  }
+
+  searchContent(pattern: string, options: ContentSearchOptions): ContentSearchResult[] {
+    if (!pattern) {
+      return [];
+    }
+
+    const flags = options.caseSensitive ? 'g' : 'gi';
+    let regex: RegExp;
+    try {
+      regex = new RegExp(pattern, flags);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Invalid regex pattern: ${message}`);
+    }
+
+    const results: ContentSearchResult[] = [];
+    const contextLines = options.contextLines ?? 2;
+    const normalizedLanguage = options.language?.toLowerCase();
+
+    for (const index of options.indexes) {
+      const documents = index.documents ?? [];
+      for (const document of documents) {
+        const documentLanguage = document.language;
+        if (normalizedLanguage && documentLanguage?.toLowerCase() !== normalizedLanguage) {
+          continue;
+        }
+
+        if (!document.text || !document.relativePath) {
+          continue;
+        }
+
+        const lines = document.text.split('\n');
+        for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+          const lineText = lines[lineIndex];
+          regex.lastIndex = 0;
+          const matches = Array.from(lineText.matchAll(regex));
+          if (matches.length === 0) {
+            continue;
+          }
+
+          for (const match of matches) {
+            const column = match.index ?? 0;
+            const contextBefore = lines.slice(Math.max(0, lineIndex - contextLines), lineIndex);
+            const contextAfter = lines.slice(lineIndex + 1, Math.min(lines.length, lineIndex + 1 + contextLines));
+
+            results.push({
+              file_path: document.relativePath,
+              line: lineIndex + 1,
+              column: column + 1,
+              match_text: lineText,
+              context_before: contextBefore,
+              context_after: contextAfter,
+              language: documentLanguage,
+            });
+          }
+        }
+      }
     }
 
     return results;

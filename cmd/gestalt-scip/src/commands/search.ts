@@ -1,5 +1,6 @@
 import { encode } from '@toon-format/toon';
 import { normalizeFormat, type OutputFormat } from '../formatter.js';
+import { QueryEngine } from '../lib/index.js';
 import { loadIndexes, type IndexOptions } from '../symbol-data.js';
 
 const DEFAULT_LIMIT = 50;
@@ -24,12 +25,6 @@ export interface SearchMatch {
   language?: string;
 }
 
-interface ContentSearchOptions {
-  caseSensitive: boolean;
-  contextLines: number;
-  language?: string;
-}
-
 export async function searchCommand(pattern: string, options: SearchOptions): Promise<void> {
   const trimmedPattern = pattern.trim();
   if (!trimmedPattern) {
@@ -42,81 +37,16 @@ export async function searchCommand(pattern: string, options: SearchOptions): Pr
   const caseSensitive = options.caseSensitive ?? false;
 
   const indexes = loadIndexes(options);
-  const results = searchContent(trimmedPattern, indexes, {
+  const engine = new QueryEngine(new Map());
+  const results = engine.searchContent(trimmedPattern, {
     caseSensitive,
     contextLines,
     language: options.language,
+    indexes: Array.from(indexes.values()),
   });
 
   const matches = results.slice(0, limit);
   console.log(formatSearchResults(trimmedPattern, matches, format));
-}
-
-function searchContent(
-  pattern: string,
-  indexes: Map<string, { documents?: Array<{ relativePath?: string; language?: string; text?: string }> }>,
-  options: ContentSearchOptions
-): SearchMatch[] {
-  if (!pattern) {
-    return [];
-  }
-
-  const flags = options.caseSensitive ? 'g' : 'gi';
-  let regex: RegExp;
-  try {
-    regex = new RegExp(pattern, flags);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Invalid regex pattern: ${message}`);
-  }
-
-  const results: SearchMatch[] = [];
-  const normalizedLanguage = options.language?.toLowerCase();
-
-  for (const [fallbackLanguage, index] of indexes) {
-    const documents = index.documents ?? [];
-    for (const document of documents) {
-      const documentLanguage = document.language ?? fallbackLanguage;
-      if (normalizedLanguage && documentLanguage?.toLowerCase() !== normalizedLanguage) {
-        continue;
-      }
-
-      if (!document.text || !document.relativePath) {
-        continue;
-      }
-
-      const lines = document.text.split('\n');
-      for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-        const lineText = lines[lineIndex];
-        regex.lastIndex = 0;
-        const matches = Array.from(lineText.matchAll(regex));
-        if (matches.length === 0) {
-          continue;
-        }
-
-        for (const match of matches) {
-          const column = match.index ?? 0;
-          const contextBefore = lines.slice(Math.max(0, lineIndex - options.contextLines), lineIndex);
-          const contextAfter = lines.slice(
-            lineIndex + 1,
-            Math.min(lines.length, lineIndex + 1 + options.contextLines)
-          );
-
-          results.push({
-            file_path: document.relativePath,
-            line: lineIndex + 1,
-            column: column + 1,
-            match_text: lineText,
-            context_before: contextBefore,
-            context_after: contextAfter,
-            language: documentLanguage,
-          });
-        }
-      }
-    }
-  }
-
-  return results;
 }
 
 function formatSearchResults(pattern: string, results: SearchMatch[], format: OutputFormat): string {

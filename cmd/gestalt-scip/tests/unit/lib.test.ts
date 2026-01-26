@@ -88,6 +88,48 @@ test('QueryEngine finds definitions and references by name', async () => {
   assert.equal(results.filter((result: any) => result.isDefinition).length, 1);
 });
 
+test('QueryEngine searchContent finds matches with context', async () => {
+  const { QueryEngine } = await loadLib();
+  const engine = new QueryEngine(new Map());
+  const index = {
+    documents: [
+      {
+        relativePath: 'src/app.ts',
+        language: 'typescript',
+        text: ['const value = 1;', 'const other = value + 1;', 'export {};'].join('\n'),
+      },
+    ],
+  };
+
+  const results = engine.searchContent('value', { indexes: [index], contextLines: 1 });
+
+  assert.equal(results.length, 2);
+  assert.equal(results[0].file_path, 'src/app.ts');
+  assert.equal(results[0].line, 1);
+  assert.equal(results[0].column, 7);
+  assert.deepEqual(results[0].context_before, []);
+  assert.deepEqual(results[0].context_after, ['const other = value + 1;']);
+});
+
+test('QueryEngine searchContent throws on invalid regex', async () => {
+  const { QueryEngine } = await loadLib();
+  const engine = new QueryEngine(new Map());
+  const index = {
+    documents: [
+      {
+        relativePath: 'src/app.ts',
+        language: 'typescript',
+        text: 'const value = 1;',
+      },
+    ],
+  };
+
+  assert.throws(
+    () => engine.searchContent('[invalid', { indexes: [index], contextLines: 1 }),
+    /Invalid regex pattern/
+  );
+});
+
 test('loadScipIndex reads JSON fixtures without protobuf parsing', async () => {
   const { loadScipIndex } = await loadLib();
   const tempPath = path.join(process.cwd(), 'dist/tests/unit/temp-index.json');

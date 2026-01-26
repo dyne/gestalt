@@ -68,14 +68,14 @@ func watchPlanFile(bus *event.Bus[watcher.Event], watch watcher.Watch, logger *l
 				err := startWatch()
 				if err == nil {
 					if logger != nil {
-						logger.Info("Watching plan file for changes", map[string]string{
+						logger.Info("Watching plans path for changes", map[string]string{
 							"path": planPath,
 						})
 					}
 					return
 				}
 				if logger != nil {
-					logger.Warn("plan watch retry failed", map[string]string{
+					logger.Warn("plans watch retry failed", map[string]string{
 						"path":  planPath,
 						"error": err.Error(),
 					})
@@ -90,14 +90,14 @@ func watchPlanFile(bus *event.Bus[watcher.Event], watch watcher.Watch, logger *l
 
 	if err := startWatch(); err != nil {
 		if logger != nil {
-			logger.Warn("plan watch failed", map[string]string{
+			logger.Warn("plans watch failed", map[string]string{
 				"path":  planPath,
 				"error": err.Error(),
 			})
 		}
 		startRetry()
 	} else if logger != nil {
-		logger.Info("Watching plan file for changes", map[string]string{
+		logger.Info("Watching plans path for changes", map[string]string{
 			"path": planPath,
 		})
 	}

@@ -1,6 +1,7 @@
 <script>
-  import { onMount } from 'svelte'
+  import { onDestroy, onMount } from 'svelte'
   import { fetchPlansList } from '../lib/apiClient.js'
+  import { subscribe as subscribeEvents } from '../lib/eventStore.js'
   import { getErrorMessage } from '../lib/errorUtils.js'
   import PlanCard from '../components/PlanCard.svelte'
   import ViewState from '../components/ViewState.svelte'
@@ -8,23 +9,59 @@
   let plans = []
   let loading = false
   let error = ''
+  let updateNotice = false
+  let updateNoticeTimer = null
+  let eventUnsubscribe = null
 
-  const loadPlans = async () => {
+  const showUpdateNotice = () => {
+    updateNotice = true
+    if (updateNoticeTimer) {
+      clearTimeout(updateNoticeTimer)
+    }
+    updateNoticeTimer = setTimeout(() => {
+      updateNotice = false
+    }, 2000)
+  }
+
+  const loadPlans = async ({ silent = false } = {}) => {
     if (loading) return
-    loading = true
-    error = ''
+    if (!silent) {
+      loading = true
+      error = ''
+    }
     try {
       const result = await fetchPlansList()
       plans = Array.isArray(result?.plans) ? result.plans : []
     } catch (err) {
       error = getErrorMessage(err, 'Failed to load plans.')
     } finally {
-      loading = false
+      if (!silent) {
+        loading = false
+      }
     }
   }
 
   onMount(() => {
     loadPlans()
+    eventUnsubscribe = subscribeEvents('file_changed', (payload) => {
+      const rawPath = String(payload?.path || '')
+      const normalized = rawPath.replaceAll('\\', '/')
+      if (!normalized.includes('/.gestalt/plans/')) return
+      if (!normalized.endsWith('.org')) return
+      loadPlans({ silent: true })
+      showUpdateNotice()
+    })
+  })
+
+  onDestroy(() => {
+    if (updateNoticeTimer) {
+      clearTimeout(updateNoticeTimer)
+      updateNoticeTimer = null
+    }
+    if (eventUnsubscribe) {
+      eventUnsubscribe()
+      eventUnsubscribe = null
+    }
   })
 </script>
 
@@ -39,6 +76,9 @@
       <p class="plan-path">.gestalt/plans/</p>
     </div>
     <div class="refresh-actions">
+      {#if updateNotice}
+        <span class="updated">Plans updated</span>
+      {/if}
       {#if loading}
         <span class="refreshing">Updating...</span>
       {/if}
@@ -134,6 +174,12 @@
   .refreshing {
     color: var(--color-text-muted);
     font-size: 0.8rem;
+  }
+
+  .updated {
+    color: var(--color-success);
+    font-size: 0.8rem;
+    font-weight: 600;
   }
   
   @media (max-width: 720px) {

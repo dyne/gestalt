@@ -248,7 +248,7 @@ func runServer(args []string) int {
 		defer temporalworker.StopWorker()
 	}
 
-	planPath := preparePlanFile(logger)
+	plansDir := preparePlanFile(logger)
 
 	autoReindexEnabled := cfg.SCIPAutoReindex && !cfg.NoIndex
 	fsWatcher, err := watcher.NewWithOptions(watcher.Options{
@@ -275,8 +275,9 @@ func runServer(args []string) int {
 				Timestamp: time.Now().UTC(),
 			})
 		})
-		watchPlanFile(eventBus, fsWatcher, logger, planPath)
+		planWatchPath := plansDir
 		if workDir, err := os.Getwd(); err == nil {
+			planWatchPath = filepath.Join(workDir, plansDir)
 			if _, err := watcher.StartGitWatcher(eventBus, fsWatcher, workDir); err != nil && logger != nil {
 				logger.Warn("git watcher unavailable", map[string]string{
 					"error": err.Error(),
@@ -295,6 +296,7 @@ func runServer(args []string) int {
 				"error": err.Error(),
 			})
 		}
+		watchPlanFile(eventBus, fsWatcher, logger, planWatchPath)
 	}
 
 	staticDir := findStaticDir()

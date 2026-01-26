@@ -2,9 +2,14 @@ import { render, cleanup } from '@testing-library/svelte'
 import { describe, it, expect, afterEach, vi } from 'vitest'
 
 const apiFetch = vi.hoisted(() => vi.fn())
+const subscribeEvents = vi.hoisted(() => vi.fn(() => () => {}))
 
 vi.mock('../src/lib/api.js', () => ({
   apiFetch,
+}))
+
+vi.mock('../src/lib/eventStore.js', () => ({
+  subscribe: subscribeEvents,
 }))
 
 import PlanView from '../src/views/PlanView.svelte'
@@ -13,6 +18,7 @@ describe('PlanView', () => {
   afterEach(() => {
     cleanup()
     apiFetch.mockReset()
+    subscribeEvents.mockReset()
   })
 
   it('renders plans from the API', async () => {

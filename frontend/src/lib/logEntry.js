@@ -130,21 +130,25 @@ const normalizeMessage = (entry) => {
 export const normalizeLogEntry = (entry) => {
   if (!entry || typeof entry !== 'object') return null
   const raw = entry.raw ?? entry
-  const timestamp = normalizeTimestamp(
+  const timestampISO = normalizeTimestamp(
     entry?.timeUnixNano ?? entry?.observedTimeUnixNano,
   )
   const level = normalizeLevel(
     entry?.severityNumber ?? entry?.severityText,
   )
   const message = normalizeMessage(entry?.body)
-  const context = normalizeContext(entry?.attributes)
-  const id = entry?.id || `${timestamp}-${level}-${message}`
+  const attributes = normalizeContext(entry?.attributes)
+  const resourceAttributes = normalizeContext(entry?.resource?.attributes)
+  const scopeName = entry?.scope?.name || ''
+  const id = entry?.id || `${timestampISO}-${level}-${message}`
   return {
     id,
     level,
-    timestamp,
+    timestampISO,
     message,
-    context,
+    attributes,
+    resourceAttributes,
+    scopeName,
     raw,
   }
 }
@@ -154,22 +158,33 @@ export const formatLogEntryForClipboard = (entry, { format = 'json' } = {}) => {
   const payload = {
     id: entry.id,
     level: entry.level,
-    timestamp: entry.timestamp,
+    timestampISO: entry.timestampISO,
     message: entry.message,
-    context: entry.context,
+    attributes: entry.attributes,
+    resourceAttributes: entry.resourceAttributes,
+    scopeName: entry.scopeName,
     raw: entry.raw,
   }
   if (format === 'text') {
     const lines = []
     lines.push(`[${payload.level?.toUpperCase() || 'INFO'}] ${payload.message || ''}`)
-    if (payload.timestamp) {
-      lines.push(`timestamp: ${payload.timestamp}`)
+    if (payload.timestampISO) {
+      lines.push(`timestamp: ${payload.timestampISO}`)
     }
-    if (payload.context && Object.keys(payload.context).length > 0) {
-      lines.push('context:')
-      Object.entries(payload.context).forEach(([key, value]) => {
+    if (payload.attributes && Object.keys(payload.attributes).length > 0) {
+      lines.push('attributes:')
+      Object.entries(payload.attributes).forEach(([key, value]) => {
         lines.push(`  ${key}: ${value}`)
       })
+    }
+    if (payload.resourceAttributes && Object.keys(payload.resourceAttributes).length > 0) {
+      lines.push('resource:')
+      Object.entries(payload.resourceAttributes).forEach(([key, value]) => {
+        lines.push(`  ${key}: ${value}`)
+      })
+    }
+    if (payload.scopeName) {
+      lines.push(`scope: ${payload.scopeName}`)
     }
     return lines.join('\n')
   }

@@ -120,13 +120,15 @@ describe('Dashboard', () => {
         {
           id: 'log-1',
           level: 'info',
-          timestamp: '2026-01-25T12:00:00Z',
+          timestampISO: '2026-01-25T12:00:00Z',
           message: 'Log entry',
-          context: {
+          attributes: {
             source: 'system',
             toast: 'true',
             toast_id: 'toast-1',
           },
+          resourceAttributes: {},
+          scopeName: '',
           raw: { scope: 'unit' },
         },
       ],
@@ -206,9 +208,11 @@ describe('Dashboard', () => {
         {
           id: 'log-1',
           level: 'info',
-          timestamp: '2026-01-25T12:00:00Z',
+          timestampISO: '2026-01-25T12:00:00Z',
           message: 'Log entry',
-          context: { source: 'system' },
+          attributes: { source: 'system' },
+          resourceAttributes: {},
+          scopeName: '',
           raw: { scope: 'unit' },
         },
       ],

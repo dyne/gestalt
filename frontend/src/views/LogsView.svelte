@@ -127,14 +127,19 @@
     stopStream()
   }
 
-  const entryKey = (entry, index) => entry?.id || `${entry.timestamp}-${entry.message}-${index}`
+  const entryKey = (entry, index) => entry?.id || `${entry.timestampISO}-${entry.message}-${index}`
 
-  const contextEntriesFor = (entry) => {
-    return Object.entries(entry?.context || {}).sort(([left], [right]) =>
+  const attributeEntriesFor = (entry) => {
+    return Object.entries(entry?.attributes || {}).sort(([left], [right]) =>
       left.localeCompare(right),
     )
   }
 
+  const resourceEntriesFor = (entry) => {
+    return Object.entries(entry?.resourceAttributes || {}).sort(([left], [right]) =>
+      left.localeCompare(right),
+    )
+  }
   const copyText = async (text, successMessage) => {
     if (!clipboardAvailable) {
       notificationStore.addNotification('error', 'Clipboard requires HTTPS.')
@@ -228,20 +233,20 @@
               <summary class="log-entry__summary">
                 <div class="log-entry__meta">
                   <span class="badge">{entry.level}</span>
-                  <span title={entry.timestamp || ''}>{formatTime(entry.timestamp)}</span>
+                  <span title={entry.timestampISO || ''}>{formatTime(entry.timestampISO)}</span>
                 </div>
                 <p>{entry.message}</p>
               </summary>
               <div class="log-entry__details-body">
                 <div class="log-entry__detail-section">
-                  <span class="log-entry__label">Context</span>
-                  {#if contextEntriesFor(entry).length === 0}
-                    <p class="log-entry__empty">No context fields.</p>
+                  <span class="log-entry__label">Attributes</span>
+                  {#if attributeEntriesFor(entry).length === 0}
+                    <p class="log-entry__empty">No attributes.</p>
                   {:else}
                     <div class="log-entry__context">
                       <table>
                         <tbody>
-                          {#each contextEntriesFor(entry) as [key, value]}
+                          {#each attributeEntriesFor(entry) as [key, value]}
                             <tr>
                               <th scope="row">{key}</th>
                               <td>{value}</td>
@@ -252,6 +257,31 @@
                     </div>
                   {/if}
                 </div>
+                <div class="log-entry__detail-section">
+                  <span class="log-entry__label">Resource</span>
+                  {#if resourceEntriesFor(entry).length === 0}
+                    <p class="log-entry__empty">No resource attributes.</p>
+                  {:else}
+                    <div class="log-entry__context">
+                      <table>
+                        <tbody>
+                          {#each resourceEntriesFor(entry) as [key, value]}
+                            <tr>
+                              <th scope="row">{key}</th>
+                              <td>{value}</td>
+                            </tr>
+                          {/each}
+                        </tbody>
+                      </table>
+                    </div>
+                  {/if}
+                </div>
+                {#if entry.scopeName}
+                  <div class="log-entry__detail-section">
+                    <span class="log-entry__label">Scope</span>
+                    <p class="log-entry__empty">{entry.scopeName}</p>
+                  </div>
+                {/if}
                 {#if entry.raw}
                   <details class="log-entry__raw">
                     <summary>Raw JSON</summary>

@@ -16,6 +16,10 @@ describe('normalizeLogEntry', () => {
         { key: 'http.route', value: { stringValue: '/api/status' } },
         { key: 'count', value: { intValue: 3 } },
       ],
+      resource: {
+        attributes: [{ key: 'service.name', value: { stringValue: 'gestalt' } }],
+      },
+      scope: { name: 'gestalt/ui' },
     }
 
     const normalized = normalizeLogEntry(record)
@@ -23,9 +27,11 @@ describe('normalizeLogEntry', () => {
     expect(normalized).toBeTruthy()
     expect(normalized.level).toBe('warning')
     expect(normalized.message).toBe('hello')
-    expect(normalized.timestamp).toBe(new Date(Math.floor(Number(timeUnixNano) / 1e6)).toISOString())
-    expect(normalized.context['gestalt.category']).toBe('ui')
-    expect(normalized.context['http.route']).toBe('/api/status')
-    expect(normalized.context.count).toBe('3')
+    expect(normalized.timestampISO).toBe(new Date(Math.floor(Number(timeUnixNano) / 1e6)).toISOString())
+    expect(normalized.attributes['gestalt.category']).toBe('ui')
+    expect(normalized.attributes['http.route']).toBe('/api/status')
+    expect(normalized.attributes.count).toBe('3')
+    expect(normalized.resourceAttributes['service.name']).toBe('gestalt')
+    expect(normalized.scopeName).toBe('gestalt/ui')
   })
 })

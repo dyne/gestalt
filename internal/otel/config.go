@@ -13,7 +13,7 @@ const (
 	defaultHTTPEndpoint = "127.0.0.1:4318"
 )
 
-func WriteCollectorConfig(path, dataPath, grpcEndpoint, httpEndpoint, remoteEndpoint string, remoteInsecure bool) error {
+func WriteCollectorConfig(path, dataPath, grpcEndpoint, httpEndpoint, remoteEndpoint string, remoteInsecure, selfMetricsEnabled bool) error {
 	if strings.TrimSpace(path) == "" {
 		return errors.New("collector config path is required")
 	}
@@ -36,11 +36,11 @@ func WriteCollectorConfig(path, dataPath, grpcEndpoint, httpEndpoint, remoteEndp
 		return err
 	}
 
-	config := buildCollectorConfig(grpcEndpoint, httpEndpoint, dataPath, remoteEndpoint, remoteInsecure)
+	config := buildCollectorConfig(grpcEndpoint, httpEndpoint, dataPath, remoteEndpoint, remoteInsecure, selfMetricsEnabled)
 	return os.WriteFile(path, []byte(config), 0o644)
 }
 
-func buildCollectorConfig(grpcEndpoint, httpEndpoint, dataPath, remoteEndpoint string, remoteInsecure bool) string {
+func buildCollectorConfig(grpcEndpoint, httpEndpoint, dataPath, remoteEndpoint string, remoteInsecure, selfMetricsEnabled bool) string {
 	grpcValue := strconv.Quote(grpcEndpoint)
 	httpValue := strconv.Quote(httpEndpoint)
 	pathValue := strconv.Quote(dataPath)
@@ -77,10 +77,12 @@ func buildCollectorConfig(grpcEndpoint, httpEndpoint, dataPath, remoteEndpoint s
 		}
 	}
 	builder.WriteString("\nservice:\n")
-	builder.WriteString("  telemetry:\n")
-	builder.WriteString("    metrics:\n")
-	builder.WriteString("      level: none\n")
-	builder.WriteString("      readers: []\n")
+	if !selfMetricsEnabled {
+		builder.WriteString("  telemetry:\n")
+		builder.WriteString("    metrics:\n")
+		builder.WriteString("      level: none\n")
+		builder.WriteString("      readers: []\n")
+	}
 	builder.WriteString("  pipelines:\n")
 	builder.WriteString("    logs:\n")
 	builder.WriteString("      receivers: [otlp]\n")

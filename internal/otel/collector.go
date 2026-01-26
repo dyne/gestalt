@@ -25,15 +25,16 @@ const (
 var ErrCollectorNotFound = errors.New("otel collector binary not found")
 
 type Options struct {
-	Enabled        bool
-	BinaryPath     string
-	ConfigPath     string
-	DataDir        string
-	GRPCEndpoint   string
-	HTTPEndpoint   string
-	RemoteEndpoint string
-	RemoteInsecure bool
-	Logger         *logging.Logger
+	Enabled            bool
+	BinaryPath         string
+	ConfigPath         string
+	DataDir            string
+	GRPCEndpoint       string
+	HTTPEndpoint       string
+	RemoteEndpoint     string
+	RemoteInsecure     bool
+	SelfMetricsEnabled bool
+	Logger             *logging.Logger
 }
 
 type CollectorInfo struct {
@@ -79,6 +80,11 @@ func OptionsFromEnv(stateDir string) Options {
 			opts.Enabled = parsed
 		}
 	}
+	if rawSelfMetrics, ok := os.LookupEnv("GESTALT_OTEL_SELF_METRICS"); ok {
+		if parsed, err := strconv.ParseBool(strings.TrimSpace(rawSelfMetrics)); err == nil {
+			opts.SelfMetricsEnabled = parsed
+		}
+	}
 	if rawInsecure, ok := os.LookupEnv("GESTALT_OTEL_REMOTE_INSECURE"); ok {
 		if parsed, err := strconv.ParseBool(strings.TrimSpace(rawInsecure)); err == nil {
 			opts.RemoteInsecure = parsed
@@ -110,7 +116,7 @@ func StartCollector(options Options) (*Collector, error) {
 	}
 
 	dataPath := filepath.Join(options.DataDir, "otel.json")
-	if err := WriteCollectorConfig(options.ConfigPath, dataPath, options.GRPCEndpoint, options.HTTPEndpoint, options.RemoteEndpoint, options.RemoteInsecure); err != nil {
+	if err := WriteCollectorConfig(options.ConfigPath, dataPath, options.GRPCEndpoint, options.HTTPEndpoint, options.RemoteEndpoint, options.RemoteInsecure, options.SelfMetricsEnabled); err != nil {
 		return nil, err
 	}
 

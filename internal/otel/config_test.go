@@ -12,7 +12,7 @@ func TestWriteCollectorConfigWritesFile(t *testing.T) {
 	configPath := filepath.Join(tempDir, "collector.yaml")
 	dataPath := filepath.Join(tempDir, "otel", "otel.json")
 
-	err := WriteCollectorConfig(configPath, dataPath, "127.0.0.1:4317", "127.0.0.1:4318", "", false)
+	err := WriteCollectorConfig(configPath, dataPath, "127.0.0.1:4317", "127.0.0.1:4318", "", false, false)
 	if err != nil {
 		t.Fatalf("WriteCollectorConfig failed: %v", err)
 	}
@@ -52,6 +52,9 @@ func TestOptionsFromEnvDefaults(t *testing.T) {
 	if opts.RemoteInsecure {
 		t.Fatalf("expected RemoteInsecure false by default")
 	}
+	if opts.SelfMetricsEnabled {
+		t.Fatalf("expected SelfMetricsEnabled false by default")
+	}
 	if opts.DataDir != filepath.Join("state", "otel") {
 		t.Fatalf("expected data dir under state root, got %q", opts.DataDir)
 	}
@@ -69,6 +72,7 @@ func TestOptionsFromEnvOverrides(t *testing.T) {
 	t.Setenv("GESTALT_OTEL_HTTP_ENDPOINT", "127.0.0.1:9998")
 	t.Setenv("GESTALT_OTEL_REMOTE_ENDPOINT", "remote:4317")
 	t.Setenv("GESTALT_OTEL_REMOTE_INSECURE", "true")
+	t.Setenv("GESTALT_OTEL_SELF_METRICS", "true")
 
 	opts := OptionsFromEnv("state")
 	if opts.Enabled {
@@ -95,6 +99,9 @@ func TestOptionsFromEnvOverrides(t *testing.T) {
 	if !opts.RemoteInsecure {
 		t.Fatalf("expected RemoteInsecure true with env override")
 	}
+	if !opts.SelfMetricsEnabled {
+		t.Fatalf("expected SelfMetricsEnabled true with env override")
+	}
 }
 
 func TestWriteCollectorConfigRemoteExporter(t *testing.T) {
@@ -102,7 +109,7 @@ func TestWriteCollectorConfigRemoteExporter(t *testing.T) {
 	configPath := filepath.Join(tempDir, "collector.yaml")
 	dataPath := filepath.Join(tempDir, "otel", "otel.json")
 
-	err := WriteCollectorConfig(configPath, dataPath, "127.0.0.1:4317", "127.0.0.1:4318", "remote:4317", true)
+	err := WriteCollectorConfig(configPath, dataPath, "127.0.0.1:4317", "127.0.0.1:4318", "remote:4317", true, false)
 	if err != nil {
 		t.Fatalf("WriteCollectorConfig failed: %v", err)
 	}
@@ -119,5 +126,24 @@ func TestWriteCollectorConfigRemoteExporter(t *testing.T) {
 	}
 	if !strings.Contains(text, "exporters: [file, otlp]") {
 		t.Fatalf("expected otlp exporter in pipelines: %s", text)
+	}
+}
+
+func TestWriteCollectorConfigSelfMetricsEnabled(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "collector.yaml")
+	dataPath := filepath.Join(tempDir, "otel", "otel.json")
+
+	err := WriteCollectorConfig(configPath, dataPath, "127.0.0.1:4317", "127.0.0.1:4318", "", false, true)
+	if err != nil {
+		t.Fatalf("WriteCollectorConfig failed: %v", err)
+	}
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read config failed: %v", err)
+	}
+	text := string(content)
+	if strings.Contains(text, "level: none") || strings.Contains(text, "readers: []") {
+		t.Fatalf("expected self-metrics not disabled when enabled: %s", text)
 	}
 }

@@ -50,6 +50,7 @@ Configuration
   - GESTALT_OTEL_GRPC_ENDPOINT / GESTALT_OTEL_HTTP_ENDPOINT (collector listen endpoints)
   - GESTALT_OTEL_REMOTE_ENDPOINT (optional OTLP gRPC exporter target)
   - GESTALT_OTEL_REMOTE_INSECURE (true to skip TLS verification for remote exporter)
+  - GESTALT_OTEL_SELF_METRICS (true to enable collector self-metrics)
   - GESTALT_OTEL_MAX_RECORDS (cap records read from local otel.json for APIs)
   - GESTALT_OTEL_SDK_ENABLED (SDK on/off)
   - GESTALT_OTEL_SERVICE_NAME (service.name override)

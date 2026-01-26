@@ -4,8 +4,6 @@ import { getErrorMessage } from './errorUtils.js'
 import { createWsStore } from './wsStore.js'
 
 const REINDEX_TIMEOUT_MS = 5 * 60 * 1000
-let reindexTimeoutId = null
-let reindexInFlight = false
 
 export const initialScipStatus = {
   indexed: false,
@@ -94,6 +92,8 @@ export const createScipStore = () => {
   const events = createWsStore({ label: 'scip-events', path: '/api/scip/events' })
   const unsubscribes = []
   let started = false
+  let reindexTimeoutId = null
+  let reindexInFlight = false
 
   const refreshStatus = async () => {
     try {
@@ -147,6 +147,11 @@ export const createScipStore = () => {
 
   const stop = () => {
     started = false
+    if (reindexTimeoutId) {
+      clearTimeout(reindexTimeoutId)
+      reindexTimeoutId = null
+    }
+    reindexInFlight = false
     while (unsubscribes.length > 0) {
       const unsubscribe = unsubscribes.pop()
       if (typeof unsubscribe === 'function') {

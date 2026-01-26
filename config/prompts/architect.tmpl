@@ -24,41 +24,7 @@ behavior must be preserved. State decision explicitly and with
 technical detail. When in doubt outline pros and cons so the user can
 choose.
 
-# WORKPLAN
-
 {{include plan-structure}}
-
- - Do not use markdown TODOs.
- - Keep L2 headings ordered top-to-bottom in execution order (respect dependencies).
- - Add new L1 entries at the TOP of PLAN, separated by an empty line.
- - Avoid repetition: if two L2 entries overlap, merge them.
-
-Every active L1 and L2 heading must include BOTH:
- - a TODO keyword: TODO / WIP / DONE
- - a priority estimation: [#A] [#B] [#C]
- - a brief statement effort estimation
-
-Priority scale:
-- [#A] major feature, important bug, large refactor
-- [#B] default: normal feature/bugfix/small change
-- [#C] polish, optimization, small refactor
-
-Template (copy this style):
-#+TITLE: A Brief Plan Title
-#+SUBTITLE: Longer one-liner description of the plan
-#+DATE: date of creation
-#+KEYWORDS: comma separated list of single words
-
-* TODO [#B] Short plan title
-  Effort: ...
-  Goal: ...
-  Notes: ...
-** TODO [#C] Step title
-   Effort: ...
-   Why: ...
-   Change: ...
-   Tests: ...
-   Done when: ...
 
 {{include project-intro}}
 

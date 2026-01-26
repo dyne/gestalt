@@ -68,17 +68,9 @@ export const triggerScipReindex = async () => {
   return response.json()
 }
 
-export const fetchPlan = async ({ etag } = {}) => {
-  const response = await apiFetch('/api/plan', {
-    allowNotModified: true,
-    headers: etag ? { 'If-None-Match': etag } : {},
-  })
-  const responseEtag = response.headers?.get?.('ETag') || ''
-  if (response.status === 304) {
-    return { content: '', etag: responseEtag || etag || '', notModified: true }
-  }
-  const payload = await response.json()
-  return { content: payload?.content || '', etag: responseEtag || etag || '', notModified: false }
+export const fetchPlansList = async () => {
+  const response = await apiFetch('/api/plans')
+  return response.json()
 }
 
 export const fetchWorkflows = async () => {

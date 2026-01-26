@@ -9,7 +9,7 @@ vi.mock('../src/lib/api.js', () => ({
 import {
   createTerminal,
   fetchLogs,
-  fetchPlan,
+  fetchPlansList,
   fetchScipStatus,
   fetchStatus,
   triggerScipReindex,
@@ -59,19 +59,13 @@ describe('apiClient', () => {
     })
   })
 
-  it('handles plan not modified responses', async () => {
-    apiFetch.mockResolvedValue({
-      status: 304,
-      headers: { get: vi.fn().mockReturnValue('"etag"') },
-    })
+  it('fetches plans list payloads', async () => {
+    apiFetch.mockResolvedValue({ json: vi.fn().mockResolvedValue({ plans: [] }) })
 
-    const result = await fetchPlan({ etag: '"etag"' })
+    const result = await fetchPlansList()
 
-    expect(result).toEqual({ content: '', etag: '"etag"', notModified: true })
-    expect(apiFetch).toHaveBeenCalledWith('/api/plan', {
-      allowNotModified: true,
-      headers: { 'If-None-Match': '"etag"' },
-    })
+    expect(result).toEqual({ plans: [] })
+    expect(apiFetch).toHaveBeenCalledWith('/api/plans')
   })
 
   it('triggers scip reindex', async () => {

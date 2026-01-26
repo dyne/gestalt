@@ -1,148 +1,48 @@
 <script>
-  import { onDestroy, onMount } from 'svelte'
-  import { fetchPlan } from '../lib/apiClient.js'
-  import { eventConnectionStatus, subscribe as subscribeEvents } from '../lib/eventStore.js'
+  import { onMount } from 'svelte'
+  import { fetchPlansList } from '../lib/apiClient.js'
   import { getErrorMessage } from '../lib/errorUtils.js'
-  import { createPollingHelper } from '../lib/pollingHelper.js'
-  import { createViewStateMachine } from '../lib/viewStateMachine.js'
-  import OrgViewer from '../components/OrgViewer.svelte'
+  import PlanCard from '../components/PlanCard.svelte'
   import ViewState from '../components/ViewState.svelte'
 
-  const viewState = createViewStateMachine()
-
+  let plans = []
   let loading = false
-  let refreshing = false
   let error = ''
-  let content = ''
-  let lastContent = ''
-  let etag = ''
-  let updateNotice = false
-  let updateNoticeTimer = null
-  let eventUnsubscribe = null
-  let watchErrorUnsubscribe = null
-  let statusUnsubscribe = null
-  let watchUnavailable = false
-  let connectionStatus = 'disconnected'
 
-  const fallbackIntervalMs = 10000
-
-  const showUpdateNotice = () => {
-    updateNotice = true
-    if (updateNoticeTimer) {
-      clearTimeout(updateNoticeTimer)
-    }
-    updateNoticeTimer = setTimeout(() => {
-      updateNotice = false
-    }, 2000)
-  }
-
-  const loadPlan = async ({ silent = false, notify = false } = {}) => {
-    if (loading || refreshing) return
-    viewState.start({ silent })
+  const loadPlans = async () => {
+    if (loading) return
+    loading = true
+    error = ''
     try {
-      const result = await fetchPlan({ etag })
-      if (result.etag) {
-        etag = result.etag
-      }
-      if (result.notModified) {
-        return
-      }
-      const nextContent = result.content || ''
-      if (nextContent !== lastContent) {
-        content = nextContent
-        lastContent = nextContent
-        if (notify) {
-          showUpdateNotice()
-        }
-      }
+      const result = await fetchPlansList()
+      plans = Array.isArray(result?.plans) ? result.plans : []
     } catch (err) {
-      viewState.setError(getErrorMessage(err, 'Failed to load plan.'))
+      error = getErrorMessage(err, 'Failed to load plans.')
     } finally {
-      viewState.finish()
+      loading = false
     }
   }
-
-  const planPath = '.gestalt/PLAN.org'
-
-  const fallbackPolling = createPollingHelper({
-    intervalMs: fallbackIntervalMs,
-    onPoll: () => {
-      loadPlan({ silent: true })
-    },
-  })
-
-  const stopFallbackPolling = () => {
-    fallbackPolling.stop()
-  }
-
-  const startFallbackPolling = () => {
-    fallbackPolling.start()
-  }
-
-  $: ({ loading, refreshing, error } = $viewState)
 
   onMount(() => {
-    loadPlan()
-    eventUnsubscribe = subscribeEvents('file_changed', (payload) => {
-      if (!payload?.path) return
-      if (payload.path !== planPath && !payload.path.endsWith(`/${planPath}`)) {
-        return
-      }
-      watchUnavailable = false
-      if (connectionStatus === 'connected') {
-        stopFallbackPolling()
-      }
-      loadPlan({ silent: true, notify: true })
-    })
-    watchErrorUnsubscribe = subscribeEvents('watch_error', () => {
-      watchUnavailable = true
-      startFallbackPolling()
-    })
-    statusUnsubscribe = eventConnectionStatus.subscribe((value) => {
-      connectionStatus = value
-      if (value === 'connected' && !watchUnavailable) {
-        stopFallbackPolling()
-      } else {
-        startFallbackPolling()
-      }
-    })
-  })
-
-  onDestroy(() => {
-    stopFallbackPolling()
-    if (updateNoticeTimer) {
-      clearTimeout(updateNoticeTimer)
-      updateNoticeTimer = null
-    }
-    if (eventUnsubscribe) {
-      eventUnsubscribe()
-      eventUnsubscribe = null
-    }
-    if (watchErrorUnsubscribe) {
-      watchErrorUnsubscribe()
-      watchErrorUnsubscribe = null
-    }
-    if (statusUnsubscribe) {
-      statusUnsubscribe()
-      statusUnsubscribe = null
-    }
+    loadPlans()
   })
 </script>
 
 <section class="plan-view">
   <header class="plan-view__header">
     <div>
-      <p class="eyebrow">Project plan</p>
-      <h1>.gestalt/PLAN.org</h1>
+      <p class="eyebrow">Project plans</p>
+      <div class="plan-heading">
+        <h1>Project Plans</h1>
+        <span class="plan-count">{plans.length}</span>
+      </div>
+      <p class="plan-path">.gestalt/plans/</p>
     </div>
     <div class="refresh-actions">
-      {#if updateNotice}
-        <span class="updated">Plan updated</span>
-      {/if}
-      {#if refreshing}
+      {#if loading}
         <span class="refreshing">Updating...</span>
       {/if}
-      <button class="refresh" type="button" on:click={loadPlan} disabled={loading}>
+      <button class="refresh" type="button" on:click={loadPlans} disabled={loading}>
         {loading ? 'Refreshing...' : 'Refresh'}
       </button>
     </div>
@@ -151,11 +51,15 @@
   <ViewState
     {loading}
     {error}
-    hasContent={Boolean(content)}
-    loadingLabel="Loading plan..."
-    showEmpty={false}
+    hasContent={plans.length > 0}
+    loadingLabel="Loading plans..."
+    emptyLabel="No plans found in .gestalt/plans/"
   >
-    <OrgViewer orgText={content} />
+    <div class="plan-list">
+      {#each plans as plan (plan.filename)}
+        <PlanCard {plan} />
+      {/each}
+    </div>
   </ViewState>
 </section>
 
@@ -174,6 +78,12 @@
     gap: 1.5rem;
   }
 
+  .plan-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
   .eyebrow {
     text-transform: uppercase;
     letter-spacing: 0.24em;
@@ -189,6 +99,23 @@
     color: var(--color-text);
   }
 
+  .plan-count {
+    min-width: 2rem;
+    text-align: center;
+    padding: 0.2rem 0.7rem;
+    border-radius: 999px;
+    background: rgba(var(--color-text-rgb), 0.12);
+    color: var(--color-text);
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+
+  .plan-path {
+    margin: 0.5rem 0 0;
+    color: var(--color-text-subtle);
+    font-size: 0.85rem;
+  }
+
   .refresh {
     border: 1px solid rgba(var(--color-text-rgb), 0.2);
     border-radius: 999px;
@@ -199,26 +126,16 @@
     cursor: pointer;
   }
 
-  .refresh-actions {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
+  .plan-list {
+    display: grid;
+    gap: 1.2rem;
   }
 
   .refreshing {
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
     color: var(--color-text-muted);
+    font-size: 0.8rem;
   }
-
-  .updated {
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    color: var(--color-success);
-  }
-
+  
   @media (max-width: 720px) {
     .plan-view__header {
       flex-direction: column;

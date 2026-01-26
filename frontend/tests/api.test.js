@@ -83,7 +83,7 @@ describe('api helpers', () => {
     }
     mockFetch(response)
 
-    const result = await apiFetch('/api/plan', { allowNotModified: true })
+    const result = await apiFetch('/api/plans', { allowNotModified: true })
     expect(result).toBe(response)
   })
 })

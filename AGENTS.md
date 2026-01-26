@@ -107,15 +107,23 @@ terminal output -> Session output bus -> /ws/terminal/:id -> xterm
 | Temporal HITL | Workflows on by default; disable via `workflow=false` / `use_workflow=false`. Dev server: `GESTALT_TEMPORAL_DEV_SERVER=true` or `--temporal-dev-server` (runs in `.gestalt/temporal`). | `GET /api/workflows`, `GET /api/terminals/:id/workflow/history`, `POST /api/terminals/:id/workflow/resume` (`continue`/`abort`), `GET /api/metrics`. |
 | SCIP | Enabled when `GESTALT_SCIP_INDEX_PATH` points to `index.db` (default `.gestalt/scip/index.db`). | `/api/scip/symbols?q=...` -> `/api/scip/symbols/<id>` -> `/api/scip/symbols/<id>/references`; `/api/scip/files/<path>`; `POST /api/scip/index` `{ "path": "/repo/path" }`. |
 
-## SCIP CLI (2026-01-25)
+## SCIP CLI (2026-01-26)
 - Offline CLI lives in `cmd/gestalt-scip` and builds with `make build-scip`.
-- CLI commands: `symbols`, `definition`, `references`, `files`; default merges all `.scip` files, `--language` filters, `--format` supports `text|json|toon`.
+- CLI commands: `symbols`, `definition`, `references`, `files`, `search`; default merges all `.scip` files, `--language` filters, `--format` supports `text|json|toon`.
+- `search` command: Full-text content search with regex/OR clauses.
 - CLI default output format is `toon`.
 - Symbol IDs in CLI output are base64url-encoded and safe for shells; `definition`/`references` accept encoded IDs and raw SCIP IDs.
 - CLI output omits `kind` when it would be `UnspecifiedKind` and strips fenced code markers plus language tag lines from `documentation`.
 - Backend async indexing: `/api/scip/status`, `/api/scip/reindex`, `/api/scip/events`; startup indexing runs unless `--noindex` or `GESTALT_SCIP_NO_INDEX=true`.
 - `scip-typescript-finder` is reference-only; parsing logic is copied into `cmd/gestalt-scip/src/lib`.
 - Prompt guidance: `config/prompts/scip.tmpl` prefers the API, while `config/prompts/scip-cli.md` documents offline CLI-first navigation.
+
+## Recommended workflow
+1. Symbol search: gestalt-scip symbols Manager
+2. Content search: gestalt-scip search "terminal.*manager"
+3. Definition: gestalt-scip definition <symbol.id>
+4. References: gestalt-scip references <symbol.id>
+5. File context: gestalt-scip files <path> --symbols
 
 ## SCIP UI notes (2026-01-26)
 - `frontend/src/lib/scipStore.js` clears reindex timers/in-flight state on stop to avoid sticky reindex guards.

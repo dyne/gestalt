@@ -1,0 +1,17 @@
+#+TITLE: Sample Plan
+#+SUBTITLE: Example metadata
+#+DATE: 2026-01-26
+#+KEYWORDS: plans,test
+
+* WIP [#A] First L1
+This is the first line of L1 body.
+Another line for the L1 body.
+
+** TODO [#B] L2 One
+Details for L2 one.
+
+** DONE [#C] L2 Two
+More text for L2 two.
+
+* TODO Second L1
+Second L1 body text.

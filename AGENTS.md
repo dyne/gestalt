@@ -21,7 +21,7 @@ Use this as the minimum context to start any plan task.
 - `.gestalt/version.json` tracks build version; `--force-upgrade` bypasses major mismatch.
 - Agent/skill validation logs warnings and skips invalid entries; prompt files must be text.
 - Metrics log: `config extraction metrics`.
-- PLAN moved to `.gestalt/PLAN.org` (startup migrates from root `PLAN.org`); `--extract-config` is a no-op.
+- Plans live under `.gestalt/plans/` (no migration from root `PLAN.org`); `--extract-config` is a no-op.
 
 ## Runtime flow (high level)
 - REST: `/api/terminals` create/list/delete; `/api/agents` list profiles.
@@ -78,11 +78,11 @@ terminal output -> Session output bus -> /ws/terminal/:id -> xterm
 
 ## Filesystem events
 - Uses `fsnotify` + `event.Bus[watcher.Event]` to publish `/ws/events`.
-- Watches `.gestalt/PLAN.org` and git branch changes on startup.
+- Watches `.gestalt/plans/` and git branch changes on startup.
 - `GESTALT_MAX_WATCHES` caps watches (default 100).
 
 ## Planning workflow (must follow)
-- Work tracked in `.gestalt/PLAN.org` (Org). L1 = feature, L2 = steps.
+- Work tracked in `.gestalt/plans/*.org` (Org). L1 = feature, L2 = steps.
 - Exactly one WIP L1 and one WIP L2 at a time.
 - For non-tiny work: update the plan first, then ask for confirmation before implementing.
 

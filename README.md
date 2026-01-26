@@ -38,7 +38,7 @@ controls the UI bind port for `gestalt`.
 
 ## Run Gestalt on your project
 
-Gestalt uses its current working directory as the project context (for git events, `.gestalt/PLAN.org`, and
+Gestalt uses its current working directory as the project context (for git events, `.gestalt/plans/`, and
 local session data). To use it on a real repo, run the server from that repo's root.
 
 1) Install the `gestalt` binary (from this repo):
@@ -66,9 +66,8 @@ Example mapping:
 GESTALT_TOKEN=$(openssl rand -hex 16) gestalt --port 57417
 ```
 
-If your project has a `.gestalt/PLAN.org`, Gestalt will watch it for changes. If a legacy `PLAN.org`
-exists in the repo root and `.gestalt/PLAN.org` is missing, Gestalt copies it into `.gestalt/PLAN.org`
-on startup.
+Plans live under `.gestalt/plans/` and any `.org` file in that directory is watched for changes.
+Recommended naming: `YYYY-MM-DD-short-description.org`. `.gestalt/PLAN.org` is no longer used.
 
 ## Code Indexing
 
@@ -373,7 +372,7 @@ previously stored data in `logs/`, move it manually if you want to keep it.
 - Working directory is shown prominently so you can confirm the server context.
 - Agent cards show Start/Stop controls based on whether the agent is running.
 - Logs are embedded on the dashboard; the Logs tab is removed.
-- The Plan view auto-refreshes every 5s (manual refresh is still available).
+- The Plans view refreshes on plan file changes (manual refresh is still available).
 
 ## Touch scrolling
 
@@ -395,7 +394,7 @@ Config extraction runs automatically at startup into `.gestalt/config/`.
 Gestalt uses embedded FNV-1a 64-bit hashes to skip unchanged files; mismatches are backed up as `.bck`
 before replacement. Control retention with `GESTALT_CONFIG_BACKUP_LIMIT` (default `1`, `0` disables backups).
 `gestalt --extract-config` is now a no-op and exits after printing this notice.
-Project plan files live at `.gestalt/PLAN.org` (legacy root `PLAN.org` files are copied on startup).
+Project plan files live under `.gestalt/plans/` (recommended naming: `YYYY-MM-DD-short-description.org`).
 
 Build from source with embedded assets:
 ```
@@ -453,11 +452,11 @@ Event types:
 WebSocket protocol:
 - Connect to `/ws/events` (token in query when auth is enabled).
 - Optional filter message: `{"subscribe":["file_changed","git_branch_changed","watch_error"]}`.
-- Server messages: `{"type":"file_changed","path":".gestalt/PLAN.org","timestamp":"..."}`.
+- Server messages: `{"type":"file_changed","path":".gestalt/plans/2026-01-01-example.org","timestamp":"..."}`.
 
 Backend usage example:
 ```
-watcher.WatchFile(bus, fsWatcher, ".gestalt/PLAN.org")
+watcher.WatchFile(bus, fsWatcher, ".gestalt/plans")
 events, cancel := bus.SubscribeFiltered(func(event watcher.Event) bool {
   return event.Type == watcher.EventTypeFileChanged
 })
@@ -491,7 +490,7 @@ API (development snapshot)
 - POST /api/terminals - create a new terminal
 - DELETE /api/terminals/:id - terminate a terminal
 - GET /api/terminals/:id/output - recent output lines (buffered)
-- GET /api/plan - read .gestalt/PLAN.org contents
+- GET /api/plans - list plan documents in .gestalt/plans/
 - GET /api/logs - recent system logs (query: level, since, limit)
 
 Auth

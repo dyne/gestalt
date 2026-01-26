@@ -4,6 +4,7 @@
   import { getErrorMessage } from '../lib/errorUtils.js'
   import { formatRelativeTime } from '../lib/timeUtils.js'
   import { formatLogEntryForClipboard, normalizeLogEntry } from '../lib/logEntry.js'
+  import { canUseClipboard } from '../lib/clipboard.js'
   import ViewState from '../components/ViewState.svelte'
   import { createViewStateMachine } from '../lib/viewStateMachine.js'
   import { createLogStream } from '../lib/logStream.js'
@@ -134,6 +135,10 @@
   }
 
   const copyText = async (text, successMessage) => {
+    if (!canUseClipboard()) {
+      notificationStore.addNotification('error', 'Clipboard requires HTTPS.')
+      return
+    }
     if (!text) {
       notificationStore.addNotification('error', 'Nothing to copy.')
       return
@@ -249,7 +254,7 @@
                   <details class="log-entry__raw">
                     <summary>Raw JSON</summary>
                     <div class="log-entry__raw-actions">
-                      <button type="button" on:click={() => copyLogJson(entry)}>
+                      <button type="button" on:click={() => copyLogJson(entry)} disabled={!canUseClipboard()}>
                         Copy JSON
                       </button>
                     </div>
@@ -524,6 +529,11 @@
   .log-entry__raw-actions button:focus-visible {
     outline: 2px solid rgba(var(--color-text-rgb), 0.4);
     outline-offset: 2px;
+  }
+
+  .log-entry__raw-actions button:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
   }
 
   .log-entry__raw pre {

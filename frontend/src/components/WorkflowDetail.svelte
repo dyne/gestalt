@@ -8,6 +8,7 @@
     timestampValue,
     truncateText,
   } from '../lib/workflowFormat.js'
+  import { canUseClipboard } from '../lib/clipboard.js'
 
   export let workflow = {}
   export let onViewTerminal = () => {}
@@ -20,6 +21,9 @@
 
   const writeClipboardText = async (text) => {
     if (!text) return false
+    if (!canUseClipboard()) {
+      return false
+    }
     if (navigator.clipboard?.writeText) {
       try {
         await navigator.clipboard.writeText(text)
@@ -92,7 +96,7 @@
       <span class="label">Workflow ID</span>
       <div class="detail-copy">
         <span class="value">{workflow.workflow_id || '-'}</span>
-        <button type="button" on:click={copyWorkflowId} disabled={!workflow.workflow_id}>
+        <button type="button" on:click={copyWorkflowId} disabled={!workflow.workflow_id || !canUseClipboard()}>
           Copy
         </button>
         {#if copyStatus}

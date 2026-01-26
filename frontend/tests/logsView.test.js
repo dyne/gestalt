@@ -21,9 +21,17 @@ describe('LogsView', () => {
     addNotification.mockReset()
     createLogStream.mockReset()
     cleanup()
+    if ('isSecureContext' in window) {
+      delete window.isSecureContext
+    }
   })
 
   it('renders logs from the stream', async () => {
+    Object.defineProperty(window, 'isSecureContext', {
+      value: true,
+      configurable: true,
+    })
+
     createLogStream.mockImplementation((options) => ({
       start: vi.fn(() => {
         options?.onOpen?.()

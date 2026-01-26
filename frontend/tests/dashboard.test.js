@@ -80,6 +80,9 @@ describe('Dashboard', () => {
 
   afterEach(() => {
     cleanup()
+    if ('isSecureContext' in window) {
+      delete window.isSecureContext
+    }
   })
 
   it('renders agent buttons and calls onCreate', async () => {
@@ -105,6 +108,11 @@ describe('Dashboard', () => {
   })
 
   it('expands log details from recent logs', async () => {
+    Object.defineProperty(window, 'isSecureContext', {
+      value: true,
+      configurable: true,
+    })
+
     const dashboardStore = buildDashboardStore({
       logs: [
         {
@@ -154,6 +162,10 @@ describe('Dashboard', () => {
     const dashboardStore = buildDashboardStore()
     createDashboardStore.mockReturnValue(dashboardStore)
 
+    Object.defineProperty(window, 'isSecureContext', {
+      value: true,
+      configurable: true,
+    })
     const writeText = vi.fn(() => Promise.resolve())
     Object.assign(navigator, { clipboard: { writeText } })
 
@@ -182,5 +194,50 @@ describe('Dashboard', () => {
     expect(writeText).toHaveBeenCalledWith('origin')
     expect(writeText).toHaveBeenCalledWith('main')
     expect(addNotification).toHaveBeenCalledWith('info', expect.stringContaining('Copied'))
+  })
+
+  it('disables copy actions when clipboard is unavailable', async () => {
+    Object.defineProperty(window, 'isSecureContext', {
+      value: false,
+      configurable: true,
+    })
+
+    const dashboardStore = buildDashboardStore({
+      logs: [
+        {
+          id: 'log-1',
+          level: 'info',
+          timestamp: '2026-01-25T12:00:00Z',
+          message: 'Log entry',
+          context: { source: 'system' },
+          raw: { scope: 'unit' },
+        },
+      ],
+    })
+    createDashboardStore.mockReturnValue(dashboardStore)
+
+    const { findByText } = render(Dashboard, {
+      props: {
+        terminals: [],
+        status: {
+          terminal_count: 0,
+          working_dir: '/repo/path',
+          git_origin: 'origin',
+          git_branch: 'origin/main',
+        },
+      },
+    })
+
+    const workdir = await findByText('/repo/path')
+    expect(workdir.disabled).toBe(true)
+
+    const logEntry = await findByText('Log entry')
+    await fireEvent.click(logEntry)
+
+    const rawToggle = await findByText('Raw JSON')
+    await fireEvent.click(rawToggle)
+
+    const copyButton = await findByText('Copy JSON')
+    expect(copyButton.disabled).toBe(true)
   })
 })

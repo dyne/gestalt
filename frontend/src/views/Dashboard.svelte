@@ -5,6 +5,7 @@
   import { formatRelativeTime } from '../lib/timeUtils.js'
   import { formatLogEntryForClipboard } from '../lib/logEntry.js'
   import { notificationStore } from '../lib/notificationStore.js'
+  import { canUseClipboard } from '../lib/clipboard.js'
 
   export let terminals = []
   export let status = null
@@ -157,6 +158,10 @@
   }
 
   const copyText = async (text, successMessage) => {
+    if (!canUseClipboard()) {
+      notificationStore.addNotification('error', 'Clipboard requires HTTPS.')
+      return
+    }
     if (!text) {
       notificationStore.addNotification('error', 'Nothing to copy.')
       return
@@ -229,6 +234,7 @@
             class="status-pill status-pill--path"
             type="button"
             on:click={() => copyText(status?.working_dir || '', 'Copied workdir.')}
+            disabled={!canUseClipboard()}
           >
             {status?.working_dir || '—'}
           </button>
@@ -239,6 +245,7 @@
             class="status-pill status-pill--git"
             type="button"
             on:click={() => copyText(status?.git_origin || '', 'Copied git remote.')}
+            disabled={!canUseClipboard()}
           >
             {status?.git_origin || '—'}
           </button>
@@ -251,6 +258,7 @@
             on:click={() =>
               copyText(gitBranchName(status?.git_origin, status?.git_branch), 'Copied git branch.')
             }
+            disabled={!canUseClipboard()}
           >
             {gitBranchName(status?.git_origin, status?.git_branch) || '—'}
           </button>
@@ -424,7 +432,7 @@
                       <details class="log-entry__raw">
                         <summary>Raw JSON</summary>
                         <div class="log-entry__raw-actions">
-                          <button type="button" on:click={() => copyLogJson(entry)}>
+                          <button type="button" on:click={() => copyLogJson(entry)} disabled={!canUseClipboard()}>
                             Copy JSON
                           </button>
                         </div>
@@ -685,6 +693,11 @@
   .status-pill:focus-visible {
     outline: 2px solid rgba(var(--color-text-rgb), 0.4);
     outline-offset: 2px;
+  }
+
+  .status-pill:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
   }
 
   .status-pill--path {
@@ -1141,6 +1154,11 @@
   .log-entry__raw-actions button:focus-visible {
     outline: 2px solid rgba(var(--color-text-rgb), 0.4);
     outline-offset: 2px;
+  }
+
+  .log-entry__raw-actions button:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
   }
 
   .log-entry__raw pre {

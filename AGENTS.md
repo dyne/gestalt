@@ -117,6 +117,11 @@ terminal output -> Session output bus -> /ws/terminal/:id -> xterm
 - `scip-typescript-finder` is reference-only; parsing logic is copied into `cmd/gestalt-scip/src/lib`.
 - Prompt guidance: `config/prompts/scip.tmpl` prefers the API, while `config/prompts/scip-cli.md` documents offline CLI-first navigation.
 
+## SCIP UI notes (2026-01-26)
+- `frontend/src/lib/scipStore.js` clears reindex timers/in-flight state on stop to avoid sticky reindex guards.
+- `frontend/src/views/Dashboard.svelte` disables the SCIP reindex button while the action is pending.
+- Tests cover reindex pending/error UI paths and stop-reset behavior (`frontend/tests/scipStore.test.js`, `frontend/tests/dashboard.test.js`).
+
 ## OpenTelemetry observability
 - Collector lifecycle lives in `internal/otel/collector.go`; config `.gestalt/otel/collector.yaml`, data file `.gestalt/otel/otel.json`.
 - SDK setup in `internal/otel/sdk.go`; env: `GESTALT_OTEL_SDK_ENABLED`, `GESTALT_OTEL_SERVICE_NAME`, `GESTALT_OTEL_RESOURCE_ATTRIBUTES`.

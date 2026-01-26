@@ -28,6 +28,15 @@ const normalizeLevel = (value) => {
   if (value === null || value === undefined || value === '') {
     return 'info'
   }
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (/^\d+$/.test(trimmed)) {
+      const numeric = Number(trimmed)
+      if (!Number.isNaN(numeric)) {
+        return normalizeLevel(numeric)
+      }
+    }
+  }
   if (typeof value === 'number') {
     if (value >= 17) return 'error'
     if (value >= 13) return 'warning'
@@ -100,47 +109,35 @@ const normalizeContext = (...sources) => {
 
 const normalizeMessage = (entry) => {
   if (!entry) return ''
-  const body = entry.body ?? entry.Body
+  const body = entry.body ?? entry
   if (typeof body === 'string') {
     return body
   }
   if (body && typeof body === 'object') {
-    if (body.stringValue) return body.stringValue
-    if (body.StringValue) return body.StringValue
-    if (body.value) return body.value
-    if (body.Value) return body.Value
+    const extracted = readAttributeValue(body)
+    if (extracted !== body) {
+      return stringifyContextValue(extracted)
+    }
     try {
       return JSON.stringify(body)
     } catch {
       return String(body)
     }
   }
-  return entry.message || entry.Message || entry.event_name || entry.eventName || ''
+  return ''
 }
 
 export const normalizeLogEntry = (entry) => {
-  if (!entry) return null
+  if (!entry || typeof entry !== 'object') return null
   const raw = entry.raw ?? entry
   const timestamp = normalizeTimestamp(
-    entry?.timestamp ??
-      entry?.time ??
-      entry?.time_unix_nano ??
-      entry?.timeUnixNano ??
-      entry?.observed_timestamp ??
-      entry?.observedTimestamp ??
-      entry?.observed_time_unix_nano ??
-      entry?.observedTimeUnixNano,
+    entry?.timeUnixNano ?? entry?.observedTimeUnixNano,
   )
   const level = normalizeLevel(
-    entry?.severity ??
-      entry?.severity_number ??
-      entry?.severityNumber ??
-      entry?.severity_text ??
-      entry?.severityText ??
-      entry?.level,
+    entry?.severityNumber ?? entry?.severityText,
   )
-  const message = normalizeMessage(entry)
-  const context = normalizeContext(entry?.context, entry?.attributes, entry?.attrs)
+  const message = normalizeMessage(entry?.body)
+  const context = normalizeContext(entry?.attributes)
   const id = entry?.id || `${timestamp}-${level}-${message}`
   return {
     id,

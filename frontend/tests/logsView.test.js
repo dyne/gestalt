@@ -38,10 +38,10 @@ describe('LogsView', () => {
       start: vi.fn(() => {
         options?.onOpen?.()
         options?.onEntry?.({
-          severity_text: 'INFO',
-          body: 'hello',
-          timestamp: '2025-01-01T00:00:00Z',
-          attributes: { scope: 'test' },
+          timeUnixNano: '1700000000000000',
+          severityText: 'INFO',
+          body: { stringValue: 'hello' },
+          attributes: [{ key: 'scope', value: { stringValue: 'test' } }],
         })
       }),
       stop: vi.fn(),
@@ -83,10 +83,10 @@ describe('LogsView', () => {
       start: vi.fn(() => {
         options?.onOpen?.()
         options?.onEntry?.({
-          severity_text: 'INFO',
-          body: 'hello',
-          timestamp: '2025-01-01T00:00:00Z',
-          attributes: { scope: 'test' },
+          timeUnixNano: '1700000000000000',
+          severityText: 'INFO',
+          body: { stringValue: 'hello' },
+          attributes: [{ key: 'scope', value: { stringValue: 'test' } }],
         })
       }),
       stop: vi.fn(),

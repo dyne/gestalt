@@ -87,10 +87,13 @@
   }
 
   const handleScipReindex = async () => {
+    actionPending = true
     try {
       await dashboardStore.reindexScip()
     } catch (err) {
       console.error('[dashboard] SCIP reindex failed', err)
+    } finally {
+      actionPending = false
     }
   }
 

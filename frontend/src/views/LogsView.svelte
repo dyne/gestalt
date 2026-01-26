@@ -4,6 +4,7 @@
   import { getErrorMessage } from '../lib/errorUtils.js'
   import { formatRelativeTime } from '../lib/timeUtils.js'
   import { normalizeLogEntry } from '../lib/logEntry.js'
+  import LogDetailsDialog from '../components/LogDetailsDialog.svelte'
   import ViewState from '../components/ViewState.svelte'
   import { createViewStateMachine } from '../lib/viewStateMachine.js'
   import { createLogStream } from '../lib/logStream.js'
@@ -18,12 +19,12 @@
   let levelFilter = 'info'
   let autoRefresh = true
   let lastUpdated = null
-  let expanded = new Set()
   let lastErrorMessage = ''
   let logStream = null
   let streamActive = false
   let pendingStop = false
   let stopTimer = null
+  let selectedLogEntry = null
 
   const levelOptions = [
     { value: 'debug', label: 'Debug' },
@@ -126,17 +127,15 @@
     stopStream()
   }
 
-  const toggleExpanded = (entryId) => {
-    const next = new Set(expanded)
-    if (next.has(entryId)) {
-      next.delete(entryId)
-    } else {
-      next.add(entryId)
-    }
-    expanded = next
+  const entryKey = (entry, index) => entry?.id || `${entry.timestamp}-${entry.message}-${index}`
+
+  const openLogDetails = (entry) => {
+    selectedLogEntry = entry
   }
 
-  const entryKey = (entry, index) => entry?.id || `${entry.timestamp}-${entry.message}-${index}`
+  const closeLogDetails = () => {
+    selectedLogEntry = null
+  }
 
   $: orderedLogs = [...logs].reverse()
  
@@ -198,11 +197,7 @@
       <ul>
         {#each orderedLogs as entry, index (entryKey(entry, index))}
           <li class={`log-entry log-entry--${entry.level}`}>
-            <button
-              class="log-entry__button"
-              type="button"
-              on:click={() => toggleExpanded(entryKey(entry, index))}
-            >
+            <button class="log-entry__button" type="button" on:click={() => openLogDetails(entry)}>
               <div class="log-entry__summary">
                 <div class="log-entry__meta">
                   <span class="badge">{entry.level}</span>
@@ -211,14 +206,17 @@
                 <p>{entry.message}</p>
               </div>
             </button>
-            {#if expanded.has(entryKey(entry, index))}
-              <pre class="log-entry__context">{JSON.stringify(entry, null, 2)}</pre>
-            {/if}
           </li>
         {/each}
       </ul>
     </ViewState>
   </section>
+
+  <LogDetailsDialog
+    entry={selectedLogEntry}
+    open={Boolean(selectedLogEntry)}
+    on:close={closeLogDetails}
+  />
 </section>
 
 <style>
@@ -390,15 +388,6 @@
 
   .log-entry--error .badge {
     background: var(--color-danger);
-  }
-
-  .log-entry__context {
-    margin: 0.6rem 0 0;
-    background: rgba(var(--color-text-rgb), 0.05);
-    padding: 0.6rem;
-    border-radius: 12px;
-    font-size: 0.75rem;
-    white-space: pre-wrap;
   }
 
   @media (max-width: 720px) {

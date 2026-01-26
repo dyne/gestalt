@@ -45,8 +45,8 @@ describe('LogsView', () => {
     expect(entry).toBeTruthy()
 
     await fireEvent.click(entry)
-    await findByText(/\"scope\": \"test\"/)
-    await findByText(/\"raw\":/)
+    await findByText('scope')
+    await findByText('test')
 
     const autoRefresh = getByLabelText('Live updates')
     await fireEvent.click(autoRefresh)

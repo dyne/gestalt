@@ -86,8 +86,12 @@
     return formatRelativeTime(value) || '—'
   }
 
-  const handleScipReindex = () => {
-    void dashboardStore.reindexScip()
+  const handleScipReindex = async () => {
+    try {
+      await dashboardStore.reindexScip()
+    } catch (err) {
+      console.error('[dashboard] SCIP reindex failed', err)
+    }
   }
 
   const formatCount = (value) => {
@@ -293,7 +297,7 @@
       class:status-card--scip-error={scipHasError && !scipStatus?.in_progress}
       type="button"
       on:click={handleScipReindex}
-      disabled={scipStatus?.in_progress}
+      disabled={scipStatus?.in_progress || actionPending}
     >
       <span class="label">SCIP indexing</span>
       {#if scipStatus?.in_progress}

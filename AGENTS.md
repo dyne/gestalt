@@ -119,6 +119,7 @@ terminal output -> Session output bus -> /ws/terminal/:id -> xterm
 - SDK setup in `internal/otel/sdk.go`; env: `GESTALT_OTEL_SDK_ENABLED`, `GESTALT_OTEL_SERVICE_NAME`, `GESTALT_OTEL_RESOURCE_ATTRIBUTES`.
 - APIs: `/api/otel/logs`, `/api/otel/traces`, `/api/otel/metrics`; `/api/logs` GET proxies to OTel when collector is active; `/api/metrics/summary` exposes API stats.
 - Remote export: `GESTALT_OTEL_REMOTE_ENDPOINT` + `GESTALT_OTEL_REMOTE_INSECURE` adds otlpexporter to collector pipelines.
+- Collector self-metrics are disabled in generated config; set `GESTALT_OTEL_SELF_METRICS=true` to keep default telemetry readers.
 - Limits: `GESTALT_OTEL_MAX_RECORDS` caps records read from `otel.json`; `/api/otel/*` limit is capped at 1000.
 
 ## Recent changes (2026-01-10 to 2026-01-23)

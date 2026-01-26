@@ -4,17 +4,21 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
-	"gestalt/internal/logging"
+	"gestalt/internal/otel"
 
 	"github.com/gorilla/websocket"
 )
 
 func TestLogsWebSocketStream(t *testing.T) {
-	logger := logging.NewLoggerWithOutput(logging.NewLogBuffer(10), logging.LevelInfo, nil)
+	hub := otel.NewLogHub(time.Hour)
+	previous := otel.ActiveLogHub()
+	otel.SetActiveLogHub(hub)
+	t.Cleanup(func() { otel.SetActiveLogHub(previous) })
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -22,7 +26,7 @@ func TestLogsWebSocketStream(t *testing.T) {
 	}
 	server := &httptest.Server{
 		Listener: listener,
-		Config:   &http.Server{Handler: &LogsHandler{Logger: logger}},
+		Config:   &http.Server{Handler: &LogsHandler{}},
 	}
 	server.Start()
 	defer server.Close()
@@ -34,27 +38,30 @@ func TestLogsWebSocketStream(t *testing.T) {
 	}
 	defer conn.Close()
 
-	logger.Info("hello", map[string]string{"component": "test"})
+	hub.Append(buildOTLPRecord("hello", "INFO", map[string]string{"component": "test"}))
 
 	_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-	var entry logging.LogEntry
+	var entry map[string]any
 	if err := conn.ReadJSON(&entry); err != nil {
 		t.Fatalf("read websocket: %v", err)
 	}
-	if entry.Message != "hello" {
-		t.Fatalf("expected message hello, got %q", entry.Message)
+	if logBody(entry) != "hello" {
+		t.Fatalf("expected message hello, got %q", logBody(entry))
 	}
-	if entry.Level != logging.LevelInfo {
-		t.Fatalf("expected level info, got %q", entry.Level)
+	if text, _ := entry["severityText"].(string); text != "INFO" {
+		t.Fatalf("expected severity INFO, got %v", entry["severityText"])
 	}
-	if entry.Context["component"] != "test" {
-		t.Fatalf("expected context component=test, got %v", entry.Context)
+	if attrValue(entry, "component") != "test" {
+		t.Fatalf("expected attribute component=test, got %q", attrValue(entry, "component"))
 	}
 }
 
 func TestLogsWebSocketSnapshot(t *testing.T) {
-	logger := logging.NewLoggerWithOutput(logging.NewLogBuffer(10), logging.LevelInfo, nil)
-	logger.Warn("snapshot entry", map[string]string{"source": "preconnect"})
+	hub := otel.NewLogHub(time.Hour)
+	previous := otel.ActiveLogHub()
+	otel.SetActiveLogHub(hub)
+	t.Cleanup(func() { otel.SetActiveLogHub(previous) })
+	hub.Append(buildOTLPRecord("snapshot entry", "WARN", map[string]string{"source": "preconnect"}))
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -62,7 +69,7 @@ func TestLogsWebSocketSnapshot(t *testing.T) {
 	}
 	server := &httptest.Server{
 		Listener: listener,
-		Config:   &http.Server{Handler: &LogsHandler{Logger: logger}},
+		Config:   &http.Server{Handler: &LogsHandler{}},
 	}
 	server.Start()
 	defer server.Close()
@@ -75,23 +82,29 @@ func TestLogsWebSocketSnapshot(t *testing.T) {
 	defer conn.Close()
 
 	_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-	var entry logging.LogEntry
+	var entry map[string]any
 	if err := conn.ReadJSON(&entry); err != nil {
 		t.Fatalf("read websocket: %v", err)
 	}
-	if entry.Message != "snapshot entry" {
-		t.Fatalf("expected snapshot entry, got %q", entry.Message)
+	if logBody(entry) != "snapshot entry" {
+		t.Fatalf("expected snapshot entry, got %q", logBody(entry))
 	}
-	if entry.Level != logging.LevelWarning {
-		t.Fatalf("expected level warning, got %q", entry.Level)
+	if text, _ := entry["severityText"].(string); text != "WARN" {
+		t.Fatalf("expected severity WARN, got %v", entry["severityText"])
 	}
-	if entry.Context["source"] != "preconnect" {
-		t.Fatalf("expected context source=preconnect, got %v", entry.Context)
+	if attrValue(entry, "source") != "preconnect" {
+		t.Fatalf("expected attribute source=preconnect, got %q", attrValue(entry, "source"))
+	}
+	if attrValue(entry, "gestalt.replay_window") != "1h" {
+		t.Fatalf("expected replay_window attribute, got %q", attrValue(entry, "gestalt.replay_window"))
 	}
 }
 
 func TestLogsWebSocketAuth(t *testing.T) {
-	logger := logging.NewLoggerWithOutput(logging.NewLogBuffer(10), logging.LevelInfo, nil)
+	hub := otel.NewLogHub(time.Hour)
+	previous := otel.ActiveLogHub()
+	otel.SetActiveLogHub(hub)
+	t.Cleanup(func() { otel.SetActiveLogHub(previous) })
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -100,7 +113,6 @@ func TestLogsWebSocketAuth(t *testing.T) {
 	server := &httptest.Server{
 		Listener: listener,
 		Config: &http.Server{Handler: &LogsHandler{
-			Logger:    logger,
 			AuthToken: "secret",
 		}},
 	}
@@ -125,7 +137,10 @@ func TestLogsWebSocketAuth(t *testing.T) {
 }
 
 func TestLogsWebSocketQueryFilter(t *testing.T) {
-	logger := logging.NewLoggerWithOutput(logging.NewLogBuffer(10), logging.LevelInfo, nil)
+	hub := otel.NewLogHub(time.Hour)
+	previous := otel.ActiveLogHub()
+	otel.SetActiveLogHub(hub)
+	t.Cleanup(func() { otel.SetActiveLogHub(previous) })
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -133,7 +148,7 @@ func TestLogsWebSocketQueryFilter(t *testing.T) {
 	}
 	server := &httptest.Server{
 		Listener: listener,
-		Config:   &http.Server{Handler: &LogsHandler{Logger: logger}},
+		Config:   &http.Server{Handler: &LogsHandler{}},
 	}
 	server.Start()
 	defer server.Close()
@@ -145,24 +160,27 @@ func TestLogsWebSocketQueryFilter(t *testing.T) {
 	}
 	defer conn.Close()
 
-	logger.Info("info msg", nil)
-	logger.Warn("warn msg", nil)
+	hub.Append(buildOTLPRecord("info msg", "INFO", nil))
+	hub.Append(buildOTLPRecord("warn msg", "WARN", nil))
 
 	_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-	var entry logging.LogEntry
+	var entry map[string]any
 	if err := conn.ReadJSON(&entry); err != nil {
 		t.Fatalf("read websocket: %v", err)
 	}
-	if entry.Level != logging.LevelWarning {
-		t.Fatalf("expected warning, got %q", entry.Level)
+	if text, _ := entry["severityText"].(string); text != "WARN" {
+		t.Fatalf("expected WARN, got %v", entry["severityText"])
 	}
-	if entry.Message != "warn msg" {
-		t.Fatalf("expected warn msg, got %q", entry.Message)
+	if logBody(entry) != "warn msg" {
+		t.Fatalf("expected warn msg, got %q", logBody(entry))
 	}
 }
 
 func TestLogsWebSocketMessageFilter(t *testing.T) {
-	logger := logging.NewLoggerWithOutput(logging.NewLogBuffer(10), logging.LevelInfo, nil)
+	hub := otel.NewLogHub(time.Hour)
+	previous := otel.ActiveLogHub()
+	otel.SetActiveLogHub(hub)
+	t.Cleanup(func() { otel.SetActiveLogHub(previous) })
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -170,7 +188,7 @@ func TestLogsWebSocketMessageFilter(t *testing.T) {
 	}
 	server := &httptest.Server{
 		Listener: listener,
-		Config:   &http.Server{Handler: &LogsHandler{Logger: logger}},
+		Config:   &http.Server{Handler: &LogsHandler{}},
 	}
 	server.Start()
 	defer server.Close()
@@ -187,24 +205,27 @@ func TestLogsWebSocketMessageFilter(t *testing.T) {
 	}
 	time.Sleep(10 * time.Millisecond)
 
-	logger.Warn("warn msg", nil)
-	logger.Error("error msg", nil)
+	hub.Append(buildOTLPRecord("warn msg", "WARN", nil))
+	hub.Append(buildOTLPRecord("error msg", "ERROR", nil))
 
 	_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-	var entry logging.LogEntry
+	var entry map[string]any
 	if err := conn.ReadJSON(&entry); err != nil {
 		t.Fatalf("read websocket: %v", err)
 	}
-	if entry.Level != logging.LevelError {
-		t.Fatalf("expected error, got %q", entry.Level)
+	if text, _ := entry["severityText"].(string); text != "ERROR" {
+		t.Fatalf("expected ERROR, got %v", entry["severityText"])
 	}
-	if entry.Message != "error msg" {
-		t.Fatalf("expected error msg, got %q", entry.Message)
+	if logBody(entry) != "error msg" {
+		t.Fatalf("expected error msg, got %q", logBody(entry))
 	}
 }
 
 func TestLogsWebSocketCloseEndsHandler(t *testing.T) {
-	logger := logging.NewLoggerWithOutput(logging.NewLogBuffer(10), logging.LevelInfo, nil)
+	hub := otel.NewLogHub(time.Hour)
+	previous := otel.ActiveLogHub()
+	otel.SetActiveLogHub(hub)
+	t.Cleanup(func() { otel.SetActiveLogHub(previous) })
 	handlerDone := make(chan struct{})
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -214,7 +235,7 @@ func TestLogsWebSocketCloseEndsHandler(t *testing.T) {
 	server := &httptest.Server{
 		Listener: listener,
 		Config: &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			(&LogsHandler{Logger: logger}).ServeHTTP(w, r)
+			(&LogsHandler{}).ServeHTTP(w, r)
 			close(handlerDone)
 		})},
 	}
@@ -234,4 +255,48 @@ func TestLogsWebSocketCloseEndsHandler(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 		t.Fatalf("handler did not exit after close")
 	}
+}
+
+func buildOTLPRecord(message, severity string, attrs map[string]string) map[string]any {
+	record := map[string]any{
+		"timeUnixNano": strconv.FormatInt(time.Now().UnixNano(), 10),
+		"severityText": severity,
+		"body":         map[string]any{"stringValue": message},
+	}
+	if len(attrs) == 0 {
+		return record
+	}
+	attributes := make([]any, 0, len(attrs))
+	for key, value := range attrs {
+		attributes = append(attributes, map[string]any{
+			"key": key,
+			"value": map[string]any{
+				"stringValue": value,
+			},
+		})
+	}
+	record["attributes"] = attributes
+	return record
+}
+
+func attrValue(record map[string]any, key string) string {
+	attributes := asSlice(record["attributes"])
+	for _, entry := range attributes {
+		entryMap := asMap(entry)
+		if entryMap == nil {
+			continue
+		}
+		entryKey, _ := extractString(entryMap, "key")
+		if entryKey != key {
+			continue
+		}
+		valueMap := asMap(entryMap["value"])
+		if valueMap == nil {
+			return ""
+		}
+		if value, ok := valueMap["stringValue"].(string); ok {
+			return value
+		}
+	}
+	return ""
 }

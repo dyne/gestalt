@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gestalt/internal/logging"
+	"gestalt/internal/otel"
 
 	"github.com/gorilla/websocket"
 )
@@ -43,15 +44,6 @@ func (h *LogsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.Logger == nil {
-		writeWSError(w, r, nil, h.Logger, wsError{
-			Status:       http.StatusInternalServerError,
-			Message:      "logger unavailable",
-			SendEnvelope: true,
-		})
-		return
-	}
-
 	filter := &levelFilter{}
 	if rawLevel := r.URL.Query().Get("level"); rawLevel != "" {
 		if level, ok := logging.ParseLevel(rawLevel); ok {
@@ -59,16 +51,20 @@ func (h *LogsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	output, cancel := h.Logger.SubscribeFiltered(func(entry logging.LogEntry) bool {
-		minLevel := filter.Get()
-		if minLevel == "" {
-			return true
-		}
-		return logging.LevelAtLeast(entry.Level, minLevel)
-	})
+	hub := otel.ActiveLogHub()
+	if hub == nil {
+		writeWSError(w, r, nil, h.Logger, wsError{
+			Status:       http.StatusServiceUnavailable,
+			Message:      "log stream unavailable",
+			SendEnvelope: true,
+		})
+		return
+	}
+
+	output, cancel := hub.Subscribe()
 	if output == nil {
 		writeWSError(w, r, nil, h.Logger, wsError{
-			Status:       http.StatusInternalServerError,
+			Status:       http.StatusServiceUnavailable,
 			Message:      "log stream unavailable",
 			SendEnvelope: true,
 		})
@@ -91,14 +87,24 @@ func (h *LogsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer span.End()
 	r = r.WithContext(spanCtx)
 
-	snapshot := logSnapshot(h.Logger)
-	writer, err := startWSWriteLoop(w, r, wsStreamConfig[logging.LogEntry]{
+	snapshot := hub.SnapshotSince(time.Now().Add(-time.Hour))
+	writer, err := startWSWriteLoop(w, r, wsStreamConfig[map[string]any]{
 		Conn:           conn,
 		AllowedOrigins: h.AllowedOrigins,
 		Output:         output,
 		Logger:         h.Logger,
 		PreWrite: func(conn *websocket.Conn) error {
 			return writeLogSnapshot(conn, snapshot, filter.Get())
+		},
+		BuildPayload: func(entry map[string]any) (any, bool) {
+			if entry == nil {
+				return nil, false
+			}
+			minLevel := filter.Get()
+			if minLevel != "" && !logging.LevelAtLeast(otelLogLevel(entry), minLevel) {
+				return nil, false
+			}
+			return entry, true
 		},
 	})
 	if err != nil {
@@ -135,31 +141,43 @@ func (h *LogsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func logSnapshot(logger *logging.Logger) []logging.LogEntry {
-	if logger == nil {
-		return nil
-	}
-	buffer := logger.Buffer()
-	if buffer == nil {
-		return nil
-	}
-	return buffer.List()
-}
-
-func writeLogSnapshot(conn *websocket.Conn, entries []logging.LogEntry, minLevel logging.Level) error {
+func writeLogSnapshot(conn *websocket.Conn, entries []map[string]any, minLevel logging.Level) error {
 	if conn == nil || len(entries) == 0 {
 		return nil
 	}
 	for _, entry := range entries {
-		if minLevel != "" && !logging.LevelAtLeast(entry.Level, minLevel) {
+		if entry == nil {
+			continue
+		}
+		if minLevel != "" && !logging.LevelAtLeast(otelLogLevel(entry), minLevel) {
 			continue
 		}
 		if err := conn.SetWriteDeadline(time.Now().Add(wsWriteTimeout)); err != nil {
 			return err
 		}
-		if err := writeJSONPayload(conn, entry); err != nil {
+		if err := writeJSONPayload(conn, annotateReplay(entry)); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func annotateReplay(entry map[string]any) map[string]any {
+	cloned := make(map[string]any, len(entry))
+	for key, value := range entry {
+		cloned[key] = value
+	}
+	attributes := asSlice(entry["attributes"])
+	updated := make([]any, 0, len(attributes)+1)
+	if len(attributes) > 0 {
+		updated = append(updated, attributes...)
+	}
+	updated = append(updated, map[string]any{
+		"key": "gestalt.replay_window",
+		"value": map[string]any{
+			"stringValue": "1h",
+		},
+	})
+	cloned["attributes"] = updated
+	return cloned
 }

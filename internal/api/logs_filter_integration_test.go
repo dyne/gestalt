@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"gestalt/internal/logging"
+	"gestalt/internal/otel"
 	"gestalt/internal/temporal/activities"
 	"gestalt/internal/terminal"
 
@@ -59,28 +60,19 @@ func waitForSessionOutput(session *terminal.Session, minimumLines int) bool {
 	return false
 }
 
-func findLogEntry(entries []logging.LogEntry, message string) (logging.LogEntry, bool) {
-	for _, entry := range entries {
-		if entry.Message == message {
-			return entry, true
-		}
-	}
-	return logging.LogEntry{}, false
-}
-
-func readLogEntryWithMessage(conn *websocket.Conn, message string, timeout time.Duration) (logging.LogEntry, error) {
+func readLogEntryWithMessage(conn *websocket.Conn, message string, timeout time.Duration) (map[string]any, error) {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		_ = conn.SetReadDeadline(deadline)
-		var entry logging.LogEntry
+		var entry map[string]any
 		if err := conn.ReadJSON(&entry); err != nil {
-			return logging.LogEntry{}, err
+			return nil, err
 		}
-		if entry.Message == message {
+		if logBody(entry) == message {
 			return entry, nil
 		}
 	}
-	return logging.LogEntry{}, errors.New("log entry not found")
+	return nil, errors.New("log entry not found")
 }
 
 func assertFilteredContext(t *testing.T, value string) {
@@ -95,6 +87,14 @@ func assertFilteredContext(t *testing.T, value string) {
 
 func TestLogsFilteringWebSocketAndREST(t *testing.T) {
 	logger := logging.NewLoggerWithOutput(logging.NewLogBuffer(50), logging.LevelDebug, nil)
+	hub := otel.NewLogHub(time.Hour)
+	previous := otel.ActiveLogHub()
+	otel.SetActiveLogHub(hub)
+	stopFallback := otel.StartLogHubFallback(logger, otel.SDKOptions{ServiceName: "gestalt-test"})
+	t.Cleanup(func() {
+		stopFallback()
+		otel.SetActiveLogHub(previous)
+	})
 	factory := &ansiPtyFactory{
 		output:   "ok\x1b[31mred\x1b[0m\n-----\n",
 		closeErr: errors.New("pty close failed"),
@@ -146,12 +146,12 @@ func TestLogsFilteringWebSocketAndREST(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read bell entry: %v", err)
 	}
-	assertFilteredContext(t, bellEntry.Context["context"])
+	assertFilteredContext(t, attrValue(bellEntry, "context"))
 
 	closeEntry, err := readLogEntryWithMessage(conn, "terminal close error", 500*time.Millisecond)
 	if err != nil {
 		t.Fatalf("read close entry: %v", err)
 	}
-	assertFilteredContext(t, closeEntry.Context["output_tail"])
+	assertFilteredContext(t, attrValue(closeEntry, "output_tail"))
 
 }

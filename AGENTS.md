@@ -86,6 +86,9 @@ terminal output -> Session output bus -> /ws/terminal/:id -> xterm
 - Exactly one WIP L1 and one WIP L2 at a time.
 - For non-tiny work: update the plan first, then ask for confirmation before implementing.
 
+## Plan UI notes (2026-01-26)
+- Plans are served via `/api/plans` (metadata + headings) from `.gestalt/plans/`; PlanView renders PlanCard details/summary and refreshes on file change events.
+
 ## Conventions + tooling
 - Prefer minimal changes and dependencies; ASCII-only edits unless file already uses non-ASCII.
 - Avoid destructive git commands unless explicitly requested.

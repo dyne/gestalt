@@ -478,89 +478,105 @@
         <p class="muted">No metrics yet.</p>
       {:else}
         <div class="metrics-grid">
-          <div class="metrics-card">
-            <div class="metrics-card__header">
-              <h3>Top endpoints</h3>
-              <span class="metrics-pill">Requests</span>
-            </div>
-            {#if (metricsSummary.top_endpoints || []).length === 0}
-              <p class="muted">No traffic yet.</p>
-            {:else}
-              <ul class="metrics-list">
-                {#each metricsSummary.top_endpoints as entry (entry.route)}
-                  <li>
-                    <span class="metric-label metric-label--mono">{entry.route}</span>
-                    <span class="metric-value">{formatCount(entry.count)}</span>
-                  </li>
-                {/each}
-              </ul>
-            {/if}
-          </div>
-
-          <div class="metrics-card">
-            <div class="metrics-card__header">
-              <h3>Slowest endpoints</h3>
-              <span class="metrics-pill">p99 latency</span>
-            </div>
-            {#if (metricsSummary.slowest_endpoints || []).length === 0}
-              <p class="muted">No latency data yet.</p>
-            {:else}
-              <ul class="metrics-list">
-                {#each metricsSummary.slowest_endpoints as entry (entry.route)}
-                  <li>
-                    <div class="metric-stack">
+          <details class="metrics-card">
+            <summary class="metrics-card__summary">
+              <div class="metrics-card__header">
+                <h3>Top endpoints</h3>
+                <span class="metrics-pill">Requests</span>
+              </div>
+            </summary>
+            <div class="metrics-card__body">
+              {#if (metricsSummary.top_endpoints || []).length === 0}
+                <p class="muted">No traffic yet.</p>
+              {:else}
+                <ul class="metrics-list">
+                  {#each metricsSummary.top_endpoints as entry (entry.route)}
+                    <li>
                       <span class="metric-label metric-label--mono">{entry.route}</span>
-                      <span class="metric-detail">{formatCount(entry.count)} request(s)</span>
-                    </div>
-                    <span class="metric-value">{formatDuration(entry.p99_seconds)}</span>
-                  </li>
-                {/each}
-              </ul>
-            {/if}
-          </div>
-
-          <div class="metrics-card">
-            <div class="metrics-card__header">
-              <h3>Top agents</h3>
-              <span class="metrics-pill">Requests</span>
+                      <span class="metric-value">{formatCount(entry.count)}</span>
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
             </div>
-            {#if (metricsSummary.top_agents || []).length === 0}
-              <p class="muted">No agent traffic yet.</p>
-            {:else}
-              <ul class="metrics-list">
-                {#each metricsSummary.top_agents as entry (entry.name)}
-                  <li>
-                    <span class="metric-label">{entry.name}</span>
-                    <span class="metric-value">{formatCount(entry.count)}</span>
-                  </li>
-                {/each}
-              </ul>
-            {/if}
-          </div>
+          </details>
 
-          <div class="metrics-card">
-            <div class="metrics-card__header">
-              <h3>Error rates</h3>
-              <span class="metrics-pill">By category</span>
+          <details class="metrics-card">
+            <summary class="metrics-card__summary">
+              <div class="metrics-card__header">
+                <h3>Slowest endpoints</h3>
+                <span class="metrics-pill">p99 latency</span>
+              </div>
+            </summary>
+            <div class="metrics-card__body">
+              {#if (metricsSummary.slowest_endpoints || []).length === 0}
+                <p class="muted">No latency data yet.</p>
+              {:else}
+                <ul class="metrics-list">
+                  {#each metricsSummary.slowest_endpoints as entry (entry.route)}
+                    <li>
+                      <div class="metric-stack">
+                        <span class="metric-label metric-label--mono">{entry.route}</span>
+                        <span class="metric-detail">{formatCount(entry.count)} request(s)</span>
+                      </div>
+                      <span class="metric-value">{formatDuration(entry.p99_seconds)}</span>
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
             </div>
-            {#if (metricsSummary.error_rates || []).length === 0}
-              <p class="muted">No errors recorded.</p>
-            {:else}
-              <ul class="metrics-list metrics-list--stacked">
-                {#each metricsSummary.error_rates as entry (entry.category)}
-                  <li>
-                    <div class="metric-row">
-                      <span class="metric-label">{entry.category}</span>
-                      <span class="metric-value">{formatPercent(entry.error_rate_pct)}</span>
-                    </div>
-                    <span class="metric-detail">
-                      {formatCount(entry.errors)} errors / {formatCount(entry.total)} total
-                    </span>
-                  </li>
-                {/each}
-              </ul>
-            {/if}
-          </div>
+          </details>
+
+          <details class="metrics-card">
+            <summary class="metrics-card__summary">
+              <div class="metrics-card__header">
+                <h3>Top agents</h3>
+                <span class="metrics-pill">Requests</span>
+              </div>
+            </summary>
+            <div class="metrics-card__body">
+              {#if (metricsSummary.top_agents || []).length === 0}
+                <p class="muted">No agent traffic yet.</p>
+              {:else}
+                <ul class="metrics-list">
+                  {#each metricsSummary.top_agents as entry (entry.name)}
+                    <li>
+                      <span class="metric-label">{entry.name}</span>
+                      <span class="metric-value">{formatCount(entry.count)}</span>
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
+            </div>
+          </details>
+
+          <details class="metrics-card">
+            <summary class="metrics-card__summary">
+              <div class="metrics-card__header">
+                <h3>Error rates</h3>
+                <span class="metrics-pill">By category</span>
+              </div>
+            </summary>
+            <div class="metrics-card__body">
+              {#if (metricsSummary.error_rates || []).length === 0}
+                <p class="muted">No errors recorded.</p>
+              {:else}
+                <ul class="metrics-list metrics-list--stacked">
+                  {#each metricsSummary.error_rates as entry (entry.category)}
+                    <li>
+                      <div class="metric-row">
+                        <span class="metric-label">{entry.category}</span>
+                        <span class="metric-value">{formatPercent(entry.error_rate_pct)}</span>
+                      </div>
+                      <span class="metric-detail">
+                        {formatCount(entry.errors)} errors / {formatCount(entry.total)} total
+                      </span>
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
+            </div>
+          </details>
         </div>
       {/if}
     </section>
@@ -890,6 +906,28 @@
     display: flex;
     flex-direction: column;
     gap: 0.7rem;
+  }
+
+  .metrics-card__summary {
+    list-style: none;
+    cursor: pointer;
+  }
+
+  .metrics-card__summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .metrics-card__summary::marker {
+    content: '';
+  }
+
+  .metrics-card__summary:focus-visible {
+    outline: 2px solid rgba(var(--color-text-rgb), 0.35);
+    outline-offset: 2px;
+  }
+
+  .metrics-card__body {
+    margin-top: 0.85rem;
   }
 
   .metrics-card__header {

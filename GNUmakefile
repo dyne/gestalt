@@ -28,13 +28,14 @@ gestalt-send: $(VERSION_INFO)
 	$(GO) build  -ldflags "$$VERSION_LDFLAGS" -o gestalt-send ./cmd/gestalt-send
 
 build-scip:
-	cd cmd/gestalt-scip && npm run build
-	chmod +x cmd/gestalt-scip/bin/gestalt-scip
+	@cd cmd/gestalt-scip && npm run build
+	@chmod +x cmd/gestalt-scip/bin/gestalt-scip
+	@cp cmd/gestalt-scip/bin/gestalt-scip .
 
 install: gestalt gestalt-send build-scip
 	install -m 0755 gestalt $(BINDIR)/gestalt
 	install -m 0755 gestalt-send $(BINDIR)/gestalt-send
-	install -m 0755 cmd/gestalt-scip/bin/gestalt-scip $(BINDIR)/gestalt-scip
+	install -m 0755 gestalt-scip $(BINDIR)/gestalt-scip
 
 test:
 	go test ./...

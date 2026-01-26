@@ -178,4 +178,44 @@ describe('createWsStore', () => {
 
     stop()
   })
+
+  it('ignores payloads missing type fields', () => {
+    const { subscribe } = createWsStore({
+      label: 'events',
+      path: '/ws/events',
+    })
+
+    const received = []
+    const stop = subscribe('alpha', (payload) => received.push(payload))
+    const socket = MockWebSocket.instances[0]
+    socket.open()
+
+    expect(() => {
+      socket.message(JSON.stringify({ path: '/tmp/file' }))
+      socket.message(JSON.stringify(['alpha']))
+      socket.message('null')
+    }).not.toThrow()
+
+    expect(received).toHaveLength(0)
+    stop()
+  })
+
+  it('delivers burst events without dropping', () => {
+    const { subscribe } = createWsStore({
+      label: 'events',
+      path: '/ws/events',
+    })
+
+    const received = []
+    const stop = subscribe('alpha', (payload) => received.push(payload.value))
+    const socket = MockWebSocket.instances[0]
+    socket.open()
+
+    for (let index = 0; index < 6; index += 1) {
+      socket.message(JSON.stringify({ type: 'alpha', value: index }))
+    }
+
+    expect(received).toEqual([0, 1, 2, 3, 4, 5])
+    stop()
+  })
 })

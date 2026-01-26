@@ -127,4 +127,49 @@ describe('eventStore', () => {
     unsubscribe()
     unsubscribeStatus()
   })
+
+  it('ignores malformed payloads without crashing', async () => {
+    const { subscribe } = await import('../src/lib/eventStore.js')
+    const received = []
+    const unsubscribe = subscribe('file_changed', (payload) => {
+      received.push(payload.path)
+    })
+
+    const socket = MockWebSocket.instances[0]
+    socket.open()
+    await flush()
+
+    socket.dispatch('message', { data: 'not-json' })
+    socket.dispatch('message', { data: JSON.stringify({ path: '/tmp/plan.org' }) })
+
+    expect(received).toEqual([])
+    unsubscribe()
+  })
+
+  it('handles burst file events', async () => {
+    const { subscribe } = await import('../src/lib/eventStore.js')
+    const received = []
+    const unsubscribe = subscribe('file_changed', (payload) => {
+      received.push(payload.path)
+    })
+
+    const socket = MockWebSocket.instances[0]
+    socket.open()
+    await flush()
+
+    for (let index = 0; index < 5; index += 1) {
+      socket.dispatch('message', {
+        data: JSON.stringify({ type: 'file_changed', path: `/tmp/plan-${index}.org` }),
+      })
+    }
+
+    expect(received).toEqual([
+      '/tmp/plan-0.org',
+      '/tmp/plan-1.org',
+      '/tmp/plan-2.org',
+      '/tmp/plan-3.org',
+      '/tmp/plan-4.org',
+    ])
+    unsubscribe()
+  })
 })

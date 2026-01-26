@@ -3,7 +3,7 @@
   import { notificationStore } from '../lib/notificationStore.js'
   import { getErrorMessage } from '../lib/errorUtils.js'
   import { formatRelativeTime } from '../lib/timeUtils.js'
-  import { normalizeLogEntry } from '../lib/logEntry.js'
+  import { formatLogEntryForClipboard, normalizeLogEntry } from '../lib/logEntry.js'
   import ViewState from '../components/ViewState.svelte'
   import { createViewStateMachine } from '../lib/viewStateMachine.js'
   import { createLogStream } from '../lib/logStream.js'
@@ -133,6 +133,30 @@
     )
   }
 
+  const copyText = async (text, successMessage) => {
+    if (!text) {
+      notificationStore.addNotification('error', 'Nothing to copy.')
+      return
+    }
+    const clipboard = navigator?.clipboard
+    if (!clipboard?.writeText) {
+      notificationStore.addNotification('error', 'Clipboard is unavailable.')
+      return
+    }
+    try {
+      await clipboard.writeText(text)
+      notificationStore.addNotification('info', successMessage)
+    } catch (err) {
+      notificationStore.addNotification('error', 'Failed to copy to clipboard.')
+    }
+  }
+
+  const copyLogJson = async (entry) => {
+    if (!entry) return
+    const text = entry.raw ? JSON.stringify(entry.raw, null, 2) : formatLogEntryForClipboard(entry)
+    await copyText(text, 'Copied log JSON.')
+  }
+
   $: orderedLogs = [...logs].reverse()
  
   onMount(() => {
@@ -224,6 +248,11 @@
                 {#if entry.raw}
                   <details class="log-entry__raw">
                     <summary>Raw JSON</summary>
+                    <div class="log-entry__raw-actions">
+                      <button type="button" on:click={() => copyLogJson(entry)}>
+                        Copy JSON
+                      </button>
+                    </div>
                     <pre>{JSON.stringify(entry.raw, null, 2)}</pre>
                   </details>
                 {/if}
@@ -473,6 +502,28 @@
   .log-entry__raw summary {
     cursor: pointer;
     font-weight: 600;
+  }
+
+  .log-entry__raw-actions {
+    margin-top: 0.5rem;
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .log-entry__raw-actions button {
+    border: 1px solid rgba(var(--color-text-rgb), 0.2);
+    border-radius: 999px;
+    padding: 0.35rem 0.9rem;
+    background: transparent;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    color: var(--color-text);
+  }
+
+  .log-entry__raw-actions button:focus-visible {
+    outline: 2px solid rgba(var(--color-text-rgb), 0.4);
+    outline-offset: 2px;
   }
 
   .log-entry__raw pre {

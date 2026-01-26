@@ -3,6 +3,8 @@
   import { createDashboardStore } from '../lib/dashboardStore.js'
   import { getErrorMessage } from '../lib/errorUtils.js'
   import { formatRelativeTime } from '../lib/timeUtils.js'
+  import { formatLogEntryForClipboard } from '../lib/logEntry.js'
+  import { notificationStore } from '../lib/notificationStore.js'
 
   export let terminals = []
   export let status = null
@@ -34,7 +36,6 @@
   let metricsAutoRefresh = true
   let configExtractionCount = 0
   let configExtractionLast = ''
-  let gitContext = 'not a git repo'
   let scipStatus = null
   let scipLanguages = []
   let scipLanguagesText = 'detected languages'
@@ -137,12 +138,46 @@
     dashboardStore.loadMetricsSummary()
   }
 
+  const gitBranchName = (origin, branch) => {
+    if (!branch) return ''
+    const normalized = String(branch)
+    const originValue = origin ? String(origin) : ''
+    if (originValue && normalized.startsWith(`${originValue}/`)) {
+      return normalized.slice(originValue.length + 1)
+    }
+    return normalized
+  }
+
   const logEntryKey = (entry, index) => entry?.id || `${entry.timestamp}-${entry.message}-${index}`
 
   const contextEntriesFor = (entry) => {
     return Object.entries(entry?.context || {}).sort(([left], [right]) =>
       left.localeCompare(right),
     )
+  }
+
+  const copyText = async (text, successMessage) => {
+    if (!text) {
+      notificationStore.addNotification('error', 'Nothing to copy.')
+      return
+    }
+    const clipboard = navigator?.clipboard
+    if (!clipboard?.writeText) {
+      notificationStore.addNotification('error', 'Clipboard is unavailable.')
+      return
+    }
+    try {
+      await clipboard.writeText(text)
+      notificationStore.addNotification('info', successMessage)
+    } catch (err) {
+      notificationStore.addNotification('error', 'Failed to copy to clipboard.')
+    }
+  }
+
+  const copyLogJson = async (entry) => {
+    if (!entry) return
+    const text = entry.raw ? JSON.stringify(entry.raw, null, 2) : formatLogEntryForClipboard(entry)
+    await copyText(text, 'Copied log JSON.')
   }
 
   $: ({
@@ -163,7 +198,6 @@
     metricsAutoRefresh,
     configExtractionCount,
     configExtractionLast,
-    gitContext,
     scipStatus,
   } = $dashboardStore)
 
@@ -190,12 +224,36 @@
     <div class="status-card status-card--wide">
       <div class="status-meta">
         <div class="status-item">
-          <span class="label">Working directory</span>
-          <span class="status-pill status-pill--path">{status?.working_dir || '—'}</span>
+          <span class="label">Workdir</span>
+          <button
+            class="status-pill status-pill--path"
+            type="button"
+            on:click={() => copyText(status?.working_dir || '', 'Copied workdir.')}
+          >
+            {status?.working_dir || '—'}
+          </button>
         </div>
         <div class="status-item">
-          <span class="label">Git</span>
-          <span class="status-pill status-pill--git">{gitContext}</span>
+          <span class="label">Git remote</span>
+          <button
+            class="status-pill status-pill--git"
+            type="button"
+            on:click={() => copyText(status?.git_origin || '', 'Copied git remote.')}
+          >
+            {status?.git_origin || '—'}
+          </button>
+        </div>
+        <div class="status-item">
+          <span class="label">Git branch</span>
+          <button
+            class="status-pill status-pill--git"
+            type="button"
+            on:click={() =>
+              copyText(gitBranchName(status?.git_origin, status?.git_branch), 'Copied git branch.')
+            }
+          >
+            {gitBranchName(status?.git_origin, status?.git_branch) || '—'}
+          </button>
         </div>
       </div>
     </div>
@@ -242,131 +300,6 @@
         {#if configExtractionLast}
           <span class="status-pill status-pill--path">{configExtractionLast}</span>
         {/if}
-      </div>
-    {/if}
-  </section>
-
-  <section class="dashboard__metrics">
-    <div class="list-header">
-      <div>
-        <h2>API metrics</h2>
-        <p class="subtle">
-          Updated {metricsSummary?.updated_at ? formatMetricsTime(metricsSummary.updated_at) : '—'}
-        </p>
-      </div>
-      <div class="metrics-controls">
-        <label class="metrics-control metrics-control--toggle">
-          <input
-            type="checkbox"
-            bind:checked={metricsAutoRefresh}
-            on:change={handleMetricsAutoRefreshChange}
-          />
-          <span>Auto refresh</span>
-        </label>
-        <button
-          class="metrics-refresh"
-          type="button"
-          on:click={refreshMetrics}
-          disabled={metricsLoading}
-        >
-          {metricsLoading ? 'Refreshing…' : 'Refresh'}
-        </button>
-      </div>
-    </div>
-
-    {#if metricsError}
-      <p class="error">{metricsError}</p>
-    {/if}
-
-    {#if metricsLoading && !metricsSummary}
-      <p class="muted">Loading metrics…</p>
-    {:else if !metricsSummary}
-      <p class="muted">No metrics yet.</p>
-    {:else}
-      <div class="metrics-grid">
-        <div class="metrics-card">
-          <div class="metrics-card__header">
-            <h3>Top endpoints</h3>
-            <span class="metrics-pill">Requests</span>
-          </div>
-          {#if (metricsSummary.top_endpoints || []).length === 0}
-            <p class="muted">No traffic yet.</p>
-          {:else}
-            <ul class="metrics-list">
-              {#each metricsSummary.top_endpoints as entry (entry.route)}
-                <li>
-                  <span class="metric-label metric-label--mono">{entry.route}</span>
-                  <span class="metric-value">{formatCount(entry.count)}</span>
-                </li>
-              {/each}
-            </ul>
-          {/if}
-        </div>
-
-        <div class="metrics-card">
-          <div class="metrics-card__header">
-            <h3>Slowest endpoints</h3>
-            <span class="metrics-pill">p99 latency</span>
-          </div>
-          {#if (metricsSummary.slowest_endpoints || []).length === 0}
-            <p class="muted">No latency data yet.</p>
-          {:else}
-            <ul class="metrics-list">
-              {#each metricsSummary.slowest_endpoints as entry (entry.route)}
-                <li>
-                  <div class="metric-stack">
-                    <span class="metric-label metric-label--mono">{entry.route}</span>
-                    <span class="metric-detail">{formatCount(entry.count)} request(s)</span>
-                  </div>
-                  <span class="metric-value">{formatDuration(entry.p99_seconds)}</span>
-                </li>
-              {/each}
-            </ul>
-          {/if}
-        </div>
-
-        <div class="metrics-card">
-          <div class="metrics-card__header">
-            <h3>Top agents</h3>
-            <span class="metrics-pill">Requests</span>
-          </div>
-          {#if (metricsSummary.top_agents || []).length === 0}
-            <p class="muted">No agent traffic yet.</p>
-          {:else}
-            <ul class="metrics-list">
-              {#each metricsSummary.top_agents as entry (entry.name)}
-                <li>
-                  <span class="metric-label">{entry.name}</span>
-                  <span class="metric-value">{formatCount(entry.count)}</span>
-                </li>
-              {/each}
-            </ul>
-          {/if}
-        </div>
-
-        <div class="metrics-card">
-          <div class="metrics-card__header">
-            <h3>Error rates</h3>
-            <span class="metrics-pill">By category</span>
-          </div>
-          {#if (metricsSummary.error_rates || []).length === 0}
-            <p class="muted">No errors recorded.</p>
-          {:else}
-            <ul class="metrics-list metrics-list--stacked">
-              {#each metricsSummary.error_rates as entry (entry.category)}
-                <li>
-                  <div class="metric-row">
-                    <span class="metric-label">{entry.category}</span>
-                    <span class="metric-value">{formatPercent(entry.error_rate_pct)}</span>
-                  </div>
-                  <span class="metric-detail">
-                    {formatCount(entry.errors)} errors / {formatCount(entry.total)} total
-                  </span>
-                </li>
-              {/each}
-            </ul>
-          {/if}
-        </div>
       </div>
     {/if}
   </section>
@@ -418,87 +351,219 @@
     {/if}
   </section>
 
-  <section class="dashboard__logs">
-    <div class="list-header">
-      <h2>Recent logs</h2>
-    </div>
+  <section class="dashboard__intel">
+    <section class="dashboard__logs">
+      <div class="list-header">
+        <h2>Recent logs</h2>
+      </div>
 
-    <div class="logs-controls">
-      <label class="logs-control">
-        <span>Level</span>
-        <select on:change={handleLogFilterChange} bind:value={logLevelFilter}>
-          {#each logLevelOptions as option}
-            <option value={option.value}>{option.label}</option>
-          {/each}
-        </select>
-      </label>
-      <label class="logs-control logs-control--toggle">
-        <input
-          type="checkbox"
-          bind:checked={logsAutoRefresh}
-          on:change={handleLogsAutoRefreshChange}
-        />
-        <span>Live updates</span>
-      </label>
-      <button class="logs-refresh" type="button" on:click={refreshLogs} disabled={logsLoading}>
-        {logsLoading ? 'Refreshing…' : 'Refresh'}
-      </button>
-    </div>
+      <div class="logs-controls">
+        <label class="logs-control">
+          <span>Level</span>
+          <select on:change={handleLogFilterChange} bind:value={logLevelFilter}>
+            {#each logLevelOptions as option}
+              <option value={option.value}>{option.label}</option>
+            {/each}
+          </select>
+        </label>
+        <label class="logs-control logs-control--toggle">
+          <input
+            type="checkbox"
+            bind:checked={logsAutoRefresh}
+            on:change={handleLogsAutoRefreshChange}
+          />
+          <span>Live updates</span>
+        </label>
+        <button class="logs-refresh" type="button" on:click={refreshLogs} disabled={logsLoading}>
+          {logsLoading ? 'Refreshing…' : 'Refresh'}
+        </button>
+      </div>
 
-    <div class="logs-list">
-      {#if logsLoading && logs.length === 0}
-        <p class="muted">Loading logs…</p>
-      {:else if logsError}
-        <p class="error">{logsError}</p>
-      {:else if visibleLogs.length === 0}
-        <p class="muted">No logs yet.</p>
-      {:else}
-        <ul>
-          {#each visibleLogs as entry, index (logEntryKey(entry, index))}
-            <li class={`log-entry log-entry--${entry.level}`}>
-              <details class="log-entry__details">
-                <summary class="log-entry__summary">
-                  <div class="log-entry__meta">
-                    <span class="log-badge">{entry.level}</span>
-                    <span class="log-time" title={entry.timestamp || ''}>
-                      {formatLogTime(entry.timestamp)}
-                    </span>
-                  </div>
-                  <p class="log-message">{entry.message}</p>
-                </summary>
-                <div class="log-entry__details-body">
-                  <div class="log-entry__detail-section">
-                    <span class="log-entry__label">Context</span>
-                    {#if contextEntriesFor(entry).length === 0}
-                      <p class="log-entry__empty">No context fields.</p>
-                    {:else}
-                      <div class="log-entry__context">
-                        <table>
-                          <tbody>
-                            {#each contextEntriesFor(entry) as [key, value]}
-                              <tr>
-                                <th scope="row">{key}</th>
-                                <td>{value}</td>
-                              </tr>
-                            {/each}
-                          </tbody>
-                        </table>
-                      </div>
+      <div class="logs-list">
+        {#if logsLoading && logs.length === 0}
+          <p class="muted">Loading logs…</p>
+        {:else if logsError}
+          <p class="error">{logsError}</p>
+        {:else if visibleLogs.length === 0}
+          <p class="muted">No logs yet.</p>
+        {:else}
+          <ul>
+            {#each visibleLogs as entry, index (logEntryKey(entry, index))}
+              <li class={`log-entry log-entry--${entry.level}`}>
+                <details class="log-entry__details">
+                  <summary class="log-entry__summary">
+                    <div class="log-entry__meta">
+                      <span class="log-badge">{entry.level}</span>
+                      <span class="log-time" title={entry.timestamp || ''}>
+                        {formatLogTime(entry.timestamp)}
+                      </span>
+                    </div>
+                    <p class="log-message">{entry.message}</p>
+                  </summary>
+                  <div class="log-entry__details-body">
+                    <div class="log-entry__detail-section">
+                      <span class="log-entry__label">Context</span>
+                      {#if contextEntriesFor(entry).length === 0}
+                        <p class="log-entry__empty">No context fields.</p>
+                      {:else}
+                        <div class="log-entry__context">
+                          <table>
+                            <tbody>
+                              {#each contextEntriesFor(entry) as [key, value]}
+                                <tr>
+                                  <th scope="row">{key}</th>
+                                  <td>{value}</td>
+                                </tr>
+                              {/each}
+                            </tbody>
+                          </table>
+                        </div>
+                      {/if}
+                    </div>
+                    {#if entry.raw}
+                      <details class="log-entry__raw">
+                        <summary>Raw JSON</summary>
+                        <div class="log-entry__raw-actions">
+                          <button type="button" on:click={() => copyLogJson(entry)}>
+                            Copy JSON
+                          </button>
+                        </div>
+                        <pre>{JSON.stringify(entry.raw, null, 2)}</pre>
+                      </details>
                     {/if}
                   </div>
-                  {#if entry.raw}
-                    <details class="log-entry__raw">
-                      <summary>Raw JSON</summary>
-                      <pre>{JSON.stringify(entry.raw, null, 2)}</pre>
-                    </details>
-                  {/if}
-                </div>
-              </details>
-            </li>
-          {/each}
-        </ul>
+                </details>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </div>
+    </section>
+
+    <section class="dashboard__metrics">
+      <div class="list-header">
+        <div>
+          <h2>API metrics</h2>
+          <p class="subtle">
+            Updated {metricsSummary?.updated_at ? formatMetricsTime(metricsSummary.updated_at) : '—'}
+          </p>
+        </div>
+        <div class="metrics-controls">
+          <label class="metrics-control metrics-control--toggle">
+            <input
+              type="checkbox"
+              bind:checked={metricsAutoRefresh}
+              on:change={handleMetricsAutoRefreshChange}
+            />
+            <span>Auto refresh</span>
+          </label>
+          <button
+            class="metrics-refresh"
+            type="button"
+            on:click={refreshMetrics}
+            disabled={metricsLoading}
+          >
+            {metricsLoading ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
+      </div>
+
+      {#if metricsError}
+        <p class="error">{metricsError}</p>
       {/if}
-    </div>
+
+      {#if metricsLoading && !metricsSummary}
+        <p class="muted">Loading metrics…</p>
+      {:else if !metricsSummary}
+        <p class="muted">No metrics yet.</p>
+      {:else}
+        <div class="metrics-grid">
+          <div class="metrics-card">
+            <div class="metrics-card__header">
+              <h3>Top endpoints</h3>
+              <span class="metrics-pill">Requests</span>
+            </div>
+            {#if (metricsSummary.top_endpoints || []).length === 0}
+              <p class="muted">No traffic yet.</p>
+            {:else}
+              <ul class="metrics-list">
+                {#each metricsSummary.top_endpoints as entry (entry.route)}
+                  <li>
+                    <span class="metric-label metric-label--mono">{entry.route}</span>
+                    <span class="metric-value">{formatCount(entry.count)}</span>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+          </div>
+
+          <div class="metrics-card">
+            <div class="metrics-card__header">
+              <h3>Slowest endpoints</h3>
+              <span class="metrics-pill">p99 latency</span>
+            </div>
+            {#if (metricsSummary.slowest_endpoints || []).length === 0}
+              <p class="muted">No latency data yet.</p>
+            {:else}
+              <ul class="metrics-list">
+                {#each metricsSummary.slowest_endpoints as entry (entry.route)}
+                  <li>
+                    <div class="metric-stack">
+                      <span class="metric-label metric-label--mono">{entry.route}</span>
+                      <span class="metric-detail">{formatCount(entry.count)} request(s)</span>
+                    </div>
+                    <span class="metric-value">{formatDuration(entry.p99_seconds)}</span>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+          </div>
+
+          <div class="metrics-card">
+            <div class="metrics-card__header">
+              <h3>Top agents</h3>
+              <span class="metrics-pill">Requests</span>
+            </div>
+            {#if (metricsSummary.top_agents || []).length === 0}
+              <p class="muted">No agent traffic yet.</p>
+            {:else}
+              <ul class="metrics-list">
+                {#each metricsSummary.top_agents as entry (entry.name)}
+                  <li>
+                    <span class="metric-label">{entry.name}</span>
+                    <span class="metric-value">{formatCount(entry.count)}</span>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+          </div>
+
+          <div class="metrics-card">
+            <div class="metrics-card__header">
+              <h3>Error rates</h3>
+              <span class="metrics-pill">By category</span>
+            </div>
+            {#if (metricsSummary.error_rates || []).length === 0}
+              <p class="muted">No errors recorded.</p>
+            {:else}
+              <ul class="metrics-list metrics-list--stacked">
+                {#each metricsSummary.error_rates as entry (entry.category)}
+                  <li>
+                    <div class="metric-row">
+                      <span class="metric-label">{entry.category}</span>
+                      <span class="metric-value">{formatPercent(entry.error_rate_pct)}</span>
+                    </div>
+                    <span class="metric-detail">
+                      {formatCount(entry.errors)} errors / {formatCount(entry.total)} total
+                    </span>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+          </div>
+        </div>
+      {/if}
+    </section>
   </section>
 </section>
 
@@ -596,6 +661,14 @@
     font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
     font-size: 0.85rem;
     word-break: break-all;
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+  }
+
+  .status-pill:focus-visible {
+    outline: 2px solid rgba(var(--color-text-rgb), 0.4);
+    outline-offset: 2px;
   }
 
   .status-pill--path {
@@ -692,6 +765,13 @@
     display: flex;
     flex-direction: column;
     gap: 1rem;
+  }
+
+  .dashboard__intel {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+    gap: 1.5rem;
+    align-items: start;
   }
 
   .dashboard__logs {
@@ -1003,6 +1083,28 @@
     font-weight: 600;
   }
 
+  .log-entry__raw-actions {
+    margin-top: 0.5rem;
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .log-entry__raw-actions button {
+    border: 1px solid rgba(var(--color-text-rgb), 0.2);
+    border-radius: 999px;
+    padding: 0.35rem 0.9rem;
+    background: transparent;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    color: var(--color-text);
+  }
+
+  .log-entry__raw-actions button:focus-visible {
+    outline: 2px solid rgba(var(--color-text-rgb), 0.4);
+    outline-offset: 2px;
+  }
+
   .log-entry__raw pre {
     margin: 0.6rem 0 0;
     background: rgba(var(--color-text-rgb), 0.05);
@@ -1175,6 +1277,10 @@
       flex-direction: column;
       align-items: flex-start;
       gap: 0.4rem;
+    }
+
+    .dashboard__intel {
+      grid-template-columns: 1fr;
     }
   }
 </style>

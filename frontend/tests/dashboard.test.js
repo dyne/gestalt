@@ -3,9 +3,16 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { writable } from 'svelte/store'
 
 const createDashboardStore = vi.hoisted(() => vi.fn())
+const addNotification = vi.hoisted(() => vi.fn())
 
 vi.mock('../src/lib/dashboardStore.js', () => ({
   createDashboardStore,
+}))
+
+vi.mock('../src/lib/notificationStore.js', () => ({
+  notificationStore: {
+    addNotification,
+  },
 }))
 
 import Dashboard from '../src/views/Dashboard.svelte'
@@ -68,6 +75,7 @@ const buildDashboardStore = (stateOverrides = {}) => {
 describe('Dashboard', () => {
   beforeEach(() => {
     createDashboardStore.mockReset()
+    addNotification.mockReset()
   })
 
   afterEach(() => {
@@ -128,5 +136,51 @@ describe('Dashboard', () => {
     await findByText('source')
     await findByText('toast')
     await findByText('toast_id')
+
+    const rawToggle = await findByText('Raw JSON')
+    await fireEvent.click(rawToggle)
+
+    const writeText = vi.fn(() => Promise.resolve())
+    Object.assign(navigator, { clipboard: { writeText } })
+
+    const copyButton = await findByText('Copy JSON')
+    await fireEvent.click(copyButton)
+
+    expect(writeText).toHaveBeenCalledTimes(1)
+    expect(addNotification).toHaveBeenCalledWith('info', expect.stringContaining('Copied'))
+  })
+
+  it('copies status pills to clipboard', async () => {
+    const dashboardStore = buildDashboardStore()
+    createDashboardStore.mockReturnValue(dashboardStore)
+
+    const writeText = vi.fn(() => Promise.resolve())
+    Object.assign(navigator, { clipboard: { writeText } })
+
+    const { findByText } = render(Dashboard, {
+      props: {
+        terminals: [],
+        status: {
+          terminal_count: 0,
+          working_dir: '/repo/path',
+          git_origin: 'origin',
+          git_branch: 'origin/main',
+        },
+      },
+    })
+
+    const workdir = await findByText('/repo/path')
+    await fireEvent.click(workdir)
+
+    const remote = await findByText('origin')
+    await fireEvent.click(remote)
+
+    const branch = await findByText('main')
+    await fireEvent.click(branch)
+
+    expect(writeText).toHaveBeenCalledWith('/repo/path')
+    expect(writeText).toHaveBeenCalledWith('origin')
+    expect(writeText).toHaveBeenCalledWith('main')
+    expect(addNotification).toHaveBeenCalledWith('info', expect.stringContaining('Copied'))
   })
 })

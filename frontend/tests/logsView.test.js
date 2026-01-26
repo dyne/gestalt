@@ -48,6 +48,20 @@ describe('LogsView', () => {
     await findByText('scope')
     await findByText('test')
 
+    const rawToggle = await findByText('Raw JSON')
+    await fireEvent.click(rawToggle)
+
+    const writeText = vi.fn(() => Promise.resolve())
+    Object.assign(navigator, { clipboard: { writeText } })
+
+    const copyButton = await findByText('Copy JSON')
+    await fireEvent.click(copyButton)
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledTimes(1)
+      expect(addNotification).toHaveBeenCalledWith('info', expect.stringContaining('Copied'))
+    })
+
     const autoRefresh = getByLabelText('Live updates')
     await fireEvent.click(autoRefresh)
   })

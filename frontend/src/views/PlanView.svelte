@@ -11,7 +11,12 @@
   let error = ''
   let updateNotice = false
   let updateNoticeTimer = null
+  let refreshTimer = null
+  let refreshQueued = false
+  let refreshInFlight = false
+  let queuedSilent = true
   let eventUnsubscribe = null
+  const refreshDebounceMs = 250
 
   const showUpdateNotice = () => {
     updateNotice = true
@@ -23,8 +28,28 @@
     }, 2000)
   }
 
+  const queuePlansRefresh = (silent = true) => {
+    refreshQueued = true
+    if (!silent) {
+      queuedSilent = false
+    }
+    if (refreshTimer || refreshInFlight) return
+    refreshTimer = setTimeout(() => {
+      refreshTimer = null
+      if (refreshInFlight || !refreshQueued) return
+      const nextSilent = queuedSilent
+      refreshQueued = false
+      queuedSilent = true
+      void loadPlans({ silent: nextSilent })
+    }, refreshDebounceMs)
+  }
+
   const loadPlans = async ({ silent = false } = {}) => {
-    if (loading) return
+    if (refreshInFlight) {
+      queuePlansRefresh(silent)
+      return
+    }
+    refreshInFlight = true
     if (!silent) {
       loading = true
       error = ''
@@ -38,6 +63,10 @@
       if (!silent) {
         loading = false
       }
+      refreshInFlight = false
+      if (refreshQueued) {
+        queuePlansRefresh(queuedSilent)
+      }
     }
   }
 
@@ -48,7 +77,7 @@
       const normalized = rawPath.replaceAll('\\', '/')
       if (!normalized.includes('/.gestalt/plans/')) return
       if (!normalized.endsWith('.org')) return
-      loadPlans({ silent: true })
+      queuePlansRefresh(true)
       showUpdateNotice()
     })
   })
@@ -57,6 +86,10 @@
     if (updateNoticeTimer) {
       clearTimeout(updateNoticeTimer)
       updateNoticeTimer = null
+    }
+    if (refreshTimer) {
+      clearTimeout(refreshTimer)
+      refreshTimer = null
     }
     if (eventUnsubscribe) {
       eventUnsubscribe()

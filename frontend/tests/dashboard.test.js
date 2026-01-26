@@ -112,6 +112,8 @@ describe('Dashboard', () => {
       value: true,
       configurable: true,
     })
+    const writeText = vi.fn(() => Promise.resolve())
+    Object.assign(navigator, { clipboard: { writeText } })
 
     const dashboardStore = buildDashboardStore({
       logs: [
@@ -147,9 +149,6 @@ describe('Dashboard', () => {
 
     const rawToggle = await findByText('Raw JSON')
     await fireEvent.click(rawToggle)
-
-    const writeText = vi.fn(() => Promise.resolve())
-    Object.assign(navigator, { clipboard: { writeText } })
 
     const copyButton = await findByText('Copy JSON')
     await fireEvent.click(copyButton)
@@ -196,7 +195,7 @@ describe('Dashboard', () => {
     expect(addNotification).toHaveBeenCalledWith('info', expect.stringContaining('Copied'))
   })
 
-  it('disables copy actions when clipboard is unavailable', async () => {
+  it('hides copy actions when clipboard is unavailable', async () => {
     Object.defineProperty(window, 'isSecureContext', {
       value: false,
       configurable: true,
@@ -216,7 +215,7 @@ describe('Dashboard', () => {
     })
     createDashboardStore.mockReturnValue(dashboardStore)
 
-    const { findByText } = render(Dashboard, {
+    const { findByText, queryByRole } = render(Dashboard, {
       props: {
         terminals: [],
         status: {
@@ -229,7 +228,7 @@ describe('Dashboard', () => {
     })
 
     const workdir = await findByText('/repo/path')
-    expect(workdir.disabled).toBe(true)
+    expect(workdir.closest('button')).toBeNull()
 
     const logEntry = await findByText('Log entry')
     await fireEvent.click(logEntry)
@@ -237,7 +236,7 @@ describe('Dashboard', () => {
     const rawToggle = await findByText('Raw JSON')
     await fireEvent.click(rawToggle)
 
-    const copyButton = await findByText('Copy JSON')
-    expect(copyButton.disabled).toBe(true)
+    const copyButton = queryByRole('button', { name: 'Copy JSON' })
+    expect(copyButton).toBeNull()
   })
 })

@@ -18,10 +18,11 @@
 
   let copyStatus = ''
   let copyTimer = null
+  let clipboardAvailable = false
 
   const writeClipboardText = async (text) => {
     if (!text) return false
-    if (!canUseClipboard()) {
+    if (!clipboardAvailable) {
       return false
     }
     if (navigator.clipboard?.writeText) {
@@ -81,6 +82,7 @@
       : '-'
   $: waitingSince = latestBell ? formatWorkflowTime(latestBell.timestamp) : '-'
   $: temporalUrl = buildTemporalUrl(workflow?.workflow_id, workflow?.workflow_run_id, temporalUiUrl)
+  $: clipboardAvailable = canUseClipboard()
 
   onDestroy(() => {
     if (copyTimer) {
@@ -96,9 +98,11 @@
       <span class="label">Workflow ID</span>
       <div class="detail-copy">
         <span class="value">{workflow.workflow_id || '-'}</span>
-        <button type="button" on:click={copyWorkflowId} disabled={!workflow.workflow_id || !canUseClipboard()}>
-          Copy
-        </button>
+        {#if workflow.workflow_id && clipboardAvailable}
+          <button type="button" on:click={copyWorkflowId}>
+            Copy
+          </button>
+        {/if}
         {#if copyStatus}
           <span class="copy-status">{copyStatus}</span>
         {/if}

@@ -31,6 +31,8 @@ describe('LogsView', () => {
       value: true,
       configurable: true,
     })
+    const writeText = vi.fn(() => Promise.resolve())
+    Object.assign(navigator, { clipboard: { writeText } })
 
     createLogStream.mockImplementation((options) => ({
       start: vi.fn(() => {
@@ -59,9 +61,6 @@ describe('LogsView', () => {
     const rawToggle = await findByText('Raw JSON')
     await fireEvent.click(rawToggle)
 
-    const writeText = vi.fn(() => Promise.resolve())
-    Object.assign(navigator, { clipboard: { writeText } })
-
     const copyButton = await findByText('Copy JSON')
     await fireEvent.click(copyButton)
 
@@ -72,6 +71,39 @@ describe('LogsView', () => {
 
     const autoRefresh = getByLabelText('Live updates')
     await fireEvent.click(autoRefresh)
+  })
+
+  it('hides copy controls when clipboard is unavailable', async () => {
+    Object.defineProperty(window, 'isSecureContext', {
+      value: false,
+      configurable: true,
+    })
+
+    createLogStream.mockImplementation((options) => ({
+      start: vi.fn(() => {
+        options?.onOpen?.()
+        options?.onEntry?.({
+          severity_text: 'INFO',
+          body: 'hello',
+          timestamp: '2025-01-01T00:00:00Z',
+          attributes: { scope: 'test' },
+        })
+      }),
+      stop: vi.fn(),
+      restart: vi.fn(),
+      setLevel: vi.fn(),
+    }))
+
+    const { findByText, queryByRole } = render(LogsView)
+
+    const entry = await findByText('hello')
+    await fireEvent.click(entry)
+
+    const rawToggle = await findByText('Raw JSON')
+    await fireEvent.click(rawToggle)
+
+    const copyButton = queryByRole('button', { name: 'Copy JSON' })
+    expect(copyButton).toBeNull()
   })
 
   it('requests filtered logs', async () => {

@@ -154,7 +154,7 @@ terminal output -> Session output bus -> /ws/terminal/:id -> xterm
 ## Logs UI notes
 - Log entries are normalized via `frontend/src/lib/logEntry.js`; Dashboard and LogsView use inline `<details>/<summary>` disclosures with context tables and optional raw JSON.
 - Log disclosures include Copy JSON actions, and the Dashboard intel section shows logs + API metrics side-by-side with agent terminals above.
-- Clipboard buttons should use `frontend/src/lib/clipboard.js` to gate copy actions on secure contexts (HTTPS or secure localhost).
+- Clipboard controls should use `frontend/src/lib/clipboard.js` to gate copy actions on secure contexts (HTTPS or secure localhost) and hide when unavailable.
 - Dashboard status pills (workdir, git remote, git branch) are clickable and copy their values when clipboard is allowed.
 
 ## Terminal session logging notes

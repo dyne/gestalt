@@ -24,6 +24,7 @@
   let streamActive = false
   let pendingStop = false
   let stopTimer = null
+  let clipboardAvailable = false
 
   const levelOptions = [
     { value: 'debug', label: 'Debug' },
@@ -135,7 +136,7 @@
   }
 
   const copyText = async (text, successMessage) => {
-    if (!canUseClipboard()) {
+    if (!clipboardAvailable) {
       notificationStore.addNotification('error', 'Clipboard requires HTTPS.')
       return
     }
@@ -163,6 +164,7 @@
   }
 
   $: orderedLogs = [...logs].reverse()
+  $: clipboardAvailable = canUseClipboard()
  
   onMount(() => {
     loadLogs()
@@ -253,11 +255,13 @@
                 {#if entry.raw}
                   <details class="log-entry__raw">
                     <summary>Raw JSON</summary>
-                    <div class="log-entry__raw-actions">
-                      <button type="button" on:click={() => copyLogJson(entry)} disabled={!canUseClipboard()}>
-                        Copy JSON
-                      </button>
-                    </div>
+                    {#if clipboardAvailable}
+                      <div class="log-entry__raw-actions">
+                        <button type="button" on:click={() => copyLogJson(entry)}>
+                          Copy JSON
+                        </button>
+                      </div>
+                    {/if}
                     <pre>{JSON.stringify(entry.raw, null, 2)}</pre>
                   </details>
                 {/if}
@@ -529,11 +533,6 @@
   .log-entry__raw-actions button:focus-visible {
     outline: 2px solid rgba(var(--color-text-rgb), 0.4);
     outline-offset: 2px;
-  }
-
-  .log-entry__raw-actions button:disabled {
-    cursor: not-allowed;
-    opacity: 0.6;
   }
 
   .log-entry__raw pre {

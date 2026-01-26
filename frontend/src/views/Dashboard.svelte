@@ -38,6 +38,7 @@
   let configExtractionCount = 0
   let configExtractionLast = ''
   let scipStatus = null
+  let clipboardAvailable = false
   let scipLanguages = []
   let scipLanguagesText = 'detected languages'
   let scipLastIndexedAt = ''
@@ -158,7 +159,7 @@
   }
 
   const copyText = async (text, successMessage) => {
-    if (!canUseClipboard()) {
+    if (!clipboardAvailable) {
       notificationStore.addNotification('error', 'Clipboard requires HTTPS.')
       return
     }
@@ -214,6 +215,7 @@
   $: scipHasError = Boolean(scipStatus?.error)
   $: orderedLogs = [...logs].reverse()
   $: visibleLogs = orderedLogs.slice(0, 15)
+  $: clipboardAvailable = canUseClipboard()
 
   onMount(() => {
     dashboardStore.start()
@@ -230,38 +232,53 @@
       <div class="status-meta">
         <div class="status-item">
           <span class="label">Workdir</span>
-          <button
-            class="status-pill status-pill--path"
-            type="button"
-            on:click={() => copyText(status?.working_dir || '', 'Copied workdir.')}
-            disabled={!canUseClipboard()}
-          >
-            {status?.working_dir || '—'}
-          </button>
+          {#if clipboardAvailable}
+            <button
+              class="status-pill status-pill--path"
+              type="button"
+              on:click={() => copyText(status?.working_dir || '', 'Copied workdir.')}
+            >
+              {status?.working_dir || '—'}
+            </button>
+          {:else}
+            <span class="status-pill status-pill--path status-pill--static">
+              {status?.working_dir || '—'}
+            </span>
+          {/if}
         </div>
         <div class="status-item">
           <span class="label">Git remote</span>
-          <button
-            class="status-pill status-pill--git"
-            type="button"
-            on:click={() => copyText(status?.git_origin || '', 'Copied git remote.')}
-            disabled={!canUseClipboard()}
-          >
-            {status?.git_origin || '—'}
-          </button>
+          {#if clipboardAvailable}
+            <button
+              class="status-pill status-pill--git"
+              type="button"
+              on:click={() => copyText(status?.git_origin || '', 'Copied git remote.')}
+            >
+              {status?.git_origin || '—'}
+            </button>
+          {:else}
+            <span class="status-pill status-pill--git status-pill--static">
+              {status?.git_origin || '—'}
+            </span>
+          {/if}
         </div>
         <div class="status-item">
           <span class="label">Git branch</span>
-          <button
-            class="status-pill status-pill--git"
-            type="button"
-            on:click={() =>
-              copyText(gitBranchName(status?.git_origin, status?.git_branch), 'Copied git branch.')
-            }
-            disabled={!canUseClipboard()}
-          >
-            {gitBranchName(status?.git_origin, status?.git_branch) || '—'}
-          </button>
+          {#if clipboardAvailable}
+            <button
+              class="status-pill status-pill--git"
+              type="button"
+              on:click={() =>
+                copyText(gitBranchName(status?.git_origin, status?.git_branch), 'Copied git branch.')
+              }
+            >
+              {gitBranchName(status?.git_origin, status?.git_branch) || '—'}
+            </button>
+          {:else}
+            <span class="status-pill status-pill--git status-pill--static">
+              {gitBranchName(status?.git_origin, status?.git_branch) || '—'}
+            </span>
+          {/if}
         </div>
       </div>
     </div>
@@ -431,11 +448,13 @@
                     {#if entry.raw}
                       <details class="log-entry__raw">
                         <summary>Raw JSON</summary>
-                        <div class="log-entry__raw-actions">
-                          <button type="button" on:click={() => copyLogJson(entry)} disabled={!canUseClipboard()}>
-                            Copy JSON
-                          </button>
-                        </div>
+                        {#if clipboardAvailable}
+                          <div class="log-entry__raw-actions">
+                            <button type="button" on:click={() => copyLogJson(entry)}>
+                              Copy JSON
+                            </button>
+                          </div>
+                        {/if}
                         <pre>{JSON.stringify(entry.raw, null, 2)}</pre>
                       </details>
                     {/if}
@@ -695,9 +714,9 @@
     outline-offset: 2px;
   }
 
-  .status-pill:disabled {
-    cursor: not-allowed;
-    opacity: 0.6;
+  .status-pill--static {
+    cursor: text;
+    user-select: text;
   }
 
   .status-pill--path {
@@ -1154,11 +1173,6 @@
   .log-entry__raw-actions button:focus-visible {
     outline: 2px solid rgba(var(--color-text-rgb), 0.4);
     outline-offset: 2px;
-  }
-
-  .log-entry__raw-actions button:disabled {
-    cursor: not-allowed;
-    opacity: 0.6;
   }
 
   .log-entry__raw pre {

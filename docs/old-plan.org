@@ -8200,3 +8200,48 @@
    - Run backend and relevant frontend tests if touched
    Done when:
    - Tests pass and documentation updated
+
+* DONE [#B] Apply prompt templating to all prompt files
+  Effort: 2-4 hours
+  Goal: Simplify prompt templating by applying directives to any prompt file in the prompts directory, regardless of extension.
+  Context:
+  - Current behavior: only `.tmpl` files process `{{include ...}}` and `{{port ...}}` directives.
+  - Desired behavior: `.tmpl`, `.md`, and `.txt` (and any other prompt file) should process directives.
+  - Keep directive rules: directives must be on their own line; unknown includes/ports are skipped silently.
+  Constraints:
+  - No new dependencies.
+  - Minimize behavior changes outside prompt rendering.
+
+** [#B] Update prompt parser to process directives for all prompt files
+   Effort: 1-2 hours
+   Change:
+   - In `internal/prompt/parser.go`, remove the extension gate that skips templating for non-`.tmpl` files.
+   - Continue to parse directives line-by-line for every prompt file.
+   - Keep existing safeguards: depth limit, cycle detection, text-only includes, silent skips.
+   Tests:
+   - Update/add unit tests in `internal/prompt/parser_test.go` to cover `.md` and `.txt` directives.
+   - Run: `GOMODCACHE=/tmp/gomodcache GOPATH=/tmp/gopath GOCACHE=/tmp/gocache /usr/local/go/bin/go test ./internal/prompt -count=1`
+   Done when:
+   - `{{include ...}}` and `{{port ...}}` work in `.txt` and `.md` prompts.
+
+** [#B] Add regression tests for directive behavior in non-.tmpl prompts
+   Effort: 1 hour
+   Change:
+   - Add focused tests showing:
+     - `.txt` prompt with `{{include ...}}` renders included content.
+     - `.md` prompt with `{{port backend}}` renders a numeric port.
+     - Directives still require their own line.
+   Tests:
+   - Run backend prompt tests and full backend suite.
+   Done when:
+   - Tests fail on old behavior and pass on new behavior.
+
+** [#B] Document simplified templating rules for humans and agents
+   Effort: 30-60 minutes
+   Change:
+   - Update `config/prompts/README.md` to state that templating applies to all prompt files.
+   - Update `AGENTS.md` prompt templating section to match.
+   Tests:
+   - N/A (docs only)
+   Done when:
+   - Documentation matches runtime behavior.

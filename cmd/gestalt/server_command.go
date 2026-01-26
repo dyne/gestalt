@@ -101,6 +101,8 @@ func runServer(args []string) int {
 		logger.Warn("otel sdk init failed", map[string]string{
 			"error": sdkErr.Error(),
 		})
+	} else if !sdkOptions.Enabled {
+		sdkShutdown = nil
 	} else if sdkShutdown != nil {
 		defer func() {
 			if err := sdkShutdown(context.Background()); err != nil && logger != nil {
@@ -109,6 +111,10 @@ func runServer(args []string) int {
 				})
 			}
 		}()
+	}
+	if !sdkOptions.Enabled || sdkErr != nil {
+		stopFallback := otel.StartLogHubFallback(logger, sdkOptions)
+		defer stopFallback()
 	}
 
 	temporalDevServer, devServerError := startTemporalDevServer(&cfg, logger)

@@ -88,22 +88,7 @@ func SetupSDK(ctx context.Context, options SDKOptions) (func(context.Context) er
 		return nil, err
 	}
 
-	resourceAttrs := []attribute.KeyValue{
-		attribute.String("service.name", options.ServiceName),
-	}
-	if strings.TrimSpace(options.ServiceVersion) != "" {
-		resourceAttrs = append(resourceAttrs, attribute.String("service.version", options.ServiceVersion))
-	}
-	if host, err := os.Hostname(); err == nil && strings.TrimSpace(host) != "" {
-		resourceAttrs = append(resourceAttrs, attribute.String("host.name", host))
-	}
-	for key, value := range options.ResourceAttributes {
-		trimmedKey := strings.TrimSpace(key)
-		if trimmedKey == "" {
-			continue
-		}
-		resourceAttrs = append(resourceAttrs, attribute.String(trimmedKey, value))
-	}
+	resourceAttrs := resourceAttributesFromOptions(options)
 
 	res, err := sdkresource.New(ctx, sdkresource.WithAttributes(resourceAttrs...))
 	if err != nil {
@@ -130,10 +115,14 @@ func SetupSDK(ctx context.Context, options SDKOptions) (func(context.Context) er
 		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter)),
 		sdkmetric.WithView(durationView),
 	)
-	loggerProvider := sdklog.NewLoggerProvider(
+	loggerOptions := []sdklog.LoggerProviderOption{
 		sdklog.WithResource(res),
 		sdklog.WithProcessor(sdklog.NewBatchProcessor(logExporter)),
-	)
+	}
+	if processor := newLogHubProcessor(ActiveLogHub(), otlpResourceFromAttributes(resourceAttrs)); processor != nil {
+		loggerOptions = append(loggerOptions, sdklog.WithProcessor(processor))
+	}
+	loggerProvider := sdklog.NewLoggerProvider(loggerOptions...)
 
 	otelapi.SetTracerProvider(tracerProvider)
 	otelapi.SetMeterProvider(meterProvider)
@@ -185,6 +174,26 @@ func parseResourceAttributes(raw string) map[string]string {
 		return nil
 	}
 	return attributes
+}
+
+func resourceAttributesFromOptions(options SDKOptions) []attribute.KeyValue {
+	resourceAttrs := []attribute.KeyValue{
+		attribute.String("service.name", options.ServiceName),
+	}
+	if strings.TrimSpace(options.ServiceVersion) != "" {
+		resourceAttrs = append(resourceAttrs, attribute.String("service.version", options.ServiceVersion))
+	}
+	if host, err := os.Hostname(); err == nil && strings.TrimSpace(host) != "" {
+		resourceAttrs = append(resourceAttrs, attribute.String("host.name", host))
+	}
+	for key, value := range options.ResourceAttributes {
+		trimmedKey := strings.TrimSpace(key)
+		if trimmedKey == "" {
+			continue
+		}
+		resourceAttrs = append(resourceAttrs, attribute.String(trimmedKey, value))
+	}
+	return resourceAttrs
 }
 
 func normalizeEndpoint(raw string) string {

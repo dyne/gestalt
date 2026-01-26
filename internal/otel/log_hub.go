@@ -10,12 +10,14 @@ import (
 const defaultLogHubRetention = time.Hour
 const defaultLogHubBufferSize = 256
 
+var activeLogHub = NewLogHub(defaultLogHubRetention)
+
 type LogHub struct {
-	mu         sync.Mutex
-	retention  time.Duration
-	records    []logHubRecord
+	mu          sync.Mutex
+	retention   time.Duration
+	records     []logHubRecord
 	subscribers map[int]chan map[string]any
-	nextID     int
+	nextID      int
 }
 
 type logHubRecord struct {
@@ -28,10 +30,14 @@ func NewLogHub(retention time.Duration) *LogHub {
 		retention = defaultLogHubRetention
 	}
 	return &LogHub{
-		retention:  retention,
-		records:    make([]logHubRecord, 0, 256),
+		retention:   retention,
+		records:     make([]logHubRecord, 0, 256),
 		subscribers: make(map[int]chan map[string]any),
 	}
+}
+
+func ActiveLogHub() *LogHub {
+	return activeLogHub
 }
 
 func (hub *LogHub) Append(records ...map[string]any) {

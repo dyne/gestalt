@@ -3,6 +3,7 @@
   import { createDashboardStore } from '../lib/dashboardStore.js'
   import { getErrorMessage } from '../lib/errorUtils.js'
   import { formatRelativeTime } from '../lib/timeUtils.js'
+  import LogDetailsDialog from '../components/LogDetailsDialog.svelte'
 
   export let terminals = []
   export let status = null
@@ -28,6 +29,7 @@
   let logsError = ''
   let logLevelFilter = 'info'
   let logsAutoRefresh = true
+  let selectedLogEntry = null
   let metricsSummary = null
   let metricsLoading = false
   let metricsError = ''
@@ -137,7 +139,15 @@
     dashboardStore.loadMetricsSummary()
   }
 
-  const logEntryKey = (entry, index) => `${entry.timestamp}-${entry.message}-${index}`
+  const logEntryKey = (entry, index) => entry?.id || `${entry.timestamp}-${entry.message}-${index}`
+
+  const openLogDetails = (entry) => {
+    selectedLogEntry = entry
+  }
+
+  const closeLogDetails = () => {
+    selectedLogEntry = null
+  }
 
   $: ({
     agents,
@@ -450,19 +460,27 @@
         <ul>
           {#each visibleLogs as entry, index (logEntryKey(entry, index))}
             <li class={`log-entry log-entry--${entry.level}`}>
-              <div class="log-entry__meta">
-                <span class="log-badge">{entry.level}</span>
-                <span class="log-time" title={entry.timestamp || ''}>
-                  {formatLogTime(entry.timestamp)}
-                </span>
-              </div>
-              <p class="log-message">{entry.message}</p>
+              <button class="log-entry__button" type="button" on:click={() => openLogDetails(entry)}>
+                <div class="log-entry__meta">
+                  <span class="log-badge">{entry.level}</span>
+                  <span class="log-time" title={entry.timestamp || ''}>
+                    {formatLogTime(entry.timestamp)}
+                  </span>
+                </div>
+                <p class="log-message">{entry.message}</p>
+              </button>
             </li>
           {/each}
         </ul>
       {/if}
     </div>
   </section>
+
+  <LogDetailsDialog
+    entry={selectedLogEntry}
+    open={Boolean(selectedLogEntry)}
+    on:close={closeLogDetails}
+  />
 </section>
 
 <style>
@@ -852,6 +870,11 @@
   }
 
   .log-entry {
+    margin: 0;
+  }
+
+  .log-entry__button {
+    width: 100%;
     padding: 0.65rem 0.85rem;
     border-radius: 16px;
     background: var(--color-surface);
@@ -859,6 +882,15 @@
     display: flex;
     flex-direction: column;
     gap: 0.35rem;
+    text-align: left;
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+  }
+
+  .log-entry__button:focus-visible {
+    outline: 2px solid rgba(var(--color-text-rgb), 0.4);
+    outline-offset: 2px;
   }
 
   .log-entry__meta {

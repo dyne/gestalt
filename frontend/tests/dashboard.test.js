@@ -1,50 +1,73 @@
 import { render, fireEvent, cleanup } from '@testing-library/svelte'
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
+import { writable } from 'svelte/store'
 
-const apiFetch = vi.hoisted(() => vi.fn())
-const initialScipStatus = vi.hoisted(() => ({
-  indexed: false,
-  fresh: false,
-  in_progress: false,
-  started_at: '',
-  completed_at: '',
-  duration: '',
-  error: '',
-  created_at: '',
-  documents: 0,
-  symbols: 0,
-  age_hours: 0,
-  languages: [],
-}))
-const createScipStore = vi.hoisted(() =>
-  vi.fn(() => ({
-    status: {
-      subscribe: (run) => {
-        run({ ...initialScipStatus, languages: [] })
-        return () => {}
-      },
-    },
-    start: vi.fn(() => Promise.resolve()),
-    stop: vi.fn(),
-    reindex: vi.fn(() => Promise.resolve()),
-    connectionStatus: { subscribe: () => () => {} },
-  }))
-)
+const createDashboardStore = vi.hoisted(() => vi.fn())
 
-vi.mock('../src/lib/api.js', () => ({
-  apiFetch,
-}))
-
-vi.mock('../src/lib/scipStore.js', () => ({
-  createScipStore,
-  initialScipStatus,
+vi.mock('../src/lib/dashboardStore.js', () => ({
+  createDashboardStore,
 }))
 
 import Dashboard from '../src/views/Dashboard.svelte'
 
+const buildDashboardStore = (stateOverrides = {}) => {
+  const store = writable({
+    agents: [],
+    agentsLoading: false,
+    agentsError: '',
+    agentSkills: {},
+    agentSkillsLoading: false,
+    agentSkillsError: '',
+    logs: [],
+    logsLoading: false,
+    logsError: '',
+    logLevelFilter: 'info',
+    logsAutoRefresh: true,
+    metricsSummary: null,
+    metricsLoading: false,
+    metricsError: '',
+    metricsAutoRefresh: true,
+    configExtractionCount: 0,
+    configExtractionLast: '',
+    gitContext: 'not a git repo',
+    scipStatus: {
+      indexed: false,
+      fresh: false,
+      in_progress: false,
+      started_at: '',
+      completed_at: '',
+      duration: '',
+      error: '',
+      created_at: '',
+      documents: 0,
+      symbols: 0,
+      age_hours: 0,
+      languages: [],
+    },
+    ...stateOverrides,
+  })
+
+  return {
+    subscribe: store.subscribe,
+    set: store.set,
+    update: store.update,
+    start: vi.fn(() => Promise.resolve()),
+    stop: vi.fn(),
+    loadAgents: vi.fn(() => Promise.resolve()),
+    loadLogs: vi.fn(() => Promise.resolve()),
+    setLogLevelFilter: vi.fn(),
+    setLogsAutoRefresh: vi.fn(),
+    setMetricsAutoRefresh: vi.fn(),
+    loadMetricsSummary: vi.fn(() => Promise.resolve()),
+    setTerminals: vi.fn(),
+    setStatus: vi.fn(),
+    reindexScip: vi.fn(() => Promise.resolve()),
+  }
+}
+
 describe('Dashboard', () => {
   beforeEach(() => {
-    apiFetch.mockReset()
+    createDashboardStore.mockReset()
   })
 
   afterEach(() => {
@@ -52,37 +75,11 @@ describe('Dashboard', () => {
   })
 
   it('renders agent buttons and calls onCreate', async () => {
-    // Mock agents API call
-    apiFetch.mockImplementation((url) => {
-      if (url === '/api/agents') {
-        return Promise.resolve({
-          json: vi.fn().mockResolvedValue([{ id: 'codex', name: 'Codex' }]),
-        })
-      }
-      if (url.startsWith('/api/skills?agent=')) {
-        return Promise.resolve({
-          json: vi.fn().mockResolvedValue([]),
-        })
-      }
-      if (url.startsWith('/api/logs')) {
-        return Promise.resolve({
-          json: vi.fn().mockResolvedValue([]),
-        })
-      }
-      if (url === '/api/metrics/summary') {
-        return Promise.resolve({
-          json: vi.fn().mockResolvedValue({
-            updated_at: '2026-01-24T00:00:00Z',
-            top_endpoints: [],
-            slowest_endpoints: [],
-            top_agents: [],
-            error_rates: [],
-          }),
-        })
-      }
-      return Promise.reject(new Error('Unexpected API call'))
+    const dashboardStore = buildDashboardStore({
+      agents: [{ id: 'codex', name: 'Codex' }],
     })
-    
+    createDashboardStore.mockReturnValue(dashboardStore)
+
     const onCreate = vi.fn().mockResolvedValue()
 
     const { findByText } = render(Dashboard, {
@@ -97,5 +94,41 @@ describe('Dashboard', () => {
     await fireEvent.click(button)
 
     expect(onCreate).toHaveBeenCalledWith('codex')
+  })
+
+  it('opens log details from recent logs', async () => {
+    const dashboardStore = buildDashboardStore({
+      logs: [
+        {
+          id: 'log-1',
+          level: 'info',
+          timestamp: '2026-01-25T12:00:00Z',
+          message: 'Log entry',
+          context: {
+            source: 'system',
+            toast: 'true',
+            toast_id: 'toast-1',
+          },
+          raw: { scope: 'unit' },
+        },
+      ],
+    })
+    createDashboardStore.mockReturnValue(dashboardStore)
+
+    const { findByText, getByRole } = render(Dashboard, {
+      props: {
+        terminals: [],
+        status: { terminal_count: 0 },
+      },
+    })
+
+    const logButton = await findByText('Log entry')
+    await fireEvent.click(logButton)
+
+    const dialog = getByRole('dialog')
+    expect(dialog).toBeTruthy()
+    await findByText('source')
+    await findByText('toast')
+    await findByText('toast_id')
   })
 })

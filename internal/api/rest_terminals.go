@@ -94,9 +94,13 @@ func (h *RestHandler) createTerminal(w http.ResponseWriter, r *http.Request) *ap
 		}
 		if reloaded && h.Logger != nil && agentProfile != nil {
 			h.Logger.Info("agent config reloaded for new session", map[string]string{
-				"agent_id":   request.Agent,
-				"agent_name": agentProfile.Name,
-				"hash":       agentProfile.ConfigHash,
+				"gestalt.category": "agent",
+				"gestalt.source":   "backend",
+				"agent.id":         request.Agent,
+				"agent.name":       agentProfile.Name,
+				"agent_id":         request.Agent,
+				"agent_name":       agentProfile.Name,
+				"hash":             agentProfile.ConfigHash,
 			})
 		}
 	}
@@ -280,8 +284,11 @@ func (h *RestHandler) handleTerminalBell(w http.ResponseWriter, r *http.Request,
 
 	if h.Logger != nil {
 		h.Logger.Warn("terminal bell detected", map[string]string{
-			"terminal_id":   id,
-			"context_lines": strconv.Itoa(len(contextLines)),
+			"gestalt.category": "terminal",
+			"gestalt.source":   "backend",
+			"terminal.id":      id,
+			"terminal_id":      id,
+			"context_lines":    strconv.Itoa(len(contextLines)),
 		})
 	}
 
@@ -318,10 +325,15 @@ func (h *RestHandler) handleTerminalWorkflowResume(w http.ResponseWriter, r *htt
 
 	if h.Logger != nil {
 		h.Logger.Info("workflow resume action", map[string]string{
-			"terminal_id": id,
-			"workflow_id": workflowID,
-			"run_id":      workflowRunID,
-			"action":      action,
+			"gestalt.category":    "workflow",
+			"gestalt.source":      "backend",
+			"terminal.id":         id,
+			"terminal_id":         id,
+			"workflow.id":         workflowID,
+			"workflow.session_id": id,
+			"workflow_id":         workflowID,
+			"run_id":              workflowRunID,
+			"action":              action,
 		})
 	}
 

@@ -376,7 +376,10 @@ func (idx *AsyncIndexer) logWarn(message string, err error) {
 	if idx.logger == nil {
 		return
 	}
-	fields := map[string]string{}
+	fields := map[string]string{
+		"gestalt.category": "scip",
+		"gestalt.source":   "backend",
+	}
 	if err != nil {
 		fields["error"] = err.Error()
 	}

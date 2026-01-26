@@ -8,12 +8,20 @@ import (
 
 func (m *Manager) emitSessionStarted(id string, request sessionCreateRequest, agentName, shell string) {
 	fields := map[string]string{
-		"terminal_id": id,
-		"role":        request.Role,
-		"title":       request.Title,
+		"gestalt.category": "terminal",
+		"gestalt.source":   "backend",
+		"terminal.id":      id,
+		"terminal_id":      id,
+		"role":             request.Role,
+		"title":            request.Title,
 	}
 	if request.AgentID != "" {
+		fields["agent.id"] = request.AgentID
 		fields["agent_id"] = request.AgentID
+		if strings.TrimSpace(agentName) != "" {
+			fields["agent.name"] = agentName
+			fields["agent_name"] = agentName
+		}
 		if strings.TrimSpace(shell) != "" {
 			fields["shell"] = shell
 		}
@@ -30,8 +38,19 @@ func (m *Manager) emitSessionStarted(id string, request sessionCreateRequest, ag
 func (m *Manager) emitSessionStopped(id string, session *Session, agentID, agentName string, closeErr error) {
 	if closeErr != nil {
 		fields := map[string]string{
-			"terminal_id": id,
-			"error":       closeErr.Error(),
+			"gestalt.category": "terminal",
+			"gestalt.source":   "backend",
+			"terminal.id":      id,
+			"terminal_id":      id,
+			"error":            closeErr.Error(),
+		}
+		if agentID != "" {
+			fields["agent.id"] = agentID
+			fields["agent_id"] = agentID
+		}
+		if strings.TrimSpace(agentName) != "" {
+			fields["agent.name"] = agentName
+			fields["agent_name"] = agentName
 		}
 		if session != nil {
 			if tail := renderOutputTail(m.logger, session.OutputLines(), 12, 2000); tail != "" {
@@ -63,13 +82,21 @@ func (m *Manager) emitSessionStopped(id string, session *Session, agentID, agent
 	if session != nil {
 		if workflowID, workflowRunID, ok := session.WorkflowIdentifiers(); ok {
 			m.logger.Info("workflow stopped", map[string]string{
-				"terminal_id": id,
-				"workflow_id": workflowID,
-				"run_id":      workflowRunID,
+				"gestalt.category":    "workflow",
+				"gestalt.source":      "backend",
+				"terminal.id":         id,
+				"terminal_id":         id,
+				"workflow.id":         workflowID,
+				"workflow.session_id": id,
+				"workflow_id":         workflowID,
+				"run_id":              workflowRunID,
 			})
 		}
 	}
 	m.logger.Info("terminal deleted", map[string]string{
-		"terminal_id": id,
+		"gestalt.category": "terminal",
+		"gestalt.source":   "backend",
+		"terminal.id":      id,
+		"terminal_id":      id,
 	})
 }

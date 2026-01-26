@@ -163,7 +163,10 @@ func NewManager(opts ManagerOptions) *Manager {
 	temporalEnabled := opts.TemporalEnabled
 	if temporalEnabled && temporalClient == nil {
 		temporalEnabled = false
-		logger.Warn("temporal enabled without client", nil)
+		logger.Warn("temporal enabled without client", map[string]string{
+			"gestalt.category": "workflow",
+			"gestalt.source":   "backend",
+		})
 	}
 
 	sessionLogs := strings.TrimSpace(opts.SessionLogDir)
@@ -300,7 +303,10 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		agentProfile, ok := m.GetAgent(request.AgentID)
 		if !ok || agentProfile.Name == "" {
 			m.logger.Warn("agent not found or invalid", map[string]string{
-				"agent_id": request.AgentID,
+				"gestalt.category": "agent",
+				"gestalt.source":   "backend",
+				"agent.id":         request.AgentID,
+				"agent_id":         request.AgentID,
 			})
 			return nil, ErrAgentNotFound
 		}
@@ -381,14 +387,23 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		startError := session.StartWorkflow(m.temporalClient, "", "")
 		if startError != nil {
 			m.logger.Warn("temporal workflow start failed", map[string]string{
-				"terminal_id": id,
-				"error":       startError.Error(),
+				"gestalt.category":    "workflow",
+				"gestalt.source":      "backend",
+				"terminal.id":         id,
+				"terminal_id":         id,
+				"workflow.session_id": id,
+				"error":               startError.Error(),
 			})
 		} else if workflowID, workflowRunID, ok := session.WorkflowIdentifiers(); ok {
 			m.logger.Info("workflow started", map[string]string{
-				"terminal_id": id,
-				"workflow_id": workflowID,
-				"run_id":      workflowRunID,
+				"gestalt.category":    "workflow",
+				"gestalt.source":      "backend",
+				"terminal.id":         id,
+				"terminal_id":         id,
+				"workflow.id":         workflowID,
+				"workflow.session_id": id,
+				"workflow_id":         workflowID,
+				"run_id":              workflowRunID,
 			})
 		}
 	}

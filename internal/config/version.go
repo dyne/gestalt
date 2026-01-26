@@ -19,14 +19,21 @@ func CheckVersionCompatibility(installed, current version.VersionInfo, logger *l
 	if installed.Minor != current.Minor {
 		if logger != nil {
 			logger.Warn(minorMismatchMessage, map[string]string{
-				"installed": formatVersion(installed),
-				"current":   formatVersion(current),
+				"gestalt.category": "config",
+				"gestalt.source":   "backend",
+				"installed":        formatVersion(installed),
+				"current":          formatVersion(current),
 			})
 		}
 	}
 	if installed.Major == current.Major && installed.Minor == current.Minor && installed.Patch != current.Patch {
 		if logger != nil {
-			logger.Info(fmt.Sprintf("Config updated from %s to %s", formatVersion(installed), formatVersion(current)), nil)
+			logger.Info(fmt.Sprintf("Config updated from %s to %s", formatVersion(installed), formatVersion(current)), map[string]string{
+				"gestalt.category": "config",
+				"gestalt.source":   "backend",
+				"installed":        formatVersion(installed),
+				"current":          formatVersion(current),
+			})
 		}
 	}
 	return nil

@@ -35,6 +35,24 @@ func TestCheckVersionCompatibilityMinorMismatchLogsWarning(t *testing.T) {
 	}
 }
 
+func TestCheckVersionCompatibilityAddsCategory(t *testing.T) {
+	installed := version.VersionInfo{Major: 1, Minor: 1, Patch: 0}
+	current := version.VersionInfo{Major: 1, Minor: 2, Patch: 0}
+
+	buffer := logging.NewLogBuffer(10)
+	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, nil)
+	if err := CheckVersionCompatibility(installed, current, logger); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	entries := buffer.List()
+	if len(entries) == 0 {
+		t.Fatalf("expected log entries")
+	}
+	if entries[0].Context["gestalt.category"] != "config" {
+		t.Fatalf("expected gestalt.category config, got %q", entries[0].Context["gestalt.category"])
+	}
+}
+
 func TestCheckVersionCompatibilityPatchMismatchLogsInfo(t *testing.T) {
 	installed := version.VersionInfo{Major: 1, Minor: 2, Patch: 1}
 	current := version.VersionInfo{Major: 1, Minor: 2, Patch: 3}

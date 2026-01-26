@@ -48,8 +48,11 @@ func loggingMiddleware(logger *logging.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if logger != nil {
 			logger.Debug("api request", map[string]string{
-				"method": r.Method,
-				"path":   r.URL.Path,
+				"gestalt.category": "api",
+				"gestalt.source":   "backend",
+				"http.route":       r.URL.Path,
+				"method":           r.Method,
+				"path":             r.URL.Path,
 			})
 		}
 		next.ServeHTTP(w, r)

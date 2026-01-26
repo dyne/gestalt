@@ -149,7 +149,7 @@ func (watcher *Watcher) logWarn(message string, fields map[string]string) {
 	if watcher == nil || watcher.logger == nil {
 		return
 	}
-	watcher.logger.Warn(message, fields)
+	watcher.logger.Warn(message, withWatcherFields(fields))
 }
 
 // SetErrorHandler configures a callback for unrecoverable watcher failures.
@@ -166,10 +166,21 @@ func (watcher *Watcher) logDebug(message, path string, activeCount int) {
 	if watcher == nil || watcher.logger == nil {
 		return
 	}
-	watcher.logger.Debug(message, map[string]string{
+	fields := map[string]string{
 		"path":           path,
 		"active_watches": strconv.Itoa(activeCount),
-	})
+	}
+	watcher.logger.Debug(message, withWatcherFields(fields))
+}
+
+func withWatcherFields(fields map[string]string) map[string]string {
+	merged := make(map[string]string, 2)
+	merged["gestalt.category"] = "watcher"
+	merged["gestalt.source"] = "backend"
+	for key, value := range fields {
+		merged[key] = value
+	}
+	return merged
 }
 
 // Metrics reports current watcher stats.

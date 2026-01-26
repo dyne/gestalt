@@ -6,6 +6,7 @@ import { fetchAgentSkills, fetchAgents, fetchMetricsSummary } from './apiClient.
 import { getErrorMessage } from './errorUtils.js'
 import { notificationStore } from './notificationStore.js'
 import { createLogStream } from './logStream.js'
+import { normalizeLogEntry } from './logEntry.js'
 import { createScipStore, initialScipStatus } from './scipStore.js'
 
 const metricsRefreshIntervalMs = 60000
@@ -237,8 +238,10 @@ export const createDashboardStore = () => {
 
   const appendLogEntry = (entry) => {
     if (!entry) return
+    const normalized = normalizeLogEntry(entry)
+    if (!normalized) return
     state.update((current) => {
-      const nextLogs = [...current.logs, entry]
+      const nextLogs = [...current.logs, normalized]
       if (nextLogs.length > maxLogEntries) {
         nextLogs.splice(0, nextLogs.length - maxLogEntries)
       }

@@ -44,6 +44,10 @@ describe('LogsView', () => {
     const entry = await findByText('hello')
     expect(entry).toBeTruthy()
 
+    await fireEvent.click(entry)
+    await findByText(/\"scope\": \"test\"/)
+    await findByText(/\"raw\":/)
+
     const autoRefresh = getByLabelText('Live updates')
     await fireEvent.click(autoRefresh)
   })

@@ -151,6 +151,9 @@ terminal output -> Session output bus -> /ws/terminal/:id -> xterm
 - Dashboard orchestration (agent/config/git event handling, config extraction counts, git context) lives in `frontend/src/lib/dashboardStore.js`; Dashboard view now just binds store state.
 - Terminal input helpers have direct tests in `frontend/src/lib/terminal/input.test.js`.
 
+## Logs UI notes
+- Log entries are normalized via `frontend/src/lib/logEntry.js`, and details display in `frontend/src/components/LogDetailsDialog.svelte` (used by Dashboard and LogsView with clipboard copy actions).
+
 ## Terminal session logging notes
 - Async file logger behavior is covered by `internal/terminal/async_file_logger_test.go` to validate flush-on-close and drop behavior.
 - Session metadata boundaries are covered in `internal/terminal/session_test.go` (Info metadata + workflow identifier defaults).

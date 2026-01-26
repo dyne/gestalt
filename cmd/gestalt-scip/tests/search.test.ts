@@ -69,3 +69,46 @@ test('searchCommand finds matches case-insensitively by default', async () => {
   assert.equal(payload.matches[0].line, 1);
   assert.equal(payload.matches[0].column, 7);
 });
+
+test('searchCommand supports text output with context', async () => {
+  const searchCommand = await loadSearchCommand();
+  const { scipDir } = createTempRepo();
+
+  const document = {
+    relativePath: 'src/app.ts',
+    language: 'typescript',
+    text: ['before', 'FindMe here', 'after'].join('\n'),
+  };
+
+  writeIndex(path.join(scipDir, 'index-typescript.scip'), [document]);
+
+  const output = await captureOutput(() =>
+    searchCommand('findme', { scip: scipDir, format: 'text', context: 1 })
+  );
+
+  assert.match(output, /pattern: findme/);
+  assert.match(output, /src\/app.ts:2:1/);
+  assert.match(output, /1: before/);
+  assert.match(output, /2: FindMe here/);
+  assert.match(output, /3: after/);
+});
+
+test('searchCommand supports TOON output format', async () => {
+  const searchCommand = await loadSearchCommand();
+  const { scipDir } = createTempRepo();
+
+  const document = {
+    relativePath: 'src/app.ts',
+    language: 'typescript',
+    text: 'const match = 1;',
+  };
+
+  writeIndex(path.join(scipDir, 'index-typescript.scip'), [document]);
+
+  const output = await captureOutput(() =>
+    searchCommand('match', { scip: scipDir, format: 'toon' })
+  );
+
+  assert.match(output, /pattern: match/);
+  assert.match(output, /matches\[/);
+});

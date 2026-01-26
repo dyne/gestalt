@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { encode } from '@toon-format/toon';
+import type { ContentSearchResult } from './lib/query-engine.js';
 import { encodeSymbolIdForOutput } from './symbol-id-codec.js';
 
 export type OutputFormat = 'json' | 'text' | 'toon';
@@ -72,6 +73,15 @@ export function formatFile(file: FileResult, format: OutputFormat): string {
   return renderStructured(sanitizedFile, format, () => formatFileText(sanitizedFile));
 }
 
+export function formatSearchResults(
+  pattern: string,
+  results: ContentSearchResult[],
+  format: OutputFormat
+): string {
+  const payload = { pattern, matches: results };
+  return renderStructured(payload, format, () => formatSearchText(pattern, results));
+}
+
 function formatSymbolsText(query: string, symbols: SymbolResult[]): string {
   if (symbols.length === 0) {
     return `No symbols found for "${query}".`;
@@ -91,6 +101,41 @@ function formatSymbolsText(query: string, symbols: SymbolResult[]): string {
     if (docLine && docLine !== symbol.signature) {
       lines.push(`  ${docLine.trim()}`);
     }
+    lines.push('');
+  }
+
+  return lines.join('\n').trimEnd();
+}
+
+function formatSearchText(pattern: string, results: ContentSearchResult[]): string {
+  if (results.length === 0) {
+    return `No matches found for pattern: ${pattern}`;
+  }
+
+  const lines: string[] = [`pattern: ${pattern}`, `matches: ${results.length}`, ''];
+
+  for (const result of results) {
+    lines.push(`${result.file_path}:${result.line}:${result.column}`);
+    if (result.language) {
+      lines.push(`  language: ${result.language}`);
+    }
+
+    lines.push('  context:');
+    if (result.context_before.length > 0) {
+      const startLine = result.line - result.context_before.length;
+      for (let index = 0; index < result.context_before.length; index += 1) {
+        lines.push(`    ${startLine + index}: ${result.context_before[index]}`);
+      }
+    }
+
+    lines.push(`    ${result.line}: ${result.match_text}`);
+
+    if (result.context_after.length > 0) {
+      for (let index = 0; index < result.context_after.length; index += 1) {
+        lines.push(`    ${result.line + 1 + index}: ${result.context_after[index]}`);
+      }
+    }
+
     lines.push('');
   }
 

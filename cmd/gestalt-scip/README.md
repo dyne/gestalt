@@ -5,10 +5,16 @@ Offline CLI tool for querying SCIP code intelligence indexes.
 ## Features
 - No network dependency (reads `.scip` files directly)
 - Multi-language support (Go, TypeScript, Python, etc.)
-- JSON output compatible with gestalt SCIP API responses
+- JSON output suitable for scripting
 - Auto-discovers SCIP files in `.gestalt/scip/`
+- Generates indexes with `gestalt-scip index`
 
 ## Usage
+
+Generate indexes:
+```bash
+gestalt-scip index --path . --output .gestalt/scip/index.scip
+```
 
 Search for symbols:
 ```bash
@@ -77,7 +83,7 @@ The search command supports:
 
 ## Output formats
 
-- `json`: machine-readable output that matches the gestalt SCIP API schema
+- `json`: machine-readable output suitable for scripting
 - `text`: human-readable output with context
 - `toon`: compact tabular output rendered from the JSON payload
 - Default format: `toon`

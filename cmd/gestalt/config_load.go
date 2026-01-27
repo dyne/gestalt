@@ -27,9 +27,6 @@ type Config struct {
 	BackendPort          int
 	Shell                string
 	AuthToken            string
-	SCIPIndexPath        string
-	SCIPAutoReindex      bool
-	NoIndex              bool
 	TemporalHost         string
 	TemporalNamespace    string
 	TemporalEnabled      bool
@@ -66,9 +63,6 @@ type configDefaults struct {
 	BackendPort          int
 	Shell                string
 	AuthToken            string
-	SCIPIndexPath        string
-	SCIPAutoReindex      bool
-	NoIndex              bool
 	TemporalHost         string
 	TemporalNamespace    string
 	TemporalEnabled      bool
@@ -102,9 +96,6 @@ type flagValues struct {
 	SessionBufferLines   int
 	InputHistoryPersist  bool
 	InputHistoryDir      string
-	SCIPIndexPath        string
-	SCIPAutoReindex      bool
-	NoIndex              bool
 	ConfigDir            string
 	ConfigBackupLimit    int
 	MaxWatches           int
@@ -362,49 +353,6 @@ func loadConfig(args []string) (Config, error) {
 	cfg.InputHistoryDir = historyDir
 	cfg.Sources["input-history-dir"] = historyDirSource
 
-	scipIndex := defaults.SCIPIndexPath
-	scipIndexSource := sourceDefault
-	if rawIndex := strings.TrimSpace(os.Getenv("GESTALT_SCIP_INDEX_PATH")); rawIndex != "" {
-		scipIndex = rawIndex
-		scipIndexSource = sourceEnv
-	}
-	if flags.Set["scip-index-path"] {
-		scipIndex = flags.SCIPIndexPath
-		scipIndexSource = sourceFlag
-	}
-	cfg.SCIPIndexPath = scipIndex
-	cfg.Sources["scip-index-path"] = scipIndexSource
-
-	scipAutoReindex := defaults.SCIPAutoReindex
-	scipAutoReindexSource := sourceDefault
-	if rawAuto := strings.TrimSpace(os.Getenv("GESTALT_SCIP_AUTO_REINDEX")); rawAuto != "" {
-		if parsed, err := strconv.ParseBool(rawAuto); err == nil {
-			scipAutoReindex = parsed
-			scipAutoReindexSource = sourceEnv
-		}
-	}
-	if flags.Set["scip-auto-reindex"] {
-		scipAutoReindex = flags.SCIPAutoReindex
-		scipAutoReindexSource = sourceFlag
-	}
-	cfg.SCIPAutoReindex = scipAutoReindex
-	cfg.Sources["scip-auto-reindex"] = scipAutoReindexSource
-
-	noIndex := defaults.NoIndex
-	noIndexSource := sourceDefault
-	if rawNoIndex := strings.TrimSpace(os.Getenv("GESTALT_SCIP_NO_INDEX")); rawNoIndex != "" {
-		if parsed, err := strconv.ParseBool(rawNoIndex); err == nil {
-			noIndex = parsed
-			noIndexSource = sourceEnv
-		}
-	}
-	if flags.Set["noindex"] {
-		noIndex = flags.NoIndex
-		noIndexSource = sourceFlag
-	}
-	cfg.NoIndex = noIndex
-	cfg.Sources["noindex"] = noIndexSource
-
 	configDir := defaults.ConfigDir
 	configDirSource := sourceDefault
 	if rawDir := strings.TrimSpace(os.Getenv("GESTALT_CONFIG_DIR")); rawDir != "" {
@@ -533,9 +481,6 @@ func defaultConfigValues() configDefaults {
 		BackendPort:          0,
 		Shell:                terminal.DefaultShell(),
 		AuthToken:            "",
-		SCIPIndexPath:        filepath.Join(".gestalt", "scip", "index.scip"),
-		SCIPAutoReindex:      false,
-		NoIndex:              false,
 		TemporalHost:         temporalDefaultHost,
 		TemporalNamespace:    "default",
 		TemporalEnabled:      true,
@@ -575,9 +520,6 @@ func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
 	sessionBufferLines := fs.Int("session-buffer-lines", defaults.SessionBufferLines, "Session buffer lines")
 	inputHistoryPersist := fs.Bool("input-history-persist", defaults.InputHistoryPersist, "Persist input history")
 	inputHistoryDir := fs.String("input-history-dir", defaults.InputHistoryDir, "Input history directory")
-	scipIndexPath := fs.String("scip-index-path", defaults.SCIPIndexPath, "SCIP index path")
-	scipAutoReindex := fs.Bool("scip-auto-reindex", defaults.SCIPAutoReindex, "Auto-reindex SCIP on file changes")
-	noIndex := fs.Bool("noindex", defaults.NoIndex, "Disable automatic SCIP indexing")
 	configDir := fs.String("config-dir", defaults.ConfigDir, "Config directory")
 	configBackupLimit := fs.Int("config-backup-limit", defaults.ConfigBackupLimit, "Config backup limit")
 	maxWatches := fs.Int("max-watches", defaults.MaxWatches, "Max active watches")
@@ -616,9 +558,6 @@ func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
 		SessionBufferLines:   *sessionBufferLines,
 		InputHistoryPersist:  *inputHistoryPersist,
 		InputHistoryDir:      *inputHistoryDir,
-		SCIPIndexPath:        *scipIndexPath,
-		SCIPAutoReindex:      *scipAutoReindex,
-		NoIndex:              *noIndex,
 		ConfigDir:            *configDir,
 		ConfigBackupLimit:    *configBackupLimit,
 		MaxWatches:           *maxWatches,
@@ -741,21 +680,6 @@ func printHelp(out io.Writer, defaults configDefaults) {
 		},
 	})
 
-	writeOptionGroup(out, "SCIP", []helpOption{
-		{
-			Name: "--scip-index-path PATH",
-			Desc: fmt.Sprintf("SCIP index path (env: GESTALT_SCIP_INDEX_PATH, default: %s)", defaults.SCIPIndexPath),
-		},
-		{
-			Name: "--scip-auto-reindex",
-			Desc: fmt.Sprintf("Auto-reindex SCIP on changes (env: GESTALT_SCIP_AUTO_REINDEX, default: %t)", defaults.SCIPAutoReindex),
-		},
-		{
-			Name: "--noindex",
-			Desc: fmt.Sprintf("Disable automatic SCIP indexing (env: GESTALT_SCIP_NO_INDEX, default: %t)", defaults.NoIndex),
-		},
-	})
-
 	writeOptionGroup(out, "Filesystem", []helpOption{
 		{
 			Name: "--max-watches N",
@@ -844,15 +768,6 @@ func logStartupFlags(logger *logging.Logger, cfg Config) {
 	if cfg.Sources["input-history-dir"] == sourceFlag {
 		flags = append(flags, formatStringFlag("--input-history-dir", cfg.InputHistoryDir))
 	}
-	if cfg.Sources["scip-index-path"] == sourceFlag {
-		flags = append(flags, formatStringFlag("--scip-index-path", cfg.SCIPIndexPath))
-	}
-	if cfg.Sources["scip-auto-reindex"] == sourceFlag {
-		flags = append(flags, formatBoolFlag("--scip-auto-reindex", cfg.SCIPAutoReindex))
-	}
-	if cfg.Sources["noindex"] == sourceFlag {
-		flags = append(flags, formatBoolFlag("--noindex", cfg.NoIndex))
-	}
 	if cfg.Sources["config-dir"] == sourceFlag {
 		flags = append(flags, formatStringFlag("--config-dir", cfg.ConfigDir))
 	}
@@ -922,8 +837,7 @@ func ensureStateDir(cfg Config, logger *logging.Logger) {
 	stateRoot := ".gestalt"
 	if !usesStateRoot(cfg.SessionLogDir, stateRoot) &&
 		!usesStateRoot(cfg.InputHistoryDir, stateRoot) &&
-		!usesStateRoot(cfg.ConfigDir, stateRoot) &&
-		!usesStateRoot(cfg.SCIPIndexPath, stateRoot) {
+		!usesStateRoot(cfg.ConfigDir, stateRoot) {
 		return
 	}
 	if err := os.MkdirAll(stateRoot, 0o755); err != nil && logger != nil {

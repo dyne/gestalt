@@ -277,11 +277,10 @@ func runServer(args []string) int {
 
 	plansDir := preparePlanFile(logger)
 
-	autoReindexEnabled := cfg.SCIPAutoReindex && !cfg.NoIndex
 	fsWatcher, err := watcher.NewWithOptions(watcher.Options{
 		Logger:     logger,
 		MaxWatches: cfg.MaxWatches,
-		WatchDir:   autoReindexEnabled,
+		WatchDir:   true,
 	})
 	if err != nil && logger != nil {
 		logger.Warn("filesystem watcher unavailable", map[string]string{
@@ -305,14 +304,6 @@ func runServer(args []string) int {
 				logger.Warn("git watcher unavailable", map[string]string{
 					"error": err.Error(),
 				})
-			}
-			if autoReindexEnabled {
-				if _, err := watcher.WatchFile(eventBus, fsWatcher, workDir); err != nil && logger != nil {
-					logger.Warn("scip watcher unavailable", map[string]string{
-						"path":  workDir,
-						"error": err.Error(),
-					})
-				}
 			}
 		} else if logger != nil {
 			logger.Warn("git watcher unavailable", map[string]string{

@@ -39,15 +39,6 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.ConfigDir != filepath.Join(".gestalt", "config") {
 		t.Fatalf("expected default config dir, got %q", cfg.ConfigDir)
 	}
-	if cfg.SCIPIndexPath != filepath.Join(".gestalt", "scip", "index.scip") {
-		t.Fatalf("expected default scip index path, got %q", cfg.SCIPIndexPath)
-	}
-	if cfg.SCIPAutoReindex {
-		t.Fatalf("expected scip auto reindex disabled by default")
-	}
-	if cfg.NoIndex {
-		t.Fatalf("expected automatic indexing enabled by default")
-	}
 	if cfg.ConfigBackupLimit != 1 {
 		t.Fatalf("expected config backup limit 1, got %d", cfg.ConfigBackupLimit)
 	}
@@ -91,8 +82,6 @@ func TestLoadConfigEnvOverridesDefaults(t *testing.T) {
 	t.Setenv("GESTALT_MAX_WATCHES", "55")
 	t.Setenv("GESTALT_TEMPORAL_DEV_SERVER", "true")
 	t.Setenv("GESTALT_CONFIG_DIR", "/tmp/gestalt-config")
-	t.Setenv("GESTALT_SCIP_INDEX_PATH", "/tmp/gestalt-index.scip")
-	t.Setenv("GESTALT_SCIP_AUTO_REINDEX", "true")
 	t.Setenv("GESTALT_CONFIG_BACKUP_LIMIT", "2")
 	t.Setenv("GESTALT_DEV_MODE", "true")
 	t.Setenv("GESTALT_PPROF_ENABLED", "true")
@@ -133,12 +122,6 @@ func TestLoadConfigEnvOverridesDefaults(t *testing.T) {
 	}
 	if cfg.ConfigDir != "/tmp/gestalt-config" {
 		t.Fatalf("expected config dir /tmp/gestalt-config, got %q", cfg.ConfigDir)
-	}
-	if cfg.SCIPIndexPath != "/tmp/gestalt-index.scip" {
-		t.Fatalf("expected scip index path /tmp/gestalt-index.scip, got %q", cfg.SCIPIndexPath)
-	}
-	if !cfg.SCIPAutoReindex {
-		t.Fatalf("expected scip auto reindex enabled")
 	}
 	if cfg.ConfigBackupLimit != 2 {
 		t.Fatalf("expected config backup limit 2, got %d", cfg.ConfigBackupLimit)
@@ -306,44 +289,5 @@ func TestLoadConfigForceUpgradeFlag(t *testing.T) {
 	}
 	if cfg.Sources["force-upgrade"] != sourceFlag {
 		t.Fatalf("expected force upgrade source flag, got %q", cfg.Sources["force-upgrade"])
-	}
-}
-
-func TestLoadConfigNoIndexFlag(t *testing.T) {
-	cfg, err := loadConfig([]string{"--noindex"})
-	if err != nil {
-		t.Fatalf("load config: %v", err)
-	}
-	if !cfg.NoIndex {
-		t.Fatalf("expected noindex to be enabled")
-	}
-	if cfg.Sources["noindex"] != sourceFlag {
-		t.Fatalf("expected noindex source flag, got %q", cfg.Sources["noindex"])
-	}
-}
-
-func TestLoadConfigNoIndexEnvOverride(t *testing.T) {
-	t.Setenv("GESTALT_SCIP_NO_INDEX", "true")
-
-	cfg, err := loadConfig(nil)
-	if err != nil {
-		t.Fatalf("load config: %v", err)
-	}
-	if !cfg.NoIndex {
-		t.Fatalf("expected noindex to be enabled from env")
-	}
-	if cfg.Sources["noindex"] != sourceEnv {
-		t.Fatalf("expected noindex source env, got %q", cfg.Sources["noindex"])
-	}
-
-	cfg, err = loadConfig([]string{"--noindex=false"})
-	if err != nil {
-		t.Fatalf("load config with flag override: %v", err)
-	}
-	if cfg.NoIndex {
-		t.Fatalf("expected noindex to be disabled by flag override")
-	}
-	if cfg.Sources["noindex"] != sourceFlag {
-		t.Fatalf("expected noindex source flag after override, got %q", cfg.Sources["noindex"])
 	}
 }

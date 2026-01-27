@@ -473,6 +473,46 @@ func TestManagerAgentSingleInstance(t *testing.T) {
 	}
 }
 
+func TestManagerAgentMultipleInstances(t *testing.T) {
+	factory := &fakeFactory{}
+	nonSingleton := false
+	manager := NewManager(ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"architect": {
+				Name:      "Architect",
+				Shell:     "/bin/bash",
+				Singleton: &nonSingleton,
+			},
+		},
+	})
+
+	first, err := manager.Create("architect", "build", "first")
+	if err != nil {
+		t.Fatalf("create first: %v", err)
+	}
+	if first.ID != "architect-1" {
+		t.Fatalf("expected id architect-1, got %q", first.ID)
+	}
+
+	second, err := manager.Create("architect", "build", "second")
+	if err != nil {
+		t.Fatalf("create second: %v", err)
+	}
+	if second.ID != "architect-2" {
+		t.Fatalf("expected id architect-2, got %q", second.ID)
+	}
+
+	third, err := manager.Create("architect", "build", "third")
+	if err != nil {
+		t.Fatalf("create third: %v", err)
+	}
+	if third.ID != "architect-3" {
+		t.Fatalf("expected id architect-3, got %q", third.ID)
+	}
+}
+
 func TestManagerGetAgentTerminal(t *testing.T) {
 	factory := &fakeFactory{}
 	manager := NewManager(ManagerOptions{

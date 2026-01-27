@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -110,6 +111,7 @@ const (
 )
 
 var onAirTimeout = 5 * time.Second
+var numberedAgentIDPattern = regexp.MustCompile(`^(.+?)-(\d+)$`)
 
 type AgentInfo struct {
 	ID          string
@@ -347,7 +349,38 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		useWorkflow = resolveWorkflowPreference(profile.UseWorkflow)
 	}
 
-	if agentName != "" {
+	if profile != nil && profile.Singleton != nil && !*profile.Singleton {
+		baseAgentID := strings.TrimSpace(request.AgentID)
+		if matches := numberedAgentIDPattern.FindStringSubmatch(baseAgentID); len(matches) == 3 {
+			baseAgentID = matches[1]
+		}
+		if baseAgentID != "" {
+			m.mu.Lock()
+			maxNumber := 0
+			for id := range m.sessions {
+				matches := numberedAgentIDPattern.FindStringSubmatch(id)
+				if len(matches) != 3 {
+					continue
+				}
+				if matches[1] != baseAgentID {
+					continue
+				}
+				number, err := strconv.Atoi(matches[2])
+				if err != nil {
+					continue
+				}
+				if number > maxNumber {
+					maxNumber = number
+				}
+			}
+			nextID := fmt.Sprintf("%s-%d", baseAgentID, maxNumber+1)
+			reservedID = nextID
+			request.AgentID = nextID
+			m.mu.Unlock()
+		}
+	}
+
+	if agentName != "" && (profile.Singleton == nil || *profile.Singleton) {
 		if reservedID == "" {
 			reservedID = m.nextIDValue()
 		}
@@ -361,7 +394,7 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 	}
 
 	releaseReservation := func() {
-		if agentName == "" || reservedID == "" {
+		if agentName == "" || reservedID == "" || profile == nil || (profile.Singleton != nil && !*profile.Singleton) {
 			return
 		}
 		m.mu.Lock()

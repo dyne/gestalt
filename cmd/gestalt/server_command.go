@@ -197,12 +197,6 @@ func runServer(args []string) int {
 		return 1
 	}
 
-	if err := prepareScipAssets(logger); err != nil {
-		logger.Warn("scip asset extraction failed", map[string]string{
-			"error": err.Error(),
-		})
-	}
-
 	if !cfg.DevMode {
 		prompt.ValidatePromptFiles(configPaths.ConfigDir, logger)
 	}

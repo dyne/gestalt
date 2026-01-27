@@ -16,7 +16,6 @@ type commandDeps struct {
 	RunValidateSkill  func(args []string) int
 	RunValidateConfig func(args []string) int
 	RunCompletion     func(args []string, out io.Writer, errOut io.Writer) int
-	RunIndex          func(args []string, out io.Writer, errOut io.Writer) int
 	RunExtractConfig  func() int
 }
 
@@ -28,7 +27,6 @@ func defaultCommandDeps() commandDeps {
 		RunValidateSkill:  runValidateSkill,
 		RunValidateConfig: runValidateConfig,
 		RunCompletion:     runCompletion,
-		RunIndex:          runIndexCommand,
 		RunExtractConfig:  runExtractConfig,
 	}
 }
@@ -65,14 +63,6 @@ func (c completionCommand) Run(args []string) int {
 	return c.deps.RunCompletion(args, c.deps.Stdout, c.deps.Stderr)
 }
 
-type indexCommand struct {
-	deps commandDeps
-}
-
-func (c indexCommand) Run(args []string) int {
-	return c.deps.RunIndex(args, c.deps.Stdout, c.deps.Stderr)
-}
-
 type extractConfigCommand struct {
 	deps commandDeps
 }
@@ -90,9 +80,6 @@ func resolveCommand(args []string, deps commandDeps) (command, []string) {
 	}
 	if len(args) > 0 && args[0] == "completion" {
 		return completionCommand{deps: deps}, args[1:]
-	}
-	if len(args) > 0 && args[0] == "index" {
-		return indexCommand{deps: deps}, args[1:]
 	}
 	if hasFlag(args, "--extract-config") {
 		return extractConfigCommand{deps: deps}, args

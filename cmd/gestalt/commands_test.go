@@ -15,7 +15,6 @@ func stubCommandDeps() commandDeps {
 		RunValidateSkill:  func(args []string) int { return 0 },
 		RunValidateConfig: func(args []string) int { return 0 },
 		RunCompletion:     func(args []string, out io.Writer, errOut io.Writer) int { return 0 },
-		RunIndex:          func(args []string, out io.Writer, errOut io.Writer) int { return 0 },
 		RunExtractConfig:  func() int { return 0 },
 	}
 }
@@ -80,23 +79,6 @@ func TestResolveCommandCompletion(t *testing.T) {
 	}
 }
 
-func TestResolveCommandIndex(t *testing.T) {
-	deps := stubCommandDeps()
-	var gotArgs []string
-	deps.RunIndex = func(args []string, out io.Writer, errOut io.Writer) int {
-		gotArgs = append([]string(nil), args...)
-		return 9
-	}
-
-	cmd, cmdArgs := resolveCommand([]string{"index", "--path", "repo"}, deps)
-	if code := cmd.Run(cmdArgs); code != 9 {
-		t.Fatalf("expected code 9, got %d", code)
-	}
-	if !reflect.DeepEqual(gotArgs, []string{"--path", "repo"}) {
-		t.Fatalf("expected args to be forwarded, got %v", gotArgs)
-	}
-}
-
 func TestResolveCommandExtractConfig(t *testing.T) {
 	deps := stubCommandDeps()
 	called := false
@@ -111,23 +93,6 @@ func TestResolveCommandExtractConfig(t *testing.T) {
 	}
 	if !called {
 		t.Fatalf("expected extract config to run")
-	}
-}
-
-func TestResolveCommandExtractConfigAfterIndex(t *testing.T) {
-	deps := stubCommandDeps()
-	indexCalled := false
-	deps.RunIndex = func(args []string, out io.Writer, errOut io.Writer) int {
-		indexCalled = true
-		return 1
-	}
-
-	cmd, cmdArgs := resolveCommand([]string{"index", "--extract-config"}, deps)
-	if code := cmd.Run(cmdArgs); code != 1 {
-		t.Fatalf("expected code 1, got %d", code)
-	}
-	if !indexCalled {
-		t.Fatalf("expected index command to take precedence")
 	}
 }
 

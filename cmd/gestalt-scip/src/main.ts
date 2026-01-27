@@ -1,4 +1,5 @@
 import { Command, CommanderError } from 'commander';
+import { indexCommand } from './commands/index.js';
 import { definitionCommand } from './commands/definition.js';
 import { filesCommand } from './commands/files.js';
 import { referencesCommand } from './commands/references.js';
@@ -43,6 +44,14 @@ program
   .option('--limit <n>', 'Max results (default: 20, max: 1000)', '20')
   .option('--format <fmt>', 'Output format (json|text|toon)', 'toon')
   .action(withErrorHandling(symbolsCommand));
+
+program
+  .command('index')
+  .description('Generate SCIP indexes for a repository')
+  .option('--path <dir>', 'Path to repository', '.')
+  .option('--output <path>', 'Output .scip path (default: .gestalt/scip/index.scip)', '.gestalt/scip/index.scip')
+  .option('--force', 'Re-index even if index exists', false)
+  .action(withErrorHandling(indexCommand));
 
 program
   .command('definition <symbol-id>')

@@ -336,9 +336,9 @@ func runServer(args []string) int {
 	if cfg.PprofEnabled {
 		registerPprofHandlers(backendMux, logger)
 	}
-	scipHandler := api.RegisterRoutes(backendMux, manager, cfg.AuthToken, api.StatusConfig{
+	api.RegisterRoutes(backendMux, manager, cfg.AuthToken, api.StatusConfig{
 		TemporalUIPort: cfg.TemporalUIPort,
-	}, cfg.SCIPIndexPath, autoReindexEnabled, "", nil, logger, eventBus)
+	}, "", nil, logger, eventBus)
 	backendListener, backendPort, err := listenOnPort(cfg.BackendPort)
 	if err != nil {
 		logger.Error("backend listen failed", map[string]string{
@@ -357,14 +357,6 @@ func runServer(args []string) int {
 		"addr":    backendAddress,
 		"version": version.Version,
 	})
-	if scipHandler != nil && !cfg.NoIndex {
-		if scipHandler.StartAutoIndexing() {
-			logger.Info("scip indexing started", map[string]string{
-				"index_path": cfg.SCIPIndexPath,
-			})
-		}
-	}
-
 	backendURL := &url.URL{
 		Scheme: "http",
 		Host:   fmt.Sprintf("localhost:%d", backendPort),

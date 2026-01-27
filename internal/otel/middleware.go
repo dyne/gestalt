@@ -390,9 +390,6 @@ func normalizeRoute(route, path string) string {
 	if strings.HasPrefix(path, "/api/skills") {
 		return skillsRoute(path)
 	}
-	if strings.HasPrefix(path, "/api/scip") {
-		return scipRoute(path)
-	}
 	if route != "" {
 		return route
 	}
@@ -421,8 +418,6 @@ func categoryForPath(path string) string {
 		return "status"
 	case strings.HasPrefix(path, "/api/events"):
 		return "status"
-	case strings.HasPrefix(path, "/api/scip"):
-		return "config"
 	default:
 		return "status"
 	}
@@ -511,32 +506,6 @@ func skillsRoute(path string) string {
 		return "/api/skills"
 	}
 	return "/api/skills/:name"
-}
-
-func scipRoute(path string) string {
-	trimmed := strings.TrimPrefix(path, "/api/scip")
-	trimmed = strings.Trim(trimmed, "/")
-	if trimmed == "" {
-		return "/api/scip"
-	}
-	parts := strings.Split(trimmed, "/")
-	if len(parts) == 1 {
-		return "/api/scip/" + parts[0]
-	}
-	switch parts[0] {
-	case "symbols":
-		if len(parts) == 1 {
-			return "/api/scip/symbols"
-		}
-		return "/api/scip/symbols/:id"
-	case "files":
-		return "/api/scip/files/:path"
-	case "index":
-		return "/api/scip/index"
-	case "status":
-		return "/api/scip/status"
-	}
-	return "/api/scip/" + parts[0]
 }
 
 func prepareRequest(r *http.Request, routeInfo RouteInfo) (int64, string, *countingReadCloser) {

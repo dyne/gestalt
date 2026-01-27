@@ -17,7 +17,7 @@ type StatusConfig struct {
 	TemporalUIPort int
 }
 
-func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken string, statusConfig StatusConfig, scipIndexPath string, scipAutoReindex bool, staticDir string, frontendFS fs.FS, logger *logging.Logger, eventBus *event.Bus[watcher.Event]) *SCIPHandler {
+func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken string, statusConfig StatusConfig, staticDir string, frontendFS fs.FS, logger *logging.Logger, eventBus *event.Bus[watcher.Event]) {
 	// Git info is read once on boot to avoid polling; refresh can be added later.
 	gitOrigin, gitBranch := loadGitInfo()
 	metricsSummary := otel.NewAPISummaryStore()
@@ -115,34 +115,14 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 	mux.Handle("/api/terminals/", wrap("/api/terminals/:id", "terminals", "auto", restHandler(authToken, rest.handleTerminal)))
 	mux.Handle("/api/plans", wrap("/api/plans", "plan", "read", restHandler(authToken, rest.handlePlansList)))
 
-	var scipHandler *SCIPHandler
-	if scipIndexPath != "" {
-		handler, err := NewSCIPHandler(scipIndexPath, logger, SCIPHandlerOptions{
-			AutoReindex:        scipAutoReindex,
-			AutoReindexOnStart: scipAutoReindex,
-			EventBus:           eventBus,
-		})
-		if err != nil {
-			if logger != nil {
-				logger.Warn("scip handler unavailable", map[string]string{
-					"error": err.Error(),
-				})
-			}
-		} else {
-			scipHandler = handler
-			mux.Handle("/api/scip/index", wrap("/api/scip/index", "config", "update", restHandler(authToken, handler.ReIndex)))
-			mux.Handle("/api/scip/reindex", wrap("/api/scip/reindex", "config", "update", restHandler(authToken, handler.Reindex)))
-		}
-	}
-
 	if staticDir != "" {
 		mux.Handle("/", NewSPAHandler(staticDir))
-		return scipHandler
+		return
 	}
 
 	if frontendFS != nil {
 		mux.Handle("/", NewSPAHandlerFS(frontendFS))
-		return scipHandler
+		return
 	}
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -154,5 +134,5 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 		_, _ = w.Write([]byte("gestalt ok\n"))
 	})
 
-	return scipHandler
+	return
 }

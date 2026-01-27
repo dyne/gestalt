@@ -25,7 +25,7 @@ func TestEndToEndTerminalFlow(t *testing.T) {
 	logger := logging.NewLoggerWithOutput(logging.NewLogBuffer(10), logging.LevelInfo, nil)
 
 	mux := http.NewServeMux()
-	RegisterRoutes(mux, manager, "secret", StatusConfig{}, "", false, "", nil, logger, nil)
+	RegisterRoutes(mux, manager, "secret", StatusConfig{}, "", nil, logger, nil)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Skipf("skipping e2e test (listener unavailable): %v", err)
@@ -108,7 +108,7 @@ func TestEndToEndAuthRequired(t *testing.T) {
 	manager := terminal.NewManager(terminal.ManagerOptions{Shell: "/bin/sh"})
 	logger := logging.NewLoggerWithOutput(logging.NewLogBuffer(10), logging.LevelInfo, nil)
 	mux := http.NewServeMux()
-	RegisterRoutes(mux, manager, "secret", StatusConfig{}, "", false, "", nil, logger, nil)
+	RegisterRoutes(mux, manager, "secret", StatusConfig{}, "", nil, logger, nil)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Skipf("skipping e2e test (listener unavailable): %v", err)

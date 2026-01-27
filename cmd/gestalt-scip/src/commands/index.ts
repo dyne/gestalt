@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { detectLanguages, ensureIndexer, runIndexer } from '../lib/indexers.js';
 import { mergeIndexes } from '../lib/scip-merge.js';
+import { buildMetadata, recentIndexAge, saveMetadata } from '../lib/index-metadata.js';
 
 const DEFAULT_OUTPUT = path.join('.gestalt', 'scip', 'index.scip');
 const RECENT_THRESHOLD_MS = 10 * 60 * 1000;
@@ -103,8 +104,8 @@ export async function indexCommand(options: IndexOptions): Promise<void> {
   buildMergedIndex(scipIndexes, outputFile);
 
   const projectRoot = path.resolve(repoPath);
-  const metadata = buildMetadata(projectRoot, indexedLanguages);
   try {
+    const metadata = buildMetadata(projectRoot, indexedLanguages);
     saveMetadata(outputFile, metadata);
   } catch (err) {
     console.warn(`Warning: Failed to save index metadata: ${formatError(err)}`);
@@ -185,44 +186,6 @@ function buildMergedIndex(inputs: string[], outputPath: string): void {
   }
 }
 
-function recentIndexAge(indexPath: string, thresholdMs: number): { recent: boolean; ageMs: number } {
-  const metaPath = metadataPath(indexPath);
-  if (!fileExists(metaPath)) {
-    return { recent: false, ageMs: 0 };
-  }
-  const raw = fs.readFileSync(metaPath, 'utf8');
-  const meta = JSON.parse(raw);
-  const createdAt = meta?.created_at ? new Date(meta.created_at) : null;
-  if (!createdAt || Number.isNaN(createdAt.getTime())) {
-    return { recent: false, ageMs: 0 };
-  }
-  let ageMs = Date.now() - createdAt.getTime();
-  if (ageMs < 0) {
-    ageMs = 0;
-  }
-  return { recent: ageMs < thresholdMs, ageMs };
-}
-
-function metadataPath(indexPath: string): string {
-  return `${indexPath}.meta.json`;
-}
-
-function buildMetadata(projectRoot: string, languages: string[]): Record<string, unknown> {
-  return {
-    created_at: new Date().toISOString(),
-    project_root: projectRoot,
-    languages: [...languages],
-    files_hashed: '',
-  };
-}
-
-function saveMetadata(indexPath: string, metadata: Record<string, unknown>): void {
-  const metaPath = metadataPath(indexPath);
-  fs.mkdirSync(path.dirname(metaPath), { recursive: true });
-  const payload = `${JSON.stringify(metadata, null, 2)}\n`;
-  fs.writeFileSync(metaPath, payload, { mode: 0o644 });
-}
-
 function formatDuration(ms: number): string {
   const totalSeconds = Math.round(ms / 1000);
   const minutes = Math.floor(totalSeconds / 60);
@@ -238,15 +201,6 @@ function formatError(err: unknown): string {
     return err.message;
   }
   return String(err);
-}
-
-function fileExists(target: string): boolean {
-  try {
-    fs.accessSync(target, fs.constants.F_OK);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function isMissingFileError(error: unknown): boolean {

@@ -1334,7 +1334,7 @@
   1. **Indexer Management**: Auto-download and run language-specific indexers
   2. **SQLite Conversion**: Convert SCIP protobuf → queryable SQLite DB
   3. **Query API**: Go package `internal/scip` with symbol search/retrieval
-  4. **REST Endpoints**: `/api/scip/symbols`, `/api/scip/references`, etc
+  4. **REST Endpoints**: `scip-api/symbols`, `scip-api/references`, etc
   5. **Agent Integration**: Prompts document SCIP APIs for agent use
 
   **Implementation Steps Overview:**
@@ -1641,7 +1641,7 @@
 ** [#B] Add REST API endpoints for SCIP queries
    Why: Agents need HTTP access to SCIP data
    Change:
-   - Create internal/api/scip.go:
+   - Create internalscip-api.go:
      ```go
      package api
 
@@ -1663,7 +1663,7 @@
          return &SCIPHandler{index: idx}, nil
      }
 
-     // GET /api/scip/symbols?q=FindUser&limit=10
+     // GET scip-api/symbols?q=FindUser&limit=10
      func (h *SCIPHandler) FindSymbols(w http.ResponseWriter, r *http.Request) {
          query := r.URL.Query().Get("q")
          limit := getIntParam(r, "limit", 20)
@@ -1680,7 +1680,7 @@
          })
      }
 
-     // GET /api/scip/symbols/:id
+     // GET scip-api/symbols/:id
      func (h *SCIPHandler) GetSymbol(w http.ResponseWriter, r *http.Request) {
          symbolID := getPathParam(r, "id")
 
@@ -1693,7 +1693,7 @@
          writeJSON(w, symbol)
      }
 
-     // GET /api/scip/symbols/:id/references
+     // GET scip-api/symbols/:id/references
      func (h *SCIPHandler) GetReferences(w http.ResponseWriter, r *http.Request) {
          symbolID := getPathParam(r, "id")
 
@@ -1709,7 +1709,7 @@
          })
      }
 
-     // GET /api/scip/files/:path
+     // GET scip-api/files/:path
      func (h *SCIPHandler) GetFileSymbols(w http.ResponseWriter, r *http.Request) {
          filePath := getPathParam(r, "path")
 
@@ -1725,7 +1725,7 @@
          })
      }
 
-     // POST /api/scip/index
+     // POST scip-api/index
      // Trigger re-indexing of repository
      func (h *SCIPHandler) ReIndex(w http.ResponseWriter, r *http.Request) {
          // Parse request body: { "path": "/repo/path" }
@@ -1752,11 +1752,11 @@
      ```go
      scipHandler, err := NewSCIPHandler(config.SCIPIndexPath)
      if err == nil {
-         router.HandleFunc("/api/scip/symbols", scipHandler.FindSymbols)
-         router.HandleFunc("/api/scip/symbols/{id}", scipHandler.GetSymbol)
-         router.HandleFunc("/api/scip/symbols/{id}/references", scipHandler.GetReferences)
-         router.HandleFunc("/api/scip/files/{path}", scipHandler.GetFileSymbols)
-         router.HandleFunc("/api/scip/index", scipHandler.ReIndex).Methods("POST")
+         router.HandleFunc("scip-api/symbols", scipHandler.FindSymbols)
+         router.HandleFunc("scip-api/symbols/{id}", scipHandler.GetSymbol)
+         router.HandleFunc("scip-api/symbols/{id}/references", scipHandler.GetReferences)
+         router.HandleFunc("scip-api/files/{path}", scipHandler.GetFileSymbols)
+         router.HandleFunc("scip-api/index", scipHandler.ReIndex).Methods("POST")
      }
      ```
    - Add config: GESTALT_SCIP_INDEX_PATH env var (default: `.gestalt/index.db`)
@@ -1790,45 +1790,45 @@
 
      ### Find Symbols by Name
      ```
-     GET /api/scip/symbols?q=<query>&limit=<n>
+     GET scip-api/symbols?q=<query>&limit=<n>
      ```
      Returns symbols matching query (fuzzy match).
      Example: `q=FindUser` finds `FindUser`, `FindUserByID`, etc.
 
      ### Get Symbol Definition
      ```
-     GET /api/scip/symbols/<symbol-id>
+     GET scip-api/symbols/<symbol-id>
      ```
      Returns definition with documentation, signature, file location.
 
      ### Find References
      ```
-     GET /api/scip/symbols/<symbol-id>/references
+     GET scip-api/symbols/<symbol-id>/references
      ```
      Returns all places where symbol is referenced.
 
      ### List Symbols in File
      ```
-     GET /api/scip/files/<file-path>
+     GET scip-api/files/<file-path>
      ```
      Returns all symbols defined in file.
 
      ## Usage Patterns
 
      **Understanding a function:**
-     1. Search for function: `/api/scip/symbols?q=ProcessOrder`
-     2. Get definition: `/api/scip/symbols/<id>` (includes documentation)
-     3. Find callers: `/api/scip/symbols/<id>/references`
+     1. Search for function: `scip-api/symbols?q=ProcessOrder`
+     2. Get definition: `scip-api/symbols/<id>` (includes documentation)
+     3. Find callers: `scip-api/symbols/<id>/references`
      4. Read source at definition location
 
      **Finding related code:**
-     1. Search for type: `/api/scip/symbols?q=User`
+     1. Search for type: `scip-api/symbols?q=User`
      2. Get type definition and fields
      3. Find methods on type (search `User.`)
      4. Find usage patterns via references
 
      **Exploring a module:**
-     1. List symbols in file: `/api/scip/files/internal/user/user.go`
+     1. List symbols in file: `scip-api/files/internal/user/user.go`
      2. For each symbol, get references to see usage
      3. Build call graph mentally
 
@@ -1848,10 +1848,10 @@
      These APIs provide symbol-level understanding of the codebase.
 
      Available endpoints:
-     - GET /api/scip/symbols?q=<query> - Search symbols
-     - GET /api/scip/symbols/<id> - Get definition
-     - GET /api/scip/symbols/<id>/references - Find usages
-     - GET /api/scip/files/<path> - List symbols in file
+     - GET scip-api/symbols?q=<query> - Search symbols
+     - GET scip-api/symbols/<id> - Get definition
+     - GET scip-api/symbols/<id>/references - Find usages
+     - GET scip-api/files/<path> - List symbols in file
 
      Use these to understand code structure, find relevant code, trace
      dependencies, and answer questions about implementation details.
@@ -1860,14 +1860,14 @@
      ```markdown
      ## SCIP Code Intelligence
      - Agents can query SCIP indexes for symbol-aware code search
-     - REST API: `/api/scip/symbols`, `/api/scip/symbols/:id/references`
+     - REST API: `scip-api/symbols`, `scip-api/symbols/:id/references`
      - Symbol types: function, type, variable, interface, etc
      - Includes documentation, signatures, relationships
      - Use for: finding definitions, tracing callers, understanding types
      - Example: "Find all callers of ProcessOrder function"
-       1. Search: GET /api/scip/symbols?q=ProcessOrder
+       1. Search: GET scip-api/symbols?q=ProcessOrder
        2. Get ID from results
-       3. Query: GET /api/scip/symbols/<id>/references
+       3. Query: GET scip-api/symbols/<id>/references
        4. Read source at each reference location
      ```
    Tests: Manual test with agent prompts
@@ -2069,7 +2069,7 @@
          return currentHash == meta.FilesHashed, nil
      }
      ```
-   - Add `/api/scip/status` endpoint:
+   - Add `scip-api/status` endpoint:
      ```json
      {
        "indexed": true,
@@ -2167,8 +2167,8 @@
      - Use the real file path (internal/scip/index.go).
      - Derive symbol line numbers by scanning the file in the test.
      - Create occurrences/mentions for definitions and references.
-   - Exercise /api/scip/symbols, /api/scip/symbols/:id, /api/scip/symbols/:id/references,
-     /api/scip/files/:path, /api/scip/status, and /api/scip/index, asserting all relevant
+   - Exercise scip-api/symbols, scip-api/symbols/:id, scip-api/symbols/:id/references,
+     scip-api/files/:path, scip-api/status, and scip-api/index, asserting all relevant
      response fields (ids, names, paths, lines, roles, counts, freshness).
    - Add explicit negative/edge cases:
      - Missing/invalid query params, invalid limits, bad path escapes.
@@ -2307,11 +2307,11 @@
 
      ### API Endpoints
 
-     - `GET /api/scip/symbols?q=<query>` - Search symbols
-     - `GET /api/scip/symbols/:id` - Get definition
-     - `GET /api/scip/symbols/:id/references` - Find usages
-     - `GET /api/scip/files/:path` - List symbols in file
-     - `POST /api/scip/index` - Trigger re-indexing
+     - `GET scip-api/symbols?q=<query>` - Search symbols
+     - `GET scip-api/symbols/:id` - Get definition
+     - `GET scip-api/symbols/:id/references` - Find usages
+     - `GET scip-api/files/:path` - List symbols in file
+     - `POST scip-api/index` - Trigger re-indexing
 
      See [SCIP documentation](https://github.com/sourcegraph/scip) for details.
      ```
@@ -2329,7 +2329,7 @@
      gestalt index --path . --output test-index.db
 
      # Query API
-     curl http://localhost:8080/api/scip/symbols?q=Manager
+     curl http://localhost:8080scip-api/symbols?q=Manager
 
      # Run SCIP tests
      go test ./internal/scip/...

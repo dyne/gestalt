@@ -56,7 +56,6 @@ Backend runtime wiring (main.go):
 REST endpoints (examples):
 - /api/status, /api/metrics, /api/agents, /api/terminals, /api/logs, /api/skills
 - /api/plan, /api/plan/current
-- /api/scip/* when index enabled
 
 WebSocket endpoints:
 - /ws/terminal/:id (PTY stream)

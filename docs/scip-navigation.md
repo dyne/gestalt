@@ -1,6 +1,6 @@
 # SCIP Navigation
 
-Gestalt supports code navigation through both the HTTP API and an offline CLI.
+Gestalt supports code navigation through the offline CLI.
 
 ## Offline CLI: `gestalt-scip`
 
@@ -26,5 +26,4 @@ Key options:
 ## Index location and refresh
 
 - Index files live under `.gestalt/scip/`.
-- Server startup performs background indexing by default.
-- You can trigger reindexing from the dashboard or via `POST /api/scip/reindex`.
+- Generate or refresh indexes with `gestalt-scip index` (writes `.gestalt/scip/index.scip` by default).

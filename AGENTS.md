@@ -101,34 +101,31 @@ terminal output -> Session output bus -> /ws/terminal/:id -> xterm
 - `gestalt --help/--version`, `gestalt completion bash|zsh`, `--verbose`/`--quiet`.
 - `gestalt-send --url --token --start --verbose --debug --help --version`.
 
-## Temporal + SCIP quick reference
+## Temporal quick reference
 | Area | Defaults/Flags | Key APIs / Behavior |
 | --- | --- | --- |
 | Temporal HITL | Workflows on by default; disable via `workflow=false` / `use_workflow=false`. Dev server: `GESTALT_TEMPORAL_DEV_SERVER=true` or `--temporal-dev-server` (runs in `.gestalt/temporal`). | `GET /api/workflows`, `GET /api/terminals/:id/workflow/history`, `POST /api/terminals/:id/workflow/resume` (`continue`/`abort`), `GET /api/metrics`. |
-| SCIP | Enabled when `GESTALT_SCIP_INDEX_PATH` points to `index.db` (default `.gestalt/scip/index.db`). | `/api/scip/symbols?q=...` -> `/api/scip/symbols/<id>` -> `/api/scip/symbols/<id>/references`; `/api/scip/files/<path>`; `POST /api/scip/index` `{ "path": "/repo/path" }`. |
 
 ## SCIP CLI (2026-01-26)
 - Offline CLI lives in `cmd/gestalt-scip` and builds with `make build-scip`.
-- CLI commands: `symbols`, `definition`, `references`, `files`, `search`; default merges all `.scip` files, `--language` filters, `--format` supports `text|json|toon`.
+- CLI commands: `index`, `symbols`, `definition`, `references`, `files`, `search`; default merges all `.scip` files, `--language` filters, `--format` supports `text|json|toon`.
 - `search` command: Full-text content search with regex/OR clauses.
 - CLI default output format is `toon`.
 - Symbol IDs in CLI output are base64url-encoded and safe for shells; `definition`/`references` accept encoded IDs and raw SCIP IDs.
 - CLI output omits `kind` when it would be `UnspecifiedKind` and strips fenced code markers plus language tag lines from `documentation`.
-- Backend async indexing: `/api/scip/status`, `/api/scip/reindex`, `/api/scip/events`; startup indexing runs unless `--noindex` or `GESTALT_SCIP_NO_INDEX=true`.
+- Index generation writes `.scip` files under `.gestalt/scip/` (default `index.scip` + `.meta.json`).
 - `scip-typescript-finder` is reference-only; parsing logic is copied into `cmd/gestalt-scip/src/lib`.
-- Prompt guidance: `config/prompts/scip.tmpl` prefers the API, while `config/prompts/scip-cli.md` documents offline CLI-first navigation.
+- Prompt guidance: `config/prompts/scip-cli.md` documents CLI-first navigation.
 
 ## Recommended workflow
-1. Symbol search: gestalt-scip symbols Manager
-2. Content search: gestalt-scip search "terminal.*manager"
-3. Definition: gestalt-scip definition <symbol.id>
-4. References: gestalt-scip references <symbol.id>
-5. File context: gestalt-scip files <path> --symbols
+1. Index: gestalt-scip index --path .
+2. Symbol search: gestalt-scip symbols Manager
+3. Content search: gestalt-scip search "terminal.*manager"
+4. Definition: gestalt-scip definition <symbol.id>
+5. References: gestalt-scip references <symbol.id>
+6. File context: gestalt-scip files <path> --symbols
 
-## SCIP UI notes (2026-01-26)
-- `frontend/src/lib/scipStore.js` clears reindex timers/in-flight state on stop to avoid sticky reindex guards.
-- `frontend/src/views/Dashboard.svelte` disables the SCIP reindex button while the action is pending.
-- Tests cover reindex pending/error UI paths and stop-reset behavior (`frontend/tests/scipStore.test.js`, `frontend/tests/dashboard.test.js`).
+## Plan UI notes (2026-01-26)
 - `frontend/src/views/PlanView.svelte` debounces plan refreshes from file watcher events to avoid request floods.
 - Event store regression tests cover malformed payloads and burst events (`frontend/tests/eventStore.test.js`, `frontend/src/lib/wsStore.test.js`).
 

@@ -84,8 +84,6 @@ Metrics mapping
   - workflows.started/completed/failed/paused
   - event_bus.subscribers (gauge)
   - events.published/dropped (counter)
-  - scip.queries.count (counter)
-  - scip.queries.duration (histogram)
   - terminal.sessions (gauge)
 
 Tracing model

@@ -18,6 +18,44 @@
   let eventUnsubscribe = null
   const refreshDebounceMs = 250
 
+  const normalizeKeyword = (value) => String(value || '').trim().toUpperCase()
+
+  const hasActiveHeading = (heading) => {
+    if (!heading) return false
+    const keyword = normalizeKeyword(heading.keyword)
+    if (keyword === 'TODO' || keyword === 'WIP') {
+      return true
+    }
+    const children = Array.isArray(heading.children) ? heading.children : []
+    return children.some(hasActiveHeading)
+  }
+
+  const isActivePlan = (plan) => {
+    const entries = Array.isArray(plan?.headings) ? plan.headings : []
+    return entries.some(hasActiveHeading)
+  }
+
+  const isDoneHeading = (heading) => {
+    if (!heading) return false
+    const keyword = normalizeKeyword(heading.keyword)
+    if (keyword !== 'DONE') {
+      return false
+    }
+    const children = Array.isArray(heading.children) ? heading.children : []
+    return children.every(isDoneHeading)
+  }
+
+  const isDonePlan = (plan) => {
+    const entries = Array.isArray(plan?.headings) ? plan.headings : []
+    if (entries.length === 0) return false
+    return entries.every(isDoneHeading)
+  }
+
+  const sortPlansByDate = (entries = []) =>
+    entries
+      .slice()
+      .sort((a, b) => Date.parse(b?.date || '') - Date.parse(a?.date || ''))
+
   const planKey = (plan, index) => {
     const name = plan?.filename ? String(plan.filename) : ''
     if (name) {
@@ -77,6 +115,9 @@
       }
     }
   }
+
+  $: activePlans = sortPlansByDate(plans.filter(isActivePlan))
+  $: donePlans = sortPlansByDate(plans.filter(isDonePlan))
 
   onMount(() => {
     loadPlans()

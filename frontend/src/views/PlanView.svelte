@@ -3,6 +3,7 @@
   import { fetchPlansList } from '../lib/apiClient.js'
   import { subscribe as subscribeEvents } from '../lib/eventStore.js'
   import { getErrorMessage } from '../lib/errorUtils.js'
+  import { formatRelativeTime } from '../lib/timeUtils.js'
   import PlanCard from '../components/PlanCard.svelte'
   import ViewState from '../components/ViewState.svelte'
 
@@ -63,6 +64,11 @@
     }
     return `plan-${index}`
   }
+
+  const withRelativeDate = (plan) => ({
+    ...plan,
+    date: formatRelativeTime(plan?.date),
+  })
 
   const showUpdateNotice = () => {
     updateNotice = true
@@ -153,7 +159,7 @@
       <p class="eyebrow">Project plans</p>
       <div class="plan-heading">
         <h1>Plans</h1>
-        <span class="plan-count">{plans.length}</span>
+        <span class="plan-count">{activePlans.length + donePlans.length}</span>
       </div>
       <p class="plan-path">.gestalt/plans/</p>
     </div>
@@ -173,13 +179,19 @@
   <ViewState
     {loading}
     {error}
-    hasContent={plans.length > 0}
+    hasContent={activePlans.length + donePlans.length > 0}
     loadingLabel="Loading plans..."
     emptyLabel="No plans found in .gestalt/plans/"
   >
     <div class="plan-list">
-      {#each plans as plan, planIndex (planKey(plan, planIndex))}
-        <PlanCard {plan} />
+      {#each activePlans as plan, planIndex (planKey(plan, planIndex))}
+        <PlanCard plan={withRelativeDate(plan)} />
+      {/each}
+      {#if donePlans.length > 0}
+        <div class="section-divider">Done</div>
+      {/if}
+      {#each donePlans as plan, planIndex (planKey(plan, planIndex))}
+        <PlanCard plan={withRelativeDate(plan)} />
       {/each}
     </div>
   </ViewState>
@@ -251,6 +263,15 @@
   .plan-list {
     display: grid;
     gap: 1.2rem;
+  }
+
+  .section-divider {
+    border-top: 1px solid rgba(var(--color-text-rgb), 0.12);
+    padding: 1rem 0 0;
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    font-size: 0.7rem;
   }
 
   .refreshing {

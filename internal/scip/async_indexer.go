@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	eventtypes "gestalt/internal/event"
 	"gestalt/internal/logging"
 )
 
@@ -46,7 +45,6 @@ type AsyncIndexer struct {
 	status  IndexStatus
 	running bool
 
-	eventBus *eventtypes.Bus[eventtypes.SCIPEvent]
 	logger   *logging.Logger
 
 	detectLanguages func(string) ([]string, error)
@@ -71,9 +69,8 @@ type AsyncIndexerDeps struct {
 }
 
 // NewAsyncIndexer constructs an AsyncIndexer with production defaults.
-func NewAsyncIndexer(logger *logging.Logger, bus *eventtypes.Bus[eventtypes.SCIPEvent]) *AsyncIndexer {
+func NewAsyncIndexer(logger *logging.Logger) *AsyncIndexer {
 	return &AsyncIndexer{
-		eventBus:        bus,
 		logger:          logger,
 		detectLanguages: DetectLanguages,
 		findIndexerPath: FindIndexerPath,
@@ -327,20 +324,9 @@ func (idx *AsyncIndexer) mergeInputs(inputs []string, mergedPath string) (string
 
 func (idx *AsyncIndexer) publish(status IndexStatus, eventType, language, message string) {
 	_ = status
-	bus := idx.eventBus
-	if bus == nil {
-		return
-	}
-	event := eventtypes.SCIPEvent{
-		EventType:  eventType,
-		Language:   strings.TrimSpace(language),
-		Message:    strings.TrimSpace(message),
-		OccurredAt: idx.now(),
-	}
-	if event.OccurredAt.IsZero() {
-		event.OccurredAt = time.Now().UTC()
-	}
-	bus.Publish(event)
+	_ = eventType
+	_ = language
+	_ = message
 }
 
 func (idx *AsyncIndexer) logWarn(message string, err error) {

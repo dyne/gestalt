@@ -15,9 +15,9 @@ func TestSCIPDisabledHandler(t *testing.T) {
 		t.Fatalf("expected handler, got error: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/scip/status", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/scip/index", nil)
 	res := httptest.NewRecorder()
-	restHandler("", handler.Status)(res, req)
+	restHandler("", handler.ReIndex)(res, req)
 
 	if res.Code != http.StatusNotImplemented {
 		t.Fatalf("expected status %d, got %d", http.StatusNotImplemented, res.Code)

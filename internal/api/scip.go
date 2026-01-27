@@ -3,23 +3,19 @@
 package api
 
 import (
-	"container/list"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"gestalt/internal/event"
 	"gestalt/internal/logging"
-	"gestalt/internal/metrics"
 	"gestalt/internal/scip"
 	"gestalt/internal/watcher"
 
@@ -27,16 +23,9 @@ import (
 )
 
 const (
-	scipDefaultLimit           = 20
-	scipCacheTTL               = 30 * time.Second
-	scipCacheMaxEntries        = 256
 	scipAutoReindexAge         = 24 * time.Hour
 	scipReindexRecentThreshold = 10 * time.Minute
 	scipReindexDebounce        = 2 * time.Minute
-	scipQueryFindSymbols       = "find_symbols"
-	scipQueryGetSymbol         = "get_symbol"
-	scipQueryReferences        = "get_references"
-	scipQueryFileSymbols       = "file_symbols"
 )
 
 type SCIPHandlerOptions struct {
@@ -45,7 +34,6 @@ type SCIPHandlerOptions struct {
 	AutoReindexMaxAge  time.Duration
 	WatchDebounce      time.Duration
 	EventBus           *event.Bus[watcher.Event]
-	SCIPEventBus       *event.Bus[event.SCIPEvent]
 	AutoReindexOnStart bool
 }
 
@@ -54,12 +42,7 @@ type SCIPHandler struct {
 	scipDir     string
 	logger      *logging.Logger
 	projectRoot string
-	indexErr    error
 
-	indexMu sync.RWMutex
-	index   *scip.Index
-
-	cache       *queryCache
 	rateLimiter *rate.Limiter
 
 	asyncIndexer    *scip.AsyncIndexer
@@ -67,8 +50,6 @@ type SCIPHandler struct {
 	findIndexerPath func(string, string) (string, error)
 	runIndexer      func(string, string, string) error
 	mergeIndexes    func([]string, string) error
-	convert         func(string, string) error
-	openIndex       func(string) (*scip.Index, error)
 
 	autoReindex       bool
 	autoReindexMaxAge time.Duration
@@ -87,8 +68,6 @@ type scipStatusResponse struct {
 	Duration    string   `json:"duration,omitempty"`
 	Error       string   `json:"error,omitempty"`
 	CreatedAt   string   `json:"created_at,omitempty"`
-	Documents   int      `json:"documents"`
-	Symbols     int      `json:"symbols"`
 	AgeHours    int      `json:"age_hours"`
 	Languages   []string `json:"languages,omitempty"`
 }
@@ -120,21 +99,17 @@ func NewSCIPHandler(indexPath string, logger *logging.Logger, options SCIPHandle
 		scipDir:           filepath.Dir(indexPath),
 		logger:            logger,
 		projectRoot:       projectRoot,
-		cache:             newQueryCache(scipCacheTTL),
 		rateLimiter:       rate.NewLimiter(rate.Limit(20), 40),
 		detectLangs:       scip.DetectLanguages,
 		findIndexerPath:   scip.FindIndexerPath,
 		runIndexer:        scip.RunIndexer,
 		mergeIndexes:      scip.MergeIndexes,
-		convert:           scip.ConvertToSQLite,
-		openIndex:         scip.OpenIndex,
 		autoReindex:       options.AutoReindex,
 		autoReindexMaxAge: options.AutoReindexMaxAge,
 		watchDebounce:     options.WatchDebounce,
 	}
 	handler.enqueueReindex = handler.queueReindex
-	handler.asyncIndexer = scip.NewAsyncIndexer(logger, options.SCIPEventBus)
-	handler.asyncIndexer.SetOnSuccess(handler.reloadIndex)
+	handler.asyncIndexer = scip.NewAsyncIndexer(logger)
 	handler.configureIndexer()
 
 	if handler.autoReindexMaxAge <= 0 {
@@ -142,17 +117,6 @@ func NewSCIPHandler(indexPath string, logger *logging.Logger, options SCIPHandle
 	}
 	if handler.watchDebounce <= 0 {
 		handler.watchDebounce = scipReindexDebounce
-	}
-
-	if _, err := os.Stat(indexPath); err == nil {
-		index, err := scip.OpenIndex(indexPath)
-		if err != nil {
-			handler.indexErr = err
-		} else {
-			handler.index = index
-		}
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
-		handler.indexErr = err
 	}
 
 	handler.logIndexStatus()
@@ -165,197 +129,6 @@ func NewSCIPHandler(indexPath string, logger *logging.Logger, options SCIPHandle
 	}
 
 	return handler, nil
-}
-
-// GET /api/scip/symbols?q=FindUser&limit=10
-func (h *SCIPHandler) FindSymbols(w http.ResponseWriter, r *http.Request) *apiError {
-	if r.Method != http.MethodGet {
-		return methodNotAllowed(w, http.MethodGet)
-	}
-	if err := h.allowRequest(); err != nil {
-		return err
-	}
-
-	start := time.Now()
-	query := strings.TrimSpace(r.URL.Query().Get("q"))
-	if query == "" {
-		return &apiError{Status: http.StatusBadRequest, Message: "missing query"}
-	}
-	limit, limitErr := parseLimit(r, scipDefaultLimit)
-	if limitErr != nil {
-		return limitErr
-	}
-
-	cacheKey := fmt.Sprintf("find:%s:%d", strings.ToLower(query), limit)
-	if cached, ok := h.cache.getSymbols(cacheKey); ok {
-		h.recordQuery(scipQueryFindSymbols, start, true)
-		writeJSON(w, http.StatusOK, map[string]any{
-			"query":   query,
-			"symbols": cached,
-		})
-		return nil
-	}
-
-	index, apiErr := h.withIndex()
-	if apiErr != nil {
-		return apiErr
-	}
-	symbols, err := index.FindSymbols(query, limit)
-	if err != nil {
-		return &apiError{Status: http.StatusInternalServerError, Message: err.Error()}
-	}
-
-	h.cache.setSymbols(cacheKey, symbols)
-	h.recordQuery(scipQueryFindSymbols, start, false)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"query":   query,
-		"symbols": symbols,
-	})
-	return nil
-}
-
-// HandleSymbol dispatches /api/scip/symbols/{id} and /api/scip/symbols/{id}/references.
-func (h *SCIPHandler) HandleSymbol(w http.ResponseWriter, r *http.Request) *apiError {
-	if err := h.allowRequest(); err != nil {
-		return err
-	}
-
-	suffix := strings.TrimPrefix(r.URL.Path, "/api/scip/symbols/")
-	if suffix == "" {
-		return &apiError{Status: http.StatusNotFound, Message: "symbol not found"}
-	}
-
-	if strings.HasSuffix(suffix, "/references") {
-		return h.GetReferences(w, r, strings.TrimSuffix(suffix, "/references"))
-	}
-
-	return h.GetSymbol(w, r, suffix)
-}
-
-// GET /api/scip/symbols/{id}
-func (h *SCIPHandler) GetSymbol(w http.ResponseWriter, r *http.Request, rawSymbol string) *apiError {
-	if r.Method != http.MethodGet {
-		return methodNotAllowed(w, http.MethodGet)
-	}
-	start := time.Now()
-	symbolID, err := url.PathUnescape(strings.TrimPrefix(rawSymbol, "/"))
-	if err != nil {
-		return &apiError{Status: http.StatusBadRequest, Message: "invalid symbol id"}
-	}
-
-	cacheKey := fmt.Sprintf("symbol:%s", symbolID)
-	if cached, ok := h.cache.getSymbol(cacheKey); ok {
-		h.recordQuery(scipQueryGetSymbol, start, true)
-		writeJSON(w, http.StatusOK, cached)
-		return nil
-	}
-
-	index, apiErr := h.withIndex()
-	if apiErr != nil {
-		return apiErr
-	}
-	symbol, err := index.GetDefinition(symbolID)
-	if err != nil {
-		var notFound scip.SymbolNotFoundError
-		if errors.As(err, &notFound) {
-			return &apiError{Status: http.StatusNotFound, Message: "symbol not found"}
-		}
-		return &apiError{Status: http.StatusInternalServerError, Message: err.Error()}
-	}
-
-	h.cache.setSymbol(cacheKey, symbol)
-	h.recordQuery(scipQueryGetSymbol, start, false)
-	writeJSON(w, http.StatusOK, symbol)
-	return nil
-}
-
-// GET /api/scip/symbols/{id}/references
-func (h *SCIPHandler) GetReferences(w http.ResponseWriter, r *http.Request, rawSymbol string) *apiError {
-	if r.Method != http.MethodGet {
-		return methodNotAllowed(w, http.MethodGet)
-	}
-	start := time.Now()
-	symbolID, err := url.PathUnescape(strings.TrimPrefix(rawSymbol, "/"))
-	if err != nil {
-		return &apiError{Status: http.StatusBadRequest, Message: "invalid symbol id"}
-	}
-
-	cacheKey := fmt.Sprintf("refs:%s", symbolID)
-	if cached, ok := h.cache.getOccurrences(cacheKey); ok {
-		h.recordQuery(scipQueryReferences, start, true)
-		writeJSON(w, http.StatusOK, map[string]any{
-			"symbol":     symbolID,
-			"references": cached,
-		})
-		return nil
-	}
-
-	index, apiErr := h.withIndex()
-	if apiErr != nil {
-		return apiErr
-	}
-	refs, err := index.GetReferences(symbolID)
-	if err != nil {
-		var notFound scip.SymbolNotFoundError
-		if errors.As(err, &notFound) {
-			return &apiError{Status: http.StatusNotFound, Message: "symbol not found"}
-		}
-		return &apiError{Status: http.StatusInternalServerError, Message: err.Error()}
-	}
-
-	h.cache.setOccurrences(cacheKey, refs)
-	h.recordQuery(scipQueryReferences, start, false)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"symbol":     symbolID,
-		"references": refs,
-	})
-	return nil
-}
-
-// GET /api/scip/files/{path}
-func (h *SCIPHandler) GetFileSymbols(w http.ResponseWriter, r *http.Request) *apiError {
-	if r.Method != http.MethodGet {
-		return methodNotAllowed(w, http.MethodGet)
-	}
-	if err := h.allowRequest(); err != nil {
-		return err
-	}
-
-	start := time.Now()
-	suffix := strings.TrimPrefix(r.URL.Path, "/api/scip/files/")
-	if suffix == "" {
-		return &apiError{Status: http.StatusBadRequest, Message: "missing file path"}
-	}
-	filePath, err := url.PathUnescape(suffix)
-	if err != nil {
-		return &apiError{Status: http.StatusBadRequest, Message: "invalid file path"}
-	}
-
-	cacheKey := fmt.Sprintf("file:%s", filePath)
-	if cached, ok := h.cache.getSymbols(cacheKey); ok {
-		h.recordQuery(scipQueryFileSymbols, start, true)
-		writeJSON(w, http.StatusOK, map[string]any{
-			"file":    filePath,
-			"symbols": cached,
-		})
-		return nil
-	}
-
-	index, apiErr := h.withIndex()
-	if apiErr != nil {
-		return apiErr
-	}
-	symbols, err := index.GetSymbolsInFile(filePath)
-	if err != nil {
-		return &apiError{Status: http.StatusInternalServerError, Message: err.Error()}
-	}
-	h.cache.setSymbols(cacheKey, symbols)
-	h.recordQuery(scipQueryFileSymbols, start, false)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"file":    filePath,
-		"symbols": symbols,
-	})
-	return nil
 }
 
 // POST /api/scip/index
@@ -445,23 +218,6 @@ func (h *SCIPHandler) Reindex(w http.ResponseWriter, r *http.Request) *apiError 
 	return nil
 }
 
-// GET /api/scip/status
-func (h *SCIPHandler) Status(w http.ResponseWriter, r *http.Request) *apiError {
-	if r.Method != http.MethodGet {
-		return methodNotAllowed(w, http.MethodGet)
-	}
-	if err := h.allowRequest(); err != nil {
-		return err
-	}
-
-	status, err := h.buildStatus()
-	if err != nil {
-		return &apiError{Status: http.StatusInternalServerError, Message: err.Error()}
-	}
-	writeJSON(w, http.StatusOK, status)
-	return nil
-}
-
 func (h *SCIPHandler) triggerReindex(path string, languages []string, force bool) (reindexResult, error) {
 	root := strings.TrimSpace(path)
 	if root == "" {
@@ -513,30 +269,6 @@ func (h *SCIPHandler) configureIndexer() {
 	})
 }
 
-func (h *SCIPHandler) reloadIndex(status scip.IndexStatus) error {
-	openIndex := h.openIndex
-	if openIndex == nil {
-		openIndex = scip.OpenIndex
-	}
-	index, err := openIndex(status.IndexPath)
-	if err != nil {
-		h.logWarn("scip index reload failed", err)
-		return err
-	}
-
-	h.indexMu.Lock()
-	oldIndex := h.index
-	h.index = index
-	h.indexMu.Unlock()
-	if oldIndex != nil {
-		_ = oldIndex.Close()
-	}
-	if h.cache != nil {
-		h.cache.clear()
-	}
-	return nil
-}
-
 func (h *SCIPHandler) StartAutoIndexing() bool {
 	if h.asyncIndexer == nil {
 		return false
@@ -557,20 +289,6 @@ func (h *SCIPHandler) StartAutoIndexing() bool {
 		return false
 	}
 	return result.Started
-}
-
-func (h *SCIPHandler) withIndex() (*scip.Index, *apiError) {
-	h.indexMu.RLock()
-	index := h.index
-	h.indexMu.RUnlock()
-	if index == nil {
-		return nil, &apiError{Status: http.StatusServiceUnavailable, Message: "scip index unavailable"}
-	}
-	return index, nil
-}
-
-func (h *SCIPHandler) recordQuery(queryType string, start time.Time, cacheHit bool) {
-	metrics.Default.RecordSCIPQuery(queryType, time.Since(start), cacheHit)
 }
 
 func (h *SCIPHandler) recentIndexAge(threshold time.Duration) (bool, time.Duration, error) {
@@ -650,19 +368,6 @@ func (h *SCIPHandler) buildStatus() (scipStatusResponse, error) {
 		age := time.Since(createdAt)
 		if age > 0 {
 			status.AgeHours = int(age.Hours())
-		}
-	}
-
-	h.indexMu.RLock()
-	index := h.index
-	h.indexMu.RUnlock()
-	if index != nil {
-		stats, err := index.GetStats()
-		if err != nil {
-			h.logWarn("scip stats unavailable", err)
-		} else {
-			status.Documents = stats.Documents
-			status.Symbols = stats.Symbols
 		}
 	}
 
@@ -767,7 +472,10 @@ func (h *SCIPHandler) logWarn(message string, err error) {
 	if h.logger == nil {
 		return
 	}
-	fields := map[string]string{}
+	fields := map[string]string{
+		"gestalt.category": "scip",
+		"gestalt.source":   "backend",
+	}
 	if err != nil {
 		fields["error"] = err.Error()
 	}
@@ -790,222 +498,22 @@ func (h *SCIPHandler) logIndexStatus() {
 		return
 	}
 	fields := map[string]string{
-		"documents": strconv.Itoa(status.Documents),
-		"symbols":   strconv.Itoa(status.Symbols),
+		"index_path": h.indexPath,
 	}
 	if status.CreatedAt != "" {
 		fields["created_at"] = status.CreatedAt
 	}
-	if status.AgeHours > 0 {
-		fields["age_hours"] = strconv.Itoa(status.AgeHours)
-	}
-	if len(status.Languages) > 0 {
-		fields["languages"] = strings.Join(status.Languages, ",")
-	}
-	if status.InProgress {
-		fields["in_progress"] = "true"
-	}
-	if strings.TrimSpace(status.Error) != "" {
-		fields["error"] = status.Error
-	}
-	h.logger.Info("scip index loaded", fields)
-	if !status.Fresh {
-		h.logger.Warn("scip index is stale, consider re-indexing", fields)
-	}
-}
-
-func parseLimit(r *http.Request, fallback int) (int, *apiError) {
-	if fallback <= 0 {
-		fallback = scipDefaultLimit
-	}
-	limitValue := r.URL.Query().Get("limit")
-	if limitValue == "" {
-		return fallback, nil
-	}
-	parsed, err := strconv.Atoi(limitValue)
-	if err != nil || parsed <= 0 {
-		return 0, &apiError{Status: http.StatusBadRequest, Message: "invalid limit"}
-	}
-	return parsed, nil
-}
-
-type queryCache struct {
-	ttl        time.Duration
-	maxEntries int
-	mu         sync.Mutex
-	entries    map[string]*list.Element
-	order      *list.List
-}
-
-type cacheEntry struct {
-	key       string
-	expiresAt time.Time
-	payload   any
-}
-
-func newQueryCache(ttl time.Duration) *queryCache {
-	if ttl <= 0 {
-		ttl = scipCacheTTL
-	}
-	return &queryCache{
-		ttl:        ttl,
-		maxEntries: scipCacheMaxEntries,
-		entries:    make(map[string]*list.Element),
-		order:      list.New(),
-	}
-}
-
-func (cache *queryCache) clear() {
-	cache.mu.Lock()
-	defer cache.mu.Unlock()
-	cache.entries = make(map[string]*list.Element)
-	if cache.order == nil {
-		cache.order = list.New()
+	if status.Fresh {
+		h.logger.Info("scip index loaded", fields)
 		return
 	}
-	cache.order.Init()
-}
-
-func (cache *queryCache) getSymbols(key string) ([]scip.Symbol, bool) {
-	entry, ok := cache.get(key)
-	if !ok {
-		return nil, false
-	}
-	symbols, ok := entry.([]scip.Symbol)
-	if !ok {
-		return nil, false
-	}
-	return cloneSymbols(symbols), true
-}
-
-func (cache *queryCache) setSymbols(key string, symbols []scip.Symbol) {
-	cache.set(key, cloneSymbols(symbols))
-}
-
-func (cache *queryCache) getSymbol(key string) (*scip.Symbol, bool) {
-	entry, ok := cache.get(key)
-	if !ok {
-		return nil, false
-	}
-	symbol, ok := entry.(scip.Symbol)
-	if !ok {
-		return nil, false
-	}
-	cloned := cloneSymbol(symbol)
-	return &cloned, true
-}
-
-func (cache *queryCache) setSymbol(key string, symbol *scip.Symbol) {
-	if symbol == nil {
-		return
-	}
-	clone := cloneSymbol(*symbol)
-	cache.set(key, clone)
-}
-
-func (cache *queryCache) getOccurrences(key string) ([]scip.Occurrence, bool) {
-	entry, ok := cache.get(key)
-	if !ok {
-		return nil, false
-	}
-	occurrences, ok := entry.([]scip.Occurrence)
-	if !ok {
-		return nil, false
-	}
-	return cloneOccurrences(occurrences), true
-}
-
-func (cache *queryCache) setOccurrences(key string, occurrences []scip.Occurrence) {
-	cache.set(key, cloneOccurrences(occurrences))
-}
-
-func (cache *queryCache) get(key string) (any, bool) {
-	cache.mu.Lock()
-	defer cache.mu.Unlock()
-
-	element, ok := cache.entries[key]
-	if !ok {
-		return nil, false
-	}
-	entry := element.Value.(*cacheEntry)
-	if time.Now().After(entry.expiresAt) {
-		cache.removeElement(element)
-		return nil, false
-	}
-	cache.order.MoveToFront(element)
-	return entry.payload, true
-}
-
-func (cache *queryCache) set(key string, payload any) {
-	cache.mu.Lock()
-	defer cache.mu.Unlock()
-
-	if element, ok := cache.entries[key]; ok {
-		entry := element.Value.(*cacheEntry)
-		entry.payload = payload
-		entry.expiresAt = time.Now().Add(cache.ttl)
-		cache.order.MoveToFront(element)
-		return
-	}
-
-	element := cache.order.PushFront(&cacheEntry{
-		key:       key,
-		expiresAt: time.Now().Add(cache.ttl),
-		payload:   payload,
-	})
-	cache.entries[key] = element
-
-	if cache.maxEntries <= 0 {
-		cache.maxEntries = scipCacheMaxEntries
-	}
-	if cache.order.Len() > cache.maxEntries {
-		cache.removeOldest()
-	}
-}
-
-func (cache *queryCache) removeOldest() {
-	element := cache.order.Back()
-	if element == nil {
-		return
-	}
-	cache.removeElement(element)
-}
-
-func (cache *queryCache) removeElement(element *list.Element) {
-	cache.order.Remove(element)
-	entry := element.Value.(*cacheEntry)
-	delete(cache.entries, entry.key)
-}
-
-func cloneSymbols(symbols []scip.Symbol) []scip.Symbol {
-	if symbols == nil {
-		return nil
-	}
-	cloned := make([]scip.Symbol, len(symbols))
-	for index, symbol := range symbols {
-		cloned[index] = cloneSymbol(symbol)
-	}
-	return cloned
-}
-
-func cloneSymbol(symbol scip.Symbol) scip.Symbol {
-	cloned := symbol
-	if symbol.Documentation != nil {
-		cloned.Documentation = append([]string(nil), symbol.Documentation...)
-	}
-	return cloned
-}
-
-func cloneOccurrences(occurrences []scip.Occurrence) []scip.Occurrence {
-	if occurrences == nil {
-		return nil
-	}
-	cloned := make([]scip.Occurrence, len(occurrences))
-	copy(cloned, occurrences)
-	return cloned
+	h.logger.Warn("scip index is stale, consider re-indexing", fields)
 }
 
 func fileExists(path string) bool {
+	if strings.TrimSpace(path) == "" {
+		return false
+	}
 	_, err := os.Stat(path)
 	return err == nil
 }

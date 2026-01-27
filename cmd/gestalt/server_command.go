@@ -264,10 +264,6 @@ func runServer(args []string) int {
 	eventBus := event.NewBus[watcher.Event](context.Background(), event.BusOptions{
 		Name: "watcher_events",
 	})
-	scipEventBus := event.NewBus[event.SCIPEvent](context.Background(), event.BusOptions{
-		Name:        "scip_events",
-		HistorySize: 16,
-	})
 	if fsWatcher != nil {
 		fsWatcher.SetErrorHandler(func(err error) {
 			eventBus.Publish(watcher.Event{
@@ -315,7 +311,7 @@ func runServer(args []string) int {
 	}
 	scipHandler := api.RegisterRoutes(backendMux, manager, cfg.AuthToken, api.StatusConfig{
 		TemporalUIPort: cfg.TemporalUIPort,
-	}, cfg.SCIPIndexPath, autoReindexEnabled, "", nil, logger, eventBus, scipEventBus)
+	}, cfg.SCIPIndexPath, autoReindexEnabled, "", nil, logger, eventBus)
 	backendListener, backendPort, err := listenOnPort(cfg.BackendPort)
 	if err != nil {
 		logger.Error("backend listen failed", map[string]string{

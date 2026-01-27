@@ -21,7 +21,6 @@ type SCIPHandlerOptions struct {
 	AutoReindexMaxAge  time.Duration
 	WatchDebounce      time.Duration
 	EventBus           *event.Bus[watcher.Event]
-	SCIPEventBus       *event.Bus[event.SCIPEvent]
 	AutoReindexOnStart bool
 }
 
@@ -39,22 +38,6 @@ func NewSCIPHandler(indexPath string, logger *logging.Logger, _ SCIPHandlerOptio
 		})
 	}
 	return &SCIPHandler{logger: logger}, nil
-}
-
-func (h *SCIPHandler) Status(http.ResponseWriter, *http.Request) *apiError {
-	return scipDisabledError()
-}
-
-func (h *SCIPHandler) FindSymbols(http.ResponseWriter, *http.Request) *apiError {
-	return scipDisabledError()
-}
-
-func (h *SCIPHandler) HandleSymbol(http.ResponseWriter, *http.Request) *apiError {
-	return scipDisabledError()
-}
-
-func (h *SCIPHandler) GetFileSymbols(http.ResponseWriter, *http.Request) *apiError {
-	return scipDisabledError()
 }
 
 func (h *SCIPHandler) ReIndex(http.ResponseWriter, *http.Request) *apiError {

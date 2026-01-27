@@ -17,7 +17,7 @@ type StatusConfig struct {
 	TemporalUIPort int
 }
 
-func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken string, statusConfig StatusConfig, scipIndexPath string, scipAutoReindex bool, staticDir string, frontendFS fs.FS, logger *logging.Logger, eventBus *event.Bus[watcher.Event], scipEventBus *event.Bus[event.SCIPEvent]) *SCIPHandler {
+func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken string, statusConfig StatusConfig, scipIndexPath string, scipAutoReindex bool, staticDir string, frontendFS fs.FS, logger *logging.Logger, eventBus *event.Bus[watcher.Event]) *SCIPHandler {
 	// Git info is read once on boot to avoid polling; refresh can be added later.
 	gitOrigin, gitBranch := loadGitInfo()
 	metricsSummary := otel.NewAPISummaryStore()
@@ -121,7 +121,6 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 			AutoReindex:        scipAutoReindex,
 			AutoReindexOnStart: scipAutoReindex,
 			EventBus:           eventBus,
-			SCIPEventBus:       scipEventBus,
 		})
 		if err != nil {
 			if logger != nil {
@@ -131,19 +130,8 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 			}
 		} else {
 			scipHandler = handler
-			mux.Handle("/api/scip/status", wrap("/api/scip/status", "config", "read", restHandler(authToken, handler.Status)))
-			mux.Handle("/api/scip/symbols", wrap("/api/scip/symbols", "config", "read", restHandler(authToken, handler.FindSymbols)))
-			mux.Handle("/api/scip/symbols/", wrap("/api/scip/symbols/:id", "config", "read", restHandler(authToken, handler.HandleSymbol)))
-			mux.Handle("/api/scip/files/", wrap("/api/scip/files/:path", "config", "read", restHandler(authToken, handler.GetFileSymbols)))
 			mux.Handle("/api/scip/index", wrap("/api/scip/index", "config", "update", restHandler(authToken, handler.ReIndex)))
 			mux.Handle("/api/scip/reindex", wrap("/api/scip/reindex", "config", "update", restHandler(authToken, handler.Reindex)))
-			if scipEventBus != nil {
-				mux.Handle("/api/scip/events", &SCIPEventsHandler{
-					Logger:    logger,
-					AuthToken: authToken,
-					Bus:       scipEventBus,
-				})
-			}
 		}
 	}
 

@@ -21,9 +21,9 @@ func TestSCIPAutoReindexTriggersForStaleIndex(t *testing.T) {
 		t.Fatalf("write source: %v", err)
 	}
 
-	indexPath := filepath.Join(projectDir, "index.db")
-	if err := buildTestSCIPDB(indexPath); err != nil {
-		t.Fatalf("build test db: %v", err)
+	indexPath := filepath.Join(projectDir, "index.scip")
+	if err := os.WriteFile(indexPath, []byte(""), 0o644); err != nil {
+		t.Fatalf("write scip index: %v", err)
 	}
 
 	meta, err := scip.BuildMetadata(projectDir, []string{"go"})
@@ -66,9 +66,9 @@ func TestSCIPFileWatcherQueuesReindex(t *testing.T) {
 		t.Fatalf("write source: %v", err)
 	}
 
-	indexPath := filepath.Join(projectDir, "index.db")
-	if err := buildTestSCIPDB(indexPath); err != nil {
-		t.Fatalf("build test db: %v", err)
+	indexPath := filepath.Join(projectDir, "index.scip")
+	if err := os.WriteFile(indexPath, []byte(""), 0o644); err != nil {
+		t.Fatalf("write scip index: %v", err)
 	}
 
 	bus := event.NewBus[watcher.Event](context.Background(), event.BusOptions{Name: "scip_test"})

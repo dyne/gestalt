@@ -3,13 +3,10 @@
 package scip
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
-
-	eventtypes "gestalt/internal/event"
 
 	scipproto "github.com/sourcegraph/scip/bindings/go/scip"
 )
@@ -30,13 +27,7 @@ func TestAsyncIndexerUsesExistingScipWhenIndexerMissing(t *testing.T) {
 		},
 	})
 
-	bus := eventtypes.NewBus[eventtypes.SCIPEvent](context.Background(), eventtypes.BusOptions{
-		Name:        "scip_events_test",
-		HistorySize: 8,
-	})
-	t.Cleanup(bus.Close)
-
-	indexer := NewAsyncIndexer(nil, bus)
+	indexer := NewAsyncIndexer(nil)
 	indexer.detectLanguages = func(string) ([]string, error) {
 		return []string{"go"}, nil
 	}
@@ -61,16 +52,6 @@ func TestAsyncIndexerUsesExistingScipWhenIndexerMissing(t *testing.T) {
 		t.Fatalf("expected merged scip at %s", indexPath)
 	}
 
-	events := bus.DumpHistory()
-	if len(events) == 0 {
-		t.Fatal("expected scip events to be published")
-	}
-	if events[0].Type() != "start" {
-		t.Fatalf("expected first event start, got %s", events[0].Type())
-	}
-	if events[len(events)-1].Type() != "complete" {
-		t.Fatalf("expected last event complete, got %s", events[len(events)-1].Type())
-	}
 }
 
 func TestAsyncIndexerMergesMultipleIndexes(t *testing.T) {
@@ -83,7 +64,7 @@ func TestAsyncIndexerMergesMultipleIndexes(t *testing.T) {
 	indexPath := filepath.Join(scipDir, "index.scip")
 	mergedPath := filepath.Join(scipDir, mergedScipName)
 
-	indexer := NewAsyncIndexer(nil, nil)
+	indexer := NewAsyncIndexer(nil)
 	indexer.detectLanguages = func(string) ([]string, error) {
 		return []string{"go", "typescript"}, nil
 	}

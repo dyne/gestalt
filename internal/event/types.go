@@ -139,32 +139,6 @@ func (e WorkflowEvent) Timestamp() time.Time {
 	return e.OccurredAt
 }
 
-// SCIPEvent captures SCIP indexing lifecycle updates.
-type SCIPEvent struct {
-	EventType  string
-	Language   string
-	Message    string
-	OccurredAt time.Time
-}
-
-// NewSCIPEvent constructs a SCIPEvent with a current timestamp.
-func NewSCIPEvent(eventType, language, message string) SCIPEvent {
-	return SCIPEvent{
-		EventType:  eventType,
-		Language:   language,
-		Message:    message,
-		OccurredAt: time.Now().UTC(),
-	}
-}
-
-func (e SCIPEvent) Type() string {
-	return e.EventType
-}
-
-func (e SCIPEvent) Timestamp() time.Time {
-	return e.OccurredAt
-}
-
 // LogEvent wraps log data for streaming.
 type LogEvent struct {
 	EventType  string

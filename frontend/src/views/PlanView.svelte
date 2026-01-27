@@ -18,6 +18,14 @@
   let eventUnsubscribe = null
   const refreshDebounceMs = 250
 
+  const planKey = (plan, index) => {
+    const name = plan?.filename ? String(plan.filename) : ''
+    if (name) {
+      return `${name}:${index}`
+    }
+    return `plan-${index}`
+  }
+
   const showUpdateNotice = () => {
     updateNotice = true
     if (updateNoticeTimer) {
@@ -129,7 +137,7 @@
     emptyLabel="No plans found in .gestalt/plans/"
   >
     <div class="plan-list">
-      {#each plans as plan (plan.filename)}
+      {#each plans as plan, planIndex (planKey(plan, planIndex))}
         <PlanCard {plan} />
       {/each}
     </div>

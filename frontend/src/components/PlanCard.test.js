@@ -72,4 +72,61 @@ describe('PlanCard', () => {
     expect(getByText('First L2')).toBeTruthy()
     expect(getByText('L2 body text')).toBeTruthy()
   })
+
+  it('handles duplicate headings without throwing', async () => {
+    const plan = {
+      filename: '2026-01-01-plan.org',
+      title: 'Duplicate Plan',
+      headings: [
+        {
+          level: 1,
+          keyword: 'TODO',
+          priority: 'A',
+          text: 'Repeat',
+          body: '',
+          children: [
+            {
+              level: 2,
+              keyword: 'TODO',
+              priority: 'B',
+              text: 'Repeat',
+              body: '',
+              children: [],
+            },
+          ],
+        },
+        {
+          level: 1,
+          keyword: 'TODO',
+          priority: 'B',
+          text: 'Repeat',
+          body: '',
+          children: [],
+        },
+      ],
+    }
+
+    const { rerender, getAllByText } = render(PlanCard, { props: { plan } })
+
+    expect(getAllByText('Repeat').length).toBeGreaterThan(1)
+
+    await rerender({
+      plan: {
+        ...plan,
+        headings: [
+          ...plan.headings,
+          {
+            level: 1,
+            keyword: 'WIP',
+            priority: 'C',
+            text: 'Repeat',
+            body: 'Extra heading',
+            children: [],
+          },
+        ],
+      },
+    })
+
+    expect(getAllByText('Repeat').length).toBeGreaterThan(1)
+  })
 })

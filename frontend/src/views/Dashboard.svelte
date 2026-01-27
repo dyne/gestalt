@@ -160,6 +160,13 @@
 
   const logEntryKey = (entry, index) => entry?.id || `${entry.timestampISO}-${entry.message}-${index}`
 
+  const metricsKey = (prefix, entry, index, field) => {
+    const raw = entry?.[field]
+    const value = raw ? String(raw) : ''
+    if (value) return `${prefix}:${value}`
+    return `${prefix}:${index}`
+  }
+
   const attributeEntriesFor = (entry) => {
     return Object.entries(entry?.attributes || {}).sort(([left], [right]) =>
       left.localeCompare(right),
@@ -562,7 +569,7 @@
                 <p class="muted">No traffic yet.</p>
               {:else}
                 <ul class="metrics-list">
-                  {#each metricsSummary.top_endpoints as entry (entry.route)}
+                  {#each metricsSummary.top_endpoints as entry, index (metricsKey('top-endpoints', entry, index, 'route'))}
                     <li>
                       <span class="metric-label metric-label--mono">{entry.route}</span>
                       <span class="metric-value">{formatCount(entry.count)}</span>
@@ -585,7 +592,7 @@
                 <p class="muted">No latency data yet.</p>
               {:else}
                 <ul class="metrics-list">
-                  {#each metricsSummary.slowest_endpoints as entry (entry.route)}
+                  {#each metricsSummary.slowest_endpoints as entry, index (metricsKey('slowest-endpoints', entry, index, 'route'))}
                     <li>
                       <div class="metric-stack">
                         <span class="metric-label metric-label--mono">{entry.route}</span>
@@ -611,7 +618,7 @@
                 <p class="muted">No agent traffic yet.</p>
               {:else}
                 <ul class="metrics-list">
-                  {#each metricsSummary.top_agents as entry (entry.name)}
+                  {#each metricsSummary.top_agents as entry, index (metricsKey('top-agents', entry, index, 'name'))}
                     <li>
                       <span class="metric-label">{entry.name}</span>
                       <span class="metric-value">{formatCount(entry.count)}</span>
@@ -634,7 +641,7 @@
                 <p class="muted">No errors recorded.</p>
               {:else}
                 <ul class="metrics-list metrics-list--stacked">
-                  {#each metricsSummary.error_rates as entry (entry.category)}
+                  {#each metricsSummary.error_rates as entry, index (metricsKey('error-rates', entry, index, 'category'))}
                     <li>
                       <div class="metric-row">
                         <span class="metric-label">{entry.category}</span>

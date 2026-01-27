@@ -66,6 +66,12 @@
     activeId = ensureActiveTab(activeId, tabs, 'dashboard')
   }
 
+  const terminalKey = (terminal, index) => {
+    const id = terminal?.id
+    if (id) return id
+    return `terminal-${index}`
+  }
+
   const refresh = async () => {
     loading = true
     error = ''
@@ -261,7 +267,7 @@
     </svelte:boundary>
   </section>
   <section class="view view--terminals" data-active={activeView === 'terminal'}>
-    {#each terminals as terminal (terminal.id)}
+    {#each terminals as terminal, terminalIndex (terminalKey(terminal, terminalIndex))}
       <div class="terminal-tab" data-active={terminal.id === activeId}>
         <svelte:boundary onerror={(error) => handleBoundaryError('terminal', error)} failed={viewFailed}>
           <TerminalView

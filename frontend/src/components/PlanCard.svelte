@@ -4,6 +4,13 @@
   const toCount = (value) => (Number.isFinite(value) ? value : 0)
   const toText = (value) => (value ? String(value) : '')
   const hasValue = (value) => Boolean(value && String(value).trim())
+  const planKey = (value) => {
+    const key = toText(value?.filename) || toText(value?.title)
+    return key || 'plan'
+  }
+
+  const l1Key = (value, index) => `${planKey(value)}:l1:${index}`
+  const l2Key = (value, l1Index, l2Index) => `${planKey(value)}:l1:${l1Index}:l2:${l2Index}`
 
   const keywordClass = (keyword) => {
     const normalized = String(keyword || '').toLowerCase()
@@ -60,7 +67,7 @@
     </div>
   </summary>
   <div class="plan-content">
-    {#each headings as l1 (l1.text)}
+    {#each headings as l1, l1Index (l1Key(plan, l1Index))}
       <details class="heading heading--l1">
         <summary class="heading-summary heading-summary--l1">
           {#if hasValue(l1.keyword)}
@@ -75,7 +82,7 @@
           {#if hasValue(l1.body)}
             <pre>{l1.body}</pre>
           {/if}
-          {#each l1.children || [] as l2 (l2.text)}
+          {#each l1.children || [] as l2, l2Index (l2Key(plan, l1Index, l2Index))}
             <details class="heading heading--l2">
               <summary class="heading-summary heading-summary--l2">
                 {#if hasValue(l2.keyword)}

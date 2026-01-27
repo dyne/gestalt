@@ -23,6 +23,12 @@
 
   const refreshIntervalMs = 5000
 
+  const workflowKey = (workflow, index) => {
+    const id = workflow?.session_id
+    if (id) return id
+    return `workflow-${index}`
+  }
+
   const syncExpanded = (items) => {
     const ids = new Set(items.map((item) => item.session_id))
     const next = new Set()
@@ -138,7 +144,7 @@
     emptyLabel="No active workflows."
   >
     <div class="workflow-list">
-      {#each workflows as workflow (workflow.session_id)}
+      {#each workflows as workflow, workflowIndex (workflowKey(workflow, workflowIndex))}
         <WorkflowCard
           {workflow}
           {temporalUiUrl}

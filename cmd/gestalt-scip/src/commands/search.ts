@@ -32,7 +32,10 @@ export async function searchCommand(pattern: string, options: SearchOptions): Pr
     contextLines,
     language: options.language,
     limit,
-    indexes: Array.from(indexes.values()),
+    indexes: Array.from(indexes.entries()).map(([languageKey, index]) => ({
+      languageKey,
+      index,
+    })),
   });
 
   const matches = results.slice(0, limit);

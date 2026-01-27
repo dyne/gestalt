@@ -20,7 +20,7 @@ export interface ContentSearchOptions {
   contextLines?: number;
   language?: string;
   limit?: number;
-  indexes: ScipIndex[];
+  indexes: Array<{ languageKey: string; index: ScipIndex }>;
 }
 
 export interface ContentSearchResult {
@@ -96,7 +96,9 @@ export class QueryEngine {
     const contentCache = new Map<string, string | null>();
     const pathCache = new Map<string, string | null>();
 
-    for (const index of options.indexes) {
+    for (const entry of options.indexes) {
+      const index = entry.index;
+      const fallbackLanguage = entry.languageKey;
       if (results.length >= limit) {
         return results;
       }
@@ -106,7 +108,7 @@ export class QueryEngine {
         if (results.length >= limit) {
           return results;
         }
-        const documentLanguage = document.language;
+        const documentLanguage = document.language ?? fallbackLanguage;
         if (normalizedLanguage && documentLanguage?.toLowerCase() !== normalizedLanguage) {
           continue;
         }

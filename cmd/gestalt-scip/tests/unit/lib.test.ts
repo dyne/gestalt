@@ -103,7 +103,10 @@ test('QueryEngine searchContent finds matches with context', async () => {
     ],
   };
 
-  const results = engine.searchContent('value', { indexes: [index], contextLines: 1 });
+  const results = engine.searchContent('value', {
+    indexes: [{ languageKey: 'typescript', index }],
+    contextLines: 1,
+  });
 
   assert.equal(results.length, 2);
   assert.equal(results[0].file_path, 'src/app.ts');
@@ -127,7 +130,11 @@ test('QueryEngine searchContent throws on invalid regex', async () => {
   };
 
   assert.throws(
-    () => engine.searchContent('[invalid', { indexes: [index], contextLines: 1 }),
+    () =>
+      engine.searchContent('[invalid', {
+        indexes: [{ languageKey: 'typescript', index }],
+        contextLines: 1,
+      }),
     /Invalid regex pattern/
   );
 });
@@ -150,7 +157,10 @@ test('QueryEngine searchContent falls back to file content when text is missing'
     ],
   };
 
-  const results = engine.searchContent('manager', { indexes: [index], contextLines: 0 });
+  const results = engine.searchContent('manager', {
+    indexes: [{ languageKey: 'typescript', index }],
+    contextLines: 0,
+  });
 
   assert.equal(results.length, 1);
   assert.equal(results[0].file_path, 'src/app.ts');
@@ -177,13 +187,35 @@ test('QueryEngine searchContent stops after reaching the limit', async () => {
   });
 
   const results = engine.searchContent('match', {
-    indexes: [{ documents: [docWithMatch, docShouldNotRead] }],
+    indexes: [{ languageKey: 'typescript', index: { documents: [docWithMatch, docShouldNotRead] } }],
     contextLines: 0,
     limit: 1,
   });
 
   assert.equal(results.length, 1);
   assert.equal(results[0].file_path, 'src/app.ts');
+});
+
+test('QueryEngine searchContent falls back to index language when document language is missing', async () => {
+  const { QueryEngine } = await loadLib();
+  const engine = new QueryEngine(new Map());
+  const index = {
+    documents: [
+      {
+        relativePath: 'internal/app.go',
+        text: 'package main\n',
+      },
+    ],
+  };
+
+  const results = engine.searchContent('package', {
+    indexes: [{ languageKey: 'go', index }],
+    contextLines: 0,
+    language: 'go',
+  });
+
+  assert.equal(results.length, 1);
+  assert.equal(results[0].language, 'go');
 });
 
 test('QueryEngine searchContent caches file reads for repeated documents', async () => {
@@ -211,7 +243,10 @@ test('QueryEngine searchContent caches file reads for repeated documents', async
   };
 
   try {
-    const results = engine.searchContent('match', { indexes: [index], contextLines: 0 });
+    const results = engine.searchContent('match', {
+      indexes: [{ languageKey: 'typescript', index }],
+      contextLines: 0,
+    });
     assert.equal(results.length, 2);
   } finally {
     mutableFs.readFileSync = originalRead;

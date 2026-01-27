@@ -15,11 +15,6 @@ export const fetchStatus = async () => {
   return response.json()
 }
 
-export const fetchScipStatus = async () => {
-  const response = await apiFetch('/api/scip/status')
-  return response.json()
-}
-
 export const fetchTerminals = async () => {
   const response = await apiFetch('/api/terminals')
   return response.json()

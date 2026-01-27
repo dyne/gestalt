@@ -9,6 +9,7 @@ const initialScipStatus = vi.hoisted(() => ({
   in_progress: false,
   started_at: '',
   completed_at: '',
+  requested_at: '',
   duration: '',
   error: '',
   created_at: '',

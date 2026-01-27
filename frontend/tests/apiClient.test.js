@@ -10,7 +10,6 @@ import {
   createTerminal,
   fetchLogs,
   fetchPlansList,
-  fetchScipStatus,
   fetchStatus,
   triggerScipReindex,
 } from '../src/lib/apiClient.js'
@@ -27,15 +26,6 @@ describe('apiClient', () => {
 
     expect(result).toEqual({ ok: true })
     expect(apiFetch).toHaveBeenCalledWith('/api/status')
-  })
-
-  it('fetches scip status payloads', async () => {
-    apiFetch.mockResolvedValue({ json: vi.fn().mockResolvedValue({ indexed: true }) })
-
-    const result = await fetchScipStatus()
-
-    expect(result).toEqual({ indexed: true })
-    expect(apiFetch).toHaveBeenCalledWith('/api/scip/status')
   })
 
   it('builds log queries', async () => {

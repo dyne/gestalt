@@ -42,6 +42,7 @@
   let scipLanguages = []
   let scipLanguagesText = 'detected languages'
   let scipLastIndexedAt = ''
+  let scipRequestedAt = ''
   let scipHasError = false
 
   const logLevelOptions = [
@@ -224,6 +225,7 @@
   $: scipLanguages = Array.isArray(scipStatus?.languages) ? scipStatus.languages.filter(Boolean) : []
   $: scipLanguagesText = scipLanguages.length > 0 ? scipLanguages.join(', ') : 'detected languages'
   $: scipLastIndexedAt = scipStatus?.completed_at || scipStatus?.created_at || ''
+  $: scipRequestedAt = scipStatus?.requested_at || ''
   $: scipHasError = Boolean(scipStatus?.error)
   $: orderedLogs = [...logs].reverse()
   $: visibleLogs = orderedLogs.slice(0, 15)
@@ -314,6 +316,12 @@
           <span class="scip-text">{scipStatus?.error || 'SCIP indexing failed.'}</span>
         </div>
         <span class="scip-hint">Click to retry</span>
+      {:else if scipRequestedAt}
+        <div class="scip-row scip-row--ready">
+          <span class="scip-icon" aria-hidden="true">✓</span>
+          <span class="scip-text">Indexing requested {formatScipTime(scipRequestedAt)}</span>
+        </div>
+        <span class="scip-hint">Check CLI for status</span>
       {:else if scipLastIndexedAt}
         <div class="scip-row scip-row--ready">
           <span class="scip-icon" aria-hidden="true">✓</span>

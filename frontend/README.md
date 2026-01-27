@@ -41,3 +41,35 @@ If you have state that's important to retain within a component, consider creati
 import { writable } from 'svelte/store'
 export default writable(0)
 ```
+
+## Gestalt UI freeze troubleshooting
+
+If tabs/buttons stop responding or the UI appears frozen, collect a crash report and the repro checklist.
+
+### Enable sourcemaps for debug builds
+
+- Dev mode: set `GESTALT_DEV_MODE=true` (for `gestalt --dev` runs).
+- Explicit override: set `GESTALT_FRONTEND_SOURCEMAP=true` for non-dev builds.
+
+Sourcemaps make stack traces readable but may expose source paths and content, so keep them off for production unless debugging.
+
+### Crash reports
+
+The frontend logs UI crashes to `/api/otel/logs` via `logUI`. Each crash record includes:
+
+- crash id + session id
+- active tab id + active view
+- error message + stack
+- URL and last successful refresh timestamps
+
+Use the crash overlay to copy the crash id, then capture the details from the Logs UI.
+
+### What to collect
+
+- Timestamp, browser/OS, and build mode (dev/prod)
+- Active tab/view and last action
+- Console error + stack trace
+- Last failing network request (status + payload shape)
+- Crash id and session id (from the overlay)
+
+See `frontend/docs/ui-freeze-triage.md` for the full checklist and triage decision tree.

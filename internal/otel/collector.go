@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"gestalt/internal/logging"
@@ -22,6 +23,7 @@ import (
 const (
 	defaultCollectorBinary = "otelcol-gestalt"
 	defaultStateDir        = ".gestalt"
+	collectorPIDFileName   = "collector.pid"
 )
 
 var ErrCollectorNotFound = errors.New("otel collector binary not found")
@@ -59,6 +61,7 @@ type Collector struct {
 	logger     *logging.Logger
 	options    Options
 	binaryPath string
+	pidPath    string
 	rotateStop chan struct{}
 	rotating   bool
 }
@@ -117,6 +120,9 @@ func StartCollector(options Options) (*Collector, error) {
 		return nil, nil
 	}
 
+	pidPath := collectorPIDPath(options.DataDir)
+	stopCollectorFromPID(pidPath, options.Logger)
+
 	binaryPath, err := resolveCollectorBinary(options.BinaryPath)
 	if err != nil {
 		return nil, err
@@ -133,6 +139,12 @@ func StartCollector(options Options) (*Collector, error) {
 	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
 		return nil, err
+	}
+	if err := writeCollectorPID(pidPath, cmd.Process.Pid); err != nil && options.Logger != nil {
+		options.Logger.Warn("otel collector pid write failed", map[string]string{
+			"error": err.Error(),
+			"path":  pidPath,
+		})
 	}
 
 	collector := &Collector{
@@ -152,6 +164,7 @@ func StartCollector(options Options) (*Collector, error) {
 		logger:     options.Logger,
 		options:    options,
 		binaryPath: binaryPath,
+		pidPath:    pidPath,
 		rotateStop: make(chan struct{}),
 	}
 	SetActiveCollector(collector.info)
@@ -194,6 +207,10 @@ func (collector *Collector) waitForExit(cmd *exec.Cmd, done chan error) {
 		done <- err
 	}
 	collector.logExit(err)
+	collector.clearActiveIfCurrent(cmd)
+	if cmd != nil && cmd.Process != nil {
+		removeCollectorPID(collector.pidPath, cmd.Process.Pid)
+	}
 }
 
 func (collector *Collector) logExit(err error) {
@@ -215,6 +232,19 @@ func (collector *Collector) logExit(err error) {
 		return
 	}
 	collector.logger.Info("otel collector exited", fields)
+}
+
+func (collector *Collector) clearActiveIfCurrent(cmd *exec.Cmd) {
+	if collector == nil {
+		return
+	}
+	collector.mu.Lock()
+	isCurrent := collector.cmd == cmd
+	collector.mu.Unlock()
+	if !isCurrent {
+		return
+	}
+	ClearActiveCollector()
 }
 
 func (collector *Collector) logInfo(message string, fields map[string]string) {
@@ -350,6 +380,7 @@ func (collector *Collector) restartProcess() error {
 	options := collector.options
 	binaryPath := collector.binaryPath
 	dataPath := collector.info.DataPath
+	pidPath := collector.pidPath
 	collector.mu.Unlock()
 
 	if err := WriteCollectorConfig(options.ConfigPath, dataPath, options.GRPCEndpoint, options.HTTPEndpoint, options.RemoteEndpoint, options.RemoteInsecure, options.SelfMetricsEnabled); err != nil {
@@ -362,6 +393,12 @@ func (collector *Collector) restartProcess() error {
 	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
 		return err
+	}
+	if err := writeCollectorPID(pidPath, cmd.Process.Pid); err != nil && options.Logger != nil {
+		options.Logger.Warn("otel collector pid write failed", map[string]string{
+			"error": err.Error(),
+			"path":  pidPath,
+		})
 	}
 	done := make(chan error, 1)
 
@@ -567,6 +604,132 @@ func hasBinary(path string) bool {
 		return strings.HasSuffix(strings.ToLower(path), ".exe") || hasBinary(path+".exe")
 	}
 	return info.Mode()&0o111 != 0
+}
+
+func collectorPIDPath(dataDir string) string {
+	if strings.TrimSpace(dataDir) == "" {
+		return ""
+	}
+	return filepath.Join(dataDir, collectorPIDFileName)
+}
+
+func readCollectorPID(pidPath string) (int, error) {
+	if strings.TrimSpace(pidPath) == "" {
+		return 0, os.ErrNotExist
+	}
+	raw, err := os.ReadFile(pidPath)
+	if err != nil {
+		return 0, err
+	}
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" {
+		return 0, fmt.Errorf("empty pid file")
+	}
+	pid, err := strconv.Atoi(trimmed)
+	if err != nil || pid <= 0 {
+		return 0, fmt.Errorf("invalid pid")
+	}
+	return pid, nil
+}
+
+func writeCollectorPID(pidPath string, pid int) error {
+	if strings.TrimSpace(pidPath) == "" || pid <= 0 {
+		return fmt.Errorf("invalid pid path")
+	}
+	if err := os.MkdirAll(filepath.Dir(pidPath), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(pidPath, []byte(strconv.Itoa(pid)), 0o644)
+}
+
+func removeCollectorPID(pidPath string, pid int) {
+	if strings.TrimSpace(pidPath) == "" || pid <= 0 {
+		return
+	}
+	currentPID, err := readCollectorPID(pidPath)
+	if err != nil || currentPID != pid {
+		return
+	}
+	_ = os.Remove(pidPath)
+}
+
+func stopCollectorFromPID(pidPath string, logger *logging.Logger) {
+	pid, err := readCollectorPID(pidPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return
+		}
+		_ = os.Remove(pidPath)
+		return
+	}
+	if !isProcessAlive(pid) {
+		_ = os.Remove(pidPath)
+		return
+	}
+	if logger != nil {
+		logger.Warn("otel collector pid found, stopping existing process", map[string]string{
+			"path": pidPath,
+			"pid":  strconv.Itoa(pid),
+		})
+	}
+	process, err := os.FindProcess(pid)
+	if err == nil {
+		if err := signalProcess(process); err != nil && logger != nil {
+			logger.Warn("otel collector pid signal failed", map[string]string{
+				"error": err.Error(),
+				"pid":   strconv.Itoa(pid),
+			})
+		}
+		if !waitForProcessExit(pid, 5*time.Second) && logger != nil {
+			logger.Warn("otel collector pid did not exit after signal", map[string]string{
+				"pid": strconv.Itoa(pid),
+			})
+		}
+		if isProcessAlive(pid) {
+			if err := process.Kill(); err != nil && logger != nil {
+				logger.Warn("otel collector pid kill failed", map[string]string{
+					"error": err.Error(),
+					"pid":   strconv.Itoa(pid),
+				})
+			} else {
+				_ = waitForProcessExit(pid, 2*time.Second)
+			}
+		}
+	}
+	if isProcessAlive(pid) && logger != nil {
+		logger.Warn("otel collector pid still running after stop attempt", map[string]string{
+			"pid": strconv.Itoa(pid),
+		})
+	}
+	_ = os.Remove(pidPath)
+}
+
+func isProcessAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		return true
+	}
+	return process.Signal(syscall.Signal(0)) == nil
+}
+
+func waitForProcessExit(pid int, timeout time.Duration) bool {
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if !isProcessAlive(pid) {
+			return true
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return !isProcessAlive(pid)
 }
 
 func signalProcess(process *os.Process) error {

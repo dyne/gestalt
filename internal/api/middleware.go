@@ -16,6 +16,34 @@ type apiError struct {
 
 type apiHandler func(http.ResponseWriter, *http.Request) *apiError
 
+const (
+	cacheControlNoStore   = "no-store, must-revalidate"
+	cacheControlNoCache   = "no-cache"
+	cacheControlImmutable = "public, max-age=31536000, immutable"
+)
+
+func setSecurityHeaders(w http.ResponseWriter, cacheControl string) {
+	headers := w.Header()
+	headers.Set("X-Content-Type-Options", "nosniff")
+	if cacheControl != "" {
+		headers.Set("Cache-Control", cacheControl)
+	}
+}
+
+func securityHeadersHandler(cacheControl string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		setSecurityHeaders(w, cacheControl)
+		next(w, r)
+	}
+}
+
+func securityHeadersMiddleware(cacheControl string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		setSecurityHeaders(w, cacheControl)
+		next.ServeHTTP(w, r)
+	})
+}
+
 func authMiddleware(token string, next apiHandler) apiHandler {
 	return func(w http.ResponseWriter, r *http.Request) *apiError {
 		if !validateToken(r, token) {
@@ -65,5 +93,5 @@ func methodNotAllowed(w http.ResponseWriter, allow string) *apiError {
 }
 
 func restHandler(token string, handler apiHandler) http.HandlerFunc {
-	return jsonErrorMiddleware(authMiddleware(token, handler))
+	return securityHeadersHandler(cacheControlNoStore, jsonErrorMiddleware(authMiddleware(token, handler)))
 }

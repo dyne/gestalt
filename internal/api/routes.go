@@ -66,39 +66,39 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 		}()
 	}
 
-	mux.Handle("/ws/terminal/", &TerminalHandler{
+	mux.Handle("/ws/terminal/", securityHeadersMiddleware(cacheControlNoStore, &TerminalHandler{
 		Manager:   manager,
 		Logger:    logger,
 		AuthToken: authToken,
-	})
-	mux.Handle("/ws/logs", &LogsHandler{
+	}))
+	mux.Handle("/ws/logs", securityHeadersMiddleware(cacheControlNoStore, &LogsHandler{
 		Logger:    logger,
 		AuthToken: authToken,
-	})
-	mux.Handle("/ws/events", &EventsHandler{
+	}))
+	mux.Handle("/ws/events", securityHeadersMiddleware(cacheControlNoStore, &EventsHandler{
 		Bus:       eventBus,
 		Logger:    logger,
 		AuthToken: authToken,
-	})
-	mux.Handle("/api/agents/events", &AgentEventsHandler{
+	}))
+	mux.Handle("/api/agents/events", securityHeadersMiddleware(cacheControlNoStore, &AgentEventsHandler{
 		Manager:   manager,
 		Logger:    logger,
 		AuthToken: authToken,
-	})
-	mux.Handle("/api/terminals/events", &TerminalEventsHandler{
+	}))
+	mux.Handle("/api/terminals/events", securityHeadersMiddleware(cacheControlNoStore, &TerminalEventsHandler{
 		Manager:   manager,
 		Logger:    logger,
 		AuthToken: authToken,
-	})
-	mux.Handle("/api/workflows/events", &WorkflowEventsHandler{
+	}))
+	mux.Handle("/api/workflows/events", securityHeadersMiddleware(cacheControlNoStore, &WorkflowEventsHandler{
 		Manager:   manager,
 		Logger:    logger,
 		AuthToken: authToken,
-	})
-	mux.Handle("/api/config/events", &ConfigEventsHandler{
+	}))
+	mux.Handle("/api/config/events", securityHeadersMiddleware(cacheControlNoStore, &ConfigEventsHandler{
 		Logger:    logger,
 		AuthToken: authToken,
-	})
+	}))
 
 	mux.Handle("/api/status", wrap("/api/status", "status", "read", restHandler(authToken, rest.handleStatus)))
 	mux.Handle("/api/metrics", wrap("/api/metrics", "status", "read", restHandler(authToken, rest.handleMetrics)))
@@ -136,6 +136,7 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 	}
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		setSecurityHeaders(w, cacheControlNoCache)
 		if authToken != "" {
 			w.Header().Set("X-Gestalt-Auth", "required")
 		}

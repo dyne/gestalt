@@ -195,6 +195,37 @@ describe('dashboardStore', () => {
     expect(value.metricsLoading).toBe(false)
   })
 
+  it('batches log bursts into scheduled updates', async () => {
+    vi.useFakeTimers()
+    let onEntry = null
+    createLogStream.mockImplementation((options) => {
+      onEntry = options?.onEntry
+      return {
+        start: vi.fn(() => options?.onOpen?.()),
+        stop: vi.fn(),
+        restart: vi.fn(() => options?.onOpen?.()),
+        setLevel: vi.fn(),
+      }
+    })
+    fetchAgents.mockResolvedValue([])
+    fetchMetricsSummary.mockResolvedValue({})
+
+    const store = createDashboardStore()
+    await store.start()
+
+    for (let i = 0; i < 500; i += 1) {
+      onEntry?.({ body: `log ${i}` })
+    }
+
+    expect(get(store).logs.length).toBe(0)
+
+    vi.advanceTimersByTime(100)
+
+    expect(get(store).logs.length).toBe(500)
+    store.stop()
+    vi.useRealTimers()
+  })
+
   it('syncs agent running state when terminals change', async () => {
     fetchAgents.mockResolvedValue([{ id: 'a1', name: 'Agent 1', terminal_id: 't1' }])
     fetchAgentSkills.mockResolvedValue([])

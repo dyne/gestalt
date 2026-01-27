@@ -24,7 +24,11 @@
   let streamActive = false
   let pendingStop = false
   let stopTimer = null
+  let logBuffer = []
+  let logFlushTimer = null
   let clipboardAvailable = false
+  const logBatchSize = 200
+  const logFlushDelayMs = 16
 
   const levelOptions = [
     { value: 'debug', label: 'Debug' },
@@ -51,20 +55,53 @@
       logStream.stop()
     }
     streamActive = false
+    logBuffer = []
+    if (logFlushTimer) {
+      clearTimeout(logFlushTimer)
+      logFlushTimer = null
+    }
     viewState.finish()
   }
 
-  const appendLogEntry = (entry) => {
-    if (!entry) return
-    const normalized = normalizeLogEntry(entry)
-    if (!normalized) return
-    logs = [...logs, normalized]
+  const flushLogBuffer = () => {
+    if (logBuffer.length === 0) {
+      if (logFlushTimer) {
+        clearTimeout(logFlushTimer)
+        logFlushTimer = null
+      }
+      return
+    }
+    const batch = logBuffer.slice(0, logBatchSize)
+    logBuffer = logBuffer.slice(batch.length)
+    logs = [...logs, ...batch]
     if (logs.length > maxLogEntries) {
       logs = logs.slice(logs.length - maxLogEntries)
     }
     lastUpdated = new Date().toISOString()
     viewState.finish()
     lastErrorMessage = ''
+    if (logFlushTimer) {
+      clearTimeout(logFlushTimer)
+      logFlushTimer = null
+    }
+    if (logBuffer.length > 0) {
+      scheduleLogFlush()
+    }
+  }
+
+  const scheduleLogFlush = () => {
+    if (logFlushTimer) return
+    logFlushTimer = setTimeout(() => {
+      flushLogBuffer()
+    }, logFlushDelayMs)
+  }
+
+  const appendLogEntry = (entry) => {
+    if (!entry) return
+    const normalized = normalizeLogEntry(entry)
+    if (!normalized) return
+    logBuffer.push(normalized)
+    scheduleLogFlush()
   }
 
   const ensureLogStream = () => {
@@ -101,6 +138,11 @@
     clearStopTimer()
     if (reset) {
       logs = []
+      logBuffer = []
+      if (logFlushTimer) {
+        clearTimeout(logFlushTimer)
+        logFlushTimer = null
+      }
     }
     viewState.start()
     const stream = ensureLogStream()
@@ -177,6 +219,10 @@
 
   onDestroy(() => {
     stopStream()
+    if (logFlushTimer) {
+      clearTimeout(logFlushTimer)
+      logFlushTimer = null
+    }
   })
 
   $: ({ loading, error } = $viewState)

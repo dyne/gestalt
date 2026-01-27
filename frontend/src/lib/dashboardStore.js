@@ -11,6 +11,8 @@ import { createScipStore, initialScipStatus } from './scipStore.js'
 
 const metricsRefreshIntervalMs = 60000
 const maxLogEntries = 1000
+const logBatchSize = 200
+const logFlushDelayMs = 16
 
 export const createDashboardStore = () => {
   const scipStore = createScipStore()
@@ -44,6 +46,8 @@ export const createDashboardStore = () => {
   let logsStopTimer = null
   let logsStreaming = false
   let pendingLogStop = false
+  let logBuffer = []
+  let logFlushTimer = null
   let lastLogErrorMessage = ''
   let metricsRefreshTimer = null
   let metricsMounted = false
@@ -226,22 +230,22 @@ export const createDashboardStore = () => {
     }
   }
 
-  const stopLogStream = () => {
-    clearLogStopTimer()
-    pendingLogStop = false
-    if (logsStream) {
-      logsStream.stop()
+  const clearLogFlush = () => {
+    if (logFlushTimer) {
+      clearTimeout(logFlushTimer)
+      logFlushTimer = null
     }
-    logsStreaming = false
-    state.update((current) => ({ ...current, logsLoading: false }))
   }
 
-  const appendLogEntry = (entry) => {
-    if (!entry) return
-    const normalized = normalizeLogEntry(entry)
-    if (!normalized) return
+  const flushLogBuffer = () => {
+    if (logBuffer.length === 0) {
+      clearLogFlush()
+      return
+    }
+    const batch = logBuffer.slice(0, logBatchSize)
+    logBuffer = logBuffer.slice(batch.length)
     state.update((current) => {
-      const nextLogs = [...current.logs, normalized]
+      const nextLogs = [...current.logs, ...batch]
       if (nextLogs.length > maxLogEntries) {
         nextLogs.splice(0, nextLogs.length - maxLogEntries)
       }
@@ -252,6 +256,37 @@ export const createDashboardStore = () => {
         logsError: '',
       }
     })
+    clearLogFlush()
+    if (logBuffer.length > 0) {
+      scheduleLogFlush()
+    }
+  }
+
+  const scheduleLogFlush = () => {
+    if (logFlushTimer) return
+    logFlushTimer = setTimeout(() => {
+      flushLogBuffer()
+    }, logFlushDelayMs)
+  }
+
+  const stopLogStream = () => {
+    clearLogStopTimer()
+    pendingLogStop = false
+    if (logsStream) {
+      logsStream.stop()
+    }
+    logsStreaming = false
+    logBuffer = []
+    clearLogFlush()
+    state.update((current) => ({ ...current, logsLoading: false }))
+  }
+
+  const appendLogEntry = (entry) => {
+    if (!entry) return
+    const normalized = normalizeLogEntry(entry)
+    if (!normalized) return
+    logBuffer.push(normalized)
+    scheduleLogFlush()
   }
 
   const ensureLogStream = () => {
@@ -290,6 +325,10 @@ export const createDashboardStore = () => {
     if (!logsMounted) return
     pendingLogStop = !get(state).logsAutoRefresh
     clearLogStopTimer()
+    if (reset) {
+      logBuffer = []
+      clearLogFlush()
+    }
     if (reset) {
       state.update((current) => ({ ...current, logs: [] }))
     }

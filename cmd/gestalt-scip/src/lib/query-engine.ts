@@ -90,7 +90,7 @@ export class QueryEngine {
     }
 
     const results: ContentSearchResult[] = [];
-    const contextLines = options.contextLines ?? 2;
+    const contextLines = options.contextLines ?? 3;
     const limit = normalizeLimit(options.limit);
     const normalizedLanguage = options.language?.toLowerCase();
     const contentCache = new Map<string, string | null>();

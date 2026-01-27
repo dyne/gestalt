@@ -4,8 +4,8 @@ import { loadIndexes, type IndexOptions } from '../symbol-data.js';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 1000;
-const DEFAULT_CONTEXT_LINES = 2;
-const MAX_CONTEXT_LINES = 10;
+const DEFAULT_CONTEXT_LINES = 3;
+const MAX_CONTEXT_LINES = 30;
 
 export interface SearchOptions extends IndexOptions {
   limit?: number | string;

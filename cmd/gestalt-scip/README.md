@@ -66,7 +66,7 @@ The search command supports:
 - Full regex patterns (JavaScript regex syntax)
 - OR clauses via pipe `|` separator
 - Case-sensitive/insensitive modes
-- Configurable context lines (default 2)
+- Configurable context lines (default 3)
 - Language filtering
 - Multiple output formats (json, text, toon)
 

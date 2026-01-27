@@ -74,7 +74,7 @@ program
   .option('--limit <n>', 'Max results (default: 50, max: 1000)', '50')
   .option('--format <fmt>', 'Output format (json|text|toon)', 'toon')
   .option('--case-sensitive', 'Enable case-sensitive search', false)
-  .option('--context <n>', 'Lines of context (default: 2, max: 10)', '2')
+  .option('--context <n>', 'Lines of context (default: 3, max: 30)', '3')
   .action(withErrorHandling(searchCommand));
 
 program.exitOverride();

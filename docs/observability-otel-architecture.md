@@ -55,6 +55,10 @@ Configuration
   - GESTALT_OTEL_SDK_ENABLED (SDK on/off)
   - GESTALT_OTEL_SERVICE_NAME (service.name override)
   - GESTALT_OTEL_RESOURCE_ATTRIBUTES (comma-separated key=value list)
+- Port selection:
+  - Defaults to 127.0.0.1:4317 (gRPC) and 127.0.0.1:4318 (HTTP).
+  - If defaults are occupied and no endpoint env vars are set, Gestalt picks an available adjacent port pair and logs the selection.
+  - Setting GESTALT_OTEL_GRPC_ENDPOINT or GESTALT_OTEL_HTTP_ENDPOINT disables randomization for the collector.
 
 Resource model
 - Resource attributes (static):

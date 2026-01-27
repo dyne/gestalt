@@ -21,7 +21,7 @@ func TestAsyncIndexerUsesExistingScipWhenIndexerMissing(t *testing.T) {
 		t.Fatalf("create scip dir: %v", err)
 	}
 
-	indexPath := filepath.Join(scipDir, "index.db")
+	indexPath := filepath.Join(scipDir, "index.scip")
 	existing := filepath.Join(scipDir, "index-go.scip")
 	writeIndexFile(t, existing, &scipproto.Index{
 		Metadata: &scipproto.Metadata{ProjectRoot: projectRoot},
@@ -43,13 +43,6 @@ func TestAsyncIndexerUsesExistingScipWhenIndexerMissing(t *testing.T) {
 	indexer.findIndexerPath = func(string, string) (string, error) {
 		return "", nil
 	}
-	indexer.convertToSQLite = func(scipPath, dbPath string) error {
-		if scipPath == "" || dbPath != indexPath {
-			t.Fatalf("unexpected convert args: %q %q", scipPath, dbPath)
-		}
-		return os.WriteFile(dbPath, []byte("db"), 0o644)
-	}
-
 	if !indexer.StartAsync(IndexRequest{ProjectRoot: projectRoot, ScipDir: scipDir, IndexPath: indexPath}) {
 		t.Fatal("expected indexing to start")
 	}
@@ -65,7 +58,7 @@ func TestAsyncIndexerUsesExistingScipWhenIndexerMissing(t *testing.T) {
 		t.Fatalf("unexpected languages: %#v", status.Languages)
 	}
 	if !fileExists(indexPath) {
-		t.Fatalf("expected index db at %s", indexPath)
+		t.Fatalf("expected merged scip at %s", indexPath)
 	}
 
 	events := bus.DumpHistory()
@@ -87,7 +80,7 @@ func TestAsyncIndexerMergesMultipleIndexes(t *testing.T) {
 		t.Fatalf("create scip dir: %v", err)
 	}
 
-	indexPath := filepath.Join(scipDir, "index.db")
+	indexPath := filepath.Join(scipDir, "index.scip")
 	mergedPath := filepath.Join(scipDir, mergedScipName)
 
 	indexer := NewAsyncIndexer(nil, nil)
@@ -115,12 +108,6 @@ func TestAsyncIndexerMergesMultipleIndexes(t *testing.T) {
 			},
 		})
 		return nil
-	}
-	indexer.convertToSQLite = func(scipPath, dbPath string) error {
-		if scipPath != mergedPath || dbPath != indexPath {
-			t.Fatalf("unexpected convert args: %q %q", scipPath, dbPath)
-		}
-		return os.WriteFile(dbPath, []byte("db"), 0o644)
 	}
 	indexer.buildMetadata = func(root string, languages []string) (IndexMetadata, error) {
 		return IndexMetadata{CreatedAt: time.Now().UTC(), ProjectRoot: root, Languages: languages, FilesHashed: "hash"}, nil

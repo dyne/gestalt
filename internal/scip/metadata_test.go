@@ -11,7 +11,7 @@ import (
 
 func TestMetadataRoundTrip(t *testing.T) {
 	tempDir := t.TempDir()
-	indexPath := filepath.Join(tempDir, "index.db")
+	indexPath := filepath.Join(tempDir, "index.scip")
 	meta := IndexMetadata{
 		CreatedAt:   time.Now().UTC().Truncate(time.Second),
 		ProjectRoot: tempDir,

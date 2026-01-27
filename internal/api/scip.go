@@ -510,7 +510,6 @@ func (h *SCIPHandler) configureIndexer() {
 		FindIndexerPath: h.findIndexerPath,
 		RunIndexer:      h.runIndexer,
 		MergeIndexes:    h.mergeIndexes,
-		ConvertToSQLite: h.convert,
 	})
 }
 

@@ -53,7 +53,6 @@ type AsyncIndexer struct {
 	findIndexerPath func(string, string) (string, error)
 	runIndexer      func(string, string, string) error
 	mergeIndexes    func([]string, string) error
-	convertToSQLite func(string, string) error
 	buildMetadata   func(string, []string) (IndexMetadata, error)
 	saveMetadata    func(string, IndexMetadata) error
 	onSuccess       func(IndexStatus) error
@@ -66,7 +65,6 @@ type AsyncIndexerDeps struct {
 	FindIndexerPath func(string, string) (string, error)
 	RunIndexer      func(string, string, string) error
 	MergeIndexes    func([]string, string) error
-	ConvertToSQLite func(string, string) error
 	BuildMetadata   func(string, []string) (IndexMetadata, error)
 	SaveMetadata    func(string, IndexMetadata) error
 	Now             func() time.Time
@@ -81,7 +79,6 @@ func NewAsyncIndexer(logger *logging.Logger, bus *eventtypes.Bus[eventtypes.SCIP
 		findIndexerPath: FindIndexerPath,
 		runIndexer:      RunIndexer,
 		mergeIndexes:    MergeIndexes,
-		convertToSQLite: ConvertToSQLite,
 		buildMetadata:   BuildMetadata,
 		saveMetadata:    SaveMetadata,
 		now: func() time.Time {
@@ -106,9 +103,6 @@ func (idx *AsyncIndexer) SetDependencies(deps AsyncIndexerDeps) {
 	}
 	if deps.MergeIndexes != nil {
 		idx.mergeIndexes = deps.MergeIndexes
-	}
-	if deps.ConvertToSQLite != nil {
-		idx.convertToSQLite = deps.ConvertToSQLite
 	}
 	if deps.BuildMetadata != nil {
 		idx.buildMetadata = deps.BuildMetadata
@@ -150,17 +144,7 @@ func (idx *AsyncIndexer) StartAsync(req IndexRequest) bool {
 
 func (idx *AsyncIndexer) begin(req IndexRequest) (bool, IndexStatus) {
 	projectRoot := strings.TrimSpace(req.ProjectRoot)
-	indexPath := strings.TrimSpace(req.IndexPath)
-	if indexPath == "" {
-		indexPath = filepath.Join(".gestalt", "scip", "index.db")
-	}
-	scipDir := strings.TrimSpace(req.ScipDir)
-	if scipDir == "" && indexPath != "" {
-		scipDir = filepath.Dir(indexPath)
-	}
-	if scipDir == "" {
-		scipDir = filepath.Join(".gestalt", "scip")
-	}
+	outputPath, _ := resolveIndexPaths(req)
 
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
@@ -174,8 +158,8 @@ func (idx *AsyncIndexer) begin(req IndexRequest) (bool, IndexStatus) {
 		StartedAt:   startedAt,
 		Languages:   normalizeLanguages(req.Languages),
 		ProjectRoot: projectRoot,
-		MergedScip:  filepath.Join(scipDir, mergedScipName),
-		IndexPath:   indexPath,
+		MergedScip:  outputPath,
+		IndexPath:   outputPath,
 		UpdatedAt:   startedAt,
 	}
 	return true, idx.status
@@ -192,14 +176,7 @@ func (idx *AsyncIndexer) runIndexing(req IndexRequest, startedAt time.Time) (Ind
 		return idx.Status(), fmt.Errorf("project root is required")
 	}
 
-	indexPath := strings.TrimSpace(req.IndexPath)
-	if indexPath == "" {
-		indexPath = filepath.Join(".gestalt", "scip", "index.db")
-	}
-	scipDir := strings.TrimSpace(req.ScipDir)
-	if scipDir == "" {
-		scipDir = filepath.Dir(indexPath)
-	}
+	outputPath, scipDir := resolveIndexPaths(req)
 	if err := os.MkdirAll(scipDir, 0o755); err != nil {
 		return idx.Status(), fmt.Errorf("create scip dir: %w", err)
 	}
@@ -239,28 +216,22 @@ func (idx *AsyncIndexer) runIndexing(req IndexRequest, startedAt time.Time) (Ind
 	if hasLanguageFilter {
 		allowedInputs = requestedLanguages
 	}
-	inputs, err := collectScipInputs(scipDir, allowedInputs)
+	inputs, err := collectScipInputs(scipDir, allowedInputs, filepath.Base(outputPath))
 	if err != nil {
 		return idx.Status(), err
 	}
-	mergedPath := filepath.Join(scipDir, mergedScipName)
-	if len(inputs) == 0 && !hasLanguageFilter && fileExists(mergedPath) {
-		inputs = []string{mergedPath}
+	if len(inputs) == 0 && !hasLanguageFilter && fileExists(outputPath) {
+		inputs = []string{outputPath}
 	}
 	if len(inputs) == 0 {
 		return idx.Status(), fmt.Errorf("no scip indexes found in %s", scipDir)
 	}
 
-	mergedScip, err := idx.mergeInputs(inputs, mergedPath)
+	mergedScip, err := idx.mergeInputs(inputs, outputPath)
 	if err != nil {
 		return idx.Status(), err
 	}
 	idx.publish(idx.Status(), "progress", "", "merged indexes")
-
-	if err := idx.convertToSQLite(mergedScip, indexPath); err != nil {
-		return idx.Status(), err
-	}
-	idx.publish(idx.Status(), "progress", "", "converted to sqlite")
 
 	languagesForMetadata := languagesFromInputs(inputs)
 	if len(languagesForMetadata) == 0 {
@@ -268,7 +239,7 @@ func (idx *AsyncIndexer) runIndexing(req IndexRequest, startedAt time.Time) (Ind
 	}
 	if meta, err := idx.buildMetadata(projectRoot, languagesForMetadata); err != nil {
 		idx.logWarn("scip metadata build failed", err)
-	} else if err := idx.saveMetadata(indexPath, meta); err != nil {
+	} else if err := idx.saveMetadata(outputPath, meta); err != nil {
 		idx.logWarn("scip metadata write failed", err)
 	}
 
@@ -276,7 +247,7 @@ func (idx *AsyncIndexer) runIndexing(req IndexRequest, startedAt time.Time) (Ind
 	status.Languages = normalizeLanguages(languagesForMetadata)
 	status.ProjectRoot = projectRoot
 	status.MergedScip = mergedScip
-	status.IndexPath = indexPath
+	status.IndexPath = mergedScip
 	status.StartedAt = startedAt
 	status.UpdatedAt = idx.now()
 	return status, nil
@@ -386,7 +357,22 @@ func (idx *AsyncIndexer) logWarn(message string, err error) {
 	idx.logger.Warn(message, fields)
 }
 
-func collectScipInputs(scipDir string, allowedLanguages []string) ([]string, error) {
+func resolveIndexPaths(req IndexRequest) (string, string) {
+	indexPath := strings.TrimSpace(req.IndexPath)
+	scipDir := strings.TrimSpace(req.ScipDir)
+	if scipDir == "" && indexPath != "" {
+		scipDir = filepath.Dir(indexPath)
+	}
+	if scipDir == "" {
+		scipDir = filepath.Join(".gestalt", "scip")
+	}
+	if indexPath == "" {
+		indexPath = filepath.Join(scipDir, mergedScipName)
+	}
+	return indexPath, scipDir
+}
+
+func collectScipInputs(scipDir string, allowedLanguages []string, outputName string) ([]string, error) {
 	entries, err := os.ReadDir(scipDir)
 	if err != nil {
 		return nil, fmt.Errorf("read scip dir: %w", err)
@@ -405,7 +391,7 @@ func collectScipInputs(scipDir string, allowedLanguages []string) ([]string, err
 		if !strings.HasSuffix(name, ".scip") {
 			continue
 		}
-		if name == mergedScipName || strings.HasSuffix(name, ".tmp") {
+		if name == mergedScipName || name == outputName || strings.HasSuffix(name, ".tmp") {
 			continue
 		}
 		path := filepath.Join(scipDir, name)

@@ -4,7 +4,6 @@ package main
 
 import (
 	"bytes"
-	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -13,8 +12,6 @@ import (
 	"time"
 
 	"gestalt/internal/scip"
-
-	_ "github.com/mattn/go-sqlite3"
 )
 
 type indexCommandDeps struct {
@@ -22,8 +19,6 @@ type indexCommandDeps struct {
 	ensureIndexer   func(string, string) (string, error)
 	runIndexer      func(string, string, string) error
 	mergeIndexes    func([]string, string) error
-	convertToSQLite func(string, string) error
-	openIndex       func(string) (*scip.Index, error)
 }
 
 func stubIndexCommandDeps(t *testing.T, deps indexCommandDeps) {
@@ -33,16 +28,12 @@ func stubIndexCommandDeps(t *testing.T, deps indexCommandDeps) {
 	originalEnsure := ensureIndexer
 	originalRun := runIndexer
 	originalMerge := mergeIndexes
-	originalConvert := convertToSQLite
-	originalOpen := openIndex
 
 	t.Cleanup(func() {
 		detectLanguages = originalDetect
 		ensureIndexer = originalEnsure
 		runIndexer = originalRun
 		mergeIndexes = originalMerge
-		convertToSQLite = originalConvert
-		openIndex = originalOpen
 	})
 
 	if deps.detectLanguages != nil {
@@ -65,16 +56,6 @@ func stubIndexCommandDeps(t *testing.T, deps indexCommandDeps) {
 	} else {
 		mergeIndexes = originalMerge
 	}
-	if deps.convertToSQLite != nil {
-		convertToSQLite = deps.convertToSQLite
-	} else {
-		convertToSQLite = originalConvert
-	}
-	if deps.openIndex != nil {
-		openIndex = deps.openIndex
-	} else {
-		openIndex = originalOpen
-	}
 }
 
 func TestIndexCommandGoRepo(t *testing.T) {
@@ -83,7 +64,7 @@ func TestIndexCommandGoRepo(t *testing.T) {
 		t.Fatalf("write go.mod: %v", err)
 	}
 
-	outputPath := filepath.Join(tempDir, "out", "index.db")
+	outputPath := filepath.Join(tempDir, "out", "index.scip")
 	var ensureCalls []string
 
 	stubIndexCommandDeps(t, indexCommandDeps{
@@ -102,11 +83,6 @@ func TestIndexCommandGoRepo(t *testing.T) {
 			t.Fatalf("mergeIndexes should not be called")
 			return nil
 		},
-		convertToSQLite: func(scipPath, dbPath string) error {
-			writeStatsDB(t, dbPath, 1, 2, 3)
-			return nil
-		},
-		openIndex: scip.OpenIndex,
 	})
 
 	var stdout bytes.Buffer
@@ -121,6 +97,9 @@ func TestIndexCommandGoRepo(t *testing.T) {
 	if !strings.Contains(stdout.String(), "Indexing complete!") {
 		t.Fatalf("expected completion output, got: %s", stdout.String())
 	}
+	if _, err := os.Stat(outputPath); err != nil {
+		t.Fatalf("expected scip output at %s: %v", outputPath, err)
+	}
 }
 
 func TestIndexCommandMultiLanguage(t *testing.T) {
@@ -132,7 +111,7 @@ func TestIndexCommandMultiLanguage(t *testing.T) {
 		t.Fatalf("write package.json: %v", err)
 	}
 
-	outputPath := filepath.Join(tempDir, "index.db")
+	outputPath := filepath.Join(tempDir, "index.scip")
 	mergedCalled := false
 
 	stubIndexCommandDeps(t, indexCommandDeps{
@@ -145,19 +124,12 @@ func TestIndexCommandMultiLanguage(t *testing.T) {
 		},
 		mergeIndexes: func(inputs []string, output string) error {
 			mergedCalled = true
-			if output != filepath.Join(tempDir, "index.scip") {
+			expected := filepath.Join(tempDir, "index.scip") + ".tmp"
+			if output != expected {
 				return errors.New("unexpected merge output")
 			}
 			return os.WriteFile(output, []byte("merged"), 0o644)
 		},
-		convertToSQLite: func(scipPath, dbPath string) error {
-			if scipPath != filepath.Join(tempDir, "index.scip") {
-				return errors.New("unexpected scip path")
-			}
-			writeStatsDB(t, dbPath, 2, 4, 6)
-			return nil
-		},
-		openIndex: scip.OpenIndex,
 	})
 
 	var stdout bytes.Buffer
@@ -201,8 +173,8 @@ func TestIndexCommandUnsupportedLanguage(t *testing.T) {
 
 func TestIndexCommandSkipsRecentIndex(t *testing.T) {
 	tempDir := t.TempDir()
-	outputPath := filepath.Join(tempDir, "index.db")
-	if err := os.WriteFile(outputPath, []byte("db"), 0o644); err != nil {
+	outputPath := filepath.Join(tempDir, "index.scip")
+	if err := os.WriteFile(outputPath, []byte("scip"), 0o644); err != nil {
 		t.Fatalf("write output: %v", err)
 	}
 
@@ -235,43 +207,5 @@ func TestIndexCommandSkipsRecentIndex(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "Index was created") {
 		t.Fatalf("expected recent index warning, got: %s", stderr.String())
-	}
-}
-
-func writeStatsDB(t *testing.T, path string, documents, symbols, mentions int) {
-	t.Helper()
-
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("mkdir output dir: %v", err)
-	}
-	db, err := sql.Open("sqlite3", path)
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	defer db.Close()
-
-	statements := []string{
-		`CREATE TABLE documents (id INTEGER PRIMARY KEY, relative_path TEXT);`,
-		`CREATE TABLE global_symbols (id INTEGER PRIMARY KEY, symbol TEXT, display_name TEXT);`,
-		`CREATE TABLE mentions (id INTEGER PRIMARY KEY, symbol_id INTEGER);`,
-		`CREATE TABLE defn_enclosing_ranges (id INTEGER PRIMARY KEY, document_id INTEGER, symbol_id INTEGER);`,
-	}
-	for _, stmt := range statements {
-		if _, err := db.Exec(stmt); err != nil {
-			t.Fatalf("create table: %v", err)
-		}
-	}
-
-	insertRows(t, db, "documents", documents)
-	insertRows(t, db, "global_symbols", symbols)
-	insertRows(t, db, "mentions", mentions)
-}
-
-func insertRows(t *testing.T, db *sql.DB, table string, count int) {
-	t.Helper()
-	for i := 0; i < count; i++ {
-		if _, err := db.Exec("INSERT INTO " + table + " DEFAULT VALUES"); err != nil {
-			t.Fatalf("insert %s: %v", table, err)
-		}
 	}
 }

@@ -17,8 +17,16 @@
   import { subscribe as subscribeTerminalEvents } from './lib/terminalEventStore.js'
   import { buildTabs, ensureActiveTab, resolveActiveView } from './lib/tabRouting.js'
   import { releaseTerminalState } from './lib/terminalStore.js'
+  import { canUseClipboard } from './lib/clipboard.js'
   import { notificationStore } from './lib/notificationStore.js'
   import { getErrorMessage, notifyError } from './lib/errorUtils.js'
+  import {
+    appHealthStore,
+    forceReload,
+    recordRefresh,
+    setActiveTabId,
+    setActiveView,
+  } from './lib/appHealthStore.js'
 
   let tabs = buildTabs([])
   let activeId = 'dashboard'
@@ -29,6 +37,8 @@
   let error = ''
   let watchErrorNotified = false
   let terminalErrorUnsubscribe = null
+  let crashState = null
+  let clipboardAvailable = false
 
   const buildTitle = (workingDir) => {
     if (!workingDir) {
@@ -40,6 +50,10 @@
   }
 
   $: activeView = resolveActiveView(activeId)
+  $: setActiveTabId(activeId)
+  $: setActiveView(activeView)
+  $: crashState = $appHealthStore
+  $: clipboardAvailable = canUseClipboard()
 
   $: if (typeof document !== 'undefined') {
     const projectName = buildTitle(status?.working_dir || '')
@@ -62,6 +76,8 @@
       setServerTimeOffset(nextStatus?.server_time)
       status = nextStatus
       terminals = nextTerminals
+      recordRefresh('status')
+      recordRefresh('terminals')
       syncTabs(terminals)
     } catch (err) {
       const message = notifyError(err, 'Failed to load dashboard data.')
@@ -125,6 +141,30 @@
     activeId = id
   }
 
+  const copyCrashId = async () => {
+    const crashId = crashState?.crash?.id
+    if (!crashId) return
+    if (!clipboardAvailable) {
+      notificationStore.addNotification('error', 'Clipboard requires HTTPS.')
+      return
+    }
+    const clipboard = navigator?.clipboard
+    if (!clipboard?.writeText) {
+      notificationStore.addNotification('error', 'Clipboard is unavailable.')
+      return
+    }
+    try {
+      await clipboard.writeText(crashId)
+      notificationStore.addNotification('info', 'Copied crash id.')
+    } catch {
+      notificationStore.addNotification('error', 'Failed to copy crash id.')
+    }
+  }
+
+  const reloadAfterCrash = () => {
+    forceReload()
+  }
+
   onMount(() => {
     refresh()
     const unsubscribe = subscribeEvents('watch_error', () => {
@@ -156,6 +196,35 @@
   onSelect={handleSelect}
 />
 <ToastContainer notifications={$notificationStore} onDismiss={notificationStore.dismiss} />
+
+{#if crashState?.crash}
+  <div class="crash-overlay" role="alert" aria-live="assertive">
+    <div class="crash-card">
+      <h2>UI crash detected</h2>
+      {#if crashState.crashLoop}
+        <p>Crash loop detected. Auto-reload paused.</p>
+      {:else}
+        <p>Reloading...</p>
+      {/if}
+      <div class="crash-meta">
+        <span>Crash id</span>
+        <code>{crashState.crash.id}</code>
+      </div>
+      <div class="crash-actions">
+        {#if crashState.crashLoop}
+          <button class="crash-button" type="button" on:click={reloadAfterCrash}>
+            Reload
+          </button>
+        {/if}
+        {#if clipboardAvailable}
+          <button class="crash-button crash-button--ghost" type="button" on:click={copyCrashId}>
+            Copy crash id
+          </button>
+        {/if}
+      </div>
+    </div>
+  </div>
+{/if}
 
 <main class="app">
   <section class="view" data-active={activeView === 'dashboard'}>
@@ -215,5 +284,69 @@
 
   .terminal-tab[data-active='true'] {
     display: block;
+  }
+
+  .crash-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgba(6, 8, 12, 0.72);
+    display: grid;
+    place-items: center;
+    padding: 1.5rem;
+  }
+
+  .crash-card {
+    width: min(480px, 90vw);
+    background: rgba(var(--color-surface-rgb), 0.95);
+    border: 1px solid rgba(var(--color-danger-rgb), 0.45);
+    border-radius: 18px;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    color: var(--color-text);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  }
+
+  .crash-card h2 {
+    margin: 0;
+    font-size: 1.2rem;
+  }
+
+  .crash-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+  }
+
+  .crash-meta code {
+    font-family: var(--font-mono);
+    color: var(--color-text);
+  }
+
+  .crash-actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .crash-button {
+    border: none;
+    border-radius: 999px;
+    padding: 0.55rem 1.1rem;
+    font-weight: 600;
+    font-size: 0.85rem;
+    cursor: pointer;
+    background: var(--color-danger);
+    color: var(--color-contrast-text);
+  }
+
+  .crash-button--ghost {
+    background: transparent;
+    border: 1px solid rgba(var(--color-text-rgb), 0.3);
+    color: var(--color-text);
   }
 </style>

@@ -132,12 +132,9 @@
   const createArchitect = async () => {
     try {
       await createTerminal({ agentId: 'architect' })
-      notificationStore.add({ type: 'success', message: 'Architect terminal created' })
+      notificationStore.addNotification('info', 'Architect terminal created')
     } catch (err) {
-      notificationStore.add({
-        type: 'error',
-        message: getErrorMessage(err, 'Failed to create architect'),
-      })
+      notificationStore.addNotification('error', getErrorMessage(err, 'Failed to create architect'))
     }
   }
 

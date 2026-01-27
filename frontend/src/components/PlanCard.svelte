@@ -56,17 +56,15 @@
     if (pendingCodeAction) return
     pendingCodeAction = true
     const priorityTag = l1Heading?.priority ? `[#${l1Heading.priority}] ` : ''
-    const inputText = `Filename: ${planData?.filename}\nL1: ${priorityTag}${l1Heading?.keyword} ${l1Heading?.text}\n\n`
+    const filenameLabel = toText(planData?.filename) || 'unknown'
+    const inputText = `Filename: ${filenameLabel}\nL1: ${priorityTag}${l1Heading?.keyword} ${l1Heading?.text}\n\n`
     const coderTerminal = findCoderTerminal()
 
     if (!coderTerminal) {
       try {
         await createTerminal({ agentId: 'coder' })
       } catch (err) {
-        notificationStore.add({
-          type: 'error',
-          message: getErrorMessage(err, 'Failed to create coder'),
-        })
+        notificationStore.addNotification('error', getErrorMessage(err, 'Failed to create coder'))
         pendingCodeAction = false
         return
       }
@@ -74,12 +72,9 @@
 
     try {
       await sendAgentInput('Coder', inputText)
-      notificationStore.add({ type: 'success', message: 'Sent to Coder' })
+      notificationStore.addNotification('info', 'Sent to Coder')
     } catch (err) {
-      notificationStore.add({
-        type: 'error',
-        message: getErrorMessage(err, 'Failed to send to Coder'),
-      })
+      notificationStore.addNotification('error', getErrorMessage(err, 'Failed to send to Coder'))
     } finally {
       pendingCodeAction = false
     }

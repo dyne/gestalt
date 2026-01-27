@@ -1,8 +1,9 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
-  import { fetchPlansList } from '../lib/apiClient.js'
+  import { createTerminal, fetchPlansList } from '../lib/apiClient.js'
   import { subscribe as subscribeEvents } from '../lib/eventStore.js'
   import { getErrorMessage } from '../lib/errorUtils.js'
+  import { notificationStore } from '../lib/notificationStore.js'
   import PlanCard from '../components/PlanCard.svelte'
   import ViewState from '../components/ViewState.svelte'
 
@@ -117,6 +118,18 @@
     }
   }
 
+  const createArchitect = async () => {
+    try {
+      await createTerminal({ agentId: 'architect' })
+      notificationStore.add({ type: 'success', message: 'Architect terminal created' })
+    } catch (err) {
+      notificationStore.add({
+        type: 'error',
+        message: getErrorMessage(err, 'Failed to create architect'),
+      })
+    }
+  }
+
   $: activePlans = sortPlansByDate(plans.filter(isActivePlan))
   $: donePlans = sortPlansByDate(plans.filter(isDonePlan))
 
@@ -165,6 +178,9 @@
       {#if loading}
         <span class="refreshing">Updating...</span>
       {/if}
+      <button class="new-plan" type="button" on:click={createArchitect}>
+        + Plan
+      </button>
       <button class="refresh" type="button" on:click={loadPlans} disabled={loading}>
         {loading ? 'Refreshing...' : 'Refresh'}
       </button>
@@ -245,7 +261,8 @@
     font-size: 0.85rem;
   }
 
-  .refresh {
+  .refresh,
+  .new-plan {
     border: 1px solid rgba(var(--color-text-rgb), 0.2);
     border-radius: 999px;
     padding: 0.6rem 1.2rem;

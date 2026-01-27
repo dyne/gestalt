@@ -3,7 +3,6 @@
   import { fetchPlansList } from '../lib/apiClient.js'
   import { subscribe as subscribeEvents } from '../lib/eventStore.js'
   import { getErrorMessage } from '../lib/errorUtils.js'
-  import { formatRelativeTime } from '../lib/timeUtils.js'
   import PlanCard from '../components/PlanCard.svelte'
   import ViewState from '../components/ViewState.svelte'
 
@@ -65,10 +64,6 @@
     return `plan-${index}`
   }
 
-  const withRelativeDate = (plan) => ({
-    ...plan,
-    date: formatRelativeTime(plan?.date),
-  })
 
   const showUpdateNotice = () => {
     updateNotice = true
@@ -185,13 +180,13 @@
   >
     <div class="plan-list">
       {#each activePlans as plan, planIndex (planKey(plan, planIndex))}
-        <PlanCard plan={withRelativeDate(plan)} />
+        <PlanCard {plan} />
       {/each}
       {#if donePlans.length > 0}
         <div class="section-divider">Done</div>
       {/if}
       {#each donePlans as plan, planIndex (planKey(plan, planIndex))}
-        <PlanCard plan={withRelativeDate(plan)} />
+        <PlanCard {plan} />
       {/each}
     </div>
   </ViewState>

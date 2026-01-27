@@ -1,4 +1,7 @@
 <script>
+  import { canUseClipboard, copyToClipboard } from '../lib/clipboard.js'
+  import { formatRelativeTime } from '../lib/timeUtils.js'
+
   export let plan = {}
 
   const toCount = (value) => (Number.isFinite(value) ? value : 0)
@@ -31,6 +34,7 @@
   $: title = plan?.title || plan?.filename || 'Untitled plan'
   $: subtitle = toText(plan?.subtitle)
   $: date = toText(plan?.date)
+  $: filename = toText(plan?.filename)
   $: l1Count = toCount(plan?.l1_count)
   $: l2Count = toCount(plan?.l2_count)
   $: priorityA = toCount(plan?.priority_a)
@@ -47,9 +51,19 @@
         {#if hasValue(subtitle)}
           <p class="plan-subtitle">{subtitle}</p>
         {/if}
+        {#if hasValue(filename)}
+          <div class="plan-filename">
+            <code class="filename-text">{filename}</code>
+            {#if canUseClipboard()}
+              <button class="copy-btn" type="button" on:click={() => copyToClipboard(filename)}>
+                Copy
+              </button>
+            {/if}
+          </div>
+        {/if}
       </div>
       {#if hasValue(date)}
-        <span class="plan-date">{date}</span>
+        <span class="plan-date" title={date}>{formatRelativeTime(date)}</span>
       {/if}
     </div>
     <div class="plan-summary__stats">
@@ -143,6 +157,37 @@
     margin: 0.35rem 0 0;
     color: var(--color-text-muted);
     font-size: 0.9rem;
+  }
+
+  .plan-filename {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+
+  .filename-text {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 0.8rem;
+    color: var(--color-text-subtle);
+  }
+
+  .copy-btn {
+    border: 1px solid rgba(var(--color-text-rgb), 0.2);
+    background: transparent;
+    border-radius: 6px;
+    padding: 0.15rem 0.45rem;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-text);
+    opacity: 0;
+    cursor: pointer;
+    transition: opacity 0.15s ease;
+  }
+
+  .plan-filename:hover .copy-btn {
+    opacity: 1;
   }
 
   .plan-date {

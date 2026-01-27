@@ -111,7 +111,7 @@
     <div>
       <p class="eyebrow">Project plans</p>
       <div class="plan-heading">
-        <h1>Project Plans</h1>
+        <h1>Plans</h1>
         <span class="plan-count">{plans.length}</span>
       </div>
       <p class="plan-path">.gestalt/plans/</p>

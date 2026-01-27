@@ -91,7 +91,7 @@ describe('App tab switching', () => {
   it('switches between home and terminal tabs', async () => {
     const { container, findByRole } = render(App)
 
-    const planTab = await findByRole('button', { name: 'Plan' })
+    const planTab = await findByRole('button', { name: 'Plans' })
     const statusTab = await findByRole('button', { name: 'Status' })
     const terminalTab = await findByRole('button', { name: 'Shell' })
 
@@ -99,7 +99,7 @@ describe('App tab switching', () => {
     await waitFor(() => {
       const active = container.querySelector('section.view[data-active="true"]')
       expect(active).toBeTruthy()
-      expect(active?.textContent).toContain('Project Plans')
+      expect(active?.textContent).toContain('Plans')
     })
 
     await fireEvent.click(statusTab)

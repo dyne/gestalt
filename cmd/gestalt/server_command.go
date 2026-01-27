@@ -123,6 +123,15 @@ func runServer(args []string) int {
 	if sdkOptions.ServiceVersion == "" {
 		sdkOptions.ServiceVersion = "dev"
 	}
+	if collectorOptions.Enabled && strings.TrimSpace(collectorOptions.HTTPEndpoint) != "" {
+		sdkOptions.HTTPEndpoint = collectorOptions.HTTPEndpoint
+	}
+	if logger != nil {
+		logger.Info("otel endpoints configured", map[string]string{
+			"otel collector http endpoint": strings.TrimSpace(collectorOptions.HTTPEndpoint),
+			"otel sdk http endpoint":       strings.TrimSpace(sdkOptions.HTTPEndpoint),
+		})
+	}
 	sdkShutdown, sdkErr := otel.SetupSDK(context.Background(), sdkOptions)
 	if sdkErr != nil {
 		logger.Warn("otel sdk init failed", map[string]string{

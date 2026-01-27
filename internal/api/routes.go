@@ -3,6 +3,7 @@ package api
 import (
 	"io/fs"
 	"net/http"
+	"strings"
 
 	"gestalt/internal/event"
 	"gestalt/internal/logging"
@@ -105,7 +106,16 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 	mux.Handle("/api/events/debug", wrap("/api/events/debug", "status", "query", restHandler(authToken, rest.handleEventDebug)))
 	mux.Handle("/api/workflows", wrap("/api/workflows", "workflows", "read", restHandler(authToken, rest.handleWorkflows)))
 	mux.Handle("/api/agents", wrap("/api/agents", "agents", "read", restHandler(authToken, rest.handleAgents)))
-	mux.Handle("/api/agents/", wrap("/api/agents/:name/input", "agents", "stream", restHandler(authToken, rest.handleAgentInput)))
+	agentInputHandler := wrap("/api/agents/:name/input", "agents", "stream", restHandler(authToken, rest.handleAgentInput))
+	agentSendInputHandler := wrap("/api/agents/:name/send-input", "agents", "stream", restHandler(authToken, rest.handleAgentSendInput))
+	mux.Handle("/api/agents/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimSuffix(r.URL.Path, "/")
+		if strings.HasSuffix(path, "/send-input") {
+			agentSendInputHandler.ServeHTTP(w, r)
+			return
+		}
+		agentInputHandler.ServeHTTP(w, r)
+	}))
 	mux.Handle("/api/skills", wrap("/api/skills", "skills", "read", restHandler(authToken, rest.handleSkills)))
 	mux.Handle("/api/skills/", wrap("/api/skills/:name", "skills", "read", restHandler(authToken, rest.handleSkill)))
 	mux.Handle("/api/otel/logs", wrap("/api/otel/logs", "logs", "query", restHandler(authToken, rest.handleOTelLogs)))

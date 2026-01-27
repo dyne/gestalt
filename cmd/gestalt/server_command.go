@@ -67,6 +67,33 @@ func runServer(args []string) int {
 	portRegistry := ports.NewPortRegistry()
 	collectorOptions := otel.OptionsFromEnv(".gestalt")
 	collectorOptions.Logger = logger
+	grpcEndpointSet := false
+	httpEndpointSet := false
+	if _, ok := os.LookupEnv("GESTALT_OTEL_GRPC_ENDPOINT"); ok {
+		grpcEndpointSet = true
+	}
+	if _, ok := os.LookupEnv("GESTALT_OTEL_HTTP_ENDPOINT"); ok {
+		httpEndpointSet = true
+	}
+	if collectorOptions.Enabled && !grpcEndpointSet && !httpEndpointSet {
+		grpcPort, httpPort, err := resolveOTelPorts(4317, 4318)
+		if err != nil {
+			if logger != nil {
+				logger.Warn("otel port selection failed", map[string]string{
+					"error": err.Error(),
+				})
+			}
+		} else {
+			collectorOptions.GRPCEndpoint = net.JoinHostPort("127.0.0.1", strconv.Itoa(grpcPort))
+			collectorOptions.HTTPEndpoint = net.JoinHostPort("127.0.0.1", strconv.Itoa(httpPort))
+			if logger != nil && (grpcPort != 4317 || httpPort != 4318) {
+				logger.Info("otel collector ports selected", map[string]string{
+					"grpc_port": strconv.Itoa(grpcPort),
+					"http_port": strconv.Itoa(httpPort),
+				})
+			}
+		}
+	}
 	collector, collectorErr := otel.StartCollector(collectorOptions)
 	if collectorErr != nil {
 		fields := map[string]string{
@@ -420,4 +447,42 @@ func parseEndpointPort(endpoint string) (int, bool) {
 		return 0, false
 	}
 	return port, true
+}
+
+func isPortAvailable(port int) bool {
+	if port <= 0 || port > 65535 {
+		return false
+	}
+	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		return false
+	}
+	_ = listener.Close()
+	return true
+}
+
+func resolveOTelPorts(defaultGRPC, defaultHTTP int) (int, int, error) {
+	if defaultGRPC <= 0 || defaultHTTP <= 0 {
+		return 0, 0, fmt.Errorf("default ports must be positive")
+	}
+	if isPortAvailable(defaultGRPC) && isPortAvailable(defaultHTTP) {
+		return defaultGRPC, defaultHTTP, nil
+	}
+
+	for attempt := 0; attempt < 10; attempt++ {
+		grpcPort, err := pickRandomPort()
+		if err != nil {
+			return 0, 0, err
+		}
+		if grpcPort <= 0 || grpcPort >= 65535 {
+			continue
+		}
+		httpPort := grpcPort + 1
+		if !isPortAvailable(grpcPort) || !isPortAvailable(httpPort) {
+			continue
+		}
+		return grpcPort, httpPort, nil
+	}
+	return 0, 0, fmt.Errorf("failed to select available OTel ports")
 }

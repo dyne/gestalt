@@ -10,14 +10,73 @@ const buildQuery = (params) => {
   return query ? `?${query}` : ''
 }
 
+const normalizeArray = (value, mapItem) => {
+  if (!Array.isArray(value)) return []
+  const mapped = mapItem
+    ? value.map((item, index) => mapItem(item, index))
+    : value.slice()
+  return mapped.filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+}
+
+const normalizeObject = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  return value
+}
+
+const normalizeTerminal = (terminal) => {
+  const id = terminal?.id
+  if (!id) return null
+  return {
+    ...terminal,
+    id: String(id),
+    title: terminal?.title ? String(terminal.title) : '',
+  }
+}
+
+const normalizeAgent = (agent) => {
+  const id = agent?.id
+  if (!id) return null
+  const name = agent?.name ? String(agent.name) : String(id)
+  return {
+    ...agent,
+    id: String(id),
+    name,
+  }
+}
+
+const normalizeSkill = (skill, index) => {
+  if (!skill || typeof skill !== 'object') return null
+  const name = skill?.name ? String(skill.name) : ''
+  if (!name) return null
+  return { ...skill, name }
+}
+
+const normalizePlan = (plan, index) => {
+  if (!plan || typeof plan !== 'object') return null
+  return {
+    ...plan,
+    filename: plan?.filename ? String(plan.filename) : '',
+    title: plan?.title ? String(plan.title) : '',
+    headings: Array.isArray(plan.headings) ? plan.headings.filter(Boolean) : [],
+  }
+}
+
+const normalizeWorkflow = (workflow, index) => {
+  if (!workflow || typeof workflow !== 'object') return null
+  if (!workflow.session_id) return { ...workflow, session_id: '' }
+  return { ...workflow, session_id: String(workflow.session_id) }
+}
+
 export const fetchStatus = async () => {
   const response = await apiFetch('/api/status')
-  return response.json()
+  const payload = await response.json()
+  return normalizeObject(payload)
 }
 
 export const fetchTerminals = async () => {
   const response = await apiFetch('/api/terminals')
-  return response.json()
+  const payload = await response.json()
+  return normalizeArray(payload, normalizeTerminal)
 }
 
 export const createTerminal = async ({ agentId = '', workflow } = {}) => {
@@ -29,7 +88,8 @@ export const createTerminal = async ({ agentId = '', workflow } = {}) => {
     method: 'POST',
     body: JSON.stringify(payload),
   })
-  return response.json()
+  const result = await response.json()
+  return normalizeObject(result)
 }
 
 export const deleteTerminal = async (terminalId) => {
@@ -39,38 +99,56 @@ export const deleteTerminal = async (terminalId) => {
 
 export const fetchAgents = async () => {
   const response = await apiFetch('/api/agents')
-  return response.json()
+  const payload = await response.json()
+  return normalizeArray(payload, normalizeAgent)
 }
 
 export const fetchAgentSkills = async (agentId) => {
   if (!agentId) return []
   const response = await apiFetch(`/api/skills${buildQuery({ agent: agentId })}`)
-  return response.json()
+  const payload = await response.json()
+  return normalizeArray(payload, normalizeSkill)
 }
 
 export const fetchLogs = async ({ level } = {}) => {
   const response = await apiFetch(`/api/logs${buildQuery({ level })}`)
-  return response.json()
+  const payload = await response.json()
+  return normalizeArray(payload, (entry) => entry)
 }
 
 export const fetchMetricsSummary = async () => {
   const response = await apiFetch('/api/metrics/summary')
-  return response.json()
+  const payload = normalizeObject(await response.json())
+  return {
+    ...payload,
+    top_endpoints: normalizeArray(payload.top_endpoints),
+    slowest_endpoints: normalizeArray(payload.slowest_endpoints),
+    top_agents: normalizeArray(payload.top_agents),
+    error_rates: normalizeArray(payload.error_rates),
+  }
 }
 
 export const triggerScipReindex = async () => {
   const response = await apiFetch('/api/scip/reindex', { method: 'POST' })
-  return response.json()
+  const payload = await response.json()
+  return normalizeObject(payload)
 }
 
 export const fetchPlansList = async () => {
   const response = await apiFetch('/api/plans')
-  return response.json()
+  const payload = await response.json()
+  const normalized = normalizeObject(payload)
+  const list = Array.isArray(payload) ? payload : normalized.plans
+  return {
+    ...normalized,
+    plans: normalizeArray(list, normalizePlan),
+  }
 }
 
 export const fetchWorkflows = async () => {
   const response = await apiFetch('/api/workflows')
-  return response.json()
+  const payload = await response.json()
+  return normalizeArray(payload, normalizeWorkflow)
 }
 
 export const resumeWorkflow = async (sessionId, action) => {
@@ -84,5 +162,6 @@ export const resumeWorkflow = async (sessionId, action) => {
 export const fetchWorkflowHistory = async (terminalId) => {
   if (!terminalId) return []
   const response = await apiFetch(`/api/terminals/${terminalId}/workflow/history`)
-  return response.json()
+  const payload = await response.json()
+  return normalizeArray(payload, (entry) => entry)
 }

@@ -8,9 +8,15 @@ vi.mock('../src/lib/api.js', () => ({
 
 import {
   createTerminal,
+  fetchAgentSkills,
+  fetchAgents,
   fetchLogs,
+  fetchMetricsSummary,
   fetchPlansList,
   fetchStatus,
+  fetchTerminals,
+  fetchWorkflowHistory,
+  fetchWorkflows,
   triggerScipReindex,
 } from '../src/lib/apiClient.js'
 
@@ -26,6 +32,14 @@ describe('apiClient', () => {
 
     expect(result).toEqual({ ok: true })
     expect(apiFetch).toHaveBeenCalledWith('/api/status')
+  })
+
+  it('normalizes malformed status payloads', async () => {
+    apiFetch.mockResolvedValue({ json: vi.fn().mockResolvedValue([]) })
+
+    const result = await fetchStatus()
+
+    expect(result).toEqual({})
   })
 
   it('builds log queries', async () => {
@@ -56,6 +70,65 @@ describe('apiClient', () => {
 
     expect(result).toEqual({ plans: [] })
     expect(apiFetch).toHaveBeenCalledWith('/api/plans')
+  })
+
+  it('normalizes malformed plans payloads', async () => {
+    apiFetch.mockResolvedValue({ json: vi.fn().mockResolvedValue({ plans: [null, 'bad'] }) })
+
+    const result = await fetchPlansList()
+
+    expect(result.plans).toEqual([])
+  })
+
+  it('normalizes malformed agent payloads', async () => {
+    apiFetch.mockResolvedValue({ json: vi.fn().mockResolvedValue([null, { name: 'No id' }]) })
+
+    const result = await fetchAgents()
+
+    expect(result).toEqual([])
+  })
+
+  it('normalizes malformed agent skills payloads', async () => {
+    apiFetch.mockResolvedValue({ json: vi.fn().mockResolvedValue([null, { name: '' }, { name: 'Skill' }]) })
+
+    const result = await fetchAgentSkills('agent')
+
+    expect(result).toEqual([{ name: 'Skill' }])
+  })
+
+  it('normalizes malformed terminals payloads', async () => {
+    apiFetch.mockResolvedValue({ json: vi.fn().mockResolvedValue([null, { id: 12 }]) })
+
+    const result = await fetchTerminals()
+
+    expect(result).toEqual([{ id: '12', title: '' }])
+  })
+
+  it('normalizes malformed metrics summary payloads', async () => {
+    apiFetch.mockResolvedValue({ json: vi.fn().mockResolvedValue(null) })
+
+    const result = await fetchMetricsSummary()
+
+    expect(result.top_endpoints).toEqual([])
+    expect(result.slowest_endpoints).toEqual([])
+    expect(result.top_agents).toEqual([])
+    expect(result.error_rates).toEqual([])
+  })
+
+  it('normalizes malformed workflows payloads', async () => {
+    apiFetch.mockResolvedValue({ json: vi.fn().mockResolvedValue([null, { session_id: 9 }]) })
+
+    const result = await fetchWorkflows()
+
+    expect(result).toEqual([{ session_id: '9' }])
+  })
+
+  it('normalizes malformed workflow history payloads', async () => {
+    apiFetch.mockResolvedValue({ json: vi.fn().mockResolvedValue([null, { type: 'bell' }]) })
+
+    const result = await fetchWorkflowHistory('abc')
+
+    expect(result).toEqual([{ type: 'bell' }])
   })
 
   it('triggers scip reindex', async () => {

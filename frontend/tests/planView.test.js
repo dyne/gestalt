@@ -1,4 +1,4 @@
-import { render, cleanup } from '@testing-library/svelte'
+import { render, cleanup, waitFor } from '@testing-library/svelte'
 import { describe, it, expect, afterEach, vi } from 'vitest'
 
 const apiFetch = vi.hoisted(() => vi.fn())
@@ -54,5 +54,84 @@ describe('PlanView', () => {
 
     expect(await findByText('Sample Plan')).toBeTruthy()
     expect(apiFetch).toHaveBeenCalledWith('/api/plans')
+  })
+
+  it('refreshes plans with duplicate headings safely', async () => {
+    let handler = null
+    subscribeEvents.mockImplementation((type, callback) => {
+      handler = callback
+      return () => {}
+    })
+
+    apiFetch
+      .mockResolvedValueOnce({
+        json: vi.fn().mockResolvedValue({
+          plans: [
+            {
+              filename: 'dup-plan.org',
+              title: 'Duplicate Plan',
+              headings: [
+                {
+                  level: 1,
+                  keyword: 'TODO',
+                  priority: 'A',
+                  text: 'Repeat',
+                  body: '',
+                  children: [
+                    {
+                      level: 2,
+                      keyword: 'TODO',
+                      priority: 'B',
+                      text: 'Repeat',
+                      body: '',
+                      children: [],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        json: vi.fn().mockResolvedValue({
+          plans: [
+            {
+              filename: 'dup-plan.org',
+              title: 'Duplicate Plan',
+              headings: [
+                {
+                  level: 1,
+                  keyword: 'WIP',
+                  priority: 'B',
+                  text: 'Repeat',
+                  body: '',
+                  children: [],
+                },
+                {
+                  level: 1,
+                  keyword: 'TODO',
+                  priority: 'A',
+                  text: 'Repeat',
+                  body: '',
+                  children: [],
+                },
+              ],
+            },
+          ],
+        }),
+      })
+
+    const { findByText } = render(PlanView)
+
+    expect(await findByText('Duplicate Plan')).toBeTruthy()
+
+    handler?.({ path: '/repo/.gestalt/plans/dup-plan.org' })
+
+    await new Promise((resolve) => setTimeout(resolve, 300))
+
+    await waitFor(() => {
+      expect(apiFetch).toHaveBeenCalledTimes(2)
+    })
   })
 })

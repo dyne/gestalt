@@ -4,34 +4,6 @@ import { notificationStore } from '../src/lib/notificationStore.js'
 import { installGlobalCrashHandlers } from '../src/lib/appHealthStore.js'
 
 const apiFetch = vi.hoisted(() => vi.fn())
-const createScipStore = vi.hoisted(() =>
-  vi.fn(() => ({
-    status: {
-      subscribe: (run) => {
-        run({
-          indexed: false,
-          fresh: false,
-          in_progress: false,
-          started_at: '',
-          completed_at: '',
-          requested_at: '',
-          duration: '',
-          error: '',
-          created_at: '',
-          documents: 0,
-          symbols: 0,
-          age_hours: 0,
-          languages: [],
-        })
-        return () => {}
-      },
-    },
-    start: vi.fn(() => Promise.resolve()),
-    stop: vi.fn(),
-    reindex: vi.fn(() => Promise.resolve()),
-    connectionStatus: { subscribe: () => () => {} },
-  }))
-)
 const createLogStream = vi.hoisted(() =>
   vi.fn(() => ({
     start: vi.fn(),
@@ -43,11 +15,6 @@ const createLogStream = vi.hoisted(() =>
 
 vi.mock('../src/lib/api.js', () => ({
   apiFetch,
-}))
-
-vi.mock('../src/lib/scipStore.js', () => ({
-  createScipStore,
-  initialScipStatus: {},
 }))
 
 vi.mock('../src/lib/logStream.js', () => ({

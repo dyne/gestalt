@@ -17,7 +17,6 @@ import {
   fetchTerminals,
   fetchWorkflowHistory,
   fetchWorkflows,
-  triggerScipReindex,
 } from '../src/lib/apiClient.js'
 
 describe('apiClient', () => {
@@ -131,12 +130,4 @@ describe('apiClient', () => {
     expect(result).toEqual([{ type: 'bell' }])
   })
 
-  it('triggers scip reindex', async () => {
-    apiFetch.mockResolvedValue({ json: vi.fn().mockResolvedValue({ status: 'indexing started' }) })
-
-    const result = await triggerScipReindex()
-
-    expect(result).toEqual({ status: 'indexing started' })
-    expect(apiFetch).toHaveBeenCalledWith('/api/scip/reindex', { method: 'POST' })
-  })
 })

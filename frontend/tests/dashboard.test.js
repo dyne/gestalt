@@ -38,21 +38,6 @@ const buildDashboardStore = (stateOverrides = {}) => {
     configExtractionCount: 0,
     configExtractionLast: '',
     gitContext: 'not a git repo',
-    scipStatus: {
-      indexed: false,
-      fresh: false,
-      in_progress: false,
-      started_at: '',
-      completed_at: '',
-      requested_at: '',
-      duration: '',
-      error: '',
-      created_at: '',
-      documents: 0,
-      symbols: 0,
-      age_hours: 0,
-      languages: [],
-    },
     ...stateOverrides,
   })
 
@@ -70,7 +55,6 @@ const buildDashboardStore = (stateOverrides = {}) => {
     loadMetricsSummary: vi.fn(() => Promise.resolve()),
     setTerminals: vi.fn(),
     setStatus: vi.fn(),
-    reindexScip: vi.fn(() => Promise.resolve()),
   }
 }
 
@@ -246,68 +230,4 @@ describe('Dashboard', () => {
     expect(copyButton).toBeNull()
   })
 
-  it('disables scip reindex button while reindex is pending', async () => {
-    let resolveReindex = null
-    let reindexPromise = null
-    const reindexScip = vi.fn(
-      () =>
-        (reindexPromise = new Promise((resolve) => {
-          resolveReindex = resolve
-        }))
-    )
-    const dashboardStore = buildDashboardStore()
-    dashboardStore.reindexScip = reindexScip
-    createDashboardStore.mockReturnValue(dashboardStore)
-
-    const { findByText } = render(Dashboard, {
-      props: {
-        terminals: [],
-        status: { terminal_count: 0 },
-      },
-    })
-
-    const notIndexed = await findByText('Not indexed yet')
-    const scipButton = notIndexed.closest('button')
-    expect(scipButton).not.toBeNull()
-
-    await fireEvent.click(scipButton)
-    await tick()
-
-    expect(reindexScip).toHaveBeenCalledTimes(1)
-    expect(scipButton.disabled).toBe(true)
-
-    resolveReindex()
-    await reindexPromise
-    await tick()
-
-    expect(scipButton.disabled).toBe(false)
-  })
-
-  it('recovers from scip reindex errors without throwing', async () => {
-    const reindexScip = vi.fn().mockRejectedValue(new Error('boom'))
-    const dashboardStore = buildDashboardStore()
-    dashboardStore.reindexScip = reindexScip
-    createDashboardStore.mockReturnValue(dashboardStore)
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-
-    const { findByText } = render(Dashboard, {
-      props: {
-        terminals: [],
-        status: { terminal_count: 0 },
-      },
-    })
-
-    const notIndexed = await findByText('Not indexed yet')
-    const scipButton = notIndexed.closest('button')
-    expect(scipButton).not.toBeNull()
-
-    await fireEvent.click(scipButton)
-    await tick()
-
-    expect(reindexScip).toHaveBeenCalledTimes(1)
-    expect(consoleError).toHaveBeenCalled()
-    expect(scipButton.disabled).toBe(false)
-
-    consoleError.mockRestore()
-  })
 })

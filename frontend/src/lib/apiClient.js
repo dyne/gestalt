@@ -128,12 +128,6 @@ export const fetchMetricsSummary = async () => {
   }
 }
 
-export const triggerScipReindex = async () => {
-  const response = await apiFetch('/api/scip/reindex', { method: 'POST' })
-  const payload = await response.json()
-  return normalizeObject(payload)
-}
-
 export const fetchPlansList = async () => {
   const response = await apiFetch('/api/plans')
   const payload = await response.json()

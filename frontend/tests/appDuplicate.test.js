@@ -3,43 +3,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { notificationStore } from '../src/lib/notificationStore.js'
 
 const apiFetch = vi.hoisted(() => vi.fn())
-const initialScipStatus = vi.hoisted(() => ({
-  indexed: false,
-  fresh: false,
-  in_progress: false,
-  started_at: '',
-  completed_at: '',
-  requested_at: '',
-  duration: '',
-  error: '',
-  created_at: '',
-  documents: 0,
-  symbols: 0,
-  age_hours: 0,
-  languages: [],
-}))
-const createScipStore = vi.hoisted(() =>
-  vi.fn(() => ({
-    status: {
-      subscribe: (run) => {
-        run({ ...initialScipStatus, languages: [] })
-        return () => {}
-      },
-    },
-    start: vi.fn(() => Promise.resolve()),
-    stop: vi.fn(),
-    reindex: vi.fn(() => Promise.resolve()),
-    connectionStatus: { subscribe: () => () => {} },
-  }))
-)
 
 vi.mock('../src/lib/api.js', () => ({
   apiFetch,
-}))
-
-vi.mock('../src/lib/scipStore.js', () => ({
-  createScipStore,
-  initialScipStatus,
 }))
 
 vi.mock('../src/views/TerminalView.svelte', async () => {

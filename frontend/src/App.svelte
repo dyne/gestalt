@@ -24,6 +24,7 @@
     appHealthStore,
     forceReload,
     recordRefresh,
+    reportCrash,
     setActiveTabId,
     setActiveView,
   } from './lib/appHealthStore.js'
@@ -165,6 +166,10 @@
     forceReload()
   }
 
+  const handleBoundaryError = (viewName, error) => {
+    reportCrash(error, { source: 'view-boundary', view: viewName })
+  }
+
   onMount(() => {
     refresh()
     const unsubscribe = subscribeEvents('watch_error', () => {
@@ -226,33 +231,47 @@
   </div>
 {/if}
 
+{#snippet viewFailed(error, reset)}
+  <div class="view-fallback">
+    <p>Reloading...</p>
+  </div>
+{/snippet}
+
 <main class="app">
   <section class="view" data-active={activeView === 'dashboard'}>
-    <Dashboard
-      {terminals}
-      {status}
-      {loading}
-      {error}
-      onCreate={createTerminal}
-      onSelect={handleSelect}
-    />
+    <svelte:boundary onerror={(error) => handleBoundaryError('dashboard', error)} failed={viewFailed}>
+      <Dashboard
+        {terminals}
+        {status}
+        {loading}
+        {error}
+        onCreate={createTerminal}
+        onSelect={handleSelect}
+      />
+    </svelte:boundary>
   </section>
   <section class="view" data-active={activeView === 'plan'}>
-    <PlanView />
+    <svelte:boundary onerror={(error) => handleBoundaryError('plan', error)} failed={viewFailed}>
+      <PlanView />
+    </svelte:boundary>
   </section>
   <section class="view" data-active={activeView === 'flow'}>
-    <FlowView onViewTerminal={handleSelect} temporalUiUrl={status?.temporal_ui_url || ''} />
+    <svelte:boundary onerror={(error) => handleBoundaryError('flow', error)} failed={viewFailed}>
+      <FlowView onViewTerminal={handleSelect} temporalUiUrl={status?.temporal_ui_url || ''} />
+    </svelte:boundary>
   </section>
   <section class="view view--terminals" data-active={activeView === 'terminal'}>
     {#each terminals as terminal (terminal.id)}
       <div class="terminal-tab" data-active={terminal.id === activeId}>
-        <TerminalView
-          terminalId={terminal.id}
-          title={terminal.title}
-          promptFiles={terminal.prompt_files || []}
-          visible={terminal.id === activeId}
-          onDelete={deleteTerminal}
-        />
+        <svelte:boundary onerror={(error) => handleBoundaryError('terminal', error)} failed={viewFailed}>
+          <TerminalView
+            terminalId={terminal.id}
+            title={terminal.title}
+            promptFiles={terminal.prompt_files || []}
+            visible={terminal.id === activeId}
+            onDelete={deleteTerminal}
+          />
+        </svelte:boundary>
       </div>
     {/each}
   </section>
@@ -284,6 +303,14 @@
 
   .terminal-tab[data-active='true'] {
     display: block;
+  }
+
+  .view-fallback {
+    padding: 1.5rem;
+    border-radius: 16px;
+    border: 1px solid rgba(var(--color-danger-rgb), 0.35);
+    background: rgba(var(--color-surface-rgb), 0.8);
+    color: var(--color-text);
   }
 
   .crash-overlay {

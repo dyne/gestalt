@@ -19,6 +19,7 @@ export interface ContentSearchOptions {
   caseSensitive?: boolean;
   contextLines?: number;
   language?: string;
+  limit?: number;
   indexes: ScipIndex[];
 }
 
@@ -90,12 +91,19 @@ export class QueryEngine {
 
     const results: ContentSearchResult[] = [];
     const contextLines = options.contextLines ?? 2;
+    const limit = normalizeLimit(options.limit);
     const normalizedLanguage = options.language?.toLowerCase();
 
     for (const index of options.indexes) {
+      if (results.length >= limit) {
+        return results;
+      }
       const projectRoot = normalizeProjectRoot(index.metadata?.projectRoot);
       const documents = index.documents ?? [];
       for (const document of documents) {
+        if (results.length >= limit) {
+          return results;
+        }
         const documentLanguage = document.language;
         if (normalizedLanguage && documentLanguage?.toLowerCase() !== normalizedLanguage) {
           continue;
@@ -112,6 +120,9 @@ export class QueryEngine {
 
         const lines = documentText.split('\n');
         for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+          if (results.length >= limit) {
+            return results;
+          }
           const lineText = lines[lineIndex];
           regex.lastIndex = 0;
           const matches = Array.from(lineText.matchAll(regex));
@@ -133,6 +144,9 @@ export class QueryEngine {
               context_after: contextAfter,
               language: documentLanguage,
             });
+            if (results.length >= limit) {
+              return results;
+            }
           }
         }
       }
@@ -264,6 +278,13 @@ function resolveExistingPath(filePath: string, projectRoot?: string): string | n
   }
 
   return null;
+}
+
+function normalizeLimit(limit?: number): number {
+  if (limit === undefined || limit === null || Number.isNaN(limit) || limit < 1) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return limit;
 }
 
 function normalizeFolderPath(folder?: string): string | undefined {

@@ -157,6 +157,35 @@ test('QueryEngine searchContent falls back to file content when text is missing'
   assert.equal(results[0].line, 1);
 });
 
+test('QueryEngine searchContent stops after reaching the limit', async () => {
+  const { QueryEngine } = await loadLib();
+  const engine = new QueryEngine(new Map());
+
+  const docWithMatch = {
+    relativePath: 'src/app.ts',
+    language: 'typescript',
+    text: 'const match = 1;',
+  };
+  const docShouldNotRead: any = {
+    relativePath: 'src/skip.ts',
+    language: 'typescript',
+  };
+  Object.defineProperty(docShouldNotRead, 'text', {
+    get() {
+      throw new Error('should not read');
+    },
+  });
+
+  const results = engine.searchContent('match', {
+    indexes: [{ documents: [docWithMatch, docShouldNotRead] }],
+    contextLines: 0,
+    limit: 1,
+  });
+
+  assert.equal(results.length, 1);
+  assert.equal(results[0].file_path, 'src/app.ts');
+});
+
 test('loadScipIndex reads JSON fixtures without protobuf parsing', async () => {
   const { loadScipIndex } = await loadLib();
   const tempPath = path.join(process.cwd(), 'dist/tests/unit/temp-index.json');

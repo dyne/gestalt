@@ -31,6 +31,7 @@ export async function searchCommand(pattern: string, options: SearchOptions): Pr
     caseSensitive,
     contextLines,
     language: options.language,
+    limit,
     indexes: Array.from(indexes.values()),
   });
 

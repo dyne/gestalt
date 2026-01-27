@@ -130,10 +130,11 @@ export class QueryEngine {
             continue;
           }
 
+          const contextBefore = lines.slice(Math.max(0, lineIndex - contextLines), lineIndex);
+          const contextAfter = lines.slice(lineIndex + 1, Math.min(lines.length, lineIndex + 1 + contextLines));
+
           for (const match of matches) {
             const column = match.index ?? 0;
-            const contextBefore = lines.slice(Math.max(0, lineIndex - contextLines), lineIndex);
-            const contextAfter = lines.slice(lineIndex + 1, Math.min(lines.length, lineIndex + 1 + contextLines));
 
             results.push({
               file_path: document.relativePath,

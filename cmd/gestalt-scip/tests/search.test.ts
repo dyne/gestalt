@@ -115,6 +115,30 @@ test('searchCommand supports OR clauses and regex patterns', async () => {
   assert.equal(regexPayload.matches.length, 1);
 });
 
+test('searchCommand returns multiple matches on the same line', async () => {
+  const searchCommand = await loadSearchCommand();
+  const { scipDir } = createTempRepo();
+
+  const document = {
+    relativePath: 'src/app.ts',
+    language: 'typescript',
+    text: 'match match',
+  };
+
+  writeIndex(path.join(scipDir, 'index-typescript.scip'), [document]);
+
+  const output = await captureOutput(() =>
+    searchCommand('match', { scip: scipDir, format: 'json', context: 0 })
+  );
+  const payload = JSON.parse(output);
+
+  assert.equal(payload.matches.length, 2);
+  const columns = payload.matches.map((match: any) => match.column);
+  assert.deepEqual(columns, [1, 7]);
+  assert.deepEqual(payload.matches[0].context_before, []);
+  assert.deepEqual(payload.matches[0].context_after, []);
+});
+
 test('searchCommand filters by language and applies limits', async () => {
   const searchCommand = await loadSearchCommand();
   const { scipDir } = createTempRepo();

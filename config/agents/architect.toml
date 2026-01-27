@@ -5,6 +5,7 @@ prompt = ["architect"]
 skills = ["terminal-navigation"]
 llm_model = "claude-sonnet-4.5"
 model = "claude-sonnet-4.5" # gpt-5 | claude-sonnet-4.5 | claude-sonnet-4 | claude-haiku-4.5
+singleton = false
 allow_all_tools = true # values: true | false
 disable_builtin_mcps = true # values: true | false
 # allow_tool = ["filesystem.read", "filesystem.write"] # values: list of tool names

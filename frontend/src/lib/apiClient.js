@@ -145,6 +145,14 @@ export const fetchWorkflows = async () => {
   return normalizeArray(payload, normalizeWorkflow)
 }
 
+export const sendAgentInput = async (agentName, inputText) => {
+  if (!agentName) return
+  await apiFetch(`/api/agents/${encodeURIComponent(agentName)}/send-input`, {
+    method: 'POST',
+    body: JSON.stringify({ input: inputText }),
+  })
+}
+
 export const resumeWorkflow = async (sessionId, action) => {
   if (!sessionId) return
   await apiFetch(`/api/terminals/${sessionId}/workflow/resume`, {

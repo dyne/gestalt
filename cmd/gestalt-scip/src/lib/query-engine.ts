@@ -93,6 +93,8 @@ export class QueryEngine {
     const contextLines = options.contextLines ?? 2;
     const limit = normalizeLimit(options.limit);
     const normalizedLanguage = options.language?.toLowerCase();
+    const contentCache = new Map<string, string | null>();
+    const pathCache = new Map<string, string | null>();
 
     for (const index of options.indexes) {
       if (results.length >= limit) {
@@ -113,7 +115,7 @@ export class QueryEngine {
           continue;
         }
 
-        const documentText = resolveDocumentText(document, projectRoot);
+        const documentText = resolveDocumentText(document, projectRoot, contentCache, pathCache);
         if (!documentText) {
           continue;
         }
@@ -213,24 +215,39 @@ export class QueryEngine {
   }
 }
 
-function resolveDocumentText(document: ScipDocument, projectRoot?: string): string | null {
+function resolveDocumentText(
+  document: ScipDocument,
+  projectRoot: string | undefined,
+  contentCache: Map<string, string | null>,
+  pathCache: Map<string, string | null>
+): string | null {
   const text = document.text?.trim();
-  if (text) {
-    return document.text ?? null;
-  }
-
   if (!document.relativePath) {
     return null;
   }
 
-  const resolvedPath = resolveExistingPath(document.relativePath, projectRoot);
+  const cacheKey = buildCacheKey(projectRoot, document.relativePath);
+  if (contentCache.has(cacheKey)) {
+    return contentCache.get(cacheKey) ?? null;
+  }
+
+  if (text) {
+    contentCache.set(cacheKey, document.text ?? null);
+    return document.text ?? null;
+  }
+
+  const resolvedPath = resolveExistingPath(document.relativePath, projectRoot, cacheKey, pathCache);
   if (!resolvedPath) {
+    contentCache.set(cacheKey, null);
     return null;
   }
 
   try {
-    return fs.readFileSync(resolvedPath, 'utf-8');
+    const content = fs.readFileSync(resolvedPath, 'utf-8');
+    contentCache.set(cacheKey, content);
+    return content;
   } catch {
+    contentCache.set(cacheKey, null);
     return null;
   }
 }
@@ -249,19 +266,32 @@ function normalizeProjectRoot(projectRoot?: string): string | undefined {
   return projectRoot;
 }
 
-function resolveExistingPath(filePath: string, projectRoot?: string): string | null {
+function resolveExistingPath(
+  filePath: string,
+  projectRoot: string | undefined,
+  cacheKey: string,
+  pathCache: Map<string, string | null>
+): string | null {
+  if (pathCache.has(cacheKey)) {
+    return pathCache.get(cacheKey) ?? null;
+  }
+
   if (path.isAbsolute(filePath)) {
-    return fs.existsSync(filePath) ? filePath : null;
+    const resolved = fs.existsSync(filePath) ? filePath : null;
+    pathCache.set(cacheKey, resolved);
+    return resolved;
   }
 
   if (projectRoot) {
     const projectCandidate = path.join(projectRoot, filePath);
     if (fs.existsSync(projectCandidate)) {
+      pathCache.set(cacheKey, projectCandidate);
       return projectCandidate;
     }
   }
 
   if (fs.existsSync(filePath)) {
+    pathCache.set(cacheKey, filePath);
     return filePath;
   }
 
@@ -269,6 +299,7 @@ function resolveExistingPath(filePath: string, projectRoot?: string): string | n
   for (let depth = 0; depth <= MAX_PARENT_SEARCH; depth += 1) {
     const candidate = path.join(currentDir, filePath);
     if (fs.existsSync(candidate)) {
+      pathCache.set(cacheKey, candidate);
       return candidate;
     }
     const parentDir = path.dirname(currentDir);
@@ -278,7 +309,12 @@ function resolveExistingPath(filePath: string, projectRoot?: string): string | n
     currentDir = parentDir;
   }
 
+  pathCache.set(cacheKey, null);
   return null;
+}
+
+function buildCacheKey(projectRoot: string | undefined, relativePath: string): string {
+  return `${projectRoot ?? ''}::${relativePath}`;
 }
 
 function normalizeLimit(limit?: number): number {

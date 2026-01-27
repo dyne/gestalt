@@ -186,6 +186,40 @@ test('QueryEngine searchContent stops after reaching the limit', async () => {
   assert.equal(results[0].file_path, 'src/app.ts');
 });
 
+test('QueryEngine searchContent caches file reads for repeated documents', async () => {
+  const { QueryEngine } = await loadLib();
+  const engine = new QueryEngine(new Map());
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gestalt-scip-search-cache-'));
+  const filePath = path.join(root, 'src', 'app.ts');
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, 'const match = 1;\n', 'utf-8');
+
+  const index = {
+    metadata: { projectRoot: pathToFileURL(root).toString() },
+    documents: [
+      { relativePath: 'src/app.ts', language: 'typescript' },
+      { relativePath: 'src/app.ts', language: 'typescript' },
+    ],
+  };
+
+  const mutableFs = fs as unknown as { readFileSync: (...args: any[]) => any };
+  const originalRead = mutableFs.readFileSync;
+  let readCount = 0;
+  mutableFs.readFileSync = (...args: any[]): any => {
+    readCount += 1;
+    return originalRead(...args);
+  };
+
+  try {
+    const results = engine.searchContent('match', { indexes: [index], contextLines: 0 });
+    assert.equal(results.length, 2);
+  } finally {
+    mutableFs.readFileSync = originalRead;
+  }
+
+  assert.equal(readCount, 1);
+});
+
 test('loadScipIndex reads JSON fixtures without protobuf parsing', async () => {
   const { loadScipIndex } = await loadLib();
   const tempPath = path.join(process.cwd(), 'dist/tests/unit/temp-index.json');

@@ -234,6 +234,7 @@
     margin-top: 0.6rem;
     display: grid;
     gap: 0.6rem;
+    overflow: visible;
   }
 
   pre {
@@ -245,6 +246,8 @@
     font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
     font-size: 0.8rem;
     white-space: pre-wrap;
+    max-height: none;
+    overflow: visible;
   }
 
   .status {

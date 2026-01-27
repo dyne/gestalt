@@ -16,6 +16,12 @@ type apiError struct {
 
 type apiHandler func(http.ResponseWriter, *http.Request) *apiError
 
+// Security header policy:
+// - Always set X-Content-Type-Options: nosniff.
+// - API + WS responses: no-store, must-revalidate.
+// - SPA HTML (index.html and other HTML): no-cache.
+// - Hashed static assets: public, max-age=31536000, immutable.
+// - Non-hashed static assets: no-cache.
 const (
 	cacheControlNoStore   = "no-store, must-revalidate"
 	cacheControlNoCache   = "no-cache"

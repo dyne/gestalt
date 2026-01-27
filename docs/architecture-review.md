@@ -14,6 +14,13 @@ Runtime topology (default):
   the backend port.
 - Optional Temporal dev server and workers when enabled.
 
+HTTP response headers:
+- API + WS responses set Cache-Control: no-store, must-revalidate and
+  X-Content-Type-Options: nosniff.
+- SPA HTML uses Cache-Control: no-cache; hashed static assets use
+  Cache-Control: public, max-age=31536000, immutable; non-hashed assets use
+  Cache-Control: no-cache.
+
 ## High-level data flow
 1) User input in the SPA -> terminalStore -> /ws/terminal/:id -> PTY session.
 2) PTY output -> Session output bus -> /ws/terminal/:id -> xterm in SPA.

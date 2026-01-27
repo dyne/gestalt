@@ -1,7 +1,8 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
-  import { createTerminal, fetchPlansList } from '../lib/apiClient.js'
+  import { createTerminal, fetchPlansList, fetchTerminals } from '../lib/apiClient.js'
   import { subscribe as subscribeEvents } from '../lib/eventStore.js'
+  import { subscribe as subscribeTerminalEvents } from '../lib/terminalEventStore.js'
   import { getErrorMessage } from '../lib/errorUtils.js'
   import { notificationStore } from '../lib/notificationStore.js'
   import PlanCard from '../components/PlanCard.svelte'
@@ -17,6 +18,8 @@
   let refreshInFlight = false
   let queuedSilent = true
   let eventUnsubscribe = null
+  let terminalEventUnsubscribe = []
+  let terminals = []
   const refreshDebounceMs = 250
 
   const normalizeKeyword = (value) => String(value || '').trim().toUpperCase()
@@ -118,6 +121,14 @@
     }
   }
 
+  const loadTerminals = async () => {
+    try {
+      terminals = await fetchTerminals()
+    } catch (err) {
+      console.error('Failed to load terminals', err)
+    }
+  }
+
   const createArchitect = async () => {
     try {
       await createTerminal({ agentId: 'architect' })
@@ -135,6 +146,7 @@
 
   onMount(() => {
     loadPlans()
+    loadTerminals()
     eventUnsubscribe = subscribeEvents('file_changed', (payload) => {
       const rawPath = String(payload?.path || '')
       const normalized = rawPath.replaceAll('\\', '/')
@@ -143,6 +155,14 @@
       queuePlansRefresh(true)
       showUpdateNotice()
     })
+    terminalEventUnsubscribe = [
+      subscribeTerminalEvents('terminal_created', () => {
+        void loadTerminals()
+      }),
+      subscribeTerminalEvents('terminal_deleted', () => {
+        void loadTerminals()
+      }),
+    ]
   })
 
   onDestroy(() => {
@@ -157,6 +177,10 @@
     if (eventUnsubscribe) {
       eventUnsubscribe()
       eventUnsubscribe = null
+    }
+    if (terminalEventUnsubscribe.length > 0) {
+      terminalEventUnsubscribe.forEach((unsubscribe) => unsubscribe())
+      terminalEventUnsubscribe = []
     }
   })
 </script>
@@ -196,13 +220,13 @@
   >
     <div class="plan-list">
       {#each activePlans as plan, planIndex (planKey(plan, planIndex))}
-        <PlanCard {plan} />
+        <PlanCard {plan} {terminals} />
       {/each}
       {#if donePlans.length > 0}
         <div class="section-divider">Done</div>
       {/if}
       {#each donePlans as plan, planIndex (planKey(plan, planIndex))}
-        <PlanCard {plan} />
+        <PlanCard {plan} {terminals} />
       {/each}
     </div>
   </ViewState>

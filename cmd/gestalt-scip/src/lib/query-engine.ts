@@ -1,4 +1,7 @@
-import type { ScipIndex } from './scip-loader.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { ScipDocument, ScipIndex } from './scip-loader.js';
 import type { Occurrence } from './symbol-indexer.js';
 import { SuffixType } from './scip/SuffixType.js';
 
@@ -30,6 +33,7 @@ export interface ContentSearchResult {
 }
 
 const DEFINITION_ROLE = 0x1;
+const MAX_PARENT_SEARCH = 5;
 
 export class QueryEngine {
   constructor(private readonly symbolIndex: Map<string, Occurrence[]>) {}
@@ -89,6 +93,7 @@ export class QueryEngine {
     const normalizedLanguage = options.language?.toLowerCase();
 
     for (const index of options.indexes) {
+      const projectRoot = normalizeProjectRoot(index.metadata?.projectRoot);
       const documents = index.documents ?? [];
       for (const document of documents) {
         const documentLanguage = document.language;
@@ -96,11 +101,16 @@ export class QueryEngine {
           continue;
         }
 
-        if (!document.text || !document.relativePath) {
+        if (!document.relativePath) {
           continue;
         }
 
-        const lines = document.text.split('\n');
+        const documentText = resolveDocumentText(document, projectRoot);
+        if (!documentText) {
+          continue;
+        }
+
+        const lines = documentText.split('\n');
         for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
           const lineText = lines[lineIndex];
           regex.lastIndex = 0;
@@ -186,6 +196,74 @@ export class QueryEngine {
       (occurrence) => (occurrence.roles & DEFINITION_ROLE) !== 0 && occurrence.filePath === from
     );
   }
+}
+
+function resolveDocumentText(document: ScipDocument, projectRoot?: string): string | null {
+  const text = document.text?.trim();
+  if (text) {
+    return document.text ?? null;
+  }
+
+  if (!document.relativePath) {
+    return null;
+  }
+
+  const resolvedPath = resolveExistingPath(document.relativePath, projectRoot);
+  if (!resolvedPath) {
+    return null;
+  }
+
+  try {
+    return fs.readFileSync(resolvedPath, 'utf-8');
+  } catch {
+    return null;
+  }
+}
+
+function normalizeProjectRoot(projectRoot?: string): string | undefined {
+  if (!projectRoot) {
+    return undefined;
+  }
+  if (projectRoot.startsWith('file://')) {
+    try {
+      return fileURLToPath(projectRoot);
+    } catch {
+      return undefined;
+    }
+  }
+  return projectRoot;
+}
+
+function resolveExistingPath(filePath: string, projectRoot?: string): string | null {
+  if (path.isAbsolute(filePath)) {
+    return fs.existsSync(filePath) ? filePath : null;
+  }
+
+  if (projectRoot) {
+    const projectCandidate = path.join(projectRoot, filePath);
+    if (fs.existsSync(projectCandidate)) {
+      return projectCandidate;
+    }
+  }
+
+  if (fs.existsSync(filePath)) {
+    return filePath;
+  }
+
+  let currentDir = process.cwd();
+  for (let depth = 0; depth <= MAX_PARENT_SEARCH; depth += 1) {
+    const candidate = path.join(currentDir, filePath);
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) {
+      break;
+    }
+    currentDir = parentDir;
+  }
+
+  return null;
 }
 
 function normalizeFolderPath(folder?: string): string | undefined {

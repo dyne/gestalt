@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
+import { pathToFileURL } from 'node:url';
 
 process.env.SCIP_MODULE_DIR = path.join(process.cwd(), 'dist/src/lib');
 process.env.SCIP_PROTO_PATH = path.join(process.cwd(), 'dist/bundle/scip.proto');
@@ -128,6 +130,31 @@ test('QueryEngine searchContent throws on invalid regex', async () => {
     () => engine.searchContent('[invalid', { indexes: [index], contextLines: 1 }),
     /Invalid regex pattern/
   );
+});
+
+test('QueryEngine searchContent falls back to file content when text is missing', async () => {
+  const { QueryEngine } = await loadLib();
+  const engine = new QueryEngine(new Map());
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gestalt-scip-search-'));
+  const filePath = path.join(root, 'src', 'app.ts');
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, 'const Manager = 1;\n', 'utf-8');
+
+  const index = {
+    metadata: { projectRoot: pathToFileURL(root).toString() },
+    documents: [
+      {
+        relativePath: 'src/app.ts',
+        language: 'typescript',
+      },
+    ],
+  };
+
+  const results = engine.searchContent('manager', { indexes: [index], contextLines: 0 });
+
+  assert.equal(results.length, 1);
+  assert.equal(results[0].file_path, 'src/app.ts');
+  assert.equal(results[0].line, 1);
 });
 
 test('loadScipIndex reads JSON fixtures without protobuf parsing', async () => {

@@ -65,6 +65,7 @@ type Agent struct {
 	Skills      []string               `json:"skills,omitempty" toml:"skills,omitempty"`
 	OnAirString string                 `json:"onair_string,omitempty" toml:"onair_string,omitempty"`
 	UseWorkflow *bool                  `json:"use_workflow,omitempty" toml:"use_workflow,omitempty"`
+	Singleton   *bool                  `json:"singleton,omitempty" toml:"singleton,omitempty"`
 	CLIType     string                 `json:"cli_type,omitempty" toml:"cli_type,omitempty"`
 	LLMModel    string                 `json:"llm_model,omitempty" toml:"llm_model,omitempty"`
 	CLIConfig   map[string]interface{} `json:"cli_config,omitempty" toml:"cli_config,omitempty"`

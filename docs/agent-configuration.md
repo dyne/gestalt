@@ -13,6 +13,7 @@ All agent files support the following fields:
 - `skills` (array, optional): Skill names to inject.
 - `onair_string` (string, optional): Wait for this string before prompt injection.
 - `use_workflow` (bool, optional): Override workflow default.
+- `singleton` (bool, optional): Allow only one running instance (default true).
 - `llm_model` (string, optional): Model hint for UI/API.
 
 Prompt names resolve against `.gestalt/config/prompts`, trying `.tmpl`, `.md`, then `.txt`.

@@ -171,6 +171,33 @@ test('searchCommand filters by language and applies limits', async () => {
   assert.equal(limitedPayload.matches.length, 1);
 });
 
+test('searchCommand filters by path prefix', async () => {
+  const searchCommand = await loadSearchCommand();
+  const { scipDir } = createTempRepo();
+
+  const sourceDocument = {
+    relativePath: 'src/app.ts',
+    language: 'typescript',
+    text: 'const match = 1;',
+  };
+  const otherDocument = {
+    relativePath: 'internal/app.go',
+    language: 'go',
+    text: 'var match = 1',
+  };
+
+  writeIndex(path.join(scipDir, 'index-typescript.scip'), [sourceDocument]);
+  writeIndex(path.join(scipDir, 'index-go.scip'), [otherDocument]);
+
+  const output = await captureOutput(() =>
+    searchCommand('match', { scip: scipDir, format: 'json', path: 'src' })
+  );
+  const payload = JSON.parse(output);
+
+  assert.equal(payload.matches.length, 1);
+  assert.equal(payload.matches[0].file_path, 'src/app.ts');
+});
+
 test('searchCommand supports text output with context', async () => {
   const searchCommand = await loadSearchCommand();
   const { scipDir } = createTempRepo();

@@ -1,4 +1,4 @@
-* WIP Unused API Report
+* DONE Unused API Report
 ** DONE Scope
 - Compare backend registered routes in internal/api/routes.go against client usage in frontend/src, cmd, and internal/client.
 - Use rg output as the source of truth (no manual inference beyond file presence).

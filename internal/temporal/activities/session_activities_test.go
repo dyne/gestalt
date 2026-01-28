@@ -166,3 +166,33 @@ func TestSessionActivitiesGetOutputActivity(testingContext *testing.T) {
 		testingContext.Fatalf("unexpected output: %q", outputText)
 	}
 }
+
+func TestSessionActivitiesGetOutputTailActivity(testingContext *testing.T) {
+	output := []byte("first line\nsecond line\n")
+	activities, manager := newTestActivities(output)
+	activityContext := context.Background()
+
+	spawnError := activities.SpawnTerminalActivity(activityContext, "output-tail-session", "/bin/sh")
+	if spawnError != nil {
+		testingContext.Fatalf("spawn error: %v", spawnError)
+	}
+
+	session, ok := manager.Get("output-tail-session")
+	if !ok || session == nil {
+		testingContext.Fatal("expected output session to exist")
+	}
+	if !waitForOutputLines(session, 2) {
+		testingContext.Fatal("timed out waiting for output")
+	}
+
+	outputText, outputError := activities.GetOutputTailActivity(activityContext, "output-tail-session", 1)
+	if outputError != nil {
+		testingContext.Fatalf("output error: %v", outputError)
+	}
+	if !strings.Contains(outputText, "second line") {
+		testingContext.Fatalf("unexpected output: %q", outputText)
+	}
+	if strings.Contains(outputText, "first line") {
+		testingContext.Fatalf("expected tail output, got %q", outputText)
+	}
+}

@@ -44,6 +44,7 @@ func StartWorker(temporalClient temporal.WorkflowClient, manager *terminal.Manag
 
 	activityLogger := manager.Logger()
 	activityHandlers := activities.NewSessionActivities(manager, activityLogger)
+	flowHandlers := activities.NewFlowActivities(manager, activityLogger)
 
 	workerOptions := worker.Options{
 		MaxConcurrentActivityExecutionSize:     defaultMaxConcurrentActivities,
@@ -58,6 +59,7 @@ func StartWorker(temporalClient temporal.WorkflowClient, manager *terminal.Manag
 	workerInstance.RegisterWorkflow(workflows.SessionWorkflow)
 	workerInstance.RegisterWorkflow(workflows.FlowRouterWorkflow)
 	workerInstance.RegisterActivity(activityHandlers)
+	workerInstance.RegisterActivity(flowHandlers)
 
 	startError := workerInstance.Start()
 	if startError != nil {

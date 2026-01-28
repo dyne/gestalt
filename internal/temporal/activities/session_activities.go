@@ -21,6 +21,7 @@ const (
 	RecordBellActivityName        = "RecordBellActivity"
 	UpdateTaskActivityName        = "UpdateTaskActivity"
 	GetOutputActivityName         = "GetOutputActivity"
+	GetOutputTailActivityName     = "GetOutputTailActivity"
 	EmitWorkflowEventActivityName = "EmitWorkflowEventActivity"
 )
 
@@ -273,6 +274,53 @@ func (activities *SessionActivities) GetOutputActivity(activityContext context.C
 	activities.logInfo("temporal output retrieved", map[string]string{
 		"terminal_id": trimmedID,
 		"line_count":  strconv.Itoa(len(lines)),
+	})
+	return output, nil
+}
+
+func (activities *SessionActivities) GetOutputTailActivity(activityContext context.Context, sessionID string, lines int) (output string, activityErr error) {
+	start := time.Now()
+	attempt := activityAttempt(activityContext)
+	defer func() {
+		metrics.Default.RecordActivity(GetOutputTailActivityName, time.Since(start), activityErr, attempt)
+	}()
+
+	if activityContext != nil {
+		if contextError := activityContext.Err(); contextError != nil {
+			activityErr = contextError
+			return "", contextError
+		}
+	}
+	manager, managerError := activities.ensureManager()
+	if managerError != nil {
+		activityErr = managerError
+		return "", managerError
+	}
+	trimmedID := strings.TrimSpace(sessionID)
+	if trimmedID == "" {
+		activityErr = errors.New("session id is required")
+		return "", activityErr
+	}
+	linesValue := lines
+	if linesValue <= 0 {
+		linesValue = terminal.DefaultHistoryLines
+	}
+	maxLines := linesValue + 1
+	history, historyError := manager.HistoryLines(trimmedID, maxLines)
+	if historyError != nil {
+		activityErr = historyError
+		return "", historyError
+	}
+	for len(history) > 0 && strings.TrimSpace(history[len(history)-1]) == "" {
+		history = history[:len(history)-1]
+	}
+	if len(history) > linesValue {
+		history = history[len(history)-linesValue:]
+	}
+	output = strings.Join(history, "\n")
+	activities.logInfo("temporal output tail retrieved", map[string]string{
+		"terminal_id": trimmedID,
+		"line_count":  strconv.Itoa(len(history)),
 	})
 	return output, nil
 }

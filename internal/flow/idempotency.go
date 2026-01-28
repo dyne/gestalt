@@ -75,8 +75,9 @@ func BuildIdempotencyKey(eventID, triggerID, activityID string) string {
 }
 
 type ActivityHeartbeat struct {
-	Sent   bool `json:"sent"`
-	Posted bool `json:"posted"`
+	Sent       bool `json:"sent"`
+	Posted     bool `json:"posted"`
+	StatusCode int  `json:"status_code,omitempty"`
 }
 
 func ShouldSkipSend(state *ActivityHeartbeat) bool {

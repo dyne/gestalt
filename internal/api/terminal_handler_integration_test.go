@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -357,6 +358,71 @@ func TestTerminalWebSocketReconnect(t *testing.T) {
 	}
 }
 
+func TestTerminalWebSocketCatchupFromCursor(t *testing.T) {
+	factory := &testFactory{}
+	logDir := t.TempDir()
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:         "/bin/sh",
+		PtyFactory:    factory,
+		SessionLogDir: logDir,
+	})
+
+	session, err := manager.Create("", "test", "ws")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(session.ID)
+	}()
+
+	factory.mu.Lock()
+	pty := factory.ptys[0]
+	factory.mu.Unlock()
+
+	beforePayload := []byte("before-" + strings.Repeat("a", 5000) + "\n")
+	afterPayload := []byte("after-" + strings.Repeat("b", 5000) + "\n")
+
+	if err := pty.emitOutput(beforePayload); err != nil {
+		t.Fatalf("emit before payload: %v", err)
+	}
+	cursor := waitForHistoryCursorAtLeast(t, manager, session.ID, int64(len(beforePayload)), 2*time.Second)
+
+	if err := pty.emitOutput(afterPayload); err != nil {
+		t.Fatalf("emit after payload: %v", err)
+	}
+	_ = waitForHistoryCursorAtLeast(t, manager, session.ID, cursor+int64(len(afterPayload)), 2*time.Second)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("skipping websocket test (listener unavailable): %v", err)
+	}
+	server := &httptest.Server{
+		Listener: listener,
+		Config:   &http.Server{Handler: &TerminalHandler{Manager: manager}},
+	}
+	server.Start()
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/terminal/" + session.ID + "?cursor=" + strconv.FormatInt(cursor, 10)
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+
+	_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	_, msg, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read catch-up: %v", err)
+	}
+	if !bytes.Contains(msg, []byte("after-")) {
+		t.Fatalf("expected catch-up to include after payload")
+	}
+	if bytes.Contains(msg, []byte("before-")) {
+		t.Fatalf("did not expect catch-up to include before payload")
+	}
+}
+
 func TestTerminalWebSocketCloseEndsHandler(t *testing.T) {
 	factory := &testFactory{}
 	manager := terminal.NewManager(terminal.ManagerOptions{
@@ -409,4 +475,21 @@ func readWebSocketContains(t *testing.T, conn *websocket.Conn, text string) bool
 		return false
 	}
 	return bytes.Contains(msg, []byte(text))
+}
+
+func waitForHistoryCursorAtLeast(t *testing.T, manager *terminal.Manager, id string, min int64, timeout time.Duration) int64 {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		cursor, err := manager.HistoryCursor(id)
+		if err != nil {
+			t.Fatalf("history cursor: %v", err)
+		}
+		if cursor != nil && *cursor >= min {
+			return *cursor
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timeout waiting for cursor to reach %d", min)
+	return 0
 }

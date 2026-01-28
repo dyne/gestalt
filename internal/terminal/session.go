@@ -498,6 +498,13 @@ func (s *Session) HistoryLines(maxLines int) ([]string, error) {
 	return mergeHistoryLines(fileLines, bufferLines, maxLines), nil
 }
 
+func (s *Session) LogPath() string {
+	if s == nil || s.logger == nil {
+		return ""
+	}
+	return s.logger.Path()
+}
+
 func (s *Session) Close() error {
 	s.closing.Do(func() {
 		s.setState(sessionStateClosing)

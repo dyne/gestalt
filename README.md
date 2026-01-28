@@ -401,6 +401,15 @@ Build from source with embedded assets:
 make gestalt
 ```
 
+Cross-compile release artifacts:
+```
+make release
+```
+Outputs land in `dist/` as:
+- `gestalt-<os>-<arch>` (adds `.exe` on Windows)
+- `gestalt-send-<os>-<arch>` (adds `.exe` on Windows)
+- `gestalt-scip-<os>-<arch>` (plus a `.cmd` wrapper on Windows)
+
 ## Upgrading Gestalt
 
 Gestalt follows semantic versioning. Upgrades may refresh embedded config files, and extraction will

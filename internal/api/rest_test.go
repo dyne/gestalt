@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -706,6 +707,96 @@ func TestTerminalHistoryEndpoint(t *testing.T) {
 	}
 	if payload.Cursor == nil {
 		t.Fatalf("expected cursor to be set when session persistence is enabled")
+	}
+}
+
+func TestTerminalHistoryPagination(t *testing.T) {
+	factory := &fakeFactory{}
+	logDir := t.TempDir()
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:         "/bin/sh",
+		PtyFactory:    factory,
+		SessionLogDir: logDir,
+	})
+	created, err := manager.Create("", "", "")
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	factory.mu.Lock()
+	pty := factory.ptys[0]
+	factory.mu.Unlock()
+	payloads := []string{"one", "two", "three", "four", "five"}
+	for _, entry := range payloads {
+		if _, err := pty.Write([]byte(entry + "\n")); err != nil {
+			t.Fatalf("write pty: %v", err)
+		}
+	}
+
+	if !waitForOutput(created) {
+		t.Fatalf("expected output buffer to receive data")
+	}
+	if !waitForHistoryCursor(manager, created.ID, int64(len("one\n")*len(payloads)), 2*time.Second) {
+		t.Fatalf("expected history cursor to advance")
+	}
+
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodGet, "/api/terminals/"+created.ID+"/history?lines=2", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", handler.handleTerminal)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var page terminalOutputResponse
+	if err := json.NewDecoder(res.Body).Decode(&page); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(page.Lines) < 2 || page.Lines[len(page.Lines)-2] != "four" || page.Lines[len(page.Lines)-1] != "five" {
+		t.Fatalf("unexpected history page: %v", page.Lines)
+	}
+	if page.Cursor == nil {
+		t.Fatalf("expected cursor in history response")
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/terminals/"+created.ID+"/history?lines=2&before_cursor="+strconv.FormatInt(*page.Cursor, 10), nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res = httptest.NewRecorder()
+	restHandler("secret", handler.handleTerminal)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var pageWithCursor terminalOutputResponse
+	if err := json.NewDecoder(res.Body).Decode(&pageWithCursor); err != nil {
+		t.Fatalf("decode paged response: %v", err)
+	}
+	if pageWithCursor.Cursor == nil {
+		t.Fatalf("expected cursor in paged response")
+	}
+	if *pageWithCursor.Cursor >= *page.Cursor {
+		t.Fatalf("expected paged cursor to move backward")
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/terminals/"+created.ID+"/history?lines=2&before_cursor="+strconv.FormatInt(*pageWithCursor.Cursor, 10), nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res = httptest.NewRecorder()
+	restHandler("secret", handler.handleTerminal)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var older terminalOutputResponse
+	if err := json.NewDecoder(res.Body).Decode(&older); err != nil {
+		t.Fatalf("decode older response: %v", err)
+	}
+	if len(older.Lines) < 2 || older.Lines[len(older.Lines)-2] != "two" || older.Lines[len(older.Lines)-1] != "three" {
+		t.Fatalf("unexpected older page: %v", older.Lines)
 	}
 }
 

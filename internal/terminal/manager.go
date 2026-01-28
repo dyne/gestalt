@@ -620,6 +620,55 @@ func (m *Manager) HistoryCursor(id string) (*int64, error) {
 	return &size, nil
 }
 
+func (m *Manager) HistoryPage(id string, maxLines int, beforeCursor *int64) ([]string, *int64, error) {
+	if maxLines <= 0 {
+		maxLines = DefaultHistoryLines
+	}
+	if beforeCursor == nil {
+		lines, err := m.HistoryLines(id, maxLines)
+		if err != nil {
+			return nil, nil, err
+		}
+		cursor, err := m.HistoryCursor(id)
+		if err != nil {
+			return lines, nil, err
+		}
+		return lines, cursor, nil
+	}
+	if m == nil || m.sessionLogs == "" {
+		lines, err := m.HistoryLines(id, maxLines)
+		return lines, nil, err
+	}
+
+	path := ""
+	if session, ok := m.Get(id); ok {
+		if session.logger != nil {
+			path = session.logger.Path()
+		}
+	} else {
+		latest, err := latestSessionLogPath(m.sessionLogs, id)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil, nil, ErrSessionNotFound
+			}
+			return nil, nil, err
+		}
+		path = latest
+	}
+
+	if path == "" {
+		lines, err := m.HistoryLines(id, maxLines)
+		return lines, nil, err
+	}
+
+	lines, startOffset, err := readLastLinesBefore(path, maxLines, *beforeCursor)
+	if err != nil {
+		return nil, nil, err
+	}
+	cursor := startOffset
+	return lines, &cursor, nil
+}
+
 func (m *Manager) List() []SessionInfo {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

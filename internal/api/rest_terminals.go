@@ -169,18 +169,17 @@ func (h *RestHandler) handleTerminalHistory(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		return err
 	}
+	beforeCursor, err := parseHistoryBeforeCursor(r)
+	if err != nil {
+		return err
+	}
 
-	history, historyErr := h.Manager.HistoryLines(id, lines)
+	history, cursor, historyErr := h.Manager.HistoryPage(id, lines, beforeCursor)
 	if historyErr != nil {
 		if errors.Is(historyErr, terminal.ErrSessionNotFound) {
 			return &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
 		}
 		return &apiError{Status: http.StatusInternalServerError, Message: "failed to read terminal history"}
-	}
-
-	cursor, cursorErr := h.Manager.HistoryCursor(id)
-	if cursorErr != nil {
-		return &apiError{Status: http.StatusInternalServerError, Message: "failed to resolve terminal history cursor"}
 	}
 
 	response := terminalOutputResponse{
@@ -451,6 +450,18 @@ func parseHistoryLines(r *http.Request) (int, *apiError) {
 		lines = parsed
 	}
 	return lines, nil
+}
+
+func parseHistoryBeforeCursor(r *http.Request) (*int64, *apiError) {
+	rawCursor := strings.TrimSpace(r.URL.Query().Get("before_cursor"))
+	if rawCursor == "" {
+		return nil, nil
+	}
+	parsed, err := strconv.ParseInt(rawCursor, 10, 64)
+	if err != nil || parsed < 0 {
+		return nil, &apiError{Status: http.StatusBadRequest, Message: "invalid before_cursor"}
+	}
+	return &parsed, nil
 }
 
 func parseInputHistoryQuery(r *http.Request) (int, *time.Time, *apiError) {

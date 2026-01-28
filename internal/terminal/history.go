@@ -105,6 +105,77 @@ func readLastLines(path string, maxLines int) ([]string, error) {
 	return tailLines(lines, maxLines), nil
 }
 
+func readLastLinesBefore(path string, maxLines int, endOffset int64) ([]string, int64, error) {
+	if maxLines <= 0 {
+		return []string{}, endOffset, nil
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		return nil, 0, err
+	}
+	if info.Size() == 0 {
+		return []string{}, 0, nil
+	}
+
+	if endOffset <= 0 || endOffset > info.Size() {
+		endOffset = info.Size()
+	}
+	if endOffset == 0 {
+		return []string{}, 0, nil
+	}
+
+	const chunkSize = 4096
+	var (
+		offset       = endOffset
+		newlineCount = 0
+		buffer       []byte
+	)
+
+	for offset > 0 && newlineCount <= maxLines {
+		readSize := int64(chunkSize)
+		if readSize > offset {
+			readSize = offset
+		}
+		offset -= readSize
+		if _, err := file.Seek(offset, io.SeekStart); err != nil {
+			return nil, 0, err
+		}
+		chunk := make([]byte, readSize)
+		n, err := file.Read(chunk)
+		if n > 0 {
+			chunk = chunk[:n]
+			newlineCount += bytes.Count(chunk, []byte{'\n'})
+			buffer = append(chunk, buffer...)
+		}
+		if err != nil && err != io.EOF {
+			return nil, 0, err
+		}
+	}
+
+	lines := strings.Split(string(buffer), "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if len(lines) <= maxLines {
+		return lines, offset, nil
+	}
+
+	startIndex := len(lines) - maxLines
+	bytesToSkip := 0
+	for i := 0; i < startIndex; i++ {
+		bytesToSkip += len(lines[i]) + 1
+	}
+	startOffset := offset + int64(bytesToSkip)
+	return lines[startIndex:], startOffset, nil
+}
+
 func latestSessionLogPath(dir, terminalID string) (string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {

@@ -126,6 +126,10 @@ func (client *fakeWorkflowQueryClient) ExecuteWorkflow(ctx context.Context, opti
 	return &fakeWorkflowRun{workflowID: options.ID, runID: client.runID}, nil
 }
 
+func (client *fakeWorkflowQueryClient) SignalWithStartWorkflow(ctx context.Context, workflowID, signalName string, signalArg interface{}, options client.StartWorkflowOptions, workflow interface{}, args ...interface{}) (client.WorkflowRun, error) {
+	return &fakeWorkflowRun{workflowID: workflowID, runID: client.runID}, nil
+}
+
 func (client *fakeWorkflowQueryClient) GetWorkflowHistory(ctx context.Context, workflowID string, runID string, isLongPoll bool, filterType enumspb.HistoryEventFilterType) client.HistoryEventIterator {
 	return nil
 }
@@ -155,13 +159,33 @@ type workflowSignalRecord struct {
 	payload    interface{}
 }
 
+type workflowSignalWithStartRecord struct {
+	workflowID   string
+	signalName   string
+	payload      interface{}
+	workflowType interface{}
+	options      client.StartWorkflowOptions
+}
+
 type fakeWorkflowSignalClient struct {
 	runID   string
 	signals []workflowSignalRecord
+	started []workflowSignalWithStartRecord
 }
 
 func (client *fakeWorkflowSignalClient) ExecuteWorkflow(ctx context.Context, options client.StartWorkflowOptions, workflow interface{}, args ...interface{}) (client.WorkflowRun, error) {
 	return &fakeWorkflowRun{workflowID: options.ID, runID: client.runID}, nil
+}
+
+func (client *fakeWorkflowSignalClient) SignalWithStartWorkflow(ctx context.Context, workflowID, signalName string, signalArg interface{}, options client.StartWorkflowOptions, workflow interface{}, args ...interface{}) (client.WorkflowRun, error) {
+	client.started = append(client.started, workflowSignalWithStartRecord{
+		workflowID:   workflowID,
+		signalName:   signalName,
+		payload:      signalArg,
+		workflowType: workflow,
+		options:      options,
+	})
+	return &fakeWorkflowRun{workflowID: workflowID, runID: client.runID}, nil
 }
 
 func (client *fakeWorkflowSignalClient) GetWorkflowHistory(ctx context.Context, workflowID string, runID string, isLongPoll bool, filterType enumspb.HistoryEventFilterType) client.HistoryEventIterator {
@@ -210,6 +234,10 @@ type fakeWorkflowHistoryClient struct {
 
 func (client *fakeWorkflowHistoryClient) ExecuteWorkflow(ctx context.Context, options client.StartWorkflowOptions, workflow interface{}, args ...interface{}) (client.WorkflowRun, error) {
 	return &fakeWorkflowRun{workflowID: options.ID, runID: client.runID}, nil
+}
+
+func (client *fakeWorkflowHistoryClient) SignalWithStartWorkflow(ctx context.Context, workflowID, signalName string, signalArg interface{}, options client.StartWorkflowOptions, workflow interface{}, args ...interface{}) (client.WorkflowRun, error) {
+	return &fakeWorkflowRun{workflowID: workflowID, runID: client.runID}, nil
 }
 
 func (client *fakeWorkflowHistoryClient) GetWorkflowHistory(ctx context.Context, workflowID string, runID string, isLongPoll bool, filterType enumspb.HistoryEventFilterType) client.HistoryEventIterator {

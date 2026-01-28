@@ -1,0 +1,154 @@
+package api
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"testing"
+
+	"gestalt/internal/flow"
+)
+
+func TestFlowActivitiesEndpoint(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/flow/activities", nil)
+	rec := httptest.NewRecorder()
+
+	handler := &RestHandler{}
+	restHandler("", nil, handler.handleFlowActivities)(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+	var defs []flow.ActivityDef
+	if err := json.Unmarshal(rec.Body.Bytes(), &defs); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(defs) == 0 {
+		t.Fatalf("expected activity catalog")
+	}
+}
+
+func TestFlowConfigEndpointGet(t *testing.T) {
+	tempDir := t.TempDir()
+	repo := flow.NewFileRepository(filepath.Join(tempDir, "automations.json"), nil)
+	cfg := flow.Config{
+		Version: flow.ConfigVersion,
+		Triggers: []flow.EventTrigger{
+			{ID: "t1", Label: "Trigger one", EventType: "workflow_paused", Where: map[string]string{"terminal_id": "t1"}},
+		},
+		BindingsByTriggerID: map[string][]flow.ActivityBinding{
+			"t1": {
+				{ActivityID: "toast_notification", Config: map[string]any{"level": "info", "message_template": "hi"}},
+			},
+		},
+	}
+	if err := repo.Save(cfg); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+	service := flow.NewService(repo, nil, nil)
+	handler := &RestHandler{FlowService: service}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/flow/config", nil)
+	rec := httptest.NewRecorder()
+	restHandler("", nil, handler.handleFlowConfig)(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+	var got flow.Config
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(got.Triggers) != 1 || got.Triggers[0].ID != "t1" {
+		t.Fatalf("unexpected config: %#v", got.Triggers)
+	}
+}
+
+func TestFlowConfigEndpointPut(t *testing.T) {
+	tempDir := t.TempDir()
+	repo := flow.NewFileRepository(filepath.Join(tempDir, "automations.json"), nil)
+	temporalClient := &fakeWorkflowSignalClient{runID: "run-1"}
+	service := flow.NewService(repo, temporalClient, nil)
+	handler := &RestHandler{FlowService: service}
+
+	cfg := flow.Config{
+		Version: flow.ConfigVersion,
+		Triggers: []flow.EventTrigger{
+			{ID: "t1", Label: "Trigger one", EventType: "workflow_paused", Where: map[string]string{"terminal_id": "t1"}},
+		},
+		BindingsByTriggerID: map[string][]flow.ActivityBinding{
+			"t1": {
+				{ActivityID: "toast_notification", Config: map[string]any{"level": "info", "message_template": "hi"}},
+			},
+		},
+	}
+	body, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal config: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPut, "/api/flow/config", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	restHandler("", nil, handler.handleFlowConfig)(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	loaded, err := repo.Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if len(loaded.Triggers) != 1 || loaded.Triggers[0].ID != "t1" {
+		t.Fatalf("unexpected persisted config: %#v", loaded.Triggers)
+	}
+	if len(temporalClient.started) != 1 {
+		t.Fatalf("expected signal with start, got %d", len(temporalClient.started))
+	}
+	if temporalClient.started[0].signalName != flow.RouterWorkflowConfigSignal {
+		t.Fatalf("unexpected signal name: %s", temporalClient.started[0].signalName)
+	}
+}
+
+func TestFlowConfigEndpointValidationErrors(t *testing.T) {
+	tempDir := t.TempDir()
+	repo := flow.NewFileRepository(filepath.Join(tempDir, "automations.json"), nil)
+	temporalClient := &fakeWorkflowSignalClient{runID: "run-1"}
+	service := flow.NewService(repo, temporalClient, nil)
+	handler := &RestHandler{FlowService: service}
+
+	duplicate := flow.Config{
+		Version: flow.ConfigVersion,
+		Triggers: []flow.EventTrigger{
+			{ID: "dup", EventType: "workflow_paused"},
+			{ID: "dup", EventType: "file_changed"},
+		},
+		BindingsByTriggerID: map[string][]flow.ActivityBinding{},
+	}
+	body, _ := json.Marshal(duplicate)
+	req := httptest.NewRequest(http.MethodPut, "/api/flow/config", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	restHandler("", nil, handler.handleFlowConfig)(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected status 409, got %d", rec.Code)
+	}
+
+	invalidType := flow.Config{
+		Version: flow.ConfigVersion,
+		Triggers: []flow.EventTrigger{
+			{ID: "t1", EventType: "workflow_paused"},
+		},
+		BindingsByTriggerID: map[string][]flow.ActivityBinding{
+			"t1": {
+				{ActivityID: "send_to_terminal", Config: map[string]any{"target_agent_name": "alpha", "message_template": "hi", "output_tail_lines": "nope"}},
+			},
+		},
+	}
+	body, _ = json.Marshal(invalidType)
+	req = httptest.NewRequest(http.MethodPut, "/api/flow/config", bytes.NewReader(body))
+	rec = httptest.NewRecorder()
+	restHandler("", nil, handler.handleFlowConfig)(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", rec.Code)
+	}
+}

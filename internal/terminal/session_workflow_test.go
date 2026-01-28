@@ -63,6 +63,10 @@ func (client *fakeWorkflowClient) ExecuteWorkflow(ctx context.Context, options c
 	return &fakeWorkflowRun{workflowID: options.ID, runID: client.runID}, nil
 }
 
+func (client *fakeWorkflowClient) SignalWithStartWorkflow(ctx context.Context, workflowID, signalName string, signalArg interface{}, options client.StartWorkflowOptions, workflow interface{}, args ...interface{}) (client.WorkflowRun, error) {
+	return &fakeWorkflowRun{workflowID: workflowID, runID: client.runID}, nil
+}
+
 func (client *fakeWorkflowClient) SignalWorkflow(ctx context.Context, workflowID, runID, signalName string, arg interface{}) error {
 	client.signals = append(client.signals, signalRecord{
 		workflowID: workflowID,

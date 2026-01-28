@@ -6,8 +6,10 @@ import (
 	"strings"
 
 	"gestalt/internal/event"
+	"gestalt/internal/flow"
 	"gestalt/internal/logging"
 	"gestalt/internal/otel"
+	"gestalt/internal/temporal"
 	"gestalt/internal/terminal"
 	"gestalt/internal/watcher"
 
@@ -22,8 +24,15 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 	// Git info is read once on boot to avoid polling; refresh can be added later.
 	gitOrigin, gitBranch := loadGitInfo()
 	metricsSummary := otel.NewAPISummaryStore()
+	var temporalClient temporal.WorkflowClient
+	if manager != nil {
+		temporalClient = manager.TemporalClient()
+	}
+	flowRepo := flow.NewFileRepository(flow.DefaultConfigPath(), logger)
+	flowService := flow.NewService(flowRepo, temporalClient, logger)
 	rest := &RestHandler{
 		Manager:        manager,
+		FlowService:    flowService,
 		Logger:         logger,
 		MetricsSummary: metricsSummary,
 		GitOrigin:      gitOrigin,
@@ -131,6 +140,8 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 	mux.Handle("/api/terminals", wrap("/api/terminals", "terminals", "auto", restHandler(authToken, logger, rest.handleTerminals)))
 	mux.Handle("/api/terminals/", wrap("/api/terminals/:id", "terminals", "auto", restHandler(authToken, logger, rest.handleTerminal)))
 	mux.Handle("/api/plans", wrap("/api/plans", "plan", "read", restHandler(authToken, logger, rest.handlePlansList)))
+	mux.Handle("/api/flow/activities", wrap("/api/flow/activities", "flow", "read", restHandler(authToken, logger, rest.handleFlowActivities)))
+	mux.Handle("/api/flow/config", wrap("/api/flow/config", "flow", "auto", restHandler(authToken, logger, rest.handleFlowConfig)))
 
 	if staticDir != "" {
 		mux.Handle("/", NewSPAHandler(staticDir))

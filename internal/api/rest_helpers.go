@@ -15,3 +15,10 @@ func (h *RestHandler) requireLogger() *apiError {
 	}
 	return nil
 }
+
+func (h *RestHandler) requireFlowService() *apiError {
+	if h.FlowService == nil {
+		return &apiError{Status: http.StatusServiceUnavailable, Message: "flow service unavailable"}
+	}
+	return nil
+}

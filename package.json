@@ -2,7 +2,9 @@
   "name": "gestalt",
   "private": true,
   "devDependencies": {
-    "semver": "^7.6.3"
+    "esbuild": "^0.27.2",
+    "semver": "^7.6.3",
+    "typescript": "^5.9.3"
   },
   "dependencies": {
     "@sourcegraph/scip-python": "^0.6.6",

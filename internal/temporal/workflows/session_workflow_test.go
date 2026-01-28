@@ -75,6 +75,7 @@ func TestSessionWorkflowSignals(testingContext *testing.T) {
 	workflowEnvironment.ExecuteWorkflow(SessionWorkflow, SessionWorkflowRequest{
 		SessionID: "session-1",
 		AgentID:   "agent-1",
+		AgentName: "Agent One",
 		L1Task:    "Initial L1",
 		L2Task:    "Initial L2",
 		Shell:     "/bin/bash",
@@ -96,6 +97,12 @@ func TestSessionWorkflowSignals(testingContext *testing.T) {
 	}
 	if statusAfterUpdate.CurrentL1 != "Updated L1" || statusAfterUpdate.CurrentL2 != "Updated L2" {
 		testingContext.Fatalf("task update not recorded: %#v", statusAfterUpdate)
+	}
+	if statusAfterUpdate.AgentID != "agent-1" {
+		testingContext.Fatalf("unexpected agent id: %#v", statusAfterUpdate.AgentID)
+	}
+	if statusAfterUpdate.AgentName != "Agent One" {
+		testingContext.Fatalf("unexpected agent name: %#v", statusAfterUpdate.AgentName)
 	}
 	if len(statusAfterUpdate.TaskEvents) != 2 {
 		testingContext.Fatalf("expected 2 task events, got %d", len(statusAfterUpdate.TaskEvents))

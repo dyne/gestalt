@@ -39,6 +39,7 @@ type workflowSummary struct {
 	WorkflowRunID string              `json:"workflow_run_id"`
 	Title         string              `json:"title"`
 	Role          string              `json:"role"`
+	AgentID       string              `json:"agent_id"`
 	AgentName     string              `json:"agent_name"`
 	CurrentL1     string              `json:"current_l1"`
 	CurrentL2     string              `json:"current_l2"`

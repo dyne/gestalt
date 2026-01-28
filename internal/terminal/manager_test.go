@@ -1339,3 +1339,48 @@ func receiveTerminalEvent(t *testing.T, ch <-chan event.TerminalEvent) event.Ter
 		return event.TerminalEvent{}
 	}
 }
+
+func TestManagerMultiInstanceKeepsAgentID(t *testing.T) {
+	singleton := false
+	factory := &fakeFactory{}
+	manager := NewManager(ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:      "Codex",
+				Shell:     "/bin/bash",
+				Singleton: &singleton,
+			},
+		},
+	})
+
+	first, err := manager.Create("codex", "role", "title")
+	if err != nil {
+		t.Fatalf("create first session: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(first.ID)
+	}()
+
+	second, err := manager.Create("codex", "role", "title")
+	if err != nil {
+		t.Fatalf("create second session: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(second.ID)
+	}()
+
+	if first.AgentID != "codex" {
+		t.Fatalf("expected first agent id codex, got %q", first.AgentID)
+	}
+	if second.AgentID != "codex" {
+		t.Fatalf("expected second agent id codex, got %q", second.AgentID)
+	}
+	if first.ID == second.ID {
+		t.Fatalf("expected unique session ids, got %q", first.ID)
+	}
+	if !strings.HasPrefix(first.ID, "codex-") || !strings.HasPrefix(second.ID, "codex-") {
+		t.Fatalf("expected numbered ids, got %q and %q", first.ID, second.ID)
+	}
+}

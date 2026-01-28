@@ -375,7 +375,6 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 			}
 			nextID := fmt.Sprintf("%s-%d", baseAgentID, maxNumber+1)
 			reservedID = nextID
-			request.AgentID = nextID
 			m.mu.Unlock()
 		}
 	}

@@ -48,6 +48,7 @@ const (
 type SessionWorkflowRequest struct {
 	SessionID             string
 	AgentID               string
+	AgentName             string
 	L1Task                string
 	L2Task                string
 	Shell                 string
@@ -71,6 +72,7 @@ type SessionWorkflowResult struct {
 type SessionWorkflowState struct {
 	SessionID  string
 	AgentID    string
+	AgentName  string
 	CurrentL1  string
 	CurrentL2  string
 	Status     string
@@ -163,6 +165,7 @@ func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRe
 	state := SessionWorkflowState{
 		SessionID: request.SessionID,
 		AgentID:   request.AgentID,
+		AgentName: request.AgentName,
 		CurrentL1: request.L1Task,
 		CurrentL2: request.L2Task,
 		Status:    SessionStatusRunning,
@@ -179,9 +182,13 @@ func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRe
 		})
 	}
 	var startedContext map[string]any
-	if request.AgentID != "" {
-		startedContext = map[string]any{
-			"agent_id": request.AgentID,
+	if request.AgentID != "" || request.AgentName != "" {
+		startedContext = map[string]any{}
+		if request.AgentID != "" {
+			startedContext["agent_id"] = request.AgentID
+		}
+		if request.AgentName != "" {
+			startedContext["agent_name"] = request.AgentName
 		}
 	}
 	if !request.CollectorStartTime.IsZero() {

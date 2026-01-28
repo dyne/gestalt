@@ -81,7 +81,11 @@ func (h *RestHandler) listWorkflowSummaries(ctx context.Context) []workflowSumma
 				})
 			}
 		} else {
-			summary.AgentName = state.AgentID
+			summary.AgentID = state.AgentID
+			summary.AgentName = state.AgentName
+			if summary.AgentName == "" {
+				summary.AgentName = state.AgentID
+			}
 			summary.CurrentL1 = state.CurrentL1
 			summary.CurrentL2 = state.CurrentL2
 			summary.Status = state.Status

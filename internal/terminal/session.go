@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -308,6 +309,7 @@ func (s *Session) StartWorkflow(temporalClient temporal.WorkflowClient, l1Task, 
 	}
 
 	workflowID := "session-" + s.ID
+	agentID := strings.TrimSpace(s.AgentID)
 	agentName := ""
 	agentShell := s.Command
 	agentConfig := ""
@@ -330,7 +332,8 @@ func (s *Session) StartWorkflow(temporalClient temporal.WorkflowClient, l1Task, 
 	}
 	request := workflows.SessionWorkflowRequest{
 		SessionID:   s.ID,
-		AgentID:     agentName,
+		AgentID:     agentID,
+		AgentName:   agentName,
 		L1Task:      l1Task,
 		L2Task:      l2Task,
 		Shell:       agentShell,
@@ -355,6 +358,12 @@ func (s *Session) StartWorkflow(temporalClient temporal.WorkflowClient, l1Task, 
 	}
 	memo := map[string]interface{}{
 		"created_at": s.CreatedAt,
+	}
+	if agentID != "" {
+		memo["agent_id"] = agentID
+	}
+	if agentName != "" {
+		memo["agent_name"] = agentName
 	}
 	if agentConfig != "" {
 		memo["agent_config"] = agentConfig

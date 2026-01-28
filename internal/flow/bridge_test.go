@@ -1,13 +1,70 @@
 package flow
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
+	eventpkg "gestalt/internal/event"
 	"gestalt/internal/watcher"
 
 	"github.com/fsnotify/fsnotify"
+	enumspb "go.temporal.io/api/enums/v1"
+	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/converter"
 )
+
+type fakeWorkflowRun struct{}
+
+func (run *fakeWorkflowRun) GetID() string {
+	return ""
+}
+
+func (run *fakeWorkflowRun) GetRunID() string {
+	return ""
+}
+
+func (run *fakeWorkflowRun) Get(ctx context.Context, valuePtr interface{}) error {
+	return nil
+}
+
+func (run *fakeWorkflowRun) GetWithOptions(ctx context.Context, valuePtr interface{}, options client.WorkflowRunGetOptions) error {
+	return nil
+}
+
+type fakeTemporalClient struct {
+	signalCh chan struct{}
+}
+
+func (client *fakeTemporalClient) ExecuteWorkflow(ctx context.Context, options client.StartWorkflowOptions, workflow interface{}, args ...interface{}) (client.WorkflowRun, error) {
+	return &fakeWorkflowRun{}, nil
+}
+
+func (client *fakeTemporalClient) GetWorkflowHistory(ctx context.Context, workflowID string, runID string, isLongPoll bool, filterType enumspb.HistoryEventFilterType) client.HistoryEventIterator {
+	return nil
+}
+
+func (client *fakeTemporalClient) QueryWorkflow(ctx context.Context, workflowID, runID, queryType string, args ...interface{}) (converter.EncodedValue, error) {
+	return nil, errors.New("query not supported")
+}
+
+func (client *fakeTemporalClient) SignalWithStartWorkflow(ctx context.Context, workflowID, signalName string, signalArg interface{}, options client.StartWorkflowOptions, workflow interface{}, args ...interface{}) (client.WorkflowRun, error) {
+	if client.signalCh != nil {
+		select {
+		case client.signalCh <- struct{}{}:
+		default:
+		}
+	}
+	return &fakeWorkflowRun{}, nil
+}
+
+func (client *fakeTemporalClient) SignalWorkflow(ctx context.Context, workflowID, runID, signalName string, arg interface{}) error {
+	return nil
+}
+
+func (client *fakeTemporalClient) Close() {
+}
 
 func TestWatcherFilterAllows(t *testing.T) {
 	filter := newWatcherFilter()
@@ -48,5 +105,51 @@ func TestBuildEventSignal(t *testing.T) {
 	}
 	if signal.Fields["path"] != "README.md" {
 		t.Fatalf("expected fields to be preserved")
+	}
+}
+
+func TestBridgeStopsOnCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	signals := make(chan struct{}, 10)
+	bridge := NewBridge(BridgeOptions{
+		Temporal:    &fakeTemporalClient{signalCh: signals},
+		WatcherBus:  eventpkg.NewBus[watcher.Event](context.Background(), eventpkg.BusOptions{}),
+		ConfigBus:   eventpkg.NewBus[eventpkg.ConfigEvent](context.Background(), eventpkg.BusOptions{}),
+		AgentBus:    eventpkg.NewBus[eventpkg.AgentEvent](context.Background(), eventpkg.BusOptions{}),
+		TerminalBus: eventpkg.NewBus[eventpkg.TerminalEvent](context.Background(), eventpkg.BusOptions{}),
+		WorkflowBus: eventpkg.NewBus[eventpkg.WorkflowEvent](context.Background(), eventpkg.BusOptions{}),
+	})
+
+	if err := bridge.Start(ctx); err != nil {
+		t.Fatalf("start bridge: %v", err)
+	}
+
+	bridge.WatcherBus.Publish(watcher.Event{
+		Type:      watcher.EventTypeFileChanged,
+		Path:      "README.md",
+		Op:        fsnotify.Write,
+		Timestamp: time.Now().UTC(),
+	})
+	select {
+	case <-signals:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatalf("expected signal before cancel")
+	}
+
+	cancel()
+	time.Sleep(20 * time.Millisecond)
+
+	bridge.WatcherBus.Publish(watcher.Event{
+		Type:      watcher.EventTypeFileChanged,
+		Path:      "README.md",
+		Op:        fsnotify.Write,
+		Timestamp: time.Now().UTC(),
+	})
+	select {
+	case <-signals:
+		t.Fatalf("expected no signal after cancel")
+	case <-time.After(100 * time.Millisecond):
 	}
 }

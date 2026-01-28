@@ -22,7 +22,9 @@ import (
 	"gestalt"
 	"gestalt/internal/api"
 	"gestalt/internal/app"
+	"gestalt/internal/config"
 	"gestalt/internal/event"
+	"gestalt/internal/flow"
 	"gestalt/internal/logging"
 	"gestalt/internal/otel"
 	"gestalt/internal/ports"
@@ -315,6 +317,45 @@ func runServer(args []string) int {
 		}
 		watchPlanFile(eventBus, fsWatcher, logger, planWatchPath)
 	}
+
+	flowService := flow.NewService(flow.NewFileRepository(flow.DefaultConfigPath(), logger), temporalClient, logger)
+	flowConfig, flowErr := flowService.LoadConfig()
+	if flowErr != nil {
+		logger.Error("flow config load failed", map[string]string{
+			"error": flowErr.Error(),
+		})
+		return 1
+	}
+	if temporalClient == nil || !workerStarted {
+		logger.Error("flow requires temporal worker", map[string]string{
+			"temporal_enabled": strconv.FormatBool(temporalEnabled),
+		})
+		return 1
+	}
+	if err := flowService.SignalConfig(context.Background(), flowConfig); err != nil {
+		logger.Error("flow router signal failed", map[string]string{
+			"error": err.Error(),
+		})
+		return 1
+	}
+	flowCtx, flowCancel := context.WithCancel(context.Background())
+	flowBridge := flow.NewBridge(flow.BridgeOptions{
+		Temporal:    temporalClient,
+		Logger:      logger,
+		WatcherBus:  eventBus,
+		ConfigBus:   config.Bus(),
+		AgentBus:    manager.AgentBus(),
+		TerminalBus: manager.TerminalBus(),
+		WorkflowBus: manager.WorkflowBus(),
+	})
+	if err := flowBridge.Start(flowCtx); err != nil {
+		flowCancel()
+		logger.Error("flow bridge start failed", map[string]string{
+			"error": err.Error(),
+		})
+		return 1
+	}
+	defer flowCancel()
 
 	staticDir := findStaticDir()
 	frontendFS := fs.FS(nil)

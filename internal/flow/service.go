@@ -94,6 +94,14 @@ func (s *Service) SaveConfig(ctx context.Context, cfg Config) (Config, error) {
 	return normalized, nil
 }
 
+func (s *Service) SignalConfig(ctx context.Context, cfg Config) error {
+	if s == nil {
+		return errors.New("flow service unavailable")
+	}
+	normalized := normalizeConfig(cfg)
+	return s.signalConfigUpdated(ctx, normalized)
+}
+
 func (s *Service) signalConfigUpdated(ctx context.Context, cfg Config) error {
 	if s.temporal == nil {
 		return ErrTemporalUnavailable

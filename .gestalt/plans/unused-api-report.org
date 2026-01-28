@@ -40,14 +40,9 @@
 - /api/otel/logs is POST-only; any GET consumers must use /ws/logs or file-based access instead.
 - Crash reporting relies on /api/otel/logs POST; keep it available to avoid losing UI crash logs.
 
-** WIP Tests/docs to update or remove
-- internal/api/rest_test.go (covers /api/metrics, /api/events/debug, /api/terminals/:id/output, /api/skills/:name)
-- internal/api/rest_otel_test.go (covers /api/otel/logs)
-- internal/api/rest_fuzz_test.go (includes /api/terminals/:id/output)
-- internal/otel/middleware_test.go (covers /api/metrics route info)
-- frontend/tests/appTabs.test.js (expects /api/otel/logs)
-- frontend/tests/appCrash.test.js (expects /api/otel/logs)
-- frontend/tests/appBoundary.test.js (expects /api/otel/logs)
-- frontend/tests/clientLog.test.js (expects /api/otel/logs)
-- frontend/src/lib/otelClient.test.js (exercises /api/otel/logs/traces/metrics)
-- frontend/README.md (documents /api/otel/logs crash reporting)
+** DONE Tests/docs to update or remove
+- Updated internal/api/rest_test.go to drop /api/metrics, /api/events/debug, and /api/skills/:name coverage.
+- Updated internal/otel/middleware_test.go to use /api/metrics/summary.
+- Updated docs: README.md, docs/architecture-review.md, AGENTS.md, frontend/README.md.
+- Kept /api/otel/logs POST ingest coverage in internal/api/rest_otel_test.go and frontend crash logging tests.
+- Left internal/api/rest_fuzz_test.go unchanged (mentions /api/terminals/:id/output; out of scope).

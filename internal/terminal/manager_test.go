@@ -366,19 +366,32 @@ func TestManagerCreateWithCLIConfigUsesGeneratedCommand(t *testing.T) {
 		t.Fatalf("expected command codex, got %q", factory.command)
 	}
 	wantArgs := []string{"-c", "model=o3"}
-	if len(factory.args) != len(wantArgs) {
-		t.Fatalf("expected args %v, got %v", wantArgs, factory.args)
+	if len(factory.args) < len(wantArgs) {
+		t.Fatalf("expected args to include %v, got %v", wantArgs, factory.args)
 	}
 	for i, arg := range wantArgs {
 		if factory.args[i] != arg {
 			t.Fatalf("expected args %v, got %v", wantArgs, factory.args)
 		}
 	}
+	notifyArg := ""
+	for _, arg := range factory.args {
+		if strings.Contains(arg, "notify=") {
+			notifyArg = arg
+			break
+		}
+	}
+	if notifyArg == "" {
+		t.Fatalf("expected notify flag in args, got %v", factory.args)
+	}
+	if !strings.Contains(notifyArg, "gestalt-notify") {
+		t.Fatalf("expected notify command to include gestalt-notify, got %q", notifyArg)
+	}
 	if session.ConfigHash != profile.ConfigHash {
 		t.Fatalf("expected config hash %q, got %q", profile.ConfigHash, session.ConfigHash)
 	}
-	if session.Command != "codex -c model=o3" {
-		t.Fatalf("expected command string %q, got %q", "codex -c model=o3", session.Command)
+	if !strings.Contains(session.Command, "notify=") {
+		t.Fatalf("expected notify in command, got %q", session.Command)
 	}
 }
 
@@ -1382,5 +1395,59 @@ func TestManagerMultiInstanceKeepsAgentID(t *testing.T) {
 	}
 	if !strings.HasPrefix(first.ID, "codex-") || !strings.HasPrefix(second.ID, "codex-") {
 		t.Fatalf("expected numbered ids, got %q and %q", first.ID, second.ID)
+	}
+}
+
+func TestManagerInjectsCodexNotify(t *testing.T) {
+	commandFactory := &commandCaptureFactory{}
+	config := map[string]interface{}{
+		"model":  "o3",
+		"notify": []string{"slack"},
+	}
+	manager := NewManager(ManagerOptions{
+		PtyFactory: commandFactory,
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:      "Codex",
+				CLIType:   "codex",
+				CLIConfig: config,
+			},
+		},
+	})
+
+	session, err := manager.Create("codex", "", "")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(session.ID)
+	}()
+
+	notifyValue, ok := config["notify"].([]string)
+	if !ok || len(notifyValue) != 1 || notifyValue[0] != "slack" {
+		t.Fatalf("expected original notify config preserved, got %#v", config["notify"])
+	}
+
+	notifyArg := ""
+	for _, arg := range commandFactory.args {
+		if strings.Contains(arg, "notify=") {
+			notifyArg = arg
+			break
+		}
+	}
+	if notifyArg == "" {
+		t.Fatalf("expected notify flag in codex command, got args %#v", commandFactory.args)
+	}
+	if !strings.Contains(notifyArg, "gestalt-notify") {
+		t.Fatalf("expected notify command to include gestalt-notify, got %q", notifyArg)
+	}
+	if !strings.Contains(notifyArg, "--terminal-id") || !strings.Contains(notifyArg, session.ID) {
+		t.Fatalf("expected notify command to include terminal id %q, got %q", session.ID, notifyArg)
+	}
+	if !strings.Contains(notifyArg, "--agent-id") || !strings.Contains(notifyArg, "codex") {
+		t.Fatalf("expected notify command to include agent id codex, got %q", notifyArg)
+	}
+	if !strings.Contains(notifyArg, "--agent-name") || !strings.Contains(notifyArg, "Codex") {
+		t.Fatalf("expected notify command to include agent name Codex, got %q", notifyArg)
 	}
 }

@@ -1249,8 +1249,8 @@ func TestCreateTerminalWithAgent(t *testing.T) {
 	if len(factory.commands) != 1 {
 		t.Fatalf("expected 1 command, got %d", len(factory.commands))
 	}
-	if factory.commands[0] != "/bin/zsh" {
-		t.Fatalf("expected /bin/zsh, got %q", factory.commands[0])
+	if factory.commands[0] != "codex" {
+		t.Fatalf("expected codex, got %q", factory.commands[0])
 	}
 }
 

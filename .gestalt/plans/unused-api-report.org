@@ -1,0 +1,46 @@
+* WIP Unused API Report
+** DONE Scope
+- Compare backend registered routes in internal/api/routes.go against client usage in frontend/src, cmd, and internal/client.
+- Use rg output as the source of truth (no manual inference beyond file presence).
+
+** WIP Findings (Unused Endpoints)
+- /api/metrics (registered, no client calls)
+- /api/events/debug (registered, no client calls)
+- /api/skills/:name (registered, only /api/skills used)
+
+** TODO Evidence (rg)
+- rg -n "/api/" internal/api/routes.go (shows /api/metrics, /api/events/debug, /api/skills/)
+- rg -n "/ws/" internal/api/routes.go (shows /ws/terminal, /ws/logs, /ws/events)
+- rg -n "/api/" frontend/src cmd internal/client (no /api/metrics, /api/events/debug, or /api/skills/; /api/skills used)
+- rg -n "/ws/" frontend/src cmd internal/client (uses /ws/terminal, /ws/logs, /ws/events)
+- cmd/gestalt-scip/bin/gestalt-scip search "/api/metrics" (matches only in internal/api/routes.go)
+- cmd/gestalt-scip/bin/gestalt-scip search "/api/events/debug" (matches only in internal/api/routes.go)
+- cmd/gestalt-scip/bin/gestalt-scip search "/api/skills/" (matches only in internal/api/routes.go)
+
+** TODO Notes / Next Steps
+- Decide whether to keep (future use), deprecate, or remove endpoints.
+- If removing, update route registration and any docs/tests referencing them.
+
+** TODO Candidate removal: /api/otel/logs
+- Remove REST retrieval endpoint and related tests.
+- Move production log retrieval to WS for interactive UI.
+- Use file tailing for any non-interactive/offline retrieval needs.
+- Update frontend to stop calling /api/otel/logs (clientLog / otelClient).
+
+** TODO Risk notes
+- Removing REST endpoints can break CLI/scripts or external integrations not represented in this repo.
+- OTel middleware route normalization may rely on removed routes; ensure metrics/telemetry labels stay stable.
+- Switching to WS + file tailing needs parity for filters (level/limit/query) or documented behavior changes.
+- Crash reporting currently posts to /api/otel/logs; ensure replacement path is reliable before removal.
+
+** TODO Tests/docs to update or remove
+- internal/api/rest_test.go (covers /api/metrics, /api/events/debug, /api/terminals/:id/output, /api/skills/:name)
+- internal/api/rest_otel_test.go (covers /api/otel/logs)
+- internal/api/rest_fuzz_test.go (includes /api/terminals/:id/output)
+- internal/otel/middleware_test.go (covers /api/metrics route info)
+- frontend/tests/appTabs.test.js (expects /api/otel/logs)
+- frontend/tests/appCrash.test.js (expects /api/otel/logs)
+- frontend/tests/appBoundary.test.js (expects /api/otel/logs)
+- frontend/tests/clientLog.test.js (expects /api/otel/logs)
+- frontend/src/lib/otelClient.test.js (exercises /api/otel/logs/traces/metrics)
+- frontend/README.md (documents /api/otel/logs crash reporting)

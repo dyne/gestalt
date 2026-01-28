@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"gestalt/internal/logging"
 	"gestalt/internal/otel"
 
 	otellog "go.opentelemetry.io/otel/log"
@@ -23,14 +22,6 @@ const (
 	maxOTelLogValueLength = 2048
 	otlpUILoggerName      = "gestalt/ui"
 )
-
-type otelLogQuery struct {
-	Limit int
-	Since *time.Time
-	Until *time.Time
-	Level logging.Level
-	Query string
-}
 
 type otelTraceQuery struct {
 	Limit    int
@@ -106,39 +97,6 @@ func activeOTelDataPath() (string, bool) {
 		return "", false
 	}
 	return info.DataPath, true
-}
-
-func parseOTelLogQuery(r *http.Request) (otelLogQuery, *apiError) {
-	values := r.URL.Query()
-	query := otelLogQuery{Limit: 200}
-	limit, err := parseOTelLimit(values.Get("limit"), query.Limit)
-	if err != nil {
-		return query, err
-	}
-	query.Limit = limit
-
-	if rawLevel := strings.TrimSpace(values.Get("level")); rawLevel != "" {
-		level, ok := logging.ParseLevel(rawLevel)
-		if !ok {
-			return query, &apiError{Status: http.StatusBadRequest, Message: "invalid log level"}
-		}
-		query.Level = level
-	}
-
-	if parsed, err := parseTimeParam(values.Get("since")); err != nil {
-		return query, err
-	} else {
-		query.Since = parsed
-	}
-
-	if parsed, err := parseTimeParam(values.Get("until")); err != nil {
-		return query, err
-	} else {
-		query.Until = parsed
-	}
-
-	query.Query = strings.TrimSpace(values.Get("query"))
-	return query, nil
 }
 
 func parseOTelTraceQuery(r *http.Request) (otelTraceQuery, *apiError) {
@@ -507,23 +465,6 @@ func ensureOTelLogDefaults(attributes []otellog.KeyValue) []otellog.KeyValue {
 	return attributes
 }
 
-func filterOTelLogRecords(records []map[string]any, query otelLogQuery) []map[string]any {
-	filtered := make([]map[string]any, 0, len(records))
-	for _, record := range records {
-		if query.Level != "" && !logging.LevelAtLeast(otelLogLevel(record), query.Level) {
-			continue
-		}
-		if (query.Since != nil || query.Until != nil) && !recordInRange(record, query.Since, query.Until, logTimestampKeys()) {
-			continue
-		}
-		if query.Query != "" && !recordMatchesQuery(record, query.Query) {
-			continue
-		}
-		filtered = append(filtered, record)
-	}
-	return limitRecords(filtered, query.Limit)
-}
-
 func filterOTelTraceRecords(records []map[string]any, query otelTraceQuery) []map[string]any {
 	filtered := make([]map[string]any, 0, len(records))
 	for _, record := range records {
@@ -577,19 +518,6 @@ func recordInRange(record map[string]any, since, until *time.Time, keys []string
 		return false
 	}
 	return true
-}
-
-func logTimestampKeys() []string {
-	return []string{
-		"timeUnixNano",
-		"time_unix_nano",
-		"timestamp",
-		"time",
-		"observedTimeUnixNano",
-		"observed_time_unix_nano",
-		"observed_timestamp",
-		"observedTimestamp",
-	}
 }
 
 func traceTimestampKeys() []string {
@@ -649,31 +577,6 @@ func timeFromEpoch(value int64) time.Time {
 		return time.Unix(value, 0)
 	default:
 		return time.Unix(0, value)
-	}
-}
-
-func otelLogLevel(record map[string]any) logging.Level {
-	if text, ok := extractString(record, "severityText", "severity_text", "severity", "level"); ok {
-		if level, parsed := logging.ParseLevel(text); parsed {
-			return level
-		}
-	}
-	if value, ok := extractNumber(record, "severityNumber", "severity_number"); ok {
-		return severityFromNumber(value)
-	}
-	return logging.LevelInfo
-}
-
-func severityFromNumber(value float64) logging.Level {
-	switch {
-	case value >= 17:
-		return logging.LevelError
-	case value >= 13:
-		return logging.LevelWarning
-	case value >= 9:
-		return logging.LevelInfo
-	default:
-		return logging.LevelDebug
 	}
 }
 

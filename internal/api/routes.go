@@ -115,7 +115,7 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 		agentInputHandler.ServeHTTP(w, r)
 	}))
 	mux.Handle("/api/skills", wrap("/api/skills", "skills", "read", restHandler(authToken, rest.handleSkills)))
-	mux.Handle("/api/otel/logs", wrap("/api/otel/logs", "logs", "query", restHandler(authToken, rest.handleOTelLogs)))
+	mux.Handle("/api/otel/logs", wrap("/api/otel/logs", "logs", "create", restHandler(authToken, rest.handleOTelLogs)))
 	mux.Handle("/api/otel/traces", wrap("/api/otel/traces", "traces", "query", restHandler(authToken, rest.handleOTelTraces)))
 	mux.Handle("/api/otel/metrics", wrap("/api/otel/metrics", "metrics", "query", restHandler(authToken, rest.handleOTelMetrics)))
 	mux.Handle("/api/terminals", wrap("/api/terminals", "terminals", "auto", restHandler(authToken, rest.handleTerminals)))

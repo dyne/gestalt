@@ -29,13 +29,12 @@
 - Remove routes and handlers.
 - Update tests/docs that reference these endpoints.
 
-** WIP Candidate removal: /api/otel/logs
-- Remove REST retrieval endpoint and related tests.
-- Move production log retrieval to WS for interactive UI.
-- Use file tailing for any non-interactive/offline retrieval needs.
-- Update frontend to stop calling /api/otel/logs (clientLog / otelClient).
+** DONE Candidate removal: /api/otel/logs
+- Keep POST ingest only; remove log query helpers/tests tied to retrieval.
+- Update route metadata/docs to reflect POST-only semantics.
+- Ensure frontend only uses /api/otel/logs for POST ingest (clientLog).
 
-** TODO Risk notes
+** WIP Risk notes
 - Removing REST endpoints can break CLI/scripts or external integrations not represented in this repo.
 - OTel middleware route normalization may rely on removed routes; ensure metrics/telemetry labels stay stable.
 - Switching to WS + file tailing needs parity for filters (level/limit/query) or documented behavior changes.

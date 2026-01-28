@@ -100,12 +100,6 @@ type statusResponse struct {
 	TemporalUIURL  string    `json:"temporal_ui_url,omitempty"`
 }
 
-type eventBusDebug struct {
-	Name                  string `json:"name"`
-	FilteredSubscribers   int64  `json:"filtered_subscribers"`
-	UnfilteredSubscribers int64  `json:"unfiltered_subscribers"`
-}
-
 type planHeading struct {
 	Level    int           `json:"level"`
 	Keyword  string        `json:"keyword"`
@@ -162,20 +156,6 @@ type skillSummary struct {
 	HasScripts    bool   `json:"has_scripts"`
 	HasReferences bool   `json:"has_references"`
 	HasAssets     bool   `json:"has_assets"`
-}
-
-type skillDetail struct {
-	Name          string         `json:"name"`
-	Description   string         `json:"description"`
-	License       string         `json:"license"`
-	Compatibility string         `json:"compatibility"`
-	Metadata      map[string]any `json:"metadata,omitempty"`
-	AllowedTools  []string       `json:"allowed_tools,omitempty"`
-	Path          string         `json:"path"`
-	Content       string         `json:"content"`
-	Scripts       []string       `json:"scripts"`
-	References    []string       `json:"references"`
-	Assets        []string       `json:"assets"`
 }
 
 type createTerminalRequest struct {

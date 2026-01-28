@@ -38,7 +38,7 @@ Use this as the minimum context to start any plan task.
 - Full reference: `docs/agent-configuration.md`.
 
 ## Key endpoints
-- `/api/status`, `/api/events/debug`
+- `/api/status`
 - `/api/terminals` (GET/POST), `/api/terminals/:id` (DELETE)
 - `/api/terminals/:id/output`, `/api/terminals/:id/input-history` (GET/POST)
 - `/api/agents`, `/api/agents/:name/input`
@@ -65,7 +65,7 @@ Use this as the minimum context to start any plan task.
 - Buses: `watcher_events`, `agent_events`, `terminal_events`, `terminal_output`, `workflow_events`, `config_events`, `logs`.
 - WS mappings: `/ws/events` (filesystem), `/api/agents/events`, `/api/terminals/events`, `/api/config/events`, `/api/workflows/events`.
 - Filesystem events via `watcher.WatchFile` into `watcher_events`.
-- Debug: `GESTALT_EVENT_DEBUG=true`; `/api/events/debug` shows subscriber counts.
+- Debug: `GESTALT_EVENT_DEBUG=true` logs all published events.
 - History: `BusOptions.HistorySize`, `ReplayLast`, `DumpHistory`.
 - Event payloads: `FileEvent`, `TerminalEvent`, `AgentEvent`, `ConfigEvent`, `WorkflowEvent`, `LogEvent`.
 - Flow:
@@ -104,7 +104,7 @@ terminal output -> Session output bus -> /ws/terminal/:id -> xterm
 ## Temporal quick reference
 | Area | Defaults/Flags | Key APIs / Behavior |
 | --- | --- | --- |
-| Temporal HITL | Workflows on by default; disable via `workflow=false` / `use_workflow=false`. Dev server: `GESTALT_TEMPORAL_DEV_SERVER=true` or `--temporal-dev-server` (runs in `.gestalt/temporal`). | `GET /api/workflows`, `GET /api/terminals/:id/workflow/history`, `POST /api/terminals/:id/workflow/resume` (`continue`/`abort`), `GET /api/metrics`. |
+| Temporal HITL | Workflows on by default; disable via `workflow=false` / `use_workflow=false`. Dev server: `GESTALT_TEMPORAL_DEV_SERVER=true` or `--temporal-dev-server` (runs in `.gestalt/temporal`). | `GET /api/workflows`, `GET /api/terminals/:id/workflow/history`, `POST /api/terminals/:id/workflow/resume` (`continue`/`abort`), `GET /api/metrics/summary`. |
 
 ## SCIP CLI (2026-01-26)
 - Offline CLI lives in `cmd/gestalt-scip` and builds with `make build-scip`.

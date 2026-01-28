@@ -100,9 +100,9 @@ func TestAPIMiddlewareRecordsErrors(t *testing.T) {
 		RecordAPIError(r.Context(), APIErrorInfo{Status: http.StatusBadRequest, Code: "invalid_request", Message: "bad"})
 		w.WriteHeader(http.StatusBadRequest)
 	})
-	wrapped := WithRouteInfo(middleware(handler), RouteInfo{Route: "/api/metrics", Category: "status", Operation: "read"})
+	wrapped := WithRouteInfo(middleware(handler), RouteInfo{Route: "/api/metrics/summary", Category: "status", Operation: "query"})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/metrics", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/metrics/summary", nil)
 	rec := httptest.NewRecorder()
 	wrapped.ServeHTTP(rec, req)
 

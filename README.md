@@ -169,7 +169,6 @@ Key event streams:
 - `/api/workflows/events`
 
 Debugging:
-- `GET /api/events/debug` lists active buses and subscriber counts.
 - `GESTALT_EVENT_DEBUG=true` logs all published events.
 
 Event flow:
@@ -212,9 +211,6 @@ Timeouts and retries (defaults):
 - Workflow execution/run timeout: 24h (task timeout: 10s)
 - Activity timeouts: spawn 30s, output read 5s, default 10s (heartbeat 10s)
 - Retry policy: exponential backoff, max 5 attempts
-
-Metrics:
-- `GET /api/metrics` exposes Prometheus metrics for workflows and activities.
 
 ## Temporal workflows (HITL)
 
@@ -597,7 +593,6 @@ Discovery and activation:
 
 API:
 - `GET /api/skills` (optional `?agent=<id>` filter)
-- `GET /api/skills/:name`
 
 Security considerations (future work):
 - Scripts in skills are not sandboxed; plan for allowlists or user confirmation before execution.

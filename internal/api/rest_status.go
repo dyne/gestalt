@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"gestalt/internal/git"
-	"gestalt/internal/metrics"
 	"gestalt/internal/version"
 )
 
@@ -98,34 +97,6 @@ func forwardedHeaderValue(r *http.Request, header string) string {
 		value = strings.TrimSpace(value[:idx])
 	}
 	return value
-}
-
-func (h *RestHandler) handleMetrics(w http.ResponseWriter, r *http.Request) *apiError {
-	if r.Method != http.MethodGet {
-		return methodNotAllowed(w, "GET")
-	}
-	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-	if err := metrics.Default.WritePrometheus(w); err != nil {
-		return &apiError{Status: http.StatusInternalServerError, Message: "failed to write metrics"}
-	}
-	return nil
-}
-
-func (h *RestHandler) handleEventDebug(w http.ResponseWriter, r *http.Request) *apiError {
-	if r.Method != http.MethodGet {
-		return methodNotAllowed(w, "GET")
-	}
-	snapshots := metrics.Default.EventBusSnapshots()
-	response := make([]eventBusDebug, 0, len(snapshots))
-	for _, snapshot := range snapshots {
-		response = append(response, eventBusDebug{
-			Name:                  snapshot.Name,
-			FilteredSubscribers:   snapshot.FilteredSubscribers,
-			UnfilteredSubscribers: snapshot.UnfilteredSubscribers,
-		})
-	}
-	writeJSON(w, http.StatusOK, response)
-	return nil
 }
 
 func (h *RestHandler) setGitBranch(branch string) {

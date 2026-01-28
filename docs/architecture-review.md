@@ -47,7 +47,7 @@ Internal packages (Go):
 - internal/prompt: prompt parsing, include resolution, render logic.
 - internal/scip: SCIP endpoints + asset extraction.
 - internal/temporal: workflow orchestration, memo helpers, worker wiring.
-- internal/metrics: metrics counters exposed via /api/metrics.
+- internal/metrics: metrics counters exposed via /api/metrics/summary.
 - internal/version: build version string for /api/status and logs.
 
 Backend runtime wiring (main.go):
@@ -61,7 +61,7 @@ Backend runtime wiring (main.go):
 
 ### Backend REST + WS surface
 REST endpoints (examples):
-- /api/status, /api/metrics, /api/agents, /api/terminals, /api/logs, /api/skills
+- /api/status, /api/agents, /api/terminals, /api/logs, /api/skills
 - /api/plan, /api/plan/current
 
 WebSocket endpoints:

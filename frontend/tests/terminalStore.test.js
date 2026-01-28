@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const buildWebSocketUrl = vi.hoisted(() => vi.fn((path) => `ws://test${path}`))
 const apiFetch = vi.hoisted(() => vi.fn())
+const buildEventSourceUrl = vi.hoisted(() => vi.fn((path) => `http://test${path}`))
 const addNotification = vi.hoisted(() => vi.fn())
 
 const MockTerminal = vi.hoisted(
@@ -63,6 +64,7 @@ const MockFitAddon = vi.hoisted(
 vi.mock('../src/lib/api.js', () => ({
   apiFetch,
   buildWebSocketUrl,
+  buildEventSourceUrl,
 }))
 
 vi.mock('../src/lib/notificationStore.js', () => ({

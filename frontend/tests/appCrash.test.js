@@ -5,10 +5,12 @@ import { installGlobalCrashHandlers } from '../src/lib/appHealthStore.js'
 import { createAppApiMocks, createLogStreamStub } from './helpers/appApiMocks.js'
 
 const apiFetch = vi.hoisted(() => vi.fn())
+const buildEventSourceUrl = vi.hoisted(() => vi.fn((path) => `http://test${path}`))
 const createLogStream = vi.hoisted(() => vi.fn())
 
 vi.mock('../src/lib/api.js', () => ({
   apiFetch,
+  buildEventSourceUrl,
 }))
 
 vi.mock('../src/lib/logStream.js', () => ({

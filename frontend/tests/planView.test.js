@@ -2,11 +2,13 @@ import { render, cleanup, waitFor } from '@testing-library/svelte'
 import { describe, it, expect, afterEach, vi } from 'vitest'
 
 const apiFetch = vi.hoisted(() => vi.fn())
+const buildEventSourceUrl = vi.hoisted(() => vi.fn((path) => `http://test${path}`))
 const subscribeEvents = vi.hoisted(() => vi.fn(() => () => {}))
 const subscribeTerminalEvents = vi.hoisted(() => vi.fn(() => () => {}))
 
 vi.mock('../src/lib/api.js', () => ({
   apiFetch,
+  buildEventSourceUrl,
 }))
 
 vi.mock('../src/lib/eventStore.js', () => ({

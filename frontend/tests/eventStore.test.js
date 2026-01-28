@@ -1,24 +1,27 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const buildWebSocketUrl = vi.hoisted(() => vi.fn((path) => `ws://test${path}`))
+const buildEventSourceUrl = vi.hoisted(() =>
+  vi.fn((path, params = {}) => {
+    const search = new URLSearchParams(params).toString()
+    return `http://test${path}${search ? `?${search}` : ''}`
+  })
+)
 
 vi.mock('../src/lib/api.js', () => ({
-  buildWebSocketUrl,
+  buildEventSourceUrl,
 }))
 
-class MockWebSocket {
+class MockEventSource {
   static CONNECTING = 0
   static OPEN = 1
-  static CLOSING = 2
-  static CLOSED = 3
+  static CLOSED = 2
   static instances = []
 
   constructor(url) {
     this.url = url
-    this.readyState = MockWebSocket.CONNECTING
+    this.readyState = MockEventSource.CONNECTING
     this.listeners = new Map()
-    this.sent = []
-    MockWebSocket.instances.push(this)
+    MockEventSource.instances.push(this)
   }
 
   addEventListener(type, handler) {
@@ -28,17 +31,12 @@ class MockWebSocket {
     this.listeners.get(type).add(handler)
   }
 
-  send(data) {
-    this.sent.push(data)
-  }
-
   close() {
-    this.readyState = MockWebSocket.CLOSED
-    this.dispatch('close', {})
+    this.readyState = MockEventSource.CLOSED
   }
 
   open() {
-    this.readyState = MockWebSocket.OPEN
+    this.readyState = MockEventSource.OPEN
     this.dispatch('open', {})
   }
 
@@ -47,12 +45,16 @@ class MockWebSocket {
     if (!handlers) return
     handlers.forEach((handler) => handler(payload))
   }
+
+  error() {
+    this.dispatch('error', {})
+  }
 }
 
 beforeEach(() => {
-  MockWebSocket.instances = []
+  MockEventSource.instances = []
   vi.resetModules()
-  global.WebSocket = MockWebSocket
+  global.EventSource = MockEventSource
 })
 
 const flush = () => Promise.resolve()
@@ -70,13 +72,11 @@ describe('eventStore', () => {
       received.push(payload.path)
     })
 
-    const socket = MockWebSocket.instances[0]
-    socket.open()
+    const source = MockEventSource.instances[0]
+    source.open()
     await flush()
 
-    expect(socket.sent[0]).toBe(JSON.stringify({ subscribe: ['file_changed'] }))
-
-    socket.dispatch('message', {
+    source.dispatch('message', {
       data: JSON.stringify({ type: 'file_changed', path: '.gestalt/PLAN.org' }),
     })
 
@@ -94,20 +94,38 @@ describe('eventStore', () => {
       received.push(payload.path)
     })
 
-    const socket = MockWebSocket.instances[0]
-    socket.open()
+    const source = MockEventSource.instances[0]
+    source.open()
     await flush()
 
     unsubscribe()
 
-    socket.dispatch('message', {
+    source.dispatch('message', {
       data: JSON.stringify({ type: 'git_branch_changed', path: 'main' }),
     })
 
     expect(received).toEqual([])
   })
 
-  it('marks disconnected on close', async () => {
+  it('updates types query on subscription changes', async () => {
+    const { subscribe } = await import('../src/lib/eventStore.js')
+
+    const stopFile = subscribe('file_changed', () => {})
+    let source = MockEventSource.instances[0]
+    expect(new URL(source.url).searchParams.get('types')).toBe('file_changed')
+
+    const stopBranch = subscribe('git_branch_changed', () => {})
+    expect(MockEventSource.instances).toHaveLength(2)
+    source = MockEventSource.instances[1]
+    expect(new URL(source.url).searchParams.get('types')).toBe(
+      'file_changed,git_branch_changed'
+    )
+
+    stopBranch()
+    stopFile()
+  })
+
+  it('marks disconnected on error', async () => {
     const { subscribe, eventConnectionStatus } = await import('../src/lib/eventStore.js')
     const statuses = []
     const unsubscribeStatus = eventConnectionStatus.subscribe((value) => {
@@ -115,11 +133,11 @@ describe('eventStore', () => {
     })
     const unsubscribe = subscribe('file_changed', () => {})
 
-    const socket = MockWebSocket.instances[0]
-    socket.open()
+    const source = MockEventSource.instances[0]
+    source.open()
     await flush()
 
-    socket.close()
+    source.error()
     await flush()
 
     expect(statuses).toContain('disconnected')
@@ -135,12 +153,12 @@ describe('eventStore', () => {
       received.push(payload.path)
     })
 
-    const socket = MockWebSocket.instances[0]
-    socket.open()
+    const source = MockEventSource.instances[0]
+    source.open()
     await flush()
 
-    socket.dispatch('message', { data: 'not-json' })
-    socket.dispatch('message', { data: JSON.stringify({ path: '/tmp/plan.org' }) })
+    source.dispatch('message', { data: 'not-json' })
+    source.dispatch('message', { data: JSON.stringify({ path: '/tmp/plan.org' }) })
 
     expect(received).toEqual([])
     unsubscribe()
@@ -153,12 +171,12 @@ describe('eventStore', () => {
       received.push(payload.path)
     })
 
-    const socket = MockWebSocket.instances[0]
-    socket.open()
+    const source = MockEventSource.instances[0]
+    source.open()
     await flush()
 
     for (let index = 0; index < 5; index += 1) {
-      socket.dispatch('message', {
+      source.dispatch('message', {
         data: JSON.stringify({ type: 'file_changed', path: `/tmp/plan-${index}.org` }),
       })
     }

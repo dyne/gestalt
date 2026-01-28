@@ -4,10 +4,12 @@ import { writable } from 'svelte/store'
 import { tick } from 'svelte'
 
 const apiFetch = vi.hoisted(() => vi.fn())
+const buildEventSourceUrl = vi.hoisted(() => vi.fn((path) => `http://test${path}`))
 const getTerminalState = vi.hoisted(() => vi.fn())
 
 vi.mock('../src/lib/api.js', () => ({
   apiFetch,
+  buildEventSourceUrl,
 }))
 
 vi.mock('../src/lib/terminalStore.js', () => ({

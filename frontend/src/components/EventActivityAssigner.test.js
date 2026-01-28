@@ -18,6 +18,20 @@ const activityDefs = [
   },
 ]
 
+const createDataTransfer = () => {
+  const data = {}
+  return {
+    data,
+    setData(type, value) {
+      data[type] = value
+    },
+    getData(type) {
+      return data[type] || ''
+    },
+    effectAllowed: '',
+  }
+}
+
 describe('EventActivityAssigner', () => {
   afterEach(() => cleanup())
 
@@ -83,6 +97,56 @@ describe('EventActivityAssigner', () => {
       trigger_id: 'trigger-1',
       activity_id: 'toast_notification',
       config: { message_template: 'hello' },
+    })
+  })
+
+  it('dispatches drag-and-drop assign events', async () => {
+    const { container, getByTestId } = render(EventActivityAssignerHarness, {
+      props: {
+        trigger,
+        activityDefs,
+        bindings: [],
+      },
+    })
+
+    const draggable = container.querySelector('[data-activity-id="toast_notification"][data-source="available"]')
+    const dropzone = container.querySelector('[data-dropzone="assigned"]')
+    const dataTransfer = createDataTransfer()
+
+    await fireEvent.dragStart(draggable, { dataTransfer })
+    await fireEvent.dragOver(dropzone, { dataTransfer })
+    await fireEvent.drop(dropzone, { dataTransfer })
+
+    expect(getByTestId('last-event').textContent).toBe('assign_activity')
+    expect(JSON.parse(getByTestId('last-detail').textContent)).toEqual({
+      trigger_id: 'trigger-1',
+      activity_id: 'toast_notification',
+      via: 'dnd',
+    })
+  })
+
+  it('dispatches drag-and-drop unassign events', async () => {
+    const { container, getByTestId } = render(EventActivityAssignerHarness, {
+      props: {
+        trigger,
+        activityDefs,
+        bindings: [{ activity_id: 'toast_notification', config: {} }],
+      },
+    })
+
+    const draggable = container.querySelector('[data-activity-id="toast_notification"][data-source="assigned"]')
+    const dropzone = container.querySelector('[data-dropzone="available"]')
+    const dataTransfer = createDataTransfer()
+
+    await fireEvent.dragStart(draggable, { dataTransfer })
+    await fireEvent.dragOver(dropzone, { dataTransfer })
+    await fireEvent.drop(dropzone, { dataTransfer })
+
+    expect(getByTestId('last-event').textContent).toBe('unassign_activity')
+    expect(JSON.parse(getByTestId('last-detail').textContent)).toEqual({
+      trigger_id: 'trigger-1',
+      activity_id: 'toast_notification',
+      via: 'dnd',
     })
   })
 })

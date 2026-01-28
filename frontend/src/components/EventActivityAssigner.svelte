@@ -12,6 +12,7 @@
   let configDialogOpen = false
   let configActivity = null
   let configDraft = {}
+  let dragOver = ''
 
   const triggerId = () => trigger?.id || ''
 
@@ -72,6 +73,53 @@
     if (!id) return
     dispatch('unassign_activity', { trigger_id: id, activity_id: activityId, via })
   }
+
+  const handleDragStart = (event, activityId, source) => {
+    if (!event?.dataTransfer) return
+    const payload = JSON.stringify({ activity_id: activityId, source })
+    event.dataTransfer.setData('application/json', payload)
+    event.dataTransfer.setData('text/plain', payload)
+    event.dataTransfer.effectAllowed = 'move'
+  }
+
+  const parseDragPayload = (event) => {
+    const raw =
+      event?.dataTransfer?.getData('application/json') ||
+      event?.dataTransfer?.getData('text/plain')
+    if (!raw) return null
+    try {
+      const parsed = JSON.parse(raw)
+      return {
+        activityId: parsed.activity_id || parsed.activityId,
+        source: parsed.source || parsed.from || '',
+      }
+    } catch {
+      return { activityId: raw, source: '' }
+    }
+  }
+
+  const handleDrop = (event, target) => {
+    event.preventDefault()
+    const payload = parseDragPayload(event)
+    dragOver = ''
+    if (!payload?.activityId) return
+    const activityId = payload.activityId
+    if (target === 'assigned' && !boundIds.has(activityId)) {
+      assignActivity(activityId, 'dnd')
+    }
+    if (target === 'available' && boundIds.has(activityId)) {
+      unassignActivity(activityId, 'dnd')
+    }
+  }
+
+  const handleDragOver = (event, target) => {
+    event.preventDefault()
+    dragOver = target
+  }
+
+  const handleDragLeave = () => {
+    dragOver = ''
+  }
 </script>
 
 <section class="assigner">
@@ -79,7 +127,16 @@
     <div class="assigner-empty">Select a trigger to assign activities.</div>
   {:else}
     <div class="assigner-columns">
-      <div class="assigner-column">
+      <div
+        class="assigner-column"
+        class:assigner-column--dragover={dragOver === 'available'}
+        data-dropzone="available"
+        role="group"
+        aria-label="Available activities dropzone"
+        on:dragover={(event) => handleDragOver(event, 'available')}
+        on:dragleave={handleDragLeave}
+        on:drop={(event) => handleDrop(event, 'available')}
+      >
         <header>
           <h3>Available</h3>
           <p>Activities you can add.</p>
@@ -89,7 +146,13 @@
         {:else}
           <ul class="assigner-list">
             {#each availableActivities as def (def.id)}
-              <li class="assigner-card">
+              <li
+                class="assigner-card"
+                data-activity-id={def.id}
+                data-source="available"
+                draggable={!disabled}
+                on:dragstart={(event) => handleDragStart(event, def.id, 'available')}
+              >
                 <div>
                   <strong>{def.label}</strong>
                   {#if def.description}
@@ -111,7 +174,16 @@
         {/if}
       </div>
 
-      <div class="assigner-column">
+      <div
+        class="assigner-column"
+        class:assigner-column--dragover={dragOver === 'assigned'}
+        data-dropzone="assigned"
+        role="group"
+        aria-label="Assigned activities dropzone"
+        on:dragover={(event) => handleDragOver(event, 'assigned')}
+        on:dragleave={handleDragLeave}
+        on:drop={(event) => handleDrop(event, 'assigned')}
+      >
         <header>
           <h3>Assigned</h3>
           <p>Activities that will run on this trigger.</p>
@@ -121,7 +193,13 @@
         {:else}
           <ul class="assigner-list">
             {#each assignedActivities as item (item.def.id)}
-              <li class="assigner-card">
+              <li
+                class="assigner-card"
+                data-activity-id={item.def.id}
+                data-source="assigned"
+                draggable={!disabled}
+                on:dragstart={(event) => handleDragStart(event, item.def.id, 'assigned')}
+              >
                 <div>
                   <strong>{item.def.label}</strong>
                   {#if item.def.description}
@@ -252,6 +330,11 @@
     border-radius: 12px;
     border: 1px solid rgba(var(--color-text-rgb), 0.1);
     background: rgba(var(--color-surface-rgb), 0.85);
+  }
+
+  .assigner-column--dragover {
+    border-color: rgba(var(--color-accent-rgb), 0.6);
+    box-shadow: 0 0 0 1px rgba(var(--color-accent-rgb), 0.4);
   }
 
   .assigner-card strong {

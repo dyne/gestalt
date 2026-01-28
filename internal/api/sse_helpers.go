@@ -65,6 +65,13 @@ func serveSSEStream[T any](w http.ResponseWriter, r *http.Request, config sseStr
 		})
 		return
 	}
+	runSSEStream(r, writer, config)
+}
+
+func runSSEStream[T any](r *http.Request, writer *sseWriter, config sseStreamConfig[T]) {
+	if writer == nil || config.Output == nil {
+		return
+	}
 
 	retryInterval := config.RetryInterval
 	if retryInterval <= 0 {

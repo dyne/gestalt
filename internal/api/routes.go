@@ -80,6 +80,12 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 		Logger:    logger,
 		AuthToken: authToken,
 	}))
+	mux.Handle("/api/events/stream", securityHeadersMiddleware(cacheControlNoStore, &EventsSSEHandler{
+		Manager:   manager,
+		Bus:       eventBus,
+		Logger:    logger,
+		AuthToken: authToken,
+	}))
 	mux.Handle("/api/agents/events", securityHeadersMiddleware(cacheControlNoStore, &AgentEventsHandler{
 		Manager:   manager,
 		Logger:    logger,

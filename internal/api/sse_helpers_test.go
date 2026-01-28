@@ -3,6 +3,7 @@ package api
 import (
 	"bufio"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,7 +20,7 @@ func TestServeSSEStreamSendsPayloadAndCloses(t *testing.T) {
 	output := make(chan string, 1)
 	handlerDone := make(chan struct{})
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newSSETestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		serveSSEStream(w, r, sseStreamConfig[string]{
 			Output: output,
 			BuildPayload: func(value string) (any, bool) {
@@ -107,4 +108,19 @@ func readSSEFrame(reader *bufio.Reader) (sseFrame, error) {
 			continue
 		}
 	}
+}
+
+func newSSETestServer(t *testing.T, handler http.Handler) *httptest.Server {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("skipping sse test (listener unavailable): %v", err)
+	}
+	server := &httptest.Server{
+		Listener: listener,
+		Config:   &http.Server{Handler: handler},
+	}
+	server.Start()
+	return server
 }

@@ -30,7 +30,7 @@
         [
             "@semantic-release/exec",
             {
-                "prepareCmd": "make"
+                "prepareCmd": "make release"
             }
         ],
         [

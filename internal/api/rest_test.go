@@ -683,6 +683,9 @@ func TestTerminalHistoryEndpoint(t *testing.T) {
 	if !waitForOutput(created) {
 		t.Fatalf("expected output buffer to receive data")
 	}
+	if !waitForHistoryCursor(manager, created.ID, int64(len("hello\n")), 2*time.Second) {
+		t.Fatalf("expected history cursor to advance")
+	}
 
 	handler := &RestHandler{Manager: manager}
 	req := httptest.NewRequest(http.MethodGet, "/api/terminals/"+created.ID+"/history?lines=5", nil)
@@ -1587,6 +1590,21 @@ func waitForOutput(session *terminal.Session) bool {
 	deadline := time.Now().Add(200 * time.Millisecond)
 	for time.Now().Before(deadline) {
 		if len(session.OutputLines()) > 0 {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return false
+}
+
+func waitForHistoryCursor(manager *terminal.Manager, id string, min int64, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		cursor, err := manager.HistoryCursor(id)
+		if err != nil {
+			return false
+		}
+		if cursor != nil && *cursor >= min {
 			return true
 		}
 		time.Sleep(10 * time.Millisecond)

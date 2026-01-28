@@ -99,6 +99,9 @@ func readLastLines(path string, maxLines int) ([]string, error) {
 	}
 
 	lines := strings.Split(string(buffer), "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
 	return tailLines(lines, maxLines), nil
 }
 

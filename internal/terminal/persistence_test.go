@@ -73,7 +73,7 @@ func TestSessionLoggerPersistsSessionOutput(t *testing.T) {
 func TestReadLastLines(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "history.txt")
-	if err := os.WriteFile(path, []byte("alpha\nbeta\ngamma"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("alpha\nbeta\ngamma\n"), 0o644); err != nil {
 		t.Fatalf("write history file: %v", err)
 	}
 

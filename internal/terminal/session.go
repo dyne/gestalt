@@ -495,7 +495,7 @@ func (s *Session) HistoryLines(maxLines int) ([]string, error) {
 		}
 		return []string{}, err
 	}
-	return mergeHistoryLines(fileLines, bufferLines, maxLines), nil
+	return fileLines, nil
 }
 
 func (s *Session) LogPath() string {

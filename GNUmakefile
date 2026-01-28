@@ -28,6 +28,7 @@ gestalt-send: $(VERSION_INFO)
 	$(GO) build  -ldflags "$$VERSION_LDFLAGS" -o gestalt-send ./cmd/gestalt-send
 
 build-scip:
+	@npm i
 	@cd cmd/gestalt-scip && npm run build
 	@chmod +x cmd/gestalt-scip/bin/gestalt-scip
 	@cp cmd/gestalt-scip/bin/gestalt-scip .

@@ -16,13 +16,12 @@ import (
 )
 
 const (
-	maxOTelQueryLimit      = 1000
-	maxOTelLogBodyBytes    = 256 * 1024
-	maxOTelLogAttributes   = 100
-	maxOTelLogKeyLength    = 256
-	maxOTelLogValueLength  = 2048
-	otlpUILoggerName       = "gestalt/ui"
-	defaultLogReplayWindow = time.Hour
+	maxOTelQueryLimit     = 1000
+	maxOTelLogBodyBytes   = 256 * 1024
+	maxOTelLogAttributes  = 100
+	maxOTelLogKeyLength   = 256
+	maxOTelLogValueLength = 2048
+	otlpUILoggerName      = "gestalt/ui"
 )
 
 type otelLogQuery struct {
@@ -52,30 +51,10 @@ type otelMetricQuery struct {
 
 func (h *RestHandler) handleOTelLogs(w http.ResponseWriter, r *http.Request) *apiError {
 	switch r.Method {
-	case http.MethodGet:
-		query, apiErr := parseOTelLogQuery(r)
-		if apiErr != nil {
-			return apiErr
-		}
-		var records []map[string]any
-		if dataPath, ok := activeOTelDataPath(); ok {
-			readRecords, readErr := otel.ReadLogRecordsTail(dataPath)
-			if readErr != nil {
-				return &apiError{Status: http.StatusInternalServerError, Message: "failed to read otel logs"}
-			}
-			records = readRecords
-		} else if hub := otel.ActiveLogHub(); hub != nil {
-			records = hub.SnapshotSince(time.Now().Add(-defaultLogReplayWindow))
-		} else {
-			return &apiError{Status: http.StatusServiceUnavailable, Message: "otel logs unavailable"}
-		}
-		filtered := filterOTelLogRecords(records, query)
-		writeJSON(w, http.StatusOK, filtered)
-		return nil
 	case http.MethodPost:
 		return ingestOTelLogRecord(w, r)
 	default:
-		return methodNotAllowed(w, "GET, POST")
+		return methodNotAllowed(w, "POST")
 	}
 }
 

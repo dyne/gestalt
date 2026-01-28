@@ -263,7 +263,7 @@
   </section>
   <section class="view" data-active={activeView === 'flow'}>
     <svelte:boundary onerror={(error) => handleBoundaryError('flow', error)} failed={viewFailed}>
-      <FlowView onViewTerminal={handleSelect} temporalUiUrl={status?.temporal_ui_url || ''} />
+      <FlowView />
     </svelte:boundary>
   </section>
   <section class="view view--terminals" data-active={activeView === 'terminal'}>

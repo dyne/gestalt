@@ -1,30 +1,29 @@
-import { render, cleanup } from '@testing-library/svelte'
-import { describe, it, expect, afterEach, vi } from 'vitest'
-
-const apiFetch = vi.hoisted(() => vi.fn())
-const buildEventSourceUrl = vi.hoisted(() => vi.fn((path) => `http://test${path}`))
-
-vi.mock('../src/lib/api.js', () => ({
-  apiFetch,
-  buildEventSourceUrl,
-}))
+import { render, cleanup, fireEvent } from '@testing-library/svelte'
+import { describe, it, expect, afterEach } from 'vitest'
 
 import FlowView from '../src/views/FlowView.svelte'
 
 describe('FlowView', () => {
-  afterEach(() => {
-    apiFetch.mockReset()
-    cleanup()
-  })
+  afterEach(() => cleanup())
 
-  it('renders the flow view shell', async () => {
-    apiFetch.mockResolvedValueOnce({
-      json: vi.fn().mockResolvedValue([]),
-    })
+  it('filters triggers and updates the selected details', async () => {
+    const { getByLabelText, getByRole, queryByText, findAllByText, findByText } = render(FlowView)
 
-    const { findByText } = render(FlowView)
+    expect((await findAllByText('Workflow paused')).length).toBeGreaterThan(0)
+    expect(await findByText('File changed')).toBeTruthy()
 
-    expect(await findByText('Flow')).toBeTruthy()
-    expect(await findByText('Refresh')).toBeTruthy()
+    const input = getByLabelText('Search / filters')
+    await fireEvent.input(input, { target: { value: 'event_type:workflow_paused' } })
+
+    expect((await findAllByText('Workflow paused')).length).toBeGreaterThan(0)
+    expect(queryByText('File changed')).toBeNull()
+
+    await fireEvent.input(input, { target: { value: '' } })
+
+    const fileTrigger = await findByText('File changed')
+    await fireEvent.click(fileTrigger)
+
+    const heading = getByRole('heading', { level: 2, name: 'File changed' })
+    expect(heading).toBeTruthy()
   })
 })

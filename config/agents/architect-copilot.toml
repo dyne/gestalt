@@ -1,8 +1,8 @@
-name = "Architect"
+name = "Architect (Copilot)"
 shell = "copilot"
 cli_type = "copilot"
 prompt = ["architect"]
-skills = ["terminal-navigation"]
+skills = []
 llm_model = "claude-sonnet-4.5"
 model = "claude-sonnet-4.5" # gpt-5 | claude-sonnet-4.5 | claude-sonnet-4 | claude-haiku-4.5
 singleton = false

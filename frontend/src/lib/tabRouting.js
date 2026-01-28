@@ -3,7 +3,7 @@ import { formatTerminalLabel } from './terminalTabs.js'
 const HOME_TABS = [
   { id: 'dashboard', label: 'Dashboard', isHome: true },
   { id: 'plan', label: 'Plans', isHome: true },
-  { id: 'flow', label: 'Status', isHome: true },
+  { id: 'flow', label: 'Flow', isHome: true },
 ]
 
 const HOME_TAB_IDS = new Set(HOME_TABS.map((tab) => tab.id))

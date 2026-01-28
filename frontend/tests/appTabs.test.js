@@ -58,7 +58,7 @@ describe('App tab switching', () => {
     const { container, findByRole } = render(App)
 
     const planTab = await findByRole('button', { name: 'Plans' })
-    const statusTab = await findByRole('button', { name: 'Status' })
+    const flowTab = await findByRole('button', { name: 'Flow' })
     const terminalTab = await findByRole('button', { name: 'Shell' })
 
     await fireEvent.click(planTab)
@@ -68,7 +68,7 @@ describe('App tab switching', () => {
       expect(active?.textContent).toContain('Plans')
     })
 
-    await fireEvent.click(statusTab)
+    await fireEvent.click(flowTab)
     await waitFor(() => {
       const active = container.querySelector('section.view[data-active="true"]')
       expect(active).toBeTruthy()

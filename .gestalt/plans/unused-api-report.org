@@ -34,13 +34,13 @@
 - Update route metadata/docs to reflect POST-only semantics.
 - Ensure frontend only uses /api/otel/logs for POST ingest (clientLog).
 
-** WIP Risk notes
+** DONE Risk notes
 - Removing REST endpoints can break CLI/scripts or external integrations not represented in this repo.
-- OTel middleware route normalization may rely on removed routes; ensure metrics/telemetry labels stay stable.
-- Switching to WS + file tailing needs parity for filters (level/limit/query) or documented behavior changes.
-- Crash reporting currently posts to /api/otel/logs; ensure replacement path is reliable before removal.
+- OTel route normalization/labels should be rechecked for /api/skills now that only the list endpoint remains.
+- /api/otel/logs is POST-only; any GET consumers must use /ws/logs or file-based access instead.
+- Crash reporting relies on /api/otel/logs POST; keep it available to avoid losing UI crash logs.
 
-** TODO Tests/docs to update or remove
+** WIP Tests/docs to update or remove
 - internal/api/rest_test.go (covers /api/metrics, /api/events/debug, /api/terminals/:id/output, /api/skills/:name)
 - internal/api/rest_otel_test.go (covers /api/otel/logs)
 - internal/api/rest_fuzz_test.go (includes /api/terminals/:id/output)

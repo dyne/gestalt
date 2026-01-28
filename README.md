@@ -242,6 +242,24 @@ flowchart LR
 
 Learn more: https://docs.temporal.io/
 
+## Notify notary (gestalt-notify)
+
+Gestalt records notify events as Temporal signals (`session.notify`) so workflow history is an auditable log.
+Codex sessions inject a notifier hook automatically.
+
+Try it:
+1. Start Gestalt with Temporal enabled (default).
+2. Start a Codex agent session and grab its terminal id.
+3. Send a manual notify event:
+```
+gestalt-notify --terminal-id <terminal-id> --agent-id <agent-id> --event-type plan-L1-wip \
+  --payload '{"plan_file":".gestalt/plans/your-plan.org","heading":"Example","state":"wip","level":1}'
+```
+4. Verify the history includes a notify entry:
+```
+curl "http://localhost:57417/api/terminals/<terminal-id>/workflow/history"
+```
+
 ## Future handoff design (deferred)
 
 Handoff is planned for paused workflows so operators can delegate work to another agent without losing context.

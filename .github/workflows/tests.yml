@@ -1,4 +1,4 @@
-name: Tests
+name: 🧪 Tests
 
 on:
   pull_request:
@@ -10,6 +10,7 @@ on:
 
 jobs:
   test:
+    name: ⏳ Test
     runs-on: ubuntu-latest
     env:
       GO111MODULE: on
@@ -41,7 +42,8 @@ jobs:
           path: dist/*.tar.gz
 
   test-cross-platform:
-    name: Testing cli on (${{ matrix.goos }} / ${{ matrix.goarch }})
+    name: 🚸 Testing cli on (${{ matrix.goos }} / ${{ matrix.goarch }})
+    needs: test
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

@@ -409,6 +409,7 @@ Outputs land in `dist/` as:
 - `gestalt-<os>-<arch>` (adds `.exe` on Windows)
 - `gestalt-send-<os>-<arch>` (adds `.exe` on Windows)
 - `gestalt-scip-<os>-<arch>` (plus a `.cmd` wrapper on Windows)
+- `gestalt-<os>-<arch>.tar.gz` (contains the matching artifacts above)
 
 ## Upgrading Gestalt
 

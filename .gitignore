@@ -16,3 +16,6 @@ otel/ocb
 otel/otelcol-gestalt
 otel/go.*
 otel/*.go
+gestalt
+gestalt-scip
+gestalt-send

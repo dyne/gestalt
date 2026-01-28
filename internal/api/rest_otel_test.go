@@ -27,7 +27,7 @@ func TestHandleOTelLogsRejectsGet(t *testing.T) {
 
 func TestHandleOTelLogsRejectsGetWithAllowHeader(t *testing.T) {
 	rest := &RestHandler{}
-	handler := restHandler("", rest.handleOTelLogs)
+	handler := restHandler("", nil, rest.handleOTelLogs)
 	req := httptest.NewRequest(http.MethodGet, "/api/otel/logs", nil)
 	resp := httptest.NewRecorder()
 	handler(resp, req)

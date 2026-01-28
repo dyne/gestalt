@@ -99,3 +99,44 @@ func TestSecurityHeadersOnSPAAssets(t *testing.T) {
 		t.Fatalf("expected plain asset Cache-Control %q, got %q", cacheControlNoCache, got)
 	}
 }
+
+func TestJSONErrorMiddlewareLogsAPIError(t *testing.T) {
+	buffer := logging.NewLogBuffer(10)
+	logger := logging.NewLoggerWithOutput(buffer, logging.LevelDebug, io.Discard)
+
+	handler := jsonErrorMiddleware(logger, func(w http.ResponseWriter, r *http.Request) *apiError {
+		return &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/terminals/123/notify", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+
+	entries := buffer.List()
+	if len(entries) == 0 {
+		t.Fatalf("expected log entries")
+	}
+	found := false
+	for _, entry := range entries {
+		if entry.Message != "api error" {
+			continue
+		}
+		found = true
+		if entry.Level != logging.LevelWarning {
+			t.Fatalf("expected warning level, got %s", entry.Level)
+		}
+		if entry.Context["error"] != "terminal not found" {
+			t.Fatalf("expected error field, got %q", entry.Context["error"])
+		}
+		if entry.Context["http.route"] != "/api/terminals/123/notify" {
+			t.Fatalf("expected http.route /api/terminals/123/notify, got %q", entry.Context["http.route"])
+		}
+		if entry.Context["status"] != "404" {
+			t.Fatalf("expected status 404, got %q", entry.Context["status"])
+		}
+		break
+	}
+	if !found {
+		t.Fatalf("expected api error log entry")
+	}
+}

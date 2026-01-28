@@ -711,7 +711,7 @@ func fetchHistoryWithCursor(t *testing.T, handler *RestHandler, id string, lines
 		req.Header.Set("Authorization", "Bearer secret")
 		res := httptest.NewRecorder()
 
-		restHandler("secret", handler.handleTerminal)(res, req)
+		restHandler("secret", nil, handler.handleTerminal)(res, req)
 		if res.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d", res.Code)
 		}

@@ -232,7 +232,7 @@ func TestStatusHandlerRequiresAuth(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleStatus)(res, req)
+	restHandler("secret", nil, handler.handleStatus)(res, req)
 	if res.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", res.Code)
 	}
@@ -257,7 +257,7 @@ func TestStatusHandlerReturnsCount(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleStatus)(res, req)
+	restHandler("secret", nil, handler.handleStatus)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -307,7 +307,7 @@ func TestStatusHandlerIncludesTemporalURL(t *testing.T) {
 	req.Header.Set("X-Forwarded-Proto", "https")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleStatus)(res, req)
+	restHandler("secret", nil, handler.handleStatus)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -366,7 +366,7 @@ func TestWorkflowsEndpointReturnsSummary(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/workflows", nil)
 	res := httptest.NewRecorder()
 
-	restHandler("", handler.handleWorkflows)(res, req)
+	restHandler("", nil, handler.handleWorkflows)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -438,7 +438,7 @@ func TestTerminalWorkflowResumeEndpoint(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/terminals/"+created.ID+"/workflow/resume", strings.NewReader(`{"action":"continue"}`))
 	res := httptest.NewRecorder()
 
-	restHandler("", handler.handleTerminal)(res, req)
+	restHandler("", nil, handler.handleTerminal)(res, req)
 	if res.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", res.Code)
 	}
@@ -473,7 +473,7 @@ func TestTerminalWorkflowResumeEndpointMissingWorkflow(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/terminals/"+created.ID+"/workflow/resume", strings.NewReader(`{"action":"continue"}`))
 	res := httptest.NewRecorder()
 
-	restHandler("", handler.handleTerminal)(res, req)
+	restHandler("", nil, handler.handleTerminal)(res, req)
 	if res.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d", res.Code)
 	}
@@ -508,7 +508,7 @@ func TestTerminalNotifyEndpoint(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/terminals/"+created.ID+"/notify", strings.NewReader(body))
 	res := httptest.NewRecorder()
 
-	restHandler("", handler.handleTerminal)(res, req)
+	restHandler("", nil, handler.handleTerminal)(res, req)
 	if res.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", res.Code)
 	}
@@ -556,7 +556,7 @@ func TestTerminalNotifyEndpointMissingTerminal(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/terminals/missing/notify", strings.NewReader(`{"terminal_id":"missing","agent_id":"codex","source":"manual","event_type":"plan-L1-wip"}`))
 	res := httptest.NewRecorder()
 
-	restHandler("", handler.handleTerminal)(res, req)
+	restHandler("", nil, handler.handleTerminal)(res, req)
 	if res.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", res.Code)
 	}
@@ -584,7 +584,7 @@ func TestTerminalNotifyEndpointMissingWorkflow(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/terminals/"+created.ID+"/notify", strings.NewReader(body))
 	res := httptest.NewRecorder()
 
-	restHandler("", handler.handleTerminal)(res, req)
+	restHandler("", nil, handler.handleTerminal)(res, req)
 	if res.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d", res.Code)
 	}
@@ -618,7 +618,7 @@ func TestTerminalNotifyEndpointBadJSON(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/terminals/"+created.ID+"/notify", strings.NewReader("{"))
 	res := httptest.NewRecorder()
 
-	restHandler("", handler.handleTerminal)(res, req)
+	restHandler("", nil, handler.handleTerminal)(res, req)
 	if res.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", res.Code)
 	}
@@ -723,7 +723,7 @@ func TestTerminalWorkflowHistoryEndpoint(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/terminals/"+created.ID+"/workflow/history", nil)
 	res := httptest.NewRecorder()
 
-	restHandler("", handler.handleTerminal)(res, req)
+	restHandler("", nil, handler.handleTerminal)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -768,7 +768,7 @@ func TestStatusHandlerIncludesGitInfo(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleStatus)(res, req)
+	restHandler("secret", nil, handler.handleStatus)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -815,7 +815,7 @@ func TestTerminalOutputEndpoint(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminal)(res, req)
+	restHandler("secret", nil, handler.handleTerminal)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -864,7 +864,7 @@ func TestTerminalHistoryEndpoint(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminal)(res, req)
+	restHandler("secret", nil, handler.handleTerminal)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -919,7 +919,7 @@ func TestTerminalHistoryPagination(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminal)(res, req)
+	restHandler("secret", nil, handler.handleTerminal)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -938,7 +938,7 @@ func TestTerminalHistoryPagination(t *testing.T) {
 	req = httptest.NewRequest(http.MethodGet, "/api/terminals/"+created.ID+"/history?lines=2&before_cursor="+strconv.FormatInt(*page.Cursor, 10), nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	res = httptest.NewRecorder()
-	restHandler("secret", handler.handleTerminal)(res, req)
+	restHandler("secret", nil, handler.handleTerminal)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -957,7 +957,7 @@ func TestTerminalHistoryPagination(t *testing.T) {
 	req = httptest.NewRequest(http.MethodGet, "/api/terminals/"+created.ID+"/history?lines=2&before_cursor="+strconv.FormatInt(*pageWithCursor.Cursor, 10), nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	res = httptest.NewRecorder()
-	restHandler("secret", handler.handleTerminal)(res, req)
+	restHandler("secret", nil, handler.handleTerminal)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -993,7 +993,7 @@ func TestTerminalInputHistoryEndpoint(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminal)(res, req)
+	restHandler("secret", nil, handler.handleTerminal)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -1033,7 +1033,7 @@ func TestTerminalInputHistoryPostEndpoint(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminal)(res, req)
+	restHandler("secret", nil, handler.handleTerminal)(res, req)
 	if res.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", res.Code)
 	}
@@ -1046,7 +1046,7 @@ func TestTerminalInputHistoryPostEndpoint(t *testing.T) {
 	getReq.Header.Set("Authorization", "Bearer secret")
 	getRes := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminal)(getRes, getReq)
+	restHandler("secret", nil, handler.handleTerminal)(getRes, getReq)
 	if getRes.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", getRes.Code)
 	}
@@ -1072,7 +1072,7 @@ func TestCreateTerminalWithoutAgent(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminals)(res, req)
+	restHandler("secret", nil, handler.handleTerminals)(res, req)
 	if res.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", res.Code)
 	}
@@ -1119,7 +1119,7 @@ func TestCreateTerminalWorkflowFlag(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminals)(res, req)
+	restHandler("secret", nil, handler.handleTerminals)(res, req)
 	if res.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", res.Code)
 	}
@@ -1150,7 +1150,7 @@ func TestCreateTerminalWorkflowFlag(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res = httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminals)(res, req)
+	restHandler("secret", nil, handler.handleTerminals)(res, req)
 	if res.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", res.Code)
 	}
@@ -1174,7 +1174,7 @@ func TestCreateTerminalWorkflowFlag(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res = httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminals)(res, req)
+	restHandler("secret", nil, handler.handleTerminals)(res, req)
 	if res.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", res.Code)
 	}
@@ -1225,7 +1225,7 @@ func TestCreateTerminalWithAgent(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminals)(res, req)
+	restHandler("secret", nil, handler.handleTerminals)(res, req)
 	if res.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", res.Code)
 	}
@@ -1287,7 +1287,7 @@ func TestCreateTerminalUsesAgentWorkflowDefault(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminals)(res, req)
+	restHandler("secret", nil, handler.handleTerminals)(res, req)
 	if res.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", res.Code)
 	}
@@ -1338,7 +1338,7 @@ func TestCreateTerminalDuplicateAgent(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminals)(res, req)
+	restHandler("secret", nil, handler.handleTerminals)(res, req)
 	if res.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", res.Code)
 	}
@@ -1358,7 +1358,7 @@ func TestCreateTerminalDuplicateAgent(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res = httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminals)(res, req)
+	restHandler("secret", nil, handler.handleTerminals)(res, req)
 	if res.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d", res.Code)
 	}
@@ -1411,7 +1411,7 @@ func TestListTerminalsIncludesLLMMetadata(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminals)(res, req)
+	restHandler("secret", nil, handler.handleTerminals)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -1460,7 +1460,7 @@ func TestListTerminalsIncludesPromptFiles(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminals)(res, req)
+	restHandler("secret", nil, handler.handleTerminals)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -1523,7 +1523,7 @@ func TestAgentsEndpoint(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleAgents)(res, req)
+	restHandler("secret", nil, handler.handleAgents)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -1593,7 +1593,7 @@ func TestAgentInputEndpoint(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleAgentInput)(res, req)
+	restHandler("secret", nil, handler.handleAgentInput)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -1633,7 +1633,7 @@ func TestSkillsEndpoint(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleSkills)(res, req)
+	restHandler("secret", nil, handler.handleSkills)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -1691,7 +1691,7 @@ func TestSkillsEndpointFiltersByAgent(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleSkills)(res, req)
+	restHandler("secret", nil, handler.handleSkills)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -1712,7 +1712,7 @@ func TestSkillsEndpointUnknownAgent(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleSkills)(res, req)
+	restHandler("secret", nil, handler.handleSkills)(res, req)
 	if res.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", res.Code)
 	}
@@ -1733,7 +1733,7 @@ func TestPlansEndpointReturnsEmptyList(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/plans", nil)
 	res := httptest.NewRecorder()
 
-	restHandler("", handler.handlePlansList)(res, req)
+	restHandler("", nil, handler.handlePlansList)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -1786,7 +1786,7 @@ func TestPlansEndpointReturnsSortedPlans(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/plans", nil)
 	res := httptest.NewRecorder()
 
-	restHandler("", handler.handlePlansList)(res, req)
+	restHandler("", nil, handler.handlePlansList)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -1830,7 +1830,7 @@ func TestTerminalBellEndpointReturnsNoContent(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/terminals/"+created.ID+"/bell", nil)
 	res := httptest.NewRecorder()
 
-	restHandler("", handler.handleTerminal)(res, req)
+	restHandler("", nil, handler.handleTerminal)(res, req)
 	if res.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", res.Code)
 	}
@@ -1842,7 +1842,7 @@ func TestTerminalBellEndpointMissingSession(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/terminals/unknown/bell", nil)
 	res := httptest.NewRecorder()
 
-	restHandler("", handler.handleTerminal)(res, req)
+	restHandler("", nil, handler.handleTerminal)(res, req)
 	if res.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", res.Code)
 	}

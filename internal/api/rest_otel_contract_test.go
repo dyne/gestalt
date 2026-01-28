@@ -18,7 +18,7 @@ func TestHandleOTelLogsAcceptsUIFixture(t *testing.T) {
 	}
 
 	rest := &RestHandler{}
-	handler := restHandler("", rest.handleOTelLogs)
+	handler := restHandler("", nil, rest.handleOTelLogs)
 	req := httptest.NewRequest(http.MethodPost, "/api/otel/logs", bytes.NewReader(body))
 	resp := httptest.NewRecorder()
 	handler(resp, req)

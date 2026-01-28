@@ -84,7 +84,7 @@ func TestAgentSendInputEndpoint(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleAgentSendInput)(res, req)
+	restHandler("secret", nil, handler.handleAgentSendInput)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}

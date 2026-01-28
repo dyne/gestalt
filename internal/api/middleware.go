@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strconv"
 
 	"gestalt/internal/logging"
 	"gestalt/internal/otel"
@@ -61,7 +62,7 @@ func authMiddleware(token string, next apiHandler) apiHandler {
 	}
 }
 
-func jsonErrorMiddleware(next apiHandler) http.HandlerFunc {
+func jsonErrorMiddleware(logger *logging.Logger, next apiHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := next(w, r); err != nil {
 			code := err.Code
@@ -73,6 +74,27 @@ func jsonErrorMiddleware(next apiHandler) http.HandlerFunc {
 				Code:    code,
 				Message: err.Message,
 			})
+			if logger != nil {
+				fields := map[string]string{
+					"gestalt.category": "api",
+					"gestalt.source":   "backend",
+					"http.route":       r.URL.Path,
+					"method":           r.Method,
+					"status":           strconv.Itoa(err.Status),
+					"code":             code,
+				}
+				if err.Message != "" {
+					fields["error"] = err.Message
+				}
+				if err.TerminalID != "" {
+					fields["terminal_id"] = err.TerminalID
+				}
+				if err.Status >= http.StatusInternalServerError {
+					logger.Error("api error", fields)
+				} else {
+					logger.Warn("api error", fields)
+				}
+			}
 			writeJSONError(w, err)
 		}
 	}
@@ -98,6 +120,6 @@ func methodNotAllowed(w http.ResponseWriter, allow string) *apiError {
 	return &apiError{Status: http.StatusMethodNotAllowed, Message: "method not allowed"}
 }
 
-func restHandler(token string, handler apiHandler) http.HandlerFunc {
-	return securityHeadersHandler(cacheControlNoStore, jsonErrorMiddleware(authMiddleware(token, handler)))
+func restHandler(token string, logger *logging.Logger, handler apiHandler) http.HandlerFunc {
+	return securityHeadersHandler(cacheControlNoStore, jsonErrorMiddleware(logger, authMiddleware(token, handler)))
 }

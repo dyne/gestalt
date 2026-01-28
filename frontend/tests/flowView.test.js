@@ -1,12 +1,50 @@
 import { render, cleanup, fireEvent } from '@testing-library/svelte'
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
+
+const fetchFlowActivities = vi.hoisted(() => vi.fn())
+const fetchFlowConfig = vi.hoisted(() => vi.fn())
+const saveFlowConfig = vi.hoisted(() => vi.fn())
+
+vi.mock('../src/lib/apiClient.js', () => ({
+  fetchFlowActivities,
+  fetchFlowConfig,
+  saveFlowConfig,
+}))
 
 import FlowView from '../src/views/FlowView.svelte'
 
 describe('FlowView', () => {
-  afterEach(() => cleanup())
+  afterEach(() => {
+    cleanup()
+    fetchFlowActivities.mockReset()
+    fetchFlowConfig.mockReset()
+    saveFlowConfig.mockReset()
+  })
 
   it('filters triggers and updates the selected details', async () => {
+    fetchFlowActivities.mockResolvedValue([{ id: 'toast_notification', label: 'Toast', fields: [] }])
+    fetchFlowConfig.mockResolvedValue({
+      config: {
+        version: 1,
+        triggers: [
+          {
+            id: 'workflow-paused',
+            label: 'Workflow paused',
+            event_type: 'workflow_paused',
+            where: { terminal_id: 't1', agent_name: 'Codex' },
+          },
+          {
+            id: 'file-changed',
+            label: 'File changed',
+            event_type: 'file_changed',
+            where: { path: 'README.md' },
+          },
+        ],
+        bindings_by_trigger_id: {},
+      },
+      temporalStatus: { enabled: true },
+    })
+
     const { getByLabelText, getByRole, queryByText, findAllByText, findByText } = render(FlowView)
 
     expect((await findAllByText('Workflow paused')).length).toBeGreaterThan(0)
@@ -27,8 +65,48 @@ describe('FlowView', () => {
     expect(heading).toBeTruthy()
   })
 
-  it('creates a trigger and selects it', async () => {
+  it('creates a trigger and saves it', async () => {
+    fetchFlowActivities.mockResolvedValue([{ id: 'toast_notification', label: 'Toast', fields: [] }])
+    fetchFlowConfig.mockResolvedValue({
+      config: {
+        version: 1,
+        triggers: [
+          {
+            id: 'workflow-paused',
+            label: 'Workflow paused',
+            event_type: 'workflow_paused',
+            where: { terminal_id: 't1' },
+          },
+        ],
+        bindings_by_trigger_id: {},
+      },
+      temporalStatus: { enabled: true },
+    })
+    saveFlowConfig.mockResolvedValue({
+      config: {
+        version: 1,
+        triggers: [
+          {
+            id: 'workflow-paused',
+            label: 'Workflow paused',
+            event_type: 'workflow_paused',
+            where: { terminal_id: 't1' },
+          },
+          {
+            id: 'new-trigger',
+            label: 'New trigger',
+            event_type: 'workflow_completed',
+            where: { terminal_id: 't9' },
+          },
+        ],
+        bindings_by_trigger_id: {},
+      },
+      temporalStatus: { enabled: true },
+    })
+
     const { getByRole, getByLabelText, findAllByText } = render(FlowView)
+
+    await findAllByText('Workflow paused')
 
     await fireEvent.click(getByRole('button', { name: 'Add trigger' }))
 
@@ -40,5 +118,12 @@ describe('FlowView', () => {
 
     expect((await findAllByText('New trigger')).length).toBeGreaterThan(0)
     expect(getByRole('heading', { level: 2, name: 'New trigger' })).toBeTruthy()
+
+    await fireEvent.click(getByRole('button', { name: 'Save changes' }))
+
+    expect(saveFlowConfig).toHaveBeenCalledTimes(1)
+    expect(saveFlowConfig.mock.calls[0][0].triggers.some((trigger) => trigger.label === 'New trigger')).toBe(
+      true,
+    )
   })
 })

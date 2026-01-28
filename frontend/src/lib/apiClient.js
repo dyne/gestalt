@@ -67,6 +67,76 @@ const normalizeWorkflow = (workflow, index) => {
   return { ...workflow, session_id: String(workflow.session_id) }
 }
 
+const normalizeFlowActivityField = (field) => {
+  if (!field || typeof field !== 'object') return null
+  const key = field?.key ? String(field.key) : ''
+  if (!key) return null
+  return {
+    ...field,
+    key,
+    label: field?.label ? String(field.label) : key,
+    type: field?.type ? String(field.type) : 'string',
+    required: Boolean(field?.required),
+  }
+}
+
+const normalizeFlowActivityDef = (def) => {
+  if (!def || typeof def !== 'object') return null
+  const id = def?.id ? String(def.id) : ''
+  if (!id) return null
+  return {
+    ...def,
+    id,
+    label: def?.label ? String(def.label) : id,
+    description: def?.description ? String(def.description) : '',
+    fields: normalizeArray(def.fields, normalizeFlowActivityField),
+  }
+}
+
+const normalizeFlowTrigger = (trigger) => {
+  if (!trigger || typeof trigger !== 'object') return null
+  const id = trigger?.id ? String(trigger.id) : ''
+  if (!id) return null
+  return {
+    ...trigger,
+    id,
+    label: trigger?.label ? String(trigger.label) : id,
+    event_type: trigger?.event_type ? String(trigger.event_type) : '',
+    where: normalizeObject(trigger.where),
+  }
+}
+
+const normalizeFlowBinding = (binding) => {
+  if (!binding || typeof binding !== 'object') return null
+  const activityId = binding?.activity_id ? String(binding.activity_id) : ''
+  if (!activityId) return null
+  return {
+    ...binding,
+    activity_id: activityId,
+    config: normalizeObject(binding.config),
+  }
+}
+
+const normalizeFlowConfigPayload = (payload) => {
+  const config = normalizeObject(payload)
+  const triggers = normalizeArray(config.triggers, normalizeFlowTrigger)
+  const bindings = normalizeObject(config.bindings_by_trigger_id)
+  const normalizedBindings = {}
+  Object.entries(bindings).forEach(([triggerId, list]) => {
+    const id = String(triggerId || '')
+    if (!id) return
+    normalizedBindings[id] = normalizeArray(list, normalizeFlowBinding)
+  })
+  return {
+    config: {
+      version: Number.isFinite(Number(config.version)) ? Number(config.version) : 1,
+      triggers,
+      bindings_by_trigger_id: normalizedBindings,
+    },
+    temporalStatus: normalizeObject(config.temporal_status),
+  }
+}
+
 export const fetchStatus = async () => {
   const response = await apiFetch('/api/status')
   const payload = await response.json()
@@ -166,4 +236,25 @@ export const fetchWorkflowHistory = async (terminalId) => {
   const response = await apiFetch(`/api/terminals/${terminalId}/workflow/history`)
   const payload = await response.json()
   return normalizeArray(payload, (entry) => entry)
+}
+
+export const fetchFlowActivities = async () => {
+  const response = await apiFetch('/api/flow/activities')
+  const payload = await response.json()
+  return normalizeArray(payload, normalizeFlowActivityDef)
+}
+
+export const fetchFlowConfig = async () => {
+  const response = await apiFetch('/api/flow/config')
+  const payload = await response.json()
+  return normalizeFlowConfigPayload(payload)
+}
+
+export const saveFlowConfig = async (config) => {
+  const response = await apiFetch('/api/flow/config', {
+    method: 'PUT',
+    body: JSON.stringify(config || {}),
+  })
+  const payload = await response.json()
+  return normalizeFlowConfigPayload(payload)
 }

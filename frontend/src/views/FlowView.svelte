@@ -1,26 +1,9 @@
 <script>
+  import { onMount } from 'svelte'
+  import EventActivityAssigner from '../components/EventActivityAssigner.svelte'
+  import { flowConfigStore } from '../lib/flowConfigStore.js'
   import { parseEventFilterQuery, matchesEventTrigger } from '../lib/eventFilterQuery.js'
 
-  const seedTriggers = [
-    {
-      id: 'workflow-paused',
-      label: 'Workflow paused',
-      event_type: 'workflow_paused',
-      where: { terminal_id: 't1', agent_name: 'Codex' },
-    },
-    {
-      id: 'file-changed',
-      label: 'File changed',
-      event_type: 'file_changed',
-      where: { path: 'README.md' },
-    },
-    {
-      id: 'terminal-resized',
-      label: 'Terminal resized',
-      event_type: 'terminal_resized',
-      where: { terminal_id: 't2' },
-    },
-  ]
   const eventTypeOptions = [
     'workflow_paused',
     'workflow_started',
@@ -31,8 +14,7 @@
   ]
 
   let query = ''
-  let triggers = seedTriggers
-  let selectedTriggerId = triggers[0]?.id || ''
+  let selectedTriggerId = ''
   let dialogRef = null
   let dialogMode = 'create'
   let dialogOpen = false
@@ -40,6 +22,16 @@
   let draftLabel = ''
   let draftEventType = eventTypeOptions[0]
   let draftWhere = ''
+
+  onMount(() => {
+    flowConfigStore.load()
+  })
+
+  $: flowState = $flowConfigStore
+  $: triggers = flowState?.config?.triggers || []
+  $: bindingsByTriggerId = flowState?.config?.bindings_by_trigger_id || {}
+  $: activityDefs = flowState?.activities || []
+  $: isBusy = Boolean(flowState?.loading || flowState?.saving)
 
   $: parsed = parseEventFilterQuery(query)
   $: filteredTriggers = triggers.filter((trigger) => matchesEventTrigger(trigger, parsed))
@@ -49,6 +41,7 @@
     selectedTriggerId = filteredTriggers[0].id
   }
   $: selectedTrigger = filteredTriggers.find((trigger) => trigger.id === selectedTriggerId) || null
+  $: selectedBindings = selectedTrigger ? bindingsByTriggerId[selectedTrigger.id] || [] : []
   $: selectedWhereEntries = selectedTrigger ? Object.entries(selectedTrigger.where || {}) : []
 
   const selectTrigger = (id) => {
@@ -131,19 +124,85 @@
     }
     const where = parseWhereText(draftWhere)
     if (dialogMode === 'edit' && selectedTrigger) {
-      triggers = triggers.map((trigger) =>
-        trigger.id === selectedTrigger.id
-          ? { ...trigger, label, event_type: draftEventType, where }
-          : trigger,
-      )
+      flowConfigStore.updateConfig((config) => ({
+        ...config,
+        triggers: (config.triggers || []).map((trigger) =>
+          trigger.id === selectedTrigger.id
+            ? { ...trigger, label, event_type: draftEventType, where }
+            : trigger,
+        ),
+      }))
       selectedTriggerId = selectedTrigger.id
       closeDialog()
       return
     }
     const id = buildTriggerId(label)
-    triggers = [...triggers, { id, label, event_type: draftEventType, where }]
+    flowConfigStore.updateConfig((config) => {
+      const bindingsByTrigger = { ...(config.bindings_by_trigger_id || {}) }
+      if (!bindingsByTrigger[id]) {
+        bindingsByTrigger[id] = []
+      }
+      return {
+        ...config,
+        triggers: [...(config.triggers || []), { id, label, event_type: draftEventType, where }],
+        bindings_by_trigger_id: bindingsByTrigger,
+      }
+    })
     selectedTriggerId = id
     closeDialog()
+  }
+
+  const saveChanges = () => {
+    flowConfigStore.save()
+  }
+
+  const handleAssign = (event) => {
+    const { trigger_id, activity_id } = event.detail || {}
+    if (!trigger_id || !activity_id) return
+    flowConfigStore.updateConfig((config) => {
+      const bindingsByTrigger = { ...(config.bindings_by_trigger_id || {}) }
+      const current = Array.isArray(bindingsByTrigger[trigger_id])
+        ? bindingsByTrigger[trigger_id]
+        : []
+      if (current.some((binding) => binding.activity_id === activity_id)) {
+        return config
+      }
+      bindingsByTrigger[trigger_id] = [
+        ...current,
+        { activity_id, config: {} },
+      ]
+      return { ...config, bindings_by_trigger_id: bindingsByTrigger }
+    })
+  }
+
+  const handleUnassign = (event) => {
+    const { trigger_id, activity_id } = event.detail || {}
+    if (!trigger_id || !activity_id) return
+    flowConfigStore.updateConfig((config) => {
+      const bindingsByTrigger = { ...(config.bindings_by_trigger_id || {}) }
+      const current = Array.isArray(bindingsByTrigger[trigger_id])
+        ? bindingsByTrigger[trigger_id]
+        : []
+      bindingsByTrigger[trigger_id] = current.filter(
+        (binding) => binding.activity_id !== activity_id,
+      )
+      return { ...config, bindings_by_trigger_id: bindingsByTrigger }
+    })
+  }
+
+  const handleConfigUpdate = (event) => {
+    const { trigger_id, activity_id, config } = event.detail || {}
+    if (!trigger_id || !activity_id) return
+    flowConfigStore.updateConfig((current) => {
+      const bindingsByTrigger = { ...(current.bindings_by_trigger_id || {}) }
+      const list = Array.isArray(bindingsByTrigger[trigger_id])
+        ? bindingsByTrigger[trigger_id]
+        : []
+      bindingsByTrigger[trigger_id] = list.map((binding) =>
+        binding.activity_id === activity_id ? { ...binding, config: config || {} } : binding,
+      )
+      return { ...current, bindings_by_trigger_id: bindingsByTrigger }
+    })
   }
 
   const removeToken = (raw) => {
@@ -161,13 +220,40 @@
       <p class="eyebrow">Event-driven automations</p>
       <h1>Flow</h1>
     </div>
+    <div class="flow-actions">
+      {#if flowState?.dirty}
+        <span class="flow-status">Unsaved changes</span>
+      {/if}
+      <button
+        class="rail-button"
+        type="button"
+        on:click={saveChanges}
+        disabled={!flowState?.dirty || isBusy}
+      >
+        {flowState?.saving ? 'Saving...' : 'Save changes'}
+      </button>
+    </div>
   </header>
+
+  {#if flowState?.error}
+    <div class="flow-alert flow-alert--error">{flowState.error}</div>
+  {/if}
+  {#if flowState?.saveError}
+    <div class="flow-alert flow-alert--error">{flowState.saveError}</div>
+  {/if}
+  {#if flowState?.temporalStatus && !flowState.temporalStatus.enabled}
+    <div class="flow-alert flow-alert--warning">
+      Temporal is unavailable; Flow automations will not run.
+    </div>
+  {/if}
 
   <div class="flow-view__body">
     <aside class="flow-rail">
       <div class="rail-header">
         <label class="field-label" for="flow-query">Search / filters</label>
-        <button class="rail-button" type="button" on:click={openCreateDialog}>Add trigger</button>
+        <button class="rail-button" type="button" on:click={openCreateDialog} disabled={isBusy}>
+          Add trigger
+        </button>
       </div>
       <input
         id="flow-query"
@@ -175,6 +261,7 @@
         type="text"
         placeholder="Search / filters"
         bind:value={query}
+        disabled={flowState?.loading}
       />
       <p class="field-hint">Try `event_type:workflow_paused terminal_id:t1`</p>
       {#if parsed.tokens.length > 0}
@@ -189,7 +276,9 @@
       {/if}
 
       <div class="trigger-list">
-        {#if filteredTriggers.length === 0}
+        {#if flowState?.loading && triggers.length === 0}
+          <p class="empty-state">Loading triggers...</p>
+        {:else if filteredTriggers.length === 0}
           <p class="empty-state">No triggers match this query.</p>
         {:else}
           {#each filteredTriggers as trigger (trigger.id)}
@@ -217,7 +306,12 @@
         <div class="flow-detail">
           <div class="detail-header">
             <p class="eyebrow">Selected trigger</p>
-            <button class="rail-button rail-button--ghost" type="button" on:click={openEditDialog}>
+            <button
+              class="rail-button rail-button--ghost"
+              type="button"
+              on:click={openEditDialog}
+              disabled={isBusy}
+            >
               Edit trigger
             </button>
           </div>
@@ -237,13 +331,19 @@
               {/each}
             {/if}
           </div>
-          <div class="flow-placeholder">
-            <p>Activity assignments will appear here.</p>
-          </div>
+          <EventActivityAssigner
+            {activityDefs}
+            trigger={selectedTrigger}
+            bindings={selectedBindings}
+            disabled={isBusy}
+            on:assign_activity={handleAssign}
+            on:unassign_activity={handleUnassign}
+            on:update_activity_config={handleConfigUpdate}
+          />
         </div>
       {:else}
         <div class="flow-empty">
-          <p>Select a trigger to configure activities.</p>
+          <p>{flowState?.loading ? 'Loading Flow configuration...' : 'Select a trigger to configure activities.'}</p>
         </div>
       {/if}
     </section>
@@ -302,6 +402,37 @@
     justify-content: space-between;
     align-items: flex-end;
     gap: 1.5rem;
+  }
+
+  .flow-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .flow-status {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+  }
+
+  .flow-alert {
+    border-radius: 12px;
+    padding: 0.75rem 1rem;
+    font-size: 0.85rem;
+    border: 1px solid rgba(var(--color-text-rgb), 0.2);
+    background: rgba(var(--color-surface-rgb), 0.6);
+  }
+
+  .flow-alert--error {
+    border-color: rgba(var(--color-danger-rgb), 0.4);
+    color: var(--color-danger);
+    background: rgba(var(--color-danger-rgb), 0.08);
+  }
+
+  .flow-alert--warning {
+    border-color: rgba(var(--color-warning-rgb), 0.45);
+    color: var(--color-warning);
+    background: rgba(var(--color-warning-rgb), 0.1);
   }
 
   .eyebrow {
@@ -520,14 +651,6 @@
     font-size: 0.85rem;
     color: var(--color-text);
     font-family: var(--font-mono);
-  }
-
-  .flow-placeholder {
-    padding: 1rem;
-    border-radius: 14px;
-    border: 1px dashed rgba(var(--color-text-rgb), 0.2);
-    color: var(--color-text-muted);
-    font-size: 0.85rem;
   }
 
   .flow-dialog {

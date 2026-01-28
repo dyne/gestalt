@@ -12,6 +12,8 @@ import {
   createTerminal,
   fetchAgentSkills,
   fetchAgents,
+  fetchFlowActivities,
+  fetchFlowConfig,
   fetchLogs,
   fetchMetricsSummary,
   fetchPlansList,
@@ -19,6 +21,7 @@ import {
   fetchTerminals,
   fetchWorkflowHistory,
   fetchWorkflows,
+  saveFlowConfig,
 } from '../src/lib/apiClient.js'
 
 describe('apiClient', () => {
@@ -130,6 +133,51 @@ describe('apiClient', () => {
     const result = await fetchWorkflowHistory('abc')
 
     expect(result).toEqual([{ type: 'bell' }])
+  })
+
+  it('fetches flow activities', async () => {
+    apiFetch.mockResolvedValue({ json: vi.fn().mockResolvedValue([{ id: 'toast_notification' }, null]) })
+
+    const result = await fetchFlowActivities()
+
+    expect(result).toEqual([
+      { id: 'toast_notification', label: 'toast_notification', description: '', fields: [] },
+    ])
+    expect(apiFetch).toHaveBeenCalledWith('/api/flow/activities')
+  })
+
+  it('fetches flow config payloads', async () => {
+    apiFetch.mockResolvedValue({
+      json: vi.fn().mockResolvedValue({
+        version: 1,
+        triggers: [{ id: 't1', label: 'Trigger', event_type: 'workflow_paused' }],
+        bindings_by_trigger_id: { t1: [{ activity_id: 'toast_notification' }] },
+        temporal_status: { enabled: true },
+      }),
+    })
+
+    const result = await fetchFlowConfig()
+
+    expect(result.config.triggers[0].id).toBe('t1')
+    expect(result.temporalStatus.enabled).toBe(true)
+  })
+
+  it('saves flow config payloads', async () => {
+    apiFetch.mockResolvedValue({
+      json: vi.fn().mockResolvedValue({
+        version: 1,
+        triggers: [],
+        bindings_by_trigger_id: {},
+      }),
+    })
+
+    const config = { version: 1, triggers: [], bindings_by_trigger_id: {} }
+    await saveFlowConfig(config)
+
+    expect(apiFetch).toHaveBeenCalledWith('/api/flow/config', {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    })
   })
 
 })

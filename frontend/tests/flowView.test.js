@@ -26,4 +26,19 @@ describe('FlowView', () => {
     const heading = getByRole('heading', { level: 2, name: 'File changed' })
     expect(heading).toBeTruthy()
   })
+
+  it('creates a trigger and selects it', async () => {
+    const { getByRole, getByLabelText, findAllByText } = render(FlowView)
+
+    await fireEvent.click(getByRole('button', { name: 'Add trigger' }))
+
+    await fireEvent.input(getByLabelText('Label'), { target: { value: 'New trigger' } })
+    await fireEvent.change(getByLabelText('Event type'), { target: { value: 'workflow_completed' } })
+    await fireEvent.input(getByLabelText('Where (one per line)'), { target: { value: 'terminal_id=t9' } })
+
+    await fireEvent.click(getByRole('button', { name: 'Save trigger' }))
+
+    expect((await findAllByText('New trigger')).length).toBeGreaterThan(0)
+    expect(getByRole('heading', { level: 2, name: 'New trigger' })).toBeTruthy()
+  })
 })

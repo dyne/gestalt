@@ -21,10 +21,25 @@
       where: { terminal_id: 't2' },
     },
   ]
+  const eventTypeOptions = [
+    'workflow_paused',
+    'workflow_started',
+    'workflow_completed',
+    'file_changed',
+    'git_branch_changed',
+    'terminal_resized',
+  ]
 
   let query = ''
   let triggers = seedTriggers
   let selectedTriggerId = triggers[0]?.id || ''
+  let dialogRef = null
+  let dialogMode = 'create'
+  let dialogOpen = false
+  let dialogError = ''
+  let draftLabel = ''
+  let draftEventType = eventTypeOptions[0]
+  let draftWhere = ''
 
   $: parsed = parseEventFilterQuery(query)
   $: filteredTriggers = triggers.filter((trigger) => matchesEventTrigger(trigger, parsed))
@@ -38,6 +53,97 @@
 
   const selectTrigger = (id) => {
     selectedTriggerId = id
+  }
+
+  const showDialog = () => {
+    dialogOpen = true
+    if (dialogRef?.showModal) {
+      dialogRef.showModal()
+    }
+  }
+
+  const closeDialog = () => {
+    dialogOpen = false
+    if (dialogRef?.open && typeof dialogRef.close === 'function') {
+      dialogRef.close()
+    }
+  }
+
+  const parseWhereText = (value) => {
+    const where = {}
+    value
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .forEach((line) => {
+        const [rawKey, ...rest] = line.split('=')
+        const key = rawKey?.trim()
+        if (!key) return
+        where[key] = rest.join('=').trim()
+      })
+    return where
+  }
+
+  const serializeWhere = (where = {}) =>
+    Object.entries(where)
+      .map(([key, value]) => `${key}=${value}`)
+      .join('\n')
+
+  const buildTriggerId = (label) => {
+    const base = label
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+    let id = base || 'trigger'
+    let suffix = 1
+    while (triggers.some((trigger) => trigger.id === id)) {
+      id = `${base || 'trigger'}-${suffix}`
+      suffix += 1
+    }
+    return id
+  }
+
+  const openCreateDialog = () => {
+    dialogMode = 'create'
+    draftLabel = ''
+    draftEventType = eventTypeOptions[0]
+    draftWhere = ''
+    dialogError = ''
+    showDialog()
+  }
+
+  const openEditDialog = () => {
+    if (!selectedTrigger) return
+    dialogMode = 'edit'
+    draftLabel = selectedTrigger.label
+    draftEventType = selectedTrigger.event_type
+    draftWhere = serializeWhere(selectedTrigger.where)
+    dialogError = ''
+    showDialog()
+  }
+
+  const saveTrigger = () => {
+    dialogError = ''
+    const label = draftLabel.trim()
+    if (!label) {
+      dialogError = 'Label is required.'
+      return
+    }
+    const where = parseWhereText(draftWhere)
+    if (dialogMode === 'edit' && selectedTrigger) {
+      triggers = triggers.map((trigger) =>
+        trigger.id === selectedTrigger.id
+          ? { ...trigger, label, event_type: draftEventType, where }
+          : trigger,
+      )
+      selectedTriggerId = selectedTrigger.id
+      closeDialog()
+      return
+    }
+    const id = buildTriggerId(label)
+    triggers = [...triggers, { id, label, event_type: draftEventType, where }]
+    selectedTriggerId = id
+    closeDialog()
   }
 
   const removeToken = (raw) => {
@@ -59,7 +165,10 @@
 
   <div class="flow-view__body">
     <aside class="flow-rail">
-      <label class="field-label" for="flow-query">Search / filters</label>
+      <div class="rail-header">
+        <label class="field-label" for="flow-query">Search / filters</label>
+        <button class="rail-button" type="button" on:click={openCreateDialog}>Add trigger</button>
+      </div>
       <input
         id="flow-query"
         class="field-input"
@@ -106,7 +215,12 @@
     <section class="flow-main">
       {#if selectedTrigger}
         <div class="flow-detail">
-          <p class="eyebrow">Selected trigger</p>
+          <div class="detail-header">
+            <p class="eyebrow">Selected trigger</p>
+            <button class="rail-button rail-button--ghost" type="button" on:click={openEditDialog}>
+              Edit trigger
+            </button>
+          </div>
           <h2>{selectedTrigger.label}</h2>
           <p class="flow-detail__event">
             Event type: <span>{selectedTrigger.event_type}</span>
@@ -135,6 +249,45 @@
     </section>
   </div>
 </section>
+
+<dialog class="flow-dialog" bind:this={dialogRef} open={dialogOpen} on:close={() => (dialogOpen = false)}>
+  <form class="dialog-form" on:submit|preventDefault={saveTrigger}>
+    <header class="dialog-header">
+      <h2>{dialogMode === 'edit' ? 'Edit trigger' : 'Add trigger'}</h2>
+    </header>
+    <label class="field-label" for="trigger-label">Label</label>
+    <input
+      id="trigger-label"
+      class="field-input"
+      type="text"
+      placeholder="Trigger label"
+      bind:value={draftLabel}
+    />
+    <label class="field-label" for="trigger-event-type">Event type</label>
+    <select id="trigger-event-type" class="field-input" bind:value={draftEventType}>
+      {#each eventTypeOptions as eventType}
+        <option value={eventType}>{eventType}</option>
+      {/each}
+    </select>
+    <label class="field-label" for="trigger-where">Where (one per line)</label>
+    <textarea
+      id="trigger-where"
+      class="field-input"
+      rows="4"
+      placeholder="terminal_id=t1"
+      bind:value={draftWhere}
+    ></textarea>
+    {#if dialogError}
+      <p class="dialog-error">{dialogError}</p>
+    {/if}
+    <div class="dialog-actions">
+      <button class="rail-button" type="submit">Save trigger</button>
+      <button class="rail-button rail-button--ghost" type="button" on:click={closeDialog}>
+        Cancel
+      </button>
+    </div>
+  </form>
+</dialog>
 
 <style>
   .flow-view {
@@ -187,6 +340,29 @@
     flex-direction: column;
     gap: 0.75rem;
     min-height: 420px;
+  }
+
+  .rail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .rail-button {
+    border: 1px solid rgba(var(--color-text-rgb), 0.2);
+    border-radius: 999px;
+    padding: 0.4rem 0.9rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    background: rgba(var(--color-surface-rgb), 0.95);
+    color: var(--color-text);
+    cursor: pointer;
+  }
+
+  .rail-button--ghost {
+    background: transparent;
+    border-color: rgba(var(--color-text-rgb), 0.25);
   }
 
   .field-label {
@@ -300,6 +476,13 @@
     gap: 0.8rem;
   }
 
+  .detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
   .flow-detail__event {
     margin: 0;
     font-size: 0.85rem;
@@ -347,6 +530,39 @@
     font-size: 0.85rem;
   }
 
+  .flow-dialog {
+    border: none;
+    border-radius: 18px;
+    padding: 0;
+    background: rgba(8, 12, 18, 0.95);
+    color: var(--color-text);
+    width: min(520px, 90vw);
+  }
+
+  .dialog-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1.5rem;
+  }
+
+  .dialog-header h2 {
+    margin: 0;
+    font-size: 1.2rem;
+  }
+
+  .dialog-actions {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: flex-end;
+  }
+
+  .dialog-error {
+    margin: 0;
+    color: var(--color-danger);
+    font-size: 0.8rem;
+  }
+
   .flow-empty {
     display: grid;
     place-items: center;
@@ -373,6 +589,16 @@
 
   @media (max-width: 720px) {
     .flow-view__header {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .detail-header {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .rail-header {
       flex-direction: column;
       align-items: flex-start;
     }

@@ -3,12 +3,12 @@
 - Compare backend registered routes in internal/api/routes.go against client usage in frontend/src, cmd, and internal/client.
 - Use rg output as the source of truth (no manual inference beyond file presence).
 
-** WIP Findings (Unused Endpoints)
+** DONE Findings (Unused Endpoints)
 - /api/metrics (registered, no client calls)
 - /api/events/debug (registered, no client calls)
 - /api/skills/:name (registered, only /api/skills used)
 
-** TODO Evidence (rg)
+** WIP Evidence (rg)
 - rg -n "/api/" internal/api/routes.go (shows /api/metrics, /api/events/debug, /api/skills/)
 - rg -n "/ws/" internal/api/routes.go (shows /ws/terminal, /ws/logs, /ws/events)
 - rg -n "/api/" frontend/src cmd internal/client (no /api/metrics, /api/events/debug, or /api/skills/; /api/skills used)

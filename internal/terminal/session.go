@@ -431,6 +431,13 @@ func (s *Session) SendBellSignal(contextText string) error {
 	return s.sendWorkflowSignal(workflows.BellSignalName, bellSignal)
 }
 
+func (s *Session) SendNotifySignal(signal workflows.NotifySignal) error {
+	if signal.Timestamp.IsZero() {
+		signal.Timestamp = time.Now().UTC()
+	}
+	return s.sendWorkflowSignal(workflows.NotifySignalName, signal)
+}
+
 func (s *Session) UpdateTask(l1Task, l2Task string) error {
 	taskSignal := workflows.UpdateTaskSignal{
 		L1: l1Task,

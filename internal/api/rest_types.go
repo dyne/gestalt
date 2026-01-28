@@ -192,6 +192,7 @@ const (
 	terminalPathHistory
 	terminalPathInputHistory
 	terminalPathBell
+	terminalPathNotify
 	terminalPathWorkflowResume
 	terminalPathWorkflowHistory
 )

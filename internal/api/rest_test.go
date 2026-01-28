@@ -479,6 +479,151 @@ func TestTerminalWorkflowResumeEndpointMissingWorkflow(t *testing.T) {
 	}
 }
 
+func TestTerminalNotifyEndpoint(t *testing.T) {
+	factory := &fakeFactory{}
+	temporalClient := &fakeWorkflowSignalClient{runID: "run-11"}
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:           "/bin/sh",
+		PtyFactory:      factory,
+		TemporalClient:  temporalClient,
+		TemporalEnabled: true,
+		Agents: map[string]agent.Agent{
+			"codex": {Name: "Codex", Shell: "/bin/bash", CLIType: "codex"},
+		},
+	})
+	useWorkflow := true
+	created, err := manager.CreateWithOptions(terminal.CreateOptions{
+		AgentID:     "codex",
+		UseWorkflow: &useWorkflow,
+	})
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	handler := &RestHandler{Manager: manager}
+	body := `{"terminal_id":"` + created.ID + `","agent_id":"codex","agent_name":"Codex","source":"manual","event_type":"plan-L1-wip","occurred_at":"2025-04-01T10:00:00Z","payload":{"plan_file":"plan.org"},"raw":"{}","event_id":"manual:1"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/terminals/"+created.ID+"/notify", strings.NewReader(body))
+	res := httptest.NewRecorder()
+
+	restHandler("", handler.handleTerminal)(res, req)
+	if res.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", res.Code)
+	}
+	if len(temporalClient.signals) != 1 {
+		t.Fatalf("expected 1 signal, got %d", len(temporalClient.signals))
+	}
+	signal := temporalClient.signals[0]
+	if signal.signalName != workflows.NotifySignalName {
+		t.Fatalf("expected notify signal, got %q", signal.signalName)
+	}
+	payload, ok := signal.payload.(workflows.NotifySignal)
+	if !ok {
+		t.Fatalf("unexpected notify payload: %#v", signal.payload)
+	}
+	if payload.TerminalID != created.ID {
+		t.Fatalf("expected terminal id %q, got %q", created.ID, payload.TerminalID)
+	}
+	if payload.AgentID != "codex" {
+		t.Fatalf("expected agent id codex, got %q", payload.AgentID)
+	}
+	if payload.AgentName != "Codex" {
+		t.Fatalf("expected agent name Codex, got %q", payload.AgentName)
+	}
+	if payload.EventType != "plan-L1-wip" {
+		t.Fatalf("expected event type plan-L1-wip, got %q", payload.EventType)
+	}
+	if payload.Source != "manual" {
+		t.Fatalf("expected source manual, got %q", payload.Source)
+	}
+	if payload.EventID != "manual:1" {
+		t.Fatalf("expected event id manual:1, got %q", payload.EventID)
+	}
+	if !payload.Timestamp.Equal(time.Date(2025, 4, 1, 10, 0, 0, 0, time.UTC)) {
+		t.Fatalf("unexpected notify timestamp: %v", payload.Timestamp)
+	}
+	if !strings.Contains(string(payload.Payload), "\"plan_file\":\"plan.org\"") {
+		t.Fatalf("unexpected payload: %s", string(payload.Payload))
+	}
+}
+
+func TestTerminalNotifyEndpointMissingTerminal(t *testing.T) {
+	manager := terminal.NewManager(terminal.ManagerOptions{Shell: "/bin/sh"})
+	handler := &RestHandler{Manager: manager}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/terminals/missing/notify", strings.NewReader(`{"terminal_id":"missing","agent_id":"codex","source":"manual","event_type":"plan-L1-wip"}`))
+	res := httptest.NewRecorder()
+
+	restHandler("", handler.handleTerminal)(res, req)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", res.Code)
+	}
+}
+
+func TestTerminalNotifyEndpointMissingWorkflow(t *testing.T) {
+	factory := &fakeFactory{}
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {Name: "Codex", Shell: "/bin/bash", CLIType: "codex"},
+		},
+	})
+	created, err := manager.CreateWithOptions(terminal.CreateOptions{AgentID: "codex"})
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	handler := &RestHandler{Manager: manager}
+	body := `{"terminal_id":"` + created.ID + `","agent_id":"codex","source":"manual","event_type":"plan-L1-wip"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/terminals/"+created.ID+"/notify", strings.NewReader(body))
+	res := httptest.NewRecorder()
+
+	restHandler("", handler.handleTerminal)(res, req)
+	if res.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d", res.Code)
+	}
+}
+
+func TestTerminalNotifyEndpointBadJSON(t *testing.T) {
+	factory := &fakeFactory{}
+	temporalClient := &fakeWorkflowSignalClient{runID: "run-12"}
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:           "/bin/sh",
+		PtyFactory:      factory,
+		TemporalClient:  temporalClient,
+		TemporalEnabled: true,
+		Agents: map[string]agent.Agent{
+			"codex": {Name: "Codex", Shell: "/bin/bash", CLIType: "codex"},
+		},
+	})
+	useWorkflow := true
+	created, err := manager.CreateWithOptions(terminal.CreateOptions{
+		AgentID:     "codex",
+		UseWorkflow: &useWorkflow,
+	})
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodPost, "/api/terminals/"+created.ID+"/notify", strings.NewReader("{"))
+	res := httptest.NewRecorder()
+
+	restHandler("", handler.handleTerminal)(res, req)
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", res.Code)
+	}
+}
+
 func TestTerminalWorkflowHistoryEndpoint(t *testing.T) {
 	factory := &fakeFactory{}
 	dataConverter := converter.GetDefaultDataConverter()

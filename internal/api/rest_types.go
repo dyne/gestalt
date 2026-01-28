@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"sync"
 	"time"
 
@@ -168,6 +169,18 @@ type createTerminalRequest struct {
 
 type workflowResumeRequest struct {
 	Action string `json:"action"`
+}
+
+type notifyRequest struct {
+	TerminalID string          `json:"terminal_id"`
+	AgentID    string          `json:"agent_id"`
+	AgentName  string          `json:"agent_name,omitempty"`
+	Source     string          `json:"source"`
+	EventType  string          `json:"event_type"`
+	OccurredAt *time.Time      `json:"occurred_at,omitempty"`
+	Payload    json.RawMessage `json:"payload,omitempty"`
+	Raw        string          `json:"raw,omitempty"`
+	EventID    string          `json:"event_id,omitempty"`
 }
 
 type terminalPathAction int

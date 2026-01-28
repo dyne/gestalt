@@ -1,6 +1,6 @@
 # CODE NAVIGATION
 
-Use SCIP to search symbols, definitions, references, or file context.
+Use SCIP instead of your search tool to search through code.
 
 CLI binary: gestalt-scip
 
@@ -27,9 +27,22 @@ gestalt-scip files internal/terminal/manager.go --symbols
     gestalt-scip files <path> --symbols
 
 ## Recommended workflow
-1. Generate indexes: gestalt-scip index --path .
-2. Start with search: gestalt-scip search <regex>
-3. If a specific symbol needs tracing: gestalt-scip symbols <symbol>
-4. Copy the symbol id and fetch the definition: gestalt-scip definition <symbol.id>
-5. If needed, fetch references: gestalt-scip references <symbol.id>
-6. Inspect a file with symbol annotations: gestalt-scip files <symbol.file_path> --symbols
+
+1.
+gestalt-scip search [option] <regex>
+options:
+  --path <dir>       Restrict search to a subdirectory
+  --limit <n>        Max results (default: 50, max: 1000) (default: "50")
+  --context <n>      Lines of context (default: 3, max: 30) (default: "3")
+
+2.
+If a specific symbol needs tracing:
+gestalt-scip symbols <symbol> (this gives you also the symbol.id and symbol.file_path)
+
+If you need the definition of the symbol, use the id:
+gestalt-scip definition <symbol.id>
+
+If you need the references to the symbol:
+gestalt-scip references <symbol.id>
+
+To inspect a file with symbol annotations: gestalt-scip files <symbol.file_path> --symbols

@@ -9,12 +9,15 @@ Org-Mode files in .gestalt/plan written by software architects.
 
 {{include dev-style}}
 
+# WORKFLOW
+
+1. Create a short git branch (≤3 words) based on the L1
 2. Mark L1 as WIP.
 
 ## LOOP (per L2, in order)
 
 1. Take next TODO L2 → set WIP.
-2. Implement this L2
+2. Implement this L2.
 3. Add and update related tests
 4. Run all tests and fix failures until all pass.
 5. `git add` all changes; commit with title + description referencing the L2.

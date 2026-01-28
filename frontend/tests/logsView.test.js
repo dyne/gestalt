@@ -1,5 +1,6 @@
 import { render, fireEvent, waitFor, cleanup } from '@testing-library/svelte'
 import { describe, it, expect, vi, afterEach } from 'vitest'
+import { createLogStreamStub } from './helpers/appApiMocks.js'
 
 const addNotification = vi.hoisted(() => vi.fn())
 const createLogStream = vi.hoisted(() => vi.fn())
@@ -34,20 +35,19 @@ describe('LogsView', () => {
     const writeText = vi.fn(() => Promise.resolve())
     Object.assign(navigator, { clipboard: { writeText } })
 
-    createLogStream.mockImplementation((options) => ({
-      start: vi.fn(() => {
-        options?.onOpen?.()
-        options?.onEntry?.({
-          timeUnixNano: '1700000000000000',
-          severityText: 'INFO',
-          body: { stringValue: 'hello' },
-          attributes: [{ key: 'scope', value: { stringValue: 'test' } }],
-        })
+    createLogStream.mockImplementation((options) =>
+      createLogStreamStub({
+        start: () => {
+          options?.onOpen?.()
+          options?.onEntry?.({
+            timeUnixNano: '1700000000000000',
+            severityText: 'INFO',
+            body: { stringValue: 'hello' },
+            attributes: [{ key: 'scope', value: { stringValue: 'test' } }],
+          })
+        },
       }),
-      stop: vi.fn(),
-      restart: vi.fn(),
-      setLevel: vi.fn(),
-    }))
+    )
 
     const { findByText, getByLabelText } = render(LogsView)
 
@@ -79,20 +79,19 @@ describe('LogsView', () => {
       configurable: true,
     })
 
-    createLogStream.mockImplementation((options) => ({
-      start: vi.fn(() => {
-        options?.onOpen?.()
-        options?.onEntry?.({
-          timeUnixNano: '1700000000000000',
-          severityText: 'INFO',
-          body: { stringValue: 'hello' },
-          attributes: [{ key: 'scope', value: { stringValue: 'test' } }],
-        })
+    createLogStream.mockImplementation((options) =>
+      createLogStreamStub({
+        start: () => {
+          options?.onOpen?.()
+          options?.onEntry?.({
+            timeUnixNano: '1700000000000000',
+            severityText: 'INFO',
+            body: { stringValue: 'hello' },
+            attributes: [{ key: 'scope', value: { stringValue: 'test' } }],
+          })
+        },
       }),
-      stop: vi.fn(),
-      restart: vi.fn(),
-      setLevel: vi.fn(),
-    }))
+    )
 
     const { findByText, queryByRole } = render(LogsView)
 
@@ -110,15 +109,16 @@ describe('LogsView', () => {
     const start = vi.fn()
     const restart = vi.fn()
     const setLevel = vi.fn()
-    createLogStream.mockImplementation((options) => ({
-      start: vi.fn(() => {
-        start()
-        options?.onOpen?.()
+    createLogStream.mockImplementation((options) =>
+      createLogStreamStub({
+        start: () => {
+          start()
+          options?.onOpen?.()
+        },
+        restart,
+        setLevel,
       }),
-      stop: vi.fn(),
-      restart,
-      setLevel,
-    }))
+    )
 
     const { findByText, getByLabelText } = render(LogsView)
 

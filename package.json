@@ -1,8 +1,17 @@
 {
   "name": "gestalt",
+  "version": "1.0.0",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dyne/gestalt"
+  },
   "devDependencies": {
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/exec": "^7.1.0",
+    "@semantic-release/git": "^10.0.1",
     "esbuild": "^0.27.2",
+    "semantic-release": "^24.2.9",
     "semver": "^7.6.3",
     "typescript": "^5.9.3"
   },

@@ -1,4 +1,4 @@
-name: Release
+name: 📢 Release
 
 on:
   push:
@@ -13,51 +13,27 @@ permissions:
 
 jobs:
   release:
+    name: 🤖 Semantic release
     runs-on: ubuntu-latest
     env:
       GO111MODULE: on
       GOWORK: off
       GOFLAGS: -mod=mod
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.24.x'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '25'
           cache: npm
-          cache-dependency-path: package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
       - name: Install version tooling
         run: npm ci
-      - name: Determine next version
-        id: version
-        run: |
-          current_tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
-          next_version="$(node scripts/get-next-version.js)"
-          echo "current_tag=$current_tag" >> "$GITHUB_OUTPUT"
-          echo "next_version=$next_version" >> "$GITHUB_OUTPUT"
-      - name: Create release
-        uses: actions/github-script@v7
-        env:
-          CURRENT_TAG: ${{ steps.version.outputs.current_tag }}
-          NEXT_VERSION: ${{ steps.version.outputs.next_version }}
-        with:
-          script: |
-            const currentTag = process.env.CURRENT_TAG;
-            const nextVersion = process.env.NEXT_VERSION;
-            const nextTag = `v${nextVersion}`;
-
-            if (currentTag === nextTag) {
-              core.info(`No version bump detected (current tag ${currentTag}).`);
-              return;
-            }
-
-            await github.rest.repos.createRelease({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              tag_name: nextTag,
-              name: nextTag,
-              generate_release_notes: true,
-              target_commitish: context.ref.replace('refs/heads/', ''),
-            });
+      - name: Create Release
+        run: npx semantic-release

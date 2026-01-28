@@ -1,0 +1,59 @@
+{
+    "repositoryUrl": "git@github.com:dyne/gestalt.git",
+    "dryRun": false,
+    "plugins": [
+        "@semantic-release/release-notes-generator",
+        "@semantic-release/changelog",
+        [
+            "@semantic-release/commit-analyzer",
+            {
+                "preset": "angular"
+            }
+        ],
+        [
+            "@semantic-release/npm",
+            {
+                "npmPublish": false
+            }
+        ],
+        [
+            "@semantic-release/git",
+            {
+                "assets": [
+                    "CHANGELOG.md",
+                    "package-lock.yaml",
+                    "package.json"
+                ],
+                "message": "chore(release): 🚀 ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+            }
+        ],
+        [
+            "@semantic-release/exec",
+            {
+                "prepareCmd": "make"
+            }
+        ],
+        [
+            "@semantic-release/github",
+            {
+                "assets": [
+                    {
+                        "path": "gestalt",
+                        "name": "gestalt"
+                    },
+                    {
+                        "path": "gestalt-scip",
+                        "name": "gestalt-scip"
+                    },
+                    {
+                        "path": "gestalt-send",
+                        "name": "gestalt-send"
+                    }
+                ]
+            }
+        ]
+    ],
+    "branches": [
+        "main"
+    ]
+}

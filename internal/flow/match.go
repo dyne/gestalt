@@ -2,6 +2,11 @@ package flow
 
 import "strings"
 
+type ActivityMatch struct {
+	Trigger EventTrigger
+	Binding ActivityBinding
+}
+
 func MatchTrigger(trigger EventTrigger, normalized map[string]string) bool {
 	if normalized == nil {
 		return false
@@ -22,4 +27,23 @@ func MatchTrigger(trigger EventTrigger, normalized map[string]string) bool {
 		}
 	}
 	return true
+}
+
+func MatchBindings(config Config, normalized map[string]string) []ActivityMatch {
+	if len(config.Triggers) == 0 {
+		return []ActivityMatch{}
+	}
+	matches := []ActivityMatch{}
+	for _, trigger := range config.Triggers {
+		if !MatchTrigger(trigger, normalized) {
+			continue
+		}
+		for _, binding := range config.BindingsByTriggerID[trigger.ID] {
+			matches = append(matches, ActivityMatch{
+				Trigger: trigger,
+				Binding: binding,
+			})
+		}
+	}
+	return matches
 }

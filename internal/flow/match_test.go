@@ -75,3 +75,34 @@ func TestMatchTriggerTerminalData(t *testing.T) {
 		t.Fatalf("expected terminal event to match trigger")
 	}
 }
+
+func TestMatchBindings(t *testing.T) {
+	config := Config{
+		Version: ConfigVersion,
+		Triggers: []EventTrigger{
+			{ID: "t1", EventType: "file_changed", Where: map[string]string{"path": "README.md"}},
+			{ID: "t2", EventType: "workflow_paused"},
+		},
+		BindingsByTriggerID: map[string][]ActivityBinding{
+			"t1": {
+				{ActivityID: "toast_notification"},
+			},
+			"t2": {
+				{ActivityID: "post_webhook"},
+			},
+		},
+	}
+
+	normalized := map[string]string{
+		"type": "file_changed",
+		"path": "README.md",
+	}
+
+	matches := MatchBindings(config, normalized)
+	if len(matches) != 1 {
+		t.Fatalf("expected 1 match, got %d", len(matches))
+	}
+	if matches[0].Trigger.ID != "t1" || matches[0].Binding.ActivityID != "toast_notification" {
+		t.Fatalf("unexpected match: %#v", matches[0])
+	}
+}

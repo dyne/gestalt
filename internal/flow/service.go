@@ -8,7 +8,6 @@ import (
 
 	"gestalt/internal/logging"
 	"gestalt/internal/temporal"
-	"gestalt/internal/temporal/workflows"
 
 	"go.temporal.io/sdk/client"
 )
@@ -17,7 +16,9 @@ const (
 	RouterWorkflowID             = "gestalt-flow-router"
 	RouterWorkflowType           = "FlowRouterWorkflow"
 	RouterWorkflowConfigSignal   = "flow.config_updated"
-	defaultSignalTimeout         = 5 * time.Second
+	RouterWorkflowEventSignal    = "flow.event"
+	RouterWorkflowTaskQueue      = "gestalt-session"
+	flowSignalTimeout            = 5 * time.Second
 	defaultConfigFilename        = "automations.json"
 	defaultConfigDirectory       = "flow"
 	defaultGestaltStateDirectory = ".gestalt"
@@ -101,14 +102,14 @@ func (s *Service) signalConfigUpdated(ctx context.Context, cfg Config) error {
 	if signalContext == nil {
 		signalContext = context.Background()
 	}
-	signalContext, cancel := context.WithTimeout(signalContext, defaultSignalTimeout)
+	signalContext, cancel := context.WithTimeout(signalContext, flowSignalTimeout)
 	defer cancel()
 
 	options := client.StartWorkflowOptions{
 		ID:        RouterWorkflowID,
-		TaskQueue: workflows.SessionTaskQueueName,
+		TaskQueue: RouterWorkflowTaskQueue,
 	}
-	_, err := s.temporal.SignalWithStartWorkflow(signalContext, RouterWorkflowID, RouterWorkflowConfigSignal, cfg, options, RouterWorkflowType)
+	_, err := s.temporal.SignalWithStartWorkflow(signalContext, RouterWorkflowID, RouterWorkflowConfigSignal, cfg, options, RouterWorkflowType, cfg)
 	return err
 }
 

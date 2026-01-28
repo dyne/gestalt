@@ -659,9 +659,11 @@ func TestTerminalOutputEndpoint(t *testing.T) {
 
 func TestTerminalHistoryEndpoint(t *testing.T) {
 	factory := &fakeFactory{}
+	logDir := t.TempDir()
 	manager := terminal.NewManager(terminal.ManagerOptions{
-		Shell:      "/bin/sh",
-		PtyFactory: factory,
+		Shell:         "/bin/sh",
+		PtyFactory:    factory,
+		SessionLogDir: logDir,
 	})
 	created, err := manager.Create("", "", "")
 	if err != nil {
@@ -698,6 +700,9 @@ func TestTerminalHistoryEndpoint(t *testing.T) {
 	}
 	if !containsLine(payload.Lines, "hello") {
 		t.Fatalf("expected history lines to contain hello, got %v", payload.Lines)
+	}
+	if payload.Cursor == nil {
+		t.Fatalf("expected cursor to be set when session persistence is enabled")
 	}
 }
 

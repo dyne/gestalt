@@ -585,6 +585,41 @@ func (m *Manager) HistoryLines(id string, maxLines int) ([]string, error) {
 	return lines, nil
 }
 
+func (m *Manager) HistoryCursor(id string) (*int64, error) {
+	if m == nil || m.sessionLogs == "" {
+		return nil, nil
+	}
+
+	path := ""
+	if session, ok := m.Get(id); ok {
+		if session.logger != nil {
+			path = session.logger.Path()
+		}
+	} else {
+		latest, err := latestSessionLogPath(m.sessionLogs, id)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil, nil
+			}
+			return nil, err
+		}
+		path = latest
+	}
+
+	if path == "" {
+		return nil, nil
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	size := info.Size()
+	return &size, nil
+}
+
 func (m *Manager) List() []SessionInfo {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

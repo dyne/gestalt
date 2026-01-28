@@ -71,8 +71,9 @@ type workflowHistoryEntry struct {
 }
 
 type terminalOutputResponse struct {
-	ID    string   `json:"id"`
-	Lines []string `json:"lines"`
+	ID     string   `json:"id"`
+	Lines  []string `json:"lines"`
+	Cursor *int64   `json:"cursor,omitempty"`
 }
 
 type inputHistoryEntry struct {

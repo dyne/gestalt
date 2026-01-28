@@ -178,9 +178,15 @@ func (h *RestHandler) handleTerminalHistory(w http.ResponseWriter, r *http.Reque
 		return &apiError{Status: http.StatusInternalServerError, Message: "failed to read terminal history"}
 	}
 
+	cursor, cursorErr := h.Manager.HistoryCursor(id)
+	if cursorErr != nil {
+		return &apiError{Status: http.StatusInternalServerError, Message: "failed to resolve terminal history cursor"}
+	}
+
 	response := terminalOutputResponse{
-		ID:    id,
-		Lines: history,
+		ID:     id,
+		Lines:  history,
+		Cursor: cursor,
 	}
 	writeJSON(w, http.StatusOK, response)
 	return nil

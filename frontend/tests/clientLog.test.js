@@ -7,9 +7,11 @@ vi.mock('../src/lib/api.js', () => ({
 }))
 
 import { logUI } from '../src/lib/clientLog.js'
+import { loadUiLogFixture } from './helpers/otelLogFixture.js'
 
 describe('clientLog', () => {
   it('posts OTLP log payloads with defaults', () => {
+    const fixture = loadUiLogFixture()
     logUI({
       level: 'warning',
       body: 'hello',
@@ -18,15 +20,7 @@ describe('clientLog', () => {
 
     expect(apiFetch).toHaveBeenCalledWith('/api/otel/logs', {
       method: 'POST',
-      body: JSON.stringify({
-        severity_text: 'warning',
-        body: 'hello',
-        attributes: {
-          feature: 'toast',
-          'gestalt.source': 'frontend',
-          'gestalt.category': 'ui',
-        },
-      }),
+      body: JSON.stringify(fixture),
     })
   })
 })

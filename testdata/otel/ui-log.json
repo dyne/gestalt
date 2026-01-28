@@ -1,0 +1,9 @@
+{
+  "severity_text": "warning",
+  "body": "hello",
+  "attributes": {
+    "feature": "toast",
+    "gestalt.source": "frontend",
+    "gestalt.category": "ui"
+  }
+}

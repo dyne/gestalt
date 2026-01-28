@@ -20,6 +20,29 @@ export function buildWebSocketUrl(path) {
   return url.toString()
 }
 
+export function buildEventSourceUrl(path, params = {}) {
+  const token = getToken()
+  const url = new URL(path, window.location.origin)
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return
+    if (Array.isArray(value)) {
+      value.forEach((entry) => {
+        if (entry === undefined || entry === null || entry === '') return
+        url.searchParams.append(key, entry)
+      })
+      return
+    }
+    url.searchParams.set(key, value)
+  })
+
+  if (token) {
+    url.searchParams.set('token', token)
+  }
+
+  return url.toString()
+}
+
 export async function apiFetch(path, options = {}) {
   const { allowNotModified, ...fetchOptions } = options
   const headers = new Headers(fetchOptions.headers || {})

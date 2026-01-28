@@ -49,7 +49,8 @@ for validation and Temporal notarization.
   "payload": {
     "plan_file": ".gestalt/plans/gestalt-notify-temporal.org",
     "heading": "Notarize session events via gestalt-notify",
-    "state": "wip"
+    "state": "wip",
+    "level": 1
   },
   "event_id": "manual:plan-L1-wip:gestalt-notify-temporal"
 }

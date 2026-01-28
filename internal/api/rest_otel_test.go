@@ -25,6 +25,21 @@ func TestHandleOTelLogsRejectsGet(t *testing.T) {
 	}
 }
 
+func TestHandleOTelLogsRejectsGetWithAllowHeader(t *testing.T) {
+	rest := &RestHandler{}
+	handler := restHandler("", rest.handleOTelLogs)
+	req := httptest.NewRequest(http.MethodGet, "/api/otel/logs", nil)
+	resp := httptest.NewRecorder()
+	handler(resp, req)
+
+	if resp.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected status 405, got %d", resp.Code)
+	}
+	if allow := resp.Header().Get("Allow"); allow != "POST" {
+		t.Fatalf("expected Allow header POST, got %q", allow)
+	}
+}
+
 func TestHandleOTelTraces(t *testing.T) {
 	dataPath := writeOTelFixture(t)
 	otel.SetActiveCollector(otel.CollectorInfo{DataPath: dataPath})

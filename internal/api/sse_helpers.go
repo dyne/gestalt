@@ -27,6 +27,7 @@ type sseStreamConfig[T any] struct {
 	EventName         string
 	HeartbeatInterval time.Duration
 	RetryInterval     time.Duration
+	SkipRetry         bool
 }
 
 type sseError struct {
@@ -77,8 +78,10 @@ func runSSEStream[T any](r *http.Request, writer *sseWriter, config sseStreamCon
 	if retryInterval <= 0 {
 		retryInterval = defaultSSERetryInterval
 	}
-	if err := writer.WriteRetry(retryInterval); err != nil {
-		return
+	if !config.SkipRetry {
+		if err := writer.WriteRetry(retryInterval); err != nil {
+			return
+		}
 	}
 
 	heartbeatInterval := config.HeartbeatInterval

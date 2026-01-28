@@ -34,7 +34,7 @@ func NewInputLogger(dir, name string, createdAt time.Time) (*InputLogger, error)
 		return nil, fmt.Errorf("open input log file: %w", err)
 	}
 
-	logger := newAsyncFileLogger(path, file, inputLogFlushInterval, inputLogFlushThreshold, inputLogChannelSize, encodeInputEntry)
+	logger := newAsyncFileLogger(path, file, inputLogFlushInterval, inputLogFlushThreshold, inputLogChannelSize, asyncFileLoggerDropOldest, encodeInputEntry)
 	return &InputLogger{logger: logger}, nil
 }
 
@@ -66,11 +66,25 @@ func (l *InputLogger) DroppedEntries() uint64 {
 	return l.logger.Dropped()
 }
 
+func (l *InputLogger) BlockedWrites() uint64 {
+	if l == nil || l.logger == nil {
+		return 0
+	}
+	return l.logger.Blocked()
+}
+
 func (l *InputLogger) LastFlushDuration() time.Duration {
 	if l == nil || l.logger == nil {
 		return 0
 	}
 	return l.logger.LastFlushDuration()
+}
+
+func (l *InputLogger) LastBlockedDuration() time.Duration {
+	if l == nil || l.logger == nil {
+		return 0
+	}
+	return l.logger.LastBlockedDuration()
 }
 
 func (l *InputLogger) Close() error {

@@ -18,14 +18,24 @@ type asyncFileLogger[T any] struct {
 	closeOnce      sync.Once
 	closed         uint32
 	dropped        uint64
+	blocked        uint64
 	lastFlush      int64
+	lastBlocked    int64
 	closeErr       error
 	flushInterval  time.Duration
 	flushThreshold int
+	policy         asyncFileLoggerPolicy
 	encoder        func(T) ([]byte, error)
 }
 
-func newAsyncFileLogger[T any](path string, file *os.File, flushInterval time.Duration, flushThreshold int, channelSize int, encoder func(T) ([]byte, error)) *asyncFileLogger[T] {
+type asyncFileLoggerPolicy uint8
+
+const (
+	asyncFileLoggerDropOldest asyncFileLoggerPolicy = iota
+	asyncFileLoggerBlock
+)
+
+func newAsyncFileLogger[T any](path string, file *os.File, flushInterval time.Duration, flushThreshold int, channelSize int, policy asyncFileLoggerPolicy, encoder func(T) ([]byte, error)) *asyncFileLogger[T] {
 	logger := &asyncFileLogger[T]{
 		path:           path,
 		file:           file,
@@ -35,6 +45,7 @@ func newAsyncFileLogger[T any](path string, file *os.File, flushInterval time.Du
 		done:           make(chan struct{}),
 		flushInterval:  flushInterval,
 		flushThreshold: flushThreshold,
+		policy:         policy,
 		encoder:        encoder,
 	}
 	go logger.run()
@@ -48,6 +59,22 @@ func (l *asyncFileLogger[T]) Write(item T) {
 	if atomic.LoadUint32(&l.closed) == 1 {
 		return
 	}
+	if l.policy == asyncFileLoggerBlock {
+		select {
+		case l.writeCh <- item:
+			return
+		default:
+		}
+		atomic.AddUint64(&l.blocked, 1)
+		start := time.Now()
+		select {
+		case l.writeCh <- item:
+			atomic.StoreInt64(&l.lastBlocked, time.Since(start).Nanoseconds())
+		case <-l.closeCh:
+		}
+		return
+	}
+
 	select {
 	case l.writeCh <- item:
 	default:
@@ -78,11 +105,25 @@ func (l *asyncFileLogger[T]) Dropped() uint64 {
 	return atomic.LoadUint64(&l.dropped)
 }
 
+func (l *asyncFileLogger[T]) Blocked() uint64 {
+	if l == nil {
+		return 0
+	}
+	return atomic.LoadUint64(&l.blocked)
+}
+
 func (l *asyncFileLogger[T]) LastFlushDuration() time.Duration {
 	if l == nil {
 		return 0
 	}
 	return time.Duration(atomic.LoadInt64(&l.lastFlush))
+}
+
+func (l *asyncFileLogger[T]) LastBlockedDuration() time.Duration {
+	if l == nil {
+		return 0
+	}
+	return time.Duration(atomic.LoadInt64(&l.lastBlocked))
 }
 
 func (l *asyncFileLogger[T]) Close() error {

@@ -32,7 +32,7 @@ func NewSessionLogger(dir, terminalID string, createdAt time.Time) (*SessionLogg
 		return nil, fmt.Errorf("open session log file: %w", err)
 	}
 
-	logger := newAsyncFileLogger(path, file, sessionLogFlushInterval, sessionLogFlushThreshold, sessionLogChannelSize, encodeSessionChunk)
+	logger := newAsyncFileLogger(path, file, sessionLogFlushInterval, sessionLogFlushThreshold, sessionLogChannelSize, asyncFileLoggerBlock, encodeSessionChunk)
 	return &SessionLogger{logger: logger}, nil
 }
 
@@ -57,11 +57,25 @@ func (l *SessionLogger) DroppedChunks() uint64 {
 	return l.logger.Dropped()
 }
 
+func (l *SessionLogger) BlockedWrites() uint64 {
+	if l == nil || l.logger == nil {
+		return 0
+	}
+	return l.logger.Blocked()
+}
+
 func (l *SessionLogger) LastFlushDuration() time.Duration {
 	if l == nil || l.logger == nil {
 		return 0
 	}
 	return l.logger.LastFlushDuration()
+}
+
+func (l *SessionLogger) LastBlockedDuration() time.Duration {
+	if l == nil || l.logger == nil {
+		return 0
+	}
+	return l.logger.LastBlockedDuration()
 }
 
 func (l *SessionLogger) Close() error {

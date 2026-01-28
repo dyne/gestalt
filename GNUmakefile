@@ -79,7 +79,10 @@ release: frontend/dist $(CONFIG_MANIFEST) $(VERSION_INFO) build-scip
 		CGO_ENABLED=$(CGO) GOOS=$$OS GOARCH=$$ARCH $(GO) build -ldflags "$$VERSION_LDFLAGS" \
 			-o $(DIST)/gestalt-send-$$OS-$$ARCH$$EXT ./cmd/gestalt-send; \
 		cp $(SCIP_BIN) $(DIST)/gestalt-scip-$$OS-$$ARCH; \
+		FILES="gestalt-$$OS-$$ARCH$$EXT gestalt-send-$$OS-$$ARCH$$EXT gestalt-scip-$$OS-$$ARCH"; \
 		if [ "$$OS" = "windows" ]; then \
 			printf '@echo off\r\nnode \"%%~dp0\\\\gestalt-scip-%s-%s\" %%*\r\n' "$$OS" "$$ARCH" > $(DIST)/gestalt-scip-$$OS-$$ARCH.cmd; \
+			FILES="$$FILES gestalt-scip-$$OS-$$ARCH.cmd"; \
 		fi; \
+		tar -czf $(DIST)/gestalt-$$OS-$$ARCH.tar.gz -C $(DIST) $$FILES; \
 	done

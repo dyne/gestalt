@@ -1,6 +1,7 @@
 package workflows
 
 import (
+	"encoding/json"
 	"time"
 
 	"gestalt/internal/event"
@@ -37,6 +38,7 @@ const (
 	BellSignalName       = "session.bell"
 	ResumeSignalName     = "session.resume"
 	TerminateSignalName  = "session.terminate"
+	NotifySignalName     = "session.notify"
 
 	StatusQueryName = "session.status"
 
@@ -108,6 +110,18 @@ type ResumeSignal struct {
 
 type TerminateSignal struct {
 	Reason string
+}
+
+type NotifySignal struct {
+	Timestamp  time.Time
+	TerminalID string
+	AgentID    string
+	AgentName  string
+	EventType  string
+	Source     string
+	Payload    json.RawMessage
+	Raw        string
+	EventID    string
 }
 
 func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRequest) (result SessionWorkflowResult, err error) {
@@ -239,6 +253,7 @@ func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRe
 	bellChannel := workflow.GetSignalChannel(workflowContext, BellSignalName)
 	resumeChannel := workflow.GetSignalChannel(workflowContext, ResumeSignalName)
 	terminateChannel := workflow.GetSignalChannel(workflowContext, TerminateSignalName)
+	notifyChannel := workflow.GetSignalChannel(workflowContext, NotifySignalName)
 
 	eventCount := 0
 	var completionContext map[string]any
@@ -301,6 +316,35 @@ func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRe
 			}
 		}
 		emitWorkflowEvent("workflow_paused", timestamp, pauseContext)
+		eventCount++
+	})
+
+	selector.AddReceive(notifyChannel, func(channel workflow.ReceiveChannel, more bool) {
+		var signal NotifySignal
+		channel.Receive(workflowContext, &signal)
+		timestamp := signal.Timestamp
+		if timestamp.IsZero() {
+			timestamp = workflow.Now(workflowContext)
+		}
+		var notifyContext map[string]any
+		if signal.EventType != "" {
+			notifyContext = map[string]any{
+				"event_type": signal.EventType,
+			}
+		}
+		if signal.Source != "" {
+			if notifyContext == nil {
+				notifyContext = map[string]any{}
+			}
+			notifyContext["source"] = signal.Source
+		}
+		if signal.EventID != "" {
+			if notifyContext == nil {
+				notifyContext = map[string]any{}
+			}
+			notifyContext["event_id"] = signal.EventID
+		}
+		emitWorkflowEvent("notify_event", timestamp, notifyContext)
 		eventCount++
 	})
 

@@ -491,6 +491,15 @@ func TestTerminalWorkflowHistoryEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build bell payloads: %v", err)
 	}
+	notifyTime := time.Date(2025, 4, 1, 9, 31, 30, 0, time.UTC)
+	notifyPayloads, err := dataConverter.ToPayloads(workflows.NotifySignal{
+		Timestamp: notifyTime,
+		EventType: "agent-turn-complete",
+		Source:    "codex-notify",
+	})
+	if err != nil {
+		t.Fatalf("build notify payloads: %v", err)
+	}
 	resumePayloads, err := dataConverter.ToPayloads(workflows.ResumeSignal{Action: workflows.ResumeActionContinue})
 	if err != nil {
 		t.Fatalf("build resume payloads: %v", err)
@@ -522,6 +531,17 @@ func TestTerminalWorkflowHistoryEndpoint(t *testing.T) {
 		},
 		{
 			EventId:   3,
+			EventTime: timestamppb.New(eventTime.Add(90 * time.Second)),
+			EventType: enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED,
+			Attributes: &historypb.HistoryEvent_WorkflowExecutionSignaledEventAttributes{
+				WorkflowExecutionSignaledEventAttributes: &historypb.WorkflowExecutionSignaledEventAttributes{
+					SignalName: workflows.NotifySignalName,
+					Input:      notifyPayloads,
+				},
+			},
+		},
+		{
+			EventId:   4,
 			EventTime: timestamppb.New(eventTime.Add(2 * time.Minute)),
 			EventType: enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED,
 			Attributes: &historypb.HistoryEvent_WorkflowExecutionSignaledEventAttributes{
@@ -567,8 +587,8 @@ func TestTerminalWorkflowHistoryEndpoint(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(payload) != 3 {
-		t.Fatalf("expected 3 history events, got %d", len(payload))
+	if len(payload) != 4 {
+		t.Fatalf("expected 4 history events, got %d", len(payload))
 	}
 	if payload[0].Type != "task_update" || payload[0].L1 != "L1" || payload[0].L2 != "L2" {
 		t.Fatalf("unexpected task event: %#v", payload[0])
@@ -579,8 +599,14 @@ func TestTerminalWorkflowHistoryEndpoint(t *testing.T) {
 	if !payload[1].Timestamp.Equal(bellTime) {
 		t.Fatalf("expected bell timestamp %v, got %v", bellTime, payload[1].Timestamp)
 	}
-	if payload[2].Type != "resume" || payload[2].Action != workflows.ResumeActionContinue {
-		t.Fatalf("unexpected resume event: %#v", payload[2])
+	if payload[2].Type != "notify" || payload[2].Context != "agent-turn-complete" {
+		t.Fatalf("unexpected notify event: %#v", payload[2])
+	}
+	if !payload[2].Timestamp.Equal(notifyTime) {
+		t.Fatalf("expected notify timestamp %v, got %v", notifyTime, payload[2].Timestamp)
+	}
+	if payload[3].Type != "resume" || payload[3].Action != workflows.ResumeActionContinue {
+		t.Fatalf("unexpected resume event: %#v", payload[3])
 	}
 }
 

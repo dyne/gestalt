@@ -31,7 +31,7 @@ describe('FlowView', () => {
             id: 'workflow-paused',
             label: 'Workflow paused',
             event_type: 'workflow_paused',
-            where: { terminal_id: 't1', agent_name: 'Codex' },
+            where: { session_id: 't1', agent_name: 'Codex' },
           },
           {
             id: 'file-changed',
@@ -75,7 +75,7 @@ describe('FlowView', () => {
             id: 'workflow-paused',
             label: 'Workflow paused',
             event_type: 'workflow_paused',
-            where: { terminal_id: 't1' },
+            where: { session_id: 't1' },
           },
         ],
         bindings_by_trigger_id: {},
@@ -90,13 +90,13 @@ describe('FlowView', () => {
             id: 'workflow-paused',
             label: 'Workflow paused',
             event_type: 'workflow_paused',
-            where: { terminal_id: 't1' },
+            where: { session_id: 't1' },
           },
           {
             id: 'new-trigger',
             label: 'New trigger',
             event_type: 'workflow_completed',
-            where: { terminal_id: 't9' },
+            where: { session_id: 't9' },
           },
         ],
         bindings_by_trigger_id: {},
@@ -112,7 +112,7 @@ describe('FlowView', () => {
 
     await fireEvent.input(getByLabelText('Label'), { target: { value: 'New trigger' } })
     await fireEvent.change(getByLabelText('Event type'), { target: { value: 'workflow_completed' } })
-    await fireEvent.input(getByLabelText('Where (one per line)'), { target: { value: 'terminal_id=t9' } })
+    await fireEvent.input(getByLabelText('Where (one per line)'), { target: { value: 'session_id=t9' } })
 
     await fireEvent.click(getByRole('button', { name: 'Save trigger' }))
 

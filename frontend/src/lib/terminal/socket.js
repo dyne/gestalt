@@ -59,7 +59,7 @@ export const createTerminalSocket = ({
       if (!notifiedHistorySlow) {
         notificationStore.addNotification(
           'warning',
-          `Terminal ${terminalId} history is taking longer to load.`
+          `Session ${terminalId} history is taking longer to load.`
         )
         notifiedHistorySlow = true
       }
@@ -138,7 +138,7 @@ export const createTerminalSocket = ({
         if (!notifiedHistoryError) {
           notificationStore.addNotification(
             'warning',
-            `Terminal ${terminalId} history could not be loaded.`
+            `Session ${terminalId} history could not be loaded.`
           )
           notifiedHistoryError = true
         }
@@ -171,7 +171,7 @@ export const createTerminalSocket = ({
       if (!notifiedDisconnect) {
         notificationStore.addNotification(
           'warning',
-          `Terminal ${terminalId} connection lost.`
+          `Session ${terminalId} connection lost.`
         )
         notifiedDisconnect = true
       }
@@ -245,7 +245,7 @@ export const createTerminalSocket = ({
         if (!notifiedUnauthorized) {
           notificationStore.addNotification(
             'error',
-            `Terminal ${terminalId} requires authentication.`
+            `Session ${terminalId} requires authentication.`
           )
           notifiedUnauthorized = true
         }
@@ -259,7 +259,7 @@ export const createTerminalSocket = ({
       if (!notifiedDisconnect) {
         notificationStore.addNotification(
           'warning',
-          `Terminal ${terminalId} connection error.`
+          `Session ${terminalId} connection error.`
         )
         notifiedDisconnect = true
       }

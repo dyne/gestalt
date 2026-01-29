@@ -188,7 +188,7 @@
       </button>
     {/if}
     <button type="button" on:click={() => onViewTerminal(workflow.session_id)}>
-      View Terminal
+      View Session
     </button>
     {#if temporalUrl}
       <a href={temporalUrl} target="_blank" rel="noopener noreferrer">

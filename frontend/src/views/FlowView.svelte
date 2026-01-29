@@ -263,7 +263,7 @@
         bind:value={query}
         disabled={flowState?.loading}
       />
-      <p class="field-hint">Try `event_type:workflow_paused terminal_id:t1`</p>
+      <p class="field-hint">Try `event_type:workflow_paused session_id:t1`</p>
       {#if parsed.tokens.length > 0}
         <div class="chip-row" aria-label="Active filters">
           {#each parsed.tokens as token (token.raw)}
@@ -374,7 +374,7 @@
       id="trigger-where"
       class="field-input"
       rows="4"
-      placeholder="terminal_id=t1"
+      placeholder="session_id=t1"
       bind:value={draftWhere}
     ></textarea>
     {#if dialogError}

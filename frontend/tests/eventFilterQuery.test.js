@@ -6,7 +6,7 @@ describe('eventFilterQuery', () => {
     id: 't1',
     label: 'Workflow paused',
     event_type: 'workflow_paused',
-    where: { terminal_id: 't1', agent_name: 'Codex' },
+    where: { session_id: 't1', agent_name: 'Codex' },
   }
 
   it('matches free text terms', () => {
@@ -21,15 +21,15 @@ describe('eventFilterQuery', () => {
   })
 
   it('combines free text and filters with AND semantics', () => {
-    const parsed = parseEventFilterQuery('workflow event_type:workflow_paused terminal_id:t1')
+    const parsed = parseEventFilterQuery('workflow event_type:workflow_paused session_id:t1')
     expect(matchesEventTrigger(trigger, parsed)).toBe(true)
 
-    const mismatch = parseEventFilterQuery('workflow event_type:file_changed terminal_id:t1')
+    const mismatch = parseEventFilterQuery('workflow event_type:file_changed session_id:t1')
     expect(matchesEventTrigger(trigger, mismatch)).toBe(false)
   })
 
   it('supports key exists filters', () => {
-    const parsed = parseEventFilterQuery('terminal_id:')
+    const parsed = parseEventFilterQuery('session_id:')
     expect(matchesEventTrigger(trigger, parsed)).toBe(true)
 
     const missing = parseEventFilterQuery('missing:')

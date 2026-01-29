@@ -141,7 +141,7 @@
 
   $: statusLabel = statusLabels[status] || status
   $: inputDisabled = status !== 'connected' || !terminalId
-  $: displayTitle = terminalId ? terminalId : 'Terminal —'
+  $: displayTitle = terminalId ? terminalId : 'Session —'
   $: promptFilesLabel =
     Array.isArray(promptFiles) && promptFiles.length > 0
       ? promptFiles.filter(Boolean).join(', ')

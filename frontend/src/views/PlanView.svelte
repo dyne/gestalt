@@ -125,14 +125,14 @@
     try {
       terminals = await fetchTerminals()
     } catch (err) {
-      console.error('Failed to load terminals', err)
+      console.error('Failed to load sessions', err)
     }
   }
 
   const createArchitect = async () => {
     try {
       await createTerminal({ agentId: 'architect' })
-      notificationStore.addNotification('info', 'Architect terminal created')
+      notificationStore.addNotification('info', 'Architect session created')
     } catch (err) {
       notificationStore.addNotification('error', getErrorMessage(err, 'Failed to create architect'))
     }

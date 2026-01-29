@@ -5,10 +5,14 @@ BINDIR ?= $(PREFIX)/bin
 VERSION ?= dev
 CONFIG_MANIFEST := config/manifest.json
 VERSION_INFO := internal/version/build_info.json
+UNAME_S := $(shell uname -s)
+UNAME_M := $(shell uname -m)
+ARCH := $(UNAME_S)_$(UNAME_M)
 
 .PHONY: build build-scip test clean version temporal-dev dev
 
 build: gestalt gestalt-send gestalt-notify build-scip
+	$(MAKE) -C otel $(ARCH)
 
 # Frontend build is required before embedding.
 frontend/dist:

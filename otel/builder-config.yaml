@@ -1,5 +1,5 @@
 dist:
-  name: otelcol-gestalt
+  name: gestalt-otel
   description: Basic OTel Collector for Gestalt
   output_path: .
 
@@ -24,7 +24,7 @@ providers:
       go.opentelemetry.io/collector/confmap/provider/envprovider v1.48.0
   - gomod:
       go.opentelemetry.io/collector/confmap/provider/fileprovider v1.48.0
-  - gomod:
-      go.opentelemetry.io/collector/confmap/provider/httpprovider v1.48.0
+  # - gomod:
+  #     go.opentelemetry.io/collector/confmap/provider/httpprovider v1.48.0
   # - gomod:
   #     go.opentelemetry.io/collector/confmap/provider/yamlprovider v1.48.0

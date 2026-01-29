@@ -130,6 +130,14 @@ func runServer(args []string) int {
 	}
 	if collector != nil && strings.TrimSpace(collectorOptions.HTTPEndpoint) != "" {
 		sdkOptions.HTTPEndpoint = collectorOptions.HTTPEndpoint
+	} else if !httpEndpointSet {
+		sdkOptions.Enabled = false
+		sdkOptions.HTTPEndpoint = ""
+		if logger != nil && collectorOptions.Enabled {
+			logger.Warn("otel sdk disabled; collector unavailable", map[string]string{
+				"endpoint": strings.TrimSpace(collectorOptions.HTTPEndpoint),
+			})
+		}
 	}
 	if logger != nil {
 		logger.Info("otel endpoints configured", map[string]string{

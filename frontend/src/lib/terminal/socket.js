@@ -7,6 +7,10 @@ const MAX_DELAY_MS = 8000
 const HISTORY_WARNING_MS = 5000
 const HISTORY_LINES = 10000
 
+const logHistoryTiming = (timing) => {
+  console.info('terminal history timing', timing)
+}
+
 export const createTerminalSocket = ({
   terminalId,
   term,
@@ -98,13 +102,24 @@ export const createTerminalSocket = ({
     scheduleHistoryWarning()
     historyLoadPromise = (async () => {
       try {
+        const timing = {
+          terminalId,
+          historyLinesRequested: HISTORY_LINES,
+          fetchMs: 0,
+          parseMs: 0,
+          writeMs: 0,
+        }
         const historyPath = `${buildApiPath(
           '/api/sessions',
           terminalId,
           'history'
         )}?lines=${HISTORY_LINES}`
+        const fetchStart = performance.now()
         const response = await apiFetch(historyPath)
+        timing.fetchMs = Math.round(performance.now() - fetchStart)
+        const parseStart = performance.now()
         const payload = await response.json()
+        timing.parseMs = Math.round(performance.now() - parseStart)
         const lines = Array.isArray(payload?.lines) ? payload.lines : []
         const cursorValue = payload?.cursor
         if (Number.isFinite(cursorValue)) {
@@ -118,7 +133,9 @@ export const createTerminalSocket = ({
         const historyText = lines.join('\n')
         if (historyText) {
           if (term.element) {
+            const writeStart = performance.now()
             term.write(historyText)
+            timing.writeMs = Math.round(performance.now() - writeStart)
           } else {
             pendingHistory = historyText
           }
@@ -132,6 +149,7 @@ export const createTerminalSocket = ({
         })
         historyLoaded = true
         historyStatus.set('loaded')
+        logHistoryTiming(timing)
       } catch (err) {
         console.warn('failed to load terminal history', err)
         historyStatus.set('error')

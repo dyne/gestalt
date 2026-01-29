@@ -31,7 +31,7 @@ describe('PlanView', () => {
 
   it('renders plans from the API', async () => {
     apiFetch.mockImplementation((url) => {
-      if (url === '/api/terminals') {
+      if (url === '/api/sessions') {
         return Promise.resolve({ json: vi.fn().mockResolvedValue([]) })
       }
       return Promise.resolve({

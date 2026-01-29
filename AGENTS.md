@@ -15,14 +15,6 @@ Use this as the minimum context to start any plan task.
 - Frontend: `frontend/src/App.svelte` tabs; `frontend/src/views/Dashboard.svelte` agents/sessions; `frontend/src/lib/terminalStore.js` xterm + WS; `frontend/src/lib/eventStore.js` `/ws/events`.
 - CLI: `cmd/gestalt-send` pipes stdin to agent sessions over REST.
 
-## Config extraction (startup)
-- Embedded config extracts to `.gestalt/config/` using `config/manifest.json` FNV-1a 64-bit hashes; mismatches backup to `.bck`.
-- Dev mode (`GESTALT_DEV_MODE=true` or `--dev`) skips extraction/validation and reads from `config/` (or `GESTALT_CONFIG_DIR`).
-- `.gestalt/version.json` tracks build version; `--force-upgrade` bypasses major mismatch.
-- Agent/skill validation logs warnings and skips invalid entries; prompt files must be text.
-- Metrics log: `config extraction metrics`.
-- Plans live under `.gestalt/plans/` (no migration from root `PLAN.org`); `--extract-config` is a no-op.
-
 ## Runtime flow (high level)
 - REST: `/api/sessions` create/list/delete; `/api/agents` list profiles.
 - WS: `/ws/session/:id` PTY stream; `/ws/events` filesystem events.
@@ -81,34 +73,15 @@ terminal output -> Session output bus -> /ws/session/:id -> xterm
 - Watches `.gestalt/plans/` and git branch changes on startup.
 - `GESTALT_MAX_WATCHES` caps watches (default 100).
 
-## Planning workflow (must follow)
-- Work tracked in `.gestalt/plans/*.org` (Org). L1 = feature, L2 = steps.
-- Exactly one WIP L1 and one WIP L2 at a time.
-- For non-tiny work: update the plan first, then ask for confirmation before implementing.
-
-## Plan UI notes (2026-01-26)
-- Plans are served via `/api/plans` (metadata + headings) from `.gestalt/plans/`; PlanView renders PlanCard details/summary and refreshes on file change events.
-
 ## Conventions + tooling
 - Prefer minimal changes and dependencies; ASCII-only edits unless file already uses non-ASCII.
 - Avoid destructive git commands unless explicitly requested.
 - Tests: backend `GOCACHE=/tmp/gocache /usr/local/go/bin/go test ./...`; frontend `cd frontend && npm test`.
 
-## Versioning + flags
-- Conventional commits drive semver via `scripts/get-next-version.js`.
-- Backend version: `internal/version.Version` (exposed in `/api/status`); frontend version: `frontend/src/lib/version.js` with `__GESTALT_VERSION__`.
-- Flag priority: CLI > env > default; `Config.Sources` records source.
-- `gestalt --help/--version`, `gestalt completion bash|zsh`, `--verbose`/`--quiet`.
-- `gestalt-send --url --token --start --verbose --debug --help --version`.
-
 ## Temporal quick reference
 | Area | Defaults/Flags | Key APIs / Behavior |
 | --- | --- | --- |
 | Temporal HITL | Workflows on by default; disable via `workflow=false` / `use_workflow=false`. Dev server: `GESTALT_TEMPORAL_DEV_SERVER=true` or `--temporal-dev-server` (runs in `.gestalt/temporal`). | `GET /api/workflows`, `GET /api/sessions/:id/workflow/history`, `POST /api/sessions/:id/workflow/resume` (`continue`/`abort`), `GET /api/metrics/summary`. |
-
-## Plan UI notes (2026-01-26)
-- `frontend/src/views/PlanView.svelte` debounces plan refreshes from file watcher events to avoid request floods.
-- Event store regression tests cover malformed payloads and burst events (`frontend/tests/eventStore.test.js`, `frontend/src/lib/wsStore.test.js`).
 
 ## OpenTelemetry observability
 - Collector lifecycle lives in `internal/otel/collector.go`; config `.gestalt/otel/collector.yaml`, data file `.gestalt/otel/otel.json`.
@@ -123,27 +96,6 @@ terminal output -> Session output bus -> /ws/session/:id -> xterm
   - Logs do not show repeated "connection refused" from OTLP exporters.
   - `otel_collector_last_exit` is empty or has a recent error with `otel_collector_restart_count` incremented.
 
-## Recent changes (2026-01-10 to 2026-01-23)
-- UI: relative time formatting in `frontend/src/lib/timeUtils.js` (ISO tooltips).
-- UI: dashboard agent buttons are Start/Open only; running state from `sessions` prop.
-- UI: session tabs have no close icons; close via header pill + native dialog.
-- UI: session start success logs to console; header branding uses SVG assets.
-- UI: workflow tracking always on; session resizing uses ResizeObserver; touch scrolling uses pointer events with 10px threshold + inertia; `scrollSensitivity` in `frontend/src/components/Terminal.svelte`.
-- Dev: `make dev` runs backend + Vite dev server.
-- Agents: TOML-only; loader rejects `.json`; `cli_config` schema-validated; shellgen skips empty values.
-- Agents/skills: prompt resolution unified with prompt parser (.md support), skill XML includes license/compatibility/allowed tools with `xml.EscapeText`, loader path normalization shared in `internal/fsutil`, validation no longer mutates shell (use `NormalizeShell`), and agent registry centralizes reloads.
-- Errors: REST errors include message + code (error alias retained), WS streams send error envelopes, and frontend error messages use `errorUtils`.
-- Testing: added DSR/output backpressure, watcher restart, CLI error mapping, structured error e2e, and Terminal/CommandInput component tests; frontend coverage workflow documented.
-- Agents: new sessions refresh configs via `agent.AgentCache`; sessions store `Command` + `ConfigHash` snapshots.
-- Temporal: workflows store agent config + hash in memo (`internal/temporal/memo.go`); legacy JSON memos in `.gestalt/temporal` are warned/rejected.
-- CLI: `gestalt config validate --agents-dir ...`.
-- Backend: app wiring now lives in `internal/app` (`app.Build` loads skills/agents and constructs `terminal.Manager`).
-- Backend: `cmd/gestalt` subcommands dispatch via `cmd/gestalt/commands.go`; execution tests live in `cmd/gestalt/commands_test.go`.
-- Backend: server startup flow moved to `cmd/gestalt/server_command.go`; `cmd/gestalt/main.go` only resolves commands.
-- CLI: `gestalt-send` split into `parse.go`, `http.go`, and `completion.go`; agent cache now JSON (`agents-cache.json`).
-- CLI: shared HTTP helpers live in `internal/client`; `gestalt-send` uses them for agent lookups and input sends.
-- CLI: common help/version flag wiring in `internal/cli`.
-
 ## WebSocket consolidation notes
 - Backend WS streaming now uses a shared write-loop helper (`internal/api/ws_helpers.go`) with per-handler read logic; logs/events/session handlers were updated to use it and have close-handling tests.
 - Frontend WS helper tests live in `frontend/src/lib/wsStore.test.js` and cover reconnect, subscription payloads, and listener error handling.
@@ -151,6 +103,11 @@ terminal output -> Session output bus -> /ws/session/:id -> xterm
 ## Frontend store simplification notes
 - Dashboard orchestration (agent/config/git event handling, config extraction counts, git context) lives in `frontend/src/lib/dashboardStore.js`; Dashboard view now just binds store state.
 - Terminal input helpers have direct tests in `frontend/src/lib/terminal/input.test.js`.
+
+## Plan UI notes
+- Plans are served via `/api/plans` (metadata + headings) from `.gestalt/plans/`; PlanView renders PlanCard details/summary and refreshes on file change events.
+- `frontend/src/views/PlanView.svelte` debounces plan refreshes from file watcher events to avoid request floods.
+- Event store regression tests cover malformed payloads and burst events (`frontend/tests/eventStore.test.js`, `frontend/src/lib/wsStore.test.js`).
 
 ## Logs UI notes
 - Log entries are normalized via `frontend/src/lib/logEntry.js`; Dashboard and LogsView use inline `<details>/<summary>` disclosures with context tables and optional raw JSON.

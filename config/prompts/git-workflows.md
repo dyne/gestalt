@@ -3,13 +3,12 @@
 Use these steps to keep changes clean and reviewable.
 
 ## Safe sync
-1. `git status` to confirm a clean working tree.
-2. `git fetch --all --prune` to update remote refs.
-3. `git rebase origin/main` (or your target branch) to keep history linear.
+1. `git fetch --all --prune` to update remote refs.
+2. `git rebase origin/main` (or your target branch) to keep history linear.
 
 ## New branch setup
 
-git checkout -b feature/<short-name> (or fix/<short-name> if appropriate)
+git checkout -b feat/<short-name> (or fix/<short-name>)
 
 ## New Commit
 
@@ -23,7 +22,6 @@ add. Commit message should prefix with (all downcase, include colon)
 - ci: (continuous integration changes, github actions etc.)
 - docs: (documentation)
 - test: (testing framework changes)
-
 
 after the colon just a title on one line and below a short
 description. In case of more complex commits, reuse a compact

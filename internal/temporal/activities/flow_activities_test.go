@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
@@ -73,6 +74,18 @@ func waitForWrite(factory *recordingFactory, minBytes int) bool {
 	return false
 }
 
+func newIPv4Server(testingContext *testing.T, handler http.Handler) *httptest.Server {
+	testingContext.Helper()
+	server := httptest.NewUnstartedServer(handler)
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		testingContext.Fatalf("listen: %v", err)
+	}
+	server.Listener = listener
+	server.Start()
+	return server
+}
+
 func TestFlowActivitiesSendToTerminal(testingContext *testing.T) {
 	activities, factory, manager := newFlowActivities()
 	_, err := manager.Create("target", "", "")
@@ -106,7 +119,7 @@ func TestFlowActivitiesSendToTerminal(testingContext *testing.T) {
 func TestFlowActivitiesPostWebhook(testingContext *testing.T) {
 	received := make(chan *http.Request, 1)
 	bodyCh := make(chan []byte, 1)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newIPv4Server(testingContext, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		received <- r
 		bodyCh <- body
@@ -159,7 +172,7 @@ func TestFlowActivitiesPostWebhook(testingContext *testing.T) {
 }
 
 func TestFlowActivitiesPostWebhookStatus(testingContext *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newIPv4Server(testingContext, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()

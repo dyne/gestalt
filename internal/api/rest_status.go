@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"gestalt/internal/git"
+	"gestalt/internal/otel"
 	"gestalt/internal/version"
 )
 
@@ -46,6 +47,18 @@ func (h *RestHandler) handleStatus(w http.ResponseWriter, r *http.Request) *apiE
 		Built:          versionInfo.Built,
 		GitCommit:      versionInfo.GitCommit,
 		TemporalUIURL:  buildTemporalUIURL(r, h.TemporalUIPort),
+	}
+	collectorStatus := otel.CollectorStatusSnapshot()
+	response.OTelCollectorRunning = collectorStatus.Running
+	response.OTelCollectorPID = collectorStatus.PID
+	response.OTelCollectorHTTPEndpoint = collectorStatus.HTTPEndpoint
+	response.OTelCollectorRestartCount = collectorStatus.RestartCount
+	if !collectorStatus.LastExitTime.IsZero() {
+		lastExit := collectorStatus.LastExitTime.Format(time.RFC3339)
+		if strings.TrimSpace(collectorStatus.LastExitErr) != "" {
+			lastExit = fmt.Sprintf("%s: %s", lastExit, strings.TrimSpace(collectorStatus.LastExitErr))
+		}
+		response.OTelCollectorLastExit = lastExit
 	}
 
 	writeJSON(w, http.StatusOK, response)

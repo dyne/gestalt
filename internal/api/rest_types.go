@@ -90,19 +90,24 @@ type inputHistoryRequest struct {
 }
 
 type statusResponse struct {
-	SessionCount   int       `json:"session_count"`
-	ServerTime     time.Time `json:"server_time"`
-	SessionPersist bool      `json:"session_persist"`
-	WorkingDir     string    `json:"working_dir"`
-	GitOrigin      string    `json:"git_origin"`
-	GitBranch      string    `json:"git_branch"`
-	Version        string    `json:"version"`
-	Major          int       `json:"major"`
-	Minor          int       `json:"minor"`
-	Patch          int       `json:"patch"`
-	Built          string    `json:"built"`
-	GitCommit      string    `json:"git_commit,omitempty"`
-	TemporalUIURL  string    `json:"temporal_ui_url,omitempty"`
+	SessionCount              int       `json:"session_count"`
+	ServerTime                time.Time `json:"server_time"`
+	SessionPersist            bool      `json:"session_persist"`
+	WorkingDir                string    `json:"working_dir"`
+	GitOrigin                 string    `json:"git_origin"`
+	GitBranch                 string    `json:"git_branch"`
+	Version                   string    `json:"version"`
+	Major                     int       `json:"major"`
+	Minor                     int       `json:"minor"`
+	Patch                     int       `json:"patch"`
+	Built                     string    `json:"built"`
+	GitCommit                 string    `json:"git_commit,omitempty"`
+	TemporalUIURL             string    `json:"temporal_ui_url,omitempty"`
+	OTelCollectorRunning      bool      `json:"otel_collector_running"`
+	OTelCollectorPID          int       `json:"otel_collector_pid"`
+	OTelCollectorHTTPEndpoint string    `json:"otel_collector_http_endpoint"`
+	OTelCollectorLastExit     string    `json:"otel_collector_last_exit,omitempty"`
+	OTelCollectorRestartCount int       `json:"otel_collector_restart_count"`
 }
 
 type planHeading struct {
@@ -133,10 +138,10 @@ type plansListResponse struct {
 }
 
 type errorResponse struct {
-	Message    string `json:"message"`
-	Error      string `json:"error,omitempty"`
-	Code       string `json:"code,omitempty"`
-	SessionID  string `json:"session_id,omitempty"`
+	Message   string `json:"message"`
+	Error     string `json:"error,omitempty"`
+	Code      string `json:"code,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
 }
 
 type agentSummary struct {

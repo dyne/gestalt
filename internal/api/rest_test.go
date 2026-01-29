@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"gestalt/internal/agent"
+	"gestalt/internal/otel"
 	"gestalt/internal/skill"
 	"gestalt/internal/temporal/workflows"
 	"gestalt/internal/terminal"
@@ -357,6 +358,52 @@ func TestStatusHandlerReturnsCount(t *testing.T) {
 	}
 	if payload.GitCommit != info.GitCommit {
 		t.Fatalf("expected git commit %q, got %q", info.GitCommit, payload.GitCommit)
+	}
+}
+
+func TestStatusHandlerIncludesCollectorStatus(t *testing.T) {
+	manager := newTestManager(terminal.ManagerOptions{Shell: "/bin/sh"})
+	handler := &RestHandler{Manager: manager}
+	exitTime := time.Date(2026, 1, 29, 12, 0, 0, 0, time.UTC)
+	otel.SetCollectorStatus(otel.CollectorStatus{
+		PID:          4242,
+		Running:      true,
+		StartTime:    time.Date(2026, 1, 29, 11, 0, 0, 0, time.UTC),
+		LastExitTime: exitTime,
+		LastExitErr:  "boom",
+		RestartCount: 2,
+		HTTPEndpoint: "127.0.0.1:4318",
+	})
+	defer otel.ClearCollectorStatus()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", nil, handler.handleStatus)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var payload statusResponse
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !payload.OTelCollectorRunning {
+		t.Fatalf("expected collector running")
+	}
+	if payload.OTelCollectorPID != 4242 {
+		t.Fatalf("expected collector pid 4242, got %d", payload.OTelCollectorPID)
+	}
+	if payload.OTelCollectorHTTPEndpoint != "127.0.0.1:4318" {
+		t.Fatalf("expected collector endpoint %q, got %q", "127.0.0.1:4318", payload.OTelCollectorHTTPEndpoint)
+	}
+	if payload.OTelCollectorRestartCount != 2 {
+		t.Fatalf("expected restart count 2, got %d", payload.OTelCollectorRestartCount)
+	}
+	expectedLastExit := exitTime.Format(time.RFC3339) + ": boom"
+	if payload.OTelCollectorLastExit != expectedLastExit {
+		t.Fatalf("expected last exit %q, got %q", expectedLastExit, payload.OTelCollectorLastExit)
 	}
 }
 
@@ -1432,10 +1479,10 @@ func TestListTerminalsIncludesLLMMetadata(t *testing.T) {
 		PtyFactory: factory,
 		Agents: map[string]agent.Agent{
 			"codex": {
-				Name:     "Codex",
-				Shell:    "/bin/zsh",
-				CLIType:  "codex",
-				LLMModel: "default",
+				Name:      "Codex",
+				Shell:     "/bin/zsh",
+				CLIType:   "codex",
+				LLMModel:  "default",
 				Singleton: &nonSingleton,
 			},
 		},

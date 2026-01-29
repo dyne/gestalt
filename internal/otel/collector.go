@@ -22,13 +22,13 @@ import (
 )
 
 const (
-	defaultCollectorBinary = "otelcol-gestalt"
-	defaultStateDir        = ".gestalt"
-	collectorPIDFileName   = "collector.pid"
-	collectorReadyTimeout  = 3 * time.Second
-	collectorReadyInterval = 100 * time.Millisecond
-	collectorReadyDialWait = 200 * time.Millisecond
-	collectorReadyTailSize = 4096
+	defaultCollectorBinary  = "otelcol-gestalt"
+	defaultStateDir         = ".gestalt"
+	collectorPIDFileName    = "collector.pid"
+	collectorReadyTimeout   = 3 * time.Second
+	collectorReadyInterval  = 100 * time.Millisecond
+	collectorReadyDialWait  = 200 * time.Millisecond
+	collectorStderrTailSize = 4096
 )
 
 var ErrCollectorNotFound = errors.New("otel collector binary not found")
@@ -56,6 +56,17 @@ type CollectorInfo struct {
 	RemoteInsecure bool
 }
 
+type CollectorStatus struct {
+	PID          int
+	Running      bool
+	StartTime    time.Time
+	LastExitTime time.Time
+	LastExitErr  string
+	StderrTail   string
+	RestartCount int
+	HTTPEndpoint string
+}
+
 type Collector struct {
 	mu         sync.Mutex
 	cmd        *exec.Cmd
@@ -75,6 +86,11 @@ var activeCollector struct {
 	mu   sync.RWMutex
 	info CollectorInfo
 	ok   bool
+}
+
+var activeCollectorStatus struct {
+	mu     sync.RWMutex
+	status CollectorStatus
 }
 
 func OptionsFromEnv(stateDir string) Options {
@@ -179,13 +195,23 @@ func StartCollector(options Options) (*Collector, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		_ = collector.stopProcess(ctx, false)
-		stderrTail := collectorStderrTail(collector.stderr, collectorReadyTailSize)
+		stderrTail := collectorStderrTail(collector.stderr, collectorStderrTailSize)
 		if stderrTail != "" {
 			return nil, fmt.Errorf("otel collector not ready: %w: %s", err, stderrTail)
 		}
 		return nil, fmt.Errorf("otel collector not ready: %w", err)
 	}
 	SetActiveCollector(collector.info)
+	updateCollectorStatus(func(status *CollectorStatus) {
+		status.PID = cmd.Process.Pid
+		status.Running = true
+		status.StartTime = collector.info.StartTime
+		status.HTTPEndpoint = collector.info.HTTPEndpoint
+		status.RestartCount = 0
+		status.LastExitTime = time.Time{}
+		status.LastExitErr = ""
+		status.StderrTail = ""
+	})
 
 	startFields := map[string]string{
 		"path":   binaryPath,
@@ -228,6 +254,21 @@ func (collector *Collector) waitForExit(cmd *exec.Cmd, done chan error, notify c
 		default:
 		}
 	}
+	stderrTail := collectorStderrTail(collector.stderr, collectorStderrTailSize)
+	updateCollectorStatus(func(status *CollectorStatus) {
+		status.Running = false
+		status.PID = 0
+		status.LastExitTime = time.Now().UTC()
+		if err != nil {
+			status.LastExitErr = err.Error()
+			if stderrTail != "" {
+				status.StderrTail = stderrTail
+			}
+		} else {
+			status.LastExitErr = ""
+			status.StderrTail = ""
+		}
+	})
 	collector.logExit(err)
 	collector.clearActiveIfCurrent(cmd)
 	if cmd != nil && cmd.Process != nil {
@@ -442,6 +483,13 @@ func (collector *Collector) restartProcess() error {
 	collector.mu.Unlock()
 
 	SetActiveCollector(collector.info)
+	updateCollectorStatus(func(status *CollectorStatus) {
+		status.PID = cmd.Process.Pid
+		status.Running = true
+		status.StartTime = collector.info.StartTime
+		status.HTTPEndpoint = collector.info.HTTPEndpoint
+		status.RestartCount++
+	})
 	collector.logInfo("otel collector restarted", map[string]string{
 		"config": options.ConfigPath,
 	})
@@ -851,6 +899,24 @@ func ActiveCollector() (CollectorInfo, bool) {
 	return activeCollector.info, activeCollector.ok
 }
 
+func CollectorStatusSnapshot() CollectorStatus {
+	activeCollectorStatus.mu.RLock()
+	defer activeCollectorStatus.mu.RUnlock()
+	return activeCollectorStatus.status
+}
+
+func SetCollectorStatus(status CollectorStatus) {
+	activeCollectorStatus.mu.Lock()
+	activeCollectorStatus.status = status
+	activeCollectorStatus.mu.Unlock()
+}
+
+func ClearCollectorStatus() {
+	activeCollectorStatus.mu.Lock()
+	activeCollectorStatus.status = CollectorStatus{}
+	activeCollectorStatus.mu.Unlock()
+}
+
 func SetActiveCollector(info CollectorInfo) {
 	activeCollector.mu.Lock()
 	activeCollector.info = info
@@ -863,4 +929,13 @@ func ClearActiveCollector() {
 	activeCollector.info = CollectorInfo{}
 	activeCollector.ok = false
 	activeCollector.mu.Unlock()
+}
+
+func updateCollectorStatus(update func(*CollectorStatus)) {
+	if update == nil {
+		return
+	}
+	activeCollectorStatus.mu.Lock()
+	update(&activeCollectorStatus.status)
+	activeCollectorStatus.mu.Unlock()
 }

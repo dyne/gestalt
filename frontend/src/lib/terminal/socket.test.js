@@ -5,6 +5,13 @@ import { createTerminalSocket } from './socket.js'
 vi.mock('../api.js', () => ({
   apiFetch: vi.fn(),
   buildWebSocketUrl: (path) => path,
+  buildApiPath: (base, ...segments) => {
+    const basePath = base.endsWith('/') ? base.slice(0, -1) : base
+    const encoded = segments
+      .filter((segment) => segment !== undefined && segment !== null && segment !== '')
+      .map((segment) => encodeURIComponent(String(segment)))
+    return encoded.length ? `${basePath}/${encoded.join('/')}` : basePath
+  },
 }))
 
 vi.mock('../notificationStore.js', () => ({
@@ -121,5 +128,35 @@ describe('createTerminalSocket', () => {
     expect(MockWebSocket.instances).toHaveLength(2)
     expect(MockWebSocket.instances[1].url).toContain('/ws/session/bravo?cursor=77')
     expect(apiFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('encodes session ids in history and websocket paths', async () => {
+    const { apiFetch } = await import('../api.js')
+    apiFetch.mockResolvedValue({
+      json: async () => ({ lines: [], cursor: 12 }),
+    })
+
+    const terminalId = 'Architect (Codex) 1'
+    const encodedId = encodeURIComponent(terminalId)
+    const socketManager = createTerminalSocket({
+      terminalId,
+      term: createTerminalStub(),
+      status: createStoreStub(),
+      historyStatus: createStoreStub(),
+      canReconnect: createStoreStub(),
+      historyCache: new Map(),
+      syncScrollState: () => {},
+      scheduleFit: () => {},
+    })
+
+    await socketManager.connect()
+
+    expect(apiFetch).toHaveBeenCalledWith(
+      `/api/sessions/${encodedId}/history?lines=10000`
+    )
+    expect(MockWebSocket.instances).toHaveLength(1)
+    expect(MockWebSocket.instances[0].url).toContain(
+      `/ws/session/${encodedId}?cursor=12`
+    )
   })
 })

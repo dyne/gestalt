@@ -65,6 +65,13 @@ vi.mock('../src/lib/api.js', () => ({
   apiFetch,
   buildWebSocketUrl,
   buildEventSourceUrl,
+  buildApiPath: (base, ...segments) => {
+    const basePath = base.endsWith('/') ? base.slice(0, -1) : base
+    const encoded = segments
+      .filter((segment) => segment !== undefined && segment !== null && segment !== '')
+      .map((segment) => encodeURIComponent(String(segment)))
+    return encoded.length ? `${basePath}/${encoded.join('/')}` : basePath
+  },
 }))
 
 vi.mock('../src/lib/notificationStore.js', () => ({

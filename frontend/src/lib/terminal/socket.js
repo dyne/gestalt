@@ -1,4 +1,4 @@
-import { apiFetch, buildWebSocketUrl } from '../api.js'
+import { apiFetch, buildApiPath, buildWebSocketUrl } from '../api.js'
 import { notificationStore } from '../notificationStore.js'
 
 const MAX_RETRIES = 5
@@ -98,9 +98,12 @@ export const createTerminalSocket = ({
     scheduleHistoryWarning()
     historyLoadPromise = (async () => {
       try {
-        const response = await apiFetch(
-          `/api/sessions/${terminalId}/history?lines=${HISTORY_LINES}`
-        )
+        const historyPath = `${buildApiPath(
+          '/api/sessions',
+          terminalId,
+          'history'
+        )}?lines=${HISTORY_LINES}`
+        const response = await apiFetch(historyPath)
         const payload = await response.json()
         const lines = Array.isArray(payload?.lines) ? payload.lines : []
         const cursorValue = payload?.cursor
@@ -205,9 +208,8 @@ export const createTerminalSocket = ({
       Number.isFinite(historyCursor) && historyCursor >= 0
         ? `?cursor=${encodeURIComponent(historyCursor)}`
         : ''
-    socket = new WebSocket(
-      buildWebSocketUrl(`/ws/session/${terminalId}${cursorParam}`)
-    )
+    const socketPath = `${buildApiPath('/ws/session', terminalId)}${cursorParam}`
+    socket = new WebSocket(buildWebSocketUrl(socketPath))
     socket.binaryType = 'arraybuffer'
 
     socket.addEventListener('open', () => {

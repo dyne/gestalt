@@ -43,6 +43,15 @@ export function buildEventSourceUrl(path, params = {}) {
   return url.toString()
 }
 
+export function buildApiPath(base, ...segments) {
+  const basePath = base.endsWith('/') ? base.slice(0, -1) : base
+  const encoded = segments
+    .filter((segment) => segment !== undefined && segment !== null && segment !== '')
+    .map((segment) => encodeURIComponent(String(segment)))
+  if (!encoded.length) return basePath
+  return `${basePath}/${encoded.join('/')}`
+}
+
 export async function apiFetch(path, options = {}) {
   const { allowNotModified, ...fetchOptions } = options
   const headers = new Headers(fetchOptions.headers || {})

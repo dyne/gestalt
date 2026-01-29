@@ -1,6 +1,6 @@
 import { writable } from 'svelte/store'
 
-import { apiFetch } from '../api.js'
+import { apiFetch, buildApiPath } from '../api.js'
 import { createXtermTerminal } from './xterm.js'
 import {
   isCopyKey,
@@ -61,7 +61,7 @@ export const createTerminalService = ({ terminalId, historyCache }) => {
 
   const sendBell = async () => {
     try {
-      await apiFetch(`/api/sessions/${terminalId}/bell`, {
+      await apiFetch(buildApiPath('/api/sessions', terminalId, 'bell'), {
         method: 'POST',
       })
     } catch (bellError) {

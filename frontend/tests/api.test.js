@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
-import { apiFetch, buildWebSocketUrl } from '../src/lib/api.js'
+import { apiFetch, buildApiPath, buildWebSocketUrl } from '../src/lib/api.js'
 
 const mockFetch = (response) => {
   const fetchMock = vi.fn().mockResolvedValue(response)
@@ -46,6 +46,11 @@ describe('api helpers', () => {
     expect(url.startsWith('ws://')).toBe(true)
     expect(url).toContain('/ws/session/1')
     expect(url).toContain('token=abc123')
+  })
+
+  it('buildApiPath encodes path segments', () => {
+    const path = buildApiPath('/api/sessions', 'Architect (Codex) 1', 'history')
+    expect(path).toBe('/api/sessions/Architect%20(Codex)%201/history')
   })
 
   it('apiFetch attaches auth and content headers', async () => {

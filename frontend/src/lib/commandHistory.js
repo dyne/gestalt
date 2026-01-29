@@ -1,4 +1,4 @@
-import { apiFetch } from './api.js'
+import { apiFetch, buildApiPath } from './api.js'
 
 const DEFAULT_HISTORY_LIMIT = 1000
 const DEFAULT_LOAD_LIMIT = 100
@@ -59,7 +59,7 @@ export const createCommandHistory = ({
     loadedFor = terminalId
     try {
       const response = await apiFetch(
-        `/api/sessions/${terminalId}/input-history?limit=${loadLimit}`
+        `${buildApiPath('/api/sessions', terminalId, 'input-history')}?limit=${loadLimit}`
       )
       const payload = await response.json()
       history = normalizeHistory(payload)

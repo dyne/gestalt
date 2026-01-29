@@ -1,4 +1,4 @@
-import { apiFetch } from './api.js'
+import { apiFetch, buildApiPath } from './api.js'
 
 const buildQuery = (params) => {
   const search = new URLSearchParams()
@@ -164,7 +164,7 @@ export const createTerminal = async ({ agentId = '', workflow } = {}) => {
 
 export const deleteTerminal = async (terminalId) => {
   if (!terminalId) return
-  await apiFetch(`/api/sessions/${terminalId}`, { method: 'DELETE' })
+  await apiFetch(buildApiPath('/api/sessions', terminalId), { method: 'DELETE' })
 }
 
 export const fetchAgents = async () => {

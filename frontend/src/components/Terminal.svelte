@@ -3,7 +3,7 @@
   import TerminalCanvas from './TerminalCanvas.svelte'
   import CommandInput from './CommandInput.svelte'
   import TerminalShell from './TerminalShell.svelte'
-  import { apiFetch } from '../lib/api.js'
+  import { apiFetch, buildApiPath } from '../lib/api.js'
   import { getTerminalState } from '../lib/terminalStore.js'
 
   export let terminalId = ''
@@ -84,7 +84,7 @@
     }
     const trimmed = payload.trim()
     if (!trimmed || !terminalId) return
-    apiFetch(`/api/terminals/${terminalId}/input-history`, {
+    apiFetch(buildApiPath('/api/sessions', terminalId, 'input-history'), {
       method: 'POST',
       body: JSON.stringify({ command: trimmed }),
     }).catch((err) => {

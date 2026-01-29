@@ -115,13 +115,15 @@ func runServer(args []string) int {
 		if port, ok := parseEndpointPort(collectorOptions.HTTPEndpoint); ok {
 			portRegistry.Set("otel", port)
 		}
-		defer func() {
+		stopCollector := func() {
 			if err := otel.StopCollectorWithTimeout(collector, httpServerShutdownTimeout); err != nil && logger != nil {
 				logger.Warn("otel collector shutdown failed", map[string]string{
 					"error": err.Error(),
 				})
 			}
-		}()
+		}
+		defer stopCollector()
+		startShutdownWatcher(shutdownCtx, stopCollector)
 	}
 	sdkOptions := otel.SDKOptionsFromEnv(".gestalt")
 	sdkOptions.ServiceVersion = strings.TrimSpace(version.Version)
@@ -176,7 +178,11 @@ func runServer(args []string) int {
 		portRegistry.Set("temporal", cfg.TemporalUIPort)
 	}
 	if temporalDevServer != nil {
-		defer temporalDevServer.Stop(logger)
+		stopTemporal := func() {
+			temporalDevServer.Stop(logger)
+		}
+		defer stopTemporal()
+		startShutdownWatcher(shutdownCtx, stopTemporal)
 	}
 	if cfg.TemporalDevServer && !cfg.TemporalEnabled {
 		logger.Warn("temporal dev server running while workflows disabled", nil)
@@ -449,6 +455,20 @@ func runServer(args []string) int {
 		},
 	)
 	return 0
+}
+
+func startShutdownWatcher(ctx context.Context, stopFuncs ...func()) {
+	if ctx == nil {
+		return
+	}
+	go func() {
+		<-ctx.Done()
+		for _, stop := range stopFuncs {
+			if stop != nil {
+				stop()
+			}
+		}
+	}()
 }
 
 func registerPprofHandlers(mux *http.ServeMux, logger *logging.Logger) {

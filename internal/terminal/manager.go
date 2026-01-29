@@ -62,6 +62,7 @@ type Manager struct {
 	mu              sync.RWMutex
 	sessions        map[string]*Session
 	agentSessions   map[string]string
+	agentSequence   map[string]uint64
 	nextID          uint64
 	shell           string
 	factory         PtyFactory
@@ -215,6 +216,7 @@ func NewManager(opts ManagerOptions) *Manager {
 	manager := &Manager{
 		sessions:        make(map[string]*Session),
 		agentSessions:   make(map[string]string),
+		agentSequence:   make(map[string]uint64),
 		shell:           shell,
 		factory:         factory,
 		bufferLines:     bufferLines,
@@ -424,6 +426,9 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 
 	m.mu.Lock()
 	m.sessions[id] = session
+	if trimmedName := strings.TrimSpace(agentName); trimmedName != "" {
+		m.agentSequence[trimmedName]++
+	}
 	m.mu.Unlock()
 
 	m.emitSessionStarted(id, request, agentName, shell)

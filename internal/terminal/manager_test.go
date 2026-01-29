@@ -91,6 +91,12 @@ func (c fixedClock) Now() time.Time {
 	return c.now
 }
 
+func agentSequenceValue(manager *Manager, name string) uint64 {
+	manager.mu.RLock()
+	defer manager.mu.RUnlock()
+	return manager.agentSequence[name]
+}
+
 type capturePty struct {
 	mu     sync.Mutex
 	writes [][]byte
@@ -523,6 +529,79 @@ func TestManagerAgentMultipleInstances(t *testing.T) {
 	}
 	if third.ID != "architect-3" {
 		t.Fatalf("expected id architect-3, got %q", third.ID)
+	}
+}
+
+func TestManagerAgentSequenceIncrements(t *testing.T) {
+	factory := &fakeFactory{}
+	nonSingleton := false
+	manager := NewManager(ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:      "Codex",
+				Shell:     "/bin/bash",
+				Singleton: &nonSingleton,
+			},
+			"architect": {
+				Name:      "Architect",
+				Shell:     "/bin/bash",
+				Singleton: &nonSingleton,
+			},
+		},
+	})
+
+	if _, err := manager.Create("codex", "build", "first"); err != nil {
+		t.Fatalf("create codex first: %v", err)
+	}
+	if got := agentSequenceValue(manager, "Codex"); got != 1 {
+		t.Fatalf("expected Codex sequence 1, got %d", got)
+	}
+
+	if _, err := manager.Create("architect", "build", "first"); err != nil {
+		t.Fatalf("create architect first: %v", err)
+	}
+	if got := agentSequenceValue(manager, "Architect"); got != 1 {
+		t.Fatalf("expected Architect sequence 1, got %d", got)
+	}
+
+	if _, err := manager.Create("codex", "build", "second"); err != nil {
+		t.Fatalf("create codex second: %v", err)
+	}
+	if got := agentSequenceValue(manager, "Codex"); got != 2 {
+		t.Fatalf("expected Codex sequence 2, got %d", got)
+	}
+}
+
+func TestManagerAgentSequenceResetsOnRestart(t *testing.T) {
+	nonSingleton := false
+	opts := ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: &fakeFactory{},
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:      "Codex",
+				Shell:     "/bin/bash",
+				Singleton: &nonSingleton,
+			},
+		},
+	}
+	manager := NewManager(opts)
+	if _, err := manager.Create("codex", "build", "first"); err != nil {
+		t.Fatalf("create codex first: %v", err)
+	}
+	if got := agentSequenceValue(manager, "Codex"); got != 1 {
+		t.Fatalf("expected Codex sequence 1, got %d", got)
+	}
+
+	opts.PtyFactory = &fakeFactory{}
+	manager = NewManager(opts)
+	if _, err := manager.Create("codex", "build", "first"); err != nil {
+		t.Fatalf("create codex after restart: %v", err)
+	}
+	if got := agentSequenceValue(manager, "Codex"); got != 1 {
+		t.Fatalf("expected Codex sequence reset to 1, got %d", got)
 	}
 }
 

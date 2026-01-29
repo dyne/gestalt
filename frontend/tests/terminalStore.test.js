@@ -195,6 +195,7 @@ describe('terminalStore', () => {
     const seen = []
     const unsubscribe = service.status.subscribe((value) => seen.push(value))
 
+    service.setVisible(true)
     await waitForSocket()
     expect(seen.length).toBeGreaterThan(0)
 
@@ -207,6 +208,7 @@ describe('terminalStore', () => {
     const seen = []
     const unsubscribe = state.status.subscribe((value) => seen.push(value))
 
+    state.setVisible(true)
     await waitForSocket()
     const socket = MockWebSocket.instances[0]
     expect(socket.url).toBe('ws://test/ws/session/abc')
@@ -238,6 +240,7 @@ describe('terminalStore', () => {
       status = value
     })
 
+    state.setVisible(true)
     await waitForSocket()
     const socket = MockWebSocket.instances[0]
     socket.open()
@@ -261,6 +264,7 @@ describe('terminalStore', () => {
       status = value
     })
 
+    state.setVisible(true)
     await waitForSocket()
     const socket = MockWebSocket.instances[0]
     socket.open()
@@ -297,6 +301,7 @@ describe('terminalStore', () => {
       historyStatus = value
     })
 
+    state.setVisible(true)
     await flush()
     await flush()
     expect(historyStatus).toBe('loaded')
@@ -329,6 +334,7 @@ describe('terminalStore', () => {
       historyStatus = value
     })
 
+    state.setVisible(true)
     await flush()
     vi.advanceTimersByTime(5000)
     await flush()

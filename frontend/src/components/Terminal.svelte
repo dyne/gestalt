@@ -118,6 +118,10 @@
     window.addEventListener('resize', resizeHandler)
   })
 
+  $: if (state) {
+    state.setVisible?.(visible)
+  }
+
   $: {
     if (visible && !wasVisible) {
       pendingFocus = true
@@ -149,6 +153,7 @@
 
   onDestroy(() => {
     window.removeEventListener('resize', resizeHandler)
+    state?.setVisible?.(false)
     if (unsubscribeStatus) {
       unsubscribeStatus()
     }

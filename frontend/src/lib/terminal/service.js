@@ -33,6 +33,7 @@ export const createTerminalService = ({ terminalId, historyCache }) => {
   let disposePointerHandlers
   let pointerTarget
   let resizeObserver
+  let isVisible = false
 
   const syncScrollState = () => {
     const buffer = term.buffer?.active
@@ -117,7 +118,19 @@ export const createTerminalService = ({ terminalId, historyCache }) => {
     scheduleFit,
   })
 
-  const { connect, reconnect, dispose: disposeSocket, flushPendingHistory } = socketManager
+  const { connect, disconnect, reconnect, dispose: disposeSocket, flushPendingHistory } =
+    socketManager
+
+  const setVisible = (value) => {
+    const next = Boolean(value)
+    if (next === isVisible) return
+    isVisible = next
+    if (isVisible) {
+      connect()
+      return
+    }
+    disconnect?.()
+  }
 
   const attach = (element) => {
     container = element
@@ -250,8 +263,6 @@ export const createTerminalService = ({ terminalId, historyCache }) => {
     term.dispose()
   }
 
-  void connect()
-
   return {
     term,
     status,
@@ -268,6 +279,7 @@ export const createTerminalService = ({ terminalId, historyCache }) => {
     attach,
     detach,
     scheduleFit,
+    setVisible,
     reconnect,
     dispose,
   }

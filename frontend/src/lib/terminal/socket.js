@@ -33,6 +33,7 @@ export const createTerminalSocket = ({
   let notifiedHistoryError = false
   let notifiedUnauthorized = false
   let notifiedDisconnect = false
+  let manualDisconnect = false
   let disposed = false
 
   const clearReconnectTimer = () => {
@@ -252,6 +253,12 @@ export const createTerminalSocket = ({
 
     socket.addEventListener('close', async (event) => {
       if (disposed) return
+      if (manualDisconnect) {
+        manualDisconnect = false
+        status.set('disconnected')
+        canReconnect.set(false)
+        return
+      }
       console.warn('terminal websocket closed', {
         terminalId,
         code: event.code,
@@ -284,6 +291,18 @@ export const createTerminalSocket = ({
     })
   }
 
+  const disconnect = () => {
+    if (disposed) return
+    clearReconnectTimer()
+    retryCount = 0
+    canReconnect.set(false)
+    status.set('disconnected')
+    if (socket && socket.readyState !== WebSocket.CLOSED) {
+      manualDisconnect = true
+      socket.close()
+    }
+  }
+
   const reconnect = () => {
     if (disposed) return
     clearReconnectTimer()
@@ -311,6 +330,7 @@ export const createTerminalSocket = ({
 
   return {
     connect,
+    disconnect,
     reconnect,
     send,
     dispose,

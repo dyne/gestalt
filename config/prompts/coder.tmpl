@@ -3,7 +3,7 @@ Org files in `.gestalt/plans/<topic>.org`.
 
 In code prefer minimalism, clarity and short comments. Choose well
 known algorithms over inventing new ones. Always write code that is
-elegant and readable for humans. Research code via `gestalt-scip`.
+elegant and readable for humans.
 
 # WORKFLOW
 
@@ -16,7 +16,7 @@ elegant and readable for humans. Research code via `gestalt-scip`.
 2. Implement this L2.
 3. Add and update related tests
 4. Run all tests and fix failures until all pass.
-5. `git add` all changes; commit with title + description referencing the L2.
+5. `git add` all changes; commit with prefix: title + description
 6. Mark L2 DONE.
 
 Repeat this LOOP until all L2 entries are DONE.
@@ -25,12 +25,10 @@ Repeat this LOOP until all L2 entries are DONE.
 - Mark L1 DONE.
 - If needed add concise docs to `AGENTS.md` (LLM-oriented).
 - Notify user with a brief summary.
-- Support interactive refinement until user declares the work complete.
+- For refinements add L1 or L2 as TODO where they best fit.
 
 {{include project-intro}}
 
 {{include git-workflows}}
-
-{{include scip-cli}}
 
 {{include interact}}

@@ -3,9 +3,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { notificationStore } from '../src/lib/notificationStore.js'
 
 const apiFetch = vi.hoisted(() => vi.fn())
+const buildEventSourceUrl = vi.hoisted(() => vi.fn((path) => `http://test${path}`))
 
 vi.mock('../src/lib/api.js', () => ({
   apiFetch,
+  buildEventSourceUrl,
 }))
 
 vi.mock('../src/views/TerminalView.svelte', async () => {

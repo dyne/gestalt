@@ -55,7 +55,7 @@ Sourcemaps make stack traces readable but may expose source paths and content, s
 
 ### Crash reports
 
-The frontend logs UI crashes to `/api/otel/logs` via `logUI`. Each crash record includes:
+The frontend logs UI crashes to `POST /api/otel/logs` via `logUI`. Each crash record includes:
 
 - crash id + session id
 - active tab id + active view

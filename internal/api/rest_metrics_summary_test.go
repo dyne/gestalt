@@ -17,7 +17,7 @@ func TestMetricsSummaryEndpoint(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/metrics/summary", nil)
 	rec := httptest.NewRecorder()
-	restHandler("", handler.handleMetricsSummary)(rec, req)
+	restHandler("", nil, handler.handleMetricsSummary)(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", rec.Code)
@@ -38,7 +38,7 @@ func TestMetricsSummaryEndpointUnavailable(t *testing.T) {
 	handler := &RestHandler{}
 	req := httptest.NewRequest(http.MethodGet, "/api/metrics/summary", nil)
 	rec := httptest.NewRecorder()
-	restHandler("", handler.handleMetricsSummary)(rec, req)
+	restHandler("", nil, handler.handleMetricsSummary)(rec, req)
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected status 503, got %d", rec.Code)
 	}
@@ -49,7 +49,7 @@ func TestMetricsSummaryEndpointMethodNotAllowed(t *testing.T) {
 	handler := &RestHandler{MetricsSummary: store}
 	req := httptest.NewRequest(http.MethodPost, "/api/metrics/summary", nil)
 	rec := httptest.NewRecorder()
-	restHandler("", handler.handleMetricsSummary)(rec, req)
+	restHandler("", nil, handler.handleMetricsSummary)(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected status 405, got %d", rec.Code)
 	}

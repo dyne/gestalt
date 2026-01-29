@@ -12,6 +12,7 @@ export interface SearchOptions extends IndexOptions {
   format?: string;
   caseSensitive?: boolean;
   context?: number | string;
+  path?: string;
 }
 
 export async function searchCommand(pattern: string, options: SearchOptions): Promise<void> {
@@ -32,6 +33,7 @@ export async function searchCommand(pattern: string, options: SearchOptions): Pr
     contextLines,
     language: options.language,
     limit,
+    path: options.path,
     indexes: Array.from(indexes.entries()).map(([languageKey, index]) => ({
       languageKey,
       index,

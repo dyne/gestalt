@@ -1,12 +1,12 @@
-import { buildWebSocketUrl } from './api.js'
+import { buildEventSourceUrl } from './api.js'
 
 const MAX_RECONNECT_DELAY_MS = 10000
 const BASE_RECONNECT_DELAY_MS = 500
 
-const buildLogPath = (level) => {
+const buildLogParams = (level) => {
   const trimmed = String(level || '').trim()
-  if (!trimmed) return '/ws/logs'
-  return `/ws/logs?level=${encodeURIComponent(trimmed)}`
+  if (!trimmed) return {}
+  return { level: trimmed }
 }
 
 export const createLogStream = ({
@@ -17,7 +17,7 @@ export const createLogStream = ({
   onError,
   autoReconnect = true,
 } = {}) => {
-  let socket = null
+  let source = null
   let reconnectTimer = null
   let reconnectAttempts = 0
   let active = false
@@ -47,22 +47,21 @@ export const createLogStream = ({
     }, delay)
   }
 
-  const sendFilter = () => {
-    if (!socket || socket.readyState !== WebSocket.OPEN) return
-    const payload = { level: currentLevel }
-    socket.send(JSON.stringify(payload))
-  }
+  const buildUrl = () => buildEventSourceUrl('/api/logs/stream', buildLogParams(currentLevel))
 
   const connect = () => {
     if (!active) return
-    if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+    if (
+      source &&
+      (source.readyState === EventSource.OPEN || source.readyState === EventSource.CONNECTING)
+    ) {
       return
     }
     setStatus('connecting')
     try {
-      socket = new WebSocket(buildWebSocketUrl(buildLogPath(currentLevel)))
+      source = new EventSource(buildUrl())
     } catch (err) {
-      socket = null
+      source = null
       setStatus('disconnected')
       if (typeof onError === 'function') {
         onError(err)
@@ -71,18 +70,15 @@ export const createLogStream = ({
       return
     }
 
-    socket.addEventListener('open', () => {
+    source.addEventListener('open', () => {
       reconnectAttempts = 0
       setStatus('connected')
       if (typeof onOpen === 'function') {
         onOpen()
       }
-      if (currentLevel) {
-        sendFilter()
-      }
     })
 
-    socket.addEventListener('message', (event) => {
+    source.addEventListener('message', (event) => {
       let payload = null
       try {
         payload = JSON.parse(event.data)
@@ -100,21 +96,19 @@ export const createLogStream = ({
       }
     })
 
-    socket.addEventListener('close', () => {
-      socket = null
+    source.addEventListener('error', () => {
+      if (!source) return
+      source.close()
+      source = null
       setStatus('disconnected')
       scheduleReconnect()
     })
-
-    socket.addEventListener('error', () => {
-      socket?.close()
-    })
   }
 
-  const closeSocket = () => {
-    if (!socket) return
-    socket.close()
-    socket = null
+  const closeSource = () => {
+    if (!source) return
+    source.close()
+    source = null
   }
 
   const start = () => {
@@ -127,21 +121,23 @@ export const createLogStream = ({
     active = false
     clearReconnect()
     reconnectAttempts = 0
-    closeSocket()
+    closeSource()
     setStatus('disconnected')
   }
 
   const restart = () => {
     if (!active) return
     clearReconnect()
-    closeSocket()
+    closeSource()
     connect()
   }
 
   const setLevel = (levelValue) => {
-    currentLevel = String(levelValue || '')
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      sendFilter()
+    const nextLevel = String(levelValue || '')
+    if (nextLevel === currentLevel) return
+    currentLevel = nextLevel
+    if (active) {
+      restart()
     }
   }
 

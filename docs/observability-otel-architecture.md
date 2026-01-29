@@ -96,15 +96,14 @@ Tracing model
   - into Temporal workflow start and activity contexts
 
 Frontend access
-- Logs: /api/otel/logs (level/since/until/limit/query, OTLP LogRecords).
+- Logs ingest: POST /api/otel/logs (OTLP LogRecords).
 - Traces: /api/otel/traces (trace_id/span_name/since/until/limit/query).
 - Metrics: /api/otel/metrics (name/since/until/limit/query).
-- Log stream: /ws/logs (OTLP LogRecords) with a last-hour replay on connect.
+- Log stream: /api/logs/stream (SSE, OTLP LogRecords) with a last-hour replay on connect.
 
 Log retention and replay
 - Collector writes otel.json; Gestalt rotates it by size/age/count limits.
-- /api/otel/logs uses tail reads of the collector file when active; otherwise it
-  falls back to in-memory LogHub history (~1 hour).
+- Retrieval is via /api/logs/stream (last-hour replay from LogHub) and local files.
 
 Migration plan (high level)
 - Phase 1: run OTel in parallel with existing logging and event bus.

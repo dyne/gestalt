@@ -2,9 +2,12 @@ package api
 
 import (
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -80,24 +83,15 @@ func (h *TerminalHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	output, cancel := session.Subscribe()
-	defer cancel()
-
-	// Avoid duplicating scrollback for clients that already hydrate via /output.
-	if len(session.OutputLines()) == 0 {
-		historyLines, err := session.HistoryLines(terminal.DefaultHistoryLines)
-		if err == nil && len(historyLines) > 0 {
-			payload := strings.Join(historyLines, "\n")
-			if payload != "" {
-				if err := conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
-					return
-				}
-				if err := conn.WriteMessage(websocket.BinaryMessage, []byte(payload)); err != nil {
-					return
-				}
-			}
+	cursor, ok := parseCursorParam(r)
+	if ok {
+		if err := streamSessionLogFromCursor(conn, session, cursor); err != nil {
+			return
 		}
 	}
+
+	output, cancel := session.Subscribe()
+	defer cancel()
 	writer, err := startWSWriteLoop(w, r, wsStreamConfig[[]byte]{
 		Conn:         conn,
 		Output:       output,
@@ -162,6 +156,99 @@ func parseControlMessage(data []byte) (controlMessage, bool) {
 	}
 
 	return msg, true
+}
+
+func parseCursorParam(r *http.Request) (int64, bool) {
+	raw := strings.TrimSpace(r.URL.Query().Get("cursor"))
+	if raw == "" {
+		return 0, false
+	}
+	cursor, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || cursor < 0 {
+		return 0, false
+	}
+	return cursor, true
+}
+
+func streamSessionLogFromCursor(conn *websocket.Conn, session *terminal.Session, cursor int64) error {
+	if conn == nil || session == nil || cursor < 0 {
+		return nil
+	}
+	path := session.LogPath()
+	if path == "" {
+		return nil
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	defer file.Close()
+
+	offset := cursor
+	for i := 0; i < 3; i++ {
+		info, err := file.Stat()
+		if err != nil {
+			return err
+		}
+		size := info.Size()
+		if size < offset {
+			offset = size
+		}
+		if size > offset {
+			if _, err := file.Seek(offset, io.SeekStart); err != nil {
+				return err
+			}
+			if err := streamFileRange(conn, file, size-offset); err != nil {
+				return err
+			}
+			offset = size
+		}
+
+		info, err = file.Stat()
+		if err != nil {
+			return err
+		}
+		if info.Size() <= offset {
+			break
+		}
+	}
+
+	return nil
+}
+
+func streamFileRange(conn *websocket.Conn, file *os.File, length int64) error {
+	if length <= 0 {
+		return nil
+	}
+	const chunkSize = 32 * 1024
+	remaining := length
+	buffer := make([]byte, chunkSize)
+	for remaining > 0 {
+		readSize := chunkSize
+		if int64(readSize) > remaining {
+			readSize = int(remaining)
+		}
+		n, err := file.Read(buffer[:readSize])
+		if n > 0 {
+			if err := conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+				return err
+			}
+			if err := conn.WriteMessage(websocket.BinaryMessage, buffer[:n]); err != nil {
+				return err
+			}
+			remaining -= int64(n)
+		}
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+	}
+	return nil
 }
 
 func validateToken(r *http.Request, token string) bool {

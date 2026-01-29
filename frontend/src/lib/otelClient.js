@@ -17,13 +17,6 @@ const buildQuery = (params) => {
   return query ? `?${query}` : ''
 }
 
-export const fetchOtelLogs = async ({ level, since, until, limit, query } = {}) => {
-  const response = await apiFetch(
-    `/api/otel/logs${buildQuery({ level, since, until, limit, query })}`,
-  )
-  return response.json()
-}
-
 export const fetchOtelTraces = async ({
   traceId,
   spanName,

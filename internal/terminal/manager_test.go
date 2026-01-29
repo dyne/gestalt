@@ -366,19 +366,32 @@ func TestManagerCreateWithCLIConfigUsesGeneratedCommand(t *testing.T) {
 		t.Fatalf("expected command codex, got %q", factory.command)
 	}
 	wantArgs := []string{"-c", "model=o3"}
-	if len(factory.args) != len(wantArgs) {
-		t.Fatalf("expected args %v, got %v", wantArgs, factory.args)
+	if len(factory.args) < len(wantArgs) {
+		t.Fatalf("expected args to include %v, got %v", wantArgs, factory.args)
 	}
 	for i, arg := range wantArgs {
 		if factory.args[i] != arg {
 			t.Fatalf("expected args %v, got %v", wantArgs, factory.args)
 		}
 	}
+	notifyArg := ""
+	for _, arg := range factory.args {
+		if strings.Contains(arg, "notify=") {
+			notifyArg = arg
+			break
+		}
+	}
+	if notifyArg == "" {
+		t.Fatalf("expected notify flag in args, got %v", factory.args)
+	}
+	if !strings.Contains(notifyArg, "gestalt-notify") {
+		t.Fatalf("expected notify command to include gestalt-notify, got %q", notifyArg)
+	}
 	if session.ConfigHash != profile.ConfigHash {
 		t.Fatalf("expected config hash %q, got %q", profile.ConfigHash, session.ConfigHash)
 	}
-	if session.Command != "codex -c model=o3" {
-		t.Fatalf("expected command string %q, got %q", "codex -c model=o3", session.Command)
+	if !strings.Contains(session.Command, "notify=") {
+		t.Fatalf("expected notify in command, got %q", session.Command)
 	}
 }
 
@@ -470,6 +483,46 @@ func TestManagerAgentSingleInstance(t *testing.T) {
 
 	if _, err := manager.Create("codex", "build", "third"); err != nil {
 		t.Fatalf("create after delete: %v", err)
+	}
+}
+
+func TestManagerAgentMultipleInstances(t *testing.T) {
+	factory := &fakeFactory{}
+	nonSingleton := false
+	manager := NewManager(ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"architect": {
+				Name:      "Architect",
+				Shell:     "/bin/bash",
+				Singleton: &nonSingleton,
+			},
+		},
+	})
+
+	first, err := manager.Create("architect", "build", "first")
+	if err != nil {
+		t.Fatalf("create first: %v", err)
+	}
+	if first.ID != "architect-1" {
+		t.Fatalf("expected id architect-1, got %q", first.ID)
+	}
+
+	second, err := manager.Create("architect", "build", "second")
+	if err != nil {
+		t.Fatalf("create second: %v", err)
+	}
+	if second.ID != "architect-2" {
+		t.Fatalf("expected id architect-2, got %q", second.ID)
+	}
+
+	third, err := manager.Create("architect", "build", "third")
+	if err != nil {
+		t.Fatalf("create third: %v", err)
+	}
+	if third.ID != "architect-3" {
+		t.Fatalf("expected id architect-3, got %q", third.ID)
 	}
 }
 
@@ -1297,5 +1350,104 @@ func receiveTerminalEvent(t *testing.T, ch <-chan event.TerminalEvent) event.Ter
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("timed out waiting for terminal event")
 		return event.TerminalEvent{}
+	}
+}
+
+func TestManagerMultiInstanceKeepsAgentID(t *testing.T) {
+	singleton := false
+	factory := &fakeFactory{}
+	manager := NewManager(ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:      "Codex",
+				Shell:     "/bin/bash",
+				Singleton: &singleton,
+			},
+		},
+	})
+
+	first, err := manager.Create("codex", "role", "title")
+	if err != nil {
+		t.Fatalf("create first session: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(first.ID)
+	}()
+
+	second, err := manager.Create("codex", "role", "title")
+	if err != nil {
+		t.Fatalf("create second session: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(second.ID)
+	}()
+
+	if first.AgentID != "codex" {
+		t.Fatalf("expected first agent id codex, got %q", first.AgentID)
+	}
+	if second.AgentID != "codex" {
+		t.Fatalf("expected second agent id codex, got %q", second.AgentID)
+	}
+	if first.ID == second.ID {
+		t.Fatalf("expected unique session ids, got %q", first.ID)
+	}
+	if !strings.HasPrefix(first.ID, "codex-") || !strings.HasPrefix(second.ID, "codex-") {
+		t.Fatalf("expected numbered ids, got %q and %q", first.ID, second.ID)
+	}
+}
+
+func TestManagerInjectsCodexNotify(t *testing.T) {
+	commandFactory := &commandCaptureFactory{}
+	config := map[string]interface{}{
+		"model":  "o3",
+		"notify": []string{"slack"},
+	}
+	manager := NewManager(ManagerOptions{
+		PtyFactory: commandFactory,
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:      "Codex",
+				CLIType:   "codex",
+				CLIConfig: config,
+			},
+		},
+	})
+
+	session, err := manager.Create("codex", "", "")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(session.ID)
+	}()
+
+	notifyValue, ok := config["notify"].([]string)
+	if !ok || len(notifyValue) != 1 || notifyValue[0] != "slack" {
+		t.Fatalf("expected original notify config preserved, got %#v", config["notify"])
+	}
+
+	notifyArg := ""
+	for _, arg := range commandFactory.args {
+		if strings.Contains(arg, "notify=") {
+			notifyArg = arg
+			break
+		}
+	}
+	if notifyArg == "" {
+		t.Fatalf("expected notify flag in codex command, got args %#v", commandFactory.args)
+	}
+	if !strings.Contains(notifyArg, "gestalt-notify") {
+		t.Fatalf("expected notify command to include gestalt-notify, got %q", notifyArg)
+	}
+	if !strings.Contains(notifyArg, "--terminal-id") || !strings.Contains(notifyArg, session.ID) {
+		t.Fatalf("expected notify command to include terminal id %q, got %q", session.ID, notifyArg)
+	}
+	if !strings.Contains(notifyArg, "--agent-id") || !strings.Contains(notifyArg, "codex") {
+		t.Fatalf("expected notify command to include agent id codex, got %q", notifyArg)
+	}
+	if !strings.Contains(notifyArg, "--agent-name") || !strings.Contains(notifyArg, "Codex") {
+		t.Fatalf("expected notify command to include agent name Codex, got %q", notifyArg)
 	}
 }

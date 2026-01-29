@@ -5,7 +5,7 @@ const MAX_RETRIES = 5
 const BASE_DELAY_MS = 500
 const MAX_DELAY_MS = 8000
 const HISTORY_WARNING_MS = 5000
-const HISTORY_LINES = 2000
+const HISTORY_LINES = 10000
 
 export const createTerminalSocket = ({
   terminalId,
@@ -23,6 +23,7 @@ export const createTerminalSocket = ({
   let historyWarningTimer = null
   let historyLoadPromise = null
   let historyLoaded = false
+  let historyCursor = null
   let pendingHistory = ''
   let notifiedHistorySlow = false
   let notifiedHistoryError = false
@@ -73,7 +74,16 @@ export const createTerminalSocket = ({
       return historyLoadPromise
     }
     if (historyCache.has(terminalId)) {
-      const cachedHistory = historyCache.get(terminalId) || ''
+      const cachedEntry = historyCache.get(terminalId)
+      const cachedHistory =
+        typeof cachedEntry === 'string' ? cachedEntry : cachedEntry?.text || ''
+      const cachedCursor =
+        typeof cachedEntry === 'object' && cachedEntry !== null
+          ? cachedEntry.cursor
+          : null
+      if (Number.isFinite(cachedCursor)) {
+        historyCursor = cachedCursor
+      }
       if (term.element) {
         term.write(cachedHistory)
       } else {
@@ -93,6 +103,15 @@ export const createTerminalSocket = ({
         )
         const payload = await response.json()
         const lines = Array.isArray(payload?.lines) ? payload.lines : []
+        const cursorValue = payload?.cursor
+        if (Number.isFinite(cursorValue)) {
+          historyCursor = cursorValue
+        } else if (typeof cursorValue === 'string') {
+          const parsed = Number(cursorValue)
+          if (Number.isFinite(parsed)) {
+            historyCursor = parsed
+          }
+        }
         const historyText = lines.join('\n')
         if (historyText) {
           if (term.element) {
@@ -104,7 +123,10 @@ export const createTerminalSocket = ({
             syncScrollState()
           }
         }
-        historyCache.set(terminalId, historyText)
+        historyCache.set(terminalId, {
+          text: historyText,
+          cursor: historyCursor,
+        })
         historyLoaded = true
         historyStatus.set('loaded')
       } catch (err) {
@@ -179,7 +201,13 @@ export const createTerminalSocket = ({
       await loadHistory()
     }
 
-    socket = new WebSocket(buildWebSocketUrl(`/ws/terminal/${terminalId}`))
+    const cursorParam =
+      Number.isFinite(historyCursor) && historyCursor >= 0
+        ? `?cursor=${encodeURIComponent(historyCursor)}`
+        : ''
+    socket = new WebSocket(
+      buildWebSocketUrl(`/ws/terminal/${terminalId}${cursorParam}`)
+    )
     socket.binaryType = 'arraybuffer'
 
     socket.addEventListener('open', () => {

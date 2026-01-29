@@ -1,10 +1,26 @@
 import { render, cleanup } from '@testing-library/svelte'
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
+
+vi.mock('../lib/clipboard.js', () => ({
+  canUseClipboard: vi.fn(() => false),
+  copyToClipboard: vi.fn(),
+}))
+
+import * as clipboard from '../lib/clipboard.js'
 import PlanCard from './PlanCard.svelte'
 
 describe('PlanCard', () => {
+  const baseTime = new Date('2026-01-08T12:00:00Z')
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(baseTime)
+    clipboard.canUseClipboard.mockReturnValue(false)
+  })
+
   afterEach(() => {
     cleanup()
+    vi.useRealTimers()
   })
 
   it('renders summary metadata and stats', () => {
@@ -12,7 +28,7 @@ describe('PlanCard', () => {
       filename: '2026-01-01-plan.org',
       title: 'Plan Title',
       subtitle: 'Short subtitle',
-      date: '2026-01-01',
+      date: '2026-01-07T12:00:00Z',
       l1_count: 2,
       l2_count: 3,
       priority_a: 1,
@@ -25,12 +41,28 @@ describe('PlanCard', () => {
 
     expect(getByText('Plan Title')).toBeTruthy()
     expect(getByText('Short subtitle')).toBeTruthy()
-    expect(getByText('2026-01-01')).toBeTruthy()
+    expect(getByText('1 day ago')).toBeTruthy()
+    expect(getByText('2026-01-01-plan.org')).toBeTruthy()
+    expect(queryByText('Copy')).toBeNull()
     expect(getByText('L1')).toBeTruthy()
     expect(getByText('L2')).toBeTruthy()
     expect(getByText('[#A] 1')).toBeTruthy()
     expect(getByText('[#C] 2')).toBeTruthy()
     expect(queryByText('[#B]')).toBeNull()
+  })
+
+  it('shows copy button when clipboard is available', () => {
+    clipboard.canUseClipboard.mockReturnValue(true)
+    const plan = {
+      filename: '2026-01-01-plan.org',
+      title: 'Plan Title',
+      date: '2026-01-07T12:00:00Z',
+      headings: [],
+    }
+
+    const { getByText } = render(PlanCard, { props: { plan } })
+
+    expect(getByText('Copy')).toBeTruthy()
   })
 
   it('renders nested L1 and L2 details', () => {

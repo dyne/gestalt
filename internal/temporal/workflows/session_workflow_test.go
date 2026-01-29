@@ -22,6 +22,7 @@ func TestSessionWorkflowSignals(testingContext *testing.T) {
 
 	startTime := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
 	bellTime := time.Date(2025, 1, 1, 12, 1, 0, 0, time.UTC)
+	notifyTime := startTime.Add(90 * time.Second)
 
 	var statusAfterUpdate SessionWorkflowState
 	var statusAfterBell SessionWorkflowState
@@ -43,6 +44,14 @@ func TestSessionWorkflowSignals(testingContext *testing.T) {
 		}
 		updateQueryError = queryResult.Get(&statusAfterUpdate)
 	}, time.Minute+time.Second)
+
+	workflowEnvironment.RegisterDelayedCallback(func() {
+		workflowEnvironment.SignalWorkflow(NotifySignalName, NotifySignal{
+			Timestamp: notifyTime,
+			EventType: "agent-turn-complete",
+			Source:    "codex-notify",
+		})
+	}, time.Minute+30*time.Second)
 
 	workflowEnvironment.RegisterDelayedCallback(func() {
 		workflowEnvironment.SignalWorkflow(BellSignalName, BellSignal{
@@ -75,6 +84,7 @@ func TestSessionWorkflowSignals(testingContext *testing.T) {
 	workflowEnvironment.ExecuteWorkflow(SessionWorkflow, SessionWorkflowRequest{
 		SessionID: "session-1",
 		AgentID:   "agent-1",
+		AgentName: "Agent One",
 		L1Task:    "Initial L1",
 		L2Task:    "Initial L2",
 		Shell:     "/bin/bash",
@@ -96,6 +106,12 @@ func TestSessionWorkflowSignals(testingContext *testing.T) {
 	}
 	if statusAfterUpdate.CurrentL1 != "Updated L1" || statusAfterUpdate.CurrentL2 != "Updated L2" {
 		testingContext.Fatalf("task update not recorded: %#v", statusAfterUpdate)
+	}
+	if statusAfterUpdate.AgentID != "agent-1" {
+		testingContext.Fatalf("unexpected agent id: %#v", statusAfterUpdate.AgentID)
+	}
+	if statusAfterUpdate.AgentName != "Agent One" {
+		testingContext.Fatalf("unexpected agent name: %#v", statusAfterUpdate.AgentName)
 	}
 	if len(statusAfterUpdate.TaskEvents) != 2 {
 		testingContext.Fatalf("expected 2 task events, got %d", len(statusAfterUpdate.TaskEvents))
@@ -130,11 +146,11 @@ func TestSessionWorkflowSignals(testingContext *testing.T) {
 	if workflowResult.FinalStatus != SessionStatusStopped {
 		testingContext.Fatalf("expected stopped result, got %s", workflowResult.FinalStatus)
 	}
-	if workflowResult.EventCount != 4 {
-		testingContext.Fatalf("expected 4 events, got %d", workflowResult.EventCount)
+	if workflowResult.EventCount != 5 {
+		testingContext.Fatalf("expected 5 events, got %d", workflowResult.EventCount)
 	}
 
-	expectedEvents := []string{"workflow_started", "workflow_paused", "workflow_resumed", "workflow_completed"}
+	expectedEvents := []string{"workflow_started", "notify_event", "workflow_paused", "workflow_resumed", "workflow_completed"}
 	if len(emittedEvents) != len(expectedEvents) {
 		testingContext.Fatalf("expected %d workflow events, got %d", len(expectedEvents), len(emittedEvents))
 	}
@@ -152,20 +168,27 @@ func TestSessionWorkflowSignals(testingContext *testing.T) {
 	if !emittedEvents[0].Timestamp().Equal(startTime) {
 		testingContext.Fatalf("expected start timestamp %v, got %v", startTime, emittedEvents[0].Timestamp())
 	}
-	pausedContext, ok := emittedEvents[1].Context["bell_context"].(string)
+	notifyType, ok := emittedEvents[1].Context["event_type"].(string)
+	if !ok || notifyType != "agent-turn-complete" {
+		testingContext.Fatalf("unexpected notify context: %#v", emittedEvents[1].Context)
+	}
+	if !emittedEvents[1].Timestamp().Equal(notifyTime) {
+		testingContext.Fatalf("expected notify timestamp %v, got %v", notifyTime, emittedEvents[1].Timestamp())
+	}
+	pausedContext, ok := emittedEvents[2].Context["bell_context"].(string)
 	if !ok || pausedContext != "bell context" {
-		testingContext.Fatalf("unexpected paused context: %#v", emittedEvents[1].Context)
+		testingContext.Fatalf("unexpected paused context: %#v", emittedEvents[2].Context)
 	}
-	if !emittedEvents[1].Timestamp().Equal(bellTime) {
-		testingContext.Fatalf("expected bell timestamp %v, got %v", bellTime, emittedEvents[1].Timestamp())
+	if !emittedEvents[2].Timestamp().Equal(bellTime) {
+		testingContext.Fatalf("expected bell timestamp %v, got %v", bellTime, emittedEvents[2].Timestamp())
 	}
-	resumeAction, ok := emittedEvents[2].Context["action"].(string)
+	resumeAction, ok := emittedEvents[3].Context["action"].(string)
 	if !ok || resumeAction != ResumeActionContinue {
-		testingContext.Fatalf("unexpected resume context: %#v", emittedEvents[2].Context)
+		testingContext.Fatalf("unexpected resume context: %#v", emittedEvents[3].Context)
 	}
-	completionReason, ok := emittedEvents[3].Context["reason"].(string)
+	completionReason, ok := emittedEvents[4].Context["reason"].(string)
 	if !ok || completionReason != "complete" {
-		testingContext.Fatalf("unexpected completion context: %#v", emittedEvents[3].Context)
+		testingContext.Fatalf("unexpected completion context: %#v", emittedEvents[4].Context)
 	}
 }
 

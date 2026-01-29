@@ -80,6 +80,7 @@ program
   .description('Search file contents with regex patterns (supports OR via |)')
   .option('--scip <path>', 'Path to SCIP file or directory')
   .option('--language <lang>', 'Filter by language (go, typescript, python)')
+  .option('--path <dir>', 'Restrict search to a subdirectory')
   .option('--limit <n>', 'Max results (default: 50, max: 1000)', '50')
   .option('--format <fmt>', 'Output format (json|text|toon)', 'toon')
   .option('--case-sensitive', 'Enable case-sensitive search', false)

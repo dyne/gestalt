@@ -181,3 +181,28 @@ func annotateReplay(entry map[string]any) map[string]any {
 	cloned["attributes"] = updated
 	return cloned
 }
+
+func otelLogLevel(record map[string]any) logging.Level {
+	if text, ok := extractString(record, "severityText", "severity_text", "severity", "level"); ok {
+		if level, parsed := logging.ParseLevel(text); parsed {
+			return level
+		}
+	}
+	if value, ok := extractNumber(record, "severityNumber", "severity_number"); ok {
+		return severityFromNumber(value)
+	}
+	return logging.LevelInfo
+}
+
+func severityFromNumber(value float64) logging.Level {
+	switch {
+	case value >= 17:
+		return logging.LevelError
+	case value >= 13:
+		return logging.LevelWarning
+	case value >= 9:
+		return logging.LevelInfo
+	default:
+		return logging.LevelDebug
+	}
+}

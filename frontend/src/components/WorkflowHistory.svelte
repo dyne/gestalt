@@ -22,6 +22,8 @@
         return `Resume${event.action ? ` (${event.action})` : ''}`
       case 'terminate':
         return `Terminate${event.reason ? ` (${event.reason})` : ''}`
+      case 'notify':
+        return `Notary: ${event.context || event.event_type || event.signal_name || 'event'}`
       case 'signal':
         return `Signal: ${event.signal_name || 'unknown'}`
       default:

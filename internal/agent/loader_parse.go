@@ -45,6 +45,10 @@ func parseAgentData(filePath string, data []byte) (Agent, error) {
 		return Agent{}, err
 	}
 	agent.CLIConfig = cliConfig
+	if agent.Singleton == nil {
+		defaultSingleton := true
+		agent.Singleton = &defaultSingleton
+	}
 	return agent, nil
 }
 
@@ -126,6 +130,7 @@ var agentRootKeys = map[string]struct{}{
 	"skills":       {},
 	"onair_string": {},
 	"use_workflow": {},
+	"singleton":    {},
 	"cli_type":     {},
 	"llm_model":    {},
 	"cli_config":   {},

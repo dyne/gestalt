@@ -101,6 +101,7 @@ func TestSessionStartWorkflowAndSignals(testingContext *testing.T) {
 	session := newSession("7", pty, nil, "title", "role", time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC), 10, profile, nil, nil)
 	session.Command = "codex -c model=o3"
 	session.ConfigHash = profile.ConfigHash
+	session.AgentID = "codex"
 
 	startError := session.StartWorkflow(workflowClient, "L1", "L2")
 	if startError != nil {
@@ -117,6 +118,12 @@ func TestSessionStartWorkflowAndSignals(testingContext *testing.T) {
 	}
 	if workflowClient.lastRequest.L1Task != "L1" || workflowClient.lastRequest.L2Task != "L2" {
 		testingContext.Fatalf("unexpected request tasks: %+v", workflowClient.lastRequest)
+	}
+	if workflowClient.lastRequest.AgentID != "codex" {
+		testingContext.Fatalf("unexpected request agent id: %q", workflowClient.lastRequest.AgentID)
+	}
+	if workflowClient.lastRequest.AgentName != "Codex" {
+		testingContext.Fatalf("unexpected request agent name: %q", workflowClient.lastRequest.AgentName)
 	}
 	if workflowClient.lastRequest.Shell != session.Command {
 		testingContext.Fatalf("unexpected request shell: %q", workflowClient.lastRequest.Shell)
@@ -151,6 +158,12 @@ func TestSessionStartWorkflowAndSignals(testingContext *testing.T) {
 	}
 	if memo["cli_type"] != "codex" {
 		testingContext.Fatalf("unexpected memo cli_type: %v", memo["cli_type"])
+	}
+	if memo["agent_id"] != "codex" {
+		testingContext.Fatalf("unexpected memo agent_id: %v", memo["agent_id"])
+	}
+	if memo["agent_name"] != "Codex" {
+		testingContext.Fatalf("unexpected memo agent_name: %v", memo["agent_name"])
 	}
 	if memo["agent_config"] == nil {
 		testingContext.Fatalf("expected memo agent_config")

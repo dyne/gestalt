@@ -10,13 +10,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"gestalt/internal/agent"
-	"gestalt/internal/event"
 	"gestalt/internal/skill"
 	"gestalt/internal/temporal/workflows"
 	"gestalt/internal/terminal"
@@ -232,7 +232,7 @@ func TestStatusHandlerRequiresAuth(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleStatus)(res, req)
+	restHandler("secret", nil, handler.handleStatus)(res, req)
 	if res.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", res.Code)
 	}
@@ -257,7 +257,7 @@ func TestStatusHandlerReturnsCount(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleStatus)(res, req)
+	restHandler("secret", nil, handler.handleStatus)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -307,7 +307,7 @@ func TestStatusHandlerIncludesTemporalURL(t *testing.T) {
 	req.Header.Set("X-Forwarded-Proto", "https")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleStatus)(res, req)
+	restHandler("secret", nil, handler.handleStatus)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -318,65 +318,6 @@ func TestStatusHandlerIncludesTemporalURL(t *testing.T) {
 	}
 	if payload.TemporalUIURL != "https://example.com:8233" {
 		t.Fatalf("expected temporal url %q, got %q", "https://example.com:8233", payload.TemporalUIURL)
-	}
-}
-
-func TestMetricsEndpointReturnsText(t *testing.T) {
-	handler := &RestHandler{}
-	req := httptest.NewRequest(http.MethodGet, "/api/metrics", nil)
-	res := httptest.NewRecorder()
-
-	restHandler("", handler.handleMetrics)(res, req)
-	if res.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", res.Code)
-	}
-	if contentType := res.Header().Get("Content-Type"); !strings.Contains(contentType, "text/plain") {
-		t.Fatalf("unexpected content type: %s", contentType)
-	}
-	body := res.Body.String()
-	if !strings.Contains(body, "gestalt_workflows_started_total") {
-		t.Fatalf("expected workflow metrics, got %q", body)
-	}
-}
-
-func TestEventDebugEndpointReturnsBuses(t *testing.T) {
-	bus := event.NewBus[string](context.Background(), event.BusOptions{
-		Name: "debug_bus",
-	})
-	events, cancel := bus.Subscribe()
-	if events == nil {
-		t.Fatal("expected subscription channel")
-	}
-	t.Cleanup(cancel)
-	t.Cleanup(bus.Close)
-
-	handler := &RestHandler{}
-	req := httptest.NewRequest(http.MethodGet, "/api/events/debug", nil)
-	res := httptest.NewRecorder()
-
-	restHandler("", handler.handleEventDebug)(res, req)
-	if res.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", res.Code)
-	}
-	var payload []eventBusDebug
-	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	var found *eventBusDebug
-	for index := range payload {
-		if payload[index].Name == "debug_bus" {
-			found = &payload[index]
-			break
-		}
-	}
-	if found == nil {
-		t.Fatalf("expected debug_bus in response: %#v", payload)
-	}
-	if found.UnfilteredSubscribers != 1 {
-		t.Fatalf("expected 1 unfiltered subscriber, got %d", found.UnfilteredSubscribers)
-	}
-	if found.FilteredSubscribers != 0 {
-		t.Fatalf("expected 0 filtered subscribers, got %d", found.FilteredSubscribers)
 	}
 }
 
@@ -425,7 +366,7 @@ func TestWorkflowsEndpointReturnsSummary(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/workflows", nil)
 	res := httptest.NewRecorder()
 
-	restHandler("", handler.handleWorkflows)(res, req)
+	restHandler("", nil, handler.handleWorkflows)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -497,7 +438,7 @@ func TestTerminalWorkflowResumeEndpoint(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/terminals/"+created.ID+"/workflow/resume", strings.NewReader(`{"action":"continue"}`))
 	res := httptest.NewRecorder()
 
-	restHandler("", handler.handleTerminal)(res, req)
+	restHandler("", nil, handler.handleTerminal)(res, req)
 	if res.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", res.Code)
 	}
@@ -532,9 +473,154 @@ func TestTerminalWorkflowResumeEndpointMissingWorkflow(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/terminals/"+created.ID+"/workflow/resume", strings.NewReader(`{"action":"continue"}`))
 	res := httptest.NewRecorder()
 
-	restHandler("", handler.handleTerminal)(res, req)
+	restHandler("", nil, handler.handleTerminal)(res, req)
 	if res.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d", res.Code)
+	}
+}
+
+func TestTerminalNotifyEndpoint(t *testing.T) {
+	factory := &fakeFactory{}
+	temporalClient := &fakeWorkflowSignalClient{runID: "run-11"}
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:           "/bin/sh",
+		PtyFactory:      factory,
+		TemporalClient:  temporalClient,
+		TemporalEnabled: true,
+		Agents: map[string]agent.Agent{
+			"codex": {Name: "Codex", Shell: "/bin/bash", CLIType: "codex"},
+		},
+	})
+	useWorkflow := true
+	created, err := manager.CreateWithOptions(terminal.CreateOptions{
+		AgentID:     "codex",
+		UseWorkflow: &useWorkflow,
+	})
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	handler := &RestHandler{Manager: manager}
+	body := `{"terminal_id":"` + created.ID + `","agent_id":"codex","agent_name":"Codex","source":"manual","event_type":"plan-L1-wip","occurred_at":"2025-04-01T10:00:00Z","payload":{"plan_file":"plan.org"},"raw":"{}","event_id":"manual:1"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/terminals/"+created.ID+"/notify", strings.NewReader(body))
+	res := httptest.NewRecorder()
+
+	restHandler("", nil, handler.handleTerminal)(res, req)
+	if res.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", res.Code)
+	}
+	if len(temporalClient.signals) != 1 {
+		t.Fatalf("expected 1 signal, got %d", len(temporalClient.signals))
+	}
+	signal := temporalClient.signals[0]
+	if signal.signalName != workflows.NotifySignalName {
+		t.Fatalf("expected notify signal, got %q", signal.signalName)
+	}
+	payload, ok := signal.payload.(workflows.NotifySignal)
+	if !ok {
+		t.Fatalf("unexpected notify payload: %#v", signal.payload)
+	}
+	if payload.TerminalID != created.ID {
+		t.Fatalf("expected terminal id %q, got %q", created.ID, payload.TerminalID)
+	}
+	if payload.AgentID != "codex" {
+		t.Fatalf("expected agent id codex, got %q", payload.AgentID)
+	}
+	if payload.AgentName != "Codex" {
+		t.Fatalf("expected agent name Codex, got %q", payload.AgentName)
+	}
+	if payload.EventType != "plan-L1-wip" {
+		t.Fatalf("expected event type plan-L1-wip, got %q", payload.EventType)
+	}
+	if payload.Source != "manual" {
+		t.Fatalf("expected source manual, got %q", payload.Source)
+	}
+	if payload.EventID != "manual:1" {
+		t.Fatalf("expected event id manual:1, got %q", payload.EventID)
+	}
+	if !payload.Timestamp.Equal(time.Date(2025, 4, 1, 10, 0, 0, 0, time.UTC)) {
+		t.Fatalf("unexpected notify timestamp: %v", payload.Timestamp)
+	}
+	if !strings.Contains(string(payload.Payload), "\"plan_file\":\"plan.org\"") {
+		t.Fatalf("unexpected payload: %s", string(payload.Payload))
+	}
+}
+
+func TestTerminalNotifyEndpointMissingTerminal(t *testing.T) {
+	manager := terminal.NewManager(terminal.ManagerOptions{Shell: "/bin/sh"})
+	handler := &RestHandler{Manager: manager}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/terminals/missing/notify", strings.NewReader(`{"terminal_id":"missing","agent_id":"codex","source":"manual","event_type":"plan-L1-wip"}`))
+	res := httptest.NewRecorder()
+
+	restHandler("", nil, handler.handleTerminal)(res, req)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", res.Code)
+	}
+}
+
+func TestTerminalNotifyEndpointMissingWorkflow(t *testing.T) {
+	factory := &fakeFactory{}
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {Name: "Codex", Shell: "/bin/bash", CLIType: "codex"},
+		},
+	})
+	created, err := manager.CreateWithOptions(terminal.CreateOptions{AgentID: "codex"})
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	handler := &RestHandler{Manager: manager}
+	body := `{"terminal_id":"` + created.ID + `","agent_id":"codex","source":"manual","event_type":"plan-L1-wip"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/terminals/"+created.ID+"/notify", strings.NewReader(body))
+	res := httptest.NewRecorder()
+
+	restHandler("", nil, handler.handleTerminal)(res, req)
+	if res.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d", res.Code)
+	}
+}
+
+func TestTerminalNotifyEndpointBadJSON(t *testing.T) {
+	factory := &fakeFactory{}
+	temporalClient := &fakeWorkflowSignalClient{runID: "run-12"}
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:           "/bin/sh",
+		PtyFactory:      factory,
+		TemporalClient:  temporalClient,
+		TemporalEnabled: true,
+		Agents: map[string]agent.Agent{
+			"codex": {Name: "Codex", Shell: "/bin/bash", CLIType: "codex"},
+		},
+	})
+	useWorkflow := true
+	created, err := manager.CreateWithOptions(terminal.CreateOptions{
+		AgentID:     "codex",
+		UseWorkflow: &useWorkflow,
+	})
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodPost, "/api/terminals/"+created.ID+"/notify", strings.NewReader("{"))
+	res := httptest.NewRecorder()
+
+	restHandler("", nil, handler.handleTerminal)(res, req)
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", res.Code)
 	}
 }
 
@@ -549,6 +635,15 @@ func TestTerminalWorkflowHistoryEndpoint(t *testing.T) {
 	bellPayloads, err := dataConverter.ToPayloads(workflows.BellSignal{Timestamp: bellTime, Context: "bell"})
 	if err != nil {
 		t.Fatalf("build bell payloads: %v", err)
+	}
+	notifyTime := time.Date(2025, 4, 1, 9, 31, 30, 0, time.UTC)
+	notifyPayloads, err := dataConverter.ToPayloads(workflows.NotifySignal{
+		Timestamp: notifyTime,
+		EventType: "agent-turn-complete",
+		Source:    "codex-notify",
+	})
+	if err != nil {
+		t.Fatalf("build notify payloads: %v", err)
 	}
 	resumePayloads, err := dataConverter.ToPayloads(workflows.ResumeSignal{Action: workflows.ResumeActionContinue})
 	if err != nil {
@@ -581,6 +676,17 @@ func TestTerminalWorkflowHistoryEndpoint(t *testing.T) {
 		},
 		{
 			EventId:   3,
+			EventTime: timestamppb.New(eventTime.Add(90 * time.Second)),
+			EventType: enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED,
+			Attributes: &historypb.HistoryEvent_WorkflowExecutionSignaledEventAttributes{
+				WorkflowExecutionSignaledEventAttributes: &historypb.WorkflowExecutionSignaledEventAttributes{
+					SignalName: workflows.NotifySignalName,
+					Input:      notifyPayloads,
+				},
+			},
+		},
+		{
+			EventId:   4,
 			EventTime: timestamppb.New(eventTime.Add(2 * time.Minute)),
 			EventType: enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED,
 			Attributes: &historypb.HistoryEvent_WorkflowExecutionSignaledEventAttributes{
@@ -617,7 +723,7 @@ func TestTerminalWorkflowHistoryEndpoint(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/terminals/"+created.ID+"/workflow/history", nil)
 	res := httptest.NewRecorder()
 
-	restHandler("", handler.handleTerminal)(res, req)
+	restHandler("", nil, handler.handleTerminal)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -626,8 +732,8 @@ func TestTerminalWorkflowHistoryEndpoint(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(payload) != 3 {
-		t.Fatalf("expected 3 history events, got %d", len(payload))
+	if len(payload) != 4 {
+		t.Fatalf("expected 4 history events, got %d", len(payload))
 	}
 	if payload[0].Type != "task_update" || payload[0].L1 != "L1" || payload[0].L2 != "L2" {
 		t.Fatalf("unexpected task event: %#v", payload[0])
@@ -638,8 +744,14 @@ func TestTerminalWorkflowHistoryEndpoint(t *testing.T) {
 	if !payload[1].Timestamp.Equal(bellTime) {
 		t.Fatalf("expected bell timestamp %v, got %v", bellTime, payload[1].Timestamp)
 	}
-	if payload[2].Type != "resume" || payload[2].Action != workflows.ResumeActionContinue {
-		t.Fatalf("unexpected resume event: %#v", payload[2])
+	if payload[2].Type != "notify" || payload[2].Context != "agent-turn-complete" {
+		t.Fatalf("unexpected notify event: %#v", payload[2])
+	}
+	if !payload[2].Timestamp.Equal(notifyTime) {
+		t.Fatalf("expected notify timestamp %v, got %v", notifyTime, payload[2].Timestamp)
+	}
+	if payload[3].Type != "resume" || payload[3].Action != workflows.ResumeActionContinue {
+		t.Fatalf("unexpected resume event: %#v", payload[3])
 	}
 }
 
@@ -656,7 +768,7 @@ func TestStatusHandlerIncludesGitInfo(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleStatus)(res, req)
+	restHandler("secret", nil, handler.handleStatus)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -703,7 +815,7 @@ func TestTerminalOutputEndpoint(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminal)(res, req)
+	restHandler("secret", nil, handler.handleTerminal)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -719,9 +831,11 @@ func TestTerminalOutputEndpoint(t *testing.T) {
 
 func TestTerminalHistoryEndpoint(t *testing.T) {
 	factory := &fakeFactory{}
+	logDir := t.TempDir()
 	manager := terminal.NewManager(terminal.ManagerOptions{
-		Shell:      "/bin/sh",
-		PtyFactory: factory,
+		Shell:         "/bin/sh",
+		PtyFactory:    factory,
+		SessionLogDir: logDir,
 	})
 	created, err := manager.Create("", "", "")
 	if err != nil {
@@ -741,13 +855,16 @@ func TestTerminalHistoryEndpoint(t *testing.T) {
 	if !waitForOutput(created) {
 		t.Fatalf("expected output buffer to receive data")
 	}
+	if !waitForHistoryCursor(manager, created.ID, int64(len("hello\n")), 2*time.Second) {
+		t.Fatalf("expected history cursor to advance")
+	}
 
 	handler := &RestHandler{Manager: manager}
 	req := httptest.NewRequest(http.MethodGet, "/api/terminals/"+created.ID+"/history?lines=5", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminal)(res, req)
+	restHandler("secret", nil, handler.handleTerminal)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -758,6 +875,99 @@ func TestTerminalHistoryEndpoint(t *testing.T) {
 	}
 	if !containsLine(payload.Lines, "hello") {
 		t.Fatalf("expected history lines to contain hello, got %v", payload.Lines)
+	}
+	if payload.Cursor == nil {
+		t.Fatalf("expected cursor to be set when session persistence is enabled")
+	}
+}
+
+func TestTerminalHistoryPagination(t *testing.T) {
+	factory := &fakeFactory{}
+	logDir := t.TempDir()
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:         "/bin/sh",
+		PtyFactory:    factory,
+		SessionLogDir: logDir,
+	})
+	created, err := manager.Create("", "", "")
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	factory.mu.Lock()
+	pty := factory.ptys[0]
+	factory.mu.Unlock()
+	payloads := []string{"one", "two", "three", "four", "five"}
+	for _, entry := range payloads {
+		if _, err := pty.Write([]byte(entry + "\n")); err != nil {
+			t.Fatalf("write pty: %v", err)
+		}
+	}
+
+	if !waitForOutput(created) {
+		t.Fatalf("expected output buffer to receive data")
+	}
+	if !waitForHistoryCursor(manager, created.ID, int64(len("one\n")*len(payloads)), 2*time.Second) {
+		t.Fatalf("expected history cursor to advance")
+	}
+
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodGet, "/api/terminals/"+created.ID+"/history?lines=2", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", nil, handler.handleTerminal)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var page terminalOutputResponse
+	if err := json.NewDecoder(res.Body).Decode(&page); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(page.Lines) < 2 || page.Lines[len(page.Lines)-2] != "four" || page.Lines[len(page.Lines)-1] != "five" {
+		t.Fatalf("unexpected history page: %v", page.Lines)
+	}
+	if page.Cursor == nil {
+		t.Fatalf("expected cursor in history response")
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/terminals/"+created.ID+"/history?lines=2&before_cursor="+strconv.FormatInt(*page.Cursor, 10), nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res = httptest.NewRecorder()
+	restHandler("secret", nil, handler.handleTerminal)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var pageWithCursor terminalOutputResponse
+	if err := json.NewDecoder(res.Body).Decode(&pageWithCursor); err != nil {
+		t.Fatalf("decode paged response: %v", err)
+	}
+	if pageWithCursor.Cursor == nil {
+		t.Fatalf("expected cursor in paged response")
+	}
+	if *pageWithCursor.Cursor >= *page.Cursor {
+		t.Fatalf("expected paged cursor to move backward")
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/terminals/"+created.ID+"/history?lines=2&before_cursor="+strconv.FormatInt(*pageWithCursor.Cursor, 10), nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res = httptest.NewRecorder()
+	restHandler("secret", nil, handler.handleTerminal)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var older terminalOutputResponse
+	if err := json.NewDecoder(res.Body).Decode(&older); err != nil {
+		t.Fatalf("decode older response: %v", err)
+	}
+	if len(older.Lines) < 2 || older.Lines[len(older.Lines)-2] != "two" || older.Lines[len(older.Lines)-1] != "three" {
+		t.Fatalf("unexpected older page: %v", older.Lines)
 	}
 }
 
@@ -783,7 +993,7 @@ func TestTerminalInputHistoryEndpoint(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminal)(res, req)
+	restHandler("secret", nil, handler.handleTerminal)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -823,7 +1033,7 @@ func TestTerminalInputHistoryPostEndpoint(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminal)(res, req)
+	restHandler("secret", nil, handler.handleTerminal)(res, req)
 	if res.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", res.Code)
 	}
@@ -836,7 +1046,7 @@ func TestTerminalInputHistoryPostEndpoint(t *testing.T) {
 	getReq.Header.Set("Authorization", "Bearer secret")
 	getRes := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminal)(getRes, getReq)
+	restHandler("secret", nil, handler.handleTerminal)(getRes, getReq)
 	if getRes.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", getRes.Code)
 	}
@@ -862,7 +1072,7 @@ func TestCreateTerminalWithoutAgent(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminals)(res, req)
+	restHandler("secret", nil, handler.handleTerminals)(res, req)
 	if res.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", res.Code)
 	}
@@ -909,7 +1119,7 @@ func TestCreateTerminalWorkflowFlag(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminals)(res, req)
+	restHandler("secret", nil, handler.handleTerminals)(res, req)
 	if res.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", res.Code)
 	}
@@ -940,7 +1150,7 @@ func TestCreateTerminalWorkflowFlag(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res = httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminals)(res, req)
+	restHandler("secret", nil, handler.handleTerminals)(res, req)
 	if res.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", res.Code)
 	}
@@ -964,7 +1174,7 @@ func TestCreateTerminalWorkflowFlag(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res = httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminals)(res, req)
+	restHandler("secret", nil, handler.handleTerminals)(res, req)
 	if res.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", res.Code)
 	}
@@ -1015,7 +1225,7 @@ func TestCreateTerminalWithAgent(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminals)(res, req)
+	restHandler("secret", nil, handler.handleTerminals)(res, req)
 	if res.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", res.Code)
 	}
@@ -1039,8 +1249,8 @@ func TestCreateTerminalWithAgent(t *testing.T) {
 	if len(factory.commands) != 1 {
 		t.Fatalf("expected 1 command, got %d", len(factory.commands))
 	}
-	if factory.commands[0] != "/bin/zsh" {
-		t.Fatalf("expected /bin/zsh, got %q", factory.commands[0])
+	if factory.commands[0] != "codex" {
+		t.Fatalf("expected codex, got %q", factory.commands[0])
 	}
 }
 
@@ -1077,7 +1287,7 @@ func TestCreateTerminalUsesAgentWorkflowDefault(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminals)(res, req)
+	restHandler("secret", nil, handler.handleTerminals)(res, req)
 	if res.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", res.Code)
 	}
@@ -1128,7 +1338,7 @@ func TestCreateTerminalDuplicateAgent(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminals)(res, req)
+	restHandler("secret", nil, handler.handleTerminals)(res, req)
 	if res.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", res.Code)
 	}
@@ -1148,7 +1358,7 @@ func TestCreateTerminalDuplicateAgent(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res = httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminals)(res, req)
+	restHandler("secret", nil, handler.handleTerminals)(res, req)
 	if res.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d", res.Code)
 	}
@@ -1201,7 +1411,7 @@ func TestListTerminalsIncludesLLMMetadata(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminals)(res, req)
+	restHandler("secret", nil, handler.handleTerminals)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -1250,7 +1460,7 @@ func TestListTerminalsIncludesPromptFiles(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleTerminals)(res, req)
+	restHandler("secret", nil, handler.handleTerminals)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -1313,7 +1523,7 @@ func TestAgentsEndpoint(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleAgents)(res, req)
+	restHandler("secret", nil, handler.handleAgents)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -1383,7 +1593,7 @@ func TestAgentInputEndpoint(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleAgentInput)(res, req)
+	restHandler("secret", nil, handler.handleAgentInput)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -1423,7 +1633,7 @@ func TestSkillsEndpoint(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleSkills)(res, req)
+	restHandler("secret", nil, handler.handleSkills)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -1481,7 +1691,7 @@ func TestSkillsEndpointFiltersByAgent(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleSkills)(res, req)
+	restHandler("secret", nil, handler.handleSkills)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -1502,88 +1712,7 @@ func TestSkillsEndpointUnknownAgent(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", handler.handleSkills)(res, req)
-	if res.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", res.Code)
-	}
-}
-
-func TestSkillEndpoint(t *testing.T) {
-	root := t.TempDir()
-	skillDir := filepath.Join(root, "git-workflows")
-	if err := os.MkdirAll(filepath.Join(skillDir, "scripts"), 0755); err != nil {
-		t.Fatalf("mkdir scripts: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(skillDir, "references"), 0755); err != nil {
-		t.Fatalf("mkdir references: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(skillDir, "assets"), 0755); err != nil {
-		t.Fatalf("mkdir assets: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(skillDir, "scripts", "run.sh"), []byte("echo hi"), 0644); err != nil {
-		t.Fatalf("write script: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(skillDir, "references", "guide.md"), []byte("guide"), 0644); err != nil {
-		t.Fatalf("write reference: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(skillDir, "assets", "icon.png"), []byte("png"), 0644); err != nil {
-		t.Fatalf("write asset: %v", err)
-	}
-
-	manager := terminal.NewManager(terminal.ManagerOptions{
-		Skills: map[string]*skill.Skill{
-			"git-workflows": {
-				Name:          "git-workflows",
-				Description:   "Helpful git workflows",
-				License:       "MIT",
-				Compatibility: ">=1.0",
-				Metadata:      map[string]any{"owner": "dyne"},
-				AllowedTools:  []string{"bash"},
-				Path:          skillDir,
-				Content:       "# Git Workflows\n",
-			},
-		},
-	})
-
-	handler := &RestHandler{Manager: manager}
-	req := httptest.NewRequest(http.MethodGet, "/api/skills/git-workflows", nil)
-	req.Header.Set("Authorization", "Bearer secret")
-	res := httptest.NewRecorder()
-
-	restHandler("secret", handler.handleSkill)(res, req)
-	if res.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", res.Code)
-	}
-
-	var payload skillDetail
-	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if payload.Name != "git-workflows" {
-		t.Fatalf("unexpected name: %q", payload.Name)
-	}
-	if payload.Content == "" {
-		t.Fatalf("expected content to be set")
-	}
-	if len(payload.Scripts) != 1 || payload.Scripts[0] != "run.sh" {
-		t.Fatalf("unexpected scripts: %v", payload.Scripts)
-	}
-	if len(payload.References) != 1 || payload.References[0] != "guide.md" {
-		t.Fatalf("unexpected references: %v", payload.References)
-	}
-	if len(payload.Assets) != 1 || payload.Assets[0] != "icon.png" {
-		t.Fatalf("unexpected assets: %v", payload.Assets)
-	}
-}
-
-func TestSkillEndpointMissing(t *testing.T) {
-	manager := terminal.NewManager(terminal.ManagerOptions{})
-	handler := &RestHandler{Manager: manager}
-	req := httptest.NewRequest(http.MethodGet, "/api/skills/missing", nil)
-	req.Header.Set("Authorization", "Bearer secret")
-	res := httptest.NewRecorder()
-
-	restHandler("secret", handler.handleSkill)(res, req)
+	restHandler("secret", nil, handler.handleSkills)(res, req)
 	if res.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", res.Code)
 	}
@@ -1604,7 +1733,7 @@ func TestPlansEndpointReturnsEmptyList(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/plans", nil)
 	res := httptest.NewRecorder()
 
-	restHandler("", handler.handlePlansList)(res, req)
+	restHandler("", nil, handler.handlePlansList)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -1657,7 +1786,7 @@ func TestPlansEndpointReturnsSortedPlans(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/plans", nil)
 	res := httptest.NewRecorder()
 
-	restHandler("", handler.handlePlansList)(res, req)
+	restHandler("", nil, handler.handlePlansList)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}
@@ -1701,7 +1830,7 @@ func TestTerminalBellEndpointReturnsNoContent(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/terminals/"+created.ID+"/bell", nil)
 	res := httptest.NewRecorder()
 
-	restHandler("", handler.handleTerminal)(res, req)
+	restHandler("", nil, handler.handleTerminal)(res, req)
 	if res.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", res.Code)
 	}
@@ -1713,7 +1842,7 @@ func TestTerminalBellEndpointMissingSession(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/terminals/unknown/bell", nil)
 	res := httptest.NewRecorder()
 
-	restHandler("", handler.handleTerminal)(res, req)
+	restHandler("", nil, handler.handleTerminal)(res, req)
 	if res.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", res.Code)
 	}
@@ -1723,6 +1852,21 @@ func waitForOutput(session *terminal.Session) bool {
 	deadline := time.Now().Add(200 * time.Millisecond)
 	for time.Now().Before(deadline) {
 		if len(session.OutputLines()) > 0 {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return false
+}
+
+func waitForHistoryCursor(manager *terminal.Manager, id string, min int64, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		cursor, err := manager.HistoryCursor(id)
+		if err != nil {
+			return false
+		}
+		if cursor != nil && *cursor >= min {
 			return true
 		}
 		time.Sleep(10 * time.Millisecond)

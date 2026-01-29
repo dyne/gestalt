@@ -22,7 +22,7 @@ func (b *Bus[T]) emitOTelEvent(event T, fallbackType string) {
 		return
 	}
 
-	severity := otellog.SeverityInfo
+	severity, severityText := severityForEvent(eventName)
 	ctx := context.Background()
 	if !b.otelLogger.Enabled(ctx, otellog.EnabledParameters{Severity: severity, EventName: eventName}) {
 		return
@@ -33,12 +33,21 @@ func (b *Bus[T]) emitOTelEvent(event T, fallbackType string) {
 	record.SetTimestamp(eventTime)
 	record.SetObservedTimestamp(time.Now().UTC())
 	record.SetSeverity(severity)
-	record.SetSeverityText("info")
+	record.SetSeverityText(severityText)
 	record.SetBody(otellog.StringValue(body))
 	if len(attrs) > 0 {
 		record.AddAttributes(attrs...)
 	}
 	b.otelLogger.Emit(ctx, record)
+}
+
+func severityForEvent(eventName string) (otellog.Severity, string) {
+	switch eventName {
+	case "terminal_resized":
+		return otellog.SeverityDebug, "debug"
+	default:
+		return otellog.SeverityInfo, "info"
+	}
 }
 
 func eventLogData[T any](event T, fallbackType, busName string) (string, time.Time, string, []otellog.KeyValue, bool) {

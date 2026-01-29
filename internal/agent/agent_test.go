@@ -45,6 +45,31 @@ llm_model = "default"
 	}
 }
 
+func TestAgentSingletonParsing(t *testing.T) {
+	withSingleton, err := loadAgentFromBytes("config/agents/coder.toml", []byte(`
+name = "Coder"
+shell = "/bin/bash"
+singleton = false
+`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if withSingleton.Singleton == nil || *withSingleton.Singleton {
+		t.Fatalf("expected singleton=false")
+	}
+
+	defaultSingleton, err := loadAgentFromBytes("config/agents/coder.toml", []byte(`
+name = "Coder"
+shell = "/bin/bash"
+`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if defaultSingleton.Singleton == nil || !*defaultSingleton.Singleton {
+		t.Fatalf("expected singleton default true")
+	}
+}
+
 func TestAgentTOMLPromptParsing(t *testing.T) {
 	tests := []struct {
 		name       string

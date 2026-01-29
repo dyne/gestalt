@@ -58,6 +58,9 @@ gestalt-scip search "ErrorCode" --case-sensitive
 # Filter by language
 gestalt-scip search "async function" --language typescript
 
+# Restrict search to a subdirectory
+gestalt-scip search "handleScipReindex" --path src
+
 # More context lines
 gestalt-scip search "TODO" --context 5
 
@@ -73,6 +76,7 @@ The search command supports:
 - OR clauses via pipe `|` separator
 - Case-sensitive/insensitive modes
 - Configurable context lines (default 3)
+- Path scoping via `--path`
 - Language filtering
 - Multiple output formats (json, text, toon)
 

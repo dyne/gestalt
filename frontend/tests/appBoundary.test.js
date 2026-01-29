@@ -1,19 +1,15 @@
 import { render, cleanup } from '@testing-library/svelte'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { notificationStore } from '../src/lib/notificationStore.js'
+import { createAppApiMocks, createLogStreamStub } from './helpers/appApiMocks.js'
 
 const apiFetch = vi.hoisted(() => vi.fn())
-const createLogStream = vi.hoisted(() =>
-  vi.fn(() => ({
-    start: vi.fn(),
-    stop: vi.fn(),
-    restart: vi.fn(),
-    setLevel: vi.fn(),
-  }))
-)
+const buildEventSourceUrl = vi.hoisted(() => vi.fn((path) => `http://test${path}`))
+const createLogStream = vi.hoisted(() => vi.fn())
 
 vi.mock('../src/lib/api.js', () => ({
   apiFetch,
+  buildEventSourceUrl,
 }))
 
 vi.mock('../src/lib/logStream.js', () => ({
@@ -47,43 +43,8 @@ describe('App view boundaries', () => {
       value: { reload: vi.fn() },
       writable: true,
     })
-    apiFetch.mockImplementation((url) => {
-      if (url === '/api/status') {
-        return Promise.resolve({
-          json: vi.fn().mockResolvedValue({ terminal_count: 0 }),
-        })
-      }
-      if (url === '/api/terminals') {
-        return Promise.resolve({
-          json: vi.fn().mockResolvedValue([]),
-        })
-      }
-      if (url === '/api/agents') {
-        return Promise.resolve({
-          json: vi.fn().mockResolvedValue([]),
-        })
-      }
-      if (url.startsWith('/api/skills')) {
-        return Promise.resolve({
-          json: vi.fn().mockResolvedValue([]),
-        })
-      }
-      if (url === '/api/metrics/summary') {
-        return Promise.resolve({
-          json: vi.fn().mockResolvedValue({
-            updated_at: '',
-            top_endpoints: [],
-            slowest_endpoints: [],
-            top_agents: [],
-            error_rates: [],
-          }),
-        })
-      }
-      if (url === '/api/otel/logs') {
-        return Promise.resolve({ json: vi.fn().mockResolvedValue({ ok: true }) })
-      }
-      return Promise.resolve({ json: vi.fn().mockResolvedValue({}) })
-    })
+    apiFetch.mockImplementation(createAppApiMocks(apiFetch))
+    createLogStream.mockImplementation(() => createLogStreamStub())
   })
 
   afterEach(() => {

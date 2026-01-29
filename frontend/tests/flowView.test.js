@@ -2,9 +2,11 @@ import { render, fireEvent, cleanup } from '@testing-library/svelte'
 import { describe, it, expect, afterEach, vi } from 'vitest'
 
 const apiFetch = vi.hoisted(() => vi.fn())
+const buildEventSourceUrl = vi.hoisted(() => vi.fn((path) => `http://test${path}`))
 
 vi.mock('../src/lib/api.js', () => ({
   apiFetch,
+  buildEventSourceUrl,
 }))
 
 import FlowView from '../src/views/FlowView.svelte'

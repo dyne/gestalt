@@ -1,10 +1,5 @@
-import { createWsStore } from './wsStore.js'
-
-const { subscribe, connectionStatus } = createWsStore({
-  label: 'workflow-events',
-  path: '/api/workflows/events',
-})
+import { subscribe, eventStreamConnectionStatus } from './eventStreamStore.js'
 
 export { subscribe }
 
-export const workflowEventConnectionStatus = connectionStatus
+export const workflowEventConnectionStatus = eventStreamConnectionStatus

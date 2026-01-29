@@ -169,7 +169,6 @@ Key event streams:
 - `/api/workflows/events`
 
 Debugging:
-- `GET /api/events/debug` lists active buses and subscriber counts.
 - `GESTALT_EVENT_DEBUG=true` logs all published events.
 
 Event flow:
@@ -213,9 +212,6 @@ Timeouts and retries (defaults):
 - Activity timeouts: spawn 30s, output read 5s, default 10s (heartbeat 10s)
 - Retry policy: exponential backoff, max 5 attempts
 
-Metrics:
-- `GET /api/metrics` exposes Prometheus metrics for workflows and activities.
-
 ## Temporal workflows (HITL)
 
 Gestalt models terminal sessions as Temporal workflows so HITL pauses and resumes survive restarts. Each session workflow
@@ -245,6 +241,24 @@ flowchart LR
 ```
 
 Learn more: https://docs.temporal.io/
+
+## Notify notary (gestalt-notify)
+
+Gestalt records notify events as Temporal signals (`session.notify`) so workflow history is an auditable log.
+Codex sessions inject a notifier hook automatically.
+
+Try it:
+1. Start Gestalt with Temporal enabled (default).
+2. Start a Codex agent session and grab its terminal id.
+3. Send a manual notify event:
+```
+gestalt-notify --terminal-id <terminal-id> --agent-id <agent-id> --event-type plan-L1-wip \
+  --payload '{"plan_file":".gestalt/plans/your-plan.org","heading":"Example","state":"wip","level":1}'
+```
+4. Verify the history includes a notify entry:
+```
+curl "http://localhost:57417/api/terminals/<terminal-id>/workflow/history"
+```
 
 ## Future handoff design (deferred)
 
@@ -607,7 +621,6 @@ Discovery and activation:
 
 API:
 - `GET /api/skills` (optional `?agent=<id>` filter)
-- `GET /api/skills/:name`
 
 Security considerations (future work):
 - Scripts in skills are not sandboxed; plan for allowlists or user confirmation before execution.

@@ -3,6 +3,7 @@ package api
 import (
 	"io/fs"
 	"net/http"
+	"strings"
 
 	"gestalt/internal/event"
 	"gestalt/internal/logging"
@@ -65,55 +66,71 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 		}()
 	}
 
-	mux.Handle("/ws/terminal/", &TerminalHandler{
+	mux.Handle("/ws/terminal/", securityHeadersMiddleware(cacheControlNoStore, &TerminalHandler{
 		Manager:   manager,
 		Logger:    logger,
 		AuthToken: authToken,
-	})
-	mux.Handle("/ws/logs", &LogsHandler{
+	}))
+	mux.Handle("/ws/logs", securityHeadersMiddleware(cacheControlNoStore, &LogsHandler{
 		Logger:    logger,
 		AuthToken: authToken,
-	})
-	mux.Handle("/ws/events", &EventsHandler{
+	}))
+	mux.Handle("/api/logs/stream", securityHeadersMiddleware(cacheControlNoStore, &LogsSSEHandler{
+		Logger:    logger,
+		AuthToken: authToken,
+	}))
+	mux.Handle("/ws/events", securityHeadersMiddleware(cacheControlNoStore, &EventsHandler{
 		Bus:       eventBus,
 		Logger:    logger,
 		AuthToken: authToken,
-	})
-	mux.Handle("/api/agents/events", &AgentEventsHandler{
+	}))
+	mux.Handle("/api/events/stream", securityHeadersMiddleware(cacheControlNoStore, &EventsSSEHandler{
+		Manager:   manager,
+		Bus:       eventBus,
+		Logger:    logger,
+		AuthToken: authToken,
+	}))
+	mux.Handle("/api/agents/events", securityHeadersMiddleware(cacheControlNoStore, &AgentEventsHandler{
 		Manager:   manager,
 		Logger:    logger,
 		AuthToken: authToken,
-	})
-	mux.Handle("/api/terminals/events", &TerminalEventsHandler{
+	}))
+	mux.Handle("/api/terminals/events", securityHeadersMiddleware(cacheControlNoStore, &TerminalEventsHandler{
 		Manager:   manager,
 		Logger:    logger,
 		AuthToken: authToken,
-	})
-	mux.Handle("/api/workflows/events", &WorkflowEventsHandler{
+	}))
+	mux.Handle("/api/workflows/events", securityHeadersMiddleware(cacheControlNoStore, &WorkflowEventsHandler{
 		Manager:   manager,
 		Logger:    logger,
 		AuthToken: authToken,
-	})
-	mux.Handle("/api/config/events", &ConfigEventsHandler{
+	}))
+	mux.Handle("/api/config/events", securityHeadersMiddleware(cacheControlNoStore, &ConfigEventsHandler{
 		Logger:    logger,
 		AuthToken: authToken,
-	})
+	}))
 
-	mux.Handle("/api/status", wrap("/api/status", "status", "read", restHandler(authToken, rest.handleStatus)))
-	mux.Handle("/api/metrics", wrap("/api/metrics", "status", "read", restHandler(authToken, rest.handleMetrics)))
-	mux.Handle("/api/metrics/summary", wrap("/api/metrics/summary", "status", "query", restHandler(authToken, rest.handleMetricsSummary)))
-	mux.Handle("/api/events/debug", wrap("/api/events/debug", "status", "query", restHandler(authToken, rest.handleEventDebug)))
-	mux.Handle("/api/workflows", wrap("/api/workflows", "workflows", "read", restHandler(authToken, rest.handleWorkflows)))
-	mux.Handle("/api/agents", wrap("/api/agents", "agents", "read", restHandler(authToken, rest.handleAgents)))
-	mux.Handle("/api/agents/", wrap("/api/agents/:name/input", "agents", "stream", restHandler(authToken, rest.handleAgentInput)))
-	mux.Handle("/api/skills", wrap("/api/skills", "skills", "read", restHandler(authToken, rest.handleSkills)))
-	mux.Handle("/api/skills/", wrap("/api/skills/:name", "skills", "read", restHandler(authToken, rest.handleSkill)))
-	mux.Handle("/api/otel/logs", wrap("/api/otel/logs", "logs", "query", restHandler(authToken, rest.handleOTelLogs)))
-	mux.Handle("/api/otel/traces", wrap("/api/otel/traces", "traces", "query", restHandler(authToken, rest.handleOTelTraces)))
-	mux.Handle("/api/otel/metrics", wrap("/api/otel/metrics", "metrics", "query", restHandler(authToken, rest.handleOTelMetrics)))
-	mux.Handle("/api/terminals", wrap("/api/terminals", "terminals", "auto", restHandler(authToken, rest.handleTerminals)))
-	mux.Handle("/api/terminals/", wrap("/api/terminals/:id", "terminals", "auto", restHandler(authToken, rest.handleTerminal)))
-	mux.Handle("/api/plans", wrap("/api/plans", "plan", "read", restHandler(authToken, rest.handlePlansList)))
+	mux.Handle("/api/status", wrap("/api/status", "status", "read", restHandler(authToken, logger, rest.handleStatus)))
+	mux.Handle("/api/metrics/summary", wrap("/api/metrics/summary", "status", "query", restHandler(authToken, logger, rest.handleMetricsSummary)))
+	mux.Handle("/api/workflows", wrap("/api/workflows", "workflows", "read", restHandler(authToken, logger, rest.handleWorkflows)))
+	mux.Handle("/api/agents", wrap("/api/agents", "agents", "read", restHandler(authToken, logger, rest.handleAgents)))
+	agentInputHandler := wrap("/api/agents/:name/input", "agents", "stream", restHandler(authToken, logger, rest.handleAgentInput))
+	agentSendInputHandler := wrap("/api/agents/:name/send-input", "agents", "stream", restHandler(authToken, logger, rest.handleAgentSendInput))
+	mux.Handle("/api/agents/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimSuffix(r.URL.Path, "/")
+		if strings.HasSuffix(path, "/send-input") {
+			agentSendInputHandler.ServeHTTP(w, r)
+			return
+		}
+		agentInputHandler.ServeHTTP(w, r)
+	}))
+	mux.Handle("/api/skills", wrap("/api/skills", "skills", "read", restHandler(authToken, logger, rest.handleSkills)))
+	mux.Handle("/api/otel/logs", wrap("/api/otel/logs", "logs", "create", restHandler(authToken, logger, rest.handleOTelLogs)))
+	mux.Handle("/api/otel/traces", wrap("/api/otel/traces", "traces", "query", restHandler(authToken, logger, rest.handleOTelTraces)))
+	mux.Handle("/api/otel/metrics", wrap("/api/otel/metrics", "metrics", "query", restHandler(authToken, logger, rest.handleOTelMetrics)))
+	mux.Handle("/api/terminals", wrap("/api/terminals", "terminals", "auto", restHandler(authToken, logger, rest.handleTerminals)))
+	mux.Handle("/api/terminals/", wrap("/api/terminals/:id", "terminals", "auto", restHandler(authToken, logger, rest.handleTerminal)))
+	mux.Handle("/api/plans", wrap("/api/plans", "plan", "read", restHandler(authToken, logger, rest.handlePlansList)))
 
 	if staticDir != "" {
 		mux.Handle("/", NewSPAHandler(staticDir))
@@ -126,6 +143,7 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 	}
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		setSecurityHeaders(w, cacheControlNoCache)
 		if authToken != "" {
 			w.Header().Set("X-Gestalt-Auth", "required")
 		}

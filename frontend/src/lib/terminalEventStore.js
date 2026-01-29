@@ -1,10 +1,5 @@
-import { createWsStore } from './wsStore.js'
-
-const { subscribe, connectionStatus } = createWsStore({
-  label: 'terminal-events',
-  path: '/api/terminals/events',
-})
+import { subscribe, eventStreamConnectionStatus } from './eventStreamStore.js'
 
 export { subscribe }
 
-export const terminalEventConnectionStatus = connectionStatus
+export const terminalEventConnectionStatus = eventStreamConnectionStatus

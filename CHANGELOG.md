@@ -1,3 +1,34 @@
+# [1.2.0](https://github.com/dyne/gestalt/compare/v1.1.0...v1.2.0) (2026-01-28)
+
+
+### Bug Fixes
+
+* add logger propagation and middleware/rest handler logging ([a770014](https://github.com/dyne/gestalt/commit/a770014fc3d8282886442e3efc9cc2da583555e9))
+* align history with cursor snapshot ([a03605b](https://github.com/dyne/gestalt/commit/a03605bbbaa6233c301c1bce6a480fff6723e579))
+* downgrade resize event severity ([89f5a70](https://github.com/dyne/gestalt/commit/89f5a706bd24c2edd45efc90ec8a2a2d2291a91a))
+* make session logging lossless ([565d225](https://github.com/dyne/gestalt/commit/565d225019dc62c4e00b5949e81db88c000d4b3f))
+
+
+### Features
+
+* add gestalt-notify cli ([0221303](https://github.com/dyne/gestalt/commit/022130324b3faee3a5542bc6298d8342062b2b7e))
+* add history pagination cursor ([e8f1628](https://github.com/dyne/gestalt/commit/e8f1628b22873e0b68a02f574ac629fea271150c))
+* add notify workflow signal ([05e4b9c](https://github.com/dyne/gestalt/commit/05e4b9c0316383a46c1cbb8fbca60c320bfaae98))
+* add sse events stream ([3d453ed](https://github.com/dyne/gestalt/commit/3d453ed50d8db82f2bad5e229551b0d38c992eb3))
+* add sse log stream ([6b005ef](https://github.com/dyne/gestalt/commit/6b005ef5c5c3cbbdb07334a76e9fe1258c1393d5))
+* add sse store helper ([f6c255a](https://github.com/dyne/gestalt/commit/f6c255a96f7390e9c7db5021035524d08dea8174))
+* add sse stream helpers ([968727e](https://github.com/dyne/gestalt/commit/968727e787b71478dc8833bc7e3265e522a5750d))
+* add terminal history cursor ([d141b6b](https://github.com/dyne/gestalt/commit/d141b6b9c530da2269e2fe152afad9a945417b3d))
+* add terminal notify endpoint ([751be23](https://github.com/dyne/gestalt/commit/751be23056f20ea9fd0e156cdd0d5ca87bac4029))
+* add websocket catch-up for terminal logs ([89a246d](https://github.com/dyne/gestalt/commit/89a246d5a071fe007d228059b6e3a157c64f2ceb))
+* align agent id in workflows ([fd32734](https://github.com/dyne/gestalt/commit/fd32734bc7dd6dabef3a67975e1f8fa3b1952b12))
+* define notify envelope ([8ca50f5](https://github.com/dyne/gestalt/commit/8ca50f56c65e341023dd5fdcb97cae6b0c7d5960))
+* inject codex notify default ([e2b7ff6](https://github.com/dyne/gestalt/commit/e2b7ff6224d9154ac1da5c1e73afdc0c50b1d66e))
+* label notify history events ([40066c2](https://github.com/dyne/gestalt/commit/40066c20915111f1f0030fe9191ba0e43a01d124))
+* migrate event stores to sse ([208910a](https://github.com/dyne/gestalt/commit/208910aa53daa92cc0c3f1ef21fa7098e96820a7))
+* migrate log stream to sse ([ce9272b](https://github.com/dyne/gestalt/commit/ce9272b2e43e1e8ef14a9d55e2f9cc91dc98deb4))
+* use cursor for terminal ws reconnect ([b7aee1e](https://github.com/dyne/gestalt/commit/b7aee1ef5b71533a75b7a509ca991effbc8e2675))
+
 # [1.1.0](https://github.com/dyne/gestalt/compare/v1.0.0...v1.1.0) (2026-01-28)
 
 

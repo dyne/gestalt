@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { get } from 'svelte/store'
+import { createLogStreamStub } from './helpers/appApiMocks.js'
 
 const fetchAgents = vi.hoisted(() => vi.fn())
 const fetchAgentSkills = vi.hoisted(() => vi.fn())
@@ -67,12 +68,12 @@ describe('dashboardStore', () => {
         delete eventHandlers[type]
       }
     })
-    createLogStream.mockImplementation((options) => ({
-      start: vi.fn(() => options?.onOpen?.()),
-      stop: vi.fn(),
-      restart: vi.fn(() => options?.onOpen?.()),
-      setLevel: vi.fn(),
-    }))
+    createLogStream.mockImplementation((options) =>
+      createLogStreamStub({
+        start: () => options?.onOpen?.(),
+        restart: () => options?.onOpen?.(),
+      }),
+    )
   })
 
   afterEach(() => {

@@ -127,19 +127,32 @@ func TestIntegrationCreateSessionFromTOML(t *testing.T) {
 		t.Fatalf("expected command codex, got %q", factory.command)
 	}
 	wantArgs := []string{"-c", "approval_policy=never", "-c", "model=o3"}
-	if len(factory.args) != len(wantArgs) {
-		t.Fatalf("expected args %v, got %v", wantArgs, factory.args)
+	if len(factory.args) < len(wantArgs) {
+		t.Fatalf("expected args to include %v, got %v", wantArgs, factory.args)
 	}
 	for i, arg := range wantArgs {
 		if factory.args[i] != arg {
 			t.Fatalf("expected args %v, got %v", wantArgs, factory.args)
 		}
 	}
+	notifyArg := ""
+	for _, arg := range factory.args {
+		if strings.Contains(arg, "notify=") {
+			notifyArg = arg
+			break
+		}
+	}
+	if notifyArg == "" {
+		t.Fatalf("expected notify config in args, got %v", factory.args)
+	}
+	if !strings.Contains(notifyArg, "gestalt-notify") {
+		t.Fatalf("expected notify to include gestalt-notify, got %q", notifyArg)
+	}
 	if session.ConfigHash != codex.ConfigHash {
 		t.Fatalf("expected config hash %q, got %q", codex.ConfigHash, session.ConfigHash)
 	}
-	if session.Command != "codex -c approval_policy=never -c model=o3" {
-		t.Fatalf("unexpected session command: %q", session.Command)
+	if !strings.Contains(session.Command, "notify=") {
+		t.Fatalf("expected notify in session command, got %q", session.Command)
 	}
 }
 

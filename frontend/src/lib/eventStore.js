@@ -1,11 +1,5 @@
-import { createWsStore } from './wsStore.js'
-
-const { subscribe, connectionStatus } = createWsStore({
-  label: 'events',
-  path: '/ws/events',
-  buildSubscribeMessage: (types) => ({ subscribe: types }),
-})
+import { subscribe, eventStreamConnectionStatus } from './eventStreamStore.js'
 
 export { subscribe }
 
-export const eventConnectionStatus = connectionStatus
+export const eventConnectionStatus = eventStreamConnectionStatus

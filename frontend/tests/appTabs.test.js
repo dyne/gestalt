@@ -1,19 +1,15 @@
 import { render, fireEvent, cleanup, waitFor } from '@testing-library/svelte'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { notificationStore } from '../src/lib/notificationStore.js'
+import { createAppApiMocks, createLogStreamStub } from './helpers/appApiMocks.js'
 
 const apiFetch = vi.hoisted(() => vi.fn())
-const createLogStream = vi.hoisted(() =>
-  vi.fn(() => ({
-    start: vi.fn(),
-    stop: vi.fn(),
-    restart: vi.fn(),
-    setLevel: vi.fn(),
-  }))
-)
+const buildEventSourceUrl = vi.hoisted(() => vi.fn((path) => `http://test${path}`))
+const createLogStream = vi.hoisted(() => vi.fn())
 
 vi.mock('../src/lib/api.js', () => ({
   apiFetch,
+  buildEventSourceUrl,
 }))
 
 vi.mock('../src/lib/logStream.js', () => ({
@@ -36,50 +32,20 @@ describe('App tab switching', () => {
         onfinish: null,
       })
     }
-    apiFetch.mockImplementation((url) => {
-      if (url === '/api/status') {
-        return Promise.resolve({
-          json: vi.fn().mockResolvedValue({ terminal_count: 1 }),
-        })
-      }
-      if (url === '/api/terminals') {
-        return Promise.resolve({
-          json: vi.fn().mockResolvedValue([
-            {
-              id: 't1',
-              title: 'Shell',
-              role: 'shell',
-              created_at: new Date().toISOString(),
-            },
-          ]),
-        })
-      }
-      if (url === '/api/agents') {
-        return Promise.resolve({
-          json: vi.fn().mockResolvedValue([]),
-        })
-      }
-      if (url.startsWith('/api/skills')) {
-        return Promise.resolve({
-          json: vi.fn().mockResolvedValue([]),
-        })
-      }
-      if (url === '/api/metrics/summary') {
-        return Promise.resolve({
-          json: vi.fn().mockResolvedValue({
-            updated_at: '',
-            top_endpoints: [],
-            slowest_endpoints: [],
-            top_agents: [],
-            error_rates: [],
-          }),
-        })
-      }
-      if (url === '/api/otel/logs') {
-        return Promise.resolve({ json: vi.fn().mockResolvedValue({ ok: true }) })
-      }
-      return Promise.resolve({ json: vi.fn().mockResolvedValue({}) })
-    })
+    apiFetch.mockImplementation(
+      createAppApiMocks(apiFetch, {
+        status: { terminal_count: 1 },
+        terminals: [
+          {
+            id: 't1',
+            title: 'Shell',
+            role: 'shell',
+            created_at: new Date().toISOString(),
+          },
+        ],
+      }),
+    )
+    createLogStream.mockImplementation(() => createLogStreamStub())
   })
 
   afterEach(() => {
@@ -91,7 +57,7 @@ describe('App tab switching', () => {
   it('switches between home and terminal tabs', async () => {
     const { container, findByRole } = render(App)
 
-    const planTab = await findByRole('button', { name: 'Plan' })
+    const planTab = await findByRole('button', { name: 'Plans' })
     const statusTab = await findByRole('button', { name: 'Status' })
     const terminalTab = await findByRole('button', { name: 'Shell' })
 
@@ -99,7 +65,7 @@ describe('App tab switching', () => {
     await waitFor(() => {
       const active = container.querySelector('section.view[data-active="true"]')
       expect(active).toBeTruthy()
-      expect(active?.textContent).toContain('Project Plans')
+      expect(active?.textContent).toContain('Plans')
     })
 
     await fireEvent.click(statusTab)

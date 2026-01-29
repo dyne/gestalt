@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strconv"
 
 	"gestalt/internal/logging"
 	"gestalt/internal/otel"
@@ -16,6 +17,40 @@ type apiError struct {
 
 type apiHandler func(http.ResponseWriter, *http.Request) *apiError
 
+// Security header policy:
+// - Always set X-Content-Type-Options: nosniff.
+// - API + WS responses: no-store, must-revalidate.
+// - SPA HTML (index.html and other HTML): no-cache.
+// - Hashed static assets: public, max-age=31536000, immutable.
+// - Non-hashed static assets: no-cache.
+const (
+	cacheControlNoStore   = "no-store, must-revalidate"
+	cacheControlNoCache   = "no-cache"
+	cacheControlImmutable = "public, max-age=31536000, immutable"
+)
+
+func setSecurityHeaders(w http.ResponseWriter, cacheControl string) {
+	headers := w.Header()
+	headers.Set("X-Content-Type-Options", "nosniff")
+	if cacheControl != "" {
+		headers.Set("Cache-Control", cacheControl)
+	}
+}
+
+func securityHeadersHandler(cacheControl string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		setSecurityHeaders(w, cacheControl)
+		next(w, r)
+	}
+}
+
+func securityHeadersMiddleware(cacheControl string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		setSecurityHeaders(w, cacheControl)
+		next.ServeHTTP(w, r)
+	})
+}
+
 func authMiddleware(token string, next apiHandler) apiHandler {
 	return func(w http.ResponseWriter, r *http.Request) *apiError {
 		if !validateToken(r, token) {
@@ -27,7 +62,7 @@ func authMiddleware(token string, next apiHandler) apiHandler {
 	}
 }
 
-func jsonErrorMiddleware(next apiHandler) http.HandlerFunc {
+func jsonErrorMiddleware(logger *logging.Logger, next apiHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := next(w, r); err != nil {
 			code := err.Code
@@ -39,6 +74,27 @@ func jsonErrorMiddleware(next apiHandler) http.HandlerFunc {
 				Code:    code,
 				Message: err.Message,
 			})
+			if logger != nil {
+				fields := map[string]string{
+					"gestalt.category": "api",
+					"gestalt.source":   "backend",
+					"http.route":       r.URL.Path,
+					"method":           r.Method,
+					"status":           strconv.Itoa(err.Status),
+					"code":             code,
+				}
+				if err.Message != "" {
+					fields["error"] = err.Message
+				}
+				if err.TerminalID != "" {
+					fields["terminal_id"] = err.TerminalID
+				}
+				if err.Status >= http.StatusInternalServerError {
+					logger.Error("api error", fields)
+				} else {
+					logger.Warn("api error", fields)
+				}
+			}
 			writeJSONError(w, err)
 		}
 	}
@@ -64,6 +120,6 @@ func methodNotAllowed(w http.ResponseWriter, allow string) *apiError {
 	return &apiError{Status: http.StatusMethodNotAllowed, Message: "method not allowed"}
 }
 
-func restHandler(token string, handler apiHandler) http.HandlerFunc {
-	return jsonErrorMiddleware(authMiddleware(token, handler))
+func restHandler(token string, logger *logging.Logger, handler apiHandler) http.HandlerFunc {
+	return securityHeadersHandler(cacheControlNoStore, jsonErrorMiddleware(logger, authMiddleware(token, handler)))
 }

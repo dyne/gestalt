@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -110,6 +111,7 @@ const (
 )
 
 var onAirTimeout = 5 * time.Second
+var numberedAgentIDPattern = regexp.MustCompile(`^(.+?)-(\d+)$`)
 
 type AgentInfo struct {
 	ID          string
@@ -298,6 +300,7 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 	var promptNames []string
 	var onAirString string
 	var agentName string
+	var sessionCLIConfig map[string]interface{}
 	reservedID := strings.TrimSpace(request.SessionID)
 	if request.AgentID != "" {
 		agentProfile, ok := m.GetAgent(request.AgentID)
@@ -312,23 +315,8 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		}
 		profileCopy := agentProfile
 		profile = &profileCopy
-		if !shellOverrideSet {
-			if len(agentProfile.CLIConfig) > 0 {
-				generated := agent.BuildShellCommand(agentProfile.CLIType, agentProfile.CLIConfig)
-				if strings.TrimSpace(generated) != "" {
-					shell = generated
-					if m.logger != nil {
-						m.logger.Debug("agent shell command generated", map[string]string{
-							"agent_id": request.AgentID,
-							"shell":    shell,
-						})
-					}
-				} else if strings.TrimSpace(agentProfile.Shell) != "" {
-					shell = agentProfile.Shell
-				}
-			} else if strings.TrimSpace(agentProfile.Shell) != "" {
-				shell = agentProfile.Shell
-			}
+		if len(agentProfile.CLIConfig) > 0 {
+			sessionCLIConfig = copyCLIConfig(agentProfile.CLIConfig)
 		}
 		if strings.TrimSpace(agentProfile.Name) != "" {
 			request.Title = agentProfile.Name
@@ -347,10 +335,67 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		useWorkflow = resolveWorkflowPreference(profile.UseWorkflow)
 	}
 
-	if agentName != "" {
-		if reservedID == "" {
-			reservedID = m.nextIDValue()
+	if profile != nil && profile.Singleton != nil && !*profile.Singleton {
+		baseAgentID := strings.TrimSpace(request.AgentID)
+		if matches := numberedAgentIDPattern.FindStringSubmatch(baseAgentID); len(matches) == 3 {
+			baseAgentID = matches[1]
 		}
+		if baseAgentID != "" {
+			m.mu.Lock()
+			maxNumber := 0
+			for id := range m.sessions {
+				matches := numberedAgentIDPattern.FindStringSubmatch(id)
+				if len(matches) != 3 {
+					continue
+				}
+				if matches[1] != baseAgentID {
+					continue
+				}
+				number, err := strconv.Atoi(matches[2])
+				if err != nil {
+					continue
+				}
+				if number > maxNumber {
+					maxNumber = number
+				}
+			}
+			nextID := fmt.Sprintf("%s-%d", baseAgentID, maxNumber+1)
+			reservedID = nextID
+			m.mu.Unlock()
+		}
+	}
+
+	if reservedID == "" && agentName != "" && (profile == nil || profile.Singleton == nil || *profile.Singleton) {
+		reservedID = m.nextIDValue()
+	}
+
+	if !shellOverrideSet && profile != nil {
+		cliType := strings.TrimSpace(profile.CLIType)
+		if strings.EqualFold(cliType, "codex") {
+			if sessionCLIConfig == nil {
+				sessionCLIConfig = map[string]interface{}{}
+			}
+			sessionCLIConfig["notify"] = buildNotifyArgs(reservedID, request.AgentID, profile.Name)
+		}
+		if cliType != "" && len(sessionCLIConfig) > 0 {
+			generated := agent.BuildShellCommand(cliType, sessionCLIConfig)
+			if strings.TrimSpace(generated) != "" {
+				shell = generated
+				if m.logger != nil {
+					m.logger.Debug("agent shell command generated", map[string]string{
+						"agent_id": request.AgentID,
+						"shell":    shell,
+					})
+				}
+			} else if strings.TrimSpace(profile.Shell) != "" {
+				shell = profile.Shell
+			}
+		} else if strings.TrimSpace(profile.Shell) != "" {
+			shell = profile.Shell
+		}
+	}
+
+	if agentName != "" && (profile.Singleton == nil || *profile.Singleton) {
 		m.mu.Lock()
 		if existingID, ok := m.agentSessions[agentName]; ok {
 			m.mu.Unlock()
@@ -361,7 +406,7 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 	}
 
 	releaseReservation := func() {
-		if agentName == "" || reservedID == "" {
+		if agentName == "" || reservedID == "" || profile == nil || (profile.Singleton != nil && !*profile.Singleton) {
 			return
 		}
 		m.mu.Lock()
@@ -550,6 +595,90 @@ func (m *Manager) HistoryLines(id string, maxLines int) ([]string, error) {
 		return nil, err
 	}
 	return lines, nil
+}
+
+func (m *Manager) HistoryCursor(id string) (*int64, error) {
+	if m == nil || m.sessionLogs == "" {
+		return nil, nil
+	}
+
+	path := ""
+	if session, ok := m.Get(id); ok {
+		if session.logger != nil {
+			path = session.logger.Path()
+		}
+	} else {
+		latest, err := latestSessionLogPath(m.sessionLogs, id)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil, nil
+			}
+			return nil, err
+		}
+		path = latest
+	}
+
+	if path == "" {
+		return nil, nil
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	size := info.Size()
+	return &size, nil
+}
+
+func (m *Manager) HistoryPage(id string, maxLines int, beforeCursor *int64) ([]string, *int64, error) {
+	if maxLines <= 0 {
+		maxLines = DefaultHistoryLines
+	}
+	if beforeCursor == nil {
+		lines, err := m.HistoryLines(id, maxLines)
+		if err != nil {
+			return nil, nil, err
+		}
+		cursor, err := m.HistoryCursor(id)
+		if err != nil {
+			return lines, nil, err
+		}
+		return lines, cursor, nil
+	}
+	if m == nil || m.sessionLogs == "" {
+		lines, err := m.HistoryLines(id, maxLines)
+		return lines, nil, err
+	}
+
+	path := ""
+	if session, ok := m.Get(id); ok {
+		if session.logger != nil {
+			path = session.logger.Path()
+		}
+	} else {
+		latest, err := latestSessionLogPath(m.sessionLogs, id)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil, nil, ErrSessionNotFound
+			}
+			return nil, nil, err
+		}
+		path = latest
+	}
+
+	if path == "" {
+		lines, err := m.HistoryLines(id, maxLines)
+		return lines, nil, err
+	}
+
+	lines, startOffset, err := readLastLinesBefore(path, maxLines, *beforeCursor)
+	if err != nil {
+		return nil, nil, err
+	}
+	cursor := startOffset
+	return lines, &cursor, nil
 }
 
 func (m *Manager) List() []SessionInfo {
@@ -780,4 +909,23 @@ func waitForOnAir(session *Session, target string, timeout time.Duration) bool {
 			return false
 		}
 	}
+}
+
+func copyCLIConfig(config map[string]interface{}) map[string]interface{} {
+	if len(config) == 0 {
+		return nil
+	}
+	cloned := make(map[string]interface{}, len(config))
+	for key, value := range config {
+		cloned[key] = value
+	}
+	return cloned
+}
+
+func buildNotifyArgs(terminalID, agentID, agentName string) []string {
+	args := []string{"gestalt-notify", "--terminal-id", strings.TrimSpace(terminalID), "--agent-id", strings.TrimSpace(agentID)}
+	if strings.TrimSpace(agentName) != "" {
+		args = append(args, "--agent-name", strings.TrimSpace(agentName))
+	}
+	return args
 }

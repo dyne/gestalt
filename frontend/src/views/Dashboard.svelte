@@ -431,14 +431,16 @@
                     {#if entry.raw}
                       <details class="log-entry__raw">
                         <summary>Raw JSON</summary>
-                        {#if clipboardAvailable}
-                          <div class="log-entry__raw-actions">
-                            <button type="button" on:click={() => copyLogJson(entry)}>
-                              Copy JSON
-                            </button>
-                          </div>
-                        {/if}
-                        <pre>{JSON.stringify(entry.raw, null, 2)}</pre>
+                        <div class="log-entry__raw-body">
+                          {#if clipboardAvailable}
+                            <div class="log-entry__raw-actions">
+                              <button type="button" on:click={() => copyLogJson(entry)}>
+                                Copy JSON
+                              </button>
+                            </div>
+                          {/if}
+                          <pre>{JSON.stringify(entry.raw, null, 2)}</pre>
+                        </div>
                       </details>
                     {/if}
                   </div>
@@ -1065,8 +1067,14 @@
     font-weight: 600;
   }
 
-  .log-entry__raw-actions {
+  .log-entry__raw-body {
     margin-top: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .log-entry__raw-actions {
     display: flex;
     justify-content: flex-end;
   }
@@ -1088,7 +1096,7 @@
   }
 
   .log-entry__raw pre {
-    margin: 0.6rem 0 0;
+    margin: 0;
     background: rgba(var(--color-text-rgb), 0.05);
     padding: 0.6rem;
     border-radius: 12px;

@@ -13,6 +13,7 @@ All agent files support the following fields:
 - `skills` (array, optional): Skill names to inject.
 - `onair_string` (string, optional): Wait for this string before prompt injection.
 - `use_workflow` (bool, optional): Override workflow default.
+- `singleton` (bool, optional): Allow only one running instance (default true).
 - `llm_model` (string, optional): Model hint for UI/API.
 
 Prompt names resolve against `.gestalt/config/prompts`, trying `.tmpl`, `.md`, then `.txt`.
@@ -43,6 +44,18 @@ When CLI config keys are present, Gestalt generates the shell command at session
 The generated command replaces any explicit `shell` value when agents are loaded.
 
 If no CLI config keys are set, `shell` is used as-is.
+
+### Codex notify vs tui.notifications
+
+`notify` is a **Codex root key** that defines an argv array for notifier hooks.
+`tui.notifications` is separate and only controls OSC 9 popups in the TUI.
+
+Gestalt injects a notify hook for Codex sessions at runtime (overriding any
+existing `notify` value) so Temporal notary events are always recorded:
+
+```toml
+notify = ["gestalt-notify", "--terminal-id", "<terminal-id>", "--agent-id", "<agent-id>", "--agent-name", "<agent-name>"]
+```
 
 ## Examples
 

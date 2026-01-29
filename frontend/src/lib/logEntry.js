@@ -24,6 +24,8 @@ const normalizeTimestamp = (value) => {
   return value
 }
 
+let logSequence = 0
+
 const normalizeLevel = (value) => {
   if (value === null || value === undefined || value === '') {
     return 'info'
@@ -130,6 +132,7 @@ const normalizeMessage = (entry) => {
 export const normalizeLogEntry = (entry) => {
   if (!entry || typeof entry !== 'object') return null
   const raw = entry.raw ?? entry
+  const rawTime = entry?.timeUnixNano ?? entry?.observedTimeUnixNano
   const timestampISO = normalizeTimestamp(
     entry?.timeUnixNano ?? entry?.observedTimeUnixNano,
   )
@@ -140,7 +143,7 @@ export const normalizeLogEntry = (entry) => {
   const attributes = normalizeContext(entry?.attributes)
   const resourceAttributes = normalizeContext(entry?.resource?.attributes)
   const scopeName = entry?.scope?.name || ''
-  const id = entry?.id || `${timestampISO}-${level}-${message}`
+  const id = entry?.id || (rawTime ? `${rawTime}-${level}-${message}` : `${timestampISO}-${level}-${message}-${logSequence += 1}`)
   return {
     id,
     level,

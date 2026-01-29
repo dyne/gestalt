@@ -20,6 +20,7 @@ export interface ContentSearchOptions {
   contextLines?: number;
   language?: string;
   limit?: number;
+  path?: string;
   indexes: Array<{ languageKey: string; index: ScipIndex }>;
 }
 
@@ -35,6 +36,10 @@ export interface ContentSearchResult {
 
 const DEFINITION_ROLE = 0x1;
 const MAX_PARENT_SEARCH = 5;
+type PathFilter = {
+  relative?: string;
+  absolute?: string;
+};
 
 export class QueryEngine {
   constructor(private readonly symbolIndex: Map<string, Occurrence[]>) {}
@@ -103,6 +108,7 @@ export class QueryEngine {
         return results;
       }
       const projectRoot = normalizeProjectRoot(index.metadata?.projectRoot);
+      const pathFilter = normalizeSearchPath(options.path, projectRoot);
       const documents = index.documents ?? [];
       for (const document of documents) {
         if (results.length >= limit) {
@@ -114,6 +120,9 @@ export class QueryEngine {
         }
 
         if (!document.relativePath) {
+          continue;
+        }
+        if (pathFilter && !matchesPathFilter(document.relativePath, pathFilter, projectRoot)) {
           continue;
         }
 
@@ -331,6 +340,99 @@ function normalizeFolderPath(folder?: string): string | undefined {
     return undefined;
   }
   return folder.endsWith('/') ? folder : `${folder}/`;
+}
+
+function normalizeSearchPath(inputPath: string | undefined, projectRoot?: string): PathFilter | undefined {
+  if (!inputPath) {
+    return undefined;
+  }
+  const trimmed = inputPath.trim();
+  if (!trimmed || trimmed === '.' || trimmed === './' || trimmed === '.\\') {
+    return undefined;
+  }
+
+  let resolvedInput = trimmed;
+  if (resolvedInput.startsWith('file://')) {
+    try {
+      resolvedInput = fileURLToPath(resolvedInput);
+    } catch {
+      return undefined;
+    }
+  }
+
+  const filter: PathFilter = {};
+  if (path.isAbsolute(resolvedInput)) {
+    filter.absolute = path.resolve(resolvedInput);
+    if (projectRoot) {
+      const relative = path.relative(projectRoot, filter.absolute);
+      if (relative && !relative.startsWith('..') && !path.isAbsolute(relative)) {
+        filter.relative = normalizeRelativePath(relative);
+      }
+    }
+  } else {
+    const relative = normalizeRelativePath(resolvedInput);
+    if (!relative) {
+      return undefined;
+    }
+    filter.relative = relative;
+    if (projectRoot) {
+      filter.absolute = path.resolve(projectRoot, relative);
+    }
+  }
+
+  if (!filter.relative && !filter.absolute) {
+    return undefined;
+  }
+  return filter;
+}
+
+function normalizeRelativePath(inputPath: string): string {
+  let normalized = inputPath.replace(/\\/g, '/');
+  normalized = normalized.replace(/^\.\/+/, '');
+  normalized = normalized.replace(/\/+$/, '');
+  return normalized;
+}
+
+function matchesPathFilter(documentPath: string, filter: PathFilter, projectRoot?: string): boolean {
+  if (filter.relative && matchesRelativePrefix(documentPath, filter.relative)) {
+    return true;
+  }
+  if (!filter.absolute) {
+    return false;
+  }
+  const absolutePath = resolveDocumentAbsolutePath(documentPath, projectRoot);
+  if (!absolutePath) {
+    return false;
+  }
+  return matchesAbsolutePrefix(absolutePath, filter.absolute);
+}
+
+function matchesRelativePrefix(documentPath: string, filterPath: string): boolean {
+  const normalizedDoc = normalizeRelativePath(documentPath);
+  if (!normalizedDoc) {
+    return false;
+  }
+  if (normalizedDoc === filterPath) {
+    return true;
+  }
+  return normalizedDoc.startsWith(`${filterPath}/`);
+}
+
+function matchesAbsolutePrefix(documentPath: string, filterPath: string): boolean {
+  const normalizedDoc = path.resolve(documentPath);
+  const normalizedFilter = path.resolve(filterPath);
+  if (normalizedDoc === normalizedFilter) {
+    return true;
+  }
+  return normalizedDoc.startsWith(`${normalizedFilter}${path.sep}`);
+}
+
+function resolveDocumentAbsolutePath(documentPath: string, projectRoot?: string): string | null {
+  if (path.isAbsolute(documentPath)) {
+    return path.resolve(documentPath);
+  }
+  const baseDir = projectRoot ?? process.cwd();
+  return path.resolve(baseDir, documentPath);
 }
 
 function parseSymbolKey(key: string): { definingFile: string; name: string } | null {

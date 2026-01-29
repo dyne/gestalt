@@ -14,7 +14,7 @@ func TestAsyncFileLoggerWritesAndFlushesOnClose(t *testing.T) {
 		t.Fatalf("open file: %v", err)
 	}
 
-	logger := newAsyncFileLogger(path, file, time.Hour, 128, 4, func(value string) ([]byte, error) {
+	logger := newAsyncFileLogger(path, file, time.Hour, 128, 4, asyncFileLoggerDropOldest, func(value string) ([]byte, error) {
 		return []byte(value + "\n"), nil
 	})
 
@@ -40,6 +40,7 @@ func TestAsyncFileLoggerWritesAndFlushesOnClose(t *testing.T) {
 func TestAsyncFileLoggerDropsOldestWhenBufferFull(t *testing.T) {
 	logger := &asyncFileLogger[string]{
 		writeCh: make(chan string, 1),
+		policy:  asyncFileLoggerDropOldest,
 	}
 
 	logger.Write("first")
@@ -53,5 +54,47 @@ func TestAsyncFileLoggerDropsOldestWhenBufferFull(t *testing.T) {
 	got := <-logger.writeCh
 	if got != "third" {
 		t.Fatalf("expected newest entry, got %q", got)
+	}
+}
+
+func TestAsyncFileLoggerBlocksWhenBufferFull(t *testing.T) {
+	logger := &asyncFileLogger[string]{
+		writeCh: make(chan string, 1),
+		closeCh: make(chan struct{}),
+		policy:  asyncFileLoggerBlock,
+	}
+
+	logger.Write("first")
+
+	started := make(chan struct{})
+	done := make(chan struct{})
+
+	go func() {
+		close(started)
+		logger.Write("second")
+		close(done)
+	}()
+
+	<-started
+
+	select {
+	case <-done:
+		t.Fatalf("expected write to block")
+	default:
+	}
+
+	<-logger.writeCh
+
+	select {
+	case <-done:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatalf("expected write to unblock after drain")
+	}
+
+	if logger.Dropped() != 0 {
+		t.Fatalf("expected no drops, got %d", logger.Dropped())
+	}
+	if logger.Blocked() != 1 {
+		t.Fatalf("expected 1 blocked write, got %d", logger.Blocked())
 	}
 }

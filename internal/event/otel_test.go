@@ -115,6 +115,35 @@ func TestBusEmitsOTelLogRecordFromFields(t *testing.T) {
 	}
 }
 
+func TestBusEmitsOTelLogRecordWithDebugSeverity(t *testing.T) {
+	exporter := &testOTelExporter{}
+	processor := sdklog.NewSimpleProcessor(exporter)
+	provider := sdklog.NewLoggerProvider(sdklog.WithProcessor(processor))
+	logglobal.SetLoggerProvider(provider)
+	t.Cleanup(func() {
+		_ = provider.Shutdown(context.Background())
+		logglobal.SetLoggerProvider(lognoop.NewLoggerProvider())
+	})
+
+	bus := NewBus[TerminalEvent](context.Background(), BusOptions{Name: "terminal_events"})
+	event := NewTerminalEvent("term-9", "terminal_resized")
+	bus.Publish(event)
+
+	record := findRecordWithAttribute(exporter.snapshot(), "terminal.id", "term-9")
+	if record == nil {
+		t.Fatalf("expected log record with terminal.id")
+	}
+	if record.EventName() != "terminal_resized" {
+		t.Fatalf("expected event name terminal_resized, got %q", record.EventName())
+	}
+	if record.Severity() != otellog.SeverityDebug {
+		t.Fatalf("expected debug severity, got %v", record.Severity())
+	}
+	if record.SeverityText() != "debug" {
+		t.Fatalf("expected debug severity text, got %q", record.SeverityText())
+	}
+}
+
 func findRecordWithAttribute(records []sdklog.Record, key, value string) *sdklog.Record {
 	for idx := range records {
 		record := &records[idx]

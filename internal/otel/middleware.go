@@ -499,13 +499,8 @@ func agentsRoute(path string) string {
 	return "/api/agents"
 }
 
-func skillsRoute(path string) string {
-	trimmed := strings.TrimPrefix(path, "/api/skills")
-	trimmed = strings.Trim(trimmed, "/")
-	if trimmed == "" {
-		return "/api/skills"
-	}
-	return "/api/skills/:name"
+func skillsRoute(_ string) string {
+	return "/api/skills"
 }
 
 func prepareRequest(r *http.Request, routeInfo RouteInfo) (int64, string, *countingReadCloser) {

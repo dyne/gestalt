@@ -48,6 +48,8 @@ func (h *RestHandler) handleTerminal(w http.ResponseWriter, r *http.Request) *ap
 		return h.handleTerminalInputHistory(w, r, id)
 	case terminalPathBell:
 		return h.handleTerminalBell(w, r, id)
+	case terminalPathNotify:
+		return h.handleTerminalNotify(w, r, id)
 	case terminalPathWorkflowResume:
 		return h.handleTerminalWorkflowResume(w, r, id)
 	case terminalPathWorkflowHistory:
@@ -169,8 +171,12 @@ func (h *RestHandler) handleTerminalHistory(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		return err
 	}
+	beforeCursor, err := parseHistoryBeforeCursor(r)
+	if err != nil {
+		return err
+	}
 
-	history, historyErr := h.Manager.HistoryLines(id, lines)
+	history, cursor, historyErr := h.Manager.HistoryPage(id, lines, beforeCursor)
 	if historyErr != nil {
 		if errors.Is(historyErr, terminal.ErrSessionNotFound) {
 			return &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
@@ -179,8 +185,9 @@ func (h *RestHandler) handleTerminalHistory(w http.ResponseWriter, r *http.Reque
 	}
 
 	response := terminalOutputResponse{
-		ID:    id,
-		Lines: history,
+		ID:     id,
+		Lines:  history,
+		Cursor: cursor,
 	}
 	writeJSON(w, http.StatusOK, response)
 	return nil
@@ -290,6 +297,58 @@ func (h *RestHandler) handleTerminalBell(w http.ResponseWriter, r *http.Request,
 			"terminal_id":      id,
 			"context_lines":    strconv.Itoa(len(contextLines)),
 		})
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+func (h *RestHandler) handleTerminalNotify(w http.ResponseWriter, r *http.Request, id string) *apiError {
+	if r.Method != http.MethodPost {
+		return methodNotAllowed(w, "POST")
+	}
+
+	request, err := decodeNotifyRequest(r)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(request.TerminalID) != id {
+		return &apiError{Status: http.StatusBadRequest, Message: "terminal id mismatch"}
+	}
+
+	session, ok := h.Manager.Get(id)
+	if !ok {
+		return &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
+	}
+	sessionAgentID := strings.TrimSpace(session.AgentID)
+	if sessionAgentID == "" {
+		return &apiError{Status: http.StatusBadRequest, Message: "terminal is not an agent session"}
+	}
+	if request.AgentID != sessionAgentID {
+		return &apiError{Status: http.StatusBadRequest, Message: "agent id mismatch"}
+	}
+	if _, _, hasWorkflow := session.WorkflowIdentifiers(); !hasWorkflow {
+		return &apiError{Status: http.StatusConflict, Message: "workflow not active"}
+	}
+
+	timestamp := time.Now().UTC()
+	if request.OccurredAt != nil && !request.OccurredAt.IsZero() {
+		timestamp = request.OccurredAt.UTC()
+	}
+
+	signal := workflows.NotifySignal{
+		Timestamp:  timestamp,
+		TerminalID: id,
+		AgentID:    request.AgentID,
+		AgentName:  request.AgentName,
+		EventType:  request.EventType,
+		Source:     request.Source,
+		Payload:    request.Payload,
+		Raw:        request.Raw,
+		EventID:    request.EventID,
+	}
+	if signalErr := session.SendNotifySignal(signal); signalErr != nil {
+		return &apiError{Status: http.StatusInternalServerError, Message: "failed to signal workflow"}
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -415,6 +474,8 @@ func parseTerminalPath(path string) (string, terminalPathAction, *apiError) {
 			return id, terminalPathInputHistory, nil
 		case "bell":
 			return id, terminalPathBell, nil
+		case "notify":
+			return id, terminalPathNotify, nil
 		default:
 			return "", terminalPathTerminal, &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
 		}
@@ -445,6 +506,18 @@ func parseHistoryLines(r *http.Request) (int, *apiError) {
 		lines = parsed
 	}
 	return lines, nil
+}
+
+func parseHistoryBeforeCursor(r *http.Request) (*int64, *apiError) {
+	rawCursor := strings.TrimSpace(r.URL.Query().Get("before_cursor"))
+	if rawCursor == "" {
+		return nil, nil
+	}
+	parsed, err := strconv.ParseInt(rawCursor, 10, 64)
+	if err != nil || parsed < 0 {
+		return nil, &apiError{Status: http.StatusBadRequest, Message: "invalid before_cursor"}
+	}
+	return &parsed, nil
 }
 
 func parseInputHistoryQuery(r *http.Request) (int, *time.Time, *apiError) {

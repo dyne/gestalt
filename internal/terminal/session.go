@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -308,6 +309,7 @@ func (s *Session) StartWorkflow(temporalClient temporal.WorkflowClient, l1Task, 
 	}
 
 	workflowID := "session-" + s.ID
+	agentID := strings.TrimSpace(s.AgentID)
 	agentName := ""
 	agentShell := s.Command
 	agentConfig := ""
@@ -330,7 +332,8 @@ func (s *Session) StartWorkflow(temporalClient temporal.WorkflowClient, l1Task, 
 	}
 	request := workflows.SessionWorkflowRequest{
 		SessionID:   s.ID,
-		AgentID:     agentName,
+		AgentID:     agentID,
+		AgentName:   agentName,
 		L1Task:      l1Task,
 		L2Task:      l2Task,
 		Shell:       agentShell,
@@ -355,6 +358,12 @@ func (s *Session) StartWorkflow(temporalClient temporal.WorkflowClient, l1Task, 
 	}
 	memo := map[string]interface{}{
 		"created_at": s.CreatedAt,
+	}
+	if agentID != "" {
+		memo["agent_id"] = agentID
+	}
+	if agentName != "" {
+		memo["agent_name"] = agentName
 	}
 	if agentConfig != "" {
 		memo["agent_config"] = agentConfig
@@ -420,6 +429,13 @@ func (s *Session) SendBellSignal(contextText string) error {
 		Context:   contextText,
 	}
 	return s.sendWorkflowSignal(workflows.BellSignalName, bellSignal)
+}
+
+func (s *Session) SendNotifySignal(signal workflows.NotifySignal) error {
+	if signal.Timestamp.IsZero() {
+		signal.Timestamp = time.Now().UTC()
+	}
+	return s.sendWorkflowSignal(workflows.NotifySignalName, signal)
 }
 
 func (s *Session) UpdateTask(l1Task, l2Task string) error {
@@ -495,7 +511,14 @@ func (s *Session) HistoryLines(maxLines int) ([]string, error) {
 		}
 		return []string{}, err
 	}
-	return mergeHistoryLines(fileLines, bufferLines, maxLines), nil
+	return fileLines, nil
+}
+
+func (s *Session) LogPath() string {
+	if s == nil || s.logger == nil {
+		return ""
+	}
+	return s.logger.Path()
 }
 
 func (s *Session) Close() error {

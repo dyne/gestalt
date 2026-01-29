@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"sync"
 	"time"
 
@@ -38,6 +39,7 @@ type workflowSummary struct {
 	WorkflowRunID string              `json:"workflow_run_id"`
 	Title         string              `json:"title"`
 	Role          string              `json:"role"`
+	AgentID       string              `json:"agent_id"`
 	AgentName     string              `json:"agent_name"`
 	CurrentL1     string              `json:"current_l1"`
 	CurrentL2     string              `json:"current_l2"`
@@ -71,8 +73,9 @@ type workflowHistoryEntry struct {
 }
 
 type terminalOutputResponse struct {
-	ID    string   `json:"id"`
-	Lines []string `json:"lines"`
+	ID     string   `json:"id"`
+	Lines  []string `json:"lines"`
+	Cursor *int64   `json:"cursor,omitempty"`
 }
 
 type inputHistoryEntry struct {
@@ -98,12 +101,6 @@ type statusResponse struct {
 	Built          string    `json:"built"`
 	GitCommit      string    `json:"git_commit,omitempty"`
 	TemporalUIURL  string    `json:"temporal_ui_url,omitempty"`
-}
-
-type eventBusDebug struct {
-	Name                  string `json:"name"`
-	FilteredSubscribers   int64  `json:"filtered_subscribers"`
-	UnfilteredSubscribers int64  `json:"unfiltered_subscribers"`
 }
 
 type planHeading struct {
@@ -164,20 +161,6 @@ type skillSummary struct {
 	HasAssets     bool   `json:"has_assets"`
 }
 
-type skillDetail struct {
-	Name          string         `json:"name"`
-	Description   string         `json:"description"`
-	License       string         `json:"license"`
-	Compatibility string         `json:"compatibility"`
-	Metadata      map[string]any `json:"metadata,omitempty"`
-	AllowedTools  []string       `json:"allowed_tools,omitempty"`
-	Path          string         `json:"path"`
-	Content       string         `json:"content"`
-	Scripts       []string       `json:"scripts"`
-	References    []string       `json:"references"`
-	Assets        []string       `json:"assets"`
-}
-
 type createTerminalRequest struct {
 	Title    string `json:"title"`
 	Role     string `json:"role"`
@@ -189,6 +172,18 @@ type workflowResumeRequest struct {
 	Action string `json:"action"`
 }
 
+type notifyRequest struct {
+	TerminalID string          `json:"terminal_id"`
+	AgentID    string          `json:"agent_id"`
+	AgentName  string          `json:"agent_name,omitempty"`
+	Source     string          `json:"source"`
+	EventType  string          `json:"event_type"`
+	OccurredAt *time.Time      `json:"occurred_at,omitempty"`
+	Payload    json.RawMessage `json:"payload,omitempty"`
+	Raw        string          `json:"raw,omitempty"`
+	EventID    string          `json:"event_id,omitempty"`
+}
+
 type terminalPathAction int
 
 const (
@@ -197,6 +192,7 @@ const (
 	terminalPathHistory
 	terminalPathInputHistory
 	terminalPathBell
+	terminalPathNotify
 	terminalPathWorkflowResume
 	terminalPathWorkflowHistory
 )

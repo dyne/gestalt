@@ -116,6 +116,36 @@ test('QueryEngine searchContent finds matches with context', async () => {
   assert.deepEqual(results[0].context_after, ['const other = value + 1;']);
 });
 
+test('QueryEngine searchContent filters by path prefix', async () => {
+  const { QueryEngine } = await loadLib();
+  const engine = new QueryEngine(new Map());
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gestalt-scip-search-path-'));
+  const index = {
+    metadata: { projectRoot: pathToFileURL(root).toString() },
+    documents: [
+      {
+        relativePath: 'src/app.ts',
+        language: 'typescript',
+        text: 'const match = 1;',
+      },
+      {
+        relativePath: 'internal/app.go',
+        language: 'go',
+        text: 'var match = 1;',
+      },
+    ],
+  };
+
+  const results = engine.searchContent('match', {
+    indexes: [{ languageKey: 'typescript', index }],
+    contextLines: 0,
+    path: path.join(root, 'src'),
+  });
+
+  assert.equal(results.length, 1);
+  assert.equal(results[0].file_path, 'src/app.ts');
+});
+
 test('QueryEngine searchContent throws on invalid regex', async () => {
   const { QueryEngine } = await loadLib();
   const engine = new QueryEngine(new Map());

@@ -1,5 +1,12 @@
 <script>
+  import { canUseClipboard, copyToClipboard } from '../lib/clipboard.js'
+  import { createTerminal, sendAgentInput } from '../lib/apiClient.js'
+  import { getErrorMessage } from '../lib/errorUtils.js'
+  import { notificationStore } from '../lib/notificationStore.js'
+  import { formatRelativeTime } from '../lib/timeUtils.js'
+
   export let plan = {}
+  export let terminals = []
 
   const toCount = (value) => (Number.isFinite(value) ? value : 0)
   const toText = (value) => (value ? String(value) : '')
@@ -31,12 +38,47 @@
   $: title = plan?.title || plan?.filename || 'Untitled plan'
   $: subtitle = toText(plan?.subtitle)
   $: date = toText(plan?.date)
+  $: filename = toText(plan?.filename)
   $: l1Count = toCount(plan?.l1_count)
   $: l2Count = toCount(plan?.l2_count)
   $: priorityA = toCount(plan?.priority_a)
   $: priorityB = toCount(plan?.priority_b)
   $: priorityC = toCount(plan?.priority_c)
   $: headings = Array.isArray(plan?.headings) ? plan.headings : []
+  let pendingCodeAction = false
+
+  const findCoderTerminal = () => {
+    if (!Array.isArray(terminals)) return null
+    return terminals.find((terminal) => terminal?.role === 'Coder' || terminal?.title === 'Coder') || null
+  }
+
+  const handleCodeAction = async (l1Heading, planData) => {
+    if (pendingCodeAction) return
+    pendingCodeAction = true
+    const priorityTag = l1Heading?.priority ? `[#${l1Heading.priority}] ` : ''
+    const filenameLabel = toText(planData?.filename) || 'unknown'
+    const inputText = `Filename: ${filenameLabel}\nL1: ${priorityTag}${l1Heading?.keyword} ${l1Heading?.text}\n\n`
+    const coderTerminal = findCoderTerminal()
+
+    if (!coderTerminal) {
+      try {
+        await createTerminal({ agentId: 'coder' })
+      } catch (err) {
+        notificationStore.addNotification('error', getErrorMessage(err, 'Failed to create coder'))
+        pendingCodeAction = false
+        return
+      }
+    }
+
+    try {
+      await sendAgentInput('Coder', inputText)
+      notificationStore.addNotification('info', 'Sent to Coder')
+    } catch (err) {
+      notificationStore.addNotification('error', getErrorMessage(err, 'Failed to send to Coder'))
+    } finally {
+      pendingCodeAction = false
+    }
+  }
 </script>
 
 <details class="plan-card">
@@ -47,9 +89,19 @@
         {#if hasValue(subtitle)}
           <p class="plan-subtitle">{subtitle}</p>
         {/if}
+        {#if hasValue(filename)}
+          <div class="plan-filename">
+            <code class="filename-text">{filename}</code>
+            {#if canUseClipboard()}
+              <button class="copy-btn" type="button" on:click={() => copyToClipboard(filename)}>
+                Copy
+              </button>
+            {/if}
+          </div>
+        {/if}
       </div>
       {#if hasValue(date)}
-        <span class="plan-date">{date}</span>
+        <span class="plan-date" title={date}>{formatRelativeTime(date)}</span>
       {/if}
     </div>
     <div class="plan-summary__stats">
@@ -77,6 +129,16 @@
             <span class={`priority ${priorityClass(l1.priority)}`}>[#${l1.priority}]</span>
           {/if}
           <span class="heading-text">{l1.text}</span>
+          {#if l1.keyword === 'TODO'}
+            <button
+              class="code-action"
+              type="button"
+              disabled={pendingCodeAction}
+              on:click|stopPropagation={() => handleCodeAction(l1, plan)}
+            >
+              → Coder
+            </button>
+          {/if}
         </summary>
         <div class="heading-body">
           {#if hasValue(l1.body)}
@@ -143,6 +205,37 @@
     margin: 0.35rem 0 0;
     color: var(--color-text-muted);
     font-size: 0.9rem;
+  }
+
+  .plan-filename {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+
+  .filename-text {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 0.8rem;
+    color: var(--color-text-subtle);
+  }
+
+  .copy-btn {
+    border: 1px solid rgba(var(--color-text-rgb), 0.2);
+    background: transparent;
+    border-radius: 6px;
+    padding: 0.15rem 0.45rem;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-text);
+    opacity: 0;
+    cursor: pointer;
+    transition: opacity 0.15s ease;
+  }
+
+  .plan-filename:hover .copy-btn {
+    opacity: 1;
   }
 
   .plan-date {
@@ -230,10 +323,37 @@
     font-weight: 600;
   }
 
+  .code-action {
+    margin-left: auto;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.7rem;
+    border-radius: 6px;
+    border: 1px solid rgba(var(--color-text-rgb), 0.2);
+    background: transparent;
+    color: var(--color-text);
+    opacity: 0;
+    cursor: pointer;
+    transition: opacity 0.15s ease, background 0.15s ease;
+  }
+
+  .heading-summary--l1:hover .code-action {
+    opacity: 1;
+  }
+
+  .code-action:hover {
+    background: rgba(var(--color-text-rgb), 0.08);
+  }
+
+  .code-action:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
   .heading-body {
     margin-top: 0.6rem;
     display: grid;
     gap: 0.6rem;
+    overflow: visible;
   }
 
   pre {
@@ -245,6 +365,8 @@
     font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
     font-size: 0.8rem;
     white-space: pre-wrap;
+    max-height: none;
+    overflow: visible;
   }
 
   .status {

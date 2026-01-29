@@ -73,7 +73,7 @@ func TestSessionLoggerPersistsSessionOutput(t *testing.T) {
 func TestReadLastLines(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "history.txt")
-	if err := os.WriteFile(path, []byte("alpha\nbeta\ngamma"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("alpha\nbeta\ngamma\n"), 0o644); err != nil {
 		t.Fatalf("write history file: %v", err)
 	}
 
@@ -117,22 +117,21 @@ func TestManagerHistoryLinesUsesLatestFile(t *testing.T) {
 	}
 }
 
-func TestSessionLoggerDropsOldestChunk(t *testing.T) {
-	logger := &SessionLogger{
-		logger: &asyncFileLogger[[]byte]{
-			writeCh: make(chan []byte, 1),
-		},
+func TestSessionLoggerDoesNotDropChunks(t *testing.T) {
+	logger, err := NewSessionLogger(t.TempDir(), "drop-test", time.Now())
+	if err != nil {
+		t.Fatalf("new session logger: %v", err)
 	}
 
-	logger.Write([]byte("first"))
-	logger.Write([]byte("second"))
-
-	if logger.DroppedChunks() != 1 {
-		t.Fatalf("expected 1 dropped chunk, got %d", logger.DroppedChunks())
+	for i := 0; i < 512; i++ {
+		logger.Write([]byte("line\n"))
 	}
 
-	got := <-logger.logger.writeCh
-	if string(got) != "second" {
-		t.Fatalf("expected newest chunk to remain, got %q", string(got))
+	if err := logger.Close(); err != nil {
+		t.Fatalf("close logger: %v", err)
+	}
+
+	if logger.DroppedChunks() != 0 {
+		t.Fatalf("expected no drops, got %d", logger.DroppedChunks())
 	}
 }

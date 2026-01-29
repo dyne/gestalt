@@ -5,22 +5,29 @@ Scope: Document current architecture and data flow. No refactors proposed here.
 ## System overview
 Gestalt is a local-first multi-terminal dashboard. A Go backend manages PTY
 sessions, agent profiles, skills, workflows, logs, and filesystem watching.
-A Svelte SPA is served by the backend and communicates over REST + WebSocket.
+A Svelte SPA is served by the backend and communicates over REST + WebSocket + SSE.
 A separate CLI (gestalt-send) posts stdin to agent terminals.
 
 Runtime topology (default):
-- Backend HTTP server: serves REST + WS on the backend port.
+- Backend HTTP server: serves REST + WS + SSE on the backend port.
 - Frontend HTTP server: serves SPA assets and reverse proxies /api and /ws to
   the backend port.
 - Optional Temporal dev server and workers when enabled.
 
+HTTP response headers:
+- API + WS + SSE responses set Cache-Control: no-store, must-revalidate and
+  X-Content-Type-Options: nosniff.
+- SPA HTML uses Cache-Control: no-cache; hashed static assets use
+  Cache-Control: public, max-age=31536000, immutable; non-hashed assets use
+  Cache-Control: no-cache.
+
 ## High-level data flow
 1) User input in the SPA -> terminalStore -> /ws/terminal/:id -> PTY session.
 2) PTY output -> Session output bus -> /ws/terminal/:id -> xterm in SPA.
-3) Filesystem or git changes -> watcher -> event.Bus[watcher.Event] -> /ws/events
-   -> eventStore -> UI updates.
-4) Logs -> logging.LogBuffer -> /ws/logs and /api/logs -> LogsView.
-5) Workflows -> internal/temporal -> workflow events -> /api/workflows/events.
+3) Filesystem or git changes -> watcher -> event.Bus[watcher.Event] -> /api/events/stream
+   (SSE) -> eventStore -> UI updates.
+4) Logs -> logging.LogBuffer -> /api/logs/stream (SSE) and /api/logs -> LogsView.
+5) Workflows -> internal/temporal -> workflow events -> /api/events/stream (SSE).
 
 ## Component map (backend)
 Entry points:
@@ -29,7 +36,7 @@ Entry points:
 
 Internal packages (Go):
 - internal/terminal: PTY sessions, session lifecycle, buffers, logging, manager.
-- internal/api: REST + WS handlers, SPA handlers, middleware.
+- internal/api: REST + WS + SSE handlers, SPA handlers, middleware.
 - internal/agent: agent profile parsing, validation, caching.
 - internal/skill: skill loader + prompt generation.
 - internal/logging: log buffer + structured logger.
@@ -40,7 +47,7 @@ Internal packages (Go):
 - internal/prompt: prompt parsing, include resolution, render logic.
 - internal/scip: SCIP endpoints + asset extraction.
 - internal/temporal: workflow orchestration, memo helpers, worker wiring.
-- internal/metrics: metrics counters exposed via /api/metrics.
+- internal/metrics: metrics counters exposed via /api/metrics/summary.
 - internal/version: build version string for /api/status and logs.
 
 Backend runtime wiring (main.go):
@@ -54,15 +61,17 @@ Backend runtime wiring (main.go):
 
 ### Backend REST + WS surface
 REST endpoints (examples):
-- /api/status, /api/metrics, /api/agents, /api/terminals, /api/logs, /api/skills
+- /api/status, /api/agents, /api/terminals, /api/logs, /api/skills
 - /api/plan, /api/plan/current
+
+SSE endpoints:
+- /api/events/stream (filesystem/config/workflow/terminal/agent events)
+- /api/logs/stream (log stream + 1h replay)
 
 WebSocket endpoints:
 - /ws/terminal/:id (PTY stream)
-- /ws/logs (log stream)
-- /ws/events (filesystem events)
-- /api/agents/events, /api/terminals/events, /api/workflows/events,
-  /api/config/events
+- Deprecated: /ws/logs, /ws/events, /api/agents/events, /api/terminals/events,
+  /api/workflows/events, /api/config/events
 
 ## Component map (frontend)
 Entry: frontend/src/App.svelte
@@ -76,7 +85,7 @@ Components (11):
   NotificationSettings, WorkflowCard, WorkflowDetail, WorkflowHistory.
 
 Stores / lib modules (14):
-- terminalStore (xterm + terminal WS), eventStore (fs events WS),
+- terminalStore (xterm + terminal WS), eventStore (fs events SSE),
   terminalEventStore / agentEventStore / configEventStore / workflowEventStore,
   api (fetch wrapper + URL helper), notificationStore, orgParser, timeUtils,
   terminalTabs, version.
@@ -120,7 +129,8 @@ Frontend serving flow:
   and depend on event_type values from backend.
 - Temporal wiring: workflow UI assumes Temporal events are enabled and uses
   /api/workflows and /api/terminals/:id/workflow/history endpoints.
-- Logging: LogsView and /ws/logs depend on logging.LogBuffer memory retention.
+- Logging: LogsView and /api/logs/stream depend on logging.LogBuffer memory retention
+  (legacy /ws/logs is deprecated).
 - Reverse proxy: SPA expects /api and /ws on the frontend port; backend-only
   mode changes client URL assumptions.
 
@@ -175,7 +185,7 @@ flowchart LR
   end
 
   subgraph BackendServer[Backend HTTP server]
-    API[REST + WS handlers]
+    API[REST + WS + SSE handlers]
     Manager[terminal.Manager]
     Sessions[Session + PTY]
     EventBus[event.Bus]
@@ -187,7 +197,7 @@ flowchart LR
 
   U --> FrontendServer
   FrontendServer --> SPA --> Frontend
-  Frontend -->|REST /api| Proxy --> API
+  Frontend -->|REST/SSE /api| Proxy --> API
   Frontend -->|WS /ws| Proxy --> API
 
   API --> Manager --> Sessions
@@ -287,14 +297,14 @@ Large refactors (1+ week, if justified):
   sleep delays (would benefit from clock injection in the injector).
 
 ## Package analysis: internal/api
-Scope: REST endpoints, WebSocket handlers, middleware, SPA routing.
+Scope: REST endpoints, WebSocket + SSE handlers, middleware, SPA routing.
 
 ### Responsibilities and data flow
-- Route registration in routes.go wires REST + WS handlers and SPA fallback.
+- Route registration in routes.go wires REST + WS + SSE handlers and SPA fallback.
 - RestHandler in rest.go implements the majority of HTTP endpoints
   (status, metrics, agents, terminals, skills, logs, plan, workflows).
-- WebSocket handlers are split per stream (terminal, logs, events, agent/terminal/
-  workflow/config events).
+- WebSocket handlers are split per stream (terminal, plus legacy logs/events
+  and agent/terminal/workflow/config event handlers).
 - middleware.go provides auth + JSON error handling + request logging.
 - spa.go serves the SPA with fallback to index.html for client-side routes.
 
@@ -319,8 +329,8 @@ Scope: REST endpoints, WebSocket handlers, middleware, SPA routing.
 
 ### Improvement proposals (concrete)
 Quick wins (<1 day):
-- Extract small helpers for WS upgrade + write loop (shared in terminal/logs/
-  events handlers) to reduce duplicated boilerplate.
+- Extract small helpers for WS upgrade + write loop (shared in terminal and
+  legacy event handlers) to reduce duplicated boilerplate.
 - Add a wsAuth helper to consolidate token checks and respond consistently
   for WS endpoints.
 - Move JSON encode/decode helpers (writeJSON, decodeJSON) to a small file to
@@ -343,7 +353,7 @@ Large refactors (1+ week, if justified):
 ### Risks and hidden coupling
 - Frontend expects specific error message shapes from REST (error + optional
   terminal_id) and uses status codes for duplicate-agent handling.
-- WebSocket message shapes are relied upon by frontend stores and tests;
+- Event stream message shapes are relied upon by frontend stores and tests;
   any refactor must preserve payload fields and timing assumptions.
 
 ## Package analysis: internal/watcher
@@ -477,7 +487,7 @@ Scope: structured logging, log buffer, log event bus.
 
 ### Responsibilities and data flow
 - Logger emits LogEntry to LogBuffer (ring buffer), event.Bus, and stdout.
-- LogBuffer provides in-memory history for /api/logs and /ws/logs.
+- LogBuffer provides in-memory history for /api/logs and /api/logs/stream.
 - logging.Level and parsing helpers standardize severity handling.
 
 ### Complexity observations
@@ -506,7 +516,7 @@ Large refactors (1+ week, if justified):
   buffers and input history to standardize retention/overflow behavior.
 
 ### Risks and hidden coupling
-- /api/logs and /ws/logs assume LogBuffer retention in-memory; reducing size
+- /api/logs and /api/logs/stream assume LogBuffer retention in-memory; reducing size
   or changing ordering affects frontend log views.
 
 ## Package analysis: internal/orchestrator
@@ -619,8 +629,8 @@ Scope: Svelte SPA structure, state flow, store usage, and component layering.
 - Views orchestrate API calls and domain UI (Dashboard, Plan, Logs, Flow, Terminal).
 - Components encapsulate UI building blocks (Terminal, CommandInput, OrgViewer,
   Workflow cards, notifications).
-- Stores provide shared state and WS subscriptions (terminalStore, eventStore,
-  agent/config/workflow event stores, notificationStore).
+- Stores provide shared state and stream subscriptions (terminalStore WS,
+  eventStore SSE, agent/config/workflow event stores, notificationStore).
 
 ### Complexity observations
 - App.svelte handles both app routing and data refresh, which centralizes
@@ -641,7 +651,7 @@ Quick wins (<1 day):
 Medium refactors (1-3 days):
 - Move view-specific data fetching into stores or dedicated modules to
   simplify view components.
-- Consolidate event store boilerplate into a generic wsStore helper to
+- Consolidate event store boilerplate into a generic sseStore helper to
   standardize reconnect and error handling.
 
 Large refactors (1+ week, if justified):
@@ -656,10 +666,10 @@ Large refactors (1+ week, if justified):
 Scope: shared stores, API helpers, utilities.
 
 ### Responsibilities and data flow
-- api.js handles fetch wrapper and WebSocket URL construction with token.
+- api.js handles fetch wrapper and WebSocket/EventSource URL construction with token.
 - terminalStore manages xterm lifecycle, terminal WS, input handling, and
   touch scrolling behavior.
-- eventStore + agent/config/terminal/workflow event stores subscribe to WS
+- eventStore + agent/config/terminal/workflow event stores subscribe to SSE
   event streams and fan out to listeners.
 - notificationStore manages toast notifications.
 - orgParser parses Org-mode snippets for PlanView.
@@ -669,18 +679,19 @@ Scope: shared stores, API helpers, utilities.
 ### Complexity observations
 - terminalStore is large and handles multiple concerns (xterm setup, WS
   reconnect, input modes, clipboard, touch scrolling).
-- Event store modules repeat similar WebSocket lifecycle logic.
+- Event stream modules rely on a shared SSE helper; terminal WS still uses
+  separate lifecycle logic.
 - api.js fetch wrapper is simple but duplicated error handling in some views.
 
 ### Improvement proposals (concrete)
 Quick wins (<1 day):
-- Split terminalStore into focused modules (xterm setup, ws connection,
+- Split terminalStore into focused modules (xterm setup, WS connection,
   input handling) to improve readability and testability.
-- Deduplicate event store WS logic into a shared helper (wsStore factory).
+- Deduplicate event store SSE logic into a shared helper (sseStore factory).
 
 Medium refactors (1-3 days):
-- Create a shared wsClient module used by terminalStore and event stores
-  to standardize reconnect/backoff behavior and logging.
+- Create a shared stream client module used by terminalStore (WS) and SSE
+  event stores to standardize reconnect/backoff behavior and logging.
 - Introduce a small API client layer (agents, terminals, logs) to reduce
   repeated fetch + parse logic in views.
 
@@ -811,11 +822,11 @@ Backend:
 - Async file writers: SessionLogger vs InputLogger (nearly identical).
 - Git parsing: resolveGitDir/readGitBranch in internal/watcher and internal/api.
 - Path normalization: cleanFSPath in agent loader and skill loader.
-- WebSocket handler boilerplate: repeated upgrade/write loop in terminal/logs/events
-  handlers and agent/terminal/workflow/config event handlers.
+- WebSocket handler boilerplate: repeated upgrade/write loop in terminal and
+  legacy event handlers.
 
 Frontend:
-- WebSocket lifecycle code repeated across event stores.
+- Event stream lifecycle code is split between terminal WS and SSE stores.
 - Similar error handling patterns in views when calling apiFetch.
 
 ### Extraction opportunities (prioritized)
@@ -823,7 +834,7 @@ High value:
 - Shared AsyncFileLogger for SessionLogger/InputLogger (reduce duplication,
   unify flush/drop behavior).
 - Shared WS helper for backend handlers (upgrade + write loop + close handling).
-- Shared WS helper for frontend event stores (connect/reconnect/dispatch).
+- Shared SSE helper for frontend event stores (connect/reconnect/dispatch).
 
 Medium value:
 - Shared buffer/ring buffer helper for log and terminal buffers (if semantics align).
@@ -835,7 +846,7 @@ Lower value:
 
 ### Notes
 - Apply the “rule of three” and favor extractions that reduce both code size
-  and cognitive load, especially in hot paths (terminal/session, WS handling).
+  and cognitive load, especially in hot paths (terminal/session, stream handling).
 
 ## Cross-cutting analysis: error handling consistency
 Scope: backend error propagation/logging and frontend error reporting.

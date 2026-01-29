@@ -1,8 +1,10 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
-  import { fetchPlansList } from '../lib/apiClient.js'
+  import { createTerminal, fetchPlansList, fetchTerminals } from '../lib/apiClient.js'
   import { subscribe as subscribeEvents } from '../lib/eventStore.js'
+  import { subscribe as subscribeTerminalEvents } from '../lib/terminalEventStore.js'
   import { getErrorMessage } from '../lib/errorUtils.js'
+  import { notificationStore } from '../lib/notificationStore.js'
   import PlanCard from '../components/PlanCard.svelte'
   import ViewState from '../components/ViewState.svelte'
 
@@ -16,7 +18,47 @@
   let refreshInFlight = false
   let queuedSilent = true
   let eventUnsubscribe = null
+  let terminalEventUnsubscribe = []
+  let terminals = []
   const refreshDebounceMs = 250
+
+  const normalizeKeyword = (value) => String(value || '').trim().toUpperCase()
+
+  const hasActiveHeading = (heading) => {
+    if (!heading) return false
+    const keyword = normalizeKeyword(heading.keyword)
+    if (keyword === 'TODO' || keyword === 'WIP') {
+      return true
+    }
+    const children = Array.isArray(heading.children) ? heading.children : []
+    return children.some(hasActiveHeading)
+  }
+
+  const isActivePlan = (plan) => {
+    const entries = Array.isArray(plan?.headings) ? plan.headings : []
+    return entries.some(hasActiveHeading)
+  }
+
+  const isDoneHeading = (heading) => {
+    if (!heading) return false
+    const keyword = normalizeKeyword(heading.keyword)
+    if (keyword !== 'DONE') {
+      return false
+    }
+    const children = Array.isArray(heading.children) ? heading.children : []
+    return children.every(isDoneHeading)
+  }
+
+  const isDonePlan = (plan) => {
+    const entries = Array.isArray(plan?.headings) ? plan.headings : []
+    if (entries.length === 0) return false
+    return entries.every(isDoneHeading)
+  }
+
+  const sortPlansByDate = (entries = []) =>
+    entries
+      .slice()
+      .sort((a, b) => Date.parse(b?.date || '') - Date.parse(a?.date || ''))
 
   const planKey = (plan, index) => {
     const name = plan?.filename ? String(plan.filename) : ''
@@ -25,6 +67,7 @@
     }
     return `plan-${index}`
   }
+
 
   const showUpdateNotice = () => {
     updateNotice = true
@@ -78,8 +121,29 @@
     }
   }
 
+  const loadTerminals = async () => {
+    try {
+      terminals = await fetchTerminals()
+    } catch (err) {
+      console.error('Failed to load terminals', err)
+    }
+  }
+
+  const createArchitect = async () => {
+    try {
+      await createTerminal({ agentId: 'architect' })
+      notificationStore.addNotification('info', 'Architect terminal created')
+    } catch (err) {
+      notificationStore.addNotification('error', getErrorMessage(err, 'Failed to create architect'))
+    }
+  }
+
+  $: activePlans = sortPlansByDate(plans.filter(isActivePlan))
+  $: donePlans = sortPlansByDate(plans.filter(isDonePlan))
+
   onMount(() => {
     loadPlans()
+    loadTerminals()
     eventUnsubscribe = subscribeEvents('file_changed', (payload) => {
       const rawPath = String(payload?.path || '')
       const normalized = rawPath.replaceAll('\\', '/')
@@ -88,6 +152,14 @@
       queuePlansRefresh(true)
       showUpdateNotice()
     })
+    terminalEventUnsubscribe = [
+      subscribeTerminalEvents('terminal_created', () => {
+        void loadTerminals()
+      }),
+      subscribeTerminalEvents('terminal_deleted', () => {
+        void loadTerminals()
+      }),
+    ]
   })
 
   onDestroy(() => {
@@ -103,6 +175,10 @@
       eventUnsubscribe()
       eventUnsubscribe = null
     }
+    if (terminalEventUnsubscribe.length > 0) {
+      terminalEventUnsubscribe.forEach((unsubscribe) => unsubscribe())
+      terminalEventUnsubscribe = []
+    }
   })
 </script>
 
@@ -111,8 +187,8 @@
     <div>
       <p class="eyebrow">Project plans</p>
       <div class="plan-heading">
-        <h1>Project Plans</h1>
-        <span class="plan-count">{plans.length}</span>
+        <h1>Plans</h1>
+        <span class="plan-count">{activePlans.length + donePlans.length}</span>
       </div>
       <p class="plan-path">.gestalt/plans/</p>
     </div>
@@ -123,6 +199,9 @@
       {#if loading}
         <span class="refreshing">Updating...</span>
       {/if}
+      <button class="new-plan" type="button" on:click={createArchitect}>
+        + Plan
+      </button>
       <button class="refresh" type="button" on:click={loadPlans} disabled={loading}>
         {loading ? 'Refreshing...' : 'Refresh'}
       </button>
@@ -132,13 +211,19 @@
   <ViewState
     {loading}
     {error}
-    hasContent={plans.length > 0}
+    hasContent={activePlans.length + donePlans.length > 0}
     loadingLabel="Loading plans..."
     emptyLabel="No plans found in .gestalt/plans/"
   >
     <div class="plan-list">
-      {#each plans as plan, planIndex (planKey(plan, planIndex))}
-        <PlanCard {plan} />
+      {#each activePlans as plan, planIndex (planKey(plan, planIndex))}
+        <PlanCard {plan} {terminals} />
+      {/each}
+      {#if donePlans.length > 0}
+        <div class="section-divider">Done</div>
+      {/if}
+      {#each donePlans as plan, planIndex (planKey(plan, planIndex))}
+        <PlanCard {plan} {terminals} />
       {/each}
     </div>
   </ViewState>
@@ -197,7 +282,8 @@
     font-size: 0.85rem;
   }
 
-  .refresh {
+  .refresh,
+  .new-plan {
     border: 1px solid rgba(var(--color-text-rgb), 0.2);
     border-radius: 999px;
     padding: 0.6rem 1.2rem;
@@ -210,6 +296,15 @@
   .plan-list {
     display: grid;
     gap: 1.2rem;
+  }
+
+  .section-divider {
+    border-top: 1px solid rgba(var(--color-text-rgb), 0.12);
+    padding: 1rem 0 0;
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    font-size: 0.7rem;
   }
 
   .refreshing {

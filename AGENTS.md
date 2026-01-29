@@ -106,25 +106,6 @@ terminal output -> Session output bus -> /ws/session/:id -> xterm
 | --- | --- | --- |
 | Temporal HITL | Workflows on by default; disable via `workflow=false` / `use_workflow=false`. Dev server: `GESTALT_TEMPORAL_DEV_SERVER=true` or `--temporal-dev-server` (runs in `.gestalt/temporal`). | `GET /api/workflows`, `GET /api/sessions/:id/workflow/history`, `POST /api/sessions/:id/workflow/resume` (`continue`/`abort`), `GET /api/metrics/summary`. |
 
-## SCIP CLI (2026-01-26)
-- Offline CLI lives in `cmd/gestalt-scip` and builds with `make build-scip`.
-- CLI commands: `index`, `symbols`, `definition`, `references`, `files`, `search`; default merges all `.scip` files, `--language` filters, `--format` supports `text|json|toon`.
-- `search` command: Full-text content search with regex/OR clauses.
-- CLI default output format is `toon`.
-- Symbol IDs in CLI output are base64url-encoded and safe for shells; `definition`/`references` accept encoded IDs and raw SCIP IDs.
-- CLI output omits `kind` when it would be `UnspecifiedKind` and strips fenced code markers plus language tag lines from `documentation`.
-- Index generation writes `.scip` files under `.gestalt/scip/` (default `index.scip` + `.meta.json`).
-- `scip-typescript-finder` is reference-only; parsing logic is copied into `cmd/gestalt-scip/src/lib`.
-- Prompt guidance: `config/prompts/scip-cli.md` documents CLI-first navigation.
-
-## Recommended workflow
-1. Index: gestalt-scip index --path .
-2. Symbol search: gestalt-scip symbols Manager
-3. Content search: gestalt-scip search "terminal.*manager"
-4. Definition: gestalt-scip definition <symbol.id>
-5. References: gestalt-scip references <symbol.id>
-6. File context: gestalt-scip files <path> --symbols
-
 ## Plan UI notes (2026-01-26)
 - `frontend/src/views/PlanView.svelte` debounces plan refreshes from file watcher events to avoid request floods.
 - Event store regression tests cover malformed payloads and burst events (`frontend/tests/eventStore.test.js`, `frontend/src/lib/wsStore.test.js`).

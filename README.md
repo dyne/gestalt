@@ -69,75 +69,6 @@ GESTALT_TOKEN=$(openssl rand -hex 16) gestalt --port 57417
 Plans live under `.gestalt/plans/` and any `.org` file in that directory is watched for changes.
 Recommended naming: `YYYY-MM-DD-short-description.org`. `.gestalt/PLAN.org` is no longer used.
 
-## Code Indexing
-
-Gestalt can index your codebase for code-aware agent queries:
-
-```
-gestalt index
-```
-
-This generates `.gestalt/scip/index.db` (and `.gestalt/scip/index.scip`).
-
-Supported languages: Go, TypeScript, Python, Java.
-
-### Disabling SCIP
-
-To build without SCIP (and its dependencies), use the `noscip` build tag.
-This disables `gestalt index` and returns `501 scip disabled at build time`
-for `/api/scip/*` endpoints.
-
-Examples:
-
-```
-go build -tags noscip ./cmd/gestalt
-go test -tags noscip ./...
-```
-
-### SCIP API
-
-Once `.gestalt/scip/index.db` exists, SCIP queries are available over REST:
-
-- `GET /api/scip/status`
-- `GET /api/scip/symbols?q=Name&limit=20`
-- `GET /api/scip/symbols/{id}`
-- `GET /api/scip/symbols/{id}/references`
-- `GET /api/scip/files/{path}`
-- `POST /api/scip/index` with `{"path": ".", "force": true}`
-
-Notes:
-- URL-encode symbol IDs and file paths.
-- Use returned `file_path` and `line` to open source context without grep.
-
-## SCIP Best Practices
-
-When to index:
-- After cloning a repository
-- After major refactoring
-- Periodically (e.g., weekly)
-
-Index storage:
-- Commit `.gestalt/scip/index.db` to the repo (optional, depends on size)
-- Or add it to `.gitignore` and regenerate locally
-- For large repos, use CI to pre-generate indexes
-
-Query tips:
-- Use specific symbol names for faster results
-- Combine SCIP queries with file content for full picture
-- Cache frequent queries (done automatically)
-
-Performance:
-- Indexing time: ~1-5 minutes for 10k LOC
-- Query time: <100ms for most queries
-- SQLite size: ~1-5x source code size
-
-## SCIP Troubleshooting
-
-- Index not loading: check file permissions and `GESTALT_SCIP_INDEX_PATH`
-- Indexing fails: check indexer binaries are executable
-- Symbols not found: verify language detection and index coverage
-- Slow queries: verify SQLite indexes exist (reindex if needed)
-
 ### Authentication (GESTALT_TOKEN)
 
 `GESTALT_TOKEN` is an optional shared secret that protects the Gestalt HTTP API.
@@ -655,22 +586,6 @@ Exit codes:
 Notes:
 - Agent names must be unique and match the `name` field in `config/agents/*.json`.
 - If auth is enabled, set `GESTALT_TOKEN` to the same token used by the server.
-
-### gestalt-scip
-
-Query SCIP code intelligence indexes offline without running the server.
-
-Usage:
-- `gestalt-scip symbols <query>`
-- `gestalt-scip definition <symbol-id>`
-- `gestalt-scip references <symbol-id>`
-- `gestalt-scip files <path>`
-
-Options:
-- `--scip <path>`: path to a SCIP file or directory
-- `--language <lang>`: filter by language (for example `go`, `typescript`, `python`)
-- `--format <fmt>`: output format (`json`, `text`, or `toon`)
-- Default format: `toon`
 
 ## License
 

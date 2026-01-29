@@ -114,7 +114,7 @@ func TestSessionStartWorkflowAndSignals(testingContext *testing.T) {
 	if workflowClient.executeCalls != 1 {
 		testingContext.Fatalf("expected 1 workflow start, got %d", workflowClient.executeCalls)
 	}
-	if session.WorkflowID == nil || *session.WorkflowID != "session-7" {
+	if session.WorkflowID == nil || *session.WorkflowID != "7" {
 		testingContext.Fatalf("unexpected workflow id: %v", session.WorkflowID)
 	}
 	if session.WorkflowRunID == nil || *session.WorkflowRunID != "run-123" {

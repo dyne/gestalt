@@ -414,7 +414,7 @@ func TestWorkflowsEndpointReturnsSummary(t *testing.T) {
 		_ = manager.Delete(created.ID)
 	}()
 
-	workflowID := "session-" + created.ID
+	workflowID := created.ID
 	startTime := time.Date(2025, 2, 2, 9, 0, 0, 0, time.UTC)
 	bellTime := startTime.Add(5 * time.Minute)
 	temporalClient.queryResults[workflowID] = workflows.SessionWorkflowState{
@@ -1182,8 +1182,8 @@ func TestCreateTerminalWorkflowFlag(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected workflow identifiers")
 	}
-	if workflowID != "session-"+payload.ID {
-		t.Fatalf("expected workflow id %q, got %q", "session-"+payload.ID, workflowID)
+	if workflowID != payload.ID {
+		t.Fatalf("expected workflow id %q, got %q", payload.ID, workflowID)
 	}
 	if runID != temporalClient.runID {
 		t.Fatalf("expected run id %q, got %q", temporalClient.runID, runID)

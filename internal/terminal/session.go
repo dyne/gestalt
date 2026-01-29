@@ -308,7 +308,7 @@ func (s *Session) StartWorkflow(temporalClient temporal.WorkflowClient, l1Task, 
 		return nil
 	}
 
-	workflowID := "session-" + s.ID
+	workflowID := s.ID
 	agentID := strings.TrimSpace(s.AgentID)
 	agentName := ""
 	agentShell := s.Command

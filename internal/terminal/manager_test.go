@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -1613,5 +1614,30 @@ func TestManagerInjectsCodexNotify(t *testing.T) {
 	}
 	if !strings.Contains(notifyArg, "--agent-name") || !strings.Contains(notifyArg, "Codex") {
 		t.Fatalf("expected notify command to include agent name Codex, got %q", notifyArg)
+	}
+
+	notifyPayload := notifyArg
+	if idx := strings.Index(notifyArg, "notify="); idx != -1 {
+		notifyPayload = notifyArg[idx+len("notify="):]
+	}
+	var notifyArgs []string
+	if err := json.Unmarshal([]byte(notifyPayload), &notifyArgs); err != nil {
+		t.Fatalf("parse notify args: %v", err)
+	}
+	sessionFlagCount := 0
+	for i, arg := range notifyArgs {
+		if arg != "--session-id" {
+			continue
+		}
+		sessionFlagCount++
+		if i+1 >= len(notifyArgs) {
+			t.Fatalf("expected session id value after --session-id, got args %#v", notifyArgs)
+		}
+		if notifyArgs[i+1] != session.ID {
+			t.Fatalf("expected session id %q, got %q", session.ID, notifyArgs[i+1])
+		}
+	}
+	if sessionFlagCount != 1 {
+		t.Fatalf("expected --session-id exactly once, got %d in %#v", sessionFlagCount, notifyArgs)
 	}
 }

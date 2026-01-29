@@ -11,7 +11,7 @@ import (
 )
 
 type NotifyRequest struct {
-	TerminalID string          `json:"terminal_id"`
+	SessionID  string          `json:"session_id"`
 	AgentID    string          `json:"agent_id"`
 	AgentName  string          `json:"agent_name,omitempty"`
 	Source     string          `json:"source"`
@@ -22,28 +22,28 @@ type NotifyRequest struct {
 	EventID    string          `json:"event_id,omitempty"`
 }
 
-func PostNotifyEvent(client *http.Client, baseURL, token, terminalID string, payload NotifyRequest) error {
+func PostNotifyEvent(client *http.Client, baseURL, token, sessionID string, payload NotifyRequest) error {
 	client = ensureClient(client)
 	baseURL = strings.TrimRight(baseURL, "/")
 	if baseURL == "" {
 		return errors.New("base URL is required")
 	}
-	terminalID = strings.TrimSpace(terminalID)
-	if terminalID == "" {
-		return errors.New("terminal id is required")
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return errors.New("session id is required")
 	}
 
-	if payload.TerminalID != "" && payload.TerminalID != terminalID {
-		return fmt.Errorf("terminal id mismatch")
+	if payload.SessionID != "" && payload.SessionID != sessionID {
+		return fmt.Errorf("session id mismatch")
 	}
-	payload.TerminalID = terminalID
+	payload.SessionID = sessionID
 
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("encode notify request: %w", err)
 	}
 
-	request, err := http.NewRequest(http.MethodPost, baseURL+"/api/sessions/"+terminalID+"/notify", bytes.NewReader(body))
+	request, err := http.NewRequest(http.MethodPost, baseURL+"/api/sessions/"+sessionID+"/notify", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("build notify request failed: %w", err)
 	}

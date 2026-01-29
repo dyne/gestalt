@@ -55,8 +55,8 @@ func TestTerminalEventsWebSocketStream(t *testing.T) {
 	if created.Type != "terminal_created" {
 		t.Fatalf("expected terminal_created, got %q", created.Type)
 	}
-	if created.TerminalID != session.ID {
-		t.Fatalf("expected terminal ID %q, got %q", session.ID, created.TerminalID)
+	if created.SessionID != session.ID {
+		t.Fatalf("expected session ID %q, got %q", session.ID, created.SessionID)
 	}
 
 	if err := manager.Delete(session.ID); err != nil {
@@ -71,7 +71,7 @@ func TestTerminalEventsWebSocketStream(t *testing.T) {
 	if closed.Type != "terminal_closed" {
 		t.Fatalf("expected terminal_closed, got %q", closed.Type)
 	}
-	if closed.TerminalID != session.ID {
-		t.Fatalf("expected terminal ID %q, got %q", session.ID, closed.TerminalID)
+	if closed.SessionID != session.ID {
+		t.Fatalf("expected session ID %q, got %q", session.ID, closed.SessionID)
 	}
 }

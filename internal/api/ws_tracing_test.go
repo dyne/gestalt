@@ -24,7 +24,7 @@ func TestStartWebSocketSpanAddsAttributes(t *testing.T) {
 	})
 
 	request := httptest.NewRequest("GET", "http://example.com/ws/logs?token=secret", nil)
-	_, span := startWebSocketSpan(request, "/ws/logs", attribute.String("terminal.id", "t1"))
+	_, span := startWebSocketSpan(request, "/ws/logs", attribute.String("session.id", "t1"))
 	span.End()
 
 	spanData := findSpan(recorder.Ended(), wsConnectSpanName, "/ws/logs")
@@ -39,8 +39,8 @@ func TestStartWebSocketSpanAddsAttributes(t *testing.T) {
 	if target, ok := attrs["http.target"]; !ok || strings.Contains(target, "token=") {
 		t.Fatalf("expected token to be stripped from http.target, got %q", target)
 	}
-	if attrs["terminal.id"] != "t1" {
-		t.Fatalf("expected terminal.id t1, got %q", attrs["terminal.id"])
+	if attrs["session.id"] != "t1" {
+		t.Fatalf("expected session.id t1, got %q", attrs["session.id"])
 	}
 }
 

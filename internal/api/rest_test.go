@@ -335,8 +335,8 @@ func TestStatusHandlerReturnsCount(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if payload.TerminalCount != 1 {
-		t.Fatalf("expected 1 terminal, got %d", payload.TerminalCount)
+	if payload.SessionCount != 1 {
+		t.Fatalf("expected 1 session, got %d", payload.SessionCount)
 	}
 	expectedDir, err := os.Getwd()
 	if err != nil {
@@ -575,7 +575,7 @@ func TestTerminalNotifyEndpoint(t *testing.T) {
 	}()
 
 	handler := &RestHandler{Manager: manager}
-	body := `{"terminal_id":"` + created.ID + `","agent_id":"codex","agent_name":"Codex","source":"manual","event_type":"plan-L1-wip","occurred_at":"2025-04-01T10:00:00Z","payload":{"plan_file":"plan.org"},"raw":"{}","event_id":"manual:1"}`
+	body := `{"session_id":"` + created.ID + `","agent_id":"codex","agent_name":"Codex","source":"manual","event_type":"plan-L1-wip","occurred_at":"2025-04-01T10:00:00Z","payload":{"plan_file":"plan.org"},"raw":"{}","event_id":"manual:1"}`
 	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/notify", strings.NewReader(body))
 	res := httptest.NewRecorder()
 
@@ -594,8 +594,8 @@ func TestTerminalNotifyEndpoint(t *testing.T) {
 	if !ok {
 		t.Fatalf("unexpected notify payload: %#v", signal.payload)
 	}
-	if payload.TerminalID != created.ID {
-		t.Fatalf("expected terminal id %q, got %q", created.ID, payload.TerminalID)
+	if payload.SessionID != created.ID {
+		t.Fatalf("expected session id %q, got %q", created.ID, payload.SessionID)
 	}
 	if payload.AgentID != "codex" {
 		t.Fatalf("expected agent id codex, got %q", payload.AgentID)
@@ -624,7 +624,7 @@ func TestTerminalNotifyEndpointMissingTerminal(t *testing.T) {
 	manager := newTestManager(terminal.ManagerOptions{Shell: "/bin/sh"})
 	handler := &RestHandler{Manager: manager}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/missing/notify", strings.NewReader(`{"terminal_id":"missing","agent_id":"codex","source":"manual","event_type":"plan-L1-wip"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/missing/notify", strings.NewReader(`{"session_id":"missing","agent_id":"codex","source":"manual","event_type":"plan-L1-wip"}`))
 	res := httptest.NewRecorder()
 
 	restHandler("", nil, handler.handleTerminal)(res, req)
@@ -651,7 +651,7 @@ func TestTerminalNotifyEndpointMissingWorkflow(t *testing.T) {
 	}()
 
 	handler := &RestHandler{Manager: manager}
-	body := `{"terminal_id":"` + created.ID + `","agent_id":"codex","source":"manual","event_type":"plan-L1-wip"}`
+	body := `{"session_id":"` + created.ID + `","agent_id":"codex","source":"manual","event_type":"plan-L1-wip"}`
 	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/notify", strings.NewReader(body))
 	res := httptest.NewRecorder()
 
@@ -1413,8 +1413,8 @@ func TestCreateTerminalDuplicateAgent(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if payload.TerminalID != created.ID {
-		t.Fatalf("expected terminal_id %q, got %q", created.ID, payload.TerminalID)
+	if payload.SessionID != created.ID {
+		t.Fatalf("expected session_id %q, got %q", created.ID, payload.SessionID)
 	}
 	if payload.Message == "" {
 		t.Fatalf("expected error message")
@@ -1599,8 +1599,8 @@ func TestAgentsEndpoint(t *testing.T) {
 	if !codex.Running {
 		t.Fatalf("expected codex to be running")
 	}
-	if codex.TerminalID != created.ID {
-		t.Fatalf("expected codex terminal id %q, got %q", created.ID, codex.TerminalID)
+	if codex.SessionID != created.ID {
+		t.Fatalf("expected codex terminal id %q, got %q", created.ID, codex.SessionID)
 	}
 	if !codex.UseWorkflow {
 		t.Fatalf("expected codex use_workflow to be true")
@@ -1608,8 +1608,8 @@ func TestAgentsEndpoint(t *testing.T) {
 	if copilot.Running {
 		t.Fatalf("expected copilot to be stopped")
 	}
-	if copilot.TerminalID != "" {
-		t.Fatalf("expected copilot terminal id to be empty, got %q", copilot.TerminalID)
+	if copilot.SessionID != "" {
+		t.Fatalf("expected copilot terminal id to be empty, got %q", copilot.SessionID)
 	}
 	if copilot.UseWorkflow {
 		t.Fatalf("expected copilot use_workflow to be false")

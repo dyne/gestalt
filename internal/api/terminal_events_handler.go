@@ -18,7 +18,7 @@ type TerminalEventsHandler struct {
 
 type terminalEventPayload struct {
 	Type       string         `json:"type"`
-	TerminalID string         `json:"terminal_id"`
+	SessionID  string         `json:"session_id"`
 	Timestamp  time.Time      `json:"timestamp"`
 	Data       map[string]any `json:"data,omitempty"`
 }
@@ -41,7 +41,7 @@ func (h *TerminalEventsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 		BuildPayload: func(event eventtypes.TerminalEvent) (any, bool) {
 			payload := terminalEventPayload{
 				Type:       event.Type(),
-				TerminalID: event.TerminalID,
+				SessionID:  event.TerminalID,
 				Timestamp:  event.Timestamp(),
 				Data:       event.Data,
 			}

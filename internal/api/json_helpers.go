@@ -23,6 +23,6 @@ func writeJSONError(w http.ResponseWriter, err *apiError) {
 		Message:    err.Message,
 		Error:      err.Message,
 		Code:       code,
-		TerminalID: err.TerminalID,
+		SessionID:  err.SessionID,
 	})
 }

@@ -185,7 +185,7 @@ describe('dashboardStore', () => {
   })
 
   it('syncs agent running state when terminals change', async () => {
-    fetchAgents.mockResolvedValue([{ id: 'a1', name: 'Agent 1', terminal_id: 't1' }])
+    fetchAgents.mockResolvedValue([{ id: 'a1', name: 'Agent 1', session_id: 't1' }])
     fetchAgentSkills.mockResolvedValue([])
 
     const store = createDashboardStore()
@@ -194,12 +194,12 @@ describe('dashboardStore', () => {
 
     let value = get(store)
     expect(value.agents[0].running).toBe(true)
-    expect(value.agents[0].terminal_id).toBe('t1')
+    expect(value.agents[0].session_id).toBe('t1')
 
     store.setTerminals([])
     value = get(store)
     expect(value.agents[0].running).toBe(false)
-    expect(value.agents[0].terminal_id).toBe('')
+    expect(value.agents[0].session_id).toBe('')
   })
 
   it('tracks config extraction events and resets', async () => {

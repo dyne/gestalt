@@ -222,8 +222,8 @@ func (middleware *apiMiddleware) wrap(next http.Handler) http.Handler {
 		if agentAttributes.Name != "" || agentAttributes.ID != "" {
 			span.AddEvent("agent.resolved", trace.WithAttributes(agentAttributes.AsSpanAttributes()...))
 		}
-		if agentAttributes.TerminalID != "" {
-			span.AddEvent("terminal.session_found", trace.WithAttributes(attribute.String("terminal.id", agentAttributes.TerminalID)))
+		if agentAttributes.SessionID != "" {
+			span.AddEvent("terminal.session_found", trace.WithAttributes(attribute.String("session.id", agentAttributes.SessionID)))
 		}
 
 		responseRecorder := &statusRecorder{ResponseWriter: w}
@@ -246,8 +246,8 @@ func (middleware *apiMiddleware) wrap(next http.Handler) http.Handler {
 			if agentAttributes.ID != "" {
 				childSpan.SetAttributes(attribute.String("agent.id", agentAttributes.ID))
 			}
-			if agentAttributes.TerminalID != "" {
-				childSpan.SetAttributes(attribute.String("terminal.id", agentAttributes.TerminalID))
+			if agentAttributes.SessionID != "" {
+				childSpan.SetAttributes(attribute.String("session.id", agentAttributes.SessionID))
 			}
 			childSpan.End()
 		}
@@ -549,7 +549,7 @@ type AgentAttributes struct {
 	ID         string
 	Name       string
 	Type       string
-	TerminalID string
+	SessionID  string
 }
 
 func (attrs AgentAttributes) AsSpanAttributes() []attribute.KeyValue {
@@ -567,8 +567,8 @@ func resolveAgentAttributes(resolver AgentResolver, r *http.Request, bodyAgentID
 	if r == nil {
 		return info
 	}
-	if info.TerminalID == "" {
-		info.TerminalID = terminalIDFromPath(r.URL.Path)
+	if info.SessionID == "" {
+		info.SessionID = sessionIDFromPath(r.URL.Path)
 	}
 	if info.Name == "" {
 		info.Name = agentNameFromPath(r.URL.Path)
@@ -579,7 +579,7 @@ func resolveAgentAttributes(resolver AgentResolver, r *http.Request, bodyAgentID
 	return info
 }
 
-func terminalIDFromPath(path string) string {
+func sessionIDFromPath(path string) string {
 	trimmed := strings.TrimPrefix(path, "/api/sessions/")
 	if trimmed == path {
 		return ""
@@ -632,8 +632,8 @@ func buildAttributes(r *http.Request, routeInfo RouteInfo, agentAttributes Agent
 		attributes = append(attributes, attribute.String("api.operation", routeInfo.Operation))
 	}
 	attributes = append(attributes, buildAgentAttributes(agentAttributes)...)
-	if agentAttributes.TerminalID != "" {
-		attributes = append(attributes, attribute.String("terminal.id", agentAttributes.TerminalID))
+	if agentAttributes.SessionID != "" {
+		attributes = append(attributes, attribute.String("session.id", agentAttributes.SessionID))
 	}
 	return attributes
 }
@@ -667,8 +667,8 @@ func buildActiveAttributes(r *http.Request, routeInfo RouteInfo, agentAttributes
 		attributes = append(attributes, attribute.String("api.category", routeInfo.Category))
 	}
 	attributes = append(attributes, buildAgentAttributes(agentAttributes)...)
-	if agentAttributes.TerminalID != "" {
-		attributes = append(attributes, attribute.String("terminal.id", agentAttributes.TerminalID))
+	if agentAttributes.SessionID != "" {
+		attributes = append(attributes, attribute.String("session.id", agentAttributes.SessionID))
 	}
 	return attributes
 }

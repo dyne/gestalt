@@ -34,7 +34,7 @@ describe('App tab switching', () => {
     }
     apiFetch.mockImplementation(
       createAppApiMocks(apiFetch, {
-        status: { terminal_count: 1 },
+        status: { session_count: 1 },
         terminals: [
           {
             id: 't1',

@@ -72,7 +72,7 @@ func (h *TerminalHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	span.SetAttributes(attribute.String("terminal.id", id))
+	span.SetAttributes(attribute.String("session.id", id))
 
 	session, ok := h.Manager.Get(id)
 	if !ok {

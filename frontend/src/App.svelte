@@ -102,7 +102,7 @@
       const created = await createTerminalSession({ agentId, workflow: useWorkflow })
       terminals = [...terminals, created]
       if (status) {
-        status = { ...status, terminal_count: status.terminal_count + 1 }
+        status = { ...status, session_count: status.session_count + 1 }
       }
       syncTabs(terminals)
       activeId = created.id
@@ -112,8 +112,8 @@
         agentId: created.agent_id,
       })
     } catch (err) {
-      if (err?.status === 409 && err?.data?.terminal_id) {
-        const existingId = err.data.terminal_id
+      if (err?.status === 409 && err?.data?.session_id) {
+        const existingId = err.data.session_id
         if (!terminals.find((terminal) => terminal.id === existingId)) {
           await refresh()
         }
@@ -133,7 +133,7 @@
       releaseTerminalState(id)
       terminals = terminals.filter((terminal) => terminal.id !== id)
       if (status) {
-        status = { ...status, terminal_count: Math.max(0, status.terminal_count - 1) }
+        status = { ...status, session_count: Math.max(0, status.session_count - 1) }
       }
       syncTabs(terminals)
       if (activeId === id) {
@@ -186,7 +186,7 @@
       notificationStore.addNotification('warning', 'File watching unavailable.')
     })
     terminalErrorUnsubscribe = subscribeTerminalEvents('terminal_error', (payload) => {
-      const terminalId = payload?.terminal_id || 'unknown'
+      const terminalId = payload?.session_id || 'unknown'
       const detail = payload?.data?.error
       const message = detail
         ? `Terminal ${terminalId} error: ${detail}`

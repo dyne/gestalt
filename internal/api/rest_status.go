@@ -33,7 +33,7 @@ func (h *RestHandler) handleStatus(w http.ResponseWriter, r *http.Request) *apiE
 	gitOrigin, gitBranch := h.gitInfo()
 	versionInfo := version.GetVersionInfo()
 	response := statusResponse{
-		TerminalCount:  len(terminals),
+		SessionCount:   len(terminals),
 		ServerTime:     time.Now().UTC(),
 		SessionPersist: h.Manager.SessionPersistenceEnabled(),
 		WorkingDir:     workDir,

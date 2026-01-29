@@ -57,7 +57,7 @@ func TestAPIMiddlewareResolvesAgentAttributes(t *testing.T) {
 			ID:         "agent-1",
 			Name:       "Coder",
 			Type:       "codex",
-			TerminalID: "123",
+			SessionID:  "123",
 		}
 	}
 	middleware, err := NewAPIInstrumentationMiddleware(meter, WithAPIResolver(resolver))
@@ -82,8 +82,8 @@ func TestAPIMiddlewareResolvesAgentAttributes(t *testing.T) {
 	if attrs["agent.type"] != "codex" {
 		t.Fatalf("expected agent type, got %q", attrs["agent.type"])
 	}
-	if attrs["terminal.id"] != "123" {
-		t.Fatalf("expected terminal id, got %q", attrs["terminal.id"])
+	if attrs["session.id"] != "123" {
+		t.Fatalf("expected session id, got %q", attrs["session.id"])
 	}
 }
 

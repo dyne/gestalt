@@ -82,7 +82,7 @@ describe('Dashboard', () => {
     const { findByText } = render(Dashboard, {
       props: {
         terminals: [],
-        status: { terminal_count: 0 },
+        status: { session_count: 0 },
         onCreate,
       },
     })
@@ -124,7 +124,7 @@ describe('Dashboard', () => {
     const { findByText } = render(Dashboard, {
       props: {
         terminals: [],
-        status: { terminal_count: 0 },
+        status: { session_count: 0 },
       },
     })
 
@@ -160,7 +160,7 @@ describe('Dashboard', () => {
       props: {
         terminals: [],
         status: {
-          terminal_count: 0,
+          session_count: 0,
           working_dir: '/repo/path',
           git_origin: 'origin',
           git_branch: 'origin/main',
@@ -209,7 +209,7 @@ describe('Dashboard', () => {
       props: {
         terminals: [],
         status: {
-          terminal_count: 0,
+          session_count: 0,
           working_dir: '/repo/path',
           git_origin: 'origin',
           git_branch: 'origin/main',

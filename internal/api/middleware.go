@@ -12,7 +12,7 @@ type apiError struct {
 	Status     int
 	Message    string
 	Code       string
-	TerminalID string
+	SessionID  string
 }
 
 type apiHandler func(http.ResponseWriter, *http.Request) *apiError
@@ -86,8 +86,8 @@ func jsonErrorMiddleware(logger *logging.Logger, next apiHandler) http.HandlerFu
 				if err.Message != "" {
 					fields["error"] = err.Message
 				}
-				if err.TerminalID != "" {
-					fields["terminal_id"] = err.TerminalID
+				if err.SessionID != "" {
+					fields["session_id"] = err.SessionID
 				}
 				if err.Status >= http.StatusInternalServerError {
 					logger.Error("api error", fields)

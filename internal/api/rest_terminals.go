@@ -125,7 +125,7 @@ func (h *RestHandler) createTerminal(w http.ResponseWriter, r *http.Request) *ap
 			return &apiError{
 				Status:     http.StatusConflict,
 				Message:    fmt.Sprintf("agent %q is already running", dupErr.AgentName),
-				TerminalID: dupErr.TerminalID,
+				SessionID:  dupErr.TerminalID,
 			}
 		}
 		return &apiError{Status: http.StatusInternalServerError, Message: "failed to create terminal"}
@@ -296,8 +296,8 @@ func (h *RestHandler) handleTerminalBell(w http.ResponseWriter, r *http.Request,
 		h.Logger.Warn("terminal bell detected", map[string]string{
 			"gestalt.category": "terminal",
 			"gestalt.source":   "backend",
-			"terminal.id":      id,
-			"terminal_id":      id,
+			"session.id":       id,
+			"session_id":       id,
 			"context_lines":    strconv.Itoa(len(contextLines)),
 		})
 	}
@@ -315,8 +315,8 @@ func (h *RestHandler) handleTerminalNotify(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(request.TerminalID) != id {
-		return &apiError{Status: http.StatusBadRequest, Message: "terminal id mismatch"}
+	if strings.TrimSpace(request.SessionID) != id {
+		return &apiError{Status: http.StatusBadRequest, Message: "session id mismatch"}
 	}
 
 	session, ok := h.Manager.Get(id)
@@ -341,7 +341,7 @@ func (h *RestHandler) handleTerminalNotify(w http.ResponseWriter, r *http.Reques
 
 	signal := workflows.NotifySignal{
 		Timestamp:  timestamp,
-		TerminalID: id,
+		SessionID:  id,
 		AgentID:    request.AgentID,
 		AgentName:  request.AgentName,
 		EventType:  request.EventType,
@@ -389,8 +389,8 @@ func (h *RestHandler) handleTerminalWorkflowResume(w http.ResponseWriter, r *htt
 		h.Logger.Info("workflow resume action", map[string]string{
 			"gestalt.category":    "workflow",
 			"gestalt.source":      "backend",
-			"terminal.id":         id,
-			"terminal_id":         id,
+			"session.id":          id,
+			"session_id":          id,
 			"workflow.id":         workflowID,
 			"workflow.session_id": id,
 			"workflow_id":         workflowID,

@@ -38,7 +38,7 @@ describe('App duplicate agent handling', () => {
     apiFetch.mockImplementation((url, options = {}) => {
       if (url === '/api/status') {
         return Promise.resolve({
-          json: vi.fn().mockResolvedValue({ terminal_count: 1 }),
+          json: vi.fn().mockResolvedValue({ session_count: 1 }),
         })
       }
       if (url === '/api/sessions' && (!options.method || options.method === 'GET')) {
@@ -71,7 +71,7 @@ describe('App duplicate agent handling', () => {
       if (url === '/api/sessions' && options.method === 'POST') {
         const error = new Error('agent "Codex" is already running')
         error.status = 409
-        error.data = { terminal_id: '1' }
+        error.data = { session_id: '1' }
         return Promise.reject(error)
       }
       return Promise.reject(new Error(`Unexpected API call: ${url}`))

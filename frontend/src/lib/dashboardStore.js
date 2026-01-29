@@ -99,17 +99,17 @@ export const createDashboardStore = () => {
     const terminalIds = new Set((terminalList || []).map((terminal) => terminal?.id).filter(Boolean))
     let changed = false
     const nextAgents = agentList.map((agent) => {
-      const terminalId = agent.terminal_id || ''
+      const terminalId = agent.session_id || ''
       const running = Boolean(terminalId && terminalIds.has(terminalId))
       const nextTerminalId = running ? terminalId : ''
-      if (agent.running === running && (agent.terminal_id || '') === nextTerminalId) {
+      if (agent.running === running && (agent.session_id || '') === nextTerminalId) {
         return agent
       }
       changed = true
       return {
         ...agent,
         running,
-        terminal_id: nextTerminalId,
+        session_id: nextTerminalId,
       }
     })
     return changed ? nextAgents : agentList

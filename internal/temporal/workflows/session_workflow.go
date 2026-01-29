@@ -114,7 +114,7 @@ type TerminateSignal struct {
 
 type NotifySignal struct {
 	Timestamp  time.Time
-	TerminalID string
+	SessionID  string
 	AgentID    string
 	AgentName  string
 	EventType  string

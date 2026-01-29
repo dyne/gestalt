@@ -90,7 +90,7 @@ type inputHistoryRequest struct {
 }
 
 type statusResponse struct {
-	TerminalCount  int       `json:"terminal_count"`
+	SessionCount   int       `json:"session_count"`
 	ServerTime     time.Time `json:"server_time"`
 	SessionPersist bool      `json:"session_persist"`
 	WorkingDir     string    `json:"working_dir"`
@@ -136,7 +136,7 @@ type errorResponse struct {
 	Message    string `json:"message"`
 	Error      string `json:"error,omitempty"`
 	Code       string `json:"code,omitempty"`
-	TerminalID string `json:"terminal_id,omitempty"`
+	SessionID  string `json:"session_id,omitempty"`
 }
 
 type agentSummary struct {
@@ -144,7 +144,7 @@ type agentSummary struct {
 	Name        string `json:"name"`
 	LLMType     string `json:"llm_type"`
 	LLMModel    string `json:"llm_model"`
-	TerminalID  string `json:"terminal_id"`
+	SessionID   string `json:"session_id"`
 	Running     bool   `json:"running"`
 	UseWorkflow bool   `json:"use_workflow"`
 }
@@ -175,7 +175,7 @@ type workflowResumeRequest struct {
 }
 
 type notifyRequest struct {
-	TerminalID string          `json:"terminal_id"`
+	SessionID  string          `json:"session_id"`
 	AgentID    string          `json:"agent_id"`
 	AgentName  string          `json:"agent_name,omitempty"`
 	Source     string          `json:"source"`

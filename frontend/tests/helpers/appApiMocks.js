@@ -10,7 +10,7 @@ export const createAppApiMocks = (apiFetch, overrides = {}) => {
   return (url) => {
     if (url === '/api/status') {
       return Promise.resolve({
-        json: () => Promise.resolve({ terminal_count: 0, ...(overrides.status ?? {}) }),
+        json: () => Promise.resolve({ session_count: 0, ...(overrides.status ?? {}) }),
       })
     }
     if (url === '/api/sessions') {

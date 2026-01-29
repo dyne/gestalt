@@ -237,7 +237,7 @@ func (h *EventsSSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	forwardSSE(ctx, &wg, output, terminalEvents, cancelTerminal, func(event eventtypes.TerminalEvent) (sseEventEnvelope, bool) {
 		payload := terminalEventPayload{
 			Type:       event.Type(),
-			TerminalID: event.TerminalID,
+			SessionID:  event.TerminalID,
 			Timestamp:  event.Timestamp(),
 			Data:       event.Data,
 		}

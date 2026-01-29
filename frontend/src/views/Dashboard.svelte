@@ -308,7 +308,7 @@
               class:agent-button--running={agent.running}
               class:agent-button--stopped={!agent.running}
               on:click={() =>
-                agent.running ? switchToTerminal(agent.terminal_id) : createTerminal(agent.id)
+                agent.running ? switchToTerminal(agent.session_id) : createTerminal(agent.id)
               }
               disabled={actionPending || loading}
             >

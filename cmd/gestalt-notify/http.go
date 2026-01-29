@@ -59,7 +59,7 @@ func sendNotifyEvent(cfg Config) error {
 	}
 
 	payload := client.NotifyRequest{
-		SessionID:  cfg.TerminalID,
+		SessionID:  cfg.SessionID,
 		AgentID:    cfg.AgentID,
 		AgentName:  cfg.AgentName,
 		Source:     cfg.Source,
@@ -70,7 +70,7 @@ func sendNotifyEvent(cfg Config) error {
 	}
 
 	if cfg.Verbose {
-		target := fmt.Sprintf("%s/api/sessions/%s/notify", baseURL, cfg.TerminalID)
+		target := fmt.Sprintf("%s/api/sessions/%s/notify", baseURL, cfg.SessionID)
 		logf(cfg, "posting notify event to %s", target)
 		logf(cfg, "event_type: %s, source: %s", cfg.EventType, cfg.Source)
 		if strings.TrimSpace(cfg.Token) != "" {
@@ -90,7 +90,7 @@ func sendNotifyEvent(cfg Config) error {
 		}
 	}
 
-	if err := client.PostNotifyEvent(httpClient, baseURL, cfg.Token, cfg.TerminalID, payload); err != nil {
+	if err := client.PostNotifyEvent(httpClient, baseURL, cfg.Token, cfg.SessionID, payload); err != nil {
 		return notifyErrFromClient(err)
 	}
 	if cfg.Verbose {

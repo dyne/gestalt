@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func TestParseArgsMissingTerminalID(t *testing.T) {
+func TestParseArgsMissingSessionID(t *testing.T) {
 	var stderr bytes.Buffer
 	_, err := parseArgs([]string{"--agent-id", "codex", `{"type":"agent-turn-complete"}`}, &stderr)
 	if err == nil {
@@ -20,7 +20,7 @@ func TestParseArgsMissingTerminalID(t *testing.T) {
 
 func TestParseArgsCodexPayload(t *testing.T) {
 	var stderr bytes.Buffer
-	cfg, err := parseArgs([]string{"--terminal-id", "term-1", "--agent-id", "codex", `{"type":"agent-turn-complete","occurred_at":"2025-04-01T10:00:00Z"}`}, &stderr)
+	cfg, err := parseArgs([]string{"--session-id", "term-1", "--agent-id", "codex", `{"type":"agent-turn-complete","occurred_at":"2025-04-01T10:00:00Z"}`}, &stderr)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestParseArgsCodexPayload(t *testing.T) {
 
 func TestParseArgsManualPayload(t *testing.T) {
 	var stderr bytes.Buffer
-	cfg, err := parseArgs([]string{"--terminal-id", "term-1", "--agent-id", "codex", "--event-type", "plan-L1-wip", "--payload", `{"plan_file":"plan.org"}`}, &stderr)
+	cfg, err := parseArgs([]string{"--session-id", "term-1", "--agent-id", "codex", "--event-type", "plan-L1-wip", "--payload", `{"plan_file":"plan.org"}`}, &stderr)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestParseArgsManualPayload(t *testing.T) {
 
 func TestParseArgsEventTypeOverride(t *testing.T) {
 	var stderr bytes.Buffer
-	cfg, err := parseArgs([]string{"--terminal-id", "term-1", "--agent-id", "codex", "--event-type", "override", `{"type":"agent-turn-complete"}`}, &stderr)
+	cfg, err := parseArgs([]string{"--session-id", "term-1", "--agent-id", "codex", "--event-type", "override", `{"type":"agent-turn-complete"}`}, &stderr)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestParseArgsUsesEnvDefaults(t *testing.T) {
 	t.Setenv("GESTALT_TOKEN", "secret")
 	var stderr bytes.Buffer
 
-	cfg, err := parseArgs([]string{"--terminal-id", "term-1", "--agent-id", "codex", "--event-type", "plan-L1-wip"}, &stderr)
+	cfg, err := parseArgs([]string{"--session-id", "term-1", "--agent-id", "codex", "--event-type", "plan-L1-wip"}, &stderr)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

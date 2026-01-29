@@ -18,7 +18,7 @@ const defaultNotifyTimeout = 2 * time.Second
 type Config struct {
 	URL         string
 	Token       string
-	TerminalID  string
+	SessionID   string
 	AgentID     string
 	AgentName   string
 	Source      string
@@ -38,7 +38,7 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 	fs.SetOutput(errOut)
 	urlFlag := fs.String("url", "", "Gestalt server URL (env: GESTALT_URL, default: http://localhost:57417)")
 	tokenFlag := fs.String("token", "", "Auth token (env: GESTALT_TOKEN, default: none)")
-	terminalIDFlag := fs.String("terminal-id", "", "Terminal ID (required)")
+	sessionIDFlag := fs.String("session-id", "", "Session ID (required)")
 	agentIDFlag := fs.String("agent-id", "", "Agent config ID (required)")
 	agentNameFlag := fs.String("agent-name", "", "Agent display name")
 	sourceFlag := fs.String("source", "", "Event source (default: codex-notify when JSON arg is present, otherwise manual)")
@@ -85,10 +85,10 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 		return Config{}, fmt.Errorf("payload provided twice")
 	}
 
-	terminalID := strings.TrimSpace(*terminalIDFlag)
-	if terminalID == "" {
+	sessionID := strings.TrimSpace(*sessionIDFlag)
+	if sessionID == "" {
 		fs.Usage()
-		return Config{}, fmt.Errorf("terminal id required")
+		return Config{}, fmt.Errorf("session id required")
 	}
 	agentID := strings.TrimSpace(*agentIDFlag)
 	if agentID == "" {
@@ -148,7 +148,7 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 	return Config{
 		URL:        url,
 		Token:      token,
-		TerminalID: terminalID,
+		SessionID:  sessionID,
 		AgentID:    agentID,
 		AgentName:  strings.TrimSpace(*agentNameFlag),
 		Source:     source,
@@ -216,12 +216,12 @@ func extractOccurredAt(payload map[string]any) *time.Time {
 func printNotifyHelp(out io.Writer) {
 	fmt.Fprintln(out, "Usage: gestalt-notify [options] [json-payload]")
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "Send notify events to a running Gestalt terminal workflow")
+	fmt.Fprintln(out, "Send notify events to a running Gestalt session workflow")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Options:")
 	writeNotifyOption(out, "--url URL", "Gestalt server URL (env: GESTALT_URL, default: http://localhost:57417)")
 	writeNotifyOption(out, "--token TOKEN", "Auth token (env: GESTALT_TOKEN, default: none)")
-	writeNotifyOption(out, "--terminal-id ID", "Terminal ID (required)")
+	writeNotifyOption(out, "--session-id ID", "Session ID (required)")
 	writeNotifyOption(out, "--agent-id ID", "Agent config ID (required)")
 	writeNotifyOption(out, "--agent-name NAME", "Agent display name")
 	writeNotifyOption(out, "--source SOURCE", "Event source (default: codex-notify or manual)")
@@ -238,8 +238,8 @@ func printNotifyHelp(out io.Writer) {
 	fmt.Fprintln(out, "  Manual: use --event-type and optional --payload (default source: manual)")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Examples:")
-	fmt.Fprintln(out, "  gestalt-notify --terminal-id 7 --agent-id codex '{\"type\":\"agent-turn-complete\"}'")
-	fmt.Fprintln(out, "  gestalt-notify --terminal-id 7 --agent-id architect --event-type plan-L1-wip --payload '{\"plan_file\":\"plan.org\"}'")
+	fmt.Fprintln(out, "  gestalt-notify --session-id 7 --agent-id codex '{\"type\":\"agent-turn-complete\"}'")
+	fmt.Fprintln(out, "  gestalt-notify --session-id 7 --agent-id architect --event-type plan-L1-wip --payload '{\"plan_file\":\"plan.org\"}'")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Exit codes:")
 	fmt.Fprintln(out, "  0  Success")

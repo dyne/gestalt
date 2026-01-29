@@ -35,7 +35,7 @@ func TestSendNotifyEventClientError(t *testing.T) {
 	}, func() {
 		cfg := Config{
 			URL:        "http://example.invalid",
-			TerminalID: "term-1",
+			SessionID:  "term-1",
 			AgentID:    "codex",
 			Source:     "manual",
 			EventType:  "plan-L1-wip",
@@ -62,7 +62,7 @@ func TestSendNotifyEventServerError(t *testing.T) {
 	}, func() {
 		cfg := Config{
 			URL:        "http://example.invalid",
-			TerminalID: "term-1",
+			SessionID:  "term-1",
 			AgentID:    "codex",
 			Source:     "manual",
 			EventType:  "plan-L1-wip",
@@ -84,7 +84,7 @@ func TestSendNotifyEventNetworkError(t *testing.T) {
 	}, func() {
 		cfg := Config{
 			URL:        "http://example.invalid",
-			TerminalID: "term-1",
+			SessionID:  "term-1",
 			AgentID:    "codex",
 			Source:     "manual",
 			EventType:  "plan-L1-wip",

@@ -16,9 +16,6 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@sourcegraph/scip-python": "^0.6.6",
-    "@sourcegraph/scip-typescript": "^0.4.0",
-    "@toon-format/toon": "^2.1.0",
     "orga": "^4.5.1"
   }
 }

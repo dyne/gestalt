@@ -59,7 +59,7 @@ describe('App tab switching', () => {
 
     const planTab = await findByRole('button', { name: 'Plans' })
     const flowTab = await findByRole('button', { name: 'Flow' })
-    const terminalTab = await findByRole('button', { name: 'Shell' })
+    const terminalTab = await findByRole('button', { name: 't1' })
 
     await fireEvent.click(planTab)
     await waitFor(() => {

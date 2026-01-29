@@ -87,7 +87,7 @@ describe('App duplicate agent handling', () => {
     expect(await findByText('agent "Codex" is already running')).toBeTruthy()
 
     const tabBar = container.querySelector('nav[aria-label="App tabs"]')
-    const tabButton = within(tabBar).getByRole('button', { name: 'Codex' })
+    const tabButton = within(tabBar).getByRole('button', { name: '1' })
     const tabItem = tabButton.closest('.tabbar__item')
     expect(tabItem?.dataset.active).toBe('true')
   })

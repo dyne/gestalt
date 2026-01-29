@@ -94,7 +94,7 @@ describe('Terminal', () => {
     focusSpy.mockRestore()
   })
 
-  it('shows the terminal id in the header', () => {
+  it('shows the session id as the header label', () => {
     const state = buildState()
     getTerminalState.mockReturnValue(state)
 
@@ -102,6 +102,6 @@ describe('Terminal', () => {
       props: { terminalId: 't1', title: 'Coder' },
     })
 
-    expect(getByText('ID: t1')).toBeTruthy()
+    expect(getByText('t1')).toBeTruthy()
   })
 })

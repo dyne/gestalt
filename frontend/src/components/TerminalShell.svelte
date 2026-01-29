@@ -14,7 +14,7 @@
   <header class="terminal-shell__header">
     <div class="header-line">
       <span class="label">{displayTitle}</span>
-      {#if terminalId}
+      {#if terminalId && terminalId !== displayTitle}
         <span class="separator">|</span>
         <span class="terminal-id">ID: {terminalId}</span>
       {/if}

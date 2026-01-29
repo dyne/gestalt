@@ -84,12 +84,12 @@ Metrics mapping
   - workflows.started/completed/failed/paused
   - event_bus.subscribers (gauge)
   - events.published/dropped (counter)
-  - terminal.sessions (gauge)
+  - sessions.active (gauge)
 
 Tracing model
 - HTTP server spans: per-request spans with standard http.* attributes.
 - Explicit spans for key actions:
-  - terminal.create, terminal.delete, agent.input, terminal.output
+  - session.create, session.delete, agent.input, session.output
 - Propagate trace context:
   - from inbound HTTP headers (traceparent)
   - into WebSocket connect spans

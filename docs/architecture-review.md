@@ -3,10 +3,10 @@ Date: 2026-01-23
 Scope: Document current architecture and data flow. No refactors proposed here.
 
 ## System overview
-Gestalt is a local-first multi-terminal dashboard. A Go backend manages PTY
+Gestalt is a local-first multi-session dashboard. A Go backend manages PTY
 sessions, agent profiles, skills, workflows, logs, and filesystem watching.
 A Svelte SPA is served by the backend and communicates over REST + WebSocket + SSE.
-A separate CLI (gestalt-send) posts stdin to agent terminals.
+A separate CLI (gestalt-send) posts stdin to agent sessions.
 
 Runtime topology (default):
 - Backend HTTP server: serves REST + WS + SSE on the backend port.
@@ -22,8 +22,8 @@ HTTP response headers:
   Cache-Control: no-cache.
 
 ## High-level data flow
-1) User input in the SPA -> terminalStore -> /ws/terminal/:id -> PTY session.
-2) PTY output -> Session output bus -> /ws/terminal/:id -> xterm in SPA.
+1) User input in the SPA -> terminalStore -> /ws/session/:id -> PTY session.
+2) PTY output -> Session output bus -> /ws/session/:id -> xterm in SPA.
 3) Filesystem or git changes -> watcher -> event.Bus[watcher.Event] -> /api/events/stream
    (SSE) -> eventStore -> UI updates.
 4) Logs -> logging.LogBuffer -> /api/logs/stream (SSE) and /api/logs -> LogsView.
@@ -32,7 +32,7 @@ HTTP response headers:
 ## Component map (backend)
 Entry points:
 - cmd/gestalt: main server + config extraction + Temporal + HTTP servers.
-- cmd/gestalt-send: CLI client for sending stdin to agent terminals.
+- cmd/gestalt-send: CLI client for sending stdin to agent sessions.
 
 Internal packages (Go):
 - internal/terminal: PTY sessions, session lifecycle, buffers, logging, manager.
@@ -61,21 +61,21 @@ Backend runtime wiring (main.go):
 
 ### Backend REST + WS surface
 REST endpoints (examples):
-- /api/status, /api/agents, /api/terminals, /api/logs, /api/skills
+- /api/status, /api/agents, /api/sessions, /api/logs, /api/skills
 - /api/plan, /api/plan/current
 
 SSE endpoints:
-- /api/events/stream (filesystem/config/workflow/terminal/agent events)
+- /api/events/stream (filesystem/config/workflow/session/agent events)
 - /api/logs/stream (log stream + 1h replay)
 
 WebSocket endpoints:
-- /ws/terminal/:id (PTY stream)
-- Deprecated: /ws/logs, /ws/events, /api/agents/events, /api/terminals/events,
+- /ws/session/:id (PTY stream)
+- Deprecated: /ws/logs, /ws/events, /api/agents/events, /api/sessions/events,
   /api/workflows/events, /api/config/events
 
 ## Component map (frontend)
 Entry: frontend/src/App.svelte
-- TabBar-driven navigation between Dashboard, Plan, Status, and terminal tabs.
+- TabBar-driven navigation between Dashboard, Plan, Status, and session tabs.
 
 Views (5):
 - Dashboard, PlanView, LogsView, FlowView (workflow status), TerminalView.
@@ -85,15 +85,15 @@ Components (11):
   NotificationSettings, WorkflowCard, WorkflowDetail, WorkflowHistory.
 
 Stores / lib modules (14):
-- terminalStore (xterm + terminal WS), eventStore (fs events SSE),
+- terminalStore (xterm + session WS), eventStore (fs events SSE),
   terminalEventStore / agentEventStore / configEventStore / workflowEventStore,
   api (fetch wrapper + URL helper), notificationStore, orgParser, timeUtils,
   terminalTabs, version.
 
 State management:
 - Backend: terminal.Manager holds session state; buses emit typed events.
-- Frontend: Svelte stores per domain (terminals, events, notifications).
-  App.svelte owns top-level view state and re-syncs via /api/status + /api/terminals.
+- Frontend: Svelte stores per domain (sessions, events, notifications).
+  App.svelte owns top-level view state and re-syncs via /api/status + /api/sessions.
 
 ## Embedded assets and configuration flow
 Embedded assets (embed.FS):
@@ -119,16 +119,16 @@ Frontend serving flow:
 - Reverse proxy split: frontend server proxies API/WS to backend server.
 
 ## Implicit coupling and hidden dependencies
-- Agent uniqueness: Manager enforces one session per agent name; UI relies on
-  agent name for tab labels and deduping.
+- Session identity: Manager derives session ids from agent names with per-run
+  counters; UI relies on session ids for tab labels and deduping.
 - Plan path: .gestalt/PLAN.org is hard-coded in plan.DefaultPath and watched
   directly; PlanView assumes this path exists.
 - Config placement: default config dir is .gestalt/config; several features
   rely on relative paths (prompts, agents, skills).
-- Event schemas: frontend stores assume specific JSON shapes for terminal/events
+- Event schemas: frontend stores assume specific JSON shapes for session events
   and depend on event_type values from backend.
 - Temporal wiring: workflow UI assumes Temporal events are enabled and uses
-  /api/workflows and /api/terminals/:id/workflow/history endpoints.
+  /api/workflows and /api/sessions/:id/workflow/history endpoints.
 - Logging: LogsView and /api/logs/stream depend on logging.LogBuffer memory retention
   (legacy /ws/logs is deprecated).
 - Reverse proxy: SPA expects /api and /ws on the frontend port; backend-only
@@ -281,8 +281,8 @@ Large refactors (1+ week, if justified):
   avoid PTY read stalls under slow subscribers.
 
 ### Risks and hidden coupling
-- Agent uniqueness is enforced by Manager.agentSessions using agent name,
-  which is also used as tab label in the frontend. Any rename semantics need
+- Session ids are derived from agent names with per-run counters, and the
+  frontend uses session ids as tab labels. Any rename semantics need
   coordination with the UI.
 - Prompt injection assumes session output contains the on-air marker and
   uses timed sleeps; this couples timing assumptions to CLI startup behavior.
@@ -302,9 +302,9 @@ Scope: REST endpoints, WebSocket + SSE handlers, middleware, SPA routing.
 ### Responsibilities and data flow
 - Route registration in routes.go wires REST + WS + SSE handlers and SPA fallback.
 - RestHandler in rest.go implements the majority of HTTP endpoints
-  (status, metrics, agents, terminals, skills, logs, plan, workflows).
-- WebSocket handlers are split per stream (terminal, plus legacy logs/events
-  and agent/terminal/workflow/config event handlers).
+  (status, metrics, agents, sessions, skills, logs, plan, workflows).
+- WebSocket handlers are split per stream (session, plus legacy logs/events
+  and agent/session/workflow/config event handlers).
 - middleware.go provides auth + JSON error handling + request logging.
 - spa.go serves the SPA with fallback to index.html for client-side routes.
 
@@ -337,9 +337,9 @@ Quick wins (<1 day):
   simplify rest.go readability.
 
 Medium refactors (1-3 days):
-- Split rest.go into domain-focused files: terminals.go, agents.go, skills.go,
+- Split rest.go into domain-focused files: sessions.go, agents.go, skills.go,
   logs.go, status.go, workflows.go, plan.go. Keep RestHandler shared.
-- Extract path parsing/validation for terminal routes (output/history/input)
+- Extract path parsing/validation for session routes (output/history/input)
   into small helpers with tests for edge cases.
 - Introduce a consistent error wrapper for WS handlers (close codes + logging)
   to align with REST error handling.
@@ -348,11 +348,11 @@ Large refactors (1+ week, if justified):
 - Introduce a small router layer per domain (e.g., TerminalAPI) to shrink the
   monolithic RestHandler while keeping shared deps explicit.
 - Consider a shared WS stream abstraction (subscribe + marshal + send) to
-  unify agent/terminal/workflow/config event handlers.
+  unify agent/session/workflow/config event handlers.
 
 ### Risks and hidden coupling
 - Frontend expects specific error message shapes from REST (error + optional
-  terminal_id) and uses status codes for duplicate-agent handling.
+  session_id) and uses status codes for duplicate-agent handling.
 - Event stream message shapes are relied upon by frontend stores and tests;
   any refactor must preserve payload fields and timing assumptions.
 
@@ -442,11 +442,12 @@ Medium refactors (1-3 days):
 
 Large refactors (1+ week, if justified):
 - Introduce a dedicated AgentRegistry to own cache + reload behavior and emit
-  events, keeping Manager focused on terminal lifecycle.
+  events, keeping Manager focused on session lifecycle.
 
 ### Risks and hidden coupling
-- Agent name uniqueness is enforced at load time and reused by terminal tabs;
-  any change in normalization impacts the UI and agent resolution in CLI.
+- Agent name uniqueness is enforced at load time; session ids derived from
+  agent names are reused by session tabs, so normalization impacts the UI and
+  agent resolution in CLI.
 
 ## Package analysis: internal/skill
 Scope: skill parsing (frontmatter + body), validation, loader, prompt XML.
@@ -586,7 +587,7 @@ Large refactors (1+ week, if justified):
   any change to backend address formation impacts frontend connectivity.
 
 ## Package analysis: cmd/gestalt-send
-Scope: CLI tool for sending stdin to agent terminals.
+Scope: CLI tool for sending stdin to agent sessions.
 
 ### Responsibilities and data flow
 - Parses CLI flags/env defaults and resolves agent by name or id.
@@ -667,19 +668,19 @@ Scope: shared stores, API helpers, utilities.
 
 ### Responsibilities and data flow
 - api.js handles fetch wrapper and WebSocket/EventSource URL construction with token.
-- terminalStore manages xterm lifecycle, terminal WS, input handling, and
+- terminalStore manages xterm lifecycle, session WS, input handling, and
   touch scrolling behavior.
-- eventStore + agent/config/terminal/workflow event stores subscribe to SSE
+- eventStore + agent/config/session/workflow event stores subscribe to SSE
   event streams and fan out to listeners.
 - notificationStore manages toast notifications.
 - orgParser parses Org-mode snippets for PlanView.
 - timeUtils provides relative time formatting.
-- terminalTabs formats terminal labels used by App.svelte.
+- terminalTabs formats session labels used by App.svelte.
 
 ### Complexity observations
 - terminalStore is large and handles multiple concerns (xterm setup, WS
   reconnect, input modes, clipboard, touch scrolling).
-- Event stream modules rely on a shared SSE helper; terminal WS still uses
+- Event stream modules rely on a shared SSE helper; session WS still uses
   separate lifecycle logic.
 - api.js fetch wrapper is simple but duplicated error handling in some views.
 
@@ -692,7 +693,7 @@ Quick wins (<1 day):
 Medium refactors (1-3 days):
 - Create a shared stream client module used by terminalStore (WS) and SSE
   event stores to standardize reconnect/backoff behavior and logging.
-- Introduce a small API client layer (agents, terminals, logs) to reduce
+- Introduce a small API client layer (agents, sessions, logs) to reduce
   repeated fetch + parse logic in views.
 
 Large refactors (1+ week, if justified):
@@ -762,7 +763,7 @@ Large refactors (1+ week, if justified):
   refreshing) to improve clarity and testability.
 
 ### Risks and hidden coupling
-- Dashboard relies on terminal list shape from /api/terminals to infer agent
+- Dashboard relies on session list shape from /api/sessions to infer agent
   running state; API changes must preserve these fields.
 
 ## Package analysis: Go dependencies

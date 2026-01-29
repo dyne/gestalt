@@ -54,7 +54,7 @@ Gestalt injects a notify hook for Codex sessions at runtime (overriding any
 existing `notify` value) so Temporal notary events are always recorded:
 
 ```toml
-notify = ["gestalt-notify", "--terminal-id", "<terminal-id>", "--agent-id", "<agent-id>", "--agent-name", "<agent-name>"]
+notify = ["gestalt-notify", "--session-id", "<session-id>", "--agent-id", "<agent-id>", "--agent-name", "<agent-name>"]
 ```
 
 ## Examples

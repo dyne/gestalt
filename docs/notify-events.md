@@ -1,12 +1,12 @@
 # Notify event envelope
 
-All notify sources POST the same envelope to `POST /api/terminals/:id/notify`.
+All notify sources POST the same envelope to `POST /api/sessions/:id/notify`.
 The backend treats `payload` as opaque JSON, while extracting top-level metadata
 for validation and Temporal notarization.
 
 ## Envelope fields
 
-- `terminal_id` (string, required)
+- `session_id` (string, required)
 - `agent_id` (string, required; agent config id)
 - `agent_name` (string, optional; display name)
 - `source` (string, required; `codex-notify` or `manual`)
@@ -20,7 +20,7 @@ for validation and Temporal notarization.
 
 ```json
 {
-  "terminal_id": "term-7",
+  "session_id": "Codex 1",
   "agent_id": "codex",
   "agent_name": "Codex",
   "source": "codex-notify",
@@ -40,7 +40,7 @@ for validation and Temporal notarization.
 
 ```json
 {
-  "terminal_id": "term-7",
+  "session_id": "Codex 1",
   "agent_id": "architect",
   "agent_name": "Architect",
   "source": "manual",

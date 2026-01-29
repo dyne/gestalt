@@ -103,7 +103,7 @@
    Why: rest.go mixes routing, validation, and business logic.
    Change:
    - Split into terminals.go, agents.go, skills.go, logs.go, status.go,
-     workflows.go, plan.go, scip.go.
+     workflows.go, plan.go.
    Tests:
    - Ensure REST tests still pass; add missing coverage if needed.
    Done when: rest.go is reduced and endpoints are organized by domain.
@@ -567,22 +567,6 @@
    - Document current direct Go dependencies and rationale.
    Tests: None (documentation only).
    Done when: dependency list is documented.
-
-** [#B] Add optional SCIP build tags
-   Why: SCIP adds many dependencies for users who do not need it.
-   Change:
-   - Introduce build tags for internal/scip and related API endpoints.
-   - Provide no-op handlers when SCIP is disabled.
-   Tests:
-   - Add build-tagged tests to verify both modes compile.
-   Done when: SCIP can be built out via tags.
-
-** [#C] Document SCIP build tag usage
-   Why: Users need to know how to enable/disable SCIP.
-   Change:
-   - Update docs with build tag instructions and defaults.
-   Tests: None (documentation only).
-   Done when: documentation explains SCIP build tags.
 
 * DONE [#C] Orchestrator package decision
   Goal: Remove ambiguity around internal/orchestrator.

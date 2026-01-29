@@ -15,20 +15,10 @@ when adding or removing direct dependencies.
   workflow-enabled terminal sessions.
 - gopkg.in/yaml.v3: YAML frontmatter parsing for skills metadata in
   internal/skill.
-- github.com/klauspost/compress: zstd compression for SCIP index handling in
-  internal/scip.
-- github.com/mattn/go-sqlite3: SQLite driver for SCIP index storage in
-  internal/scip.
-- github.com/sourcegraph/scip: SCIP schema and helpers used for code
-  intelligence indexing and queries in internal/scip.
 - go.temporal.io/api: Temporal API types and service errors used by
   internal/temporal and workflow REST endpoints.
-- golang.org/x/time: rate limiter for SCIP endpoints in internal/api.
-- google.golang.org/protobuf: protobuf support for SCIP index merging and tests
-  in internal/scip.
 
 ## Notes
 
-- Temporal and SCIP introduce sizable indirect dependency trees. Keep feature
-  flags and build tags aligned with these modules to avoid pulling them when not
-  needed.
+- Temporal introduces a sizable indirect dependency tree. Keep feature flags
+  aligned with these modules to avoid pulling them when not needed.

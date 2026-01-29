@@ -45,7 +45,6 @@ Internal packages (Go):
 - internal/config: embedded config extraction + version tracking.
 - internal/plan: .gestalt/PLAN.org cache, helpers for plan endpoints.
 - internal/prompt: prompt parsing, include resolution, render logic.
-- internal/scip: SCIP endpoints + asset extraction.
 - internal/temporal: workflow orchestration, memo helpers, worker wiring.
 - internal/metrics: metrics counters exposed via /api/metrics/summary.
 - internal/version: build version string for /api/status and logs.
@@ -99,7 +98,6 @@ State management:
 Embedded assets (embed.FS):
 - frontend/dist (SPA build)
 - config (default agents, prompts, skills)
-- assets/scip (SCIP indexer assets)
 
 Config extraction flow:
 - On startup, embedded config is extracted to .gestalt/config based on
@@ -142,7 +140,6 @@ Backend Go packages (files, lines):
 - internal/api: 28 files, 8323 lines
 - internal/terminal: 25 files, 4756 lines
 - internal/agent: 28 files, 3247 lines
-- internal/scip: 14 files, 2903 lines
 - internal/event: 7 files, 1502 lines
 - internal/temporal: 8 files, 1318 lines
 - internal/watcher: 7 files, 1312 lines
@@ -402,8 +399,8 @@ Large refactors (1+ week, if justified):
 
 ### Risks and hidden coupling
 - Max watch limit is enforced at registration time; higher-level features
-  relying on multiple watches (plan + git + scip) can silently fail if the
-  limit is reached.
+  relying on multiple watches (plan + git) can silently fail if the limit is
+  reached.
 - Restart logic is best-effort; repeated fsnotify failures trigger error
   handler, which upstream uses for user-visible warnings.
 
@@ -552,7 +549,7 @@ Scope: main entrypoint, config loading, server lifecycle, subcommands.
 - Extracts embedded config to .gestalt/config unless dev mode is enabled.
 - Initializes logger, event bus, agent + skill loaders, terminal.Manager.
 - Starts Temporal dev server + client/worker when enabled.
-- Starts filesystem watch (plan + git + scip auto-reindex) and event streams.
+- Starts filesystem watch (plan + git) and event streams.
 - Launches backend HTTP server and frontend proxy server.
 - Provides subcommands: completion, validate-skill, config validate, index,
   and legacy no-op extract-config.
@@ -560,8 +557,8 @@ Scope: main entrypoint, config loading, server lifecycle, subcommands.
 ### Complexity observations
 - main.go is large and mixes config parsing, runtime wiring, and server
   lifecycle, making it difficult to test smaller units.
-- Several helper functions (prompt validation, plan watcher, scip extraction)
-  live in main.go or adjacent files; ownership boundaries are fuzzy.
+- Several helper functions (prompt validation, plan watcher) live in main.go or
+  adjacent files; ownership boundaries are fuzzy.
 - Command-specific logic (validate config, index) lives in cmd/gestalt but
   shares data structures with runtime code, which complicates reuse.
 
@@ -775,7 +772,6 @@ Scope: direct Go module dependencies and justification.
 - github.com/gorilla/websocket: WebSocket server support and origin checks.
 - go.temporal.io/sdk + go.temporal.io/api: workflow engine for session workflows.
 - gopkg.in/yaml.v3: YAML parsing for skills.
-- github.com/sourcegraph/scip: SCIP query and index helpers.
 - github.com/mattn/go-sqlite3: SCIP index storage backend.
 - github.com/klauspost/compress: compression utilities used by SCIP/tooling.
 - google.golang.org/protobuf: protocol buffer types (Temporal/SCIP).

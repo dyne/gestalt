@@ -59,7 +59,7 @@ export const createCommandHistory = ({
     loadedFor = terminalId
     try {
       const response = await apiFetch(
-        `/api/terminals/${terminalId}/input-history?limit=${loadLimit}`
+        `/api/sessions/${terminalId}/input-history?limit=${loadLimit}`
       )
       const payload = await response.json()
       history = normalizeHistory(payload)

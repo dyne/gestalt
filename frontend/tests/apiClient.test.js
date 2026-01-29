@@ -61,7 +61,7 @@ describe('apiClient', () => {
     const result = await createTerminal({ agentId: 'codex', workflow: true })
 
     expect(result).toEqual({ id: '1' })
-    expect(apiFetch).toHaveBeenCalledWith('/api/terminals', {
+    expect(apiFetch).toHaveBeenCalledWith('/api/sessions', {
       method: 'POST',
       body: JSON.stringify({ agent: 'codex', workflow: true }),
     })

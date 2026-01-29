@@ -99,7 +99,7 @@ export const createTerminalSocket = ({
     historyLoadPromise = (async () => {
       try {
         const response = await apiFetch(
-          `/api/terminals/${terminalId}/history?lines=${HISTORY_LINES}`
+          `/api/sessions/${terminalId}/history?lines=${HISTORY_LINES}`
         )
         const payload = await response.json()
         const lines = Array.isArray(payload?.lines) ? payload.lines : []
@@ -206,7 +206,7 @@ export const createTerminalSocket = ({
         ? `?cursor=${encodeURIComponent(historyCursor)}`
         : ''
     socket = new WebSocket(
-      buildWebSocketUrl(`/ws/terminal/${terminalId}${cursorParam}`)
+      buildWebSocketUrl(`/ws/session/${terminalId}${cursorParam}`)
     )
     socket.binaryType = 'arraybuffer'
 

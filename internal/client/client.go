@@ -112,7 +112,7 @@ func StartAgent(client *http.Client, baseURL, token, agentID string) error {
 		return fmt.Errorf("encode start request: %w", err)
 	}
 
-	request, err := http.NewRequest(http.MethodPost, baseURL+"/api/terminals", bytes.NewReader(body))
+	request, err := http.NewRequest(http.MethodPost, baseURL+"/api/sessions", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("build start request: %w", err)
 	}

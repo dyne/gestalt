@@ -75,7 +75,7 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 		}()
 	}
 
-	mux.Handle("/ws/terminal/", securityHeadersMiddleware(cacheControlNoStore, &TerminalHandler{
+	mux.Handle("/ws/session/", securityHeadersMiddleware(cacheControlNoStore, &TerminalHandler{
 		Manager:   manager,
 		Logger:    logger,
 		AuthToken: authToken,
@@ -108,7 +108,7 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 		Logger:    logger,
 		AuthToken: authToken,
 	}))
-	mux.Handle("/api/terminals/events", securityHeadersMiddleware(cacheControlNoStore, &TerminalEventsHandler{
+	mux.Handle("/api/sessions/events", securityHeadersMiddleware(cacheControlNoStore, &TerminalEventsHandler{
 		Manager:   manager,
 		Logger:    logger,
 		AuthToken: authToken,
@@ -141,8 +141,8 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 	mux.Handle("/api/otel/logs", wrap("/api/otel/logs", "logs", "create", restHandler(authToken, logger, rest.handleOTelLogs)))
 	mux.Handle("/api/otel/traces", wrap("/api/otel/traces", "traces", "query", restHandler(authToken, logger, rest.handleOTelTraces)))
 	mux.Handle("/api/otel/metrics", wrap("/api/otel/metrics", "metrics", "query", restHandler(authToken, logger, rest.handleOTelMetrics)))
-	mux.Handle("/api/terminals", wrap("/api/terminals", "terminals", "auto", restHandler(authToken, logger, rest.handleTerminals)))
-	mux.Handle("/api/terminals/", wrap("/api/terminals/:id", "terminals", "auto", restHandler(authToken, logger, rest.handleTerminal)))
+	mux.Handle("/api/sessions", wrap("/api/sessions", "sessions", "auto", restHandler(authToken, logger, rest.handleTerminals)))
+	mux.Handle("/api/sessions/", wrap("/api/sessions/:id", "sessions", "auto", restHandler(authToken, logger, rest.handleTerminal)))
 	mux.Handle("/api/plans", wrap("/api/plans", "plan", "read", restHandler(authToken, logger, rest.handlePlansList)))
 	mux.Handle("/api/flow/activities", wrap("/api/flow/activities", "flow", "read", restHandler(authToken, logger, rest.handleFlowActivities)))
 	mux.Handle("/api/flow/config", wrap("/api/flow/config", "flow", "auto", restHandler(authToken, logger, rest.handleFlowConfig)))

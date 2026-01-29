@@ -144,7 +144,7 @@ export const fetchStatus = async () => {
 }
 
 export const fetchTerminals = async () => {
-  const response = await apiFetch('/api/terminals')
+  const response = await apiFetch('/api/sessions')
   const payload = await response.json()
   return normalizeArray(payload, normalizeTerminal)
 }
@@ -154,7 +154,7 @@ export const createTerminal = async ({ agentId = '', workflow } = {}) => {
   if (typeof workflow === 'boolean') {
     payload.workflow = workflow
   }
-  const response = await apiFetch('/api/terminals', {
+  const response = await apiFetch('/api/sessions', {
     method: 'POST',
     body: JSON.stringify(payload),
   })
@@ -164,7 +164,7 @@ export const createTerminal = async ({ agentId = '', workflow } = {}) => {
 
 export const deleteTerminal = async (terminalId) => {
   if (!terminalId) return
-  await apiFetch(`/api/terminals/${terminalId}`, { method: 'DELETE' })
+  await apiFetch(`/api/sessions/${terminalId}`, { method: 'DELETE' })
 }
 
 export const fetchAgents = async () => {
@@ -225,7 +225,7 @@ export const sendAgentInput = async (agentName, inputText) => {
 
 export const resumeWorkflow = async (sessionId, action) => {
   if (!sessionId) return
-  await apiFetch(`/api/terminals/${sessionId}/workflow/resume`, {
+  await apiFetch(`/api/sessions/${sessionId}/workflow/resume`, {
     method: 'POST',
     body: JSON.stringify({ action }),
   })
@@ -233,7 +233,7 @@ export const resumeWorkflow = async (sessionId, action) => {
 
 export const fetchWorkflowHistory = async (terminalId) => {
   if (!terminalId) return []
-  const response = await apiFetch(`/api/terminals/${terminalId}/workflow/history`)
+  const response = await apiFetch(`/api/sessions/${terminalId}/workflow/history`)
   const payload = await response.json()
   return normalizeArray(payload, (entry) => entry)
 }

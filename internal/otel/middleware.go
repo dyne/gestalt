@@ -381,7 +381,7 @@ func normalizeRoute(route, path string) string {
 	if path == "" {
 		return route
 	}
-	if strings.HasPrefix(path, "/api/terminals") {
+	if strings.HasPrefix(path, "/api/sessions") {
 		return terminalRoute(path)
 	}
 	if strings.HasPrefix(path, "/api/agents") {
@@ -398,8 +398,8 @@ func normalizeRoute(route, path string) string {
 
 func categoryForPath(path string) string {
 	switch {
-	case strings.HasPrefix(path, "/api/terminals"):
-		return "terminals"
+	case strings.HasPrefix(path, "/api/sessions"):
+		return "sessions"
 	case strings.HasPrefix(path, "/api/agents"):
 		return "agents"
 	case strings.HasPrefix(path, "/api/workflows"):
@@ -439,51 +439,51 @@ func operationForMethod(method string) string {
 }
 
 func criticalSpanName(routeInfo RouteInfo, method string) string {
-	if method == http.MethodPost && routeInfo.Route == "/api/terminals" {
+	if method == http.MethodPost && routeInfo.Route == "/api/sessions" {
 		return spanNameTerminalCreate
 	}
-	if method == http.MethodDelete && routeInfo.Route == "/api/terminals/:id" {
+	if method == http.MethodDelete && routeInfo.Route == "/api/sessions/:id" {
 		return spanNameTerminalDelete
 	}
 	if method == http.MethodPost && routeInfo.Route == "/api/agents/:name/input" {
 		return spanNameAgentInput
 	}
-	if method == http.MethodGet && routeInfo.Route == "/api/terminals/:id/output" {
+	if method == http.MethodGet && routeInfo.Route == "/api/sessions/:id/output" {
 		return spanNameTerminalOutput
 	}
 	return ""
 }
 
 func terminalRoute(path string) string {
-	trimmed := strings.TrimPrefix(path, "/api/terminals")
+	trimmed := strings.TrimPrefix(path, "/api/sessions")
 	trimmed = strings.Trim(trimmed, "/")
 	if trimmed == "" {
-		return "/api/terminals"
+		return "/api/sessions"
 	}
 	parts := strings.Split(trimmed, "/")
 	if len(parts) == 1 {
-		return "/api/terminals/:id"
+		return "/api/sessions/:id"
 	}
 	switch parts[1] {
 	case "output":
-		return "/api/terminals/:id/output"
+		return "/api/sessions/:id/output"
 	case "history":
-		return "/api/terminals/:id/history"
+		return "/api/sessions/:id/history"
 	case "input-history":
-		return "/api/terminals/:id/input-history"
+		return "/api/sessions/:id/input-history"
 	case "bell":
-		return "/api/terminals/:id/bell"
+		return "/api/sessions/:id/bell"
 	case "workflow":
 		if len(parts) >= 3 {
 			switch parts[2] {
 			case "resume":
-				return "/api/terminals/:id/workflow/resume"
+				return "/api/sessions/:id/workflow/resume"
 			case "history":
-				return "/api/terminals/:id/workflow/history"
+				return "/api/sessions/:id/workflow/history"
 			}
 		}
 	}
-	return "/api/terminals/:id"
+	return "/api/sessions/:id"
 }
 
 func agentsRoute(path string) string {
@@ -512,7 +512,7 @@ func prepareRequest(r *http.Request, routeInfo RouteInfo) (int64, string, *count
 	}
 	var bodyAgentID string
 	var bodyBytes []byte
-	if routeInfo.Route == "/api/terminals" && r.Method == http.MethodPost {
+	if routeInfo.Route == "/api/sessions" && r.Method == http.MethodPost {
 		payload, err := io.ReadAll(r.Body)
 		if err == nil {
 			bodyBytes = payload
@@ -580,7 +580,7 @@ func resolveAgentAttributes(resolver AgentResolver, r *http.Request, bodyAgentID
 }
 
 func terminalIDFromPath(path string) string {
-	trimmed := strings.TrimPrefix(path, "/api/terminals/")
+	trimmed := strings.TrimPrefix(path, "/api/sessions/")
 	if trimmed == path {
 		return ""
 	}

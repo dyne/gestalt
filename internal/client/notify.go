@@ -43,7 +43,7 @@ func PostNotifyEvent(client *http.Client, baseURL, token, terminalID string, pay
 		return fmt.Errorf("encode notify request: %w", err)
 	}
 
-	request, err := http.NewRequest(http.MethodPost, baseURL+"/api/terminals/"+terminalID+"/notify", bytes.NewReader(body))
+	request, err := http.NewRequest(http.MethodPost, baseURL+"/api/sessions/"+terminalID+"/notify", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("build notify request failed: %w", err)
 	}

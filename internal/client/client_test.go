@@ -97,7 +97,7 @@ func TestStartAgentSuccess(t *testing.T) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("expected POST, got %s", r.Method)
 		}
-		if r.URL.Path != "/api/terminals" {
+		if r.URL.Path != "/api/sessions" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		body, _ := io.ReadAll(r.Body)

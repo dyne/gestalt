@@ -35,7 +35,7 @@ func TestTerminalEventsWebSocketStream(t *testing.T) {
 	server.Start()
 	defer server.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/api/terminals/events"
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/api/sessions/events"
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial websocket: %v", err)

@@ -448,7 +448,7 @@ func (h *RestHandler) handleTerminalDelete(w http.ResponseWriter, r *http.Reques
 }
 
 func parseTerminalPath(path string) (string, terminalPathAction, *apiError) {
-	trimmed := strings.TrimPrefix(path, "/api/terminals/")
+	trimmed := strings.TrimPrefix(path, "/api/sessions/")
 	if trimmed == path {
 		return "", terminalPathTerminal, &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
 	}

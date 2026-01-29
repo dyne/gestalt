@@ -92,7 +92,7 @@ func lookupAgentByName(agents []terminal.AgentInfo, name string) (string, string
 }
 
 func terminalIDFromPath(path string) string {
-	trimmed := strings.TrimPrefix(path, "/api/terminals/")
+	trimmed := strings.TrimPrefix(path, "/api/sessions/")
 	if trimmed == path {
 		return ""
 	}

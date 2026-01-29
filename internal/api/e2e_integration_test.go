@@ -43,7 +43,7 @@ func TestEndToEndTerminalFlow(t *testing.T) {
 	server.Start()
 	defer server.Close()
 
-	createReq, err := http.NewRequest(http.MethodPost, server.URL+"/api/terminals", strings.NewReader(`{"title":"e2e","agent":"codex"}`))
+	createReq, err := http.NewRequest(http.MethodPost, server.URL+"/api/sessions", strings.NewReader(`{"title":"e2e","agent":"codex"}`))
 	if err != nil {
 		t.Fatalf("create request: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestEndToEndTerminalFlow(t *testing.T) {
 	pty := factory.ptys[0]
 	factory.mu.Unlock()
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/terminal/" + url.PathEscape(summary.ID) + "?token=secret"
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/session/" + url.PathEscape(summary.ID) + "?token=secret"
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial websocket: %v", err)

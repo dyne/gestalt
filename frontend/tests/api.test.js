@@ -42,9 +42,9 @@ describe('api helpers', () => {
 
   it('buildWebSocketUrl appends token', () => {
     localStorage.setItem('gestalt_token', 'abc123')
-    const url = buildWebSocketUrl('/ws/terminal/1')
+    const url = buildWebSocketUrl('/ws/session/1')
     expect(url.startsWith('ws://')).toBe(true)
-    expect(url).toContain('/ws/terminal/1')
+    expect(url).toContain('/ws/session/1')
     expect(url).toContain('token=abc123')
   })
 

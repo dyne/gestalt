@@ -52,7 +52,7 @@ func (h *TerminalHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	spanCtx, span := startWebSocketSpan(r, "/ws/terminal/:id")
+	spanCtx, span := startWebSocketSpan(r, "/ws/session/:id")
 	defer span.End()
 	r = r.WithContext(spanCtx)
 
@@ -64,7 +64,7 @@ func (h *TerminalHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := strings.TrimPrefix(r.URL.Path, "/ws/terminal/")
+	id := strings.TrimPrefix(r.URL.Path, "/ws/session/")
 	if id == "" || id == r.URL.Path {
 		writeWSError(w, r, conn, h.Logger, wsError{
 			Status:  http.StatusBadRequest,

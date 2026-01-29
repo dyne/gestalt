@@ -108,7 +108,7 @@ func TestJSONErrorMiddlewareLogsAPIError(t *testing.T) {
 		return &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/terminals/123/notify", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/123/notify", nil)
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, req)
 
@@ -128,8 +128,8 @@ func TestJSONErrorMiddlewareLogsAPIError(t *testing.T) {
 		if entry.Context["error"] != "terminal not found" {
 			t.Fatalf("expected error field, got %q", entry.Context["error"])
 		}
-		if entry.Context["http.route"] != "/api/terminals/123/notify" {
-			t.Fatalf("expected http.route /api/terminals/123/notify, got %q", entry.Context["http.route"])
+		if entry.Context["http.route"] != "/api/sessions/123/notify" {
+			t.Fatalf("expected http.route /api/sessions/123/notify, got %q", entry.Context["http.route"])
 		}
 		if entry.Context["status"] != "404" {
 			t.Fatalf("expected status 404, got %q", entry.Context["status"])

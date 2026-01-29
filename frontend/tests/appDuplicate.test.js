@@ -41,7 +41,7 @@ describe('App duplicate agent handling', () => {
           json: vi.fn().mockResolvedValue({ terminal_count: 1 }),
         })
       }
-      if (url === '/api/terminals' && (!options.method || options.method === 'GET')) {
+      if (url === '/api/sessions' && (!options.method || options.method === 'GET')) {
         return Promise.resolve({
           json: vi.fn().mockResolvedValue([
             {
@@ -68,7 +68,7 @@ describe('App duplicate agent handling', () => {
           json: vi.fn().mockResolvedValue([]),
         })
       }
-      if (url === '/api/terminals' && options.method === 'POST') {
+      if (url === '/api/sessions' && options.method === 'POST') {
         const error = new Error('agent "Codex" is already running')
         error.status = 409
         error.data = { terminal_id: '1' }

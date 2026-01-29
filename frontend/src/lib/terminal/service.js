@@ -61,7 +61,7 @@ export const createTerminalService = ({ terminalId, historyCache }) => {
 
   const sendBell = async () => {
     try {
-      await apiFetch(`/api/terminals/${terminalId}/bell`, {
+      await apiFetch(`/api/sessions/${terminalId}/bell`, {
         method: 'POST',
       })
     } catch (bellError) {

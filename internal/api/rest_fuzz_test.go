@@ -5,13 +5,13 @@ import "testing"
 func FuzzParseTerminalPath(f *testing.F) {
 	seeds := []string{
 		"",
-		"/api/terminals/1",
-		"/api/terminals/1/output",
-		"/api/terminals/1/history",
-		"/api/terminals/",
-		"/api/terminals//output",
-		"/api/terminals//history",
-		"/api/terminals/abc/extra",
+		"/api/sessions/1",
+		"/api/sessions/1/output",
+		"/api/sessions/1/history",
+		"/api/sessions/",
+		"/api/sessions//output",
+		"/api/sessions//history",
+		"/api/sessions/abc/extra",
 	}
 	for _, seed := range seeds {
 		f.Add(seed)

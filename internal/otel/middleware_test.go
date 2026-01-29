@@ -67,9 +67,9 @@ func TestAPIMiddlewareResolvesAgentAttributes(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	wrapped := WithRouteInfo(middleware(handler), RouteInfo{Route: "/api/terminals/:id", Category: "terminals", Operation: "read"})
+	wrapped := WithRouteInfo(middleware(handler), RouteInfo{Route: "/api/sessions/:id", Category: "sessions", Operation: "read"})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/terminals/123", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/123", nil)
 	rec := httptest.NewRecorder()
 	wrapped.ServeHTTP(rec, req)
 

@@ -202,7 +202,7 @@ describe('terminalStore', () => {
 
     await waitForSocket()
     const socket = MockWebSocket.instances[0]
-    expect(socket.url).toBe('ws://test/ws/terminal/abc')
+    expect(socket.url).toBe('ws://test/ws/session/abc')
     socket.open()
 
     await flush()

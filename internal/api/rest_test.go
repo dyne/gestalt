@@ -72,7 +72,7 @@ func escapeID(id string) string {
 }
 
 func terminalPath(id string) string {
-	return "/api/terminals/" + escapeID(id)
+	return "/api/sessions/" + escapeID(id)
 }
 
 func newFakePty() *fakePty {
@@ -624,7 +624,7 @@ func TestTerminalNotifyEndpointMissingTerminal(t *testing.T) {
 	manager := newTestManager(terminal.ManagerOptions{Shell: "/bin/sh"})
 	handler := &RestHandler{Manager: manager}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/terminals/missing/notify", strings.NewReader(`{"terminal_id":"missing","agent_id":"codex","source":"manual","event_type":"plan-L1-wip"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/missing/notify", strings.NewReader(`{"terminal_id":"missing","agent_id":"codex","source":"manual","event_type":"plan-L1-wip"}`))
 	res := httptest.NewRecorder()
 
 	restHandler("", nil, handler.handleTerminal)(res, req)
@@ -1140,7 +1140,7 @@ func TestCreateTerminalWithoutAgent(t *testing.T) {
 	})
 	handler := &RestHandler{Manager: manager}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/terminals", strings.NewReader(`{"title":"plain","role":"shell"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions", strings.NewReader(`{"title":"plain","role":"shell"}`))
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
@@ -1161,7 +1161,7 @@ func TestCreateTerminalWorkflowFlag(t *testing.T) {
 	})
 	handler := &RestHandler{Manager: manager}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/terminals", strings.NewReader(`{"agent":"codex"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions", strings.NewReader(`{"agent":"codex"}`))
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
@@ -1192,7 +1192,7 @@ func TestCreateTerminalWorkflowFlag(t *testing.T) {
 		t.Fatalf("delete session: %v", err)
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/api/terminals", strings.NewReader(`{"agent":"codex","workflow":true}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/sessions", strings.NewReader(`{"agent":"codex","workflow":true}`))
 	req.Header.Set("Authorization", "Bearer secret")
 	res = httptest.NewRecorder()
 
@@ -1216,7 +1216,7 @@ func TestCreateTerminalWorkflowFlag(t *testing.T) {
 		t.Fatalf("delete session: %v", err)
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/api/terminals", strings.NewReader(`{"agent":"codex","workflow":false}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/sessions", strings.NewReader(`{"agent":"codex","workflow":false}`))
 	req.Header.Set("Authorization", "Bearer secret")
 	res = httptest.NewRecorder()
 
@@ -1267,7 +1267,7 @@ func TestCreateTerminalWithAgent(t *testing.T) {
 	})
 	handler := &RestHandler{Manager: manager}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/terminals", strings.NewReader(`{"title":"ignored","role":"shell","agent":"codex"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions", strings.NewReader(`{"title":"ignored","role":"shell","agent":"codex"}`))
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
@@ -1329,7 +1329,7 @@ func TestCreateTerminalUsesAgentWorkflowDefault(t *testing.T) {
 	})
 	handler := &RestHandler{Manager: manager}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/terminals", strings.NewReader(`{"agent":"codex"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions", strings.NewReader(`{"agent":"codex"}`))
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
@@ -1380,7 +1380,7 @@ func TestCreateTerminalDuplicateAgent(t *testing.T) {
 	})
 	handler := &RestHandler{Manager: manager}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/terminals", strings.NewReader(`{"agent":"codex"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions", strings.NewReader(`{"agent":"codex"}`))
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
@@ -1400,7 +1400,7 @@ func TestCreateTerminalDuplicateAgent(t *testing.T) {
 		_ = manager.Delete(created.ID)
 	}()
 
-	req = httptest.NewRequest(http.MethodPost, "/api/terminals", strings.NewReader(`{"agent":"codex"}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/sessions", strings.NewReader(`{"agent":"codex"}`))
 	req.Header.Set("Authorization", "Bearer secret")
 	res = httptest.NewRecorder()
 
@@ -1455,7 +1455,7 @@ func TestListTerminalsIncludesLLMMetadata(t *testing.T) {
 	}()
 
 	handler := &RestHandler{Manager: manager}
-	req := httptest.NewRequest(http.MethodGet, "/api/terminals", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
@@ -1504,7 +1504,7 @@ func TestListTerminalsIncludesPromptFiles(t *testing.T) {
 	}()
 
 	handler := &RestHandler{Manager: manager}
-	req := httptest.NewRequest(http.MethodGet, "/api/terminals", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
@@ -1887,7 +1887,7 @@ func TestTerminalBellEndpointReturnsNoContent(t *testing.T) {
 func TestTerminalBellEndpointMissingSession(t *testing.T) {
 	manager := newTestManager(terminal.ManagerOptions{Shell: "/bin/sh"})
 	handler := &RestHandler{Manager: manager}
-	req := httptest.NewRequest(http.MethodPost, "/api/terminals/unknown/bell", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/unknown/bell", nil)
 	res := httptest.NewRecorder()
 
 	restHandler("", nil, handler.handleTerminal)(res, req)
@@ -1940,25 +1940,25 @@ func TestParseTerminalPath(t *testing.T) {
 		wantErr bool
 		status  int
 	}{
-		{name: "terminal", path: "/api/terminals/123", id: "123", action: terminalPathTerminal},
-		{name: "terminal-trailing-slash", path: "/api/terminals/123/", id: "123", action: terminalPathTerminal},
-		{name: "output", path: "/api/terminals/123/output", id: "123", action: terminalPathOutput},
-		{name: "output-trailing-slash", path: "/api/terminals/123/output/", id: "123", action: terminalPathOutput},
-		{name: "history", path: "/api/terminals/123/history", id: "123", action: terminalPathHistory},
-		{name: "history-trailing-slash", path: "/api/terminals/123/history/", id: "123", action: terminalPathHistory},
-		{name: "input-history", path: "/api/terminals/123/input-history", id: "123", action: terminalPathInputHistory},
-		{name: "input-history-trailing-slash", path: "/api/terminals/123/input-history/", id: "123", action: terminalPathInputHistory},
-		{name: "workflow-resume", path: "/api/terminals/123/workflow/resume", id: "123", action: terminalPathWorkflowResume},
-		{name: "workflow-resume-trailing-slash", path: "/api/terminals/123/workflow/resume/", id: "123", action: terminalPathWorkflowResume},
-		{name: "workflow-history", path: "/api/terminals/123/workflow/history", id: "123", action: terminalPathWorkflowHistory},
-		{name: "workflow-history-trailing-slash", path: "/api/terminals/123/workflow/history/", id: "123", action: terminalPathWorkflowHistory},
+		{name: "terminal", path: "/api/sessions/123", id: "123", action: terminalPathTerminal},
+		{name: "terminal-trailing-slash", path: "/api/sessions/123/", id: "123", action: terminalPathTerminal},
+		{name: "output", path: "/api/sessions/123/output", id: "123", action: terminalPathOutput},
+		{name: "output-trailing-slash", path: "/api/sessions/123/output/", id: "123", action: terminalPathOutput},
+		{name: "history", path: "/api/sessions/123/history", id: "123", action: terminalPathHistory},
+		{name: "history-trailing-slash", path: "/api/sessions/123/history/", id: "123", action: terminalPathHistory},
+		{name: "input-history", path: "/api/sessions/123/input-history", id: "123", action: terminalPathInputHistory},
+		{name: "input-history-trailing-slash", path: "/api/sessions/123/input-history/", id: "123", action: terminalPathInputHistory},
+		{name: "workflow-resume", path: "/api/sessions/123/workflow/resume", id: "123", action: terminalPathWorkflowResume},
+		{name: "workflow-resume-trailing-slash", path: "/api/sessions/123/workflow/resume/", id: "123", action: terminalPathWorkflowResume},
+		{name: "workflow-history", path: "/api/sessions/123/workflow/history", id: "123", action: terminalPathWorkflowHistory},
+		{name: "workflow-history-trailing-slash", path: "/api/sessions/123/workflow/history/", id: "123", action: terminalPathWorkflowHistory},
 		{name: "missing-prefix", path: "/api/terminal/123", wantErr: true, status: http.StatusNotFound},
-		{name: "empty-id", path: "/api/terminals/", wantErr: true, status: http.StatusBadRequest},
-		{name: "empty-id-output", path: "/api/terminals//output", wantErr: true, status: http.StatusBadRequest},
-		{name: "unknown-action", path: "/api/terminals/123/extra", wantErr: true, status: http.StatusNotFound},
-		{name: "workflow-missing-action", path: "/api/terminals/123/workflow", wantErr: true, status: http.StatusNotFound},
-		{name: "workflow-unknown-action", path: "/api/terminals/123/workflow/extra", wantErr: true, status: http.StatusNotFound},
-		{name: "extra-segments", path: "/api/terminals/123/output/extra", wantErr: true, status: http.StatusNotFound},
+		{name: "empty-id", path: "/api/sessions/", wantErr: true, status: http.StatusBadRequest},
+		{name: "empty-id-output", path: "/api/sessions//output", wantErr: true, status: http.StatusBadRequest},
+		{name: "unknown-action", path: "/api/sessions/123/extra", wantErr: true, status: http.StatusNotFound},
+		{name: "workflow-missing-action", path: "/api/sessions/123/workflow", wantErr: true, status: http.StatusNotFound},
+		{name: "workflow-unknown-action", path: "/api/sessions/123/workflow/extra", wantErr: true, status: http.StatusNotFound},
+		{name: "extra-segments", path: "/api/sessions/123/output/extra", wantErr: true, status: http.StatusNotFound},
 	}
 
 	for _, test := range tests {

@@ -88,13 +88,13 @@ describe('createTerminalSocket', () => {
     await socketManager.connect()
 
     expect(MockWebSocket.instances).toHaveLength(1)
-    expect(MockWebSocket.instances[0].url).toContain('/ws/terminal/alpha?cursor=123')
+    expect(MockWebSocket.instances[0].url).toContain('/ws/session/alpha?cursor=123')
   })
 
   it('reuses history cursor on reconnect without reloading history', async () => {
     const { apiFetch } = await import('../api.js')
     apiFetch.mockImplementation(async (path) => {
-      if (path.startsWith('/api/terminals/')) {
+      if (path.startsWith('/api/sessions/')) {
         return { json: async () => ({ lines: ['hello'], cursor: 77 }) }
       }
       return {}
@@ -119,7 +119,7 @@ describe('createTerminalSocket', () => {
     await socketManager.connect(true)
 
     expect(MockWebSocket.instances).toHaveLength(2)
-    expect(MockWebSocket.instances[1].url).toContain('/ws/terminal/bravo?cursor=77')
+    expect(MockWebSocket.instances[1].url).toContain('/ws/session/bravo?cursor=77')
     expect(apiFetch).toHaveBeenCalledTimes(1)
   })
 })

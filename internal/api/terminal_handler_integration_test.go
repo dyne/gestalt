@@ -98,7 +98,7 @@ func escapeTerminalID(id string) string {
 }
 
 func terminalAPIPath(id string) string {
-	return "/api/terminals/" + escapeTerminalID(id)
+	return "/api/sessions/" + escapeTerminalID(id)
 }
 
 func (p *testPty) waitForResize(cols, rows uint16, timeout time.Duration) bool {
@@ -156,7 +156,7 @@ func TestTerminalWebSocketBridge(t *testing.T) {
 	server.Start()
 	defer server.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/terminal/" + escapeTerminalID(session.ID)
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/session/" + escapeTerminalID(session.ID)
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial websocket: %v", err)
@@ -216,7 +216,7 @@ func TestTerminalWebSocketResize(t *testing.T) {
 	server.Start()
 	defer server.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/terminal/" + escapeTerminalID(session.ID)
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/session/" + escapeTerminalID(session.ID)
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial websocket: %v", err)
@@ -260,7 +260,7 @@ func TestTerminalWebSocketAuth(t *testing.T) {
 	server.Start()
 	defer server.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/terminal/" + escapeTerminalID(session.ID)
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/session/" + escapeTerminalID(session.ID)
 	_, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err == nil {
 		t.Fatalf("expected unauthorized websocket dial to fail")
@@ -306,7 +306,7 @@ func TestTerminalWebSocketConcurrentConnections(t *testing.T) {
 	server.Start()
 	defer server.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/terminal/" + escapeTerminalID(session.ID)
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/session/" + escapeTerminalID(session.ID)
 	connA, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial websocket A: %v", err)
@@ -360,7 +360,7 @@ func TestTerminalWebSocketReconnect(t *testing.T) {
 	server.Start()
 	defer server.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/terminal/" + escapeTerminalID(session.ID)
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/session/" + escapeTerminalID(session.ID)
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial websocket: %v", err)
@@ -426,7 +426,7 @@ func TestTerminalWebSocketCatchupFromCursor(t *testing.T) {
 	server.Start()
 	defer server.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/terminal/" + escapeTerminalID(session.ID) + "?cursor=" + strconv.FormatInt(cursor, 10)
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/session/" + escapeTerminalID(session.ID) + "?cursor=" + strconv.FormatInt(cursor, 10)
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial websocket: %v", err)
@@ -517,7 +517,7 @@ func TestTerminalHistoryCatchupHasNoGaps(t *testing.T) {
 	server.Start()
 	defer server.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/terminal/" + escapeTerminalID(session.ID) + "?cursor=" + strconv.FormatInt(*historyPayload.Cursor, 10)
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/session/" + escapeTerminalID(session.ID) + "?cursor=" + strconv.FormatInt(*historyPayload.Cursor, 10)
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial websocket: %v", err)
@@ -601,7 +601,7 @@ func TestTerminalWebSocketCloseEndsHandler(t *testing.T) {
 	server.Start()
 	defer server.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/terminal/" + escapeTerminalID(session.ID)
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/session/" + escapeTerminalID(session.ID)
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial websocket: %v", err)

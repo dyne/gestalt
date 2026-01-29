@@ -31,8 +31,8 @@
   {#if terminalId}
     <Terminal {terminalId} {title} {promptFiles} {visible} onRequestClose={openCloseDialog} />
     <dialog id="close-confirm-dialog" class="close-dialog" bind:this={closeDialog}>
-      <h2>Close Terminal?</h2>
-      <p>This will stop the terminal session. Any unsaved work will be lost.</p>
+      <h2>Close Session?</h2>
+      <p>This will stop the session. Any unsaved work will be lost.</p>
       <div class="close-dialog__actions">
         <button
           class="close-dialog__confirm"
@@ -49,8 +49,8 @@
     </dialog>
   {:else}
     <div class="empty">
-      <h1>No terminal selected</h1>
-      <p>Create a terminal from the dashboard to begin.</p>
+      <h1>No session selected</h1>
+      <p>Create a session from the dashboard to begin.</p>
     </div>
   {/if}
 </section>

@@ -106,7 +106,7 @@
       }
       syncTabs(terminals)
       activeId = created.id
-      console.info('terminal created', {
+      console.info('session created', {
         id: created.id,
         title: created.title,
         agentId: created.agent_id,
@@ -121,7 +121,7 @@
         notificationStore.addNotification('info', getErrorMessage(err, `Agent ${agentId} is already running.`))
         return
       }
-      const message = notifyError(err, 'Failed to create terminal.')
+      const message = notifyError(err, 'Failed to create session.')
       throw err
     }
   }
@@ -139,9 +139,9 @@
       if (activeId === id) {
         activeId = 'dashboard'
       }
-      notificationStore.addNotification('info', `Terminal ${id} closed.`)
+      notificationStore.addNotification('info', `Session ${id} closed.`)
     } catch (err) {
-      const message = notifyError(err, 'Failed to close terminal.')
+      const message = notifyError(err, 'Failed to close session.')
       throw err
     }
   }
@@ -189,8 +189,8 @@
       const terminalId = payload?.session_id || 'unknown'
       const detail = payload?.data?.error
       const message = detail
-        ? `Terminal ${terminalId} error: ${detail}`
-        : `Terminal ${terminalId} error.`
+        ? `Session ${terminalId} error: ${detail}`
+        : `Session ${terminalId} error.`
       notificationStore.addNotification('error', message)
     })
     notificationUnsubscribe = subscribeNotificationEvents('toast', (payload) => {

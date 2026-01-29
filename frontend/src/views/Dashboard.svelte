@@ -52,7 +52,7 @@
       await onCreate(agentId)
       await dashboardStore.loadAgents()
     } catch (err) {
-      localError = getErrorMessage(err, 'Failed to create terminal.')
+      localError = getErrorMessage(err, 'Failed to create session.')
     } finally {
       actionPending = false
     }
@@ -60,7 +60,7 @@
 
   const switchToTerminal = (terminalId) => {
     if (!terminalId) {
-      localError = 'No running terminal found.'
+      localError = 'No running session found.'
       return
     }
     onSelect(terminalId)

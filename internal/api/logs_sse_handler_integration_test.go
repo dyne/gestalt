@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"gestalt/internal/agent"
 	"gestalt/internal/logging"
 	"gestalt/internal/otel"
 	"gestalt/internal/temporal/activities"
@@ -35,9 +36,12 @@ func TestLogsSSEStreamFiltersAndSanitizes(t *testing.T) {
 		PtyFactory:  factory,
 		BufferLines: 20,
 		Logger:      logger,
+		Agents: map[string]agent.Agent{
+			"codex": {Name: "Codex"},
+		},
 	})
 
-	session, err := manager.Create("", "role", "title")
+	session, err := manager.Create("codex", "role", "title")
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}

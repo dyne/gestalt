@@ -114,6 +114,9 @@ func (h *RestHandler) createTerminal(w http.ResponseWriter, r *http.Request) *ap
 		UseWorkflow: request.Workflow,
 	})
 	if createErr != nil {
+		if errors.Is(createErr, terminal.ErrAgentRequired) {
+			return &apiError{Status: http.StatusBadRequest, Message: "agent is required"}
+		}
 		if errors.Is(createErr, terminal.ErrAgentNotFound) {
 			return &apiError{Status: http.StatusBadRequest, Message: "unknown agent"}
 		}

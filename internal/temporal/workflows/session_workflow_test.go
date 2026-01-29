@@ -276,7 +276,7 @@ func TestSessionWorkflowAbortAction(testingContext *testing.T) {
 
 func registerSessionActivities(workflowEnvironment *testsuite.TestWorkflowEnvironment, emitEvent func(event.WorkflowEvent)) {
 	workflowEnvironment.RegisterActivityWithOptions(
-		func(ctx context.Context, sessionID, shell string) error {
+		func(ctx context.Context, sessionID, agentID, shell string) error {
 			return nil
 		},
 		activity.RegisterOptions{Name: SpawnTerminalActivityName},

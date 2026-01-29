@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"gestalt/internal/agent"
 	"gestalt/internal/terminal"
 
 	"github.com/gorilla/websocket"
@@ -18,6 +19,9 @@ func TestTerminalEventsWebSocketStream(t *testing.T) {
 	manager := terminal.NewManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {Name: "Codex"},
+		},
 	})
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -38,7 +42,7 @@ func TestTerminalEventsWebSocketStream(t *testing.T) {
 	}
 	defer conn.Close()
 
-	session, err := manager.Create("", "role", "title")
+	session, err := manager.Create("codex", "role", "title")
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}

@@ -37,7 +37,7 @@ func NewSessionActivities(manager *terminal.Manager, logger *logging.Logger) *Se
 	}
 }
 
-func (activities *SessionActivities) SpawnTerminalActivity(activityContext context.Context, sessionID, shell string) (activityErr error) {
+func (activities *SessionActivities) SpawnTerminalActivity(activityContext context.Context, sessionID, agentID, shell string) (activityErr error) {
 	start := time.Now()
 	attempt := activityAttempt(activityContext)
 	defer func() {
@@ -66,7 +66,7 @@ func (activities *SessionActivities) SpawnTerminalActivity(activityContext conte
 		})
 		return nil
 	}
-	createdSession, createError := manager.CreateWithID(trimmedID, "", "", "", shell)
+	createdSession, createError := manager.CreateWithID(trimmedID, agentID, "", "", shell)
 	if createError != nil {
 		activities.logWarn("temporal terminal create failed", map[string]string{
 			"terminal_id": trimmedID,

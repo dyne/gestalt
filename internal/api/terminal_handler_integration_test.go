@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"gestalt/internal/agent"
 	"gestalt/internal/terminal"
 
 	"github.com/gorilla/websocket"
@@ -80,6 +82,25 @@ func (p *testPty) waitForWrite(expected []byte, timeout time.Duration) bool {
 	}
 }
 
+const terminalTestAgentID = "codex"
+
+func newTerminalTestManager(options terminal.ManagerOptions) *terminal.Manager {
+	if options.Agents == nil {
+		options.Agents = map[string]agent.Agent{
+			terminalTestAgentID: {Name: "Codex"},
+		}
+	}
+	return terminal.NewManager(options)
+}
+
+func escapeTerminalID(id string) string {
+	return url.PathEscape(id)
+}
+
+func terminalAPIPath(id string) string {
+	return "/api/terminals/" + escapeTerminalID(id)
+}
+
 func (p *testPty) waitForResize(cols, rows uint16, timeout time.Duration) bool {
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
@@ -107,12 +128,12 @@ func (f *testFactory) Start(command string, args ...string) (terminal.Pty, *exec
 
 func TestTerminalWebSocketBridge(t *testing.T) {
 	factory := &testFactory{}
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTerminalTestManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
 	})
 
-	session, err := manager.Create("", "test", "ws")
+	session, err := manager.Create(terminalTestAgentID, "test", "ws")
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -135,7 +156,7 @@ func TestTerminalWebSocketBridge(t *testing.T) {
 	server.Start()
 	defer server.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/terminal/" + session.ID
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/terminal/" + escapeTerminalID(session.ID)
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial websocket: %v", err)
@@ -167,12 +188,12 @@ func TestTerminalWebSocketBridge(t *testing.T) {
 
 func TestTerminalWebSocketResize(t *testing.T) {
 	factory := &testFactory{}
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTerminalTestManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
 	})
 
-	session, err := manager.Create("", "test", "ws")
+	session, err := manager.Create(terminalTestAgentID, "test", "ws")
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -195,7 +216,7 @@ func TestTerminalWebSocketResize(t *testing.T) {
 	server.Start()
 	defer server.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/terminal/" + session.ID
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/terminal/" + escapeTerminalID(session.ID)
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial websocket: %v", err)
@@ -213,11 +234,11 @@ func TestTerminalWebSocketResize(t *testing.T) {
 
 func TestTerminalWebSocketAuth(t *testing.T) {
 	factory := &testFactory{}
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTerminalTestManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
 	})
-	session, err := manager.Create("", "test", "ws")
+	session, err := manager.Create(terminalTestAgentID, "test", "ws")
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -239,7 +260,7 @@ func TestTerminalWebSocketAuth(t *testing.T) {
 	server.Start()
 	defer server.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/terminal/" + session.ID
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/terminal/" + escapeTerminalID(session.ID)
 	_, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err == nil {
 		t.Fatalf("expected unauthorized websocket dial to fail")
@@ -258,11 +279,11 @@ func TestTerminalWebSocketAuth(t *testing.T) {
 
 func TestTerminalWebSocketConcurrentConnections(t *testing.T) {
 	factory := &testFactory{}
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTerminalTestManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
 	})
-	session, err := manager.Create("", "test", "ws")
+	session, err := manager.Create(terminalTestAgentID, "test", "ws")
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -285,7 +306,7 @@ func TestTerminalWebSocketConcurrentConnections(t *testing.T) {
 	server.Start()
 	defer server.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/terminal/" + session.ID
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/terminal/" + escapeTerminalID(session.ID)
 	connA, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial websocket A: %v", err)
@@ -312,11 +333,11 @@ func TestTerminalWebSocketConcurrentConnections(t *testing.T) {
 
 func TestTerminalWebSocketReconnect(t *testing.T) {
 	factory := &testFactory{}
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTerminalTestManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
 	})
-	session, err := manager.Create("", "test", "ws")
+	session, err := manager.Create(terminalTestAgentID, "test", "ws")
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -339,7 +360,7 @@ func TestTerminalWebSocketReconnect(t *testing.T) {
 	server.Start()
 	defer server.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/terminal/" + session.ID
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/terminal/" + escapeTerminalID(session.ID)
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial websocket: %v", err)
@@ -363,13 +384,13 @@ func TestTerminalWebSocketReconnect(t *testing.T) {
 func TestTerminalWebSocketCatchupFromCursor(t *testing.T) {
 	factory := &testFactory{}
 	logDir := t.TempDir()
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTerminalTestManager(terminal.ManagerOptions{
 		Shell:         "/bin/sh",
 		PtyFactory:    factory,
 		SessionLogDir: logDir,
 	})
 
-	session, err := manager.Create("", "test", "ws")
+	session, err := manager.Create(terminalTestAgentID, "test", "ws")
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -405,7 +426,7 @@ func TestTerminalWebSocketCatchupFromCursor(t *testing.T) {
 	server.Start()
 	defer server.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/terminal/" + session.ID + "?cursor=" + strconv.FormatInt(cursor, 10)
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/terminal/" + escapeTerminalID(session.ID) + "?cursor=" + strconv.FormatInt(cursor, 10)
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial websocket: %v", err)
@@ -433,13 +454,13 @@ func TestTerminalHistoryCatchupHasNoGaps(t *testing.T) {
 
 	factory := &testFactory{}
 	logDir := t.TempDir()
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTerminalTestManager(terminal.ManagerOptions{
 		Shell:         "/bin/sh",
 		PtyFactory:    factory,
 		SessionLogDir: logDir,
 	})
 
-	session, err := manager.Create("", "test", "ws")
+	session, err := manager.Create(terminalTestAgentID, "test", "ws")
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -496,7 +517,7 @@ func TestTerminalHistoryCatchupHasNoGaps(t *testing.T) {
 	server.Start()
 	defer server.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/terminal/" + session.ID + "?cursor=" + strconv.FormatInt(*historyPayload.Cursor, 10)
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/terminal/" + escapeTerminalID(session.ID) + "?cursor=" + strconv.FormatInt(*historyPayload.Cursor, 10)
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial websocket: %v", err)
@@ -552,11 +573,11 @@ func TestTerminalHistoryCatchupHasNoGaps(t *testing.T) {
 
 func TestTerminalWebSocketCloseEndsHandler(t *testing.T) {
 	factory := &testFactory{}
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTerminalTestManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
 	})
-	session, err := manager.Create("", "test", "ws")
+	session, err := manager.Create(terminalTestAgentID, "test", "ws")
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -580,7 +601,7 @@ func TestTerminalWebSocketCloseEndsHandler(t *testing.T) {
 	server.Start()
 	defer server.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/terminal/" + session.ID
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/terminal/" + escapeTerminalID(session.ID)
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial websocket: %v", err)
@@ -707,7 +728,7 @@ func fetchHistoryWithCursor(t *testing.T, handler *RestHandler, id string, lines
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		req := httptest.NewRequest(http.MethodGet, "/api/terminals/"+id+"/history?lines="+strconv.Itoa(lines), nil)
+		req := httptest.NewRequest(http.MethodGet, terminalAPIPath(id)+"/history?lines="+strconv.Itoa(lines), nil)
 		req.Header.Set("Authorization", "Bearer secret")
 		res := httptest.NewRecorder()
 

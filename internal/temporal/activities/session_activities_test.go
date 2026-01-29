@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"gestalt/internal/agent"
 	"gestalt/internal/logging"
 	"gestalt/internal/terminal"
 )
@@ -40,6 +41,8 @@ func (factory *scriptedFactory) Start(command string, args ...string) (terminal.
 	return &scriptedPty{reader: bytes.NewReader(factory.output)}, &exec.Cmd{}, nil
 }
 
+const testAgentID = "codex"
+
 func newTestActivities(output []byte) (*SessionActivities, *terminal.Manager) {
 	logger := logging.NewLoggerWithOutput(logging.NewLogBuffer(logging.DefaultBufferSize), logging.LevelDebug, nil)
 	factory := &scriptedFactory{output: output}
@@ -50,6 +53,9 @@ func newTestActivities(output []byte) (*SessionActivities, *terminal.Manager) {
 		Logger:          logger,
 		SessionLogDir:   "",
 		InputHistoryDir: "",
+		Agents: map[string]agent.Agent{
+			testAgentID: {Name: "Codex"},
+		},
 	})
 	return &SessionActivities{
 		Manager: manager,
@@ -72,30 +78,30 @@ func TestSessionActivitiesSpawnAndTerminate(testingContext *testing.T) {
 	activities, manager := newTestActivities(nil)
 	activityContext := context.Background()
 
-	spawnError := activities.SpawnTerminalActivity(activityContext, "activity-session", "/bin/sh")
+	spawnError := activities.SpawnTerminalActivity(activityContext, "Codex 1", testAgentID, "/bin/sh")
 	if spawnError != nil {
 		testingContext.Fatalf("spawn error: %v", spawnError)
 	}
 
-	if session, ok := manager.Get("activity-session"); !ok || session == nil {
+	if session, ok := manager.Get("Codex 1"); !ok || session == nil {
 		testingContext.Fatal("expected session to be created")
 	}
 
-	spawnError = activities.SpawnTerminalActivity(activityContext, "activity-session", "/bin/sh")
+	spawnError = activities.SpawnTerminalActivity(activityContext, "Codex 1", testAgentID, "/bin/sh")
 	if spawnError != nil {
 		testingContext.Fatalf("spawn idempotency error: %v", spawnError)
 	}
 
-	terminateError := activities.TerminateTerminalActivity(activityContext, "activity-session")
+	terminateError := activities.TerminateTerminalActivity(activityContext, "Codex 1")
 	if terminateError != nil {
 		testingContext.Fatalf("terminate error: %v", terminateError)
 	}
 
-	if _, ok := manager.Get("activity-session"); ok {
+	if _, ok := manager.Get("Codex 1"); ok {
 		testingContext.Fatal("expected session to be deleted")
 	}
 
-	terminateError = activities.TerminateTerminalActivity(activityContext, "activity-session")
+	terminateError = activities.TerminateTerminalActivity(activityContext, "Codex 1")
 	if terminateError != nil {
 		testingContext.Fatalf("terminate idempotency error: %v", terminateError)
 	}
@@ -105,13 +111,13 @@ func TestSessionActivitiesRecordBellAndUpdateTask(testingContext *testing.T) {
 	activities, _ := newTestActivities(nil)
 	activityContext := context.Background()
 
-	spawnError := activities.SpawnTerminalActivity(activityContext, "bell-session", "/bin/sh")
+	spawnError := activities.SpawnTerminalActivity(activityContext, "Codex 1", testAgentID, "/bin/sh")
 	if spawnError != nil {
 		testingContext.Fatalf("spawn error: %v", spawnError)
 	}
 
 	bellContext := "bell\x1b[31m-alert\x1b[0m-----"
-	bellError := activities.RecordBellActivity(activityContext, "bell-session", time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC), bellContext)
+	bellError := activities.RecordBellActivity(activityContext, "Codex 1", time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC), bellContext)
 	if bellError != nil {
 		testingContext.Fatalf("bell error: %v", bellError)
 	}
@@ -134,7 +140,7 @@ func TestSessionActivitiesRecordBellAndUpdateTask(testingContext *testing.T) {
 		testingContext.Fatalf("expected repeated chars collapsed, got %q", contextValue)
 	}
 
-	updateError := activities.UpdateTaskActivity(activityContext, "bell-session", "L1", "L2")
+	updateError := activities.UpdateTaskActivity(activityContext, "Codex 1", "L1", "L2")
 	if updateError != nil {
 		testingContext.Fatalf("update error: %v", updateError)
 	}
@@ -145,12 +151,12 @@ func TestSessionActivitiesGetOutputActivity(testingContext *testing.T) {
 	activities, manager := newTestActivities(output)
 	activityContext := context.Background()
 
-	spawnError := activities.SpawnTerminalActivity(activityContext, "output-session", "/bin/sh")
+	spawnError := activities.SpawnTerminalActivity(activityContext, "Codex 1", testAgentID, "/bin/sh")
 	if spawnError != nil {
 		testingContext.Fatalf("spawn error: %v", spawnError)
 	}
 
-	session, ok := manager.Get("output-session")
+	session, ok := manager.Get("Codex 1")
 	if !ok || session == nil {
 		testingContext.Fatal("expected output session to exist")
 	}
@@ -158,7 +164,7 @@ func TestSessionActivitiesGetOutputActivity(testingContext *testing.T) {
 		testingContext.Fatal("timed out waiting for output")
 	}
 
-	outputText, outputError := activities.GetOutputActivity(activityContext, "output-session")
+	outputText, outputError := activities.GetOutputActivity(activityContext, "Codex 1")
 	if outputError != nil {
 		testingContext.Fatalf("output error: %v", outputError)
 	}
@@ -172,12 +178,12 @@ func TestSessionActivitiesGetOutputTailActivity(testingContext *testing.T) {
 	activities, manager := newTestActivities(output)
 	activityContext := context.Background()
 
-	spawnError := activities.SpawnTerminalActivity(activityContext, "output-tail-session", "/bin/sh")
+	spawnError := activities.SpawnTerminalActivity(activityContext, "Codex 1", testAgentID, "/bin/sh")
 	if spawnError != nil {
 		testingContext.Fatalf("spawn error: %v", spawnError)
 	}
 
-	session, ok := manager.Get("output-tail-session")
+	session, ok := manager.Get("Codex 1")
 	if !ok || session == nil {
 		testingContext.Fatal("expected output session to exist")
 	}
@@ -185,7 +191,7 @@ func TestSessionActivitiesGetOutputTailActivity(testingContext *testing.T) {
 		testingContext.Fatal("timed out waiting for output")
 	}
 
-	outputText, outputError := activities.GetOutputTailActivity(activityContext, "output-tail-session", 1)
+	outputText, outputError := activities.GetOutputTailActivity(activityContext, "Codex 1", 1)
 	if outputError != nil {
 		testingContext.Fatalf("output error: %v", outputError)
 	}

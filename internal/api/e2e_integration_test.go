@@ -6,10 +6,12 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 
+	"gestalt/internal/agent"
 	"gestalt/internal/logging"
 	"gestalt/internal/terminal"
 
@@ -21,6 +23,10 @@ func TestEndToEndTerminalFlow(t *testing.T) {
 	manager := terminal.NewManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
+		AgentsDir:  ensureTestAgentsDir(),
+		Agents: map[string]agent.Agent{
+			"codex": {Name: "Codex"},
+		},
 	})
 	logger := logging.NewLoggerWithOutput(logging.NewLogBuffer(10), logging.LevelInfo, nil)
 
@@ -37,7 +43,7 @@ func TestEndToEndTerminalFlow(t *testing.T) {
 	server.Start()
 	defer server.Close()
 
-	createReq, err := http.NewRequest(http.MethodPost, server.URL+"/api/terminals", strings.NewReader(`{"title":"e2e"}`))
+	createReq, err := http.NewRequest(http.MethodPost, server.URL+"/api/terminals", strings.NewReader(`{"title":"e2e","agent":"codex"}`))
 	if err != nil {
 		t.Fatalf("create request: %v", err)
 	}
@@ -67,7 +73,7 @@ func TestEndToEndTerminalFlow(t *testing.T) {
 	pty := factory.ptys[0]
 	factory.mu.Unlock()
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/terminal/" + summary.ID + "?token=secret"
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/terminal/" + url.PathEscape(summary.ID) + "?token=secret"
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial websocket: %v", err)

@@ -8,13 +8,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"gestalt/internal/agent"
 	"gestalt/internal/event"
@@ -27,6 +27,7 @@ import (
 
 var ErrSessionNotFound = errors.New("terminal session not found")
 var ErrAgentNotFound = errors.New("agent profile not found")
+var ErrAgentRequired = errors.New("agent id is required")
 
 type AgentAlreadyRunningError struct {
 	AgentName  string
@@ -57,7 +58,7 @@ type ManagerOptions struct {
 }
 
 // Manager is safe for concurrent use; mu guards the sessions map and lifecycle.
-// ID generation uses an atomic counter and does not require the mutex.
+// ID generation may consult the sessions map and agent sequence under the mutex.
 type Manager struct {
 	mu              sync.RWMutex
 	sessions        map[string]*Session
@@ -109,10 +110,12 @@ const (
 	promptChunkDelay = 25 * time.Millisecond
 	promptChunkSize  = 64
 	enterKeyDelay    = 75 * time.Millisecond
+
+	maxSessionIDLength   = 128
+	maxSessionIDAttempts = 64
 )
 
 var onAirTimeout = 5 * time.Second
-var numberedAgentIDPattern = regexp.MustCompile(`^(.+?)-(\d+)$`)
 
 type AgentInfo struct {
 	ID          string
@@ -302,8 +305,18 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 	var promptNames []string
 	var onAirString string
 	var agentName string
+	var sanitizedAgentName string
+	var sessionSequence uint64
 	var sessionCLIConfig map[string]interface{}
 	reservedID := strings.TrimSpace(request.SessionID)
+	if request.AgentID == "" {
+		return nil, ErrAgentRequired
+	}
+	if reservedID != "" {
+		if err := validateSessionID(reservedID); err != nil {
+			return nil, err
+		}
+	}
 	if request.AgentID != "" {
 		agentProfile, ok := m.GetAgent(request.AgentID)
 		if !ok || agentProfile.Name == "" {
@@ -337,38 +350,26 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		useWorkflow = resolveWorkflowPreference(profile.UseWorkflow)
 	}
 
-	if profile != nil && profile.Singleton != nil && !*profile.Singleton {
-		baseAgentID := strings.TrimSpace(request.AgentID)
-		if matches := numberedAgentIDPattern.FindStringSubmatch(baseAgentID); len(matches) == 3 {
-			baseAgentID = matches[1]
-		}
-		if baseAgentID != "" {
-			m.mu.Lock()
-			maxNumber := 0
-			for id := range m.sessions {
-				matches := numberedAgentIDPattern.FindStringSubmatch(id)
-				if len(matches) != 3 {
-					continue
-				}
-				if matches[1] != baseAgentID {
-					continue
-				}
-				number, err := strconv.Atoi(matches[2])
-				if err != nil {
-					continue
-				}
-				if number > maxNumber {
-					maxNumber = number
-				}
-			}
-			nextID := fmt.Sprintf("%s-%d", baseAgentID, maxNumber+1)
-			reservedID = nextID
-			m.mu.Unlock()
+	if agentName != "" {
+		sanitizedAgentName = sanitizeSessionName(agentName)
+		if sanitizedAgentName == "" {
+			return nil, errors.New("agent name is required")
 		}
 	}
 
-	if reservedID == "" && agentName != "" && (profile == nil || profile.Singleton == nil || *profile.Singleton) {
-		reservedID = m.nextIDValue()
+	if reservedID == "" && sanitizedAgentName != "" {
+		nextID, sequence, err := m.nextAgentSessionID(sanitizedAgentName)
+		if err != nil {
+			return nil, err
+		}
+		reservedID = nextID
+		sessionSequence = sequence
+	} else if reservedID != "" && sanitizedAgentName != "" {
+		sequence, ok := parseAgentSessionSequence(reservedID, sanitizedAgentName)
+		if !ok {
+			return nil, errors.New("session id does not match agent name")
+		}
+		sessionSequence = sequence
 	}
 
 	if !shellOverrideSet && profile != nil {
@@ -426,8 +427,10 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 
 	m.mu.Lock()
 	m.sessions[id] = session
-	if trimmedName := strings.TrimSpace(agentName); trimmedName != "" {
-		m.agentSequence[trimmedName]++
+	if sanitizedAgentName != "" && sessionSequence > 0 {
+		if current := m.agentSequence[sanitizedAgentName]; sessionSequence > current {
+			m.agentSequence[sanitizedAgentName] = sessionSequence
+		}
 	}
 	m.mu.Unlock()
 
@@ -521,6 +524,87 @@ func (m *Manager) readPromptFile(promptName string) ([]byte, []string, error) {
 		return nil, nil, err
 	}
 	return result.Content, result.Files, nil
+}
+
+func sanitizeSessionName(name string) string {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return ""
+	}
+	var builder strings.Builder
+	builder.Grow(len(trimmed))
+	for _, r := range trimmed {
+		if r == '/' || r == '\\' || unicode.IsControl(r) {
+			continue
+		}
+		builder.WriteRune(r)
+	}
+	return strings.TrimSpace(builder.String())
+}
+
+func validateSessionID(id string) error {
+	trimmed := strings.TrimSpace(id)
+	if trimmed == "" {
+		return errors.New("session id is required")
+	}
+	if strings.ContainsAny(trimmed, "/\\") {
+		return errors.New("session id contains invalid characters")
+	}
+	for _, r := range trimmed {
+		if unicode.IsControl(r) {
+			return errors.New("session id contains invalid characters")
+		}
+	}
+	if len(trimmed) > maxSessionIDLength {
+		return fmt.Errorf("session id exceeds %d characters", maxSessionIDLength)
+	}
+	return nil
+}
+
+func parseAgentSessionSequence(sessionID, agentName string) (uint64, bool) {
+	if sessionID == "" || agentName == "" {
+		return 0, false
+	}
+	prefix := agentName + " "
+	if !strings.HasPrefix(sessionID, prefix) {
+		return 0, false
+	}
+	sequence := strings.TrimSpace(sessionID[len(prefix):])
+	if sequence == "" {
+		return 0, false
+	}
+	value, err := strconv.ParseUint(sequence, 10, 64)
+	if err != nil || value == 0 {
+		return 0, false
+	}
+	return value, true
+}
+
+func (m *Manager) nextAgentSessionID(agentName string) (string, uint64, error) {
+	sanitized := sanitizeSessionName(agentName)
+	if sanitized == "" {
+		return "", 0, errors.New("agent name is required")
+	}
+	start := uint64(0)
+	m.mu.RLock()
+	if value, ok := m.agentSequence[sanitized]; ok {
+		start = value
+	}
+	m.mu.RUnlock()
+	for attempt := uint64(0); attempt < maxSessionIDAttempts; attempt++ {
+		sequence := start + attempt + 1
+		sessionID := fmt.Sprintf("%s %d", sanitized, sequence)
+		if len(sessionID) > maxSessionIDLength {
+			return "", 0, fmt.Errorf("session id exceeds %d characters", maxSessionIDLength)
+		}
+		m.mu.RLock()
+		_, exists := m.sessions[sessionID]
+		m.mu.RUnlock()
+		if !exists {
+			return sessionID, sequence, nil
+		}
+	}
+	return "", 0, errors.New("session id collision")
 }
 
 func (m *Manager) nextIDValue() string {

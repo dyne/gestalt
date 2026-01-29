@@ -167,7 +167,7 @@ func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRe
 		HeartbeatTimeout:    DefaultActivityHeartbeat,
 		RetryPolicy:         defaultActivityRetryPolicy(),
 	})
-	if activityErr := workflow.ExecuteActivity(spawnContext, SpawnTerminalActivityName, request.SessionID, request.Shell).Get(spawnContext, nil); activityErr != nil {
+	if activityErr := workflow.ExecuteActivity(spawnContext, SpawnTerminalActivityName, request.SessionID, request.AgentID, request.Shell).Get(spawnContext, nil); activityErr != nil {
 		emitWorkflowEvent("workflow_error", workflow.Now(workflowContext), map[string]any{
 			"error": activityErr.Error(),
 			"stage": "spawn",

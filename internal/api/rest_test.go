@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,6 +33,46 @@ import (
 type fakePty struct {
 	reader *io.PipeReader
 	writer *io.PipeWriter
+}
+
+const testAgentID = "codex"
+
+var testAgentsDirOnce sync.Once
+var testAgentsDir string
+
+func ensureTestAgentsDir() string {
+	testAgentsDirOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "gestalt-test-agents-*")
+		if err != nil {
+			panic(err)
+		}
+		testAgentsDir = dir
+		agentTOML := "name = \"Codex\"\nshell = \"/bin/sh\"\ncli_type = \"codex\"\n"
+		if err := os.WriteFile(filepath.Join(dir, "codex.toml"), []byte(agentTOML), 0644); err != nil {
+			panic(err)
+		}
+	})
+	return testAgentsDir
+}
+
+func newTestManager(options terminal.ManagerOptions) *terminal.Manager {
+	if options.Agents == nil {
+		options.Agents = map[string]agent.Agent{
+			testAgentID: {Name: "Codex"},
+		}
+	}
+	if options.AgentsDir == "" {
+		options.AgentsDir = ensureTestAgentsDir()
+	}
+	return terminal.NewManager(options)
+}
+
+func escapeID(id string) string {
+	return url.PathEscape(id)
+}
+
+func terminalPath(id string) string {
+	return "/api/terminals/" + escapeID(id)
 }
 
 func newFakePty() *fakePty {
@@ -268,11 +309,11 @@ func TestStatusHandlerRequiresAuth(t *testing.T) {
 
 func TestStatusHandlerReturnsCount(t *testing.T) {
 	factory := &fakeFactory{}
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTestManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
 	})
-	created, err := manager.Create("", "", "")
+	created, err := manager.Create(testAgentID, "", "")
 	if err != nil {
 		t.Fatalf("create terminal: %v", err)
 	}
@@ -321,7 +362,7 @@ func TestStatusHandlerReturnsCount(t *testing.T) {
 
 func TestStatusHandlerIncludesTemporalURL(t *testing.T) {
 	factory := &fakeFactory{}
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTestManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
 	})
@@ -355,7 +396,7 @@ func TestWorkflowsEndpointReturnsSummary(t *testing.T) {
 		runID:        "run-42",
 		queryResults: make(map[string]workflows.SessionWorkflowState),
 	}
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTestManager(terminal.ManagerOptions{
 		Shell:           "/bin/sh",
 		PtyFactory:      factory,
 		TemporalClient:  temporalClient,
@@ -363,6 +404,7 @@ func TestWorkflowsEndpointReturnsSummary(t *testing.T) {
 	})
 	useWorkflow := true
 	created, err := manager.CreateWithOptions(terminal.CreateOptions{
+		AgentID:     testAgentID,
 		UseWorkflow: &useWorkflow,
 	})
 	if err != nil {
@@ -445,7 +487,7 @@ func TestWorkflowsEndpointReturnsSummary(t *testing.T) {
 func TestTerminalWorkflowResumeEndpoint(t *testing.T) {
 	factory := &fakeFactory{}
 	temporalClient := &fakeWorkflowSignalClient{runID: "run-9"}
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTestManager(terminal.ManagerOptions{
 		Shell:           "/bin/sh",
 		PtyFactory:      factory,
 		TemporalClient:  temporalClient,
@@ -453,6 +495,7 @@ func TestTerminalWorkflowResumeEndpoint(t *testing.T) {
 	})
 	useWorkflow := true
 	created, err := manager.CreateWithOptions(terminal.CreateOptions{
+		AgentID:     testAgentID,
 		UseWorkflow: &useWorkflow,
 	})
 	if err != nil {
@@ -463,7 +506,7 @@ func TestTerminalWorkflowResumeEndpoint(t *testing.T) {
 	}()
 
 	handler := &RestHandler{Manager: manager}
-	req := httptest.NewRequest(http.MethodPost, "/api/terminals/"+created.ID+"/workflow/resume", strings.NewReader(`{"action":"continue"}`))
+	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/workflow/resume", strings.NewReader(`{"action":"continue"}`))
 	res := httptest.NewRecorder()
 
 	restHandler("", nil, handler.handleTerminal)(res, req)
@@ -485,11 +528,11 @@ func TestTerminalWorkflowResumeEndpoint(t *testing.T) {
 
 func TestTerminalWorkflowResumeEndpointMissingWorkflow(t *testing.T) {
 	factory := &fakeFactory{}
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTestManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
 	})
-	created, err := manager.Create("", "", "")
+	created, err := manager.Create(testAgentID, "", "")
 	if err != nil {
 		t.Fatalf("create terminal: %v", err)
 	}
@@ -498,7 +541,7 @@ func TestTerminalWorkflowResumeEndpointMissingWorkflow(t *testing.T) {
 	}()
 
 	handler := &RestHandler{Manager: manager}
-	req := httptest.NewRequest(http.MethodPost, "/api/terminals/"+created.ID+"/workflow/resume", strings.NewReader(`{"action":"continue"}`))
+	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/workflow/resume", strings.NewReader(`{"action":"continue"}`))
 	res := httptest.NewRecorder()
 
 	restHandler("", nil, handler.handleTerminal)(res, req)
@@ -510,7 +553,7 @@ func TestTerminalWorkflowResumeEndpointMissingWorkflow(t *testing.T) {
 func TestTerminalNotifyEndpoint(t *testing.T) {
 	factory := &fakeFactory{}
 	temporalClient := &fakeWorkflowSignalClient{runID: "run-11"}
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTestManager(terminal.ManagerOptions{
 		Shell:           "/bin/sh",
 		PtyFactory:      factory,
 		TemporalClient:  temporalClient,
@@ -533,7 +576,7 @@ func TestTerminalNotifyEndpoint(t *testing.T) {
 
 	handler := &RestHandler{Manager: manager}
 	body := `{"terminal_id":"` + created.ID + `","agent_id":"codex","agent_name":"Codex","source":"manual","event_type":"plan-L1-wip","occurred_at":"2025-04-01T10:00:00Z","payload":{"plan_file":"plan.org"},"raw":"{}","event_id":"manual:1"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/terminals/"+created.ID+"/notify", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/notify", strings.NewReader(body))
 	res := httptest.NewRecorder()
 
 	restHandler("", nil, handler.handleTerminal)(res, req)
@@ -578,7 +621,7 @@ func TestTerminalNotifyEndpoint(t *testing.T) {
 }
 
 func TestTerminalNotifyEndpointMissingTerminal(t *testing.T) {
-	manager := terminal.NewManager(terminal.ManagerOptions{Shell: "/bin/sh"})
+	manager := newTestManager(terminal.ManagerOptions{Shell: "/bin/sh"})
 	handler := &RestHandler{Manager: manager}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/terminals/missing/notify", strings.NewReader(`{"terminal_id":"missing","agent_id":"codex","source":"manual","event_type":"plan-L1-wip"}`))
@@ -592,7 +635,7 @@ func TestTerminalNotifyEndpointMissingTerminal(t *testing.T) {
 
 func TestTerminalNotifyEndpointMissingWorkflow(t *testing.T) {
 	factory := &fakeFactory{}
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTestManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
 		Agents: map[string]agent.Agent{
@@ -609,7 +652,7 @@ func TestTerminalNotifyEndpointMissingWorkflow(t *testing.T) {
 
 	handler := &RestHandler{Manager: manager}
 	body := `{"terminal_id":"` + created.ID + `","agent_id":"codex","source":"manual","event_type":"plan-L1-wip"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/terminals/"+created.ID+"/notify", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/notify", strings.NewReader(body))
 	res := httptest.NewRecorder()
 
 	restHandler("", nil, handler.handleTerminal)(res, req)
@@ -621,7 +664,7 @@ func TestTerminalNotifyEndpointMissingWorkflow(t *testing.T) {
 func TestTerminalNotifyEndpointBadJSON(t *testing.T) {
 	factory := &fakeFactory{}
 	temporalClient := &fakeWorkflowSignalClient{runID: "run-12"}
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTestManager(terminal.ManagerOptions{
 		Shell:           "/bin/sh",
 		PtyFactory:      factory,
 		TemporalClient:  temporalClient,
@@ -643,7 +686,7 @@ func TestTerminalNotifyEndpointBadJSON(t *testing.T) {
 	}()
 
 	handler := &RestHandler{Manager: manager}
-	req := httptest.NewRequest(http.MethodPost, "/api/terminals/"+created.ID+"/notify", strings.NewReader("{"))
+	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/notify", strings.NewReader("{"))
 	res := httptest.NewRecorder()
 
 	restHandler("", nil, handler.handleTerminal)(res, req)
@@ -730,7 +773,7 @@ func TestTerminalWorkflowHistoryEndpoint(t *testing.T) {
 		runID:  "run-55",
 		events: events,
 	}
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTestManager(terminal.ManagerOptions{
 		Shell:           "/bin/sh",
 		PtyFactory:      factory,
 		TemporalClient:  temporalClient,
@@ -738,6 +781,7 @@ func TestTerminalWorkflowHistoryEndpoint(t *testing.T) {
 	})
 	useWorkflow := true
 	created, err := manager.CreateWithOptions(terminal.CreateOptions{
+		AgentID:     testAgentID,
 		UseWorkflow: &useWorkflow,
 	})
 	if err != nil {
@@ -748,7 +792,7 @@ func TestTerminalWorkflowHistoryEndpoint(t *testing.T) {
 	}()
 
 	handler := &RestHandler{Manager: manager}
-	req := httptest.NewRequest(http.MethodGet, "/api/terminals/"+created.ID+"/workflow/history", nil)
+	req := httptest.NewRequest(http.MethodGet, terminalPath(created.ID)+"/workflow/history", nil)
 	res := httptest.NewRecorder()
 
 	restHandler("", nil, handler.handleTerminal)(res, req)
@@ -784,7 +828,7 @@ func TestTerminalWorkflowHistoryEndpoint(t *testing.T) {
 }
 
 func TestStatusHandlerIncludesGitInfo(t *testing.T) {
-	manager := terminal.NewManager(terminal.ManagerOptions{Shell: "/bin/sh"})
+	manager := newTestManager(terminal.ManagerOptions{Shell: "/bin/sh"})
 	handler := &RestHandler{
 		Manager:   manager,
 		GitOrigin: "origin",
@@ -815,11 +859,11 @@ func TestStatusHandlerIncludesGitInfo(t *testing.T) {
 
 func TestTerminalOutputEndpoint(t *testing.T) {
 	factory := &fakeFactory{}
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTestManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
 	})
-	created, err := manager.Create("", "", "")
+	created, err := manager.Create(testAgentID, "", "")
 	if err != nil {
 		t.Fatalf("create terminal: %v", err)
 	}
@@ -839,7 +883,7 @@ func TestTerminalOutputEndpoint(t *testing.T) {
 	}
 
 	handler := &RestHandler{Manager: manager}
-	req := httptest.NewRequest(http.MethodGet, "/api/terminals/"+created.ID+"/output", nil)
+	req := httptest.NewRequest(http.MethodGet, terminalPath(created.ID)+"/output", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
@@ -860,12 +904,12 @@ func TestTerminalOutputEndpoint(t *testing.T) {
 func TestTerminalHistoryEndpoint(t *testing.T) {
 	factory := &fakeFactory{}
 	logDir := t.TempDir()
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTestManager(terminal.ManagerOptions{
 		Shell:         "/bin/sh",
 		PtyFactory:    factory,
 		SessionLogDir: logDir,
 	})
-	created, err := manager.Create("", "", "")
+	created, err := manager.Create(testAgentID, "", "")
 	if err != nil {
 		t.Fatalf("create terminal: %v", err)
 	}
@@ -888,7 +932,7 @@ func TestTerminalHistoryEndpoint(t *testing.T) {
 	}
 
 	handler := &RestHandler{Manager: manager}
-	req := httptest.NewRequest(http.MethodGet, "/api/terminals/"+created.ID+"/history?lines=5", nil)
+	req := httptest.NewRequest(http.MethodGet, terminalPath(created.ID)+"/history?lines=5", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
@@ -912,12 +956,12 @@ func TestTerminalHistoryEndpoint(t *testing.T) {
 func TestTerminalHistoryPagination(t *testing.T) {
 	factory := &fakeFactory{}
 	logDir := t.TempDir()
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTestManager(terminal.ManagerOptions{
 		Shell:         "/bin/sh",
 		PtyFactory:    factory,
 		SessionLogDir: logDir,
 	})
-	created, err := manager.Create("", "", "")
+	created, err := manager.Create(testAgentID, "", "")
 	if err != nil {
 		t.Fatalf("create terminal: %v", err)
 	}
@@ -943,7 +987,7 @@ func TestTerminalHistoryPagination(t *testing.T) {
 	}
 
 	handler := &RestHandler{Manager: manager}
-	req := httptest.NewRequest(http.MethodGet, "/api/terminals/"+created.ID+"/history?lines=2", nil)
+	req := httptest.NewRequest(http.MethodGet, terminalPath(created.ID)+"/history?lines=2", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
@@ -963,7 +1007,7 @@ func TestTerminalHistoryPagination(t *testing.T) {
 		t.Fatalf("expected cursor in history response")
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/api/terminals/"+created.ID+"/history?lines=2&before_cursor="+strconv.FormatInt(*page.Cursor, 10), nil)
+	req = httptest.NewRequest(http.MethodGet, terminalPath(created.ID)+"/history?lines=2&before_cursor="+strconv.FormatInt(*page.Cursor, 10), nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	res = httptest.NewRecorder()
 	restHandler("secret", nil, handler.handleTerminal)(res, req)
@@ -982,7 +1026,7 @@ func TestTerminalHistoryPagination(t *testing.T) {
 		t.Fatalf("expected paged cursor to move backward")
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/api/terminals/"+created.ID+"/history?lines=2&before_cursor="+strconv.FormatInt(*pageWithCursor.Cursor, 10), nil)
+	req = httptest.NewRequest(http.MethodGet, terminalPath(created.ID)+"/history?lines=2&before_cursor="+strconv.FormatInt(*pageWithCursor.Cursor, 10), nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	res = httptest.NewRecorder()
 	restHandler("secret", nil, handler.handleTerminal)(res, req)
@@ -1001,11 +1045,11 @@ func TestTerminalHistoryPagination(t *testing.T) {
 
 func TestTerminalInputHistoryEndpoint(t *testing.T) {
 	factory := &fakeFactory{}
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTestManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
 	})
-	created, err := manager.Create("", "", "")
+	created, err := manager.Create(testAgentID, "", "")
 	if err != nil {
 		t.Fatalf("create terminal: %v", err)
 	}
@@ -1017,7 +1061,7 @@ func TestTerminalInputHistoryEndpoint(t *testing.T) {
 	created.RecordInput("two")
 
 	handler := &RestHandler{Manager: manager}
-	req := httptest.NewRequest(http.MethodGet, "/api/terminals/"+created.ID+"/input-history?limit=1", nil)
+	req := httptest.NewRequest(http.MethodGet, terminalPath(created.ID)+"/input-history?limit=1", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
@@ -1040,11 +1084,11 @@ func TestTerminalInputHistoryEndpoint(t *testing.T) {
 
 func TestTerminalInputHistoryPostEndpoint(t *testing.T) {
 	factory := &fakeFactory{}
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTestManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
 	})
-	created, err := manager.Create("", "", "")
+	created, err := manager.Create(testAgentID, "", "")
 	if err != nil {
 		t.Fatalf("create terminal: %v", err)
 	}
@@ -1055,7 +1099,7 @@ func TestTerminalInputHistoryPostEndpoint(t *testing.T) {
 	handler := &RestHandler{Manager: manager}
 	req := httptest.NewRequest(
 		http.MethodPost,
-		"/api/terminals/"+created.ID+"/input-history",
+		terminalPath(created.ID)+"/input-history",
 		strings.NewReader(`{"command":"echo hi"}`),
 	)
 	req.Header.Set("Authorization", "Bearer secret")
@@ -1068,7 +1112,7 @@ func TestTerminalInputHistoryPostEndpoint(t *testing.T) {
 
 	getReq := httptest.NewRequest(
 		http.MethodGet,
-		"/api/terminals/"+created.ID+"/input-history?limit=1",
+		terminalPath(created.ID)+"/input-history?limit=1",
 		nil,
 	)
 	getReq.Header.Set("Authorization", "Bearer secret")
@@ -1090,7 +1134,7 @@ func TestTerminalInputHistoryPostEndpoint(t *testing.T) {
 
 func TestCreateTerminalWithoutAgent(t *testing.T) {
 	factory := &fakeFactory{}
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTestManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
 	})
@@ -1101,41 +1145,15 @@ func TestCreateTerminalWithoutAgent(t *testing.T) {
 	res := httptest.NewRecorder()
 
 	restHandler("secret", nil, handler.handleTerminals)(res, req)
-	if res.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d", res.Code)
-	}
-
-	var payload terminalSummary
-	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if payload.Title != "plain" {
-		t.Fatalf("title mismatch: %q", payload.Title)
-	}
-	if payload.Role != "shell" {
-		t.Fatalf("role mismatch: %q", payload.Role)
-	}
-	if payload.ID == "" {
-		t.Fatalf("missing id")
-	}
-	defer func() {
-		_ = manager.Delete(payload.ID)
-	}()
-
-	factory.mu.Lock()
-	defer factory.mu.Unlock()
-	if len(factory.commands) != 1 {
-		t.Fatalf("expected 1 command, got %d", len(factory.commands))
-	}
-	if factory.commands[0] != "/bin/sh" {
-		t.Fatalf("expected /bin/sh, got %q", factory.commands[0])
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", res.Code)
 	}
 }
 
 func TestCreateTerminalWorkflowFlag(t *testing.T) {
 	factory := &fakeFactory{}
 	temporalClient := &fakeWorkflowSignalClient{runID: "run-1"}
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTestManager(terminal.ManagerOptions{
 		Shell:           "/bin/sh",
 		PtyFactory:      factory,
 		TemporalClient:  temporalClient,
@@ -1143,7 +1161,7 @@ func TestCreateTerminalWorkflowFlag(t *testing.T) {
 	})
 	handler := &RestHandler{Manager: manager}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/terminals", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/terminals", strings.NewReader(`{"agent":"codex"}`))
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
@@ -1160,9 +1178,6 @@ func TestCreateTerminalWorkflowFlag(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected session %q", payload.ID)
 	}
-	defer func() {
-		_ = manager.Delete(payload.ID)
-	}()
 	workflowID, runID, ok := session.WorkflowIdentifiers()
 	if !ok {
 		t.Fatalf("expected workflow identifiers")
@@ -1173,8 +1188,11 @@ func TestCreateTerminalWorkflowFlag(t *testing.T) {
 	if runID != temporalClient.runID {
 		t.Fatalf("expected run id %q, got %q", temporalClient.runID, runID)
 	}
+	if err := manager.Delete(payload.ID); err != nil {
+		t.Fatalf("delete session: %v", err)
+	}
 
-	req = httptest.NewRequest(http.MethodPost, "/api/terminals", strings.NewReader(`{"workflow":true}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/terminals", strings.NewReader(`{"agent":"codex","workflow":true}`))
 	req.Header.Set("Authorization", "Bearer secret")
 	res = httptest.NewRecorder()
 
@@ -1191,14 +1209,14 @@ func TestCreateTerminalWorkflowFlag(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected session %q", payloadExplicit.ID)
 	}
-	defer func() {
-		_ = manager.Delete(payloadExplicit.ID)
-	}()
 	if _, _, ok := explicitSession.WorkflowIdentifiers(); !ok {
 		t.Fatalf("expected workflow identifiers for explicit enable")
 	}
+	if err := manager.Delete(payloadExplicit.ID); err != nil {
+		t.Fatalf("delete session: %v", err)
+	}
 
-	req = httptest.NewRequest(http.MethodPost, "/api/terminals", strings.NewReader(`{"workflow":false}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/terminals", strings.NewReader(`{"agent":"codex","workflow":false}`))
 	req.Header.Set("Authorization", "Bearer secret")
 	res = httptest.NewRecorder()
 
@@ -1215,11 +1233,11 @@ func TestCreateTerminalWorkflowFlag(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected session %q", payloadDisabled.ID)
 	}
-	defer func() {
-		_ = manager.Delete(payloadDisabled.ID)
-	}()
 	if _, _, ok := disabledSession.WorkflowIdentifiers(); ok {
 		t.Fatalf("expected no workflow identifiers")
+	}
+	if err := manager.Delete(payloadDisabled.ID); err != nil {
+		t.Fatalf("delete session: %v", err)
 	}
 }
 
@@ -1235,7 +1253,7 @@ func TestCreateTerminalWithAgent(t *testing.T) {
 	}
 
 	factory := &fakeFactory{}
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTestManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
 		Agents: map[string]agent.Agent{
@@ -1295,7 +1313,7 @@ func TestCreateTerminalUsesAgentWorkflowDefault(t *testing.T) {
 
 	factory := &fakeFactory{}
 	temporalClient := &fakeWorkflowSignalClient{runID: "run-2"}
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTestManager(terminal.ManagerOptions{
 		Shell:           "/bin/sh",
 		PtyFactory:      factory,
 		TemporalClient:  temporalClient,
@@ -1348,7 +1366,7 @@ func TestCreateTerminalDuplicateAgent(t *testing.T) {
 	}
 
 	factory := &fakeFactory{}
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTestManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
 		Agents: map[string]agent.Agent{
@@ -1408,7 +1426,8 @@ func TestCreateTerminalDuplicateAgent(t *testing.T) {
 
 func TestListTerminalsIncludesLLMMetadata(t *testing.T) {
 	factory := &fakeFactory{}
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	nonSingleton := false
+	manager := newTestManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
 		Agents: map[string]agent.Agent{
@@ -1417,11 +1436,12 @@ func TestListTerminalsIncludesLLMMetadata(t *testing.T) {
 				Shell:    "/bin/zsh",
 				CLIType:  "codex",
 				LLMModel: "default",
+				Singleton: &nonSingleton,
 			},
 		},
 	})
 
-	defaultSession, err := manager.Create("", "build", "plain")
+	defaultSession, err := manager.Create(testAgentID, "build", "plain")
 	if err != nil {
 		t.Fatalf("create default session: %v", err)
 	}
@@ -1469,12 +1489,12 @@ func TestListTerminalsIncludesLLMMetadata(t *testing.T) {
 
 func TestListTerminalsIncludesPromptFiles(t *testing.T) {
 	factory := &fakeFactory{}
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTestManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
 	})
 
-	session, err := manager.Create("", "build", "plain")
+	session, err := manager.Create(testAgentID, "build", "plain")
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -1518,7 +1538,7 @@ func TestListTerminalsIncludesPromptFiles(t *testing.T) {
 
 func TestAgentsEndpoint(t *testing.T) {
 	factory := &fakeFactory{}
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTestManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
 		Agents: map[string]agent.Agent{
@@ -1598,7 +1618,7 @@ func TestAgentsEndpoint(t *testing.T) {
 
 func TestAgentInputEndpoint(t *testing.T) {
 	factory := &fakeFactory{}
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTestManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
 		Agents: map[string]agent.Agent{
@@ -1645,7 +1665,7 @@ func TestSkillsEndpoint(t *testing.T) {
 		t.Fatalf("mkdir references: %v", err)
 	}
 
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTestManager(terminal.ManagerOptions{
 		Skills: map[string]*skill.Skill{
 			"git-workflows": {
 				Name:        "git-workflows",
@@ -1692,7 +1712,7 @@ func TestSkillsEndpointFiltersByAgent(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTestManager(terminal.ManagerOptions{
 		Agents: map[string]agent.Agent{
 			"codex": {
 				Name:   "Codex",
@@ -1734,7 +1754,7 @@ func TestSkillsEndpointFiltersByAgent(t *testing.T) {
 }
 
 func TestSkillsEndpointUnknownAgent(t *testing.T) {
-	manager := terminal.NewManager(terminal.ManagerOptions{})
+	manager := newTestManager(terminal.ManagerOptions{})
 	handler := &RestHandler{Manager: manager}
 	req := httptest.NewRequest(http.MethodGet, "/api/skills?agent=missing", nil)
 	req.Header.Set("Authorization", "Bearer secret")
@@ -1842,11 +1862,11 @@ func TestPlansEndpointReturnsSortedPlans(t *testing.T) {
 
 func TestTerminalBellEndpointReturnsNoContent(t *testing.T) {
 	factory := &fakeFactory{}
-	manager := terminal.NewManager(terminal.ManagerOptions{
+	manager := newTestManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
 	})
-	created, err := manager.Create("", "", "")
+	created, err := manager.Create(testAgentID, "", "")
 	if err != nil {
 		t.Fatalf("create terminal: %v", err)
 	}
@@ -1855,7 +1875,7 @@ func TestTerminalBellEndpointReturnsNoContent(t *testing.T) {
 	}()
 
 	handler := &RestHandler{Manager: manager}
-	req := httptest.NewRequest(http.MethodPost, "/api/terminals/"+created.ID+"/bell", nil)
+	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/bell", nil)
 	res := httptest.NewRecorder()
 
 	restHandler("", nil, handler.handleTerminal)(res, req)
@@ -1865,7 +1885,7 @@ func TestTerminalBellEndpointReturnsNoContent(t *testing.T) {
 }
 
 func TestTerminalBellEndpointMissingSession(t *testing.T) {
-	manager := terminal.NewManager(terminal.ManagerOptions{Shell: "/bin/sh"})
+	manager := newTestManager(terminal.ManagerOptions{Shell: "/bin/sh"})
 	handler := &RestHandler{Manager: manager}
 	req := httptest.NewRequest(http.MethodPost, "/api/terminals/unknown/bell", nil)
 	res := httptest.NewRecorder()

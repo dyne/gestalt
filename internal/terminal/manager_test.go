@@ -276,16 +276,23 @@ func (f *captureFactory) Start(command string, args ...string) (Pty, *exec.Cmd, 
 
 func TestManagerLifecycle(t *testing.T) {
 	factory := &fakeFactory{}
+	nonSingleton := false
 	manager := NewManager(ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"coder": {
+				Name:      "Coder",
+				Singleton: &nonSingleton,
+			},
+		},
 	})
 
-	first, err := manager.Create("", "build", "first")
+	first, err := manager.Create("coder", "build", "first")
 	if err != nil {
 		t.Fatalf("create first: %v", err)
 	}
-	second, err := manager.Create("", "run", "second")
+	second, err := manager.Create("coder", "run", "second")
 	if err != nil {
 		t.Fatalf("create second: %v", err)
 	}
@@ -408,9 +415,14 @@ func TestManagerUsesClock(t *testing.T) {
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
 		Clock:      fixedClock{now: now},
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name: "Codex",
+			},
+		},
 	})
 
-	session, err := manager.Create("", "build", "clocked")
+	session, err := manager.Create("codex", "build", "clocked")
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -511,24 +523,89 @@ func TestManagerAgentMultipleInstances(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create first: %v", err)
 	}
-	if first.ID != "architect-1" {
-		t.Fatalf("expected id architect-1, got %q", first.ID)
+	if first.ID != "Architect 1" {
+		t.Fatalf("expected id Architect 1, got %q", first.ID)
 	}
 
 	second, err := manager.Create("architect", "build", "second")
 	if err != nil {
 		t.Fatalf("create second: %v", err)
 	}
-	if second.ID != "architect-2" {
-		t.Fatalf("expected id architect-2, got %q", second.ID)
+	if second.ID != "Architect 2" {
+		t.Fatalf("expected id Architect 2, got %q", second.ID)
 	}
 
 	third, err := manager.Create("architect", "build", "third")
 	if err != nil {
 		t.Fatalf("create third: %v", err)
 	}
-	if third.ID != "architect-3" {
-		t.Fatalf("expected id architect-3, got %q", third.ID)
+	if third.ID != "Architect 3" {
+		t.Fatalf("expected id Architect 3, got %q", third.ID)
+	}
+}
+
+func TestManagerAgentSessionIDSanitizesName(t *testing.T) {
+	factory := &fakeFactory{}
+	manager := NewManager(ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name: "Bad/Name (Codex)",
+			},
+		},
+	})
+
+	session, err := manager.Create("codex", "build", "first")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if session.ID != "BadName (Codex) 1" {
+		t.Fatalf("expected id BadName (Codex) 1, got %q", session.ID)
+	}
+}
+
+func TestManagerAgentSessionIDRejectsEmptyAfterSanitize(t *testing.T) {
+	factory := &fakeFactory{}
+	manager := NewManager(ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"bad": {
+				Name: " / ",
+			},
+		},
+	})
+
+	if _, err := manager.Create("bad", "build", "first"); err == nil {
+		t.Fatalf("expected error for empty sanitized agent name")
+	}
+}
+
+func TestManagerAgentSessionIDCollisionRetries(t *testing.T) {
+	factory := &fakeFactory{}
+	nonSingleton := false
+	manager := NewManager(ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:      "Codex",
+				Singleton: &nonSingleton,
+			},
+		},
+	})
+
+	manager.mu.Lock()
+	manager.sessions["Codex 1"] = &Session{SessionMeta: SessionMeta{ID: "Codex 1"}}
+	manager.mu.Unlock()
+
+	session, err := manager.Create("codex", "build", "first")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if session.ID != "Codex 2" {
+		t.Fatalf("expected id Codex 2, got %q", session.ID)
 	}
 }
 
@@ -1299,9 +1376,14 @@ func TestManagerDeleteIgnoresCloseError(t *testing.T) {
 	manager := NewManager(ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name: "Codex",
+			},
+		},
 	})
 
-	session, err := manager.Create("", "role", "title")
+	session, err := manager.Create("codex", "role", "title")
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -1391,12 +1473,15 @@ func TestManagerTerminalEvents(t *testing.T) {
 	manager := NewManager(ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {Name: "Codex"},
+		},
 	})
 
 	events, cancel := manager.TerminalBus().Subscribe()
 	defer cancel()
 
-	session, err := manager.Create("", "role", "title")
+	session, err := manager.Create("codex", "role", "title")
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -1472,7 +1557,7 @@ func TestManagerMultiInstanceKeepsAgentID(t *testing.T) {
 	if first.ID == second.ID {
 		t.Fatalf("expected unique session ids, got %q", first.ID)
 	}
-	if !strings.HasPrefix(first.ID, "codex-") || !strings.HasPrefix(second.ID, "codex-") {
+	if !strings.HasPrefix(first.ID, "Codex ") || !strings.HasPrefix(second.ID, "Codex ") {
 		t.Fatalf("expected numbered ids, got %q and %q", first.ID, second.ID)
 	}
 }

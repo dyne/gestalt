@@ -9,9 +9,9 @@ UNAME_S := $(shell uname -s)
 UNAME_M := $(shell uname -m)
 ARCH := $(UNAME_S)_$(UNAME_M)
 
-.PHONY: build build-scip test clean version temporal-dev dev
+.PHONY: build test clean version temporal-dev dev
 
-build: gestalt gestalt-send gestalt-notify build-scip
+build: gestalt gestalt-send gestalt-notify
 	$(MAKE) -C otel $(ARCH)
 
 # Frontend build is required before embedding.
@@ -35,13 +35,7 @@ gestalt-notify: $(VERSION_INFO)
 	VERSION_LDFLAGS=$$(node scripts/format-version-ldflags.js); \
 	$(GO) build  -ldflags "$$VERSION_LDFLAGS" -o gestalt-notify ./cmd/gestalt-notify
 
-build-scip:
-	@npm i
-	@cd cmd/gestalt-scip && npm run build
-	@chmod +x cmd/gestalt-scip/bin/gestalt-scip
-	@cp cmd/gestalt-scip/bin/gestalt-scip .
-
-install: gestalt gestalt-send gestalt-notify build-scip
+install: gestalt gestalt-send gestalt-notify
 	install -m 0755 gestalt $(BINDIR)/gestalt
 	install -m 0755 gestalt-send $(BINDIR)/gestalt-send
 	install -m 0755 gestalt-notify $(BINDIR)/gestalt-notify
@@ -69,5 +63,4 @@ version:
 clean:
 	rm -rf frontend/dist
 	rm -rf .cache
-	rm -rf cmd/gestalt-scip/dist cmd/gestalt-scip/bin
 	rm -rf gestalt gestalt-send gestalt-notify

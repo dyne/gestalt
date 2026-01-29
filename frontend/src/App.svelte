@@ -19,6 +19,7 @@
   import { releaseTerminalState } from './lib/terminalStore.js'
   import { canUseClipboard } from './lib/clipboard.js'
   import { notificationStore } from './lib/notificationStore.js'
+  import { subscribe as subscribeNotificationEvents } from './lib/notificationEventStore.js'
   import { getErrorMessage, notifyError } from './lib/errorUtils.js'
   import {
     appHealthStore,
@@ -38,6 +39,7 @@
   let error = ''
   let watchErrorNotified = false
   let terminalErrorUnsubscribe = null
+  let notificationUnsubscribe = null
   let crashState = null
   let clipboardAvailable = false
 
@@ -191,11 +193,21 @@
         : `Terminal ${terminalId} error.`
       notificationStore.addNotification('error', message)
     })
+    notificationUnsubscribe = subscribeNotificationEvents('toast', (payload) => {
+      if (!payload) return
+      const message = payload.message || ''
+      if (!String(message).trim()) return
+      notificationStore.addNotification(payload.level || 'info', message)
+    })
     return () => {
       unsubscribe()
       if (terminalErrorUnsubscribe) {
         terminalErrorUnsubscribe()
         terminalErrorUnsubscribe = null
+      }
+      if (notificationUnsubscribe) {
+        notificationUnsubscribe()
+        notificationUnsubscribe = null
       }
     }
   })

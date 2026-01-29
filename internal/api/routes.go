@@ -88,6 +88,10 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 		Logger:    logger,
 		AuthToken: authToken,
 	}))
+	mux.Handle("/api/notifications/stream", securityHeadersMiddleware(cacheControlNoStore, &NotificationsSSEHandler{
+		Logger:    logger,
+		AuthToken: authToken,
+	}))
 	mux.Handle("/ws/events", securityHeadersMiddleware(cacheControlNoStore, &EventsHandler{
 		Bus:       eventBus,
 		Logger:    logger,

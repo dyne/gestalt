@@ -125,7 +125,7 @@ func runServer(args []string) int {
 	if sdkOptions.ServiceVersion == "" {
 		sdkOptions.ServiceVersion = "dev"
 	}
-	if collectorOptions.Enabled && strings.TrimSpace(collectorOptions.HTTPEndpoint) != "" {
+	if collector != nil && strings.TrimSpace(collectorOptions.HTTPEndpoint) != "" {
 		sdkOptions.HTTPEndpoint = collectorOptions.HTTPEndpoint
 	}
 	if logger != nil {

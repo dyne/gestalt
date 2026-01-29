@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,6 +25,10 @@ const (
 	defaultCollectorBinary = "otelcol-gestalt"
 	defaultStateDir        = ".gestalt"
 	collectorPIDFileName   = "collector.pid"
+	collectorReadyTimeout  = 3 * time.Second
+	collectorReadyInterval = 100 * time.Millisecond
+	collectorReadyDialWait = 200 * time.Millisecond
+	collectorReadyTailSize = 4096
 )
 
 var ErrCollectorNotFound = errors.New("otel collector binary not found")
@@ -167,6 +172,19 @@ func StartCollector(options Options) (*Collector, error) {
 		pidPath:    pidPath,
 		rotateStop: make(chan struct{}),
 	}
+	readyExit := make(chan error, 1)
+
+	go collector.waitForExit(cmd, collector.done, readyExit)
+	if err := waitForCollectorReady(collector.info.HTTPEndpoint, readyExit, collectorReadyTimeout); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = collector.stopProcess(ctx, false)
+		stderrTail := collectorStderrTail(collector.stderr, collectorReadyTailSize)
+		if stderrTail != "" {
+			return nil, fmt.Errorf("otel collector not ready: %w: %s", err, stderrTail)
+		}
+		return nil, fmt.Errorf("otel collector not ready: %w", err)
+	}
 	SetActiveCollector(collector.info)
 
 	startFields := map[string]string{
@@ -178,8 +196,6 @@ func StartCollector(options Options) (*Collector, error) {
 		startFields["remote_insecure"] = strconv.FormatBool(options.RemoteInsecure)
 	}
 	collector.logInfo("otel collector started", startFields)
-
-	go collector.waitForExit(cmd, collector.done)
 	go collector.monitorRotation()
 	return collector, nil
 }
@@ -201,10 +217,16 @@ func (collector *Collector) Stop(ctx context.Context) error {
 	return collector.stopProcess(ctx, true)
 }
 
-func (collector *Collector) waitForExit(cmd *exec.Cmd, done chan error) {
+func (collector *Collector) waitForExit(cmd *exec.Cmd, done chan error, notify chan<- error) {
 	err := cmd.Wait()
 	if done != nil {
 		done <- err
+	}
+	if notify != nil {
+		select {
+		case notify <- err:
+		default:
+		}
 	}
 	collector.logExit(err)
 	collector.clearActiveIfCurrent(cmd)
@@ -424,7 +446,7 @@ func (collector *Collector) restartProcess() error {
 		"config": options.ConfigPath,
 	})
 
-	go collector.waitForExit(cmd, done)
+	go collector.waitForExit(cmd, done, nil)
 	return nil
 }
 
@@ -740,6 +762,75 @@ func signalProcess(process *os.Process) error {
 		return process.Kill()
 	}
 	return process.Signal(os.Interrupt)
+}
+
+func waitForCollectorReady(endpoint string, exit <-chan error, timeout time.Duration) error {
+	address, err := normalizeDialAddress(endpoint)
+	if err != nil {
+		return err
+	}
+	if timeout <= 0 {
+		timeout = collectorReadyTimeout
+	}
+	deadline := time.Now().Add(timeout)
+	dialer := net.Dialer{Timeout: collectorReadyDialWait}
+
+	for {
+		select {
+		case err := <-exit:
+			if err != nil {
+				return fmt.Errorf("collector exited before ready: %w", err)
+			}
+			return errors.New("collector exited before ready")
+		default:
+		}
+
+		conn, err := dialer.Dial("tcp", address)
+		if err == nil {
+			_ = conn.Close()
+			return nil
+		}
+
+		if time.Now().After(deadline) {
+			return fmt.Errorf("collector not ready after %s", timeout)
+		}
+		select {
+		case err := <-exit:
+			if err != nil {
+				return fmt.Errorf("collector exited before ready: %w", err)
+			}
+			return errors.New("collector exited before ready")
+		case <-time.After(collectorReadyInterval):
+		}
+	}
+}
+
+func normalizeDialAddress(endpoint string) (string, error) {
+	trimmed := strings.TrimSpace(endpoint)
+	if trimmed == "" {
+		trimmed = defaultHTTPEndpoint
+	}
+	if port, err := strconv.Atoi(trimmed); err == nil && port > 0 {
+		return net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), nil
+	}
+	if strings.HasPrefix(trimmed, ":") {
+		trimmed = "127.0.0.1" + trimmed
+	}
+	if _, _, err := net.SplitHostPort(trimmed); err != nil {
+		return "", err
+	}
+	return trimmed, nil
+}
+
+func collectorStderrTail(buffer *bytes.Buffer, max int) string {
+	if buffer == nil || max <= 0 {
+		return ""
+	}
+	data := buffer.Bytes()
+	if len(data) <= max {
+		return strings.TrimSpace(string(data))
+	}
+	return strings.TrimSpace(string(data[len(data)-max:]))
 }
 
 func StopCollectorWithTimeout(collector *Collector, timeout time.Duration) error {

@@ -2,11 +2,13 @@ package otel
 
 import (
 	"errors"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -87,9 +89,46 @@ func TestCollectorClearsActiveOnExit(t *testing.T) {
 	}
 	SetActiveCollector(CollectorInfo{ConfigPath: "test"})
 
-	collector.waitForExit(cmd, collector.done)
+	collector.waitForExit(cmd, collector.done, nil)
 
 	if _, ok := ActiveCollector(); ok {
 		t.Fatalf("expected active collector cleared")
+	}
+}
+
+func TestStartCollectorWaitReadyFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("readiness test skipped on windows")
+	}
+	tempDir := t.TempDir()
+	scriptPath := filepath.Join(tempDir, "otelcol-gestalt")
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	_ = listener.Close()
+
+	collector, err := StartCollector(Options{
+		Enabled:      true,
+		BinaryPath:   scriptPath,
+		ConfigPath:   filepath.Join(tempDir, "collector.yaml"),
+		DataDir:      tempDir,
+		HTTPEndpoint: net.JoinHostPort("127.0.0.1", strconv.Itoa(port)),
+	})
+	if err == nil {
+		if collector != nil {
+			_ = StopCollectorWithTimeout(collector, time.Second)
+		}
+		t.Fatalf("expected readiness error")
+	}
+	if !strings.Contains(err.Error(), "not ready") {
+		t.Fatalf("expected readiness error, got %v", err)
+	}
+	if collector != nil {
+		t.Fatalf("expected no collector on readiness failure")
 	}
 }

@@ -45,7 +45,8 @@ install: gestalt gestalt-send gestalt-notify build-scip
 	install -m 0755 gestalt $(BINDIR)/gestalt
 	install -m 0755 gestalt-send $(BINDIR)/gestalt-send
 	install -m 0755 gestalt-notify $(BINDIR)/gestalt-notify
-	install -m 0755 gestalt-scip $(BINDIR)/gestalt-scip
+	install -m 0755 gestalt-otel $(BINDIR)/gestalt-otel
+
 
 test:
 	go test ./...

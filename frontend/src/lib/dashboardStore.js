@@ -2,7 +2,7 @@ import { get, writable } from 'svelte/store'
 import { subscribe as subscribeAgentEvents } from './agentEventStore.js'
 import { subscribe as subscribeConfigEvents } from './configEventStore.js'
 import { subscribe as subscribeEvents } from './eventStore.js'
-import { fetchAgentSkills, fetchAgents, fetchMetricsSummary } from './apiClient.js'
+import { fetchAgents, fetchMetricsSummary } from './apiClient.js'
 import { getErrorMessage } from './errorUtils.js'
 import { notificationStore } from './notificationStore.js'
 import { createLogStream } from './logStream.js'
@@ -18,9 +18,6 @@ export const createDashboardStore = () => {
     agents: [],
     agentsLoading: false,
     agentsError: '',
-    agentSkills: {},
-    agentSkillsLoading: false,
-    agentSkillsError: '',
     logs: [],
     logsLoading: false,
     logsError: '',
@@ -162,43 +159,6 @@ export const createDashboardStore = () => {
     })
   }
 
-  const loadAgentSkills = async (agentList) => {
-    if (!agentList || agentList.length === 0) {
-      state.update((current) => ({
-        ...current,
-        agentSkills: {},
-        agentSkillsLoading: false,
-        agentSkillsError: '',
-      }))
-      return
-    }
-    state.update((current) => ({ ...current, agentSkillsLoading: true, agentSkillsError: '' }))
-    try {
-      const entries = await Promise.all(
-        agentList.map(async (agent) => {
-          try {
-            const data = await fetchAgentSkills(agent.id)
-            return [agent.id, data.map((skill) => skill.name)]
-          } catch {
-            return [agent.id, []]
-          }
-        }),
-      )
-      state.update((current) => ({
-        ...current,
-        agentSkills: Object.fromEntries(entries),
-        agentSkillsLoading: false,
-      }))
-    } catch (err) {
-      state.update((current) => ({
-        ...current,
-        agentSkillsError: getErrorMessage(err, 'Failed to load agent skills.'),
-        agentSkills: {},
-        agentSkillsLoading: false,
-      }))
-    }
-  }
-
   const loadAgents = async () => {
     state.update((current) => ({ ...current, agentsLoading: true, agentsError: '' }))
     try {
@@ -209,7 +169,6 @@ export const createDashboardStore = () => {
         agents: nextAgents,
         agentsLoading: false,
       }))
-      await loadAgentSkills(nextAgents)
     } catch (err) {
       state.update((current) => ({
         ...current,

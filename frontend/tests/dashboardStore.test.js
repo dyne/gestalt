@@ -3,7 +3,6 @@ import { get } from 'svelte/store'
 import { createLogStreamStub } from './helpers/appApiMocks.js'
 
 const fetchAgents = vi.hoisted(() => vi.fn())
-const fetchAgentSkills = vi.hoisted(() => vi.fn())
 const fetchMetricsSummary = vi.hoisted(() => vi.fn())
 const addNotification = vi.hoisted(() => vi.fn())
 const subscribeAgentEvents = vi.hoisted(() => vi.fn())
@@ -13,7 +12,6 @@ const createLogStream = vi.hoisted(() => vi.fn())
 
 vi.mock('../src/lib/apiClient.js', () => ({
   fetchAgents,
-  fetchAgentSkills,
   fetchMetricsSummary,
 }))
 
@@ -78,7 +76,6 @@ describe('dashboardStore', () => {
 
   afterEach(() => {
     fetchAgents.mockReset()
-    fetchAgentSkills.mockReset()
     fetchMetricsSummary.mockReset()
     addNotification.mockReset()
     subscribeAgentEvents.mockReset()
@@ -87,16 +84,15 @@ describe('dashboardStore', () => {
     createLogStream.mockReset()
   })
 
-  it('loads agents and skills', async () => {
+  it('loads agents', async () => {
     fetchAgents.mockResolvedValue([{ id: 'a1', name: 'Agent 1' }])
-    fetchAgentSkills.mockResolvedValue([{ name: 'skill-a' }])
 
     const store = createDashboardStore()
     await store.loadAgents()
 
     const value = get(store)
     expect(value.agents).toHaveLength(1)
-    expect(value.agentSkills).toEqual({ a1: ['skill-a'] })
+    expect(value.agentSkills).toBeUndefined()
     expect(value.agentsLoading).toBe(false)
   })
 
@@ -186,7 +182,6 @@ describe('dashboardStore', () => {
 
   it('syncs agent running state when terminals change', async () => {
     fetchAgents.mockResolvedValue([{ id: 'a1', name: 'Agent 1', session_id: 't1' }])
-    fetchAgentSkills.mockResolvedValue([])
 
     const store = createDashboardStore()
     store.setTerminals([{ id: 't1' }])

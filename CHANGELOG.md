@@ -1,6 +1,56 @@
 # [1.3.0](https://github.com/dyne/gestalt/compare/v1.2.0...v1.3.0) (2026-01-29)
 
 
+### Bug Fixes
+
+* bound otel collector stderr ([868ebc7](https://github.com/dyne/gestalt/commit/868ebc7e8ff89ed613b01899fc18518a4af7d6d3))
+* curb otel exporter spam ([a37c69f](https://github.com/dyne/gestalt/commit/a37c69f48ab75b4359fd0f3c44845e2e7ce55241))
+* expose otel collector status ([4babb95](https://github.com/dyne/gestalt/commit/4babb95b16d7db24a0409a7b60408da5434895db))
+* gate otel collector readiness ([aff1276](https://github.com/dyne/gestalt/commit/aff1276cb1f97a54d871b6882172e7a3f396cfc5))
+* install gestalt-otel ([9e00ac5](https://github.com/dyne/gestalt/commit/9e00ac51d323388cd4797945fb25d22c2e2a5a42))
+* prompt improvements ([537ef14](https://github.com/dyne/gestalt/commit/537ef14139abad6ccba13301c4fd611306458d87))
+* report temporal dev server status ([ef721e6](https://github.com/dyne/gestalt/commit/ef721e65afb8ed03f56e5c96e6b32297e85813ce))
+* stop daemons on shutdown ([e1cb0eb](https://github.com/dyne/gestalt/commit/e1cb0ebfa49ee2d01a48d29c5a6438e28ad9738f))
+* supervise otel collector ([ef1ee3c](https://github.com/dyne/gestalt/commit/ef1ee3c696b8950ea4462b50696d4eaa4ac9e757))
+* update prompts and agent instructions ([9bb6dbd](https://github.com/dyne/gestalt/commit/9bb6dbdcd36c608599aa0d29758aa4c7fdd4a5f3))
+* use session-id for codex notify ([0f326d8](https://github.com/dyne/gestalt/commit/0f326d882e4f08586a3897a718457654e23032bb))
+
+
+### Features
+
+* add activity assigner component ([7e9d0c8](https://github.com/dyne/gestalt/commit/7e9d0c81aaf4e969f125a2330875911517e7529b))
+* add drag and drop assignment ([c195b6a](https://github.com/dyne/gestalt/commit/c195b6a56168bd1307c39938fba90f3fc17df760))
+* add flow activities ([697c5fb](https://github.com/dyne/gestalt/commit/697c5fbefaf4a663797a6d9fa0a9be199f553366))
+* add flow config endpoints ([d8d242b](https://github.com/dyne/gestalt/commit/d8d242b86df672f38d9b42ba246bc39ce8bb69eb))
+* add flow config repository ([7e1f6e5](https://github.com/dyne/gestalt/commit/7e1f6e5d5d948a55ab9f747653d15fee89975259))
+* add flow event matching ([49b9692](https://github.com/dyne/gestalt/commit/49b9692ddde5bb5c990f36b9e2972b7aec84419c))
+* add flow idempotency helpers ([bf60a9d](https://github.com/dyne/gestalt/commit/bf60a9d1f85c35ff324114d3af29147c0cba43b5))
+* add flow temporal router bridge ([4619c8c](https://github.com/dyne/gestalt/commit/4619c8ccd4ceb27c29e804bf5af5476b34701b7c))
+* add flow trigger filtering ([1273db4](https://github.com/dyne/gestalt/commit/1273db44f879527e36c5a8c07518c39ebd3c183c))
+* add notification toast stream ([06b09a6](https://github.com/dyne/gestalt/commit/06b09a62440c17cd0ee5970808c01573323541d1))
+* add trigger editor dialog ([8fbe3f8](https://github.com/dyne/gestalt/commit/8fbe3f8286ef0e1f122b3e622b9940350dc2ae43))
+* align session terminology in UI ([a534bbc](https://github.com/dyne/gestalt/commit/a534bbcf77edd4813f43efe3d3735b8270dcabd4))
+* align workflow id with session id ([ffc8b76](https://github.com/dyne/gestalt/commit/ffc8b767d9a74cb71a7af5752838d745054d87ee))
+* compact agent dashboard ([4b20242](https://github.com/dyne/gestalt/commit/4b20242895ec90ff55596c2c412a321f42011b3a))
+* encode session ids in client paths ([4779c3f](https://github.com/dyne/gestalt/commit/4779c3f1127aa974910934f57c42d0dda91ca6ca))
+* gate terminal connections on visibility ([06e7a13](https://github.com/dyne/gestalt/commit/06e7a1365bcb35c48a8573d606f437156b4d4cf9))
+* generate agent session ids ([d693552](https://github.com/dyne/gestalt/commit/d693552da4a4b7cd1082cd6a0f2c764a4b780037))
+* harden session log cleanup ([e35d6b4](https://github.com/dyne/gestalt/commit/e35d6b4f011cc246b29d079242696126d0d20166))
+* label tabs by session id ([dfe7548](https://github.com/dyne/gestalt/commit/dfe7548bce7b9a9af1b3df65611b58979dde6b90))
+* lazy mount active terminal view ([1da929b](https://github.com/dyne/gestalt/commit/1da929b6d5be4bb38f1ab24544b605cc155092a6))
+* rename session json keys ([c1b7a54](https://github.com/dyne/gestalt/commit/c1b7a542cd46bdb048853d71067d63652d057744))
+* rename session routes ([f6006a7](https://github.com/dyne/gestalt/commit/f6006a77e66493943fdb23f910552b55b59aee02))
+* rename terminal strings ([1d68aa7](https://github.com/dyne/gestalt/commit/1d68aa75cdaa910618d3f80bc86f496eada6380b))
+* show terminal id in header ([198762c](https://github.com/dyne/gestalt/commit/198762cd3fe466a252d309f9542a929f599608ac))
+* start flow bridge on boot ([3f5823a](https://github.com/dyne/gestalt/commit/3f5823a49e730d0271b494c9368fcb84a8196be0))
+* switch gestalt-notify to session ids ([c5d39ff](https://github.com/dyne/gestalt/commit/c5d39ff5a0efe765cccb0ed31be41b1a31ec2c1c))
+* track agent session counters ([5cf16ca](https://github.com/dyne/gestalt/commit/5cf16ca34d13be92b6be914e5f07bc7effd340f3))
+* update gestalt-send session start ([c4df161](https://github.com/dyne/gestalt/commit/c4df1610b2c76f31d04903b4e34a9802e59ea0b2))
+* wire flow config UI ([ea281ae](https://github.com/dyne/gestalt/commit/ea281ae278ffa05b7e3d2e26e5788d0e67029131))
+
+# [1.3.0](https://github.com/dyne/gestalt/compare/v1.2.0...v1.3.0) (2026-01-29)
+
+
 ### Features
 
 * add activity assigner component ([7e9d0c8](https://github.com/dyne/gestalt/commit/7e9d0c81aaf4e969f125a2330875911517e7529b))

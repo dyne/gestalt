@@ -19,6 +19,7 @@ type RestHandler struct {
 	GitOrigin      string
 	GitBranch      string
 	TemporalUIPort int
+	TemporalHost   string
 	gitMutex       sync.RWMutex
 }
 
@@ -103,6 +104,9 @@ type statusResponse struct {
 	Built                     string    `json:"built"`
 	GitCommit                 string    `json:"git_commit,omitempty"`
 	TemporalUIURL             string    `json:"temporal_ui_url,omitempty"`
+	TemporalHost              string    `json:"temporal_host"`
+	TemporalDevServerRunning  bool      `json:"temporal_dev_server_running"`
+	TemporalDevServerPID      int       `json:"temporal_dev_server_pid"`
 	OTelCollectorRunning      bool      `json:"otel_collector_running"`
 	OTelCollectorPID          int       `json:"otel_collector_pid"`
 	OTelCollectorHTTPEndpoint string    `json:"otel_collector_http_endpoint"`

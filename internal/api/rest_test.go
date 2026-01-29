@@ -20,6 +20,7 @@ import (
 	"gestalt/internal/agent"
 	"gestalt/internal/otel"
 	"gestalt/internal/skill"
+	temporalcore "gestalt/internal/temporal"
 	"gestalt/internal/temporal/workflows"
 	"gestalt/internal/terminal"
 	"gestalt/internal/version"
@@ -434,6 +435,42 @@ func TestStatusHandlerIncludesTemporalURL(t *testing.T) {
 	}
 	if payload.TemporalUIURL != "https://example.com:8233" {
 		t.Fatalf("expected temporal url %q, got %q", "https://example.com:8233", payload.TemporalUIURL)
+	}
+}
+
+func TestStatusHandlerIncludesTemporalDevServerStatus(t *testing.T) {
+	manager := newTestManager(terminal.ManagerOptions{Shell: "/bin/sh"})
+	handler := &RestHandler{
+		Manager:      manager,
+		TemporalHost: "localhost:7233",
+	}
+	temporalcore.SetDevServerStatus(temporalcore.DevServerStatus{
+		PID:     2222,
+		Running: true,
+	})
+	defer temporalcore.ClearDevServerStatus()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", nil, handler.handleStatus)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var payload statusResponse
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !payload.TemporalDevServerRunning {
+		t.Fatalf("expected temporal dev server running")
+	}
+	if payload.TemporalDevServerPID != 2222 {
+		t.Fatalf("expected temporal dev server pid 2222, got %d", payload.TemporalDevServerPID)
+	}
+	if payload.TemporalHost != "localhost:7233" {
+		t.Fatalf("expected temporal host %q, got %q", "localhost:7233", payload.TemporalHost)
 	}
 }
 

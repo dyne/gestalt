@@ -8,9 +8,11 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gestalt/internal/logging"
+	"gestalt/internal/temporal"
 )
 
 const temporalDefaultHost = "localhost:7233"
@@ -22,6 +24,8 @@ type temporalDevServer struct {
 	cmd     *exec.Cmd
 	logFile *os.File
 	done    chan error
+	mu      sync.Mutex
+	stopped bool
 }
 
 func startTemporalDevServer(cfg *Config, logger *logging.Logger) (*temporalDevServer, error) {
@@ -84,9 +88,40 @@ func startTemporalDevServer(cfg *Config, logger *logging.Logger) (*temporalDevSe
 	}
 
 	done := make(chan error, 1)
-	go func() {
-		done <- cmd.Wait()
-	}()
+	server := &temporalDevServer{
+		cmd:     cmd,
+		logFile: logFile,
+		done:    done,
+	}
+	temporal.UpdateDevServerStatus(func(status *temporal.DevServerStatus) {
+		status.Running = true
+		if cmd.Process != nil {
+			status.PID = cmd.Process.Pid
+		}
+		status.LastExitTime = time.Time{}
+		status.LastExitErr = ""
+	})
+	go func(devServer *temporalDevServer) {
+		err := cmd.Wait()
+		done <- err
+		temporal.UpdateDevServerStatus(func(status *temporal.DevServerStatus) {
+			status.Running = false
+			status.PID = 0
+			status.LastExitTime = time.Now().UTC()
+			if err != nil {
+				status.LastExitErr = err.Error()
+			} else {
+				status.LastExitErr = ""
+			}
+		})
+		if logger != nil && !serverStopped(devServer) {
+			fields := map[string]string{}
+			if err != nil {
+				fields["error"] = err.Error()
+			}
+			logger.Warn("temporal dev server exited", fields)
+		}
+	}(server)
 
 	if logger != nil {
 		logger.Info("temporal dev server started", map[string]string{
@@ -97,11 +132,7 @@ func startTemporalDevServer(cfg *Config, logger *logging.Logger) (*temporalDevSe
 		})
 	}
 
-	return &temporalDevServer{
-		cmd:     cmd,
-		logFile: logFile,
-		done:    done,
-	}, nil
+	return server, nil
 }
 
 func resolveTemporalDevPorts(cfg *Config, logger *logging.Logger) (int, int, error) {
@@ -172,10 +203,30 @@ func (server *temporalDevServer) Done() <-chan error {
 	return server.done
 }
 
+func markServerStopped(server *temporalDevServer) {
+	if server == nil {
+		return
+	}
+	server.mu.Lock()
+	server.stopped = true
+	server.mu.Unlock()
+}
+
+func serverStopped(server *temporalDevServer) bool {
+	if server == nil {
+		return true
+	}
+	server.mu.Lock()
+	stopped := server.stopped
+	server.mu.Unlock()
+	return stopped
+}
+
 func (server *temporalDevServer) Stop(logger *logging.Logger) {
 	if server == nil {
 		return
 	}
+	markServerStopped(server)
 	if server.cmd == nil || server.cmd.Process == nil {
 		if server.logFile != nil {
 			_ = server.logFile.Close()

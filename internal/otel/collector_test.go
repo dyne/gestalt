@@ -1,6 +1,7 @@
 package otel
 
 import (
+	"context"
 	"errors"
 	"net"
 	"os"
@@ -130,5 +131,44 @@ func TestStartCollectorWaitReadyFailure(t *testing.T) {
 	}
 	if collector != nil {
 		t.Fatalf("expected no collector on readiness failure")
+	}
+}
+
+func TestCollectorSupervisorStopsAfterLimit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("supervisor test skipped on windows")
+	}
+	collector := &Collector{
+		exit:         make(chan collectorExit, 1),
+		restartBase:  5 * time.Millisecond,
+		restartMax:   10 * time.Millisecond,
+		restartLimit: 3,
+	}
+	restarts := 0
+	done := make(chan struct{})
+	collector.restartHook = func() error {
+		restarts++
+		if restarts >= collector.restartLimit {
+			select {
+			case <-done:
+			default:
+				close(done)
+			}
+		}
+		return errors.New("restart failed")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	collector.StartSupervision(ctx)
+	collector.exit <- collectorExit{err: errors.New("boom")}
+
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatalf("expected restarts before timeout")
+	}
+	time.Sleep(50 * time.Millisecond)
+	if restarts != collector.restartLimit {
+		t.Fatalf("expected %d restarts, got %d", collector.restartLimit, restarts)
 	}
 }

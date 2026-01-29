@@ -29,6 +29,9 @@ const (
 	collectorReadyInterval  = 100 * time.Millisecond
 	collectorReadyDialWait  = 200 * time.Millisecond
 	collectorStderrTailSize = 4096
+	collectorRestartBase    = 500 * time.Millisecond
+	collectorRestartMax     = 8 * time.Second
+	collectorRestartLimit   = 5
 )
 
 var ErrCollectorNotFound = errors.New("otel collector binary not found")
@@ -68,18 +71,25 @@ type CollectorStatus struct {
 }
 
 type Collector struct {
-	mu         sync.Mutex
-	cmd        *exec.Cmd
-	done       chan error
-	stderr     *bytes.Buffer
-	configPath string
-	info       CollectorInfo
-	logger     *logging.Logger
-	options    Options
-	binaryPath string
-	pidPath    string
-	rotateStop chan struct{}
-	rotating   bool
+	mu              sync.Mutex
+	cmd             *exec.Cmd
+	done            chan error
+	exit            chan collectorExit
+	stderr          *bytes.Buffer
+	configPath      string
+	info            CollectorInfo
+	logger          *logging.Logger
+	options         Options
+	binaryPath      string
+	pidPath         string
+	rotateStop      chan struct{}
+	rotating        bool
+	intentionalStop bool
+	supervising     bool
+	restartBase     time.Duration
+	restartMax      time.Duration
+	restartLimit    int
+	restartHook     func() error
 }
 
 var activeCollector struct {
@@ -91,6 +101,13 @@ var activeCollector struct {
 var activeCollectorStatus struct {
 	mu     sync.RWMutex
 	status CollectorStatus
+}
+
+type collectorExit struct {
+	err         error
+	pid         int
+	stderrTail  string
+	intentional bool
 }
 
 func OptionsFromEnv(stateDir string) Options {
@@ -171,6 +188,7 @@ func StartCollector(options Options) (*Collector, error) {
 	collector := &Collector{
 		cmd:        cmd,
 		done:       make(chan error, 1),
+		exit:       make(chan collectorExit, 1),
 		stderr:     stderr,
 		configPath: options.ConfigPath,
 		info: CollectorInfo{
@@ -182,11 +200,14 @@ func StartCollector(options Options) (*Collector, error) {
 			RemoteEndpoint: options.RemoteEndpoint,
 			RemoteInsecure: options.RemoteInsecure,
 		},
-		logger:     options.Logger,
-		options:    options,
-		binaryPath: binaryPath,
-		pidPath:    pidPath,
-		rotateStop: make(chan struct{}),
+		logger:       options.Logger,
+		options:      options,
+		binaryPath:   binaryPath,
+		pidPath:      pidPath,
+		rotateStop:   make(chan struct{}),
+		restartBase:  collectorRestartBase,
+		restartMax:   collectorRestartMax,
+		restartLimit: collectorRestartLimit,
 	}
 	readyExit := make(chan error, 1)
 
@@ -194,7 +215,9 @@ func StartCollector(options Options) (*Collector, error) {
 	if err := waitForCollectorReady(collector.info.HTTPEndpoint, readyExit, collectorReadyTimeout); err != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
+		collector.setIntentionalStop(true)
 		_ = collector.stopProcess(ctx, false)
+		collector.setIntentionalStop(false)
 		stderrTail := collectorStderrTail(collector.stderr, collectorStderrTailSize)
 		if stderrTail != "" {
 			return nil, fmt.Errorf("otel collector not ready: %w: %s", err, stderrTail)
@@ -230,6 +253,8 @@ func (collector *Collector) Stop(ctx context.Context) error {
 	if collector == nil {
 		return nil
 	}
+	collector.setIntentionalStop(true)
+	defer collector.setIntentionalStop(false)
 	closeRotation := func() {
 		collector.mu.Lock()
 		if collector.rotateStop != nil {
@@ -243,6 +268,22 @@ func (collector *Collector) Stop(ctx context.Context) error {
 	return collector.stopProcess(ctx, true)
 }
 
+func (collector *Collector) StartSupervision(ctx context.Context) {
+	if collector == nil {
+		return
+	}
+	collector.mu.Lock()
+	if collector.supervising {
+		collector.mu.Unlock()
+		return
+	}
+	collector.supervising = true
+	exit := collector.exit
+	collector.mu.Unlock()
+
+	go collector.supervise(ctx, exit)
+}
+
 func (collector *Collector) waitForExit(cmd *exec.Cmd, done chan error, notify chan<- error) {
 	err := cmd.Wait()
 	if done != nil {
@@ -254,7 +295,19 @@ func (collector *Collector) waitForExit(cmd *exec.Cmd, done chan error, notify c
 		default:
 		}
 	}
-	stderrTail := collectorStderrTail(collector.stderr, collectorStderrTailSize)
+	exitEvent := collectorExit{
+		err:         err,
+		pid:         processID(cmd),
+		stderrTail:  collectorStderrTail(collector.stderr, collectorStderrTailSize),
+		intentional: collector.isIntentionalStop(),
+	}
+	if collector.exit != nil {
+		select {
+		case collector.exit <- exitEvent:
+		default:
+		}
+	}
+	stderrTail := exitEvent.stderrTail
 	updateCollectorStatus(func(status *CollectorStatus) {
 		status.Running = false
 		status.PID = 0
@@ -324,6 +377,25 @@ func (collector *Collector) logWarn(message string, fields map[string]string) {
 	collector.logger.Warn(message, fields)
 }
 
+func (collector *Collector) setIntentionalStop(value bool) {
+	if collector == nil {
+		return
+	}
+	collector.mu.Lock()
+	collector.intentionalStop = value
+	collector.mu.Unlock()
+}
+
+func (collector *Collector) isIntentionalStop() bool {
+	if collector == nil {
+		return false
+	}
+	collector.mu.Lock()
+	value := collector.intentionalStop
+	collector.mu.Unlock()
+	return value
+}
+
 func (collector *Collector) stopProcess(ctx context.Context, clearActive bool) error {
 	collector.mu.Lock()
 	cmd := collector.cmd
@@ -359,6 +431,88 @@ func (collector *Collector) stopProcess(ctx context.Context, clearActive bool) e
 			ClearActiveCollector()
 		}
 		return ctx.Err()
+	}
+}
+
+func (collector *Collector) supervise(ctx context.Context, exit <-chan collectorExit) {
+	if collector == nil || exit == nil {
+		return
+	}
+	collector.mu.Lock()
+	base := collector.restartBase
+	max := collector.restartMax
+	limit := collector.restartLimit
+	collector.mu.Unlock()
+	if base <= 0 {
+		base = collectorRestartBase
+	}
+	if max <= 0 {
+		max = collectorRestartMax
+	}
+	if limit <= 0 {
+		limit = collectorRestartLimit
+	}
+
+	backoff := base
+	restarts := 0
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case evt := <-exit:
+			if evt.intentional {
+				restarts = 0
+				backoff = base
+				continue
+			}
+			for {
+				if ctx.Err() != nil {
+					return
+				}
+				if restarts >= limit {
+					collector.logWarn("otel collector supervision stopped", map[string]string{
+						"reason":        "restart_limit",
+						"restart_limit": strconv.Itoa(limit),
+					})
+					return
+				}
+				restarts++
+				fields := map[string]string{
+					"attempt": strconv.Itoa(restarts),
+					"backoff": backoff.String(),
+				}
+				if evt.pid > 0 {
+					fields["pid"] = strconv.Itoa(evt.pid)
+				}
+				if evt.err != nil {
+					fields["error"] = evt.err.Error()
+				}
+				if evt.stderrTail != "" {
+					fields["stderr_tail"] = evt.stderrTail
+				}
+				collector.logWarn("otel collector exited unexpectedly, restarting", fields)
+
+				timer := time.NewTimer(backoff)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return
+				case <-timer.C:
+				}
+				if err := collector.restartProcess(); err != nil {
+					collector.logWarn("otel collector restart failed", map[string]string{
+						"error":   err.Error(),
+						"attempt": strconv.Itoa(restarts),
+					})
+					backoff = nextBackoff(backoff, max)
+					continue
+				}
+				restarts = 0
+				backoff = base
+				break
+			}
+		}
 	}
 }
 
@@ -412,11 +566,13 @@ func (collector *Collector) rotateIfNeeded(config rotationConfig) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	collector.setIntentionalStop(true)
 	if err := collector.stopProcess(ctx, false); err != nil {
 		collector.logWarn("otel collector stop failed for rotation", map[string]string{
 			"error": err.Error(),
 		})
 	}
+	collector.setIntentionalStop(false)
 
 	rotatedPath, err := rotateCollectorFile(dataPath)
 	if err != nil {
@@ -440,11 +596,16 @@ func (collector *Collector) rotateIfNeeded(config rotationConfig) {
 
 func (collector *Collector) restartProcess() error {
 	collector.mu.Lock()
+	restartHook := collector.restartHook
 	options := collector.options
 	binaryPath := collector.binaryPath
 	dataPath := collector.info.DataPath
 	pidPath := collector.pidPath
 	collector.mu.Unlock()
+
+	if restartHook != nil {
+		return restartHook()
+	}
 
 	if err := WriteCollectorConfig(options.ConfigPath, dataPath, options.GRPCEndpoint, options.HTTPEndpoint, options.RemoteEndpoint, options.RemoteInsecure, options.SelfMetricsEnabled); err != nil {
 		return err
@@ -810,6 +971,24 @@ func signalProcess(process *os.Process) error {
 		return process.Kill()
 	}
 	return process.Signal(os.Interrupt)
+}
+
+func processID(cmd *exec.Cmd) int {
+	if cmd == nil || cmd.Process == nil {
+		return 0
+	}
+	return cmd.Process.Pid
+}
+
+func nextBackoff(current, max time.Duration) time.Duration {
+	if current <= 0 {
+		return collectorRestartBase
+	}
+	next := current * 2
+	if max > 0 && next > max {
+		return max
+	}
+	return next
 }
 
 func waitForCollectorReady(endpoint string, exit <-chan error, timeout time.Duration) error {

@@ -65,6 +65,8 @@ func runServer(args []string) int {
 	}
 	logVersionInfo(logger)
 	ensureStateDir(cfg, logger)
+	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+	defer shutdownCancel()
 
 	portRegistry := ports.NewPortRegistry()
 	collectorOptions := otel.OptionsFromEnv(".gestalt")
@@ -109,6 +111,7 @@ func runServer(args []string) int {
 		}
 	}
 	if collector != nil {
+		collector.StartSupervision(shutdownCtx)
 		if port, ok := parseEndpointPort(collectorOptions.HTTPEndpoint); ok {
 			portRegistry.Set("otel", port)
 		}
@@ -408,8 +411,15 @@ func runServer(args []string) int {
 		"version": version.Version,
 	})
 
+	signalCh := make(chan os.Signal, 1)
 	stopSignals := make(chan os.Signal, 1)
-	signal.Notify(stopSignals, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signalCh)
+	go func() {
+		sig := <-signalCh
+		shutdownCancel()
+		stopSignals <- sig
+	}()
 
 	runner := &ServerRunner{
 		Logger:          logger,

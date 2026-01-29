@@ -1,3 +1,4 @@
+# NOTE: Historical plan content uses "terminal" terminology; current docs/APIs use "session".
 * DONE [#B] Port templating directives for runtime service discovery
   Effort: 2-3 days
   Goal: Extend prompt template parser to support {{port <service>}} directives that resolve to runtime-allocated port numbers for backend, temporal, otel, and frontend services.

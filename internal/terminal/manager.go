@@ -1011,8 +1011,8 @@ func copyCLIConfig(config map[string]interface{}) map[string]interface{} {
 	return cloned
 }
 
-func buildNotifyArgs(terminalID, agentID, agentName string) []string {
-	args := []string{"gestalt-notify", "--terminal-id", strings.TrimSpace(terminalID), "--agent-id", strings.TrimSpace(agentID)}
+func buildNotifyArgs(sessionID, agentID, agentName string) []string {
+	args := []string{"gestalt-notify", "--session-id", strings.TrimSpace(sessionID), "--agent-id", strings.TrimSpace(agentID)}
 	if strings.TrimSpace(agentName) != "" {
 		args = append(args, "--agent-name", strings.TrimSpace(agentName))
 	}

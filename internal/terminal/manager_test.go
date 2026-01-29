@@ -1605,8 +1605,8 @@ func TestManagerInjectsCodexNotify(t *testing.T) {
 	if !strings.Contains(notifyArg, "gestalt-notify") {
 		t.Fatalf("expected notify command to include gestalt-notify, got %q", notifyArg)
 	}
-	if !strings.Contains(notifyArg, "--terminal-id") || !strings.Contains(notifyArg, session.ID) {
-		t.Fatalf("expected notify command to include terminal id %q, got %q", session.ID, notifyArg)
+	if !strings.Contains(notifyArg, "--session-id") || !strings.Contains(notifyArg, session.ID) {
+		t.Fatalf("expected notify command to include session id %q, got %q", session.ID, notifyArg)
 	}
 	if !strings.Contains(notifyArg, "--agent-id") || !strings.Contains(notifyArg, "codex") {
 		t.Fatalf("expected notify command to include agent id codex, got %q", notifyArg)

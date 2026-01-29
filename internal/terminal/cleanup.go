@@ -12,6 +12,7 @@ const (
 	DefaultSessionRetentionDays  = 7
 	DefaultSessionRetentionCount = 5
 	sessionCleanupInterval       = time.Hour
+	sessionLogTimestampLayout    = "20060102-150405"
 )
 
 type sessionLogFile struct {
@@ -58,20 +59,17 @@ func (m *Manager) cleanupSessionLogs(now time.Time) {
 			continue
 		}
 		name := entry.Name()
-		if !strings.HasSuffix(name, ".txt") {
-			continue
-		}
-		parts := strings.SplitN(name, "-", 2)
-		if len(parts) < 2 || strings.TrimSpace(parts[0]) == "" {
+		terminalID, ok := sessionLogTerminalID(name)
+		if !ok {
 			continue
 		}
 		info, err := entry.Info()
 		if err != nil {
 			continue
 		}
-		groups[parts[0]] = append(groups[parts[0]], sessionLogFile{
+		groups[terminalID] = append(groups[terminalID], sessionLogFile{
 			path:       filepath.Join(m.sessionLogs, name),
-			terminalID: parts[0],
+			terminalID: terminalID,
 			modTime:    info.ModTime(),
 		})
 	}
@@ -109,4 +107,30 @@ func (m *Manager) cleanupSessionLogs(now time.Time) {
 			})
 		}
 	}
+}
+
+func sessionLogTerminalID(filename string) (string, bool) {
+	if !strings.HasSuffix(filename, ".txt") {
+		return "", false
+	}
+	trimmed := strings.TrimSuffix(filename, ".txt")
+	if len(trimmed) <= len(sessionLogTimestampLayout) {
+		return "", false
+	}
+	timestampStart := len(trimmed) - len(sessionLogTimestampLayout)
+	if timestampStart <= 0 {
+		return "", false
+	}
+	if trimmed[timestampStart-1] != '-' {
+		return "", false
+	}
+	timestamp := trimmed[timestampStart:]
+	if _, err := time.Parse(sessionLogTimestampLayout, timestamp); err != nil {
+		return "", false
+	}
+	terminalID := strings.TrimSpace(trimmed[:timestampStart-1])
+	if terminalID == "" {
+		return "", false
+	}
+	return terminalID, true
 }

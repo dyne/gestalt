@@ -172,3 +172,22 @@ func TestCollectorSupervisorStopsAfterLimit(t *testing.T) {
 		t.Fatalf("expected %d restarts, got %d", collector.restartLimit, restarts)
 	}
 }
+
+func TestTailBufferTruncates(t *testing.T) {
+	buffer := newTailBuffer(5)
+	if _, err := buffer.Write([]byte("hello")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if got := buffer.String(); got != "hello" {
+		t.Fatalf("expected hello, got %q", got)
+	}
+	if _, err := buffer.Write([]byte("world")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if got := buffer.String(); got != "world" {
+		t.Fatalf("expected world, got %q", got)
+	}
+	if len(buffer.Bytes()) != 5 {
+		t.Fatalf("expected 5 bytes, got %d", len(buffer.Bytes()))
+	}
+}

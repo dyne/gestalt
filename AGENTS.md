@@ -136,6 +136,11 @@ terminal output -> Session output bus -> /ws/session/:id -> xterm
 - Remote export: `GESTALT_OTEL_REMOTE_ENDPOINT` + `GESTALT_OTEL_REMOTE_INSECURE` adds otlpexporter to collector pipelines.
 - Collector self-metrics are disabled in generated config; set `GESTALT_OTEL_SELF_METRICS=true` to keep default telemetry readers.
 - Limits: `GESTALT_OTEL_MAX_RECORDS` caps records read from `otel.json`; `/api/otel/*` limit is capped at 1000.
+- Runtime checklist:
+  - `/api/status` shows `otel_collector_running=true` with PID and HTTP endpoint.
+  - TCP dial to the `otel_collector_http_endpoint` succeeds.
+  - Logs do not show repeated "connection refused" from OTLP exporters.
+  - `otel_collector_last_exit` is empty or has a recent error with `otel_collector_restart_count` incremented.
 
 ## Recent changes (2026-01-10 to 2026-01-23)
 - UI: relative time formatting in `frontend/src/lib/timeUtils.js` (ISO tooltips).

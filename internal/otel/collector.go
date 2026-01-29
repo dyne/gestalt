@@ -1,7 +1,6 @@
 package otel
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -28,7 +27,7 @@ const (
 	collectorReadyTimeout   = 3 * time.Second
 	collectorReadyInterval  = 100 * time.Millisecond
 	collectorReadyDialWait  = 200 * time.Millisecond
-	collectorStderrTailSize = 4096
+	collectorStderrTailSize = 8192
 	collectorRestartBase    = 500 * time.Millisecond
 	collectorRestartMax     = 8 * time.Second
 	collectorRestartLimit   = 5
@@ -75,7 +74,7 @@ type Collector struct {
 	cmd             *exec.Cmd
 	done            chan error
 	exit            chan collectorExit
-	stderr          *bytes.Buffer
+	stderr          *tailBuffer
 	configPath      string
 	info            CollectorInfo
 	logger          *logging.Logger
@@ -172,7 +171,7 @@ func StartCollector(options Options) (*Collector, error) {
 	}
 
 	cmd := exec.Command(binaryPath, "--config", options.ConfigPath)
-	stderr := &bytes.Buffer{}
+	stderr := newTailBuffer(collectorStderrTailSize)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
@@ -612,7 +611,7 @@ func (collector *Collector) restartProcess() error {
 	}
 
 	cmd := exec.Command(binaryPath, "--config", options.ConfigPath)
-	stderr := &bytes.Buffer{}
+	stderr := newTailBuffer(collectorStderrTailSize)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
@@ -1049,7 +1048,60 @@ func normalizeDialAddress(endpoint string) (string, error) {
 	return trimmed, nil
 }
 
-func collectorStderrTail(buffer *bytes.Buffer, max int) string {
+type tailBuffer struct {
+	mu  sync.Mutex
+	buf []byte
+	max int
+}
+
+func newTailBuffer(max int) *tailBuffer {
+	if max <= 0 {
+		max = collectorStderrTailSize
+	}
+	return &tailBuffer{max: max}
+}
+
+func (buffer *tailBuffer) Write(data []byte) (int, error) {
+	if buffer == nil {
+		return len(data), nil
+	}
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	if buffer.max <= 0 {
+		return len(data), nil
+	}
+	if len(data) >= buffer.max {
+		buffer.buf = append(buffer.buf[:0], data[len(data)-buffer.max:]...)
+		return len(data), nil
+	}
+	if len(buffer.buf)+len(data) > buffer.max {
+		over := len(buffer.buf) + len(data) - buffer.max
+		buffer.buf = append(buffer.buf[over:], data...)
+		return len(data), nil
+	}
+	buffer.buf = append(buffer.buf, data...)
+	return len(data), nil
+}
+
+func (buffer *tailBuffer) Bytes() []byte {
+	if buffer == nil {
+		return nil
+	}
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	if len(buffer.buf) == 0 {
+		return nil
+	}
+	out := make([]byte, len(buffer.buf))
+	copy(out, buffer.buf)
+	return out
+}
+
+func (buffer *tailBuffer) String() string {
+	return string(buffer.Bytes())
+}
+
+func collectorStderrTail(buffer *tailBuffer, max int) string {
 	if buffer == nil || max <= 0 {
 		return ""
 	}

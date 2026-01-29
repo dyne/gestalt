@@ -57,6 +57,7 @@
   $: setActiveView(activeView)
   $: crashState = $appHealthStore
   $: clipboardAvailable = canUseClipboard()
+  $: activeTerminal = terminals.find((terminal) => terminal.id === activeId) || null
 
   $: if (typeof document !== 'undefined') {
     const projectName = buildTitle(status?.working_dir || '')
@@ -66,12 +67,6 @@
   const syncTabs = (terminalList) => {
     tabs = buildTabs(terminalList)
     activeId = ensureActiveTab(activeId, tabs, 'dashboard')
-  }
-
-  const terminalKey = (terminal, index) => {
-    const id = terminal?.id
-    if (id) return id
-    return `terminal-${index}`
   }
 
   const refresh = async () => {
@@ -279,19 +274,19 @@
     </svelte:boundary>
   </section>
   <section class="view view--terminals" data-active={activeView === 'terminal'}>
-    {#each terminals as terminal, terminalIndex (terminalKey(terminal, terminalIndex))}
-      <div class="terminal-tab" data-active={terminal.id === activeId}>
+    {#if activeTerminal}
+      <div class="terminal-tab" data-active="true">
         <svelte:boundary onerror={(error) => handleBoundaryError('terminal', error)} failed={viewFailed}>
           <TerminalView
-            terminalId={terminal.id}
-            title={terminal.title}
-            promptFiles={terminal.prompt_files || []}
-            visible={terminal.id === activeId}
+            terminalId={activeTerminal.id}
+            title={activeTerminal.title}
+            promptFiles={activeTerminal.prompt_files || []}
+            visible={true}
             onDelete={deleteTerminal}
           />
         </svelte:boundary>
       </div>
-    {/each}
+    {/if}
   </section>
 </main>
 

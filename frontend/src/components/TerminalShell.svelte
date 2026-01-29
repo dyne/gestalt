@@ -2,6 +2,7 @@
   export let displayTitle = ''
   export let promptFilesLabel = ''
   export let statusLabel = ''
+  export let terminalId = ''
   export let historyStatus = 'idle'
   export let canReconnect = false
   export let bellCount = 0
@@ -13,6 +14,10 @@
   <header class="terminal-shell__header">
     <div class="header-line">
       <span class="label">{displayTitle}</span>
+      {#if terminalId}
+        <span class="separator">|</span>
+        <span class="terminal-id">ID: {terminalId}</span>
+      {/if}
       {#if promptFilesLabel}
         <span class="separator">|</span>
         <span class="subtitle">Prompts: {promptFilesLabel}</span>
@@ -94,6 +99,16 @@
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: rgba(var(--color-text-rgb), 0.5);
+    overflow-wrap: anywhere;
+  }
+
+  .terminal-id {
+    margin: 0;
+    display: inline-flex;
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(var(--color-text-rgb), 0.55);
     overflow-wrap: anywhere;
   }
 

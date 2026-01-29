@@ -175,6 +175,7 @@
   {displayTitle}
   {promptFilesLabel}
   {statusLabel}
+  {terminalId}
   {historyStatus}
   {canReconnect}
   {bellCount}

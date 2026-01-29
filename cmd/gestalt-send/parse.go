@@ -88,7 +88,7 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 func printSendHelp(out io.Writer) {
 	fmt.Fprintln(out, "Usage: gestalt-send [options] <agent-name-or-id>")
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "Send stdin to a running Gestalt agent terminal")
+	fmt.Fprintln(out, "Send stdin to a running Gestalt agent session")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Options:")
 	writeSendOption(out, "--url URL", "Gestalt server URL (env: GESTALT_URL, default: http://localhost:57417)")

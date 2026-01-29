@@ -296,7 +296,7 @@ func TestSendAgentInputAutoStart(t *testing.T) {
 				Header:     make(http.Header),
 				Request:    r,
 			}, nil
-		case "/api/terminals":
+		case "/api/sessions":
 			return &http.Response{
 				StatusCode: http.StatusCreated,
 				Body:       io.NopCloser(strings.NewReader("")),

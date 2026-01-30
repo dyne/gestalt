@@ -66,7 +66,7 @@ version:
 clean:
 	rm -rf frontend/dist
 	rm -rf .cache
-	rm -rf gestalt gestalt-send gestalt-notify
+	rm -rf gestalt gestalt-send gestalt-notify gestalt-otel
 
 release: frontend/dist $(CONFIG_MANIFEST) $(VERSION_INFO)
 	@mkdir -p $(DIST)

@@ -15,3 +15,5 @@ otel/go.*
 otel/*.go
 gestalt
 gestalt-send
+gestalt-notify
+gestalt-otel

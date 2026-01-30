@@ -1,4 +1,4 @@
-name: Tests
+name: 🧪 Tests
 
 on:
   pull_request:
@@ -10,6 +10,7 @@ on:
 
 jobs:
   test:
+    name: ⏳ Run tests
     runs-on: ubuntu-latest
     env:
       GO111MODULE: on
@@ -33,3 +34,41 @@ jobs:
         run: make
       - name: Run tests
         run: make test
+      - name: Build cross-platform binaries
+        run: |
+          make clean && make release
+      - name: Upload binaries
+        uses: actions/upload-artifact@v6
+        with:
+          path: dist/*.tar.gz
+
+
+  test-cross-platform:
+    name: 🚸 Testing cli on (${{ matrix.goos }} / ${{ matrix.goarch }})
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+          - os: windows-latest
+            goos: windows
+            goarch: amd64
+    steps:
+      - uses: actions/download-artifact@v7
+      - run: |
+          tar -xzf gestalt-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
+          ./gestalt --help
+          echo "--------------------------------------"
+          ./gestalt-send --help
+          echo "--------------------------------------"
+          ./gestalt-notify --help
+          echo "--------------------------------------"
+          ./gestalt-otel --help
+        shell: bash

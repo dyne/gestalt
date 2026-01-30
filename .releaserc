@@ -30,7 +30,7 @@
         [
             "@semantic-release/exec",
             {
-                "prepareCmd": "make"
+                "prepareCmd": "make release"
             }
         ],
         [
@@ -38,16 +38,28 @@
             {
                 "assets": [
                     {
-                        "path": "gestalt",
-                        "name": "gestalt"
+                        "path": "dist/gestalt-darwin-amd64.tar.gz",
+                        "name": "gestalt-darwin-amd64.tar.gz"
                     },
                     {
-                        "path": "gestalt-scip",
-                        "name": "gestalt-scip"
+                        "path": "dist/gestalt-darwin-arm64.tar.gz",
+                        "name": "gestalt-darwin-arm64.tar.gz"
                     },
                     {
-                        "path": "gestalt-send",
-                        "name": "gestalt-send"
+                        "path": "dist/gestalt-linux-amd64.tar.gz",
+                        "name": "gestalt-linux-amd64.tar.gz"
+                    },
+                    {
+                        "path": "dist/gestalt-linux-arm64.tar.gz",
+                        "name": "gestalt-linux-arm64.tar.gz"
+                    },
+                    {
+                        "path": "dist/gestalt-windows-amd64.tar.gz",
+                        "name": "gestalt-windows-amd64.tar.gz"
+                    },
+                    {
+                        "path": "dist/gestalt-windows-arm64.tar.gz",
+                        "name": "gestalt-windows-arm64.tar.gz"
                     }
                 ]
             }

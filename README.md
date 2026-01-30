@@ -1,28 +1,102 @@
-# Gestalt
+<h1 align="center">
+  Gestalt<br/><br/>
+  <sub>We invite you to stop assembling the pieces and start perceiving the whole.</sub>
+</h1>
 
-We invite you to stop assembling the pieces and start perceiving the whole.
+<p align="center">
+  <a href="https://dyne.org">
+    <img src="https://img.shields.io/badge/%3C%2F%3E%20with%20%E2%9D%A4%20by-Dyne.org-blue.svg" alt="Dyne.org">
+  </a>
+</p>
 
-Welcome to Gestalt.
+<br><br>
 
-### More info on [dyne.org/gestalt](https://dyne.org/gestalt)
+### 📖 More info on [dyne.org/gestalt](https://dyne.org/gestalt) <!-- omit in toc -->
 
-## Quick Start
+***
 
-Build (needs nodejs and npm):
+<div id="toc">
+
+### 🚩 Table of Contents  <!-- omit in toc -->
+
+- [🎮 Quick start](#-quick-start)
+- [💾 Build](#-build)
+- [🏗️ Development (Vite)](#️-development-vite)
+- [Run Gestalt on your project](#run-gestalt-on-your-project)
+- [Event-driven architecture](#event-driven-architecture)
+- [Temporal (dev server)](#temporal-dev-server)
+- [Temporal workflows (HITL)](#temporal-workflows-hitl)
+- [Notify notary (gestalt-notify)](#notify-notary-gestalt-notify)
+- [Future handoff design (deferred)](#future-handoff-design-deferred)
+- [🧪 Testing](#-testing)
+- [📌 Versioning](#-versioning)
+- [📟 Command-Line Interface](#-command-line-interface)
+- [⚙️ Configuration](#️-configuration)
+- [Dashboard](#dashboard)
+- [🫵 Touch scrolling](#-touch-scrolling)
+- [📦 Embedded Resources](#-embedded-resources)
+- [⬆️ Upgrading Gestalt](#️-upgrading-gestalt)
+- [🐛 Troubleshooting config extraction](#-troubleshooting-config-extraction)
+- [📂 Filesystem watching](#-filesystem-watching)
+- [Filesystem Event System](#filesystem-event-system)
+- [🐝 API endpoints](#-api-endpoints)
+- [🔔 Logging and notifications](#-logging-and-notifications)
+- [Agent profiles](#agent-profiles)
+- [Agent Skills](#agent-skills)
+- [CLI](#cli)
+- [💼 License](#-license)
+
+</div>
+
+***
+## 🎮 Quick start
+
+Install everything needed directly from the github releases:
+```sh
+# available os: linux, darwin, windows
+# available arch: amd64, arm64
+wget https://github.com/dyne/gestalt/releases/latest/download/gestalt-linux-amd64.tar.gz
+sudo tar -xzf gestalt-linux-amd64.tar.gz -C /usr/local/bin --strip-components=1
+
+# move into your project
+cd your/project
+
+# start gestalt
+gestalt
 ```
+
+**[🔝 back to top](#toc)**
+***
+
+## 💾 Build
+
+Make sure to have installed:
+* node@24.13.0
+* go@1.25.5
+* npm@11.8.0
+
+You can install them by hand or use [mise](https://mise.jdx.dev/) and run `mise install` in the root of the repository.
+
+Now you can build running:
+```
+npm i
 make
+make install
 ```
 
-Launch (needs golang)
+Now you can run gestalt with in any repository:
 ```
-go run cmd/gestalt
+gestalt
 ```
 
 Default frontend listens on 0.0.0.0:57417; the backend binds to a random free port unless `GESTALT_BACKEND_PORT` is set.
 
 When running local open browser at http://localhost:57417
 
-## Development (Vite)
+**[🔝 back to top](#toc)**
+***
+
+## 🏗️ Development (Vite)
 
 `make dev` starts the backend plus Vite. The Vite dev server proxies `/api` and `/ws`
 to `GESTALT_BACKEND_URL` (default `http://localhost:57417`).
@@ -36,15 +110,15 @@ GESTALT_BACKEND_URL=http://localhost:9102 make dev
 If you set `GESTALT_BACKEND_URL`, it should point at the backend API port. `GESTALT_PORT`
 controls the UI bind port for `gestalt`.
 
+**[🔝 back to top](#toc)**
+***
+
 ## Run Gestalt on your project
 
 Gestalt uses its current working directory as the project context (for git events, `.gestalt/plans/`, and
 local session data). To use it on a real repo, run the server from that repo's root.
 
-1) Install the `gestalt` binary (from this repo):
-```
-go install ./cmd/gestalt
-```
+1) Install the `gestalt*` binaries, as we did in [build](#-build) or [quick-start](#-quick-start) chapters.
 
 2) Gestalt automatically extracts a per-project config bundle to `.gestalt/config/` on startup.
    (No need to run `--extract-config`.)
@@ -69,7 +143,7 @@ GESTALT_TOKEN=$(openssl rand -hex 16) gestalt --port 57417
 Plans live under `.gestalt/plans/` and any `.org` file in that directory is watched for changes.
 Recommended naming: `YYYY-MM-DD-short-description.org`. `.gestalt/PLAN.org` is no longer used.
 
-### Authentication (GESTALT_TOKEN)
+### Authentication (GESTALT_TOKEN) <!-- omit in toc -->
 
 `GESTALT_TOKEN` is an optional shared secret that protects the Gestalt HTTP API.
 
@@ -86,6 +160,9 @@ server is reachable from other machines on your network.
 Generate a token:
 - macOS/Linux: `export GESTALT_TOKEN=$(openssl rand -hex 16)`
 - Windows PowerShell `$env:GESTALT_TOKEN = -join ((48..57)+(97..102) | Get-Random -Count 32 | % {[char]$_})`
+
+**[🔝 back to top](#toc)**
+***
 
 ## Event-driven architecture
 
@@ -118,6 +195,9 @@ flowchart LR
   ConfigBus --> UI
 ```
 
+**[🔝 back to top](#toc)**
+***
+
 ## Temporal (dev server)
 
 Gestalt's HITL workflow integration uses the Temporal CLI (`temporalio/cli`) for local development.
@@ -142,6 +222,9 @@ Timeouts and retries (defaults):
 - Workflow execution/run timeout: 24h (task timeout: 10s)
 - Activity timeouts: spawn 30s, output read 5s, default 10s (heartbeat 10s)
 - Retry policy: exponential backoff, max 5 attempts
+
+**[🔝 back to top](#toc)**
+***
 
 ## Temporal workflows (HITL)
 
@@ -173,6 +256,9 @@ flowchart LR
 
 Learn more: https://docs.temporal.io/
 
+**[🔝 back to top](#toc)**
+***
+
 ## Notify notary (gestalt-notify)
 
 Gestalt records notify events as Temporal signals (`session.notify`) so workflow history is an auditable log.
@@ -191,6 +277,9 @@ gestalt-notify --session-id <session-id> --agent-id <agent-id> --event-type plan
 curl "http://localhost:57417/api/terminals/<session-id>/workflow/history"
 ```
 
+**[🔝 back to top](#toc)**
+***
+
 ## Future handoff design (deferred)
 
 Handoff is planned for paused workflows so operators can delegate work to another agent without losing context.
@@ -204,7 +293,10 @@ Design outline:
 - Context includes last output lines, current L1/L2, and recent task/bell history.
 - Terminal control can be transferred or a new terminal spawned, based on agent availability.
 
-## Testing
+**[🔝 back to top](#toc)**
+***
+
+## 🧪 Testing
 
 Backend:
 ```
@@ -218,7 +310,10 @@ npm test
 npm run test:coverage
 ```
 
-## Versioning
+**[🔝 back to top](#toc)**
+***
+
+## 📌 Versioning
 
 Gestalt follows conventional commits and semantic versioning. Tags are the
 source of truth and use the `vX.Y.Z` format.
@@ -246,12 +341,15 @@ Local build with an explicit version:
 make VERSION=1.2.3
 ```
 
-## Command-Line Interface
+**[🔝 back to top](#toc)**
+***
+
+## 📟 Command-Line Interface
 
 CLI flags override environment variables, and environment variables override
 defaults. Use `--help` to see the full flag list.
 
-### gestalt
+### gestalt <!-- omit in toc -->
 
 Flags:
 - `--port PORT` (env: GESTALT_PORT, default: 57417)
@@ -276,7 +374,7 @@ Examples:
 - `gestalt --port 9090 --backend-port 9091 --token abc123`
 - `gestalt --session-persist=false --input-history-persist=false`
 
-### gestalt-send
+### gestalt-send <!-- omit in toc -->
 
 Flags:
 - `--url URL` (env: GESTALT_URL, default: http://localhost:57417)
@@ -289,7 +387,10 @@ Examples:
 - `cat file.txt | gestalt-send copilot`
 - `gestalt-send --url http://remote:57417 --token abc123 agent-id`
 
-## Configuration
+**[🔝 back to top](#toc)**
+***
+
+## ⚙️ Configuration
 
 Configuration can be provided via CLI flags or environment variables. CLI flags
 override environment variables, and environment variables override defaults.
@@ -312,6 +413,9 @@ Environment variables:
 Session logs and input history now live under `.gestalt/` by default. If you
 previously stored data in `logs/`, move it manually if you want to keep it.
 
+**[🔝 back to top](#toc)**
+***
+
 ## Dashboard
 
 - Working directory is shown prominently so you can confirm the server context.
@@ -319,12 +423,18 @@ previously stored data in `logs/`, move it manually if you want to keep it.
 - Logs are embedded on the dashboard; the Logs tab is removed.
 - The Plans view refreshes on plan file changes (manual refresh is still available).
 
-## Touch scrolling
+**[🔝 back to top](#toc)**
+***
+
+## 🫵 Touch scrolling
 
 Terminals support touch scrolling anywhere in the viewport, with a short momentum glide on fast swipes.
 Mouse text selection still behaves normally on desktop.
 
-## Embedded Resources
+**[🔝 back to top](#toc)**
+***
+
+## 📦 Embedded Resources
 
 The `gestalt` binary embeds the frontend bundle and default config so it can run
 from any directory without external files.
@@ -346,7 +456,10 @@ Build from source with embedded assets:
 make gestalt
 ```
 
-## Upgrading Gestalt
+**[🔝 back to top](#toc)**
+***
+
+## ⬆️ Upgrading Gestalt
 
 Gestalt follows semantic versioning. Upgrades may refresh embedded config files, and extraction will
 detect changes via hashes and back up local edits.
@@ -365,7 +478,10 @@ Upgrade workflow:
 Version tracking lives in `.gestalt/version.json` and records the last extracted version
 (including `version`, `major`, `minor`, `patch`, and build metadata).
 
-## Troubleshooting config extraction
+**[🔝 back to top](#toc)**
+***
+
+## 🐛 Troubleshooting config extraction
 
 - Conflicts: if `.gestalt/config` differs from the embedded default, Gestalt writes a `.bck` file next to the
   existing file before overwriting it.
@@ -374,7 +490,10 @@ Version tracking lives in `.gestalt/version.json` and records the last extracted
 - Manual overrides: edit files in `.gestalt/config/` directly; delete a file to let Gestalt re-extract it on the
   next startup.
 
-## Filesystem watching
+**[🔝 back to top](#toc)**
+***
+
+## 📂 Filesystem watching
 
 Gestalt uses `github.com/fsnotify/fsnotify` for filesystem events because it is
 the de-facto, cross-platform watcher (inotify/kqueue/ReadDirectoryChangesW),
@@ -384,6 +503,9 @@ Failure handling: watcher errors are logged at warning level and retried with
 exponential backoff (up to 3 attempts). If watching remains unavailable, the
 server emits `watch_error` events and the UI falls back to polling with a toast
 ("File watching unavailable").
+
+**[🔝 back to top](#toc)**
+***
 
 ## Filesystem Event System
 
@@ -427,7 +549,10 @@ const unsubscribe = subscribe('file_changed', (event) => {
 Use `eventConnectionStatus` to drive fallback polling if needed, and unsubscribe
 on teardown to avoid leaks.
 
-## API endpoints
+**[🔝 back to top](#toc)**
+***
+
+## 🐝 API endpoints
 
 API (development snapshot)
 - GET /api/status - system status (terminal count, server time, version fields: version/major/minor/patch/built/git_commit)
@@ -442,7 +567,10 @@ Auth
 - REST endpoints expect `Authorization: Bearer <token>` when `GESTALT_TOKEN` is set.
 - WebSocket connections accept `?token=<token>` for browser compatibility.
 
-## Logging and notifications
+**[🔝 back to top](#toc)**
+***
+
+## 🔔 Logging and notifications
 
 Backend logging is structured and buffered in memory (ring buffer). Logs are
 available via REST and WebSocket, and the UI shows toasts plus a Logs tab.
@@ -471,6 +599,9 @@ Toast notifications:
 Backend logging usage:
 - Use the structured logger (`Logger.Info/Warn/Error`) with context fields.
 - Avoid `log.Printf` in new code so logs remain visible in the UI.
+
+**[🔝 back to top](#toc)**
+***
 
 ## Agent profiles
 
@@ -502,6 +633,9 @@ Prompt behavior:
 - `prompt` accepts a single string or array of strings.
 - Each string is a prompt name, resolved to `config/prompts/{name}.txt`.
 - Prompts are injected in order, with a small delay between each.
+
+**[🔝 back to top](#toc)**
+***
 
 ## Agent Skills
 
@@ -549,12 +683,15 @@ Security considerations (future work):
 - Consider signature verification for skills from external sources.
 - Treat skills in `config/skills/` as trusted until stronger controls are added.
 
+**[🔝 back to top](#toc)**
+***
+
 ## CLI
 
 Current commands:
 - `gestalt validate-skill <path>`: Validate a skill directory or `SKILL.md` file.
 
-### gestalt-send CLI Tool
+### gestalt-send CLI Tool <!-- omit in toc -->
 
 Send stdin to a running agent terminal by agent name or id.
 
@@ -587,7 +724,10 @@ Notes:
 - Agent names must be unique and match the `name` field in `config/agents/*.json`.
 - If auth is enabled, set `GESTALT_TOKEN` to the same token used by the server.
 
-## License
+**[🔝 back to top](#toc)**
+***
+
+## 💼 License
 
 Copyright (C) 2025-2026 Dyne.org foundation
 
@@ -607,6 +747,9 @@ Affero General Public License for more details.
 You should have received a copy of the GNU Affero General Public
 License along with this program.  If not, see
 <https://www.gnu.org/licenses/>.
+
+**[🔝 back to top](#toc)**
+***
 
 <p align="center">
   <a href="https://dyne.org">

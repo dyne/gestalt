@@ -1,0 +1,8 @@
+[session]
+log-max-bytes = 5242880
+history-scan-max-bytes = 2097152
+tui-mode = "snapshot"
+tui-snapshot-interval-ms = 1000
+
+[temporal]
+max-output-bytes = 4096

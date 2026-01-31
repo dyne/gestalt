@@ -1,3 +1,10 @@
+## [1.3.1](https://github.com/dyne/gestalt/compare/v1.3.0...v1.3.1) (2026-01-31)
+
+
+### Bug Fixes
+
+* make go clean -cache ([427c98c](https://github.com/dyne/gestalt/commit/427c98c9215cde21b9da7995994c3ebc811efa11))
+
 # [1.3.0](https://github.com/dyne/gestalt/compare/v1.2.0...v1.3.0) (2026-01-30)
 
 

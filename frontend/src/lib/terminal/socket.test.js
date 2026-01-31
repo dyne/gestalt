@@ -57,11 +57,6 @@ const createStoreStub = () => ({
   set: vi.fn(),
 })
 
-const createTerminalStub = () => ({
-  element: {},
-  write: vi.fn(),
-})
-
 describe('createTerminalSocket', () => {
   beforeEach(() => {
     MockWebSocket.instances = []
@@ -83,13 +78,12 @@ describe('createTerminalSocket', () => {
 
     const socketManager = createTerminalSocket({
       terminalId: 'alpha',
-      term: createTerminalStub(),
       status: createStoreStub(),
       historyStatus: createStoreStub(),
       canReconnect: createStoreStub(),
       historyCache: new Map(),
-      syncScrollState: () => {},
-      scheduleFit: () => {},
+      onOutput: () => {},
+      onHistory: () => {},
     })
 
     await socketManager.connect()
@@ -109,13 +103,12 @@ describe('createTerminalSocket', () => {
 
     const socketManager = createTerminalSocket({
       terminalId: 'bravo',
-      term: createTerminalStub(),
       status: createStoreStub(),
       historyStatus: createStoreStub(),
       canReconnect: createStoreStub(),
       historyCache: new Map(),
-      syncScrollState: () => {},
-      scheduleFit: () => {},
+      onOutput: () => {},
+      onHistory: () => {},
     })
 
     await socketManager.connect()
@@ -140,13 +133,12 @@ describe('createTerminalSocket', () => {
     const encodedId = encodeURIComponent(terminalId)
     const socketManager = createTerminalSocket({
       terminalId,
-      term: createTerminalStub(),
       status: createStoreStub(),
       historyStatus: createStoreStub(),
       canReconnect: createStoreStub(),
       historyCache: new Map(),
-      syncScrollState: () => {},
-      scheduleFit: () => {},
+      onOutput: () => {},
+      onHistory: () => {},
     })
 
     await socketManager.connect()
@@ -158,5 +150,29 @@ describe('createTerminalSocket', () => {
     expect(MockWebSocket.instances[0].url).toContain(
       `/ws/session/${encodedId}?cursor=12`
     )
+  })
+
+  it('forwards websocket output to callbacks', async () => {
+    const { apiFetch } = await import('../api.js')
+    apiFetch.mockResolvedValue({
+      json: async () => ({ lines: [], cursor: 0 }),
+    })
+
+    const onOutput = vi.fn()
+    const socketManager = createTerminalSocket({
+      terminalId: 'delta',
+      status: createStoreStub(),
+      historyStatus: createStoreStub(),
+      canReconnect: createStoreStub(),
+      historyCache: new Map(),
+      onOutput,
+      onHistory: () => {},
+    })
+
+    await socketManager.connect()
+    const socket = MockWebSocket.instances[0]
+    socket.dispatch('message', { data: 'hello' })
+
+    expect(onOutput).toHaveBeenCalledWith('hello')
   })
 })

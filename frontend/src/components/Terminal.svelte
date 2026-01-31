@@ -1,6 +1,6 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
-  import TerminalCanvas from './TerminalCanvas.svelte'
+  import TerminalTextView from './TerminalTextView.svelte'
   import CommandInput from './CommandInput.svelte'
   import TerminalShell from './TerminalShell.svelte'
   import { apiFetch, buildApiPath } from '../lib/api.js'
@@ -10,7 +10,6 @@
   export let title = ''
   export let promptFiles = []
   export let visible = true
-  export let scrollSensitivity = 1
   export let onRequestClose = () => {}
 
   let state
@@ -20,14 +19,16 @@
   let historyStatus = 'idle'
   let statusLabel = ''
   let inputDisabled = true
-  let directInputEnabled = false
   let atBottom = true
+  let outputText = ''
   let commandInput
+  let textView
   let unsubscribeStatus
   let unsubscribeHistory
   let unsubscribeBell
   let unsubscribeReconnect
   let unsubscribeAtBottom
+  let unsubscribeText
   let wasVisible = false
   let pendingFocus = false
   let displayTitle = ''
@@ -62,6 +63,11 @@
         atBottom = value
       })
     }
+    if (state.text) {
+      unsubscribeText = state.text.subscribe((value) => {
+        outputText = value
+      })
+    }
   }
 
   const handleReconnect = () => {
@@ -71,7 +77,7 @@
   }
 
   const handleScrollToBottom = () => {
-    state?.scrollToBottom?.()
+    textView?.scrollToBottom?.()
   }
 
   const handleSubmit = (command) => {
@@ -92,14 +98,8 @@
     })
   }
 
-  const handleDirectInputChange = (enabled) => {
-    directInputEnabled = enabled
-    state?.setDirectInput?.(enabled)
-    if (enabled) {
-      requestAnimationFrame(() => state?.focus?.())
-    } else {
-      requestAnimationFrame(() => commandInput?.focusInput?.())
-    }
+  const handleAtBottomChange = (value) => {
+    state?.setAtBottom?.(value)
   }
 
   const resizeHandler = () => {
@@ -109,9 +109,6 @@
 
   onMount(() => {
     attachState()
-    if (state) {
-      state.setDirectInput?.(directInputEnabled)
-    }
     if (visible) {
       pendingFocus = true
     }
@@ -129,12 +126,6 @@
     if (visible && pendingFocus) {
       requestAnimationFrame(() => {
         if (!visible || !pendingFocus) return
-        if (directInputEnabled) {
-          if (status !== 'connected') return
-          state?.focus?.()
-          pendingFocus = false
-          return
-        }
         if (inputDisabled) return
         commandInput?.focusInput?.()
         pendingFocus = false
@@ -169,6 +160,9 @@
     if (unsubscribeAtBottom) {
       unsubscribeAtBottom()
     }
+    if (unsubscribeText) {
+      unsubscribeText()
+    }
   })
 </script>
 
@@ -183,7 +177,12 @@
   onReconnect={handleReconnect}
   onRequestClose={onRequestClose}
 >
-  <TerminalCanvas slot="canvas" {state} {visible} {scrollSensitivity} />
+  <TerminalTextView
+    slot="canvas"
+    bind:this={textView}
+    text={outputText}
+    onAtBottomChange={handleAtBottomChange}
+  />
   <CommandInput
     slot="input"
     {terminalId}
@@ -191,8 +190,6 @@
     bind:this={commandInput}
     onSubmit={handleSubmit}
     disabled={inputDisabled}
-    directInput={directInputEnabled}
-    onDirectInputChange={handleDirectInputChange}
     showScrollButton={!atBottom}
     onScrollToBottom={handleScrollToBottom}
   />

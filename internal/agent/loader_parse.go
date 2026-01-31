@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"gestalt/internal/config/tomlkeys"
+
 	"github.com/BurntSushi/toml"
 )
 
@@ -33,8 +35,8 @@ func parseAgentData(filePath string, data []byte) (Agent, error) {
 	if ext != ".toml" {
 		return Agent{}, fmt.Errorf("unsupported agent config extension %q", ext)
 	}
-	raw := map[string]interface{}{}
-	if _, err := toml.Decode(string(data), &raw); err != nil {
+	raw, err := tomlkeys.DecodeMap(data)
+	if err != nil {
 		return Agent{}, err
 	}
 	if _, err := toml.Decode(string(data), &agent); err != nil {

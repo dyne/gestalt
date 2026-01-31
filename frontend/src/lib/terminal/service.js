@@ -12,7 +12,11 @@ import {
   writeClipboardText,
 } from './input.js'
 import { createTerminalSocket } from './socket.js'
-import { TextBuffer } from './textBuffer.js'
+import {
+  appendOutputSegment,
+  appendPromptSegment,
+  historyToSegments,
+} from './segments.js'
 
 export const createTerminalService = ({ terminalId, historyCache }) => {
   const status = writable('disconnected')
@@ -20,10 +24,9 @@ export const createTerminalService = ({ terminalId, historyCache }) => {
   const bellCount = writable(0)
   const canReconnect = writable(false)
   const atBottom = writable(true)
-  const text = writable('')
+  const segments = writable([])
 
   const { term, fitAddon, disposeThemeListener } = createXtermTerminal()
-  const textBuffer = new TextBuffer(10000)
 
   const encoder = new TextEncoder()
   const cache = historyCache || new Map()
@@ -115,13 +118,15 @@ export const createTerminalService = ({ terminalId, historyCache }) => {
   }
 
   const handleOutput = (chunk) => {
-    textBuffer.append(chunk)
-    text.set(textBuffer.text())
+    segments.update((current) => appendOutputSegment(current, chunk))
   }
 
   const handleHistory = (lines) => {
-    textBuffer.loadHistory(lines)
-    text.set(textBuffer.text())
+    segments.set(historyToSegments(lines))
+  }
+
+  const appendPrompt = (prompt) => {
+    segments.update((current) => appendPromptSegment(current, prompt))
   }
 
   socketManager = createTerminalSocket({
@@ -288,11 +293,12 @@ export const createTerminalService = ({ terminalId, historyCache }) => {
     bellCount,
     canReconnect,
     atBottom,
-    text,
+    segments,
     sendData,
     sendCommand,
     setDirectInput,
     setAtBottom,
+    appendPrompt,
     scrollToBottom,
     focus,
     setScrollSensitivity,

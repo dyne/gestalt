@@ -20,7 +20,7 @@
   let statusLabel = ''
   let inputDisabled = true
   let atBottom = true
-  let outputText = ''
+  let outputSegments = []
   let commandInput
   let textView
   let unsubscribeStatus
@@ -28,7 +28,7 @@
   let unsubscribeBell
   let unsubscribeReconnect
   let unsubscribeAtBottom
-  let unsubscribeText
+  let unsubscribeSegments
   let wasVisible = false
   let pendingFocus = false
   let displayTitle = ''
@@ -63,9 +63,9 @@
         atBottom = value
       })
     }
-    if (state.text) {
-      unsubscribeText = state.text.subscribe((value) => {
-        outputText = value
+    if (state.segments) {
+      unsubscribeSegments = state.segments.subscribe((value) => {
+        outputSegments = value
       })
     }
   }
@@ -88,6 +88,7 @@
     } else {
       state.sendData?.(`${payload}\r\n`)
     }
+    state.appendPrompt?.(payload)
     const trimmed = payload.trim()
     if (!trimmed || !terminalId) return
     apiFetch(buildApiPath('/api/sessions', terminalId, 'input-history'), {
@@ -160,8 +161,8 @@
     if (unsubscribeAtBottom) {
       unsubscribeAtBottom()
     }
-    if (unsubscribeText) {
-      unsubscribeText()
+    if (unsubscribeSegments) {
+      unsubscribeSegments()
     }
   })
 </script>
@@ -180,7 +181,7 @@
   <TerminalTextView
     slot="canvas"
     bind:this={textView}
-    text={outputText}
+    segments={outputSegments}
     onAtBottomChange={handleAtBottomChange}
   />
   <CommandInput

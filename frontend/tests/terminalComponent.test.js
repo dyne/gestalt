@@ -38,12 +38,13 @@ const buildState = () => {
     focus: vi.fn(),
     scrollToBottom: vi.fn(),
     setAtBottom: vi.fn(),
+    appendPrompt: vi.fn(),
     status: writable('connected'),
     historyStatus: writable('idle'),
     bellCount: writable(0),
     canReconnect: writable(false),
     atBottom: writable(true),
-    text: writable(''),
+    segments: writable([]),
   }
 }
 

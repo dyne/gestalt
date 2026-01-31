@@ -203,6 +203,28 @@ describe('terminalStore', () => {
     service.dispose()
   })
 
+  it('hydrates text from cached history on connect', async () => {
+    const historyCache = new Map()
+    historyCache.set('cached', {
+      text: 'hello\nworld',
+      lines: ['hello', 'world'],
+      cursor: 7,
+    })
+    const service = createTerminalService({ terminalId: 'cached', historyCache })
+    let currentText = ''
+    const unsubscribe = service.text.subscribe((value) => {
+      currentText = value
+    })
+
+    service.setVisible(true)
+    await waitForSocket()
+
+    expect(currentText).toBe('hello\nworld')
+
+    unsubscribe()
+    service.dispose()
+  })
+
   it('connects and updates status on open', async () => {
     const state = getTerminalState('abc')
     const seen = []

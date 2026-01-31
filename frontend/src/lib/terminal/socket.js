@@ -9,14 +9,12 @@ const HISTORY_LINES = 10000
 
 export const createTerminalSocket = ({
   terminalId,
-  term,
   status,
   historyStatus,
   canReconnect,
   historyCache,
   onOutput,
   onHistory,
-  scheduleFit,
 }) => {
   let socket = null
   let retryCount = 0
@@ -25,7 +23,6 @@ export const createTerminalSocket = ({
   let historyLoadPromise = null
   let historyLoaded = false
   let historyCursor = null
-  let pendingHistory = ''
   let notifiedHistorySlow = false
   let notifiedHistoryError = false
   let notifiedUnauthorized = false
@@ -44,12 +41,6 @@ export const createTerminalSocket = ({
     if (!historyWarningTimer) return
     clearTimeout(historyWarningTimer)
     historyWarningTimer = null
-  }
-
-  const flushPendingHistory = () => {
-    if (!pendingHistory || disposed || !term?.element) return
-    term.write(pendingHistory)
-    pendingHistory = ''
   }
 
   const scheduleHistoryWarning = () => {
@@ -84,21 +75,12 @@ export const createTerminalSocket = ({
           : typeof cachedEntry?.text === 'string'
             ? cachedEntry.text.split('\n')
             : []
-      const cachedHistory =
-        typeof cachedEntry === 'string'
-          ? cachedEntry
-          : cachedEntry?.text || cachedLines.join('\n')
       const cachedCursor =
         typeof cachedEntry === 'object' && cachedEntry !== null
           ? cachedEntry.cursor
           : null
       if (Number.isFinite(cachedCursor)) {
         historyCursor = cachedCursor
-      }
-      if (term?.element) {
-        term.write(cachedHistory)
-      } else {
-        pendingHistory = cachedHistory
       }
       if (onHistory) {
         onHistory(cachedLines, historyCursor)
@@ -130,13 +112,6 @@ export const createTerminalSocket = ({
           }
         }
         const historyText = lines.join('\n')
-        if (historyText) {
-          if (term?.element) {
-            term.write(historyText)
-          } else {
-            pendingHistory = historyText
-          }
-        }
         if (onHistory) {
           onHistory(lines, historyCursor)
         }
@@ -233,24 +208,17 @@ export const createTerminalSocket = ({
       canReconnect.set(false)
       notifiedUnauthorized = false
       notifiedDisconnect = false
-      scheduleFit()
     })
 
     socket.addEventListener('message', (event) => {
       if (disposed) return
       if (typeof event.data === 'string') {
-        if (term?.write) {
-          term.write(event.data)
-        }
         if (onOutput) {
           onOutput(event.data)
         }
         return
       }
       const bytes = new Uint8Array(event.data)
-      if (term?.write) {
-        term.write(bytes)
-      }
       if (onOutput) {
         onOutput(decoder.decode(bytes))
       }
@@ -339,6 +307,5 @@ export const createTerminalSocket = ({
     reconnect,
     send,
     dispose,
-    flushPendingHistory,
   }
 }

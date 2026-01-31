@@ -454,6 +454,7 @@ func runServer(args []string) int {
 			Shutdown: frontendServer.Shutdown,
 		},
 	)
+	saveGestaltConfigDefaults(cfg, configPaths, logger)
 	return 0
 }
 

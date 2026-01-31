@@ -12,6 +12,14 @@ type Store struct {
 	flat map[string]any
 }
 
+func (s Store) Flat() map[string]any {
+	flat := make(map[string]any, len(s.flat))
+	for key, value := range s.flat {
+		flat[key] = value
+	}
+	return flat
+}
+
 func DecodeMap(data []byte) (map[string]any, error) {
 	raw := map[string]any{}
 	if _, err := toml.Decode(string(data), &raw); err != nil {

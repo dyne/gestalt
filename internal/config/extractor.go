@@ -23,6 +23,7 @@ type Extractor struct {
 	Logger      *logging.Logger
 	BackupLimit int
 	LastUpdated time.Time
+	Resolver    *ConffileResolver
 }
 
 type ExtractStats struct {
@@ -117,23 +118,18 @@ func (e *Extractor) ExtractWithStats(sourceFS fs.FS, destDir string, manifest ma
 func (e *Extractor) extractRel(sourceFS fs.FS, destDir, relPath, expectedHash string) (ExtractStats, error) {
 	sourcePath := path.Join("config", relPath)
 	destPath := filepath.Join(destDir, filepath.FromSlash(relPath))
-	return e.extractFile(sourceFS, sourcePath, destPath, expectedHash)
+	return e.extractFile(sourceFS, relPath, sourcePath, destPath, expectedHash)
 }
 
-func (e *Extractor) extractFile(sourceFS fs.FS, sourcePath, destPath, expectedHash string) (ExtractStats, error) {
+func (e *Extractor) extractFile(sourceFS fs.FS, relPath, sourcePath, destPath, expectedHash string) (ExtractStats, error) {
 	stats := ExtractStats{}
-	if info, err := os.Stat(destPath); err == nil {
-		if info.IsDir() {
+	destInfo, err := os.Stat(destPath)
+	destExists := err == nil
+	if destExists {
+		if destInfo.IsDir() {
 			return stats, fmt.Errorf("destination is a directory: %s", destPath)
 		}
 		if expectedHash != "" {
-			if !e.LastUpdated.IsZero() && !info.ModTime().After(e.LastUpdated) {
-				e.logDebug("config file unchanged since last extraction, skipping", map[string]string{
-					"path": destPath,
-				})
-				stats.Skipped++
-				return stats, nil
-			}
 			existingHash, err := hashFile(destPath)
 			if err != nil {
 				return stats, fmt.Errorf("hash existing file: %w", err)
@@ -142,6 +138,23 @@ func (e *Extractor) extractFile(sourceFS fs.FS, sourcePath, destPath, expectedHa
 				e.logDebug("config file up-to-date, skipping", map[string]string{
 					"path": destPath,
 				})
+				stats.Skipped++
+				return stats, nil
+			}
+
+			choice, err := e.resolveConflict(ConffilePrompt{
+				RelPath:  relPath,
+				DestPath: destPath,
+			})
+			if err != nil {
+				return stats, err
+			}
+			if choice.Action == ConffileKeep {
+				if e.Resolver == nil || !e.Resolver.Interactive {
+					if err := e.writeDistSidecar(sourceFS, sourcePath, destPath); err != nil {
+						return stats, err
+					}
+				}
 				stats.Skipped++
 				return stats, nil
 			}
@@ -186,6 +199,37 @@ func (e *Extractor) extractFile(sourceFS fs.FS, sourcePath, destPath, expectedHa
 	})
 	stats.Extracted++
 	return stats, nil
+}
+
+func (e *Extractor) resolveConflict(prompt ConffilePrompt) (ConffileChoice, error) {
+	if e == nil || e.Resolver == nil {
+		return ConffileChoice{Action: ConffileKeep}, nil
+	}
+	return e.Resolver.ResolveConflict(prompt)
+}
+
+func (e *Extractor) writeDistSidecar(sourceFS fs.FS, sourcePath, destPath string) error {
+	sourceInfo, err := fs.Stat(sourceFS, sourcePath)
+	if err != nil {
+		return fmt.Errorf("stat source file: %w", err)
+	}
+	if sourceInfo.IsDir() {
+		return fmt.Errorf("source path is a directory: %s", sourcePath)
+	}
+	sourceFile, err := sourceFS.Open(sourcePath)
+	if err != nil {
+		return fmt.Errorf("open source file: %w", err)
+	}
+	defer sourceFile.Close()
+
+	distPath := destPath + ".dist"
+	if err := writeFileAtomic(distPath, sourceInfo.Mode().Perm(), sourceFile); err != nil {
+		return fmt.Errorf("write dist file: %w", err)
+	}
+	e.logInfo("config file written to dist sidecar", map[string]string{
+		"path": distPath,
+	})
+	return nil
 }
 
 func writeFileAtomic(destPath string, mode fs.FileMode, reader io.Reader) error {

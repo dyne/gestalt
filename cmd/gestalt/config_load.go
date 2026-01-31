@@ -921,6 +921,14 @@ func hasOptionalSkillDir(base, name string) bool {
 	return info.IsDir()
 }
 
+func stdinIsInteractive() bool {
+	info, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
+}
+
 func prepareConfig(cfg Config, logger *logging.Logger) (configPaths, error) {
 	paths, err := resolveConfigPaths(cfg.ConfigDir)
 	if err != nil {
@@ -978,6 +986,11 @@ func prepareConfig(cfg Config, logger *logging.Logger) (configPaths, error) {
 		Logger:      logger,
 		BackupLimit: cfg.ConfigBackupLimit,
 		LastUpdated: lastVersionWrite,
+		Resolver: &config.ConffileResolver{
+			Interactive: stdinIsInteractive(),
+			In:          os.Stdin,
+			Out:         os.Stdout,
+		},
 	}
 	start := time.Now()
 	stats, err := extractor.ExtractWithStats(gestalt.EmbeddedConfigFS, paths.ConfigDir, nil)

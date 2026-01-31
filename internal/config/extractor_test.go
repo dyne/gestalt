@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"hash/fnv"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -102,9 +103,8 @@ func TestExtractorBacksUpModifiedFiles(t *testing.T) {
 		t.Fatalf("write custom file: %v", err)
 	}
 
-	expectedHash := embeddedHash(t, "config/agents/coder.toml")
 	manifest := map[string]string{
-		"agents/coder.toml": expectedHash,
+		"agents/coder.toml": "",
 	}
 
 	extractor := Extractor{BackupLimit: 1}
@@ -131,6 +131,71 @@ func TestExtractorBacksUpModifiedFiles(t *testing.T) {
 	}
 }
 
+func TestExtractorKeepsModifiedFilesWhenNonInteractive(t *testing.T) {
+	destDir := t.TempDir()
+	destPath := filepath.Join(destDir, "agents", "example.toml")
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(destPath, []byte("custom"), 0o644); err != nil {
+		t.Fatalf("write custom file: %v", err)
+	}
+
+	sourceFS := fstest.MapFS{
+		"config/agents/example.toml": &fstest.MapFile{Data: []byte("name = \"Example\""), Mode: 0o644},
+	}
+	expectedHash, err := hashFileFromFS(sourceFS, "config/agents/example.toml")
+	if err != nil {
+		t.Fatalf("hash source file: %v", err)
+	}
+	manifest := map[string]string{
+		"agents/example.toml": expectedHash,
+	}
+
+	reader := &panicReader{}
+	extractor := Extractor{
+		BackupLimit: 1,
+		Resolver: &ConffileResolver{
+			Interactive: false,
+			In:          reader,
+			Out:         io.Discard,
+		},
+	}
+	if err := extractor.Extract(sourceFS, destDir, manifest); err != nil {
+		t.Fatalf("extract failed: %v", err)
+	}
+
+	contents, err := os.ReadFile(destPath)
+	if err != nil {
+		t.Fatalf("read dest file: %v", err)
+	}
+	if string(contents) != "custom" {
+		t.Fatalf("expected dest to remain unchanged")
+	}
+	dist, err := os.ReadFile(destPath + ".dist")
+	if err != nil {
+		t.Fatalf("read dist file: %v", err)
+	}
+	if string(dist) != "name = \"Example\"" {
+		t.Fatalf("expected dist contents to match packaged file")
+	}
+	if _, err := os.Stat(destPath + ".bck"); !os.IsNotExist(err) {
+		t.Fatalf("unexpected backup file presence: %v", err)
+	}
+	if reader.called {
+		t.Fatalf("expected no reads from stdin in non-interactive mode")
+	}
+}
+
+type panicReader struct {
+	called bool
+}
+
+func (p *panicReader) Read(_ []byte) (int, error) {
+	p.called = true
+	return 0, fmt.Errorf("unexpected read")
+}
+
 func TestExtractorReplacesExistingBackup(t *testing.T) {
 	destDir := t.TempDir()
 	destPath := filepath.Join(destDir, "agents", "coder.toml")
@@ -145,9 +210,8 @@ func TestExtractorReplacesExistingBackup(t *testing.T) {
 		t.Fatalf("write backup file: %v", err)
 	}
 
-	expectedHash := embeddedHash(t, "config/agents/coder.toml")
 	manifest := map[string]string{
-		"agents/coder.toml": expectedHash,
+		"agents/coder.toml": "",
 	}
 
 	extractor := Extractor{BackupLimit: 1}
@@ -189,9 +253,8 @@ func TestExtractorBackupLimit(t *testing.T) {
 		t.Fatalf("set old backup 2 time: %v", err)
 	}
 
-	expectedHash := embeddedHash(t, "config/agents/coder.toml")
 	manifest := map[string]string{
-		"agents/coder.toml": expectedHash,
+		"agents/coder.toml": "",
 	}
 
 	extractor := Extractor{BackupLimit: 2}

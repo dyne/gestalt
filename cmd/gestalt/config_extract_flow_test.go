@@ -54,7 +54,7 @@ func TestPrepareConfigWarmStartSkipsExtraction(t *testing.T) {
 	}
 }
 
-func TestPrepareConfigConflictBacksUp(t *testing.T) {
+func TestPrepareConfigConflictKeepsWithDist(t *testing.T) {
 	root := withTempWorkdir(t)
 
 	cfg, err := loadConfig(nil)
@@ -79,33 +79,44 @@ func TestPrepareConfigConflictBacksUp(t *testing.T) {
 		t.Fatalf("set mod time: %v", err)
 	}
 
+	originalStdin := os.Stdin
+	pipeReader, pipeWriter, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stdin: %v", err)
+	}
+	os.Stdin = pipeReader
+	t.Cleanup(func() {
+		os.Stdin = originalStdin
+		_ = pipeReader.Close()
+		_ = pipeWriter.Close()
+	})
+
 	logger = newTestLogger(logging.LevelInfo)
 	if _, err := prepareConfig(cfg, logger); err != nil {
 		t.Fatalf("prepare config: %v", err)
 	}
 
-	backupPath := agentPath + ".bck"
-	backup, err := os.ReadFile(backupPath)
+	distPath := agentPath + ".dist"
+	dist, err := os.ReadFile(distPath)
 	if err != nil {
-		t.Fatalf("read backup: %v", err)
+		t.Fatalf("read dist: %v", err)
 	}
-	if string(backup) != "custom" {
-		t.Fatalf("expected backup to contain custom data")
-	}
-
 	expected, err := fs.ReadFile(gestalt.EmbeddedConfigFS, "config/agents/coder.toml")
 	if err != nil {
 		t.Fatalf("read embedded agent: %v", err)
+	}
+	if string(dist) != string(expected) {
+		t.Fatalf("expected dist to match embedded contents")
 	}
 	current, err := os.ReadFile(agentPath)
 	if err != nil {
 		t.Fatalf("read extracted agent: %v", err)
 	}
-	if string(current) != string(expected) {
-		t.Fatalf("expected extracted agent to match embedded contents")
+	if string(current) != "custom" {
+		t.Fatalf("expected custom contents to remain")
 	}
-	if !logContains(logger.Buffer(), "config file backed up") {
-		t.Fatalf("expected backup log entry")
+	if _, err := os.Stat(agentPath + ".bck"); !os.IsNotExist(err) {
+		t.Fatalf("unexpected backup file presence: %v", err)
 	}
 }
 

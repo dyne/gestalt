@@ -208,6 +208,14 @@ func (s *Session) AgentName() string {
 	return s.agent.Name
 }
 
+func (s *Session) IsMCP() bool {
+	if s == nil || s.pty == nil {
+		return false
+	}
+	_, ok := s.pty.(*mcpPty)
+	return ok
+}
+
 func (s *Session) Subscribe() (<-chan []byte, func()) {
 	if s == nil || s.outputBus == nil || s.State() == sessionStateClosed {
 		ch := make(chan []byte)

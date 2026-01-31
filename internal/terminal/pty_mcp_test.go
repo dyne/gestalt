@@ -210,7 +210,7 @@ func TestMCPPtyRoundTrip(t *testing.T) {
 
 	mcp := newMCPPty(pty, false)
 	_, _ = mcp.Write([]byte("hello\r"))
-	_, _ = mcp.Write([]byte("next\n"))
+	_, _ = mcp.Write([]byte("next\r"))
 
 	out := readOutputUntil(t, mcp, []string{"> hello", "hello", "> next", "next"})
 	if !strings.Contains(out, "> hello") || !strings.Contains(out, "> next") {
@@ -235,6 +235,50 @@ func TestMCPPtyRoundTrip(t *testing.T) {
 	case err := <-errCh:
 		t.Fatal(err)
 	default:
+	}
+
+	_ = mcp.Close()
+}
+
+func TestMCPPtyMultilinePrompt(t *testing.T) {
+	pty, serverIn, serverOut := newPipePty()
+	callCh := make(chan callInfo, 1)
+
+	server := newFakeMCPServer(t, serverIn, serverOut, nil)
+	server.onCall = func(id int64, name string, args map[string]interface{}) {
+		callCh <- callInfo{name: name, args: args}
+		server.send(map[string]interface{}{
+			"jsonrpc": "2.0",
+			"id":      id,
+			"result": map[string]interface{}{
+				"threadId": "thread-1",
+				"content":  "ok",
+			},
+		})
+	}
+	go server.run()
+
+	mcp := newMCPPty(pty, false)
+	go func() {
+		buf := make([]byte, 256)
+		for {
+			if _, err := mcp.Read(buf); err != nil {
+				return
+			}
+		}
+	}()
+	_, _ = mcp.Write([]byte("line1\nline2\r"))
+
+	select {
+	case call := <-callCh:
+		if call.name != "codex" {
+			t.Fatalf("expected codex call, got %q", call.name)
+		}
+		if call.args["prompt"] != "line1\nline2" {
+			t.Fatalf("expected multiline prompt, got %#v", call.args["prompt"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for prompt")
 	}
 
 	_ = mcp.Close()

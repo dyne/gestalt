@@ -284,6 +284,33 @@ func TestMCPPtyMultilinePrompt(t *testing.T) {
 	_ = mcp.Close()
 }
 
+func TestMCPPtyNormalizesOutputNewlines(t *testing.T) {
+	pty, serverIn, serverOut := newPipePty()
+
+	server := newFakeMCPServer(t, serverIn, serverOut, nil)
+	server.onCall = func(id int64, name string, args map[string]interface{}) {
+		server.send(map[string]interface{}{
+			"jsonrpc": "2.0",
+			"id":      id,
+			"result": map[string]interface{}{
+				"threadId": "thread-1",
+				"content":  "line1\nline2",
+			},
+		})
+	}
+	go server.run()
+
+	mcp := newMCPPty(pty, false)
+	_, _ = mcp.Write([]byte("hello\r"))
+
+	out := readOutputUntil(t, mcp, []string{"line1", "line2"})
+	if !strings.Contains(out, "line1\r\nline2\r\n") {
+		t.Fatalf("expected CRLF output, got %q", out)
+	}
+
+	_ = mcp.Close()
+}
+
 func TestMCPPtyErrorResponse(t *testing.T) {
 	pty, serverIn, serverOut := newPipePty()
 	server := newFakeMCPServer(t, serverIn, serverOut, nil)

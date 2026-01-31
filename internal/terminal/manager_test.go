@@ -357,8 +357,9 @@ func TestManagerCreateShellArgs(t *testing.T) {
 func TestManagerCreateWithCLIConfigUsesGeneratedCommand(t *testing.T) {
 	factory := &commandCaptureFactory{}
 	profile := agent.Agent{
-		Name:    "Codex",
-		CLIType: "codex",
+		Name:      "Codex",
+		CLIType:   "codex",
+		CodexMode: agent.CodexModeTUI,
 		CLIConfig: map[string]interface{}{
 			"model": "o3",
 		},
@@ -1651,6 +1652,7 @@ func TestManagerInjectsCodexNotify(t *testing.T) {
 			"codex": {
 				Name:      "Codex",
 				CLIType:   "codex",
+				CodexMode: agent.CodexModeTUI,
 				CLIConfig: config,
 			},
 		},

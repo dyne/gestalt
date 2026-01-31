@@ -170,7 +170,7 @@ func NewManager(opts ManagerOptions) *Manager {
 
 	factory := opts.PtyFactory
 	if factory == nil {
-		factory = DefaultPtyFactory()
+		factory = NewMuxPtyFactory(DefaultPtyFactory(), StdioPtyFactory(), envBool("GESTALT_CODEX_MCP_DEBUG"))
 	}
 
 	bufferLines := opts.BufferLines
@@ -407,15 +407,20 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		sessionSequence = sequence
 	}
 
+	codexMCP := useCodexMCP(profile)
+
 	if !shellOverrideSet && profile != nil {
 		cliType := strings.TrimSpace(profile.CLIType)
-		if strings.EqualFold(cliType, "codex") {
+		if strings.EqualFold(cliType, "codex") && codexMCP && sessionCLIConfig == nil {
+			sessionCLIConfig = map[string]interface{}{}
+		}
+		if strings.EqualFold(cliType, "codex") && !codexMCP {
 			if sessionCLIConfig == nil {
 				sessionCLIConfig = map[string]interface{}{}
 			}
 			sessionCLIConfig["notify"] = buildNotifyArgs(reservedID)
 		}
-		if cliType != "" && len(sessionCLIConfig) > 0 {
+		if cliType != "" && (len(sessionCLIConfig) > 0 || (codexMCP && strings.EqualFold(cliType, "codex"))) {
 			generated := agent.BuildShellCommand(cliType, sessionCLIConfig)
 			if strings.TrimSpace(generated) != "" {
 				shell = generated
@@ -431,6 +436,9 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		} else if strings.TrimSpace(profile.Shell) != "" {
 			shell = profile.Shell
 		}
+	}
+	if !shellOverrideSet && codexMCP {
+		shell = withCodexMCP(shell)
 	}
 
 	if agentName != "" && (profile.Singleton == nil || *profile.Singleton) {
@@ -1049,4 +1057,51 @@ func copyCLIConfig(config map[string]interface{}) map[string]interface{} {
 func buildNotifyArgs(sessionID string) []string {
 	args := []string{"gestalt-notify", "--session-id", strings.TrimSpace(sessionID)}
 	return args
+}
+
+func useCodexMCP(profile *agent.Agent) bool {
+	if profile == nil {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(profile.CLIType), "codex") {
+		return false
+	}
+	if envBool("GESTALT_CODEX_FORCE_TUI") {
+		return false
+	}
+	mode := strings.TrimSpace(profile.CodexMode)
+	if mode == "" {
+		mode = agent.CodexModeMCPServer
+	}
+	return strings.EqualFold(mode, agent.CodexModeMCPServer)
+}
+
+func withCodexMCP(shell string) string {
+	trimmed := strings.TrimSpace(shell)
+	if trimmed == "" {
+		return shell
+	}
+	fields, err := parseCommandLine(trimmed)
+	if err != nil || len(fields) == 0 || fields[0] != "codex" {
+		return shell
+	}
+	if len(fields) > 1 && fields[1] == "mcp-server" {
+		return trimmed
+	}
+	if len(trimmed) == len("codex") {
+		return "codex mcp-server"
+	}
+	return "codex mcp-server" + trimmed[len("codex"):]
+}
+
+func envBool(key string) bool {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return false
+	}
+	parsed, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false
+	}
+	return parsed
 }

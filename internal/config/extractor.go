@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -45,18 +46,23 @@ func (e *Extractor) ExtractWithStats(sourceFS fs.FS, destDir string, manifest ma
 		if err != nil {
 			return stats, err
 		}
+	}
 	if len(manifest) == 0 {
 		if err := WriteBaselineManifest(destDir, manifest); err != nil {
 			return stats, err
 		}
 		return stats, nil
 	}
-	}
 	paths := make([]string, 0, len(manifest))
 	for relPath := range manifest {
 		paths = append(paths, relPath)
 	}
 	sort.Strings(paths)
+
+	baseline, err := LoadBaselineManifest(destDir)
+	if err != nil && !errors.Is(err, ErrBaselineManifestMissing) {
+		return stats, err
+	}
 
 	workerCount := runtime.NumCPU()
 	if workerCount < 1 {
@@ -67,7 +73,7 @@ func (e *Extractor) ExtractWithStats(sourceFS fs.FS, destDir string, manifest ma
 	}
 	if workerCount <= 1 {
 		for _, relPath := range paths {
-			fileStats, err := e.extractRel(sourceFS, destDir, relPath, manifest[relPath])
+			fileStats, err := e.extractRel(sourceFS, destDir, relPath, manifest[relPath], baseline)
 			if err != nil {
 				return stats, err
 			}
@@ -90,7 +96,7 @@ func (e *Extractor) ExtractWithStats(sourceFS fs.FS, destDir string, manifest ma
 	worker := func() {
 		defer waitGroup.Done()
 		for relPath := range jobs {
-			fileStats, err := e.extractRel(sourceFS, destDir, relPath, manifest[relPath])
+			fileStats, err := e.extractRel(sourceFS, destDir, relPath, manifest[relPath], baseline)
 			if err != nil {
 				errOnce.Do(func() {
 					firstErr = err
@@ -124,49 +130,88 @@ func (e *Extractor) ExtractWithStats(sourceFS fs.FS, destDir string, manifest ma
 	return stats, nil
 }
 
-func (e *Extractor) extractRel(sourceFS fs.FS, destDir, relPath, expectedHash string) (ExtractStats, error) {
+func (e *Extractor) extractRel(sourceFS fs.FS, destDir, relPath, expectedHash string, baseline map[string]string) (ExtractStats, error) {
 	sourcePath := path.Join("config", relPath)
 	destPath := filepath.Join(destDir, filepath.FromSlash(relPath))
-	return e.extractFile(sourceFS, relPath, sourcePath, destPath, expectedHash)
+	oldHash, hasBaseline := "", false
+	if baseline != nil {
+		if value, ok := baseline[relPath]; ok {
+			oldHash = value
+			hasBaseline = true
+		}
+	}
+	return e.extractFile(sourceFS, relPath, sourcePath, destPath, expectedHash, oldHash, hasBaseline)
 }
 
-func (e *Extractor) extractFile(sourceFS fs.FS, relPath, sourcePath, destPath, expectedHash string) (ExtractStats, error) {
+func (e *Extractor) extractFile(sourceFS fs.FS, relPath, sourcePath, destPath, expectedHash, oldHash string, hasBaseline bool) (ExtractStats, error) {
 	stats := ExtractStats{}
+	if expectedHash == "" {
+		return e.installConfig(sourceFS, sourcePath, destPath, stats)
+	}
 	destInfo, err := os.Stat(destPath)
 	destExists := err == nil
 	if destExists {
 		if destInfo.IsDir() {
 			return stats, fmt.Errorf("destination is a directory: %s", destPath)
 		}
-		if expectedHash != "" {
-			existingHash, err := hashFile(destPath)
-			if err != nil {
-				return stats, fmt.Errorf("hash existing file: %w", err)
-			}
-			if existingHash == expectedHash {
-				e.logDebug("config file up-to-date, skipping", map[string]string{
-					"path": destPath,
-				})
-				stats.Skipped++
-				return stats, nil
-			}
+	} else if err != nil && !os.IsNotExist(err) {
+		return stats, fmt.Errorf("stat destination: %w", err)
+	}
 
-			choice, err := e.resolveConflict(ConffilePrompt{
-				RelPath:  relPath,
-				DestPath: destPath,
-			})
-			if err != nil {
-				return stats, err
-			}
-			if choice.Action == ConffileKeep {
-				if e.Resolver == nil || !e.Resolver.Interactive {
-					if err := e.writeDistSidecar(sourceFS, sourcePath, destPath); err != nil {
-						return stats, err
-					}
+	localHash := ""
+	if destExists {
+		existingHash, err := hashFile(destPath)
+		if err != nil {
+			return stats, fmt.Errorf("hash existing file: %w", err)
+		}
+		localHash = existingHash
+	}
+
+	decision := DecideConffile(ConffileDecisionInput{
+		DestExists:  destExists,
+		HasBaseline: hasBaseline,
+		LocalHash:   localHash,
+		OldHash:     oldHash,
+		NewHash:     expectedHash,
+	})
+
+	switch decision {
+	case ConffileDecisionSkip:
+		e.logDebug("config file up-to-date, skipping", map[string]string{
+			"path": destPath,
+		})
+		stats.Skipped++
+		return stats, nil
+	case ConffileDecisionKeep:
+		stats.Skipped++
+		return stats, nil
+	case ConffileDecisionPrompt:
+		choice, err := e.resolveConflict(ConffilePrompt{
+			RelPath:  relPath,
+			DestPath: destPath,
+		})
+		if err != nil {
+			return stats, err
+		}
+		if choice.Action == ConffileKeep {
+			if e.Resolver == nil || !e.Resolver.Interactive {
+				if err := e.writeDistSidecar(sourceFS, sourcePath, destPath); err != nil {
+					return stats, err
 				}
-				stats.Skipped++
-				return stats, nil
 			}
+			stats.Skipped++
+			return stats, nil
+		}
+	case ConffileDecisionInstall:
+	}
+
+	return e.installConfig(sourceFS, sourcePath, destPath, stats)
+}
+
+func (e *Extractor) installConfig(sourceFS fs.FS, sourcePath, destPath string, stats ExtractStats) (ExtractStats, error) {
+	if info, err := os.Stat(destPath); err == nil {
+		if info.IsDir() {
+			return stats, fmt.Errorf("destination is a directory: %s", destPath)
 		}
 		backupPath, backedUp, err := e.backupExistingFile(destPath)
 		if err != nil {

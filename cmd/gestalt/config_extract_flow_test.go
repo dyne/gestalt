@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"gestalt"
+	"gestalt/internal/config"
 	"gestalt/internal/logging"
 	"gestalt/internal/plan"
 )
@@ -77,6 +78,14 @@ func TestPrepareConfigConflictKeepsWithDist(t *testing.T) {
 	future := time.Now().Add(2 * time.Second)
 	if err := os.Chtimes(agentPath, future, future); err != nil {
 		t.Fatalf("set mod time: %v", err)
+	}
+	baseline, err := config.LoadBaselineManifest(cfg.ConfigDir)
+	if err != nil {
+		t.Fatalf("load baseline: %v", err)
+	}
+	baseline["agents/coder.toml"] = "0000000000000000"
+	if err := config.WriteBaselineManifest(cfg.ConfigDir, baseline); err != nil {
+		t.Fatalf("write baseline: %v", err)
 	}
 
 	originalStdin := os.Stdin

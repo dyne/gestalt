@@ -77,6 +77,8 @@ type Agent struct {
 const (
 	AgentInterfaceCLI = "cli"
 	AgentInterfaceMCP = "mcp"
+	CodexModeMCPServer = "mcp-server"
+	CodexModeTUI       = "tui"
 )
 
 // Validate ensures required fields are present and values are supported.
@@ -103,9 +105,27 @@ func (a *Agent) Validate() error {
 }
 
 func (a *Agent) ResolveInterface() (string, error) {
+	cliType := strings.TrimSpace(a.CLIType)
+	if strings.EqualFold(cliType, "codex") {
+		mode := strings.TrimSpace(a.CodexMode)
+		if mode != "" {
+			normalizedMode := strings.ToLower(mode)
+			switch normalizedMode {
+			case CodexModeMCPServer, CodexModeTUI:
+				a.CodexMode = normalizedMode
+			default:
+				return "", &ValidationError{
+					Path:        "codex_mode",
+					Expected:    "\"mcp-server\" or \"tui\"",
+					Actual:      actualType(mode),
+					ActualValue: mode,
+				}
+			}
+		}
+	}
 	interfaceValue := strings.TrimSpace(a.Interface)
 	if interfaceValue == "" {
-		if strings.EqualFold(strings.TrimSpace(a.CodexMode), "mcp-server") {
+		if strings.EqualFold(strings.TrimSpace(a.CodexMode), CodexModeMCPServer) {
 			interfaceValue = AgentInterfaceMCP
 		}
 	}

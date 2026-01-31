@@ -17,6 +17,7 @@ func ComputeConfigHash(agent *Agent) string {
 	payload := map[string]interface{}{
 		"name":         agent.Name,
 		"shell":        agent.Shell,
+		"codex_mode":   agent.CodexMode,
 		"prompt":       []string(agent.Prompts),
 		"skills":       agent.Skills,
 		"onair_string": agent.OnAirString,

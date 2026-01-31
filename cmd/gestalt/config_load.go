@@ -475,11 +475,23 @@ func loadConfig(args []string) (Config, error) {
 	}
 	cfg.Sources["force-upgrade"] = forceUpgradeSource
 
+	envOverrides, err := parseConfigOverridesEnv(os.Getenv("GESTALT_CONFIG_OVERRIDES"))
+	if err != nil {
+		return Config{}, err
+	}
 	configOverrides, err := parseConfigOverrides(flags.ConfigOverrides)
 	if err != nil {
 		return Config{}, err
 	}
-	cfg.ConfigOverrides = configOverrides
+	if len(configOverrides) > 0 {
+		if envOverrides == nil {
+			envOverrides = make(map[string]any)
+		}
+		for key, value := range configOverrides {
+			envOverrides[key] = value
+		}
+	}
+	cfg.ConfigOverrides = envOverrides
 
 	return cfg, nil
 }
@@ -692,7 +704,7 @@ func printHelp(out io.Writer, defaults configDefaults) {
 		},
 		{
 			Name: "-c key=value",
-			Desc: "Override gestalt.toml settings (repeatable)",
+			Desc: "Override gestalt.toml settings (repeatable, env: GESTALT_CONFIG_OVERRIDES)",
 		},
 	})
 

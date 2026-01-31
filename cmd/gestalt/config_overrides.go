@@ -50,6 +50,23 @@ func parseConfigOverrides(entries []string) (map[string]any, error) {
 	return overrides, nil
 }
 
+func parseConfigOverridesEnv(raw string) (map[string]any, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, nil
+	}
+	parts := strings.Split(trimmed, ",")
+	entries := make([]string, 0, len(parts))
+	for _, part := range parts {
+		entry := strings.TrimSpace(part)
+		if entry == "" {
+			return nil, fmt.Errorf("config override entry cannot be empty")
+		}
+		entries = append(entries, entry)
+	}
+	return parseConfigOverrides(entries)
+}
+
 func parseOverrideValue(value string) any {
 	if strings.EqualFold(value, "true") {
 		return true

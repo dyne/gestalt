@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -56,6 +57,9 @@ func (h *RestHandler) handleAgentInput(w http.ResponseWriter, r *http.Request) *
 	if readErr != nil {
 		return &apiError{Status: http.StatusBadRequest, Message: "invalid request body"}
 	}
+	if session.IsMCP() {
+		payload = normalizeMCPInput(payload)
+	}
 
 	if writeErr := session.Write(payload); writeErr != nil {
 		return &apiError{Status: http.StatusInternalServerError, Message: "failed to send agent input"}
@@ -99,7 +103,11 @@ func (h *RestHandler) handleAgentSendInput(w http.ResponseWriter, r *http.Reques
 		return &apiError{Status: http.StatusNotFound, Message: fmt.Sprintf("agent %q is not running", agentName)}
 	}
 
-	if writeErr := session.Write([]byte(input + "\n")); writeErr != nil {
+	if session.IsMCP() {
+		if writeErr := session.Write(normalizeMCPInput([]byte(input))); writeErr != nil {
+			return &apiError{Status: http.StatusInternalServerError, Message: "failed to send agent input"}
+		}
+	} else if writeErr := session.Write([]byte(input + "\n")); writeErr != nil {
 		return &apiError{Status: http.StatusInternalServerError, Message: "failed to send agent input"}
 	}
 
@@ -167,4 +175,15 @@ func (h *RestHandler) lookupAgentTerminal(agentName string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func normalizeMCPInput(input []byte) []byte {
+	if len(input) == 0 {
+		return input
+	}
+	trimmed := bytes.TrimRight(input, "\r\n")
+	if len(trimmed) == 0 {
+		return []byte{'\r'}
+	}
+	return append(trimmed, '\r')
 }

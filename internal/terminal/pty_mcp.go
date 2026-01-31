@@ -35,6 +35,10 @@ type mcpPty struct {
 	threadID string
 	debug    bool
 
+	turnMu      sync.RWMutex
+	turnHandler func(mcpTurnInfo)
+	turnCount   uint64
+
 	closeOnce sync.Once
 }
 
@@ -66,6 +70,12 @@ type mcpNotification struct {
 	Params  interface{} `json:"params,omitempty"`
 }
 
+type mcpTurnInfo struct {
+	Turn     uint64
+	ThreadID string
+	Tool     string
+}
+
 func newMCPPty(base Pty, debug bool) *mcpPty {
 	outR, outW := io.Pipe()
 	pty := &mcpPty{
@@ -80,6 +90,12 @@ func newMCPPty(base Pty, debug bool) *mcpPty {
 	go pty.readLoop()
 	go pty.commandLoop()
 	return pty
+}
+
+func (p *mcpPty) SetTurnHandler(handler func(mcpTurnInfo)) {
+	p.turnMu.Lock()
+	p.turnHandler = handler
+	p.turnMu.Unlock()
 }
 
 func (p *mcpPty) Read(data []byte) (int, error) {
@@ -190,6 +206,7 @@ func (p *mcpPty) commandLoop() {
 			continue
 		}
 		p.writeAssistant(result.content)
+		p.emitTurnComplete(result)
 	}
 }
 
@@ -269,6 +286,7 @@ func (p *mcpPty) callTool(prompt string) (mcpResult, error) {
 	if err != nil {
 		return mcpResult{}, err
 	}
+	result.tool = tool
 	if result.threadID != "" {
 		p.threadID = result.threadID
 	}
@@ -365,6 +383,21 @@ func (p *mcpPty) writeOutput(message string) {
 	_, _ = p.outW.Write([]byte(message))
 }
 
+func (p *mcpPty) emitTurnComplete(result mcpResult) {
+	p.turnMu.RLock()
+	handler := p.turnHandler
+	p.turnMu.RUnlock()
+	if handler == nil {
+		return
+	}
+	turn := atomic.AddUint64(&p.turnCount, 1)
+	handler(mcpTurnInfo{
+		Turn:     turn,
+		ThreadID: result.threadID,
+		Tool:     result.tool,
+	})
+}
+
 func (p *mcpPty) nextID() int64 {
 	return int64(atomic.AddUint64(&p.idCounter, 1))
 }
@@ -391,6 +424,7 @@ type mcpResult struct {
 	content  string
 	threadID string
 	isError  bool
+	tool     string
 }
 
 func parseMCPResult(raw json.RawMessage) (mcpResult, error) {

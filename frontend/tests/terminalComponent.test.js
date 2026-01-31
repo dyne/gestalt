@@ -37,11 +37,13 @@ const buildState = () => {
     sendData: vi.fn(),
     focus: vi.fn(),
     scrollToBottom: vi.fn(),
+    setAtBottom: vi.fn(),
     status: writable('connected'),
     historyStatus: writable('idle'),
     bellCount: writable(0),
     canReconnect: writable(false),
     atBottom: writable(true),
+    text: writable(''),
   }
 }
 

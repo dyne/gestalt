@@ -9,49 +9,6 @@ const buildEventSourceUrl = vi.hoisted(() => vi.fn((path) => `http://test${path}
 const buildWebSocketUrl = vi.hoisted(() => vi.fn((path) => `ws://test${path}`))
 const createLogStream = vi.hoisted(() => vi.fn())
 
-const MockTerminal = vi.hoisted(
-  () =>
-    class {
-      constructor() {
-        this.cols = 80
-        this.rows = 24
-        this.element = null
-        this.options = {}
-        this.parser = {
-          registerCsiHandler: () => ({ dispose() {} }),
-        }
-      }
-      loadAddon() {}
-      open(container) {
-        this.element = document.createElement('div')
-        container.appendChild(this.element)
-      }
-      write() {}
-      onData() {}
-      onBell() {}
-      onScroll() {}
-      attachCustomKeyEventHandler() {
-        return true
-      }
-      hasSelection() {
-        return false
-      }
-      getSelection() {
-        return ''
-      }
-      scrollToBottom() {}
-      focus() {}
-      dispose() {}
-    }
-)
-
-const MockFitAddon = vi.hoisted(
-  () =>
-    class {
-      fit() {}
-    }
-)
-
 class MockWebSocket {
   static CONNECTING = 0
   static OPEN = 1
@@ -99,14 +56,6 @@ vi.mock('../src/lib/api.js', () => ({
 
 vi.mock('../src/lib/logStream.js', () => ({
   createLogStream,
-}))
-
-vi.mock('@xterm/xterm', () => ({
-  Terminal: MockTerminal,
-}))
-
-vi.mock('@xterm/addon-fit', () => ({
-  FitAddon: MockFitAddon,
 }))
 
 import App from '../src/App.svelte'

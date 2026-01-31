@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gestalt/internal/config/tomlkeys"
@@ -60,5 +61,49 @@ func TestSaveGestaltConfigIsStable(t *testing.T) {
 
 	if string(first) != string(second) {
 		t.Fatalf("expected config to be stable across saves")
+	}
+}
+
+func TestSaveGestaltConfigCanonicalizesKeys(t *testing.T) {
+	root := t.TempDir()
+	configDir := filepath.Join(root, ".gestalt", "config")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	path := filepath.Join(configDir, gestaltConfigFilename)
+	seed := "session.log_max_bytes = 123\n[temporal]\nmax_output_bytes = 2048\n"
+	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	saveGestaltConfigDefaults(Config{DevMode: false}, configPaths{ConfigDir: configDir}, nil)
+
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	rendered := string(payload)
+	if strings.Contains(rendered, "session.log_max_bytes") {
+		t.Fatalf("expected dotted keys to be canonicalized")
+	}
+	if !strings.Contains(rendered, "[session]") {
+		t.Fatalf("expected session section")
+	}
+	if !strings.Contains(rendered, "log-max-bytes = 123") {
+		t.Fatalf("expected log-max-bytes to be preserved")
+	}
+	if !strings.Contains(rendered, "max-output-bytes = 2048") {
+		t.Fatalf("expected max-output-bytes to be preserved")
+	}
+
+	store, err := tomlkeys.Decode(payload)
+	if err != nil {
+		t.Fatalf("decode config: %v", err)
+	}
+	if value, ok := store.GetInt("session.log-max-bytes"); !ok || value != 123 {
+		t.Fatalf("expected session.log-max-bytes 123, got %d", value)
+	}
+	if value, ok := store.GetInt("temporal.max-output-bytes"); !ok || value != 2048 {
+		t.Fatalf("expected temporal.max-output-bytes 2048, got %d", value)
 	}
 }

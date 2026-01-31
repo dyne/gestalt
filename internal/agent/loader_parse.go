@@ -128,6 +128,7 @@ func lineForKey(data []byte, keyPath string) int {
 var agentRootKeys = map[string]struct{}{
 	"name":         {},
 	"shell":        {},
+	"codex_mode":   {},
 	"prompt":       {},
 	"skills":       {},
 	"onair_string": {},

@@ -10,7 +10,7 @@ All agent files support the following fields:
 - `shell` (string, optional): Explicit shell command. Required if no CLI config keys are set.
 - `interface` (string, optional): `cli` or `mcp` (default `cli`). `mcp` is only supported for `cli_type="codex"`.
 - `cli_type` (string, optional): CLI type (e.g., `codex`, `copilot`). Required when CLI config keys are set.
-- `codex_mode` (string, optional, legacy): `mcp-server` maps to `interface="mcp"` when `interface` is unset.
+- `codex_mode` (string, optional, legacy): For `cli_type="codex"`, deprecated alias for `interface` when `interface` is unset (`mcp-server` maps to `interface="mcp"`, `tui` maps to `interface="cli"`).
 - `prompt` (string or array, optional): Prompt names (no extension) to inject.
 - `skills` (array, optional): Skill names to inject.
 - `onair_string` (string, optional): Wait for this string before prompt injection.
@@ -101,6 +101,7 @@ Example files live in `config/agents/`:
 ```toml
 name = "Codex"
 cli_type = "codex"
+codex_mode = "mcp-server"
 prompt = ["coder"]
 model = "o3"
 approval_policy = "on-request"

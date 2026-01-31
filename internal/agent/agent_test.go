@@ -15,6 +15,7 @@ prompt = "coder"
 skills = ["git-workflows", "code-review"]
 onair_string = "READY"
 cli_type = "codex"
+codex_mode = "tui"
 llm_model = "default"
 `
 
@@ -39,6 +40,9 @@ llm_model = "default"
 	}
 	if a.CLIType != "codex" {
 		t.Fatalf("cli_type mismatch: %q", a.CLIType)
+	}
+	if a.CodexMode != "tui" {
+		t.Fatalf("codex_mode mismatch: %q", a.CodexMode)
 	}
 	if a.LLMModel != "default" {
 		t.Fatalf("llm_model mismatch: %q", a.LLMModel)
@@ -164,6 +168,16 @@ func TestAgentValidate(t *testing.T) {
 			},
 			wantErr: "agent shell is required",
 		},
+		{
+			name: "invalid codex_mode",
+			agent: Agent{
+				Name:      "Codex",
+				Shell:     "/bin/bash",
+				CLIType:   "codex",
+				CodexMode: "bogus",
+			},
+			wantErr: "codex_mode",
+		},
 	}
 
 	for _, tt := range tests {
@@ -186,6 +200,20 @@ func TestAgentValidate(t *testing.T) {
 				t.Fatalf("error %q does not contain %q", err.Error(), tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestAgentCodexModeDefault(t *testing.T) {
+	agent := Agent{
+		Name:    "Codex",
+		Shell:   "/bin/bash",
+		CLIType: "codex",
+	}
+	if err := agent.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if agent.CodexMode != CodexModeMCPServer {
+		t.Fatalf("expected codex_mode %q, got %q", CodexModeMCPServer, agent.CodexMode)
 	}
 }
 

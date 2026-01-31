@@ -20,9 +20,10 @@ func TestParseErrorIncludesPosition(t *testing.T) {
 	}
 }
 
-func TestInterfaceNotCapturedInCLIConfig(t *testing.T) {
+func TestInterfaceAndCodexModeNotCapturedInCLIConfig(t *testing.T) {
 	data := []byte(`
 name = "Codex"
+shell = "/bin/bash"
 cli_type = "codex"
 interface = "mcp"
 codex_mode = "mcp-server"
@@ -45,6 +46,6 @@ model = "o3"
 		t.Fatalf("did not expect codex_mode in CLI config")
 	}
 	if value, ok := agent.CLIConfig["model"]; !ok || value != "o3" {
-		t.Fatalf("expected model CLI config, got %v", agent.CLIConfig)
+		t.Fatalf("expected model in cli_config, got %#v", agent.CLIConfig)
 	}
 }

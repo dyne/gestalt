@@ -74,6 +74,20 @@ The generated command replaces any explicit `shell` value when agents are loaded
 
 If no CLI config keys are set, `shell` is used as-is.
 
+### Codex MCP mode
+
+When `codex_mode = "mcp-server"`, Gestalt runs `codex mcp-server` over stdio and
+renders a simple transcript in the terminal output:
+
+- User prompts are echoed with a `> ` prefix.
+- Assistant responses are plain text blocks (newlines preserved).
+- Errors are prefixed with `! error:`.
+
+In MCP mode, Gestalt emits workflow notify events directly (`source="codex-notify"`)
+and does not inject Codex `notify=...` hooks.
+
+Set `GESTALT_CODEX_FORCE_TUI=true` to force the legacy TUI path globally.
+
 ### Codex notify vs tui.notifications
 
 `notify` is a **Codex root key** that defines an argv array for notifier hooks.

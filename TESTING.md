@@ -59,6 +59,7 @@ Coverage targets:
 ## Test patterns in this repo
 
 - Fake PTYs: `internal/api/rest_test.go`, `internal/terminal/manager_test.go`.
+- MCP stdio fakes: `internal/api/mcp_test_helpers_test.go`, `internal/terminal/pty_mcp_test.go` (no Codex binary required).
 - Table-driven tests: `internal/agent/agent_test.go`, `internal/terminal/shell_test.go`.
 - Integration helpers: websocket harnesses in `internal/api/*_integration_test.go`.
 

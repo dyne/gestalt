@@ -14,7 +14,8 @@ export const createTerminalSocket = ({
   historyStatus,
   canReconnect,
   historyCache,
-  syncScrollState,
+  onOutput,
+  onHistory,
   scheduleFit,
 }) => {
   let socket = null
@@ -31,6 +32,7 @@ export const createTerminalSocket = ({
   let notifiedDisconnect = false
   let manualDisconnect = false
   let disposed = false
+  const decoder = new TextDecoder()
 
   const clearReconnectTimer = () => {
     if (!reconnectTimer) return
@@ -45,10 +47,9 @@ export const createTerminalSocket = ({
   }
 
   const flushPendingHistory = () => {
-    if (!pendingHistory || disposed || !term.element) return
+    if (!pendingHistory || disposed || !term?.element) return
     term.write(pendingHistory)
     pendingHistory = ''
-    syncScrollState()
   }
 
   const scheduleHistoryWarning = () => {
@@ -76,8 +77,17 @@ export const createTerminalSocket = ({
     }
     if (historyCache.has(terminalId)) {
       const cachedEntry = historyCache.get(terminalId)
+      const cachedLines = Array.isArray(cachedEntry?.lines)
+        ? cachedEntry.lines
+        : typeof cachedEntry === 'string'
+          ? cachedEntry.split('\n')
+          : typeof cachedEntry?.text === 'string'
+            ? cachedEntry.text.split('\n')
+            : []
       const cachedHistory =
-        typeof cachedEntry === 'string' ? cachedEntry : cachedEntry?.text || ''
+        typeof cachedEntry === 'string'
+          ? cachedEntry
+          : cachedEntry?.text || cachedLines.join('\n')
       const cachedCursor =
         typeof cachedEntry === 'object' && cachedEntry !== null
           ? cachedEntry.cursor
@@ -85,10 +95,13 @@ export const createTerminalSocket = ({
       if (Number.isFinite(cachedCursor)) {
         historyCursor = cachedCursor
       }
-      if (term.element) {
+      if (term?.element) {
         term.write(cachedHistory)
       } else {
         pendingHistory = cachedHistory
+      }
+      if (onHistory) {
+        onHistory(cachedLines, historyCursor)
       }
       historyLoaded = true
       historyStatus.set('loaded')
@@ -118,16 +131,17 @@ export const createTerminalSocket = ({
         }
         const historyText = lines.join('\n')
         if (historyText) {
-          if (term.element) {
+          if (term?.element) {
             term.write(historyText)
           } else {
             pendingHistory = historyText
           }
-          if (term.element) {
-            syncScrollState()
-          }
+        }
+        if (onHistory) {
+          onHistory(lines, historyCursor)
         }
         historyCache.set(terminalId, {
+          lines,
           text: historyText,
           cursor: historyCursor,
         })
@@ -225,12 +239,21 @@ export const createTerminalSocket = ({
     socket.addEventListener('message', (event) => {
       if (disposed) return
       if (typeof event.data === 'string') {
-        term.write(event.data)
-        syncScrollState()
+        if (term?.write) {
+          term.write(event.data)
+        }
+        if (onOutput) {
+          onOutput(event.data)
+        }
         return
       }
-      term.write(new Uint8Array(event.data))
-      syncScrollState()
+      const bytes = new Uint8Array(event.data)
+      if (term?.write) {
+        term.write(bytes)
+      }
+      if (onOutput) {
+        onOutput(decoder.decode(bytes))
+      }
     })
 
     socket.addEventListener('close', async (event) => {

@@ -9,8 +9,6 @@
   export let agentName = ''
   export let onSubmit = () => {}
   export let disabled = false
-  export let directInput = false
-  export let onDirectInputChange = () => {}
   export let showScrollButton = false
   export let onScrollToBottom = () => {}
 
@@ -136,10 +134,6 @@
     })
   }
 
-  const handleDirectToggle = (event) => {
-    onDirectInputChange(event.target.checked)
-  }
-
   const handleTranscript = (text) => {
     const transcript = text.trim()
     if (!transcript) return
@@ -210,16 +204,6 @@
           &dArr;
         </button>
       {/if}
-      <label class="direct-toggle" title="Direct input switch">
-        <input
-          type="checkbox"
-          checked={directInput}
-          on:change={handleDirectToggle}
-          aria-label="Direct input switch"
-          disabled={disabled}
-        />
-        <span class="direct-toggle__switch"></span>
-      </label>
     </div>
   </div>
   {#if isVoiceListening}
@@ -300,59 +284,6 @@
 
   textarea:disabled {
     opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .direct-toggle {
-    position: relative;
-    width: 20px;
-    height: 54px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    user-select: none;
-  }
-
-  .direct-toggle input {
-    position: absolute;
-    inset: 0;
-    opacity: 0;
-    cursor: pointer;
-  }
-
-  .direct-toggle__switch {
-    position: relative;
-    display: block;
-    width: 18px;
-    height: 48px;
-    border-radius: 999px;
-    background: rgba(var(--color-text-rgb), 0.15);
-    transition: background 0.2s ease;
-    box-shadow: inset 0 0 0 1px rgba(var(--color-text-rgb), 0.1);
-  }
-
-  .direct-toggle__switch::after {
-    content: '';
-    position: absolute;
-    left: 2px;
-    bottom: 2px;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: var(--terminal-text);
-    transition: transform 0.2s ease;
-  }
-
-  .direct-toggle input:checked + .direct-toggle__switch {
-    background: rgba(var(--color-success-rgb), 0.6);
-  }
-
-  .direct-toggle input:checked + .direct-toggle__switch::after {
-    transform: translateY(-28px);
-  }
-
-  .direct-toggle input:disabled + .direct-toggle__switch {
-    opacity: 0.5;
     cursor: not-allowed;
   }
 

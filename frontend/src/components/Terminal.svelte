@@ -103,17 +103,11 @@
     state?.setAtBottom?.(value)
   }
 
-  const resizeHandler = () => {
-    if (!visible || !state) return
-    state.scheduleFit()
-  }
-
   onMount(() => {
     attachState()
     if (visible) {
       pendingFocus = true
     }
-    window.addEventListener('resize', resizeHandler)
   })
 
   $: if (state) {
@@ -144,7 +138,6 @@
       : ''
 
   onDestroy(() => {
-    window.removeEventListener('resize', resizeHandler)
     state?.setVisible?.(false)
     if (unsubscribeStatus) {
       unsubscribeStatus()

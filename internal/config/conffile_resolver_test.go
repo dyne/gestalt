@@ -60,6 +60,37 @@ func TestConffileResolverDiffThenKeep(t *testing.T) {
 	if !strings.Contains(output.String(), "--- old") {
 		t.Fatalf("expected diff output in prompt")
 	}
+	if strings.Count(output.String(), "What do you want to do? [N] ") != 2 {
+		t.Fatalf("expected prompt to repeat after diff")
+	}
+}
+
+func TestConffileResolverInstallChoice(t *testing.T) {
+	input := strings.NewReader("y\n")
+	output := &bytes.Buffer{}
+	resolver := ConffileResolver{
+		Interactive: true,
+		In:          input,
+		Out:         output,
+	}
+
+	choice, err := resolver.ResolveConflict(ConffilePrompt{
+		RelPath:  "agents/example.toml",
+		DestPath: "/tmp/example.toml",
+		NewBytes: []byte("new"),
+	})
+	if err != nil {
+		t.Fatalf("resolve conflict: %v", err)
+	}
+	if choice.Action != ConffileInstall {
+		t.Fatalf("expected install action, got %v", choice.Action)
+	}
+	if !strings.Contains(output.String(), "Configuration file 'config/agents/example.toml'") {
+		t.Fatalf("expected prompt to include config path")
+	}
+	if !strings.Contains(output.String(), "What do you want to do? [N] ") {
+		t.Fatalf("expected prompt to include default action")
+	}
 }
 
 func TestConffileResolverApplyAllInstalls(t *testing.T) {
@@ -115,5 +146,8 @@ func TestConffileResolverEmptyInputKeeps(t *testing.T) {
 	}
 	if choice.Action != ConffileKeep {
 		t.Fatalf("expected keep action, got %v", choice.Action)
+	}
+	if !strings.Contains(output.String(), "The default action is to keep your current version.") {
+		t.Fatalf("expected default action message")
 	}
 }

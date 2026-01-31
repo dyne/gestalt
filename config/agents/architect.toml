@@ -1,6 +1,7 @@
 name = "Architect"
 shell = "codex"
 cli_type = "codex"
+codex_mode = "mcp-server"
 prompt = ["architect"]
 llm_model = "default"
 singleton = false

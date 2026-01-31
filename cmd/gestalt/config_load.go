@@ -41,6 +41,7 @@ type Config struct {
 	InputHistoryDir      string
 	ConfigDir            string
 	ConfigBackupLimit    int
+	ConfigOverrides      map[string]any
 	DevMode              bool
 	MaxWatches           int
 	PprofEnabled         bool
@@ -99,6 +100,7 @@ type flagValues struct {
 	InputHistoryDir      string
 	ConfigDir            string
 	ConfigBackupLimit    int
+	ConfigOverrides      []string
 	MaxWatches           int
 	PprofEnabled         bool
 	Verbose              bool
@@ -473,6 +475,12 @@ func loadConfig(args []string) (Config, error) {
 	}
 	cfg.Sources["force-upgrade"] = forceUpgradeSource
 
+	configOverrides, err := parseConfigOverrides(flags.ConfigOverrides)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.ConfigOverrides = configOverrides
+
 	return cfg, nil
 }
 
@@ -523,6 +531,8 @@ func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
 	inputHistoryDir := fs.String("input-history-dir", defaults.InputHistoryDir, "Input history directory")
 	configDir := fs.String("config-dir", defaults.ConfigDir, "Config directory")
 	configBackupLimit := fs.Int("config-backup-limit", defaults.ConfigBackupLimit, "Config backup limit")
+	var configOverrides overrideList
+	fs.Var(&configOverrides, "c", "Override gestalt.toml settings (key=value)")
 	maxWatches := fs.Int("max-watches", defaults.MaxWatches, "Max active watches")
 	pprofEnabled := fs.Bool("pprof", defaults.PprofEnabled, "Enable pprof debug endpoints")
 	forceUpgrade := fs.Bool("force-upgrade", defaults.ForceUpgrade, "Bypass config version compatibility checks")
@@ -561,6 +571,7 @@ func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
 		InputHistoryDir:      *inputHistoryDir,
 		ConfigDir:            *configDir,
 		ConfigBackupLimit:    *configBackupLimit,
+		ConfigOverrides:      configOverrides,
 		MaxWatches:           *maxWatches,
 		PprofEnabled:         *pprofEnabled,
 		ForceUpgrade:         *forceUpgrade,
@@ -678,6 +689,10 @@ func printHelp(out io.Writer, defaults configDefaults) {
 		{
 			Name: "--force-upgrade",
 			Desc: fmt.Sprintf("Bypass version checks (env: GESTALT_FORCE_UPGRADE, default: %t)", defaults.ForceUpgrade),
+		},
+		{
+			Name: "-c key=value",
+			Desc: "Override gestalt.toml settings (repeatable)",
 		},
 	})
 

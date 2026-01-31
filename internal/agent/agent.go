@@ -61,6 +61,7 @@ func (p *PromptList) setPromptList(values []string) error {
 type Agent struct {
 	Name        string                 `json:"name" toml:"name"`
 	Shell       string                 `json:"shell,omitempty" toml:"shell,omitempty"`
+	CodexMode   string                 `json:"codex_mode,omitempty" toml:"codex_mode,omitempty"`
 	Prompts     PromptList             `json:"prompt,omitempty" toml:"prompt,omitempty"`
 	Skills      []string               `json:"skills,omitempty" toml:"skills,omitempty"`
 	OnAirString string                 `json:"onair_string,omitempty" toml:"onair_string,omitempty"`
@@ -72,10 +73,18 @@ type Agent struct {
 	ConfigHash  string                 `json:"-" toml:"-"`
 }
 
+const (
+	CodexModeMCPServer = "mcp-server"
+	CodexModeTUI       = "tui"
+)
+
 // Validate ensures required fields are present and values are supported.
 func (a *Agent) Validate() error {
 	if strings.TrimSpace(a.Name) == "" {
 		return fmt.Errorf("agent name is required")
+	}
+	if err := a.normalizeCodexMode(); err != nil {
+		return err
 	}
 	if _, err := a.resolveShell(); err != nil {
 		return err
@@ -88,6 +97,29 @@ func (a *Agent) Validate() error {
 	}
 
 	return nil
+}
+
+func (a *Agent) normalizeCodexMode() error {
+	if strings.TrimSpace(a.CLIType) != "codex" {
+		return nil
+	}
+	mode := strings.TrimSpace(a.CodexMode)
+	if mode == "" {
+		a.CodexMode = CodexModeMCPServer
+		return nil
+	}
+	switch mode {
+	case CodexModeMCPServer, CodexModeTUI:
+		a.CodexMode = mode
+		return nil
+	default:
+		return &ValidationError{
+			Path:        "codex_mode",
+			Expected:    "\"mcp-server\" or \"tui\"",
+			Actual:      actualType(mode),
+			ActualValue: mode,
+		}
+	}
 }
 
 // NormalizeShell applies CLI config shell generation using the resolved shell command.

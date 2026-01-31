@@ -9,6 +9,7 @@ All agent files support the following fields:
 - `name` (string, required): Human-readable name shown in the UI.
 - `shell` (string, optional): Explicit shell command. Required if no CLI config keys are set.
 - `cli_type` (string, optional): CLI type (e.g., `codex`, `copilot`). Required when CLI config keys are set.
+- `codex_mode` (string, optional): For `cli_type="codex"`, choose `mcp-server` (default) or `tui`. Ignored for other CLI types.
 - `prompt` (string or array, optional): Prompt names (no extension) to inject.
 - `skills` (array, optional): Skill names to inject.
 - `onair_string` (string, optional): Wait for this string before prompt injection.
@@ -97,6 +98,7 @@ Example files live in `config/agents/`:
 ```toml
 name = "Codex"
 cli_type = "codex"
+codex_mode = "mcp-server"
 prompt = ["coder"]
 model = "o3"
 approval_policy = "on-request"

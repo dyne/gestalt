@@ -19,3 +19,23 @@ func TestParseErrorIncludesPosition(t *testing.T) {
 		t.Fatalf("expected line info in error, got %q", message)
 	}
 }
+
+func TestCodexModeNotInCLIConfig(t *testing.T) {
+	data := []byte(`
+name = "Codex"
+shell = "/bin/bash"
+cli_type = "codex"
+codex_mode = "tui"
+model = "o3"
+`)
+	agent, err := loadAgentFromBytes("codex.toml", data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := agent.CLIConfig["codex_mode"]; ok {
+		t.Fatalf("expected codex_mode to be excluded from cli_config")
+	}
+	if agent.CLIConfig["model"] != "o3" {
+		t.Fatalf("expected model in cli_config, got %#v", agent.CLIConfig)
+	}
+}

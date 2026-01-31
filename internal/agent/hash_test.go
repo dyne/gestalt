@@ -4,18 +4,20 @@ import "testing"
 
 func TestComputeConfigHashStable(t *testing.T) {
 	agentA := &Agent{
-		Name:    "Coder",
-		Shell:   "/bin/bash",
-		CLIType: "codex",
+		Name:      "Coder",
+		Shell:     "/bin/bash",
+		CLIType:   "codex",
+		CodexMode: CodexModeMCPServer,
 		CLIConfig: map[string]interface{}{
 			"model":           "o3",
 			"approval_policy": "never",
 		},
 	}
 	agentB := &Agent{
-		Name:    "Coder",
-		Shell:   "/bin/bash",
-		CLIType: "codex",
+		Name:      "Coder",
+		Shell:     "/bin/bash",
+		CLIType:   "codex",
+		CodexMode: CodexModeMCPServer,
 		CLIConfig: map[string]interface{}{
 			"approval_policy": "never",
 			"model":           "o3",
@@ -35,5 +37,11 @@ func TestComputeConfigHashStable(t *testing.T) {
 	hashC := ComputeConfigHash(agentB)
 	if hashC == hashA {
 		t.Fatalf("expected hash to change when config changes")
+	}
+
+	agentB.CodexMode = CodexModeTUI
+	hashD := ComputeConfigHash(agentB)
+	if hashD == hashC {
+		t.Fatalf("expected hash to change when codex_mode changes")
 	}
 }

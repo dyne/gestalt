@@ -188,6 +188,78 @@ func TestExtractorKeepsModifiedFilesWhenNonInteractive(t *testing.T) {
 	}
 }
 
+func TestExtractorRotatesDistSidecars(t *testing.T) {
+	destDir := t.TempDir()
+	destPath := filepath.Join(destDir, "agents", "example.toml")
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(destPath, []byte("custom"), 0o644); err != nil {
+		t.Fatalf("write custom file: %v", err)
+	}
+	distPath := destPath + ".dist"
+	if err := os.WriteFile(distPath, []byte("old-dist"), 0o644); err != nil {
+		t.Fatalf("write dist file: %v", err)
+	}
+
+	sourceFS := fstest.MapFS{
+		"config/agents/example.toml": &fstest.MapFile{Data: []byte("new"), Mode: 0o644},
+	}
+	expectedHash, err := hashFileFromFS(sourceFS, "config/agents/example.toml")
+	if err != nil {
+		t.Fatalf("hash source file: %v", err)
+	}
+	manifest := map[string]string{
+		"agents/example.toml": expectedHash,
+	}
+
+	extractor := Extractor{
+		BackupLimit: 1,
+		Resolver: &ConffileResolver{
+			Interactive: false,
+			In:          strings.NewReader(""),
+			Out:         io.Discard,
+		},
+	}
+	if err := extractor.Extract(sourceFS, destDir, manifest); err != nil {
+		t.Fatalf("extract failed: %v", err)
+	}
+
+	dist, err := os.ReadFile(distPath)
+	if err != nil {
+		t.Fatalf("read dist file: %v", err)
+	}
+	if string(dist) != "new" {
+		t.Fatalf("expected dist contents to match packaged file")
+	}
+
+	entries, err := os.ReadDir(filepath.Dir(destPath))
+	if err != nil {
+		t.Fatalf("read dest dir: %v", err)
+	}
+	var rotated string
+	prefix := filepath.Base(destPath) + ".dist."
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if strings.HasPrefix(entry.Name(), prefix) {
+			rotated = filepath.Join(filepath.Dir(destPath), entry.Name())
+			break
+		}
+	}
+	if rotated == "" {
+		t.Fatalf("expected rotated dist sidecar")
+	}
+	payload, err := os.ReadFile(rotated)
+	if err != nil {
+		t.Fatalf("read rotated dist: %v", err)
+	}
+	if string(payload) != "old-dist" {
+		t.Fatalf("expected rotated dist to preserve prior contents")
+	}
+}
+
 func TestExtractorWritesBaselineManifest(t *testing.T) {
 	destDir := t.TempDir()
 	sourceFS := fstest.MapFS{

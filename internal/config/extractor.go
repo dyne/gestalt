@@ -199,10 +199,8 @@ func (e *Extractor) extractFile(sourceFS fs.FS, relPath, sourcePath, destPath, e
 			return stats, err
 		}
 		if choice.Action == ConffileKeep {
-			if e.Resolver == nil || !e.Resolver.Interactive {
-				if err := e.writeDistSidecar(sourceFS, sourcePath, destPath); err != nil {
-					return stats, err
-				}
+			if err := e.writeDistSidecar(sourceFS, sourcePath, destPath); err != nil {
+				return stats, err
 			}
 			stats.Skipped++
 			return stats, nil
@@ -282,12 +280,28 @@ func (e *Extractor) writeDistSidecar(sourceFS fs.FS, sourcePath, destPath string
 	defer sourceFile.Close()
 
 	distPath := destPath + ".dist"
+	if err := rotateDistSidecar(distPath); err != nil {
+		return err
+	}
 	if err := writeFileAtomic(distPath, sourceInfo.Mode().Perm(), sourceFile); err != nil {
 		return fmt.Errorf("write dist file: %w", err)
 	}
 	e.logInfo("config file written to dist sidecar", map[string]string{
 		"path": distPath,
 	})
+	return nil
+}
+
+func rotateDistSidecar(path string) error {
+	if _, err := os.Stat(path); err == nil {
+		timestamp := time.Now().UTC().Format("20060102-150405-000000000")
+		rotated := path + "." + timestamp
+		if err := os.Rename(path, rotated); err != nil {
+			return err
+		}
+	} else if err != nil && !os.IsNotExist(err) {
+		return err
+	}
 	return nil
 }
 

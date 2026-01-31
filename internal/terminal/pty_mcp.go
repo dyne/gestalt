@@ -26,6 +26,7 @@ type mcpPty struct {
 
 	lineMu  sync.Mutex
 	lineBuf []byte
+	lastCR  bool
 
 	sendMu    sync.Mutex
 	idCounter uint64
@@ -128,7 +129,8 @@ func (p *mcpPty) Write(data []byte) (int, error) {
 	defer p.lineMu.Unlock()
 
 	for _, b := range data {
-		if b == '\r' || b == '\n' {
+		if b == '\r' {
+			p.lastCR = true
 			if len(p.lineBuf) > 0 {
 				line := string(p.lineBuf)
 				p.lineBuf = p.lineBuf[:0]
@@ -143,6 +145,17 @@ func (p *mcpPty) Write(data []byte) (int, error) {
 				p.lineBuf = p.lineBuf[:0]
 			}
 			continue
+		}
+		if b == '\n' {
+			if p.lastCR {
+				p.lastCR = false
+				continue
+			}
+			p.lineBuf = append(p.lineBuf, b)
+			continue
+		}
+		if p.lastCR {
+			p.lastCR = false
 		}
 		p.lineBuf = append(p.lineBuf, b)
 	}

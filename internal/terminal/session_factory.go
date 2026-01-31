@@ -98,7 +98,14 @@ func (f *SessionFactory) Start(request sessionCreateRequest, profile *agent.Agen
 	sessionLogger := f.createSessionLogger(id, createdAt)
 	inputLogger := f.createInputLogger(id, profile, createdAt)
 
-	session := newSession(id, pty, cmd, request.Title, request.Role, createdAt, f.bufferLines, f.historyScanMax, f.outputPolicy, f.outputSample, profile, sessionLogger, inputLogger)
+	outputPolicy := f.outputPolicy
+	outputSample := f.outputSample
+	if _, ok := pty.(*mcpPty); ok {
+		outputPolicy = OutputBackpressureBlock
+		outputSample = 0
+	}
+
+	session := newSession(id, pty, cmd, request.Title, request.Role, createdAt, f.bufferLines, f.historyScanMax, outputPolicy, outputSample, profile, sessionLogger, inputLogger)
 	session.Command = shell
 	if request.AgentID != "" {
 		session.AgentID = request.AgentID
@@ -106,6 +113,7 @@ func (f *SessionFactory) Start(request sessionCreateRequest, profile *agent.Agen
 	if profile != nil {
 		session.ConfigHash = profile.ConfigHash
 	}
+
 	if mcp, ok := pty.(*mcpPty); ok {
 		attachMCPTurnHandler(session, mcp, f.logger)
 	}

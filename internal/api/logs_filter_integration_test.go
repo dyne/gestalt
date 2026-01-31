@@ -118,7 +118,7 @@ func TestLogsFilteringWebSocketAndREST(t *testing.T) {
 		t.Fatalf("timed out waiting for session output")
 	}
 
-	activity := activities.NewSessionActivities(manager, logger)
+	activity := activities.NewSessionActivities(manager, logger, 0)
 	bellErr := activity.RecordBellActivity(context.Background(), session.ID, time.Now().UTC(), "bell\x1b[31m-alert\x1b[0m-----")
 	if bellErr != nil {
 		t.Fatalf("record bell: %v", bellErr)

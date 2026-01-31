@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"path"
 	"strings"
+	"time"
 
 	"gestalt/internal/agent"
 	"gestalt/internal/logging"
@@ -28,6 +29,10 @@ type BuildOptions struct {
 	InputHistoryDir      string
 	SessionRetentionDays int
 	BufferLines          int
+	SessionLogMaxBytes   int64
+	HistoryScanMaxBytes  int64
+	TUIMode              string
+	TUISnapshotInterval  time.Duration
 	PortResolver         ports.PortResolver
 }
 
@@ -96,6 +101,10 @@ func Build(options BuildOptions) (*BuildResult, error) {
 		InputHistoryDir:      options.InputHistoryDir,
 		SessionRetentionDays: options.SessionRetentionDays,
 		BufferLines:          options.BufferLines,
+		SessionLogMaxBytes:   options.SessionLogMaxBytes,
+		HistoryScanMaxBytes:  options.HistoryScanMaxBytes,
+		TUIMode:              options.TUIMode,
+		TUISnapshotInterval:  options.TUISnapshotInterval,
 		PromptFS:             configOverlay,
 		PromptDir:            path.Join(options.ConfigRoot, "prompts"),
 		PortResolver:         options.PortResolver,

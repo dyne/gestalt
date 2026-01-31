@@ -238,6 +238,25 @@ func runServer(args []string) int {
 		}
 	}
 
+	defaultsPayload, err := fs.ReadFile(gestalt.EmbeddedConfigFS, filepath.Join("config", gestaltConfigFilename))
+	if err != nil {
+		logger.Error("read embedded gestalt.toml failed", map[string]string{
+			"error": err.Error(),
+		})
+		return 1
+	}
+	settings, err := config.LoadSettings(gestaltConfigPath(cfg, configPaths), defaultsPayload, cfg.ConfigOverrides)
+	if err != nil {
+		logger.Error("load gestalt settings failed", map[string]string{
+			"error": err.Error(),
+		})
+		return 1
+	}
+	tuiSnapshotInterval := time.Duration(0)
+	if settings.Session.TUISnapshotIntervalMS > 0 {
+		tuiSnapshotInterval = time.Duration(settings.Session.TUISnapshotIntervalMS) * time.Millisecond
+	}
+
 	buildResult, err := app.Build(app.BuildOptions{
 		Logger:               logger,
 		Shell:                cfg.Shell,
@@ -251,6 +270,10 @@ func runServer(args []string) int {
 		InputHistoryDir:      cfg.InputHistoryDir,
 		SessionRetentionDays: cfg.SessionRetentionDays,
 		BufferLines:          cfg.SessionBufferLines,
+		SessionLogMaxBytes:   settings.Session.LogMaxBytes,
+		HistoryScanMaxBytes:  settings.Session.HistoryScanMaxBytes,
+		TUIMode:              settings.Session.TUIMode,
+		TUISnapshotInterval:  tuiSnapshotInterval,
 		PortResolver:         portRegistry,
 	})
 	if err != nil {
@@ -284,7 +307,7 @@ func runServer(args []string) int {
 
 	workerStarted := false
 	if temporalEnabled && temporalClient != nil {
-		workerError := temporalworker.StartWorker(temporalClient, manager)
+		workerError := temporalworker.StartWorker(temporalClient, manager, settings.Temporal.MaxOutputBytes)
 		if workerError != nil {
 			logger.Warn("temporal worker start failed", map[string]string{
 				"error": workerError.Error(),

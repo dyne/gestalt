@@ -22,7 +22,7 @@ const defaultDeadlockDetectionTimeout = 10 * time.Second
 var workerMutex sync.Mutex
 var activeWorker worker.Worker
 
-func StartWorker(temporalClient temporal.WorkflowClient, manager *terminal.Manager) error {
+func StartWorker(temporalClient temporal.WorkflowClient, manager *terminal.Manager, maxOutputBytes int64) error {
 	if temporalClient == nil {
 		return errors.New("temporal client is required")
 	}
@@ -43,7 +43,7 @@ func StartWorker(temporalClient temporal.WorkflowClient, manager *terminal.Manag
 	workerMutex.Unlock()
 
 	activityLogger := manager.Logger()
-	activityHandlers := activities.NewSessionActivities(manager, activityLogger)
+	activityHandlers := activities.NewSessionActivities(manager, activityLogger, maxOutputBytes)
 	flowHandlers := activities.NewFlowActivities(manager, activityLogger)
 
 	workerOptions := worker.Options{

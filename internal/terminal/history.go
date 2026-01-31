@@ -51,7 +51,7 @@ func mergeHistoryLines(fileLines, bufferLines []string, maxLines int) []string {
 	return tailLines(combined, maxLines)
 }
 
-func readLastLines(path string, maxLines int) ([]string, error) {
+func readLastLines(path string, maxLines int, maxBytes int64) ([]string, error) {
 	if maxLines <= 0 {
 		return []string{}, nil
 	}
@@ -76,11 +76,16 @@ func readLastLines(path string, maxLines int) ([]string, error) {
 		newlineCount = 0
 		buffer       []byte
 	)
+	minOffset := int64(0)
+	if maxBytes > 0 && offset > maxBytes {
+		minOffset = offset - maxBytes
+	}
 
-	for offset > 0 && newlineCount <= maxLines {
+	for offset > minOffset && newlineCount <= maxLines {
 		readSize := int64(chunkSize)
-		if readSize > offset {
-			readSize = offset
+		remaining := offset - minOffset
+		if readSize > remaining {
+			readSize = remaining
 		}
 		offset -= readSize
 		if _, err := file.Seek(offset, io.SeekStart); err != nil {
@@ -105,7 +110,7 @@ func readLastLines(path string, maxLines int) ([]string, error) {
 	return tailLines(lines, maxLines), nil
 }
 
-func readLastLinesBefore(path string, maxLines int, endOffset int64) ([]string, int64, error) {
+func readLastLinesBefore(path string, maxLines int, endOffset int64, maxBytes int64) ([]string, int64, error) {
 	if maxLines <= 0 {
 		return []string{}, endOffset, nil
 	}
@@ -137,11 +142,16 @@ func readLastLinesBefore(path string, maxLines int, endOffset int64) ([]string, 
 		newlineCount = 0
 		buffer       []byte
 	)
+	minOffset := int64(0)
+	if maxBytes > 0 && offset > maxBytes {
+		minOffset = offset - maxBytes
+	}
 
-	for offset > 0 && newlineCount <= maxLines {
+	for offset > minOffset && newlineCount <= maxLines {
 		readSize := int64(chunkSize)
-		if readSize > offset {
-			readSize = offset
+		remaining := offset - minOffset
+		if readSize > remaining {
+			readSize = remaining
 		}
 		offset -= readSize
 		if _, err := file.Seek(offset, io.SeekStart); err != nil {

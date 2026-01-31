@@ -26,14 +26,19 @@ const (
 )
 
 type SessionActivities struct {
-	Manager *terminal.Manager
-	Logger  *logging.Logger
+	Manager        *terminal.Manager
+	Logger         *logging.Logger
+	MaxOutputBytes int64
 }
 
-func NewSessionActivities(manager *terminal.Manager, logger *logging.Logger) *SessionActivities {
+func NewSessionActivities(manager *terminal.Manager, logger *logging.Logger, maxOutputBytes int64) *SessionActivities {
+	if maxOutputBytes < 0 {
+		maxOutputBytes = 0
+	}
 	return &SessionActivities{
-		Manager: manager,
-		Logger:  logger,
+		Manager:        manager,
+		Logger:         logger,
+		MaxOutputBytes: maxOutputBytes,
 	}
 }
 
@@ -155,6 +160,7 @@ func (activities *SessionActivities) RecordBellActivity(activityContext context.
 		return activityErr
 	}
 	contextText = terminal.FilterTerminalOutput(contextText)
+	contextText = activities.capOutput(contextText)
 	activities.logInfo("temporal bell recorded", map[string]string{
 		"terminal_id": trimmedID,
 		"timestamp":   timestamp.UTC().Format(time.RFC3339),
@@ -271,6 +277,7 @@ func (activities *SessionActivities) GetOutputActivity(activityContext context.C
 		return "", historyError
 	}
 	output = strings.Join(lines, "\n")
+	output = activities.capOutput(output)
 	activities.logInfo("temporal output retrieved", map[string]string{
 		"terminal_id": trimmedID,
 		"line_count":  strconv.Itoa(len(lines)),
@@ -318,6 +325,7 @@ func (activities *SessionActivities) GetOutputTailActivity(activityContext conte
 		history = history[len(history)-linesValue:]
 	}
 	output = strings.Join(history, "\n")
+	output = activities.capOutput(output)
 	activities.logInfo("temporal output tail retrieved", map[string]string{
 		"terminal_id": trimmedID,
 		"line_count":  strconv.Itoa(len(history)),
@@ -330,6 +338,16 @@ func (activities *SessionActivities) ensureManager() (*terminal.Manager, error) 
 		return nil, errors.New("terminal manager unavailable")
 	}
 	return activities.Manager, nil
+}
+
+func (activities *SessionActivities) capOutput(value string) string {
+	if activities == nil || activities.MaxOutputBytes <= 0 {
+		return value
+	}
+	if int64(len(value)) <= activities.MaxOutputBytes {
+		return value
+	}
+	return string([]byte(value)[:activities.MaxOutputBytes])
 }
 
 func (activities *SessionActivities) logInfo(message string, fields map[string]string) {

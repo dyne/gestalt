@@ -52,6 +52,10 @@ type ManagerOptions struct {
 	SessionLogDir        string
 	InputHistoryDir      string
 	SessionRetentionDays int
+	SessionLogMaxBytes   int64
+	HistoryScanMaxBytes  int64
+	TUIMode              string
+	TUISnapshotInterval  time.Duration
 	PromptFS             fs.FS
 	PromptDir            string
 	PortResolver         ports.PortResolver
@@ -81,6 +85,9 @@ type Manager struct {
 	sessionLogs     string
 	inputHistoryDir string
 	retentionDays   int
+	historyScanMax  int64
+	outputPolicy    OutputBackpressurePolicy
+	outputSample    uint64
 	portResolver    ports.PortResolver
 	promptFS        fs.FS
 	promptDir       string
@@ -116,6 +123,7 @@ const (
 )
 
 var onAirTimeout = 5 * time.Second
+var defaultSnapshotSampleEvery uint64 = 10
 
 type AgentInfo struct {
 	ID          string
@@ -137,6 +145,21 @@ func resolveWorkflowPreference(preference *bool) bool {
 		return true
 	}
 	return *preference
+}
+
+func resolveOutputPolicy(mode string, interval time.Duration) (OutputBackpressurePolicy, uint64) {
+	trimmed := strings.ToLower(strings.TrimSpace(mode))
+	if trimmed == "snapshot" {
+		sampleEvery := defaultSnapshotSampleEvery
+		if interval > 0 {
+			intervalSamples := uint64(interval / (100 * time.Millisecond))
+			if intervalSamples > 0 {
+				sampleEvery = intervalSamples
+			}
+		}
+		return OutputBackpressureSample, sampleEvery
+	}
+	return OutputBackpressureBlock, 0
 }
 
 func NewManager(opts ManagerOptions) *Manager {
@@ -181,6 +204,11 @@ func NewManager(opts ManagerOptions) *Manager {
 	if retentionDays <= 0 {
 		retentionDays = DefaultSessionRetentionDays
 	}
+	historyScanMax := opts.HistoryScanMaxBytes
+	if historyScanMax < 0 {
+		historyScanMax = 0
+	}
+	outputPolicy, outputSample := resolveOutputPolicy(opts.TUIMode, opts.TUISnapshotInterval)
 
 	promptFS := opts.PromptFS
 	promptDir := strings.TrimSpace(opts.PromptDir)
@@ -235,6 +263,9 @@ func NewManager(opts ManagerOptions) *Manager {
 		sessionLogs:     sessionLogs,
 		inputHistoryDir: inputHistoryDir,
 		retentionDays:   retentionDays,
+		historyScanMax:  historyScanMax,
+		outputPolicy:    outputPolicy,
+		outputSample:    outputSample,
 		portResolver:    portResolver,
 		promptFS:        promptFS,
 		promptDir:       promptDir,
@@ -246,6 +277,10 @@ func NewManager(opts ManagerOptions) *Manager {
 		SessionLogDir:   sessionLogs,
 		InputHistoryDir: inputHistoryDir,
 		BufferLines:     bufferLines,
+		SessionLogMax:   opts.SessionLogMaxBytes,
+		HistoryScanMax:  historyScanMax,
+		OutputPolicy:    outputPolicy,
+		OutputSample:    outputSample,
 		Logger:          logger,
 		NextID:          manager.nextIDValue,
 	})
@@ -676,7 +711,7 @@ func (m *Manager) HistoryLines(id string, maxLines int) ([]string, error) {
 		return nil, err
 	}
 
-	lines, err := readLastLines(path, maxLines)
+	lines, err := readLastLines(path, maxLines, m.historyScanMax)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, ErrSessionNotFound
@@ -762,7 +797,7 @@ func (m *Manager) HistoryPage(id string, maxLines int, beforeCursor *int64) ([]s
 		return lines, nil, err
 	}
 
-	lines, startOffset, err := readLastLinesBefore(path, maxLines, *beforeCursor)
+	lines, startOffset, err := readLastLinesBefore(path, maxLines, *beforeCursor, m.historyScanMax)
 	if err != nil {
 		return nil, nil, err
 	}

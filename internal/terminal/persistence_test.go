@@ -9,7 +9,7 @@ import (
 
 func TestSessionLoggerWritesToDisk(t *testing.T) {
 	dir := t.TempDir()
-	logger, err := NewSessionLogger(dir, "alpha", time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC))
+	logger, err := NewSessionLogger(dir, "alpha", time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC), 0)
 	if err != nil {
 		t.Fatalf("new session logger: %v", err)
 	}
@@ -32,13 +32,13 @@ func TestSessionLoggerWritesToDisk(t *testing.T) {
 
 func TestSessionLoggerPersistsSessionOutput(t *testing.T) {
 	dir := t.TempDir()
-	logger, err := NewSessionLogger(dir, "1", time.Now())
+	logger, err := NewSessionLogger(dir, "1", time.Now(), 0)
 	if err != nil {
 		t.Fatalf("new session logger: %v", err)
 	}
 
 	pty := newScriptedPty()
-	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, nil, logger, nil)
+	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, logger, nil)
 	out, cancel := session.Subscribe()
 	defer cancel()
 
@@ -77,11 +77,27 @@ func TestReadLastLines(t *testing.T) {
 		t.Fatalf("write history file: %v", err)
 	}
 
-	lines, err := readLastLines(path, 2)
+	lines, err := readLastLines(path, 2, 0)
 	if err != nil {
 		t.Fatalf("read last lines: %v", err)
 	}
 	if len(lines) != 2 || lines[0] != "beta" || lines[1] != "gamma" {
+		t.Fatalf("unexpected lines: %v", lines)
+	}
+}
+
+func TestReadLastLinesRespectsMaxBytes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "history.txt")
+	if err := os.WriteFile(path, []byte("line1\nline2\nline3\nline4\n"), 0o644); err != nil {
+		t.Fatalf("write history file: %v", err)
+	}
+
+	lines, err := readLastLines(path, 4, 12)
+	if err != nil {
+		t.Fatalf("read last lines: %v", err)
+	}
+	if len(lines) != 2 || lines[0] != "line3" || lines[1] != "line4" {
 		t.Fatalf("unexpected lines: %v", lines)
 	}
 }
@@ -118,7 +134,7 @@ func TestManagerHistoryLinesUsesLatestFile(t *testing.T) {
 }
 
 func TestSessionLoggerDoesNotDropChunks(t *testing.T) {
-	logger, err := NewSessionLogger(t.TempDir(), "drop-test", time.Now())
+	logger, err := NewSessionLogger(t.TempDir(), "drop-test", time.Now(), 0)
 	if err != nil {
 		t.Fatalf("new session logger: %v", err)
 	}
@@ -133,5 +149,24 @@ func TestSessionLoggerDoesNotDropChunks(t *testing.T) {
 
 	if logger.DroppedChunks() != 0 {
 		t.Fatalf("expected no drops, got %d", logger.DroppedChunks())
+	}
+}
+
+func TestSessionLoggerRespectsMaxBytes(t *testing.T) {
+	logger, err := NewSessionLogger(t.TempDir(), "cap-test", time.Now(), 12)
+	if err != nil {
+		t.Fatalf("new session logger: %v", err)
+	}
+	logger.Write([]byte("1234567890"))
+	logger.Write([]byte("abcd"))
+	if err := logger.Close(); err != nil {
+		t.Fatalf("close logger: %v", err)
+	}
+	data, err := os.ReadFile(logger.Path())
+	if err != nil {
+		t.Fatalf("read session log: %v", err)
+	}
+	if string(data) != "1234567890ab" {
+		t.Fatalf("unexpected log contents: %q", string(data))
 	}
 }

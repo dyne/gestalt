@@ -10,7 +10,7 @@ import (
 
 func TestSessionWriteAndOutput(t *testing.T) {
 	pty := newScriptedPty()
-	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, nil, nil, nil)
+	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
 	defer func() {
 		_ = session.Close()
 	}()
@@ -45,7 +45,7 @@ func TestSessionWriteAndOutput(t *testing.T) {
 
 func TestSessionCloseTransitionsState(t *testing.T) {
 	pty := newScriptedPty()
-	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, nil, nil, nil)
+	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
 
 	if err := session.Close(); err != nil {
 		t.Fatalf("close session: %v", err)
@@ -57,7 +57,7 @@ func TestSessionCloseTransitionsState(t *testing.T) {
 
 func TestSessionWriteAfterClose(t *testing.T) {
 	pty := newScriptedPty()
-	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, nil, nil, nil)
+	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
 
 	if err := session.Close(); err != nil {
 		t.Fatalf("close session: %v", err)
@@ -76,7 +76,7 @@ func TestSessionWriteAfterClose(t *testing.T) {
 
 func TestSessionAutoRespondsToCursorPosition(t *testing.T) {
 	pty := newScriptedPty()
-	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, nil, nil, nil)
+	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
 	defer func() {
 		_ = session.Close()
 	}()
@@ -100,7 +100,7 @@ func TestSessionAutoRespondsToCursorPosition(t *testing.T) {
 
 func TestSessionFallbacksCursorPositionWithSubscriber(t *testing.T) {
 	pty := newScriptedPty()
-	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, nil, nil, nil)
+	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
 	defer func() {
 		_ = session.Close()
 	}()
@@ -127,7 +127,7 @@ func TestSessionFallbacksCursorPositionWithSubscriber(t *testing.T) {
 
 func TestSessionRecordsInputHistory(t *testing.T) {
 	pty := newScriptedPty()
-	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, nil, nil, nil)
+	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
 	defer func() {
 		_ = session.Close()
 	}()
@@ -155,7 +155,7 @@ func TestSessionInfoIncludesMetadata(t *testing.T) {
 		Skills:   []string{"skill-a", "skill-b"},
 	}
 	pty := newScriptedPty()
-	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, profile, nil, nil)
+	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, profile, nil, nil)
 	session.Command = "codex -c model=o3"
 	session.PromptFiles = []string{"prompt-a", "prompt-b"}
 	defer func() {
@@ -185,7 +185,7 @@ func TestSessionInfoIncludesMetadata(t *testing.T) {
 
 func TestSessionWorkflowIdentifiersEmpty(t *testing.T) {
 	pty := newScriptedPty()
-	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, nil, nil, nil)
+	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
 	defer func() {
 		_ = session.Close()
 	}()

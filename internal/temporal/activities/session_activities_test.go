@@ -43,7 +43,7 @@ func (factory *scriptedFactory) Start(command string, args ...string) (terminal.
 
 const testAgentID = "codex"
 
-func newTestActivities(output []byte) (*SessionActivities, *terminal.Manager) {
+func newTestActivities(output []byte, maxOutputBytes int64) (*SessionActivities, *terminal.Manager) {
 	logger := logging.NewLoggerWithOutput(logging.NewLogBuffer(logging.DefaultBufferSize), logging.LevelDebug, nil)
 	factory := &scriptedFactory{output: output}
 	manager := terminal.NewManager(terminal.ManagerOptions{
@@ -57,10 +57,7 @@ func newTestActivities(output []byte) (*SessionActivities, *terminal.Manager) {
 			testAgentID: {Name: "Codex"},
 		},
 	})
-	return &SessionActivities{
-		Manager: manager,
-		Logger:  logger,
-	}, manager
+	return NewSessionActivities(manager, logger, maxOutputBytes), manager
 }
 
 func waitForOutputLines(session *terminal.Session, minimumLines int) bool {
@@ -75,7 +72,7 @@ func waitForOutputLines(session *terminal.Session, minimumLines int) bool {
 }
 
 func TestSessionActivitiesSpawnAndTerminate(testingContext *testing.T) {
-	activities, manager := newTestActivities(nil)
+	activities, manager := newTestActivities(nil, 0)
 	activityContext := context.Background()
 
 	spawnError := activities.SpawnTerminalActivity(activityContext, "Codex 1", testAgentID, "/bin/sh")
@@ -108,7 +105,7 @@ func TestSessionActivitiesSpawnAndTerminate(testingContext *testing.T) {
 }
 
 func TestSessionActivitiesRecordBellAndUpdateTask(testingContext *testing.T) {
-	activities, _ := newTestActivities(nil)
+	activities, _ := newTestActivities(nil, 0)
 	activityContext := context.Background()
 
 	spawnError := activities.SpawnTerminalActivity(activityContext, "Codex 1", testAgentID, "/bin/sh")
@@ -148,7 +145,7 @@ func TestSessionActivitiesRecordBellAndUpdateTask(testingContext *testing.T) {
 
 func TestSessionActivitiesGetOutputActivity(testingContext *testing.T) {
 	output := []byte("first line\nsecond line\n")
-	activities, manager := newTestActivities(output)
+	activities, manager := newTestActivities(output, 0)
 	activityContext := context.Background()
 
 	spawnError := activities.SpawnTerminalActivity(activityContext, "Codex 1", testAgentID, "/bin/sh")
@@ -175,7 +172,7 @@ func TestSessionActivitiesGetOutputActivity(testingContext *testing.T) {
 
 func TestSessionActivitiesGetOutputTailActivity(testingContext *testing.T) {
 	output := []byte("first line\nsecond line\n")
-	activities, manager := newTestActivities(output)
+	activities, manager := newTestActivities(output, 0)
 	activityContext := context.Background()
 
 	spawnError := activities.SpawnTerminalActivity(activityContext, "Codex 1", testAgentID, "/bin/sh")
@@ -200,5 +197,66 @@ func TestSessionActivitiesGetOutputTailActivity(testingContext *testing.T) {
 	}
 	if strings.Contains(outputText, "first line") {
 		testingContext.Fatalf("expected tail output, got %q", outputText)
+	}
+}
+
+func TestSessionActivitiesRecordBellCapsContext(testingContext *testing.T) {
+	activities, _ := newTestActivities(nil, 8)
+	activityContext := context.Background()
+
+	spawnError := activities.SpawnTerminalActivity(activityContext, "Codex 1", testAgentID, "/bin/sh")
+	if spawnError != nil {
+		testingContext.Fatalf("spawn error: %v", spawnError)
+	}
+
+	bellContext := "1234567890abcdef"
+	bellError := activities.RecordBellActivity(activityContext, "Codex 1", time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC), bellContext)
+	if bellError != nil {
+		testingContext.Fatalf("bell error: %v", bellError)
+	}
+
+	var bellEntry logging.LogEntry
+	for _, entry := range activities.Logger.Buffer().List() {
+		if entry.Message == "temporal bell recorded" {
+			bellEntry = entry
+			break
+		}
+	}
+	if bellEntry.Message == "" {
+		testingContext.Fatal("expected bell log entry")
+	}
+	contextValue := bellEntry.Context["context"]
+	if len(contextValue) != 8 {
+		testingContext.Fatalf("expected context length 8, got %d", len(contextValue))
+	}
+	if contextValue != "12345678" {
+		testingContext.Fatalf("unexpected context value: %q", contextValue)
+	}
+}
+
+func TestSessionActivitiesGetOutputActivityCapsOutput(testingContext *testing.T) {
+	output := []byte("abcdefghij")
+	activities, manager := newTestActivities(output, 4)
+	activityContext := context.Background()
+
+	spawnError := activities.SpawnTerminalActivity(activityContext, "Codex 1", testAgentID, "/bin/sh")
+	if spawnError != nil {
+		testingContext.Fatalf("spawn error: %v", spawnError)
+	}
+
+	session, ok := manager.Get("Codex 1")
+	if !ok || session == nil {
+		testingContext.Fatal("expected output session to exist")
+	}
+	if !waitForOutputLines(session, 1) {
+		testingContext.Fatal("timed out waiting for output")
+	}
+
+	outputText, outputError := activities.GetOutputActivity(activityContext, "Codex 1")
+	if outputError != nil {
+		testingContext.Fatalf("output error: %v", outputError)
+	}
+	if outputText != "abcd" {
+		testingContext.Fatalf("unexpected output: %q", outputText)
 	}
 }

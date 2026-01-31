@@ -15,6 +15,10 @@ type SessionFactoryOptions struct {
 	SessionLogDir   string
 	InputHistoryDir string
 	BufferLines     int
+	SessionLogMax   int64
+	HistoryScanMax  int64
+	OutputPolicy    OutputBackpressurePolicy
+	OutputSample    uint64
 	Logger          *logging.Logger
 	NextID          func() string
 }
@@ -25,6 +29,10 @@ type SessionFactory struct {
 	sessionLogDir   string
 	inputHistoryDir string
 	bufferLines     int
+	sessionLogMax   int64
+	historyScanMax  int64
+	outputPolicy    OutputBackpressurePolicy
+	outputSample    uint64
 	logger          *logging.Logger
 	nextID          func() string
 }
@@ -51,6 +59,10 @@ func NewSessionFactory(options SessionFactoryOptions) *SessionFactory {
 		sessionLogDir:   strings.TrimSpace(options.SessionLogDir),
 		inputHistoryDir: strings.TrimSpace(options.InputHistoryDir),
 		bufferLines:     bufferLines,
+		sessionLogMax:   options.SessionLogMax,
+		historyScanMax:  options.HistoryScanMax,
+		outputPolicy:    options.OutputPolicy,
+		outputSample:    options.OutputSample,
 		logger:          options.Logger,
 		nextID:          options.NextID,
 	}
@@ -83,7 +95,7 @@ func (f *SessionFactory) Start(request sessionCreateRequest, profile *agent.Agen
 	sessionLogger := f.createSessionLogger(id, createdAt)
 	inputLogger := f.createInputLogger(id, profile, createdAt)
 
-	session := newSession(id, pty, cmd, request.Title, request.Role, createdAt, f.bufferLines, profile, sessionLogger, inputLogger)
+	session := newSession(id, pty, cmd, request.Title, request.Role, createdAt, f.bufferLines, f.historyScanMax, f.outputPolicy, f.outputSample, profile, sessionLogger, inputLogger)
 	session.Command = shell
 	if request.AgentID != "" {
 		session.AgentID = request.AgentID
@@ -160,7 +172,7 @@ func (f *SessionFactory) createSessionLogger(id string, createdAt time.Time) *Se
 	if f.sessionLogDir == "" {
 		return nil
 	}
-	logger, err := NewSessionLogger(f.sessionLogDir, id, createdAt)
+	logger, err := NewSessionLogger(f.sessionLogDir, id, createdAt, f.sessionLogMax)
 	if err != nil {
 		if f.logger != nil {
 			f.logger.Warn("session log create failed", map[string]string{

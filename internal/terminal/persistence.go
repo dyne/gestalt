@@ -14,10 +14,12 @@ const (
 )
 
 type SessionLogger struct {
-	logger *asyncFileLogger[[]byte]
+	logger       *asyncFileLogger[[]byte]
+	maxBytes     int64
+	bytesWritten int64
 }
 
-func NewSessionLogger(dir, terminalID string, createdAt time.Time) (*SessionLogger, error) {
+func NewSessionLogger(dir, terminalID string, createdAt time.Time, maxBytes int64) (*SessionLogger, error) {
 	if dir == "" {
 		return nil, fmt.Errorf("session log dir is empty")
 	}
@@ -33,13 +35,29 @@ func NewSessionLogger(dir, terminalID string, createdAt time.Time) (*SessionLogg
 	}
 
 	logger := newAsyncFileLogger(path, file, sessionLogFlushInterval, sessionLogFlushThreshold, sessionLogChannelSize, asyncFileLoggerBlock, encodeSessionChunk)
-	return &SessionLogger{logger: logger}, nil
+	return &SessionLogger{
+		logger:   logger,
+		maxBytes: maxBytes,
+	}, nil
 }
 
 func (l *SessionLogger) Write(chunk []byte) {
 	if l == nil || l.logger == nil {
 		return
 	}
+	if len(chunk) == 0 {
+		return
+	}
+	if l.maxBytes > 0 {
+		remaining := l.maxBytes - l.bytesWritten
+		if remaining <= 0 {
+			return
+		}
+		if int64(len(chunk)) > remaining {
+			chunk = chunk[:remaining]
+		}
+	}
+	l.bytesWritten += int64(len(chunk))
 	l.logger.Write(chunk)
 }
 

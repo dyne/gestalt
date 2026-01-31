@@ -82,6 +82,7 @@ type SessionIO struct {
 	logger          *SessionLogger
 	inputBuf        *InputBuffer
 	inputLog        *InputLogger
+	historyScanMax  int64
 	subs            int32
 	dsrMu           sync.Mutex
 	dsrTimer        *time.Timer
@@ -117,7 +118,7 @@ type SessionInfo struct {
 	PromptFiles []string
 }
 
-func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt time.Time, bufferLines int, profile *agent.Agent, sessionLogger *SessionLogger, inputLogger *InputLogger) *Session {
+func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt time.Time, bufferLines int, historyScanMax int64, outputPolicy OutputBackpressurePolicy, outputSampleEvery uint64, profile *agent.Agent, sessionLogger *SessionLogger, inputLogger *InputLogger) *Session {
 	// readLoop -> output publisher, writeLoop -> PTY.
 	// Close cancels context and closes input so loops drain and exit cleanly.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -136,11 +137,12 @@ func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt
 		SlowSubscriberThreshold: terminalOutputSlowThreshold,
 	})
 	outputPublisher := NewOutputPublisher(OutputPublisherOptions{
-		Logger:   sessionLogger,
-		Buffer:   outputBuffer,
-		Bus:      outputBus,
-		MaxQueue: defaultOutputQueueSize,
-		Policy:   OutputBackpressureBlock,
+		Logger:      sessionLogger,
+		Buffer:      outputBuffer,
+		Bus:         outputBus,
+		MaxQueue:    defaultOutputQueueSize,
+		Policy:      outputPolicy,
+		SampleEvery: outputSampleEvery,
 	})
 	session := &Session{
 		SessionMeta: SessionMeta{
@@ -164,6 +166,7 @@ func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt
 			logger:          sessionLogger,
 			inputBuf:        NewInputBuffer(DefaultInputBufferSize),
 			inputLog:        inputLogger,
+			historyScanMax:  historyScanMax,
 			state:           uint32(sessionStateStarting),
 		},
 	}
@@ -504,7 +507,7 @@ func (s *Session) HistoryLines(maxLines int) ([]string, error) {
 	if path == "" {
 		return tailLines(bufferLines, maxLines), nil
 	}
-	fileLines, err := readLastLines(path, maxLines)
+	fileLines, err := readLastLines(path, maxLines, s.historyScanMax)
 	if err != nil {
 		if len(bufferLines) > 0 {
 			return tailLines(bufferLines, maxLines), nil

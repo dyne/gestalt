@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
@@ -189,6 +190,247 @@ func TestExtractorKeepsModifiedFilesWhenNonInteractive(t *testing.T) {
 	}
 }
 
+func TestExtractorDecisionTable(t *testing.T) {
+	relPath := "agents/example.toml"
+	cases := []struct {
+		name            string
+		destContent     string
+		sourceContent   string
+		baselineContent string
+		hasBaseline     bool
+		interactive     bool
+		input           string
+		expectDest      string
+		expectDist      bool
+		expectBackup    bool
+	}{
+		{
+			name:          "baseline missing prompts and keeps",
+			destContent:   "custom",
+			sourceContent: "new",
+			hasBaseline:   false,
+			interactive:   false,
+			expectDest:    "custom",
+			expectDist:    true,
+			expectBackup:  false,
+		},
+		{
+			name:            "package updated installs when unmodified",
+			destContent:     "old",
+			sourceContent:   "new",
+			baselineContent: "old",
+			hasBaseline:     true,
+			interactive:     false,
+			expectDest:      "new",
+			expectDist:      false,
+			expectBackup:    true,
+		},
+		{
+			name:            "package updated prompts when modified",
+			destContent:     "custom",
+			sourceContent:   "new",
+			baselineContent: "old",
+			hasBaseline:     true,
+			interactive:     false,
+			expectDest:      "custom",
+			expectDist:      true,
+			expectBackup:    false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			destDir := t.TempDir()
+			destPath := writeDestFile(t, destDir, relPath, tc.destContent)
+
+			sourcePath := "config/" + relPath
+			sourceFS := fstest.MapFS{
+				sourcePath: &fstest.MapFile{Data: []byte(tc.sourceContent), Mode: 0o644},
+			}
+			newHash := hashFromContent(t, relPath, tc.sourceContent)
+			if tc.hasBaseline {
+				oldHash := hashFromContent(t, relPath, tc.baselineContent)
+				if err := WriteBaselineManifest(destDir, map[string]string{relPath: oldHash}); err != nil {
+					t.Fatalf("write baseline: %v", err)
+				}
+			}
+
+			extractor := Extractor{
+				BackupLimit: 1,
+				Resolver: &ConffileResolver{
+					Interactive: tc.interactive,
+					In:          strings.NewReader(tc.input),
+					Out:         io.Discard,
+				},
+			}
+			if err := extractor.Extract(sourceFS, destDir, map[string]string{relPath: newHash}); err != nil {
+				t.Fatalf("extract failed: %v", err)
+			}
+
+			payload, err := os.ReadFile(destPath)
+			if err != nil {
+				t.Fatalf("read dest file: %v", err)
+			}
+			if string(payload) != tc.expectDest {
+				t.Fatalf("expected dest %q, got %q", tc.expectDest, string(payload))
+			}
+
+			distPath := destPath + ".dist"
+			if tc.expectDist {
+				dist, err := os.ReadFile(distPath)
+				if err != nil {
+					t.Fatalf("read dist file: %v", err)
+				}
+				if string(dist) != tc.sourceContent {
+					t.Fatalf("expected dist %q, got %q", tc.sourceContent, string(dist))
+				}
+			} else if _, err := os.Stat(distPath); !os.IsNotExist(err) {
+				t.Fatalf("unexpected dist file presence: %v", err)
+			}
+
+			backupPath := destPath + ".bck"
+			if tc.expectBackup {
+				backup, err := os.ReadFile(backupPath)
+				if err != nil {
+					t.Fatalf("read backup file: %v", err)
+				}
+				if string(backup) != tc.destContent {
+					t.Fatalf("expected backup %q, got %q", tc.destContent, string(backup))
+				}
+			} else if _, err := os.Stat(backupPath); !os.IsNotExist(err) {
+				t.Fatalf("unexpected backup file presence: %v", err)
+			}
+		})
+	}
+}
+
+func TestExtractorApplyAllInstalls(t *testing.T) {
+	destDir := t.TempDir()
+	files := map[string]struct {
+		baseline string
+		dest     string
+		source   string
+	}{
+		"agents/alpha.toml": {baseline: "alpha-old", dest: "alpha-custom", source: "alpha-new"},
+		"agents/bravo.toml": {baseline: "bravo-old", dest: "bravo-custom", source: "bravo-new"},
+	}
+
+	sourceFS := fstest.MapFS{}
+	manifest := make(map[string]string)
+	baseline := make(map[string]string)
+	for relPath, data := range files {
+		writeDestFile(t, destDir, relPath, data.dest)
+		sourcePath := "config/" + relPath
+		sourceFS[sourcePath] = &fstest.MapFile{Data: []byte(data.source), Mode: 0o644}
+		manifest[relPath] = hashFromContent(t, relPath, data.source)
+		baseline[relPath] = hashFromContent(t, relPath, data.baseline)
+	}
+	if err := WriteBaselineManifest(destDir, baseline); err != nil {
+		t.Fatalf("write baseline: %v", err)
+	}
+
+	output := &bytes.Buffer{}
+	extractor := Extractor{
+		BackupLimit: 1,
+		Resolver: &ConffileResolver{
+			Interactive: true,
+			In:          strings.NewReader("a\n"),
+			Out:         output,
+		},
+	}
+	if err := extractor.Extract(sourceFS, destDir, manifest); err != nil {
+		t.Fatalf("extract failed: %v", err)
+	}
+	if strings.Count(output.String(), "Configuration file 'config/") != 1 {
+		t.Fatalf("expected a single prompt after apply-all")
+	}
+
+	for relPath, data := range files {
+		destPath := filepath.Join(destDir, filepath.FromSlash(relPath))
+		payload, err := os.ReadFile(destPath)
+		if err != nil {
+			t.Fatalf("read dest file: %v", err)
+		}
+		if string(payload) != data.source {
+			t.Fatalf("expected dest %q, got %q", data.source, string(payload))
+		}
+		backup, err := os.ReadFile(destPath + ".bck")
+		if err != nil {
+			t.Fatalf("read backup file: %v", err)
+		}
+		if string(backup) != data.dest {
+			t.Fatalf("expected backup %q, got %q", data.dest, string(backup))
+		}
+		if _, err := os.Stat(destPath + ".dist"); !os.IsNotExist(err) {
+			t.Fatalf("unexpected dist file presence: %v", err)
+		}
+	}
+}
+
+func TestExtractorBaselineUpdateAvoidsReprompt(t *testing.T) {
+	destDir := t.TempDir()
+	relPath := "agents/example.toml"
+	destPath := writeDestFile(t, destDir, relPath, "custom")
+
+	sourceContent := "new"
+	sourcePath := "config/" + relPath
+	sourceFS := fstest.MapFS{
+		sourcePath: &fstest.MapFile{Data: []byte(sourceContent), Mode: 0o644},
+	}
+	manifest := map[string]string{relPath: hashFromContent(t, relPath, sourceContent)}
+	if err := WriteBaselineManifest(destDir, map[string]string{relPath: hashFromContent(t, relPath, "old")}); err != nil {
+		t.Fatalf("write baseline: %v", err)
+	}
+
+	extractor := Extractor{
+		BackupLimit: 1,
+		Resolver: &ConffileResolver{
+			Interactive: false,
+			In:          strings.NewReader(""),
+			Out:         io.Discard,
+		},
+	}
+	if err := extractor.Extract(sourceFS, destDir, manifest); err != nil {
+		t.Fatalf("extract failed: %v", err)
+	}
+
+	distPath := destPath + ".dist"
+	distInfo, err := os.Stat(distPath)
+	if err != nil {
+		t.Fatalf("stat dist file: %v", err)
+	}
+	baseline, err := LoadBaselineManifest(destDir)
+	if err != nil {
+		t.Fatalf("load baseline: %v", err)
+	}
+	if baseline[relPath] != manifest[relPath] {
+		t.Fatalf("expected baseline to update to new hash")
+	}
+
+	reader := &panicReader{}
+	extractor = Extractor{
+		BackupLimit: 1,
+		Resolver: &ConffileResolver{
+			Interactive: true,
+			In:          reader,
+			Out:         io.Discard,
+		},
+	}
+	if err := extractor.Extract(sourceFS, destDir, manifest); err != nil {
+		t.Fatalf("extract second run failed: %v", err)
+	}
+	if reader.called {
+		t.Fatalf("expected no prompt after baseline update")
+	}
+	distInfoAfter, err := os.Stat(distPath)
+	if err != nil {
+		t.Fatalf("stat dist file: %v", err)
+	}
+	if !distInfoAfter.ModTime().Equal(distInfo.ModTime()) {
+		t.Fatalf("expected dist sidecar to remain unchanged")
+	}
+}
+
 func TestExtractorRotatesDistSidecars(t *testing.T) {
 	destDir := t.TempDir()
 	destPath := filepath.Join(destDir, "agents", "example.toml")
@@ -330,6 +572,31 @@ func embeddedHashFromFS(t *testing.T, sourceFS fs.FS, path string) string {
 		t.Fatalf("hash source file %s: %v", path, err)
 	}
 	return hash
+}
+
+func hashFromContent(t *testing.T, relPath, content string) string {
+	t.Helper()
+	sourcePath := "config/" + relPath
+	sourceFS := fstest.MapFS{
+		sourcePath: &fstest.MapFile{Data: []byte(content), Mode: 0o644},
+	}
+	hash, err := hashFileFromFS(sourceFS, sourcePath)
+	if err != nil {
+		t.Fatalf("hash content %s: %v", relPath, err)
+	}
+	return hash
+}
+
+func writeDestFile(t *testing.T, destDir, relPath, contents string) string {
+	t.Helper()
+	destPath := filepath.Join(destDir, filepath.FromSlash(relPath))
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(destPath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("write dest file: %v", err)
+	}
+	return destPath
 }
 
 func TestExtractorWritesBaselineManifest(t *testing.T) {

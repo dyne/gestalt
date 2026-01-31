@@ -186,9 +186,14 @@ func (e *Extractor) extractFile(sourceFS fs.FS, relPath, sourcePath, destPath, e
 		stats.Skipped++
 		return stats, nil
 	case ConffileDecisionPrompt:
+		newBytes, err := fs.ReadFile(sourceFS, sourcePath)
+		if err != nil {
+			return stats, fmt.Errorf("read source file: %w", err)
+		}
 		choice, err := e.resolveConflict(ConffilePrompt{
 			RelPath:  relPath,
 			DestPath: destPath,
+			NewBytes: newBytes,
 		})
 		if err != nil {
 			return stats, err

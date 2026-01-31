@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -929,6 +930,21 @@ func stdinIsInteractive() bool {
 	return info.Mode()&os.ModeCharDevice != 0
 }
 
+func conffileDiffRunner() config.DiffRunner {
+	return func(oldPath, newPath string) (string, error) {
+		cmd := exec.Command("diff", "-u", oldPath, newPath)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			var exitErr *exec.ExitError
+			if errors.As(err, &exitErr) {
+				return string(output), nil
+			}
+			return "", err
+		}
+		return string(output), nil
+	}
+}
+
 func prepareConfig(cfg Config, logger *logging.Logger) (configPaths, error) {
 	paths, err := resolveConfigPaths(cfg.ConfigDir)
 	if err != nil {
@@ -990,6 +1006,7 @@ func prepareConfig(cfg Config, logger *logging.Logger) (configPaths, error) {
 			Interactive: stdinIsInteractive(),
 			In:          os.Stdin,
 			Out:         os.Stdout,
+			DiffRunner:  conffileDiffRunner(),
 		},
 	}
 	start := time.Now()

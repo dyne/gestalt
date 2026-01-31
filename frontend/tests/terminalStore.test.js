@@ -211,15 +211,15 @@ describe('terminalStore', () => {
       cursor: 7,
     })
     const service = createTerminalService({ terminalId: 'cached', historyCache })
-    let currentText = ''
-    const unsubscribe = service.text.subscribe((value) => {
-      currentText = value
+    let currentSegments = []
+    const unsubscribe = service.segments.subscribe((value) => {
+      currentSegments = value
     })
 
     service.setVisible(true)
     await waitForSocket()
 
-    expect(currentText).toBe('hello\nworld')
+    expect(currentSegments).toEqual([{ kind: 'output', text: 'hello\nworld' }])
 
     unsubscribe()
     service.dispose()

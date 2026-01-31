@@ -1,12 +1,15 @@
 package terminal
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
 	"gestalt/internal/agent"
 	"gestalt/internal/logging"
+	"gestalt/internal/temporal/workflows"
 )
 
 type SessionFactoryOptions struct {
@@ -103,8 +106,49 @@ func (f *SessionFactory) Start(request sessionCreateRequest, profile *agent.Agen
 	if profile != nil {
 		session.ConfigHash = profile.ConfigHash
 	}
+	if mcp, ok := pty.(*mcpPty); ok {
+		attachMCPTurnHandler(session, mcp, f.logger)
+	}
 
 	return session, id, nil
+}
+
+func attachMCPTurnHandler(session *Session, pty *mcpPty, logger *logging.Logger) {
+	if session == nil || pty == nil {
+		return
+	}
+	pty.SetTurnHandler(func(info mcpTurnInfo) {
+		if _, _, ok := session.WorkflowIdentifiers(); !ok {
+			return
+		}
+		agentName := session.Title
+		if session.agent != nil && strings.TrimSpace(session.agent.Name) != "" {
+			agentName = session.agent.Name
+		}
+		payload := map[string]any{
+			"thread_id": info.ThreadID,
+			"tool":      info.Tool,
+		}
+		if strings.TrimSpace(session.LLMModel) != "" {
+			payload["model"] = session.LLMModel
+		}
+		payloadBytes, _ := json.Marshal(payload)
+		signal := workflows.NotifySignal{
+			SessionID: session.ID,
+			AgentID:   session.AgentID,
+			AgentName: agentName,
+			EventType: "agent-turn-complete",
+			Source:    "codex-notify",
+			EventID:   fmt.Sprintf("gestalt-mcp:%s:%d", session.ID, info.Turn),
+			Payload:   payloadBytes,
+		}
+		if err := session.SendNotifySignal(signal); err != nil && logger != nil {
+			logger.Warn("mcp notify failed", map[string]string{
+				"terminal_id": session.ID,
+				"error":       err.Error(),
+			})
+		}
+	})
 }
 
 func (f *SessionFactory) logShellCommandReady(request sessionCreateRequest, reservedID, shell, command string, args []string) {

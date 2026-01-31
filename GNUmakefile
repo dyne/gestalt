@@ -64,6 +64,8 @@ version:
 	@git describe --tags --always --dirty 2>/dev/null || echo "dev"
 
 clean:
+	$(info Cleaning up build and cache)
+	go clean -cache
 	rm -rf frontend/dist
 	rm -rf .cache
 	rm -rf gestalt gestalt-send gestalt-notify gestalt-otel

@@ -20,9 +20,11 @@ import (
 
 type recordingPty struct {
 	buffer bytes.Buffer
+	closed chan struct{}
 }
 
 func (pty *recordingPty) Read(data []byte) (int, error) {
+	<-pty.closed
 	return 0, io.EOF
 }
 
@@ -31,6 +33,7 @@ func (pty *recordingPty) Write(data []byte) (int, error) {
 }
 
 func (pty *recordingPty) Close() error {
+	close(pty.closed)
 	return nil
 }
 
@@ -43,7 +46,7 @@ type recordingFactory struct {
 }
 
 func (factory *recordingFactory) Start(command string, args ...string) (terminal.Pty, *exec.Cmd, error) {
-	pty := &recordingPty{}
+	pty := &recordingPty{closed: make(chan struct{})}
 	factory.last = pty
 	return pty, &exec.Cmd{}, nil
 }

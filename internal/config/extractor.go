@@ -45,9 +45,12 @@ func (e *Extractor) ExtractWithStats(sourceFS fs.FS, destDir string, manifest ma
 		if err != nil {
 			return stats, err
 		}
-		if len(manifest) == 0 {
-			return stats, nil
+	if len(manifest) == 0 {
+		if err := WriteBaselineManifest(destDir, manifest); err != nil {
+			return stats, err
 		}
+		return stats, nil
+	}
 	}
 	paths := make([]string, 0, len(manifest))
 	for relPath := range manifest {
@@ -71,6 +74,9 @@ func (e *Extractor) ExtractWithStats(sourceFS fs.FS, destDir string, manifest ma
 			stats.Extracted += fileStats.Extracted
 			stats.Skipped += fileStats.Skipped
 			stats.BackedUp += fileStats.BackedUp
+		}
+		if err := WriteBaselineManifest(destDir, manifest); err != nil {
+			return stats, err
 		}
 		return stats, nil
 	}
@@ -111,6 +117,9 @@ func (e *Extractor) ExtractWithStats(sourceFS fs.FS, destDir string, manifest ma
 
 	if firstErr != nil {
 		return stats, firstErr
+	}
+	if err := WriteBaselineManifest(destDir, manifest); err != nil {
+		return stats, err
 	}
 	return stats, nil
 }

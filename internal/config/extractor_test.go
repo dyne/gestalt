@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -184,6 +185,73 @@ func TestExtractorKeepsModifiedFilesWhenNonInteractive(t *testing.T) {
 	}
 	if reader.called {
 		t.Fatalf("expected no reads from stdin in non-interactive mode")
+	}
+}
+
+func TestExtractorWritesBaselineManifest(t *testing.T) {
+	destDir := t.TempDir()
+	sourceFS := fstest.MapFS{
+		"config/agents/example.toml": &fstest.MapFile{Data: []byte("name = \"Example\""), Mode: 0o644},
+	}
+	expectedHash, err := hashFileFromFS(sourceFS, "config/agents/example.toml")
+	if err != nil {
+		t.Fatalf("hash source file: %v", err)
+	}
+	manifest := map[string]string{
+		"agents/example.toml": expectedHash,
+	}
+
+	extractor := Extractor{BackupLimit: 1}
+	if err := extractor.Extract(sourceFS, destDir, manifest); err != nil {
+		t.Fatalf("extract failed: %v", err)
+	}
+
+	baselinePath := filepath.Join(destDir, baselineManifestName)
+	payload, err := os.ReadFile(baselinePath)
+	if err != nil {
+		t.Fatalf("read baseline: %v", err)
+	}
+	var baseline map[string]string
+	if err := json.Unmarshal(payload, &baseline); err != nil {
+		t.Fatalf("decode baseline: %v", err)
+	}
+	if baseline["agents/example.toml"] != expectedHash {
+		t.Fatalf("expected baseline hash to match packaged hash")
+	}
+
+	updatedFS := fstest.MapFS{
+		"config/agents/example.toml": &fstest.MapFile{Data: []byte("name = \"Updated\""), Mode: 0o644},
+	}
+	updatedHash, err := hashFileFromFS(updatedFS, "config/agents/example.toml")
+	if err != nil {
+		t.Fatalf("hash updated source file: %v", err)
+	}
+	updatedManifest := map[string]string{
+		"agents/example.toml": updatedHash,
+	}
+
+	extractor = Extractor{
+		BackupLimit: 1,
+		Resolver: &ConffileResolver{
+			Interactive: false,
+			In:          strings.NewReader(""),
+			Out:         io.Discard,
+		},
+	}
+	if err := extractor.Extract(updatedFS, destDir, updatedManifest); err != nil {
+		t.Fatalf("extract updated failed: %v", err)
+	}
+
+	payload, err = os.ReadFile(baselinePath)
+	if err != nil {
+		t.Fatalf("read baseline after update: %v", err)
+	}
+	baseline = nil
+	if err := json.Unmarshal(payload, &baseline); err != nil {
+		t.Fatalf("decode baseline after update: %v", err)
+	}
+	if baseline["agents/example.toml"] != updatedHash {
+		t.Fatalf("expected baseline to update to new packaged hash")
 	}
 }
 

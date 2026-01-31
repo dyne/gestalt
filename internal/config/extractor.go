@@ -68,6 +68,9 @@ func (e *Extractor) ExtractWithStats(sourceFS fs.FS, destDir string, manifest ma
 	if workerCount < 1 {
 		workerCount = 1
 	}
+	if e != nil && e.Resolver != nil && e.Resolver.Interactive {
+		workerCount = 1
+	}
 	if workerCount > len(paths) {
 		workerCount = len(paths)
 	}

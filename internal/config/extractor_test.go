@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -258,6 +259,77 @@ func TestExtractorRotatesDistSidecars(t *testing.T) {
 	if string(payload) != "old-dist" {
 		t.Fatalf("expected rotated dist to preserve prior contents")
 	}
+}
+
+func TestExtractorInteractivePromptsAreSerialized(t *testing.T) {
+	destDir := t.TempDir()
+	files := map[string]string{
+		"agents/alpha.toml": "alpha",
+		"agents/bravo.toml": "bravo",
+	}
+	for relPath, contents := range files {
+		destPath := filepath.Join(destDir, filepath.FromSlash(relPath))
+		if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(destPath, []byte(contents), 0o644); err != nil {
+			t.Fatalf("write dest file: %v", err)
+		}
+	}
+
+	sourceFS := fstest.MapFS{
+		"config/agents/alpha.toml": &fstest.MapFile{Data: []byte("new-alpha"), Mode: 0o644},
+		"config/agents/bravo.toml": &fstest.MapFile{Data: []byte("new-bravo"), Mode: 0o644},
+	}
+	manifest := map[string]string{
+		"agents/alpha.toml": embeddedHashFromFS(t, sourceFS, "config/agents/alpha.toml"),
+		"agents/bravo.toml": embeddedHashFromFS(t, sourceFS, "config/agents/bravo.toml"),
+	}
+
+	reader := &serialReader{reader: strings.NewReader("n\nn\n")}
+	extractor := Extractor{
+		BackupLimit: 1,
+		Resolver: &ConffileResolver{
+			Interactive: true,
+			In:          reader,
+			Out:         io.Discard,
+		},
+	}
+	if err := extractor.Extract(sourceFS, destDir, manifest); err != nil {
+		t.Fatalf("extract failed: %v", err)
+	}
+	if reader.Concurrent() {
+		t.Fatalf("expected prompts to be serialized")
+	}
+}
+
+type serialReader struct {
+	reader     *strings.Reader
+	reading    int32
+	concurrent int32
+}
+
+func (s *serialReader) Read(p []byte) (int, error) {
+	if !atomic.CompareAndSwapInt32(&s.reading, 0, 1) {
+		atomic.StoreInt32(&s.concurrent, 1)
+	}
+	time.Sleep(5 * time.Millisecond)
+	n, err := s.reader.Read(p)
+	atomic.StoreInt32(&s.reading, 0)
+	return n, err
+}
+
+func (s *serialReader) Concurrent() bool {
+	return atomic.LoadInt32(&s.concurrent) == 1
+}
+
+func embeddedHashFromFS(t *testing.T, sourceFS fs.FS, path string) string {
+	t.Helper()
+	hash, err := hashFileFromFS(sourceFS, path)
+	if err != nil {
+		t.Fatalf("hash source file %s: %v", path, err)
+	}
+	return hash
 }
 
 func TestExtractorWritesBaselineManifest(t *testing.T) {

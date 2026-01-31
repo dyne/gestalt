@@ -110,3 +110,39 @@ func TestAgentSendInputEndpoint(t *testing.T) {
 		t.Fatalf("expected input %q, got %q", expected, string(received))
 	}
 }
+
+func TestAgentInputEndpointMCP(t *testing.T) {
+	mcpFactory := newMCPTestFactory()
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: terminal.NewMuxPtyFactory(&recordFactory{}, mcpFactory, false),
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:      "Codex",
+				CLIType:   "codex",
+				CodexMode: agent.CodexModeMCPServer,
+			},
+		},
+	})
+	created, err := manager.Create("codex", "shell", "Codex")
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodPost, "/api/agents/Codex/input", strings.NewReader("hello\r"))
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", nil, handler.handleAgentInput)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	if prompt, ok := mcpFactory.waitForPrompt(2*time.Second); !ok || prompt != "hello" {
+		t.Fatalf("expected MCP prompt hello, got %q", prompt)
+	}
+}

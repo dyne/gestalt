@@ -186,6 +186,64 @@ func TestTerminalWebSocketBridge(t *testing.T) {
 	}
 }
 
+func TestTerminalWebSocketMCP(t *testing.T) {
+	mcpFactory := newMCPTestFactory()
+	tuiFactory := &testFactory{}
+	manager := newTerminalTestManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: terminal.NewMuxPtyFactory(tuiFactory, mcpFactory, false),
+		Agents: map[string]agent.Agent{
+			terminalTestAgentID: {
+				Name:      "Codex",
+				CLIType:   "codex",
+				CodexMode: agent.CodexModeMCPServer,
+			},
+		},
+	})
+
+	session, err := manager.Create(terminalTestAgentID, "test", "ws-mcp")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(session.ID)
+	}()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("skipping websocket test (listener unavailable): %v", err)
+	}
+	server := &httptest.Server{
+		Listener: listener,
+		Config:   &http.Server{Handler: &TerminalHandler{Manager: manager}},
+	}
+	server.Start()
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/session/" + escapeTerminalID(session.ID)
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+
+	payload := []byte("hello\r")
+	if err := conn.WriteMessage(websocket.BinaryMessage, payload); err != nil {
+		t.Fatalf("write websocket: %v", err)
+	}
+
+	if !readWebSocketContains(t, conn, "> hello") {
+		t.Fatalf("expected prompt echo in websocket output")
+	}
+	if !readWebSocketContains(t, conn, "ok") {
+		t.Fatalf("expected MCP output in websocket stream")
+	}
+
+	if prompt, ok := mcpFactory.waitForPrompt(2 * time.Second); !ok || prompt != "hello" {
+		t.Fatalf("expected MCP prompt hello, got %q", prompt)
+	}
+}
+
 func TestTerminalWebSocketResize(t *testing.T) {
 	factory := &testFactory{}
 	manager := newTerminalTestManager(terminal.ManagerOptions{

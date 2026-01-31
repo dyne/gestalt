@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 const mcpProtocolVersion = "2024-11-05"
@@ -96,6 +97,19 @@ func (p *mcpPty) SetTurnHandler(handler func(mcpTurnInfo)) {
 	p.turnMu.Lock()
 	p.turnHandler = handler
 	p.turnMu.Unlock()
+}
+
+func (p *mcpPty) WaitReady(timeout time.Duration) error {
+	done := make(chan error, 1)
+	go func() {
+		done <- p.ensureInitialized()
+	}()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(timeout):
+		return fmt.Errorf("mcp initialize timeout")
+	}
 }
 
 func (p *mcpPty) Read(data []byte) (int, error) {

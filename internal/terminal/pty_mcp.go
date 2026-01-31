@@ -407,7 +407,26 @@ func (p *mcpPty) writeOutput(message string) {
 	if message == "" || p.isClosed() {
 		return
 	}
+	message = normalizeMCPOutput(message)
 	_, _ = p.outW.Write([]byte(message))
+}
+
+func normalizeMCPOutput(message string) string {
+	if !strings.Contains(message, "\n") {
+		return message
+	}
+	var builder strings.Builder
+	builder.Grow(len(message) + 8)
+	var prev byte
+	for i := 0; i < len(message); i++ {
+		b := message[i]
+		if b == '\n' && prev != '\r' {
+			builder.WriteByte('\r')
+		}
+		builder.WriteByte(b)
+		prev = b
+	}
+	return builder.String()
 }
 
 func (p *mcpPty) emitTurnComplete(result mcpResult) {

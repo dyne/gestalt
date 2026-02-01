@@ -12,18 +12,20 @@ import (
 )
 
 type RestHandler struct {
-	Manager        *terminal.Manager
-	FlowService    *flow.Service
-	Logger         *logging.Logger
-	MetricsSummary *otel.APISummaryStore
-	GitOrigin      string
-	GitBranch      string
+	Manager                *terminal.Manager
+	FlowService            *flow.Service
+	Logger                 *logging.Logger
+	MetricsSummary         *otel.APISummaryStore
+	GitOrigin              string
+	GitBranch              string
 	SessionScrollbackLines int
 	SessionFontFamily      string
 	SessionFontSize        string
-	TemporalUIPort int
-	TemporalHost   string
-	gitMutex       sync.RWMutex
+	SessionInputFontFamily string
+	SessionInputFontSize   string
+	TemporalUIPort         int
+	TemporalHost           string
+	gitMutex               sync.RWMutex
 }
 
 type terminalSummary struct {
@@ -100,6 +102,8 @@ type statusResponse struct {
 	SessionScrollbackLines    int       `json:"session_scrollback_lines"`
 	SessionFontFamily         string    `json:"session_font_family"`
 	SessionFontSize           string    `json:"session_font_size"`
+	SessionInputFontFamily    string    `json:"session_input_font_family"`
+	SessionInputFontSize      string    `json:"session_input_font_size"`
 	WorkingDir                string    `json:"working_dir"`
 	GitOrigin                 string    `json:"git_origin"`
 	GitBranch                 string    `json:"git_branch"`

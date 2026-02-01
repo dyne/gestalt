@@ -412,11 +412,13 @@ func runServer(args []string) int {
 		registerPprofHandlers(backendMux, logger)
 	}
 	api.RegisterRoutes(backendMux, manager, cfg.AuthToken, api.StatusConfig{
-		TemporalUIPort: cfg.TemporalUIPort,
-		TemporalHost:   cfg.TemporalHost,
+		TemporalUIPort:         cfg.TemporalUIPort,
+		TemporalHost:           cfg.TemporalHost,
 		SessionScrollbackLines: int(settings.Session.ScrollbackLines),
 		SessionFontFamily:      settings.Session.FontFamily,
 		SessionFontSize:        settings.Session.FontSize,
+		SessionInputFontFamily: settings.Session.InputFontFamily,
+		SessionInputFontSize:   settings.Session.InputFontSize,
 	}, "", nil, logger, eventBus)
 	backendListener, backendPort, err := listenOnPort(cfg.BackendPort)
 	if err != nil {

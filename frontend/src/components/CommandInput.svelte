@@ -351,8 +351,8 @@
     border: 1px solid rgba(var(--terminal-border-rgb), 0.2);
     background: var(--terminal-bg);
     color: var(--terminal-text);
-    font-family: '"IBM Plex Mono", "JetBrains Mono", monospace';
-    font-size: 0.95rem;
+    font-family: var(--terminal-input-font-family, "IBM Plex Mono", "JetBrains Mono", monospace);
+    font-size: var(--terminal-input-font-size, 0.95rem);
     line-height: 1.45;
     resize: none;
     outline: none;

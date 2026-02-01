@@ -324,10 +324,12 @@ func TestStatusHandlerReturnsCount(t *testing.T) {
 	}()
 
 	handler := &RestHandler{
-		Manager:               manager,
+		Manager:                manager,
 		SessionScrollbackLines: 4242,
 		SessionFontFamily:      "Courier New, monospace",
 		SessionFontSize:        "14px",
+		SessionInputFontFamily: "Input Mono",
+		SessionInputFontSize:   "12px",
 	}
 	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
 	req.Header.Set("Authorization", "Bearer secret")
@@ -353,6 +355,12 @@ func TestStatusHandlerReturnsCount(t *testing.T) {
 	}
 	if payload.SessionFontSize != "14px" {
 		t.Fatalf("expected session font size, got %q", payload.SessionFontSize)
+	}
+	if payload.SessionInputFontFamily != "Input Mono" {
+		t.Fatalf("expected session input font family, got %q", payload.SessionInputFontFamily)
+	}
+	if payload.SessionInputFontSize != "12px" {
+		t.Fatalf("expected session input font size, got %q", payload.SessionInputFontSize)
 	}
 	expectedDir, err := os.Getwd()
 	if err != nil {

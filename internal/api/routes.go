@@ -17,11 +17,13 @@ import (
 )
 
 type StatusConfig struct {
-	TemporalUIPort int
-	TemporalHost   string
+	TemporalUIPort         int
+	TemporalHost           string
 	SessionScrollbackLines int
 	SessionFontFamily      string
 	SessionFontSize        string
+	SessionInputFontFamily string
+	SessionInputFontSize   string
 }
 
 func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken string, statusConfig StatusConfig, staticDir string, frontendFS fs.FS, logger *logging.Logger, eventBus *event.Bus[watcher.Event]) {
@@ -35,17 +37,19 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 	flowRepo := flow.NewFileRepository(flow.DefaultConfigPath(), logger)
 	flowService := flow.NewService(flowRepo, temporalClient, logger)
 	rest := &RestHandler{
-		Manager:        manager,
-		FlowService:    flowService,
-		Logger:         logger,
-		MetricsSummary: metricsSummary,
-		GitOrigin:      gitOrigin,
-		GitBranch:      gitBranch,
-		TemporalUIPort: statusConfig.TemporalUIPort,
-		TemporalHost:   statusConfig.TemporalHost,
+		Manager:                manager,
+		FlowService:            flowService,
+		Logger:                 logger,
+		MetricsSummary:         metricsSummary,
+		GitOrigin:              gitOrigin,
+		GitBranch:              gitBranch,
+		TemporalUIPort:         statusConfig.TemporalUIPort,
+		TemporalHost:           statusConfig.TemporalHost,
 		SessionScrollbackLines: statusConfig.SessionScrollbackLines,
 		SessionFontFamily:      statusConfig.SessionFontFamily,
 		SessionFontSize:        statusConfig.SessionFontSize,
+		SessionInputFontFamily: statusConfig.SessionInputFontFamily,
+		SessionInputFontSize:   statusConfig.SessionInputFontSize,
 	}
 	meter := otelapi.GetMeterProvider().Meter("gestalt/api")
 	tracer := otelapi.Tracer("gestalt/api")

@@ -107,4 +107,28 @@ describe('Terminal', () => {
 
     expect(getByText('t1')).toBeTruthy()
   })
+
+  it('disables the Temporal button when no workflow link exists', () => {
+    const state = buildState()
+    getTerminalState.mockReturnValue(state)
+
+    const { getByText } = render(Terminal, {
+      props: { terminalId: 't1', title: 'Coder' },
+    })
+
+    const temporalButton = getByText('Temporal')
+    expect(temporalButton.hasAttribute('disabled')).toBe(true)
+  })
+
+  it('shows the Bottom button when scrolled up', async () => {
+    const state = buildState()
+    state.atBottom.set(false)
+    getTerminalState.mockReturnValue(state)
+
+    const { getByText } = render(Terminal, {
+      props: { terminalId: 't1', title: 'Coder' },
+    })
+
+    expect(getByText('Bottom')).toBeTruthy()
+  })
 })

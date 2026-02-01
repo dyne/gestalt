@@ -10,10 +10,10 @@
   export let title = ''
   export let promptFiles = []
   export let visible = true
+  export let temporalUrl = ''
   export let onRequestClose = () => {}
 
   let state
-  let bellCount = 0
   let status = 'disconnected'
   let canReconnect = false
   let historyStatus = 'idle'
@@ -25,7 +25,6 @@
   let textView
   let unsubscribeStatus
   let unsubscribeHistory
-  let unsubscribeBell
   let unsubscribeReconnect
   let unsubscribeAtBottom
   let unsubscribeSegments
@@ -51,9 +50,6 @@
     })
     unsubscribeHistory = state.historyStatus.subscribe((value) => {
       historyStatus = value
-    })
-    unsubscribeBell = state.bellCount.subscribe((value) => {
-      bellCount = value
     })
     unsubscribeReconnect = state.canReconnect.subscribe((value) => {
       canReconnect = value
@@ -145,9 +141,6 @@
     if (unsubscribeHistory) {
       unsubscribeHistory()
     }
-    if (unsubscribeBell) {
-      unsubscribeBell()
-    }
     if (unsubscribeReconnect) {
       unsubscribeReconnect()
     }
@@ -167,8 +160,10 @@
   {terminalId}
   {historyStatus}
   {canReconnect}
-  {bellCount}
+  {temporalUrl}
+  showBottomButton={!atBottom}
   onReconnect={handleReconnect}
+  onScrollToBottom={handleScrollToBottom}
   onRequestClose={onRequestClose}
 >
   <TerminalTextView

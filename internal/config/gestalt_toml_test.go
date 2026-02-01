@@ -15,6 +15,8 @@ type gestaltDefaults struct {
 		ScrollbackLines       int64  `toml:"scrollback-lines"`
 		FontFamily            string `toml:"font-family"`
 		FontSize              string `toml:"font-size"`
+		InputFontFamily       string `toml:"input-font-family"`
+		InputFontSize         string `toml:"input-font-size"`
 		TUIMode               string `toml:"tui-mode"`
 		TUISnapshotIntervalMS int64  `toml:"tui-snapshot-interval-ms"`
 	} `toml:"session"`
@@ -48,6 +50,12 @@ func TestEmbeddedGestaltTomlDefaults(t *testing.T) {
 	}
 	if defaults.Session.FontSize != "0.95rem" {
 		t.Fatalf("expected font-size 0.95rem, got %q", defaults.Session.FontSize)
+	}
+	if defaults.Session.InputFontFamily != "\"IBM Plex Mono\", \"JetBrains Mono\", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace" {
+		t.Fatalf("expected input-font-family default, got %q", defaults.Session.InputFontFamily)
+	}
+	if defaults.Session.InputFontSize != "0.95rem" {
+		t.Fatalf("expected input-font-size 0.95rem, got %q", defaults.Session.InputFontSize)
 	}
 	if defaults.Session.TUIMode != "" {
 		t.Fatalf("expected tui-mode empty, got %q", defaults.Session.TUIMode)

@@ -20,6 +20,8 @@ const configStore = writable({
   scrollbackLines: DEFAULT_SCROLLBACK_LINES,
   fontFamily: '',
   fontSize: '',
+  inputFontFamily: '',
+  inputFontSize: '',
 })
 
 export const sessionUiConfig = {
@@ -32,6 +34,8 @@ export const setSessionUiConfigFromStatus = (status) => {
     scrollbackLines: normalizeScrollbackLines(status.session_scrollback_lines),
     fontFamily: normalizeText(status.session_font_family),
     fontSize: normalizeText(status.session_font_size),
+    inputFontFamily: normalizeText(status.session_input_font_family),
+    inputFontSize: normalizeText(status.session_input_font_size),
   }
   configStore.set(next)
 }
@@ -46,6 +50,12 @@ export const buildTerminalStyle = (config) => {
   }
   if (config.fontSize) {
     parts.push(`--terminal-font-size: ${config.fontSize}`)
+  }
+  if (config.inputFontFamily) {
+    parts.push(`--terminal-input-font-family: ${config.inputFontFamily}`)
+  }
+  if (config.inputFontSize) {
+    parts.push(`--terminal-input-font-size: ${config.inputFontSize}`)
   }
   return parts.join('; ')
 }

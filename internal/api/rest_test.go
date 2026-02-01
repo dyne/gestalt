@@ -323,7 +323,12 @@ func TestStatusHandlerReturnsCount(t *testing.T) {
 		_ = manager.Delete(created.ID)
 	}()
 
-	handler := &RestHandler{Manager: manager}
+	handler := &RestHandler{
+		Manager:               manager,
+		SessionScrollbackLines: 4242,
+		SessionFontFamily:      "Courier New, monospace",
+		SessionFontSize:        "14px",
+	}
 	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
@@ -339,6 +344,15 @@ func TestStatusHandlerReturnsCount(t *testing.T) {
 	}
 	if payload.SessionCount != 1 {
 		t.Fatalf("expected 1 session, got %d", payload.SessionCount)
+	}
+	if payload.SessionScrollbackLines != 4242 {
+		t.Fatalf("expected scrollback lines 4242, got %d", payload.SessionScrollbackLines)
+	}
+	if payload.SessionFontFamily != "Courier New, monospace" {
+		t.Fatalf("expected session font family, got %q", payload.SessionFontFamily)
+	}
+	if payload.SessionFontSize != "14px" {
+		t.Fatalf("expected session font size, got %q", payload.SessionFontSize)
 	}
 	expectedDir, err := os.Getwd()
 	if err != nil {

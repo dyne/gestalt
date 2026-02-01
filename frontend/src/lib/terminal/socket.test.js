@@ -144,7 +144,7 @@ describe('createTerminalSocket', () => {
     await socketManager.connect()
 
     expect(apiFetch).toHaveBeenCalledWith(
-      `/api/sessions/${encodedId}/history?lines=10000`
+      `/api/sessions/${encodedId}/history?lines=2000`
     )
     expect(MockWebSocket.instances).toHaveLength(1)
     expect(MockWebSocket.instances[0].url).toContain(

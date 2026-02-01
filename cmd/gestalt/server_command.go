@@ -414,6 +414,9 @@ func runServer(args []string) int {
 	api.RegisterRoutes(backendMux, manager, cfg.AuthToken, api.StatusConfig{
 		TemporalUIPort: cfg.TemporalUIPort,
 		TemporalHost:   cfg.TemporalHost,
+		SessionScrollbackLines: int(settings.Session.ScrollbackLines),
+		SessionFontFamily:      settings.Session.FontFamily,
+		SessionFontSize:        settings.Session.FontSize,
 	}, "", nil, logger, eventBus)
 	backendListener, backendPort, err := listenOnPort(cfg.BackendPort)
 	if err != nil {

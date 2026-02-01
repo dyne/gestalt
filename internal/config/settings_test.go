@@ -53,3 +53,35 @@ func TestLoadSettingsFileOverridesDefaults(t *testing.T) {
 		t.Fatalf("expected file to override defaults, got %d", settings.Temporal.MaxOutputBytes)
 	}
 }
+
+func TestLoadSettingsSessionUIOverrides(t *testing.T) {
+	defaultsPayload, err := fs.ReadFile(gestalt.EmbeddedConfigFS, "config/gestalt.toml")
+	if err != nil {
+		t.Fatalf("read defaults: %v", err)
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gestalt.toml")
+	payload := `[session]
+scrollback-lines = 4242
+font-family = "Courier New, monospace"
+font-size = "14px"
+`
+	if err := os.WriteFile(path, []byte(payload), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	settings, err := LoadSettings(path, defaultsPayload, nil)
+	if err != nil {
+		t.Fatalf("load settings: %v", err)
+	}
+	if settings.Session.ScrollbackLines != 4242 {
+		t.Fatalf("expected scrollback-lines 4242, got %d", settings.Session.ScrollbackLines)
+	}
+	if settings.Session.FontFamily != "Courier New, monospace" {
+		t.Fatalf("expected font-family override, got %q", settings.Session.FontFamily)
+	}
+	if settings.Session.FontSize != "14px" {
+		t.Fatalf("expected font-size override, got %q", settings.Session.FontSize)
+	}
+}

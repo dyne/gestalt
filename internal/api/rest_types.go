@@ -18,6 +18,9 @@ type RestHandler struct {
 	MetricsSummary *otel.APISummaryStore
 	GitOrigin      string
 	GitBranch      string
+	SessionScrollbackLines int
+	SessionFontFamily      string
+	SessionFontSize        string
 	TemporalUIPort int
 	TemporalHost   string
 	gitMutex       sync.RWMutex
@@ -94,6 +97,9 @@ type statusResponse struct {
 	SessionCount              int       `json:"session_count"`
 	ServerTime                time.Time `json:"server_time"`
 	SessionPersist            bool      `json:"session_persist"`
+	SessionScrollbackLines    int       `json:"session_scrollback_lines"`
+	SessionFontFamily         string    `json:"session_font_family"`
+	SessionFontSize           string    `json:"session_font_size"`
 	WorkingDir                string    `json:"working_dir"`
 	GitOrigin                 string    `json:"git_origin"`
 	GitBranch                 string    `json:"git_branch"`

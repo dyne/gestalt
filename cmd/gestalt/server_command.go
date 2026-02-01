@@ -485,21 +485,19 @@ func runServer(args []string) int {
 	shutdownCoordinator.Add("fs-watcher", stopWatcher)
 	shutdownCoordinator.Add("event-bus", stopEventBus)
 
-	signalCh := make(chan os.Signal, 1)
-	stopSignals := make(chan os.Signal, 1)
+	signalCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+	signalCh := make(chan os.Signal, 2)
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(signalCh)
-	go func() {
-		sig := <-signalCh
-		shutdownCancel()
-		stopSignals <- sig
-	}()
+	stopSignalWatch := watchShutdownSignals(logger, shutdownCancel, signalCh)
+	defer stopSignalWatch()
 
 	runner := &ServerRunner{
 		Logger:          logger,
 		ShutdownTimeout: httpServerShutdownTimeout,
 	}
-	runner.Run(stopSignals,
+	runner.Run(signalCtx,
 		ManagedServer{
 			Name: "backend",
 			Serve: func() error {

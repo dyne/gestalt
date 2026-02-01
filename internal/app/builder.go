@@ -11,6 +11,7 @@ import (
 	"gestalt/internal/agent"
 	"gestalt/internal/logging"
 	"gestalt/internal/ports"
+	"gestalt/internal/process"
 	"gestalt/internal/skill"
 	"gestalt/internal/temporal"
 	"gestalt/internal/terminal"
@@ -23,6 +24,7 @@ type BuildOptions struct {
 	ConfigOverlay        fs.FS
 	ConfigRoot           string
 	AgentsDir            string
+	ProcessRegistry      *process.Registry
 	TemporalClient       temporal.WorkflowClient
 	TemporalEnabled      bool
 	SessionLogDir        string
@@ -92,6 +94,7 @@ func Build(options BuildOptions) (*BuildResult, error) {
 
 	manager := terminal.NewManager(terminal.ManagerOptions{
 		Shell:                options.Shell,
+		ProcessRegistry:      options.ProcessRegistry,
 		Agents:               agents,
 		AgentsDir:            options.AgentsDir,
 		Skills:               skills,

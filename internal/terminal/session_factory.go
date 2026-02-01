@@ -131,6 +131,11 @@ func (f *SessionFactory) Start(request sessionCreateRequest, profile *agent.Agen
 
 func (f *SessionFactory) createMCPEventLogger(id string, createdAt time.Time) *mcpEventLogger {
 	if f.sessionLogDir == "" {
+		if f.logger != nil {
+			f.logger.Warn("mcp event log disabled: session log dir empty", map[string]string{
+				"terminal_id": id,
+			})
+		}
 		return nil
 	}
 	logger, err := newMCPEventLogger(f.sessionLogDir, id, createdAt)

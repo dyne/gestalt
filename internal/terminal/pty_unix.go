@@ -5,6 +5,7 @@ package terminal
 import (
 	"os"
 	"os/exec"
+	"syscall"
 
 	"github.com/creack/pty"
 )
@@ -31,6 +32,10 @@ func (p *filePty) Resize(cols, rows uint16) error {
 
 func startPty(command string, args ...string) (Pty, *exec.Cmd, error) {
 	cmd := exec.Command(command, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+	}
+	setPtyDeathSignal(cmd.SysProcAttr)
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
 		return nil, nil, err

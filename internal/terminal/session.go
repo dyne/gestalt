@@ -42,6 +42,7 @@ const temporalWorkflowTaskTimeout = workflows.DefaultWorkflowTaskTimeout
 const terminalOutputSubscriberBuffer = 256
 const terminalOutputWriteTimeout = 3 * time.Minute
 const terminalOutputSlowThreshold = 5 * time.Second
+const sessionProcessShutdownTimeout = 1 * time.Second
 
 func (s SessionState) String() string {
 	switch s {
@@ -77,6 +78,8 @@ type SessionIO struct {
 	outputPublisher *OutputPublisher
 	pty             Pty
 	cmd             *exec.Cmd
+	pid             int
+	pgid            int
 	outputBus       *event.Bus[[]byte]
 	outputBuffer    *OutputBuffer
 	logger          *SessionLogger
@@ -144,6 +147,12 @@ func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt
 		Policy:      outputPolicy,
 		SampleEvery: outputSampleEvery,
 	})
+	pid := 0
+	pgid := 0
+	if cmd != nil && cmd.Process != nil {
+		pid = cmd.Process.Pid
+		pgid = processGroupID(pid)
+	}
 	session := &Session{
 		SessionMeta: SessionMeta{
 			ID:        id,
@@ -161,6 +170,8 @@ func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt
 			outputPublisher: outputPublisher,
 			pty:             pty,
 			cmd:             cmd,
+			pid:             pid,
+			pgid:            pgid,
 			outputBus:       outputBus,
 			outputBuffer:    outputBuffer,
 			logger:          sessionLogger,
@@ -572,16 +583,8 @@ func (s *Session) closeResources() error {
 		}
 	}
 	if s.cmd != nil && s.cmd.Process != nil {
-		killErr := s.cmd.Process.Kill()
-		if killErr != nil && !errors.Is(killErr, os.ErrProcessDone) {
-			errs = append(errs, fmt.Errorf("kill process: %w", killErr))
-		}
-		if killErr == nil || errors.Is(killErr, os.ErrProcessDone) {
-			if s.cmd.ProcessState == nil {
-				if err := s.cmd.Wait(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-					errs = append(errs, fmt.Errorf("wait process: %w", err))
-				}
-			}
+		if err := terminateProcessTree(s.cmd, s.pid, s.pgid, sessionProcessShutdownTimeout); err != nil {
+			errs = append(errs, fmt.Errorf("terminate process: %w", err))
 		}
 	}
 	if s.inputLog != nil {

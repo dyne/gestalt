@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,12 +10,14 @@ import (
 
 	"gestalt/internal/agent"
 	"gestalt/internal/logging"
+	"gestalt/internal/process"
 	"gestalt/internal/temporal/workflows"
 )
 
 type SessionFactoryOptions struct {
 	Clock           Clock
 	PtyFactory      PtyFactory
+	ProcessRegistry *process.Registry
 	SessionLogDir   string
 	InputHistoryDir string
 	BufferLines     int
@@ -30,6 +33,7 @@ type SessionFactoryOptions struct {
 type SessionFactory struct {
 	clock           Clock
 	ptyFactory      PtyFactory
+	processRegistry *process.Registry
 	sessionLogDir   string
 	inputHistoryDir string
 	bufferLines     int
@@ -61,6 +65,7 @@ func NewSessionFactory(options SessionFactoryOptions) *SessionFactory {
 	return &SessionFactory{
 		clock:           clock,
 		ptyFactory:      ptyFactory,
+		processRegistry: options.ProcessRegistry,
 		sessionLogDir:   strings.TrimSpace(options.SessionLogDir),
 		inputHistoryDir: strings.TrimSpace(options.InputHistoryDir),
 		bufferLines:     bufferLines,
@@ -115,6 +120,22 @@ func (f *SessionFactory) Start(request sessionCreateRequest, profile *agent.Agen
 	}
 	if profile != nil {
 		session.ConfigHash = profile.ConfigHash
+	}
+	if f.processRegistry != nil && cmd != nil && cmd.Process != nil {
+		pid := cmd.Process.Pid
+		f.processRegistry.RegisterWithWait(pid, process.GroupID(pid), "session:"+id, func(ctx context.Context) error {
+			done := make(chan error, 1)
+			go func() {
+				done <- cmd.Wait()
+			}()
+			select {
+			case err := <-done:
+				return err
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		})
+		session.setProcessRegistry(f.processRegistry)
 	}
 
 	if mcp, ok := pty.(*mcpPty); ok {

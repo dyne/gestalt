@@ -1,11 +1,21 @@
 import { apiFetch, buildApiPath, buildWebSocketUrl } from '../api.js'
 import { notificationStore } from '../notificationStore.js'
+import { getSessionUiConfig } from '../sessionUiConfig.js'
 
 const MAX_RETRIES = 5
 const BASE_DELAY_MS = 500
 const MAX_DELAY_MS = 8000
 const HISTORY_WARNING_MS = 5000
-const HISTORY_LINES = 10000
+const DEFAULT_HISTORY_LINES = 2000
+
+const resolveHistoryLines = () => {
+  const config = getSessionUiConfig?.()
+  const value = Number(config?.scrollbackLines)
+  if (Number.isFinite(value) && value > 0) {
+    return Math.floor(value)
+  }
+  return DEFAULT_HISTORY_LINES
+}
 
 export const createTerminalSocket = ({
   terminalId,
@@ -94,11 +104,12 @@ export const createTerminalSocket = ({
     scheduleHistoryWarning()
     historyLoadPromise = (async () => {
       try {
+        const historyLines = resolveHistoryLines()
         const historyPath = `${buildApiPath(
           '/api/sessions',
           terminalId,
           'history'
-        )}?lines=${HISTORY_LINES}`
+        )}?lines=${historyLines}`
         const response = await apiFetch(historyPath)
         const payload = await response.json()
         const lines = Array.isArray(payload?.lines) ? payload.lines : []

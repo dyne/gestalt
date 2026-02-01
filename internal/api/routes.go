@@ -19,6 +19,9 @@ import (
 type StatusConfig struct {
 	TemporalUIPort int
 	TemporalHost   string
+	SessionScrollbackLines int
+	SessionFontFamily      string
+	SessionFontSize        string
 }
 
 func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken string, statusConfig StatusConfig, staticDir string, frontendFS fs.FS, logger *logging.Logger, eventBus *event.Bus[watcher.Event]) {
@@ -40,6 +43,9 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 		GitBranch:      gitBranch,
 		TemporalUIPort: statusConfig.TemporalUIPort,
 		TemporalHost:   statusConfig.TemporalHost,
+		SessionScrollbackLines: statusConfig.SessionScrollbackLines,
+		SessionFontFamily:      statusConfig.SessionFontFamily,
+		SessionFontSize:        statusConfig.SessionFontSize,
 	}
 	meter := otelapi.GetMeterProvider().Meter("gestalt/api")
 	tracer := otelapi.Tracer("gestalt/api")

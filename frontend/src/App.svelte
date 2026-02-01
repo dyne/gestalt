@@ -22,6 +22,11 @@
   import { subscribe as subscribeNotificationEvents } from './lib/notificationEventStore.js'
   import { getErrorMessage, notifyError } from './lib/errorUtils.js'
   import {
+    buildTerminalStyle,
+    sessionUiConfig,
+    setSessionUiConfigFromStatus,
+  } from './lib/sessionUiConfig.js'
+  import {
     appHealthStore,
     forceReload,
     recordRefresh,
@@ -42,6 +47,7 @@
   let notificationUnsubscribe = null
   let crashState = null
   let clipboardAvailable = false
+  let terminalStyle = ''
 
   const buildTitle = (workingDir) => {
     if (!workingDir) {
@@ -58,6 +64,10 @@
   $: crashState = $appHealthStore
   $: clipboardAvailable = canUseClipboard()
   $: activeTerminal = terminals.find((terminal) => terminal.id === activeId) || null
+  $: if (status) {
+    setSessionUiConfigFromStatus(status)
+  }
+  $: terminalStyle = buildTerminalStyle($sessionUiConfig)
 
   $: if (typeof document !== 'undefined') {
     const projectName = buildTitle(status?.working_dir || '')
@@ -250,7 +260,7 @@
   </div>
 {/snippet}
 
-<main class="app">
+<main class="app" style={terminalStyle}>
   <section class="view" data-active={activeView === 'dashboard'}>
     <svelte:boundary onerror={(error) => handleBoundaryError('dashboard', error)} failed={viewFailed}>
       <Dashboard

@@ -3,28 +3,28 @@
 #+DATE: 2026-02-01
 #+KEYWORDS: mcp codex event json-rpc session console terminal
 
-* WIP [#A] Refine MCP event payload display
-Effort: S
-Goal: Show useful, non-ID payload fields (e.g., token_count or agent message content) in MCP event lines.
-Notes: Preserve existing formatting prefix and truncation; avoid noisy IDs; best-effort parsing only.
+* DONE [#A] Store Codex MCP event notifications to file
+Effort: M
+Goal: Stop printing MCP notifications to the terminal and persist them to `.gestalt/sessions/Events-<session-name>-<date>`.
+Notes: Logging must be opt-in via `session.log-codex-events` (default false).
 
-** TODO [#A] Define payload field selection rules
-Why: MCP payloads vary; we need deterministic output that avoids IDs and surfaces human-meaningful data.
-Change: Enumerate which fields count as non-ID and should be shown (e.g., token_count, role, content/message, model, timing, status). Define exclusions (requestId, threadId, id, ids, *_id). Clarify handling of nested msg fields (msg.type/msg.message) and agent_message_* fields.
-Tests: N/A (decision).
-Done when: Selection rules are written and agreed.
+** DONE [#A] Add config switch for codex event logging
+Why: Logging should be configurable and default to off.
+Change: Introduce `session.log-codex-events` in `config/gestalt.toml` (default false) and wire it through settings/options.
+Tests: Extend settings/config tests to cover the new default.
+Done when: Config key parses and defaults to false.
 
-** TODO [#A] Extend notification formatter to include non-ID payload fields
-Why: Users can see the event type but not the payload details.
-Change: Update `handleNotification` formatting logic to extract and append a compact "key=value" list of non-ID fields when present. Keep existing codex/event type/message formatting as the lead segment, then append extras. Truncate the total line at the existing limit.
-Tests: Add unit tests for token_count and agent_message_* payloads that verify non-ID fields appear and ID fields are omitted.
-Done when: Sample events show meaningful payload fields beyond IDs.
+** DONE [#A] Write MCP notifications to file instead of terminal
+Why: Users want events persisted without terminal noise.
+Change: Add a session-scoped MCP event logger that writes NDJSON lines to `Events-<session-name>-<date>` in the session log dir. Update `mcpPty` notification handling to write to file when enabled and omit terminal output.
+Tests: Add tests that notifications no longer surface in output, and that the event file receives the notification payload.
+Done when: Events are quiet in the terminal and persisted when enabled.
 
-** TODO [#B] Add fallback formatting for unknown payloads
-Why: Avoid losing context when schema changes or unexpected fields appear.
-Change: If no known non-ID fields are found, keep current compact JSON fallback but scrub IDs before printing.
-Tests: Unit test that an unknown payload with id/requestId prints without those fields.
-Done when: Unknown payloads still show useful data without IDs.
+** DONE [#B] Ensure cleanup and error handling for event logs
+Why: Avoid file handle leaks and silent failures.
+Change: Close the event logger on session/pty close and warn when logging is enabled but no session log dir is configured.
+Tests: Add a close-path unit test if needed.
+Done when: Event logging resources are cleaned up reliably.
 
 * DONE [#A] Confirm scope + output UX for codex/event notifications
 Effort: S

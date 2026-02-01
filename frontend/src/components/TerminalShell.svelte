@@ -69,7 +69,8 @@
   .terminal-shell {
     display: grid;
     grid-template-rows: auto minmax(0, 1fr) auto;
-    height: calc(100vh - 64px);
+    height: 100%;
+    min-height: 0;
     width: 100%;
     min-width: 0;
     background: var(--terminal-bg);
@@ -78,6 +79,7 @@
     box-shadow: 0 20px 50px rgba(var(--shadow-color-rgb), 0.35);
     overflow: hidden;
     position: relative;
+    padding-bottom: env(safe-area-inset-bottom);
   }
 
   .terminal-shell__header {

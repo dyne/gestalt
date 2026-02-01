@@ -1,9 +1,9 @@
 package terminal
 
 import (
-	"bytes"
 	"encoding/json"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -30,35 +30,14 @@ func sendMCPNotification(t *testing.T, out io.Writer, payload interface{}) {
 	_, _ = out.Write(append(data, '\n'))
 }
 
-func readOutputLine(t *testing.T, p Pty) string {
-	t.Helper()
-	deadline := time.After(2 * time.Second)
-	var buf bytes.Buffer
-	tmp := make([]byte, 64)
-	for {
-		select {
-		case <-deadline:
-			_ = p.Close()
-			t.Fatalf("timeout waiting for output")
-			return ""
-		default:
-		}
-		n, err := p.Read(tmp)
-		if n > 0 {
-			buf.Write(tmp[:n])
-			if strings.Contains(buf.String(), "\n") {
-				return buf.String()
-			}
-		}
-		if err != nil {
-			return buf.String()
-		}
-	}
-}
-
-func TestMCPPtyNotificationIdleOutput(testingContext *testing.T) {
+func TestMCPPtyNotificationLogsToFile(testingContext *testing.T) {
 	basePty, _, serverOut := newPipePty()
 	mcp := newMCPPty(basePty, false)
+	logger, err := newMCPEventLogger(testingContext.TempDir(), "session-1", time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		testingContext.Fatalf("create logger: %v", err)
+	}
+	mcp.SetEventLogger(logger)
 
 	sendMCPNotification(testingContext, serverOut, map[string]interface{}{
 		"jsonrpc": "2.0",
@@ -71,37 +50,31 @@ func TestMCPPtyNotificationIdleOutput(testingContext *testing.T) {
 		},
 	})
 
-	out := readOutputLine(testingContext, mcp)
-	if !strings.Contains(out, "[mcp codex/event] task_started: generating response") {
-		testingContext.Fatalf("expected notification output, got %q", out)
-	}
+	waitForEventLog(testingContext, logger.Path(), `"method":"codex/event"`)
+	waitForEventLog(testingContext, logger.Path(), `"type":"task_started"`)
 
 	_ = mcp.Close()
 }
 
-func TestMCPPtyNotificationTruncatesParams(testingContext *testing.T) {
+func TestMCPPtyNotificationLogsNonCodex(testingContext *testing.T) {
 	basePty, _, serverOut := newPipePty()
 	mcp := newMCPPty(basePty, false)
+	logger, err := newMCPEventLogger(testingContext.TempDir(), "session-1", time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		testingContext.Fatalf("create logger: %v", err)
+	}
+	mcp.SetEventLogger(logger)
 
-	longText := strings.Repeat("a", 600)
 	sendMCPNotification(testingContext, serverOut, map[string]interface{}{
 		"jsonrpc": "2.0",
 		"method":  "initialized",
 		"params": map[string]interface{}{
-			"data": longText,
+			"data": "ready",
 		},
 	})
 
-	out := readOutputLine(testingContext, mcp)
-	if !strings.Contains(out, "[mcp initialized]") {
-		testingContext.Fatalf("expected notification prefix, got %q", out)
-	}
-	if strings.Contains(out, longText) {
-		testingContext.Fatalf("expected truncation, got %q", out)
-	}
-	if !strings.Contains(out, "\u2026") {
-		testingContext.Fatalf("expected truncation ellipsis, got %q", out)
-	}
+	waitForEventLog(testingContext, logger.Path(), `"method":"initialized"`)
+	waitForEventLog(testingContext, logger.Path(), `"data":"ready"`)
 
 	_ = mcp.Close()
 }
@@ -174,4 +147,17 @@ func TestMCPTurnEmitsNotifySignal(testingContext *testing.T) {
 	if notify.EventID == "" {
 		testingContext.Fatalf("expected event id to be set")
 	}
+}
+
+func waitForEventLog(t *testing.T, path string, contains string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		payload, err := os.ReadFile(path)
+		if err == nil && strings.Contains(string(payload), contains) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for event log %s to contain %q", path, contains)
 }

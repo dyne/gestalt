@@ -341,12 +341,11 @@ func TestMCPPtyNotificationInterleaved(t *testing.T) {
 	_, _ = mcp.Write([]byte("hello\r"))
 
 	out := readOutputUntil(t, mcp, []string{
-		"[mcp codex/event] task_started: generating response",
 		"> hello",
 		"hello",
 	})
-	if !strings.Contains(out, "[mcp codex/event] task_started: generating response") {
-		t.Fatalf("missing notification output: %q", out)
+	if strings.Contains(out, "[mcp codex/event]") {
+		t.Fatalf("unexpected notification output: %q", out)
 	}
 
 	_ = mcp.Close()

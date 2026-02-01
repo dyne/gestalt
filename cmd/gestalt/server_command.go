@@ -272,6 +272,7 @@ func runServer(args []string) int {
 		BufferLines:          cfg.SessionBufferLines,
 		SessionLogMaxBytes:   settings.Session.LogMaxBytes,
 		HistoryScanMaxBytes:  settings.Session.HistoryScanMaxBytes,
+		LogCodexEvents:       settings.Session.LogCodexEvents,
 		TUIMode:              settings.Session.TUIMode,
 		TUISnapshotInterval:  tuiSnapshotInterval,
 		PortResolver:         portRegistry,

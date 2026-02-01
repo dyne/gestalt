@@ -1,0 +1,108 @@
+#+TITLE: MCP codex/event Notifications in Session Console
+#+SUBTITLE: Display Codex MCP JSON-RPC event notifications in session output
+#+DATE: 2026-02-01
+#+KEYWORDS: mcp codex event json-rpc session console terminal
+
+* WIP [#A] Refine MCP event payload display
+Effort: S
+Goal: Show useful, non-ID payload fields (e.g., token_count or agent message content) in MCP event lines.
+Notes: Preserve existing formatting prefix and truncation; avoid noisy IDs; best-effort parsing only.
+
+** TODO [#A] Define payload field selection rules
+Why: MCP payloads vary; we need deterministic output that avoids IDs and surfaces human-meaningful data.
+Change: Enumerate which fields count as non-ID and should be shown (e.g., token_count, role, content/message, model, timing, status). Define exclusions (requestId, threadId, id, ids, *_id). Clarify handling of nested msg fields (msg.type/msg.message) and agent_message_* fields.
+Tests: N/A (decision).
+Done when: Selection rules are written and agreed.
+
+** TODO [#A] Extend notification formatter to include non-ID payload fields
+Why: Users can see the event type but not the payload details.
+Change: Update `handleNotification` formatting logic to extract and append a compact "key=value" list of non-ID fields when present. Keep existing codex/event type/message formatting as the lead segment, then append extras. Truncate the total line at the existing limit.
+Tests: Add unit tests for token_count and agent_message_* payloads that verify non-ID fields appear and ID fields are omitted.
+Done when: Sample events show meaningful payload fields beyond IDs.
+
+** TODO [#B] Add fallback formatting for unknown payloads
+Why: Avoid losing context when schema changes or unexpected fields appear.
+Change: If no known non-ID fields are found, keep current compact JSON fallback but scrub IDs before printing.
+Tests: Unit test that an unknown payload with id/requestId prints without those fields.
+Done when: Unknown payloads still show useful data without IDs.
+
+* DONE [#A] Confirm scope + output UX for codex/event notifications
+Effort: S
+Goal: Lock output formatting, filtering, and any opt-in/opt-out behavior before implementation.
+Notes: Keep basic functionality; no new dependencies; preserve existing session behavior.
+
+** DONE [#A] Clarify formatting + filtering rules
+Why: The console output is user-facing; we need a stable, minimal format that won’t flood or confuse.
+Change: Use a consistent line prefix for all MCP notifications: `[mcp <method>]`. For `codex/event`, append best-effort `msg.type` and `msg.message` as `"[mcp codex/event] <type>: <message>"`. For other methods or missing fields, append a compact JSON string of params (truncated to a safe length) as `"[mcp <method>] <params>"`. Decision: show all MCP notifications in the console (not just codex/event). Meta fields (requestId/threadId) are omitted by default to reduce noise; include only if you want them surfaced later.\n\nProposed defaults (if you accept):\n- Example: `[mcp codex/event] task_started: generating response`\n- Example: `[mcp initialized] {\"capabilities\":{...}}`\n- Truncation: 512 chars after prefix, add `…` to indicate truncation.\n- No ANSI styling or colors.\nTests: N/A (decision).\nDone when: You confirm the proposed format or provide an alternative.
+
+** DONE [#B] Confirm when events should appear
+Why: Notifications can arrive while idle or during tool calls; current flow only surfaces events during awaits.
+Change: Decide that codex/event notifications must be printed immediately upon receipt, even when no call is in flight.
+Tests: N/A (decision).
+Done when: We agree events must appear even when the session is idle.
+
+* DONE [#A] Backend: route MCP notifications to session output
+Effort: M
+Goal: Ensure codex/event JSON-RPC notifications are surfaced in the session console reliably.
+Notes: Keep implementation minimal; avoid over-engineering; reuse existing mcpPty output path.
+
+** DONE [#A] Make readLoop handle notifications directly
+Why: Notifications can arrive outside request/response waits; current flow only processes them when awaiting a response.
+Change: In `internal/terminal/pty_mcp.go`, parse each NDJSON message and immediately call `handleNotification` when `Method` is set; only enqueue messages with `ID` to the response channel.
+Tests: Add unit test that sends a codex/event notification without a pending request and verifies it is written to session output.
+Done when: codex/event notifications show in session output even when no call is active.
+
+** DONE [#A] Update handleNotification to always show notifications
+Why: Current behavior only prints in debug mode, which hides notifications from users.
+Change: Adjust `handleNotification` to always emit a line for all MCP notifications, using the format in the previous step. Keep existing parsing of `params.msg.type`/`params.msg.message` for codex/event as best-effort, and add a compact JSON fallback for other methods or missing fields. Truncate long params to a safe length.\nTests: Unit test that codex/event results in a readable line (format confirmed in Step 1), with best-effort parsing and a safe fallback; add a test for a non-codex notification line with truncation.\nDone when: MCP notifications are printed consistently regardless of debug settings and the output format matches the decision.
+
+** DONE [#B] Define the notification contract used for formatting
+Why: We need a minimal, documented expectation for event payload parsing to avoid brittle logic.
+Change: Document (in code comments or docs) the expected `codex/event` params shape: `{ _meta: { requestId, threadId }, id, msg: { type, message } }`, and that parsing is best-effort.
+Tests: N/A (documentation).
+Done when: The expected event envelope and fallback behavior are captured.
+
+* DONE [#B] Tests + validation
+Effort: M
+Goal: Prevent regressions and verify event visibility without impacting normal MCP responses.
+Notes: Use existing MCP test helpers; keep tests small and deterministic.
+
+** DONE [#B] Add notification output test for idle session
+Why: Ensure notifications appear even when no tool call is pending.
+Change: Extend `internal/terminal/pty_mcp_notify_test.go` (or add a new test) to inject a `codex/event` notification via the fake MCP server and assert the session output stream includes the formatted event line.
+Tests: Unit test described above.
+Done when: Test passes and fails without the new routing change.
+
+** DONE [#B] Preserve response handling behavior
+Why: Ensure requests still match responses and output remains stable.
+Change: Add a small test (or extend existing ones) that interleaves a `codex/event` notification between request and response and verifies the response still completes and output includes both event line and assistant response.
+Tests: Unit test in `internal/terminal/pty_mcp_test.go` or `internal/terminal/pty_mcp_notify_test.go`.
+Done when: Both event output and normal response behavior are verified.
+
+* DONE [#C] Rollout + docs (optional)
+Effort: S
+Goal: Ensure user expectations are captured without changing external APIs.
+Notes: Optional unless you want explicit doc updates.
+
+** DONE [#C] Update docs/notes if desired
+Why: Make it discoverable that MCP event notifications appear in console output.
+Change: Add a short note to `internal/codexmcp/README.md` or a relevant docs file about codex/event output formatting.
+Tests: N/A.
+Done when: Documentation reflects the new behavior.
+
+* DONE [#A] Open questions
+Effort: S
+Goal: Resolve ambiguities before implementation.
+Notes: These block final design.
+
+** DONE [#A] Confirm display format and verbosity
+Why: Avoid user confusion or log spam.
+Change: Provide your preferred line format and whether to include meta (requestId/threadId), plus whether to show non-codex notifications.
+Tests: N/A.
+Done when: You confirm the final display rules.
+
+** DONE [#B] Confirm whether events should also emit to notify/workflow bus
+Why: You might want codex/event to feed workflows or logs, not just console output.
+Change: Decision: console-only for now; do not emit MCP notifications to notify/workflow buses.
+Tests: N/A.
+Done when: Scope captured (console-only).

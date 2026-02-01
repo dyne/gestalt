@@ -22,6 +22,7 @@ type SessionSettings struct {
 	InputFontSize         string
 	TUIMode               string
 	TUISnapshotIntervalMS int64
+	LogCodexEvents        bool
 }
 
 type TemporalSettings struct {
@@ -72,6 +73,7 @@ func LoadSettings(path string, defaultsPayload []byte, overrides map[string]any)
 	settings.Session.InputFontSize = stringSetting(values, "session.input-font-size", "")
 	settings.Session.TUIMode = stringSetting(values, "session.tui-mode", "")
 	settings.Session.TUISnapshotIntervalMS = intSetting(values, "session.tui-snapshot-interval-ms", 0)
+	settings.Session.LogCodexEvents = boolSetting(values, "session.log-codex-events", boolSetting(defaults, "session.log-codex-events", false))
 	settings.Temporal.MaxOutputBytes = intSetting(values, "temporal.max-output-bytes", 0)
 
 	return normalizeSettings(settings, defaults), nil
@@ -129,6 +131,17 @@ func stringSetting(values map[string]any, key string, fallback string) string {
 	}
 	if parsed, ok := value.(string); ok {
 		return strings.TrimSpace(parsed)
+	}
+	return fallback
+}
+
+func boolSetting(values map[string]any, key string, fallback bool) bool {
+	value, ok := values[tomlkeys.NormalizeKey(key)]
+	if !ok {
+		return fallback
+	}
+	if parsed, ok := value.(bool); ok {
+		return parsed
 	}
 	return fallback
 }

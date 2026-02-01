@@ -495,17 +495,21 @@ func runServer(args []string) int {
 		"version": version.Version,
 	})
 
-	shutdownCoordinator.Add("flow-bridge", stopFlowBridge)
-	shutdownCoordinator.Add("temporal-worker", stopTemporalWorker)
-	shutdownCoordinator.Add("sessions", stopSessions)
-	shutdownCoordinator.Add("temporal-client", stopTemporalClient)
-	shutdownCoordinator.Add("otel-sdk", stopOTelSDK)
-	shutdownCoordinator.Add("otel-collector", stopOTelCollector)
-	shutdownCoordinator.Add("otel-fallback", stopOTelFallback)
-	shutdownCoordinator.Add("temporal-dev-server", stopTemporalDevServer)
-	shutdownCoordinator.Add("fs-watcher", stopWatcher)
-	shutdownCoordinator.Add("event-bus", stopEventBus)
-	shutdownCoordinator.Add("process-registry", stopProcessRegistry)
+	for _, phase := range buildShutdownPhases(
+		stopFlowBridge,
+		stopTemporalWorker,
+		stopSessions,
+		stopTemporalClient,
+		stopOTelSDK,
+		stopOTelCollector,
+		stopOTelFallback,
+		stopTemporalDevServer,
+		stopWatcher,
+		stopEventBus,
+		stopProcessRegistry,
+	) {
+		shutdownCoordinator.Add(phase.name, phase.stop)
+	}
 
 	signalCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
@@ -535,6 +539,39 @@ func runServer(args []string) int {
 	)
 	saveGestaltConfigDefaults(cfg, configPaths, logger)
 	return 0
+}
+
+type shutdownPhaseSpec struct {
+	name string
+	stop func(context.Context) error
+}
+
+func buildShutdownPhases(
+	stopFlowBridge func(context.Context) error,
+	stopTemporalWorker func(context.Context) error,
+	stopSessions func(context.Context) error,
+	stopTemporalClient func(context.Context) error,
+	stopOTelSDK func(context.Context) error,
+	stopOTelCollector func(context.Context) error,
+	stopOTelFallback func(context.Context) error,
+	stopTemporalDevServer func(context.Context) error,
+	stopWatcher func(context.Context) error,
+	stopEventBus func(context.Context) error,
+	stopProcessRegistry func(context.Context) error,
+) []shutdownPhaseSpec {
+	return []shutdownPhaseSpec{
+		{name: "flow-bridge", stop: stopFlowBridge},
+		{name: "temporal-worker", stop: stopTemporalWorker},
+		{name: "sessions", stop: stopSessions},
+		{name: "temporal-client", stop: stopTemporalClient},
+		{name: "otel-sdk", stop: stopOTelSDK},
+		{name: "otel-collector", stop: stopOTelCollector},
+		{name: "otel-fallback", stop: stopOTelFallback},
+		{name: "temporal-dev-server", stop: stopTemporalDevServer},
+		{name: "fs-watcher", stop: stopWatcher},
+		{name: "event-bus", stop: stopEventBus},
+		{name: "process-registry", stop: stopProcessRegistry},
+	}
 }
 
 func startShutdownWatcher(ctx context.Context, stopFuncs ...func()) {

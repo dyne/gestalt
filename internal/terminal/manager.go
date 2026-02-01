@@ -991,6 +991,38 @@ func (m *Manager) Delete(id string) error {
 	return nil
 }
 
+func (m *Manager) CloseAll() error {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	sessions := make(map[string]*Session, len(m.sessions))
+	for id, session := range m.sessions {
+		sessions[id] = session
+	}
+	m.sessions = make(map[string]*Session)
+	m.agentSessions = make(map[string]string)
+	m.mu.Unlock()
+
+	var errs []error
+	for id, session := range sessions {
+		if session == nil {
+			continue
+		}
+		agentID := session.AgentID
+		agentName := ""
+		if session.agent != nil {
+			agentName = session.agent.Name
+		}
+		closeErr := session.Close()
+		m.emitSessionStopped(id, session, agentID, agentName, closeErr)
+		if closeErr != nil {
+			errs = append(errs, fmt.Errorf("close session %s: %w", id, closeErr))
+		}
+	}
+	return errors.Join(errs...)
+}
+
 func stderrFromExecError(err error) string {
 	if err == nil {
 		return ""

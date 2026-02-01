@@ -1722,3 +1722,35 @@ func TestManagerInjectsCodexNotify(t *testing.T) {
 		t.Fatalf("expected --session-id exactly once, got %d in %#v", sessionFlagCount, notifyArgs)
 	}
 }
+
+func TestManagerCloseAllClearsSessions(t *testing.T) {
+	manager := NewManager(ManagerOptions{
+		PtyFactory:  &fakeFactory{},
+		BufferLines: 5,
+	})
+	startedAt := time.Now()
+	sessionOne := newSession("one", newFakePtyWithErr(errors.New("close failed")), nil, "one", "role", startedAt, 5, 0, OutputBackpressureBlock, 0, nil, nil, nil)
+	sessionTwo := newSession("two", newFakePty(), nil, "two", "role", startedAt, 5, 0, OutputBackpressureBlock, 0, nil, nil, nil)
+
+	manager.mu.Lock()
+	manager.sessions["one"] = sessionOne
+	manager.sessions["two"] = sessionTwo
+	manager.agentSessions["agent"] = "one"
+	manager.mu.Unlock()
+
+	if err := manager.CloseAll(); err == nil {
+		t.Fatalf("expected close error")
+	}
+	if sessionOne.State() != sessionStateClosed {
+		t.Fatalf("expected session one closed")
+	}
+	if sessionTwo.State() != sessionStateClosed {
+		t.Fatalf("expected session two closed")
+	}
+	if len(manager.sessions) != 0 {
+		t.Fatalf("expected sessions cleared")
+	}
+	if len(manager.agentSessions) != 0 {
+		t.Fatalf("expected agent sessions cleared")
+	}
+}

@@ -66,6 +66,8 @@ func TestLoadSettingsSessionUIOverrides(t *testing.T) {
 scrollback-lines = 4242
 font-family = "Courier New, monospace"
 font-size = "14px"
+input-font-family = "Input Mono"
+input-font-size = "12px"
 `
 	if err := os.WriteFile(path, []byte(payload), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -83,5 +85,11 @@ font-size = "14px"
 	}
 	if settings.Session.FontSize != "14px" {
 		t.Fatalf("expected font-size override, got %q", settings.Session.FontSize)
+	}
+	if settings.Session.InputFontFamily != "Input Mono" {
+		t.Fatalf("expected input font-family override, got %q", settings.Session.InputFontFamily)
+	}
+	if settings.Session.InputFontSize != "12px" {
+		t.Fatalf("expected input font-size override, got %q", settings.Session.InputFontSize)
 	}
 }

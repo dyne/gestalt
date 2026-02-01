@@ -4,6 +4,8 @@ history-scan-max-bytes = 2097152
 scrollback-lines = 2000
 font-family = "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace"
 font-size = "0.95rem"
+input-font-family = "\"IBM Plex Mono\", \"JetBrains Mono\", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace"
+input-font-size = "0.95rem"
 tui-mode = ""
 tui-snapshot-interval-ms = 0
 

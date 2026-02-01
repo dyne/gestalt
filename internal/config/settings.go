@@ -18,6 +18,8 @@ type SessionSettings struct {
 	ScrollbackLines       int64
 	FontFamily            string
 	FontSize              string
+	InputFontFamily       string
+	InputFontSize         string
 	TUIMode               string
 	TUISnapshotIntervalMS int64
 }
@@ -66,6 +68,8 @@ func LoadSettings(path string, defaultsPayload []byte, overrides map[string]any)
 	settings.Session.ScrollbackLines = intSetting(values, "session.scrollback-lines", 0)
 	settings.Session.FontFamily = stringSetting(values, "session.font-family", "")
 	settings.Session.FontSize = stringSetting(values, "session.font-size", "")
+	settings.Session.InputFontFamily = stringSetting(values, "session.input-font-family", "")
+	settings.Session.InputFontSize = stringSetting(values, "session.input-font-size", "")
 	settings.Session.TUIMode = stringSetting(values, "session.tui-mode", "")
 	settings.Session.TUISnapshotIntervalMS = intSetting(values, "session.tui-snapshot-interval-ms", 0)
 	settings.Temporal.MaxOutputBytes = intSetting(values, "temporal.max-output-bytes", 0)
@@ -88,6 +92,12 @@ func normalizeSettings(settings Settings, defaults map[string]any) Settings {
 	}
 	if settings.Session.FontSize == "" {
 		settings.Session.FontSize = stringSetting(defaults, "session.font-size", "")
+	}
+	if settings.Session.InputFontFamily == "" {
+		settings.Session.InputFontFamily = stringSetting(defaults, "session.input-font-family", "")
+	}
+	if settings.Session.InputFontSize == "" {
+		settings.Session.InputFontSize = stringSetting(defaults, "session.input-font-size", "")
 	}
 	if settings.Session.TUIMode == "" {
 		settings.Session.TUIMode = stringSetting(defaults, "session.tui-mode", "")

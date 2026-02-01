@@ -1,7 +1,11 @@
 package terminal
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +19,64 @@ type staticPtyFactory struct {
 
 func (f *staticPtyFactory) Start(command string, args ...string) (Pty, *exec.Cmd, error) {
 	return f.pty, &exec.Cmd{}, nil
+}
+
+func sendMCPNotification(t *testing.T, out io.Writer, payload interface{}) {
+	t.Helper()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	_, _ = out.Write(append(data, '\n'))
+}
+
+func readOutputLine(t *testing.T, p Pty) string {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	var buf bytes.Buffer
+	tmp := make([]byte, 64)
+	for {
+		select {
+		case <-deadline:
+			_ = p.Close()
+			t.Fatalf("timeout waiting for output")
+			return ""
+		default:
+		}
+		n, err := p.Read(tmp)
+		if n > 0 {
+			buf.Write(tmp[:n])
+			if strings.Contains(buf.String(), "\n") {
+				return buf.String()
+			}
+		}
+		if err != nil {
+			return buf.String()
+		}
+	}
+}
+
+func TestMCPPtyNotificationIdleOutput(testingContext *testing.T) {
+	basePty, _, serverOut := newPipePty()
+	mcp := newMCPPty(basePty, true)
+
+	sendMCPNotification(testingContext, serverOut, map[string]interface{}{
+		"jsonrpc": "2.0",
+		"method":  "codex/event",
+		"params": map[string]interface{}{
+			"msg": map[string]interface{}{
+				"type":    "task_started",
+				"message": "generating response",
+			},
+		},
+	})
+
+	out := readOutputLine(testingContext, mcp)
+	if !strings.Contains(out, "[mcp codex/event] task_started: generating response") {
+		testingContext.Fatalf("expected notification output, got %q", out)
+	}
+
+	_ = mcp.Close()
 }
 
 func TestMCPTurnEmitsNotifySignal(testingContext *testing.T) {

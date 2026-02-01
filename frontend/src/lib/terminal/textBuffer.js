@@ -1,6 +1,3 @@
-const normalizeChunk = (chunk) =>
-  chunk.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-
 export class TextBuffer {
   constructor(maxLines = 2000) {
     this.maxLines = maxLines
@@ -13,18 +10,28 @@ export class TextBuffer {
       return
     }
 
-    const text = this.carry + normalizeChunk(String(chunk))
-    const parts = text.split('\n')
-
-    if (text.endsWith('\n')) {
-      this.carry = ''
-    } else {
-      this.carry = parts.pop() ?? ''
+    const text = String(chunk)
+    let buffer = this.carry
+    for (let i = 0; i < text.length; i += 1) {
+      const char = text[i]
+      if (char === '\r') {
+        if (text[i + 1] === '\n') {
+          this.lines.push(buffer)
+          buffer = ''
+          i += 1
+          continue
+        }
+        buffer = ''
+        continue
+      }
+      if (char === '\n') {
+        this.lines.push(buffer)
+        buffer = ''
+        continue
+      }
+      buffer += char
     }
-
-    for (const line of parts) {
-      this.lines.push(line)
-    }
+    this.carry = buffer
 
     this.trimToMaxLines(this.maxLines)
   }

@@ -28,9 +28,15 @@ describe('terminal segments', () => {
     ])
   })
 
-  it('normalizes carriage returns in output', () => {
+  it('treats carriage returns as line resets', () => {
     const segments = appendOutputSegment([], 'one\rtwo\r\nthree')
-    expect(segments).toEqual([{ kind: 'output', text: 'one\ntwo\nthree' }])
+    expect(segments).toEqual([{ kind: 'output', text: 'two\nthree' }])
+  })
+
+  it('resets the current line on carriage return', () => {
+    let segments = appendOutputSegment([], 'alpha\nbeta')
+    segments = appendOutputSegment(segments, '\rgamma')
+    expect(segments).toEqual([{ kind: 'output', text: 'alpha\ngamma' }])
   })
 
   it('builds output segments from history', () => {

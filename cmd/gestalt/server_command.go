@@ -74,6 +74,7 @@ func runServer(args []string) int {
 
 	var stopFlowBridge func(context.Context) error
 	var stopTemporalWorker func(context.Context) error
+	var stopSessions func(context.Context) error
 	var stopTemporalClient func(context.Context) error
 	var stopTemporalDevServer func(context.Context) error
 	var stopOTelSDK func(context.Context) error
@@ -312,6 +313,9 @@ func runServer(args []string) int {
 		"count": strconv.Itoa(len(buildResult.Agents)),
 	})
 	manager := buildResult.Manager
+	stopSessions = func(context.Context) error {
+		return manager.CloseAll()
+	}
 
 	workerStarted := false
 	if temporalEnabled && temporalClient != nil {
@@ -477,6 +481,7 @@ func runServer(args []string) int {
 
 	shutdownCoordinator.Add("flow-bridge", stopFlowBridge)
 	shutdownCoordinator.Add("temporal-worker", stopTemporalWorker)
+	shutdownCoordinator.Add("sessions", stopSessions)
 	shutdownCoordinator.Add("temporal-client", stopTemporalClient)
 	shutdownCoordinator.Add("otel-sdk", stopOTelSDK)
 	shutdownCoordinator.Add("otel-collector", stopOTelCollector)

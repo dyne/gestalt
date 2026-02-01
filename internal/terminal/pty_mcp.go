@@ -353,14 +353,26 @@ func (p *mcpPty) awaitResponse(id int64) (mcpMessage, error) {
 }
 
 func (p *mcpPty) handleNotification(msg mcpMessage) {
-	if !p.debug {
-		return
-	}
 	if msg.Method == "" {
 		return
 	}
-	eventLine := fmt.Sprintf("[mcp %s]", msg.Method)
+	eventLine := formatMCPNotification(msg)
+	if eventLine == "" {
+		return
+	}
+	p.writeOutput(eventLine + "\n")
+}
+
+const mcpNotificationMaxLen = 512
+
+func formatMCPNotification(msg mcpMessage) string {
+	if msg.Method == "" {
+		return ""
+	}
+	prefix := fmt.Sprintf("[mcp %s]", msg.Method)
+	suffix := ""
 	if msg.Method == "codex/event" {
+		// Best-effort envelope: { _meta: { requestId, threadId }, id, msg: { type, message } }.
 		type eventPayload struct {
 			Msg struct {
 				Type    string `json:"type"`
@@ -369,15 +381,53 @@ func (p *mcpPty) handleNotification(msg mcpMessage) {
 		}
 		var payload eventPayload
 		if err := json.Unmarshal(msg.Params, &payload); err == nil {
-			if payload.Msg.Type != "" {
-				eventLine = fmt.Sprintf("%s %s", eventLine, payload.Msg.Type)
-			}
-			if payload.Msg.Message != "" {
-				eventLine = fmt.Sprintf("%s: %s", eventLine, payload.Msg.Message)
+			msgType := strings.TrimSpace(payload.Msg.Type)
+			msgText := strings.TrimSpace(payload.Msg.Message)
+			if msgType != "" && msgText != "" {
+				suffix = fmt.Sprintf("%s: %s", msgType, msgText)
+			} else if msgType != "" {
+				suffix = msgType
+			} else if msgText != "" {
+				suffix = msgText
 			}
 		}
 	}
-	p.writeOutput(eventLine + "\n")
+	if suffix == "" {
+		suffix = compactParams(msg.Params)
+		if suffix == "" {
+			suffix = "{}"
+		}
+	}
+	suffix = truncateRunes(suffix, mcpNotificationMaxLen)
+	return fmt.Sprintf("%s %s", prefix, suffix)
+}
+
+func compactParams(raw json.RawMessage) string {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return "{}"
+	}
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, trimmed); err == nil {
+		if buf.Len() > 0 {
+			return buf.String()
+		}
+	}
+	return string(trimmed)
+}
+
+func truncateRunes(value string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	runes := []rune(value)
+	if len(runes) <= max {
+		return value
+	}
+	if max == 1 {
+		return "\u2026"
+	}
+	return string(runes[:max-1]) + "\u2026"
 }
 
 func (p *mcpPty) writeUserEcho(command string) {

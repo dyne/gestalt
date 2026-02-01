@@ -373,6 +373,7 @@ func formatMCPNotification(msg mcpMessage) string {
 	suffix := ""
 	if msg.Method == "codex/event" {
 		// Best-effort envelope: { _meta: { requestId, threadId }, id, msg: { type, message } }.
+		// Meta fields are ignored in the console output by default.
 		type eventPayload struct {
 			Msg struct {
 				Type    string `json:"type"`

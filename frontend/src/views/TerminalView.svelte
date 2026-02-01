@@ -122,8 +122,11 @@
 <style>
   .terminal-view {
     width: 100%;
-    height: 100%;
+    height: calc(100vh - 64px);
+    height: calc(100dvh - 64px);
+    min-height: 0;
     position: relative;
+    box-sizing: border-box;
   }
 
   .close-dialog {

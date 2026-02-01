@@ -311,6 +311,47 @@ func TestMCPPtyNormalizesOutputNewlines(t *testing.T) {
 	_ = mcp.Close()
 }
 
+func TestMCPPtyNotificationInterleaved(t *testing.T) {
+	pty, serverIn, serverOut := newPipePty()
+
+	server := newFakeMCPServer(t, serverIn, serverOut, nil)
+	server.onCall = func(id int64, name string, args map[string]interface{}) {
+		server.send(map[string]interface{}{
+			"jsonrpc": "2.0",
+			"method":  "codex/event",
+			"params": map[string]interface{}{
+				"msg": map[string]interface{}{
+					"type":    "task_started",
+					"message": "generating response",
+				},
+			},
+		})
+		server.send(map[string]interface{}{
+			"jsonrpc": "2.0",
+			"id":      id,
+			"result": map[string]interface{}{
+				"threadId": "thread-1",
+				"content":  "hello",
+			},
+		})
+	}
+	go server.run()
+
+	mcp := newMCPPty(pty, false)
+	_, _ = mcp.Write([]byte("hello\r"))
+
+	out := readOutputUntil(t, mcp, []string{
+		"[mcp codex/event] task_started: generating response",
+		"> hello",
+		"hello",
+	})
+	if !strings.Contains(out, "[mcp codex/event] task_started: generating response") {
+		t.Fatalf("missing notification output: %q", out)
+	}
+
+	_ = mcp.Close()
+}
+
 func TestMCPPtyErrorResponse(t *testing.T) {
 	pty, serverIn, serverOut := newPipePty()
 	server := newFakeMCPServer(t, serverIn, serverOut, nil)

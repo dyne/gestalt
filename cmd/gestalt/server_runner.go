@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"time"
 
 	"gestalt/internal/logging"
@@ -27,7 +26,7 @@ type serverError struct {
 	err  error
 }
 
-func (runner *ServerRunner) Run(stop <-chan os.Signal, servers ...ManagedServer) *serverError {
+func (runner *ServerRunner) Run(stop context.Context, servers ...ManagedServer) *serverError {
 	started := 0
 	errorsChan := make(chan serverError, len(servers))
 	for _, server := range servers {
@@ -49,12 +48,7 @@ func (runner *ServerRunner) Run(stop <-chan os.Signal, servers ...ManagedServer)
 	select {
 	case err := <-errorsChan:
 		initialError = &err
-	case sig := <-stop:
-		if runner.Logger != nil {
-			runner.Logger.Info("shutdown signal received", map[string]string{
-				"signal": sig.String(),
-			})
-		}
+	case <-stop.Done():
 	}
 
 	runner.logServerError(initialError)

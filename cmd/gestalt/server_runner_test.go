@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"os"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -12,8 +11,8 @@ import (
 
 func TestServerRunnerStopsOnSignal(t *testing.T) {
 	runner := &ServerRunner{ShutdownTimeout: 50 * time.Millisecond}
-	stop := make(chan os.Signal, 1)
-	stop <- os.Interrupt
+	stopCtx, stopCancel := context.WithCancel(context.Background())
+	stopCancel()
 
 	serveDone := make(chan struct{})
 	var shutdownCalls int32
@@ -31,7 +30,7 @@ func TestServerRunnerStopsOnSignal(t *testing.T) {
 		},
 	}
 
-	if err := runner.Run(stop, server); err != nil {
+	if err := runner.Run(stopCtx, server); err != nil {
 		t.Fatalf("expected no server error, got %v", err)
 	}
 	if atomic.LoadInt32(&shutdownCalls) != 1 {
@@ -41,7 +40,7 @@ func TestServerRunnerStopsOnSignal(t *testing.T) {
 
 func TestServerRunnerReturnsServerError(t *testing.T) {
 	runner := &ServerRunner{ShutdownTimeout: 50 * time.Millisecond}
-	stop := make(chan os.Signal)
+	stopCtx := context.Background()
 
 	var shutdownCalls int32
 	server := ManagedServer{
@@ -55,7 +54,7 @@ func TestServerRunnerReturnsServerError(t *testing.T) {
 		},
 	}
 
-	serverErr := runner.Run(stop, server)
+	serverErr := runner.Run(stopCtx, server)
 	if serverErr == nil || serverErr.err == nil {
 		t.Fatalf("expected server error")
 	}

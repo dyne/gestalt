@@ -9,8 +9,6 @@
   export let agentName = ''
   export let onSubmit = () => {}
   export let disabled = false
-  export let showScrollButton = false
-  export let onScrollToBottom = () => {}
 
   let value = ''
   let textarea
@@ -193,17 +191,6 @@
           {disabled}
         />
       {/if}
-      {#if showScrollButton}
-        <button
-          class="scroll-bottom"
-          type="button"
-          on:click={onScrollToBottom}
-          disabled={disabled}
-          aria-label="Scroll to bottom"
-        >
-          &dArr;
-        </button>
-      {/if}
     </div>
   </div>
   {#if isVoiceListening}
@@ -241,23 +228,6 @@
     font-size: 0.8rem;
     color: rgba(var(--terminal-text-rgb), 0.8);
     letter-spacing: 0.02em;
-  }
-
-  .scroll-bottom {
-    border: 1px solid rgba(var(--terminal-border-rgb), 0.2);
-    border-radius: 999px;
-    padding: 0.35rem 0.6rem;
-    background: var(--terminal-bg);
-    color: var(--terminal-text);
-    font-size: 0.65rem;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    cursor: pointer;
-  }
-
-  .scroll-bottom:disabled {
-    cursor: not-allowed;
-    opacity: 0.6;
   }
 
   textarea {

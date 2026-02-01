@@ -67,6 +67,20 @@ func runServer(args []string) int {
 	ensureStateDir(cfg, logger)
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 	defer shutdownCancel()
+	shutdownCoordinator := newShutdownCoordinator(logger)
+	defer func() {
+		_ = shutdownCoordinator.Run(context.Background())
+	}()
+
+	var stopFlowBridge func(context.Context) error
+	var stopTemporalWorker func(context.Context) error
+	var stopTemporalClient func(context.Context) error
+	var stopTemporalDevServer func(context.Context) error
+	var stopOTelSDK func(context.Context) error
+	var stopOTelCollector func(context.Context) error
+	var stopOTelFallback func(context.Context) error
+	var stopWatcher func(context.Context) error
+	var stopEventBus func(context.Context) error
 
 	portRegistry := ports.NewPortRegistry()
 	collectorOptions := otel.OptionsFromEnv(".gestalt")
@@ -115,15 +129,9 @@ func runServer(args []string) int {
 		if port, ok := parseEndpointPort(collectorOptions.HTTPEndpoint); ok {
 			portRegistry.Set("otel", port)
 		}
-		stopCollector := func() {
-			if err := otel.StopCollectorWithTimeout(collector, httpServerShutdownTimeout); err != nil && logger != nil {
-				logger.Warn("otel collector shutdown failed", map[string]string{
-					"error": err.Error(),
-				})
-			}
+		stopOTelCollector = func(context.Context) error {
+			return otel.StopCollectorWithTimeout(collector, httpServerShutdownTimeout)
 		}
-		defer stopCollector()
-		startShutdownWatcher(shutdownCtx, stopCollector)
 	}
 	sdkOptions := otel.SDKOptionsFromEnv(".gestalt")
 	sdkOptions.ServiceVersion = strings.TrimSpace(version.Version)
@@ -155,17 +163,14 @@ func runServer(args []string) int {
 	} else if !sdkOptions.Enabled {
 		sdkShutdown = nil
 	} else if sdkShutdown != nil {
-		defer func() {
-			if err := sdkShutdown(context.Background()); err != nil && logger != nil {
-				logger.Warn("otel sdk shutdown failed", map[string]string{
-					"error": err.Error(),
-				})
-			}
-		}()
+		stopOTelSDK = sdkShutdown
 	}
 	if !sdkOptions.Enabled || sdkErr != nil {
 		stopFallback := otel.StartLogHubFallback(logger, sdkOptions)
-		defer stopFallback()
+		stopOTelFallback = func(context.Context) error {
+			stopFallback()
+			return nil
+		}
 	}
 
 	temporalDevServer, devServerError := startTemporalDevServer(&cfg, logger)
@@ -178,11 +183,10 @@ func runServer(args []string) int {
 		portRegistry.Set("temporal", cfg.TemporalUIPort)
 	}
 	if temporalDevServer != nil {
-		stopTemporal := func() {
+		stopTemporalDevServer = func(context.Context) error {
 			temporalDevServer.Stop(logger)
+			return nil
 		}
-		defer stopTemporal()
-		startShutdownWatcher(shutdownCtx, stopTemporal)
 	}
 	if cfg.TemporalDevServer && !cfg.TemporalEnabled {
 		logger.Warn("temporal dev server running while workflows disabled", nil)
@@ -209,7 +213,10 @@ func runServer(args []string) int {
 				"error":     temporalClientError.Error(),
 			})
 		} else if temporalClient != nil {
-			defer temporalClient.Close()
+			stopTemporalClient = func(context.Context) error {
+				temporalClient.Close()
+				return nil
+			}
 			logger.Info("temporal client connected", map[string]string{
 				"host":      cfg.TemporalHost,
 				"namespace": cfg.TemporalNamespace,
@@ -318,7 +325,10 @@ func runServer(args []string) int {
 		}
 	}
 	if workerStarted {
-		defer temporalworker.StopWorker()
+		stopTemporalWorker = func(context.Context) error {
+			temporalworker.StopWorker()
+			return nil
+		}
 	}
 
 	plansDir := preparePlanFile(logger)
@@ -336,7 +346,14 @@ func runServer(args []string) int {
 	eventBus := event.NewBus[watcher.Event](context.Background(), event.BusOptions{
 		Name: "watcher_events",
 	})
+	stopEventBus = func(context.Context) error {
+		eventBus.Close()
+		return nil
+	}
 	if fsWatcher != nil {
+		stopWatcher = func(context.Context) error {
+			return fsWatcher.Close()
+		}
 		fsWatcher.SetErrorHandler(func(err error) {
 			eventBus.Publish(watcher.Event{
 				Type:      watcher.EventTypeWatchError,
@@ -396,7 +413,10 @@ func runServer(args []string) int {
 		})
 		return 1
 	}
-	defer flowCancel()
+	stopFlowBridge = func(context.Context) error {
+		flowCancel()
+		return nil
+	}
 
 	staticDir := findStaticDir()
 	frontendFS := fs.FS(nil)
@@ -454,6 +474,16 @@ func runServer(args []string) int {
 		"addr":    frontendServer.Addr,
 		"version": version.Version,
 	})
+
+	shutdownCoordinator.Add("flow-bridge", stopFlowBridge)
+	shutdownCoordinator.Add("temporal-worker", stopTemporalWorker)
+	shutdownCoordinator.Add("temporal-client", stopTemporalClient)
+	shutdownCoordinator.Add("otel-sdk", stopOTelSDK)
+	shutdownCoordinator.Add("otel-collector", stopOTelCollector)
+	shutdownCoordinator.Add("otel-fallback", stopOTelFallback)
+	shutdownCoordinator.Add("temporal-dev-server", stopTemporalDevServer)
+	shutdownCoordinator.Add("fs-watcher", stopWatcher)
+	shutdownCoordinator.Add("event-bus", stopEventBus)
 
 	signalCh := make(chan os.Signal, 1)
 	stopSignals := make(chan os.Signal, 1)

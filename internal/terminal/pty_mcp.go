@@ -197,6 +197,10 @@ func (p *mcpPty) readLoop() {
 				if err := json.Unmarshal([]byte(line), &msg); err != nil {
 					p.writeError(fmt.Errorf("mcp parse error: %w", err))
 				} else {
+					if msg.Method != "" {
+						p.handleNotification(msg)
+						continue
+					}
 					select {
 					case p.incoming <- msg:
 					case <-p.closed:
@@ -338,10 +342,6 @@ func (p *mcpPty) awaitResponse(id int64) (mcpMessage, error) {
 		case msg, ok := <-p.incoming:
 			if !ok {
 				return mcpMessage{}, io.EOF
-			}
-			if msg.Method != "" {
-				p.handleNotification(msg)
-				continue
 			}
 			if msgID, ok := msg.idInt64(); ok && msgID == id {
 				return msg, nil

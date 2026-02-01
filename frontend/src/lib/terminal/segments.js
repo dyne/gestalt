@@ -3,6 +3,23 @@ const normalizePromptChunk = (chunk) =>
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
 
+const normalizeEchoCommand = (command) =>
+  String(command ?? '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/\n+$/g, '')
+
+const escapeRegex = (value) =>
+  String(value ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+const matchesPromptEcho = (line, command) => {
+  if (!command) return false
+  const cleaned = String(line ?? '').replace(/\r/g, '')
+  if (cleaned === command) return true
+  const pattern = new RegExp(`^>\\s*${escapeRegex(command)}$`)
+  return pattern.test(cleaned)
+}
+
 const applyOutputChunk = (currentText, chunk) => {
   const input = String(chunk ?? '')
   if (!input) return currentText
@@ -84,4 +101,61 @@ export const historyToSegments = (lines) => {
     Array.isArray(lines) && lines.length > 0 ? lines.join('\n') : ''
   if (!text) return []
   return [{ kind: 'output', text }]
+}
+
+export const createPromptEchoSuppressor = ({
+  windowMs = 1500,
+  maxBuffer = 2048,
+} = {}) => {
+  let pending = null
+
+  const markCommand = (command, now = Date.now()) => {
+    const normalized = normalizeEchoCommand(command)
+    if (!normalized) {
+      pending = null
+      return
+    }
+    pending = {
+      command: normalized,
+      deadline: now + windowMs,
+      buffer: '',
+    }
+  }
+
+  const filterChunk = (chunk, now = Date.now()) => {
+    const input = String(chunk ?? '')
+    if (!pending || !input) return { output: input }
+
+    if (now > pending.deadline) {
+      const output = `${pending.buffer}${input}`
+      pending = null
+      return { output }
+    }
+
+    const combined = `${pending.buffer}${input}`
+    const newlineIndex = combined.indexOf('\n')
+    if (newlineIndex === -1) {
+      if (combined.length > maxBuffer) {
+        pending = null
+        return { output: combined }
+      }
+      pending.buffer = combined
+      return { output: '' }
+    }
+
+    const firstLine = combined.slice(0, newlineIndex)
+    const rest = combined.slice(newlineIndex + 1)
+    if (matchesPromptEcho(firstLine, pending.command)) {
+      pending = null
+      return { output: rest }
+    }
+
+    pending = null
+    return { output: combined }
+  }
+
+  return {
+    markCommand,
+    filterChunk,
+  }
 }

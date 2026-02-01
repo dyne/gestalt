@@ -41,6 +41,8 @@ type mcpPty struct {
 	turnHandler func(mcpTurnInfo)
 	turnCount   uint64
 
+	eventLogger *mcpEventLogger
+
 	closeOnce sync.Once
 }
 
@@ -98,6 +100,10 @@ func (p *mcpPty) SetTurnHandler(handler func(mcpTurnInfo)) {
 	p.turnMu.Lock()
 	p.turnHandler = handler
 	p.turnMu.Unlock()
+}
+
+func (p *mcpPty) SetEventLogger(logger *mcpEventLogger) {
+	p.eventLogger = logger
 }
 
 func (p *mcpPty) WaitReady(timeout time.Duration) error {
@@ -167,6 +173,9 @@ func (p *mcpPty) Close() error {
 	p.closeOnce.Do(func() {
 		close(p.closed)
 		close(p.commands)
+		if p.eventLogger != nil {
+			_ = p.eventLogger.Close()
+		}
 		_ = p.outW.Close()
 		err = p.base.Close()
 	})
@@ -356,11 +365,14 @@ func (p *mcpPty) handleNotification(msg mcpMessage) {
 	if msg.Method == "" {
 		return
 	}
-	eventLine := formatMCPNotification(msg)
-	if eventLine == "" {
+	if p.eventLogger == nil {
 		return
 	}
-	p.writeOutput(eventLine + "\n")
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+	p.eventLogger.Write(string(payload))
 }
 
 const mcpNotificationMaxLen = 512

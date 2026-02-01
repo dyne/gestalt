@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   appendOutputSegment,
   appendPromptSegment,
+  createPromptEchoSuppressor,
   historyToSegments,
 } from './segments.js'
 
@@ -43,5 +44,30 @@ describe('terminal segments', () => {
     expect(historyToSegments(['a', 'b'])).toEqual([
       { kind: 'output', text: 'a\nb' },
     ])
+  })
+
+  it('suppresses the first echoed command line', () => {
+    const suppressor = createPromptEchoSuppressor()
+    suppressor.markCommand('ls', 100)
+    expect(suppressor.filterChunk('ls\n', 120).output).toBe('')
+  })
+
+  it('suppresses prompt-prefixed echoes', () => {
+    const suppressor = createPromptEchoSuppressor()
+    suppressor.markCommand('pwd', 0)
+    expect(suppressor.filterChunk('> pwd\n', 1).output).toBe('')
+  })
+
+  it('passes through non-matching output', () => {
+    const suppressor = createPromptEchoSuppressor()
+    suppressor.markCommand('ls', 0)
+    expect(suppressor.filterChunk('lsa\n', 1).output).toBe('lsa\n')
+  })
+
+  it('suppresses echoed commands split across chunks', () => {
+    const suppressor = createPromptEchoSuppressor()
+    suppressor.markCommand('whoami', 0)
+    expect(suppressor.filterChunk('who', 1).output).toBe('')
+    expect(suppressor.filterChunk('ami\n', 2).output).toBe('')
   })
 })

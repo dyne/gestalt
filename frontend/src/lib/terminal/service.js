@@ -4,6 +4,7 @@ import { createTerminalSocket } from './socket.js'
 import {
   appendOutputSegment,
   appendPromptSegment,
+  createPromptEchoSuppressor,
   historyToSegments,
 } from './segments.js'
 
@@ -17,6 +18,7 @@ export const createTerminalService = ({ terminalId, historyCache }) => {
 
   const encoder = new TextEncoder()
   const cache = historyCache || new Map()
+  const echoSuppressor = createPromptEchoSuppressor()
   let socketManager
   let disposed = false
   let isVisible = false
@@ -29,6 +31,7 @@ export const createTerminalService = ({ terminalId, historyCache }) => {
 
   const sendCommand = (command) => {
     const payload = typeof command === 'string' ? command : ''
+    echoSuppressor.markCommand(payload)
     if (payload) {
       sendData(payload)
     }
@@ -40,7 +43,9 @@ export const createTerminalService = ({ terminalId, historyCache }) => {
   }
 
   const handleOutput = (chunk) => {
-    segments.update((current) => appendOutputSegment(current, chunk))
+    const { output } = echoSuppressor.filterChunk(chunk)
+    if (!output) return
+    segments.update((current) => appendOutputSegment(current, output))
   }
 
   const handleHistory = (lines) => {

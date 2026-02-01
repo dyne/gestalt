@@ -17,6 +17,7 @@
   let resizeStartHeight = 0
   let manualHeight = 0
   let commandStyle = ''
+  let hasOverflow = false
   const maxHeight = 240
   const historyLimit = 1000
 
@@ -56,6 +57,7 @@
     const limit = getMaxHeightLimit()
     textarea.style.height = 'auto'
     textarea.style.height = `${Math.min(textarea.scrollHeight, limit)}px`
+    hasOverflow = textarea.scrollHeight - textarea.clientHeight > 1
   }
 
   const getMaxHeightLimit = () => {
@@ -261,6 +263,7 @@
       id={`command-${terminalId}`}
       bind:this={textarea}
       bind:value
+      class:textarea--no-scroll={!hasOverflow}
       rows="3"
       placeholder="Type command... (One Enter sends, double Enter to run, Shift/Ctrl+Enter newline, Ctrl+Up/Down history)"
       on:input={resizeTextarea}
@@ -353,6 +356,15 @@
     line-height: 1.45;
     resize: none;
     outline: none;
+    overflow-y: auto;
+  }
+
+  textarea.textarea--no-scroll {
+    scrollbar-width: none;
+  }
+
+  textarea.textarea--no-scroll::-webkit-scrollbar {
+    display: none;
   }
 
   textarea:focus {

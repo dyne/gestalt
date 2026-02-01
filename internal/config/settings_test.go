@@ -54,6 +54,27 @@ func TestLoadSettingsFileOverridesDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadSettingsCodexEventLogging(t *testing.T) {
+	defaultsPayload, err := fs.ReadFile(gestalt.EmbeddedConfigFS, "config/gestalt.toml")
+	if err != nil {
+		t.Fatalf("read defaults: %v", err)
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gestalt.toml")
+	if err := os.WriteFile(path, []byte("[session]\nlog-codex-events = true\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	settings, err := LoadSettings(path, defaultsPayload, nil)
+	if err != nil {
+		t.Fatalf("load settings: %v", err)
+	}
+	if !settings.Session.LogCodexEvents {
+		t.Fatalf("expected log-codex-events true, got false")
+	}
+}
+
 func TestLoadSettingsSessionUIOverrides(t *testing.T) {
 	defaultsPayload, err := fs.ReadFile(gestalt.EmbeddedConfigFS, "config/gestalt.toml")
 	if err != nil {

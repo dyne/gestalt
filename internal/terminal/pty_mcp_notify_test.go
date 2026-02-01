@@ -58,7 +58,7 @@ func readOutputLine(t *testing.T, p Pty) string {
 
 func TestMCPPtyNotificationIdleOutput(testingContext *testing.T) {
 	basePty, _, serverOut := newPipePty()
-	mcp := newMCPPty(basePty, true)
+	mcp := newMCPPty(basePty, false)
 
 	sendMCPNotification(testingContext, serverOut, map[string]interface{}{
 		"jsonrpc": "2.0",
@@ -74,6 +74,33 @@ func TestMCPPtyNotificationIdleOutput(testingContext *testing.T) {
 	out := readOutputLine(testingContext, mcp)
 	if !strings.Contains(out, "[mcp codex/event] task_started: generating response") {
 		testingContext.Fatalf("expected notification output, got %q", out)
+	}
+
+	_ = mcp.Close()
+}
+
+func TestMCPPtyNotificationTruncatesParams(testingContext *testing.T) {
+	basePty, _, serverOut := newPipePty()
+	mcp := newMCPPty(basePty, false)
+
+	longText := strings.Repeat("a", 600)
+	sendMCPNotification(testingContext, serverOut, map[string]interface{}{
+		"jsonrpc": "2.0",
+		"method":  "initialized",
+		"params": map[string]interface{}{
+			"data": longText,
+		},
+	})
+
+	out := readOutputLine(testingContext, mcp)
+	if !strings.Contains(out, "[mcp initialized]") {
+		testingContext.Fatalf("expected notification prefix, got %q", out)
+	}
+	if strings.Contains(out, longText) {
+		testingContext.Fatalf("expected truncation, got %q", out)
+	}
+	if !strings.Contains(out, "\u2026") {
+		testingContext.Fatalf("expected truncation ellipsis, got %q", out)
 	}
 
 	_ = mcp.Close()

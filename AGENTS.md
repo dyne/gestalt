@@ -12,7 +12,7 @@ Use this as the minimum context to start any plan task.
   - `internal/skill`: skill metadata/loader, prompt XML.
   - `internal/watcher`: fsnotify watcher, event bus helpers, git branch monitoring.
   - `internal/logging`: structured logs + buffer.
-- Frontend: `frontend/src/App.svelte` tabs; `frontend/src/views/Dashboard.svelte` agents/sessions; `frontend/src/lib/terminalStore.js` xterm + WS; `frontend/src/lib/eventStore.js` `/ws/events`.
+- Frontend: `frontend/src/App.svelte` tabs; `frontend/src/views/Dashboard.svelte` agents/sessions; `frontend/src/lib/terminalStore.js` text stream + WS; `frontend/src/lib/eventStore.js` `/ws/events`.
 - CLI: `cmd/gestalt-send` pipes stdin to agent sessions over REST.
 
 ## Runtime flow (high level)
@@ -64,7 +64,7 @@ Use this as the minimum context to start any plan task.
 ```
 filesystem -> watcher_events -> /ws/events -> frontend eventStore -> UI
 agent/session/workflow/config -> Manager/handlers -> /api/*/events -> frontend stores -> UI
-terminal output -> Session output bus -> /ws/session/:id -> xterm
+terminal output -> Session output bus -> /ws/session/:id -> frontend text view
 ```
 - Testing: `internal/event/testing.go` helpers (`MockBus`, `EventCollector`, `ReceiveWithTimeout`, `MatchEvent`).
 
@@ -102,7 +102,7 @@ terminal output -> Session output bus -> /ws/session/:id -> xterm
 
 ## Frontend store simplification notes
 - Dashboard orchestration (agent/config/git event handling, config extraction counts, git context) lives in `frontend/src/lib/dashboardStore.js`; Dashboard view now just binds store state.
-- Terminal input helpers have direct tests in `frontend/src/lib/terminal/input.test.js`.
+- Terminal text stream behavior is covered by `frontend/src/lib/terminal/segments.test.js` and `frontend/src/components/TerminalTextView.test.js`.
 
 ## Plan UI notes
 - Plans are served via `/api/plans` (metadata + headings) from `.gestalt/plans/`; PlanView renders PlanCard details/summary and refreshes on file change events.

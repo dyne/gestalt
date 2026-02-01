@@ -86,5 +86,7 @@ the `tools/list` output schema exactly, so code should be defensive.
 ## Implications for Gestalt
 - Use NDJSON framing (newline-delimited JSON) for stdio MCP.
 - Expect `codex/event` notifications interleaved with `tools/call` results.
+- Surface MCP notifications in the session console as `[mcp <method>]` lines,
+  using best-effort `codex/event` msg parsing and truncating long params.
 - Treat `threadId` as the stable conversation handle.
 - Be tolerant of response shapes beyond the advertised output schema.

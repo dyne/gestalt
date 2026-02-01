@@ -5,8 +5,10 @@
   export let terminalId = ''
   export let historyStatus = 'idle'
   export let canReconnect = false
-  export let bellCount = 0
+  export let temporalUrl = ''
+  export let showBottomButton = false
   export let onReconnect = () => {}
+  export let onScrollToBottom = () => {}
   export let onRequestClose = () => {}
 </script>
 
@@ -35,10 +37,25 @@
       {/if}
     </div>
     <div class="header-actions">
-      <div class="bell" aria-live="polite">
-        <span>Bell</span>
-        <strong>{bellCount}</strong>
-      </div>
+      {#if temporalUrl}
+        <a
+          class="header-button"
+          href={temporalUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Temporal
+        </a>
+      {:else}
+        <button class="header-button header-button--disabled" type="button" disabled>
+          Temporal
+        </button>
+      {/if}
+      {#if showBottomButton}
+        <button class="header-button" type="button" on:click={onScrollToBottom}>
+          Bottom
+        </button>
+      {/if}
       <button class="terminal-close" type="button" on:click={onRequestClose}>
         Close
       </button>
@@ -155,21 +172,30 @@
     justify-self: end;
   }
 
-  .bell {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    padding: 0.4rem 0.9rem;
+  .header-button {
+    border: 1px solid rgba(var(--color-text-rgb), 0.18);
     border-radius: 999px;
+    padding: 0.4rem 0.9rem;
     background: rgba(var(--color-text-rgb), 0.08);
     color: rgba(var(--color-text-rgb), 0.9);
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     text-transform: uppercase;
     letter-spacing: 0.12em;
+    cursor: pointer;
+    white-space: nowrap;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
   }
 
-  .bell strong {
-    font-size: 0.9rem;
+  .header-button:hover {
+    background: rgba(var(--color-text-rgb), 0.16);
+  }
+
+  .header-button--disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
   }
 
   .terminal-close {

@@ -1,5 +1,8 @@
 <script>
+  import { onMount } from 'svelte'
   import Terminal from '../components/Terminal.svelte'
+  import { fetchStatus, fetchWorkflows } from '../lib/apiClient.js'
+  import { buildTemporalUrl } from '../lib/workflowFormat.js'
 
   export let terminalId = ''
   export let title = ''
@@ -9,6 +12,43 @@
 
   let closeDialog
   let confirmButton
+  let temporalUiUrl = ''
+  let workflowId = ''
+  let workflowRunId = ''
+  let temporalUrl = ''
+  let lastTerminalId = ''
+  let loadId = 0
+
+  const resetWorkflowContext = () => {
+    temporalUiUrl = ''
+    workflowId = ''
+    workflowRunId = ''
+  }
+
+  const loadWorkflowContext = async (sessionId) => {
+    if (!sessionId) {
+      resetWorkflowContext()
+      return
+    }
+    const currentLoad = (loadId += 1)
+    try {
+      const [nextStatus, workflows] = await Promise.all([
+        fetchStatus(),
+        fetchWorkflows(),
+      ])
+      if (currentLoad !== loadId) return
+      temporalUiUrl = nextStatus?.temporal_ui_url || ''
+      const match = Array.isArray(workflows)
+        ? workflows.find((workflow) => String(workflow?.session_id || '') === String(sessionId))
+        : null
+      workflowId = match?.workflow_id || ''
+      workflowRunId = match?.workflow_run_id || ''
+    } catch (err) {
+      if (currentLoad !== loadId) return
+      console.warn('failed to load workflow context', err)
+      resetWorkflowContext()
+    }
+  }
 
   const openCloseDialog = () => {
     if (!closeDialog || closeDialog.open) return
@@ -25,11 +65,35 @@
   const cancelClose = () => {
     closeDialog?.close()
   }
+
+  $: if (terminalId && terminalId !== lastTerminalId) {
+    lastTerminalId = terminalId
+    loadWorkflowContext(terminalId)
+  } else if (!terminalId && lastTerminalId) {
+    lastTerminalId = ''
+    resetWorkflowContext()
+  }
+
+  $: temporalUrl = buildTemporalUrl(workflowId, workflowRunId, temporalUiUrl)
+
+  onMount(() => {
+    if (terminalId) {
+      lastTerminalId = terminalId
+      loadWorkflowContext(terminalId)
+    }
+  })
 </script>
 
 <section class="terminal-view">
   {#if terminalId}
-    <Terminal {terminalId} {title} {promptFiles} {visible} onRequestClose={openCloseDialog} />
+    <Terminal
+      {terminalId}
+      {title}
+      {promptFiles}
+      {visible}
+      {temporalUrl}
+      onRequestClose={openCloseDialog}
+    />
     <dialog id="close-confirm-dialog" class="close-dialog" bind:this={closeDialog}>
       <h2>Close Session?</h2>
       <p>This will stop the session. Any unsaved work will be lost.</p>

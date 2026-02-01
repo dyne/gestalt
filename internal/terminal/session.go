@@ -15,6 +15,7 @@ import (
 	"gestalt/internal/agent"
 	"gestalt/internal/event"
 	"gestalt/internal/otel"
+	"gestalt/internal/process"
 	"gestalt/internal/temporal"
 	"gestalt/internal/temporal/workflows"
 
@@ -80,6 +81,7 @@ type SessionIO struct {
 	cmd             *exec.Cmd
 	pid             int
 	pgid            int
+	processRegistry *process.Registry
 	outputBus       *event.Bus[[]byte]
 	outputBuffer    *OutputBuffer
 	logger          *SessionLogger
@@ -550,6 +552,13 @@ func (s *Session) LogPath() string {
 	return s.logger.Path()
 }
 
+func (s *Session) setProcessRegistry(registry *process.Registry) {
+	if s == nil {
+		return
+	}
+	s.processRegistry = registry
+}
+
 func (s *Session) Close() error {
 	s.closing.Do(func() {
 		s.setState(sessionStateClosing)
@@ -585,6 +594,9 @@ func (s *Session) closeResources() error {
 	if s.cmd != nil && s.cmd.Process != nil {
 		if err := terminateProcessTree(s.cmd, s.pid, s.pgid, sessionProcessShutdownTimeout); err != nil {
 			errs = append(errs, fmt.Errorf("terminate process: %w", err))
+		}
+		if s.processRegistry != nil && s.pid > 0 {
+			s.processRegistry.Unregister(s.pid)
 		}
 	}
 	if s.inputLog != nil {

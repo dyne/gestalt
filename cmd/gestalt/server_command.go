@@ -28,6 +28,7 @@ import (
 	"gestalt/internal/logging"
 	"gestalt/internal/otel"
 	"gestalt/internal/ports"
+	"gestalt/internal/process"
 	"gestalt/internal/prompt"
 	"gestalt/internal/temporal"
 	temporalworker "gestalt/internal/temporal/worker"
@@ -82,6 +83,12 @@ func runServer(args []string) int {
 	var stopOTelFallback func(context.Context) error
 	var stopWatcher func(context.Context) error
 	var stopEventBus func(context.Context) error
+	var stopProcessRegistry func(context.Context) error
+
+	processRegistry := process.NewRegistry()
+	stopProcessRegistry = func(ctx context.Context) error {
+		return processRegistry.StopAll(ctx)
+	}
 
 	portRegistry := ports.NewPortRegistry()
 	collectorOptions := otel.OptionsFromEnv(".gestalt")
@@ -129,6 +136,10 @@ func runServer(args []string) int {
 		collector.StartSupervision(shutdownCtx)
 		if port, ok := parseEndpointPort(collectorOptions.HTTPEndpoint); ok {
 			portRegistry.Set("otel", port)
+		}
+		status := otel.CollectorStatusSnapshot()
+		if status.PID > 0 {
+			processRegistry.Register(status.PID, process.GroupID(status.PID), "otel-collector")
 		}
 		stopOTelCollector = func(context.Context) error {
 			return otel.StopCollectorWithTimeout(collector, httpServerShutdownTimeout)
@@ -184,6 +195,10 @@ func runServer(args []string) int {
 		portRegistry.Set("temporal", cfg.TemporalUIPort)
 	}
 	if temporalDevServer != nil {
+		status := temporal.DevServerStatusSnapshot()
+		if status.PID > 0 {
+			processRegistry.Register(status.PID, process.GroupID(status.PID), "temporal-dev-server")
+		}
 		stopTemporalDevServer = func(context.Context) error {
 			temporalDevServer.Stop(logger)
 			return nil
@@ -272,6 +287,7 @@ func runServer(args []string) int {
 		ConfigOverlay:        configOverlay,
 		ConfigRoot:           configPaths.SubDir,
 		AgentsDir:            filepath.Join(configPaths.ConfigDir, "agents"),
+		ProcessRegistry:      processRegistry,
 		TemporalClient:       temporalClient,
 		TemporalEnabled:      temporalEnabled,
 		SessionLogDir:        cfg.SessionLogDir,
@@ -489,6 +505,7 @@ func runServer(args []string) int {
 	shutdownCoordinator.Add("temporal-dev-server", stopTemporalDevServer)
 	shutdownCoordinator.Add("fs-watcher", stopWatcher)
 	shutdownCoordinator.Add("event-bus", stopEventBus)
+	shutdownCoordinator.Add("process-registry", stopProcessRegistry)
 
 	signalCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()

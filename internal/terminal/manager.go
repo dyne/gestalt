@@ -20,6 +20,7 @@ import (
 	"gestalt/internal/event"
 	"gestalt/internal/logging"
 	"gestalt/internal/ports"
+	"gestalt/internal/process"
 	"gestalt/internal/prompt"
 	"gestalt/internal/skill"
 	"gestalt/internal/temporal"
@@ -41,6 +42,7 @@ func (e *AgentAlreadyRunningError) Error() string {
 type ManagerOptions struct {
 	Shell                string
 	PtyFactory           PtyFactory
+	ProcessRegistry      *process.Registry
 	BufferLines          int
 	Clock                Clock
 	Agents               map[string]agent.Agent
@@ -93,6 +95,7 @@ type Manager struct {
 	promptFS        fs.FS
 	promptDir       string
 	promptParser    *prompt.Parser
+	processRegistry *process.Registry
 }
 
 type sessionCreateRequest struct {
@@ -210,6 +213,10 @@ func NewManager(opts ManagerOptions) *Manager {
 		historyScanMax = 0
 	}
 	outputPolicy, outputSample := resolveOutputPolicy(opts.TUIMode, opts.TUISnapshotInterval)
+	registry := opts.ProcessRegistry
+	if registry == nil {
+		registry = process.NewRegistry()
+	}
 
 	promptFS := opts.PromptFS
 	promptDir := strings.TrimSpace(opts.PromptDir)
@@ -271,10 +278,12 @@ func NewManager(opts ManagerOptions) *Manager {
 		promptFS:        promptFS,
 		promptDir:       promptDir,
 		promptParser:    promptParser,
+		processRegistry: registry,
 	}
 	manager.sessionFactory = NewSessionFactory(SessionFactoryOptions{
 		Clock:           clock,
 		PtyFactory:      factory,
+		ProcessRegistry: registry,
 		SessionLogDir:   sessionLogs,
 		InputHistoryDir: inputHistoryDir,
 		BufferLines:     bufferLines,
@@ -296,6 +305,13 @@ func (m *Manager) Create(agentID, role, title string) (*Session, error) {
 		Role:    role,
 		Title:   title,
 	})
+}
+
+func (m *Manager) ProcessRegistry() *process.Registry {
+	if m == nil {
+		return nil
+	}
+	return m.processRegistry
 }
 
 func (m *Manager) CreateWithOptions(options CreateOptions) (*Session, error) {

@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte'
+  import { onDestroy, onMount } from 'svelte'
 
   import { logUI } from '../lib/clientLog.js'
   import { createCommandHistory } from '../lib/commandHistory.js'
@@ -12,6 +12,11 @@
 
   let value = ''
   let textarea
+  let isResizing = false
+  let resizeStartY = 0
+  let resizeStartHeight = 0
+  let manualHeight = 0
+  let commandStyle = ''
   const maxHeight = 240
   const historyLimit = 1000
 
@@ -48,8 +53,70 @@
 
   const resizeTextarea = () => {
     if (!textarea) return
+    const limit = getMaxHeightLimit()
     textarea.style.height = 'auto'
-    textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`
+    textarea.style.height = `${Math.min(textarea.scrollHeight, limit)}px`
+  }
+
+  const getMaxHeightLimit = () => {
+    if (!textarea) return maxHeight
+    const computed = getComputedStyle(textarea)
+    const maxValue = Number.parseFloat(computed.maxHeight)
+    if (Number.isFinite(maxValue) && maxValue > 0) {
+      return maxValue
+    }
+    return maxHeight
+  }
+
+  const getMinHeightLimit = () => {
+    if (!textarea) return 64
+    const computed = getComputedStyle(textarea)
+    const lineHeight = Number.parseFloat(computed.lineHeight) || 20
+    const paddingTop = Number.parseFloat(computed.paddingTop) || 0
+    const paddingBottom = Number.parseFloat(computed.paddingBottom) || 0
+    return Math.ceil(lineHeight * 2 + paddingTop + paddingBottom)
+  }
+
+  const getMaxDragHeight = () => {
+    if (typeof window === 'undefined') return maxHeight
+    return Math.max(getMinHeightLimit(), window.innerHeight * 0.5)
+  }
+
+  const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
+
+  const stopResize = () => {
+    if (!isResizing) return
+    isResizing = false
+    if (typeof window === 'undefined') return
+    window.removeEventListener('pointermove', handleResizeMove)
+    window.removeEventListener('pointerup', stopResize)
+    window.removeEventListener('pointercancel', stopResize)
+  }
+
+  const handleResizeMove = (event) => {
+    if (!isResizing) return
+    const delta = resizeStartY - event.clientY
+    const minHeight = getMinHeightLimit()
+    const maxHeightLimit = getMaxDragHeight()
+    manualHeight = clamp(resizeStartHeight + delta, minHeight, maxHeightLimit)
+    resizeTextarea()
+  }
+
+  const startResize = (event) => {
+    if (disabled) return
+    if (event.button !== 0 && event.pointerType !== 'touch') return
+    event.preventDefault()
+    const minHeight = getMinHeightLimit()
+    const maxHeightLimit = getMaxDragHeight()
+    const currentHeight = textarea?.getBoundingClientRect().height || minHeight
+    resizeStartY = event.clientY
+    resizeStartHeight = clamp(currentHeight, minHeight, maxHeightLimit)
+    manualHeight = resizeStartHeight
+    isResizing = true
+    if (typeof window === 'undefined') return
+    window.addEventListener('pointermove', handleResizeMove)
+    window.addEventListener('pointerup', stopResize)
+    window.addEventListener('pointercancel', stopResize)
   }
 
   const submit = () => {
@@ -163,12 +230,31 @@
     textarea?.focus()
   })
 
+  onDestroy(() => {
+    stopResize()
+  })
+
   $: if (terminalId) {
     history.load(terminalId)
   }
+
+  $: commandStyle = manualHeight
+    ? `--command-input-height: ${manualHeight}px;`
+    : ''
 </script>
 
-<div class="command-input">
+<div
+  class="command-input"
+  class:command-input--resizing={isResizing}
+  style={commandStyle}
+>
+  <div
+    class="command-input__resize"
+    role="separator"
+    aria-label="Resize command input"
+    aria-orientation="horizontal"
+    on:pointerdown={startResize}
+  ></div>
   <label class="sr-only" for={`command-${terminalId}`}>Command input</label>
   <div class="command-input__row">
     <textarea
@@ -209,6 +295,28 @@
     box-shadow: 0 -12px 24px rgba(var(--shadow-color-rgb), 0.35);
   }
 
+  .command-input--resizing {
+    user-select: none;
+  }
+
+  .command-input__resize {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 6px;
+    cursor: row-resize;
+    touch-action: none;
+  }
+
+  .command-input__resize::after {
+    content: '';
+    position: absolute;
+    inset: 2px 30%;
+    border-radius: 999px;
+    background: rgba(var(--terminal-border-rgb), 0.5);
+  }
+
   .command-input__row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
@@ -234,7 +342,7 @@
     width: 100%;
     min-width: 0;
     min-height: 4.8rem;
-    max-height: 15rem;
+    max-height: var(--command-input-height, 15rem);
     padding: 0.75rem 0.85rem;
     border-radius: 12px;
     border: 1px solid rgba(var(--terminal-border-rgb), 0.2);
@@ -243,7 +351,7 @@
     font-family: '"IBM Plex Mono", "JetBrains Mono", monospace';
     font-size: 0.95rem;
     line-height: 1.45;
-    resize: vertical;
+    resize: none;
     outline: none;
   }
 

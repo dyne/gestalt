@@ -179,7 +179,5 @@
     bind:this={commandInput}
     onSubmit={handleSubmit}
     disabled={inputDisabled}
-    showScrollButton={!atBottom}
-    onScrollToBottom={handleScrollToBottom}
   />
 </TerminalShell>

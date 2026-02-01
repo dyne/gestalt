@@ -54,6 +54,7 @@ type ManagerOptions struct {
 	SessionRetentionDays int
 	SessionLogMaxBytes   int64
 	HistoryScanMaxBytes  int64
+	LogCodexEvents       bool
 	TUIMode              string
 	TUISnapshotInterval  time.Duration
 	PromptFS             fs.FS
@@ -279,6 +280,7 @@ func NewManager(opts ManagerOptions) *Manager {
 		BufferLines:     bufferLines,
 		SessionLogMax:   opts.SessionLogMaxBytes,
 		HistoryScanMax:  historyScanMax,
+		LogCodexEvents:  opts.LogCodexEvents,
 		OutputPolicy:    outputPolicy,
 		OutputSample:    outputSample,
 		Logger:          logger,

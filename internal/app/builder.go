@@ -31,6 +31,7 @@ type BuildOptions struct {
 	BufferLines          int
 	SessionLogMaxBytes   int64
 	HistoryScanMaxBytes  int64
+	LogCodexEvents       bool
 	TUIMode              string
 	TUISnapshotInterval  time.Duration
 	PortResolver         ports.PortResolver
@@ -103,6 +104,7 @@ func Build(options BuildOptions) (*BuildResult, error) {
 		BufferLines:          options.BufferLines,
 		SessionLogMaxBytes:   options.SessionLogMaxBytes,
 		HistoryScanMaxBytes:  options.HistoryScanMaxBytes,
+		LogCodexEvents:       options.LogCodexEvents,
 		TUIMode:              options.TUIMode,
 		TUISnapshotInterval:  options.TUISnapshotInterval,
 		PromptFS:             configOverlay,

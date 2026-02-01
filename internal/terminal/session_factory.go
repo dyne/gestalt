@@ -20,6 +20,7 @@ type SessionFactoryOptions struct {
 	BufferLines     int
 	SessionLogMax   int64
 	HistoryScanMax  int64
+	LogCodexEvents bool
 	OutputPolicy    OutputBackpressurePolicy
 	OutputSample    uint64
 	Logger          *logging.Logger
@@ -34,6 +35,7 @@ type SessionFactory struct {
 	bufferLines     int
 	sessionLogMax   int64
 	historyScanMax  int64
+	logCodexEvents bool
 	outputPolicy    OutputBackpressurePolicy
 	outputSample    uint64
 	logger          *logging.Logger
@@ -64,6 +66,7 @@ func NewSessionFactory(options SessionFactoryOptions) *SessionFactory {
 		bufferLines:     bufferLines,
 		sessionLogMax:   options.SessionLogMax,
 		historyScanMax:  options.HistoryScanMax,
+		logCodexEvents:  options.LogCodexEvents,
 		outputPolicy:    options.OutputPolicy,
 		outputSample:    options.OutputSample,
 		logger:          options.Logger,
@@ -115,10 +118,32 @@ func (f *SessionFactory) Start(request sessionCreateRequest, profile *agent.Agen
 	}
 
 	if mcp, ok := pty.(*mcpPty); ok {
+		if f.logCodexEvents {
+			if eventLogger := f.createMCPEventLogger(id, createdAt); eventLogger != nil {
+				mcp.SetEventLogger(eventLogger)
+			}
+		}
 		attachMCPTurnHandler(session, mcp, f.logger)
 	}
 
 	return session, id, nil
+}
+
+func (f *SessionFactory) createMCPEventLogger(id string, createdAt time.Time) *mcpEventLogger {
+	if f.sessionLogDir == "" {
+		return nil
+	}
+	logger, err := newMCPEventLogger(f.sessionLogDir, id, createdAt)
+	if err != nil {
+		if f.logger != nil {
+			f.logger.Warn("mcp event log unavailable", map[string]string{
+				"terminal_id": id,
+				"error":       err.Error(),
+			})
+		}
+		return nil
+	}
+	return logger
 }
 
 func attachMCPTurnHandler(session *Session, pty *mcpPty, logger *logging.Logger) {

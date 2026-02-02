@@ -1,3 +1,23 @@
+# [1.4.0](https://github.com/dyne/gestalt/compare/v1.3.1...v1.4.0) (2026-02-02)
+
+
+### Features
+
+* add conffile decision table ([e440d29](https://github.com/dyne/gestalt/commit/e440d29a3f8b50a148f57abaee5e3a30332d7608))
+* add conffile prompt UI ([154fd1f](https://github.com/dyne/gestalt/commit/154fd1f11b045cf5bfaba905ef0bb15efdbbc655))
+* add config overrides env ([cfb3103](https://github.com/dyne/gestalt/commit/cfb310368677d36fc0e41e271e67c430bba34f00))
+* add config overrides flag ([21a1bb1](https://github.com/dyne/gestalt/commit/21a1bb1b5b8b09acaa5c9c699933ac48f4cce256))
+* add gestalt.toml defaults ([40087d5](https://github.com/dyne/gestalt/commit/40087d5496963b9376ab8e5d27e692189ea9b6b3))
+* add toml key store ([6ecb106](https://github.com/dyne/gestalt/commit/6ecb106451be67073d91416243b812a1d7c7d215))
+* default conffile keep in non-tty ([81e53fd](https://github.com/dyne/gestalt/commit/81e53fd63b08e757746d18a0bd2e7c471b457978))
+* load gestalt.toml path ([026714d](https://github.com/dyne/gestalt/commit/026714d01a31e1651a3301ca5a4f5629560eb222))
+* save gestalt toml defaults ([19f62d7](https://github.com/dyne/gestalt/commit/19f62d7f69f0f7f20bb5975723dbc0b0cec7ebfb))
+* serialize interactive config extraction ([8879346](https://github.com/dyne/gestalt/commit/88793467c9dc4ce2759875748c5a35a93940569c))
+* share toml parsing ([c04fa68](https://github.com/dyne/gestalt/commit/c04fa68d1faf993c00eac8a403bb5b9e8e041484))
+* track config baseline manifest ([7ff5421](https://github.com/dyne/gestalt/commit/7ff54217929f3576610667db1d6899a066453cf3))
+* wire gestalt settings into runtime limits ([1179fde](https://github.com/dyne/gestalt/commit/1179fde485ec982dbdb89d4436f99aa7124ef3d0))
+* write dist sidecars on keep ([7253cb5](https://github.com/dyne/gestalt/commit/7253cb57474f18398806a2828930927ea0753a51))
+
 ## [1.3.1](https://github.com/dyne/gestalt/compare/v1.3.0...v1.3.1) (2026-01-31)
 
 

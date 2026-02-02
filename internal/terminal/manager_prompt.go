@@ -62,7 +62,7 @@ func (m *Manager) startPromptInjection(session *Session, agentID string, profile
 				}
 			}
 			for i, promptName := range cleaned {
-				data, files, err := m.readPromptFile(promptName)
+				data, files, err := m.readPromptFile(promptName, session.ID)
 				if err != nil {
 					m.logger.Warn("agent prompt file read failed", map[string]string{
 						"agent_id": agentID,

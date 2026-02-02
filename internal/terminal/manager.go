@@ -550,11 +550,11 @@ func renderOutputTail(logger *logging.Logger, lines []string, maxLines, maxBytes
 	return "..." + joined[len(joined)-(maxBytes-3):]
 }
 
-func (m *Manager) readPromptFile(promptName string) ([]byte, []string, error) {
+func (m *Manager) readPromptFile(promptName, sessionID string) ([]byte, []string, error) {
 	if m.promptParser == nil {
 		return nil, nil, errors.New("prompt parser unavailable")
 	}
-	result, err := m.promptParser.Render(promptName)
+	result, err := m.promptParser.RenderWithContext(promptName, prompt.RenderContext{SessionID: sessionID})
 	if err != nil {
 		return nil, nil, err
 	}

@@ -836,6 +836,82 @@ func TestManagerInjectsPrompt(t *testing.T) {
 	}
 }
 
+func TestManagerInjectsPromptSessionID(t *testing.T) {
+	root := t.TempDir()
+	promptsDir := filepath.Join(root, "config", "prompts")
+	if err := os.MkdirAll(promptsDir, 0755); err != nil {
+		t.Fatalf("mkdir prompts: %v", err)
+	}
+	promptPath := filepath.Join(promptsDir, "session.txt")
+	if err := os.WriteFile(promptPath, []byte("echo start\nSession={{session id}}\necho end\n"), 0644); err != nil {
+		t.Fatalf("write prompt: %v", err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("restore cwd: %v", err)
+		}
+	}()
+
+	factory := &captureFactory{}
+	manager := NewManager(ManagerOptions{
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:    "Codex",
+				Shell:   "/bin/bash",
+				Prompts: agent.PromptList{"session"},
+				CLIType: "codex",
+			},
+		},
+	})
+
+	session, err := manager.Create("codex", "build", "ignored")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(session.ID)
+	}()
+
+	deadline := time.Now().Add(6 * time.Second)
+	expectedPrefix := "echo start\nSession=" + session.ID + "\necho end\n"
+	promptDone := false
+	for time.Now().Before(deadline) {
+		factory.pty.mu.Lock()
+		writes := append([][]byte(nil), factory.pty.writes...)
+		factory.pty.mu.Unlock()
+		if len(writes) > 0 {
+			payload := ""
+			for _, chunk := range writes {
+				payload += string(chunk)
+			}
+			if len(payload) >= len(expectedPrefix) && !strings.HasPrefix(payload, expectedPrefix) {
+				t.Fatalf("prompt payload mismatch: %q", payload)
+			}
+			if !strings.HasSuffix(payload, "\r\n") {
+				time.Sleep(10 * time.Millisecond)
+				continue
+			}
+			promptDone = true
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !promptDone {
+		t.Fatalf("timed out waiting for prompt write")
+	}
+	if len(session.PromptFiles) != 1 || session.PromptFiles[0] != "session.txt" {
+		t.Fatalf("unexpected prompt files: %#v", session.PromptFiles)
+	}
+}
+
 func TestManagerInjectsTemplatePrompt(t *testing.T) {
 	root := t.TempDir()
 	promptsDir := filepath.Join(root, "config", "prompts")

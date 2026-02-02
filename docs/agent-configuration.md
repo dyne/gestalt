@@ -32,6 +32,13 @@ Any additional top-level keys (outside the base fields) are treated as CLI confi
   - Inline unresolved directives render as empty strings, preserving the rest of the line.
   - Escape a directive with `\{{...}}` to render it literally.
   - Standalone tooling may not provide a session ID; inline `{{session id}}` renders empty in that case.
+
+Example prompt snippet:
+
+```text
+Session={{session id}}
+Backend=http://localhost:{{port backend}}
+```
 - Port directive mapping in standalone mode:
   - `frontend`: `GESTALT_PORT` or `57417`
   - `backend`: `GESTALT_BACKEND_PORT` or `frontend`

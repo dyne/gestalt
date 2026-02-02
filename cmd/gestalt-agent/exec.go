@@ -18,7 +18,7 @@ func buildCodexArgs(config map[string]interface{}, developerPrompt string) []str
 		if entry.Key == "" {
 			continue
 		}
-		if entry.Key == "developer_prompt" {
+		if entry.Key == "developer_instructions" {
 			continue
 		}
 		if entry.Key == "notify" {
@@ -29,7 +29,7 @@ func buildCodexArgs(config map[string]interface{}, developerPrompt string) []str
 		value := shellgen.FormatValue(entry.Value)
 		args = append(args, "-c", fmt.Sprintf("%s=%s", entry.Key, value))
 	}
-	args = append(args, "-c", fmt.Sprintf("developer_prompt=%s", developerPrompt))
+	args = append(args, "-c", fmt.Sprintf("developer_instructions=%s", developerPrompt))
 	return args
 }
 
@@ -60,7 +60,7 @@ func formatCodexCommand(args []string) string {
 			entry := args[i+1]
 			i++
 			key, value, ok := strings.Cut(entry, "=")
-			if ok && key == "developer_prompt" {
+			if ok && key == "developer_instructions" {
 				entry = fmt.Sprintf(`%s="%s"`, key, escapeDeveloperPrompt(value))
 				parts = append(parts, "-c", entry)
 				continue

@@ -9,23 +9,23 @@ func TestBuildCodexArgsPreservesPrompt(t *testing.T) {
 	config := map[string]interface{}{
 		"model":            "gpt-4",
 		"notify":           "bell",
-		"developer_prompt": "old",
+		"developer_instructions": "old",
 	}
 	prompt := "line1\n\"quote\"\n"
 	args := buildCodexArgs(config, prompt)
 
-	value, count := findArgValue(args, "developer_prompt")
+	value, count := findArgValue(args, "developer_instructions")
 	if count != 1 {
-		t.Fatalf("expected one developer_prompt arg, got %d", count)
+		t.Fatalf("expected one developer_instructions arg, got %d", count)
 	}
 	if value != prompt {
-		t.Fatalf("unexpected developer_prompt value: %q", value)
+		t.Fatalf("unexpected developer_instructions value: %q", value)
 	}
 	if strings.Contains(value, "\\n") {
 		t.Fatalf("expected literal newlines, got escaped value %q", value)
 	}
 	if strings.HasPrefix(value, "'") || strings.HasSuffix(value, "'") {
-		t.Fatalf("unexpected shell quoting in developer_prompt: %q", value)
+		t.Fatalf("unexpected shell quoting in developer_instructions: %q", value)
 	}
 
 	notify, _ := findArgValue(args, "notify")

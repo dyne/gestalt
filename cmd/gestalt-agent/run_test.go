@@ -132,8 +132,8 @@ func TestRunDryRunPrintsCommand(t *testing.T) {
 		if !strings.Contains(output, "codex") {
 			t.Fatalf("expected command output, got %q", output)
 		}
-		if !strings.Contains(output, `developer_prompt=""`) {
-			t.Fatalf("expected developer_prompt in output, got %q", output)
+		if !strings.Contains(output, `developer_instructions=""`) {
+			t.Fatalf("expected developer_instructions in output, got %q", output)
 		}
 	})
 }

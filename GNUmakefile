@@ -79,7 +79,7 @@ clean:
 	go clean -cache
 	rm -rf frontend/dist
 	rm -rf .cache
-	rm -rf gestalt gestalt-send gestalt-notify gestalt-otel
+	rm -rf gestalt gestalt-*
 
 release: frontend/dist $(CONFIG_MANIFEST) $(VERSION_INFO)
 	@mkdir -p $(DIST)

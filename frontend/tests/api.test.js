@@ -8,24 +8,30 @@ const mockFetch = (response) => {
 }
 
 const ensureLocalStorage = () => {
-  if (
-    !globalThis.localStorage ||
-    typeof globalThis.localStorage.setItem !== 'function'
-  ) {
-    const store = new Map()
-    vi.stubGlobal('localStorage', {
-      getItem: (key) => (store.has(key) ? store.get(key) : null),
-      setItem: (key, value) => {
-        store.set(key, String(value))
-      },
-      removeItem: (key) => {
-        store.delete(key)
-      },
-      clear: () => {
-        store.clear()
-      },
-    })
+  let needsStub = true
+  try {
+    needsStub =
+      !globalThis.localStorage ||
+      typeof globalThis.localStorage.setItem !== 'function'
+  } catch {
+    needsStub = true
   }
+  if (!needsStub) {
+    return
+  }
+  const store = new Map()
+  vi.stubGlobal('localStorage', {
+    getItem: (key) => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => {
+      store.set(key, String(value))
+    },
+    removeItem: (key) => {
+      store.delete(key)
+    },
+    clear: () => {
+      store.clear()
+    },
+  })
 }
 
 describe('api helpers', () => {

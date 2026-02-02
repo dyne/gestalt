@@ -19,11 +19,21 @@ const maxIncludeDepth = 3
 
 var errBinaryInclude = errors.New("include file is binary")
 
+const (
+	directiveInclude   = "include"
+	directivePort      = "port"
+	directiveSessionID = "session-id"
+)
+
 type Parser struct {
 	promptFS     fs.FS
 	promptDir    string
 	includeRoot  string
 	portResolver ports.PortResolver
+}
+
+type RenderContext struct {
+	SessionID string
 }
 
 type RenderResult struct {
@@ -45,17 +55,21 @@ func NewParser(promptFS fs.FS, promptDir, includeRoot string, resolver ports.Por
 }
 
 func (p *Parser) Render(promptName string) (*RenderResult, error) {
+	return p.RenderWithContext(promptName, RenderContext{})
+}
+
+func (p *Parser) RenderWithContext(promptName string, ctx RenderContext) (*RenderResult, error) {
 	promptName = strings.TrimSpace(promptName)
 	if promptName == "" {
 		return nil, errors.New("prompt name is required")
 	}
 	seen := make(map[string]struct{})
-	return p.renderPrompt(promptName, nil, seen)
+	return p.renderPrompt(promptName, ctx, nil, seen)
 }
 
-func (p *Parser) renderPrompt(promptName string, stack []string, seen map[string]struct{}) (*RenderResult, error) {
+func (p *Parser) renderPrompt(promptName string, ctx RenderContext, stack []string, seen map[string]struct{}) (*RenderResult, error) {
 	candidates := promptCandidates(promptName)
-	result, found, err := p.renderFromCandidates(candidates, stack, seen)
+	result, found, err := p.renderFromCandidates(candidates, ctx, stack, seen)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +79,7 @@ func (p *Parser) renderPrompt(promptName string, stack []string, seen map[string
 	return result, nil
 }
 
-func (p *Parser) renderInclude(includeName string, stack []string, seen map[string]struct{}) (*RenderResult, bool, error) {
+func (p *Parser) renderInclude(includeName string, ctx RenderContext, stack []string, seen map[string]struct{}) (*RenderResult, bool, error) {
 	trimmed := strings.TrimSpace(includeName)
 	if trimmed == "" {
 		return nil, false, nil
@@ -82,7 +96,7 @@ func (p *Parser) renderInclude(includeName string, stack []string, seen map[stri
 			}
 			return nil, false, err
 		}
-		result, err := p.renderFile(p.workdirKey(cleaned), cleaned, data, stack, seen)
+		result, err := p.renderFile(p.workdirKey(cleaned), cleaned, data, ctx, stack, seen)
 		if err != nil {
 			return nil, false, err
 		}
@@ -101,7 +115,7 @@ func (p *Parser) renderInclude(includeName string, stack []string, seen map[stri
 			}
 			return nil, false, err
 		}
-		result, err := p.renderFile(key, cleaned, data, stack, seen)
+		result, err := p.renderFile(key, cleaned, data, ctx, stack, seen)
 		if err != nil {
 			return nil, false, err
 		}
@@ -110,7 +124,7 @@ func (p *Parser) renderInclude(includeName string, stack []string, seen map[stri
 	return nil, false, nil
 }
 
-func (p *Parser) renderFromCandidates(candidates []string, stack []string, seen map[string]struct{}) (*RenderResult, bool, error) {
+func (p *Parser) renderFromCandidates(candidates []string, ctx RenderContext, stack []string, seen map[string]struct{}) (*RenderResult, bool, error) {
 	for _, candidate := range candidates {
 		candidate = strings.TrimSpace(candidate)
 		if candidate == "" {
@@ -123,7 +137,7 @@ func (p *Parser) renderFromCandidates(candidates []string, stack []string, seen 
 			}
 			return nil, false, err
 		}
-		result, err := p.renderFile(key, candidate, data, stack, seen)
+		result, err := p.renderFile(key, candidate, data, ctx, stack, seen)
 		if err != nil {
 			return nil, false, err
 		}
@@ -132,7 +146,7 @@ func (p *Parser) renderFromCandidates(candidates []string, stack []string, seen 
 	return nil, false, nil
 }
 
-func (p *Parser) renderFile(key, filename string, data []byte, stack []string, seen map[string]struct{}) (*RenderResult, error) {
+func (p *Parser) renderFile(key, filename string, data []byte, ctx RenderContext, stack []string, seen map[string]struct{}) (*RenderResult, error) {
 	updatedStack, err := pushStack(key, stack)
 	if err != nil {
 		return nil, err
@@ -151,23 +165,38 @@ func (p *Parser) renderFile(key, filename string, data []byte, stack []string, s
 			return nil, readErr
 		}
 		if line != "" {
-			if includeName, ok := parseIncludeDirective(line); ok {
-				includeResult, found, includeErr := p.renderInclude(includeName, updatedStack, seen)
-				if includeErr != nil {
-					return nil, includeErr
-				}
-				if found {
-					output.Write(includeResult.Content)
-					files = append(files, includeResult.Files...)
-				}
-			} else if service, ok := parsePortDirective(line); ok {
-				if p.portResolver == nil {
-					// Port directives are skipped silently when no resolver is available.
-				} else if port, found := p.portResolver.Get(service); found {
-					output.WriteString(fmt.Sprintf("%d\n", port))
+			if kind, value, ok := parseLineDirective(line); ok {
+				switch kind {
+				case directiveInclude:
+					includeResult, found, includeErr := p.renderInclude(value, ctx, updatedStack, seen)
+					if includeErr != nil {
+						return nil, includeErr
+					}
+					if found {
+						output.Write(includeResult.Content)
+						files = append(files, includeResult.Files...)
+					}
+				case directivePort:
+					if p.portResolver == nil {
+						// Port directives are skipped silently when no resolver is available.
+					} else if port, found := p.portResolver.Get(value); found {
+						output.WriteString(fmt.Sprintf("%d\n", port))
+					}
+				case directiveSessionID:
+					if strings.TrimSpace(ctx.SessionID) != "" {
+						output.WriteString(ctx.SessionID)
+						output.WriteString("\n")
+					}
 				}
 			} else {
-				output.WriteString(line)
+				rendered, inlineFiles, inlineErr := p.renderInlineLine(line, ctx, updatedStack, seen)
+				if inlineErr != nil {
+					return nil, inlineErr
+				}
+				output.WriteString(rendered)
+				if len(inlineFiles) > 0 {
+					files = append(files, inlineFiles...)
+				}
 			}
 		}
 		if readErr == io.EOF {
@@ -301,43 +330,139 @@ func (p *Parser) readGestaltInclude(cleaned string) ([]byte, error) {
 }
 
 func parseIncludeDirective(line string) (string, bool) {
-	trimmed := strings.TrimSpace(line)
-	if !strings.HasPrefix(trimmed, "{{") || !strings.HasSuffix(trimmed, "}}") {
+	kind, value, ok := parseLineDirective(line)
+	if !ok || kind != directiveInclude {
 		return "", false
 	}
-	inner := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "{{"), "}}"))
-	if inner == "" {
-		return "", false
-	}
-	fields := strings.Fields(inner)
-	if len(fields) < 2 || fields[0] != "include" {
-		return "", false
-	}
-	includeName := strings.Join(fields[1:], " ")
-	if includeName == "" {
-		return "", false
-	}
-	return includeName, true
+	return value, true
 }
 
 func parsePortDirective(line string) (string, bool) {
+	kind, value, ok := parseLineDirective(line)
+	if !ok || kind != directivePort {
+		return "", false
+	}
+	return value, true
+}
+
+func parseSessionIDDirective(line string) bool {
+	kind, _, ok := parseLineDirective(line)
+	return ok && kind == directiveSessionID
+}
+
+func parseLineDirective(line string) (string, string, bool) {
 	trimmed := strings.TrimSpace(line)
 	if !strings.HasPrefix(trimmed, "{{") || !strings.HasSuffix(trimmed, "}}") {
-		return "", false
+		return "", "", false
 	}
 	inner := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "{{"), "}}"))
-	if inner == "" {
-		return "", false
+	return parseDirectiveInner(inner)
+}
+
+func parseDirectiveInner(inner string) (string, string, bool) {
+	trimmed := strings.TrimSpace(inner)
+	if trimmed == "" {
+		return "", "", false
 	}
-	fields := strings.Fields(inner)
-	if len(fields) != 2 || fields[0] != "port" {
-		return "", false
+	fields := strings.Fields(trimmed)
+	if len(fields) == 0 {
+		return "", "", false
 	}
-	service := strings.ToLower(strings.TrimSpace(fields[1]))
-	if len(service) == 0 || len(service) > 32 {
-		return "", false
+	switch fields[0] {
+	case directiveInclude:
+		if len(fields) < 2 {
+			return "", "", false
+		}
+		includeName := strings.Join(fields[1:], " ")
+		if includeName == "" {
+			return "", "", false
+		}
+		return directiveInclude, includeName, true
+	case directivePort:
+		if len(fields) != 2 {
+			return "", "", false
+		}
+		service := strings.ToLower(strings.TrimSpace(fields[1]))
+		if len(service) == 0 || len(service) > 32 {
+			return "", "", false
+		}
+		return directivePort, service, true
+	case "session":
+		if len(fields) == 2 && fields[1] == "id" {
+			return directiveSessionID, "", true
+		}
 	}
-	return service, true
+	return "", "", false
+}
+
+func (p *Parser) renderInlineLine(line string, ctx RenderContext, stack []string, seen map[string]struct{}) (string, []string, error) {
+	var output bytes.Buffer
+	files := []string{}
+	start := 0
+	for {
+		index := strings.Index(line[start:], "{{")
+		if index == -1 {
+			output.WriteString(line[start:])
+			break
+		}
+		index += start
+		if index > 0 && line[index-1] == '\\' {
+			output.WriteString(line[start : index-1])
+			output.WriteString("{{")
+			start = index + 2
+			continue
+		}
+		end := strings.Index(line[index+2:], "}}")
+		if end == -1 {
+			output.WriteString(line[start:])
+			break
+		}
+		end += index + 2
+		output.WriteString(line[start:index])
+		token := line[index+2 : end]
+		replacement, tokenFiles, err := p.renderDirectiveToken(token, ctx, stack, seen)
+		if err != nil {
+			return "", nil, err
+		}
+		output.WriteString(replacement)
+		if len(tokenFiles) > 0 {
+			files = append(files, tokenFiles...)
+		}
+		start = end + 2
+	}
+	return output.String(), files, nil
+}
+
+func (p *Parser) renderDirectiveToken(token string, ctx RenderContext, stack []string, seen map[string]struct{}) (string, []string, error) {
+	kind, value, ok := parseDirectiveInner(token)
+	if !ok {
+		return "{{" + token + "}}", nil, nil
+	}
+	switch kind {
+	case directiveInclude:
+		includeResult, found, err := p.renderInclude(value, ctx, stack, seen)
+		if err != nil {
+			return "", nil, err
+		}
+		if !found {
+			return "", nil, nil
+		}
+		return string(includeResult.Content), includeResult.Files, nil
+	case directivePort:
+		if p.portResolver == nil {
+			return "", nil, nil
+		}
+		if port, found := p.portResolver.Get(value); found {
+			return fmt.Sprintf("%d", port), nil, nil
+		}
+		return "", nil, nil
+	case directiveSessionID:
+		if strings.TrimSpace(ctx.SessionID) == "" {
+			return "", nil, nil
+		}
+		return ctx.SessionID, nil, nil
+	}
+	return "{{" + token + "}}", nil, nil
 }
 
 func pushStack(filename string, stack []string) ([]string, error) {

@@ -100,17 +100,111 @@ func TestRenderTextPortDirective(t *testing.T) {
 	}
 }
 
-func TestRenderDirectiveRequiresOwnLine(t *testing.T) {
+func TestRenderInlineDirective(t *testing.T) {
 	parser := newTestParser()
 	result, err := parser.Render("inline-directive")
 	if err != nil {
 		t.Fatalf("render inline-directive: %v", err)
 	}
-	expectedContent := "Inline {{include common-fragment}} directive\n"
+	expectedContent := "Inline common fragment line\n directive\n"
 	if string(result.Content) != expectedContent {
 		t.Fatalf("unexpected content: %q", string(result.Content))
 	}
-	expectedFiles := []string{"inline-directive.txt"}
+	expectedFiles := []string{"inline-directive.txt", "common-fragment.txt"}
+	if !reflect.DeepEqual(result.Files, expectedFiles) {
+		t.Fatalf("unexpected files: %#v", result.Files)
+	}
+}
+
+func TestRenderInlineSessionID(t *testing.T) {
+	parser := newTestParser()
+	ctx := RenderContext{SessionID: "session-42"}
+	result, err := parser.RenderWithContext("session-id-inline", ctx)
+	if err != nil {
+		t.Fatalf("render session-id-inline: %v", err)
+	}
+	expectedContent := "Session=session-42\n"
+	if string(result.Content) != expectedContent {
+		t.Fatalf("unexpected content: %q", string(result.Content))
+	}
+	expectedFiles := []string{"session-id-inline.tmpl"}
+	if !reflect.DeepEqual(result.Files, expectedFiles) {
+		t.Fatalf("unexpected files: %#v", result.Files)
+	}
+}
+
+func TestRenderSessionIDLineDirectiveWithoutContext(t *testing.T) {
+	parser := newTestParser()
+	result, err := parser.RenderWithContext("session-id-line", RenderContext{})
+	if err != nil {
+		t.Fatalf("render session-id-line: %v", err)
+	}
+	expectedContent := "Start\nEnd\n"
+	if string(result.Content) != expectedContent {
+		t.Fatalf("unexpected content: %q", string(result.Content))
+	}
+	expectedFiles := []string{"session-id-line.tmpl"}
+	if !reflect.DeepEqual(result.Files, expectedFiles) {
+		t.Fatalf("unexpected files: %#v", result.Files)
+	}
+}
+
+func TestRenderInlinePortDirective(t *testing.T) {
+	resolver := &mockPortResolver{
+		ports: map[string]int{
+			"backend": 8080,
+		},
+	}
+	parser := newTestParserWithResolver(resolver)
+	result, err := parser.Render("inline-port")
+	if err != nil {
+		t.Fatalf("render inline-port: %v", err)
+	}
+	expectedContent := "http://localhost:8080/api\n"
+	if string(result.Content) != expectedContent {
+		t.Fatalf("unexpected content: %q", string(result.Content))
+	}
+	expectedFiles := []string{"inline-port.tmpl"}
+	if !reflect.DeepEqual(result.Files, expectedFiles) {
+		t.Fatalf("unexpected files: %#v", result.Files)
+	}
+}
+
+func TestRenderInlineEscapedDirective(t *testing.T) {
+	parser := newTestParser()
+	ctx := RenderContext{SessionID: "session-42"}
+	result, err := parser.RenderWithContext("inline-escape", ctx)
+	if err != nil {
+		t.Fatalf("render inline-escape: %v", err)
+	}
+	expectedContent := "Literal {{session id}}\n"
+	if string(result.Content) != expectedContent {
+		t.Fatalf("unexpected content: %q", string(result.Content))
+	}
+	expectedFiles := []string{"inline-escape.tmpl"}
+	if !reflect.DeepEqual(result.Files, expectedFiles) {
+		t.Fatalf("unexpected files: %#v", result.Files)
+	}
+}
+
+func TestRenderInlineMultipleDirectives(t *testing.T) {
+	resolver := &mockPortResolver{
+		ports: map[string]int{
+			"backend":  8080,
+			"temporal": 7233,
+		},
+	}
+	parser := newTestParserWithResolver(resolver)
+	ctx := RenderContext{SessionID: "session-42"}
+	result, err := parser.RenderWithContext("inline-multi", ctx)
+	if err != nil {
+		t.Fatalf("render inline-multi: %v", err)
+	}
+	expectedContent := "Ports=8080/7233 Session=session-42\n"
+	if string(result.Content) != expectedContent {
+		t.Fatalf("unexpected content: %q", string(result.Content))
+	}
+	expectedFiles := []string{"inline-multi.tmpl"}
 	if !reflect.DeepEqual(result.Files, expectedFiles) {
 		t.Fatalf("unexpected files: %#v", result.Files)
 	}

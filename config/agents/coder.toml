@@ -23,7 +23,7 @@ sandbox_workspace_write.exclude_slash_tmp = false       # Allow /tmp
 sandbox_workspace_write.network_access = true          # seems an ignored setting
 
 check_for_update_on_startup = false # true | false
-notify = "terminal" # terminal | desktop
+# notify = "terminal" # terminal | desktop
 analytics.enabled = false
 feedback.enabled = false
 tui.notifications = true

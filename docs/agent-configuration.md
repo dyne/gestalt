@@ -26,7 +26,12 @@ Any additional top-level keys (outside the base fields) are treated as CLI confi
 
 - The `agent-id` is the filename in `config/agents/*.toml` (or `.gestalt/config/agents/*.toml` if extracted). `coder` and `coder.toml` are equivalent.
 - Config precedence: local `./config/**` overrides extracted `./.gestalt/config/**`. If `.gestalt/config` is missing, it is extracted from embedded defaults first.
-- Prompt rendering matches server behavior: `{{include filename}}` and `{{port <service>}}` directives are resolved in prompt files; missing includes/ports are silently skipped.
+- Prompt rendering matches server behavior. Supported directives: `{{include filename}}`, `{{port <service>}}`, `{{session id}}`.
+  - Directives may appear inline or as the only content on a line.
+  - If the trimmed line is only a directive, unresolved values skip the entire line.
+  - Inline unresolved directives render as empty strings, preserving the rest of the line.
+  - Escape a directive with `\{{...}}` to render it literally.
+  - Standalone tooling may not provide a session ID; inline `{{session id}}` renders empty in that case.
 - Port directive mapping in standalone mode:
   - `frontend`: `GESTALT_PORT` or `57417`
   - `backend`: `GESTALT_BACKEND_PORT` or `frontend`

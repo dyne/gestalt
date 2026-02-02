@@ -1,4 +1,4 @@
-name = "Architect (Codex)"
+name = "Architect"
 shell = "codex"
 cli_type = "codex"
 prompt = ["architect"]
@@ -24,7 +24,7 @@ sandbox_workspace_write.exclude_slash_tmp = false       # Allow /tmp
 sandbox_workspace_write.network_access = true          # seems an ignored setting
 
 tui.notifications = true
-notify = "terminal" # terminal | desktop
+# notify = "terminal" # terminal | desktop
 
 check_for_update_on_startup = false # true | false
 analytics.enabled = false

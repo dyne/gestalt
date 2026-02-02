@@ -20,6 +20,22 @@ Prompt names resolve against `.gestalt/config/prompts`, trying `.tmpl`, `.md`, t
 
 Any additional top-level keys (outside the base fields) are treated as CLI config and validated. A legacy `[cli_config]` table is still accepted, but no longer required.
 
+## gestalt-agent CLI
+
+`gestalt-agent <agent-id>` runs Codex in a standalone TUI with the agent prompt pre-rendered.
+
+- The `agent-id` is the filename in `config/agents/*.toml` (or `.gestalt/config/agents/*.toml` if extracted). `coder` and `coder.toml` are equivalent.
+- Config precedence: local `./config/**` overrides extracted `./.gestalt/config/**`. If `.gestalt/config` is missing, it is extracted from embedded defaults first.
+- Prompt rendering matches server behavior: `{{include filename}}` and `{{port <service>}}` directives are resolved in prompt files; missing includes/ports are silently skipped.
+- Port directive mapping in standalone mode:
+  - `frontend`: `GESTALT_PORT` or `57417`
+  - `backend`: `GESTALT_BACKEND_PORT` or `frontend`
+  - `temporal`: port from `GESTALT_TEMPORAL_HOST` or `7233`
+  - `otel`: port from `GESTALT_OTEL_HTTP_ENDPOINT` or `4318`
+- Standalone port values are best-effort defaults and may not match a running Gestalt instance with dynamic ports.
+- Extremely large prompts can hit OS argv length limits.
+- `--dryrun` prints the full `codex` command (including `developer_prompt`) without launching it.
+
 ## CLI config validation
 
 - CLI config keys are validated against a per-CLI JSON Schema.

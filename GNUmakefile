@@ -12,13 +12,17 @@ DIST := dist
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 CGO ?= 0
 
-.PHONY: build test clean version temporal-dev dev
+.PHONY: otel gestalt gestalt-send test clean version temporal-dev dev
 
-build: gestalt gestalt-send gestalt-notify
-	$(MAKE) -C otel $(ARCH)
+all: otel gestalt gestalt-send gestalt-notify gestalt-agent
+
+otel:
+	$(info Build Open Telemetry Collector...)
+	$(MAKE) -C otel `uname -s`_`uname -m`
 
 # Frontend build is required before embedding.
 frontend/dist:
+	$(info Build Gestalt Frontend...)
 	cd frontend && npm install && VERSION=$(VERSION) npm run build
 
 # Config manifest and version metadata are embedded in the backend binary.
@@ -27,10 +31,12 @@ $(CONFIG_MANIFEST) $(VERSION_INFO): scripts/generate-config-manifest.js
 
 # make VERSION=1.2.3 to build with specific version
 gestalt: frontend/dist $(CONFIG_MANIFEST) $(VERSION_INFO)
+	$(info Build Gestalt...)
 	VERSION_LDFLAGS=$$(node scripts/format-version-ldflags.js); \
 	$(GO) build -ldflags "$$VERSION_LDFLAGS" -o gestalt ./cmd/gestalt
 
 gestalt-send: $(VERSION_INFO)
+	$(info Build Gestalt CLI utils...)
 	VERSION_LDFLAGS=$$(node scripts/format-version-ldflags.js); \
 	$(GO) build  -ldflags "$$VERSION_LDFLAGS" -o gestalt-send ./cmd/gestalt-send
 
@@ -38,12 +44,17 @@ gestalt-notify: $(VERSION_INFO)
 	VERSION_LDFLAGS=$$(node scripts/format-version-ldflags.js); \
 	$(GO) build  -ldflags "$$VERSION_LDFLAGS" -o gestalt-notify ./cmd/gestalt-notify
 
+gestalt-agent: $(VERSION_INFO)
+	VERSION_LDFLAGS=$$(node scripts/format-version-ldflags.js); \
+	$(GO) build  -ldflags "$$VERSION_LDFLAGS" -o gestalt-agent ./cmd/gestalt-agent
+
+
 install: gestalt gestalt-send gestalt-notify
 	install -m 0755 gestalt $(BINDIR)/gestalt
 	install -m 0755 gestalt-send $(BINDIR)/gestalt-send
 	install -m 0755 gestalt-notify $(BINDIR)/gestalt-notify
+	install -m 0755 gestalt-notify $(BINDIR)/gestalt-agent
 	install -m 0755 gestalt-otel $(BINDIR)/gestalt-otel
-
 
 test:
 	go test ./...

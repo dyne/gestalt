@@ -105,9 +105,11 @@ release: frontend/dist $(CONFIG_MANIFEST) $(VERSION_INFO)
 			-o $(DIST)/gestalt-send$$EXT ./cmd/gestalt-send; \
 		CGO_ENABLED=$(CGO) GOOS=$$OS GOARCH=$$ARCH $(GO) build -ldflags "$$VERSION_LDFLAGS" \
 			-o $(DIST)/gestalt-notify$$EXT ./cmd/gestalt-notify; \
+		CGO_ENABLED=$(CGO) GOOS=$$OS GOARCH=$$ARCH $(GO) build -ldflags "$$VERSION_LDFLAGS" \
+			-o $(DIST)/gestalt-agent$$EXT ./cmd/gestalt-agent; \
 		cd otel && CGO_ENABLED=$(CGO) GOOS=$$OS GOARCH=$$ARCH ./ocb --config builder-config.yaml && cd ..; \
 		mv otel/gestalt-otel $(DIST)/gestalt-otel$$EXT; \
-		FILES="gestalt$$EXT gestalt-send$$EXT gestalt-notify$$EXT gestalt-otel$$EXT"; \
+		FILES="gestalt$$EXT gestalt-send$$EXT gestalt-notify$$EXT gestalt-agent$$EXT gestalt-otel$$EXT"; \
 		tar -czf $(DIST)/gestalt-$$OS-$$ARCH.tar.gz -C $(DIST) $$FILES; \
 		cd $(DIST) && rm $$FILES && cd ..; \
 	done

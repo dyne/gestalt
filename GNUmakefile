@@ -76,10 +76,19 @@ version:
 
 clean:
 	$(info Cleaning up build and cache)
-	go clean -cache
+	go clean
 	rm -rf frontend/dist
-	rm -rf .cache
 	rm -rf gestalt gestalt-*
+
+clean-all:
+	$(info Cleaning up build and cache)
+	go clean -cache
+	rm -rf .cache
+	rm -rf frontend/dist
+	rm -rf gestalt gestalt-*
+
+
+
 
 release: frontend/dist $(CONFIG_MANIFEST) $(VERSION_INFO)
 	@mkdir -p $(DIST)

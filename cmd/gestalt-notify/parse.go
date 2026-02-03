@@ -35,7 +35,6 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 	urlFlag := fs.String("url", "", "Gestalt server URL (env: GESTALT_URL, default: http://localhost:57417)")
 	tokenFlag := fs.String("token", "", "Auth token (env: GESTALT_TOKEN, default: none)")
 	sessionIDFlag := fs.String("session-id", "", "Session ID (required)")
-	payloadFlag := fs.String("payload", "", "JSON payload string (manual mode)")
 	timeoutFlag := fs.Duration("timeout", defaultNotifyTimeout, "Request timeout")
 	verboseFlag := fs.Bool("verbose", false, "Verbose output")
 	debugFlag := fs.Bool("debug", false, "Debug output (implies --verbose)")
@@ -57,7 +56,11 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 		return Config{ShowVersion: true}, nil
 	}
 
-	if fs.NArg() > 0 {
+	if fs.NArg() == 0 {
+		fs.Usage()
+		return Config{}, fmt.Errorf("payload is required")
+	}
+	if fs.NArg() != 1 {
 		fs.Usage()
 		return Config{}, fmt.Errorf("invalid arguments")
 	}
@@ -81,19 +84,10 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 		token = strings.TrimSpace(os.Getenv("GESTALT_TOKEN"))
 	}
 
-	payloadInput := strings.TrimSpace(*payloadFlag)
+	payloadInput := strings.TrimSpace(fs.Arg(0))
 	if payloadInput == "" {
-		if stdinHasPayload() {
-			contents, err := readPayloadFromStdin()
-			if err != nil {
-				fs.Usage()
-				return Config{}, err
-			}
-			payloadInput = contents
-		} else {
-			fs.Usage()
-			return Config{}, fmt.Errorf("payload is required")
-		}
+		fs.Usage()
+		return Config{}, fmt.Errorf("payload is required")
 	}
 	if payloadInput == "-" {
 		contents, err := readPayloadFromStdin()
@@ -171,7 +165,7 @@ func extractOccurredAt(payload map[string]any) *time.Time {
 }
 
 func printNotifyHelp(out io.Writer) {
-	fmt.Fprintln(out, "Usage: gestalt-notify [options]")
+	fmt.Fprintln(out, "Usage: gestalt-notify [options] <payload|->")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Send notify events to a running Gestalt session workflow")
 	fmt.Fprintln(out, "")
@@ -179,7 +173,6 @@ func printNotifyHelp(out io.Writer) {
 	writeNotifyOption(out, "--url URL", "Gestalt server URL (env: GESTALT_URL, default: http://localhost:57417)")
 	writeNotifyOption(out, "--token TOKEN", "Auth token (env: GESTALT_TOKEN, default: none)")
 	writeNotifyOption(out, "--session-id ID", "Session ID (required)")
-	writeNotifyOption(out, "--payload JSON", "JSON payload string (required, use '-' for stdin)")
 	writeNotifyOption(out, "--timeout DURATION", "Request timeout (default: 2s)")
 	writeNotifyOption(out, "--verbose", "Verbose output")
 	writeNotifyOption(out, "--debug", "Debug output (implies --verbose)")
@@ -187,11 +180,11 @@ func printNotifyHelp(out io.Writer) {
 	writeNotifyOption(out, "--version", "Print version and exit")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Modes:")
-	fmt.Fprintln(out, "  Manual: use --payload or pipe JSON via stdin")
+	fmt.Fprintln(out, "  Manual: pass JSON payload as the final argument (use '-' for stdin)")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Examples:")
-	fmt.Fprintln(out, "  gestalt-notify --session-id 'Coder 1' --payload '{\"type\":\"agent-turn-complete\"}'")
-	fmt.Fprintln(out, "  echo '{\"type\":\"plan-L1-wip\",\"plan_file\":\"plan.org\"}' | gestalt-notify --session-id 'Coder 1'")
+	fmt.Fprintln(out, "  gestalt-notify --session-id 'Coder 1' '{\"type\":\"agent-turn-complete\"}'")
+	fmt.Fprintln(out, "  echo '{\"type\":\"plan-L1-wip\",\"plan_file\":\"plan.org\"}' | gestalt-notify --session-id 'Coder 1' -")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Exit codes:")
 	fmt.Fprintln(out, "  0  Success")
@@ -202,14 +195,6 @@ func printNotifyHelp(out io.Writer) {
 
 func writeNotifyOption(out io.Writer, name, desc string) {
 	fmt.Fprintf(out, "  %-18s %s\n", name, desc)
-}
-
-func stdinHasPayload() bool {
-	info, err := os.Stdin.Stat()
-	if err != nil {
-		return false
-	}
-	return info.Mode()&os.ModeCharDevice == 0
 }
 
 func readPayloadFromStdin() (string, error) {

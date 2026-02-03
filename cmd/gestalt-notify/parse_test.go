@@ -21,7 +21,7 @@ func TestParseArgsMissingSessionID(t *testing.T) {
 
 func TestParseArgsCodexPayload(t *testing.T) {
 	var stderr bytes.Buffer
-	cfg, err := parseArgs([]string{"--session-id", "term-1", "--payload", `{"type":"agent-turn-complete","occurred_at":"2025-04-01T10:00:00Z"}`}, &stderr)
+	cfg, err := parseArgs([]string{"--session-id", "term-1", `{"type":"agent-turn-complete","occurred_at":"2025-04-01T10:00:00Z"}`}, &stderr)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestParseArgsCodexPayload(t *testing.T) {
 
 func TestParseArgsManualPayload(t *testing.T) {
 	var stderr bytes.Buffer
-	cfg, err := parseArgs([]string{"--session-id", "term-1", "--payload", `{"type":"plan-L1-wip","plan_file":"plan.org"}`}, &stderr)
+	cfg, err := parseArgs([]string{"--session-id", "term-1", `{"type":"plan-L1-wip","plan_file":"plan.org"}`}, &stderr)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestParseArgsManualPayload(t *testing.T) {
 
 func TestParseArgsEventTypeOverride(t *testing.T) {
 	var stderr bytes.Buffer
-	_, err := parseArgs([]string{"--session-id", "term-1", "--event-type", "override", "--payload", `{"type":"agent-turn-complete"}`}, &stderr)
+	_, err := parseArgs([]string{"--session-id", "term-1", "--event-type", "override", `{"type":"agent-turn-complete"}`}, &stderr)
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -63,7 +63,7 @@ func TestParseArgsUsesEnvDefaults(t *testing.T) {
 	t.Setenv("GESTALT_TOKEN", "secret")
 	var stderr bytes.Buffer
 
-	cfg, err := parseArgs([]string{"--session-id", "term-1", "--payload", `{"type":"plan-L1-wip"}`}, &stderr)
+	cfg, err := parseArgs([]string{"--session-id", "term-1", `{"type":"plan-L1-wip"}`}, &stderr)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestParseArgsUsesEnvDefaults(t *testing.T) {
 
 func TestParseArgsRejectsAgentIDFlag(t *testing.T) {
 	var stderr bytes.Buffer
-	_, err := parseArgs([]string{"--session-id", "term-1", "--agent-id", "codex", "--payload", `{"type":"plan-L1-wip"}`}, &stderr)
+	_, err := parseArgs([]string{"--session-id", "term-1", "--agent-id", "codex", `{"type":"plan-L1-wip"}`}, &stderr)
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -88,7 +88,7 @@ func TestParseArgsRejectsAgentIDFlag(t *testing.T) {
 
 func TestParseArgsRejectsAgentNameFlag(t *testing.T) {
 	var stderr bytes.Buffer
-	_, err := parseArgs([]string{"--session-id", "term-1", "--agent-name", "Coder 1", "--payload", `{"type":"plan-L1-wip"}`}, &stderr)
+	_, err := parseArgs([]string{"--session-id", "term-1", "--agent-name", "Coder 1", `{"type":"plan-L1-wip"}`}, &stderr)
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -99,7 +99,7 @@ func TestParseArgsRejectsAgentNameFlag(t *testing.T) {
 
 func TestParseArgsRejectsSourceFlag(t *testing.T) {
 	var stderr bytes.Buffer
-	_, err := parseArgs([]string{"--session-id", "term-1", "--source", "manual", "--payload", `{"type":"plan-L1-wip"}`}, &stderr)
+	_, err := parseArgs([]string{"--session-id", "term-1", "--source", "manual", `{"type":"plan-L1-wip"}`}, &stderr)
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -134,31 +134,7 @@ func TestParseArgsPayloadFromStdin(t *testing.T) {
 	})
 
 	var stderr bytes.Buffer
-	cfg, err := parseArgs([]string{"--session-id", "term-1", "--payload", "-"}, &stderr)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(cfg.Payload) == 0 {
-		t.Fatalf("expected payload to be set")
-	}
-}
-
-func TestParseArgsPayloadFromStdinDefault(t *testing.T) {
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("pipe: %v", err)
-	}
-	_, _ = writer.WriteString(`{"type":"plan-L1-wip","plan_file":"plan.org"}`)
-	_ = writer.Close()
-	previous := os.Stdin
-	os.Stdin = reader
-	t.Cleanup(func() {
-		os.Stdin = previous
-		_ = reader.Close()
-	})
-
-	var stderr bytes.Buffer
-	cfg, err := parseArgs([]string{"--session-id", "term-1"}, &stderr)
+	cfg, err := parseArgs([]string{"--session-id", "term-1", "-"}, &stderr)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -169,7 +145,7 @@ func TestParseArgsPayloadFromStdinDefault(t *testing.T) {
 
 func TestParseArgsPayloadTypeRequired(t *testing.T) {
 	var stderr bytes.Buffer
-	_, err := parseArgs([]string{"--session-id", "term-1", "--payload", `{"plan_file":"plan.org"}`}, &stderr)
+	_, err := parseArgs([]string{"--session-id", "term-1", `{"plan_file":"plan.org"}`}, &stderr)
 	if err == nil {
 		t.Fatalf("expected error")
 	}

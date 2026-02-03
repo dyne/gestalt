@@ -270,7 +270,7 @@ Try it:
 3. Send a manual notify event:
 ```
 gestalt-notify --session-id '<session-id>' \
-  --payload '{"type":"plan-L1-wip","plan_file":".gestalt/plans/your-plan.org","heading":"Example","state":"wip","level":1}'
+  '{"type":"plan-L1-wip","plan_file":".gestalt/plans/your-plan.org","heading":"Example","state":"wip","level":1}'
 ```
 4. Verify the history includes a notify entry:
 ```

@@ -266,10 +266,10 @@ Codex sessions inject a notifier hook automatically.
 
 Try it:
 1. Start Gestalt with Temporal enabled (default).
-2. Start a Codex agent session and grab its session id.
+2. Start a Codex agent session and grab its session id (for example, `Coder 1`).
 3. Send a manual notify event:
 ```
-gestalt-notify --session-id <session-id> --agent-id <agent-id> --event-type plan-L1-wip \
+gestalt-notify --session-id '<session-id>' --event-type plan-L1-wip \
   --payload '{"plan_file":".gestalt/plans/your-plan.org","heading":"Example","state":"wip","level":1}'
 ```
 4. Verify the history includes a notify entry:

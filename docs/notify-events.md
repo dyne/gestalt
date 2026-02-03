@@ -7,7 +7,7 @@ for validation and Temporal notarization.
 ## Envelope fields
 
 - `session_id` (string, required)
-- `agent_id` (string, required; agent config id)
+- `agent_id` (string, optional; inferred from session, validated if provided)
 - `agent_name` (string, optional; display name)
 - `source` (string, required; `codex-notify` or `manual`)
 - `event_type` (string, required)
@@ -21,7 +21,6 @@ for validation and Temporal notarization.
 ```json
 {
   "session_id": "Codex 1",
-  "agent_id": "codex",
   "agent_name": "Codex",
   "source": "codex-notify",
   "event_type": "agent-turn-complete",
@@ -41,7 +40,6 @@ for validation and Temporal notarization.
 ```json
 {
   "session_id": "Codex 1",
-  "agent_id": "architect",
   "agent_name": "Architect",
   "source": "manual",
   "event_type": "plan-L1-wip",

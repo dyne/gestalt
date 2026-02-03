@@ -53,7 +53,7 @@ install: gestalt gestalt-send gestalt-notify
 	install -m 0755 gestalt $(BINDIR)/gestalt
 	install -m 0755 gestalt-send $(BINDIR)/gestalt-send
 	install -m 0755 gestalt-notify $(BINDIR)/gestalt-notify
-	install -m 0755 gestalt-notify $(BINDIR)/gestalt-agent
+	install -m 0755 gestalt-agent $(BINDIR)/gestalt-agent
 	install -m 0755 gestalt-otel $(BINDIR)/gestalt-otel
 
 test:

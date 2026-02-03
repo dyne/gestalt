@@ -9,7 +9,6 @@ import (
 type stdioPty struct {
 	stdin  io.WriteCloser
 	stdout io.ReadCloser
-	stderr io.ReadCloser
 }
 
 func (p *stdioPty) Read(data []byte) (int, error) {
@@ -29,11 +28,6 @@ func (p *stdioPty) Close() error {
 	}
 	if p.stdout != nil {
 		if err := p.stdout.Close(); err != nil && !errors.Is(err, io.EOF) {
-			errs = append(errs, err)
-		}
-	}
-	if p.stderr != nil {
-		if err := p.stderr.Close(); err != nil && !errors.Is(err, io.EOF) {
 			errs = append(errs, err)
 		}
 	}
@@ -58,19 +52,13 @@ func (stdioPtyFactory) Start(command string, args ...string) (Pty, *exec.Cmd, er
 		_ = stdin.Close()
 		return nil, nil, err
 	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		_ = stdin.Close()
-		_ = stdout.Close()
-		return nil, nil, err
-	}
+	cmd.Stderr = cmd.Stdout
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
 		_ = stdout.Close()
-		_ = stderr.Close()
 		return nil, nil, err
 	}
-	return &stdioPty{stdin: stdin, stdout: stdout, stderr: stderr}, cmd, nil
+	return &stdioPty{stdin: stdin, stdout: stdout}, cmd, nil
 }
 
 func StdioPtyFactory() PtyFactory {

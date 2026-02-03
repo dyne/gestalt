@@ -49,7 +49,6 @@ func TestSessionWorkflowSignals(testingContext *testing.T) {
 		workflowEnvironment.SignalWorkflow(NotifySignalName, NotifySignal{
 			Timestamp: notifyTime,
 			EventType: "agent-turn-complete",
-			Source:    "codex-notify",
 		})
 	}, time.Minute+30*time.Second)
 

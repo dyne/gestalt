@@ -229,9 +229,6 @@ func fetchWorkflowHistoryEntries(ctx context.Context, temporalClient temporal.Wo
 			if decodeSignalPayload(dataConverter, attributes.GetInput(), &payload, logger, signalName) {
 				entry.Type = "notify"
 				entry.Context = payload.EventType
-				if entry.Context == "" {
-					entry.Context = payload.Source
-				}
 				if !payload.Timestamp.IsZero() {
 					entry.Timestamp = payload.Timestamp
 				}

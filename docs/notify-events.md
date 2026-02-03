@@ -1,15 +1,13 @@
 # Notify event envelope
 
-All notify sources POST the same envelope to `POST /api/sessions/:id/notify`.
+All notify clients POST the same envelope to `POST /api/sessions/:id/notify`.
 The backend treats `payload` as opaque JSON, while extracting top-level metadata
 for validation and Temporal notarization.
-Requests that include `agent_id` are rejected.
+Requests that include `agent_id`, `agent_name`, or `source` are rejected.
 
 ## Envelope fields
 
 - `session_id` (string, required)
-- `agent_name` (string, optional; display name)
-- `source` (string, required; `codex-notify` or `manual`)
 - `event_type` (string, required)
 - `occurred_at` (RFC3339 string, optional)
 - `payload` (object, optional)
@@ -21,8 +19,6 @@ Requests that include `agent_id` are rejected.
 ```json
 {
   "session_id": "Codex 1",
-  "agent_name": "Codex",
-  "source": "codex-notify",
   "event_type": "agent-turn-complete",
   "occurred_at": "2026-01-28T20:17:42Z",
   "payload": {
@@ -40,8 +36,6 @@ Requests that include `agent_id` are rejected.
 ```json
 {
   "session_id": "Codex 1",
-  "agent_name": "Architect",
-  "source": "manual",
   "event_type": "plan-L1-wip",
   "occurred_at": "2026-01-28T20:17:42Z",
   "payload": {

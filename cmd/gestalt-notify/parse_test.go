@@ -27,9 +27,6 @@ func TestParseArgsCodexPayload(t *testing.T) {
 	if cfg.EventType != "agent-turn-complete" {
 		t.Fatalf("expected event_type agent-turn-complete, got %q", cfg.EventType)
 	}
-	if cfg.Source != "codex-notify" {
-		t.Fatalf("expected source codex-notify, got %q", cfg.Source)
-	}
 	if cfg.Raw == "" {
 		t.Fatalf("expected raw payload to be set")
 	}
@@ -46,9 +43,6 @@ func TestParseArgsManualPayload(t *testing.T) {
 	}
 	if cfg.EventType != "plan-L1-wip" {
 		t.Fatalf("expected event_type plan-L1-wip, got %q", cfg.EventType)
-	}
-	if cfg.Source != "manual" {
-		t.Fatalf("expected source manual, got %q", cfg.Source)
 	}
 	if len(cfg.Payload) == 0 {
 		t.Fatalf("expected payload to be set")
@@ -93,6 +87,28 @@ func TestParseArgsRejectsAgentIDFlag(t *testing.T) {
 		t.Fatalf("expected error")
 	}
 	if !strings.Contains(stderr.String(), "flag provided but not defined: -agent-id") {
+		t.Fatalf("expected unknown flag output, got %q", stderr.String())
+	}
+}
+
+func TestParseArgsRejectsAgentNameFlag(t *testing.T) {
+	var stderr bytes.Buffer
+	_, err := parseArgs([]string{"--session-id", "term-1", "--agent-name", "Coder 1", "--event-type", "plan-L1-wip"}, &stderr)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !strings.Contains(stderr.String(), "flag provided but not defined: -agent-name") {
+		t.Fatalf("expected unknown flag output, got %q", stderr.String())
+	}
+}
+
+func TestParseArgsRejectsSourceFlag(t *testing.T) {
+	var stderr bytes.Buffer
+	_, err := parseArgs([]string{"--session-id", "term-1", "--source", "manual", "--event-type", "plan-L1-wip"}, &stderr)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !strings.Contains(stderr.String(), "flag provided but not defined: -source") {
 		t.Fatalf("expected unknown flag output, got %q", stderr.String())
 	}
 }

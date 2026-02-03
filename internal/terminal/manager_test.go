@@ -1688,9 +1688,6 @@ func TestManagerInjectsCodexNotify(t *testing.T) {
 	if strings.Contains(notifyArg, "--agent-id") {
 		t.Fatalf("expected notify command to omit agent id, got %q", notifyArg)
 	}
-	if !strings.Contains(notifyArg, "--agent-name") || !strings.Contains(notifyArg, "Codex") {
-		t.Fatalf("expected notify command to include agent name Codex, got %q", notifyArg)
-	}
 
 	notifyPayload := notifyArg
 	if idx := strings.Index(notifyArg, "notify="); idx != -1 {
@@ -1705,6 +1702,9 @@ func TestManagerInjectsCodexNotify(t *testing.T) {
 		if arg != "--session-id" {
 			if arg == "--agent-id" {
 				t.Fatalf("expected no --agent-id flag, got %#v", notifyArgs)
+			}
+			if arg == "--agent-name" {
+				t.Fatalf("expected no --agent-name flag, got %#v", notifyArgs)
 			}
 			continue
 		}

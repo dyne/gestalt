@@ -327,10 +327,7 @@ func (h *RestHandler) handleTerminalNotify(w http.ResponseWriter, r *http.Reques
 	if agentID == "" {
 		return &apiError{Status: http.StatusBadRequest, Message: "terminal is not an agent session"}
 	}
-	agentName := strings.TrimSpace(request.AgentName)
-	if agentName == "" {
-		agentName = session.AgentName()
-	}
+	agentName := strings.TrimSpace(id)
 	if _, _, hasWorkflow := session.WorkflowIdentifiers(); !hasWorkflow {
 		return &apiError{Status: http.StatusConflict, Message: "workflow not active"}
 	}
@@ -346,7 +343,6 @@ func (h *RestHandler) handleTerminalNotify(w http.ResponseWriter, r *http.Reques
 		AgentID:    agentID,
 		AgentName:  agentName,
 		EventType:  request.EventType,
-		Source:     request.Source,
 		Payload:    request.Payload,
 		Raw:        request.Raw,
 		EventID:    request.EventID,

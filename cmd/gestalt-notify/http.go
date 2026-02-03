@@ -61,8 +61,6 @@ func sendNotifyEvent(cfg Config) error {
 
 	payload := client.NotifyRequest{
 		SessionID:  cfg.SessionID,
-		AgentName:  cfg.AgentName,
-		Source:     cfg.Source,
 		EventType:  cfg.EventType,
 		OccurredAt: cfg.OccurredAt,
 		Payload:    cfg.Payload,
@@ -73,7 +71,7 @@ func sendNotifyEvent(cfg Config) error {
 		escapedID := url.PathEscape(cfg.SessionID)
 		target := fmt.Sprintf("%s/api/sessions/%s/notify", baseURL, escapedID)
 		logf(cfg, "posting notify event to %s", target)
-		logf(cfg, "event_type: %s, source: %s", cfg.EventType, cfg.Source)
+		logf(cfg, "event_type: %s", cfg.EventType)
 		if strings.TrimSpace(cfg.Token) != "" {
 			logf(cfg, "token: %s", maskToken(cfg.Token, cfg.Debug))
 		}

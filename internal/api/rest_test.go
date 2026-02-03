@@ -659,7 +659,7 @@ func TestTerminalNotifyEndpoint(t *testing.T) {
 	}()
 
 	handler := &RestHandler{Manager: manager}
-	body := `{"session_id":"` + created.ID + `","agent_name":"Codex","source":"manual","event_type":"plan-L1-wip","occurred_at":"2025-04-01T10:00:00Z","payload":{"plan_file":"plan.org"},"raw":"{}","event_id":"manual:1"}`
+	body := `{"session_id":"` + created.ID + `","event_type":"plan-L1-wip","occurred_at":"2025-04-01T10:00:00Z","payload":{"plan_file":"plan.org"},"raw":"{}","event_id":"manual:1"}`
 	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/notify", strings.NewReader(body))
 	res := httptest.NewRecorder()
 
@@ -684,14 +684,11 @@ func TestTerminalNotifyEndpoint(t *testing.T) {
 	if payload.AgentID != "codex" {
 		t.Fatalf("expected agent id codex, got %q", payload.AgentID)
 	}
-	if payload.AgentName != "Codex" {
-		t.Fatalf("expected agent name Codex, got %q", payload.AgentName)
+	if payload.AgentName != created.ID {
+		t.Fatalf("expected agent name %q, got %q", created.ID, payload.AgentName)
 	}
 	if payload.EventType != "plan-L1-wip" {
 		t.Fatalf("expected event type plan-L1-wip, got %q", payload.EventType)
-	}
-	if payload.Source != "manual" {
-		t.Fatalf("expected source manual, got %q", payload.Source)
 	}
 	if payload.EventID != "manual:1" {
 		t.Fatalf("expected event id manual:1, got %q", payload.EventID)
@@ -708,7 +705,7 @@ func TestTerminalNotifyEndpointMissingTerminal(t *testing.T) {
 	manager := newTestManager(terminal.ManagerOptions{Shell: "/bin/sh"})
 	handler := &RestHandler{Manager: manager}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/missing/notify", strings.NewReader(`{"session_id":"missing","source":"manual","event_type":"plan-L1-wip"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/missing/notify", strings.NewReader(`{"session_id":"missing","event_type":"plan-L1-wip"}`))
 	res := httptest.NewRecorder()
 
 	restHandler("", nil, handler.handleTerminal)(res, req)
@@ -735,7 +732,7 @@ func TestTerminalNotifyEndpointMissingWorkflow(t *testing.T) {
 	}()
 
 	handler := &RestHandler{Manager: manager}
-	body := `{"session_id":"` + created.ID + `","source":"manual","event_type":"plan-L1-wip"}`
+	body := `{"session_id":"` + created.ID + `","event_type":"plan-L1-wip"}`
 	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/notify", strings.NewReader(body))
 	res := httptest.NewRecorder()
 
@@ -795,7 +792,6 @@ func TestTerminalWorkflowHistoryEndpoint(t *testing.T) {
 	notifyPayloads, err := dataConverter.ToPayloads(workflows.NotifySignal{
 		Timestamp: notifyTime,
 		EventType: "agent-turn-complete",
-		Source:    "codex-notify",
 	})
 	if err != nil {
 		t.Fatalf("build notify payloads: %v", err)

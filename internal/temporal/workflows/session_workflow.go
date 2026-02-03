@@ -118,7 +118,6 @@ type NotifySignal struct {
 	AgentID    string
 	AgentName  string
 	EventType  string
-	Source     string
 	Payload    json.RawMessage
 	Raw        string
 	EventID    string
@@ -331,12 +330,6 @@ func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRe
 			notifyContext = map[string]any{
 				"event_type": signal.EventType,
 			}
-		}
-		if signal.Source != "" {
-			if notifyContext == nil {
-				notifyContext = map[string]any{}
-			}
-			notifyContext["source"] = signal.Source
 		}
 		if signal.EventID != "" {
 			if notifyContext == nil {

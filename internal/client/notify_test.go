@@ -21,7 +21,6 @@ func TestPostNotifyEventEscapesSessionID(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	payload := NotifyRequest{
-		Source:    "manual",
 		EventType: "plan-L1-wip",
 	}
 	if err := PostNotifyEvent(server.Client(), server.URL, "", "Coder 1", payload); err != nil {

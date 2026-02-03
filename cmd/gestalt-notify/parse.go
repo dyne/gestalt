@@ -19,8 +19,6 @@ type Config struct {
 	URL         string
 	Token       string
 	SessionID   string
-	AgentName   string
-	Source      string
 	EventType   string
 	Payload     json.RawMessage
 	Raw         string
@@ -38,8 +36,6 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 	urlFlag := fs.String("url", "", "Gestalt server URL (env: GESTALT_URL, default: http://localhost:57417)")
 	tokenFlag := fs.String("token", "", "Auth token (env: GESTALT_TOKEN, default: none)")
 	sessionIDFlag := fs.String("session-id", "", "Session ID (required)")
-	agentNameFlag := fs.String("agent-name", "", "Agent display name")
-	sourceFlag := fs.String("source", "", "Event source (default: codex-notify when JSON arg is present, otherwise manual)")
 	eventTypeFlag := fs.String("event-type", "", "Event type (required when payload lacks type)")
 	payloadFlag := fs.String("payload", "", "JSON payload string (manual mode)")
 	timeoutFlag := fs.Duration("timeout", defaultNotifyTimeout, "Request timeout")
@@ -124,15 +120,6 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 		return Config{}, fmt.Errorf("event type required")
 	}
 
-	source := strings.TrimSpace(*sourceFlag)
-	if source == "" {
-		if rawArg != "" {
-			source = "codex-notify"
-		} else {
-			source = "manual"
-		}
-	}
-
 	occurredAt := (*time.Time)(nil)
 	if payloadMap != nil {
 		occurredAt = extractOccurredAt(payloadMap)
@@ -142,8 +129,6 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 		URL:        url,
 		Token:      token,
 		SessionID:  sessionID,
-		AgentName:  strings.TrimSpace(*agentNameFlag),
-		Source:     source,
 		EventType:  eventType,
 		Payload:    payloadRaw,
 		Raw:        rawArg,
@@ -214,8 +199,6 @@ func printNotifyHelp(out io.Writer) {
 	writeNotifyOption(out, "--url URL", "Gestalt server URL (env: GESTALT_URL, default: http://localhost:57417)")
 	writeNotifyOption(out, "--token TOKEN", "Auth token (env: GESTALT_TOKEN, default: none)")
 	writeNotifyOption(out, "--session-id ID", "Session ID (required)")
-	writeNotifyOption(out, "--agent-name NAME", "Agent display name")
-	writeNotifyOption(out, "--source SOURCE", "Event source (default: codex-notify or manual)")
 	writeNotifyOption(out, "--event-type TYPE", "Event type (required when payload lacks type)")
 	writeNotifyOption(out, "--payload JSON", "JSON payload string (manual mode)")
 	writeNotifyOption(out, "--timeout DURATION", "Request timeout (default: 2s)")
@@ -225,8 +208,8 @@ func printNotifyHelp(out io.Writer) {
 	writeNotifyOption(out, "--version", "Print version and exit")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Modes:")
-	fmt.Fprintln(out, "  Codex notifier: supply JSON payload as final arg (default source: codex-notify)")
-	fmt.Fprintln(out, "  Manual: use --event-type and optional --payload (default source: manual)")
+	fmt.Fprintln(out, "  Codex notifier: supply JSON payload as final arg")
+	fmt.Fprintln(out, "  Manual: use --event-type and optional --payload")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Examples:")
 	fmt.Fprintln(out, "  gestalt-notify --session-id 'Coder 1' '{\"type\":\"agent-turn-complete\"}'")

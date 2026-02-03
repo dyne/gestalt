@@ -36,7 +36,6 @@ func TestSendNotifyEventClientError(t *testing.T) {
 		cfg := Config{
 			URL:        "http://example.invalid",
 			SessionID:  "term-1",
-			Source:     "manual",
 			EventType:  "plan-L1-wip",
 		}
 		err := sendNotifyEvent(cfg)
@@ -62,7 +61,6 @@ func TestSendNotifyEventServerError(t *testing.T) {
 		cfg := Config{
 			URL:        "http://example.invalid",
 			SessionID:  "term-1",
-			Source:     "manual",
 			EventType:  "plan-L1-wip",
 		}
 		err := sendNotifyEvent(cfg)
@@ -83,7 +81,6 @@ func TestSendNotifyEventNetworkError(t *testing.T) {
 		cfg := Config{
 			URL:        "http://example.invalid",
 			SessionID:  "term-1",
-			Source:     "manual",
 			EventType:  "plan-L1-wip",
 		}
 		err := sendNotifyEvent(cfg)
@@ -103,8 +100,8 @@ func TestSendNotifyEventEscapesSessionID(t *testing.T) {
 			t.Fatalf("expected escaped path, got %q", r.URL.EscapedPath())
 		}
 		body, _ := io.ReadAll(r.Body)
-		if strings.Contains(string(body), "\"agent_id\"") {
-			t.Fatalf("expected agent_id to be omitted, got %q", string(body))
+		if strings.Contains(string(body), "\"agent_id\"") || strings.Contains(string(body), "\"agent_name\"") || strings.Contains(string(body), "\"source\"") {
+			t.Fatalf("expected notify body without agent_id/agent_name/source, got %q", string(body))
 		}
 		return &http.Response{
 			StatusCode: http.StatusNoContent,
@@ -116,7 +113,6 @@ func TestSendNotifyEventEscapesSessionID(t *testing.T) {
 		cfg := Config{
 			URL:       "http://example.invalid",
 			SessionID: "Coder 1",
-			Source:    "manual",
 			EventType: "plan-L1-wip",
 		}
 		if err := sendNotifyEvent(cfg); err != nil {

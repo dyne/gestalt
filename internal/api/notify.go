@@ -28,9 +28,6 @@ func validateNotifyRequest(request notifyRequest) *apiError {
 	if strings.TrimSpace(request.SessionID) == "" {
 		return &apiError{Status: http.StatusBadRequest, Message: "missing session id"}
 	}
-	if strings.TrimSpace(request.Source) == "" {
-		return &apiError{Status: http.StatusBadRequest, Message: "missing source"}
-	}
 	if strings.TrimSpace(request.EventType) == "" {
 		return &apiError{Status: http.StatusBadRequest, Message: "missing event type"}
 	}

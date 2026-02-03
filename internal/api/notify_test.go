@@ -8,7 +8,7 @@ import (
 )
 
 func TestDecodeNotifyRequestMissingEventType(t *testing.T) {
-	request := httptest.NewRequest(http.MethodPost, "/api/sessions/abc/notify", strings.NewReader(`{"session_id":"abc","source":"manual"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/sessions/abc/notify", strings.NewReader(`{"session_id":"abc"}`))
 	_, err := decodeNotifyRequest(request)
 	if err == nil {
 		t.Fatal("expected error")
@@ -36,7 +36,7 @@ func TestDecodeNotifyRequestInvalidJSON(t *testing.T) {
 }
 
 func TestDecodeNotifyRequestMissingTerminalID(t *testing.T) {
-	request := httptest.NewRequest(http.MethodPost, "/api/sessions/abc/notify", strings.NewReader(`{"session_id":"","source":"manual","event_type":"plan-L1-wip"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/sessions/abc/notify", strings.NewReader(`{"session_id":"","event_type":"plan-L1-wip"}`))
 	_, err := decodeNotifyRequest(request)
 	if err == nil {
 		t.Fatal("expected error")
@@ -50,7 +50,7 @@ func TestDecodeNotifyRequestMissingTerminalID(t *testing.T) {
 }
 
 func TestDecodeNotifyRequestValid(t *testing.T) {
-	request := httptest.NewRequest(http.MethodPost, "/api/sessions/abc/notify", strings.NewReader(`{"session_id":"abc","source":"manual","event_type":"plan-L1-wip","payload":{"plan_file":"plans/foo.org","heading":"WIP","state":"wip"}}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/sessions/abc/notify", strings.NewReader(`{"session_id":"abc","event_type":"plan-L1-wip","payload":{"plan_file":"plans/foo.org","heading":"WIP","state":"wip"}}`))
 	payload, err := decodeNotifyRequest(request)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -67,7 +67,35 @@ func TestDecodeNotifyRequestValid(t *testing.T) {
 }
 
 func TestDecodeNotifyRequestRejectsAgentID(t *testing.T) {
-	request := httptest.NewRequest(http.MethodPost, "/api/sessions/abc/notify", strings.NewReader(`{"session_id":"abc","agent_id":"agent","source":"manual","event_type":"plan-L1-wip"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/sessions/abc/notify", strings.NewReader(`{"session_id":"abc","agent_id":"agent","event_type":"plan-L1-wip"}`))
+	_, err := decodeNotifyRequest(request)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if err.Status != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", err.Status)
+	}
+	if err.Message != "invalid request body" {
+		t.Fatalf("expected invalid request body, got %q", err.Message)
+	}
+}
+
+func TestDecodeNotifyRequestRejectsAgentName(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/api/sessions/abc/notify", strings.NewReader(`{"session_id":"abc","agent_name":"Coder 1","event_type":"plan-L1-wip"}`))
+	_, err := decodeNotifyRequest(request)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if err.Status != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", err.Status)
+	}
+	if err.Message != "invalid request body" {
+		t.Fatalf("expected invalid request body, got %q", err.Message)
+	}
+}
+
+func TestDecodeNotifyRequestRejectsSource(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/api/sessions/abc/notify", strings.NewReader(`{"session_id":"abc","source":"manual","event_type":"plan-L1-wip"}`))
 	_, err := decodeNotifyRequest(request)
 	if err == nil {
 		t.Fatal("expected error")

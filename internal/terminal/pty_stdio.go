@@ -48,6 +48,7 @@ type stdioPtyFactory struct{}
 
 func (stdioPtyFactory) Start(command string, args ...string) (Pty, *exec.Cmd, error) {
 	cmd := exec.Command(command, args...)
+	setStdioProcAttr(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, nil, err

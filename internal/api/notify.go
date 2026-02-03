@@ -32,7 +32,7 @@ func validateNotifyRequest(request *notifyRequest) *apiError {
 		return &apiError{Status: http.StatusBadRequest, Message: "missing session id"}
 	}
 	if len(request.Payload) == 0 {
-		return &apiError{Status: http.StatusBadRequest, Message: "missing payload"}
+		return &apiError{Status: http.StatusUnprocessableEntity, Message: "missing payload"}
 	}
 	payloadType, err := extractNotifyPayloadType(request.Payload)
 	if err != nil {
@@ -45,15 +45,15 @@ func validateNotifyRequest(request *notifyRequest) *apiError {
 func extractNotifyPayloadType(payload json.RawMessage) (string, *apiError) {
 	var payloadMap map[string]any
 	if err := json.Unmarshal(payload, &payloadMap); err != nil || payloadMap == nil {
-		return "", &apiError{Status: http.StatusBadRequest, Message: "payload must be a JSON object"}
+		return "", &apiError{Status: http.StatusUnprocessableEntity, Message: "payload must be a JSON object"}
 	}
 	rawType, ok := payloadMap["type"]
 	if !ok {
-		return "", &apiError{Status: http.StatusBadRequest, Message: "missing payload type"}
+		return "", &apiError{Status: http.StatusUnprocessableEntity, Message: "missing payload type"}
 	}
 	typeText, ok := rawType.(string)
 	if !ok || strings.TrimSpace(typeText) == "" {
-		return "", &apiError{Status: http.StatusBadRequest, Message: "missing payload type"}
+		return "", &apiError{Status: http.StatusUnprocessableEntity, Message: "missing payload type"}
 	}
 	return strings.TrimSpace(typeText), nil
 }

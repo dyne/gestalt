@@ -22,9 +22,14 @@ func runWithSender(args []string, out io.Writer, errOut io.Writer, send func(Con
 	cfg, err := parseArgs(args, errOut)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return 0
+			return exitCodeSuccess
 		}
-		return 1
+		var notifyErr *notifyError
+		if errors.As(err, &notifyErr) {
+			fmt.Fprintln(errOut, notifyErr.Message)
+			return notifyErr.Code
+		}
+		return exitCodeUsage
 	}
 	if cfg.ShowVersion {
 		if version.Version == "" || version.Version == "dev" {
@@ -32,7 +37,7 @@ func runWithSender(args []string, out io.Writer, errOut io.Writer, send func(Con
 		} else {
 			fmt.Fprintf(out, "gestalt-notify version %s\n", version.Version)
 		}
-		return 0
+		return exitCodeSuccess
 	}
 	if cfg.Debug {
 		cfg.Verbose = true
@@ -41,10 +46,10 @@ func runWithSender(args []string, out io.Writer, errOut io.Writer, send func(Con
 	applyTimeout(cfg)
 
 	if send == nil {
-		return 0
+		return exitCodeSuccess
 	}
 	if err := send(cfg); err != nil {
 		return handleNotifyError(err, errOut)
 	}
-	return 0
+	return exitCodeSuccess
 }

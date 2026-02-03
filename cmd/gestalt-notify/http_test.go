@@ -44,8 +44,8 @@ func TestSendNotifyEventClientError(t *testing.T) {
 		if !errors.As(err, &notifyErr) {
 			t.Fatalf("expected notify error, got %v", err)
 		}
-		if notifyErr.Code != 2 {
-			t.Fatalf("expected code 2, got %d", notifyErr.Code)
+		if notifyErr.Code != exitCodeRejected {
+			t.Fatalf("expected code %d, got %d", exitCodeRejected, notifyErr.Code)
 		}
 	})
 }
@@ -69,8 +69,8 @@ func TestSendNotifyEventServerError(t *testing.T) {
 		if !errors.As(err, &notifyErr) {
 			t.Fatalf("expected notify error, got %v", err)
 		}
-		if notifyErr.Code != 3 {
-			t.Fatalf("expected code 3, got %d", notifyErr.Code)
+		if notifyErr.Code != exitCodeNetwork {
+			t.Fatalf("expected code %d, got %d", exitCodeNetwork, notifyErr.Code)
 		}
 	})
 }
@@ -89,8 +89,58 @@ func TestSendNotifyEventNetworkError(t *testing.T) {
 		if !errors.As(err, &notifyErr) {
 			t.Fatalf("expected notify error, got %v", err)
 		}
-		if notifyErr.Code != 3 {
-			t.Fatalf("expected code 3, got %d", notifyErr.Code)
+		if notifyErr.Code != exitCodeNetwork {
+			t.Fatalf("expected code %d, got %d", exitCodeNetwork, notifyErr.Code)
+		}
+	})
+}
+
+func TestSendNotifyEventSessionNotFound(t *testing.T) {
+	withMockClient(t, func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusNotFound,
+			Body:       io.NopCloser(strings.NewReader(`{"error":"session not found"}`)),
+			Header:     make(http.Header),
+			Request:    r,
+		}, nil
+	}, func() {
+		cfg := Config{
+			URL:       "http://example.invalid",
+			SessionID: "term-1",
+			Payload:   json.RawMessage(`{"type":"plan-L1-wip","plan_file":"plan.org"}`),
+		}
+		err := sendNotifyEvent(cfg)
+		var notifyErr *notifyError
+		if !errors.As(err, &notifyErr) {
+			t.Fatalf("expected notify error, got %v", err)
+		}
+		if notifyErr.Code != exitCodeSessionNotFound {
+			t.Fatalf("expected code %d, got %d", exitCodeSessionNotFound, notifyErr.Code)
+		}
+	})
+}
+
+func TestSendNotifyEventInvalidPayload(t *testing.T) {
+	withMockClient(t, func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusUnprocessableEntity,
+			Body:       io.NopCloser(strings.NewReader(`{"error":"missing payload type"}`)),
+			Header:     make(http.Header),
+			Request:    r,
+		}, nil
+	}, func() {
+		cfg := Config{
+			URL:       "http://example.invalid",
+			SessionID: "term-1",
+			Payload:   json.RawMessage(`{"plan_file":"plan.org"}`),
+		}
+		err := sendNotifyEvent(cfg)
+		var notifyErr *notifyError
+		if !errors.As(err, &notifyErr) {
+			t.Fatalf("expected notify error, got %v", err)
+		}
+		if notifyErr.Code != exitCodeInvalidPayload {
+			t.Fatalf("expected code %d, got %d", exitCodeInvalidPayload, notifyErr.Code)
 		}
 	})
 }

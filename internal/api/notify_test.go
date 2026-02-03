@@ -13,8 +13,8 @@ func TestDecodeNotifyRequestMissingPayload(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if err.Status != http.StatusBadRequest {
-		t.Fatalf("expected status 400, got %d", err.Status)
+	if err.Status != http.StatusUnprocessableEntity {
+		t.Fatalf("expected status 422, got %d", err.Status)
 	}
 	if err.Message != "missing payload" {
 		t.Fatalf("expected missing payload, got %q", err.Message)
@@ -114,8 +114,8 @@ func TestDecodeNotifyRequestMissingPayloadType(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if err.Status != http.StatusBadRequest {
-		t.Fatalf("expected status 400, got %d", err.Status)
+	if err.Status != http.StatusUnprocessableEntity {
+		t.Fatalf("expected status 422, got %d", err.Status)
 	}
 	if err.Message != "missing payload type" {
 		t.Fatalf("expected missing payload type, got %q", err.Message)

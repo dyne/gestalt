@@ -86,22 +86,19 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 
 	payloadInput := strings.TrimSpace(fs.Arg(0))
 	if payloadInput == "" {
-		fs.Usage()
-		return Config{}, fmt.Errorf("payload is required")
+		return Config{}, notifyErr(exitCodeInvalidPayload, "payload is required")
 	}
 	if payloadInput == "-" {
 		contents, err := readPayloadFromStdin()
 		if err != nil {
-			fs.Usage()
-			return Config{}, err
+			return Config{}, notifyErr(exitCodeInvalidPayload, err.Error())
 		}
 		payloadInput = contents
 	}
 
 	payloadRaw, payloadMap, err := decodePayload(payloadInput)
 	if err != nil {
-		fs.Usage()
-		return Config{}, err
+		return Config{}, notifyErr(exitCodeInvalidPayload, err.Error())
 	}
 
 	occurredAt := (*time.Time)(nil)
@@ -191,6 +188,8 @@ func printNotifyHelp(out io.Writer) {
 	fmt.Fprintln(out, "  1  Usage error")
 	fmt.Fprintln(out, "  2  Request rejected")
 	fmt.Fprintln(out, "  3  Network or server error")
+	fmt.Fprintln(out, "  4  Session not found")
+	fmt.Fprintln(out, "  5  Invalid payload")
 }
 
 func writeNotifyOption(out io.Writer, name, desc string) {

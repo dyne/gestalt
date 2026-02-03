@@ -33,12 +33,18 @@ func notifyErrf(code int, format string, args ...any) *notifyError {
 func notifyErrFromClient(err error) *notifyError {
 	var httpErr *client.HTTPError
 	if errors.As(err, &httpErr) {
-		if httpErr.StatusCode >= http.StatusBadRequest && httpErr.StatusCode < http.StatusInternalServerError {
-			return notifyErr(2, httpErr.Message)
+		switch httpErr.StatusCode {
+		case http.StatusNotFound:
+			return notifyErr(exitCodeSessionNotFound, httpErr.Message)
+		case http.StatusUnprocessableEntity:
+			return notifyErr(exitCodeInvalidPayload, httpErr.Message)
 		}
-		return notifyErr(3, httpErr.Message)
+		if httpErr.StatusCode >= http.StatusBadRequest && httpErr.StatusCode < http.StatusInternalServerError {
+			return notifyErr(exitCodeRejected, httpErr.Message)
+		}
+		return notifyErr(exitCodeNetwork, httpErr.Message)
 	}
-	return notifyErrf(3, "%v", err)
+	return notifyErrf(exitCodeNetwork, "%v", err)
 }
 
 func handleNotifyError(err error, errOut io.Writer) int {

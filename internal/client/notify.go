@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -37,13 +38,14 @@ func PostNotifyEvent(client *http.Client, baseURL, token, sessionID string, payl
 		return fmt.Errorf("session id mismatch")
 	}
 	payload.SessionID = sessionID
+	escapedSessionID := url.PathEscape(sessionID)
 
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("encode notify request: %w", err)
 	}
 
-	request, err := http.NewRequest(http.MethodPost, baseURL+"/api/sessions/"+sessionID+"/notify", bytes.NewReader(body))
+	request, err := http.NewRequest(http.MethodPost, baseURL+"/api/sessions/"+escapedSessionID+"/notify", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("build notify request failed: %w", err)
 	}

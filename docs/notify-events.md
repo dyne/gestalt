@@ -3,11 +3,11 @@
 All notify sources POST the same envelope to `POST /api/sessions/:id/notify`.
 The backend treats `payload` as opaque JSON, while extracting top-level metadata
 for validation and Temporal notarization.
+Requests that include `agent_id` are rejected.
 
 ## Envelope fields
 
 - `session_id` (string, required)
-- `agent_id` (string, optional; inferred from session, validated if provided)
 - `agent_name` (string, optional; display name)
 - `source` (string, required; `codex-notify` or `manual`)
 - `event_type` (string, required)

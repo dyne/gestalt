@@ -19,7 +19,6 @@ type Config struct {
 	URL         string
 	Token       string
 	SessionID   string
-	AgentID     string
 	AgentName   string
 	Source      string
 	EventType   string
@@ -39,7 +38,6 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 	urlFlag := fs.String("url", "", "Gestalt server URL (env: GESTALT_URL, default: http://localhost:57417)")
 	tokenFlag := fs.String("token", "", "Auth token (env: GESTALT_TOKEN, default: none)")
 	sessionIDFlag := fs.String("session-id", "", "Session ID (required)")
-	agentIDFlag := fs.String("agent-id", "", "Agent config ID (deprecated, optional)")
 	agentNameFlag := fs.String("agent-name", "", "Agent display name")
 	sourceFlag := fs.String("source", "", "Event source (default: codex-notify when JSON arg is present, otherwise manual)")
 	eventTypeFlag := fs.String("event-type", "", "Event type (required when payload lacks type)")
@@ -90,7 +88,6 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 		fs.Usage()
 		return Config{}, fmt.Errorf("session id required")
 	}
-	agentID := strings.TrimSpace(*agentIDFlag)
 
 	url := strings.TrimSpace(*urlFlag)
 	if url == "" {
@@ -145,7 +142,6 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 		URL:        url,
 		Token:      token,
 		SessionID:  sessionID,
-		AgentID:    agentID,
 		AgentName:  strings.TrimSpace(*agentNameFlag),
 		Source:     source,
 		EventType:  eventType,
@@ -218,7 +214,6 @@ func printNotifyHelp(out io.Writer) {
 	writeNotifyOption(out, "--url URL", "Gestalt server URL (env: GESTALT_URL, default: http://localhost:57417)")
 	writeNotifyOption(out, "--token TOKEN", "Auth token (env: GESTALT_TOKEN, default: none)")
 	writeNotifyOption(out, "--session-id ID", "Session ID (required)")
-	writeNotifyOption(out, "--agent-id ID", "Agent config ID (deprecated, optional)")
 	writeNotifyOption(out, "--agent-name NAME", "Agent display name")
 	writeNotifyOption(out, "--source SOURCE", "Event source (default: codex-notify or manual)")
 	writeNotifyOption(out, "--event-type TYPE", "Event type (required when payload lacks type)")

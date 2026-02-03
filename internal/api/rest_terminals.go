@@ -327,10 +327,6 @@ func (h *RestHandler) handleTerminalNotify(w http.ResponseWriter, r *http.Reques
 	if agentID == "" {
 		return &apiError{Status: http.StatusBadRequest, Message: "terminal is not an agent session"}
 	}
-	requestAgentID := strings.TrimSpace(request.AgentID)
-	if requestAgentID != "" && requestAgentID != agentID {
-		return &apiError{Status: http.StatusBadRequest, Message: "agent id mismatch"}
-	}
 	agentName := strings.TrimSpace(request.AgentName)
 	if agentName == "" {
 		agentName = session.AgentName()

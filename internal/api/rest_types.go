@@ -185,7 +185,6 @@ type workflowResumeRequest struct {
 
 type notifyRequest struct {
 	SessionID  string          `json:"session_id"`
-	AgentID    string          `json:"agent_id,omitempty"`
 	AgentName  string          `json:"agent_name,omitempty"`
 	Source     string          `json:"source"`
 	EventType  string          `json:"event_type"`

@@ -9,7 +9,7 @@ import (
 
 func TestParseArgsMissingSessionID(t *testing.T) {
 	var stderr bytes.Buffer
-	_, err := parseArgs([]string{"--agent-id", "codex", `{"type":"agent-turn-complete"}`}, &stderr)
+	_, err := parseArgs([]string{`{"type":"agent-turn-complete"}`}, &stderr)
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -86,24 +86,13 @@ func TestParseArgsUsesEnvDefaults(t *testing.T) {
 	}
 }
 
-func TestParseArgsMissingAgentID(t *testing.T) {
+func TestParseArgsRejectsAgentIDFlag(t *testing.T) {
 	var stderr bytes.Buffer
-	cfg, err := parseArgs([]string{"--session-id", "term-1", "--event-type", "plan-L1-wip"}, &stderr)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	_, err := parseArgs([]string{"--session-id", "term-1", "--agent-id", "codex", "--event-type", "plan-L1-wip"}, &stderr)
+	if err == nil {
+		t.Fatalf("expected error")
 	}
-	if cfg.AgentID != "" {
-		t.Fatalf("expected empty agent id, got %q", cfg.AgentID)
-	}
-}
-
-func TestParseArgsKeepsAgentID(t *testing.T) {
-	var stderr bytes.Buffer
-	cfg, err := parseArgs([]string{"--session-id", "term-1", "--agent-id", "codex", "--event-type", "plan-L1-wip"}, &stderr)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if cfg.AgentID != "codex" {
-		t.Fatalf("expected agent id codex, got %q", cfg.AgentID)
+	if !strings.Contains(stderr.String(), "flag provided but not defined: -agent-id") {
+		t.Fatalf("expected unknown flag output, got %q", stderr.String())
 	}
 }

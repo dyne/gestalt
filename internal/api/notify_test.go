@@ -8,7 +8,7 @@ import (
 )
 
 func TestDecodeNotifyRequestMissingEventType(t *testing.T) {
-	request := httptest.NewRequest(http.MethodPost, "/api/sessions/abc/notify", strings.NewReader(`{"session_id":"abc","agent_id":"agent","source":"manual"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/sessions/abc/notify", strings.NewReader(`{"session_id":"abc","source":"manual"}`))
 	_, err := decodeNotifyRequest(request)
 	if err == nil {
 		t.Fatal("expected error")
@@ -36,7 +36,7 @@ func TestDecodeNotifyRequestInvalidJSON(t *testing.T) {
 }
 
 func TestDecodeNotifyRequestMissingTerminalID(t *testing.T) {
-	request := httptest.NewRequest(http.MethodPost, "/api/sessions/abc/notify", strings.NewReader(`{"session_id":"","agent_id":"agent","source":"manual","event_type":"plan-L1-wip"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/sessions/abc/notify", strings.NewReader(`{"session_id":"","source":"manual","event_type":"plan-L1-wip"}`))
 	_, err := decodeNotifyRequest(request)
 	if err == nil {
 		t.Fatal("expected error")
@@ -58,9 +58,6 @@ func TestDecodeNotifyRequestValid(t *testing.T) {
 	if payload.SessionID != "abc" {
 		t.Fatalf("expected session_id abc, got %q", payload.SessionID)
 	}
-	if payload.AgentID != "" {
-		t.Fatalf("expected empty agent_id, got %q", payload.AgentID)
-	}
 	if payload.EventType != "plan-L1-wip" {
 		t.Fatalf("expected event_type plan-L1-wip, got %q", payload.EventType)
 	}
@@ -69,13 +66,16 @@ func TestDecodeNotifyRequestValid(t *testing.T) {
 	}
 }
 
-func TestDecodeNotifyRequestValidWithAgentID(t *testing.T) {
+func TestDecodeNotifyRequestRejectsAgentID(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/api/sessions/abc/notify", strings.NewReader(`{"session_id":"abc","agent_id":"agent","source":"manual","event_type":"plan-L1-wip"}`))
-	payload, err := decodeNotifyRequest(request)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	_, err := decodeNotifyRequest(request)
+	if err == nil {
+		t.Fatal("expected error")
 	}
-	if payload.AgentID != "agent" {
-		t.Fatalf("expected agent_id agent, got %q", payload.AgentID)
+	if err.Status != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", err.Status)
+	}
+	if err.Message != "invalid request body" {
+		t.Fatalf("expected invalid request body, got %q", err.Message)
 	}
 }

@@ -68,9 +68,6 @@ func sendNotifyEvent(cfg Config) error {
 		Payload:    cfg.Payload,
 		Raw:        cfg.Raw,
 	}
-	if strings.TrimSpace(cfg.AgentID) != "" {
-		payload.AgentID = strings.TrimSpace(cfg.AgentID)
-	}
 
 	if cfg.Verbose {
 		escapedID := url.PathEscape(cfg.SessionID)

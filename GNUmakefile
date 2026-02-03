@@ -12,11 +12,11 @@ DIST := dist
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 CGO ?= 0
 
-.PHONY: otel gestalt gestalt-send test clean version temporal-dev dev
+.PHONY: test clean clean-all version temporal-dev dev
 
-all: otel gestalt gestalt-send gestalt-notify gestalt-agent
+all: gestalt-otel gestalt gestalt-send gestalt-notify gestalt-agent
 
-otel:
+gestalt-otel:
 	$(info Build Open Telemetry Collector...)
 	$(MAKE) -C otel `uname -s`_`uname -m`
 

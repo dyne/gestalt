@@ -413,7 +413,7 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 			if sessionCLIConfig == nil {
 				sessionCLIConfig = map[string]interface{}{}
 			}
-			sessionCLIConfig["notify"] = buildNotifyArgs(reservedID, request.AgentID, profile.Name)
+			sessionCLIConfig["notify"] = buildNotifyArgs(reservedID, profile.Name)
 		}
 		if cliType != "" && len(sessionCLIConfig) > 0 {
 			generated := agent.BuildShellCommand(cliType, sessionCLIConfig)
@@ -1046,8 +1046,8 @@ func copyCLIConfig(config map[string]interface{}) map[string]interface{} {
 	return cloned
 }
 
-func buildNotifyArgs(sessionID, agentID, agentName string) []string {
-	args := []string{"gestalt-notify", "--session-id", strings.TrimSpace(sessionID), "--agent-id", strings.TrimSpace(agentID)}
+func buildNotifyArgs(sessionID, agentName string) []string {
+	args := []string{"gestalt-notify", "--session-id", strings.TrimSpace(sessionID)}
 	if strings.TrimSpace(agentName) != "" {
 		args = append(args, "--agent-name", strings.TrimSpace(agentName))
 	}

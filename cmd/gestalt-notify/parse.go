@@ -19,7 +19,6 @@ type Config struct {
 	URL         string
 	Token       string
 	SessionID   string
-	EventType   string
 	Payload     json.RawMessage
 	Raw         string
 	OccurredAt  *time.Time
@@ -36,7 +35,6 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 	urlFlag := fs.String("url", "", "Gestalt server URL (env: GESTALT_URL, default: http://localhost:57417)")
 	tokenFlag := fs.String("token", "", "Auth token (env: GESTALT_TOKEN, default: none)")
 	sessionIDFlag := fs.String("session-id", "", "Session ID (required)")
-	eventTypeFlag := fs.String("event-type", "", "Event type (required when payload lacks type)")
 	payloadFlag := fs.String("payload", "", "JSON payload string (manual mode)")
 	timeoutFlag := fs.Duration("timeout", defaultNotifyTimeout, "Request timeout")
 	verboseFlag := fs.Bool("verbose", false, "Verbose output")
@@ -59,24 +57,9 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 		return Config{ShowVersion: true}, nil
 	}
 
-	if fs.NArg() > 1 {
+	if fs.NArg() > 0 {
 		fs.Usage()
 		return Config{}, fmt.Errorf("invalid arguments")
-	}
-
-	rawArg := ""
-	if fs.NArg() == 1 {
-		rawArg = strings.TrimSpace(fs.Arg(0))
-		if rawArg == "" {
-			fs.Usage()
-			return Config{}, fmt.Errorf("payload JSON is required")
-		}
-	}
-
-	payloadInput := strings.TrimSpace(*payloadFlag)
-	if rawArg != "" && payloadInput != "" {
-		fs.Usage()
-		return Config{}, fmt.Errorf("payload provided twice")
 	}
 
 	sessionID := strings.TrimSpace(*sessionIDFlag)
@@ -98,26 +81,33 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 		token = strings.TrimSpace(os.Getenv("GESTALT_TOKEN"))
 	}
 
-	payloadRaw, payloadMap, err := decodePayload(rawArg)
-	if err != nil {
-		fs.Usage()
-		return Config{}, err
+	payloadInput := strings.TrimSpace(*payloadFlag)
+	if payloadInput == "" {
+		if stdinHasPayload() {
+			contents, err := readPayloadFromStdin()
+			if err != nil {
+				fs.Usage()
+				return Config{}, err
+			}
+			payloadInput = contents
+		} else {
+			fs.Usage()
+			return Config{}, fmt.Errorf("payload is required")
+		}
 	}
-	if payloadRaw == nil && payloadInput != "" {
-		payloadRaw, payloadMap, err = decodePayload(payloadInput)
+	if payloadInput == "-" {
+		contents, err := readPayloadFromStdin()
 		if err != nil {
 			fs.Usage()
 			return Config{}, err
 		}
+		payloadInput = contents
 	}
 
-	eventType := strings.TrimSpace(*eventTypeFlag)
-	if eventType == "" && payloadMap != nil {
-		eventType = extractEventType(payloadMap)
-	}
-	if eventType == "" {
+	payloadRaw, payloadMap, err := decodePayload(payloadInput)
+	if err != nil {
 		fs.Usage()
-		return Config{}, fmt.Errorf("event type required")
+		return Config{}, err
 	}
 
 	occurredAt := (*time.Time)(nil)
@@ -129,9 +119,8 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 		URL:        url,
 		Token:      token,
 		SessionID:  sessionID,
-		EventType:  eventType,
 		Payload:    payloadRaw,
-		Raw:        rawArg,
+		Raw:        "",
 		OccurredAt: occurredAt,
 		Timeout:    *timeoutFlag,
 		Verbose:    *verboseFlag,
@@ -142,7 +131,7 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 func decodePayload(raw string) (json.RawMessage, map[string]any, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
-		return nil, nil, nil
+		return nil, nil, fmt.Errorf("payload is required")
 	}
 	if !json.Valid([]byte(trimmed)) {
 		return nil, nil, fmt.Errorf("payload must be valid JSON")
@@ -151,24 +140,15 @@ func decodePayload(raw string) (json.RawMessage, map[string]any, error) {
 	if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
 		return nil, nil, fmt.Errorf("payload must be a JSON object")
 	}
-	return json.RawMessage(trimmed), payload, nil
-}
-
-func extractEventType(payload map[string]any) string {
-	for _, key := range []string{"type", "event_type"} {
-		value, ok := payload[key]
-		if !ok {
-			continue
-		}
-		text, ok := value.(string)
-		if !ok {
-			continue
-		}
-		if trimmed := strings.TrimSpace(text); trimmed != "" {
-			return trimmed
-		}
+	typeValue, ok := payload["type"]
+	if !ok {
+		return nil, nil, fmt.Errorf("payload type is required")
 	}
-	return ""
+	typeText, ok := typeValue.(string)
+	if !ok || strings.TrimSpace(typeText) == "" {
+		return nil, nil, fmt.Errorf("payload type is required")
+	}
+	return json.RawMessage(trimmed), payload, nil
 }
 
 func extractOccurredAt(payload map[string]any) *time.Time {
@@ -191,7 +171,7 @@ func extractOccurredAt(payload map[string]any) *time.Time {
 }
 
 func printNotifyHelp(out io.Writer) {
-	fmt.Fprintln(out, "Usage: gestalt-notify [options] [json-payload]")
+	fmt.Fprintln(out, "Usage: gestalt-notify [options]")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Send notify events to a running Gestalt session workflow")
 	fmt.Fprintln(out, "")
@@ -199,8 +179,7 @@ func printNotifyHelp(out io.Writer) {
 	writeNotifyOption(out, "--url URL", "Gestalt server URL (env: GESTALT_URL, default: http://localhost:57417)")
 	writeNotifyOption(out, "--token TOKEN", "Auth token (env: GESTALT_TOKEN, default: none)")
 	writeNotifyOption(out, "--session-id ID", "Session ID (required)")
-	writeNotifyOption(out, "--event-type TYPE", "Event type (required when payload lacks type)")
-	writeNotifyOption(out, "--payload JSON", "JSON payload string (manual mode)")
+	writeNotifyOption(out, "--payload JSON", "JSON payload string (required, use '-' for stdin)")
 	writeNotifyOption(out, "--timeout DURATION", "Request timeout (default: 2s)")
 	writeNotifyOption(out, "--verbose", "Verbose output")
 	writeNotifyOption(out, "--debug", "Debug output (implies --verbose)")
@@ -208,12 +187,11 @@ func printNotifyHelp(out io.Writer) {
 	writeNotifyOption(out, "--version", "Print version and exit")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Modes:")
-	fmt.Fprintln(out, "  Codex notifier: supply JSON payload as final arg")
-	fmt.Fprintln(out, "  Manual: use --event-type and optional --payload")
+	fmt.Fprintln(out, "  Manual: use --payload or pipe JSON via stdin")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Examples:")
-	fmt.Fprintln(out, "  gestalt-notify --session-id 'Coder 1' '{\"type\":\"agent-turn-complete\"}'")
-	fmt.Fprintln(out, "  gestalt-notify --session-id 'Coder 1' --event-type plan-L1-wip --payload '{\"plan_file\":\"plan.org\"}'")
+	fmt.Fprintln(out, "  gestalt-notify --session-id 'Coder 1' --payload '{\"type\":\"agent-turn-complete\"}'")
+	fmt.Fprintln(out, "  echo '{\"type\":\"plan-L1-wip\",\"plan_file\":\"plan.org\"}' | gestalt-notify --session-id 'Coder 1'")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Exit codes:")
 	fmt.Fprintln(out, "  0  Success")
@@ -224,4 +202,24 @@ func printNotifyHelp(out io.Writer) {
 
 func writeNotifyOption(out io.Writer, name, desc string) {
 	fmt.Fprintf(out, "  %-18s %s\n", name, desc)
+}
+
+func stdinHasPayload() bool {
+	info, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice == 0
+}
+
+func readPayloadFromStdin() (string, error) {
+	contents, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return "", fmt.Errorf("read payload from stdin: %w", err)
+	}
+	trimmed := strings.TrimSpace(string(contents))
+	if trimmed == "" {
+		return "", fmt.Errorf("payload is required")
+	}
+	return trimmed, nil
 }

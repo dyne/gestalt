@@ -123,9 +123,9 @@ func (h *RestHandler) createTerminal(w http.ResponseWriter, r *http.Request) *ap
 		var dupErr *terminal.AgentAlreadyRunningError
 		if errors.As(createErr, &dupErr) {
 			return &apiError{
-				Status:     http.StatusConflict,
-				Message:    fmt.Sprintf("agent %q is already running", dupErr.AgentName),
-				SessionID:  dupErr.TerminalID,
+				Status:    http.StatusConflict,
+				Message:   fmt.Sprintf("agent %q is already running", dupErr.AgentName),
+				SessionID: dupErr.TerminalID,
 			}
 		}
 		return &apiError{Status: http.StatusInternalServerError, Message: "failed to create terminal"}
@@ -338,14 +338,14 @@ func (h *RestHandler) handleTerminalNotify(w http.ResponseWriter, r *http.Reques
 	}
 
 	signal := workflows.NotifySignal{
-		Timestamp:  timestamp,
-		SessionID:  id,
-		AgentID:    agentID,
-		AgentName:  agentName,
-		EventType:  request.EventType,
-		Payload:    request.Payload,
-		Raw:        request.Raw,
-		EventID:    request.EventID,
+		Timestamp: timestamp,
+		SessionID: id,
+		AgentID:   agentID,
+		AgentName: agentName,
+		EventType: request.EventType,
+		Payload:   request.Payload,
+		Raw:       request.Raw,
+		EventID:   request.EventID,
 	}
 	if signalErr := session.SendNotifySignal(signal); signalErr != nil {
 		return &apiError{Status: http.StatusInternalServerError, Message: "failed to signal workflow"}

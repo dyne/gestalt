@@ -185,7 +185,7 @@ type workflowResumeRequest struct {
 
 type notifyRequest struct {
 	SessionID  string          `json:"session_id"`
-	EventType  string          `json:"event_type"`
+	EventType  string          `json:"-"`
 	OccurredAt *time.Time      `json:"occurred_at,omitempty"`
 	Payload    json.RawMessage `json:"payload,omitempty"`
 	Raw        string          `json:"raw,omitempty"`

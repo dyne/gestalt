@@ -13,7 +13,6 @@ import (
 
 type NotifyRequest struct {
 	SessionID  string          `json:"session_id"`
-	EventType  string          `json:"event_type"`
 	OccurredAt *time.Time      `json:"occurred_at,omitempty"`
 	Payload    json.RawMessage `json:"payload,omitempty"`
 	Raw        string          `json:"raw,omitempty"`

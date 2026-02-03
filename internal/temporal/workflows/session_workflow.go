@@ -113,14 +113,14 @@ type TerminateSignal struct {
 }
 
 type NotifySignal struct {
-	Timestamp  time.Time
-	SessionID  string
-	AgentID    string
-	AgentName  string
-	EventType  string
-	Payload    json.RawMessage
-	Raw        string
-	EventID    string
+	Timestamp time.Time
+	SessionID string
+	AgentID   string
+	AgentName string
+	EventType string
+	Payload   json.RawMessage
+	Raw       string
+	EventID   string
 }
 
 func SessionWorkflow(workflowContext workflow.Context, request SessionWorkflowRequest) (result SessionWorkflowResult, err error) {

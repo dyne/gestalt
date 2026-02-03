@@ -659,7 +659,7 @@ func TestTerminalNotifyEndpoint(t *testing.T) {
 	}()
 
 	handler := &RestHandler{Manager: manager}
-	body := `{"session_id":"` + created.ID + `","event_type":"plan-L1-wip","occurred_at":"2025-04-01T10:00:00Z","payload":{"plan_file":"plan.org"},"raw":"{}","event_id":"manual:1"}`
+	body := `{"session_id":"` + created.ID + `","occurred_at":"2025-04-01T10:00:00Z","payload":{"type":"plan-L1-wip","plan_file":"plan.org"},"raw":"{}","event_id":"manual:1"}`
 	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/notify", strings.NewReader(body))
 	res := httptest.NewRecorder()
 
@@ -705,7 +705,7 @@ func TestTerminalNotifyEndpointMissingTerminal(t *testing.T) {
 	manager := newTestManager(terminal.ManagerOptions{Shell: "/bin/sh"})
 	handler := &RestHandler{Manager: manager}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/missing/notify", strings.NewReader(`{"session_id":"missing","event_type":"plan-L1-wip"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/missing/notify", strings.NewReader(`{"session_id":"missing","payload":{"type":"plan-L1-wip"}}`))
 	res := httptest.NewRecorder()
 
 	restHandler("", nil, handler.handleTerminal)(res, req)
@@ -732,7 +732,7 @@ func TestTerminalNotifyEndpointMissingWorkflow(t *testing.T) {
 	}()
 
 	handler := &RestHandler{Manager: manager}
-	body := `{"session_id":"` + created.ID + `","event_type":"plan-L1-wip"}`
+	body := `{"session_id":"` + created.ID + `","payload":{"type":"plan-L1-wip"}}`
 	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/notify", strings.NewReader(body))
 	res := httptest.NewRecorder()
 

@@ -1,6 +1,7 @@
 package client
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -21,7 +22,7 @@ func TestPostNotifyEventEscapesSessionID(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	payload := NotifyRequest{
-		EventType: "plan-L1-wip",
+		Payload: json.RawMessage(`{"type":"plan-L1-wip","plan_file":"plan.org"}`),
 	}
 	if err := PostNotifyEvent(server.Client(), server.URL, "", "Coder 1", payload); err != nil {
 		t.Fatalf("post notify: %v", err)

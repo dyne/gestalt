@@ -99,3 +99,31 @@ func TestSendNotifyEventNetworkError(t *testing.T) {
 		}
 	})
 }
+
+func TestSendNotifyEventEscapesSessionID(t *testing.T) {
+	withMockClient(t, func(r *http.Request) (*http.Response, error) {
+		if r.URL.EscapedPath() != "/api/sessions/Coder%201/notify" {
+			t.Fatalf("expected escaped path, got %q", r.URL.EscapedPath())
+		}
+		body, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(body), "\"agent_id\"") {
+			t.Fatalf("expected agent_id to be omitted, got %q", string(body))
+		}
+		return &http.Response{
+			StatusCode: http.StatusNoContent,
+			Body:       io.NopCloser(strings.NewReader("")),
+			Header:     make(http.Header),
+			Request:    r,
+		}, nil
+	}, func() {
+		cfg := Config{
+			URL:       "http://example.invalid",
+			SessionID: "Coder 1",
+			Source:    "manual",
+			EventType: "plan-L1-wip",
+		}
+		if err := sendNotifyEvent(cfg); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}

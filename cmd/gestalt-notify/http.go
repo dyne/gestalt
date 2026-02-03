@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"gestalt/internal/client"
@@ -60,7 +61,6 @@ func sendNotifyEvent(cfg Config) error {
 
 	payload := client.NotifyRequest{
 		SessionID:  cfg.SessionID,
-		AgentID:    cfg.AgentID,
 		AgentName:  cfg.AgentName,
 		Source:     cfg.Source,
 		EventType:  cfg.EventType,
@@ -68,9 +68,13 @@ func sendNotifyEvent(cfg Config) error {
 		Payload:    cfg.Payload,
 		Raw:        cfg.Raw,
 	}
+	if strings.TrimSpace(cfg.AgentID) != "" {
+		payload.AgentID = strings.TrimSpace(cfg.AgentID)
+	}
 
 	if cfg.Verbose {
-		target := fmt.Sprintf("%s/api/sessions/%s/notify", baseURL, cfg.SessionID)
+		escapedID := url.PathEscape(cfg.SessionID)
+		target := fmt.Sprintf("%s/api/sessions/%s/notify", baseURL, escapedID)
 		logf(cfg, "posting notify event to %s", target)
 		logf(cfg, "event_type: %s, source: %s", cfg.EventType, cfg.Source)
 		if strings.TrimSpace(cfg.Token) != "" {

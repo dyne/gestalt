@@ -1,3 +1,10 @@
+## [1.6.1](https://github.com/dyne/gestalt/compare/v1.6.0...v1.6.1) (2026-02-03)
+
+
+### Bug Fixes
+
+* build makefile install typo ([0154f25](https://github.com/dyne/gestalt/commit/0154f25c78a71ea3360f5a5b63d6eb48dae1cff8))
+
 # [1.6.0](https://github.com/dyne/gestalt/compare/v1.5.0...v1.6.0) (2026-02-03)
 
 

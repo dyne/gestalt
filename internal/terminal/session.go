@@ -201,6 +201,13 @@ func (s *Session) Info() SessionInfo {
 	}
 }
 
+func (s *Session) AgentName() string {
+	if s == nil || s.agent == nil {
+		return ""
+	}
+	return s.agent.Name
+}
+
 func (s *Session) Subscribe() (<-chan []byte, func()) {
 	if s == nil || s.outputBus == nil || s.State() == sessionStateClosed {
 		ch := make(chan []byte)

@@ -659,7 +659,7 @@ func TestTerminalNotifyEndpoint(t *testing.T) {
 	}()
 
 	handler := &RestHandler{Manager: manager}
-	body := `{"session_id":"` + created.ID + `","agent_id":"codex","agent_name":"Codex","source":"manual","event_type":"plan-L1-wip","occurred_at":"2025-04-01T10:00:00Z","payload":{"plan_file":"plan.org"},"raw":"{}","event_id":"manual:1"}`
+	body := `{"session_id":"` + created.ID + `","agent_name":"Codex","source":"manual","event_type":"plan-L1-wip","occurred_at":"2025-04-01T10:00:00Z","payload":{"plan_file":"plan.org"},"raw":"{}","event_id":"manual:1"}`
 	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/notify", strings.NewReader(body))
 	res := httptest.NewRecorder()
 
@@ -704,11 +704,46 @@ func TestTerminalNotifyEndpoint(t *testing.T) {
 	}
 }
 
+func TestTerminalNotifyEndpointAgentIDMismatch(t *testing.T) {
+	factory := &fakeFactory{}
+	temporalClient := &fakeWorkflowSignalClient{runID: "run-13"}
+	manager := newTestManager(terminal.ManagerOptions{
+		Shell:           "/bin/sh",
+		PtyFactory:      factory,
+		TemporalClient:  temporalClient,
+		TemporalEnabled: true,
+		Agents: map[string]agent.Agent{
+			"codex": {Name: "Codex", Shell: "/bin/bash", CLIType: "codex"},
+		},
+	})
+	useWorkflow := true
+	created, err := manager.CreateWithOptions(terminal.CreateOptions{
+		AgentID:     "codex",
+		UseWorkflow: &useWorkflow,
+	})
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	handler := &RestHandler{Manager: manager}
+	body := `{"session_id":"` + created.ID + `","agent_id":"other","source":"manual","event_type":"plan-L1-wip"}`
+	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/notify", strings.NewReader(body))
+	res := httptest.NewRecorder()
+
+	restHandler("", nil, handler.handleTerminal)(res, req)
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", res.Code)
+	}
+}
+
 func TestTerminalNotifyEndpointMissingTerminal(t *testing.T) {
 	manager := newTestManager(terminal.ManagerOptions{Shell: "/bin/sh"})
 	handler := &RestHandler{Manager: manager}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/missing/notify", strings.NewReader(`{"session_id":"missing","agent_id":"codex","source":"manual","event_type":"plan-L1-wip"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/missing/notify", strings.NewReader(`{"session_id":"missing","source":"manual","event_type":"plan-L1-wip"}`))
 	res := httptest.NewRecorder()
 
 	restHandler("", nil, handler.handleTerminal)(res, req)
@@ -735,7 +770,7 @@ func TestTerminalNotifyEndpointMissingWorkflow(t *testing.T) {
 	}()
 
 	handler := &RestHandler{Manager: manager}
-	body := `{"session_id":"` + created.ID + `","agent_id":"codex","source":"manual","event_type":"plan-L1-wip"}`
+	body := `{"session_id":"` + created.ID + `","source":"manual","event_type":"plan-L1-wip"}`
 	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/notify", strings.NewReader(body))
 	res := httptest.NewRecorder()
 

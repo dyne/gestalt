@@ -321,14 +321,19 @@ func (h *RestHandler) handleTerminalNotify(w http.ResponseWriter, r *http.Reques
 
 	session, ok := h.Manager.Get(id)
 	if !ok {
-		return &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
+		return &apiError{Status: http.StatusNotFound, Message: "session not found"}
 	}
-	sessionAgentID := strings.TrimSpace(session.AgentID)
-	if sessionAgentID == "" {
+	agentID := strings.TrimSpace(session.AgentID)
+	if agentID == "" {
 		return &apiError{Status: http.StatusBadRequest, Message: "terminal is not an agent session"}
 	}
-	if request.AgentID != sessionAgentID {
+	requestAgentID := strings.TrimSpace(request.AgentID)
+	if requestAgentID != "" && requestAgentID != agentID {
 		return &apiError{Status: http.StatusBadRequest, Message: "agent id mismatch"}
+	}
+	agentName := strings.TrimSpace(request.AgentName)
+	if agentName == "" {
+		agentName = session.AgentName()
 	}
 	if _, _, hasWorkflow := session.WorkflowIdentifiers(); !hasWorkflow {
 		return &apiError{Status: http.StatusConflict, Message: "workflow not active"}
@@ -342,8 +347,8 @@ func (h *RestHandler) handleTerminalNotify(w http.ResponseWriter, r *http.Reques
 	signal := workflows.NotifySignal{
 		Timestamp:  timestamp,
 		SessionID:  id,
-		AgentID:    request.AgentID,
-		AgentName:  request.AgentName,
+		AgentID:    agentID,
+		AgentName:  agentName,
 		EventType:  request.EventType,
 		Source:     request.Source,
 		Payload:    request.Payload,

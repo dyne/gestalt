@@ -73,4 +73,6 @@ jobs:
           ./gestalt-notify --help
           echo "--------------------------------------"
           ./gestalt-otel --help
+          echo "--------------------------------------"
+          ./gestalt-agent --help
         shell: bash

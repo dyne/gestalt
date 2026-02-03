@@ -1,3 +1,27 @@
+# [1.6.0](https://github.com/dyne/gestalt/compare/v1.5.0...v1.6.0) (2026-02-03)
+
+
+### Bug Fixes
+
+* add notify error codes ([09ad927](https://github.com/dyne/gestalt/commit/09ad92757a2a335d5ea1650a6e46747bd5714a63))
+* drop notify agent id flag ([d587458](https://github.com/dyne/gestalt/commit/d58745847d3685a445db9806f05da49bf325658a))
+* drop notify agent id support ([10dcaf5](https://github.com/dyne/gestalt/commit/10dcaf50641c5b299c13764b0d906d854c19e14a))
+* drop notify agent name/source ([35e3771](https://github.com/dyne/gestalt/commit/35e377165e866df4226973a00e078dfc3915facf))
+* escape notify session id ([f9c5a2e](https://github.com/dyne/gestalt/commit/f9c5a2eb1b2e273b40ce12138bed3b38fea9cac7))
+* gestalt-agent uses developer_instructions ([951e50d](https://github.com/dyne/gestalt/commit/951e50d8af89258dc7f5386b4f856b9fde9ffcb6))
+* infer notify agent id ([8489193](https://github.com/dyne/gestalt/commit/848919336bdfba6b0f9e5c6fa8f6ee2eae67eac9))
+* make notify agent id optional ([ec031d3](https://github.com/dyne/gestalt/commit/ec031d38de71cb1cd7c9e44b889599c6960bb00e))
+* omit empty notify agent id ([21e5c4e](https://github.com/dyne/gestalt/commit/21e5c4eefa2b657f8900649e5efdeeca0dd8ec9a))
+* relax notify agent id validation ([722cdb1](https://github.com/dyne/gestalt/commit/722cdb16946352bcac302388abf7e9de388d3483))
+* require notify payload type ([afcae39](https://github.com/dyne/gestalt/commit/afcae39202ba5a14b8bca5602395b2c04dd83515))
+* use positional notify payload ([585bb44](https://github.com/dyne/gestalt/commit/585bb444e503b92697613714bf880655d654b81b))
+
+
+### Features
+
+* add inline prompt directives ([44b3a42](https://github.com/dyne/gestalt/commit/44b3a4295f9a89ff1f1012c75a0ed13de7d52d4f))
+* inject session id in prompts ([6e4fa59](https://github.com/dyne/gestalt/commit/6e4fa59924ce2c3d54b4bbc75a93c7b2be54996e))
+
 # [1.5.0](https://github.com/dyne/gestalt/compare/v1.4.0...v1.5.0) (2026-02-03)
 
 

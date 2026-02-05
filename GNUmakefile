@@ -2,7 +2,7 @@
 GO ?= go
 PREFIX ?= $(DESTDIR)/usr/local
 BINDIR ?= $(PREFIX)/bin
-VERSION ?= dev
+VERSION ?= $(or $(shell git describe --tags --abbrev=0 2>/dev/null),dev)
 CONFIG_MANIFEST := config/manifest.json
 VERSION_INFO := internal/version/build_info.json
 UNAME_S := $(shell uname -s)
@@ -79,6 +79,7 @@ clean:
 	go clean
 	rm -rf frontend/dist
 	rm -rf gestalt gestalt-*
+	rm -rf $(CONFIG_MANIFEST) $(VERSION_INFO)
 
 clean-all:
 	$(info Cleaning up build and cache)

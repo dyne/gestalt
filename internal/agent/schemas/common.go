@@ -14,6 +14,7 @@ var (
 	registry = map[string]schemaProvider{
 		"codex":   CodexSchema,
 		"copilot": CopilotSchema,
+		"ollama":  OllamaSchema,
 	}
 	registryMu sync.RWMutex
 	cache      = map[string]*jsonschema.Schema{}

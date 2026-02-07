@@ -6,7 +6,6 @@ import (
 	"gestalt/internal/agent/shellgen"
 )
 
-// BuildShellCommand builds a shell command string from CLI config settings.
 func BuildShellCommand(cliType string, config map[string]interface{}) string {
 	args := buildShellArgs(cliType, config)
 	if len(args) == 0 {
@@ -26,6 +25,8 @@ func buildShellArgs(cliType string, config map[string]interface{}) []string {
 		return shellgen.BuildCodexCommand(config)
 	case "copilot":
 		return shellgen.BuildCopilotCommand(config)
+	case "ollama":
+		return shellgen.BuildOllamaCommand(config)
 	default:
 		return nil
 	}

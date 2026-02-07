@@ -629,6 +629,31 @@ Example:
 }
 ```
 
+#### Ollama (Local Models) <!-- omit in toc -->
+
+To use [Ollama](https://ollama.com) with locally hosted models, set `cli_type` to `ollama` and provide the model name in `cli_config`. You can also specify a remote `host` to connect to an Ollama server via its REST API.
+
+Example `.gestalt/config/agents/local.json`:
+```json
+{
+  "name": "LocalLlama",
+  "cli_type": "ollama",
+  "cli_config": {
+    "model": "llama3",
+    "host": "http://localhost:11434",
+    "verbose": true
+  }
+}
+```
+
+Supported `cli_config` fields for Ollama:
+- `model`: The model name (e.g., `llama3`, `mistral`).
+- `host`: The Ollama server URL (sets `OLLAMA_HOST` env var).
+- `format`: Output format (e.g., `json`).
+- `insecure`: Use an insecure registry (boolean).
+- `verbose`: Show timings for the request (boolean).
+- `nowordwrap`: Disable word wrapping (boolean).
+
 Prompt behavior:
 - `prompt` accepts a single string or array of strings.
 - Each string is a prompt name, resolved to `config/prompts/{name}.txt`.

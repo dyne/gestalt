@@ -1713,6 +1713,12 @@ func TestAgentsEndpoint(t *testing.T) {
 	if !codex.UseWorkflow {
 		t.Fatalf("expected codex use_workflow to be true")
 	}
+	if codex.Interface != agent.AgentInterfaceCLI {
+		t.Fatalf("expected codex interface %q, got %q", agent.AgentInterfaceCLI, codex.Interface)
+	}
+	if copilot.Interface != agent.AgentInterfaceCLI {
+		t.Fatalf("expected copilot interface %q, got %q", agent.AgentInterfaceCLI, copilot.Interface)
+	}
 	if copilot.Running {
 		t.Fatalf("expected copilot to be stopped")
 	}

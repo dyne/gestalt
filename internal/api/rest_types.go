@@ -164,6 +164,7 @@ type agentSummary struct {
 	Name        string `json:"name"`
 	LLMType     string `json:"llm_type"`
 	LLMModel    string `json:"llm_model"`
+	Interface   string `json:"interface"`
 	SessionID   string `json:"session_id"`
 	Running     bool   `json:"running"`
 	UseWorkflow bool   `json:"use_workflow"`

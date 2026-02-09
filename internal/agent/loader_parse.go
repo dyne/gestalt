@@ -135,7 +135,6 @@ var agentRootKeys = map[string]struct{}{
 	"use_workflow": {},
 	"singleton":    {},
 	"interface":    {},
-	"codex_mode":   {},
 	"cli_type":     {},
 	"llm_model":    {},
 	"cli_config":   {},

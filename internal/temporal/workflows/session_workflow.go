@@ -118,6 +118,7 @@ type NotifySignal struct {
 	AgentID   string
 	AgentName string
 	EventType string
+	Source    string
 	Payload   json.RawMessage
 	Raw       string
 	EventID   string

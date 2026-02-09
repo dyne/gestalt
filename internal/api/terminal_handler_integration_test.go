@@ -676,20 +676,22 @@ func TestTerminalWebSocketCloseEndsHandler(t *testing.T) {
 func readWebSocketContains(t *testing.T, conn *websocket.Conn, text string) bool {
 	t.Helper()
 	deadline := time.Now().Add(1 * time.Second)
-	for time.Now().Before(deadline) {
-		_ = conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+	_ = conn.SetReadDeadline(deadline)
+	for {
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				continue
+				return false
 			}
 			return false
 		}
 		if bytes.Contains(msg, []byte(text)) {
 			return true
 		}
+		if time.Now().After(deadline) {
+			return false
+		}
 	}
-	return false
 }
 
 func readWebSocketLines(t *testing.T, conn *websocket.Conn, expected int, timeout time.Duration) []string {
@@ -698,12 +700,12 @@ func readWebSocketLines(t *testing.T, conn *websocket.Conn, expected int, timeou
 	lines := make([]string, 0, expected)
 	buffer := []byte{}
 
+	_ = conn.SetReadDeadline(deadline)
 	for len(lines) < expected && time.Now().Before(deadline) {
-		_ = conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				continue
+				break
 			}
 			t.Fatalf("read websocket: %v", err)
 		}

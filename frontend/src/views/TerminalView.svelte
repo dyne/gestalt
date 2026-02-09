@@ -8,6 +8,7 @@
   export let title = ''
   export let promptFiles = []
   export let visible = true
+  export let sessionInterface = ''
   export let onDelete = () => {}
 
   let closeDialog
@@ -92,6 +93,7 @@
       {promptFiles}
       {visible}
       {temporalUrl}
+      {sessionInterface}
       onRequestClose={openCloseDialog}
     />
     <dialog id="close-confirm-dialog" class="close-dialog" bind:this={closeDialog}>

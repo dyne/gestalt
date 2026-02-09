@@ -20,7 +20,7 @@ export const createTerminalService = ({ terminalId, historyCache }) => {
   const canReconnect = writable(false)
   const atBottom = writable(true)
 
-  const { term, fitAddon, disposeThemeListener } = createXtermTerminal()
+  const { term, fitAddon, disposeThemeListener, syncTheme } = createXtermTerminal()
 
   const encoder = new TextEncoder()
   const cache = historyCache || new Map()
@@ -98,6 +98,7 @@ export const createTerminalService = ({ terminalId, historyCache }) => {
     requestAnimationFrame(() => {
       if (!container || disposed) return
       fitAddon.fit()
+      syncTheme?.()
       sendResize()
     })
   }
@@ -200,6 +201,7 @@ export const createTerminalService = ({ terminalId, historyCache }) => {
     if (next === isVisible) return
     isVisible = next
     if (isVisible) {
+      syncTheme?.()
       connect()
       scheduleFit()
       return

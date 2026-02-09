@@ -838,12 +838,6 @@ func TestManagerInjectsPrompt(t *testing.T) {
 }
 
 func TestManagerCodexDeveloperInstructions(t *testing.T) {
-	oldDelay := promptDelay
-	promptDelay = 25 * time.Millisecond
-	defer func() {
-		promptDelay = oldDelay
-	}()
-
 	root := t.TempDir()
 	promptsDir := filepath.Join(root, "config", "prompts")
 	if err := os.MkdirAll(promptsDir, 0755); err != nil {
@@ -894,7 +888,7 @@ func TestManagerCodexDeveloperInstructions(t *testing.T) {
 		_ = manager.Delete(session.ID)
 	}()
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(promptDelay + 100*time.Millisecond)
 	factory.pty.mu.Lock()
 	writes := len(factory.pty.writes)
 	factory.pty.mu.Unlock()

@@ -3,11 +3,34 @@ import { FitAddon } from '@xterm/addon-fit'
 
 const readCssVar = (name, fallback) => {
   if (typeof window === 'undefined') return fallback
-  const value = window
+  const rootValue = window
     .getComputedStyle(document.documentElement)
     .getPropertyValue(name)
     .trim()
-  return value || fallback
+  if (rootValue) return rootValue
+  const appElement = document.querySelector('.app')
+  if (appElement) {
+    const appValue = window
+      .getComputedStyle(appElement)
+      .getPropertyValue(name)
+      .trim()
+    if (appValue) return appValue
+  }
+  return fallback
+}
+
+const DEFAULT_FONT_FAMILY = '"IBM Plex Mono", "JetBrains Mono", monospace'
+const DEFAULT_FONT_SIZE = 14
+
+const readFontFamily = () => readCssVar('--terminal-font-family', DEFAULT_FONT_FAMILY)
+
+const readFontSize = () => {
+  const value = readCssVar('--terminal-font-size', String(DEFAULT_FONT_SIZE))
+  const parsed = Number.parseFloat(value)
+  if (Number.isFinite(parsed) && parsed > 0) {
+    return parsed
+  }
+  return DEFAULT_FONT_SIZE
 }
 
 const buildTerminalTheme = () => ({
@@ -20,6 +43,8 @@ const buildTerminalTheme = () => ({
 const setupThemeSync = (term) => {
   const syncTheme = () => {
     term.options.theme = buildTerminalTheme()
+    term.options.fontFamily = readFontFamily()
+    term.options.fontSize = readFontSize()
   }
   let disposeThemeListener
   if (typeof window !== 'undefined' && window.matchMedia) {
@@ -40,13 +65,14 @@ export const createXtermTerminal = () => {
   const term = new Terminal({
     allowProposedApi: true,
     cursorBlink: true,
-    fontSize: 14,
-    fontFamily: '"IBM Plex Mono", "JetBrains Mono", monospace',
+    fontSize: readFontSize(),
+    fontFamily: readFontFamily(),
     theme: buildTerminalTheme(),
   })
   const fitAddon = new FitAddon()
   term.loadAddon(fitAddon)
 
-  const { disposeThemeListener } = setupThemeSync(term)
-  return { term, fitAddon, disposeThemeListener }
+  const { disposeThemeListener, syncTheme } = setupThemeSync(term)
+  syncTheme()
+  return { term, fitAddon, disposeThemeListener, syncTheme }
 }

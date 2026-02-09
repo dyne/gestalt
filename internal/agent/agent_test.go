@@ -216,3 +216,80 @@ func TestAgentNormalizeShellMissingType(t *testing.T) {
 		t.Fatalf("expected error")
 	}
 }
+
+func TestAgentInterfacePrecedence(t *testing.T) {
+	tests := []struct {
+		name      string
+		iface     string
+		codexMode string
+		cliType   string
+		forceTUI  bool
+		want      string
+		wantErr   string
+	}{
+		{
+			name:      "interface wins over codex_mode",
+			iface:     "cli",
+			codexMode: "mcp-server",
+			cliType:   "codex",
+			want:      AgentInterfaceCLI,
+		},
+		{
+			name:      "legacy codex_mode selects mcp",
+			codexMode: "mcp-server",
+			cliType:   "codex",
+			want:      AgentInterfaceMCP,
+		},
+		{
+			name:    "default interface is cli",
+			cliType: "codex",
+			want:    AgentInterfaceCLI,
+		},
+		{
+			name:    "normalize interface value",
+			iface:   "MCP",
+			cliType: "codex",
+			want:    AgentInterfaceMCP,
+		},
+		{
+			name:    "force tui overrides mcp",
+			iface:   "mcp",
+			cliType: "codex",
+			forceTUI: true,
+			want:    AgentInterfaceCLI,
+		},
+		{
+			name:    "mcp requires codex",
+			iface:   "mcp",
+			cliType: "copilot",
+			wantErr: "requires cli_type=\"codex\"",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			agent := Agent{
+				Name:      "Tester",
+				Interface: tt.iface,
+				CodexMode: tt.codexMode,
+				CLIType:   tt.cliType,
+			}
+			got, err := agent.RuntimeInterface(tt.forceTUI)
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Fatalf("expected error")
+				}
+				if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("error %q does not contain %q", err.Error(), tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("expected %q, got %q", tt.want, got)
+			}
+		})
+	}
+}

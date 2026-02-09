@@ -133,6 +133,8 @@ var agentRootKeys = map[string]struct{}{
 	"onair_string": {},
 	"use_workflow": {},
 	"singleton":    {},
+	"interface":    {},
+	"codex_mode":   {},
 	"cli_type":     {},
 	"llm_model":    {},
 	"cli_config":   {},

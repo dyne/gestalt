@@ -66,17 +66,29 @@ type Agent struct {
 	OnAirString string                 `json:"onair_string,omitempty" toml:"onair_string,omitempty"`
 	UseWorkflow *bool                  `json:"use_workflow,omitempty" toml:"use_workflow,omitempty"`
 	Singleton   *bool                  `json:"singleton,omitempty" toml:"singleton,omitempty"`
+	Interface   string                 `json:"interface,omitempty" toml:"interface,omitempty"`
+	CodexMode   string                 `json:"codex_mode,omitempty" toml:"codex_mode,omitempty"`
 	CLIType     string                 `json:"cli_type,omitempty" toml:"cli_type,omitempty"`
 	LLMModel    string                 `json:"llm_model,omitempty" toml:"llm_model,omitempty"`
 	CLIConfig   map[string]interface{} `json:"cli_config,omitempty" toml:"cli_config,omitempty"`
 	ConfigHash  string                 `json:"-" toml:"-"`
 }
 
+const (
+	AgentInterfaceCLI = "cli"
+	AgentInterfaceMCP = "mcp"
+)
+
 // Validate ensures required fields are present and values are supported.
 func (a *Agent) Validate() error {
 	if strings.TrimSpace(a.Name) == "" {
 		return fmt.Errorf("agent name is required")
 	}
+	resolvedInterface, err := a.ResolveInterface()
+	if err != nil {
+		return err
+	}
+	a.Interface = resolvedInterface
 	if _, err := a.resolveShell(); err != nil {
 		return err
 	}
@@ -88,6 +100,45 @@ func (a *Agent) Validate() error {
 	}
 
 	return nil
+}
+
+func (a *Agent) ResolveInterface() (string, error) {
+	interfaceValue := strings.TrimSpace(a.Interface)
+	if interfaceValue == "" {
+		if strings.EqualFold(strings.TrimSpace(a.CodexMode), "mcp-server") {
+			interfaceValue = AgentInterfaceMCP
+		}
+	}
+	if interfaceValue == "" {
+		interfaceValue = AgentInterfaceCLI
+	}
+	interfaceValue = strings.ToLower(interfaceValue)
+	switch interfaceValue {
+	case AgentInterfaceCLI, AgentInterfaceMCP:
+	default:
+		return "", &ValidationError{
+			Path:    "interface",
+			Message: fmt.Sprintf("expected \"cli\" or \"mcp\" (got %q)", interfaceValue),
+		}
+	}
+	if interfaceValue == AgentInterfaceMCP && !strings.EqualFold(strings.TrimSpace(a.CLIType), "codex") {
+		return "", &ValidationError{
+			Path:    "interface",
+			Message: "interface=\"mcp\" requires cli_type=\"codex\"",
+		}
+	}
+	return interfaceValue, nil
+}
+
+func (a *Agent) RuntimeInterface(forceTUI bool) (string, error) {
+	resolvedInterface, err := a.ResolveInterface()
+	if err != nil {
+		return "", err
+	}
+	if forceTUI && strings.EqualFold(strings.TrimSpace(a.CLIType), "codex") {
+		return AgentInterfaceCLI, nil
+	}
+	return resolvedInterface, nil
 }
 
 // NormalizeShell applies CLI config shell generation using the resolved shell command.

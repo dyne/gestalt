@@ -789,7 +789,7 @@ func TestManagerInjectsPrompt(t *testing.T) {
 				Name:    "Codex",
 				Shell:   "/bin/bash",
 				Prompts: agent.PromptList{"first", "second"},
-				CLIType: "codex",
+				CLIType: "copilot",
 			},
 		},
 	})
@@ -837,6 +837,89 @@ func TestManagerInjectsPrompt(t *testing.T) {
 	}
 }
 
+func TestManagerCodexDeveloperInstructions(t *testing.T) {
+	oldDelay := promptDelay
+	promptDelay = 25 * time.Millisecond
+	defer func() {
+		promptDelay = oldDelay
+	}()
+
+	root := t.TempDir()
+	promptsDir := filepath.Join(root, "config", "prompts")
+	if err := os.MkdirAll(promptsDir, 0755); err != nil {
+		t.Fatalf("mkdir prompts: %v", err)
+	}
+	firstPrompt := filepath.Join(promptsDir, "first.txt")
+	if err := os.WriteFile(firstPrompt, []byte("echo hello\n"), 0644); err != nil {
+		t.Fatalf("write prompt: %v", err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(cwd); err != nil {
+			t.Errorf("restore cwd: %v", err)
+		}
+	}()
+
+	factory := &captureFactory{}
+	manager := NewManager(ManagerOptions{
+		PtyFactory: factory,
+		Skills: map[string]*skill.Skill{
+			"alpha": {
+				Name:        "alpha",
+				Description: "Alpha skill",
+				Path:        "config/skills/alpha",
+			},
+		},
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:    "Codex",
+				Prompts: agent.PromptList{"first"},
+				Skills:  []string{"alpha"},
+				CLIType: "codex",
+			},
+		},
+	})
+
+	session, err := manager.Create("codex", "build", "ignored")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(session.ID)
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	factory.pty.mu.Lock()
+	writes := len(factory.pty.writes)
+	factory.pty.mu.Unlock()
+	if writes != 0 {
+		t.Fatalf("expected no prompt writes for codex, got %d", writes)
+	}
+
+	info := session.Info()
+	if len(info.PromptFiles) != 1 || info.PromptFiles[0] != "first.txt" {
+		t.Fatalf("unexpected prompt files: %#v", info.PromptFiles)
+	}
+	if !strings.Contains(session.Command, "developer_instructions=") {
+		t.Fatalf("expected developer_instructions in command, got %q", session.Command)
+	}
+	if !strings.Contains(session.Command, "notify=") {
+		t.Fatalf("expected notify in command, got %q", session.Command)
+	}
+	if !strings.Contains(session.Command, "<available_skills>") {
+		t.Fatalf("expected skills XML in command, got %q", session.Command)
+	}
+	if !strings.Contains(session.Command, "echo hello") {
+		t.Fatalf("expected prompt content in command, got %q", session.Command)
+	}
+}
+
 func TestManagerInjectsPromptSessionID(t *testing.T) {
 	root := t.TempDir()
 	promptsDir := filepath.Join(root, "config", "prompts")
@@ -868,7 +951,7 @@ func TestManagerInjectsPromptSessionID(t *testing.T) {
 				Name:    "Codex",
 				Shell:   "/bin/bash",
 				Prompts: agent.PromptList{"session"},
-				CLIType: "codex",
+				CLIType: "copilot",
 			},
 		},
 	})
@@ -951,7 +1034,7 @@ func TestManagerInjectsTemplatePrompt(t *testing.T) {
 				Name:    "Codex",
 				Shell:   "/bin/bash",
 				Prompts: agent.PromptList{"main"},
-				CLIType: "codex",
+				CLIType: "copilot",
 			},
 		},
 	})
@@ -1059,7 +1142,7 @@ func TestManagerInjectsPortDirectivePrompt(t *testing.T) {
 				Name:    "Codex",
 				Shell:   "/bin/bash",
 				Prompts: agent.PromptList{"port"},
-				CLIType: "codex",
+				CLIType: "copilot",
 			},
 		},
 	})
@@ -1150,7 +1233,7 @@ func TestManagerWritesSkillsMetadata(t *testing.T) {
 				Shell:   "/bin/bash",
 				Prompts: agent.PromptList{"first"},
 				Skills:  []string{"beta", "alpha"},
-				CLIType: "codex",
+				CLIType: "copilot",
 			},
 		},
 	})
@@ -1236,7 +1319,7 @@ func TestManagerOnAirStringDelaysPrompt(t *testing.T) {
 				Shell:       "/bin/bash",
 				Prompts:     agent.PromptList{"first"},
 				OnAirString: "READY",
-				CLIType:     "codex",
+				CLIType:     "copilot",
 			},
 		},
 	})
@@ -1402,7 +1485,7 @@ func TestManagerOnAirTimeoutInjectsAnyway(t *testing.T) {
 				Shell:       "/bin/bash",
 				Prompts:     agent.PromptList{"first"},
 				OnAirString: "READY",
-				CLIType:     "codex",
+				CLIType:     "copilot",
 			},
 		},
 	})

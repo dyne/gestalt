@@ -37,6 +37,8 @@ type mcpPty struct {
 	threadID string
 	debug    bool
 
+	developerInstructions string
+
 	turnMu      sync.RWMutex
 	turnHandler func(mcpTurnInfo)
 	turnCount   uint64
@@ -94,6 +96,10 @@ func newMCPPty(base Pty, debug bool) *mcpPty {
 	go pty.readLoop()
 	go pty.commandLoop()
 	return pty
+}
+
+func (p *mcpPty) SetDeveloperInstructions(value string) {
+	p.developerInstructions = value
 }
 
 func (p *mcpPty) SetTurnHandler(handler func(mcpTurnInfo)) {
@@ -301,6 +307,8 @@ func (p *mcpPty) callTool(prompt string) (mcpResult, error) {
 	if strings.TrimSpace(p.threadID) != "" {
 		tool = "codex-reply"
 		args["threadId"] = p.threadID
+	} else if strings.TrimSpace(p.developerInstructions) != "" {
+		args["developer-instructions"] = p.developerInstructions
 	}
 	id := p.nextID()
 	req := mcpRequest{

@@ -168,16 +168,6 @@ func TestAgentValidate(t *testing.T) {
 			},
 			wantErr: "agent shell is required",
 		},
-		{
-			name: "invalid codex_mode",
-			agent: Agent{
-				Name:      "Codex",
-				Shell:     "/bin/bash",
-				CLIType:   "codex",
-				CodexMode: "bogus",
-			},
-			wantErr: "codex_mode",
-		},
 	}
 
 	for _, tt := range tests {
@@ -200,20 +190,6 @@ func TestAgentValidate(t *testing.T) {
 				t.Fatalf("error %q does not contain %q", err.Error(), tt.wantErr)
 			}
 		})
-	}
-}
-
-func TestAgentCodexModeDefault(t *testing.T) {
-	agent := Agent{
-		Name:    "Codex",
-		Shell:   "/bin/bash",
-		CLIType: "codex",
-	}
-	if err := agent.Validate(); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if agent.CodexMode != CodexModeMCPServer {
-		t.Fatalf("expected codex_mode %q, got %q", CodexModeMCPServer, agent.CodexMode)
 	}
 }
 

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"io/fs"
 	"path"
@@ -9,26 +8,29 @@ import (
 	"gestalt/internal/agent"
 	"gestalt/internal/ports"
 	"gestalt/internal/prompt"
+	"gestalt/internal/skill"
 )
 
-const promptSeparator = "\n\n"
-
-func renderDeveloperPrompt(agent agent.Agent, promptFS fs.FS, root string, resolver ports.PortResolver) (string, error) {
-	if len(agent.Prompts) == 0 {
-		return "", nil
-	}
+func renderDeveloperPrompt(profile agent.Agent, skills map[string]*skill.Skill, promptFS fs.FS, root string, resolver ports.PortResolver) (string, error) {
 	promptDir := path.Join(root, "prompts")
 	parser := prompt.NewParser(promptFS, promptDir, ".", resolver)
-	var buffer bytes.Buffer
-	for i, promptName := range agent.Prompts {
-		result, err := parser.Render(promptName)
-		if err != nil {
-			return "", fmt.Errorf("render prompt %q from %s: %w", promptName, promptDir, err)
-		}
-		if i > 0 {
-			buffer.WriteString(promptSeparator)
-		}
-		buffer.Write(result.Content)
+	resolvedSkills := resolveAgentSkills(profile.Skills, skills)
+	result, err := agent.BuildDeveloperInstructions(profile.Prompts, resolvedSkills, parser.RenderWithContext, "")
+	if err != nil {
+		return "", fmt.Errorf("render prompt from %s: %w", promptDir, err)
 	}
-	return buffer.String(), nil
+	return result.Instructions, nil
+}
+
+func resolveAgentSkills(names []string, skills map[string]*skill.Skill) []*skill.Skill {
+	if len(names) == 0 || len(skills) == 0 {
+		return nil
+	}
+	resolved := make([]*skill.Skill, 0, len(names))
+	for _, name := range names {
+		if entry, ok := skills[name]; ok {
+			resolved = append(resolved, entry)
+		}
+	}
+	return resolved
 }

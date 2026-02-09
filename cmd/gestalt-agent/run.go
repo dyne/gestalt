@@ -3,7 +3,11 @@ package main
 import (
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
+	"strings"
+
+	agentpkg "gestalt/internal/agent"
 )
 
 func runAgent(cfg Config, in io.Reader, out io.Writer, exec execRunner) (int, error) {
@@ -11,16 +15,19 @@ func runAgent(cfg Config, in io.Reader, out io.Writer, exec execRunner) (int, er
 		return exitConfig, err
 	}
 	configFS, root := buildConfigOverlay(defaultConfigDir)
-	agents, err := loadAgents(configFS, root)
+	agents, skills, err := loadAgentsAndSkills(configFS, root)
 	if err != nil {
 		return exitConfig, fmt.Errorf("load agents from %s or %s: %w", localAgentsDir(), fallbackAgentsDir(), err)
 	}
-	agent, err := selectAgent(agents, cfg.AgentID)
+	profile, err := selectAgent(agents, cfg.AgentID)
 	if err != nil {
 		return exitAgent, fmt.Errorf("%w (expected agent file at %s or %s)", err, localAgentPath(cfg.AgentID), fallbackAgentPath(cfg.AgentID))
 	}
+	if strings.EqualFold(profile.Interface, agentpkg.AgentInterfaceMCP) {
+		fmt.Fprintln(os.Stderr, `interface="mcp" ignored by gestalt-agent; affects server/UI only`)
+	}
 	resolver := defaultPortResolver()
-	developerPrompt, err := renderDeveloperPrompt(agent, configFS, root, resolver)
+	developerPrompt, err := renderDeveloperPrompt(profile, skills, configFS, root, resolver)
 	if err != nil {
 		return exitPrompt, fmt.Errorf("%w (prompt roots: %s, %s)", err, localPromptsDir(), fallbackPromptsDir())
 	}
@@ -28,7 +35,12 @@ func runAgent(cfg Config, in io.Reader, out io.Writer, exec execRunner) (int, er
 		// Ensure deterministic behavior even when no prompts are configured.
 		developerPrompt = ""
 	}
-	args := buildCodexArgs(agent.CLIConfig, developerPrompt)
+	if profile.CLIConfig != nil {
+		if _, ok := profile.CLIConfig["developer_instructions"]; ok {
+			fmt.Fprintln(os.Stderr, "warning: developer_instructions overridden by rendered prompt")
+		}
+	}
+	args := buildCodexArgs(profile.CLIConfig, developerPrompt)
 	if exec == nil {
 		return 0, nil
 	}

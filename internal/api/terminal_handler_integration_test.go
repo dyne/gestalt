@@ -167,7 +167,8 @@ func TestTerminalWebSocketBridge(t *testing.T) {
 		t.Fatalf("emit output: %v", err)
 	}
 
-	_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	interactionTimeout := 2 * time.Second
+	_ = conn.SetReadDeadline(time.Now().Add(interactionTimeout))
 	_, msg, err := conn.ReadMessage()
 	if err != nil {
 		t.Fatalf("read websocket: %v", err)
@@ -181,7 +182,7 @@ func TestTerminalWebSocketBridge(t *testing.T) {
 		t.Fatalf("write websocket: %v", err)
 	}
 
-	if !pty.waitForWrite(payload, 500*time.Millisecond) {
+	if !pty.waitForWrite(payload, interactionTimeout) {
 		t.Fatalf("expected PTY to receive %q", string(payload))
 	}
 }

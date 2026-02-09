@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -136,4 +137,77 @@ func TestRunDryRunPrintsCommand(t *testing.T) {
 			t.Fatalf("expected developer_instructions in output, got %q", output)
 		}
 	})
+}
+
+func TestRunAgentWarnsOnMCPInterface(t *testing.T) {
+	workdir := t.TempDir()
+	withWorkdir(t, workdir, func() {
+		agentDir := filepath.Join(workdir, "config", "agents")
+		if err := os.MkdirAll(agentDir, 0o755); err != nil {
+			t.Fatalf("mkdir agents: %v", err)
+		}
+		agentConfig := "name=\"MCP\"\ncli_type=\"codex\"\ninterface=\"mcp\"\n[cli_config]\nmodel=\"gpt-4\"\n"
+		if err := os.WriteFile(filepath.Join(agentDir, "mcp.toml"), []byte(agentConfig), 0o644); err != nil {
+			t.Fatalf("write agent: %v", err)
+		}
+
+		var stdout bytes.Buffer
+		stderr := captureStderr(t, func() {
+			code, err := runAgent(Config{AgentID: "mcp"}, bytes.NewReader(nil), &stdout, func(args []string) (int, error) {
+				return 0, nil
+			})
+			if code != 0 || err != nil {
+				t.Fatalf("expected success, got code=%d err=%v", code, err)
+			}
+		})
+		if !strings.Contains(stderr, `interface="mcp" ignored by gestalt-agent`) {
+			t.Fatalf("expected interface warning, got %q", stderr)
+		}
+	})
+}
+
+func TestRunAgentWarnsOnDeveloperInstructionsOverride(t *testing.T) {
+	workdir := t.TempDir()
+	withWorkdir(t, workdir, func() {
+		agentDir := filepath.Join(workdir, "config", "agents")
+		if err := os.MkdirAll(agentDir, 0o755); err != nil {
+			t.Fatalf("mkdir agents: %v", err)
+		}
+		agentConfig := "name=\"Override\"\ncli_type=\"codex\"\n[cli_config]\ndeveloper_instructions=\"old\"\nmodel=\"gpt-4\"\n"
+		if err := os.WriteFile(filepath.Join(agentDir, "override.toml"), []byte(agentConfig), 0o644); err != nil {
+			t.Fatalf("write agent: %v", err)
+		}
+
+		var stdout bytes.Buffer
+		stderr := captureStderr(t, func() {
+			code, err := runAgent(Config{AgentID: "override"}, bytes.NewReader(nil), &stdout, func(args []string) (int, error) {
+				return 0, nil
+			})
+			if code != 0 || err != nil {
+				t.Fatalf("expected success, got code=%d err=%v", code, err)
+			}
+		})
+		if !strings.Contains(stderr, "developer_instructions overridden") {
+			t.Fatalf("expected developer_instructions warning, got %q", stderr)
+		}
+	})
+}
+
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	original := os.Stderr
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stderr: %v", err)
+	}
+	os.Stderr = writer
+	done := make(chan string, 1)
+	go func() {
+		payload, _ := io.ReadAll(reader)
+		done <- string(payload)
+	}()
+	fn()
+	_ = writer.Close()
+	os.Stderr = original
+	return <-done
 }

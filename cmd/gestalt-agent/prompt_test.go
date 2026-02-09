@@ -30,7 +30,7 @@ func TestRenderDeveloperPromptWithIncludes(t *testing.T) {
 
 		agent := agent.Agent{Prompts: agent.PromptList{"coder", "architect"}}
 		resolver := ports.NewPortRegistry()
-		content, err := renderDeveloperPrompt(agent, os.DirFS("."), configRoot, resolver)
+		content, err := renderDeveloperPrompt(agent, nil, os.DirFS("."), configRoot, resolver)
 		if err != nil {
 			t.Fatalf("render developer prompt: %v", err)
 		}
@@ -59,7 +59,7 @@ func TestRenderDeveloperPromptPorts(t *testing.T) {
 
 		agent := agent.Agent{Prompts: agent.PromptList{"ports"}}
 		resolver := defaultPortResolver()
-		rendered, err := renderDeveloperPrompt(agent, os.DirFS("."), configRoot, resolver)
+		rendered, err := renderDeveloperPrompt(agent, nil, os.DirFS("."), configRoot, resolver)
 		if err != nil {
 			t.Fatalf("render ports prompt: %v", err)
 		}

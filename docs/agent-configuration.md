@@ -8,7 +8,9 @@ All agent files support the following fields:
 
 - `name` (string, required): Human-readable name shown in the UI.
 - `shell` (string, optional): Explicit shell command. Required if no CLI config keys are set.
+- `interface` (string, optional): `cli` or `mcp` (default `cli`). `mcp` is only supported for `cli_type="codex"`.
 - `cli_type` (string, optional): CLI type (e.g., `codex`, `copilot`). Required when CLI config keys are set.
+- `codex_mode` (string, optional, legacy): `mcp-server` maps to `interface="mcp"` when `interface` is unset.
 - `prompt` (string or array, optional): Prompt names (no extension) to inject.
 - `skills` (array, optional): Skill names to inject.
 - `onair_string` (string, optional): Wait for this string before prompt injection.
@@ -19,6 +21,8 @@ All agent files support the following fields:
 Prompt names resolve against `.gestalt/config/prompts`, trying `.tmpl`, `.md`, then `.txt`.
 
 Any additional top-level keys (outside the base fields) are treated as CLI config and validated. A legacy `[cli_config]` table is still accepted, but no longer required.
+
+The runtime can force Codex agents back to `interface="cli"` by setting `GESTALT_CODEX_FORCE_TUI=true`.
 
 ## gestalt-agent CLI
 

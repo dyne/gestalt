@@ -209,6 +209,7 @@ func TestMCPPtyRoundTrip(t *testing.T) {
 	go server.run()
 
 	mcp := newMCPPty(pty, false)
+	mcp.SetDeveloperInstructions("hello instructions")
 	_, _ = mcp.Write([]byte("hello\r"))
 	_, _ = mcp.Write([]byte("next\r"))
 
@@ -224,12 +225,18 @@ func TestMCPPtyRoundTrip(t *testing.T) {
 	if _, ok := first.args["threadId"]; ok {
 		t.Fatalf("did not expect threadId on first call")
 	}
+	if first.args["developer-instructions"] != "hello instructions" {
+		t.Fatalf("expected developer instructions on first call, got %#v", first.args["developer-instructions"])
+	}
 	second := <-callCh
 	if second.name != "codex-reply" {
 		t.Fatalf("expected codex-reply call, got %q", second.name)
 	}
 	if second.args["threadId"] != threadID {
 		t.Fatalf("expected threadId %q, got %#v", threadID, second.args["threadId"])
+	}
+	if _, ok := second.args["developer-instructions"]; ok {
+		t.Fatalf("did not expect developer instructions on follow-up call")
 	}
 	select {
 	case err := <-errCh:

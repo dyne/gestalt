@@ -9,13 +9,7 @@ import (
 	"gestalt/internal/agent"
 )
 
-func TestPromptInjectionMCPDoesNotWaitOnAir(testingContext *testing.T) {
-	oldTimeout := onAirTimeout
-	onAirTimeout = 200 * time.Millisecond
-	defer func() {
-		onAirTimeout = oldTimeout
-	}()
-
+func TestMCPDeveloperInstructionsInjected(testingContext *testing.T) {
 	root := testingContext.TempDir()
 	promptsDir := filepath.Join(root, "prompts")
 	if err := os.MkdirAll(promptsDir, 0755); err != nil {
@@ -27,15 +21,10 @@ func TestPromptInjectionMCPDoesNotWaitOnAir(testingContext *testing.T) {
 	}
 
 	basePty, serverIn, serverOut := newPipePty()
-	promptCh := make(chan string, 1)
+	callCh := make(chan callInfo, 1)
 	server := newFakeMCPServer(testingContext, serverIn, serverOut, nil)
 	server.onCall = func(id int64, name string, args map[string]interface{}) {
-		if prompt, ok := args["prompt"].(string); ok {
-			select {
-			case promptCh <- prompt:
-			default:
-			}
-		}
+		callCh <- callInfo{name: name, args: args}
 		server.send(map[string]interface{}{
 			"jsonrpc": "2.0",
 			"id":      id,
@@ -54,11 +43,10 @@ func TestPromptInjectionMCPDoesNotWaitOnAir(testingContext *testing.T) {
 		PromptDir:  promptsDir,
 		Agents: map[string]agent.Agent{
 			"codex": {
-				Name:        "Codex",
-				CLIType:     "codex",
-				CodexMode:   agent.CodexModeMCPServer,
-				Prompts:     agent.PromptList{"greeting"},
-				OnAirString: "READY",
+				Name:      "Codex",
+				CLIType:   "codex",
+				CodexMode: agent.CodexModeMCPServer,
+				Prompts:   agent.PromptList{"greeting"},
 			},
 		},
 	})
@@ -71,12 +59,23 @@ func TestPromptInjectionMCPDoesNotWaitOnAir(testingContext *testing.T) {
 		_ = manager.Delete(session.ID)
 	}()
 
+	if err := session.Write([]byte("Ping\r")); err != nil {
+		testingContext.Fatalf("write session: %v", err)
+	}
+
 	select {
-	case prompt := <-promptCh:
-		if prompt != "Hello" {
-			testingContext.Fatalf("expected prompt Hello, got %q", prompt)
+	case call := <-callCh:
+		if call.name != "codex" {
+			testingContext.Fatalf("expected codex tool call, got %q", call.name)
 		}
-	case <-time.After(1 * time.Second):
-		testingContext.Fatalf("timed out waiting for prompt injection")
+		value, ok := call.args["developer-instructions"].(string)
+		if !ok || value == "" {
+			testingContext.Fatalf("expected developer instructions, got %#v", call.args["developer-instructions"])
+		}
+		if value != "Hello" {
+			testingContext.Fatalf("expected prompt in developer instructions, got %q", value)
+		}
+	case <-time.After(2 * time.Second):
+		testingContext.Fatalf("timed out waiting for MCP call")
 	}
 }

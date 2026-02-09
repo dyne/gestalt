@@ -356,6 +356,8 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 
 	var profile *agent.Agent
 	var promptNames []string
+	var promptFiles []string
+	var developerInstructions string
 	var onAirString string
 	var agentName string
 	var sanitizedAgentName string
@@ -425,6 +427,32 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		sessionSequence = sequence
 	}
 
+	if reservedID == "" && profile != nil && strings.EqualFold(strings.TrimSpace(profile.CLIType), "codex") {
+		reservedID = m.nextIDValue()
+	}
+
+	if profile != nil && strings.EqualFold(strings.TrimSpace(profile.CLIType), "codex") {
+		result, err := m.buildCodexDeveloperInstructions(profile, reservedID)
+		if err != nil {
+			m.logger.Warn("codex developer instructions render failed", map[string]string{
+				"agent_id": request.AgentID,
+				"error":    err.Error(),
+			})
+		} else {
+			promptFiles = append(promptFiles, result.PromptFiles...)
+		}
+		developerInstructions = result.Instructions
+		if sessionCLIConfig == nil {
+			sessionCLIConfig = map[string]interface{}{}
+		}
+		if _, ok := sessionCLIConfig["developer_instructions"]; ok {
+			m.logger.Warn("codex developer instructions overwritten", map[string]string{
+				"agent_id": request.AgentID,
+			})
+		}
+		sessionCLIConfig["developer_instructions"] = developerInstructions
+	}
+
 	codexMCP := useCodexMCP(profile)
 
 	if !shellOverrideSet && profile != nil {
@@ -484,6 +512,14 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 	if err != nil {
 		releaseReservation()
 		return nil, err
+	}
+	if len(promptFiles) > 0 {
+		session.PromptFiles = append(session.PromptFiles, promptFiles...)
+	}
+	if developerInstructions != "" {
+		if mcp, ok := session.pty.(*mcpPty); ok {
+			mcp.SetDeveloperInstructions(developerInstructions)
+		}
 	}
 
 	m.mu.Lock()

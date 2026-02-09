@@ -13,6 +13,9 @@ func (m *Manager) startPromptInjection(session *Session, agentID string, profile
 	if session == nil || profile == nil {
 		return
 	}
+	if strings.EqualFold(strings.TrimSpace(profile.CLIType), "codex") {
+		return
+	}
 	if len(profile.Skills) == 0 && len(promptNames) == 0 {
 		return
 	}

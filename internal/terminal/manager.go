@@ -453,20 +453,17 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		sessionCLIConfig["developer_instructions"] = developerInstructions
 	}
 
-	codexMCP := useCodexMCP(profile)
+	agentMCP := useAgentMCP(profile)
 
 	if !shellOverrideSet && profile != nil {
 		cliType := strings.TrimSpace(profile.CLIType)
-		if strings.EqualFold(cliType, "codex") && codexMCP && sessionCLIConfig == nil {
-			sessionCLIConfig = map[string]interface{}{}
-		}
-		if strings.EqualFold(cliType, "codex") && !codexMCP {
+		if strings.EqualFold(cliType, "codex") && !agentMCP {
 			if sessionCLIConfig == nil {
 				sessionCLIConfig = map[string]interface{}{}
 			}
 			sessionCLIConfig["notify"] = buildNotifyArgs(reservedID)
 		}
-		if cliType != "" && (len(sessionCLIConfig) > 0 || (codexMCP && strings.EqualFold(cliType, "codex"))) {
+		if cliType != "" && len(sessionCLIConfig) > 0 {
 			generated := agent.BuildShellCommand(cliType, sessionCLIConfig)
 			if strings.TrimSpace(generated) != "" {
 				shell = generated
@@ -483,7 +480,7 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 			shell = profile.Shell
 		}
 	}
-	if !shellOverrideSet && codexMCP {
+	if !shellOverrideSet && agentMCP {
 		shell = withCodexMCP(shell)
 	}
 
@@ -1145,21 +1142,18 @@ func buildNotifyArgs(sessionID string) []string {
 	return args
 }
 
-func useCodexMCP(profile *agent.Agent) bool {
+func useAgentMCP(profile *agent.Agent) bool {
 	if profile == nil {
 		return false
 	}
 	if !strings.EqualFold(strings.TrimSpace(profile.CLIType), "codex") {
 		return false
 	}
-	if envBool("GESTALT_CODEX_FORCE_TUI") {
+	iface, err := profile.RuntimeInterface(envBool("GESTALT_CODEX_FORCE_TUI"))
+	if err != nil {
 		return false
 	}
-	mode := strings.TrimSpace(profile.CodexMode)
-	if mode == "" {
-		mode = agent.CodexModeMCPServer
-	}
-	return strings.EqualFold(mode, agent.CodexModeMCPServer)
+	return strings.EqualFold(iface, agent.AgentInterfaceMCP)
 }
 
 func withCodexMCP(shell string) string {

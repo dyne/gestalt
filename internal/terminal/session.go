@@ -66,6 +66,7 @@ type SessionMeta struct {
 	CreatedAt   time.Time
 	LLMType     string
 	LLMModel    string
+	Interface   string
 	Command     string
 	ConfigHash  string
 	PromptFiles []string
@@ -118,6 +119,7 @@ type SessionInfo struct {
 	Status      string
 	LLMType     string
 	LLMModel    string
+	Interface   string
 	Command     string
 	Skills      []string
 	PromptFiles []string
@@ -132,6 +134,10 @@ func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt
 	if profile != nil {
 		llmType = profile.CLIType
 		llmModel = profile.LLMModel
+	}
+	interfaceValue := agent.AgentInterfaceCLI
+	if _, ok := pty.(*mcpPty); ok {
+		interfaceValue = agent.AgentInterfaceMCP
 	}
 	outputBuffer := NewOutputBuffer(bufferLines)
 	outputBus := event.NewBus[[]byte](ctx, event.BusOptions{
@@ -163,6 +169,7 @@ func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt
 			CreatedAt: createdAt,
 			LLMType:   llmType,
 			LLMModel:  llmModel,
+			Interface: interfaceValue,
 			agent:     profile,
 		},
 		SessionIO: SessionIO{
@@ -200,6 +207,14 @@ func (s *Session) Info() SessionInfo {
 	if len(s.PromptFiles) > 0 {
 		promptFiles = append(promptFiles, s.PromptFiles...)
 	}
+	interfaceValue := strings.TrimSpace(s.Interface)
+	if interfaceValue == "" {
+		if s.IsMCP() {
+			interfaceValue = agent.AgentInterfaceMCP
+		} else {
+			interfaceValue = agent.AgentInterfaceCLI
+		}
+	}
 	return SessionInfo{
 		ID:          s.ID,
 		Title:       s.Title,
@@ -208,6 +223,7 @@ func (s *Session) Info() SessionInfo {
 		Status:      s.State().String(),
 		LLMType:     s.LLMType,
 		LLMModel:    s.LLMModel,
+		Interface:   interfaceValue,
 		Command:     s.Command,
 		Skills:      skills,
 		PromptFiles: promptFiles,

@@ -71,6 +71,7 @@ func (h *RestHandler) listTerminals(w http.ResponseWriter) *apiError {
 			Status:      info.Status,
 			LLMType:     info.LLMType,
 			LLMModel:    info.LLMModel,
+			Interface:   info.Interface,
 			Command:     info.Command,
 			Skills:      info.Skills,
 			PromptFiles: info.PromptFiles,
@@ -140,6 +141,7 @@ func (h *RestHandler) createTerminal(w http.ResponseWriter, r *http.Request) *ap
 		Status:    info.Status,
 		LLMType:   info.LLMType,
 		LLMModel:  info.LLMModel,
+		Interface: info.Interface,
 		Command:   info.Command,
 		Skills:    info.Skills,
 	}

@@ -410,6 +410,79 @@ func TestManagerCreateWithCLIConfigUsesGeneratedCommand(t *testing.T) {
 	}
 }
 
+func TestManagerMCPSelectionUsesInterface(t *testing.T) {
+	tui := &recordingFactory{pty: &noopPty{}}
+	stdio := &recordingFactory{pty: &noopPty{}}
+	manager := NewManager(ManagerOptions{
+		PtyFactory: NewMuxPtyFactory(tui, stdio, false),
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:      "Codex",
+				CLIType:   "codex",
+				Interface: agent.AgentInterfaceMCP,
+			},
+		},
+	})
+
+	session, err := manager.Create("codex", "run", "mcp")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(session.ID)
+	}()
+
+	if !session.IsMCP() {
+		t.Fatalf("expected MCP session")
+	}
+	if !strings.Contains(session.Command, "mcp-server") {
+		t.Fatalf("expected mcp-server command, got %q", session.Command)
+	}
+	if strings.Contains(session.Command, "notify=") {
+		t.Fatalf("did not expect notify in mcp command, got %q", session.Command)
+	}
+	if session.outputPublisher == nil || session.outputPublisher.policy != OutputBackpressureBlock {
+		t.Fatalf("expected output policy block, got %#v", session.outputPublisher)
+	}
+	if session.outputPublisher == nil || session.outputPublisher.sampleEvery != 0 {
+		t.Fatalf("expected sampleEvery=0, got %#v", session.outputPublisher)
+	}
+}
+
+func TestManagerForceTUIOverridesMCPInterface(t *testing.T) {
+	t.Setenv("GESTALT_CODEX_FORCE_TUI", "true")
+	tui := &recordingFactory{pty: &noopPty{}}
+	stdio := &recordingFactory{pty: &noopPty{}}
+	manager := NewManager(ManagerOptions{
+		PtyFactory: NewMuxPtyFactory(tui, stdio, false),
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:      "Codex",
+				CLIType:   "codex",
+				Interface: agent.AgentInterfaceMCP,
+			},
+		},
+	})
+
+	session, err := manager.Create("codex", "run", "tui")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(session.ID)
+	}()
+
+	if session.IsMCP() {
+		t.Fatalf("expected CLI session with force TUI")
+	}
+	if strings.Contains(session.Command, "mcp-server") {
+		t.Fatalf("did not expect mcp-server command, got %q", session.Command)
+	}
+	if !strings.Contains(session.Command, "notify=") {
+		t.Fatalf("expected notify in CLI command, got %q", session.Command)
+	}
+}
+
 func TestManagerUsesClock(t *testing.T) {
 	factory := &fakeFactory{}
 	now := time.Date(2024, 2, 10, 8, 30, 0, 0, time.FixedZone("test", 2*60*60))

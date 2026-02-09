@@ -872,10 +872,11 @@ func TestManagerCodexDeveloperInstructions(t *testing.T) {
 		},
 		Agents: map[string]agent.Agent{
 			"codex": {
-				Name:    "Codex",
-				Prompts: agent.PromptList{"first"},
-				Skills:  []string{"alpha"},
-				CLIType: "codex",
+				Name:      "Codex",
+				Prompts:   agent.PromptList{"first"},
+				Skills:    []string{"alpha"},
+				CLIType:   "codex",
+				CodexMode: agent.CodexModeTUI,
 			},
 		},
 	})

@@ -131,4 +131,27 @@ describe('Terminal', () => {
 
     expect(getByText('Bottom')).toBeTruthy()
   })
+
+  it('renders transcript view for mcp sessions', () => {
+    const state = buildState()
+    getTerminalState.mockReturnValue(state)
+
+    const { container } = render(Terminal, {
+      props: { terminalId: 't1', sessionInterface: 'mcp' },
+    })
+
+    expect(container.querySelector('.terminal-text__body')).toBeTruthy()
+  })
+
+  it('renders xterm canvas for cli sessions', () => {
+    const state = buildState()
+    getTerminalState.mockReturnValue(state)
+
+    const { container } = render(Terminal, {
+      props: { terminalId: 't1', sessionInterface: 'cli' },
+    })
+
+    expect(container.querySelector('.terminal-shell__body')).toBeTruthy()
+    expect(container.querySelector('.terminal-text__body')).toBeFalsy()
+  })
 })

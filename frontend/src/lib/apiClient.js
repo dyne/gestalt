@@ -23,13 +23,24 @@ const normalizeObject = (value) => {
   return value
 }
 
+const normalizeInterface = (value) => {
+  if (value === undefined || value === null) return ''
+  const trimmed = String(value).trim().toLowerCase()
+  if (trimmed === 'cli' || trimmed === 'mcp') {
+    return trimmed
+  }
+  return ''
+}
+
 const normalizeTerminal = (terminal) => {
   const id = terminal?.id
   if (!id) return null
+  const interfaceValue = normalizeInterface(terminal?.interface) || 'cli'
   return {
     ...terminal,
     id: String(id),
     title: terminal?.title ? String(terminal.title) : '',
+    interface: interfaceValue,
   }
 }
 
@@ -159,7 +170,7 @@ export const createTerminal = async ({ agentId = '', workflow } = {}) => {
     body: JSON.stringify(payload),
   })
   const result = await response.json()
-  return normalizeObject(result)
+  return normalizeTerminal(result) || normalizeObject(result)
 }
 
 export const deleteTerminal = async (terminalId) => {

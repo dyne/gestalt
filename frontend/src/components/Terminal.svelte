@@ -1,5 +1,6 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
+  import TerminalCanvas from './TerminalCanvas.svelte'
   import TerminalTextView from './TerminalTextView.svelte'
   import CommandInput from './CommandInput.svelte'
   import TerminalShell from './TerminalShell.svelte'
@@ -11,6 +12,7 @@
   export let promptFiles = []
   export let visible = true
   export let temporalUrl = ''
+  export let sessionInterface = ''
   export let onRequestClose = () => {}
 
   let state
@@ -19,6 +21,7 @@
   let historyStatus = 'idle'
   let statusLabel = ''
   let inputDisabled = true
+  let directInputEnabled = false
   let atBottom = true
   let outputSegments = []
   let commandInput
@@ -32,6 +35,9 @@
   let pendingFocus = false
   let displayTitle = ''
   let promptFilesLabel = ''
+  let interfaceValue = ''
+  let isCLI = false
+  const scrollSensitivity = 1
 
   const statusLabels = {
     connecting: 'Connecting...',
@@ -43,7 +49,7 @@
 
   const attachState = () => {
     if (!terminalId) return
-    state = getTerminalState(terminalId)
+    state = getTerminalState(terminalId, interfaceValue)
     if (!state) return
     unsubscribeStatus = state.status.subscribe((value) => {
       status = value
@@ -73,6 +79,10 @@
   }
 
   const handleScrollToBottom = () => {
+    if (isCLI) {
+      state?.scrollToBottom?.()
+      return
+    }
     textView?.scrollToBottom?.()
   }
 
@@ -99,16 +109,39 @@
     state?.setAtBottom?.(value)
   }
 
+  const handleDirectInputChange = (enabled) => {
+    directInputEnabled = enabled
+    state?.setDirectInput?.(enabled)
+    if (enabled) {
+      requestAnimationFrame(() => state?.focus?.())
+      return
+    }
+    requestAnimationFrame(() => commandInput?.focusInput?.())
+  }
+
+  const resizeHandler = () => {
+    if (!visible || !state) return
+    state.scheduleFit?.()
+  }
+
   onMount(() => {
     attachState()
+    state?.setDirectInput?.(directInputEnabled)
     if (visible) {
       pendingFocus = true
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resize', resizeHandler)
     }
   })
 
   $: if (state) {
     state.setVisible?.(visible)
   }
+
+  $: interfaceValue =
+    typeof sessionInterface === 'string' ? sessionInterface.trim().toLowerCase() : ''
+  $: isCLI = interfaceValue === 'cli'
 
   $: {
     if (visible && !wasVisible) {
@@ -117,6 +150,12 @@
     if (visible && pendingFocus) {
       requestAnimationFrame(() => {
         if (!visible || !pendingFocus) return
+        if (isCLI && directInputEnabled) {
+          if (status !== 'connected') return
+          state?.focus?.()
+          pendingFocus = false
+          return
+        }
         if (inputDisabled) return
         commandInput?.focusInput?.()
         pendingFocus = false
@@ -135,6 +174,9 @@
 
   onDestroy(() => {
     state?.setVisible?.(false)
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('resize', resizeHandler)
+    }
     if (unsubscribeStatus) {
       unsubscribeStatus()
     }
@@ -166,12 +208,21 @@
   onScrollToBottom={handleScrollToBottom}
   onRequestClose={onRequestClose}
 >
-  <TerminalTextView
-    slot="canvas"
-    bind:this={textView}
-    segments={outputSegments}
-    onAtBottomChange={handleAtBottomChange}
-  />
+  {#if isCLI}
+    <TerminalCanvas
+      slot="canvas"
+      {state}
+      {visible}
+      {scrollSensitivity}
+    />
+  {:else}
+    <TerminalTextView
+      slot="canvas"
+      bind:this={textView}
+      segments={outputSegments}
+      onAtBottomChange={handleAtBottomChange}
+    />
+  {/if}
   <CommandInput
     slot="input"
     {terminalId}
@@ -179,5 +230,8 @@
     bind:this={commandInput}
     onSubmit={handleSubmit}
     disabled={inputDisabled}
+    directInput={directInputEnabled}
+    showDirectInputToggle={isCLI}
+    onDirectInputChange={handleDirectInputChange}
   />
 </TerminalShell>

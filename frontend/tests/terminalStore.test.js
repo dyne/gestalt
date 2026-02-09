@@ -228,6 +228,18 @@ describe('terminalStore', () => {
     releaseTerminalState('retry')
   })
 
+  it('recreates services when interface changes', () => {
+    const mcpState = getTerminalState('swap', 'mcp')
+    const disposeSpy = vi.spyOn(mcpState, 'dispose')
+
+    const cliState = getTerminalState('swap', 'cli')
+
+    expect(cliState).not.toBe(mcpState)
+    expect(disposeSpy).toHaveBeenCalled()
+
+    releaseTerminalState('swap')
+  })
+
   it('warns when history load is slow', async () => {
     vi.useFakeTimers()
     let resolveFetch

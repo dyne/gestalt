@@ -36,6 +36,7 @@ type terminalSummary struct {
 	Status      string    `json:"status"`
 	LLMType     string    `json:"llm_type"`
 	LLMModel    string    `json:"llm_model"`
+	Interface   string    `json:"interface"`
 	Command     string    `json:"command,omitempty"`
 	Skills      []string  `json:"skills"`
 	PromptFiles []string  `json:"prompt_files"`

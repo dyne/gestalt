@@ -172,6 +172,9 @@ func TestSessionInfoIncludesMetadata(t *testing.T) {
 	if info.LLMType != "codex" || info.LLMModel != "o3" {
 		t.Fatalf("unexpected llm info: %#v", info)
 	}
+	if info.Interface != agent.AgentInterfaceCLI {
+		t.Fatalf("expected interface %q, got %q", agent.AgentInterfaceCLI, info.Interface)
+	}
 	if info.Command != session.Command {
 		t.Fatalf("expected command %q, got %q", session.Command, info.Command)
 	}

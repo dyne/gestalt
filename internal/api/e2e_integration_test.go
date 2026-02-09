@@ -65,6 +65,9 @@ func TestEndToEndTerminalFlow(t *testing.T) {
 	if summary.ID == "" {
 		t.Fatalf("expected terminal id")
 	}
+	if summary.Interface == "" {
+		t.Fatalf("expected interface in terminal summary")
+	}
 	defer func() {
 		_ = manager.Delete(summary.ID)
 	}()

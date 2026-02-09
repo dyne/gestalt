@@ -1385,6 +1385,9 @@ func TestCreateTerminalWithAgent(t *testing.T) {
 	if payload.Title != "Codex" {
 		t.Fatalf("expected title Codex, got %q", payload.Title)
 	}
+	if payload.Interface != agent.AgentInterfaceCLI {
+		t.Fatalf("expected interface %q, got %q", agent.AgentInterfaceCLI, payload.Interface)
+	}
 	if payload.ID == "" {
 		t.Fatalf("missing id")
 	}
@@ -1586,6 +1589,9 @@ func TestListTerminalsIncludesLLMMetadata(t *testing.T) {
 	}
 	if agentSummary.LLMModel != "default" {
 		t.Fatalf("expected llm_model default, got %q", agentSummary.LLMModel)
+	}
+	if agentSummary.Interface != agent.AgentInterfaceCLI {
+		t.Fatalf("expected interface %q, got %q", agent.AgentInterfaceCLI, agentSummary.Interface)
 	}
 }
 

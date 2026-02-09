@@ -26,6 +26,7 @@ func (h *RestHandler) handleAgents(w http.ResponseWriter, r *http.Request) *apiE
 			Name:        info.Name,
 			LLMType:     info.LLMType,
 			LLMModel:    info.LLMModel,
+			Interface:   info.Interface,
 			SessionID:   sessionID,
 			Running:     running,
 			UseWorkflow: info.UseWorkflow,

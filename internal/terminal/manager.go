@@ -134,6 +134,7 @@ type AgentInfo struct {
 	Name        string
 	LLMType     string
 	LLMModel    string
+	Interface   string
 	UseWorkflow bool
 }
 
@@ -963,11 +964,16 @@ func (m *Manager) ListAgents() []AgentInfo {
 	agents := m.agentRegistry.Snapshot()
 	infos := make([]AgentInfo, 0, len(agents))
 	for id, profile := range agents {
+		interfaceValue, err := profile.ResolveInterface()
+		if err != nil {
+			interfaceValue = agent.AgentInterfaceCLI
+		}
 		infos = append(infos, AgentInfo{
 			ID:          id,
 			Name:        profile.Name,
 			LLMType:     profile.CLIType,
 			LLMModel:    profile.LLMModel,
+			Interface:   interfaceValue,
 			UseWorkflow: resolveWorkflowPreference(profile.UseWorkflow),
 		})
 	}

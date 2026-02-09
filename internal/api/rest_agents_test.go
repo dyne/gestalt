@@ -182,3 +182,36 @@ func TestAgentSendInputEndpointMCP(t *testing.T) {
 		t.Fatalf("expected MCP prompt line1\\nline2, got %q", prompt)
 	}
 }
+
+func TestAgentsEndpointIncludesInterface(t *testing.T) {
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: &recordFactory{},
+		Agents: map[string]agent.Agent{
+			"coder": {
+				Name:  "Coder",
+				Shell: "/bin/bash",
+			},
+		},
+	})
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodGet, "/api/agents", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", nil, handler.handleAgents)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var payload []agentSummary
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(payload) != 1 {
+		t.Fatalf("expected 1 agent, got %d", len(payload))
+	}
+	if payload[0].Interface != agent.AgentInterfaceCLI {
+		t.Fatalf("expected interface %q, got %q", agent.AgentInterfaceCLI, payload[0].Interface)
+	}
+}

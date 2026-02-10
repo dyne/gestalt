@@ -51,12 +51,14 @@
 ***
 ## 🎮 Quick start
 
-Install everything needed directly from the github releases:
+Install temporal-cli on your machine following the [temporal setup steps](https://temporal.io/setup/install-temporal-cli).
+
+Install all gestalt cli tools directly from the github releases:
 ```sh
 # available os: linux, darwin, windows
 # available arch: amd64, arm64
 wget https://github.com/dyne/gestalt/releases/latest/download/gestalt-linux-amd64.tar.gz
-sudo tar -xzf gestalt-linux-amd64.tar.gz -C /usr/local/bin --strip-components=1
+sudo tar -xzf gestalt-linux-amd64.tar.gz -C /usr/local/bin
 
 # move into your project
 cd your/project

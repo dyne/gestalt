@@ -23,7 +23,7 @@ func (m *Manager) emitSessionStarted(id string, request sessionCreateRequest, ag
 			fields["agent_name"] = agentName
 		}
 		if strings.TrimSpace(shell) != "" {
-			fields["shell"] = shell
+			fields["shell"] = redactDeveloperInstructionsShell(shell)
 		}
 	}
 	m.logger.Info("terminal created", fields)

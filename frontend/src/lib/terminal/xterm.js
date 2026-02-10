@@ -24,12 +24,49 @@ const DEFAULT_FONT_SIZE = 14
 
 const readFontFamily = () => readCssVar('--terminal-font-family', DEFAULT_FONT_FAMILY)
 
-const readFontSize = () => {
-  const value = readCssVar('--terminal-font-size', String(DEFAULT_FONT_SIZE))
+const ensureMatchMedia = () => {
+  if (typeof window === 'undefined' || window.matchMedia) return
+  window.matchMedia = () => ({
+    matches: false,
+    media: '',
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  })
+}
+
+const readRootFontSizePx = () => {
+  if (typeof window === 'undefined') return DEFAULT_FONT_SIZE
+  const value = window
+    .getComputedStyle(document.documentElement)
+    .getPropertyValue('font-size')
+    .trim()
   const parsed = Number.parseFloat(value)
   if (Number.isFinite(parsed) && parsed > 0) {
     return parsed
   }
+  return DEFAULT_FONT_SIZE
+}
+
+export const parseCssLengthPx = (value) => {
+  if (value === undefined || value === null) return null
+  const trimmed = String(value).trim()
+  if (!trimmed) return null
+  const parsed = Number.parseFloat(trimmed)
+  if (!Number.isFinite(parsed) || parsed <= 0) return null
+  if (trimmed.endsWith('rem') || trimmed.endsWith('em')) {
+    return parsed * readRootFontSizePx()
+  }
+  return parsed
+}
+
+const readFontSize = () => {
+  const value = readCssVar('--terminal-font-size', String(DEFAULT_FONT_SIZE))
+  const parsed = parseCssLengthPx(value)
+  if (parsed) return parsed
   return DEFAULT_FONT_SIZE
 }
 
@@ -62,6 +99,7 @@ const setupThemeSync = (term) => {
 }
 
 export const createXtermTerminal = () => {
+  ensureMatchMedia()
   const term = new Terminal({
     allowProposedApi: true,
     cursorBlink: true,

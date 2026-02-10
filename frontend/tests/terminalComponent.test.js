@@ -39,6 +39,7 @@ const buildState = () => {
     scrollToBottom: vi.fn(),
     setAtBottom: vi.fn(),
     appendPrompt: vi.fn(),
+    setVisible: vi.fn(),
     status: writable('connected'),
     historyStatus: writable('idle'),
     bellCount: writable(0),
@@ -155,5 +156,22 @@ describe('Terminal', () => {
     await tick()
     expect(container.querySelector('.terminal-shell__body')).toBeTruthy()
     expect(container.querySelector('.terminal-text__body')).toBeFalsy()
+  })
+
+  it('reattaches state when terminal id changes', async () => {
+    const stateA = buildState()
+    const stateB = buildState()
+    getTerminalState.mockReturnValueOnce(stateA).mockReturnValueOnce(stateB)
+
+    const { rerender } = render(Terminal, {
+      props: { terminalId: 't1', sessionInterface: 'mcp' },
+    })
+    await tick()
+
+    await rerender({ terminalId: 't2', sessionInterface: 'mcp' })
+    await tick()
+
+    expect(getTerminalState).toHaveBeenCalledWith('t2', 'mcp')
+    expect(stateA.setVisible).toHaveBeenCalledWith(false)
   })
 })

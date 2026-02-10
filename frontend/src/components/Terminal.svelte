@@ -31,6 +31,8 @@
   let unsubscribeReconnect
   let unsubscribeAtBottom
   let unsubscribeSegments
+  let attachedTerminalId = ''
+  let attachedInterface = ''
   let wasVisible = false
   let pendingFocus = false
   let displayTitle = ''
@@ -45,6 +47,31 @@
     retrying: 'Connection lost, retrying...',
     disconnected: 'Disconnected',
     unauthorized: 'Authentication required',
+  }
+
+  const detachState = () => {
+    state?.setVisible?.(false)
+    if (unsubscribeStatus) {
+      unsubscribeStatus()
+      unsubscribeStatus = null
+    }
+    if (unsubscribeHistory) {
+      unsubscribeHistory()
+      unsubscribeHistory = null
+    }
+    if (unsubscribeReconnect) {
+      unsubscribeReconnect()
+      unsubscribeReconnect = null
+    }
+    if (unsubscribeAtBottom) {
+      unsubscribeAtBottom()
+      unsubscribeAtBottom = null
+    }
+    if (unsubscribeSegments) {
+      unsubscribeSegments()
+      unsubscribeSegments = null
+    }
+    state = null
   }
 
   const attachState = () => {
@@ -70,6 +97,7 @@
         outputSegments = value
       })
     }
+    state.setDirectInput?.(directInputEnabled)
   }
 
   const handleReconnect = () => {
@@ -125,8 +153,6 @@
   }
 
   onMount(() => {
-    attachState()
-    state?.setDirectInput?.(directInputEnabled)
     if (visible) {
       pendingFocus = true
     }
@@ -135,13 +161,30 @@
     }
   })
 
-  $: if (state) {
-    state.setVisible?.(visible)
-  }
-
   $: interfaceValue =
     typeof sessionInterface === 'string' ? sessionInterface.trim().toLowerCase() : ''
   $: isCLI = interfaceValue === 'cli'
+
+  $: {
+    if (!terminalId) {
+      if (state) {
+        detachState()
+      }
+      attachedTerminalId = ''
+      attachedInterface = ''
+    } else if (terminalId !== attachedTerminalId || interfaceValue !== attachedInterface) {
+      if (state) {
+        detachState()
+      }
+      attachedTerminalId = terminalId
+      attachedInterface = interfaceValue
+      attachState()
+    }
+  }
+
+  $: if (state) {
+    state.setVisible?.(visible)
+  }
 
   $: {
     if (visible && !wasVisible) {
@@ -173,24 +216,9 @@
       : ''
 
   onDestroy(() => {
-    state?.setVisible?.(false)
+    detachState()
     if (typeof window !== 'undefined') {
       window.removeEventListener('resize', resizeHandler)
-    }
-    if (unsubscribeStatus) {
-      unsubscribeStatus()
-    }
-    if (unsubscribeHistory) {
-      unsubscribeHistory()
-    }
-    if (unsubscribeReconnect) {
-      unsubscribeReconnect()
-    }
-    if (unsubscribeAtBottom) {
-      unsubscribeAtBottom()
-    }
-    if (unsubscribeSegments) {
-      unsubscribeSegments()
     }
   })
 </script>

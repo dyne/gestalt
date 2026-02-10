@@ -1,0 +1,34 @@
+name = "Copilot Full Flags"
+shell = "copilot"
+cli_type = "copilot"
+interface = "cli"
+llm_model = "claude-sonnet-4.5"
+singleton = false
+
+# This example enables every available copilot CLI switch.
+# Some flags are mutually exclusive in real usage; adjust before running.
+
+[cli_config]
+add_dir = ["/tmp", "/var/tmp"]
+additional_mcp_config = ["{}", "{\"mcpServers\":{}}"]
+agent = "custom-agent"
+allow_all_paths = true
+allow_all_tools = true
+allow_tool = ["filesystem.read", "filesystem.write"]
+banner = true
+continue = true
+deny_tool = ["network.http"]
+disable_builtin_mcps = true
+disable_mcp_server = ["github-mcp-server"]
+disable_parallel_tools_execution = true
+disallow_temp_dir = true
+enable_all_github_mcp_tools = true
+log_dir = "/tmp/copilot-logs"
+log_level = "debug"
+model = "claude-sonnet-4.5"
+no_color = true
+no_custom_instructions = true
+prompt = "Summarize the repo status."
+resume = "session-123"
+screen_reader = true
+stream = "on"

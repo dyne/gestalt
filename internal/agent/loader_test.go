@@ -7,6 +7,7 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"gestalt"
 	"gestalt/internal/logging"
 )
 
@@ -322,6 +323,24 @@ prompt = ["init"]
 	}
 	if _, ok := agents["codex"]; !ok {
 		t.Fatalf("missing codex agent")
+	}
+}
+
+func TestLoaderEmbeddedAgents(t *testing.T) {
+	buffer := logging.NewLogBuffer(20)
+	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, nil)
+	loader := Loader{Logger: logger}
+	agents, err := loader.Load(gestalt.EmbeddedConfigFS, "config/agents", "config/prompts", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(agents) == 0 {
+		t.Fatalf("expected embedded agents to load")
+	}
+	for _, entry := range buffer.List() {
+		if entry.Level == logging.LevelWarning || entry.Level == logging.LevelError {
+			t.Fatalf("unexpected loader warning: %s", entry.Message)
+		}
 	}
 }
 

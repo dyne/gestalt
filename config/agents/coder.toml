@@ -1,7 +1,7 @@
 name = "Coder"
 shell = "codex"
 cli_type = "codex"
-codex_mode = "mcp-server"
+interface = "cli"
 prompt = ["coder"]
 llm_model = "default"
 

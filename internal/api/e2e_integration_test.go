@@ -83,6 +83,12 @@ func TestEndToEndTerminalFlow(t *testing.T) {
 	}
 	defer conn.Close()
 
+	session, ok := manager.Get(summary.ID)
+	if !ok {
+		t.Fatalf("expected session to be available")
+	}
+	waitForSubscribers(t, session, 1, 2*time.Second)
+
 	interactionTimeout := time.Second
 	readyPayload := []byte("ready\n")
 	if err := conn.WriteMessage(websocket.BinaryMessage, readyPayload); err != nil {

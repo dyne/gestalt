@@ -163,6 +163,8 @@ func TestTerminalWebSocketBridge(t *testing.T) {
 	}
 	defer conn.Close()
 
+	waitForSubscribers(t, session, 1, 2*time.Second)
+
 	if err := pty.emitOutput([]byte("hello\n")); err != nil {
 		t.Fatalf("emit output: %v", err)
 	}

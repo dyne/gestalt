@@ -471,7 +471,7 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 				if m.logger != nil {
 					m.logger.Debug("agent shell command generated", map[string]string{
 						"agent_id": request.AgentID,
-						"shell":    shell,
+						"shell":    redactDeveloperInstructionsShell(shell),
 					})
 				}
 			} else if strings.TrimSpace(profile.Shell) != "" {

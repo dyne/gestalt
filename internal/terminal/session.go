@@ -318,6 +318,13 @@ func (s *Session) hasSubscribers() bool {
 	return atomic.LoadInt32(&s.subs) > 0
 }
 
+func (s *Session) SubscriberCount() int32 {
+	if s == nil {
+		return 0
+	}
+	return atomic.LoadInt32(&s.subs)
+}
+
 func (s *Session) RecordInput(command string) {
 	if s == nil {
 		return

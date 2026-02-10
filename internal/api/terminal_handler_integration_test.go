@@ -378,6 +378,8 @@ func TestTerminalWebSocketConcurrentConnections(t *testing.T) {
 	}
 	defer connB.Close()
 
+	waitForSubscribers(t, session, 2, 2*time.Second)
+
 	if err := pty.emitOutput([]byte("ping\n")); err != nil {
 		t.Fatalf("emit output: %v", err)
 	}
@@ -693,6 +695,21 @@ func readWebSocketContains(t *testing.T, conn *websocket.Conn, text string) bool
 			return false
 		}
 	}
+}
+
+func waitForSubscribers(t *testing.T, session *terminal.Session, expected int32, timeout time.Duration) {
+	t.Helper()
+	if session == nil {
+		t.Fatalf("session is nil")
+	}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if session.SubscriberCount() >= expected {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("expected %d subscribers, got %d", expected, session.SubscriberCount())
 }
 
 func readWebSocketLines(t *testing.T, conn *websocket.Conn, expected int, timeout time.Duration) []string {

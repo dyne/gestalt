@@ -43,7 +43,7 @@
       src={gestaltLogotypeDark}
       alt="Gestalt"
     />
-    <span class="tabbar__brand-by">v{VERSION}</span>
+    <span class="tabbar__brand-by">{VERSION}</span>
   </button>
   {#each visibleTabs as tab}
     <div class="tabbar__item" data-active={tab.id === activeId}>

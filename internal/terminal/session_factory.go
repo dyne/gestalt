@@ -214,12 +214,14 @@ func (f *SessionFactory) logShellCommandReady(request sessionCreateRequest, rese
 	if f.logger == nil || !f.logger.Enabled(logging.LevelDebug) {
 		return
 	}
+	safeArgs := redactDeveloperInstructionsArgs(args)
+	safeShell := joinCommandLine(command, safeArgs)
 	fields := map[string]string{
-		"shell":   shell,
+		"shell":   safeShell,
 		"command": command,
 	}
-	if len(args) > 0 {
-		fields["args"] = strings.Join(args, " ")
+	if len(safeArgs) > 0 {
+		fields["args"] = strings.Join(safeArgs, " ")
 	}
 	if request.AgentID != "" {
 		fields["agent_id"] = request.AgentID
@@ -235,7 +237,7 @@ func (f *SessionFactory) logShellParseError(request sessionCreateRequest, reserv
 		return
 	}
 	fields := map[string]string{
-		"shell": shell,
+		"shell": redactDeveloperInstructionsShell(shell),
 		"error": err.Error(),
 	}
 	if request.AgentID != "" {
@@ -251,13 +253,15 @@ func (f *SessionFactory) logShellStartError(request sessionCreateRequest, reserv
 	if f.logger == nil {
 		return
 	}
+	safeArgs := redactDeveloperInstructionsArgs(args)
+	safeShell := joinCommandLine(command, safeArgs)
 	fields := map[string]string{
-		"shell":   shell,
+		"shell":   safeShell,
 		"command": command,
 		"error":   err.Error(),
 	}
-	if len(args) > 0 {
-		fields["args"] = strings.Join(args, " ")
+	if len(safeArgs) > 0 {
+		fields["args"] = strings.Join(safeArgs, " ")
 	}
 	if request.AgentID != "" {
 		fields["agent_id"] = request.AgentID

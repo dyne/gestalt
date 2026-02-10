@@ -123,3 +123,76 @@ func defaultShellFor(goos string, getenv func(string) string) string {
 
 	return "/bin/bash"
 }
+
+func redactDeveloperInstructionsShell(shell string) string {
+	shell = strings.TrimSpace(shell)
+	if shell == "" {
+		return shell
+	}
+	command, args, err := splitCommandLine(shell)
+	if err != nil {
+		return fallbackRedactDeveloperInstructions(shell)
+	}
+	redactedArgs := redactDeveloperInstructionsArgs(args)
+	return joinCommandLine(command, redactedArgs)
+}
+
+func redactDeveloperInstructionsArgs(args []string) []string {
+	if len(args) == 0 {
+		return args
+	}
+	redacted := make([]string, len(args))
+	copy(redacted, args)
+	for i := 0; i < len(redacted); i++ {
+		if redacted[i] == "-c" && i+1 < len(redacted) && strings.HasPrefix(redacted[i+1], "developer_instructions=") {
+			redacted[i+1] = "developer_instructions=<skip>"
+			i++
+			continue
+		}
+		if strings.HasPrefix(redacted[i], "developer_instructions=") {
+			redacted[i] = "developer_instructions=<skip>"
+		}
+	}
+	return redacted
+}
+
+func fallbackRedactDeveloperInstructions(shell string) string {
+	const needle = "developer_instructions="
+	index := strings.Index(shell, needle)
+	if index < 0 {
+		return shell
+	}
+	return shell[:index+len(needle)] + "<skip>"
+}
+
+func joinCommandLine(command string, args []string) string {
+	parts := make([]string, 0, 1+len(args))
+	if command != "" {
+		parts = append(parts, escapeShellArgForLog(command))
+	}
+	for _, arg := range args {
+		parts = append(parts, escapeShellArgForLog(arg))
+	}
+	return strings.Join(parts, " ")
+}
+
+func escapeShellArgForLog(value string) string {
+	if value == "" {
+		return "''"
+	}
+	if !needsShellQuoting(value) {
+		return value
+	}
+	replacer := strings.NewReplacer("'", "'\"'\"'")
+	return "'" + replacer.Replace(value) + "'"
+}
+
+func needsShellQuoting(value string) bool {
+	for _, r := range value {
+		switch r {
+		case ' ', '\t', '\n', '\r', '\'', '"', '\\', '$', '&', ';', '|', '>', '<', '(', ')', '*', '?', '[', ']', '{', '}', '!', '#':
+			return true
+		}
+	}
+	return false
+}

@@ -1,6 +1,9 @@
 package terminal
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestDefaultShellFor(t *testing.T) {
 	tests := []struct {
@@ -134,5 +137,27 @@ func TestSplitCommandLine(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRedactDeveloperInstructionsShell(t *testing.T) {
+	input := "codex -c 'developer_instructions=hello world' -c approval_policy=never"
+	output := redactDeveloperInstructionsShell(input)
+	if strings.Contains(output, "hello world") {
+		t.Fatalf("expected developer instructions to be redacted, got %q", output)
+	}
+	if !strings.Contains(output, "developer_instructions=<skip>") {
+		t.Fatalf("expected redaction marker, got %q", output)
+	}
+	if !strings.Contains(output, "approval_policy=never") {
+		t.Fatalf("expected other args to remain, got %q", output)
+	}
+}
+
+func TestRedactDeveloperInstructionsShellFallback(t *testing.T) {
+	input := "codex -c 'developer_instructions=unterminated"
+	output := redactDeveloperInstructionsShell(input)
+	if !strings.Contains(output, "developer_instructions=<skip>") {
+		t.Fatalf("expected redaction marker, got %q", output)
 	}
 }

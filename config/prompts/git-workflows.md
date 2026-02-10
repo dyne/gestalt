@@ -12,22 +12,10 @@ git checkout -b feat/<short-name> (or fix/<short-name>)
 
 ## New Commit
 
-Commit in small, reviewable chunks, all files you modify or
-add. Commit message should prefix with (all downcase, include colon)
+Commit each L2 when done, include all files you modify or add.
+Always use conventional commits specification in messages.
 
-- fix: (just fixing anything)
-- feat: (adding a feature)
-- build: (improving the build system)
-- chore: (minor cleaning up, fix typos, etc.)
-- ci: (continuous integration changes, github actions etc.)
-- docs: (documentation)
-- test: (testing framework changes)
-
-after the colon just a title on one line and below a short
-description. In case of more complex commits, reuse a compact
-reelaboration of the L2 instructions.
-
-Then proceed with git commands:
+Git commands:
 
 git add path/to/file
 git commit

@@ -434,6 +434,8 @@ func TestTerminalWebSocketReconnect(t *testing.T) {
 	}
 	defer conn.Close()
 
+	waitForSubscribers(t, session, 1, 2*time.Second)
+
 	if err := pty.emitOutput([]byte("reconnected\n")); err != nil {
 		t.Fatalf("emit output: %v", err)
 	}
@@ -586,6 +588,8 @@ func TestTerminalHistoryCatchupHasNoGaps(t *testing.T) {
 	defer conn.Close()
 
 	wsCatchup := readWebSocketLines(t, conn, gapBatch, 2*time.Second)
+
+	waitForSubscribers(t, session, 1, 2*time.Second)
 
 	emitLines(firstBatch+gapBatch+1, totalLines)
 

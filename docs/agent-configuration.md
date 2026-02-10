@@ -11,9 +11,9 @@ All agent files support the following fields:
 - `interface` (string, optional): `cli` or `mcp` (default `cli`). `mcp` is only supported for `cli_type="codex"`.
 - `cli_type` (string, optional): CLI type (e.g., `codex`, `copilot`). Required when CLI config keys are set.
 - `codex_mode` (string, optional, legacy): For `cli_type="codex"`, deprecated alias for `interface` when `interface` is unset (`mcp-server` maps to `interface="mcp"`, `tui` maps to `interface="cli"`).
-- `prompt` (string or array, optional): Prompt names (no extension) to inject.
-- `skills` (array, optional): Skill names to inject.
-- `onair_string` (string, optional): Wait for this string before prompt injection.
+- `prompt` (string or array, optional): Prompt names (no extension) to inject (Codex renders these into `developer_instructions`).
+- `skills` (array, optional): Skill names to inject (Codex renders these into `developer_instructions`).
+- `onair_string` (string, optional): Wait for this string before prompt injection (non-Codex only).
 - `use_workflow` (bool, optional): Override workflow default.
 - `singleton` (bool, optional): Allow only one running instance (default true).
 - `llm_model` (string, optional): Model hint for UI/API.
@@ -50,7 +50,7 @@ Backend=http://localhost:{{port backend}}
   - `otel`: port from `GESTALT_OTEL_HTTP_ENDPOINT` or `4318`
 - Standalone port values are best-effort defaults and may not match a running Gestalt instance with dynamic ports.
 - Extremely large prompts can hit OS argv length limits.
-- `--dryrun` prints the full `codex` command (including `developer_prompt`) without launching it.
+- `--dryrun` prints the full `codex` command (including `developer_instructions`) without launching it.
 
 ## CLI config validation
 
@@ -77,10 +77,20 @@ The generated command replaces any explicit `shell` value when agents are loaded
 
 If no CLI config keys are set, `shell` is used as-is.
 
+### Prompt injection (Codex)
+
+For `cli_type="codex"`, Gestalt renders skills + prompt files into a single
+`developer_instructions` value before the session starts. Prompt text is not
+typed into the terminal stream (CLI or MCP). Any `developer_instructions`
+provided in the CLI config is overwritten by the rendered content.
+
+For non-Codex CLIs, prompt files are still typed into the terminal after the
+`onair_string` (or a short delay if none is provided).
+
 ### Codex MCP mode
 
-When `codex_mode = "mcp-server"`, Gestalt runs `codex mcp-server` over stdio and
-renders a simple transcript in the terminal output:
+When `interface = "mcp"` (or legacy `codex_mode = "mcp-server"` with no `interface` set),
+Gestalt runs `codex mcp-server` over stdio and renders a simple transcript in the terminal output:
 
 - User prompts are echoed with a `> ` prefix.
 - Assistant responses are plain text blocks (newlines preserved).
@@ -115,7 +125,7 @@ Example files live in `config/agents/`:
 ```toml
 name = "Codex"
 cli_type = "codex"
-codex_mode = "mcp-server"
+interface = "cli"
 prompt = ["coder"]
 model = "o3"
 approval_policy = "on-request"

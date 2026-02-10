@@ -208,21 +208,21 @@
   onScrollToBottom={handleScrollToBottom}
   onRequestClose={onRequestClose}
 >
-  {#if isCLI}
-    <TerminalCanvas
-      slot="canvas"
-      {state}
-      {visible}
-      {scrollSensitivity}
-    />
-  {:else}
-    <TerminalTextView
-      slot="canvas"
-      bind:this={textView}
-      segments={outputSegments}
-      onAtBottomChange={handleAtBottomChange}
-    />
-  {/if}
+  <svelte:fragment slot="canvas">
+    {#if isCLI}
+      <TerminalCanvas
+        {state}
+        {visible}
+        {scrollSensitivity}
+      />
+    {:else}
+      <TerminalTextView
+        bind:this={textView}
+        segments={outputSegments}
+        onAtBottomChange={handleAtBottomChange}
+      />
+    {/if}
+  </svelte:fragment>
   <CommandInput
     slot="input"
     {terminalId}

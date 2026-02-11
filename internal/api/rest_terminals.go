@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"gestalt/internal/event"
 	"gestalt/internal/flow"
 	"gestalt/internal/temporal/workflows"
 	"gestalt/internal/terminal"
@@ -333,6 +334,7 @@ func (h *RestHandler) handleTerminalNotify(w http.ResponseWriter, r *http.Reques
 		return &apiError{Status: http.StatusBadRequest, Message: "terminal is not an agent session"}
 	}
 
+	isProgress := request.EventType == "progress"
 	if request.EventType == "progress" {
 		progressPayload, normalized, normalizeErr := normalizePlanProgressPayload(request.Payload)
 		if normalizeErr != nil {
@@ -351,9 +353,35 @@ func (h *RestHandler) handleTerminalNotify(w http.ResponseWriter, r *http.Reques
 			TaskState: progressPayload.TaskState,
 			UpdatedAt: progressTime,
 		})
+		if bus := h.Manager.TerminalBus(); bus != nil {
+			terminalEvent := event.NewTerminalEvent(id, "plan_progress")
+			terminalEvent.OccurredAt = progressTime
+			terminalEvent.Data = map[string]any{
+				"plan_file":  progressPayload.PlanFile,
+				"l1":         progressPayload.L1,
+				"l2":         progressPayload.L2,
+				"task_level": progressPayload.TaskLevel,
+				"task_state": progressPayload.TaskState,
+				"timestamp":  progressTime,
+			}
+			bus.Publish(terminalEvent)
+		}
 	}
 
 	if err := h.requireFlowService(); err != nil {
+		if isProgress {
+			if h.Logger != nil {
+				h.Logger.Info("flow service unavailable for progress notify", map[string]string{
+					"gestalt.category": "terminal",
+					"gestalt.source":   "backend",
+					"session.id":       id,
+					"session_id":       id,
+					"notify.type":      "progress",
+				})
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return nil
+		}
 		return err
 	}
 
@@ -363,6 +391,19 @@ func (h *RestHandler) handleTerminalNotify(w http.ResponseWriter, r *http.Reques
 	}
 	if signalErr := h.FlowService.SignalEvent(r.Context(), fields, request.EventID); signalErr != nil {
 		if errors.Is(signalErr, flow.ErrTemporalUnavailable) {
+			if isProgress {
+				if h.Logger != nil {
+					h.Logger.Info("temporal unavailable for progress notify", map[string]string{
+						"gestalt.category": "terminal",
+						"gestalt.source":   "backend",
+						"session.id":       id,
+						"session_id":       id,
+						"notify.type":      "progress",
+					})
+				}
+				w.WriteHeader(http.StatusNoContent)
+				return nil
+			}
 			return &apiError{Status: http.StatusServiceUnavailable, Message: "temporal unavailable"}
 		}
 		return &apiError{Status: http.StatusInternalServerError, Message: "failed to signal flow router"}

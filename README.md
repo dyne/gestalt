@@ -9,12 +9,7 @@
   </a>
 </p>
 
-Gestalt is a local dashboard and API server for multi-session agent workflows.
-
-Docs:
-- Local docs site: `npm run docs` then open `http://localhost:5173`
-- Docs source: [`docs/`](docs/)
-- Project page: [dyne.org/gestalt](https://dyne.org/gestalt)
+Gestalt is a local dashboard and API server for multi-session agent workflows. Start by reading the [full documentation](https://dyne.org/docs/gestalt/).
 
 <div id="toc">
 

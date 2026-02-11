@@ -26,7 +26,7 @@ HTTP response headers:
 2) PTY output -> Session output bus -> /ws/session/:id -> xterm in SPA.
 3) Filesystem or git changes -> watcher -> event.Bus[watcher.Event] -> /api/events/stream
    (SSE) -> eventStore -> UI updates.
-4) Logs -> logging.LogBuffer -> /api/logs/stream (SSE) and /api/logs -> LogsView.
+4) Logs -> logging.LogBuffer -> /api/logs/stream (SSE) and /ws/logs -> LogsView.
 5) Workflows -> internal/temporal -> workflow events -> /api/events/stream (SSE).
 
 ## Component map (backend)
@@ -43,7 +43,7 @@ Internal packages (Go):
 - internal/watcher: fsnotify wrapper + git branch monitoring + event publishing.
 - internal/event: typed bus used by watcher, terminal, workflow, and logs.
 - internal/config: embedded config extraction + version tracking.
-- internal/plan: .gestalt/PLAN.org cache, helpers for plan endpoints.
+- internal/plan: scanner + model conversion for `.gestalt/plans/*.org` documents.
 - internal/prompt: prompt parsing, include resolution, render logic.
 - internal/temporal: workflow orchestration, memo helpers, worker wiring.
 - internal/metrics: metrics counters exposed via /api/metrics/summary.
@@ -59,18 +59,27 @@ Backend runtime wiring (main.go):
 - Starts backend HTTP server and frontend HTTP server with reverse proxy to backend.
 
 ### Backend REST + WS surface
-REST endpoints (examples):
-- /api/status, /api/agents, /api/sessions, /api/logs, /api/skills
-- /api/plan, /api/plan/current
+REST endpoints (grouped):
+- Status/metrics/workflows: `/api/status`, `/api/metrics/summary`, `/api/workflows`
+- Sessions: `/api/sessions`, `/api/sessions/:id`, `/api/sessions/:id/output`,
+  `/api/sessions/:id/history`, `/api/sessions/:id/input-history`,
+  `/api/sessions/:id/bell`, `/api/sessions/:id/notify`,
+  `/api/sessions/:id/workflow/resume`, `/api/sessions/:id/workflow/history`
+- Agents/skills/plans: `/api/agents`, `/api/agents/:name/input`,
+  `/api/agents/:name/send-input`, `/api/skills`, `/api/plans`
+- Flow/OTel: `/api/flow/activities`, `/api/flow/config`,
+  `/api/otel/logs`, `/api/otel/traces`, `/api/otel/metrics`
 
 SSE endpoints:
-- /api/events/stream (filesystem/config/workflow/session/agent events)
-- /api/logs/stream (log stream + 1h replay)
+- `/api/events/stream` (filesystem/config/workflow/session/agent events)
+- `/api/logs/stream` (log stream + replay)
+- `/api/notifications/stream`
 
 WebSocket endpoints:
-- /ws/session/:id (PTY stream)
-- Deprecated: /ws/logs, /ws/events, /api/agents/events, /api/sessions/events,
-  /api/workflows/events, /api/config/events
+- `/ws/session/:id` (PTY stream)
+- `/ws/logs`, `/ws/events`
+- `/api/agents/events`, `/api/sessions/events`,
+  `/api/workflows/events`, `/api/config/events`
 
 ## Component map (frontend)
 Entry: frontend/src/App.svelte
@@ -119,16 +128,16 @@ Frontend serving flow:
 ## Implicit coupling and hidden dependencies
 - Session identity: Manager derives session ids from agent names with per-run
   counters; UI relies on session ids for tab labels and deduping.
-- Plan path: .gestalt/PLAN.org is hard-coded in plan.DefaultPath and watched
-  directly; PlanView assumes this path exists.
+- Plan path: plans are loaded from `.gestalt/plans/*.org` via
+  `plan.DefaultPlansDir()`, and the watcher monitors that directory.
 - Config placement: default config dir is .gestalt/config; several features
   rely on relative paths (prompts, agents, skills).
 - Event schemas: frontend stores assume specific JSON shapes for session events
   and depend on event_type values from backend.
 - Temporal wiring: workflow UI assumes Temporal events are enabled and uses
   /api/workflows and /api/sessions/:id/workflow/history endpoints.
-- Logging: LogsView and /api/logs/stream depend on logging.LogBuffer memory retention
-  (legacy /ws/logs is deprecated).
+- Logging: LogsView depends on streaming from `/api/logs/stream` and `/ws/logs`,
+  both backed by in-memory log retention.
 - Reverse proxy: SPA expects /api and /ws on the frontend port; backend-only
   mode changes client URL assumptions.
 
@@ -485,7 +494,7 @@ Scope: structured logging, log buffer, log event bus.
 
 ### Responsibilities and data flow
 - Logger emits LogEntry to LogBuffer (ring buffer), event.Bus, and stdout.
-- LogBuffer provides in-memory history for /api/logs and /api/logs/stream.
+- LogBuffer provides in-memory history for `/api/logs/stream` and `/ws/logs`.
 - logging.Level and parsing helpers standardize severity handling.
 
 ### Complexity observations
@@ -514,8 +523,8 @@ Large refactors (1+ week, if justified):
   buffers and input history to standardize retention/overflow behavior.
 
 ### Risks and hidden coupling
-- /api/logs and /api/logs/stream assume LogBuffer retention in-memory; reducing size
-  or changing ordering affects frontend log views.
+- `/api/logs/stream` and `/ws/logs` assume LogBuffer retention in-memory;
+  reducing size or changing ordering affects frontend log views.
 
 ## Package analysis: internal/orchestrator
 Scope: placeholder removed to avoid misleading APIs.

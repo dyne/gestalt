@@ -1,3 +1,10 @@
+## [1.7.1](https://github.com/dyne/gestalt/compare/v1.7.0...v1.7.1) (2026-02-11)
+
+
+### Bug Fixes
+
+* version inside released binaries ([84a190c](https://github.com/dyne/gestalt/commit/84a190c033825a3faab50a78d4ea9101fd3f736e))
+
 # [1.7.0](https://github.com/dyne/gestalt/compare/v1.6.2...v1.7.0) (2026-02-11)
 
 

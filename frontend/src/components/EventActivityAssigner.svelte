@@ -1,5 +1,5 @@
 <script>
-  import { createEventDispatcher } from 'svelte'
+  import { createEventDispatcher, tick } from 'svelte'
 
   export let trigger = null
   export let activityDefs = []
@@ -8,11 +8,159 @@
 
   const dispatch = createEventDispatcher()
 
+  const templateTokenGroups = [
+    {
+      label: 'Common',
+      tokens: [
+        '{{summary}}',
+        '{{plan_file}}',
+        '{{plan_summary}}',
+        '{{task_title}}',
+        '{{task_state}}',
+        '{{git_branch}}',
+      ],
+    },
+    {
+      label: 'Always',
+      tokens: [
+        '{{session_id}}',
+        '{{agent_id}}',
+        '{{agent_name}}',
+        '{{timestamp}}',
+        '{{event_id}}',
+      ],
+    },
+    {
+      label: 'Notify (advanced)',
+      tokens: [
+        '{{notify.type}}',
+        '{{notify.event_id}}',
+        '{{notify.summary}}',
+        '{{notify.plan_file}}',
+        '{{notify.plan_summary}}',
+        '{{notify.task_title}}',
+        '{{notify.task_state}}',
+        '{{notify.git_branch}}',
+      ],
+    },
+    {
+      label: 'Advanced',
+      tokens: [
+        '{{trigger_id}}',
+        '{{activity_id}}',
+        '{{output_tail}}',
+      ],
+    },
+  ]
+
+  const baseSampleEvent = {
+    session_id: 'coder-1',
+    agent_id: 'coder',
+    agent_name: 'Coder 1',
+    timestamp: '2026-02-11T18:15:00Z',
+    git_branch: 'feature/flow-notify',
+  }
+
+  const notifySampleBase = {
+    ...baseSampleEvent,
+    plan_file: '.gestalt/plans/flow-notify-router.org',
+    plan_summary: 'Route notify events into Flow.',
+    task_title: 'Add notify presets',
+  }
+
+  const notifySamples = {
+    notify_new_plan: {
+      ...notifySampleBase,
+      summary: 'New plan: Flow router updates',
+      task_state: 'TODO',
+      event_id: 'evt_notify_1',
+      'notify.type': 'new-plan',
+      'notify.event_id': 'evt_notify_1',
+      'notify.summary': 'New plan: Flow router updates',
+      'notify.plan_file': '.gestalt/plans/flow-notify-router.org',
+      'notify.plan_summary': 'Route notify events into Flow.',
+      'notify.task_title': 'Add notify presets',
+      'notify.task_state': 'TODO',
+    },
+    notify_progress: {
+      ...notifySampleBase,
+      summary: 'Progress: Add notify preset',
+      task_state: 'WIP',
+      event_id: 'evt_notify_2',
+      'notify.type': 'progress',
+      'notify.event_id': 'evt_notify_2',
+      'notify.summary': 'Progress: Add notify preset',
+      'notify.plan_file': '.gestalt/plans/flow-notify-router.org',
+      'notify.plan_summary': 'Route notify events into Flow.',
+      'notify.task_title': 'Add notify presets',
+      'notify.task_state': 'WIP',
+    },
+    notify_finish: {
+      ...notifySampleBase,
+      summary: 'Finish: Notify flow',
+      task_state: 'DONE',
+      event_id: 'evt_notify_3',
+      'notify.type': 'finish',
+      'notify.event_id': 'evt_notify_3',
+      'notify.summary': 'Finish: Notify flow',
+      'notify.plan_file': '.gestalt/plans/flow-notify-router.org',
+      'notify.plan_summary': 'Route notify events into Flow.',
+      'notify.task_title': 'Add notify presets',
+      'notify.task_state': 'DONE',
+    },
+    notify_event: {
+      ...notifySampleBase,
+      summary: 'Notify event received',
+      event_id: 'evt_notify_4',
+      'notify.type': 'other',
+      'notify.event_id': 'evt_notify_4',
+      'notify.summary': 'Notify event received',
+      'notify.plan_file': '.gestalt/plans/flow-notify-router.org',
+      'notify.plan_summary': 'Route notify events into Flow.',
+      'notify.task_title': 'Add notify presets',
+    },
+  }
+
+  const sampleEventForType = (eventType) => {
+    if (eventType && notifySamples[eventType]) {
+      return notifySamples[eventType]
+    }
+    if (eventType === 'file_changed') {
+      return { ...baseSampleEvent, event_id: 'evt_file_1', path: 'README.md', op: 'write' }
+    }
+    if (eventType === 'git_branch_changed') {
+      return {
+        ...baseSampleEvent,
+        event_id: 'evt_git_1',
+        git_branch: 'feature/notify',
+        previous_branch: 'main',
+      }
+    }
+    if (eventType === 'terminal_resized') {
+      return {
+        ...baseSampleEvent,
+        event_id: 'evt_term_1',
+        terminal_id: 't1',
+        cols: '120',
+        rows: '32',
+      }
+    }
+    if (eventType && eventType.startsWith('workflow_')) {
+      return {
+        ...baseSampleEvent,
+        event_id: 'evt_workflow_1',
+        workflow_state: eventType.replace('workflow_', ''),
+      }
+    }
+    return { ...baseSampleEvent, event_id: 'evt_generic_1' }
+  }
+
   let configDialogRef = null
   let configDialogOpen = false
   let configActivity = null
   let configDraft = {}
   let dragOver = ''
+  let previewJson = ''
 
   const triggerId = () => trigger?.id || ''
 
@@ -32,9 +180,22 @@
       return left.localeCompare(right)
     })
 
+  $: previewSampleEvent = sampleEventForType(trigger?.event_type)
+  $: previewOverride = parsePreviewJson(previewJson)
+  $: previewFields = previewOverride.fields || previewSampleEvent
+  $: previewParseError = previewOverride.error
+  $: previewMeta = {
+    event_id: previewFields?.event_id || 'evt_123',
+    trigger_id: triggerId() || 'trigger',
+    activity_id: configActivity?.def?.id || 'activity',
+    output_tail: previewFields?.output_tail || 'output tail sample',
+  }
+  $: hasTemplateFields = Boolean(configActivity?.def?.fields?.some((field) => isTemplateField(field)))
+
   const openConfigDialog = (item) => {
     configActivity = item
     configDraft = { ...(item?.binding?.config || {}) }
+    previewJson = ''
     configDialogOpen = true
     if (configDialogRef?.showModal) {
       configDialogRef.showModal()
@@ -50,6 +211,97 @@
 
   const updateConfigField = (key, value) => {
     configDraft = { ...configDraft, [key]: value }
+  }
+
+  function isTemplateField(field) {
+    return Boolean(field?.key && field.key.endsWith('_template'))
+  }
+
+  function normalizePreviewFields(source) {
+    if (!source || typeof source !== 'object' || Array.isArray(source)) {
+      return {}
+    }
+    const fields = {}
+    Object.entries(source).forEach(([key, value]) => {
+      if (value === null || value === undefined) return
+      if (typeof value === 'object') return
+      fields[key] = String(value)
+    })
+    return fields
+  }
+
+  function parsePreviewJson(raw) {
+    const trimmed = raw.trim()
+    if (!trimmed) return { fields: null, error: '' }
+    try {
+      const parsed = JSON.parse(trimmed)
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return { fields: null, error: 'Preview data must be a JSON object.' }
+      }
+      return { fields: normalizePreviewFields(parsed), error: '' }
+    } catch {
+      return { fields: null, error: 'Preview data is not valid JSON.' }
+    }
+  }
+
+  function resolveTemplateToken(token, fields, meta) {
+    if (!token) return ''
+    if (token === 'event_id') return meta.event_id || ''
+    if (token === 'trigger_id') return meta.trigger_id || ''
+    if (token === 'activity_id') return meta.activity_id || ''
+    if (token === 'output_tail') return meta.output_tail || ''
+    if (token.startsWith('event.')) {
+      const key = token.slice('event.'.length)
+      return key ? fields[key] || '' : ''
+    }
+    return fields[token] || ''
+  }
+
+  function renderTemplate(template, fields, meta) {
+    if (!template) return ''
+    let output = ''
+    let remaining = template
+    while (true) {
+      const start = remaining.indexOf('{{')
+      if (start < 0) {
+        output += remaining
+        break
+      }
+      output += remaining.slice(0, start)
+      remaining = remaining.slice(start + 2)
+      const end = remaining.indexOf('}}')
+      if (end < 0) {
+        output += '{{' + remaining
+        break
+      }
+      const token = remaining.slice(0, end).trim()
+      output += resolveTemplateToken(token, fields, meta)
+      remaining = remaining.slice(end + 2)
+    }
+    return output
+  }
+
+  const insertToken = async (fieldKey, token) => {
+    const element = configDialogRef?.querySelector(`#field-${fieldKey}`)
+    const current = typeof configDraft[fieldKey] === 'string' ? configDraft[fieldKey] : ''
+    const start = element?.selectionStart ?? current.length
+    const end = element?.selectionEnd ?? current.length
+    const next = current.slice(0, start) + token + current.slice(end)
+    updateConfigField(fieldKey, next)
+    await tick()
+    const updated = configDialogRef?.querySelector(`#field-${fieldKey}`)
+    if (updated?.setSelectionRange) {
+      const cursor = start + token.length
+      updated.setSelectionRange(cursor, cursor)
+    }
+    updated?.focus()
+  }
+
+  const handleInsertToken = (fieldKey, event) => {
+    const token = event?.target?.value
+    if (!token) return
+    insertToken(fieldKey, token)
+    event.target.value = ''
   }
 
   const saveConfig = () => {
@@ -243,32 +495,87 @@
     </header>
     {#if configActivity?.def?.fields?.length}
       {#each configActivity.def.fields as field (field.key)}
-        <label class="assigner-label" for={`field-${field.key}`}>{field.label}</label>
-        {#if field.type === 'bool'}
-          <input
-            id={`field-${field.key}`}
-            type="checkbox"
-            checked={Boolean(configDraft[field.key])}
-            on:change={(event) => updateConfigField(field.key, event.target.checked)}
-          />
-        {:else if field.type === 'int'}
-          <input
-            id={`field-${field.key}`}
-            type="number"
-            value={configDraft[field.key] ?? ''}
-            on:input={(event) => updateConfigField(field.key, Number(event.target.value || 0))}
-          />
-        {:else}
-          <input
-            id={`field-${field.key}`}
-            type="text"
-            value={configDraft[field.key] ?? ''}
-            on:input={(event) => updateConfigField(field.key, event.target.value)}
-          />
-        {/if}
+        <div class="assigner-field">
+          <label class="assigner-label" for={`field-${field.key}`}>{field.label}</label>
+          {#if field.type === 'bool'}
+            <input
+              id={`field-${field.key}`}
+              class="assigner-checkbox"
+              type="checkbox"
+              checked={Boolean(configDraft[field.key])}
+              on:change={(event) => updateConfigField(field.key, event.target.checked)}
+            />
+          {:else if field.type === 'int'}
+            <input
+              id={`field-${field.key}`}
+              class="assigner-input"
+              type="number"
+              value={configDraft[field.key] ?? ''}
+              on:input={(event) => updateConfigField(field.key, Number(event.target.value || 0))}
+            />
+          {:else if isTemplateField(field)}
+            <textarea
+              id={`field-${field.key}`}
+              class="assigner-input"
+              rows="3"
+              value={configDraft[field.key] ?? ''}
+              on:input={(event) => updateConfigField(field.key, event.target.value)}
+            ></textarea>
+          {:else}
+            <input
+              id={`field-${field.key}`}
+              class="assigner-input"
+              type="text"
+              value={configDraft[field.key] ?? ''}
+              on:input={(event) => updateConfigField(field.key, event.target.value)}
+            />
+          {/if}
+          {#if isTemplateField(field)}
+            <div class="assigner-template-tools">
+              <label class="assigner-hint" for={`insert-${field.key}`}>Insert field</label>
+              <select
+                id={`insert-${field.key}`}
+                class="assigner-input"
+                on:change={(event) => handleInsertToken(field.key, event)}
+              >
+                <option value="">Insert field</option>
+                {#each templateTokenGroups as group}
+                  <optgroup label={group.label}>
+                    {#each group.tokens as token}
+                      <option value={token}>{token}</option>
+                    {/each}
+                  </optgroup>
+                {/each}
+              </select>
+            </div>
+            <div class="assigner-template-preview">
+              <span class="assigner-preview-label">Preview</span>
+              <pre class="assigner-preview-output">{renderTemplate(String(configDraft[field.key] ?? ''), previewFields, previewMeta) || 'Preview will appear here.'}</pre>
+            </div>
+          {/if}
+        </div>
       {/each}
     {:else}
       <p class="assigner-empty">No configurable fields.</p>
+    {/if}
+    {#if hasTemplateFields}
+      <div class="assigner-preview-config">
+        <label class="assigner-label" for="preview-json">Preview data (JSON)</label>
+        <textarea
+          id="preview-json"
+          class="assigner-input"
+          rows="4"
+          placeholder="summary: New plan"
+          bind:value={previewJson}
+        ></textarea>
+        {#if previewParseError}
+          <p class="assigner-hint assigner-hint--error">{previewParseError}</p>
+        {:else}
+          <p class="assigner-hint">
+            Leave blank to use sample data for {trigger?.event_type || 'this trigger'}.
+          </p>
+        {/if}
+      </div>
     {/if}
     <div class="assigner-dialog__actions">
       <button type="submit" class="assigner-action">Save</button>
@@ -400,13 +707,75 @@
     font-weight: 600;
   }
 
-  .assigner-dialog__form input[type='text'],
-  .assigner-dialog__form input[type='number'] {
+  .assigner-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .assigner-input {
     border-radius: 10px;
     border: 1px solid rgba(var(--color-text-rgb), 0.2);
     padding: 0.45rem 0.6rem;
     background: rgba(var(--color-surface-rgb), 0.95);
     color: var(--color-text);
+    font-size: 0.8rem;
+  }
+
+  .assigner-checkbox {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  .assigner-template-tools {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  .assigner-template-tools .assigner-input {
+    flex: 1;
+  }
+
+  .assigner-template-preview {
+    border: 1px solid rgba(var(--color-text-rgb), 0.12);
+    border-radius: 10px;
+    padding: 0.5rem 0.65rem;
+    background: rgba(var(--color-surface-rgb), 0.7);
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .assigner-preview-label {
+    font-size: 0.65rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+
+  .assigner-preview-output {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--color-text);
+    font-family: var(--font-mono);
+    white-space: pre-wrap;
+  }
+
+  .assigner-preview-config {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+
+  .assigner-hint {
+    margin: 0;
+    font-size: 0.7rem;
+    color: var(--color-text-muted);
+  }
+
+  .assigner-hint--error {
+    color: var(--color-danger);
   }
 
   .assigner-dialog__actions {

@@ -51,6 +51,8 @@ func (h *RestHandler) handleTerminal(w http.ResponseWriter, r *http.Request) *ap
 		return h.handleTerminalBell(w, r, id)
 	case terminalPathNotify:
 		return h.handleTerminalNotify(w, r, id)
+	case terminalPathProgress:
+		return h.handleTerminalProgress(w, r, id)
 	case terminalPathWorkflowResume:
 		return h.handleTerminalWorkflowResume(w, r, id)
 	case terminalPathWorkflowHistory:
@@ -332,11 +334,23 @@ func (h *RestHandler) handleTerminalNotify(w http.ResponseWriter, r *http.Reques
 	}
 
 	if request.EventType == "progress" {
-		_, normalized, normalizeErr := normalizePlanProgressPayload(request.Payload)
+		progressPayload, normalized, normalizeErr := normalizePlanProgressPayload(request.Payload)
 		if normalizeErr != nil {
 			return normalizeErr
 		}
 		request.Payload = normalized
+		progressTime := time.Now().UTC()
+		if request.OccurredAt != nil && !request.OccurredAt.IsZero() {
+			progressTime = request.OccurredAt.UTC()
+		}
+		session.SetPlanProgress(terminal.PlanProgress{
+			PlanFile:  progressPayload.PlanFile,
+			L1:        progressPayload.L1,
+			L2:        progressPayload.L2,
+			TaskLevel: progressPayload.TaskLevel,
+			TaskState: progressPayload.TaskState,
+			UpdatedAt: progressTime,
+		})
 	}
 
 	if err := h.requireFlowService(); err != nil {
@@ -355,6 +369,36 @@ func (h *RestHandler) handleTerminalNotify(w http.ResponseWriter, r *http.Reques
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+func (h *RestHandler) handleTerminalProgress(w http.ResponseWriter, r *http.Request, id string) *apiError {
+	if r.Method != http.MethodGet {
+		return methodNotAllowed(w, "GET")
+	}
+
+	session, ok := h.Manager.Get(id)
+	if !ok {
+		return &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
+	}
+
+	progress, ok := session.PlanProgress()
+	if !ok {
+		writeJSON(w, http.StatusOK, terminalProgressResponse{HasProgress: false})
+		return nil
+	}
+
+	updatedAt := progress.UpdatedAt
+	response := terminalProgressResponse{
+		HasProgress: true,
+		PlanFile:    progress.PlanFile,
+		L1:          progress.L1,
+		L2:          progress.L2,
+		TaskLevel:   progress.TaskLevel,
+		TaskState:   progress.TaskState,
+		UpdatedAt:   &updatedAt,
+	}
+	writeJSON(w, http.StatusOK, response)
 	return nil
 }
 
@@ -479,6 +523,8 @@ func parseTerminalPath(path string) (string, terminalPathAction, *apiError) {
 			return id, terminalPathBell, nil
 		case "notify":
 			return id, terminalPathNotify, nil
+		case "progress":
+			return id, terminalPathProgress, nil
 		default:
 			return "", terminalPathTerminal, &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
 		}

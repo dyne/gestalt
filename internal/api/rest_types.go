@@ -195,6 +195,16 @@ type workflowResumeRequest struct {
 	Action string `json:"action"`
 }
 
+type terminalProgressResponse struct {
+	HasProgress bool       `json:"has_progress"`
+	PlanFile    string     `json:"plan_file,omitempty"`
+	L1          string     `json:"l1,omitempty"`
+	L2          string     `json:"l2,omitempty"`
+	TaskLevel   int        `json:"task_level,omitempty"`
+	TaskState   string     `json:"task_state,omitempty"`
+	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
+}
+
 type notifyRequest struct {
 	SessionID  string          `json:"session_id"`
 	EventType  string          `json:"-"`
@@ -213,6 +223,7 @@ const (
 	terminalPathInputHistory
 	terminalPathBell
 	terminalPathNotify
+	terminalPathProgress
 	terminalPathWorkflowResume
 	terminalPathWorkflowHistory
 )

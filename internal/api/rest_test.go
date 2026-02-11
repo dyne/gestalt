@@ -905,6 +905,125 @@ func TestTerminalNotifyEndpointTemporalUnavailable(t *testing.T) {
 	}
 }
 
+func TestTerminalProgressEndpointMissingSession(t *testing.T) {
+	manager := newTestManager(terminal.ManagerOptions{Shell: "/bin/sh"})
+	handler := &RestHandler{Manager: manager}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/missing/progress", nil)
+	res := httptest.NewRecorder()
+
+	restHandler("", nil, handler.handleTerminal)(res, req)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", res.Code)
+	}
+}
+
+func TestTerminalProgressEndpointEmpty(t *testing.T) {
+	factory := &fakeFactory{}
+	manager := newTestManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {Name: "Codex", Shell: "/bin/bash", CLIType: "codex"},
+		},
+	})
+	created, err := manager.CreateWithOptions(terminal.CreateOptions{
+		AgentID: "codex",
+	})
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodGet, terminalPath(created.ID)+"/progress", nil)
+	res := httptest.NewRecorder()
+
+	restHandler("", nil, handler.handleTerminal)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var payload terminalProgressResponse
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.HasProgress {
+		t.Fatalf("expected has_progress false")
+	}
+}
+
+func TestTerminalProgressEndpointAfterNotify(t *testing.T) {
+	factory := &fakeFactory{}
+	manager := newTestManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {Name: "Codex", Shell: "/bin/bash", CLIType: "codex"},
+		},
+	})
+	created, err := manager.CreateWithOptions(terminal.CreateOptions{
+		AgentID: "codex",
+	})
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	tempDir := t.TempDir()
+	temporalClient := &fakeWorkflowSignalClient{runID: "run-progress-2"}
+	repo := flow.NewFileRepository(filepath.Join(tempDir, "automations.json"), nil)
+	service := flow.NewService(repo, temporalClient, nil)
+	handler := &RestHandler{Manager: manager, FlowService: service}
+
+	body := `{"session_id":"` + created.ID + `","payload":{"type":"progress","plan_file":"plans/plan.org","l1":"TODO First L1","l2":"WIP Second L2","task_level":2,"task_state":"WIP"}}`
+	notifyReq := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/notify", strings.NewReader(body))
+	notifyRes := httptest.NewRecorder()
+
+	restHandler("", nil, handler.handleTerminal)(notifyRes, notifyReq)
+	if notifyRes.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", notifyRes.Code)
+	}
+
+	progressReq := httptest.NewRequest(http.MethodGet, terminalPath(created.ID)+"/progress", nil)
+	progressRes := httptest.NewRecorder()
+
+	restHandler("", nil, handler.handleTerminal)(progressRes, progressReq)
+	if progressRes.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", progressRes.Code)
+	}
+
+	var payload terminalProgressResponse
+	if err := json.NewDecoder(progressRes.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !payload.HasProgress {
+		t.Fatalf("expected has_progress true")
+	}
+	if payload.PlanFile != "plan.org" {
+		t.Fatalf("expected plan_file plan.org, got %q", payload.PlanFile)
+	}
+	if payload.L1 != "First L1" {
+		t.Fatalf("expected l1 First L1, got %q", payload.L1)
+	}
+	if payload.L2 != "Second L2" {
+		t.Fatalf("expected l2 Second L2, got %q", payload.L2)
+	}
+	if payload.TaskLevel != 2 {
+		t.Fatalf("expected task_level 2, got %d", payload.TaskLevel)
+	}
+	if payload.TaskState != "WIP" {
+		t.Fatalf("expected task_state WIP, got %q", payload.TaskState)
+	}
+	if payload.UpdatedAt == nil || payload.UpdatedAt.IsZero() {
+		t.Fatalf("expected updated_at set")
+	}
+}
+
 func TestTerminalNotifyEndpointBadJSON(t *testing.T) {
 	factory := &fakeFactory{}
 	temporalClient := &fakeWorkflowSignalClient{runID: "run-12"}

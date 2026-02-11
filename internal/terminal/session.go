@@ -105,10 +105,23 @@ type SessionWorkflow struct {
 	workflowMutex  sync.RWMutex
 }
 
+// PlanProgress records the most recent plan progress update for a session.
+type PlanProgress struct {
+	PlanFile  string
+	L1        string
+	L2        string
+	TaskLevel int
+	TaskState string
+	UpdatedAt time.Time
+}
+
 type Session struct {
 	SessionMeta
 	SessionIO
 	SessionWorkflow
+	progressMu  sync.RWMutex
+	progress    PlanProgress
+	hasProgress bool
 }
 
 type SessionInfo struct {
@@ -235,6 +248,30 @@ func (s *Session) AgentName() string {
 		return ""
 	}
 	return s.agent.Name
+}
+
+// SetPlanProgress stores the latest plan progress for the session.
+func (s *Session) SetPlanProgress(progress PlanProgress) {
+	if s == nil {
+		return
+	}
+	s.progressMu.Lock()
+	s.progress = progress
+	s.hasProgress = true
+	s.progressMu.Unlock()
+}
+
+// PlanProgress returns the latest progress record, if present.
+func (s *Session) PlanProgress() (PlanProgress, bool) {
+	if s == nil {
+		return PlanProgress{}, false
+	}
+	s.progressMu.RLock()
+	defer s.progressMu.RUnlock()
+	if !s.hasProgress {
+		return PlanProgress{}, false
+	}
+	return s.progress, true
 }
 
 func (s *Session) IsMCP() bool {

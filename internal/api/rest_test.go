@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"gestalt/internal/agent"
+	"gestalt/internal/event"
 	"gestalt/internal/flow"
 	"gestalt/internal/otel"
 	"gestalt/internal/skill"
@@ -1021,6 +1022,65 @@ func TestTerminalProgressEndpointAfterNotify(t *testing.T) {
 	}
 	if payload.UpdatedAt == nil || payload.UpdatedAt.IsZero() {
 		t.Fatalf("expected updated_at set")
+	}
+}
+
+func TestTerminalNotifyProgressPublishesEvent(t *testing.T) {
+	factory := &fakeFactory{}
+	manager := newTestManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {Name: "Codex", Shell: "/bin/bash", CLIType: "codex"},
+		},
+	})
+	created, err := manager.CreateWithOptions(terminal.CreateOptions{
+		AgentID: "codex",
+	})
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	events, cancel := manager.TerminalBus().Subscribe()
+	defer cancel()
+
+	handler := &RestHandler{Manager: manager}
+	body := `{"session_id":"` + created.ID + `","payload":{"type":"progress","plan_file":"plan.org","l1":"First L1","l2":"Second L2","task_level":2,"task_state":"WIP"}}`
+	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/notify", strings.NewReader(body))
+	res := httptest.NewRecorder()
+
+	restHandler("", nil, handler.handleTerminal)(res, req)
+	if res.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", res.Code)
+	}
+
+	terminalEvent := event.ReceiveWithTimeout(t, events, time.Second)
+	if terminalEvent.Type() != "plan_progress" {
+		t.Fatalf("expected plan_progress event, got %q", terminalEvent.Type())
+	}
+	if terminalEvent.TerminalID != created.ID {
+		t.Fatalf("expected terminal id %q, got %q", created.ID, terminalEvent.TerminalID)
+	}
+	if terminalEvent.Data["plan_file"] != "plan.org" {
+		t.Fatalf("expected plan_file plan.org, got %v", terminalEvent.Data["plan_file"])
+	}
+	if terminalEvent.Data["l1"] != "First L1" {
+		t.Fatalf("expected l1 First L1, got %v", terminalEvent.Data["l1"])
+	}
+	if terminalEvent.Data["l2"] != "Second L2" {
+		t.Fatalf("expected l2 Second L2, got %v", terminalEvent.Data["l2"])
+	}
+	if terminalEvent.Data["task_level"] != 2 {
+		t.Fatalf("expected task_level 2, got %v", terminalEvent.Data["task_level"])
+	}
+	if terminalEvent.Data["task_state"] != "WIP" {
+		t.Fatalf("expected task_state WIP, got %v", terminalEvent.Data["task_state"])
+	}
+	if terminalEvent.Data["timestamp"] == nil || terminalEvent.OccurredAt.IsZero() {
+		t.Fatalf("expected timestamp set")
 	}
 }
 

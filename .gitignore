@@ -18,3 +18,4 @@ gestalt-send
 gestalt-notify
 gestalt-otel
 gestalt-agent
+docs/.vitepress/cache

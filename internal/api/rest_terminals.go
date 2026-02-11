@@ -331,6 +331,14 @@ func (h *RestHandler) handleTerminalNotify(w http.ResponseWriter, r *http.Reques
 		return &apiError{Status: http.StatusBadRequest, Message: "terminal is not an agent session"}
 	}
 
+	if request.EventType == "progress" {
+		_, normalized, normalizeErr := normalizePlanProgressPayload(request.Payload)
+		if normalizeErr != nil {
+			return normalizeErr
+		}
+		request.Payload = normalized
+	}
+
 	if err := h.requireFlowService(); err != nil {
 		return err
 	}

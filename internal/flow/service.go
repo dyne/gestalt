@@ -57,6 +57,19 @@ func (s *Service) ActivityCatalog() []ActivityDef {
 	return cloneActivityDefs(s.activityDefs)
 }
 
+func (s *Service) ConfigPath() string {
+	if s == nil || s.repo == nil {
+		return ""
+	}
+	type pathProvider interface {
+		Path() string
+	}
+	if provider, ok := s.repo.(pathProvider); ok {
+		return provider.Path()
+	}
+	return ""
+}
+
 func (s *Service) TemporalAvailable() bool {
 	return s != nil && s.temporal != nil
 }

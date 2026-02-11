@@ -1,8 +1,11 @@
 <script>
   import { onMount } from 'svelte'
   import EventActivityAssigner from '../components/EventActivityAssigner.svelte'
-  import { flowConfigStore } from '../lib/flowConfigStore.js'
+  import { exportFlowConfig, importFlowConfig } from '../lib/apiClient.js'
+  import { canUseClipboard, copyToClipboard } from '../lib/clipboard.js'
   import { parseEventFilterQuery, matchesEventTrigger } from '../lib/eventFilterQuery.js'
+  import { getErrorMessage } from '../lib/errorUtils.js'
+  import { flowConfigStore } from '../lib/flowConfigStore.js'
 
   const fallbackEventTypeOptions = [
     'workflow_paused',
@@ -51,8 +54,16 @@
   let notifyTaskState = ''
   let notifyAgentId = ''
   let notifySessionId = ''
+  let importInputRef = null
+  let clipboardAvailable = false
+  let storageCopied = false
+  let exportError = ''
+  let importError = ''
+  let exportInProgress = false
+  let importInProgress = false
 
   onMount(() => {
+    clipboardAvailable = canUseClipboard()
     flowConfigStore.load()
   })
 
@@ -81,6 +92,12 @@
   $: selectedTrigger = filteredTriggers.find((trigger) => trigger.id === selectedTriggerId) || null
   $: selectedBindings = selectedTrigger ? bindingsByTriggerId[selectedTrigger.id] || [] : []
   $: selectedWhereEntries = selectedTrigger ? Object.entries(selectedTrigger.where || {}) : []
+
+  const parseExportFilename = (header) => {
+    if (!header) return ''
+    const match = /filename="?([^\";]+)"?/i.exec(header)
+    return match ? match[1] : ''
+  }
 
   const selectTrigger = (id) => {
     selectedTriggerId = id
@@ -247,6 +264,70 @@
     closeDialog()
   }
 
+  const copyStoragePath = async () => {
+    const path = flowState?.storagePath
+    if (!path) return
+    const ok = await copyToClipboard(path)
+    storageCopied = ok
+    if (ok) {
+      setTimeout(() => {
+        storageCopied = false
+      }, 1500)
+    }
+  }
+
+  const handleExport = async () => {
+    exportError = ''
+    exportInProgress = true
+    try {
+      const response = await exportFlowConfig()
+      const blob = await response.blob()
+      const filename =
+        parseExportFilename(response.headers.get('Content-Disposition')) || 'automations.json'
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      exportError = getErrorMessage(err, 'Failed to export Flow configuration.')
+    } finally {
+      exportInProgress = false
+    }
+  }
+
+  const openImportDialog = () => {
+    importError = ''
+    if (!importInputRef) return
+    importInputRef.value = ''
+    importInputRef.click()
+  }
+
+  const handleImportFile = async (event) => {
+    const file = event?.target?.files?.[0]
+    if (!file) return
+    importError = ''
+    importInProgress = true
+    try {
+      const text = await file.text()
+      let payload = null
+      try {
+        payload = JSON.parse(text)
+      } catch {
+        throw new Error('Import file is not valid JSON.')
+      }
+      await importFlowConfig(payload)
+      await flowConfigStore.load()
+    } catch (err) {
+      importError = getErrorMessage(err, 'Failed to import Flow configuration.')
+    } finally {
+      importInProgress = false
+    }
+  }
+
   const saveChanges = () => {
     flowConfigStore.save()
   }
@@ -327,14 +408,57 @@
       >
         {flowState?.saving ? 'Saving...' : 'Save changes'}
       </button>
+      <button
+        class="rail-button rail-button--ghost"
+        type="button"
+        on:click={handleExport}
+        disabled={isBusy || exportInProgress}
+      >
+        {exportInProgress ? 'Exporting...' : 'Export'}
+      </button>
+      <button
+        class="rail-button rail-button--ghost"
+        type="button"
+        on:click={openImportDialog}
+        disabled={isBusy || importInProgress}
+      >
+        {importInProgress ? 'Importing...' : 'Import'}
+      </button>
+      <input
+        class="flow-import-input"
+        type="file"
+        accept="application/json,.json"
+        bind:this={importInputRef}
+        on:change={handleImportFile}
+      />
     </div>
   </header>
+
+  {#if flowState?.storagePath}
+    <div class="flow-storage">
+      <div class="flow-storage__path">
+        <span class="flow-storage__label">Saved to</span>
+        <span class="flow-storage__value">{flowState.storagePath}</span>
+      </div>
+      {#if clipboardAvailable}
+        <button class="rail-button rail-button--ghost" type="button" on:click={copyStoragePath}>
+          {storageCopied ? 'Copied' : 'Copy path'}
+        </button>
+      {/if}
+    </div>
+  {/if}
 
   {#if flowState?.error}
     <div class="flow-alert flow-alert--error">{flowState.error}</div>
   {/if}
   {#if flowState?.saveError}
     <div class="flow-alert flow-alert--error">{flowState.saveError}</div>
+  {/if}
+  {#if exportError}
+    <div class="flow-alert flow-alert--error">{exportError}</div>
+  {/if}
+  {#if importError}
+    <div class="flow-alert flow-alert--error">{importError}</div>
   {/if}
   {#if flowState?.temporalStatus && !flowState.temporalStatus.enabled}
     <div class="flow-alert flow-alert--warning">
@@ -554,6 +678,7 @@
     display: flex;
     align-items: center;
     gap: 0.75rem;
+    flex-wrap: wrap;
   }
 
   .flow-status {
@@ -579,6 +704,41 @@
     border-color: rgba(var(--color-warning-rgb), 0.45);
     color: var(--color-warning);
     background: rgba(var(--color-warning-rgb), 0.1);
+  }
+
+  .flow-storage {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    border-radius: 12px;
+    border: 1px solid rgba(var(--color-text-rgb), 0.12);
+    background: rgba(var(--color-surface-rgb), 0.6);
+  }
+
+  .flow-storage__path {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+
+  .flow-storage__label {
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    font-size: 0.65rem;
+    color: var(--color-text-muted);
+  }
+
+  .flow-storage__value {
+    font-size: 0.85rem;
+    font-family: var(--font-mono);
+    color: var(--color-text);
+  }
+
+  .flow-import-input {
+    display: none;
   }
 
   .eyebrow {

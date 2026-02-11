@@ -157,6 +157,7 @@ const normalizeFlowConfigPayload = (payload) => {
       bindings_by_trigger_id: normalizedBindings,
     },
     temporalStatus: normalizeObject(config.temporal_status),
+    storagePath: config.storage_path ? String(config.storage_path) : '',
   }
 }
 
@@ -282,6 +283,19 @@ export const fetchFlowConfig = async () => {
 export const saveFlowConfig = async (config) => {
   const response = await apiFetch('/api/flow/config', {
     method: 'PUT',
+    body: JSON.stringify(config || {}),
+  })
+  const payload = await response.json()
+  return normalizeFlowConfigPayload(payload)
+}
+
+export const exportFlowConfig = async () => {
+  return apiFetch('/api/flow/config/export')
+}
+
+export const importFlowConfig = async (config) => {
+  const response = await apiFetch('/api/flow/config/import', {
+    method: 'POST',
     body: JSON.stringify(config || {}),
   })
   const payload = await response.json()

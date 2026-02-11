@@ -1,5 +1,10 @@
 import { get, writable } from 'svelte/store'
-import { fetchFlowActivities, fetchFlowConfig, saveFlowConfig } from './apiClient.js'
+import {
+  fetchFlowActivities,
+  fetchFlowConfig,
+  fetchFlowEventTypes,
+  saveFlowConfig,
+} from './apiClient.js'
 import { getErrorMessage } from './errorUtils.js'
 
 const defaultConfig = {
@@ -10,6 +15,9 @@ const defaultConfig = {
 
 const buildState = () => ({
   activities: [],
+  eventTypes: [],
+  notifyTypes: {},
+  notifyTokens: {},
   config: defaultConfig,
   temporalStatus: null,
   loading: false,
@@ -93,13 +101,24 @@ export const createFlowConfigStore = () => {
       error: '',
       saveError: '',
     }))
-    loadPromise = Promise.all([fetchFlowActivities(), fetchFlowConfig()])
-      .then(([activities, payload]) => {
+    loadPromise = Promise.all([fetchFlowActivities(), fetchFlowConfig(), fetchFlowEventTypes()])
+      .then(([activities, payload, eventTypesPayload]) => {
         const nextConfig = normalizeConfig(payload?.config || {})
         baseline = serializeConfig(nextConfig)
         state.update((current) => ({
           ...current,
           activities: Array.isArray(activities) ? activities : [],
+          eventTypes: Array.isArray(eventTypesPayload?.eventTypes)
+            ? eventTypesPayload.eventTypes
+            : [],
+          notifyTypes:
+            eventTypesPayload?.notifyTypes && typeof eventTypesPayload.notifyTypes === 'object'
+              ? eventTypesPayload.notifyTypes
+              : {},
+          notifyTokens:
+            eventTypesPayload?.notifyTokens && typeof eventTypesPayload.notifyTokens === 'object'
+              ? eventTypesPayload.notifyTokens
+              : {},
           config: nextConfig,
           temporalStatus: payload?.temporalStatus || null,
           loading: false,

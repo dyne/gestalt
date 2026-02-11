@@ -4,7 +4,7 @@
   import { flowConfigStore } from '../lib/flowConfigStore.js'
   import { parseEventFilterQuery, matchesEventTrigger } from '../lib/eventFilterQuery.js'
 
-  const eventTypeOptions = [
+  const fallbackEventTypeOptions = [
     'workflow_paused',
     'workflow_started',
     'workflow_completed',
@@ -24,7 +24,7 @@
   let dialogOpen = false
   let dialogError = ''
   let draftLabel = ''
-  let draftEventType = eventTypeOptions[0]
+  let draftEventType = fallbackEventTypeOptions[0]
   let draftWhere = ''
 
   onMount(() => {
@@ -32,6 +32,10 @@
   })
 
   $: flowState = $flowConfigStore
+  $: eventTypeOptions =
+    Array.isArray(flowState?.eventTypes) && flowState.eventTypes.length > 0
+      ? flowState.eventTypes
+      : fallbackEventTypeOptions
   $: triggers = flowState?.config?.triggers || []
   $: bindingsByTriggerId = flowState?.config?.bindings_by_trigger_id || {}
   $: activityDefs = flowState?.activities || []
@@ -50,6 +54,10 @@
 
   const selectTrigger = (id) => {
     selectedTriggerId = id
+  }
+
+  $: if (eventTypeOptions.length && !eventTypeOptions.includes(draftEventType)) {
+    draftEventType = eventTypeOptions[0]
   }
 
   const showDialog = () => {

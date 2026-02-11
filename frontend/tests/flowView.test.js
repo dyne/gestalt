@@ -3,11 +3,13 @@ import { describe, it, expect, afterEach, vi } from 'vitest'
 
 const fetchFlowActivities = vi.hoisted(() => vi.fn())
 const fetchFlowConfig = vi.hoisted(() => vi.fn())
+const fetchFlowEventTypes = vi.hoisted(() => vi.fn())
 const saveFlowConfig = vi.hoisted(() => vi.fn())
 
 vi.mock('../src/lib/apiClient.js', () => ({
   fetchFlowActivities,
   fetchFlowConfig,
+  fetchFlowEventTypes,
   saveFlowConfig,
 }))
 
@@ -18,11 +20,13 @@ describe('FlowView', () => {
     cleanup()
     fetchFlowActivities.mockReset()
     fetchFlowConfig.mockReset()
+    fetchFlowEventTypes.mockReset()
     saveFlowConfig.mockReset()
   })
 
   it('filters triggers and updates the selected details', async () => {
     fetchFlowActivities.mockResolvedValue([{ id: 'toast_notification', label: 'Toast', fields: [] }])
+    fetchFlowEventTypes.mockResolvedValue({ eventTypes: ['workflow_paused', 'file_changed'] })
     fetchFlowConfig.mockResolvedValue({
       config: {
         version: 1,
@@ -67,6 +71,9 @@ describe('FlowView', () => {
 
   it('creates a trigger and saves it', async () => {
     fetchFlowActivities.mockResolvedValue([{ id: 'toast_notification', label: 'Toast', fields: [] }])
+    fetchFlowEventTypes.mockResolvedValue({
+      eventTypes: ['workflow_paused', 'workflow_completed'],
+    })
     fetchFlowConfig.mockResolvedValue({
       config: {
         version: 1,

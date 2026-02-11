@@ -1,10 +1,12 @@
 package workflows
 
 import (
+	"strings"
 	"time"
 
 	"gestalt/internal/flow"
 
+	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
@@ -52,7 +54,7 @@ func FlowRouterWorkflow(ctx workflow.Context, initialConfig flow.Config) error {
 			eventCount++
 			flowMatches := flow.MatchBindings(config, payload.Fields)
 			for _, match := range flowMatches {
-				bridgeActivity(ctx, logger, match, payload)
+				startChildWorkflow(ctx, logger, match, payload)
 			}
 		})
 		selector.Select(ctx)
@@ -76,54 +78,39 @@ func normalizeFlowConfig(cfg flow.Config) flow.Config {
 	return cfg
 }
 
-func bridgeActivity(ctx workflow.Context, logger log.Logger, match flow.ActivityMatch, signal flow.EventSignal) {
-	switch match.Binding.ActivityID {
-	case "send_to_terminal":
-		sendToTerminal(ctx, logger, match, signal)
-	case "post_webhook":
-		dispatchActivity(ctx, logger, FlowPostWebhookActivity, match, signal, "")
-	case "toast_notification":
-		dispatchActivity(ctx, logger, FlowPublishToastActivity, match, signal, "")
-	case "spawn_agent_session":
-		dispatchActivity(ctx, logger, FlowSpawnAgentSessionActivity, match, signal, "")
-	default:
-		logger.Warn("unknown flow activity", "activity_id", match.Binding.ActivityID)
-	}
-}
-
-func sendToTerminal(ctx workflow.Context, logger log.Logger, match flow.ActivityMatch, signal flow.EventSignal) {
-	outputTail := ""
-	if configBool(match.Binding.Config, "include_terminal_output") {
-		sessionID := signal.Fields["session_id"]
-		if sessionID == "" {
-			sessionID = signal.Fields["terminal_id"]
-		}
-		if sessionID != "" {
-			lines := configInt(match.Binding.Config, "output_tail_lines", defaultFlowOutputTailLines)
-			if lines > 0 {
-				outputCtx := workflow.WithActivityOptions(ctx, flowOutputActivityOptions())
-				if err := workflow.ExecuteActivity(outputCtx, FlowGetOutputTailActivity, sessionID, lines).Get(outputCtx, &outputTail); err != nil {
-					logger.Warn("flow output tail failed", "error", err, "session_id", sessionID)
-				}
-			}
-		}
-	}
-	dispatchActivity(ctx, logger, FlowSendToTerminalActivity, match, signal, outputTail)
-}
-
-func dispatchActivity(ctx workflow.Context, logger log.Logger, activityName string, match flow.ActivityMatch, signal flow.EventSignal, outputTail string) {
-	activityCtx := workflow.WithActivityOptions(ctx, flowActivityOptions())
+func startChildWorkflow(ctx workflow.Context, logger log.Logger, match flow.ActivityMatch, signal flow.EventSignal) {
 	request := flow.ActivityRequest{
 		EventID:    signal.EventID,
 		TriggerID:  match.Trigger.ID,
 		ActivityID: match.Binding.ActivityID,
 		Event:      signal.Fields,
 		Config:     match.Binding.Config,
-		OutputTail: outputTail,
 	}
-	if err := workflow.ExecuteActivity(activityCtx, activityName, request).Get(activityCtx, nil); err != nil {
-		logger.Warn("flow activity failed", "error", err, "activity", activityName)
+	childID := buildFlowChildWorkflowID(signal.EventID, match.Trigger.ID, match.Binding.ActivityID)
+	childOptions := workflow.ChildWorkflowOptions{
+		WorkflowID:        childID,
+		TaskQueue:         SessionTaskQueueName,
+		ParentClosePolicy: enumspb.PARENT_CLOSE_POLICY_ABANDON,
 	}
+	childCtx := workflow.WithChildOptions(ctx, childOptions)
+	childFuture := workflow.ExecuteChildWorkflow(childCtx, FlowDispatchWorkflow, request)
+	var execution workflow.Execution
+	if err := childFuture.GetChildWorkflowExecution().Get(childCtx, &execution); err != nil {
+		if temporal.IsWorkflowExecutionAlreadyStartedError(err) {
+			return
+		}
+		logger.Warn("flow child workflow start failed", "error", err, "workflow_id", childID)
+	}
+}
+
+func buildFlowChildWorkflowID(eventID, triggerID, activityID string) string {
+	parts := []string{
+		"flow",
+		strings.TrimSpace(eventID),
+		strings.TrimSpace(triggerID),
+		strings.TrimSpace(activityID),
+	}
+	return strings.Join(parts, "/")
 }
 
 func flowActivityOptions() workflow.ActivityOptions {

@@ -29,6 +29,16 @@ type OrgaNode struct {
 	Children   []OrgaNode     `json:"children,omitempty"`
 	Value      string         `json:"value,omitempty"`
 	Key        string         `json:"key,omitempty"`
+	Position   *OrgaPosition  `json:"position,omitempty"`
+}
+
+type OrgaPosition struct {
+	Start OrgaLocation `json:"start"`
+	End   OrgaLocation `json:"end"`
+}
+
+type OrgaLocation struct {
+	Offset int `json:"offset"`
 }
 
 // ParseWithOrga shells out to the Node.js orga parser script to parse an org file.

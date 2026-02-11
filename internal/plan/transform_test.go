@@ -1,6 +1,7 @@
 package plan
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -11,8 +12,12 @@ func TestTransformDocument(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseWithOrga returned error: %v", err)
 	}
+	source, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read source: %v", err)
+	}
 
-	plan := TransformDocument("sample.org", doc)
+	plan := TransformDocument("sample.org", doc, string(source))
 	if plan.Metadata.Title != "Sample Plan" {
 		t.Fatalf("expected title Sample Plan, got %q", plan.Metadata.Title)
 	}
@@ -87,5 +92,35 @@ func TestTransformDocument(t *testing.T) {
 	}
 	if len(second.Children) != 0 {
 		t.Fatalf("expected no L2 children for second L1, got %d", len(second.Children))
+	}
+}
+
+func TestTransformDocumentBodySyntax(t *testing.T) {
+	path := filepath.Join("testdata", "body-syntax.org")
+	doc, err := ParseWithOrga(path)
+	if err != nil {
+		t.Fatalf("ParseWithOrga returned error: %v", err)
+	}
+	source, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read source: %v", err)
+	}
+
+	plan := TransformDocument("body-syntax.org", doc, string(source))
+	if len(plan.Headings) != 1 {
+		t.Fatalf("expected 1 L1 heading, got %d", len(plan.Headings))
+	}
+
+	expectedBody := "Why:\n- item one\n- item two\n\n#+begin_src bash\necho 'hi'\n#+end_src"
+	if plan.Headings[0].Body != expectedBody {
+		t.Fatalf("expected L1 body %q, got %q", expectedBody, plan.Headings[0].Body)
+	}
+	if len(plan.Headings[0].Children) != 1 {
+		t.Fatalf("expected 1 L2 heading, got %d", len(plan.Headings[0].Children))
+	}
+
+	expectedChildBody := "Details:\n- alpha\n\n#+begin_src\nbeta\n#+end_src"
+	if plan.Headings[0].Children[0].Body != expectedChildBody {
+		t.Fatalf("expected L2 body %q, got %q", expectedChildBody, plan.Headings[0].Children[0].Body)
 	}
 }

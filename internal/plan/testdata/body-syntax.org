@@ -1,0 +1,18 @@
+#+TITLE: Body Syntax
+
+* TODO [#A] L1 Body
+Why:
+- item one
+- item two
+
+#+begin_src bash
+echo 'hi'
+#+end_src
+
+** TODO [#B] L2 Body
+Details:
+- alpha
+
+#+begin_src
+beta
+#+end_src

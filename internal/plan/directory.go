@@ -33,11 +33,15 @@ func ScanPlansDirectory(dir string) ([]PlanDocument, error) {
 			continue
 		}
 		fullPath := filepath.Join(target, name)
+		source, err := os.ReadFile(fullPath)
+		if err != nil {
+			return nil, err
+		}
 		orgaDoc, err := ParseWithOrga(fullPath)
 		if err != nil {
 			return nil, err
 		}
-		documents = append(documents, TransformDocument(name, orgaDoc))
+		documents = append(documents, TransformDocument(name, orgaDoc, string(source)))
 	}
 
 	sort.Slice(documents, func(i, j int) bool {

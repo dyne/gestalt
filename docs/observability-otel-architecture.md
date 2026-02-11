@@ -63,8 +63,8 @@ Configuration
 Resource model
 - Resource attributes (static):
   - service.name=gestalt
-  - service.version=<build version>
-  - service.instance.id=<hostname or random instance id>
+  - `service.version=<build version>`
+  - `service.instance.id=<hostname or random instance id>`
   - os.type, os.version
   - build.commit, build.time (if available)
 

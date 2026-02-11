@@ -31,12 +31,12 @@ The runtime can force Codex agents back to `interface="cli"` by setting `GESTALT
 
 - The `agent-id` is the filename in `config/agents/*.toml` (or `.gestalt/config/agents/*.toml` if extracted). `coder` and `coder.toml` are equivalent.
 - Config precedence: local `./config/**` overrides extracted `./.gestalt/config/**`. If `.gestalt/config` is missing, it is extracted from embedded defaults first.
-- Prompt rendering matches server behavior. Supported directives: `{{include filename}}`, `{{port <service>}}`, `{{session id}}`.
+- Prompt rendering matches server behavior. Supported directives: ``&#123;&#123;include filename&#125;&#125;``, ``&#123;&#123;port <service>&#125;&#125;``, ``&#123;&#123;session id&#125;&#125;``.
   - Directives may appear inline or as the only content on a line.
   - If the trimmed line is only a directive, unresolved values skip the entire line.
   - Inline unresolved directives render as empty strings, preserving the rest of the line.
-  - Escape a directive with `\{{...}}` to render it literally.
-  - Standalone tooling may not provide a session ID; inline `{{session id}}` renders empty in that case.
+  - Escape a directive with ``\&#123;&#123;...&#125;&#125;`` to render it literally.
+  - Standalone tooling may not provide a session ID; inline ``&#123;&#123;session id&#125;&#125;`` renders empty in that case.
 
 Example prompt snippet:
 

@@ -1,27 +1,34 @@
-# Gestalt
+---
 
-Gestalt is a local dashboard and API server for running multiple agent sessions in parallel. It gives you one place to start, monitor, and automate coding workflows with terminal streams, workflow controls, and event feeds.
+layout: home
 
-The project combines a Go backend, a Svelte frontend, and optional standalone binaries for agent-first workflows. Use this documentation as the source of truth for setup, operation, configuration, and API details.
+hero:
+  name: "LLM Orchestration, Simplified."
+  text: "Gestalt"
+  tagline: "We invite you to stop assembling the pieces and start perceiving the whole."
+  image:
+    src: https://dyne.org/images/logos/gestalt_logo.svg
+    alt: Hands-on, Dyne.org style
+  actions:
+    - theme: sponsor
+      text: "📦 Get the Latest Release"
+      link: 'https://dyne.org/images/logos/gestalt_logo.svg'
 
-## Quick Setup
+features:
+  - title: ⚡ Event-Driven Core
+    details: Real-time state updates powered by a typed event bus and WebSocket architecture for responsive systems.
 
-```sh
-# Install dependencies
-npm i
-make
+  - title: 🔄 Workflow Orchestration
+    details: Native integration with Temporal to manage durable, long-running workflows and interactive sessions.
 
-# Start Gestalt dashboard
-./gestalt
-# Opens http://localhost:57417
-```
+  - title: 🧰 CLI-First Experience
+    details: Unified command-line tooling with session persistence, shell integration, and flexible configuration.
 
-## Read Next
+  - title: 🖥️  Built-in Dashboard
+    details: Embedded fullstack UI with live logs, agent controls, and project context — no external setup required.
 
-- [Run Gestalt on a project](./getting-started/running-on-a-project)
-- [Agent configuration](./agent-configuration)
-- [CLI reference](./reference/cli)
-- [HTTP API reference](./reference/http-api)
-- [Temporal workflow notes](./reference/http-api#workflow-and-metrics-endpoints)
-- [OpenTelemetry architecture](./observability-otel-architecture)
-- [Testing guide](./guides/build-dev-testing#testing)
+
+---
+
+<div class="spacer"></div>
+

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gestalt/internal/logging"
@@ -100,6 +101,35 @@ func (s *Service) SignalConfig(ctx context.Context, cfg Config) error {
 	}
 	normalized := normalizeConfig(cfg)
 	return s.signalConfigUpdated(ctx, normalized)
+}
+
+func (s *Service) SignalEvent(ctx context.Context, fields map[string]string, eventID string) error {
+	if s == nil {
+		return errors.New("flow service unavailable")
+	}
+	if s.temporal == nil {
+		return ErrTemporalUnavailable
+	}
+	if fields == nil {
+		fields = map[string]string{}
+	}
+	signal := EventSignal{
+		EventID: strings.TrimSpace(eventID),
+		Fields:  fields,
+	}
+	signalContext := ctx
+	if signalContext == nil {
+		signalContext = context.Background()
+	}
+	signalContext, cancel := context.WithTimeout(signalContext, flowSignalTimeout)
+	defer cancel()
+
+	options := client.StartWorkflowOptions{
+		ID:        RouterWorkflowID,
+		TaskQueue: RouterWorkflowTaskQueue,
+	}
+	_, err := s.temporal.SignalWithStartWorkflow(signalContext, RouterWorkflowID, RouterWorkflowEventSignal, signal, options, RouterWorkflowType, DefaultConfig())
+	return err
 }
 
 func (s *Service) signalConfigUpdated(ctx context.Context, cfg Config) error {

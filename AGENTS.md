@@ -111,6 +111,15 @@ terminal output -> Session output bus -> /ws/session/:id -> frontend text view
 - `frontend/src/views/PlanView.svelte` debounces plan refreshes from file watcher events to avoid request floods.
 - Event store regression tests cover malformed payloads and burst events (`frontend/tests/eventStore.test.js`, `frontend/src/lib/wsStore.test.js`).
 
+## Docs and README notes
+- Documentation site uses VitePress with `docs/` as the source root and config at `docs/.vitepress/config.mts`.
+- Root scripts:
+  - `npm run docs` (dev server)
+  - `npm run docs:build`
+  - `npm run docs:preview`
+- `README.md` is intentionally short (quick setup, build, testing, license) and links to `docs/` for full reference material.
+- Historical plan artifacts were moved to `docs/legacy/` (for example `docs/legacy/old-plan.org`) and are not part of the published docs nav.
+
 ## Logs UI notes
 - Log entries are normalized via `frontend/src/lib/logEntry.js`; Dashboard and LogsView use inline `<details>/<summary>` disclosures with context tables and optional raw JSON.
 - Log disclosures include Copy JSON actions, and the Dashboard intel section shows logs + API metrics side-by-side with agent sessions above.

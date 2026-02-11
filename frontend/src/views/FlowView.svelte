@@ -11,6 +11,10 @@
     'file_changed',
     'git_branch_changed',
     'terminal_resized',
+    'notify_new_plan',
+    'notify_progress',
+    'notify_finish',
+    'notify_event',
   ]
 
   let query = ''

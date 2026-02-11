@@ -1,18 +1,42 @@
 # Running on a project
 
-Run `gestalt` from your project root so the working directory is the context for sessions and prompt includes.
+Run `gestalt` from the repository you want to work on. Gestalt uses the current working directory as the project context for plans, config, sessions, and filesystem events.
 
-## `.gestalt/` extraction
+## `.gestalt/` extraction behavior
 
-Gestalt uses `.gestalt/` in the project root for runtime data and extracted defaults. This includes plans under `.gestalt/plans/*.org`.
+On startup, Gestalt automatically prepares `.gestalt/config` (unless `--dev` / `GESTALT_DEV_MODE=true` is set). In dev mode, config extraction is skipped and the config directory must already exist.
 
-## Authentication
+The project-local `.gestalt/` directory also contains runtime data such as:
 
-Set `GESTALT_TOKEN` to enforce authentication for REST, WebSocket, and SSE routes.
+- `.gestalt/plans/*.org`
+- `.gestalt/sessions/`
+- `.gestalt/input-history/`
 
-- REST: send `Authorization: Bearer <token>`.
-- WS/SSE: use `?token=<token>` when headers are unavailable.
+## Authentication with `GESTALT_TOKEN`
 
-## Plans
+Set `GESTALT_TOKEN` to protect API endpoints.
 
-Place plan files in `.gestalt/plans/*.org`.
+```sh
+export GESTALT_TOKEN=\"replace-with-a-secret-token\"
+gestalt
+```
+
+Token validation behavior:
+
+- REST: `Authorization: Bearer <token>`
+- WebSocket and SSE: `Authorization: Bearer <token>` or `?token=<token>`
+
+Examples:
+
+```sh
+curl -H \"Authorization: Bearer $GESTALT_TOKEN\" http://localhost:57417/api/status
+```
+
+```txt
+ws://localhost:57417/ws/events?token=<token>
+http://localhost:57417/api/events/stream?token=<token>
+```
+
+## Plans directory
+
+Place plans in `.gestalt/plans/*.org`. Gestalt watches this directory and emits filesystem events when plan files change.

@@ -107,7 +107,7 @@ Set `GESTALT_CODEX_FORCE_TUI=true` to force the legacy TUI path globally.
 `tui.notifications` is separate and only controls OSC 9 popups in the TUI.
 
 Gestalt injects a notify hook for Codex sessions at runtime (overriding any
-existing `notify` value) so Temporal notary events are always recorded:
+existing `notify` value) so Flow automations can react to notify events:
 
 ```toml
 notify = ["gestalt-notify", "--session-id", "<session-id>"]

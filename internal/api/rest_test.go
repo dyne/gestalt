@@ -729,6 +729,103 @@ func TestTerminalNotifyEndpoint(t *testing.T) {
 	}
 }
 
+func TestTerminalNotifyProgressMissingPlanFile(t *testing.T) {
+	factory := &fakeFactory{}
+	manager := newTestManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {Name: "Codex", Shell: "/bin/bash", CLIType: "codex"},
+		},
+	})
+	created, err := manager.CreateWithOptions(terminal.CreateOptions{
+		AgentID: "codex",
+	})
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	handler := &RestHandler{Manager: manager}
+	body := `{"session_id":"` + created.ID + `","payload":{"type":"progress"}}`
+	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/notify", strings.NewReader(body))
+	res := httptest.NewRecorder()
+
+	restHandler("", nil, handler.handleTerminal)(res, req)
+	if res.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", res.Code)
+	}
+}
+
+func TestTerminalNotifyProgressNormalization(t *testing.T) {
+	cases := []struct {
+		name     string
+		planFile string
+	}{
+		{name: "plans-path", planFile: "plans/plan.org"},
+		{name: "gestalt-plans-path", planFile: ".gestalt/plans/plan.org"},
+		{name: "basename", planFile: "plan.org"},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			factory := &fakeFactory{}
+			manager := newTestManager(terminal.ManagerOptions{
+				Shell:      "/bin/sh",
+				PtyFactory: factory,
+				Agents: map[string]agent.Agent{
+					"codex": {Name: "Codex", Shell: "/bin/bash", CLIType: "codex"},
+				},
+			})
+			created, err := manager.CreateWithOptions(terminal.CreateOptions{
+				AgentID: "codex",
+			})
+			if err != nil {
+				t.Fatalf("create terminal: %v", err)
+			}
+			defer func() {
+				_ = manager.Delete(created.ID)
+			}()
+
+			tempDir := t.TempDir()
+			temporalClient := &fakeWorkflowSignalClient{runID: "run-progress"}
+			repo := flow.NewFileRepository(filepath.Join(tempDir, "automations.json"), nil)
+			service := flow.NewService(repo, temporalClient, nil)
+			handler := &RestHandler{Manager: manager, FlowService: service}
+			body := `{"session_id":"` + created.ID + `","payload":{"type":"progress","plan_file":"` + testCase.planFile + `","l1":"* TODO [#A] First L1","l2":"WIP [#B] L2 Two","task_level":"2","task_state":"WIP"}}`
+			req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/notify", strings.NewReader(body))
+			res := httptest.NewRecorder()
+
+			restHandler("", nil, handler.handleTerminal)(res, req)
+			if res.Code != http.StatusNoContent {
+				t.Fatalf("expected 204, got %d", res.Code)
+			}
+			if len(temporalClient.started) != 1 {
+				t.Fatalf("expected 1 signal, got %d", len(temporalClient.started))
+			}
+			signal := temporalClient.started[0]
+			payload, ok := signal.payload.(flow.EventSignal)
+			if !ok {
+				t.Fatalf("unexpected flow payload: %#v", signal.payload)
+			}
+			if payload.Fields["plan_file"] != "plan.org" || payload.Fields["notify.plan_file"] != "plan.org" {
+				t.Fatalf("expected normalized plan_file, got %q/%q", payload.Fields["plan_file"], payload.Fields["notify.plan_file"])
+			}
+			if payload.Fields["l1"] != "First L1" {
+				t.Fatalf("expected normalized l1, got %q", payload.Fields["l1"])
+			}
+			if payload.Fields["l2"] != "L2 Two" {
+				t.Fatalf("expected normalized l2, got %q", payload.Fields["l2"])
+			}
+			if payload.Fields["task_level"] != "2" {
+				t.Fatalf("expected task_level 2, got %q", payload.Fields["task_level"])
+			}
+		})
+	}
+}
+
 func TestTerminalNotifyEndpointMissingTerminal(t *testing.T) {
 	manager := newTestManager(terminal.ManagerOptions{Shell: "/bin/sh"})
 	handler := &RestHandler{Manager: manager}

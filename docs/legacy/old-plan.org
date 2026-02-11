@@ -1,3 +1,6 @@
+#+TITLE: Historical plan archive (legacy)
+#+COMMENT: This file is kept for historical reference and is not part of the published VitePress docs.
+
 # NOTE: Historical plan content uses "terminal" terminology; current docs/APIs use "session".
 * DONE [#B] Port templating directives for runtime service discovery
   Effort: 2-3 days

@@ -100,6 +100,25 @@ describe('EventActivityAssigner', () => {
     })
   })
 
+  it('inserts template tokens and renders preview', async () => {
+    const { getByRole, getByLabelText, findByDisplayValue, findByText } = render(
+      EventActivityAssignerHarness,
+      {
+        props: {
+          trigger: { ...trigger, event_type: 'notify_new_plan' },
+          activityDefs,
+          bindings: [{ activity_id: 'toast_notification', config: { message_template: '' } }],
+        },
+      },
+    )
+
+    await fireEvent.click(getByRole('button', { name: 'Configure Toast notification' }))
+    await fireEvent.change(getByLabelText('Insert field'), { target: { value: '{{summary}}' } })
+
+    expect(await findByDisplayValue('{{summary}}')).toBeTruthy()
+    expect(await findByText('New plan: Flow router updates')).toBeTruthy()
+  })
+
   it('dispatches drag-and-drop assign events', async () => {
     const { container, getByTestId } = render(EventActivityAssignerHarness, {
       props: {

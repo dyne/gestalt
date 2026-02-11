@@ -48,3 +48,57 @@ Payload requirements:
   "event_id": "manual:plan-L1-wip:gestalt-notify-temporal"
 }
 ```
+
+## Flow event mapping
+
+Notify payloads are normalized into Flow trigger events.
+The canonical event type is derived from `payload.type`:
+
+- `new-plan` -> `notify_new_plan`
+- `progress` -> `notify_progress`
+- `finish` -> `notify_finish`
+- everything else -> `notify_event`
+
+Flow fields include:
+
+- `type`: canonical event type
+- `timestamp`: RFC3339 time (from `occurred_at` or server time)
+- `session_id`, `agent_id`, `agent_name`
+- `notify.type`: original `payload.type`
+- `notify.event_id`: `event_id` when provided
+- `notify.<key>` for scalar payload keys (strings/bools/numbers)
+- top-level aliases for the same payload keys (for example `summary`, `plan_file`, `task_title`)
+
+Template tokens follow the same keys, for example:
+`{{summary}}`, `{{plan_file}}`, `{{plan_summary}}`, `{{task_title}}`, `{{task_state}}`,
+`{{git_branch}}`, `{{session_id}}`, `{{agent_id}}`, `{{agent_name}}`, `{{timestamp}}`,
+`{{event_id}}`, `{{notify.summary}}`, `{{notify.type}}`, `{{notify.event_id}}`.
+
+## Example: Flow automation for a new plan
+
+```json
+{
+  "version": 1,
+  "triggers": [
+    {
+      "id": "plan-created",
+      "label": "New plan created",
+      "event_type": "notify_new_plan",
+      "where": {
+        "plan_file": ".gestalt/plans/flow-notify-router.org"
+      }
+    }
+  ],
+  "bindings_by_trigger_id": {
+    "plan-created": [
+      {
+        "activity_id": "toast_notification",
+        "config": {
+          "level": "info",
+          "message_template": "{{summary}}"
+        }
+      }
+    ]
+  }
+}
+```

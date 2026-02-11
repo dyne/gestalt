@@ -64,9 +64,10 @@ func (activities *FlowActivities) SendToTerminalActivity(activityContext context
 		return nil
 	}
 
-	targetName := configString(request.Config, "target_agent_name")
-	if strings.TrimSpace(targetName) == "" {
-		activityErr = errors.New("target agent name is required")
+	targetSessionID := strings.TrimSpace(configString(request.Config, "target_session_id"))
+	targetName := strings.TrimSpace(configString(request.Config, "target_agent_name"))
+	if targetSessionID == "" && targetName == "" {
+		activityErr = errors.New("target session id or agent name is required")
 		return activityErr
 	}
 
@@ -76,10 +77,14 @@ func (activities *FlowActivities) SendToTerminalActivity(activityContext context
 		return activityErr
 	}
 
-	session, sessionErr := lookupAgentSession(manager, targetName)
-	if sessionErr != nil {
-		activityErr = sessionErr
-		return sessionErr
+	var session *terminal.Session
+	if targetSessionID != "" {
+		session, activityErr = lookupSession(manager, targetSessionID)
+	} else {
+		session, activityErr = lookupAgentSession(manager, targetName)
+	}
+	if activityErr != nil {
+		return activityErr
 	}
 
 	if !strings.HasSuffix(message, "\n") {
@@ -88,6 +93,7 @@ func (activities *FlowActivities) SendToTerminalActivity(activityContext context
 	if writeErr := session.Write([]byte(message)); writeErr != nil {
 		activities.logWarn("flow terminal send failed", map[string]string{
 			"agent_name": targetName,
+			"session_id": targetSessionID,
 			"error":      writeErr.Error(),
 		})
 		activityErr = writeErr
@@ -97,6 +103,7 @@ func (activities *FlowActivities) SendToTerminalActivity(activityContext context
 	recordHeartbeat(activityContext, flow.ActivityHeartbeat{Sent: true})
 	activities.logInfo("flow terminal message sent", map[string]string{
 		"agent_name": targetName,
+		"session_id": targetSessionID,
 	})
 	return nil
 }
@@ -310,6 +317,20 @@ func lookupAgentSession(manager *terminal.Manager, agentName string) (*terminal.
 				return session, nil
 			}
 		}
+	}
+	return nil, terminal.ErrSessionNotFound
+}
+
+func lookupSession(manager *terminal.Manager, sessionID string) (*terminal.Session, error) {
+	if manager == nil {
+		return nil, errors.New("terminal manager unavailable")
+	}
+	id := strings.TrimSpace(sessionID)
+	if id == "" {
+		return nil, errors.New("target session id is required")
+	}
+	if session, ok := manager.Get(id); ok {
+		return session, nil
 	}
 	return nil, terminal.ErrSessionNotFound
 }

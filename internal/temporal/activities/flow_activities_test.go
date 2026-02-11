@@ -91,7 +91,7 @@ func newIPv4Server(testingContext *testing.T, handler http.Handler) *httptest.Se
 
 func TestFlowActivitiesSendToTerminal(testingContext *testing.T) {
 	activities, factory, manager := newFlowActivities()
-	_, err := manager.Create("target", "", "")
+	session, err := manager.Create("target", "", "")
 	if err != nil {
 		testingContext.Fatalf("create session: %v", err)
 	}
@@ -116,6 +116,42 @@ func TestFlowActivitiesSendToTerminal(testingContext *testing.T) {
 	expected := "Hello\n\ntail output\n"
 	if written != expected {
 		testingContext.Fatalf("unexpected write: %q", written)
+	}
+	factory.last.buffer.Reset()
+
+	requestByID := flow.ActivityRequest{
+		EventID:    "event",
+		TriggerID:  "trigger",
+		ActivityID: "send_to_terminal",
+		Config: map[string]any{
+			"target_session_id": session.ID,
+			"message_template":  "Session hello",
+		},
+	}
+	if err := activities.SendToTerminalActivity(context.Background(), requestByID); err != nil {
+		testingContext.Fatalf("send by id error: %v", err)
+	}
+	if !waitForWrite(factory, len("Session hello\n")) {
+		testingContext.Fatal("expected pty write for session id")
+	}
+	byIDWritten := factory.last.buffer.String()
+	if byIDWritten != "Session hello\n" {
+		testingContext.Fatalf("unexpected session id write: %q", byIDWritten)
+	}
+}
+
+func TestFlowActivitiesSendToTerminalRequiresTarget(testingContext *testing.T) {
+	activities, _, _ := newFlowActivities()
+	request := flow.ActivityRequest{
+		EventID:    "event",
+		TriggerID:  "trigger",
+		ActivityID: "send_to_terminal",
+		Config: map[string]any{
+			"message_template": "Hello",
+		},
+	}
+	if err := activities.SendToTerminalActivity(context.Background(), request); err == nil {
+		testingContext.Fatal("expected target error")
 	}
 }
 

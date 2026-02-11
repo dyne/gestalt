@@ -39,7 +39,8 @@ var activityCatalog = []ActivityDef{
 		Label:       "Send to terminal",
 		Description: "Send a formatted message to a target agent terminal.",
 		Fields: []ActivityField{
-			{Key: "target_agent_name", Label: "Target agent", Type: "string", Required: true},
+			{Key: "target_session_id", Label: "Target session id", Type: "string"},
+			{Key: "target_agent_name", Label: "Target agent", Type: "string"},
 			{Key: "include_terminal_output", Label: "Include terminal output", Type: "bool"},
 			{Key: "output_tail_lines", Label: "Output tail lines", Type: "int"},
 			{Key: "message_template", Label: "Message template", Type: "string", Required: true},

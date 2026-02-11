@@ -16,20 +16,28 @@ Docs:
 - Docs source: [`docs/`](docs/)
 - Project page: [dyne.org/gestalt](https://dyne.org/gestalt)
 
+<div id="toc">
+
+### 🚩 Table of Contents  <!-- omit in toc -->
+- [🎮 Quick setup](#-quick-setup)
+- [💾 Build](#-build)
+- [🧪 Testing](#-testing)
+- [💼 License](#-license)
+
+</div>
+
 ## 🎮 Quick setup
 
 Download a release tarball from [GitHub Releases](https://github.com/dyne/gestalt/releases/latest). Each archive contains multiple binaries (`gestalt`, `gestalt-agent`, `gestalt-send`, `gestalt-notify`, `gestalt-otel`).
 
-Install only `gestalt` and `gestalt-agent` into your `PATH`.
+Install all binaries into your `PATH`.
 
 Linux/macOS example:
 
 ```sh
 # choose your platform archive (example: linux amd64)
 curl -L -o gestalt.tar.gz https://github.com/dyne/gestalt/releases/latest/download/gestalt-linux-amd64.tar.gz
-tar -xzf gestalt.tar.gz
-install -m 0755 gestalt /usr/local/bin/gestalt
-install -m 0755 gestalt-agent /usr/local/bin/gestalt-agent
+sudo tar -xzf gestalt.tar.gz -C /usr/local/bin
 ```
 
 Windows PowerShell example:
@@ -40,6 +48,9 @@ Invoke-WebRequest -Uri https://github.com/dyne/gestalt/releases/latest/download/
 tar -xzf .\gestalt.tar.gz
 Move-Item .\gestalt.exe "$env:USERPROFILE\bin\gestalt.exe"
 Move-Item .\gestalt-agent.exe "$env:USERPROFILE\bin\gestalt-agent.exe"
+Move-Item .\gestalt-send.exe "$env:USERPROFILE\bin\gestalt-send.exe"
+Move-Item .\gestalt-notify.exe "$env:USERPROFILE\bin\gestalt-notify.exe"
+Move-Item .\gestalt-otel.exe "$env:USERPROFILE\bin\gestalt-otel.exe"
 ```
 
 Run:
@@ -50,7 +61,7 @@ Run:
 gestalt
 
 # runs an agent profile in standalone mode (requires Codex CLI installed)
-gestalt-agent <agent-id>
+gestalt-agent <agent-name>
 ```
 
 Temporal workflow dev server auto-start requires the `temporal` CLI.
@@ -92,4 +103,14 @@ More details: [`TESTING.md`](TESTING.md)
 
 ## 💼 License
 
-Gestalt is licensed under the GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later). See [`LICENSE`](LICENSE) for the full license text and conditions.
+Copyright (C) 2025-2026 Dyne.org foundation
+
+Designed and written by Denis "[Jaromil](https://jaromil.dyne.org/)" Roio.
+
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License along with this program. If not, see https://www.gnu.org/licenses/.
+
+

@@ -11,7 +11,7 @@ export default defineConfig({
     nav: [
       { text: 'Getting Started', link: '/getting-started/overview' },
       { text: 'Reference', link: '/reference/cli' },
-      { text: 'Architecture', link: '/architecture-review' },
+      { text: 'Architecture', link: '/architecture/architecture-review' },
       { text: 'GitHub', link: 'https://github.com/dyne/gestalt' }
     ],
     footer: {

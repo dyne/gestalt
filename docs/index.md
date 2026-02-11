@@ -12,7 +12,7 @@ hero:
   actions:
     - theme: sponsor
       text: "📦 Get the Latest Release"
-      link: 'https://dyne.org/images/logos/gestalt_logo.svg'
+      link: 'https://github.com/dyne/gestalt/releases/latest/'
 
 features:
   - title: ⚡ Event-Driven Core

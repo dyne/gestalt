@@ -97,6 +97,13 @@ Template tokens follow the same keys, for example:
           "level": "info",
           "message_template": "{{summary}}"
         }
+      },
+      {
+        "activity_id": "spawn_agent_session",
+        "config": {
+          "agent_id": "coder",
+          "message_template": "New plan summary: {{notify.plan_summary}}"
+        }
       }
     ]
   }

@@ -17,11 +17,29 @@ type flowTemporalStatus struct {
 	Enabled bool `json:"enabled"`
 }
 
+type flowEventTypesResponse struct {
+	EventTypes   []string            `json:"event_types"`
+	NotifyTypes  map[string]string   `json:"notify_types,omitempty"`
+	NotifyTokens map[string][]string `json:"notify_tokens,omitempty"`
+}
+
 func (h *RestHandler) handleFlowActivities(w http.ResponseWriter, r *http.Request) *apiError {
 	if r.Method != http.MethodGet {
 		return methodNotAllowed(w, "GET")
 	}
 	writeJSON(w, http.StatusOK, flow.ActivityCatalog())
+	return nil
+}
+
+func (h *RestHandler) handleFlowEventTypes(w http.ResponseWriter, r *http.Request) *apiError {
+	if r.Method != http.MethodGet {
+		return methodNotAllowed(w, "GET")
+	}
+	writeJSON(w, http.StatusOK, flowEventTypesResponse{
+		EventTypes:   flowEventTypes(),
+		NotifyTypes:  flowNotifyTypeMap(),
+		NotifyTokens: flowNotifyTokens(),
+	})
 	return nil
 }
 
@@ -94,4 +112,78 @@ func mapFlowError(err error) *apiError {
 		return &apiError{Status: http.StatusServiceUnavailable, Message: "temporal unavailable"}
 	}
 	return &apiError{Status: http.StatusInternalServerError, Message: "failed to save flow config"}
+}
+
+func flowEventTypes() []string {
+	coreTypes := []string{
+		"workflow_started",
+		"workflow_paused",
+		"workflow_resumed",
+		"workflow_completed",
+		"file_changed",
+		"git_branch_changed",
+		"terminal_resized",
+	}
+	notifyTypes := flowNotifyTypeList()
+	return append(coreTypes, notifyTypes...)
+}
+
+func flowNotifyTypeMap() map[string]string {
+	types := []string{"new-plan", "progress", "finish"}
+	mapping := map[string]string{}
+	for _, raw := range types {
+		mapping[raw] = flow.CanonicalNotifyEventType(raw)
+	}
+	return mapping
+}
+
+func flowNotifyTypeList() []string {
+	values := []string{
+		flow.CanonicalNotifyEventType("new-plan"),
+		flow.CanonicalNotifyEventType("progress"),
+		flow.CanonicalNotifyEventType("finish"),
+		flow.CanonicalNotifyEventType("other"),
+	}
+	return uniqueStrings(values)
+}
+
+func flowNotifyTokens() map[string][]string {
+	common := []string{
+		"{{summary}}",
+		"{{plan_file}}",
+		"{{plan_summary}}",
+		"{{task_title}}",
+		"{{task_state}}",
+		"{{git_branch}}",
+		"{{session_id}}",
+		"{{agent_id}}",
+		"{{agent_name}}",
+		"{{timestamp}}",
+		"{{event_id}}",
+	}
+	notifyTypes := flowNotifyTypeList()
+	result := map[string][]string{}
+	for _, eventType := range notifyTypes {
+		result[eventType] = common
+	}
+	return result
+}
+
+func uniqueStrings(values []string) []string {
+	if len(values) == 0 {
+		return []string{}
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
 }

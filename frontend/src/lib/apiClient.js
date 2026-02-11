@@ -128,6 +128,18 @@ const normalizeFlowBinding = (binding) => {
   }
 }
 
+const normalizeFlowEventTypes = (payload) => {
+  const config = normalizeObject(payload)
+  const eventTypes = Array.isArray(config.event_types)
+    ? config.event_types.map((eventType) => String(eventType || '')).filter(Boolean)
+    : []
+  return {
+    eventTypes,
+    notifyTypes: normalizeObject(config.notify_types),
+    notifyTokens: normalizeObject(config.notify_tokens),
+  }
+}
+
 const normalizeFlowConfigPayload = (payload) => {
   const config = normalizeObject(payload)
   const triggers = normalizeArray(config.triggers, normalizeFlowTrigger)
@@ -253,6 +265,12 @@ export const fetchFlowActivities = async () => {
   const response = await apiFetch('/api/flow/activities')
   const payload = await response.json()
   return normalizeArray(payload, normalizeFlowActivityDef)
+}
+
+export const fetchFlowEventTypes = async () => {
+  const response = await apiFetch('/api/flow/event-types')
+  const payload = await response.json()
+  return normalizeFlowEventTypes(payload)
 }
 
 export const fetchFlowConfig = async () => {

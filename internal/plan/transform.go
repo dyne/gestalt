@@ -6,7 +6,7 @@ import (
 )
 
 // TransformDocument converts an OrgaDocument AST into a PlanDocument.
-func TransformDocument(filename string, orgaDoc *OrgaDocument) PlanDocument {
+func TransformDocument(filename string, orgaDoc *OrgaDocument, source string) PlanDocument {
 	metadata := Metadata{
 		Title:    getStringProp(orgaDoc.Properties, "title"),
 		Subtitle: getStringProp(orgaDoc.Properties, "subtitle"),
@@ -14,7 +14,7 @@ func TransformDocument(filename string, orgaDoc *OrgaDocument) PlanDocument {
 		Keywords: getStringProp(orgaDoc.Properties, "keywords"),
 	}
 
-	headings, stats := extractHeadings(orgaDoc.Children)
+	headings, stats := extractHeadings(orgaDoc.Children, source)
 
 	return PlanDocument{
 		Filename:  filename,
@@ -28,14 +28,20 @@ func TransformDocument(filename string, orgaDoc *OrgaDocument) PlanDocument {
 	}
 }
 
-func extractHeadings(nodes []OrgaNode) ([]Heading, Statistics) {
+func extractHeadings(nodes []OrgaNode, source string) ([]Heading, Statistics) {
 	var headings []Heading
 	var stats Statistics
+	var sections []OrgaNode
 	for _, node := range nodes {
 		if node.Type != "section" || node.Level != 1 {
 			continue
 		}
-		heading, childStats, ok := parseSection(node)
+		sections = append(sections, node)
+	}
+
+	for i, node := range sections {
+		nextStart, hasNext := nextSectionHeadlineStart(sections, i+1)
+		heading, childStats, ok := parseSection(node, source, nextStart, hasNext)
 		if !ok {
 			continue
 		}
@@ -45,13 +51,13 @@ func extractHeadings(nodes []OrgaNode) ([]Heading, Statistics) {
 	return headings, stats
 }
 
-func parseSection(section OrgaNode) (Heading, Statistics, bool) {
+func parseSection(section OrgaNode, source string, nextSiblingStart int, hasNextSibling bool) (Heading, Statistics, bool) {
 	headline, ok := findHeadline(section.Children)
 	if !ok {
 		return Heading{}, Statistics{}, false
 	}
 	keyword, priority, text := parseHeadline(headline)
-	body := extractBody(section.Children)
+	body := extractBody(source, headline, section, nextSiblingStart, hasNextSibling)
 
 	heading := Heading{
 		Level:    section.Level,
@@ -78,11 +84,20 @@ func parseSection(section OrgaNode) (Heading, Statistics, bool) {
 	}
 
 	if section.Level == 1 {
+		var childSections []OrgaNode
 		for _, child := range section.Children {
 			if child.Type != "section" || child.Level != 2 {
 				continue
 			}
-			subHeading, subStats, ok := parseSection(child)
+			childSections = append(childSections, child)
+		}
+		for i, child := range childSections {
+			nextStart, hasNext := nextSectionHeadlineStart(childSections, i+1)
+			if !hasNext && hasNextSibling {
+				nextStart = nextSiblingStart
+				hasNext = true
+			}
+			subHeading, subStats, ok := parseSection(child, source, nextStart, hasNext)
 			if !ok {
 				continue
 			}
@@ -103,41 +118,76 @@ func findHeadline(nodes []OrgaNode) (OrgaNode, bool) {
 	return OrgaNode{}, false
 }
 
-func extractBody(nodes []OrgaNode) string {
-	var paragraphs []string
-	seenNested := false
-	for _, node := range nodes {
-		if node.Type == "headline" {
-			continue
-		}
-		if node.Type == "section" {
-			seenNested = true
-			continue
-		}
-		if seenNested {
-			continue
-		}
-		if node.Type == "paragraph" {
-			paragraph := renderParagraph(node)
-			if strings.TrimSpace(paragraph) != "" {
-				paragraphs = append(paragraphs, paragraph)
-			}
-		}
+func extractBody(source string, headline OrgaNode, section OrgaNode, nextSiblingStart int, hasNextSibling bool) string {
+	start, ok := headlineEndOffset(headline)
+	if !ok || start >= len(source) {
+		return ""
 	}
-	return strings.TrimSpace(strings.Join(paragraphs, "\n\n"))
+	end := len(source)
+	if childStart, ok := earliestChildHeadlineStart(section); ok && childStart > start {
+		end = childStart
+	} else if hasNextSibling && nextSiblingStart > start {
+		end = nextSiblingStart
+	}
+	if end > len(source) {
+		end = len(source)
+	}
+	if end < start {
+		return ""
+	}
+	body := source[start:end]
+	if strings.HasPrefix(body, "\n") {
+		body = body[1:]
+	}
+	body = strings.TrimRight(body, "\r\n\t ")
+	return body
 }
 
-func renderParagraph(node OrgaNode) string {
-	var builder strings.Builder
-	for _, child := range node.Children {
-		switch child.Type {
-		case "text":
-			builder.WriteString(child.Value)
-		case "newline":
-			builder.WriteString("\n")
-		}
+func headlineEndOffset(headline OrgaNode) (int, bool) {
+	if headline.Position == nil {
+		return 0, false
 	}
-	return strings.TrimSpace(builder.String())
+	return headline.Position.End.Offset, true
+}
+
+func headlineStartOffset(headline OrgaNode) (int, bool) {
+	if headline.Position == nil {
+		return 0, false
+	}
+	return headline.Position.Start.Offset, true
+}
+
+func earliestChildHeadlineStart(section OrgaNode) (int, bool) {
+	for _, child := range section.Children {
+		if child.Type != "section" {
+			continue
+		}
+		headline, ok := findHeadline(child.Children)
+		if !ok {
+			continue
+		}
+		start, ok := headlineStartOffset(headline)
+		if !ok {
+			continue
+		}
+		return start, true
+	}
+	return 0, false
+}
+
+func nextSectionHeadlineStart(sections []OrgaNode, startIndex int) (int, bool) {
+	for _, section := range sections[startIndex:] {
+		headline, ok := findHeadline(section.Children)
+		if !ok {
+			continue
+		}
+		start, ok := headlineStartOffset(headline)
+		if !ok {
+			continue
+		}
+		return start, true
+	}
+	return 0, false
 }
 
 func parseHeadline(headline OrgaNode) (string, string, string) {

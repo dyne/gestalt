@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"gestalt/internal/flow"
 	"gestalt/internal/temporal/workflows"
 	"gestalt/internal/terminal"
 )
@@ -329,28 +330,20 @@ func (h *RestHandler) handleTerminalNotify(w http.ResponseWriter, r *http.Reques
 	if agentID == "" {
 		return &apiError{Status: http.StatusBadRequest, Message: "terminal is not an agent session"}
 	}
-	agentName := strings.TrimSpace(id)
-	if _, _, hasWorkflow := session.WorkflowIdentifiers(); !hasWorkflow {
-		return &apiError{Status: http.StatusConflict, Message: "workflow not active"}
+
+	if err := h.requireFlowService(); err != nil {
+		return err
 	}
 
-	timestamp := time.Now().UTC()
-	if request.OccurredAt != nil && !request.OccurredAt.IsZero() {
-		timestamp = request.OccurredAt.UTC()
+	fields, fieldsErr := buildNotifyFlowFields(session, request, time.Now())
+	if fieldsErr != nil {
+		return fieldsErr
 	}
-
-	signal := workflows.NotifySignal{
-		Timestamp: timestamp,
-		SessionID: id,
-		AgentID:   agentID,
-		AgentName: agentName,
-		EventType: request.EventType,
-		Payload:   request.Payload,
-		Raw:       request.Raw,
-		EventID:   request.EventID,
-	}
-	if signalErr := session.SendNotifySignal(signal); signalErr != nil {
-		return &apiError{Status: http.StatusInternalServerError, Message: "failed to signal workflow"}
+	if signalErr := h.FlowService.SignalEvent(r.Context(), fields, request.EventID); signalErr != nil {
+		if errors.Is(signalErr, flow.ErrTemporalUnavailable) {
+			return &apiError{Status: http.StatusServiceUnavailable, Message: "temporal unavailable"}
+		}
+		return &apiError{Status: http.StatusInternalServerError, Message: "failed to signal flow router"}
 	}
 
 	w.WriteHeader(http.StatusNoContent)

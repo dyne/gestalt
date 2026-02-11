@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"gestalt/internal/agent"
+	"gestalt/internal/flow"
 	"gestalt/internal/otel"
 	"gestalt/internal/skill"
 	temporalcore "gestalt/internal/temporal"
@@ -658,20 +659,15 @@ func TestTerminalWorkflowResumeEndpointMissingWorkflow(t *testing.T) {
 
 func TestTerminalNotifyEndpoint(t *testing.T) {
 	factory := &fakeFactory{}
-	temporalClient := &fakeWorkflowSignalClient{runID: "run-11"}
 	manager := newTestManager(terminal.ManagerOptions{
-		Shell:           "/bin/sh",
-		PtyFactory:      factory,
-		TemporalClient:  temporalClient,
-		TemporalEnabled: true,
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
 		Agents: map[string]agent.Agent{
 			"codex": {Name: "Codex", Shell: "/bin/bash", CLIType: "codex"},
 		},
 	})
-	useWorkflow := true
 	created, err := manager.CreateWithOptions(terminal.CreateOptions{
-		AgentID:     "codex",
-		UseWorkflow: &useWorkflow,
+		AgentID: "codex",
 	})
 	if err != nil {
 		t.Fatalf("create terminal: %v", err)
@@ -680,7 +676,11 @@ func TestTerminalNotifyEndpoint(t *testing.T) {
 		_ = manager.Delete(created.ID)
 	}()
 
-	handler := &RestHandler{Manager: manager}
+	tempDir := t.TempDir()
+	temporalClient := &fakeWorkflowSignalClient{runID: "run-11"}
+	repo := flow.NewFileRepository(filepath.Join(tempDir, "automations.json"), nil)
+	service := flow.NewService(repo, temporalClient, nil)
+	handler := &RestHandler{Manager: manager, FlowService: service}
 	body := `{"session_id":"` + created.ID + `","occurred_at":"2025-04-01T10:00:00Z","payload":{"type":"plan-L1-wip","plan_file":"plan.org"},"raw":"{}","event_id":"manual:1"}`
 	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/notify", strings.NewReader(body))
 	res := httptest.NewRecorder()
@@ -689,37 +689,43 @@ func TestTerminalNotifyEndpoint(t *testing.T) {
 	if res.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", res.Code)
 	}
-	if len(temporalClient.signals) != 1 {
-		t.Fatalf("expected 1 signal, got %d", len(temporalClient.signals))
+	if len(temporalClient.started) != 1 {
+		t.Fatalf("expected 1 signal, got %d", len(temporalClient.started))
 	}
-	signal := temporalClient.signals[0]
-	if signal.signalName != workflows.NotifySignalName {
-		t.Fatalf("expected notify signal, got %q", signal.signalName)
+	signal := temporalClient.started[0]
+	if signal.signalName != flow.RouterWorkflowEventSignal {
+		t.Fatalf("expected flow event signal, got %q", signal.signalName)
 	}
-	payload, ok := signal.payload.(workflows.NotifySignal)
+	payload, ok := signal.payload.(flow.EventSignal)
 	if !ok {
-		t.Fatalf("unexpected notify payload: %#v", signal.payload)
-	}
-	if payload.SessionID != created.ID {
-		t.Fatalf("expected session id %q, got %q", created.ID, payload.SessionID)
-	}
-	if payload.AgentID != "codex" {
-		t.Fatalf("expected agent id codex, got %q", payload.AgentID)
-	}
-	if payload.AgentName != created.ID {
-		t.Fatalf("expected agent name %q, got %q", created.ID, payload.AgentName)
-	}
-	if payload.EventType != "plan-L1-wip" {
-		t.Fatalf("expected event type plan-L1-wip, got %q", payload.EventType)
+		t.Fatalf("unexpected flow payload: %#v", signal.payload)
 	}
 	if payload.EventID != "manual:1" {
 		t.Fatalf("expected event id manual:1, got %q", payload.EventID)
 	}
-	if !payload.Timestamp.Equal(time.Date(2025, 4, 1, 10, 0, 0, 0, time.UTC)) {
-		t.Fatalf("unexpected notify timestamp: %v", payload.Timestamp)
+	if payload.Fields["type"] != "notify_event" {
+		t.Fatalf("expected canonical type notify_event, got %q", payload.Fields["type"])
 	}
-	if !strings.Contains(string(payload.Payload), "\"plan_file\":\"plan.org\"") {
-		t.Fatalf("unexpected payload: %s", string(payload.Payload))
+	if payload.Fields["notify.type"] != "plan-L1-wip" {
+		t.Fatalf("expected notify.type plan-L1-wip, got %q", payload.Fields["notify.type"])
+	}
+	if payload.Fields["notify.event_id"] != "manual:1" {
+		t.Fatalf("expected notify.event_id manual:1, got %q", payload.Fields["notify.event_id"])
+	}
+	if payload.Fields["session_id"] != created.ID {
+		t.Fatalf("expected session_id %q, got %q", created.ID, payload.Fields["session_id"])
+	}
+	if payload.Fields["agent_id"] != "codex" {
+		t.Fatalf("expected agent_id codex, got %q", payload.Fields["agent_id"])
+	}
+	if payload.Fields["agent_name"] != created.ID {
+		t.Fatalf("expected agent_name %q, got %q", created.ID, payload.Fields["agent_name"])
+	}
+	if payload.Fields["plan_file"] != "plan.org" || payload.Fields["notify.plan_file"] != "plan.org" {
+		t.Fatalf("expected plan_file aliases, got %q/%q", payload.Fields["plan_file"], payload.Fields["notify.plan_file"])
+	}
+	if payload.Fields["timestamp"] != time.Date(2025, 4, 1, 10, 0, 0, 0, time.UTC).Format(time.RFC3339Nano) {
+		t.Fatalf("unexpected notify timestamp: %v", payload.Fields["timestamp"])
 	}
 }
 
@@ -736,7 +742,7 @@ func TestTerminalNotifyEndpointMissingTerminal(t *testing.T) {
 	}
 }
 
-func TestTerminalNotifyEndpointMissingWorkflow(t *testing.T) {
+func TestTerminalNotifyEndpointWorkflowInactive(t *testing.T) {
 	factory := &fakeFactory{}
 	manager := newTestManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
@@ -753,14 +759,52 @@ func TestTerminalNotifyEndpointMissingWorkflow(t *testing.T) {
 		_ = manager.Delete(created.ID)
 	}()
 
-	handler := &RestHandler{Manager: manager}
+	tempDir := t.TempDir()
+	temporalClient := &fakeWorkflowSignalClient{runID: "run-13"}
+	repo := flow.NewFileRepository(filepath.Join(tempDir, "automations.json"), nil)
+	service := flow.NewService(repo, temporalClient, nil)
+	handler := &RestHandler{Manager: manager, FlowService: service}
 	body := `{"session_id":"` + created.ID + `","payload":{"type":"plan-L1-wip"}}`
 	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/notify", strings.NewReader(body))
 	res := httptest.NewRecorder()
 
 	restHandler("", nil, handler.handleTerminal)(res, req)
-	if res.Code != http.StatusConflict {
-		t.Fatalf("expected 409, got %d", res.Code)
+	if res.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", res.Code)
+	}
+	if len(temporalClient.started) != 1 {
+		t.Fatalf("expected 1 flow signal, got %d", len(temporalClient.started))
+	}
+}
+
+func TestTerminalNotifyEndpointTemporalUnavailable(t *testing.T) {
+	factory := &fakeFactory{}
+	manager := newTestManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {Name: "Codex", Shell: "/bin/bash", CLIType: "codex"},
+		},
+	})
+	created, err := manager.CreateWithOptions(terminal.CreateOptions{AgentID: "codex"})
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	tempDir := t.TempDir()
+	repo := flow.NewFileRepository(filepath.Join(tempDir, "automations.json"), nil)
+	service := flow.NewService(repo, nil, nil)
+	handler := &RestHandler{Manager: manager, FlowService: service}
+	body := `{"session_id":"` + created.ID + `","payload":{"type":"plan-L1-wip"}}`
+	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/notify", strings.NewReader(body))
+	res := httptest.NewRecorder()
+
+	restHandler("", nil, handler.handleTerminal)(res, req)
+	if res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", res.Code)
 	}
 }
 

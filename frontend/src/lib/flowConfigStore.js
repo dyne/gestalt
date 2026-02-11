@@ -20,6 +20,7 @@ const buildState = () => ({
   notifyTokens: {},
   config: defaultConfig,
   temporalStatus: null,
+  storagePath: '',
   loading: false,
   error: '',
   saving: false,
@@ -121,6 +122,7 @@ export const createFlowConfigStore = () => {
               : {},
           config: nextConfig,
           temporalStatus: payload?.temporalStatus || null,
+          storagePath: payload?.storagePath || '',
           loading: false,
           dirty: false,
         }))
@@ -154,6 +156,7 @@ export const createFlowConfigStore = () => {
         ...current,
         config: nextConfig,
         temporalStatus: payload?.temporalStatus || current.temporalStatus,
+        storagePath: payload?.storagePath || current.storagePath,
         saving: false,
         dirty: false,
         lastSavedAt: new Date().toISOString(),

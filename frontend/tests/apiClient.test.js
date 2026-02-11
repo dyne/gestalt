@@ -21,6 +21,8 @@ import {
   fetchAgents,
   fetchFlowActivities,
   fetchFlowConfig,
+  exportFlowConfig,
+  importFlowConfig,
   fetchLogs,
   fetchMetricsSummary,
   fetchPlansList,
@@ -160,6 +162,7 @@ describe('apiClient', () => {
         triggers: [{ id: 't1', label: 'Trigger', event_type: 'workflow_paused' }],
         bindings_by_trigger_id: { t1: [{ activity_id: 'toast_notification' }] },
         temporal_status: { enabled: true },
+        storage_path: '.gestalt/flow/automations.json',
       }),
     })
 
@@ -167,6 +170,7 @@ describe('apiClient', () => {
 
     expect(result.config.triggers[0].id).toBe('t1')
     expect(result.temporalStatus.enabled).toBe(true)
+    expect(result.storagePath).toBe('.gestalt/flow/automations.json')
   })
 
   it('saves flow config payloads', async () => {
@@ -183,6 +187,34 @@ describe('apiClient', () => {
 
     expect(apiFetch).toHaveBeenCalledWith('/api/flow/config', {
       method: 'PUT',
+      body: JSON.stringify(config),
+    })
+  })
+
+  it('exports flow config payloads', async () => {
+    const response = { ok: true }
+    apiFetch.mockResolvedValue(response)
+
+    const result = await exportFlowConfig()
+
+    expect(result).toBe(response)
+    expect(apiFetch).toHaveBeenCalledWith('/api/flow/config/export')
+  })
+
+  it('imports flow config payloads', async () => {
+    apiFetch.mockResolvedValue({
+      json: vi.fn().mockResolvedValue({
+        version: 1,
+        triggers: [],
+        bindings_by_trigger_id: {},
+      }),
+    })
+
+    const config = { version: 1, triggers: [], bindings_by_trigger_id: {} }
+    await importFlowConfig(config)
+
+    expect(apiFetch).toHaveBeenCalledWith('/api/flow/config/import', {
+      method: 'POST',
       body: JSON.stringify(config),
     })
   })

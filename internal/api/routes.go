@@ -159,6 +159,8 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 	mux.Handle("/api/flow/activities", wrap("/api/flow/activities", "flow", "read", restHandler(authToken, logger, rest.handleFlowActivities)))
 	mux.Handle("/api/flow/event-types", wrap("/api/flow/event-types", "flow", "read", restHandler(authToken, logger, rest.handleFlowEventTypes)))
 	mux.Handle("/api/flow/config", wrap("/api/flow/config", "flow", "auto", restHandler(authToken, logger, rest.handleFlowConfig)))
+	mux.Handle("/api/flow/config/export", wrap("/api/flow/config/export", "flow", "read", restHandler(authToken, logger, rest.handleFlowConfigExport)))
+	mux.Handle("/api/flow/config/import", wrap("/api/flow/config/import", "flow", "update", restHandler(authToken, logger, rest.handleFlowConfigImport)))
 
 	if staticDir != "" {
 		mux.Handle("/", NewSPAHandler(staticDir))

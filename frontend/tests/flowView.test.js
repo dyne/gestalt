@@ -5,12 +5,16 @@ const fetchFlowActivities = vi.hoisted(() => vi.fn())
 const fetchFlowConfig = vi.hoisted(() => vi.fn())
 const fetchFlowEventTypes = vi.hoisted(() => vi.fn())
 const saveFlowConfig = vi.hoisted(() => vi.fn())
+const exportFlowConfig = vi.hoisted(() => vi.fn())
+const importFlowConfig = vi.hoisted(() => vi.fn())
 
 vi.mock('../src/lib/apiClient.js', () => ({
   fetchFlowActivities,
   fetchFlowConfig,
   fetchFlowEventTypes,
   saveFlowConfig,
+  exportFlowConfig,
+  importFlowConfig,
 }))
 
 import FlowView from '../src/views/FlowView.svelte'
@@ -22,6 +26,8 @@ describe('FlowView', () => {
     fetchFlowConfig.mockReset()
     fetchFlowEventTypes.mockReset()
     saveFlowConfig.mockReset()
+    exportFlowConfig.mockReset()
+    importFlowConfig.mockReset()
   })
 
   it('filters triggers and updates the selected details', async () => {

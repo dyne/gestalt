@@ -11,6 +11,7 @@ import (
 type flowConfigResponse struct {
 	flow.Config
 	TemporalStatus *flowTemporalStatus `json:"temporal_status,omitempty"`
+	StoragePath    string              `json:"storage_path,omitempty"`
 }
 
 type flowTemporalStatus struct {
@@ -62,29 +63,61 @@ func (h *RestHandler) handleFlowConfigGet(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		return &apiError{Status: http.StatusInternalServerError, Message: "failed to load flow config"}
 	}
-	writeJSON(w, http.StatusOK, flowConfigResponse{
-		Config:         cfg,
-		TemporalStatus: flowStatus(h.FlowService),
-	})
+	writeJSON(w, http.StatusOK, buildFlowConfigResponse(cfg, h.FlowService))
 	return nil
 }
 
 func (h *RestHandler) handleFlowConfigPut(w http.ResponseWriter, r *http.Request) *apiError {
-	var payload flow.Config
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	decoder.UseNumber()
-	if err := decoder.Decode(&payload); err != nil {
-		return &apiError{Status: http.StatusBadRequest, Message: "invalid request body"}
+	payload, apiErr := decodeFlowConfigPayload(r)
+	if apiErr != nil {
+		return apiErr
 	}
 	updated, err := h.FlowService.SaveConfig(r.Context(), payload)
 	if err != nil {
 		return mapFlowError(err)
 	}
-	writeJSON(w, http.StatusOK, flowConfigResponse{
-		Config:         updated,
-		TemporalStatus: flowStatus(h.FlowService),
-	})
+	writeJSON(w, http.StatusOK, buildFlowConfigResponse(updated, h.FlowService))
+	return nil
+}
+
+func (h *RestHandler) handleFlowConfigExport(w http.ResponseWriter, r *http.Request) *apiError {
+	if err := h.requireFlowService(); err != nil {
+		return err
+	}
+	if r.Method != http.MethodGet {
+		return methodNotAllowed(w, "GET")
+	}
+	cfg, err := h.FlowService.LoadConfig()
+	if err != nil {
+		return &apiError{Status: http.StatusInternalServerError, Message: "failed to load flow config"}
+	}
+	payload, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return &apiError{Status: http.StatusInternalServerError, Message: "failed to export flow config"}
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Disposition", "attachment; filename=\"automations.json\"")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(payload)
+	return nil
+}
+
+func (h *RestHandler) handleFlowConfigImport(w http.ResponseWriter, r *http.Request) *apiError {
+	if err := h.requireFlowService(); err != nil {
+		return err
+	}
+	if r.Method != http.MethodPost {
+		return methodNotAllowed(w, "POST")
+	}
+	payload, apiErr := decodeFlowConfigPayload(r)
+	if apiErr != nil {
+		return apiErr
+	}
+	updated, err := h.FlowService.SaveConfig(r.Context(), payload)
+	if err != nil {
+		return mapFlowError(err)
+	}
+	writeJSON(w, http.StatusOK, buildFlowConfigResponse(updated, h.FlowService))
 	return nil
 }
 
@@ -93,6 +126,32 @@ func flowStatus(service *flow.Service) *flowTemporalStatus {
 		return nil
 	}
 	return &flowTemporalStatus{Enabled: service.TemporalAvailable()}
+}
+
+func flowConfigStoragePath(service *flow.Service) string {
+	if service == nil {
+		return ""
+	}
+	return service.ConfigPath()
+}
+
+func buildFlowConfigResponse(cfg flow.Config, service *flow.Service) flowConfigResponse {
+	return flowConfigResponse{
+		Config:         cfg,
+		TemporalStatus: flowStatus(service),
+		StoragePath:    flowConfigStoragePath(service),
+	}
+}
+
+func decodeFlowConfigPayload(r *http.Request) (flow.Config, *apiError) {
+	var payload flow.Config
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	decoder.UseNumber()
+	if err := decoder.Decode(&payload); err != nil {
+		return flow.Config{}, &apiError{Status: http.StatusBadRequest, Message: "invalid request body"}
+	}
+	return payload, nil
 }
 
 func mapFlowError(err error) *apiError {

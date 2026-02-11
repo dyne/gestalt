@@ -28,6 +28,13 @@ func NewFileRepository(path string, logger *logging.Logger) *FileRepository {
 	return &FileRepository{path: path, logger: logger}
 }
 
+func (repo *FileRepository) Path() string {
+	if repo == nil {
+		return ""
+	}
+	return strings.TrimSpace(repo.path)
+}
+
 func (repo *FileRepository) Load() (Config, error) {
 	cfg := DefaultConfig()
 	if repo == nil {

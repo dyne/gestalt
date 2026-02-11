@@ -30,7 +30,7 @@
         [
             "@semantic-release/exec",
             {
-                "prepareCmd": "make release"
+                "prepareCmd": "VERSION=${nextRelease.version} make release"
             }
         ],
         [

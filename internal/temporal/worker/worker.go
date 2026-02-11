@@ -58,6 +58,7 @@ func StartWorker(temporalClient temporal.WorkflowClient, manager *terminal.Manag
 	workerInstance := worker.New(sdkClient, workflows.SessionTaskQueueName, workerOptions)
 	workerInstance.RegisterWorkflow(workflows.SessionWorkflow)
 	workerInstance.RegisterWorkflow(workflows.FlowRouterWorkflow)
+	workerInstance.RegisterWorkflow(workflows.FlowDispatchWorkflow)
 	workerInstance.RegisterActivity(activityHandlers)
 	workerInstance.RegisterActivity(flowHandlers)
 

@@ -34,6 +34,8 @@ Use this as the minimum context to start any plan task.
 - `/api/sessions` (GET/POST), `/api/sessions/:id` (DELETE)
 - `/api/sessions/:id/output`, `/api/sessions/:id/input-history` (GET/POST)
 - `/api/agents`, `/api/agents/:name/input`
+- `/api/flow/activities`, `/api/flow/event-types`, `/api/flow/config` (GET/PUT)
+- `/api/flow/config/export` (GET), `/api/flow/config/import` (POST)
 - WS: `/api/agents/events`, `/api/sessions/events`, `/api/config/events`, `/api/workflows/events`, `/ws/events`
 
 ## CLI (gestalt-send)

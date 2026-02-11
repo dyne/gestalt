@@ -72,7 +72,8 @@ func (activities *FlowActivities) SendToTerminalActivity(activityContext context
 		return activityErr
 	}
 
-	message := buildMessage(configString(request.Config, "message_template"), request.OutputTail)
+	messageTemplate := flow.RenderTemplate(configString(request.Config, "message_template"), request)
+	message := buildMessage(messageTemplate, request.OutputTail)
 	if strings.TrimSpace(message) == "" {
 		activityErr = errors.New("message is required")
 		return activityErr
@@ -139,7 +140,7 @@ func (activities *FlowActivities) PostWebhookActivity(activityContext context.Co
 		return headersErr
 	}
 
-	bodyTemplate := configString(request.Config, "body_template")
+	bodyTemplate := flow.RenderTemplate(configString(request.Config, "body_template"), request)
 	body, defaultContentType, bodyErr := buildWebhookBody(request, bodyTemplate)
 	if bodyErr != nil {
 		activityErr = bodyErr
@@ -209,7 +210,7 @@ func (activities *FlowActivities) PublishToastActivity(activityContext context.C
 		return activityErr
 	}
 
-	message := strings.TrimSpace(configString(request.Config, "message_template"))
+	message := strings.TrimSpace(flow.RenderTemplate(configString(request.Config, "message_template"), request))
 	if message == "" {
 		activityErr = errors.New("toast message is required")
 		return activityErr
@@ -246,7 +247,7 @@ func (activities *FlowActivities) SpawnAgentSessionActivity(activityContext cont
 		return managerError
 	}
 
-	messageTemplate := configString(request.Config, "message_template")
+	messageTemplate := flow.RenderTemplate(configString(request.Config, "message_template"), request)
 	if heartbeat, ok := spawnHeartbeatDetails(activityContext); ok && heartbeat.SessionID != "" {
 		if heartbeat.MessageSent || strings.TrimSpace(messageTemplate) == "" {
 			return nil
@@ -273,7 +274,7 @@ func (activities *FlowActivities) SpawnAgentSessionActivity(activityContext cont
 		return activityErr
 	}
 
-	title := strings.TrimSpace(configString(request.Config, "title_template"))
+	title := strings.TrimSpace(flow.RenderTemplate(configString(request.Config, "title_template"), request))
 	reuseIfRunning := configBoolDefault(request.Config, "reuse_if_running", true)
 	useWorkflow := configOptionalBool(request.Config, "use_workflow")
 

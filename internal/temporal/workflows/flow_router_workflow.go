@@ -11,13 +11,14 @@ import (
 )
 
 const (
-	FlowRouterContinueAfter    = 500
-	FlowRouterDeduperSize      = 500
-	FlowSendToTerminalActivity = "SendToTerminalActivity"
-	FlowPostWebhookActivity    = "PostWebhookActivity"
-	FlowPublishToastActivity   = "PublishToastActivity"
-	FlowGetOutputTailActivity  = "GetOutputTailActivity"
-	defaultFlowOutputTailLines = 50
+	FlowRouterContinueAfter       = 500
+	FlowRouterDeduperSize         = 500
+	FlowSendToTerminalActivity    = "SendToTerminalActivity"
+	FlowPostWebhookActivity       = "PostWebhookActivity"
+	FlowPublishToastActivity      = "PublishToastActivity"
+	FlowSpawnAgentSessionActivity = "SpawnAgentSessionActivity"
+	FlowGetOutputTailActivity     = "GetOutputTailActivity"
+	defaultFlowOutputTailLines    = 50
 )
 
 func FlowRouterWorkflow(ctx workflow.Context, initialConfig flow.Config) error {
@@ -83,6 +84,8 @@ func bridgeActivity(ctx workflow.Context, logger log.Logger, match flow.Activity
 		dispatchActivity(ctx, logger, FlowPostWebhookActivity, match, signal, "")
 	case "toast_notification":
 		dispatchActivity(ctx, logger, FlowPublishToastActivity, match, signal, "")
+	case "spawn_agent_session":
+		dispatchActivity(ctx, logger, FlowSpawnAgentSessionActivity, match, signal, "")
 	default:
 		logger.Warn("unknown flow activity", "activity_id", match.Binding.ActivityID)
 	}

@@ -16,6 +16,8 @@ import (
 	"gestalt/internal/flow"
 	"gestalt/internal/logging"
 	"gestalt/internal/terminal"
+
+	"go.temporal.io/sdk/testsuite"
 )
 
 type recordingPty struct {
@@ -152,6 +154,91 @@ func TestFlowActivitiesSendToTerminalRequiresTarget(testingContext *testing.T) {
 	}
 	if err := activities.SendToTerminalActivity(context.Background(), request); err == nil {
 		testingContext.Fatal("expected target error")
+	}
+}
+
+func TestFlowActivitiesSpawnAgentSession(testingContext *testing.T) {
+	activities, factory, manager := newFlowActivities()
+	request := flow.ActivityRequest{
+		EventID:    "event",
+		TriggerID:  "trigger",
+		ActivityID: "spawn_agent_session",
+		Config: map[string]any{
+			"agent_id":         "target",
+			"message_template": "Hello",
+		},
+	}
+	if err := activities.SpawnAgentSessionActivity(context.Background(), request); err != nil {
+		testingContext.Fatalf("spawn activity error: %v", err)
+	}
+	if len(manager.List()) != 1 {
+		testingContext.Fatalf("expected one session, got %d", len(manager.List()))
+	}
+	if !waitForWrite(factory, len("Hello\n")) {
+		testingContext.Fatal("expected spawn message write")
+	}
+	if written := factory.last.buffer.String(); written != "Hello\n" {
+		testingContext.Fatalf("unexpected spawn write: %q", written)
+	}
+}
+
+func TestFlowActivitiesSpawnAgentSessionReuse(testingContext *testing.T) {
+	activities, factory, manager := newFlowActivities()
+	if _, err := manager.Create("target", "", ""); err != nil {
+		testingContext.Fatalf("create session: %v", err)
+	}
+	factory.last.buffer.Reset()
+	request := flow.ActivityRequest{
+		EventID:    "event",
+		TriggerID:  "trigger",
+		ActivityID: "spawn_agent_session",
+		Config: map[string]any{
+			"agent_id":         "target",
+			"message_template": "Reuse",
+		},
+	}
+	if err := activities.SpawnAgentSessionActivity(context.Background(), request); err != nil {
+		testingContext.Fatalf("reuse activity error: %v", err)
+	}
+	if len(manager.List()) != 1 {
+		testingContext.Fatalf("expected one session, got %d", len(manager.List()))
+	}
+	if !waitForWrite(factory, len("Reuse\n")) {
+		testingContext.Fatal("expected reuse message write")
+	}
+	if written := factory.last.buffer.String(); written != "Reuse\n" {
+		testingContext.Fatalf("unexpected reuse write: %q", written)
+	}
+}
+
+func TestFlowActivitiesSpawnAgentSessionHeartbeat(testingContext *testing.T) {
+	activities, factory, manager := newFlowActivities()
+	session, err := manager.Create("target", "", "")
+	if err != nil {
+		testingContext.Fatalf("create session: %v", err)
+	}
+	factory.last.buffer.Reset()
+
+	request := flow.ActivityRequest{
+		EventID:    "event",
+		TriggerID:  "trigger",
+		ActivityID: "spawn_agent_session",
+		Config: map[string]any{
+			"agent_id":         "target",
+			"message_template": "Hello again",
+		},
+	}
+
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestActivityEnvironment()
+	env.RegisterActivity(activities.SpawnAgentSessionActivity)
+	env.SetHeartbeatDetails(spawnHeartbeat{SessionID: session.ID, MessageSent: true})
+
+	if _, err := env.ExecuteActivity(activities.SpawnAgentSessionActivity, request); err != nil {
+		testingContext.Fatalf("heartbeat activity error: %v", err)
+	}
+	if factory.last.buffer.Len() != 0 {
+		testingContext.Fatalf("expected no heartbeat write, got %q", factory.last.buffer.String())
 	}
 }
 

@@ -22,9 +22,10 @@ import (
 )
 
 const (
-	SendToTerminalActivityName = "SendToTerminalActivity"
-	PostWebhookActivityName    = "PostWebhookActivity"
-	PublishToastActivityName   = "PublishToastActivity"
+	SendToTerminalActivityName    = "SendToTerminalActivity"
+	PostWebhookActivityName       = "PostWebhookActivity"
+	PublishToastActivityName      = "PublishToastActivity"
+	SpawnAgentSessionActivityName = "SpawnAgentSessionActivity"
 )
 
 const defaultWebhookTimeout = 10 * time.Second
@@ -221,6 +222,92 @@ func (activities *FlowActivities) PublishToastActivity(activityContext context.C
 	return nil
 }
 
+type spawnHeartbeat struct {
+	SessionID   string `json:"session_id"`
+	MessageSent bool   `json:"message_sent"`
+}
+
+func (activities *FlowActivities) SpawnAgentSessionActivity(activityContext context.Context, request flow.ActivityRequest) (activityErr error) {
+	start := time.Now()
+	attempt := activityAttempt(activityContext)
+	defer func() {
+		metrics.Default.RecordActivity(SpawnAgentSessionActivityName, time.Since(start), activityErr, attempt)
+	}()
+
+	if activityContext != nil {
+		if contextError := activityContext.Err(); contextError != nil {
+			activityErr = contextError
+			return contextError
+		}
+	}
+	manager, managerError := activities.ensureManager()
+	if managerError != nil {
+		activityErr = managerError
+		return managerError
+	}
+
+	messageTemplate := configString(request.Config, "message_template")
+	if heartbeat, ok := spawnHeartbeatDetails(activityContext); ok && heartbeat.SessionID != "" {
+		if heartbeat.MessageSent || strings.TrimSpace(messageTemplate) == "" {
+			return nil
+		}
+		session, sessionErr := lookupSession(manager, heartbeat.SessionID)
+		if sessionErr != nil {
+			activityErr = sessionErr
+			return sessionErr
+		}
+		if sendErr := writeSessionMessage(session, messageTemplate); sendErr != nil {
+			activityErr = sendErr
+			return sendErr
+		}
+		recordSpawnHeartbeat(activityContext, spawnHeartbeat{SessionID: heartbeat.SessionID, MessageSent: true})
+		activities.logInfo("flow session message sent", map[string]string{
+			"session_id": heartbeat.SessionID,
+		})
+		return nil
+	}
+
+	agentID := strings.TrimSpace(configString(request.Config, "agent_id"))
+	if agentID == "" {
+		activityErr = errors.New("agent id is required")
+		return activityErr
+	}
+
+	title := strings.TrimSpace(configString(request.Config, "title_template"))
+	reuseIfRunning := configBoolDefault(request.Config, "reuse_if_running", true)
+	useWorkflow := configOptionalBool(request.Config, "use_workflow")
+
+	session, sessionErr := manager.CreateWithOptions(terminal.CreateOptions{
+		AgentID:     agentID,
+		Title:       title,
+		UseWorkflow: useWorkflow,
+	})
+	if sessionErr != nil {
+		if runningErr, ok := sessionErr.(*terminal.AgentAlreadyRunningError); ok && reuseIfRunning {
+			session, sessionErr = lookupSession(manager, runningErr.TerminalID)
+		}
+		if sessionErr != nil {
+			activityErr = sessionErr
+			return sessionErr
+		}
+	}
+
+	recordSpawnHeartbeat(activityContext, spawnHeartbeat{SessionID: session.ID})
+	if strings.TrimSpace(messageTemplate) != "" {
+		if sendErr := writeSessionMessage(session, messageTemplate); sendErr != nil {
+			activityErr = sendErr
+			return sendErr
+		}
+		recordSpawnHeartbeat(activityContext, spawnHeartbeat{SessionID: session.ID, MessageSent: true})
+	}
+
+	activities.logInfo("flow session spawned", map[string]string{
+		"agent_id":   agentID,
+		"session_id": session.ID,
+	})
+	return nil
+}
+
 func (activities *FlowActivities) ensureManager() (*terminal.Manager, error) {
 	if activities == nil || activities.Manager == nil {
 		return nil, errors.New("terminal manager unavailable")
@@ -335,6 +422,16 @@ func lookupSession(manager *terminal.Manager, sessionID string) (*terminal.Sessi
 	return nil, terminal.ErrSessionNotFound
 }
 
+func writeSessionMessage(session *terminal.Session, message string) error {
+	if session == nil {
+		return errors.New("session unavailable")
+	}
+	if !strings.HasSuffix(message, "\n") {
+		message += "\n"
+	}
+	return session.Write([]byte(message))
+}
+
 func configString(config map[string]any, key string) string {
 	if config == nil {
 		return ""
@@ -348,6 +445,36 @@ func configString(config map[string]any, key string) string {
 		return ""
 	}
 	return parsed
+}
+
+func configBoolDefault(config map[string]any, key string, fallback bool) bool {
+	if config == nil {
+		return fallback
+	}
+	value, ok := config[key]
+	if !ok || value == nil {
+		return fallback
+	}
+	parsed, ok := value.(bool)
+	if !ok {
+		return fallback
+	}
+	return parsed
+}
+
+func configOptionalBool(config map[string]any, key string) *bool {
+	if config == nil {
+		return nil
+	}
+	value, ok := config[key]
+	if !ok || value == nil {
+		return nil
+	}
+	parsed, ok := value.(bool)
+	if !ok {
+		return nil
+	}
+	return &parsed
 }
 
 func isToastLevel(level string) bool {
@@ -371,6 +498,24 @@ func heartbeatDetails(activityContext context.Context) (flow.ActivityHeartbeat, 
 }
 
 func recordHeartbeat(activityContext context.Context, heartbeat flow.ActivityHeartbeat) {
+	if activityContext == nil || !activity.IsActivity(activityContext) {
+		return
+	}
+	activity.RecordHeartbeat(activityContext, heartbeat)
+}
+
+func spawnHeartbeatDetails(activityContext context.Context) (spawnHeartbeat, bool) {
+	if activityContext == nil || !activity.IsActivity(activityContext) {
+		return spawnHeartbeat{}, false
+	}
+	var heartbeat spawnHeartbeat
+	if err := activity.GetHeartbeatDetails(activityContext, &heartbeat); err != nil {
+		return spawnHeartbeat{}, false
+	}
+	return heartbeat, true
+}
+
+func recordSpawnHeartbeat(activityContext context.Context, heartbeat spawnHeartbeat) {
 	if activityContext == nil || !activity.IsActivity(activityContext) {
 		return
 	}

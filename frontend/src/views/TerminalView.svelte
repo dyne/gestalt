@@ -10,7 +10,7 @@
   export let promptFiles = []
   export let visible = true
   export let sessionInterface = ''
-  export let role = ''
+  export let guiModules = []
   export let onDelete = () => {}
 
   let closeDialog
@@ -104,14 +104,14 @@
       <Terminal
         {terminalId}
         {title}
-        {promptFiles}
-        {visible}
-        {temporalUrl}
-        {sessionInterface}
-        {role}
-        {planSidebarOpen}
-        onTogglePlan={togglePlanSidebar}
-        onRequestClose={openCloseDialog}
+      {promptFiles}
+      {visible}
+      {temporalUrl}
+      {sessionInterface}
+      {guiModules}
+      {planSidebarOpen}
+      onTogglePlan={togglePlanSidebar}
+      onRequestClose={openCloseDialog}
       />
       {#if planSidebarOpen}
         <PlanSidebar

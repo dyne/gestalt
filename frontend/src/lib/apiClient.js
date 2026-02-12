@@ -18,6 +18,13 @@ const normalizeArray = (value, mapItem) => {
   return mapped.filter((item) => item && typeof item === 'object' && !Array.isArray(item))
 }
 
+const normalizeStringArray = (value) => {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((entry) => (entry === undefined || entry === null ? '' : String(entry).trim()))
+    .filter((entry) => entry !== '')
+}
+
 const normalizeObject = (value) => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
   return value
@@ -41,6 +48,7 @@ const normalizeTerminal = (terminal) => {
     id: String(id),
     title: terminal?.title ? String(terminal.title) : '',
     interface: interfaceValue,
+    gui_modules: normalizeStringArray(terminal?.gui_modules),
   }
 }
 

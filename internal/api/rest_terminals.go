@@ -76,6 +76,7 @@ func (h *RestHandler) listTerminals(w http.ResponseWriter) *apiError {
 			LLMType:     info.LLMType,
 			LLMModel:    info.LLMModel,
 			Interface:   info.Interface,
+			Runner:      info.Runner,
 			Command:     info.Command,
 			Skills:      info.Skills,
 			PromptFiles: info.PromptFiles,
@@ -117,6 +118,8 @@ func (h *RestHandler) createTerminal(w http.ResponseWriter, r *http.Request) *ap
 		AgentID:     request.Agent,
 		Role:        request.Role,
 		Title:       request.Title,
+		Runner:      request.Runner,
+		GUIModules:  request.GUIModules,
 		UseWorkflow: request.Workflow,
 	})
 	if createErr != nil {
@@ -138,18 +141,25 @@ func (h *RestHandler) createTerminal(w http.ResponseWriter, r *http.Request) *ap
 	}
 
 	info := session.Info()
-	response := terminalSummary{
-		ID:         info.ID,
-		Title:      info.Title,
-		Role:       info.Role,
-		CreatedAt:  info.CreatedAt,
-		Status:     info.Status,
-		LLMType:    info.LLMType,
-		LLMModel:   info.LLMModel,
-		Interface:  info.Interface,
-		Command:    info.Command,
-		Skills:     info.Skills,
-		GUIModules: info.GUIModules,
+	response := terminalCreateResponse{
+		terminalSummary: terminalSummary{
+			ID:          info.ID,
+			Title:       info.Title,
+			Role:        info.Role,
+			CreatedAt:   info.CreatedAt,
+			Status:      info.Status,
+			LLMType:     info.LLMType,
+			LLMModel:    info.LLMModel,
+			Interface:   info.Interface,
+			Runner:      info.Runner,
+			Command:     info.Command,
+			Skills:      info.Skills,
+			PromptFiles: info.PromptFiles,
+			GUIModules:  info.GUIModules,
+		},
+	}
+	if session.LaunchSpec != nil {
+		response.Launch = session.LaunchSpec
 	}
 	writeJSON(w, http.StatusCreated, response)
 	return nil

@@ -64,7 +64,7 @@ func runRunnerBridge(ctx context.Context, launch *launchspec.LaunchSpec, baseURL
 	}
 
 	sessionName := tmuxSessionName(sessionID)
-	paneTarget := fmt.Sprintf("%s:0.0", sessionName)
+	paneTarget := sessionName
 
 	logPath, err := createLogFile(sessionID)
 	if err != nil {

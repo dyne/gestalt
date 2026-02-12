@@ -33,6 +33,9 @@ func runAgent(cfg Config, in io.Reader, out io.Writer, exec execRunner) (int, er
 		return exitServer, fmt.Errorf("unsupported launch command %q", command)
 	}
 	if exec == nil {
+		if err := startTmuxSession(session.Launch); err != nil {
+			return exitServer, err
+		}
 		return 0, nil
 	}
 	return exec(args)

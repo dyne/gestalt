@@ -16,13 +16,13 @@ describe('Terminal', () => {
     Terminal = module.default
   })
 
-  it('shows the Plan button for coder role and toggles open state', async () => {
+  it('shows the Plan button for plan-progress module and toggles open state', async () => {
     let open = false
     let rerender = async () => {}
     const onTogglePlan = async () => {
       open = !open
       await rerender({
-        role: 'Coder',
+        guiModules: ['plan-progress'],
         planSidebarOpen: open,
         onTogglePlan,
       })
@@ -30,7 +30,7 @@ describe('Terminal', () => {
 
     const rendered = render(Terminal, {
       props: {
-        role: 'Coder',
+        guiModules: ['plan-progress'],
         planSidebarOpen: open,
         onTogglePlan,
       },

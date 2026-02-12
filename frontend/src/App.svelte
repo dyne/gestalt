@@ -293,7 +293,7 @@
             promptFiles={activeTerminal.prompt_files || []}
             visible={true}
             sessionInterface={activeTerminal.interface || ''}
-            role={activeTerminal.role || ''}
+            guiModules={activeTerminal.gui_modules || []}
             onDelete={deleteTerminal}
           />
         </svelte:boundary>

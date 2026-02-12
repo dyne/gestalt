@@ -109,7 +109,7 @@ func TestRunnerBridgeForwardsIO(t *testing.T) {
 	defer server.Close()
 
 	launch := &launchspec.LaunchSpec{
-		SessionID: "agent/1",
+		SessionID: "agent 1",
 		Argv:      []string{"codex"},
 	}
 	err := runRunnerBridge(context.Background(), launch, server.URL, "")

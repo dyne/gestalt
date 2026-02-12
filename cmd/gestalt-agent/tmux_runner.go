@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"strings"
-	"unicode"
 
 	"gestalt/internal/runner/launchspec"
 	"gestalt/internal/runner/tmux"
@@ -37,18 +36,5 @@ func tmuxSessionName(sessionID string) string {
 	if trimmed == "" {
 		trimmed = "gestalt-agent"
 	}
-	var builder strings.Builder
-	builder.Grow(len(trimmed))
-	for _, r := range trimmed {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '_' {
-			builder.WriteRune(r)
-			continue
-		}
-		builder.WriteRune('_')
-	}
-	result := strings.Trim(builder.String(), "_")
-	if result == "" {
-		return "gestalt-agent"
-	}
-	return result
+	return trimmed
 }

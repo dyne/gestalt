@@ -37,6 +37,7 @@ func runAgent(cfg Config, in io.Reader, out io.Writer, exec execRunner) (int, er
 		if err := startTmuxSession(session.Launch); err != nil {
 			return exitServer, err
 		}
+		printTmuxAttachHint(out, session.Launch.SessionID)
 		bridgeErr := runRunnerBridge(context.Background(), session.Launch, baseURL, cfg.Token)
 		deleteErr := deleteSession(client, baseURL, cfg.Token, session.ID)
 		if bridgeErr != nil {
@@ -48,4 +49,17 @@ func runAgent(cfg Config, in io.Reader, out io.Writer, exec execRunner) (int, er
 		return 0, nil
 	}
 	return exec(args)
+}
+
+// printTmuxAttachHint tells the user how to attach to the tmux session.
+func printTmuxAttachHint(out io.Writer, sessionID string) {
+	if out == nil {
+		return
+	}
+	id := strings.TrimSpace(sessionID)
+	if id == "" {
+		id = "gestalt-agent"
+	}
+	fmt.Fprintln(out, "Session is running in tmux.")
+	fmt.Fprintf(out, "Attach with: tmux attach -t %s\n", id)
 }

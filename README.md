@@ -9,7 +9,11 @@
   </a>
 </p>
 
-Gestalt is a local dashboard and API server for multi-session agent workflows. Start by reading the [full documentation](https://dyne.org/docs/gestalt/).
+<br><br>
+
+### 📖 More info on [dyne.org/gestalt](https://dyne.org/gestalt) <!-- omit in toc -->
+
+***
 
 <div id="toc">
 

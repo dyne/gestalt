@@ -79,6 +79,7 @@ func (h *RestHandler) listTerminals(w http.ResponseWriter) *apiError {
 			Command:     info.Command,
 			Skills:      info.Skills,
 			PromptFiles: info.PromptFiles,
+			GUIModules:  info.GUIModules,
 		})
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -138,16 +139,17 @@ func (h *RestHandler) createTerminal(w http.ResponseWriter, r *http.Request) *ap
 
 	info := session.Info()
 	response := terminalSummary{
-		ID:        info.ID,
-		Title:     info.Title,
-		Role:      info.Role,
-		CreatedAt: info.CreatedAt,
-		Status:    info.Status,
-		LLMType:   info.LLMType,
-		LLMModel:  info.LLMModel,
-		Interface: info.Interface,
-		Command:   info.Command,
-		Skills:    info.Skills,
+		ID:         info.ID,
+		Title:      info.Title,
+		Role:       info.Role,
+		CreatedAt:  info.CreatedAt,
+		Status:     info.Status,
+		LLMType:    info.LLMType,
+		LLMModel:   info.LLMModel,
+		Interface:  info.Interface,
+		Command:    info.Command,
+		Skills:     info.Skills,
+		GUIModules: info.GUIModules,
 	}
 	writeJSON(w, http.StatusCreated, response)
 	return nil

@@ -40,6 +40,7 @@ type terminalSummary struct {
 	Command     string    `json:"command,omitempty"`
 	Skills      []string  `json:"skills"`
 	PromptFiles []string  `json:"prompt_files"`
+	GUIModules  []string  `json:"gui_modules"`
 }
 
 type workflowSummary struct {

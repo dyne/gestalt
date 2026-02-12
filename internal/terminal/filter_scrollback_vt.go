@@ -310,13 +310,18 @@ func (f *scrollbackVTFilter) writeRune(r rune) {
 }
 
 func (f *scrollbackVTFilter) lineFeed() []byte {
+	emitted := f.emitLine(f.renderLine(f.grid[f.cursorRow]))
 	f.cursorCol = 0
 	f.cursorRow++
 	if f.cursorRow > f.scrollBottom {
 		f.cursorRow = f.scrollBottom
-		return f.scrollUp()
+		scrolled := f.scrollUp()
+		if len(scrolled) > 0 {
+			emitted = append(emitted, scrolled...)
+		}
+		return emitted
 	}
-	return nil
+	return emitted
 }
 
 func (f *scrollbackVTFilter) scrollUp() []byte {

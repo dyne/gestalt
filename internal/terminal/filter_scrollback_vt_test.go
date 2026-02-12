@@ -35,6 +35,18 @@ func TestScrollbackVTEmitsScrolledLines(t *testing.T) {
 	}
 }
 
+func TestScrollbackVTEmitsLineOnLineFeed(t *testing.T) {
+	t.Parallel()
+
+	filter := NewScrollbackVTFilter()
+	filter.Resize(20, 5)
+
+	out := filter.Write([]byte("hello world\n"))
+	if !bytes.Contains(out, []byte("hello world\n")) {
+		t.Fatalf("expected linefeed emission, got %q", out)
+	}
+}
+
 func TestScrollbackVTReducesTUISample(t *testing.T) {
 	t.Parallel()
 

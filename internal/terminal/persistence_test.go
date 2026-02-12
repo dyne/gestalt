@@ -38,7 +38,7 @@ func TestSessionLoggerPersistsSessionOutput(t *testing.T) {
 	}
 
 	pty := newScriptedPty()
-	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, logger, nil)
+	session := newSession("1", pty, nil, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, logger, nil)
 	out, cancel := session.Subscribe()
 	defer cancel()
 

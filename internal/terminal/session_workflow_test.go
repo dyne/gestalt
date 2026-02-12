@@ -102,7 +102,7 @@ func TestSessionStartWorkflowAndSignals(testingContext *testing.T) {
 		Shell: "codex -c model=o3",
 	}
 	profile.ConfigHash = agent.ComputeConfigHash(profile)
-	session := newSession("7", pty, nil, "title", "role", time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC), 10, 0, OutputBackpressureBlock, 0, profile, nil, nil)
+	session := newSession("7", pty, nil, nil, "title", "role", time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC), 10, 0, OutputBackpressureBlock, 0, profile, nil, nil)
 	session.Command = "codex -c model=o3"
 	session.ConfigHash = profile.ConfigHash
 	session.AgentID = "codex"
@@ -219,7 +219,7 @@ func TestSessionStartWorkflowIncludesCollectorInfo(testingContext *testing.T) {
 
 	workflowClient := &fakeWorkflowClient{runID: "run-456"}
 	pty := newScriptedPty()
-	session := newSession("9", pty, nil, "title", "role", time.Date(2025, 1, 2, 9, 0, 0, 0, time.UTC), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
+	session := newSession("9", pty, nil, nil, "title", "role", time.Date(2025, 1, 2, 9, 0, 0, 0, time.UTC), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
 	session.Command = "/bin/bash"
 
 	startError := session.StartWorkflow(workflowClient, "", "")

@@ -1880,8 +1880,8 @@ func TestManagerCloseAllClearsSessions(t *testing.T) {
 		BufferLines: 5,
 	})
 	startedAt := time.Now()
-	sessionOne := newSession("one", newFakePtyWithErr(errors.New("close failed")), nil, "one", "role", startedAt, 5, 0, OutputBackpressureBlock, 0, nil, nil, nil)
-	sessionTwo := newSession("two", newFakePty(), nil, "two", "role", startedAt, 5, 0, OutputBackpressureBlock, 0, nil, nil, nil)
+	sessionOne := newSession("one", newFakePtyWithErr(errors.New("close failed")), nil, nil, "one", "role", startedAt, 5, 0, OutputBackpressureBlock, 0, nil, nil, nil)
+	sessionTwo := newSession("two", newFakePty(), nil, nil, "two", "role", startedAt, 5, 0, OutputBackpressureBlock, 0, nil, nil, nil)
 
 	manager.mu.Lock()
 	manager.sessions["one"] = sessionOne

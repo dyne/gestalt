@@ -24,6 +24,7 @@ import (
 )
 
 var ErrSessionClosed = errors.New("terminal session closed")
+var ErrRunnerUnavailable = errors.New("terminal runner unavailable")
 
 type SessionState uint32
 
@@ -76,7 +77,7 @@ type SessionMeta struct {
 type SessionIO struct {
 	ctx             context.Context
 	cancel          context.CancelFunc
-	input           chan []byte
+	runner          Runner
 	outputPublisher *OutputPublisher
 	pty             Pty
 	cmd             *exec.Cmd
@@ -139,9 +140,9 @@ type SessionInfo struct {
 	GUIModules  []string
 }
 
-func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt time.Time, bufferLines int, historyScanMax int64, outputPolicy OutputBackpressurePolicy, outputSampleEvery uint64, profile *agent.Agent, sessionLogger *SessionLogger, inputLogger *InputLogger) *Session {
-	// readLoop -> output publisher, writeLoop -> PTY.
-	// Close cancels context and closes input so loops drain and exit cleanly.
+func newSession(id string, pty Pty, runner Runner, cmd *exec.Cmd, title, role string, createdAt time.Time, bufferLines int, historyScanMax int64, outputPolicy OutputBackpressurePolicy, outputSampleEvery uint64, profile *agent.Agent, sessionLogger *SessionLogger, inputLogger *InputLogger) *Session {
+	// readLoop -> output publisher; runner handles input delivery.
+	// Close cancels context and closes runner resources.
 	ctx, cancel := context.WithCancel(context.Background())
 	llmType := ""
 	llmModel := ""
@@ -189,7 +190,7 @@ func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt
 		SessionIO: SessionIO{
 			ctx:             ctx,
 			cancel:          cancel,
-			input:           make(chan []byte, 64),
+			runner:          runner,
 			outputPublisher: outputPublisher,
 			pty:             pty,
 			cmd:             cmd,
@@ -205,8 +206,14 @@ func newSession(id string, pty Pty, cmd *exec.Cmd, title, role string, createdAt
 		},
 	}
 
-	go session.readLoop()
-	go session.writeLoop()
+	if session.runner == nil && pty != nil {
+		session.runner = newPtyRunner(ctx, pty, func(err error) {
+			_ = session.Close()
+		})
+	}
+	if pty != nil {
+		go session.readLoop()
+	}
 	session.setState(sessionStateRunning)
 
 	return session
@@ -321,6 +328,9 @@ func (s *Session) Write(data []byte) (err error) {
 	if containsDSRResponse(data) {
 		s.clearDSRFallback()
 	}
+	if s.runner == nil {
+		return ErrRunnerUnavailable
+	}
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -328,23 +338,28 @@ func (s *Session) Write(data []byte) (err error) {
 		}
 	}()
 
-	select {
-	case s.input <- data:
-		return nil
-	case <-s.ctx.Done():
-		return ErrSessionClosed
+	if err := s.runner.Write(data); err != nil {
+		return err
 	}
+	return nil
 }
 
 func (s *Session) Resize(cols, rows uint16) error {
-	if s.pty == nil {
-		return ErrSessionClosed
+	if s.runner == nil {
+		return ErrRunnerUnavailable
 	}
 
-	if err := s.pty.Resize(cols, rows); err != nil {
-		return fmt.Errorf("resize pty: %w", err)
+	if err := s.runner.Resize(cols, rows); err != nil {
+		return fmt.Errorf("resize runner: %w", err)
 	}
 	return nil
+}
+
+func (s *Session) PublishOutputChunk(chunk []byte) {
+	if s == nil || s.outputPublisher == nil || len(chunk) == 0 {
+		return
+	}
+	s.outputPublisher.PublishWithContext(s.ctx, chunk)
 }
 
 func (s *Session) OutputLines() []string {
@@ -633,7 +648,9 @@ func (s *Session) Close() error {
 		if s.cancel != nil {
 			s.cancel()
 		}
-		close(s.input)
+		if s.runner != nil {
+			_ = s.runner.Close()
+		}
 		closeError := s.closeResources()
 		s.closeErr = errors.Join(closeError, terminateError)
 		s.setState(sessionStateClosed)
@@ -695,9 +712,7 @@ func (s *Session) readLoop() {
 				}
 			}
 			dsrTail = updateDSRTail(dsrTail, chunk)
-			if s.outputPublisher != nil {
-				s.outputPublisher.PublishWithContext(s.ctx, chunk)
-			}
+			s.PublishOutputChunk(chunk)
 		}
 		if err != nil {
 			_ = s.Close()
@@ -797,13 +812,4 @@ func (s *Session) clearDSRFallback() {
 		s.dsrTimer.Stop()
 	}
 	s.dsrMu.Unlock()
-}
-
-func (s *Session) writeLoop() {
-	for data := range s.input {
-		if _, err := s.pty.Write(data); err != nil {
-			_ = s.Close()
-			return
-		}
-	}
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -35,6 +36,14 @@ func runAgent(cfg Config, in io.Reader, out io.Writer, exec execRunner) (int, er
 	if exec == nil {
 		if err := startTmuxSession(session.Launch); err != nil {
 			return exitServer, err
+		}
+		bridgeErr := runRunnerBridge(context.Background(), session.Launch, baseURL, cfg.Token)
+		deleteErr := deleteSession(client, baseURL, cfg.Token, session.ID)
+		if bridgeErr != nil {
+			return exitServer, bridgeErr
+		}
+		if deleteErr != nil {
+			return exitServer, deleteErr
 		}
 		return 0, nil
 	}

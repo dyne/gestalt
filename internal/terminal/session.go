@@ -82,6 +82,7 @@ type SessionIO struct {
 	ctx             context.Context
 	cancel          context.CancelFunc
 	runner          Runner
+	outputFilter    OutputFilter
 	outputPublisher *OutputPublisher
 	pty             Pty
 	cmd             *exec.Cmd
@@ -98,6 +99,7 @@ type SessionIO struct {
 	dsrMu           sync.Mutex
 	dsrTimer        *time.Timer
 	dsrOpen         bool
+	outputFilterMu  sync.Mutex
 	closing         sync.Once
 	closeErr        error
 	state           uint32
@@ -159,6 +161,7 @@ func newSession(id string, pty Pty, runner Runner, cmd *exec.Cmd, title, role st
 	if _, ok := pty.(*mcpPty); ok {
 		interfaceValue = agent.AgentInterfaceMCP
 	}
+	outputFilter := BuildOutputFilterChain(profile, interfaceValue)
 	runnerKind := launchspec.RunnerKindServer
 	if runner != nil {
 		if _, ok := runner.(*externalRunner); ok {
@@ -203,6 +206,7 @@ func newSession(id string, pty Pty, runner Runner, cmd *exec.Cmd, title, role st
 			ctx:             ctx,
 			cancel:          cancel,
 			runner:          runner,
+			outputFilter:    outputFilter,
 			outputPublisher: outputPublisher,
 			pty:             pty,
 			cmd:             cmd,
@@ -367,6 +371,11 @@ func (s *Session) Resize(cols, rows uint16) error {
 	if err := s.runner.Resize(cols, rows); err != nil {
 		return fmt.Errorf("resize runner: %w", err)
 	}
+	if s.outputFilter != nil {
+		s.outputFilterMu.Lock()
+		s.outputFilter.Resize(cols, rows)
+		s.outputFilterMu.Unlock()
+	}
 	return nil
 }
 
@@ -374,7 +383,15 @@ func (s *Session) PublishOutputChunk(chunk []byte) {
 	if s == nil || s.outputPublisher == nil || len(chunk) == 0 {
 		return
 	}
-	s.outputPublisher.PublishWithContext(s.ctx, chunk)
+	filtered := chunk
+	if s.outputFilter != nil {
+		s.outputFilterMu.Lock()
+		filtered = s.outputFilter.Write(chunk)
+		s.outputFilterMu.Unlock()
+	}
+	if len(filtered) > 0 {
+		s.outputPublisher.PublishWithContext(s.ctx, filtered)
+	}
 }
 
 func (s *Session) AttachExternalRunner(writeFn func([]byte) error, resizeFn func(uint16, uint16) error, closeFn func() error) error {
@@ -680,12 +697,18 @@ func (s *Session) Close() error {
 		s.setState(sessionStateClosing)
 		terminateError := s.sendTerminateSignal("session closed")
 		s.clearDSRFallback()
-		if s.cancel != nil {
-			s.cancel()
+	if s.cancel != nil {
+		s.cancel()
+	}
+	if s.pty == nil {
+		s.flushOutputFilter()
+		if s.outputPublisher != nil {
+			s.outputPublisher.Close()
 		}
-		if s.runner != nil {
-			_ = s.runner.Close()
-		}
+	}
+	if s.runner != nil {
+		_ = s.runner.Close()
+	}
 		closeError := s.closeResources()
 		s.closeErr = errors.Join(closeError, terminateError)
 		s.setState(sessionStateClosed)
@@ -727,6 +750,7 @@ func (s *Session) closeResources() error {
 
 func (s *Session) readLoop() {
 	defer func() {
+		s.flushOutputFilter()
 		if s.outputPublisher != nil {
 			s.outputPublisher.Close()
 		}
@@ -753,6 +777,18 @@ func (s *Session) readLoop() {
 			_ = s.Close()
 			return
 		}
+	}
+}
+
+func (s *Session) flushOutputFilter() {
+	if s == nil || s.outputFilter == nil || s.outputPublisher == nil {
+		return
+	}
+	s.outputFilterMu.Lock()
+	flushed := s.outputFilter.Flush()
+	s.outputFilterMu.Unlock()
+	if len(flushed) > 0 {
+		s.outputPublisher.PublishWithContext(s.ctx, flushed)
 	}
 }
 

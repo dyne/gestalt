@@ -44,6 +44,22 @@ func TestSessionWriteAndOutput(t *testing.T) {
 	t.Fatalf("timed out waiting for PTY write")
 }
 
+func TestSessionFiltersANSIOutput(t *testing.T) {
+	pty := newScriptedPty()
+	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
+	defer func() {
+		_ = session.Close()
+	}()
+
+	out, cancel := session.Subscribe()
+	defer cancel()
+
+	pty.Emit("hello\x1b[31mred\x1b[0m\n")
+	if !receiveChunk(t, out, []byte("hellored\n")) {
+		t.Fatalf("expected filtered output chunk")
+	}
+}
+
 func TestSessionCloseTransitionsState(t *testing.T) {
 	pty := newScriptedPty()
 	session := newSession("1", pty, nil, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)

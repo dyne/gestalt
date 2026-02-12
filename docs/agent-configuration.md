@@ -13,7 +13,7 @@ All agent files support the following fields:
 - `codex_mode` (string, optional, legacy): For `cli_type="codex"`, deprecated alias for `interface` when `interface` is unset (`mcp-server` maps to `interface="mcp"`, `tui` maps to `interface="cli"`).
 - `prompt` (string or array, optional): Prompt names (no extension) to inject (Codex renders these into `developer_instructions`).
 - `skills` (array, optional): Skill names to inject (Codex renders these into `developer_instructions`).
-- `gui-modules` (array, optional): UI module flags for sessions (e.g., `["plan-progress"]`).
+- `gui_modules` (array, optional): UI module flags for sessions (e.g., `["plan-progress"]`).
 - `onair_string` (string, optional): Wait for this string before prompt injection (non-Codex only).
 - `use_workflow` (bool, optional): Override workflow default.
 - `singleton` (bool, optional): Allow only one running instance (default true).
@@ -128,7 +128,7 @@ name = "Codex"
 cli_type = "codex"
 interface = "cli"
 prompt = ["coder"]
-gui-modules = ["plan-progress"]
+gui_modules = ["plan-progress"]
 model = "o3"
 approval_policy = "on-request"
 sandbox_mode = "workspace-write"

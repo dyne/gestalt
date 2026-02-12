@@ -63,7 +63,7 @@ type Agent struct {
 	Shell       string                 `json:"shell,omitempty" toml:"shell,omitempty"`
 	Prompts     PromptList             `json:"prompt,omitempty" toml:"prompt,omitempty"`
 	Skills      []string               `json:"skills,omitempty" toml:"skills,omitempty"`
-	GUIModules  []string               `json:"gui_modules,omitempty" toml:"gui-modules,omitempty"`
+	GUIModules  []string               `json:"gui_modules,omitempty" toml:"gui_modules,omitempty"`
 	OnAirString string                 `json:"onair_string,omitempty" toml:"onair_string,omitempty"`
 	UseWorkflow *bool                  `json:"use_workflow,omitempty" toml:"use_workflow,omitempty"`
 	Singleton   *bool                  `json:"singleton,omitempty" toml:"singleton,omitempty"`

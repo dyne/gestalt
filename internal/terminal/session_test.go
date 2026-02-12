@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -10,7 +11,7 @@ import (
 
 func TestSessionWriteAndOutput(t *testing.T) {
 	pty := newScriptedPty()
-	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
+	session := newSession("1", pty, nil, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
 	defer func() {
 		_ = session.Close()
 	}()
@@ -45,7 +46,7 @@ func TestSessionWriteAndOutput(t *testing.T) {
 
 func TestSessionCloseTransitionsState(t *testing.T) {
 	pty := newScriptedPty()
-	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
+	session := newSession("1", pty, nil, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
 
 	if err := session.Close(); err != nil {
 		t.Fatalf("close session: %v", err)
@@ -57,7 +58,7 @@ func TestSessionCloseTransitionsState(t *testing.T) {
 
 func TestSessionWriteAfterClose(t *testing.T) {
 	pty := newScriptedPty()
-	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
+	session := newSession("1", pty, nil, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
 
 	if err := session.Close(); err != nil {
 		t.Fatalf("close session: %v", err)
@@ -74,9 +75,71 @@ func TestSessionWriteAfterClose(t *testing.T) {
 	}
 }
 
+func TestSessionWriteRoutesToRunner(t *testing.T) {
+	runner := &captureRunner{}
+	session := newSession("1", nil, runner, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
+
+	if err := session.Write([]byte("ls\n")); err != nil {
+		t.Fatalf("write session: %v", err)
+	}
+	if err := session.Resize(120, 40); err != nil {
+		t.Fatalf("resize session: %v", err)
+	}
+
+	runner.mu.Lock()
+	defer runner.mu.Unlock()
+	if len(runner.writes) != 1 || string(runner.writes[0]) != "ls\n" {
+		t.Fatalf("expected runner write, got %#v", runner.writes)
+	}
+	if runner.resizeCols != 120 || runner.resizeRows != 40 {
+		t.Fatalf("expected resize 120x40, got %dx%d", runner.resizeCols, runner.resizeRows)
+	}
+}
+
+func TestSessionPublishOutputWithoutPty(t *testing.T) {
+	session := newSession("1", nil, nil, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
+	defer func() {
+		_ = session.Close()
+	}()
+
+	out, cancel := session.Subscribe()
+	defer cancel()
+
+	session.PublishOutputChunk([]byte("hello\n"))
+	if !receiveChunk(t, out, []byte("hello\n")) {
+		t.Fatalf("expected to receive output chunk")
+	}
+}
+
+type captureRunner struct {
+	mu         sync.Mutex
+	writes     [][]byte
+	resizeCols uint16
+	resizeRows uint16
+}
+
+func (r *captureRunner) Write(data []byte) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.writes = append(r.writes, append([]byte(nil), data...))
+	return nil
+}
+
+func (r *captureRunner) Resize(cols, rows uint16) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.resizeCols = cols
+	r.resizeRows = rows
+	return nil
+}
+
+func (r *captureRunner) Close() error {
+	return nil
+}
+
 func TestSessionAutoRespondsToCursorPosition(t *testing.T) {
 	pty := newScriptedPty()
-	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
+	session := newSession("1", pty, nil, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
 	defer func() {
 		_ = session.Close()
 	}()
@@ -100,7 +163,7 @@ func TestSessionAutoRespondsToCursorPosition(t *testing.T) {
 
 func TestSessionFallbacksCursorPositionWithSubscriber(t *testing.T) {
 	pty := newScriptedPty()
-	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
+	session := newSession("1", pty, nil, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
 	defer func() {
 		_ = session.Close()
 	}()
@@ -127,7 +190,7 @@ func TestSessionFallbacksCursorPositionWithSubscriber(t *testing.T) {
 
 func TestSessionRecordsInputHistory(t *testing.T) {
 	pty := newScriptedPty()
-	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
+	session := newSession("1", pty, nil, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
 	defer func() {
 		_ = session.Close()
 	}()
@@ -156,7 +219,7 @@ func TestSessionInfoIncludesMetadata(t *testing.T) {
 		GUIModules: []string{"plan-progress"},
 	}
 	pty := newScriptedPty()
-	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, profile, nil, nil)
+	session := newSession("1", pty, nil, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, profile, nil, nil)
 	session.Command = "codex -c model=o3"
 	session.PromptFiles = []string{"prompt-a", "prompt-b"}
 	defer func() {
@@ -192,7 +255,7 @@ func TestSessionInfoIncludesMetadata(t *testing.T) {
 
 func TestSessionWorkflowIdentifiersEmpty(t *testing.T) {
 	pty := newScriptedPty()
-	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
+	session := newSession("1", pty, nil, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
 	defer func() {
 		_ = session.Close()
 	}()

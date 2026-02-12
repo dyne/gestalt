@@ -23,7 +23,7 @@ type SessionFactoryOptions struct {
 	BufferLines     int
 	SessionLogMax   int64
 	HistoryScanMax  int64
-	LogCodexEvents bool
+	LogCodexEvents  bool
 	OutputPolicy    OutputBackpressurePolicy
 	OutputSample    uint64
 	Logger          *logging.Logger
@@ -39,7 +39,7 @@ type SessionFactory struct {
 	bufferLines     int
 	sessionLogMax   int64
 	historyScanMax  int64
-	logCodexEvents bool
+	logCodexEvents  bool
 	outputPolicy    OutputBackpressurePolicy
 	outputSample    uint64
 	logger          *logging.Logger
@@ -113,7 +113,7 @@ func (f *SessionFactory) Start(request sessionCreateRequest, profile *agent.Agen
 		outputSample = 0
 	}
 
-	session := newSession(id, pty, cmd, request.Title, request.Role, createdAt, f.bufferLines, f.historyScanMax, outputPolicy, outputSample, profile, sessionLogger, inputLogger)
+	session := newSession(id, pty, nil, cmd, request.Title, request.Role, createdAt, f.bufferLines, f.historyScanMax, outputPolicy, outputSample, profile, sessionLogger, inputLogger)
 	session.Command = shell
 	if request.AgentID != "" {
 		session.AgentID = request.AgentID

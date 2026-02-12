@@ -17,6 +17,12 @@ model_reasoning_effort = "medium"
 # model_supports_reasoning_summaries = true
 # history.persistence = "save_all"
 
+# output_filters: "ansi-strip","utf8-guard","scrollback-vt","codex-tui"
+# defaults:
+# cli_type="codex" → ["scrollback-vt","ansi-strip","utf8-guard"]
+# other CLI sessions → ["ansi-strip","utf8-guard"]
+# non-CLI sessions → no filters
+
 approval_policy = "never" # never | on-failure | untrusted | on-request
 sandbox_mode = "workspace-write" # read-only | workspace-write | danger-full-access
 sandbox_workspace_write.exclude_tmpdir_env_var = false  # Allow $TMPDIR

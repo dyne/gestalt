@@ -8,15 +8,23 @@ llm_model = "gpt-5.2-codex"
 # Core model selection
 model = "gpt-5.2-codex" # values: any supported model id
 model_reasoning_effort = "medium"
-# review_model = "gpt-5.1-codex-mini"
+# review_model = "gpt-5.1-codex"
 # model_context_window = 200000
 # model_auto_compact_token_limit = 120000
 # model_provider_id = "openai"
+# model_verbosity = "low"
+# model_supports_reasoning_summaries = true
+# history.persistence = "save_all"
 
 approval_policy = "never" # never | on-failure | untrusted | on-request
 sandbox_mode = "workspace-write" # read-only | workspace-write | danger-full-access
+sandbox_workspace_write.exclude_tmpdir_env_var = false  # Allow $TMPDIR
+sandbox_workspace_write.exclude_slash_tmp = false       # Allow /tmp
+# sandbox_workspace_write.writable_roots = ["/Users/YOU/.pyenv/shims"]
+sandbox_workspace_write.network_access = true          # seems an ignored setting
+
 check_for_update_on_startup = false # true | false
-notify = "terminal" # terminal | desktop
+# notify = "terminal" # terminal | desktop
 analytics.enabled = false
 feedback.enabled = false
 tui.notifications = true
@@ -28,9 +36,10 @@ tui.alternate_screen = "never" # values: auto | always | never
 # Instructions
 # instructions = "Follow the repo plan strictly."
 # developer_instructions = "Prefer minimal changes."
-compact_prompt = "Be Brief."
+compact_prompt = "Study your current org-mode plan. Continue your latest task."
 
-project_doc_fallback_filenames = ["AGENTS.md","CLAUDE.md","CRUSH.md", ".github/copilot-instructions.md","README.md"]
+project_root_markers = [".gestalt"]
+project_doc_fallback_filenames = ["AGENTS.md","CLAUDE.md","CRUSH.md", ".github/copilot-instructions.md",".gestalt/instructions.md","README.md"]
 
 otel.environment = "dev"
 otel.log_user_prompt = false

@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte'
   import Terminal from '../components/Terminal.svelte'
+  import PlanSidebar from '../components/PlanSidebar.svelte'
   import { fetchStatus, fetchWorkflows } from '../lib/apiClient.js'
   import { buildTemporalUrl } from '../lib/workflowFormat.js'
 
@@ -99,18 +100,27 @@
 
 <section class="terminal-view">
   {#if terminalId}
-    <Terminal
-      {terminalId}
-      {title}
-      {promptFiles}
-      {visible}
-      {temporalUrl}
-      {sessionInterface}
-      {role}
-      {planSidebarOpen}
-      onTogglePlan={togglePlanSidebar}
-      onRequestClose={openCloseDialog}
-    />
+    <div class="terminal-view__layout" data-plan-open={planSidebarOpen}>
+      <Terminal
+        {terminalId}
+        {title}
+        {promptFiles}
+        {visible}
+        {temporalUrl}
+        {sessionInterface}
+        {role}
+        {planSidebarOpen}
+        onTogglePlan={togglePlanSidebar}
+        onRequestClose={openCloseDialog}
+      />
+      {#if planSidebarOpen}
+        <PlanSidebar
+          sessionId={terminalId}
+          open={planSidebarOpen}
+          onClose={togglePlanSidebar}
+        />
+      {/if}
+    </div>
     <dialog id="close-confirm-dialog" class="close-dialog" bind:this={closeDialog}>
       <h2>Close Session?</h2>
       <p>This will stop the session. Any unsaved work will be lost.</p>
@@ -144,6 +154,18 @@
     min-height: 0;
     position: relative;
     box-sizing: border-box;
+  }
+
+  .terminal-view__layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+    height: 100%;
+    min-height: 0;
+  }
+
+  .terminal-view__layout[data-plan-open='true'] {
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
   }
 
   .close-dialog {
@@ -195,6 +217,12 @@
     font-size: 0.8rem;
     font-weight: 600;
     cursor: pointer;
+  }
+
+  @media (max-width: 900px) {
+    .terminal-view__layout[data-plan-open='true'] {
+      grid-template-columns: 1fr;
+    }
   }
 
   .empty {

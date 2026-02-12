@@ -1,3 +1,30 @@
+# [1.8.0](https://github.com/dyne/gestalt/compare/v1.7.1...v1.8.0) (2026-02-12)
+
+
+### Bug Fixes
+
+* **prompt:** improve coder agent ([acb20f9](https://github.com/dyne/gestalt/commit/acb20f9894643f51ce3e8de4ae230d9ee9279f10))
+
+
+### Features
+
+* **api:** route notify into flow ([5a20e11](https://github.com/dyne/gestalt/commit/5a20e117bb3479900d38ccadf7c5afd8e9044112))
+* **flow:** add config export and import ([95cf90a](https://github.com/dyne/gestalt/commit/95cf90a724f7f04bb7ff46e0531d2ec3e77a9fa8))
+* **flow:** add event signaling ([b61cc92](https://github.com/dyne/gestalt/commit/b61cc925685968357b3f5e557440d841fa4af672))
+* **flow:** add notify trigger preset ([746b080](https://github.com/dyne/gestalt/commit/746b08039f0496cd57eb26aabfeb37431e634d54))
+* **flow:** add template helpers ([61d1d4d](https://github.com/dyne/gestalt/commit/61d1d4dfc6ddbbe1efb24972ee72a1b7218b4ffc))
+* **flow:** canonicalize notify events ([2ffa0ed](https://github.com/dyne/gestalt/commit/2ffa0ed3b0145968387d39637ed3945324195e95))
+* **flow:** clarify session targeting ([26c3fa0](https://github.com/dyne/gestalt/commit/26c3fa019afe2dc8dbc125d4af6b13a177871479))
+* **flow:** fetch event types from api ([fa66072](https://github.com/dyne/gestalt/commit/fa6607282c661b5a5732fc1a34839aad472b15ce))
+* **flow:** normalize notify fields ([d1eaff4](https://github.com/dyne/gestalt/commit/d1eaff46b4a86d1e2c089645e2dad9575f3f1c9f))
+* **flow:** render templates in activities ([29070b6](https://github.com/dyne/gestalt/commit/29070b600ec559d36d34fa54b305ae1f905fa783))
+* **flow:** spawn agent sessions ([516c022](https://github.com/dyne/gestalt/commit/516c022c9929076b7a8a2ddd0836ad309310f603))
+* **flow:** target sessions by id ([401caf4](https://github.com/dyne/gestalt/commit/401caf42a665c47f7f915426c242111707c6a479))
+* **temporal:** add flow dispatch workflow ([6d83328](https://github.com/dyne/gestalt/commit/6d833284b09392b2d25015212b1db508798f7214))
+* **temporal:** register flow dispatch workflow ([fa139a7](https://github.com/dyne/gestalt/commit/fa139a7eb5ca8788113721d97bd5f90656f56820))
+* **temporal:** spawn flow child workflows ([f3b44cd](https://github.com/dyne/gestalt/commit/f3b44cd7661ae9d5f9b18f8f6e94716bd47f006e))
+* **ui:** add notify flow event types ([c95f984](https://github.com/dyne/gestalt/commit/c95f9845774bdda9ddfc217d6699140ed3198b81))
+
 ## [1.7.1](https://github.com/dyne/gestalt/compare/v1.7.0...v1.7.1) (2026-02-11)
 
 

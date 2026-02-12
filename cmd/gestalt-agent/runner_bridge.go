@@ -157,7 +157,9 @@ func runnerWebSocketURL(baseURL, sessionID string) (string, error) {
 		return "", errors.New("unsupported server URL scheme")
 	}
 	basePath := strings.TrimRight(parsed.Path, "/")
-	parsed.Path = basePath + "/ws/runner/session/" + url.PathEscape(sessionID)
+	escapedID := url.PathEscape(sessionID)
+	parsed.Path = basePath + "/ws/runner/session/" + sessionID
+	parsed.RawPath = basePath + "/ws/runner/session/" + escapedID
 	return parsed.String(), nil
 }
 

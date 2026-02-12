@@ -59,6 +59,17 @@ func (f *fakeBridgeClient) KillSession(name string) error {
 	return nil
 }
 
+func TestRunnerWebSocketURLPreservesSessionID(t *testing.T) {
+	got, err := runnerWebSocketURL("http://localhost:57417", "Fixer 1")
+	if err != nil {
+		t.Fatalf("runnerWebSocketURL error: %v", err)
+	}
+	want := "ws://localhost:57417/ws/runner/session/Fixer%201"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
 func TestRunnerBridgeForwardsIO(t *testing.T) {
 	fake := &fakeBridgeClient{capture: []byte("snapshot")}
 	originalFactory := tmuxBridgeFactory

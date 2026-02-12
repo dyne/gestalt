@@ -233,6 +233,12 @@ export const fetchPlansList = async () => {
   }
 }
 
+export const fetchSessionProgress = async (sessionId) => {
+  if (!sessionId) return null
+  const response = await apiFetch(buildApiPath('/api/sessions', sessionId, 'progress'))
+  return normalizeObject(await response.json())
+}
+
 export const fetchWorkflows = async () => {
   const response = await apiFetch('/api/workflows')
   const payload = await response.json()

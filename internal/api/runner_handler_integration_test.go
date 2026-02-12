@@ -83,3 +83,30 @@ func TestRunnerHandlerBridgesIO(t *testing.T) {
 		t.Fatalf("unexpected input payload: %q", string(inputMsg))
 	}
 }
+
+func TestRunnerHandlerDeletesSessionOnDisconnect(t *testing.T) {
+	manager := newTerminalTestManager(terminal.ManagerOptions{})
+	session := terminal.NewExternalSession("runner-2", "title", "role", time.Now(), 10, 0, terminal.OutputBackpressureBlock, 0, nil, nil, nil)
+	manager.RegisterSession(session)
+
+	mux := http.NewServeMux()
+	mux.Handle("/ws/runner/session/", &RunnerHandler{Manager: manager})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	runnerURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/runner/session/" + escapeTerminalID(session.ID)
+	runnerConn, _, err := websocket.DefaultDialer.Dial(runnerURL, nil)
+	if err != nil {
+		t.Fatalf("runner websocket dial: %v", err)
+	}
+	_ = runnerConn.Close()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := manager.Get(session.ID); !ok {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("expected session to be deleted after runner disconnect")
+}

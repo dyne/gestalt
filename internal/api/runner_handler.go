@@ -95,6 +95,7 @@ func (h *RunnerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return conn.Close()
 	}
 
+	attached := false
 	attachErr := session.AttachExternalRunner(sendBinary, func(cols, rows uint16) error {
 		return sendControl(proto.ResizeMessage{
 			Type: proto.ControlTypeResize,
@@ -116,6 +117,23 @@ func (h *RunnerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	attached = true
+	defer func() {
+		if !attached {
+			return
+		}
+		if err := h.Manager.Delete(id); err != nil && !errors.Is(err, terminal.ErrSessionNotFound) {
+			if h.Logger != nil {
+				h.Logger.Warn("runner session cleanup failed", map[string]string{
+					"gestalt.category": "runner",
+					"gestalt.source":   "backend",
+					"terminal.id":      id,
+					"terminal_id":      id,
+					"error":            err.Error(),
+				})
+			}
+		}
+	}()
 	defer session.DetachExternalRunner()
 
 	for {

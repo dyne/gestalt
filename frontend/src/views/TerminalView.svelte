@@ -6,7 +6,7 @@
   import { fetchStatus, fetchWorkflows } from '../lib/apiClient.js'
   import { buildTemporalUrl } from '../lib/workflowFormat.js'
 
-  export let terminalId = ''
+  export let sessionId = ''
   export let title = ''
   export let promptFiles = []
   export let visible = true
@@ -62,9 +62,9 @@
   }
 
   const confirmClose = () => {
-    if (!terminalId) return
+    if (!sessionId) return
     closeDialog?.close()
-    onDelete(terminalId)
+    onDelete(sessionId)
   }
 
   const cancelClose = () => {
@@ -72,14 +72,14 @@
   }
 
   const togglePlanSidebar = () => {
-    if (!terminalId) return
+    if (!sessionId) return
     planSidebarState = {
       ...planSidebarState,
-      [terminalId]: !planSidebarState[terminalId],
+      [sessionId]: !planSidebarState[sessionId],
     }
   }
 
-  $: planSidebarOpen = terminalId ? Boolean(planSidebarState[terminalId]) : false
+  $: planSidebarOpen = sessionId ? Boolean(planSidebarState[sessionId]) : false
   $: hasTerminalModule =
     Array.isArray(guiModules) &&
     guiModules.some((entry) => String(entry || '').trim().toLowerCase() === 'terminal')
@@ -90,10 +90,10 @@
     Array.isArray(guiModules) &&
     guiModules.some((entry) => String(entry || '').trim().toLowerCase() === 'plan-progress')
 
-  $: if (terminalId && terminalId !== lastTerminalId) {
-    lastTerminalId = terminalId
-    loadWorkflowContext(terminalId)
-  } else if (!terminalId && lastTerminalId) {
+  $: if (sessionId && sessionId !== lastTerminalId) {
+    lastTerminalId = sessionId
+    loadWorkflowContext(sessionId)
+  } else if (!sessionId && lastTerminalId) {
     lastTerminalId = ''
     resetWorkflowContext()
   }
@@ -101,19 +101,19 @@
   $: temporalUrl = buildTemporalUrl(workflowId, workflowRunId, temporalUiUrl)
 
   onMount(() => {
-    if (terminalId) {
-      lastTerminalId = terminalId
-      loadWorkflowContext(terminalId)
+    if (sessionId) {
+      lastTerminalId = sessionId
+      loadWorkflowContext(sessionId)
     }
   })
 </script>
 
 <section class="terminal-view">
-  {#if terminalId}
+  {#if sessionId}
     <div class="terminal-view__layout" data-plan-open={planSidebarOpen}>
       {#if hasTerminalModule}
         <Terminal
-          {terminalId}
+          sessionId={sessionId}
           {title}
           {promptFiles}
           {visible}
@@ -127,11 +127,12 @@
       {/if}
       {#if hasConsoleModule}
         <ConsoleModule
-          {terminalId}
+          sessionId={sessionId}
           {title}
           {promptFiles}
           {visible}
           {temporalUrl}
+          {sessionInterface}
           {guiModules}
           {planSidebarOpen}
           onTogglePlan={togglePlanSidebar}
@@ -140,7 +141,7 @@
       {/if}
       {#if hasPlanModule && planSidebarOpen}
         <PlanSidebar
-          sessionId={terminalId}
+          sessionId={sessionId}
           open={planSidebarOpen}
           onClose={togglePlanSidebar}
         />

@@ -2,7 +2,7 @@
   export let displayTitle = ''
   export let promptFilesLabel = ''
   export let statusLabel = ''
-  export let terminalId = ''
+  export let sessionId = ''
   export let historyStatus = 'idle'
   export let canReconnect = false
   export let temporalUrl = ''
@@ -19,9 +19,9 @@
   <header class="terminal-shell__header">
     <div class="header-line">
       <span class="label">{displayTitle}</span>
-      {#if terminalId && terminalId !== displayTitle}
+      {#if sessionId && sessionId !== displayTitle}
         <span class="separator">|</span>
-        <span class="terminal-id">ID: {terminalId}</span>
+        <span class="terminal-id">ID: {sessionId}</span>
       {/if}
       {#if promptFilesLabel}
         <span class="separator">|</span>

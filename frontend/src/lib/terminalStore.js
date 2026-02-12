@@ -12,29 +12,29 @@ const normalizeInterface = (value) => {
   return ''
 }
 
-export const getTerminalState = (terminalId, sessionInterface) => {
-  if (!terminalId) return null
+export const getTerminalState = (sessionId, sessionInterface) => {
+  if (!sessionId) return null
   const interfaceValue = normalizeInterface(sessionInterface)
-  const existing = terminals.get(terminalId)
+  const existing = terminals.get(sessionId)
   if (existing && existing.interface !== interfaceValue) {
     existing.state?.dispose?.()
-    terminals.delete(terminalId)
+    terminals.delete(sessionId)
   }
-  if (!terminals.has(terminalId)) {
+  if (!terminals.has(sessionId)) {
     const state = createTerminalService({
-      terminalId,
+      terminalId: sessionId,
       historyCache,
       sessionInterface: interfaceValue,
     })
-    terminals.set(terminalId, { state, interface: interfaceValue })
+    terminals.set(sessionId, { state, interface: interfaceValue })
   }
-  return terminals.get(terminalId)?.state || null
+  return terminals.get(sessionId)?.state || null
 }
 
-export const releaseTerminalState = (terminalId) => {
-  const entry = terminals.get(terminalId)
+export const releaseTerminalState = (sessionId) => {
+  const entry = terminals.get(sessionId)
   if (!entry) return
   entry.state?.dispose?.()
-  terminals.delete(terminalId)
-  historyCache.delete(terminalId)
+  terminals.delete(sessionId)
+  historyCache.delete(sessionId)
 }

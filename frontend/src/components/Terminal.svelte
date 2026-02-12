@@ -7,7 +7,7 @@
   import { apiFetch, buildApiPath } from '../lib/api.js'
   import { getTerminalState } from '../lib/terminalStore.js'
 
-  export let terminalId = ''
+  export let sessionId = ''
   export let title = ''
   export let promptFiles = []
   export let visible = true
@@ -34,7 +34,7 @@
   let unsubscribeReconnect
   let unsubscribeAtBottom
   let unsubscribeSegments
-  let attachedTerminalId = ''
+  let attachedSessionId = ''
   let attachedInterface = ''
   let wasVisible = false
   let pendingFocus = false
@@ -79,8 +79,8 @@
   }
 
   const attachState = () => {
-    if (!terminalId) return
-    state = getTerminalState(terminalId, interfaceValue)
+    if (!sessionId) return
+    state = getTerminalState(sessionId, interfaceValue)
     if (!state) return
     unsubscribeStatus = state.status.subscribe((value) => {
       status = value
@@ -128,8 +128,8 @@
     }
     state.appendPrompt?.(payload)
     const trimmed = payload.trim()
-    if (!trimmed || !terminalId) return
-    apiFetch(buildApiPath('/api/sessions', terminalId, 'input-history'), {
+    if (!trimmed || !sessionId) return
+    apiFetch(buildApiPath('/api/sessions', sessionId, 'input-history'), {
       method: 'POST',
       body: JSON.stringify({ command: trimmed }),
     }).catch((err) => {
@@ -173,17 +173,17 @@
     guiModules.some((entry) => String(entry || '').trim().toLowerCase() === 'plan-progress')
 
   $: {
-    if (!terminalId) {
+    if (!sessionId) {
       if (state) {
         detachState()
       }
-      attachedTerminalId = ''
+      attachedSessionId = ''
       attachedInterface = ''
-    } else if (terminalId !== attachedTerminalId || interfaceValue !== attachedInterface) {
+    } else if (sessionId !== attachedSessionId || interfaceValue !== attachedInterface) {
       if (state) {
         detachState()
       }
-      attachedTerminalId = terminalId
+      attachedSessionId = sessionId
       attachedInterface = interfaceValue
       attachState()
     }
@@ -215,8 +215,8 @@
   }
 
   $: statusLabel = statusLabels[status] || status
-  $: inputDisabled = status !== 'connected' || !terminalId
-  $: displayTitle = terminalId ? terminalId : 'Session —'
+  $: inputDisabled = status !== 'connected' || !sessionId
+  $: displayTitle = sessionId ? sessionId : 'Session —'
   $: promptFilesLabel =
     Array.isArray(promptFiles) && promptFiles.length > 0
       ? promptFiles.filter(Boolean).join(', ')
@@ -234,7 +234,7 @@
   {displayTitle}
   {promptFilesLabel}
   {statusLabel}
-  {terminalId}
+  sessionId={sessionId}
   {historyStatus}
   {canReconnect}
   {temporalUrl}
@@ -263,7 +263,7 @@
   </svelte:fragment>
   <CommandInput
     slot="input"
-    {terminalId}
+    sessionId={sessionId}
     agentName={title}
     bind:this={commandInput}
     onSubmit={handleSubmit}

@@ -4,13 +4,13 @@
   import { getErrorMessage } from '../lib/errorUtils.js'
   import { formatWorkflowTime } from '../lib/workflowFormat.js'
 
-  export let terminalId = ''
+  export let sessionId = ''
 
   let events = []
   let loading = false
   let refreshing = false
   let error = ''
-  let lastTerminalId = ''
+  let lastSessionId = ''
 
   const eventLabel = (event) => {
     switch (event?.type) {
@@ -32,7 +32,7 @@
   }
 
   const loadHistory = async ({ silent = false } = {}) => {
-    if (!terminalId) return
+    if (!sessionId) return
     if (loading || refreshing) return
     if (silent) {
       refreshing = true
@@ -41,7 +41,7 @@
     }
     error = ''
     try {
-      const payload = await fetchWorkflowHistory(terminalId)
+      const payload = await fetchWorkflowHistory(sessionId)
       events = Array.isArray(payload) ? payload : []
     } catch (err) {
       error = getErrorMessage(err, 'Failed to load workflow history.')
@@ -51,8 +51,8 @@
     }
   }
 
-  $: if (terminalId && terminalId !== lastTerminalId) {
-    lastTerminalId = terminalId
+  $: if (sessionId && sessionId !== lastSessionId) {
+    lastSessionId = sessionId
     loadHistory()
   }
 

@@ -106,7 +106,7 @@ describe('Terminal', () => {
     state.canReconnect.set(true)
     getTerminalState.mockReturnValue(state)
 
-    const { getByText } = render(Terminal, { props: { terminalId: 't1' } })
+    const { getByText } = render(Terminal, { props: { sessionId: 't1' } })
     const reconnectButton = getByText('Reconnect')
     await fireEvent.click(reconnectButton)
 
@@ -121,7 +121,7 @@ describe('Terminal', () => {
       .mockImplementation(() => {})
 
     const { container } = render(Terminal, {
-      props: { terminalId: 't1', visible: true },
+      props: { sessionId: 't1', visible: true },
     })
     await tick()
     await tick()
@@ -137,7 +137,7 @@ describe('Terminal', () => {
     getTerminalState.mockReturnValue(state)
 
     const { getByText } = render(Terminal, {
-      props: { terminalId: 't1', title: 'Coder' },
+      props: { sessionId: 't1', title: 'Coder' },
     })
 
     expect(getByText('t1')).toBeTruthy()
@@ -148,7 +148,7 @@ describe('Terminal', () => {
     getTerminalState.mockReturnValue(state)
 
     const { getByText } = render(Terminal, {
-      props: { terminalId: 't1', title: 'Coder' },
+      props: { sessionId: 't1', title: 'Coder' },
     })
 
     const temporalButton = getByText('Temporal')
@@ -161,7 +161,7 @@ describe('Terminal', () => {
     getTerminalState.mockReturnValue(state)
 
     const { getByText } = render(Terminal, {
-      props: { terminalId: 't1', title: 'Coder' },
+      props: { sessionId: 't1', title: 'Coder' },
     })
 
     expect(getByText('Bottom')).toBeTruthy()
@@ -172,7 +172,7 @@ describe('Terminal', () => {
     getTerminalState.mockReturnValue(state)
 
     const { container } = render(Terminal, {
-      props: { terminalId: 't1', sessionInterface: 'mcp' },
+      props: { sessionId: 't1', sessionInterface: 'mcp' },
     })
 
     await tick()
@@ -184,7 +184,7 @@ describe('Terminal', () => {
     getTerminalState.mockReturnValue(state)
 
     const { container } = render(Terminal, {
-      props: { terminalId: 't1', sessionInterface: 'cli' },
+      props: { sessionId: 't1', sessionInterface: 'cli' },
     })
 
     await tick()
@@ -198,11 +198,11 @@ describe('Terminal', () => {
     getTerminalState.mockReturnValueOnce(stateA).mockReturnValueOnce(stateB)
 
     const { rerender } = render(Terminal, {
-      props: { terminalId: 't1', sessionInterface: 'mcp' },
+      props: { sessionId: 't1', sessionInterface: 'mcp' },
     })
     await tick()
 
-    await rerender({ terminalId: 't2', sessionInterface: 'mcp' })
+    await rerender({ sessionId: 't2', sessionInterface: 'mcp' })
     await tick()
 
     expect(getTerminalState).toHaveBeenCalledWith('t2', 'mcp')
@@ -216,7 +216,7 @@ describe('Terminal', () => {
 
     const { container } = render(TerminalView, {
       props: {
-        terminalId: 't1',
+        sessionId: 't1',
         guiModules: ['console'],
         sessionInterface: 'cli',
         visible: true,
@@ -235,7 +235,7 @@ describe('Terminal', () => {
 
     const { container } = render(TerminalView, {
       props: {
-        terminalId: 't1',
+        sessionId: 't1',
         guiModules: ['terminal'],
         sessionInterface: 'cli',
         visible: true,

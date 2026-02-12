@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"gestalt/internal/runner/launchspec"
@@ -92,4 +93,36 @@ func readResponseMessage(body io.Reader) string {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
+}
+
+func deleteSession(client *http.Client, baseURL, token, sessionID string) error {
+	client = ensureHTTPClient(client)
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if baseURL == "" {
+		return errors.New("server URL is required")
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return errors.New("session id is required")
+	}
+	path := baseURL + "/api/sessions/" + url.PathEscape(sessionID)
+	request, err := http.NewRequest(http.MethodDelete, path, nil)
+	if err != nil {
+		return fmt.Errorf("build delete session request: %w", err)
+	}
+	addToken(request, token)
+
+	response, err := client.Do(request)
+	if err != nil {
+		return fmt.Errorf("delete session request failed: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusNoContent || response.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	message := readResponseMessage(response.Body)
+	if message == "" {
+		message = fmt.Sprintf("delete session failed with status %d", response.StatusCode)
+	}
+	return errors.New(message)
 }

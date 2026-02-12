@@ -685,6 +685,16 @@ func (s *Session) LogPath() string {
 	return s.logger.Path()
 }
 
+func (s *Session) OutputFilterStats() OutputFilterStats {
+	if s == nil || s.outputFilter == nil {
+		return OutputFilterStats{}
+	}
+	s.outputFilterMu.Lock()
+	stats := s.outputFilter.Stats()
+	s.outputFilterMu.Unlock()
+	return stats
+}
+
 func (s *Session) setProcessRegistry(registry *process.Registry) {
 	if s == nil {
 		return

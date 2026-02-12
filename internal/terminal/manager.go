@@ -1124,6 +1124,7 @@ func (m *Manager) Delete(id string) error {
 	}
 
 	closeErr := session.Close()
+	m.logOutputFilterStats(session)
 	m.emitSessionStopped(id, session, agentID, agentName, closeErr)
 	return nil
 }
@@ -1152,12 +1153,31 @@ func (m *Manager) CloseAll() error {
 			agentName = session.agent.Name
 		}
 		closeErr := session.Close()
+		m.logOutputFilterStats(session)
 		m.emitSessionStopped(id, session, agentID, agentName, closeErr)
 		if closeErr != nil {
 			errs = append(errs, fmt.Errorf("close session %s: %w", id, closeErr))
 		}
 	}
 	return errors.Join(errs...)
+}
+
+func (m *Manager) logOutputFilterStats(session *Session) {
+	if m == nil || m.logger == nil || session == nil {
+		return
+	}
+	stats := session.OutputFilterStats()
+	if stats.FilterName == "" {
+		return
+	}
+	fields := map[string]string{
+		"terminal_id":       session.ID,
+		"filter_name":       stats.FilterName,
+		"filter_in_bytes":   strconv.FormatUint(stats.InBytes, 10),
+		"filter_out_bytes":  strconv.FormatUint(stats.OutBytes, 10),
+		"filter_drop_bytes": strconv.FormatUint(stats.DroppedBytes, 10),
+	}
+	m.logger.Info("terminal output filter stats", fields)
 }
 
 func stderrFromExecError(err error) string {

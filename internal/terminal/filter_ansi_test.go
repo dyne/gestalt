@@ -48,3 +48,21 @@ func TestANSIStripFilterPreservesWhitespace(t *testing.T) {
 		t.Fatalf("expected preserved whitespace, got %q", out)
 	}
 }
+
+func TestANSIStripFilterStats(t *testing.T) {
+	t.Parallel()
+
+	filter := NewANSIStripFilter()
+	input := []byte("hi\x1b[31m!\x1b[0m")
+	_ = filter.Write(input)
+	stats := filter.Stats()
+	if stats.InBytes != uint64(len(input)) {
+		t.Fatalf("expected in bytes %d, got %d", len(input), stats.InBytes)
+	}
+	if stats.OutBytes != 3 {
+		t.Fatalf("expected out bytes 3, got %d", stats.OutBytes)
+	}
+	if stats.DroppedBytes != uint64(len(input))-stats.OutBytes {
+		t.Fatalf("expected dropped bytes %d, got %d", uint64(len(input))-stats.OutBytes, stats.DroppedBytes)
+	}
+}

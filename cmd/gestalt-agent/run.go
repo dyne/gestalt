@@ -61,5 +61,5 @@ func printTmuxAttachHint(out io.Writer, sessionID string) {
 		id = "gestalt-agent"
 	}
 	fmt.Fprintln(out, "Session is running in tmux.")
-	fmt.Fprintf(out, "Attach with: tmux attach -t %s\n", id)
+	fmt.Fprintf(out, "Attach with: tmux attach -t %q\n", id)
 }

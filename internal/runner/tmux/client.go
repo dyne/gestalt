@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"strings"
 )
 
 // CommandRunner executes tmux commands with optional stdin data.
@@ -39,7 +40,13 @@ func (c *Client) CreateSession(name string, command []string) error {
 
 // CreateWindow creates a new window in an existing session.
 func (c *Client) CreateWindow(sessionName, windowName string, command []string) error {
-	args := []string{"new-window", "-t", sessionName, "-n", windowName}
+	args := []string{"new-window"}
+	if strings.TrimSpace(sessionName) != "" {
+		args = append(args, "-t", sessionName)
+	}
+	if strings.TrimSpace(windowName) != "" {
+		args = append(args, "-n", windowName)
+	}
 	if len(command) > 0 {
 		args = append(args, "--")
 		args = append(args, command...)
@@ -60,6 +67,11 @@ func (c *Client) CreatePane(target string, command []string) error {
 // KillSession terminates a tmux session.
 func (c *Client) KillSession(name string) error {
 	return c.run([]string{"kill-session", "-t", name}, nil)
+}
+
+// KillWindow terminates a tmux window.
+func (c *Client) KillWindow(target string) error {
+	return c.run([]string{"kill-window", "-t", target}, nil)
 }
 
 // SendKeys sends keystrokes to a target pane.
@@ -102,6 +114,25 @@ func (c *Client) ResizePane(target string, cols, rows uint16) error {
 		args = append(args, "-y", fmt.Sprintf("%d", rows))
 	}
 	return c.run(args, nil)
+}
+
+// HasSession reports whether the named session exists.
+func (c *Client) HasSession(name string) (bool, error) {
+	if c == nil || c.runner == nil {
+		return false, errors.New("tmux runner unavailable")
+	}
+	output, err := c.runner.Run([]string{"has-session", "-t", name}, nil)
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return false, nil
+		}
+		if len(output) > 0 {
+			return false, fmt.Errorf("tmux has-session failed: %s", bytes.TrimSpace(output))
+		}
+		return false, fmt.Errorf("tmux has-session failed: %w", err)
+	}
+	return true, nil
 }
 
 func (c *Client) run(args []string, input []byte) error {

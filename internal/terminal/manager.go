@@ -1077,10 +1077,34 @@ func (m *Manager) Delete(id string) error {
 	session, ok := m.sessions[id]
 	if ok {
 		delete(m.sessions, id)
+		sequenceAdjusted := false
+		sanitizedAgentName := ""
 		if session != nil && session.agent != nil && session.agent.Name != "" {
 			agentName := session.agent.Name
 			if existingID, ok := m.agentSessions[agentName]; ok && existingID == id {
 				delete(m.agentSessions, agentName)
+			}
+			sanitizedAgentName = sanitizeSessionName(agentName)
+			if sanitizedAgentName != "" {
+				if parsed, ok := parseAgentSessionSequence(id, sanitizedAgentName); ok {
+					if current, ok := m.agentSequence[sanitizedAgentName]; ok && current == parsed {
+						sequenceAdjusted = true
+					}
+				}
+			}
+		}
+		if sequenceAdjusted {
+			maxSequence := uint64(0)
+			for sessionID := range m.sessions {
+				parsed, ok := parseAgentSessionSequence(sessionID, sanitizedAgentName)
+				if ok && parsed > maxSequence {
+					maxSequence = parsed
+				}
+			}
+			if maxSequence == 0 {
+				delete(m.agentSequence, sanitizedAgentName)
+			} else {
+				m.agentSequence[sanitizedAgentName] = maxSequence
 			}
 		}
 	}

@@ -7,8 +7,11 @@
   export let canReconnect = false
   export let temporalUrl = ''
   export let showBottomButton = false
+  export let showPlanButton = false
+  export let planButtonActive = false
   export let onReconnect = () => {}
   export let onScrollToBottom = () => {}
+  export let onPlanToggle = () => {}
   export let onRequestClose = () => {}
 </script>
 
@@ -37,6 +40,17 @@
       {/if}
     </div>
     <div class="header-actions">
+      {#if showPlanButton}
+        <button
+          class="header-button header-button--plan"
+          class:header-button--active={planButtonActive}
+          type="button"
+          aria-pressed={planButtonActive}
+          on:click={onPlanToggle}
+        >
+          Plan
+        </button>
+      {/if}
       {#if temporalUrl}
         <a
           class="header-button"
@@ -193,6 +207,11 @@
 
   .header-button:hover {
     background: rgba(var(--color-text-rgb), 0.16);
+  }
+
+  .header-button--active {
+    background: rgba(var(--color-text-rgb), 0.24);
+    border-color: rgba(var(--color-text-rgb), 0.32);
   }
 
   .header-button--disabled {

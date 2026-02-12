@@ -9,6 +9,7 @@
   export let promptFiles = []
   export let visible = true
   export let sessionInterface = ''
+  export let role = ''
   export let onDelete = () => {}
 
   let closeDialog
@@ -19,6 +20,7 @@
   let temporalUrl = ''
   let lastTerminalId = ''
   let loadId = 0
+  let planSidebarState = {}
 
   const resetWorkflowContext = () => {
     temporalUiUrl = ''
@@ -67,6 +69,16 @@
     closeDialog?.close()
   }
 
+  const togglePlanSidebar = () => {
+    if (!terminalId) return
+    planSidebarState = {
+      ...planSidebarState,
+      [terminalId]: !planSidebarState[terminalId],
+    }
+  }
+
+  $: planSidebarOpen = terminalId ? Boolean(planSidebarState[terminalId]) : false
+
   $: if (terminalId && terminalId !== lastTerminalId) {
     lastTerminalId = terminalId
     loadWorkflowContext(terminalId)
@@ -94,6 +106,9 @@
       {visible}
       {temporalUrl}
       {sessionInterface}
+      {role}
+      {planSidebarOpen}
+      onTogglePlan={togglePlanSidebar}
       onRequestClose={openCloseDialog}
     />
     <dialog id="close-confirm-dialog" class="close-dialog" bind:this={closeDialog}>

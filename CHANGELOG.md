@@ -1,3 +1,19 @@
+# [1.9.0](https://github.com/dyne/gestalt/compare/v1.8.0...v1.9.0) (2026-02-12)
+
+
+### Features
+
+* **agent:** accept gui_modules in toml ([eeec650](https://github.com/dyne/gestalt/commit/eeec650de0c1783c409d49d1798fd67cc14be0a3))
+* **agent:** add gui-modules to sessions ([18cab5a](https://github.com/dyne/gestalt/commit/18cab5a229382cf78843a54ca7349682cfce7d18))
+* **api:** add session progress endpoint ([474530c](https://github.com/dyne/gestalt/commit/474530c6a2e63327884d5ecb9ce42e44e6653327))
+* **api:** normalize progress notify payload ([538f8a0](https://github.com/dyne/gestalt/commit/538f8a022399251a855987ef131839e3bd161ff7))
+* **api:** publish progress terminal events ([fc68286](https://github.com/dyne/gestalt/commit/fc68286f1b431289b5f02c2fcf9c23b91edca7dd))
+* **plan:** extract body text from source ([1a5b56e](https://github.com/dyne/gestalt/commit/1a5b56e0a292d3868310b3403e97a0fad5ef54e5))
+* **ui:** add plan progress sidebar ([aff4e5d](https://github.com/dyne/gestalt/commit/aff4e5dec2c30c930bea33238d00ed074ebd1d17))
+* **ui:** add plan toggle for coder sessions ([c5cc38a](https://github.com/dyne/gestalt/commit/c5cc38a89336d71f2a5da8b504055d30b4516aad))
+* **ui:** gate plan toggle by gui-modules ([6836be5](https://github.com/dyne/gestalt/commit/6836be58ad3cd10edfded293e3a9cfdf35608397))
+* **ui:** pass gui modules to terminals ([fa1683b](https://github.com/dyne/gestalt/commit/fa1683b5f3ec9048ed91388b33ca113c8bde98bc))
+
 # [1.8.0](https://github.com/dyne/gestalt/compare/v1.7.1...v1.8.0) (2026-02-12)
 
 

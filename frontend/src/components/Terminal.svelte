@@ -13,7 +13,7 @@
   export let visible = true
   export let temporalUrl = ''
   export let sessionInterface = ''
-  export let role = ''
+  export let guiModules = []
   export let planSidebarOpen = false
   export let onTogglePlan = () => {}
   export let onRequestClose = () => {}
@@ -42,7 +42,7 @@
   let promptFilesLabel = ''
   let interfaceValue = ''
   let isCLI = false
-  let isCoderSession = false
+  let hasPlanModule = false
   const scrollSensitivity = 1
 
   const statusLabels = {
@@ -168,9 +168,9 @@
   $: interfaceValue =
     typeof sessionInterface === 'string' ? sessionInterface.trim().toLowerCase() : ''
   $: isCLI = interfaceValue === 'cli'
-  $: isCoderSession =
-    (typeof role === 'string' && role.trim().toLowerCase() === 'coder') ||
-    (typeof title === 'string' && title.trim().toLowerCase() === 'coder')
+  $: hasPlanModule =
+    Array.isArray(guiModules) &&
+    guiModules.some((entry) => String(entry || '').trim().toLowerCase() === 'plan-progress')
 
   $: {
     if (!terminalId) {
@@ -238,7 +238,7 @@
   {historyStatus}
   {canReconnect}
   {temporalUrl}
-  showPlanButton={isCoderSession}
+  showPlanButton={hasPlanModule}
   planButtonActive={planSidebarOpen}
   showBottomButton={!atBottom}
   onReconnect={handleReconnect}

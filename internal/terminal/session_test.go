@@ -49,7 +49,7 @@ func TestSessionWriteAndOutput(t *testing.T) {
 
 func TestSessionFiltersANSIOutput(t *testing.T) {
 	pty := newScriptedPty()
-	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
+	session := newSession("1", pty, nil, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
 	defer func() {
 		_ = session.Close()
 	}()
@@ -292,7 +292,7 @@ func TestSessionResizePropagatesToOutputFilter(t *testing.T) {
 	t.Setenv(envTerminalOutputFilters, "scrollback-vt")
 
 	pty := newScriptedPty()
-	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
+	session := newSession("1", pty, nil, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
 	defer func() {
 		_ = session.Close()
 	}()

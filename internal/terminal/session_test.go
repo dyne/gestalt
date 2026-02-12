@@ -284,3 +284,29 @@ func TestSessionWorkflowIdentifiersEmpty(t *testing.T) {
 		t.Fatalf("expected empty identifiers, got %q %q", workflowID, runID)
 	}
 }
+
+func TestSessionResizePropagatesToOutputFilter(t *testing.T) {
+	t.Setenv(envTerminalOutputFilters, "scrollback-vt")
+
+	pty := newScriptedPty()
+	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
+	defer func() {
+		_ = session.Close()
+	}()
+
+	chain, ok := session.outputFilter.(*FilterChain)
+	if !ok || len(chain.filters) != 1 {
+		t.Fatalf("expected scrollback filter chain, got %#v", session.outputFilter)
+	}
+	scrollback, ok := chain.filters[0].(*scrollbackVTFilter)
+	if !ok {
+		t.Fatalf("expected scrollback filter, got %#v", chain.filters[0])
+	}
+
+	if err := session.Resize(120, 40); err != nil {
+		t.Fatalf("resize session: %v", err)
+	}
+	if scrollback.cols != 120 || scrollback.rows != 40 {
+		t.Fatalf("expected resize to update filter, got %d x %d", scrollback.cols, scrollback.rows)
+	}
+}

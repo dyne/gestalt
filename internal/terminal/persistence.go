@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -35,6 +36,25 @@ func NewSessionLogger(dir, terminalID string, createdAt time.Time, maxBytes int6
 	}
 
 	logger := newAsyncFileLogger(path, file, sessionLogFlushInterval, sessionLogFlushThreshold, sessionLogChannelSize, asyncFileLoggerBlock, encodeSessionChunk)
+	return &SessionLogger{
+		logger:   logger,
+		maxBytes: maxBytes,
+	}, nil
+}
+
+func newRawSessionLogger(path string, maxBytes int64) (*SessionLogger, error) {
+	if path == "" {
+		return nil, fmt.Errorf("session log path is empty")
+	}
+	dir := filepath.Dir(path)
+	base := filepath.Base(path)
+	base = strings.TrimSuffix(base, ".txt")
+	rawPath := filepath.Join(dir, base+".raw.txt")
+	file, err := os.OpenFile(rawPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("open raw session log file: %w", err)
+	}
+	logger := newAsyncFileLogger(rawPath, file, sessionLogFlushInterval, sessionLogFlushThreshold, sessionLogChannelSize, asyncFileLoggerBlock, encodeSessionChunk)
 	return &SessionLogger{
 		logger:   logger,
 		maxBytes: maxBytes,

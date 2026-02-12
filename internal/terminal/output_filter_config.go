@@ -11,6 +11,7 @@ import (
 const (
 	envTerminalOutputFilters        = "GESTALT_TERMINAL_OUTPUT_FILTERS"
 	envTerminalOutputFiltersDisable = "GESTALT_TERMINAL_OUTPUT_FILTERS_DISABLE"
+	envTerminalOutputKeepRawLog     = "GESTALT_TERMINAL_OUTPUT_KEEP_RAW_LOG"
 )
 
 // ResolveOutputFilterNames returns the filter chain names for a session.
@@ -40,6 +41,15 @@ func ResolveOutputFilterNames(profile *agent.Agent, runtimeInterface string) []s
 
 func outputFiltersDisabled() bool {
 	raw := strings.TrimSpace(os.Getenv(envTerminalOutputFiltersDisable))
+	if raw == "" {
+		return false
+	}
+	parsed, err := strconv.ParseBool(raw)
+	return err == nil && parsed
+}
+
+func rawOutputLogEnabled() bool {
+	raw := strings.TrimSpace(os.Getenv(envTerminalOutputKeepRawLog))
 	if raw == "" {
 		return false
 	}

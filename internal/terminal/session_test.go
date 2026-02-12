@@ -1,7 +1,10 @@
 package terminal
 
 import (
+	"bytes"
 	"errors"
+	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -308,5 +311,40 @@ func TestSessionResizePropagatesToOutputFilter(t *testing.T) {
 	}
 	if scrollback.cols != 120 || scrollback.rows != 40 {
 		t.Fatalf("expected resize to update filter, got %d x %d", scrollback.cols, scrollback.rows)
+	}
+}
+
+func TestSessionRawLogCapture(t *testing.T) {
+	t.Setenv(envTerminalOutputKeepRawLog, "true")
+
+	dir := t.TempDir()
+	logger, err := NewSessionLogger(dir, "raw", time.Now(), 0)
+	if err != nil {
+		t.Fatalf("create session logger: %v", err)
+	}
+
+	pty := newScriptedPty()
+	session := newSession("raw", pty, nil, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, logger, nil)
+
+	out, cancel := session.Subscribe()
+	defer cancel()
+
+	payload := "hello\x1b[31mred\x1b[0m\n"
+	pty.Emit(payload)
+	if !receiveChunk(t, out, []byte("hellored\n")) {
+		t.Fatalf("expected filtered output")
+	}
+
+	if err := session.Close(); err != nil {
+		t.Fatalf("close session: %v", err)
+	}
+
+	rawPath := strings.TrimSuffix(logger.Path(), ".txt") + ".raw.txt"
+	rawBytes, err := os.ReadFile(rawPath)
+	if err != nil {
+		t.Fatalf("read raw log: %v", err)
+	}
+	if !bytes.Contains(rawBytes, []byte(payload)) {
+		t.Fatalf("expected raw log to contain payload, got %q", string(rawBytes))
 	}
 }

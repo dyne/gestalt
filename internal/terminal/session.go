@@ -92,6 +92,7 @@ type SessionIO struct {
 	outputBus       *event.Bus[[]byte]
 	outputBuffer    *OutputBuffer
 	logger          *SessionLogger
+	rawLogger       *SessionLogger
 	inputBuf        *InputBuffer
 	inputLog        *InputLogger
 	historyScanMax  int64
@@ -162,6 +163,12 @@ func newSession(id string, pty Pty, runner Runner, cmd *exec.Cmd, title, role st
 		interfaceValue = agent.AgentInterfaceMCP
 	}
 	outputFilter := BuildOutputFilterChain(profile, interfaceValue)
+	var rawLogger *SessionLogger
+	if sessionLogger != nil && rawOutputLogEnabled() {
+		if raw, err := newRawSessionLogger(sessionLogger.Path(), sessionLogger.maxBytes); err == nil {
+			rawLogger = raw
+		}
+	}
 	runnerKind := launchspec.RunnerKindServer
 	if runner != nil {
 		if _, ok := runner.(*externalRunner); ok {
@@ -215,6 +222,7 @@ func newSession(id string, pty Pty, runner Runner, cmd *exec.Cmd, title, role st
 			outputBus:       outputBus,
 			outputBuffer:    outputBuffer,
 			logger:          sessionLogger,
+			rawLogger:       rawLogger,
 			inputBuf:        NewInputBuffer(DefaultInputBufferSize),
 			inputLog:        inputLogger,
 			historyScanMax:  historyScanMax,
@@ -382,6 +390,9 @@ func (s *Session) Resize(cols, rows uint16) error {
 func (s *Session) PublishOutputChunk(chunk []byte) {
 	if s == nil || s.outputPublisher == nil || len(chunk) == 0 {
 		return
+	}
+	if s.rawLogger != nil {
+		s.rawLogger.Write(chunk)
 	}
 	filtered := chunk
 	if s.outputFilter != nil {
@@ -753,6 +764,11 @@ func (s *Session) closeResources() error {
 	if s.inputLog != nil {
 		if err := s.inputLog.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("close input log: %w", err))
+		}
+	}
+	if s.rawLogger != nil {
+		if err := s.rawLogger.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close raw log: %w", err))
 		}
 	}
 	return errors.Join(errs...)

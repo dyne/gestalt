@@ -131,6 +131,8 @@ var agentRootKeys = map[string]struct{}{
 	"codex_mode":   {},
 	"prompt":       {},
 	"skills":       {},
+	"gui-modules":  {},
+	"gui_modules":  {},
 	"onair_string": {},
 	"use_workflow": {},
 	"singleton":    {},

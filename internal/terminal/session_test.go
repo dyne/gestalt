@@ -149,10 +149,11 @@ func TestSessionRecordsInputHistory(t *testing.T) {
 
 func TestSessionInfoIncludesMetadata(t *testing.T) {
 	profile := &agent.Agent{
-		Name:     "Codex",
-		CLIType:  "codex",
-		LLMModel: "o3",
-		Skills:   []string{"skill-a", "skill-b"},
+		Name:       "Codex",
+		CLIType:    "codex",
+		LLMModel:   "o3",
+		Skills:     []string{"skill-a", "skill-b"},
+		GUIModules: []string{"plan-progress"},
 	}
 	pty := newScriptedPty()
 	session := newSession("1", pty, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, profile, nil, nil)
@@ -183,6 +184,9 @@ func TestSessionInfoIncludesMetadata(t *testing.T) {
 	}
 	if len(info.PromptFiles) != 2 || info.PromptFiles[0] != "prompt-a" || info.PromptFiles[1] != "prompt-b" {
 		t.Fatalf("unexpected prompt files: %v", info.PromptFiles)
+	}
+	if len(info.GUIModules) != 1 || info.GUIModules[0] != "plan-progress" {
+		t.Fatalf("unexpected gui modules: %v", info.GUIModules)
 	}
 }
 

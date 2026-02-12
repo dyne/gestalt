@@ -17,6 +17,7 @@ onair_string = "READY"
 cli_type = "codex"
 codex_mode = "tui"
 llm_model = "default"
+gui-modules = ["Plan-Progress"]
 `
 
 	var a Agent
@@ -46,6 +47,24 @@ llm_model = "default"
 	}
 	if a.LLMModel != "default" {
 		t.Fatalf("llm_model mismatch: %q", a.LLMModel)
+	}
+	if len(a.GUIModules) != 1 || a.GUIModules[0] != "Plan-Progress" {
+		t.Fatalf("gui_modules mismatch: %v", a.GUIModules)
+	}
+}
+
+func TestAgentValidateNormalizesGUIModules(t *testing.T) {
+	agent := Agent{
+		Name:       "Codex",
+		Shell:      "/bin/bash",
+		GUIModules: []string{" Plan-Progress ", "plan-progress", ""},
+	}
+
+	if err := agent.Validate(); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	if len(agent.GUIModules) != 1 || agent.GUIModules[0] != "plan-progress" {
+		t.Fatalf("expected normalized gui_modules, got %v", agent.GUIModules)
 	}
 }
 
@@ -256,11 +275,11 @@ func TestAgentInterfacePrecedence(t *testing.T) {
 			want:    AgentInterfaceMCP,
 		},
 		{
-			name:    "force tui overrides mcp",
-			iface:   "mcp",
-			cliType: "codex",
+			name:     "force tui overrides mcp",
+			iface:    "mcp",
+			cliType:  "codex",
 			forceTUI: true,
-			want:    AgentInterfaceCLI,
+			want:     AgentInterfaceCLI,
 		},
 		{
 			name:    "mcp requires codex",

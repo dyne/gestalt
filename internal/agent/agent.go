@@ -63,6 +63,7 @@ type Agent struct {
 	Shell       string                 `json:"shell,omitempty" toml:"shell,omitempty"`
 	Prompts     PromptList             `json:"prompt,omitempty" toml:"prompt,omitempty"`
 	Skills      []string               `json:"skills,omitempty" toml:"skills,omitempty"`
+	GUIModules  []string               `json:"gui_modules,omitempty" toml:"gui-modules,omitempty"`
 	OnAirString string                 `json:"onair_string,omitempty" toml:"onair_string,omitempty"`
 	UseWorkflow *bool                  `json:"use_workflow,omitempty" toml:"use_workflow,omitempty"`
 	Singleton   *bool                  `json:"singleton,omitempty" toml:"singleton,omitempty"`
@@ -75,8 +76,8 @@ type Agent struct {
 }
 
 const (
-	AgentInterfaceCLI = "cli"
-	AgentInterfaceMCP = "mcp"
+	AgentInterfaceCLI  = "cli"
+	AgentInterfaceMCP  = "mcp"
 	CodexModeMCPServer = "mcp-server"
 	CodexModeTUI       = "tui"
 )
@@ -100,8 +101,33 @@ func (a *Agent) Validate() error {
 			return fmt.Errorf("agent prompt %d is empty", i)
 		}
 	}
+	a.GUIModules = normalizeGUIModules(a.GUIModules)
 
 	return nil
+}
+
+// normalizeGUIModules cleans module names while preserving order.
+func normalizeGUIModules(modules []string) []string {
+	if len(modules) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(modules))
+	cleaned := make([]string, 0, len(modules))
+	for _, entry := range modules {
+		trimmed := strings.ToLower(strings.TrimSpace(entry))
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		cleaned = append(cleaned, trimmed)
+	}
+	if len(cleaned) == 0 {
+		return nil
+	}
+	return cleaned
 }
 
 func (a *Agent) ResolveInterface() (string, error) {

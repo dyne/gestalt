@@ -1669,7 +1669,7 @@ func TestCreateTerminalWithAgent(t *testing.T) {
 	if err := os.MkdirAll(agentsDir, 0755); err != nil {
 		t.Fatalf("mkdir agents: %v", err)
 	}
-	agentTOML := "name = \"Codex\"\nshell = \"/bin/zsh\"\ncli_type = \"codex\"\n"
+	agentTOML := "name = \"Codex\"\nshell = \"/bin/zsh\"\ncli_type = \"codex\"\ngui-modules = [\"plan-progress\"]\n"
 	if err := os.WriteFile(filepath.Join(agentsDir, "codex.toml"), []byte(agentTOML), 0644); err != nil {
 		t.Fatalf("write agent: %v", err)
 	}
@@ -1680,9 +1680,10 @@ func TestCreateTerminalWithAgent(t *testing.T) {
 		PtyFactory: factory,
 		Agents: map[string]agent.Agent{
 			"codex": {
-				Name:    "Codex",
-				Shell:   "/bin/zsh",
-				CLIType: "codex",
+				Name:       "Codex",
+				Shell:      "/bin/zsh",
+				CLIType:    "codex",
+				GUIModules: []string{"plan-progress"},
 			},
 		},
 		AgentsDir: agentsDir,
@@ -1707,6 +1708,9 @@ func TestCreateTerminalWithAgent(t *testing.T) {
 	}
 	if payload.Interface != agent.AgentInterfaceCLI {
 		t.Fatalf("expected interface %q, got %q", agent.AgentInterfaceCLI, payload.Interface)
+	}
+	if len(payload.GUIModules) != 1 || payload.GUIModules[0] != "plan-progress" {
+		t.Fatalf("expected gui_modules plan-progress, got %v", payload.GUIModules)
 	}
 	if payload.ID == "" {
 		t.Fatalf("missing id")

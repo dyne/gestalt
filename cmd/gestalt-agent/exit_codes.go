@@ -5,4 +5,5 @@ const (
 	exitConfig = 3
 	exitAgent  = 4
 	exitPrompt = 5
+	exitServer = 6
 )

@@ -22,6 +22,7 @@ import (
 	"gestalt/internal/ports"
 	"gestalt/internal/process"
 	"gestalt/internal/prompt"
+	"gestalt/internal/runner/launchspec"
 	"gestalt/internal/skill"
 	"gestalt/internal/temporal"
 )
@@ -104,6 +105,8 @@ type sessionCreateRequest struct {
 	Role        string
 	Title       string
 	Shell       string
+	Runner      string
+	GUIModules  []string
 	UseWorkflow *bool
 }
 
@@ -111,6 +114,8 @@ type CreateOptions struct {
 	AgentID     string
 	Role        string
 	Title       string
+	Runner      string
+	GUIModules  []string
 	UseWorkflow *bool
 }
 
@@ -320,6 +325,8 @@ func (m *Manager) CreateWithOptions(options CreateOptions) (*Session, error) {
 		AgentID:     options.AgentID,
 		Role:        options.Role,
 		Title:       options.Title,
+		Runner:      options.Runner,
+		GUIModules:  options.GUIModules,
 		UseWorkflow: options.UseWorkflow,
 	})
 }
@@ -354,16 +361,22 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 	if shellOverrideSet {
 		shell = shellOverride
 	}
+	runnerKind, err := normalizeRunnerKind(request.Runner)
+	if err != nil {
+		return nil, err
+	}
 
 	var profile *agent.Agent
 	var promptNames []string
 	var promptFiles []string
+	var promptPayloads []string
 	var developerInstructions string
 	var onAirString string
 	var agentName string
 	var sanitizedAgentName string
 	var sessionSequence uint64
 	var sessionCLIConfig map[string]interface{}
+	guiModules := normalizeSessionGUIModules(request.GUIModules)
 	reservedID := strings.TrimSpace(request.SessionID)
 	if request.AgentID == "" {
 		return nil, ErrAgentRequired
@@ -400,6 +413,12 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 			onAirString = agentProfile.OnAirString
 		}
 	}
+	if len(guiModules) == 0 && profile != nil && len(profile.GUIModules) > 0 {
+		guiModules = append([]string(nil), profile.GUIModules...)
+	}
+	if runnerKind == launchspec.RunnerKindExternal && len(guiModules) == 0 {
+		guiModules = append([]string(nil), defaultExternalGUIModules...)
+	}
 
 	useWorkflow := resolveWorkflowPreference(request.UseWorkflow)
 	if request.UseWorkflow == nil && profile != nil {
@@ -429,6 +448,9 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 	}
 
 	if reservedID == "" && profile != nil && strings.EqualFold(strings.TrimSpace(profile.CLIType), "codex") {
+		reservedID = m.nextIDValue()
+	}
+	if reservedID == "" && runnerKind == launchspec.RunnerKindExternal {
 		reservedID = m.nextIDValue()
 	}
 
@@ -506,13 +528,22 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		m.mu.Unlock()
 	}
 
-	session, id, err := m.sessionFactory.Start(request, profile, shell, reservedID)
+	var session *Session
+	var id string
+	if runnerKind == launchspec.RunnerKindExternal {
+		session, id, err = m.sessionFactory.StartExternal(request, profile, shell, reservedID)
+	} else {
+		session, id, err = m.sessionFactory.Start(request, profile, shell, reservedID)
+	}
 	if err != nil {
 		releaseReservation()
 		return nil, err
 	}
 	if len(promptFiles) > 0 {
 		session.PromptFiles = append(session.PromptFiles, promptFiles...)
+	}
+	if len(guiModules) > 0 {
+		session.GUIModules = append([]string(nil), guiModules...)
 	}
 	if developerInstructions != "" {
 		if mcp, ok := session.pty.(*mcpPty); ok {
@@ -556,7 +587,24 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		}
 	}
 
-	m.startPromptInjection(session, request.AgentID, profile, promptNames, onAirString)
+	if runnerKind == launchspec.RunnerKindExternal {
+		cliType := ""
+		if profile != nil {
+			cliType = profile.CLIType
+		}
+		if len(promptNames) > 0 && !strings.EqualFold(strings.TrimSpace(cliType), "codex") {
+			payloads, files := m.buildExternalPromptPayloads(promptNames, session.ID)
+			if len(payloads) > 0 {
+				promptPayloads = payloads
+			}
+			if len(files) > 0 {
+				session.PromptFiles = append(session.PromptFiles, files...)
+			}
+		}
+		session.LaunchSpec = m.buildLaunchSpec(session, profile, sessionCLIConfig, developerInstructions, promptPayloads)
+	} else {
+		m.startPromptInjection(session, request.AgentID, profile, promptNames, onAirString)
+	}
 
 	return session, nil
 }

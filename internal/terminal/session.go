@@ -16,6 +16,7 @@ import (
 	"gestalt/internal/event"
 	"gestalt/internal/otel"
 	"gestalt/internal/process"
+	"gestalt/internal/runner/launchspec"
 	"gestalt/internal/temporal"
 	"gestalt/internal/temporal/workflows"
 
@@ -69,8 +70,11 @@ type SessionMeta struct {
 	LLMModel    string
 	Interface   string
 	Command     string
+	Runner      string
 	ConfigHash  string
 	PromptFiles []string
+	GUIModules  []string
+	LaunchSpec  *launchspec.LaunchSpec
 	agent       *agent.Agent
 }
 
@@ -134,6 +138,7 @@ type SessionInfo struct {
 	LLMType     string
 	LLMModel    string
 	Interface   string
+	Runner      string
 	Command     string
 	Skills      []string
 	PromptFiles []string
@@ -153,6 +158,12 @@ func newSession(id string, pty Pty, runner Runner, cmd *exec.Cmd, title, role st
 	interfaceValue := agent.AgentInterfaceCLI
 	if _, ok := pty.(*mcpPty); ok {
 		interfaceValue = agent.AgentInterfaceMCP
+	}
+	runnerKind := launchspec.RunnerKindServer
+	if runner != nil {
+		if _, ok := runner.(*externalRunner); ok {
+			runnerKind = launchspec.RunnerKindExternal
+		}
 	}
 	outputBuffer := NewOutputBuffer(bufferLines)
 	outputBus := event.NewBus[[]byte](ctx, event.BusOptions{
@@ -185,6 +196,7 @@ func newSession(id string, pty Pty, runner Runner, cmd *exec.Cmd, title, role st
 			LLMType:   llmType,
 			LLMModel:  llmModel,
 			Interface: interfaceValue,
+			Runner:    string(runnerKind),
 			agent:     profile,
 		},
 		SessionIO: SessionIO{
@@ -229,7 +241,9 @@ func (s *Session) Info() SessionInfo {
 		promptFiles = append(promptFiles, s.PromptFiles...)
 	}
 	guiModules := []string{}
-	if s.agent != nil && len(s.agent.GUIModules) > 0 {
+	if len(s.GUIModules) > 0 {
+		guiModules = append(guiModules, s.GUIModules...)
+	} else if s.agent != nil && len(s.agent.GUIModules) > 0 {
 		guiModules = append(guiModules, s.agent.GUIModules...)
 	}
 	interfaceValue := strings.TrimSpace(s.Interface)
@@ -249,6 +263,7 @@ func (s *Session) Info() SessionInfo {
 		LLMType:     s.LLMType,
 		LLMModel:    s.LLMModel,
 		Interface:   interfaceValue,
+		Runner:      s.Runner,
 		Command:     s.Command,
 		Skills:      skills,
 		PromptFiles: promptFiles,

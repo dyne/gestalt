@@ -8,6 +8,7 @@ import (
 	"gestalt/internal/flow"
 	"gestalt/internal/logging"
 	"gestalt/internal/otel"
+	"gestalt/internal/runner/launchspec"
 	"gestalt/internal/terminal"
 )
 
@@ -37,10 +38,16 @@ type terminalSummary struct {
 	LLMType     string    `json:"llm_type"`
 	LLMModel    string    `json:"llm_model"`
 	Interface   string    `json:"interface"`
+	Runner      string    `json:"runner,omitempty"`
 	Command     string    `json:"command,omitempty"`
 	Skills      []string  `json:"skills"`
 	PromptFiles []string  `json:"prompt_files"`
 	GUIModules  []string  `json:"gui_modules"`
+}
+
+type terminalCreateResponse struct {
+	terminalSummary
+	Launch *launchspec.LaunchSpec `json:"launch,omitempty"`
 }
 
 type workflowSummary struct {
@@ -186,10 +193,12 @@ type skillSummary struct {
 }
 
 type createTerminalRequest struct {
-	Title    string `json:"title"`
-	Role     string `json:"role"`
-	Agent    string `json:"agent"`
-	Workflow *bool  `json:"workflow,omitempty"`
+	Title      string   `json:"title"`
+	Role       string   `json:"role"`
+	Agent      string   `json:"agent"`
+	Runner     string   `json:"runner,omitempty"`
+	GUIModules []string `json:"gui_modules,omitempty"`
+	Workflow   *bool    `json:"workflow,omitempty"`
 }
 
 type workflowResumeRequest struct {

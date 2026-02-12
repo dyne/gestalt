@@ -150,6 +150,33 @@ func (f *SessionFactory) Start(request sessionCreateRequest, profile *agent.Agen
 	return session, id, nil
 }
 
+func (f *SessionFactory) StartExternal(request sessionCreateRequest, profile *agent.Agent, shell, reservedID string) (*Session, string, error) {
+	id := strings.TrimSpace(reservedID)
+	if id == "" {
+		if f.nextID == nil {
+			return nil, "", errors.New("session id generator unavailable")
+		}
+		id = f.nextID()
+	}
+
+	createdAt := f.clock.Now().UTC()
+	sessionLogger := f.createSessionLogger(id, createdAt)
+	inputLogger := f.createInputLogger(id, profile, createdAt)
+
+	outputPolicy := f.outputPolicy
+	outputSample := f.outputSample
+
+	session := newSession(id, nil, newExternalRunner(), nil, request.Title, request.Role, createdAt, f.bufferLines, f.historyScanMax, outputPolicy, outputSample, profile, sessionLogger, inputLogger)
+	session.Command = shell
+	if request.AgentID != "" {
+		session.AgentID = request.AgentID
+	}
+	if profile != nil {
+		session.ConfigHash = profile.ConfigHash
+	}
+	return session, id, nil
+}
+
 func (f *SessionFactory) createMCPEventLogger(id string, createdAt time.Time) *mcpEventLogger {
 	if f.sessionLogDir == "" {
 		if f.logger != nil {

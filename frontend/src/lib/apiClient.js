@@ -39,6 +39,15 @@ const normalizeInterface = (value) => {
   return ''
 }
 
+const normalizeRunner = (value) => {
+  if (value === undefined || value === null) return ''
+  const trimmed = String(value).trim().toLowerCase()
+  if (trimmed === 'server' || trimmed === 'external') {
+    return trimmed
+  }
+  return ''
+}
+
 const normalizeTerminal = (terminal) => {
   const id = terminal?.id
   if (!id) return null
@@ -48,6 +57,7 @@ const normalizeTerminal = (terminal) => {
     id: String(id),
     title: terminal?.title ? String(terminal.title) : '',
     interface: interfaceValue,
+    runner: normalizeRunner(terminal?.runner),
     gui_modules: normalizeStringArray(terminal?.gui_modules),
   }
 }

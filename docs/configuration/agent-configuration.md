@@ -13,13 +13,14 @@ All agent files support the following fields:
 - `codex_mode` (string, optional, legacy): For `cli_type="codex"`, deprecated alias for `interface` when `interface` is unset (`mcp-server` maps to `interface="mcp"`, `tui` maps to `interface="cli"`).
 - `prompt` (string or array, optional): Prompt names (no extension) to inject (Codex renders these into `developer_instructions`).
 - `skills` (array, optional): Skill names to inject (Codex renders these into `developer_instructions`).
-- `gui_modules` (array, optional): UI module flags for sessions (e.g., `["plan-progress"]`).
+- `gui_modules` (array, optional): UI module flags for sessions (e.g., `["plan-progress"]`). Known modules: `terminal` (xterm), `console` (text-only), `plan-progress` (sidebar). Defaults to `["terminal"]` for server sessions and `["console","plan-progress"]` for external sessions when unset.
 - `onair_string` (string, optional): Wait for this string before prompt injection (non-Codex only).
 - `use_workflow` (bool, optional): Override workflow default.
 - `singleton` (bool, optional): Allow only one running instance (default true).
 - `llm_model` (string, optional): Model hint for UI/API.
 
 Prompt names resolve against `.gestalt/config/prompts`, trying `.tmpl`, `.md`, then `.txt`.
+Set `gui_modules` in the agent TOML to override the default module selection for that agent.
 
 Any additional top-level keys (outside the base fields) are treated as CLI config and validated. A legacy `[cli_config]` table is still accepted, but no longer required.
 

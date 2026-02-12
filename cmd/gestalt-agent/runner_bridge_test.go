@@ -113,6 +113,10 @@ func TestRunnerBridgeForwardsIO(t *testing.T) {
 
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
+	expectedTarget := tmuxSessionName(launch.SessionID)
+	if fake.pipeTarget != expectedTarget {
+		t.Fatalf("expected pipe target %q, got %q", expectedTarget, fake.pipeTarget)
+	}
 	if len(fake.loadBuffers) == 0 || string(fake.loadBuffers[0]) != "input" {
 		t.Fatalf("expected input to be loaded, got %#v", fake.loadBuffers)
 	}

@@ -122,7 +122,7 @@
     </div>
   </div>
 
-  <WorkflowHistory terminalId={workflow.session_id} />
+  <WorkflowHistory sessionId={workflow.session_id} />
 
   <div class="detail-section">
     <span class="label">Task history</span>

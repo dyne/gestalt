@@ -5,14 +5,16 @@
   import TerminalShell from '../TerminalShell.svelte'
   import TerminalTextView from '../TerminalTextView.svelte'
   import { apiFetch, buildApiPath } from '../../lib/api.js'
+  import { getTerminalState } from '../../lib/terminalStore.js'
   import { createTerminalService } from '../../lib/terminal/service_mcp.js'
 
-  export let terminalId = ''
+  export let sessionId = ''
   export let title = ''
   export let promptFiles = []
   export let visible = true
   export let temporalUrl = ''
   export let guiModules = []
+  export let sessionInterface = ''
   export let planSidebarOpen = false
   export let onTogglePlan = () => {}
   export let onRequestClose = () => {}
@@ -32,11 +34,16 @@
   let unsubscribeReconnect
   let unsubscribeAtBottom
   let unsubscribeSegments
-  let attachedTerminalId = ''
+  let attachedSessionId = ''
+  let attachedInterface = ''
+  let attachedHasTerminal = false
+  let usingSharedState = false
   let wasVisible = false
   let pendingFocus = false
   let displayTitle = ''
+  let interfaceValue = ''
   let promptFilesLabel = ''
+  let hasTerminalModule = false
 
   const statusLabels = {
     connecting: 'Connecting...',
@@ -68,13 +75,19 @@
       unsubscribeSegments()
       unsubscribeSegments = null
     }
-    state?.dispose?.()
+    if (state && !usingSharedState) {
+      state.dispose?.()
+    }
     state = null
+    usingSharedState = false
   }
 
   const attachState = () => {
-    if (!terminalId) return
-    state = createTerminalService({ terminalId })
+    if (!sessionId) return
+    usingSharedState = interfaceValue !== 'cli' && !hasTerminalModule
+    state = usingSharedState
+      ? getTerminalState(sessionId, interfaceValue)
+      : createTerminalService({ terminalId: sessionId })
     if (!state) return
     unsubscribeStatus = state.status.subscribe((value) => {
       status = value
@@ -115,8 +128,8 @@
     }
     state.appendPrompt?.(payload)
     const trimmed = payload.trim()
-    if (!trimmed || !terminalId) return
-    apiFetch(buildApiPath('/api/sessions', terminalId, 'input-history'), {
+    if (!trimmed || !sessionId) return
+    apiFetch(buildApiPath('/api/sessions', sessionId, 'input-history'), {
       method: 'POST',
       body: JSON.stringify({ command: trimmed }),
     }).catch((err) => {
@@ -130,16 +143,27 @@
 
   const handleDirectInputChange = () => {}
 
-  $: if (!terminalId) {
+  $:
+    interfaceValue =
+      typeof sessionInterface === 'string' ? sessionInterface.trim().toLowerCase() : ''
+  $: if (!sessionId) {
     if (state) {
       detachState()
     }
-    attachedTerminalId = ''
-  } else if (terminalId !== attachedTerminalId) {
+    attachedSessionId = ''
+    attachedInterface = ''
+    attachedHasTerminal = false
+  } else if (
+    sessionId !== attachedSessionId ||
+    interfaceValue !== attachedInterface ||
+    hasTerminalModule !== attachedHasTerminal
+  ) {
     if (state) {
       detachState()
     }
-    attachedTerminalId = terminalId
+    attachedSessionId = sessionId
+    attachedInterface = interfaceValue
+    attachedHasTerminal = hasTerminalModule
     attachState()
   }
 
@@ -154,7 +178,7 @@
     if (visible && pendingFocus) {
       requestAnimationFrame(() => {
         if (!visible || !pendingFocus) return
-        if (!terminalId || status !== 'connected') return
+        if (!sessionId || status !== 'connected') return
         commandInput?.focusInput?.()
         pendingFocus = false
       })
@@ -163,8 +187,8 @@
   }
 
   $: statusLabel = statusLabels[status] || status
-  $: inputDisabled = status !== 'connected' || !terminalId
-  $: displayTitle = terminalId ? terminalId : 'Session —'
+  $: inputDisabled = status !== 'connected' || !sessionId
+  $: displayTitle = sessionId ? sessionId : 'Session —'
   $: promptFilesLabel =
     Array.isArray(promptFiles) && promptFiles.length > 0
       ? promptFiles.filter(Boolean).join(', ')
@@ -172,9 +196,12 @@
   $: hasPlanModule =
     Array.isArray(guiModules) &&
     guiModules.some((entry) => String(entry || '').trim().toLowerCase() === 'plan-progress')
+  $: hasTerminalModule =
+    Array.isArray(guiModules) &&
+    guiModules.some((entry) => String(entry || '').trim().toLowerCase() === 'terminal')
 
   onMount(() => {
-    if (terminalId) {
+    if (sessionId) {
       pendingFocus = true
     }
   })
@@ -188,7 +215,7 @@
   {displayTitle}
   {promptFilesLabel}
   {statusLabel}
-  {terminalId}
+  sessionId={sessionId}
   {historyStatus}
   {canReconnect}
   {temporalUrl}
@@ -209,7 +236,7 @@
   </svelte:fragment>
   <CommandInput
     slot="input"
-    {terminalId}
+      {sessionId}
     agentName={title}
     bind:this={commandInput}
     onSubmit={handleSubmit}

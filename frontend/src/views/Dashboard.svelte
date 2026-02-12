@@ -58,12 +58,12 @@
     }
   }
 
-  const switchToTerminal = (terminalId) => {
-    if (!terminalId) {
+  const switchToTerminal = (sessionId) => {
+    if (!sessionId) {
       localError = 'No running session found.'
       return
     }
-    onSelect(terminalId)
+    onSelect(sessionId)
   }
 
   const formatLogTime = (value) => {

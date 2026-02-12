@@ -5,7 +5,7 @@
   import { createCommandHistory } from '../lib/commandHistory.js'
   import VoiceInput from './VoiceInput.svelte'
 
-  export let terminalId = ''
+  export let sessionId = ''
   export let agentName = ''
   export let onSubmit = () => {}
   export let disabled = false
@@ -134,9 +134,9 @@
     if (trimmed) {
       history.record(trimmed)
       const attributes = {}
-      if (terminalId) {
-        attributes['terminal.id'] = terminalId
-      }
+    if (sessionId) {
+      attributes['terminal.id'] = sessionId
+    }
       if (agentName) {
         attributes['agent.name'] = agentName
       }
@@ -243,8 +243,8 @@
     stopResize()
   })
 
-  $: if (terminalId) {
-    history.load(terminalId)
+  $: if (sessionId) {
+    history.load(sessionId)
   }
 
   $: commandStyle = manualHeight
@@ -264,10 +264,10 @@
     aria-orientation="horizontal"
     on:pointerdown={startResize}
   ></div>
-  <label class="sr-only" for={`command-${terminalId}`}>Command input</label>
+  <label class="sr-only" for={`command-${sessionId}`}>Command input</label>
   <div class="command-input__row">
     <textarea
-      id={`command-${terminalId}`}
+      id={`command-${sessionId}`}
       bind:this={textarea}
       bind:value
       class:textarea--no-scroll={!hasOverflow}

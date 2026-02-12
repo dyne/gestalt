@@ -81,7 +81,7 @@ describe('CommandInput', () => {
   it('submits on Enter and clears input', async () => {
     const onSubmit = vi.fn()
     const { getByPlaceholderText } = render(CommandInput, {
-      props: { onSubmit, terminalId: '' },
+      props: { onSubmit, sessionId: '' },
     })
 
     const textarea = getByPlaceholderText(/Type command/i)
@@ -94,7 +94,7 @@ describe('CommandInput', () => {
 
   it('appends voice transcripts to the input value', async () => {
     const { getByPlaceholderText, findByRole, getByText } = render(CommandInput, {
-      props: { terminalId: '' },
+      props: { sessionId: '' },
     })
 
     const textarea = getByPlaceholderText(/Type command/i)

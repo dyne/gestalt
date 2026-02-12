@@ -192,11 +192,11 @@
       notificationStore.addNotification('warning', 'File watching unavailable.')
     })
     terminalErrorUnsubscribe = subscribeTerminalEvents('terminal_error', (payload) => {
-      const terminalId = payload?.session_id || 'unknown'
+      const sessionId = payload?.session_id || 'unknown'
       const detail = payload?.data?.error
       const message = detail
-        ? `Session ${terminalId} error: ${detail}`
-        : `Session ${terminalId} error.`
+        ? `Session ${sessionId} error: ${detail}`
+        : `Session ${sessionId} error.`
       notificationStore.addNotification('error', message)
     })
     notificationUnsubscribe = subscribeNotificationEvents('toast', (payload) => {
@@ -289,7 +289,7 @@
       <div class="terminal-tab" data-active="true">
         <svelte:boundary onerror={(error) => handleBoundaryError('terminal', error)} failed={viewFailed}>
           <TerminalView
-            terminalId={activeTerminal.id}
+            sessionId={activeTerminal.id}
             title={activeTerminal.title}
             promptFiles={activeTerminal.prompt_files || []}
             visible={true}

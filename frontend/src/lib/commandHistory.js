@@ -54,12 +54,12 @@ export const createCommandHistory = ({
     return historyIndex === -1 ? draft : history[historyIndex] || ''
   }
 
-  const load = async (terminalId) => {
-    if (!terminalId || terminalId === loadedFor) return
-    loadedFor = terminalId
+  const load = async (sessionId) => {
+    if (!sessionId || sessionId === loadedFor) return
+    loadedFor = sessionId
     try {
       const response = await apiFetch(
-        `${buildApiPath('/api/sessions', terminalId, 'input-history')}?limit=${loadLimit}`
+        `${buildApiPath('/api/sessions', sessionId, 'input-history')}?limit=${loadLimit}`
       )
       const payload = await response.json()
       history = normalizeHistory(payload)

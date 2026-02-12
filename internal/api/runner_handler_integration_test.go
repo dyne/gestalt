@@ -42,6 +42,17 @@ func TestRunnerHandlerBridgesIO(t *testing.T) {
 	}
 	defer terminalConn.Close()
 
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if session.SubscriberCount() > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if session.SubscriberCount() == 0 {
+		t.Fatalf("expected terminal websocket to subscribe before publishing output")
+	}
+
 	outputPayload := []byte("hello\n")
 	if err := runnerConn.WriteMessage(websocket.BinaryMessage, outputPayload); err != nil {
 		t.Fatalf("runner output write: %v", err)

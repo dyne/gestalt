@@ -59,20 +59,22 @@ func (p *PromptList) setPromptList(values []string) error {
 
 // Agent defines a terminal profile loaded from config/agents/*.toml.
 type Agent struct {
-	Name        string                 `json:"name" toml:"name"`
-	Shell       string                 `json:"shell,omitempty" toml:"shell,omitempty"`
-	Prompts     PromptList             `json:"prompt,omitempty" toml:"prompt,omitempty"`
-	Skills      []string               `json:"skills,omitempty" toml:"skills,omitempty"`
-	GUIModules  []string               `json:"gui_modules,omitempty" toml:"gui_modules,omitempty"`
-	OnAirString string                 `json:"onair_string,omitempty" toml:"onair_string,omitempty"`
-	UseWorkflow *bool                  `json:"use_workflow,omitempty" toml:"use_workflow,omitempty"`
-	Singleton   *bool                  `json:"singleton,omitempty" toml:"singleton,omitempty"`
-	Interface   string                 `json:"interface,omitempty" toml:"interface,omitempty"`
-	CodexMode   string                 `json:"codex_mode,omitempty" toml:"codex_mode,omitempty"`
-	CLIType     string                 `json:"cli_type,omitempty" toml:"cli_type,omitempty"`
-	LLMModel    string                 `json:"llm_model,omitempty" toml:"llm_model,omitempty"`
-	CLIConfig   map[string]interface{} `json:"cli_config,omitempty" toml:"cli_config,omitempty"`
-	ConfigHash  string                 `json:"-" toml:"-"`
+	Name          string                 `json:"name" toml:"name"`
+	Shell         string                 `json:"shell,omitempty" toml:"shell,omitempty"`
+	Prompts       PromptList             `json:"prompt,omitempty" toml:"prompt,omitempty"`
+	Skills        []string               `json:"skills,omitempty" toml:"skills,omitempty"`
+	GUIModules    []string               `json:"gui_modules,omitempty" toml:"gui_modules,omitempty"`
+	OnAirString   string                 `json:"onair_string,omitempty" toml:"onair_string,omitempty"`
+	UseWorkflow   *bool                  `json:"use_workflow,omitempty" toml:"use_workflow,omitempty"`
+	Singleton     *bool                  `json:"singleton,omitempty" toml:"singleton,omitempty"`
+	Interface     string                 `json:"interface,omitempty" toml:"interface,omitempty"`
+	CodexMode     string                 `json:"codex_mode,omitempty" toml:"codex_mode,omitempty"`
+	CLIType       string                 `json:"cli_type,omitempty" toml:"cli_type,omitempty"`
+	LLMModel      string                 `json:"llm_model,omitempty" toml:"llm_model,omitempty"`
+	CLIConfig     map[string]interface{} `json:"cli_config,omitempty" toml:"cli_config,omitempty"`
+	OutputFilter  string                 `json:"output_filter,omitempty" toml:"output_filter,omitempty"`
+	OutputFilters []string               `json:"output_filters,omitempty" toml:"output_filters,omitempty"`
+	ConfigHash    string                 `json:"-" toml:"-"`
 }
 
 const (

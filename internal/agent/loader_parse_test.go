@@ -29,6 +29,8 @@ interface = "mcp"
 codex_mode = "mcp-server"
 model = "o3"
 gui_modules = ["plan-progress"]
+output_filter = "ansi-strip"
+output_filters = ["utf8-guard", "scrollback-vt"]
 `)
 	agent, err := loadAgentFromBytes("agent.toml", data)
 	if err != nil {
@@ -49,7 +51,19 @@ gui_modules = ["plan-progress"]
 	if _, ok := agent.CLIConfig["gui_modules"]; ok {
 		t.Fatalf("did not expect gui_modules in CLI config")
 	}
+	if _, ok := agent.CLIConfig["output_filter"]; ok {
+		t.Fatalf("did not expect output_filter in CLI config")
+	}
+	if _, ok := agent.CLIConfig["output_filters"]; ok {
+		t.Fatalf("did not expect output_filters in CLI config")
+	}
 	if value, ok := agent.CLIConfig["model"]; !ok || value != "o3" {
 		t.Fatalf("expected model in cli_config, got %#v", agent.CLIConfig)
+	}
+	if agent.OutputFilter != "ansi-strip" {
+		t.Fatalf("expected output_filter, got %q", agent.OutputFilter)
+	}
+	if len(agent.OutputFilters) != 2 || agent.OutputFilters[0] != "utf8-guard" || agent.OutputFilters[1] != "scrollback-vt" {
+		t.Fatalf("expected output_filters, got %#v", agent.OutputFilters)
 	}
 }

@@ -126,19 +126,21 @@ func lineForKey(data []byte, keyPath string) int {
 }
 
 var agentRootKeys = map[string]struct{}{
-	"name":         {},
-	"shell":        {},
-	"codex_mode":   {},
-	"prompt":       {},
-	"skills":       {},
-	"gui_modules":  {},
-	"onair_string": {},
-	"use_workflow": {},
-	"singleton":    {},
-	"interface":    {},
-	"cli_type":     {},
-	"llm_model":    {},
-	"cli_config":   {},
+	"name":           {},
+	"shell":          {},
+	"codex_mode":     {},
+	"prompt":         {},
+	"skills":         {},
+	"gui_modules":    {},
+	"onair_string":   {},
+	"use_workflow":   {},
+	"singleton":      {},
+	"interface":      {},
+	"cli_type":       {},
+	"llm_model":      {},
+	"cli_config":     {},
+	"output_filter":  {},
+	"output_filters": {},
 }
 
 func extractCLIConfig(raw map[string]interface{}) (map[string]interface{}, error) {

@@ -26,6 +26,7 @@
     sessionUiConfig,
     setSessionUiConfigFromStatus,
   } from './lib/sessionUiConfig.js'
+  import { resolveGuiModules } from './lib/guiModules/resolve.js'
   import {
     appHealthStore,
     forceReload,
@@ -293,7 +294,7 @@
             promptFiles={activeTerminal.prompt_files || []}
             visible={true}
             sessionInterface={activeTerminal.interface || ''}
-            guiModules={activeTerminal.gui_modules || []}
+            guiModules={resolveGuiModules(activeTerminal.gui_modules, activeTerminal.runner)}
             onDelete={deleteTerminal}
           />
         </svelte:boundary>

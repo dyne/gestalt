@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 )
@@ -12,6 +13,8 @@ type Runner interface {
 	Resize(cols, rows uint16) error
 	Close() error
 }
+
+var ErrRunnerAttached = errors.New("runner already attached")
 
 type ptyRunner struct {
 	pty       Pty
@@ -86,6 +89,7 @@ func (r *ptyRunner) writeLoop() {
 
 type externalRunner struct {
 	mu         sync.RWMutex
+	attached   bool
 	writeFunc  func([]byte) error
 	resizeFunc func(uint16, uint16) error
 	closeFunc  func() error
@@ -95,14 +99,32 @@ func newExternalRunner() *externalRunner {
 	return &externalRunner{}
 }
 
-func (r *externalRunner) Attach(writeFn func([]byte) error, resizeFn func(uint16, uint16) error, closeFn func() error) {
+func (r *externalRunner) Attach(writeFn func([]byte) error, resizeFn func(uint16, uint16) error, closeFn func() error) error {
+	if r == nil {
+		return ErrRunnerUnavailable
+	}
+	r.mu.Lock()
+	if r.attached {
+		r.mu.Unlock()
+		return ErrRunnerAttached
+	}
+	r.attached = true
+	r.writeFunc = writeFn
+	r.resizeFunc = resizeFn
+	r.closeFunc = closeFn
+	r.mu.Unlock()
+	return nil
+}
+
+func (r *externalRunner) Detach() {
 	if r == nil {
 		return
 	}
 	r.mu.Lock()
-	r.writeFunc = writeFn
-	r.resizeFunc = resizeFn
-	r.closeFunc = closeFn
+	r.attached = false
+	r.writeFunc = nil
+	r.resizeFunc = nil
+	r.closeFunc = nil
 	r.mu.Unlock()
 }
 

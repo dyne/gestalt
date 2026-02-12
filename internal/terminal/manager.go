@@ -714,6 +714,16 @@ func (m *Manager) Get(id string) (*Session, bool) {
 	return session, ok
 }
 
+// RegisterSession adds a pre-built session to the manager.
+func (m *Manager) RegisterSession(session *Session) {
+	if m == nil || session == nil || strings.TrimSpace(session.ID) == "" {
+		return
+	}
+	m.mu.Lock()
+	m.sessions[session.ID] = session
+	m.mu.Unlock()
+}
+
 func (m *Manager) GetSessionByAgent(agentName string) (*Session, bool) {
 	if strings.TrimSpace(agentName) == "" {
 		return nil, false

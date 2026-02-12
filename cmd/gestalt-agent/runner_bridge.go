@@ -33,7 +33,7 @@ type tmuxBridgeClient interface {
 	ResizePane(target string, cols, rows uint16) error
 	LoadBuffer(data []byte) error
 	PasteBuffer(target string) error
-	KillSession(name string) error
+	KillWindow(target string) error
 }
 
 var runnerDialer wsDialer = websocket.DefaultDialer
@@ -63,8 +63,11 @@ func runRunnerBridge(ctx context.Context, launch *launchspec.LaunchSpec, baseURL
 		return errors.New("tmux client unavailable")
 	}
 
-	sessionName := tmuxSessionName(sessionID)
-	paneTarget := sessionName
+	target, err := tmuxTargetForSession(sessionID)
+	if err != nil {
+		return err
+	}
+	paneTarget := target.PaneTarget()
 
 	logPath, err := createLogFile(sessionID)
 	if err != nil {
@@ -196,7 +199,7 @@ func handleRunnerMessage(client tmuxBridgeClient, target string, sendControl fun
 	case proto.ResizeMessage:
 		return client.ResizePane(target, typed.Cols, typed.Rows)
 	case proto.ExitMessage:
-		return client.KillSession(strings.Split(target, ":")[0])
+		return client.KillWindow(target)
 	default:
 		return nil
 	}

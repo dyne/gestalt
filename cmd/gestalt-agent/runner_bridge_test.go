@@ -55,7 +55,7 @@ func (f *fakeBridgeClient) PasteBuffer(target string) error {
 	return nil
 }
 
-func (f *fakeBridgeClient) KillSession(name string) error {
+func (f *fakeBridgeClient) KillWindow(target string) error {
 	return nil
 }
 
@@ -124,7 +124,11 @@ func TestRunnerBridgeForwardsIO(t *testing.T) {
 
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
-	expectedTarget := tmuxSessionName(launch.SessionID)
+	target, err := tmuxTargetForSession(launch.SessionID)
+	if err != nil {
+		t.Fatalf("tmux target: %v", err)
+	}
+	expectedTarget := target.PaneTarget()
 	if fake.pipeTarget != expectedTarget {
 		t.Fatalf("expected pipe target %q, got %q", expectedTarget, fake.pipeTarget)
 	}

@@ -1,3 +1,30 @@
+# [1.10.0](https://github.com/dyne/gestalt/compare/v1.9.0...v1.10.0) (2026-02-12)
+
+
+### Bug Fixes
+
+* **gestalt-agent:** adjust tmux window handling ([bf6a895](https://github.com/dyne/gestalt/commit/bf6a895dd985a04e0ccbdbf6a71d9ec20beacc17))
+* **gestalt-agent:** avoid double-escaped runner URLs ([f0d7f1f](https://github.com/dyne/gestalt/commit/f0d7f1f4dd4f764b896f8856752cba1c74463eeb))
+* **gestalt-agent:** show tmux attach hint ([eb1593a](https://github.com/dyne/gestalt/commit/eb1593a73707c6496ebd8e175f02f92e62dfa4f3))
+* **prompt:** improve prompts and notify behavior ([e55b730](https://github.com/dyne/gestalt/commit/e55b730b80f3efb47c7bc9690906dd3aa0a249c5))
+* recycle agent session ids on close ([73c13db](https://github.com/dyne/gestalt/commit/73c13db6f99a5719a1f698fbaabe9fb3c661e939))
+* run gestalt-agent via tmux runner ([7d79f40](https://github.com/dyne/gestalt/commit/7d79f4049c2eecbdde6624da4c2ee63d0a9e5790))
+* use tmux session target in runner bridge ([090de2d](https://github.com/dyne/gestalt/commit/090de2df72f7e699494ba2e7d4ca95ccdaaf5cd6))
+
+
+### Features
+
+* add external session runner support ([bb1fbbd](https://github.com/dyne/gestalt/commit/bb1fbbd077bd81eb87ac1d0077aa4eab42077154))
+* add runner ws bridge ([867ba01](https://github.com/dyne/gestalt/commit/867ba01626011f67507f2d5257f8732a745a80d7))
+* add runner ws protocol types ([4037c97](https://github.com/dyne/gestalt/commit/4037c977b07921ddde8d28539fde5c4c574c0f76))
+* add terminal runner abstraction ([8f2d186](https://github.com/dyne/gestalt/commit/8f2d186c4ccf9fba0b288ef844dbe900978e33cd))
+* add tmux runner adapter ([6ec1830](https://github.com/dyne/gestalt/commit/6ec183022eaa8c7bbfad6b4f411e5c4254d04e44))
+* bridge tmux io over runner ws ([457e342](https://github.com/dyne/gestalt/commit/457e342363cc974d7c7e153d3d453a1bb3c02d4c))
+* create external sessions via server ([4cf06b8](https://github.com/dyne/gestalt/commit/4cf06b8bf938684b873b4871f30621f2ae1672f2))
+* **frontend:** add console module ([3235f7b](https://github.com/dyne/gestalt/commit/3235f7b69aeca18cd911e711fa6452893ec93453))
+* **frontend:** resolve gui modules ([b9209b9](https://github.com/dyne/gestalt/commit/b9209b9f850b294e52071c224f4ed357df728f15))
+* share codex argv and launch spec ([7f98176](https://github.com/dyne/gestalt/commit/7f98176b5e1976a46174801139990b973e82cf50))
+
 # [1.9.0](https://github.com/dyne/gestalt/compare/v1.8.0...v1.9.0) (2026-02-12)
 
 

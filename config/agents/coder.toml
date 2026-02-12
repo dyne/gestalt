@@ -4,6 +4,7 @@ cli_type = "codex"
 interface = "cli"
 prompt = ["coder"]
 llm_model = "default"
+gui_modules = ["console","plan-progress"]
 
 # Core model selection
 model = "gpt-5.2-codex" # values: any supported model id

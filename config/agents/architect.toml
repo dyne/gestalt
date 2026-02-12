@@ -5,6 +5,7 @@ interface = "cli"
 prompt = ["architect"]
 llm_model = "default"
 singleton = false
+gui_modules = ["console"]
 
 # Core model selection
 model = "gpt-5.2" # values: any supported model id

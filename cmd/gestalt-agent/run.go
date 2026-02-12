@@ -40,7 +40,7 @@ func runAgent(cfg Config, in io.Reader, out io.Writer, exec execRunner) (int, er
 			fmt.Fprintln(os.Stderr, "warning: developer_instructions overridden by rendered prompt")
 		}
 	}
-	args := buildCodexArgs(profile.CLIConfig, developerPrompt)
+	args := agentpkg.BuildCodexArgs(profile.CLIConfig, developerPrompt)
 	if exec == nil {
 		return 0, nil
 	}

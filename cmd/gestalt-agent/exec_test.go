@@ -3,16 +3,18 @@ package main
 import (
 	"strings"
 	"testing"
+
+	agentpkg "gestalt/internal/agent"
 )
 
 func TestBuildCodexArgsPreservesPrompt(t *testing.T) {
 	config := map[string]interface{}{
-		"model":            "gpt-4",
-		"notify":           "bell",
+		"model":                  "gpt-4",
+		"notify":                 "bell",
 		"developer_instructions": "old",
 	}
 	prompt := "line1\n\"quote\"\n"
-	args := buildCodexArgs(config, prompt)
+	args := agentpkg.BuildCodexArgs(config, prompt)
 
 	value, count := findArgValue(args, "developer_instructions")
 	if count != 1 {

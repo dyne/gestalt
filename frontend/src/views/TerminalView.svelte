@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte'
   import Terminal from '../components/Terminal.svelte'
+  import ConsoleModule from '../components/modules/ConsoleModule.svelte'
   import PlanSidebar from '../components/PlanSidebar.svelte'
   import { fetchStatus, fetchWorkflows } from '../lib/apiClient.js'
   import { buildTemporalUrl } from '../lib/workflowFormat.js'
@@ -79,6 +80,15 @@
   }
 
   $: planSidebarOpen = terminalId ? Boolean(planSidebarState[terminalId]) : false
+  $: hasTerminalModule =
+    Array.isArray(guiModules) &&
+    guiModules.some((entry) => String(entry || '').trim().toLowerCase() === 'terminal')
+  $: hasConsoleModule =
+    Array.isArray(guiModules) &&
+    guiModules.some((entry) => String(entry || '').trim().toLowerCase() === 'console')
+  $: hasPlanModule =
+    Array.isArray(guiModules) &&
+    guiModules.some((entry) => String(entry || '').trim().toLowerCase() === 'plan-progress')
 
   $: if (terminalId && terminalId !== lastTerminalId) {
     lastTerminalId = terminalId
@@ -101,19 +111,34 @@
 <section class="terminal-view">
   {#if terminalId}
     <div class="terminal-view__layout" data-plan-open={planSidebarOpen}>
-      <Terminal
-        {terminalId}
-        {title}
-      {promptFiles}
-      {visible}
-      {temporalUrl}
-      {sessionInterface}
-      {guiModules}
-      {planSidebarOpen}
-      onTogglePlan={togglePlanSidebar}
-      onRequestClose={openCloseDialog}
-      />
-      {#if planSidebarOpen}
+      {#if hasTerminalModule}
+        <Terminal
+          {terminalId}
+          {title}
+          {promptFiles}
+          {visible}
+          {temporalUrl}
+          {sessionInterface}
+          {guiModules}
+          {planSidebarOpen}
+          onTogglePlan={togglePlanSidebar}
+          onRequestClose={openCloseDialog}
+        />
+      {/if}
+      {#if hasConsoleModule}
+        <ConsoleModule
+          {terminalId}
+          {title}
+          {promptFiles}
+          {visible}
+          {temporalUrl}
+          {guiModules}
+          {planSidebarOpen}
+          onTogglePlan={togglePlanSidebar}
+          onRequestClose={openCloseDialog}
+        />
+      {/if}
+      {#if hasPlanModule && planSidebarOpen}
         <PlanSidebar
           sessionId={terminalId}
           open={planSidebarOpen}

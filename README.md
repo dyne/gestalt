@@ -274,7 +274,16 @@ Try it:
 gestalt-notify --session-id '<session-id>' \
   '{"type":"plan-L1-wip","plan_file":".gestalt/plans/your-plan.org","heading":"Example","state":"wip","level":1}'
 ```
-4. Verify the history includes a notify entry:
+4. Send a progress event (Plan sidebar):
+```
+gestalt-notify --session-id 'Coder 1' \
+  '{"type":"progress","plan_file":"plans-tab-sidebar.org","l1":"Show task bodies as raw org text","l2":"Extract heading bodies by slicing source text","task_state":"WIP","task_level":2}'
+```
+5. Query the latest progress state:
+```
+curl "http://localhost:57417/api/sessions/Coder%201/progress"
+```
+6. Verify the history includes a notify entry:
 ```
 curl "http://localhost:57417/api/terminals/<session-id>/workflow/history"
 ```

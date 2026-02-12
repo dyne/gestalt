@@ -14,12 +14,16 @@ type Config struct {
 	AgentID     string
 	DryRun      bool
 	ShowVersion bool
+	URL         string
+	Token       string
 }
 
 func parseArgs(args []string, errOut io.Writer) (Config, error) {
 	fs := flag.NewFlagSet("gestalt-agent", flag.ContinueOnError)
 	fs.SetOutput(errOut)
 	dryRun := fs.Bool("dryrun", false, "Print the codex command without executing")
+	url := fs.String("url", defaultGestaltURL(), "Gestalt server URL")
+	token := fs.String("token", defaultGestaltToken(), "Gestalt auth token")
 	helper := cli.AddHelpVersionFlags(fs, "Show this help message", "Print version and exit")
 	fs.Usage = func() {
 		printHelp(fs.Output())
@@ -63,6 +67,8 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 		AgentArg: agentArg,
 		AgentID:  agentID,
 		DryRun:   *dryRun,
+		URL:      *url,
+		Token:    *token,
 	}, nil
 }
 
@@ -81,6 +87,8 @@ func printHelp(out io.Writer) {
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Options:")
 	writeOption(out, "--dryrun", "Print the command without executing")
+	writeOption(out, "--url", "Gestalt server URL (env: GESTALT_URL)")
+	writeOption(out, "--token", "Gestalt auth token (env: GESTALT_TOKEN)")
 	writeOption(out, "--help", "Show this help message")
 	writeOption(out, "--version", "Print version and exit")
 	fmt.Fprintln(out, "")

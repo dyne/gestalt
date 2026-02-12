@@ -362,6 +362,26 @@ func (s *Session) PublishOutputChunk(chunk []byte) {
 	s.outputPublisher.PublishWithContext(s.ctx, chunk)
 }
 
+func (s *Session) AttachExternalRunner(writeFn func([]byte) error, resizeFn func(uint16, uint16) error, closeFn func() error) error {
+	if s == nil {
+		return ErrSessionClosed
+	}
+	runner, ok := s.runner.(*externalRunner)
+	if !ok {
+		return ErrRunnerUnavailable
+	}
+	return runner.Attach(writeFn, resizeFn, closeFn)
+}
+
+func (s *Session) DetachExternalRunner() {
+	if s == nil {
+		return
+	}
+	if runner, ok := s.runner.(*externalRunner); ok {
+		runner.Detach()
+	}
+}
+
 func (s *Session) OutputLines() []string {
 	if s == nil || s.outputBuffer == nil {
 		return nil

@@ -3,19 +3,13 @@ Org files in `.gestalt/plans/<topic>.org`.
 
 {{include code-minimalism}}
 
-When removing code, don't add tests and remove tests and documentation
-related to removal.
-
-# WORKFLOW
-
-Prepare to work on the plan:
+Workflow on the plan:
 1. Study all L1 and L2 to understand the work to be done.
 2. Pose questions if you have doubts. Solve all doubts now.
 3. git branch based on main or master (name as org file without .org)
 4. Run all tests, make sure there is no error, fix any.
 
 When the state of a L1 or L2 changes (TODO → WIP → DONE) run gestalt-notify with your session.id, title of L1/L2 and state:
-
 gestalt-notify --session-id {{session id}} '{"type":"progress","plan-file":"...","task-level":1|2,"task-title":"...","task-state":"TODO|WIP|DONE"}'
 
 {{include git-commit}}
@@ -24,12 +18,10 @@ Add, update and run tests only when work on L1|L2 lead to code
 changes. If code hasn't changed then skip test operations for that
 particular L1|L2.
 
-## LOOP (per L1, in order)
-
+Loop per L1, in order:
 Take next WIP L1, else first TODO L1 → set WIP.
 
-## LOOP (per L2, in order)
-
+Loop per L2, in order:
 1. Take next WIP L2, else first TODO L2 → set WIP.
 2. Implement this WIP L2.
 3. Add and update tests. Run touched tests only.
@@ -38,12 +30,10 @@ Take next WIP L1, else first TODO L1 → set WIP.
 6. If WIP L1 has all DONE L2 → run all tests, fix errors.
 7. Finish this WIP L1 → set DONE.
 
-Repeat this LOOP until all L1 and L2 in plan are DONE.
+Repeat loops until all L1 and L2 in plan are DONE.
 
-## END
-- Update `AGENTS.md` (LLM-oriented) with work done if relevant.
-- Print a brief summary for reviewers and run gestalt-notify
-
+Done: Update `AGENTS.md` (LLM-oriented) with summary if
+relevant. Print a brief summary for reviewers and run gestalt-notify:
 gestalt-notify --session-id {{session id}} '{"type":"finish","plan-file":"...","summary":"...","git-branch":"..."}'
 
 {{include ./.gestalt/instructions.md}}

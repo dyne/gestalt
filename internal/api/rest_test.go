@@ -51,7 +51,7 @@ func ensureTestAgentsDir() string {
 			panic(err)
 		}
 		testAgentsDir = dir
-		agentTOML := "name = \"Codex\"\nshell = \"/bin/sh\"\ncli_type = \"codex\"\n"
+		agentTOML := "name = \"Codex\"\nshell = \"/bin/sh\"\ncli_type = \"codex\"\noutput_filters = [\"ansi-strip\", \"utf8-guard\"]\n"
 		if err := os.WriteFile(filepath.Join(dir, "codex.toml"), []byte(agentTOML), 0644); err != nil {
 			panic(err)
 		}

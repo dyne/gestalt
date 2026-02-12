@@ -36,7 +36,7 @@ func runWithExec(args []string, out io.Writer, errOut io.Writer, exec execRunner
 		return 0
 	}
 
-	runner := exec
+	var runner execRunner
 	if cfg.DryRun {
 		runner = func(args []string) (int, error) {
 			fmt.Fprintln(out, formatCodexCommand(args))

@@ -21,6 +21,7 @@
 - [🎮 Quick setup](#-quick-setup)
 - [💾 Build](#-build)
 - [🧪 Testing](#-testing)
+- [🧾 Terminal output contract](#-terminal-output-contract)
 - [💼 License](#-license)
 
 </div>
@@ -100,6 +101,16 @@ cd frontend && npm test -- --run
 
 More details: [`TESTING.md`](TESTING.md)
 
+## 🧾 Terminal output contract
+
+Terminal output delivered to WebSocket subscribers and session logs is a transcript stream:
+
+- UTF-8 text with `\n` newlines and optional `\t` tabs.
+- No ANSI/OSC/DCS escape sequences or cursor control codes.
+- TUI repaint animations (carriage-return rewrites, in-place redraws) are collapsed to stable lines.
+
+Colors, cursor position, and full-screen TUI fidelity are intentionally not preserved.
+
 ## 💼 License
 
 Copyright (C) 2025-2026 Dyne.org foundation
@@ -111,5 +122,4 @@ This program is free software: you can redistribute it and/or modify it under th
 This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
 
 You should have received a copy of the GNU Affero General Public License along with this program. If not, see https://www.gnu.org/licenses/.
-
 

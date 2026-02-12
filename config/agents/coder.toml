@@ -7,7 +7,7 @@ llm_model = "default"
 
 # Core model selection
 model = "gpt-5.2-codex" # values: any supported model id
-model_reasoning_effort = "high"
+model_reasoning_effort = "medium"
 # review_model = "gpt-5.1-codex"
 # model_context_window = 200000
 # model_auto_compact_token_limit = 120000
@@ -36,7 +36,7 @@ tui.alternate_screen = "never" # values: auto | always | never
 # Instructions
 # instructions = "Follow the repo plan strictly."
 # developer_instructions = "Prefer minimal changes."
-compact_prompt = "Study your current org-mode plan. Continue from any WIP task. Be Brief."
+compact_prompt = "Study your current org-mode plan. Continue from any WIP task."
 
 project_root_markers = [".gestalt"]
 project_doc_fallback_filenames = ["AGENTS.md","CLAUDE.md","CRUSH.md", ".github/copilot-instructions.md",".gestalt/instructions.md","README.md"]

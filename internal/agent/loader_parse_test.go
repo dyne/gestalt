@@ -28,7 +28,7 @@ cli_type = "codex"
 interface = "mcp"
 codex_mode = "mcp-server"
 model = "o3"
-gui-modules = ["plan-progress"]
+gui_modules = ["plan-progress"]
 `)
 	agent, err := loadAgentFromBytes("agent.toml", data)
 	if err != nil {
@@ -46,8 +46,8 @@ gui-modules = ["plan-progress"]
 	if _, ok := agent.CLIConfig["codex_mode"]; ok {
 		t.Fatalf("did not expect codex_mode in CLI config")
 	}
-	if _, ok := agent.CLIConfig["gui-modules"]; ok {
-		t.Fatalf("did not expect gui-modules in CLI config")
+	if _, ok := agent.CLIConfig["gui_modules"]; ok {
+		t.Fatalf("did not expect gui_modules in CLI config")
 	}
 	if value, ok := agent.CLIConfig["model"]; !ok || value != "o3" {
 		t.Fatalf("expected model in cli_config, got %#v", agent.CLIConfig)

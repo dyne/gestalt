@@ -17,7 +17,7 @@ onair_string = "READY"
 cli_type = "codex"
 codex_mode = "tui"
 llm_model = "default"
-gui-modules = ["Plan-Progress"]
+gui_modules = ["Plan-Progress"]
 `
 
 	var a Agent

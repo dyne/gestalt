@@ -1669,7 +1669,7 @@ func TestCreateTerminalWithAgent(t *testing.T) {
 	if err := os.MkdirAll(agentsDir, 0755); err != nil {
 		t.Fatalf("mkdir agents: %v", err)
 	}
-	agentTOML := "name = \"Codex\"\nshell = \"/bin/zsh\"\ncli_type = \"codex\"\ngui-modules = [\"plan-progress\"]\n"
+	agentTOML := "name = \"Codex\"\nshell = \"/bin/zsh\"\ncli_type = \"codex\"\ngui_modules = [\"plan-progress\"]\n"
 	if err := os.WriteFile(filepath.Join(agentsDir, "codex.toml"), []byte(agentTOML), 0644); err != nil {
 		t.Fatalf("write agent: %v", err)
 	}

@@ -812,6 +812,71 @@ func TestManagerAgentSequenceDecrementsOnDelete(t *testing.T) {
 	}
 }
 
+func TestManagerAgentSequenceBoundToName(t *testing.T) {
+	factory := &fakeFactory{}
+	nonSingleton := false
+	manager := NewManager(ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:      "Codex",
+				Shell:     "/bin/bash",
+				Singleton: &nonSingleton,
+			},
+			"fixer": {
+				Name:      "Fixer",
+				Shell:     "/bin/bash",
+				Singleton: &nonSingleton,
+			},
+		},
+	})
+
+	coder, err := manager.Create("codex", "build", "first")
+	if err != nil {
+		t.Fatalf("create codex first: %v", err)
+	}
+	fixer, err := manager.Create("fixer", "build", "first")
+	if err != nil {
+		t.Fatalf("create fixer first: %v", err)
+	}
+
+	if err := manager.Delete(coder.ID); err != nil {
+		t.Fatalf("delete codex first: %v", err)
+	}
+
+	coderAgain, err := manager.Create("codex", "build", "again")
+	if err != nil {
+		t.Fatalf("create codex again: %v", err)
+	}
+	if coderAgain.ID != "Codex 1" {
+		t.Fatalf("expected id Codex 1, got %q", coderAgain.ID)
+	}
+
+	fixerNext, err := manager.Create("fixer", "build", "second")
+	if err != nil {
+		t.Fatalf("create fixer second: %v", err)
+	}
+	if fixerNext.ID != "Fixer 2" {
+		t.Fatalf("expected id Fixer 2, got %q", fixerNext.ID)
+	}
+
+	if err := manager.Delete(fixer.ID); err != nil {
+		t.Fatalf("delete fixer first: %v", err)
+	}
+	if err := manager.Delete(fixerNext.ID); err != nil {
+		t.Fatalf("delete fixer second: %v", err)
+	}
+
+	fixerReset, err := manager.Create("fixer", "build", "reset")
+	if err != nil {
+		t.Fatalf("create fixer reset: %v", err)
+	}
+	if fixerReset.ID != "Fixer 1" {
+		t.Fatalf("expected id Fixer 1, got %q", fixerReset.ID)
+	}
+}
+
 func TestManagerGetAgentTerminal(t *testing.T) {
 	factory := &fakeFactory{}
 	manager := NewManager(ManagerOptions{

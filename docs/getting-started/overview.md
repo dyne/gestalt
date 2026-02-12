@@ -15,14 +15,3 @@ make
 ./gestalt
 # Opens http://localhost:57417
 ```
-
-## Read Next
-
-- [Run Gestalt on a project](./getting-started/running-on-a-project)
-- [Agent configuration](./agent-configuration)
-- [CLI reference](./reference/cli)
-- [HTTP API reference](./reference/http-api)
-- [Temporal workflow notes](./reference/http-api#workflow-and-metrics-endpoints)
-- [OpenTelemetry architecture](./observability-otel-architecture)
-- [Testing guide](./guides/build-dev-testing#testing)
-

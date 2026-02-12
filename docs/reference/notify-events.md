@@ -70,9 +70,12 @@ Flow fields include:
 - top-level aliases for the same payload keys (for example `summary`, `plan_file`, `task_title`)
 
 Template tokens follow the same keys, for example:
+<div v-pre>
+
 `{{summary}}`, `{{plan_file}}`, `{{plan_summary}}`, `{{task_title}}`, `{{task_state}}`,
 `{{git_branch}}`, `{{session_id}}`, `{{agent_id}}`, `{{agent_name}}`, `{{timestamp}}`,
 `{{event_id}}`, `{{notify.summary}}`, `{{notify.type}}`, `{{notify.event_id}}`.
+</div>
 
 ## Example: Flow automation for a new plan
 

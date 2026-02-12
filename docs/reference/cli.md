@@ -45,7 +45,7 @@ gestalt-agent <agent-id> --dryrun
   - ``&#123;&#123;include filename&#125;&#125;``
   - ``&#123;&#123;port <service>&#125;&#125;``
 
-See [Agent configuration](../agent-configuration) for full schema and behavior.
+See [Agent configuration](../configuration/agent-configuration) for full schema and behavior.
 
 ## Other binaries
 

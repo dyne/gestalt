@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 )
 
@@ -45,30 +44,25 @@ func runCompleteAgents(args []string, out io.Writer, errOut io.Writer) int {
 func parseCompletionArgs(args []string, errOut io.Writer) (Config, error) {
 	fs := flag.NewFlagSet("gestalt-send", flag.ContinueOnError)
 	fs.SetOutput(errOut)
-	urlFlag := fs.String("url", "", "Gestalt server URL")
+	hostFlag := fs.String("host", defaultServerHost, "Gestalt server host")
+	portFlag := fs.Int("port", defaultServerPort, "Gestalt server port")
 	tokenFlag := fs.String("token", "", "Gestalt auth token")
 	fs.Usage = func() {
-		fmt.Fprintln(errOut, "usage: gestalt-send __complete-agents [--url URL] [--token TOKEN]")
+		fmt.Fprintln(errOut, "usage: gestalt-send __complete-agents [--host HOST] [--port PORT] [--token TOKEN]")
 	}
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
 	}
 
-	url := strings.TrimSpace(*urlFlag)
-	if url == "" {
-		url = strings.TrimSpace(os.Getenv("GESTALT_URL"))
+	if *portFlag <= 0 || *portFlag > 65535 {
+		return Config{}, fmt.Errorf("port must be between 1 and 65535")
 	}
-	if url == "" {
-		url = defaultServerURL
-	}
+	baseURL := buildServerURL(strings.TrimSpace(*hostFlag), *portFlag)
 
 	token := strings.TrimSpace(*tokenFlag)
-	if token == "" {
-		token = strings.TrimSpace(os.Getenv("GESTALT_TOKEN"))
-	}
 
 	return Config{
-		URL:   url,
+		URL:   baseURL,
 		Token: token,
 	}, nil
 }
@@ -115,7 +109,7 @@ _gestalt_send_complete() {
   _init_completion || return
 
   if [[ "$cword" -eq 1 ]]; then
-    COMPREPLY=( $(compgen -W "completion --help --version --url --token --start --verbose --debug" -- "$cur") )
+    COMPREPLY=( $(compgen -W "completion --help --version --host --port --session-id --token --start --verbose --debug" -- "$cur") )
     return
   fi
 
@@ -125,7 +119,7 @@ _gestalt_send_complete() {
   fi
 
   if [[ "$cur" == -* ]]; then
-    COMPREPLY=( $(compgen -W "--help --version --url --token --start --verbose --debug" -- "$cur") )
+    COMPREPLY=( $(compgen -W "--help --version --host --port --session-id --token --start --verbose --debug" -- "$cur") )
     return
   fi
 
@@ -175,7 +169,9 @@ _gestalt_send_cached_agents() {
 _gestalt_send() {
   local -a options
   options=(
-    '--url[Gestalt server URL]:URL'
+    '--host[Gestalt server host]:HOST'
+    '--port[Gestalt server port]:PORT'
+    '--session-id[Target session id]:ID'
     '--token[Auth token]:TOKEN'
     '--start[Start agent if not running]'
     '--verbose[Verbose output]'

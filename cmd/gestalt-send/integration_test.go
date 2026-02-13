@@ -94,7 +94,6 @@ func TestGestaltSendEndToEnd(t *testing.T) {
 
 	withAgentCacheDisabled(t, func() {
 		withMockClient(t, transport, func() {
-			t.Setenv("GESTALT_URL", "http://example.invalid")
 			t.Setenv("GESTALT_TOKEN", "secret")
 			var stderr bytes.Buffer
 

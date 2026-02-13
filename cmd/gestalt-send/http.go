@@ -148,14 +148,59 @@ func sendAgentInput(cfg Config, payload []byte) error {
 	return sendAgentInputWithRetry(cfg, payload, true)
 }
 
+func sendInput(cfg Config, payload []byte) error {
+	if strings.TrimSpace(cfg.SessionID) != "" {
+		return sendSessionInput(cfg, payload)
+	}
+	return sendAgentInputWithRetry(cfg, payload, true)
+}
+
+func sendSessionInput(cfg Config, payload []byte) error {
+	sessionID := strings.TrimSpace(cfg.SessionID)
+	if sessionID == "" {
+		return sendErr(2, "session id is required")
+	}
+	baseURL := strings.TrimRight(cfg.URL, "/")
+
+	target := fmt.Sprintf("%s/api/sessions/%s/input", baseURL, sessionID)
+	if cfg.Verbose {
+		logf(cfg, "sending %d bytes to session %q at %s", len(payload), sessionID, target)
+		if strings.TrimSpace(cfg.Token) != "" {
+			logf(cfg, "token: %s", maskToken(cfg.Token, cfg.Debug))
+		}
+	}
+	if cfg.Debug && len(payload) > 0 {
+		preview := payload
+		if len(preview) > 100 {
+			preview = preview[:100]
+		}
+		logf(cfg, "payload preview: %q", string(preview))
+	}
+
+	if err := client.SendSessionInput(httpClient, baseURL, cfg.Token, sessionID, payload); err != nil {
+		var httpErr *client.HTTPError
+		if errors.As(err, &httpErr) {
+			if cfg.Verbose && httpErr.StatusCode != 0 {
+				logf(cfg, "response status: %d %s", httpErr.StatusCode, http.StatusText(httpErr.StatusCode))
+			}
+			if httpErr.StatusCode == http.StatusNotFound {
+				return sendErr(2, httpErr.Message)
+			}
+			return sendErr(3, httpErr.Message)
+		}
+		return sendErrf(3, "%v", err)
+	}
+	if cfg.Verbose {
+		logf(cfg, "response status: %d %s", http.StatusOK, http.StatusText(http.StatusOK))
+	}
+	return nil
+}
+
 func sendAgentInputWithRetry(cfg Config, payload []byte, allowStart bool) error {
 	if strings.TrimSpace(cfg.AgentName) == "" {
 		return sendErr(2, "agent name not resolved")
 	}
 	baseURL := strings.TrimRight(cfg.URL, "/")
-	if baseURL == "" {
-		baseURL = defaultServerURL
-	}
 	sessionID := strings.TrimSpace(cfg.SessionID)
 	if sessionID == "" {
 		if !allowStart || !cfg.Start {
@@ -172,48 +217,25 @@ func sendAgentInputWithRetry(cfg Config, payload []byte, allowStart bool) error 
 		}
 		return sendAgentInputWithRetry(refreshed, payload, false)
 	}
-	target := fmt.Sprintf("%s/api/sessions/%s/input", baseURL, sessionID)
-
-	if cfg.Verbose {
-		logf(cfg, "sending %d bytes to session %q (%s) at %s", len(payload), sessionID, cfg.AgentName, target)
-		if strings.TrimSpace(cfg.Token) != "" {
-			logf(cfg, "token: %s", maskToken(cfg.Token, cfg.Debug))
+	cfg.SessionID = sessionID
+	if err := sendSessionInput(cfg, payload); err != nil {
+		if !allowStart || !cfg.Start {
+			return err
 		}
-	}
-	if cfg.Debug && len(payload) > 0 {
-		preview := payload
-		if len(preview) > 100 {
-			preview = preview[:100]
+		var sendErrTyped *sendError
+		if errors.As(err, &sendErrTyped) && sendErrTyped.Code == 2 {
+			logf(cfg, "agent %q not running; attempting to start", cfg.AgentName)
+			if err := client.StartAgent(httpClient, baseURL, cfg.Token, cfg.AgentID); err != nil {
+				return sendErrFromClient(err)
+			}
+			time.Sleep(startRetryDelay)
+			refreshed := cfg
+			if err := refreshAgentSession(&refreshed); err != nil {
+				return err
+			}
+			return sendAgentInputWithRetry(refreshed, payload, false)
 		}
-		logf(cfg, "payload preview: %q", string(preview))
-	}
-	if err := client.SendSessionInput(httpClient, baseURL, cfg.Token, sessionID, payload); err != nil {
-		var httpErr *client.HTTPError
-		if errors.As(err, &httpErr) {
-			if httpErr.StatusCode == http.StatusNotFound && allowStart && cfg.Start {
-				logf(cfg, "agent %q not running; attempting to start", cfg.AgentName)
-				if err := client.StartAgent(httpClient, baseURL, cfg.Token, cfg.AgentID); err != nil {
-					return sendErrFromClient(err)
-				}
-				time.Sleep(startRetryDelay)
-				refreshed := cfg
-				if err := refreshAgentSession(&refreshed); err != nil {
-					return err
-				}
-				return sendAgentInputWithRetry(refreshed, payload, false)
-			}
-			if cfg.Verbose && httpErr.StatusCode != 0 {
-				logf(cfg, "response status: %d %s", httpErr.StatusCode, http.StatusText(httpErr.StatusCode))
-			}
-			if httpErr.StatusCode == http.StatusNotFound {
-				return sendErr(2, httpErr.Message)
-			}
-			return sendErr(3, httpErr.Message)
-		}
-		return sendErrf(3, "%v", err)
-	}
-	if cfg.Verbose {
-		logf(cfg, "response status: %d %s", http.StatusOK, http.StatusText(http.StatusOK))
+		return err
 	}
 	return nil
 }
@@ -256,9 +278,6 @@ func loadAgents(cfg Config) ([]agentInfo, error) {
 	}
 
 	baseURL := strings.TrimRight(cfg.URL, "/")
-	if baseURL == "" {
-		baseURL = defaultServerURL
-	}
 	agents, err := client.FetchAgents(httpClient, baseURL, cfg.Token)
 	if err != nil {
 		return nil, err

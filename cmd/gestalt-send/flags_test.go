@@ -14,8 +14,8 @@ func TestParseArgsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse args: %v", err)
 	}
-	if cfg.URL != defaultServerURL {
-		t.Fatalf("expected default url %q, got %q", defaultServerURL, cfg.URL)
+	if cfg.URL != "http://127.0.0.1:57417" {
+		t.Fatalf("expected default url %q, got %q", "http://127.0.0.1:57417", cfg.URL)
 	}
 	if cfg.Token != "" {
 		t.Fatalf("expected empty token, got %q", cfg.Token)
@@ -35,12 +35,12 @@ func TestParseArgsDefaults(t *testing.T) {
 }
 
 func TestParseArgsFlagOverridesEnv(t *testing.T) {
-	t.Setenv("GESTALT_URL", "http://example.com")
 	t.Setenv("GESTALT_TOKEN", "secret")
 	var stderr bytes.Buffer
 
 	cfg, err := parseArgs([]string{
-		"--url", "http://override",
+		"--host", "override",
+		"--port", "4210",
 		"--token", "override-token",
 		"--start",
 		"--verbose",
@@ -50,7 +50,7 @@ func TestParseArgsFlagOverridesEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse args: %v", err)
 	}
-	if cfg.URL != "http://override" {
+	if cfg.URL != "http://override:4210" {
 		t.Fatalf("expected override url, got %q", cfg.URL)
 	}
 	if cfg.Token != "override-token" {
@@ -113,7 +113,21 @@ func TestParseArgsVersionShort(t *testing.T) {
 
 func TestParseArgsInvalidFlag(t *testing.T) {
 	var stderr bytes.Buffer
-	if _, err := parseArgs([]string{"--url"}, &stderr); err == nil {
+	if _, err := parseArgs([]string{"--host"}, &stderr); err == nil {
 		t.Fatalf("expected error")
+	}
+}
+
+func TestParseArgsSessionIDWithoutAgent(t *testing.T) {
+	var stderr bytes.Buffer
+	cfg, err := parseArgs([]string{"--session-id", "s-1"}, &stderr)
+	if err != nil {
+		t.Fatalf("parse args: %v", err)
+	}
+	if cfg.SessionID != "s-1" {
+		t.Fatalf("expected session id s-1, got %q", cfg.SessionID)
+	}
+	if cfg.AgentRef != "" {
+		t.Fatalf("expected empty agent ref, got %q", cfg.AgentRef)
 	}
 }

@@ -34,7 +34,21 @@ gestalt-agent <agent-id> --dryrun
 ```
 
 - Agent IDs are filenames without `.toml` (for example `coder`).
-- `--dryrun` prints the full command without executing it.
+- `--host` and `--port` select the server (defaults: `127.0.0.1`, `57417`).
+- `--dryrun` prints the resolved tmux attach command without executing it.
+
+## `gestalt-send` (session input client)
+
+`gestalt-send` sends stdin to a running session.
+
+```sh
+gestalt-send [options] <agent-name-or-id>
+gestalt-send --session-id <session-id>
+```
+
+- `--host` and `--port` select the server (defaults: `127.0.0.1`, `57417`).
+- `--session-id` sends directly to `POST /api/sessions/:id/input` and skips agent lookup.
+- `--start` auto-creates the agent session if it is not running.
 
 ## Agent config and prompts
 
@@ -49,6 +63,5 @@ See [Agent configuration](../configuration/agent-configuration) for full schema 
 
 ## Other binaries
 
-- `gestalt-send`: send stdin to an existing agent session (`--start` can auto-create the session)
 - `gestalt-notify`: send notify payloads to a session workflow (`--session-id` required)
 - `gestalt-otel`: embedded OpenTelemetry collector binary (collector management/debug commands)

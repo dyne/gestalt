@@ -42,7 +42,7 @@ By default, the dashboard is available at `http://localhost:57417`.
 gestalt-agent <agent-id>
 ```
 
-`gestalt-agent` launches Codex with the selected agent profile, so Codex CLI must be installed and available in `PATH`.
+`gestalt-agent` creates an external session from the selected profile, then attaches tmux (`attach` or `switch-client`), so Codex CLI and tmux must be installed and available in `PATH`.
 
 ## Temporal dev server requirement
 

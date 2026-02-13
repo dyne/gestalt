@@ -24,6 +24,8 @@ If `GESTALT_TOKEN` is set:
 - `POST /api/sessions`
 - `DELETE /api/sessions/:id`
 - `GET /api/sessions/:id/output`
+- `POST /api/sessions/:id/input`
+- `POST /api/sessions/:id/activate`
 - `GET /api/sessions/:id/history`
 - `GET /api/sessions/:id/input-history`
 - `POST /api/sessions/:id/input-history`
@@ -35,7 +37,6 @@ If `GESTALT_TOKEN` is set:
 ### Agents and skills
 
 - `GET /api/agents`
-- `POST /api/agents/:name/input`
 - `POST /api/agents/:name/send-input`
 - `GET /api/skills`
 

@@ -85,8 +85,14 @@
     document.title = `${projectName} | gestalt`
   }
 
-  const syncTabs = (terminalList) => {
-    tabs = buildTabs(terminalList)
+  const hasAgentsTab = (nextStatus) => {
+    const sessionId = String(nextStatus?.agents_session_id || '').trim()
+    const tmuxSession = String(nextStatus?.agents_tmux_session || '').trim()
+    return Boolean(sessionId || tmuxSession)
+  }
+
+  const syncTabs = (terminalList, nextStatus = status) => {
+    tabs = buildTabs(terminalList, { showAgents: hasAgentsTab(nextStatus) })
     activeId = ensureActiveTab(activeId, tabs, 'dashboard')
   }
 
@@ -184,7 +190,7 @@
       terminals = nextTerminals
       recordRefresh('status')
       recordRefresh('terminals')
-      syncTabs(terminals)
+      syncTabs(terminals, nextStatus)
     } catch (err) {
       const message = notifyError(err, 'Failed to load dashboard data.')
       error = message
@@ -201,7 +207,16 @@
       if (status) {
         status = { ...status, session_count: status.session_count + 1 }
       }
-      syncTabs(terminals)
+      let nextStatus = status
+      if (isExternalCliSession(created)) {
+        try {
+          nextStatus = await fetchStatus()
+          status = nextStatus
+        } catch (refreshErr) {
+          notifyError(refreshErr, 'Failed to refresh agents status.')
+        }
+      }
+      syncTabs(terminals, nextStatus)
       if (isExternalCliSession(created)) {
         try {
           await apiFetch(buildApiPath('/api/sessions', created.id, 'activate'), {

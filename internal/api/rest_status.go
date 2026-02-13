@@ -32,6 +32,7 @@ func (h *RestHandler) handleStatus(w http.ResponseWriter, r *http.Request) *apiE
 	}
 
 	terminals := h.Manager.List()
+	agentsSessionID, agentsTmuxSession := h.Manager.AgentsHubStatus()
 	gitOrigin, gitBranch := h.gitInfo()
 	versionInfo := version.GetVersionInfo()
 	response := statusResponse{
@@ -43,6 +44,8 @@ func (h *RestHandler) handleStatus(w http.ResponseWriter, r *http.Request) *apiE
 		SessionFontSize:        h.SessionFontSize,
 		SessionInputFontFamily: h.SessionInputFontFamily,
 		SessionInputFontSize:   h.SessionInputFontSize,
+		AgentsSessionID:        agentsSessionID,
+		AgentsTmuxSession:      agentsTmuxSession,
 		WorkingDir:             workDir,
 		GitOrigin:              gitOrigin,
 		GitBranch:              gitBranch,

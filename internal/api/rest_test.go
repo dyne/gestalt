@@ -499,6 +499,64 @@ func TestStatusHandlerIncludesTemporalDevServerStatus(t *testing.T) {
 	}
 }
 
+func TestStatusHandlerIncludesAgentsHubFields(t *testing.T) {
+	manager := newTestManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: &fakeFactory{},
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:      "Codex",
+				Shell:     "codex -c model=o3",
+				CLIType:   "codex",
+				Interface: agent.AgentInterfaceCLI,
+			},
+		},
+		StartExternalTmuxWindow: func(_ *launchspec.LaunchSpec) error {
+			return nil
+		},
+	})
+	created, err := manager.CreateWithOptions(terminal.CreateOptions{
+		AgentID: "codex",
+		Runner:  "external",
+	})
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+		hubID, _ := manager.AgentsHubStatus()
+		if hubID != "" {
+			_ = manager.Delete(hubID)
+		}
+	}()
+
+	expectedHubID, expectedTmux := manager.AgentsHubStatus()
+	if expectedHubID == "" || expectedTmux == "" {
+		t.Fatalf("expected hub status, got id=%q tmux=%q", expectedHubID, expectedTmux)
+	}
+
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", nil, handler.handleStatus)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+
+	var payload statusResponse
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.AgentsSessionID != expectedHubID {
+		t.Fatalf("expected agents_session_id %q, got %q", expectedHubID, payload.AgentsSessionID)
+	}
+	if payload.AgentsTmuxSession != expectedTmux {
+		t.Fatalf("expected agents_tmux_session %q, got %q", expectedTmux, payload.AgentsTmuxSession)
+	}
+}
+
 func TestWorkflowsEndpointReturnsSummary(t *testing.T) {
 	factory := &fakeFactory{}
 	temporalClient := &fakeWorkflowQueryClient{

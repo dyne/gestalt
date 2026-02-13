@@ -1563,6 +1563,66 @@ func TestTerminalInputHistoryEndpoint(t *testing.T) {
 	}
 }
 
+func TestTerminalInputEndpoint(t *testing.T) {
+	factory := &recordFactory{}
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			testAgentID: {
+				Name:  "Codex",
+				Shell: "/bin/sh",
+			},
+		},
+	})
+	created, err := manager.Create(testAgentID, "", "")
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/input", strings.NewReader("hello"))
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", nil, handler.handleTerminal)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.Code)
+	}
+	var payload agentInputResponse
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Bytes != len("hello") {
+		t.Fatalf("expected %d bytes, got %d", len("hello"), payload.Bytes)
+	}
+	select {
+	case got := <-factory.pty.writes:
+		if string(got) != "hello" {
+			t.Fatalf("expected raw bytes %q, got %q", "hello", string(got))
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("timed out waiting for input write")
+	}
+}
+
+func TestTerminalInputEndpointMissingSession(t *testing.T) {
+	manager := newTestManager(terminal.ManagerOptions{Shell: "/bin/sh", PtyFactory: &fakeFactory{}})
+	handler := &RestHandler{Manager: manager}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/missing/input", strings.NewReader("hello"))
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", nil, handler.handleTerminal)(res, req)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", res.Code)
+	}
+}
+
 func TestTerminalInputHistoryPostEndpoint(t *testing.T) {
 	factory := &fakeFactory{}
 	manager := newTestManager(terminal.ManagerOptions{
@@ -2575,6 +2635,8 @@ func TestParseTerminalPath(t *testing.T) {
 		{name: "output-trailing-slash", path: "/api/sessions/123/output/", id: "123", action: terminalPathOutput},
 		{name: "history", path: "/api/sessions/123/history", id: "123", action: terminalPathHistory},
 		{name: "history-trailing-slash", path: "/api/sessions/123/history/", id: "123", action: terminalPathHistory},
+		{name: "input", path: "/api/sessions/123/input", id: "123", action: terminalPathInput},
+		{name: "input-trailing-slash", path: "/api/sessions/123/input/", id: "123", action: terminalPathInput},
 		{name: "input-history", path: "/api/sessions/123/input-history", id: "123", action: terminalPathInputHistory},
 		{name: "input-history-trailing-slash", path: "/api/sessions/123/input-history/", id: "123", action: terminalPathInputHistory},
 		{name: "workflow-resume", path: "/api/sessions/123/workflow/resume", id: "123", action: terminalPathWorkflowResume},

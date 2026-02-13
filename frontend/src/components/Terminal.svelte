@@ -19,6 +19,9 @@
   export let planSidebarOpen = false
   export let onTogglePlan = () => {}
   export let onRequestClose = () => {}
+  export let showInput = true
+  export let forceDirectInput = false
+  export let allowMouseReporting = false
 
   let state
   let status = 'disconnected'
@@ -39,6 +42,7 @@
   let attachedSessionId = ''
   let attachedInterface = ''
   let attachedRunner = ''
+  let attachedAllowMouseReporting = false
   let wasVisible = false
   let pendingFocus = false
   let displayTitle = ''
@@ -86,7 +90,7 @@
 
   const attachState = () => {
     if (!sessionId) return
-    state = getTerminalState(sessionId, interfaceValue, runnerValue)
+    state = getTerminalState(sessionId, interfaceValue, runnerValue, { allowMouseReporting })
     if (!state) return
     unsubscribeStatus = state.status.subscribe((value) => {
       status = value
@@ -148,6 +152,7 @@
   }
 
   const handleDirectInputChange = (enabled) => {
+    if (forceDirectInput) return
     directInputEnabled = enabled
     state?.setDirectInput?.(enabled)
     if (enabled) {
@@ -189,10 +194,12 @@
       attachedSessionId = ''
       attachedInterface = ''
       attachedRunner = ''
+      attachedAllowMouseReporting = false
     } else if (
       sessionId !== attachedSessionId ||
       interfaceValue !== attachedInterface ||
-      runnerValue !== attachedRunner
+      runnerValue !== attachedRunner ||
+      Boolean(allowMouseReporting) !== attachedAllowMouseReporting
     ) {
       if (state) {
         detachState()
@@ -200,8 +207,13 @@
       attachedSessionId = sessionId
       attachedInterface = interfaceValue
       attachedRunner = runnerValue
+      attachedAllowMouseReporting = Boolean(allowMouseReporting)
       attachState()
     }
+  }
+  $: if (forceDirectInput && !directInputEnabled) {
+    directInputEnabled = true
+    state?.setDirectInput?.(true)
   }
 
   $: if (state) {
@@ -230,7 +242,7 @@
   }
 
   $: statusLabel = statusLabels[status] || status
-  $: inputDisabled = status !== 'connected' || !sessionId || isExternal
+  $: inputDisabled = status !== 'connected' || !sessionId || isExternal || !showInput
   $: displayTitle = sessionId ? sessionId : 'Session —'
   $: promptFilesLabel =
     Array.isArray(promptFiles) && promptFiles.length > 0
@@ -287,17 +299,20 @@
       />
     {/if}
   </svelte:fragment>
-  <CommandInput
-    slot="input"
-    sessionId={sessionId}
-    agentName={title}
-    bind:this={commandInput}
-    onSubmit={handleSubmit}
-    disabled={inputDisabled}
-    directInput={directInputEnabled}
-    showDirectInputToggle={isCLI && !isExternal}
-    onDirectInputChange={handleDirectInputChange}
-  />
+  <svelte:fragment slot="input">
+    {#if showInput}
+      <CommandInput
+        sessionId={sessionId}
+        agentName={title}
+        bind:this={commandInput}
+        onSubmit={handleSubmit}
+        disabled={inputDisabled}
+        directInput={directInputEnabled}
+        showDirectInputToggle={isCLI && !isExternal && !forceDirectInput}
+        onDirectInputChange={handleDirectInputChange}
+      />
+    {/if}
+  </svelte:fragment>
 </TerminalShell>
 
 <style>

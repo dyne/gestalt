@@ -240,6 +240,18 @@ describe('terminalStore', () => {
     releaseTerminalState('swap')
   })
 
+  it('recreates services when mouse-reporting mode changes', () => {
+    const normalState = getTerminalState('mouse', 'cli', 'server', { allowMouseReporting: false })
+    const disposeSpy = vi.spyOn(normalState, 'dispose')
+
+    const mouseState = getTerminalState('mouse', 'cli', 'server', { allowMouseReporting: true })
+
+    expect(mouseState).not.toBe(normalState)
+    expect(disposeSpy).toHaveBeenCalled()
+
+    releaseTerminalState('mouse')
+  })
+
   it('warns when history load is slow', async () => {
     vi.useFakeTimers()
     let resolveFetch

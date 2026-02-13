@@ -13,7 +13,7 @@ import {
   writeClipboardText,
 } from './input.js'
 
-export const createTerminalService = ({ terminalId, historyCache }) => {
+export const createTerminalService = ({ terminalId, historyCache, allowMouseReporting = false }) => {
   const status = writable('disconnected')
   const historyStatus = writable('idle')
   const bellCount = writable(0)
@@ -210,7 +210,7 @@ export const createTerminalService = ({ terminalId, historyCache }) => {
   }
 
   term.onData((data) => {
-    if (isMouseReport(data)) return
+    if (!allowMouseReporting && isMouseReport(data)) return
     sendData(data)
   })
 
@@ -264,7 +264,7 @@ export const createTerminalService = ({ terminalId, historyCache }) => {
     return false
   })
 
-  if (term.parser?.registerCsiHandler) {
+  if (!allowMouseReporting && term.parser?.registerCsiHandler) {
     const handler = (params) => shouldSuppressMouseMode(params)
     const handlerSet = [
       term.parser.registerCsiHandler({ prefix: '?', final: 'h' }, handler),

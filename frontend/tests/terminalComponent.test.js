@@ -120,13 +120,13 @@ describe('Terminal', () => {
       .spyOn(HTMLTextAreaElement.prototype, 'focus')
       .mockImplementation(() => {})
 
-    const { container } = render(Terminal, {
-      props: { sessionId: 't1', visible: true },
+    const { getByPlaceholderText } = render(Terminal, {
+      props: { sessionId: 't1', visible: true, showInput: true, sessionInterface: 'cli' },
     })
     await tick()
     await tick()
 
-    const textarea = container.querySelector('textarea')
+    const textarea = getByPlaceholderText(/Type command/)
     expect(textarea).toBeTruthy()
     expect(focusSpy).toHaveBeenCalled()
     focusSpy.mockRestore()
@@ -205,7 +205,7 @@ describe('Terminal', () => {
     await rerender({ sessionId: 't2', sessionInterface: 'mcp' })
     await tick()
 
-    expect(getTerminalState).toHaveBeenCalledWith('t2', 'mcp', '')
+    expect(getTerminalState).toHaveBeenCalledWith('t2', 'mcp', '', { allowMouseReporting: false })
     expect(stateA.setVisible).toHaveBeenCalledWith(false)
   })
 
@@ -262,5 +262,34 @@ describe('Terminal', () => {
     expect(getByText('This session is managed in tmux.')).toBeTruthy()
     expect(getByText('Attach with:')).toBeTruthy()
     expect(getByText('Then switch with:')).toBeTruthy()
+  })
+
+  it('hides command input when showInput is false', async () => {
+    getTerminalState.mockReturnValue(buildState())
+
+    const { queryByPlaceholderText } = render(Terminal, {
+      props: {
+        sessionId: 't1',
+        showInput: false,
+      },
+    })
+
+    await tick()
+    expect(queryByPlaceholderText('Type command')).toBeFalsy()
+  })
+
+  it('forces direct input mode when requested', async () => {
+    const state = buildState()
+    getTerminalState.mockReturnValue(state)
+
+    render(Terminal, {
+      props: {
+        sessionId: 't1',
+        forceDirectInput: true,
+      },
+    })
+
+    await tick()
+    expect(state.setDirectInput).toHaveBeenCalledWith(true)
   })
 })

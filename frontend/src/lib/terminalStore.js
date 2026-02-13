@@ -21,12 +21,22 @@ const normalizeRunner = (value) => {
   return ''
 }
 
-export const getTerminalState = (sessionId, sessionInterface, sessionRunner) => {
+const normalizeOptions = (options) => ({
+  allowMouseReporting: Boolean(options?.allowMouseReporting),
+})
+
+export const getTerminalState = (sessionId, sessionInterface, sessionRunner, options = {}) => {
   if (!sessionId) return null
   const interfaceValue = normalizeInterface(sessionInterface)
   const runnerValue = normalizeRunner(sessionRunner)
+  const optionValue = normalizeOptions(options)
   const existing = terminals.get(sessionId)
-  if (existing && (existing.interface !== interfaceValue || existing.runner !== runnerValue)) {
+  if (
+    existing &&
+    (existing.interface !== interfaceValue ||
+      existing.runner !== runnerValue ||
+      existing.allowMouseReporting !== optionValue.allowMouseReporting)
+  ) {
     existing.state?.dispose?.()
     terminals.delete(sessionId)
   }
@@ -36,8 +46,14 @@ export const getTerminalState = (sessionId, sessionInterface, sessionRunner) => 
       historyCache,
       sessionInterface: interfaceValue,
       sessionRunner: runnerValue,
+      ...optionValue,
     })
-    terminals.set(sessionId, { state, interface: interfaceValue, runner: runnerValue })
+    terminals.set(sessionId, {
+      state,
+      interface: interfaceValue,
+      runner: runnerValue,
+      allowMouseReporting: optionValue.allowMouseReporting,
+    })
   }
   return terminals.get(sessionId)?.state || null
 }

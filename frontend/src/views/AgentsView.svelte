@@ -1,12 +1,27 @@
 <script>
+  import Terminal from '../components/Terminal.svelte'
+
   export let status = null
 
   $: sessionId = String(status?.agents_session_id || '').trim()
+  $: tmuxSessionName = String(status?.agents_tmux_session || '').trim()
 </script>
 
 <section class="agents-view">
   {#if sessionId}
-    <p class="agents-ready">Agents hub ready: <code>{sessionId}</code></p>
+    <Terminal
+      sessionId={sessionId}
+      title="Agents"
+      promptFiles={[]}
+      visible={true}
+      sessionInterface="cli"
+      sessionRunner="server"
+      tmuxSessionName={tmuxSessionName}
+      guiModules={['console']}
+      showInput={false}
+      forceDirectInput={true}
+      allowMouseReporting={true}
+    />
   {:else}
     <p class="agents-empty">No agents hub session yet. Start a CLI external agent to initialize it.</p>
   {/if}
@@ -14,20 +29,15 @@
 
 <style>
   .agents-view {
-    padding: 1.25rem;
-    color: var(--color-text);
-  }
-
-  .agents-ready {
-    margin: 0;
+    width: 100%;
+    height: calc(100vh - 64px);
+    height: calc(100dvh - 64px);
+    min-height: 0;
   }
 
   .agents-empty {
     margin: 0;
+    padding: 1.25rem;
     color: var(--color-text-muted);
-  }
-
-  code {
-    font-family: var(--font-mono);
   }
 </style>

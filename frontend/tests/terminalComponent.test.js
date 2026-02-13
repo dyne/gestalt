@@ -250,10 +250,17 @@ describe('Terminal', () => {
     getTerminalState.mockReturnValue(buildState())
 
     const { getByText } = render(Terminal, {
-      props: { sessionId: 't1', sessionInterface: 'cli', sessionRunner: 'external' },
+      props: {
+        sessionId: 't1',
+        sessionInterface: 'cli',
+        sessionRunner: 'external',
+        tmuxSessionName: 'Gestalt workspace',
+      },
     })
 
     await tick()
     expect(getByText('This session is managed in tmux.')).toBeTruthy()
+    expect(getByText('Attach with:')).toBeTruthy()
+    expect(getByText('Then switch with:')).toBeTruthy()
   })
 })

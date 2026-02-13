@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -119,4 +121,39 @@ func newTestSessionServer(t *testing.T, handler func(w http.ResponseWriter)) *ht
 		}
 		handler(w)
 	}))
+}
+
+func TestPrintTmuxAttachHintOutsideTmux(t *testing.T) {
+	t.Setenv("TMUX", "")
+	var out bytes.Buffer
+	printTmuxAttachHint(&out, "Fixer 1")
+	text := out.String()
+	if !strings.Contains(text, "Session is running in tmux.") {
+		t.Fatalf("missing session message: %q", text)
+	}
+	if !strings.Contains(text, `Attach with: tmux attach -t "Gestalt `+filepath.Base(mustGetwd(t))+`"`) {
+		t.Fatalf("expected attach target for workdir session, got %q", text)
+	}
+	if !strings.Contains(text, `Then switch with: tmux select-window -t "Fixer 1"`) {
+		t.Fatalf("expected window switch hint, got %q", text)
+	}
+}
+
+func TestPrintTmuxAttachHintInsideTmux(t *testing.T) {
+	t.Setenv("TMUX", "1")
+	var out bytes.Buffer
+	printTmuxAttachHint(&out, "Fixer 1")
+	text := out.String()
+	if !strings.Contains(text, `Switch with: tmux select-window -t "Fixer 1"`) {
+		t.Fatalf("expected select-window hint, got %q", text)
+	}
+}
+
+func mustGetwd(t *testing.T) string {
+	t.Helper()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	return wd
 }

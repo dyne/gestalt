@@ -14,6 +14,7 @@
   export let temporalUrl = ''
   export let sessionInterface = ''
   export let sessionRunner = ''
+  export let tmuxSessionName = ''
   export let guiModules = []
   export let planSidebarOpen = false
   export let onTogglePlan = () => {}
@@ -44,6 +45,7 @@
   let promptFilesLabel = ''
   let interfaceValue = ''
   let runnerValue = ''
+  let tmuxSessionValue = ''
   let isCLI = false
   let isExternal = false
   let hasPlanModule = false
@@ -172,6 +174,7 @@
   $: interfaceValue =
     typeof sessionInterface === 'string' ? sessionInterface.trim().toLowerCase() : ''
   $: runnerValue = typeof sessionRunner === 'string' ? sessionRunner.trim().toLowerCase() : ''
+  $: tmuxSessionValue = typeof tmuxSessionName === 'string' ? tmuxSessionName.trim() : ''
   $: isCLI = interfaceValue === 'cli'
   $: isExternal = runnerValue === 'external'
   $: hasPlanModule =
@@ -262,7 +265,13 @@
     {#if isExternal}
       <div class="terminal-external">
         <p>This session is managed in tmux.</p>
-        <p>Attach with: <code>tmux attach -t "{sessionId}"</code></p>
+        {#if tmuxSessionValue}
+          <p>Attach with: <code>tmux attach -t "{tmuxSessionValue}"</code></p>
+          <p>Then switch with: <code>tmux select-window -t "{sessionId}"</code></p>
+        {:else}
+          <p>Attach with: <code>tmux attach</code></p>
+          <p>If needed, list sessions first: <code>tmux ls</code></p>
+        {/if}
       </div>
     {:else if isCLI}
       <TerminalCanvas

@@ -11,6 +11,7 @@
   export let visible = true
   export let sessionInterface = ''
   export let sessionRunner = ''
+  export let tmuxSessionName = ''
   export let guiModules = []
   export let onDelete = () => {}
 
@@ -117,6 +118,7 @@
           {temporalUrl}
           {sessionInterface}
           {sessionRunner}
+          {tmuxSessionName}
           {guiModules}
           {planSidebarOpen}
           onTogglePlan={togglePlanSidebar}

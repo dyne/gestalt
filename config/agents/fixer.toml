@@ -17,7 +17,7 @@ model_reasoning_effort = "medium"
 # history.persistence = "save_all"
 
 
-gui_modules = ["terminal"]
+gui_modules = ["console"]
 
 approval_policy = "never" # never | on-failure | untrusted | on-request
 sandbox_mode = "workspace-write" # read-only | workspace-write | danger-full-access

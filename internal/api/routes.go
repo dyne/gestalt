@@ -92,11 +92,6 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 		Logger:    logger,
 		AuthToken: authToken,
 	}))
-	mux.Handle("/ws/runner/session/", securityHeadersMiddleware(cacheControlNoStore, &RunnerHandler{
-		Manager:   manager,
-		Logger:    logger,
-		AuthToken: authToken,
-	}))
 	mux.Handle("/ws/logs", securityHeadersMiddleware(cacheControlNoStore, &LogsHandler{
 		Logger:    logger,
 		AuthToken: authToken,

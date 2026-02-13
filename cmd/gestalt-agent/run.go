@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -38,14 +37,6 @@ func runAgent(cfg Config, in io.Reader, out io.Writer, exec execRunner) (int, er
 			return exitServer, err
 		}
 		printTmuxAttachHint(out, session.Launch.SessionID)
-		bridgeErr := runRunnerBridge(context.Background(), session.Launch, baseURL, cfg.Token)
-		deleteErr := deleteSession(client, baseURL, cfg.Token, session.ID)
-		if bridgeErr != nil {
-			return exitServer, bridgeErr
-		}
-		if deleteErr != nil {
-			return exitServer, deleteErr
-		}
 		return 0, nil
 	}
 	return exec(args)

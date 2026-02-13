@@ -102,6 +102,12 @@ terminal output -> Session output bus -> /ws/session/:id -> frontend text view
 - Backend WS streaming now uses a shared write-loop helper (`internal/api/ws_helpers.go`) with per-handler read logic; logs/events/session handlers were updated to use it and have close-handling tests.
 - Frontend WS helper tests live in `frontend/src/lib/wsStore.test.js` and cover reconnect, subscription payloads, and listener error handling.
 
+## MCP/CLI stabilization notes
+- Runner bridge websocket support was removed (`/ws/runner/session/:id` is no longer registered).
+- `gestalt-agent` now creates external sessions, launches tmux (`Gestalt <workdir>`, window=`session.id`), prints attach hint, and exits.
+- External runner sessions are treated as non-interactive in `/ws/session/:id` and frontend terminal state (no reconnect loop).
+- GUI module normalization maps legacy `terminal` to `console`; default server modules are `["console"]`.
+
 ## Frontend store simplification notes
 - Dashboard orchestration (agent/config/git event handling, config extraction counts, git context) lives in `frontend/src/lib/dashboardStore.js`; Dashboard view now just binds store state.
 - Terminal text stream behavior is covered by `frontend/src/lib/terminal/segments.test.js` and `frontend/src/components/TerminalTextView.test.js`.

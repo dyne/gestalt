@@ -449,6 +449,37 @@ func TestManagerMCPSelectionUsesInterface(t *testing.T) {
 	}
 }
 
+func TestManagerMCPBootstrapFailsWhenSessionIsNotMCP(t *testing.T) {
+	manager := NewManager(ManagerOptions{
+		PtyFactory: &fakeFactory{},
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:      "Codex",
+				CLIType:   "codex",
+				Interface: agent.AgentInterfaceMCP,
+			},
+		},
+	})
+
+	_, err := manager.Create("codex", "run", "mcp")
+	if !errors.Is(err, ErrCodexMCPBootstrap) {
+		t.Fatalf("expected ErrCodexMCPBootstrap, got %v", err)
+	}
+}
+
+func TestWithCodexMCPAbsolutePath(t *testing.T) {
+	got := withCodexMCP("/usr/local/bin/codex -c model=o3")
+	if !strings.Contains(got, "/usr/local/bin/codex") {
+		t.Fatalf("expected absolute codex path, got %q", got)
+	}
+	if !strings.Contains(got, "mcp-server") {
+		t.Fatalf("expected mcp-server in command, got %q", got)
+	}
+	if !strings.Contains(got, "-c model=o3") {
+		t.Fatalf("expected existing args preserved, got %q", got)
+	}
+}
+
 func TestManagerForceTUIOverridesMCPInterface(t *testing.T) {
 	t.Setenv("GESTALT_CODEX_FORCE_TUI", "true")
 	tui := &recordingFactory{pty: &noopPty{}}

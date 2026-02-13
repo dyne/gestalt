@@ -372,6 +372,7 @@
               promptFiles={activeTerminal.prompt_files || []}
               visible={true}
               sessionInterface={activeTerminal.interface || ''}
+              sessionRunner={activeTerminal.runner || ''}
               guiModules={resolveGuiModules(activeTerminal.gui_modules, activeTerminal.runner)}
               onDelete={deleteTerminal}
             />

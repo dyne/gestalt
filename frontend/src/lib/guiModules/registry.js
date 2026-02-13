@@ -1,5 +1,4 @@
 export const guiModuleRegistry = Object.freeze({
-  terminal: { id: 'terminal' },
   console: { id: 'console' },
   'plan-progress': { id: 'plan-progress' },
 })

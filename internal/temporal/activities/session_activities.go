@@ -66,7 +66,7 @@ func (activities *SessionActivities) SpawnTerminalActivity(activityContext conte
 		return activityErr
 	}
 	if _, ok := manager.Get(trimmedID); ok {
-		activities.logInfo("temporal terminal already exists", map[string]string{
+		activities.logDebug("temporal terminal already exists", map[string]string{
 			"terminal_id": trimmedID,
 		})
 		return nil
@@ -355,6 +355,13 @@ func (activities *SessionActivities) logInfo(message string, fields map[string]s
 		return
 	}
 	activities.Logger.Info(message, fields)
+}
+
+func (activities *SessionActivities) logDebug(message string, fields map[string]string) {
+	if activities == nil || activities.Logger == nil {
+		return
+	}
+	activities.Logger.Debug(message, fields)
 }
 
 func (activities *SessionActivities) logWarn(message string, fields map[string]string) {

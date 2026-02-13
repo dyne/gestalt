@@ -5,10 +5,12 @@ import (
 	"strings"
 
 	"gestalt/internal/agent"
+	"gestalt/internal/guimodules"
 	"gestalt/internal/runner/launchspec"
 )
 
-var defaultExternalGUIModules = []string{"console", "plan-progress"}
+var defaultExternalGUIModules = []string{guimodules.ModuleConsole, guimodules.ModulePlanProgress}
+var defaultServerGUIModules = []string{guimodules.ModuleConsole}
 
 func normalizeRunnerKind(value string) (launchspec.RunnerKind, error) {
 	trimmed := strings.ToLower(strings.TrimSpace(value))
@@ -22,26 +24,7 @@ func normalizeRunnerKind(value string) (launchspec.RunnerKind, error) {
 }
 
 func normalizeSessionGUIModules(modules []string) []string {
-	if len(modules) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(modules))
-	normalized := make([]string, 0, len(modules))
-	for _, entry := range modules {
-		trimmed := strings.ToLower(strings.TrimSpace(entry))
-		if trimmed == "" {
-			continue
-		}
-		if _, ok := seen[trimmed]; ok {
-			continue
-		}
-		seen[trimmed] = struct{}{}
-		normalized = append(normalized, trimmed)
-	}
-	if len(normalized) == 0 {
-		return nil
-	}
-	return normalized
+	return guimodules.Normalize(modules)
 }
 
 func (m *Manager) buildExternalPromptPayloads(promptNames []string, sessionID string) ([]string, []string) {

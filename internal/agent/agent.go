@@ -3,6 +3,8 @@ package agent
 import (
 	"fmt"
 	"strings"
+
+	"gestalt/internal/guimodules"
 )
 
 // PromptList supports "prompt" as a string or array in TOML.
@@ -108,26 +110,7 @@ func (a *Agent) Validate() error {
 
 // normalizeGUIModules cleans module names while preserving order.
 func normalizeGUIModules(modules []string) []string {
-	if len(modules) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(modules))
-	cleaned := make([]string, 0, len(modules))
-	for _, entry := range modules {
-		trimmed := strings.ToLower(strings.TrimSpace(entry))
-		if trimmed == "" {
-			continue
-		}
-		if _, exists := seen[trimmed]; exists {
-			continue
-		}
-		seen[trimmed] = struct{}{}
-		cleaned = append(cleaned, trimmed)
-	}
-	if len(cleaned) == 0 {
-		return nil
-	}
-	return cleaned
+	return guimodules.Normalize(modules)
 }
 
 func (a *Agent) ResolveInterface() (string, error) {

@@ -338,6 +338,45 @@ func TestTerminalWebSocketAuth(t *testing.T) {
 	conn.Close()
 }
 
+func TestTerminalWebSocketExternalRunnerClosesWithPolicy(t *testing.T) {
+	manager := newTerminalTestManager(terminal.ManagerOptions{})
+	session := terminal.NewExternalSession("external-1", "title", "role", time.Now(), 10, 0, terminal.OutputBackpressureBlock, 0, nil, nil, nil)
+	manager.RegisterSession(session)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("skipping websocket test (listener unavailable): %v", err)
+	}
+	server := &httptest.Server{
+		Listener: listener,
+		Config:   &http.Server{Handler: &TerminalHandler{Manager: manager}},
+	}
+	server.Start()
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/session/" + escapeTerminalID(session.ID)
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+
+	_, _, err = conn.ReadMessage()
+	if err == nil {
+		t.Fatalf("expected websocket close")
+	}
+	closeErr, ok := err.(*websocket.CloseError)
+	if !ok {
+		t.Fatalf("expected close error, got %T", err)
+	}
+	if closeErr.Code != websocket.ClosePolicyViolation {
+		t.Fatalf("expected close code %d, got %d", websocket.ClosePolicyViolation, closeErr.Code)
+	}
+	if !strings.Contains(closeErr.Text, "tmux-managed") {
+		t.Fatalf("expected close reason to mention tmux-managed, got %q", closeErr.Text)
+	}
+}
+
 func TestTerminalWebSocketConcurrentConnections(t *testing.T) {
 	factory := &testFactory{}
 	manager := newTerminalTestManager(terminal.ManagerOptions{

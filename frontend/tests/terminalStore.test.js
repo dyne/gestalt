@@ -276,4 +276,21 @@ describe('terminalStore', () => {
     unsubscribe()
     releaseTerminalState('slow')
   })
+
+  it('does not open websocket for external runner sessions', async () => {
+    const state = getTerminalState('ext', 'cli', 'external')
+    let status = ''
+    const unsubscribe = state.status.subscribe((value) => {
+      status = value
+    })
+
+    state.setVisible(true)
+    await flush()
+
+    expect(MockWebSocket.instances.length).toBe(0)
+    expect(status).toBe('disconnected')
+
+    unsubscribe()
+    releaseTerminalState('ext')
+  })
 })

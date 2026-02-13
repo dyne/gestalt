@@ -222,10 +222,23 @@
     } catch (err) {
       if (err?.status === 409 && err?.data?.session_id) {
         const existingId = err.data.session_id
-        if (!terminals.find((terminal) => terminal.id === existingId)) {
+        let existing = terminals.find((terminal) => terminal.id === existingId)
+        if (!existing) {
           await refresh()
+          existing = terminals.find((terminal) => terminal.id === existingId)
         }
-        activeId = existingId
+        if (existing && isExternalCliSession(existing)) {
+          try {
+            await apiFetch(buildApiPath('/api/sessions', existingId, 'activate'), {
+              method: 'POST',
+            })
+          } catch (activateErr) {
+            notifyError(activateErr, 'Failed to activate tmux window.')
+          }
+          activeId = 'agents'
+        } else {
+          activeId = existingId
+        }
         notificationStore.addNotification('info', getErrorMessage(err, `Agent ${agentId} is already running.`))
         return
       }
@@ -417,7 +430,11 @@
   <section class="view" data-active={activeView === 'agents'}>
     <svelte:boundary onerror={(error) => handleBoundaryError('agents', error)} failed={viewFailed}>
       {#if agentsViewComponent}
-        <svelte:component this={agentsViewComponent} status={status} />
+        <svelte:component
+          this={agentsViewComponent}
+          status={status}
+          visible={activeView === 'agents'}
+        />
       {:else}
         <div class="view-fallback">
           <p>Loading...</p>

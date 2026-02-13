@@ -7,7 +7,7 @@ describe('tab routing', () => {
     expect(tabs.find((tab) => tab.id === 'agents')?.label).toBe('Agents')
   })
 
-  it('excludes external cli sessions from terminal tabs', () => {
+  it('excludes cli sessions from terminal tabs', () => {
     const tabs = buildTabs([
       { id: 'ext', title: 'External', interface: 'cli', runner: 'external' },
       { id: 'mcp', title: 'MCP', interface: 'mcp', runner: 'external' },
@@ -16,7 +16,7 @@ describe('tab routing', () => {
     const ids = tabs.map((tab) => tab.id)
     expect(ids).not.toContain('ext')
     expect(ids).toContain('mcp')
-    expect(ids).toContain('srv')
+    expect(ids).not.toContain('srv')
   })
 
   it('treats the Agents tab as a home view', () => {

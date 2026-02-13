@@ -13,9 +13,8 @@ export const buildTabs = (terminalList = []) => [
   ...HOME_TABS,
   ...terminalList
     .filter((terminal) => {
-      const runner = String(terminal?.runner || '').trim().toLowerCase()
       const sessionInterface = String(terminal?.interface || '').trim().toLowerCase()
-      return !(runner === 'external' && sessionInterface === 'cli')
+      return sessionInterface !== 'cli'
     })
     .map((terminal) => ({
       id: terminal.id,

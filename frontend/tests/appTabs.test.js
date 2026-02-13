@@ -41,6 +41,7 @@ describe('App tab switching', () => {
             title: 'Shell',
             role: 'shell',
             created_at: new Date().toISOString(),
+            interface: 'mcp',
           },
         ],
       }),

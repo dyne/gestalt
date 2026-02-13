@@ -49,6 +49,8 @@ describe('App duplicate agent handling', () => {
               title: 'Codex',
               role: 'shell',
               created_at: new Date().toISOString(),
+              interface: 'cli',
+              runner: 'external',
             },
           ]),
         })
@@ -74,6 +76,9 @@ describe('App duplicate agent handling', () => {
         error.data = { session_id: '1' }
         return Promise.reject(error)
       }
+      if (url === '/api/sessions/1/activate' && options.method === 'POST') {
+        return Promise.resolve({ ok: true })
+      }
       return Promise.reject(new Error(`Unexpected API call: ${url}`))
     })
 
@@ -87,7 +92,7 @@ describe('App duplicate agent handling', () => {
     expect(await findByText('agent "Codex" is already running')).toBeTruthy()
 
     const tabBar = container.querySelector('nav[aria-label="App tabs"]')
-    const tabButton = within(tabBar).getByRole('button', { name: '1' })
+    const tabButton = within(tabBar).getByRole('button', { name: 'Agents' })
     const tabItem = tabButton.closest('.tabbar__item')
     expect(tabItem?.dataset.active).toBe('true')
   })

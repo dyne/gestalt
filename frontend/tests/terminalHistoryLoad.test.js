@@ -73,12 +73,14 @@ describe('terminal history loads', () => {
         title: 'Shell',
         role: 'shell',
         created_at: new Date().toISOString(),
+        interface: 'mcp',
       },
       {
         id: 't2',
         title: 'Ops',
         role: 'shell',
         created_at: new Date().toISOString(),
+        interface: 'mcp',
       },
     ]
 

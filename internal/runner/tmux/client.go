@@ -116,6 +116,11 @@ func (c *Client) ResizePane(target string, cols, rows uint16) error {
 	return c.run(args, nil)
 }
 
+// SelectWindow selects the target window.
+func (c *Client) SelectWindow(target string) error {
+	return c.run([]string{"select-window", "-t", target}, nil)
+}
+
 // HasSession reports whether the named session exists.
 func (c *Client) HasSession(name string) (bool, error) {
 	if c == nil || c.runner == nil {

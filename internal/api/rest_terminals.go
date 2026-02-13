@@ -48,6 +48,8 @@ func (h *RestHandler) handleTerminal(w http.ResponseWriter, r *http.Request) *ap
 		return h.handleTerminalHistory(w, r, id)
 	case terminalPathInput:
 		return h.handleTerminalInput(w, r, id)
+	case terminalPathActivate:
+		return h.handleTerminalActivate(w, r, id)
 	case terminalPathInputHistory:
 		return h.handleTerminalInputHistory(w, r, id)
 	case terminalPathBell:
@@ -87,6 +89,28 @@ func (h *RestHandler) handleTerminalInput(w http.ResponseWriter, r *http.Request
 	}
 
 	writeJSON(w, http.StatusOK, agentInputResponse{Bytes: len(payload)})
+	return nil
+}
+
+func (h *RestHandler) handleTerminalActivate(w http.ResponseWriter, r *http.Request, id string) *apiError {
+	if r.Method != http.MethodPost {
+		return methodNotAllowed(w, "POST")
+	}
+
+	if err := h.Manager.ActivateSessionWindow(id); err != nil {
+		if errors.Is(err, terminal.ErrSessionNotFound) {
+			return &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
+		}
+		if errors.Is(err, terminal.ErrSessionNotTmuxManaged) {
+			return &apiError{Status: http.StatusConflict, Message: "session is not tmux-managed"}
+		}
+		if errors.Is(err, terminal.ErrTmuxSessionNotFound) {
+			return &apiError{Status: http.StatusServiceUnavailable, Message: "tmux session not found; start an agent to recreate it"}
+		}
+		return &apiError{Status: http.StatusInternalServerError, Message: "failed to activate tmux window"}
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
 
@@ -609,6 +633,8 @@ func parseTerminalPath(path string) (string, terminalPathAction, *apiError) {
 			return id, terminalPathInputHistory, nil
 		case "input":
 			return id, terminalPathInput, nil
+		case "activate":
+			return id, terminalPathActivate, nil
 		case "bell":
 			return id, terminalPathBell, nil
 		case "notify":

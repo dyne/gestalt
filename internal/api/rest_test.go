@@ -119,6 +119,20 @@ func (f *fakeFactory) Start(command string, args ...string) (terminal.Pty, *exec
 	return pty, nil, nil
 }
 
+type fakeTmuxClient struct {
+	hasSession bool
+	targets    []string
+}
+
+func (f *fakeTmuxClient) HasSession(name string) (bool, error) {
+	return f.hasSession, nil
+}
+
+func (f *fakeTmuxClient) SelectWindow(target string) error {
+	f.targets = append(f.targets, target)
+	return nil
+}
+
 type fakeEncodedValue struct {
 	payload interface{}
 }
@@ -1623,6 +1637,74 @@ func TestTerminalInputEndpointMissingSession(t *testing.T) {
 	}
 }
 
+func TestTerminalActivateEndpointSelectsTmuxWindow(t *testing.T) {
+	tmuxClient := &fakeTmuxClient{hasSession: true}
+	manager := newTestManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: &fakeFactory{},
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:      "Codex",
+				Shell:     "codex -c model=o3",
+				CLIType:   "codex",
+				Interface: agent.AgentInterfaceCLI,
+			},
+		},
+		StartExternalTmuxWindow: func(_ *launchspec.LaunchSpec) error { return nil },
+		TmuxClientFactory:       func() terminal.TmuxClient { return tmuxClient },
+	})
+	created, err := manager.CreateWithOptions(terminal.CreateOptions{AgentID: "codex", Runner: "external"})
+	if err != nil {
+		t.Fatalf("create external terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+		if hubID, _ := manager.AgentsHubStatus(); hubID != "" {
+			_ = manager.Delete(hubID)
+		}
+	}()
+
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/activate", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", nil, handler.handleTerminal)(res, req)
+	if res.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", res.Code)
+	}
+	if len(tmuxClient.targets) != 1 {
+		t.Fatalf("expected one select-window call, got %d", len(tmuxClient.targets))
+	}
+	if !strings.HasSuffix(tmuxClient.targets[0], ":"+created.ID) {
+		t.Fatalf("expected target to end with session id %q, got %q", created.ID, tmuxClient.targets[0])
+	}
+}
+
+func TestTerminalActivateEndpointNonExternalReturnsConflict(t *testing.T) {
+	manager := newTestManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: &fakeFactory{},
+	})
+	created, err := manager.Create(testAgentID, "", "")
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/activate", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", nil, handler.handleTerminal)(res, req)
+	if res.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d", res.Code)
+	}
+}
+
 func TestTerminalInputHistoryPostEndpoint(t *testing.T) {
 	factory := &fakeFactory{}
 	manager := newTestManager(terminal.ManagerOptions{
@@ -2637,6 +2719,8 @@ func TestParseTerminalPath(t *testing.T) {
 		{name: "history-trailing-slash", path: "/api/sessions/123/history/", id: "123", action: terminalPathHistory},
 		{name: "input", path: "/api/sessions/123/input", id: "123", action: terminalPathInput},
 		{name: "input-trailing-slash", path: "/api/sessions/123/input/", id: "123", action: terminalPathInput},
+		{name: "activate", path: "/api/sessions/123/activate", id: "123", action: terminalPathActivate},
+		{name: "activate-trailing-slash", path: "/api/sessions/123/activate/", id: "123", action: terminalPathActivate},
 		{name: "input-history", path: "/api/sessions/123/input-history", id: "123", action: terminalPathInputHistory},
 		{name: "input-history-trailing-slash", path: "/api/sessions/123/input-history/", id: "123", action: terminalPathInputHistory},
 		{name: "workflow-resume", path: "/api/sessions/123/workflow/resume", id: "123", action: terminalPathWorkflowResume},

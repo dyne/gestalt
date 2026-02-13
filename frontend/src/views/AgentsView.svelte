@@ -20,6 +20,7 @@
       tmuxSessionName={tmuxSessionName}
       guiModules={['console']}
       showInput={false}
+      showCloseButton={false}
       forceDirectInput={true}
       allowMouseReporting={true}
     />

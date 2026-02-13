@@ -32,7 +32,7 @@
     setActiveTabId,
     setActiveView,
   } from './lib/appHealthStore.js'
-  import { isCliSession, isExternalCliSession } from './lib/sessionSelection.js'
+  import { isExternalCliSession } from './lib/sessionSelection.js'
 
   let tabs = buildTabs([])
   let activeId = 'dashboard'
@@ -44,6 +44,7 @@
   let watchErrorNotified = false
   let terminalErrorUnsubscribe = null
   let notificationUnsubscribe = null
+  let agentsHubUnsubscribe = null
   let crashState = null
   let clipboardAvailable = false
   let terminalStyle = ''
@@ -207,16 +208,7 @@
       if (status) {
         status = { ...status, session_count: status.session_count + 1 }
       }
-      let nextStatus = status
-      if (isCliSession(created)) {
-        try {
-          nextStatus = await fetchStatus()
-          status = nextStatus
-        } catch (refreshErr) {
-          notifyError(refreshErr, 'Failed to refresh agents status.')
-        }
-      }
-      syncTabs(terminals, nextStatus)
+      syncTabs(terminals, status)
       if (isExternalCliSession(created)) {
         try {
           await apiFetch(buildApiPath('/api/sessions', created.id, 'activate'), {
@@ -337,6 +329,18 @@
       watchErrorNotified = true
       notificationStore.addNotification('warning', 'File watching unavailable.')
     })
+    agentsHubUnsubscribe = subscribeEvents('agents_hub_ready', (payload) => {
+      const data = payload?.data || {}
+      const sessionId = String(data.agents_session_id || '').trim()
+      const tmuxSession = String(data.agents_tmux_session || '').trim()
+      if (!sessionId && !tmuxSession) return
+      status = {
+        ...(status || {}),
+        agents_session_id: sessionId,
+        agents_tmux_session: tmuxSession,
+      }
+      syncTabs(terminals, status)
+    })
     terminalErrorUnsubscribe = subscribeTerminalEvents('terminal_error', (payload) => {
       const sessionId = payload?.session_id || 'unknown'
       const detail = payload?.data?.error
@@ -360,6 +364,10 @@
       if (notificationUnsubscribe) {
         notificationUnsubscribe()
         notificationUnsubscribe = null
+      }
+      if (agentsHubUnsubscribe) {
+        agentsHubUnsubscribe()
+        agentsHubUnsubscribe = null
       }
     }
   })

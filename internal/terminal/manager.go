@@ -872,6 +872,14 @@ func (m *Manager) ensureAgentsHubSession() error {
 	m.mu.Unlock()
 
 	m.emitSessionStarted(id, request, "", shell)
+	if m.terminalBus != nil {
+		hubEvent := event.NewTerminalEvent(id, "agents_hub_ready")
+		hubEvent.Data = map[string]any{
+			"agents_session_id":   id,
+			"agents_tmux_session": tmuxSessionName,
+		}
+		m.terminalBus.Publish(hubEvent)
+	}
 	return nil
 }
 

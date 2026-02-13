@@ -232,6 +232,7 @@ const (
 	terminalPathTerminal terminalPathAction = iota
 	terminalPathOutput
 	terminalPathHistory
+	terminalPathInput
 	terminalPathInputHistory
 	terminalPathBell
 	terminalPathNotify

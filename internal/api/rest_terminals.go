@@ -46,6 +46,8 @@ func (h *RestHandler) handleTerminal(w http.ResponseWriter, r *http.Request) *ap
 		return h.handleTerminalOutput(w, r, id)
 	case terminalPathHistory:
 		return h.handleTerminalHistory(w, r, id)
+	case terminalPathInput:
+		return h.handleTerminalInput(w, r, id)
 	case terminalPathInputHistory:
 		return h.handleTerminalInputHistory(w, r, id)
 	case terminalPathBell:
@@ -61,6 +63,31 @@ func (h *RestHandler) handleTerminal(w http.ResponseWriter, r *http.Request) *ap
 	default:
 		return h.handleTerminalDelete(w, r, id)
 	}
+}
+
+func (h *RestHandler) handleTerminalInput(w http.ResponseWriter, r *http.Request, id string) *apiError {
+	if r.Method != http.MethodPost {
+		return methodNotAllowed(w, "POST")
+	}
+
+	session, ok := h.Manager.Get(id)
+	if !ok {
+		return &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
+	}
+
+	payload, err := io.ReadAll(r.Body)
+	if err != nil {
+		return &apiError{Status: http.StatusBadRequest, Message: "invalid request body"}
+	}
+	if len(payload) == 0 {
+		return &apiError{Status: http.StatusBadRequest, Message: "invalid request body"}
+	}
+	if writeErr := session.Write(payload); writeErr != nil {
+		return &apiError{Status: http.StatusInternalServerError, Message: "failed to write terminal input"}
+	}
+
+	writeJSON(w, http.StatusOK, agentInputResponse{Bytes: len(payload)})
+	return nil
 }
 
 func (h *RestHandler) listTerminals(w http.ResponseWriter) *apiError {
@@ -580,6 +607,8 @@ func parseTerminalPath(path string) (string, terminalPathAction, *apiError) {
 			return id, terminalPathHistory, nil
 		case "input-history":
 			return id, terminalPathInputHistory, nil
+		case "input":
+			return id, terminalPathInput, nil
 		case "bell":
 			return id, terminalPathBell, nil
 		case "notify":

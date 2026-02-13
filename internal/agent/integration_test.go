@@ -115,7 +115,12 @@ func TestIntegrationCreateSessionFromTOML(t *testing.T) {
 		Agents:     agents,
 		AgentsDir:  agentsDir,
 	})
-	session, err := manager.Create("valid-codex", "run", "integration")
+	session, err := manager.CreateWithOptions(terminal.CreateOptions{
+		AgentID: "valid-codex",
+		Role:    "run",
+		Title:   "integration",
+		Runner:  "server",
+	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -126,40 +131,40 @@ func TestIntegrationCreateSessionFromTOML(t *testing.T) {
 	if factory.command != "codex" {
 		t.Fatalf("expected command codex, got %q", factory.command)
 	}
-		wantArgs := []string{"-c", "approval_policy=never", "-c", "model=o3"}
-		if len(factory.args) < len(wantArgs) {
-			t.Fatalf("expected args to include %v, got %v", wantArgs, factory.args)
+	wantArgs := []string{"-c", "approval_policy=never", "-c", "model=o3"}
+	if len(factory.args) < len(wantArgs) {
+		t.Fatalf("expected args to include %v, got %v", wantArgs, factory.args)
+	}
+	for i, arg := range wantArgs {
+		if factory.args[i] != arg {
+			t.Fatalf("expected args %v, got %v", wantArgs, factory.args)
 		}
-		for i, arg := range wantArgs {
-			if factory.args[i] != arg {
-				t.Fatalf("expected args %v, got %v", wantArgs, factory.args)
-			}
+	}
+	for _, arg := range factory.args {
+		if arg == "mcp-server" {
+			t.Fatalf("did not expect mcp-server in args, got %v", factory.args)
 		}
-		for _, arg := range factory.args {
-			if arg == "mcp-server" {
-				t.Fatalf("did not expect mcp-server in args, got %v", factory.args)
-			}
+	}
+	notifyArg := ""
+	for _, arg := range factory.args {
+		if strings.Contains(arg, "notify=") {
+			notifyArg = arg
+			break
 		}
-		notifyArg := ""
-		for _, arg := range factory.args {
-			if strings.Contains(arg, "notify=") {
-				notifyArg = arg
-				break
-			}
-		}
-		if notifyArg == "" {
-			t.Fatalf("expected notify config in args, got %v", factory.args)
-		}
+	}
+	if notifyArg == "" {
+		t.Fatalf("expected notify config in args, got %v", factory.args)
+	}
 	if session.ConfigHash != codex.ConfigHash {
 		t.Fatalf("expected config hash %q, got %q", codex.ConfigHash, session.ConfigHash)
 	}
-		if strings.Contains(session.Command, "mcp-server") {
-			t.Fatalf("did not expect mcp-server in session command, got %q", session.Command)
-		}
-		if !strings.Contains(session.Command, "notify=") {
-			t.Fatalf("expected notify in session command, got %q", session.Command)
-		}
+	if strings.Contains(session.Command, "mcp-server") {
+		t.Fatalf("did not expect mcp-server in session command, got %q", session.Command)
 	}
+	if !strings.Contains(session.Command, "notify=") {
+		t.Fatalf("expected notify in session command, got %q", session.Command)
+	}
+}
 
 func hasLogError(entries []logging.LogEntry, needle string) bool {
 	for _, entry := range entries {

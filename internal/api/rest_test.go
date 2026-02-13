@@ -1891,7 +1891,7 @@ func TestCreateTerminalWithAgent(t *testing.T) {
 	})
 	handler := &RestHandler{Manager: manager}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions", strings.NewReader(`{"title":"ignored","role":"shell","agent":"codex"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions", strings.NewReader(`{"title":"ignored","role":"shell","agent":"codex","runner":"server"}`))
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 

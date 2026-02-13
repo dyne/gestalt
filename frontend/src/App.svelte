@@ -202,6 +202,17 @@
         status = { ...status, session_count: status.session_count + 1 }
       }
       syncTabs(terminals)
+      if (isExternalCliSession(created)) {
+        try {
+          await apiFetch(buildApiPath('/api/sessions', created.id, 'activate'), {
+            method: 'POST',
+          })
+        } catch (err) {
+          notifyError(err, 'Failed to activate tmux window.')
+        }
+        activeId = 'agents'
+        return
+      }
       activeId = created.id
       console.info('session created', {
         id: created.id,

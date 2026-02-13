@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"gestalt/internal/logging"
@@ -74,11 +75,16 @@ func (h *RestHandler) listWorkflowSummaries(ctx context.Context) []workflowSumma
 			}
 			summary.StartTime = info.CreatedAt
 			if h.Logger != nil {
-				h.Logger.Warn("workflow status query failed", map[string]string{
+				fields := map[string]string{
 					"workflow_id": workflowID,
 					"run_id":      workflowRunID,
 					"error":       err.Error(),
-				})
+				}
+				if isUnknownWorkflowQueryTypeError(err) {
+					h.Logger.Debug("workflow status query unavailable", fields)
+				} else {
+					h.Logger.Warn("workflow status query failed", fields)
+				}
 			}
 		} else {
 			summary.AgentID = state.AgentID
@@ -127,6 +133,13 @@ func (h *RestHandler) listWorkflowSummaries(ctx context.Context) []workflowSumma
 	})
 
 	return summaries
+}
+
+func isUnknownWorkflowQueryTypeError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "unknown queryType")
 }
 
 func queryWorkflowState(ctx context.Context, temporalClient temporal.WorkflowClient, workflowID, workflowRunID string) (workflows.SessionWorkflowState, error) {

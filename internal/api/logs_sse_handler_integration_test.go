@@ -69,7 +69,7 @@ func TestLogsSSEStreamFiltersAndSanitizes(t *testing.T) {
 	defer resp.Body.Close()
 
 	reader := bufio.NewReader(resp.Body)
-	entry, err := readSSELogEntryWithMessage(reader, "terminal close error", 750*time.Millisecond)
+	entry, err := readSSELogEntryWithMessage(reader, "session close error", 750*time.Millisecond)
 	if err != nil {
 		t.Fatalf("read close entry: %v", err)
 	}

@@ -152,7 +152,7 @@ func TestLogsFilteringWebSocketAndREST(t *testing.T) {
 	}
 	assertFilteredContext(t, attrValue(bellEntry, "context"))
 
-	closeEntry, err := readLogEntryWithMessage(conn, "terminal close error", 500*time.Millisecond)
+	closeEntry, err := readLogEntryWithMessage(conn, "session close error", 500*time.Millisecond)
 	if err != nil {
 		t.Fatalf("read close entry: %v", err)
 	}

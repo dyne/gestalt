@@ -491,15 +491,12 @@ func (h *RestHandler) handleTerminalWorkflowResume(w http.ResponseWriter, r *htt
 
 	if h.Logger != nil {
 		h.Logger.Info("workflow resume action", map[string]string{
-			"gestalt.category":    "workflow",
-			"gestalt.source":      "backend",
-			"session.id":          id,
-			"session_id":          id,
-			"workflow.id":         workflowID,
-			"workflow.session_id": id,
-			"workflow_id":         workflowID,
-			"run_id":              workflowRunID,
-			"action":              action,
+			"gestalt.category": "workflow",
+			"gestalt.source":   "backend",
+			"session.id":       id,
+			"workflow.id":      workflowID,
+			"workflow.run_id":  workflowRunID,
+			"action":           action,
 		})
 	}
 

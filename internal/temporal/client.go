@@ -3,6 +3,8 @@ package temporal
 import (
 	"context"
 
+	"gestalt/internal/logging"
+
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
@@ -21,12 +23,14 @@ type WorkflowClient interface {
 type ClientConfig struct {
 	HostPort  string
 	Namespace string
+	Logger    *logging.Logger
 }
 
 func NewClient(config ClientConfig) (WorkflowClient, error) {
 	options := client.Options{
 		HostPort:  config.HostPort,
 		Namespace: config.Namespace,
+		Logger:    newSDKLogger(config.Logger),
 	}
 	options.Interceptors = []interceptor.ClientInterceptor{temporalTracingInterceptor()}
 	return client.Dial(options)

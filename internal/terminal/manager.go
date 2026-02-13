@@ -575,23 +575,18 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		startError := session.StartWorkflow(m.temporalClient, "", "")
 		if startError != nil {
 			m.logger.Warn("temporal workflow start failed", map[string]string{
-				"gestalt.category":    "workflow",
-				"gestalt.source":      "backend",
-				"terminal.id":         id,
-				"terminal_id":         id,
-				"workflow.session_id": id,
-				"error":               startError.Error(),
+				"gestalt.category": "workflow",
+				"gestalt.source":   "backend",
+				"session.id":       id,
+				"error":            startError.Error(),
 			})
 		} else if workflowID, workflowRunID, ok := session.WorkflowIdentifiers(); ok {
 			m.logger.Info("workflow started", map[string]string{
-				"gestalt.category":    "workflow",
-				"gestalt.source":      "backend",
-				"terminal.id":         id,
-				"terminal_id":         id,
-				"workflow.id":         workflowID,
-				"workflow.session_id": id,
-				"workflow_id":         workflowID,
-				"run_id":              workflowRunID,
+				"gestalt.category": "workflow",
+				"gestalt.source":   "backend",
+				"session.id":       id,
+				"workflow.run_id":  workflowRunID,
+				"workflow.id":      workflowID,
 			})
 		}
 	}

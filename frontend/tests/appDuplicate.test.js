@@ -38,7 +38,7 @@ describe('App duplicate agent handling', () => {
     apiFetch.mockImplementation((url, options = {}) => {
       if (url === '/api/status') {
         return Promise.resolve({
-          json: vi.fn().mockResolvedValue({ session_count: 1 }),
+          json: vi.fn().mockResolvedValue({ session_count: 1, agents_session_id: 'hub' }),
         })
       }
       if (url === '/api/sessions' && (!options.method || options.method === 'GET')) {

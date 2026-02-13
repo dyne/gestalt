@@ -2,9 +2,14 @@ import { describe, it, expect } from 'vitest'
 import { buildTabs, resolveActiveView } from '../src/lib/tabRouting.js'
 
 describe('tab routing', () => {
-  it('includes the Agents home tab', () => {
-    const tabs = buildTabs([])
+  it('includes the Agents home tab when enabled', () => {
+    const tabs = buildTabs([], { showAgents: true })
     expect(tabs.find((tab) => tab.id === 'agents')?.label).toBe('Agents')
+  })
+
+  it('omits the Agents home tab by default', () => {
+    const tabs = buildTabs([])
+    expect(tabs.find((tab) => tab.id === 'agents')).toBeUndefined()
   })
 
   it('excludes cli sessions from terminal tabs', () => {

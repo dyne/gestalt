@@ -49,6 +49,8 @@
   let flowViewPromise = null
   let planViewComponent = null
   let planViewPromise = null
+  let agentsViewComponent = null
+  let agentsViewPromise = null
   let terminalViewComponent = null
   let terminalViewPromise = null
 
@@ -120,6 +122,23 @@
     return planViewPromise
   }
 
+  function loadAgentsView() {
+    if (agentsViewComponent) return agentsViewComponent
+    if (!agentsViewPromise) {
+      agentsViewPromise = import('./views/AgentsView.svelte')
+        .then((module) => {
+          agentsViewComponent = module.default
+          return agentsViewComponent
+        })
+        .catch((err) => {
+          agentsViewPromise = null
+          notifyError(err, 'Failed to load the Agents view.')
+          return null
+        })
+    }
+    return agentsViewPromise
+  }
+
   function loadTerminalView() {
     if (terminalViewComponent) return terminalViewComponent
     if (!terminalViewPromise) {
@@ -139,6 +158,9 @@
 
   $: if (activeView === 'plan') {
     loadPlanView()
+  }
+  $: if (activeView === 'agents') {
+    loadAgentsView()
   }
   $: if (activeView === 'flow') {
     loadFlowView()
@@ -357,6 +379,17 @@
     <svelte:boundary onerror={(error) => handleBoundaryError('flow', error)} failed={viewFailed}>
       {#if flowViewComponent}
         <svelte:component this={flowViewComponent} />
+      {:else}
+        <div class="view-fallback">
+          <p>Loading...</p>
+        </div>
+      {/if}
+    </svelte:boundary>
+  </section>
+  <section class="view" data-active={activeView === 'agents'}>
+    <svelte:boundary onerror={(error) => handleBoundaryError('agents', error)} failed={viewFailed}>
+      {#if agentsViewComponent}
+        <svelte:component this={agentsViewComponent} status={status} />
       {:else}
         <div class="view-fallback">
           <p>Loading...</p>

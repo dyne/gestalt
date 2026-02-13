@@ -27,6 +27,15 @@ export default defineConfig({
   plugins: [svelte()],
   build: {
     sourcemap: enableSourcemap,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/@xterm/')) {
+            return 'vendor-xterm'
+          }
+        },
+      },
+    },
   },
   server: {
     proxy: {

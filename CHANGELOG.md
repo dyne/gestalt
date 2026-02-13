@@ -1,3 +1,17 @@
+# [1.11.0](https://github.com/dyne/gestalt/compare/v1.10.0...v1.11.0) (2026-02-13)
+
+
+### Bug Fixes
+
+* **ui:** guard lazy-loaded view imports ([ba0e512](https://github.com/dyne/gestalt/commit/ba0e5125903a67eab9ae658234eabbbe944d1b66))
+
+
+### Features
+
+* **ui:** defer terminal store import ([4ffbe48](https://github.com/dyne/gestalt/commit/4ffbe48450d22b938b171b9121a314f11a1e70bc))
+* **ui:** lazy-load tab views ([f3416d7](https://github.com/dyne/gestalt/commit/f3416d7e4fcb3140ab39d1dba15d8915fc070828))
+* **vite:** split xterm chunk ([bbf588e](https://github.com/dyne/gestalt/commit/bbf588e6e92044dc46340a6f75fce9b53d19a8ba))
+
 # [1.10.0](https://github.com/dyne/gestalt/compare/v1.9.0...v1.10.0) (2026-02-12)
 
 

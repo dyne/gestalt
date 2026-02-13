@@ -3,7 +3,6 @@
   import Terminal from '../components/Terminal.svelte'
   import PlanSidebar from '../components/PlanSidebar.svelte'
   import { fetchStatus, fetchWorkflows } from '../lib/apiClient.js'
-  import { buildTemporalUrl } from '../lib/workflowFormat.js'
 
   export let sessionId = ''
   export let title = ''
@@ -96,7 +95,7 @@
     resetWorkflowContext()
   }
 
-  $: temporalUrl = buildTemporalUrl(workflowId, workflowRunId, temporalUiUrl)
+  $: temporalUrl = String(temporalUiUrl || '').trim()
 
   onMount(() => {
     if (sessionId) {

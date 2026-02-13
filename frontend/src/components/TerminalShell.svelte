@@ -9,6 +9,7 @@
   export let showBottomButton = false
   export let showPlanButton = false
   export let planButtonActive = false
+  export let showCloseButton = true
   export let onReconnect = () => {}
   export let onScrollToBottom = () => {}
   export let onPlanToggle = () => {}
@@ -70,9 +71,11 @@
           Bottom
         </button>
       {/if}
-      <button class="terminal-close" type="button" on:click={onRequestClose}>
-        Close
-      </button>
+      {#if showCloseButton}
+        <button class="terminal-close" type="button" on:click={onRequestClose}>
+          Close
+        </button>
+      {/if}
     </div>
   </header>
   <slot name="canvas"></slot>

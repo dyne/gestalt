@@ -22,6 +22,7 @@
   export let showInput = true
   export let forceDirectInput = false
   export let allowMouseReporting = false
+  export let showCloseButton = true
 
   let state
   let status = 'disconnected'
@@ -268,6 +269,7 @@
   showPlanButton={hasPlanModule}
   planButtonActive={planSidebarOpen}
   showBottomButton={!atBottom}
+  {showCloseButton}
   onReconnect={handleReconnect}
   onScrollToBottom={handleScrollToBottom}
   onPlanToggle={onTogglePlan}

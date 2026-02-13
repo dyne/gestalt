@@ -106,6 +106,10 @@ terminal output -> Session output bus -> /ws/session/:id -> frontend text view
 - Dashboard orchestration (agent/config/git event handling, config extraction counts, git context) lives in `frontend/src/lib/dashboardStore.js`; Dashboard view now just binds store state.
 - Terminal text stream behavior is covered by `frontend/src/lib/terminal/segments.test.js` and `frontend/src/components/TerminalTextView.test.js`.
 
+## Frontend chunking notes
+- Vite manual chunks split `@xterm/*` into `vendor-xterm` (`frontend/vite.config.js`).
+- Non-default tab views (Plan/Flow/Terminal) lazy-load in `frontend/src/App.svelte`; avoid eager terminal imports at the root.
+
 ## Plan UI notes
 - Plans are served via `/api/plans` (metadata + headings) from `.gestalt/plans/`; PlanView renders PlanCard details/summary and refreshes on file change events.
 - `frontend/src/views/PlanView.svelte` debounces plan refreshes from file watcher events to avoid request floods.

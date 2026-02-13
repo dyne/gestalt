@@ -71,15 +71,6 @@
     setSessionUiConfigFromStatus(status)
   }
   $: terminalStyle = buildTerminalStyle($sessionUiConfig)
-  $: if (activeView === 'plan') {
-    loadPlanView()
-  }
-  $: if (activeView === 'flow') {
-    loadFlowView()
-  }
-  $: if (activeView === 'terminal') {
-    loadTerminalView()
-  }
 
   $: if (typeof document !== 'undefined') {
     const projectName = buildTitle(status?.working_dir || '')
@@ -91,37 +82,65 @@
     activeId = ensureActiveTab(activeId, tabs, 'dashboard')
   }
 
-  const loadFlowView = () => {
+  function loadFlowView() {
     if (flowViewComponent) return flowViewComponent
     if (!flowViewPromise) {
-      flowViewPromise = import('./views/FlowView.svelte').then((module) => {
-        flowViewComponent = module.default
-        return flowViewComponent
-      })
+      flowViewPromise = import('./views/FlowView.svelte')
+        .then((module) => {
+          flowViewComponent = module.default
+          return flowViewComponent
+        })
+        .catch((err) => {
+          flowViewPromise = null
+          notifyError(err, 'Failed to load the Flow view.')
+          return null
+        })
     }
     return flowViewPromise
   }
 
-  const loadPlanView = () => {
+  function loadPlanView() {
     if (planViewComponent) return planViewComponent
     if (!planViewPromise) {
-      planViewPromise = import('./views/PlanView.svelte').then((module) => {
-        planViewComponent = module.default
-        return planViewComponent
-      })
+      planViewPromise = import('./views/PlanView.svelte')
+        .then((module) => {
+          planViewComponent = module.default
+          return planViewComponent
+        })
+        .catch((err) => {
+          planViewPromise = null
+          notifyError(err, 'Failed to load the Plans view.')
+          return null
+        })
     }
     return planViewPromise
   }
 
-  const loadTerminalView = () => {
+  function loadTerminalView() {
     if (terminalViewComponent) return terminalViewComponent
     if (!terminalViewPromise) {
-      terminalViewPromise = import('./views/TerminalView.svelte').then((module) => {
-        terminalViewComponent = module.default
-        return terminalViewComponent
-      })
+      terminalViewPromise = import('./views/TerminalView.svelte')
+        .then((module) => {
+          terminalViewComponent = module.default
+          return terminalViewComponent
+        })
+        .catch((err) => {
+          terminalViewPromise = null
+          notifyError(err, 'Failed to load the Terminal view.')
+          return null
+        })
     }
     return terminalViewPromise
+  }
+
+  $: if (activeView === 'plan') {
+    loadPlanView()
+  }
+  $: if (activeView === 'flow') {
+    loadFlowView()
+  }
+  $: if (activeView === 'terminal') {
+    loadTerminalView()
   }
 
   const refresh = async () => {

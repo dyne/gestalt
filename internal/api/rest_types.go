@@ -113,6 +113,8 @@ type statusResponse struct {
 	SessionFontSize           string    `json:"session_font_size"`
 	SessionInputFontFamily    string    `json:"session_input_font_family"`
 	SessionInputFontSize      string    `json:"session_input_font_size"`
+	AgentsSessionID           string    `json:"agents_session_id,omitempty"`
+	AgentsTmuxSession         string    `json:"agents_tmux_session,omitempty"`
 	WorkingDir                string    `json:"working_dir"`
 	GitOrigin                 string    `json:"git_origin"`
 	GitBranch                 string    `json:"git_branch"`

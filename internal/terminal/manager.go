@@ -127,6 +127,8 @@ type Manager struct {
 	promptParser            *prompt.Parser
 	processRegistry         *process.Registry
 	startExternalTmuxWindow func(*launchspec.LaunchSpec) error
+	agentsHubMu             sync.Mutex
+	agentsHubID             string
 }
 
 type sessionCreateRequest struct {
@@ -602,6 +604,11 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 				releaseReservation()
 				return nil, wrapExternalTmuxError(err)
 			}
+			if err := m.ensureAgentsHubSession(); err != nil {
+				_ = session.Close()
+				releaseReservation()
+				return nil, wrapExternalTmuxError(err)
+			}
 		}
 	}
 	if len(promptFiles) > 0 {
@@ -797,6 +804,73 @@ func (m *Manager) nextAgentSessionID(agentName string) (string, uint64, error) {
 
 func (m *Manager) nextIDValue() string {
 	return strconv.FormatUint(atomic.AddUint64(&m.nextID, 1), 10)
+}
+
+func (m *Manager) ensureAgentsHubSession() error {
+	if m == nil {
+		return nil
+	}
+
+	m.agentsHubMu.Lock()
+	defer m.agentsHubMu.Unlock()
+
+	m.mu.RLock()
+	existingID := strings.TrimSpace(m.agentsHubID)
+	if existingID != "" {
+		if _, ok := m.sessions[existingID]; ok {
+			m.mu.RUnlock()
+			return nil
+		}
+	}
+	m.mu.RUnlock()
+
+	tmuxSessionName, err := tmuxsession.WorkdirSessionName()
+	if err != nil {
+		return err
+	}
+	shell := joinCommandLine("tmux", []string{"attach", "-t", tmuxSessionName})
+	request := sessionCreateRequest{
+		SessionID: m.nextIDValue(),
+		Role:      "agents-hub",
+		Title:     "Agents",
+	}
+	session, id, err := m.sessionFactory.Start(request, nil, shell, request.SessionID)
+	if err != nil {
+		return err
+	}
+
+	m.mu.Lock()
+	if existingID := strings.TrimSpace(m.agentsHubID); existingID != "" {
+		if _, ok := m.sessions[existingID]; ok {
+			m.mu.Unlock()
+			_ = session.Close()
+			return nil
+		}
+	}
+	m.sessions[id] = session
+	m.agentsHubID = id
+	m.mu.Unlock()
+
+	m.emitSessionStarted(id, request, "", shell)
+	return nil
+}
+
+// AgentsHubStatus reports the shared agents hub session ID and tmux session name.
+func (m *Manager) AgentsHubStatus() (string, string) {
+	if m == nil {
+		return "", ""
+	}
+	m.mu.RLock()
+	sessionID := strings.TrimSpace(m.agentsHubID)
+	m.mu.RUnlock()
+	if sessionID == "" {
+		return "", ""
+	}
+	tmuxSessionName, err := tmuxsession.WorkdirSessionName()
+	if err != nil {
+		return sessionID, ""
+	}
+	return sessionID, tmuxSessionName
 }
 
 func (m *Manager) Get(id string) (*Session, bool) {
@@ -1122,6 +1196,9 @@ func (m *Manager) Delete(id string) error {
 	session, ok := m.sessions[id]
 	if ok {
 		delete(m.sessions, id)
+		if m.agentsHubID == id {
+			m.agentsHubID = ""
+		}
 		sequenceAdjusted := false
 		sanitizedAgentName := ""
 		if session != nil && session.agent != nil && session.agent.Name != "" {
@@ -1184,6 +1261,7 @@ func (m *Manager) CloseAll() error {
 	}
 	m.sessions = make(map[string]*Session)
 	m.agentSessions = make(map[string]string)
+	m.agentsHubID = ""
 	m.mu.Unlock()
 
 	var errs []error

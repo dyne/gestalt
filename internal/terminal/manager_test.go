@@ -517,6 +517,66 @@ func TestManagerCreateExternalTmuxErrorMapped(t *testing.T) {
 	}
 }
 
+func TestManagerCreateExternalEnsuresAgentsHubOnce(t *testing.T) {
+	factory := &fakeFactory{}
+	nonSingleton := false
+	startCalls := 0
+	manager := NewManager(ManagerOptions{
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:      "Codex",
+				Shell:     "codex -c model=o3",
+				CLIType:   "codex",
+				Interface: agent.AgentInterfaceCLI,
+				Singleton: &nonSingleton,
+			},
+		},
+		StartExternalTmuxWindow: func(launch *launchspec.LaunchSpec) error {
+			startCalls++
+			return nil
+		},
+	})
+
+	first, err := manager.CreateWithOptions(CreateOptions{AgentID: "codex", Runner: "external"})
+	if err != nil {
+		t.Fatalf("create first external: %v", err)
+	}
+	second, err := manager.CreateWithOptions(CreateOptions{AgentID: "codex", Runner: "external"})
+	if err != nil {
+		t.Fatalf("create second external: %v", err)
+	}
+	if startCalls != 2 {
+		t.Fatalf("expected tmux start called per external session, got %d", startCalls)
+	}
+
+	hubID, tmuxSession := manager.AgentsHubStatus()
+	if hubID == "" {
+		t.Fatal("expected agents hub session id")
+	}
+	if tmuxSession == "" {
+		t.Fatal("expected agents tmux session name")
+	}
+	hub, ok := manager.Get(hubID)
+	if !ok {
+		t.Fatalf("expected hub session %q to exist", hubID)
+	}
+	if !strings.Contains(hub.Command, "tmux attach -t") {
+		t.Fatalf("expected hub command to run tmux attach, got %q", hub.Command)
+	}
+
+	if _, ok := manager.Get(first.ID); !ok {
+		t.Fatalf("expected first external session %q", first.ID)
+	}
+	if _, ok := manager.Get(second.ID); !ok {
+		t.Fatalf("expected second external session %q", second.ID)
+	}
+	list := manager.List()
+	if len(list) != 3 {
+		t.Fatalf("expected 3 sessions (2 external + hub), got %d", len(list))
+	}
+}
+
 func TestManagerMCPSelectionUsesInterface(t *testing.T) {
 	tui := &recordingFactory{pty: &noopPty{}}
 	stdio := &recordingFactory{pty: &noopPty{}}

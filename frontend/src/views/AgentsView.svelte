@@ -2,6 +2,7 @@
   import Terminal from '../components/Terminal.svelte'
 
   export let status = null
+  export let visible = true
 
   $: sessionId = String(status?.agents_session_id || '').trim()
   $: tmuxSessionName = String(status?.agents_tmux_session || '').trim()
@@ -13,7 +14,7 @@
       sessionId={sessionId}
       title="Agents"
       promptFiles={[]}
-      visible={true}
+      {visible}
       sessionInterface="cli"
       sessionRunner="server"
       tmuxSessionName={tmuxSessionName}

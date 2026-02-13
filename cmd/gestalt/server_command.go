@@ -220,6 +220,7 @@ func runServer(args []string) int {
 		temporalClient, temporalClientError = temporal.NewClient(temporal.ClientConfig{
 			HostPort:  cfg.TemporalHost,
 			Namespace: cfg.TemporalNamespace,
+			Logger:    logger,
 		})
 		if temporalClientError != nil {
 			temporalEnabled = false

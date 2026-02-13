@@ -47,10 +47,16 @@ func printTmuxAttachHint(out io.Writer, sessionID string) {
 	if out == nil {
 		return
 	}
-	id := strings.TrimSpace(sessionID)
-	if id == "" {
-		id = "gestalt-agent"
-	}
+	target, err := tmuxTargetForSession(sessionID)
 	fmt.Fprintln(out, "Session is running in tmux.")
-	fmt.Fprintf(out, "Attach with: tmux attach -t %q\n", id)
+	if err != nil {
+		fmt.Fprintln(out, "Attach with: tmux attach")
+		return
+	}
+	if target.sessionName == "" {
+		fmt.Fprintf(out, "Switch with: tmux select-window -t %q\n", target.windowName)
+		return
+	}
+	fmt.Fprintf(out, "Attach with: tmux attach -t %q\n", target.sessionName)
+	fmt.Fprintf(out, "Then switch with: tmux select-window -t %q\n", target.windowName)
 }

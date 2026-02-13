@@ -67,6 +67,10 @@
   $: crashState = $appHealthStore
   $: clipboardAvailable = canUseClipboard()
   $: activeTerminal = terminals.find((terminal) => terminal.id === activeId) || null
+  $: tmuxSessionName =
+    status?.working_dir && String(status.working_dir).trim()
+      ? `Gestalt ${buildTitle(status.working_dir)}`
+      : ''
   $: if (status) {
     setSessionUiConfigFromStatus(status)
   }
@@ -373,6 +377,7 @@
               visible={true}
               sessionInterface={activeTerminal.interface || ''}
               sessionRunner={activeTerminal.runner || ''}
+              tmuxSessionName={tmuxSessionName}
               guiModules={resolveGuiModules(activeTerminal.gui_modules, activeTerminal.runner)}
               onDelete={deleteTerminal}
             />

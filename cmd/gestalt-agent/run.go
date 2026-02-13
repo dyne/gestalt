@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"gestalt/internal/runner/tmuxsession"
 )
 
 func runAgent(cfg Config, in io.Reader, out io.Writer, exec execRunner) (int, error) {
@@ -33,7 +35,7 @@ func runAgent(cfg Config, in io.Reader, out io.Writer, exec execRunner) (int, er
 		return exitServer, fmt.Errorf("unsupported launch command %q", command)
 	}
 	if exec == nil {
-		if err := startTmuxSession(session.Launch); err != nil {
+		if err := tmuxsession.StartWindow(session.Launch); err != nil {
 			return exitServer, err
 		}
 		printTmuxAttachHint(out, session.Launch.SessionID)
@@ -47,16 +49,16 @@ func printTmuxAttachHint(out io.Writer, sessionID string) {
 	if out == nil {
 		return
 	}
-	target, err := tmuxTargetForSession(sessionID)
+	target, err := tmuxsession.TargetForSession(sessionID)
 	fmt.Fprintln(out, "Session is running in tmux.")
 	if err != nil {
 		fmt.Fprintln(out, "Attach with: tmux attach")
 		return
 	}
-	if target.sessionName == "" {
-		fmt.Fprintf(out, "Switch with: tmux select-window -t %q\n", target.windowName)
+	if target.SessionName == "" {
+		fmt.Fprintf(out, "Switch with: tmux select-window -t %q\n", target.WindowName)
 		return
 	}
-	fmt.Fprintf(out, "Attach with: tmux attach -t %q\n", target.sessionName)
-	fmt.Fprintf(out, "Then switch with: tmux select-window -t %q\n", target.windowName)
+	fmt.Fprintf(out, "Attach with: tmux attach -t %q\n", target.SessionName)
+	fmt.Fprintf(out, "Then switch with: tmux select-window -t %q\n", target.WindowName)
 }

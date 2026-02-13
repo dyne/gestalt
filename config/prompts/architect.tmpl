@@ -28,11 +28,12 @@ heading has TODO + importance [#A|#B|#C]. Include `#+TITLE`,
 `Goal`, `Notes`. Each L2 includes `Why`, `Change`, `Tests`, `Done
 when`.
 
-Make a summary, call gestalt-notify with your session.id and org file:
+Print a summary, also send it as notification:
 
 gestalt-notify --port {{port backend}} --session-id {{session id}} '{"type":"plan-new","file":"...","title":"...","subtitle":"...","summary":"..."}'
 
-Type can also be "plan-update". Reuse the summary in notify and at the beginning of the plan.
+Type can also be "plan-update". Reuse the summary in notify and at the
+beginning of the plan.
 
 {{include ./.gestalt/instructions.md}}
 

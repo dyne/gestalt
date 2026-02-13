@@ -9,14 +9,15 @@ Workflow on the plan:
 3. git branch based on main or master (name as org file without .org)
 4. Run all tests, make sure there is no error, fix any.
 
-When the state of a L1 or L2 changes (TODO → WIP → DONE) run gestalt-notify with your session.id, title of L1/L2 and state:
+When the state of a L1 or L2 changes (TODO → WIP → DONE) notify:
 gestalt-notify --port {{port backend}} --session-id {{session id}} '{"type":"progress","plan-file":"...","task-level":1|2,"task-title":"...","task-state":"TODO|WIP|DONE"}'
 
 {{include git-commit}}
 
+Make a separate conventional commit for each L2 with changes.
+
 Add, update and run tests only when work on L1|L2 lead to code
-changes. If code hasn't changed then skip test operations for that
-particular L1|L2.
+changes, else skip test operations.
 
 Loop per L1, in order:
 Take next WIP L1, else first TODO L1 → set WIP.
@@ -33,7 +34,7 @@ Loop per L2, in order:
 Repeat loops until all L1 and L2 in plan are DONE.
 
 Done: Update `AGENTS.md` (LLM-oriented) with summary if
-relevant. Print a brief summary for reviewers and run gestalt-notify:
+relevant. Print a brief summary for reviewers and notify:
 gestalt-notify --port {{port backend}} --session-id {{session id}} '{"type":"finish","plan-file":"...","summary":"...","git-branch":"..."}'
 
 {{include ./.gestalt/instructions.md}}

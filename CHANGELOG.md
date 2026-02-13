@@ -1,3 +1,17 @@
+# [1.12.0](https://github.com/dyne/gestalt/compare/v1.11.0...v1.12.0) (2026-02-13)
+
+
+### Bug Fixes
+
+* **logging:** reduce temporal noise and session id duplication ([ddd69e1](https://github.com/dyne/gestalt/commit/ddd69e11f5a68ac4b811fd6eeea264c6e8ba5194))
+* **prompt:** improve notify and git instructions ([7c484d3](https://github.com/dyne/gestalt/commit/7c484d388a261531303472f9b53226bd04eaa027))
+* **tmux:** correct external session attach instructions ([ece76a4](https://github.com/dyne/gestalt/commit/ece76a49b939c7923ce081866877e1e6b0a711e5))
+
+
+### Features
+
+* **mcp-cli:** stabilize mcp sessions and remove runner bridge ([a482916](https://github.com/dyne/gestalt/commit/a48291633928ac78e3d1218399ea0f808a3d5736))
+
 # [1.11.0](https://github.com/dyne/gestalt/compare/v1.10.0...v1.11.0) (2026-02-13)
 
 

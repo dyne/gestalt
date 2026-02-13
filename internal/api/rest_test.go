@@ -21,6 +21,7 @@ import (
 	"gestalt/internal/event"
 	"gestalt/internal/flow"
 	"gestalt/internal/otel"
+	"gestalt/internal/runner/launchspec"
 	"gestalt/internal/skill"
 	temporalcore "gestalt/internal/temporal"
 	"gestalt/internal/temporal/workflows"
@@ -2370,6 +2371,40 @@ func TestCreateTerminalMapsCodexMCPBootstrapFailure(t *testing.T) {
 	}
 	if payload.Message == "" {
 		t.Fatalf("expected non-empty error message")
+	}
+}
+
+func TestCreateTerminalMapsExternalTmuxFailure(t *testing.T) {
+	manager := newTestManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: &fakeFactory{},
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:      "Codex",
+				Shell:     "codex -c model=o3",
+				CLIType:   "codex",
+				Interface: agent.AgentInterfaceCLI,
+			},
+		},
+		StartExternalTmuxWindow: func(_ *launchspec.LaunchSpec) error {
+			return errors.New("exec: \"tmux\": executable file not found in $PATH")
+		},
+	})
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions", strings.NewReader(`{"agent":"codex","runner":"external"}`))
+	res := httptest.NewRecorder()
+
+	restHandler("", nil, handler.handleTerminals)(res, req)
+	if res.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", res.Code)
+	}
+
+	var payload errorResponse
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Message != "tmux unavailable" {
+		t.Fatalf("expected tmux unavailable message, got %q", payload.Message)
 	}
 }
 

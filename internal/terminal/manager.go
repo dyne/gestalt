@@ -23,6 +23,7 @@ import (
 	"gestalt/internal/process"
 	"gestalt/internal/prompt"
 	"gestalt/internal/runner/launchspec"
+	"gestalt/internal/runner/tmuxsession"
 	"gestalt/internal/skill"
 	"gestalt/internal/temporal"
 )
@@ -41,63 +42,91 @@ func (e *AgentAlreadyRunningError) Error() string {
 	return fmt.Sprintf("agent %q already running in terminal %s", e.AgentName, e.TerminalID)
 }
 
+// ExternalTmuxError indicates tmux setup failure for external CLI sessions.
+type ExternalTmuxError struct {
+	Message string
+	Err     error
+}
+
+func (e *ExternalTmuxError) Error() string {
+	if e == nil {
+		return "tmux create window failed"
+	}
+	if e.Err == nil {
+		return e.Message
+	}
+	if strings.TrimSpace(e.Message) == "" {
+		return e.Err.Error()
+	}
+	return e.Message + ": " + e.Err.Error()
+}
+
+func (e *ExternalTmuxError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
 type ManagerOptions struct {
-	Shell                string
-	PtyFactory           PtyFactory
-	ProcessRegistry      *process.Registry
-	BufferLines          int
-	Clock                Clock
-	Agents               map[string]agent.Agent
-	AgentsDir            string
-	Skills               map[string]*skill.Skill
-	Logger               *logging.Logger
-	TemporalClient       temporal.WorkflowClient
-	TemporalEnabled      bool
-	SessionLogDir        string
-	InputHistoryDir      string
-	SessionRetentionDays int
-	SessionLogMaxBytes   int64
-	HistoryScanMaxBytes  int64
-	LogCodexEvents       bool
-	TUIMode              string
-	TUISnapshotInterval  time.Duration
-	PromptFS             fs.FS
-	PromptDir            string
-	PortResolver         ports.PortResolver
+	Shell                   string
+	PtyFactory              PtyFactory
+	ProcessRegistry         *process.Registry
+	BufferLines             int
+	Clock                   Clock
+	Agents                  map[string]agent.Agent
+	AgentsDir               string
+	Skills                  map[string]*skill.Skill
+	Logger                  *logging.Logger
+	TemporalClient          temporal.WorkflowClient
+	TemporalEnabled         bool
+	SessionLogDir           string
+	InputHistoryDir         string
+	SessionRetentionDays    int
+	SessionLogMaxBytes      int64
+	HistoryScanMaxBytes     int64
+	LogCodexEvents          bool
+	TUIMode                 string
+	TUISnapshotInterval     time.Duration
+	PromptFS                fs.FS
+	PromptDir               string
+	PortResolver            ports.PortResolver
+	StartExternalTmuxWindow func(*launchspec.LaunchSpec) error
 }
 
 // Manager is safe for concurrent use; mu guards the sessions map and lifecycle.
 // ID generation may consult the sessions map and agent sequence under the mutex.
 type Manager struct {
-	mu              sync.RWMutex
-	sessions        map[string]*Session
-	agentSessions   map[string]string
-	agentSequence   map[string]uint64
-	nextID          uint64
-	shell           string
-	factory         PtyFactory
-	bufferLines     int
-	clock           Clock
-	sessionFactory  *SessionFactory
-	agentRegistry   *agent.Registry
-	skills          map[string]*skill.Skill
-	logger          *logging.Logger
-	agentBus        *event.Bus[event.AgentEvent]
-	terminalBus     *event.Bus[event.TerminalEvent]
-	workflowBus     *event.Bus[event.WorkflowEvent]
-	temporalClient  temporal.WorkflowClient
-	temporalEnabled bool
-	sessionLogs     string
-	inputHistoryDir string
-	retentionDays   int
-	historyScanMax  int64
-	outputPolicy    OutputBackpressurePolicy
-	outputSample    uint64
-	portResolver    ports.PortResolver
-	promptFS        fs.FS
-	promptDir       string
-	promptParser    *prompt.Parser
-	processRegistry *process.Registry
+	mu                      sync.RWMutex
+	sessions                map[string]*Session
+	agentSessions           map[string]string
+	agentSequence           map[string]uint64
+	nextID                  uint64
+	shell                   string
+	factory                 PtyFactory
+	bufferLines             int
+	clock                   Clock
+	sessionFactory          *SessionFactory
+	agentRegistry           *agent.Registry
+	skills                  map[string]*skill.Skill
+	logger                  *logging.Logger
+	agentBus                *event.Bus[event.AgentEvent]
+	terminalBus             *event.Bus[event.TerminalEvent]
+	workflowBus             *event.Bus[event.WorkflowEvent]
+	temporalClient          temporal.WorkflowClient
+	temporalEnabled         bool
+	sessionLogs             string
+	inputHistoryDir         string
+	retentionDays           int
+	historyScanMax          int64
+	outputPolicy            OutputBackpressurePolicy
+	outputSample            uint64
+	portResolver            ports.PortResolver
+	promptFS                fs.FS
+	promptDir               string
+	promptParser            *prompt.Parser
+	processRegistry         *process.Registry
+	startExternalTmuxWindow func(*launchspec.LaunchSpec) error
 }
 
 type sessionCreateRequest struct {
@@ -260,32 +289,36 @@ func NewManager(opts ManagerOptions) *Manager {
 	}
 
 	manager := &Manager{
-		sessions:        make(map[string]*Session),
-		agentSessions:   make(map[string]string),
-		agentSequence:   make(map[string]uint64),
-		shell:           shell,
-		factory:         factory,
-		bufferLines:     bufferLines,
-		clock:           clock,
-		agentRegistry:   agentRegistry,
-		skills:          skills,
-		logger:          logger,
-		agentBus:        agentBus,
-		terminalBus:     terminalBus,
-		workflowBus:     workflowBus,
-		temporalClient:  temporalClient,
-		temporalEnabled: temporalEnabled,
-		sessionLogs:     sessionLogs,
-		inputHistoryDir: inputHistoryDir,
-		retentionDays:   retentionDays,
-		historyScanMax:  historyScanMax,
-		outputPolicy:    outputPolicy,
-		outputSample:    outputSample,
-		portResolver:    portResolver,
-		promptFS:        promptFS,
-		promptDir:       promptDir,
-		promptParser:    promptParser,
-		processRegistry: registry,
+		sessions:                make(map[string]*Session),
+		agentSessions:           make(map[string]string),
+		agentSequence:           make(map[string]uint64),
+		shell:                   shell,
+		factory:                 factory,
+		bufferLines:             bufferLines,
+		clock:                   clock,
+		agentRegistry:           agentRegistry,
+		skills:                  skills,
+		logger:                  logger,
+		agentBus:                agentBus,
+		terminalBus:             terminalBus,
+		workflowBus:             workflowBus,
+		temporalClient:          temporalClient,
+		temporalEnabled:         temporalEnabled,
+		sessionLogs:             sessionLogs,
+		inputHistoryDir:         inputHistoryDir,
+		retentionDays:           retentionDays,
+		historyScanMax:          historyScanMax,
+		outputPolicy:            outputPolicy,
+		outputSample:            outputSample,
+		portResolver:            portResolver,
+		promptFS:                promptFS,
+		promptDir:               promptDir,
+		promptParser:            promptParser,
+		processRegistry:         registry,
+		startExternalTmuxWindow: opts.StartExternalTmuxWindow,
+	}
+	if manager.startExternalTmuxWindow == nil {
+		manager.startExternalTmuxWindow = tmuxsession.StartWindow
 	}
 	manager.sessionFactory = NewSessionFactory(SessionFactoryOptions{
 		Clock:           clock,
@@ -548,6 +581,29 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		releaseReservation()
 		return nil, ErrCodexMCPBootstrap
 	}
+	if runnerKind == launchspec.RunnerKindExternal {
+		cliType := ""
+		if profile != nil {
+			cliType = profile.CLIType
+		}
+		if len(promptNames) > 0 && !strings.EqualFold(strings.TrimSpace(cliType), "codex") {
+			payloads, files := m.buildExternalPromptPayloads(promptNames, session.ID)
+			if len(payloads) > 0 {
+				promptPayloads = payloads
+			}
+			if len(files) > 0 {
+				session.PromptFiles = append(session.PromptFiles, files...)
+			}
+		}
+		session.LaunchSpec = m.buildLaunchSpec(session, profile, sessionCLIConfig, developerInstructions, promptPayloads)
+		if shouldStartExternalTmuxWindow(profile) && m.startExternalTmuxWindow != nil {
+			if err := m.startExternalTmuxWindow(session.LaunchSpec); err != nil {
+				_ = session.Close()
+				releaseReservation()
+				return nil, wrapExternalTmuxError(err)
+			}
+		}
+	}
 	if len(promptFiles) > 0 {
 		session.PromptFiles = append(session.PromptFiles, promptFiles...)
 	}
@@ -591,22 +647,7 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		}
 	}
 
-	if runnerKind == launchspec.RunnerKindExternal {
-		cliType := ""
-		if profile != nil {
-			cliType = profile.CLIType
-		}
-		if len(promptNames) > 0 && !strings.EqualFold(strings.TrimSpace(cliType), "codex") {
-			payloads, files := m.buildExternalPromptPayloads(promptNames, session.ID)
-			if len(payloads) > 0 {
-				promptPayloads = payloads
-			}
-			if len(files) > 0 {
-				session.PromptFiles = append(session.PromptFiles, files...)
-			}
-		}
-		session.LaunchSpec = m.buildLaunchSpec(session, profile, sessionCLIConfig, developerInstructions, promptPayloads)
-	} else {
+	if runnerKind != launchspec.RunnerKindExternal {
 		m.startPromptInjection(session, request.AgentID, profile, promptNames, onAirString)
 	}
 
@@ -1246,6 +1287,38 @@ func useAgentMCP(profile *agent.Agent) bool {
 		return false
 	}
 	return strings.EqualFold(iface, agent.AgentInterfaceMCP)
+}
+
+func shouldStartExternalTmuxWindow(profile *agent.Agent) bool {
+	if profile == nil {
+		return false
+	}
+	cliType := strings.TrimSpace(strings.ToLower(profile.CLIType))
+	if cliType != "codex" && cliType != "copilot" {
+		return false
+	}
+	iface, err := profile.ResolveInterface()
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(iface, agent.AgentInterfaceCLI)
+}
+
+func wrapExternalTmuxError(err error) error {
+	if err == nil {
+		return nil
+	}
+	message := "tmux create window failed"
+	lower := strings.ToLower(err.Error())
+	if strings.Contains(lower, "executable file not found") ||
+		strings.Contains(lower, "tmux runner unavailable") ||
+		strings.Contains(lower, "tmux client unavailable") {
+		message = "tmux unavailable"
+	}
+	return &ExternalTmuxError{
+		Message: message,
+		Err:     err,
+	}
 }
 
 func withCodexMCP(shell string) string {

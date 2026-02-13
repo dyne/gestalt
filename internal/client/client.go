@@ -11,8 +11,10 @@ import (
 )
 
 type AgentInfo struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	SessionID string `json:"session_id"`
+	Running   bool   `json:"running"`
 }
 
 type HTTPError struct {
@@ -59,23 +61,28 @@ func FetchAgents(client *http.Client, baseURL, token string) ([]AgentInfo, error
 		if id == "" || name == "" {
 			continue
 		}
-		agents = append(agents, AgentInfo{ID: id, Name: name})
+		agents = append(agents, AgentInfo{
+			ID:        id,
+			Name:      name,
+			SessionID: strings.TrimSpace(agent.SessionID),
+			Running:   agent.Running,
+		})
 	}
 	return agents, nil
 }
 
-func SendAgentInput(client *http.Client, baseURL, token, agentName string, payload []byte) error {
+func SendSessionInput(client *http.Client, baseURL, token, sessionID string, payload []byte) error {
 	client = ensureClient(client)
 	baseURL = strings.TrimRight(baseURL, "/")
 	if baseURL == "" {
 		return errors.New("base URL is required")
 	}
-	agentName = strings.TrimSpace(agentName)
-	if agentName == "" {
-		return errors.New("agent name is required")
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return errors.New("session id is required")
 	}
 
-	request, err := http.NewRequest(http.MethodPost, baseURL+"/api/agents/"+agentName+"/input", bytes.NewReader(payload))
+	request, err := http.NewRequest(http.MethodPost, baseURL+"/api/sessions/"+sessionID+"/input", bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("build request failed: %w", err)
 	}

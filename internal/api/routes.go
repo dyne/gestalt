@@ -139,7 +139,6 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 	mux.Handle("/api/metrics/summary", wrap("/api/metrics/summary", "status", "query", restHandler(authToken, logger, rest.handleMetricsSummary)))
 	mux.Handle("/api/workflows", wrap("/api/workflows", "workflows", "read", restHandler(authToken, logger, rest.handleWorkflows)))
 	mux.Handle("/api/agents", wrap("/api/agents", "agents", "read", restHandler(authToken, logger, rest.handleAgents)))
-	agentInputHandler := wrap("/api/agents/:name/input", "agents", "stream", restHandler(authToken, logger, rest.handleAgentInput))
 	agentSendInputHandler := wrap("/api/agents/:name/send-input", "agents", "stream", restHandler(authToken, logger, rest.handleAgentSendInput))
 	mux.Handle("/api/agents/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimSuffix(r.URL.Path, "/")
@@ -147,7 +146,7 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 			agentSendInputHandler.ServeHTTP(w, r)
 			return
 		}
-		agentInputHandler.ServeHTTP(w, r)
+		http.NotFound(w, r)
 	}))
 	mux.Handle("/api/skills", wrap("/api/skills", "skills", "read", restHandler(authToken, logger, rest.handleSkills)))
 	mux.Handle("/api/otel/logs", wrap("/api/otel/logs", "logs", "create", restHandler(authToken, logger, rest.handleOTelLogs)))

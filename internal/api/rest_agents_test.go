@@ -111,7 +111,7 @@ func TestAgentSendInputEndpoint(t *testing.T) {
 	}
 }
 
-func TestAgentInputEndpointMCP(t *testing.T) {
+func TestSessionInputEndpointMCP(t *testing.T) {
 	mcpFactory := newMCPTestFactory()
 	manager := terminal.NewManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
@@ -133,11 +133,11 @@ func TestAgentInputEndpointMCP(t *testing.T) {
 	}()
 
 	handler := &RestHandler{Manager: manager}
-	req := httptest.NewRequest(http.MethodPost, "/api/agents/Codex/input", strings.NewReader("hello\n"))
+	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/input", strings.NewReader("hello\r"))
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
-	restHandler("secret", nil, handler.handleAgentInput)(res, req)
+	restHandler("secret", nil, handler.handleTerminal)(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
 	}

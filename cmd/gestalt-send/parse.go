@@ -18,6 +18,7 @@ type Config struct {
 	AgentRef    string
 	AgentID     string
 	AgentName   string
+	SessionID   string
 	Start       bool
 	Verbose     bool
 	Debug       bool

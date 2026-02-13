@@ -15,7 +15,7 @@ func main() {
 }
 
 func run(args []string, out io.Writer, errOut io.Writer) int {
-	return runWithExec(args, out, errOut, runCodex)
+	return runWithExec(args, out, errOut, runTmux)
 }
 
 func runWithExec(args []string, out io.Writer, errOut io.Writer, exec execRunner) int {
@@ -36,10 +36,13 @@ func runWithExec(args []string, out io.Writer, errOut io.Writer, exec execRunner
 		return 0
 	}
 
-	var runner execRunner
+	runner := exec
+	if runner == nil {
+		runner = runTmux
+	}
 	if cfg.DryRun {
 		runner = func(args []string) (int, error) {
-			fmt.Fprintln(out, formatCodexCommand(args))
+			fmt.Fprintln(out, formatCommand("tmux", args))
 			return 0, nil
 		}
 	}

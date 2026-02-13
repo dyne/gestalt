@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,53 +11,37 @@ import (
 )
 
 func runAgent(cfg Config, in io.Reader, out io.Writer, exec execRunner) (int, error) {
-	baseURL := strings.TrimSpace(cfg.URL)
-	if baseURL == "" {
-		baseURL = defaultGestaltURL()
-	}
+	baseURL := buildBaseURL(cfg.Host, cfg.Port)
 	client := &http.Client{Timeout: 10 * time.Second}
 
-	session, err := createExternalSession(client, baseURL, cfg.Token, cfg.AgentID)
+	if _, err := createExternalSession(client, baseURL, cfg.Token, cfg.AgentID); err != nil {
+		return exitServer, err
+	}
+	command, err := tmuxsession.AttachCommand()
 	if err != nil {
 		return exitServer, err
 	}
-	if session.Launch == nil {
-		return exitServer, errors.New("launch spec missing from server response")
-	}
-	argv := session.Launch.Argv
-	if len(argv) == 0 {
-		return exitServer, errors.New("launch argv missing from server response")
-	}
-	command := argv[0]
-	args := argv[1:]
-	if !strings.EqualFold(command, "codex") {
-		return exitServer, fmt.Errorf("unsupported launch command %q", command)
+	if len(command) == 0 {
+		return exitServer, fmt.Errorf("tmux attach command is empty")
 	}
 	if exec == nil {
-		if err := tmuxsession.StartWindow(session.Launch); err != nil {
-			return exitServer, err
-		}
-		printTmuxAttachHint(out, session.Launch.SessionID)
-		return 0, nil
+		exec = runTmux
 	}
-	return exec(args)
+	if command[0] == "tmux" {
+		command = command[1:]
+	}
+	return exec(command)
 }
 
-// printTmuxAttachHint tells the user how to attach to the tmux session.
-func printTmuxAttachHint(out io.Writer, sessionID string) {
-	if out == nil {
-		return
+func buildBaseURL(host string, port int) string {
+	trimmedHost := strings.TrimSpace(host)
+	if trimmedHost == "" {
+		trimmedHost = defaultGestaltHost()
 	}
-	target, err := tmuxsession.TargetForSession(sessionID)
-	fmt.Fprintln(out, "Session is running in tmux.")
-	if err != nil {
-		fmt.Fprintln(out, "Attach with: tmux attach")
-		return
+	trimmedHost = strings.TrimPrefix(trimmedHost, "http://")
+	trimmedHost = strings.TrimPrefix(trimmedHost, "https://")
+	if port <= 0 {
+		port = defaultGestaltPort()
 	}
-	if target.SessionName == "" {
-		fmt.Fprintf(out, "Switch with: tmux select-window -t %q\n", target.WindowName)
-		return
-	}
-	fmt.Fprintf(out, "Attach with: tmux attach -t %q\n", target.SessionName)
-	fmt.Fprintf(out, "Then switch with: tmux select-window -t %q\n", target.WindowName)
+	return fmt.Sprintf("http://%s:%d", trimmedHost, port)
 }

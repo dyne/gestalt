@@ -14,15 +14,17 @@ type Config struct {
 	AgentID     string
 	DryRun      bool
 	ShowVersion bool
-	URL         string
+	Host        string
+	Port        int
 	Token       string
 }
 
 func parseArgs(args []string, errOut io.Writer) (Config, error) {
 	fs := flag.NewFlagSet("gestalt-agent", flag.ContinueOnError)
 	fs.SetOutput(errOut)
-	dryRun := fs.Bool("dryrun", false, "Print the codex command without executing")
-	url := fs.String("url", defaultGestaltURL(), "Gestalt server URL")
+	dryRun := fs.Bool("dryrun", false, "Print the tmux attach command without executing")
+	host := fs.String("host", defaultGestaltHost(), "Gestalt server host")
+	port := fs.Int("port", defaultGestaltPort(), "Gestalt server port")
 	token := fs.String("token", defaultGestaltToken(), "Gestalt auth token")
 	helper := cli.AddHelpVersionFlags(fs, "Show this help message", "Print version and exit")
 	fs.Usage = func() {
@@ -46,6 +48,10 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 		fs.Usage()
 		return Config{}, fmt.Errorf("agent id required")
 	}
+	if *port <= 0 || *port > 65535 {
+		fs.Usage()
+		return Config{}, fmt.Errorf("port must be between 1 and 65535")
+	}
 
 	agentArg := strings.TrimSpace(fs.Arg(0))
 	if agentArg == "" {
@@ -67,7 +73,8 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 		AgentArg: agentArg,
 		AgentID:  agentID,
 		DryRun:   *dryRun,
-		URL:      *url,
+		Host:     strings.TrimSpace(*host),
+		Port:     *port,
 		Token:    *token,
 	}, nil
 }
@@ -88,7 +95,8 @@ func printHelp(out io.Writer) {
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Options:")
 	writeOption(out, "--dryrun", "Print the resolved command without starting tmux")
-	writeOption(out, "--url", "Gestalt server URL (env: GESTALT_URL)")
+	writeOption(out, "--host", "Gestalt server host (default: 127.0.0.1)")
+	writeOption(out, "--port", "Gestalt server port (default: 57417)")
 	writeOption(out, "--token", "Gestalt auth token (env: GESTALT_TOKEN)")
 	writeOption(out, "--help", "Show this help message")
 	writeOption(out, "--version", "Print version and exit")

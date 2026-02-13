@@ -36,11 +36,12 @@ The runtime can force Codex agents back to `interface="cli"` by setting `GESTALT
 
 `gestalt-agent <agent-id>` connects to a running Gestalt server, registers an external session, and runs the agent in tmux.
 
-- Requires a running server (`--url`/`GESTALT_URL`, `--token`/`GESTALT_TOKEN`).
+- Requires a running server (`--host`, `--port`, `--token`/`GESTALT_TOKEN`).
 - Requires `tmux` on `PATH`.
 - The `agent-id` is the filename in `.gestalt/config/agents/*.toml` (`coder` and `coder.toml` are equivalent).
 - Prompt rendering and session defaults come from the server response.
-- `--dryrun` prints the resolved `codex` command from the server without starting tmux.
+- After session creation, the CLI attaches tmux (`tmux attach` or `tmux switch-client`).
+- `--dryrun` prints the resolved tmux attach command without executing it.
 
 ## CLI config validation
 

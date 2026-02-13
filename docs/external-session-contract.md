@@ -13,12 +13,12 @@ match GUI-created sessions.
 - Sessions appear in `/api/sessions` and open a UI tab.
 
 ## Accepted differences
-- External sessions are not backed by a backend PTY/process; the agent process
-  lifecycle is owned by `gestalt-agent` via tmux.
-- External sessions are non-interactive in the GUI terminal stream; users attach
-  to tmux directly.
+- External sessions are backed by backend-managed tmux windows (one per session)
+  inside `Gestalt <workdir>`.
+- A single backend PTY "agents hub" can attach to that tmux session for the UI.
+- External sessions remain non-interactive in per-session GUI terminal tabs.
 
 ## Enforced by
-- API contract for `/api/sessions` and launch metadata returned for external sessions.
+- API contract for `/api/sessions`, `/api/sessions/:id/input`, and `/api/sessions/:id/activate`.
 - Backend tests that compare external and server session behavior for IDs,
   prompt file lists, and Codex notify injection.

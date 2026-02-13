@@ -453,6 +453,37 @@ func TestManagerCreateExternalCLIStartsTmuxWindow(t *testing.T) {
 	}
 }
 
+func TestManagerCreateDefaultCLIUsesExternalRunner(t *testing.T) {
+	factory := &fakeFactory{}
+	startCalls := 0
+	manager := NewManager(ManagerOptions{
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:      "Codex",
+				Shell:     "codex -c model=o3",
+				CLIType:   "codex",
+				Interface: agent.AgentInterfaceCLI,
+			},
+		},
+		StartExternalTmuxWindow: func(launch *launchspec.LaunchSpec) error {
+			startCalls++
+			return nil
+		},
+	})
+
+	session, err := manager.CreateWithOptions(CreateOptions{AgentID: "codex"})
+	if err != nil {
+		t.Fatalf("create default: %v", err)
+	}
+	if session.Runner != string(launchspec.RunnerKindExternal) {
+		t.Fatalf("expected runner external, got %q", session.Runner)
+	}
+	if startCalls != 1 {
+		t.Fatalf("expected 1 tmux start call, got %d", startCalls)
+	}
+}
+
 func TestManagerCreateExternalMCPDoesNotStartTmuxWindow(t *testing.T) {
 	factory := &fakeFactory{}
 	startCalls := 0

@@ -466,6 +466,9 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 			onAirString = agentProfile.OnAirString
 		}
 	}
+	if strings.TrimSpace(request.Runner) == "" && runnerKind == launchspec.RunnerKindServer && shouldStartExternalTmuxWindow(profile) {
+		runnerKind = launchspec.RunnerKindExternal
+	}
 	if len(guiModules) == 0 && profile != nil && len(profile.GUIModules) > 0 {
 		guiModules = append([]string(nil), profile.GUIModules...)
 	}

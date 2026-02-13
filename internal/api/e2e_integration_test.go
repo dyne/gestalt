@@ -43,7 +43,7 @@ func TestEndToEndTerminalFlow(t *testing.T) {
 	server.Start()
 	defer server.Close()
 
-	createReq, err := http.NewRequest(http.MethodPost, server.URL+"/api/sessions", strings.NewReader(`{"title":"e2e","agent":"codex"}`))
+	createReq, err := http.NewRequest(http.MethodPost, server.URL+"/api/sessions", strings.NewReader(`{"title":"e2e","agent":"codex","runner":"server"}`))
 	if err != nil {
 		t.Fatalf("create request: %v", err)
 	}

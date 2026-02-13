@@ -32,7 +32,7 @@
     setActiveTabId,
     setActiveView,
   } from './lib/appHealthStore.js'
-  import { isExternalCliSession } from './lib/sessionSelection.js'
+  import { isCliSession, isExternalCliSession } from './lib/sessionSelection.js'
 
   let tabs = buildTabs([])
   let activeId = 'dashboard'
@@ -208,7 +208,7 @@
         status = { ...status, session_count: status.session_count + 1 }
       }
       let nextStatus = status
-      if (isExternalCliSession(created)) {
+      if (isCliSession(created)) {
         try {
           nextStatus = await fetchStatus()
           status = nextStatus

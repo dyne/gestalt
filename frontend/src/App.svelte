@@ -1,9 +1,6 @@
 <script>
   import { onMount } from 'svelte'
   import Dashboard from './views/Dashboard.svelte'
-  import FlowView from './views/FlowView.svelte'
-  import PlanView from './views/PlanView.svelte'
-  import TerminalView from './views/TerminalView.svelte'
   import TabBar from './components/TabBar.svelte'
   import ToastContainer from './components/ToastContainer.svelte'
   import {
@@ -49,6 +46,12 @@
   let crashState = null
   let clipboardAvailable = false
   let terminalStyle = ''
+  let flowViewComponent = null
+  let flowViewPromise = null
+  let planViewComponent = null
+  let planViewPromise = null
+  let terminalViewComponent = null
+  let terminalViewPromise = null
 
   const buildTitle = (workingDir) => {
     if (!workingDir) {
@@ -69,6 +72,15 @@
     setSessionUiConfigFromStatus(status)
   }
   $: terminalStyle = buildTerminalStyle($sessionUiConfig)
+  $: if (activeView === 'plan') {
+    loadPlanView()
+  }
+  $: if (activeView === 'flow') {
+    loadFlowView()
+  }
+  $: if (activeView === 'terminal') {
+    loadTerminalView()
+  }
 
   $: if (typeof document !== 'undefined') {
     const projectName = buildTitle(status?.working_dir || '')
@@ -78,6 +90,39 @@
   const syncTabs = (terminalList) => {
     tabs = buildTabs(terminalList)
     activeId = ensureActiveTab(activeId, tabs, 'dashboard')
+  }
+
+  const loadFlowView = () => {
+    if (flowViewComponent) return flowViewComponent
+    if (!flowViewPromise) {
+      flowViewPromise = import('./views/FlowView.svelte').then((module) => {
+        flowViewComponent = module.default
+        return flowViewComponent
+      })
+    }
+    return flowViewPromise
+  }
+
+  const loadPlanView = () => {
+    if (planViewComponent) return planViewComponent
+    if (!planViewPromise) {
+      planViewPromise = import('./views/PlanView.svelte').then((module) => {
+        planViewComponent = module.default
+        return planViewComponent
+      })
+    }
+    return planViewPromise
+  }
+
+  const loadTerminalView = () => {
+    if (terminalViewComponent) return terminalViewComponent
+    if (!terminalViewPromise) {
+      terminalViewPromise = import('./views/TerminalView.svelte').then((module) => {
+        terminalViewComponent = module.default
+        return terminalViewComponent
+      })
+    }
+    return terminalViewPromise
   }
 
   const refresh = async () => {
@@ -276,27 +321,46 @@
   </section>
   <section class="view" data-active={activeView === 'plan'}>
     <svelte:boundary onerror={(error) => handleBoundaryError('plan', error)} failed={viewFailed}>
-      <PlanView />
+      {#if planViewComponent}
+        <svelte:component this={planViewComponent} />
+      {:else}
+        <div class="view-fallback">
+          <p>Loading...</p>
+        </div>
+      {/if}
     </svelte:boundary>
   </section>
   <section class="view" data-active={activeView === 'flow'}>
     <svelte:boundary onerror={(error) => handleBoundaryError('flow', error)} failed={viewFailed}>
-      <FlowView />
+      {#if flowViewComponent}
+        <svelte:component this={flowViewComponent} />
+      {:else}
+        <div class="view-fallback">
+          <p>Loading...</p>
+        </div>
+      {/if}
     </svelte:boundary>
   </section>
   <section class="view view--terminals" data-active={activeView === 'terminal'}>
     {#if activeTerminal}
       <div class="terminal-tab" data-active="true">
         <svelte:boundary onerror={(error) => handleBoundaryError('terminal', error)} failed={viewFailed}>
-          <TerminalView
-            sessionId={activeTerminal.id}
-            title={activeTerminal.title}
-            promptFiles={activeTerminal.prompt_files || []}
-            visible={true}
-            sessionInterface={activeTerminal.interface || ''}
-            guiModules={resolveGuiModules(activeTerminal.gui_modules, activeTerminal.runner)}
-            onDelete={deleteTerminal}
-          />
+          {#if terminalViewComponent}
+            <svelte:component
+              this={terminalViewComponent}
+              sessionId={activeTerminal.id}
+              title={activeTerminal.title}
+              promptFiles={activeTerminal.prompt_files || []}
+              visible={true}
+              sessionInterface={activeTerminal.interface || ''}
+              guiModules={resolveGuiModules(activeTerminal.gui_modules, activeTerminal.runner)}
+              onDelete={deleteTerminal}
+            />
+          {:else}
+            <div class="view-fallback">
+              <p>Loading...</p>
+            </div>
+          {/if}
         </svelte:boundary>
       </div>
     {/if}

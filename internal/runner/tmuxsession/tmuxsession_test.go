@@ -182,7 +182,7 @@ func TestAttachCommandOutsideTmux(t *testing.T) {
 	getwd = func() (string, error) { return "/tmp/repo", nil }
 	t.Cleanup(func() { getwd = originalGetwd })
 
-	cmd, err := AttachCommand()
+	cmd, err := AttachCommand("agent 1")
 	if err != nil {
 		t.Fatalf("attach command: %v", err)
 	}
@@ -211,11 +211,11 @@ func TestAttachCommandInsideTmux(t *testing.T) {
 	getwd = func() (string, error) { return "/tmp/repo", nil }
 	t.Cleanup(func() { getwd = originalGetwd })
 
-	cmd, err := AttachCommand()
+	cmd, err := AttachCommand("agent 1")
 	if err != nil {
 		t.Fatalf("attach command: %v", err)
 	}
-	want := []string{"tmux", "switch-client", "-t", "Gestalt repo"}
+	want := []string{"tmux", "select-window", "-t", "agent 1"}
 	if len(cmd) != len(want) {
 		t.Fatalf("unexpected command: %v", cmd)
 	}

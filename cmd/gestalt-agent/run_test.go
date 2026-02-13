@@ -57,7 +57,7 @@ func TestRunAgentAttachesToTmux(t *testing.T) {
 	if len(gotArgs) == 0 {
 		t.Fatalf("expected tmux args")
 	}
-	if gotArgs[0] != "attach" && gotArgs[0] != "switch-client" {
+	if gotArgs[0] != "attach" && gotArgs[0] != "switch-client" && gotArgs[0] != "select-window" {
 		t.Fatalf("unexpected tmux command: %#v", gotArgs)
 	}
 }
@@ -102,7 +102,7 @@ func TestRunDryRunPrintsCommand(t *testing.T) {
 	if !strings.Contains(output, "tmux") {
 		t.Fatalf("expected command output, got %q", output)
 	}
-	if !strings.Contains(output, "attach") && !strings.Contains(output, "switch-client") {
+	if !strings.Contains(output, "attach") && !strings.Contains(output, "switch-client") && !strings.Contains(output, "select-window") {
 		t.Fatalf("expected tmux attach/switch command, got %q", output)
 	}
 }

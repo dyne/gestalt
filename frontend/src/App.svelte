@@ -9,6 +9,7 @@
     fetchStatus,
     fetchTerminals,
   } from './lib/apiClient.js'
+  import { apiFetch, buildApiPath } from './lib/api.js'
   import { setServerTimeOffset } from './lib/timeUtils.js'
   import { subscribe as subscribeEvents } from './lib/eventStore.js'
   import { subscribe as subscribeTerminalEvents } from './lib/terminalEventStore.js'
@@ -31,6 +32,7 @@
     setActiveTabId,
     setActiveView,
   } from './lib/appHealthStore.js'
+  import { isExternalCliSession } from './lib/sessionSelection.js'
 
   let tabs = buildTabs([])
   let activeId = 'dashboard'
@@ -242,7 +244,22 @@
     }
   }
 
-  const handleSelect = (id) => {
+  const handleSelect = async (id) => {
+    const selected = terminals.find((terminal) => terminal.id === id)
+    if (selected) {
+      if (isExternalCliSession(selected)) {
+        try {
+          await apiFetch(buildApiPath('/api/sessions', id, 'activate'), {
+            method: 'POST',
+          })
+          activeId = 'agents'
+          return
+        } catch (err) {
+          notifyError(err, 'Failed to activate tmux window.')
+          return
+        }
+      }
+    }
     activeId = id
   }
 

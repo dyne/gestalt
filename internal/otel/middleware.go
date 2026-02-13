@@ -445,7 +445,7 @@ func criticalSpanName(routeInfo RouteInfo, method string) string {
 	if method == http.MethodDelete && routeInfo.Route == "/api/sessions/:id" {
 		return spanNameTerminalDelete
 	}
-	if method == http.MethodPost && routeInfo.Route == "/api/agents/:name/input" {
+	if method == http.MethodPost && routeInfo.Route == "/api/sessions/:id/input" {
 		return spanNameAgentInput
 	}
 	if method == http.MethodGet && routeInfo.Route == "/api/sessions/:id/output" {
@@ -465,6 +465,8 @@ func terminalRoute(path string) string {
 		return "/api/sessions/:id"
 	}
 	switch parts[1] {
+	case "input":
+		return "/api/sessions/:id/input"
 	case "output":
 		return "/api/sessions/:id/output"
 	case "history":
@@ -493,8 +495,8 @@ func agentsRoute(path string) string {
 		return "/api/agents"
 	}
 	parts := strings.Split(trimmed, "/")
-	if len(parts) == 2 && parts[1] == "input" {
-		return "/api/agents/:name/input"
+	if len(parts) == 2 && parts[1] == "send-input" {
+		return "/api/agents/:name/send-input"
 	}
 	return "/api/agents"
 }

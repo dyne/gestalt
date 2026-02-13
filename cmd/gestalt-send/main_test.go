@@ -204,7 +204,7 @@ func TestSendAgentInputSuccess(t *testing.T) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("expected POST, got %s", r.Method)
 		}
-		if r.URL.Path != "/api/agents/Codex/input" {
+		if r.URL.Path != "/api/sessions/s-1/input" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		if r.Header.Get("Authorization") != "Bearer token" {
@@ -228,6 +228,7 @@ func TestSendAgentInputSuccess(t *testing.T) {
 			URL:       "http://example.invalid",
 			Token:     "token",
 			AgentName: "Codex",
+			SessionID: "s-1",
 		}
 		if err := sendAgentInput(cfg, []byte("hello")); err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -242,14 +243,7 @@ func TestRunWithSenderReturnsAgentNotFound(t *testing.T) {
 			case "/api/agents":
 				return &http.Response{
 					StatusCode: http.StatusOK,
-					Body:       io.NopCloser(strings.NewReader(`[{"id":"missing","name":"Missing"}]`)),
-					Header:     make(http.Header),
-					Request:    r,
-				}, nil
-			case "/api/agents/Missing/input":
-				return &http.Response{
-					StatusCode: http.StatusNotFound,
-					Body:       io.NopCloser(strings.NewReader(`{"error":"agent not running"}`)),
+					Body:       io.NopCloser(strings.NewReader(`[{"id":"missing","name":"Missing","running":false}]`)),
 					Header:     make(http.Header),
 					Request:    r,
 				}, nil
@@ -269,7 +263,7 @@ func TestRunWithSenderReturnsAgentNotFound(t *testing.T) {
 			if code != 2 {
 				t.Fatalf("expected exit code 2, got %d", code)
 			}
-			if !strings.Contains(stderr.String(), "agent not running") {
+			if !strings.Contains(stderr.String(), "is not running") {
 				t.Fatalf("expected error message, got %q", stderr.String())
 			}
 		})
@@ -277,56 +271,60 @@ func TestRunWithSenderReturnsAgentNotFound(t *testing.T) {
 }
 
 func TestSendAgentInputAutoStart(t *testing.T) {
-	inputCalls := 0
-	withMockClient(t, func(r *http.Request) (*http.Response, error) {
-		switch r.URL.Path {
-		case "/api/agents/Codex/input":
-			inputCalls++
-			if inputCalls == 1 {
+	withAgentCacheDisabled(t, func() {
+		inputCalls := 0
+		withMockClient(t, func(r *http.Request) (*http.Response, error) {
+			switch r.URL.Path {
+			case "/api/agents":
 				return &http.Response{
-					StatusCode: http.StatusNotFound,
-					Body:       io.NopCloser(strings.NewReader(`{"error":"agent not running"}`)),
+					StatusCode: http.StatusOK,
+					Body:       io.NopCloser(strings.NewReader(`[{"id":"codex","name":"Codex","running":true,"session_id":"new-1"}]`)),
+					Header:     make(http.Header),
+					Request:    r,
+				}, nil
+			case "/api/sessions/new-1/input":
+				inputCalls++
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       io.NopCloser(strings.NewReader("")),
+					Header:     make(http.Header),
+					Request:    r,
+				}, nil
+			case "/api/sessions":
+				return &http.Response{
+					StatusCode: http.StatusCreated,
+					Body:       io.NopCloser(strings.NewReader("")),
+					Header:     make(http.Header),
+					Request:    r,
+				}, nil
+			default:
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       io.NopCloser(strings.NewReader("")),
 					Header:     make(http.Header),
 					Request:    r,
 				}, nil
 			}
-			return &http.Response{
-				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader("")),
-				Header:     make(http.Header),
-				Request:    r,
-			}, nil
-		case "/api/sessions":
-			return &http.Response{
-				StatusCode: http.StatusCreated,
-				Body:       io.NopCloser(strings.NewReader("")),
-				Header:     make(http.Header),
-				Request:    r,
-			}, nil
-		default:
-			return &http.Response{
-				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader("")),
-				Header:     make(http.Header),
-				Request:    r,
-			}, nil
-		}
-	}, func() {
-		previousDelay := startRetryDelay
-		startRetryDelay = 0
-		t.Cleanup(func() {
-			startRetryDelay = previousDelay
-		})
+		}, func() {
+			previousDelay := startRetryDelay
+			startRetryDelay = 0
+			t.Cleanup(func() {
+				startRetryDelay = previousDelay
+			})
 
-		cfg := Config{
-			URL:       "http://example.invalid",
-			AgentID:   "codex",
-			AgentName: "Codex",
-			Start:     true,
-		}
-		if err := sendAgentInput(cfg, []byte("hello")); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+			cfg := Config{
+				URL:       "http://example.invalid",
+				AgentID:   "codex",
+				AgentName: "Codex",
+				Start:     true,
+			}
+			if err := sendAgentInput(cfg, []byte("hello")); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if inputCalls != 1 {
+				t.Fatalf("expected one session input call, got %d", inputCalls)
+			}
+		})
 	})
 }
 

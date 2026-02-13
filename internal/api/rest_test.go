@@ -2255,45 +2255,6 @@ func TestAgentsEndpoint(t *testing.T) {
 	}
 }
 
-func TestAgentInputEndpoint(t *testing.T) {
-	factory := &fakeFactory{}
-	manager := newTestManager(terminal.ManagerOptions{
-		Shell:      "/bin/sh",
-		PtyFactory: factory,
-		Agents: map[string]agent.Agent{
-			"codex": {
-				Name:  "Codex",
-				Shell: "/bin/bash",
-			},
-		},
-	})
-	created, err := manager.Create("codex", "shell", "Codex")
-	if err != nil {
-		t.Fatalf("create terminal: %v", err)
-	}
-	defer func() {
-		_ = manager.Delete(created.ID)
-	}()
-
-	handler := &RestHandler{Manager: manager}
-	req := httptest.NewRequest(http.MethodPost, "/api/agents/Codex/input", strings.NewReader("hello"))
-	req.Header.Set("Authorization", "Bearer secret")
-	res := httptest.NewRecorder()
-
-	restHandler("secret", nil, handler.handleAgentInput)(res, req)
-	if res.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", res.Code)
-	}
-
-	var payload agentInputResponse
-	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if payload.Bytes != len("hello") {
-		t.Fatalf("expected %d bytes, got %d", len("hello"), payload.Bytes)
-	}
-}
-
 func TestSkillsEndpoint(t *testing.T) {
 	root := t.TempDir()
 	skillDir := filepath.Join(root, "git-workflows")

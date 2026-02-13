@@ -114,9 +114,11 @@ func resolveAgent(cfg *Config) error {
 	if idMatch != nil {
 		cfg.AgentID = idMatch.ID
 		cfg.AgentName = idMatch.Name
+		cfg.SessionID = strings.TrimSpace(idMatch.SessionID)
 	} else if nameMatch != nil {
 		cfg.AgentID = nameMatch.ID
 		cfg.AgentName = nameMatch.Name
+		cfg.SessionID = strings.TrimSpace(nameMatch.SessionID)
 	}
 
 	if cfg.Verbose {
@@ -154,10 +156,26 @@ func sendAgentInputWithRetry(cfg Config, payload []byte, allowStart bool) error 
 	if baseURL == "" {
 		baseURL = defaultServerURL
 	}
-	target := fmt.Sprintf("%s/api/agents/%s/input", baseURL, cfg.AgentName)
+	sessionID := strings.TrimSpace(cfg.SessionID)
+	if sessionID == "" {
+		if !allowStart || !cfg.Start {
+			return sendErrf(2, "agent %q is not running", cfg.AgentName)
+		}
+		logf(cfg, "agent %q not running; attempting to start", cfg.AgentName)
+		if err := client.StartAgent(httpClient, baseURL, cfg.Token, cfg.AgentID); err != nil {
+			return sendErrFromClient(err)
+		}
+		time.Sleep(startRetryDelay)
+		refreshed := cfg
+		if err := refreshAgentSession(&refreshed); err != nil {
+			return err
+		}
+		return sendAgentInputWithRetry(refreshed, payload, false)
+	}
+	target := fmt.Sprintf("%s/api/sessions/%s/input", baseURL, sessionID)
 
 	if cfg.Verbose {
-		logf(cfg, "sending %d bytes to agent %q at %s", len(payload), cfg.AgentName, target)
+		logf(cfg, "sending %d bytes to session %q (%s) at %s", len(payload), sessionID, cfg.AgentName, target)
 		if strings.TrimSpace(cfg.Token) != "" {
 			logf(cfg, "token: %s", maskToken(cfg.Token, cfg.Debug))
 		}
@@ -169,7 +187,7 @@ func sendAgentInputWithRetry(cfg Config, payload []byte, allowStart bool) error 
 		}
 		logf(cfg, "payload preview: %q", string(preview))
 	}
-	if err := client.SendAgentInput(httpClient, baseURL, cfg.Token, cfg.AgentName, payload); err != nil {
+	if err := client.SendSessionInput(httpClient, baseURL, cfg.Token, sessionID, payload); err != nil {
 		var httpErr *client.HTTPError
 		if errors.As(err, &httpErr) {
 			if httpErr.StatusCode == http.StatusNotFound && allowStart && cfg.Start {
@@ -178,7 +196,11 @@ func sendAgentInputWithRetry(cfg Config, payload []byte, allowStart bool) error 
 					return sendErrFromClient(err)
 				}
 				time.Sleep(startRetryDelay)
-				return sendAgentInputWithRetry(cfg, payload, false)
+				refreshed := cfg
+				if err := refreshAgentSession(&refreshed); err != nil {
+					return err
+				}
+				return sendAgentInputWithRetry(refreshed, payload, false)
 			}
 			if cfg.Verbose && httpErr.StatusCode != 0 {
 				logf(cfg, "response status: %d %s", httpErr.StatusCode, http.StatusText(httpErr.StatusCode))
@@ -194,6 +216,36 @@ func sendAgentInputWithRetry(cfg Config, payload []byte, allowStart bool) error 
 		logf(cfg, "response status: %d %s", http.StatusOK, http.StatusText(http.StatusOK))
 	}
 	return nil
+}
+
+func refreshAgentSession(cfg *Config) error {
+	if cfg == nil {
+		return sendErr(2, "agent configuration is required")
+	}
+	agents, err := loadAgents(*cfg)
+	if err != nil {
+		return sendErrf(3, "failed to fetch agents: %v", err)
+	}
+	for _, agent := range agents {
+		if cfg.AgentID != "" && strings.EqualFold(agent.ID, cfg.AgentID) {
+			cfg.AgentName = agent.Name
+			cfg.SessionID = strings.TrimSpace(agent.SessionID)
+			return nil
+		}
+		if cfg.AgentName != "" && strings.EqualFold(agent.Name, cfg.AgentName) {
+			cfg.AgentID = agent.ID
+			cfg.SessionID = strings.TrimSpace(agent.SessionID)
+			return nil
+		}
+	}
+	label := strings.TrimSpace(cfg.AgentRef)
+	if label == "" {
+		label = strings.TrimSpace(cfg.AgentName)
+	}
+	if label == "" {
+		label = strings.TrimSpace(cfg.AgentID)
+	}
+	return sendErrf(2, "agent %q not found", label)
 }
 
 func loadAgents(cfg Config) ([]agentInfo, error) {

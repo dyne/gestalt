@@ -63,13 +63,13 @@ func TestFetchAgentsHTTPError(t *testing.T) {
 	}
 }
 
-func TestSendAgentInputHTTPError(t *testing.T) {
+func TestSendSessionInputHTTPError(t *testing.T) {
 	requireLocalListener(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("expected POST, got %s", r.Method)
 		}
-		if r.URL.Path != "/api/agents/coder/input" {
+		if r.URL.Path != "/api/sessions/session-1/input" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -77,7 +77,7 @@ func TestSendAgentInputHTTPError(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	err := SendAgentInput(server.Client(), server.URL, "", "coder", []byte("hi"))
+	err := SendSessionInput(server.Client(), server.URL, "", "session-1", []byte("hi"))
 	var httpErr *HTTPError
 	if !errors.As(err, &httpErr) {
 		t.Fatalf("expected HTTPError, got %v", err)
@@ -114,7 +114,7 @@ func TestStartAgentSuccess(t *testing.T) {
 	}
 }
 
-func TestSendAgentInputAddsToken(t *testing.T) {
+func TestSendSessionInputAddsToken(t *testing.T) {
 	requireLocalListener(t)
 	var gotAuth string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -123,7 +123,7 @@ func TestSendAgentInputAddsToken(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	err := SendAgentInput(server.Client(), server.URL, "token", "coder", bytes.NewBufferString("hi").Bytes())
+	err := SendSessionInput(server.Client(), server.URL, "token", "session-1", bytes.NewBufferString("hi").Bytes())
 	if err != nil {
 		t.Fatalf("send input: %v", err)
 	}

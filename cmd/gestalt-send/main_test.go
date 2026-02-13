@@ -85,8 +85,7 @@ func TestParseArgsMissingAgent(t *testing.T) {
 	}
 }
 
-func TestParseArgsUsesEnvDefaults(t *testing.T) {
-	t.Setenv("GESTALT_URL", "http://example.com")
+func TestParseArgsUsesDefaults(t *testing.T) {
 	t.Setenv("GESTALT_TOKEN", "secret")
 	var stderr bytes.Buffer
 
@@ -94,8 +93,8 @@ func TestParseArgsUsesEnvDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.URL != "http://example.com" {
-		t.Fatalf("expected URL to match env, got %q", cfg.URL)
+	if cfg.URL != "http://127.0.0.1:57417" {
+		t.Fatalf("expected default URL, got %q", cfg.URL)
 	}
 	if cfg.Token != "secret" {
 		t.Fatalf("expected token to match env, got %q", cfg.Token)
@@ -236,6 +235,51 @@ func TestSendAgentInputSuccess(t *testing.T) {
 	})
 }
 
+func TestSendInputSessionIDSuccess(t *testing.T) {
+	withMockClient(t, func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/api/sessions/s-1/input" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader("")),
+			Header:     make(http.Header),
+			Request:    r,
+		}, nil
+	}, func() {
+		cfg := Config{
+			URL:       "http://example.invalid",
+			SessionID: "s-1",
+		}
+		if err := sendInput(cfg, []byte("hello")); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
+func TestRunWithSenderSessionIDSkipsAgentLookup(t *testing.T) {
+	withMockClient(t, func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path == "/api/agents" {
+			t.Fatalf("agent lookup should be skipped")
+		}
+		if r.URL.Path != "/api/sessions/s-1/input" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader("")),
+			Header:     make(http.Header),
+			Request:    r,
+		}, nil
+	}, func() {
+		var stderr bytes.Buffer
+		code := runWithSender([]string{"--session-id", "s-1"}, strings.NewReader("hi"), &stderr, sendInput)
+		if code != 0 {
+			t.Fatalf("expected exit code 0, got %d: %s", code, stderr.String())
+		}
+	})
+}
+
 func TestRunWithSenderReturnsAgentNotFound(t *testing.T) {
 	withAgentCacheDisabled(t, func() {
 		withMockClient(t, func(r *http.Request) (*http.Response, error) {
@@ -256,7 +300,6 @@ func TestRunWithSenderReturnsAgentNotFound(t *testing.T) {
 				}, nil
 			}
 		}, func() {
-			t.Setenv("GESTALT_URL", "http://example.invalid")
 			var stderr bytes.Buffer
 
 			code := runWithSender([]string{"missing"}, strings.NewReader("hi"), &stderr, sendAgentInput)

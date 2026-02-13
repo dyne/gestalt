@@ -88,15 +88,19 @@ func StartWindow(launch *launchspec.LaunchSpec) error {
 	return client.CreateWindow(target.SessionName, target.WindowName, launch.Argv)
 }
 
-// AttachCommand returns the tmux attach command for the shared workdir session.
-// When already inside tmux, it returns a switch-client command.
-func AttachCommand() ([]string, error) {
+// AttachCommand returns the tmux command to attach to or select a session window.
+// When already inside tmux, it selects the session window if a session ID is provided.
+func AttachCommand(sessionID string) ([]string, error) {
 	sessionName, err := WorkdirSessionName()
 	if err != nil {
 		return nil, err
 	}
 	if insideTmux() {
-		return []string{"tmux", "switch-client", "-t", sessionName}, nil
+		trimmed := strings.TrimSpace(sessionID)
+		if trimmed == "" {
+			return []string{"tmux", "switch-client", "-t", sessionName}, nil
+		}
+		return []string{"tmux", "select-window", "-t", sessionWindowName(trimmed)}, nil
 	}
 	return []string{"tmux", "attach", "-t", sessionName}, nil
 }

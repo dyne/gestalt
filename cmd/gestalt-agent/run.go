@@ -14,10 +14,11 @@ func runAgent(cfg Config, in io.Reader, out io.Writer, exec execRunner) (int, er
 	baseURL := buildBaseURL(cfg.Host, cfg.Port)
 	client := &http.Client{Timeout: 10 * time.Second}
 
-	if _, err := createExternalSession(client, baseURL, cfg.Token, cfg.AgentID); err != nil {
+	session, err := createExternalSession(client, baseURL, cfg.Token, cfg.AgentID)
+	if err != nil {
 		return exitServer, err
 	}
-	command, err := tmuxsession.AttachCommand()
+	command, err := tmuxsession.AttachCommand(session.ID)
 	if err != nil {
 		return exitServer, err
 	}

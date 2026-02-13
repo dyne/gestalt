@@ -5,11 +5,12 @@ import (
 	"strings"
 )
 
-func defaultGestaltURL() string {
-	if value := strings.TrimSpace(os.Getenv("GESTALT_URL")); value != "" {
-		return value
-	}
-	return "http://localhost:57417"
+func defaultGestaltHost() string {
+	return "127.0.0.1"
+}
+
+func defaultGestaltPort() int {
+	return 57417
 }
 
 func defaultGestaltToken() string {

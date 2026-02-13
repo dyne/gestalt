@@ -17,6 +17,12 @@ func TestParseArgsAgentID(t *testing.T) {
 	if cfg.AgentID != "coder" {
 		t.Fatalf("expected agent id coder, got %q", cfg.AgentID)
 	}
+	if cfg.Host != "127.0.0.1" {
+		t.Fatalf("expected default host, got %q", cfg.Host)
+	}
+	if cfg.Port != 57417 {
+		t.Fatalf("expected default port, got %d", cfg.Port)
+	}
 }
 
 func TestParseArgsTomlSuffix(t *testing.T) {
@@ -90,5 +96,30 @@ func TestParseArgsDryRun(t *testing.T) {
 	}
 	if !cfg.DryRun {
 		t.Fatalf("expected dryrun")
+	}
+}
+
+func TestParseArgsHostAndPort(t *testing.T) {
+	var stderr bytes.Buffer
+	cfg, err := parseArgs([]string{"--host", "localhost", "--port", "4321", "coder"}, &stderr)
+	if err != nil {
+		t.Fatalf("parse args: %v", err)
+	}
+	if cfg.Host != "localhost" {
+		t.Fatalf("expected host localhost, got %q", cfg.Host)
+	}
+	if cfg.Port != 4321 {
+		t.Fatalf("expected port 4321, got %d", cfg.Port)
+	}
+}
+
+func TestParseArgsInvalidPort(t *testing.T) {
+	var stderr bytes.Buffer
+	_, err := parseArgs([]string{"--port", "0", "coder"}, &stderr)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !strings.Contains(err.Error(), "port must be between 1 and 65535") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

@@ -136,6 +136,10 @@ func (h *RestHandler) createTerminal(w http.ResponseWriter, r *http.Request) *ap
 				Code:    "mcp_bootstrap_failed",
 			}
 		}
+		var tmuxErr *terminal.ExternalTmuxError
+		if errors.As(createErr, &tmuxErr) {
+			return &apiError{Status: http.StatusInternalServerError, Message: tmuxErr.Message}
+		}
 		var dupErr *terminal.AgentAlreadyRunningError
 		if errors.As(createErr, &dupErr) {
 			return &apiError{

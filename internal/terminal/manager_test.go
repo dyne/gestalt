@@ -16,6 +16,7 @@ import (
 	"gestalt/internal/event"
 	"gestalt/internal/logging"
 	"gestalt/internal/ports"
+	"gestalt/internal/runner/launchspec"
 	"gestalt/internal/skill"
 )
 
@@ -407,6 +408,112 @@ func TestManagerCreateWithCLIConfigUsesGeneratedCommand(t *testing.T) {
 	}
 	if !strings.Contains(session.Command, "notify=") {
 		t.Fatalf("expected notify in command, got %q", session.Command)
+	}
+}
+
+func TestManagerCreateExternalCLIStartsTmuxWindow(t *testing.T) {
+	factory := &fakeFactory{}
+	startCalls := 0
+	var launchArgv []string
+	manager := NewManager(ManagerOptions{
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:      "Codex",
+				Shell:     "codex -c model=o3",
+				CLIType:   "codex",
+				Interface: agent.AgentInterfaceCLI,
+			},
+		},
+		StartExternalTmuxWindow: func(launch *launchspec.LaunchSpec) error {
+			startCalls++
+			if launch == nil {
+				t.Fatal("expected launch spec")
+			}
+			launchArgv = append([]string(nil), launch.Argv...)
+			return nil
+		},
+	})
+
+	session, err := manager.CreateWithOptions(CreateOptions{
+		AgentID: "codex",
+		Runner:  "external",
+	})
+	if err != nil {
+		t.Fatalf("create external: %v", err)
+	}
+	if session.LaunchSpec == nil {
+		t.Fatal("expected launch spec")
+	}
+	if startCalls != 1 {
+		t.Fatalf("expected 1 tmux start call, got %d", startCalls)
+	}
+	if len(launchArgv) == 0 || launchArgv[0] != "codex" {
+		t.Fatalf("expected launch argv to start with codex, got %v", launchArgv)
+	}
+}
+
+func TestManagerCreateExternalMCPDoesNotStartTmuxWindow(t *testing.T) {
+	factory := &fakeFactory{}
+	startCalls := 0
+	manager := NewManager(ManagerOptions{
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:      "Codex",
+				Shell:     "codex -c model=o3",
+				CLIType:   "codex",
+				Interface: agent.AgentInterfaceMCP,
+			},
+		},
+		StartExternalTmuxWindow: func(launch *launchspec.LaunchSpec) error {
+			startCalls++
+			return nil
+		},
+	})
+
+	_, err := manager.CreateWithOptions(CreateOptions{
+		AgentID: "codex",
+		Runner:  "external",
+	})
+	if !errors.Is(err, ErrCodexMCPBootstrap) {
+		t.Fatalf("expected mcp bootstrap error, got %v", err)
+	}
+	if startCalls != 0 {
+		t.Fatalf("expected no tmux start calls, got %d", startCalls)
+	}
+}
+
+func TestManagerCreateExternalTmuxErrorMapped(t *testing.T) {
+	factory := &fakeFactory{}
+	manager := NewManager(ManagerOptions{
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:      "Codex",
+				Shell:     "codex -c model=o3",
+				CLIType:   "codex",
+				Interface: agent.AgentInterfaceCLI,
+			},
+		},
+		StartExternalTmuxWindow: func(launch *launchspec.LaunchSpec) error {
+			return errors.New("exec: \"tmux\": executable file not found in $PATH")
+		},
+	})
+
+	_, err := manager.CreateWithOptions(CreateOptions{
+		AgentID: "codex",
+		Runner:  "external",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var tmuxErr *ExternalTmuxError
+	if !errors.As(err, &tmuxErr) {
+		t.Fatalf("expected ExternalTmuxError, got %T", err)
+	}
+	if tmuxErr.Message != "tmux unavailable" {
+		t.Fatalf("expected tmux unavailable, got %q", tmuxErr.Message)
 	}
 }
 

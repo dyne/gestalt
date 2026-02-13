@@ -73,3 +73,9 @@ Use the crash overlay to copy the crash id, then capture the details from the Lo
 - Crash id and session id (from the overlay)
 
 See `frontend/docs/ui-freeze-triage.md` for the full checklist and triage decision tree.
+
+## Vite chunking notes
+
+The frontend keeps `@xterm/*` in its own chunk to avoid bloating the entry bundle.
+Chunking rules live in `frontend/vite.config.js` (`manualChunks` -> `vendor-xterm`).
+Non-default tab views (Plan/Flow/Terminal) are lazy-loaded in `frontend/src/App.svelte`, so avoid adding eager terminal imports at the root.

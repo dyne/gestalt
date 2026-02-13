@@ -23,6 +23,7 @@ import (
 	"gestalt/internal/process"
 	"gestalt/internal/prompt"
 	"gestalt/internal/runner/launchspec"
+	"gestalt/internal/runner/tmux"
 	"gestalt/internal/runner/tmuxsession"
 	"gestalt/internal/skill"
 	"gestalt/internal/temporal"
@@ -32,6 +33,8 @@ var ErrSessionNotFound = errors.New("terminal session not found")
 var ErrAgentNotFound = errors.New("agent profile not found")
 var ErrAgentRequired = errors.New("agent id is required")
 var ErrCodexMCPBootstrap = errors.New("codex mcp bootstrap failed")
+var ErrSessionNotTmuxManaged = errors.New("session is not tmux-managed")
+var ErrTmuxSessionNotFound = errors.New("tmux session not found")
 
 type AgentAlreadyRunningError struct {
 	AgentName  string
@@ -92,6 +95,13 @@ type ManagerOptions struct {
 	PromptDir               string
 	PortResolver            ports.PortResolver
 	StartExternalTmuxWindow func(*launchspec.LaunchSpec) error
+	TmuxClientFactory       func() TmuxClient
+}
+
+// TmuxClient defines tmux operations used by manager activation flows.
+type TmuxClient interface {
+	HasSession(name string) (bool, error)
+	SelectWindow(target string) error
 }
 
 // Manager is safe for concurrent use; mu guards the sessions map and lifecycle.
@@ -127,6 +137,7 @@ type Manager struct {
 	promptParser            *prompt.Parser
 	processRegistry         *process.Registry
 	startExternalTmuxWindow func(*launchspec.LaunchSpec) error
+	tmuxClientFactory       func() TmuxClient
 	agentsHubMu             sync.Mutex
 	agentsHubID             string
 }
@@ -318,9 +329,15 @@ func NewManager(opts ManagerOptions) *Manager {
 		promptParser:            promptParser,
 		processRegistry:         registry,
 		startExternalTmuxWindow: opts.StartExternalTmuxWindow,
+		tmuxClientFactory:       opts.TmuxClientFactory,
 	}
 	if manager.startExternalTmuxWindow == nil {
 		manager.startExternalTmuxWindow = tmuxsession.StartWindow
+	}
+	if manager.tmuxClientFactory == nil {
+		manager.tmuxClientFactory = func() TmuxClient {
+			return tmux.NewClient()
+		}
 	}
 	manager.sessionFactory = NewSessionFactory(SessionFactoryOptions{
 		Clock:           clock,
@@ -871,6 +888,46 @@ func (m *Manager) AgentsHubStatus() (string, string) {
 		return sessionID, ""
 	}
 	return sessionID, tmuxSessionName
+}
+
+// ActivateSessionWindow selects the tmux window for a tmux-managed external CLI session.
+func (m *Manager) ActivateSessionWindow(id string) error {
+	if m == nil {
+		return ErrSessionNotFound
+	}
+	session, ok := m.Get(id)
+	if !ok || session == nil {
+		return ErrSessionNotFound
+	}
+	if !strings.EqualFold(strings.TrimSpace(session.Runner), string(launchspec.RunnerKindExternal)) ||
+		!strings.EqualFold(strings.TrimSpace(session.Interface), agent.AgentInterfaceCLI) {
+		return ErrSessionNotTmuxManaged
+	}
+
+	tmuxSessionName, err := tmuxsession.WorkdirSessionName()
+	if err != nil {
+		return wrapExternalTmuxError(err)
+	}
+	clientFactory := m.tmuxClientFactory
+	if clientFactory == nil {
+		return wrapExternalTmuxError(errors.New("tmux client unavailable"))
+	}
+	client := clientFactory()
+	if client == nil {
+		return wrapExternalTmuxError(errors.New("tmux client unavailable"))
+	}
+	hasSession, err := client.HasSession(tmuxSessionName)
+	if err != nil {
+		return wrapExternalTmuxError(err)
+	}
+	if !hasSession {
+		return ErrTmuxSessionNotFound
+	}
+	target := tmuxSessionName + ":" + session.ID
+	if err := client.SelectWindow(target); err != nil {
+		return wrapExternalTmuxError(err)
+	}
+	return nil
 }
 
 func (m *Manager) Get(id string) (*Session, bool) {

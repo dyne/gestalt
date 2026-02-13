@@ -233,6 +233,7 @@ const (
 	terminalPathOutput
 	terminalPathHistory
 	terminalPathInput
+	terminalPathActivate
 	terminalPathInputHistory
 	terminalPathBell
 	terminalPathNotify

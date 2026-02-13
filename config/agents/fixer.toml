@@ -16,6 +16,9 @@ model_reasoning_effort = "medium"
 # model_supports_reasoning_summaries = true
 # history.persistence = "save_all"
 
+
+gui_modules = ["terminal"]
+
 approval_policy = "never" # never | on-failure | untrusted | on-request
 sandbox_mode = "workspace-write" # read-only | workspace-write | danger-full-access
 sandbox_workspace_write.exclude_tmpdir_env_var = false  # Allow $TMPDIR

@@ -10,7 +10,7 @@ Workflow on the plan:
 4. Run all tests, make sure there is no error, fix any.
 
 When the state of a L1 or L2 changes (TODO → WIP → DONE) run gestalt-notify with your session.id, title of L1/L2 and state:
-gestalt-notify --session-id {{session id}} '{"type":"progress","plan-file":"...","task-level":1|2,"task-title":"...","task-state":"TODO|WIP|DONE"}'
+gestalt-notify --port {{port backend}} --session-id {{session id}} '{"type":"progress","plan-file":"...","task-level":1|2,"task-title":"...","task-state":"TODO|WIP|DONE"}'
 
 {{include git-commit}}
 
@@ -34,7 +34,7 @@ Repeat loops until all L1 and L2 in plan are DONE.
 
 Done: Update `AGENTS.md` (LLM-oriented) with summary if
 relevant. Print a brief summary for reviewers and run gestalt-notify:
-gestalt-notify --session-id {{session id}} '{"type":"finish","plan-file":"...","summary":"...","git-branch":"..."}'
+gestalt-notify --port {{port backend}} --session-id {{session id}} '{"type":"finish","plan-file":"...","summary":"...","git-branch":"..."}'
 
 {{include ./.gestalt/instructions.md}}
 

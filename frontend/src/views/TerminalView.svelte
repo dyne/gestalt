@@ -1,7 +1,6 @@
 <script>
   import { onMount } from 'svelte'
   import Terminal from '../components/Terminal.svelte'
-  import ConsoleModule from '../components/modules/ConsoleModule.svelte'
   import PlanSidebar from '../components/PlanSidebar.svelte'
   import { fetchStatus, fetchWorkflows } from '../lib/apiClient.js'
   import { buildTemporalUrl } from '../lib/workflowFormat.js'
@@ -11,6 +10,7 @@
   export let promptFiles = []
   export let visible = true
   export let sessionInterface = ''
+  export let sessionRunner = ''
   export let guiModules = []
   export let onDelete = () => {}
 
@@ -82,9 +82,6 @@
   $: planSidebarOpen = sessionId ? Boolean(planSidebarState[sessionId]) : false
   $: hasTerminalModule =
     Array.isArray(guiModules) &&
-    guiModules.some((entry) => String(entry || '').trim().toLowerCase() === 'terminal')
-  $: hasConsoleModule =
-    Array.isArray(guiModules) &&
     guiModules.some((entry) => String(entry || '').trim().toLowerCase() === 'console')
   $: hasPlanModule =
     Array.isArray(guiModules) &&
@@ -119,20 +116,7 @@
           {visible}
           {temporalUrl}
           {sessionInterface}
-          {guiModules}
-          {planSidebarOpen}
-          onTogglePlan={togglePlanSidebar}
-          onRequestClose={openCloseDialog}
-        />
-      {/if}
-      {#if hasConsoleModule}
-        <ConsoleModule
-          sessionId={sessionId}
-          {title}
-          {promptFiles}
-          {visible}
-          {temporalUrl}
-          {sessionInterface}
+          {sessionRunner}
           {guiModules}
           {planSidebarOpen}
           onTogglePlan={togglePlanSidebar}

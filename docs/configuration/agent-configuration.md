@@ -13,7 +13,7 @@ All agent files support the following fields:
 - `codex_mode` (string, optional, legacy): For `cli_type="codex"`, deprecated alias for `interface` when `interface` is unset (`mcp-server` maps to `interface="mcp"`, `tui` maps to `interface="cli"`).
 - `prompt` (string or array, optional): Prompt names (no extension) to inject (Codex renders these into `developer_instructions`).
 - `skills` (array, optional): Skill names to inject (Codex renders these into `developer_instructions`).
-- `gui_modules` (array, optional): UI module flags for sessions (e.g., `["plan-progress"]`). Known modules: `terminal` (xterm), `console` (text-only), `plan-progress` (sidebar). Defaults to `["terminal"]` for server sessions and `["console","plan-progress"]` for external sessions when unset.
+- `gui_modules` (array, optional): UI module flags for sessions (e.g., `["plan-progress"]`). Known modules: `console` (session view) and `plan-progress` (sidebar). Legacy `terminal` is accepted and normalized to `console`. Defaults to `["console"]` for server sessions and `["console","plan-progress"]` for external sessions when unset.
 - `onair_string` (string, optional): Wait for this string before prompt injection (non-Codex only).
 - `use_workflow` (bool, optional): Override workflow default.
 - `singleton` (bool, optional): Allow only one running instance (default true).
@@ -25,6 +25,12 @@ Set `gui_modules` in the agent TOML to override the default module selection for
 Any additional top-level keys (outside the base fields) are treated as CLI config and validated. A legacy `[cli_config]` table is still accepted, but no longer required.
 
 The runtime can force Codex agents back to `interface="cli"` by setting `GESTALT_CODEX_FORCE_TUI=true`.
+
+## Migration notes
+
+- `gui_modules = ["terminal"]` is supported as a legacy alias and is normalized to `["console"]`.
+- External `gestalt-agent` sessions no longer use a runner websocket bridge. The CLI now launches tmux and exits.
+- For rollback during incident response, restore the previous runner bridge route/handlers and `gestalt-agent` bridge entrypoint in a single revert commit.
 
 ## gestalt-agent CLI
 

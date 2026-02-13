@@ -57,13 +57,13 @@ func TestAgentValidateNormalizesGUIModules(t *testing.T) {
 	agent := Agent{
 		Name:       "Codex",
 		Shell:      "/bin/bash",
-		GUIModules: []string{" Plan-Progress ", "plan-progress", ""},
+		GUIModules: []string{" Plan-Progress ", "terminal", "console", "plan-progress", ""},
 	}
 
 	if err := agent.Validate(); err != nil {
 		t.Fatalf("validate: %v", err)
 	}
-	if len(agent.GUIModules) != 1 || agent.GUIModules[0] != "plan-progress" {
+	if len(agent.GUIModules) != 2 || agent.GUIModules[0] != "plan-progress" || agent.GUIModules[1] != "console" {
 		t.Fatalf("expected normalized gui_modules, got %v", agent.GUIModules)
 	}
 }

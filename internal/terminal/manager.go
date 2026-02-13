@@ -30,6 +30,7 @@ import (
 var ErrSessionNotFound = errors.New("terminal session not found")
 var ErrAgentNotFound = errors.New("agent profile not found")
 var ErrAgentRequired = errors.New("agent id is required")
+var ErrCodexMCPBootstrap = errors.New("codex mcp bootstrap failed")
 
 type AgentAlreadyRunningError struct {
 	AgentName  string
@@ -416,6 +417,9 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 	if len(guiModules) == 0 && profile != nil && len(profile.GUIModules) > 0 {
 		guiModules = append([]string(nil), profile.GUIModules...)
 	}
+	if runnerKind == launchspec.RunnerKindServer && len(guiModules) == 0 {
+		guiModules = append([]string(nil), defaultServerGUIModules...)
+	}
 	if runnerKind == launchspec.RunnerKindExternal && len(guiModules) == 0 {
 		guiModules = append([]string(nil), defaultExternalGUIModules...)
 	}
@@ -538,6 +542,11 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 	if err != nil {
 		releaseReservation()
 		return nil, err
+	}
+	if agentMCP && !session.IsMCP() {
+		_ = session.Close()
+		releaseReservation()
+		return nil, ErrCodexMCPBootstrap
 	}
 	if len(promptFiles) > 0 {
 		session.PromptFiles = append(session.PromptFiles, promptFiles...)
@@ -1249,17 +1258,20 @@ func withCodexMCP(shell string) string {
 	if trimmed == "" {
 		return shell
 	}
-	fields, err := parseCommandLine(trimmed)
-	if err != nil || len(fields) == 0 || fields[0] != "codex" {
+	command, args, err := splitCommandLine(trimmed)
+	if err != nil || command == "" {
 		return shell
 	}
-	if len(fields) > 1 && fields[1] == "mcp-server" {
+	if filepath.Base(command) != "codex" {
+		return shell
+	}
+	if len(args) > 0 && args[0] == "mcp-server" {
 		return trimmed
 	}
-	if len(trimmed) == len("codex") {
-		return "codex mcp-server"
-	}
-	return "codex mcp-server" + trimmed[len("codex"):]
+	updated := make([]string, 0, len(args)+1)
+	updated = append(updated, "mcp-server")
+	updated = append(updated, args...)
+	return joinCommandLine(command, updated)
 }
 
 func envBool(key string) bool {

@@ -2334,6 +2334,104 @@ func TestTerminalBellEndpointMissingSession(t *testing.T) {
 	}
 }
 
+func TestCreateTerminalMapsCodexMCPBootstrapFailure(t *testing.T) {
+	dir := t.TempDir()
+	agentTOML := "name = \"Codex\"\nshell = \"/bin/sh\"\ncli_type = \"codex\"\ninterface = \"mcp\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "codex.toml"), []byte(agentTOML), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+	manager := newTestManager(terminal.ManagerOptions{
+		AgentsDir:  dir,
+		Shell:      "/bin/sh",
+		PtyFactory: &fakeFactory{},
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:      "Codex",
+				CLIType:   "codex",
+				Interface: agent.AgentInterfaceMCP,
+			},
+		},
+	})
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions", strings.NewReader(`{"agent":"codex"}`))
+	res := httptest.NewRecorder()
+
+	restHandler("", nil, handler.handleTerminals)(res, req)
+	if res.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", res.Code)
+	}
+
+	var payload errorResponse
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Code != "mcp_bootstrap_failed" {
+		t.Fatalf("expected code mcp_bootstrap_failed, got %q", payload.Code)
+	}
+	if payload.Message == "" {
+		t.Fatalf("expected non-empty error message")
+	}
+}
+
+func TestCreateTerminalMCPProfilesReturnStableInterfaceRunnerAndModules(t *testing.T) {
+	dir := t.TempDir()
+	agentIDs := []string{"coder", "fixer", "architect", "codex-mcp"}
+	agentNames := map[string]string{
+		"coder":     "Coder",
+		"fixer":     "Fixer",
+		"architect": "Architect",
+		"codex-mcp": "Codex MCP",
+	}
+	profiles := map[string]agent.Agent{}
+	for _, id := range agentIDs {
+		name := agentNames[id]
+		agentTOML := "name = \"" + name + "\"\nshell = \"/bin/sh\"\ncli_type = \"codex\"\ninterface = \"mcp\"\n"
+		if err := os.WriteFile(filepath.Join(dir, id+".toml"), []byte(agentTOML), 0o644); err != nil {
+			t.Fatalf("write agent file for %s: %v", id, err)
+		}
+		profiles[id] = agent.Agent{
+			Name:      name,
+			Shell:     "/bin/sh",
+			CLIType:   "codex",
+			Interface: agent.AgentInterfaceMCP,
+		}
+	}
+
+	mcpFactory := newMCPTestFactory()
+	manager := newTestManager(terminal.ManagerOptions{
+		Agents:    profiles,
+		AgentsDir: dir,
+		PtyFactory: terminal.NewMuxPtyFactory(
+			&fakeFactory{},
+			mcpFactory,
+			false,
+		),
+	})
+	handler := &RestHandler{Manager: manager}
+
+	for _, id := range agentIDs {
+		req := httptest.NewRequest(http.MethodPost, "/api/sessions", strings.NewReader(`{"agent":"`+id+`"}`))
+		res := httptest.NewRecorder()
+		restHandler("", nil, handler.handleTerminals)(res, req)
+		if res.Code != http.StatusCreated {
+			t.Fatalf("%s: expected 201, got %d", id, res.Code)
+		}
+		var payload terminalCreateResponse
+		if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+			t.Fatalf("%s: decode response: %v", id, err)
+		}
+		if payload.Interface != agent.AgentInterfaceMCP {
+			t.Fatalf("%s: expected interface %q, got %q", id, agent.AgentInterfaceMCP, payload.Interface)
+		}
+		if payload.Runner != "server" {
+			t.Fatalf("%s: expected runner server, got %q", id, payload.Runner)
+		}
+		if len(payload.GUIModules) != 1 || payload.GUIModules[0] != "console" {
+			t.Fatalf("%s: expected gui_modules [console], got %v", id, payload.GUIModules)
+		}
+	}
+}
+
 func waitForOutput(session *terminal.Session) bool {
 	deadline := time.Now().Add(200 * time.Millisecond)
 	for time.Now().Before(deadline) {

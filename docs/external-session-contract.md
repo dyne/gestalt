@@ -15,10 +15,10 @@ match GUI-created sessions.
 ## Accepted differences
 - External sessions are not backed by a backend PTY/process; the agent process
   lifecycle is owned by `gestalt-agent` via tmux.
-- The backend can only resize, send input, and receive output via the runner
-  bridge for external sessions.
+- External sessions are non-interactive in the GUI terminal stream; users attach
+  to tmux directly.
 
 ## Enforced by
-- API contract for `/api/sessions` and the runner bridge endpoints.
+- API contract for `/api/sessions` and launch metadata returned for external sessions.
 - Backend tests that compare external and server session behavior for IDs,
   prompt file lists, and Codex notify injection.

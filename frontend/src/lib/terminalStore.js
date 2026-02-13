@@ -12,11 +12,21 @@ const normalizeInterface = (value) => {
   return ''
 }
 
-export const getTerminalState = (sessionId, sessionInterface) => {
+const normalizeRunner = (value) => {
+  if (value === undefined || value === null) return ''
+  const trimmed = String(value).trim().toLowerCase()
+  if (trimmed === 'external' || trimmed === 'server') {
+    return trimmed
+  }
+  return ''
+}
+
+export const getTerminalState = (sessionId, sessionInterface, sessionRunner) => {
   if (!sessionId) return null
   const interfaceValue = normalizeInterface(sessionInterface)
+  const runnerValue = normalizeRunner(sessionRunner)
   const existing = terminals.get(sessionId)
-  if (existing && existing.interface !== interfaceValue) {
+  if (existing && (existing.interface !== interfaceValue || existing.runner !== runnerValue)) {
     existing.state?.dispose?.()
     terminals.delete(sessionId)
   }
@@ -25,8 +35,9 @@ export const getTerminalState = (sessionId, sessionInterface) => {
       terminalId: sessionId,
       historyCache,
       sessionInterface: interfaceValue,
+      sessionRunner: runnerValue,
     })
-    terminals.set(sessionId, { state, interface: interfaceValue })
+    terminals.set(sessionId, { state, interface: interfaceValue, runner: runnerValue })
   }
   return terminals.get(sessionId)?.state || null
 }

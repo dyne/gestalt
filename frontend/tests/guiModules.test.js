@@ -6,13 +6,13 @@ describe('guiModules', () => {
   it('normalizes explicit module lists', () => {
     const result = resolveGuiModules([' Terminal ', 'console', 'unknown', 'terminal', null])
 
-    expect(result).toEqual(['terminal', 'console'])
+    expect(result).toEqual(['console'])
   })
 
-  it('defaults to terminal for server sessions', () => {
+  it('defaults to console for server sessions', () => {
     const result = resolveGuiModules([], 'server')
 
-    expect(result).toEqual(['terminal'])
+    expect(result).toEqual(['console'])
   })
 
   it('defaults to console + plan-progress for external sessions', () => {
@@ -24,6 +24,6 @@ describe('guiModules', () => {
   it('treats missing runner as server', () => {
     const result = resolveGuiModules([], '')
 
-    expect(result).toEqual(['terminal'])
+    expect(result).toEqual(['console'])
   })
 })

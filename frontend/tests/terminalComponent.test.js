@@ -205,11 +205,11 @@ describe('Terminal', () => {
     await rerender({ sessionId: 't2', sessionInterface: 'mcp' })
     await tick()
 
-    expect(getTerminalState).toHaveBeenCalledWith('t2', 'mcp')
+    expect(getTerminalState).toHaveBeenCalledWith('t2', 'mcp', '')
     expect(stateA.setVisible).toHaveBeenCalledWith(false)
   })
 
-  it('renders console module without xterm when console enabled', async () => {
+  it('renders transcript for mcp console sessions', async () => {
     createTerminalService.mockReturnValue(buildConsoleState())
     fetchStatus.mockResolvedValue({})
     fetchWorkflows.mockResolvedValue([])
@@ -218,7 +218,7 @@ describe('Terminal', () => {
       props: {
         sessionId: 't1',
         guiModules: ['console'],
-        sessionInterface: 'cli',
+        sessionInterface: 'mcp',
         visible: true,
       },
     })
@@ -236,7 +236,7 @@ describe('Terminal', () => {
     const { container } = render(TerminalView, {
       props: {
         sessionId: 't1',
-        guiModules: ['terminal'],
+        guiModules: ['console'],
         sessionInterface: 'cli',
         visible: true,
       },
@@ -244,5 +244,16 @@ describe('Terminal', () => {
 
     await tick()
     expect(container.querySelector('.terminal-shell__body')).toBeTruthy()
+  })
+
+  it('shows tmux hint for external sessions', async () => {
+    getTerminalState.mockReturnValue(buildState())
+
+    const { getByText } = render(Terminal, {
+      props: { sessionId: 't1', sessionInterface: 'cli', sessionRunner: 'external' },
+    })
+
+    await tick()
+    expect(getByText('This session is managed in tmux.')).toBeTruthy()
   })
 })

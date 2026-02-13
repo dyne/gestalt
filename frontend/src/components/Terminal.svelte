@@ -13,6 +13,7 @@
   export let visible = true
   export let temporalUrl = ''
   export let sessionInterface = ''
+  export let sessionRunner = ''
   export let guiModules = []
   export let planSidebarOpen = false
   export let onTogglePlan = () => {}
@@ -36,12 +37,15 @@
   let unsubscribeSegments
   let attachedSessionId = ''
   let attachedInterface = ''
+  let attachedRunner = ''
   let wasVisible = false
   let pendingFocus = false
   let displayTitle = ''
   let promptFilesLabel = ''
   let interfaceValue = ''
+  let runnerValue = ''
   let isCLI = false
+  let isExternal = false
   let hasPlanModule = false
   const scrollSensitivity = 1
 
@@ -80,7 +84,7 @@
 
   const attachState = () => {
     if (!sessionId) return
-    state = getTerminalState(sessionId, interfaceValue)
+    state = getTerminalState(sessionId, interfaceValue, runnerValue)
     if (!state) return
     unsubscribeStatus = state.status.subscribe((value) => {
       status = value
@@ -167,7 +171,9 @@
 
   $: interfaceValue =
     typeof sessionInterface === 'string' ? sessionInterface.trim().toLowerCase() : ''
+  $: runnerValue = typeof sessionRunner === 'string' ? sessionRunner.trim().toLowerCase() : ''
   $: isCLI = interfaceValue === 'cli'
+  $: isExternal = runnerValue === 'external'
   $: hasPlanModule =
     Array.isArray(guiModules) &&
     guiModules.some((entry) => String(entry || '').trim().toLowerCase() === 'plan-progress')
@@ -179,12 +185,18 @@
       }
       attachedSessionId = ''
       attachedInterface = ''
-    } else if (sessionId !== attachedSessionId || interfaceValue !== attachedInterface) {
+      attachedRunner = ''
+    } else if (
+      sessionId !== attachedSessionId ||
+      interfaceValue !== attachedInterface ||
+      runnerValue !== attachedRunner
+    ) {
       if (state) {
         detachState()
       }
       attachedSessionId = sessionId
       attachedInterface = interfaceValue
+      attachedRunner = runnerValue
       attachState()
     }
   }
@@ -215,7 +227,7 @@
   }
 
   $: statusLabel = statusLabels[status] || status
-  $: inputDisabled = status !== 'connected' || !sessionId
+  $: inputDisabled = status !== 'connected' || !sessionId || isExternal
   $: displayTitle = sessionId ? sessionId : 'Session —'
   $: promptFilesLabel =
     Array.isArray(promptFiles) && promptFiles.length > 0
@@ -247,7 +259,12 @@
   onRequestClose={onRequestClose}
 >
   <svelte:fragment slot="canvas">
-    {#if isCLI}
+    {#if isExternal}
+      <div class="terminal-external">
+        <p>This session is managed in tmux.</p>
+        <p>Attach with: <code>tmux attach -t "{sessionId}"</code></p>
+      </div>
+    {:else if isCLI}
       <TerminalCanvas
         {state}
         {visible}
@@ -269,7 +286,22 @@
     onSubmit={handleSubmit}
     disabled={inputDisabled}
     directInput={directInputEnabled}
-    showDirectInputToggle={isCLI}
+    showDirectInputToggle={isCLI && !isExternal}
     onDirectInputChange={handleDirectInputChange}
   />
 </TerminalShell>
+
+<style>
+  .terminal-external {
+    display: grid;
+    gap: 0.5rem;
+    padding: 1rem;
+    border: 1px solid rgba(var(--color-text-rgb), 0.12);
+    border-radius: 12px;
+    background: rgba(var(--color-surface-rgb), 0.6);
+  }
+
+  .terminal-external p {
+    margin: 0;
+  }
+</style>

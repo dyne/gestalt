@@ -13,7 +13,6 @@
   import { subscribe as subscribeEvents } from './lib/eventStore.js'
   import { subscribe as subscribeTerminalEvents } from './lib/terminalEventStore.js'
   import { buildTabs, ensureActiveTab, resolveActiveView } from './lib/tabRouting.js'
-  import { releaseTerminalState } from './lib/terminalStore.js'
   import { canUseClipboard } from './lib/clipboard.js'
   import { notificationStore } from './lib/notificationStore.js'
   import { subscribe as subscribeNotificationEvents } from './lib/notificationEventStore.js'
@@ -181,6 +180,7 @@
     error = ''
     try {
       await deleteTerminalSession(id)
+      const { releaseTerminalState } = await import('./lib/terminalStore.js')
       releaseTerminalState(id)
       terminals = terminals.filter((terminal) => terminal.id !== id)
       if (status) {

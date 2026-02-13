@@ -32,16 +32,18 @@ Use this as the minimum context to start any plan task.
 ## Key endpoints
 - `/api/status`
 - `/api/sessions` (GET/POST), `/api/sessions/:id` (DELETE)
-- `/api/sessions/:id/output`, `/api/sessions/:id/input-history` (GET/POST)
-- `/api/agents`, `/api/agents/:name/input`
+- `/api/sessions/:id/output`, `/api/sessions/:id/input` (POST), `/api/sessions/:id/activate` (POST), `/api/sessions/:id/input-history` (GET/POST)
+- `/api/agents`, `/api/agents/:name/send-input`
 - `/api/flow/activities`, `/api/flow/event-types`, `/api/flow/config` (GET/PUT)
 - `/api/flow/config/export` (GET), `/api/flow/config/import` (POST)
 - WS: `/api/agents/events`, `/api/sessions/events`, `/api/config/events`, `/api/workflows/events`, `/ws/events`
 
 ## CLI (gestalt-send)
-- `gestalt-send <agent-name-or-id>` posts stdin to `/api/agents/:name/input`.
+- `gestalt-send <agent-name-or-id>` resolves the agent and posts stdin to `/api/sessions/:id/input`.
+- `gestalt-send --session-id <id>` writes directly to `/api/sessions/:id/input`.
 - Resolves name/id case-insensitively; errors on ambiguity.
 - `--start` auto-creates agent via `/api/sessions` using agent ID.
+- Server flags are `--host` + `--port` (no `--url`).
 - Completions: `gestalt-send completion bash|zsh`.
 
 ## Prompt templating
@@ -104,7 +106,8 @@ terminal output -> Session output bus -> /ws/session/:id -> frontend text view
 
 ## MCP/CLI stabilization notes
 - Runner bridge websocket support was removed (`/ws/runner/session/:id` is no longer registered).
-- `gestalt-agent` now creates external sessions, launches tmux (`Gestalt <workdir>`, window=`session.id`), prints attach hint, and exits.
+- External CLI session creation in the server now creates tmux windows (`Gestalt <workdir>`, window=`session.id`) and a lazy shared agents hub attach session.
+- `gestalt-agent` now creates the external session via API, then runs tmux attach/switch-client (`--dryrun` prints the tmux command).
 - External runner sessions are treated as non-interactive in `/ws/session/:id` and frontend terminal state (no reconnect loop).
 - GUI module normalization maps legacy `terminal` to `console`; default server modules are `["console"]`.
 

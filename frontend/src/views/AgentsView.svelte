@@ -8,7 +8,7 @@
   $: tmuxSessionName = String(status?.agents_tmux_session || '').trim()
   $: temporalBase = String(status?.temporal_ui_url || '').trim()
   $: temporalUrl = temporalBase
-    ? `${temporalBase.replace(/\\/+$/, '')}/namespaces/default/workflows`
+    ? `${temporalBase.replace(/\/+$/, '')}/namespaces/default/workflows`
     : ''
 </script>
 

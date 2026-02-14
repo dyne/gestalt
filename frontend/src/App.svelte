@@ -8,6 +8,7 @@
     deleteTerminal as deleteTerminalSession,
     fetchStatus,
     fetchTerminals,
+    prefetchPlansList,
   } from './lib/apiClient.js'
   import { apiFetch, buildApiPath } from './lib/api.js'
   import { setServerTimeOffset } from './lib/timeUtils.js'
@@ -323,6 +324,7 @@
   }
 
   onMount(() => {
+    void prefetchPlansList().catch(() => {})
     refresh()
     const unsubscribe = subscribeEvents('watch_error', () => {
       if (watchErrorNotified) return

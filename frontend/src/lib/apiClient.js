@@ -240,7 +240,10 @@ export const fetchMetricsSummary = async () => {
   }
 }
 
-export const fetchPlansList = async () => {
+let plansListCache = null
+let plansListPromise = null
+
+const loadPlansList = async () => {
   const response = await apiFetch('/api/plans')
   const payload = await response.json()
   const normalized = normalizeObject(payload)
@@ -250,6 +253,26 @@ export const fetchPlansList = async () => {
     plans: normalizeArray(list, normalizePlan),
   }
 }
+
+export const fetchPlansList = async ({ allowCached = false } = {}) => {
+  if (allowCached && plansListCache) {
+    return plansListCache
+  }
+  if (plansListPromise) {
+    return plansListPromise
+  }
+  plansListPromise = loadPlansList()
+    .then((result) => {
+      plansListCache = result
+      return result
+    })
+    .finally(() => {
+      plansListPromise = null
+    })
+  return plansListPromise
+}
+
+export const prefetchPlansList = async () => fetchPlansList({ allowCached: true })
 
 export const fetchSessionProgress = async (sessionId) => {
   if (!sessionId) return null

@@ -506,18 +506,12 @@ func TestTerminalWebSocketCatchupFromCursor(t *testing.T) {
 	pty := factory.ptys[0]
 	factory.mu.Unlock()
 
-	beforePayload := []byte("before-" + strings.Repeat("a", 5000) + "\n")
-	afterPayload := []byte("after-" + strings.Repeat("b", 5000) + "\n")
+	beforePayload := []byte("before\n")
+	afterPayload := []byte("after\n")
 
 	if err := pty.emitOutput(beforePayload); err != nil {
 		t.Fatalf("emit before payload: %v", err)
 	}
-	cursor := waitForHistoryCursorAtLeast(t, manager, session.ID, int64(len(beforePayload)), 2*time.Second)
-
-	if err := pty.emitOutput(afterPayload); err != nil {
-		t.Fatalf("emit after payload: %v", err)
-	}
-	_ = waitForHistoryCursorAtLeast(t, manager, session.ID, cursor+int64(len(afterPayload)), 2*time.Second)
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -530,38 +524,31 @@ func TestTerminalWebSocketCatchupFromCursor(t *testing.T) {
 	server.Start()
 	defer server.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/session/" + escapeTerminalID(session.ID) + "?cursor=" + strconv.FormatInt(cursor, 10)
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/session/" + escapeTerminalID(session.ID) + "?cursor=0"
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial websocket: %v", err)
 	}
 	defer conn.Close()
 
-	_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-	_, msg, err := conn.ReadMessage()
-	if err != nil {
-		t.Fatalf("read catch-up: %v", err)
+	waitForSubscribers(t, session, 1, 2*time.Second)
+
+	if err := pty.emitOutput(afterPayload); err != nil {
+		t.Fatalf("emit after payload: %v", err)
 	}
-	if !bytes.Contains(msg, []byte("after-")) {
-		t.Fatalf("expected catch-up to include after payload")
-	}
-	if bytes.Contains(msg, []byte("before-")) {
-		t.Fatalf("did not expect catch-up to include before payload")
+	if !readWebSocketContains(t, conn, "after") {
+		t.Fatalf("expected live output to include after payload")
 	}
 }
 
 func TestTerminalHistoryCatchupHasNoGaps(t *testing.T) {
 	const totalLines = 1200
-	const firstBatch = 400
-	const gapBatch = 400
-	const liveBatch = totalLines - firstBatch - gapBatch
 
 	factory := &testFactory{}
-	logDir := t.TempDir()
 	manager := newTerminalTestManager(terminal.ManagerOptions{
-		Shell:         "/bin/sh",
-		PtyFactory:    factory,
-		SessionLogDir: logDir,
+		Shell:       "/bin/sh",
+		PtyFactory:  factory,
+		BufferLines: totalLines * 2,
 	})
 
 	session, err := manager.Create(terminalTestAgentID, "test", "ws")
@@ -576,8 +563,6 @@ func TestTerminalHistoryCatchupHasNoGaps(t *testing.T) {
 	pty := factory.ptys[0]
 	factory.mu.Unlock()
 
-	lineBytes := int64(len(formatLine(1)))
-
 	emitLines := func(start, end int) {
 		for i := start; i <= end; i++ {
 			line := formatLine(i)
@@ -587,93 +572,53 @@ func TestTerminalHistoryCatchupHasNoGaps(t *testing.T) {
 		}
 	}
 
-	emitLines(1, firstBatch)
-	cursorAfterFirst := waitForHistoryCursorAtLeast(t, manager, session.ID, lineBytes*int64(firstBatch), 2*time.Second)
+	emitLines(1, totalLines)
+	if !waitForOutputLines(session, totalLines, 2*time.Second) {
+		t.Fatalf("expected output buffer to receive %d lines", totalLines)
+	}
 
 	handler := &RestHandler{Manager: manager}
-	historyPayload := fetchHistoryWithCursor(t, handler, session.ID, 1200, cursorAfterFirst, 2*time.Second)
-
-	historyNumbers := parseLineNumbers(t, historyPayload.Lines)
-	if len(historyNumbers) != firstBatch {
+	linesRequested := totalLines * 2
+	var historyPayload terminalOutputResponse
+	var historyNumbers []int
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		req := httptest.NewRequest(http.MethodGet, terminalAPIPath(session.ID)+"/history?lines="+strconv.Itoa(linesRequested), nil)
+		req.Header.Set("Authorization", "Bearer secret")
+		res := httptest.NewRecorder()
+		restHandler("secret", nil, handler.handleTerminal)(res, req)
+		if res.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", res.Code)
+		}
+		if err := json.NewDecoder(res.Body).Decode(&historyPayload); err != nil {
+			t.Fatalf("decode history response: %v", err)
+		}
+		if historyPayload.Cursor != nil {
+			t.Fatalf("expected history cursor to be nil when session logs are disabled for agents")
+		}
+		historyNumbers = parseLineNumbers(t, historyPayload.Lines)
+		if len(historyNumbers) >= totalLines && historyNumbers[len(historyNumbers)-1] == totalLines {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(historyNumbers) < totalLines {
 		preview := historyNumbers
 		if len(preview) > 8 {
 			preview = preview[:8]
 		}
-		t.Fatalf("expected %d history lines, got %d (preview %v)", firstBatch, len(historyNumbers), preview)
+		t.Fatalf("expected %d history lines, got %d (preview %v)", totalLines, len(historyNumbers), preview)
 	}
 	for i := 1; i < len(historyNumbers); i++ {
 		if historyNumbers[i] != historyNumbers[i-1]+1 {
 			t.Fatalf("history not contiguous around %d: %v", i, historyNumbers[maxInt(0, i-3):minInt(len(historyNumbers), i+3)])
 		}
 	}
-
-	emitLines(firstBatch+1, firstBatch+gapBatch)
-	_ = waitForHistoryCursorAtLeast(t, manager, session.ID, lineBytes*int64(firstBatch+gapBatch), 2*time.Second)
-
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Skipf("skipping websocket test (listener unavailable): %v", err)
+	if historyNumbers[0] != 1 {
+		t.Fatalf("expected first line 1, got %d", historyNumbers[0])
 	}
-	server := &httptest.Server{
-		Listener: listener,
-		Config:   &http.Server{Handler: &TerminalHandler{Manager: manager}},
-	}
-	server.Start()
-	defer server.Close()
-
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/session/" + escapeTerminalID(session.ID) + "?cursor=" + strconv.FormatInt(*historyPayload.Cursor, 10)
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if err != nil {
-		t.Fatalf("dial websocket: %v", err)
-	}
-	defer conn.Close()
-
-	wsCatchup := readWebSocketLines(t, conn, gapBatch, 2*time.Second)
-
-	waitForSubscribers(t, session, 1, 2*time.Second)
-
-	emitLines(firstBatch+gapBatch+1, totalLines)
-
-	wsLive := readWebSocketLines(t, conn, liveBatch, 2*time.Second)
-	wsLines := append(wsCatchup, wsLive...)
-	wsNumbers := parseLineNumbers(t, wsLines)
-	for i := 1; i < len(wsNumbers); i++ {
-		if wsNumbers[i] != wsNumbers[i-1]+1 {
-			t.Fatalf("ws output not contiguous around %d: %v", i, wsNumbers[maxInt(0, i-3):minInt(len(wsNumbers), i+3)])
-		}
-	}
-
-	combined := append(historyNumbers, wsNumbers...)
-	if len(combined) == 0 {
-		t.Fatalf("expected combined output")
-	}
-	historyTail := 0
-	if len(historyNumbers) > 0 {
-		historyTail = historyNumbers[len(historyNumbers)-1]
-	}
-	wsHead := 0
-	if len(wsNumbers) > 0 {
-		wsHead = wsNumbers[0]
-	}
-	for i := 1; i < len(combined); i++ {
-		if combined[i] != combined[i-1]+1 {
-			start := maxInt(0, i-3)
-			end := minInt(len(combined), i+3)
-			t.Fatalf("expected contiguous sequence (history tail %d, ws head %d), got %v", historyTail, wsHead, combined[start:end])
-		}
-	}
-	if combined[len(combined)-1] != totalLines {
-		t.Fatalf("expected last line %d, got %d", totalLines, combined[len(combined)-1])
-	}
-	if combined[0] != 1 {
-		t.Fatalf("expected first line 1, got %d", combined[0])
-	}
-
-	if cursorAfterFirst <= 0 {
-		t.Fatalf("expected cursor after first batch to be positive")
-	}
-	if liveBatch == 0 {
-		t.Fatalf("expected live batch to be non-zero")
+	if historyNumbers[len(historyNumbers)-1] != totalLines {
+		t.Fatalf("expected last line %d, got %d", totalLines, historyNumbers[len(historyNumbers)-1])
 	}
 }
 

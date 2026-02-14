@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -1419,11 +1418,8 @@ func TestTerminalHistoryEndpoint(t *testing.T) {
 		t.Fatalf("write pty: %v", err)
 	}
 
-	if !waitForOutput(created) {
+	if !waitForOutputLines(created, 1, 500*time.Millisecond) {
 		t.Fatalf("expected output buffer to receive data")
-	}
-	if !waitForHistoryCursor(manager, created.ID, int64(len("hello\n")), 2*time.Second) {
-		t.Fatalf("expected history cursor to advance")
 	}
 
 	handler := &RestHandler{Manager: manager}
@@ -1443,8 +1439,8 @@ func TestTerminalHistoryEndpoint(t *testing.T) {
 	if !containsLine(payload.Lines, "hello") {
 		t.Fatalf("expected history lines to contain hello, got %v", payload.Lines)
 	}
-	if payload.Cursor == nil {
-		t.Fatalf("expected cursor to be set when session persistence is enabled")
+	if payload.Cursor != nil {
+		t.Fatalf("expected cursor to be nil when session logs are disabled for agents")
 	}
 }
 
@@ -1474,15 +1470,12 @@ func TestTerminalHistoryPagination(t *testing.T) {
 		}
 	}
 
-	if !waitForOutput(created) {
+	if !waitForOutputLines(created, len(payloads), 500*time.Millisecond) {
 		t.Fatalf("expected output buffer to receive data")
-	}
-	if !waitForHistoryCursor(manager, created.ID, int64(len("one\n")*len(payloads)), 2*time.Second) {
-		t.Fatalf("expected history cursor to advance")
 	}
 
 	handler := &RestHandler{Manager: manager}
-	req := httptest.NewRequest(http.MethodGet, terminalPath(created.ID)+"/history?lines=2", nil)
+	req := httptest.NewRequest(http.MethodGet, terminalPath(created.ID)+"/history?lines=4", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	res := httptest.NewRecorder()
 
@@ -1495,46 +1488,17 @@ func TestTerminalHistoryPagination(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&page); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(page.Lines) < 2 || page.Lines[len(page.Lines)-2] != "four" || page.Lines[len(page.Lines)-1] != "five" {
+	nonEmpty := make([]string, 0, len(page.Lines))
+	for _, line := range page.Lines {
+		if line != "" {
+			nonEmpty = append(nonEmpty, line)
+		}
+	}
+	if len(nonEmpty) < 2 || nonEmpty[len(nonEmpty)-2] != "four" || nonEmpty[len(nonEmpty)-1] != "five" {
 		t.Fatalf("unexpected history page: %v", page.Lines)
 	}
-	if page.Cursor == nil {
-		t.Fatalf("expected cursor in history response")
-	}
-
-	req = httptest.NewRequest(http.MethodGet, terminalPath(created.ID)+"/history?lines=2&before_cursor="+strconv.FormatInt(*page.Cursor, 10), nil)
-	req.Header.Set("Authorization", "Bearer secret")
-	res = httptest.NewRecorder()
-	restHandler("secret", nil, handler.handleTerminal)(res, req)
-	if res.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", res.Code)
-	}
-
-	var pageWithCursor terminalOutputResponse
-	if err := json.NewDecoder(res.Body).Decode(&pageWithCursor); err != nil {
-		t.Fatalf("decode paged response: %v", err)
-	}
-	if pageWithCursor.Cursor == nil {
-		t.Fatalf("expected cursor in paged response")
-	}
-	if *pageWithCursor.Cursor >= *page.Cursor {
-		t.Fatalf("expected paged cursor to move backward")
-	}
-
-	req = httptest.NewRequest(http.MethodGet, terminalPath(created.ID)+"/history?lines=2&before_cursor="+strconv.FormatInt(*pageWithCursor.Cursor, 10), nil)
-	req.Header.Set("Authorization", "Bearer secret")
-	res = httptest.NewRecorder()
-	restHandler("secret", nil, handler.handleTerminal)(res, req)
-	if res.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", res.Code)
-	}
-
-	var older terminalOutputResponse
-	if err := json.NewDecoder(res.Body).Decode(&older); err != nil {
-		t.Fatalf("decode older response: %v", err)
-	}
-	if len(older.Lines) < 2 || older.Lines[len(older.Lines)-2] != "two" || older.Lines[len(older.Lines)-1] != "three" {
-		t.Fatalf("unexpected older page: %v", older.Lines)
+	if page.Cursor != nil {
+		t.Fatalf("expected cursor to be nil when session logs are disabled for agents")
 	}
 }
 
@@ -2632,6 +2596,17 @@ func waitForOutput(session *terminal.Session) bool {
 	deadline := time.Now().Add(200 * time.Millisecond)
 	for time.Now().Before(deadline) {
 		if len(session.OutputLines()) > 0 {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return false
+}
+
+func waitForOutputLines(session *terminal.Session, min int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if len(session.OutputLines()) >= min {
 			return true
 		}
 		time.Sleep(10 * time.Millisecond)

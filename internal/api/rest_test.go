@@ -121,10 +121,18 @@ func (f *fakeFactory) Start(command string, args ...string) (terminal.Pty, *exec
 type fakeTmuxClient struct {
 	hasSession bool
 	targets    []string
+	windows    map[string]bool
 }
 
 func (f *fakeTmuxClient) HasSession(name string) (bool, error) {
 	return f.hasSession, nil
+}
+
+func (f *fakeTmuxClient) HasWindow(sessionName, windowName string) (bool, error) {
+	if f.windows == nil {
+		return true, nil
+	}
+	return f.windows[windowName], nil
 }
 
 func (f *fakeTmuxClient) SelectWindow(target string) error {

@@ -118,6 +118,7 @@ func (h *RestHandler) handleTerminalActivate(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *RestHandler) listTerminals(w http.ResponseWriter) *apiError {
+	h.Manager.PruneMissingExternalTmuxSessions()
 	infos := h.Manager.List()
 	response := make([]terminalSummary, 0, len(infos))
 	for _, info := range infos {

@@ -2,6 +2,8 @@ package tmux
 
 import (
 	"bytes"
+	"errors"
+	"os/exec"
 	"testing"
 )
 
@@ -85,6 +87,62 @@ func TestClientResizePane(t *testing.T) {
 	expected := []string{"resize-pane", "-t", "sess:0.0", "-x", "80", "-y", "24"}
 	if !equalArgs(runner.calls[0].args, expected) {
 		t.Fatalf("unexpected args: %#v", runner.calls[0].args)
+	}
+}
+
+func TestClientHasWindow(t *testing.T) {
+	runner := &fakeRunner{output: []byte("one\ntwo\nthree\n")}
+	client := NewClientWithRunner(runner)
+
+	ok, err := client.HasWindow("session", "two")
+	if err != nil {
+		t.Fatalf("has window: %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected window to exist")
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(runner.calls))
+	}
+	expected := []string{"list-windows", "-t", "session", "-F", "#{window_name}"}
+	if !equalArgs(runner.calls[0].args, expected) {
+		t.Fatalf("unexpected args: %#v", runner.calls[0].args)
+	}
+}
+
+func TestClientHasWindowMissing(t *testing.T) {
+	runner := &fakeRunner{output: []byte("one\ntwo\n")}
+	client := NewClientWithRunner(runner)
+
+	ok, err := client.HasWindow("session", "missing")
+	if err != nil {
+		t.Fatalf("has window: %v", err)
+	}
+	if ok {
+		t.Fatalf("expected missing window to be false")
+	}
+}
+
+func TestClientHasWindowExitError(t *testing.T) {
+	runner := &fakeRunner{err: &exec.ExitError{}}
+	client := NewClientWithRunner(runner)
+
+	ok, err := client.HasWindow("session", "missing")
+	if err != nil {
+		t.Fatalf("has window: %v", err)
+	}
+	if ok {
+		t.Fatalf("expected missing window to be false")
+	}
+}
+
+func TestClientHasWindowPropagatesError(t *testing.T) {
+	runner := &fakeRunner{err: errors.New("boom"), output: []byte("details")}
+	client := NewClientWithRunner(runner)
+
+	_, err := client.HasWindow("session", "missing")
+	if err == nil {
+		t.Fatalf("expected error")
 	}
 }
 

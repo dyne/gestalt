@@ -102,6 +102,7 @@ type ManagerOptions struct {
 // TmuxClient defines tmux operations used by manager activation flows.
 type TmuxClient interface {
 	HasSession(name string) (bool, error)
+	HasWindow(sessionName, windowName string) (bool, error)
 	SelectWindow(target string) error
 }
 
@@ -946,6 +947,82 @@ func (m *Manager) ActivateSessionWindow(id string) error {
 	return nil
 }
 
+// PruneMissingExternalTmuxSessions removes tmux-managed external sessions whose windows no longer exist.
+func (m *Manager) PruneMissingExternalTmuxSessions() {
+	if m == nil {
+		return
+	}
+	if runningUnderGoTest() {
+		return
+	}
+
+	var candidates []*Session
+	m.mu.RLock()
+	for _, session := range m.sessions {
+		if isTmuxManagedSession(session) {
+			candidates = append(candidates, session)
+		}
+	}
+	m.mu.RUnlock()
+
+	if len(candidates) == 0 {
+		return
+	}
+
+	tmuxSessionName, err := tmuxsession.WorkdirSessionName()
+	if err != nil {
+		if m.logger != nil {
+			m.logger.Warn("tmux session name unavailable", map[string]string{
+				"error": err.Error(),
+			})
+		}
+		return
+	}
+
+	clientFactory := m.tmuxClientFactory
+	if clientFactory == nil {
+		return
+	}
+	client := clientFactory()
+	if client == nil {
+		return
+	}
+
+	hasSession, err := client.HasSession(tmuxSessionName)
+	if err != nil {
+		if m.logger != nil {
+			m.logger.Warn("tmux session check failed", map[string]string{
+				"tmux_session": tmuxSessionName,
+				"error":        err.Error(),
+			})
+		}
+		return
+	}
+	if !hasSession {
+		for _, session := range candidates {
+			_ = m.Delete(session.ID)
+		}
+		return
+	}
+
+	for _, session := range candidates {
+		exists, err := client.HasWindow(tmuxSessionName, session.ID)
+		if err != nil {
+			if m.logger != nil {
+				m.logger.Warn("tmux window check failed", map[string]string{
+					"tmux_session": tmuxSessionName,
+					"window":       session.ID,
+					"error":        err.Error(),
+				})
+			}
+			continue
+		}
+		if !exists {
+			_ = m.Delete(session.ID)
+		}
+	}
+}
+
 func (m *Manager) Get(id string) (*Session, bool) {
 	m.mu.RLock()
 	session, ok := m.sessions[id]
@@ -1453,6 +1530,19 @@ func shouldStartExternalTmuxWindow(profile *agent.Agent) bool {
 		return false
 	}
 	return strings.EqualFold(iface, agent.AgentInterfaceCLI)
+}
+
+func isTmuxManagedSession(session *Session) bool {
+	if session == nil {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(session.Runner), string(launchspec.RunnerKindExternal)) {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(session.Interface), agent.AgentInterfaceCLI) {
+		return false
+	}
+	return shouldStartExternalTmuxWindow(session.agent)
 }
 
 func wrapExternalTmuxError(err error) error {

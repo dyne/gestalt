@@ -140,6 +140,36 @@ func (c *Client) HasSession(name string) (bool, error) {
 	return true, nil
 }
 
+// HasWindow reports whether the named window exists inside a tmux session.
+func (c *Client) HasWindow(sessionName, windowName string) (bool, error) {
+	if c == nil || c.runner == nil {
+		return false, errors.New("tmux runner unavailable")
+	}
+	args := []string{"list-windows", "-t", sessionName, "-F", "#{window_name}"}
+	output, err := c.runner.Run(args, nil)
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return false, nil
+		}
+		if len(output) > 0 {
+			return false, fmt.Errorf("tmux list-windows failed: %s", bytes.TrimSpace(output))
+		}
+		return false, fmt.Errorf("tmux list-windows failed: %w", err)
+	}
+	trimmed := strings.TrimSpace(string(output))
+	if trimmed == "" {
+		return false, nil
+	}
+	lines := strings.Split(trimmed, "\n")
+	for _, line := range lines {
+		if strings.TrimRight(line, "\r") == windowName {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (c *Client) run(args []string, input []byte) error {
 	_, err := c.runWithOutput(args, input)
 	return err

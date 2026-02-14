@@ -35,6 +35,7 @@ export const createTerminalService = ({ terminalId, historyCache, allowMouseRepo
   let resizeObserver
   let pendingHistory = ''
   let isVisible = false
+  let unsubscribeStatus
 
   const syncScrollState = () => {
     const buffer = term.buffer?.active
@@ -102,6 +103,12 @@ export const createTerminalService = ({ terminalId, historyCache, allowMouseRepo
       sendResize()
     })
   }
+
+  unsubscribeStatus = status.subscribe((value) => {
+    if (value === 'connected' && isVisible) {
+      scheduleFit()
+    }
+  })
 
   const setScrollSensitivity = (value) => {
     const next = Number(value)
@@ -280,6 +287,9 @@ export const createTerminalService = ({ terminalId, historyCache, allowMouseRepo
     disposed = true
     if (disposeSocket) {
       disposeSocket()
+    }
+    if (unsubscribeStatus) {
+      unsubscribeStatus()
     }
     canReconnect.set(false)
     if (disposeMouseHandlers) {

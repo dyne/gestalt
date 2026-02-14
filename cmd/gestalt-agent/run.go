@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,10 +41,31 @@ func buildBaseURL(host string, port int) string {
 	if trimmedHost == "" {
 		trimmedHost = defaultGestaltHost()
 	}
-	trimmedHost = strings.TrimPrefix(trimmedHost, "http://")
-	trimmedHost = strings.TrimPrefix(trimmedHost, "https://")
-	if port <= 0 {
-		port = defaultGestaltPort()
+	if !strings.Contains(trimmedHost, "://") {
+		trimmedHost = "http://" + trimmedHost
 	}
-	return fmt.Sprintf("http://%s:%d", trimmedHost, port)
+
+	parsed, err := url.Parse(trimmedHost)
+	if err != nil || parsed.Hostname() == "" {
+		return fmt.Sprintf("http://%s:%d", strings.TrimPrefix(trimmedHost, "http://"), defaultGestaltPort())
+	}
+
+	scheme := parsed.Scheme
+	if scheme == "" {
+		scheme = "http"
+	}
+
+	resolvedPort := port
+	if resolvedPort <= 0 {
+		if parsed.Port() != "" {
+			if parsedPort, err := strconv.Atoi(parsed.Port()); err == nil {
+				resolvedPort = parsedPort
+			}
+		}
+		if resolvedPort <= 0 {
+			resolvedPort = defaultGestaltPort()
+		}
+	}
+
+	return fmt.Sprintf("%s://%s:%d", scheme, parsed.Hostname(), resolvedPort)
 }

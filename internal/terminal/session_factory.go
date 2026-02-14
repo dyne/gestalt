@@ -103,7 +103,10 @@ func (f *SessionFactory) Start(request sessionCreateRequest, profile *agent.Agen
 	}
 
 	createdAt := f.clock.Now().UTC()
-	sessionLogger := f.createSessionLogger(id, createdAt)
+	var sessionLogger *SessionLogger
+	if shouldLogSessionOutput(profile) {
+		sessionLogger = f.createSessionLogger(id, createdAt)
+	}
 	inputLogger := f.createInputLogger(id, profile, createdAt)
 
 	outputPolicy := f.outputPolicy
@@ -139,7 +142,7 @@ func (f *SessionFactory) Start(request sessionCreateRequest, profile *agent.Agen
 	}
 
 	if mcp, ok := pty.(*mcpPty); ok {
-		if f.logCodexEvents {
+		if f.logCodexEvents && !isAgentSession(request, profile) {
 			if eventLogger := f.createMCPEventLogger(id, createdAt); eventLogger != nil {
 				mcp.SetEventLogger(eventLogger)
 			}
@@ -160,7 +163,10 @@ func (f *SessionFactory) StartExternal(request sessionCreateRequest, profile *ag
 	}
 
 	createdAt := f.clock.Now().UTC()
-	sessionLogger := f.createSessionLogger(id, createdAt)
+	var sessionLogger *SessionLogger
+	if shouldLogSessionOutput(profile) {
+		sessionLogger = f.createSessionLogger(id, createdAt)
+	}
 	inputLogger := f.createInputLogger(id, profile, createdAt)
 
 	outputPolicy := f.outputPolicy
@@ -175,6 +181,21 @@ func (f *SessionFactory) StartExternal(request sessionCreateRequest, profile *ag
 		session.ConfigHash = profile.ConfigHash
 	}
 	return session, id, nil
+}
+
+// isAgentSession reports whether a session is backed by an agent profile.
+func isAgentSession(request sessionCreateRequest, profile *agent.Agent) bool {
+	if profile != nil {
+		return true
+	}
+	return strings.TrimSpace(request.AgentID) != ""
+}
+
+func shouldLogSessionOutput(profile *agent.Agent) bool {
+	if profile == nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(profile.Interface), agent.AgentInterfaceMCP)
 }
 
 func (f *SessionFactory) createMCPEventLogger(id string, createdAt time.Time) *mcpEventLogger {

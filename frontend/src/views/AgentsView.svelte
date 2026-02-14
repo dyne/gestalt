@@ -42,4 +42,14 @@
     padding: 1.25rem;
     color: var(--color-text-muted);
   }
+
+  :global(.agents-view .xterm-viewport) {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  :global(.agents-view .xterm-viewport::-webkit-scrollbar) {
+    width: 0;
+    height: 0;
+  }
 </style>

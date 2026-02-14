@@ -6,6 +6,10 @@
 
   $: sessionId = String(status?.agents_session_id || '').trim()
   $: tmuxSessionName = String(status?.agents_tmux_session || '').trim()
+  $: temporalBase = String(status?.temporal_ui_url || '').trim()
+  $: temporalUrl = temporalBase
+    ? `${temporalBase.replace(/\\/+$/, '')}/namespaces/default/workflows`
+    : ''
 </script>
 
 <section class="agents-view">
@@ -13,6 +17,7 @@
     <Terminal
       sessionId={sessionId}
       title="Agents"
+      {temporalUrl}
       promptFiles={[]}
       {visible}
       sessionInterface="cli"

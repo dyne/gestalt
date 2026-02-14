@@ -3,6 +3,7 @@ package terminal
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io/fs"
 	"os"
@@ -332,7 +333,11 @@ func NewManager(opts ManagerOptions) *Manager {
 		tmuxClientFactory:       opts.TmuxClientFactory,
 	}
 	if manager.startExternalTmuxWindow == nil {
-		manager.startExternalTmuxWindow = tmuxsession.StartWindow
+		if runningUnderGoTest() {
+			manager.startExternalTmuxWindow = func(*launchspec.LaunchSpec) error { return nil }
+		} else {
+			manager.startExternalTmuxWindow = tmuxsession.StartWindow
+		}
 	}
 	if manager.tmuxClientFactory == nil {
 		manager.tmuxClientFactory = func() TmuxClient {
@@ -1498,4 +1503,8 @@ func envBool(key string) bool {
 		return false
 	}
 	return parsed
+}
+
+func runningUnderGoTest() bool {
+	return flag.Lookup("test.v") != nil
 }

@@ -1,3 +1,0 @@
-name = "Shell"
-shell = "/bin/bash"
-interface = "cli"

@@ -11,7 +11,6 @@
   export let title = ''
   export let promptFiles = []
   export let visible = true
-  export let temporalUrl = ''
   export let sessionInterface = ''
   export let sessionRunner = ''
   export let tmuxSessionName = ''
@@ -265,7 +264,6 @@
   sessionId={sessionId}
   {historyStatus}
   {canReconnect}
-  {temporalUrl}
   showPlanButton={hasPlanModule}
   planButtonActive={planSidebarOpen}
   showBottomButton={!atBottom}

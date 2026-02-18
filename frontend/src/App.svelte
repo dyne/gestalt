@@ -201,10 +201,10 @@
     }
   }
 
-  const createTerminal = async (agentId = '', useWorkflow) => {
+  const createTerminal = async (agentId = '') => {
     error = ''
     try {
-      const created = await createTerminalSession({ agentId, workflow: useWorkflow })
+      const created = await createTerminalSession({ agentId })
       terminals = [...terminals, created]
       if (status) {
         status = { ...status, session_count: status.session_count + 1 }

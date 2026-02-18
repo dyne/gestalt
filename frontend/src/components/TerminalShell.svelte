@@ -5,7 +5,6 @@
   export let sessionId = ''
   export let historyStatus = 'idle'
   export let canReconnect = false
-  export let temporalUrl = ''
   export let showBottomButton = false
   export let showPlanButton = false
   export let planButtonActive = false
@@ -50,20 +49,6 @@
           on:click={onPlanToggle}
         >
           Plan
-        </button>
-      {/if}
-      {#if temporalUrl}
-        <a
-          class="header-button"
-          href={temporalUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Temporal
-        </a>
-      {:else}
-        <button class="header-button header-button--disabled" type="button" disabled>
-          Temporal
         </button>
       {/if}
       {#if showBottomButton}
@@ -215,11 +200,6 @@
   .header-button--active {
     background: rgba(var(--color-text-rgb), 0.24);
     border-color: rgba(var(--color-text-rgb), 0.32);
-  }
-
-  .header-button--disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
   }
 
   .terminal-close {

@@ -90,46 +90,6 @@ describe('Dashboard', () => {
     expect(onCreate).toHaveBeenCalledWith('codex')
   })
 
-  it('shows the temporal menu only when running and URL is available', async () => {
-    const dashboardStore = buildDashboardStore({
-      agents: [{ id: 'codex', name: 'Codex', running: true, session_id: 'Codex 1' }],
-    })
-    createDashboardStore.mockReturnValue(dashboardStore)
-
-    const { findByText, queryByText, rerender } = render(Dashboard, {
-      props: {
-        terminals: [],
-        status: { session_count: 0, temporal_ui_url: 'https://temporal.test' },
-      },
-    })
-
-    expect(await findByText('Open in Temporal')).toBeTruthy()
-    expect(queryByText('No skills assigned')).toBeNull()
-
-    await rerender({
-      terminals: [],
-      status: { session_count: 0 },
-    })
-
-    expect(queryByText('Open in Temporal')).toBeNull()
-  })
-
-  it('hides the temporal menu for stopped agents', async () => {
-    const dashboardStore = buildDashboardStore({
-      agents: [{ id: 'codex', name: 'Codex', running: false, session_id: '' }],
-    })
-    createDashboardStore.mockReturnValue(dashboardStore)
-
-    const { queryByText } = render(Dashboard, {
-      props: {
-        terminals: [],
-        status: { session_count: 0, temporal_ui_url: 'https://temporal.test' },
-      },
-    })
-
-    expect(queryByText('Open in Temporal')).toBeNull()
-  })
-
   it('expands log details from recent logs', async () => {
     Object.defineProperty(window, 'isSecureContext', {
       value: true,

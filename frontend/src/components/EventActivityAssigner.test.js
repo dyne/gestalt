@@ -5,7 +5,7 @@ import EventActivityAssignerHarness from '../../tests/helpers/EventActivityAssig
 const trigger = {
   id: 'trigger-1',
   label: 'Trigger',
-  event_type: 'workflow_paused',
+  event_type: 'file_changed',
   where: {},
 }
 

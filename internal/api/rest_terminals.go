@@ -477,10 +477,10 @@ func (h *RestHandler) handleTerminalNotify(w http.ResponseWriter, r *http.Reques
 	}
 
 	if signalErr := h.FlowService.SignalEvent(r.Context(), fields, request.EventID); signalErr != nil {
-		if errors.Is(signalErr, flow.ErrTemporalUnavailable) {
+		if errors.Is(signalErr, flow.ErrDispatcherUnavailable) {
 			if isProgress {
 				if h.Logger != nil {
-					h.Logger.Info("temporal unavailable for progress notify", map[string]string{
+					h.Logger.Info("flow dispatcher unavailable for progress notify", map[string]string{
 						"gestalt.category": "terminal",
 						"gestalt.source":   "backend",
 						"session.id":       id,
@@ -491,9 +491,9 @@ func (h *RestHandler) handleTerminalNotify(w http.ResponseWriter, r *http.Reques
 				w.WriteHeader(http.StatusNoContent)
 				return nil
 			}
-			return &apiError{Status: http.StatusServiceUnavailable, Message: "temporal unavailable"}
+			return &apiError{Status: http.StatusServiceUnavailable, Message: "flow dispatcher unavailable"}
 		}
-		return &apiError{Status: http.StatusInternalServerError, Message: "failed to signal flow router"}
+		return &apiError{Status: http.StatusInternalServerError, Message: "failed to dispatch flow activity"}
 	}
 
 	w.WriteHeader(http.StatusNoContent)

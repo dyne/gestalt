@@ -25,6 +25,7 @@ import (
 	"gestalt/internal/config"
 	"gestalt/internal/event"
 	"gestalt/internal/flow"
+	flowruntime "gestalt/internal/flow/runtime"
 	"gestalt/internal/logging"
 	"gestalt/internal/otel"
 	"gestalt/internal/ports"
@@ -316,29 +317,18 @@ func runServer(args []string) int {
 		watchPlanFile(eventBus, fsWatcher, logger, planWatchPath)
 	}
 
-	flowService := flow.NewService(flow.NewFileRepository(flow.DefaultConfigPath(), logger), nil, logger)
-	flowConfig, flowErr := flowService.LoadConfig()
+	flowDispatcher := flowruntime.NewDispatcher(manager, logger, settings.Temporal.MaxOutputBytes)
+	flowService := flow.NewService(flow.NewFileRepository(flow.DefaultConfigPath(), logger), flowDispatcher, logger)
+	_, flowErr := flowService.LoadConfig()
 	if flowErr != nil {
 		logger.Error("flow config load failed", map[string]string{
 			"error": flowErr.Error(),
 		})
 		return 1
 	}
-	if err := flowService.SignalConfig(context.Background(), flowConfig); err != nil {
-		if errors.Is(err, flow.ErrTemporalUnavailable) {
-			logger.Warn("flow config signal skipped; temporal unavailable", map[string]string{
-				"error": err.Error(),
-			})
-		} else {
-			logger.Error("flow router signal failed", map[string]string{
-				"error": err.Error(),
-			})
-			return 1
-		}
-	}
 	flowCtx, flowCancel := context.WithCancel(context.Background())
 	flowBridge := flow.NewBridge(flow.BridgeOptions{
-		Temporal:    nil,
+		Service:     flowService,
 		Logger:      logger,
 		WatcherBus:  eventBus,
 		ConfigBus:   config.Bus(),

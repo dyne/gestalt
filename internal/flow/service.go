@@ -5,48 +5,46 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"gestalt/internal/logging"
-	"gestalt/internal/temporal"
-
-	"go.temporal.io/sdk/client"
 )
 
 const (
-	RouterWorkflowID             = "gestalt-flow-router"
-	RouterWorkflowType           = "FlowRouterWorkflow"
-	RouterWorkflowConfigSignal   = "flow.config_updated"
-	RouterWorkflowEventSignal    = "flow.event"
-	RouterWorkflowTaskQueue      = "gestalt-session"
-	flowSignalTimeout            = 5 * time.Second
 	defaultConfigFilename        = "automations.json"
 	defaultConfigDirectory       = "flow"
 	defaultGestaltStateDirectory = ".gestalt"
+	defaultFlowDeduperSize       = 500
 )
 
-var ErrTemporalUnavailable = errors.New("temporal client unavailable")
+var ErrDispatcherUnavailable = errors.New("flow dispatcher unavailable")
+
+// Dispatcher executes a single activity request.
+type Dispatcher interface {
+	Dispatch(ctx context.Context, request ActivityRequest) error
+}
 
 type Service struct {
 	repo          Repository
-	temporal      temporal.WorkflowClient
+	dispatcher    Dispatcher
 	logger        *logging.Logger
 	activityDefs  []ActivityDef
 	activityIndex map[string]ActivityDef
+	deduper       *EventDeduper
 }
 
 func DefaultConfigPath() string {
 	return filepath.Join(defaultGestaltStateDirectory, defaultConfigDirectory, defaultConfigFilename)
 }
 
-func NewService(repo Repository, temporalClient temporal.WorkflowClient, logger *logging.Logger) *Service {
+func NewService(repo Repository, dispatcher Dispatcher, logger *logging.Logger) *Service {
 	defs := ActivityCatalog()
 	return &Service{
 		repo:          repo,
-		temporal:      temporalClient,
+		dispatcher:    dispatcher,
 		logger:        logger,
 		activityDefs:  defs,
 		activityIndex: activityIndex(defs),
+		deduper:       NewEventDeduper(defaultFlowDeduperSize),
 	}
 }
 
@@ -70,8 +68,8 @@ func (s *Service) ConfigPath() string {
 	return ""
 }
 
-func (s *Service) TemporalAvailable() bool {
-	return s != nil && s.temporal != nil
+func (s *Service) DispatcherAvailable() bool {
+	return s != nil && s.dispatcher != nil
 }
 
 func (s *Service) LoadConfig() (Config, error) {
@@ -102,66 +100,62 @@ func (s *Service) SaveConfig(ctx context.Context, cfg Config) (Config, error) {
 	if err := s.repo.Save(normalized); err != nil {
 		return normalized, err
 	}
-	if err := s.signalConfigUpdated(ctx, normalized); err != nil {
+	if err := s.SignalConfig(ctx, normalized); err != nil {
 		return normalized, err
 	}
 	return normalized, nil
 }
 
-func (s *Service) SignalConfig(ctx context.Context, cfg Config) error {
+func (s *Service) SignalConfig(_ context.Context, _ Config) error {
 	if s == nil {
 		return errors.New("flow service unavailable")
 	}
-	normalized := normalizeConfig(cfg)
-	return s.signalConfigUpdated(ctx, normalized)
+	return nil
 }
 
 func (s *Service) SignalEvent(ctx context.Context, fields map[string]string, eventID string) error {
 	if s == nil {
 		return errors.New("flow service unavailable")
 	}
-	if s.temporal == nil {
-		return ErrTemporalUnavailable
+	if s.dispatcher == nil {
+		return ErrDispatcherUnavailable
 	}
 	if fields == nil {
 		fields = map[string]string{}
 	}
-	signal := EventSignal{
-		EventID: strings.TrimSpace(eventID),
-		Fields:  fields,
+	trimmedEventID := strings.TrimSpace(eventID)
+	if trimmedEventID == "" {
+		trimmedEventID = BuildEventID(fields)
 	}
-	signalContext := ctx
-	if signalContext == nil {
-		signalContext = context.Background()
+	if trimmedEventID == "" {
+		return nil
 	}
-	signalContext, cancel := context.WithTimeout(signalContext, flowSignalTimeout)
-	defer cancel()
-
-	options := client.StartWorkflowOptions{
-		ID:        RouterWorkflowID,
-		TaskQueue: RouterWorkflowTaskQueue,
+	if s.deduper != nil && s.deduper.Seen(trimmedEventID) {
+		return nil
 	}
-	_, err := s.temporal.SignalWithStartWorkflow(signalContext, RouterWorkflowID, RouterWorkflowEventSignal, signal, options, RouterWorkflowType, DefaultConfig())
-	return err
-}
-
-func (s *Service) signalConfigUpdated(ctx context.Context, cfg Config) error {
-	if s.temporal == nil {
-		return ErrTemporalUnavailable
+	cfg, err := s.LoadConfig()
+	if err != nil {
+		return err
 	}
-	signalContext := ctx
-	if signalContext == nil {
-		signalContext = context.Background()
+	matches := MatchBindings(cfg, fields)
+	for _, match := range matches {
+		request := ActivityRequest{
+			EventID:    trimmedEventID,
+			TriggerID:  match.Trigger.ID,
+			ActivityID: match.Binding.ActivityID,
+			Event:      fields,
+			Config:     match.Binding.Config,
+		}
+		if dispatchErr := s.dispatcher.Dispatch(ctx, request); dispatchErr != nil {
+			s.logWarn("flow activity dispatch failed", map[string]string{
+				"error":       dispatchErr.Error(),
+				"event_id":    trimmedEventID,
+				"trigger_id":  match.Trigger.ID,
+				"activity_id": match.Binding.ActivityID,
+			})
+		}
 	}
-	signalContext, cancel := context.WithTimeout(signalContext, flowSignalTimeout)
-	defer cancel()
-
-	options := client.StartWorkflowOptions{
-		ID:        RouterWorkflowID,
-		TaskQueue: RouterWorkflowTaskQueue,
-	}
-	_, err := s.temporal.SignalWithStartWorkflow(signalContext, RouterWorkflowID, RouterWorkflowConfigSignal, cfg, options, RouterWorkflowType, cfg)
-	return err
+	return nil
 }
 
 func (s *Service) logWarn(message string, fields map[string]string) {

@@ -8,10 +8,7 @@ import (
 
 	eventpkg "gestalt/internal/event"
 	"gestalt/internal/logging"
-	"gestalt/internal/temporal"
 	"gestalt/internal/watcher"
-
-	"go.temporal.io/sdk/client"
 )
 
 const (
@@ -21,7 +18,7 @@ const (
 )
 
 type Bridge struct {
-	Temporal     temporal.WorkflowClient
+	Service      *Service
 	Logger       *logging.Logger
 	WatcherBus   *eventpkg.Bus[watcher.Event]
 	ConfigBus    *eventpkg.Bus[eventpkg.ConfigEvent]
@@ -32,7 +29,7 @@ type Bridge struct {
 }
 
 type BridgeOptions struct {
-	Temporal    temporal.WorkflowClient
+	Service     *Service
 	Logger      *logging.Logger
 	WatcherBus  *eventpkg.Bus[watcher.Event]
 	ConfigBus   *eventpkg.Bus[eventpkg.ConfigEvent]
@@ -43,7 +40,7 @@ type BridgeOptions struct {
 
 func NewBridge(options BridgeOptions) *Bridge {
 	return &Bridge{
-		Temporal:     options.Temporal,
+		Service:      options.Service,
 		Logger:       options.Logger,
 		WatcherBus:   options.WatcherBus,
 		ConfigBus:    options.ConfigBus,
@@ -55,8 +52,8 @@ func NewBridge(options BridgeOptions) *Bridge {
 }
 
 func (bridge *Bridge) Start(ctx context.Context) error {
-	if bridge == nil || bridge.Temporal == nil {
-		return errors.New("flow bridge requires temporal client")
+	if bridge == nil || bridge.Service == nil {
+		return errors.New("flow bridge requires flow service")
 	}
 	if bridge.WatcherBus == nil || bridge.ConfigBus == nil || bridge.AgentBus == nil || bridge.TerminalBus == nil || bridge.WorkflowBus == nil {
 		return errors.New("flow bridge requires event buses")
@@ -154,26 +151,10 @@ func forwardLoop[T any](ctx context.Context, events <-chan T, handle func(T)) {
 }
 
 func (bridge *Bridge) signalEvent(ctx context.Context, normalized map[string]string) {
-	if bridge == nil || bridge.Temporal == nil {
+	if bridge == nil || bridge.Service == nil {
 		return
 	}
-	signal := BuildEventSignal(normalized)
-	if signal.EventID == "" {
-		return
-	}
-	signalContext := ctx
-	if signalContext == nil {
-		signalContext = context.Background()
-	}
-	signalContext, cancel := context.WithTimeout(signalContext, flowSignalTimeout)
-	defer cancel()
-
-	options := client.StartWorkflowOptions{
-		ID:        RouterWorkflowID,
-		TaskQueue: RouterWorkflowTaskQueue,
-	}
-	_, err := bridge.Temporal.SignalWithStartWorkflow(signalContext, RouterWorkflowID, RouterWorkflowEventSignal, signal, options, RouterWorkflowType, DefaultConfig())
-	if err != nil {
+	if err := bridge.Service.SignalEvent(ctx, normalized, ""); err != nil {
 		bridge.logWarn("flow router signal failed", map[string]string{
 			"error": err.Error(),
 		})
@@ -220,56 +201,5 @@ func (filter *watcherFilter) Allows(event watcher.Event, now time.Time) bool {
 	if filter.deduper != nil && !filter.deduper.Allow(event, now) {
 		return false
 	}
-	return true
-}
-
-type watcherDeduper struct {
-	lastSignature string
-	lastSeen      time.Time
-	window        time.Duration
-}
-
-func (deduper *watcherDeduper) Allow(event watcher.Event, now time.Time) bool {
-	if deduper == nil || deduper.window <= 0 {
-		return true
-	}
-	signature := event.Type + "|" + event.Path + "|" + event.Op.String()
-	if signature == deduper.lastSignature && !deduper.lastSeen.IsZero() && now.Sub(deduper.lastSeen) <= deduper.window {
-		return false
-	}
-	deduper.lastSignature = signature
-	deduper.lastSeen = now
-	return true
-}
-
-type bridgeLimiter struct {
-	limit       int
-	window      time.Duration
-	windowStart time.Time
-	count       int
-}
-
-func newBridgeLimiter(limit int, window time.Duration) *bridgeLimiter {
-	if limit <= 0 {
-		limit = 1
-	}
-	if window <= 0 {
-		window = time.Minute
-	}
-	return &bridgeLimiter{limit: limit, window: window}
-}
-
-func (limiter *bridgeLimiter) Allow(now time.Time) bool {
-	if limiter == nil {
-		return true
-	}
-	if limiter.windowStart.IsZero() || now.Sub(limiter.windowStart) >= limiter.window {
-		limiter.windowStart = now
-		limiter.count = 0
-	}
-	if limiter.count >= limiter.limit {
-		return false
-	}
-	limiter.count++
 	return true
 }

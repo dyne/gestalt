@@ -125,7 +125,7 @@ func flowStatus(service *flow.Service) *flowTemporalStatus {
 	if service == nil {
 		return nil
 	}
-	return &flowTemporalStatus{Enabled: service.TemporalAvailable()}
+	return &flowTemporalStatus{Enabled: service.DispatcherAvailable()}
 }
 
 func flowConfigStoragePath(service *flow.Service) string {
@@ -167,8 +167,8 @@ func mapFlowError(err error) *apiError {
 			return &apiError{Status: http.StatusBadRequest, Message: validation.Message}
 		}
 	}
-	if errors.Is(err, flow.ErrTemporalUnavailable) {
-		return &apiError{Status: http.StatusServiceUnavailable, Message: "temporal unavailable"}
+	if errors.Is(err, flow.ErrDispatcherUnavailable) {
+		return &apiError{Status: http.StatusServiceUnavailable, Message: "flow dispatcher unavailable"}
 	}
 	return &apiError{Status: http.StatusInternalServerError, Message: "failed to save flow config"}
 }

@@ -23,13 +23,8 @@ import (
 	"gestalt/internal/otel"
 	"gestalt/internal/runner/launchspec"
 	"gestalt/internal/skill"
-	temporalcore "gestalt/internal/temporal"
 	"gestalt/internal/terminal"
 	"gestalt/internal/version"
-
-	enumspb "go.temporal.io/api/enums/v1"
-	"go.temporal.io/sdk/client"
-	"go.temporal.io/sdk/converter"
 )
 
 type fakePty struct {
@@ -75,6 +70,27 @@ func escapeID(id string) string {
 
 func terminalPath(id string) string {
 	return "/api/sessions/" + escapeID(id)
+}
+
+func writeFlowConfig(t *testing.T, repo *flow.FileRepository, eventType string) {
+	t.Helper()
+	if repo == nil {
+		t.Fatalf("repo is required")
+	}
+	cfg := flow.Config{
+		Version: flow.ConfigVersion,
+		Triggers: []flow.EventTrigger{
+			{ID: "t1", EventType: eventType},
+		},
+		BindingsByTriggerID: map[string][]flow.ActivityBinding{
+			"t1": {
+				{ActivityID: "toast_notification", Config: map[string]any{"level": "info", "message_template": "hi"}},
+			},
+		},
+	}
+	if err := repo.Save(cfg); err != nil {
+		t.Fatalf("save flow config: %v", err)
+	}
 }
 
 func newFakePty() *fakePty {
@@ -138,82 +154,28 @@ func (f *fakeTmuxClient) SelectWindow(target string) error {
 	return nil
 }
 
-type fakeWorkflowRun struct {
-	workflowID string
-	runID      string
+type fakeDispatcher struct {
+	mu       sync.Mutex
+	requests []flow.ActivityRequest
+	err      error
 }
 
-func (run *fakeWorkflowRun) GetID() string {
-	return run.workflowID
-}
-
-func (run *fakeWorkflowRun) GetRunID() string {
-	return run.runID
-}
-
-func (run *fakeWorkflowRun) Get(ctx context.Context, valuePtr interface{}) error {
+func (dispatcher *fakeDispatcher) Dispatch(ctx context.Context, request flow.ActivityRequest) error {
+	dispatcher.mu.Lock()
+	dispatcher.requests = append(dispatcher.requests, request)
+	dispatcher.mu.Unlock()
+	if dispatcher.err != nil {
+		return dispatcher.err
+	}
 	return nil
 }
 
-func (run *fakeWorkflowRun) GetWithOptions(ctx context.Context, valuePtr interface{}, options client.WorkflowRunGetOptions) error {
-	return nil
-}
-
-type workflowSignalRecord struct {
-	workflowID string
-	runID      string
-	signalName string
-	payload    interface{}
-}
-
-type workflowSignalWithStartRecord struct {
-	workflowID   string
-	signalName   string
-	payload      interface{}
-	workflowType interface{}
-	options      client.StartWorkflowOptions
-}
-
-type fakeWorkflowSignalClient struct {
-	runID   string
-	signals []workflowSignalRecord
-	started []workflowSignalWithStartRecord
-}
-
-func (client *fakeWorkflowSignalClient) ExecuteWorkflow(ctx context.Context, options client.StartWorkflowOptions, workflow interface{}, args ...interface{}) (client.WorkflowRun, error) {
-	return &fakeWorkflowRun{workflowID: options.ID, runID: client.runID}, nil
-}
-
-func (client *fakeWorkflowSignalClient) SignalWithStartWorkflow(ctx context.Context, workflowID, signalName string, signalArg interface{}, options client.StartWorkflowOptions, workflow interface{}, args ...interface{}) (client.WorkflowRun, error) {
-	client.started = append(client.started, workflowSignalWithStartRecord{
-		workflowID:   workflowID,
-		signalName:   signalName,
-		payload:      signalArg,
-		workflowType: workflow,
-		options:      options,
-	})
-	return &fakeWorkflowRun{workflowID: workflowID, runID: client.runID}, nil
-}
-
-func (client *fakeWorkflowSignalClient) GetWorkflowHistory(ctx context.Context, workflowID string, runID string, isLongPoll bool, filterType enumspb.HistoryEventFilterType) client.HistoryEventIterator {
-	return nil
-}
-
-func (client *fakeWorkflowSignalClient) QueryWorkflow(ctx context.Context, workflowID, runID, queryType string, args ...interface{}) (converter.EncodedValue, error) {
-	return nil, errors.New("query not supported")
-}
-
-func (client *fakeWorkflowSignalClient) SignalWorkflow(ctx context.Context, workflowID, runID, signalName string, arg interface{}) error {
-	client.signals = append(client.signals, workflowSignalRecord{
-		workflowID: workflowID,
-		runID:      runID,
-		signalName: signalName,
-		payload:    arg,
-	})
-	return nil
-}
-
-func (client *fakeWorkflowSignalClient) Close() {
+func (dispatcher *fakeDispatcher) Requests() []flow.ActivityRequest {
+	dispatcher.mu.Lock()
+	defer dispatcher.mu.Unlock()
+	copied := make([]flow.ActivityRequest, len(dispatcher.requests))
+	copy(copied, dispatcher.requests)
+	return copied
 }
 
 func TestStatusHandlerRequiresAuth(t *testing.T) {
@@ -348,72 +310,6 @@ func TestStatusHandlerIncludesCollectorStatus(t *testing.T) {
 	}
 }
 
-func TestStatusHandlerIncludesTemporalURL(t *testing.T) {
-	factory := &fakeFactory{}
-	manager := newTestManager(terminal.ManagerOptions{
-		Shell:      "/bin/sh",
-		PtyFactory: factory,
-	})
-	handler := &RestHandler{
-		Manager:        manager,
-		TemporalUIPort: 8233,
-	}
-	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
-	req.Header.Set("Authorization", "Bearer secret")
-	req.Header.Set("X-Forwarded-Host", "example.com:57417")
-	req.Header.Set("X-Forwarded-Proto", "https")
-	res := httptest.NewRecorder()
-
-	restHandler("secret", nil, handler.handleStatus)(res, req)
-	if res.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", res.Code)
-	}
-
-	var payload statusResponse
-	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if payload.TemporalUIURL != "https://example.com:8233" {
-		t.Fatalf("expected temporal url %q, got %q", "https://example.com:8233", payload.TemporalUIURL)
-	}
-}
-
-func TestStatusHandlerIncludesTemporalDevServerStatus(t *testing.T) {
-	manager := newTestManager(terminal.ManagerOptions{Shell: "/bin/sh"})
-	handler := &RestHandler{
-		Manager:      manager,
-		TemporalHost: "localhost:7233",
-	}
-	temporalcore.SetDevServerStatus(temporalcore.DevServerStatus{
-		PID:     2222,
-		Running: true,
-	})
-	defer temporalcore.ClearDevServerStatus()
-
-	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
-	req.Header.Set("Authorization", "Bearer secret")
-	res := httptest.NewRecorder()
-
-	restHandler("secret", nil, handler.handleStatus)(res, req)
-	if res.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", res.Code)
-	}
-
-	var payload statusResponse
-	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if !payload.TemporalDevServerRunning {
-		t.Fatalf("expected temporal dev server running")
-	}
-	if payload.TemporalDevServerPID != 2222 {
-		t.Fatalf("expected temporal dev server pid 2222, got %d", payload.TemporalDevServerPID)
-	}
-	if payload.TemporalHost != "localhost:7233" {
-		t.Fatalf("expected temporal host %q, got %q", "localhost:7233", payload.TemporalHost)
-	}
-}
-
 func TestStatusHandlerIncludesAgentsHubFields(t *testing.T) {
 	manager := newTestManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
@@ -492,9 +388,10 @@ func TestTerminalNotifyEndpoint(t *testing.T) {
 	}()
 
 	tempDir := t.TempDir()
-	temporalClient := &fakeWorkflowSignalClient{runID: "run-11"}
 	repo := flow.NewFileRepository(filepath.Join(tempDir, "automations.json"), nil)
-	service := flow.NewService(repo, temporalClient, nil)
+	writeFlowConfig(t, repo, flow.CanonicalNotifyEventType("plan-L1-wip"))
+	dispatcher := &fakeDispatcher{}
+	service := flow.NewService(repo, dispatcher, nil)
 	sink := notify.NewMemorySink()
 	handler := &RestHandler{Manager: manager, FlowService: service, NotificationSink: sink}
 	body := `{"session_id":"` + created.ID + `","occurred_at":"2025-04-01T10:00:00Z","payload":{"type":"plan-L1-wip","plan_file":"plan.org"},"raw":"{}","event_id":"manual:1"}`
@@ -505,43 +402,37 @@ func TestTerminalNotifyEndpoint(t *testing.T) {
 	if res.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", res.Code)
 	}
-	if len(temporalClient.started) != 1 {
-		t.Fatalf("expected 1 signal, got %d", len(temporalClient.started))
+	requests := dispatcher.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("expected 1 dispatch, got %d", len(requests))
 	}
-	signal := temporalClient.started[0]
-	if signal.signalName != flow.RouterWorkflowEventSignal {
-		t.Fatalf("expected flow event signal, got %q", signal.signalName)
+	request := requests[0]
+	if request.EventID != "manual:1" {
+		t.Fatalf("expected event id manual:1, got %q", request.EventID)
 	}
-	payload, ok := signal.payload.(flow.EventSignal)
-	if !ok {
-		t.Fatalf("unexpected flow payload: %#v", signal.payload)
+	if request.Event["type"] != "notify_event" {
+		t.Fatalf("expected canonical type notify_event, got %q", request.Event["type"])
 	}
-	if payload.EventID != "manual:1" {
-		t.Fatalf("expected event id manual:1, got %q", payload.EventID)
+	if request.Event["notify.type"] != "plan-L1-wip" {
+		t.Fatalf("expected notify.type plan-L1-wip, got %q", request.Event["notify.type"])
 	}
-	if payload.Fields["type"] != "notify_event" {
-		t.Fatalf("expected canonical type notify_event, got %q", payload.Fields["type"])
+	if request.Event["notify.event_id"] != "manual:1" {
+		t.Fatalf("expected notify.event_id manual:1, got %q", request.Event["notify.event_id"])
 	}
-	if payload.Fields["notify.type"] != "plan-L1-wip" {
-		t.Fatalf("expected notify.type plan-L1-wip, got %q", payload.Fields["notify.type"])
+	if request.Event["session_id"] != created.ID {
+		t.Fatalf("expected session_id %q, got %q", created.ID, request.Event["session_id"])
 	}
-	if payload.Fields["notify.event_id"] != "manual:1" {
-		t.Fatalf("expected notify.event_id manual:1, got %q", payload.Fields["notify.event_id"])
+	if request.Event["agent_id"] != "codex" {
+		t.Fatalf("expected agent_id codex, got %q", request.Event["agent_id"])
 	}
-	if payload.Fields["session_id"] != created.ID {
-		t.Fatalf("expected session_id %q, got %q", created.ID, payload.Fields["session_id"])
+	if request.Event["agent_name"] != created.ID {
+		t.Fatalf("expected agent_name %q, got %q", created.ID, request.Event["agent_name"])
 	}
-	if payload.Fields["agent_id"] != "codex" {
-		t.Fatalf("expected agent_id codex, got %q", payload.Fields["agent_id"])
+	if request.Event["plan_file"] != "plan.org" || request.Event["notify.plan_file"] != "plan.org" {
+		t.Fatalf("expected plan_file aliases, got %q/%q", request.Event["plan_file"], request.Event["notify.plan_file"])
 	}
-	if payload.Fields["agent_name"] != created.ID {
-		t.Fatalf("expected agent_name %q, got %q", created.ID, payload.Fields["agent_name"])
-	}
-	if payload.Fields["plan_file"] != "plan.org" || payload.Fields["notify.plan_file"] != "plan.org" {
-		t.Fatalf("expected plan_file aliases, got %q/%q", payload.Fields["plan_file"], payload.Fields["notify.plan_file"])
-	}
-	if payload.Fields["timestamp"] != time.Date(2025, 4, 1, 10, 0, 0, 0, time.UTC).Format(time.RFC3339Nano) {
-		t.Fatalf("unexpected notify timestamp: %v", payload.Fields["timestamp"])
+	if request.Event["timestamp"] != time.Date(2025, 4, 1, 10, 0, 0, 0, time.UTC).Format(time.RFC3339Nano) {
+		t.Fatalf("unexpected notify timestamp: %v", request.Event["timestamp"])
 	}
 	events := sink.Events()
 	if len(events) != 1 {
@@ -613,9 +504,10 @@ func TestTerminalNotifyProgressNormalization(t *testing.T) {
 			}()
 
 			tempDir := t.TempDir()
-			temporalClient := &fakeWorkflowSignalClient{runID: "run-progress"}
 			repo := flow.NewFileRepository(filepath.Join(tempDir, "automations.json"), nil)
-			service := flow.NewService(repo, temporalClient, nil)
+			writeFlowConfig(t, repo, flow.CanonicalNotifyEventType("progress"))
+			dispatcher := &fakeDispatcher{}
+			service := flow.NewService(repo, dispatcher, nil)
 			handler := &RestHandler{Manager: manager, FlowService: service, NotificationSink: notify.NewMemorySink()}
 			body := `{"session_id":"` + created.ID + `","payload":{"type":"progress","plan_file":"` + testCase.planFile + `","l1":"* TODO [#A] First L1","l2":"WIP [#B] L2 Two","task_level":"2","task_state":"WIP"}}`
 			req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/notify", strings.NewReader(body))
@@ -625,25 +517,22 @@ func TestTerminalNotifyProgressNormalization(t *testing.T) {
 			if res.Code != http.StatusNoContent {
 				t.Fatalf("expected 204, got %d", res.Code)
 			}
-			if len(temporalClient.started) != 1 {
-				t.Fatalf("expected 1 signal, got %d", len(temporalClient.started))
+			requests := dispatcher.Requests()
+			if len(requests) != 1 {
+				t.Fatalf("expected 1 dispatch, got %d", len(requests))
 			}
-			signal := temporalClient.started[0]
-			payload, ok := signal.payload.(flow.EventSignal)
-			if !ok {
-				t.Fatalf("unexpected flow payload: %#v", signal.payload)
+			request := requests[0]
+			if request.Event["plan_file"] != "plan.org" || request.Event["notify.plan_file"] != "plan.org" {
+				t.Fatalf("expected normalized plan_file, got %q/%q", request.Event["plan_file"], request.Event["notify.plan_file"])
 			}
-			if payload.Fields["plan_file"] != "plan.org" || payload.Fields["notify.plan_file"] != "plan.org" {
-				t.Fatalf("expected normalized plan_file, got %q/%q", payload.Fields["plan_file"], payload.Fields["notify.plan_file"])
+			if request.Event["l1"] != "First L1" {
+				t.Fatalf("expected normalized l1, got %q", request.Event["l1"])
 			}
-			if payload.Fields["l1"] != "First L1" {
-				t.Fatalf("expected normalized l1, got %q", payload.Fields["l1"])
+			if request.Event["l2"] != "L2 Two" {
+				t.Fatalf("expected normalized l2, got %q", request.Event["l2"])
 			}
-			if payload.Fields["l2"] != "L2 Two" {
-				t.Fatalf("expected normalized l2, got %q", payload.Fields["l2"])
-			}
-			if payload.Fields["task_level"] != "2" {
-				t.Fatalf("expected task_level 2, got %q", payload.Fields["task_level"])
+			if request.Event["task_level"] != "2" {
+				t.Fatalf("expected task_level 2, got %q", request.Event["task_level"])
 			}
 		})
 	}
@@ -662,7 +551,7 @@ func TestTerminalNotifyEndpointMissingTerminal(t *testing.T) {
 	}
 }
 
-func TestTerminalNotifyEndpointWorkflowInactive(t *testing.T) {
+func TestTerminalNotifyEndpointWithoutBindings(t *testing.T) {
 	factory := &fakeFactory{}
 	manager := newTestManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
@@ -680,9 +569,9 @@ func TestTerminalNotifyEndpointWorkflowInactive(t *testing.T) {
 	}()
 
 	tempDir := t.TempDir()
-	temporalClient := &fakeWorkflowSignalClient{runID: "run-13"}
 	repo := flow.NewFileRepository(filepath.Join(tempDir, "automations.json"), nil)
-	service := flow.NewService(repo, temporalClient, nil)
+	dispatcher := &fakeDispatcher{}
+	service := flow.NewService(repo, dispatcher, nil)
 	handler := &RestHandler{Manager: manager, FlowService: service, NotificationSink: notify.NewMemorySink()}
 	body := `{"session_id":"` + created.ID + `","payload":{"type":"plan-L1-wip"}}`
 	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/notify", strings.NewReader(body))
@@ -692,12 +581,12 @@ func TestTerminalNotifyEndpointWorkflowInactive(t *testing.T) {
 	if res.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", res.Code)
 	}
-	if len(temporalClient.started) != 1 {
-		t.Fatalf("expected 1 flow signal, got %d", len(temporalClient.started))
+	if len(dispatcher.Requests()) != 0 {
+		t.Fatalf("expected no dispatch when config has no bindings")
 	}
 }
 
-func TestTerminalNotifyEndpointTemporalUnavailable(t *testing.T) {
+func TestTerminalNotifyEndpointDispatcherUnavailable(t *testing.T) {
 	factory := &fakeFactory{}
 	manager := newTestManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
@@ -798,9 +687,8 @@ func TestTerminalProgressEndpointAfterNotify(t *testing.T) {
 	}()
 
 	tempDir := t.TempDir()
-	temporalClient := &fakeWorkflowSignalClient{runID: "run-progress-2"}
 	repo := flow.NewFileRepository(filepath.Join(tempDir, "automations.json"), nil)
-	service := flow.NewService(repo, temporalClient, nil)
+	service := flow.NewService(repo, nil, nil)
 	handler := &RestHandler{Manager: manager, FlowService: service, NotificationSink: notify.NewMemorySink()}
 
 	body := `{"session_id":"` + created.ID + `","payload":{"type":"progress","plan_file":"plans/plan.org","l1":"TODO First L1","l2":"WIP Second L2","task_level":2,"task_state":"WIP"}}`

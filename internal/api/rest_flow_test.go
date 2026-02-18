@@ -102,8 +102,7 @@ func TestFlowConfigEndpointGet(t *testing.T) {
 func TestFlowConfigEndpointPut(t *testing.T) {
 	tempDir := t.TempDir()
 	repo := flow.NewFileRepository(filepath.Join(tempDir, "automations.json"), nil)
-	temporalClient := &fakeWorkflowSignalClient{runID: "run-1"}
-	service := flow.NewService(repo, temporalClient, nil)
+	service := flow.NewService(repo, nil, nil)
 	handler := &RestHandler{FlowService: service}
 
 	cfg := flow.Config{
@@ -135,19 +134,12 @@ func TestFlowConfigEndpointPut(t *testing.T) {
 	if len(loaded.Triggers) != 1 || loaded.Triggers[0].ID != "t1" {
 		t.Fatalf("unexpected persisted config: %#v", loaded.Triggers)
 	}
-	if len(temporalClient.started) != 1 {
-		t.Fatalf("expected signal with start, got %d", len(temporalClient.started))
-	}
-	if temporalClient.started[0].signalName != flow.RouterWorkflowConfigSignal {
-		t.Fatalf("unexpected signal name: %s", temporalClient.started[0].signalName)
-	}
 }
 
 func TestFlowConfigEndpointValidationErrors(t *testing.T) {
 	tempDir := t.TempDir()
 	repo := flow.NewFileRepository(filepath.Join(tempDir, "automations.json"), nil)
-	temporalClient := &fakeWorkflowSignalClient{runID: "run-1"}
-	service := flow.NewService(repo, temporalClient, nil)
+	service := flow.NewService(repo, nil, nil)
 	handler := &RestHandler{FlowService: service}
 
 	duplicate := flow.Config{
@@ -224,8 +216,7 @@ func TestFlowConfigExportEndpoint(t *testing.T) {
 func TestFlowConfigImportEndpoint(t *testing.T) {
 	tempDir := t.TempDir()
 	repo := flow.NewFileRepository(filepath.Join(tempDir, "automations.json"), nil)
-	temporalClient := &fakeWorkflowSignalClient{runID: "run-1"}
-	service := flow.NewService(repo, temporalClient, nil)
+	service := flow.NewService(repo, nil, nil)
 	handler := &RestHandler{FlowService: service}
 
 	cfg := flow.Config{
@@ -258,8 +249,7 @@ func TestFlowConfigImportEndpoint(t *testing.T) {
 func TestFlowConfigImportEndpointValidationErrors(t *testing.T) {
 	tempDir := t.TempDir()
 	repo := flow.NewFileRepository(filepath.Join(tempDir, "automations.json"), nil)
-	temporalClient := &fakeWorkflowSignalClient{runID: "run-1"}
-	service := flow.NewService(repo, temporalClient, nil)
+	service := flow.NewService(repo, nil, nil)
 	handler := &RestHandler{FlowService: service}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/flow/config/import", bytes.NewBufferString("{"))

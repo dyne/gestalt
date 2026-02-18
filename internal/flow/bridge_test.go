@@ -3,6 +3,7 @@ package flow
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -10,60 +11,24 @@ import (
 	"gestalt/internal/watcher"
 
 	"github.com/fsnotify/fsnotify"
-	enumspb "go.temporal.io/api/enums/v1"
-	"go.temporal.io/sdk/client"
-	"go.temporal.io/sdk/converter"
 )
 
-type fakeWorkflowRun struct{}
-
-func (run *fakeWorkflowRun) GetID() string {
-	return ""
-}
-
-func (run *fakeWorkflowRun) GetRunID() string {
-	return ""
-}
-
-func (run *fakeWorkflowRun) Get(ctx context.Context, valuePtr interface{}) error {
-	return nil
-}
-
-func (run *fakeWorkflowRun) GetWithOptions(ctx context.Context, valuePtr interface{}, options client.WorkflowRunGetOptions) error {
-	return nil
-}
-
-type fakeTemporalClient struct {
+type fakeDispatcher struct {
 	signalCh chan struct{}
+	err      error
 }
 
-func (client *fakeTemporalClient) ExecuteWorkflow(ctx context.Context, options client.StartWorkflowOptions, workflow interface{}, args ...interface{}) (client.WorkflowRun, error) {
-	return &fakeWorkflowRun{}, nil
-}
-
-func (client *fakeTemporalClient) GetWorkflowHistory(ctx context.Context, workflowID string, runID string, isLongPoll bool, filterType enumspb.HistoryEventFilterType) client.HistoryEventIterator {
-	return nil
-}
-
-func (client *fakeTemporalClient) QueryWorkflow(ctx context.Context, workflowID, runID, queryType string, args ...interface{}) (converter.EncodedValue, error) {
-	return nil, errors.New("query not supported")
-}
-
-func (client *fakeTemporalClient) SignalWithStartWorkflow(ctx context.Context, workflowID, signalName string, signalArg interface{}, options client.StartWorkflowOptions, workflow interface{}, args ...interface{}) (client.WorkflowRun, error) {
-	if client.signalCh != nil {
+func (dispatcher *fakeDispatcher) Dispatch(ctx context.Context, request ActivityRequest) error {
+	if dispatcher.signalCh != nil {
 		select {
-		case client.signalCh <- struct{}{}:
+		case dispatcher.signalCh <- struct{}{}:
 		default:
 		}
 	}
-	return &fakeWorkflowRun{}, nil
-}
-
-func (client *fakeTemporalClient) SignalWorkflow(ctx context.Context, workflowID, runID, signalName string, arg interface{}) error {
+	if dispatcher.err != nil {
+		return dispatcher.err
+	}
 	return nil
-}
-
-func (client *fakeTemporalClient) Close() {
 }
 
 func TestWatcherFilterAllows(t *testing.T) {
@@ -112,9 +77,25 @@ func TestBridgeStopsOnCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	repo := NewFileRepository(filepath.Join(t.TempDir(), "automations.json"), nil)
+	if err := repo.Save(Config{
+		Version: ConfigVersion,
+		Triggers: []EventTrigger{
+			{ID: "t1", EventType: "file_changed"},
+		},
+		BindingsByTriggerID: map[string][]ActivityBinding{
+			"t1": {
+				{ActivityID: "toast_notification", Config: map[string]any{"level": "info", "message_template": "hi"}},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
 	signals := make(chan struct{}, 10)
+	service := NewService(repo, &fakeDispatcher{signalCh: signals, err: errors.New("boom")}, nil)
 	bridge := NewBridge(BridgeOptions{
-		Temporal:    &fakeTemporalClient{signalCh: signals},
+		Service:     service,
 		WatcherBus:  eventpkg.NewBus[watcher.Event](context.Background(), eventpkg.BusOptions{}),
 		ConfigBus:   eventpkg.NewBus[eventpkg.ConfigEvent](context.Background(), eventpkg.BusOptions{}),
 		AgentBus:    eventpkg.NewBus[eventpkg.AgentEvent](context.Background(), eventpkg.BusOptions{}),

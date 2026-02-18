@@ -1,4 +1,4 @@
-package activities
+package runtime
 
 import (
 	"bytes"
@@ -17,52 +17,69 @@ import (
 	"gestalt/internal/metrics"
 	"gestalt/internal/notification"
 	"gestalt/internal/terminal"
-
-	"go.temporal.io/sdk/activity"
 )
 
 const (
-	SendToTerminalActivityName    = "SendToTerminalActivity"
-	PostWebhookActivityName       = "PostWebhookActivity"
-	PublishToastActivityName      = "PublishToastActivity"
-	SpawnAgentSessionActivityName = "SpawnAgentSessionActivity"
+	sendToTerminalActivityName    = "SendToTerminalActivity"
+	postWebhookActivityName       = "PostWebhookActivity"
+	publishToastActivityName      = "PublishToastActivity"
+	spawnAgentSessionActivityName = "SpawnAgentSessionActivity"
+	defaultWebhookTimeout         = 10 * time.Second
+	defaultOutputTailLines        = 50
 )
 
-const defaultWebhookTimeout = 10 * time.Second
-
-type FlowActivities struct {
-	Manager *terminal.Manager
-	Logger  *logging.Logger
+// Dispatcher executes flow activities locally.
+type Dispatcher struct {
+	Manager        *terminal.Manager
+	Logger         *logging.Logger
+	MaxOutputBytes int64
 }
 
-func NewFlowActivities(manager *terminal.Manager, logger *logging.Logger) *FlowActivities {
-	return &FlowActivities{
-		Manager: manager,
-		Logger:  logger,
+func NewDispatcher(manager *terminal.Manager, logger *logging.Logger, maxOutputBytes int64) *Dispatcher {
+	if maxOutputBytes < 0 {
+		maxOutputBytes = 0
+	}
+	return &Dispatcher{
+		Manager:        manager,
+		Logger:         logger,
+		MaxOutputBytes: maxOutputBytes,
 	}
 }
 
-func (activities *FlowActivities) SendToTerminalActivity(activityContext context.Context, request flow.ActivityRequest) (activityErr error) {
+func (d *Dispatcher) Dispatch(ctx context.Context, request flow.ActivityRequest) error {
+	switch request.ActivityID {
+	case "send_to_terminal":
+		return d.sendToTerminal(ctx, request)
+	case "post_webhook":
+		return d.postWebhook(ctx, request)
+	case "toast_notification":
+		return d.publishToast(ctx, request)
+	case "spawn_agent_session":
+		return d.spawnAgentSession(ctx, request)
+	default:
+		d.logWarn("unknown flow activity", map[string]string{
+			"activity_id": request.ActivityID,
+		})
+		return nil
+	}
+}
+
+func (d *Dispatcher) sendToTerminal(ctx context.Context, request flow.ActivityRequest) (activityErr error) {
 	start := time.Now()
-	attempt := activityAttempt(activityContext)
 	defer func() {
-		metrics.Default.RecordActivity(SendToTerminalActivityName, time.Since(start), activityErr, attempt)
+		metrics.Default.RecordActivity(sendToTerminalActivityName, time.Since(start), activityErr, 1)
 	}()
 
-	if activityContext != nil {
-		if contextError := activityContext.Err(); contextError != nil {
+	if ctx != nil {
+		if contextError := ctx.Err(); contextError != nil {
 			activityErr = contextError
 			return contextError
 		}
 	}
-	manager, managerError := activities.ensureManager()
-	if managerError != nil {
-		activityErr = managerError
-		return managerError
-	}
-
-	if heartbeat, ok := heartbeatDetails(activityContext); ok && flow.ShouldSkipSend(&heartbeat) {
-		return nil
+	manager, managerErr := d.ensureManager()
+	if managerErr != nil {
+		activityErr = managerErr
+		return managerErr
 	}
 
 	targetSessionID := strings.TrimSpace(configString(request.Config, "target_session_id"))
@@ -73,6 +90,9 @@ func (activities *FlowActivities) SendToTerminalActivity(activityContext context
 	}
 
 	messageTemplate := flow.RenderTemplate(configString(request.Config, "message_template"), request)
+	if request.OutputTail == "" {
+		request.OutputTail = d.buildOutputTail(request)
+	}
 	message := buildMessage(messageTemplate, request.OutputTail)
 	if strings.TrimSpace(message) == "" {
 		activityErr = errors.New("message is required")
@@ -93,7 +113,7 @@ func (activities *FlowActivities) SendToTerminalActivity(activityContext context
 		message += "\n"
 	}
 	if writeErr := session.Write([]byte(message)); writeErr != nil {
-		activities.logWarn("flow terminal send failed", map[string]string{
+		d.logWarn("flow terminal send failed", map[string]string{
 			"agent_name": targetName,
 			"session_id": targetSessionID,
 			"error":      writeErr.Error(),
@@ -102,30 +122,24 @@ func (activities *FlowActivities) SendToTerminalActivity(activityContext context
 		return writeErr
 	}
 
-	recordHeartbeat(activityContext, flow.ActivityHeartbeat{Sent: true})
-	activities.logInfo("flow terminal message sent", map[string]string{
+	d.logInfo("flow terminal message sent", map[string]string{
 		"agent_name": targetName,
 		"session_id": targetSessionID,
 	})
 	return nil
 }
 
-func (activities *FlowActivities) PostWebhookActivity(activityContext context.Context, request flow.ActivityRequest) (activityErr error) {
+func (d *Dispatcher) postWebhook(ctx context.Context, request flow.ActivityRequest) (activityErr error) {
 	start := time.Now()
-	attempt := activityAttempt(activityContext)
 	defer func() {
-		metrics.Default.RecordActivity(PostWebhookActivityName, time.Since(start), activityErr, attempt)
+		metrics.Default.RecordActivity(postWebhookActivityName, time.Since(start), activityErr, 1)
 	}()
 
-	if activityContext != nil {
-		if contextError := activityContext.Err(); contextError != nil {
+	if ctx != nil {
+		if contextError := ctx.Err(); contextError != nil {
 			activityErr = contextError
 			return contextError
 		}
-	}
-
-	if heartbeat, ok := heartbeatDetails(activityContext); ok && flow.ShouldSkipWebhook(&heartbeat) {
-		return nil
 	}
 
 	urlValue := configString(request.Config, "url")
@@ -158,7 +172,7 @@ func (activities *FlowActivities) PostWebhookActivity(activityContext context.Co
 	httpClient := &http.Client{
 		Timeout: defaultWebhookTimeout,
 	}
-	httpRequest, requestErr := http.NewRequestWithContext(activityContext, http.MethodPost, urlValue, bytes.NewReader(body))
+	httpRequest, requestErr := http.NewRequestWithContext(ctx, http.MethodPost, urlValue, bytes.NewReader(body))
 	if requestErr != nil {
 		activityErr = requestErr
 		return requestErr
@@ -179,22 +193,20 @@ func (activities *FlowActivities) PostWebhookActivity(activityContext context.Co
 		return activityErr
 	}
 
-	recordHeartbeat(activityContext, flow.ActivityHeartbeat{Posted: true, StatusCode: response.StatusCode})
-	activities.logInfo("flow webhook posted", map[string]string{
+	d.logInfo("flow webhook posted", map[string]string{
 		"status": strconv.Itoa(response.StatusCode),
 	})
 	return nil
 }
 
-func (activities *FlowActivities) PublishToastActivity(activityContext context.Context, request flow.ActivityRequest) (activityErr error) {
+func (d *Dispatcher) publishToast(ctx context.Context, request flow.ActivityRequest) (activityErr error) {
 	start := time.Now()
-	attempt := activityAttempt(activityContext)
 	defer func() {
-		metrics.Default.RecordActivity(PublishToastActivityName, time.Since(start), activityErr, attempt)
+		metrics.Default.RecordActivity(publishToastActivityName, time.Since(start), activityErr, 1)
 	}()
 
-	if activityContext != nil {
-		if contextError := activityContext.Err(); contextError != nil {
+	if ctx != nil {
+		if contextError := ctx.Err(); contextError != nil {
 			activityErr = contextError
 			return contextError
 		}
@@ -217,57 +229,31 @@ func (activities *FlowActivities) PublishToastActivity(activityContext context.C
 	}
 
 	notification.PublishToast(level, message)
-	activities.logInfo("flow toast published", map[string]string{
+	d.logInfo("flow toast published", map[string]string{
 		"level": level,
 	})
 	return nil
 }
 
-type spawnHeartbeat struct {
-	SessionID   string `json:"session_id"`
-	MessageSent bool   `json:"message_sent"`
-}
-
-func (activities *FlowActivities) SpawnAgentSessionActivity(activityContext context.Context, request flow.ActivityRequest) (activityErr error) {
+func (d *Dispatcher) spawnAgentSession(ctx context.Context, request flow.ActivityRequest) (activityErr error) {
 	start := time.Now()
-	attempt := activityAttempt(activityContext)
 	defer func() {
-		metrics.Default.RecordActivity(SpawnAgentSessionActivityName, time.Since(start), activityErr, attempt)
+		metrics.Default.RecordActivity(spawnAgentSessionActivityName, time.Since(start), activityErr, 1)
 	}()
 
-	if activityContext != nil {
-		if contextError := activityContext.Err(); contextError != nil {
+	if ctx != nil {
+		if contextError := ctx.Err(); contextError != nil {
 			activityErr = contextError
 			return contextError
 		}
 	}
-	manager, managerError := activities.ensureManager()
-	if managerError != nil {
-		activityErr = managerError
-		return managerError
+	manager, managerErr := d.ensureManager()
+	if managerErr != nil {
+		activityErr = managerErr
+		return managerErr
 	}
 
 	messageTemplate := flow.RenderTemplate(configString(request.Config, "message_template"), request)
-	if heartbeat, ok := spawnHeartbeatDetails(activityContext); ok && heartbeat.SessionID != "" {
-		if heartbeat.MessageSent || strings.TrimSpace(messageTemplate) == "" {
-			return nil
-		}
-		session, sessionErr := lookupSession(manager, heartbeat.SessionID)
-		if sessionErr != nil {
-			activityErr = sessionErr
-			return sessionErr
-		}
-		if sendErr := writeSessionMessage(session, messageTemplate); sendErr != nil {
-			activityErr = sendErr
-			return sendErr
-		}
-		recordSpawnHeartbeat(activityContext, spawnHeartbeat{SessionID: heartbeat.SessionID, MessageSent: true})
-		activities.logInfo("flow session message sent", map[string]string{
-			"session_id": heartbeat.SessionID,
-		})
-		return nil
-	}
-
 	agentID := strings.TrimSpace(configString(request.Config, "agent_id"))
 	if agentID == "" {
 		activityErr = errors.New("agent id is required")
@@ -291,41 +277,87 @@ func (activities *FlowActivities) SpawnAgentSessionActivity(activityContext cont
 		}
 	}
 
-	recordSpawnHeartbeat(activityContext, spawnHeartbeat{SessionID: session.ID})
 	if strings.TrimSpace(messageTemplate) != "" {
 		if sendErr := writeSessionMessage(session, messageTemplate); sendErr != nil {
 			activityErr = sendErr
 			return sendErr
 		}
-		recordSpawnHeartbeat(activityContext, spawnHeartbeat{SessionID: session.ID, MessageSent: true})
 	}
 
-	activities.logInfo("flow session spawned", map[string]string{
+	d.logInfo("flow session spawned", map[string]string{
 		"agent_id":   agentID,
 		"session_id": session.ID,
 	})
 	return nil
 }
 
-func (activities *FlowActivities) ensureManager() (*terminal.Manager, error) {
-	if activities == nil || activities.Manager == nil {
+func (d *Dispatcher) buildOutputTail(request flow.ActivityRequest) string {
+	if !configBoolDefault(request.Config, "include_terminal_output", false) {
+		return ""
+	}
+	sessionID := strings.TrimSpace(request.Event["session_id"])
+	if sessionID == "" {
+		sessionID = strings.TrimSpace(request.Event["terminal_id"])
+	}
+	if sessionID == "" {
+		return ""
+	}
+	lines := configInt(request.Config, "output_tail_lines", defaultOutputTailLines)
+	if lines <= 0 {
+		return ""
+	}
+	manager, managerErr := d.ensureManager()
+	if managerErr != nil {
+		return ""
+	}
+	maxLines := lines + 1
+	history, err := manager.HistoryLines(sessionID, maxLines)
+	if err != nil {
+		d.logWarn("flow output tail failed", map[string]string{
+			"error":      err.Error(),
+			"session_id": sessionID,
+		})
+		return ""
+	}
+	for len(history) > 0 && strings.TrimSpace(history[len(history)-1]) == "" {
+		history = history[:len(history)-1]
+	}
+	if len(history) > lines {
+		history = history[len(history)-lines:]
+	}
+	output := strings.Join(history, "\n")
+	return d.capOutput(output)
+}
+
+func (d *Dispatcher) ensureManager() (*terminal.Manager, error) {
+	if d == nil || d.Manager == nil {
 		return nil, errors.New("terminal manager unavailable")
 	}
-	return activities.Manager, nil
+	return d.Manager, nil
 }
 
-func (activities *FlowActivities) logInfo(message string, fields map[string]string) {
-	if activities == nil || activities.Logger == nil {
-		return
+func (d *Dispatcher) capOutput(value string) string {
+	if d == nil || d.MaxOutputBytes <= 0 {
+		return value
 	}
-	activities.Logger.Info(message, fields)
+	if int64(len(value)) <= d.MaxOutputBytes {
+		return value
+	}
+	return string([]byte(value)[:d.MaxOutputBytes])
 }
 
-func (activities *FlowActivities) logWarn(message string, fields map[string]string) {
-	if activities == nil || activities.Logger == nil {
+func (d *Dispatcher) logInfo(message string, fields map[string]string) {
+	if d == nil || d.Logger == nil {
 		return
 	}
-	activities.Logger.Warn(message, fields)
+	d.Logger.Info(message, fields)
+}
+
+func (d *Dispatcher) logWarn(message string, fields map[string]string) {
+	if d == nil || d.Logger == nil {
+		return
+	}
+	d.Logger.Warn(message, fields)
 }
 
 func parseHeaders(raw string) (http.Header, error) {
@@ -461,19 +493,28 @@ func configBoolDefault(config map[string]any, key string, fallback bool) bool {
 	return parsed
 }
 
-func configOptionalBool(config map[string]any, key string) *bool {
+func configInt(config map[string]any, key string, fallback int) int {
 	if config == nil {
-		return nil
+		return fallback
 	}
 	value, ok := config[key]
 	if !ok || value == nil {
-		return nil
+		return fallback
 	}
-	parsed, ok := value.(bool)
-	if !ok {
-		return nil
+	switch parsed := value.(type) {
+	case int:
+		return parsed
+	case int32:
+		return int(parsed)
+	case int64:
+		return int(parsed)
+	case float32:
+		return int(parsed)
+	case float64:
+		return int(parsed)
+	default:
+		return fallback
 	}
-	return &parsed
 }
 
 func isToastLevel(level string) bool {
@@ -483,40 +524,4 @@ func isToastLevel(level string) bool {
 	default:
 		return false
 	}
-}
-
-func heartbeatDetails(activityContext context.Context) (flow.ActivityHeartbeat, bool) {
-	if activityContext == nil || !activity.IsActivity(activityContext) {
-		return flow.ActivityHeartbeat{}, false
-	}
-	var heartbeat flow.ActivityHeartbeat
-	if err := activity.GetHeartbeatDetails(activityContext, &heartbeat); err != nil {
-		return flow.ActivityHeartbeat{}, false
-	}
-	return heartbeat, true
-}
-
-func recordHeartbeat(activityContext context.Context, heartbeat flow.ActivityHeartbeat) {
-	if activityContext == nil || !activity.IsActivity(activityContext) {
-		return
-	}
-	activity.RecordHeartbeat(activityContext, heartbeat)
-}
-
-func spawnHeartbeatDetails(activityContext context.Context) (spawnHeartbeat, bool) {
-	if activityContext == nil || !activity.IsActivity(activityContext) {
-		return spawnHeartbeat{}, false
-	}
-	var heartbeat spawnHeartbeat
-	if err := activity.GetHeartbeatDetails(activityContext, &heartbeat); err != nil {
-		return spawnHeartbeat{}, false
-	}
-	return heartbeat, true
-}
-
-func recordSpawnHeartbeat(activityContext context.Context, heartbeat spawnHeartbeat) {
-	if activityContext == nil || !activity.IsActivity(activityContext) {
-		return
-	}
-	activity.RecordHeartbeat(activityContext, heartbeat)
 }

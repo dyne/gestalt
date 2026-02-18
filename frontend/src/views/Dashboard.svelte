@@ -746,19 +746,19 @@
   }
 
   .dashboard__logs {
-    padding: 1.5rem;
+    padding: 1.25rem;
     border-radius: 24px;
     background: rgba(var(--color-info-rgb), 0.08);
     border: 1px solid rgba(var(--color-text-rgb), 0.08);
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 0.85rem;
   }
 
   .logs-controls {
     display: flex;
     align-items: center;
-    gap: 1rem;
+    gap: 0.75rem;
     flex-wrap: wrap;
   }
 
@@ -803,7 +803,7 @@
     display: flex;
     flex-direction: column;
     gap: 0.3rem;
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     color: var(--color-text-muted);
   }
 
@@ -1123,11 +1123,11 @@
   }
 
   .log-badge {
-    padding: 0.2rem 0.5rem;
+    padding: 0.16rem 0.45rem;
     border-radius: 999px;
     background: var(--color-contrast-bg);
     color: var(--color-contrast-text);
-    font-size: 0.65rem;
+    font-size: 0.62rem;
     letter-spacing: 0.12em;
     text-transform: uppercase;
   }
@@ -1299,6 +1299,10 @@
 
     .dashboard__intel {
       grid-template-columns: 1fr;
+    }
+
+    .logs-controls {
+      align-items: flex-start;
     }
   }
 

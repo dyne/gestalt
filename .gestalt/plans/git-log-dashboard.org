@@ -170,13 +170,13 @@ Summary
 - Done when:
   - `feat(parser): add X` shows a colored `feat` badge and “add X” title, and non-conventional subjects render unchanged.
 
-* TODO [#B] Docs + Rollout Notes
+* DONE [#B] Docs + Rollout Notes
 :PROPERTIES:
 :Effort: 0.5d
 :Goal: Keep the HTTP API reference and dashboard docs aligned with the new panel.
 :Notes: Keep docs changes minimal; focus on the new endpoint and the dashboard UI swap.
 :END:
-** TODO [#B] Document `/api/git/log` in API docs
+** DONE [#B] Document `/api/git/log` in API docs
 - Why: New endpoint should be discoverable and stable.
 - Change:
   - `docs/reference/http-api.md`: add `/api/git/log` with query params and example response.

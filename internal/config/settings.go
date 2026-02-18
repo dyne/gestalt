@@ -8,8 +8,7 @@ import (
 )
 
 type Settings struct {
-	Session  SessionSettings
-	Temporal TemporalSettings
+	Session SessionSettings
 }
 
 type SessionSettings struct {
@@ -23,10 +22,6 @@ type SessionSettings struct {
 	TUIMode               string
 	TUISnapshotIntervalMS int64
 	LogCodexEvents        bool
-}
-
-type TemporalSettings struct {
-	MaxOutputBytes int64
 }
 
 func LoadSettings(path string, defaultsPayload []byte, overrides map[string]any) (Settings, error) {
@@ -74,7 +69,6 @@ func LoadSettings(path string, defaultsPayload []byte, overrides map[string]any)
 	settings.Session.TUIMode = stringSetting(values, "session.tui-mode", "")
 	settings.Session.TUISnapshotIntervalMS = intSetting(values, "session.tui-snapshot-interval-ms", 0)
 	settings.Session.LogCodexEvents = boolSetting(values, "session.log-codex-events", boolSetting(defaults, "session.log-codex-events", false))
-	settings.Temporal.MaxOutputBytes = intSetting(values, "temporal.max-output-bytes", 0)
 
 	return normalizeSettings(settings, defaults), nil
 }
@@ -106,9 +100,6 @@ func normalizeSettings(settings Settings, defaults map[string]any) Settings {
 	}
 	if settings.Session.TUISnapshotIntervalMS <= 0 {
 		settings.Session.TUISnapshotIntervalMS = intSetting(defaults, "session.tui-snapshot-interval-ms", 0)
-	}
-	if settings.Temporal.MaxOutputBytes <= 0 {
-		settings.Temporal.MaxOutputBytes = intSetting(defaults, "temporal.max-output-bytes", 0)
 	}
 	return settings
 }

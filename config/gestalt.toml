@@ -9,6 +9,3 @@ input-font-size = "0.95rem"
 tui-mode = ""
 tui-snapshot-interval-ms = 0
 log-codex-events = false
-
-[temporal]
-max-output-bytes = 4096

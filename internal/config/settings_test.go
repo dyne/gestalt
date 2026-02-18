@@ -41,7 +41,7 @@ func TestLoadSettingsFileOverridesDefaults(t *testing.T) {
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "gestalt.toml")
-	if err := os.WriteFile(path, []byte("[temporal]\nmax-output-bytes = 2048\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("[session]\nscrollback-lines = 2048\n"), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
@@ -49,8 +49,8 @@ func TestLoadSettingsFileOverridesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load settings: %v", err)
 	}
-	if settings.Temporal.MaxOutputBytes != 2048 {
-		t.Fatalf("expected file to override defaults, got %d", settings.Temporal.MaxOutputBytes)
+	if settings.Session.ScrollbackLines != 2048 {
+		t.Fatalf("expected file to override defaults, got %d", settings.Session.ScrollbackLines)
 	}
 }
 

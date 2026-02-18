@@ -58,7 +58,7 @@ Summary
 }
 #+end_src
 
-* WIP [#A] Backend: Git Log Endpoint (REPR + minimal Hex adapter)
+* DONE [#A] Backend: Git Log Endpoint (REPR + minimal Hex adapter)
 :PROPERTIES:
 :Effort: 1.5d
 :Goal: Provide structured, bounded git log data for the dashboard.
@@ -80,7 +80,7 @@ Summary
 - Done when:
   - `internal/gitlog` can parse a fixture with 2 commits, including one binary file entry and one rename-ish path.
 
-** TODO [#A] Add `GET /api/git/log` endpoint and route registration
+** DONE [#A] Add `GET /api/git/log` endpoint and route registration
 - Why: Dashboard needs a single API call; existing `/api/status` only has branch/origin.
 - Change:
   - `internal/api/rest_git.go`: `handleGitLog(w,r)`:

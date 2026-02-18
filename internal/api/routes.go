@@ -8,6 +8,7 @@ import (
 	"gestalt/internal/event"
 	"gestalt/internal/flow"
 	flowruntime "gestalt/internal/flow/runtime"
+	"gestalt/internal/gitlog"
 	"gestalt/internal/logging"
 	"gestalt/internal/notify"
 	"gestalt/internal/otel"
@@ -42,6 +43,7 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 		NotificationSink:       notificationSink,
 		Logger:                 logger,
 		MetricsSummary:         metricsSummary,
+		GitLogReader:           gitlog.GitCmdReader{},
 		GitOrigin:              gitOrigin,
 		GitBranch:              gitBranch,
 		SessionScrollbackLines: statusConfig.SessionScrollbackLines,
@@ -131,6 +133,7 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 
 	mux.Handle("/api/status", wrap("/api/status", "status", "read", restHandler(authToken, logger, rest.handleStatus)))
 	mux.Handle("/api/metrics/summary", wrap("/api/metrics/summary", "status", "query", restHandler(authToken, logger, rest.handleMetricsSummary)))
+	mux.Handle("/api/git/log", wrap("/api/git/log", "status", "query", restHandler(authToken, logger, rest.handleGitLog)))
 	mux.Handle("/api/agents", wrap("/api/agents", "agents", "read", restHandler(authToken, logger, rest.handleAgents)))
 	agentSendInputHandler := wrap("/api/agents/:name/send-input", "agents", "stream", restHandler(authToken, logger, rest.handleAgentSendInput))
 	mux.Handle("/api/agents/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

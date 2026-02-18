@@ -140,6 +140,7 @@ var agentRootKeys = map[string]struct{}{
 	"cli_type":     {},
 	"model":        {},
 	"llm_model":    {},
+	"hidden":       {},
 	"cli_config":   {},
 }
 

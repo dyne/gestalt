@@ -29,6 +29,7 @@ func ComputeConfigHash(agent *Agent) string {
 		"singleton":    agent.Singleton,
 		"cli_type":     agent.CLIType,
 		"model":        agent.Model,
+		"hidden":       agent.Hidden,
 		"cli_config":   agent.CLIConfig,
 	}
 

@@ -28,10 +28,10 @@ const buildDashboardStore = (stateOverrides = {}) => {
     logsError: '',
     logLevelFilter: 'info',
     logsAutoRefresh: true,
-    metricsSummary: null,
-    metricsLoading: false,
-    metricsError: '',
-    metricsAutoRefresh: true,
+    gitLog: { branch: '', commits: [] },
+    gitLogLoading: false,
+    gitLogError: '',
+    gitLogAutoRefresh: true,
     configExtractionCount: 0,
     configExtractionLast: '',
     gitContext: 'not a git repo',
@@ -48,8 +48,8 @@ const buildDashboardStore = (stateOverrides = {}) => {
     loadLogs: vi.fn(() => Promise.resolve()),
     setLogLevelFilter: vi.fn(),
     setLogsAutoRefresh: vi.fn(),
-    setMetricsAutoRefresh: vi.fn(),
-    loadMetricsSummary: vi.fn(() => Promise.resolve()),
+    setGitLogAutoRefresh: vi.fn(),
+    loadGitLog: vi.fn(() => Promise.resolve()),
     setTerminals: vi.fn(),
     setStatus: vi.fn(),
   }
@@ -305,6 +305,39 @@ describe('Dashboard', () => {
 
     const copyButton = queryByRole('button', { name: 'Copy JSON' })
     expect(copyButton).toBeNull()
+  })
+
+  it('renders git log commit entries', async () => {
+    const dashboardStore = buildDashboardStore({
+      gitLog: {
+        branch: 'main',
+        commits: [
+          {
+            sha: '1234567890abcdef1234567890abcdef12345678',
+            short_sha: '1234567890ab',
+            committed_at: '2026-01-25T12:00:00Z',
+            subject: 'feat(dashboard): add git log',
+            stats: { files_changed: 2, lines_added: 8, lines_deleted: 3 },
+            files: [
+              { path: 'frontend/src/views/Dashboard.svelte', added: 8, deleted: 3, binary: false },
+            ],
+            files_truncated: false,
+          },
+        ],
+      },
+    })
+    createDashboardStore.mockReturnValue(dashboardStore)
+
+    const { findByText } = render(Dashboard, {
+      props: {
+        terminals: [],
+        status: { session_count: 0 },
+      },
+    })
+
+    expect(await findByText('Git log')).toBeTruthy()
+    expect(await findByText('feat(dashboard): add git log')).toBeTruthy()
+    expect(await findByText('1234567890ab')).toBeTruthy()
   })
 
 })

@@ -42,11 +42,13 @@ func parseAgentData(filePath string, data []byte) (Agent, error) {
 	if _, err := toml.Decode(string(data), &agent); err != nil {
 		return Agent{}, err
 	}
+	applyModelAlias(&agent, raw, filePath)
 	cliConfig, err := extractCLIConfig(raw)
 	if err != nil {
 		return Agent{}, err
 	}
 	agent.CLIConfig = cliConfig
+	applyModelCLIConfig(&agent)
 	if agent.Singleton == nil {
 		defaultSingleton := true
 		agent.Singleton = &defaultSingleton
@@ -136,8 +138,57 @@ var agentRootKeys = map[string]struct{}{
 	"singleton":    {},
 	"interface":    {},
 	"cli_type":     {},
+	"model":        {},
 	"llm_model":    {},
 	"cli_config":   {},
+}
+
+func applyModelAlias(agent *Agent, raw map[string]interface{}, filePath string) {
+	modelValue := strings.TrimSpace(rawString(raw["model"]))
+	llmModelValue := strings.TrimSpace(rawString(raw["llm_model"]))
+
+	if modelValue != "" {
+		agent.Model = modelValue
+	} else if llmModelValue != "" {
+		agent.Model = llmModelValue
+	}
+
+	if llmModelValue != "" {
+		message := "agent llm_model is deprecated; use model"
+		agent.warnings = append(agent.warnings, message)
+		emitConfigValidationErrorWithMessage(filePath, message)
+	}
+
+	if strings.TrimSpace(agent.Model) != "" && strings.TrimSpace(agent.LLMModel) == "" {
+		agent.LLMModel = agent.Model
+	}
+}
+
+func applyModelCLIConfig(agent *Agent) {
+	modelValue := strings.TrimSpace(agent.Model)
+	if modelValue == "" {
+		return
+	}
+	cliType := strings.TrimSpace(agent.CLIType)
+	if cliType == "" && len(agent.CLIConfig) == 0 {
+		return
+	}
+	if agent.CLIConfig == nil {
+		agent.CLIConfig = map[string]interface{}{}
+	}
+	if _, ok := agent.CLIConfig["model"]; ok {
+		return
+	}
+	agent.CLIConfig["model"] = modelValue
+}
+
+func rawString(value interface{}) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	default:
+		return ""
+	}
 }
 
 func extractCLIConfig(raw map[string]interface{}) (map[string]interface{}, error) {

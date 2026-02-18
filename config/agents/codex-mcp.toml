@@ -3,4 +3,4 @@ shell = "codex"
 cli_type = "codex"
 interface = "mcp"
 prompt = ["coder"]
-llm_model = "default"
+model = "default"

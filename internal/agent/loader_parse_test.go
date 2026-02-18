@@ -53,3 +53,21 @@ gui_modules = ["plan-progress"]
 		t.Fatalf("expected model in cli_config, got %#v", agent.CLIConfig)
 	}
 }
+
+func TestLLMModelAliasSetsModel(t *testing.T) {
+	data := []byte(`
+name = "Codex"
+shell = "/bin/bash"
+llm_model = "default"
+`)
+	agent, err := loadAgentFromBytes("agent.toml", data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if agent.Model != "default" {
+		t.Fatalf("expected model to be set from llm_model, got %q", agent.Model)
+	}
+	if agent.LLMModel != "default" {
+		t.Fatalf("expected llm_model to remain set, got %q", agent.LLMModel)
+	}
+}

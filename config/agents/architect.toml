@@ -3,7 +3,6 @@ shell = "codex"
 cli_type = "codex"
 interface = "cli"
 prompt = ["architect"]
-llm_model = "default"
 singleton = false
 gui_modules = ["console"]
 

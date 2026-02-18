@@ -90,12 +90,6 @@ const normalizePlan = (plan, index) => {
   }
 }
 
-const normalizeWorkflow = (workflow, index) => {
-  if (!workflow || typeof workflow !== 'object') return null
-  if (!workflow.session_id) return { ...workflow, session_id: '' }
-  return { ...workflow, session_id: String(workflow.session_id) }
-}
-
 const normalizeFlowActivityField = (field) => {
   if (!field || typeof field !== 'object') return null
   const key = field?.key ? String(field.key) : ''
@@ -174,7 +168,6 @@ const normalizeFlowConfigPayload = (payload) => {
       triggers,
       bindings_by_trigger_id: normalizedBindings,
     },
-    temporalStatus: normalizeObject(config.temporal_status),
     storagePath: config.storage_path ? String(config.storage_path) : '',
   }
 }
@@ -191,11 +184,8 @@ export const fetchTerminals = async () => {
   return normalizeArray(payload, normalizeTerminal)
 }
 
-export const createTerminal = async ({ agentId = '', workflow } = {}) => {
+export const createTerminal = async ({ agentId = '' } = {}) => {
   const payload = agentId ? { agent: agentId } : {}
-  if (typeof workflow === 'boolean') {
-    payload.workflow = workflow
-  }
   const response = await apiFetch('/api/sessions', {
     method: 'POST',
     body: JSON.stringify(payload),
@@ -280,33 +270,12 @@ export const fetchSessionProgress = async (sessionId) => {
   return normalizeObject(await response.json())
 }
 
-export const fetchWorkflows = async () => {
-  const response = await apiFetch('/api/workflows')
-  const payload = await response.json()
-  return normalizeArray(payload, normalizeWorkflow)
-}
-
 export const sendAgentInput = async (agentName, inputText) => {
   if (!agentName) return
   await apiFetch(`/api/agents/${encodeURIComponent(agentName)}/send-input`, {
     method: 'POST',
     body: JSON.stringify({ input: inputText }),
   })
-}
-
-export const resumeWorkflow = async (sessionId, action) => {
-  if (!sessionId) return
-  await apiFetch(`/api/sessions/${sessionId}/workflow/resume`, {
-    method: 'POST',
-    body: JSON.stringify({ action }),
-  })
-}
-
-export const fetchWorkflowHistory = async (terminalId) => {
-  if (!terminalId) return []
-  const response = await apiFetch(`/api/sessions/${terminalId}/workflow/history`)
-  const payload = await response.json()
-  return normalizeArray(payload, (entry) => entry)
 }
 
 export const fetchFlowActivities = async () => {

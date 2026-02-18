@@ -28,8 +28,6 @@ import {
   fetchPlansList,
   fetchStatus,
   fetchTerminals,
-  fetchWorkflowHistory,
-  fetchWorkflows,
   saveFlowConfig,
 } from '../src/lib/apiClient.js'
 
@@ -67,12 +65,12 @@ describe('apiClient', () => {
     const json = vi.fn().mockResolvedValue({ id: '1' })
     apiFetch.mockResolvedValue({ json })
 
-    const result = await createTerminal({ agentId: 'codex', workflow: true })
+    const result = await createTerminal({ agentId: 'codex' })
 
     expect(result).toEqual({ id: '1', interface: 'cli', title: '', runner: '', gui_modules: [] })
     expect(apiFetch).toHaveBeenCalledWith('/api/sessions', {
       method: 'POST',
-      body: JSON.stringify({ agent: 'codex', workflow: true }),
+      body: JSON.stringify({ agent: 'codex' }),
     })
   })
 
@@ -128,22 +126,6 @@ describe('apiClient', () => {
     expect(result.error_rates).toEqual([])
   })
 
-  it('normalizes malformed workflows payloads', async () => {
-    apiFetch.mockResolvedValue({ json: vi.fn().mockResolvedValue([null, { session_id: 9 }]) })
-
-    const result = await fetchWorkflows()
-
-    expect(result).toEqual([{ session_id: '9' }])
-  })
-
-  it('normalizes malformed workflow history payloads', async () => {
-    apiFetch.mockResolvedValue({ json: vi.fn().mockResolvedValue([null, { type: 'bell' }]) })
-
-    const result = await fetchWorkflowHistory('abc')
-
-    expect(result).toEqual([{ type: 'bell' }])
-  })
-
   it('fetches flow activities', async () => {
     apiFetch.mockResolvedValue({ json: vi.fn().mockResolvedValue([{ id: 'toast_notification' }, null]) })
 
@@ -159,9 +141,8 @@ describe('apiClient', () => {
     apiFetch.mockResolvedValue({
       json: vi.fn().mockResolvedValue({
         version: 1,
-        triggers: [{ id: 't1', label: 'Trigger', event_type: 'workflow_paused' }],
+        triggers: [{ id: 't1', label: 'Trigger', event_type: 'file_changed' }],
         bindings_by_trigger_id: { t1: [{ activity_id: 'toast_notification' }] },
-        temporal_status: { enabled: true },
         storage_path: '.gestalt/flow/automations.json',
       }),
     })
@@ -169,7 +150,6 @@ describe('apiClient', () => {
     const result = await fetchFlowConfig()
 
     expect(result.config.triggers[0].id).toBe('t1')
-    expect(result.temporalStatus.enabled).toBe(true)
     expect(result.storagePath).toBe('.gestalt/flow/automations.json')
   })
 

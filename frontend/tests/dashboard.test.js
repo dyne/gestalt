@@ -336,7 +336,8 @@ describe('Dashboard', () => {
     })
 
     expect(await findByText('Git log')).toBeTruthy()
-    expect(await findByText('feat(dashboard): add git log')).toBeTruthy()
+    expect(await findByText('feat')).toBeTruthy()
+    expect(await findByText('add git log')).toBeTruthy()
     expect(await findByText('1234567890ab')).toBeTruthy()
   })
 

@@ -144,13 +144,13 @@ Summary
 - Done when:
   - Dashboard shows commits with relative times and file stats; “API metrics” no longer appears.
 
-* TODO [#A] Conventional Commit Rendering + Styling
+* DONE [#A] Conventional Commit Rendering + Styling
 :PROPERTIES:
 :Effort: 1d
 :Goal: Make conventional commits visually scannable with consistent colors and truncation.
 :Notes: Keep the parsing logic deterministic; don’t guess; only highlight when it matches the conventional pattern.
 :END:
-** TODO [#A] Implement conventional commit parsing and type color mapping
+** DONE [#A] Implement conventional commit parsing and type color mapping
 - Why: Highlighting `feat:` / `fix:` etc is a key part of the requested UX.
 - Change:
   - Parsing (frontend preferred):

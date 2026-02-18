@@ -4,6 +4,7 @@
   import { getErrorMessage } from '../lib/errorUtils.js'
   import { formatRelativeTime } from '../lib/timeUtils.js'
   import { formatLogEntryForClipboard } from '../lib/logEntry.js'
+  import { parseConventionalCommit } from '../lib/conventionalCommit.js'
   import { notificationStore } from '../lib/notificationStore.js'
   import { canUseClipboard } from '../lib/clipboard.js'
 
@@ -129,6 +130,10 @@
   const gitFileDelta = (file) => {
     if (!file || file.binary) return 'binary'
     return `${formatLineDelta(file.added, '+')} / ${formatLineDelta(file.deleted, '-')}`
+  }
+
+  const commitConventional = (commit) => {
+    return parseConventionalCommit(commit?.subject || '')
   }
 
   $: visibleAgents = agents.filter((agent) => !agent?.hidden)
@@ -497,7 +502,17 @@
               <details>
                 <summary class="gitlog-entry__summary">
                   <div class="gitlog-entry__line">
-                    <span class="gitlog-subject">{commit.subject || 'No subject'}</span>
+                    <div class="gitlog-subject-wrap">
+                      {#if commitConventional(commit).type}
+                        <span
+                          class={`conventional-badge ${commitConventional(commit).badgeClass}`}
+                          title={commitConventional(commit).type}
+                        >
+                          {commitConventional(commit).type}
+                        </span>
+                      {/if}
+                      <span class="gitlog-subject">{commitConventional(commit).displayTitle || 'No subject'}</span>
+                    </div>
                     <span class="gitlog-time" title={commit.committed_at || ''}>
                       {formatGitLogTime(commit.committed_at)}
                     </span>
@@ -856,11 +871,67 @@
     gap: 0.6rem;
   }
 
+  .gitlog-subject-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-width: 0;
+  }
+
   .gitlog-subject {
     color: var(--color-text);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .conventional-badge {
+    border-radius: 999px;
+    padding: 0.1rem 0.45rem;
+    font-size: 0.66rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    border: 1px solid transparent;
+    color: var(--color-text);
+    background: rgba(var(--color-text-rgb), 0.1);
+    white-space: nowrap;
+  }
+
+  .conventional-badge--feat {
+    color: rgb(var(--color-success-rgb));
+    border-color: rgba(var(--color-success-rgb), 0.4);
+    background: rgba(var(--color-success-rgb), 0.14);
+  }
+
+  .conventional-badge--fix {
+    color: rgb(var(--color-warning-rgb));
+    border-color: rgba(var(--color-warning-rgb), 0.4);
+    background: rgba(var(--color-warning-rgb), 0.16);
+  }
+
+  .conventional-badge--docs {
+    color: rgb(var(--color-info-rgb));
+    border-color: rgba(var(--color-info-rgb), 0.4);
+    background: rgba(var(--color-info-rgb), 0.16);
+  }
+
+  .conventional-badge--refactor {
+    color: #7e57c2;
+    border-color: rgba(126, 87, 194, 0.4);
+    background: rgba(126, 87, 194, 0.16);
+  }
+
+  .conventional-badge--chore,
+  .conventional-badge--ci,
+  .conventional-badge--build,
+  .conventional-badge--test,
+  .conventional-badge--perf,
+  .conventional-badge--style,
+  .conventional-badge--revert,
+  .conventional-badge--default {
+    color: var(--color-text-subtle);
+    border-color: rgba(var(--color-text-rgb), 0.3);
+    background: rgba(var(--color-text-rgb), 0.08);
   }
 
   .gitlog-time {

@@ -18,7 +18,7 @@ import (
 	"gestalt/internal/watcher"
 )
 
-func TestEventsSSEStreamDeliversWatcherConfigWorkflow(t *testing.T) {
+func TestEventsSSEStreamDeliversWatcherConfig(t *testing.T) {
 	bus := event.NewBus[watcher.Event](context.Background(), event.BusOptions{Name: "watcher_events"})
 	defer bus.Close()
 
@@ -94,31 +94,6 @@ func TestEventsSSEStreamDeliversWatcherConfigWorkflow(t *testing.T) {
 		t.Fatalf("expected timestamp %v, got %v", configEvent.OccurredAt, configPayload.Timestamp)
 	}
 
-	workflowEvent := event.WorkflowEvent{
-		EventType:  "workflow_started",
-		WorkflowID: "workflow-123",
-		SessionID:  "session-123",
-		OccurredAt: time.Now().UTC(),
-	}
-	manager.WorkflowBus().Publish(workflowEvent)
-
-	data = readSSEDataFrame(t, reader, time.Second)
-	var workflowPayload workflowEventPayload
-	if err := json.Unmarshal(data, &workflowPayload); err != nil {
-		t.Fatalf("decode workflow payload: %v", err)
-	}
-	if workflowPayload.Type != workflowEvent.EventType {
-		t.Fatalf("expected event type %q, got %q", workflowEvent.EventType, workflowPayload.Type)
-	}
-	if workflowPayload.WorkflowID != workflowEvent.WorkflowID {
-		t.Fatalf("expected workflow ID %q, got %q", workflowEvent.WorkflowID, workflowPayload.WorkflowID)
-	}
-	if workflowPayload.SessionID != workflowEvent.SessionID {
-		t.Fatalf("expected session ID %q, got %q", workflowEvent.SessionID, workflowPayload.SessionID)
-	}
-	if workflowPayload.Timestamp.IsZero() {
-		t.Fatalf("expected timestamp to be set")
-	}
 }
 
 func TestEventsSSEStreamFiltersTypes(t *testing.T) {

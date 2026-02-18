@@ -26,8 +26,6 @@ type RestHandler struct {
 	SessionFontSize        string
 	SessionInputFontFamily string
 	SessionInputFontSize   string
-	TemporalUIPort         int
-	TemporalHost           string
 	gitMutex               sync.RWMutex
 }
 
@@ -50,45 +48,6 @@ type terminalSummary struct {
 type terminalCreateResponse struct {
 	terminalSummary
 	Launch *launchspec.LaunchSpec `json:"launch,omitempty"`
-}
-
-type workflowSummary struct {
-	SessionID     string              `json:"session_id"`
-	WorkflowID    string              `json:"workflow_id"`
-	WorkflowRunID string              `json:"workflow_run_id"`
-	Title         string              `json:"title"`
-	Role          string              `json:"role"`
-	AgentID       string              `json:"agent_id"`
-	AgentName     string              `json:"agent_name"`
-	CurrentL1     string              `json:"current_l1"`
-	CurrentL2     string              `json:"current_l2"`
-	Status        string              `json:"status"`
-	StartTime     time.Time           `json:"start_time"`
-	BellEvents    []workflowBellEvent `json:"bell_events"`
-	TaskEvents    []workflowTaskEvent `json:"task_events"`
-}
-
-type workflowBellEvent struct {
-	Timestamp time.Time `json:"timestamp"`
-	Context   string    `json:"context"`
-}
-
-type workflowTaskEvent struct {
-	Timestamp time.Time `json:"timestamp"`
-	L1        string    `json:"l1"`
-	L2        string    `json:"l2"`
-}
-
-type workflowHistoryEntry struct {
-	EventID    int64     `json:"event_id"`
-	Type       string    `json:"type"`
-	Timestamp  time.Time `json:"timestamp"`
-	SignalName string    `json:"signal_name,omitempty"`
-	Action     string    `json:"action,omitempty"`
-	L1         string    `json:"l1,omitempty"`
-	L2         string    `json:"l2,omitempty"`
-	Context    string    `json:"context,omitempty"`
-	Reason     string    `json:"reason,omitempty"`
 }
 
 type terminalOutputResponse struct {
@@ -126,10 +85,6 @@ type statusResponse struct {
 	Patch                     int       `json:"patch"`
 	Built                     string    `json:"built"`
 	GitCommit                 string    `json:"git_commit,omitempty"`
-	TemporalUIURL             string    `json:"temporal_ui_url,omitempty"`
-	TemporalHost              string    `json:"temporal_host"`
-	TemporalDevServerRunning  bool      `json:"temporal_dev_server_running"`
-	TemporalDevServerPID      int       `json:"temporal_dev_server_pid"`
 	OTelCollectorRunning      bool      `json:"otel_collector_running"`
 	OTelCollectorPID          int       `json:"otel_collector_pid"`
 	OTelCollectorHTTPEndpoint string    `json:"otel_collector_http_endpoint"`

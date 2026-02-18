@@ -402,8 +402,6 @@ func categoryForPath(path string) string {
 		return "sessions"
 	case strings.HasPrefix(path, "/api/agents"):
 		return "agents"
-	case strings.HasPrefix(path, "/api/workflows"):
-		return "workflows"
 	case strings.HasPrefix(path, "/api/config"):
 		return "config"
 	case strings.HasPrefix(path, "/api/otel"):
@@ -475,15 +473,6 @@ func terminalRoute(path string) string {
 		return "/api/sessions/:id/input-history"
 	case "bell":
 		return "/api/sessions/:id/bell"
-	case "workflow":
-		if len(parts) >= 3 {
-			switch parts[2] {
-			case "resume":
-				return "/api/sessions/:id/workflow/resume"
-			case "history":
-				return "/api/sessions/:id/workflow/history"
-			}
-		}
 	}
 	return "/api/sessions/:id"
 }
@@ -548,10 +537,10 @@ func parseAgentIDFromBody(payload []byte) string {
 }
 
 type AgentAttributes struct {
-	ID         string
-	Name       string
-	Type       string
-	SessionID  string
+	ID        string
+	Name      string
+	Type      string
+	SessionID string
 }
 
 func (attrs AgentAttributes) AsSpanAttributes() []attribute.KeyValue {

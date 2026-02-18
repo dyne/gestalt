@@ -66,7 +66,7 @@ func TestFlowConfigEndpointGet(t *testing.T) {
 	cfg := flow.Config{
 		Version: flow.ConfigVersion,
 		Triggers: []flow.EventTrigger{
-			{ID: "t1", Label: "Trigger one", EventType: "workflow_paused", Where: map[string]string{"terminal_id": "t1"}},
+			{ID: "t1", Label: "Trigger one", EventType: "file_changed", Where: map[string]string{"terminal_id": "t1"}},
 		},
 		BindingsByTriggerID: map[string][]flow.ActivityBinding{
 			"t1": {
@@ -108,7 +108,7 @@ func TestFlowConfigEndpointPut(t *testing.T) {
 	cfg := flow.Config{
 		Version: flow.ConfigVersion,
 		Triggers: []flow.EventTrigger{
-			{ID: "t1", Label: "Trigger one", EventType: "workflow_paused", Where: map[string]string{"terminal_id": "t1"}},
+			{ID: "t1", Label: "Trigger one", EventType: "file_changed", Where: map[string]string{"terminal_id": "t1"}},
 		},
 		BindingsByTriggerID: map[string][]flow.ActivityBinding{
 			"t1": {
@@ -145,7 +145,7 @@ func TestFlowConfigEndpointValidationErrors(t *testing.T) {
 	duplicate := flow.Config{
 		Version: flow.ConfigVersion,
 		Triggers: []flow.EventTrigger{
-			{ID: "dup", EventType: "workflow_paused"},
+			{ID: "dup", EventType: "file_changed"},
 			{ID: "dup", EventType: "file_changed"},
 		},
 		BindingsByTriggerID: map[string][]flow.ActivityBinding{},
@@ -161,7 +161,7 @@ func TestFlowConfigEndpointValidationErrors(t *testing.T) {
 	invalidType := flow.Config{
 		Version: flow.ConfigVersion,
 		Triggers: []flow.EventTrigger{
-			{ID: "t1", EventType: "workflow_paused"},
+			{ID: "t1", EventType: "file_changed"},
 		},
 		BindingsByTriggerID: map[string][]flow.ActivityBinding{
 			"t1": {
@@ -184,7 +184,7 @@ func TestFlowConfigExportEndpoint(t *testing.T) {
 	cfg := flow.Config{
 		Version: flow.ConfigVersion,
 		Triggers: []flow.EventTrigger{
-			{ID: "t1", Label: "Trigger one", EventType: "workflow_paused", Where: map[string]string{"terminal_id": "t1"}},
+			{ID: "t1", Label: "Trigger one", EventType: "file_changed", Where: map[string]string{"terminal_id": "t1"}},
 		},
 		BindingsByTriggerID: map[string][]flow.ActivityBinding{},
 	}
@@ -222,7 +222,7 @@ func TestFlowConfigImportEndpoint(t *testing.T) {
 	cfg := flow.Config{
 		Version: flow.ConfigVersion,
 		Triggers: []flow.EventTrigger{
-			{ID: "t1", Label: "Trigger one", EventType: "workflow_paused", Where: map[string]string{"terminal_id": "t1"}},
+			{ID: "t1", Label: "Trigger one", EventType: "file_changed", Where: map[string]string{"terminal_id": "t1"}},
 		},
 		BindingsByTriggerID: map[string][]flow.ActivityBinding{},
 	}
@@ -262,7 +262,7 @@ func TestFlowConfigImportEndpointValidationErrors(t *testing.T) {
 	duplicate := flow.Config{
 		Version: flow.ConfigVersion,
 		Triggers: []flow.EventTrigger{
-			{ID: "dup", EventType: "workflow_paused"},
+			{ID: "dup", EventType: "file_changed"},
 			{ID: "dup", EventType: "file_changed"},
 		},
 		BindingsByTriggerID: map[string][]flow.ActivityBinding{},

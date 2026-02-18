@@ -365,8 +365,6 @@ func runServer(args []string) int {
 		registerPprofHandlers(backendMux, logger)
 	}
 	api.RegisterRoutes(backendMux, manager, cfg.AuthToken, api.StatusConfig{
-		TemporalUIPort:         0,
-		TemporalHost:           "",
 		SessionScrollbackLines: int(settings.Session.ScrollbackLines),
 		SessionFontFamily:      settings.Session.FontFamily,
 		SessionFontSize:        settings.Session.FontSize,

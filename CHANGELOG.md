@@ -1,3 +1,38 @@
+# [1.13.0](https://github.com/dyne/gestalt/compare/v1.12.0...v1.13.0) (2026-02-18)
+
+
+### Bug Fixes
+
+* adjust agents close and temporal link ([7bb9463](https://github.com/dyne/gestalt/commit/7bb9463f8a3eb421e3a547a5daa3b332eea0bcfd))
+* **cli:** preserve https and gate session logs ([4c8211e](https://github.com/dyne/gestalt/commit/4c8211e8ae24d4edf5e1e467ea9ab043947f2a6b))
+* **frontend:** correct temporal URL trailing-slash regex ([b26e8cd](https://github.com/dyne/gestalt/commit/b26e8cd203595b39232fc6dee3784592747431eb))
+* **frontend:** refresh agents tab visibility ([a309e27](https://github.com/dyne/gestalt/commit/a309e27d5f9050205047be14d3e99b0eff5ba998))
+* gate agents tab on hub status ([d8b4d41](https://github.com/dyne/gestalt/commit/d8b4d416c5fa2fccffdfabf4ea0582eeda52b213))
+* hide xterm scrollbar in agents view ([feb9d64](https://github.com/dyne/gestalt/commit/feb9d64ca3cceb6928453021828c56c8547a843c))
+* normalize mcp input and tmux attach ([6eb7953](https://github.com/dyne/gestalt/commit/6eb7953aeb34d2042c99810df3f59dc63d6b218e))
+* point agents temporal button to workflows ([827d46d](https://github.com/dyne/gestalt/commit/827d46d4feb4fbd158f2b5c03d6e566c14ed03af))
+* refresh agents hub on cli create ([bf37ae9](https://github.com/dyne/gestalt/commit/bf37ae9c0bf1941e5411a0be05eb15f219d98b41))
+* refresh status after cli session start ([15bf5a5](https://github.com/dyne/gestalt/commit/15bf5a56ef2ac6d4e29937ae26f0908a7abd0d9f))
+* resize tmux xterm after connect ([49a940c](https://github.com/dyne/gestalt/commit/49a940ccc40d174115b8931c3a2a35592ffb5c76))
+* start tmux for gui-created cli sessions ([adf1951](https://github.com/dyne/gestalt/commit/adf1951c6df6124f699bc1aed2d6d2568294366b))
+* **tests:** disable default external tmux startup under go test ([03ec0b2](https://github.com/dyne/gestalt/commit/03ec0b2e6b24cbc143e0199552198a4e1e740af4))
+
+
+### Features
+
+* **api:** add raw session input endpoint ([3d26796](https://github.com/dyne/gestalt/commit/3d26796233a0c429b26012ca42044dac4df63f43))
+* **api:** add tmux window activation endpoint ([6eedc2c](https://github.com/dyne/gestalt/commit/6eedc2cfeeab3bc25a96171df48fbac7df683d5e))
+* **cli:** add gestalt-send host/port and session-id modes ([9763eca](https://github.com/dyne/gestalt/commit/9763eca174c33359c6b71fce5e70a30140cd9a74))
+* **cli:** switch gestalt-agent to host/port and tmux attach ([1e8377d](https://github.com/dyne/gestalt/commit/1e8377df60f10062d7c8cecbf9990068d9729510))
+* **frontend:** activate tmux window when selecting external agents ([c408a95](https://github.com/dyne/gestalt/commit/c408a95e98ad1cd738c2e75e87e1e6b920a420a3))
+* **frontend:** add agents hub terminal input mode ([2538967](https://github.com/dyne/gestalt/commit/2538967b223b1430410923c23c525880f687e196))
+* **frontend:** add agents tab and hide external cli tabs ([955f7c9](https://github.com/dyne/gestalt/commit/955f7c9a5105d5093e27c961d0c0bb457b2736cd))
+* prune closed tmux agent sessions ([c98586f](https://github.com/dyne/gestalt/commit/c98586f4b69f696e6469d4906342aeecc9b62667))
+* **runner:** extract shared tmux session helpers ([b1724af](https://github.com/dyne/gestalt/commit/b1724af64bf19c45412eb445b36ac5cd014b5d41))
+* **terminal:** create and expose agents tmux hub session ([568f18a](https://github.com/dyne/gestalt/commit/568f18abae0753c627a8928eca2425aa14b10ff8))
+* **terminal:** start tmux windows for external cli sessions ([a4e2f86](https://github.com/dyne/gestalt/commit/a4e2f861453527da8e1c7d77b383d5d032168a41))
+* **ui:** prefetch plans list on startup ([303b7e7](https://github.com/dyne/gestalt/commit/303b7e75057a6c9a11f56584400ae801000c4166))
+
 # [1.12.0](https://github.com/dyne/gestalt/compare/v1.11.0...v1.12.0) (2026-02-13)
 
 

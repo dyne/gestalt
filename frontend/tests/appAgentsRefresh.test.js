@@ -1,4 +1,4 @@
-import { render, cleanup, waitFor } from '@testing-library/svelte'
+import { render, cleanup, waitFor, fireEvent } from '@testing-library/svelte'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { notificationStore } from '../src/lib/notificationStore.js'
 import { createLogStreamStub, defaultMetricsSummary } from './helpers/appApiMocks.js'
@@ -27,6 +27,13 @@ const emitEvent = (type, payload) => {
 vi.mock('../src/lib/api.js', () => ({
   apiFetch,
   buildEventSourceUrl,
+  buildApiPath: (base, ...segments) => {
+    const basePath = base.endsWith('/') ? base.slice(0, -1) : base
+    const encoded = segments
+      .filter((segment) => segment !== undefined && segment !== null && segment !== '')
+      .map((segment) => encodeURIComponent(String(segment)))
+    return encoded.length ? `${basePath}/${encoded.join('/')}` : basePath
+  },
 }))
 
 vi.mock('../src/lib/eventStore.js', () => ({
@@ -48,6 +55,13 @@ describe('App agents tab refresh', () => {
   beforeEach(() => {
     eventListeners.clear()
     createLogStream.mockImplementation(() => createLogStreamStub())
+    if (!Element.prototype.animate) {
+      Element.prototype.animate = () => ({
+        cancel() {},
+        finish() {},
+        onfinish: null,
+      })
+    }
   })
 
   afterEach(() => {
@@ -102,5 +116,66 @@ describe('App agents tab refresh', () => {
 
     expect(statusCalls).toBeGreaterThanOrEqual(2)
     expect(sessionsCalls).toBeGreaterThanOrEqual(2)
+  })
+
+  it('shows Agents tab after creating an external agent without SSE', async () => {
+    let statusCalls = 0
+    let sessionsCalls = 0
+
+    apiFetch.mockImplementation((url, options = {}) => {
+      if (url === '/api/status') {
+        statusCalls += 1
+        const payload =
+          statusCalls === 1
+            ? { session_count: 0, agents_session_id: '', agents_tmux_session: '' }
+            : { session_count: 1, agents_session_id: 'Agents 1', agents_tmux_session: '' }
+        return Promise.resolve({ json: () => Promise.resolve(payload) })
+      }
+      if (url === '/api/sessions') {
+        if (options.method === 'POST') {
+          return Promise.resolve({
+            json: () =>
+              Promise.resolve({
+                id: 'external-1',
+                interface: 'cli',
+                runner: 'external',
+                title: '',
+              }),
+          })
+        }
+        sessionsCalls += 1
+        return Promise.resolve({ json: () => Promise.resolve([]) })
+      }
+      if (url === '/api/sessions/external-1/activate') {
+        return Promise.resolve({ ok: true })
+      }
+      if (url === '/api/agents') {
+        return Promise.resolve({
+          json: () => Promise.resolve([{ id: 'codex', name: 'Codex' }]),
+        })
+      }
+      if (url === '/api/metrics/summary') {
+        return Promise.resolve({ json: () => Promise.resolve(defaultMetricsSummary) })
+      }
+      if (url === '/api/otel/logs') {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true }) })
+      }
+      if (url === '/api/plans') {
+        return Promise.resolve({ json: () => Promise.resolve({ plans: [] }) })
+      }
+      return Promise.resolve({ json: () => Promise.resolve({}) })
+    })
+
+    const { findByText, queryByRole } = render(App)
+
+    const button = await findByText('Codex')
+    await fireEvent.click(button)
+
+    await waitFor(() => {
+      expect(queryByRole('button', { name: 'Agents' })).toBeTruthy()
+    })
+
+    expect(statusCalls).toBeGreaterThanOrEqual(2)
+    expect(sessionsCalls).toBeGreaterThanOrEqual(1)
   })
 })

@@ -28,11 +28,6 @@ type Config struct {
 	BackendPort          int
 	Shell                string
 	AuthToken            string
-	TemporalHost         string
-	TemporalNamespace    string
-	TemporalEnabled      bool
-	TemporalDevServer    bool
-	TemporalUIPort       int
 	SessionRetentionDays int
 	SessionPersist       bool
 	SessionLogDir        string
@@ -65,10 +60,6 @@ type configDefaults struct {
 	BackendPort          int
 	Shell                string
 	AuthToken            string
-	TemporalHost         string
-	TemporalNamespace    string
-	TemporalEnabled      bool
-	TemporalDevServer    bool
 	SessionRetentionDays int
 	SessionPersist       bool
 	SessionLogDir        string
@@ -88,10 +79,6 @@ type flagValues struct {
 	BackendPort          int
 	Shell                string
 	Token                string
-	TemporalHost         string
-	TemporalNamespace    string
-	TemporalEnabled      bool
-	TemporalDevServer    bool
 	SessionRetentionDays int
 	SessionPersist       bool
 	SessionLogDir        string
@@ -199,62 +186,6 @@ func loadConfig(args []string) (Config, error) {
 	}
 	cfg.AuthToken = token
 	cfg.Sources["token"] = tokenSource
-
-	temporalHost := defaults.TemporalHost
-	temporalHostSource := sourceDefault
-	if rawHost := strings.TrimSpace(os.Getenv("GESTALT_TEMPORAL_HOST")); rawHost != "" {
-		temporalHost = rawHost
-		temporalHostSource = sourceEnv
-	}
-	if flags.Set["temporal-host"] {
-		temporalHost = flags.TemporalHost
-		temporalHostSource = sourceFlag
-	}
-	cfg.TemporalHost = temporalHost
-	cfg.Sources["temporal-host"] = temporalHostSource
-
-	temporalNamespace := defaults.TemporalNamespace
-	temporalNamespaceSource := sourceDefault
-	if rawNamespace := strings.TrimSpace(os.Getenv("GESTALT_TEMPORAL_NAMESPACE")); rawNamespace != "" {
-		temporalNamespace = rawNamespace
-		temporalNamespaceSource = sourceEnv
-	}
-	if flags.Set["temporal-namespace"] {
-		temporalNamespace = flags.TemporalNamespace
-		temporalNamespaceSource = sourceFlag
-	}
-	cfg.TemporalNamespace = temporalNamespace
-	cfg.Sources["temporal-namespace"] = temporalNamespaceSource
-
-	temporalEnabled := defaults.TemporalEnabled
-	temporalEnabledSource := sourceDefault
-	if rawEnabled := strings.TrimSpace(os.Getenv("GESTALT_TEMPORAL_ENABLED")); rawEnabled != "" {
-		if parsed, err := strconv.ParseBool(rawEnabled); err == nil {
-			temporalEnabled = parsed
-			temporalEnabledSource = sourceEnv
-		}
-	}
-	if flags.Set["temporal-enabled"] {
-		temporalEnabled = flags.TemporalEnabled
-		temporalEnabledSource = sourceFlag
-	}
-	cfg.TemporalEnabled = temporalEnabled
-	cfg.Sources["temporal-enabled"] = temporalEnabledSource
-
-	temporalDevServer := defaults.TemporalDevServer
-	temporalDevServerSource := sourceDefault
-	if rawDevServer := strings.TrimSpace(os.Getenv("GESTALT_TEMPORAL_DEV_SERVER")); rawDevServer != "" {
-		if parsed, err := strconv.ParseBool(rawDevServer); err == nil {
-			temporalDevServer = parsed
-			temporalDevServerSource = sourceEnv
-		}
-	}
-	if flags.Set["temporal-dev-server"] {
-		temporalDevServer = flags.TemporalDevServer
-		temporalDevServerSource = sourceFlag
-	}
-	cfg.TemporalDevServer = temporalDevServer
-	cfg.Sources["temporal-dev-server"] = temporalDevServerSource
 
 	sessionPersist := defaults.SessionPersist
 	sessionPersistSource := sourceDefault
@@ -502,10 +433,6 @@ func defaultConfigValues() configDefaults {
 		BackendPort:          0,
 		Shell:                terminal.DefaultShell(),
 		AuthToken:            "",
-		TemporalHost:         temporalDefaultHost,
-		TemporalNamespace:    "default",
-		TemporalEnabled:      true,
-		TemporalDevServer:    true,
 		SessionRetentionDays: terminal.DefaultSessionRetentionDays,
 		SessionPersist:       true,
 		SessionLogDir:        filepath.Join(".gestalt", "sessions"),
@@ -531,10 +458,6 @@ func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
 	backendPort := fs.Int("backend-port", defaults.BackendPort, "Backend API port")
 	shell := fs.String("shell", defaults.Shell, "Default shell command")
 	token := fs.String("token", defaults.AuthToken, "Auth token for REST/WS")
-	temporalHost := fs.String("temporal-host", defaults.TemporalHost, "Temporal server host:port")
-	temporalNamespace := fs.String("temporal-namespace", defaults.TemporalNamespace, "Temporal namespace")
-	temporalEnabled := fs.Bool("temporal-enabled", defaults.TemporalEnabled, "Enable Temporal workflows")
-	temporalDevServer := fs.Bool("temporal-dev-server", defaults.TemporalDevServer, "Auto-start Temporal dev server")
 	sessionPersist := fs.Bool("session-persist", defaults.SessionPersist, "Persist terminal sessions to disk")
 	sessionDir := fs.String("session-dir", defaults.SessionLogDir, "Session log directory")
 	sessionRetentionDays := fs.Int("session-retention-days", defaults.SessionRetentionDays, "Session retention days")
@@ -571,10 +494,6 @@ func parseFlags(args []string, defaults configDefaults) (flagValues, error) {
 		BackendPort:          *backendPort,
 		Shell:                *shell,
 		Token:                *token,
-		TemporalHost:         *temporalHost,
-		TemporalNamespace:    *temporalNamespace,
-		TemporalEnabled:      *temporalEnabled,
-		TemporalDevServer:    *temporalDevServer,
 		SessionRetentionDays: *sessionRetentionDays,
 		SessionPersist:       *sessionPersist,
 		SessionLogDir:        *sessionDir,
@@ -636,25 +555,6 @@ func printHelp(out io.Writer, defaults configDefaults) {
 		{
 			Name: "--pprof",
 			Desc: fmt.Sprintf("Enable pprof endpoints (env: GESTALT_PPROF_ENABLED, default: %t)", defaults.PprofEnabled),
-		},
-	})
-
-	writeOptionGroup(out, "Temporal", []helpOption{
-		{
-			Name: "--temporal-host HOST:PORT",
-			Desc: fmt.Sprintf("Temporal server address (env: GESTALT_TEMPORAL_HOST, default: %s)", defaults.TemporalHost),
-		},
-		{
-			Name: "--temporal-namespace NAME",
-			Desc: fmt.Sprintf("Temporal namespace (env: GESTALT_TEMPORAL_NAMESPACE, default: %s)", defaults.TemporalNamespace),
-		},
-		{
-			Name: "--temporal-enabled",
-			Desc: fmt.Sprintf("Enable Temporal workflows (env: GESTALT_TEMPORAL_ENABLED, default: %t)", defaults.TemporalEnabled),
-		},
-		{
-			Name: "--temporal-dev-server",
-			Desc: fmt.Sprintf("Auto-start Temporal dev server (env: GESTALT_TEMPORAL_DEV_SERVER, default: %t)", defaults.TemporalDevServer),
 		},
 	})
 
@@ -765,18 +665,6 @@ func logStartupFlags(logger *logging.Logger, cfg Config) {
 	}
 	if cfg.Sources["token"] == sourceFlag {
 		flags = append(flags, formatTokenFlag(cfg.AuthToken))
-	}
-	if cfg.Sources["temporal-host"] == sourceFlag {
-		flags = append(flags, formatStringFlag("--temporal-host", cfg.TemporalHost))
-	}
-	if cfg.Sources["temporal-namespace"] == sourceFlag {
-		flags = append(flags, formatStringFlag("--temporal-namespace", cfg.TemporalNamespace))
-	}
-	if cfg.Sources["temporal-enabled"] == sourceFlag {
-		flags = append(flags, formatBoolFlag("--temporal-enabled", cfg.TemporalEnabled))
-	}
-	if cfg.Sources["temporal-dev-server"] == sourceFlag {
-		flags = append(flags, formatBoolFlag("--temporal-dev-server", cfg.TemporalDevServer))
 	}
 	if cfg.Sources["session-persist"] == sourceFlag {
 		flags = append(flags, formatBoolFlag("--session-persist", cfg.SessionPersist))

@@ -19,6 +19,7 @@
   let actionPending = false
   let localError = ''
   let agents = []
+  let visibleAgents = []
   let agentsLoading = false
   let agentsError = ''
   let logs = []
@@ -142,6 +143,8 @@
     if (value) return `${prefix}:${value}`
     return `${prefix}:${index}`
   }
+
+  $: visibleAgents = agents.filter((agent) => !agent?.hidden)
 
   const attributeEntriesFor = (entry) => {
     return Object.entries(entry?.attributes || {}).sort(([left], [right]) =>
@@ -310,9 +313,11 @@
       <p class="error">{agentsError}</p>
     {:else if agents.length === 0}
       <p class="muted">No agent profiles found.</p>
+    {:else if visibleAgents.length === 0}
+      <p class="muted">All agents are hidden.</p>
     {:else}
       <div class="agent-grid">
-        {#each agents as agent}
+        {#each visibleAgents as agent}
           <div class="agent-card">
             <button
               class="agent-button"

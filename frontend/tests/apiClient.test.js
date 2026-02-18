@@ -99,6 +99,16 @@ describe('apiClient', () => {
     expect(result).toEqual([])
   })
 
+  it('preserves hidden flags on agents', async () => {
+    apiFetch.mockResolvedValue({
+      json: vi.fn().mockResolvedValue([{ id: 'hidden', name: 'Hidden', hidden: true }]),
+    })
+
+    const result = await fetchAgents()
+
+    expect(result).toEqual([{ id: 'hidden', name: 'Hidden', hidden: true }])
+  })
+
   it('normalizes malformed agent skills payloads', async () => {
     apiFetch.mockResolvedValue({ json: vi.fn().mockResolvedValue([null, { name: '' }, { name: 'Skill' }]) })
 

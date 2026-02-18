@@ -70,6 +70,7 @@ const normalizeAgent = (agent) => {
     ...agent,
     id: String(id),
     name,
+    hidden: Boolean(agent?.hidden),
   }
 }
 

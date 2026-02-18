@@ -17,6 +17,7 @@ All agent files support the following fields:
 - `onair_string` (string, optional): Wait for this string before prompt injection (non-Codex only).
 - `singleton` (bool, optional): Allow only one running instance (default true).
 - `llm_model` (string, optional): Model hint for UI/API.
+- `hidden` (bool, optional): If true, hide from Dashboard buttons only.
 
 Prompt names resolve against `.gestalt/config/prompts`, trying `.tmpl`, `.md`, then `.txt`.
 Set `gui_modules` in the agent TOML to override the default module selection for that agent.

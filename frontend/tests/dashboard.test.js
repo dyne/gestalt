@@ -90,6 +90,26 @@ describe('Dashboard', () => {
     expect(onCreate).toHaveBeenCalledWith('codex')
   })
 
+  it('hides agents marked as hidden in the dashboard grid', async () => {
+    const dashboardStore = buildDashboardStore({
+      agents: [
+        { id: 'visible', name: 'Visible' },
+        { id: 'hidden', name: 'Hidden', hidden: true },
+      ],
+    })
+    createDashboardStore.mockReturnValue(dashboardStore)
+
+    const { findByText, queryByText } = render(Dashboard, {
+      props: {
+        terminals: [],
+        status: { session_count: 0 },
+      },
+    })
+
+    expect(await findByText('Visible')).toBeTruthy()
+    expect(queryByText('Hidden')).toBeNull()
+  })
+
   it('expands log details from recent logs', async () => {
     Object.defineProperty(window, 'isSecureContext', {
       value: true,

@@ -30,8 +30,6 @@ import (
 	"gestalt/internal/ports"
 	"gestalt/internal/process"
 	"gestalt/internal/prompt"
-	"gestalt/internal/temporal"
-	temporalworker "gestalt/internal/temporal/worker"
 	"gestalt/internal/version"
 	"gestalt/internal/watcher"
 )
@@ -74,10 +72,7 @@ func runServer(args []string) int {
 	}()
 
 	var stopFlowBridge func(context.Context) error
-	var stopTemporalWorker func(context.Context) error
 	var stopSessions func(context.Context) error
-	var stopTemporalClient func(context.Context) error
-	var stopTemporalDevServer func(context.Context) error
 	var stopOTelSDK func(context.Context) error
 	var stopOTelCollector func(context.Context) error
 	var stopOTelFallback func(context.Context) error
@@ -185,62 +180,6 @@ func runServer(args []string) int {
 		}
 	}
 
-	temporalDevServer, devServerError := startTemporalDevServer(&cfg, logger)
-	if devServerError != nil {
-		logger.Warn("temporal dev server start failed", map[string]string{
-			"error": devServerError.Error(),
-		})
-	}
-	if cfg.TemporalUIPort > 0 {
-		portRegistry.Set("temporal", cfg.TemporalUIPort)
-	}
-	if temporalDevServer != nil {
-		status := temporal.DevServerStatusSnapshot()
-		if status.PID > 0 {
-			processRegistry.Register(status.PID, process.GroupID(status.PID), "temporal-dev-server")
-		}
-		stopTemporalDevServer = func(context.Context) error {
-			temporalDevServer.Stop(logger)
-			return nil
-		}
-	}
-	if cfg.TemporalDevServer && !cfg.TemporalEnabled {
-		logger.Warn("temporal dev server running while workflows disabled", nil)
-	}
-
-	temporalEnabled := cfg.TemporalEnabled
-	var temporalClient temporal.WorkflowClient
-	if temporalEnabled {
-		if temporalDevServer != nil {
-			waitForTemporalServer(cfg.TemporalHost, temporalDevServerStartTimeout, temporalDevServer.Done(), logger)
-		} else {
-			logTemporalServerHealth(logger, cfg.TemporalHost)
-		}
-		var temporalClientError error
-		temporalClient, temporalClientError = temporal.NewClient(temporal.ClientConfig{
-			HostPort:  cfg.TemporalHost,
-			Namespace: cfg.TemporalNamespace,
-			Logger:    logger,
-		})
-		if temporalClientError != nil {
-			temporalEnabled = false
-			logger.Warn("temporal client unavailable", map[string]string{
-				"host":      cfg.TemporalHost,
-				"namespace": cfg.TemporalNamespace,
-				"error":     temporalClientError.Error(),
-			})
-		} else if temporalClient != nil {
-			stopTemporalClient = func(context.Context) error {
-				temporalClient.Close()
-				return nil
-			}
-			logger.Info("temporal client connected", map[string]string{
-				"host":      cfg.TemporalHost,
-				"namespace": cfg.TemporalNamespace,
-			})
-		}
-	}
-
 	configPaths, err := prepareConfig(cfg, logger)
 	if err != nil {
 		logger.Error("config extraction failed", map[string]string{
@@ -289,8 +228,8 @@ func runServer(args []string) int {
 		ConfigRoot:           configPaths.SubDir,
 		AgentsDir:            filepath.Join(configPaths.ConfigDir, "agents"),
 		ProcessRegistry:      processRegistry,
-		TemporalClient:       temporalClient,
-		TemporalEnabled:      temporalEnabled,
+		TemporalClient:       nil,
+		TemporalEnabled:      false,
 		SessionLogDir:        cfg.SessionLogDir,
 		InputHistoryDir:      cfg.InputHistoryDir,
 		SessionRetentionDays: cfg.SessionRetentionDays,
@@ -332,24 +271,6 @@ func runServer(args []string) int {
 	manager := buildResult.Manager
 	stopSessions = func(context.Context) error {
 		return manager.CloseAll()
-	}
-
-	workerStarted := false
-	if temporalEnabled && temporalClient != nil {
-		workerError := temporalworker.StartWorker(temporalClient, manager, settings.Temporal.MaxOutputBytes)
-		if workerError != nil {
-			logger.Warn("temporal worker start failed", map[string]string{
-				"error": workerError.Error(),
-			})
-		} else {
-			workerStarted = true
-		}
-	}
-	if workerStarted {
-		stopTemporalWorker = func(context.Context) error {
-			temporalworker.StopWorker()
-			return nil
-		}
 	}
 
 	plansDir := preparePlanFile(logger)
@@ -397,7 +318,7 @@ func runServer(args []string) int {
 		watchPlanFile(eventBus, fsWatcher, logger, planWatchPath)
 	}
 
-	flowService := flow.NewService(flow.NewFileRepository(flow.DefaultConfigPath(), logger), temporalClient, logger)
+	flowService := flow.NewService(flow.NewFileRepository(flow.DefaultConfigPath(), logger), nil, logger)
 	flowConfig, flowErr := flowService.LoadConfig()
 	if flowErr != nil {
 		logger.Error("flow config load failed", map[string]string{
@@ -405,21 +326,21 @@ func runServer(args []string) int {
 		})
 		return 1
 	}
-	if temporalClient == nil || !workerStarted {
-		logger.Error("flow requires temporal worker", map[string]string{
-			"temporal_enabled": strconv.FormatBool(temporalEnabled),
-		})
-		return 1
-	}
 	if err := flowService.SignalConfig(context.Background(), flowConfig); err != nil {
-		logger.Error("flow router signal failed", map[string]string{
-			"error": err.Error(),
-		})
-		return 1
+		if errors.Is(err, flow.ErrTemporalUnavailable) {
+			logger.Warn("flow config signal skipped; temporal unavailable", map[string]string{
+				"error": err.Error(),
+			})
+		} else {
+			logger.Error("flow router signal failed", map[string]string{
+				"error": err.Error(),
+			})
+			return 1
+		}
 	}
 	flowCtx, flowCancel := context.WithCancel(context.Background())
 	flowBridge := flow.NewBridge(flow.BridgeOptions{
-		Temporal:    temporalClient,
+		Temporal:    nil,
 		Logger:      logger,
 		WatcherBus:  eventBus,
 		ConfigBus:   config.Bus(),
@@ -454,8 +375,8 @@ func runServer(args []string) int {
 		registerPprofHandlers(backendMux, logger)
 	}
 	api.RegisterRoutes(backendMux, manager, cfg.AuthToken, api.StatusConfig{
-		TemporalUIPort:         cfg.TemporalUIPort,
-		TemporalHost:           cfg.TemporalHost,
+		TemporalUIPort:         0,
+		TemporalHost:           "",
 		SessionScrollbackLines: int(settings.Session.ScrollbackLines),
 		SessionFontFamily:      settings.Session.FontFamily,
 		SessionFontSize:        settings.Session.FontSize,
@@ -498,13 +419,10 @@ func runServer(args []string) int {
 
 	for _, phase := range buildShutdownPhases(
 		stopFlowBridge,
-		stopTemporalWorker,
 		stopSessions,
-		stopTemporalClient,
 		stopOTelSDK,
 		stopOTelCollector,
 		stopOTelFallback,
-		stopTemporalDevServer,
 		stopWatcher,
 		stopEventBus,
 		stopProcessRegistry,
@@ -549,26 +467,20 @@ type shutdownPhaseSpec struct {
 
 func buildShutdownPhases(
 	stopFlowBridge func(context.Context) error,
-	stopTemporalWorker func(context.Context) error,
 	stopSessions func(context.Context) error,
-	stopTemporalClient func(context.Context) error,
 	stopOTelSDK func(context.Context) error,
 	stopOTelCollector func(context.Context) error,
 	stopOTelFallback func(context.Context) error,
-	stopTemporalDevServer func(context.Context) error,
 	stopWatcher func(context.Context) error,
 	stopEventBus func(context.Context) error,
 	stopProcessRegistry func(context.Context) error,
 ) []shutdownPhaseSpec {
 	return []shutdownPhaseSpec{
 		{name: "flow-bridge", stop: stopFlowBridge},
-		{name: "temporal-worker", stop: stopTemporalWorker},
 		{name: "sessions", stop: stopSessions},
-		{name: "temporal-client", stop: stopTemporalClient},
 		{name: "otel-sdk", stop: stopOTelSDK},
 		{name: "otel-collector", stop: stopOTelCollector},
 		{name: "otel-fallback", stop: stopOTelFallback},
-		{name: "temporal-dev-server", stop: stopTemporalDevServer},
 		{name: "fs-watcher", stop: stopWatcher},
 		{name: "event-bus", stop: stopEventBus},
 		{name: "process-registry", stop: stopProcessRegistry},
@@ -669,4 +581,15 @@ func resolveOTelPorts(defaultGRPC, defaultHTTP int) (int, int, error) {
 		return grpcPort, httpPort, nil
 	}
 	return 0, 0, fmt.Errorf("failed to select available OTel ports")
+}
+
+func pickRandomPort() (int, error) {
+	listener, port, err := listenOnPort(0)
+	if err != nil {
+		return 0, err
+	}
+	if err := listener.Close(); err != nil {
+		return 0, err
+	}
+	return port, nil
 }

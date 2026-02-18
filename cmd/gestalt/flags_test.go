@@ -51,12 +51,6 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.PprofEnabled {
 		t.Fatalf("expected pprof disabled by default")
 	}
-	if !cfg.TemporalDevServer {
-		t.Fatalf("expected temporal dev server enabled by default")
-	}
-	if !cfg.TemporalEnabled {
-		t.Fatalf("expected temporal enabled by default")
-	}
 	if cfg.Verbose {
 		t.Fatalf("expected verbose false by default")
 	}
@@ -80,7 +74,6 @@ func TestLoadConfigEnvOverridesDefaults(t *testing.T) {
 	t.Setenv("GESTALT_INPUT_HISTORY_PERSIST", "false")
 	t.Setenv("GESTALT_INPUT_HISTORY_DIR", "/tmp/gestalt-input")
 	t.Setenv("GESTALT_MAX_WATCHES", "55")
-	t.Setenv("GESTALT_TEMPORAL_DEV_SERVER", "true")
 	t.Setenv("GESTALT_CONFIG_DIR", "/tmp/gestalt-config")
 	t.Setenv("GESTALT_CONFIG_BACKUP_LIMIT", "2")
 	t.Setenv("GESTALT_DEV_MODE", "true")
@@ -135,9 +128,6 @@ func TestLoadConfigEnvOverridesDefaults(t *testing.T) {
 	if !cfg.PprofEnabled {
 		t.Fatalf("expected pprof enabled")
 	}
-	if !cfg.TemporalDevServer {
-		t.Fatalf("expected temporal dev server enabled")
-	}
 }
 
 func TestLoadConfigFlagOverridesEnv(t *testing.T) {
@@ -148,7 +138,6 @@ func TestLoadConfigFlagOverridesEnv(t *testing.T) {
 	t.Setenv("GESTALT_SESSION_DIR", "/tmp/gestalt-logs")
 	t.Setenv("GESTALT_SESSION_BUFFER_LINES", "400")
 	t.Setenv("GESTALT_MAX_WATCHES", "50")
-	t.Setenv("GESTALT_TEMPORAL_DEV_SERVER", "false")
 	t.Setenv("GESTALT_DEV_MODE", "false")
 	t.Setenv("GESTALT_PPROF_ENABLED", "false")
 
@@ -160,7 +149,6 @@ func TestLoadConfigFlagOverridesEnv(t *testing.T) {
 		"--session-dir", "/tmp/flag-sessions",
 		"--session-buffer-lines", "900",
 		"--max-watches", "200",
-		"--temporal-dev-server",
 		"--pprof",
 		"--verbose",
 		"--dev",
@@ -191,9 +179,6 @@ func TestLoadConfigFlagOverridesEnv(t *testing.T) {
 	}
 	if !cfg.PprofEnabled {
 		t.Fatalf("expected pprof enabled")
-	}
-	if !cfg.TemporalDevServer {
-		t.Fatalf("expected temporal dev server enabled")
 	}
 	if !cfg.Verbose {
 		t.Fatalf("expected verbose true")

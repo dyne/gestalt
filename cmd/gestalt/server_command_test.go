@@ -7,20 +7,17 @@ import (
 )
 
 func TestShutdownPhaseOrder(t *testing.T) {
-	phases := buildShutdownPhases(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	phases := buildShutdownPhases(nil, nil, nil, nil, nil, nil, nil, nil)
 	names := make([]string, 0, len(phases))
 	for _, phase := range phases {
 		names = append(names, phase.name)
 	}
 	want := []string{
 		"flow-bridge",
-		"temporal-worker",
 		"sessions",
-		"temporal-client",
 		"otel-sdk",
 		"otel-collector",
 		"otel-fallback",
-		"temporal-dev-server",
 		"fs-watcher",
 		"event-bus",
 		"process-registry",

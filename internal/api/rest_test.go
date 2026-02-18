@@ -617,6 +617,51 @@ func TestTerminalNotifyEndpointDispatcherUnavailable(t *testing.T) {
 	}
 }
 
+func TestTerminalNotifyLoggingDoesNotChangeStatusMapping(t *testing.T) {
+	factory := &fakeFactory{}
+	manager := newTestManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {Name: "Codex", Shell: "/bin/bash", CLIType: "codex"},
+		},
+	})
+	created, err := manager.CreateWithOptions(terminal.CreateOptions{AgentID: "codex"})
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	tempDir := t.TempDir()
+	repo := flow.NewFileRepository(filepath.Join(tempDir, "automations.json"), nil)
+	service := flow.NewService(repo, nil, nil)
+	body := `{"session_id":"` + created.ID + `","payload":{"type":"plan-L1-wip"}}`
+
+	for _, withLogger := range []bool{false, true} {
+		handler := &RestHandler{Manager: manager, FlowService: service}
+		if withLogger {
+			logBuffer := logging.NewLogBuffer(20)
+			handler.Logger = logging.NewLoggerWithOutput(logBuffer, logging.LevelDebug, nil)
+		}
+		req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/notify", strings.NewReader(body))
+		res := httptest.NewRecorder()
+
+		restHandler("", nil, handler.handleTerminal)(res, req)
+		if res.Code != http.StatusServiceUnavailable {
+			t.Fatalf("withLogger=%t expected 503, got %d", withLogger, res.Code)
+		}
+		var payload errorResponse
+		if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+			t.Fatalf("withLogger=%t decode response: %v", withLogger, err)
+		}
+		if payload.Message != "temporal unavailable" {
+			t.Fatalf("withLogger=%t expected temporal unavailable message, got %q", withLogger, payload.Message)
+		}
+	}
+}
+
 func TestTerminalProgressEndpointMissingSession(t *testing.T) {
 	manager := newTestManager(terminal.ManagerOptions{Shell: "/bin/sh"})
 	handler := &RestHandler{Manager: manager}

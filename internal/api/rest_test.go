@@ -657,10 +657,10 @@ func TestTerminalNotifyLoggingDoesNotChangeStatusMapping(t *testing.T) {
 		if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
 			t.Fatalf("withLogger=%t decode response: %v", withLogger, err)
 		}
-		if payload.Message != "temporal unavailable" {
-			t.Fatalf("withLogger=%t expected temporal unavailable message, got %q", withLogger, payload.Message)
+			if payload.Message != "notification sink unavailable" {
+				t.Fatalf("withLogger=%t expected notification sink unavailable message, got %q", withLogger, payload.Message)
+			}
 		}
-	}
 }
 
 func TestTerminalProgressEndpointMissingSession(t *testing.T) {

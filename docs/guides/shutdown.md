@@ -6,7 +6,7 @@ graceful sequence can finish.
 
 Shutdown has an overall 5s deadline with a 1s budget per phase. Phases are
 ordered to keep dependencies alive while dependents stop (for example, the OTel
-SDK stops before the collector, and Temporal workers stop before the dev server).
+SDK stops before the collector, and event bridges stop before the event bus).
 
 ## Acceptance checklist
 

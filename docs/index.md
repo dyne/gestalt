@@ -18,8 +18,8 @@ features:
   - title: ⚡ Event-Driven Core
     details: Real-time state updates powered by a typed event bus and WebSocket architecture for responsive systems.
 
-  - title: 🔄 Workflow Orchestration
-    details: Native integration with Temporal to manage durable, long-running workflows and interactive sessions.
+  - title: 🔄 Flow Automations
+    details: Local flow runtime that reacts to events and notify payloads to automate repeatable actions.
 
   - title: 🧰 CLI-First Experience
     details: Unified command-line tooling with session persistence, shell integration, and flexible configuration.
@@ -31,4 +31,3 @@ features:
 ---
 
 <div class="spacer"></div>
-

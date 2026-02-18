@@ -43,14 +43,3 @@ gestalt-agent <agent-id>
 ```
 
 `gestalt-agent` creates an external session from the selected profile, then attaches tmux (`attach` or `switch-client`), so Codex CLI and tmux must be installed and available in `PATH`.
-
-## Temporal dev server requirement
-
-By default, Gestalt auto-starts a Temporal dev server. This path requires the `temporal` CLI.
-
-- Install Temporal CLI: https://temporal.io/setup/install-temporal-cli
-- Or disable auto-start:
-
-```sh
-gestalt --temporal-dev-server=false
-```

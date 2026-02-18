@@ -15,8 +15,6 @@ Common options:
 - `--port` (`GESTALT_PORT`): frontend/dashboard port (default `57417`)
 - `--backend-port` (`GESTALT_BACKEND_PORT`): API port (default random)
 - `--token` (`GESTALT_TOKEN`): auth token for REST/WS/SSE
-- `--temporal-dev-server` (`GESTALT_TEMPORAL_DEV_SERVER`): auto-start Temporal dev server (default true)
-- `--temporal-enabled` (`GESTALT_TEMPORAL_ENABLED`): enable workflow integration (default true)
 - `--dev` (`GESTALT_DEV_MODE`): skip config extraction and use existing config dir
 - `--config-dir` (`GESTALT_CONFIG_DIR`): config root (default `.gestalt/config`)
 
@@ -63,5 +61,5 @@ See [Agent configuration](../configuration/agent-configuration) for full schema 
 
 ## Other binaries
 
-- `gestalt-notify`: send notify payloads to a session workflow (`--session-id` required)
+- `gestalt-notify`: send notify payloads to a session (`--session-id` required)
 - `gestalt-otel`: embedded OpenTelemetry collector binary (collector management/debug commands)

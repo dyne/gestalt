@@ -2,7 +2,7 @@
 
 All notify clients POST the same envelope to `POST /api/sessions/:id/notify`.
 The backend treats `payload` as opaque JSON, while extracting top-level metadata
-for validation and Temporal notarization.
+for validation and OTel-backed notification records.
 Requests that include `agent_id`, `agent_name`, `source`, or `event_type` are rejected.
 
 ## Envelope fields
@@ -40,12 +40,12 @@ Payload requirements:
   "occurred_at": "2026-01-28T20:17:42Z",
   "payload": {
     "type": "plan-L1-wip",
-    "plan_file": ".gestalt/plans/gestalt-notify-temporal.org",
-    "heading": "Notarize session events via gestalt-notify",
+    "plan_file": ".gestalt/plans/gestalt-notify.org",
+    "heading": "Route session events via gestalt-notify",
     "state": "wip",
     "level": 1
   },
-  "event_id": "manual:plan-L1-wip:gestalt-notify-temporal"
+  "event_id": "manual:plan-L1-wip:gestalt-notify"
 }
 ```
 

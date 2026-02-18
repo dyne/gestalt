@@ -21,9 +21,6 @@ type gestaltDefaults struct {
 		TUISnapshotIntervalMS int64  `toml:"tui-snapshot-interval-ms"`
 		LogCodexEvents        bool   `toml:"log-codex-events"`
 	} `toml:"session"`
-	Temporal struct {
-		MaxOutputBytes int64 `toml:"max-output-bytes"`
-	} `toml:"temporal"`
 }
 
 func TestEmbeddedGestaltTomlDefaults(t *testing.T) {
@@ -66,8 +63,5 @@ func TestEmbeddedGestaltTomlDefaults(t *testing.T) {
 	}
 	if defaults.Session.LogCodexEvents {
 		t.Fatalf("expected log-codex-events false, got true")
-	}
-	if defaults.Temporal.MaxOutputBytes != 4096 {
-		t.Fatalf("expected temporal.max-output-bytes 4096, got %d", defaults.Temporal.MaxOutputBytes)
 	}
 }

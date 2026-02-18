@@ -319,7 +319,7 @@ func runServer(args []string) int {
 	}
 
 	notificationSink := notify.NewOTelSink(nil)
-	flowDispatcher := flowruntime.NewDispatcher(manager, logger, notificationSink, settings.Temporal.MaxOutputBytes)
+	flowDispatcher := flowruntime.NewDispatcher(manager, logger, notificationSink, 0)
 	flowService := flow.NewService(flow.NewFileRepository(flow.DefaultConfigPath(), logger), flowDispatcher, logger)
 	_, flowErr := flowService.LoadConfig()
 	if flowErr != nil {

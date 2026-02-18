@@ -9,7 +9,6 @@ func TestParseConfigOverrides(t *testing.T) {
 	entries := []string{
 		"session.log-max-bytes=5",
 		"session.log_max_bytes=6",
-		"temporal.max-output-bytes=4096",
 		"session.tui-mode=snapshot",
 		"session.enabled=true",
 		"session.disabled=FALSE",
@@ -20,9 +19,6 @@ func TestParseConfigOverrides(t *testing.T) {
 	}
 	if value, ok := overrides["session.log-max-bytes"]; !ok || value != int64(6) {
 		t.Fatalf("expected session.log-max-bytes 6, got %v", overrides["session.log-max-bytes"])
-	}
-	if overrides["temporal.max-output-bytes"] != int64(4096) {
-		t.Fatalf("expected temporal.max-output-bytes 4096, got %v", overrides["temporal.max-output-bytes"])
 	}
 	if overrides["session.tui-mode"] != "snapshot" {
 		t.Fatalf("expected session.tui-mode snapshot, got %v", overrides["session.tui-mode"])
@@ -49,15 +45,15 @@ func TestParseConfigOverridesRejectsInvalid(t *testing.T) {
 }
 
 func TestParseConfigOverridesEnv(t *testing.T) {
-	overrides, err := parseConfigOverridesEnv(" session.log-max-bytes=5 , temporal.max-output-bytes=4096 ")
+	overrides, err := parseConfigOverridesEnv(" session.log-max-bytes=5 , session.scrollback-lines=4096 ")
 	if err != nil {
 		t.Fatalf("parse env overrides: %v", err)
 	}
 	if overrides["session.log-max-bytes"] != int64(5) {
 		t.Fatalf("expected session.log-max-bytes 5, got %v", overrides["session.log-max-bytes"])
 	}
-	if overrides["temporal.max-output-bytes"] != int64(4096) {
-		t.Fatalf("expected temporal.max-output-bytes 4096, got %v", overrides["temporal.max-output-bytes"])
+	if overrides["session.scrollback-lines"] != int64(4096) {
+		t.Fatalf("expected session.scrollback-lines 4096, got %v", overrides["session.scrollback-lines"])
 	}
 }
 
@@ -84,7 +80,7 @@ func TestLoadConfigCollectsOverrides(t *testing.T) {
 	}
 	want := map[string]any{
 		"session.log-max-bytes": int64(5),
-		"session.tui-mode":     "snapshot",
+		"session.tui-mode":      "snapshot",
 	}
 	if !reflect.DeepEqual(cfg.ConfigOverrides, want) {
 		t.Fatalf("expected overrides %v, got %v", want, cfg.ConfigOverrides)
@@ -92,7 +88,7 @@ func TestLoadConfigCollectsOverrides(t *testing.T) {
 }
 
 func TestLoadConfigMergesOverrideSources(t *testing.T) {
-	t.Setenv("GESTALT_CONFIG_OVERRIDES", "session.log-max-bytes=1,temporal.max-output-bytes=2")
+	t.Setenv("GESTALT_CONFIG_OVERRIDES", "session.log-max-bytes=1,session.scrollback-lines=2")
 	cfg, err := loadConfig([]string{
 		"-c", "session.log-max-bytes=5",
 	})
@@ -102,7 +98,7 @@ func TestLoadConfigMergesOverrideSources(t *testing.T) {
 	if cfg.ConfigOverrides["session.log-max-bytes"] != int64(5) {
 		t.Fatalf("expected CLI override to win, got %v", cfg.ConfigOverrides["session.log-max-bytes"])
 	}
-	if cfg.ConfigOverrides["temporal.max-output-bytes"] != int64(2) {
-		t.Fatalf("expected env override to remain, got %v", cfg.ConfigOverrides["temporal.max-output-bytes"])
+	if cfg.ConfigOverrides["session.scrollback-lines"] != int64(2) {
+		t.Fatalf("expected env override to remain, got %v", cfg.ConfigOverrides["session.scrollback-lines"])
 	}
 }

@@ -36,9 +36,6 @@ func TestSaveGestaltConfigAddsMissingKeys(t *testing.T) {
 	if value, ok := store.GetInt("session.history-scan-max-bytes"); !ok || value != 2097152 {
 		t.Fatalf("expected history-scan-max-bytes 2097152, got %d", value)
 	}
-	if value, ok := store.GetInt("temporal.max-output-bytes"); !ok || value != 4096 {
-		t.Fatalf("expected temporal.max-output-bytes 4096, got %d", value)
-	}
 }
 
 func TestSaveGestaltConfigIsStable(t *testing.T) {
@@ -71,7 +68,7 @@ func TestSaveGestaltConfigCanonicalizesKeys(t *testing.T) {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
 	path := filepath.Join(configDir, gestaltConfigFilename)
-	seed := "session.log_max_bytes = 123\n[temporal]\nmax_output_bytes = 2048\n"
+	seed := "session.log_max_bytes = 123\nsession.history_scan_max_bytes = 1024\n"
 	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -92,8 +89,8 @@ func TestSaveGestaltConfigCanonicalizesKeys(t *testing.T) {
 	if !strings.Contains(rendered, "log-max-bytes = 123") {
 		t.Fatalf("expected log-max-bytes to be preserved")
 	}
-	if !strings.Contains(rendered, "max-output-bytes = 2048") {
-		t.Fatalf("expected max-output-bytes to be preserved")
+	if !strings.Contains(rendered, "history-scan-max-bytes = 1024") {
+		t.Fatalf("expected history-scan-max-bytes to be preserved")
 	}
 
 	store, err := tomlkeys.Decode(payload)
@@ -103,7 +100,7 @@ func TestSaveGestaltConfigCanonicalizesKeys(t *testing.T) {
 	if value, ok := store.GetInt("session.log-max-bytes"); !ok || value != 123 {
 		t.Fatalf("expected session.log-max-bytes 123, got %d", value)
 	}
-	if value, ok := store.GetInt("temporal.max-output-bytes"); !ok || value != 2048 {
-		t.Fatalf("expected temporal.max-output-bytes 2048, got %d", value)
+	if value, ok := store.GetInt("session.history-scan-max-bytes"); !ok || value != 1024 {
+		t.Fatalf("expected session.history-scan-max-bytes 1024, got %d", value)
 	}
 }

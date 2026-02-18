@@ -25,7 +25,7 @@ Use this as the minimum context to start any plan task.
 - Prompts: `.tmpl`, `.md`, `.txt` in `.gestalt/config/prompts`.
 - `skills` lists optional skills (available, not auto-applied).
 - `cli_type` + `cli_config` enable CLI-specific settings (schema-validated).
-- Base fields: `name`, `shell`, `prompt`, `skills`, `onair_string`, `llm_model`.
+- Base fields: `name`, `shell`, `prompt`, `skills`, `onair_string`, `model`, `hidden`.
 - Shell commands generated at session start from `cli_config` (codex `-c key:value`, copilot `--flag`/`--no-flag`).
 - Full reference: `docs/agent-configuration.md`.
 

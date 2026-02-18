@@ -28,6 +28,7 @@ func (h *RestHandler) handleAgents(w http.ResponseWriter, r *http.Request) *apiE
 			Interface: info.Interface,
 			SessionID: sessionID,
 			Running:   running,
+			Hidden:    info.Hidden,
 		})
 	}
 	writeJSON(w, http.StatusOK, response)

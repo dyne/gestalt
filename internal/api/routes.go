@@ -32,15 +32,16 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 	gitOrigin, gitBranch := loadGitInfo()
 	metricsSummary := otel.NewAPISummaryStore()
 	flowRepo := flow.NewFileRepository(flow.DefaultConfigPath(), logger)
+	notificationSink := notify.NewOTelSink(nil)
 	var dispatcher flow.Dispatcher
 	if manager != nil {
-		dispatcher = flowruntime.NewDispatcher(manager, logger, 0)
+		dispatcher = flowruntime.NewDispatcher(manager, logger, notificationSink, 0)
 	}
 	flowService := flow.NewService(flowRepo, dispatcher, logger)
 	rest := &RestHandler{
 		Manager:                manager,
 		FlowService:            flowService,
-		NotificationSink:       notify.NewOTelSink(nil),
+		NotificationSink:       notificationSink,
 		Logger:                 logger,
 		MetricsSummary:         metricsSummary,
 		GitOrigin:              gitOrigin,

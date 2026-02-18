@@ -15,6 +15,7 @@ import (
 	"gestalt/internal/agent"
 	"gestalt/internal/flow"
 	"gestalt/internal/logging"
+	"gestalt/internal/notify"
 	"gestalt/internal/terminal"
 )
 
@@ -63,7 +64,7 @@ func newDispatcher() (*Dispatcher, *recordingFactory, *terminal.Manager) {
 		},
 		Logger: logger,
 	})
-	return NewDispatcher(manager, logger, 0), factory, manager
+	return NewDispatcher(manager, logger, notify.NewMemorySink(), 0), factory, manager
 }
 
 func waitForWrite(factory *recordingFactory, minBytes int) bool {
@@ -220,7 +221,7 @@ func TestDispatcherPostWebhook(testingContext *testing.T) {
 	}))
 	defer server.Close()
 
-	dispatcher := NewDispatcher(nil, nil, 0)
+	dispatcher := NewDispatcher(nil, nil, notify.NewMemorySink(), 0)
 	request := flow.ActivityRequest{
 		EventID:    "event",
 		TriggerID:  "trigger",
@@ -270,7 +271,7 @@ func TestDispatcherPostWebhookStatus(testingContext *testing.T) {
 	}))
 	defer server.Close()
 
-	dispatcher := NewDispatcher(nil, nil, 0)
+	dispatcher := NewDispatcher(nil, nil, notify.NewMemorySink(), 0)
 	request := flow.ActivityRequest{
 		EventID:    "event",
 		TriggerID:  "trigger",

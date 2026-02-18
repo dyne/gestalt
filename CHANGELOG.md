@@ -1,3 +1,13 @@
+# Unreleased
+
+### Breaking Changes
+
+| Area | Change | Compatibility |
+| --- | --- | --- |
+| Workflows | Remove `/api/workflows`, `/api/workflows/events`, `/api/sessions/:id/workflow/resume`, `/api/sessions/:id/workflow/history`. | Requests now return `404 Not Found`; update clients to rely on flow config + OTel-backed notifications. |
+| Status payload | Remove Temporal status fields and workflow flags. | Consumers must ignore `temporal_*` fields and `workflow` session options. |
+| Notifications | `/api/notifications/stream` remains, but events are sourced from OTel. | Existing clients can keep the SSE URL unchanged. |
+
 # [1.13.0](https://github.com/dyne/gestalt/compare/v1.12.0...v1.13.0) (2026-02-18)
 
 

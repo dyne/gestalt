@@ -649,17 +649,7 @@ func parseTerminalPath(path string) (string, terminalPathAction, *apiError) {
 			return "", terminalPathTerminal, &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
 		}
 	case 3:
-		if parts[1] != "workflow" {
-			return "", terminalPathTerminal, &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
-		}
-		switch parts[2] {
-		case "resume":
-			return id, terminalPathWorkflowResume, nil
-		case "history":
-			return id, terminalPathWorkflowHistory, nil
-		default:
-			return "", terminalPathTerminal, &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
-		}
+		return "", terminalPathTerminal, &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
 	default:
 		return "", terminalPathTerminal, &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
 	}

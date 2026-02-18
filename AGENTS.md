@@ -25,7 +25,7 @@ Use this as the minimum context to start any plan task.
 - Prompts: `.tmpl`, `.md`, `.txt` in `.gestalt/config/prompts`.
 - `skills` lists optional skills (available, not auto-applied).
 - `cli_type` + `cli_config` enable CLI-specific settings (schema-validated).
-- Base fields: `name`, `shell`, `prompt`, `skills`, `onair_string`, `use_workflow`, `llm_model`.
+- Base fields: `name`, `shell`, `prompt`, `skills`, `onair_string`, `llm_model`.
 - Shell commands generated at session start from `cli_config` (codex `-c key:value`, copilot `--flag`/`--no-flag`).
 - Full reference: `docs/agent-configuration.md`.
 
@@ -36,7 +36,7 @@ Use this as the minimum context to start any plan task.
 - `/api/agents`, `/api/agents/:name/send-input`
 - `/api/flow/activities`, `/api/flow/event-types`, `/api/flow/config` (GET/PUT)
 - `/api/flow/config/export` (GET), `/api/flow/config/import` (POST)
-- WS: `/api/agents/events`, `/api/sessions/events`, `/api/config/events`, `/api/workflows/events`, `/ws/events`
+- WS: `/api/agents/events`, `/api/sessions/events`, `/api/config/events`, `/ws/events`
 
 ## CLI (gestalt-send)
 - `gestalt-send <agent-name-or-id>` resolves the agent and posts stdin to `/api/sessions/:id/input`.
@@ -50,7 +50,7 @@ Use this as the minimum context to start any plan task.
 - Prompt files render at agent start and process directives (`.tmpl`, `.md`, `.txt`).
 - Include syntax: `{{include filename}}` on its own line.
 - Port syntax: `{{port <service>}}` on its own line; resolves to the runtime port number.
-- Available services: `backend`, `frontend`, `temporal`, `otel`.
+- Available services: `backend`, `frontend`, `otel`.
 - Unknown services or missing port resolver skip silently (line removed).
 - Scope: directives resolve in prompt files only; skill XML does not substitute ports yet.
 - Resolve: absolute/relative path loads from workdir root; otherwise search `.gestalt/config/prompts` (`.tmpl`, `.md`, `.txt`), then `.gestalt/prompts`.
@@ -58,16 +58,16 @@ Use this as the minimum context to start any plan task.
 
 ## Event-driven architecture
 - Core type: `internal/event.Bus[T]` (sync fan-out, optional history).
-- Buses: `watcher_events`, `agent_events`, `terminal_events`, `terminal_output`, `workflow_events`, `config_events`, `logs`.
-- WS mappings: `/ws/events` (filesystem), `/api/agents/events`, `/api/sessions/events`, `/api/config/events`, `/api/workflows/events`.
+- Buses: `watcher_events`, `agent_events`, `terminal_events`, `terminal_output`, `config_events`, `logs`.
+- WS mappings: `/ws/events` (filesystem), `/api/agents/events`, `/api/sessions/events`, `/api/config/events`.
 - Filesystem events via `watcher.WatchFile` into `watcher_events`.
 - Debug: `GESTALT_EVENT_DEBUG=true` logs all published events.
 - History: `BusOptions.HistorySize`, `ReplayLast`, `DumpHistory`.
-- Event payloads: `FileEvent`, `TerminalEvent`, `AgentEvent`, `ConfigEvent`, `WorkflowEvent`, `LogEvent`.
+- Event payloads: `FileEvent`, `TerminalEvent`, `AgentEvent`, `ConfigEvent`, `LogEvent`.
 - Flow:
 ```
 filesystem -> watcher_events -> /ws/events -> frontend eventStore -> UI
-agent/session/workflow/config -> Manager/handlers -> /api/*/events -> frontend stores -> UI
+agent/session/config -> Manager/handlers -> /api/*/events -> frontend stores -> UI
 terminal output -> Session output bus -> /ws/session/:id -> frontend text view
 ```
 - Testing: `internal/event/testing.go` helpers (`MockBus`, `EventCollector`, `ReceiveWithTimeout`, `MatchEvent`).
@@ -81,11 +81,6 @@ terminal output -> Session output bus -> /ws/session/:id -> frontend text view
 - Prefer minimal changes and dependencies; ASCII-only edits unless file already uses non-ASCII.
 - Avoid destructive git commands unless explicitly requested.
 - Tests: backend `GOCACHE=/tmp/gocache /usr/local/go/bin/go test ./...`; frontend `cd frontend && npm test`.
-
-## Temporal quick reference
-| Area | Defaults/Flags | Key APIs / Behavior |
-| --- | --- | --- |
-| Temporal HITL | Workflows on by default; disable via `workflow=false` / `use_workflow=false`. Dev server: `GESTALT_TEMPORAL_DEV_SERVER=true` or `--temporal-dev-server` (runs in `.gestalt/temporal`). | `GET /api/workflows`, `GET /api/sessions/:id/workflow/history`, `POST /api/sessions/:id/workflow/resume` (`continue`/`abort`), `GET /api/metrics/summary`. |
 
 ## OpenTelemetry observability
 - Collector lifecycle lives in `internal/otel/collector.go`; config `.gestalt/otel/collector.yaml`, data file `.gestalt/otel/otel.json`.

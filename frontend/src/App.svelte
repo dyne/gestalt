@@ -259,6 +259,9 @@
           await apiFetch(buildApiPath('/api/sessions', created.id, 'activate'), {
             method: 'POST',
           })
+          if (!hasAgentsTab(status || {})) {
+            await refreshSessionsState()
+          }
         } catch (err) {
           notifyError(err, 'Failed to activate tmux window.')
         }

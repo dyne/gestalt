@@ -11,6 +11,7 @@ import (
 
 	"gestalt/internal/agent"
 	"gestalt/internal/logging"
+	"gestalt/internal/notify"
 	"gestalt/internal/otel"
 	"gestalt/internal/terminal"
 )
@@ -41,7 +42,7 @@ func TestNotifyEndpointPublishesToLogsSSEReplayAndLive(t *testing.T) {
 		_ = manager.Delete(session.ID)
 	})
 
-	rest := &RestHandler{Manager: manager, Logger: logger}
+	rest := &RestHandler{Manager: manager, Logger: logger, NotificationSink: notify.NewMemorySink()}
 	mux := http.NewServeMux()
 	mux.Handle("/api/logs/stream", &LogsSSEHandler{Logger: logger})
 	mux.HandleFunc("/api/sessions/", restHandler("", nil, rest.handleTerminal))

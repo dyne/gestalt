@@ -125,6 +125,8 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 		Logger:    logger,
 		AuthToken: authToken,
 	}))
+	mux.Handle("/api/workflows", securityHeadersMiddleware(cacheControlNoStore, http.NotFoundHandler()))
+	mux.Handle("/api/workflows/events", securityHeadersMiddleware(cacheControlNoStore, http.NotFoundHandler()))
 	mux.Handle("/api/config/events", securityHeadersMiddleware(cacheControlNoStore, &ConfigEventsHandler{
 		Logger:    logger,
 		AuthToken: authToken,

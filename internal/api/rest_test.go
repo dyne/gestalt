@@ -475,7 +475,6 @@ func TestStatusHandlerIncludesAgentsHubFields(t *testing.T) {
 	}
 }
 
-
 func TestTerminalNotifyEndpoint(t *testing.T) {
 	factory := &fakeFactory{}
 	manager := newTestManager(terminal.ManagerOptions{

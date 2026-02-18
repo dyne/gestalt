@@ -67,7 +67,6 @@ type Agent struct {
 	Skills      []string               `json:"skills,omitempty" toml:"skills,omitempty"`
 	GUIModules  []string               `json:"gui_modules,omitempty" toml:"gui_modules,omitempty"`
 	OnAirString string                 `json:"onair_string,omitempty" toml:"onair_string,omitempty"`
-	UseWorkflow *bool                  `json:"use_workflow,omitempty" toml:"use_workflow,omitempty"`
 	Singleton   *bool                  `json:"singleton,omitempty" toml:"singleton,omitempty"`
 	Interface   string                 `json:"interface,omitempty" toml:"interface,omitempty"`
 	CodexMode   string                 `json:"codex_mode,omitempty" toml:"codex_mode,omitempty"`

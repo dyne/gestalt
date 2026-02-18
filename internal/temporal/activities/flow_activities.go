@@ -276,12 +276,10 @@ func (activities *FlowActivities) SpawnAgentSessionActivity(activityContext cont
 
 	title := strings.TrimSpace(flow.RenderTemplate(configString(request.Config, "title_template"), request))
 	reuseIfRunning := configBoolDefault(request.Config, "reuse_if_running", true)
-	useWorkflow := configOptionalBool(request.Config, "use_workflow")
 
 	session, sessionErr := manager.CreateWithOptions(terminal.CreateOptions{
-		AgentID:     agentID,
-		Title:       title,
-		UseWorkflow: useWorkflow,
+		AgentID: agentID,
+		Title:   title,
 	})
 	if sessionErr != nil {
 		if runningErr, ok := sessionErr.(*terminal.AgentAlreadyRunningError); ok && reuseIfRunning {

@@ -28,7 +28,6 @@ import (
 	"gestalt/internal/runner/tmux"
 	"gestalt/internal/runner/tmuxsession"
 	"gestalt/internal/skill"
-	"gestalt/internal/temporal"
 )
 
 var ErrSessionNotFound = errors.New("terminal session not found")
@@ -83,8 +82,6 @@ type ManagerOptions struct {
 	AgentsDir               string
 	Skills                  map[string]*skill.Skill
 	Logger                  *logging.Logger
-	TemporalClient          temporal.WorkflowClient
-	TemporalEnabled         bool
 	SessionLogDir           string
 	InputHistoryDir         string
 	SessionRetentionDays    int
@@ -128,8 +125,6 @@ type Manager struct {
 	agentBus                *event.Bus[event.AgentEvent]
 	terminalBus             *event.Bus[event.TerminalEvent]
 	workflowBus             *event.Bus[event.WorkflowEvent]
-	temporalClient          temporal.WorkflowClient
-	temporalEnabled         bool
 	sessionLogs             string
 	inputHistoryDir         string
 	retentionDays           int
@@ -155,7 +150,6 @@ type sessionCreateRequest struct {
 	Shell       string
 	Runner      string
 	GUIModules  []string
-	UseWorkflow *bool
 }
 
 type CreateOptions struct {
@@ -164,7 +158,6 @@ type CreateOptions struct {
 	Title       string
 	Runner      string
 	GUIModules  []string
-	UseWorkflow *bool
 }
 
 const (
@@ -188,7 +181,6 @@ type AgentInfo struct {
 	LLMType     string
 	LLMModel    string
 	Interface   string
-	UseWorkflow bool
 }
 
 type SkillMetadata struct {
@@ -196,13 +188,6 @@ type SkillMetadata struct {
 	Description string
 	Path        string
 	License     string
-}
-
-func resolveWorkflowPreference(preference *bool) bool {
-	if preference == nil {
-		return true
-	}
-	return *preference
 }
 
 func resolveOutputPolicy(mode string, interval time.Duration) (OutputBackpressurePolicy, uint64) {
@@ -244,16 +229,6 @@ func NewManager(opts ManagerOptions) *Manager {
 	logger := opts.Logger
 	if logger == nil {
 		logger = logging.NewLoggerWithOutput(logging.NewLogBuffer(logging.DefaultBufferSize), logging.LevelInfo, nil)
-	}
-
-	temporalClient := opts.TemporalClient
-	temporalEnabled := opts.TemporalEnabled
-	if temporalEnabled && temporalClient == nil {
-		temporalEnabled = false
-		logger.Warn("temporal enabled without client", map[string]string{
-			"gestalt.category": "workflow",
-			"gestalt.source":   "backend",
-		})
 	}
 
 	sessionLogs := strings.TrimSpace(opts.SessionLogDir)
@@ -326,8 +301,6 @@ func NewManager(opts ManagerOptions) *Manager {
 		agentBus:                agentBus,
 		terminalBus:             terminalBus,
 		workflowBus:             workflowBus,
-		temporalClient:          temporalClient,
-		temporalEnabled:         temporalEnabled,
 		sessionLogs:             sessionLogs,
 		inputHistoryDir:         inputHistoryDir,
 		retentionDays:           retentionDays,
@@ -396,7 +369,6 @@ func (m *Manager) CreateWithOptions(options CreateOptions) (*Session, error) {
 		Title:       options.Title,
 		Runner:      options.Runner,
 		GUIModules:  options.GUIModules,
-		UseWorkflow: options.UseWorkflow,
 	})
 }
 
@@ -493,11 +465,6 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 	}
 	if runnerKind == launchspec.RunnerKindExternal && len(guiModules) == 0 {
 		guiModules = append([]string(nil), defaultExternalGUIModules...)
-	}
-
-	useWorkflow := resolveWorkflowPreference(request.UseWorkflow)
-	if request.UseWorkflow == nil && profile != nil {
-		useWorkflow = resolveWorkflowPreference(profile.UseWorkflow)
 	}
 
 	if agentName != "" {
@@ -669,26 +636,6 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 	m.mu.Unlock()
 
 	m.emitSessionStarted(id, request, agentName, shell)
-
-	if useWorkflow && m.temporalEnabled && m.temporalClient != nil {
-		startError := session.StartWorkflow(m.temporalClient, "", "")
-		if startError != nil {
-			m.logger.Warn("temporal workflow start failed", map[string]string{
-				"gestalt.category": "workflow",
-				"gestalt.source":   "backend",
-				"session.id":       id,
-				"error":            startError.Error(),
-			})
-		} else if workflowID, workflowRunID, ok := session.WorkflowIdentifiers(); ok {
-			m.logger.Info("workflow started", map[string]string{
-				"gestalt.category": "workflow",
-				"gestalt.source":   "backend",
-				"session.id":       id,
-				"workflow.run_id":  workflowRunID,
-				"workflow.id":      workflowID,
-			})
-		}
-	}
 
 	if runnerKind != launchspec.RunnerKindExternal {
 		m.startPromptInjection(session, request.AgentID, profile, promptNames, onAirString)
@@ -1249,20 +1196,6 @@ func (m *Manager) WorkflowBus() *event.Bus[event.WorkflowEvent] {
 	return m.workflowBus
 }
 
-func (m *Manager) TemporalEnabled() bool {
-	if m == nil {
-		return false
-	}
-	return m.temporalEnabled
-}
-
-func (m *Manager) TemporalClient() temporal.WorkflowClient {
-	if m == nil {
-		return nil
-	}
-	return m.temporalClient
-}
-
 func (m *Manager) GetAgent(id string) (agent.Agent, bool) {
 	if m == nil || m.agentRegistry == nil {
 		return agent.Agent{}, false
@@ -1311,7 +1244,6 @@ func (m *Manager) ListAgents() []AgentInfo {
 			LLMType:     profile.CLIType,
 			LLMModel:    profile.LLMModel,
 			Interface:   interfaceValue,
-			UseWorkflow: resolveWorkflowPreference(profile.UseWorkflow),
 		})
 	}
 

@@ -159,10 +159,6 @@ func (run *fakeWorkflowRun) GetWithOptions(ctx context.Context, valuePtr interfa
 	return nil
 }
 
-func boolPtr(value bool) *bool {
-	return &value
-}
-
 type workflowSignalRecord struct {
 	workflowID string
 	runID      string
@@ -912,20 +908,15 @@ func TestTerminalNotifyProgressPublishesEvent(t *testing.T) {
 
 func TestTerminalNotifyEndpointBadJSON(t *testing.T) {
 	factory := &fakeFactory{}
-	temporalClient := &fakeWorkflowSignalClient{runID: "run-12"}
 	manager := newTestManager(terminal.ManagerOptions{
-		Shell:           "/bin/sh",
-		PtyFactory:      factory,
-		TemporalClient:  temporalClient,
-		TemporalEnabled: true,
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
 		Agents: map[string]agent.Agent{
 			"codex": {Name: "Codex", Shell: "/bin/bash", CLIType: "codex"},
 		},
 	})
-	useWorkflow := true
 	created, err := manager.CreateWithOptions(terminal.CreateOptions{
-		AgentID:     "codex",
-		UseWorkflow: &useWorkflow,
+		AgentID: "codex",
 	})
 	if err != nil {
 		t.Fatalf("create terminal: %v", err)
@@ -1360,97 +1351,6 @@ func TestCreateTerminalWithoutAgent(t *testing.T) {
 	}
 }
 
-func TestCreateTerminalWorkflowFlag(t *testing.T) {
-	factory := &fakeFactory{}
-	temporalClient := &fakeWorkflowSignalClient{runID: "run-1"}
-	manager := newTestManager(terminal.ManagerOptions{
-		Shell:           "/bin/sh",
-		PtyFactory:      factory,
-		TemporalClient:  temporalClient,
-		TemporalEnabled: true,
-	})
-	handler := &RestHandler{Manager: manager}
-
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions", strings.NewReader(`{"agent":"codex"}`))
-	req.Header.Set("Authorization", "Bearer secret")
-	res := httptest.NewRecorder()
-
-	restHandler("secret", nil, handler.handleTerminals)(res, req)
-	if res.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d", res.Code)
-	}
-
-	var payload terminalSummary
-	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	session, ok := manager.Get(payload.ID)
-	if !ok {
-		t.Fatalf("expected session %q", payload.ID)
-	}
-	workflowID, runID, ok := session.WorkflowIdentifiers()
-	if !ok {
-		t.Fatalf("expected workflow identifiers")
-	}
-	if workflowID != payload.ID {
-		t.Fatalf("expected workflow id %q, got %q", payload.ID, workflowID)
-	}
-	if runID != temporalClient.runID {
-		t.Fatalf("expected run id %q, got %q", temporalClient.runID, runID)
-	}
-	if err := manager.Delete(payload.ID); err != nil {
-		t.Fatalf("delete session: %v", err)
-	}
-
-	req = httptest.NewRequest(http.MethodPost, "/api/sessions", strings.NewReader(`{"agent":"codex","workflow":true}`))
-	req.Header.Set("Authorization", "Bearer secret")
-	res = httptest.NewRecorder()
-
-	restHandler("secret", nil, handler.handleTerminals)(res, req)
-	if res.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d", res.Code)
-	}
-
-	var payloadExplicit terminalSummary
-	if err := json.NewDecoder(res.Body).Decode(&payloadExplicit); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	explicitSession, ok := manager.Get(payloadExplicit.ID)
-	if !ok {
-		t.Fatalf("expected session %q", payloadExplicit.ID)
-	}
-	if _, _, ok := explicitSession.WorkflowIdentifiers(); !ok {
-		t.Fatalf("expected workflow identifiers for explicit enable")
-	}
-	if err := manager.Delete(payloadExplicit.ID); err != nil {
-		t.Fatalf("delete session: %v", err)
-	}
-
-	req = httptest.NewRequest(http.MethodPost, "/api/sessions", strings.NewReader(`{"agent":"codex","workflow":false}`))
-	req.Header.Set("Authorization", "Bearer secret")
-	res = httptest.NewRecorder()
-
-	restHandler("secret", nil, handler.handleTerminals)(res, req)
-	if res.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d", res.Code)
-	}
-
-	var payloadDisabled terminalSummary
-	if err := json.NewDecoder(res.Body).Decode(&payloadDisabled); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	disabledSession, ok := manager.Get(payloadDisabled.ID)
-	if !ok {
-		t.Fatalf("expected session %q", payloadDisabled.ID)
-	}
-	if _, _, ok := disabledSession.WorkflowIdentifiers(); ok {
-		t.Fatalf("expected no workflow identifiers")
-	}
-	if err := manager.Delete(payloadDisabled.ID); err != nil {
-		t.Fatalf("delete session: %v", err)
-	}
-}
-
 func TestCreateTerminalWithAgent(t *testing.T) {
 	root := t.TempDir()
 	agentsDir := filepath.Join(root, "agents")
@@ -1514,60 +1414,6 @@ func TestCreateTerminalWithAgent(t *testing.T) {
 	}
 	if factory.commands[0] != "codex" {
 		t.Fatalf("expected codex, got %q", factory.commands[0])
-	}
-}
-
-func TestCreateTerminalUsesAgentWorkflowDefault(t *testing.T) {
-	root := t.TempDir()
-	agentsDir := filepath.Join(root, "agents")
-	if err := os.MkdirAll(agentsDir, 0755); err != nil {
-		t.Fatalf("mkdir agents: %v", err)
-	}
-	agentTOML := "name = \"Codex\"\nshell = \"/bin/zsh\"\ncli_type = \"codex\"\n"
-	if err := os.WriteFile(filepath.Join(agentsDir, "codex.toml"), []byte(agentTOML), 0644); err != nil {
-		t.Fatalf("write agent: %v", err)
-	}
-
-	factory := &fakeFactory{}
-	temporalClient := &fakeWorkflowSignalClient{runID: "run-2"}
-	manager := newTestManager(terminal.ManagerOptions{
-		Shell:           "/bin/sh",
-		PtyFactory:      factory,
-		TemporalClient:  temporalClient,
-		TemporalEnabled: true,
-		Agents: map[string]agent.Agent{
-			"codex": {
-				Name:    "Codex",
-				Shell:   "/bin/zsh",
-				CLIType: "codex",
-			},
-		},
-		AgentsDir: agentsDir,
-	})
-	handler := &RestHandler{Manager: manager}
-
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions", strings.NewReader(`{"agent":"codex"}`))
-	req.Header.Set("Authorization", "Bearer secret")
-	res := httptest.NewRecorder()
-
-	restHandler("secret", nil, handler.handleTerminals)(res, req)
-	if res.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d", res.Code)
-	}
-
-	var payload terminalSummary
-	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	session, ok := manager.Get(payload.ID)
-	if !ok {
-		t.Fatalf("expected session %q", payload.ID)
-	}
-	defer func() {
-		_ = manager.Delete(payload.ID)
-	}()
-	if _, _, ok := session.WorkflowIdentifiers(); !ok {
-		t.Fatalf("expected workflow identifiers")
 	}
 }
 
@@ -1763,18 +1609,16 @@ func TestAgentsEndpoint(t *testing.T) {
 		PtyFactory: factory,
 		Agents: map[string]agent.Agent{
 			"codex": {
-				Name:        "Codex",
-				Shell:       "/bin/zsh",
-				CLIType:     "codex",
-				LLMModel:    "default",
-				UseWorkflow: boolPtr(true),
+				Name:     "Codex",
+				Shell:    "/bin/zsh",
+				CLIType:  "codex",
+				LLMModel: "default",
 			},
 			"copilot": {
-				Name:        "Copilot",
-				Shell:       "/bin/bash",
-				CLIType:     "copilot",
-				LLMModel:    "default",
-				UseWorkflow: boolPtr(false),
+				Name:     "Copilot",
+				Shell:    "/bin/bash",
+				CLIType:  "copilot",
+				LLMModel: "default",
 			},
 		},
 	})
@@ -1822,9 +1666,6 @@ func TestAgentsEndpoint(t *testing.T) {
 	if codex.SessionID != created.ID {
 		t.Fatalf("expected codex terminal id %q, got %q", created.ID, codex.SessionID)
 	}
-	if !codex.UseWorkflow {
-		t.Fatalf("expected codex use_workflow to be true")
-	}
 	if codex.Interface != agent.AgentInterfaceCLI {
 		t.Fatalf("expected codex interface %q, got %q", agent.AgentInterfaceCLI, codex.Interface)
 	}
@@ -1836,9 +1677,6 @@ func TestAgentsEndpoint(t *testing.T) {
 	}
 	if copilot.SessionID != "" {
 		t.Fatalf("expected copilot terminal id to be empty, got %q", copilot.SessionID)
-	}
-	if copilot.UseWorkflow {
-		t.Fatalf("expected copilot use_workflow to be false")
 	}
 }
 

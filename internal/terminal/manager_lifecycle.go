@@ -77,17 +77,6 @@ func (m *Manager) emitSessionStopped(id string, session *Session, agentID, agent
 	if agentID != "" && m.agentBus != nil {
 		m.agentBus.Publish(event.NewAgentEvent(agentID, agentName, "agent_stopped"))
 	}
-	if session != nil {
-		if workflowID, workflowRunID, ok := session.WorkflowIdentifiers(); ok {
-			m.logger.Info("workflow stopped", map[string]string{
-				"gestalt.category": "workflow",
-				"gestalt.source":   "backend",
-				"session.id":       id,
-				"workflow.id":      workflowID,
-				"workflow.run_id":  workflowRunID,
-			})
-		}
-	}
 	m.logger.Info("session deleted", map[string]string{
 		"gestalt.category": "terminal",
 		"gestalt.source":   "backend",

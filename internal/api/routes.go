@@ -10,7 +10,6 @@ import (
 	"gestalt/internal/logging"
 	"gestalt/internal/notify"
 	"gestalt/internal/otel"
-	"gestalt/internal/temporal"
 	"gestalt/internal/terminal"
 	"gestalt/internal/watcher"
 
@@ -31,12 +30,8 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 	// Git info is read once on boot to avoid polling; refresh can be added later.
 	gitOrigin, gitBranch := loadGitInfo()
 	metricsSummary := otel.NewAPISummaryStore()
-	var temporalClient temporal.WorkflowClient
-	if manager != nil {
-		temporalClient = manager.TemporalClient()
-	}
 	flowRepo := flow.NewFileRepository(flow.DefaultConfigPath(), logger)
-	flowService := flow.NewService(flowRepo, temporalClient, logger)
+	flowService := flow.NewService(flowRepo, nil, logger)
 	rest := &RestHandler{
 		Manager:                manager,
 		FlowService:            flowService,

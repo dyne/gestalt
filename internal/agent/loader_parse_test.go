@@ -67,7 +67,20 @@ llm_model = "default"
 	if agent.Model != "default" {
 		t.Fatalf("expected model to be set from llm_model, got %q", agent.Model)
 	}
-	if agent.LLMModel != "default" {
-		t.Fatalf("expected llm_model to remain set, got %q", agent.LLMModel)
+}
+
+func TestModelOverridesLLMModel(t *testing.T) {
+	data := []byte(`
+name = "Codex"
+shell = "/bin/bash"
+model = "primary"
+llm_model = "legacy"
+`)
+	agent, err := loadAgentFromBytes("agent.toml", data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if agent.Model != "primary" {
+		t.Fatalf("expected model to override llm_model, got %q", agent.Model)
 	}
 }

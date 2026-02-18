@@ -56,7 +56,7 @@ type SessionMeta struct {
 	Role        string
 	CreatedAt   time.Time
 	LLMType     string
-	LLMModel    string
+	Model       string
 	Interface   string
 	Command     string
 	Runner      string
@@ -117,7 +117,7 @@ type SessionInfo struct {
 	CreatedAt   time.Time
 	Status      string
 	LLMType     string
-	LLMModel    string
+	Model       string
 	Interface   string
 	Runner      string
 	Command     string
@@ -131,10 +131,10 @@ func newSession(id string, pty Pty, runner Runner, cmd *exec.Cmd, title, role st
 	// Close cancels context and closes runner resources.
 	ctx, cancel := context.WithCancel(context.Background())
 	llmType := ""
-	llmModel := ""
+	model := ""
 	if profile != nil {
 		llmType = profile.CLIType
-		llmModel = profile.LLMModel
+		model = profile.Model
 	}
 	interfaceValue := agent.AgentInterfaceCLI
 	if _, ok := pty.(*mcpPty); ok {
@@ -175,7 +175,7 @@ func newSession(id string, pty Pty, runner Runner, cmd *exec.Cmd, title, role st
 			Role:      role,
 			CreatedAt: createdAt,
 			LLMType:   llmType,
-			LLMModel:  llmModel,
+			Model:     model,
 			Interface: interfaceValue,
 			Runner:    string(runnerKind),
 			agent:     profile,
@@ -242,7 +242,7 @@ func (s *Session) Info() SessionInfo {
 		CreatedAt:   s.CreatedAt,
 		Status:      s.State().String(),
 		LLMType:     s.LLMType,
-		LLMModel:    s.LLMModel,
+		Model:       s.Model,
 		Interface:   interfaceValue,
 		Runner:      s.Runner,
 		Command:     s.Command,

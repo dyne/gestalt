@@ -159,9 +159,6 @@ func applyModelAlias(agent *Agent, raw map[string]interface{}, filePath string) 
 		emitConfigValidationErrorWithMessage(filePath, message)
 	}
 
-	if strings.TrimSpace(agent.Model) != "" && strings.TrimSpace(agent.LLMModel) == "" {
-		agent.LLMModel = agent.Model
-	}
 }
 
 func applyModelCLIConfig(agent *Agent) {

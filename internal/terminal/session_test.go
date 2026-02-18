@@ -214,7 +214,7 @@ func TestSessionInfoIncludesMetadata(t *testing.T) {
 	profile := &agent.Agent{
 		Name:       "Codex",
 		CLIType:    "codex",
-		LLMModel:   "o3",
+		Model:      "o3",
 		Skills:     []string{"skill-a", "skill-b"},
 		GUIModules: []string{"plan-progress"},
 	}
@@ -233,8 +233,8 @@ func TestSessionInfoIncludesMetadata(t *testing.T) {
 	if info.Title != "title" || info.Role != "role" {
 		t.Fatalf("unexpected meta: %#v", info)
 	}
-	if info.LLMType != "codex" || info.LLMModel != "o3" {
-		t.Fatalf("unexpected llm info: %#v", info)
+	if info.LLMType != "codex" || info.Model != "o3" {
+		t.Fatalf("unexpected model info: %#v", info)
 	}
 	if info.Interface != agent.AgentInterfaceCLI {
 		t.Fatalf("expected interface %q, got %q", agent.AgentInterfaceCLI, info.Interface)

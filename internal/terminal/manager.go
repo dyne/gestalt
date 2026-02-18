@@ -143,21 +143,21 @@ type Manager struct {
 }
 
 type sessionCreateRequest struct {
-	SessionID   string
-	AgentID     string
-	Role        string
-	Title       string
-	Shell       string
-	Runner      string
-	GUIModules  []string
+	SessionID  string
+	AgentID    string
+	Role       string
+	Title      string
+	Shell      string
+	Runner     string
+	GUIModules []string
 }
 
 type CreateOptions struct {
-	AgentID     string
-	Role        string
-	Title       string
-	Runner      string
-	GUIModules  []string
+	AgentID    string
+	Role       string
+	Title      string
+	Runner     string
+	GUIModules []string
 }
 
 const (
@@ -176,11 +176,11 @@ var onAirTimeout = 5 * time.Second
 var defaultSnapshotSampleEvery uint64 = 10
 
 type AgentInfo struct {
-	ID          string
-	Name        string
-	LLMType     string
-	LLMModel    string
-	Interface   string
+	ID        string
+	Name      string
+	LLMType   string
+	Model     string
+	Interface string
 }
 
 type SkillMetadata struct {
@@ -364,11 +364,11 @@ func (m *Manager) ProcessRegistry() *process.Registry {
 
 func (m *Manager) CreateWithOptions(options CreateOptions) (*Session, error) {
 	return m.createSession(sessionCreateRequest{
-		AgentID:     options.AgentID,
-		Role:        options.Role,
-		Title:       options.Title,
-		Runner:      options.Runner,
-		GUIModules:  options.GUIModules,
+		AgentID:    options.AgentID,
+		Role:       options.Role,
+		Title:      options.Title,
+		Runner:     options.Runner,
+		GUIModules: options.GUIModules,
 	})
 }
 
@@ -1239,11 +1239,11 @@ func (m *Manager) ListAgents() []AgentInfo {
 			interfaceValue = agent.AgentInterfaceCLI
 		}
 		infos = append(infos, AgentInfo{
-			ID:          id,
-			Name:        profile.Name,
-			LLMType:     profile.CLIType,
-			LLMModel:    profile.LLMModel,
-			Interface:   interfaceValue,
+			ID:        id,
+			Name:      profile.Name,
+			LLMType:   profile.CLIType,
+			Model:     profile.Model,
+			Interface: interfaceValue,
 		})
 	}
 

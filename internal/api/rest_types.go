@@ -36,7 +36,7 @@ type terminalSummary struct {
 	CreatedAt   time.Time `json:"created_at"`
 	Status      string    `json:"status"`
 	LLMType     string    `json:"llm_type"`
-	LLMModel    string    `json:"llm_model"`
+	Model       string    `json:"model"`
 	Interface   string    `json:"interface"`
 	Runner      string    `json:"runner,omitempty"`
 	Command     string    `json:"command,omitempty"`
@@ -130,7 +130,7 @@ type agentSummary struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	LLMType   string `json:"llm_type"`
-	LLMModel  string `json:"llm_model"`
+	Model     string `json:"model"`
 	Interface string `json:"interface"`
 	SessionID string `json:"session_id"`
 	Running   bool   `json:"running"`

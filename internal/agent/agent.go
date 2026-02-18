@@ -72,7 +72,6 @@ type Agent struct {
 	CodexMode   string                 `json:"codex_mode,omitempty" toml:"codex_mode,omitempty"`
 	CLIType     string                 `json:"cli_type,omitempty" toml:"cli_type,omitempty"`
 	Model       string                 `json:"model,omitempty" toml:"model,omitempty"`
-	LLMModel    string                 `json:"llm_model,omitempty" toml:"llm_model,omitempty"`
 	CLIConfig   map[string]interface{} `json:"cli_config,omitempty" toml:"cli_config,omitempty"`
 	ConfigHash  string                 `json:"-" toml:"-"`
 	warnings    []string               `json:"-" toml:"-"`

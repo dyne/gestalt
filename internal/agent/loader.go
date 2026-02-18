@@ -62,6 +62,15 @@ func (l Loader) Load(agentFS fs.FS, dir, promptsDir string, skillIndex map[strin
 			l.warnLoadError(agentID, filePath, err)
 			continue
 		}
+		for _, warning := range agent.warnings {
+			if l.Logger != nil {
+				l.Logger.Warn("agent config warning", map[string]string{
+					"agent_id": agentID,
+					"path":     filePath,
+					"warning":  warning,
+				})
+			}
+		}
 		if l.Logger != nil && l.Logger.Enabled(logging.LevelDebug) && len(agent.CLIConfig) > 0 {
 			shell := strings.TrimSpace(agent.Shell)
 			if shell != "" {

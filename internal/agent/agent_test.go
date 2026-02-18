@@ -16,7 +16,7 @@ skills = ["git-workflows", "code-review"]
 onair_string = "READY"
 cli_type = "codex"
 codex_mode = "tui"
-llm_model = "default"
+model = "default"
 gui_modules = ["Plan-Progress"]
 `
 
@@ -45,8 +45,8 @@ gui_modules = ["Plan-Progress"]
 	if a.CodexMode != "tui" {
 		t.Fatalf("codex_mode mismatch: %q", a.CodexMode)
 	}
-	if a.LLMModel != "default" {
-		t.Fatalf("llm_model mismatch: %q", a.LLMModel)
+	if a.Model != "default" {
+		t.Fatalf("model mismatch: %q", a.Model)
 	}
 	if len(a.GUIModules) != 1 || a.GUIModules[0] != "Plan-Progress" {
 		t.Fatalf("gui_modules mismatch: %v", a.GUIModules)

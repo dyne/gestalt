@@ -24,7 +24,7 @@ func TestBuildWiresManager(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(promptsDir, "hello.tmpl"), []byte("echo hi\n"), 0o644); err != nil {
 		t.Fatalf("write prompt: %v", err)
 	}
-	agentTOML := "name = \"Codex\"\nshell = \"/bin/bash\"\nprompt = \"hello\"\ncli_type = \"codex\"\nllm_model = \"default\"\n"
+	agentTOML := "name = \"Codex\"\nshell = \"/bin/bash\"\nprompt = \"hello\"\ncli_type = \"codex\"\nmodel = \"default\"\n"
 	if err := os.WriteFile(filepath.Join(agentsDir, "codex.toml"), []byte(agentTOML), 0o644); err != nil {
 		t.Fatalf("write agent: %v", err)
 	}

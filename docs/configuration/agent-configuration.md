@@ -16,7 +16,7 @@ All agent files support the following fields:
 - `gui_modules` (array, optional): UI module flags for sessions (e.g., `["plan-progress"]`). Known modules: `console` (session view) and `plan-progress` (sidebar). Legacy `terminal` is accepted and normalized to `console`. Defaults to `["console"]` for server sessions and `["console","plan-progress"]` for external sessions when unset.
 - `onair_string` (string, optional): Wait for this string before prompt injection (non-Codex only).
 - `singleton` (bool, optional): Allow only one running instance (default true).
-- `llm_model` (string, optional): Model hint for UI/API.
+- `model` (string, optional): Model hint for UI/API.
 - `hidden` (bool, optional): If true, hide from Dashboard buttons only.
 
 Prompt names resolve against `.gestalt/config/prompts`, trying `.tmpl`, `.md`, then `.txt`.

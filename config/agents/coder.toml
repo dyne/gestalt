@@ -3,7 +3,6 @@ shell = "codex"
 cli_type = "codex"
 interface = "cli"
 prompt = ["coder"]
-llm_model = "default"
 gui_modules = ["console","plan-progress"]
 
 # Core model selection

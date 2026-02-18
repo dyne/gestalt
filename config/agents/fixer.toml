@@ -3,7 +3,6 @@ shell = "codex"
 cli_type = "codex"
 interface = "cli"
 prompt = ["fixer"]
-llm_model = "gpt-5.2-codex"
 
 # Core model selection
 model = "gpt-5.2-codex" # values: any supported model id

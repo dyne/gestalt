@@ -7,6 +7,6 @@
 //	  "shell": "/bin/bash",
 //	  "prompt_file": "config/prompts/codex.txt",
 //	  "cli_type": "codex",
-//	  "llm_model": "default"
+//	  "model": "default"
 //	}
 package agent

@@ -2,7 +2,7 @@ name = "Copilot Full Flags"
 shell = "copilot"
 cli_type = "copilot"
 interface = "cli"
-llm_model = "claude-sonnet-4.5"
+model = "claude-sonnet-4.5"
 singleton = false
 
 # This example enables every available copilot CLI switch.

@@ -299,6 +299,35 @@ model = 123
 	}
 }
 
+func TestLoaderWarnsOnDeprecatedLLMModel(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "codex.toml"), []byte(`
+name = "Codex"
+shell = "/bin/bash"
+llm_model = "default"
+`), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	buffer := logging.NewLogBuffer(10)
+	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, nil)
+	loader := Loader{Logger: logger}
+	agents, err := loader.Load(nil, dir, "", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(agents) != 1 {
+		t.Fatalf("expected 1 agent, got %d", len(agents))
+	}
+	entry := findAgentWarning(buffer.List(), "agent config warning")
+	if entry == nil {
+		t.Fatalf("expected warning for deprecated llm_model")
+	}
+	if !strings.Contains(entry.Context["warning"], "llm_model") {
+		t.Fatalf("expected warning to mention llm_model, got %q", entry.Context["warning"])
+	}
+}
+
 func TestLoaderWithFS(t *testing.T) {
 	fsys := fstest.MapFS{
 		"config/agents/codex.toml": &fstest.MapFile{

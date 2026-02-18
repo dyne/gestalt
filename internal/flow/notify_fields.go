@@ -24,8 +24,11 @@ func BuildNotifyFields(input NotifyFieldInput) map[string]string {
 		setNotifyField(fields, "timestamp", input.OccurredAt.UTC().Format(time.RFC3339Nano), true)
 	}
 	setNotifyField(fields, "session_id", input.SessionID, true)
+	setNotifyField(fields, "session.id", input.SessionID, true)
 	setNotifyField(fields, "agent_id", input.AgentID, true)
+	setNotifyField(fields, "agent.id", input.AgentID, true)
 	setNotifyField(fields, "agent_name", input.AgentName, true)
+	setNotifyField(fields, "agent.name", input.AgentName, true)
 	setNotifyField(fields, "notify.type", input.PayloadType, true)
 	if strings.TrimSpace(input.EventID) != "" {
 		setNotifyField(fields, "notify.event_id", strings.TrimSpace(input.EventID), true)

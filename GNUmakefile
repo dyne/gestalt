@@ -5,6 +5,7 @@ BINDIR ?= $(PREFIX)/bin
 VERSION ?= $(or $(shell git describe --tags --abbrev=0 2>/dev/null),dev)
 CONFIG_MANIFEST := config/manifest.json
 VERSION_INFO := internal/version/build_info.json
+NPM_DEPS_STAMP := .npm-deps.stamp
 UNAME_S := $(shell uname -s)
 UNAME_M := $(shell uname -m)
 ARCH := $(UNAME_S)_$(UNAME_M)
@@ -20,31 +21,37 @@ gestalt-otel:
 	$(info Build Open Telemetry Collector...)
 	$(MAKE) -C otel `uname -s`_`uname -m`
 
+# Root Node.js dependencies are required for build helper scripts.
+$(NPM_DEPS_STAMP): package.json package-lock.json
+	$(info Install root Node.js dependencies...)
+	npm install
+	@touch $(NPM_DEPS_STAMP)
+
 # Frontend build is required before embedding.
 frontend/dist:
 	$(info Build Gestalt Frontend...)
 	cd frontend && npm install && VERSION=$(VERSION) npm run build
 
 # Config manifest and version metadata are embedded in the backend binary.
-$(CONFIG_MANIFEST) $(VERSION_INFO): scripts/generate-config-manifest.js
+$(CONFIG_MANIFEST) $(VERSION_INFO): scripts/generate-config-manifest.js $(NPM_DEPS_STAMP)
 	VERSION=$(VERSION) node scripts/generate-config-manifest.js
 
 # make VERSION=1.2.3 to build with specific version
-gestalt: frontend/dist $(CONFIG_MANIFEST) $(VERSION_INFO)
+gestalt: $(NPM_DEPS_STAMP) frontend/dist $(CONFIG_MANIFEST) $(VERSION_INFO)
 	$(info Build Gestalt...)
 	VERSION_LDFLAGS=$$(node scripts/format-version-ldflags.js); \
 	$(GO) build -ldflags "$$VERSION_LDFLAGS" -o gestalt ./cmd/gestalt
 
-gestalt-send: $(VERSION_INFO)
+gestalt-send: $(NPM_DEPS_STAMP) $(VERSION_INFO)
 	$(info Build Gestalt CLI utils...)
 	VERSION_LDFLAGS=$$(node scripts/format-version-ldflags.js); \
 	$(GO) build  -ldflags "$$VERSION_LDFLAGS" -o gestalt-send ./cmd/gestalt-send
 
-gestalt-notify: $(VERSION_INFO)
+gestalt-notify: $(NPM_DEPS_STAMP) $(VERSION_INFO)
 	VERSION_LDFLAGS=$$(node scripts/format-version-ldflags.js); \
 	$(GO) build  -ldflags "$$VERSION_LDFLAGS" -o gestalt-notify ./cmd/gestalt-notify
 
-gestalt-agent: $(VERSION_INFO)
+gestalt-agent: $(NPM_DEPS_STAMP) $(VERSION_INFO)
 	VERSION_LDFLAGS=$$(node scripts/format-version-ldflags.js); \
 	$(GO) build  -ldflags "$$VERSION_LDFLAGS" -o gestalt-agent ./cmd/gestalt-agent
 
@@ -75,6 +82,7 @@ clean:
 	$(info Cleaning up build and cache)
 	go clean
 	rm -rf frontend/dist
+	rm -f $(NPM_DEPS_STAMP)
 	rm -rf gestalt gestalt-*
 	rm -rf $(CONFIG_MANIFEST) $(VERSION_INFO)
 
@@ -83,6 +91,7 @@ clean-all:
 	go clean -cache
 	rm -rf .cache
 	rm -rf frontend/dist
+	rm -f $(NPM_DEPS_STAMP)
 	rm -rf gestalt gestalt-*
 
 

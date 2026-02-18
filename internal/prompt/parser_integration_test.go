@@ -286,7 +286,6 @@ func TestRenderServiceDiscoveryFromEmbeddedFS(t *testing.T) {
 		ports: map[string]int{
 			"backend":  8080,
 			"frontend": 57417,
-			"temporal": 7233,
 			"otel":     4318,
 		},
 	}
@@ -295,7 +294,7 @@ func TestRenderServiceDiscoveryFromEmbeddedFS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render service-discovery: %v", err)
 	}
-	expectedContent := "Service ports:\nbackend\n8080\nfrontend\n57417\ntemporal\n7233\notel\n4318\n"
+	expectedContent := "Service ports:\nbackend\n8080\nfrontend\n57417\notel\n4318\n"
 	if string(result.Content) != expectedContent {
 		t.Fatalf("unexpected content: %q", string(result.Content))
 	}

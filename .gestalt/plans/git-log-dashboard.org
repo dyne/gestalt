@@ -100,7 +100,7 @@ Summary
 - Done when:
   - Endpoint returns stable JSON and doesn’t crash when run outside a git repo.
 
-* WIP [#A] Frontend: Dashboard Git Log Column (replacing API metrics)
+* DONE [#A] Frontend: Dashboard Git Log Column (replacing API metrics)
 :PROPERTIES:
 :Effort: 1.5d
 :Goal: Render a readable, compact git log column in the Dashboard where API metrics currently are.
@@ -123,7 +123,7 @@ Summary
 - Done when:
   - Dashboard store no longer fetches metrics, and `loadGitLog()` updates store state correctly on success/failure.
 
-** TODO [#A] Replace the “API metrics” section with “Git log” section in `Dashboard.svelte`
+** DONE [#A] Replace the “API metrics” section with “Git log” section in `Dashboard.svelte`
 - Why: Requirement is explicit: show git log instead of API metrics in the Dashboard tab.
 - Change:
   - `frontend/src/views/Dashboard.svelte`:

@@ -29,10 +29,10 @@
   let logsError = ''
   let logLevelFilter = 'info'
   let logsAutoRefresh = true
-  let metricsSummary = null
-  let metricsLoading = false
-  let metricsError = ''
-  let metricsAutoRefresh = true
+  let gitLog = { branch: '', commits: [] }
+  let gitLogLoading = false
+  let gitLogError = ''
+  let gitLogAutoRefresh = true
   let configExtractionCount = 0
   let configExtractionLast = ''
   let clipboardAvailable = false
@@ -71,38 +71,12 @@
     return formatRelativeTime(value) || '—'
   }
 
-  const formatMetricsTime = (value) => {
-    return formatRelativeTime(value) || '—'
-  }
-
   const formatCount = (value) => {
     const numeric = Number(value)
     if (Number.isNaN(numeric)) {
       return '—'
     }
     return numberFormatter.format(numeric)
-  }
-
-  const formatDuration = (value) => {
-    const numeric = Number(value)
-    if (Number.isNaN(numeric)) {
-      return '—'
-    }
-    if (numeric < 1) {
-      return `${Math.round(numeric * 1000)}ms`
-    }
-    if (numeric < 10) {
-      return `${numeric.toFixed(2)}s`
-    }
-    return `${numeric.toFixed(1)}s`
-  }
-
-  const formatPercent = (value) => {
-    const numeric = Number(value)
-    if (Number.isNaN(numeric)) {
-      return '—'
-    }
-    return `${numeric.toFixed(1)}%`
   }
 
   const handleLogFilterChange = (event) => {
@@ -117,12 +91,12 @@
     dashboardStore.loadLogs()
   }
 
-  const handleMetricsAutoRefreshChange = (event) => {
-    dashboardStore.setMetricsAutoRefresh(event.target.checked)
+  const handleGitLogAutoRefreshChange = (event) => {
+    dashboardStore.setGitLogAutoRefresh(event.target.checked)
   }
 
-  const refreshMetrics = () => {
-    dashboardStore.loadMetricsSummary()
+  const refreshGitLog = () => {
+    dashboardStore.loadGitLog()
   }
 
   const gitBranchName = (origin, branch) => {
@@ -137,11 +111,24 @@
 
   const logEntryKey = (entry, index) => entry?.id || `${entry.timestampISO}-${entry.message}-${index}`
 
-  const metricsKey = (prefix, entry, index, field) => {
-    const raw = entry?.[field]
-    const value = raw ? String(raw) : ''
-    if (value) return `${prefix}:${value}`
-    return `${prefix}:${index}`
+  const formatLineDelta = (value, prefix) => {
+    const numeric = Number(value)
+    if (Number.isNaN(numeric)) return `${prefix}0`
+    return `${prefix}${numberFormatter.format(numeric)}`
+  }
+
+  const formatGitLogTime = (value) => {
+    return formatRelativeTime(value) || '—'
+  }
+
+  const gitBranchDisplay = (value) => {
+    if (!value) return 'not a git repo'
+    return value
+  }
+
+  const gitFileDelta = (file) => {
+    if (!file || file.binary) return 'binary'
+    return `${formatLineDelta(file.added, '+')} / ${formatLineDelta(file.deleted, '-')}`
   }
 
   $: visibleAgents = agents.filter((agent) => !agent?.hidden)
@@ -212,10 +199,10 @@
     logsError,
     logLevelFilter,
     logsAutoRefresh,
-    metricsSummary,
-    metricsLoading,
-    metricsError,
-    metricsAutoRefresh,
+    gitLog,
+    gitLogLoading,
+    gitLogError,
+    gitLogAutoRefresh,
     configExtractionCount,
     configExtractionLast,
   } = $dashboardStore)
@@ -466,145 +453,87 @@
       </div>
     </section>
 
-    <section class="dashboard__metrics">
+    <section class="dashboard__gitlog">
       <div class="list-header">
         <div>
-          <h2>API metrics</h2>
-          <p class="subtle">
-            Updated {metricsSummary?.updated_at ? formatMetricsTime(metricsSummary.updated_at) : '—'}
-          </p>
+          <h2>Git log</h2>
+          <p class="subtle">{gitBranchDisplay(gitLog?.branch)}</p>
         </div>
-        <div class="metrics-controls">
-          <label class="metrics-control metrics-control--toggle">
+        <div class="gitlog-controls">
+          <label class="gitlog-control gitlog-control--toggle">
             <input
               type="checkbox"
-              bind:checked={metricsAutoRefresh}
-              on:change={handleMetricsAutoRefreshChange}
+              bind:checked={gitLogAutoRefresh}
+              on:change={handleGitLogAutoRefreshChange}
             />
             <span>Auto refresh</span>
           </label>
           <button
-            class="metrics-refresh"
+            class="gitlog-refresh"
             type="button"
-            on:click={refreshMetrics}
-            disabled={metricsLoading}
+            on:click={refreshGitLog}
+            disabled={gitLogLoading}
           >
-            {metricsLoading ? 'Refreshing…' : 'Refresh'}
+            {gitLogLoading ? 'Refreshing…' : 'Refresh'}
           </button>
         </div>
       </div>
 
-      {#if metricsError}
-        <p class="error">{metricsError}</p>
+      {#if gitLogError}
+        <p class="error">{gitLogError}</p>
       {/if}
 
-      {#if metricsLoading && !metricsSummary}
-        <p class="muted">Loading metrics…</p>
-      {:else if !metricsSummary}
-        <p class="muted">No metrics yet.</p>
+      <div class="gitlog-list">
+      {#if gitLogLoading && (gitLog?.commits || []).length === 0}
+        <p class="muted">Loading commits…</p>
+      {:else if !(gitLog?.branch || '').trim() && (gitLog?.commits || []).length === 0}
+        <p class="muted">Not a git repo.</p>
+      {:else if (gitLog?.commits || []).length === 0}
+        <p class="muted">No commits found.</p>
       {:else}
-        <div class="metrics-grid">
-          <details class="metrics-card">
-            <summary class="metrics-card__summary">
-              <div class="metrics-card__header">
-                <h3>Top endpoints</h3>
-                <span class="metrics-pill">Requests</span>
-              </div>
-            </summary>
-            <div class="metrics-card__body">
-              {#if (metricsSummary.top_endpoints || []).length === 0}
-                <p class="muted">No traffic yet.</p>
-              {:else}
-                <ul class="metrics-list">
-                  {#each metricsSummary.top_endpoints as entry, index (metricsKey('top-endpoints', entry, index, 'route'))}
-                    <li>
-                      <span class="metric-label metric-label--mono">{entry.route}</span>
-                      <span class="metric-value">{formatCount(entry.count)}</span>
-                    </li>
-                  {/each}
-                </ul>
-              {/if}
-            </div>
-          </details>
-
-          <details class="metrics-card">
-            <summary class="metrics-card__summary">
-              <div class="metrics-card__header">
-                <h3>Slowest endpoints</h3>
-                <span class="metrics-pill">p99 latency</span>
-              </div>
-            </summary>
-            <div class="metrics-card__body">
-              {#if (metricsSummary.slowest_endpoints || []).length === 0}
-                <p class="muted">No latency data yet.</p>
-              {:else}
-                <ul class="metrics-list">
-                  {#each metricsSummary.slowest_endpoints as entry, index (metricsKey('slowest-endpoints', entry, index, 'route'))}
-                    <li>
-                      <div class="metric-stack">
-                        <span class="metric-label metric-label--mono">{entry.route}</span>
-                        <span class="metric-detail">{formatCount(entry.count)} request(s)</span>
-                      </div>
-                      <span class="metric-value">{formatDuration(entry.p99_seconds)}</span>
-                    </li>
-                  {/each}
-                </ul>
-              {/if}
-            </div>
-          </details>
-
-          <details class="metrics-card">
-            <summary class="metrics-card__summary">
-              <div class="metrics-card__header">
-                <h3>Top agents</h3>
-                <span class="metrics-pill">Requests</span>
-              </div>
-            </summary>
-            <div class="metrics-card__body">
-              {#if (metricsSummary.top_agents || []).length === 0}
-                <p class="muted">No agent traffic yet.</p>
-              {:else}
-                <ul class="metrics-list">
-                  {#each metricsSummary.top_agents as entry, index (metricsKey('top-agents', entry, index, 'name'))}
-                    <li>
-                      <span class="metric-label">{entry.name}</span>
-                      <span class="metric-value">{formatCount(entry.count)}</span>
-                    </li>
-                  {/each}
-                </ul>
-              {/if}
-            </div>
-          </details>
-
-          <details class="metrics-card">
-            <summary class="metrics-card__summary">
-              <div class="metrics-card__header">
-                <h3>Error rates</h3>
-                <span class="metrics-pill">By category</span>
-              </div>
-            </summary>
-            <div class="metrics-card__body">
-              {#if (metricsSummary.error_rates || []).length === 0}
-                <p class="muted">No errors recorded.</p>
-              {:else}
-                <ul class="metrics-list metrics-list--stacked">
-                  {#each metricsSummary.error_rates as entry, index (metricsKey('error-rates', entry, index, 'category'))}
-                    <li>
-                      <div class="metric-row">
-                        <span class="metric-label">{entry.category}</span>
-                        <span class="metric-value">{formatPercent(entry.error_rate_pct)}</span>
-                      </div>
-                      <span class="metric-detail">
-                        {formatCount(entry.errors)} errors / {formatCount(entry.total)} total
-                      </span>
-                    </li>
-                  {/each}
-                </ul>
-              {/if}
-            </div>
-          </details>
-        </div>
+        <ul>
+          {#each gitLog.commits as commit}
+            <li class="gitlog-entry">
+              <details>
+                <summary class="gitlog-entry__summary">
+                  <div class="gitlog-entry__line">
+                    <span class="gitlog-subject">{commit.subject || 'No subject'}</span>
+                    <span class="gitlog-time" title={commit.committed_at || ''}>
+                      {formatGitLogTime(commit.committed_at)}
+                    </span>
+                  </div>
+                  <div class="gitlog-entry__meta">
+                    <span class="gitlog-sha">{commit.short_sha}</span>
+                    <span class="gitlog-delta">
+                      {formatLineDelta(commit?.stats?.lines_added, '+')} /
+                      {formatLineDelta(commit?.stats?.lines_deleted, '-')}
+                    </span>
+                    <span class="gitlog-files">{formatCount(commit?.stats?.files_changed)} file(s)</span>
+                  </div>
+                </summary>
+                <div class="gitlog-entry__details">
+                  {#if commit.files_truncated}
+                    <p class="muted">Showing first {formatCount((commit.files || []).length)} files.</p>
+                  {/if}
+                  {#if (commit.files || []).length === 0}
+                    <p class="muted">No file stats available.</p>
+                  {:else}
+                    <ul>
+                      {#each commit.files as file}
+                        <li class="gitlog-file">
+                          <span class="gitlog-file__path">{file.path}</span>
+                          <span class="gitlog-file__delta">{gitFileDelta(file)}</span>
+                        </li>
+                      {/each}
+                    </ul>
+                  {/if}
+                </div>
+              </details>
+            </li>
+          {/each}
+        </ul>
       {/if}
+      </div>
     </section>
   </section>
 </section>
@@ -733,7 +662,7 @@
     border: 1px solid rgba(var(--color-text-rgb), 0.08);
   }
 
-  .dashboard__metrics {
+  .dashboard__gitlog {
     padding: 1.5rem;
     border-radius: 24px;
     background: rgba(var(--color-success-rgb), 0.08);
@@ -767,14 +696,14 @@
     flex-wrap: wrap;
   }
 
-  .metrics-controls {
+  .gitlog-controls {
     display: flex;
     align-items: center;
     gap: 0.8rem;
     flex-wrap: wrap;
   }
 
-  .metrics-control {
+  .gitlog-control {
     display: flex;
     flex-direction: column;
     gap: 0.3rem;
@@ -782,13 +711,13 @@
     color: var(--color-text-muted);
   }
 
-  .metrics-control--toggle {
+  .gitlog-control--toggle {
     flex-direction: row;
     align-items: center;
     gap: 0.5rem;
   }
 
-  .metrics-refresh {
+  .gitlog-refresh {
     border: 1px solid rgba(var(--color-text-rgb), 0.2);
     border-radius: 999px;
     padding: 0.45rem 0.95rem;
@@ -799,7 +728,7 @@
     cursor: pointer;
   }
 
-  .metrics-refresh:disabled {
+  .gitlog-refresh:disabled {
     cursor: not-allowed;
     opacity: 0.6;
   }
@@ -852,118 +781,125 @@
     gap: 0.45rem;
   }
 
-  .metrics-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 1rem;
+  .gitlog-list {
+    max-height: 28rem;
+    overflow: auto;
   }
 
-  .metrics-card {
-    padding: 1rem 1.1rem;
-    border-radius: 16px;
-    background: var(--color-surface);
-    border: 1px solid rgba(var(--color-text-rgb), 0.06);
-    display: flex;
-    flex-direction: column;
-    gap: 0.7rem;
-  }
-
-  .metrics-card__summary {
-    list-style: none;
-    cursor: pointer;
-  }
-
-  .metrics-card__summary::-webkit-details-marker {
-    display: none;
-  }
-
-  .metrics-card__summary::marker {
-    content: '';
-  }
-
-  .metrics-card__summary:focus-visible {
-    outline: 2px solid rgba(var(--color-text-rgb), 0.35);
-    outline-offset: 2px;
-  }
-
-  .metrics-card__body {
-    margin-top: 0.85rem;
-  }
-
-  .metrics-card__header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.6rem;
-  }
-
-  .metrics-card__header h3 {
-    margin: 0;
-    font-size: 0.95rem;
-  }
-
-  .metrics-pill {
-    padding: 0.2rem 0.55rem;
-    border-radius: 999px;
-    border: 1px solid rgba(var(--color-text-rgb), 0.12);
-    font-size: 0.65rem;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--color-text-subtle);
-  }
-
-  .metrics-list {
+  .gitlog-list ul {
     list-style: none;
     padding: 0;
     margin: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 0.45rem;
   }
 
-  .metrics-list li {
+  .gitlog-entry {
+    margin: 0;
+  }
+
+  .gitlog-entry details {
+    border-radius: 16px;
+  }
+
+  .gitlog-entry__summary {
+    width: 100%;
+    padding: 0.55rem 0.7rem;
+    border-radius: 16px;
+    background: var(--color-surface);
+    border: 1px solid rgba(var(--color-text-rgb), 0.06);
     display: flex;
-    align-items: center;
+    flex-direction: column;
+    gap: 0.28rem;
+    text-align: left;
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+    list-style: none;
+  }
+
+  .gitlog-entry__summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .gitlog-entry__summary::marker {
+    content: '';
+  }
+
+  .gitlog-entry__summary:focus-visible {
+    outline: 2px solid rgba(var(--color-text-rgb), 0.4);
+    outline-offset: 2px;
+  }
+
+  .gitlog-entry details[open] .gitlog-entry__summary {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+
+  .gitlog-entry__details {
+    border: 1px solid rgba(var(--color-text-rgb), 0.06);
+    border-top: none;
+    padding: 0.65rem 0.7rem;
+    border-bottom-left-radius: 16px;
+    border-bottom-right-radius: 16px;
+    background: rgba(var(--color-surface-rgb), 0.7);
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+
+  .gitlog-entry__line {
+    display: flex;
     justify-content: space-between;
+    align-items: center;
     gap: 0.6rem;
+  }
+
+  .gitlog-subject {
+    color: var(--color-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .gitlog-time {
+    font-size: 0.75rem;
+    color: var(--color-text-subtle);
+    white-space: nowrap;
+  }
+
+  .gitlog-entry__meta {
+    display: flex;
+    gap: 0.55rem;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .gitlog-sha,
+  .gitlog-delta,
+  .gitlog-files,
+  .gitlog-file__delta {
+    font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
+    font-size: 0.75rem;
+    color: var(--color-text-subtle);
+  }
+
+  .gitlog-file {
+    display: flex;
+    gap: 0.6rem;
+    justify-content: space-between;
+    align-items: center;
     font-size: 0.85rem;
   }
 
-  .metrics-list--stacked li {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .metric-row {
-    display: flex;
-    justify-content: space-between;
-    gap: 0.6rem;
-    width: 100%;
-  }
-
-  .metric-stack {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-  }
-
-  .metric-label {
+  .gitlog-file__path {
     color: var(--color-text);
+    overflow-wrap: anywhere;
   }
 
-  .metric-label--mono {
-    font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
-    font-size: 0.8rem;
-  }
-
-  .metric-value {
-    font-weight: 600;
-    color: var(--color-text);
-  }
-
-  .metric-detail {
-    font-size: 0.75rem;
-    color: var(--color-text-subtle);
+  .gitlog-file__delta {
+    white-space: nowrap;
   }
 
   .log-entry {

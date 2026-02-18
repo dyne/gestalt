@@ -7,8 +7,6 @@ const apiFetch = vi.hoisted(() => vi.fn())
 const buildEventSourceUrl = vi.hoisted(() => vi.fn((path) => `http://test${path}`))
 const getTerminalState = vi.hoisted(() => vi.fn())
 const createTerminalService = vi.hoisted(() => vi.fn())
-const fetchStatus = vi.hoisted(() => vi.fn())
-const fetchWorkflows = vi.hoisted(() => vi.fn())
 
 vi.mock('../src/lib/api.js', () => ({
   apiFetch,
@@ -28,11 +26,6 @@ vi.mock('../src/lib/terminalStore.js', () => ({
 
 vi.mock('../src/lib/terminal/service_mcp.js', () => ({
   createTerminalService,
-}))
-
-vi.mock('../src/lib/apiClient.js', () => ({
-  fetchStatus,
-  fetchWorkflows,
 }))
 
 import Terminal from '../src/components/Terminal.svelte'
@@ -96,8 +89,6 @@ describe('Terminal', () => {
     apiFetch.mockReset()
     getTerminalState.mockReset()
     createTerminalService.mockReset()
-    fetchStatus.mockReset()
-    fetchWorkflows.mockReset()
     cleanup()
   })
 
@@ -141,18 +132,6 @@ describe('Terminal', () => {
     })
 
     expect(getByText('t1')).toBeTruthy()
-  })
-
-  it('disables the Temporal button when no workflow link exists', () => {
-    const state = buildState()
-    getTerminalState.mockReturnValue(state)
-
-    const { getByText } = render(Terminal, {
-      props: { sessionId: 't1', title: 'Coder' },
-    })
-
-    const temporalButton = getByText('Temporal')
-    expect(temporalButton.hasAttribute('disabled')).toBe(true)
   })
 
   it('shows the Bottom button when scrolled up', async () => {
@@ -211,8 +190,6 @@ describe('Terminal', () => {
 
   it('renders transcript for mcp console sessions', async () => {
     createTerminalService.mockReturnValue(buildConsoleState())
-    fetchStatus.mockResolvedValue({})
-    fetchWorkflows.mockResolvedValue([])
 
     const { container } = render(TerminalView, {
       props: {
@@ -230,8 +207,6 @@ describe('Terminal', () => {
 
   it('renders xterm canvas when terminal module enabled', async () => {
     getTerminalState.mockReturnValue(buildState())
-    fetchStatus.mockResolvedValue({})
-    fetchWorkflows.mockResolvedValue([])
 
     const { container } = render(TerminalView, {
       props: {

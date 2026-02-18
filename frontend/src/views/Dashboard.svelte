@@ -308,21 +308,6 @@
               <span class="agent-name">{agent.name}</span>
               <span class="agent-action">{agent.running ? 'Open' : 'Start'}</span>
             </button>
-            {#if agent.running && status?.temporal_ui_url}
-              <details class="agent-menu">
-                <summary class="agent-menu__toggle" aria-label="Agent options">...</summary>
-                <div class="agent-menu__panel">
-                  <a
-                    class="agent-menu__item"
-                    href={status.temporal_ui_url}
-                    target="_blank"
-                    rel="noopener"
-                  >
-                    Open in Temporal
-                  </a>
-                </div>
-              </details>
-            {/if}
           </div>
         {/each}
       </div>
@@ -1207,63 +1192,6 @@
     letter-spacing: 0.16em;
     text-transform: uppercase;
     color: var(--color-text-subtle);
-  }
-
-  .agent-menu {
-    position: relative;
-    align-self: stretch;
-  }
-
-  .agent-menu__toggle {
-    list-style: none;
-    display: grid;
-    place-items: center;
-    width: 2.4rem;
-    height: 100%;
-    border: 1px solid rgba(var(--color-text-rgb), 0.2);
-    border-radius: 12px;
-    background: var(--color-surface);
-    color: var(--color-text);
-    font-size: 1rem;
-    cursor: pointer;
-    transition: background 150ms ease, border-color 150ms ease;
-  }
-
-  .agent-menu__toggle::-webkit-details-marker {
-    display: none;
-  }
-
-  .agent-menu[open] .agent-menu__toggle {
-    border-color: rgba(var(--color-text-rgb), 0.4);
-    background: rgba(var(--color-text-rgb), 0.08);
-  }
-
-  .agent-menu__panel {
-    position: absolute;
-    right: 0;
-    top: calc(100% + 0.35rem);
-    min-width: 180px;
-    padding: 0.35rem;
-    border-radius: 12px;
-    background: var(--color-surface);
-    border: 1px solid rgba(var(--color-text-rgb), 0.15);
-    box-shadow: 0 16px 30px rgba(var(--shadow-color-rgb), 0.2);
-    z-index: 4;
-  }
-
-  .agent-menu__item {
-    display: block;
-    padding: 0.45rem 0.6rem;
-    border-radius: 8px;
-    font-size: 0.75rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    text-decoration: none;
-    color: var(--color-text);
-  }
-
-  .agent-menu__item:hover {
-    background: rgba(var(--color-text-rgb), 0.08);
   }
 
   @keyframes pulseDot {

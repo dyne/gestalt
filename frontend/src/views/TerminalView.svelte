@@ -1,8 +1,6 @@
 <script>
-  import { onMount } from 'svelte'
   import Terminal from '../components/Terminal.svelte'
   import PlanSidebar from '../components/PlanSidebar.svelte'
-  import { fetchStatus, fetchWorkflows } from '../lib/apiClient.js'
 
   export let sessionId = ''
   export let title = ''
@@ -16,44 +14,8 @@
 
   let closeDialog
   let confirmButton
-  let temporalUiUrl = ''
-  let workflowId = ''
-  let workflowRunId = ''
-  let temporalUrl = ''
   let lastTerminalId = ''
-  let loadId = 0
   let planSidebarState = {}
-
-  const resetWorkflowContext = () => {
-    temporalUiUrl = ''
-    workflowId = ''
-    workflowRunId = ''
-  }
-
-  const loadWorkflowContext = async (sessionId) => {
-    if (!sessionId) {
-      resetWorkflowContext()
-      return
-    }
-    const currentLoad = (loadId += 1)
-    try {
-      const [nextStatus, workflows] = await Promise.all([
-        fetchStatus(),
-        fetchWorkflows(),
-      ])
-      if (currentLoad !== loadId) return
-      temporalUiUrl = nextStatus?.temporal_ui_url || ''
-      const match = Array.isArray(workflows)
-        ? workflows.find((workflow) => String(workflow?.session_id || '') === String(sessionId))
-        : null
-      workflowId = match?.workflow_id || ''
-      workflowRunId = match?.workflow_run_id || ''
-    } catch (err) {
-      if (currentLoad !== loadId) return
-      console.warn('failed to load workflow context', err)
-      resetWorkflowContext()
-    }
-  }
 
   const openCloseDialog = () => {
     if (!closeDialog || closeDialog.open) return
@@ -89,20 +51,9 @@
 
   $: if (sessionId && sessionId !== lastTerminalId) {
     lastTerminalId = sessionId
-    loadWorkflowContext(sessionId)
   } else if (!sessionId && lastTerminalId) {
     lastTerminalId = ''
-    resetWorkflowContext()
   }
-
-  $: temporalUrl = String(temporalUiUrl || '').trim()
-
-  onMount(() => {
-    if (sessionId) {
-      lastTerminalId = sessionId
-      loadWorkflowContext(sessionId)
-    }
-  })
 </script>
 
 <section class="terminal-view">
@@ -114,7 +65,6 @@
           {title}
           {promptFiles}
           {visible}
-          {temporalUrl}
           {sessionInterface}
           {sessionRunner}
           {tmuxSessionName}

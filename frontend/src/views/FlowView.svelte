@@ -8,9 +8,6 @@
   import { flowConfigStore } from '../lib/flowConfigStore.js'
 
   const fallbackEventTypeOptions = [
-    'workflow_paused',
-    'workflow_started',
-    'workflow_completed',
     'file_changed',
     'git_branch_changed',
     'terminal_resized',
@@ -460,12 +457,6 @@
   {#if importError}
     <div class="flow-alert flow-alert--error">{importError}</div>
   {/if}
-  {#if flowState?.temporalStatus && !flowState.temporalStatus.enabled}
-    <div class="flow-alert flow-alert--warning">
-      Temporal is unavailable; Flow automations will not run.
-    </div>
-  {/if}
-
   <div class="flow-view__body">
     <aside class="flow-rail">
       <div class="rail-header">
@@ -482,7 +473,7 @@
         bind:value={query}
         disabled={flowState?.loading}
       />
-      <p class="field-hint">Try `event_type:workflow_paused session_id:t1`</p>
+      <p class="field-hint">Try `event_type:file_changed path:README.md`</p>
       {#if parsed.tokens.length > 0}
         <div class="chip-row" aria-label="Active filters">
           {#each parsed.tokens as token (token.raw)}
@@ -698,12 +689,6 @@
     border-color: rgba(var(--color-danger-rgb), 0.4);
     color: var(--color-danger);
     background: rgba(var(--color-danger-rgb), 0.08);
-  }
-
-  .flow-alert--warning {
-    border-color: rgba(var(--color-warning-rgb), 0.45);
-    color: var(--color-warning);
-    background: rgba(var(--color-warning-rgb), 0.1);
   }
 
   .flow-storage {

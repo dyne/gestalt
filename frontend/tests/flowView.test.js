@@ -32,17 +32,57 @@ describe('FlowView', () => {
 
   it('filters triggers and updates the selected details', async () => {
     fetchFlowActivities.mockResolvedValue([{ id: 'toast_notification', label: 'Toast', fields: [] }])
-    fetchFlowEventTypes.mockResolvedValue({ eventTypes: ['workflow_paused', 'file_changed'] })
+    fetchFlowEventTypes.mockResolvedValue({ eventTypes: ['file_changed', 'git_branch_changed'] })
     fetchFlowConfig.mockResolvedValue({
       config: {
         version: 1,
         triggers: [
           {
-            id: 'workflow-paused',
-            label: 'Workflow paused',
-            event_type: 'workflow_paused',
-            where: { session_id: 't1', agent_name: 'Codex' },
+            id: 'file-changed',
+            label: 'File changed',
+            event_type: 'file_changed',
+            where: { path: 'README.md' },
           },
+          {
+            id: 'git-branch',
+            label: 'Git branch changed',
+            event_type: 'git_branch_changed',
+            where: { branch: 'main' },
+          },
+        ],
+        bindings_by_trigger_id: {},
+      },
+    })
+
+    const { getByLabelText, getByRole, queryByText, findAllByText, findByText } = render(FlowView)
+
+    expect((await findAllByText('File changed')).length).toBeGreaterThan(0)
+    expect(await findByText('Git branch changed')).toBeTruthy()
+
+    const input = getByLabelText('Search / filters')
+    await fireEvent.input(input, { target: { value: 'event_type:file_changed' } })
+
+    expect((await findAllByText('File changed')).length).toBeGreaterThan(0)
+    expect(queryByText('Git branch changed')).toBeNull()
+
+    await fireEvent.input(input, { target: { value: '' } })
+
+    const branchTrigger = await findByText('Git branch changed')
+    await fireEvent.click(branchTrigger)
+
+    const heading = getByRole('heading', { level: 2, name: 'Git branch changed' })
+    expect(heading).toBeTruthy()
+  })
+
+  it('creates a trigger and saves it', async () => {
+    fetchFlowActivities.mockResolvedValue([{ id: 'toast_notification', label: 'Toast', fields: [] }])
+    fetchFlowEventTypes.mockResolvedValue({
+      eventTypes: ['file_changed', 'terminal_resized'],
+    })
+    fetchFlowConfig.mockResolvedValue({
+      config: {
+        version: 1,
+        triggers: [
           {
             id: 'file-changed',
             label: 'File changed',
@@ -52,80 +92,37 @@ describe('FlowView', () => {
         ],
         bindings_by_trigger_id: {},
       },
-      temporalStatus: { enabled: true },
-    })
-
-    const { getByLabelText, getByRole, queryByText, findAllByText, findByText } = render(FlowView)
-
-    expect((await findAllByText('Workflow paused')).length).toBeGreaterThan(0)
-    expect(await findByText('File changed')).toBeTruthy()
-
-    const input = getByLabelText('Search / filters')
-    await fireEvent.input(input, { target: { value: 'event_type:workflow_paused' } })
-
-    expect((await findAllByText('Workflow paused')).length).toBeGreaterThan(0)
-    expect(queryByText('File changed')).toBeNull()
-
-    await fireEvent.input(input, { target: { value: '' } })
-
-    const fileTrigger = await findByText('File changed')
-    await fireEvent.click(fileTrigger)
-
-    const heading = getByRole('heading', { level: 2, name: 'File changed' })
-    expect(heading).toBeTruthy()
-  })
-
-  it('creates a trigger and saves it', async () => {
-    fetchFlowActivities.mockResolvedValue([{ id: 'toast_notification', label: 'Toast', fields: [] }])
-    fetchFlowEventTypes.mockResolvedValue({
-      eventTypes: ['workflow_paused', 'workflow_completed'],
-    })
-    fetchFlowConfig.mockResolvedValue({
-      config: {
-        version: 1,
-        triggers: [
-          {
-            id: 'workflow-paused',
-            label: 'Workflow paused',
-            event_type: 'workflow_paused',
-            where: { session_id: 't1' },
-          },
-        ],
-        bindings_by_trigger_id: {},
-      },
-      temporalStatus: { enabled: true },
     })
     saveFlowConfig.mockResolvedValue({
       config: {
         version: 1,
         triggers: [
           {
-            id: 'workflow-paused',
-            label: 'Workflow paused',
-            event_type: 'workflow_paused',
-            where: { session_id: 't1' },
+            id: 'file-changed',
+            label: 'File changed',
+            event_type: 'file_changed',
+            where: { path: 'README.md' },
           },
           {
             id: 'new-trigger',
             label: 'New trigger',
-            event_type: 'workflow_completed',
-            where: { session_id: 't9' },
+            event_type: 'terminal_resized',
+            where: { terminal_id: 't9' },
           },
         ],
         bindings_by_trigger_id: {},
       },
-      temporalStatus: { enabled: true },
     })
 
     const { getByRole, getByLabelText, findAllByText } = render(FlowView)
 
-    await findAllByText('Workflow paused')
+    await findAllByText('File changed')
 
     await fireEvent.click(getByRole('button', { name: 'Add trigger' }))
 
     await fireEvent.input(getByLabelText('Label'), { target: { value: 'New trigger' } })
-    await fireEvent.change(getByLabelText('Event type'), { target: { value: 'workflow_completed' } })
-    await fireEvent.input(getByLabelText('Where (advanced, one per line)'), { target: { value: 'session_id=t9' } })
+    await fireEvent.change(getByLabelText('Event type'), { target: { value: 'terminal_resized' } })
+    await fireEvent.input(getByLabelText('Where (advanced, one per line)'), { target: { value: 'terminal_id=t9' } })
 
     await fireEvent.click(getByRole('button', { name: 'Save trigger' }))
 
@@ -151,7 +148,6 @@ describe('FlowView', () => {
         triggers: [],
         bindings_by_trigger_id: {},
       },
-      temporalStatus: { enabled: true },
     })
 
     const { getByRole, getByLabelText, findByText, findAllByText } = render(FlowView)

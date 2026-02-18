@@ -172,14 +172,13 @@ type errorResponse struct {
 }
 
 type agentSummary struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	LLMType     string `json:"llm_type"`
-	LLMModel    string `json:"llm_model"`
-	Interface   string `json:"interface"`
-	SessionID   string `json:"session_id"`
-	Running     bool   `json:"running"`
-	UseWorkflow bool   `json:"use_workflow"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	LLMType   string `json:"llm_type"`
+	LLMModel  string `json:"llm_model"`
+	Interface string `json:"interface"`
+	SessionID string `json:"session_id"`
+	Running   bool   `json:"running"`
 }
 
 type agentInputResponse struct {
@@ -202,11 +201,6 @@ type createTerminalRequest struct {
 	Agent      string   `json:"agent"`
 	Runner     string   `json:"runner,omitempty"`
 	GUIModules []string `json:"gui_modules,omitempty"`
-	Workflow   *bool    `json:"workflow,omitempty"`
-}
-
-type workflowResumeRequest struct {
-	Action string `json:"action"`
 }
 
 type terminalProgressResponse struct {

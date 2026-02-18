@@ -228,8 +228,6 @@ func runServer(args []string) int {
 		ConfigRoot:           configPaths.SubDir,
 		AgentsDir:            filepath.Join(configPaths.ConfigDir, "agents"),
 		ProcessRegistry:      processRegistry,
-		TemporalClient:       nil,
-		TemporalEnabled:      false,
 		SessionLogDir:        cfg.SessionLogDir,
 		InputHistoryDir:      cfg.InputHistoryDir,
 		SessionRetentionDays: cfg.SessionRetentionDays,

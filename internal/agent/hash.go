@@ -26,7 +26,6 @@ func ComputeConfigHash(agent *Agent) string {
 		"prompt":       []string(agent.Prompts),
 		"skills":       agent.Skills,
 		"onair_string": agent.OnAirString,
-		"use_workflow": agent.UseWorkflow,
 		"singleton":    agent.Singleton,
 		"cli_type":     agent.CLIType,
 		"llm_model":    agent.LLMModel,

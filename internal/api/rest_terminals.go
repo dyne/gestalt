@@ -13,7 +13,6 @@ import (
 	"gestalt/internal/event"
 	"gestalt/internal/flow"
 	"gestalt/internal/notify"
-	"gestalt/internal/temporal/workflows"
 	"gestalt/internal/terminal"
 )
 
@@ -59,10 +58,6 @@ func (h *RestHandler) handleTerminal(w http.ResponseWriter, r *http.Request) *ap
 		return h.handleTerminalNotify(w, r, id)
 	case terminalPathProgress:
 		return h.handleTerminalProgress(w, r, id)
-	case terminalPathWorkflowResume:
-		return h.handleTerminalWorkflowResume(w, r, id)
-	case terminalPathWorkflowHistory:
-		return h.handleTerminalWorkflowHistory(w, r, id)
 	default:
 		return h.handleTerminalDelete(w, r, id)
 	}
@@ -171,12 +166,11 @@ func (h *RestHandler) createTerminal(w http.ResponseWriter, r *http.Request) *ap
 	}
 
 	session, createErr := h.Manager.CreateWithOptions(terminal.CreateOptions{
-		AgentID:     request.Agent,
-		Role:        request.Role,
-		Title:       request.Title,
-		Runner:      request.Runner,
-		GUIModules:  request.GUIModules,
-		UseWorkflow: request.Workflow,
+		AgentID:    request.Agent,
+		Role:       request.Role,
+		Title:      request.Title,
+		Runner:     request.Runner,
+		GUIModules: request.GUIModules,
 	})
 	if createErr != nil {
 		if errors.Is(createErr, terminal.ErrAgentRequired) {
@@ -536,76 +530,6 @@ func (h *RestHandler) handleTerminalProgress(w http.ResponseWriter, r *http.Requ
 	return nil
 }
 
-func (h *RestHandler) handleTerminalWorkflowResume(w http.ResponseWriter, r *http.Request, id string) *apiError {
-	if r.Method != http.MethodPost {
-		return methodNotAllowed(w, "POST")
-	}
-
-	request, err := decodeWorkflowResumeRequest(r)
-	if err != nil {
-		return err
-	}
-	action, err := normalizeWorkflowResumeAction(request)
-	if err != nil {
-		return err
-	}
-
-	session, ok := h.Manager.Get(id)
-	if !ok {
-		return &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
-	}
-	workflowID, workflowRunID, hasWorkflow := session.WorkflowIdentifiers()
-	if !hasWorkflow {
-		return &apiError{Status: http.StatusConflict, Message: "workflow not active"}
-	}
-
-	if signalErr := session.SendResumeSignal(action); signalErr != nil {
-		return &apiError{Status: http.StatusInternalServerError, Message: "failed to resume workflow"}
-	}
-
-	if h.Logger != nil {
-		h.Logger.Info("workflow resume action", map[string]string{
-			"gestalt.category": "workflow",
-			"gestalt.source":   "backend",
-			"session.id":       id,
-			"workflow.id":      workflowID,
-			"workflow.run_id":  workflowRunID,
-			"action":           action,
-		})
-	}
-
-	w.WriteHeader(http.StatusNoContent)
-	return nil
-}
-
-func (h *RestHandler) handleTerminalWorkflowHistory(w http.ResponseWriter, r *http.Request, id string) *apiError {
-	if r.Method != http.MethodGet {
-		return methodNotAllowed(w, "GET")
-	}
-
-	if err := h.requireManager(); err != nil {
-		return err
-	}
-
-	session, ok := h.Manager.Get(id)
-	if !ok {
-		return &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
-	}
-	workflowID, workflowRunID, hasWorkflow := session.WorkflowIdentifiers()
-	if !hasWorkflow {
-		return &apiError{Status: http.StatusConflict, Message: "workflow not active"}
-	}
-
-	temporalClient := h.Manager.TemporalClient()
-	events, err := fetchWorkflowHistoryEntries(r.Context(), temporalClient, workflowID, workflowRunID, h.Logger)
-	if err != nil {
-		return &apiError{Status: http.StatusInternalServerError, Message: "failed to load workflow history"}
-	}
-
-	writeJSON(w, http.StatusOK, events)
-	return nil
-}
-
 func (h *RestHandler) handleTerminalDelete(w http.ResponseWriter, r *http.Request, id string) *apiError {
 	if r.Method != http.MethodDelete {
 		return methodNotAllowed(w, "DELETE")
@@ -735,32 +659,4 @@ func decodeCreateTerminalRequest(r *http.Request) (createTerminalRequest, *apiEr
 	}
 
 	return request, nil
-}
-
-func decodeWorkflowResumeRequest(r *http.Request) (workflowResumeRequest, *apiError) {
-	var request workflowResumeRequest
-	if r.Body == nil {
-		return request, nil
-	}
-
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&request); err != nil && err != io.EOF {
-		return request, &apiError{Status: http.StatusBadRequest, Message: "invalid request body"}
-	}
-
-	return request, nil
-}
-
-func normalizeWorkflowResumeAction(request workflowResumeRequest) (string, *apiError) {
-	action := strings.ToLower(strings.TrimSpace(request.Action))
-	if action == "" {
-		return workflows.ResumeActionContinue, nil
-	}
-	switch action {
-	case workflows.ResumeActionContinue, workflows.ResumeActionAbort, workflows.ResumeActionHandoff:
-		return action, nil
-	default:
-		return "", &apiError{Status: http.StatusBadRequest, Message: "invalid resume action"}
-	}
 }

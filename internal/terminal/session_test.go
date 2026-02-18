@@ -252,19 +252,3 @@ func TestSessionInfoIncludesMetadata(t *testing.T) {
 		t.Fatalf("unexpected gui modules: %v", info.GUIModules)
 	}
 }
-
-func TestSessionWorkflowIdentifiersEmpty(t *testing.T) {
-	pty := newScriptedPty()
-	session := newSession("1", pty, nil, nil, "title", "role", time.Now(), 10, 0, OutputBackpressureBlock, 0, nil, nil, nil)
-	defer func() {
-		_ = session.Close()
-	}()
-
-	workflowID, runID, ok := session.WorkflowIdentifiers()
-	if ok {
-		t.Fatalf("expected no workflow identifiers, got %q %q", workflowID, runID)
-	}
-	if workflowID != "" || runID != "" {
-		t.Fatalf("expected empty identifiers, got %q %q", workflowID, runID)
-	}
-}

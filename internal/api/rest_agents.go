@@ -21,14 +21,13 @@ func (h *RestHandler) handleAgents(w http.ResponseWriter, r *http.Request) *apiE
 	for _, info := range infos {
 		sessionID, running := h.Manager.GetAgentTerminal(info.Name)
 		response = append(response, agentSummary{
-			ID:          info.ID,
-			Name:        info.Name,
-			LLMType:     info.LLMType,
-			LLMModel:    info.LLMModel,
-			Interface:   info.Interface,
-			SessionID:   sessionID,
-			Running:     running,
-			UseWorkflow: info.UseWorkflow,
+			ID:        info.ID,
+			Name:      info.Name,
+			LLMType:   info.LLMType,
+			LLMModel:  info.LLMModel,
+			Interface: info.Interface,
+			SessionID: sessionID,
+			Running:   running,
 		})
 	}
 	writeJSON(w, http.StatusOK, response)

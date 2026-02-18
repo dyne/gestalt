@@ -13,7 +13,6 @@ import (
 	"gestalt/internal/ports"
 	"gestalt/internal/process"
 	"gestalt/internal/skill"
-	"gestalt/internal/temporal"
 	"gestalt/internal/terminal"
 )
 
@@ -25,8 +24,6 @@ type BuildOptions struct {
 	ConfigRoot           string
 	AgentsDir            string
 	ProcessRegistry      *process.Registry
-	TemporalClient       temporal.WorkflowClient
-	TemporalEnabled      bool
 	SessionLogDir        string
 	InputHistoryDir      string
 	SessionRetentionDays int
@@ -99,8 +96,6 @@ func Build(options BuildOptions) (*BuildResult, error) {
 		AgentsDir:            options.AgentsDir,
 		Skills:               skills,
 		Logger:               options.Logger,
-		TemporalClient:       options.TemporalClient,
-		TemporalEnabled:      options.TemporalEnabled,
 		SessionLogDir:        options.SessionLogDir,
 		InputHistoryDir:      options.InputHistoryDir,
 		SessionRetentionDays: options.SessionRetentionDays,

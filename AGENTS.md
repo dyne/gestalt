@@ -134,6 +134,11 @@ terminal output -> Session output bus -> /ws/session/:id -> frontend text view
 - Clipboard controls should use `frontend/src/lib/clipboard.js` to gate copy actions on secure contexts (HTTPS or secure localhost) and hide when unavailable.
 - Dashboard status pills (workdir, git remote, git branch) are clickable and copy their values when clipboard is allowed.
 
+## Notify + dashboard compact notes
+- `POST /api/sessions/:id/notify` emits one structured `INFO` log entry (`notify event accepted`) per accepted notify request with stable attributes: `gestalt.category=notification`, `gestalt.source=notify`, `type`, `notify.type`, `notify.event_id` (when present), `session.id/session_id`, `agent.id/agent_id`, `agent.name/agent_name`, and `notify.dispatch`.
+- Notify logs are emitted even on degraded dispatch paths (`flow_unavailable` or `temporal_unavailable`) and are visible to `/api/logs/stream` consumers.
+- Dashboard Recent logs now renders up to 30 entries and shows inline chips for `notify.type`, session id, and agent id while preserving full expandable details.
+
 ## Session logging notes
 - Async file logger behavior is covered by `internal/terminal/async_file_logger_test.go` to validate flush-on-close and drop behavior.
 - Session metadata boundaries are covered in `internal/terminal/session_test.go` (Info metadata + workflow identifier defaults).

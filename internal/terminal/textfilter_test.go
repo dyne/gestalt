@@ -66,7 +66,7 @@ func TestFilterTerminalOutputMixed(t *testing.T) {
 }
 
 func TestFilterTerminalOutputRealWorldBellSample(t *testing.T) {
-	sample := decodeSample(`2026/01/25 06:48:39 level=info msg="temporal bell recorded" context="\r\n   \x1b[97m  - \x1b[1mDraft new L1 sections\x1b[22m with detailed L2 steps for features you want to add\x1b[39m\r\n   \x1b[97m  - \x1b[1mExtend existing L1 sections\x1b[22m with additional L2 tasks\x1b[39m\r\n   \x1b[97m  - \x1b[1mRefine L2 tasks\x1b[22m with more architectural detail\x1b[39m\r\n   \x1b[97m  - \x1b[1mAsk clarifying questions\x1b[22m before committing architectural decisions to the PLAN\x1b[39m\r\n\r\n   \x1b[1m\x1b[97mWhat I need from you:\x1b[39m\x1b[22m\r\n\r\n   \x1b[97mTell me what feature or change you want to plan. I'll:\x1b[39m\r\n\r\n   \x1b[97m  - Research the codebase (using code search when relevant\x1b[39m\r\n\r\n \x1b[35m◉ Rea\x1b[95md\x1b[35ming current PLAN\x1b[39m \x1b[37m(Esc to cancel · 1.3 KiB)\x1b[39m\r\n\r\n ~/devel/gestalt\x1b[37m[⎇ main*]\x1b[39m
+	sample := decodeSample(`2026/01/25 06:48:39 level=info msg="bell recorded" context="\r\n   \x1b[97m  - \x1b[1mDraft new L1 sections\x1b[22m with detailed L2 steps for features you want to add\x1b[39m\r\n   \x1b[97m  - \x1b[1mExtend existing L1 sections\x1b[22m with additional L2 tasks\x1b[39m\r\n   \x1b[97m  - \x1b[1mRefine L2 tasks\x1b[22m with more architectural detail\x1b[39m\r\n   \x1b[97m  - \x1b[1mAsk clarifying questions\x1b[22m before committing architectural decisions to the PLAN\x1b[39m\r\n\r\n   \x1b[1m\x1b[97mWhat I need from you:\x1b[39m\x1b[22m\r\n\r\n   \x1b[97mTell me what feature or change you want to plan. I'll:\x1b[39m\r\n\r\n   \x1b[97m  - Research the codebase (using code search when relevant\x1b[39m\r\n\r\n \x1b[35m◉ Rea\x1b[95md\x1b[35ming current PLAN\x1b[39m \x1b[37m(Esc to cancel · 1.3 KiB)\x1b[39m\r\n\r\n ~/devel/gestalt\x1b[37m[⎇ main*]\x1b[39m
    \x1b[37mclaude-sonnet-4.5 (1x)\x1b[39m\r\n \x1b[37m──────────────────────────────────────────────────────────────────────────────────────────
 ──────────────────────────────────────────────────────────────────────────────────────────────────────\x1b[39m\r\n \x1b[37m> \x1b[39m\r\n   \x1b[7m \x1b[27m\r\n \x1b[37m───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 ─────────────────────────────────────────────────────────────────────────\x1b[39m\r\n \x1b[1m\x1b[97mCtrl+c\x1b[22m\x1b[37m Exit\x1b[39m \x1b[37m·\x1b[39m \x1b[1m\x1b[97mCtrl+r\x1b[22m\x1b[37m Expand recent\x1b[39m
@@ -85,7 +85,7 @@ devel/gestalt\x1b[37m[⎇ main*]\x1b[39m
 	if strings.Contains(cleaned, "────────────────") {
 		t.Fatalf("expected repeated chars collapsed, got %q", cleaned)
 	}
-	if !strings.Contains(cleaned, "temporal bell recorded") {
+	if !strings.Contains(cleaned, "bell recorded") {
 		t.Fatalf("expected key text preserved, got %q", cleaned)
 	}
 	if !strings.Contains(cleaned, "Draft new L1 sections") {

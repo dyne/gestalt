@@ -53,7 +53,6 @@ Common services:
 
 - `backend`
 - `frontend`
-- `temporal`
 - `otel`
 
 ## Practical tips

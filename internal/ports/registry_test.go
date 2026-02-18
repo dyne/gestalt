@@ -38,7 +38,7 @@ func TestPortRegistryUnknownService(t *testing.T) {
 
 func TestPortRegistryConcurrentAccess(t *testing.T) {
 	registry := NewPortRegistry()
-	services := []string{"backend", "frontend", "temporal", "otel"}
+	services := []string{"backend", "frontend", "otel"}
 
 	var waitGroup sync.WaitGroup
 	for index, service := range services {

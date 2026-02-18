@@ -190,8 +190,8 @@ func TestRenderInlineEscapedDirective(t *testing.T) {
 func TestRenderInlineMultipleDirectives(t *testing.T) {
 	resolver := &mockPortResolver{
 		ports: map[string]int{
-			"backend":  8080,
-			"temporal": 7233,
+			"backend": 8080,
+			"otel":    4318,
 		},
 	}
 	parser := newTestParserWithResolver(resolver)
@@ -200,7 +200,7 @@ func TestRenderInlineMultipleDirectives(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render inline-multi: %v", err)
 	}
-	expectedContent := "Ports=8080/7233 Session=session-42\n"
+	expectedContent := "Ports=8080/4318 Session=session-42\n"
 	if string(result.Content) != expectedContent {
 		t.Fatalf("unexpected content: %q", string(result.Content))
 	}
@@ -453,8 +453,8 @@ func TestRenderDepthLimit(t *testing.T) {
 func TestRenderPortDirectiveWithResolver(t *testing.T) {
 	resolver := &mockPortResolver{
 		ports: map[string]int{
-			"backend":  8080,
-			"temporal": 7233,
+			"backend": 8080,
+			"otel":    4318,
 		},
 	}
 	parser := newTestParserWithResolver(resolver)
@@ -463,7 +463,7 @@ func TestRenderPortDirectiveWithResolver(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render port: %v", err)
 	}
-	expectedContent := "Before\n8080\nBetween\n7233\nAfter\n"
+	expectedContent := "Before\n8080\nBetween\n4318\nAfter\n"
 	if string(result.Content) != expectedContent {
 		t.Fatalf("unexpected content: %q", string(result.Content))
 	}

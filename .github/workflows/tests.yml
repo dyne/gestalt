@@ -30,6 +30,8 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             frontend/package-lock.json
+      - name: Temporal guard
+        run: scripts/check-no-temporal.sh
       - name: Build
         run: |
           npm i

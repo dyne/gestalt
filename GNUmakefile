@@ -12,7 +12,7 @@ DIST := dist
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 CGO ?= 0
 
-.PHONY: test clean clean-all version temporal-dev dev
+.PHONY: test clean clean-all version dev
 
 all: gestalt-otel gestalt gestalt-send gestalt-notify gestalt-agent
 
@@ -67,9 +67,6 @@ dev:
 	( $(GO) run ./cmd/gestalt --backend-port $$BACKEND_PORT ) & \
 	( cd frontend && GESTALT_BACKEND_URL=$$BACKEND_URL npm run dev ) & \
 	wait
-
-temporal-dev:
-	temporal server start-dev
 
 version:
 	@git describe --tags --always --dirty 2>/dev/null || echo "dev"

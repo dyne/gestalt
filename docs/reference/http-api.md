@@ -17,6 +17,7 @@ If `GESTALT_TOKEN` is set:
 
 - `GET /api/status`
 - `GET /api/metrics/summary`
+- `GET /api/git/log`
 
 ### Sessions
 
@@ -76,3 +77,47 @@ If `GESTALT_TOKEN` is set:
 
 - The canonical session namespace is `/api/sessions/*`.
 - `/api/terminals/*` is not part of the current API surface.
+
+## Git log endpoint
+
+`GET /api/git/log`
+
+Query params:
+
+- `limit` (optional): number of commits to return. Default `20`, max `50`.
+
+Behavior:
+
+- Returns `200` with `{"branch":"","commits":[]}` outside a git repository.
+- Returns `503` when git is unavailable or the command times out.
+
+Example response:
+
+```json
+{
+  "branch": "git-log-dashboard",
+  "commits": [
+    {
+      "sha": "0123456789abcdef0123456789abcdef01234567",
+      "short_sha": "0123456789ab",
+      "committed_at": "2026-02-18T00:00:00Z",
+      "subject": "feat(dashboard): add git log panel",
+      "stats": {
+        "files_changed": 2,
+        "lines_added": 45,
+        "lines_deleted": 8,
+        "has_binary": false
+      },
+      "files_truncated": false,
+      "files": [
+        {
+          "path": "frontend/src/views/Dashboard.svelte",
+          "added": 32,
+          "deleted": 7,
+          "binary": false
+        }
+      ]
+    }
+  ]
+}
+```

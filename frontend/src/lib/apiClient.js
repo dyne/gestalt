@@ -233,6 +233,49 @@ export const fetchMetricsSummary = async () => {
   }
 }
 
+const normalizeGitLogFile = (file) => {
+  if (!file || typeof file !== 'object') return null
+  const path = file?.path ? String(file.path) : ''
+  if (!path) return null
+  const normalizeCount = (value) => (Number.isFinite(Number(value)) ? Number(value) : null)
+  return {
+    path,
+    added: file?.binary ? null : normalizeCount(file?.added),
+    deleted: file?.binary ? null : normalizeCount(file?.deleted),
+    binary: Boolean(file?.binary),
+  }
+}
+
+const normalizeGitLogCommit = (commit) => {
+  if (!commit || typeof commit !== 'object') return null
+  const sha = commit?.sha ? String(commit.sha) : ''
+  if (!sha) return null
+  const stats = normalizeObject(commit?.stats)
+  return {
+    sha,
+    short_sha: commit?.short_sha ? String(commit.short_sha) : sha.slice(0, 12),
+    committed_at: commit?.committed_at ? String(commit.committed_at) : '',
+    subject: commit?.subject ? String(commit.subject) : '',
+    files_truncated: Boolean(commit?.files_truncated),
+    stats: {
+      files_changed: Number.isFinite(Number(stats.files_changed)) ? Number(stats.files_changed) : 0,
+      lines_added: Number.isFinite(Number(stats.lines_added)) ? Number(stats.lines_added) : 0,
+      lines_deleted: Number.isFinite(Number(stats.lines_deleted)) ? Number(stats.lines_deleted) : 0,
+      has_binary: Boolean(stats.has_binary),
+    },
+    files: normalizeArray(commit?.files, normalizeGitLogFile),
+  }
+}
+
+export const fetchGitLog = async ({ limit } = {}) => {
+  const response = await apiFetch(`/api/git/log${buildQuery({ limit })}`)
+  const payload = normalizeObject(await response.json())
+  return {
+    branch: payload?.branch ? String(payload.branch) : '',
+    commits: normalizeArray(payload?.commits, normalizeGitLogCommit),
+  }
+}
+
 let plansListCache = null
 let plansListPromise = null
 

@@ -2,13 +2,13 @@ import { get, writable } from 'svelte/store'
 import { subscribe as subscribeAgentEvents } from './agentEventStore.js'
 import { subscribe as subscribeConfigEvents } from './configEventStore.js'
 import { subscribe as subscribeEvents } from './eventStore.js'
-import { fetchAgents, fetchMetricsSummary } from './apiClient.js'
+import { fetchAgents, fetchGitLog } from './apiClient.js'
 import { getErrorMessage } from './errorUtils.js'
 import { notificationStore } from './notificationStore.js'
 import { createLogStream } from './logStream.js'
 import { normalizeLogEntry } from './logEntry.js'
 
-const metricsRefreshIntervalMs = 60000
+const gitLogRefreshIntervalMs = 60000
 const maxLogEntries = 1000
 const logBatchSize = 200
 const logFlushDelayMs = 16
@@ -23,10 +23,10 @@ export const createDashboardStore = () => {
     logsError: '',
     logLevelFilter: 'info',
     logsAutoRefresh: true,
-    metricsSummary: null,
-    metricsLoading: false,
-    metricsError: '',
-    metricsAutoRefresh: true,
+    gitLog: { branch: '', commits: [] },
+    gitLogLoading: false,
+    gitLogError: '',
+    gitLogAutoRefresh: true,
     configExtractionCount: 0,
     configExtractionLast: '',
     gitOrigin: '',
@@ -43,9 +43,9 @@ export const createDashboardStore = () => {
   let logBuffer = []
   let logFlushTimer = null
   let lastLogErrorMessage = ''
-  let metricsRefreshTimer = null
-  let metricsMounted = false
-  let lastMetricsErrorMessage = ''
+  let gitLogRefreshTimer = null
+  let gitLogMounted = false
+  let lastGitLogErrorMessage = ''
   let configExtractionTimer = null
   let agentEventsUnsubscribes = []
   let configEventsUnsubscribes = []
@@ -298,39 +298,39 @@ export const createDashboardStore = () => {
     stream.restart()
   }
 
-  const loadMetricsSummary = async () => {
-    state.update((current) => ({ ...current, metricsLoading: true, metricsError: '' }))
+  const loadGitLog = async () => {
+    state.update((current) => ({ ...current, gitLogLoading: true, gitLogError: '' }))
     try {
-      const summary = await fetchMetricsSummary()
+      const gitLog = await fetchGitLog({ limit: 20 })
       state.update((current) => ({
         ...current,
-        metricsSummary: summary,
-        metricsLoading: false,
-        metricsError: '',
+        gitLog,
+        gitLogLoading: false,
+        gitLogError: '',
       }))
-      lastMetricsErrorMessage = ''
+      lastGitLogErrorMessage = ''
     } catch (err) {
-      const message = getErrorMessage(err, 'Failed to load metrics summary.')
+      const message = getErrorMessage(err, 'Failed to load git log.')
       state.update((current) => ({
         ...current,
-        metricsError: message,
-        metricsLoading: false,
+        gitLogError: message,
+        gitLogLoading: false,
       }))
-      if (message !== lastMetricsErrorMessage) {
+      if (message !== lastGitLogErrorMessage) {
         notificationStore.addNotification('error', message)
-        lastMetricsErrorMessage = message
+        lastGitLogErrorMessage = message
       }
     }
   }
 
-  const resetMetricsRefresh = () => {
-    if (metricsRefreshTimer) {
-      clearInterval(metricsRefreshTimer)
-      metricsRefreshTimer = null
+  const resetGitLogRefresh = () => {
+    if (gitLogRefreshTimer) {
+      clearInterval(gitLogRefreshTimer)
+      gitLogRefreshTimer = null
     }
-    if (!metricsMounted) return
-    if (get(state).metricsAutoRefresh) {
-      metricsRefreshTimer = setInterval(loadMetricsSummary, metricsRefreshIntervalMs)
+    if (!gitLogMounted) return
+    if (get(state).gitLogAutoRefresh) {
+      gitLogRefreshTimer = setInterval(loadGitLog, gitLogRefreshIntervalMs)
     }
   }
 
@@ -350,16 +350,16 @@ export const createDashboardStore = () => {
     }
   }
 
-  const setMetricsAutoRefresh = (enabled) => {
-    state.update((current) => ({ ...current, metricsAutoRefresh: Boolean(enabled) }))
-    resetMetricsRefresh()
+  const setGitLogAutoRefresh = (enabled) => {
+    state.update((current) => ({ ...current, gitLogAutoRefresh: Boolean(enabled) }))
+    resetGitLogRefresh()
   }
 
   const start = async () => {
     if (started) return
     started = true
     logsMounted = true
-    metricsMounted = true
+    gitLogMounted = true
     agentEventsUnsubscribes = [
       subscribeAgentEvents('agent_started', () => loadAgents()),
       subscribeAgentEvents('agent_stopped', () => loadAgents()),
@@ -379,21 +379,22 @@ export const createDashboardStore = () => {
     gitUnsubscribe = subscribeEvents('git_branch_changed', (payload) => {
       if (!payload?.path) return
       setGitBranch(payload.path)
+      loadGitLog()
     })
     await loadAgents()
     await loadLogs()
-    await loadMetricsSummary()
-    resetMetricsRefresh()
+    await loadGitLog()
+    resetGitLogRefresh()
   }
 
   const stop = () => {
     started = false
     logsMounted = false
-    metricsMounted = false
+    gitLogMounted = false
     stopLogStream()
-    if (metricsRefreshTimer) {
-      clearInterval(metricsRefreshTimer)
-      metricsRefreshTimer = null
+    if (gitLogRefreshTimer) {
+      clearInterval(gitLogRefreshTimer)
+      gitLogRefreshTimer = null
     }
     resetConfigExtraction()
     if (agentEventsUnsubscribes.length > 0) {
@@ -416,10 +417,10 @@ export const createDashboardStore = () => {
     setStatus,
     loadAgents,
     loadLogs,
-    loadMetricsSummary,
+    loadGitLog,
     setLogLevelFilter,
     setLogsAutoRefresh,
-    setMetricsAutoRefresh,
+    setGitLogAutoRefresh,
     start,
     stop,
   }

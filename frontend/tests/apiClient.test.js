@@ -21,6 +21,7 @@ import {
   fetchAgents,
   fetchFlowActivities,
   fetchFlowConfig,
+  fetchGitLog,
   exportFlowConfig,
   importFlowConfig,
   fetchLogs,
@@ -150,6 +151,37 @@ describe('apiClient', () => {
     expect(result.slowest_endpoints).toEqual([])
     expect(result.top_agents).toEqual([])
     expect(result.error_rates).toEqual([])
+  })
+
+  it('fetches and normalizes git log payloads', async () => {
+    apiFetch.mockResolvedValue({
+      json: vi.fn().mockResolvedValue({
+        branch: 'main',
+        commits: [
+          {
+            sha: '1234567890abcdef1234567890abcdef12345678',
+            short_sha: '1234567890ab',
+            committed_at: '2026-02-18T00:00:00Z',
+            subject: 'feat(ui): add panel',
+            files_truncated: false,
+            stats: {
+              files_changed: 1,
+              lines_added: 10,
+              lines_deleted: 2,
+              has_binary: false,
+            },
+            files: [{ path: 'frontend/src/views/Dashboard.svelte', added: 10, deleted: 2, binary: false }],
+          },
+        ],
+      }),
+    })
+
+    const result = await fetchGitLog({ limit: 20 })
+
+    expect(apiFetch).toHaveBeenCalledWith('/api/git/log?limit=20')
+    expect(result.branch).toBe('main')
+    expect(result.commits).toHaveLength(1)
+    expect(result.commits[0].stats.files_changed).toBe(1)
   })
 
   it('fetches flow activities', async () => {

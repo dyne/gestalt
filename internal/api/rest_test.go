@@ -19,6 +19,7 @@ import (
 	"gestalt/internal/agent"
 	"gestalt/internal/event"
 	"gestalt/internal/flow"
+	"gestalt/internal/logging"
 	"gestalt/internal/notify"
 	"gestalt/internal/otel"
 	"gestalt/internal/runner/launchspec"

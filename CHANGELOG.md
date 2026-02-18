@@ -1,3 +1,21 @@
+# [1.14.0](https://github.com/dyne/gestalt/compare/v1.13.0...v1.14.0) (2026-02-18)
+
+
+### Bug Fixes
+
+* **api:** return 404 for unknown api paths ([d237c49](https://github.com/dyne/gestalt/commit/d237c49b28ed63be1c89256222906887174d3b2c))
+* **api:** return 404 for workflow routes ([cebb058](https://github.com/dyne/gestalt/commit/cebb0588e594698d6e80db4349eb9928fdd246a0))
+* **frontend:** close agents tab when tmux hub connection fails ([4c39371](https://github.com/dyne/gestalt/commit/4c393718e209e748f24a313817015152904ea52a))
+* no need for temporal cleanup check in CI ([efcc616](https://github.com/dyne/gestalt/commit/efcc6164d618f72c46e1e267da8c55c5ad4dfb08))
+
+
+### Features
+
+* **api:** drop workflow routes ([61e862c](https://github.com/dyne/gestalt/commit/61e862c5a83e8ae3260171ef25059bdd7407ce78))
+* **notify:** add notification sink ([25dff13](https://github.com/dyne/gestalt/commit/25dff13fed03f349e033bea537a62d551a3fe2ed))
+* **notify:** stream notifications via otel ([1d45511](https://github.com/dyne/gestalt/commit/1d45511215e1c7997bcfabe4a9cdf2a9011f390f))
+* **server:** remove temporal runtime flags ([b734592](https://github.com/dyne/gestalt/commit/b73459253cdefd5f111c0a4fbf728a794b9cb200))
+
 # Unreleased
 
 ### Breaking Changes

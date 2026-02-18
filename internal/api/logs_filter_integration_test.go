@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"errors"
 	"net"
 	"net/http"
@@ -14,7 +13,6 @@ import (
 	"gestalt/internal/agent"
 	"gestalt/internal/logging"
 	"gestalt/internal/otel"
-	"gestalt/internal/temporal/activities"
 	"gestalt/internal/terminal"
 
 	"github.com/gorilla/websocket"
@@ -118,11 +116,11 @@ func TestLogsFilteringWebSocketAndREST(t *testing.T) {
 		t.Fatalf("timed out waiting for session output")
 	}
 
-	activity := activities.NewSessionActivities(manager, logger, 0)
-	bellErr := activity.RecordBellActivity(context.Background(), session.ID, time.Now().UTC(), "bell\x1b[31m-alert\x1b[0m-----")
-	if bellErr != nil {
-		t.Fatalf("record bell: %v", bellErr)
-	}
+	filteredContext := terminal.FilterTerminalOutput("bell\x1b[31m-alert\x1b[0m-----")
+	logger.Warn("terminal bell detected", map[string]string{
+		"terminal_id": session.ID,
+		"context":     filteredContext,
+	})
 
 	if err := manager.Delete(session.ID); err != nil {
 		t.Fatalf("delete session: %v", err)
@@ -146,7 +144,7 @@ func TestLogsFilteringWebSocketAndREST(t *testing.T) {
 	}
 	defer conn.Close()
 
-	bellEntry, err := readLogEntryWithMessage(conn, "temporal bell recorded", 500*time.Millisecond)
+	bellEntry, err := readLogEntryWithMessage(conn, "terminal bell detected", 500*time.Millisecond)
 	if err != nil {
 		t.Fatalf("read bell entry: %v", err)
 	}

@@ -12,7 +12,6 @@ import (
 
 	"gestalt/internal/git"
 	"gestalt/internal/otel"
-	"gestalt/internal/temporal"
 	"gestalt/internal/version"
 )
 
@@ -58,9 +57,6 @@ func (h *RestHandler) handleStatus(w http.ResponseWriter, r *http.Request) *apiE
 		TemporalUIURL:          buildTemporalUIURL(r, h.TemporalUIPort),
 		TemporalHost:           strings.TrimSpace(h.TemporalHost),
 	}
-	temporalStatus := temporal.DevServerStatusSnapshot()
-	response.TemporalDevServerRunning = temporalStatus.Running
-	response.TemporalDevServerPID = temporalStatus.PID
 	collectorStatus := otel.CollectorStatusSnapshot()
 	response.OTelCollectorRunning = collectorStatus.Running
 	response.OTelCollectorPID = collectorStatus.PID

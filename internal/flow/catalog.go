@@ -53,7 +53,6 @@ var activityCatalog = []ActivityDef{
 		Fields: []ActivityField{
 			{Key: "agent_id", Label: "Agent id", Type: "string", Required: true},
 			{Key: "reuse_if_running", Label: "Reuse if running", Type: "bool"},
-			{Key: "use_workflow", Label: "Use workflow", Type: "bool"},
 			{Key: "title_template", Label: "Title template", Type: "string"},
 			{Key: "message_template", Label: "Message template", Type: "string"},
 		},

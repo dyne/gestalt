@@ -7,6 +7,7 @@ import (
 
 	"gestalt/internal/event"
 	"gestalt/internal/flow"
+	flowruntime "gestalt/internal/flow/runtime"
 	"gestalt/internal/logging"
 	"gestalt/internal/notify"
 	"gestalt/internal/otel"
@@ -31,7 +32,11 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 	gitOrigin, gitBranch := loadGitInfo()
 	metricsSummary := otel.NewAPISummaryStore()
 	flowRepo := flow.NewFileRepository(flow.DefaultConfigPath(), logger)
-	flowService := flow.NewService(flowRepo, nil, logger)
+	var dispatcher flow.Dispatcher
+	if manager != nil {
+		dispatcher = flowruntime.NewDispatcher(manager, logger, 0)
+	}
+	flowService := flow.NewService(flowRepo, dispatcher, logger)
 	rest := &RestHandler{
 		Manager:                manager,
 		FlowService:            flowService,

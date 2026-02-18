@@ -1,0 +1,186 @@
+#+TITLE: Dashboard Git Log Panel
+#+SUBTITLE: Replace API metrics with a compact git log (conventional commits + diffstats)
+#+DATE: 2026-02-18
+#+KEYWORDS: dashboard, git, commits, conventional-commits, svelte, api
+
+Summary
+- Add a backend endpoint to return the latest commits on the current branch, including per-file line add/delete stats.
+- Replace the Dashboard “API metrics” column with a “Git log” column that renders conventional commits with color-coded type tags, title, and relative time.
+- Show modified files per commit (expandable), plus total files changed and total lines added/deleted.
+
+* DONE [#A] Define UX + Data Contract
+:PROPERTIES:
+:Effort: 0.5d
+:Goal: Lock the UI behavior and API shape so implementation is straightforward and testable.
+:Notes: Keep it minimal; no new dependencies; prefer a single JSON endpoint over parsing raw git output in the browser.
+:END:
+** DONE [#A] Decide defaults, limits, and edge-case behavior
+- Why: Git log output can be large/slow; commits can have huge file lists; repo may be non-git.
+- Change:
+  - Default commit count: `limit=20` (query param), hard max `50`.
+  - For each commit, return:
+    - `sha`, `short_sha` (first 12), `committed_at` (RFC3339), `subject`.
+    - `conventional`: `{type, scope, breaking, title}` parsed from subject (server or client; pick one and stick to it).
+    - `stats`: `{files_changed, lines_added, lines_deleted, has_binary}`.
+    - `files`: array of `{path, added, deleted, binary}` (added/deleted nullable when binary).
+    - If a commit touches too many files, include `files_truncated=true` and return the first `max_files_per_commit` (default `50`).
+  - Non-git workdir:
+    - Endpoint returns `200` with `{branch:"", commits:[]}` (or `404`); pick `200` to keep the UI simple (“not a git repo” message).
+  - Merge commits:
+    - Use git’s default diff behavior (diff vs first parent) and accept that conventional parsing may not match.
+- Tests:
+  - Backend unit test covering: conventional parse, binary numstat, truncation flag.
+- Done when:
+  - One JSON example payload is included in the plan (in the implementing PR/description) and frontend renders it without additional assumptions.
+
+#+begin_src json
+{
+  "branch": "git-log-dashboard",
+  "commits": [
+    {
+      "sha": "0123456789abcdef0123456789abcdef01234567",
+      "short_sha": "0123456789ab",
+      "committed_at": "2026-02-18T00:00:00Z",
+      "subject": "feat(dashboard): add git log panel",
+      "stats": {
+        "files_changed": 2,
+        "lines_added": 45,
+        "lines_deleted": 8,
+        "has_binary": false
+      },
+      "files_truncated": false,
+      "files": [
+        {"path": "frontend/src/views/Dashboard.svelte", "added": 32, "deleted": 7, "binary": false},
+        {"path": "internal/api/rest_git.go", "added": 13, "deleted": 1, "binary": false}
+      ]
+    }
+  ]
+}
+#+end_src
+
+* TODO [#A] Backend: Git Log Endpoint (REPR + minimal Hex adapter)
+:PROPERTIES:
+:Effort: 1.5d
+:Goal: Provide structured, bounded git log data for the dashboard.
+:Notes: Use `git` via `exec.CommandContext` with timeouts; never accept arbitrary user-provided args beyond numeric limits.
+:END:
+** TODO [#A] Implement a `gitlog` adapter that shells out safely
+- Why: Parsing `.git/*` manually won’t yield per-file line stats reliably; `git` already computes numstat efficiently.
+- Change:
+  - Add `internal/gitlog/`:
+    - Port/interface: `type Reader interface { Recent(ctx, workDir string, opts Options) (Result, error) }`
+    - Adapter: `GitCmdReader` runs:
+      - `git -C <workDir> rev-parse --is-inside-work-tree`
+      - `git -C <workDir> branch --show-current` (fallback to `git rev-parse --abbrev-ref HEAD`)
+      - `git -C <workDir> log -n <limit> --date=iso-strict --pretty=format:<header-with-NUL> --numstat`
+    - Parser (pure function) that converts the single command output into commits + files + totals.
+  - Add a timeout (e.g., 2s) per request; map timeout to `503 git log timed out`.
+- Tests:
+  - Parser unit tests with fixture strings (no dependency on git in CI).
+- Done when:
+  - `internal/gitlog` can parse a fixture with 2 commits, including one binary file entry and one rename-ish path.
+
+** TODO [#A] Add `GET /api/git/log` endpoint and route registration
+- Why: Dashboard needs a single API call; existing `/api/status` only has branch/origin.
+- Change:
+  - `internal/api/rest_git.go`: `handleGitLog(w,r)`:
+    - Only supports `GET`.
+    - Reads `limit` query param and validates bounds.
+    - Uses `os.Getwd()` as workDir (consistent with status).
+    - Calls `gitlog.Reader`.
+    - Responds with `gitLogResponse { branch, commits }`.
+  - `internal/api/routes.go`: register `mux.Handle("/api/git/log", wrap(..., rest.handleGitLog))`.
+  - `internal/api/rest_types.go`: add response DTOs (commit + file + stats).
+  - Error mapping:
+    - Not a git repo → `200` empty result.
+    - git missing/exec failure → `503`.
+    - invalid `limit` → `400`.
+- Tests:
+  - `internal/api/rest_*_test.go`: new test for `/api/git/log` with a stubbed `gitlog.Reader` returning deterministic commits.
+- Done when:
+  - Endpoint returns stable JSON and doesn’t crash when run outside a git repo.
+
+* TODO [#A] Frontend: Dashboard Git Log Column (replacing API metrics)
+:PROPERTIES:
+:Effort: 1.5d
+:Goal: Render a readable, compact git log column in the Dashboard where API metrics currently are.
+:Notes: Reuse existing “relative time” helper; do not add UI frameworks; keep list virtual-free (small N).
+:END:
+** TODO [#A] Add API client + store plumbing for git log
+- Why: Dashboard currently loads metrics via `dashboardStore`; replace with git log in the same pattern.
+- Change:
+  - `frontend/src/lib/apiClient.js`: add `fetchGitLog({limit})` hitting `/api/git/log?limit=...`.
+  - `frontend/src/lib/dashboardStore.js`:
+    - Remove (or stop calling) `fetchMetricsSummary` for the Dashboard.
+    - Add state: `gitLog`, `gitLogLoading`, `gitLogError`, `gitLogAutoRefresh`.
+    - Implement `loadGitLog()` and a refresh interval (e.g., 60s) behind an “Auto refresh” toggle.
+    - Trigger `loadGitLog()` on:
+      - store `start()`
+      - `git_branch_changed` events (already subscribed)
+      - optionally `config_extracted` if git config changes are relevant (likely not needed).
+- Tests:
+  - Update `frontend/tests/dashboardStore.test.js` to cover `loadGitLog()` and auto refresh timer behavior.
+- Done when:
+  - Dashboard store no longer fetches metrics, and `loadGitLog()` updates store state correctly on success/failure.
+
+** TODO [#A] Replace the “API metrics” section with “Git log” section in `Dashboard.svelte`
+- Why: Requirement is explicit: show git log instead of API metrics in the Dashboard tab.
+- Change:
+  - `frontend/src/views/Dashboard.svelte`:
+    - Replace the `<section class="dashboard__metrics"> ...` block with `<section class="dashboard__gitlog"> ...`.
+    - Header shows:
+      - “Git log”
+      - Branch (from `/api/status` or from `/api/git/log` response), with fallback “not a git repo”.
+      - Refresh + auto refresh controls (reuse metrics controls styling).
+    - Body renders commits as a list of `<details>` rows:
+      - Summary line: conventional type badge + title + relative time.
+      - Secondary meta: short SHA (mono) + totals: `+X / -Y` and file count.
+      - Expanded: file list with per-file `+added -deleted` (mono), and truncate indicator when `files_truncated`.
+  - Update layout CSS:
+    - Keep the two-column grid (`dashboard__intel`) but swap right column content.
+    - Provide scroll containment for long commit lists (max height aligned with logs column).
+- Tests:
+  - `frontend/tests/dashboard.test.js`: add a test that renders commit list entries and highlights a conventional `feat:` prefix.
+- Done when:
+  - Dashboard shows commits with relative times and file stats; “API metrics” no longer appears.
+
+* TODO [#A] Conventional Commit Rendering + Styling
+:PROPERTIES:
+:Effort: 1d
+:Goal: Make conventional commits visually scannable with consistent colors and truncation.
+:Notes: Keep the parsing logic deterministic; don’t guess; only highlight when it matches the conventional pattern.
+:END:
+** TODO [#A] Implement conventional commit parsing and type color mapping
+- Why: Highlighting `feat:` / `fix:` etc is a key part of the requested UX.
+- Change:
+  - Parsing (frontend preferred):
+    - Regex: `^(?<type>[a-zA-Z0-9-]+)(\\((?<scope>[^)]+)\\))?(?<breaking>!)?:\\s*(?<title>.+)$`
+    - If no match: treat as `type=""` and render plain subject.
+  - Map types to semantic colors (CSS classes):
+    - `feat` → success/accent
+    - `fix` → warning/attention
+    - `docs` → info
+    - `refactor` → purple-ish (reuse an existing palette if present)
+    - `chore`, `ci`, `build`, `test`, `perf`, `style`, `revert` → muted variants
+  - Ensure accessibility:
+    - Badge text always readable (contrast).
+    - Also show type text, not color-only semantics.
+- Tests:
+  - Unit test (frontend) for parser mapping using a small helper module (pure function).
+- Done when:
+  - `feat(parser): add X` shows a colored `feat` badge and “add X” title, and non-conventional subjects render unchanged.
+
+* TODO [#B] Docs + Rollout Notes
+:PROPERTIES:
+:Effort: 0.5d
+:Goal: Keep the HTTP API reference and dashboard docs aligned with the new panel.
+:Notes: Keep docs changes minimal; focus on the new endpoint and the dashboard UI swap.
+:END:
+** TODO [#B] Document `/api/git/log` in API docs
+- Why: New endpoint should be discoverable and stable.
+- Change:
+  - `docs/reference/http-api.md`: add `/api/git/log` with query params and example response.
+- Tests:
+  - Docs build (if in CI) still passes.
+- Done when:
+  - Docs show the endpoint and the JSON shape.

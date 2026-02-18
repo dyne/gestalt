@@ -7,7 +7,7 @@ llm_model = "default"
 gui_modules = ["console","plan-progress"]
 
 # Core model selection
-model = "gpt-5.2-codex" # values: any supported model id
+model = "gpt-5.3-codex" # values: any supported model id
 model_reasoning_effort = "medium"
 # review_model = "gpt-5.1-codex"
 # model_context_window = 200000

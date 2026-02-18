@@ -133,11 +133,19 @@ model = "gpt-5"
 allow_all_tools = true
 ```
 
-### Simple shell
+### Simple custom shell
 
 ```toml
-name = "Shell"
+name = "Custom Shell"
 shell = "/bin/bash"
+```
+
+### Hidden agent
+
+```toml
+name = "Ops"
+shell = "/bin/bash"
+hidden = true
 ```
 
 ## Codex CLI config reference (schema keys)

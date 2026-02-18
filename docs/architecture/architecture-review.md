@@ -4,7 +4,7 @@ Scope: Document current architecture and data flow. No refactors proposed here.
 
 ## System overview
 Gestalt is a local-first multi-session dashboard. A Go backend manages PTY
-sessions, agent profiles, skills, workflows, logs, and filesystem watching.
+sessions, agent profiles, skills, flow automations, logs, and filesystem watching.
 A Svelte SPA is served by the backend and communicates over REST + WebSocket + SSE.
 A separate CLI (gestalt-send) posts stdin to agent sessions.
 
@@ -12,7 +12,7 @@ Runtime topology (default):
 - Backend HTTP server: serves REST + WS + SSE on the backend port.
 - Frontend HTTP server: serves SPA assets and reverse proxies /api and /ws to
   the backend port.
-- Optional Temporal dev server and workers when enabled.
+- No external workflow runtime is required; flow automations run in-process.
 
 HTTP response headers:
 - API + WS + SSE responses set Cache-Control: no-store, must-revalidate and
@@ -27,11 +27,11 @@ HTTP response headers:
 3) Filesystem or git changes -> watcher -> event.Bus[watcher.Event] -> /api/events/stream
    (SSE) -> eventStore -> UI updates.
 4) Logs -> logging.LogBuffer -> /api/logs/stream (SSE) and /ws/logs -> LogsView.
-5) Workflows -> internal/temporal -> workflow events -> /api/events/stream (SSE).
+5) Flow automations -> internal/flow/runtime -> activity dispatch + notify/log events.
 
 ## Component map (backend)
 Entry points:
-- cmd/gestalt: main server + config extraction + Temporal + HTTP servers.
+- cmd/gestalt: main server + config extraction + HTTP servers.
 - cmd/gestalt-send: CLI client for sending stdin to agent sessions.
 
 Internal packages (Go):
@@ -41,11 +41,10 @@ Internal packages (Go):
 - internal/skill: skill loader + prompt generation.
 - internal/logging: log buffer + structured logger.
 - internal/watcher: fsnotify wrapper + git branch monitoring + event publishing.
-- internal/event: typed bus used by watcher, terminal, workflow, and logs.
+- internal/event: typed bus used by watcher, terminal, agents, config, and logs.
 - internal/config: embedded config extraction + version tracking.
 - internal/plan: scanner + model conversion for `.gestalt/plans/*.org` documents.
 - internal/prompt: prompt parsing, include resolution, render logic.
-- internal/temporal: workflow orchestration, memo helpers, worker wiring.
 - internal/metrics: metrics counters exposed via /api/metrics/summary.
 - internal/version: build version string for /api/status and logs.
 
@@ -53,25 +52,25 @@ Backend runtime wiring (main.go):
 - Loads config from flags/env/defaults; extracts embedded config to .gestalt/config
   unless dev mode is enabled.
 - Loads agent + skill definitions and initializes terminal.Manager.
-- Initializes event buses (agent, terminal, workflow, watcher) and log buffer.
-- Starts optional Temporal client + worker.
+- Initializes event buses (agent, terminal, watcher) and log buffer.
+- Starts flow bridge for automation triggers.
 - Starts filesystem watcher + plan watcher.
 - Starts backend HTTP server and frontend HTTP server with reverse proxy to backend.
 
 ### Backend REST + WS surface
 REST endpoints (grouped):
-- Status/metrics/workflows: `/api/status`, `/api/metrics/summary`, `/api/workflows`
+- Status/metrics: `/api/status`, `/api/metrics/summary`
 - Sessions: `/api/sessions`, `/api/sessions/:id`, `/api/sessions/:id/output`,
   `/api/sessions/:id/history`, `/api/sessions/:id/input-history`,
-  `/api/sessions/:id/bell`, `/api/sessions/:id/notify`,
-  `/api/sessions/:id/workflow/resume`, `/api/sessions/:id/workflow/history`
+  `/api/sessions/:id/bell`, `/api/sessions/:id/notify`
 - Agents/skills/plans: `/api/agents`, `/api/agents/:name/input`,
   `/api/agents/:name/send-input`, `/api/skills`, `/api/plans`
-- Flow/OTel: `/api/flow/activities`, `/api/flow/config`,
+- Flow/OTel: `/api/flow/activities`, `/api/flow/event-types`, `/api/flow/config`,
+  `/api/flow/config/export`, `/api/flow/config/import`,
   `/api/otel/logs`, `/api/otel/traces`, `/api/otel/metrics`
 
 SSE endpoints:
-- `/api/events/stream` (filesystem/config/workflow/session/agent events)
+- `/api/events/stream` (filesystem/config/session/agent events)
 - `/api/logs/stream` (log stream + replay)
 - `/api/notifications/stream`
 
@@ -79,22 +78,22 @@ WebSocket endpoints:
 - `/ws/session/:id` (PTY stream)
 - `/ws/logs`, `/ws/events`
 - `/api/agents/events`, `/api/sessions/events`,
-  `/api/workflows/events`, `/api/config/events`
+  `/api/config/events`
 
 ## Component map (frontend)
 Entry: frontend/src/App.svelte
 - TabBar-driven navigation between Dashboard, Plan, Status, and session tabs.
 
 Views (5):
-- Dashboard, PlanView, LogsView, FlowView (workflow status), TerminalView.
+- Dashboard, PlanView, LogsView, FlowView, TerminalView.
 
-Components (11):
+Components (8):
 - Terminal, CommandInput, OrgViewer, OrgNode, TabBar, Toast, ToastContainer,
-  NotificationSettings, WorkflowCard, WorkflowDetail, WorkflowHistory.
+  NotificationSettings.
 
-Stores / lib modules (14):
+Stores / lib modules (12):
 - terminalStore (xterm + session WS), eventStore (fs events SSE),
-  terminalEventStore / agentEventStore / configEventStore / workflowEventStore,
+  terminalEventStore / agentEventStore / configEventStore,
   api (fetch wrapper + URL helper), notificationStore, orgParser, timeUtils,
   terminalTabs, version.
 
@@ -134,8 +133,6 @@ Frontend serving flow:
   rely on relative paths (prompts, agents, skills).
 - Event schemas: frontend stores assume specific JSON shapes for session events
   and depend on event_type values from backend.
-- Temporal wiring: workflow UI assumes Temporal events are enabled and uses
-  /api/workflows and /api/sessions/:id/workflow/history endpoints.
 - Logging: LogsView depends on streaming from `/api/logs/stream` and `/ws/logs`,
   both backed by in-memory log retention.
 - Reverse proxy: SPA expects /api and /ws on the frontend port; backend-only
@@ -150,7 +147,6 @@ Backend Go packages (files, lines):
 - internal/terminal: 25 files, 4756 lines
 - internal/agent: 28 files, 3247 lines
 - internal/event: 7 files, 1502 lines
-- internal/temporal: 8 files, 1318 lines
 - internal/watcher: 7 files, 1312 lines
 - internal/config: 10 files, 961 lines
 - internal/skill: 7 files, 867 lines
@@ -197,7 +193,6 @@ flowchart LR
     EventBus[event.Bus]
     Logger[logging.Logger + LogBuffer]
     Watcher[watcher + fsnotify]
-    Temporal[temporal workflows]
     Config[config extraction]
   end
 
@@ -209,7 +204,6 @@ flowchart LR
   API --> Manager --> Sessions
   Watcher --> EventBus --> API
   Logger --> API
-  Temporal --> API
   Config --> Manager
 
   Sessions -->|PTY output| API --> Proxy --> Frontend
@@ -223,30 +217,29 @@ flowchart LR
 Scope: Session lifecycle, PTY I/O, buffers, logging, and session manager.
 
 ### Responsibilities and data flow
-- Session lifecycle: create, run, close; tracks metadata + workflow identifiers.
+- Session lifecycle: create, run, close; tracks metadata + run state.
 - PTY I/O: readLoop -> output channel; writeLoop <- input channel.
 - Output fan-out: broadcastLoop writes to SessionLogger, OutputBuffer, and output bus.
 - Input history: InputBuffer (memory) + InputLogger (JSONL file).
 - Persistence: SessionLogger (text log) + history merging for API responses.
 - Cleanup: session log retention logic in Manager.startSessionCleanup.
-- Workflow integration: session.StartWorkflow and workflow signals from Session.
 - Prompt/skill injection: Manager creates background goroutine to send prompts.
 
 ### Key types and modules
-- Session: holds PTY process handles, output bus, buffers, input loggers, and
-  workflow identifiers; manages three goroutines (read/write/broadcast).
+- Session: holds PTY process handles, output bus, buffers, and input loggers;
+  manages three goroutines (read/write/broadcast).
 - Manager: owns session registry, agent registry/cache, skills, event buses,
-  prompt parsing, and workflow lifecycle wiring.
+  prompt parsing, and flow/notify lifecycle wiring.
 - OutputBuffer/InputBuffer: bounded in-memory buffers for output lines and
   input history entries.
 - SessionLogger/InputLogger: async file writers with buffering and drop tracking.
 - Pty + PtyFactory: abstraction over platform-specific PTY implementation.
 
 ### Complexity observations
-- Session has many fields spanning metadata, I/O, logging, and workflow state.
+- Session has many fields spanning metadata, I/O, and logging state.
   This makes it harder to reason about concurrency and responsibilities.
 - Manager mixes concerns: agent registry/cache, session creation, prompt/skill
-  injection, workflow start, log retention, and event emission.
+  injection, log retention, and event emission.
 - Prompt injection is a large inline goroutine inside createSession, which
   complicates testing and makes the flow harder to follow.
 - Three goroutines per session are likely justified to prevent blocking PTY
@@ -297,7 +290,7 @@ Large refactors (1+ week, if justified):
 
 ### Coverage notes (existing tests)
 - High coverage in manager/session tests, but specific paths are likely untested:
-  DSR handling (containsDSR/containsDSRResponse), workflow signal errors,
+  DSR handling (containsDSR/containsDSRResponse), flow dispatch errors,
   output channel backpressure, and session log cleanup error paths.
 - Prompt injection flow relies on timing; tests might be sensitive to real
   sleep delays (would benefit from clock injection in the injector).
@@ -308,15 +301,15 @@ Scope: REST endpoints, WebSocket + SSE handlers, middleware, SPA routing.
 ### Responsibilities and data flow
 - Route registration in routes.go wires REST + WS + SSE handlers and SPA fallback.
 - RestHandler in rest.go implements the majority of HTTP endpoints
-  (status, metrics, agents, sessions, skills, logs, plan, workflows).
+  (status, metrics, agents, sessions, skills, logs, plan, flow).
 - WebSocket handlers are split per stream (session, plus legacy logs/events
-  and agent/session/workflow/config event handlers).
+  and agent/session/config event handlers).
 - middleware.go provides auth + JSON error handling + request logging.
 - spa.go serves the SPA with fallback to index.html for client-side routes.
 
 ### Key patterns
 - Single RestHandler struct carries dependencies (Manager, Logger, PlanCache,
-  Git info, Temporal UI port).
+  Git info).
 - REST endpoints use apiError to unify JSON error responses.
 - WebSocket handlers manually validate auth and perform similar upgrade loops:
   authenticate -> upgrade -> subscribe -> goroutine for write -> read loop.
@@ -344,7 +337,7 @@ Quick wins (<1 day):
 
 Medium refactors (1-3 days):
 - Split rest.go into domain-focused files: sessions.go, agents.go, skills.go,
-  logs.go, status.go, workflows.go, plan.go. Keep RestHandler shared.
+  logs.go, status.go, flow.go, plan.go. Keep RestHandler shared.
 - Extract path parsing/validation for session routes (output/history/input)
   into small helpers with tests for edge cases.
 - Introduce a consistent error wrapper for WS handlers (close codes + logging)
@@ -354,7 +347,7 @@ Large refactors (1+ week, if justified):
 - Introduce a small router layer per domain (e.g., TerminalAPI) to shrink the
   monolithic RestHandler while keeping shared deps explicit.
 - Consider a shared WS stream abstraction (subscribe + marshal + send) to
-  unify agent/session/workflow/config event handlers.
+  unify agent/session/config event handlers.
 
 ### Risks and hidden coupling
 - Frontend expects specific error message shapes from REST (error + optional
@@ -557,7 +550,7 @@ Scope: main entrypoint, config loading, server lifecycle, subcommands.
 - Parses CLI flags/env defaults and builds Config.
 - Extracts embedded config to .gestalt/config unless dev mode is enabled.
 - Initializes logger, event bus, agent + skill loaders, terminal.Manager.
-- Starts Temporal dev server + client/worker when enabled.
+- Starts flow bridge for local automations.
 - Starts filesystem watch (plan + git) and event streams.
 - Launches backend HTTP server and frontend proxy server.
 - Provides subcommands: completion, validate-skill, config validate, index,
@@ -579,8 +572,8 @@ Quick wins (<1 day):
   reuse by other commands.
 
 Medium refactors (1-3 days):
-- Split main.go into multiple files: config_load.go, server.go, temporal.go,
-  watchers.go, to improve readability and test isolation.
+- Split main.go into multiple files: config_load.go, server.go, watchers.go,
+  to improve readability and test isolation.
 - Introduce an internal/config or internal/app package that builds the runtime
   dependencies (logger, manager, event buses) so main.go becomes orchestration.
 
@@ -635,9 +628,9 @@ Scope: Svelte SPA structure, state flow, store usage, and component layering.
 - App.svelte owns top-level UI state and tab routing (no external router).
 - Views orchestrate API calls and domain UI (Dashboard, Plan, Logs, Flow, Terminal).
 - Components encapsulate UI building blocks (Terminal, CommandInput, OrgViewer,
-  Workflow cards, notifications).
+  flow editor, notifications).
 - Stores provide shared state and stream subscriptions (terminalStore WS,
-  eventStore SSE, agent/config/workflow event stores, notificationStore).
+  eventStore SSE, agent/config event stores, notificationStore).
 
 ### Complexity observations
 - App.svelte handles both app routing and data refresh, which centralizes
@@ -676,7 +669,7 @@ Scope: shared stores, API helpers, utilities.
 - api.js handles fetch wrapper and WebSocket/EventSource URL construction with token.
 - terminalStore manages xterm lifecycle, session WS, input handling, and
   touch scrolling behavior.
-- eventStore + agent/config/session/workflow event stores subscribe to SSE
+- eventStore + agent/config/session event stores subscribe to SSE
   event streams and fan out to listeners.
 - notificationStore manages toast notifications.
 - orgParser parses Org-mode snippets for PlanView.
@@ -730,8 +723,8 @@ Quick wins (<1 day):
   (xterm attachment) to reduce file size.
 
 Medium refactors (1-3 days):
-- Create shared formatting helpers for workflow timestamps and labels to
-  reduce duplication across workflow components and FlowView.
+- Create shared formatting helpers for flow timestamps and labels to
+  reduce duplication across flow components and FlowView.
 - Add shallow component tests for Terminal and CommandInput for key behaviors
   (focus, submit, reconnect state).
 
@@ -779,16 +772,14 @@ Scope: direct Go module dependencies and justification.
 - github.com/creack/pty: PTY support for terminal sessions (no stdlib alternative).
 - github.com/fsnotify/fsnotify: cross-platform filesystem watching.
 - github.com/gorilla/websocket: WebSocket server support and origin checks.
-- go.temporal.io/sdk + go.temporal.io/api: workflow engine for session workflows.
 - gopkg.in/yaml.v3: YAML parsing for skills.
 - github.com/mattn/go-sqlite3: SCIP index storage backend.
 - github.com/klauspost/compress: compression utilities used by SCIP/tooling.
-- google.golang.org/protobuf: protocol buffer types (Temporal/SCIP).
-- golang.org/x/time: time utilities (Temporal client dependencies).
+- google.golang.org/protobuf: protocol buffer types (SCIP).
 
 ### Observations
-- The original “4 dependency” baseline is outdated; the Temporal + SCIP features
-  add several direct dependencies.
+- The original “4 dependency” baseline is outdated; SCIP features add several
+  direct dependencies.
 - gorilla/websocket remains the practical choice for server-side WS; stdlib has
   no WS server and x/net/websocket is effectively frozen.
 
@@ -925,7 +916,7 @@ This consolidates the analysis into actionable follow-up work items.
 - Add wsStore helper for frontend event stores.
 
 ### Medium refactors (1-3 days)
-- Split cmd/gestalt main.go into config/server/temporal/watchers files.
+- Split cmd/gestalt main.go into config/server/watchers files.
 - Split RestHandler endpoints into domain-specific files.
 - Move Dashboard data fetching into a store or helper module.
 - Introduce internal/git helpers for shared git parsing.

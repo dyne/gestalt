@@ -9,10 +9,9 @@ Scope
 - Backend: emit OTLP logs, metrics, traces from Go services.
 - Collector: otelcol-gestalt started with the server and stopped on exit.
 - Frontend: read logs and metrics via Collector HTTP endpoints (OTLP/HTTP).
-- Temporal: propagate trace context and record workflow spans/attributes.
 
 High-level design
-- Gestalt server owns a local Collector lifecycle (start before Temporal dev server, stop on exit).
+- Gestalt server owns a local Collector lifecycle (start before serving HTTP, stop on exit).
 - Backend SDK exports OTLP to the local Collector:
   - Traces: OTLP/HTTP by default, gRPC optional.
   - Metrics: OTLP/HTTP by default, gRPC optional.
@@ -81,7 +80,7 @@ Log mapping
 
 Metrics mapping
 - Replace internal/metrics.Registry metrics with OTel instruments:
-  - workflows.started/completed/failed/paused
+  - flow.activities.succeeded/failed
   - event_bus.subscribers (gauge)
   - events.published/dropped (counter)
   - sessions.active (gauge)
@@ -93,7 +92,6 @@ Tracing model
 - Propagate trace context:
   - from inbound HTTP headers (traceparent)
   - into WebSocket connect spans
-  - into Temporal workflow start and activity contexts
 
 Frontend access
 - Logs ingest: POST /api/otel/logs (OTLP LogRecords).

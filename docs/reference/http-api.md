@@ -31,8 +31,6 @@ If `GESTALT_TOKEN` is set:
 - `POST /api/sessions/:id/input-history`
 - `POST /api/sessions/:id/bell`
 - `POST /api/sessions/:id/notify`
-- `POST /api/sessions/:id/workflow/resume`
-- `GET /api/sessions/:id/workflow/history`
 
 ### Agents and skills
 
@@ -44,15 +42,14 @@ If `GESTALT_TOKEN` is set:
 
 - `GET /api/plans`
 
-### Workflows
-
-- `GET /api/workflows`
-
 ### Flow configuration
 
 - `GET /api/flow/activities`
+- `GET /api/flow/event-types`
 - `GET /api/flow/config`
 - `PUT /api/flow/config`
+- `GET /api/flow/config/export`
+- `POST /api/flow/config/import`
 
 ### OpenTelemetry
 
@@ -68,7 +65,6 @@ If `GESTALT_TOKEN` is set:
 - `GET /api/agents/events`
 - `GET /api/sessions/events`
 - `GET /api/config/events`
-- `GET /api/workflows/events`
 
 ## SSE endpoints
 

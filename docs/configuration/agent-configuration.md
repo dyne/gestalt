@@ -15,7 +15,6 @@ All agent files support the following fields:
 - `skills` (array, optional): Skill names to inject (Codex renders these into `developer_instructions`).
 - `gui_modules` (array, optional): UI module flags for sessions (e.g., `["plan-progress"]`). Known modules: `console` (session view) and `plan-progress` (sidebar). Legacy `terminal` is accepted and normalized to `console`. Defaults to `["console"]` for server sessions and `["console","plan-progress"]` for external sessions when unset.
 - `onair_string` (string, optional): Wait for this string before prompt injection (non-Codex only).
-- `use_workflow` (bool, optional): Override workflow default.
 - `singleton` (bool, optional): Allow only one running instance (default true).
 - `llm_model` (string, optional): Model hint for UI/API.
 
@@ -87,7 +86,7 @@ Gestalt runs `codex mcp-server` over stdio and renders a simple transcript in th
 - Assistant responses are plain text blocks (newlines preserved).
 - Errors are prefixed with `! error:`.
 
-In MCP mode, Gestalt emits workflow notify events directly (`source="codex-notify"`)
+In MCP mode, Gestalt emits notify events directly (`source="codex-notify"`)
 and does not inject Codex `notify=...` hooks.
 
 Set `GESTALT_CODEX_FORCE_TUI=true` to force the legacy TUI path globally.

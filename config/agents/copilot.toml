@@ -4,6 +4,7 @@ cli_type = "copilot"
 interface = "cli"
 model = "claude-sonnet-4.5"
 singleton = false
+hidden = true
 
 # This example enables every available copilot CLI switch.
 # Some flags are mutually exclusive in real usage; adjust before running.

@@ -4,3 +4,4 @@ cli_type = "codex"
 interface = "mcp"
 prompt = ["coder"]
 model = "default"
+hidden = true

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"gestalt/internal/flow"
+	"gestalt/internal/gitlog"
 	"gestalt/internal/logging"
 	"gestalt/internal/notify"
 	"gestalt/internal/otel"
@@ -19,6 +20,7 @@ type RestHandler struct {
 	NotificationSink       notify.Sink
 	Logger                 *logging.Logger
 	MetricsSummary         *otel.APISummaryStore
+	GitLogReader           gitlog.Reader
 	GitOrigin              string
 	GitBranch              string
 	SessionScrollbackLines int
@@ -117,6 +119,35 @@ type planDocument struct {
 
 type plansListResponse struct {
 	Plans []planDocument `json:"plans"`
+}
+
+type gitLogResponse struct {
+	Branch  string         `json:"branch"`
+	Commits []gitLogCommit `json:"commits"`
+}
+
+type gitLogCommit struct {
+	SHA            string            `json:"sha"`
+	ShortSHA       string            `json:"short_sha"`
+	CommittedAt    string            `json:"committed_at"`
+	Subject        string            `json:"subject"`
+	Stats          gitLogCommitStats `json:"stats"`
+	Files          []gitLogFile      `json:"files"`
+	FilesTruncated bool              `json:"files_truncated"`
+}
+
+type gitLogCommitStats struct {
+	FilesChanged int  `json:"files_changed"`
+	LinesAdded   int  `json:"lines_added"`
+	LinesDeleted int  `json:"lines_deleted"`
+	HasBinary    bool `json:"has_binary"`
+}
+
+type gitLogFile struct {
+	Path    string `json:"path"`
+	Added   *int   `json:"added"`
+	Deleted *int   `json:"deleted"`
+	Binary  bool   `json:"binary"`
 }
 
 type errorResponse struct {

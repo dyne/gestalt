@@ -1,3 +1,18 @@
+# [1.15.0](https://github.com/dyne/gestalt/compare/v1.14.0...v1.15.0) (2026-02-18)
+
+
+### Bug Fixes
+
+* **api:** add missing logging import in rest test ([d3441d6](https://github.com/dyne/gestalt/commit/d3441d616f6ccf3915124e338f79dd293569f1d8))
+* **api:** update notify tests for notification sink behavior ([f469946](https://github.com/dyne/gestalt/commit/f4699461c4cf84efb7053f7e60c30e41852bc781))
+* **server:** stop agents tmux session on shutdown ([4d0a7da](https://github.com/dyne/gestalt/commit/4d0a7da256f5ae83a56f34b3531ee454b9f26f26))
+
+
+### Features
+
+* **api:** emit structured notify logs for accepted events ([8679292](https://github.com/dyne/gestalt/commit/8679292e29569d47002f1436af60e0d38bdf1890))
+* **dashboard:** expand recent log density with notify chips ([380e9b6](https://github.com/dyne/gestalt/commit/380e9b6947867608856ba791bdfd7d6f0da7c2da))
+
 # [1.14.0](https://github.com/dyne/gestalt/compare/v1.13.0...v1.14.0) (2026-02-18)
 
 

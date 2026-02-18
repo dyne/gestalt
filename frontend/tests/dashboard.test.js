@@ -85,6 +85,7 @@ describe('Dashboard', () => {
     })
 
     const button = await findByText('Codex')
+    await findByText('Start')
     await fireEvent.click(button)
 
     expect(onCreate).toHaveBeenCalledWith('codex')

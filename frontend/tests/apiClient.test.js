@@ -67,7 +67,14 @@ describe('apiClient', () => {
 
     const result = await createTerminal({ agentId: 'codex' })
 
-    expect(result).toEqual({ id: '1', interface: 'cli', title: '', runner: '', gui_modules: [] })
+    expect(result).toEqual({
+      id: '1',
+      interface: 'cli',
+      title: '',
+      runner: '',
+      gui_modules: [],
+      model: '',
+    })
     expect(apiFetch).toHaveBeenCalledWith('/api/sessions', {
       method: 'POST',
       body: JSON.stringify({ agent: 'codex' }),
@@ -106,7 +113,7 @@ describe('apiClient', () => {
 
     const result = await fetchAgents()
 
-    expect(result).toEqual([{ id: 'hidden', name: 'Hidden', hidden: true }])
+    expect(result).toEqual([{ id: 'hidden', name: 'Hidden', hidden: true, model: '' }])
   })
 
   it('normalizes malformed agent skills payloads', async () => {
@@ -122,7 +129,16 @@ describe('apiClient', () => {
 
     const result = await fetchTerminals()
 
-    expect(result).toEqual([{ id: '12', interface: 'cli', title: '', runner: '', gui_modules: [] }])
+    expect(result).toEqual([
+      {
+        id: '12',
+        interface: 'cli',
+        title: '',
+        runner: '',
+        gui_modules: [],
+        model: '',
+      },
+    ])
   })
 
   it('normalizes malformed metrics summary payloads', async () => {

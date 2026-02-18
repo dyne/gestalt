@@ -59,6 +59,7 @@ const normalizeTerminal = (terminal) => {
     interface: interfaceValue,
     runner: normalizeRunner(terminal?.runner),
     gui_modules: normalizeStringArray(terminal?.gui_modules),
+    model: terminal?.model ? String(terminal.model) : '',
   }
 }
 
@@ -71,6 +72,7 @@ const normalizeAgent = (agent) => {
     id: String(id),
     name,
     hidden: Boolean(agent?.hidden),
+    model: agent?.model ? String(agent.model) : '',
   }
 }
 

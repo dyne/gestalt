@@ -23,15 +23,12 @@ import (
 	"gestalt/internal/runner/launchspec"
 	"gestalt/internal/skill"
 	temporalcore "gestalt/internal/temporal"
-	"gestalt/internal/temporal/workflows"
 	"gestalt/internal/terminal"
 	"gestalt/internal/version"
 
 	enumspb "go.temporal.io/api/enums/v1"
-	historypb "go.temporal.io/api/history/v1"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type fakePty struct {
@@ -140,25 +137,6 @@ func (f *fakeTmuxClient) SelectWindow(target string) error {
 	return nil
 }
 
-type fakeEncodedValue struct {
-	payload interface{}
-}
-
-func (value fakeEncodedValue) HasValue() bool {
-	return value.payload != nil
-}
-
-func (value fakeEncodedValue) Get(valuePtr interface{}) error {
-	if value.payload == nil {
-		return errors.New("no payload")
-	}
-	data, err := json.Marshal(value.payload)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(data, valuePtr)
-}
-
 type fakeWorkflowRun struct {
 	workflowID string
 	runID      string
@@ -182,41 +160,6 @@ func (run *fakeWorkflowRun) GetWithOptions(ctx context.Context, valuePtr interfa
 
 func boolPtr(value bool) *bool {
 	return &value
-}
-
-type fakeWorkflowQueryClient struct {
-	runID        string
-	queryResults map[string]workflows.SessionWorkflowState
-}
-
-func (client *fakeWorkflowQueryClient) ExecuteWorkflow(ctx context.Context, options client.StartWorkflowOptions, workflow interface{}, args ...interface{}) (client.WorkflowRun, error) {
-	return &fakeWorkflowRun{workflowID: options.ID, runID: client.runID}, nil
-}
-
-func (client *fakeWorkflowQueryClient) SignalWithStartWorkflow(ctx context.Context, workflowID, signalName string, signalArg interface{}, options client.StartWorkflowOptions, workflow interface{}, args ...interface{}) (client.WorkflowRun, error) {
-	return &fakeWorkflowRun{workflowID: workflowID, runID: client.runID}, nil
-}
-
-func (client *fakeWorkflowQueryClient) GetWorkflowHistory(ctx context.Context, workflowID string, runID string, isLongPoll bool, filterType enumspb.HistoryEventFilterType) client.HistoryEventIterator {
-	return nil
-}
-
-func (client *fakeWorkflowQueryClient) QueryWorkflow(ctx context.Context, workflowID, runID, queryType string, args ...interface{}) (converter.EncodedValue, error) {
-	if client.queryResults == nil {
-		return nil, errors.New("no query results")
-	}
-	result, ok := client.queryResults[workflowID]
-	if !ok {
-		return nil, errors.New("workflow not found")
-	}
-	return fakeEncodedValue{payload: result}, nil
-}
-
-func (client *fakeWorkflowQueryClient) SignalWorkflow(ctx context.Context, workflowID, runID, signalName string, arg interface{}) error {
-	return nil
-}
-
-func (client *fakeWorkflowQueryClient) Close() {
 }
 
 type workflowSignalRecord struct {
@@ -274,52 +217,6 @@ func (client *fakeWorkflowSignalClient) SignalWorkflow(ctx context.Context, work
 }
 
 func (client *fakeWorkflowSignalClient) Close() {
-}
-
-type fakeHistoryIterator struct {
-	events []*historypb.HistoryEvent
-	index  int
-}
-
-func (iterator *fakeHistoryIterator) HasNext() bool {
-	return iterator.index < len(iterator.events)
-}
-
-func (iterator *fakeHistoryIterator) Next() (*historypb.HistoryEvent, error) {
-	if !iterator.HasNext() {
-		return nil, errors.New("no more events")
-	}
-	event := iterator.events[iterator.index]
-	iterator.index++
-	return event, nil
-}
-
-type fakeWorkflowHistoryClient struct {
-	runID  string
-	events []*historypb.HistoryEvent
-}
-
-func (client *fakeWorkflowHistoryClient) ExecuteWorkflow(ctx context.Context, options client.StartWorkflowOptions, workflow interface{}, args ...interface{}) (client.WorkflowRun, error) {
-	return &fakeWorkflowRun{workflowID: options.ID, runID: client.runID}, nil
-}
-
-func (client *fakeWorkflowHistoryClient) SignalWithStartWorkflow(ctx context.Context, workflowID, signalName string, signalArg interface{}, options client.StartWorkflowOptions, workflow interface{}, args ...interface{}) (client.WorkflowRun, error) {
-	return &fakeWorkflowRun{workflowID: workflowID, runID: client.runID}, nil
-}
-
-func (client *fakeWorkflowHistoryClient) GetWorkflowHistory(ctx context.Context, workflowID string, runID string, isLongPoll bool, filterType enumspb.HistoryEventFilterType) client.HistoryEventIterator {
-	return &fakeHistoryIterator{events: client.events}
-}
-
-func (client *fakeWorkflowHistoryClient) QueryWorkflow(ctx context.Context, workflowID, runID, queryType string, args ...interface{}) (converter.EncodedValue, error) {
-	return nil, errors.New("query not supported")
-}
-
-func (client *fakeWorkflowHistoryClient) SignalWorkflow(ctx context.Context, workflowID, runID, signalName string, arg interface{}) error {
-	return nil
-}
-
-func (client *fakeWorkflowHistoryClient) Close() {
 }
 
 func TestStatusHandlerRequiresAuth(t *testing.T) {
@@ -578,165 +475,6 @@ func TestStatusHandlerIncludesAgentsHubFields(t *testing.T) {
 	}
 }
 
-func TestWorkflowsEndpointReturnsSummary(t *testing.T) {
-	factory := &fakeFactory{}
-	temporalClient := &fakeWorkflowQueryClient{
-		runID:        "run-42",
-		queryResults: make(map[string]workflows.SessionWorkflowState),
-	}
-	manager := newTestManager(terminal.ManagerOptions{
-		Shell:           "/bin/sh",
-		PtyFactory:      factory,
-		TemporalClient:  temporalClient,
-		TemporalEnabled: true,
-	})
-	useWorkflow := true
-	created, err := manager.CreateWithOptions(terminal.CreateOptions{
-		AgentID:     testAgentID,
-		UseWorkflow: &useWorkflow,
-	})
-	if err != nil {
-		t.Fatalf("create terminal: %v", err)
-	}
-	defer func() {
-		_ = manager.Delete(created.ID)
-	}()
-
-	workflowID := created.ID
-	startTime := time.Date(2025, 2, 2, 9, 0, 0, 0, time.UTC)
-	bellTime := startTime.Add(5 * time.Minute)
-	temporalClient.queryResults[workflowID] = workflows.SessionWorkflowState{
-		SessionID: created.ID,
-		AgentID:   "Codex",
-		CurrentL1: "L1",
-		CurrentL2: "L2",
-		Status:    workflows.SessionStatusPaused,
-		StartTime: startTime,
-		BellEvents: []workflows.BellEvent{
-			{Timestamp: bellTime, Context: "bell context"},
-		},
-		TaskEvents: []workflows.TaskEvent{
-			{Timestamp: startTime, L1: "L1", L2: "L2"},
-		},
-	}
-
-	handler := &RestHandler{Manager: manager}
-	req := httptest.NewRequest(http.MethodGet, "/api/workflows", nil)
-	res := httptest.NewRecorder()
-
-	restHandler("", nil, handler.handleWorkflows)(res, req)
-	if res.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", res.Code)
-	}
-
-	var payload []workflowSummary
-	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if len(payload) != 1 {
-		t.Fatalf("expected 1 workflow, got %d", len(payload))
-	}
-	got := payload[0]
-	if got.SessionID != created.ID {
-		t.Fatalf("expected session id %q, got %q", created.ID, got.SessionID)
-	}
-	if got.WorkflowID != workflowID {
-		t.Fatalf("expected workflow id %q, got %q", workflowID, got.WorkflowID)
-	}
-	if got.WorkflowRunID != temporalClient.runID {
-		t.Fatalf("expected workflow run id %q, got %q", temporalClient.runID, got.WorkflowRunID)
-	}
-	if got.AgentName != "Codex" {
-		t.Fatalf("expected agent name %q, got %q", "Codex", got.AgentName)
-	}
-	if got.CurrentL1 != "L1" || got.CurrentL2 != "L2" {
-		t.Fatalf("unexpected tasks: %q/%q", got.CurrentL1, got.CurrentL2)
-	}
-	if got.Status != workflows.SessionStatusPaused {
-		t.Fatalf("expected status %q, got %q", workflows.SessionStatusPaused, got.Status)
-	}
-	if !got.StartTime.Equal(startTime) {
-		t.Fatalf("expected start time %v, got %v", startTime, got.StartTime)
-	}
-	if len(got.BellEvents) != 1 {
-		t.Fatalf("expected 1 bell event, got %d", len(got.BellEvents))
-	}
-	if got.BellEvents[0].Context != "bell context" || !got.BellEvents[0].Timestamp.Equal(bellTime) {
-		t.Fatalf("unexpected bell event: %#v", got.BellEvents[0])
-	}
-	if len(got.TaskEvents) != 1 {
-		t.Fatalf("expected 1 task event, got %d", len(got.TaskEvents))
-	}
-	if got.TaskEvents[0].L1 != "L1" || got.TaskEvents[0].L2 != "L2" {
-		t.Fatalf("unexpected task event: %#v", got.TaskEvents[0])
-	}
-}
-
-func TestTerminalWorkflowResumeEndpoint(t *testing.T) {
-	factory := &fakeFactory{}
-	temporalClient := &fakeWorkflowSignalClient{runID: "run-9"}
-	manager := newTestManager(terminal.ManagerOptions{
-		Shell:           "/bin/sh",
-		PtyFactory:      factory,
-		TemporalClient:  temporalClient,
-		TemporalEnabled: true,
-	})
-	useWorkflow := true
-	created, err := manager.CreateWithOptions(terminal.CreateOptions{
-		AgentID:     testAgentID,
-		UseWorkflow: &useWorkflow,
-	})
-	if err != nil {
-		t.Fatalf("create terminal: %v", err)
-	}
-	defer func() {
-		_ = manager.Delete(created.ID)
-	}()
-
-	handler := &RestHandler{Manager: manager}
-	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/workflow/resume", strings.NewReader(`{"action":"continue"}`))
-	res := httptest.NewRecorder()
-
-	restHandler("", nil, handler.handleTerminal)(res, req)
-	if res.Code != http.StatusNoContent {
-		t.Fatalf("expected 204, got %d", res.Code)
-	}
-	if len(temporalClient.signals) != 1 {
-		t.Fatalf("expected 1 signal, got %d", len(temporalClient.signals))
-	}
-	signal := temporalClient.signals[0]
-	if signal.signalName != workflows.ResumeSignalName {
-		t.Fatalf("expected resume signal, got %q", signal.signalName)
-	}
-	payload, ok := signal.payload.(workflows.ResumeSignal)
-	if !ok || payload.Action != workflows.ResumeActionContinue {
-		t.Fatalf("unexpected resume payload: %#v", signal.payload)
-	}
-}
-
-func TestTerminalWorkflowResumeEndpointMissingWorkflow(t *testing.T) {
-	factory := &fakeFactory{}
-	manager := newTestManager(terminal.ManagerOptions{
-		Shell:      "/bin/sh",
-		PtyFactory: factory,
-	})
-	created, err := manager.Create(testAgentID, "", "")
-	if err != nil {
-		t.Fatalf("create terminal: %v", err)
-	}
-	defer func() {
-		_ = manager.Delete(created.ID)
-	}()
-
-	handler := &RestHandler{Manager: manager}
-	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/workflow/resume", strings.NewReader(`{"action":"continue"}`))
-	res := httptest.NewRecorder()
-
-	restHandler("", nil, handler.handleTerminal)(res, req)
-	if res.Code != http.StatusConflict {
-		t.Fatalf("expected 409, got %d", res.Code)
-	}
-}
 
 func TestTerminalNotifyEndpoint(t *testing.T) {
 	factory := &fakeFactory{}
@@ -1195,137 +933,6 @@ func TestTerminalNotifyEndpointBadJSON(t *testing.T) {
 	restHandler("", nil, handler.handleTerminal)(res, req)
 	if res.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", res.Code)
-	}
-}
-
-func TestTerminalWorkflowHistoryEndpoint(t *testing.T) {
-	factory := &fakeFactory{}
-	dataConverter := converter.GetDefaultDataConverter()
-	taskPayloads, err := dataConverter.ToPayloads(workflows.UpdateTaskSignal{L1: "L1", L2: "L2"})
-	if err != nil {
-		t.Fatalf("build task payloads: %v", err)
-	}
-	bellTime := time.Date(2025, 4, 1, 10, 0, 0, 0, time.UTC)
-	bellPayloads, err := dataConverter.ToPayloads(workflows.BellSignal{Timestamp: bellTime, Context: "bell"})
-	if err != nil {
-		t.Fatalf("build bell payloads: %v", err)
-	}
-	notifyTime := time.Date(2025, 4, 1, 9, 31, 30, 0, time.UTC)
-	notifyPayloads, err := dataConverter.ToPayloads(workflows.NotifySignal{
-		Timestamp: notifyTime,
-		EventType: "agent-turn-complete",
-	})
-	if err != nil {
-		t.Fatalf("build notify payloads: %v", err)
-	}
-	resumePayloads, err := dataConverter.ToPayloads(workflows.ResumeSignal{Action: workflows.ResumeActionContinue})
-	if err != nil {
-		t.Fatalf("build resume payloads: %v", err)
-	}
-
-	eventTime := time.Date(2025, 4, 1, 9, 30, 0, 0, time.UTC)
-	events := []*historypb.HistoryEvent{
-		{
-			EventId:   1,
-			EventTime: timestamppb.New(eventTime),
-			EventType: enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED,
-			Attributes: &historypb.HistoryEvent_WorkflowExecutionSignaledEventAttributes{
-				WorkflowExecutionSignaledEventAttributes: &historypb.WorkflowExecutionSignaledEventAttributes{
-					SignalName: workflows.UpdateTaskSignalName,
-					Input:      taskPayloads,
-				},
-			},
-		},
-		{
-			EventId:   2,
-			EventTime: timestamppb.New(eventTime.Add(time.Minute)),
-			EventType: enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED,
-			Attributes: &historypb.HistoryEvent_WorkflowExecutionSignaledEventAttributes{
-				WorkflowExecutionSignaledEventAttributes: &historypb.WorkflowExecutionSignaledEventAttributes{
-					SignalName: workflows.BellSignalName,
-					Input:      bellPayloads,
-				},
-			},
-		},
-		{
-			EventId:   3,
-			EventTime: timestamppb.New(eventTime.Add(90 * time.Second)),
-			EventType: enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED,
-			Attributes: &historypb.HistoryEvent_WorkflowExecutionSignaledEventAttributes{
-				WorkflowExecutionSignaledEventAttributes: &historypb.WorkflowExecutionSignaledEventAttributes{
-					SignalName: workflows.NotifySignalName,
-					Input:      notifyPayloads,
-				},
-			},
-		},
-		{
-			EventId:   4,
-			EventTime: timestamppb.New(eventTime.Add(2 * time.Minute)),
-			EventType: enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED,
-			Attributes: &historypb.HistoryEvent_WorkflowExecutionSignaledEventAttributes{
-				WorkflowExecutionSignaledEventAttributes: &historypb.WorkflowExecutionSignaledEventAttributes{
-					SignalName: workflows.ResumeSignalName,
-					Input:      resumePayloads,
-				},
-			},
-		},
-	}
-
-	temporalClient := &fakeWorkflowHistoryClient{
-		runID:  "run-55",
-		events: events,
-	}
-	manager := newTestManager(terminal.ManagerOptions{
-		Shell:           "/bin/sh",
-		PtyFactory:      factory,
-		TemporalClient:  temporalClient,
-		TemporalEnabled: true,
-	})
-	useWorkflow := true
-	created, err := manager.CreateWithOptions(terminal.CreateOptions{
-		AgentID:     testAgentID,
-		UseWorkflow: &useWorkflow,
-	})
-	if err != nil {
-		t.Fatalf("create terminal: %v", err)
-	}
-	defer func() {
-		_ = manager.Delete(created.ID)
-	}()
-
-	handler := &RestHandler{Manager: manager}
-	req := httptest.NewRequest(http.MethodGet, terminalPath(created.ID)+"/workflow/history", nil)
-	res := httptest.NewRecorder()
-
-	restHandler("", nil, handler.handleTerminal)(res, req)
-	if res.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", res.Code)
-	}
-
-	var payload []workflowHistoryEntry
-	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if len(payload) != 4 {
-		t.Fatalf("expected 4 history events, got %d", len(payload))
-	}
-	if payload[0].Type != "task_update" || payload[0].L1 != "L1" || payload[0].L2 != "L2" {
-		t.Fatalf("unexpected task event: %#v", payload[0])
-	}
-	if payload[1].Type != "bell" || payload[1].Context != "bell" {
-		t.Fatalf("unexpected bell event: %#v", payload[1])
-	}
-	if !payload[1].Timestamp.Equal(bellTime) {
-		t.Fatalf("expected bell timestamp %v, got %v", bellTime, payload[1].Timestamp)
-	}
-	if payload[2].Type != "notify" || payload[2].Context != "agent-turn-complete" {
-		t.Fatalf("unexpected notify event: %#v", payload[2])
-	}
-	if !payload[2].Timestamp.Equal(notifyTime) {
-		t.Fatalf("expected notify timestamp %v, got %v", notifyTime, payload[2].Timestamp)
-	}
-	if payload[3].Type != "resume" || payload[3].Action != workflows.ResumeActionContinue {
-		t.Fatalf("unexpected resume event: %#v", payload[3])
 	}
 }
 
@@ -2667,10 +2274,10 @@ func TestParseTerminalPath(t *testing.T) {
 		{name: "activate-trailing-slash", path: "/api/sessions/123/activate/", id: "123", action: terminalPathActivate},
 		{name: "input-history", path: "/api/sessions/123/input-history", id: "123", action: terminalPathInputHistory},
 		{name: "input-history-trailing-slash", path: "/api/sessions/123/input-history/", id: "123", action: terminalPathInputHistory},
-		{name: "workflow-resume", path: "/api/sessions/123/workflow/resume", id: "123", action: terminalPathWorkflowResume},
-		{name: "workflow-resume-trailing-slash", path: "/api/sessions/123/workflow/resume/", id: "123", action: terminalPathWorkflowResume},
-		{name: "workflow-history", path: "/api/sessions/123/workflow/history", id: "123", action: terminalPathWorkflowHistory},
-		{name: "workflow-history-trailing-slash", path: "/api/sessions/123/workflow/history/", id: "123", action: terminalPathWorkflowHistory},
+		{name: "workflow-resume", path: "/api/sessions/123/workflow/resume", wantErr: true, status: http.StatusNotFound},
+		{name: "workflow-resume-trailing-slash", path: "/api/sessions/123/workflow/resume/", wantErr: true, status: http.StatusNotFound},
+		{name: "workflow-history", path: "/api/sessions/123/workflow/history", wantErr: true, status: http.StatusNotFound},
+		{name: "workflow-history-trailing-slash", path: "/api/sessions/123/workflow/history/", wantErr: true, status: http.StatusNotFound},
 		{name: "missing-prefix", path: "/api/terminal/123", wantErr: true, status: http.StatusNotFound},
 		{name: "empty-id", path: "/api/sessions/", wantErr: true, status: http.StatusBadRequest},
 		{name: "empty-id-output", path: "/api/sessions//output", wantErr: true, status: http.StatusBadRequest},

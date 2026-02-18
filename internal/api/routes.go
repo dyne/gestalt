@@ -125,11 +125,6 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 		Logger:    logger,
 		AuthToken: authToken,
 	}))
-	mux.Handle("/api/workflows/events", securityHeadersMiddleware(cacheControlNoStore, &WorkflowEventsHandler{
-		Manager:   manager,
-		Logger:    logger,
-		AuthToken: authToken,
-	}))
 	mux.Handle("/api/config/events", securityHeadersMiddleware(cacheControlNoStore, &ConfigEventsHandler{
 		Logger:    logger,
 		AuthToken: authToken,
@@ -137,7 +132,6 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 
 	mux.Handle("/api/status", wrap("/api/status", "status", "read", restHandler(authToken, logger, rest.handleStatus)))
 	mux.Handle("/api/metrics/summary", wrap("/api/metrics/summary", "status", "query", restHandler(authToken, logger, rest.handleMetricsSummary)))
-	mux.Handle("/api/workflows", wrap("/api/workflows", "workflows", "read", restHandler(authToken, logger, rest.handleWorkflows)))
 	mux.Handle("/api/agents", wrap("/api/agents", "agents", "read", restHandler(authToken, logger, rest.handleAgents)))
 	agentSendInputHandler := wrap("/api/agents/:name/send-input", "agents", "stream", restHandler(authToken, logger, rest.handleAgentSendInput))
 	mux.Handle("/api/agents/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -236,8 +236,8 @@ func attachMCPTurnHandler(session *Session, pty *mcpPty, logger *logging.Logger,
 			"thread_id": info.ThreadID,
 			"tool":      info.Tool,
 		}
-		if strings.TrimSpace(session.LLMModel) != "" {
-			payload["model"] = session.LLMModel
+		if strings.TrimSpace(session.Model) != "" {
+			payload["model"] = session.Model
 		}
 		occurredAt := time.Now().UTC()
 		fields := flow.BuildNotifyFields(flow.NotifyFieldInput{

@@ -657,10 +657,10 @@ func TestTerminalNotifyLoggingDoesNotChangeStatusMapping(t *testing.T) {
 		if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
 			t.Fatalf("withLogger=%t decode response: %v", withLogger, err)
 		}
-			if payload.Message != "notification sink unavailable" {
-				t.Fatalf("withLogger=%t expected notification sink unavailable message, got %q", withLogger, payload.Message)
-			}
+		if payload.Message != "notification sink unavailable" {
+			t.Fatalf("withLogger=%t expected notification sink unavailable message, got %q", withLogger, payload.Message)
 		}
+	}
 }
 
 func TestTerminalProgressEndpointMissingSession(t *testing.T) {
@@ -1421,7 +1421,7 @@ func TestCreateTerminalDuplicateAgent(t *testing.T) {
 	}
 }
 
-func TestListTerminalsIncludesLLMMetadata(t *testing.T) {
+func TestListTerminalsIncludesModelMetadata(t *testing.T) {
 	factory := &fakeFactory{}
 	nonSingleton := false
 	manager := newTestManager(terminal.ManagerOptions{
@@ -1432,7 +1432,7 @@ func TestListTerminalsIncludesLLMMetadata(t *testing.T) {
 				Name:      "Codex",
 				Shell:     "/bin/zsh",
 				CLIType:   "codex",
-				LLMModel:  "default",
+				Model:     "default",
 				Singleton: &nonSingleton,
 			},
 		},
@@ -1479,8 +1479,8 @@ func TestListTerminalsIncludesLLMMetadata(t *testing.T) {
 	if agentSummary.LLMType != "codex" {
 		t.Fatalf("expected llm_type codex, got %q", agentSummary.LLMType)
 	}
-	if agentSummary.LLMModel != "default" {
-		t.Fatalf("expected llm_model default, got %q", agentSummary.LLMModel)
+	if agentSummary.Model != "default" {
+		t.Fatalf("expected model default, got %q", agentSummary.Model)
 	}
 	if agentSummary.Interface != agent.AgentInterfaceCLI {
 		t.Fatalf("expected interface %q, got %q", agent.AgentInterfaceCLI, agentSummary.Interface)
@@ -1543,16 +1543,16 @@ func TestAgentsEndpoint(t *testing.T) {
 		PtyFactory: factory,
 		Agents: map[string]agent.Agent{
 			"codex": {
-				Name:     "Codex",
-				Shell:    "/bin/zsh",
-				CLIType:  "codex",
-				LLMModel: "default",
+				Name:    "Codex",
+				Shell:   "/bin/zsh",
+				CLIType: "codex",
+				Model:   "default",
 			},
 			"copilot": {
-				Name:     "Copilot",
-				Shell:    "/bin/bash",
-				CLIType:  "copilot",
-				LLMModel: "default",
+				Name:    "Copilot",
+				Shell:   "/bin/bash",
+				CLIType: "copilot",
+				Model:   "default",
 			},
 		},
 	})

@@ -28,7 +28,7 @@ func ComputeConfigHash(agent *Agent) string {
 		"onair_string": agent.OnAirString,
 		"singleton":    agent.Singleton,
 		"cli_type":     agent.CLIType,
-		"llm_model":    agent.LLMModel,
+		"model":        agent.Model,
 		"cli_config":   agent.CLIConfig,
 	}
 

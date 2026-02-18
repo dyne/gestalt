@@ -8,7 +8,7 @@ singleton = false
 gui_modules = ["console"]
 
 # Core model selection
-model = "gpt-5.2" # values: any supported model id
+model = "gpt-5.3" # values: any supported model id
 model_reasoning_effort = "high"
 # review_model = "gpt-5.1-codex"
 # model_context_window = 200000

@@ -44,6 +44,8 @@
   let error = ''
   let watchErrorNotified = false
   let terminalErrorUnsubscribe = null
+  let terminalCreatedUnsubscribe = null
+  let terminalClosedUnsubscribe = null
   let notificationUnsubscribe = null
   let agentsHubUnsubscribe = null
   let crashState = null
@@ -57,6 +59,9 @@
   let agentsViewPromise = null
   let terminalViewComponent = null
   let terminalViewPromise = null
+  let sessionRefreshTimer = null
+  let sessionRefreshInFlight = false
+  let sessionRefreshQueued = false
 
   const buildTitle = (workingDir) => {
     if (!workingDir) {
@@ -199,6 +204,45 @@
     } finally {
       loading = false
     }
+  }
+
+  const refreshSessionsState = async () => {
+    if (sessionRefreshInFlight) {
+      sessionRefreshQueued = true
+      return
+    }
+    sessionRefreshInFlight = true
+    sessionRefreshQueued = false
+    try {
+      const [nextStatus, nextTerminals] = await Promise.all([
+        fetchStatus(),
+        fetchTerminals(),
+      ])
+      setServerTimeOffset(nextStatus?.server_time)
+      status = nextStatus
+      terminals = nextTerminals
+      recordRefresh('status')
+      recordRefresh('terminals')
+      syncTabs(terminals, nextStatus)
+    } catch (err) {
+      notifyError(err, 'Failed to refresh sessions.')
+    } finally {
+      sessionRefreshInFlight = false
+      if (sessionRefreshQueued) {
+        sessionRefreshQueued = false
+        void refreshSessionsState()
+      }
+    }
+  }
+
+  const scheduleSessionsRefresh = () => {
+    if (sessionRefreshTimer) {
+      clearTimeout(sessionRefreshTimer)
+    }
+    sessionRefreshTimer = setTimeout(() => {
+      sessionRefreshTimer = null
+      void refreshSessionsState()
+    }, 150)
   }
 
   const createTerminal = async (agentId = '') => {
@@ -363,6 +407,11 @@
       }
       syncTabs(terminals, status)
     })
+    const handleTerminalLifecycle = () => {
+      scheduleSessionsRefresh()
+    }
+    terminalCreatedUnsubscribe = subscribeEvents('terminal_created', handleTerminalLifecycle)
+    terminalClosedUnsubscribe = subscribeEvents('terminal_closed', handleTerminalLifecycle)
     terminalErrorUnsubscribe = subscribeTerminalEvents('terminal_error', (payload) => {
       const sessionId = payload?.session_id || 'unknown'
       const detail = payload?.data?.error
@@ -390,6 +439,18 @@
       if (agentsHubUnsubscribe) {
         agentsHubUnsubscribe()
         agentsHubUnsubscribe = null
+      }
+      if (terminalCreatedUnsubscribe) {
+        terminalCreatedUnsubscribe()
+        terminalCreatedUnsubscribe = null
+      }
+      if (terminalClosedUnsubscribe) {
+        terminalClosedUnsubscribe()
+        terminalClosedUnsubscribe = null
+      }
+      if (sessionRefreshTimer) {
+        clearTimeout(sessionRefreshTimer)
+        sessionRefreshTimer = null
       }
     }
   })

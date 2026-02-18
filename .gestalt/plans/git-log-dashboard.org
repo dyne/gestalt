@@ -58,13 +58,13 @@ Summary
 }
 #+end_src
 
-* TODO [#A] Backend: Git Log Endpoint (REPR + minimal Hex adapter)
+* WIP [#A] Backend: Git Log Endpoint (REPR + minimal Hex adapter)
 :PROPERTIES:
 :Effort: 1.5d
 :Goal: Provide structured, bounded git log data for the dashboard.
 :Notes: Use `git` via `exec.CommandContext` with timeouts; never accept arbitrary user-provided args beyond numeric limits.
 :END:
-** TODO [#A] Implement a `gitlog` adapter that shells out safely
+** DONE [#A] Implement a `gitlog` adapter that shells out safely
 - Why: Parsing `.git/*` manually won’t yield per-file line stats reliably; `git` already computes numstat efficiently.
 - Change:
   - Add `internal/gitlog/`:

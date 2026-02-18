@@ -3,6 +3,7 @@
 
   export let status = null
   export let visible = true
+  export let onConnectionFailed = () => {}
 
   $: sessionId = String(status?.agents_session_id || '').trim()
   $: tmuxSessionName = String(status?.agents_tmux_session || '').trim()
@@ -23,6 +24,7 @@
       showCloseButton={false}
       forceDirectInput={true}
       allowMouseReporting={true}
+      {onConnectionFailed}
     />
   {:else}
     <p class="agents-empty">No agents hub session yet. Start a CLI external agent to initialize it.</p>

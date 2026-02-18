@@ -22,6 +22,7 @@
   export let forceDirectInput = false
   export let allowMouseReporting = false
   export let showCloseButton = true
+  export let onConnectionFailed = () => {}
 
   let state
   let status = 'disconnected'
@@ -53,6 +54,7 @@
   let isCLI = false
   let isExternal = false
   let hasPlanModule = false
+  let connectionFailedNotified = false
   const scrollSensitivity = 1
 
   const statusLabels = {
@@ -248,6 +250,13 @@
     Array.isArray(promptFiles) && promptFiles.length > 0
       ? promptFiles.filter(Boolean).join(', ')
       : ''
+  $: if (!sessionId || status === 'connected') {
+    connectionFailedNotified = false
+  }
+  $: if (!isExternal && sessionId && status === 'disconnected' && canReconnect && !connectionFailedNotified) {
+    connectionFailedNotified = true
+    onConnectionFailed(sessionId)
+  }
 
   onDestroy(() => {
     detachState()

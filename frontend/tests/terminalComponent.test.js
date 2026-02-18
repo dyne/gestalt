@@ -267,4 +267,24 @@ describe('Terminal', () => {
     await tick()
     expect(state.setDirectInput).toHaveBeenCalledWith(true)
   })
+
+  it('notifies when connection fails after retries', async () => {
+    const state = buildState()
+    const onConnectionFailed = vi.fn()
+    state.status.set('disconnected')
+    state.canReconnect.set(true)
+    getTerminalState.mockReturnValue(state)
+
+    render(Terminal, {
+      props: {
+        sessionId: 'hub',
+        sessionInterface: 'cli',
+        sessionRunner: 'server',
+        onConnectionFailed,
+      },
+    })
+
+    await tick()
+    expect(onConnectionFailed).toHaveBeenCalledWith('hub')
+  })
 })

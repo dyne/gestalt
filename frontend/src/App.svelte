@@ -319,6 +319,26 @@
     forceReload()
   }
 
+  const closeAgentsTab = (failedSessionId = '') => {
+    const activeAgentsSessionId = String(status?.agents_session_id || '').trim()
+    if (!activeAgentsSessionId) return
+    if (failedSessionId && failedSessionId !== activeAgentsSessionId) return
+    void import('./lib/terminalStore.js')
+      .then(({ releaseTerminalState }) => {
+        releaseTerminalState(activeAgentsSessionId)
+      })
+      .catch(() => {})
+    status = {
+      ...(status || {}),
+      agents_session_id: '',
+      agents_tmux_session: '',
+    }
+    syncTabs(terminals, status)
+    if (activeId === 'agents') {
+      activeId = 'dashboard'
+    }
+  }
+
   const handleBoundaryError = (viewName, error) => {
     reportCrash(error, { source: 'view-boundary', view: viewName })
   }
@@ -459,6 +479,7 @@
           this={agentsViewComponent}
           status={status}
           visible={activeView === 'agents'}
+          onConnectionFailed={closeAgentsTab}
         />
       {:else}
         <div class="view-fallback">

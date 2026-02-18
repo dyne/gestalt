@@ -328,7 +328,7 @@
               }
               disabled={actionPending || loading}
             >
-              <span class="agent-name">{agent.name}</span>
+              <span class="agent-name" title={agent.name}>{agent.name}</span>
               <span class="agent-action">{agent.running ? 'Open' : 'Start'}</span>
             </button>
           </div>
@@ -1186,8 +1186,8 @@
 
   .agent-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: 0.75rem;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.6rem;
   }
 
   .agent-card {
@@ -1200,22 +1200,30 @@
   .agent-button {
     border: 1px solid rgba(var(--color-text-rgb), 0.2);
     border-radius: 14px;
-    padding: 0.75rem 1rem;
+    padding: 0.55rem 0.8rem;
     background: var(--color-surface);
     font-weight: 600;
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.35rem;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
     cursor: pointer;
     transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease,
       background 160ms ease, border-color 160ms ease;
     width: 100%;
     height: 100%;
+    min-height: 2.5rem;
   }
 
   .agent-name {
-    font-size: 0.95rem;
+    font-size: 0.9rem;
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .agent-button--running {
@@ -1246,6 +1254,8 @@
     letter-spacing: 0.16em;
     text-transform: uppercase;
     color: var(--color-text-subtle);
+    flex: 0 0 auto;
+    white-space: nowrap;
   }
 
   @keyframes pulseDot {

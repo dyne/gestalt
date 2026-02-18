@@ -77,6 +77,29 @@ Template tokens follow the same keys, for example:
 `{{event_id}}`, `{{notify.summary}}`, `{{notify.type}}`, `{{notify.event_id}}`.
 </div>
 
+## OTel log attribute contract
+
+For every successfully parsed notify request (after session and agent validation), the backend emits one `INFO` log entry with message `notify event accepted`.
+This entry is visible through `/api/logs` and `/api/logs/stream`.
+
+Stable attributes:
+
+- `gestalt.category=notification`
+- `gestalt.source=notify`
+- `type` (canonical notify event type)
+- `notify.type` (original payload `type`)
+- `notify.event_id` (when provided)
+- `session.id` and `session_id`
+- `agent.id` and `agent_id`
+- `agent.name` and `agent_name`
+- `notify.dispatch` (`queued`, `flow_unavailable`, `temporal_unavailable`, or `failed`)
+- scalar payload aliases as both top-level keys and `notify.<key>`
+
+Guarantee:
+
+- Logging is additive and best-effort (no API response changes).
+- If a notify request is accepted but dispatch later degrades (for example Temporal unavailable), the notify log entry is still emitted with `notify.dispatch` set to the outcome.
+
 ## Example: Flow automation for a new plan
 
 ```json

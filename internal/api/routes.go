@@ -18,8 +18,6 @@ import (
 )
 
 type StatusConfig struct {
-	TemporalUIPort         int
-	TemporalHost           string
 	SessionScrollbackLines int
 	SessionFontFamily      string
 	SessionFontSize        string
@@ -46,8 +44,6 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 		MetricsSummary:         metricsSummary,
 		GitOrigin:              gitOrigin,
 		GitBranch:              gitBranch,
-		TemporalUIPort:         statusConfig.TemporalUIPort,
-		TemporalHost:           statusConfig.TemporalHost,
 		SessionScrollbackLines: statusConfig.SessionScrollbackLines,
 		SessionFontFamily:      statusConfig.SessionFontFamily,
 		SessionFontSize:        statusConfig.SessionFontSize,
@@ -128,8 +124,6 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 		Logger:    logger,
 		AuthToken: authToken,
 	}))
-	mux.Handle("/api/workflows", securityHeadersMiddleware(cacheControlNoStore, http.NotFoundHandler()))
-	mux.Handle("/api/workflows/events", securityHeadersMiddleware(cacheControlNoStore, http.NotFoundHandler()))
 	mux.Handle("/api/config/events", securityHeadersMiddleware(cacheControlNoStore, &ConfigEventsHandler{
 		Logger:    logger,
 		AuthToken: authToken,

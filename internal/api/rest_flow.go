@@ -10,12 +10,7 @@ import (
 
 type flowConfigResponse struct {
 	flow.Config
-	TemporalStatus *flowTemporalStatus `json:"temporal_status,omitempty"`
-	StoragePath    string              `json:"storage_path,omitempty"`
-}
-
-type flowTemporalStatus struct {
-	Enabled bool `json:"enabled"`
+	StoragePath string `json:"storage_path,omitempty"`
 }
 
 type flowEventTypesResponse struct {
@@ -121,13 +116,6 @@ func (h *RestHandler) handleFlowConfigImport(w http.ResponseWriter, r *http.Requ
 	return nil
 }
 
-func flowStatus(service *flow.Service) *flowTemporalStatus {
-	if service == nil {
-		return nil
-	}
-	return &flowTemporalStatus{Enabled: service.DispatcherAvailable()}
-}
-
 func flowConfigStoragePath(service *flow.Service) string {
 	if service == nil {
 		return ""
@@ -137,9 +125,8 @@ func flowConfigStoragePath(service *flow.Service) string {
 
 func buildFlowConfigResponse(cfg flow.Config, service *flow.Service) flowConfigResponse {
 	return flowConfigResponse{
-		Config:         cfg,
-		TemporalStatus: flowStatus(service),
-		StoragePath:    flowConfigStoragePath(service),
+		Config:      cfg,
+		StoragePath: flowConfigStoragePath(service),
 	}
 }
 
@@ -175,10 +162,6 @@ func mapFlowError(err error) *apiError {
 
 func flowEventTypes() []string {
 	coreTypes := []string{
-		"workflow_started",
-		"workflow_paused",
-		"workflow_resumed",
-		"workflow_completed",
 		"file_changed",
 		"git_branch_changed",
 		"terminal_resized",

@@ -90,8 +90,7 @@ func (h *EventsSSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	agentBus := h.Manager.AgentBus()
 	terminalBus := h.Manager.TerminalBus()
-	workflowBus := h.Manager.WorkflowBus()
-	if agentBus == nil || terminalBus == nil || workflowBus == nil {
+	if agentBus == nil || terminalBus == nil {
 		writeSSEUnavailable(w, r, h.Logger, http.StatusInternalServerError, "event stream unavailable")
 		return
 	}
@@ -128,23 +127,12 @@ func (h *EventsSSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	workflowEvents, cancelWorkflow := workflowBus.SubscribeFiltered(func(event eventtypes.WorkflowEvent) bool {
-		return typeFilter.Allows(event.Type())
-	})
-	if workflowEvents == nil {
-		cancelWatcher()
-		cancelConfig()
-		writeSSEUnavailable(w, r, h.Logger, http.StatusInternalServerError, "workflow events unavailable")
-		return
-	}
-
 	agentEvents, cancelAgent := agentBus.SubscribeFiltered(func(event eventtypes.AgentEvent) bool {
 		return typeFilter.Allows(event.Type())
 	})
 	if agentEvents == nil {
 		cancelWatcher()
 		cancelConfig()
-		cancelWorkflow()
 		writeSSEUnavailable(w, r, h.Logger, http.StatusInternalServerError, "agent events unavailable")
 		return
 	}
@@ -155,7 +143,6 @@ func (h *EventsSSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if terminalEvents == nil {
 		cancelWatcher()
 		cancelConfig()
-		cancelWorkflow()
 		cancelAgent()
 		writeSSEUnavailable(w, r, h.Logger, http.StatusInternalServerError, "terminal events unavailable")
 		return
@@ -170,7 +157,6 @@ func (h *EventsSSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 		cancelWatcher()
 		cancelConfig()
-		cancelWorkflow()
 		cancelAgent()
 		cancelTerminal()
 		return
@@ -206,20 +192,6 @@ func (h *EventsSSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return sseEventEnvelope{EventType: payload.Type, Payload: payload}, true
 	})
 
-	forwardSSE(ctx, &wg, output, workflowEvents, cancelWorkflow, func(event eventtypes.WorkflowEvent) (sseEventEnvelope, bool) {
-		payload := workflowEventPayload{
-			Type:       event.Type(),
-			WorkflowID: event.WorkflowID,
-			SessionID:  event.SessionID,
-			Timestamp:  event.Timestamp(),
-			Context:    event.Context,
-		}
-		if payload.Timestamp.IsZero() {
-			payload.Timestamp = time.Now().UTC()
-		}
-		return sseEventEnvelope{EventType: payload.Type, Payload: payload}, true
-	})
-
 	forwardSSE(ctx, &wg, output, agentEvents, cancelAgent, func(event eventtypes.AgentEvent) (sseEventEnvelope, bool) {
 		payload := agentEventPayload{
 			Type:      event.Type(),
@@ -236,10 +208,10 @@ func (h *EventsSSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	forwardSSE(ctx, &wg, output, terminalEvents, cancelTerminal, func(event eventtypes.TerminalEvent) (sseEventEnvelope, bool) {
 		payload := terminalEventPayload{
-			Type:       event.Type(),
-			SessionID:  event.TerminalID,
-			Timestamp:  event.Timestamp(),
-			Data:       event.Data,
+			Type:      event.Type(),
+			SessionID: event.TerminalID,
+			Timestamp: event.Timestamp(),
+			Data:      event.Data,
 		}
 		if payload.Timestamp.IsZero() {
 			payload.Timestamp = time.Now().UTC()

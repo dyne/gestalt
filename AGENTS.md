@@ -143,3 +143,9 @@ terminal output -> Session output bus -> /ws/session/:id -> frontend text view
 - Async file logger behavior is covered by `internal/terminal/async_file_logger_test.go` to validate flush-on-close and drop behavior.
 - Session metadata boundaries are covered in `internal/terminal/session_test.go` (Info metadata + workflow identifier defaults).
 - Log context fields (output_tail, bell context, stderr) are cleaned (ANSI escape sequences, control codes, repeated characters removed; text, tabs, and newlines preserved).
+
+## Git log dashboard notes
+- Backend endpoint `GET /api/git/log` returns structured commit data for the current workdir branch, with bounded `limit` (`20` default, `50` max), per-commit stats, per-file numstat, and `files_truncated` support.
+- Backend implementation lives in `internal/gitlog` (command adapter + pure parser tests) and API handler in `internal/api/rest_git.go`.
+- Dashboard intel right column now shows Git log instead of API metrics, sourced from `dashboardStore` via `fetchGitLog`.
+- Conventional commit parsing helper is `frontend/src/lib/conventionalCommit.js` and drives type badges in `frontend/src/views/Dashboard.svelte`.

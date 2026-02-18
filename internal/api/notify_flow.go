@@ -26,7 +26,7 @@ func buildNotifyFlowFields(session *terminal.Session, request notifyRequest, now
 	fields := flow.BuildNotifyFields(flow.NotifyFieldInput{
 		SessionID:   session.ID,
 		AgentID:     session.AgentID,
-		AgentName:   session.ID,
+		AgentName:   session.AgentName(),
 		EventID:     request.EventID,
 		PayloadType: request.EventType,
 		OccurredAt:  timestamp,

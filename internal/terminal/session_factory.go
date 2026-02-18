@@ -2,48 +2,50 @@ package terminal
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"gestalt/internal/agent"
+	"gestalt/internal/flow"
 	"gestalt/internal/logging"
+	"gestalt/internal/notify"
 	"gestalt/internal/process"
-	"gestalt/internal/temporal/workflows"
 )
 
 type SessionFactoryOptions struct {
-	Clock           Clock
-	PtyFactory      PtyFactory
-	ProcessRegistry *process.Registry
-	SessionLogDir   string
-	InputHistoryDir string
-	BufferLines     int
-	SessionLogMax   int64
-	HistoryScanMax  int64
-	LogCodexEvents  bool
-	OutputPolicy    OutputBackpressurePolicy
-	OutputSample    uint64
-	Logger          *logging.Logger
-	NextID          func() string
+	Clock            Clock
+	PtyFactory       PtyFactory
+	ProcessRegistry  *process.Registry
+	SessionLogDir    string
+	InputHistoryDir  string
+	BufferLines      int
+	SessionLogMax    int64
+	HistoryScanMax   int64
+	LogCodexEvents   bool
+	OutputPolicy     OutputBackpressurePolicy
+	OutputSample     uint64
+	NotificationSink notify.Sink
+	Logger           *logging.Logger
+	NextID           func() string
 }
 
 type SessionFactory struct {
-	clock           Clock
-	ptyFactory      PtyFactory
-	processRegistry *process.Registry
-	sessionLogDir   string
-	inputHistoryDir string
-	bufferLines     int
-	sessionLogMax   int64
-	historyScanMax  int64
-	logCodexEvents  bool
-	outputPolicy    OutputBackpressurePolicy
-	outputSample    uint64
-	logger          *logging.Logger
-	nextID          func() string
+	clock            Clock
+	ptyFactory       PtyFactory
+	processRegistry  *process.Registry
+	sessionLogDir    string
+	inputHistoryDir  string
+	bufferLines      int
+	sessionLogMax    int64
+	historyScanMax   int64
+	logCodexEvents   bool
+	outputPolicy     OutputBackpressurePolicy
+	outputSample     uint64
+	notificationSink notify.Sink
+	logger           *logging.Logger
+	nextID           func() string
 }
 
 func NewSessionFactory(options SessionFactoryOptions) *SessionFactory {
@@ -63,19 +65,20 @@ func NewSessionFactory(options SessionFactoryOptions) *SessionFactory {
 	}
 
 	return &SessionFactory{
-		clock:           clock,
-		ptyFactory:      ptyFactory,
-		processRegistry: options.ProcessRegistry,
-		sessionLogDir:   strings.TrimSpace(options.SessionLogDir),
-		inputHistoryDir: strings.TrimSpace(options.InputHistoryDir),
-		bufferLines:     bufferLines,
-		sessionLogMax:   options.SessionLogMax,
-		historyScanMax:  options.HistoryScanMax,
-		logCodexEvents:  options.LogCodexEvents,
-		outputPolicy:    options.OutputPolicy,
-		outputSample:    options.OutputSample,
-		logger:          options.Logger,
-		nextID:          options.NextID,
+		clock:            clock,
+		ptyFactory:       ptyFactory,
+		processRegistry:  options.ProcessRegistry,
+		sessionLogDir:    strings.TrimSpace(options.SessionLogDir),
+		inputHistoryDir:  strings.TrimSpace(options.InputHistoryDir),
+		bufferLines:      bufferLines,
+		sessionLogMax:    options.SessionLogMax,
+		historyScanMax:   options.HistoryScanMax,
+		logCodexEvents:   options.LogCodexEvents,
+		outputPolicy:     options.OutputPolicy,
+		outputSample:     options.OutputSample,
+		notificationSink: options.NotificationSink,
+		logger:           options.Logger,
+		nextID:           options.NextID,
 	}
 }
 
@@ -147,7 +150,7 @@ func (f *SessionFactory) Start(request sessionCreateRequest, profile *agent.Agen
 				mcp.SetEventLogger(eventLogger)
 			}
 		}
-		attachMCPTurnHandler(session, mcp, f.logger)
+		attachMCPTurnHandler(session, mcp, f.logger, f.notificationSink)
 	}
 
 	return session, id, nil
@@ -220,14 +223,11 @@ func (f *SessionFactory) createMCPEventLogger(id string, createdAt time.Time) *m
 	return logger
 }
 
-func attachMCPTurnHandler(session *Session, pty *mcpPty, logger *logging.Logger) {
-	if session == nil || pty == nil {
+func attachMCPTurnHandler(session *Session, pty *mcpPty, logger *logging.Logger, sink notify.Sink) {
+	if session == nil || pty == nil || sink == nil {
 		return
 	}
 	pty.SetTurnHandler(func(info mcpTurnInfo) {
-		if _, _, ok := session.WorkflowIdentifiers(); !ok {
-			return
-		}
 		agentName := session.Title
 		if session.agent != nil && strings.TrimSpace(session.agent.Name) != "" {
 			agentName = session.agent.Name
@@ -239,17 +239,23 @@ func attachMCPTurnHandler(session *Session, pty *mcpPty, logger *logging.Logger)
 		if strings.TrimSpace(session.LLMModel) != "" {
 			payload["model"] = session.LLMModel
 		}
-		payloadBytes, _ := json.Marshal(payload)
-		signal := workflows.NotifySignal{
-			SessionID: session.ID,
-			AgentID:   session.AgentID,
-			AgentName: agentName,
-			EventType: "agent-turn-complete",
-			Source:    "codex-notify",
-			EventID:   fmt.Sprintf("gestalt-mcp:%s:%d", session.ID, info.Turn),
-			Payload:   payloadBytes,
+		occurredAt := time.Now().UTC()
+		fields := flow.BuildNotifyFields(flow.NotifyFieldInput{
+			SessionID:   session.ID,
+			AgentID:     session.AgentID,
+			AgentName:   agentName,
+			EventID:     fmt.Sprintf("gestalt-mcp:%s:%d", session.ID, info.Turn),
+			PayloadType: "agent-turn-complete",
+			OccurredAt:  occurredAt,
+			Payload:     payload,
+		})
+		event := notify.Event{
+			Fields:     fields,
+			OccurredAt: occurredAt,
+			Level:      "info",
+			Message:    "agent-turn-complete",
 		}
-		if err := session.SendNotifySignal(signal); err != nil && logger != nil {
+		if err := sink.Emit(context.Background(), event); err != nil && logger != nil {
 			logger.Warn("mcp notify failed", map[string]string{
 				"terminal_id": session.ID,
 				"error":       err.Error(),

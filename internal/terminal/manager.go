@@ -20,6 +20,7 @@ import (
 	"gestalt/internal/agent"
 	"gestalt/internal/event"
 	"gestalt/internal/logging"
+	"gestalt/internal/notify"
 	"gestalt/internal/ports"
 	"gestalt/internal/process"
 	"gestalt/internal/prompt"
@@ -90,6 +91,7 @@ type ManagerOptions struct {
 	SessionLogMaxBytes      int64
 	HistoryScanMaxBytes     int64
 	LogCodexEvents          bool
+	NotificationSink        notify.Sink
 	TUIMode                 string
 	TUISnapshotInterval     time.Duration
 	PromptFS                fs.FS
@@ -122,6 +124,7 @@ type Manager struct {
 	agentRegistry           *agent.Registry
 	skills                  map[string]*skill.Skill
 	logger                  *logging.Logger
+	notificationSink        notify.Sink
 	agentBus                *event.Bus[event.AgentEvent]
 	terminalBus             *event.Bus[event.TerminalEvent]
 	workflowBus             *event.Bus[event.WorkflowEvent]
@@ -269,6 +272,11 @@ func NewManager(opts ManagerOptions) *Manager {
 		registry = process.NewRegistry()
 	}
 
+	notificationSink := opts.NotificationSink
+	if notificationSink == nil {
+		notificationSink = notify.NewOTelSink(nil)
+	}
+
 	promptFS := opts.PromptFS
 	promptDir := strings.TrimSpace(opts.PromptDir)
 	if promptDir == "" {
@@ -314,6 +322,7 @@ func NewManager(opts ManagerOptions) *Manager {
 		agentRegistry:           agentRegistry,
 		skills:                  skills,
 		logger:                  logger,
+		notificationSink:        notificationSink,
 		agentBus:                agentBus,
 		terminalBus:             terminalBus,
 		workflowBus:             workflowBus,
@@ -346,19 +355,20 @@ func NewManager(opts ManagerOptions) *Manager {
 		}
 	}
 	manager.sessionFactory = NewSessionFactory(SessionFactoryOptions{
-		Clock:           clock,
-		PtyFactory:      factory,
-		ProcessRegistry: registry,
-		SessionLogDir:   sessionLogs,
-		InputHistoryDir: inputHistoryDir,
-		BufferLines:     bufferLines,
-		SessionLogMax:   opts.SessionLogMaxBytes,
-		HistoryScanMax:  historyScanMax,
-		LogCodexEvents:  opts.LogCodexEvents,
-		OutputPolicy:    outputPolicy,
-		OutputSample:    outputSample,
-		Logger:          logger,
-		NextID:          manager.nextIDValue,
+		Clock:            clock,
+		PtyFactory:       factory,
+		ProcessRegistry:  registry,
+		SessionLogDir:    sessionLogs,
+		InputHistoryDir:  inputHistoryDir,
+		BufferLines:      bufferLines,
+		SessionLogMax:    opts.SessionLogMaxBytes,
+		HistoryScanMax:   historyScanMax,
+		LogCodexEvents:   opts.LogCodexEvents,
+		OutputPolicy:     outputPolicy,
+		OutputSample:     outputSample,
+		NotificationSink: notificationSink,
+		Logger:           logger,
+		NextID:           manager.nextIDValue,
 	})
 	manager.startSessionCleanup()
 	return manager

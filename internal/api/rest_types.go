@@ -7,6 +7,7 @@ import (
 
 	"gestalt/internal/flow"
 	"gestalt/internal/logging"
+	"gestalt/internal/notify"
 	"gestalt/internal/otel"
 	"gestalt/internal/runner/launchspec"
 	"gestalt/internal/terminal"
@@ -15,6 +16,7 @@ import (
 type RestHandler struct {
 	Manager                *terminal.Manager
 	FlowService            *flow.Service
+	NotificationSink       notify.Sink
 	Logger                 *logging.Logger
 	MetricsSummary         *otel.APISummaryStore
 	GitOrigin              string

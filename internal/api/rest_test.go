@@ -19,6 +19,7 @@ import (
 	"gestalt/internal/agent"
 	"gestalt/internal/event"
 	"gestalt/internal/flow"
+	"gestalt/internal/notify"
 	"gestalt/internal/otel"
 	"gestalt/internal/runner/launchspec"
 	"gestalt/internal/skill"
@@ -498,7 +499,8 @@ func TestTerminalNotifyEndpoint(t *testing.T) {
 	temporalClient := &fakeWorkflowSignalClient{runID: "run-11"}
 	repo := flow.NewFileRepository(filepath.Join(tempDir, "automations.json"), nil)
 	service := flow.NewService(repo, temporalClient, nil)
-	handler := &RestHandler{Manager: manager, FlowService: service}
+	sink := notify.NewMemorySink()
+	handler := &RestHandler{Manager: manager, FlowService: service, NotificationSink: sink}
 	body := `{"session_id":"` + created.ID + `","occurred_at":"2025-04-01T10:00:00Z","payload":{"type":"plan-L1-wip","plan_file":"plan.org"},"raw":"{}","event_id":"manual:1"}`
 	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/notify", strings.NewReader(body))
 	res := httptest.NewRecorder()
@@ -545,6 +547,13 @@ func TestTerminalNotifyEndpoint(t *testing.T) {
 	if payload.Fields["timestamp"] != time.Date(2025, 4, 1, 10, 0, 0, 0, time.UTC).Format(time.RFC3339Nano) {
 		t.Fatalf("unexpected notify timestamp: %v", payload.Fields["timestamp"])
 	}
+	events := sink.Events()
+	if len(events) != 1 {
+		t.Fatalf("expected 1 notification event, got %d", len(events))
+	}
+	if events[0].Fields["notify.type"] != "plan-L1-wip" {
+		t.Fatalf("expected notify.type plan-L1-wip, got %q", events[0].Fields["notify.type"])
+	}
 }
 
 func TestTerminalNotifyProgressMissingPlanFile(t *testing.T) {
@@ -566,7 +575,7 @@ func TestTerminalNotifyProgressMissingPlanFile(t *testing.T) {
 		_ = manager.Delete(created.ID)
 	}()
 
-	handler := &RestHandler{Manager: manager}
+	handler := &RestHandler{Manager: manager, NotificationSink: notify.NewMemorySink()}
 	body := `{"session_id":"` + created.ID + `","payload":{"type":"progress"}}`
 	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/notify", strings.NewReader(body))
 	res := httptest.NewRecorder()
@@ -611,7 +620,7 @@ func TestTerminalNotifyProgressNormalization(t *testing.T) {
 			temporalClient := &fakeWorkflowSignalClient{runID: "run-progress"}
 			repo := flow.NewFileRepository(filepath.Join(tempDir, "automations.json"), nil)
 			service := flow.NewService(repo, temporalClient, nil)
-			handler := &RestHandler{Manager: manager, FlowService: service}
+			handler := &RestHandler{Manager: manager, FlowService: service, NotificationSink: notify.NewMemorySink()}
 			body := `{"session_id":"` + created.ID + `","payload":{"type":"progress","plan_file":"` + testCase.planFile + `","l1":"* TODO [#A] First L1","l2":"WIP [#B] L2 Two","task_level":"2","task_state":"WIP"}}`
 			req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/notify", strings.NewReader(body))
 			res := httptest.NewRecorder()
@@ -678,7 +687,7 @@ func TestTerminalNotifyEndpointWorkflowInactive(t *testing.T) {
 	temporalClient := &fakeWorkflowSignalClient{runID: "run-13"}
 	repo := flow.NewFileRepository(filepath.Join(tempDir, "automations.json"), nil)
 	service := flow.NewService(repo, temporalClient, nil)
-	handler := &RestHandler{Manager: manager, FlowService: service}
+	handler := &RestHandler{Manager: manager, FlowService: service, NotificationSink: notify.NewMemorySink()}
 	body := `{"session_id":"` + created.ID + `","payload":{"type":"plan-L1-wip"}}`
 	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/notify", strings.NewReader(body))
 	res := httptest.NewRecorder()
@@ -712,7 +721,7 @@ func TestTerminalNotifyEndpointTemporalUnavailable(t *testing.T) {
 	tempDir := t.TempDir()
 	repo := flow.NewFileRepository(filepath.Join(tempDir, "automations.json"), nil)
 	service := flow.NewService(repo, nil, nil)
-	handler := &RestHandler{Manager: manager, FlowService: service}
+	handler := &RestHandler{Manager: manager, FlowService: service, NotificationSink: notify.NewMemorySink()}
 	body := `{"session_id":"` + created.ID + `","payload":{"type":"plan-L1-wip"}}`
 	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/notify", strings.NewReader(body))
 	res := httptest.NewRecorder()
@@ -796,7 +805,7 @@ func TestTerminalProgressEndpointAfterNotify(t *testing.T) {
 	temporalClient := &fakeWorkflowSignalClient{runID: "run-progress-2"}
 	repo := flow.NewFileRepository(filepath.Join(tempDir, "automations.json"), nil)
 	service := flow.NewService(repo, temporalClient, nil)
-	handler := &RestHandler{Manager: manager, FlowService: service}
+	handler := &RestHandler{Manager: manager, FlowService: service, NotificationSink: notify.NewMemorySink()}
 
 	body := `{"session_id":"` + created.ID + `","payload":{"type":"progress","plan_file":"plans/plan.org","l1":"TODO First L1","l2":"WIP Second L2","task_level":2,"task_state":"WIP"}}`
 	notifyReq := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/notify", strings.NewReader(body))
@@ -864,7 +873,7 @@ func TestTerminalNotifyProgressPublishesEvent(t *testing.T) {
 	events, cancel := manager.TerminalBus().Subscribe()
 	defer cancel()
 
-	handler := &RestHandler{Manager: manager}
+	handler := &RestHandler{Manager: manager, NotificationSink: notify.NewMemorySink()}
 	body := `{"session_id":"` + created.ID + `","payload":{"type":"progress","plan_file":"plan.org","l1":"First L1","l2":"Second L2","task_level":2,"task_state":"WIP"}}`
 	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/notify", strings.NewReader(body))
 	res := httptest.NewRecorder()

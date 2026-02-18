@@ -12,6 +12,7 @@ import (
 
 	"gestalt/internal/event"
 	"gestalt/internal/flow"
+	"gestalt/internal/notify"
 	"gestalt/internal/temporal/workflows"
 	"gestalt/internal/terminal"
 )
@@ -413,37 +414,55 @@ func (h *RestHandler) handleTerminalNotify(w http.ResponseWriter, r *http.Reques
 	}
 
 	isProgress := request.EventType == "progress"
+	notifyTime := time.Now().UTC()
+	if request.OccurredAt != nil && !request.OccurredAt.IsZero() {
+		notifyTime = request.OccurredAt.UTC()
+	}
 	if request.EventType == "progress" {
 		progressPayload, normalized, normalizeErr := normalizePlanProgressPayload(request.Payload)
 		if normalizeErr != nil {
 			return normalizeErr
 		}
 		request.Payload = normalized
-		progressTime := time.Now().UTC()
-		if request.OccurredAt != nil && !request.OccurredAt.IsZero() {
-			progressTime = request.OccurredAt.UTC()
-		}
 		session.SetPlanProgress(terminal.PlanProgress{
 			PlanFile:  progressPayload.PlanFile,
 			L1:        progressPayload.L1,
 			L2:        progressPayload.L2,
 			TaskLevel: progressPayload.TaskLevel,
 			TaskState: progressPayload.TaskState,
-			UpdatedAt: progressTime,
+			UpdatedAt: notifyTime,
 		})
 		if bus := h.Manager.TerminalBus(); bus != nil {
 			terminalEvent := event.NewTerminalEvent(id, "plan_progress")
-			terminalEvent.OccurredAt = progressTime
+			terminalEvent.OccurredAt = notifyTime
 			terminalEvent.Data = map[string]any{
 				"plan_file":  progressPayload.PlanFile,
 				"l1":         progressPayload.L1,
 				"l2":         progressPayload.L2,
 				"task_level": progressPayload.TaskLevel,
 				"task_state": progressPayload.TaskState,
-				"timestamp":  progressTime,
+				"timestamp":  notifyTime,
 			}
 			bus.Publish(terminalEvent)
 		}
+	}
+
+	fields, fieldsErr := buildNotifyFlowFields(session, request, notifyTime)
+	if fieldsErr != nil {
+		return fieldsErr
+	}
+
+	if h.NotificationSink == nil {
+		return &apiError{Status: http.StatusServiceUnavailable, Message: "notification sink unavailable"}
+	}
+	sinkEvent := notify.Event{
+		Fields:     fields,
+		OccurredAt: notifyTime,
+		Level:      "info",
+		Message:    request.EventType,
+	}
+	if err := h.NotificationSink.Emit(r.Context(), sinkEvent); err != nil {
+		return &apiError{Status: http.StatusInternalServerError, Message: "failed to emit notification"}
 	}
 
 	if err := h.requireFlowService(); err != nil {
@@ -463,10 +482,6 @@ func (h *RestHandler) handleTerminalNotify(w http.ResponseWriter, r *http.Reques
 		return err
 	}
 
-	fields, fieldsErr := buildNotifyFlowFields(session, request, time.Now())
-	if fieldsErr != nil {
-		return fieldsErr
-	}
 	if signalErr := h.FlowService.SignalEvent(r.Context(), fields, request.EventID); signalErr != nil {
 		if errors.Is(signalErr, flow.ErrTemporalUnavailable) {
 			if isProgress {

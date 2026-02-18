@@ -154,6 +154,24 @@
       left.localeCompare(right),
     )
   }
+
+  const notifySummaryChips = (entry) => {
+    const attributes = entry?.attributes || {}
+    const chips = []
+    const notifyType = attributes['notify.type']
+    const sessionID = attributes['session.id'] || attributes['session_id']
+    const agentID = attributes['agent.id'] || attributes['agent_id']
+    if (notifyType) {
+      chips.push(`notify:${notifyType}`)
+    }
+    if (sessionID) {
+      chips.push(`session:${sessionID}`)
+    }
+    if (agentID) {
+      chips.push(`agent:${agentID}`)
+    }
+    return chips
+  }
   const copyText = async (text, successMessage) => {
     if (!clipboardAvailable) {
       notificationStore.addNotification('error', 'Clipboard requires HTTPS.')
@@ -202,7 +220,7 @@
   $: dashboardStore.setTerminals(terminals)
   $: dashboardStore.setStatus(status)
   $: orderedLogs = [...logs].reverse()
-  $: visibleLogs = orderedLogs.slice(0, 15)
+  $: visibleLogs = orderedLogs.slice(0, 30)
   $: clipboardAvailable = canUseClipboard()
 
   onMount(() => {
@@ -366,6 +384,13 @@
                       </span>
                     </div>
                     <p class="log-message">{entry.message}</p>
+                    {#if notifySummaryChips(entry).length > 0}
+                      <div class="log-entry__chips">
+                        {#each notifySummaryChips(entry) as chip}
+                          <span class="log-chip">{chip}</span>
+                        {/each}
+                      </div>
+                    {/if}
                   </summary>
                   <div class="log-entry__details-body">
                     <div class="log-entry__detail-section">
@@ -819,7 +844,7 @@
     margin: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.6rem;
+    gap: 0.45rem;
   }
 
   .metrics-grid {
@@ -946,13 +971,13 @@
 
   .log-entry__summary {
     width: 100%;
-    padding: 0.65rem 0.85rem;
+    padding: 0.55rem 0.7rem;
     border-radius: 16px;
     background: var(--color-surface);
     border: 1px solid rgba(var(--color-text-rgb), 0.06);
     display: flex;
     flex-direction: column;
-    gap: 0.35rem;
+    gap: 0.28rem;
     text-align: left;
     cursor: pointer;
     font: inherit;
@@ -981,19 +1006,19 @@
   .log-entry__details-body {
     border: 1px solid rgba(var(--color-text-rgb), 0.06);
     border-top: none;
-    padding: 0.85rem;
+    padding: 0.65rem 0.7rem;
     border-bottom-left-radius: 16px;
     border-bottom-right-radius: 16px;
     background: rgba(var(--color-surface-rgb), 0.7);
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 0.75rem;
   }
 
   .log-entry__detail-section {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 0.4rem;
   }
 
   .log-entry__label {
@@ -1024,7 +1049,7 @@
 
   .log-entry__context th,
   .log-entry__context td {
-    padding: 0.5rem 0.7rem;
+    padding: 0.4rem 0.6rem;
     border-bottom: 1px solid rgba(var(--color-text-rgb), 0.08);
     text-align: left;
   }
@@ -1092,7 +1117,7 @@
   .log-entry__meta {
     display: flex;
     align-items: center;
-    gap: 0.6rem;
+    gap: 0.45rem;
     font-size: 0.75rem;
     color: var(--color-text-subtle);
   }
@@ -1126,8 +1151,32 @@
 
   .log-message {
     margin: 0;
-    font-size: 0.85rem;
+    font-size: 0.82rem;
     color: var(--color-text);
+  }
+
+  .log-entry__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    align-items: center;
+  }
+
+  .log-chip {
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    padding: 0.1rem 0.45rem;
+    border-radius: 999px;
+    border: 1px solid rgba(var(--color-text-rgb), 0.15);
+    background: rgba(var(--color-surface-rgb), 0.72);
+    color: var(--color-text-subtle);
+    font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
+    font-size: 0.68rem;
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .agent-grid {
@@ -1250,6 +1299,25 @@
 
     .dashboard__intel {
       grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .log-entry__summary {
+      padding: 0.5rem 0.6rem;
+    }
+
+    .log-entry__details-body {
+      padding: 0.55rem 0.6rem;
+    }
+
+    .log-entry__chips {
+      gap: 0.3rem;
+    }
+
+    .log-chip {
+      white-space: normal;
+      overflow-wrap: anywhere;
     }
   }
 </style>

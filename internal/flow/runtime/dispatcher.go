@@ -15,7 +15,7 @@ import (
 	"gestalt/internal/flow"
 	"gestalt/internal/logging"
 	"gestalt/internal/metrics"
-	"gestalt/internal/notification"
+	"gestalt/internal/notify"
 	"gestalt/internal/terminal"
 )
 
@@ -30,19 +30,24 @@ const (
 
 // Dispatcher executes flow activities locally.
 type Dispatcher struct {
-	Manager        *terminal.Manager
-	Logger         *logging.Logger
-	MaxOutputBytes int64
+	Manager          *terminal.Manager
+	Logger           *logging.Logger
+	NotificationSink notify.Sink
+	MaxOutputBytes   int64
 }
 
-func NewDispatcher(manager *terminal.Manager, logger *logging.Logger, maxOutputBytes int64) *Dispatcher {
+func NewDispatcher(manager *terminal.Manager, logger *logging.Logger, sink notify.Sink, maxOutputBytes int64) *Dispatcher {
 	if maxOutputBytes < 0 {
 		maxOutputBytes = 0
 	}
+	if sink == nil {
+		sink = notify.NewOTelSink(nil)
+	}
 	return &Dispatcher{
-		Manager:        manager,
-		Logger:         logger,
-		MaxOutputBytes: maxOutputBytes,
+		Manager:          manager,
+		Logger:           logger,
+		NotificationSink: sink,
+		MaxOutputBytes:   maxOutputBytes,
 	}
 }
 
@@ -228,7 +233,26 @@ func (d *Dispatcher) publishToast(ctx context.Context, request flow.ActivityRequ
 		return activityErr
 	}
 
-	notification.PublishToast(level, message)
+	if d.NotificationSink == nil {
+		activityErr = errors.New("notification sink unavailable")
+		return activityErr
+	}
+	occurredAt := time.Now().UTC()
+	fields := map[string]string{
+		"notify.type":  "toast",
+		"type":         flow.CanonicalNotifyEventType("toast"),
+		"notify.level": level,
+	}
+	event := notify.Event{
+		Fields:     fields,
+		OccurredAt: occurredAt,
+		Level:      level,
+		Message:    message,
+	}
+	if err := d.NotificationSink.Emit(ctx, event); err != nil {
+		activityErr = err
+		return err
+	}
 	d.logInfo("flow toast published", map[string]string{
 		"level": level,
 	})

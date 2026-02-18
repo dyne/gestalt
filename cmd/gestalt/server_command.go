@@ -27,6 +27,7 @@ import (
 	"gestalt/internal/flow"
 	flowruntime "gestalt/internal/flow/runtime"
 	"gestalt/internal/logging"
+	"gestalt/internal/notify"
 	"gestalt/internal/otel"
 	"gestalt/internal/ports"
 	"gestalt/internal/process"
@@ -317,7 +318,8 @@ func runServer(args []string) int {
 		watchPlanFile(eventBus, fsWatcher, logger, planWatchPath)
 	}
 
-	flowDispatcher := flowruntime.NewDispatcher(manager, logger, settings.Temporal.MaxOutputBytes)
+	notificationSink := notify.NewOTelSink(nil)
+	flowDispatcher := flowruntime.NewDispatcher(manager, logger, notificationSink, settings.Temporal.MaxOutputBytes)
 	flowService := flow.NewService(flow.NewFileRepository(flow.DefaultConfigPath(), logger), flowDispatcher, logger)
 	_, flowErr := flowService.LoadConfig()
 	if flowErr != nil {

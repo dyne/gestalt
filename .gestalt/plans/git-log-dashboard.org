@@ -100,13 +100,13 @@ Summary
 - Done when:
   - Endpoint returns stable JSON and doesn’t crash when run outside a git repo.
 
-* TODO [#A] Frontend: Dashboard Git Log Column (replacing API metrics)
+* WIP [#A] Frontend: Dashboard Git Log Column (replacing API metrics)
 :PROPERTIES:
 :Effort: 1.5d
 :Goal: Render a readable, compact git log column in the Dashboard where API metrics currently are.
 :Notes: Reuse existing “relative time” helper; do not add UI frameworks; keep list virtual-free (small N).
 :END:
-** TODO [#A] Add API client + store plumbing for git log
+** DONE [#A] Add API client + store plumbing for git log
 - Why: Dashboard currently loads metrics via `dashboardStore`; replace with git log in the same pattern.
 - Change:
   - `frontend/src/lib/apiClient.js`: add `fetchGitLog({limit})` hitting `/api/git/log?limit=...`.

@@ -3,7 +3,7 @@ import { get } from 'svelte/store'
 import { createLogStreamStub } from './helpers/appApiMocks.js'
 
 const fetchAgents = vi.hoisted(() => vi.fn())
-const fetchMetricsSummary = vi.hoisted(() => vi.fn())
+const fetchGitLog = vi.hoisted(() => vi.fn())
 const addNotification = vi.hoisted(() => vi.fn())
 const subscribeAgentEvents = vi.hoisted(() => vi.fn())
 const subscribeConfigEvents = vi.hoisted(() => vi.fn())
@@ -12,7 +12,7 @@ const createLogStream = vi.hoisted(() => vi.fn())
 
 vi.mock('../src/lib/apiClient.js', () => ({
   fetchAgents,
-  fetchMetricsSummary,
+  fetchGitLog,
 }))
 
 vi.mock('../src/lib/notificationStore.js', () => ({
@@ -76,7 +76,7 @@ describe('dashboardStore', () => {
 
   afterEach(() => {
     fetchAgents.mockReset()
-    fetchMetricsSummary.mockReset()
+    fetchGitLog.mockReset()
     addNotification.mockReset()
     subscribeAgentEvents.mockReset()
     subscribeConfigEvents.mockReset()
@@ -115,7 +115,7 @@ describe('dashboardStore', () => {
       setLevel: vi.fn(),
     }))
     fetchAgents.mockResolvedValue([])
-    fetchMetricsSummary.mockResolvedValue({})
+    fetchGitLog.mockResolvedValue({ branch: 'main', commits: [] })
 
     const store = createDashboardStore()
     await store.start()
@@ -126,27 +126,21 @@ describe('dashboardStore', () => {
     store.stop()
   })
 
-  it('loads metrics summary', async () => {
-    fetchMetricsSummary.mockResolvedValue({
-      updated_at: '2026-01-24T00:00:00Z',
-      top_endpoints: [],
-      slowest_endpoints: [],
-      top_agents: [],
-      error_rates: [],
+  it('loads git log', async () => {
+    fetchGitLog.mockResolvedValue({
+      branch: 'main',
+      commits: [],
     })
 
     const store = createDashboardStore()
-    await store.loadMetricsSummary()
+    await store.loadGitLog()
 
     const value = get(store)
-    expect(value.metricsSummary).toEqual({
-      updated_at: '2026-01-24T00:00:00Z',
-      top_endpoints: [],
-      slowest_endpoints: [],
-      top_agents: [],
-      error_rates: [],
+    expect(value.gitLog).toEqual({
+      branch: 'main',
+      commits: [],
     })
-    expect(value.metricsLoading).toBe(false)
+    expect(value.gitLogLoading).toBe(false)
   })
 
   it('batches log bursts into scheduled updates', async () => {
@@ -162,7 +156,7 @@ describe('dashboardStore', () => {
       }
     })
     fetchAgents.mockResolvedValue([])
-    fetchMetricsSummary.mockResolvedValue({})
+    fetchGitLog.mockResolvedValue({ branch: 'main', commits: [] })
 
     const store = createDashboardStore()
     await store.start()
@@ -172,10 +166,9 @@ describe('dashboardStore', () => {
     }
 
     expect(get(store).logs.length).toBe(0)
-
     vi.advanceTimersByTime(100)
-
     expect(get(store).logs.length).toBe(500)
+
     store.stop()
     vi.useRealTimers()
   })
@@ -200,7 +193,7 @@ describe('dashboardStore', () => {
   it('tracks config extraction events and resets', async () => {
     vi.useFakeTimers()
     fetchAgents.mockResolvedValue([])
-    fetchMetricsSummary.mockResolvedValue({})
+    fetchGitLog.mockResolvedValue({ branch: 'main', commits: [] })
 
     const store = createDashboardStore()
     await store.start()
@@ -221,7 +214,7 @@ describe('dashboardStore', () => {
 
   it('updates git context from status and events', async () => {
     fetchAgents.mockResolvedValue([])
-    fetchMetricsSummary.mockResolvedValue({})
+    fetchGitLog.mockResolvedValue({ branch: 'main', commits: [] })
 
     const store = createDashboardStore()
     store.setStatus({ git_origin: 'origin', git_branch: 'main' })
@@ -232,12 +225,13 @@ describe('dashboardStore', () => {
     eventHandlers.git_branch_changed({ path: 'feature-x' })
     value = get(store)
     expect(value.gitContext).toBe('origin/feature-x')
+    expect(fetchGitLog).toHaveBeenCalled()
     store.stop()
   })
 
   it('notifies on config conflicts and validation errors', async () => {
     fetchAgents.mockResolvedValue([])
-    fetchMetricsSummary.mockResolvedValue({})
+    fetchGitLog.mockResolvedValue({ branch: 'main', commits: [] })
 
     const store = createDashboardStore()
     await store.start()
@@ -247,5 +241,22 @@ describe('dashboardStore', () => {
 
     expect(addNotification).toHaveBeenCalledTimes(2)
     store.stop()
+  })
+
+  it('auto refreshes git log when enabled', async () => {
+    vi.useFakeTimers()
+    fetchAgents.mockResolvedValue([])
+    fetchGitLog.mockResolvedValue({ branch: 'main', commits: [] })
+
+    const store = createDashboardStore()
+    await store.start()
+    fetchGitLog.mockClear()
+
+    vi.advanceTimersByTime(60000)
+    await vi.runOnlyPendingTimersAsync()
+
+    expect(fetchGitLog.mock.calls.length).toBeGreaterThanOrEqual(1)
+    store.stop()
+    vi.useRealTimers()
   })
 })

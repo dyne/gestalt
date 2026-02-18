@@ -181,6 +181,7 @@ type AgentInfo struct {
 	LLMType   string
 	Model     string
 	Interface string
+	Hidden    bool
 }
 
 type SkillMetadata struct {
@@ -1244,6 +1245,7 @@ func (m *Manager) ListAgents() []AgentInfo {
 			LLMType:   profile.CLIType,
 			Model:     profile.Model,
 			Interface: interfaceValue,
+			Hidden:    profile.Hidden,
 		})
 	}
 

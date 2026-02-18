@@ -1553,6 +1553,7 @@ func TestAgentsEndpoint(t *testing.T) {
 				Shell:   "/bin/bash",
 				CLIType: "copilot",
 				Model:   "default",
+				Hidden:  true,
 			},
 		},
 	})
@@ -1603,8 +1604,14 @@ func TestAgentsEndpoint(t *testing.T) {
 	if codex.Interface != agent.AgentInterfaceCLI {
 		t.Fatalf("expected codex interface %q, got %q", agent.AgentInterfaceCLI, codex.Interface)
 	}
+	if codex.Hidden {
+		t.Fatalf("expected codex hidden=false")
+	}
 	if copilot.Interface != agent.AgentInterfaceCLI {
 		t.Fatalf("expected copilot interface %q, got %q", agent.AgentInterfaceCLI, copilot.Interface)
+	}
+	if !copilot.Hidden {
+		t.Fatalf("expected copilot hidden=true")
 	}
 	if copilot.Running {
 		t.Fatalf("expected copilot to be stopped")

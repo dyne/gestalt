@@ -134,6 +134,7 @@ type agentSummary struct {
 	Interface string `json:"interface"`
 	SessionID string `json:"session_id"`
 	Running   bool   `json:"running"`
+	Hidden    bool   `json:"hidden"`
 }
 
 type agentInputResponse struct {

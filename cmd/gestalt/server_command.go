@@ -32,9 +32,22 @@ import (
 	"gestalt/internal/ports"
 	"gestalt/internal/process"
 	"gestalt/internal/prompt"
+	"gestalt/internal/runner/tmux"
+	"gestalt/internal/runner/tmuxsession"
 	"gestalt/internal/version"
 	"gestalt/internal/watcher"
 )
+
+type tmuxSessionTerminator interface {
+	HasSession(name string) (bool, error)
+	KillSession(name string) error
+}
+
+var newTmuxSessionTerminator = func() tmuxSessionTerminator {
+	return tmux.NewClient()
+}
+
+var workdirTmuxSessionName = tmuxsession.WorkdirSessionName
 
 func runServer(args []string) int {
 	cfg, err := loadConfig(args)
@@ -270,7 +283,9 @@ func runServer(args []string) int {
 	})
 	manager := buildResult.Manager
 	stopSessions = func(context.Context) error {
-		return manager.CloseAll()
+		closeErr := manager.CloseAll()
+		killErr := stopAgentsTmuxSession(logger)
+		return errors.Join(closeErr, killErr)
 	}
 
 	plansDir := preparePlanFile(logger)
@@ -487,6 +502,33 @@ func startShutdownWatcher(ctx context.Context, stopFuncs ...func()) {
 			}
 		}
 	}()
+}
+
+func stopAgentsTmuxSession(logger *logging.Logger) error {
+	sessionName, err := workdirTmuxSessionName()
+	if err != nil {
+		return err
+	}
+	client := newTmuxSessionTerminator()
+	if client == nil {
+		return errors.New("tmux client unavailable")
+	}
+	hasSession, err := client.HasSession(sessionName)
+	if err != nil {
+		return err
+	}
+	if !hasSession {
+		return nil
+	}
+	if err := client.KillSession(sessionName); err != nil {
+		return err
+	}
+	if logger != nil {
+		logger.Info("tmux session stopped", map[string]string{
+			"tmux_session": sessionName,
+		})
+	}
+	return nil
 }
 
 func registerPprofHandlers(mux *http.ServeMux, logger *logging.Logger) {

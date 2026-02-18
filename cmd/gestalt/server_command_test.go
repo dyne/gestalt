@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"net"
 	"strconv"
 	"testing"
@@ -148,4 +149,102 @@ func findAdjacentPorts(t *testing.T) (int, int) {
 
 func itoa(value int) string {
 	return strconv.Itoa(value)
+}
+
+type fakeTmuxSessionTerminator struct {
+	hasSession bool
+	hasErr     error
+	killErr    error
+	killed     []string
+	checked    []string
+}
+
+func (f *fakeTmuxSessionTerminator) HasSession(name string) (bool, error) {
+	f.checked = append(f.checked, name)
+	if f.hasErr != nil {
+		return false, f.hasErr
+	}
+	return f.hasSession, nil
+}
+
+func (f *fakeTmuxSessionTerminator) KillSession(name string) error {
+	f.killed = append(f.killed, name)
+	return f.killErr
+}
+
+func TestStopAgentsTmuxSessionSkipsWhenMissing(t *testing.T) {
+	previousFactory := newTmuxSessionTerminator
+	previousSessionName := workdirTmuxSessionName
+	fakeClient := &fakeTmuxSessionTerminator{hasSession: false}
+	newTmuxSessionTerminator = func() tmuxSessionTerminator { return fakeClient }
+	workdirTmuxSessionName = func() (string, error) { return "Gestalt repo", nil }
+	t.Cleanup(func() {
+		newTmuxSessionTerminator = previousFactory
+		workdirTmuxSessionName = previousSessionName
+	})
+
+	if err := stopAgentsTmuxSession(nil); err != nil {
+		t.Fatalf("stopAgentsTmuxSession returned error: %v", err)
+	}
+	if len(fakeClient.checked) != 1 || fakeClient.checked[0] != "Gestalt repo" {
+		t.Fatalf("expected has-session check for Gestalt repo, got %v", fakeClient.checked)
+	}
+	if len(fakeClient.killed) != 0 {
+		t.Fatalf("expected no kill call, got %v", fakeClient.killed)
+	}
+}
+
+func TestStopAgentsTmuxSessionKillsWhenPresent(t *testing.T) {
+	previousFactory := newTmuxSessionTerminator
+	previousSessionName := workdirTmuxSessionName
+	fakeClient := &fakeTmuxSessionTerminator{hasSession: true}
+	newTmuxSessionTerminator = func() tmuxSessionTerminator { return fakeClient }
+	workdirTmuxSessionName = func() (string, error) { return "Gestalt repo", nil }
+	t.Cleanup(func() {
+		newTmuxSessionTerminator = previousFactory
+		workdirTmuxSessionName = previousSessionName
+	})
+
+	if err := stopAgentsTmuxSession(nil); err != nil {
+		t.Fatalf("stopAgentsTmuxSession returned error: %v", err)
+	}
+	if len(fakeClient.killed) != 1 || fakeClient.killed[0] != "Gestalt repo" {
+		t.Fatalf("expected one kill-session call for Gestalt repo, got %v", fakeClient.killed)
+	}
+}
+
+func TestStopAgentsTmuxSessionReturnsHasSessionError(t *testing.T) {
+	previousFactory := newTmuxSessionTerminator
+	previousSessionName := workdirTmuxSessionName
+	expectedErr := errors.New("tmux has-session failed")
+	fakeClient := &fakeTmuxSessionTerminator{hasErr: expectedErr}
+	newTmuxSessionTerminator = func() tmuxSessionTerminator { return fakeClient }
+	workdirTmuxSessionName = func() (string, error) { return "Gestalt repo", nil }
+	t.Cleanup(func() {
+		newTmuxSessionTerminator = previousFactory
+		workdirTmuxSessionName = previousSessionName
+	})
+
+	err := stopAgentsTmuxSession(nil)
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("expected has-session error %v, got %v", expectedErr, err)
+	}
+}
+
+func TestStopAgentsTmuxSessionReturnsKillError(t *testing.T) {
+	previousFactory := newTmuxSessionTerminator
+	previousSessionName := workdirTmuxSessionName
+	expectedErr := errors.New("tmux kill failed")
+	fakeClient := &fakeTmuxSessionTerminator{hasSession: true, killErr: expectedErr}
+	newTmuxSessionTerminator = func() tmuxSessionTerminator { return fakeClient }
+	workdirTmuxSessionName = func() (string, error) { return "Gestalt repo", nil }
+	t.Cleanup(func() {
+		newTmuxSessionTerminator = previousFactory
+		workdirTmuxSessionName = previousSessionName
+	})
+
+	err := stopAgentsTmuxSession(nil)
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("expected kill-session error %v, got %v", expectedErr, err)
+	}
 }

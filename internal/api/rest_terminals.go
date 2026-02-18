@@ -446,6 +446,16 @@ func (h *RestHandler) handleTerminalNotify(w http.ResponseWriter, r *http.Reques
 		return fieldsErr
 	}
 
+	logFields := buildNotifyLogFields(fields, request)
+	dispatch := "failed"
+	defer func() {
+		if h.Logger == nil {
+			return
+		}
+		logFields["notify.dispatch"] = dispatch
+		h.Logger.Info("notify event accepted", logFields)
+	}()
+
 	if h.NotificationSink == nil {
 		return &apiError{Status: http.StatusServiceUnavailable, Message: "notification sink unavailable"}
 	}
@@ -461,15 +471,7 @@ func (h *RestHandler) handleTerminalNotify(w http.ResponseWriter, r *http.Reques
 
 	if err := h.requireFlowService(); err != nil {
 		if isProgress {
-			if h.Logger != nil {
-				h.Logger.Info("flow service unavailable for progress notify", map[string]string{
-					"gestalt.category": "terminal",
-					"gestalt.source":   "backend",
-					"session.id":       id,
-					"session_id":       id,
-					"notify.type":      "progress",
-				})
-			}
+			dispatch = "flow_unavailable"
 			w.WriteHeader(http.StatusNoContent)
 			return nil
 		}
@@ -479,15 +481,7 @@ func (h *RestHandler) handleTerminalNotify(w http.ResponseWriter, r *http.Reques
 	if signalErr := h.FlowService.SignalEvent(r.Context(), fields, request.EventID); signalErr != nil {
 		if errors.Is(signalErr, flow.ErrDispatcherUnavailable) {
 			if isProgress {
-				if h.Logger != nil {
-					h.Logger.Info("flow dispatcher unavailable for progress notify", map[string]string{
-						"gestalt.category": "terminal",
-						"gestalt.source":   "backend",
-						"session.id":       id,
-						"session_id":       id,
-						"notify.type":      "progress",
-					})
-				}
+				dispatch = "flow_unavailable"
 				w.WriteHeader(http.StatusNoContent)
 				return nil
 			}
@@ -496,6 +490,7 @@ func (h *RestHandler) handleTerminalNotify(w http.ResponseWriter, r *http.Reques
 		return &apiError{Status: http.StatusInternalServerError, Message: "failed to dispatch flow activity"}
 	}
 
+	dispatch = "queued"
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }

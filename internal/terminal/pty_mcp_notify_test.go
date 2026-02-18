@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"gestalt/internal/agent"
-	"gestalt/internal/temporal/workflows"
+	"gestalt/internal/notify"
 )
 
 type staticPtyFactory struct {
@@ -79,7 +79,7 @@ func TestMCPPtyNotificationLogsNonCodex(testingContext *testing.T) {
 	_ = mcp.Close()
 }
 
-func TestMCPTurnEmitsNotifySignal(testingContext *testing.T) {
+func TestMCPTurnEmitsNotificationEvent(testingContext *testing.T) {
 	basePty, serverIn, serverOut := newPipePty()
 	server := newFakeMCPServer(testingContext, serverIn, serverOut, nil)
 	server.onCall = func(id int64, name string, args map[string]interface{}) {
@@ -96,8 +96,10 @@ func TestMCPTurnEmitsNotifySignal(testingContext *testing.T) {
 
 	mcp := newMCPPty(basePty, false)
 	factory := &staticPtyFactory{pty: mcp}
+	sink := notify.NewMemorySink()
 	sessionFactory := NewSessionFactory(SessionFactoryOptions{
-		PtyFactory: factory,
+		PtyFactory:       factory,
+		NotificationSink: sink,
 	})
 
 	profile := &agent.Agent{
@@ -111,10 +113,6 @@ func TestMCPTurnEmitsNotifySignal(testingContext *testing.T) {
 	if err != nil {
 		testingContext.Fatalf("start session: %v", err)
 	}
-	workflowClient := &fakeWorkflowClient{runID: "run-1"}
-	if err := session.StartWorkflow(workflowClient, "", ""); err != nil {
-		testingContext.Fatalf("start workflow: %v", err)
-	}
 
 	if err := session.Write([]byte("hello\r")); err != nil {
 		testingContext.Fatalf("write: %v", err)
@@ -122,30 +120,20 @@ func TestMCPTurnEmitsNotifySignal(testingContext *testing.T) {
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if len(workflowClient.signals) > 0 {
+		if len(sink.Events()) > 0 {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if len(workflowClient.signals) != 1 {
-		testingContext.Fatalf("expected 1 signal, got %d", len(workflowClient.signals))
+	events := sink.Events()
+	if len(events) != 1 {
+		testingContext.Fatalf("expected 1 event, got %d", len(events))
 	}
-	record := workflowClient.signals[0]
-	if record.signalName != workflows.NotifySignalName {
-		testingContext.Fatalf("expected notify signal, got %q", record.signalName)
+	if events[0].Fields["notify.type"] != "agent-turn-complete" {
+		testingContext.Fatalf("expected notify.type agent-turn-complete, got %q", events[0].Fields["notify.type"])
 	}
-	notify, ok := record.payload.(workflows.NotifySignal)
-	if !ok {
-		testingContext.Fatalf("unexpected notify payload: %#v", record.payload)
-	}
-	if notify.Source != "codex-notify" {
-		testingContext.Fatalf("expected source codex-notify, got %q", notify.Source)
-	}
-	if notify.EventType != "agent-turn-complete" {
-		testingContext.Fatalf("expected event type agent-turn-complete, got %q", notify.EventType)
-	}
-	if notify.EventID == "" {
-		testingContext.Fatalf("expected event id to be set")
+	if events[0].Fields["notify.event_id"] == "" {
+		testingContext.Fatalf("expected notify.event_id to be set")
 	}
 }
 

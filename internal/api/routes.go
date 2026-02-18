@@ -8,6 +8,7 @@ import (
 	"gestalt/internal/event"
 	"gestalt/internal/flow"
 	"gestalt/internal/logging"
+	"gestalt/internal/notify"
 	"gestalt/internal/otel"
 	"gestalt/internal/temporal"
 	"gestalt/internal/terminal"
@@ -39,6 +40,7 @@ func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken str
 	rest := &RestHandler{
 		Manager:                manager,
 		FlowService:            flowService,
+		NotificationSink:       notify.NewOTelSink(nil),
 		Logger:                 logger,
 		MetricsSummary:         metricsSummary,
 		GitOrigin:              gitOrigin,

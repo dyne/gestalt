@@ -142,6 +142,65 @@ describe('Dashboard', () => {
     expect(addNotification).toHaveBeenCalledWith('info', expect.stringContaining('Copied'))
   })
 
+  it('limits recent logs to 30 visible entries', async () => {
+    const logs = Array.from({ length: 35 }, (_, index) => ({
+      id: `log-${index}`,
+      level: 'info',
+      timestampISO: `2026-01-25T12:00:${String(index).padStart(2, '0')}Z`,
+      message: `Log entry ${index}`,
+      attributes: {},
+      resourceAttributes: {},
+      scopeName: '',
+      raw: { index },
+    }))
+    const dashboardStore = buildDashboardStore({ logs })
+    createDashboardStore.mockReturnValue(dashboardStore)
+
+    const { findByText, queryByText } = render(Dashboard, {
+      props: {
+        terminals: [],
+        status: { session_count: 0 },
+      },
+    })
+
+    expect(await findByText('Log entry 34')).toBeTruthy()
+    expect(queryByText('Log entry 5')).toBeTruthy()
+    expect(queryByText('Log entry 4')).toBeNull()
+  })
+
+  it('renders notify context chips in log summary rows', async () => {
+    const dashboardStore = buildDashboardStore({
+      logs: [
+        {
+          id: 'log-notify',
+          level: 'info',
+          timestampISO: '2026-01-25T12:00:00Z',
+          message: 'notify event accepted',
+          attributes: {
+            'notify.type': 'progress',
+            'session.id': 'Codex 1',
+            'agent.id': 'codex',
+          },
+          resourceAttributes: {},
+          scopeName: '',
+          raw: {},
+        },
+      ],
+    })
+    createDashboardStore.mockReturnValue(dashboardStore)
+
+    const { findByText } = render(Dashboard, {
+      props: {
+        terminals: [],
+        status: { session_count: 0 },
+      },
+    })
+
+    expect(await findByText('notify:progress')).toBeTruthy()
+    expect(await findByText('session:Codex 1')).toBeTruthy()
+    expect(await findByText('agent:codex')).toBeTruthy()
+  })
+
   it('copies status pills to clipboard', async () => {
     const dashboardStore = buildDashboardStore()
     createDashboardStore.mockReturnValue(dashboardStore)

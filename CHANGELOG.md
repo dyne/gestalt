@@ -1,3 +1,24 @@
+# [1.16.0](https://github.com/dyne/gestalt/compare/v1.15.0...v1.16.0) (2026-02-18)
+
+
+### Bug Fixes
+
+* don't rewind to main when starting work ([c0c2943](https://github.com/dyne/gestalt/commit/c0c294345139ed5b1c2a8fcfb6fef07788952d4e))
+* hide unfinished agents ([68e9a63](https://github.com/dyne/gestalt/commit/68e9a63aa9ff4cb5acc44106569b163971c6537a))
+* update base codex models to 5.3 ([bfef1d8](https://github.com/dyne/gestalt/commit/bfef1d8e1ddb5aa90aaa177b9c6eda9576c94b71))
+
+
+### Features
+
+* **agent:** add hidden flag ([71342db](https://github.com/dyne/gestalt/commit/71342dbb16faa3d7a3cd2c2f762d8eeae8e5f700))
+* **agent:** add model alias support ([d05708b](https://github.com/dyne/gestalt/commit/d05708b70ebe489c4605f2ec7ca81301f5e69b0e))
+* **api:** expose hidden agent flag ([4ddd849](https://github.com/dyne/gestalt/commit/4ddd849802776e2db0f8a8d61a6b152ae098b2ec))
+* **app:** refresh after external agent create ([f98f100](https://github.com/dyne/gestalt/commit/f98f1000d3b0898112fc284e815df172408ead69))
+* **app:** refresh agents tab on terminal events ([00a381b](https://github.com/dyne/gestalt/commit/00a381b0632667a3f6e3a0dc923f3506f6273797))
+* **dashboard:** compact agent buttons ([50c27a4](https://github.com/dyne/gestalt/commit/50c27a4dfb1b552b400d1a835c72fe863649acc8))
+* **dashboard:** honor hidden agents ([68f97d6](https://github.com/dyne/gestalt/commit/68f97d6f5b7b5dd52fad90a77416f34ba4473e77))
+* **frontend:** normalize model fields ([83e5cb2](https://github.com/dyne/gestalt/commit/83e5cb2c9b21a9b6501c9713ab5a20383a64739e))
+
 # [1.15.0](https://github.com/dyne/gestalt/compare/v1.14.0...v1.15.0) (2026-02-18)
 
 

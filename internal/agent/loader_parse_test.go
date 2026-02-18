@@ -29,6 +29,7 @@ interface = "mcp"
 codex_mode = "mcp-server"
 model = "o3"
 gui_modules = ["plan-progress"]
+hidden = true
 `)
 	agent, err := loadAgentFromBytes("agent.toml", data)
 	if err != nil {
@@ -49,8 +50,14 @@ gui_modules = ["plan-progress"]
 	if _, ok := agent.CLIConfig["gui_modules"]; ok {
 		t.Fatalf("did not expect gui_modules in CLI config")
 	}
+	if _, ok := agent.CLIConfig["hidden"]; ok {
+		t.Fatalf("did not expect hidden in CLI config")
+	}
 	if value, ok := agent.CLIConfig["model"]; !ok || value != "o3" {
 		t.Fatalf("expected model in cli_config, got %#v", agent.CLIConfig)
+	}
+	if !agent.Hidden {
+		t.Fatalf("expected hidden=true on agent")
 	}
 }
 

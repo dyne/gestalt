@@ -248,15 +248,7 @@ describe('Dashboard', () => {
     const workdir = await findByText('/repo/path')
     await fireEvent.click(workdir)
 
-    const remote = await findByText('origin')
-    await fireEvent.click(remote)
-
-    const branch = await findByText('main')
-    await fireEvent.click(branch)
-
     expect(writeText).toHaveBeenCalledWith('/repo/path')
-    expect(writeText).toHaveBeenCalledWith('origin')
-    expect(writeText).toHaveBeenCalledWith('main')
     expect(addNotification).toHaveBeenCalledWith('info', expect.stringContaining('Copied'))
   })
 
@@ -331,11 +323,12 @@ describe('Dashboard', () => {
     const { findByText } = render(Dashboard, {
       props: {
         terminals: [],
-        status: { session_count: 0 },
+        status: { session_count: 0, git_origin: 'origin', git_branch: 'main' },
       },
     })
 
-    expect(await findByText('Git log')).toBeTruthy()
+    expect(await findByText('origin')).toBeTruthy()
+    expect(await findByText('main')).toBeTruthy()
     expect(await findByText('feat')).toBeTruthy()
     expect(await findByText('add git log')).toBeTruthy()
     expect(await findByText('1234567890ab')).toBeTruthy()

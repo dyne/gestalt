@@ -33,7 +33,6 @@
   let gitLog = { branch: '', commits: [] }
   let gitLogLoading = false
   let gitLogError = ''
-  let gitLogAutoRefresh = true
   let configExtractionCount = 0
   let configExtractionLast = ''
   let clipboardAvailable = false
@@ -92,14 +91,6 @@
     dashboardStore.loadLogs()
   }
 
-  const handleGitLogAutoRefreshChange = (event) => {
-    dashboardStore.setGitLogAutoRefresh(event.target.checked)
-  }
-
-  const refreshGitLog = () => {
-    dashboardStore.loadGitLog()
-  }
-
   const gitBranchName = (origin, branch) => {
     if (!branch) return ''
     const normalized = String(branch)
@@ -123,8 +114,11 @@
   }
 
   const gitBranchDisplay = (value) => {
-    if (!value) return 'not a git repo'
-    return value
+    return value || '—'
+  }
+
+  const gitRepoDisplay = (value) => {
+    return value || 'not a git repo'
   }
 
   const gitFileDelta = (file) => {
@@ -207,7 +201,6 @@
     gitLog,
     gitLogLoading,
     gitLogError,
-    gitLogAutoRefresh,
     configExtractionCount,
     configExtractionLast,
   } = $dashboardStore)
@@ -244,40 +237,6 @@
           {:else}
             <span class="status-pill status-pill--path status-pill--static">
               {status?.working_dir || '—'}
-            </span>
-          {/if}
-        </div>
-        <div class="status-item">
-          <span class="label">Git remote</span>
-          {#if clipboardAvailable}
-            <button
-              class="status-pill status-pill--git"
-              type="button"
-              on:click={() => copyText(status?.git_origin || '', 'Copied git remote.')}
-            >
-              {status?.git_origin || '—'}
-            </button>
-          {:else}
-            <span class="status-pill status-pill--git status-pill--static">
-              {status?.git_origin || '—'}
-            </span>
-          {/if}
-        </div>
-        <div class="status-item">
-          <span class="label">Git branch</span>
-          {#if clipboardAvailable}
-            <button
-              class="status-pill status-pill--git"
-              type="button"
-              on:click={() =>
-                copyText(gitBranchName(status?.git_origin, status?.git_branch), 'Copied git branch.')
-              }
-            >
-              {gitBranchName(status?.git_origin, status?.git_branch) || '—'}
-            </button>
-          {:else}
-            <span class="status-pill status-pill--git status-pill--static">
-              {gitBranchName(status?.git_origin, status?.git_branch) || '—'}
             </span>
           {/if}
         </div>
@@ -460,27 +419,11 @@
 
     <section class="dashboard__gitlog">
       <div class="list-header">
-        <div>
-          <h2>Git log</h2>
-          <p class="subtle">{gitBranchDisplay(gitLog?.branch)}</p>
-        </div>
-        <div class="gitlog-controls">
-          <label class="gitlog-control gitlog-control--toggle">
-            <input
-              type="checkbox"
-              bind:checked={gitLogAutoRefresh}
-              on:change={handleGitLogAutoRefreshChange}
-            />
-            <span>Auto refresh</span>
-          </label>
-          <button
-            class="gitlog-refresh"
-            type="button"
-            on:click={refreshGitLog}
-            disabled={gitLogLoading}
-          >
-            {gitLogLoading ? 'Refreshing…' : 'Refresh'}
-          </button>
+        <div class="gitlog-meta">
+          <span class="gitlog-meta__repo">{gitRepoDisplay(status?.git_origin)}</span>
+          <span class="gitlog-meta__branch">
+            {gitBranchDisplay(gitBranchName(status?.git_origin, gitLog?.branch || status?.git_branch))}
+          </span>
         </div>
       </div>
 
@@ -712,41 +655,35 @@
     flex-wrap: wrap;
   }
 
-  .gitlog-controls {
+  .gitlog-meta {
     display: flex;
-    align-items: center;
-    gap: 0.8rem;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    width: 100%;
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
     flex-wrap: wrap;
   }
 
-  .gitlog-control {
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-    font-size: 0.75rem;
-    color: var(--color-text-muted);
+  .gitlog-meta__repo,
+  .gitlog-meta__branch {
+    display: block;
+    min-width: 0;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
-  .gitlog-control--toggle {
-    flex-direction: row;
-    align-items: center;
-    gap: 0.5rem;
+  .gitlog-meta__repo {
+    text-align: left;
   }
 
-  .gitlog-refresh {
-    border: 1px solid rgba(var(--color-text-rgb), 0.2);
-    border-radius: 999px;
-    padding: 0.45rem 0.95rem;
-    background: var(--color-surface);
-    font-size: 0.7rem;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    cursor: pointer;
-  }
-
-  .gitlog-refresh:disabled {
-    cursor: not-allowed;
-    opacity: 0.6;
+  .gitlog-meta__branch {
+    text-align: right;
   }
 
   .logs-control {

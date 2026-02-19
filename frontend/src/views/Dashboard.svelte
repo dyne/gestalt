@@ -497,7 +497,7 @@
         <p class="muted">No commits found.</p>
       {:else}
         <ul>
-          {#each gitLog.commits as commit}
+          {#each gitLog.commits as commit (commit.sha)}
             {@const conventional = commitConventional(commit)}
             <li class="gitlog-entry">
               <details>

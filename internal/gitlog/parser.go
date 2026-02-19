@@ -26,7 +26,7 @@ func ParseLogOutput(raw string, maxFilesPerCommit int) ([]Commit, error) {
 		current = nil
 	}
 
-	for _, line := range lines {
+	for idx, line := range lines {
 		if line == "" {
 			continue
 		}
@@ -51,7 +51,7 @@ func ParseLogOutput(raw string, maxFilesPerCommit int) ([]Commit, error) {
 		}
 		file, added, deleted, binary, err := parseNumstatLine(line)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("invalid numstat line %d: %w", idx+1, err)
 		}
 		current.Stats.FilesChanged++
 		if binary {

@@ -1,3 +1,26 @@
+# [1.17.0](https://github.com/dyne/gestalt/compare/v1.16.0...v1.17.0) (2026-02-19)
+
+
+### Bug Fixes
+
+* **dashboard:** align git log meta line ([5eb6735](https://github.com/dyne/gestalt/commit/5eb673555445a80eeaf279ac30e79f17ce0421f0))
+* **frontend:** improve dashboard view ([6637302](https://github.com/dyne/gestalt/commit/66373027b0dc40d72d3046ffa357c0133ee53448))
+* **frontend:** key git log commits list ([64b23ed](https://github.com/dyne/gestalt/commit/64b23edb5c1d52ac6f27303c0298559bd8904451))
+* **gitlog:** error on invalid numstat lines ([54d1778](https://github.com/dyne/gestalt/commit/54d1778f9f92676756a0a7679c0c615ed696c094))
+* **gitlog:** treat empty repo as no commits ([e354ce0](https://github.com/dyne/gestalt/commit/e354ce08f47b1849be52ff8f08111e89a25b0c1f))
+* **gitlog:** warn on invalid numstat entries ([81f5e17](https://github.com/dyne/gestalt/commit/81f5e17b56654aa5f6f8b3828f7a1d33a5cf6b08))
+* **test:** add test cases to parser ([8a903f5](https://github.com/dyne/gestalt/commit/8a903f5fcbc04eb9f89cbb6f2743a8bb2283fd8e))
+
+
+### Features
+
+* **api:** add git log endpoint ([d152fcb](https://github.com/dyne/gestalt/commit/d152fcb033ccb19b953d7082fdbaf6570d6c64f3))
+* **dashboard:** highlight conventional commits ([7a78329](https://github.com/dyne/gestalt/commit/7a783296b56e618d978e228dee1a469f90761f09))
+* **dashboard:** relocate git header info ([4a93dc3](https://github.com/dyne/gestalt/commit/4a93dc37d06d3407c1e6d27d9483a2571fd0b978))
+* **dashboard:** replace metrics with git log panel ([966399c](https://github.com/dyne/gestalt/commit/966399cfc09ea35f21dcaa7d44e8cdbd8738c2bc))
+* **frontend:** add git log store plumbing ([eff5612](https://github.com/dyne/gestalt/commit/eff561280053224a0a7fe72354788357c08f8915))
+* **gitlog:** add safe git log adapter ([257725d](https://github.com/dyne/gestalt/commit/257725d3dcc492f74220c1f9c77c0b7b3709a416))
+
 # [1.16.0](https://github.com/dyne/gestalt/compare/v1.15.0...v1.16.0) (2026-02-18)
 
 

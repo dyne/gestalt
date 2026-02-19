@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"gestalt/internal/gitlog"
@@ -63,6 +64,11 @@ func (h *RestHandler) handleGitLog(w http.ResponseWriter, r *http.Request) *apiE
 		}
 	}
 
+	if h.Logger != nil && len(result.Warnings) > 0 {
+		h.Logger.Warn("git log parse warnings", map[string]string{
+			"warnings": strings.Join(result.Warnings, "; "),
+		})
+	}
 	writeJSON(w, http.StatusOK, convertGitLogResponse(result))
 	return nil
 }

@@ -6,9 +6,9 @@ import (
 	"strings"
 )
 
-func ParseLogOutput(raw string, maxFilesPerCommit int) ([]Commit, error) {
+func ParseLogOutput(raw string, maxFilesPerCommit int) ([]Commit, []string, error) {
 	if strings.TrimSpace(raw) == "" {
-		return []Commit{}, nil
+		return []Commit{}, nil, nil
 	}
 	if maxFilesPerCommit <= 0 {
 		maxFilesPerCommit = DefaultMaxFilesPerCommit
@@ -16,6 +16,7 @@ func ParseLogOutput(raw string, maxFilesPerCommit int) ([]Commit, error) {
 
 	lines := strings.Split(raw, "\n")
 	commits := make([]Commit, 0)
+	warnings := make([]string, 0)
 	var current *Commit
 
 	flush := func() {
@@ -35,7 +36,7 @@ func ParseLogOutput(raw string, maxFilesPerCommit int) ([]Commit, error) {
 			parts := strings.SplitN(line, "\x00", 3)
 			sha := strings.TrimSpace(parts[0])
 			if sha == "" {
-				return nil, fmt.Errorf("invalid git log header: missing sha")
+				return nil, nil, fmt.Errorf("invalid git log header: missing sha")
 			}
 			current = &Commit{
 				SHA:         sha,
@@ -51,7 +52,8 @@ func ParseLogOutput(raw string, maxFilesPerCommit int) ([]Commit, error) {
 		}
 		file, added, deleted, binary, err := parseNumstatLine(line)
 		if err != nil {
-			return nil, fmt.Errorf("invalid numstat line %d: %w", idx+1, err)
+			warnings = append(warnings, fmt.Sprintf("invalid numstat line %d: %v", idx+1, err))
+			continue
 		}
 		current.Stats.FilesChanged++
 		if binary {
@@ -81,7 +83,7 @@ func ParseLogOutput(raw string, maxFilesPerCommit int) ([]Commit, error) {
 	}
 
 	flush()
-	return commits, nil
+	return commits, warnings, nil
 }
 
 func parseNumstatLine(line string) (path string, added int, deleted int, binary bool, err error) {

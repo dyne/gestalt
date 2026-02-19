@@ -11,9 +11,12 @@ func TestParseLogOutputParsesCommitsWithBinaryAndTruncation(t *testing.T) {
 		"2222222222222222222222222222222222222222\x002026-02-17T15:00:00Z\x00chore: rename file\n" +
 		"5\t1\tinternal/api/{old.go => new.go}\n"
 
-	commits, err := ParseLogOutput(raw, 1)
+	commits, warnings, err := ParseLogOutput(raw, 1)
 	if err != nil {
 		t.Fatalf("parse output: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("expected no warnings, got %v", warnings)
 	}
 	if len(commits) != 2 {
 		t.Fatalf("expected 2 commits, got %d", len(commits))
@@ -63,9 +66,12 @@ func TestParseLogOutputParsesBinaryFileDetails(t *testing.T) {
 		"2222222222222222222222222222222222222222\x002026-02-17T15:00:00Z\x00chore: rename file\n" +
 		"5\t1\tinternal/api/{old.go => new.go}\n"
 
-	commits, err := ParseLogOutput(raw, 10)
+	commits, warnings, err := ParseLogOutput(raw, 10)
 	if err != nil {
 		t.Fatalf("parse output: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("expected no warnings, got %v", warnings)
 	}
 	if len(commits) != 2 {
 		t.Fatalf("expected 2 commits, got %d", len(commits))
@@ -111,22 +117,31 @@ func TestParseLogOutputParsesBinaryFileDetails(t *testing.T) {
 	}
 }
 func TestParseLogOutputEmpty(t *testing.T) {
-	commits, err := ParseLogOutput("", 50)
+	commits, warnings, err := ParseLogOutput("", 50)
 	if err != nil {
 		t.Fatalf("parse output: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("expected no warnings, got %v", warnings)
 	}
 	if len(commits) != 0 {
 		t.Fatalf("expected empty commits, got %d", len(commits))
 	}
 }
 
-func TestParseLogOutputReturnsErrorOnInvalidNumstat(t *testing.T) {
+func TestParseLogOutputReturnsWarningOnInvalidNumstat(t *testing.T) {
 	raw := "" +
 		"1111111111111111111111111111111111111111\x002026-02-18T00:00:00Z\x00feat(ui): add dashboard\n" +
 		"not-a-numstat-line\n"
 
-	_, err := ParseLogOutput(raw, 10)
-	if err == nil {
-		t.Fatalf("expected parse error for invalid numstat line")
+	commits, warnings, err := ParseLogOutput(raw, 10)
+	if err != nil {
+		t.Fatalf("parse output: %v", err)
+	}
+	if len(warnings) != 1 {
+		t.Fatalf("expected 1 warning, got %d", len(warnings))
+	}
+	if len(commits) != 1 {
+		t.Fatalf("expected 1 commit, got %d", len(commits))
 	}
 }

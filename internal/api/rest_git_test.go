@@ -108,6 +108,24 @@ func TestGitLogEndpointNotGitRepo(t *testing.T) {
 	}
 }
 
+func TestGitLogEndpointEmptyRepo(t *testing.T) {
+	handler := &RestHandler{GitLogReader: &stubGitLogReader{err: gitlog.ErrEmptyRepo}}
+	req := httptest.NewRequest(http.MethodGet, "/api/git/log", nil)
+	rec := httptest.NewRecorder()
+	restHandler("", nil, handler.handleGitLog)(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+	var payload gitLogResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Branch != "" || len(payload.Commits) != 0 {
+		t.Fatalf("expected empty payload, got %#v", payload)
+	}
+}
+
 func TestGitLogEndpointTimeout(t *testing.T) {
 	handler := &RestHandler{GitLogReader: &stubGitLogReader{err: context.DeadlineExceeded}}
 	req := httptest.NewRequest(http.MethodGet, "/api/git/log", nil)

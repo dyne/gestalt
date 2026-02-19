@@ -56,7 +56,7 @@ func (h *RestHandler) handleGitLog(w http.ResponseWriter, r *http.Request) *apiE
 		switch {
 		case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
 			return &apiError{Status: http.StatusServiceUnavailable, Message: "git log timed out"}
-		case errors.Is(err, gitlog.ErrNotGitRepo):
+		case errors.Is(err, gitlog.ErrNotGitRepo), errors.Is(err, gitlog.ErrEmptyRepo):
 			writeJSON(w, http.StatusOK, gitLogResponse{Branch: "", Commits: []gitLogCommit{}})
 			return nil
 		default:

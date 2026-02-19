@@ -119,3 +119,14 @@ func TestParseLogOutputEmpty(t *testing.T) {
 		t.Fatalf("expected empty commits, got %d", len(commits))
 	}
 }
+
+func TestParseLogOutputReturnsErrorOnInvalidNumstat(t *testing.T) {
+	raw := "" +
+		"1111111111111111111111111111111111111111\x002026-02-18T00:00:00Z\x00feat(ui): add dashboard\n" +
+		"not-a-numstat-line\n"
+
+	_, err := ParseLogOutput(raw, 10)
+	if err == nil {
+		t.Fatalf("expected parse error for invalid numstat line")
+	}
+}

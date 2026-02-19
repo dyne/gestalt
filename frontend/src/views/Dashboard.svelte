@@ -879,10 +879,23 @@
   }
 
   .gitlog-entry__meta {
-    display: flex;
-    gap: 0.55rem;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
+    width: 100%;
+    column-gap: 0.55rem;
+  }
+
+  .gitlog-sha {
+    justify-self: start;
+  }
+
+  .gitlog-delta {
+    justify-self: center;
+  }
+
+  .gitlog-files {
+    justify-self: end;
   }
 
   .gitlog-sha,

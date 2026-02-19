@@ -30,8 +30,9 @@ type Options struct {
 }
 
 type Result struct {
-	Branch  string   `json:"branch"`
-	Commits []Commit `json:"commits"`
+	Branch   string   `json:"branch"`
+	Commits  []Commit `json:"commits"`
+	Warnings []string `json:"-"`
 }
 
 type Commit struct {
@@ -89,13 +90,14 @@ func (reader GitCmdReader) Recent(ctx context.Context, workDir string, opts Opti
 		return Result{}, classifyGitError(err)
 	}
 
-	commits, err := ParseLogOutput(logOutput, normalized.MaxFilesPerCommit)
+	commits, warnings, err := ParseLogOutput(logOutput, normalized.MaxFilesPerCommit)
 	if err != nil {
 		return Result{}, err
 	}
 	return Result{
-		Branch:  strings.TrimSpace(branch),
-		Commits: commits,
+		Branch:   strings.TrimSpace(branch),
+		Commits:  commits,
+		Warnings: warnings,
 	}, nil
 }
 

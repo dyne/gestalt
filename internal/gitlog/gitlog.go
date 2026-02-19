@@ -18,6 +18,7 @@ const (
 
 var (
 	ErrNotGitRepo = errors.New("not a git repository")
+	ErrEmptyRepo  = errors.New("empty git repository")
 )
 
 type Reader interface {
@@ -139,6 +140,12 @@ func classifyGitError(err error) error {
 	if errors.As(err, &exitErr) {
 		stderr := strings.ToLower(string(exitErr.Stderr))
 		message := strings.ToLower(err.Error())
+		if strings.Contains(message, "does not have any commits yet") || strings.Contains(stderr, "does not have any commits yet") {
+			return ErrEmptyRepo
+		}
+		if strings.Contains(message, "no commits yet") || strings.Contains(stderr, "no commits yet") {
+			return ErrEmptyRepo
+		}
 		if strings.Contains(message, "not a git repository") || strings.Contains(stderr, "not a git repository") {
 			return ErrNotGitRepo
 		}

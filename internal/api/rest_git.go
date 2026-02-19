@@ -36,7 +36,12 @@ func (h *RestHandler) handleGitLog(w http.ResponseWriter, r *http.Request) *apiE
 
 	workDir, err := os.Getwd()
 	if err != nil {
-		return &apiError{Status: http.StatusInternalServerError, Message: "failed to resolve working directory"}
+		if h.Logger != nil {
+			h.Logger.Warn("failed to get working directory for git log", map[string]string{
+				"error": err.Error(),
+			})
+		}
+		return &apiError{Status: http.StatusServiceUnavailable, Message: "git log unavailable"}
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), gitLogTimeout)

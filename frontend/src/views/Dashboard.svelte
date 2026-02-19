@@ -498,20 +498,21 @@
       {:else}
         <ul>
           {#each gitLog.commits as commit}
+            {@const conventional = commitConventional(commit)}
             <li class="gitlog-entry">
               <details>
                 <summary class="gitlog-entry__summary">
                   <div class="gitlog-entry__line">
                     <div class="gitlog-subject-wrap">
-                      {#if commitConventional(commit).type}
+                      {#if conventional.type}
                         <span
-                          class={`conventional-badge ${commitConventional(commit).badgeClass}`}
-                          title={commitConventional(commit).type}
+                          class={`conventional-badge ${conventional.badgeClass}`}
+                          title={conventional.type}
                         >
-                          {commitConventional(commit).type}
+                          {conventional.type}
                         </span>
                       {/if}
-                      <span class="gitlog-subject">{commitConventional(commit).displayTitle || 'No subject'}</span>
+                      <span class="gitlog-subject">{conventional.displayTitle || 'No subject'}</span>
                     </div>
                     <span class="gitlog-time" title={commit.committed_at || ''}>
                       {formatGitLogTime(commit.committed_at)}

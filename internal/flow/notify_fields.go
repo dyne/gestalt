@@ -34,6 +34,10 @@ func BuildNotifyFields(input NotifyFieldInput) map[string]string {
 			continue
 		}
 		if parsed, ok := stringifyNotifyValue(value); ok {
+			if normalized == "last-assistant-message" {
+				setNotifyField(fields, normalized, parsed, false)
+				continue
+			}
 			setNotifyField(fields, "notify."+normalized, parsed, true)
 			setNotifyField(fields, normalized, parsed, false)
 		}

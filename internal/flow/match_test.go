@@ -109,11 +109,11 @@ func TestMatchBindings(t *testing.T) {
 
 func TestMatchTriggerSessionIDWildcard(t *testing.T) {
 	normalized := map[string]string{
-		"type":       "agent-turn",
+		"type":       "agent-turn-complete",
 		"session.id": "Coder 3",
 	}
 	trigger := EventTrigger{
-		EventType: "agent-turn",
+		EventType: "agent-turn-complete",
 		Where: map[string]string{
 			"session.id": "coder",
 		},
@@ -125,11 +125,11 @@ func TestMatchTriggerSessionIDWildcard(t *testing.T) {
 
 func TestMatchTriggerSessionIDExact(t *testing.T) {
 	normalized := map[string]string{
-		"type":       "agent-turn",
+		"type":       "agent-turn-complete",
 		"session.id": "coder 2",
 	}
 	trigger := EventTrigger{
-		EventType: "agent-turn",
+		EventType: "agent-turn-complete",
 		Where: map[string]string{
 			"session.id": "coder 1",
 		},
@@ -141,11 +141,11 @@ func TestMatchTriggerSessionIDExact(t *testing.T) {
 
 func TestMatchTriggerSessionIDEmptyAllowsAll(t *testing.T) {
 	normalized := map[string]string{
-		"type":       "agent-turn",
+		"type":       "agent-turn-complete",
 		"session.id": "coder 5",
 	}
 	trigger := EventTrigger{
-		EventType: "agent-turn",
+		EventType: "agent-turn-complete",
 		Where: map[string]string{
 			"session.id": "",
 		},

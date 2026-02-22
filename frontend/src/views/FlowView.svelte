@@ -16,7 +16,7 @@
     'work-start',
     'work-progress',
     'work-finish',
-    'agent-turn',
+    'agent-turn-complete',
     'prompt-voice',
     'prompt-text',
   ]

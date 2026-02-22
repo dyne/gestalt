@@ -61,10 +61,10 @@ The canonical event type is derived from `payload.type`:
 - `work-progress` -> `work-progress`
 - `finish` or `work-finish` -> `work-finish`
 - `git-commit` or `commit` -> `git-commit`
-- `agent-turn*` -> `agent-turn`
+- `agent-turn*` -> `agent-turn-complete`
 - `prompt-voice*` -> `prompt-voice`
 - `prompt-text*` -> `prompt-text`
-- everything else -> `agent-turn`
+- everything else -> `agent-turn-complete`
 
 Flow fields include:
 

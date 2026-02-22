@@ -16,14 +16,14 @@ func TestCanonicalNotifyEventType(testingContext *testing.T) {
 		"work-progress":       "work-progress",
 		"Finish":              "work-finish",
 		"work-finish":         "work-finish",
-		"agent-turn-complete": "agent-turn",
+		"agent-turn-complete": "agent-turn-complete",
 		"prompt-voice":        "prompt-voice",
 		"prompt-text":         "prompt-text",
 		"commit":              "git-commit",
 		"git-commit":          "git-commit",
-		"custom-type":         "agent-turn",
-		"   ":                 "agent-turn",
-		"!!!":                 "agent-turn",
+		"custom-type":         "agent-turn-complete",
+		"   ":                 "agent-turn-complete",
+		"!!!":                 "agent-turn-complete",
 	}
 
 	for input, expected := range cases {

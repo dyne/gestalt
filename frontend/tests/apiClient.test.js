@@ -248,12 +248,15 @@ describe('apiClient', () => {
       }),
     })
 
-    const config = { version: 1, triggers: [], bindings_by_trigger_id: {} }
-    await importFlowConfig(config)
+    const yamlText = 'version: 1\nflows: []\n'
+    await importFlowConfig(yamlText)
 
     expect(apiFetch).toHaveBeenCalledWith('/api/flow/config/import', {
       method: 'POST',
-      body: JSON.stringify(config),
+      headers: {
+        'Content-Type': 'text/yaml; charset=utf-8',
+      },
+      body: yamlText,
     })
   })
 

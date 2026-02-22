@@ -280,7 +280,7 @@
       const response = await exportFlowConfig()
       const blob = await response.blob()
       const filename =
-        parseExportFilename(response.headers.get('Content-Disposition')) || 'automations.json'
+        parseExportFilename(response.headers.get('Content-Disposition')) || 'flows.yaml'
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
@@ -310,13 +310,7 @@
     importInProgress = true
     try {
       const text = await file.text()
-      let payload = null
-      try {
-        payload = JSON.parse(text)
-      } catch {
-        throw new Error('Import file is not valid JSON.')
-      }
-      await importFlowConfig(payload)
+      await importFlowConfig(text)
       await flowConfigStore.load()
     } catch (err) {
       importError = getErrorMessage(err, 'Failed to import Flow configuration.')
@@ -424,7 +418,7 @@
       <input
         class="flow-import-input"
         type="file"
-        accept="application/json,.json"
+        accept=".yaml,.yml"
         bind:this={importInputRef}
         on:change={handleImportFile}
       />

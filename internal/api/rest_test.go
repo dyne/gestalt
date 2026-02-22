@@ -423,12 +423,6 @@ func TestTerminalNotifyEndpoint(t *testing.T) {
 	if request.Event["session_id"] != created.ID {
 		t.Fatalf("expected session_id %q, got %q", created.ID, request.Event["session_id"])
 	}
-	if request.Event["agent_id"] != "codex" {
-		t.Fatalf("expected agent_id codex, got %q", request.Event["agent_id"])
-	}
-	if request.Event["agent_name"] != "Codex" {
-		t.Fatalf("expected agent_name %q, got %q", "Codex", request.Event["agent_name"])
-	}
 	if request.Event["plan_file"] != "plan.org" || request.Event["notify.plan_file"] != "plan.org" {
 		t.Fatalf("expected plan_file aliases, got %q/%q", request.Event["plan_file"], request.Event["notify.plan_file"])
 	}

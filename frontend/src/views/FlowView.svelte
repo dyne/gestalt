@@ -17,25 +17,6 @@
     'notify_event',
   ]
 
-  const notifyPresetOptions = [
-    { value: 'new-plan', label: 'New plan', eventType: 'notify_new_plan' },
-    { value: 'progress', label: 'Progress', eventType: 'notify_progress' },
-    { value: 'finish', label: 'Finish', eventType: 'notify_finish' },
-    { value: 'other', label: 'Other', eventType: 'notify_event' },
-  ]
-
-  const notifyPresetFromEventType = (eventType) => {
-    const match = notifyPresetOptions.find((preset) => preset.eventType === eventType)
-    if (match) return match.value
-    if (typeof eventType === 'string' && eventType.startsWith('notify_')) {
-      return 'other'
-    }
-    return ''
-  }
-
-  const notifyEventTypeForPreset = (preset) =>
-    notifyPresetOptions.find((option) => option.value === preset)?.eventType || 'notify_event'
-
   let query = ''
   let selectedTriggerId = ''
   let dialogRef = null
@@ -45,12 +26,6 @@
   let draftLabel = ''
   let draftEventType = fallbackEventTypeOptions[0]
   let draftWhere = ''
-  let triggerPreset = 'custom'
-  let notifyPresetType = 'new-plan'
-  let notifyPlanFile = ''
-  let notifyTaskState = ''
-  let notifyAgentId = ''
-  let notifySessionId = ''
   let importInputRef = null
   let clipboardAvailable = false
   let storageCopied = false
@@ -77,7 +52,6 @@
   $: bindingsByTriggerId = flowState?.config?.bindings_by_trigger_id || {}
   $: activityDefs = flowState?.activities || []
   $: isBusy = Boolean(flowState?.loading || flowState?.saving)
-  $: isNotifyPreset = triggerPreset === 'notify'
 
   $: parsed = parseEventFilterQuery(query)
   $: filteredTriggers = triggers.filter((trigger) => matchesEventTrigger(trigger, parsed))
@@ -100,14 +74,7 @@
     selectedTriggerId = id
   }
 
-  $: if (isNotifyPreset) {
-    const nextEventType = notifyEventTypeForPreset(notifyPresetType)
-    if (draftEventType !== nextEventType) {
-      draftEventType = nextEventType
-    }
-  }
-
-  $: if (!isNotifyPreset && eventTypeOptions.length && !eventTypeOptions.includes(draftEventType)) {
+  $: if (eventTypeOptions.length && !eventTypeOptions.includes(draftEventType)) {
     draftEventType = eventTypeOptions[0]
   }
 
@@ -145,21 +112,6 @@
       .map(([key, value]) => `${key}=${value}`)
       .join('\n')
 
-  const buildNotifyWhere = () => {
-    const where = {}
-    const planFile = notifyPlanFile.trim()
-    const taskState = notifyTaskState.trim()
-    const agentId = notifyAgentId.trim()
-    const sessionId = notifySessionId.trim()
-    if (planFile) where.plan_file = planFile
-    if (agentId) where.agent_id = agentId
-    if (sessionId) where.session_id = sessionId
-    if (notifyPresetType === 'progress' && taskState) {
-      where.task_state = taskState
-    }
-    return where
-  }
-
   const buildTriggerId = (label) => {
     const base = label
       .toLowerCase()
@@ -179,12 +131,6 @@
     draftLabel = ''
     draftEventType = eventTypeOptions[0]
     draftWhere = ''
-    triggerPreset = 'custom'
-    notifyPresetType = 'new-plan'
-    notifyPlanFile = ''
-    notifyTaskState = ''
-    notifyAgentId = ''
-    notifySessionId = ''
     dialogError = ''
     showDialog()
   }
@@ -194,30 +140,7 @@
     dialogMode = 'edit'
     draftLabel = selectedTrigger.label
     draftEventType = selectedTrigger.event_type
-    const notifyPreset = notifyPresetFromEventType(selectedTrigger.event_type)
-    if (notifyPreset) {
-      triggerPreset = 'notify'
-      notifyPresetType = notifyPreset
-      const where = selectedTrigger.where || {}
-      notifyPlanFile = typeof where.plan_file === 'string' ? where.plan_file : ''
-      notifyTaskState = typeof where.task_state === 'string' ? where.task_state : ''
-      notifyAgentId = typeof where.agent_id === 'string' ? where.agent_id : ''
-      notifySessionId = typeof where.session_id === 'string' ? where.session_id : ''
-      const advancedWhere = { ...where }
-      delete advancedWhere.plan_file
-      delete advancedWhere.task_state
-      delete advancedWhere.agent_id
-      delete advancedWhere.session_id
-      draftWhere = serializeWhere(advancedWhere)
-    } else {
-      triggerPreset = 'custom'
-      notifyPresetType = 'new-plan'
-      notifyPlanFile = ''
-      notifyTaskState = ''
-      notifyAgentId = ''
-      notifySessionId = ''
-      draftWhere = serializeWhere(selectedTrigger.where)
-    }
+    draftWhere = serializeWhere(selectedTrigger.where)
     dialogError = ''
     showDialog()
   }
@@ -229,9 +152,7 @@
       dialogError = 'Label is required.'
       return
     }
-    const where = isNotifyPreset
-      ? { ...buildNotifyWhere(), ...parseWhereText(draftWhere) }
-      : parseWhereText(draftWhere)
+    const where = parseWhereText(draftWhere)
     if (dialogMode === 'edit' && selectedTrigger) {
       flowConfigStore.updateConfig((config) => ({
         ...config,
@@ -567,69 +488,22 @@
       placeholder="Trigger label"
       bind:value={draftLabel}
     />
-    <label class="field-label" for="trigger-preset">Preset</label>
-    <select id="trigger-preset" class="field-input" bind:value={triggerPreset}>
-      <option value="custom">Custom</option>
-      <option value="notify">Notify (gestalt-notify)</option>
-    </select>
-    {#if isNotifyPreset}
-      <label class="field-label" for="notify-type">Notify type</label>
-      <select id="notify-type" class="field-input" bind:value={notifyPresetType}>
-        {#each notifyPresetOptions as preset}
-          <option value={preset.value}>{preset.label}</option>
-        {/each}
-      </select>
-      <label class="field-label" for="notify-plan-file">Plan file (exact)</label>
-      <input
-        id="notify-plan-file"
-        class="field-input"
-        type="text"
-        placeholder=".gestalt/plans/flow-notify-router.org"
-        bind:value={notifyPlanFile}
-      />
-      {#if notifyPresetType === 'progress'}
-        <label class="field-label" for="notify-task-state">Task state</label>
-        <select id="notify-task-state" class="field-input" bind:value={notifyTaskState}>
-          <option value="">Any</option>
-          <option value="TODO">TODO</option>
-          <option value="WIP">WIP</option>
-          <option value="DONE">DONE</option>
-        </select>
-      {/if}
-      <label class="field-label" for="notify-agent-id">Agent id</label>
-      <input
-        id="notify-agent-id"
-        class="field-input"
-        type="text"
-        placeholder="coder"
-        bind:value={notifyAgentId}
-      />
-      <label class="field-label" for="notify-session-id">Session id</label>
-      <input
-        id="notify-session-id"
-        class="field-input"
-        type="text"
-        placeholder="coder-1"
-        bind:value={notifySessionId}
-      />
-    {/if}
     <label class="field-label" for="trigger-event-type">Event type</label>
     <select
       id="trigger-event-type"
       class="field-input"
       bind:value={draftEventType}
-      disabled={isNotifyPreset}
     >
       {#each eventTypeOptionsWithDraft as eventType}
         <option value={eventType}>{eventType}</option>
       {/each}
     </select>
-    <label class="field-label" for="trigger-where">Where (advanced, one per line)</label>
+    <label class="field-label" for="trigger-where">Where (one per line)</label>
     <textarea
       id="trigger-where"
       class="field-input"
       rows="4"
-      placeholder="session_id=t1"
+      placeholder="session.id=coder-1"
       bind:value={draftWhere}
     ></textarea>
     {#if dialogError}

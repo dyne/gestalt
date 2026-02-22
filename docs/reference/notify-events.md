@@ -63,7 +63,7 @@ Flow fields include:
 
 - `type`: canonical event type
 - `timestamp`: RFC3339 time (from `occurred_at` or server time)
-- `session_id`, `agent_id`, `agent_name`
+- `session_id` and `session.id`
 - `notify.type`: original `payload.type`
 - `notify.event_id`: `event_id` when provided
 - `notify.<key>` for scalar payload keys (strings/bools/numbers)
@@ -73,7 +73,7 @@ Template tokens follow the same keys, for example:
 <div v-pre>
 
 `{{summary}}`, `{{plan_file}}`, `{{plan_summary}}`, `{{task_title}}`, `{{task_state}}`,
-`{{git_branch}}`, `{{session_id}}`, `{{agent_id}}`, `{{agent_name}}`, `{{timestamp}}`,
+`{{git_branch}}`, `{{session_id}}`, `{{timestamp}}`,
 `{{event_id}}`, `{{notify.summary}}`, `{{notify.type}}`, `{{notify.event_id}}`.
 </div>
 
@@ -90,8 +90,6 @@ Stable attributes:
 - `notify.type` (original payload `type`)
 - `notify.event_id` (when provided)
 - `session.id` and `session_id`
-- `agent.id` and `agent_id`
-- `agent.name` and `agent_name`
 - `notify.dispatch` (`queued`, `flow_unavailable`, `temporal_unavailable`, or `failed`)
 - scalar payload aliases as both top-level keys and `notify.<key>`
 
@@ -111,7 +109,7 @@ Guarantee:
       "label": "New plan created",
       "event_type": "notify_new_plan",
       "where": {
-        "plan_file": ".gestalt/plans/flow-notify-router.org"
+        "session.id": "Codex 1"
       }
     }
   ],

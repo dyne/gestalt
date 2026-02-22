@@ -16,8 +16,6 @@ const defaultConfig = {
 const buildState = () => ({
   activities: [],
   eventTypes: [],
-  notifyTypes: {},
-  notifyTokens: {},
   config: defaultConfig,
   storagePath: '',
   loading: false,
@@ -111,14 +109,6 @@ export const createFlowConfigStore = () => {
           eventTypes: Array.isArray(eventTypesPayload?.eventTypes)
             ? eventTypesPayload.eventTypes
             : [],
-          notifyTypes:
-            eventTypesPayload?.notifyTypes && typeof eventTypesPayload.notifyTypes === 'object'
-              ? eventTypesPayload.notifyTypes
-              : {},
-          notifyTokens:
-            eventTypesPayload?.notifyTokens && typeof eventTypesPayload.notifyTokens === 'object'
-              ? eventTypesPayload.notifyTokens
-              : {},
           config: nextConfig,
           storagePath: payload?.storagePath || '',
           loading: false,

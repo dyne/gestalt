@@ -41,6 +41,9 @@ func ValidateConfig(cfg Config, activityDefs []ActivityDef) error {
 		if strings.TrimSpace(trigger.EventType) == "" {
 			return &ValidationError{Kind: ValidationBadRequest, Message: fmt.Sprintf("trigger %q event_type is required", id)}
 		}
+		if err := validateTriggerWhere(trigger); err != nil {
+			return err
+		}
 		if _, exists := triggerIDs[id]; exists {
 			return &ValidationError{Kind: ValidationConflict, Message: fmt.Sprintf("duplicate trigger id %q", id)}
 		}
@@ -69,6 +72,32 @@ func ValidateConfig(cfg Config, activityDefs []ActivityDef) error {
 	}
 
 	return nil
+}
+
+func validateTriggerWhere(trigger EventTrigger) error {
+	if len(trigger.Where) == 0 {
+		return nil
+	}
+	if !isNotifyEventType(trigger.EventType) {
+		return nil
+	}
+	allowed := map[string]struct{}{
+		"session.id": {},
+	}
+	for key := range trigger.Where {
+		normalized := strings.ToLower(strings.TrimSpace(key))
+		if normalized == "" {
+			return &ValidationError{Kind: ValidationBadRequest, Message: fmt.Sprintf("trigger %q where key is required", trigger.ID)}
+		}
+		if _, ok := allowed[normalized]; !ok {
+			return &ValidationError{Kind: ValidationBadRequest, Message: fmt.Sprintf("trigger %q where key %q is not supported for notify events", trigger.ID, key)}
+		}
+	}
+	return nil
+}
+
+func isNotifyEventType(eventType string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(eventType)), "notify_")
 }
 
 func validateActivityConfig(def ActivityDef, config map[string]any) error {

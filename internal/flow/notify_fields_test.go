@@ -9,8 +9,6 @@ func TestBuildNotifyFields(testingContext *testing.T) {
 	occurredAt := time.Date(2026, 2, 1, 12, 30, 0, 123456000, time.UTC)
 	input := NotifyFieldInput{
 		SessionID:   "sess-1",
-		AgentID:     "agent-1",
-		AgentName:   "sess-1",
 		EventID:     "event-123",
 		PayloadType: "new-plan",
 		OccurredAt:  occurredAt,
@@ -37,12 +35,6 @@ func TestBuildNotifyFields(testingContext *testing.T) {
 	}
 	if fields["session_id"] != "sess-1" {
 		testingContext.Fatalf("unexpected session_id %q", fields["session_id"])
-	}
-	if fields["agent_id"] != "agent-1" {
-		testingContext.Fatalf("unexpected agent_id %q", fields["agent_id"])
-	}
-	if fields["agent_name"] != "sess-1" {
-		testingContext.Fatalf("unexpected agent_name %q", fields["agent_name"])
 	}
 	if fields["notify.type"] != "new-plan" {
 		testingContext.Fatalf("unexpected notify.type %q", fields["notify.type"])

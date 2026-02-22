@@ -9,8 +9,6 @@ import (
 
 type NotifyFieldInput struct {
 	SessionID   string
-	AgentID     string
-	AgentName   string
 	EventID     string
 	PayloadType string
 	OccurredAt  time.Time
@@ -25,10 +23,6 @@ func BuildNotifyFields(input NotifyFieldInput) map[string]string {
 	}
 	setNotifyField(fields, "session_id", input.SessionID, true)
 	setNotifyField(fields, "session.id", input.SessionID, true)
-	setNotifyField(fields, "agent_id", input.AgentID, true)
-	setNotifyField(fields, "agent.id", input.AgentID, true)
-	setNotifyField(fields, "agent_name", input.AgentName, true)
-	setNotifyField(fields, "agent.name", input.AgentName, true)
 	setNotifyField(fields, "notify.type", input.PayloadType, true)
 	if strings.TrimSpace(input.EventID) != "" {
 		setNotifyField(fields, "notify.event_id", strings.TrimSpace(input.EventID), true)
@@ -54,7 +48,7 @@ func normalizeNotifyKey(key string) string {
 
 func isReservedNotifyKey(key string) bool {
 	switch key {
-	case "type", "occurred_at", "timestamp":
+	case "type", "occurred_at", "timestamp", "agent_id", "agent_name", "agent.id", "agent.name":
 		return true
 	default:
 		return false

@@ -130,6 +130,11 @@ func runServer(args []string) int {
 			}
 		}
 	}
+	if collectorOptions.Enabled {
+		if port, ok := parseEndpointPort(collectorOptions.HTTPEndpoint); ok {
+			portRegistry.Set("otel", port)
+		}
+	}
 	collector, collectorErr := otel.StartCollector(collectorOptions)
 	if collectorErr != nil {
 		fields := map[string]string{
@@ -144,9 +149,6 @@ func runServer(args []string) int {
 	}
 	if collector != nil {
 		collector.StartSupervision(shutdownCtx)
-		if port, ok := parseEndpointPort(collectorOptions.HTTPEndpoint); ok {
-			portRegistry.Set("otel", port)
-		}
 		status := otel.CollectorStatusSnapshot()
 		if status.PID > 0 {
 			processRegistry.Register(status.PID, process.GroupID(status.PID), "otel-collector")

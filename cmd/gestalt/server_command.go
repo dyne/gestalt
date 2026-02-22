@@ -592,9 +592,6 @@ func resolveOTelPorts(defaultGRPC, defaultHTTP int) (int, int, error) {
 	if defaultGRPC <= 0 || defaultHTTP <= 0 {
 		return 0, 0, fmt.Errorf("default ports must be positive")
 	}
-	if isPortAvailable(defaultGRPC) && isPortAvailable(defaultHTTP) {
-		return defaultGRPC, defaultHTTP, nil
-	}
 
 	for attempt := 0; attempt < 10; attempt++ {
 		grpcPort, err := pickRandomPort()

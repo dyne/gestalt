@@ -80,18 +80,6 @@ func TestIsPortAvailable(t *testing.T) {
 	}
 }
 
-func TestResolveOTelPortsUsesDefaultsWhenAvailable(t *testing.T) {
-	grpcPort, httpPort := findAdjacentPorts(t)
-
-	gotGRPC, gotHTTP, err := resolveOTelPorts(grpcPort, httpPort)
-	if err != nil {
-		t.Fatalf("resolveOTelPorts failed: %v", err)
-	}
-	if gotGRPC != grpcPort || gotHTTP != httpPort {
-		t.Fatalf("expected ports %d/%d, got %d/%d", grpcPort, httpPort, gotGRPC, gotHTTP)
-	}
-}
-
 func TestResolveOTelPortsRandomizesWhenDefaultOccupied(t *testing.T) {
 	grpcPort, httpPort := findAdjacentPorts(t)
 

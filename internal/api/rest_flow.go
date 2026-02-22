@@ -1,9 +1,13 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
+	"mime"
 	"net/http"
+	"strings"
 
 	"gestalt/internal/flow"
 )
@@ -104,7 +108,7 @@ func (h *RestHandler) handleFlowConfigImport(w http.ResponseWriter, r *http.Requ
 	if r.Method != http.MethodPost {
 		return methodNotAllowed(w, "POST")
 	}
-	payload, apiErr := decodeFlowConfigPayload(r)
+	payload, apiErr := decodeFlowImportPayload(r, h.FlowService.ActivityCatalog())
 	if apiErr != nil {
 		return apiErr
 	}
@@ -114,6 +118,45 @@ func (h *RestHandler) handleFlowConfigImport(w http.ResponseWriter, r *http.Requ
 	}
 	writeJSON(w, http.StatusOK, buildFlowConfigResponse(updated, h.FlowService))
 	return nil
+}
+
+func decodeFlowImportPayload(r *http.Request, defs []flow.ActivityDef) (flow.Config, *apiError) {
+	contentType := strings.TrimSpace(r.Header.Get("Content-Type"))
+	if contentType == "" {
+		return flow.Config{}, &apiError{Status: http.StatusUnsupportedMediaType, Message: "unsupported content type"}
+	}
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil || !isSupportedFlowYAMLMediaType(mediaType) {
+		return flow.Config{}, &apiError{Status: http.StatusUnsupportedMediaType, Message: "unsupported content type"}
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return flow.Config{}, &apiError{Status: http.StatusBadRequest, Message: "invalid request body"}
+	}
+	body = bytes.TrimSpace(body)
+	if len(body) == 0 {
+		return flow.Config{}, &apiError{Status: http.StatusBadRequest, Message: "invalid request body"}
+	}
+	cfg, err := flow.DecodeFlowBundleYAML(body, defs)
+	if err != nil {
+		var validationErr *flow.ValidationError
+		if errors.As(err, &validationErr) {
+			if validationErr.Kind == flow.ValidationConflict {
+				return flow.Config{}, &apiError{Status: http.StatusConflict, Message: validationErr.Message}
+			}
+		}
+		return flow.Config{}, &apiError{Status: http.StatusBadRequest, Message: "invalid request body"}
+	}
+	return cfg, nil
+}
+
+func isSupportedFlowYAMLMediaType(mediaType string) bool {
+	switch strings.ToLower(strings.TrimSpace(mediaType)) {
+	case "application/yaml", "application/x-yaml", "text/yaml", "text/x-yaml":
+		return true
+	default:
+		return false
+	}
 }
 
 func flowConfigStoragePath(service *flow.Service) string {

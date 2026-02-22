@@ -1,4 +1,4 @@
-import { render, cleanup, fireEvent } from '@testing-library/svelte'
+import { render, cleanup, fireEvent, waitFor } from '@testing-library/svelte'
 import { describe, it, expect, afterEach, vi } from 'vitest'
 
 const fetchFlowActivities = vi.hoisted(() => vi.fn())
@@ -178,5 +178,40 @@ describe('FlowView', () => {
     expect(await findByText('.gestalt/plans/flow-notify-router.org')).toBeTruthy()
     expect(await findByText('session_id')).toBeTruthy()
     expect(await findByText('coder-1')).toBeTruthy()
+  })
+
+  it('imports yaml flow files as raw text', async () => {
+    fetchFlowActivities.mockResolvedValue([{ id: 'toast_notification', label: 'Toast', fields: [] }])
+    fetchFlowEventTypes.mockResolvedValue({
+      eventTypes: ['file_changed'],
+    })
+    fetchFlowConfig.mockResolvedValue({
+      config: {
+        version: 1,
+        triggers: [],
+        bindings_by_trigger_id: {},
+      },
+    })
+    importFlowConfig.mockResolvedValue({
+      config: { version: 1, triggers: [], bindings_by_trigger_id: {} },
+    })
+
+    const { container, findByText } = render(FlowView)
+    await findByText('Flow')
+
+    const input = container.querySelector('.flow-import-input')
+    expect(input).toBeTruthy()
+    expect(input.getAttribute('accept')).toBe('.yaml,.yml')
+
+    const file = {
+      name: 'flows.yaml',
+      type: 'text/yaml',
+      text: vi.fn().mockResolvedValue('version: 1\nflows: []\n'),
+    }
+    await fireEvent.change(input, { target: { files: [file] } })
+
+    await waitFor(() => {
+      expect(importFlowConfig).toHaveBeenCalledWith('version: 1\nflows: []\n')
+    })
   })
 })

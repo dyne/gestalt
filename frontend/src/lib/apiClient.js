@@ -355,10 +355,13 @@ export const exportFlowConfig = async () => {
   return apiFetch('/api/flow/config/export')
 }
 
-export const importFlowConfig = async (config) => {
+export const importFlowConfig = async (yamlText) => {
   const response = await apiFetch('/api/flow/config/import', {
     method: 'POST',
-    body: JSON.stringify(config || {}),
+    headers: {
+      'Content-Type': 'text/yaml; charset=utf-8',
+    },
+    body: typeof yamlText === 'string' ? yamlText : '',
   })
   const payload = await response.json()
   return normalizeFlowConfigPayload(payload)

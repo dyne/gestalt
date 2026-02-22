@@ -190,7 +190,16 @@ func cloneFields(base, extra map[string]string) map[string]string {
 	if len(base) == 0 && len(extra) == 0 {
 		return nil
 	}
-	combined := make(map[string]string, len(base)+len(extra))
+	baseLen := len(base)
+	extraLen := len(extra)
+	// Use uint64 for overflow-safe addition, and cap the capacity to avoid
+	// allocating excessively large maps from untrusted input.
+	total := uint64(baseLen) + uint64(extraLen)
+	const maxLogFieldCapacity = 1 << 20 // safety cap on number of log fields
+	if total > maxLogFieldCapacity {
+		total = maxLogFieldCapacity
+	}
+	combined := make(map[string]string, int(total))
 	for key, value := range base {
 		combined[key] = value
 	}

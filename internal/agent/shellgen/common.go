@@ -163,7 +163,12 @@ func asStringMap(value interface{}) (map[string]interface{}, bool) {
 	if val.Type().Key().Kind() != reflect.String {
 		return nil, false
 	}
-	result := make(map[string]interface{}, val.Len())
+	n := val.Len()
+	const maxEntries = 1 << 20
+	if n > maxEntries {
+		n = maxEntries
+	}
+	result := make(map[string]interface{}, n)
 	iter := val.MapRange()
 	for iter.Next() {
 		key := iter.Key().String()

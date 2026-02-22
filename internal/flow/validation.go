@@ -97,7 +97,12 @@ func validateTriggerWhere(trigger EventTrigger) error {
 }
 
 func isNotifyEventType(eventType string) bool {
-	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(eventType)), "notify_")
+	switch strings.ToLower(strings.TrimSpace(eventType)) {
+	case "plan-new", "plan-update", "work-start", "work-progress", "work-finish", "agent-turn", "prompt-voice", "prompt-text":
+		return true
+	default:
+		return false
+	}
 }
 
 func validateActivityConfig(def ActivityDef, config map[string]any) error {

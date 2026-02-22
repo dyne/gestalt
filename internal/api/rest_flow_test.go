@@ -59,7 +59,7 @@ func TestFlowConfigEndpointGet(t *testing.T) {
 	cfg := flow.Config{
 		Version: flow.ConfigVersion,
 		Triggers: []flow.EventTrigger{
-			{ID: "t1", Label: "Trigger one", EventType: "file_changed", Where: map[string]string{"terminal_id": "t1"}},
+			{ID: "t1", Label: "Trigger one", EventType: "file-change", Where: map[string]string{"terminal_id": "t1"}},
 		},
 		BindingsByTriggerID: map[string][]flow.ActivityBinding{
 			"t1": {
@@ -101,7 +101,7 @@ func TestFlowConfigEndpointPut(t *testing.T) {
 	cfg := flow.Config{
 		Version: flow.ConfigVersion,
 		Triggers: []flow.EventTrigger{
-			{ID: "t1", Label: "Trigger one", EventType: "file_changed", Where: map[string]string{"terminal_id": "t1"}},
+			{ID: "t1", Label: "Trigger one", EventType: "file-change", Where: map[string]string{"terminal_id": "t1"}},
 		},
 		BindingsByTriggerID: map[string][]flow.ActivityBinding{
 			"t1": {
@@ -138,8 +138,8 @@ func TestFlowConfigEndpointValidationErrors(t *testing.T) {
 	duplicate := flow.Config{
 		Version: flow.ConfigVersion,
 		Triggers: []flow.EventTrigger{
-			{ID: "dup", EventType: "file_changed"},
-			{ID: "dup", EventType: "file_changed"},
+			{ID: "dup", EventType: "file-change"},
+			{ID: "dup", EventType: "file-change"},
 		},
 		BindingsByTriggerID: map[string][]flow.ActivityBinding{},
 	}
@@ -154,7 +154,7 @@ func TestFlowConfigEndpointValidationErrors(t *testing.T) {
 	invalidType := flow.Config{
 		Version: flow.ConfigVersion,
 		Triggers: []flow.EventTrigger{
-			{ID: "t1", EventType: "file_changed"},
+			{ID: "t1", EventType: "file-change"},
 		},
 		BindingsByTriggerID: map[string][]flow.ActivityBinding{
 			"t1": {
@@ -177,7 +177,7 @@ func TestFlowConfigExportEndpoint(t *testing.T) {
 	cfg := flow.Config{
 		Version: flow.ConfigVersion,
 		Triggers: []flow.EventTrigger{
-			{ID: "t1", Label: "Trigger one", EventType: "file_changed", Where: map[string]string{"terminal_id": "t1"}},
+			{ID: "t1", Label: "Trigger one", EventType: "file-change", Where: map[string]string{"terminal_id": "t1"}},
 		},
 		BindingsByTriggerID: map[string][]flow.ActivityBinding{},
 	}
@@ -220,7 +220,7 @@ version: 1
 flows:
   - id: t1
     label: Trigger one
-    event_type: file_changed
+    event_type: file-change
     where:
       terminal_id: t1
     bindings: []
@@ -270,10 +270,10 @@ func TestFlowConfigImportEndpointValidationErrors(t *testing.T) {
 version: 1
 flows:
   - id: dup
-    event_type: file_changed
+    event_type: file-change
     bindings: []
   - id: dup
-    event_type: file_changed
+    event_type: file-change
     bindings: []
 `)
 	req = httptest.NewRequest(http.MethodPost, "/api/flow/config/import", bytes.NewReader(duplicate))

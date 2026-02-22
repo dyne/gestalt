@@ -35,7 +35,7 @@ describe('FlowView', () => {
 
   it('filters triggers and updates the selected details', async () => {
     fetchFlowActivities.mockResolvedValue([{ id: 'toast_notification', label: 'Toast', fields: [] }])
-    fetchFlowEventTypes.mockResolvedValue({ eventTypes: ['file_changed', 'git_branch_changed'] })
+    fetchFlowEventTypes.mockResolvedValue({ eventTypes: ['file-change', 'git-branch'] })
     fetchFlowConfig.mockResolvedValue({
       config: {
         version: 1,
@@ -43,13 +43,13 @@ describe('FlowView', () => {
           {
             id: 'file-changed',
             label: 'File changed',
-            event_type: 'file_changed',
+            event_type: 'file-change',
             where: { path: 'README.md' },
           },
           {
             id: 'git-branch',
             label: 'Git branch changed',
-            event_type: 'git_branch_changed',
+            event_type: 'git-branch',
             where: { branch: 'main' },
           },
         ],
@@ -64,7 +64,7 @@ describe('FlowView', () => {
     expect(await findByText('Git branch changed')).toBeTruthy()
 
     const input = getByLabelText('Search / filters')
-    await fireEvent.input(input, { target: { value: 'event_type:file_changed' } })
+    await fireEvent.input(input, { target: { value: 'event_type:file-change' } })
 
     expect((await findAllByText('File changed')).length).toBeGreaterThan(0)
     expect(queryByText('Git branch changed')).toBeNull()
@@ -81,7 +81,7 @@ describe('FlowView', () => {
   it('creates a trigger and saves it', async () => {
     fetchFlowActivities.mockResolvedValue([{ id: 'toast_notification', label: 'Toast', fields: [] }])
     fetchFlowEventTypes.mockResolvedValue({
-      eventTypes: ['file_changed', 'terminal_resized'],
+      eventTypes: ['file-change', 'git-commit'],
     })
     fetchFlowConfig.mockResolvedValue({
       config: {
@@ -90,7 +90,7 @@ describe('FlowView', () => {
           {
             id: 'file-changed',
             label: 'File changed',
-            event_type: 'file_changed',
+            event_type: 'file-change',
             where: { path: 'README.md' },
           },
         ],
@@ -105,14 +105,14 @@ describe('FlowView', () => {
           {
             id: 'file-changed',
             label: 'File changed',
-            event_type: 'file_changed',
+            event_type: 'file-change',
             where: { path: 'README.md' },
           },
           {
             id: 'new-trigger',
             label: 'New trigger',
-            event_type: 'terminal_resized',
-            where: { terminal_id: 't9' },
+            event_type: 'git-commit',
+            where: { commit_hash: 't9' },
           },
         ],
         bindings_by_trigger_id: {},
@@ -126,8 +126,8 @@ describe('FlowView', () => {
     await fireEvent.click(getByRole('button', { name: 'Add trigger' }))
 
     await fireEvent.input(getByLabelText('Label'), { target: { value: 'New trigger' } })
-    await fireEvent.change(getByLabelText('Event type'), { target: { value: 'terminal_resized' } })
-    await fireEvent.input(getByLabelText('Where (one per line)'), { target: { value: 'terminal_id=t9' } })
+    await fireEvent.change(getByLabelText('Event type'), { target: { value: 'git-commit' } })
+    await fireEvent.input(getByLabelText('Where (one per line)'), { target: { value: 'commit_hash=t9' } })
 
     await fireEvent.click(getByRole('button', { name: 'Save trigger' }))
 
@@ -145,7 +145,7 @@ describe('FlowView', () => {
   it('imports yaml flow files as raw text', async () => {
     fetchFlowActivities.mockResolvedValue([{ id: 'toast_notification', label: 'Toast', fields: [] }])
     fetchFlowEventTypes.mockResolvedValue({
-      eventTypes: ['file_changed'],
+      eventTypes: ['file-change'],
     })
     fetchFlowConfig.mockResolvedValue({
       config: {

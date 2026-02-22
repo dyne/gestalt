@@ -13,7 +13,7 @@ func TestDecodeFlowBundleYAMLUnknownField(t *testing.T) {
 version: 1
 flows:
   - id: trigger-one
-    event_type: file_changed
+    event_type: file-change
     unknown: true
     bindings: []
 `), ActivityCatalog())
@@ -68,7 +68,7 @@ version: 1
 flows:
   - id: duplicate
     label: first
-    event_type: file_changed
+    event_type: file-change
     where: {}
     bindings:
       - activity_id: toast_notification
@@ -77,7 +77,7 @@ flows:
           message_template: hi
   - id: duplicate
     label: second
-    event_type: file_changed
+    event_type: file-change
     where: {}
     bindings: []
 `), ActivityCatalog())
@@ -99,7 +99,7 @@ version: 1
 flows:
   - id: trigger-one
     label: trigger
-    event_type: file_changed
+    event_type: file-change
     where: {}
     bindings:
       - activity_id: toast_notification

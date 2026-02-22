@@ -68,7 +68,7 @@ describe('eventStore', () => {
     const unsubscribeStatus = eventConnectionStatus.subscribe((value) => {
       statuses.push(value)
     })
-    const unsubscribe = subscribe('file_changed', (payload) => {
+    const unsubscribe = subscribe('file-change', (payload) => {
       received.push(payload.path)
     })
 
@@ -77,7 +77,7 @@ describe('eventStore', () => {
     await flush()
 
     source.dispatch('message', {
-      data: JSON.stringify({ type: 'file_changed', path: '.gestalt/PLAN.org' }),
+      data: JSON.stringify({ type: 'file-change', path: '.gestalt/PLAN.org' }),
     })
 
     expect(received).toEqual(['.gestalt/PLAN.org'])
@@ -90,7 +90,7 @@ describe('eventStore', () => {
   it('unsubscribes listeners', async () => {
     const { subscribe } = await import('../src/lib/eventStore.js')
     const received = []
-    const unsubscribe = subscribe('git_branch_changed', (payload) => {
+    const unsubscribe = subscribe('git-branch', (payload) => {
       received.push(payload.path)
     })
 
@@ -101,7 +101,7 @@ describe('eventStore', () => {
     unsubscribe()
 
     source.dispatch('message', {
-      data: JSON.stringify({ type: 'git_branch_changed', path: 'main' }),
+      data: JSON.stringify({ type: 'git-branch', path: 'main' }),
     })
 
     expect(received).toEqual([])
@@ -110,15 +110,15 @@ describe('eventStore', () => {
   it('updates types query on subscription changes', async () => {
     const { subscribe } = await import('../src/lib/eventStore.js')
 
-    const stopFile = subscribe('file_changed', () => {})
+    const stopFile = subscribe('file-change', () => {})
     let source = MockEventSource.instances[0]
-    expect(new URL(source.url).searchParams.get('types')).toBe('file_changed')
+    expect(new URL(source.url).searchParams.get('types')).toBe('file-change')
 
-    const stopBranch = subscribe('git_branch_changed', () => {})
+    const stopBranch = subscribe('git-branch', () => {})
     expect(MockEventSource.instances).toHaveLength(2)
     source = MockEventSource.instances[1]
     expect(new URL(source.url).searchParams.get('types')).toBe(
-      'file_changed,git_branch_changed'
+      'file-change,git-branch'
     )
 
     stopBranch()
@@ -131,7 +131,7 @@ describe('eventStore', () => {
     const unsubscribeStatus = eventConnectionStatus.subscribe((value) => {
       statuses.push(value)
     })
-    const unsubscribe = subscribe('file_changed', () => {})
+    const unsubscribe = subscribe('file-change', () => {})
 
     const source = MockEventSource.instances[0]
     source.open()
@@ -149,7 +149,7 @@ describe('eventStore', () => {
   it('ignores malformed payloads without crashing', async () => {
     const { subscribe } = await import('../src/lib/eventStore.js')
     const received = []
-    const unsubscribe = subscribe('file_changed', (payload) => {
+    const unsubscribe = subscribe('file-change', (payload) => {
       received.push(payload.path)
     })
 
@@ -167,7 +167,7 @@ describe('eventStore', () => {
   it('handles burst file events', async () => {
     const { subscribe } = await import('../src/lib/eventStore.js')
     const received = []
-    const unsubscribe = subscribe('file_changed', (payload) => {
+    const unsubscribe = subscribe('file-change', (payload) => {
       received.push(payload.path)
     })
 
@@ -177,7 +177,7 @@ describe('eventStore', () => {
 
     for (let index = 0; index < 5; index += 1) {
       source.dispatch('message', {
-        data: JSON.stringify({ type: 'file_changed', path: `/tmp/plan-${index}.org` }),
+        data: JSON.stringify({ type: 'file-change', path: `/tmp/plan-${index}.org` }),
       })
     }
 

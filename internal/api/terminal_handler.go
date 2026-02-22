@@ -129,7 +129,7 @@ func (h *TerminalHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 						return
 					}
 					if bus := h.Manager.TerminalBus(); bus != nil {
-						terminalEvent := event.NewTerminalEvent(session.ID, "terminal_resized")
+						terminalEvent := event.NewTerminalEvent(session.ID, "terminal-resized")
 						terminalEvent.Data = map[string]any{
 							"cols": control.Cols,
 							"rows": control.Rows,

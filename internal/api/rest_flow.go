@@ -201,9 +201,9 @@ func mapFlowError(err error) *apiError {
 
 func flowEventTypes() []string {
 	coreTypes := []string{
-		"file_changed",
-		"git_branch_changed",
-		"terminal_resized",
+		"file-change",
+		"git-branch",
+		"git-commit",
 	}
 	notifyTypes := flowNotifyTypeList()
 	return append(coreTypes, notifyTypes...)
@@ -211,10 +211,14 @@ func flowEventTypes() []string {
 
 func flowNotifyTypeList() []string {
 	values := []string{
-		flow.CanonicalNotifyEventType("new-plan"),
-		flow.CanonicalNotifyEventType("progress"),
-		flow.CanonicalNotifyEventType("finish"),
-		flow.CanonicalNotifyEventType("other"),
+		"plan-new",
+		"plan-update",
+		"work-start",
+		"work-progress",
+		"work-finish",
+		"agent-turn",
+		"prompt-voice",
+		"prompt-text",
 	}
 	return uniqueStrings(values)
 }

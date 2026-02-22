@@ -411,8 +411,8 @@ func TestTerminalNotifyEndpoint(t *testing.T) {
 	if request.EventID != "manual:1" {
 		t.Fatalf("expected event id manual:1, got %q", request.EventID)
 	}
-	if request.Event["type"] != "notify_event" {
-		t.Fatalf("expected canonical type notify_event, got %q", request.Event["type"])
+	if request.Event["type"] != "plan-update" {
+		t.Fatalf("expected canonical type plan-update, got %q", request.Event["type"])
 	}
 	if request.Event["notify.type"] != "plan-L1-wip" {
 		t.Fatalf("expected notify.type plan-L1-wip, got %q", request.Event["notify.type"])
@@ -808,8 +808,8 @@ func TestTerminalNotifyProgressPublishesEvent(t *testing.T) {
 	}
 
 	terminalEvent := event.ReceiveWithTimeout(t, events, time.Second)
-	if terminalEvent.Type() != "plan_progress" {
-		t.Fatalf("expected plan_progress event, got %q", terminalEvent.Type())
+	if terminalEvent.Type() != "plan-update" {
+		t.Fatalf("expected plan-update event, got %q", terminalEvent.Type())
 	}
 	if terminalEvent.TerminalID != created.ID {
 		t.Fatalf("expected terminal id %q, got %q", created.ID, terminalEvent.TerminalID)

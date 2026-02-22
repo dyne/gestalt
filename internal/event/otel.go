@@ -43,7 +43,7 @@ func (b *Bus[T]) emitOTelEvent(event T, fallbackType string) {
 
 func severityForEvent(eventName string) (otellog.Severity, string) {
 	switch eventName {
-	case "terminal_resized":
+	case "terminal-resized":
 		return otellog.SeverityDebug, "debug"
 	default:
 		return otellog.SeverityInfo, "info"

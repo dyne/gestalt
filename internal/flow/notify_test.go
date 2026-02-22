@@ -4,14 +4,26 @@ import "testing"
 
 func TestCanonicalNotifyEventType(testingContext *testing.T) {
 	cases := map[string]string{
-		"new-plan":    "notify_new_plan",
-		"New Plan":    "notify_new_plan",
-		"new__plan!!": "notify_new_plan",
-		"progress":    "notify_progress",
-		"Finish":      "notify_finish",
-		"custom-type": "notify_event",
-		"   ":         "notify_event",
-		"!!!":         "notify_event",
+		"new-plan":            "plan-new",
+		"New Plan":            "plan-new",
+		"new__plan!!":         "plan-new",
+		"plan-new":            "plan-new",
+		"plan-L1-wip":         "plan-update",
+		"plan-update":         "plan-update",
+		"progress":            "plan-update",
+		"start":               "work-start",
+		"work-start":          "work-start",
+		"work-progress":       "work-progress",
+		"Finish":              "work-finish",
+		"work-finish":         "work-finish",
+		"agent-turn-complete": "agent-turn",
+		"prompt-voice":        "prompt-voice",
+		"prompt-text":         "prompt-text",
+		"commit":              "git-commit",
+		"git-commit":          "git-commit",
+		"custom-type":         "agent-turn",
+		"   ":                 "agent-turn",
+		"!!!":                 "agent-turn",
 	}
 
 	for input, expected := range cases {

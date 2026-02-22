@@ -199,7 +199,7 @@ describe('apiClient', () => {
     apiFetch.mockResolvedValue({
       json: vi.fn().mockResolvedValue({
         version: 1,
-        triggers: [{ id: 't1', label: 'Trigger', event_type: 'file_changed' }],
+        triggers: [{ id: 't1', label: 'Trigger', event_type: 'file-change' }],
         bindings_by_trigger_id: { t1: [{ activity_id: 'toast_notification' }] },
         storage_path: '.gestalt/flow/automations.json',
       }),

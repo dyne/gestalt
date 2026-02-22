@@ -222,7 +222,7 @@ describe('dashboardStore', () => {
     expect(value.gitContext).toBe('origin/main')
 
     await store.start()
-    eventHandlers.git_branch_changed({ path: 'feature-x' })
+    eventHandlers['git-branch']({ path: 'feature-x' })
     value = get(store)
     expect(value.gitContext).toBe('origin/feature-x')
     expect(fetchGitLog).toHaveBeenCalled()

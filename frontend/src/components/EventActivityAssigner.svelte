@@ -69,12 +69,12 @@
   }
 
   const notifySamples = {
-    notify_new_plan: {
+    'plan-new': {
       ...notifySampleBase,
       summary: 'New plan: Flow router updates',
       task_state: 'TODO',
       event_id: 'evt_notify_1',
-      'notify.type': 'new-plan',
+      'notify.type': 'plan-new',
       'notify.event_id': 'evt_notify_1',
       'notify.summary': 'New plan: Flow router updates',
       'notify.plan_file': '.gestalt/plans/flow-notify-router.org',
@@ -82,39 +82,87 @@
       'notify.task_title': 'Add notify presets',
       'notify.task_state': 'TODO',
     },
-    notify_progress: {
+    'plan-update': {
       ...notifySampleBase,
-      summary: 'Progress: Add notify preset',
+      summary: 'Plan update: Add notify preset',
       task_state: 'WIP',
       event_id: 'evt_notify_2',
-      'notify.type': 'progress',
+      'notify.type': 'plan-update',
       'notify.event_id': 'evt_notify_2',
-      'notify.summary': 'Progress: Add notify preset',
+      'notify.summary': 'Plan update: Add notify preset',
       'notify.plan_file': '.gestalt/plans/flow-notify-router.org',
       'notify.plan_summary': 'Route notify events into Flow.',
       'notify.task_title': 'Add notify presets',
       'notify.task_state': 'WIP',
     },
-    notify_finish: {
+    'work-start': {
+      ...notifySampleBase,
+      summary: 'Start: Notify flow',
+      task_state: 'IN_PROGRESS',
+      event_id: 'evt_notify_3',
+      'notify.type': 'work-start',
+      'notify.event_id': 'evt_notify_3',
+      'notify.summary': 'Start: Notify flow',
+      'notify.plan_file': '.gestalt/plans/flow-notify-router.org',
+      'notify.plan_summary': 'Route notify events into Flow.',
+      'notify.task_title': 'Add notify presets',
+      'notify.task_state': 'IN_PROGRESS',
+    },
+    'work-progress': {
+      ...notifySampleBase,
+      summary: 'Progress: Notify flow',
+      task_state: 'IN_PROGRESS',
+      event_id: 'evt_notify_4',
+      'notify.type': 'work-progress',
+      'notify.event_id': 'evt_notify_4',
+      'notify.summary': 'Progress: Notify flow',
+      'notify.plan_file': '.gestalt/plans/flow-notify-router.org',
+      'notify.plan_summary': 'Route notify events into Flow.',
+      'notify.task_title': 'Add notify presets',
+      'notify.task_state': 'IN_PROGRESS',
+    },
+    'work-finish': {
       ...notifySampleBase,
       summary: 'Finish: Notify flow',
       task_state: 'DONE',
-      event_id: 'evt_notify_3',
-      'notify.type': 'finish',
-      'notify.event_id': 'evt_notify_3',
+      event_id: 'evt_notify_5',
+      'notify.type': 'work-finish',
+      'notify.event_id': 'evt_notify_5',
       'notify.summary': 'Finish: Notify flow',
       'notify.plan_file': '.gestalt/plans/flow-notify-router.org',
       'notify.plan_summary': 'Route notify events into Flow.',
       'notify.task_title': 'Add notify presets',
       'notify.task_state': 'DONE',
     },
-    notify_event: {
+    'agent-turn': {
       ...notifySampleBase,
-      summary: 'Notify event received',
-      event_id: 'evt_notify_4',
-      'notify.type': 'other',
-      'notify.event_id': 'evt_notify_4',
-      'notify.summary': 'Notify event received',
+      summary: 'Agent turn complete',
+      event_id: 'evt_notify_6',
+      'notify.type': 'agent-turn-complete',
+      'notify.event_id': 'evt_notify_6',
+      'notify.summary': 'Agent turn complete',
+      'notify.plan_file': '.gestalt/plans/flow-notify-router.org',
+      'notify.plan_summary': 'Route notify events into Flow.',
+      'notify.task_title': 'Add notify presets',
+    },
+    'prompt-voice': {
+      ...notifySampleBase,
+      summary: 'Voice prompt received',
+      event_id: 'evt_notify_7',
+      'notify.type': 'prompt-voice',
+      'notify.event_id': 'evt_notify_7',
+      'notify.summary': 'Voice prompt received',
+      'notify.plan_file': '.gestalt/plans/flow-notify-router.org',
+      'notify.plan_summary': 'Route notify events into Flow.',
+      'notify.task_title': 'Add notify presets',
+    },
+    'prompt-text': {
+      ...notifySampleBase,
+      summary: 'Text prompt received',
+      event_id: 'evt_notify_8',
+      'notify.type': 'prompt-text',
+      'notify.event_id': 'evt_notify_8',
+      'notify.summary': 'Text prompt received',
       'notify.plan_file': '.gestalt/plans/flow-notify-router.org',
       'notify.plan_summary': 'Route notify events into Flow.',
       'notify.task_title': 'Add notify presets',
@@ -125,10 +173,10 @@
     if (eventType && notifySamples[eventType]) {
       return notifySamples[eventType]
     }
-    if (eventType === 'file_changed') {
+    if (eventType === 'file-change') {
       return { ...baseSampleEvent, event_id: 'evt_file_1', path: 'README.md', op: 'write' }
     }
-    if (eventType === 'git_branch_changed') {
+    if (eventType === 'git-branch') {
       return {
         ...baseSampleEvent,
         event_id: 'evt_git_1',
@@ -136,13 +184,13 @@
         previous_branch: 'main',
       }
     }
-    if (eventType === 'terminal_resized') {
+    if (eventType === 'git-commit') {
       return {
         ...baseSampleEvent,
-        event_id: 'evt_term_1',
-        terminal_id: 't1',
-        cols: '120',
-        rows: '32',
+        event_id: 'evt_commit_1',
+        git_branch: 'main',
+        commit_hash: 'abc1234',
+        summary: 'Commit: Add flow router',
       }
     }
     if (eventType && eventType.startsWith('workflow_')) {

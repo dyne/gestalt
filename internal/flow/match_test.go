@@ -55,7 +55,7 @@ func TestMatchTriggerWorkflowEventContext(t *testing.T) {
 
 func TestMatchTriggerTerminalData(t *testing.T) {
 	event := eventpkg.TerminalEvent{
-		EventType:  "terminal_resized",
+		EventType:  "terminal-resized",
 		TerminalID: "t1",
 		Data: map[string]any{
 			"cols": 80,
@@ -65,7 +65,7 @@ func TestMatchTriggerTerminalData(t *testing.T) {
 	}
 	normalized := NormalizeEvent(event)
 	trigger := EventTrigger{
-		EventType: "terminal_resized",
+		EventType: "terminal-resized",
 		Where: map[string]string{
 			"data.cols": "80",
 			"data.rows": "24",
@@ -80,7 +80,7 @@ func TestMatchBindings(t *testing.T) {
 	config := Config{
 		Version: ConfigVersion,
 		Triggers: []EventTrigger{
-			{ID: "t1", EventType: "file_changed", Where: map[string]string{"path": "README.md"}},
+			{ID: "t1", EventType: "file-change", Where: map[string]string{"path": "README.md"}},
 			{ID: "t2", EventType: "workflow_paused"},
 		},
 		BindingsByTriggerID: map[string][]ActivityBinding{
@@ -94,7 +94,7 @@ func TestMatchBindings(t *testing.T) {
 	}
 
 	normalized := map[string]string{
-		"type": "file_changed",
+		"type": "file-change",
 		"path": "README.md",
 	}
 
@@ -109,11 +109,11 @@ func TestMatchBindings(t *testing.T) {
 
 func TestMatchTriggerSessionIDWildcard(t *testing.T) {
 	normalized := map[string]string{
-		"type":       "notify_event",
+		"type":       "agent-turn",
 		"session.id": "Coder 3",
 	}
 	trigger := EventTrigger{
-		EventType: "notify_event",
+		EventType: "agent-turn",
 		Where: map[string]string{
 			"session.id": "coder",
 		},
@@ -125,11 +125,11 @@ func TestMatchTriggerSessionIDWildcard(t *testing.T) {
 
 func TestMatchTriggerSessionIDExact(t *testing.T) {
 	normalized := map[string]string{
-		"type":       "notify_event",
+		"type":       "agent-turn",
 		"session.id": "coder 2",
 	}
 	trigger := EventTrigger{
-		EventType: "notify_event",
+		EventType: "agent-turn",
 		Where: map[string]string{
 			"session.id": "coder 1",
 		},
@@ -141,11 +141,11 @@ func TestMatchTriggerSessionIDExact(t *testing.T) {
 
 func TestMatchTriggerSessionIDEmptyAllowsAll(t *testing.T) {
 	normalized := map[string]string{
-		"type":       "notify_event",
+		"type":       "agent-turn",
 		"session.id": "coder 5",
 	}
 	trigger := EventTrigger{
-		EventType: "notify_event",
+		EventType: "agent-turn",
 		Where: map[string]string{
 			"session.id": "",
 		},

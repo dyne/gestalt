@@ -407,12 +407,12 @@ func (h *RestHandler) handleTerminalNotify(w http.ResponseWriter, r *http.Reques
 		return &apiError{Status: http.StatusBadRequest, Message: "terminal is not an agent session"}
 	}
 
-	isProgress := request.EventType == "progress"
+	isProgress := request.EventType == "progress" || request.EventType == "plan-update"
 	notifyTime := time.Now().UTC()
 	if request.OccurredAt != nil && !request.OccurredAt.IsZero() {
 		notifyTime = request.OccurredAt.UTC()
 	}
-	if request.EventType == "progress" {
+	if request.EventType == "progress" || request.EventType == "plan-update" {
 		progressPayload, normalized, normalizeErr := normalizePlanProgressPayload(request.Payload)
 		if normalizeErr != nil {
 			return normalizeErr
@@ -427,7 +427,7 @@ func (h *RestHandler) handleTerminalNotify(w http.ResponseWriter, r *http.Reques
 			UpdatedAt: notifyTime,
 		})
 		if bus := h.Manager.TerminalBus(); bus != nil {
-			terminalEvent := event.NewTerminalEvent(id, "plan_progress")
+			terminalEvent := event.NewTerminalEvent(id, "plan-update")
 			terminalEvent.OccurredAt = notifyTime
 			terminalEvent.Data = map[string]any{
 				"plan_file":  progressPayload.PlanFile,

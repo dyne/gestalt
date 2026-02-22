@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	EventTypeFileChanged      = "file_changed"
-	EventTypeGitBranchChanged = "git_branch_changed"
+	EventTypeFileChanged      = "file-change"
+	EventTypeGitBranchChanged = "git-branch"
 	EventTypeWatchError       = "watch_error"
 )
 

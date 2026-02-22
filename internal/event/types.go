@@ -18,7 +18,7 @@ type FileEvent struct {
 
 func NewFileEvent(path, operation string) FileEvent {
 	return FileEvent{
-		EventType:  "file_changed",
+		EventType:  "file-change",
 		Path:       path,
 		Operation:  operation,
 		OccurredAt: time.Now().UTC(),

@@ -5,7 +5,7 @@ import EventActivityAssignerHarness from '../../tests/helpers/EventActivityAssig
 const trigger = {
   id: 'trigger-1',
   label: 'Trigger',
-  event_type: 'file_changed',
+  event_type: 'file-change',
   where: {},
 }
 
@@ -105,7 +105,7 @@ describe('EventActivityAssigner', () => {
       EventActivityAssignerHarness,
       {
         props: {
-          trigger: { ...trigger, event_type: 'notify_new_plan' },
+          trigger: { ...trigger, event_type: 'plan-new' },
           activityDefs,
           bindings: [{ activity_id: 'toast_notification', config: { message_template: '' } }],
         },

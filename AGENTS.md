@@ -149,3 +149,11 @@ terminal output -> Session output bus -> /ws/session/:id -> frontend text view
 - Backend implementation lives in `internal/gitlog` (command adapter + pure parser tests) and API handler in `internal/api/rest_git.go`.
 - Dashboard intel right column now shows Git log instead of API metrics, sourced from `dashboardStore` via `fetchGitLog`.
 - Conventional commit parsing helper is `frontend/src/lib/conventionalCommit.js` and drives type badges in `frontend/src/views/Dashboard.svelte`.
+
+## Flow YAML split-file notes
+- Shared schema validation lives in `internal/schema` and is reused by agent and flow packages.
+- Runtime flow persistence now uses split YAML files under `.gestalt/config/flows/*.flow.yaml` via `internal/flow/repository_dir_yaml.go` (no legacy JSON repository behavior).
+- Managed flow filenames are normalized to `<normalized-id>.flow.yaml` with collision detection and non-managed file-safe stale cleanup.
+- Flow config export is YAML (`flows.yaml`), and flow import is YAML-only with media-type enforcement in `internal/api/rest_flow.go`.
+- Frontend flow import/export uses YAML files (`.yaml,.yml`) and sends raw YAML payloads through `frontend/src/lib/apiClient.js`.
+- Packaged default flow files ship from `config/flows/*.flow.yaml` and extract into `.gestalt/config/flows`.

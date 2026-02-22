@@ -1,16 +1,15 @@
 package flow
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
-func TestLoadMissingConfigReturnsDefaults(t *testing.T) {
+func TestDirectoryRepositoryLoadMissingConfigReturnsDefaults(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "flow", "automations.json")
-	repo := NewFileRepository(path, nil)
+	repo := NewDirectoryRepository(filepath.Join(dir, "flows"), nil)
 
 	cfg, err := repo.Load()
 	if err != nil {
@@ -20,81 +19,153 @@ func TestLoadMissingConfigReturnsDefaults(t *testing.T) {
 		t.Fatalf("expected version %d, got %d", ConfigVersion, cfg.Version)
 	}
 	if len(cfg.Triggers) != 0 {
-		t.Fatalf("expected empty triggers, got %d", len(cfg.Triggers))
+		t.Fatalf("expected no triggers, got %d", len(cfg.Triggers))
 	}
-	if cfg.BindingsByTriggerID == nil || len(cfg.BindingsByTriggerID) != 0 {
-		t.Fatalf("expected empty bindings map")
+	if len(cfg.BindingsByTriggerID) != 0 {
+		t.Fatalf("expected no bindings, got %d", len(cfg.BindingsByTriggerID))
 	}
 }
 
-func TestLoadCorruptConfigBacksUpFile(t *testing.T) {
+func TestDirectoryRepositoryLoadAggregatesManagedYAMLFiles(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "flow", "automations.json")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("mkdir failed: %v", err)
-	}
-	if err := os.WriteFile(path, []byte("{bad json"), 0o644); err != nil {
-		t.Fatalf("write failed: %v", err)
+	flowsDir := filepath.Join(dir, "flows")
+	if err := os.MkdirAll(flowsDir, 0o755); err != nil {
+		t.Fatalf("mkdir flows dir: %v", err)
 	}
 
-	repo := NewFileRepository(path, nil)
+	one := []byte(`
+id: trigger-one
+label: Trigger One
+event_type: file_changed
+where:
+  path: README.md
+bindings:
+  - activity_id: toast_notification
+    config:
+      level: info
+      message_template: one
+`)
+	two := []byte(`
+id: trigger-two
+label: Trigger Two
+event_type: git_branch_changed
+where: {}
+bindings: []
+`)
+
+	if err := os.WriteFile(filepath.Join(flowsDir, "one.flow.yaml"), one, 0o644); err != nil {
+		t.Fatalf("write one.flow.yaml: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(flowsDir, "two.flow.yaml"), two, 0o644); err != nil {
+		t.Fatalf("write two.flow.yaml: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(flowsDir, "README.md"), []byte("notes"), 0o644); err != nil {
+		t.Fatalf("write unmanaged file: %v", err)
+	}
+
+	repo := NewDirectoryRepository(flowsDir, nil)
 	cfg, err := repo.Load()
-	if err == nil || err != ErrInvalidConfig {
-		t.Fatalf("expected ErrInvalidConfig, got %v", err)
+	if err != nil {
+		t.Fatalf("load failed: %v", err)
 	}
-	if cfg.Version != ConfigVersion {
-		t.Fatalf("expected version %d, got %d", ConfigVersion, cfg.Version)
+	if len(cfg.Triggers) != 2 {
+		t.Fatalf("expected two triggers, got %d", len(cfg.Triggers))
 	}
-	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
-		t.Fatalf("expected original file to be moved, stat err: %v", statErr)
-	}
-	matches, _ := filepath.Glob(path + ".*.bck")
-	if len(matches) == 0 {
-		t.Fatalf("expected backup file to exist")
+	if len(cfg.BindingsByTriggerID["trigger-one"]) != 1 {
+		t.Fatalf("expected trigger-one binding to load")
 	}
 }
 
-func TestSaveConfigIsAtomic(t *testing.T) {
+func TestDirectoryRepositorySaveWritesManagedFilesAndDeletesStaleManaged(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "flow", "automations.json")
-	repo := NewFileRepository(path, nil)
+	flowsDir := filepath.Join(dir, "flows")
+	if err := os.MkdirAll(flowsDir, 0o755); err != nil {
+		t.Fatalf("mkdir flows dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(flowsDir, "stale.flow.yaml"), []byte("stale"), 0o644); err != nil {
+		t.Fatalf("write stale flow file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(flowsDir, "notes.yaml"), []byte("keep"), 0o644); err != nil {
+		t.Fatalf("write unmanaged file: %v", err)
+	}
 
 	cfg := Config{
 		Version: ConfigVersion,
 		Triggers: []EventTrigger{
 			{
-				ID:        "t1",
-				Label:     "Trigger",
-				EventType: "workflow_paused",
-				Where:     map[string]string{"terminal_id": "t1"},
+				ID:        "Trigger One",
+				Label:     "Trigger One",
+				EventType: "file_changed",
+				Where:     map[string]string{"path": "README.md"},
 			},
 		},
 		BindingsByTriggerID: map[string][]ActivityBinding{
-			"t1": {
-				{ActivityID: "toast_notification", Config: map[string]any{"message": "hello"}},
+			"Trigger One": {
+				{
+					ActivityID: "toast_notification",
+					Config: map[string]any{
+						"level":            "info",
+						"message_template": "hello",
+					},
+				},
 			},
 		},
 	}
 
+	repo := NewDirectoryRepository(flowsDir, nil)
 	if err := repo.Save(cfg); err != nil {
 		t.Fatalf("save failed: %v", err)
 	}
 
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read failed: %v", err)
+	if _, err := os.Stat(filepath.Join(flowsDir, "trigger-one.flow.yaml")); err != nil {
+		t.Fatalf("expected normalized managed flow file: %v", err)
 	}
-	if !strings.Contains(string(data), "\"version\"") {
-		t.Fatalf("expected saved config to include version")
+	if _, err := os.Stat(filepath.Join(flowsDir, "stale.flow.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("expected stale managed file removed, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(flowsDir, "notes.yaml")); err != nil {
+		t.Fatalf("expected unmanaged file retained: %v", err)
+	}
+}
+
+func TestDirectoryRepositorySaveRejectsFilenameCollisions(t *testing.T) {
+	dir := t.TempDir()
+	repo := NewDirectoryRepository(filepath.Join(dir, "flows"), nil)
+
+	cfg := Config{
+		Version: ConfigVersion,
+		Triggers: []EventTrigger{
+			{ID: "Flow A", EventType: "file_changed"},
+			{ID: "flow-a", EventType: "file_changed"},
+		},
+		BindingsByTriggerID: map[string][]ActivityBinding{},
+	}
+	err := repo.Save(cfg)
+	if err == nil {
+		t.Fatal("expected collision validation error")
+	}
+	validationErr, ok := err.(*ValidationError)
+	if !ok {
+		t.Fatalf("expected ValidationError, got %T", err)
+	}
+	if validationErr.Kind != ValidationConflict {
+		t.Fatalf("expected conflict error kind, got %q", validationErr.Kind)
+	}
+}
+
+func TestDirectoryRepositoryLoadInvalidManagedYAMLReturnsInvalidConfig(t *testing.T) {
+	dir := t.TempDir()
+	flowsDir := filepath.Join(dir, "flows")
+	if err := os.MkdirAll(flowsDir, 0o755); err != nil {
+		t.Fatalf("mkdir flows dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(flowsDir, "bad.flow.yaml"), []byte("id: 123"), 0o644); err != nil {
+		t.Fatalf("write invalid flow yaml: %v", err)
 	}
 
-	entries, err := os.ReadDir(filepath.Dir(path))
-	if err != nil {
-		t.Fatalf("readdir failed: %v", err)
-	}
-	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), "automations-") {
-			t.Fatalf("unexpected temp file %s", entry.Name())
-		}
+	repo := NewDirectoryRepository(flowsDir, nil)
+	_, err := repo.Load()
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("expected ErrInvalidConfig, got %v", err)
 	}
 }

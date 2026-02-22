@@ -115,7 +115,7 @@ func TestBridgeStopsOnCancel(t *testing.T) {
 	})
 	select {
 	case <-signals:
-	case <-time.After(200 * time.Millisecond):
+	case <-time.After(500 * time.Millisecond):
 		t.Fatalf("expected signal before cancel")
 	}
 

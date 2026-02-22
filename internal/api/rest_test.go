@@ -73,7 +73,7 @@ func terminalPath(id string) string {
 	return "/api/sessions/" + escapeID(id)
 }
 
-func writeFlowConfig(t *testing.T, repo *flow.FileRepository, eventType string) {
+func writeFlowConfig(t *testing.T, repo flow.Repository, eventType string) {
 	t.Helper()
 	if repo == nil {
 		t.Fatalf("repo is required")

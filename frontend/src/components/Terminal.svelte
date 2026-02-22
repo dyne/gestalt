@@ -132,7 +132,8 @@
 
   const handleSubmit = (command) => {
     if (!state) return
-    const payload = typeof command === 'string' ? command : ''
+    const payload = typeof command === 'string' ? command : command?.value || ''
+    const source = typeof command === 'object' ? command?.source : 'text'
     if (state.sendCommand) {
       state.sendCommand(payload)
     } else {
@@ -141,11 +142,30 @@
     state.appendPrompt?.(payload)
     const trimmed = payload.trim()
     if (!trimmed || !sessionId) return
+    notifyPromptEvent(trimmed, source)
     apiFetch(buildApiPath('/api/sessions', sessionId, 'input-history'), {
       method: 'POST',
       body: JSON.stringify({ command: trimmed }),
     }).catch((err) => {
       console.warn('failed to record input history', err)
+    })
+  }
+
+  const notifyPromptEvent = (message, source) => {
+    const trimmed = String(message || '').trim()
+    if (!trimmed || !sessionId) return
+    const eventType = source === 'voice' ? 'prompt-voice' : 'prompt-text'
+    apiFetch(buildApiPath('/api/sessions', sessionId, 'notify'), {
+      method: 'POST',
+      body: JSON.stringify({
+        session_id: sessionId,
+        payload: {
+          type: eventType,
+          message: trimmed,
+        },
+      }),
+    }).catch((err) => {
+      console.warn('failed to send prompt event', err)
     })
   }
 

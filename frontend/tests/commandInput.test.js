@@ -88,7 +88,7 @@ describe('CommandInput', () => {
     await fireEvent.input(textarea, { target: { value: 'ls' } })
     await fireEvent.keyDown(textarea, { key: 'Enter' })
 
-    expect(onSubmit).toHaveBeenCalledWith('ls')
+    expect(onSubmit).toHaveBeenCalledWith({ value: 'ls', source: 'text' })
     expect(textarea.value).toBe('')
   })
 

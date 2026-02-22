@@ -441,12 +441,43 @@ func (h *RestHandler) handleTerminalNotify(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
+	if request.EventType == "prompt-text" || request.EventType == "prompt-voice" {
+		var payload map[string]any
+		if err := json.Unmarshal(request.Payload, &payload); err != nil || payload == nil {
+			return &apiError{Status: http.StatusUnprocessableEntity, Message: "payload must be a JSON object"}
+		}
+		updated := false
+		if _, ok := payload["git_branch"]; !ok {
+			_, branch := h.gitInfo()
+			if strings.TrimSpace(branch) != "" {
+				payload["git_branch"] = branch
+				updated = true
+			}
+		}
+		if _, ok := payload["plan_file"]; !ok {
+			if progress, ok := session.PlanProgress(); ok && strings.TrimSpace(progress.PlanFile) != "" {
+				payload["plan_file"] = progress.PlanFile
+				updated = true
+			}
+		}
+		if updated {
+			normalized, err := json.Marshal(payload)
+			if err != nil {
+				return &apiError{Status: http.StatusInternalServerError, Message: "failed to normalize prompt payload"}
+			}
+			request.Payload = normalized
+		}
+	}
+
 	fields, fieldsErr := buildNotifyFlowFields(session, request, notifyTime)
 	if fieldsErr != nil {
 		return fieldsErr
 	}
 
 	logFields := buildNotifyLogFields(fields, request)
+	if h.Logger != nil && (request.EventType == "prompt-text" || request.EventType == "prompt-voice") {
+		h.Logger.Debug("prompt input sent", logFields)
+	}
 	dispatch := "failed"
 	defer func() {
 		if h.Logger == nil {

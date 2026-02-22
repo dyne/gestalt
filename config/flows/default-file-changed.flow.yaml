@@ -1,0 +1,10 @@
+id: default-file-changed
+label: Default file changed toast
+event_type: file_changed
+where:
+  path: README.md
+bindings:
+  - activity_id: toast_notification
+    config:
+      level: info
+      message_template: "Changed {{path}}"

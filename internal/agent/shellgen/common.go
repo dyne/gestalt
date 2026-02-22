@@ -3,10 +3,11 @@ package shellgen
 import (
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"sort"
 	"strconv"
 	"strings"
+
+	internalschema "gestalt/internal/schema"
 )
 
 type Entry struct {
@@ -124,7 +125,7 @@ func flattenMap(prefix string, value interface{}, entries *[]Entry, expandArrays
 		return
 	}
 
-	mapValue, ok := asStringMap(value)
+	mapValue, ok := internalschema.AsStringMap(value)
 	if !ok {
 		*entries = append(*entries, Entry{Key: prefix, Value: value})
 		return
@@ -151,32 +152,6 @@ func flattenMap(prefix string, value interface{}, entries *[]Entry, expandArrays
 	}
 }
 
-func asStringMap(value interface{}) (map[string]interface{}, bool) {
-	switch typed := value.(type) {
-	case map[string]interface{}:
-		return typed, true
-	}
-	val := reflect.ValueOf(value)
-	if val.Kind() != reflect.Map {
-		return nil, false
-	}
-	if val.Type().Key().Kind() != reflect.String {
-		return nil, false
-	}
-	n := val.Len()
-	const maxEntries = 1 << 20
-	if n > maxEntries {
-		n = maxEntries
-	}
-	result := make(map[string]interface{}, n)
-	iter := val.MapRange()
-	for iter.Next() {
-		key := iter.Key().String()
-		result[key] = iter.Value().Interface()
-	}
-	return result, true
-}
-
 func needsQuoting(value string) bool {
 	for _, r := range value {
 		switch r {
@@ -199,7 +174,7 @@ func isEmptyValue(value interface{}) bool {
 	case []string:
 		return len(typed) == 0
 	}
-	if mapValue, ok := asStringMap(value); ok {
+	if mapValue, ok := internalschema.AsStringMap(value); ok {
 		return len(mapValue) == 0
 	}
 	return false

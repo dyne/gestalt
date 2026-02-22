@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"gestalt/internal/config/tomlkeys"
+	internalschema "gestalt/internal/schema"
 
 	"github.com/BurntSushi/toml"
 )
@@ -80,13 +81,13 @@ func formatValidationError(agent Agent, filePath string, data []byte, err error)
 			location = fmt.Sprintf("%s:%d", location, line)
 		}
 
-		actualDetail := formatActualDetail(vErr.Actual, vErr.ActualValue)
+		actualDetail := internalschema.FormatActualDetail(vErr.Actual, vErr.ActualValue)
 		message := vErr.Message
 		if message == "" {
 			message = fmt.Sprintf("expected %s, got %s", vErr.Expected, actualDetail)
 		}
 		if message == "unknown field" {
-			actualValue := formatValidationValue(vErr.ActualValue)
+			actualValue := internalschema.FormatValidationValue(vErr.ActualValue)
 			if actualValue != "" {
 				message = fmt.Sprintf("%s (value=%s)", message, actualValue)
 			}
@@ -195,7 +196,7 @@ func extractCLIConfig(raw map[string]interface{}) (map[string]interface{}, error
 	}
 	config := map[string]interface{}{}
 	if rawCLI, ok := raw["cli_config"]; ok {
-		cliMap, ok := asStringMap(rawCLI)
+		cliMap, ok := internalschema.AsStringMap(rawCLI)
 		if !ok {
 			return nil, fmt.Errorf("cli_config must be a table")
 		}

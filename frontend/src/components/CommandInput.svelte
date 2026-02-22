@@ -21,6 +21,7 @@
   let manualHeight = 0
   let commandStyle = ''
   let hasOverflow = false
+  let lastInputSource = 'text'
   const maxHeight = 240
   const historyLimit = 1000
 
@@ -127,9 +128,11 @@
   const submit = () => {
     if (disabled) return
     const next = value
+    const source = lastInputSource === 'voice' ? 'voice' : 'text'
+    lastInputSource = 'text'
     value = ''
     resizeTextarea()
-    onSubmit(next)
+    onSubmit({ value: next, source })
     const trimmed = next.trim()
     if (trimmed) {
       history.record(trimmed)
@@ -207,6 +210,7 @@
   const handleTranscript = (text) => {
     const transcript = text.trim()
     if (!transcript) return
+    lastInputSource = 'voice'
     const hasContent = value.trim().length > 0
     value = hasContent ? `${value.trimEnd()} ${transcript}` : transcript
     resizeTextarea()
@@ -273,7 +277,10 @@
       class:textarea--no-scroll={!hasOverflow}
       rows="3"
       placeholder="Type command... (One Enter sends, double Enter to run, Shift/Ctrl+Enter newline, Ctrl+Up/Down history)"
-      on:input={resizeTextarea}
+      on:input={() => {
+        lastInputSource = 'text'
+        resizeTextarea()
+      }}
       on:keydown={handleKeydown}
       disabled={disabled}
     ></textarea>

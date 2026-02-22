@@ -43,7 +43,6 @@ project_doc_fallback_filenames = ["AGENTS.md","CLAUDE.md","CRUSH.md", ".github/c
 
 otel.environment = "dev"
 otel.log_user_prompt = false
-otel.exporter = { otlp-grpc = { endpoint = "http://127.0.0.1:4317" } }
 
 shell_environment_policy = { PATH = "$HOME/bin:$HOME/.local/bin:/usr/local/go/bin:$NVM_BIN:/usr/local/bin:/usr/bin:/bin" }
 

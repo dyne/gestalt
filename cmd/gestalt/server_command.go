@@ -134,6 +134,9 @@ func runServer(args []string) int {
 		if port, ok := parseEndpointPort(collectorOptions.HTTPEndpoint); ok {
 			portRegistry.Set("otel", port)
 		}
+		if port, ok := parseEndpointPort(collectorOptions.GRPCEndpoint); ok {
+			portRegistry.Set("otel-grpc", port)
+		}
 	}
 	collector, collectorErr := otel.StartCollector(collectorOptions)
 	if collectorErr != nil {

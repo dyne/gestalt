@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -517,6 +518,12 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 			})
 		}
 		sessionCLIConfig["developer_instructions"] = developerInstructions
+	}
+	if profile != nil && strings.EqualFold(strings.TrimSpace(profile.CLIType), "codex") {
+		if sessionCLIConfig == nil {
+			sessionCLIConfig = map[string]interface{}{}
+		}
+		applyCodexOTelExporter(sessionCLIConfig, m.portResolver)
 	}
 
 	agentMCP := useAgentMCP(profile)
@@ -1445,6 +1452,48 @@ func copyCLIConfig(config map[string]interface{}) map[string]interface{} {
 func buildNotifyArgs(sessionID string) []string {
 	args := []string{"gestalt-notify", "--session-id", strings.TrimSpace(sessionID)}
 	return args
+}
+
+// applyCodexOTelExporter injects the local OTLP gRPC endpoint for Codex when available.
+func applyCodexOTelExporter(config map[string]interface{}, resolver ports.PortResolver) {
+	if config == nil || resolver == nil {
+		return
+	}
+	port, ok := resolver.Get("otel-grpc")
+	if !ok || port <= 0 {
+		return
+	}
+	otelMap, ok := ensureStringMap(config, "otel")
+	if !ok {
+		return
+	}
+	exporterMap, ok := ensureStringMap(otelMap, "exporter")
+	if !ok {
+		return
+	}
+	otlpMap, ok := ensureStringMap(exporterMap, "otlp-grpc")
+	if !ok {
+		return
+	}
+	if existing, ok := otlpMap["endpoint"].(string); ok && strings.TrimSpace(existing) != "" {
+		return
+	}
+	endpoint := "http://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	otlpMap["endpoint"] = endpoint
+}
+
+// ensureStringMap returns the child map for a key, creating it when absent.
+func ensureStringMap(parent map[string]interface{}, key string) (map[string]interface{}, bool) {
+	if parent == nil || strings.TrimSpace(key) == "" {
+		return nil, false
+	}
+	if existing, ok := parent[key]; ok {
+		child, ok := existing.(map[string]interface{})
+		return child, ok
+	}
+	child := map[string]interface{}{}
+	parent[key] = child
+	return child, true
 }
 
 func useAgentMCP(profile *agent.Agent) bool {

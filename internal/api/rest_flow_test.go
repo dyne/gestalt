@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"gestalt/internal/flow"
+	"gopkg.in/yaml.v3"
 )
 
 func TestFlowActivitiesEndpoint(t *testing.T) {
@@ -201,15 +202,18 @@ func TestFlowConfigExportEndpoint(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", rec.Code)
 	}
-	if disposition := rec.Header().Get("Content-Disposition"); disposition == "" {
-		t.Fatalf("expected content disposition header")
+	if contentType := rec.Header().Get("Content-Type"); contentType != "application/yaml; charset=utf-8" {
+		t.Fatalf("expected yaml content type, got %q", contentType)
 	}
-	var got flow.Config
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+	if disposition := rec.Header().Get("Content-Disposition"); disposition != "attachment; filename=\"flows.yaml\"" {
+		t.Fatalf("expected content disposition for flows.yaml, got %q", disposition)
+	}
+	var got flow.FlowBundle
+	if err := yaml.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(got.Triggers) != 1 || got.Triggers[0].ID != "t1" {
-		t.Fatalf("unexpected config: %#v", got.Triggers)
+	if len(got.Flows) != 1 || got.Flows[0].ID != "t1" {
+		t.Fatalf("unexpected config: %#v", got.Flows)
 	}
 }
 

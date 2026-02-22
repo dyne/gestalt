@@ -86,12 +86,12 @@ func (h *RestHandler) handleFlowConfigExport(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		return &apiError{Status: http.StatusInternalServerError, Message: "failed to load flow config"}
 	}
-	payload, err := json.MarshalIndent(cfg, "", "  ")
+	payload, err := flow.EncodeFlowBundleYAML(cfg)
 	if err != nil {
 		return &apiError{Status: http.StatusInternalServerError, Message: "failed to export flow config"}
 	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("Content-Disposition", "attachment; filename=\"automations.json\"")
+	w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
+	w.Header().Set("Content-Disposition", "attachment; filename=\"flows.yaml\"")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(payload)
 	return nil

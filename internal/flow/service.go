@@ -35,6 +35,14 @@ func DefaultConfigPath() string {
 	return filepath.Join(defaultGestaltStateDirectory, defaultConfigDirectory)
 }
 
+// ConfigPath returns the flow configuration directory for a given config root.
+func ConfigPath(configDir string) string {
+	if strings.TrimSpace(configDir) == "" {
+		return DefaultConfigPath()
+	}
+	return filepath.Join(configDir, "flows")
+}
+
 func NewService(repo Repository, dispatcher Dispatcher, logger *logging.Logger) *Service {
 	defs := ActivityCatalog()
 	return &Service{

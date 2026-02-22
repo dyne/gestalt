@@ -149,8 +149,6 @@
       case 'work-progress':
       case 'work-finish':
       case 'agent-turn-complete':
-      case 'prompt-voice':
-      case 'prompt-text':
         return [
           'plan_file',
           'task_level',
@@ -163,6 +161,9 @@
           'git_branch',
           'last-assistant-message',
         ]
+      case 'prompt-voice':
+      case 'prompt-text':
+        return ['plan_file', 'git_branch', 'message']
       default:
         return []
     }

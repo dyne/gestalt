@@ -52,6 +52,24 @@ If `GESTALT_TOKEN` is set:
 - `GET /api/flow/config/export`
 - `POST /api/flow/config/import`
 
+Flow config endpoint policy:
+
+- `GET /api/flow/config` and `PUT /api/flow/config` use JSON.
+- `GET /api/flow/config/export` always returns YAML with:
+  - `Content-Type: application/yaml; charset=utf-8`
+  - `Content-Disposition: attachment; filename="flows.yaml"`
+- `POST /api/flow/config/import` is YAML-only. Accepted media types:
+  - `application/yaml`
+  - `application/x-yaml`
+  - `text/yaml`
+  - `text/x-yaml`
+  Charset parameters (for example `; charset=utf-8`) are allowed.
+- `POST /api/flow/config/import` returns:
+  - `415 Unsupported Media Type` for missing or unsupported `Content-Type` (including `application/json`)
+  - `400 Bad Request` for invalid YAML or schema shape mismatch
+  - `409 Conflict` for semantic conflicts (for example duplicate trigger IDs)
+  - `500 Internal Server Error` for save failures
+
 ### OpenTelemetry
 
 - `POST /api/otel/logs`

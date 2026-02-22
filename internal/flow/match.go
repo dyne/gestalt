@@ -41,6 +41,9 @@ func matchWhereValue(key, normalizedValue, expected string) bool {
 	if normalizedKey != "session.id" && normalizedKey != "session_id" {
 		return false
 	}
+	if strings.TrimSpace(expected) == "" {
+		return true
+	}
 	if hasSessionSequence(expected) {
 		return false
 	}

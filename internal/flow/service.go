@@ -10,8 +10,7 @@ import (
 )
 
 const (
-	defaultConfigFilename        = "automations.json"
-	defaultConfigDirectory       = "flow"
+	defaultConfigDirectory       = "config/flows"
 	defaultGestaltStateDirectory = ".gestalt"
 	defaultFlowDeduperSize       = 500
 )
@@ -33,7 +32,7 @@ type Service struct {
 }
 
 func DefaultConfigPath() string {
-	return filepath.Join(defaultGestaltStateDirectory, defaultConfigDirectory, defaultConfigFilename)
+	return filepath.Join(defaultGestaltStateDirectory, defaultConfigDirectory)
 }
 
 func NewService(repo Repository, dispatcher Dispatcher, logger *logging.Logger) *Service {

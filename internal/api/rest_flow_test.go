@@ -61,8 +61,8 @@ func TestFlowEventTypesEndpoint(t *testing.T) {
 
 func TestFlowConfigEndpointGet(t *testing.T) {
 	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "automations.json")
-	repo := flow.NewFileRepository(configPath, nil)
+	repoPath := filepath.Join(tempDir, "automations.json")
+	repo := flow.NewFileRepository(repoPath, nil)
 	cfg := flow.Config{
 		Version: flow.ConfigVersion,
 		Triggers: []flow.EventTrigger{
@@ -91,8 +91,8 @@ func TestFlowConfigEndpointGet(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if got.StoragePath != configPath {
-		t.Fatalf("expected storage path %q, got %q", configPath, got.StoragePath)
+	if got.StoragePath != tempDir {
+		t.Fatalf("expected storage path %q, got %q", tempDir, got.StoragePath)
 	}
 	if len(got.Triggers) != 1 || got.Triggers[0].ID != "t1" {
 		t.Fatalf("unexpected config: %#v", got.Triggers)

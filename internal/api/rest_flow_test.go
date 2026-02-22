@@ -223,30 +223,40 @@ func TestFlowConfigImportEndpoint(t *testing.T) {
 	service := flow.NewService(repo, nil, nil)
 	handler := &RestHandler{FlowService: service}
 
-	cfg := flow.Config{
-		Version: flow.ConfigVersion,
-		Triggers: []flow.EventTrigger{
-			{ID: "t1", Label: "Trigger one", EventType: "file_changed", Where: map[string]string{"terminal_id": "t1"}},
-		},
-		BindingsByTriggerID: map[string][]flow.ActivityBinding{},
-	}
-	body, err := json.Marshal(cfg)
-	if err != nil {
-		t.Fatalf("marshal config: %v", err)
-	}
-	req := httptest.NewRequest(http.MethodPost, "/api/flow/config/import", bytes.NewReader(body))
-	rec := httptest.NewRecorder()
-	restHandler("", nil, handler.handleFlowConfigImport)(rec, req)
+	payload := []byte(`
+version: 1
+flows:
+  - id: t1
+    label: Trigger one
+    event_type: file_changed
+    where:
+      terminal_id: t1
+    bindings: []
+`)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	acceptedTypes := []string{
+		"application/yaml",
+		"application/x-yaml",
+		"text/yaml",
+		"text/x-yaml",
+		"text/yaml; charset=utf-8",
 	}
-	loaded, err := repo.Load()
-	if err != nil {
-		t.Fatalf("load config: %v", err)
-	}
-	if len(loaded.Triggers) != 1 || loaded.Triggers[0].ID != "t1" {
-		t.Fatalf("unexpected persisted config: %#v", loaded.Triggers)
+	for _, mediaType := range acceptedTypes {
+		req := httptest.NewRequest(http.MethodPost, "/api/flow/config/import", bytes.NewReader(payload))
+		req.Header.Set("Content-Type", mediaType)
+		rec := httptest.NewRecorder()
+		restHandler("", nil, handler.handleFlowConfigImport)(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("media type %q: expected status 200, got %d: %s", mediaType, rec.Code, rec.Body.String())
+		}
+		loaded, err := repo.Load()
+		if err != nil {
+			t.Fatalf("media type %q: load config: %v", mediaType, err)
+		}
+		if len(loaded.Triggers) != 1 || loaded.Triggers[0].ID != "t1" {
+			t.Fatalf("media type %q: unexpected persisted config: %#v", mediaType, loaded.Triggers)
+		}
 	}
 }
 
@@ -257,25 +267,43 @@ func TestFlowConfigImportEndpointValidationErrors(t *testing.T) {
 	handler := &RestHandler{FlowService: service}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/flow/config/import", bytes.NewBufferString("{"))
+	req.Header.Set("Content-Type", "text/yaml")
 	rec := httptest.NewRecorder()
 	restHandler("", nil, handler.handleFlowConfigImport)(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected status 400, got %d", rec.Code)
 	}
 
-	duplicate := flow.Config{
-		Version: flow.ConfigVersion,
-		Triggers: []flow.EventTrigger{
-			{ID: "dup", EventType: "file_changed"},
-			{ID: "dup", EventType: "file_changed"},
-		},
-		BindingsByTriggerID: map[string][]flow.ActivityBinding{},
-	}
-	body, _ := json.Marshal(duplicate)
-	req = httptest.NewRequest(http.MethodPost, "/api/flow/config/import", bytes.NewReader(body))
+	duplicate := []byte(`
+version: 1
+flows:
+  - id: dup
+    event_type: file_changed
+    bindings: []
+  - id: dup
+    event_type: file_changed
+    bindings: []
+`)
+	req = httptest.NewRequest(http.MethodPost, "/api/flow/config/import", bytes.NewReader(duplicate))
+	req.Header.Set("Content-Type", "application/yaml")
 	rec = httptest.NewRecorder()
 	restHandler("", nil, handler.handleFlowConfigImport)(rec, req)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("expected status 409, got %d", rec.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/flow/config/import", bytes.NewReader(duplicate))
+	rec = httptest.NewRecorder()
+	restHandler("", nil, handler.handleFlowConfigImport)(rec, req)
+	if rec.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("expected status 415 for missing content type, got %d", rec.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/flow/config/import", bytes.NewReader(duplicate))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	restHandler("", nil, handler.handleFlowConfigImport)(rec, req)
+	if rec.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("expected status 415 for unsupported content type, got %d", rec.Code)
 	}
 }

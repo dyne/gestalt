@@ -1,6 +1,9 @@
 package flow
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 type ActivityMatch struct {
 	Trigger EventTrigger
@@ -22,11 +25,68 @@ func MatchTrigger(trigger EventTrigger, normalized map[string]string) bool {
 		if !ok {
 			return false
 		}
-		if !strings.EqualFold(normalizedValue, expected) {
+		if !matchWhereValue(key, normalizedValue, expected) {
 			return false
 		}
 	}
 	return true
+}
+
+// matchWhereValue handles trigger matching for specific keys like session ids.
+func matchWhereValue(key, normalizedValue, expected string) bool {
+	if strings.EqualFold(normalizedValue, expected) {
+		return true
+	}
+	normalizedKey := strings.ToLower(strings.TrimSpace(key))
+	if normalizedKey != "session.id" && normalizedKey != "session_id" {
+		return false
+	}
+	if hasSessionSequence(expected) {
+		return false
+	}
+	return matchSessionPrefix(normalizedValue, expected)
+}
+
+// hasSessionSequence returns true when the session value ends with a numeric sequence.
+func hasSessionSequence(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return false
+	}
+	idx := strings.LastIndex(trimmed, " ")
+	if idx == -1 {
+		return false
+	}
+	suffix := strings.TrimSpace(trimmed[idx+1:])
+	if suffix == "" {
+		return false
+	}
+	_, err := strconv.ParseUint(suffix, 10, 64)
+	return err == nil
+}
+
+// matchSessionPrefix allows "name" to match "name 1" style session ids.
+func matchSessionPrefix(actual, expected string) bool {
+	actual = strings.TrimSpace(actual)
+	expected = strings.TrimSpace(expected)
+	if actual == "" || expected == "" {
+		return false
+	}
+	if strings.EqualFold(actual, expected) {
+		return true
+	}
+	lowerActual := strings.ToLower(actual)
+	lowerExpected := strings.ToLower(expected)
+	prefix := lowerExpected + " "
+	if !strings.HasPrefix(lowerActual, prefix) {
+		return false
+	}
+	suffix := strings.TrimSpace(actual[len(expected):])
+	if suffix == "" {
+		return false
+	}
+	_, err := strconv.ParseUint(suffix, 10, 64)
+	return err == nil
 }
 
 func MatchBindings(config Config, normalized map[string]string) []ActivityMatch {

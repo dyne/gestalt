@@ -106,3 +106,35 @@ func TestMatchBindings(t *testing.T) {
 		t.Fatalf("unexpected match: %#v", matches[0])
 	}
 }
+
+func TestMatchTriggerSessionIDWildcard(t *testing.T) {
+	normalized := map[string]string{
+		"type":       "notify_event",
+		"session.id": "Coder 3",
+	}
+	trigger := EventTrigger{
+		EventType: "notify_event",
+		Where: map[string]string{
+			"session.id": "coder",
+		},
+	}
+	if !MatchTrigger(trigger, normalized) {
+		t.Fatalf("expected session id wildcard to match")
+	}
+}
+
+func TestMatchTriggerSessionIDExact(t *testing.T) {
+	normalized := map[string]string{
+		"type":       "notify_event",
+		"session.id": "coder 2",
+	}
+	trigger := EventTrigger{
+		EventType: "notify_event",
+		Where: map[string]string{
+			"session.id": "coder 1",
+		},
+	}
+	if MatchTrigger(trigger, normalized) {
+		t.Fatalf("expected exact session id to not match different session")
+	}
+}

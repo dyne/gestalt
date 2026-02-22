@@ -15,7 +15,7 @@ func TestWorkflowRoutesReturnNotFound(t *testing.T) {
 		PtyFactory: factory,
 	})
 	mux := http.NewServeMux()
-	RegisterRoutes(mux, manager, "", StatusConfig{}, "", nil, nil, nil)
+	RegisterRoutes(mux, manager, "", StatusConfig{}, "", nil, nil, nil, nil)
 
 	tests := []struct {
 		name string

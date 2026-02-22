@@ -26,17 +26,19 @@ type StatusConfig struct {
 	SessionInputFontSize   string
 }
 
-func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken string, statusConfig StatusConfig, staticDir string, frontendFS fs.FS, logger *logging.Logger, eventBus *event.Bus[watcher.Event]) {
+func RegisterRoutes(mux *http.ServeMux, manager *terminal.Manager, authToken string, statusConfig StatusConfig, staticDir string, frontendFS fs.FS, logger *logging.Logger, eventBus *event.Bus[watcher.Event], flowService *flow.Service) {
 	// Git info is read once on boot to avoid polling; refresh can be added later.
 	gitOrigin, gitBranch := loadGitInfo()
 	metricsSummary := otel.NewAPISummaryStore()
-	flowRepo := flow.NewFileRepository(flow.DefaultConfigPath(), logger)
 	notificationSink := notify.NewOTelSink(nil)
-	var dispatcher flow.Dispatcher
-	if manager != nil {
-		dispatcher = flowruntime.NewDispatcher(manager, logger, notificationSink, 0)
+	if flowService == nil {
+		flowRepo := flow.NewFileRepository(flow.DefaultConfigPath(), logger)
+		var dispatcher flow.Dispatcher
+		if manager != nil {
+			dispatcher = flowruntime.NewDispatcher(manager, logger, notificationSink, 0)
+		}
+		flowService = flow.NewService(flowRepo, dispatcher, logger)
 	}
-	flowService := flow.NewService(flowRepo, dispatcher, logger)
 	rest := &RestHandler{
 		Manager:                manager,
 		FlowService:            flowService,

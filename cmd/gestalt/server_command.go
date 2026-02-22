@@ -385,7 +385,7 @@ func runServer(args []string) int {
 		SessionFontSize:        settings.Session.FontSize,
 		SessionInputFontFamily: settings.Session.InputFontFamily,
 		SessionInputFontSize:   settings.Session.InputFontSize,
-	}, "", nil, logger, eventBus)
+	}, "", nil, logger, eventBus, flowService)
 	backendListener, backendPort, err := listenOnPort(cfg.BackendPort)
 	if err != nil {
 		logger.Error("backend listen failed", map[string]string{

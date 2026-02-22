@@ -40,7 +40,7 @@ func TestLoggingMiddlewareAddsCategory(t *testing.T) {
 func TestSecurityHeadersOnStatus(t *testing.T) {
 	manager := terminal.NewManager(terminal.ManagerOptions{})
 	mux := http.NewServeMux()
-	RegisterRoutes(mux, manager, "", StatusConfig{}, "", nil, nil, nil)
+	RegisterRoutes(mux, manager, "", StatusConfig{}, "", nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
 	recorder := httptest.NewRecorder()

@@ -90,6 +90,19 @@ func (c fixedClock) Now() time.Time {
 	return c.now
 }
 
+type fixedPortResolver struct {
+	ports map[string]int
+}
+
+func (resolver fixedPortResolver) Get(service string) (int, bool) {
+	service = strings.ToLower(strings.TrimSpace(service))
+	if service == "" {
+		return 0, false
+	}
+	port, ok := resolver.ports[service]
+	return port, ok
+}
+
 func agentSequenceValue(manager *Manager, name string) uint64 {
 	manager.mu.RLock()
 	defer manager.mu.RUnlock()
@@ -915,6 +928,11 @@ func TestManagerCodexDeveloperInstructions(t *testing.T) {
 	factory := &captureFactory{}
 	manager := NewManager(ManagerOptions{
 		PtyFactory: factory,
+		PortResolver: fixedPortResolver{
+			ports: map[string]int{
+				"otel-grpc": 4319,
+			},
+		},
 		Skills: map[string]*skill.Skill{
 			"alpha": {
 				Name:        "alpha",
@@ -958,6 +976,9 @@ func TestManagerCodexDeveloperInstructions(t *testing.T) {
 	}
 	if !strings.Contains(session.Command, "notify=") {
 		t.Fatalf("expected notify in command, got %q", session.Command)
+	}
+	if !strings.Contains(session.Command, "otel.exporter.otlp-grpc.endpoint=http://127.0.0.1:4319") {
+		t.Fatalf("expected otel exporter endpoint in command, got %q", session.Command)
 	}
 	if !strings.Contains(session.Command, "<available_skills>") {
 		t.Fatalf("expected skills XML in command, got %q", session.Command)

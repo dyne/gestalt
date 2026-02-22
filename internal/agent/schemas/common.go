@@ -3,51 +3,26 @@ package schemas
 import (
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/invopop/jsonschema"
+
+	internalschema "gestalt/internal/schema"
 )
 
-type schemaProvider func() *jsonschema.Schema
-
-var (
-	registry = map[string]schemaProvider{
-		"codex":   CodexSchema,
-		"copilot": CopilotSchema,
-	}
-	registryMu sync.RWMutex
-	cache      = map[string]*jsonschema.Schema{}
-	cacheMu    sync.RWMutex
-)
+func init() {
+	_ = RegisterSchema("codex", CodexSchema)
+	_ = RegisterSchema("copilot", CopilotSchema)
+}
 
 func SchemaFor(cliType string) (*jsonschema.Schema, error) {
 	cliType = strings.ToLower(strings.TrimSpace(cliType))
 	if cliType == "" {
 		return nil, fmt.Errorf("cli type is required for schema lookup")
 	}
-
-	cacheMu.RLock()
-	if schema, ok := cache[cliType]; ok {
-		cacheMu.RUnlock()
-		return schema, nil
-	}
-	cacheMu.RUnlock()
-
-	registryMu.RLock()
-	provider, ok := registry[cliType]
-	registryMu.RUnlock()
-	if !ok {
-		return nil, fmt.Errorf("unknown cli type %q", cliType)
-	}
-
-	schema := provider()
-	cacheMu.Lock()
-	cache[cliType] = schema
-	cacheMu.Unlock()
-	return schema, nil
+	return internalschema.Resolve(cliType)
 }
 
-func RegisterSchema(cliType string, provider schemaProvider) error {
+func RegisterSchema(cliType string, provider func() *jsonschema.Schema) error {
 	cliType = strings.ToLower(strings.TrimSpace(cliType))
 	if cliType == "" {
 		return fmt.Errorf("cli type is required for schema registration")
@@ -55,19 +30,9 @@ func RegisterSchema(cliType string, provider schemaProvider) error {
 	if provider == nil {
 		return fmt.Errorf("schema provider is required")
 	}
-
-	registryMu.Lock()
-	registry[cliType] = provider
-	registryMu.Unlock()
-
-	cacheMu.Lock()
-	delete(cache, cliType)
-	cacheMu.Unlock()
-	return nil
+	return internalschema.Register(cliType, provider)
 }
 
 func ClearSchemaCache() {
-	cacheMu.Lock()
-	cache = map[string]*jsonschema.Schema{}
-	cacheMu.Unlock()
+	internalschema.ClearCache()
 }

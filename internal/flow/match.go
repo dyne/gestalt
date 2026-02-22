@@ -21,6 +21,9 @@ func MatchTrigger(trigger EventTrigger, normalized map[string]string) bool {
 		}
 	}
 	for key, expected := range trigger.Where {
+		if strings.TrimSpace(expected) == "*" {
+			continue
+		}
 		normalizedValue, ok := normalized[strings.ToLower(strings.TrimSpace(key))]
 		if !ok {
 			return false

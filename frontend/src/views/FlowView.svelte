@@ -30,6 +30,7 @@
   let draftLabel = ''
   let draftEventType = fallbackEventTypeOptions[0]
   let draftWhere = ''
+  let draftWhereTouched = false
   let draftSessionId = ''
   let importInputRef = null
   let clipboardAvailable = false
@@ -134,6 +135,45 @@
       .map(([key, value]) => `${key}=${value}`)
       .join('\n')
 
+  const defaultWhereFieldsForEventType = (eventType) => {
+    switch (eventType) {
+      case 'file-change':
+        return ['path', 'op']
+      case 'git-branch':
+        return ['path']
+      case 'git-commit':
+        return ['git_branch', 'commit_hash', 'commit_message', 'plan_file']
+      case 'plan-new':
+      case 'plan-update':
+      case 'work-start':
+      case 'work-progress':
+      case 'work-finish':
+      case 'agent-turn-complete':
+      case 'prompt-voice':
+      case 'prompt-text':
+        return [
+          'plan_file',
+          'task_level',
+          'task_state',
+          'task_title',
+          'l1',
+          'l2',
+          'summary',
+          'plan_summary',
+          'git_branch',
+          'last-assistant-message',
+        ]
+      default:
+        return []
+    }
+  }
+
+  const defaultWhereForEventType = (eventType) => {
+    const fields = defaultWhereFieldsForEventType(eventType)
+    if (fields.length === 0) return ''
+    return fields.map((field) => `${field}=*`).join('\n')
+  }
+
   const buildTriggerId = (label) => {
     const base = label
       .toLowerCase()
@@ -152,7 +192,8 @@
     dialogMode = 'create'
     draftLabel = ''
     draftEventType = eventTypeOptions[0]
-    draftWhere = ''
+    draftWhere = defaultWhereForEventType(eventTypeOptions[0])
+    draftWhereTouched = false
     draftSessionId = ''
     dialogError = ''
     showDialog()
@@ -164,6 +205,10 @@
     draftLabel = selectedTrigger.label
     draftEventType = selectedTrigger.event_type
     draftWhere = serializeWhere(selectedTrigger.where)
+    if (!draftWhere) {
+      draftWhere = defaultWhereForEventType(draftEventType)
+    }
+    draftWhereTouched = false
     draftSessionId = extractSessionId(selectedTrigger.where)
     dialogError = ''
     showDialog()
@@ -216,6 +261,13 @@
     })
     selectedTriggerId = id
     closeDialog()
+  }
+
+  $: if (dialogOpen && !draftWhereTouched) {
+    const defaults = defaultWhereForEventType(draftEventType)
+    if (defaults) {
+      draftWhere = defaults
+    }
   }
 
   const copyStoragePath = async () => {
@@ -567,6 +619,7 @@
       rows="4"
       placeholder="session.id=coder-1"
       bind:value={draftWhere}
+      on:input={() => (draftWhereTouched = true)}
     ></textarea>
     {#if dialogError}
       <p class="dialog-error">{dialogError}</p>

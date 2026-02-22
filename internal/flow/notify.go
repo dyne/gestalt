@@ -5,7 +5,7 @@ import "strings"
 func CanonicalNotifyEventType(raw string) string {
 	normalized := normalizeNotifyToken(raw)
 	if normalized == "" {
-		return "agent-turn"
+		return "agent-turn-complete"
 	}
 	switch normalized {
 	case "new-plan", "plan-new":
@@ -47,9 +47,9 @@ func CanonicalNotifyEventType(raw string) string {
 			return "prompt-text"
 		}
 		if strings.HasPrefix(normalized, "agent-turn") {
-			return "agent-turn"
+			return "agent-turn-complete"
 		}
-		return "agent-turn"
+		return "agent-turn-complete"
 	}
 }
 

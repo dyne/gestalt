@@ -134,7 +134,7 @@
       'notify.task_title': 'Add notify presets',
       'notify.task_state': 'DONE',
     },
-    'agent-turn': {
+    'agent-turn-complete': {
       ...notifySampleBase,
       summary: 'Agent turn complete',
       event_id: 'evt_notify_6',

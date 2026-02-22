@@ -98,7 +98,7 @@ func validateTriggerWhere(trigger EventTrigger) error {
 
 func isNotifyEventType(eventType string) bool {
 	switch strings.ToLower(strings.TrimSpace(eventType)) {
-	case "plan-new", "plan-update", "work-start", "work-progress", "work-finish", "agent-turn", "prompt-voice", "prompt-text":
+	case "plan-new", "plan-update", "work-start", "work-progress", "work-finish", "agent-turn-complete", "prompt-voice", "prompt-text":
 		return true
 	default:
 		return false

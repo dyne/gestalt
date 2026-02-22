@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"gestalt/internal/guimodules"
+	internalschema "gestalt/internal/schema"
 )
 
 // PromptList supports "prompt" as a string or array in TOML.
@@ -127,7 +128,7 @@ func (a *Agent) ResolveInterface() (string, error) {
 				return "", &ValidationError{
 					Path:        "codex_mode",
 					Expected:    "\"mcp-server\" or \"tui\"",
-					Actual:      actualType(mode),
+					Actual:      internalschema.ActualType(mode),
 					ActualValue: mode,
 				}
 			}

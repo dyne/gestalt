@@ -138,3 +138,19 @@ func TestMatchTriggerSessionIDExact(t *testing.T) {
 		t.Fatalf("expected exact session id to not match different session")
 	}
 }
+
+func TestMatchTriggerSessionIDEmptyAllowsAll(t *testing.T) {
+	normalized := map[string]string{
+		"type":       "notify_event",
+		"session.id": "coder 5",
+	}
+	trigger := EventTrigger{
+		EventType: "notify_event",
+		Where: map[string]string{
+			"session.id": "",
+		},
+	}
+	if !MatchTrigger(trigger, normalized) {
+		t.Fatalf("expected empty session id to match any session")
+	}
+}

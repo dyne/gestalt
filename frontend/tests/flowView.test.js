@@ -4,6 +4,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest'
 const fetchFlowActivities = vi.hoisted(() => vi.fn())
 const fetchFlowConfig = vi.hoisted(() => vi.fn())
 const fetchFlowEventTypes = vi.hoisted(() => vi.fn())
+const fetchTerminals = vi.hoisted(() => vi.fn())
 const saveFlowConfig = vi.hoisted(() => vi.fn())
 const exportFlowConfig = vi.hoisted(() => vi.fn())
 const importFlowConfig = vi.hoisted(() => vi.fn())
@@ -12,6 +13,7 @@ vi.mock('../src/lib/apiClient.js', () => ({
   fetchFlowActivities,
   fetchFlowConfig,
   fetchFlowEventTypes,
+  fetchTerminals,
   saveFlowConfig,
   exportFlowConfig,
   importFlowConfig,
@@ -25,6 +27,7 @@ describe('FlowView', () => {
     fetchFlowActivities.mockReset()
     fetchFlowConfig.mockReset()
     fetchFlowEventTypes.mockReset()
+    fetchTerminals.mockReset()
     saveFlowConfig.mockReset()
     exportFlowConfig.mockReset()
     importFlowConfig.mockReset()
@@ -53,6 +56,7 @@ describe('FlowView', () => {
         bindings_by_trigger_id: {},
       },
     })
+    fetchTerminals.mockResolvedValue([])
 
     const { getByLabelText, getByRole, queryByText, findAllByText, findByText } = render(FlowView)
 
@@ -93,6 +97,7 @@ describe('FlowView', () => {
         bindings_by_trigger_id: {},
       },
     })
+    fetchTerminals.mockResolvedValue([])
     saveFlowConfig.mockResolvedValue({
       config: {
         version: 1,
@@ -149,6 +154,7 @@ describe('FlowView', () => {
         bindings_by_trigger_id: {},
       },
     })
+    fetchTerminals.mockResolvedValue([])
     importFlowConfig.mockResolvedValue({
       config: { version: 1, triggers: [], bindings_by_trigger_id: {} },
     })

@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte'
   import EventActivityAssigner from '../components/EventActivityAssigner.svelte'
-  import { exportFlowConfig, importFlowConfig } from '../lib/apiClient.js'
+  import { exportFlowConfig, fetchTerminals, importFlowConfig } from '../lib/apiClient.js'
   import { canUseClipboard, copyToClipboard } from '../lib/clipboard.js'
   import { parseEventFilterQuery, matchesEventTrigger } from '../lib/eventFilterQuery.js'
   import { getErrorMessage } from '../lib/errorUtils.js'
@@ -26,6 +26,7 @@
   let draftLabel = ''
   let draftEventType = fallbackEventTypeOptions[0]
   let draftWhere = ''
+  let draftSessionId = ''
   let importInputRef = null
   let clipboardAvailable = false
   let storageCopied = false
@@ -33,10 +34,12 @@
   let importError = ''
   let exportInProgress = false
   let importInProgress = false
+  let sessionOptions = []
 
   onMount(() => {
     clipboardAvailable = canUseClipboard()
     flowConfigStore.load()
+    void loadSessions()
   })
 
   $: flowState = $flowConfigStore
@@ -107,8 +110,23 @@
     return where
   }
 
+  const isSessionKey = (value) => {
+    const normalized = String(value || '').trim().toLowerCase()
+    return normalized === 'session.id' || normalized === 'session_id'
+  }
+
+  const extractSessionId = (where = {}) => {
+    for (const [key, value] of Object.entries(where)) {
+      if (!isSessionKey(key)) continue
+      const trimmed = String(value || '').trim()
+      if (trimmed) return trimmed
+    }
+    return ''
+  }
+
   const serializeWhere = (where = {}) =>
     Object.entries(where)
+      .filter(([key]) => !isSessionKey(key))
       .map(([key, value]) => `${key}=${value}`)
       .join('\n')
 
@@ -131,6 +149,7 @@
     draftLabel = ''
     draftEventType = eventTypeOptions[0]
     draftWhere = ''
+    draftSessionId = ''
     dialogError = ''
     showDialog()
   }
@@ -141,6 +160,7 @@
     draftLabel = selectedTrigger.label
     draftEventType = selectedTrigger.event_type
     draftWhere = serializeWhere(selectedTrigger.where)
+    draftSessionId = extractSessionId(selectedTrigger.where)
     dialogError = ''
     showDialog()
   }
@@ -153,6 +173,18 @@
       return
     }
     const where = parseWhereText(draftWhere)
+    let sessionId = draftSessionId.trim()
+    if (!sessionId) {
+      sessionId = String(where['session.id'] || where['session_id'] || '').trim()
+    }
+    Object.keys(where).forEach((key) => {
+      if (isSessionKey(key)) {
+        delete where[key]
+      }
+    })
+    if (sessionId) {
+      where['session.id'] = sessionId
+    }
     if (dialogMode === 'edit' && selectedTrigger) {
       flowConfigStore.updateConfig((config) => ({
         ...config,
@@ -237,6 +269,15 @@
       importError = getErrorMessage(err, 'Failed to import Flow configuration.')
     } finally {
       importInProgress = false
+    }
+  }
+
+  const loadSessions = async () => {
+    try {
+      const sessions = await fetchTerminals()
+      sessionOptions = Array.isArray(sessions) ? sessions : []
+    } catch (err) {
+      sessionOptions = []
     }
   }
 
@@ -498,6 +539,23 @@
         <option value={eventType}>{eventType}</option>
       {/each}
     </select>
+    <label class="field-label" for="trigger-session-id">Session ID</label>
+    <input
+      id="trigger-session-id"
+      class="field-input"
+      type="text"
+      list="session-id-options"
+      placeholder="coder 1"
+      bind:value={draftSessionId}
+    />
+    <datalist id="session-id-options">
+      {#each sessionOptions as session}
+        <option value={session.id}>{session.title ? `${session.id} — ${session.title}` : session.id}</option>
+      {/each}
+    </datalist>
+    <p class="field-hint">
+      Leave blank to match any session. Use the name only (no number) to match all sessions for that name.
+    </p>
     <label class="field-label" for="trigger-where">Where (one per line)</label>
     <textarea
       id="trigger-where"

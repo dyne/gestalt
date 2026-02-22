@@ -376,7 +376,7 @@ export const createDashboardStore = () => {
         notificationStore.addNotification('error', `Config validation failed: ${detail}`)
       }),
     ]
-    gitUnsubscribe = subscribeEvents('git_branch_changed', (payload) => {
+    gitUnsubscribe = subscribeEvents('git-branch', (payload) => {
       if (!payload?.path) return
       setGitBranch(payload.path)
       loadGitLog()

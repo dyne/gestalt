@@ -100,7 +100,7 @@ func TestBusEmitsOTelLogRecordFromFields(t *testing.T) {
 
 	bus := NewBus[sampleEvent](context.Background(), BusOptions{Name: "watcher_events"})
 	bus.Publish(sampleEvent{
-		Type:      "file_changed",
+		Type:      "file-change",
 		Path:      "/tmp/plan.org",
 		Op:        "WRITE",
 		Timestamp: time.Now().UTC(),
@@ -110,8 +110,8 @@ func TestBusEmitsOTelLogRecordFromFields(t *testing.T) {
 	if record == nil {
 		t.Fatalf("expected log record with file.path")
 	}
-	if record.EventName() != "file_changed" {
-		t.Fatalf("expected event name file_changed, got %q", record.EventName())
+	if record.EventName() != "file-change" {
+		t.Fatalf("expected event name file-change, got %q", record.EventName())
 	}
 }
 
@@ -126,15 +126,15 @@ func TestBusEmitsOTelLogRecordWithDebugSeverity(t *testing.T) {
 	})
 
 	bus := NewBus[TerminalEvent](context.Background(), BusOptions{Name: "terminal_events"})
-	event := NewTerminalEvent("term-9", "terminal_resized")
+	event := NewTerminalEvent("term-9", "terminal-resized")
 	bus.Publish(event)
 
 	record := findRecordWithAttribute(exporter.snapshot(), "terminal.id", "term-9")
 	if record == nil {
 		t.Fatalf("expected log record with terminal.id")
 	}
-	if record.EventName() != "terminal_resized" {
-		t.Fatalf("expected event name terminal_resized, got %q", record.EventName())
+	if record.EventName() != "terminal-resized" {
+		t.Fatalf("expected event name terminal-resized, got %q", record.EventName())
 	}
 	if record.Severity() != otellog.SeverityDebug {
 		t.Fatalf("expected debug severity, got %v", record.Severity())

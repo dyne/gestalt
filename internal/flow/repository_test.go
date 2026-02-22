@@ -36,7 +36,7 @@ func TestDirectoryRepositoryLoadAggregatesManagedYAMLFiles(t *testing.T) {
 	one := []byte(`
 id: trigger-one
 label: Trigger One
-event_type: file_changed
+event_type: file-change
 where:
   path: README.md
 bindings:
@@ -48,7 +48,7 @@ bindings:
 	two := []byte(`
 id: trigger-two
 label: Trigger Two
-event_type: git_branch_changed
+event_type: git-branch
 where: {}
 bindings: []
 `)
@@ -95,7 +95,7 @@ func TestDirectoryRepositorySaveWritesManagedFilesAndDeletesStaleManaged(t *test
 			{
 				ID:        "Trigger One",
 				Label:     "Trigger One",
-				EventType: "file_changed",
+				EventType: "file-change",
 				Where:     map[string]string{"path": "README.md"},
 			},
 		},
@@ -135,8 +135,8 @@ func TestDirectoryRepositorySaveRejectsFilenameCollisions(t *testing.T) {
 	cfg := Config{
 		Version: ConfigVersion,
 		Triggers: []EventTrigger{
-			{ID: "Flow A", EventType: "file_changed"},
-			{ID: "flow-a", EventType: "file_changed"},
+			{ID: "Flow A", EventType: "file-change"},
+			{ID: "flow-a", EventType: "file-change"},
 		},
 		BindingsByTriggerID: map[string][]ActivityBinding{},
 	}

@@ -144,7 +144,7 @@
   onMount(() => {
     loadPlans()
     loadTerminals()
-    eventUnsubscribe = subscribeEvents('file_changed', (payload) => {
+    eventUnsubscribe = subscribeEvents('file-change', (payload) => {
       const rawPath = String(payload?.path || '')
       const normalized = rawPath.replaceAll('\\', '/')
       if (!normalized.includes('/.gestalt/plans/')) return

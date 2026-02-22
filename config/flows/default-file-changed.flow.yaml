@@ -1,6 +1,6 @@
 id: default-file-changed
 label: Default file changed toast
-event_type: file_changed
+event_type: file-change
 where:
   path: README.md
 bindings:

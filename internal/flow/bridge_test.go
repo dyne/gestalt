@@ -57,7 +57,7 @@ func TestWatcherFilterAllows(t *testing.T) {
 
 func TestBuildEventSignal(t *testing.T) {
 	fields := map[string]string{
-		"type":      "file_changed",
+		"type":      "file-change",
 		"path":      "README.md",
 		"timestamp": "2026-01-01T12:00:00Z",
 	}
@@ -81,7 +81,7 @@ func TestBridgeStopsOnCancel(t *testing.T) {
 	if err := repo.Save(Config{
 		Version: ConfigVersion,
 		Triggers: []EventTrigger{
-			{ID: "t1", EventType: "file_changed"},
+			{ID: "t1", EventType: "file-change"},
 		},
 		BindingsByTriggerID: map[string][]ActivityBinding{
 			"t1": {

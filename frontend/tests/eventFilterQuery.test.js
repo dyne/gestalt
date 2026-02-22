@@ -24,7 +24,7 @@ describe('eventFilterQuery', () => {
     const parsed = parseEventFilterQuery('workflow event_type:workflow_paused session_id:t1')
     expect(matchesEventTrigger(trigger, parsed)).toBe(true)
 
-    const mismatch = parseEventFilterQuery('workflow event_type:file_changed session_id:t1')
+    const mismatch = parseEventFilterQuery('workflow event_type:file-change session_id:t1')
     expect(matchesEventTrigger(trigger, mismatch)).toBe(false)
   })
 

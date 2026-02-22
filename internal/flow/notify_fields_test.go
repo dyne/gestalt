@@ -27,7 +27,7 @@ func TestBuildNotifyFields(testingContext *testing.T) {
 
 	fields := BuildNotifyFields(input)
 
-	if fields["type"] != "notify_new_plan" {
+	if fields["type"] != "plan-new" {
 		testingContext.Fatalf("expected canonical type, got %q", fields["type"])
 	}
 	if fields["timestamp"] != occurredAt.Format(time.RFC3339Nano) {

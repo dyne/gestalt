@@ -75,7 +75,7 @@ func TestEventsWebSocketFileChange(t *testing.T) {
 		t.Fatalf("read websocket A: %v", err)
 	}
 	if msgA.Type != watcher.EventTypeFileChanged {
-		t.Fatalf("expected file_changed, got %q", msgA.Type)
+		t.Fatalf("expected file-change, got %q", msgA.Type)
 	}
 	if msgA.Path != path {
 		t.Fatalf("expected path %q, got %q", path, msgA.Path)
@@ -89,7 +89,7 @@ func TestEventsWebSocketFileChange(t *testing.T) {
 		t.Fatalf("read websocket B: %v", err)
 	}
 	if msgB.Type != watcher.EventTypeFileChanged {
-		t.Fatalf("expected file_changed, got %q", msgB.Type)
+		t.Fatalf("expected file-change, got %q", msgB.Type)
 	}
 	if msgB.Path != path {
 		t.Fatalf("expected path %q, got %q", path, msgB.Path)
@@ -146,7 +146,7 @@ func TestEventsWebSocketReconnect(t *testing.T) {
 		t.Fatalf("read websocket: %v", err)
 	}
 	if payload.Type != watcher.EventTypeFileChanged {
-		t.Fatalf("expected file_changed, got %q", payload.Type)
+		t.Fatalf("expected file-change, got %q", payload.Type)
 	}
 }
 
@@ -192,7 +192,7 @@ func TestEventsWebSocketGitBranchChange(t *testing.T) {
 		t.Fatalf("read websocket: %v", err)
 	}
 	if payload.Type != watcher.EventTypeGitBranchChanged {
-		t.Fatalf("expected git_branch_changed, got %q", payload.Type)
+		t.Fatalf("expected git-branch, got %q", payload.Type)
 	}
 	if payload.Path != "feature" {
 		t.Fatalf("expected branch feature, got %q", payload.Path)

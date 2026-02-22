@@ -8,13 +8,17 @@
   import { flowConfigStore } from '../lib/flowConfigStore.js'
 
   const fallbackEventTypeOptions = [
-    'file_changed',
-    'git_branch_changed',
-    'terminal_resized',
-    'notify_new_plan',
-    'notify_progress',
-    'notify_finish',
-    'notify_event',
+    'file-change',
+    'git-branch',
+    'git-commit',
+    'plan-new',
+    'plan-update',
+    'work-start',
+    'work-progress',
+    'work-finish',
+    'agent-turn',
+    'prompt-voice',
+    'prompt-text',
   ]
 
   let query = ''
@@ -429,7 +433,7 @@
         bind:value={query}
         disabled={flowState?.loading}
       />
-      <p class="field-hint">Try `event_type:file_changed path:README.md`</p>
+      <p class="field-hint">Try `event_type:file-change path:README.md`</p>
       {#if parsed.tokens.length > 0}
         <div class="chip-row" aria-label="Active filters">
           {#each parsed.tokens as token (token.raw)}

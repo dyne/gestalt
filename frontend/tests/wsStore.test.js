@@ -66,13 +66,13 @@ describe('wsStore', () => {
       buildSubscribeMessage: (types) => ({ subscribe: types }),
     })
 
-    const unsubscribe = subscribe('file_changed', () => {})
+    const unsubscribe = subscribe('file-change', () => {})
     const socket = MockWebSocket.instances[0]
 
     socket.open()
     await flush()
 
-    expect(socket.sent[0]).toBe(JSON.stringify({ subscribe: ['file_changed'] }))
+    expect(socket.sent[0]).toBe(JSON.stringify({ subscribe: ['file-change'] }))
 
     unsubscribe()
   })
@@ -84,7 +84,7 @@ describe('wsStore', () => {
       path: '/ws/test',
     })
 
-    const unsubscribe = subscribe('file_changed', () => {})
+    const unsubscribe = subscribe('file-change', () => {})
     const socket = MockWebSocket.instances[0]
 
     socket.open()

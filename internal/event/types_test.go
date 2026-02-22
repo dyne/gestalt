@@ -15,8 +15,8 @@ var _ Event = LogEvent{}
 func TestNewFileEvent(t *testing.T) {
 	event := NewFileEvent("/tmp/plan.org", "write")
 
-	if event.Type() != "file_changed" {
-		t.Fatalf("expected file_changed, got %q", event.Type())
+	if event.Type() != "file-change" {
+		t.Fatalf("expected file-change, got %q", event.Type())
 	}
 	if event.Path != "/tmp/plan.org" {
 		t.Fatalf("expected path, got %q", event.Path)

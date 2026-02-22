@@ -144,7 +144,7 @@
     if (open && sessionId) {
       void loadProgress(sessionId)
     }
-    unsubscribe = subscribeTerminalEvents('plan_progress', (payload) => {
+    unsubscribe = subscribeTerminalEvents('plan-update', (payload) => {
       if (!payload) return
       if (!sessionId) return
       if (String(payload?.session_id || '') !== String(sessionId)) return

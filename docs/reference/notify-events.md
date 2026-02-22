@@ -54,10 +54,17 @@ Payload requirements:
 Notify payloads are normalized into Flow trigger events.
 The canonical event type is derived from `payload.type`:
 
-- `new-plan` -> `notify_new_plan`
-- `progress` -> `notify_progress`
-- `finish` -> `notify_finish`
-- everything else -> `notify_event`
+- `new-plan` or `plan-new` -> `plan-new`
+- `plan-*` -> `plan-update`
+- `progress` or `plan-update` -> `plan-update`
+- `start` or `work-start` -> `work-start`
+- `work-progress` -> `work-progress`
+- `finish` or `work-finish` -> `work-finish`
+- `git-commit` or `commit` -> `git-commit`
+- `agent-turn*` -> `agent-turn`
+- `prompt-voice*` -> `prompt-voice`
+- `prompt-text*` -> `prompt-text`
+- everything else -> `agent-turn`
 
 Flow fields include:
 
@@ -107,7 +114,7 @@ Guarantee:
     {
       "id": "plan-created",
       "label": "New plan created",
-      "event_type": "notify_new_plan",
+      "event_type": "plan-new",
       "where": {
         "session.id": "Codex 1"
       }

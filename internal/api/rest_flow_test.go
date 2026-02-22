@@ -42,21 +42,13 @@ func TestFlowEventTypesEndpoint(t *testing.T) {
 		t.Fatalf("expected status 200, got %d", rec.Code)
 	}
 	var payload struct {
-		EventTypes   []string            `json:"event_types"`
-		NotifyTypes  map[string]string   `json:"notify_types"`
-		NotifyTokens map[string][]string `json:"notify_tokens"`
+		EventTypes []string `json:"event_types"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
 	if len(payload.EventTypes) == 0 {
 		t.Fatalf("expected event types")
-	}
-	if payload.NotifyTypes["new-plan"] != "notify_new_plan" {
-		t.Fatalf("unexpected notify type mapping: %#v", payload.NotifyTypes)
-	}
-	if len(payload.NotifyTokens["notify_new_plan"]) == 0 {
-		t.Fatalf("expected notify tokens")
 	}
 }
 

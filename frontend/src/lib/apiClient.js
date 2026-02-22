@@ -150,8 +150,6 @@ const normalizeFlowEventTypes = (payload) => {
     : []
   return {
     eventTypes,
-    notifyTypes: normalizeObject(config.notify_types),
-    notifyTokens: normalizeObject(config.notify_tokens),
   }
 }
 

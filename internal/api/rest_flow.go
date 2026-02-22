@@ -18,9 +18,7 @@ type flowConfigResponse struct {
 }
 
 type flowEventTypesResponse struct {
-	EventTypes   []string            `json:"event_types"`
-	NotifyTypes  map[string]string   `json:"notify_types,omitempty"`
-	NotifyTokens map[string][]string `json:"notify_tokens,omitempty"`
+	EventTypes []string `json:"event_types"`
 }
 
 func (h *RestHandler) handleFlowActivities(w http.ResponseWriter, r *http.Request) *apiError {
@@ -36,9 +34,7 @@ func (h *RestHandler) handleFlowEventTypes(w http.ResponseWriter, r *http.Reques
 		return methodNotAllowed(w, "GET")
 	}
 	writeJSON(w, http.StatusOK, flowEventTypesResponse{
-		EventTypes:   flowEventTypes(),
-		NotifyTypes:  flowNotifyTypeMap(),
-		NotifyTokens: flowNotifyTokens(),
+		EventTypes: flowEventTypes(),
 	})
 	return nil
 }
@@ -213,15 +209,6 @@ func flowEventTypes() []string {
 	return append(coreTypes, notifyTypes...)
 }
 
-func flowNotifyTypeMap() map[string]string {
-	types := []string{"new-plan", "progress", "finish"}
-	mapping := map[string]string{}
-	for _, raw := range types {
-		mapping[raw] = flow.CanonicalNotifyEventType(raw)
-	}
-	return mapping
-}
-
 func flowNotifyTypeList() []string {
 	values := []string{
 		flow.CanonicalNotifyEventType("new-plan"),
@@ -230,28 +217,6 @@ func flowNotifyTypeList() []string {
 		flow.CanonicalNotifyEventType("other"),
 	}
 	return uniqueStrings(values)
-}
-
-func flowNotifyTokens() map[string][]string {
-	common := []string{
-		"{{summary}}",
-		"{{plan_file}}",
-		"{{plan_summary}}",
-		"{{task_title}}",
-		"{{task_state}}",
-		"{{git_branch}}",
-		"{{session_id}}",
-		"{{agent_id}}",
-		"{{agent_name}}",
-		"{{timestamp}}",
-		"{{event_id}}",
-	}
-	notifyTypes := flowNotifyTypeList()
-	result := map[string][]string{}
-	for _, eventType := range notifyTypes {
-		result[eventType] = common
-	}
-	return result
 }
 
 func uniqueStrings(values []string) []string {

@@ -122,7 +122,7 @@ describe('FlowView', () => {
 
     await fireEvent.input(getByLabelText('Label'), { target: { value: 'New trigger' } })
     await fireEvent.change(getByLabelText('Event type'), { target: { value: 'terminal_resized' } })
-    await fireEvent.input(getByLabelText('Where (advanced, one per line)'), { target: { value: 'terminal_id=t9' } })
+    await fireEvent.input(getByLabelText('Where (one per line)'), { target: { value: 'terminal_id=t9' } })
 
     await fireEvent.click(getByRole('button', { name: 'Save trigger' }))
 
@@ -135,49 +135,6 @@ describe('FlowView', () => {
     expect(saveFlowConfig.mock.calls[0][0].triggers.some((trigger) => trigger.label === 'New trigger')).toBe(
       true,
     )
-  })
-
-  it('creates a notify preset trigger', async () => {
-    fetchFlowActivities.mockResolvedValue([{ id: 'toast_notification', label: 'Toast', fields: [] }])
-    fetchFlowEventTypes.mockResolvedValue({
-      eventTypes: ['notify_new_plan', 'notify_progress', 'notify_finish', 'notify_event'],
-    })
-    fetchFlowConfig.mockResolvedValue({
-      config: {
-        version: 1,
-        triggers: [],
-        bindings_by_trigger_id: {},
-      },
-    })
-
-    const { getByRole, getByLabelText, findByText, findAllByText } = render(FlowView)
-
-    await findByText('Flow')
-
-    await fireEvent.click(getByRole('button', { name: 'Add trigger' }))
-
-    await fireEvent.input(getByLabelText('Label'), { target: { value: 'Plan notifications' } })
-    await fireEvent.change(getByLabelText('Preset'), { target: { value: 'notify' } })
-    await fireEvent.change(getByLabelText('Notify type'), { target: { value: 'new-plan' } })
-    await fireEvent.input(getByLabelText('Plan file (exact)'), {
-      target: { value: '.gestalt/plans/flow-notify-router.org' },
-    })
-    await fireEvent.input(getByLabelText('Session id'), { target: { value: 'coder-1' } })
-    await fireEvent.input(getByLabelText('Where (advanced, one per line)'), {
-      target: { value: 'task_title=Hook up notify' },
-    })
-
-    const eventTypeSelect = getByLabelText('Event type')
-    expect(eventTypeSelect.disabled).toBe(true)
-
-    await fireEvent.click(getByRole('button', { name: 'Save trigger' }))
-
-    expect((await findAllByText('Plan notifications')).length).toBeGreaterThan(0)
-    expect((await findAllByText('notify_new_plan')).length).toBeGreaterThan(0)
-    expect(await findByText('plan_file')).toBeTruthy()
-    expect(await findByText('.gestalt/plans/flow-notify-router.org')).toBeTruthy()
-    expect(await findByText('session_id')).toBeTruthy()
-    expect(await findByText('coder-1')).toBeTruthy()
   })
 
   it('imports yaml flow files as raw text', async () => {

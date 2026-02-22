@@ -228,10 +228,6 @@ func attachMCPTurnHandler(session *Session, pty *mcpPty, logger *logging.Logger,
 		return
 	}
 	pty.SetTurnHandler(func(info mcpTurnInfo) {
-		agentName := session.Title
-		if session.agent != nil && strings.TrimSpace(session.agent.Name) != "" {
-			agentName = session.agent.Name
-		}
 		payload := map[string]any{
 			"thread_id": info.ThreadID,
 			"tool":      info.Tool,
@@ -242,8 +238,6 @@ func attachMCPTurnHandler(session *Session, pty *mcpPty, logger *logging.Logger,
 		occurredAt := time.Now().UTC()
 		fields := flow.BuildNotifyFields(flow.NotifyFieldInput{
 			SessionID:   session.ID,
-			AgentID:     session.AgentID,
-			AgentName:   agentName,
 			EventID:     fmt.Sprintf("gestalt-mcp:%s:%d", session.ID, info.Turn),
 			PayloadType: "agent-turn-complete",
 			OccurredAt:  occurredAt,

@@ -39,6 +39,10 @@ func TestPrepareConfigExtractsEmbeddedConfig(t *testing.T) {
 	if _, err := os.Stat(agentPath); err != nil {
 		t.Fatalf("expected extracted agent at %s: %v", agentPath, err)
 	}
+	flowPath := filepath.Join(cfg.ConfigDir, "flows", "default-file-changed.flow.yaml")
+	if _, err := os.Stat(flowPath); err != nil {
+		t.Fatalf("expected extracted default flow at %s: %v", flowPath, err)
+	}
 
 	installed, err := config.LoadVersionFile(paths.VersionLoc)
 	if err != nil {

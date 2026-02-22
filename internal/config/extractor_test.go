@@ -190,6 +190,55 @@ func TestExtractorKeepsModifiedFilesWhenNonInteractive(t *testing.T) {
 	}
 }
 
+func TestExtractorKeepsModifiedFlowFilesWithDistWhenNonInteractive(t *testing.T) {
+	destDir := t.TempDir()
+	destPath := filepath.Join(destDir, "flows", "default.flow.yaml")
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(destPath, []byte("custom-flow"), 0o644); err != nil {
+		t.Fatalf("write custom flow file: %v", err)
+	}
+
+	sourceFS := fstest.MapFS{
+		"config/flows/default.flow.yaml": &fstest.MapFile{Data: []byte("id: default"), Mode: 0o644},
+	}
+	expectedHash, err := hashFileFromFS(sourceFS, "config/flows/default.flow.yaml")
+	if err != nil {
+		t.Fatalf("hash source file: %v", err)
+	}
+	manifest := map[string]string{
+		"flows/default.flow.yaml": expectedHash,
+	}
+
+	extractor := Extractor{
+		BackupLimit: 1,
+		Resolver: &ConffileResolver{
+			Interactive: false,
+			In:          strings.NewReader(""),
+			Out:         io.Discard,
+		},
+	}
+	if err := extractor.Extract(sourceFS, destDir, manifest); err != nil {
+		t.Fatalf("extract failed: %v", err)
+	}
+
+	contents, err := os.ReadFile(destPath)
+	if err != nil {
+		t.Fatalf("read dest file: %v", err)
+	}
+	if string(contents) != "custom-flow" {
+		t.Fatalf("expected flow file to remain unchanged")
+	}
+	dist, err := os.ReadFile(destPath + ".dist")
+	if err != nil {
+		t.Fatalf("read dist file: %v", err)
+	}
+	if string(dist) != "id: default" {
+		t.Fatalf("expected dist contents to match packaged flow")
+	}
+}
+
 func TestExtractorDecisionTable(t *testing.T) {
 	relPath := "agents/example.toml"
 	cases := []struct {

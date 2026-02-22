@@ -171,6 +171,42 @@ func TestPrepareConfigPartialExtraction(t *testing.T) {
 	}
 }
 
+func TestPrepareConfigReextractsMissingDefaultFlowFile(t *testing.T) {
+	root := withTempWorkdir(t)
+
+	cfg, err := loadConfig(nil)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	logger := newTestLogger(logging.LevelInfo)
+	if _, err := prepareConfig(cfg, logger); err != nil {
+		t.Fatalf("prepare config: %v", err)
+	}
+
+	flowPath := filepath.Join(root, cfg.ConfigDir, "flows", "default-file-changed.flow.yaml")
+	if err := os.Remove(flowPath); err != nil {
+		t.Fatalf("remove flow file: %v", err)
+	}
+
+	logger = newTestLogger(logging.LevelInfo)
+	if _, err := prepareConfig(cfg, logger); err != nil {
+		t.Fatalf("prepare config: %v", err)
+	}
+
+	extracted, err := os.ReadFile(flowPath)
+	if err != nil {
+		t.Fatalf("read extracted flow file: %v", err)
+	}
+	expected, err := fs.ReadFile(gestalt.EmbeddedConfigFS, "config/flows/default-file-changed.flow.yaml")
+	if err != nil {
+		t.Fatalf("read embedded flow file: %v", err)
+	}
+	if string(extracted) != string(expected) {
+		t.Fatalf("expected extracted flow file to match embedded contents")
+	}
+}
+
 func TestPreparePlanFileMigration(t *testing.T) {
 	root := withTempWorkdir(t)
 

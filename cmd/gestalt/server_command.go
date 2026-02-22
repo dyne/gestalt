@@ -335,7 +335,7 @@ func runServer(args []string) int {
 
 	notificationSink := notify.NewOTelSink(nil)
 	flowDispatcher := flowruntime.NewDispatcher(manager, logger, notificationSink, 0)
-	flowService := flow.NewService(flow.NewFileRepository(flow.DefaultConfigPath(), logger), flowDispatcher, logger)
+	flowService := flow.NewService(flow.NewFileRepository(flow.ConfigPath(configPaths.ConfigDir), logger), flowDispatcher, logger)
 	_, flowErr := flowService.LoadConfig()
 	if flowErr != nil {
 		logger.Error("flow config load failed", map[string]string{

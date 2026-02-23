@@ -135,9 +135,6 @@ func newSession(id string, pty Pty, runner Runner, cmd *exec.Cmd, title, role st
 		model = profile.Model
 	}
 	interfaceValue := agent.AgentInterfaceCLI
-	if _, ok := pty.(*mcpPty); ok {
-		interfaceValue = agent.AgentInterfaceMCP
-	}
 	runnerKind := launchspec.RunnerKindServer
 	if runner != nil {
 		if _, ok := runner.(*externalRunner); ok {
@@ -221,11 +218,7 @@ func (s *Session) Info() SessionInfo {
 	}
 	interfaceValue := strings.TrimSpace(s.Interface)
 	if interfaceValue == "" {
-		if s.IsMCP() {
-			interfaceValue = agent.AgentInterfaceMCP
-		} else {
-			interfaceValue = agent.AgentInterfaceCLI
-		}
+		interfaceValue = agent.AgentInterfaceCLI
 	}
 	return SessionInfo{
 		ID:          s.ID,

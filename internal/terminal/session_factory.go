@@ -195,10 +195,7 @@ func isAgentSession(request sessionCreateRequest, profile *agent.Agent) bool {
 }
 
 func shouldLogSessionOutput(profile *agent.Agent) bool {
-	if profile == nil {
-		return false
-	}
-	return strings.EqualFold(strings.TrimSpace(profile.Interface), agent.AgentInterfaceMCP)
+	return false
 }
 
 func (f *SessionFactory) createMCPEventLogger(id string, createdAt time.Time) *mcpEventLogger {

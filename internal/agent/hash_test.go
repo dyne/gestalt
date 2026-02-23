@@ -51,32 +51,9 @@ func TestComputeConfigHashInterfaceChanges(t *testing.T) {
 	if hashCLI == "" {
 		t.Fatalf("expected non-empty hash")
 	}
-	agent.Interface = AgentInterfaceMCP
+	agent.Interface = "invalid"
 	hashMCP := ComputeConfigHash(agent)
 	if hashMCP == hashCLI {
 		t.Fatalf("expected hash to change when interface changes")
-	}
-}
-
-func TestComputeConfigHashLegacyAlias(t *testing.T) {
-	agentLegacy := &Agent{
-		Name:      "Coder",
-		Shell:     "/bin/bash",
-		CLIType:   "codex",
-		CodexMode: CodexModeMCPServer,
-	}
-	agentInterface := &Agent{
-		Name:      "Coder",
-		Shell:     "/bin/bash",
-		CLIType:   "codex",
-		Interface: AgentInterfaceMCP,
-	}
-	hashLegacy := ComputeConfigHash(agentLegacy)
-	hashInterface := ComputeConfigHash(agentInterface)
-	if hashLegacy == "" || hashInterface == "" {
-		t.Fatalf("expected non-empty hashes")
-	}
-	if hashLegacy != hashInterface {
-		t.Fatalf("expected legacy alias hash to match interface hash")
 	}
 }

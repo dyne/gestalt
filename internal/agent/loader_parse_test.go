@@ -25,8 +25,7 @@ func TestInterfaceAndCodexModeNotCapturedInCLIConfig(t *testing.T) {
 name = "Codex"
 shell = "/bin/bash"
 cli_type = "codex"
-interface = "mcp"
-codex_mode = "mcp-server"
+interface = "cli"
 model = "o3"
 gui_modules = ["plan-progress"]
 hidden = true
@@ -35,8 +34,8 @@ hidden = true
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if agent.Interface != AgentInterfaceMCP {
-		t.Fatalf("expected interface %q, got %q", AgentInterfaceMCP, agent.Interface)
+	if agent.Interface != AgentInterfaceCLI {
+		t.Fatalf("expected interface %q, got %q", AgentInterfaceCLI, agent.Interface)
 	}
 	if agent.CLIConfig == nil {
 		t.Fatalf("expected CLI config")

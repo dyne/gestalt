@@ -34,7 +34,6 @@ import (
 var ErrSessionNotFound = errors.New("terminal session not found")
 var ErrAgentNotFound = errors.New("agent profile not found")
 var ErrAgentRequired = errors.New("agent id is required")
-var ErrCodexMCPBootstrap = errors.New("codex mcp bootstrap failed")
 var ErrSessionNotTmuxManaged = errors.New("session is not tmux-managed")
 var ErrTmuxSessionNotFound = errors.New("tmux session not found")
 
@@ -503,11 +502,9 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		applyCodexOTelExporter(sessionCLIConfig, m.portResolver)
 	}
 
-	agentMCP := useAgentMCP(profile)
-
 	if !shellOverrideSet && profile != nil {
 		cliType := strings.TrimSpace(profile.CLIType)
-		if strings.EqualFold(cliType, "codex") && !agentMCP {
+		if strings.EqualFold(cliType, "codex") {
 			if sessionCLIConfig == nil {
 				sessionCLIConfig = map[string]interface{}{}
 			}
@@ -530,10 +527,6 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 			shell = profile.Shell
 		}
 	}
-	if !shellOverrideSet && agentMCP {
-		shell = withCodexMCP(shell)
-	}
-
 	if agentName != "" {
 		m.mu.Lock()
 		if existingID, ok := m.agentSessions[agentName]; ok {
@@ -566,11 +559,6 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		releaseReservation()
 		return nil, err
 	}
-	if agentMCP && !session.IsMCP() {
-		_ = session.Close()
-		releaseReservation()
-		return nil, ErrCodexMCPBootstrap
-	}
 	if runnerKind == launchspec.RunnerKindExternal {
 		cliType := ""
 		if profile != nil {
@@ -602,12 +590,6 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 	if len(promptFiles) > 0 {
 		session.PromptFiles = append(session.PromptFiles, promptFiles...)
 	}
-	if developerInstructions != "" {
-		if mcp, ok := session.pty.(*mcpPty); ok {
-			mcp.SetDeveloperInstructions(developerInstructions)
-		}
-	}
-
 	m.mu.Lock()
 	m.sessions[id] = session
 	m.mu.Unlock()
@@ -1410,20 +1392,6 @@ func ensureStringMap(parent map[string]interface{}, key string) (map[string]inte
 	return child, true
 }
 
-func useAgentMCP(profile *agent.Agent) bool {
-	if profile == nil {
-		return false
-	}
-	if !strings.EqualFold(strings.TrimSpace(profile.CLIType), "codex") {
-		return false
-	}
-	iface, err := profile.RuntimeInterface(envBool("GESTALT_CODEX_FORCE_TUI"))
-	if err != nil {
-		return false
-	}
-	return strings.EqualFold(iface, agent.AgentInterfaceMCP)
-}
-
 func shouldStartExternalTmuxWindow(profile *agent.Agent) bool {
 	if profile == nil {
 		return false
@@ -1467,27 +1435,6 @@ func wrapExternalTmuxError(err error) error {
 		Message: message,
 		Err:     err,
 	}
-}
-
-func withCodexMCP(shell string) string {
-	trimmed := strings.TrimSpace(shell)
-	if trimmed == "" {
-		return shell
-	}
-	command, args, err := splitCommandLine(trimmed)
-	if err != nil || command == "" {
-		return shell
-	}
-	if filepath.Base(command) != "codex" {
-		return shell
-	}
-	if len(args) > 0 && args[0] == "mcp-server" {
-		return trimmed
-	}
-	updated := make([]string, 0, len(args)+1)
-	updated = append(updated, "mcp-server")
-	updated = append(updated, args...)
-	return joinCommandLine(command, updated)
 }
 
 func envBool(key string) bool {

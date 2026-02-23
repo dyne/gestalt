@@ -226,47 +226,27 @@ func TestAgentInterfacePrecedence(t *testing.T) {
 		name      string
 		iface     string
 		codexMode string
-		cliType   string
-		forceTUI  bool
 		want      string
 		wantErr   string
 	}{
 		{
-			name:      "interface wins over codex_mode",
+			name: "default interface is cli",
+			want: AgentInterfaceCLI,
+		},
+		{
+			name:      "normalize interface value",
 			iface:     "cli",
-			codexMode: "mcp-server",
-			cliType:   "codex",
 			want:      AgentInterfaceCLI,
 		},
 		{
-			name:      "legacy codex_mode selects mcp",
-			codexMode: "mcp-server",
-			cliType:   "codex",
-			want:      AgentInterfaceMCP,
-		},
-		{
-			name:    "default interface is cli",
-			cliType: "codex",
-			want:    AgentInterfaceCLI,
-		},
-		{
-			name:    "normalize interface value",
-			iface:   "MCP",
-			cliType: "codex",
-			want:    AgentInterfaceMCP,
-		},
-		{
-			name:     "force tui overrides mcp",
-			iface:    "mcp",
-			cliType:  "codex",
-			forceTUI: true,
-			want:     AgentInterfaceCLI,
-		},
-		{
-			name:    "mcp requires codex",
+			name:    "mcp is rejected",
 			iface:   "mcp",
-			cliType: "copilot",
-			wantErr: "requires cli_type=\"codex\"",
+			wantErr: "expected \"cli\"",
+		},
+		{
+			name:      "codex_mode is rejected",
+			codexMode: "mcp-server",
+			wantErr:   "codex_mode is no longer supported",
 		},
 	}
 
@@ -276,9 +256,8 @@ func TestAgentInterfacePrecedence(t *testing.T) {
 				Name:      "Tester",
 				Interface: tt.iface,
 				CodexMode: tt.codexMode,
-				CLIType:   tt.cliType,
 			}
-			got, err := agent.RuntimeInterface(tt.forceTUI)
+			got, err := agent.RuntimeInterface(false)
 			if tt.wantErr != "" {
 				if err == nil {
 					t.Fatalf("expected error")

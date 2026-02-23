@@ -168,7 +168,7 @@ func TestResolveAgentCaseInsensitive(t *testing.T) {
 			}
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(`[{"id":"codex","name":"Codex"}]`)),
+				Body:       io.NopCloser(strings.NewReader(`[{"id":"codex","name":"Codex","session_id":"Codex 1","running":true}]`)),
 				Header:     make(http.Header),
 				Request:    r,
 			}, nil
@@ -185,6 +185,9 @@ func TestResolveAgentCaseInsensitive(t *testing.T) {
 			}
 			if cfg.AgentName != "Codex" {
 				t.Fatalf("expected agent name Codex, got %q", cfg.AgentName)
+			}
+			if cfg.SessionID != "Codex 1" {
+				t.Fatalf("expected session id Codex 1, got %q", cfg.SessionID)
 			}
 		})
 	})
@@ -308,32 +311,57 @@ func TestRunWithSenderSessionIDSkipsAgentLookup(t *testing.T) {
 	})
 }
 
-func TestRunWithSenderReturnsAgentNotFound(t *testing.T) {
+func TestRunWithSenderAgentUsesResolvedRunningSession(t *testing.T) {
+	sawAgents := false
+	sawInput := false
 	withAgentCacheDisabled(t, func() {
 		withMockClient(t, func(r *http.Request) (*http.Response, error) {
 			switch r.URL.Path {
 			case "/api/agents":
+				sawAgents = true
 				return &http.Response{
 					StatusCode: http.StatusOK,
-					Body:       io.NopCloser(strings.NewReader(`[{"id":"missing","name":"Missing","running":false}]`)),
+					Body:       io.NopCloser(strings.NewReader(`[{"id":"codex","name":"Codex","session_id":"Codex 1","running":true}]`)),
 					Header:     make(http.Header),
 					Request:    r,
 				}, nil
-			case "/api/sessions":
-				return &http.Response{
-					StatusCode: http.StatusBadRequest,
-					Body:       io.NopCloser(strings.NewReader(`{"error":"unknown agent"}`)),
-					Header:     make(http.Header),
-					Request:    r,
-				}, nil
-			default:
+			case "/api/sessions/Codex 1/input":
+				sawInput = true
 				return &http.Response{
 					StatusCode: http.StatusOK,
 					Body:       io.NopCloser(strings.NewReader("")),
 					Header:     make(http.Header),
 					Request:    r,
 				}, nil
+			default:
+				t.Fatalf("unexpected path: %s", r.URL.Path)
 			}
+			return nil, nil
+		}, func() {
+			var stderr bytes.Buffer
+			code := runWithSender([]string{"codex"}, strings.NewReader("hi"), &stderr, sendInput)
+			if code != 0 {
+				t.Fatalf("expected exit code 0, got %d: %s", code, stderr.String())
+			}
+			if !sawAgents || !sawInput {
+				t.Fatalf("expected agent resolution and input calls, got agents=%v input=%v", sawAgents, sawInput)
+			}
+		})
+	})
+}
+
+func TestRunWithSenderReturnsAgentNotRunning(t *testing.T) {
+	withAgentCacheDisabled(t, func() {
+		withMockClient(t, func(r *http.Request) (*http.Response, error) {
+			if r.URL.Path != "/api/agents" {
+				t.Fatalf("unexpected path: %s", r.URL.Path)
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`[{"id":"missing","name":"Missing","running":false}]`)),
+				Header:     make(http.Header),
+				Request:    r,
+			}, nil
 		}, func() {
 			var stderr bytes.Buffer
 
@@ -341,7 +369,7 @@ func TestRunWithSenderReturnsAgentNotFound(t *testing.T) {
 			if code != 2 {
 				t.Fatalf("expected exit code 2, got %d", code)
 			}
-			if !strings.Contains(stderr.String(), "unknown agent") {
+			if !strings.Contains(stderr.String(), "has no running session") {
 				t.Fatalf("expected error message, got %q", stderr.String())
 			}
 		})
@@ -444,29 +472,15 @@ func TestRunWithSenderNonZeroWritesStderr(t *testing.T) {
 	t.Run("resolution error", func(t *testing.T) {
 		withAgentCacheDisabled(t, func() {
 			withMockClient(t, func(r *http.Request) (*http.Response, error) {
-				switch r.URL.Path {
-				case "/api/agents":
-					return &http.Response{
-						StatusCode: http.StatusOK,
-						Body:       io.NopCloser(strings.NewReader(`[{"id":"missing","name":"Missing","running":false}]`)),
-						Header:     make(http.Header),
-						Request:    r,
-					}, nil
-				case "/api/sessions":
-					return &http.Response{
-						StatusCode: http.StatusBadRequest,
-						Body:       io.NopCloser(strings.NewReader(`{"error":"unknown agent"}`)),
-						Header:     make(http.Header),
-						Request:    r,
-					}, nil
-				default:
-					return &http.Response{
-						StatusCode: http.StatusOK,
-						Body:       io.NopCloser(strings.NewReader("")),
-						Header:     make(http.Header),
-						Request:    r,
-					}, nil
+				if r.URL.Path != "/api/agents" {
+					t.Fatalf("unexpected path: %s", r.URL.Path)
 				}
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       io.NopCloser(strings.NewReader(`[{"id":"missing","name":"Missing","running":false}]`)),
+					Header:     make(http.Header),
+					Request:    r,
+				}, nil
 			}, func() {
 				var stderr bytes.Buffer
 				code := runWithSender([]string{"missing"}, strings.NewReader("hi"), &stderr, sendAgentInput)
@@ -500,14 +514,14 @@ func TestRunWithSenderNonZeroWritesStderr(t *testing.T) {
 
 func TestAgentCacheRoundTrip(t *testing.T) {
 	withTempCacheDir(t, func(_ string) {
-		agents := []agentInfo{{ID: "coder", Name: "Coder"}}
+		agents := []agentInfo{{ID: "coder", Name: "Coder", SessionID: "Coder 1", Running: true}}
 		now := time.Unix(100, 0)
 		writeAgentCache(agents, now)
 		got, ok := readAgentCache(now)
 		if !ok {
 			t.Fatalf("expected cache hit")
 		}
-		if len(got) != 1 || got[0].ID != "coder" || got[0].Name != "Coder" {
+		if len(got) != 1 || got[0].ID != "coder" || got[0].Name != "Coder" || got[0].SessionID != "Coder 1" || !got[0].Running {
 			t.Fatalf("unexpected cache entries: %+v", got)
 		}
 	})

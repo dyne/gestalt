@@ -64,3 +64,26 @@ func TestRunWithSenderNonZeroWritesStderr(t *testing.T) {
 		})
 	}
 }
+
+func TestRunWithSenderNormalizesSessionID(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	code := runWithSender(
+		[]string{"--session-id", "Coder", `{"type":"plan-L1-wip","plan_file":"plan.org"}`},
+		&stdout,
+		&stderr,
+		func(cfg Config) error {
+			if cfg.SessionID != "Coder 1" {
+				t.Fatalf("expected normalized session id Coder 1, got %q", cfg.SessionID)
+			}
+			return notifyErr(exitCodeSessionNotFound, "session not found")
+		},
+	)
+	if code != exitCodeSessionNotFound {
+		t.Fatalf("expected code %d, got %d", exitCodeSessionNotFound, code)
+	}
+	if !strings.Contains(stderr.String(), "session not found") {
+		t.Fatalf("expected not found error, got %q", stderr.String())
+	}
+}

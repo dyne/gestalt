@@ -91,7 +91,7 @@ func TestSendSessionInputHTTPError(t *testing.T) {
 	}
 }
 
-func TestStartAgentSuccess(t *testing.T) {
+func TestCreateExternalAgentSession(t *testing.T) {
 	requireLocalListener(t)
 	var gotPayload map[string]string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -103,15 +103,24 @@ func TestStartAgentSuccess(t *testing.T) {
 		}
 		body, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(body, &gotPayload)
+		if gotPayload["runner"] != "external" {
+			t.Fatalf("expected runner external, got %+v", gotPayload)
+		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{"id":"agent-1"}`)
 	}))
 	t.Cleanup(server.Close)
 
-	if err := StartAgent(server.Client(), server.URL, "", "agent-1"); err != nil {
-		t.Fatalf("start agent: %v", err)
+	session, err := CreateExternalAgentSession(server.Client(), server.URL, "", "agent-1")
+	if err != nil {
+		t.Fatalf("create external agent session: %v", err)
 	}
 	if gotPayload["agent"] != "agent-1" {
 		t.Fatalf("expected agent payload, got %+v", gotPayload)
+	}
+	if session.ID != "agent-1" {
+		t.Fatalf("expected session id agent-1, got %q", session.ID)
 	}
 }
 
@@ -151,42 +160,24 @@ func TestResolveSessionRef(t *testing.T) {
 	}
 }
 
-func TestEnsureAgentSessionCreated(t *testing.T) {
+func TestCreateExternalAgentSessionHTTPError(t *testing.T) {
 	requireLocalListener(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/sessions" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		_, _ = io.WriteString(w, `{"id":"Coder 1"}`)
-	}))
-	t.Cleanup(server.Close)
-
-	sessionID, err := EnsureAgentSession(server.Client(), server.URL, "", "coder")
-	if err != nil {
-		t.Fatalf("ensure agent session: %v", err)
-	}
-	if sessionID != "Coder 1" {
-		t.Fatalf("expected Coder 1, got %q", sessionID)
-	}
-}
-
-func TestEnsureAgentSessionConflict(t *testing.T) {
-	requireLocalListener(t)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
-		_, _ = io.WriteString(w, `{"error":"already running","session_id":"Coder 1"}`)
+		_, _ = io.WriteString(w, `{"error":"already running"}`)
 	}))
 	t.Cleanup(server.Close)
 
-	sessionID, err := EnsureAgentSession(server.Client(), server.URL, "", "coder")
-	if err != nil {
-		t.Fatalf("ensure agent session: %v", err)
+	_, err := CreateExternalAgentSession(server.Client(), server.URL, "", "coder")
+	var httpErr *HTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("expected HTTPError, got %v", err)
 	}
-	if sessionID != "Coder 1" {
-		t.Fatalf("expected Coder 1, got %q", sessionID)
+	if httpErr.StatusCode != http.StatusConflict {
+		t.Fatalf("expected status 409, got %d", httpErr.StatusCode)
+	}
+	if httpErr.Message != "already running" {
+		t.Fatalf("expected message already running, got %q", httpErr.Message)
 	}
 }
 

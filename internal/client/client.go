@@ -162,66 +162,53 @@ func FetchSessions(client *http.Client, baseURL, token string) ([]SessionInfo, e
 	return sessions, nil
 }
 
-func EnsureAgentSession(client *http.Client, baseURL, token, agentID string) (string, error) {
+// CreateExternalAgentSession starts a session for agentID using the external runner.
+func CreateExternalAgentSession(client *http.Client, baseURL, token, agentID string) (SessionInfo, error) {
 	client = ensureClient(client)
 	baseURL = strings.TrimRight(baseURL, "/")
 	if baseURL == "" {
-		return "", errors.New("base URL is required")
+		return SessionInfo{}, errors.New("base URL is required")
 	}
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
-		return "", errors.New("agent id is required")
+		return SessionInfo{}, errors.New("agent id is required")
 	}
 
-	payload := map[string]string{"agent": agentID}
+	payload := map[string]string{"agent": agentID, "runner": "external"}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return "", fmt.Errorf("encode start request: %w", err)
+		return SessionInfo{}, fmt.Errorf("encode create request: %w", err)
 	}
 
 	request, err := http.NewRequest(http.MethodPost, baseURL+"/api/sessions", bytes.NewReader(body))
 	if err != nil {
-		return "", fmt.Errorf("build start request: %w", err)
+		return SessionInfo{}, fmt.Errorf("build create request: %w", err)
 	}
 	request.Header.Set("Content-Type", "application/json")
 	addToken(request, token)
 
 	response, err := client.Do(request)
 	if err != nil {
-		return "", fmt.Errorf("start request failed: %w", err)
+		return SessionInfo{}, fmt.Errorf("create request failed: %w", err)
 	}
 	defer response.Body.Close()
 
-	if response.StatusCode == http.StatusCreated {
-		var created struct {
-			ID string `json:"id"`
-		}
-		if err := json.NewDecoder(response.Body).Decode(&created); err != nil {
-			return "", fmt.Errorf("decode start response: %w", err)
-		}
-		sessionID := strings.TrimSpace(created.ID)
-		if sessionID == "" {
-			return "", errors.New("session id is missing from start response")
-		}
-		return sessionID, nil
+	if response.StatusCode != http.StatusCreated {
+		message := readErrorMessage(response)
+		return SessionInfo{}, &HTTPError{StatusCode: response.StatusCode, Message: message}
 	}
 
-	if response.StatusCode == http.StatusConflict {
-		var conflict struct {
-			SessionID string `json:"session_id"`
-		}
-		if err := json.NewDecoder(response.Body).Decode(&conflict); err != nil {
-			return "", fmt.Errorf("decode conflict response: %w", err)
-		}
-		sessionID := strings.TrimSpace(conflict.SessionID)
-		if sessionID == "" {
-			return "", errors.New("session id is missing from conflict response")
-		}
-		return sessionID, nil
+	var created struct {
+		ID string `json:"id"`
 	}
-
-	message := readErrorMessage(response)
-	return "", &HTTPError{StatusCode: response.StatusCode, Message: message}
+	if err := json.NewDecoder(response.Body).Decode(&created); err != nil {
+		return SessionInfo{}, fmt.Errorf("decode create response: %w", err)
+	}
+	sessionID := strings.TrimSpace(created.ID)
+	if sessionID == "" {
+		return SessionInfo{}, errors.New("session id is missing from create response")
+	}
+	return SessionInfo{ID: sessionID}, nil
 }
 
 func WaitSessionReady(client *http.Client, baseURL, token, sessionID string, timeout time.Duration) error {
@@ -249,44 +236,6 @@ func WaitSessionReady(client *http.Client, baseURL, token, sessionID string, tim
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-}
-
-func StartAgent(client *http.Client, baseURL, token, agentID string) error {
-	client = ensureClient(client)
-	baseURL = strings.TrimRight(baseURL, "/")
-	if baseURL == "" {
-		return errors.New("base URL is required")
-	}
-	agentID = strings.TrimSpace(agentID)
-	if agentID == "" {
-		return errors.New("agent id is required")
-	}
-
-	payload := map[string]string{"agent": agentID}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("encode start request: %w", err)
-	}
-
-	request, err := http.NewRequest(http.MethodPost, baseURL+"/api/sessions", bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("build start request: %w", err)
-	}
-	request.Header.Set("Content-Type", "application/json")
-	addToken(request, token)
-
-	response, err := client.Do(request)
-	if err != nil {
-		return fmt.Errorf("start request failed: %w", err)
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode == http.StatusCreated || response.StatusCode == http.StatusOK || response.StatusCode == http.StatusConflict {
-		return nil
-	}
-
-	message := readErrorMessage(response)
-	return &HTTPError{StatusCode: response.StatusCode, Message: message}
 }
 
 func ensureClient(client *http.Client) *http.Client {

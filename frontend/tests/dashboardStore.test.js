@@ -187,7 +187,19 @@ describe('dashboardStore', () => {
     store.setTerminals([])
     value = get(store)
     expect(value.agents[0].running).toBe(false)
-    expect(value.agents[0].session_id).toBe('')
+    expect(value.agents[0].session_id).toBe('t1')
+  })
+
+  it('keeps backend-reported running agents green without local terminal tabs', async () => {
+    fetchAgents.mockResolvedValue([{ id: 'a1', name: 'Agent 1', session_id: 't1', running: true }])
+
+    const store = createDashboardStore()
+    store.setTerminals([])
+    await store.loadAgents()
+
+    const value = get(store)
+    expect(value.agents[0].running).toBe(true)
+    expect(value.agents[0].session_id).toBe('t1')
   })
 
   it('tracks config extraction events and resets', async () => {

@@ -96,17 +96,17 @@ export const createDashboardStore = () => {
     const terminalIds = new Set((terminalList || []).map((terminal) => terminal?.id).filter(Boolean))
     let changed = false
     const nextAgents = agentList.map((agent) => {
-      const terminalId = agent.session_id || ''
-      const running = Boolean(terminalId && terminalIds.has(terminalId))
-      const nextTerminalId = running ? terminalId : ''
-      if (agent.running === running && (agent.session_id || '') === nextTerminalId) {
+      const terminalId = String(agent?.session_id || '').trim()
+      const terminalRunning = Boolean(terminalId && terminalIds.has(terminalId))
+      const backendRunning = Boolean(agent?._backend_running)
+      const running = backendRunning || terminalRunning
+      if (agent.running === running) {
         return agent
       }
       changed = true
       return {
         ...agent,
         running,
-        session_id: nextTerminalId,
       }
     })
     return changed ? nextAgents : agentList
@@ -163,7 +163,11 @@ export const createDashboardStore = () => {
     state.update((current) => ({ ...current, agentsLoading: true, agentsError: '' }))
     try {
       const fetched = await fetchAgents()
-      const nextAgents = syncAgentRunning(fetched, terminals)
+      const fetchedWithBackendState = fetched.map((agent) => ({
+        ...agent,
+        _backend_running: Boolean(agent?.running),
+      }))
+      const nextAgents = syncAgentRunning(fetchedWithBackendState, terminals)
       state.update((current) => ({
         ...current,
         agents: nextAgents,

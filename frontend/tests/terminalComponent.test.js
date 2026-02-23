@@ -122,18 +122,6 @@ describe('Terminal', () => {
     expect(getByText('Bottom')).toBeTruthy()
   })
 
-  it('renders transcript view for mcp sessions', async () => {
-    const state = buildState()
-    getTerminalState.mockReturnValue(state)
-
-    const { container } = render(Terminal, {
-      props: { sessionId: 't1', sessionInterface: 'mcp' },
-    })
-
-    await tick()
-    expect(container.querySelector('.terminal-text__body')).toBeTruthy()
-  })
-
   it('renders xterm canvas for cli sessions', async () => {
     const state = buildState()
     getTerminalState.mockReturnValue(state)
@@ -153,30 +141,15 @@ describe('Terminal', () => {
     getTerminalState.mockReturnValueOnce(stateA).mockReturnValueOnce(stateB)
 
     const { rerender } = render(Terminal, {
-      props: { sessionId: 't1', sessionInterface: 'mcp' },
+      props: { sessionId: 't1', sessionInterface: 'cli' },
     })
     await tick()
 
-    await rerender({ sessionId: 't2', sessionInterface: 'mcp' })
+    await rerender({ sessionId: 't2', sessionInterface: 'cli' })
     await tick()
 
-    expect(getTerminalState).toHaveBeenCalledWith('t2', 'mcp', '', { allowMouseReporting: false })
+    expect(getTerminalState).toHaveBeenCalledWith('t2', 'cli', '', { allowMouseReporting: false })
     expect(stateA.setVisible).toHaveBeenCalledWith(false)
-  })
-
-  it('renders transcript for mcp sessions in TerminalView', async () => {
-    getTerminalState.mockReturnValue(buildState())
-    const { container } = render(TerminalView, {
-      props: {
-        sessionId: 't1',
-        sessionInterface: 'mcp',
-        visible: true,
-      },
-    })
-
-    await tick()
-    expect(container.querySelector('.terminal-text__body')).toBeTruthy()
-    expect(container.querySelector('.terminal-shell__body')).toBeFalsy()
   })
 
   it('renders xterm canvas in TerminalView', async () => {

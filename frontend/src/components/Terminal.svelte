@@ -1,7 +1,6 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
   import TerminalCanvas from './TerminalCanvas.svelte'
-  import TerminalTextView from './TerminalTextView.svelte'
   import CommandInput from './CommandInput.svelte'
   import TerminalShell from './TerminalShell.svelte'
   import { apiFetch, buildApiPath } from '../lib/api.js'
@@ -29,14 +28,11 @@
   let inputDisabled = true
   let directInputEnabled = false
   let atBottom = true
-  let outputSegments = []
   let commandInput
-  let textView
   let unsubscribeStatus
   let unsubscribeHistory
   let unsubscribeReconnect
   let unsubscribeAtBottom
-  let unsubscribeSegments
   let attachedSessionId = ''
   let attachedInterface = ''
   let attachedRunner = ''
@@ -48,7 +44,6 @@
   let interfaceValue = ''
   let runnerValue = ''
   let tmuxSessionValue = ''
-  let isCLI = false
   let isExternal = false
   let connectionFailedNotified = false
   const scrollSensitivity = 1
@@ -79,10 +74,6 @@
       unsubscribeAtBottom()
       unsubscribeAtBottom = null
     }
-    if (unsubscribeSegments) {
-      unsubscribeSegments()
-      unsubscribeSegments = null
-    }
     state = null
   }
 
@@ -104,11 +95,6 @@
         atBottom = value
       })
     }
-    if (state.segments) {
-      unsubscribeSegments = state.segments.subscribe((value) => {
-        outputSegments = value
-      })
-    }
     state.setDirectInput?.(directInputEnabled)
   }
 
@@ -119,11 +105,7 @@
   }
 
   const handleScrollToBottom = () => {
-    if (isCLI) {
-      state?.scrollToBottom?.()
-      return
-    }
-    textView?.scrollToBottom?.()
+    state?.scrollToBottom?.()
   }
 
   const handleSubmit = (command) => {
@@ -165,10 +147,6 @@
     })
   }
 
-  const handleAtBottomChange = (value) => {
-    state?.setAtBottom?.(value)
-  }
-
   const handleDirectInputChange = (enabled) => {
     if (forceDirectInput) return
     directInputEnabled = enabled
@@ -198,7 +176,6 @@
     typeof sessionInterface === 'string' ? sessionInterface.trim().toLowerCase() : ''
   $: runnerValue = typeof sessionRunner === 'string' ? sessionRunner.trim().toLowerCase() : ''
   $: tmuxSessionValue = typeof tmuxSessionName === 'string' ? tmuxSessionName.trim() : ''
-  $: isCLI = interfaceValue === 'cli'
   $: isExternal = runnerValue === 'external'
 
   $: {
@@ -242,7 +219,7 @@
     if (visible && pendingFocus) {
       requestAnimationFrame(() => {
         if (!visible || !pendingFocus) return
-        if (isCLI && directInputEnabled) {
+        if (directInputEnabled) {
           if (status !== 'connected') return
           state?.focus?.()
           pendingFocus = false
@@ -304,17 +281,11 @@
           <p>If needed, list sessions first: <code>tmux ls</code></p>
         {/if}
       </div>
-    {:else if isCLI}
+    {:else}
       <TerminalCanvas
         {state}
         {visible}
         {scrollSensitivity}
-      />
-    {:else}
-      <TerminalTextView
-        bind:this={textView}
-        segments={outputSegments}
-        onAtBottomChange={handleAtBottomChange}
       />
     {/if}
   </svelte:fragment>
@@ -327,7 +298,7 @@
         onSubmit={handleSubmit}
         disabled={inputDisabled}
         directInput={directInputEnabled}
-        showDirectInputToggle={isCLI && !isExternal && !forceDirectInput}
+        showDirectInputToggle={!isExternal && !forceDirectInput}
         onDirectInputChange={handleDirectInputChange}
       />
     {/if}

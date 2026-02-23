@@ -73,21 +73,29 @@ describe('terminal history loads', () => {
         title: 'Shell',
         role: 'shell',
         created_at: new Date().toISOString(),
-        interface: 'mcp',
+        interface: 'cli',
       },
       {
         id: 't2',
         title: 'Ops',
         role: 'shell',
         created_at: new Date().toISOString(),
-        interface: 'mcp',
+        interface: 'cli',
       },
     ]
 
     const appMocks = createAppApiMocks(apiFetch, {
       status: { session_count: terminals.length },
       terminals,
-      agents: [],
+      agents: [
+        {
+          id: 'coder',
+          name: 'Coder',
+          hidden: false,
+          running: true,
+          session_id: 't1',
+        },
+      ],
     })
 
     apiFetch.mockImplementation((url) => {
@@ -109,14 +117,14 @@ describe('terminal history loads', () => {
 
   it('loads history only for the active terminal', async () => {
     const { findByRole } = render(App)
-    const terminalTab = await findByRole('button', { name: 't1' })
+    const openAgentButton = await findByRole('button', { name: /Coder/i })
 
     const initialHistoryCalls = apiFetch.mock.calls.filter(([url]) =>
       String(url).includes('/history')
     )
     expect(initialHistoryCalls).toHaveLength(0)
 
-    await fireEvent.click(terminalTab)
+    await fireEvent.click(openAgentButton)
 
     await waitFor(() => {
       const historyCalls = apiFetch.mock.calls.filter(([url]) =>

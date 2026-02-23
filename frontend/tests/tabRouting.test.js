@@ -15,12 +15,12 @@ describe('tab routing', () => {
   it('excludes cli sessions from terminal tabs', () => {
     const tabs = buildTabs([
       { id: 'ext', title: 'External', interface: 'cli', runner: 'external' },
-      { id: 'mcp', title: 'MCP', interface: 'mcp', runner: 'external' },
+      { id: 'legacy', title: 'Legacy', interface: 'legacy', runner: 'external' },
       { id: 'srv', title: 'Server', interface: 'cli', runner: 'server' },
     ])
     const ids = tabs.map((tab) => tab.id)
     expect(ids).not.toContain('ext')
-    expect(ids).toContain('mcp')
+    expect(ids).toContain('legacy')
     expect(ids).not.toContain('srv')
   })
 

@@ -1,12 +1,6 @@
 import { notificationStore } from './notificationStore.js'
 
-const mcpCreateErrorMessage =
-  'MCP session failed to start. Verify your Codex MCP configuration and try again.'
-
 export const getErrorMessage = (error, fallback = 'Request failed.') => {
-  if (error?.data?.code === 'mcp_bootstrap_failed') {
-    return mcpCreateErrorMessage
-  }
   if (error && typeof error.message === 'string' && error.message.trim()) {
     return error.message
   }

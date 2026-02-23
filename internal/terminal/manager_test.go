@@ -103,12 +103,6 @@ func (resolver fixedPortResolver) Get(service string) (int, bool) {
 	return port, ok
 }
 
-func agentSequenceValue(manager *Manager, name string) uint64 {
-	manager.mu.RLock()
-	defer manager.mu.RUnlock()
-	return manager.agentSequence[name]
-}
-
 type capturePty struct {
 	mu     sync.Mutex
 	writes [][]byte
@@ -288,14 +282,15 @@ func (f *captureFactory) Start(command string, args ...string) (Pty, *exec.Cmd, 
 
 func TestManagerLifecycle(t *testing.T) {
 	factory := &fakeFactory{}
-	nonSingleton := false
 	manager := NewManager(ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
 		Agents: map[string]agent.Agent{
 			"coder": {
-				Name:      "Coder",
-				Singleton: &nonSingleton,
+				Name: "Coder",
+			},
+			"architect": {
+				Name: "Architect",
 			},
 		},
 	})
@@ -304,7 +299,7 @@ func TestManagerLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create first: %v", err)
 	}
-	second, err := manager.Create("coder", "run", "second")
+	second, err := manager.Create("architect", "run", "second")
 	if err != nil {
 		t.Fatalf("create second: %v", err)
 	}
@@ -533,46 +528,6 @@ func TestManagerAgentSingleInstance(t *testing.T) {
 	}
 }
 
-func TestManagerAgentMultipleInstances(t *testing.T) {
-	factory := &fakeFactory{}
-	nonSingleton := false
-	manager := NewManager(ManagerOptions{
-		Shell:      "/bin/sh",
-		PtyFactory: factory,
-		Agents: map[string]agent.Agent{
-			"architect": {
-				Name:      "Architect",
-				Shell:     "/bin/bash",
-				Singleton: &nonSingleton,
-			},
-		},
-	})
-
-	first, err := manager.Create("architect", "build", "first")
-	if err != nil {
-		t.Fatalf("create first: %v", err)
-	}
-	if first.ID != "Architect 1" {
-		t.Fatalf("expected id Architect 1, got %q", first.ID)
-	}
-
-	second, err := manager.Create("architect", "build", "second")
-	if err != nil {
-		t.Fatalf("create second: %v", err)
-	}
-	if second.ID != "Architect 2" {
-		t.Fatalf("expected id Architect 2, got %q", second.ID)
-	}
-
-	third, err := manager.Create("architect", "build", "third")
-	if err != nil {
-		t.Fatalf("create third: %v", err)
-	}
-	if third.ID != "Architect 3" {
-		t.Fatalf("expected id Architect 3, got %q", third.ID)
-	}
-}
-
 func TestManagerAgentSessionIDSanitizesName(t *testing.T) {
 	factory := &fakeFactory{}
 	manager := NewManager(ManagerOptions{
@@ -608,226 +563,6 @@ func TestManagerAgentSessionIDRejectsEmptyAfterSanitize(t *testing.T) {
 
 	if _, err := manager.Create("bad", "build", "first"); err == nil {
 		t.Fatalf("expected error for empty sanitized agent name")
-	}
-}
-
-func TestManagerAgentSessionIDCollisionRetries(t *testing.T) {
-	factory := &fakeFactory{}
-	nonSingleton := false
-	manager := NewManager(ManagerOptions{
-		Shell:      "/bin/sh",
-		PtyFactory: factory,
-		Agents: map[string]agent.Agent{
-			"codex": {
-				Name:      "Codex",
-				Singleton: &nonSingleton,
-			},
-		},
-	})
-
-	manager.mu.Lock()
-	manager.sessions["Codex 1"] = &Session{SessionMeta: SessionMeta{ID: "Codex 1"}}
-	manager.mu.Unlock()
-
-	session, err := manager.Create("codex", "build", "first")
-	if err != nil {
-		t.Fatalf("create session: %v", err)
-	}
-	if session.ID != "Codex 2" {
-		t.Fatalf("expected id Codex 2, got %q", session.ID)
-	}
-}
-
-func TestManagerAgentSequenceIncrements(t *testing.T) {
-	factory := &fakeFactory{}
-	nonSingleton := false
-	manager := NewManager(ManagerOptions{
-		Shell:      "/bin/sh",
-		PtyFactory: factory,
-		Agents: map[string]agent.Agent{
-			"codex": {
-				Name:      "Codex",
-				Shell:     "/bin/bash",
-				Singleton: &nonSingleton,
-			},
-			"architect": {
-				Name:      "Architect",
-				Shell:     "/bin/bash",
-				Singleton: &nonSingleton,
-			},
-		},
-	})
-
-	if _, err := manager.Create("codex", "build", "first"); err != nil {
-		t.Fatalf("create codex first: %v", err)
-	}
-	if got := agentSequenceValue(manager, "Codex"); got != 1 {
-		t.Fatalf("expected Codex sequence 1, got %d", got)
-	}
-
-	if _, err := manager.Create("architect", "build", "first"); err != nil {
-		t.Fatalf("create architect first: %v", err)
-	}
-	if got := agentSequenceValue(manager, "Architect"); got != 1 {
-		t.Fatalf("expected Architect sequence 1, got %d", got)
-	}
-
-	if _, err := manager.Create("codex", "build", "second"); err != nil {
-		t.Fatalf("create codex second: %v", err)
-	}
-	if got := agentSequenceValue(manager, "Codex"); got != 2 {
-		t.Fatalf("expected Codex sequence 2, got %d", got)
-	}
-}
-
-func TestManagerAgentSequenceResetsOnRestart(t *testing.T) {
-	nonSingleton := false
-	opts := ManagerOptions{
-		Shell:      "/bin/sh",
-		PtyFactory: &fakeFactory{},
-		Agents: map[string]agent.Agent{
-			"codex": {
-				Name:      "Codex",
-				Shell:     "/bin/bash",
-				Singleton: &nonSingleton,
-			},
-		},
-	}
-	manager := NewManager(opts)
-	if _, err := manager.Create("codex", "build", "first"); err != nil {
-		t.Fatalf("create codex first: %v", err)
-	}
-	if got := agentSequenceValue(manager, "Codex"); got != 1 {
-		t.Fatalf("expected Codex sequence 1, got %d", got)
-	}
-
-	opts.PtyFactory = &fakeFactory{}
-	manager = NewManager(opts)
-	if _, err := manager.Create("codex", "build", "first"); err != nil {
-		t.Fatalf("create codex after restart: %v", err)
-	}
-	if got := agentSequenceValue(manager, "Codex"); got != 1 {
-		t.Fatalf("expected Codex sequence reset to 1, got %d", got)
-	}
-}
-
-func TestManagerAgentSequenceDecrementsOnDelete(t *testing.T) {
-	factory := &fakeFactory{}
-	nonSingleton := false
-	manager := NewManager(ManagerOptions{
-		Shell:      "/bin/sh",
-		PtyFactory: factory,
-		Agents: map[string]agent.Agent{
-			"codex": {
-				Name:      "Codex",
-				Shell:     "/bin/bash",
-				Singleton: &nonSingleton,
-			},
-		},
-	})
-
-	first, err := manager.Create("codex", "build", "first")
-	if err != nil {
-		t.Fatalf("create codex first: %v", err)
-	}
-	second, err := manager.Create("codex", "build", "second")
-	if err != nil {
-		t.Fatalf("create codex second: %v", err)
-	}
-
-	if err := manager.Delete(second.ID); err != nil {
-		t.Fatalf("delete codex second: %v", err)
-	}
-
-	third, err := manager.Create("codex", "build", "third")
-	if err != nil {
-		t.Fatalf("create codex third: %v", err)
-	}
-	if third.ID != "Codex 2" {
-		t.Fatalf("expected id Codex 2, got %q", third.ID)
-	}
-	if got := agentSequenceValue(manager, "Codex"); got != 2 {
-		t.Fatalf("expected Codex sequence 2, got %d", got)
-	}
-
-	if err := manager.Delete(first.ID); err != nil {
-		t.Fatalf("delete codex first: %v", err)
-	}
-	if err := manager.Delete(third.ID); err != nil {
-		t.Fatalf("delete codex third: %v", err)
-	}
-
-	restart, err := manager.Create("codex", "build", "restart")
-	if err != nil {
-		t.Fatalf("create codex restart: %v", err)
-	}
-	if restart.ID != "Codex 1" {
-		t.Fatalf("expected id Codex 1, got %q", restart.ID)
-	}
-}
-
-func TestManagerAgentSequenceBoundToName(t *testing.T) {
-	factory := &fakeFactory{}
-	nonSingleton := false
-	manager := NewManager(ManagerOptions{
-		Shell:      "/bin/sh",
-		PtyFactory: factory,
-		Agents: map[string]agent.Agent{
-			"codex": {
-				Name:      "Codex",
-				Shell:     "/bin/bash",
-				Singleton: &nonSingleton,
-			},
-			"fixer": {
-				Name:      "Fixer",
-				Shell:     "/bin/bash",
-				Singleton: &nonSingleton,
-			},
-		},
-	})
-
-	coder, err := manager.Create("codex", "build", "first")
-	if err != nil {
-		t.Fatalf("create codex first: %v", err)
-	}
-	fixer, err := manager.Create("fixer", "build", "first")
-	if err != nil {
-		t.Fatalf("create fixer first: %v", err)
-	}
-
-	if err := manager.Delete(coder.ID); err != nil {
-		t.Fatalf("delete codex first: %v", err)
-	}
-
-	coderAgain, err := manager.Create("codex", "build", "again")
-	if err != nil {
-		t.Fatalf("create codex again: %v", err)
-	}
-	if coderAgain.ID != "Codex 1" {
-		t.Fatalf("expected id Codex 1, got %q", coderAgain.ID)
-	}
-
-	fixerNext, err := manager.Create("fixer", "build", "second")
-	if err != nil {
-		t.Fatalf("create fixer second: %v", err)
-	}
-	if fixerNext.ID != "Fixer 2" {
-		t.Fatalf("expected id Fixer 2, got %q", fixerNext.ID)
-	}
-
-	if err := manager.Delete(fixer.ID); err != nil {
-		t.Fatalf("delete fixer first: %v", err)
-	}
-	if err := manager.Delete(fixerNext.ID); err != nil {
-		t.Fatalf("delete fixer second: %v", err)
-	}
-
-	fixerReset, err := manager.Create("fixer", "build", "reset")
-	if err != nil {
-		t.Fatalf("create fixer reset: %v", err)
-	}
-	if fixerReset.ID != "Fixer 1" {
-		t.Fatalf("expected id Fixer 1, got %q", fixerReset.ID)
 	}
 }
 
@@ -1218,48 +953,44 @@ func receiveTerminalEvent(t *testing.T, ch <-chan event.TerminalEvent) event.Ter
 	}
 }
 
-func TestManagerMultiInstanceKeepsAgentID(t *testing.T) {
-	singleton := false
+func TestManagerSingletonKeepsAgentID(t *testing.T) {
 	factory := &fakeFactory{}
 	manager := NewManager(ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
 		Agents: map[string]agent.Agent{
 			"codex": {
-				Name:      "Codex",
-				Shell:     "/bin/bash",
-				Singleton: &singleton,
+				Name:  "Codex",
+				Shell: "/bin/bash",
 			},
 		},
 	})
 
 	first, err := manager.Create("codex", "role", "title")
 	if err != nil {
-		t.Fatalf("create first session: %v", err)
+		t.Fatalf("create session: %v", err)
 	}
 	defer func() {
 		_ = manager.Delete(first.ID)
 	}()
 
-	second, err := manager.Create("codex", "role", "title")
-	if err != nil {
-		t.Fatalf("create second session: %v", err)
-	}
-	defer func() {
-		_ = manager.Delete(second.ID)
-	}()
-
 	if first.AgentID != "codex" {
 		t.Fatalf("expected first agent id codex, got %q", first.AgentID)
 	}
-	if second.AgentID != "codex" {
-		t.Fatalf("expected second agent id codex, got %q", second.AgentID)
+	if first.ID != "Codex 1" {
+		t.Fatalf("expected canonical id Codex 1, got %q", first.ID)
 	}
-	if first.ID == second.ID {
-		t.Fatalf("expected unique session ids, got %q", first.ID)
+
+	_, err = manager.Create("codex", "role", "title")
+	if err == nil {
+		t.Fatalf("expected duplicate agent error")
 	}
-	if !strings.HasPrefix(first.ID, "Codex ") || !strings.HasPrefix(second.ID, "Codex ") {
-		t.Fatalf("expected numbered ids, got %q and %q", first.ID, second.ID)
+	var dup *AgentAlreadyRunningError
+	if !errors.As(err, &dup) {
+		t.Fatalf("expected AgentAlreadyRunningError, got %v", err)
+	}
+	if dup.TerminalID != "Codex 1" {
+		t.Fatalf("expected conflict terminal id Codex 1, got %q", dup.TerminalID)
 	}
 }
 

@@ -107,12 +107,10 @@ type TmuxClient interface {
 }
 
 // Manager is safe for concurrent use; mu guards the sessions map and lifecycle.
-// ID generation may consult the sessions map and agent sequence under the mutex.
 type Manager struct {
 	mu                      sync.RWMutex
 	sessions                map[string]*Session
 	agentSessions           map[string]string
-	agentSequence           map[string]uint64
 	nextID                  uint64
 	shell                   string
 	factory                 PtyFactory
@@ -291,7 +289,6 @@ func NewManager(opts ManagerOptions) *Manager {
 	manager := &Manager{
 		sessions:                make(map[string]*Session),
 		agentSessions:           make(map[string]string),
-		agentSequence:           make(map[string]uint64),
 		shell:                   shell,
 		factory:                 factory,
 		bufferLines:             bufferLines,
@@ -417,7 +414,6 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 	var onAirString string
 	var agentName string
 	var sanitizedAgentName string
-	var sessionSequence uint64
 	var sessionCLIConfig map[string]interface{}
 	guiModules := normalizeSessionGUIModules(request.GUIModules)
 	reservedID := strings.TrimSpace(request.SessionID)
@@ -477,18 +473,11 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 	}
 
 	if reservedID == "" && sanitizedAgentName != "" {
-		nextID, sequence, err := m.nextAgentSessionID(sanitizedAgentName)
-		if err != nil {
-			return nil, err
-		}
-		reservedID = nextID
-		sessionSequence = sequence
+		reservedID = canonicalAgentSessionID(sanitizedAgentName)
 	} else if reservedID != "" && sanitizedAgentName != "" {
-		sequence, ok := parseAgentSessionSequence(reservedID, sanitizedAgentName)
-		if !ok {
+		if reservedID != canonicalAgentSessionID(sanitizedAgentName) {
 			return nil, errors.New("session id does not match agent name")
 		}
-		sessionSequence = sequence
 	}
 
 	if reservedID == "" && profile != nil && strings.EqualFold(strings.TrimSpace(profile.CLIType), "codex") {
@@ -557,7 +546,7 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		shell = withCodexMCP(shell)
 	}
 
-	if agentName != "" && (profile.Singleton == nil || *profile.Singleton) {
+	if agentName != "" {
 		m.mu.Lock()
 		if existingID, ok := m.agentSessions[agentName]; ok {
 			m.mu.Unlock()
@@ -568,7 +557,7 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 	}
 
 	releaseReservation := func() {
-		if agentName == "" || reservedID == "" || profile == nil || (profile.Singleton != nil && !*profile.Singleton) {
+		if agentName == "" || reservedID == "" || profile == nil {
 			return
 		}
 		m.mu.Lock()
@@ -636,11 +625,6 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 
 	m.mu.Lock()
 	m.sessions[id] = session
-	if sanitizedAgentName != "" && sessionSequence > 0 {
-		if current := m.agentSequence[sanitizedAgentName]; sessionSequence > current {
-			m.agentSequence[sanitizedAgentName] = sessionSequence
-		}
-	}
 	m.mu.Unlock()
 
 	m.emitSessionStarted(id, request, agentName, shell)
@@ -747,50 +731,8 @@ func validateSessionID(id string) error {
 	return nil
 }
 
-func parseAgentSessionSequence(sessionID, agentName string) (uint64, bool) {
-	if sessionID == "" || agentName == "" {
-		return 0, false
-	}
-	prefix := agentName + " "
-	if !strings.HasPrefix(sessionID, prefix) {
-		return 0, false
-	}
-	sequence := strings.TrimSpace(sessionID[len(prefix):])
-	if sequence == "" {
-		return 0, false
-	}
-	value, err := strconv.ParseUint(sequence, 10, 64)
-	if err != nil || value == 0 {
-		return 0, false
-	}
-	return value, true
-}
-
-func (m *Manager) nextAgentSessionID(agentName string) (string, uint64, error) {
-	sanitized := sanitizeSessionName(agentName)
-	if sanitized == "" {
-		return "", 0, errors.New("agent name is required")
-	}
-	start := uint64(0)
-	m.mu.RLock()
-	if value, ok := m.agentSequence[sanitized]; ok {
-		start = value
-	}
-	m.mu.RUnlock()
-	for attempt := uint64(0); attempt < maxSessionIDAttempts; attempt++ {
-		sequence := start + attempt + 1
-		sessionID := fmt.Sprintf("%s %d", sanitized, sequence)
-		if len(sessionID) > maxSessionIDLength {
-			return "", 0, fmt.Errorf("session id exceeds %d characters", maxSessionIDLength)
-		}
-		m.mu.RLock()
-		_, exists := m.sessions[sessionID]
-		m.mu.RUnlock()
-		if !exists {
-			return sessionID, sequence, nil
-		}
-	}
-	return "", 0, errors.New("session id collision")
+func canonicalAgentSessionID(agentName string) string {
+	return fmt.Sprintf("%s 1", agentName)
 }
 
 func (m *Manager) nextIDValue() string {
@@ -1300,34 +1242,10 @@ func (m *Manager) Delete(id string) error {
 		if m.agentsHubID == id {
 			m.agentsHubID = ""
 		}
-		sequenceAdjusted := false
-		sanitizedAgentName := ""
 		if session != nil && session.agent != nil && session.agent.Name != "" {
 			agentName := session.agent.Name
 			if existingID, ok := m.agentSessions[agentName]; ok && existingID == id {
 				delete(m.agentSessions, agentName)
-			}
-			sanitizedAgentName = sanitizeSessionName(agentName)
-			if sanitizedAgentName != "" {
-				if parsed, ok := parseAgentSessionSequence(id, sanitizedAgentName); ok {
-					if current, ok := m.agentSequence[sanitizedAgentName]; ok && current == parsed {
-						sequenceAdjusted = true
-					}
-				}
-			}
-		}
-		if sequenceAdjusted {
-			maxSequence := uint64(0)
-			for sessionID := range m.sessions {
-				parsed, ok := parseAgentSessionSequence(sessionID, sanitizedAgentName)
-				if ok && parsed > maxSequence {
-					maxSequence = parsed
-				}
-			}
-			if maxSequence == 0 {
-				delete(m.agentSequence, sanitizedAgentName)
-			} else {
-				m.agentSequence[sanitizedAgentName] = maxSequence
 			}
 		}
 	}

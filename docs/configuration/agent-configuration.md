@@ -8,9 +8,8 @@ All agent files support the following fields:
 
 - `name` (string, required): Human-readable name shown in the UI.
 - `shell` (string, optional): Explicit shell command. Required if no CLI config keys are set.
-- `interface` (string, optional): `cli` or `mcp` (default `cli`). `mcp` is only supported for `cli_type="codex"`.
+- `interface` (string, optional): `cli` only (default `cli`).
 - `cli_type` (string, optional): CLI type (e.g., `codex`, `copilot`). Required when CLI config keys are set.
-- `codex_mode` (string, optional, legacy): For `cli_type="codex"`, deprecated alias for `interface` when `interface` is unset (`mcp-server` maps to `interface="mcp"`, `tui` maps to `interface="cli"`).
 - `prompt` (string or array, optional): Prompt names (no extension) to inject (Codex renders these into `developer_instructions`).
 - `skills` (array, optional): Skill names to inject (Codex renders these into `developer_instructions`).
 - `gui_modules` (array, optional): UI module flags for sessions (e.g., `["plan-progress"]`). Known modules: `console` (session view) and `plan-progress` (sidebar). Legacy `terminal` is accepted and normalized to `console`. Defaults to `["console"]` for server sessions and `["console","plan-progress"]` for external sessions when unset.
@@ -23,8 +22,6 @@ Prompt names resolve against `.gestalt/config/prompts`, trying `.tmpl`, `.md`, t
 Set `gui_modules` in the agent TOML to override the default module selection for that agent.
 
 Any additional top-level keys (outside the base fields) are treated as CLI config and validated. A legacy `[cli_config]` table is still accepted, but no longer required.
-
-The runtime can force Codex agents back to `interface="cli"` by setting `GESTALT_CODEX_FORCE_TUI=true`.
 
 ## Migration notes
 
@@ -72,25 +69,11 @@ If no CLI config keys are set, `shell` is used as-is.
 
 For `cli_type="codex"`, Gestalt renders skills + prompt files into a single
 `developer_instructions` value before the session starts. Prompt text is not
-typed into the terminal stream (CLI or MCP). Any `developer_instructions`
+typed into the terminal stream. Any `developer_instructions`
 provided in the CLI config is overwritten by the rendered content.
 
 For non-Codex CLIs, prompt files are still typed into the terminal after the
 `onair_string` (or a short delay if none is provided).
-
-### Codex MCP mode
-
-When `interface = "mcp"` (or legacy `codex_mode = "mcp-server"` with no `interface` set),
-Gestalt runs `codex mcp-server` over stdio and renders a simple transcript in the terminal output:
-
-- User prompts are echoed with a `> ` prefix.
-- Assistant responses are plain text blocks (newlines preserved).
-- Errors are prefixed with `! error:`.
-
-In MCP mode, Gestalt emits notify events directly (`source="codex-notify"`)
-and does not inject Codex `notify=...` hooks.
-
-Set `GESTALT_CODEX_FORCE_TUI=true` to force the legacy TUI path globally.
 
 ### Codex notify vs tui.notifications
 

@@ -7,7 +7,6 @@ func TestNormalizeLaunchSpecDefaults(t *testing.T) {
 		SessionID:   "  session-1 ",
 		Interface:   " mcp ",
 		PromptFiles: []string{" one ", "", "one"},
-		GUIModules:  []string{"console", " ", "console"},
 	}
 
 	normalized := NormalizeLaunchSpec(spec)
@@ -20,9 +19,6 @@ func TestNormalizeLaunchSpecDefaults(t *testing.T) {
 	}
 	if len(normalized.PromptFiles) != 1 || normalized.PromptFiles[0] != "one" {
 		t.Fatalf("expected normalized prompt files, got %#v", normalized.PromptFiles)
-	}
-	if len(normalized.GUIModules) != 1 || normalized.GUIModules[0] != "console" {
-		t.Fatalf("expected normalized gui modules, got %#v", normalized.GUIModules)
 	}
 	if normalized.PromptInjection.Mode != PromptInjectionNone {
 		t.Fatalf("expected default prompt injection mode, got %q", normalized.PromptInjection.Mode)

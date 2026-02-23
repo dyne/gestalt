@@ -131,7 +131,6 @@ func (h *RestHandler) listTerminals(w http.ResponseWriter) *apiError {
 			Command:     info.Command,
 			Skills:      info.Skills,
 			PromptFiles: info.PromptFiles,
-			GUIModules:  info.GUIModules,
 		})
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -166,11 +165,10 @@ func (h *RestHandler) createTerminal(w http.ResponseWriter, r *http.Request) *ap
 	}
 
 	session, createErr := h.Manager.CreateWithOptions(terminal.CreateOptions{
-		AgentID:    request.Agent,
-		Role:       request.Role,
-		Title:      request.Title,
-		Runner:     request.Runner,
-		GUIModules: request.GUIModules,
+		AgentID: request.Agent,
+		Role:    request.Role,
+		Title:   request.Title,
+		Runner:  request.Runner,
 	})
 	if createErr != nil {
 		if errors.Is(createErr, terminal.ErrAgentRequired) {
@@ -216,7 +214,6 @@ func (h *RestHandler) createTerminal(w http.ResponseWriter, r *http.Request) *ap
 			Command:     info.Command,
 			Skills:      info.Skills,
 			PromptFiles: info.PromptFiles,
-			GUIModules:  info.GUIModules,
 		},
 	}
 	if session.LaunchSpec != nil {

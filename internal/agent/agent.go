@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"gestalt/internal/guimodules"
 	internalschema "gestalt/internal/schema"
 )
 
@@ -66,7 +65,6 @@ type Agent struct {
 	Shell       string                 `json:"shell,omitempty" toml:"shell,omitempty"`
 	Prompts     PromptList             `json:"prompt,omitempty" toml:"prompt,omitempty"`
 	Skills      []string               `json:"skills,omitempty" toml:"skills,omitempty"`
-	GUIModules  []string               `json:"gui_modules,omitempty" toml:"gui_modules,omitempty"`
 	OnAirString string                 `json:"onair_string,omitempty" toml:"onair_string,omitempty"`
 	Singleton   *bool                  `json:"singleton,omitempty" toml:"singleton,omitempty"`
 	Interface   string                 `json:"interface,omitempty" toml:"interface,omitempty"`
@@ -105,14 +103,8 @@ func (a *Agent) Validate() error {
 			return fmt.Errorf("agent prompt %d is empty", i)
 		}
 	}
-	a.GUIModules = normalizeGUIModules(a.GUIModules)
 
 	return nil
-}
-
-// normalizeGUIModules cleans module names while preserving order.
-func normalizeGUIModules(modules []string) []string {
-	return guimodules.Normalize(modules)
 }
 
 func (a *Agent) ResolveInterface() (string, error) {

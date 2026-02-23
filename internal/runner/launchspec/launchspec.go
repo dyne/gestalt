@@ -21,7 +21,6 @@ type LaunchSpec struct {
 	Argv            []string            `json:"argv"`
 	Interface       string              `json:"interface"`
 	PromptFiles     []string            `json:"prompt_files"`
-	GUIModules      []string            `json:"gui_modules"`
 	PromptInjection PromptInjectionSpec `json:"prompt_injection"`
 }
 
@@ -80,7 +79,6 @@ func NormalizeLaunchSpec(spec LaunchSpec) LaunchSpec {
 	spec.SessionID = strings.TrimSpace(spec.SessionID)
 	spec.Interface = strings.TrimSpace(spec.Interface)
 	spec.PromptFiles = normalizeList(spec.PromptFiles)
-	spec.GUIModules = normalizeList(spec.GUIModules)
 	spec.PromptInjection = NormalizePromptInjection(spec.PromptInjection)
 	return spec
 }

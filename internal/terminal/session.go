@@ -62,7 +62,6 @@ type SessionMeta struct {
 	Runner      string
 	ConfigHash  string
 	PromptFiles []string
-	GUIModules  []string
 	LaunchSpec  *launchspec.LaunchSpec
 	agent       *agent.Agent
 }
@@ -123,7 +122,6 @@ type SessionInfo struct {
 	Command     string
 	Skills      []string
 	PromptFiles []string
-	GUIModules  []string
 }
 
 func newSession(id string, pty Pty, runner Runner, cmd *exec.Cmd, title, role string, createdAt time.Time, bufferLines int, historyScanMax int64, outputPolicy OutputBackpressurePolicy, outputSampleEvery uint64, profile *agent.Agent, sessionLogger *SessionLogger, inputLogger *InputLogger) *Session {
@@ -221,12 +219,6 @@ func (s *Session) Info() SessionInfo {
 	if len(s.PromptFiles) > 0 {
 		promptFiles = append(promptFiles, s.PromptFiles...)
 	}
-	guiModules := []string{}
-	if len(s.GUIModules) > 0 {
-		guiModules = append(guiModules, s.GUIModules...)
-	} else if s.agent != nil && len(s.agent.GUIModules) > 0 {
-		guiModules = append(guiModules, s.agent.GUIModules...)
-	}
 	interfaceValue := strings.TrimSpace(s.Interface)
 	if interfaceValue == "" {
 		if s.IsMCP() {
@@ -248,7 +240,6 @@ func (s *Session) Info() SessionInfo {
 		Command:     s.Command,
 		Skills:      skills,
 		PromptFiles: promptFiles,
-		GUIModules:  guiModules,
 	}
 }
 

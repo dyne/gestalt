@@ -44,7 +44,6 @@ type terminalSummary struct {
 	Command     string    `json:"command,omitempty"`
 	Skills      []string  `json:"skills"`
 	PromptFiles []string  `json:"prompt_files"`
-	GUIModules  []string  `json:"gui_modules"`
 }
 
 type terminalCreateResponse struct {
@@ -183,11 +182,10 @@ type skillSummary struct {
 }
 
 type createTerminalRequest struct {
-	Title      string   `json:"title"`
-	Role       string   `json:"role"`
-	Agent      string   `json:"agent"`
-	Runner     string   `json:"runner,omitempty"`
-	GUIModules []string `json:"gui_modules,omitempty"`
+	Title  string `json:"title"`
+	Role   string `json:"role"`
+	Agent  string `json:"agent"`
+	Runner string `json:"runner,omitempty"`
 }
 
 type terminalProgressResponse struct {

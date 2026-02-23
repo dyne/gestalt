@@ -17,7 +17,6 @@ onair_string = "READY"
 cli_type = "codex"
 codex_mode = "tui"
 model = "default"
-gui_modules = ["Plan-Progress"]
 `
 
 	var a Agent
@@ -47,24 +46,6 @@ gui_modules = ["Plan-Progress"]
 	}
 	if a.Model != "default" {
 		t.Fatalf("model mismatch: %q", a.Model)
-	}
-	if len(a.GUIModules) != 1 || a.GUIModules[0] != "Plan-Progress" {
-		t.Fatalf("gui_modules mismatch: %v", a.GUIModules)
-	}
-}
-
-func TestAgentValidateNormalizesGUIModules(t *testing.T) {
-	agent := Agent{
-		Name:       "Codex",
-		Shell:      "/bin/bash",
-		GUIModules: []string{" Plan-Progress ", "terminal", "console", "plan-progress", ""},
-	}
-
-	if err := agent.Validate(); err != nil {
-		t.Fatalf("validate: %v", err)
-	}
-	if len(agent.GUIModules) != 2 || agent.GUIModules[0] != "plan-progress" || agent.GUIModules[1] != "console" {
-		t.Fatalf("expected normalized gui_modules, got %v", agent.GUIModules)
 	}
 }
 

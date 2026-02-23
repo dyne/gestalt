@@ -104,15 +104,15 @@ func TestParseArgsUsesDefaults(t *testing.T) {
 	}
 }
 
-func TestParseArgsNormalizesSessionID(t *testing.T) {
+func TestParseArgsPreservesSessionID(t *testing.T) {
 	var stderr bytes.Buffer
 
 	cfg, err := parseArgs([]string{"--session-id", "Coder"}, &stderr)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.SessionID != "Coder 1" {
-		t.Fatalf("expected normalized session id, got %q", cfg.SessionID)
+	if cfg.SessionID != "Coder" {
+		t.Fatalf("expected session id to be preserved, got %q", cfg.SessionID)
 	}
 
 	cfg, err = parseArgs([]string{"--session-id", "Coder 2"}, &stderr)
@@ -278,22 +278,13 @@ func TestSendInputSessionIDSuccess(t *testing.T) {
 }
 
 func TestRunWithSenderSessionIDSkipsAgentLookup(t *testing.T) {
-	sawSessions := false
 	sawInput := false
 	withMockClient(t, func(r *http.Request) (*http.Response, error) {
 		if r.URL.Path == "/api/agents" {
 			t.Fatalf("agent lookup should be skipped")
 		}
 		switch r.URL.Path {
-		case "/api/sessions":
-			sawSessions = true
-			return &http.Response{
-				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(`[{"id":"s-1 1"}]`)),
-				Header:     make(http.Header),
-				Request:    r,
-			}, nil
-		case "/api/sessions/s-1 1/input":
+		case "/api/sessions/s-1/input":
 			sawInput = true
 			return &http.Response{
 				StatusCode: http.StatusOK,
@@ -311,8 +302,8 @@ func TestRunWithSenderSessionIDSkipsAgentLookup(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("expected exit code 0, got %d: %s", code, stderr.String())
 		}
-		if !sawSessions || !sawInput {
-			t.Fatalf("expected readiness and input calls, got sessions=%v input=%v", sawSessions, sawInput)
+		if !sawInput {
+			t.Fatalf("expected input call")
 		}
 	})
 }

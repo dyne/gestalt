@@ -138,8 +138,8 @@ func TestResolveSessionRef(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got != "Coder 1" {
-		t.Fatalf("expected Coder 1, got %q", got)
+	if got != "Coder" {
+		t.Fatalf("expected Coder, got %q", got)
 	}
 
 	got, err = ResolveSessionRef("Coder 2")

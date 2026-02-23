@@ -199,24 +199,25 @@ func ensureSession(cfg *Config) error {
 	}
 	baseURL := strings.TrimRight(cfg.URL, "/")
 	sessionID := strings.TrimSpace(cfg.SessionID)
-	if sessionID == "" {
-		if strings.TrimSpace(cfg.AgentID) == "" {
-			return sendErr(2, "agent id is required")
-		}
-		ensuredID, err := client.EnsureAgentSession(httpClient, baseURL, cfg.Token, cfg.AgentID)
-		if err != nil {
-			var httpErr *client.HTTPError
-			if errors.As(err, &httpErr) {
-				if httpErr.StatusCode == http.StatusBadRequest || httpErr.StatusCode == http.StatusNotFound {
-					return sendErr(2, httpErr.Message)
-				}
-				return sendErr(3, httpErr.Message)
-			}
-			return sendErrf(3, "%v", err)
-		}
-		sessionID = ensuredID
-		cfg.SessionID = ensuredID
+	if sessionID != "" {
+		return nil
 	}
+	if strings.TrimSpace(cfg.AgentID) == "" {
+		return sendErr(2, "agent id is required")
+	}
+	ensuredID, err := client.EnsureAgentSession(httpClient, baseURL, cfg.Token, cfg.AgentID)
+	if err != nil {
+		var httpErr *client.HTTPError
+		if errors.As(err, &httpErr) {
+			if httpErr.StatusCode == http.StatusBadRequest || httpErr.StatusCode == http.StatusNotFound {
+				return sendErr(2, httpErr.Message)
+			}
+			return sendErr(3, httpErr.Message)
+		}
+		return sendErrf(3, "%v", err)
+	}
+	sessionID = ensuredID
+	cfg.SessionID = ensuredID
 	waitErr := client.WaitSessionReady(httpClient, baseURL, cfg.Token, sessionID, 0)
 	if waitErr != nil {
 		var httpErr *client.HTTPError

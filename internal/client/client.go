@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 )
@@ -28,7 +27,6 @@ type HTTPError struct {
 	Message    string
 }
 
-var explicitSessionSuffixPattern = regexp.MustCompile(`^.+\s+\d+$`)
 var defaultWaitSessionReadyTimeout = 2 * time.Second
 
 func (e *HTTPError) Error() string {
@@ -36,17 +34,13 @@ func (e *HTTPError) Error() string {
 }
 
 // NormalizeSessionRef canonicalizes session references used by CLI tools.
-// If the reference already ends with " <number>", it is preserved.
-// Otherwise, " 1" is appended.
+// Explicit session references are preserved; only surrounding whitespace is trimmed.
 func NormalizeSessionRef(ref string) (string, error) {
 	trimmed := strings.TrimSpace(ref)
 	if trimmed == "" {
 		return "", errors.New("session reference is required")
 	}
-	if explicitSessionSuffixPattern.MatchString(trimmed) {
-		return trimmed, nil
-	}
-	return trimmed + " 1", nil
+	return trimmed, nil
 }
 
 func ResolveSessionRef(ref string) (string, error) {

@@ -23,9 +23,6 @@ func TestParseArgsDefaults(t *testing.T) {
 	if cfg.AgentRef != "agent" {
 		t.Fatalf("expected agent ref agent, got %q", cfg.AgentRef)
 	}
-	if cfg.Start {
-		t.Fatalf("expected start false")
-	}
 	if cfg.Verbose {
 		t.Fatalf("expected verbose false")
 	}
@@ -42,7 +39,6 @@ func TestParseArgsFlagOverridesEnv(t *testing.T) {
 		"--host", "override",
 		"--port", "4210",
 		"--token", "override-token",
-		"--start",
 		"--verbose",
 		"--debug",
 		"agent",
@@ -55,9 +51,6 @@ func TestParseArgsFlagOverridesEnv(t *testing.T) {
 	}
 	if cfg.Token != "override-token" {
 		t.Fatalf("expected override token, got %q", cfg.Token)
-	}
-	if !cfg.Start {
-		t.Fatalf("expected start true")
 	}
 	if !cfg.Verbose {
 		t.Fatalf("expected verbose true")
@@ -114,6 +107,13 @@ func TestParseArgsVersionShort(t *testing.T) {
 func TestParseArgsInvalidFlag(t *testing.T) {
 	var stderr bytes.Buffer
 	if _, err := parseArgs([]string{"--host"}, &stderr); err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func TestParseArgsRejectsStartFlag(t *testing.T) {
+	var stderr bytes.Buffer
+	if _, err := parseArgs([]string{"--start", "agent"}, &stderr); err == nil {
 		t.Fatalf("expected error")
 	}
 }

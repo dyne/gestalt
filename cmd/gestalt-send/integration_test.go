@@ -97,7 +97,7 @@ func TestGestaltSendEndToEnd(t *testing.T) {
 			t.Setenv("GESTALT_TOKEN", "secret")
 			var stderr bytes.Buffer
 
-			code := runWithSender([]string{"Codex"}, strings.NewReader("ping"), &stderr, sendAgentInput)
+			code := runWithSender([]string{"--session-id", session.ID}, strings.NewReader("ping"), &stderr, sendInput)
 			if code != 0 {
 				t.Fatalf("expected exit code 0, got %d: %s", code, stderr.String())
 			}

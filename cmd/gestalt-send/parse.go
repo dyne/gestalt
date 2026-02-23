@@ -22,7 +22,6 @@ type Config struct {
 	AgentID     string
 	AgentName   string
 	SessionID   string
-	Start       bool
 	Verbose     bool
 	Debug       bool
 	ShowVersion bool
@@ -36,7 +35,6 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 	portFlag := fs.Int("port", defaultServerPort, "Gestalt server port")
 	sessionIDFlag := fs.String("session-id", "", "Target session id (skips agent resolution)")
 	tokenFlag := fs.String("token", "", "Auth token (env: GESTALT_TOKEN, default: none)")
-	startFlag := fs.Bool("start", false, "Start agent if not running")
 	verboseFlag := fs.Bool("verbose", false, "Verbose output")
 	debugFlag := fs.Bool("debug", false, "Debug output (implies --verbose)")
 	helpVersion := cli.AddHelpVersionFlags(fs, "Show this help message", "Print version and exit")
@@ -105,7 +103,6 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 		Token:     token,
 		AgentRef:  agentRef,
 		SessionID: sessionID,
-		Start:     *startFlag,
 		Verbose:   *verboseFlag,
 		Debug:     *debugFlag,
 	}, nil
@@ -121,7 +118,6 @@ func printSendHelp(out io.Writer) {
 	writeSendOption(out, "--port PORT", "Gestalt server port (default: 57417)")
 	writeSendOption(out, "--session-id ID", "Send directly to session id")
 	writeSendOption(out, "--token TOKEN", "Auth token (env: GESTALT_TOKEN, default: none)")
-	writeSendOption(out, "--start", "Auto-start agent if not running")
 	writeSendOption(out, "--verbose", "Show request/response details")
 	writeSendOption(out, "--debug", "Show detailed debug info (implies --verbose)")
 	writeSendOption(out, "--help", "Show this help message")
@@ -132,14 +128,14 @@ func printSendHelp(out io.Writer) {
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Examples:")
 	fmt.Fprintln(out, "  cat file.txt | gestalt-send copilot")
-	fmt.Fprintln(out, "  echo \"status\" | gestalt-send --start architect")
+	fmt.Fprintln(out, "  echo \"status\" | gestalt-send architect")
 	fmt.Fprintln(out, "  gestalt-send --host remote --port 57417 --token abc123 agent-id")
 	fmt.Fprintln(out, "  echo \"status\" | gestalt-send --session-id session-1")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Exit codes:")
 	fmt.Fprintln(out, "  0  Success")
 	fmt.Fprintln(out, "  1  Usage error")
-	fmt.Fprintln(out, "  2  Agent not running")
+	fmt.Fprintln(out, "  2  Agent/session resolution failure")
 	fmt.Fprintln(out, "  3  Network or server error")
 }
 

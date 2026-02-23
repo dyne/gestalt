@@ -79,7 +79,6 @@ func TestParseArgsEventTypeOverride(t *testing.T) {
 }
 
 func TestParseArgsUsesEnvDefaults(t *testing.T) {
-	t.Setenv("GESTALT_URL", "http://example.com")
 	t.Setenv("GESTALT_TOKEN", "secret")
 	var stderr bytes.Buffer
 
@@ -87,11 +86,22 @@ func TestParseArgsUsesEnvDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.URL != "http://example.com" {
-		t.Fatalf("expected URL to match env, got %q", cfg.URL)
+	if cfg.URL != "http://127.0.0.1:57417" {
+		t.Fatalf("expected default URL, got %q", cfg.URL)
 	}
 	if cfg.Token != "secret" {
 		t.Fatalf("expected token to match env, got %q", cfg.Token)
+	}
+}
+
+func TestParseArgsRejectsURLFlag(t *testing.T) {
+	var stderr bytes.Buffer
+	_, err := parseArgs([]string{"--url", "http://example.com", "--session-id", "term-1", `{"type":"plan-L1-wip"}`}, &stderr)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !strings.Contains(stderr.String(), "flag provided but not defined: -url") {
+		t.Fatalf("expected unknown flag output, got %q", stderr.String())
 	}
 }
 

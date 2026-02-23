@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,7 +14,8 @@ import (
 	"gestalt/internal/client"
 )
 
-const defaultServerURL = "http://localhost:57417"
+const defaultServerHost = "127.0.0.1"
+const defaultServerPort = 57417
 const defaultNotifyTimeout = 2 * time.Second
 
 type Config struct {
@@ -33,7 +35,8 @@ type Config struct {
 func parseArgs(args []string, errOut io.Writer) (Config, error) {
 	fs := flag.NewFlagSet("gestalt-notify", flag.ContinueOnError)
 	fs.SetOutput(errOut)
-	urlFlag := fs.String("url", "", "Gestalt server URL (env: GESTALT_URL, default: http://localhost:57417)")
+	hostFlag := fs.String("host", defaultServerHost, "Gestalt server host")
+	portFlag := fs.Int("port", defaultServerPort, "Gestalt server port")
 	tokenFlag := fs.String("token", "", "Auth token (env: GESTALT_TOKEN, default: none)")
 	sessionIDFlag := fs.String("session-id", "", "Session ID (required)")
 	timeoutFlag := fs.Duration("timeout", defaultNotifyTimeout, "Request timeout")
@@ -78,13 +81,15 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 	}
 	sessionID = normalizedSessionID
 
-	url := strings.TrimSpace(*urlFlag)
-	if url == "" {
-		url = strings.TrimSpace(os.Getenv("GESTALT_URL"))
+	if *portFlag <= 0 || *portFlag > 65535 {
+		fs.Usage()
+		return Config{}, fmt.Errorf("port must be between 1 and 65535")
 	}
-	if url == "" {
-		url = defaultServerURL
+	host := strings.TrimSpace(*hostFlag)
+	if host == "" {
+		host = defaultServerHost
 	}
+	url := buildServerURL(host, *portFlag)
 
 	token := strings.TrimSpace(*tokenFlag)
 	if token == "" {
@@ -174,7 +179,8 @@ func printNotifyHelp(out io.Writer) {
 	fmt.Fprintln(out, "Send notify events to a running Gestalt session workflow")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Options:")
-	writeNotifyOption(out, "--url URL", "Gestalt server URL (env: GESTALT_URL, default: http://localhost:57417)")
+	writeNotifyOption(out, "--host HOST", "Gestalt server host (default: 127.0.0.1)")
+	writeNotifyOption(out, "--port PORT", "Gestalt server port (default: 57417)")
 	writeNotifyOption(out, "--token TOKEN", "Auth token (env: GESTALT_TOKEN, default: none)")
 	writeNotifyOption(out, "--session-id ID", "Session ID (required)")
 	writeNotifyOption(out, "--timeout DURATION", "Request timeout (default: 2s)")
@@ -201,6 +207,16 @@ func printNotifyHelp(out io.Writer) {
 
 func writeNotifyOption(out io.Writer, name, desc string) {
 	fmt.Fprintf(out, "  %-18s %s\n", name, desc)
+}
+
+func buildServerURL(host string, port int) string {
+	trimmedHost := strings.TrimSpace(host)
+	if trimmedHost == "" {
+		trimmedHost = defaultServerHost
+	}
+	trimmedHost = strings.TrimPrefix(trimmedHost, "http://")
+	trimmedHost = strings.TrimPrefix(trimmedHost, "https://")
+	return "http://" + trimmedHost + ":" + strconv.Itoa(port)
 }
 
 func readPayloadFromStdin() (string, error) {

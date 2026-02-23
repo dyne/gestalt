@@ -1,3 +1,19 @@
+# [1.20.0](https://github.com/dyne/gestalt/compare/v1.19.0...v1.20.0) (2026-02-23)
+
+
+### Bug Fixes
+
+* avoid duplicate agent name ([2f302ca](https://github.com/dyne/gestalt/commit/2f302caee3db0b6fa8282c85e5bb8afbbe870251))
+* **cli:** preserve explicit session ids for direct targeting ([1245ac6](https://github.com/dyne/gestalt/commit/1245ac6fc41040553483e79f0a409974d184efc8))
+
+
+### Features
+
+* **agent:** deprecate singleton config flag behavior ([87cd6fb](https://github.com/dyne/gestalt/commit/87cd6fb51e5dfca70a7505b407f623c09398f829))
+* **client:** add session ensure and readiness helpers ([fbf17de](https://github.com/dyne/gestalt/commit/fbf17de8e3b2385c7796ddafe6bf96acdec48503))
+* **cli:** normalize session references to canonical ids ([b9cb9a9](https://github.com/dyne/gestalt/commit/b9cb9a9f1d4417027d0aa3ef9ea6a9088688d24e))
+* **terminal:** inject notify host and port args ([5734233](https://github.com/dyne/gestalt/commit/573423384d2fcf78181abc9ba4527d60f336690e))
+
 # [1.19.0](https://github.com/dyne/gestalt/compare/v1.18.0...v1.19.0) (2026-02-23)
 
 

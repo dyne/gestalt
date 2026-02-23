@@ -1,3 +1,10 @@
+# [1.19.0](https://github.com/dyne/gestalt/compare/v1.18.0...v1.19.0) (2026-02-23)
+
+
+### Features
+
+* **prompt:** new director prompt ([bf19978](https://github.com/dyne/gestalt/commit/bf19978300ec9a4ac6477f0e33d82d552abd16e0))
+
 # [1.18.0](https://github.com/dyne/gestalt/compare/v1.17.0...v1.18.0) (2026-02-23)
 
 

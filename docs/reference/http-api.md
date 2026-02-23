@@ -36,7 +36,6 @@ If `GESTALT_TOKEN` is set:
 ### Agents and skills
 
 - `GET /api/agents`
-- `POST /api/agents/:name/send-input`
 - `GET /api/skills`
 
 ### Plans
@@ -95,6 +94,11 @@ Flow config endpoint policy:
 
 - The canonical session namespace is `/api/sessions/*`.
 - `/api/terminals/*` is not part of the current API surface.
+
+## Migration notes
+
+- Replace deprecated `POST /api/agents/:name/send-input` calls with `POST /api/sessions/:id/input`.
+- Use canonical singleton session IDs ending in ` 1` (for example `Coder 1`).
 
 ## Git log endpoint
 

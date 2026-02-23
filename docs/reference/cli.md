@@ -47,6 +47,13 @@ gestalt-send --session-id <session-id>
 - `--host` and `--port` select the server (defaults: `127.0.0.1`, `57417`).
 - `--session-id` accepts both canonical (`Coder 1`) and shorthand (`Coder`) references.
 - Agent sends are create-or-reuse: `gestalt-send <agent-name-or-id>` ensures the singleton agent session exists, waits until it is ready, then posts to `POST /api/sessions/:id/input`.
+- Exit codes: `1` usage, `2` agent/session resolution failure, `3` network/server/timeout.
+
+## `gestalt-notify` (session notify client)
+
+- `--host` and `--port` select the server (defaults: `127.0.0.1`, `57417`).
+- `--session-id` accepts both canonical (`Coder 1`) and shorthand (`Coder`) references.
+- Exit codes: `1` usage, `2` rejected request, `3` network/server, `4` session not found, `5` invalid payload.
 
 ## Agent config and prompts
 
@@ -77,3 +84,9 @@ This compatibility contract defines the intended public behavior for this releas
 | Session-id normalization | Tool-specific behavior | Shared rule: explicit `<name> <number>` is honored, otherwise normalize to `<name> 1` |
 | `gestalt-notify` server flags | `--url` | `--host` + `--port` |
 | CLI non-zero exits | Partially documented | Every non-zero exit prints one actionable stderr message |
+
+## Migration checklist
+
+- Replace `gestalt-notify --url ...` with `gestalt-notify --host ... --port ...`.
+- Remove `gestalt-send --start` usage from scripts; create-or-reuse is implicit.
+- Replace shorthand API input posts to removed agent endpoint with session input posts.

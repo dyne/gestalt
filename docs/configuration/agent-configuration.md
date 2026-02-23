@@ -101,7 +101,7 @@ Gestalt injects a notify hook for Codex sessions at runtime (overriding any
 existing `notify` value) so Flow automations can react to notify events:
 
 ```toml
-notify = ["gestalt-notify", "--session-id", "<session-id>"]
+notify = ["gestalt-notify", "--host", "127.0.0.1", "--port", "57417", "--session-id", "<session-id>"]
 ```
 
 ## Examples

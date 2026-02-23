@@ -63,8 +63,7 @@ REST endpoints (grouped):
 - Sessions: `/api/sessions`, `/api/sessions/:id`, `/api/sessions/:id/output`,
   `/api/sessions/:id/history`, `/api/sessions/:id/input-history`,
   `/api/sessions/:id/bell`, `/api/sessions/:id/notify`
-- Agents/skills/plans: `/api/agents`, `/api/agents/:name/input`,
-  `/api/agents/:name/send-input`, `/api/skills`, `/api/plans`
+- Agents/skills/plans: `/api/agents`, `/api/skills`, `/api/plans`
 - Flow/OTel: `/api/flow/activities`, `/api/flow/event-types`, `/api/flow/config`,
   `/api/flow/config/export`, `/api/flow/config/import`,
   `/api/otel/logs`, `/api/otel/traces`, `/api/otel/metrics`
@@ -591,7 +590,8 @@ Scope: CLI tool for sending stdin to agent sessions.
 ### Responsibilities and data flow
 - Parses CLI flags/env defaults and resolves agent by name or id.
 - Fetches /api/agents to resolve IDs and caches results to disk.
-- Sends stdin payload to /api/agents/:name/input, optionally starting agent.
+- Ensures or reuses a singleton session, waits for readiness, then posts stdin
+  to `/api/sessions/:id/input`.
 - Provides bash/zsh completions and internal __complete-agents helper.
 
 ### Complexity observations

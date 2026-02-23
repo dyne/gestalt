@@ -148,15 +148,13 @@ type sessionCreateRequest struct {
 	Title      string
 	Shell      string
 	Runner     string
-	GUIModules []string
 }
 
 type CreateOptions struct {
-	AgentID    string
-	Role       string
-	Title      string
-	Runner     string
-	GUIModules []string
+	AgentID string
+	Role    string
+	Title   string
+	Runner  string
 }
 
 const (
@@ -365,11 +363,10 @@ func (m *Manager) ProcessRegistry() *process.Registry {
 
 func (m *Manager) CreateWithOptions(options CreateOptions) (*Session, error) {
 	return m.createSession(sessionCreateRequest{
-		AgentID:    options.AgentID,
-		Role:       options.Role,
-		Title:      options.Title,
-		Runner:     options.Runner,
-		GUIModules: options.GUIModules,
+		AgentID: options.AgentID,
+		Role:    options.Role,
+		Title:   options.Title,
+		Runner:  options.Runner,
 	})
 }
 
@@ -417,7 +414,6 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 	var agentName string
 	var sanitizedAgentName string
 	var sessionCLIConfig map[string]interface{}
-	guiModules := normalizeSessionGUIModules(request.GUIModules)
 	reservedID := strings.TrimSpace(request.SessionID)
 	if request.AgentID == "" {
 		return nil, ErrAgentRequired
@@ -457,16 +453,6 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 	if strings.TrimSpace(request.Runner) == "" && runnerKind == launchspec.RunnerKindServer && shouldStartExternalTmuxWindow(profile) {
 		runnerKind = launchspec.RunnerKindExternal
 	}
-	if len(guiModules) == 0 && profile != nil && len(profile.GUIModules) > 0 {
-		guiModules = append([]string(nil), profile.GUIModules...)
-	}
-	if runnerKind == launchspec.RunnerKindServer && len(guiModules) == 0 {
-		guiModules = append([]string(nil), defaultServerGUIModules...)
-	}
-	if runnerKind == launchspec.RunnerKindExternal && len(guiModules) == 0 {
-		guiModules = append([]string(nil), defaultExternalGUIModules...)
-	}
-
 	if agentName != "" {
 		sanitizedAgentName = sanitizeSessionName(agentName)
 		if sanitizedAgentName == "" {
@@ -615,9 +601,6 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 	}
 	if len(promptFiles) > 0 {
 		session.PromptFiles = append(session.PromptFiles, promptFiles...)
-	}
-	if len(guiModules) > 0 {
-		session.GUIModules = append([]string(nil), guiModules...)
 	}
 	if developerInstructions != "" {
 		if mcp, ok := session.pty.(*mcpPty); ok {

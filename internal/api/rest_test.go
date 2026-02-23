@@ -1285,7 +1285,7 @@ func TestCreateTerminalWithAgent(t *testing.T) {
 	if err := os.MkdirAll(agentsDir, 0755); err != nil {
 		t.Fatalf("mkdir agents: %v", err)
 	}
-	agentTOML := "name = \"Codex\"\nshell = \"/bin/zsh\"\ncli_type = \"codex\"\ngui_modules = [\"plan-progress\"]\n"
+	agentTOML := "name = \"Codex\"\nshell = \"/bin/zsh\"\ncli_type = \"codex\"\n"
 	if err := os.WriteFile(filepath.Join(agentsDir, "codex.toml"), []byte(agentTOML), 0644); err != nil {
 		t.Fatalf("write agent: %v", err)
 	}
@@ -1296,10 +1296,9 @@ func TestCreateTerminalWithAgent(t *testing.T) {
 		PtyFactory: factory,
 		Agents: map[string]agent.Agent{
 			"codex": {
-				Name:       "Codex",
-				Shell:      "/bin/zsh",
-				CLIType:    "codex",
-				GUIModules: []string{"plan-progress"},
+				Name:    "Codex",
+				Shell:   "/bin/zsh",
+				CLIType: "codex",
 			},
 		},
 		AgentsDir: agentsDir,
@@ -1324,9 +1323,6 @@ func TestCreateTerminalWithAgent(t *testing.T) {
 	}
 	if payload.Interface != agent.AgentInterfaceCLI {
 		t.Fatalf("expected interface %q, got %q", agent.AgentInterfaceCLI, payload.Interface)
-	}
-	if len(payload.GUIModules) != 1 || payload.GUIModules[0] != "plan-progress" {
-		t.Fatalf("expected gui_modules plan-progress, got %v", payload.GUIModules)
 	}
 	if payload.ID == "" {
 		t.Fatalf("missing id")
@@ -1931,7 +1927,7 @@ func TestCreateTerminalMapsExternalTmuxFailure(t *testing.T) {
 	}
 }
 
-func TestCreateTerminalMCPProfilesReturnStableInterfaceRunnerAndModules(t *testing.T) {
+func TestCreateTerminalMCPProfilesReturnStableInterfaceRunner(t *testing.T) {
 	dir := t.TempDir()
 	agentIDs := []string{"coder", "fixer", "architect", "codex-mcp"}
 	agentNames := map[string]string{
@@ -1983,9 +1979,6 @@ func TestCreateTerminalMCPProfilesReturnStableInterfaceRunnerAndModules(t *testi
 		}
 		if payload.Runner != "server" {
 			t.Fatalf("%s: expected runner server, got %q", id, payload.Runner)
-		}
-		if len(payload.GUIModules) != 1 || payload.GUIModules[0] != "console" {
-			t.Fatalf("%s: expected gui_modules [console], got %v", id, payload.GUIModules)
 		}
 	}
 }

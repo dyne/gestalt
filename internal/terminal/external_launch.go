@@ -5,12 +5,8 @@ import (
 	"strings"
 
 	"gestalt/internal/agent"
-	"gestalt/internal/guimodules"
 	"gestalt/internal/runner/launchspec"
 )
-
-var defaultExternalGUIModules = []string{guimodules.ModuleConsole, guimodules.ModulePlanProgress}
-var defaultServerGUIModules = []string{guimodules.ModuleConsole}
 
 func normalizeRunnerKind(value string) (launchspec.RunnerKind, error) {
 	trimmed := strings.ToLower(strings.TrimSpace(value))
@@ -21,10 +17,6 @@ func normalizeRunnerKind(value string) (launchspec.RunnerKind, error) {
 		return launchspec.RunnerKindExternal, nil
 	}
 	return "", errors.New("invalid runner kind")
-}
-
-func normalizeSessionGUIModules(modules []string) []string {
-	return guimodules.Normalize(modules)
 }
 
 func (m *Manager) buildExternalPromptPayloads(promptNames []string, sessionID string) ([]string, []string) {
@@ -101,7 +93,6 @@ func (m *Manager) buildLaunchSpec(session *Session, profile *agent.Agent, cliCon
 		Argv:            argv,
 		Interface:       info.Interface,
 		PromptFiles:     info.PromptFiles,
-		GUIModules:      info.GUIModules,
 		PromptInjection: buildPromptInjectionSpec(cliType, promptPayloads),
 	}
 	normalized := launchspec.NormalizeLaunchSpec(spec)

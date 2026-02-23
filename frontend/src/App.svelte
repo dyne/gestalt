@@ -23,7 +23,6 @@
     sessionUiConfig,
     setSessionUiConfigFromStatus,
   } from './lib/sessionUiConfig.js'
-  import { resolveGuiModules } from './lib/guiModules/resolve.js'
   import {
     appHealthStore,
     forceReload,
@@ -507,7 +506,6 @@
               sessionInterface={activeTerminal.interface || ''}
               sessionRunner={activeTerminal.runner || ''}
               tmuxSessionName={tmuxSessionName}
-              guiModules={resolveGuiModules(activeTerminal.gui_modules, activeTerminal.runner)}
               onDelete={deleteTerminal}
             />
           {:else}

@@ -1,6 +1,5 @@
 <script>
   import Terminal from '../components/Terminal.svelte'
-  import PlanSidebar from '../components/PlanSidebar.svelte'
 
   export let sessionId = ''
   export let title = ''
@@ -9,13 +8,11 @@
   export let sessionInterface = ''
   export let sessionRunner = ''
   export let tmuxSessionName = ''
-  export let guiModules = []
   export let onDelete = () => {}
 
   let closeDialog
   let confirmButton
   let lastTerminalId = ''
-  let planSidebarState = {}
 
   const openCloseDialog = () => {
     if (!closeDialog || closeDialog.open) return
@@ -33,22 +30,6 @@
     closeDialog?.close()
   }
 
-  const togglePlanSidebar = () => {
-    if (!sessionId) return
-    planSidebarState = {
-      ...planSidebarState,
-      [sessionId]: !planSidebarState[sessionId],
-    }
-  }
-
-  $: planSidebarOpen = sessionId ? Boolean(planSidebarState[sessionId]) : false
-  $: hasTerminalModule =
-    Array.isArray(guiModules) &&
-    guiModules.some((entry) => String(entry || '').trim().toLowerCase() === 'console')
-  $: hasPlanModule =
-    Array.isArray(guiModules) &&
-    guiModules.some((entry) => String(entry || '').trim().toLowerCase() === 'plan-progress')
-
   $: if (sessionId && sessionId !== lastTerminalId) {
     lastTerminalId = sessionId
   } else if (!sessionId && lastTerminalId) {
@@ -58,29 +39,17 @@
 
 <section class="terminal-view">
   {#if sessionId}
-    <div class="terminal-view__layout" data-plan-open={planSidebarOpen}>
-      {#if hasTerminalModule}
-        <Terminal
-          sessionId={sessionId}
-          {title}
-          {promptFiles}
-          {visible}
-          {sessionInterface}
-          {sessionRunner}
-          {tmuxSessionName}
-          {guiModules}
-          {planSidebarOpen}
-          onTogglePlan={togglePlanSidebar}
-          onRequestClose={openCloseDialog}
-        />
-      {/if}
-      {#if hasPlanModule && planSidebarOpen}
-        <PlanSidebar
-          sessionId={sessionId}
-          open={planSidebarOpen}
-          onClose={togglePlanSidebar}
-        />
-      {/if}
+    <div class="terminal-view__layout">
+      <Terminal
+        sessionId={sessionId}
+        {title}
+        {promptFiles}
+        {visible}
+        {sessionInterface}
+        {sessionRunner}
+        {tmuxSessionName}
+        onRequestClose={openCloseDialog}
+      />
     </div>
     <dialog id="close-confirm-dialog" class="close-dialog" bind:this={closeDialog}>
       <h2>Close Session?</h2>
@@ -123,10 +92,6 @@
     gap: 1rem;
     height: 100%;
     min-height: 0;
-  }
-
-  .terminal-view__layout[data-plan-open='true'] {
-    grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
   }
 
   .close-dialog {
@@ -178,12 +143,6 @@
     font-size: 0.8rem;
     font-weight: 600;
     cursor: pointer;
-  }
-
-  @media (max-width: 900px) {
-    .terminal-view__layout[data-plan-open='true'] {
-      grid-template-columns: 1fr;
-    }
   }
 
   .empty {

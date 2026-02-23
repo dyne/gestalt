@@ -19,7 +19,6 @@
       sessionInterface="cli"
       sessionRunner="server"
       tmuxSessionName={tmuxSessionName}
-      guiModules={['console']}
       showInput={false}
       showCloseButton={false}
       forceDirectInput={true}

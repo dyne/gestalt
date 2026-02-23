@@ -6,7 +6,6 @@ import { tick } from 'svelte'
 const apiFetch = vi.hoisted(() => vi.fn())
 const buildEventSourceUrl = vi.hoisted(() => vi.fn((path) => `http://test${path}`))
 const getTerminalState = vi.hoisted(() => vi.fn())
-const createTerminalService = vi.hoisted(() => vi.fn())
 
 vi.mock('../src/lib/api.js', () => ({
   apiFetch,
@@ -22,10 +21,6 @@ vi.mock('../src/lib/api.js', () => ({
 
 vi.mock('../src/lib/terminalStore.js', () => ({
   getTerminalState,
-}))
-
-vi.mock('../src/lib/terminal/service_mcp.js', () => ({
-  createTerminalService,
 }))
 
 import Terminal from '../src/components/Terminal.svelte'
@@ -55,24 +50,6 @@ const buildState = () => {
   }
 }
 
-const buildConsoleState = () => {
-  return {
-    status: writable('connected'),
-    historyStatus: writable('idle'),
-    bellCount: writable(0),
-    canReconnect: writable(false),
-    atBottom: writable(true),
-    segments: writable([]),
-    sendCommand: vi.fn(),
-    sendData: vi.fn(),
-    setAtBottom: vi.fn(),
-    appendPrompt: vi.fn(),
-    setVisible: vi.fn(),
-    reconnect: vi.fn(),
-    dispose: vi.fn(),
-  }
-}
-
 describe('Terminal', () => {
   beforeEach(() => {
     vi.stubGlobal('requestAnimationFrame', (cb) => {
@@ -88,7 +65,6 @@ describe('Terminal', () => {
     vi.unstubAllGlobals()
     apiFetch.mockReset()
     getTerminalState.mockReset()
-    createTerminalService.mockReset()
     cleanup()
   })
 
@@ -188,13 +164,11 @@ describe('Terminal', () => {
     expect(stateA.setVisible).toHaveBeenCalledWith(false)
   })
 
-  it('renders transcript for mcp console sessions', async () => {
-    createTerminalService.mockReturnValue(buildConsoleState())
-
+  it('renders transcript for mcp sessions in TerminalView', async () => {
+    getTerminalState.mockReturnValue(buildState())
     const { container } = render(TerminalView, {
       props: {
         sessionId: 't1',
-        guiModules: ['console'],
         sessionInterface: 'mcp',
         visible: true,
       },
@@ -205,13 +179,12 @@ describe('Terminal', () => {
     expect(container.querySelector('.terminal-shell__body')).toBeFalsy()
   })
 
-  it('renders xterm canvas when terminal module enabled', async () => {
+  it('renders xterm canvas in TerminalView', async () => {
     getTerminalState.mockReturnValue(buildState())
 
     const { container } = render(TerminalView, {
       props: {
         sessionId: 't1',
-        guiModules: ['console'],
         sessionInterface: 'cli',
         visible: true,
       },

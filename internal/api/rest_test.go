@@ -1919,12 +1919,11 @@ func TestCreateTerminalMapsExternalTmuxFailure(t *testing.T) {
 
 func TestCreateTerminalProfilesReturnStableInterfaceRunner(t *testing.T) {
 	dir := t.TempDir()
-	agentIDs := []string{"coder", "fixer", "architect", "codex-mcp"}
+	agentIDs := []string{"coder", "fixer", "architect"}
 	agentNames := map[string]string{
 		"coder":     "Coder",
 		"fixer":     "Fixer",
 		"architect": "Architect",
-		"codex-mcp": "Codex MCP",
 	}
 	profiles := map[string]agent.Agent{}
 	for _, id := range agentIDs {

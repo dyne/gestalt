@@ -1,3 +1,34 @@
+# [1.18.0](https://github.com/dyne/gestalt/compare/v1.17.0...v1.18.0) (2026-02-23)
+
+
+### Bug Fixes
+
+* **flow:** allow empty session id filter ([433093d](https://github.com/dyne/gestalt/commit/433093d1ca9a6963613f20b683bd55171c755948))
+* **flow:** default trigger where filters ([439c8dd](https://github.com/dyne/gestalt/commit/439c8ddd3006d64cb266497574445f7e42378da8))
+* **flow:** derive flow config path ([4bc8b11](https://github.com/dyne/gestalt/commit/4bc8b11e556c401a8c1a1e1608dbb816d069e719))
+* **flow:** rename agent-turn event type ([80bbe2d](https://github.com/dyne/gestalt/commit/80bbe2de40f773715fb25a284f45cfc1a9e84aa4))
+* **flow:** restore session id selection ([2959ce8](https://github.com/dyne/gestalt/commit/2959ce8fba8e20bde72078f807bfbabcf0e99efa))
+* **flow:** trim prompt where defaults ([fa275b9](https://github.com/dyne/gestalt/commit/fa275b990d166fd9aa0a92652337c08bc76d5d93))
+* **otel:** expose selected port to prompts ([2711af9](https://github.com/dyne/gestalt/commit/2711af967689f561819a2751939b2699f762a7c3))
+* **otel:** inject codex grpc endpoint ([43f2c19](https://github.com/dyne/gestalt/commit/43f2c194101205f7596c155a02c7b02c08739a3a))
+* **otel:** randomize collector ports ([71142df](https://github.com/dyne/gestalt/commit/71142df5ed94df07ff93b6b6251aece6760c7bc1))
+
+
+### Features
+
+* **api:** enforce yaml-only flow config import policy ([9e28bf8](https://github.com/dyne/gestalt/commit/9e28bf89f7b315d796df3d695ca39b7e40ff36e2))
+* **api:** export flow config as yaml bundle ([19cf611](https://github.com/dyne/gestalt/commit/19cf611b4e0fce908d57882a7c73dded28b25f44))
+* **config:** ship default split yaml flow files ([606d606](https://github.com/dyne/gestalt/commit/606d606273c5e132e225c748f6434e8744c62e49))
+* **flow:** add flow dto schemas and registry keys ([0707a70](https://github.com/dyne/gestalt/commit/0707a70ac01f49f5fd72c93c5731a392272140f7))
+* **flow:** add managed flow filename normalization rules ([bb2b73c](https://github.com/dyne/gestalt/commit/bb2b73c04834c0fb40dccdab1d042a91ba07ebf3))
+* **flow:** add strict yaml codec for flow bundles ([830e988](https://github.com/dyne/gestalt/commit/830e98886ea81bc911f5adfcea0254d89099a1da))
+* **flow:** constrain stale cleanup to managed flow files ([c1df055](https://github.com/dyne/gestalt/commit/c1df0551d90ec68df0921a892879f9744cfe6bef))
+* **flow:** emit prompt input events ([0d34325](https://github.com/dyne/gestalt/commit/0d343253d814e811c02f9a69381ab1256705571e))
+* **flow:** migrate runtime repository to split yaml files ([0e5e173](https://github.com/dyne/gestalt/commit/0e5e1738ca6184ee10bb2f33af1ab178201353af))
+* **flow:** switch event types to dashed names ([22170ff](https://github.com/dyne/gestalt/commit/22170ffbd1ec33b1dce3b4bc97f877190b1bc8e4))
+* **frontend:** switch flow import export ui to yaml ([b412c99](https://github.com/dyne/gestalt/commit/b412c99c290c93c8b36f04ba478daf5c5cc18ae2))
+* **schema:** add shared schema validation module ([5e4c739](https://github.com/dyne/gestalt/commit/5e4c739b3c47f603d65c1377f244d3fee6a2a9f1))
+
 # [1.17.0](https://github.com/dyne/gestalt/compare/v1.16.0...v1.17.0) (2026-02-19)
 
 

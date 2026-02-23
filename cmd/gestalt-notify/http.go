@@ -62,7 +62,7 @@ func handleNotifyError(err error, errOut io.Writer) int {
 func sendNotifyEvent(cfg Config) error {
 	baseURL := strings.TrimRight(cfg.URL, "/")
 	if baseURL == "" {
-		baseURL = defaultServerURL
+		baseURL = buildServerURL(defaultServerHost, defaultServerPort)
 	}
 
 	payload := client.NotifyRequest{

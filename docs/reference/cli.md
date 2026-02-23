@@ -45,8 +45,8 @@ gestalt-send --session-id <session-id>
 ```
 
 - `--host` and `--port` select the server (defaults: `127.0.0.1`, `57417`).
-- `--session-id` sends directly to `POST /api/sessions/:id/input` and skips agent lookup.
-- `--start` auto-creates the agent session if it is not running.
+- `--session-id` accepts both canonical (`Coder 1`) and shorthand (`Coder`) references.
+- Agent sends are create-or-reuse: `gestalt-send <agent-name-or-id>` ensures the singleton agent session exists, waits until it is ready, then posts to `POST /api/sessions/:id/input`.
 
 ## Agent config and prompts
 
@@ -61,5 +61,19 @@ See [Agent configuration](../configuration/agent-configuration) for full schema 
 
 ## Other binaries
 
-- `gestalt-notify`: send notify payloads to a session (`--session-id` required)
+- `gestalt-notify`: send notify payloads to a session (`--session-id` required, `--host`/`--port` server selection)
 - `gestalt-otel`: embedded OpenTelemetry collector binary (collector management/debug commands)
+
+## Session API singleton cleanup contract
+
+This compatibility contract defines the intended public behavior for this release line.
+
+| Area | Legacy behavior | Current contract |
+| --- | --- | --- |
+| Session input API | `POST /api/agents/:name/send-input` and `POST /api/sessions/:id/input` | `POST /api/sessions/:id/input` only |
+| Agent sessions | Multiple instances per agent could exist | Exactly one session per agent, canonical id `<AgentName> 1` |
+| Agent config `singleton` | Runtime behavior changed when set to `false` | Parse-compatible only; runtime always singleton |
+| `gestalt-send` start behavior | `--start` opt-in auto-create | Implicit create-or-reuse; no `--start` |
+| Session-id normalization | Tool-specific behavior | Shared rule: explicit `<name> <number>` is honored, otherwise normalize to `<name> 1` |
+| `gestalt-notify` server flags | `--url` | `--host` + `--port` |
+| CLI non-zero exits | Partially documented | Every non-zero exit prints one actionable stderr message |

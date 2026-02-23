@@ -1,4 +1,4 @@
-name = "Coder"
+name = "Director"
 shell = "codex"
 cli_type = "codex"
 interface = "cli"

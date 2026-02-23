@@ -385,7 +385,7 @@ func normalizeRoute(route, path string) string {
 		return terminalRoute(path)
 	}
 	if strings.HasPrefix(path, "/api/agents") {
-		return agentsRoute(path)
+		return "/api/agents"
 	}
 	if strings.HasPrefix(path, "/api/skills") {
 		return skillsRoute(path)
@@ -477,19 +477,6 @@ func terminalRoute(path string) string {
 	return "/api/sessions/:id"
 }
 
-func agentsRoute(path string) string {
-	trimmed := strings.TrimPrefix(path, "/api/agents")
-	trimmed = strings.Trim(trimmed, "/")
-	if trimmed == "" {
-		return "/api/agents"
-	}
-	parts := strings.Split(trimmed, "/")
-	if len(parts) == 2 && parts[1] == "send-input" {
-		return "/api/agents/:name/send-input"
-	}
-	return "/api/agents"
-}
-
 func skillsRoute(_ string) string {
 	return "/api/skills"
 }
@@ -561,9 +548,6 @@ func resolveAgentAttributes(resolver AgentResolver, r *http.Request, bodyAgentID
 	if info.SessionID == "" {
 		info.SessionID = sessionIDFromPath(r.URL.Path)
 	}
-	if info.Name == "" {
-		info.Name = agentNameFromPath(r.URL.Path)
-	}
 	if info.ID == "" {
 		info.ID = bodyAgentID
 	}
@@ -584,20 +568,6 @@ func sessionIDFromPath(path string) string {
 		return ""
 	}
 	return parts[0]
-}
-
-func agentNameFromPath(path string) string {
-	trimmed := strings.TrimSuffix(path, "/")
-	const prefix = "/api/agents/"
-	if !strings.HasPrefix(trimmed, prefix) {
-		return ""
-	}
-	rest := strings.TrimPrefix(trimmed, prefix)
-	parts := strings.Split(rest, "/")
-	if len(parts) != 2 || parts[1] != "input" {
-		return ""
-	}
-	return strings.TrimSpace(parts[0])
 }
 
 func buildAttributes(r *http.Request, routeInfo RouteInfo, agentAttributes AgentAttributes, statusCode int) []attribute.KeyValue {

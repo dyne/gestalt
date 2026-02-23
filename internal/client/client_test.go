@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestFetchAgentsFiltersResults(t *testing.T) {
@@ -129,6 +130,83 @@ func TestSendSessionInputAddsToken(t *testing.T) {
 	}
 	if gotAuth != "Bearer token" {
 		t.Fatalf("expected auth header, got %q", gotAuth)
+	}
+}
+
+func TestResolveSessionRef(t *testing.T) {
+	got, err := ResolveSessionRef("Coder")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "Coder 1" {
+		t.Fatalf("expected Coder 1, got %q", got)
+	}
+
+	got, err = ResolveSessionRef("Coder 2")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "Coder 2" {
+		t.Fatalf("expected Coder 2, got %q", got)
+	}
+}
+
+func TestEnsureAgentSessionCreated(t *testing.T) {
+	requireLocalListener(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/sessions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{"id":"Coder 1"}`)
+	}))
+	t.Cleanup(server.Close)
+
+	sessionID, err := EnsureAgentSession(server.Client(), server.URL, "", "coder")
+	if err != nil {
+		t.Fatalf("ensure agent session: %v", err)
+	}
+	if sessionID != "Coder 1" {
+		t.Fatalf("expected Coder 1, got %q", sessionID)
+	}
+}
+
+func TestEnsureAgentSessionConflict(t *testing.T) {
+	requireLocalListener(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_, _ = io.WriteString(w, `{"error":"already running","session_id":"Coder 1"}`)
+	}))
+	t.Cleanup(server.Close)
+
+	sessionID, err := EnsureAgentSession(server.Client(), server.URL, "", "coder")
+	if err != nil {
+		t.Fatalf("ensure agent session: %v", err)
+	}
+	if sessionID != "Coder 1" {
+		t.Fatalf("expected Coder 1, got %q", sessionID)
+	}
+}
+
+func TestWaitSessionReadyDefaultTimeout(t *testing.T) {
+	requireLocalListener(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `[]`)
+	}))
+	t.Cleanup(server.Close)
+
+	previous := defaultWaitSessionReadyTimeout
+	defaultWaitSessionReadyTimeout = 15 * time.Millisecond
+	t.Cleanup(func() {
+		defaultWaitSessionReadyTimeout = previous
+	})
+
+	err := WaitSessionReady(server.Client(), server.URL, "", "Coder 1", 0)
+	if err == nil {
+		t.Fatalf("expected timeout")
 	}
 }
 

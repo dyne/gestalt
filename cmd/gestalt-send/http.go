@@ -113,13 +113,21 @@ func resolveAgent(cfg *Config) error {
 	if idMatch != nil {
 		cfg.AgentID = idMatch.ID
 		cfg.AgentName = idMatch.Name
+		cfg.SessionID = strings.TrimSpace(idMatch.SessionID)
+		if cfg.SessionID == "" || !idMatch.Running {
+			return sendErrf(2, "agent %q has no running session; start it with gestalt-agent", cfg.AgentName)
+		}
 	} else if nameMatch != nil {
 		cfg.AgentID = nameMatch.ID
 		cfg.AgentName = nameMatch.Name
+		cfg.SessionID = strings.TrimSpace(nameMatch.SessionID)
+		if cfg.SessionID == "" || !nameMatch.Running {
+			return sendErrf(2, "agent %q has no running session; start it with gestalt-agent", cfg.AgentName)
+		}
 	}
 
 	if cfg.Verbose {
-		logf(*cfg, "resolved agent %q (id %q)", cfg.AgentName, cfg.AgentID)
+		logf(*cfg, "resolved agent %q (id %q) to session %q", cfg.AgentName, cfg.AgentID, cfg.SessionID)
 	}
 
 	return nil
@@ -193,45 +201,6 @@ func sendSessionInput(cfg Config, payload []byte) error {
 	return nil
 }
 
-func ensureSession(cfg *Config) error {
-	if cfg == nil {
-		return sendErr(2, "session configuration is required")
-	}
-	baseURL := strings.TrimRight(cfg.URL, "/")
-	sessionID := strings.TrimSpace(cfg.SessionID)
-	if sessionID != "" {
-		return nil
-	}
-	if strings.TrimSpace(cfg.AgentID) == "" {
-		return sendErr(2, "agent id is required")
-	}
-	ensuredID, err := client.EnsureAgentSession(httpClient, baseURL, cfg.Token, cfg.AgentID)
-	if err != nil {
-		var httpErr *client.HTTPError
-		if errors.As(err, &httpErr) {
-			if httpErr.StatusCode == http.StatusBadRequest || httpErr.StatusCode == http.StatusNotFound {
-				return sendErr(2, httpErr.Message)
-			}
-			return sendErr(3, httpErr.Message)
-		}
-		return sendErrf(3, "%v", err)
-	}
-	sessionID = ensuredID
-	cfg.SessionID = ensuredID
-	waitErr := client.WaitSessionReady(httpClient, baseURL, cfg.Token, sessionID, 0)
-	if waitErr != nil {
-		var httpErr *client.HTTPError
-		if errors.As(waitErr, &httpErr) {
-			if httpErr.StatusCode == http.StatusNotFound {
-				return sendErr(2, httpErr.Message)
-			}
-			return sendErr(3, httpErr.Message)
-		}
-		return sendErrf(3, "%v", waitErr)
-	}
-	return nil
-}
-
 func loadAgents(cfg Config) ([]agentInfo, error) {
 	if agentCacheTTL > 0 {
 		if cached, ok := readAgentCache(time.Now()); ok {
@@ -291,7 +260,12 @@ func readAgentCache(now time.Time) ([]agentInfo, bool) {
 		if id == "" || name == "" {
 			continue
 		}
-		agents = append(agents, agentInfo{ID: id, Name: name})
+		agents = append(agents, agentInfo{
+			ID:        id,
+			Name:      name,
+			SessionID: strings.TrimSpace(agent.SessionID),
+			Running:   agent.Running,
+		})
 	}
 	if len(agents) == 0 {
 		return nil, false

@@ -65,7 +65,7 @@ func TestRunWithSenderNonZeroWritesStderr(t *testing.T) {
 	}
 }
 
-func TestRunWithSenderNormalizesSessionID(t *testing.T) {
+func TestRunWithSenderPreservesSessionID(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
@@ -74,8 +74,8 @@ func TestRunWithSenderNormalizesSessionID(t *testing.T) {
 		&stdout,
 		&stderr,
 		func(cfg Config) error {
-			if cfg.SessionID != "Coder 1" {
-				t.Fatalf("expected normalized session id Coder 1, got %q", cfg.SessionID)
+			if cfg.SessionID != "Coder" {
+				t.Fatalf("expected session id Coder to be preserved, got %q", cfg.SessionID)
 			}
 			return notifyErr(exitCodeSessionNotFound, "session not found")
 		},

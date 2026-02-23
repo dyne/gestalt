@@ -169,6 +169,8 @@ const (
 
 	maxSessionIDLength   = 128
 	maxSessionIDAttempts = 64
+	notifyDefaultHost    = "127.0.0.1"
+	notifyDefaultPort    = 57417
 )
 
 var onAirTimeout = 5 * time.Second
@@ -523,7 +525,7 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 			if sessionCLIConfig == nil {
 				sessionCLIConfig = map[string]interface{}{}
 			}
-			sessionCLIConfig["notify"] = buildNotifyArgs(reservedID)
+			sessionCLIConfig["notify"] = m.buildNotifyArgs(reservedID)
 		}
 		if cliType != "" && len(sessionCLIConfig) > 0 {
 			generated := agent.BuildShellCommand(cliType, sessionCLIConfig)
@@ -1367,8 +1369,19 @@ func copyCLIConfig(config map[string]interface{}) map[string]interface{} {
 	return cloned
 }
 
-func buildNotifyArgs(sessionID string) []string {
-	args := []string{"gestalt-notify", "--session-id", strings.TrimSpace(sessionID)}
+func (m *Manager) buildNotifyArgs(sessionID string) []string {
+	port := notifyDefaultPort
+	if m != nil && m.portResolver != nil {
+		if resolvedPort, ok := m.portResolver.Get("frontend"); ok && resolvedPort > 0 {
+			port = resolvedPort
+		}
+	}
+	args := []string{
+		"gestalt-notify",
+		"--host", notifyDefaultHost,
+		"--port", strconv.Itoa(port),
+		"--session-id", strings.TrimSpace(sessionID),
+	}
 	return args
 }
 

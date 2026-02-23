@@ -103,6 +103,30 @@ func (resolver fixedPortResolver) Get(service string) (int, bool) {
 	return port, ok
 }
 
+func TestBuildNotifyArgsUsesFrontendPort(t *testing.T) {
+	manager := NewManager(ManagerOptions{
+		PortResolver: fixedPortResolver{
+			ports: map[string]int{
+				"frontend": 60123,
+			},
+		},
+	})
+	args := manager.buildNotifyArgs("Coder 1")
+	want := []string{"gestalt-notify", "--host", "127.0.0.1", "--port", "60123", "--session-id", "Coder 1"}
+	if strings.Join(args, "|") != strings.Join(want, "|") {
+		t.Fatalf("expected %v, got %v", want, args)
+	}
+}
+
+func TestBuildNotifyArgsUsesDefaultPort(t *testing.T) {
+	manager := NewManager(ManagerOptions{})
+	args := manager.buildNotifyArgs("Coder 1")
+	want := []string{"gestalt-notify", "--host", "127.0.0.1", "--port", "57417", "--session-id", "Coder 1"}
+	if strings.Join(args, "|") != strings.Join(want, "|") {
+		t.Fatalf("expected %v, got %v", want, args)
+	}
+}
+
 type capturePty struct {
 	mu     sync.Mutex
 	writes [][]byte

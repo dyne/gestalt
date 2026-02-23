@@ -18,3 +18,49 @@ func TestRunWithSenderInvalidPayload(t *testing.T) {
 		t.Fatalf("expected payload type error, got %q", stderr.String())
 	}
 }
+
+func TestRunWithSenderNonZeroWritesStderr(t *testing.T) {
+	t.Run("usage error", func(t *testing.T) {
+		var stdout bytes.Buffer
+		var stderr bytes.Buffer
+		code := runWithSender([]string{`{"type":"plan-L1-wip"}`}, &stdout, &stderr, nil)
+		if code != exitCodeUsage {
+			t.Fatalf("expected code %d, got %d", exitCodeUsage, code)
+		}
+		if strings.TrimSpace(stderr.String()) == "" {
+			t.Fatalf("expected stderr output")
+		}
+	})
+
+	cases := []struct {
+		name    string
+		code    int
+		message string
+	}{
+		{name: "rejected", code: exitCodeRejected, message: "request rejected"},
+		{name: "network", code: exitCodeNetwork, message: "network failure"},
+		{name: "session not found", code: exitCodeSessionNotFound, message: "session missing"},
+		{name: "invalid payload", code: exitCodeInvalidPayload, message: "invalid payload"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			code := runWithSender(
+				[]string{"--session-id", "term-1", `{"type":"plan-L1-wip","plan_file":"plan.org"}`},
+				&stdout,
+				&stderr,
+				func(Config) error {
+					return notifyErr(tc.code, tc.message)
+				},
+			)
+			if code != tc.code {
+				t.Fatalf("expected code %d, got %d", tc.code, code)
+			}
+			if !strings.Contains(stderr.String(), tc.message) {
+				t.Fatalf("expected stderr to contain %q, got %q", tc.message, stderr.String())
+			}
+		})
+	}
+}

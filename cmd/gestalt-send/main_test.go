@@ -472,6 +472,58 @@ func TestHandleSendErrorMapping(t *testing.T) {
 	}
 }
 
+func TestRunWithSenderNonZeroWritesStderr(t *testing.T) {
+	t.Run("usage error", func(t *testing.T) {
+		var stderr bytes.Buffer
+		code := runWithSender([]string{}, strings.NewReader(""), &stderr, nil)
+		if code != 1 {
+			t.Fatalf("expected exit code 1, got %d", code)
+		}
+		if strings.TrimSpace(stderr.String()) == "" {
+			t.Fatalf("expected stderr output")
+		}
+	})
+
+	t.Run("resolution error", func(t *testing.T) {
+		withAgentCacheDisabled(t, func() {
+			withMockClient(t, func(r *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       io.NopCloser(strings.NewReader(`[{"id":"missing","name":"Missing","running":false}]`)),
+					Header:     make(http.Header),
+					Request:    r,
+				}, nil
+			}, func() {
+				var stderr bytes.Buffer
+				code := runWithSender([]string{"missing"}, strings.NewReader("hi"), &stderr, sendAgentInput)
+				if code != 2 {
+					t.Fatalf("expected exit code 2, got %d", code)
+				}
+				if strings.TrimSpace(stderr.String()) == "" {
+					t.Fatalf("expected stderr output")
+				}
+			})
+		})
+	})
+
+	t.Run("network error", func(t *testing.T) {
+		withAgentCacheDisabled(t, func() {
+			withMockClient(t, func(r *http.Request) (*http.Response, error) {
+				return nil, errors.New("network down")
+			}, func() {
+				var stderr bytes.Buffer
+				code := runWithSender([]string{"Coder"}, strings.NewReader("hi"), &stderr, nil)
+				if code != 3 {
+					t.Fatalf("expected exit code 3, got %d", code)
+				}
+				if strings.TrimSpace(stderr.String()) == "" {
+					t.Fatalf("expected stderr output")
+				}
+			})
+		})
+	})
+}
+
 func TestAgentCacheRoundTrip(t *testing.T) {
 	withTempCacheDir(t, func(_ string) {
 		agents := []agentInfo{{ID: "coder", Name: "Coder"}}

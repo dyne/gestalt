@@ -10,7 +10,7 @@ import (
 
 func TestParseArgsDefaults(t *testing.T) {
 	var stderr bytes.Buffer
-	cfg, err := parseArgs([]string{"agent"}, &stderr)
+	cfg, err := parseArgs([]string{"--session-id", "s-1"}, &stderr)
 	if err != nil {
 		t.Fatalf("parse args: %v", err)
 	}
@@ -20,8 +20,8 @@ func TestParseArgsDefaults(t *testing.T) {
 	if cfg.Token != "" {
 		t.Fatalf("expected empty token, got %q", cfg.Token)
 	}
-	if cfg.AgentRef != "agent" {
-		t.Fatalf("expected agent ref agent, got %q", cfg.AgentRef)
+	if cfg.SessionID != "s-1" {
+		t.Fatalf("expected session id s-1, got %q", cfg.SessionID)
 	}
 	if cfg.Verbose {
 		t.Fatalf("expected verbose false")
@@ -39,9 +39,9 @@ func TestParseArgsFlagOverridesEnv(t *testing.T) {
 		"--host", "override",
 		"--port", "4210",
 		"--token", "override-token",
+		"--session-id", "session-9",
 		"--verbose",
 		"--debug",
-		"agent",
 	}, &stderr)
 	if err != nil {
 		t.Fatalf("parse args: %v", err)
@@ -111,14 +111,21 @@ func TestParseArgsInvalidFlag(t *testing.T) {
 	}
 }
 
-func TestParseArgsRejectsStartFlag(t *testing.T) {
+func TestParseArgsRejectsPositionalArgument(t *testing.T) {
 	var stderr bytes.Buffer
-	if _, err := parseArgs([]string{"--start", "agent"}, &stderr); err == nil {
+	if _, err := parseArgs([]string{"--session-id", "s-1", "agent"}, &stderr); err == nil {
 		t.Fatalf("expected error")
 	}
 }
 
-func TestParseArgsSessionIDWithoutAgent(t *testing.T) {
+func TestParseArgsRequiresSessionID(t *testing.T) {
+	var stderr bytes.Buffer
+	if _, err := parseArgs([]string{}, &stderr); err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func TestParseArgsSessionID(t *testing.T) {
 	var stderr bytes.Buffer
 	cfg, err := parseArgs([]string{"--session-id", "s-1"}, &stderr)
 	if err != nil {
@@ -126,8 +133,5 @@ func TestParseArgsSessionIDWithoutAgent(t *testing.T) {
 	}
 	if cfg.SessionID != "s-1" {
 		t.Fatalf("expected preserved session id s-1, got %q", cfg.SessionID)
-	}
-	if cfg.AgentRef != "" {
-		t.Fatalf("expected empty agent ref, got %q", cfg.AgentRef)
 	}
 }

@@ -15,8 +15,6 @@ func main() {
 		switch os.Args[1] {
 		case "completion":
 			os.Exit(runCompletion(os.Args[2:], os.Stdout, os.Stderr))
-		case "__complete-agents":
-			os.Exit(runCompleteAgents(os.Args[2:], os.Stdout, os.Stderr))
 		}
 	}
 	os.Exit(run(os.Args[1:], os.Stdin, os.Stderr))
@@ -46,12 +44,6 @@ func runWithSender(args []string, in io.Reader, errOut io.Writer, send func(Conf
 		cfg.Verbose = true
 	}
 	cfg.LogWriter = errOut
-
-	if cfg.SessionID == "" {
-		if err := resolveAgent(&cfg); err != nil {
-			return handleSendError(err, errOut)
-		}
-	}
 
 	payload, err := io.ReadAll(in)
 	if err != nil {

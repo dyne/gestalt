@@ -92,31 +92,29 @@ func TestGestaltSendEndToEnd(t *testing.T) {
 		return recorder.Result(), nil
 	})
 
-	withAgentCacheDisabled(t, func() {
-		withMockClient(t, transport, func() {
-			t.Setenv("GESTALT_TOKEN", "secret")
-			var stderr bytes.Buffer
+	withMockClient(t, transport, func() {
+		t.Setenv("GESTALT_TOKEN", "secret")
+		var stderr bytes.Buffer
 
-			code := runWithSender([]string{"--session-id", session.ID}, strings.NewReader("ping"), &stderr, sendInput)
-			if code != 0 {
-				t.Fatalf("expected exit code 0, got %d: %s", code, stderr.String())
-			}
+		code := runWithSender([]string{"--session-id", session.ID}, strings.NewReader("ping"), &stderr, sendInput)
+		if code != 0 {
+			t.Fatalf("expected exit code 0, got %d: %s", code, stderr.String())
+		}
 
-			deadline := time.Now().Add(500 * time.Millisecond)
-			for time.Now().Before(deadline) {
-				factory.pty.mu.Lock()
-				if len(factory.pty.writes) > 0 {
-					combined := bytes.Join(factory.pty.writes, nil)
-					factory.pty.mu.Unlock()
-					if string(combined) != "ping" {
-						t.Fatalf("expected payload %q, got %q", "ping", string(combined))
-					}
-					return
-				}
+		deadline := time.Now().Add(500 * time.Millisecond)
+		for time.Now().Before(deadline) {
+			factory.pty.mu.Lock()
+			if len(factory.pty.writes) > 0 {
+				combined := bytes.Join(factory.pty.writes, nil)
 				factory.pty.mu.Unlock()
-				time.Sleep(10 * time.Millisecond)
+				if string(combined) != "ping" {
+					t.Fatalf("expected payload %q, got %q", "ping", string(combined))
+				}
+				return
 			}
-			t.Fatalf("timed out waiting for PTY write")
-		})
+			factory.pty.mu.Unlock()
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatalf("timed out waiting for PTY write")
 	})
 }

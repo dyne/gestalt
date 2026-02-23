@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
 	"gestalt/internal/version"
 )
@@ -48,10 +47,13 @@ func runWithSender(args []string, in io.Reader, errOut io.Writer, send func(Conf
 	}
 	cfg.LogWriter = errOut
 
-	if strings.TrimSpace(cfg.SessionID) == "" {
+	if cfg.SessionID == "" {
 		if err := resolveAgent(&cfg); err != nil {
 			return handleSendError(err, errOut)
 		}
+	}
+	if err := ensureSession(&cfg); err != nil {
+		return handleSendError(err, errOut)
 	}
 
 	payload, err := io.ReadAll(in)

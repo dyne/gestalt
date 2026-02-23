@@ -15,7 +15,6 @@ import (
 )
 
 var httpClient = &http.Client{Timeout: 30 * time.Second}
-var startRetryDelay = time.Second
 var agentCacheTTL = 60 * time.Second
 
 type sendError struct {
@@ -114,11 +113,9 @@ func resolveAgent(cfg *Config) error {
 	if idMatch != nil {
 		cfg.AgentID = idMatch.ID
 		cfg.AgentName = idMatch.Name
-		cfg.SessionID = strings.TrimSpace(idMatch.SessionID)
 	} else if nameMatch != nil {
 		cfg.AgentID = nameMatch.ID
 		cfg.AgentName = nameMatch.Name
-		cfg.SessionID = strings.TrimSpace(nameMatch.SessionID)
 	}
 
 	if cfg.Verbose {
@@ -145,14 +142,14 @@ func formatAgentList(agents []agentInfo) string {
 }
 
 func sendAgentInput(cfg Config, payload []byte) error {
-	return sendAgentInputWithRetry(cfg, payload, true)
+	if strings.TrimSpace(cfg.SessionID) == "" {
+		return sendErr(2, "session id is required")
+	}
+	return sendSessionInput(cfg, payload)
 }
 
 func sendInput(cfg Config, payload []byte) error {
-	if strings.TrimSpace(cfg.SessionID) != "" {
-		return sendSessionInput(cfg, payload)
-	}
-	return sendAgentInputWithRetry(cfg, payload, true)
+	return sendSessionInput(cfg, payload)
 }
 
 func sendSessionInput(cfg Config, payload []byte) error {
@@ -196,78 +193,42 @@ func sendSessionInput(cfg Config, payload []byte) error {
 	return nil
 }
 
-func sendAgentInputWithRetry(cfg Config, payload []byte, allowStart bool) error {
-	if strings.TrimSpace(cfg.AgentName) == "" {
-		return sendErr(2, "agent name not resolved")
+func ensureSession(cfg *Config) error {
+	if cfg == nil {
+		return sendErr(2, "session configuration is required")
 	}
 	baseURL := strings.TrimRight(cfg.URL, "/")
 	sessionID := strings.TrimSpace(cfg.SessionID)
 	if sessionID == "" {
-		if !allowStart || !cfg.Start {
-			return sendErrf(2, "agent %q is not running", cfg.AgentName)
+		if strings.TrimSpace(cfg.AgentID) == "" {
+			return sendErr(2, "agent id is required")
 		}
-		logf(cfg, "agent %q not running; attempting to start", cfg.AgentName)
-		if err := client.StartAgent(httpClient, baseURL, cfg.Token, cfg.AgentID); err != nil {
-			return sendErrFromClient(err)
+		ensuredID, err := client.EnsureAgentSession(httpClient, baseURL, cfg.Token, cfg.AgentID)
+		if err != nil {
+			var httpErr *client.HTTPError
+			if errors.As(err, &httpErr) {
+				if httpErr.StatusCode == http.StatusBadRequest || httpErr.StatusCode == http.StatusNotFound {
+					return sendErr(2, httpErr.Message)
+				}
+				return sendErr(3, httpErr.Message)
+			}
+			return sendErrf(3, "%v", err)
 		}
-		time.Sleep(startRetryDelay)
-		refreshed := cfg
-		if err := refreshAgentSession(&refreshed); err != nil {
-			return err
-		}
-		return sendAgentInputWithRetry(refreshed, payload, false)
+		sessionID = ensuredID
+		cfg.SessionID = ensuredID
 	}
-	cfg.SessionID = sessionID
-	if err := sendSessionInput(cfg, payload); err != nil {
-		if !allowStart || !cfg.Start {
-			return err
-		}
-		var sendErrTyped *sendError
-		if errors.As(err, &sendErrTyped) && sendErrTyped.Code == 2 {
-			logf(cfg, "agent %q not running; attempting to start", cfg.AgentName)
-			if err := client.StartAgent(httpClient, baseURL, cfg.Token, cfg.AgentID); err != nil {
-				return sendErrFromClient(err)
+	waitErr := client.WaitSessionReady(httpClient, baseURL, cfg.Token, sessionID, 0)
+	if waitErr != nil {
+		var httpErr *client.HTTPError
+		if errors.As(waitErr, &httpErr) {
+			if httpErr.StatusCode == http.StatusNotFound {
+				return sendErr(2, httpErr.Message)
 			}
-			time.Sleep(startRetryDelay)
-			refreshed := cfg
-			if err := refreshAgentSession(&refreshed); err != nil {
-				return err
-			}
-			return sendAgentInputWithRetry(refreshed, payload, false)
+			return sendErr(3, httpErr.Message)
 		}
-		return err
+		return sendErrf(3, "%v", waitErr)
 	}
 	return nil
-}
-
-func refreshAgentSession(cfg *Config) error {
-	if cfg == nil {
-		return sendErr(2, "agent configuration is required")
-	}
-	agents, err := loadAgents(*cfg)
-	if err != nil {
-		return sendErrf(3, "failed to fetch agents: %v", err)
-	}
-	for _, agent := range agents {
-		if cfg.AgentID != "" && strings.EqualFold(agent.ID, cfg.AgentID) {
-			cfg.AgentName = agent.Name
-			cfg.SessionID = strings.TrimSpace(agent.SessionID)
-			return nil
-		}
-		if cfg.AgentName != "" && strings.EqualFold(agent.Name, cfg.AgentName) {
-			cfg.AgentID = agent.ID
-			cfg.SessionID = strings.TrimSpace(agent.SessionID)
-			return nil
-		}
-	}
-	label := strings.TrimSpace(cfg.AgentRef)
-	if label == "" {
-		label = strings.TrimSpace(cfg.AgentName)
-	}
-	if label == "" {
-		label = strings.TrimSpace(cfg.AgentID)
-	}
-	return sendErrf(2, "agent %q not found", label)
 }
 
 func loadAgents(cfg Config) ([]agentInfo, error) {

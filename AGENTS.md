@@ -33,16 +33,15 @@ Use this as the minimum context to start any plan task.
 - `/api/status`
 - `/api/sessions` (GET/POST), `/api/sessions/:id` (DELETE)
 - `/api/sessions/:id/output`, `/api/sessions/:id/input` (POST), `/api/sessions/:id/activate` (POST), `/api/sessions/:id/input-history` (GET/POST)
-- `/api/agents`, `/api/agents/:name/send-input`
+- `/api/agents`
 - `/api/flow/activities`, `/api/flow/event-types`, `/api/flow/config` (GET/PUT)
 - `/api/flow/config/export` (GET), `/api/flow/config/import` (POST)
 - WS: `/api/agents/events`, `/api/sessions/events`, `/api/config/events`, `/ws/events`
 
 ## CLI (gestalt-send)
-- `gestalt-send <agent-name-or-id>` resolves the agent and posts stdin to `/api/sessions/:id/input`.
 - `gestalt-send --session-id <id>` writes directly to `/api/sessions/:id/input`.
-- Resolves name/id case-insensitively; errors on ambiguity.
-- `--start` auto-creates agent via `/api/sessions` using agent ID.
+- `--session-id` is required; no positional agent arguments are supported.
+- `gestalt-send` never starts sessions and returns an error if the session is missing.
 - Server flags are `--host` + `--port` (no `--url`).
 - Completions: `gestalt-send completion bash|zsh`.
 
@@ -104,7 +103,6 @@ terminal output -> Session output bus -> /ws/session/:id -> frontend text view
 - External CLI session creation in the server now creates tmux windows (`Gestalt <workdir>`, window=`session.id`) and a lazy shared agents hub attach session.
 - `gestalt-agent` now creates the external session via API, then runs tmux attach/switch-client (`--dryrun` prints the tmux command).
 - External runner sessions are treated as non-interactive in `/ws/session/:id` and frontend terminal state (no reconnect loop).
-- GUI module normalization maps legacy `terminal` to `console`; default server modules are `["console"]`.
 
 ## Frontend store simplification notes
 - Dashboard orchestration (agent/config/git event handling, config extraction counts, git context) lives in `frontend/src/lib/dashboardStore.js`; Dashboard view now just binds store state.
@@ -161,6 +159,6 @@ terminal output -> Session output bus -> /ws/session/:id -> frontend text view
 ## Session API singleton cleanup notes
 - Agent input has been unified on `POST /api/sessions/:id/input`; `/api/agents/:name/send-input` is removed.
 - Agent sessions are canonical singleton IDs (`<AgentName> 1`) and `singleton=false` is runtime-ignored (with loader warning).
-- `gestalt-send` now implicitly create-or-reuse + wait-before-send, and no longer supports `--start`.
-- `gestalt-notify` now uses `--host`/`--port` (not `--url`) and shares session-id normalization with `gestalt-send`.
+- `gestalt-send` requires `--session-id` and sends to running sessions only (no start/create path).
+- `gestalt-notify` now uses `--host`/`--port` (not `--url`); session-id normalization is trim-only.
 - Manager-injected Codex notify args include explicit `--host` and `--port` resolved from the `frontend` service port.

@@ -3,7 +3,6 @@ shell = "codex"
 cli_type = "codex"
 interface = "cli"
 prompt = ["director"]
-# gui_modules = ["console","plan-progress"]
 
 # Core model selection
 model = "gpt-5.3-codex" # values: any supported model id

@@ -1,4 +1,4 @@
-import { render, fireEvent, cleanup } from '@testing-library/svelte'
+import { render, cleanup } from '@testing-library/svelte'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 let Terminal
@@ -16,32 +16,14 @@ describe('Terminal', () => {
     Terminal = module.default
   })
 
-  it('shows the Plan button for plan-progress module and toggles open state', async () => {
-    let open = false
-    let rerender = async () => {}
-    const onTogglePlan = async () => {
-      open = !open
-      await rerender({
-        guiModules: ['plan-progress'],
-        planSidebarOpen: open,
-        onTogglePlan,
-      })
-    }
-
+  it('does not render Plan button', async () => {
     const rendered = render(Terminal, {
       props: {
-        guiModules: ['plan-progress'],
-        planSidebarOpen: open,
-        onTogglePlan,
+        sessionId: 'Coder 1',
       },
     })
-    rerender = rendered.rerender
 
-    const button = rendered.getByRole('button', { name: 'Plan' })
-    expect(button).toBeTruthy()
-    expect(button.getAttribute('aria-pressed')).toBe('false')
-
-    await fireEvent.click(button)
-    expect(button.getAttribute('aria-pressed')).toBe('true')
+    const button = rendered.queryByRole('button', { name: 'Plan' })
+    expect(button).toBeNull()
   })
 })

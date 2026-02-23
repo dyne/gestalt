@@ -14,9 +14,6 @@
   export let sessionInterface = ''
   export let sessionRunner = ''
   export let tmuxSessionName = ''
-  export let guiModules = []
-  export let planSidebarOpen = false
-  export let onTogglePlan = () => {}
   export let onRequestClose = () => {}
   export let showInput = true
   export let forceDirectInput = false
@@ -53,7 +50,6 @@
   let tmuxSessionValue = ''
   let isCLI = false
   let isExternal = false
-  let hasPlanModule = false
   let connectionFailedNotified = false
   const scrollSensitivity = 1
 
@@ -204,9 +200,6 @@
   $: tmuxSessionValue = typeof tmuxSessionName === 'string' ? tmuxSessionName.trim() : ''
   $: isCLI = interfaceValue === 'cli'
   $: isExternal = runnerValue === 'external'
-  $: hasPlanModule =
-    Array.isArray(guiModules) &&
-    guiModules.some((entry) => String(entry || '').trim().toLowerCase() === 'plan-progress')
 
   $: {
     if (!sessionId) {
@@ -293,13 +286,10 @@
   sessionId={sessionId}
   {historyStatus}
   {canReconnect}
-  showPlanButton={hasPlanModule}
-  planButtonActive={planSidebarOpen}
   showBottomButton={!atBottom}
   {showCloseButton}
   onReconnect={handleReconnect}
   onScrollToBottom={handleScrollToBottom}
-  onPlanToggle={onTogglePlan}
   onRequestClose={onRequestClose}
 >
   <svelte:fragment slot="canvas">

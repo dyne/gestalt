@@ -124,8 +124,8 @@ func TestParseArgsSessionIDWithoutAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse args: %v", err)
 	}
-	if cfg.SessionID != "s-1" {
-		t.Fatalf("expected session id s-1, got %q", cfg.SessionID)
+	if cfg.SessionID != "s-1 1" {
+		t.Fatalf("expected normalized session id s-1 1, got %q", cfg.SessionID)
 	}
 	if cfg.AgentRef != "" {
 		t.Fatalf("expected empty agent ref, got %q", cfg.AgentRef)

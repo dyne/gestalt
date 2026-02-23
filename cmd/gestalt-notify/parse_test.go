@@ -47,6 +47,26 @@ func TestParseArgsManualPayload(t *testing.T) {
 	}
 }
 
+func TestParseArgsNormalizesSessionID(t *testing.T) {
+	var stderr bytes.Buffer
+
+	cfg, err := parseArgs([]string{"--session-id", "Coder", `{"type":"plan-L1-wip","plan_file":"plan.org"}`}, &stderr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.SessionID != "Coder 1" {
+		t.Fatalf("expected normalized session id, got %q", cfg.SessionID)
+	}
+
+	cfg, err = parseArgs([]string{"--session-id", "Coder 2", `{"type":"plan-L1-wip","plan_file":"plan.org"}`}, &stderr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.SessionID != "Coder 2" {
+		t.Fatalf("expected explicit session id to be preserved, got %q", cfg.SessionID)
+	}
+}
+
 func TestParseArgsEventTypeOverride(t *testing.T) {
 	var stderr bytes.Buffer
 	_, err := parseArgs([]string{"--session-id", "term-1", "--event-type", "override", `{"type":"agent-turn-complete"}`}, &stderr)

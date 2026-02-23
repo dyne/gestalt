@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"gestalt/internal/cli"
+	"gestalt/internal/client"
 )
 
 const defaultServerURL = "http://localhost:57417"
@@ -70,6 +71,12 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 		fs.Usage()
 		return Config{}, fmt.Errorf("session id required")
 	}
+	normalizedSessionID, err := client.NormalizeSessionRef(sessionID)
+	if err != nil {
+		fs.Usage()
+		return Config{}, err
+	}
+	sessionID = normalizedSessionID
 
 	url := strings.TrimSpace(*urlFlag)
 	if url == "" {

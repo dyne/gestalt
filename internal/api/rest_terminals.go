@@ -177,13 +177,6 @@ func (h *RestHandler) createTerminal(w http.ResponseWriter, r *http.Request) *ap
 		if errors.Is(createErr, terminal.ErrAgentNotFound) {
 			return &apiError{Status: http.StatusBadRequest, Message: "unknown agent"}
 		}
-		if errors.Is(createErr, terminal.ErrCodexMCPBootstrap) {
-			return &apiError{
-				Status:  http.StatusInternalServerError,
-				Message: "failed to start MCP session runtime",
-				Code:    "mcp_bootstrap_failed",
-			}
-		}
 		var tmuxErr *terminal.ExternalTmuxError
 		if errors.As(createErr, &tmuxErr) {
 			return &apiError{Status: http.StatusInternalServerError, Message: tmuxErr.Message}

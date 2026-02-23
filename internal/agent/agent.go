@@ -3,8 +3,6 @@ package agent
 import (
 	"fmt"
 	"strings"
-
-	internalschema "gestalt/internal/schema"
 )
 
 // PromptList supports "prompt" as a string or array in TOML.
@@ -78,10 +76,7 @@ type Agent struct {
 }
 
 const (
-	AgentInterfaceCLI  = "cli"
-	AgentInterfaceMCP  = "mcp"
-	CodexModeMCPServer = "mcp-server"
-	CodexModeTUI       = "tui"
+	AgentInterfaceCLI = "cli"
 )
 
 // Validate ensures required fields are present and values are supported.
@@ -108,60 +103,29 @@ func (a *Agent) Validate() error {
 }
 
 func (a *Agent) ResolveInterface() (string, error) {
-	cliType := strings.TrimSpace(a.CLIType)
-	if strings.EqualFold(cliType, "codex") {
-		mode := strings.TrimSpace(a.CodexMode)
-		if mode != "" {
-			normalizedMode := strings.ToLower(mode)
-			switch normalizedMode {
-			case CodexModeMCPServer, CodexModeTUI:
-				a.CodexMode = normalizedMode
-			default:
-				return "", &ValidationError{
-					Path:        "codex_mode",
-					Expected:    "\"mcp-server\" or \"tui\"",
-					Actual:      internalschema.ActualType(mode),
-					ActualValue: mode,
-				}
-			}
+	if strings.TrimSpace(a.CodexMode) != "" {
+		return "", &ValidationError{
+			Path:    "codex_mode",
+			Message: "codex_mode is no longer supported",
 		}
 	}
 	interfaceValue := strings.TrimSpace(a.Interface)
 	if interfaceValue == "" {
-		if strings.EqualFold(strings.TrimSpace(a.CodexMode), CodexModeMCPServer) {
-			interfaceValue = AgentInterfaceMCP
-		}
-	}
-	if interfaceValue == "" {
 		interfaceValue = AgentInterfaceCLI
 	}
 	interfaceValue = strings.ToLower(interfaceValue)
-	switch interfaceValue {
-	case AgentInterfaceCLI, AgentInterfaceMCP:
-	default:
+	if interfaceValue != AgentInterfaceCLI {
 		return "", &ValidationError{
 			Path:    "interface",
-			Message: fmt.Sprintf("expected \"cli\" or \"mcp\" (got %q)", interfaceValue),
-		}
-	}
-	if interfaceValue == AgentInterfaceMCP && !strings.EqualFold(strings.TrimSpace(a.CLIType), "codex") {
-		return "", &ValidationError{
-			Path:    "interface",
-			Message: "interface=\"mcp\" requires cli_type=\"codex\"",
+			Message: fmt.Sprintf("expected \"cli\" (got %q)", interfaceValue),
 		}
 	}
 	return interfaceValue, nil
 }
 
 func (a *Agent) RuntimeInterface(forceTUI bool) (string, error) {
-	resolvedInterface, err := a.ResolveInterface()
-	if err != nil {
-		return "", err
-	}
-	if forceTUI && strings.EqualFold(strings.TrimSpace(a.CLIType), "codex") {
-		return AgentInterfaceCLI, nil
-	}
-	return resolvedInterface, nil
+	_ = forceTUI
+	return a.ResolveInterface()
 }
 
 // NormalizeShell applies CLI config shell generation using the resolved shell command.

@@ -189,17 +189,15 @@ func TestTerminalWebSocketBridge(t *testing.T) {
 	}
 }
 
-func TestTerminalWebSocketMCP(t *testing.T) {
-	mcpFactory := newMCPTestFactory()
+func TestTerminalWebSocketCodexCLI(t *testing.T) {
 	tuiFactory := &testFactory{}
 	manager := newTerminalTestManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
-		PtyFactory: terminal.NewMuxPtyFactory(tuiFactory, mcpFactory, false),
+		PtyFactory: tuiFactory,
 		Agents: map[string]agent.Agent{
 			terminalTestAgentID: {
-				Name:      "Codex",
-				CLIType:   "codex",
-				CodexMode: agent.CodexModeMCPServer,
+				Name:  "Codex",
+				Shell: "/bin/sh",
 			},
 		},
 	})
@@ -230,20 +228,19 @@ func TestTerminalWebSocketMCP(t *testing.T) {
 	}
 	defer conn.Close()
 
-	payload := []byte("hello\r")
+	payload := []byte("hello\n")
 	if err := conn.WriteMessage(websocket.BinaryMessage, payload); err != nil {
 		t.Fatalf("write websocket: %v", err)
 	}
 
-	if !readWebSocketContains(t, conn, "> hello") {
-		t.Fatalf("expected prompt echo in websocket output")
+	tuiFactory.mu.Lock()
+	var pty *testPty
+	if len(tuiFactory.ptys) > 0 {
+		pty = tuiFactory.ptys[len(tuiFactory.ptys)-1]
 	}
-	if !readWebSocketContains(t, conn, "ok") {
-		t.Fatalf("expected MCP output in websocket stream")
-	}
-
-	if prompt, ok := mcpFactory.waitForPrompt(2 * time.Second); !ok || prompt != "hello" {
-		t.Fatalf("expected MCP prompt hello, got %q", prompt)
+	tuiFactory.mu.Unlock()
+	if pty == nil || !pty.waitForWrite(payload, 2*time.Second) {
+		t.Fatalf("expected PTY to receive payload %q", string(payload))
 	}
 }
 

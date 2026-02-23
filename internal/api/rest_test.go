@@ -1854,7 +1854,7 @@ func TestTerminalBellEndpointMissingSession(t *testing.T) {
 	}
 }
 
-func TestCreateTerminalMapsCodexMCPBootstrapFailure(t *testing.T) {
+func TestCreateTerminalRejectsUnsupportedInterfaceProfile(t *testing.T) {
 	dir := t.TempDir()
 	agentTOML := "name = \"Codex\"\nshell = \"/bin/sh\"\ncli_type = \"codex\"\ninterface = \"mcp\"\n"
 	if err := os.WriteFile(filepath.Join(dir, "codex.toml"), []byte(agentTOML), 0o644); err != nil {
@@ -1864,13 +1864,6 @@ func TestCreateTerminalMapsCodexMCPBootstrapFailure(t *testing.T) {
 		AgentsDir:  dir,
 		Shell:      "/bin/sh",
 		PtyFactory: &fakeFactory{},
-		Agents: map[string]agent.Agent{
-			"codex": {
-				Name:      "Codex",
-				CLIType:   "codex",
-				Interface: agent.AgentInterfaceMCP,
-			},
-		},
 	})
 	handler := &RestHandler{Manager: manager}
 	req := httptest.NewRequest(http.MethodPost, "/api/sessions", strings.NewReader(`{"agent":"codex"}`))
@@ -1885,11 +1878,8 @@ func TestCreateTerminalMapsCodexMCPBootstrapFailure(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if payload.Code != "mcp_bootstrap_failed" {
-		t.Fatalf("expected code mcp_bootstrap_failed, got %q", payload.Code)
-	}
-	if payload.Message == "" {
-		t.Fatalf("expected non-empty error message")
+	if !strings.Contains(payload.Message, "failed to refresh agent config") {
+		t.Fatalf("expected config refresh error, got %q", payload.Message)
 	}
 }
 
@@ -1927,7 +1917,7 @@ func TestCreateTerminalMapsExternalTmuxFailure(t *testing.T) {
 	}
 }
 
-func TestCreateTerminalMCPProfilesReturnStableInterfaceRunner(t *testing.T) {
+func TestCreateTerminalProfilesReturnStableInterfaceRunner(t *testing.T) {
 	dir := t.TempDir()
 	agentIDs := []string{"coder", "fixer", "architect", "codex-mcp"}
 	agentNames := map[string]string{
@@ -1939,7 +1929,7 @@ func TestCreateTerminalMCPProfilesReturnStableInterfaceRunner(t *testing.T) {
 	profiles := map[string]agent.Agent{}
 	for _, id := range agentIDs {
 		name := agentNames[id]
-		agentTOML := "name = \"" + name + "\"\nshell = \"/bin/sh\"\ncli_type = \"codex\"\ninterface = \"mcp\"\n"
+		agentTOML := "name = \"" + name + "\"\nshell = \"/bin/sh\"\ncli_type = \"codex\"\ninterface = \"cli\"\n"
 		if err := os.WriteFile(filepath.Join(dir, id+".toml"), []byte(agentTOML), 0o644); err != nil {
 			t.Fatalf("write agent file for %s: %v", id, err)
 		}
@@ -1947,19 +1937,14 @@ func TestCreateTerminalMCPProfilesReturnStableInterfaceRunner(t *testing.T) {
 			Name:      name,
 			Shell:     "/bin/sh",
 			CLIType:   "codex",
-			Interface: agent.AgentInterfaceMCP,
+			Interface: agent.AgentInterfaceCLI,
 		}
 	}
 
-	mcpFactory := newMCPTestFactory()
 	manager := newTestManager(terminal.ManagerOptions{
 		Agents:    profiles,
 		AgentsDir: dir,
-		PtyFactory: terminal.NewMuxPtyFactory(
-			&fakeFactory{},
-			mcpFactory,
-			false,
-		),
+		PtyFactory: &fakeFactory{},
 	})
 	handler := &RestHandler{Manager: manager}
 
@@ -1974,11 +1959,11 @@ func TestCreateTerminalMCPProfilesReturnStableInterfaceRunner(t *testing.T) {
 		if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
 			t.Fatalf("%s: decode response: %v", id, err)
 		}
-		if payload.Interface != agent.AgentInterfaceMCP {
-			t.Fatalf("%s: expected interface %q, got %q", id, agent.AgentInterfaceMCP, payload.Interface)
+		if payload.Interface != agent.AgentInterfaceCLI {
+			t.Fatalf("%s: expected interface %q, got %q", id, agent.AgentInterfaceCLI, payload.Interface)
 		}
-		if payload.Runner != "server" {
-			t.Fatalf("%s: expected runner server, got %q", id, payload.Runner)
+		if payload.Runner != "external" {
+			t.Fatalf("%s: expected runner external, got %q", id, payload.Runner)
 		}
 	}
 }

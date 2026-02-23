@@ -352,92 +352,20 @@ func TestManagerLifecycle(t *testing.T) {
 	}
 }
 
-func TestManagerMCPSelectionUsesInterface(t *testing.T) {
+func TestManagerUsesCLIInterfaceForLegacyMCPProfile(t *testing.T) {
 	tui := &recordingFactory{pty: &noopPty{}}
-	stdio := &recordingFactory{pty: &noopPty{}}
 	manager := NewManager(ManagerOptions{
-		PtyFactory: NewMuxPtyFactory(tui, stdio, false),
+		PtyFactory: NewMuxPtyFactory(tui, &recordingFactory{pty: &noopPty{}}, false),
 		Agents: map[string]agent.Agent{
 			"codex": {
 				Name:      "Codex",
 				CLIType:   "codex",
-				Interface: agent.AgentInterfaceMCP,
+				Interface: "mcp",
 			},
 		},
 	})
 
-	session, err := manager.Create("codex", "run", "mcp")
-	if err != nil {
-		t.Fatalf("create: %v", err)
-	}
-	defer func() {
-		_ = manager.Delete(session.ID)
-	}()
-
-	if !session.IsMCP() {
-		t.Fatalf("expected MCP session")
-	}
-	if !strings.Contains(session.Command, "mcp-server") {
-		t.Fatalf("expected mcp-server command, got %q", session.Command)
-	}
-	if strings.Contains(session.Command, "notify=") {
-		t.Fatalf("did not expect notify in mcp command, got %q", session.Command)
-	}
-	if session.outputPublisher == nil || session.outputPublisher.policy != OutputBackpressureBlock {
-		t.Fatalf("expected output policy block, got %#v", session.outputPublisher)
-	}
-	if session.outputPublisher == nil || session.outputPublisher.sampleEvery != 0 {
-		t.Fatalf("expected sampleEvery=0, got %#v", session.outputPublisher)
-	}
-}
-
-func TestManagerMCPBootstrapFailsWhenSessionIsNotMCP(t *testing.T) {
-	manager := NewManager(ManagerOptions{
-		PtyFactory: &fakeFactory{},
-		Agents: map[string]agent.Agent{
-			"codex": {
-				Name:      "Codex",
-				CLIType:   "codex",
-				Interface: agent.AgentInterfaceMCP,
-			},
-		},
-	})
-
-	_, err := manager.Create("codex", "run", "mcp")
-	if !errors.Is(err, ErrCodexMCPBootstrap) {
-		t.Fatalf("expected ErrCodexMCPBootstrap, got %v", err)
-	}
-}
-
-func TestWithCodexMCPAbsolutePath(t *testing.T) {
-	got := withCodexMCP("/usr/local/bin/codex -c model=o3")
-	if !strings.Contains(got, "/usr/local/bin/codex") {
-		t.Fatalf("expected absolute codex path, got %q", got)
-	}
-	if !strings.Contains(got, "mcp-server") {
-		t.Fatalf("expected mcp-server in command, got %q", got)
-	}
-	if !strings.Contains(got, "-c model=o3") {
-		t.Fatalf("expected existing args preserved, got %q", got)
-	}
-}
-
-func TestManagerForceTUIOverridesMCPInterface(t *testing.T) {
-	t.Setenv("GESTALT_CODEX_FORCE_TUI", "true")
-	tui := &recordingFactory{pty: &noopPty{}}
-	stdio := &recordingFactory{pty: &noopPty{}}
-	manager := NewManager(ManagerOptions{
-		PtyFactory: NewMuxPtyFactory(tui, stdio, false),
-		Agents: map[string]agent.Agent{
-			"codex": {
-				Name:      "Codex",
-				CLIType:   "codex",
-				Interface: agent.AgentInterfaceMCP,
-			},
-		},
-	})
-
-	session, err := manager.Create("codex", "run", "tui")
+	session, err := manager.Create("codex", "run", "legacy")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -446,13 +374,19 @@ func TestManagerForceTUIOverridesMCPInterface(t *testing.T) {
 	}()
 
 	if session.IsMCP() {
-		t.Fatalf("expected CLI session with force TUI")
+		t.Fatalf("expected CLI session")
 	}
 	if strings.Contains(session.Command, "mcp-server") {
 		t.Fatalf("did not expect mcp-server command, got %q", session.Command)
 	}
 	if !strings.Contains(session.Command, "notify=") {
 		t.Fatalf("expected notify in CLI command, got %q", session.Command)
+	}
+	if session.outputPublisher == nil || session.outputPublisher.policy != OutputBackpressureBlock {
+		t.Fatalf("expected output policy block, got %#v", session.outputPublisher)
+	}
+	if session.outputPublisher == nil || session.outputPublisher.sampleEvery != 0 {
+		t.Fatalf("expected sampleEvery=0, got %#v", session.outputPublisher)
 	}
 }
 
@@ -705,7 +639,6 @@ func TestManagerCodexDeveloperInstructions(t *testing.T) {
 				Prompts:   agent.PromptList{"first"},
 				Skills:    []string{"alpha"},
 				CLIType:   "codex",
-				CodexMode: agent.CodexModeTUI,
 			},
 		},
 	})

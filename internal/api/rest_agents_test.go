@@ -6,9 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
-	"strings"
 	"testing"
-	"time"
 
 	"gestalt/internal/agent"
 	"gestalt/internal/terminal"
@@ -57,42 +55,6 @@ type recordFactory struct {
 func (f *recordFactory) Start(command string, args ...string) (terminal.Pty, *exec.Cmd, error) {
 	f.pty = newRecordPty()
 	return f.pty, nil, nil
-}
-
-func TestSessionInputEndpointMCP(t *testing.T) {
-	mcpFactory := newMCPTestFactory()
-	manager := terminal.NewManager(terminal.ManagerOptions{
-		Shell:      "/bin/sh",
-		PtyFactory: terminal.NewMuxPtyFactory(&recordFactory{}, mcpFactory, false),
-		Agents: map[string]agent.Agent{
-			"codex": {
-				Name:      "Codex",
-				CLIType:   "codex",
-				CodexMode: agent.CodexModeMCPServer,
-			},
-		},
-	})
-	created, err := manager.Create("codex", "shell", "Codex")
-	if err != nil {
-		t.Fatalf("create terminal: %v", err)
-	}
-	defer func() {
-		_ = manager.Delete(created.ID)
-	}()
-
-	handler := &RestHandler{Manager: manager}
-	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/input", strings.NewReader("hello\r"))
-	req.Header.Set("Authorization", "Bearer secret")
-	res := httptest.NewRecorder()
-
-	restHandler("secret", nil, handler.handleTerminal)(res, req)
-	if res.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", res.Code)
-	}
-
-	if prompt, ok := mcpFactory.waitForPrompt(2 * time.Second); !ok || prompt != "hello" {
-		t.Fatalf("expected MCP prompt hello, got %q", prompt)
-	}
 }
 
 func TestAgentsEndpointIncludesInterface(t *testing.T) {

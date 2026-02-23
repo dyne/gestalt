@@ -291,30 +291,18 @@ describe('apiClient', () => {
     })
   })
 
-  it('reuses conflict session id when create returns 409', async () => {
-    const conflict = new Error('already running')
-    conflict.status = 409
-    conflict.data = { session_id: 'Coder 1' }
-
+  it('fails with guidance when agent session is not running', async () => {
     apiFetch
       .mockResolvedValueOnce({
         json: vi.fn().mockResolvedValue([{ id: 'coder', name: 'Coder', session_id: '' }]),
       })
-      .mockRejectedValueOnce(conflict)
-      .mockResolvedValueOnce({ ok: true })
 
-    await sendInputToAgentSession('coder', 'Coder', 'run')
+    await expect(sendInputToAgentSession('coder', 'Coder', 'run')).rejects.toThrow(
+      'session not running; run gestalt-agent coder',
+    )
 
     expect(apiFetch).toHaveBeenNthCalledWith(1, '/api/agents')
-    expect(apiFetch).toHaveBeenNthCalledWith(2, '/api/sessions', {
-      method: 'POST',
-      body: JSON.stringify({ agent: 'coder' }),
-    })
-    expect(apiFetch).toHaveBeenNthCalledWith(3, '/api/sessions/Coder%201/input', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/octet-stream' },
-      body: 'run',
-    })
+    expect(apiFetch).toHaveBeenCalledTimes(1)
   })
 
 })

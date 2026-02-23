@@ -334,21 +334,7 @@ const resolveAgentSessionID = async (agentId, agentName) => {
   if (match.session_id) {
     return String(match.session_id)
   }
-
-  try {
-    const created = await createTerminal({ agentId: match.id })
-    const createdID = created?.id ? String(created.id) : ''
-    if (createdID) {
-      return createdID
-    }
-  } catch (error) {
-    if (error?.status === 409 && error?.data?.session_id) {
-      return String(error.data.session_id)
-    }
-    throw error
-  }
-
-  throw new Error(`Failed to create session for ${match.name}`)
+  throw new Error(`session not running; run gestalt-agent ${match.id}`)
 }
 
 export const sendInputToAgentSession = async (agentId, agentName, inputText) => {

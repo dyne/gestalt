@@ -17,7 +17,7 @@ vi.mock('../src/views/TerminalView.svelte', async () => {
 
 import App from '../src/App.svelte'
 
-describe('App duplicate agent handling', () => {
+describe('App stopped agent handling', () => {
   beforeEach(() => {
     if (!Element.prototype.animate) {
       Element.prototype.animate = () => ({
@@ -34,25 +34,16 @@ describe('App duplicate agent handling', () => {
     cleanup()
   })
 
-  it('switches to existing tab and shows an info toast on 409', async () => {
+  it('shows run guidance and does not create a session when agent is stopped', async () => {
     apiFetch.mockImplementation((url, options = {}) => {
       if (url === '/api/status') {
         return Promise.resolve({
-          json: vi.fn().mockResolvedValue({ session_count: 1, agents_session_id: 'hub' }),
+          json: vi.fn().mockResolvedValue({ session_count: 0, agents_session_id: '' }),
         })
       }
       if (url === '/api/sessions' && (!options.method || options.method === 'GET')) {
         return Promise.resolve({
-          json: vi.fn().mockResolvedValue([
-            {
-              id: '1',
-              title: 'Codex',
-              role: 'shell',
-              created_at: new Date().toISOString(),
-              interface: 'cli',
-              runner: 'external',
-            },
-          ]),
+          json: vi.fn().mockResolvedValue([]),
         })
       }
       if (url === '/api/agents') {
@@ -70,30 +61,21 @@ describe('App duplicate agent handling', () => {
           json: vi.fn().mockResolvedValue([]),
         })
       }
-      if (url === '/api/sessions' && options.method === 'POST') {
-        const error = new Error('agent "Codex" is already running')
-        error.status = 409
-        error.data = { session_id: '1' }
-        return Promise.reject(error)
-      }
-      if (url === '/api/sessions/1/activate' && options.method === 'POST') {
-        return Promise.resolve({ ok: true })
-      }
       return Promise.reject(new Error(`Unexpected API call: ${url}`))
     })
 
-    const { container, findByText } = render(App)
+    const { container, findByText, queryByRole } = render(App)
     const agentsSection = container.querySelector('.dashboard__agents')
     const agentLabel = await within(agentsSection).findByText('Codex')
     const agentButton = agentLabel.closest('button')
 
     await fireEvent.click(agentButton)
 
-    expect(await findByText('agent "Codex" is already running')).toBeTruthy()
-
-    const tabBar = container.querySelector('nav[aria-label="App tabs"]')
-    const tabButton = within(tabBar).getByRole('button', { name: 'Agents' })
-    const tabItem = tabButton.closest('.tabbar__item')
-    expect(tabItem?.dataset.active).toBe('true')
+    expect(await findByText('Session not running; run gestalt-agent codex.')).toBeTruthy()
+    expect(queryByRole('button', { name: 'Agents' })).toBeNull()
+    const createCalls = apiFetch.mock.calls.filter(
+      ([url, request]) => url === '/api/sessions' && request?.method === 'POST',
+    )
+    expect(createCalls).toHaveLength(0)
   })
 })

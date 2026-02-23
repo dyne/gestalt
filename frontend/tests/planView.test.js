@@ -5,6 +5,7 @@ const apiFetch = vi.hoisted(() => vi.fn())
 const buildEventSourceUrl = vi.hoisted(() => vi.fn((path) => `http://test${path}`))
 const subscribeEvents = vi.hoisted(() => vi.fn(() => () => {}))
 const subscribeTerminalEvents = vi.hoisted(() => vi.fn(() => () => {}))
+const addNotification = vi.hoisted(() => vi.fn())
 
 vi.mock('../src/lib/api.js', () => ({
   apiFetch,
@@ -19,6 +20,12 @@ vi.mock('../src/lib/terminalEventStore.js', () => ({
   subscribe: subscribeTerminalEvents,
 }))
 
+vi.mock('../src/lib/notificationStore.js', () => ({
+  notificationStore: {
+    addNotification,
+  },
+}))
+
 import PlanView from '../src/views/PlanView.svelte'
 
 describe('PlanView', () => {
@@ -27,6 +34,7 @@ describe('PlanView', () => {
     apiFetch.mockReset()
     subscribeEvents.mockReset()
     subscribeTerminalEvents.mockReset()
+    addNotification.mockReset()
   })
 
   it('renders plans from the API', async () => {
@@ -149,5 +157,25 @@ describe('PlanView', () => {
     await waitFor(() => {
       expect(apiFetch).toHaveBeenCalledTimes(3)
     })
+  })
+
+  it('shows gestalt-agent guidance from + Plan action', async () => {
+    apiFetch.mockImplementation((url) => {
+      if (url === '/api/sessions') {
+        return Promise.resolve({ json: vi.fn().mockResolvedValue([]) })
+      }
+      return Promise.resolve({
+        json: vi.fn().mockResolvedValue({ plans: [] }),
+      })
+    })
+
+    const { findByRole } = render(PlanView)
+    const button = await findByRole('button', { name: '+ Plan' })
+    await button.click()
+
+    expect(addNotification).toHaveBeenCalledWith(
+      'error',
+      'Session not running; run gestalt-agent architect.',
+    )
   })
 })

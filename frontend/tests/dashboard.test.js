@@ -68,27 +68,27 @@ describe('Dashboard', () => {
     }
   })
 
-  it('renders agent buttons and calls onCreate', async () => {
+  it('renders agent buttons and shows guidance for stopped sessions', async () => {
     const dashboardStore = buildDashboardStore({
       agents: [{ id: 'codex', name: 'Codex' }],
     })
     createDashboardStore.mockReturnValue(dashboardStore)
 
-    const onCreate = vi.fn().mockResolvedValue()
-
+    const onSelect = vi.fn()
     const { findByText } = render(Dashboard, {
       props: {
         terminals: [],
         status: { session_count: 0 },
-        onCreate,
+        onSelect,
       },
     })
 
     const button = await findByText('Codex')
-    await findByText('Start')
+    await findByText('Run')
     await fireEvent.click(button)
 
-    expect(onCreate).toHaveBeenCalledWith('codex')
+    expect(await findByText('Session not running; run gestalt-agent codex.')).toBeTruthy()
+    expect(onSelect).not.toHaveBeenCalled()
   })
 
   it('hides agents marked as hidden in the dashboard grid', async () => {

@@ -4,7 +4,6 @@
   import TabBar from './components/TabBar.svelte'
   import ToastContainer from './components/ToastContainer.svelte'
   import {
-    createTerminal as createTerminalSession,
     deleteTerminal as deleteTerminalSession,
     fetchStatus,
     fetchTerminals,
@@ -18,7 +17,7 @@
   import { canUseClipboard } from './lib/clipboard.js'
   import { notificationStore } from './lib/notificationStore.js'
   import { subscribe as subscribeNotificationEvents } from './lib/notificationEventStore.js'
-  import { getErrorMessage, notifyError } from './lib/errorUtils.js'
+  import { notifyError } from './lib/errorUtils.js'
   import {
     buildTerminalStyle,
     sessionUiConfig,
@@ -245,63 +244,6 @@
     }, 150)
   }
 
-  const createTerminal = async (agentId = '') => {
-    error = ''
-    try {
-      const created = await createTerminalSession({ agentId })
-      terminals = [...terminals, created]
-      if (status) {
-        status = { ...status, session_count: status.session_count + 1 }
-      }
-      syncTabs(terminals, status)
-      if (isExternalCliSession(created)) {
-        try {
-          await apiFetch(buildApiPath('/api/sessions', created.id, 'activate'), {
-            method: 'POST',
-          })
-          if (!hasAgentsTab(status || {})) {
-            await refreshSessionsState()
-          }
-        } catch (err) {
-          notifyError(err, 'Failed to activate tmux window.')
-        }
-        activeId = 'agents'
-        return
-      }
-      activeId = created.id
-      console.info('session created', {
-        id: created.id,
-        title: created.title,
-        agentId: created.agent_id,
-      })
-    } catch (err) {
-      if (err?.status === 409 && err?.data?.session_id) {
-        const existingId = err.data.session_id
-        let existing = terminals.find((terminal) => terminal.id === existingId)
-        if (!existing) {
-          await refresh()
-          existing = terminals.find((terminal) => terminal.id === existingId)
-        }
-        if (existing && isExternalCliSession(existing)) {
-          try {
-            await apiFetch(buildApiPath('/api/sessions', existingId, 'activate'), {
-              method: 'POST',
-            })
-          } catch (activateErr) {
-            notifyError(activateErr, 'Failed to activate tmux window.')
-          }
-          activeId = 'agents'
-        } else {
-          activeId = existingId
-        }
-        notificationStore.addNotification('info', getErrorMessage(err, `Agent ${agentId} is already running.`))
-        return
-      }
-      const message = notifyError(err, 'Failed to create session.')
-      throw err
-    }
-  }
-
   const deleteTerminal = async (id) => {
     error = ''
     try {
@@ -509,7 +451,6 @@
         {status}
         {loading}
         {error}
-        onCreate={createTerminal}
         onSelect={handleSelect}
       />
     </svelte:boundary>

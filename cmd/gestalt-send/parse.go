@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"gestalt/internal/cli"
+	"gestalt/internal/client"
 )
 
 const defaultServerHost = "127.0.0.1"
@@ -62,6 +63,14 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 	}
 
 	sessionID := strings.TrimSpace(*sessionIDFlag)
+	if sessionID != "" {
+		normalizedSessionID, err := client.NormalizeSessionRef(sessionID)
+		if err != nil {
+			fs.Usage()
+			return Config{}, err
+		}
+		sessionID = normalizedSessionID
+	}
 	if sessionID == "" && fs.NArg() != 1 {
 		fs.Usage()
 		return Config{}, fmt.Errorf("agent name or id required")

@@ -104,6 +104,26 @@ func TestParseArgsUsesDefaults(t *testing.T) {
 	}
 }
 
+func TestParseArgsNormalizesSessionID(t *testing.T) {
+	var stderr bytes.Buffer
+
+	cfg, err := parseArgs([]string{"--session-id", "Coder"}, &stderr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.SessionID != "Coder 1" {
+		t.Fatalf("expected normalized session id, got %q", cfg.SessionID)
+	}
+
+	cfg, err = parseArgs([]string{"--session-id", "Coder 2"}, &stderr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.SessionID != "Coder 2" {
+		t.Fatalf("expected explicit session id to be preserved, got %q", cfg.SessionID)
+	}
+}
+
 func TestRunWithSenderVersionFlag(t *testing.T) {
 	previous := version.Version
 	version.Version = "1.2.3"
@@ -262,7 +282,7 @@ func TestRunWithSenderSessionIDSkipsAgentLookup(t *testing.T) {
 		if r.URL.Path == "/api/agents" {
 			t.Fatalf("agent lookup should be skipped")
 		}
-		if r.URL.Path != "/api/sessions/s-1/input" {
+		if r.URL.Path != "/api/sessions/s-1 1/input" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		return &http.Response{

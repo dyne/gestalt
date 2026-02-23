@@ -29,7 +29,6 @@
   let logsLoading = false
   let logsError = ''
   let logLevelFilter = 'info'
-  let logsAutoRefresh = true
   let gitLog = { branch: '', commits: [] }
   let gitLogLoading = false
   let gitLogError = ''
@@ -81,14 +80,6 @@
 
   const handleLogFilterChange = (event) => {
     dashboardStore.setLogLevelFilter(event.target.value)
-  }
-
-  const handleLogsAutoRefreshChange = (event) => {
-    dashboardStore.setLogsAutoRefresh(event.target.checked)
-  }
-
-  const refreshLogs = () => {
-    dashboardStore.loadLogs()
   }
 
   const gitBranchName = (origin, branch) => {
@@ -197,7 +188,6 @@
     logsLoading,
     logsError,
     logLevelFilter,
-    logsAutoRefresh,
     gitLog,
     gitLogLoading,
     gitLogError,
@@ -254,8 +244,8 @@
   </section>
 
   <section class="dashboard__agents">
-    <div class="list-header">
-      <h2>Agents</h2>
+    <div class="list-header list-header--compact">
+      <h2 class="section-title">Agents</h2>
     </div>
 
     {#if agentsLoading}
@@ -294,30 +284,16 @@
 
   <section class="dashboard__intel">
     <section class="dashboard__logs">
-      <div class="list-header">
-        <h2>Recent logs</h2>
-      </div>
-
-      <div class="logs-controls">
-        <label class="logs-control">
-          <span>Level</span>
+      <div class="list-header list-header--compact">
+        <h2 class="section-title">Recent logs</h2>
+        <label class="logs-control logs-control--inline">
+          <span class="logs-control__label">Level</span>
           <select on:change={handleLogFilterChange} bind:value={logLevelFilter}>
             {#each logLevelOptions as option}
               <option value={option.value}>{option.label}</option>
             {/each}
           </select>
         </label>
-        <label class="logs-control logs-control--toggle">
-          <input
-            type="checkbox"
-            bind:checked={logsAutoRefresh}
-            on:change={handleLogsAutoRefreshChange}
-          />
-          <span>Live updates</span>
-        </label>
-        <button class="logs-refresh" type="button" on:click={refreshLogs} disabled={logsLoading}>
-          {logsLoading ? 'Refreshing…' : 'Refresh'}
-        </button>
       </div>
 
       <div class="logs-list">
@@ -615,7 +591,7 @@
   }
 
   .dashboard__agents {
-    padding: 1.5rem;
+    padding: 1rem;
     border-radius: 24px;
     background: rgba(var(--color-warning-rgb), 0.12);
     border: 1px solid rgba(var(--color-text-rgb), 0.08);
@@ -639,20 +615,13 @@
   }
 
   .dashboard__logs {
-    padding: 1.25rem;
+    padding: 1rem;
     border-radius: 24px;
     background: rgba(var(--color-info-rgb), 0.08);
     border: 1px solid rgba(var(--color-text-rgb), 0.08);
     display: flex;
     flex-direction: column;
     gap: 0.85rem;
-  }
-
-  .logs-controls {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    flex-wrap: wrap;
   }
 
   .gitlog-meta {
@@ -688,8 +657,8 @@
 
   .logs-control {
     display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
+    align-items: center;
+    gap: 0.45rem;
     font-size: 0.72rem;
     color: var(--color-text-muted);
   }
@@ -703,26 +672,14 @@
     color: var(--color-text);
   }
 
-  .logs-control--toggle {
-    flex-direction: row;
-    align-items: center;
-    gap: 0.5rem;
+  .logs-control--inline {
+    margin-left: auto;
   }
 
-  .logs-refresh {
-    border: 1px solid rgba(var(--color-text-rgb), 0.2);
-    border-radius: 999px;
-    padding: 0.45rem 0.95rem;
-    background: var(--color-surface);
-    font-size: 0.7rem;
-    letter-spacing: 0.16em;
+  .logs-control__label {
+    font-size: 0.68rem;
+    letter-spacing: 0.09em;
     text-transform: uppercase;
-    cursor: pointer;
-  }
-
-  .logs-refresh:disabled {
-    cursor: not-allowed;
-    opacity: 0.6;
   }
 
   .logs-list ul {
@@ -1144,8 +1101,8 @@
 
   .agent-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 0.6rem;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.45rem;
   }
 
   .agent-card {
@@ -1157,8 +1114,8 @@
 
   .agent-button {
     border: 1px solid rgba(var(--color-text-rgb), 0.2);
-    border-radius: 14px;
-    padding: 0.55rem 0.8rem;
+    border-radius: 12px;
+    padding: 0.45rem 0.65rem;
     background: var(--color-surface);
     font-weight: 600;
     display: flex;
@@ -1170,11 +1127,11 @@
       background 160ms ease, border-color 160ms ease;
     width: 100%;
     height: 100%;
-    min-height: 2.5rem;
+    min-height: 2.2rem;
   }
 
   .agent-name {
-    font-size: 0.9rem;
+    font-size: 0.82rem;
     display: inline-flex;
     align-items: center;
     min-width: 0;
@@ -1208,8 +1165,8 @@
   }
 
   .agent-action {
-    font-size: 0.7rem;
-    letter-spacing: 0.16em;
+    font-size: 0.66rem;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--color-text-subtle);
     flex: 0 0 auto;
@@ -1247,6 +1204,19 @@
     margin-bottom: 1rem;
   }
 
+  .list-header--compact {
+    margin-bottom: 0.55rem;
+    align-items: center;
+  }
+
+  .section-title {
+    margin: 0;
+    font-size: 0.96rem;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--color-text);
+  }
+
   .subtle {
     margin: 0;
     font-size: 0.9rem;
@@ -1274,8 +1244,8 @@
       grid-template-columns: 1fr;
     }
 
-    .logs-controls {
-      align-items: flex-start;
+    .logs-control--inline {
+      margin-left: 0;
     }
   }
 

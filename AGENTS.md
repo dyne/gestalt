@@ -157,3 +157,10 @@ terminal output -> Session output bus -> /ws/session/:id -> frontend text view
 - Flow config export is YAML (`flows.yaml`), and flow import is YAML-only with media-type enforcement in `internal/api/rest_flow.go`.
 - Frontend flow import/export uses YAML files (`.yaml,.yml`) and sends raw YAML payloads through `frontend/src/lib/apiClient.js`.
 - Packaged default flow files ship from `config/flows/*.flow.yaml` and extract into `.gestalt/config/flows`.
+
+## Session API singleton cleanup notes
+- Agent input has been unified on `POST /api/sessions/:id/input`; `/api/agents/:name/send-input` is removed.
+- Agent sessions are canonical singleton IDs (`<AgentName> 1`) and `singleton=false` is runtime-ignored (with loader warning).
+- `gestalt-send` now implicitly create-or-reuse + wait-before-send, and no longer supports `--start`.
+- `gestalt-notify` now uses `--host`/`--port` (not `--url`) and shares session-id normalization with `gestalt-send`.
+- Manager-injected Codex notify args include explicit `--host` and `--port` resolved from the `frontend` service port.

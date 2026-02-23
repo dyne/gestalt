@@ -44,19 +44,19 @@ func TestMuxPtyFactoryUsesTUI(t *testing.T) {
 	}
 }
 
-func TestMuxPtyFactoryUsesMCP(t *testing.T) {
+func TestMuxPtyFactoryIgnoresSecondaryFactory(t *testing.T) {
 	tui := &recordingFactory{pty: &noopPty{}}
 	stdio := &recordingFactory{pty: &noopPty{}}
 	factory := NewMuxPtyFactory(tui, stdio, false)
 
-	pty, _, err := factory.Start("codex", "mcp-server", "-c", "model=o3")
+	pty, _, err := factory.Start("codex", "-c", "model=o3")
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	if tui.calls != 0 || stdio.calls != 1 {
-		t.Fatalf("expected tui=0 stdio=1, got tui=%d stdio=%d", tui.calls, stdio.calls)
+	if tui.calls != 1 || stdio.calls != 0 {
+		t.Fatalf("expected tui=1 stdio=0, got tui=%d stdio=%d", tui.calls, stdio.calls)
 	}
-	if _, ok := pty.(*mcpPty); !ok {
-		t.Fatalf("expected mcp pty wrapper, got %T", pty)
+	if _, ok := pty.(*noopPty); !ok {
+		t.Fatalf("expected noop pty, got %T", pty)
 	}
 }

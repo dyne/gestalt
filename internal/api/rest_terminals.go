@@ -80,9 +80,6 @@ func (h *RestHandler) handleTerminalInput(w http.ResponseWriter, r *http.Request
 	if len(payload) == 0 {
 		return &apiError{Status: http.StatusBadRequest, Message: "invalid request body"}
 	}
-	if session.IsMCP() {
-		payload = normalizeMCPInput(payload)
-	}
 	if writeErr := session.Write(payload); writeErr != nil {
 		return &apiError{Status: http.StatusInternalServerError, Message: "failed to write terminal input"}
 	}

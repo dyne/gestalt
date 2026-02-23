@@ -272,11 +272,8 @@ func (s *Session) PlanProgress() (PlanProgress, bool) {
 }
 
 func (s *Session) IsMCP() bool {
-	if s == nil || s.pty == nil {
-		return false
-	}
-	_, ok := s.pty.(*mcpPty)
-	return ok
+	_ = s
+	return false
 }
 
 func (s *Session) Subscribe() (<-chan []byte, func()) {

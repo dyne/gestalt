@@ -27,19 +27,6 @@ func apiAgentResolver(manager *terminal.Manager) otel.AgentResolver {
 			return info
 		}
 
-		if agentName := agentNameFromPath(r.URL.Path); agentName != "" {
-			info.Name = agentName
-			if session, ok := manager.GetSessionByAgent(agentName); ok && session != nil {
-				return agentFromSession(manager, session)
-			}
-			if agentID, agentType := lookupAgentByName(manager.ListAgents(), agentName); agentID != "" {
-				info.ID = agentID
-				info.Type = normalizeAgentType(agentType)
-				return info
-			}
-			return info
-		}
-
 		if sessionID := sessionIDFromPath(r.URL.Path); sessionID != "" {
 			info.SessionID = sessionID
 			if session, ok := manager.Get(sessionID); ok && session != nil {
@@ -105,18 +92,4 @@ func sessionIDFromPath(path string) string {
 		return ""
 	}
 	return parts[0]
-}
-
-func agentNameFromPath(path string) string {
-	trimmed := strings.TrimSuffix(path, "/")
-	const prefix = "/api/agents/"
-	if !strings.HasPrefix(trimmed, prefix) {
-		return ""
-	}
-	rest := strings.TrimPrefix(trimmed, prefix)
-	parts := strings.Split(rest, "/")
-	if len(parts) != 2 || parts[1] != "input" {
-		return ""
-	}
-	return strings.TrimSpace(parts[0])
 }

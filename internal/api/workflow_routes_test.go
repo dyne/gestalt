@@ -25,6 +25,7 @@ func TestWorkflowRoutesReturnNotFound(t *testing.T) {
 		{name: "workflow-events", path: "/api/workflows/events"},
 		{name: "workflow-resume", path: "/api/sessions/123/workflow/resume"},
 		{name: "workflow-history", path: "/api/sessions/123/workflow/history"},
+		{name: "agent-send-input-removed", path: "/api/agents/Coder/send-input"},
 	}
 
 	for _, test := range tests {

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 )
 
 type AgentInfo struct {
@@ -18,12 +19,17 @@ type AgentInfo struct {
 	Running   bool   `json:"running"`
 }
 
+type SessionInfo struct {
+	ID string `json:"id"`
+}
+
 type HTTPError struct {
 	StatusCode int
 	Message    string
 }
 
 var explicitSessionSuffixPattern = regexp.MustCompile(`^.+\s+\d+$`)
+var defaultWaitSessionReadyTimeout = 2 * time.Second
 
 func (e *HTTPError) Error() string {
 	return e.Message
@@ -41,6 +47,10 @@ func NormalizeSessionRef(ref string) (string, error) {
 		return trimmed, nil
 	}
 	return trimmed + " 1", nil
+}
+
+func ResolveSessionRef(ref string) (string, error) {
+	return NormalizeSessionRef(ref)
 }
 
 func FetchAgents(client *http.Client, baseURL, token string) ([]AgentInfo, error) {
@@ -117,6 +127,134 @@ func SendSessionInput(client *http.Client, baseURL, token, sessionID string, pay
 		return &HTTPError{StatusCode: response.StatusCode, Message: message}
 	}
 	return nil
+}
+
+func FetchSessions(client *http.Client, baseURL, token string) ([]SessionInfo, error) {
+	client = ensureClient(client)
+	baseURL = strings.TrimRight(baseURL, "/")
+	if baseURL == "" {
+		return nil, errors.New("base URL is required")
+	}
+
+	request, err := http.NewRequest(http.MethodGet, baseURL+"/api/sessions", nil)
+	if err != nil {
+		return nil, fmt.Errorf("build sessions request failed: %w", err)
+	}
+	addToken(request, token)
+
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("sessions request failed: %w", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		message := readErrorMessage(response)
+		return nil, &HTTPError{StatusCode: response.StatusCode, Message: message}
+	}
+
+	var payload []SessionInfo
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("decode sessions response: %w", err)
+	}
+	sessions := make([]SessionInfo, 0, len(payload))
+	for _, session := range payload {
+		id := strings.TrimSpace(session.ID)
+		if id == "" {
+			continue
+		}
+		sessions = append(sessions, SessionInfo{ID: id})
+	}
+	return sessions, nil
+}
+
+func EnsureAgentSession(client *http.Client, baseURL, token, agentID string) (string, error) {
+	client = ensureClient(client)
+	baseURL = strings.TrimRight(baseURL, "/")
+	if baseURL == "" {
+		return "", errors.New("base URL is required")
+	}
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return "", errors.New("agent id is required")
+	}
+
+	payload := map[string]string{"agent": agentID}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("encode start request: %w", err)
+	}
+
+	request, err := http.NewRequest(http.MethodPost, baseURL+"/api/sessions", bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("build start request: %w", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	addToken(request, token)
+
+	response, err := client.Do(request)
+	if err != nil {
+		return "", fmt.Errorf("start request failed: %w", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode == http.StatusCreated {
+		var created struct {
+			ID string `json:"id"`
+		}
+		if err := json.NewDecoder(response.Body).Decode(&created); err != nil {
+			return "", fmt.Errorf("decode start response: %w", err)
+		}
+		sessionID := strings.TrimSpace(created.ID)
+		if sessionID == "" {
+			return "", errors.New("session id is missing from start response")
+		}
+		return sessionID, nil
+	}
+
+	if response.StatusCode == http.StatusConflict {
+		var conflict struct {
+			SessionID string `json:"session_id"`
+		}
+		if err := json.NewDecoder(response.Body).Decode(&conflict); err != nil {
+			return "", fmt.Errorf("decode conflict response: %w", err)
+		}
+		sessionID := strings.TrimSpace(conflict.SessionID)
+		if sessionID == "" {
+			return "", errors.New("session id is missing from conflict response")
+		}
+		return sessionID, nil
+	}
+
+	message := readErrorMessage(response)
+	return "", &HTTPError{StatusCode: response.StatusCode, Message: message}
+}
+
+func WaitSessionReady(client *http.Client, baseURL, token, sessionID string, timeout time.Duration) error {
+	client = ensureClient(client)
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return errors.New("session id is required")
+	}
+	if timeout <= 0 {
+		timeout = defaultWaitSessionReadyTimeout
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		sessions, err := FetchSessions(client, baseURL, token)
+		if err != nil {
+			return err
+		}
+		for _, session := range sessions {
+			if session.ID == sessionID {
+				return nil
+			}
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out waiting for session %q", sessionID)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 func StartAgent(client *http.Client, baseURL, token, agentID string) error {

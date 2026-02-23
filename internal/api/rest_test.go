@@ -1417,22 +1417,24 @@ func TestCreateTerminalDuplicateAgent(t *testing.T) {
 
 func TestListTerminalsIncludesModelMetadata(t *testing.T) {
 	factory := &fakeFactory{}
-	nonSingleton := false
 	manager := newTestManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
 		Agents: map[string]agent.Agent{
 			"codex": {
-				Name:      "Codex",
-				Shell:     "/bin/zsh",
-				CLIType:   "codex",
-				Model:     "default",
-				Singleton: &nonSingleton,
+				Name:    "Codex",
+				Shell:   "/bin/zsh",
+				CLIType: "codex",
+				Model:   "default",
+			},
+			"architect": {
+				Name:  "Architect",
+				Shell: "/bin/bash",
 			},
 		},
 	})
 
-	defaultSession, err := manager.Create(testAgentID, "build", "plain")
+	defaultSession, err := manager.Create("architect", "build", "plain")
 	if err != nil {
 		t.Fatalf("create default session: %v", err)
 	}

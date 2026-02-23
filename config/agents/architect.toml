@@ -3,7 +3,6 @@ shell = "codex"
 cli_type = "codex"
 interface = "cli"
 prompt = ["architect"]
-gui_modules = ["console"]
 
 # Core model selection
 model = "gpt-5.3" # values: any supported model id

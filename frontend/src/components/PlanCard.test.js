@@ -1,4 +1,4 @@
-import { render, cleanup } from '@testing-library/svelte'
+import { render, cleanup, fireEvent } from '@testing-library/svelte'
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 
 vi.mock('../lib/clipboard.js', () => ({
@@ -6,7 +6,12 @@ vi.mock('../lib/clipboard.js', () => ({
   copyToClipboard: vi.fn(),
 }))
 
+vi.mock('../lib/apiClient.js', () => ({
+  sendInputToAgentSession: vi.fn(),
+}))
+
 import * as clipboard from '../lib/clipboard.js'
+import { sendInputToAgentSession } from '../lib/apiClient.js'
 import PlanCard from './PlanCard.svelte'
 
 describe('PlanCard', () => {
@@ -160,5 +165,32 @@ describe('PlanCard', () => {
     })
 
     expect(getAllByText('Repeat').length).toBeGreaterThan(1)
+  })
+
+  it('sends todo L1 action to coder session helper', async () => {
+    sendInputToAgentSession.mockResolvedValue(undefined)
+    const plan = {
+      filename: 'session-api-singleton-cleanup.org',
+      title: 'Cleanup',
+      headings: [
+        {
+          level: 1,
+          keyword: 'TODO',
+          priority: 'A',
+          text: 'Delete endpoint',
+          children: [],
+        },
+      ],
+    }
+
+    const { getByText } = render(PlanCard, { props: { plan } })
+    await fireEvent.click(getByText('→ Coder'))
+
+    expect(sendInputToAgentSession).toHaveBeenCalledTimes(1)
+    expect(sendInputToAgentSession).toHaveBeenCalledWith(
+      'coder',
+      'Coder',
+      expect.stringContaining('Filename: session-api-singleton-cleanup.org'),
+    )
   })
 })

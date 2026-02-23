@@ -1,12 +1,11 @@
 <script>
   import { canUseClipboard, copyToClipboard } from '../lib/clipboard.js'
-  import { createTerminal, sendAgentInput } from '../lib/apiClient.js'
+  import { sendInputToAgentSession } from '../lib/apiClient.js'
   import { getErrorMessage } from '../lib/errorUtils.js'
   import { notificationStore } from '../lib/notificationStore.js'
   import { formatRelativeTime } from '../lib/timeUtils.js'
 
   export let plan = {}
-  export let terminals = []
 
   const toCount = (value) => (Number.isFinite(value) ? value : 0)
   const toText = (value) => (value ? String(value) : '')
@@ -47,34 +46,17 @@
   $: headings = Array.isArray(plan?.headings) ? plan.headings : []
   let pendingCodeAction = false
 
-  const findCoderTerminal = () => {
-    if (!Array.isArray(terminals)) return null
-    return terminals.find((terminal) => terminal?.role === 'Coder' || terminal?.title === 'Coder') || null
-  }
-
   const handleCodeAction = async (l1Heading, planData) => {
     if (pendingCodeAction) return
     pendingCodeAction = true
     const priorityTag = l1Heading?.priority ? `[#${l1Heading.priority}] ` : ''
     const filenameLabel = toText(planData?.filename) || 'unknown'
     const inputText = `Filename: ${filenameLabel}\nL1: ${priorityTag}${l1Heading?.keyword} ${l1Heading?.text}\n\n`
-    const coderTerminal = findCoderTerminal()
-
-    if (!coderTerminal) {
-      try {
-        await createTerminal({ agentId: 'coder' })
-      } catch (err) {
-        notificationStore.addNotification('error', getErrorMessage(err, 'Failed to create coder'))
-        pendingCodeAction = false
-        return
-      }
-    }
-
     try {
-      await sendAgentInput('Coder', inputText)
+      await sendInputToAgentSession('coder', 'Coder', inputText)
       notificationStore.addNotification('info', 'Sent to Coder')
     } catch (err) {
-      notificationStore.addNotification('error', getErrorMessage(err, 'Failed to send to Coder'))
+      notificationStore.addNotification('error', getErrorMessage(err, 'Failed to create or send to Coder'))
     } finally {
       pendingCodeAction = false
     }

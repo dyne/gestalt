@@ -29,6 +29,8 @@ import {
   fetchPlansList,
   fetchStatus,
   fetchTerminals,
+  sendInputToAgentSession,
+  sendSessionInput,
   saveFlowConfig,
 } from '../src/lib/apiClient.js'
 
@@ -257,6 +259,61 @@ describe('apiClient', () => {
         'Content-Type': 'text/yaml; charset=utf-8',
       },
       body: yamlText,
+    })
+  })
+
+  it('sends direct session input payloads', async () => {
+    apiFetch.mockResolvedValue({ ok: true })
+
+    await sendSessionInput('Coder 1', 'hello')
+
+    expect(apiFetch).toHaveBeenCalledWith('/api/sessions/Coder%201/input', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: 'hello',
+    })
+  })
+
+  it('sends to existing agent session ids', async () => {
+    apiFetch
+      .mockResolvedValueOnce({
+        json: vi.fn().mockResolvedValue([{ id: 'coder', name: 'Coder', session_id: 'Coder 1' }]),
+      })
+      .mockResolvedValueOnce({ ok: true })
+
+    await sendInputToAgentSession('coder', 'Coder', 'run')
+
+    expect(apiFetch).toHaveBeenNthCalledWith(1, '/api/agents')
+    expect(apiFetch).toHaveBeenNthCalledWith(2, '/api/sessions/Coder%201/input', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: 'run',
+    })
+  })
+
+  it('reuses conflict session id when create returns 409', async () => {
+    const conflict = new Error('already running')
+    conflict.status = 409
+    conflict.data = { session_id: 'Coder 1' }
+
+    apiFetch
+      .mockResolvedValueOnce({
+        json: vi.fn().mockResolvedValue([{ id: 'coder', name: 'Coder', session_id: '' }]),
+      })
+      .mockRejectedValueOnce(conflict)
+      .mockResolvedValueOnce({ ok: true })
+
+    await sendInputToAgentSession('coder', 'Coder', 'run')
+
+    expect(apiFetch).toHaveBeenNthCalledWith(1, '/api/agents')
+    expect(apiFetch).toHaveBeenNthCalledWith(2, '/api/sessions', {
+      method: 'POST',
+      body: JSON.stringify({ agent: 'coder' }),
+    })
+    expect(apiFetch).toHaveBeenNthCalledWith(3, '/api/sessions/Coder%201/input', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: 'run',
     })
   })
 

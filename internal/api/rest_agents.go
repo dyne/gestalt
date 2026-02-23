@@ -1,7 +1,6 @@
 package api
 
 import (
-	"bytes"
 	"net/http"
 )
 
@@ -30,15 +29,4 @@ func (h *RestHandler) handleAgents(w http.ResponseWriter, r *http.Request) *apiE
 	}
 	writeJSON(w, http.StatusOK, response)
 	return nil
-}
-
-func normalizeMCPInput(input []byte) []byte {
-	if len(input) == 0 {
-		return input
-	}
-	trimmed := bytes.TrimRight(input, "\r\n")
-	if len(trimmed) == 0 {
-		return []byte{'\r'}
-	}
-	return append(trimmed, '\r')
 }

@@ -3,12 +3,10 @@ package terminal
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
 	"gestalt/internal/agent"
-	"gestalt/internal/flow"
 	"gestalt/internal/logging"
 	"gestalt/internal/notify"
 	"gestalt/internal/process"
@@ -107,17 +105,10 @@ func (f *SessionFactory) Start(request sessionCreateRequest, profile *agent.Agen
 
 	createdAt := f.clock.Now().UTC()
 	var sessionLogger *SessionLogger
-	if shouldLogSessionOutput(profile) {
-		sessionLogger = f.createSessionLogger(id, createdAt)
-	}
 	inputLogger := f.createInputLogger(id, profile, createdAt)
 
 	outputPolicy := f.outputPolicy
 	outputSample := f.outputSample
-	if _, ok := pty.(*mcpPty); ok {
-		outputPolicy = OutputBackpressureBlock
-		outputSample = 0
-	}
 
 	session := newSession(id, pty, nil, cmd, request.Title, request.Role, createdAt, f.bufferLines, f.historyScanMax, outputPolicy, outputSample, profile, sessionLogger, inputLogger)
 	session.Command = shell
@@ -144,15 +135,6 @@ func (f *SessionFactory) Start(request sessionCreateRequest, profile *agent.Agen
 		session.setProcessRegistry(f.processRegistry)
 	}
 
-	if mcp, ok := pty.(*mcpPty); ok {
-		if f.logCodexEvents && !isAgentSession(request, profile) {
-			if eventLogger := f.createMCPEventLogger(id, createdAt); eventLogger != nil {
-				mcp.SetEventLogger(eventLogger)
-			}
-		}
-		attachMCPTurnHandler(session, mcp, f.logger, f.notificationSink)
-	}
-
 	return session, id, nil
 }
 
@@ -167,9 +149,6 @@ func (f *SessionFactory) StartExternal(request sessionCreateRequest, profile *ag
 
 	createdAt := f.clock.Now().UTC()
 	var sessionLogger *SessionLogger
-	if shouldLogSessionOutput(profile) {
-		sessionLogger = f.createSessionLogger(id, createdAt)
-	}
 	inputLogger := f.createInputLogger(id, profile, createdAt)
 
 	outputPolicy := f.outputPolicy
@@ -194,66 +173,6 @@ func isAgentSession(request sessionCreateRequest, profile *agent.Agent) bool {
 	return strings.TrimSpace(request.AgentID) != ""
 }
 
-func shouldLogSessionOutput(profile *agent.Agent) bool {
-	return false
-}
-
-func (f *SessionFactory) createMCPEventLogger(id string, createdAt time.Time) *mcpEventLogger {
-	if f.sessionLogDir == "" {
-		if f.logger != nil {
-			f.logger.Warn("mcp event log disabled: session log dir empty", map[string]string{
-				"terminal_id": id,
-			})
-		}
-		return nil
-	}
-	logger, err := newMCPEventLogger(f.sessionLogDir, id, createdAt)
-	if err != nil {
-		if f.logger != nil {
-			f.logger.Warn("mcp event log unavailable", map[string]string{
-				"terminal_id": id,
-				"error":       err.Error(),
-			})
-		}
-		return nil
-	}
-	return logger
-}
-
-func attachMCPTurnHandler(session *Session, pty *mcpPty, logger *logging.Logger, sink notify.Sink) {
-	if session == nil || pty == nil || sink == nil {
-		return
-	}
-	pty.SetTurnHandler(func(info mcpTurnInfo) {
-		payload := map[string]any{
-			"thread_id": info.ThreadID,
-			"tool":      info.Tool,
-		}
-		if strings.TrimSpace(session.Model) != "" {
-			payload["model"] = session.Model
-		}
-		occurredAt := time.Now().UTC()
-		fields := flow.BuildNotifyFields(flow.NotifyFieldInput{
-			SessionID:   session.ID,
-			EventID:     fmt.Sprintf("gestalt-mcp:%s:%d", session.ID, info.Turn),
-			PayloadType: "agent-turn-complete",
-			OccurredAt:  occurredAt,
-			Payload:     payload,
-		})
-		event := notify.Event{
-			Fields:     fields,
-			OccurredAt: occurredAt,
-			Level:      "info",
-			Message:    "agent-turn-complete",
-		}
-		if err := sink.Emit(context.Background(), event); err != nil && logger != nil {
-			logger.Warn("mcp notify failed", map[string]string{
-				"terminal_id": session.ID,
-				"error":       err.Error(),
-			})
-		}
-	})
-}
 
 func (f *SessionFactory) logShellCommandReady(request sessionCreateRequest, reservedID, shell, command string, args []string) {
 	if f.logger == nil || !f.logger.Enabled(logging.LevelDebug) {

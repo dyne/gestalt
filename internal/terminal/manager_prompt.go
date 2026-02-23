@@ -22,16 +22,7 @@ func (m *Manager) startPromptInjection(session *Session, agentID string, profile
 
 	go func() {
 		// Wait for shell to be ready
-		if mcp, ok := session.pty.(*mcpPty); ok {
-			if err := mcp.WaitReady(onAirTimeout); err != nil {
-				m.logger.Warn("mcp init wait failed", map[string]string{
-					"agent_id":   agentID,
-					"timeout_ms": strconv.FormatInt(onAirTimeout.Milliseconds(), 10),
-					"error":      err.Error(),
-				})
-				time.Sleep(promptDelay)
-			}
-		} else if strings.TrimSpace(onAirString) != "" {
+		if strings.TrimSpace(onAirString) != "" {
 			if !waitForOnAir(session, onAirString, onAirTimeout) {
 				m.logger.Error("agent onair string not found", map[string]string{
 					"agent_id":     agentID,

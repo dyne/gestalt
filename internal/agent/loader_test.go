@@ -328,6 +328,35 @@ llm_model = "default"
 	}
 }
 
+func TestLoaderWarnsOnDeprecatedSingletonFalse(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "codex.toml"), []byte(`
+name = "Codex"
+shell = "/bin/bash"
+singleton = false
+`), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	buffer := logging.NewLogBuffer(10)
+	logger := logging.NewLoggerWithOutput(buffer, logging.LevelInfo, nil)
+	loader := Loader{Logger: logger}
+	agents, err := loader.Load(nil, dir, "", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(agents) != 1 {
+		t.Fatalf("expected 1 agent, got %d", len(agents))
+	}
+	entry := findAgentWarning(buffer.List(), "agent config warning")
+	if entry == nil {
+		t.Fatalf("expected warning for singleton=false")
+	}
+	if !strings.Contains(entry.Context["warning"], "singleton=false") {
+		t.Fatalf("expected warning to mention singleton=false, got %q", entry.Context["warning"])
+	}
+}
+
 func TestLoaderWithFS(t *testing.T) {
 	fsys := fstest.MapFS{
 		"config/agents/codex.toml": &fstest.MapFile{

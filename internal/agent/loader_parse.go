@@ -54,6 +54,11 @@ func parseAgentData(filePath string, data []byte) (Agent, error) {
 		defaultSingleton := true
 		agent.Singleton = &defaultSingleton
 	}
+	if agent.Singleton != nil && !*agent.Singleton {
+		message := "agent singleton=false is deprecated and ignored; singleton sessions are always enforced"
+		agent.warnings = append(agent.warnings, message)
+		emitConfigValidationErrorWithMessage(filePath, message)
+	}
 	return agent, nil
 }
 

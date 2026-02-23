@@ -10,7 +10,7 @@ match GUI-created sessions.
 - Codex sessions inject `notify = ["gestalt-notify","--session-id",<id>]` the
   same way as GUI-created sessions.
 - Workflow start/stop behavior is backend-owned and identical.
-- Sessions appear in `/api/sessions` and open a UI tab.
+- Sessions appear in `/api/sessions` and are opened from Dashboard agent controls.
 
 ## Accepted differences
 - External sessions are backed by backend-managed tmux windows (one per session)

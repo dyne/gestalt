@@ -34,25 +34,25 @@ gestalt-agent <agent-id> --dryrun
 - Agent IDs are filenames without `.toml` (for example `coder`).
 - `--host` and `--port` select the server (defaults: `127.0.0.1`, `57417`).
 - `--dryrun` prints the resolved tmux attach command without executing it.
+- `gestalt-agent` is the only CLI that starts agent sessions.
 
 ## `gestalt-send` (session input client)
 
 `gestalt-send` sends stdin to a running session.
 
 ```sh
-gestalt-send [options] <agent-name-or-id>
 gestalt-send --session-id <session-id>
 ```
 
 - `--host` and `--port` select the server (defaults: `127.0.0.1`, `57417`).
-- `--session-id` accepts both canonical (`Coder 1`) and shorthand (`Coder`) references.
-- Agent sends are create-or-reuse: `gestalt-send <agent-name-or-id>` ensures the singleton agent session exists, waits until it is ready, then posts to `POST /api/sessions/:id/input`.
-- Exit codes: `1` usage, `2` agent/session resolution failure, `3` network/server/timeout.
+- `--session-id` is required and is used as provided (trimmed only).
+- `gestalt-send` never starts sessions; it returns an error if the session is missing.
+- Exit codes: `1` usage, `2` session not found, `3` network/server error.
 
 ## `gestalt-notify` (session notify client)
 
 - `--host` and `--port` select the server (defaults: `127.0.0.1`, `57417`).
-- `--session-id` accepts both canonical (`Coder 1`) and shorthand (`Coder`) references.
+- `--session-id` is required and is used as provided (trimmed only).
 - Exit codes: `1` usage, `2` rejected request, `3` network/server, `4` session not found, `5` invalid payload.
 
 ## Agent config and prompts
@@ -80,13 +80,13 @@ This compatibility contract defines the intended public behavior for this releas
 | Session input API | `POST /api/agents/:name/send-input` and `POST /api/sessions/:id/input` | `POST /api/sessions/:id/input` only |
 | Agent sessions | Multiple instances per agent could exist | Exactly one session per agent, canonical id `<AgentName> 1` |
 | Agent config `singleton` | Runtime behavior changed when set to `false` | Parse-compatible only; runtime always singleton |
-| `gestalt-send` start behavior | `--start` opt-in auto-create | Implicit create-or-reuse; no `--start` |
-| Session-id normalization | Tool-specific behavior | Shared rule: explicit `<name> <number>` is honored, otherwise normalize to `<name> 1` |
-| `gestalt-notify` server flags | `--url` | `--host` + `--port` |
+| `gestalt-send` start behavior | Could auto-start agent sessions | Requires `--session-id`; never starts sessions |
+| Session-id normalization | Tool-specific behavior | Shared rule: trim-only normalization, explicit IDs preserved |
+| `gestalt-notify` server flags | `--url` (legacy) | `--host` + `--port` |
 | CLI non-zero exits | Partially documented | Every non-zero exit prints one actionable stderr message |
 
 ## Migration checklist
 
 - Replace `gestalt-notify --url ...` with `gestalt-notify --host ... --port ...`.
-- Remove `gestalt-send --start` usage from scripts; create-or-reuse is implicit.
+- Remove legacy auto-start usage from scripts and pass `--session-id` explicitly.
 - Replace shorthand API input posts to removed agent endpoint with session input posts.

@@ -41,7 +41,16 @@ describe('App tab switching', () => {
             title: 'Shell',
             role: 'shell',
             created_at: new Date().toISOString(),
-            interface: 'mcp',
+            interface: 'cli',
+          },
+        ],
+        agents: [
+          {
+            id: 'coder',
+            name: 'Coder',
+            hidden: false,
+            running: true,
+            session_id: 't1',
           },
         ],
       }),
@@ -60,7 +69,7 @@ describe('App tab switching', () => {
 
     const planTab = await findByRole('button', { name: 'Plans' })
     const flowTab = await findByRole('button', { name: 'Flow' })
-    const terminalTab = await findByRole('button', { name: 't1' })
+    const openAgentButton = await findByRole('button', { name: /Coder/i })
 
     await fireEvent.click(planTab)
     await waitFor(() => {
@@ -76,7 +85,7 @@ describe('App tab switching', () => {
       expect(active?.textContent).toContain('Flow')
     })
 
-    await fireEvent.click(terminalTab)
+    await fireEvent.click(openAgentButton)
     await waitFor(() => {
       const terminalSection = container.querySelector('section.view--terminals[data-active="true"]')
       expect(terminalSection).toBeTruthy()

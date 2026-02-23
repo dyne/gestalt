@@ -6,7 +6,7 @@ const historyCache = new Map()
 const normalizeInterface = (value) => {
   if (value === undefined || value === null) return ''
   const trimmed = String(value).trim().toLowerCase()
-  if (trimmed === 'cli' || trimmed === 'mcp') {
+  if (trimmed === 'cli') {
     return trimmed
   }
   return ''

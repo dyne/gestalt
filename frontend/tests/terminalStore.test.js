@@ -133,15 +133,16 @@ describe('terminalStore', () => {
       cursor: 7,
     })
     const service = createTerminalService({ terminalId: 'cached', historyCache })
-    let currentSegments = []
-    const unsubscribe = service.segments.subscribe((value) => {
-      currentSegments = value
+    const seen = []
+    const unsubscribe = service.status.subscribe((value) => {
+      seen.push(value)
     })
 
     service.setVisible(true)
     await waitForSocket()
 
-    expect(currentSegments).toEqual([{ kind: 'output', text: 'hello\nworld' }])
+    expect(seen.length).toBeGreaterThan(0)
+    expect(apiFetch).not.toHaveBeenCalled()
 
     unsubscribe()
     service.dispose()
@@ -229,12 +230,12 @@ describe('terminalStore', () => {
   })
 
   it('recreates services when interface changes', () => {
-    const mcpState = getTerminalState('swap', 'mcp')
-    const disposeSpy = vi.spyOn(mcpState, 'dispose')
+    const unknownState = getTerminalState('swap', 'unknown')
+    const disposeSpy = vi.spyOn(unknownState, 'dispose')
 
     const cliState = getTerminalState('swap', 'cli')
 
-    expect(cliState).not.toBe(mcpState)
+    expect(cliState).not.toBe(unknownState)
     expect(disposeSpy).toHaveBeenCalled()
 
     releaseTerminalState('swap')

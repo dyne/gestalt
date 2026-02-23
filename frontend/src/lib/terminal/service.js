@@ -1,6 +1,5 @@
 import { createTerminalService as createCliService } from './service_cli.js'
 import { createTerminalService as createExternalService } from './service_external.js'
-import { createTerminalService as createMcpService } from './service_mcp.js'
 
 const resolveInterface = (value) => {
   if (typeof value !== 'string') return ''
@@ -12,9 +11,5 @@ export const createTerminalService = (options = {}) => {
   if (runnerValue === 'external') {
     return createExternalService(options)
   }
-  const interfaceValue = resolveInterface(options.sessionInterface)
-  if (interfaceValue === 'cli') {
-    return createCliService(options)
-  }
-  return createMcpService(options)
+  return createCliService(options)
 }

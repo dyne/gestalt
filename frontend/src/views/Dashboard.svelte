@@ -1,7 +1,6 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
   import { createDashboardStore } from '../lib/dashboardStore.js'
-  import { getErrorMessage } from '../lib/errorUtils.js'
   import { formatRelativeTime } from '../lib/timeUtils.js'
   import { formatLogEntryForClipboard } from '../lib/logEntry.js'
   import { parseConventionalCommit } from '../lib/conventionalCommit.js'
@@ -12,12 +11,10 @@
   export let status = null
   export let loading = false
   export let error = ''
-  export let onCreate = () => {}
   export let onSelect = () => {}
 
   const dashboardStore = createDashboardStore()
 
-  let actionPending = false
   let localError = ''
   let agents = []
   let visibleAgents = []
@@ -45,25 +42,19 @@
 
   const numberFormatter = new Intl.NumberFormat('en-US')
 
-  const createTerminal = async (agentId = '') => {
-    actionPending = true
-    localError = ''
-    try {
-      await onCreate(agentId)
-      await dashboardStore.loadAgents()
-    } catch (err) {
-      localError = getErrorMessage(err, 'Failed to create session.')
-    } finally {
-      actionPending = false
-    }
-  }
-
   const switchToTerminal = (sessionId) => {
     if (!sessionId) {
       localError = 'No running session found.'
       return
     }
     onSelect(sessionId)
+  }
+
+  const showAgentStartHint = (agent) => {
+    const agentId = String(agent?.id || '').trim()
+    localError = agentId
+      ? `Session not running; run gestalt-agent ${agentId}.`
+      : 'Session not running; run gestalt-agent <agent-id>.'
   }
 
   const formatLogTime = (value) => {
@@ -265,12 +256,12 @@
               class:agent-button--running={agent.running}
               class:agent-button--stopped={!agent.running}
               on:click={() =>
-                agent.running ? switchToTerminal(agent.session_id) : createTerminal(agent.id)
+                agent.running ? switchToTerminal(agent.session_id) : showAgentStartHint(agent)
               }
-              disabled={actionPending || loading}
+              disabled={loading}
             >
               <span class="agent-name" title={agent.name}>{agent.name}</span>
-              <span class="agent-action">{agent.running ? 'Open' : 'Start'}</span>
+              <span class="agent-action">{agent.running ? 'Open' : 'Run'}</span>
             </button>
           </div>
         {/each}

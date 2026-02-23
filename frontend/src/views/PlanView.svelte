@@ -1,6 +1,6 @@
 <script>
   import { onDestroy, onMount } from 'svelte'
-  import { createTerminal, fetchPlansList, fetchTerminals } from '../lib/apiClient.js'
+  import { fetchPlansList, fetchTerminals } from '../lib/apiClient.js'
   import { subscribe as subscribeEvents } from '../lib/eventStore.js'
   import { subscribe as subscribeTerminalEvents } from '../lib/terminalEventStore.js'
   import { getErrorMessage } from '../lib/errorUtils.js'
@@ -130,12 +130,7 @@
   }
 
   const createArchitect = async () => {
-    try {
-      await createTerminal({ agentId: 'architect' })
-      notificationStore.addNotification('info', 'Architect session created')
-    } catch (err) {
-      notificationStore.addNotification('error', getErrorMessage(err, 'Failed to create architect'))
-    }
+    notificationStore.addNotification('error', 'Session not running; run gestalt-agent architect.')
   }
 
   $: activePlans = sortPlansByDate(plans.filter(isActivePlan))

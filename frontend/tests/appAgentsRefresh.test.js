@@ -118,36 +118,20 @@ describe('App agents tab refresh', () => {
     expect(sessionsCalls).toBeGreaterThanOrEqual(2)
   })
 
-  it('shows Agents tab after creating an external agent without SSE', async () => {
+  it('does not create an external agent when stopped agent is clicked', async () => {
     let statusCalls = 0
     let sessionsCalls = 0
 
     apiFetch.mockImplementation((url, options = {}) => {
       if (url === '/api/status') {
         statusCalls += 1
-        const payload =
-          statusCalls === 1
-            ? { session_count: 0, agents_session_id: '', agents_tmux_session: '' }
-            : { session_count: 1, agents_session_id: 'Agents 1', agents_tmux_session: '' }
-        return Promise.resolve({ json: () => Promise.resolve(payload) })
+        return Promise.resolve({
+          json: () => Promise.resolve({ session_count: 0, agents_session_id: '', agents_tmux_session: '' }),
+        })
       }
       if (url === '/api/sessions') {
-        if (options.method === 'POST') {
-          return Promise.resolve({
-            json: () =>
-              Promise.resolve({
-                id: 'external-1',
-                interface: 'cli',
-                runner: 'external',
-                title: '',
-              }),
-          })
-        }
         sessionsCalls += 1
         return Promise.resolve({ json: () => Promise.resolve([]) })
-      }
-      if (url === '/api/sessions/external-1/activate') {
-        return Promise.resolve({ ok: true })
       }
       if (url === '/api/agents') {
         return Promise.resolve({
@@ -171,11 +155,14 @@ describe('App agents tab refresh', () => {
     const button = await findByText('Codex')
     await fireEvent.click(button)
 
-    await waitFor(() => {
-      expect(queryByRole('button', { name: 'Agents' })).toBeTruthy()
-    })
+    expect(await findByText('Session not running; run gestalt-agent codex.')).toBeTruthy()
 
-    expect(statusCalls).toBeGreaterThanOrEqual(2)
+    expect(queryByRole('button', { name: 'Agents' })).toBeNull()
+    expect(statusCalls).toBeGreaterThanOrEqual(1)
     expect(sessionsCalls).toBeGreaterThanOrEqual(1)
+    const createCalls = apiFetch.mock.calls.filter(
+      ([url, request]) => url === '/api/sessions' && request?.method === 'POST',
+    )
+    expect(createCalls).toHaveLength(0)
   })
 })

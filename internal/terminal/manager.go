@@ -412,6 +412,7 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 	}
 
 	var profile *agent.Agent
+	var tmuxManagedAgent bool
 	var promptNames []string
 	var promptFiles []string
 	var promptPayloads []string
@@ -429,34 +430,33 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 			return nil, err
 		}
 	}
-	if request.AgentID != "" {
-		agentProfile, ok := m.GetAgent(request.AgentID)
-		if !ok || agentProfile.Name == "" {
-			m.logger.Warn("agent not found or invalid", map[string]string{
-				"gestalt.category": "agent",
-				"gestalt.source":   "backend",
-				"agent.id":         request.AgentID,
-				"agent_id":         request.AgentID,
-			})
-			return nil, ErrAgentNotFound
-		}
-		profileCopy := agentProfile
-		profile = &profileCopy
-		if len(agentProfile.CLIConfig) > 0 {
-			sessionCLIConfig = copyCLIConfig(agentProfile.CLIConfig)
-		}
-		if strings.TrimSpace(agentProfile.Name) != "" {
-			request.Title = agentProfile.Name
-			agentName = agentProfile.Name
-		}
-		if len(agentProfile.Prompts) > 0 {
-			promptNames = append(promptNames, agentProfile.Prompts...)
-		}
-		if strings.TrimSpace(agentProfile.OnAirString) != "" {
-			onAirString = agentProfile.OnAirString
-		}
+	agentProfile, ok := m.GetAgent(request.AgentID)
+	if !ok || agentProfile.Name == "" {
+		m.logger.Warn("agent not found or invalid", map[string]string{
+			"gestalt.category": "agent",
+			"gestalt.source":   "backend",
+			"agent.id":         request.AgentID,
+			"agent_id":         request.AgentID,
+		})
+		return nil, ErrAgentNotFound
 	}
-	if request.AgentID != "" && shouldStartExternalTmuxWindow(profile) {
+	profileCopy := agentProfile
+	profile = &profileCopy
+	tmuxManagedAgent = shouldStartExternalTmuxWindow(profile)
+	if len(agentProfile.CLIConfig) > 0 {
+		sessionCLIConfig = copyCLIConfig(agentProfile.CLIConfig)
+	}
+	if strings.TrimSpace(agentProfile.Name) != "" {
+		request.Title = agentProfile.Name
+		agentName = agentProfile.Name
+	}
+	if len(agentProfile.Prompts) > 0 {
+		promptNames = append(promptNames, agentProfile.Prompts...)
+	}
+	if strings.TrimSpace(agentProfile.OnAirString) != "" {
+		onAirString = agentProfile.OnAirString
+	}
+	if tmuxManagedAgent {
 		runnerKind = launchspec.RunnerKindExternal
 	}
 	if agentName != "" {
@@ -581,7 +581,7 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 			}
 		}
 		session.LaunchSpec = m.buildLaunchSpec(session, profile, sessionCLIConfig, developerInstructions, promptPayloads)
-		if shouldStartExternalTmuxWindow(profile) && m.startExternalTmuxWindow != nil {
+		if tmuxManagedAgent && m.startExternalTmuxWindow != nil {
 			if err := m.startExternalTmuxWindow(session.LaunchSpec); err != nil {
 				_ = session.Close()
 				releaseReservation()

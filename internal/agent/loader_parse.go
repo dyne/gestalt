@@ -44,12 +44,6 @@ func parseAgentData(filePath string, data []byte) (Agent, error) {
 		return Agent{}, err
 	}
 	applyModelAlias(&agent, raw, filePath)
-	cliConfig, err := extractCLIConfig(raw)
-	if err != nil {
-		return Agent{}, err
-	}
-	agent.CLIConfig = cliConfig
-	applyModelCLIConfig(&agent)
 	if agent.Singleton == nil {
 		defaultSingleton := true
 		agent.Singleton = &defaultSingleton
@@ -133,23 +127,6 @@ func lineForKey(data []byte, keyPath string) int {
 	return 0
 }
 
-var agentRootKeys = map[string]struct{}{
-	"name":         {},
-	"shell":        {},
-	"codex_mode":   {},
-	"prompt":       {},
-	"skills":       {},
-	"gui_modules":  {},
-	"onair_string": {},
-	"singleton":    {},
-	"interface":    {},
-	"cli_type":     {},
-	"model":        {},
-	"llm_model":    {},
-	"hidden":       {},
-	"cli_config":   {},
-}
-
 func applyModelAlias(agent *Agent, raw map[string]interface{}, filePath string) {
 	modelValue := strings.TrimSpace(rawString(raw["model"]))
 	llmModelValue := strings.TrimSpace(rawString(raw["llm_model"]))
@@ -168,24 +145,6 @@ func applyModelAlias(agent *Agent, raw map[string]interface{}, filePath string) 
 
 }
 
-func applyModelCLIConfig(agent *Agent) {
-	modelValue := strings.TrimSpace(agent.Model)
-	if modelValue == "" {
-		return
-	}
-	cliType := strings.TrimSpace(agent.CLIType)
-	if cliType == "" && len(agent.CLIConfig) == 0 {
-		return
-	}
-	if agent.CLIConfig == nil {
-		agent.CLIConfig = map[string]interface{}{}
-	}
-	if _, ok := agent.CLIConfig["model"]; ok {
-		return
-	}
-	agent.CLIConfig["model"] = modelValue
-}
-
 func rawString(value interface{}) string {
 	switch typed := value.(type) {
 	case string:
@@ -193,30 +152,4 @@ func rawString(value interface{}) string {
 	default:
 		return ""
 	}
-}
-
-func extractCLIConfig(raw map[string]interface{}) (map[string]interface{}, error) {
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	config := map[string]interface{}{}
-	if rawCLI, ok := raw["cli_config"]; ok {
-		cliMap, ok := internalschema.AsStringMap(rawCLI)
-		if !ok {
-			return nil, fmt.Errorf("cli_config must be a table")
-		}
-		for key, value := range cliMap {
-			config[key] = value
-		}
-	}
-	for key, value := range raw {
-		if _, reserved := agentRootKeys[key]; reserved {
-			continue
-		}
-		config[key] = value
-	}
-	if len(config) == 0 {
-		return nil, nil
-	}
-	return config, nil
 }

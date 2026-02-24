@@ -2,10 +2,8 @@ package terminal
 
 import (
 	"errors"
-	"strings"
-
-	"gestalt/internal/agent"
 	"gestalt/internal/runner/launchspec"
+	"strings"
 )
 
 func normalizeRunnerKind(value string) (launchspec.RunnerKind, error) {
@@ -54,12 +52,7 @@ func (m *Manager) buildExternalPromptPayloads(promptNames []string, sessionID st
 	return payloads, files
 }
 
-func buildPromptInjectionSpec(cliType string, payloads []string) launchspec.PromptInjectionSpec {
-	if strings.EqualFold(strings.TrimSpace(cliType), "codex") {
-		return launchspec.NormalizePromptInjection(launchspec.PromptInjectionSpec{
-			Mode: launchspec.PromptInjectionCodexDeveloperInstructions,
-		})
-	}
+func buildPromptInjectionSpec(payloads []string) launchspec.PromptInjectionSpec {
 	if len(payloads) == 0 {
 		return launchspec.NormalizePromptInjection(launchspec.PromptInjectionSpec{
 			Mode: launchspec.PromptInjectionNone,
@@ -72,16 +65,12 @@ func buildPromptInjectionSpec(cliType string, payloads []string) launchspec.Prom
 	})
 }
 
-func (m *Manager) buildLaunchSpec(session *Session, profile *agent.Agent, cliConfig map[string]interface{}, developerInstructions string, promptPayloads []string) *launchspec.LaunchSpec {
+func (m *Manager) buildLaunchSpec(session *Session, promptPayloads []string) *launchspec.LaunchSpec {
 	if session == nil {
 		return nil
 	}
-	cliType := ""
-	if profile != nil {
-		cliType = profile.CLIType
-	}
-	argv := launchspec.BuildArgv(cliType, cliConfig, developerInstructions)
-	if len(argv) == 0 && strings.TrimSpace(session.Command) != "" {
+	var argv []string
+	if strings.TrimSpace(session.Command) != "" {
 		command, args, err := splitCommandLine(session.Command)
 		if err == nil {
 			argv = append([]string{command}, args...)
@@ -93,7 +82,7 @@ func (m *Manager) buildLaunchSpec(session *Session, profile *agent.Agent, cliCon
 		Argv:            argv,
 		Interface:       info.Interface,
 		PromptFiles:     info.PromptFiles,
-		PromptInjection: buildPromptInjectionSpec(cliType, promptPayloads),
+		PromptInjection: buildPromptInjectionSpec(promptPayloads),
 	}
 	normalized := launchspec.NormalizeLaunchSpec(spec)
 	return &normalized

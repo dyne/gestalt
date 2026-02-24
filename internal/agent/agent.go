@@ -65,12 +65,12 @@ type Agent struct {
 	Skills      []string               `json:"skills,omitempty" toml:"skills,omitempty"`
 	OnAirString string                 `json:"onair_string,omitempty" toml:"onair_string,omitempty"`
 	Singleton   *bool                  `json:"singleton,omitempty" toml:"singleton,omitempty"`
-	Interface   string                 `json:"interface,omitempty" toml:"interface,omitempty"`
+	Interface   string                 `json:"-" toml:"-"`
+	CLIType     string                 `json:"-" toml:"-"`
+	CLIConfig   map[string]interface{} `json:"-" toml:"-"`
 	CodexMode   string                 `json:"codex_mode,omitempty" toml:"codex_mode,omitempty"`
-	CLIType     string                 `json:"cli_type,omitempty" toml:"cli_type,omitempty"`
 	Model       string                 `json:"model,omitempty" toml:"model,omitempty"`
 	Hidden      bool                   `json:"hidden" toml:"hidden,omitempty"`
-	CLIConfig   map[string]interface{} `json:"cli_config,omitempty" toml:"cli_config,omitempty"`
 	ConfigHash  string                 `json:"-" toml:"-"`
 	warnings    []string               `json:"-" toml:"-"`
 }
@@ -84,11 +84,12 @@ func (a *Agent) Validate() error {
 	if strings.TrimSpace(a.Name) == "" {
 		return fmt.Errorf("agent name is required")
 	}
-	resolvedInterface, err := a.ResolveInterface()
-	if err != nil {
-		return err
+	if strings.TrimSpace(a.CodexMode) != "" {
+		return &ValidationError{
+			Path:    "codex_mode",
+			Message: "codex_mode is no longer supported",
+		}
 	}
-	a.Interface = resolvedInterface
 	if _, err := a.resolveShell(); err != nil {
 		return err
 	}
@@ -102,30 +103,9 @@ func (a *Agent) Validate() error {
 	return nil
 }
 
-func (a *Agent) ResolveInterface() (string, error) {
-	if strings.TrimSpace(a.CodexMode) != "" {
-		return "", &ValidationError{
-			Path:    "codex_mode",
-			Message: "codex_mode is no longer supported",
-		}
-	}
-	interfaceValue := strings.TrimSpace(a.Interface)
-	if interfaceValue == "" {
-		interfaceValue = AgentInterfaceCLI
-	}
-	interfaceValue = strings.ToLower(interfaceValue)
-	if interfaceValue != AgentInterfaceCLI {
-		return "", &ValidationError{
-			Path:    "interface",
-			Message: fmt.Sprintf("expected \"cli\" (got %q)", interfaceValue),
-		}
-	}
-	return interfaceValue, nil
-}
-
 func (a *Agent) RuntimeInterface(forceTUI bool) (string, error) {
 	_ = forceTUI
-	return a.ResolveInterface()
+	return AgentInterfaceCLI, nil
 }
 
 // NormalizeShell applies CLI config shell generation using the resolved shell command.
@@ -139,22 +119,32 @@ func (a *Agent) NormalizeShell() error {
 }
 
 func (a *Agent) resolveShell() (string, error) {
-	if len(a.CLIConfig) > 0 {
-		if strings.TrimSpace(a.CLIType) == "" {
-			return "", fmt.Errorf("agent cli_type is required when CLI config is set")
-		}
-		if err := ValidateAgentConfig(a.CLIType, a.CLIConfig); err != nil {
-			return "", err
-		}
-		command := BuildShellCommand(a.CLIType, a.CLIConfig)
-		if strings.TrimSpace(command) == "" {
-			return "", fmt.Errorf("agent cli_type %q cannot build shell command", a.CLIType)
-		}
-		return command, nil
-	}
 	command := strings.TrimSpace(a.Shell)
 	if command == "" {
 		return "", fmt.Errorf("agent shell is required")
 	}
 	return command, nil
+}
+
+// RuntimeType returns a lightweight agent type inferred from the shell command.
+func (a *Agent) RuntimeType() string {
+	if a == nil {
+		return ""
+	}
+	command := strings.TrimSpace(a.Shell)
+	if command == "" {
+		return ""
+	}
+	fields := strings.Fields(command)
+	if len(fields) == 0 {
+		return ""
+	}
+	switch strings.ToLower(fields[0]) {
+	case "codex":
+		return "codex"
+	case "github-copilot", "copilot":
+		return "copilot"
+	default:
+		return ""
+	}
 }

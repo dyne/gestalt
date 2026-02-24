@@ -22,7 +22,7 @@ func apiAgentResolver(manager *terminal.Manager) otel.AgentResolver {
 			info.ID = bodyAgentID
 			if profile, ok := manager.GetAgent(bodyAgentID); ok {
 				info.Name = profile.Name
-				info.Type = normalizeAgentType(profile.CLIType)
+				info.Type = normalizeAgentType(profile.RuntimeType())
 			}
 			return info
 		}
@@ -49,8 +49,8 @@ func agentFromSession(manager *terminal.Manager, session *terminal.Session) otel
 	if info.ID != "" {
 		if profile, ok := manager.GetAgent(info.ID); ok {
 			info.Name = profile.Name
-			if profile.CLIType != "" {
-				info.Type = normalizeAgentType(profile.CLIType)
+			if profileType := strings.TrimSpace(profile.RuntimeType()); profileType != "" {
+				info.Type = normalizeAgentType(profileType)
 			}
 		}
 	}

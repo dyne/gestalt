@@ -131,7 +131,7 @@ func newSession(id string, pty Pty, runner Runner, cmd *exec.Cmd, title, role st
 	llmType := ""
 	model := ""
 	if profile != nil {
-		llmType = profile.CLIType
+		llmType = profile.RuntimeType()
 		model = profile.Model
 	}
 	interfaceValue := agent.AgentInterfaceCLI

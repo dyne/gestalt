@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -408,21 +407,13 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 	if shellOverrideSet {
 		shell = shellOverride
 	}
-	runnerKind, err := normalizeRunnerKind(request.Runner)
-	if err != nil {
-		return nil, err
-	}
+	runnerKind := launchspec.RunnerKindExternal
 
 	var profile *agent.Agent
-	var tmuxManagedAgent bool
 	var promptNames []string
-	var promptFiles []string
 	var promptPayloads []string
-	var developerInstructions string
-	var onAirString string
 	var agentName string
 	var sanitizedAgentName string
-	var sessionCLIConfig map[string]interface{}
 	reservedID := strings.TrimSpace(request.SessionID)
 	if request.AgentID == "" {
 		return nil, ErrAgentRequired
@@ -444,22 +435,12 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 	}
 	profileCopy := agentProfile
 	profile = &profileCopy
-	tmuxManagedAgent = shouldStartExternalTmuxWindow(profile)
-	if len(agentProfile.CLIConfig) > 0 {
-		sessionCLIConfig = copyCLIConfig(agentProfile.CLIConfig)
-	}
 	if strings.TrimSpace(agentProfile.Name) != "" {
 		request.Title = agentProfile.Name
 		agentName = agentProfile.Name
 	}
 	if len(agentProfile.Prompts) > 0 {
 		promptNames = append(promptNames, agentProfile.Prompts...)
-	}
-	if strings.TrimSpace(agentProfile.OnAirString) != "" {
-		onAirString = agentProfile.OnAirString
-	}
-	if tmuxManagedAgent {
-		runnerKind = launchspec.RunnerKindExternal
 	}
 	if agentName != "" {
 		sanitizedAgentName = sanitizeSessionName(agentName)
@@ -476,65 +457,11 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		}
 	}
 
-	if reservedID == "" && profile != nil && strings.EqualFold(strings.TrimSpace(profile.CLIType), "codex") {
+	if reservedID == "" {
 		reservedID = m.nextIDValue()
 	}
-	if reservedID == "" && runnerKind == launchspec.RunnerKindExternal {
-		reservedID = m.nextIDValue()
-	}
-
-	if profile != nil && strings.EqualFold(strings.TrimSpace(profile.CLIType), "codex") {
-		result, err := m.buildCodexDeveloperInstructions(profile, reservedID)
-		if err != nil {
-			m.logger.Warn("codex developer instructions render failed", map[string]string{
-				"agent_id": request.AgentID,
-				"error":    err.Error(),
-			})
-		} else {
-			promptFiles = append(promptFiles, result.PromptFiles...)
-		}
-		developerInstructions = result.Instructions
-		if sessionCLIConfig == nil {
-			sessionCLIConfig = map[string]interface{}{}
-		}
-		if _, ok := sessionCLIConfig["developer_instructions"]; ok {
-			m.logger.Warn("codex developer instructions overwritten", map[string]string{
-				"agent_id": request.AgentID,
-			})
-		}
-		sessionCLIConfig["developer_instructions"] = developerInstructions
-	}
-	if profile != nil && strings.EqualFold(strings.TrimSpace(profile.CLIType), "codex") {
-		if sessionCLIConfig == nil {
-			sessionCLIConfig = map[string]interface{}{}
-		}
-		applyCodexOTelExporter(sessionCLIConfig, m.portResolver)
-	}
-
-	if !shellOverrideSet && profile != nil {
-		cliType := strings.TrimSpace(profile.CLIType)
-		if strings.EqualFold(cliType, "codex") {
-			if sessionCLIConfig == nil {
-				sessionCLIConfig = map[string]interface{}{}
-			}
-			sessionCLIConfig["notify"] = m.buildNotifyArgs(reservedID)
-		}
-		if cliType != "" && len(sessionCLIConfig) > 0 {
-			generated := agent.BuildShellCommand(cliType, sessionCLIConfig)
-			if strings.TrimSpace(generated) != "" {
-				shell = generated
-				if m.logger != nil {
-					m.logger.Debug("agent shell command generated", map[string]string{
-						"agent_id": request.AgentID,
-						"shell":    redactDeveloperInstructionsShell(shell),
-					})
-				}
-			} else if strings.TrimSpace(profile.Shell) != "" {
-				shell = profile.Shell
-			}
-		} else if strings.TrimSpace(profile.Shell) != "" {
-			shell = profile.Shell
-		}
+	if !shellOverrideSet && profile != nil && strings.TrimSpace(profile.Shell) != "" {
+		shell = profile.Shell
 	}
 	if agentName != "" {
 		m.mu.Lock()
@@ -559,6 +486,7 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 
 	var session *Session
 	var id string
+	var err error
 	if runnerKind == launchspec.RunnerKindExternal {
 		session, id, err = m.sessionFactory.StartExternal(request, profile, shell, reservedID)
 	} else {
@@ -569,11 +497,7 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		return nil, err
 	}
 	if runnerKind == launchspec.RunnerKindExternal {
-		cliType := ""
-		if profile != nil {
-			cliType = profile.CLIType
-		}
-		if len(promptNames) > 0 && !strings.EqualFold(strings.TrimSpace(cliType), "codex") {
+		if len(promptNames) > 0 {
 			payloads, files := m.buildExternalPromptPayloads(promptNames, session.ID)
 			if len(payloads) > 0 {
 				promptPayloads = payloads
@@ -582,8 +506,8 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 				session.PromptFiles = append(session.PromptFiles, files...)
 			}
 		}
-		session.LaunchSpec = m.buildLaunchSpec(session, profile, sessionCLIConfig, developerInstructions, promptPayloads)
-		if tmuxManagedAgent && m.startExternalTmuxWindow != nil {
+		session.LaunchSpec = m.buildLaunchSpec(session, promptPayloads)
+		if m.startExternalTmuxWindow != nil {
 			if err := m.startExternalTmuxWindow(session.LaunchSpec); err != nil {
 				_ = session.Close()
 				releaseReservation()
@@ -601,18 +525,11 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 			}
 		}
 	}
-	if len(promptFiles) > 0 {
-		session.PromptFiles = append(session.PromptFiles, promptFiles...)
-	}
 	m.mu.Lock()
 	m.sessions[id] = session
 	m.mu.Unlock()
 
 	m.emitSessionStarted(id, request, agentName, shell)
-
-	if runnerKind != launchspec.RunnerKindExternal {
-		m.startPromptInjection(session, request.AgentID, profile, promptNames, onAirString)
-	}
 
 	return session, nil
 }
@@ -1224,16 +1141,12 @@ func (m *Manager) ListAgents() []AgentInfo {
 	agents := m.agentRegistry.Snapshot()
 	infos := make([]AgentInfo, 0, len(agents))
 	for id, profile := range agents {
-		interfaceValue, err := profile.ResolveInterface()
-		if err != nil {
-			interfaceValue = agent.AgentInterfaceCLI
-		}
 		infos = append(infos, AgentInfo{
 			ID:        id,
 			Name:      profile.Name,
-			LLMType:   profile.CLIType,
+			LLMType:   profile.RuntimeType(),
 			Model:     profile.Model,
-			Interface: interfaceValue,
+			Interface: agent.AgentInterfaceCLI,
 			Hidden:    profile.Hidden,
 		})
 	}
@@ -1396,17 +1309,6 @@ func waitForOnAir(session *Session, target string, timeout time.Duration) bool {
 	}
 }
 
-func copyCLIConfig(config map[string]interface{}) map[string]interface{} {
-	if len(config) == 0 {
-		return nil
-	}
-	cloned := make(map[string]interface{}, len(config))
-	for key, value := range config {
-		cloned[key] = value
-	}
-	return cloned
-}
-
 func (m *Manager) buildNotifyArgs(sessionID string) []string {
 	port := notifyDefaultPort
 	if m != nil && m.portResolver != nil {
@@ -1414,70 +1316,12 @@ func (m *Manager) buildNotifyArgs(sessionID string) []string {
 			port = resolvedPort
 		}
 	}
-	args := []string{
+	return []string{
 		"gestalt-notify",
 		"--host", notifyDefaultHost,
 		"--port", strconv.Itoa(port),
 		"--session-id", strings.TrimSpace(sessionID),
 	}
-	return args
-}
-
-// applyCodexOTelExporter injects the local OTLP gRPC endpoint for Codex when available.
-func applyCodexOTelExporter(config map[string]interface{}, resolver ports.PortResolver) {
-	if config == nil || resolver == nil {
-		return
-	}
-	port, ok := resolver.Get("otel-grpc")
-	if !ok || port <= 0 {
-		return
-	}
-	otelMap, ok := ensureStringMap(config, "otel")
-	if !ok {
-		return
-	}
-	exporterMap, ok := ensureStringMap(otelMap, "exporter")
-	if !ok {
-		return
-	}
-	otlpMap, ok := ensureStringMap(exporterMap, "otlp-grpc")
-	if !ok {
-		return
-	}
-	if existing, ok := otlpMap["endpoint"].(string); ok && strings.TrimSpace(existing) != "" {
-		return
-	}
-	endpoint := "http://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
-	otlpMap["endpoint"] = endpoint
-}
-
-// ensureStringMap returns the child map for a key, creating it when absent.
-func ensureStringMap(parent map[string]interface{}, key string) (map[string]interface{}, bool) {
-	if parent == nil || strings.TrimSpace(key) == "" {
-		return nil, false
-	}
-	if existing, ok := parent[key]; ok {
-		child, ok := existing.(map[string]interface{})
-		return child, ok
-	}
-	child := map[string]interface{}{}
-	parent[key] = child
-	return child, true
-}
-
-func shouldStartExternalTmuxWindow(profile *agent.Agent) bool {
-	if profile == nil {
-		return false
-	}
-	cliType := strings.TrimSpace(strings.ToLower(profile.CLIType))
-	if cliType != "codex" && cliType != "copilot" {
-		return false
-	}
-	iface, err := profile.ResolveInterface()
-	if err != nil {
-		return false
-	}
-	return strings.EqualFold(iface, agent.AgentInterfaceCLI)
 }
 
 func isTmuxManagedSession(session *Session) bool {
@@ -1490,7 +1334,7 @@ func isTmuxManagedSession(session *Session) bool {
 	if !strings.EqualFold(strings.TrimSpace(session.Interface), agent.AgentInterfaceCLI) {
 		return false
 	}
-	return shouldStartExternalTmuxWindow(session.agent)
+	return session.agent != nil
 }
 
 func wrapExternalTmuxError(err error) error {

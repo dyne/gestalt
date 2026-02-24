@@ -9,7 +9,7 @@ import (
 )
 
 func (m *Manager) buildCodexDeveloperInstructions(profile *agent.Agent, sessionID string) (agent.DeveloperInstructions, error) {
-	if profile == nil || !strings.EqualFold(strings.TrimSpace(profile.CLIType), "codex") {
+	if profile == nil || !strings.EqualFold(strings.TrimSpace(profile.RuntimeType()), "codex") {
 		return agent.DeveloperInstructions{}, nil
 	}
 	var renderer agent.PromptRenderer

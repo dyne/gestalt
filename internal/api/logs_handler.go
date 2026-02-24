@@ -184,10 +184,15 @@ func annotateReplay(entry map[string]any) map[string]any {
 }
 
 func logReplayWindowValue() string {
-	if otel.DefaultLogHubMaxRecords <= 0 {
+	hub := otel.ActiveLogHub()
+	if hub == nil {
 		return "max-entries"
 	}
-	return fmt.Sprintf("max-entries:%d", otel.DefaultLogHubMaxRecords)
+	maxRecords := hub.MaxRecords()
+	if maxRecords <= 0 {
+		return "max-entries"
+	}
+	return fmt.Sprintf("max-entries:%d", maxRecords)
 }
 
 func otelLogLevel(record map[string]any) logging.Level {

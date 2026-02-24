@@ -290,7 +290,7 @@ describe('terminalStore', () => {
     releaseTerminalState('slow')
   })
 
-  it('opens websocket for external runner sessions', async () => {
+  it('does not open websocket for external runner sessions', async () => {
     const state = getTerminalState('ext', 'cli', 'external')
     let status = ''
     const unsubscribe = state.status.subscribe((value) => {
@@ -298,10 +298,11 @@ describe('terminalStore', () => {
     })
 
     state.setVisible(true)
-    await waitForSocket()
+    await flush()
+    await flush()
 
-    expect(MockWebSocket.instances.length).toBe(1)
-    expect(status).toBe('connecting')
+    expect(MockWebSocket.instances.length).toBe(0)
+    expect(status).toBe('disconnected')
 
     unsubscribe()
     releaseTerminalState('ext')

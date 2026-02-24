@@ -227,7 +227,7 @@
     {/if}
   </section>
 
-  <section class="dashboard__director">
+  <section class="dashboard__director dashboard-surface dashboard-surface--warning">
     <div class="list-header list-header--compact">
       <h2 class="section-title">Director</h2>
     </div>
@@ -242,7 +242,7 @@
   </section>
 
   <section class="dashboard__intel">
-    <section class="dashboard__logs">
+    <section class="dashboard__logs dashboard-surface dashboard-surface--info">
       <div class="list-header list-header--compact">
         <h2 class="section-title">Recent logs</h2>
         <label class="logs-control logs-control--inline">
@@ -352,7 +352,7 @@
       </div>
     </section>
 
-    <section class="dashboard__gitlog">
+    <section class="dashboard__gitlog dashboard-surface dashboard-surface--success">
       <div class="list-header">
         <div class="gitlog-meta">
           <span class="gitlog-meta__repo">{gitRepoDisplay(status?.git_origin)}</span>
@@ -528,7 +528,7 @@
   .dashboard__director {
     padding: 1rem;
     border-radius: 24px;
-    background: rgba(var(--color-warning-rgb), 0.12);
+    background: var(--surface-gradient-warning);
     border: 1px solid rgba(var(--color-text-rgb), 0.08);
     display: flex;
     flex-direction: column;
@@ -538,7 +538,7 @@
   .dashboard__gitlog {
     padding: 1.5rem;
     border-radius: 24px;
-    background: rgba(var(--color-success-rgb), 0.08);
+    background: var(--surface-gradient-success);
     border: 1px solid rgba(var(--color-text-rgb), 0.08);
     display: flex;
     flex-direction: column;
@@ -555,7 +555,7 @@
   .dashboard__logs {
     padding: 1rem;
     border-radius: 24px;
-    background: rgba(var(--color-info-rgb), 0.08);
+    background: var(--surface-gradient-info);
     border: 1px solid rgba(var(--color-text-rgb), 0.08);
     display: flex;
     flex-direction: column;

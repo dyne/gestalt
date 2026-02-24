@@ -8,7 +8,7 @@
   export let onDirectorSubmit = async () => {}
 </script>
 
-<section class="chat-view">
+<section class="chat-view home-surface home-surface--base">
   <div class="chat-view__history" aria-live="polite">
     {#if messages.length === 0}
       <p class="chat-view__empty">Start by sending a message to Director.</p>

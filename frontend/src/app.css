@@ -173,3 +173,13 @@ a {
 .surface-gradient--warning {
   background: var(--surface-gradient-warning);
 }
+
+.home-surface {
+  border: 1px solid rgba(var(--color-text-rgb), 0.08);
+  border-radius: 24px;
+  background: var(--surface-gradient-base);
+}
+
+.home-surface--base {
+  background: var(--surface-gradient-base);
+}

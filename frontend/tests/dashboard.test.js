@@ -75,7 +75,7 @@ describe('Dashboard', () => {
     createDashboardStore.mockReturnValue(dashboardStore)
 
     const onDirectorSubmit = vi.fn(() => Promise.resolve())
-    const { findByRole } = render(Dashboard, {
+    const { findByRole, container } = render(Dashboard, {
       props: {
         terminals: [],
         status: { session_count: 0 },
@@ -92,6 +92,7 @@ describe('Dashboard', () => {
       source: 'text',
       text: 'Summarize pending tasks',
     })
+    expect(container.querySelector('.dashboard__director')?.className).toContain('dashboard-surface--warning')
   })
 
   it('expands log details from recent logs', async () => {

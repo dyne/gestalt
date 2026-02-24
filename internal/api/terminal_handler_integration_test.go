@@ -335,9 +335,16 @@ func TestTerminalWebSocketAuth(t *testing.T) {
 	conn.Close()
 }
 
-func TestTerminalWebSocketExternalRunnerClosesWithPolicy(t *testing.T) {
+func TestTerminalWebSocketExternalRunnerAcceptsInput(t *testing.T) {
 	manager := newTerminalTestManager(terminal.ManagerOptions{})
 	session := terminal.NewExternalSession("external-1", "title", "role", time.Now(), 10, 0, terminal.OutputBackpressureBlock, 0, nil, nil, nil)
+	writes := make(chan []byte, 1)
+	if err := session.AttachExternalRunner(func(data []byte) error {
+		writes <- append([]byte(nil), data...)
+		return nil
+	}, nil, nil); err != nil {
+		t.Fatalf("attach external runner: %v", err)
+	}
 	manager.RegisterSession(session)
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -358,19 +365,17 @@ func TestTerminalWebSocketExternalRunnerClosesWithPolicy(t *testing.T) {
 	}
 	defer conn.Close()
 
-	_, _, err = conn.ReadMessage()
-	if err == nil {
-		t.Fatalf("expected websocket close")
+	payload := []byte("hello\n")
+	if err := conn.WriteMessage(websocket.BinaryMessage, payload); err != nil {
+		t.Fatalf("write websocket: %v", err)
 	}
-	closeErr, ok := err.(*websocket.CloseError)
-	if !ok {
-		t.Fatalf("expected close error, got %T", err)
-	}
-	if closeErr.Code != websocket.ClosePolicyViolation {
-		t.Fatalf("expected close code %d, got %d", websocket.ClosePolicyViolation, closeErr.Code)
-	}
-	if !strings.Contains(closeErr.Text, "tmux-managed") {
-		t.Fatalf("expected close reason to mention tmux-managed, got %q", closeErr.Text)
+	select {
+	case got := <-writes:
+		if !bytes.Equal(got, payload) {
+			t.Fatalf("expected payload %q, got %q", string(payload), string(got))
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for external runner input")
 	}
 }
 

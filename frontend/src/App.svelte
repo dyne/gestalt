@@ -140,6 +140,7 @@
       directorChatStore.setSession(result.sessionId)
       directorChatStore.attachStream(result.sessionId)
     }
+    directorChatStore.appendUserMessage(value, source || 'text')
     hasDirectorChat = true
     syncTabs(terminals)
     activeId = 'chat'

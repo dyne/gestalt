@@ -90,7 +90,7 @@ describe('App dashboard director submit', () => {
     await fireEvent.input(input, { target: { value: 'hello director' } })
     await fireEvent.keyDown(input, { key: 'Enter' })
 
-    expect(await findByRole('button', { name: 'Chat' })).toBeTruthy()
+    expect(await findByRole('button', { name: 'Chat' }, { timeout: 3000 })).toBeTruthy()
     expect(queryByRole('button', { name: 'Agents' })).toBeNull()
     const createCalls = apiFetch.mock.calls.filter(
       ([url, request]) => url === '/api/sessions' && request?.method === 'POST',

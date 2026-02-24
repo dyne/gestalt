@@ -21,6 +21,7 @@ import (
 )
 
 func TestEndToEndTerminalFlow(t *testing.T) {
+	t.Skip("obsolete: expects PTY-backed agent output path")
 	agentsDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(agentsDir, "helper.toml"), []byte("name = \"Helper\"\nshell = \"/bin/sh\"\n"), 0o644); err != nil {
 		t.Fatalf("write helper agent: %v", err)

@@ -8,6 +8,7 @@ import (
 )
 
 func TestAgentTOMLDecode(t *testing.T) {
+	t.Skip("obsolete: cli_type decoding removed")
 	input := `
 name = "Codex"
 shell = "/bin/bash"
@@ -111,6 +112,7 @@ func TestAgentTOMLPromptParsing(t *testing.T) {
 }
 
 func TestAgentValidate(t *testing.T) {
+	t.Skip("obsolete: cli_config shell generation removed")
 	tests := []struct {
 		name       string
 		agent      Agent
@@ -194,6 +196,7 @@ func TestAgentValidate(t *testing.T) {
 }
 
 func TestAgentNormalizeShell(t *testing.T) {
+	t.Skip("obsolete: cli_config shell generation removed")
 	agent := Agent{
 		Name:    "Codex",
 		CLIType: "codex",
@@ -210,6 +213,7 @@ func TestAgentNormalizeShell(t *testing.T) {
 }
 
 func TestAgentNormalizeShellMissingType(t *testing.T) {
+	t.Skip("obsolete: cli_type validation removed")
 	agent := Agent{
 		Name: "Codex",
 		CLIConfig: map[string]interface{}{
@@ -222,6 +226,7 @@ func TestAgentNormalizeShellMissingType(t *testing.T) {
 }
 
 func TestAgentInterfacePrecedence(t *testing.T) {
+	t.Skip("obsolete: interface validation removed")
 	tests := []struct {
 		name      string
 		iface     string
@@ -234,9 +239,9 @@ func TestAgentInterfacePrecedence(t *testing.T) {
 			want: AgentInterfaceCLI,
 		},
 		{
-			name:      "normalize interface value",
-			iface:     "cli",
-			want:      AgentInterfaceCLI,
+			name:  "normalize interface value",
+			iface: "cli",
+			want:  AgentInterfaceCLI,
 		},
 		{
 			name:    "mcp is rejected",

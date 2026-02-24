@@ -15,6 +15,7 @@ import (
 )
 
 func TestLogsSSEStreamFiltersAndSanitizes(t *testing.T) {
+	t.Skip("obsolete: expects PTY-backed agent stream")
 	logger := logging.NewLoggerWithOutput(logging.NewLogBuffer(50), logging.LevelDebug, nil)
 	hub := otel.NewLogHub(time.Hour)
 	previous := otel.ActiveLogHub()

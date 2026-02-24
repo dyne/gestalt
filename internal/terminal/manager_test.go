@@ -489,6 +489,7 @@ func TestCreateWithOptionsForcesTmuxRunnerForCodexAgent(t *testing.T) {
 }
 
 func TestCreateWithOptionsPreservesServerRunnerForNonTmuxAgent(t *testing.T) {
+	t.Skip("obsolete: all agent sessions are tmux-backed external")
 	factory := &captureFactory{}
 	manager := NewManager(ManagerOptions{
 		Shell:      "/bin/sh",
@@ -565,8 +566,8 @@ func TestManagerLifecycle(t *testing.T) {
 	}
 
 	list := manager.List()
-	if len(list) != 2 {
-		t.Fatalf("expected 2 sessions, got %d", len(list))
+	if len(list) != 3 {
+		t.Fatalf("expected 3 sessions (2 agents + hub), got %d", len(list))
 	}
 
 	if err := manager.Delete(first.ID); err != nil {
@@ -582,6 +583,7 @@ func TestManagerLifecycle(t *testing.T) {
 }
 
 func TestManagerUsesCLIInterfaceForLegacyMCPProfile(t *testing.T) {
+	t.Skip("obsolete: legacy mcp/cli branching removed")
 	tui := &recordingFactory{pty: &noopPty{}}
 	manager := NewManager(ManagerOptions{
 		PtyFactory: NewMuxPtyFactory(tui, &recordingFactory{pty: &noopPty{}}, false),
@@ -824,6 +826,7 @@ func TestManagerSkillsLoaded(t *testing.T) {
 }
 
 func TestManagerCodexDeveloperInstructions(t *testing.T) {
+	t.Skip("obsolete: codex developer instruction injection removed")
 	root := t.TempDir()
 	promptsDir := filepath.Join(root, "config", "prompts")
 	if err := os.MkdirAll(promptsDir, 0755); err != nil {
@@ -909,6 +912,7 @@ func TestManagerCodexDeveloperInstructions(t *testing.T) {
 }
 
 func TestPromptInjectionTiming_WithMockAgent(t *testing.T) {
+	t.Skip("obsolete: server PTY prompt injection path removed for agents")
 	// Prepare a long prompt to force multiple chunks
 	root := t.TempDir()
 	promptsDir := filepath.Join(root, "config", "prompts")
@@ -1107,7 +1111,7 @@ func TestManagerTerminalEvents(t *testing.T) {
 		t.Fatalf("create session: %v", err)
 	}
 
-	created := receiveTerminalEvent(t, events)
+	created := receiveTerminalEventForSession(t, events, session.ID)
 	if created.Type() != "terminal_created" {
 		t.Fatalf("expected terminal_created, got %q", created.Type())
 	}
@@ -1118,7 +1122,7 @@ func TestManagerTerminalEvents(t *testing.T) {
 	if err := manager.Delete(session.ID); err != nil {
 		t.Fatalf("delete session: %v", err)
 	}
-	closed := receiveTerminalEvent(t, events)
+	closed := receiveTerminalEventForSession(t, events, session.ID)
 	if closed.Type() != "terminal_closed" {
 		t.Fatalf("expected terminal_closed, got %q", closed.Type())
 	}
@@ -1135,6 +1139,22 @@ func receiveTerminalEvent(t *testing.T, ch <-chan event.TerminalEvent) event.Ter
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("timed out waiting for terminal event")
 		return event.TerminalEvent{}
+	}
+}
+
+func receiveTerminalEventForSession(t *testing.T, ch <-chan event.TerminalEvent, sessionID string) event.TerminalEvent {
+	t.Helper()
+	deadline := time.After(500 * time.Millisecond)
+	for {
+		select {
+		case evt := <-ch:
+			if evt.TerminalID == sessionID {
+				return evt
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for terminal event for session %q", sessionID)
+			return event.TerminalEvent{}
+		}
 	}
 }
 

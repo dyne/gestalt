@@ -107,6 +107,7 @@ terminal output -> Session output bus -> /ws/session/:id -> frontend text view
 ## Frontend store simplification notes
 - Dashboard orchestration (agent/config/git event handling, config extraction counts, git context) lives in `frontend/src/lib/dashboardStore.js`; Dashboard view now just binds store state.
 - Terminal text stream behavior is covered by `frontend/src/lib/terminal/segments.test.js` and `frontend/src/components/TerminalTextView.test.js`.
+- Terminal service selection no longer uses an external no-op path; `runner=external` sessions now use the same interactive websocket-backed service as other CLI sessions.
 
 ## Frontend chunking notes
 - Vite manual chunks split `@xterm/*` into `vendor-xterm` (`frontend/vite.config.js`).

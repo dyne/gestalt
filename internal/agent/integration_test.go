@@ -128,32 +128,24 @@ func TestIntegrationCreateSessionFromTOML(t *testing.T) {
 		_ = manager.Delete(session.ID)
 	}()
 
-	if factory.command != "codex" {
-		t.Fatalf("expected command codex, got %q", factory.command)
+	if session.Runner != "external" {
+		t.Fatalf("expected runner external, got %q", session.Runner)
 	}
-	wantArgs := []string{"-c", "approval_policy=never", "-c", "model=o3"}
-	if len(factory.args) < len(wantArgs) {
-		t.Fatalf("expected args to include %v, got %v", wantArgs, factory.args)
+	if session.LaunchSpec == nil {
+		t.Fatalf("expected launch spec for tmux-backed session")
 	}
-	for i, arg := range wantArgs {
-		if factory.args[i] != arg {
-			t.Fatalf("expected args %v, got %v", wantArgs, factory.args)
-		}
+	if len(session.LaunchSpec.Argv) == 0 || session.LaunchSpec.Argv[0] != "codex" {
+		t.Fatalf("expected launch argv to start with codex, got %v", session.LaunchSpec.Argv)
 	}
-	for _, arg := range factory.args {
-		if arg == "mcp-server" {
-			t.Fatalf("did not expect mcp-server in args, got %v", factory.args)
-		}
+	joinedArgs := strings.Join(session.LaunchSpec.Argv, " ")
+	if !strings.Contains(joinedArgs, "approval_policy=never") {
+		t.Fatalf("expected approval_policy in launch argv, got %v", session.LaunchSpec.Argv)
 	}
-	notifyArg := ""
-	for _, arg := range factory.args {
-		if strings.Contains(arg, "notify=") {
-			notifyArg = arg
-			break
-		}
+	if !strings.Contains(joinedArgs, "model=o3") {
+		t.Fatalf("expected model in launch argv, got %v", session.LaunchSpec.Argv)
 	}
-	if notifyArg == "" {
-		t.Fatalf("expected notify config in args, got %v", factory.args)
+	if !strings.Contains(joinedArgs, "notify=") {
+		t.Fatalf("expected notify config in launch argv, got %v", session.LaunchSpec.Argv)
 	}
 	if session.ConfigHash != codex.ConfigHash {
 		t.Fatalf("expected config hash %q, got %q", codex.ConfigHash, session.ConfigHash)

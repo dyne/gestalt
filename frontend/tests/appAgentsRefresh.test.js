@@ -165,7 +165,7 @@ describe('App agents tab refresh', () => {
     await fireEvent.input(input, { target: { value: 'Review latest tasks' } })
     await fireEvent.keyDown(input, { key: 'Enter' })
 
-    expect(await findByRole('button', { name: 'Chat' })).toBeTruthy()
+    expect(await findByRole('button', { name: 'Chat' }, { timeout: 3000 })).toBeTruthy()
 
     expect(queryByRole('button', { name: 'Agents' })).toBeNull()
     expect(statusCalls).toBeGreaterThanOrEqual(1)

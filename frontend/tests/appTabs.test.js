@@ -105,10 +105,7 @@ describe('App tab switching', () => {
     await fireEvent.input(directorInput, { target: { value: 'Plan today' } })
     await fireEvent.keyDown(directorInput, { key: 'Enter' })
 
-    await waitFor(async () => {
-      const chatTab = await findByRole('button', { name: 'Chat' })
-      expect(chatTab).toBeTruthy()
-    })
+    expect(await findByRole('button', { name: 'Chat' }, { timeout: 3000 })).toBeTruthy()
 
     await waitFor(() => {
       const active = container.querySelector('section.view[data-active="true"]')
@@ -152,7 +149,7 @@ describe('App tab switching', () => {
     await fireEvent.input(input, { target: { value: 'Ship update' } })
     await fireEvent.keyDown(input, { key: 'Enter' })
 
-    expect(await findByRole('button', { name: 'Chat' })).toBeTruthy()
+    expect(await findByRole('button', { name: 'Chat' }, { timeout: 3000 })).toBeTruthy()
     await waitFor(() => {
       const notifications = get(notificationStore)
       const last = notifications.at(-1)
@@ -186,7 +183,8 @@ describe('App tab switching', () => {
     await fireEvent.input(input, { target: { value: 'Ship update' } })
     await fireEvent.keyDown(input, { key: 'Enter' })
 
-    expect(await findByText('Director session bridge is unavailable.')).toBeTruthy()
+    expect(await findByText('Director session bridge is unavailable.', {}, { timeout: 3000 }))
+      .toBeTruthy()
     expect(queryByRole('button', { name: 'Chat' })).toBeNull()
   })
 })

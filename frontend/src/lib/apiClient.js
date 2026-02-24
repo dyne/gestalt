@@ -349,7 +349,10 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const hasNonEmptyLines = (lines) =>
   Array.isArray(lines) && lines.some((line) => String(line || '').trim() !== '')
 
-const waitForSessionOutput = async (sessionId, { timeoutMs = 8000, pollMs = 250 } = {}) => {
+const waitForSessionOutput = async (
+  sessionId,
+  { timeoutMs = 8000, pollMs = 250, postOutputDelayMs = 1000 } = {},
+) => {
   if (!sessionId) return false
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
@@ -357,6 +360,9 @@ const waitForSessionOutput = async (sessionId, { timeoutMs = 8000, pollMs = 250 
       const response = await apiFetch(buildApiPath('/api/sessions', sessionId, 'output'))
       const payload = normalizeObject(await response.json())
       if (hasNonEmptyLines(payload?.lines)) {
+        if (postOutputDelayMs > 0) {
+          await wait(postOutputDelayMs)
+        }
         return true
       }
     } catch {

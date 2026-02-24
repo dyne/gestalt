@@ -31,7 +31,6 @@
     setActiveTabId,
     setActiveView,
   } from './lib/appHealthStore.js'
-  import { isExternalCliSession } from './lib/sessionSelection.js'
 
   let tabs = buildTabs([])
   let activeId = 'dashboard'
@@ -265,21 +264,6 @@
   }
 
   const handleSelect = async (id) => {
-    const selected = terminals.find((terminal) => terminal.id === id)
-    if (selected) {
-      if (isExternalCliSession(selected)) {
-        try {
-          await apiFetch(buildApiPath('/api/sessions', id, 'activate'), {
-            method: 'POST',
-          })
-          activeId = 'agents'
-          return
-        } catch (err) {
-          notifyError(err, 'Failed to activate tmux window.')
-          return
-        }
-      }
-    }
     activeId = id
   }
 
@@ -505,7 +489,6 @@
               visible={true}
               sessionInterface={activeTerminal.interface || ''}
               sessionRunner={activeTerminal.runner || ''}
-              tmuxSessionName={tmuxSessionName}
               onDelete={deleteTerminal}
             />
           {:else}

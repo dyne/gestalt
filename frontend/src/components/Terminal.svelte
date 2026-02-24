@@ -12,7 +12,6 @@
   export let visible = true
   export let sessionInterface = ''
   export let sessionRunner = ''
-  export let tmuxSessionName = ''
   export let onRequestClose = () => {}
   export let showInput = true
   export let forceDirectInput = false
@@ -43,8 +42,6 @@
   let promptFilesLabel = ''
   let interfaceValue = ''
   let runnerValue = ''
-  let tmuxSessionValue = ''
-  let isExternal = false
   let connectionFailedNotified = false
   const scrollSensitivity = 1
 
@@ -175,8 +172,6 @@
   $: interfaceValue =
     typeof sessionInterface === 'string' ? sessionInterface.trim().toLowerCase() : ''
   $: runnerValue = typeof sessionRunner === 'string' ? sessionRunner.trim().toLowerCase() : ''
-  $: tmuxSessionValue = typeof tmuxSessionName === 'string' ? tmuxSessionName.trim() : ''
-  $: isExternal = runnerValue === 'external'
 
   $: {
     if (!sessionId) {
@@ -234,7 +229,7 @@
   }
 
   $: statusLabel = statusLabels[status] || status
-  $: inputDisabled = status !== 'connected' || !sessionId || isExternal || !showInput
+  $: inputDisabled = status !== 'connected' || !sessionId || !showInput
   $: displayTitle = sessionId ? sessionId : 'Session —'
   $: promptFilesLabel =
     Array.isArray(promptFiles) && promptFiles.length > 0
@@ -243,7 +238,7 @@
   $: if (!sessionId || status === 'connected') {
     connectionFailedNotified = false
   }
-  $: if (!isExternal && sessionId && status === 'disconnected' && canReconnect && !connectionFailedNotified) {
+  $: if (sessionId && status === 'disconnected' && canReconnect && !connectionFailedNotified) {
     connectionFailedNotified = true
     onConnectionFailed(sessionId)
   }
@@ -270,24 +265,11 @@
   onRequestClose={onRequestClose}
 >
   <svelte:fragment slot="canvas">
-    {#if isExternal}
-      <div class="terminal-external">
-        <p>This session is managed in tmux.</p>
-        {#if tmuxSessionValue}
-          <p>Attach with: <code>tmux attach -t "{tmuxSessionValue}"</code></p>
-          <p>Then switch with: <code>tmux select-window -t "{sessionId}"</code></p>
-        {:else}
-          <p>Attach with: <code>tmux attach</code></p>
-          <p>If needed, list sessions first: <code>tmux ls</code></p>
-        {/if}
-      </div>
-    {:else}
-      <TerminalCanvas
-        {state}
-        {visible}
-        {scrollSensitivity}
-      />
-    {/if}
+    <TerminalCanvas
+      {state}
+      {visible}
+      {scrollSensitivity}
+    />
   </svelte:fragment>
   <svelte:fragment slot="input">
     {#if showInput}
@@ -298,24 +280,9 @@
         onSubmit={handleSubmit}
         disabled={inputDisabled}
         directInput={directInputEnabled}
-        showDirectInputToggle={!isExternal && !forceDirectInput}
+        showDirectInputToggle={!forceDirectInput}
         onDirectInputChange={handleDirectInputChange}
       />
     {/if}
   </svelte:fragment>
 </TerminalShell>
-
-<style>
-  .terminal-external {
-    display: grid;
-    gap: 0.5rem;
-    padding: 1rem;
-    border: 1px solid rgba(var(--color-text-rgb), 0.12);
-    border-radius: 12px;
-    background: rgba(var(--color-surface-rgb), 0.6);
-  }
-
-  .terminal-external p {
-    margin: 0;
-  }
-</style>

@@ -1,3 +1,22 @@
+# [1.21.0](https://github.com/dyne/gestalt/compare/v1.20.1...v1.21.0) (2026-02-24)
+
+
+### Bug Fixes
+
+* **api:** map tmux input bridge failures to stable errors ([de1e2b5](https://github.com/dyne/gestalt/commit/de1e2b553ebde5248376c3e0ce42069dd3f684eb))
+* **frontend:** keep external runner sessions on stub terminal service ([b9c52b7](https://github.com/dyne/gestalt/commit/b9c52b7a898da437d06b1a1c582cd3a2e0bd4477))
+* **frontend:** unify terminal service for external runner ([11b1e74](https://github.com/dyne/gestalt/commit/11b1e744ac0458ea0b3811d067d1989ef4a0bbbd))
+* removed a race in replay setup ([620a8d4](https://github.com/dyne/gestalt/commit/620a8d49d87ede254600179fe0ac257f2ac581b6))
+* restore cli config for agents ([3914335](https://github.com/dyne/gestalt/commit/391433547a5488cb8fd9ba0d616ce5aa529dad03))
+* **terminal:** serialize tmux bridge write operations ([6559f4b](https://github.com/dyne/gestalt/commit/6559f4b40698e1df1d8748bc381c0af916567946))
+
+
+### Features
+
+* **api:** allow websocket input for external sessions ([97ee732](https://github.com/dyne/gestalt/commit/97ee7321d326cef8ff62fdbe2b688092b5e10b6f))
+* **session:** unify send session refs and tmux input bridge ([0b18e72](https://github.com/dyne/gestalt/commit/0b18e72001fc01104f707638fc764287e1963091))
+* **terminal:** force tmux runner for managed codex sessions ([ea61cae](https://github.com/dyne/gestalt/commit/ea61cae89029acdec0686d497929bf80e76001fa))
+
 ## [1.20.1](https://github.com/dyne/gestalt/compare/v1.20.0...v1.20.1) (2026-02-24)
 
 

@@ -397,6 +397,51 @@ func TestCreateWithOptionsForcesTmuxRunnerForCodexAgent(t *testing.T) {
 	}
 }
 
+func TestCreateWithOptionsPreservesServerRunnerForNonTmuxAgent(t *testing.T) {
+	factory := &captureFactory{}
+	manager := NewManager(ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"helper": {
+				Name:      "Helper",
+				Shell:     "/bin/sh",
+				CLIType:   "mock",
+				Interface: agent.AgentInterfaceCLI,
+			},
+		},
+	})
+
+	session, err := manager.CreateWithOptions(CreateOptions{AgentID: "helper", Runner: "server"})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(session.ID)
+	}()
+
+	if session.Runner != string(launchspec.RunnerKindServer) {
+		t.Fatalf("expected runner %q, got %q", launchspec.RunnerKindServer, session.Runner)
+	}
+	if err := session.Write([]byte("ping\n")); err != nil {
+		t.Fatalf("write payload: %v", err)
+	}
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		factory.pty.mu.Lock()
+		writes := append([][]byte(nil), factory.pty.writes...)
+		factory.pty.mu.Unlock()
+		if len(writes) > 0 {
+			if string(writes[0]) != "ping\n" {
+				t.Fatalf("expected payload %q, got %q", "ping\n", string(writes[0]))
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for PTY write")
+}
+
 func TestManagerLifecycle(t *testing.T) {
 	factory := &fakeFactory{}
 	manager := NewManager(ManagerOptions{

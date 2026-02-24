@@ -68,47 +68,30 @@ describe('Dashboard', () => {
     }
   })
 
-  it('renders agent buttons and shows guidance for stopped sessions', async () => {
+  it('renders the director composer and forwards submit events', async () => {
     const dashboardStore = buildDashboardStore({
       agents: [{ id: 'codex', name: 'Codex' }],
     })
     createDashboardStore.mockReturnValue(dashboardStore)
 
-    const onSelect = vi.fn()
-    const { findByText } = render(Dashboard, {
+    const onDirectorSubmit = vi.fn(() => Promise.resolve())
+    const { findByRole } = render(Dashboard, {
       props: {
         terminals: [],
         status: { session_count: 0 },
-        onSelect,
+        onDirectorSubmit,
       },
     })
 
-    const button = await findByText('Codex')
-    await findByText('Run')
-    await fireEvent.click(button)
+    const textbox = await findByRole('textbox')
+    await fireEvent.input(textbox, { target: { value: 'Summarize pending tasks' } })
+    await fireEvent.keyDown(textbox, { key: 'Enter' })
+    await tick()
 
-    expect(await findByText('Session not running; run gestalt-agent codex.')).toBeTruthy()
-    expect(onSelect).not.toHaveBeenCalled()
-  })
-
-  it('hides agents marked as hidden in the dashboard grid', async () => {
-    const dashboardStore = buildDashboardStore({
-      agents: [
-        { id: 'visible', name: 'Visible' },
-        { id: 'hidden', name: 'Hidden', hidden: true },
-      ],
+    expect(onDirectorSubmit).toHaveBeenCalledWith({
+      source: 'text',
+      text: 'Summarize pending tasks',
     })
-    createDashboardStore.mockReturnValue(dashboardStore)
-
-    const { findByText, queryByText } = render(Dashboard, {
-      props: {
-        terminals: [],
-        status: { session_count: 0 },
-      },
-    })
-
-    expect(await findByText('Visible')).toBeTruthy()
-    expect(queryByText('Hidden')).toBeNull()
   })
 
   it('expands log details from recent logs', async () => {

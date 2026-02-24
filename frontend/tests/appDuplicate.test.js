@@ -1,4 +1,4 @@
-import { render, fireEvent, cleanup, within } from '@testing-library/svelte'
+import { render, fireEvent, cleanup } from '@testing-library/svelte'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { notificationStore } from '../src/lib/notificationStore.js'
 
@@ -17,7 +17,7 @@ vi.mock('../src/views/TerminalView.svelte', async () => {
 
 import App from '../src/App.svelte'
 
-describe('App stopped agent handling', () => {
+describe('App dashboard director submit', () => {
   beforeEach(() => {
     if (!Element.prototype.animate) {
       Element.prototype.animate = () => ({
@@ -34,7 +34,7 @@ describe('App stopped agent handling', () => {
     cleanup()
   })
 
-  it('shows run guidance and does not create a session when agent is stopped', async () => {
+  it('does not create a terminal session directly from dashboard submit', async () => {
     apiFetch.mockImplementation((url, options = {}) => {
       if (url === '/api/status') {
         return Promise.resolve({
@@ -47,9 +47,7 @@ describe('App stopped agent handling', () => {
         })
       }
       if (url === '/api/agents') {
-        return Promise.resolve({
-          json: vi.fn().mockResolvedValue([{ id: 'codex', name: 'Codex' }]),
-        })
+        return Promise.resolve({ json: vi.fn().mockResolvedValue([]) })
       }
       if (url === '/api/skills') {
         return Promise.resolve({
@@ -64,14 +62,12 @@ describe('App stopped agent handling', () => {
       return Promise.reject(new Error(`Unexpected API call: ${url}`))
     })
 
-    const { container, findByText, queryByRole } = render(App)
-    const agentsSection = container.querySelector('.dashboard__agents')
-    const agentLabel = await within(agentsSection).findByText('Codex')
-    const agentButton = agentLabel.closest('button')
+    const { findByRole, queryByRole } = render(App)
+    const input = await findByRole('textbox')
+    await fireEvent.input(input, { target: { value: 'hello director' } })
+    await fireEvent.keyDown(input, { key: 'Enter' })
 
-    await fireEvent.click(agentButton)
-
-    expect(await findByText('Session not running; run gestalt-agent codex.')).toBeTruthy()
+    expect(await findByRole('button', { name: 'Chat' })).toBeTruthy()
     expect(queryByRole('button', { name: 'Agents' })).toBeNull()
     const createCalls = apiFetch.mock.calls.filter(
       ([url, request]) => url === '/api/sessions' && request?.method === 'POST',

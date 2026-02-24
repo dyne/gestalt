@@ -67,35 +67,10 @@ describe('terminal history loads', () => {
     originalWebSocket = globalThis.WebSocket
     globalThis.WebSocket = MockWebSocket
 
-    const terminals = [
-      {
-        id: 't1',
-        title: 'Shell',
-        role: 'shell',
-        created_at: new Date().toISOString(),
-        interface: 'cli',
-      },
-      {
-        id: 't2',
-        title: 'Ops',
-        role: 'shell',
-        created_at: new Date().toISOString(),
-        interface: 'cli',
-      },
-    ]
-
     const appMocks = createAppApiMocks(apiFetch, {
-      status: { session_count: terminals.length },
-      terminals,
-      agents: [
-        {
-          id: 'coder',
-          name: 'Coder',
-          hidden: false,
-          running: true,
-          session_id: 't1',
-        },
-      ],
+      status: { session_count: 1, agents_session_id: 'Agents 1', agents_tmux_session: '' },
+      terminals: [],
+      agents: [],
     })
 
     apiFetch.mockImplementation((url) => {
@@ -117,14 +92,14 @@ describe('terminal history loads', () => {
 
   it('loads history only for the active terminal', async () => {
     const { findByRole } = render(App)
-    const openAgentButton = await findByRole('button', { name: /Coder/i })
+    const agentsTab = await findByRole('button', { name: 'Agents' })
 
     const initialHistoryCalls = apiFetch.mock.calls.filter(([url]) =>
       String(url).includes('/history')
     )
     expect(initialHistoryCalls).toHaveLength(0)
 
-    await fireEvent.click(openAgentButton)
+    await fireEvent.click(agentsTab)
 
     await waitFor(() => {
       const historyCalls = apiFetch.mock.calls.filter(([url]) =>

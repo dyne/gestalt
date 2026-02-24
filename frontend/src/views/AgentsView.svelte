@@ -6,7 +6,6 @@
   export let onConnectionFailed = () => {}
 
   $: sessionId = String(status?.agents_session_id || '').trim()
-  $: tmuxSessionName = String(status?.agents_tmux_session || '').trim()
 </script>
 
 <section class="agents-view">
@@ -18,7 +17,6 @@
       {visible}
       sessionInterface="cli"
       sessionRunner="server"
-      tmuxSessionName={tmuxSessionName}
       showInput={false}
       showCloseButton={false}
       forceDirectInput={true}

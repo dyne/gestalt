@@ -7,7 +7,6 @@
   export let visible = true
   export let sessionInterface = ''
   export let sessionRunner = ''
-  export let tmuxSessionName = ''
   export let onDelete = () => {}
 
   let closeDialog
@@ -47,7 +46,6 @@
         {visible}
         {sessionInterface}
         {sessionRunner}
-        {tmuxSessionName}
         onRequestClose={openCloseDialog}
       />
     </div>

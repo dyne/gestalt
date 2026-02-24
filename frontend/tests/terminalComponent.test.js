@@ -167,22 +167,20 @@ describe('Terminal', () => {
     expect(container.querySelector('.terminal-shell__body')).toBeTruthy()
   })
 
-  it('shows tmux hint for external sessions', async () => {
+  it('renders canvas for external sessions', async () => {
     getTerminalState.mockReturnValue(buildState())
 
-    const { getByText } = render(Terminal, {
+    const { container, queryByText } = render(Terminal, {
       props: {
         sessionId: 't1',
         sessionInterface: 'cli',
         sessionRunner: 'external',
-        tmuxSessionName: 'Gestalt workspace',
       },
     })
 
     await tick()
-    expect(getByText('This session is managed in tmux.')).toBeTruthy()
-    expect(getByText('Attach with:')).toBeTruthy()
-    expect(getByText('Then switch with:')).toBeTruthy()
+    expect(container.querySelector('.terminal-shell__body')).toBeTruthy()
+    expect(queryByText('This session is managed in tmux.')).toBeFalsy()
   })
 
   it('hides command input when showInput is false', async () => {

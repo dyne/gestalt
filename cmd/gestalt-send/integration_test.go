@@ -2,10 +2,16 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -13,8 +19,18 @@ import (
 
 	"gestalt/internal/agent"
 	"gestalt/internal/api"
+	"gestalt/internal/runner/launchspec"
+	"gestalt/internal/runner/tmux"
+	"gestalt/internal/runner/tmuxsession"
 	"gestalt/internal/terminal"
 )
+
+const mockCodexEchoScript = `#!/usr/bin/env bash
+set -euo pipefail
+while IFS= read -r line; do
+  printf 'ECHO:%s\n' "$line"
+done
+`
 
 type capturePty struct {
 	mu     sync.Mutex
@@ -117,4 +133,171 @@ func TestGestaltSendEndToEnd(t *testing.T) {
 		}
 		t.Fatalf("timed out waiting for PTY write")
 	})
+}
+
+func TestTmuxMockCodexFixtureEchoesInput(t *testing.T) {
+	tmpDir := t.TempDir()
+	binPath := installMockCodexBinary(t, tmpDir)
+
+	cmd := exec.Command(binPath, "-c", "model=o3")
+	cmd.Stdin = strings.NewReader("ping\n")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run fixture: %v (%s)", err, string(out))
+	}
+	if !strings.Contains(string(out), "ECHO:ping") {
+		t.Fatalf("expected echoed output, got %q", string(out))
+	}
+}
+
+func TestGestaltSendTmuxIntegration(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available")
+	}
+
+	binDir := t.TempDir()
+	codexPath := installMockCodexBinary(t, binDir)
+
+	workdir := t.TempDir()
+	originalCWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(workdir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(originalCWD)
+	})
+
+	originalPath := os.Getenv("PATH")
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+originalPath)
+	agentsDir := filepath.Join(workdir, "agents")
+	if err := os.MkdirAll(agentsDir, 0o755); err != nil {
+		t.Fatalf("mkdir agents dir: %v", err)
+	}
+	agentConfig := "name = \"Codex\"\nshell = \"codex\"\ncli_type = \"codex\"\ninterface = \"cli\"\n"
+	if err := os.WriteFile(filepath.Join(agentsDir, "codex.toml"), []byte(agentConfig), 0o644); err != nil {
+		t.Fatalf("write agent config: %v", err)
+	}
+	var startWindowErr error
+
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: &captureFactory{},
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:      "Codex",
+				Shell:     "codex",
+				CLIType:   "codex",
+				Interface: "cli",
+			},
+		},
+		StartExternalTmuxWindow: func(launch *launchspec.LaunchSpec) error {
+			sessionName, err := tmuxsession.WorkdirSessionName()
+			if err != nil {
+				return err
+			}
+			client := tmux.NewClient()
+			exists, err := client.HasSession(sessionName)
+			if err != nil {
+				startWindowErr = err
+				return err
+			}
+			if !exists {
+				if err := client.CreateSession(sessionName, nil); err != nil {
+					startWindowErr = err
+					return err
+				}
+			}
+			err = client.CreateWindow(sessionName, launch.SessionID, []string{codexPath})
+			if err != nil {
+				startWindowErr = err
+			}
+			return err
+		},
+		TmuxClientFactory: func() terminal.TmuxClient { return tmux.NewClient() },
+		AgentsDir:         agentsDir,
+	})
+
+	tmuxSessionName, err := tmuxsession.WorkdirSessionName()
+	if err != nil {
+		t.Fatalf("resolve tmux session name: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = tmux.NewClient().KillSession(tmuxSessionName)
+	})
+
+	mux := http.NewServeMux()
+	api.RegisterRoutes(mux, manager, "", api.StatusConfig{}, "", nil, nil, nil, nil)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("listener unavailable: %v", err)
+	}
+	server := &httptest.Server{
+		Listener: listener,
+		Config:   &http.Server{Handler: mux},
+	}
+	server.Start()
+	defer server.Close()
+
+	createReqBody := strings.NewReader(`{"agent":"codex","runner":"server"}`)
+	createResp, err := http.Post(server.URL+"/api/sessions", "application/json", createReqBody)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	defer createResp.Body.Close()
+	if createResp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(createResp.Body)
+		t.Fatalf("expected 201, got %d (%s) startWindowErr=%v", createResp.StatusCode, string(body), startWindowErr)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(createResp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	if strings.TrimSpace(created.ID) == "" {
+		t.Fatalf("missing session id")
+	}
+	t.Cleanup(func() {
+		_ = manager.Delete(created.ID)
+	})
+
+	parsedURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse server url: %v", err)
+	}
+	host := parsedURL.Hostname()
+	port, err := strconv.Atoi(parsedURL.Port())
+	if err != nil {
+		t.Fatalf("parse server port: %v", err)
+	}
+
+	var stderr bytes.Buffer
+	exitCode := runWithSender([]string{"--host", host, "--port", strconv.Itoa(port), "Codex"}, strings.NewReader("ping\n"), &stderr, sendInput)
+	if exitCode != 0 {
+		t.Fatalf("expected send exit code 0, got %d (%s)", exitCode, stderr.String())
+	}
+
+	target := tmuxSessionName + ":" + created.ID
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		captured, err := tmux.NewClient().CapturePane(target)
+		if err == nil && strings.Contains(string(captured), "ECHO:ping") {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	captured, _ := tmux.NewClient().CapturePane(target)
+	t.Fatalf("expected tmux pane output to contain %q, got %q", "ECHO:ping", string(captured))
+}
+
+func installMockCodexBinary(t *testing.T, dir string) string {
+	t.Helper()
+	path := filepath.Join(dir, "codex")
+	if err := os.WriteFile(path, []byte(mockCodexEchoScript), 0o755); err != nil {
+		t.Fatalf("write mock codex: %v", err)
+	}
+	return path
 }

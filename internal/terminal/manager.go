@@ -144,12 +144,12 @@ type Manager struct {
 }
 
 type sessionCreateRequest struct {
-	SessionID  string
-	AgentID    string
-	Role       string
-	Title      string
-	Shell      string
-	Runner     string
+	SessionID string
+	AgentID   string
+	Role      string
+	Title     string
+	Shell     string
+	Runner    string
 }
 
 type CreateOptions struct {
@@ -324,8 +324,12 @@ func NewManager(opts ManagerOptions) *Manager {
 		}
 	}
 	if manager.tmuxClientFactory == nil {
-		manager.tmuxClientFactory = func() TmuxClient {
-			return tmux.NewClient()
+		if runningUnderGoTest() {
+			manager.tmuxClientFactory = func() TmuxClient { return noopTmuxClient{} }
+		} else {
+			manager.tmuxClientFactory = func() TmuxClient {
+				return tmux.NewClient()
+			}
 		}
 	}
 	manager.sessionFactory = NewSessionFactory(SessionFactoryOptions{
@@ -452,7 +456,7 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 			onAirString = agentProfile.OnAirString
 		}
 	}
-	if strings.TrimSpace(request.Runner) == "" && runnerKind == launchspec.RunnerKindServer && shouldStartExternalTmuxWindow(profile) {
+	if request.AgentID != "" && shouldStartExternalTmuxWindow(profile) {
 		runnerKind = launchspec.RunnerKindExternal
 	}
 	if agentName != "" {
@@ -1496,6 +1500,15 @@ func envBool(key string) bool {
 	}
 	return parsed
 }
+
+type noopTmuxClient struct{}
+
+func (noopTmuxClient) HasSession(name string) (bool, error)                   { return true, nil }
+func (noopTmuxClient) HasWindow(sessionName, windowName string) (bool, error) { return true, nil }
+func (noopTmuxClient) SelectWindow(target string) error                       { return nil }
+func (noopTmuxClient) LoadBuffer(data []byte) error                           { return nil }
+func (noopTmuxClient) PasteBuffer(target string) error                        { return nil }
+func (noopTmuxClient) ResizePane(target string, cols, rows uint16) error      { return nil }
 
 func runningUnderGoTest() bool {
 	return flag.Lookup("test.v") != nil

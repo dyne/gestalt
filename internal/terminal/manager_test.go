@@ -368,6 +368,35 @@ func TestTmuxManagedSessionWriteUsesTmuxBridge(t *testing.T) {
 	}
 }
 
+func TestCreateWithOptionsForcesTmuxRunnerForCodexAgent(t *testing.T) {
+	manager := NewManager(ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: &fakeFactory{},
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:      "Codex",
+				Shell:     "codex",
+				CLIType:   "codex",
+				Interface: agent.AgentInterfaceCLI,
+			},
+		},
+		StartExternalTmuxWindow: func(_ *launchspec.LaunchSpec) error { return nil },
+		TmuxClientFactory:       func() TmuxClient { return &bridgeTmuxClient{} },
+	})
+
+	session, err := manager.CreateWithOptions(CreateOptions{AgentID: "codex", Runner: "server"})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(session.ID)
+	}()
+
+	if session.Runner != string(launchspec.RunnerKindExternal) {
+		t.Fatalf("expected runner %q, got %q", launchspec.RunnerKindExternal, session.Runner)
+	}
+}
+
 func TestManagerLifecycle(t *testing.T) {
 	factory := &fakeFactory{}
 	manager := NewManager(ManagerOptions{
@@ -658,7 +687,6 @@ func TestManagerSkillsLoaded(t *testing.T) {
 	}
 }
 
-
 func TestManagerCodexDeveloperInstructions(t *testing.T) {
 	root := t.TempDir()
 	promptsDir := filepath.Join(root, "config", "prompts")
@@ -699,10 +727,10 @@ func TestManagerCodexDeveloperInstructions(t *testing.T) {
 		},
 		Agents: map[string]agent.Agent{
 			"codex": {
-				Name:      "Codex",
-				Prompts:   agent.PromptList{"first"},
-				Skills:    []string{"alpha"},
-				CLIType:   "codex",
+				Name:    "Codex",
+				Prompts: agent.PromptList{"first"},
+				Skills:  []string{"alpha"},
+				CLIType: "codex",
 			},
 		},
 	})

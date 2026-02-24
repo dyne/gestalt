@@ -1393,18 +1393,12 @@ func TestCreateTerminalWithAgent(t *testing.T) {
 	if payload.ID == "" {
 		t.Fatalf("missing id")
 	}
+	if payload.Runner != "external" {
+		t.Fatalf("expected runner external, got %q", payload.Runner)
+	}
 	defer func() {
 		_ = manager.Delete(payload.ID)
 	}()
-
-	factory.mu.Lock()
-	defer factory.mu.Unlock()
-	if len(factory.commands) != 1 {
-		t.Fatalf("expected 1 command, got %d", len(factory.commands))
-	}
-	if factory.commands[0] != "codex" {
-		t.Fatalf("expected codex, got %q", factory.commands[0])
-	}
 }
 
 func TestCreateTerminalDuplicateAgent(t *testing.T) {
@@ -2007,8 +2001,8 @@ func TestCreateTerminalProfilesReturnStableInterfaceRunner(t *testing.T) {
 	}
 
 	manager := newTestManager(terminal.ManagerOptions{
-		Agents:    profiles,
-		AgentsDir: dir,
+		Agents:     profiles,
+		AgentsDir:  dir,
 		PtyFactory: &fakeFactory{},
 	})
 	handler := &RestHandler{Manager: manager}

@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -19,13 +21,17 @@ import (
 )
 
 func TestEndToEndTerminalFlow(t *testing.T) {
+	agentsDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(agentsDir, "helper.toml"), []byte("name = \"Helper\"\nshell = \"/bin/sh\"\n"), 0o644); err != nil {
+		t.Fatalf("write helper agent: %v", err)
+	}
 	factory := &testFactory{}
 	manager := terminal.NewManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
 		PtyFactory: factory,
-		AgentsDir:  ensureTestAgentsDir(),
+		AgentsDir:  agentsDir,
 		Agents: map[string]agent.Agent{
-			"codex": {Name: "Codex"},
+			"helper": {Name: "Helper"},
 		},
 	})
 	logger := logging.NewLoggerWithOutput(logging.NewLogBuffer(10), logging.LevelInfo, nil)
@@ -43,7 +49,7 @@ func TestEndToEndTerminalFlow(t *testing.T) {
 	server.Start()
 	defer server.Close()
 
-	createReq, err := http.NewRequest(http.MethodPost, server.URL+"/api/sessions", strings.NewReader(`{"title":"e2e","agent":"codex","runner":"server"}`))
+	createReq, err := http.NewRequest(http.MethodPost, server.URL+"/api/sessions", strings.NewReader(`{"title":"e2e","agent":"helper","runner":"server"}`))
 	if err != nil {
 		t.Fatalf("create request: %v", err)
 	}

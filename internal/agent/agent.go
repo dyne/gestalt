@@ -119,6 +119,17 @@ func (a *Agent) NormalizeShell() error {
 }
 
 func (a *Agent) resolveShell() (string, error) {
+	if len(a.CLIConfig) > 0 {
+		cliType := strings.ToLower(strings.TrimSpace(a.CLIType))
+		if cliType == "" {
+			return "", fmt.Errorf("agent cli_type is required")
+		}
+		command := strings.TrimSpace(BuildShellCommand(cliType, a.CLIConfig))
+		if command == "" {
+			return "", fmt.Errorf("agent cli_type %q is not supported", cliType)
+		}
+		return command, nil
+	}
 	command := strings.TrimSpace(a.Shell)
 	if command == "" {
 		return "", fmt.Errorf("agent shell is required")
@@ -130,6 +141,9 @@ func (a *Agent) resolveShell() (string, error) {
 func (a *Agent) RuntimeType() string {
 	if a == nil {
 		return ""
+	}
+	if trimmed := strings.ToLower(strings.TrimSpace(a.CLIType)); trimmed != "" {
+		return trimmed
 	}
 	command := strings.TrimSpace(a.Shell)
 	if command == "" {

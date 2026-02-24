@@ -843,7 +843,6 @@ func TestManagerSkillsLoaded(t *testing.T) {
 }
 
 func TestManagerCodexDeveloperInstructions(t *testing.T) {
-	t.Skip("obsolete: codex developer instruction injection removed")
 	root := t.TempDir()
 	promptsDir := filepath.Join(root, "config", "prompts")
 	if err := os.MkdirAll(promptsDir, 0755); err != nil {

@@ -6,6 +6,7 @@
   import { parseConventionalCommit } from '../lib/conventionalCommit.js'
   import { notificationStore } from '../lib/notificationStore.js'
   import { canUseClipboard } from '../lib/clipboard.js'
+  import DirectorComposer from '../components/DirectorComposer.svelte'
 
   export let terminals = []
   export let status = null
@@ -16,7 +17,6 @@
   const dashboardStore = createDashboardStore()
 
   let localError = ''
-  let directorInput = ''
   let submittingDirector = false
   let logs = []
   let orderedLogs = []
@@ -40,25 +40,19 @@
 
   const numberFormatter = new Intl.NumberFormat('en-US')
 
-  const submitDirector = async () => {
-    const text = directorInput.trim()
+  const submitDirector = async (payload = null) => {
+    const text = String(payload?.text || '').trim()
+    const source = payload?.source || 'text'
     if (!text || submittingDirector) return
     submittingDirector = true
     localError = ''
     try {
-      await onDirectorSubmit({ text, source: 'text' })
-      directorInput = ''
+      await onDirectorSubmit({ text, source })
     } catch (err) {
       localError = err?.message || 'Failed to send Director prompt.'
     } finally {
       submittingDirector = false
     }
-  }
-
-  const handleComposerKeydown = (event) => {
-    if (event.key !== 'Enter' || event.shiftKey) return
-    event.preventDefault()
-    void submitDirector()
   }
 
   const formatLogTime = (value) => {
@@ -237,24 +231,10 @@
     <div class="list-header list-header--compact">
       <h2 class="section-title">Director</h2>
     </div>
-    <textarea
-      class="director-input"
-      placeholder="Ask Director what to do next…"
-      bind:value={directorInput}
-      on:keydown={handleComposerKeydown}
+    <DirectorComposer
       disabled={loading || submittingDirector}
-      rows="3"
-    ></textarea>
-    <div class="director-actions">
-      <button
-        class="cta"
-        type="button"
-        on:click={submitDirector}
-        disabled={loading || submittingDirector || !directorInput.trim()}
-      >
-        Send
-      </button>
-    </div>
+      on:submit={(event) => void submitDirector(event.detail)}
+    />
 
     {#if error || localError}
       <p class="error">{error || localError}</p>
@@ -464,30 +444,6 @@
     gap: 2.5rem;
   }
 
-  .cta {
-    border: none;
-    border-radius: 999px;
-    padding: 0.85rem 1.6rem;
-    font-size: 0.95rem;
-    font-weight: 600;
-    background: var(--color-contrast-bg);
-    color: var(--color-contrast-text);
-    cursor: pointer;
-    transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
-    box-shadow: 0 10px 30px rgba(var(--shadow-color-rgb), 0.2);
-  }
-
-  .cta:disabled {
-    cursor: not-allowed;
-    opacity: 0.6;
-    transform: none;
-    box-shadow: none;
-  }
-
-  .cta:not(:disabled):hover {
-    transform: translateY(-2px);
-  }
-
   .dashboard__status {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -577,28 +533,6 @@
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
-  }
-
-  .director-input {
-    width: 100%;
-    min-height: 5.5rem;
-    border: 1px solid rgba(var(--color-text-rgb), 0.2);
-    border-radius: 16px;
-    background: rgba(var(--color-surface-rgb), 0.7);
-    color: var(--color-text);
-    font: inherit;
-    resize: vertical;
-    padding: 0.75rem 0.85rem;
-  }
-
-  .director-input:focus-visible {
-    outline: 2px solid rgba(var(--color-info-rgb), 0.35);
-    outline-offset: 2px;
-  }
-
-  .director-actions {
-    display: flex;
-    justify-content: flex-end;
   }
 
   .dashboard__gitlog {

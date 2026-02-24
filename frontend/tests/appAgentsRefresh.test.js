@@ -136,6 +136,9 @@ describe('App agents tab refresh', () => {
         sessionsCalls += 1
         return Promise.resolve({ json: () => Promise.resolve([]) })
       }
+      if (url === '/api/sessions/Director%201/output') {
+        return Promise.resolve({ json: () => Promise.resolve({ lines: ['codex ready'] }) })
+      }
       if (url === '/api/sessions/Director%201/input' && options.method === 'POST') {
         return Promise.resolve({ ok: true })
       }

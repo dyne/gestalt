@@ -59,6 +59,9 @@ describe('App tab switching', () => {
           json: () => Promise.resolve({ id: 'Director 1' }),
         })
       }
+      if (url === '/api/sessions/Director%201/output') {
+        return Promise.resolve({ json: () => Promise.resolve({ lines: ['codex ready'] }) })
+      }
       if (url === '/api/sessions/Director%201/input' && options.method === 'POST') {
         return Promise.resolve({ ok: true })
       }
@@ -132,6 +135,9 @@ describe('App tab switching', () => {
       if (url === '/api/sessions' && options.method === 'POST') {
         return Promise.resolve({ json: () => Promise.resolve({ id: 'Director 1' }) })
       }
+      if (url === '/api/sessions/Director%201/output') {
+        return Promise.resolve({ json: () => Promise.resolve({ lines: ['codex ready'] }) })
+      }
       if (url === '/api/sessions/Director%201/input' && options.method === 'POST') {
         return Promise.resolve({ ok: true })
       }
@@ -163,6 +169,9 @@ describe('App tab switching', () => {
     apiFetch.mockImplementation((url, options = {}) => {
       if (url === '/api/sessions' && options.method === 'POST') {
         return Promise.resolve({ json: () => Promise.resolve({ id: 'Director 1' }) })
+      }
+      if (url === '/api/sessions/Director%201/output') {
+        return Promise.resolve({ json: () => Promise.resolve({ lines: ['codex ready'] }) })
       }
       if (url === '/api/sessions/Director%201/input' && options.method === 'POST') {
         const failure = new Error('bridge down')

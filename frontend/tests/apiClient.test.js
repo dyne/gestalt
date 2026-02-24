@@ -309,6 +309,9 @@ describe('apiClient', () => {
   it('creates director session and sends text prompt with notify event', async () => {
     apiFetch
       .mockResolvedValueOnce({ json: vi.fn().mockResolvedValue({ id: 'Director 1' }) })
+      .mockResolvedValueOnce({
+        json: vi.fn().mockResolvedValue({ lines: ['codex ready'] }),
+      })
       .mockResolvedValueOnce({ ok: true })
       .mockResolvedValueOnce({ ok: true })
 
@@ -320,12 +323,13 @@ describe('apiClient', () => {
       method: 'POST',
       body: JSON.stringify({ agent: 'director' }),
     })
-    expect(apiFetch).toHaveBeenNthCalledWith(2, '/api/sessions/Director%201/input', {
+    expect(apiFetch).toHaveBeenNthCalledWith(2, '/api/sessions/Director%201/output')
+    expect(apiFetch).toHaveBeenNthCalledWith(3, '/api/sessions/Director%201/input', {
       method: 'POST',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: 'summarize repo',
     })
-    expect(apiFetch).toHaveBeenNthCalledWith(3, '/api/sessions/Director%201/notify', {
+    expect(apiFetch).toHaveBeenNthCalledWith(4, '/api/sessions/Director%201/notify', {
       method: 'POST',
       body: JSON.stringify({
         session_id: 'Director 1',
@@ -369,6 +373,9 @@ describe('apiClient', () => {
   it('reports notify failure without failing successful director input', async () => {
     apiFetch
       .mockResolvedValueOnce({ json: vi.fn().mockResolvedValue({ id: 'Director 1' }) })
+      .mockResolvedValueOnce({
+        json: vi.fn().mockResolvedValue({ lines: ['codex ready'] }),
+      })
       .mockResolvedValueOnce({ ok: true })
       .mockRejectedValueOnce(new Error('notify unavailable'))
 

@@ -58,6 +58,11 @@ describe('App dashboard director submit', () => {
           json: vi.fn().mockResolvedValue({ id: 'Director 1' }),
         })
       }
+      if (url === '/api/sessions/Director%201/output') {
+        return Promise.resolve({
+          json: vi.fn().mockResolvedValue({ lines: ['codex ready'] }),
+        })
+      }
       if (url === '/api/sessions/Director%201/input' && options.method === 'POST') {
         return Promise.resolve({ ok: true })
       }

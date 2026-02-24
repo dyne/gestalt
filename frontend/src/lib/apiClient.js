@@ -334,14 +334,37 @@ const ensureDirectorSession = async () => {
     if (!sessionId) {
       throw new Error('Director session did not return an id')
     }
-    return sessionId
+    return { sessionId, created: true }
   } catch (err) {
     if (err?.status === 409) {
       const sessionId = String(err?.data?.session_id || '').trim()
-      if (sessionId) return sessionId
+      if (sessionId) return { sessionId, created: false }
     }
     throw err
   }
+}
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+const hasNonEmptyLines = (lines) =>
+  Array.isArray(lines) && lines.some((line) => String(line || '').trim() !== '')
+
+const waitForSessionOutput = async (sessionId, { timeoutMs = 8000, pollMs = 250 } = {}) => {
+  if (!sessionId) return false
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    try {
+      const response = await apiFetch(buildApiPath('/api/sessions', sessionId, 'output'))
+      const payload = normalizeObject(await response.json())
+      if (hasNonEmptyLines(payload?.lines)) {
+        return true
+      }
+    } catch {
+      // Ignore transient output errors while the session warms up.
+    }
+    await wait(pollMs)
+  }
+  return false
 }
 
 export const sendDirectorPrompt = async (message, source = 'text') => {
@@ -349,7 +372,11 @@ export const sendDirectorPrompt = async (message, source = 'text') => {
   if (!text) {
     throw new Error('Director prompt is required')
   }
-  const sessionId = await ensureDirectorSession()
+  const directorSession = await ensureDirectorSession()
+  if (directorSession?.created) {
+    await waitForSessionOutput(directorSession.sessionId)
+  }
+  const sessionId = directorSession.sessionId
   await sendSessionInput(sessionId, text)
   let notifyError = ''
   try {

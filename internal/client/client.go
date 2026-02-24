@@ -47,6 +47,54 @@ func ResolveSessionRef(ref string) (string, error) {
 	return NormalizeSessionRef(ref)
 }
 
+func ResolveSessionRefAgainstSessions(ref string, sessions []SessionInfo) (string, error) {
+	normalized, err := NormalizeSessionRef(ref)
+	if err != nil {
+		return "", err
+	}
+	if IsExplicitNumberedSessionRef(normalized) {
+		return normalized, nil
+	}
+	if sessionExists(sessions, normalized) {
+		return normalized, nil
+	}
+	canonical := normalized + " 1"
+	if sessionExists(sessions, canonical) {
+		return canonical, nil
+	}
+	return canonical, nil
+}
+
+func IsExplicitNumberedSessionRef(ref string) bool {
+	fields := strings.Fields(strings.TrimSpace(ref))
+	if len(fields) < 2 {
+		return false
+	}
+	last := fields[len(fields)-1]
+	if last == "" {
+		return false
+	}
+	for _, r := range last {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func sessionExists(sessions []SessionInfo, id string) bool {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return false
+	}
+	for _, session := range sessions {
+		if strings.TrimSpace(session.ID) == id {
+			return true
+		}
+	}
+	return false
+}
+
 func FetchAgents(client *http.Client, baseURL, token string) ([]AgentInfo, error) {
 	client = ensureClient(client)
 	baseURL = strings.TrimRight(baseURL, "/")

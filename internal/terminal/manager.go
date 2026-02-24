@@ -103,6 +103,9 @@ type TmuxClient interface {
 	HasSession(name string) (bool, error)
 	HasWindow(sessionName, windowName string) (bool, error)
 	SelectWindow(target string) error
+	LoadBuffer(data []byte) error
+	PasteBuffer(target string) error
+	ResizePane(target string, cols, rows uint16) error
 }
 
 // Manager is safe for concurrent use; mu guards the sessions map and lifecycle.
@@ -585,6 +588,11 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 				releaseReservation()
 				return nil, wrapExternalTmuxError(err)
 			}
+			if err := m.attachTmuxBridge(session); err != nil {
+				_ = session.Close()
+				releaseReservation()
+				return nil, wrapExternalTmuxError(err)
+			}
 		}
 	}
 	if len(promptFiles) > 0 {
@@ -601,6 +609,46 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 	}
 
 	return session, nil
+}
+
+func (m *Manager) attachTmuxBridge(session *Session) error {
+	if m == nil || session == nil || !isTmuxManagedSession(session) {
+		return nil
+	}
+	tmuxSessionName, err := tmuxsession.WorkdirSessionName()
+	if err != nil {
+		return err
+	}
+	target := tmuxSessionName + ":" + session.ID
+	writeFn := func(data []byte) error {
+		if len(data) == 0 {
+			return nil
+		}
+		clientFactory := m.tmuxClientFactory
+		if clientFactory == nil {
+			return errors.New("tmux client unavailable")
+		}
+		client := clientFactory()
+		if client == nil {
+			return errors.New("tmux client unavailable")
+		}
+		if err := client.LoadBuffer(data); err != nil {
+			return err
+		}
+		return client.PasteBuffer(target)
+	}
+	resizeFn := func(cols, rows uint16) error {
+		clientFactory := m.tmuxClientFactory
+		if clientFactory == nil {
+			return errors.New("tmux client unavailable")
+		}
+		client := clientFactory()
+		if client == nil {
+			return errors.New("tmux client unavailable")
+		}
+		return client.ResizePane(target, cols, rows)
+	}
+	return session.AttachExternalRunner(writeFn, resizeFn, nil)
 }
 
 func writePromptPayload(session *Session, payload []byte) error {

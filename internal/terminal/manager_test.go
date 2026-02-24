@@ -14,6 +14,7 @@ import (
 	"gestalt/internal/agent"
 	"gestalt/internal/event"
 	"gestalt/internal/logging"
+	"gestalt/internal/runner/launchspec"
 	"gestalt/internal/skill"
 )
 
@@ -302,6 +303,69 @@ func (f *captureFactory) Start(command string, args ...string) (Pty, *exec.Cmd, 
 		f.pty = newCapturePty()
 	}
 	return f.pty, nil, nil
+}
+
+type bridgeTmuxClient struct {
+	loads  [][]byte
+	pastes []string
+}
+
+func (c *bridgeTmuxClient) HasSession(name string) (bool, error) { return true, nil }
+func (c *bridgeTmuxClient) HasWindow(sessionName, windowName string) (bool, error) {
+	return true, nil
+}
+func (c *bridgeTmuxClient) SelectWindow(target string) error { return nil }
+func (c *bridgeTmuxClient) LoadBuffer(data []byte) error {
+	c.loads = append(c.loads, append([]byte(nil), data...))
+	return nil
+}
+func (c *bridgeTmuxClient) PasteBuffer(target string) error {
+	c.pastes = append(c.pastes, target)
+	return nil
+}
+func (c *bridgeTmuxClient) ResizePane(target string, cols, rows uint16) error { return nil }
+
+func TestTmuxManagedSessionWriteUsesTmuxBridge(t *testing.T) {
+	tmuxClient := &bridgeTmuxClient{}
+	manager := NewManager(ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: &fakeFactory{},
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:      "Codex",
+				Shell:     "codex",
+				CLIType:   "codex",
+				Interface: agent.AgentInterfaceCLI,
+			},
+		},
+		StartExternalTmuxWindow: func(_ *launchspec.LaunchSpec) error { return nil },
+		TmuxClientFactory:       func() TmuxClient { return tmuxClient },
+	})
+
+	session, err := manager.CreateWithOptions(CreateOptions{AgentID: "codex"})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(session.ID)
+	}()
+
+	payload := []byte("line one\nline two\n")
+	if err := session.Write(payload); err != nil {
+		t.Fatalf("write payload: %v", err)
+	}
+	if len(tmuxClient.loads) != 1 {
+		t.Fatalf("expected one LoadBuffer call, got %d", len(tmuxClient.loads))
+	}
+	if string(tmuxClient.loads[0]) != string(payload) {
+		t.Fatalf("expected payload %q, got %q", string(payload), string(tmuxClient.loads[0]))
+	}
+	if len(tmuxClient.pastes) != 1 {
+		t.Fatalf("expected one PasteBuffer call, got %d", len(tmuxClient.pastes))
+	}
+	if !strings.HasSuffix(tmuxClient.pastes[0], ":"+session.ID) {
+		t.Fatalf("expected paste target to end with %q, got %q", ":"+session.ID, tmuxClient.pastes[0])
+	}
 }
 
 func TestManagerLifecycle(t *testing.T) {

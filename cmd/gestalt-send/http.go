@@ -47,15 +47,27 @@ func sendInput(cfg Config, payload []byte) error {
 }
 
 func sendSessionInput(cfg Config, payload []byte) error {
-	sessionID := strings.TrimSpace(cfg.SessionID)
-	if sessionID == "" {
-		return sendErr(2, "session id is required")
+	sessionRef := strings.TrimSpace(cfg.SessionRef)
+	if sessionRef == "" {
+		return sendErr(2, "session reference is required")
 	}
 	baseURL := strings.TrimRight(cfg.URL, "/")
+	sessions, err := client.FetchSessions(httpClient, baseURL, cfg.Token)
+	if err != nil {
+		var httpErr *client.HTTPError
+		if errors.As(err, &httpErr) {
+			return sendErr(3, httpErr.Message)
+		}
+		return sendErrf(3, "%v", err)
+	}
+	sessionID, err := client.ResolveSessionRefAgainstSessions(sessionRef, sessions)
+	if err != nil {
+		return sendErr(2, err.Error())
+	}
 
 	target := fmt.Sprintf("%s/api/sessions/%s/input", baseURL, sessionID)
 	if cfg.Verbose {
-		logf(cfg, "sending %d bytes to session %q at %s", len(payload), sessionID, target)
+		logf(cfg, "sending %d bytes to session %q (from %q) at %s", len(payload), sessionID, sessionRef, target)
 		if strings.TrimSpace(cfg.Token) != "" {
 			logf(cfg, "token: %s", maskToken(cfg.Token, cfg.Debug))
 		}
@@ -75,7 +87,7 @@ func sendSessionInput(cfg Config, payload []byte) error {
 				logf(cfg, "response status: %d %s", httpErr.StatusCode, http.StatusText(httpErr.StatusCode))
 			}
 			if httpErr.StatusCode == http.StatusNotFound {
-				return sendErr(2, httpErr.Message)
+				return sendErr(2, fmt.Sprintf("%s (resolved from %q)", httpErr.Message, sessionRef))
 			}
 			return sendErr(3, httpErr.Message)
 		}

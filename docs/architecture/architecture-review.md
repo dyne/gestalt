@@ -588,11 +588,11 @@ Large refactors (1+ week, if justified):
 Scope: CLI tool for sending stdin to agent sessions.
 
 ### Responsibilities and data flow
-- Parses CLI flags/env defaults and resolves agent by name or id.
-- Fetches /api/agents to resolve IDs and caches results to disk.
-- Ensures or reuses a singleton session, waits for readiness, then posts stdin
-  to `/api/sessions/:id/input`.
-- Provides bash/zsh completions and internal __complete-agents helper.
+- Parses CLI flags/env defaults and accepts one positional session reference.
+- Resolves session references against `/api/sessions` (explicit ids preserved;
+  unnumbered names normalize to canonical `<Name> 1` when available).
+- Posts stdin directly to `/api/sessions/:id/input` without creating sessions.
+- Provides bash/zsh completions.
 
 ### Complexity observations
 - main.go contains parsing, HTTP client, cache, completion scripts, and command
@@ -618,8 +618,8 @@ Large refactors (1+ week, if justified):
   flag/env parsing and help generation.
 
 ### Risks and hidden coupling
-- Agent resolution relies on case-insensitive matching; any change to server
-  agent naming or ID conventions affects CLI behavior and completions.
+- Session reference resolution relies on canonical singleton naming (`<Name> 1`);
+  any server-side naming change affects CLI shorthand behavior.
 
 ## Package analysis: frontend architecture
 Scope: Svelte SPA structure, state flow, store usage, and component layering.

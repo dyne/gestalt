@@ -16,7 +16,8 @@ match GUI-created sessions.
 - External sessions are backed by backend-managed tmux windows (one per session)
   inside `Gestalt <workdir>`.
 - A single backend PTY "agents hub" can attach to that tmux session for the UI.
-- External sessions remain non-interactive in per-session GUI terminal tabs.
+- External sessions are interactive in per-session GUI terminal tabs through the
+  same input paths as server-backed sessions.
 
 ## Enforced by
 - API contract for `/api/sessions`, `/api/sessions/:id/input`, and `/api/sessions/:id/activate`.

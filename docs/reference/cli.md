@@ -41,11 +41,14 @@ gestalt-agent <agent-id> --dryrun
 `gestalt-send` sends stdin to a running session.
 
 ```sh
-gestalt-send --session-id <session-id>
+gestalt-send [options] <session-ref>
 ```
 
 - `--host` and `--port` select the server (defaults: `127.0.0.1`, `57417`).
-- `--session-id` is required and is used as provided (trimmed only).
+- `<session-ref>` is required and may be either a canonical id (`Fixer 1`) or
+  a short name (`Fixer`).
+- `gestalt-send` resolves unnumbered names to the canonical singleton session
+  (`<Name> 1`) when available.
 - `gestalt-send` never starts sessions; it returns an error if the session is missing.
 - Exit codes: `1` usage, `2` session not found, `3` network/server error.
 
@@ -80,13 +83,15 @@ This compatibility contract defines the intended public behavior for this releas
 | Session input API | `POST /api/agents/:name/send-input` and `POST /api/sessions/:id/input` | `POST /api/sessions/:id/input` only |
 | Agent sessions | Multiple instances per agent could exist | Exactly one session per agent, canonical id `<AgentName> 1` |
 | Agent config `singleton` | Runtime behavior changed when set to `false` | Parse-compatible only; runtime always singleton |
-| `gestalt-send` start behavior | Could auto-start agent sessions | Requires `--session-id`; never starts sessions |
-| Session-id normalization | Tool-specific behavior | Shared rule: trim-only normalization, explicit IDs preserved |
+| `gestalt-send` invocation | `--session-id <id>` flag | Positional `<session-ref>` argument |
+| `gestalt-send` start behavior | Could auto-start agent sessions | Never starts sessions; send only |
+| Session-id normalization | Tool-specific behavior | `gestalt-send` resolves unnumbered names to `<Name> 1`; `gestalt-notify` remains trim-only |
 | `gestalt-notify` server flags | `--url` (legacy) | `--host` + `--port` |
 | CLI non-zero exits | Partially documented | Every non-zero exit prints one actionable stderr message |
 
 ## Migration checklist
 
 - Replace `gestalt-notify --url ...` with `gestalt-notify --host ... --port ...`.
-- Remove legacy auto-start usage from scripts and pass `--session-id` explicitly.
+- Replace `gestalt-send --session-id "Fixer 1"` with `gestalt-send "Fixer 1"`.
+- Remove legacy auto-start usage from scripts.
 - Replace shorthand API input posts to removed agent endpoint with session input posts.

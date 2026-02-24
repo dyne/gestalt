@@ -19,6 +19,7 @@
   import { notificationStore } from './lib/notificationStore.js'
   import { subscribe as subscribeNotificationEvents } from './lib/notificationEventStore.js'
   import { notifyError } from './lib/errorUtils.js'
+  import { createDirectorChatStore } from './lib/directorChatStore.js'
   import {
     buildTerminalStyle,
     sessionUiConfig,
@@ -36,6 +37,7 @@
   let tabs = buildTabs([])
   let activeId = 'dashboard'
   let hasDirectorChat = false
+  const directorChatStore = createDirectorChatStore()
 
   let terminals = []
   let status = null
@@ -52,6 +54,8 @@
   let terminalStyle = ''
   let flowViewComponent = null
   let flowViewPromise = null
+  let chatViewComponent = null
+  let chatViewPromise = null
   let planViewComponent = null
   let planViewPromise = null
   let agentsViewComponent = null
@@ -85,6 +89,7 @@
     setSessionUiConfigFromStatus(status)
   }
   $: terminalStyle = buildTerminalStyle($sessionUiConfig)
+  $: directorChatState = $directorChatStore
 
   $: if (typeof document !== 'undefined') {
     const projectName = buildTitle(status?.working_dir || '')
@@ -131,9 +136,30 @@
         `Prompt sent but trigger delivery failed: ${result.notifyError}`,
       )
     }
+    if (result?.sessionId) {
+      directorChatStore.setSession(result.sessionId)
+      directorChatStore.attachStream(result.sessionId)
+    }
     hasDirectorChat = true
     syncTabs(terminals)
     activeId = 'chat'
+  }
+
+  function loadChatView() {
+    if (chatViewComponent) return chatViewComponent
+    if (!chatViewPromise) {
+      chatViewPromise = import('./views/ChatView.svelte')
+        .then((module) => {
+          chatViewComponent = module.default
+          return chatViewComponent
+        })
+        .catch((err) => {
+          chatViewPromise = null
+          notifyError(err, 'Failed to load the Chat view.')
+          return null
+        })
+    }
+    return chatViewPromise
   }
 
   function loadFlowView() {
@@ -206,6 +232,9 @@
 
   $: if (activeView === 'plan') {
     loadPlanView()
+  }
+  $: if (activeView === 'chat') {
+    loadChatView()
   }
   $: if (activeView === 'agents') {
     loadAgentsView()
@@ -391,6 +420,7 @@
       notificationStore.addNotification(payload.level || 'info', message)
     })
     return () => {
+      directorChatStore.dispose()
       unsubscribe()
       if (terminalErrorUnsubscribe) {
         terminalErrorUnsubscribe()
@@ -470,15 +500,27 @@
         {status}
         {loading}
         {error}
-        onSelect={handleSelect}
         onDirectorSubmit={handleDirectorSubmit}
       />
     </svelte:boundary>
   </section>
   <section class="view" data-active={activeView === 'chat'}>
-    <div class="view-fallback">
-      <p>Chat</p>
-    </div>
+    <svelte:boundary onerror={(error) => handleBoundaryError('chat', error)} failed={viewFailed}>
+      {#if chatViewComponent}
+        <svelte:component
+          this={chatViewComponent}
+          messages={directorChatState?.messages || []}
+          streaming={Boolean(directorChatState?.streaming)}
+          error={directorChatState?.error || ''}
+          loading={loading}
+          onDirectorSubmit={handleDirectorSubmit}
+        />
+      {:else}
+        <div class="view-fallback">
+          <p>Loading...</p>
+        </div>
+      {/if}
+    </svelte:boundary>
   </section>
   <section class="view" data-active={activeView === 'plan'}>
     <svelte:boundary onerror={(error) => handleBoundaryError('plan', error)} failed={viewFailed}>

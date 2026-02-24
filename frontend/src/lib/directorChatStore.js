@@ -140,7 +140,10 @@ export const createDirectorChatStore = ({ outputIdleMs = 250 } = {}) => {
       },
       onHistory: () => {},
     })
-    socketManager.connect?.()
+  }
+
+  const connectStream = () => {
+    socketManager?.connect?.()
   }
 
   const dispose = () => {
@@ -158,6 +161,7 @@ export const createDirectorChatStore = ({ outputIdleMs = 250 } = {}) => {
     setError,
     clear,
     attachStream,
+    connectStream,
     detachStream,
     dispose,
     snapshot: () => get(state),

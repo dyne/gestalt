@@ -81,6 +81,19 @@ func (h *RestHandler) handleTerminalInput(w http.ResponseWriter, r *http.Request
 		return &apiError{Status: http.StatusBadRequest, Message: "invalid request body"}
 	}
 	if writeErr := session.Write(payload); writeErr != nil {
+		agentID := strings.TrimSpace(session.AgentID)
+		if agentID == "" {
+			agentID = "<agent-id>"
+		}
+		if errors.Is(writeErr, terminal.ErrTmuxWindowNotFound) || errors.Is(writeErr, terminal.ErrTmuxSessionNotFound) {
+			return &apiError{Status: http.StatusConflict, Message: fmt.Sprintf("session window not found; run gestalt-agent %s", agentID)}
+		}
+		if errors.Is(writeErr, terminal.ErrTmuxUnavailable) {
+			return &apiError{Status: http.StatusServiceUnavailable, Message: fmt.Sprintf("tmux unavailable; run gestalt-agent %s", agentID)}
+		}
+		if errors.Is(writeErr, terminal.ErrRunnerUnavailable) && strings.EqualFold(strings.TrimSpace(session.Runner), "external") {
+			return &apiError{Status: http.StatusConflict, Message: fmt.Sprintf("session input bridge unavailable; run gestalt-agent %s", agentID)}
+		}
 		return &apiError{Status: http.StatusInternalServerError, Message: "failed to write terminal input"}
 	}
 

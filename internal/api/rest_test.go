@@ -139,6 +139,9 @@ type fakeTmuxClient struct {
 	windows    map[string]bool
 	loads      [][]byte
 	pastes     []string
+	loadErr    error
+	pasteErr   error
+	resizeErr  error
 }
 
 func (f *fakeTmuxClient) HasSession(name string) (bool, error) {
@@ -158,16 +161,25 @@ func (f *fakeTmuxClient) SelectWindow(target string) error {
 }
 
 func (f *fakeTmuxClient) LoadBuffer(data []byte) error {
+	if f.loadErr != nil {
+		return f.loadErr
+	}
 	f.loads = append(f.loads, append([]byte(nil), data...))
 	return nil
 }
 
 func (f *fakeTmuxClient) PasteBuffer(target string) error {
+	if f.pasteErr != nil {
+		return f.pasteErr
+	}
 	f.pastes = append(f.pastes, target)
 	return nil
 }
 
 func (f *fakeTmuxClient) ResizePane(target string, cols, rows uint16) error {
+	if f.resizeErr != nil {
+		return f.resizeErr
+	}
 	return nil
 }
 
@@ -1192,6 +1204,112 @@ func TestTerminalInputEndpointTmuxManagedAgentSession(t *testing.T) {
 	}
 	if !strings.HasSuffix(tmuxClient.pastes[0], ":"+created.ID) {
 		t.Fatalf("expected paste target to end with %q, got %q", ":"+created.ID, tmuxClient.pastes[0])
+	}
+}
+
+func TestTerminalInputEndpointTmuxWindowMissing(t *testing.T) {
+	tmuxClient := &fakeTmuxClient{hasSession: true, pasteErr: errors.New("can't find window")}
+	manager := newTestManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: &fakeFactory{},
+		Agents: map[string]agent.Agent{
+			"codex": {Name: "Codex", Shell: "codex", CLIType: "codex", Interface: agent.AgentInterfaceCLI},
+		},
+		StartExternalTmuxWindow: func(_ *launchspec.LaunchSpec) error { return nil },
+		TmuxClientFactory:       func() terminal.TmuxClient { return tmuxClient },
+	})
+	created, err := manager.CreateWithOptions(terminal.CreateOptions{AgentID: "codex"})
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/input", strings.NewReader("hello"))
+	res := httptest.NewRecorder()
+	restHandler("", nil, handler.handleTerminal)(res, req)
+	if res.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d", res.Code)
+	}
+	var payload errorResponse
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !strings.Contains(payload.Message, "session window not found; run gestalt-agent codex") {
+		t.Fatalf("unexpected error message: %q", payload.Message)
+	}
+}
+
+func TestTerminalInputEndpointTmuxUnavailable(t *testing.T) {
+	tmuxClient := &fakeTmuxClient{hasSession: true, loadErr: errors.New("exec: \"tmux\": executable file not found in $PATH")}
+	manager := newTestManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: &fakeFactory{},
+		Agents: map[string]agent.Agent{
+			"codex": {Name: "Codex", Shell: "codex", CLIType: "codex", Interface: agent.AgentInterfaceCLI},
+		},
+		StartExternalTmuxWindow: func(_ *launchspec.LaunchSpec) error { return nil },
+		TmuxClientFactory:       func() terminal.TmuxClient { return tmuxClient },
+	})
+	created, err := manager.CreateWithOptions(terminal.CreateOptions{AgentID: "codex"})
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/input", strings.NewReader("hello"))
+	res := httptest.NewRecorder()
+	restHandler("", nil, handler.handleTerminal)(res, req)
+	if res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", res.Code)
+	}
+	var payload errorResponse
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !strings.Contains(payload.Message, "tmux unavailable; run gestalt-agent codex") {
+		t.Fatalf("unexpected error message: %q", payload.Message)
+	}
+}
+
+func TestTerminalInputEndpointTmuxBridgeDetached(t *testing.T) {
+	tmuxClient := &fakeTmuxClient{hasSession: true}
+	manager := newTestManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: &fakeFactory{},
+		Agents: map[string]agent.Agent{
+			"codex": {Name: "Codex", Shell: "codex", CLIType: "codex", Interface: agent.AgentInterfaceCLI},
+		},
+		StartExternalTmuxWindow: func(_ *launchspec.LaunchSpec) error { return nil },
+		TmuxClientFactory:       func() terminal.TmuxClient { return tmuxClient },
+	})
+	created, err := manager.CreateWithOptions(terminal.CreateOptions{AgentID: "codex"})
+	if err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	created.DetachExternalRunner()
+	defer func() {
+		_ = manager.Delete(created.ID)
+	}()
+
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/input", strings.NewReader("hello"))
+	res := httptest.NewRecorder()
+	restHandler("", nil, handler.handleTerminal)(res, req)
+	if res.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d", res.Code)
+	}
+	var payload errorResponse
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !strings.Contains(payload.Message, "session input bridge unavailable; run gestalt-agent codex") {
+		t.Fatalf("unexpected error message: %q", payload.Message)
 	}
 }
 

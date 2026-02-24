@@ -36,6 +36,8 @@ var ErrAgentNotFound = errors.New("agent profile not found")
 var ErrAgentRequired = errors.New("agent id is required")
 var ErrSessionNotTmuxManaged = errors.New("session is not tmux-managed")
 var ErrTmuxSessionNotFound = errors.New("tmux session not found")
+var ErrTmuxWindowNotFound = errors.New("tmux window not found")
+var ErrTmuxUnavailable = errors.New("tmux unavailable")
 
 type AgentAlreadyRunningError struct {
 	AgentName  string
@@ -630,29 +632,48 @@ func (m *Manager) attachTmuxBridge(session *Session) error {
 		}
 		clientFactory := m.tmuxClientFactory
 		if clientFactory == nil {
-			return errors.New("tmux client unavailable")
+			return ErrTmuxUnavailable
 		}
 		client := clientFactory()
 		if client == nil {
-			return errors.New("tmux client unavailable")
+			return ErrTmuxUnavailable
 		}
 		if err := client.LoadBuffer(data); err != nil {
-			return err
+			return classifyTmuxBridgeError(err)
 		}
-		return client.PasteBuffer(target)
+		return classifyTmuxBridgeError(client.PasteBuffer(target))
 	}
 	resizeFn := func(cols, rows uint16) error {
 		clientFactory := m.tmuxClientFactory
 		if clientFactory == nil {
-			return errors.New("tmux client unavailable")
+			return ErrTmuxUnavailable
 		}
 		client := clientFactory()
 		if client == nil {
-			return errors.New("tmux client unavailable")
+			return ErrTmuxUnavailable
 		}
-		return client.ResizePane(target, cols, rows)
+		return classifyTmuxBridgeError(client.ResizePane(target, cols, rows))
 	}
 	return session.AttachExternalRunner(writeFn, resizeFn, nil)
+}
+
+func classifyTmuxBridgeError(err error) error {
+	if err == nil {
+		return nil
+	}
+	lower := strings.ToLower(err.Error())
+	if strings.Contains(lower, "can't find window") || strings.Contains(lower, "window not found") {
+		return fmt.Errorf("%w: %v", ErrTmuxWindowNotFound, err)
+	}
+	if strings.Contains(lower, "can't find session") || strings.Contains(lower, "session not found") {
+		return fmt.Errorf("%w: %v", ErrTmuxSessionNotFound, err)
+	}
+	if strings.Contains(lower, "executable file not found") ||
+		strings.Contains(lower, "tmux runner unavailable") ||
+		strings.Contains(lower, "tmux client unavailable") {
+		return fmt.Errorf("%w: %v", ErrTmuxUnavailable, err)
+	}
+	return err
 }
 
 func writePromptPayload(session *Session, payload []byte) error {

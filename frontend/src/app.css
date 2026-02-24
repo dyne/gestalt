@@ -79,6 +79,26 @@
     var(--color-bg) 60%,
     rgba(var(--color-surface-rgb), 0.4)
   );
+  --surface-gradient-base: linear-gradient(
+    145deg,
+    rgba(var(--color-surface-rgb), 0.74),
+    rgba(var(--color-bg-rgb), 0.9)
+  );
+  --surface-gradient-info: linear-gradient(
+    145deg,
+    rgba(var(--color-info-rgb), 0.1),
+    rgba(var(--color-surface-rgb), 0.74)
+  );
+  --surface-gradient-success: linear-gradient(
+    145deg,
+    rgba(var(--color-success-rgb), 0.1),
+    rgba(var(--color-surface-rgb), 0.74)
+  );
+  --surface-gradient-warning: linear-gradient(
+    145deg,
+    rgba(var(--color-warning-rgb), 0.1),
+    rgba(var(--color-surface-rgb), 0.74)
+  );
 }
 
 @media (prefers-color-scheme: dark) {
@@ -136,4 +156,20 @@ body {
 a {
   color: inherit;
   text-decoration: none;
+}
+
+.surface-gradient--base {
+  background: var(--surface-gradient-base);
+}
+
+.surface-gradient--info {
+  background: var(--surface-gradient-info);
+}
+
+.surface-gradient--success {
+  background: var(--surface-gradient-success);
+}
+
+.surface-gradient--warning {
+  background: var(--surface-gradient-warning);
 }

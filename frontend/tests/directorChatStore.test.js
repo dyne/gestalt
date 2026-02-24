@@ -67,6 +67,7 @@ describe('directorChatStore', () => {
 
     const store = createDirectorChatStore()
     store.attachStream('Director 1')
+    store.connectStream()
     onOutput('Hello ')
     onOutput('world')
 

@@ -110,7 +110,7 @@ describe('App tab switching', () => {
     await waitFor(() => {
       const active = container.querySelector('section.view[data-active="true"]')
       expect(active).toBeTruthy()
-      expect(active?.textContent).toContain('Chat')
+      expect(active?.textContent).toContain('Start by sending a message to Director.')
     })
 
     const dashboardTab = await findByRole('button', { name: 'Open dashboard' })

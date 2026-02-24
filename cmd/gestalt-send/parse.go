@@ -18,7 +18,7 @@ const defaultServerPort = 57417
 type Config struct {
 	URL         string
 	Token       string
-	SessionID   string
+	SessionRef  string
 	Verbose     bool
 	Debug       bool
 	ShowVersion bool
@@ -30,7 +30,6 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 	fs.SetOutput(errOut)
 	hostFlag := fs.String("host", defaultServerHost, "Gestalt server host")
 	portFlag := fs.Int("port", defaultServerPort, "Gestalt server port")
-	sessionIDFlag := fs.String("session-id", "", "Target session id")
 	tokenFlag := fs.String("token", "", "Auth token (env: GESTALT_TOKEN, default: none)")
 	verboseFlag := fs.Bool("verbose", false, "Verbose output")
 	debugFlag := fs.Bool("debug", false, "Debug output (implies --verbose)")
@@ -52,18 +51,18 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 		return Config{ShowVersion: true}, nil
 	}
 
-	if fs.NArg() > 0 {
+	if fs.NArg() != 1 {
 		fs.Usage()
-		return Config{}, fmt.Errorf("unexpected positional arguments")
+		return Config{}, fmt.Errorf("expected exactly one positional argument: <session-ref>")
 	}
 
-	sessionID := strings.TrimSpace(*sessionIDFlag)
-	normalizedSessionID, err := client.NormalizeSessionRef(sessionID)
+	sessionRef := strings.TrimSpace(fs.Arg(0))
+	normalizedSessionRef, err := client.NormalizeSessionRef(sessionRef)
 	if err != nil {
 		fs.Usage()
 		return Config{}, err
 	}
-	sessionID = normalizedSessionID
+	sessionRef = normalizedSessionRef
 	if *portFlag <= 0 || *portFlag > 65535 {
 		fs.Usage()
 		return Config{}, fmt.Errorf("port must be between 1 and 65535")
@@ -83,21 +82,20 @@ func parseArgs(args []string, errOut io.Writer) (Config, error) {
 	return Config{
 		URL:       baseURL,
 		Token:     token,
-		SessionID: sessionID,
+		SessionRef: sessionRef,
 		Verbose:   *verboseFlag,
 		Debug:     *debugFlag,
 	}, nil
 }
 
 func printSendHelp(out io.Writer) {
-	fmt.Fprintln(out, "Usage: gestalt-send [options] --session-id <id>")
+	fmt.Fprintln(out, "Usage: gestalt-send [options] <session-ref>")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Send stdin to a running Gestalt session")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Options:")
 	writeSendOption(out, "--host HOST", "Gestalt server host (default: 127.0.0.1)")
 	writeSendOption(out, "--port PORT", "Gestalt server port (default: 57417)")
-	writeSendOption(out, "--session-id ID", "Target session id (required)")
 	writeSendOption(out, "--token TOKEN", "Auth token (env: GESTALT_TOKEN, default: none)")
 	writeSendOption(out, "--verbose", "Show request/response details")
 	writeSendOption(out, "--debug", "Show detailed debug info (implies --verbose)")
@@ -105,8 +103,8 @@ func printSendHelp(out io.Writer) {
 	writeSendOption(out, "--version", "Print version and exit")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Examples:")
-	fmt.Fprintln(out, "  echo \"status\" | gestalt-send --session-id session-1")
-	fmt.Fprintln(out, "  cat file.txt | gestalt-send --host remote --port 57417 --token abc123 --session-id session-1")
+	fmt.Fprintln(out, "  echo \"status\" | gestalt-send \"Fixer\"")
+	fmt.Fprintln(out, "  cat file.txt | gestalt-send --host remote --port 57417 --token abc123 \"Fixer 1\"")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Exit codes:")
 	fmt.Fprintln(out, "  0  Success")

@@ -85,6 +85,14 @@ func TestRunWithSenderVersionFlagDev(t *testing.T) {
 
 func TestSendInputSessionIDSuccess(t *testing.T) {
 	withMockClient(t, func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path == "/api/sessions" {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`[{"id":"s-1"}]`)),
+				Header:     make(http.Header),
+				Request:    r,
+			}, nil
+		}
 		if r.URL.Path != "/api/sessions/s-1/input" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -96,8 +104,8 @@ func TestSendInputSessionIDSuccess(t *testing.T) {
 		}, nil
 	}, func() {
 		cfg := Config{
-			URL:       "http://example.invalid",
-			SessionID: "s-1",
+			URL:        "http://example.invalid",
+			SessionRef: "s-1",
 		}
 		if err := sendInput(cfg, []byte("hello")); err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -109,6 +117,13 @@ func TestRunWithSenderSessionID(t *testing.T) {
 	sawInput := false
 	withMockClient(t, func(r *http.Request) (*http.Response, error) {
 		switch r.URL.Path {
+		case "/api/sessions":
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`[{"id":"s-1"}]`)),
+				Header:     make(http.Header),
+				Request:    r,
+			}, nil
 		case "/api/sessions/s-1/input":
 			sawInput = true
 			return &http.Response{
@@ -123,7 +138,42 @@ func TestRunWithSenderSessionID(t *testing.T) {
 		return nil, nil
 	}, func() {
 		var stderr bytes.Buffer
-		code := runWithSender([]string{"--session-id", "s-1"}, strings.NewReader("hi"), &stderr, sendInput)
+		code := runWithSender([]string{"s-1"}, strings.NewReader("hi"), &stderr, sendInput)
+		if code != 0 {
+			t.Fatalf("expected exit code 0, got %d: %s", code, stderr.String())
+		}
+		if !sawInput {
+			t.Fatalf("expected input call")
+		}
+	})
+}
+
+func TestRunWithSenderNameResolvesToCanonicalSession(t *testing.T) {
+	sawInput := false
+	withMockClient(t, func(r *http.Request) (*http.Response, error) {
+		switch r.URL.Path {
+		case "/api/sessions":
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`[{"id":"Fixer 1"}]`)),
+				Header:     make(http.Header),
+				Request:    r,
+			}, nil
+		case "/api/sessions/Fixer 1/input":
+			sawInput = true
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader("")),
+				Header:     make(http.Header),
+				Request:    r,
+			}, nil
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		return nil, nil
+	}, func() {
+		var stderr bytes.Buffer
+		code := runWithSender([]string{"Fixer"}, strings.NewReader("hi"), &stderr, sendInput)
 		if code != 0 {
 			t.Fatalf("expected exit code 0, got %d: %s", code, stderr.String())
 		}
@@ -174,7 +224,7 @@ func TestRunWithSenderNonZeroWritesStderr(t *testing.T) {
 			return nil, errors.New("network down")
 		}, func() {
 			var stderr bytes.Buffer
-			code := runWithSender([]string{"--session-id", "s-1"}, strings.NewReader("hi"), &stderr, sendInput)
+			code := runWithSender([]string{"s-1"}, strings.NewReader("hi"), &stderr, sendInput)
 			if code != 3 {
 				t.Fatalf("expected exit code 3, got %d", code)
 			}

@@ -137,6 +137,8 @@ type fakeTmuxClient struct {
 	hasSession bool
 	targets    []string
 	windows    map[string]bool
+	loads      [][]byte
+	pastes     []string
 }
 
 func (f *fakeTmuxClient) HasSession(name string) (bool, error) {
@@ -152,6 +154,20 @@ func (f *fakeTmuxClient) HasWindow(sessionName, windowName string) (bool, error)
 
 func (f *fakeTmuxClient) SelectWindow(target string) error {
 	f.targets = append(f.targets, target)
+	return nil
+}
+
+func (f *fakeTmuxClient) LoadBuffer(data []byte) error {
+	f.loads = append(f.loads, append([]byte(nil), data...))
+	return nil
+}
+
+func (f *fakeTmuxClient) PasteBuffer(target string) error {
+	f.pastes = append(f.pastes, target)
+	return nil
+}
+
+func (f *fakeTmuxClient) ResizePane(target string, cols, rows uint16) error {
 	return nil
 }
 
@@ -1126,6 +1142,56 @@ func TestTerminalInputEndpoint(t *testing.T) {
 		}
 	case <-time.After(200 * time.Millisecond):
 		t.Fatal("timed out waiting for input write")
+	}
+}
+
+func TestTerminalInputEndpointTmuxManagedAgentSession(t *testing.T) {
+	tmuxClient := &fakeTmuxClient{hasSession: true}
+	manager := newTestManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: &fakeFactory{},
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:      "Codex",
+				Shell:     "codex -c model=o3",
+				CLIType:   "codex",
+				Interface: agent.AgentInterfaceCLI,
+			},
+		},
+		StartExternalTmuxWindow: func(_ *launchspec.LaunchSpec) error { return nil },
+		TmuxClientFactory:       func() terminal.TmuxClient { return tmuxClient },
+	})
+	created, err := manager.CreateWithOptions(terminal.CreateOptions{AgentID: "codex"})
+	if err != nil {
+		t.Fatalf("create tmux-managed terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(created.ID)
+		if hubID, _ := manager.AgentsHubStatus(); hubID != "" {
+			_ = manager.Delete(hubID)
+		}
+	}()
+
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodPost, terminalPath(created.ID)+"/input", strings.NewReader("hello\nworld\n"))
+	req.Header.Set("Authorization", "Bearer secret")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", nil, handler.handleTerminal)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", res.Code, res.Body.String())
+	}
+	if len(tmuxClient.loads) != 1 {
+		t.Fatalf("expected one LoadBuffer call, got %d", len(tmuxClient.loads))
+	}
+	if string(tmuxClient.loads[0]) != "hello\nworld\n" {
+		t.Fatalf("expected raw payload preserved, got %q", string(tmuxClient.loads[0]))
+	}
+	if len(tmuxClient.pastes) != 1 {
+		t.Fatalf("expected one PasteBuffer call, got %d", len(tmuxClient.pastes))
+	}
+	if !strings.HasSuffix(tmuxClient.pastes[0], ":"+created.ID) {
+		t.Fatalf("expected paste target to end with %q, got %q", ":"+created.ID, tmuxClient.pastes[0])
 	}
 }
 

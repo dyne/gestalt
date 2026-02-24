@@ -34,3 +34,48 @@ func TestNormalizeSessionRef(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveSessionRefAgainstSessions(t *testing.T) {
+	sessions := []SessionInfo{
+		{ID: "Fixer 1"},
+		{ID: "tmux-hub"},
+	}
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "name resolves to canonical running", input: "Fixer", want: "Fixer 1"},
+		{name: "explicit numbered preserved", input: "Fixer 1", want: "Fixer 1"},
+		{name: "raw system id preserved when running", input: "tmux-hub", want: "tmux-hub"},
+		{name: "missing name uses canonical fallback", input: "Builder", want: "Builder 1"},
+	}
+
+	for _, tc := range cases {
+		got, err := ResolveSessionRefAgainstSessions(tc.input, sessions)
+		if err != nil {
+			t.Fatalf("%s: unexpected error: %v", tc.name, err)
+		}
+		if got != tc.want {
+			t.Fatalf("%s: expected %q, got %q", tc.name, tc.want, got)
+		}
+	}
+}
+
+func TestIsExplicitNumberedSessionRef(t *testing.T) {
+	cases := []struct {
+		ref  string
+		want bool
+	}{
+		{ref: "Fixer", want: false},
+		{ref: "Fixer 1", want: true},
+		{ref: "Fixer 20", want: true},
+		{ref: "tmux-hub", want: false},
+		{ref: "123", want: false},
+	}
+	for _, tc := range cases {
+		if got := IsExplicitNumberedSessionRef(tc.ref); got != tc.want {
+			t.Fatalf("ref %q: expected %v, got %v", tc.ref, tc.want, got)
+		}
+	}
+}

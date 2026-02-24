@@ -82,15 +82,6 @@ func (h *TerminalHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if strings.EqualFold(strings.TrimSpace(session.Runner), "external") {
-		_ = conn.WriteControl(
-			websocket.CloseMessage,
-			websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "tmux-managed external session"),
-			time.Now().Add(2*time.Second),
-		)
-		return
-	}
-
 	cursor, ok := parseCursorParam(r)
 	if ok {
 		if err := streamSessionLogFromCursor(conn, session, cursor); err != nil {

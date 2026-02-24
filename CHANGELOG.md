@@ -1,3 +1,10 @@
+## [1.20.1](https://github.com/dyne/gestalt/compare/v1.20.0...v1.20.1) (2026-02-24)
+
+
+### Bug Fixes
+
+* **node:** update frontend dependencies ([b6609ff](https://github.com/dyne/gestalt/commit/b6609ffc669b5f6652bf3355a3918fedd30c4e73))
+
 # [1.20.0](https://github.com/dyne/gestalt/compare/v1.19.0...v1.20.0) (2026-02-23)
 
 

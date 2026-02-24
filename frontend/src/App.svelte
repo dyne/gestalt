@@ -34,6 +34,7 @@
 
   let tabs = buildTabs([])
   let activeId = 'dashboard'
+  let hasDirectorChat = false
 
   let terminals = []
   let status = null
@@ -96,8 +97,15 @@
   }
 
   const syncTabs = (terminalList, nextStatus = status) => {
-    tabs = buildTabs(terminalList, { showAgents: hasAgentsTab(nextStatus) })
+    tabs = buildTabs(terminalList, { showAgents: hasAgentsTab(nextStatus), showChat: hasDirectorChat })
     activeId = ensureActiveTab(activeId, tabs, 'dashboard')
+  }
+
+  const handleDirectorSubmit = async ({ text, source } = {}) => {
+    if (!String(text || '').trim()) return
+    hasDirectorChat = true
+    syncTabs(terminals)
+    activeId = 'chat'
   }
 
   function loadFlowView() {
@@ -435,8 +443,14 @@
         {loading}
         {error}
         onSelect={handleSelect}
+        onDirectorSubmit={handleDirectorSubmit}
       />
     </svelte:boundary>
+  </section>
+  <section class="view" data-active={activeView === 'chat'}>
+    <div class="view-fallback">
+      <p>Chat</p>
+    </div>
   </section>
   <section class="view" data-active={activeView === 'plan'}>
     <svelte:boundary onerror={(error) => handleBoundaryError('plan', error)} failed={viewFailed}>

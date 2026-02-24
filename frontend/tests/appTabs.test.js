@@ -65,11 +65,11 @@ describe('App tab switching', () => {
   })
 
   it('switches between home and terminal tabs', async () => {
-    const { container, findByRole } = render(App)
+    const { container, findByRole, queryByRole } = render(App)
 
     const planTab = await findByRole('button', { name: 'Plans' })
     const flowTab = await findByRole('button', { name: 'Flow' })
-    const openAgentButton = await findByRole('button', { name: /Coder/i })
+    const directorInput = await findByRole('textbox')
 
     await fireEvent.click(planTab)
     await waitFor(() => {
@@ -85,10 +85,28 @@ describe('App tab switching', () => {
       expect(active?.textContent).toContain('Flow')
     })
 
-    await fireEvent.click(openAgentButton)
+    expect(queryByRole('button', { name: 'Chat' })).toBeNull()
+
+    await fireEvent.input(directorInput, { target: { value: 'Plan today' } })
+    await fireEvent.keyDown(directorInput, { key: 'Enter' })
+
+    await waitFor(async () => {
+      const chatTab = await findByRole('button', { name: 'Chat' })
+      expect(chatTab).toBeTruthy()
+    })
+
     await waitFor(() => {
-      const terminalSection = container.querySelector('section.view--terminals[data-active="true"]')
-      expect(terminalSection).toBeTruthy()
+      const active = container.querySelector('section.view[data-active="true"]')
+      expect(active).toBeTruthy()
+      expect(active?.textContent).toContain('Chat')
+    })
+
+    const dashboardTab = await findByRole('button', { name: 'Open dashboard' })
+    await fireEvent.click(dashboardTab)
+    await waitFor(() => {
+      const active = container.querySelector('section.view[data-active="true"]')
+      expect(active).toBeTruthy()
+      expect(active?.textContent).toContain('Director')
     })
   })
 })

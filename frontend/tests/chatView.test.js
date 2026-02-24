@@ -54,4 +54,20 @@ describe('ChatView', () => {
     expect(await findByText('Start by sending a message to Director.')).toBeTruthy()
     expect(await findByText('Director is responding…')).toBeTruthy()
   })
+
+  it('renders chat content on narrow viewports', async () => {
+    Object.defineProperty(window, 'innerWidth', {
+      value: 640,
+      writable: true,
+      configurable: true,
+    })
+    window.dispatchEvent(new Event('resize'))
+
+    const { findByText } = render(ChatView, {
+      props: {
+        messages: [{ id: '1', role: 'assistant', text: 'mobile message' }],
+      },
+    })
+    expect(await findByText('mobile message')).toBeTruthy()
+  })
 })

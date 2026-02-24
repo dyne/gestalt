@@ -71,12 +71,11 @@ func (l Loader) Load(agentFS fs.FS, dir, promptsDir string, skillIndex map[strin
 				})
 			}
 		}
-		if l.Logger != nil && l.Logger.Enabled(logging.LevelDebug) && len(agent.CLIConfig) > 0 {
+		if l.Logger != nil && l.Logger.Enabled(logging.LevelDebug) {
 			shell := strings.TrimSpace(agent.Shell)
 			if shell != "" {
 				l.Logger.Debug("agent shell command rendered", map[string]string{
 					"agent_id": agentID,
-					"cli_type": agent.CLIType,
 					"path":     filePath,
 					"shell":    shell,
 				})

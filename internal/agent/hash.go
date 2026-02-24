@@ -7,7 +7,6 @@ import (
 	"hash/fnv"
 	"sort"
 	"strconv"
-	"strings"
 )
 
 // ComputeConfigHash returns a stable FNV-1a hash for an agent's configuration.
@@ -15,22 +14,15 @@ func ComputeConfigHash(agent *Agent) string {
 	if agent == nil {
 		return ""
 	}
-	resolvedInterface := strings.TrimSpace(agent.Interface)
-	if resolved, err := agent.ResolveInterface(); err == nil {
-		resolvedInterface = resolved
-	}
 	payload := map[string]interface{}{
 		"name":         agent.Name,
 		"shell":        agent.Shell,
-		"interface":    resolvedInterface,
 		"prompt":       []string(agent.Prompts),
 		"skills":       agent.Skills,
 		"onair_string": agent.OnAirString,
 		"singleton":    agent.Singleton,
-		"cli_type":     agent.CLIType,
 		"model":        agent.Model,
 		"hidden":       agent.Hidden,
-		"cli_config":   agent.CLIConfig,
 	}
 
 	jsonPayload, err := json.Marshal(payload)

@@ -71,9 +71,10 @@ describe('PlanView', () => {
       })
     })
 
-    const { findByText } = render(PlanView)
+    const { findByText, container } = render(PlanView)
 
     expect(await findByText('Sample Plan')).toBeTruthy()
+    expect(container.querySelector('.plan-view')?.className).toContain('home-surface--base')
     expect(apiFetch).toHaveBeenCalledWith('/api/plans')
   })
 

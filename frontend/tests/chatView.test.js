@@ -14,7 +14,7 @@ afterEach(() => {
 
 describe('ChatView', () => {
   it('renders chat bubbles in order', async () => {
-    const { findByText } = render(ChatView, {
+    const { findByText, container } = render(ChatView, {
       props: {
         messages: [
           { id: '1', role: 'user', text: 'hello' },
@@ -25,6 +25,7 @@ describe('ChatView', () => {
 
     expect(await findByText('hello')).toBeTruthy()
     expect(await findByText('world')).toBeTruthy()
+    expect(container.querySelector('.chat-view')?.className).toContain('home-surface--base')
   })
 
   it('forwards composer submit callback', async () => {

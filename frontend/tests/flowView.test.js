@@ -58,7 +58,7 @@ describe('FlowView', () => {
     })
     fetchTerminals.mockResolvedValue([])
 
-    const { getByLabelText, getByRole, queryByText, findAllByText, findByText } = render(FlowView)
+    const { getByLabelText, getByRole, queryByText, findAllByText, findByText, container } = render(FlowView)
 
     expect((await findAllByText('File changed')).length).toBeGreaterThan(0)
     expect(await findByText('Git branch changed')).toBeTruthy()
@@ -76,6 +76,7 @@ describe('FlowView', () => {
 
     const heading = getByRole('heading', { level: 2, name: 'Git branch changed' })
     expect(heading).toBeTruthy()
+    expect(container.querySelector('.flow-view')?.className).toContain('home-surface--base')
   })
 
   it('creates a trigger and saves it', async () => {

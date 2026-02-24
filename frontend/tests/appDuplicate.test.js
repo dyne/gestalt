@@ -8,6 +8,13 @@ const buildEventSourceUrl = vi.hoisted(() => vi.fn((path) => `http://test${path}
 vi.mock('../src/lib/api.js', () => ({
   apiFetch,
   buildEventSourceUrl,
+  buildApiPath: (base, ...segments) => {
+    const basePath = base.endsWith('/') ? base.slice(0, -1) : base
+    const encoded = segments
+      .filter((segment) => segment !== undefined && segment !== null && segment !== '')
+      .map((segment) => encodeURIComponent(String(segment)))
+    return encoded.length ? `${basePath}/${encoded.join('/')}` : basePath
+  },
 }))
 
 vi.mock('../src/views/TerminalView.svelte', async () => {
@@ -34,7 +41,7 @@ describe('App dashboard director submit', () => {
     cleanup()
   })
 
-  it('does not create a terminal session directly from dashboard submit', async () => {
+  it('creates a director session and transitions to chat from dashboard submit', async () => {
     apiFetch.mockImplementation((url, options = {}) => {
       if (url === '/api/status') {
         return Promise.resolve({
@@ -45,6 +52,17 @@ describe('App dashboard director submit', () => {
         return Promise.resolve({
           json: vi.fn().mockResolvedValue([]),
         })
+      }
+      if (url === '/api/sessions' && options.method === 'POST') {
+        return Promise.resolve({
+          json: vi.fn().mockResolvedValue({ id: 'Director 1' }),
+        })
+      }
+      if (url === '/api/sessions/Director%201/input' && options.method === 'POST') {
+        return Promise.resolve({ ok: true })
+      }
+      if (url === '/api/sessions/Director%201/notify' && options.method === 'POST') {
+        return Promise.resolve({ ok: true })
       }
       if (url === '/api/agents') {
         return Promise.resolve({ json: vi.fn().mockResolvedValue([]) })
@@ -72,6 +90,6 @@ describe('App dashboard director submit', () => {
     const createCalls = apiFetch.mock.calls.filter(
       ([url, request]) => url === '/api/sessions' && request?.method === 'POST',
     )
-    expect(createCalls).toHaveLength(0)
+    expect(createCalls).toHaveLength(1)
   })
 })

@@ -1,5 +1,6 @@
 import { render, fireEvent, cleanup, waitFor } from '@testing-library/svelte'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { get } from 'svelte/store'
 import { notificationStore } from '../src/lib/notificationStore.js'
 import { createAppApiMocks, createLogStreamStub } from './helpers/appApiMocks.js'
 
@@ -10,6 +11,13 @@ const createLogStream = vi.hoisted(() => vi.fn())
 vi.mock('../src/lib/api.js', () => ({
   apiFetch,
   buildEventSourceUrl,
+  buildApiPath: (base, ...segments) => {
+    const basePath = base.endsWith('/') ? base.slice(0, -1) : base
+    const encoded = segments
+      .filter((segment) => segment !== undefined && segment !== null && segment !== '')
+      .map((segment) => encodeURIComponent(String(segment)))
+    return encoded.length ? `${basePath}/${encoded.join('/')}` : basePath
+  },
 }))
 
 vi.mock('../src/lib/logStream.js', () => ({
@@ -32,29 +40,33 @@ describe('App tab switching', () => {
         onfinish: null,
       })
     }
-    apiFetch.mockImplementation(
-      createAppApiMocks(apiFetch, {
-        status: { session_count: 1 },
-        terminals: [
-          {
-            id: 't1',
-            title: 'Shell',
-            role: 'shell',
-            created_at: new Date().toISOString(),
-            interface: 'cli',
-          },
-        ],
-        agents: [
-          {
-            id: 'coder',
-            name: 'Coder',
-            hidden: false,
-            running: true,
-            session_id: 't1',
-          },
-        ],
-      }),
-    )
+    const appMocks = createAppApiMocks(apiFetch, {
+      status: { session_count: 1 },
+      terminals: [
+        {
+          id: 't1',
+          title: 'Shell',
+          role: 'shell',
+          created_at: new Date().toISOString(),
+          interface: 'cli',
+        },
+      ],
+      agents: [],
+    })
+    apiFetch.mockImplementation((url, options = {}) => {
+      if (url === '/api/sessions' && options.method === 'POST') {
+        return Promise.resolve({
+          json: () => Promise.resolve({ id: 'Director 1' }),
+        })
+      }
+      if (url === '/api/sessions/Director%201/input' && options.method === 'POST') {
+        return Promise.resolve({ ok: true })
+      }
+      if (url === '/api/sessions/Director%201/notify' && options.method === 'POST') {
+        return Promise.resolve({ ok: true })
+      }
+      return appMocks(url)
+    })
     createLogStream.mockImplementation(() => createLogStreamStub())
   })
 
@@ -108,5 +120,64 @@ describe('App tab switching', () => {
       expect(active).toBeTruthy()
       expect(active?.textContent).toContain('Director')
     })
+  })
+
+  it('keeps chat transition on notify failure and emits warning', async () => {
+    const appMocks = createAppApiMocks(apiFetch, {
+      status: { session_count: 0 },
+      terminals: [],
+      agents: [],
+    })
+    apiFetch.mockImplementation((url, options = {}) => {
+      if (url === '/api/sessions' && options.method === 'POST') {
+        return Promise.resolve({ json: () => Promise.resolve({ id: 'Director 1' }) })
+      }
+      if (url === '/api/sessions/Director%201/input' && options.method === 'POST') {
+        return Promise.resolve({ ok: true })
+      }
+      if (url === '/api/sessions/Director%201/notify' && options.method === 'POST') {
+        return Promise.reject(new Error('notify unavailable'))
+      }
+      return appMocks(url)
+    })
+
+    const { findByRole } = render(App)
+    const input = await findByRole('textbox')
+    await fireEvent.input(input, { target: { value: 'Ship update' } })
+    await fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(await findByRole('button', { name: 'Chat' })).toBeTruthy()
+    await waitFor(() => {
+      const notifications = get(notificationStore)
+      const last = notifications.at(-1)
+      expect(last?.level).toBe('warning')
+    })
+  })
+
+  it('surfaces input failures and does not switch to chat', async () => {
+    const appMocks = createAppApiMocks(apiFetch, {
+      status: { session_count: 0 },
+      terminals: [],
+      agents: [],
+    })
+    apiFetch.mockImplementation((url, options = {}) => {
+      if (url === '/api/sessions' && options.method === 'POST') {
+        return Promise.resolve({ json: () => Promise.resolve({ id: 'Director 1' }) })
+      }
+      if (url === '/api/sessions/Director%201/input' && options.method === 'POST') {
+        const failure = new Error('bridge down')
+        failure.status = 503
+        return Promise.reject(failure)
+      }
+      return appMocks(url)
+    })
+
+    const { findByRole, queryByRole, findByText } = render(App)
+    const input = await findByRole('textbox')
+    await fireEvent.input(input, { target: { value: 'Ship update' } })
+    await fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(await findByText('Director session bridge is unavailable.')).toBeTruthy()
+    expect(queryByRole('button', { name: 'Chat' })).toBeNull()
   })
 })

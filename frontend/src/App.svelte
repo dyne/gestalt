@@ -8,6 +8,7 @@
     fetchStatus,
     fetchTerminals,
     prefetchPlansList,
+    sendDirectorPrompt,
   } from './lib/apiClient.js'
   import { apiFetch, buildApiPath } from './lib/api.js'
   import { setServerTimeOffset } from './lib/timeUtils.js'
@@ -102,7 +103,34 @@
   }
 
   const handleDirectorSubmit = async ({ text, source } = {}) => {
-    if (!String(text || '').trim()) return
+    const value = String(text || '').trim()
+    if (!value) return
+    const mapDirectorError = (err) => {
+      const status = Number(err?.status)
+      if (status === 404) {
+        return 'Director agent is not configured.'
+      }
+      if (status === 502 || status === 503) {
+        return 'Director session bridge is unavailable.'
+      }
+      if (status >= 500) {
+        return 'Director service is currently unavailable.'
+      }
+      const rawMessage = String(err?.message || '').toLowerCase()
+      if (rawMessage.includes('failed to fetch') || rawMessage.includes('network')) {
+        return 'Network failure while sending to Director.'
+      }
+      return err?.message || 'Failed to send Director prompt.'
+    }
+    const result = await sendDirectorPrompt(value, source || 'text').catch((err) => {
+      throw new Error(mapDirectorError(err))
+    })
+    if (result?.notifyError) {
+      notificationStore.addNotification(
+        'warning',
+        `Prompt sent but trigger delivery failed: ${result.notifyError}`,
+      )
+    }
     hasDirectorChat = true
     syncTabs(terminals)
     activeId = 'chat'

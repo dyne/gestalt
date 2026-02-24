@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"gestalt/internal/config/tomlkeys"
@@ -43,7 +44,11 @@ func parseAgentData(filePath string, data []byte) (Agent, error) {
 	if _, err := toml.Decode(string(data), &agent); err != nil {
 		return Agent{}, err
 	}
+	applyCLIConfig(&agent, raw)
 	applyModelAlias(&agent, raw, filePath)
+	if err := ValidateAgentConfig(agent.CLIType, agent.CLIConfig); err != nil {
+		return Agent{}, err
+	}
 	if agent.Singleton == nil {
 		defaultSingleton := true
 		agent.Singleton = &defaultSingleton
@@ -125,6 +130,59 @@ func lineForKey(data []byte, keyPath string) int {
 		}
 	}
 	return 0
+}
+
+var reservedAgentKeys = []string{
+	"name",
+	"shell",
+	"prompt",
+	"skills",
+	"onair_string",
+	"singleton",
+	"interface",
+	"cli_type",
+	"cli_config",
+	"codex_mode",
+	"model",
+	"llm_model",
+	"hidden",
+}
+
+func applyCLIConfig(agent *Agent, raw map[string]interface{}) {
+	if agent == nil {
+		return
+	}
+	agent.CLIType = strings.ToLower(strings.TrimSpace(rawString(raw["cli_type"])))
+	agent.Interface = strings.ToLower(strings.TrimSpace(rawString(raw["interface"])))
+	if strings.TrimSpace(agent.Interface) == "" {
+		agent.Interface = AgentInterfaceCLI
+	}
+
+	cliConfig := map[string]interface{}{}
+	if rawConfig, ok := raw["cli_config"].(map[string]interface{}); ok {
+		for key, value := range rawConfig {
+			trimmed := strings.TrimSpace(key)
+			if trimmed == "" {
+				continue
+			}
+			cliConfig[trimmed] = value
+		}
+	}
+	for key, value := range raw {
+		trimmed := strings.TrimSpace(key)
+		if trimmed == "" || slices.Contains(reservedAgentKeys, trimmed) {
+			continue
+		}
+		cliConfig[trimmed] = value
+	}
+	if agent.Model != "" && agent.CLIType != "" {
+		if _, ok := cliConfig["model"]; !ok {
+			cliConfig["model"] = agent.Model
+		}
+	}
+	if len(cliConfig) > 0 {
+		agent.CLIConfig = cliConfig
+	}
 }
 
 func applyModelAlias(agent *Agent, raw map[string]interface{}, filePath string) {

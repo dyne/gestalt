@@ -412,6 +412,7 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 	var profile *agent.Agent
 	var promptNames []string
 	var promptPayloads []string
+	var codexPromptFiles []string
 	var agentName string
 	var sanitizedAgentName string
 	reservedID := strings.TrimSpace(request.SessionID)
@@ -460,8 +461,45 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 	if reservedID == "" {
 		reservedID = m.nextIDValue()
 	}
-	if !shellOverrideSet && profile != nil && strings.TrimSpace(profile.Shell) != "" {
-		shell = profile.Shell
+	if !shellOverrideSet && profile != nil {
+		if strings.EqualFold(strings.TrimSpace(profile.RuntimeType()), "codex") {
+			cfg := make(map[string]interface{}, len(profile.CLIConfig)+2)
+			for key, value := range profile.CLIConfig {
+				cfg[key] = value
+			}
+			cfg["notify"] = m.buildNotifyArgs(reservedID)
+			if m.portResolver != nil {
+				if otelPort, ok := m.portResolver.Get("otel-grpc"); ok && otelPort > 0 {
+					cfg["otel"] = map[string]interface{}{
+						"exporter": map[string]interface{}{
+							"otlp-grpc": map[string]interface{}{
+								"endpoint": fmt.Sprintf("http://127.0.0.1:%d", otelPort),
+							},
+						},
+					}
+				}
+			}
+			developerInstructions, buildErr := m.buildCodexDeveloperInstructions(profile, reservedID)
+			if buildErr != nil {
+				if agentName != "" && reservedID != "" {
+					m.mu.Lock()
+					if existingID, ok := m.agentSessions[agentName]; ok && existingID == reservedID {
+						delete(m.agentSessions, agentName)
+					}
+					m.mu.Unlock()
+				}
+				return nil, buildErr
+			}
+			shellArgs := agent.BuildCodexArgs(cfg, developerInstructions.Instructions)
+			shell = joinCommandLine("codex", shellArgs)
+			profile.Shell = shell
+			if len(developerInstructions.PromptFiles) > 0 {
+				codexPromptFiles = append(codexPromptFiles, developerInstructions.PromptFiles...)
+				promptNames = nil
+			}
+		} else if strings.TrimSpace(profile.Shell) != "" {
+			shell = profile.Shell
+		}
 	}
 	if agentName != "" {
 		for {
@@ -522,6 +560,9 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 	if err != nil {
 		releaseReservation()
 		return nil, err
+	}
+	if len(codexPromptFiles) > 0 {
+		session.PromptFiles = append(session.PromptFiles, codexPromptFiles...)
 	}
 	if runnerKind == launchspec.RunnerKindExternal {
 		if len(promptNames) > 0 {

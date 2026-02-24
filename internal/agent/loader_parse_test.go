@@ -21,14 +21,12 @@ func TestParseErrorIncludesPosition(t *testing.T) {
 }
 
 func TestInterfaceAndCodexModeNotCapturedInCLIConfig(t *testing.T) {
-	t.Skip("obsolete: cli_config parsing removed")
 	data := []byte(`
 name = "Codex"
 shell = "/bin/bash"
 cli_type = "codex"
 interface = "cli"
 model = "o3"
-gui_modules = ["plan-progress"]
 hidden = true
 `)
 	agent, err := loadAgentFromBytes("agent.toml", data)
@@ -46,9 +44,6 @@ hidden = true
 	}
 	if _, ok := agent.CLIConfig["codex_mode"]; ok {
 		t.Fatalf("did not expect codex_mode in CLI config")
-	}
-	if _, ok := agent.CLIConfig["gui_modules"]; ok {
-		t.Fatalf("did not expect gui_modules in CLI config")
 	}
 	if _, ok := agent.CLIConfig["hidden"]; ok {
 		t.Fatalf("did not expect hidden in CLI config")

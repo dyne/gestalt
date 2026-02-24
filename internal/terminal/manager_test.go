@@ -325,6 +325,23 @@ func (c *bridgeTmuxClient) PasteBuffer(target string) error {
 }
 func (c *bridgeTmuxClient) ResizePane(target string, cols, rows uint16) error { return nil }
 
+type singletonTmuxClient struct {
+	hasSession bool
+	windows    map[string]bool
+}
+
+func (c *singletonTmuxClient) HasSession(name string) (bool, error) { return c.hasSession, nil }
+func (c *singletonTmuxClient) HasWindow(sessionName, windowName string) (bool, error) {
+	if c.windows == nil {
+		return true, nil
+	}
+	return c.windows[windowName], nil
+}
+func (c *singletonTmuxClient) SelectWindow(target string) error                  { return nil }
+func (c *singletonTmuxClient) LoadBuffer(data []byte) error                       { return nil }
+func (c *singletonTmuxClient) PasteBuffer(target string) error                    { return nil }
+func (c *singletonTmuxClient) ResizePane(target string, cols, rows uint16) error { return nil }
+
 type blockingBridgeTmuxClient struct {
 	mu               sync.Mutex
 	loadCount        int
@@ -1196,6 +1213,51 @@ func TestManagerSingletonKeepsAgentID(t *testing.T) {
 	}
 	if dup.TerminalID != "Codex 1" {
 		t.Fatalf("expected conflict terminal id Codex 1, got %q", dup.TerminalID)
+	}
+}
+
+func TestManagerSingletonReplacesStaleExternalTmuxSession(t *testing.T) {
+	factory := &fakeFactory{}
+	tmuxClient := &singletonTmuxClient{
+		hasSession: true,
+		windows:    map[string]bool{"Codex 1": true},
+	}
+	manager := NewManager(ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: factory,
+		Agents: map[string]agent.Agent{
+			"codex": {
+				Name:      "Codex",
+				Shell:     "/bin/bash",
+				CLIType:   "codex",
+				Interface: agent.AgentInterfaceCLI,
+			},
+		},
+		StartExternalTmuxWindow: func(_ *launchspec.LaunchSpec) error { return nil },
+		TmuxClientFactory:       func() TmuxClient { return tmuxClient },
+	})
+
+	first, err := manager.Create("codex", "role", "title")
+	if err != nil {
+		t.Fatalf("create first session: %v", err)
+	}
+	if first.ID != "Codex 1" {
+		t.Fatalf("expected canonical id Codex 1, got %q", first.ID)
+	}
+
+	tmuxClient.windows["Codex 1"] = false
+	second, err := manager.Create("codex", "role", "title")
+	if err != nil {
+		t.Fatalf("create replacement session: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(second.ID)
+	}()
+	if second.ID != "Codex 1" {
+		t.Fatalf("expected canonical id Codex 1, got %q", second.ID)
+	}
+	if second == first {
+		t.Fatalf("expected stale session to be replaced")
 	}
 }
 

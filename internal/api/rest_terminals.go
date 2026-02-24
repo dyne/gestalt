@@ -68,17 +68,28 @@ func (h *RestHandler) handleTerminalInput(w http.ResponseWriter, r *http.Request
 		return methodNotAllowed(w, "POST")
 	}
 
-	session, ok := h.Manager.Get(id)
-	if !ok {
-		return &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
-	}
-
 	payload, err := io.ReadAll(r.Body)
 	if err != nil {
 		return &apiError{Status: http.StatusBadRequest, Message: "invalid request body"}
 	}
 	if len(payload) == 0 {
 		return &apiError{Status: http.StatusBadRequest, Message: "invalid request body"}
+	}
+
+	if strings.EqualFold(id, terminal.ChatSessionID) {
+		if h.Manager == nil {
+			return &apiError{Status: http.StatusInternalServerError, Message: "terminal manager unavailable"}
+		}
+		if !h.Manager.PublishChatMessage(string(payload), "api", "user") {
+			return &apiError{Status: http.StatusBadRequest, Message: "invalid chat message"}
+		}
+		writeJSON(w, http.StatusOK, agentInputResponse{Bytes: len(payload)})
+		return nil
+	}
+
+	session, ok := h.Manager.Get(id)
+	if !ok {
+		return &apiError{Status: http.StatusNotFound, Message: "terminal not found"}
 	}
 	if writeErr := session.Write(payload); writeErr != nil {
 		agentID := strings.TrimSpace(session.AgentID)

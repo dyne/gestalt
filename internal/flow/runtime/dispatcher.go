@@ -95,13 +95,24 @@ func (d *Dispatcher) sendToTerminal(ctx context.Context, request flow.ActivityRe
 	}
 
 	messageTemplate := flow.RenderTemplate(configString(request.Config, "message_template"), request)
-	if request.OutputTail == "" {
+	if request.OutputTail == "" && !strings.EqualFold(targetSessionID, terminal.ChatSessionID) {
 		request.OutputTail = d.buildOutputTail(request)
 	}
 	message := buildMessage(messageTemplate, request.OutputTail)
 	if strings.TrimSpace(message) == "" {
 		activityErr = errors.New("message is required")
 		return activityErr
+	}
+
+	if strings.EqualFold(targetSessionID, terminal.ChatSessionID) {
+		if !manager.PublishChatMessage(message, "flow", "user") {
+			activityErr = errors.New("failed to publish chat message")
+			return activityErr
+		}
+		d.logInfo("flow chat message sent", map[string]string{
+			"session_id": terminal.ChatSessionID,
+		})
+		return nil
 	}
 
 	var session *terminal.Session

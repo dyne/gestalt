@@ -48,6 +48,7 @@
   let terminalCreatedUnsubscribe = null
   let terminalClosedUnsubscribe = null
   let notificationUnsubscribe = null
+  let chatMessageUnsubscribe = null
   let agentsHubUnsubscribe = null
   let crashState = null
   let clipboardAvailable = false
@@ -420,9 +421,25 @@
       if (!String(message).trim()) return
       notificationStore.addNotification(payload.level || 'info', message)
     })
+    chatMessageUnsubscribe = subscribeEvents('chat_message', (payload) => {
+      const message = String(payload?.message || '').trim()
+      if (!message) return
+      const role = payload?.role === 'assistant' ? 'assistant' : 'user'
+      const source = payload?.source ? String(payload.source) : 'external'
+      const createdAt = payload?.timestamp ? String(payload.timestamp) : ''
+      directorChatStore.appendChatMessage({ text: message, role, source, createdAt })
+      if (!hasDirectorChat) {
+        hasDirectorChat = true
+        syncTabs(terminals)
+      }
+    })
     return () => {
       directorChatStore.dispose()
       unsubscribe()
+      if (chatMessageUnsubscribe) {
+        chatMessageUnsubscribe()
+        chatMessageUnsubscribe = null
+      }
       if (terminalErrorUnsubscribe) {
         terminalErrorUnsubscribe()
         terminalErrorUnsubscribe = null

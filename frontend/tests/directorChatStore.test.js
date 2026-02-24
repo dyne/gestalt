@@ -25,6 +25,18 @@ describe('directorChatStore', () => {
     expect(state.messages[0].source).toBe('text')
   })
 
+  it('appends external chat messages without prompt suppression', () => {
+    const store = createDirectorChatStore()
+
+    store.appendChatMessage({ text: 'Hello from CLI', source: 'cli' })
+    const state = store.snapshot()
+
+    expect(state.messages).toHaveLength(1)
+    expect(state.messages[0].role).toBe('user')
+    expect(state.messages[0].text).toBe('Hello from CLI')
+    expect(state.messages[0].source).toBe('cli')
+  })
+
   it('aggregates assistant chunks into one streaming bubble', () => {
     const store = createDirectorChatStore()
 

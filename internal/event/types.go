@@ -165,3 +165,36 @@ func (e LogEvent) Type() string {
 func (e LogEvent) Timestamp() time.Time {
 	return e.OccurredAt
 }
+
+// ChatEvent represents a chat message emitted for UI consumption.
+type ChatEvent struct {
+	EventType  string
+	SessionID  string
+	Role       string
+	Message    string
+	Source     string
+	OccurredAt time.Time
+}
+
+// NewChatEvent creates a chat event with the supplied payload.
+func NewChatEvent(sessionID, role, message, source string, occurredAt time.Time) ChatEvent {
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	}
+	return ChatEvent{
+		EventType:  "chat_message",
+		SessionID:  sessionID,
+		Role:       role,
+		Message:    message,
+		Source:     source,
+		OccurredAt: occurredAt,
+	}
+}
+
+func (e ChatEvent) Type() string {
+	return e.EventType
+}
+
+func (e ChatEvent) Timestamp() time.Time {
+	return e.OccurredAt
+}

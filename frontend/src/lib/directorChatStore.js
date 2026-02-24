@@ -54,6 +54,25 @@ export const createDirectorChatStore = ({ outputIdleMs = 250 } = {}) => {
     return message
   }
 
+  const appendChatMessage = ({ text, role = 'user', source = 'external', createdAt } = {}) => {
+    const value = String(text || '').trim()
+    if (!value) return null
+    const message = {
+      id: `msg-${nextMessageId++}`,
+      role: role === 'assistant' ? 'assistant' : 'user',
+      text: value,
+      source,
+      createdAt: createdAt || new Date().toISOString(),
+      status: 'sent',
+    }
+    state.update((current) => ({
+      ...current,
+      messages: [...current.messages, message],
+      error: '',
+    }))
+    return message
+  }
+
   const appendAssistantChunk = (chunk) => {
     const filtered = suppressor.filterChunk(chunk)
     const text = String(filtered?.output || '')
@@ -156,6 +175,7 @@ export const createDirectorChatStore = ({ outputIdleMs = 250 } = {}) => {
     subscribe: state.subscribe,
     setSession,
     appendUserMessage,
+    appendChatMessage,
     appendAssistantChunk,
     finalizeAssistant,
     setError,

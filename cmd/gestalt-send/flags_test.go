@@ -70,8 +70,11 @@ func TestParseArgsHelp(t *testing.T) {
 	if !strings.Contains(help, "Usage: gestalt-send [options] <session-ref>") {
 		t.Fatalf("expected positional usage, got %q", help)
 	}
-	if strings.Contains(help, "--session-id") {
-		t.Fatalf("did not expect legacy --session-id in help")
+	if strings.Contains(help, "--session-id ID") {
+		t.Fatalf("did not expect legacy --session-id option declaration in help")
+	}
+	if !strings.Contains(help, "Migration:") {
+		t.Fatalf("expected migration section in help")
 	}
 }
 

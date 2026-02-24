@@ -233,4 +233,34 @@ func TestRunWithSenderNonZeroWritesStderr(t *testing.T) {
 			}
 		})
 	})
+
+	t.Run("session missing", func(t *testing.T) {
+		withMockClient(t, func(r *http.Request) (*http.Response, error) {
+			switch r.URL.Path {
+			case "/api/sessions":
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       io.NopCloser(strings.NewReader(`[]`)),
+					Header:     make(http.Header),
+					Request:    r,
+				}, nil
+			default:
+				return &http.Response{
+					StatusCode: http.StatusNotFound,
+					Body:       io.NopCloser(strings.NewReader(`{"error":"terminal not found"}`)),
+					Header:     make(http.Header),
+					Request:    r,
+				}, nil
+			}
+		}, func() {
+			var stderr bytes.Buffer
+			code := runWithSender([]string{"Fixer"}, strings.NewReader("hi"), &stderr, sendInput)
+			if code != 2 {
+				t.Fatalf("expected exit code 2, got %d", code)
+			}
+			if strings.TrimSpace(stderr.String()) == "" {
+				t.Fatalf("expected stderr output")
+			}
+		})
+	})
 }

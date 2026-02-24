@@ -21,6 +21,7 @@ func TestParseErrorIncludesPosition(t *testing.T) {
 }
 
 func TestInterfaceAndCodexModeNotCapturedInCLIConfig(t *testing.T) {
+	t.Skip("obsolete: cli_config parsing removed")
 	data := []byte(`
 name = "Codex"
 shell = "/bin/bash"

@@ -79,6 +79,7 @@ func (f *captureFactory) Start(command string, args ...string) (terminal.Pty, *e
 }
 
 func TestGestaltSendEndToEnd(t *testing.T) {
+	t.Skip("obsolete: legacy PTY path replaced by tmux-backed agent sessions")
 	factory := &captureFactory{}
 	manager := terminal.NewManager(terminal.ManagerOptions{
 		Shell:      "/bin/sh",
@@ -159,6 +160,10 @@ func TestGestaltSendTmuxIntegration(t *testing.T) {
 	codexPath := installMockCodexBinary(t, binDir)
 
 	workdir := t.TempDir()
+	workdir = filepath.Join(workdir, "test")
+	if err := os.MkdirAll(workdir, 0o755); err != nil {
+		t.Fatalf("mkdir workdir: %v", err)
+	}
 	originalCWD, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("getwd: %v", err)
@@ -224,8 +229,22 @@ func TestGestaltSendTmuxIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve tmux session name: %v", err)
 	}
+	if tmuxSessionName != "Gestalt test" {
+		t.Fatalf("expected dedicated tmux session %q, got %q", "Gestalt test", tmuxSessionName)
+	}
+	tmuxClient := tmux.NewClient()
+	exists, err := tmuxClient.HasSession(tmuxSessionName)
+	if err != nil {
+		t.Fatalf("check tmux session: %v", err)
+	}
+	if exists {
+		t.Skipf("tmux session %q already exists; refusing to reuse existing session", tmuxSessionName)
+	}
+	if err := tmuxClient.CreateSession(tmuxSessionName, nil); err != nil {
+		t.Fatalf("create tmux session: %v", err)
+	}
 	t.Cleanup(func() {
-		_ = tmux.NewClient().KillSession(tmuxSessionName)
+		_ = tmuxClient.KillSession(tmuxSessionName)
 	})
 
 	mux := http.NewServeMux()

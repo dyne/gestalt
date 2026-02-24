@@ -52,6 +52,9 @@ func TestNotifyEndpointPublishesToLogsSSEReplayAndLive(t *testing.T) {
 	if err := postNotify(server.URL, session.ID, "manual:preconnect"); err != nil {
 		t.Fatalf("post preconnect notify: %v", err)
 	}
+	if !waitForNotifyEventInSnapshot(hub, "manual:preconnect", time.Second) {
+		t.Fatalf("timed out waiting for preconnect notify in log snapshot")
+	}
 
 	resp, err := http.Get(server.URL + "/api/logs/stream?level=info")
 	if err != nil {
@@ -139,4 +142,24 @@ func readNotifyLogEntryByEventID(reader *bufio.Reader, eventID string, timeout t
 		}
 	}
 	return nil, errors.New("notify log entry not found")
+}
+
+func waitForNotifyEventInSnapshot(hub *otel.LogHub, eventID string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		entries := hub.SnapshotSince(time.Now().Add(-time.Hour))
+		for _, entry := range entries {
+			if entry == nil {
+				continue
+			}
+			if logBody(entry) != "notify event accepted" {
+				continue
+			}
+			if attrValue(entry, "notify.event_id") == eventID {
+				return true
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return false
 }

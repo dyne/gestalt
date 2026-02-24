@@ -464,6 +464,33 @@ func (m *Manager) createSession(request sessionCreateRequest) (*Session, error) 
 		shell = profile.Shell
 	}
 	if agentName != "" {
+		for {
+			m.mu.RLock()
+			existingID, ok := m.agentSessions[agentName]
+			var existingSession *Session
+			if ok {
+				existingSession = m.sessions[existingID]
+			}
+			m.mu.RUnlock()
+
+			if !ok {
+				break
+			}
+			if existingSession == nil {
+				m.mu.Lock()
+				if mappedID, stillMapped := m.agentSessions[agentName]; stillMapped && mappedID == existingID {
+					delete(m.agentSessions, agentName)
+				}
+				m.mu.Unlock()
+				continue
+			}
+			if m.isStaleExternalTmuxSession(existingSession) {
+				_ = m.Delete(existingID)
+				continue
+			}
+			return nil, &AgentAlreadyRunningError{AgentName: agentName, TerminalID: existingID}
+		}
+
 		m.mu.Lock()
 		if existingID, ok := m.agentSessions[agentName]; ok {
 			m.mu.Unlock()
@@ -890,6 +917,36 @@ func (m *Manager) PruneMissingExternalTmuxSessions() {
 			_ = m.Delete(session.ID)
 		}
 	}
+}
+
+func (m *Manager) isStaleExternalTmuxSession(session *Session) bool {
+	if m == nil || !isTmuxManagedSession(session) {
+		return false
+	}
+	tmuxSessionName, err := tmuxsession.WorkdirSessionName()
+	if err != nil {
+		return false
+	}
+	clientFactory := m.tmuxClientFactory
+	if clientFactory == nil {
+		return false
+	}
+	client := clientFactory()
+	if client == nil {
+		return false
+	}
+	hasSession, err := client.HasSession(tmuxSessionName)
+	if err != nil {
+		return false
+	}
+	if !hasSession {
+		return true
+	}
+	exists, err := client.HasWindow(tmuxSessionName, session.ID)
+	if err != nil {
+		return false
+	}
+	return !exists
 }
 
 func (m *Manager) Get(id string) (*Session, bool) {

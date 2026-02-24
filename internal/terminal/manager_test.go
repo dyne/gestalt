@@ -325,6 +325,44 @@ func (c *bridgeTmuxClient) PasteBuffer(target string) error {
 }
 func (c *bridgeTmuxClient) ResizePane(target string, cols, rows uint16) error { return nil }
 
+type blockingBridgeTmuxClient struct {
+	mu               sync.Mutex
+	loadCount        int
+	loadStarted      chan struct{}
+	releaseFirstLoad chan struct{}
+	pastes           int
+}
+
+func (c *blockingBridgeTmuxClient) HasSession(name string) (bool, error) { return true, nil }
+func (c *blockingBridgeTmuxClient) HasWindow(sessionName, windowName string) (bool, error) {
+	return true, nil
+}
+func (c *blockingBridgeTmuxClient) SelectWindow(target string) error { return nil }
+func (c *blockingBridgeTmuxClient) LoadBuffer(data []byte) error {
+	c.mu.Lock()
+	c.loadCount++
+	current := c.loadCount
+	c.mu.Unlock()
+	if current == 1 {
+		close(c.loadStarted)
+		<-c.releaseFirstLoad
+	}
+	return nil
+}
+func (c *blockingBridgeTmuxClient) PasteBuffer(target string) error {
+	c.mu.Lock()
+	c.pastes++
+	c.mu.Unlock()
+	return nil
+}
+func (c *blockingBridgeTmuxClient) ResizePane(target string, cols, rows uint16) error { return nil }
+
+func (c *blockingBridgeTmuxClient) counts() (int, int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.loadCount, c.pastes
+}
+
 func TestTmuxManagedSessionWriteUsesTmuxBridge(t *testing.T) {
 	tmuxClient := &bridgeTmuxClient{}
 	manager := NewManager(ManagerOptions{
@@ -365,6 +403,59 @@ func TestTmuxManagedSessionWriteUsesTmuxBridge(t *testing.T) {
 	}
 	if !strings.HasSuffix(tmuxClient.pastes[0], ":"+session.ID) {
 		t.Fatalf("expected paste target to end with %q, got %q", ":"+session.ID, tmuxClient.pastes[0])
+	}
+}
+
+func TestTmuxManagedSessionWriteSerializesConcurrentBridgeWrites(t *testing.T) {
+	tmuxClient := &blockingBridgeTmuxClient{
+		loadStarted:      make(chan struct{}),
+		releaseFirstLoad: make(chan struct{}),
+	}
+	manager := NewManager(ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: &fakeFactory{},
+		Agents: map[string]agent.Agent{
+			"codex": {Name: "Codex", Shell: "codex"},
+		},
+		StartExternalTmuxWindow: func(_ *launchspec.LaunchSpec) error { return nil },
+		TmuxClientFactory:       func() TmuxClient { return tmuxClient },
+	})
+
+	session, err := manager.CreateWithOptions(CreateOptions{AgentID: "codex"})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(session.ID)
+	}()
+
+	firstErr := make(chan error, 1)
+	secondErr := make(chan error, 1)
+	go func() { firstErr <- session.Write([]byte("first\n")) }()
+	select {
+	case <-tmuxClient.loadStarted:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("timed out waiting for first load-buffer call")
+	}
+
+	go func() { secondErr <- session.Write([]byte("second\n")) }()
+	time.Sleep(50 * time.Millisecond)
+	loadCount, _ := tmuxClient.counts()
+	if loadCount != 1 {
+		t.Fatalf("expected second write to wait for bridge lock, got %d load-buffer calls", loadCount)
+	}
+
+	close(tmuxClient.releaseFirstLoad)
+	if err := <-firstErr; err != nil {
+		t.Fatalf("first write: %v", err)
+	}
+	if err := <-secondErr; err != nil {
+		t.Fatalf("second write: %v", err)
+	}
+
+	loadCount, pasteCount := tmuxClient.counts()
+	if loadCount != 2 || pasteCount != 2 {
+		t.Fatalf("expected 2 load/paste calls, got loads=%d pastes=%d", loadCount, pasteCount)
 	}
 }
 

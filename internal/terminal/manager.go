@@ -543,10 +543,15 @@ func (m *Manager) attachTmuxBridge(session *Session) error {
 		return err
 	}
 	target := tmuxSessionName + ":" + session.ID
+	var bridgeWriteMu sync.Mutex
 	writeFn := func(data []byte) error {
 		if len(data) == 0 {
 			return nil
 		}
+		// tmux input uses a two-step write (load-buffer + paste-buffer), so
+		// keep it atomic per session to avoid interleaving under concurrent writes.
+		bridgeWriteMu.Lock()
+		defer bridgeWriteMu.Unlock()
 		clientFactory := m.tmuxClientFactory
 		if clientFactory == nil {
 			return ErrTmuxUnavailable

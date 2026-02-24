@@ -318,4 +318,24 @@ describe('Dashboard', () => {
     expect(await findByText('1234567890ab')).toBeTruthy()
   })
 
+  it('renders director composer on narrow viewports', async () => {
+    Object.defineProperty(window, 'innerWidth', {
+      value: 640,
+      writable: true,
+      configurable: true,
+    })
+    window.dispatchEvent(new Event('resize'))
+    const dashboardStore = buildDashboardStore()
+    createDashboardStore.mockReturnValue(dashboardStore)
+
+    const { findByRole } = render(Dashboard, {
+      props: {
+        terminals: [],
+        status: { session_count: 0 },
+      },
+    })
+
+    expect(await findByRole('textbox')).toBeTruthy()
+  })
+
 })

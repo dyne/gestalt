@@ -183,3 +183,34 @@ a {
 .home-surface--base {
   background: var(--surface-gradient-base);
 }
+
+@media (max-width: 720px) {
+  :root {
+    --surface-gradient-base: linear-gradient(
+      145deg,
+      rgba(var(--color-surface-rgb), 0.84),
+      rgba(var(--color-bg-rgb), 0.96)
+    );
+    --surface-gradient-info: linear-gradient(
+      145deg,
+      rgba(var(--color-info-rgb), 0.08),
+      rgba(var(--color-surface-rgb), 0.84)
+    );
+    --surface-gradient-success: linear-gradient(
+      145deg,
+      rgba(var(--color-success-rgb), 0.08),
+      rgba(var(--color-surface-rgb), 0.84)
+    );
+    --surface-gradient-warning: linear-gradient(
+      145deg,
+      rgba(var(--color-warning-rgb), 0.08),
+      rgba(var(--color-surface-rgb), 0.84)
+    );
+  }
+}
+
+@media (max-width: 640px) {
+  .home-surface {
+    border-radius: 18px;
+  }
+}

@@ -60,7 +60,7 @@ func (h *LogsSSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	snapshot := hub.SnapshotSince(time.Now().Add(-time.Hour))
+	snapshot := hub.SnapshotSince(time.Time{})
 	if err := writeSSELogSnapshot(writer, snapshot, filterLevel); err != nil {
 		return
 	}

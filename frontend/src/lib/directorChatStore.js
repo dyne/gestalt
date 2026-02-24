@@ -1,5 +1,6 @@
 import { get, writable } from 'svelte/store'
 import { createPromptEchoSuppressor } from './terminal/segments.js'
+import { createTerminalSocket } from './terminal/socket.js'
 
 const buildInitialState = () => ({
   sessionId: '',
@@ -8,10 +9,23 @@ const buildInitialState = () => ({
   error: '',
 })
 
-export const createDirectorChatStore = () => {
+export const createDirectorChatStore = ({ outputIdleMs = 250 } = {}) => {
   const state = writable(buildInitialState())
   const suppressor = createPromptEchoSuppressor()
+  const socketStatus = writable('disconnected')
+  const socketHistoryStatus = writable('idle')
+  const socketCanReconnect = writable(false)
+  const historyCache = new Map()
   let nextMessageId = 1
+  let socketManager = null
+  let activeSessionId = ''
+  let finalizeTimer = null
+
+  const clearFinalizeTimer = () => {
+    if (!finalizeTimer) return
+    clearTimeout(finalizeTimer)
+    finalizeTimer = null
+  }
 
   const setSession = (sessionId) => {
     state.update((current) => ({
@@ -67,6 +81,10 @@ export const createDirectorChatStore = () => {
         streaming: true,
       }
     })
+    clearFinalizeTimer()
+    finalizeTimer = setTimeout(() => {
+      finalizeAssistant()
+    }, outputIdleMs)
   }
 
   const finalizeAssistant = () => {
@@ -95,7 +113,40 @@ export const createDirectorChatStore = () => {
   }
 
   const clear = () => {
+    clearFinalizeTimer()
     state.set(buildInitialState())
+  }
+
+  const detachStream = () => {
+    if (!socketManager) return
+    socketManager.disconnect?.()
+    socketManager.dispose?.()
+    socketManager = null
+  }
+
+  const attachStream = (sessionId) => {
+    const value = String(sessionId || '').trim()
+    if (!value || value === activeSessionId) return
+    detachStream()
+    activeSessionId = value
+    socketManager = createTerminalSocket({
+      terminalId: value,
+      status: socketStatus,
+      historyStatus: socketHistoryStatus,
+      canReconnect: socketCanReconnect,
+      historyCache,
+      onOutput: (chunk) => {
+        appendAssistantChunk(chunk)
+      },
+      onHistory: () => {},
+    })
+    socketManager.connect?.()
+  }
+
+  const dispose = () => {
+    clearFinalizeTimer()
+    detachStream()
+    activeSessionId = ''
   }
 
   return {
@@ -106,6 +157,9 @@ export const createDirectorChatStore = () => {
     finalizeAssistant,
     setError,
     clear,
+    attachStream,
+    detachStream,
+    dispose,
     snapshot: () => get(state),
   }
 }

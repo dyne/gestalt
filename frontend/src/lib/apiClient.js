@@ -325,6 +325,54 @@ export const sendSessionInput = async (sessionId, inputText) => {
   })
 }
 
+const directorPromptTypeFor = (source) => (source === 'voice' ? 'prompt-voice' : 'prompt-text')
+
+const ensureDirectorSession = async () => {
+  try {
+    const created = await createTerminal({ agentId: 'director' })
+    const sessionId = String(created?.id || '').trim()
+    if (!sessionId) {
+      throw new Error('Director session did not return an id')
+    }
+    return sessionId
+  } catch (err) {
+    if (err?.status === 409) {
+      const sessionId = String(err?.data?.session_id || '').trim()
+      if (sessionId) return sessionId
+    }
+    throw err
+  }
+}
+
+export const sendDirectorPrompt = async (message, source = 'text') => {
+  const text = String(message || '').trim()
+  if (!text) {
+    throw new Error('Director prompt is required')
+  }
+  const sessionId = await ensureDirectorSession()
+  await sendSessionInput(sessionId, text)
+  let notifyError = ''
+  try {
+    await apiFetch(buildApiPath('/api/sessions', sessionId, 'notify'), {
+      method: 'POST',
+      body: JSON.stringify({
+        session_id: sessionId,
+        payload: {
+          type: directorPromptTypeFor(source),
+          message: text,
+        },
+      }),
+    })
+  } catch (err) {
+    notifyError = err?.message || 'Failed to post director prompt trigger.'
+  }
+  return {
+    sessionId,
+    sentAt: new Date().toISOString(),
+    notifyError,
+  }
+}
+
 const resolveAgentSessionID = async (agentId, agentName) => {
   const agents = await fetchAgents()
   const match = agents.find((agent) => agent.id === agentId || agent.name === agentName)

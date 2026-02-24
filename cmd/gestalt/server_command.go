@@ -235,6 +235,7 @@ func runServer(args []string) int {
 		})
 		return 1
 	}
+	otel.SetActiveLogHubMaxRecords(int(settings.Session.LogHubMaxEntries))
 	tuiSnapshotInterval := time.Duration(0)
 	if settings.Session.TUISnapshotIntervalMS > 0 {
 		tuiSnapshotInterval = time.Duration(settings.Session.TUISnapshotIntervalMS) * time.Millisecond

@@ -11,6 +11,7 @@ import (
 type gestaltDefaults struct {
 	Session struct {
 		LogMaxBytes           int64  `toml:"log-max-bytes"`
+		LogHubMaxEntries      int64  `toml:"log-hub-max-entries"`
 		HistoryScanMaxBytes   int64  `toml:"history-scan-max-bytes"`
 		ScrollbackLines       int64  `toml:"scrollback-lines"`
 		FontFamily            string `toml:"font-family"`
@@ -36,6 +37,9 @@ func TestEmbeddedGestaltTomlDefaults(t *testing.T) {
 
 	if defaults.Session.LogMaxBytes != 5*1024*1024 {
 		t.Fatalf("expected log-max-bytes 5242880, got %d", defaults.Session.LogMaxBytes)
+	}
+	if defaults.Session.LogHubMaxEntries != 1000 {
+		t.Fatalf("expected log-hub-max-entries 1000, got %d", defaults.Session.LogHubMaxEntries)
 	}
 	if defaults.Session.HistoryScanMaxBytes != 2*1024*1024 {
 		t.Fatalf("expected history-scan-max-bytes 2097152, got %d", defaults.Session.HistoryScanMaxBytes)

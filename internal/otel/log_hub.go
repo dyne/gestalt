@@ -45,11 +45,44 @@ func ActiveLogHub() *LogHub {
 	return activeLogHub
 }
 
+// SetActiveLogHubMaxRecords updates the active log hub retention by count.
+func SetActiveLogHubMaxRecords(maxRecords int) {
+	hub := ActiveLogHub()
+	if hub == nil {
+		return
+	}
+	hub.SetMaxRecords(maxRecords)
+}
+
 func SetActiveLogHub(hub *LogHub) {
 	if hub == nil {
 		hub = NewLogHub(defaultLogHubRetention)
 	}
 	activeLogHub = hub
+}
+
+// MaxRecords returns the current max record cap for snapshots.
+func (hub *LogHub) MaxRecords() int {
+	if hub == nil {
+		return 0
+	}
+	hub.mu.Lock()
+	defer hub.mu.Unlock()
+	return hub.maxRecords
+}
+
+// SetMaxRecords updates the snapshot record cap, falling back to the default.
+func (hub *LogHub) SetMaxRecords(maxRecords int) {
+	if hub == nil {
+		return
+	}
+	if maxRecords <= 0 {
+		maxRecords = DefaultLogHubMaxRecords
+	}
+	hub.mu.Lock()
+	hub.maxRecords = maxRecords
+	hub.pruneLocked(time.Time{})
+	hub.mu.Unlock()
 }
 
 func (hub *LogHub) Append(records ...map[string]any) {

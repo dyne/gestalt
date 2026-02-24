@@ -94,6 +94,8 @@ Flow config endpoint policy:
 
 - The canonical session namespace is `/api/sessions/*`.
 - `/api/terminals/*` is not part of the current API surface.
+- `POST /api/sessions/:id/input` is the canonical interactive input path for
+  both server-backed and tmux-backed agent sessions.
 
 ## Migration notes
 

@@ -52,6 +52,35 @@ func sendSessionInput(cfg Config, payload []byte) error {
 		return sendErr(2, "session reference is required")
 	}
 	baseURL := strings.TrimRight(cfg.URL, "/")
+	if client.IsChatSessionRef(sessionRef) {
+		if cfg.Verbose {
+			logf(cfg, "sending %d bytes to chat at %s/api/sessions/%s/input", len(payload), baseURL, sessionRef)
+			if strings.TrimSpace(cfg.Token) != "" {
+				logf(cfg, "token: %s", maskToken(cfg.Token, cfg.Debug))
+			}
+		}
+		if cfg.Debug && len(payload) > 0 {
+			preview := payload
+			if len(preview) > 100 {
+				preview = preview[:100]
+			}
+			logf(cfg, "payload preview: %q", string(preview))
+		}
+		if err := client.SendSessionInput(httpClient, baseURL, cfg.Token, client.ChatSessionRef, payload); err != nil {
+			var httpErr *client.HTTPError
+			if errors.As(err, &httpErr) {
+				if cfg.Verbose && httpErr.StatusCode != 0 {
+					logf(cfg, "response status: %d %s", httpErr.StatusCode, http.StatusText(httpErr.StatusCode))
+				}
+				return sendErr(3, httpErr.Message)
+			}
+			return sendErrf(3, "%v", err)
+		}
+		if cfg.Verbose {
+			logf(cfg, "response status: %d %s", http.StatusOK, http.StatusText(http.StatusOK))
+		}
+		return nil
+	}
 	sessions, err := client.FetchSessions(httpClient, baseURL, cfg.Token)
 	if err != nil {
 		var httpErr *client.HTTPError

@@ -29,6 +29,9 @@ type HTTPError struct {
 
 var defaultWaitSessionReadyTimeout = 2 * time.Second
 
+// ChatSessionRef is the special session reference used for chat-only messages.
+const ChatSessionRef = "chat"
+
 func (e *HTTPError) Error() string {
 	return e.Message
 }
@@ -41,6 +44,11 @@ func NormalizeSessionRef(ref string) (string, error) {
 		return "", errors.New("session reference is required")
 	}
 	return trimmed, nil
+}
+
+// IsChatSessionRef reports whether the reference targets the special chat session.
+func IsChatSessionRef(ref string) bool {
+	return strings.EqualFold(strings.TrimSpace(ref), ChatSessionRef)
 }
 
 func ResolveSessionRef(ref string) (string, error) {

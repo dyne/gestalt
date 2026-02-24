@@ -26,6 +26,15 @@ type sseEventEnvelope struct {
 	Payload   any
 }
 
+type chatEventPayload struct {
+	Type      string    `json:"type"`
+	SessionID string    `json:"session_id"`
+	Role      string    `json:"role"`
+	Message   string    `json:"message"`
+	Source    string    `json:"source,omitempty"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
 type sseTypeFilter struct {
 	enabled bool
 	types   map[string]struct{}
@@ -90,7 +99,8 @@ func (h *EventsSSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	agentBus := h.Manager.AgentBus()
 	terminalBus := h.Manager.TerminalBus()
-	if agentBus == nil || terminalBus == nil {
+	chatBus := h.Manager.ChatBus()
+	if agentBus == nil || terminalBus == nil || chatBus == nil {
 		writeSSEUnavailable(w, r, h.Logger, http.StatusInternalServerError, "event stream unavailable")
 		return
 	}
@@ -148,6 +158,18 @@ func (h *EventsSSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	chatEvents, cancelChat := chatBus.SubscribeFiltered(func(event eventtypes.ChatEvent) bool {
+		return typeFilter.Allows(event.Type())
+	})
+	if chatEvents == nil {
+		cancelWatcher()
+		cancelConfig()
+		cancelAgent()
+		cancelTerminal()
+		writeSSEUnavailable(w, r, h.Logger, http.StatusInternalServerError, "chat events unavailable")
+		return
+	}
+
 	writer, err := startSSEWriter(w)
 	if err != nil {
 		logSSEError(h.Logger, r, sseError{
@@ -159,6 +181,7 @@ func (h *EventsSSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		cancelConfig()
 		cancelAgent()
 		cancelTerminal()
+		cancelChat()
 		return
 	}
 
@@ -212,6 +235,21 @@ func (h *EventsSSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			SessionID: event.TerminalID,
 			Timestamp: event.Timestamp(),
 			Data:      event.Data,
+		}
+		if payload.Timestamp.IsZero() {
+			payload.Timestamp = time.Now().UTC()
+		}
+		return sseEventEnvelope{EventType: payload.Type, Payload: payload}, true
+	})
+
+	forwardSSE(ctx, &wg, output, chatEvents, cancelChat, func(event eventtypes.ChatEvent) (sseEventEnvelope, bool) {
+		payload := chatEventPayload{
+			Type:      event.Type(),
+			SessionID: event.SessionID,
+			Role:      event.Role,
+			Message:   event.Message,
+			Source:    event.Source,
+			Timestamp: event.Timestamp(),
 		}
 		if payload.Timestamp.IsZero() {
 			payload.Timestamp = time.Now().UTC()

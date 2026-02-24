@@ -37,9 +37,9 @@ var activityCatalog = []ActivityDef{
 	{
 		ID:          "send_to_terminal",
 		Label:       "Send message to session",
-		Description: "Send a formatted message to a specific session (preferred) or agent fallback.",
+		Description: "Send a formatted message to a specific session (preferred), chat, or agent fallback.",
 		Fields: []ActivityField{
-			{Key: "target_session_id", Label: "Target session id (preferred)", Type: "string"},
+			{Key: "target_session_id", Label: "Target session id (preferred, supports chat)", Type: "string"},
 			{Key: "target_agent_name", Label: "Target agent (fallback)", Type: "string"},
 			{Key: "include_terminal_output", Label: "Include terminal output", Type: "bool"},
 			{Key: "output_tail_lines", Label: "Output tail lines", Type: "int"},

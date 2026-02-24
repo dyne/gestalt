@@ -113,6 +113,31 @@ func TestSendInputSessionIDSuccess(t *testing.T) {
 	})
 }
 
+func TestSendInputChatSessionSuccess(t *testing.T) {
+	withMockClient(t, func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path == "/api/sessions" {
+			t.Fatalf("unexpected session list request for chat input")
+		}
+		if r.URL.Path != "/api/sessions/chat/input" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader("")),
+			Header:     make(http.Header),
+			Request:    r,
+		}, nil
+	}, func() {
+		cfg := Config{
+			URL:        "http://example.invalid",
+			SessionRef: "chat",
+		}
+		if err := sendInput(cfg, []byte("hello")); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
 func TestRunWithSenderSessionID(t *testing.T) {
 	sawInput := false
 	withMockClient(t, func(r *http.Request) (*http.Response, error) {

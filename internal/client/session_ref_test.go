@@ -79,3 +79,21 @@ func TestIsExplicitNumberedSessionRef(t *testing.T) {
 		}
 	}
 }
+
+func TestIsChatSessionRef(t *testing.T) {
+	cases := []struct {
+		ref  string
+		want bool
+	}{
+		{ref: "chat", want: true},
+		{ref: " Chat ", want: true},
+		{ref: "CHAT", want: true},
+		{ref: "chat 1", want: false},
+		{ref: "Coder", want: false},
+	}
+	for _, tc := range cases {
+		if got := IsChatSessionRef(tc.ref); got != tc.want {
+			t.Fatalf("ref %q: expected %v, got %v", tc.ref, tc.want, got)
+		}
+	}
+}

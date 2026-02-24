@@ -104,6 +104,7 @@ func printSendHelp(out io.Writer) {
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Examples:")
 	fmt.Fprintln(out, "  echo \"status\" | gestalt-send \"Fixer\"")
+	fmt.Fprintln(out, "  echo \"hello\" | gestalt-send chat")
 	fmt.Fprintln(out, "  cat file.txt | gestalt-send --host remote --port 57417 --token abc123 \"Fixer 1\"")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Migration:")

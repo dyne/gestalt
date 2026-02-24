@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"gestalt/internal/agent"
+	"gestalt/internal/event"
 	"gestalt/internal/flow"
 	"gestalt/internal/logging"
 	"gestalt/internal/notify"
@@ -154,6 +155,35 @@ func TestDispatcherSendToTerminalRequiresTarget(testingContext *testing.T) {
 	}
 	if err := dispatcher.Dispatch(context.Background(), request); err == nil {
 		testingContext.Fatal("expected target error")
+	}
+}
+
+func TestDispatcherSendToChat(testingContext *testing.T) {
+	dispatcher, _, manager := newDispatcher()
+	events, cancel := manager.ChatBus().Subscribe()
+	defer cancel()
+
+	request := flow.ActivityRequest{
+		EventID:    "event",
+		TriggerID:  "trigger",
+		ActivityID: "send_to_terminal",
+		Config: map[string]any{
+			"target_session_id": "chat",
+			"message_template":  "hello chat",
+		},
+	}
+	if err := dispatcher.Dispatch(context.Background(), request); err != nil {
+		testingContext.Fatalf("chat send error: %v", err)
+	}
+	chatEvent := event.ReceiveWithTimeout(testingContext, events, time.Second)
+	if chatEvent.Message != "hello chat" {
+		testingContext.Fatalf("expected message %q, got %q", "hello chat", chatEvent.Message)
+	}
+	if chatEvent.SessionID != terminal.ChatSessionID {
+		testingContext.Fatalf("expected session id %q, got %q", terminal.ChatSessionID, chatEvent.SessionID)
+	}
+	if chatEvent.Role != "user" {
+		testingContext.Fatalf("expected role user, got %q", chatEvent.Role)
 	}
 }
 

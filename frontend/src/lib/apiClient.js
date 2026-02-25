@@ -346,6 +346,11 @@ const ensureDirectorSession = async () => {
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
+/**
+ * Ensure terminal-oriented prompts are submitted as a completed line.
+ */
+const withTrailingNewline = (text) => (/[\r\n]$/.test(text) ? text : `${text}\n`)
+
 const hasNonEmptyLines = (lines) =>
   Array.isArray(lines) && lines.some((line) => String(line || '').trim() !== '')
 
@@ -383,7 +388,7 @@ export const sendDirectorPrompt = async (message, source = 'text') => {
     await waitForSessionOutput(directorSession.sessionId)
   }
   const sessionId = directorSession.sessionId
-  await sendSessionInput(sessionId, text)
+  await sendSessionInput(sessionId, withTrailingNewline(text))
   let notifyError = ''
   try {
     await apiFetch(buildApiPath('/api/sessions', sessionId, 'notify'), {

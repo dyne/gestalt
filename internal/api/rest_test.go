@@ -1202,6 +1202,77 @@ func TestTerminalInputEndpointChatSession(t *testing.T) {
 	}
 }
 
+func TestTerminalInputEndpointFromSessionLogsCaller(t *testing.T) {
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: &fakeFactory{},
+		Agents: map[string]agent.Agent{
+			testAgentID: {Name: "Codex", Shell: "/bin/sh"},
+		},
+	})
+	caller, err := manager.Create(testAgentID, "", "")
+	if err != nil {
+		t.Fatalf("create caller terminal: %v", err)
+	}
+	defer func() {
+		_ = manager.Delete(caller.ID)
+	}()
+
+	logBuffer := logging.NewLogBuffer(20)
+	handler := &RestHandler{
+		Manager: manager,
+		Logger:  logging.NewLoggerWithOutput(logBuffer, logging.LevelDebug, nil),
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/chat/input", strings.NewReader("hello chat"))
+	req.Header.Set("Authorization", "Bearer secret")
+	req.Header.Set(fromSessionIDHeader, caller.ID)
+	res := httptest.NewRecorder()
+
+	restHandler("secret", nil, handler.handleTerminal)(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", res.Code, res.Body.String())
+	}
+
+	entries := logBuffer.List()
+	found := false
+	for _, entry := range entries {
+		if entry.Message != "session input accepted" {
+			continue
+		}
+		if entry.Context["session.id"] == caller.ID && entry.Context["target.session.id"] == terminal.ChatSessionID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected caller attribution log entry, got %+v", entries)
+	}
+}
+
+func TestTerminalInputEndpointFromSessionMissing(t *testing.T) {
+	manager := terminal.NewManager(terminal.ManagerOptions{
+		Shell:      "/bin/sh",
+		PtyFactory: &fakeFactory{},
+	})
+	handler := &RestHandler{Manager: manager}
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/chat/input", strings.NewReader("hello chat"))
+	req.Header.Set("Authorization", "Bearer secret")
+	req.Header.Set(fromSessionIDHeader, "Missing 1")
+	res := httptest.NewRecorder()
+
+	restHandler("secret", nil, handler.handleTerminal)(res, req)
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", res.Code)
+	}
+	var payload errorResponse
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Message != "from session not found" {
+		t.Fatalf("expected from session not found, got %q", payload.Message)
+	}
+}
+
 func TestTerminalInputEndpointTmuxManagedAgentSession(t *testing.T) {
 	tmuxClient := &fakeTmuxClient{hasSession: true}
 	manager := newTestManager(terminal.ManagerOptions{

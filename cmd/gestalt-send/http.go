@@ -51,10 +51,37 @@ func sendSessionInput(cfg Config, payload []byte) error {
 	if sessionRef == "" {
 		return sendErr(2, "session reference is required")
 	}
+	fromRef := strings.TrimSpace(cfg.FromSessionRef)
 	baseURL := strings.TrimRight(cfg.URL, "/")
+	requiresSessionLookup := !client.IsChatSessionRef(sessionRef) || fromRef != ""
+	var sessions []client.SessionInfo
+	if requiresSessionLookup {
+		var err error
+		sessions, err = client.FetchSessions(httpClient, baseURL, cfg.Token)
+		if err != nil {
+			var httpErr *client.HTTPError
+			if errors.As(err, &httpErr) {
+				return sendErr(3, httpErr.Message)
+			}
+			return sendErrf(3, "%v", err)
+		}
+	}
+
+	fromSessionID := ""
+	if fromRef != "" {
+		resolvedFrom, err := client.ResolveExistingSessionRefAgainstSessions(fromRef, sessions)
+		if err != nil {
+			return sendErr(2, err.Error())
+		}
+		fromSessionID = resolvedFrom
+	}
+
 	if client.IsChatSessionRef(sessionRef) {
 		if cfg.Verbose {
 			logf(cfg, "sending %d bytes to chat at %s/api/sessions/%s/input", len(payload), baseURL, sessionRef)
+			if fromSessionID != "" {
+				logf(cfg, "from session: %q (resolved from %q)", fromSessionID, fromRef)
+			}
 			if strings.TrimSpace(cfg.Token) != "" {
 				logf(cfg, "token: %s", maskToken(cfg.Token, cfg.Debug))
 			}
@@ -66,7 +93,7 @@ func sendSessionInput(cfg Config, payload []byte) error {
 			}
 			logf(cfg, "payload preview: %q", string(preview))
 		}
-		if err := client.SendSessionInput(httpClient, baseURL, cfg.Token, client.ChatSessionRef, payload); err != nil {
+		if err := client.SendSessionInput(httpClient, baseURL, cfg.Token, client.ChatSessionRef, fromSessionID, payload); err != nil {
 			var httpErr *client.HTTPError
 			if errors.As(err, &httpErr) {
 				if cfg.Verbose && httpErr.StatusCode != 0 {
@@ -81,14 +108,6 @@ func sendSessionInput(cfg Config, payload []byte) error {
 		}
 		return nil
 	}
-	sessions, err := client.FetchSessions(httpClient, baseURL, cfg.Token)
-	if err != nil {
-		var httpErr *client.HTTPError
-		if errors.As(err, &httpErr) {
-			return sendErr(3, httpErr.Message)
-		}
-		return sendErrf(3, "%v", err)
-	}
 	sessionID, err := client.ResolveSessionRefAgainstSessions(sessionRef, sessions)
 	if err != nil {
 		return sendErr(2, err.Error())
@@ -97,6 +116,9 @@ func sendSessionInput(cfg Config, payload []byte) error {
 	target := fmt.Sprintf("%s/api/sessions/%s/input", baseURL, sessionID)
 	if cfg.Verbose {
 		logf(cfg, "sending %d bytes to session %q (from %q) at %s", len(payload), sessionID, sessionRef, target)
+		if fromSessionID != "" {
+			logf(cfg, "from session: %q (resolved from %q)", fromSessionID, fromRef)
+		}
 		if strings.TrimSpace(cfg.Token) != "" {
 			logf(cfg, "token: %s", maskToken(cfg.Token, cfg.Debug))
 		}
@@ -109,7 +131,7 @@ func sendSessionInput(cfg Config, payload []byte) error {
 		logf(cfg, "payload preview: %q", string(preview))
 	}
 
-	if err := client.SendSessionInput(httpClient, baseURL, cfg.Token, sessionID, payload); err != nil {
+	if err := client.SendSessionInput(httpClient, baseURL, cfg.Token, sessionID, fromSessionID, payload); err != nil {
 		var httpErr *client.HTTPError
 		if errors.As(err, &httpErr) {
 			if cfg.Verbose && httpErr.StatusCode != 0 {

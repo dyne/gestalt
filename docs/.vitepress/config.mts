@@ -3,7 +3,7 @@ import { defineConfig } from 'vitepress'
 export default defineConfig({
   title: 'Gestalt',
   description: 'Multi-session dashboard for local coding agents and workflows.',
-  base: "/docs/gestalt/",
+  base: "/gestalt/",
   head: [
     ['link', { rel: 'icon', href: 'https://dyne.org/images/logos/gestalt_logo.svg' }]
   ],

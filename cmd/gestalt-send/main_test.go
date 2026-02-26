@@ -208,6 +208,68 @@ func TestRunWithSenderNameResolvesToCanonicalSession(t *testing.T) {
 	})
 }
 
+func TestRunWithSenderFromResolvesAndAddsHeader(t *testing.T) {
+	sawInput := false
+	withMockClient(t, func(r *http.Request) (*http.Response, error) {
+		switch r.URL.Path {
+		case "/api/sessions":
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`[{"id":"Fixer 1"},{"id":"Planner 1"}]`)),
+				Header:     make(http.Header),
+				Request:    r,
+			}, nil
+		case "/api/sessions/Fixer 1/input":
+			sawInput = true
+			if got := r.Header.Get("X-Gestalt-From-Session-ID"); got != "Planner 1" {
+				t.Fatalf("expected from header Planner 1, got %q", got)
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader("")),
+				Header:     make(http.Header),
+				Request:    r,
+			}, nil
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		return nil, nil
+	}, func() {
+		var stderr bytes.Buffer
+		code := runWithSender([]string{"--from", "Planner", "Fixer"}, strings.NewReader("hi"), &stderr, sendInput)
+		if code != 0 {
+			t.Fatalf("expected exit code 0, got %d: %s", code, stderr.String())
+		}
+		if !sawInput {
+			t.Fatalf("expected input call")
+		}
+	})
+}
+
+func TestRunWithSenderFromMissingSessionReturnsNotFound(t *testing.T) {
+	withMockClient(t, func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path == "/api/sessions" {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`[{"id":"Fixer 1"}]`)),
+				Header:     make(http.Header),
+				Request:    r,
+			}, nil
+		}
+		t.Fatalf("unexpected path: %s", r.URL.Path)
+		return nil, nil
+	}, func() {
+		var stderr bytes.Buffer
+		code := runWithSender([]string{"--from", "Planner", "Fixer"}, strings.NewReader("hi"), &stderr, sendInput)
+		if code != 2 {
+			t.Fatalf("expected exit code 2, got %d", code)
+		}
+		if !strings.Contains(stderr.String(), `session "Planner" not found`) {
+			t.Fatalf("expected missing from session error, got %q", stderr.String())
+		}
+	})
+}
+
 func TestHandleSendErrorMapping(t *testing.T) {
 	cases := []struct {
 		name        string

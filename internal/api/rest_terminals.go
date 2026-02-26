@@ -16,6 +16,8 @@ import (
 	"gestalt/internal/terminal"
 )
 
+const fromSessionIDHeader = "X-Gestalt-From-Session-ID"
+
 func (h *RestHandler) handleTerminals(w http.ResponseWriter, r *http.Request) *apiError {
 	if err := h.requireManager(); err != nil {
 		return err
@@ -74,6 +76,22 @@ func (h *RestHandler) handleTerminalInput(w http.ResponseWriter, r *http.Request
 	}
 	if len(payload) == 0 {
 		return &apiError{Status: http.StatusBadRequest, Message: "invalid request body"}
+	}
+	fromSessionID := strings.TrimSpace(r.Header.Get(fromSessionIDHeader))
+	if fromSessionID != "" {
+		if _, ok := h.Manager.Get(fromSessionID); !ok {
+			return &apiError{Status: http.StatusBadRequest, Message: "from session not found"}
+		}
+		if h.Logger != nil {
+			h.Logger.Info("session input accepted", map[string]string{
+				"gestalt.category":  "terminal",
+				"gestalt.source":    "gestalt-send",
+				"session.id":        fromSessionID,
+				"session_id":        fromSessionID,
+				"target.session.id": id,
+				"target_session_id": id,
+			})
+		}
 	}
 
 	if strings.EqualFold(id, terminal.ChatSessionID) {

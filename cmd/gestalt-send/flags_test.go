@@ -39,6 +39,7 @@ func TestParseArgsFlagOverridesEnv(t *testing.T) {
 		"--host", "override",
 		"--port", "4210",
 		"--token", "override-token",
+		"--from", "Planner",
 		"--verbose",
 		"--debug",
 		"session-9",
@@ -51,6 +52,9 @@ func TestParseArgsFlagOverridesEnv(t *testing.T) {
 	}
 	if cfg.Token != "override-token" {
 		t.Fatalf("expected override token, got %q", cfg.Token)
+	}
+	if cfg.FromSessionRef != "Planner" {
+		t.Fatalf("expected from session ref Planner, got %q", cfg.FromSessionRef)
 	}
 	if !cfg.Verbose {
 		t.Fatalf("expected verbose true")
@@ -69,6 +73,9 @@ func TestParseArgsHelp(t *testing.T) {
 	help := stderr.String()
 	if !strings.Contains(help, "Usage: gestalt-send [options] <session-ref>") {
 		t.Fatalf("expected positional usage, got %q", help)
+	}
+	if !strings.Contains(help, "--from SESSION") {
+		t.Fatalf("expected --from option in help")
 	}
 	if strings.Contains(help, "--session-id ID") {
 		t.Fatalf("did not expect legacy --session-id option declaration in help")

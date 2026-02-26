@@ -327,7 +327,7 @@ describe('apiClient', () => {
     expect(apiFetch).toHaveBeenNthCalledWith(3, '/api/sessions/Director%201/input', {
       method: 'POST',
       headers: { 'Content-Type': 'application/octet-stream' },
-      body: 'summarize repo\n',
+      body: 'summarize repo\n\n',
     })
     expect(apiFetch).toHaveBeenNthCalledWith(4, '/api/sessions/Director%201/notify', {
       method: 'POST',
@@ -356,7 +356,7 @@ describe('apiClient', () => {
     expect(apiFetch).toHaveBeenNthCalledWith(2, '/api/sessions/Director%209/input', {
       method: 'POST',
       headers: { 'Content-Type': 'application/octet-stream' },
-      body: 'resume\n',
+      body: 'resume\n\n',
     })
     expect(apiFetch).toHaveBeenNthCalledWith(3, '/api/sessions/Director%209/notify', {
       method: 'POST',

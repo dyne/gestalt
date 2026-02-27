@@ -6,20 +6,18 @@
   import { parseConventionalCommit } from '../lib/conventionalCommit.js'
   import { notificationStore } from '../lib/notificationStore.js'
   import { canUseClipboard } from '../lib/clipboard.js'
+  import DirectorComposer from '../components/DirectorComposer.svelte'
 
   export let terminals = []
   export let status = null
   export let loading = false
   export let error = ''
-  export let onSelect = () => {}
+  export let onDirectorSubmit = async () => {}
 
   const dashboardStore = createDashboardStore()
 
   let localError = ''
-  let agents = []
-  let visibleAgents = []
-  let agentsLoading = false
-  let agentsError = ''
+  let submittingDirector = false
   let logs = []
   let orderedLogs = []
   let visibleLogs = []
@@ -42,19 +40,19 @@
 
   const numberFormatter = new Intl.NumberFormat('en-US')
 
-  const switchToTerminal = (sessionId) => {
-    if (!sessionId) {
-      localError = 'No running session found.'
-      return
+  const submitDirector = async (payload = null) => {
+    const text = String(payload?.text || '').trim()
+    const source = payload?.source || 'text'
+    if (!text || submittingDirector) return
+    submittingDirector = true
+    localError = ''
+    try {
+      await onDirectorSubmit({ text, source })
+    } catch (err) {
+      localError = err?.message || 'Failed to send Director prompt.'
+    } finally {
+      submittingDirector = false
     }
-    onSelect(sessionId)
-  }
-
-  const showAgentStartHint = (agent) => {
-    const agentId = String(agent?.id || '').trim()
-    localError = agentId
-      ? `Session not running; run gestalt-agent ${agentId}.`
-      : 'Session not running; run gestalt-agent <agent-id>.'
   }
 
   const formatLogTime = (value) => {
@@ -111,8 +109,6 @@
   const commitConventional = (commit) => {
     return parseConventionalCommit(commit?.subject || '')
   }
-
-  $: visibleAgents = agents.filter((agent) => !agent?.hidden)
 
   const attributeEntriesFor = (entry) => {
     return Object.entries(entry?.attributes || {}).sort(([left], [right]) =>
@@ -172,9 +168,6 @@
   }
 
   $: ({
-    agents,
-    agentsLoading,
-    agentsError,
     logs,
     logsLoading,
     logsError,
@@ -234,39 +227,14 @@
     {/if}
   </section>
 
-  <section class="dashboard__agents">
+  <section class="dashboard__director dashboard-surface dashboard-surface--warning">
     <div class="list-header list-header--compact">
-      <h2 class="section-title">Agents</h2>
+      <h2 class="section-title">Director</h2>
     </div>
-
-    {#if agentsLoading}
-      <p class="muted">Loading agents…</p>
-    {:else if agentsError}
-      <p class="error">{agentsError}</p>
-    {:else if agents.length === 0}
-      <p class="muted">No agent profiles found.</p>
-    {:else if visibleAgents.length === 0}
-      <p class="muted">All agents are hidden.</p>
-    {:else}
-      <div class="agent-grid">
-        {#each visibleAgents as agent}
-          <div class="agent-card">
-            <button
-              class="agent-button"
-              class:agent-button--running={agent.running}
-              class:agent-button--stopped={!agent.running}
-              on:click={() =>
-                agent.running ? switchToTerminal(agent.session_id) : showAgentStartHint(agent)
-              }
-              disabled={loading}
-            >
-              <span class="agent-name" title={agent.name}>{agent.name}</span>
-              <span class="agent-action">{agent.running ? 'Open' : 'Run'}</span>
-            </button>
-          </div>
-        {/each}
-      </div>
-    {/if}
+    <DirectorComposer
+      disabled={loading || submittingDirector}
+      on:submit={(event) => void submitDirector(event.detail)}
+    />
 
     {#if error || localError}
       <p class="error">{error || localError}</p>
@@ -274,7 +242,7 @@
   </section>
 
   <section class="dashboard__intel">
-    <section class="dashboard__logs">
+    <section class="dashboard__logs dashboard-surface dashboard-surface--info">
       <div class="list-header list-header--compact">
         <h2 class="section-title">Recent logs</h2>
         <label class="logs-control logs-control--inline">
@@ -384,7 +352,7 @@
       </div>
     </section>
 
-    <section class="dashboard__gitlog">
+    <section class="dashboard__gitlog dashboard-surface dashboard-surface--success">
       <div class="list-header">
         <div class="gitlog-meta">
           <span class="gitlog-meta__repo">{gitRepoDisplay(status?.git_origin)}</span>
@@ -476,30 +444,6 @@
     gap: 2.5rem;
   }
 
-  .cta {
-    border: none;
-    border-radius: 999px;
-    padding: 0.85rem 1.6rem;
-    font-size: 0.95rem;
-    font-weight: 600;
-    background: var(--color-contrast-bg);
-    color: var(--color-contrast-text);
-    cursor: pointer;
-    transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
-    box-shadow: 0 10px 30px rgba(var(--shadow-color-rgb), 0.2);
-  }
-
-  .cta:disabled {
-    cursor: not-allowed;
-    opacity: 0.6;
-    transform: none;
-    box-shadow: none;
-  }
-
-  .cta:not(:disabled):hover {
-    transform: translateY(-2px);
-  }
-
   .dashboard__status {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -581,17 +525,20 @@
     color: var(--color-text-subtle);
   }
 
-  .dashboard__agents {
+  .dashboard__director {
     padding: 1rem;
     border-radius: 24px;
-    background: rgba(var(--color-warning-rgb), 0.12);
+    background: var(--surface-gradient-warning);
     border: 1px solid rgba(var(--color-text-rgb), 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
   }
 
   .dashboard__gitlog {
     padding: 1.5rem;
     border-radius: 24px;
-    background: rgba(var(--color-success-rgb), 0.08);
+    background: var(--surface-gradient-success);
     border: 1px solid rgba(var(--color-text-rgb), 0.08);
     display: flex;
     flex-direction: column;
@@ -608,7 +555,7 @@
   .dashboard__logs {
     padding: 1rem;
     border-radius: 24px;
-    background: rgba(var(--color-info-rgb), 0.08);
+    background: var(--surface-gradient-info);
     border: 1px solid rgba(var(--color-text-rgb), 0.08);
     display: flex;
     flex-direction: column;
@@ -1090,103 +1037,6 @@
     text-overflow: ellipsis;
   }
 
-  .agent-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: 0.45rem;
-  }
-
-  .agent-card {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 0.5rem;
-    align-items: stretch;
-  }
-
-  .agent-button {
-    border: 1px solid rgba(var(--color-text-rgb), 0.2);
-    border-radius: 12px;
-    padding: 0.45rem 0.65rem;
-    background: var(--color-surface);
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
-    cursor: pointer;
-    transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease,
-      background 160ms ease, border-color 160ms ease;
-    width: 100%;
-    height: 100%;
-    min-height: 2.2rem;
-  }
-
-  .agent-name {
-    font-size: 0.82rem;
-    display: inline-flex;
-    align-items: center;
-    min-width: 0;
-    flex: 1 1 auto;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .agent-button--running {
-    background: rgba(var(--color-success-rgb), 0.12);
-    border-color: rgba(var(--color-success-rgb), 0.35);
-    box-shadow: 0 12px 20px rgba(var(--color-success-rgb), 0.12);
-  }
-
-  .agent-button--stopped {
-    background: var(--color-surface);
-    border-color: rgba(var(--color-text-rgb), 0.16);
-  }
-
-  .agent-button--running .agent-name::before {
-    content: '';
-    display: inline-block;
-    width: 0.45rem;
-    height: 0.45rem;
-    border-radius: 999px;
-    margin-right: 0.4rem;
-    background: var(--color-success);
-    box-shadow: 0 0 0 0 rgba(var(--color-success-rgb), 0.4);
-    animation: pulseDot 2.4s ease-in-out infinite;
-  }
-
-  .agent-action {
-    font-size: 0.66rem;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--color-text-subtle);
-    flex: 0 0 auto;
-    white-space: nowrap;
-  }
-
-  @keyframes pulseDot {
-    0% {
-      box-shadow: 0 0 0 0 rgba(var(--color-success-rgb), 0.4);
-    }
-    70% {
-      box-shadow: 0 0 0 0.4rem rgba(var(--color-success-rgb), 0);
-    }
-    100% {
-      box-shadow: 0 0 0 0 rgba(var(--color-success-rgb), 0);
-    }
-  }
-
-  .agent-button:disabled {
-    cursor: not-allowed;
-    opacity: 0.6;
-    transform: none;
-    box-shadow: none;
-  }
-
-  .agent-button:not(:disabled):hover {
-    transform: translateY(-2px);
-    box-shadow: 0 12px 20px rgba(var(--shadow-color-rgb), 0.12);
-  }
 
   .list-header {
     display: flex;

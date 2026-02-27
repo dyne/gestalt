@@ -13,6 +13,7 @@ type Settings struct {
 
 type SessionSettings struct {
 	LogMaxBytes           int64
+	LogHubMaxEntries      int64
 	HistoryScanMaxBytes   int64
 	ScrollbackLines       int64
 	FontFamily            string
@@ -60,6 +61,7 @@ func LoadSettings(path string, defaultsPayload []byte, overrides map[string]any)
 	settings := Settings{}
 
 	settings.Session.LogMaxBytes = intSetting(values, "session.log-max-bytes", 0)
+	settings.Session.LogHubMaxEntries = intSetting(values, "session.log-hub-max-entries", 0)
 	settings.Session.HistoryScanMaxBytes = intSetting(values, "session.history-scan-max-bytes", 0)
 	settings.Session.ScrollbackLines = intSetting(values, "session.scrollback-lines", 0)
 	settings.Session.FontFamily = stringSetting(values, "session.font-family", "")
@@ -76,6 +78,9 @@ func LoadSettings(path string, defaultsPayload []byte, overrides map[string]any)
 func normalizeSettings(settings Settings, defaults map[string]any) Settings {
 	if settings.Session.LogMaxBytes <= 0 {
 		settings.Session.LogMaxBytes = intSetting(defaults, "session.log-max-bytes", 0)
+	}
+	if settings.Session.LogHubMaxEntries <= 0 {
+		settings.Session.LogHubMaxEntries = intSetting(defaults, "session.log-hub-max-entries", 0)
 	}
 	if settings.Session.HistoryScanMaxBytes <= 0 {
 		settings.Session.HistoryScanMaxBytes = intSetting(defaults, "session.history-scan-max-bytes", 0)

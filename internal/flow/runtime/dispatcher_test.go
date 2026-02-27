@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"gestalt/internal/agent"
+	"gestalt/internal/event"
 	"gestalt/internal/flow"
 	"gestalt/internal/logging"
 	"gestalt/internal/notify"
@@ -157,59 +158,32 @@ func TestDispatcherSendToTerminalRequiresTarget(testingContext *testing.T) {
 	}
 }
 
-func TestDispatcherSpawnAgentSession(testingContext *testing.T) {
-	testingContext.Skip("obsolete: agents hub session affects count assertions")
-	dispatcher, factory, manager := newDispatcher()
-	request := flow.ActivityRequest{
-		EventID:    "event",
-		TriggerID:  "trigger",
-		ActivityID: "spawn_agent_session",
-		Config: map[string]any{
-			"agent_id":         "target",
-			"message_template": "Hello",
-		},
-	}
-	if err := dispatcher.Dispatch(context.Background(), request); err != nil {
-		testingContext.Fatalf("spawn activity error: %v", err)
-	}
-	if len(manager.List()) != 1 {
-		testingContext.Fatalf("expected one session, got %d", len(manager.List()))
-	}
-	if !waitForWrite(factory, len("Hello\n")) {
-		testingContext.Fatal("expected spawn message write")
-	}
-	if written := factory.last.buffer.String(); written != "Hello\n" {
-		testingContext.Fatalf("unexpected spawn write: %q", written)
-	}
-}
+func TestDispatcherSendToChat(testingContext *testing.T) {
+	dispatcher, _, manager := newDispatcher()
+	events, cancel := manager.ChatBus().Subscribe()
+	defer cancel()
 
-func TestDispatcherSpawnAgentSessionReuse(testingContext *testing.T) {
-	testingContext.Skip("obsolete: agents hub session affects count assertions")
-	dispatcher, factory, manager := newDispatcher()
-	if _, err := manager.Create("target", "", ""); err != nil {
-		testingContext.Fatalf("create session: %v", err)
-	}
-	factory.last.buffer.Reset()
 	request := flow.ActivityRequest{
 		EventID:    "event",
 		TriggerID:  "trigger",
-		ActivityID: "spawn_agent_session",
+		ActivityID: "send_to_terminal",
 		Config: map[string]any{
-			"agent_id":         "target",
-			"message_template": "Reuse",
+			"target_session_id": "chat",
+			"message_template":  "hello chat",
 		},
 	}
 	if err := dispatcher.Dispatch(context.Background(), request); err != nil {
-		testingContext.Fatalf("reuse activity error: %v", err)
+		testingContext.Fatalf("chat send error: %v", err)
 	}
-	if len(manager.List()) != 1 {
-		testingContext.Fatalf("expected one session, got %d", len(manager.List()))
+	chatEvent := event.ReceiveWithTimeout(testingContext, events, time.Second)
+	if chatEvent.Message != "hello chat" {
+		testingContext.Fatalf("expected message %q, got %q", "hello chat", chatEvent.Message)
 	}
-	if !waitForWrite(factory, len("Reuse\n")) {
-		testingContext.Fatal("expected reuse message write")
+	if chatEvent.SessionID != terminal.ChatSessionID {
+		testingContext.Fatalf("expected session id %q, got %q", terminal.ChatSessionID, chatEvent.SessionID)
 	}
-	if written := factory.last.buffer.String(); written != "Reuse\n" {
-		testingContext.Fatalf("unexpected reuse write: %q", written)
+	if chatEvent.Role != "user" {
+		testingContext.Fatalf("expected role user, got %q", chatEvent.Role)
 	}
 }
 

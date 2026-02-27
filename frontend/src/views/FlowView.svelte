@@ -400,7 +400,7 @@
   }
 </script>
 
-<section class="flow-view">
+<section class="flow-view home-surface home-surface--base">
   <header class="flow-view__header">
     <div>
       <p class="eyebrow">Event-driven automations</p>

@@ -29,7 +29,7 @@ _gestalt_send_complete() {
   _init_completion || return
 
   if [[ "$cword" -eq 1 ]]; then
-    COMPREPLY=( $(compgen -W "completion --help --version --host --port --token --verbose --debug" -- "$cur") )
+    COMPREPLY=( $(compgen -W "completion --help --version --host --port --token --from --verbose --debug" -- "$cur") )
     return
   fi
 
@@ -39,7 +39,7 @@ _gestalt_send_complete() {
   fi
 
   if [[ "$cur" == -* ]]; then
-    COMPREPLY=( $(compgen -W "--help --version --host --port --token --verbose --debug" -- "$cur") )
+    COMPREPLY=( $(compgen -W "--help --version --host --port --token --from --verbose --debug" -- "$cur") )
     return
   fi
 }
@@ -55,6 +55,7 @@ _gestalt_send() {
     '--host[Gestalt server host]:HOST'
     '--port[Gestalt server port]:PORT'
     '--token[Auth token]:TOKEN'
+    '--from[Calling session reference for log attribution]:SESSION'
     '--verbose[Verbose output]'
     '--debug[Debug output]'
     '--help[Show help]'

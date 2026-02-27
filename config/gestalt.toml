@@ -1,5 +1,6 @@
 [session]
 log-max-bytes = 5242880
+log-hub-max-entries = 1000
 history-scan-max-bytes = 2097152
 scrollback-lines = 2000
 font-family = "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace"

@@ -37,24 +37,13 @@ var activityCatalog = []ActivityDef{
 	{
 		ID:          "send_to_terminal",
 		Label:       "Send message to session",
-		Description: "Send a formatted message to a specific session (preferred) or agent fallback.",
+		Description: "Send a formatted message to a specific session (preferred), chat, or agent fallback.",
 		Fields: []ActivityField{
-			{Key: "target_session_id", Label: "Target session id (preferred)", Type: "string"},
+			{Key: "target_session_id", Label: "Target session id (preferred, supports chat)", Type: "string"},
 			{Key: "target_agent_name", Label: "Target agent (fallback)", Type: "string"},
 			{Key: "include_terminal_output", Label: "Include terminal output", Type: "bool"},
 			{Key: "output_tail_lines", Label: "Output tail lines", Type: "int"},
 			{Key: "message_template", Label: "Message template", Type: "string", Required: true},
-		},
-	},
-	{
-		ID:          "spawn_agent_session",
-		Label:       "Spawn agent session",
-		Description: "Create (or reuse) an agent session and optionally send a message.",
-		Fields: []ActivityField{
-			{Key: "agent_id", Label: "Agent id", Type: "string", Required: true},
-			{Key: "reuse_if_running", Label: "Reuse if running", Type: "bool"},
-			{Key: "title_template", Label: "Title template", Type: "string"},
-			{Key: "message_template", Label: "Message template", Type: "string"},
 		},
 	},
 }

@@ -163,3 +163,11 @@ terminal output -> Session output bus -> /ws/session/:id -> frontend text view
 - `gestalt-send` uses positional `<session-ref>` and sends to running sessions only (no start/create path).
 - `gestalt-notify` now uses `--host`/`--port` (not `--url`); session-id normalization is trim-only.
 - Manager-injected Codex notify args include explicit `--host` and `--port` resolved from the `frontend` service port.
+
+## Dashboard director chat notes
+- Dashboard home no longer renders the agent quick-start grid; it uses a shared `DirectorComposer` prompt entry surface.
+- Successful Director send auto-switches to the `chat` home tab in `frontend/src/lib/tabRouting.js` and `frontend/src/App.svelte`.
+- Director send orchestration lives in `sendDirectorPrompt` (`frontend/src/lib/apiClient.js`): start-or-reuse session (`POST /api/sessions`), send input (`POST /api/sessions/:id/input`), then emit notify (`POST /api/sessions/:id/notify`).
+- Notify trigger mapping is source-aware: typed sends emit `payload.type=prompt-text`; voice sends emit `payload.type=prompt-voice`.
+- Chat bubbles and Director stream aggregation are owned by `frontend/src/lib/directorChatStore.js`; `frontend/src/views/ChatView.svelte` is the dedicated dialogue surface.
+- Home tabs (`Dashboard`, `Chat`, `Plans`, `Flow`) share subtle gradient tokens and surface classes from `frontend/src/app.css`.

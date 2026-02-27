@@ -2,6 +2,7 @@ import { formatTerminalLabel } from './terminalTabs.js'
 
 const HOME_TABS = [
   { id: 'dashboard', label: 'Dashboard', isHome: true },
+  { id: 'chat', label: 'Chat', isHome: true },
   { id: 'plan', label: 'Plans', isHome: true },
   { id: 'flow', label: 'Flow', isHome: true },
 ]
@@ -11,7 +12,8 @@ const AGENTS_TAB = { id: 'agents', label: 'Agents', isHome: true }
 const HOME_TAB_IDS = new Set([...HOME_TABS.map((tab) => tab.id), AGENTS_TAB.id])
 
 export const buildTabs = (terminalList = [], options = {}) => [
-  ...(options?.showAgents ? [...HOME_TABS, AGENTS_TAB] : HOME_TABS),
+  ...HOME_TABS.filter((tab) => tab.id !== 'chat' || options?.showChat),
+  ...(options?.showAgents ? [AGENTS_TAB] : []),
   ...terminalList
     .filter((terminal) => {
       const sessionInterface = String(terminal?.interface || '').trim().toLowerCase()

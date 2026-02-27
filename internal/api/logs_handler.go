@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -87,7 +88,7 @@ func (h *LogsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer span.End()
 	r = r.WithContext(spanCtx)
 
-	snapshot := hub.SnapshotSince(time.Now().Add(-time.Hour))
+	snapshot := hub.SnapshotSince(time.Time{})
 	writer, err := startWSWriteLoop(w, r, wsStreamConfig[map[string]any]{
 		Conn:           conn,
 		AllowedOrigins: h.AllowedOrigins,
@@ -175,11 +176,23 @@ func annotateReplay(entry map[string]any) map[string]any {
 	updated = append(updated, map[string]any{
 		"key": "gestalt.replay_window",
 		"value": map[string]any{
-			"stringValue": "1h",
+			"stringValue": logReplayWindowValue(),
 		},
 	})
 	cloned["attributes"] = updated
 	return cloned
+}
+
+func logReplayWindowValue() string {
+	hub := otel.ActiveLogHub()
+	if hub == nil {
+		return "max-entries"
+	}
+	maxRecords := hub.MaxRecords()
+	if maxRecords <= 0 {
+		return "max-entries"
+	}
+	return fmt.Sprintf("max-entries:%d", maxRecords)
 }
 
 func otelLogLevel(record map[string]any) logging.Level {

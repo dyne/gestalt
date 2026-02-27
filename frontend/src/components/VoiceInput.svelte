@@ -9,6 +9,8 @@
   const dispatch = createEventDispatcher()
 
   let recognition = null
+  let recognitionConstructor = null
+  let needsReset = false
   let isListening = false
   let isSupported = true
   let errorMessage = ''
@@ -49,9 +51,65 @@
     dispatch('transcript', { text })
   }
 
+  const detachRecognition = () => {
+    if (!recognition) return
+    recognition.onstart = null
+    recognition.onend = null
+    recognition.onerror = null
+    recognition.onresult = null
+    if (typeof recognition.abort === 'function') {
+      try {
+        recognition.abort()
+      } catch (error) {
+        // Ignore abort errors from already stopped instances.
+      }
+    }
+    recognition = null
+  }
+
+  const configureRecognition = (instance) => {
+    instance.continuous = continuous
+    instance.interimResults = false
+    instance.lang = lang || navigator.language || 'en-US'
+
+    instance.onstart = () => {
+      isListening = true
+      errorMessage = ''
+      vibrate(10)
+      dispatch('start')
+    }
+
+    instance.onend = () => {
+      isListening = false
+      vibrate(10)
+      dispatch('stop')
+    }
+
+    instance.onerror = (event) => {
+      isListening = false
+      errorMessage = describeError(event.error)
+      if (event.error === 'network' || event.error === 'aborted') {
+        needsReset = true
+      }
+      dispatch('error', { error: event.error, message: errorMessage })
+    }
+
+    instance.onresult = handleResult
+  }
+
+  const ensureRecognition = () => {
+    if (!recognitionConstructor) return null
+    if (recognition && !needsReset) return recognition
+    detachRecognition()
+    recognition = new recognitionConstructor()
+    configureRecognition(recognition)
+    needsReset = false
+    return recognition
+  }
+
   const startListening = () => {
     if (disabled) return
-    if (!recognition) return
+    if (!ensureRecognition()) return
     errorMessage = ''
     try {
       recognition.start()
@@ -87,8 +145,8 @@
   }
 
   onMount(() => {
-    const RecognitionConstructor = getRecognitionConstructor()
-    if (!RecognitionConstructor) {
+    recognitionConstructor = getRecognitionConstructor()
+    if (!recognitionConstructor) {
       isSupported = false
       return
     }
@@ -101,44 +159,11 @@
       return
     }
 
-    recognition = new RecognitionConstructor()
-    recognition.continuous = continuous
-    recognition.interimResults = false
-    recognition.lang = lang || navigator.language || 'en-US'
-
-    recognition.onstart = () => {
-      isListening = true
-      errorMessage = ''
-      vibrate(10)
-      dispatch('start')
-    }
-
-    recognition.onend = () => {
-      isListening = false
-      vibrate(10)
-      dispatch('stop')
-    }
-
-    recognition.onerror = (event) => {
-      isListening = false
-      errorMessage = describeError(event.error)
-      dispatch('error', { error: event.error, message: errorMessage })
-    }
-
-    recognition.onresult = handleResult
+    // Recognition is created lazily on user interaction.
   })
 
   onDestroy(() => {
-    if (!recognition) return
-    recognition.onstart = null
-    recognition.onend = null
-    recognition.onerror = null
-    recognition.onresult = null
-    try {
-      recognition.stop()
-    } catch (error) {
-      // Recognition may already be stopped; no action needed.
-    }
+    detachRecognition()
   })
 </script>
 

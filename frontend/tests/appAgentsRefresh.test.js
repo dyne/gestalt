@@ -118,7 +118,7 @@ describe('App agents tab refresh', () => {
     expect(sessionsCalls).toBeGreaterThanOrEqual(2)
   })
 
-  it('does not create an external agent when stopped agent is clicked', async () => {
+  it('creates only one director session request when submitting director text', async () => {
     let statusCalls = 0
     let sessionsCalls = 0
 
@@ -130,13 +130,23 @@ describe('App agents tab refresh', () => {
         })
       }
       if (url === '/api/sessions') {
+        if (options.method === 'POST') {
+          return Promise.resolve({ json: () => Promise.resolve({ id: 'Director 1' }) })
+        }
         sessionsCalls += 1
         return Promise.resolve({ json: () => Promise.resolve([]) })
       }
+      if (url === '/api/sessions/Director%201/output') {
+        return Promise.resolve({ json: () => Promise.resolve({ lines: ['codex ready'] }) })
+      }
+      if (url === '/api/sessions/Director%201/input' && options.method === 'POST') {
+        return Promise.resolve({ ok: true })
+      }
+      if (url === '/api/sessions/Director%201/notify' && options.method === 'POST') {
+        return Promise.resolve({ ok: true })
+      }
       if (url === '/api/agents') {
-        return Promise.resolve({
-          json: () => Promise.resolve([{ id: 'codex', name: 'Codex' }]),
-        })
+        return Promise.resolve({ json: () => Promise.resolve([]) })
       }
       if (url === '/api/metrics/summary') {
         return Promise.resolve({ json: () => Promise.resolve(defaultMetricsSummary) })
@@ -150,12 +160,12 @@ describe('App agents tab refresh', () => {
       return Promise.resolve({ json: () => Promise.resolve({}) })
     })
 
-    const { findByText, queryByRole } = render(App)
+    const { findByRole, queryByRole } = render(App)
+    const input = await findByRole('textbox')
+    await fireEvent.input(input, { target: { value: 'Review latest tasks' } })
+    await fireEvent.keyDown(input, { key: 'Enter' })
 
-    const button = await findByText('Codex')
-    await fireEvent.click(button)
-
-    expect(await findByText('Session not running; run gestalt-agent codex.')).toBeTruthy()
+    expect(await findByRole('button', { name: 'Chat' }, { timeout: 3000 })).toBeTruthy()
 
     expect(queryByRole('button', { name: 'Agents' })).toBeNull()
     expect(statusCalls).toBeGreaterThanOrEqual(1)
@@ -163,6 +173,6 @@ describe('App agents tab refresh', () => {
     const createCalls = apiFetch.mock.calls.filter(
       ([url, request]) => url === '/api/sessions' && request?.method === 'POST',
     )
-    expect(createCalls).toHaveLength(0)
+    expect(createCalls).toHaveLength(1)
   })
 })

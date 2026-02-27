@@ -28,8 +28,6 @@ tui.notifications = true
 tui.animations = false
 tui.show_tooltips = false
 tui.alternate_screen = "never"
-otel.environment = "dev"
-otel.log_user_prompt = false
 shell_environment_policy = { PATH = "$HOME/bin:$HOME/.local/bin:/usr/local/go/bin:$NVM_BIN:/usr/local/bin:/usr/bin:/bin" }
 project_root_markers = [".gestalt"]
 project_doc_fallback_filenames = ["AGENTS.md","CLAUDE.md","CRUSH.md", ".github/copilot-instructions.md",".gestalt/instructions.md","README.md"]

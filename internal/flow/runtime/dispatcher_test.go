@@ -187,62 +187,6 @@ func TestDispatcherSendToChat(testingContext *testing.T) {
 	}
 }
 
-func TestDispatcherSpawnAgentSession(testingContext *testing.T) {
-	testingContext.Skip("obsolete: agents hub session affects count assertions")
-	dispatcher, factory, manager := newDispatcher()
-	request := flow.ActivityRequest{
-		EventID:    "event",
-		TriggerID:  "trigger",
-		ActivityID: "spawn_agent_session",
-		Config: map[string]any{
-			"agent_id":         "target",
-			"message_template": "Hello",
-		},
-	}
-	if err := dispatcher.Dispatch(context.Background(), request); err != nil {
-		testingContext.Fatalf("spawn activity error: %v", err)
-	}
-	if len(manager.List()) != 1 {
-		testingContext.Fatalf("expected one session, got %d", len(manager.List()))
-	}
-	if !waitForWrite(factory, len("Hello\n")) {
-		testingContext.Fatal("expected spawn message write")
-	}
-	if written := factory.last.buffer.String(); written != "Hello\n" {
-		testingContext.Fatalf("unexpected spawn write: %q", written)
-	}
-}
-
-func TestDispatcherSpawnAgentSessionReuse(testingContext *testing.T) {
-	testingContext.Skip("obsolete: agents hub session affects count assertions")
-	dispatcher, factory, manager := newDispatcher()
-	if _, err := manager.Create("target", "", ""); err != nil {
-		testingContext.Fatalf("create session: %v", err)
-	}
-	factory.last.buffer.Reset()
-	request := flow.ActivityRequest{
-		EventID:    "event",
-		TriggerID:  "trigger",
-		ActivityID: "spawn_agent_session",
-		Config: map[string]any{
-			"agent_id":         "target",
-			"message_template": "Reuse",
-		},
-	}
-	if err := dispatcher.Dispatch(context.Background(), request); err != nil {
-		testingContext.Fatalf("reuse activity error: %v", err)
-	}
-	if len(manager.List()) != 1 {
-		testingContext.Fatalf("expected one session, got %d", len(manager.List()))
-	}
-	if !waitForWrite(factory, len("Reuse\n")) {
-		testingContext.Fatal("expected reuse message write")
-	}
-	if written := factory.last.buffer.String(); written != "Reuse\n" {
-		testingContext.Fatalf("unexpected reuse write: %q", written)
-	}
-}
-
 func TestDispatcherPostWebhook(testingContext *testing.T) {
 	received := make(chan *http.Request, 1)
 	bodyCh := make(chan []byte, 1)

@@ -23,7 +23,6 @@ const (
 	sendToTerminalActivityName    = "SendToTerminalActivity"
 	postWebhookActivityName       = "PostWebhookActivity"
 	publishToastActivityName      = "PublishToastActivity"
-	spawnAgentSessionActivityName = "SpawnAgentSessionActivity"
 	defaultWebhookTimeout         = 10 * time.Second
 	defaultOutputTailLines        = 50
 )
@@ -59,8 +58,6 @@ func (d *Dispatcher) Dispatch(ctx context.Context, request flow.ActivityRequest)
 		return d.postWebhook(ctx, request)
 	case "toast_notification":
 		return d.publishToast(ctx, request)
-	case "spawn_agent_session":
-		return d.spawnAgentSession(ctx, request)
 	default:
 		d.logWarn("unknown flow activity", map[string]string{
 			"activity_id": request.ActivityID,
@@ -266,62 +263,6 @@ func (d *Dispatcher) publishToast(ctx context.Context, request flow.ActivityRequ
 	}
 	d.logInfo("flow toast published", map[string]string{
 		"level": level,
-	})
-	return nil
-}
-
-func (d *Dispatcher) spawnAgentSession(ctx context.Context, request flow.ActivityRequest) (activityErr error) {
-	start := time.Now()
-	defer func() {
-		metrics.Default.RecordActivity(spawnAgentSessionActivityName, time.Since(start), activityErr, 1)
-	}()
-
-	if ctx != nil {
-		if contextError := ctx.Err(); contextError != nil {
-			activityErr = contextError
-			return contextError
-		}
-	}
-	manager, managerErr := d.ensureManager()
-	if managerErr != nil {
-		activityErr = managerErr
-		return managerErr
-	}
-
-	messageTemplate := flow.RenderTemplate(configString(request.Config, "message_template"), request)
-	agentID := strings.TrimSpace(configString(request.Config, "agent_id"))
-	if agentID == "" {
-		activityErr = errors.New("agent id is required")
-		return activityErr
-	}
-
-	title := strings.TrimSpace(flow.RenderTemplate(configString(request.Config, "title_template"), request))
-	reuseIfRunning := configBoolDefault(request.Config, "reuse_if_running", true)
-
-	session, sessionErr := manager.CreateWithOptions(terminal.CreateOptions{
-		AgentID: agentID,
-		Title:   title,
-	})
-	if sessionErr != nil {
-		if runningErr, ok := sessionErr.(*terminal.AgentAlreadyRunningError); ok && reuseIfRunning {
-			session, sessionErr = lookupSession(manager, runningErr.TerminalID)
-		}
-		if sessionErr != nil {
-			activityErr = sessionErr
-			return sessionErr
-		}
-	}
-
-	if strings.TrimSpace(messageTemplate) != "" {
-		if sendErr := writeSessionMessage(session, messageTemplate); sendErr != nil {
-			activityErr = sendErr
-			return sendErr
-		}
-	}
-
-	d.logInfo("flow session spawned", map[string]string{
-		"agent_id":   agentID,
-		"session_id": session.ID,
 	})
 	return nil
 }

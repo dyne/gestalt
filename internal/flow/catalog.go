@@ -46,17 +46,6 @@ var activityCatalog = []ActivityDef{
 			{Key: "message_template", Label: "Message template", Type: "string", Required: true},
 		},
 	},
-	{
-		ID:          "spawn_agent_session",
-		Label:       "Spawn agent session",
-		Description: "Create (or reuse) an agent session and optionally send a message.",
-		Fields: []ActivityField{
-			{Key: "agent_id", Label: "Agent id", Type: "string", Required: true},
-			{Key: "reuse_if_running", Label: "Reuse if running", Type: "bool"},
-			{Key: "title_template", Label: "Title template", Type: "string"},
-			{Key: "message_template", Label: "Message template", Type: "string"},
-		},
-	},
 }
 
 func ActivityCatalog() []ActivityDef {

@@ -3,12 +3,24 @@ shell = "codex"
 cli_type = "codex"
 interface = "cli"
 prompt = ["director"]
+model_verbosity = "medium"
+
+compact_prompt = "Study your current branch and org plan. Continue your latest task."
 
 # Core model selection
-model = "gpt-5.3-codex" # values: any supported model id
+model = "gpt-5.3-codex"
 model_reasoning_effort = "low"
-approval_policy = "untrusted"
-sandbox_mode = "read-only"
+review_model = "gpt-5.3-codex"
+
+# Permissions
+approval_policy = "never"
+sandbox_mode = "workspace-write"
+sandbox_workspace_write.exclude_tmpdir_env_var = false  # $TMPDIR
+sandbox_workspace_write.exclude_slash_tmp = false       # /tmp
+sandbox_workspace_write.network_access = true
+
+# Changing settings below may break Gestalt
+history.persistence = "none"
 check_for_update_on_startup = false
 analytics.enabled = false
 feedback.enabled = false
@@ -16,30 +28,10 @@ tui.notifications = true
 tui.animations = false
 tui.show_tooltips = false
 tui.alternate_screen = "never"
-
+otel.environment = "dev"
+otel.log_user_prompt = false
+shell_environment_policy = { PATH = "$HOME/bin:$HOME/.local/bin:/usr/local/go/bin:$NVM_BIN:/usr/local/bin:/usr/bin:/bin" }
 project_root_markers = [".gestalt"]
 project_doc_fallback_filenames = ["AGENTS.md","CLAUDE.md","CRUSH.md", ".github/copilot-instructions.md",".gestalt/instructions.md","README.md"]
 otel.environment = "dev"
 otel.log_user_prompt = false
-
-shell_environment_policy = { PATH = "$HOME/bin:$HOME/.local/bin:/usr/local/go/bin:$NVM_BIN:/usr/local/bin:/usr/bin:/bin" }
-
-# cli_auth_credentials_store: file | keyring | auto
-# mcp_oauth_credentials_store: keyring | file | auto
-
-# Filesystem + project
-# cwd = "/home/user/workspace"
-# project_doc_max_bytes = 200000
-# project_doc_fallback_filenames = ["README.md"]
-# tool_output_token_limit = 4000
-
-# Advanced config maps (leave commented unless needed)
-# shell_environment_policy = { PATH = "/usr/bin:/bin" }
-# model_provider = { name = "openai" }
-# model_providers = { openai = { } }
-# mcp_servers = { github = { } }
-# file_opener = { }
-# ghost_snapshot = { ignore_large_untracked_files = 1000000 }
-# notices = { }
-# otel = { }
-# active_project = { trust_level = "trusted" }

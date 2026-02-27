@@ -1,0 +1,25 @@
+name = "Interpreter"
+shell = "codex"
+cli_type = "codex"
+interface = "cli"
+prompt = ["interpreter"]
+
+# Core model selection
+model = "gpt-5.1-codex-mini"
+model_reasoning_effort = "medium"
+approval_policy = "never"
+sandbox_mode = "read-only"
+check_for_update_on_startup = false
+analytics.enabled = false
+feedback.enabled = false
+tui.notifications = true
+tui.animations = false
+tui.show_tooltips = false
+tui.alternate_screen = "never"
+
+project_root_markers = [".gestalt"]
+project_doc_fallback_filenames = ["AGENTS.md","CLAUDE.md","CRUSH.md", ".github/copilot-instructions.md",".gestalt/instructions.md","README.md"]
+otel.environment = "dev"
+otel.log_user_prompt = false
+
+shell_environment_policy = { PATH = "$HOME/bin:$HOME/.local/bin:/usr/local/go/bin:$NVM_BIN:/usr/local/bin:/usr/bin:/bin" }

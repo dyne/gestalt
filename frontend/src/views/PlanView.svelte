@@ -177,7 +177,7 @@
   })
 </script>
 
-<section class="plan-view">
+<section class="plan-view home-surface home-surface--base">
   <header class="plan-view__header">
     <div>
       <p class="eyebrow">Project plans</p>

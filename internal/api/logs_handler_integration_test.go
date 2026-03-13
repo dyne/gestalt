@@ -95,7 +95,7 @@ func TestLogsWebSocketSnapshot(t *testing.T) {
 	if attrValue(entry, "source") != "preconnect" {
 		t.Fatalf("expected attribute source=preconnect, got %q", attrValue(entry, "source"))
 	}
-	if attrValue(entry, "gestalt.replay_window") != "1h" {
+	if attrValue(entry, "gestalt.replay_window") != logReplayWindowValue() {
 		t.Fatalf("expected replay_window attribute, got %q", attrValue(entry, "gestalt.replay_window"))
 	}
 }

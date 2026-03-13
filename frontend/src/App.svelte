@@ -8,6 +8,7 @@
     fetchStatus,
     fetchTerminals,
     prefetchPlansList,
+    sendDirectorPrompt,
   } from './lib/apiClient.js'
   import { apiFetch, buildApiPath } from './lib/api.js'
   import { setServerTimeOffset } from './lib/timeUtils.js'
@@ -18,6 +19,7 @@
   import { notificationStore } from './lib/notificationStore.js'
   import { subscribe as subscribeNotificationEvents } from './lib/notificationEventStore.js'
   import { notifyError } from './lib/errorUtils.js'
+  import { createDirectorChatStore } from './lib/directorChatStore.js'
   import {
     buildTerminalStyle,
     sessionUiConfig,
@@ -34,6 +36,8 @@
 
   let tabs = buildTabs([])
   let activeId = 'dashboard'
+  let hasDirectorChat = false
+  const directorChatStore = createDirectorChatStore()
 
   let terminals = []
   let status = null
@@ -44,12 +48,15 @@
   let terminalCreatedUnsubscribe = null
   let terminalClosedUnsubscribe = null
   let notificationUnsubscribe = null
+  let chatMessageUnsubscribe = null
   let agentsHubUnsubscribe = null
   let crashState = null
   let clipboardAvailable = false
   let terminalStyle = ''
   let flowViewComponent = null
   let flowViewPromise = null
+  let chatViewComponent = null
+  let chatViewPromise = null
   let planViewComponent = null
   let planViewPromise = null
   let agentsViewComponent = null
@@ -83,6 +90,7 @@
     setSessionUiConfigFromStatus(status)
   }
   $: terminalStyle = buildTerminalStyle($sessionUiConfig)
+  $: directorChatState = $directorChatStore
 
   $: if (typeof document !== 'undefined') {
     const projectName = buildTitle(status?.working_dir || '')
@@ -96,8 +104,64 @@
   }
 
   const syncTabs = (terminalList, nextStatus = status) => {
-    tabs = buildTabs(terminalList, { showAgents: hasAgentsTab(nextStatus) })
+    tabs = buildTabs(terminalList, { showAgents: hasAgentsTab(nextStatus), showChat: hasDirectorChat })
     activeId = ensureActiveTab(activeId, tabs, 'dashboard')
+  }
+
+  const handleDirectorSubmit = async ({ text, source } = {}) => {
+    const value = String(text || '').trim()
+    if (!value) return
+    const mapDirectorError = (err) => {
+      const status = Number(err?.status)
+      if (status === 404) {
+        return 'Director agent is not configured.'
+      }
+      if (status === 502 || status === 503) {
+        return 'Director session bridge is unavailable.'
+      }
+      if (status >= 500) {
+        return 'Director service is currently unavailable.'
+      }
+      const rawMessage = String(err?.message || '').toLowerCase()
+      if (rawMessage.includes('failed to fetch') || rawMessage.includes('network')) {
+        return 'Network failure while sending to Director.'
+      }
+      return err?.message || 'Failed to send Director prompt.'
+    }
+    const result = await sendDirectorPrompt(value, source || 'text').catch((err) => {
+      throw new Error(mapDirectorError(err))
+    })
+    if (result?.notifyError) {
+      notificationStore.addNotification(
+        'warning',
+        `Prompt sent but trigger delivery failed: ${result.notifyError}`,
+      )
+    }
+    if (result?.sessionId) {
+      directorChatStore.setSession(result.sessionId)
+      directorChatStore.attachStream(result.sessionId)
+    }
+    directorChatStore.appendUserMessage(value, source || 'text')
+    hasDirectorChat = true
+    syncTabs(terminals)
+    activeId = 'chat'
+  }
+
+  function loadChatView() {
+    if (chatViewComponent) return chatViewComponent
+    if (!chatViewPromise) {
+      chatViewPromise = import('./views/ChatView.svelte')
+        .then((module) => {
+          chatViewComponent = module.default
+          return chatViewComponent
+        })
+        .catch((err) => {
+          chatViewPromise = null
+          notifyError(err, 'Failed to load the Chat view.')
+          return null
+        })
+    }
+    return chatViewPromise
   }
 
   function loadFlowView() {
@@ -170,6 +234,9 @@
 
   $: if (activeView === 'plan') {
     loadPlanView()
+  }
+  $: if (activeView === 'chat') {
+    loadChatView()
   }
   $: if (activeView === 'agents') {
     loadAgentsView()
@@ -354,8 +421,25 @@
       if (!String(message).trim()) return
       notificationStore.addNotification(payload.level || 'info', message)
     })
+    chatMessageUnsubscribe = subscribeEvents('chat_message', (payload) => {
+      const message = String(payload?.message || '').trim()
+      if (!message) return
+      const role = payload?.role === 'assistant' ? 'assistant' : 'user'
+      const source = payload?.source ? String(payload.source) : 'external'
+      const createdAt = payload?.timestamp ? String(payload.timestamp) : ''
+      directorChatStore.appendChatMessage({ text: message, role, source, createdAt })
+      if (!hasDirectorChat) {
+        hasDirectorChat = true
+        syncTabs(terminals)
+      }
+    })
     return () => {
+      directorChatStore.dispose()
       unsubscribe()
+      if (chatMessageUnsubscribe) {
+        chatMessageUnsubscribe()
+        chatMessageUnsubscribe = null
+      }
       if (terminalErrorUnsubscribe) {
         terminalErrorUnsubscribe()
         terminalErrorUnsubscribe = null
@@ -434,8 +518,26 @@
         {status}
         {loading}
         {error}
-        onSelect={handleSelect}
+        onDirectorSubmit={handleDirectorSubmit}
       />
+    </svelte:boundary>
+  </section>
+  <section class="view" data-active={activeView === 'chat'}>
+    <svelte:boundary onerror={(error) => handleBoundaryError('chat', error)} failed={viewFailed}>
+      {#if chatViewComponent}
+        <svelte:component
+          this={chatViewComponent}
+          messages={directorChatState?.messages || []}
+          streaming={Boolean(directorChatState?.streaming)}
+          error={directorChatState?.error || ''}
+          loading={loading}
+          onDirectorSubmit={handleDirectorSubmit}
+        />
+      {:else}
+        <div class="view-fallback">
+          <p>Loading...</p>
+        </div>
+      {/if}
     </svelte:boundary>
   </section>
   <section class="view" data-active={activeView === 'plan'}>

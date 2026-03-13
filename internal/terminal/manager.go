@@ -127,6 +127,7 @@ type Manager struct {
 	agentBus                *event.Bus[event.AgentEvent]
 	terminalBus             *event.Bus[event.TerminalEvent]
 	workflowBus             *event.Bus[event.WorkflowEvent]
+	chatBus                 *event.Bus[event.ChatEvent]
 	sessionLogs             string
 	inputHistoryDir         string
 	retentionDays           int
@@ -275,6 +276,9 @@ func NewManager(opts ManagerOptions) *Manager {
 	workflowBus := event.NewBus[event.WorkflowEvent](context.Background(), event.BusOptions{
 		Name: "workflow_events",
 	})
+	chatBus := event.NewBus[event.ChatEvent](context.Background(), event.BusOptions{
+		Name: "chat_events",
+	})
 
 	agents := make(map[string]agent.Agent)
 	for id, profile := range opts.Agents {
@@ -303,6 +307,7 @@ func NewManager(opts ManagerOptions) *Manager {
 		agentBus:                agentBus,
 		terminalBus:             terminalBus,
 		workflowBus:             workflowBus,
+		chatBus:                 chatBus,
 		sessionLogs:             sessionLogs,
 		inputHistoryDir:         inputHistoryDir,
 		retentionDays:           retentionDays,

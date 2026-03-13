@@ -1,6 +1,10 @@
 package flow
 
-import "testing"
+import (
+	"strconv"
+	"sync"
+	"testing"
+)
 
 func TestEventDeduper(t *testing.T) {
 	deduper := NewEventDeduper(2)
@@ -19,6 +23,24 @@ func TestEventDeduper(t *testing.T) {
 	if deduper.Seen("alpha") {
 		t.Fatalf("expected alpha to be evicted after limit exceeded")
 	}
+}
+
+func TestEventDeduperConcurrentAccess(t *testing.T) {
+	deduper := NewEventDeduper(64)
+	var group sync.WaitGroup
+	const workers = 16
+	const iterations = 200
+	for worker := 0; worker < workers; worker++ {
+		group.Add(1)
+		go func(workerIndex int) {
+			defer group.Done()
+			for iteration := 0; iteration < iterations; iteration++ {
+				id := "event-" + strconv.Itoa(iteration%32) + "-" + strconv.Itoa(workerIndex%4)
+				_ = deduper.Seen(id)
+			}
+		}(worker)
+	}
+	group.Wait()
 }
 
 func TestBuildEventIDStable(t *testing.T) {

@@ -5,12 +5,14 @@ import (
 	"hash/fnv"
 	"sort"
 	"strings"
+	"sync"
 )
 
 type EventDeduper struct {
 	limit int
 	order []string
 	seen  map[string]struct{}
+	mutex sync.Mutex
 }
 
 func NewEventDeduper(limit int) *EventDeduper {
@@ -32,6 +34,8 @@ func (deduper *EventDeduper) Seen(id string) bool {
 	if trimmed == "" {
 		return false
 	}
+	deduper.mutex.Lock()
+	defer deduper.mutex.Unlock()
 	if _, ok := deduper.seen[trimmed]; ok {
 		return true
 	}

@@ -73,7 +73,7 @@ func TestLogsSSEStreamFiltersAndSanitizes(t *testing.T) {
 		t.Fatalf("read close entry: %v", err)
 	}
 	assertFilteredContext(t, attrValue(entry, "output_tail"))
-	if attrValue(entry, "gestalt.replay_window") != "1h" {
+	if attrValue(entry, "gestalt.replay_window") != logReplayWindowValue() {
 		t.Fatalf("expected replay_window attribute")
 	}
 }

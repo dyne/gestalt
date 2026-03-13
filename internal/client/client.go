@@ -29,6 +29,9 @@ type HTTPError struct {
 
 var defaultWaitSessionReadyTimeout = 2 * time.Second
 
+// ChatSessionRef is the special session reference used for chat-only messages.
+const ChatSessionRef = "chat"
+
 func (e *HTTPError) Error() string {
 	return e.Message
 }
@@ -41,6 +44,11 @@ func NormalizeSessionRef(ref string) (string, error) {
 		return "", errors.New("session reference is required")
 	}
 	return trimmed, nil
+}
+
+// IsChatSessionRef reports whether the reference targets the special chat session.
+func IsChatSessionRef(ref string) bool {
+	return strings.EqualFold(strings.TrimSpace(ref), ChatSessionRef)
 }
 
 func ResolveSessionRef(ref string) (string, error) {
@@ -63,6 +71,23 @@ func ResolveSessionRefAgainstSessions(ref string, sessions []SessionInfo) (strin
 		return canonical, nil
 	}
 	return canonical, nil
+}
+
+func ResolveExistingSessionRefAgainstSessions(ref string, sessions []SessionInfo) (string, error) {
+	normalized, err := NormalizeSessionRef(ref)
+	if err != nil {
+		return "", err
+	}
+	if sessionExists(sessions, normalized) {
+		return normalized, nil
+	}
+	if !IsExplicitNumberedSessionRef(normalized) {
+		canonical := normalized + " 1"
+		if sessionExists(sessions, canonical) {
+			return canonical, nil
+		}
+	}
+	return "", fmt.Errorf("session %q not found", normalized)
 }
 
 func IsExplicitNumberedSessionRef(ref string) bool {
@@ -140,7 +165,7 @@ func FetchAgents(client *http.Client, baseURL, token string) ([]AgentInfo, error
 	return agents, nil
 }
 
-func SendSessionInput(client *http.Client, baseURL, token, sessionID string, payload []byte) error {
+func SendSessionInput(client *http.Client, baseURL, token, sessionID, fromSessionID string, payload []byte) error {
 	client = ensureClient(client)
 	baseURL = strings.TrimRight(baseURL, "/")
 	if baseURL == "" {
@@ -156,6 +181,9 @@ func SendSessionInput(client *http.Client, baseURL, token, sessionID string, pay
 		return fmt.Errorf("build request failed: %w", err)
 	}
 	request.Header.Set("Content-Type", "application/octet-stream")
+	if trimmedFrom := strings.TrimSpace(fromSessionID); trimmedFrom != "" {
+		request.Header.Set("X-Gestalt-From-Session-ID", trimmedFrom)
+	}
 	addToken(request, token)
 
 	response, err := client.Do(request)

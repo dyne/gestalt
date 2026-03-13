@@ -76,7 +76,7 @@ func TestNotifyEndpointPublishesToLogsSSEReplayAndLive(t *testing.T) {
 	if attrValue(replayEntry, "session.id") != session.ID {
 		t.Fatalf("expected session.id %q, got %q", session.ID, attrValue(replayEntry, "session.id"))
 	}
-	if attrValue(replayEntry, "gestalt.replay_window") != "1h" {
+	if attrValue(replayEntry, "gestalt.replay_window") != logReplayWindowValue() {
 		t.Fatalf("expected replay marker, got %q", attrValue(replayEntry, "gestalt.replay_window"))
 	}
 

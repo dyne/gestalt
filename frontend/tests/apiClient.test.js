@@ -32,6 +32,7 @@ import {
   sendInputToAgentSession,
   sendSessionInput,
   saveFlowConfig,
+  sendDirectorPrompt,
 } from '../src/lib/apiClient.js'
 
 describe('apiClient', () => {
@@ -303,6 +304,85 @@ describe('apiClient', () => {
 
     expect(apiFetch).toHaveBeenNthCalledWith(1, '/api/agents')
     expect(apiFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('creates director session and sends text prompt with notify event', async () => {
+    apiFetch
+      .mockResolvedValueOnce({ json: vi.fn().mockResolvedValue({ id: 'Director 1' }) })
+      .mockResolvedValueOnce({
+        json: vi.fn().mockResolvedValue({ lines: ['codex ready'] }),
+      })
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: true })
+
+    const result = await sendDirectorPrompt('summarize repo', 'text')
+
+    expect(result.sessionId).toBe('Director 1')
+    expect(result.notifyError).toBe('')
+    expect(apiFetch).toHaveBeenNthCalledWith(1, '/api/sessions', {
+      method: 'POST',
+      body: JSON.stringify({ agent: 'director' }),
+    })
+    expect(apiFetch).toHaveBeenNthCalledWith(2, '/api/sessions/Director%201/output')
+    expect(apiFetch).toHaveBeenNthCalledWith(3, '/api/sessions/Director%201/input', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: 'summarize repo\n\n',
+    })
+    expect(apiFetch).toHaveBeenNthCalledWith(4, '/api/sessions/Director%201/notify', {
+      method: 'POST',
+      body: JSON.stringify({
+        session_id: 'Director 1',
+        payload: {
+          type: 'prompt-text',
+          message: 'summarize repo',
+        },
+      }),
+    })
+  })
+
+  it('reuses director session id from 409 create conflict', async () => {
+    const conflict = new Error('Conflict')
+    conflict.status = 409
+    conflict.data = { session_id: 'Director 9' }
+    apiFetch
+      .mockRejectedValueOnce(conflict)
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: true })
+
+    const result = await sendDirectorPrompt('resume', 'voice')
+
+    expect(result.sessionId).toBe('Director 9')
+    expect(apiFetch).toHaveBeenNthCalledWith(2, '/api/sessions/Director%209/input', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: 'resume\n\n',
+    })
+    expect(apiFetch).toHaveBeenNthCalledWith(3, '/api/sessions/Director%209/notify', {
+      method: 'POST',
+      body: JSON.stringify({
+        session_id: 'Director 9',
+        payload: {
+          type: 'prompt-voice',
+          message: 'resume',
+        },
+      }),
+    })
+  })
+
+  it('reports notify failure without failing successful director input', async () => {
+    apiFetch
+      .mockResolvedValueOnce({ json: vi.fn().mockResolvedValue({ id: 'Director 1' }) })
+      .mockResolvedValueOnce({
+        json: vi.fn().mockResolvedValue({ lines: ['codex ready'] }),
+      })
+      .mockResolvedValueOnce({ ok: true })
+      .mockRejectedValueOnce(new Error('notify unavailable'))
+
+    const result = await sendDirectorPrompt('continue')
+
+    expect(result.sessionId).toBe('Director 1')
+    expect(result.notifyError).toContain('notify unavailable')
   })
 
 })

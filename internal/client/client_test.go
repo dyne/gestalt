@@ -78,7 +78,7 @@ func TestSendSessionInputHTTPError(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	err := SendSessionInput(server.Client(), server.URL, "", "session-1", []byte("hi"))
+	err := SendSessionInput(server.Client(), server.URL, "", "session-1", "", []byte("hi"))
 	var httpErr *HTTPError
 	if !errors.As(err, &httpErr) {
 		t.Fatalf("expected HTTPError, got %v", err)
@@ -133,7 +133,7 @@ func TestSendSessionInputAddsToken(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	err := SendSessionInput(server.Client(), server.URL, "token", "session-1", bytes.NewBufferString("hi").Bytes())
+	err := SendSessionInput(server.Client(), server.URL, "token", "session-1", "", bytes.NewBufferString("hi").Bytes())
 	if err != nil {
 		t.Fatalf("send input: %v", err)
 	}
@@ -157,6 +157,48 @@ func TestResolveSessionRef(t *testing.T) {
 	}
 	if got != "Coder 2" {
 		t.Fatalf("expected Coder 2, got %q", got)
+	}
+}
+
+func TestResolveExistingSessionRefAgainstSessions(t *testing.T) {
+	sessions := []SessionInfo{{ID: "Fixer 1"}, {ID: "Coder 2"}}
+
+	got, err := ResolveExistingSessionRefAgainstSessions("Fixer", sessions)
+	if err != nil {
+		t.Fatalf("resolve existing by name: %v", err)
+	}
+	if got != "Fixer 1" {
+		t.Fatalf("expected canonical Fixer 1, got %q", got)
+	}
+
+	got, err = ResolveExistingSessionRefAgainstSessions("Coder 2", sessions)
+	if err != nil {
+		t.Fatalf("resolve existing explicit: %v", err)
+	}
+	if got != "Coder 2" {
+		t.Fatalf("expected Coder 2, got %q", got)
+	}
+
+	if _, err := ResolveExistingSessionRefAgainstSessions("Missing", sessions); err == nil {
+		t.Fatalf("expected missing session error")
+	}
+}
+
+func TestSendSessionInputAddsFromSessionHeader(t *testing.T) {
+	requireLocalListener(t)
+	var gotFrom string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotFrom = r.Header.Get("X-Gestalt-From-Session-ID")
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(server.Close)
+
+	err := SendSessionInput(server.Client(), server.URL, "", "session-1", "Fixer 1", []byte("hi"))
+	if err != nil {
+		t.Fatalf("send input: %v", err)
+	}
+	if gotFrom != "Fixer 1" {
+		t.Fatalf("expected from session header, got %q", gotFrom)
 	}
 }
 

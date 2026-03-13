@@ -1,4 +1,4 @@
-import { render, fireEvent, cleanup, within } from '@testing-library/svelte'
+import { render, fireEvent, cleanup } from '@testing-library/svelte'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { notificationStore } from '../src/lib/notificationStore.js'
 
@@ -8,6 +8,13 @@ const buildEventSourceUrl = vi.hoisted(() => vi.fn((path) => `http://test${path}
 vi.mock('../src/lib/api.js', () => ({
   apiFetch,
   buildEventSourceUrl,
+  buildApiPath: (base, ...segments) => {
+    const basePath = base.endsWith('/') ? base.slice(0, -1) : base
+    const encoded = segments
+      .filter((segment) => segment !== undefined && segment !== null && segment !== '')
+      .map((segment) => encodeURIComponent(String(segment)))
+    return encoded.length ? `${basePath}/${encoded.join('/')}` : basePath
+  },
 }))
 
 vi.mock('../src/views/TerminalView.svelte', async () => {
@@ -17,7 +24,7 @@ vi.mock('../src/views/TerminalView.svelte', async () => {
 
 import App from '../src/App.svelte'
 
-describe('App stopped agent handling', () => {
+describe('App dashboard director submit', () => {
   beforeEach(() => {
     if (!Element.prototype.animate) {
       Element.prototype.animate = () => ({
@@ -34,7 +41,7 @@ describe('App stopped agent handling', () => {
     cleanup()
   })
 
-  it('shows run guidance and does not create a session when agent is stopped', async () => {
+  it('creates a director session and transitions to chat from dashboard submit', async () => {
     apiFetch.mockImplementation((url, options = {}) => {
       if (url === '/api/status') {
         return Promise.resolve({
@@ -46,10 +53,24 @@ describe('App stopped agent handling', () => {
           json: vi.fn().mockResolvedValue([]),
         })
       }
-      if (url === '/api/agents') {
+      if (url === '/api/sessions' && options.method === 'POST') {
         return Promise.resolve({
-          json: vi.fn().mockResolvedValue([{ id: 'codex', name: 'Codex' }]),
+          json: vi.fn().mockResolvedValue({ id: 'Director 1' }),
         })
+      }
+      if (url === '/api/sessions/Director%201/output') {
+        return Promise.resolve({
+          json: vi.fn().mockResolvedValue({ lines: ['codex ready'] }),
+        })
+      }
+      if (url === '/api/sessions/Director%201/input' && options.method === 'POST') {
+        return Promise.resolve({ ok: true })
+      }
+      if (url === '/api/sessions/Director%201/notify' && options.method === 'POST') {
+        return Promise.resolve({ ok: true })
+      }
+      if (url === '/api/agents') {
+        return Promise.resolve({ json: vi.fn().mockResolvedValue([]) })
       }
       if (url === '/api/skills') {
         return Promise.resolve({
@@ -64,18 +85,16 @@ describe('App stopped agent handling', () => {
       return Promise.reject(new Error(`Unexpected API call: ${url}`))
     })
 
-    const { container, findByText, queryByRole } = render(App)
-    const agentsSection = container.querySelector('.dashboard__agents')
-    const agentLabel = await within(agentsSection).findByText('Codex')
-    const agentButton = agentLabel.closest('button')
+    const { findByRole, queryByRole } = render(App)
+    const input = await findByRole('textbox')
+    await fireEvent.input(input, { target: { value: 'hello director' } })
+    await fireEvent.keyDown(input, { key: 'Enter' })
 
-    await fireEvent.click(agentButton)
-
-    expect(await findByText('Session not running; run gestalt-agent codex.')).toBeTruthy()
+    expect(await findByRole('button', { name: 'Chat' }, { timeout: 3000 })).toBeTruthy()
     expect(queryByRole('button', { name: 'Agents' })).toBeNull()
     const createCalls = apiFetch.mock.calls.filter(
       ([url, request]) => url === '/api/sessions' && request?.method === 'POST',
     )
-    expect(createCalls).toHaveLength(0)
+    expect(createCalls).toHaveLength(1)
   })
 })

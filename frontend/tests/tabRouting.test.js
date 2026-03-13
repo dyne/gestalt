@@ -12,6 +12,16 @@ describe('tab routing', () => {
     expect(tabs.find((tab) => tab.id === 'agents')).toBeUndefined()
   })
 
+  it('omits the Chat home tab by default', () => {
+    const tabs = buildTabs([])
+    expect(tabs.find((tab) => tab.id === 'chat')).toBeUndefined()
+  })
+
+  it('includes the Chat home tab when enabled', () => {
+    const tabs = buildTabs([], { showChat: true })
+    expect(tabs.find((tab) => tab.id === 'chat')?.label).toBe('Chat')
+  })
+
   it('excludes cli sessions from terminal tabs', () => {
     const tabs = buildTabs([
       { id: 'ext', title: 'External', interface: 'cli', runner: 'external' },
@@ -26,5 +36,9 @@ describe('tab routing', () => {
 
   it('treats the Agents tab as a home view', () => {
     expect(resolveActiveView('agents')).toBe('agents')
+  })
+
+  it('treats the Chat tab as a home view', () => {
+    expect(resolveActiveView('chat')).toBe('chat')
   })
 })

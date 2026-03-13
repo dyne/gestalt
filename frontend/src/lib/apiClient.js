@@ -325,6 +325,92 @@ export const sendSessionInput = async (sessionId, inputText) => {
   })
 }
 
+const directorPromptTypeFor = (source) => (source === 'voice' ? 'prompt-voice' : 'prompt-text')
+
+const ensureDirectorSession = async () => {
+  try {
+    const created = await createTerminal({ agentId: 'director' })
+    const sessionId = String(created?.id || '').trim()
+    if (!sessionId) {
+      throw new Error('Director session did not return an id')
+    }
+    return { sessionId, created: true }
+  } catch (err) {
+    if (err?.status === 409) {
+      const sessionId = String(err?.data?.session_id || '').trim()
+      if (sessionId) return { sessionId, created: false }
+    }
+    throw err
+  }
+}
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/**
+ * Ensure terminal-oriented prompts are submitted with a trailing blank line.
+ */
+const withTrailingBlankLine = (text) => `${String(text || '').replace(/[\r\n]+$/, '')}\n\n`
+
+const hasNonEmptyLines = (lines) =>
+  Array.isArray(lines) && lines.some((line) => String(line || '').trim() !== '')
+
+const waitForSessionOutput = async (
+  sessionId,
+  { timeoutMs = 8000, pollMs = 250, postOutputDelayMs = 1000 } = {},
+) => {
+  if (!sessionId) return false
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    try {
+      const response = await apiFetch(buildApiPath('/api/sessions', sessionId, 'output'))
+      const payload = normalizeObject(await response.json())
+      if (hasNonEmptyLines(payload?.lines)) {
+        if (postOutputDelayMs > 0) {
+          await wait(postOutputDelayMs)
+        }
+        return true
+      }
+    } catch {
+      // Ignore transient output errors while the session warms up.
+    }
+    await wait(pollMs)
+  }
+  return false
+}
+
+export const sendDirectorPrompt = async (message, source = 'text') => {
+  const text = String(message || '').trim()
+  if (!text) {
+    throw new Error('Director prompt is required')
+  }
+  const directorSession = await ensureDirectorSession()
+  if (directorSession?.created) {
+    await waitForSessionOutput(directorSession.sessionId)
+  }
+  const sessionId = directorSession.sessionId
+  await sendSessionInput(sessionId, withTrailingBlankLine(text))
+  let notifyError = ''
+  try {
+    await apiFetch(buildApiPath('/api/sessions', sessionId, 'notify'), {
+      method: 'POST',
+      body: JSON.stringify({
+        session_id: sessionId,
+        payload: {
+          type: directorPromptTypeFor(source),
+          message: text,
+        },
+      }),
+    })
+  } catch (err) {
+    notifyError = err?.message || 'Failed to post director prompt trigger.'
+  }
+  return {
+    sessionId,
+    sentAt: new Date().toISOString(),
+    notifyError,
+  }
+}
+
 const resolveAgentSessionID = async (agentId, agentName) => {
   const agents = await fetchAgents()
   const match = agents.find((agent) => agent.id === agentId || agent.name === agentName)

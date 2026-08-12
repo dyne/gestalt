@@ -1,0 +1,290 @@
+#!/usr/bin/env bash
+# Manage the isolated Gestalt Codex profile and Gestalt Mobile installation.
+set -Eeuo pipefail
+IFS=$'\n\t'
+
+readonly GESTALT_CLI_VERSION='0.1.0'
+readonly DEFAULT_MARKETPLACE='dyne/gestalt-agents'
+readonly DEFAULT_MARKETPLACE_NAME='dyne-gestalt-agents'
+
+log() {
+  printf 'gestalt: %s\n' "$*" >&2
+}
+
+die() {
+  log "error: $*"
+  exit 1
+}
+
+on_error() {
+  local -r exit_code=$?
+  local -r line_number=${1:-unknown}
+  log "command failed near line ${line_number} (exit ${exit_code})"
+  exit "$exit_code"
+}
+trap 'on_error "$LINENO"' ERR
+
+usage() {
+  cat <<'EOF'
+Usage: gestalt <command> [options]
+
+Manage Gestalt Agents and Gestalt Mobile in isolated, user-owned directories.
+
+Commands:
+  install [--extra-skills]  Install or reconcile Agents and Mobile.
+  update [--extra-skills]   Upgrade Agents, rerun setup, and update Mobile.
+  cli [--] [args...]        Start Codex with ~/.codex-gestalt as CODEX_HOME.
+  mobile [--] [args...]     Start the managed Gestalt Mobile executable.
+  doctor                    Check prerequisites and installation state.
+  version                   Print this manager's version.
+  help                      Show this help.
+
+Environment:
+  CODEX_HOME                 Isolated Codex home (default: ~/.codex-gestalt).
+  GESTALT_HOME               Runtime and Mobile root (default: ~/.gestalt).
+  GESTALT_MARKETPLACE        Marketplace source (default: dyne/gestalt-agents).
+  GESTALT_MARKETPLACE_NAME   Codex checkout name (default: dyne-gestalt-agents).
+  GESTALT_MOBILE_VERSION     npm version or tag (default: latest).
+EOF
+}
+
+require_command() {
+  local -r command_name=$1
+  command -v "$command_name" >/dev/null 2>&1 ||
+    die "$command_name is required and was not found on PATH"
+}
+
+validate_managed_path() {
+  local -r label=$1
+  local -r candidate=$2
+  local home_path
+
+  [[ $candidate == /* ]] || die "$label must be an absolute path: $candidate"
+  [[ $candidate != / ]] || die "refusing unsafe $label: /"
+  home_path=$(CDPATH='' cd -- "${HOME:?HOME is required}" && pwd -P)
+  [[ $candidate != "$home_path" ]] || die "refusing to use HOME itself as $label"
+}
+
+load_paths() {
+  : "${HOME:?HOME is required}"
+  codex_home=${CODEX_HOME:-$HOME/.codex-gestalt}
+  gestalt_home=${GESTALT_HOME:-$HOME/.gestalt}
+  marketplace=${GESTALT_MARKETPLACE:-$DEFAULT_MARKETPLACE}
+  marketplace_name=${GESTALT_MARKETPLACE_NAME:-$DEFAULT_MARKETPLACE_NAME}
+  mobile_version=${GESTALT_MOBILE_VERSION:-latest}
+  mobile_root=$gestalt_home/mobile
+  mobile_bin=$mobile_root/node_modules/.bin/gestalt-mobile
+  marketplace_setup=$codex_home/.tmp/marketplaces/$marketplace_name/gestalt-setup.sh
+
+  validate_managed_path CODEX_HOME "$codex_home"
+  validate_managed_path GESTALT_HOME "$gestalt_home"
+}
+
+check_node_version() {
+  local version major
+  require_command node
+  version=$(node -p 'process.versions.node') || die 'could not determine Node.js version'
+  major=${version%%.*}
+  [[ $major =~ ^[0-9]+$ ]] || die "unexpected Node.js version: $version"
+  ((major >= 24)) || die "Node.js 24 or newer is required; found $version"
+}
+
+install_mobile() {
+  check_node_version
+  require_command npm
+  mkdir -p -- "$mobile_root"
+  log "installing gestalt-mobile@${mobile_version} under $mobile_root"
+  npm install \
+    --prefix "$mobile_root" \
+    --no-audit \
+    --no-fund \
+    --save-exact \
+    "gestalt-mobile@${mobile_version}"
+  [[ -x $mobile_bin ]] || die "npm completed but the Mobile executable is missing: $mobile_bin"
+}
+
+run_marketplace_setup() {
+  local -r mode=$1
+  local -r include_extra_skills=$2
+  local marketplace_action
+  local -a setup_args=()
+
+  check_node_version
+  require_command npm
+  require_command codex
+  mkdir -p -- "$codex_home" "$gestalt_home"
+
+  marketplace_action=upgrade
+  if [[ $mode == install && ! -f $marketplace_setup ]]; then
+    marketplace_action=add
+  fi
+
+  log "${marketplace_action} marketplace $marketplace in $codex_home"
+  if [[ $marketplace_action == add ]]; then
+    if ! CODEX_HOME=$codex_home codex plugin marketplace add "$marketplace"; then
+      log 'marketplace is already registered; attempting an upgrade'
+      CODEX_HOME=$codex_home codex plugin marketplace upgrade "$marketplace_name"
+    fi
+  else
+    if ! CODEX_HOME=$codex_home codex plugin marketplace upgrade "$marketplace_name"; then
+      log 'marketplace upgrade was unavailable; attempting a fresh registration'
+      CODEX_HOME=$codex_home codex plugin marketplace add "$marketplace"
+    fi
+  fi
+
+  [[ -f $marketplace_setup ]] ||
+    die "marketplace setup script is missing after ${marketplace_action}: $marketplace_setup"
+
+  if [[ $include_extra_skills == true ]]; then
+    setup_args+=(--extra-skills)
+  fi
+
+  log 'preparing context mode, plugins, and agent profiles'
+  CODEX_HOME=$codex_home GESTALT_HOME=$gestalt_home \
+    bash "$marketplace_setup" "${setup_args[@]}"
+}
+
+parse_setup_options() {
+  include_extra_skills=false
+  while (($# > 0)); do
+    case $1 in
+      --extra-skills)
+        include_extra_skills=true
+        ;;
+      -h | --help)
+        usage
+        exit 0
+        ;;
+      *)
+        die "unknown setup option: $1"
+        ;;
+    esac
+    shift
+  done
+}
+
+command_install() {
+  parse_setup_options "$@"
+  run_marketplace_setup install "$include_extra_skills"
+  install_mobile
+  log "installation complete; run 'gestalt doctor', then 'gestalt cli' or 'gestalt mobile'"
+}
+
+command_update() {
+  parse_setup_options "$@"
+  run_marketplace_setup upgrade "$include_extra_skills"
+  install_mobile
+  log 'Agents and Mobile are up to date'
+}
+
+strip_separator() {
+  if (($# > 0)) && [[ $1 == -- ]]; then
+    shift
+  fi
+  forwarded_args=("$@")
+}
+
+command_cli() {
+  require_command codex
+  strip_separator "$@"
+  log "starting Codex with CODEX_HOME=$codex_home"
+  exec env CODEX_HOME="$codex_home" codex "${forwarded_args[@]}"
+}
+
+command_mobile() {
+  strip_separator "$@"
+  if [[ ! -x $mobile_bin ]]; then
+    log 'Gestalt Mobile is not installed; installing it now'
+    install_mobile
+  fi
+  log "starting Gestalt Mobile from $mobile_root"
+  exec env CODEX_HOME="$codex_home" GESTALT_HOME="$gestalt_home" \
+    "$mobile_bin" "${forwarded_args[@]}"
+}
+
+print_check() {
+  local -r label=$1
+  local -r status=$2
+  printf '%-24s %s\n' "$label" "$status"
+}
+
+command_doctor() {
+  local failed=false node_version codex_version mobile_version_output
+
+  printf 'Gestalt manager %s\n\n' "$GESTALT_CLI_VERSION"
+  print_check 'Codex home' "$codex_home"
+  print_check 'Gestalt home' "$gestalt_home"
+
+  if command -v node >/dev/null 2>&1; then
+    node_version=$(node -p 'process.versions.node' 2>/dev/null || printf 'unreadable')
+    print_check 'Node.js' "$node_version"
+    [[ ${node_version%%.*} =~ ^[0-9]+$ ]] && (( ${node_version%%.*} >= 24 )) || failed=true
+  else
+    print_check 'Node.js' 'MISSING (24+ required)'
+    failed=true
+  fi
+
+  if command -v npm >/dev/null 2>&1; then
+    print_check 'npm' "$(npm --version 2>/dev/null || printf 'unreadable')"
+  else
+    print_check 'npm' 'MISSING'
+    failed=true
+  fi
+
+  if command -v codex >/dev/null 2>&1; then
+    codex_version=$(codex --version 2>/dev/null || printf 'unreadable')
+    print_check 'Codex CLI' "$codex_version"
+  else
+    print_check 'Codex CLI' 'MISSING'
+    failed=true
+  fi
+
+  if [[ -f $marketplace_setup ]]; then
+    print_check 'Agents marketplace' 'present'
+  else
+    print_check 'Agents marketplace' 'MISSING'
+    failed=true
+  fi
+
+  if command -v codex >/dev/null 2>&1 && [[ -d $codex_home ]]; then
+    if CODEX_HOME=$codex_home codex plugin list --marketplace "$marketplace_name" --json >/dev/null 2>&1; then
+      print_check 'Gestalt plugins' 'registered'
+    else
+      print_check 'Gestalt plugins' 'NOT VERIFIED'
+      failed=true
+    fi
+  fi
+
+  if [[ -x $mobile_bin ]]; then
+    mobile_version_output=$(CODEX_HOME=$codex_home "$mobile_bin" --version 2>/dev/null || printf 'unreadable')
+    print_check 'Gestalt Mobile' "$mobile_version_output"
+  else
+    print_check 'Gestalt Mobile' 'MISSING'
+    failed=true
+  fi
+
+  if "$failed"; then
+    printf "\nRun 'gestalt install' or 'gestalt update' to repair missing components.\n" >&2
+    return 1
+  fi
+  printf "\nAll manager checks passed. Run ctx-doctor inside a fresh 'gestalt cli' session.\n"
+}
+
+main() {
+  local command_name=${1:-help}
+  if (($# > 0)); then shift; fi
+
+  load_paths
+  case $command_name in
+    install) command_install "$@" ;;
+    update) command_update "$@" ;;
+    cli) command_cli "$@" ;;
+    mobile) command_mobile "$@" ;;
+    doctor) command_doctor "$@" ;;
+    version | --version | -V) printf 'gestalt %s\n' "$GESTALT_CLI_VERSION" ;;
+    help | --help | -h) usage ;;
+    *) die "unknown command: $command_name (run 'gestalt help')" ;;
+  esac
+}
+
+main "$@"

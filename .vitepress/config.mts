@@ -5,7 +5,7 @@ const base = process.env.BASE_PATH ?? '/'
 export default defineConfig({
   title: 'Gestalt',
   titleTemplate: ':title · Gestalt',
-  description: 'Documentation for Gestalt Agents and Gestalt Mobile by Dyne.org',
+  description: 'Multi-session dashboard for local coding agents and workflows.',
   lang: 'en-US',
   base,
   appearance: true,
@@ -26,7 +26,7 @@ export default defineConfig({
   },
   themeConfig: {
     siteTitle: 'Gestalt',
-    logo: { src: '/dyne-mark.svg', alt: 'Gestalt by Dyne.org' },
+    logo: { src: 'https://dyne.org/images/logos/gestalt_logo.svg', alt: 'Gestalt by Dyne.org' },
     search: {
       provider: 'local',
       options: {
@@ -42,7 +42,7 @@ export default defineConfig({
     ],
     socialLinks: [
       { icon: 'github', link: 'https://github.com/dyne/gestalt-agents', ariaLabel: 'Gestalt Agents on GitHub' },
-      { icon: 'github', link: 'https://github.com/dyne/gestalt-mobile', ariaLabel: 'Gestalt Mobile on GitHub' }
+      { icon: 'npm', link: 'https://npmjs.org/package/gestalt-mobile', ariaLabel: 'Gestalt Mobile on NPM' }
     ],
     sidebar: [
       {

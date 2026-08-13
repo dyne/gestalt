@@ -4,12 +4,16 @@ import DefaultTheme from 'vitepress/theme'
 import DyneBrand from './components/DyneBrand.vue'
 import DyneFooter from './components/DyneFooter.vue'
 import InstallCommand from './components/InstallCommand.vue'
+import MobileGallery from './components/MobileGallery.vue'
+import MobileScreenshot from './components/MobileScreenshot.vue'
 import './style.css'
 
 export default {
   extends: DefaultTheme,
   enhanceApp({ app }) {
     app.component('InstallCommand', InstallCommand)
+    app.component('MobileGallery', MobileGallery)
+    app.component('MobileScreenshot', MobileScreenshot)
   },
   Layout: () => {
     return h(DefaultTheme.Layout, null, {

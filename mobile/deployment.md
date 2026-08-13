@@ -13,6 +13,15 @@ gestalt mobile \
 Plain HTTP is valid only for `localhost`. The default loopback listener is the
 safest place to complete first-device enrollment.
 
+<MobileScreenshot
+  src="01-first-device-enrollment.png"
+  alt="First-device enrollment with nickname, authorization button, QR code, and setup link."
+  caption="The visibly open first-run state must be claimed locally before the relay is exposed."
+  :width="375"
+  :height="1077"
+  eager
+/>
+
 ## Trusted HTTPS boundary
 
 For mobile or network use, place a trusted HTTPS reverse proxy or tunnel in
@@ -34,6 +43,18 @@ An empty authorization store is intentionally open so the first verified
 passkey can become the owner. Enroll that device before exposing the endpoint.
 Do not bind `0.0.0.0` until HTTPS and the exact public origin are in place.
 :::
+
+Once the first passkey exists, an authorized device can create a short-lived
+handoff link for another browser. The enrollment secret remains in the URL
+fragment, where it is not sent in the HTTP request.
+
+<MobileScreenshot
+  src="18-add-device.png"
+  alt="Authorized Devices screen with an active enrollment QR code and link controls."
+  caption="Create a time-limited enrollment handoff from an already authorized device."
+  :width="375"
+  :height="1585"
+/>
 
 ## Origin stability
 

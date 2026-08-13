@@ -26,6 +26,15 @@ The containing directory is created owner-only. Treat the database as private.
 For a consistent backup, stop every Mobile instance and copy the database with
 its `-wal` and `-shm` sidecars, or use SQLite backup tooling.
 
+<MobileScreenshot
+  src="17-authorized-devices.png"
+  alt="Authorized Devices screen listing the current phone and a laptop with rename and revoke controls."
+  caption="Device management exposes names and recent use without exporting passkey credentials."
+  :width="375"
+  :height="1076"
+  eager
+/>
+
 ## Lost every passkey
 
 Recovery is deliberately local and manual:
@@ -44,6 +53,16 @@ Never perform this recovery while any relay instance is running or publicly
 reachable. There is no remote administrator, recovery code, credential export,
 or automatic reset.
 :::
+
+After a local reset or an explicit lock, the relay returns to its passkey gate.
+
+<MobileScreenshot
+  src="02-passkey-login.png"
+  alt="Gestalt Mobile passkey login screen."
+  caption="A discoverable passkey unlocks the relay without a username or recovery-code flow."
+  :width="375"
+  :height="812"
+/>
 
 ## Browser recovery
 

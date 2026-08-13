@@ -24,6 +24,13 @@ Open the loopback URL printed by the command. Create the first passkey before
 placing the relay behind a network endpoint. In the Sessions tab, select a
 workspace and model, then start a session.
 
+<MobileScreenshot
+  src="04-session-setup.png"
+  alt="Gestalt Mobile new-session controls for skill profile, sandbox, and approval policy."
+  caption="Choose the session boundary before starting the first mobile Codex thread."
+  eager
+/>
+
 ::: warning Network use requires HTTPS
 Gestalt Mobile does not terminate TLS. Do not expose `--host 0.0.0.0` until a
 trusted HTTPS reverse proxy or tunnel is configured with the exact

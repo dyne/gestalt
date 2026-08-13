@@ -780,6 +780,115 @@ div[class*='language-'] {
   color: var(--vp-c-brand-1);
 }
 
+.mobile-screenshot {
+  width: min(100%, 26rem);
+  margin: 1.75rem auto;
+}
+
+.mobile-screenshot a,
+.mobile-gallery__image-link {
+  display: block;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 1.5rem;
+  overflow: hidden;
+  background: var(--vp-c-bg-soft);
+  box-shadow: var(--vp-shadow-2);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+.mobile-screenshot a:hover,
+.mobile-gallery__image-link:hover {
+  border-color: var(--vp-c-brand-1);
+  box-shadow: var(--vp-shadow-4);
+  transform: translateY(-2px);
+}
+
+.mobile-screenshot a:focus-visible,
+.mobile-gallery__image-link:focus-visible {
+  outline: 3px solid var(--vp-c-brand-1);
+  outline-offset: 4px;
+}
+
+.mobile-screenshot img,
+.mobile-gallery img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.mobile-screenshot figcaption {
+  margin-top: 0.75rem;
+  color: var(--vp-c-text-2);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.mobile-shot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
+  gap: 1.5rem;
+  align-items: start;
+  margin: 1.75rem 0;
+}
+
+.mobile-shot-grid .mobile-screenshot {
+  margin: 0 auto;
+}
+
+.mobile-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: 1.5rem;
+  align-items: start;
+  margin-top: 2rem;
+}
+
+.mobile-gallery__card {
+  min-width: 0;
+}
+
+.mobile-gallery__copy {
+  padding: 1rem 0.25rem 0;
+}
+
+.vp-doc .mobile-gallery__copy h2 {
+  margin: 0.2rem 0 0.5rem;
+  border-top: 0;
+  padding-top: 0;
+  font-size: 1.25rem;
+  line-height: 1.25;
+}
+
+.mobile-gallery__copy p {
+  margin: 0;
+  color: var(--vp-c-text-2);
+  line-height: 1.55;
+}
+
+.mobile-gallery__copy .mobile-gallery__stage {
+  color: var(--vp-c-brand-1);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-screenshot a,
+  .mobile-gallery__image-link {
+    transition: none;
+  }
+
+  .mobile-screenshot a:hover,
+  .mobile-gallery__image-link:hover {
+    transform: none;
+  }
+}
+
 @media (max-width: 959px) {
   .dyne-brand.nav {
     margin-right: 0.75rem;

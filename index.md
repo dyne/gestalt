@@ -34,3 +34,11 @@ Start with `gestalt cli` when you are at a terminal. Use `gestalt mobile` when
 you want the relay in a browser or on another trusted device. Both start the
 same isolated Codex profile at `~/.codex-gestalt`; neither rewrites your normal
 Codex home.
+
+<MobileScreenshot
+  src="07-chat.png"
+  alt="Gestalt Mobile Chat tab showing a completed documentation journey."
+  caption="Carry the same durable Codex work into a browser-sized interface. Open the image for the full-size capture."
+/>
+
+[Explore the complete Gestalt Mobile screenshot journey →](/mobile/gallery)

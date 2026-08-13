@@ -74,7 +74,8 @@ export default defineConfig({
         text: 'Gestalt Mobile',
         items: [
           { text: 'Introduction', link: '/mobile/' },
-          { text: 'Sessions and Git', link: '/mobile/using' },
+          { text: 'Using Mobile', link: '/mobile/using' },
+          { text: 'Screenshot gallery', link: '/mobile/gallery' },
           { text: 'Network deployment', link: '/mobile/deployment' },
           { text: 'State and recovery', link: '/mobile/state-and-recovery' }
         ]

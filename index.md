@@ -26,6 +26,8 @@ features:
   - title: "Resume in terminal"
     details: "Unified command-line tooling with session persistence, shell integration, and flexible interactions."
 ---
+<HomeScreenshotCarousel />
+
 <InstallCommand />
 
 ## One journey, two interfaces
@@ -34,7 +36,3 @@ Start with `gestalt cli` when you are at a terminal. Use `gestalt mobile` when
 you want the relay in a browser or on another trusted device. Both start the
 same isolated Codex profile at `~/.codex-gestalt`; neither rewrites your normal
 Codex home.
-
-<HomeScreenshotCarousel />
-
-[Explore the complete Gestalt Mobile screenshot journey →](/mobile/gallery)

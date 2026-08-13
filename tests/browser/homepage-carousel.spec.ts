@@ -2,6 +2,39 @@ import { expect, test, type Page } from '@playwright/test'
 
 const position = (page: Page) => page.locator('.home-carousel__position')
 
+test('keeps every desktop slide aligned with the viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/')
+
+  for (let index = 1; index <= 6; index += 1) {
+    await page.getByRole('button', { name: new RegExp(`^Show slide ${index}:`) }).click()
+    await page.waitForTimeout(500)
+    const alignment = await page.evaluate(() => {
+      const viewport = document.querySelector<HTMLElement>('.home-carousel__viewport')!
+      const active = document.querySelector<HTMLElement>(
+        '.home-carousel__slide[aria-hidden="false"]'
+      )!
+      const viewportRect = viewport.getBoundingClientRect()
+      const activeRect = active.getBoundingClientRect()
+      const imageRect = active.querySelector('img')!.getBoundingClientRect()
+      return {
+        left: activeRect.left - viewportRect.left - viewport.clientLeft,
+        right: viewportRect.right - viewport.clientLeft - activeRect.right,
+        imageTop: imageRect.top - viewportRect.top - viewport.clientTop,
+        imageRight: viewportRect.right - viewport.clientLeft - imageRect.right,
+        imageBottom: viewportRect.bottom - viewport.clientTop - imageRect.bottom,
+        imageLeft: imageRect.left - viewportRect.left - viewport.clientLeft
+      }
+    })
+    expect(alignment.left, `slide ${index} left drift`).toBeCloseTo(0, 1)
+    expect(alignment.right, `slide ${index} right drift`).toBeCloseTo(0, 1)
+    expect(alignment.imageTop, `slide ${index} image top`).toBeGreaterThanOrEqual(0)
+    expect(alignment.imageRight, `slide ${index} image right`).toBeGreaterThanOrEqual(0)
+    expect(alignment.imageBottom, `slide ${index} image bottom`).toBeGreaterThanOrEqual(0)
+    expect(alignment.imageLeft, `slide ${index} image left`).toBeGreaterThanOrEqual(0)
+  }
+})
+
 test('supports controls, seamless looping, swipe, and timed advancement', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/')

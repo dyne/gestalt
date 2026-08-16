@@ -4,8 +4,11 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 readonly GESTALT_CLI_VERSION='0.1.0'
+readonly DEFAULT_INSTALL_BASE_URL='https://dyne.github.io/gestalt'
 readonly DEFAULT_MARKETPLACE='dyne/gestalt-agents'
 readonly DEFAULT_MARKETPLACE_NAME='dyne-gestalt-agents'
+manager_update_temp_root=''
+manager_update_staged_target=''
 
 log() {
   printf 'gestalt: %s\n' "$*" >&2
@@ -24,6 +27,16 @@ on_error() {
 }
 trap 'on_error "$LINENO"' ERR
 
+cleanup() {
+  if [[ -n $manager_update_temp_root && -d $manager_update_temp_root ]]; then
+    rm -rf -- "$manager_update_temp_root"
+  fi
+  if [[ -n $manager_update_staged_target && -f $manager_update_staged_target ]]; then
+    rm -f -- "$manager_update_staged_target"
+  fi
+}
+trap cleanup EXIT
+
 usage() {
   cat <<'EOF'
 Usage: gestalt <command> [options]
@@ -32,7 +45,7 @@ Manage Gestalt Agents and Gestalt Mobile in isolated, user-owned directories.
 
 Commands:
   install [--extra-skills]  Install or reconcile Agents and Mobile.
-  update [--extra-skills]   Upgrade Agents, rerun setup, and update Mobile.
+  update [--extra-skills]   Upgrade the manager, Agents, and Mobile.
   cli [--] [args...]        Start Codex with ~/.codex-gestalt as CODEX_HOME.
   mobile [--] [args...]     Start the managed Gestalt Mobile executable.
   doctor                    Check prerequisites and installation state.
@@ -42,6 +55,7 @@ Commands:
 Environment:
   CODEX_HOME                 Isolated Codex home (default: ~/.codex-gestalt).
   GESTALT_HOME               Runtime and Mobile root (default: ~/.gestalt).
+  GESTALT_INSTALL_BASE_URL   Manager update source (default: https://dyne.github.io/gestalt).
   GESTALT_MARKETPLACE        Marketplace source (default: dyne/gestalt-agents).
   GESTALT_MARKETPLACE_NAME   Codex checkout name (default: dyne-gestalt-agents).
   GESTALT_MOBILE_VERSION     npm version or tag (default: latest).
@@ -69,6 +83,7 @@ load_paths() {
   : "${HOME:?HOME is required}"
   codex_home=${CODEX_HOME:-$HOME/.codex-gestalt}
   gestalt_home=${GESTALT_HOME:-$HOME/.gestalt}
+  install_base_url=${GESTALT_INSTALL_BASE_URL:-$DEFAULT_INSTALL_BASE_URL}
   marketplace=${GESTALT_MARKETPLACE:-$DEFAULT_MARKETPLACE}
   marketplace_name=${GESTALT_MARKETPLACE_NAME:-$DEFAULT_MARKETPLACE_NAME}
   mobile_version=${GESTALT_MOBILE_VERSION:-latest}
@@ -78,6 +93,71 @@ load_paths() {
 
   validate_managed_path CODEX_HOME "$codex_home"
   validate_managed_path GESTALT_HOME "$gestalt_home"
+}
+
+calculate_sha256() {
+  local -r file=$1
+
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file"
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$file"
+  else
+    die 'sha256sum or shasum is required to verify the manager'
+  fi
+}
+
+update_manager() {
+  local manager_source manager_dir manager_name manager_target
+  local manager_download checksum_download expected_checksum actual_checksum current_checksum
+
+  require_command curl
+  require_command install
+  require_command mktemp
+
+  manager_source=${BASH_SOURCE[0]}
+  manager_dir=$(CDPATH='' cd -- "$(dirname -- "$manager_source")" && pwd -P) ||
+    die "could not resolve manager directory: $manager_source"
+  manager_name=$(basename -- "$manager_source")
+  manager_target=$manager_dir/$manager_name
+  [[ -f $manager_target ]] || die "could not resolve manager executable: $manager_target"
+
+  manager_update_temp_root=$(mktemp -d "${TMPDIR:-/tmp}/gestalt-update.XXXXXXXX") ||
+    die 'could not create a temporary directory for the manager update'
+  manager_download=$manager_update_temp_root/gestalt
+  checksum_download=$manager_update_temp_root/gestalt.sha256
+
+  log "checking for a manager update at ${install_base_url%/}/gestalt"
+  curl --fail --silent --show-error --location \
+    "${install_base_url%/}/gestalt" --output "$manager_download"
+  curl --fail --silent --show-error --location \
+    "${install_base_url%/}/gestalt.sha256" --output "$checksum_download"
+
+  IFS=' ' read -r expected_checksum _ < "$checksum_download" ||
+    die 'could not read the published manager checksum'
+  [[ $expected_checksum =~ ^[[:xdigit:]]{64}$ ]] ||
+    die 'published manager checksum has an invalid format'
+
+  actual_checksum=$(calculate_sha256 "$manager_download")
+  actual_checksum=${actual_checksum%% *}
+  [[ $actual_checksum == "$expected_checksum" ]] ||
+    die 'manager update checksum verification failed'
+
+  current_checksum=$(calculate_sha256 "$manager_target")
+  current_checksum=${current_checksum%% *}
+  if [[ $current_checksum == "$actual_checksum" ]]; then
+    log "manager is already current at $manager_target"
+  else
+    manager_update_staged_target=$(mktemp "$manager_dir/.gestalt.XXXXXXXX") ||
+      die 'could not stage the manager update'
+    install -m 0755 "$manager_download" "$manager_update_staged_target"
+    mv -f -- "$manager_update_staged_target" "$manager_target"
+    manager_update_staged_target=''
+    log "updated manager at $manager_target"
+  fi
+
+  rm -rf -- "$manager_update_temp_root"
+  manager_update_temp_root=''
 }
 
 check_node_version() {
@@ -172,9 +252,10 @@ command_install() {
 
 command_update() {
   parse_setup_options "$@"
+  update_manager
   run_marketplace_setup upgrade "$include_extra_skills"
   install_mobile
-  log 'Agents and Mobile are up to date'
+  log 'manager, Agents, and Mobile are up to date'
 }
 
 strip_separator() {
@@ -208,8 +289,29 @@ print_check() {
   printf '%-24s %s\n' "$label" "$status"
 }
 
+read_gestalt_plugin_version() {
+  node -e '
+    let input = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", chunk => { input += chunk; });
+    process.stdin.on("end", () => {
+      const result = JSON.parse(input);
+      const installed = Array.isArray(result) ? result : result.installed;
+      const plugin = Array.isArray(installed)
+        ? installed.find(candidate =>
+            candidate && candidate.name === "gestalt" && candidate.installed !== false)
+        : undefined;
+      if (!plugin || typeof plugin.version !== "string" || plugin.version.length === 0) {
+        process.exitCode = 1;
+        return;
+      }
+      process.stdout.write(plugin.version);
+    });
+  '
+}
+
 command_doctor() {
-  local failed=false node_version codex_version mobile_version_output
+  local failed=false node_version codex_version gestalt_plugin_version mobile_version_output
 
   printf 'Gestalt manager %s\n\n' "$GESTALT_CLI_VERSION"
   print_check 'Codex home' "$codex_home"
@@ -247,8 +349,11 @@ command_doctor() {
   fi
 
   if command -v codex >/dev/null 2>&1 && [[ -d $codex_home ]]; then
-    if CODEX_HOME=$codex_home codex plugin list --marketplace "$marketplace_name" --json >/dev/null 2>&1; then
-      print_check 'Gestalt plugins' 'registered'
+    if gestalt_plugin_version=$(
+      CODEX_HOME=$codex_home codex plugin list --marketplace "$marketplace_name" --json 2>/dev/null |
+        read_gestalt_plugin_version 2>/dev/null
+    ); then
+      print_check 'Gestalt plugins' "$gestalt_plugin_version"
     else
       print_check 'Gestalt plugins' 'NOT VERIFIED'
       failed=true

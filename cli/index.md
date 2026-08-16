@@ -8,10 +8,10 @@ relay together without merging their state. Run `gestalt help` at any time.
 | Command | Effect |
 | --- | --- |
 | `gestalt install` | Install or reconcile Agents, context mode, profiles, and Mobile |
-| `gestalt update` | Upgrade the marketplace, rerun setup, and update Mobile |
+| `gestalt update` | Checksum-update the manager, upgrade Agents, rerun setup, and update Mobile |
 | `gestalt cli [args…]` | Launch Codex with the isolated Gestalt home |
 | `gestalt mobile [args…]` | Launch Gestalt Mobile and forward its options |
-| `gestalt doctor` | Check prerequisites, paths, plugins, and Mobile version |
+| `gestalt doctor` | Check prerequisites, paths, Gestalt plugin version, and Mobile version |
 | `gestalt version` | Print the manager version |
 | `gestalt help` | Print command help |
 

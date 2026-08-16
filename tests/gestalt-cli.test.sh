@@ -8,6 +8,7 @@ trap 'rm -rf -- "$test_root"' EXIT
 fake_bin=$test_root/bin
 test_home=$test_root/home
 command_log=$test_root/commands.log
+real_node=$(command -v node)
 mkdir -p -- "$fake_bin" "$test_home"
 
 cat > "$fake_bin/node" <<'EOF'
@@ -16,6 +17,9 @@ set -euo pipefail
 if [[ ${1:-} == -p ]]; then
   printf '24.1.0\n'
   exit 0
+fi
+if [[ ${1:-} == -e ]]; then
+  exec "${GESTALT_TEST_REAL_NODE:?}" "$@"
 fi
 printf 'unexpected node invocation\n' >&2
 exit 1
@@ -85,7 +89,29 @@ SETUP
   exit 0
 fi
 if [[ ${1:-} == plugin && ${2:-} == list ]]; then
-  printf '[]\n'
+  cat <<'JSON'
+{
+  "installed": [
+    {
+      "pluginId": "gestalt@dyne-gestalt-agents",
+      "name": "gestalt",
+      "marketplaceName": "dyne-gestalt-agents",
+      "version": "2.1.0",
+      "installed": true,
+      "enabled": true
+    },
+    {
+      "pluginId": "context-mode@dyne-gestalt-agents",
+      "name": "context-mode",
+      "marketplaceName": "dyne-gestalt-agents",
+      "version": "9.9.9",
+      "installed": true,
+      "enabled": true
+    }
+  ],
+  "available": []
+}
+JSON
   exit 0
 fi
 exit 0
@@ -96,8 +122,10 @@ chmod 0755 "$fake_bin/node" "$fake_bin/npm" "$fake_bin/codex"
 export HOME=$test_home
 export PATH=$fake_bin:/usr/bin:/bin
 export GESTALT_TEST_LOG=$command_log
+export GESTALT_TEST_REAL_NODE=$real_node
 export CODEX_HOME=$test_home/.codex-gestalt
 export GESTALT_HOME=$test_home/.gestalt
+export GESTALT_INSTALL_BASE_URL=file://$repo_root/public
 
 assert_log() {
   local -r expected=$1
@@ -113,9 +141,33 @@ bash "$repo_root/public/gestalt" install
 assert_log "codex|CODEX_HOME=$CODEX_HOME|plugin|marketplace|add|dyne/gestalt-agents"
 assert_log "setup|CODEX_HOME=$CODEX_HOME|GESTALT_HOME=$GESTALT_HOME"
 
-bash "$repo_root/public/gestalt" update --extra-skills
+managed_bin=$test_root/managed-bin
+mkdir -p -- "$managed_bin"
+cp "$repo_root/public/gestalt" "$managed_bin/gestalt"
+printf '\n# stale local manager copy\n' >> "$managed_bin/gestalt"
+chmod 0755 "$managed_bin/gestalt"
+
+bash "$managed_bin/gestalt" update --extra-skills
+cmp "$repo_root/public/gestalt" "$managed_bin/gestalt"
 assert_log "codex|CODEX_HOME=$CODEX_HOME|plugin|marketplace|upgrade|dyne-gestalt-agents"
 grep -F 'setup|' "$command_log" | grep -F -- '--extra-skills' >/dev/null
+
+bad_update_source=$test_root/bad-update-source
+bad_managed_bin=$test_root/bad-managed-bin
+mkdir -p -- "$bad_update_source" "$bad_managed_bin"
+cp "$repo_root/public/gestalt" "$bad_update_source/gestalt"
+printf '%064d  gestalt\n' 0 > "$bad_update_source/gestalt.sha256"
+cp "$repo_root/public/gestalt" "$bad_managed_bin/gestalt"
+printf '\n# manager that must survive a rejected update\n' >> "$bad_managed_bin/gestalt"
+chmod 0755 "$bad_managed_bin/gestalt"
+cp "$bad_managed_bin/gestalt" "$test_root/manager-before-rejected-update"
+
+if GESTALT_INSTALL_BASE_URL=file://$bad_update_source \
+  bash "$bad_managed_bin/gestalt" update > /dev/null 2>&1; then
+  printf 'expected manager update with an invalid checksum to fail\n' >&2
+  exit 1
+fi
+cmp "$test_root/manager-before-rejected-update" "$bad_managed_bin/gestalt"
 
 bash "$repo_root/public/gestalt" cli -- --help
 assert_log "codex|CODEX_HOME=$CODEX_HOME|--help"
@@ -124,6 +176,7 @@ bash "$repo_root/public/gestalt" mobile -- --cwd "$test_home/workspace"
 assert_log "mobile|CODEX_HOME=$CODEX_HOME|GESTALT_HOME=$GESTALT_HOME|--cwd|$test_home/workspace"
 
 bash "$repo_root/public/gestalt" doctor > "$test_root/doctor.out"
+grep -E '^Gestalt plugins +2\.1\.0$' "$test_root/doctor.out" >/dev/null
 grep -F 'All manager checks passed.' "$test_root/doctor.out" >/dev/null
 
 if CODEX_HOME=relative bash "$repo_root/public/gestalt" version > /dev/null 2>&1; then

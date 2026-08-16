@@ -11,7 +11,7 @@ repeatable overrides.
 | `GESTALT_MARKETPLACE_NAME` | `dyne-gestalt-agents` | Codex checkout directory name |
 | `GESTALT_MOBILE_VERSION` | `latest` | npm version or tag installed by the manager |
 | `GESTALT_BIN_DIR` | `~/.local/bin` | Installer destination for the manager |
-| `GESTALT_INSTALL_BASE_URL` | `https://dyne.github.io/gestalt` | Website asset origin used by the bootstrapper |
+| `GESTALT_INSTALL_BASE_URL` | `https://dyne.github.io/gestalt` | Manager install and self-update source |
 
 ## Alternate isolated profile
 

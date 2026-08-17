@@ -54,7 +54,7 @@ set -euo pipefail
 {
   printf 'mobile|CODEX_HOME=%s|GESTALT_HOME=%s' "${CODEX_HOME:-}" "${GESTALT_HOME:-}"
   printf '|%s' "$@"
-  printf '\n'
+  printf '|PATH=%s\n' "$PATH"
 } >> "${GESTALT_TEST_LOG:?}"
 if [[ ${1:-} == --version ]]; then printf '0.1.0\n'; fi
 MOBILE
@@ -67,7 +67,7 @@ set -euo pipefail
 {
   printf 'codex|CODEX_HOME=%s' "${CODEX_HOME:-}"
   printf '|%s' "$@"
-  printf '\n'
+  printf '|PATH=%s\n' "$PATH"
 } >> "${GESTALT_TEST_LOG:?}"
 if [[ ${1:-} == --version ]]; then
   printf 'codex-cli 1.0.0\n'
@@ -171,9 +171,11 @@ cmp "$test_root/manager-before-rejected-update" "$bad_managed_bin/gestalt"
 
 bash "$repo_root/public/gestalt" cli -- --help
 assert_log "codex|CODEX_HOME=$CODEX_HOME|--help"
+grep -F "codex|CODEX_HOME=$CODEX_HOME|--help|PATH=$CODEX_HOME/bin:" "$command_log" >/dev/null
 
 bash "$repo_root/public/gestalt" mobile -- --cwd "$test_home/workspace"
 assert_log "mobile|CODEX_HOME=$CODEX_HOME|GESTALT_HOME=$GESTALT_HOME|--cwd|$test_home/workspace"
+grep -F "|PATH=$CODEX_HOME/bin:" "$command_log" | grep -F 'mobile|' >/dev/null
 
 bash "$repo_root/public/gestalt" doctor > "$test_root/doctor.out"
 grep -E '^Gestalt plugins +2\.1\.0$' "$test_root/doctor.out" >/dev/null

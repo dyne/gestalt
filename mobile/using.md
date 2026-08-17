@@ -54,7 +54,10 @@ gestalt mobile --cwd "$PWD" --skills focused
 
 An explicit global profile wins over a workspace `gestalt-skills.yml`, which
 wins over Codex-native selection. Mobile never rewrites Codex configuration or
-skill files.
+skill files. Skills provided by the Gestalt plugin are always shown and
+advertised to new sessions; they are labeled **Always advertised** and cannot
+be disabled by a saved snapshot. When Agents is upgraded, refresh the editor
+catalog and start a new session to use the new version.
 
 <MobileScreenshot
   src="05-skill-profiles.png"

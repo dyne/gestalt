@@ -1,7 +1,11 @@
 # Gestalt skill catalog
 
 The Gestalt plugin distributes 13 skills. Codex exposes them with the `gestalt`
-provider.
+provider, so invoke them as `$gestalt:<skill-name>`. Every Gestalt skill is
+session infrastructure: saved Mobile profiles cannot hide or disable it, and
+an Agents update reconciles the catalog against the newly installed version.
+Start a fresh session after `gestalt update`; an already-running Codex session
+keeps the catalog captured when it started.
 
 ## Development workflows
 
@@ -12,6 +16,9 @@ provider.
 | `systematic-debugging` | Establish evidence, root cause, and regression verification |
 | `verification-before-completion` | Match completion claims to current evidence |
 | `writing-skills` | Create reliable, discoverable reusable skills |
+
+`gestalt cli` and `gestalt mobile` also put `$CODEX_HOME/bin` on `PATH`, where
+Agents setup installs the matching `org-plan` helper on every update.
 
 ## Context-mode skills
 

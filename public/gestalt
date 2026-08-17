@@ -269,7 +269,8 @@ command_cli() {
   require_command codex
   strip_separator "$@"
   log "starting Codex with CODEX_HOME=$codex_home"
-  exec env CODEX_HOME="$codex_home" codex "${forwarded_args[@]}"
+  exec env CODEX_HOME="$codex_home" PATH="$codex_home/bin:$PATH" \
+    codex "${forwarded_args[@]}"
 }
 
 command_mobile() {
@@ -280,6 +281,7 @@ command_mobile() {
   fi
   log "starting Gestalt Mobile from $mobile_root"
   exec env CODEX_HOME="$codex_home" GESTALT_HOME="$gestalt_home" \
+    PATH="$codex_home/bin:$PATH" \
     "$mobile_bin" "${forwarded_args[@]}"
 }
 

@@ -43,8 +43,10 @@ gestalt update
 ```
 
 This upgrades `dyne/gestalt-agents`, reruns its required setup script, verifies
-the context-mode runtime, and installs `gestalt-mobile@latest` under the Gestalt
-home.
+the context-mode runtime and complete `$gestalt:*` app-server skill catalog,
+updates the stable `$CODEX_HOME/bin/org-plan` helper, and installs
+`gestalt-mobile@latest` under the Gestalt home. Start a new session after the
+update because running sessions retain their startup catalog.
 
 To opt into the curated third-party skill set maintained by Gestalt Agents:
 

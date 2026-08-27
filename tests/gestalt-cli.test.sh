@@ -14,11 +14,11 @@ mkdir -p -- "$fake_bin" "$test_home"
 cat > "$fake_bin/node" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ ${1:-} == -p ]]; then
+if [[ ${1:-} == -p && ${2:-} == 'process.versions.node' ]]; then
   printf '24.1.0\n'
   exit 0
 fi
-if [[ ${1:-} == -e ]]; then
+if [[ ${1:-} == -e || ${1:-} == -p ]]; then
   exec "${GESTALT_TEST_REAL_NODE:?}" "$@"
 fi
 printf 'unexpected node invocation\n' >&2
@@ -89,7 +89,8 @@ SETUP
   exit 0
 fi
 if [[ ${1:-} == plugin && ${2:-} == list ]]; then
-  cat <<'JSON'
+  context_version=${GESTALT_TEST_CONTEXT_PLUGIN_VERSION:-2.1.0}
+  cat <<JSON
 {
   "installed": [
     {
@@ -104,7 +105,7 @@ if [[ ${1:-} == plugin && ${2:-} == list ]]; then
       "pluginId": "context-mode@dyne-gestalt-agents",
       "name": "context-mode",
       "marketplaceName": "dyne-gestalt-agents",
-      "version": "9.9.9",
+      "version": "$context_version",
       "installed": true,
       "enabled": true
     }
@@ -126,6 +127,14 @@ export GESTALT_TEST_REAL_NODE=$real_node
 export CODEX_HOME=$test_home/.codex-gestalt
 export GESTALT_HOME=$test_home/.gestalt
 export GESTALT_INSTALL_BASE_URL=file://$repo_root/public
+
+runtime_identity=$($real_node -p '[process.platform, process.arch, "node-" + process.versions.modules].join("-")')
+prepared_runtime=$GESTALT_HOME/runtime/context-mode/2.1.0/$runtime_identity
+mkdir -p -- "$prepared_runtime"
+touch "$prepared_runtime/cli.bundle.mjs" "$prepared_runtime/server.bundle.mjs"
+cat > "$prepared_runtime/.context-mode-prepared.json" <<EOF
+{"packageVersion":"2.1.0","nodeModulesAbi":"$($real_node -p 'process.versions.modules')","platform":"$($real_node -p 'process.platform')","arch":"$($real_node -p 'process.arch')"}
+EOF
 
 assert_log() {
   local -r expected=$1
@@ -179,7 +188,23 @@ grep -F "|PATH=$CODEX_HOME/bin:" "$command_log" | grep -F 'mobile|' >/dev/null
 
 bash "$repo_root/public/gestalt" doctor > "$test_root/doctor.out"
 grep -E '^Gestalt plugins +2\.1\.0$' "$test_root/doctor.out" >/dev/null
+grep -E '^Context-mode plugin +2\.1\.0$' "$test_root/doctor.out" >/dev/null
+grep -E '^Context-mode runtime +' "$test_root/doctor.out" >/dev/null
 grep -F 'All manager checks passed.' "$test_root/doctor.out" >/dev/null
+
+if GESTALT_TEST_CONTEXT_PLUGIN_VERSION=9.9.9 \
+  bash "$repo_root/public/gestalt" doctor > "$test_root/skew-doctor.out" 2>&1; then
+  printf 'doctor unexpectedly accepted plugin version skew\n' >&2
+  exit 1
+fi
+grep -F 'MISMATCH (gestalt=2.1.0 context-mode=9.9.9)' "$test_root/skew-doctor.out" >/dev/null
+
+rm -f -- "$prepared_runtime/.context-mode-prepared.json"
+if bash "$repo_root/public/gestalt" doctor > "$test_root/runtime-doctor.out" 2>&1; then
+  printf 'doctor unexpectedly accepted a missing prepared runtime marker\n' >&2
+  exit 1
+fi
+grep -F "NOT PREPARED ($prepared_runtime)" "$test_root/runtime-doctor.out" >/dev/null
 
 if CODEX_HOME=relative bash "$repo_root/public/gestalt" version > /dev/null 2>&1; then
   printf 'expected relative CODEX_HOME to be rejected\n' >&2

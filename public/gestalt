@@ -267,10 +267,13 @@ strip_separator() {
 }
 
 command_cli() {
+  check_node_version
   require_command codex
+  verify_context_mode_installation
   strip_separator "$@"
   log "starting Codex with CODEX_HOME=$codex_home"
-  exec env CODEX_HOME="$codex_home" PATH="$codex_home/bin:$PATH" \
+  exec env CODEX_HOME="$codex_home" GESTALT_HOME="$gestalt_home" \
+    PATH="$codex_home/bin:$PATH" \
     codex "${forwarded_args[@]}"
 }
 
@@ -315,6 +318,44 @@ read_plugin_version() {
   ' "$plugin_name"
 }
 
+context_mode_plugin_source_is_disabled() {
+  CODEX_HOME=$codex_home codex plugin list --marketplace "$marketplace_name" --json 2>/dev/null |
+    node -e '
+      let input = "";
+      process.stdin.setEncoding("utf8");
+      process.stdin.on("data", chunk => { input += chunk; });
+      process.stdin.on("end", () => {
+        const result = JSON.parse(input);
+        const installed = Array.isArray(result) ? result : result.installed;
+        const plugin = Array.isArray(installed)
+          ? installed.find(candidate => candidate && candidate.name === "context-mode")
+          : undefined;
+        if (!plugin || plugin.installed === false || plugin.enabled !== false) process.exitCode = 1;
+      });
+    '
+}
+
+context_mode_native_mcp_is_enabled() {
+  local -r expected_launcher=$codex_home/bin/context-mode-mcp.mjs
+
+  CODEX_HOME=$codex_home codex mcp get context-mode --json 2>/dev/null |
+    node -e '
+      let input = "";
+      const expectedLauncher = process.argv[1];
+      process.stdin.setEncoding("utf8");
+      process.stdin.on("data", chunk => { input += chunk; });
+      process.stdin.on("end", () => {
+        const server = JSON.parse(input);
+        const command = server.transport?.command ?? server.command;
+        const args = server.transport?.args ?? server.args;
+        if (server.enabled !== true || command !== "node" ||
+            !Array.isArray(args) || args.length !== 1 || args[0] !== expectedLauncher) {
+          process.exitCode = 1;
+        }
+      });
+    ' "$expected_launcher"
+}
+
 context_mode_runtime_root() {
   local -r version=$1
   local runtime_identity
@@ -355,6 +396,10 @@ verify_context_mode_installation() {
     die 'could not resolve the context-mode runtime path'
   context_mode_runtime_is_prepared "$context_version" ||
     die "context-mode $context_version runtime is not prepared: $runtime_root"
+  context_mode_plugin_source_is_disabled ||
+    die 'context-mode plugin source must remain disabled; run gestalt install or gestalt update to restore the native MCP bridge'
+  context_mode_native_mcp_is_enabled ||
+    die 'context-mode native MCP bridge is missing or disabled; run gestalt install or gestalt update'
   log "verified context-mode $context_version plugin and external runtime"
 }
 
@@ -423,6 +468,18 @@ command_doctor() {
       else
         context_mode_runtime=$(context_mode_runtime_root "$context_mode_plugin_version" || printf 'unresolved')
         print_check 'Context-mode runtime' "NOT PREPARED ($context_mode_runtime)"
+        failed=true
+      fi
+      if context_mode_plugin_source_is_disabled; then
+        print_check 'Plugin MCP source' 'disabled (expected)'
+      else
+        print_check 'Plugin MCP source' 'ENABLED (disable it; native bridge owns startup)'
+        failed=true
+      fi
+      if context_mode_native_mcp_is_enabled; then
+        print_check 'Native context MCP' 'enabled'
+      else
+        print_check 'Native context MCP' 'MISSING OR DISABLED'
         failed=true
       fi
     else

@@ -8,7 +8,8 @@ gestalt doctor
 
 It checks Node, npm, Codex, configured directories, installed plugins, and the
 Mobile executable without printing prompts, model output, secrets, or arbitrary
-environment values.
+environment values. It also verifies that the context-mode plugin source is
+disabled as expected and that the native context-mode MCP bridge is enabled.
 
 ## `gestalt: command not found`
 
@@ -30,6 +31,18 @@ gestalt update
 
 Confirm Node.js, `python3`, `make`, and a C/C++ compiler are installed. Also
 check that a second context-mode marketplace variant is not enabled.
+
+## Context-mode plugin says disabled
+
+That is the expected Gestalt configuration. Do not enable
+`context-mode@dyne-gestalt-agents` by hand: `gestalt install` and
+`gestalt update` register its runtime as a native required MCP and disable the
+plugin's duplicate manifest launcher. Run `gestalt doctor` to check both sides
+of that bridge. If it reports drift, run:
+
+```sh
+gestalt update
+```
 
 ## Mobile will not start
 

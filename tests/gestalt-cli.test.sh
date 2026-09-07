@@ -67,7 +67,7 @@ set -euo pipefail
 {
   printf 'codex|CODEX_HOME=%s' "${CODEX_HOME:-}"
   printf '|%s' "$@"
-  printf '|PATH=%s\n' "$PATH"
+  printf '|GESTALT_HOME=%s|PATH=%s\n' "${GESTALT_HOME:-}" "$PATH"
 } >> "${GESTALT_TEST_LOG:?}"
 if [[ ${1:-} == --version ]]; then
   printf 'codex-cli 1.0.0\n'
@@ -90,6 +90,7 @@ SETUP
 fi
 if [[ ${1:-} == plugin && ${2:-} == list ]]; then
   context_version=${GESTALT_TEST_CONTEXT_PLUGIN_VERSION:-2.1.0}
+  context_enabled=${GESTALT_TEST_CONTEXT_PLUGIN_ENABLED:-false}
   cat <<JSON
 {
   "installed": [
@@ -107,10 +108,25 @@ if [[ ${1:-} == plugin && ${2:-} == list ]]; then
       "marketplaceName": "dyne-gestalt-agents",
       "version": "$context_version",
       "installed": true,
-      "enabled": true
+      "enabled": $context_enabled
     }
   ],
   "available": []
+}
+JSON
+  exit 0
+fi
+if [[ ${1:-} == mcp && ${2:-} == get && ${3:-} == context-mode && ${4:-} == --json ]]; then
+  context_mcp_enabled=${GESTALT_TEST_CONTEXT_MCP_ENABLED:-true}
+  cat <<JSON
+{
+  "name": "context-mode",
+  "enabled": $context_mcp_enabled,
+  "transport": {
+    "type": "stdio",
+    "command": "node",
+    "args": ["${CODEX_HOME:?}/bin/context-mode-mcp.mjs"]
+  }
 }
 JSON
   exit 0
@@ -180,7 +196,8 @@ cmp "$test_root/manager-before-rejected-update" "$bad_managed_bin/gestalt"
 
 bash "$repo_root/public/gestalt" cli -- --help
 assert_log "codex|CODEX_HOME=$CODEX_HOME|--help"
-grep -F "codex|CODEX_HOME=$CODEX_HOME|--help|PATH=$CODEX_HOME/bin:" "$command_log" >/dev/null
+grep -F "codex|CODEX_HOME=$CODEX_HOME|--help|GESTALT_HOME=$GESTALT_HOME|PATH=$CODEX_HOME/bin:" \
+  "$command_log" >/dev/null
 
 bash "$repo_root/public/gestalt" mobile -- --cwd "$test_home/workspace"
 assert_log "mobile|CODEX_HOME=$CODEX_HOME|GESTALT_HOME=$GESTALT_HOME|--cwd|$test_home/workspace"
@@ -190,7 +207,33 @@ bash "$repo_root/public/gestalt" doctor > "$test_root/doctor.out"
 grep -E '^Gestalt plugins +2\.1\.0$' "$test_root/doctor.out" >/dev/null
 grep -E '^Context-mode plugin +2\.1\.0$' "$test_root/doctor.out" >/dev/null
 grep -E '^Context-mode runtime +' "$test_root/doctor.out" >/dev/null
+grep -E '^Plugin MCP source +disabled \(expected\)$' "$test_root/doctor.out" >/dev/null
+grep -E '^Native context MCP +enabled$' "$test_root/doctor.out" >/dev/null
 grep -F 'All manager checks passed.' "$test_root/doctor.out" >/dev/null
+
+if GESTALT_TEST_CONTEXT_PLUGIN_ENABLED=true \
+  bash "$repo_root/public/gestalt" doctor > "$test_root/enabled-plugin-doctor.out" 2>&1; then
+  printf 'doctor unexpectedly accepted the manifest MCP source as enabled\n' >&2
+  exit 1
+fi
+grep -F 'ENABLED (disable it; native bridge owns startup)' \
+  "$test_root/enabled-plugin-doctor.out" >/dev/null
+
+if GESTALT_TEST_CONTEXT_PLUGIN_ENABLED=true \
+  bash "$repo_root/public/gestalt" cli -- --help > "$test_root/enabled-plugin-cli.out" 2>&1; then
+  printf 'cli unexpectedly started with the manifest MCP source enabled\n' >&2
+  exit 1
+fi
+grep -F 'context-mode plugin source must remain disabled' \
+  "$test_root/enabled-plugin-cli.out" >/dev/null
+
+if GESTALT_TEST_CONTEXT_MCP_ENABLED=false \
+  bash "$repo_root/public/gestalt" doctor > "$test_root/disabled-mcp-doctor.out" 2>&1; then
+  printf 'doctor unexpectedly accepted the native MCP as disabled\n' >&2
+  exit 1
+fi
+grep -E '^Native context MCP +MISSING OR DISABLED$' \
+  "$test_root/disabled-mcp-doctor.out" >/dev/null
 
 if GESTALT_TEST_CONTEXT_PLUGIN_VERSION=9.9.9 \
   bash "$repo_root/public/gestalt" doctor > "$test_root/skew-doctor.out" 2>&1; then

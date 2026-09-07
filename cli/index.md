@@ -22,8 +22,15 @@ gestalt cli
 gestalt cli --help
 ```
 
-The command exports `CODEX_HOME=~/.codex-gestalt` only for the child process.
-Your current shell and default Codex profile are unchanged.
+Before launch, the command verifies that the prepared context-mode runtime and
+native MCP bridge match the installed plugin version. It exports
+`CODEX_HOME=~/.codex-gestalt` and `GESTALT_HOME=~/.gestalt` only for the child
+process. Your current shell and default Codex profile are unchanged.
+
+The `context-mode@dyne-gestalt-agents` plugin source is intentionally shown as
+disabled. Gestalt Agents keeps that package as the implementation source and
+registers one native `context-mode` MCP launcher instead. Enabling the plugin
+by hand can create a second, incorrectly launched MCP server.
 
 ## Launch Mobile
 

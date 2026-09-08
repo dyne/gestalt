@@ -18,7 +18,7 @@ if [[ ${1:-} == -p && ${2:-} == 'process.versions.node' ]]; then
   printf '24.1.0\n'
   exit 0
 fi
-if [[ ${1:-} == -e || ${1:-} == -p ]]; then
+if [[ ${1:-} == -e || ${1:-} == -p || ${1:-} == *.mjs ]]; then
   exec "${GESTALT_TEST_REAL_NODE:?}" "$@"
 fi
 printf 'unexpected node invocation\n' >&2
@@ -71,6 +71,10 @@ set -euo pipefail
 } >> "${GESTALT_TEST_LOG:?}"
 if [[ ${1:-} == --version ]]; then
   printf 'codex-cli 1.0.0\n'
+  exit 0
+fi
+if [[ ${1:-} == doctor ]]; then
+  printf 'Codex doctor passed\n'
   exit 0
 fi
 if [[ ${1:-} == plugin && ${2:-} == marketplace && ( ${3:-} == add || ${3:-} == upgrade ) ]]; then
@@ -147,7 +151,12 @@ export GESTALT_INSTALL_BASE_URL=file://$repo_root/public
 runtime_identity=$($real_node -p '[process.platform, process.arch, "node-" + process.versions.modules].join("-")')
 prepared_runtime=$GESTALT_HOME/runtime/context-mode/2.1.0/$runtime_identity
 mkdir -p -- "$prepared_runtime"
-touch "$prepared_runtime/cli.bundle.mjs" "$prepared_runtime/server.bundle.mjs"
+cat > "$prepared_runtime/cli.bundle.mjs" <<'EOF'
+import { appendFileSync } from 'node:fs';
+appendFileSync(process.env.GESTALT_TEST_LOG, `context-mode|${process.argv.slice(2).join('|')}\n`);
+process.stdout.write('Context-mode doctor passed\n');
+EOF
+touch "$prepared_runtime/server.bundle.mjs"
 cat > "$prepared_runtime/.context-mode-prepared.json" <<EOF
 {"packageVersion":"2.1.0","nodeModulesAbi":"$($real_node -p 'process.versions.modules')","platform":"$($real_node -p 'process.platform')","arch":"$($real_node -p 'process.arch')"}
 EOF
@@ -196,6 +205,8 @@ cmp "$test_root/manager-before-rejected-update" "$bad_managed_bin/gestalt"
 
 bash "$repo_root/public/gestalt" cli -- --help
 assert_log "codex|CODEX_HOME=$CODEX_HOME|--help"
+assert_log "codex|CODEX_HOME=$CODEX_HOME|doctor|--summary|--ascii|--no-color"
+assert_log "context-mode|doctor"
 grep -F "codex|CODEX_HOME=$CODEX_HOME|--help|GESTALT_HOME=$GESTALT_HOME|PATH=$CODEX_HOME/bin:" \
   "$command_log" >/dev/null
 
@@ -209,7 +220,7 @@ grep -E '^Context-mode plugin +2\.1\.0$' "$test_root/doctor.out" >/dev/null
 grep -E '^Context-mode runtime +' "$test_root/doctor.out" >/dev/null
 grep -E '^Plugin MCP source +disabled \(expected\)$' "$test_root/doctor.out" >/dev/null
 grep -E '^Native context MCP +enabled$' "$test_root/doctor.out" >/dev/null
-grep -F 'All manager checks passed.' "$test_root/doctor.out" >/dev/null
+grep -F 'All startup diagnostics passed.' "$test_root/doctor.out" >/dev/null
 
 if GESTALT_TEST_CONTEXT_PLUGIN_ENABLED=true \
   bash "$repo_root/public/gestalt" doctor > "$test_root/enabled-plugin-doctor.out" 2>&1; then

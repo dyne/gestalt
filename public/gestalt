@@ -269,10 +269,12 @@ strip_separator() {
 command_cli() {
   check_node_version
   require_command codex
+  run_startup_diagnostics
   verify_context_mode_installation
   strip_separator "$@"
   log "starting Codex with CODEX_HOME=$codex_home"
   exec env CODEX_HOME="$codex_home" GESTALT_HOME="$gestalt_home" \
+    GESTALT_STARTUP_DIAGNOSTICS_DONE=1 \
     PATH="$codex_home/bin:$PATH" \
     codex "${forwarded_args[@]}"
 }
@@ -283,8 +285,10 @@ command_mobile() {
     log 'Gestalt Mobile is not installed; installing it now'
     install_mobile
   fi
+  run_startup_diagnostics
   log "starting Gestalt Mobile from $mobile_root"
   exec env CODEX_HOME="$codex_home" GESTALT_HOME="$gestalt_home" \
+    GESTALT_STARTUP_DIAGNOSTICS_DONE=1 \
     PATH="$codex_home/bin:$PATH" \
     "$mobile_bin" "${forwarded_args[@]}"
 }
@@ -403,6 +407,24 @@ verify_context_mode_installation() {
   log "verified context-mode $context_version plugin and external runtime"
 }
 
+run_doctor_command() {
+  local -r label=$1
+  shift
+  printf '\n%s\n' "$label"
+  if "$@"; then
+    return 0
+  fi
+  log "$label reported a problem"
+  return 1
+}
+
+run_startup_diagnostics() {
+  log 'running startup diagnostics'
+  if ! command_doctor; then
+    log 'startup diagnostics reported a problem; launch will continue after required runtime checks'
+  fi
+}
+
 command_doctor() {
   local failed=false node_version codex_version gestalt_plugin_version
   local context_mode_plugin_version context_mode_runtime mobile_version_output
@@ -496,11 +518,23 @@ command_doctor() {
     failed=true
   fi
 
+  if command -v codex >/dev/null 2>&1; then
+    run_doctor_command 'Codex doctor' \
+      env CODEX_HOME="$codex_home" codex doctor --summary --ascii --no-color || failed=true
+  fi
+
+  if [[ -n ${context_mode_runtime:-} && -f $context_mode_runtime/cli.bundle.mjs ]]; then
+    run_doctor_command 'Context-mode doctor' \
+      env CODEX_HOME="$codex_home" GESTALT_HOME="$gestalt_home" \
+      CONTEXT_MODE_PLATFORM=codex CONTEXT_MODE_WORKSPACE="$PWD" \
+      node "$context_mode_runtime/cli.bundle.mjs" doctor || failed=true
+  fi
+
   if "$failed"; then
     printf "\nRun 'gestalt install' or 'gestalt update' to repair missing components.\n" >&2
     return 1
   fi
-  printf "\nAll manager checks passed. Run ctx-doctor inside a fresh 'gestalt cli' session.\n"
+  printf "\nAll startup diagnostics passed.\n"
 }
 
 main() {

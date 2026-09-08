@@ -43,11 +43,10 @@ Ctrl-C to stop the HTTP server, active Codex subprocesses, and database cleanly.
 
 - Node.js 24 or newer.
 - An installed and authenticated Codex CLI.
-- The Gestalt isolated profile created by `gestalt install`.
+- The Gestalt environment created by `gestalt install`.
 
-When `codex-profile` and the Gestalt profile both exist, Mobile uses
-`codex-profile cli gestalt app-server --stdio`. Otherwise it falls back to the
-Codex CLI available in the manager's isolated environment.
+The manager establishes `CODEX_HOME`, `GESTALT_HOME`, and `PATH`; Mobile starts
+`codex app-server --stdio` directly in that environment.
 
 ## Common options
 

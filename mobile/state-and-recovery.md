@@ -78,3 +78,9 @@ incomplete-without-continuation reason is a degraded stop. The recovery is
 doctor names an unavailable or incompatible capability. Diagnostics inspect only
 bounded release metadata, never drafts, prompts, transcripts, authorization
 state, or internal lease identifiers.
+
+If a failed child initialization leaves `pending_init` agents occupying every
+Codex collaboration slot, an updated supervisor uses Mobile's root-only agent
+capacity recovery tool. Mobile acknowledges the handoff, recycles only that
+session's app-server, resumes the same durable root thread, and lets Autopilot
+continue. The Org Plan and repository are not modified by this recovery.

@@ -68,7 +68,7 @@ set -euo pipefail
 if [[ ${1:-} == --version ]]; then printf '0.1.0\n'; fi
 MOBILE
 cat > "$prefix/node_modules/gestalt-mobile/gestalt-supervision-capabilities.json" <<'CAPABILITIES'
-{"schemaVersion":1,"component":"mobile","supervisionContract":1,"capabilities":["supervision-start","wait-lease-tool","checkpoint-tool","controller-status","canonical-agent-identity","session-verdict","acknowledgement-safe-composer","org-plan-contract"]}
+{"schemaVersion":1,"component":"mobile","supervisionContract":1,"capabilities":["supervision-start","wait-lease-tool","checkpoint-tool","agent-capacity-recovery","controller-status","canonical-agent-identity","session-verdict","acknowledgement-safe-composer","org-plan-contract"]}
 CAPABILITIES
 chmod 0755 "$prefix/node_modules/.bin/gestalt-mobile"
 EOF
@@ -103,7 +103,7 @@ set -euo pipefail
 capability_manifest="${CODEX_HOME:?}/.tmp/marketplaces/dyne-gestalt-agents/plugins/gestalt/gestalt-supervision-capabilities.json"
 mkdir -p -- "$(dirname -- "$capability_manifest")"
 cat > "$capability_manifest" <<'CAPABILITIES'
-{"schemaVersion":1,"component":"agents","supervisionContract":1,"capabilities":["supervision-start","wait-lease-tool","checkpoint-tool","canonical-agent-identity","org-plan-contract"]}
+{"schemaVersion":1,"component":"agents","supervisionContract":1,"capabilities":["supervision-start","wait-lease-tool","checkpoint-tool","agent-capacity-recovery","canonical-agent-identity","org-plan-contract"]}
 CAPABILITIES
 SETUP
   chmod 0755 "$setup"
@@ -183,10 +183,10 @@ mobile_capability_manifest=$GESTALT_HOME/mobile/node_modules/gestalt-mobile/gest
 write_capability_manifests() {
   mkdir -p -- "$(dirname -- "$agents_capability_manifest")" "$(dirname -- "$mobile_capability_manifest")"
   cat > "$agents_capability_manifest" <<'EOF'
-{"schemaVersion":1,"component":"agents","supervisionContract":1,"capabilities":["supervision-start","wait-lease-tool","checkpoint-tool","canonical-agent-identity","org-plan-contract"]}
+{"schemaVersion":1,"component":"agents","supervisionContract":1,"capabilities":["supervision-start","wait-lease-tool","checkpoint-tool","agent-capacity-recovery","canonical-agent-identity","org-plan-contract"]}
 EOF
   cat > "$mobile_capability_manifest" <<'EOF'
-{"schemaVersion":1,"component":"mobile","supervisionContract":1,"capabilities":["supervision-start","wait-lease-tool","checkpoint-tool","controller-status","canonical-agent-identity","session-verdict","acknowledgement-safe-composer","org-plan-contract"]}
+{"schemaVersion":1,"component":"mobile","supervisionContract":1,"capabilities":["supervision-start","wait-lease-tool","checkpoint-tool","agent-capacity-recovery","controller-status","canonical-agent-identity","session-verdict","acknowledgement-safe-composer","org-plan-contract"]}
 EOF
 }
 

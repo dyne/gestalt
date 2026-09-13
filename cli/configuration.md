@@ -39,9 +39,10 @@ Before launching Codex or Mobile, `gestalt doctor` reads two small local release
 manifests: the Agents marketplace manifest and Mobile's installed package
 manifest. The probe is offline and read-only. It checks supervision contract
 version 1 and the capabilities needed for `supervision-start`, wait and
-checkpoint tools, controller status, canonical agent identity, session verdicts,
-acknowledgement-safe drafts, and the Org Plan contract. It never opens a
-session, prompt, Org Plan body, transcript, credential store, or lease ID.
+checkpoint tools, stuck-agent capacity recovery, controller status, canonical
+agent identity, session verdicts, acknowledgement-safe drafts, and the Org Plan
+contract. It never opens a session, prompt, Org Plan body, transcript,
+credential store, or lease ID.
 
 `ready (v1; offline manifests)` means the installed components agree. `UNAVAILABLE`
 means a release did not publish its manifest; `INCOMPATIBLE` means a manifest is

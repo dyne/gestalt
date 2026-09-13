@@ -101,6 +101,13 @@ Rejected work stays uncommitted and returns to the same executor. After ACCEPT,
 the executor creates one conventional commit, marks the L1 REVIEWED, and exits.
 The director then starts a fresh executor for the next L1.
 
+`supervision-start` is an activation boundary, not status prose: a compatible
+Mobile controller reports healthy control for the retained plan, or the root
+continues in the same turn with a bounded compatibility warning. Completion,
+error, interruption, idle, process-result, checkpoint, and status-question
+events are wake inputs for an incomplete plan. The canonical task name is `l#`
+(or `l#_gN` only for an unavailable physical slot); people see `L# — title`.
+
 Prepare the recommended profiles with:
 
 ```sh

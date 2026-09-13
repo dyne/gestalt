@@ -47,7 +47,7 @@ while (($# > 0)); do
   shift
 done
 [[ -n $prefix ]]
-mkdir -p -- "$prefix/node_modules/.bin"
+mkdir -p -- "$prefix/node_modules/.bin" "$prefix/node_modules/gestalt-mobile"
 cat > "$prefix/node_modules/.bin/gestalt-mobile" <<'MOBILE'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -58,6 +58,9 @@ set -euo pipefail
 } >> "${GESTALT_TEST_LOG:?}"
 if [[ ${1:-} == --version ]]; then printf '0.1.0\n'; fi
 MOBILE
+cat > "$prefix/node_modules/gestalt-mobile/gestalt-supervision-capabilities.json" <<'CAPABILITIES'
+{"schemaVersion":1,"component":"mobile","supervisionContract":1,"capabilities":["supervision-start","wait-lease-tool","checkpoint-tool","controller-status","canonical-agent-identity","session-verdict","acknowledgement-safe-composer","org-plan-contract"]}
+CAPABILITIES
 chmod 0755 "$prefix/node_modules/.bin/gestalt-mobile"
 EOF
 
@@ -88,6 +91,11 @@ set -euo pipefail
   printf '|%s' "$@"
   printf '\n'
 } >> "${GESTALT_TEST_LOG:?}"
+capability_manifest="${CODEX_HOME:?}/.tmp/marketplaces/dyne-gestalt-agents/plugins/gestalt/gestalt-supervision-capabilities.json"
+mkdir -p -- "$(dirname -- "$capability_manifest")"
+cat > "$capability_manifest" <<'CAPABILITIES'
+{"schemaVersion":1,"component":"agents","supervisionContract":1,"capabilities":["supervision-start","wait-lease-tool","checkpoint-tool","canonical-agent-identity","org-plan-contract"]}
+CAPABILITIES
 SETUP
   chmod 0755 "$setup"
   exit 0
@@ -161,6 +169,18 @@ cat > "$prepared_runtime/.context-mode-prepared.json" <<EOF
 {"packageVersion":"2.1.0","nodeModulesAbi":"$($real_node -p 'process.versions.modules')","platform":"$($real_node -p 'process.platform')","arch":"$($real_node -p 'process.arch')"}
 EOF
 
+agents_capability_manifest=$CODEX_HOME/.tmp/marketplaces/dyne-gestalt-agents/plugins/gestalt/gestalt-supervision-capabilities.json
+mobile_capability_manifest=$GESTALT_HOME/mobile/node_modules/gestalt-mobile/gestalt-supervision-capabilities.json
+write_capability_manifests() {
+  mkdir -p -- "$(dirname -- "$agents_capability_manifest")" "$(dirname -- "$mobile_capability_manifest")"
+  cat > "$agents_capability_manifest" <<'EOF'
+{"schemaVersion":1,"component":"agents","supervisionContract":1,"capabilities":["supervision-start","wait-lease-tool","checkpoint-tool","canonical-agent-identity","org-plan-contract"]}
+EOF
+  cat > "$mobile_capability_manifest" <<'EOF'
+{"schemaVersion":1,"component":"mobile","supervisionContract":1,"capabilities":["supervision-start","wait-lease-tool","checkpoint-tool","controller-status","canonical-agent-identity","session-verdict","acknowledgement-safe-composer","org-plan-contract"]}
+EOF
+}
+
 assert_log() {
   local -r expected=$1
   if ! grep -F -- "$expected" "$command_log" >/dev/null; then
@@ -172,6 +192,7 @@ assert_log() {
 
 bash "$repo_root/public/gestalt" install
 [[ -x $GESTALT_HOME/mobile/node_modules/.bin/gestalt-mobile ]]
+[[ -f $agents_capability_manifest && -f $mobile_capability_manifest ]]
 assert_log "codex|CODEX_HOME=$CODEX_HOME|plugin|marketplace|add|dyne/gestalt-agents"
 assert_log "setup|CODEX_HOME=$CODEX_HOME|GESTALT_HOME=$GESTALT_HOME"
 
@@ -220,7 +241,53 @@ grep -E '^Context-mode plugin +2\.1\.0$' "$test_root/doctor.out" >/dev/null
 grep -E '^Context-mode runtime +' "$test_root/doctor.out" >/dev/null
 grep -E '^Plugin MCP source +disabled \(expected\)$' "$test_root/doctor.out" >/dev/null
 grep -E '^Native context MCP +enabled$' "$test_root/doctor.out" >/dev/null
+grep -E '^Supervision contract +ready \(v1; offline manifests\)$' "$test_root/doctor.out" >/dev/null
 grep -F 'All startup diagnostics passed.' "$test_root/doctor.out" >/dev/null
+
+rm -f -- "$agents_capability_manifest"
+if bash "$repo_root/public/gestalt" doctor > "$test_root/missing-capability-doctor.out" 2>&1; then
+  printf 'doctor unexpectedly accepted a missing Agents capability manifest\n' >&2
+  exit 1
+fi
+grep -F 'Agents supervision       UNAVAILABLE (run gestalt update, then restart Mobile)' \
+  "$test_root/missing-capability-doctor.out" >/dev/null
+write_capability_manifests
+
+printf '{not-json\n' > "$mobile_capability_manifest"
+if bash "$repo_root/public/gestalt" doctor > "$test_root/malformed-capability-doctor.out" 2>&1; then
+  printf 'doctor unexpectedly accepted a malformed Mobile capability manifest\n' >&2
+  exit 1
+fi
+grep -F 'Mobile supervision       INCOMPATIBLE (malformed capability manifest; run gestalt update, then restart Mobile)' \
+  "$test_root/malformed-capability-doctor.out" >/dev/null
+write_capability_manifests
+
+sed -i 's/"supervision-start"/"bad,name"/' "$agents_capability_manifest"
+if bash "$repo_root/public/gestalt" doctor > "$test_root/malformed-capability-name-doctor.out" 2>&1; then
+  printf 'doctor unexpectedly accepted an unsafe capability name\n' >&2
+  exit 1
+fi
+grep -F 'Agents supervision       INCOMPATIBLE (malformed capability manifest; run gestalt update, then restart Mobile)' \
+  "$test_root/malformed-capability-name-doctor.out" >/dev/null
+write_capability_manifests
+
+sed -i 's/"supervisionContract":1/"supervisionContract":2/' "$agents_capability_manifest"
+if bash "$repo_root/public/gestalt" doctor > "$test_root/stale-capability-doctor.out" 2>&1; then
+  printf 'doctor unexpectedly accepted a stale supervision contract\n' >&2
+  exit 1
+fi
+grep -F 'Supervision contract     INCOMPATIBLE (Agents=2 Mobile=1; run gestalt update, then restart Mobile)' \
+  "$test_root/stale-capability-doctor.out" >/dev/null
+write_capability_manifests
+
+sed -i 's/,"session-verdict"//' "$mobile_capability_manifest"
+if bash "$repo_root/public/gestalt" doctor > "$test_root/partial-capability-doctor.out" 2>&1; then
+  printf 'doctor unexpectedly accepted a partial Mobile capability manifest\n' >&2
+  exit 1
+fi
+grep -F 'Mobile supervision       INCOMPATIBLE (missing session-verdict; run gestalt update, then restart Mobile)' \
+  "$test_root/partial-capability-doctor.out" >/dev/null
+write_capability_manifests
 
 if GESTALT_TEST_CONTEXT_PLUGIN_ENABLED=true \
   bash "$repo_root/public/gestalt" doctor > "$test_root/enabled-plugin-doctor.out" 2>&1; then

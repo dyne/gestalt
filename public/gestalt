@@ -7,6 +7,8 @@ readonly GESTALT_CLI_VERSION='0.1.0'
 readonly DEFAULT_INSTALL_BASE_URL='https://dyne.github.io/gestalt'
 readonly DEFAULT_MARKETPLACE='dyne/gestalt-agents'
 readonly DEFAULT_MARKETPLACE_NAME='dyne-gestalt-agents'
+readonly SUPERVISION_CAPABILITY_SCHEMA=1
+readonly SUPERVISION_CONTRACT_VERSION=1
 manager_update_temp_root=''
 manager_update_staged_target=''
 
@@ -90,6 +92,8 @@ load_paths() {
   mobile_root=$gestalt_home/mobile
   mobile_bin=$mobile_root/node_modules/.bin/gestalt-mobile
   marketplace_setup=$codex_home/.tmp/marketplaces/$marketplace_name/gestalt-setup.sh
+  agents_capability_manifest=$codex_home/.tmp/marketplaces/$marketplace_name/plugins/gestalt/gestalt-supervision-capabilities.json
+  mobile_capability_manifest=$mobile_root/node_modules/gestalt-mobile/gestalt-supervision-capabilities.json
 
   validate_managed_path CODEX_HOME "$codex_home"
   validate_managed_path GESTALT_HOME "$gestalt_home"
@@ -301,6 +305,7 @@ print_check() {
 
 read_plugin_version() {
   local -r plugin_name=$1
+  # shellcheck disable=SC2016 # The Node program intentionally owns its JavaScript interpolation.
   node -e '
     let input = "";
     const pluginName = process.argv[1];
@@ -382,6 +387,94 @@ context_mode_runtime_is_prepared() {
         marker.nodeModulesAbi !== process.versions.modules ||
         marker.platform !== process.platform || marker.arch !== process.arch) process.exit(1);
   ' "$marker" "$version"
+}
+
+read_supervision_capabilities() {
+  local -r component=$1
+  local -r manifest=$2
+
+  if [[ ! -f $manifest ]]; then
+    printf 'UNAVAILABLE'
+    return 0
+  fi
+  if [[ ! -r $manifest || $(wc -c < "$manifest") -gt 16384 ]]; then
+    printf 'MALFORMED'
+    return 0
+  fi
+
+  # shellcheck disable=SC2016 # The Node program intentionally owns its JavaScript interpolation.
+  node -e '
+    const fs = require("node:fs");
+    const [file, component, schema, contract] = process.argv.slice(1);
+    try {
+      const value = JSON.parse(fs.readFileSync(file, "utf8"));
+      const capabilities = value.capabilities;
+      if (!value || typeof value !== "object" || Array.isArray(value) ||
+          value.schemaVersion !== Number(schema) || value.component !== component ||
+          !Number.isInteger(value.supervisionContract) ||
+          !Array.isArray(capabilities) ||
+          capabilities.some(capability => typeof capability !== "string" ||
+            !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(capability))) {
+        process.stdout.write("MALFORMED");
+      } else {
+        process.stdout.write(`READY|${value.supervisionContract}|${[...new Set(capabilities)].sort().join(",")}`);
+      }
+    } catch {
+      process.stdout.write("MALFORMED");
+    }
+  ' "$manifest" "$component" "$SUPERVISION_CAPABILITY_SCHEMA" "$SUPERVISION_CONTRACT_VERSION"
+}
+
+has_supervision_capability() {
+  local -r capabilities=$1
+  local -r expected=$2
+  [[ ,$capabilities, == *",$expected,"* ]]
+}
+
+check_supervision_capability_coherence() {
+  local agents mobile agents_contract agents_capabilities mobile_contract mobile_capabilities
+  local capability
+  local -a agents_required=(supervision-start wait-lease-tool checkpoint-tool canonical-agent-identity org-plan-contract)
+  local -a mobile_required=(supervision-start wait-lease-tool checkpoint-tool controller-status canonical-agent-identity session-verdict acknowledgement-safe-composer org-plan-contract)
+
+  agents=$(read_supervision_capabilities agents "$agents_capability_manifest")
+  mobile=$(read_supervision_capabilities mobile "$mobile_capability_manifest")
+  if [[ $agents == UNAVAILABLE ]]; then
+    print_check 'Agents supervision' 'UNAVAILABLE (run gestalt update, then restart Mobile)'
+    return 1
+  fi
+  if [[ $mobile == UNAVAILABLE ]]; then
+    print_check 'Mobile supervision' 'UNAVAILABLE (run gestalt update, then restart Mobile)'
+    return 1
+  fi
+  if [[ $agents == MALFORMED ]]; then
+    print_check 'Agents supervision' 'INCOMPATIBLE (malformed capability manifest; run gestalt update, then restart Mobile)'
+    return 1
+  fi
+  if [[ $mobile == MALFORMED ]]; then
+    print_check 'Mobile supervision' 'INCOMPATIBLE (malformed capability manifest; run gestalt update, then restart Mobile)'
+    return 1
+  fi
+
+  IFS='|' read -r _ agents_contract agents_capabilities <<< "$agents"
+  IFS='|' read -r _ mobile_contract mobile_capabilities <<< "$mobile"
+  if [[ $agents_contract != "$SUPERVISION_CONTRACT_VERSION" || $mobile_contract != "$SUPERVISION_CONTRACT_VERSION" || $agents_contract != "$mobile_contract" ]]; then
+    print_check 'Supervision contract' "INCOMPATIBLE (Agents=$agents_contract Mobile=$mobile_contract; run gestalt update, then restart Mobile)"
+    return 1
+  fi
+  for capability in "${agents_required[@]}"; do
+    if ! has_supervision_capability "$agents_capabilities" "$capability"; then
+      print_check 'Agents supervision' "INCOMPATIBLE (missing $capability; run gestalt update, then restart Mobile)"
+      return 1
+    fi
+  done
+  for capability in "${mobile_required[@]}"; do
+    if ! has_supervision_capability "$mobile_capabilities" "$capability"; then
+      print_check 'Mobile supervision' "INCOMPATIBLE (missing $capability; run gestalt update, then restart Mobile)"
+      return 1
+    fi
+  done
+  print_check 'Supervision contract' "ready (v$agents_contract; offline manifests)"
 }
 
 verify_context_mode_installation() {
@@ -517,6 +610,8 @@ command_doctor() {
     print_check 'Gestalt Mobile' 'MISSING'
     failed=true
   fi
+
+  check_supervision_capability_coherence || failed=true
 
   if command -v codex >/dev/null 2>&1; then
     run_doctor_command 'Codex doctor' \

@@ -93,6 +93,22 @@ nested steps, the current action, skill assignments, progress, and review
 status. Completing implementation does not hide the distinction between work
 that is awaiting review and work whose evidence has been accepted.
 
+The Sessions view reports a server-derived **Working** or **Idle** verdict.
+**Working** requires an active root or child, an owned process, or a verified
+Autopilot continuation. **Idle** includes completed work, manual Off, a request
+for your attention, and the important degraded state: an incomplete plan without
+a continuation. Time passing alone never makes work look active.
+
+Autopilot labels are exact: **On · root working**, **On · continuation
+scheduled**, **On · waiting for agent event**, **On · checking state**, **Paused
+· needs you**, **Safety paused**, **On · continuation unavailable**, **Off**, and
+**Complete**. **On · continuation unavailable** means an incomplete plan has no
+verified next action, so it is degraded rather than healthy waiting. “On”
+records requested intent; the controller-health detail proves whether the next
+action is actually observable. If it says incomplete without a continuation, run `gestalt doctor`, then use
+`gestalt update` and restart Mobile when doctor reports unavailable or
+incompatible supervision capabilities.
+
 <div class="mobile-shot-grid">
   <MobileScreenshot
     src="12-plan-progress.png"
@@ -105,6 +121,14 @@ that is awaiting review and work whose evidence has been accepted.
     caption="Review status remains explicit after implementation reaches done."
   />
 </div>
+
+## Prompt recovery
+
+A composer draft stays in session-scoped storage until its matching relay
+operation is accepted. If sending is interrupted, rejected, or its outcome is
+unknown, return to that session and retry the exact text; it is not copied into
+status evidence, telemetry, or diagnostics. An accepted operation clears only
+the submitted revision, so newer text remains in the composer.
 
 ## Git operations
 

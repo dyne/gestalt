@@ -87,6 +87,13 @@ export default defineConfig({
           { text: 'Source documentation', link: '/reference/' },
           { text: 'Contributing', link: '/contributing' }
         ]
+      },
+      {
+        text: 'Reference',
+        items: [
+          { text: 'Overview', link: '/reference/' },
+          { text: 'Supervision capabilities', link: '/reference/supervision-capabilities' }
+        ]
       }
     ],
     outline: { level: [2, 3], label: 'On this page' },

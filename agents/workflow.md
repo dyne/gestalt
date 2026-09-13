@@ -38,6 +38,19 @@ L1 2/5 — Validate release metadata: in review
 You are asked for input only when a material requirement is ambiguous or a
 prerequisite is unavailable—not for routine internal review decisions.
 
+## Continuity and names
+
+`supervision-start` activates Mobile supervision when the compatible controller
+is available. An incomplete plan never ends merely because an executor reports,
+becomes idle, errors, is interrupted, or a checkpoint is accepted: the root
+continues work, follows up the same executor, reviews/corrects, starts the next
+L1, or uses one of the explicit wait, attention, or manual-Off dispositions.
+
+The session list uses stable, human-facing names: `Supervisor — <plan title>`,
+`L# — <current L1 title>`, and `Final review — <plan title>`. An interrupted or
+older replacement remains visible with its lifecycle state; a name is never a
+control identifier.
+
 ## When a native plan is enough
 
 Use a lightweight native plan for short, low-risk work that does not need

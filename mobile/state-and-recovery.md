@@ -69,3 +69,12 @@ After a local reset or an explicit lock, the relay returns to its passkey gate.
 The browser stores the selected session, replay cursor, and per-session
 composer drafts. After a dropped connection it replays retained events; if the
 server has pruned that gap, it reloads canonical Codex thread history.
+
+For an incomplete supervised plan, use the visible **Working**/**Idle** verdict
+and the Autopilot label before assuming a wait is healthy. **Paused · needs you**
+is an explicit attention request; **Off** is manual control; **Idle** with an
+incomplete-without-continuation reason is a degraded stop. The recovery is
+`gestalt doctor`, followed by `gestalt update` and a Mobile restart only when
+doctor names an unavailable or incompatible capability. Diagnostics inspect only
+bounded release metadata, never drafts, prompts, transcripts, authorization
+state, or internal lease identifiers.

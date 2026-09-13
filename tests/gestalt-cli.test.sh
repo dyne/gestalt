@@ -3,7 +3,15 @@ set -Eeuo pipefail
 
 repo_root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 test_root=$(mktemp -d "${TMPDIR:-/tmp}/gestalt-cli-test.XXXXXXXX")
-trap 'rm -rf -- "$test_root"' EXIT
+test_relay_pid=''
+cleanup() {
+  if [[ -n $test_relay_pid ]] && kill -0 "$test_relay_pid" 2>/dev/null; then
+    kill -TERM "$test_relay_pid" 2>/dev/null || true
+    wait "$test_relay_pid" 2>/dev/null || true
+  fi
+  rm -rf -- "$test_root"
+}
+trap cleanup EXIT
 
 fake_bin=$test_root/bin
 test_home=$test_root/home
@@ -54,7 +62,8 @@ set -euo pipefail
 {
   printf 'mobile|CODEX_HOME=%s|GESTALT_HOME=%s' "${CODEX_HOME:-}" "${GESTALT_HOME:-}"
   printf '|%s' "$@"
-  printf '|PATH=%s\n' "$PATH"
+  printf '|PATH=%s|GESTALT_MOBILE_PID=%s|GESTALT_MOBILE_RESTART_STATE=%s\n' \
+    "$PATH" "${GESTALT_MOBILE_PID:-}" "${GESTALT_MOBILE_RESTART_STATE:-}"
 } >> "${GESTALT_TEST_LOG:?}"
 if [[ ${1:-} == --version ]]; then printf '0.1.0\n'; fi
 MOBILE
@@ -234,6 +243,78 @@ grep -F "codex|CODEX_HOME=$CODEX_HOME|--help|GESTALT_HOME=$GESTALT_HOME|PATH=$CO
 bash "$repo_root/public/gestalt" mobile -- --cwd "$test_home/workspace"
 assert_log "mobile|CODEX_HOME=$CODEX_HOME|GESTALT_HOME=$GESTALT_HOME|--cwd|$test_home/workspace"
 grep -F "|PATH=$CODEX_HOME/bin:" "$command_log" | grep -F 'mobile|' >/dev/null
+mobile_restart_state=$(find "$GESTALT_HOME/run" -maxdepth 1 -type f -name 'mobile-*.restart' -print -quit)
+[[ -n $mobile_restart_state && -r $mobile_restart_state ]]
+$real_node -e '
+  const fs = require("node:fs");
+  const fields = fs.readFileSync(process.argv[1]).toString("utf8").split("\0");
+  fields.pop();
+  const [cwd, ...args] = fields;
+  if (cwd !== process.argv[2] || JSON.stringify(args) !== JSON.stringify(["--cwd", process.argv[3]])) {
+    process.exit(1);
+  }
+' "$mobile_restart_state" "$repo_root" "$test_home/workspace"
+grep -F "GESTALT_MOBILE_RESTART_STATE=$mobile_restart_state" "$command_log" >/dev/null
+
+if bash "$repo_root/public/gestalt" update-restart > "$test_root/unmanaged-restart.out" 2>&1; then
+  printf 'update-restart unexpectedly accepted an unmanaged shell\n' >&2
+  exit 1
+fi
+grep -F 'must be run from a session managed by Gestalt Mobile' \
+  "$test_root/unmanaged-restart.out" >/dev/null
+
+mkdir -p -- "$test_home/restarted-workspace"
+sleep 30 &
+test_relay_pid=$!
+failed_restart_state=$GESTALT_HOME/run/mobile-$test_relay_pid.restart
+failed_restart_lock=$GESTALT_HOME/run/update-restart.lock
+mkdir "$failed_restart_lock"
+printf '%s\0%s\0%s\0' "$test_home/restarted-workspace" --port 3210 > "$failed_restart_state"
+if GESTALT_INSTALL_BASE_URL=file://$bad_update_source \
+  bash "$repo_root/public/gestalt" __update-restart-worker \
+    "$test_relay_pid" "$failed_restart_state" false "$test_root/failed-update-restart.log" \
+    "$failed_restart_lock"; then
+  printf 'update-restart worker unexpectedly accepted a bad manager checksum\n' >&2
+  exit 1
+fi
+kill -0 "$test_relay_pid"
+kill -TERM "$test_relay_pid"
+wait "$test_relay_pid" 2>/dev/null || true
+test_relay_pid=''
+grep -F 'manager update checksum verification failed' "$test_root/failed-update-restart.log" >/dev/null
+[[ ! -e $failed_restart_lock ]]
+
+sleep 30 &
+test_relay_pid=$!
+live_restart_state=$GESTALT_HOME/run/mobile-$test_relay_pid.restart
+printf '%s\0%s\0%s\0' "$test_home/restarted-workspace" --port 4321 > "$live_restart_state"
+mkdir "$GESTALT_HOME/run/update-restart.lock"
+if GESTALT_MOBILE_PID=$test_relay_pid GESTALT_MOBILE_RESTART_STATE=$live_restart_state \
+  bash "$repo_root/public/gestalt" update-restart > "$test_root/concurrent-restart.out" 2>&1; then
+  printf 'update-restart unexpectedly accepted a concurrent update\n' >&2
+  exit 1
+fi
+grep -F 'another update-restart is already running' "$test_root/concurrent-restart.out" >/dev/null
+rmdir "$GESTALT_HOME/run/update-restart.lock"
+GESTALT_MOBILE_PID=$test_relay_pid GESTALT_MOBILE_RESTART_STATE=$live_restart_state \
+  bash "$repo_root/public/gestalt" update-restart > "$test_root/scheduled-restart.out" 2>&1
+grep -F 'scheduled update and Mobile restart' "$test_root/scheduled-restart.out" >/dev/null
+for ((attempt = 0; attempt < 200; attempt += 1)); do
+  if ! kill -0 "$test_relay_pid" 2>/dev/null &&
+    grep -F 'mobile|' "$command_log" | grep -F '|--port|4321|' >/dev/null; then
+    break
+  fi
+  sleep 0.1
+done
+if kill -0 "$test_relay_pid" 2>/dev/null; then
+  printf 'scheduled update-restart did not stop the managed relay\n' >&2
+  exit 1
+fi
+wait "$test_relay_pid" 2>/dev/null || true
+test_relay_pid=''
+grep -F 'mobile|' "$command_log" | grep -F '|--port|4321|' >/dev/null
+grep -F 'restarting Gestalt Mobile with its previous options' \
+  "$GESTALT_HOME/update-restart.log" >/dev/null
 
 bash "$repo_root/public/gestalt" doctor > "$test_root/doctor.out"
 grep -E '^Gestalt plugins +2\.1\.0$' "$test_root/doctor.out" >/dev/null

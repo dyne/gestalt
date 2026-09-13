@@ -11,6 +11,7 @@ readonly SUPERVISION_CAPABILITY_SCHEMA=1
 readonly SUPERVISION_CONTRACT_VERSION=1
 manager_update_temp_root=''
 manager_update_staged_target=''
+update_restart_lock=''
 
 log() {
   printf 'gestalt: %s\n' "$*" >&2
@@ -36,6 +37,9 @@ cleanup() {
   if [[ -n $manager_update_staged_target && -f $manager_update_staged_target ]]; then
     rm -f -- "$manager_update_staged_target"
   fi
+  if [[ -n $update_restart_lock && -d $update_restart_lock ]]; then
+    rmdir -- "$update_restart_lock" 2>/dev/null || true
+  fi
 }
 trap cleanup EXIT
 
@@ -48,6 +52,8 @@ Manage Gestalt Agents and Gestalt Mobile in isolated, user-owned directories.
 Commands:
   install [--extra-skills]  Install or reconcile Agents and Mobile.
   update [--extra-skills]   Upgrade the manager, Agents, and Mobile.
+  update-restart [--extra-skills]
+                            Update from a live Mobile session, then restart Mobile.
   cli [--] [args...]        Start Codex with ~/.codex-gestalt as CODEX_HOME.
   mobile [--] [args...]     Start the managed Gestalt Mobile executable.
   doctor                    Check prerequisites and installation state.
@@ -263,6 +269,135 @@ command_update() {
   log 'manager, Agents, and Mobile are up to date'
 }
 
+resolve_manager_target() {
+  local manager_source manager_dir manager_name
+
+  manager_source=${BASH_SOURCE[0]}
+  manager_dir=$(CDPATH='' cd -- "$(dirname -- "$manager_source")" && pwd -P) ||
+    die "could not resolve manager directory: $manager_source"
+  manager_name=$(basename -- "$manager_source")
+  manager_target=$manager_dir/$manager_name
+  [[ -x $manager_target ]] || die "manager executable is unavailable: $manager_target"
+}
+
+validate_mobile_restart_context() {
+  local -r relay_pid=$1
+  local -r restart_state=$2
+  local -r expected_state=$gestalt_home/run/mobile-$relay_pid.restart
+
+  [[ $relay_pid =~ ^[1-9][0-9]*$ ]] ||
+    die 'update-restart must be run from a session managed by Gestalt Mobile'
+  [[ $restart_state == "$expected_state" && -r $restart_state ]] ||
+    die 'the Gestalt Mobile restart descriptor is unavailable or invalid'
+  process_is_live "$relay_pid" || die 'the managing Gestalt Mobile process is not running'
+}
+
+process_is_live() {
+  local -r process_pid=$1
+  local process_state
+
+  kill -0 "$process_pid" 2>/dev/null || return 1
+  process_state=$(ps -o stat= -p "$process_pid" 2>/dev/null) || return 1
+  process_state=${process_state//[[:space:]]/}
+  [[ $process_state != Z* ]]
+}
+
+command_update_restart() {
+  local relay_pid restart_state restart_log restart_lock worker_pid manager_target
+
+  parse_setup_options "$@"
+  relay_pid=${GESTALT_MOBILE_PID:-}
+  restart_state=${GESTALT_MOBILE_RESTART_STATE:-}
+  validate_mobile_restart_context "$relay_pid" "$restart_state"
+  check_node_version
+  resolve_manager_target
+  restart_log=$gestalt_home/update-restart.log
+  restart_lock=$gestalt_home/run/update-restart.lock
+  mkdir -- "$restart_lock" 2>/dev/null ||
+    die "another update-restart is already running ($restart_lock)"
+
+  if ! worker_pid=$(node -e '
+    const { spawn } = require("node:child_process");
+    const [command, ...args] = process.argv.slice(1);
+    const child = spawn(command, args, {
+      detached: true,
+      env: process.env,
+      stdio: "ignore",
+    });
+    child.unref();
+    process.stdout.write(String(child.pid));
+  ' "$manager_target" __update-restart-worker \
+    "$relay_pid" "$restart_state" "$include_extra_skills" "$restart_log" "$restart_lock"); then
+    rmdir -- "$restart_lock" 2>/dev/null || true
+    die 'could not schedule the detached update and restart worker'
+  fi
+  if [[ ! $worker_pid =~ ^[1-9][0-9]*$ ]]; then
+    rmdir -- "$restart_lock" 2>/dev/null || true
+    die 'the detached update worker did not start'
+  fi
+
+  log "scheduled update and Mobile restart (worker $worker_pid)"
+  log "progress will be written to $restart_log; this session will reconnect after restart"
+}
+
+command_update_restart_worker() {
+  local -r relay_pid=${1:-}
+  local -r restart_state=${2:-}
+  local -r worker_extra_skills=${3:-false}
+  local -r restart_log=${4:-}
+  local -r restart_lock=${5:-}
+  local restart_cwd restart_field manager_target
+  local -a restart_record restart_args update_args=()
+
+  [[ -n $restart_log ]] || die 'the update-restart worker log path is missing'
+  validate_managed_path 'update-restart log' "$restart_log"
+  [[ $restart_lock == "$gestalt_home/run/update-restart.lock" && -d $restart_lock ]] ||
+    die 'the update-restart worker lock is unavailable or invalid'
+  update_restart_lock=$restart_lock
+  mkdir -p -- "$(dirname -- "$restart_log")"
+  exec >> "$restart_log" 2>&1
+
+  log "starting live update at $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  # Let a calling Mobile endpoint flush its accepted response before any fast,
+  # already-current update reaches the relay shutdown step.
+  sleep 1
+  validate_mobile_restart_context "$relay_pid" "$restart_state"
+  while IFS= read -r -d '' restart_field; do
+    restart_record+=("$restart_field")
+  done < "$restart_state"
+  ((${#restart_record[@]} >= 1)) || die 'the Gestalt Mobile restart descriptor is empty'
+  restart_cwd=${restart_record[0]}
+  restart_args=("${restart_record[@]:1}")
+  [[ $restart_cwd == /* && -d $restart_cwd ]] ||
+    die "the Gestalt Mobile restart directory is invalid: $restart_cwd"
+  [[ $worker_extra_skills == false || $worker_extra_skills == true ]] ||
+    die 'the update-restart worker received an invalid setup mode'
+  if [[ $worker_extra_skills == true ]]; then
+    update_args+=(--extra-skills)
+  fi
+
+  command_update "${update_args[@]}"
+  validate_mobile_restart_context "$relay_pid" "$restart_state"
+  log "update succeeded; gracefully stopping Gestalt Mobile process $relay_pid"
+  kill -TERM "$relay_pid"
+  for ((attempt = 0; attempt < 300; attempt += 1)); do
+    if ! process_is_live "$relay_pid"; then
+      break
+    fi
+    sleep 0.1
+  done
+  process_is_live "$relay_pid" &&
+    die 'Gestalt Mobile did not stop within 30 seconds; it was not force-killed'
+
+  rm -f -- "$restart_state"
+  rmdir -- "$update_restart_lock"
+  update_restart_lock=''
+  resolve_manager_target
+  cd -- "$restart_cwd"
+  log 'restarting Gestalt Mobile with its previous options'
+  exec "$manager_target" mobile -- "${restart_args[@]}"
+}
+
 strip_separator() {
   if (($# > 0)) && [[ $1 == -- ]]; then
     shift
@@ -284,14 +419,32 @@ command_cli() {
 }
 
 command_mobile() {
+  local mobile_restart_dir mobile_restart_state mobile_restart_staged restart_cwd
+
   strip_separator "$@"
   if [[ ! -x $mobile_bin ]]; then
     log 'Gestalt Mobile is not installed; installing it now'
     install_mobile
   fi
   run_startup_diagnostics
+  mobile_restart_dir=$gestalt_home/run
+  mobile_restart_state=$mobile_restart_dir/mobile-$$.restart
+  mkdir -p -- "$mobile_restart_dir"
+  mobile_restart_staged=$(mktemp "$mobile_restart_dir/.mobile-$$.XXXXXXXX") ||
+    die 'could not stage the Mobile restart descriptor'
+  restart_cwd=$(pwd -P) || die 'could not resolve the Mobile working directory'
+  {
+    printf '%s\0' "$restart_cwd"
+    if ((${#forwarded_args[@]} > 0)); then
+      printf '%s\0' "${forwarded_args[@]}"
+    fi
+  } > "$mobile_restart_staged"
+  chmod 0600 "$mobile_restart_staged"
+  mv -f -- "$mobile_restart_staged" "$mobile_restart_state"
   log "starting Gestalt Mobile from $mobile_root"
   exec env CODEX_HOME="$codex_home" GESTALT_HOME="$gestalt_home" \
+    GESTALT_MOBILE_PID="$$" \
+    GESTALT_MOBILE_RESTART_STATE="$mobile_restart_state" \
     GESTALT_STARTUP_DIAGNOSTICS_DONE=1 \
     PATH="$codex_home/bin:$PATH" \
     "$mobile_bin" "${forwarded_args[@]}"
@@ -640,6 +793,8 @@ main() {
   case $command_name in
     install) command_install "$@" ;;
     update) command_update "$@" ;;
+    update-restart) command_update_restart "$@" ;;
+    __update-restart-worker) command_update_restart_worker "$@" ;;
     cli) command_cli "$@" ;;
     mobile) command_mobile "$@" ;;
     doctor) command_doctor "$@" ;;

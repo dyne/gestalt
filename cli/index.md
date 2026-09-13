@@ -9,6 +9,7 @@ relay together without merging their state. Run `gestalt help` at any time.
 | --- | --- |
 | `gestalt install` | Install or reconcile Agents, context mode, profiles, and Mobile |
 | `gestalt update` | Checksum-update the manager, upgrade Agents, rerun setup, and update Mobile |
+| `gestalt update-restart` | From a live Mobile session, update everything and gracefully restart Mobile |
 | `gestalt cli [args…]` | Launch Codex with the isolated Gestalt home |
 | `gestalt mobile [args…]` | Launch Gestalt Mobile and forward its options |
 | `gestalt doctor` | Check prerequisites, paths, Gestalt plugin version, and Mobile version |
@@ -54,6 +55,22 @@ the context-mode runtime and complete `$gestalt:*` app-server skill catalog,
 updates the stable `$CODEX_HOME/bin/org-plan` helper, and installs
 `gestalt-mobile@latest` under the Gestalt home. Start a new session after the
 update because running sessions retain their startup catalog.
+
+When you are already working in a session opened through Gestalt Mobile, use:
+
+```sh
+gestalt update-restart
+```
+
+The command schedules the update outside the current Codex process. Mobile
+continues running if any update step fails. After a successful update it shuts
+down gracefully, closes its Codex children, and restarts with the same working
+directory and command-line options. The browser reconnects to the relay and the
+durable sessions remain available. Progress is written to
+`$GESTALT_HOME/update-restart.log`.
+
+The command is intentionally available only to sessions launched by
+`gestalt mobile`; it will not guess at or terminate an unrelated process.
 
 To opt into the curated third-party skill set maintained by Gestalt Agents:
 

@@ -27,8 +27,8 @@ Both use this public, non-secret shape:
 ```
 
 Agents must publish `supervision-start`, `wait-lease-tool`, `checkpoint-tool`,
-`canonical-agent-identity`, and `org-plan-contract`. Mobile must publish those
-plus `controller-status`, `session-verdict`, and
+`agent-capacity-recovery`, `canonical-agent-identity`, and `org-plan-contract`.
+Mobile must publish those plus `controller-status`, `session-verdict`, and
 `acknowledgement-safe-composer`. The doctor reads at most 16 KiB, accepts only
 this schema and string capability names, and compares contract versions rather
 than inferring compatibility from package versions.

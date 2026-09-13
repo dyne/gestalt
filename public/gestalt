@@ -587,8 +587,8 @@ has_supervision_capability() {
 check_supervision_capability_coherence() {
   local agents mobile agents_contract agents_capabilities mobile_contract mobile_capabilities
   local capability
-  local -a agents_required=(supervision-start wait-lease-tool checkpoint-tool canonical-agent-identity org-plan-contract)
-  local -a mobile_required=(supervision-start wait-lease-tool checkpoint-tool controller-status canonical-agent-identity session-verdict acknowledgement-safe-composer org-plan-contract)
+  local -a agents_required=(supervision-start wait-lease-tool checkpoint-tool agent-capacity-recovery canonical-agent-identity org-plan-contract)
+  local -a mobile_required=(supervision-start wait-lease-tool checkpoint-tool agent-capacity-recovery controller-status canonical-agent-identity session-verdict acknowledgement-safe-composer org-plan-contract)
 
   agents=$(read_supervision_capabilities agents "$agents_capability_manifest")
   mobile=$(read_supervision_capabilities mobile "$mobile_capability_manifest")

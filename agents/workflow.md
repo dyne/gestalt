@@ -46,10 +46,11 @@ becomes idle, errors, is interrupted, or a checkpoint is accepted: the root
 continues work, follows up the same executor, reviews/corrects, starts the next
 L1, or uses one of the explicit wait, attention, or manual-Off dispositions.
 
-The session list uses stable, human-facing names: `Supervisor — <plan title>`,
-`L# — <current L1 title>`, and `Final review — <plan title>`. An interrupted or
-older replacement remains visible with its lifecycle state; a name is never a
-control identifier.
+The agent list uses exact positional identities: the root is `l0`, and the
+executor for an L1 is `l# — <current L1 title>`, with the title shown once.
+Roles, nicknames, the plan title, and generated labels never replace or extend
+those names. An interrupted or older physical replacement retains the same
+positional identity and remains visible with its lifecycle state.
 
 ## When a native plan is enough
 

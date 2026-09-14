@@ -420,6 +420,7 @@ command_cli() {
 
 command_mobile() {
   local mobile_restart_dir mobile_restart_state mobile_restart_staged restart_cwd
+  local plugin_inventory='' gestalt_agents_version='' context_mode_version=''
 
   strip_separator "$@"
   if [[ ! -x $mobile_bin ]]; then
@@ -427,6 +428,14 @@ command_mobile() {
     install_mobile
   fi
   run_startup_diagnostics
+  plugin_inventory=$(CODEX_HOME=$codex_home codex plugin list \
+    --marketplace "$marketplace_name" --json 2>/dev/null) || plugin_inventory=''
+  if [[ -n $plugin_inventory ]]; then
+    gestalt_agents_version=$(printf '%s' "$plugin_inventory" | read_plugin_version gestalt) ||
+      gestalt_agents_version=''
+    context_mode_version=$(printf '%s' "$plugin_inventory" | read_plugin_version context-mode) ||
+      context_mode_version=''
+  fi
   mobile_restart_dir=$gestalt_home/run
   mobile_restart_state=$mobile_restart_dir/mobile-$$.restart
   mkdir -p -- "$mobile_restart_dir"
@@ -443,6 +452,9 @@ command_mobile() {
   mv -f -- "$mobile_restart_staged" "$mobile_restart_state"
   log "starting Gestalt Mobile from $mobile_root"
   exec env CODEX_HOME="$codex_home" GESTALT_HOME="$gestalt_home" \
+    GESTALT_MANAGER_VERSION="$GESTALT_CLI_VERSION" \
+    GESTALT_AGENTS_VERSION="$gestalt_agents_version" \
+    GESTALT_CONTEXT_MODE_VERSION="$context_mode_version" \
     GESTALT_MOBILE_PID="$$" \
     GESTALT_MOBILE_RESTART_STATE="$mobile_restart_state" \
     GESTALT_STARTUP_DIAGNOSTICS_DONE=1 \

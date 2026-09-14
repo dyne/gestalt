@@ -61,6 +61,9 @@ cat > "$prefix/node_modules/.bin/gestalt-mobile" <<'MOBILE'
 set -euo pipefail
 {
   printf 'mobile|CODEX_HOME=%s|GESTALT_HOME=%s' "${CODEX_HOME:-}" "${GESTALT_HOME:-}"
+  printf '|GESTALT_MANAGER_VERSION=%s|GESTALT_AGENTS_VERSION=%s|GESTALT_CONTEXT_MODE_VERSION=%s' \
+    "${GESTALT_MANAGER_VERSION:-}" "${GESTALT_AGENTS_VERSION:-}" \
+    "${GESTALT_CONTEXT_MODE_VERSION:-}"
   printf '|%s' "$@"
   printf '|PATH=%s|GESTALT_MOBILE_PID=%s|GESTALT_MOBILE_RESTART_STATE=%s\n' \
     "$PATH" "${GESTALT_MOBILE_PID:-}" "${GESTALT_MOBILE_RESTART_STATE:-}"
@@ -241,7 +244,9 @@ grep -F "codex|CODEX_HOME=$CODEX_HOME|--help|GESTALT_HOME=$GESTALT_HOME|PATH=$CO
   "$command_log" >/dev/null
 
 bash "$repo_root/public/gestalt" mobile -- --cwd "$test_home/workspace"
-assert_log "mobile|CODEX_HOME=$CODEX_HOME|GESTALT_HOME=$GESTALT_HOME|--cwd|$test_home/workspace"
+assert_log "mobile|CODEX_HOME=$CODEX_HOME|GESTALT_HOME=$GESTALT_HOME"
+grep -F '|GESTALT_MANAGER_VERSION=0.1.0|GESTALT_AGENTS_VERSION=2.1.0|GESTALT_CONTEXT_MODE_VERSION=2.1.0' "$command_log" >/dev/null
+grep -F "|--cwd|$test_home/workspace" "$command_log" | grep -F 'mobile|' >/dev/null
 grep -F "|PATH=$CODEX_HOME/bin:" "$command_log" | grep -F 'mobile|' >/dev/null
 mobile_restart_state=$(find "$GESTALT_HOME/run" -maxdepth 1 -type f -name 'mobile-*.restart' -print -quit)
 [[ -n $mobile_restart_state && -r $mobile_restart_state ]]

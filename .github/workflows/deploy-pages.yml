@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -20,6 +20,23 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Calculate conventional semantic version
+        id: semver
+        uses: ietf-tools/semver-action@c90370b2958652d71c06a3484129a4d423a6d8a8 # v1.11.0
+        with:
+          token: ${{ github.token }}
+          branch: main
+          majorList: ''
+          minorList: feat, feature
+          patchList: fix, bugfix, perf, refactor, test, tests
+          skipInvalidTags: true
+          tagFilter: '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+          maxTagsToFetch: 100
+          noNewCommitBehavior: current
+          noVersionBumpBehavior: current
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -34,6 +51,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Verify current manager version
+        env:
+          CURRENT_TAG: ${{ steps.semver.outputs.current }}
+        run: test "$(./public/gestalt version)" = "gestalt ${CURRENT_TAG#v}"
+
+      - name: Apply manager version
+        if: steps.semver.outputs.bump != 'none'
+        run: node scripts/set-manager-version.mjs "${{ steps.semver.outputs.nextStrict }}"
+
       - name: Test installation tooling
         run: npm test
 
@@ -41,6 +67,19 @@ jobs:
         env:
           BASE_PATH: ${{ steps.pages.outputs.base_path }}/
         run: npm run build
+
+      - name: Commit and tag manager version
+        if: steps.semver.outputs.bump != 'none'
+        env:
+          TAG: ${{ steps.semver.outputs.next }}
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -- public/gestalt public/gestalt.sha256
+          git commit -m "chore(release): $TAG [skip ci]"
+          git tag "$TAG"
+          git push --atomic origin HEAD:main "$TAG"
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5

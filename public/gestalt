@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-readonly GESTALT_CLI_VERSION='0.1.0'
+readonly GESTALT_CLI_VERSION='0.2.0'
 readonly DEFAULT_INSTALL_BASE_URL='https://dyne.github.io/gestalt'
 readonly DEFAULT_MARKETPLACE='dyne/gestalt-agents'
 readonly DEFAULT_MARKETPLACE_NAME='dyne-gestalt-agents'

@@ -68,3 +68,27 @@ gestalt update
 
 The manager continues its normal checksum-verified update path; doctor never
 downloads or silently changes a component.
+
+## Transfer skills between installations
+
+Export user skills, Gestalt-managed extra skills, Codex-profile skills, and
+global skill profiles into one portable archive:
+
+```sh
+gestalt skills-export ~/gestalt-skills.tar.gz
+```
+
+On another installation, import the archive with the target installation's
+normal `HOME`, `CODEX_HOME`, and `GESTALT_HOME` values:
+
+```sh
+gestalt skills-import ~/gestalt-skills.tar.gz
+```
+
+Import validates the archive before writing, rejects links and unsafe paths,
+merges archived skill directories without deleting unrelated skills, and
+atomically replaces matching profile files. Absolute profile paths under the
+three exported skill roots are rewritten for the destination installation.
+Codex system skills and versioned plugin caches are not archived because
+`gestalt install` or `gestalt update` recreates them; profiles referring to
+plugin skills retain their paths for Mobile's normal version-rebinding logic.

@@ -14,6 +14,8 @@ relay together without merging their state. Run `gestalt help` at any time.
 | `gestalt mobile [args…]` | Launch Gestalt Mobile and forward its options |
 | `gestalt doctor` | Check prerequisites, paths, Gestalt plugin version, and Mobile version |
 | `gestalt version` | Print the manager version |
+| `gestalt skills-export [ARCHIVE]` | Export installed skills and skill profiles to a portable `.tar.gz` archive |
+| `gestalt skills-import ARCHIVE` | Merge a validated skills archive into this installation |
 | `gestalt help` | Print command help |
 
 ## Launch Codex

@@ -2,6 +2,8 @@
 set -Eeuo pipefail
 
 repo_root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
+manager_version=$(bash "$repo_root/public/gestalt" version)
+manager_version=${manager_version#gestalt }
 test_root=$(mktemp -d "${TMPDIR:-/tmp}/gestalt-cli-test.XXXXXXXX")
 test_relay_pid=''
 cleanup() {
@@ -274,7 +276,7 @@ grep -F "codex|CODEX_HOME=$CODEX_HOME|--help|GESTALT_HOME=$GESTALT_HOME|PATH=$CO
 
 bash "$repo_root/public/gestalt" mobile -- --cwd "$test_home/workspace"
 assert_log "mobile|CODEX_HOME=$CODEX_HOME|GESTALT_HOME=$GESTALT_HOME"
-grep -F '|GESTALT_MANAGER_VERSION=0.1.0|GESTALT_AGENTS_VERSION=2.1.0|GESTALT_CONTEXT_MODE_VERSION=2.1.0' "$command_log" >/dev/null
+grep -F "|GESTALT_MANAGER_VERSION=$manager_version|GESTALT_AGENTS_VERSION=2.1.0|GESTALT_CONTEXT_MODE_VERSION=2.1.0" "$command_log" >/dev/null
 grep -F "|--cwd|$test_home/workspace" "$command_log" | grep -F 'mobile|' >/dev/null
 grep -F "|PATH=$CODEX_HOME/bin:" "$command_log" | grep -F 'mobile|' >/dev/null
 mobile_restart_state=$(find "$GESTALT_HOME/run" -maxdepth 1 -type f -name 'mobile-*.restart' -print -quit)

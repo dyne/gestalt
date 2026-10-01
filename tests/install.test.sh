@@ -16,7 +16,9 @@ GESTALT_INSTALL_BASE_URL="file://$repo_root/public" \
 
 [[ -x $bin_dir/gestalt ]]
 cmp "$repo_root/public/gestalt" "$bin_dir/gestalt"
-HOME=$test_home "$bin_dir/gestalt" version | grep -F 'gestalt 0.1.0' >/dev/null
+expected_version=$(HOME=$test_home bash "$repo_root/public/gestalt" version)
+installed_version=$(HOME=$test_home "$bin_dir/gestalt" version)
+[[ $installed_version == "$expected_version" ]]
 
 bad_source=$test_root/bad-source
 mkdir -p -- "$bad_source"

@@ -26,7 +26,7 @@ if [[ ${1:-} == -p && ${2:-} == 'process.versions.node' ]]; then
   printf '24.1.0\n'
   exit 0
 fi
-if [[ ${1:-} == -e || ${1:-} == -p || ${1:-} == *.mjs ]]; then
+if [[ ${1:-} == -e || ${1:-} == -p || ${1:-} == --input-type=module || ${1:-} == *.mjs ]]; then
   exec "${GESTALT_TEST_REAL_NODE:?}" "$@"
 fi
 printf 'unexpected node invocation\n' >&2
@@ -168,6 +168,19 @@ export CODEX_HOME=$test_home/.codex-gestalt
 export GESTALT_HOME=$test_home/.gestalt
 export GESTALT_INSTALL_BASE_URL=file://$repo_root/public
 
+mkdir -p -- "$CODEX_HOME"
+cat > "$CODEX_HOME/config.toml" <<'EOF'
+model = "gpt-5.6-terra"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+[sandbox_workspace_write]
+network_access = true
+
+[features]
+hooks = true
+EOF
+
 runtime_identity=$($real_node -p '[process.platform, process.arch, "node-" + process.versions.modules].join("-")')
 prepared_runtime=$GESTALT_HOME/runtime/context-mode/2.1.0/$runtime_identity
 mkdir -p -- "$prepared_runtime"
@@ -205,6 +218,20 @@ assert_log() {
 bash "$repo_root/public/gestalt" install
 [[ -x $GESTALT_HOME/mobile/node_modules/.bin/gestalt-mobile ]]
 [[ -f $agents_capability_manifest && -f $mobile_capability_manifest ]]
+grep -F 'model = "gpt-5.6-terra"' "$CODEX_HOME/config.toml" >/dev/null
+grep -F '[features]' "$CODEX_HOME/config.toml" >/dev/null
+grep -F 'hooks = true' "$CODEX_HOME/config.toml" >/dev/null
+grep -F 'approval_policy = "never"' "$CODEX_HOME/config.toml" >/dev/null
+grep -F 'default_permissions = "workspace-git"' "$CODEX_HOME/config.toml" >/dev/null
+grep -F '[permissions.workspace-git]' "$CODEX_HOME/config.toml" >/dev/null
+grep -F '[permissions.workspace-git.filesystem.":workspace_roots"]' "$CODEX_HOME/config.toml" >/dev/null
+grep -F '".git" = "write"' "$CODEX_HOME/config.toml" >/dev/null
+grep -F '".agents" = "read"' "$CODEX_HOME/config.toml" >/dev/null
+grep -F '".codex" = "read"' "$CODEX_HOME/config.toml" >/dev/null
+if grep -E '^(sandbox_mode|\[sandbox_workspace_write])' "$CODEX_HOME/config.toml" >/dev/null; then
+  printf 'legacy sandbox configuration survived workspace-git migration\n' >&2
+  exit 1
+fi
 assert_log "codex|CODEX_HOME=$CODEX_HOME|plugin|marketplace|add|dyne/gestalt-agents"
 assert_log "setup|CODEX_HOME=$CODEX_HOME|GESTALT_HOME=$GESTALT_HOME"
 
@@ -216,6 +243,8 @@ chmod 0755 "$managed_bin/gestalt"
 
 bash "$managed_bin/gestalt" update --extra-skills
 cmp "$repo_root/public/gestalt" "$managed_bin/gestalt"
+[[ $(grep -Fc 'default_permissions = "workspace-git"' "$CODEX_HOME/config.toml") == 1 ]]
+[[ $(grep -Fc '[permissions.workspace-git]' "$CODEX_HOME/config.toml") == 1 ]]
 assert_log "codex|CODEX_HOME=$CODEX_HOME|plugin|marketplace|upgrade|dyne-gestalt-agents"
 grep -F 'setup|' "$command_log" | grep -F -- '--extra-skills' >/dev/null
 
@@ -261,7 +290,8 @@ $real_node -e '
 ' "$mobile_restart_state" "$repo_root" "$test_home/workspace"
 grep -F "GESTALT_MOBILE_RESTART_STATE=$mobile_restart_state" "$command_log" >/dev/null
 
-if bash "$repo_root/public/gestalt" update-restart > "$test_root/unmanaged-restart.out" 2>&1; then
+if env -u GESTALT_MOBILE_PID -u GESTALT_MOBILE_RESTART_STATE \
+  bash "$repo_root/public/gestalt" update-restart > "$test_root/unmanaged-restart.out" 2>&1; then
   printf 'update-restart unexpectedly accepted an unmanaged shell\n' >&2
   exit 1
 fi

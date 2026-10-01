@@ -179,6 +179,69 @@ check_node_version() {
   ((major >= 24)) || die "Node.js 24 or newer is required; found $version"
 }
 
+configure_codex_permissions() {
+  local -r config_path=$codex_home/config.toml
+
+  node --input-type=module - "$config_path" <<'NODE'
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
+
+const configPath = process.argv[2];
+const source = existsSync(configPath) ? readFileSync(configPath, 'utf8') : '';
+const lines = source.split(/\r?\n/);
+const retained = [];
+let section = '';
+let removingSection = false;
+
+for (const line of lines) {
+  const table = line.match(/^\s*\[([^\]]+)]\s*(?:#.*)?$/);
+  if (table) {
+    section = table[1].trim();
+    removingSection =
+      section === 'sandbox_workspace_write' ||
+      section === 'permissions.workspace-git' ||
+      section.startsWith('permissions.workspace-git.');
+    if (removingSection) continue;
+  }
+  if (removingSection) continue;
+  if (
+    section === '' &&
+    /^\s*(?:approval_policy|default_permissions|sandbox_mode)\s*=/.test(line)
+  )
+    continue;
+  retained.push(line);
+}
+
+while (retained.length > 0 && retained[0].trim() === '') retained.shift();
+while (retained.length > 0 && retained.at(-1).trim() === '') retained.pop();
+
+const root = [
+  'approval_policy = "never"',
+  'default_permissions = "workspace-git"',
+];
+const profile = [
+  '[permissions.workspace-git]',
+  'description = "Workspace writable including Git metadata"',
+  'extends = ":workspace"',
+  '',
+  '[permissions.workspace-git.filesystem.":workspace_roots"]',
+  '"." = "write"',
+  '".git" = "write"',
+  '".agents" = "read"',
+  '".codex" = "read"',
+];
+const output = [...root, ...(retained.length > 0 ? ['', ...retained] : []), '', ...profile, ''].join('\n');
+if (output === source) process.exit(0);
+
+mkdirSync(dirname(configPath), { recursive: true });
+const temporary = `${configPath}.tmp-${process.pid}`;
+writeFileSync(temporary, output, { encoding: 'utf8', mode: 0o600 });
+if (existsSync(configPath)) chmodSync(temporary, statSync(configPath).mode & 0o777);
+renameSync(temporary, configPath);
+NODE
+  log "configured workspace-git permissions in $config_path"
+}
+
 install_mobile() {
   check_node_version
   require_command npm
@@ -203,6 +266,7 @@ run_marketplace_setup() {
   require_command npm
   require_command codex
   mkdir -p -- "$codex_home" "$gestalt_home"
+  configure_codex_permissions
 
   marketplace_action=upgrade
   if [[ $mode == install && ! -f $marketplace_setup ]]; then

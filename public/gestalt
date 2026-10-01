@@ -12,6 +12,8 @@ readonly SUPERVISION_CONTRACT_VERSION=1
 manager_update_temp_root=''
 manager_update_staged_target=''
 update_restart_lock=''
+skills_transfer_temp_root=''
+skills_export_staged_target=''
 
 log() {
   printf 'gestalt: %s\n' "$*" >&2
@@ -40,6 +42,12 @@ cleanup() {
   if [[ -n $update_restart_lock && -d $update_restart_lock ]]; then
     rmdir -- "$update_restart_lock" 2>/dev/null || true
   fi
+  if [[ -n $skills_transfer_temp_root && -d $skills_transfer_temp_root ]]; then
+    rm -rf -- "$skills_transfer_temp_root"
+  fi
+  if [[ -n $skills_export_staged_target && -f $skills_export_staged_target ]]; then
+    rm -f -- "$skills_export_staged_target"
+  fi
 }
 trap cleanup EXIT
 
@@ -56,6 +64,8 @@ Commands:
                             Update from a live Mobile session, then restart Mobile.
   cli [--] [args...]        Start Codex with ~/.codex-gestalt as CODEX_HOME.
   mobile [--] [args...]     Start the managed Gestalt Mobile executable.
+  skills-export [ARCHIVE]   Export installed skills and skill profiles.
+  skills-import ARCHIVE     Import a skills archive into this installation.
   doctor                    Check prerequisites and installation state.
   version                   Print this manager's version.
   help                      Show this help.
@@ -97,12 +107,375 @@ load_paths() {
   mobile_version=${GESTALT_MOBILE_VERSION:-latest}
   mobile_root=$gestalt_home/mobile
   mobile_bin=$mobile_root/node_modules/.bin/gestalt-mobile
+  user_skills_root=$HOME/.agents/skills
+  managed_skills_root=$gestalt_home/.agents/skills
+  codex_skills_root=$codex_home/skills
+  skill_profiles_root=$gestalt_home/skill-profiles
   marketplace_setup=$codex_home/.tmp/marketplaces/$marketplace_name/gestalt-setup.sh
   agents_capability_manifest=$codex_home/.tmp/marketplaces/$marketplace_name/plugins/gestalt/gestalt-supervision-capabilities.json
   mobile_capability_manifest=$mobile_root/node_modules/gestalt-mobile/gestalt-supervision-capabilities.json
 
   validate_managed_path CODEX_HOME "$codex_home"
   validate_managed_path GESTALT_HOME "$gestalt_home"
+  validate_managed_path 'user skills root' "$user_skills_root"
+  validate_managed_path 'managed skills root' "$managed_skills_root"
+  validate_managed_path 'Codex skills root' "$codex_skills_root"
+  validate_managed_path 'skill profiles root' "$skill_profiles_root"
+}
+
+validate_transfer_source_tree() {
+  local -r source=$1
+  local entry invalid=''
+
+  while IFS= read -r -d '' entry; do
+    [[ $entry != *$'\n'* && $entry != *$'\r'* ]] ||
+      die "skill archive paths cannot contain newlines: $entry"
+  done < <(find "$source" -print0)
+
+  invalid=$(find "$source" ! -type d ! -type f -print -quit)
+  [[ -z $invalid ]] || die "skill contains an unsupported link or special file: $invalid"
+}
+
+path_is_within() {
+  local -r candidate=$1
+  local -r parent=$2
+  [[ $candidate == "$parent" || $candidate == "$parent"/* ]]
+}
+
+copy_export_skill_root() {
+  local -r source=$1
+  local -r destination=$2
+  local entry name resolved
+  local restore_dotglob=false restore_nullglob=false
+  local -a entries=()
+
+  mkdir -p -- "$destination"
+  [[ -d $source ]] || return 0
+  [[ ! -L $source ]] || die "skill root cannot be a symbolic link: $source"
+
+  if ! shopt -q dotglob; then shopt -s dotglob; restore_dotglob=true; fi
+  if ! shopt -q nullglob; then shopt -s nullglob; restore_nullglob=true; fi
+  entries=("$source"/*)
+  "$restore_dotglob" && shopt -u dotglob
+  "$restore_nullglob" && shopt -u nullglob
+
+  for entry in "${entries[@]}"; do
+    name=${entry##*/}
+    [[ $name != '.system' ]] || continue
+    if [[ -L $entry ]]; then
+      resolved=$(CDPATH='' cd -- "$entry" 2>/dev/null && pwd -P) ||
+        die "skill link is broken or does not target a directory: $entry"
+      if path_is_within "$resolved" "$user_skills_root" ||
+        path_is_within "$resolved" "$managed_skills_root" ||
+        path_is_within "$resolved" "$codex_skills_root"; then
+        continue
+      fi
+      die "skill link points outside exported roots: $entry -> $resolved"
+    fi
+    [[ -d $entry && -f $entry/SKILL.md ]] || continue
+    [[ $name =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] ||
+      die "skill directory has an unsupported name: $name"
+    validate_transfer_source_tree "$entry"
+    cp -a -- "$entry" "$destination/$name"
+    ((skills_export_count += 1))
+  done
+}
+
+copy_export_profiles() {
+  local -r destination=$1
+  local profile name
+  local restore_nullglob=false
+  local -a profiles=()
+
+  mkdir -p -- "$destination"
+  [[ -d $skill_profiles_root ]] || return 0
+  [[ ! -L $skill_profiles_root ]] ||
+    die "skill profiles root cannot be a symbolic link: $skill_profiles_root"
+  if ! shopt -q nullglob; then shopt -s nullglob; restore_nullglob=true; fi
+  profiles=("$skill_profiles_root"/*.yml "$skill_profiles_root"/*.yaml)
+  "$restore_nullglob" && shopt -u nullglob
+  for profile in "${profiles[@]}"; do
+    [[ -f $profile && ! -L $profile ]] ||
+      die "skill profile must be a regular file: $profile"
+    name=${profile##*/}
+    [[ $name =~ ^[A-Za-z0-9][A-Za-z0-9._-]*\.ya?ml$ ]] ||
+      die "skill profile has an unsupported name: $name"
+    cp -a -- "$profile" "$destination/$name"
+    ((skills_export_profile_count += 1))
+  done
+}
+
+command_skills_export() {
+  local output output_dir output_name archive_root
+  skills_export_count=0
+  skills_export_profile_count=0
+
+  (($# <= 1)) || die 'usage: gestalt skills-export [ARCHIVE]'
+  require_command tar
+  require_command mktemp
+  require_command node
+
+  output=${1:-$PWD/gestalt-skills.tar.gz}
+  [[ $output == /* ]] || output=$PWD/$output
+  output_dir=${output%/*}
+  output_name=${output##*/}
+  [[ -n $output_name && $output_name != '.' && $output_name != '..' ]] ||
+    die "invalid skills archive path: $output"
+  [[ -d $output_dir ]] || die "skills archive directory does not exist: $output_dir"
+  output_dir=$(CDPATH='' cd -- "$output_dir" && pwd -P) ||
+    die "could not resolve skills archive directory: $output_dir"
+  output=$output_dir/$output_name
+  [[ ! -e $output && ! -L $output ]] || die "refusing to overwrite skills archive: $output"
+
+  skills_transfer_temp_root=$(mktemp -d "${TMPDIR:-/tmp}/gestalt-skills-export.XXXXXXXX") ||
+    die 'could not create a temporary directory for skills export'
+  archive_root=$skills_transfer_temp_root/gestalt-skills
+  mkdir -p -- "$archive_root"
+
+  copy_export_skill_root "$user_skills_root" "$archive_root/user-agents-skills"
+  copy_export_skill_root "$managed_skills_root" "$archive_root/managed-skills"
+  copy_export_skill_root "$codex_skills_root" "$archive_root/codex-skills"
+  copy_export_profiles "$archive_root/skill-profiles"
+
+  node --input-type=module - \
+    "$archive_root/manifest.json" "$GESTALT_CLI_VERSION" \
+    "$user_skills_root" "$managed_skills_root" "$codex_skills_root" \
+    "$skills_export_count" "$skills_export_profile_count" <<'NODE'
+import { writeFileSync } from 'node:fs';
+
+const [manifestPath, managerVersion, userSkillsRoot, managedSkillsRoot, codexSkillsRoot,
+  skillCount, profileCount] = process.argv.slice(2);
+const manifest = {
+  format: 'gestalt-skills',
+  version: 1,
+  managerVersion,
+  sourceRoots: { userSkillsRoot, managedSkillsRoot, codexSkillsRoot },
+  counts: { skills: Number(skillCount), profiles: Number(profileCount) },
+};
+writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
+NODE
+
+  skills_export_staged_target=$(mktemp "$output_dir/.gestalt-skills.XXXXXXXX") ||
+    die 'could not stage the skills archive'
+  tar -czf "$skills_export_staged_target" -C "$skills_transfer_temp_root" gestalt-skills
+  mv -- "$skills_export_staged_target" "$output"
+  skills_export_staged_target=''
+  rm -rf -- "$skills_transfer_temp_root"
+  skills_transfer_temp_root=''
+  log "exported $skills_export_count skills and $skills_export_profile_count profiles to $output"
+}
+
+validate_skills_archive() {
+  local -r archive=$1
+  local -r members=$skills_transfer_temp_root/members.txt
+  local -r verbose=$skills_transfer_temp_root/verbose.txt
+  local member normalized type duplicates=''
+
+  tar -tzf "$archive" > "$members" || die 'could not list skills archive'
+  [[ -s $members ]] || die 'skills archive is empty'
+  while IFS= read -r member; do
+    [[ -n $member && $member != /* ]] ||
+      die "unsafe skills archive member: $member"
+    case $member in *\\*) die "unsafe skills archive member: $member" ;; esac
+    normalized=${member%/}
+    [[ /$normalized/ != *'/../'* && /$normalized/ != *'/./'* ]] ||
+      die "unsafe skills archive member: $member"
+    case $normalized in
+      gestalt-skills | gestalt-skills/manifest.json | \
+        gestalt-skills/user-agents-skills | gestalt-skills/user-agents-skills/* | \
+        gestalt-skills/managed-skills | gestalt-skills/managed-skills/* | \
+        gestalt-skills/codex-skills | gestalt-skills/codex-skills/* | \
+        gestalt-skills/skill-profiles | gestalt-skills/skill-profiles/*) ;;
+      *) die "unexpected skills archive member: $member" ;;
+    esac
+  done < "$members"
+  duplicates=$(sort "$members" | uniq -d | head -n 1)
+  [[ -z $duplicates ]] || die "duplicate skills archive member: $duplicates"
+
+  tar -tvzf "$archive" > "$verbose" || die 'could not inspect skills archive'
+  while IFS= read -r member; do
+    type=${member:0:1}
+    [[ $type == '-' || $type == 'd' ]] ||
+      die 'skills archive contains a link or special file'
+  done < "$verbose"
+}
+
+validate_import_skill_root() {
+  local -r root=$1
+  local entry name
+  local restore_dotglob=false restore_nullglob=false
+  local -a entries=()
+
+  [[ -d $root && ! -L $root ]] || die "skills archive directory is missing: $root"
+  if ! shopt -q dotglob; then shopt -s dotglob; restore_dotglob=true; fi
+  if ! shopt -q nullglob; then shopt -s nullglob; restore_nullglob=true; fi
+  entries=("$root"/*)
+  "$restore_dotglob" && shopt -u dotglob
+  "$restore_nullglob" && shopt -u nullglob
+  for entry in "${entries[@]}"; do
+    name=${entry##*/}
+    [[ -d $entry && ! -L $entry && -f $entry/SKILL.md && ! -L $entry/SKILL.md ]] ||
+      die "invalid skill in archive: $entry"
+    [[ $name =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] ||
+      die "skill archive contains an unsupported name: $name"
+  done
+}
+
+import_skill_root() {
+  local -r source=$1
+  local -r destination=$2
+  local entry name target
+  local restore_dotglob=false restore_nullglob=false
+  local -a entries=()
+
+  [[ ! -L $destination ]] || die "destination skill root is a symbolic link: $destination"
+  mkdir -p -- "$destination"
+  chmod 0700 "$destination"
+  if ! shopt -q dotglob; then shopt -s dotglob; restore_dotglob=true; fi
+  if ! shopt -q nullglob; then shopt -s nullglob; restore_nullglob=true; fi
+  entries=("$source"/*)
+  "$restore_dotglob" && shopt -u dotglob
+  "$restore_nullglob" && shopt -u nullglob
+  for entry in "${entries[@]}"; do
+    name=${entry##*/}
+    target=$destination/$name
+    [[ ! -L $target && ( ! -e $target || -d $target ) ]] ||
+      die "refusing unsafe skill destination: $target"
+    if [[ -d $target ]]; then validate_transfer_source_tree "$target"; fi
+    mkdir -p -- "$target"
+    cp -a -- "$entry/." "$target/"
+    ((skills_import_count += 1))
+  done
+}
+
+import_skill_profiles() {
+  local -r source=$1
+  local profile name target temporary
+  local restore_nullglob=false
+  local -a profiles=()
+
+  [[ -d $source && ! -L $source ]] || die 'skill profiles directory is missing from archive'
+  [[ ! -L $skill_profiles_root ]] ||
+    die "destination skill profiles root is a symbolic link: $skill_profiles_root"
+  mkdir -p -- "$skill_profiles_root"
+  chmod 0700 "$skill_profiles_root"
+  if ! shopt -q nullglob; then shopt -s nullglob; restore_nullglob=true; fi
+  profiles=("$source"/*.yml "$source"/*.yaml)
+  "$restore_nullglob" && shopt -u nullglob
+  for profile in "${profiles[@]}"; do
+    [[ -f $profile && ! -L $profile ]] || die "invalid skill profile in archive: $profile"
+    name=${profile##*/}
+    target=$skill_profiles_root/$name
+    [[ ! -L $target && ( ! -e $target || -f $target ) ]] ||
+      die "refusing unsafe skill profile destination: $target"
+    temporary=$(mktemp "$skill_profiles_root/.gestalt-profile.XXXXXXXX") ||
+      die "could not stage imported skill profile: $name"
+    install -m 0600 "$profile" "$temporary"
+    mv -f -- "$temporary" "$target"
+    ((skills_import_profile_count += 1))
+  done
+}
+
+link_imported_managed_skills() {
+  local -r source=$1
+  local entry name link
+  local restore_nullglob=false
+  local -a entries=()
+
+  mkdir -p -- "$codex_skills_root"
+  if ! shopt -q nullglob; then shopt -s nullglob; restore_nullglob=true; fi
+  entries=("$source"/*)
+  "$restore_nullglob" && shopt -u nullglob
+  for entry in "${entries[@]}"; do
+    name=${entry##*/}
+    link=$codex_skills_root/$name
+    if [[ ! -e $link && ! -L $link ]]; then
+      ln -s -- "$managed_skills_root/$name" "$link"
+    fi
+  done
+}
+
+command_skills_import() {
+  local -r archive_arg=${1:-}
+  local archive_copy archive_root
+  skills_import_count=0
+  skills_import_profile_count=0
+
+  (($# == 1)) || die 'usage: gestalt skills-import ARCHIVE'
+  [[ -n $archive_arg ]] || die 'usage: gestalt skills-import ARCHIVE'
+  require_command tar
+  require_command mktemp
+  require_command node
+  require_command install
+  [[ -f $archive_arg && ! -L $archive_arg ]] ||
+    die "skills archive must be a regular file: $archive_arg"
+
+  skills_transfer_temp_root=$(mktemp -d "${TMPDIR:-/tmp}/gestalt-skills-import.XXXXXXXX") ||
+    die 'could not create a temporary directory for skills import'
+  archive_copy=$skills_transfer_temp_root/archive.tar.gz
+  install -m 0600 "$archive_arg" "$archive_copy"
+  validate_skills_archive "$archive_copy"
+  tar -xzf "$archive_copy" -C "$skills_transfer_temp_root"
+  archive_root=$skills_transfer_temp_root/gestalt-skills
+
+  validate_import_skill_root "$archive_root/user-agents-skills"
+  validate_import_skill_root "$archive_root/managed-skills"
+  validate_import_skill_root "$archive_root/codex-skills"
+  [[ -f $archive_root/manifest.json && ! -L $archive_root/manifest.json ]] ||
+    die 'skills archive manifest is missing'
+
+  node --input-type=module - \
+    "$archive_root/manifest.json" "$archive_root/skill-profiles" \
+    "$user_skills_root" "$managed_skills_root" "$codex_skills_root" <<'NODE'
+import { readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+const [manifestPath, profilesRoot, targetUserRoot, targetManagedRoot, targetCodexRoot] =
+  process.argv.slice(2);
+let manifest;
+try {
+  manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+} catch (error) {
+  throw new Error(`invalid skills archive manifest: ${error.message}`);
+}
+if (manifest.format !== 'gestalt-skills' || manifest.version !== 1)
+  throw new Error('unsupported skills archive format or version');
+const source = manifest.sourceRoots;
+if (!source || typeof source !== 'object') throw new Error('skills archive source roots are missing');
+const replacements = [
+  [source.userSkillsRoot, targetUserRoot],
+  [source.managedSkillsRoot, targetManagedRoot],
+  [source.codexSkillsRoot, targetCodexRoot],
+];
+for (const [from, to] of replacements) {
+  if (typeof from !== 'string' || !from.startsWith('/') || from === '/')
+    throw new Error('skills archive contains an invalid source root');
+  if (typeof to !== 'string' || !to.startsWith('/') || to === '/')
+    throw new Error('skills import contains an invalid destination root');
+}
+replacements.sort((left, right) => right[0].length - left[0].length);
+for (const entry of readdirSync(profilesRoot, { withFileTypes: true })) {
+  if (!entry.isFile() || !/^[A-Za-z0-9][A-Za-z0-9._-]*\.ya?ml$/.test(entry.name))
+    throw new Error(`invalid skill profile archive entry: ${entry.name}`);
+  const path = join(profilesRoot, entry.name);
+  let profile = readFileSync(path, 'utf8');
+  for (const [from, to] of replacements) profile = profile.replaceAll(from, to);
+  const temporary = `${path}.tmp-${process.pid}`;
+  writeFileSync(temporary, profile, { mode: 0o600 });
+  renameSync(temporary, path);
+}
+NODE
+
+  chmod -R u+rwX,go-rwx "$archive_root"
+  import_skill_root "$archive_root/user-agents-skills" "$user_skills_root"
+  import_skill_root "$archive_root/managed-skills" "$managed_skills_root"
+  import_skill_root "$archive_root/codex-skills" "$codex_skills_root"
+  import_skill_profiles "$archive_root/skill-profiles"
+  link_imported_managed_skills "$archive_root/managed-skills"
+
+  rm -rf -- "$skills_transfer_temp_root"
+  skills_transfer_temp_root=''
+  log "imported $skills_import_count skills and $skills_import_profile_count profiles from $archive_arg"
 }
 
 calculate_sha256() {
@@ -873,6 +1246,8 @@ main() {
     __update-restart-worker) command_update_restart_worker "$@" ;;
     cli) command_cli "$@" ;;
     mobile) command_mobile "$@" ;;
+    skills-export) command_skills_export "$@" ;;
+    skills-import) command_skills_import "$@" ;;
     doctor) command_doctor "$@" ;;
     version | --version | -V) printf 'gestalt %s\n' "$GESTALT_CLI_VERSION" ;;
     help | --help | -h) usage ;;

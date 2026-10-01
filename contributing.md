@@ -44,3 +44,11 @@ The Pages workflow runs on pushes to `main` and can also be started manually.
 It derives `BASE_PATH` from GitHub Pages configuration, so project-site routes
 and assets work under the repository subpath. Repository administrators must
 select **GitHub Actions** as the Pages source once before the first deployment.
+
+The same workflow versions the manager using Conventional Commits and the
+`ietf-tools/semver-action`. `feat` and `feature` commits increment the minor
+version; `fix`, `bugfix`, `perf`, `refactor`, `test`, and `tests` commits
+increment the patch version. When a bump is due, the workflow updates
+`GESTALT_CLI_VERSION` and `public/gestalt.sha256`, commits those synchronized
+files, and creates the matching `vMAJOR.MINOR.PATCH` tag. The versioned manager
+continues to be distributed only through the latest GitHub Pages deployment.

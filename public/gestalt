@@ -555,11 +555,13 @@ check_node_version() {
 configure_codex_permissions() {
   local -r config_path=$codex_home/config.toml
 
-  node --input-type=module - "$config_path" <<'NODE'
+  node --input-type=module - \
+    "$config_path" "$codex_home" "$gestalt_home" "$HOME/.agents" <<'NODE'
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 const configPath = process.argv[2];
+const homeReadRoots = [...new Set(process.argv.slice(3))];
 const source = existsSync(configPath) ? readFileSync(configPath, 'utf8') : '';
 const lines = source.split(/\r?\n/);
 const retained = [];
@@ -604,6 +606,7 @@ const profile = [
   '',
   '[permissions.workspace-git.filesystem]',
   '"/tmp" = "write"',
+  ...homeReadRoots.map((path) => `${JSON.stringify(path)} = "read"`),
   '',
   '[permissions.workspace-git.filesystem.":workspace_roots"]',
   '"." = "write"',

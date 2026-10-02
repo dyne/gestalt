@@ -232,6 +232,9 @@ grep -F 'mode = "full"' "$CODEX_HOME/config.toml" >/dev/null
 grep -F 'allow_local_binding = true' "$CODEX_HOME/config.toml" >/dev/null
 grep -F '[permissions.workspace-git.filesystem]' "$CODEX_HOME/config.toml" >/dev/null
 grep -F '"/tmp" = "write"' "$CODEX_HOME/config.toml" >/dev/null
+grep -F "\"$CODEX_HOME\" = \"read\"" "$CODEX_HOME/config.toml" >/dev/null
+grep -F "\"$GESTALT_HOME\" = \"read\"" "$CODEX_HOME/config.toml" >/dev/null
+grep -F "\"$HOME/.agents\" = \"read\"" "$CODEX_HOME/config.toml" >/dev/null
 grep -F '[permissions.workspace-git.filesystem.":workspace_roots"]' "$CODEX_HOME/config.toml" >/dev/null
 grep -F '".git" = "write"' "$CODEX_HOME/config.toml" >/dev/null
 grep -F '".agents" = "read"' "$CODEX_HOME/config.toml" >/dev/null
@@ -256,6 +259,9 @@ cmp "$repo_root/public/gestalt" "$managed_bin/gestalt"
 [[ $(grep -Fc '[permissions.workspace-git.network]' "$CODEX_HOME/config.toml") == 1 ]]
 [[ $(grep -Fc '[permissions.workspace-git.filesystem]' "$CODEX_HOME/config.toml") == 1 ]]
 assert_log "codex|CODEX_HOME=$CODEX_HOME|plugin|marketplace|upgrade|dyne-gestalt-agents"
+[[ $(grep -Fc "\"$CODEX_HOME\" = \"read\"" "$CODEX_HOME/config.toml") == 1 ]]
+[[ $(grep -Fc "\"$GESTALT_HOME\" = \"read\"" "$CODEX_HOME/config.toml") == 1 ]]
+[[ $(grep -Fc "\"$HOME/.agents\" = \"read\"" "$CODEX_HOME/config.toml") == 1 ]]
 grep -F 'setup|' "$command_log" | grep -F -- '--extra-skills' >/dev/null
 
 bad_update_source=$test_root/bad-update-source

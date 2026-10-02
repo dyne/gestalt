@@ -14,8 +14,9 @@ Use `BASE_PATH=/gestalt/ npm run build` for the intended subpath deployment.
 
 The manager installs a `workspace-git` Codex permission profile for development
 sessions. It keeps writes scoped to the workspace (including Git metadata),
-adds `/tmp` for test artifacts, and permits network access and loopback listeners
-needed by local HTTP servers and Playwright.
+adds `/tmp` for test artifacts, grants read-only access to the isolated Codex,
+Gestalt runtime, and user skill roots, and permits network access and loopback
+listeners needed by local HTTP servers and Playwright.
 
 Pushes to `main` deploy through `.github/workflows/deploy-pages.yml`. In the
 GitHub repository settings, set **Pages → Build and deployment → Source** to

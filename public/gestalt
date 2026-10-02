@@ -594,8 +594,16 @@ const root = [
 ];
 const profile = [
   '[permissions.workspace-git]',
-  'description = "Workspace writable including Git metadata"',
+  'description = "Workspace and Git writable with local test support"',
   'extends = ":workspace"',
+  '',
+  '[permissions.workspace-git.network]',
+  'enabled = true',
+  'mode = "full"',
+  'allow_local_binding = true',
+  '',
+  '[permissions.workspace-git.filesystem]',
+  '"/tmp" = "write"',
   '',
   '[permissions.workspace-git.filesystem.":workspace_roots"]',
   '"." = "write"',

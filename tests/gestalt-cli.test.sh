@@ -226,6 +226,12 @@ grep -F 'hooks = true' "$CODEX_HOME/config.toml" >/dev/null
 grep -F 'approval_policy = "never"' "$CODEX_HOME/config.toml" >/dev/null
 grep -F 'default_permissions = "workspace-git"' "$CODEX_HOME/config.toml" >/dev/null
 grep -F '[permissions.workspace-git]' "$CODEX_HOME/config.toml" >/dev/null
+grep -F '[permissions.workspace-git.network]' "$CODEX_HOME/config.toml" >/dev/null
+grep -F 'enabled = true' "$CODEX_HOME/config.toml" >/dev/null
+grep -F 'mode = "full"' "$CODEX_HOME/config.toml" >/dev/null
+grep -F 'allow_local_binding = true' "$CODEX_HOME/config.toml" >/dev/null
+grep -F '[permissions.workspace-git.filesystem]' "$CODEX_HOME/config.toml" >/dev/null
+grep -F '"/tmp" = "write"' "$CODEX_HOME/config.toml" >/dev/null
 grep -F '[permissions.workspace-git.filesystem.":workspace_roots"]' "$CODEX_HOME/config.toml" >/dev/null
 grep -F '".git" = "write"' "$CODEX_HOME/config.toml" >/dev/null
 grep -F '".agents" = "read"' "$CODEX_HOME/config.toml" >/dev/null
@@ -247,6 +253,8 @@ bash "$managed_bin/gestalt" update --extra-skills
 cmp "$repo_root/public/gestalt" "$managed_bin/gestalt"
 [[ $(grep -Fc 'default_permissions = "workspace-git"' "$CODEX_HOME/config.toml") == 1 ]]
 [[ $(grep -Fc '[permissions.workspace-git]' "$CODEX_HOME/config.toml") == 1 ]]
+[[ $(grep -Fc '[permissions.workspace-git.network]' "$CODEX_HOME/config.toml") == 1 ]]
+[[ $(grep -Fc '[permissions.workspace-git.filesystem]' "$CODEX_HOME/config.toml") == 1 ]]
 assert_log "codex|CODEX_HOME=$CODEX_HOME|plugin|marketplace|upgrade|dyne-gestalt-agents"
 grep -F 'setup|' "$command_log" | grep -F -- '--extra-skills' >/dev/null
 

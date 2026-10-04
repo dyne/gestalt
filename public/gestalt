@@ -64,6 +64,7 @@ Commands:
                             Update from a live Mobile session, then restart Mobile.
   cli [--] [args...]        Start Codex with ~/.codex-gestalt as CODEX_HOME.
   mobile [--] [args...]     Start the managed Gestalt Mobile executable.
+  path [NAME|--json]        Print managed executable and runtime paths.
   skills-export [ARCHIVE]   Export installed skills and skill profiles.
   skills-import ARCHIVE     Import a skills archive into this installation.
   doctor                    Check prerequisites and installation state.
@@ -868,6 +869,7 @@ command_cli() {
 
 command_mobile() {
   local mobile_restart_dir mobile_restart_state mobile_restart_staged restart_cwd
+  local context_mode_runtime context_mode_plugin_root gestalt_plugin_root
   local plugin_inventory='' gestalt_agents_version='' context_mode_version=''
 
   strip_separator "$@"
@@ -883,6 +885,17 @@ command_mobile() {
       gestalt_agents_version=''
     context_mode_version=$(printf '%s' "$plugin_inventory" | read_plugin_version context-mode) ||
       context_mode_version=''
+  fi
+  context_mode_runtime=''
+  context_mode_plugin_root=''
+  gestalt_plugin_root=''
+  if [[ -n $context_mode_version ]]; then
+    context_mode_runtime=$(context_mode_runtime_root "$context_mode_version") ||
+      log 'could not resolve the context-mode runtime path for executor discovery'
+    context_mode_plugin_root=$codex_home/plugins/cache/$marketplace_name/context-mode/$context_mode_version
+  fi
+  if [[ -n $gestalt_agents_version ]]; then
+    gestalt_plugin_root=$codex_home/plugins/cache/$marketplace_name/gestalt/$gestalt_agents_version
   fi
   mobile_restart_dir=$gestalt_home/run
   mobile_restart_state=$mobile_restart_dir/mobile-$$.restart
@@ -902,7 +915,11 @@ command_mobile() {
   exec env CODEX_HOME="$codex_home" GESTALT_HOME="$gestalt_home" \
     GESTALT_MANAGER_VERSION="$GESTALT_CLI_VERSION" \
     GESTALT_AGENTS_VERSION="$gestalt_agents_version" \
+    GESTALT_AGENTS_PLUGIN_ROOT="$gestalt_plugin_root" \
     GESTALT_CONTEXT_MODE_VERSION="$context_mode_version" \
+    GESTALT_CONTEXT_MODE_PLUGIN_ROOT="$context_mode_plugin_root" \
+    GESTALT_CONTEXT_MODE_RUNTIME="$context_mode_runtime" \
+    GESTALT_MOBILE_BIN="$mobile_bin" \
     GESTALT_MOBILE_PID="$$" \
     GESTALT_MOBILE_RESTART_STATE="$mobile_restart_state" \
     GESTALT_STARTUP_DIAGNOSTICS_DONE=1 \
@@ -984,6 +1001,102 @@ context_mode_runtime_root() {
   runtime_identity=$(node -p '[process.platform, process.arch, "node-" + process.versions.modules].join("-")') ||
     return 1
   printf '%s/runtime/context-mode/%s/%s\n' "$gestalt_home" "$version" "$runtime_identity"
+}
+
+installed_plugin_version() {
+  local -r plugin_name=$1
+  local inherited_version=''
+
+  case $plugin_name in
+    gestalt) inherited_version=${GESTALT_AGENTS_VERSION:-} ;;
+    context-mode) inherited_version=${GESTALT_CONTEXT_MODE_VERSION:-} ;;
+    *) die "unsupported plugin path: $plugin_name" ;;
+  esac
+  if [[ -n $inherited_version ]]; then
+    printf '%s\n' "$inherited_version"
+    return 0
+  fi
+  command -v codex >/dev/null 2>&1 ||
+    die "cannot resolve $plugin_name: codex is not available and no session version was exported"
+  CODEX_HOME=$codex_home codex plugin list --marketplace "$marketplace_name" --json 2>/dev/null |
+    read_plugin_version "$plugin_name" ||
+    die "cannot resolve the installed $plugin_name plugin version"
+}
+
+managed_path() {
+  local -r name=$1
+  local version
+
+  case $name in
+    mobile) printf '%s\n' "${GESTALT_MOBILE_BIN:-$mobile_bin}" ;;
+    context-mode | context-mode-runtime)
+      if [[ -n ${GESTALT_CONTEXT_MODE_RUNTIME:-} ]]; then
+        printf '%s\n' "$GESTALT_CONTEXT_MODE_RUNTIME"
+      else
+        version=$(installed_plugin_version context-mode)
+        context_mode_runtime_root "$version"
+      fi
+      ;;
+    context-mode-plugin)
+      if [[ -n ${GESTALT_CONTEXT_MODE_PLUGIN_ROOT:-} ]]; then
+        printf '%s\n' "$GESTALT_CONTEXT_MODE_PLUGIN_ROOT"
+      else
+        version=$(installed_plugin_version context-mode)
+        printf '%s/plugins/cache/%s/context-mode/%s\n' "$codex_home" "$marketplace_name" "$version"
+      fi
+      ;;
+    gestalt-plugin)
+      if [[ -n ${GESTALT_AGENTS_PLUGIN_ROOT:-} ]]; then
+        printf '%s\n' "$GESTALT_AGENTS_PLUGIN_ROOT"
+      else
+        version=$(installed_plugin_version gestalt)
+        printf '%s/plugins/cache/%s/gestalt/%s\n' "$codex_home" "$marketplace_name" "$version"
+      fi
+      ;;
+    codex-home) printf '%s\n' "$codex_home" ;;
+    gestalt-home) printf '%s\n' "$gestalt_home" ;;
+    *)
+      die "unknown managed path: $name (expected mobile, context-mode, context-mode-plugin, gestalt-plugin, codex-home, or gestalt-home)"
+      ;;
+  esac
+}
+
+command_path() {
+  local name mobile_path context_runtime context_plugin gestalt_plugin
+
+  if (($# == 1)) && [[ $1 != --json ]]; then
+    managed_path "$1"
+    return
+  fi
+  (($# == 0)) || { (($# == 1)) && [[ $1 == --json ]]; } ||
+    die 'usage: gestalt path [NAME|--json]'
+
+  mobile_path=$(managed_path mobile)
+  context_runtime=$(managed_path context-mode)
+  context_plugin=$(managed_path context-mode-plugin)
+  gestalt_plugin=$(managed_path gestalt-plugin)
+  if (($# == 1)); then
+    # shellcheck disable=SC2016 # The Node program intentionally owns its JavaScript interpolation.
+    node -e '
+      const [mobile, contextModeRuntime, contextModePlugin, gestaltPlugin, codexHome, gestaltHome] =
+        process.argv.slice(1);
+      process.stdout.write(`${JSON.stringify({
+        mobile,
+        contextModeRuntime,
+        contextModePlugin,
+        gestaltPlugin,
+        codexHome,
+        gestaltHome,
+      })}\n`);
+    ' "$mobile_path" "$context_runtime" "$context_plugin" "$gestalt_plugin" "$codex_home" "$gestalt_home"
+    return
+  fi
+  print_check 'Gestalt Mobile' "$mobile_path"
+  print_check 'Context-mode runtime' "$context_runtime"
+  print_check 'Context-mode plugin' "$context_plugin"
+  print_check 'Gestalt plugin' "$gestalt_plugin"
+  print_check 'Codex home' "$codex_home"
+  print_check 'Gestalt home' "$gestalt_home"
 }
 
 context_mode_runtime_is_prepared() {
@@ -1257,6 +1370,7 @@ main() {
     __update-restart-worker) command_update_restart_worker "$@" ;;
     cli) command_cli "$@" ;;
     mobile) command_mobile "$@" ;;
+    path) command_path "$@" ;;
     skills-export) command_skills_export "$@" ;;
     skills-import) command_skills_import "$@" ;;
     doctor) command_doctor "$@" ;;

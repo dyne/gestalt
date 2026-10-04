@@ -66,6 +66,8 @@ set -euo pipefail
   printf '|GESTALT_MANAGER_VERSION=%s|GESTALT_AGENTS_VERSION=%s|GESTALT_CONTEXT_MODE_VERSION=%s' \
     "${GESTALT_MANAGER_VERSION:-}" "${GESTALT_AGENTS_VERSION:-}" \
     "${GESTALT_CONTEXT_MODE_VERSION:-}"
+  printf '|GESTALT_MOBILE_BIN=%s|GESTALT_CONTEXT_MODE_RUNTIME=%s' \
+    "${GESTALT_MOBILE_BIN:-}" "${GESTALT_CONTEXT_MODE_RUNTIME:-}"
   printf '|%s' "$@"
   printf '|PATH=%s|GESTALT_MOBILE_PID=%s|GESTALT_MOBILE_RESTART_STATE=%s\n' \
     "$PATH" "${GESTALT_MOBILE_PID:-}" "${GESTALT_MOBILE_RESTART_STATE:-}"
@@ -288,9 +290,25 @@ assert_log "context-mode|doctor"
 grep -F "codex|CODEX_HOME=$CODEX_HOME|--help|GESTALT_HOME=$GESTALT_HOME|PATH=$CODEX_HOME/bin:" \
   "$command_log" >/dev/null
 
+[[ $(bash "$repo_root/public/gestalt" path mobile) == "$GESTALT_HOME/mobile/node_modules/.bin/gestalt-mobile" ]]
+[[ $(GESTALT_CONTEXT_MODE_VERSION=2.1.0 bash "$repo_root/public/gestalt" path context-mode) == "$prepared_runtime" ]]
+[[ $(GESTALT_CONTEXT_MODE_VERSION=2.1.0 bash "$repo_root/public/gestalt" path context-mode-plugin) == "$CODEX_HOME/plugins/cache/dyne-gestalt-agents/context-mode/2.1.0" ]]
+[[ $(GESTALT_AGENTS_VERSION=2.1.0 bash "$repo_root/public/gestalt" path gestalt-plugin) == "$CODEX_HOME/plugins/cache/dyne-gestalt-agents/gestalt/2.1.0" ]]
+$real_node -e '
+  const paths = JSON.parse(process.argv[1]);
+  if (paths.mobile !== process.argv[2] || paths.contextModeRuntime !== process.argv[3] ||
+      paths.contextModePlugin !== process.argv[4] || paths.gestaltPlugin !== process.argv[5] ||
+      paths.codexHome !== process.argv[6] || paths.gestaltHome !== process.argv[7]) process.exit(1);
+' "$(GESTALT_CONTEXT_MODE_VERSION=2.1.0 GESTALT_AGENTS_VERSION=2.1.0 \
+  bash "$repo_root/public/gestalt" path --json)" \
+  "$GESTALT_HOME/mobile/node_modules/.bin/gestalt-mobile" "$prepared_runtime" \
+  "$CODEX_HOME/plugins/cache/dyne-gestalt-agents/context-mode/2.1.0" \
+  "$CODEX_HOME/plugins/cache/dyne-gestalt-agents/gestalt/2.1.0" "$CODEX_HOME" "$GESTALT_HOME"
+
 bash "$repo_root/public/gestalt" mobile -- --cwd "$test_home/workspace"
 assert_log "mobile|CODEX_HOME=$CODEX_HOME|GESTALT_HOME=$GESTALT_HOME"
 grep -F "|GESTALT_MANAGER_VERSION=$manager_version|GESTALT_AGENTS_VERSION=2.1.0|GESTALT_CONTEXT_MODE_VERSION=2.1.0" "$command_log" >/dev/null
+grep -F "|GESTALT_MOBILE_BIN=$GESTALT_HOME/mobile/node_modules/.bin/gestalt-mobile|GESTALT_CONTEXT_MODE_RUNTIME=$prepared_runtime" "$command_log" >/dev/null
 grep -F "|--cwd|$test_home/workspace" "$command_log" | grep -F 'mobile|' >/dev/null
 grep -F "|PATH=$CODEX_HOME/bin:" "$command_log" | grep -F 'mobile|' >/dev/null
 mobile_restart_state=$(find "$GESTALT_HOME/run" -maxdepth 1 -type f -name 'mobile-*.restart' -print -quit)

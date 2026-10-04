@@ -46,7 +46,10 @@ Ctrl-C to stop the HTTP server, active Codex subprocesses, and database cleanly.
 - The Gestalt environment created by `gestalt install`.
 
 The manager establishes `CODEX_HOME`, `GESTALT_HOME`, and `PATH`; Mobile starts
-`codex app-server --stdio` directly in that environment.
+`codex app-server --stdio` directly in that environment. It also exports the
+resolved `GESTALT_MOBILE_BIN`, `GESTALT_CONTEXT_MODE_RUNTIME`, and plugin-root
+paths to session executors. Run `gestalt path --json` when an executor needs to
+discover those managed components without depending on installation layout.
 
 ## Common options
 

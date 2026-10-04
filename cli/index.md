@@ -12,6 +12,7 @@ relay together without merging their state. Run `gestalt help` at any time.
 | `gestalt update-restart` | From a live Mobile session, update everything and gracefully restart Mobile |
 | `gestalt cli [args…]` | Launch Codex with the isolated Gestalt home |
 | `gestalt mobile [args…]` | Launch Gestalt Mobile and forward its options |
+| `gestalt path [NAME\|--json]` | Resolve managed executable, plugin, and runtime paths |
 | `gestalt doctor` | Check prerequisites, paths, Gestalt plugin version, and Mobile version |
 | `gestalt version` | Print the manager version |
 | `gestalt skills-export [ARCHIVE]` | Export installed skills and skill profiles to a portable `.tar.gz` archive |
@@ -45,6 +46,24 @@ gestalt mobile --cwd "$HOME/devel" --skills focused
 
 Every option after `mobile` is passed to `gestalt-mobile`. See [network
 deployment](../mobile/deployment.md) before using a non-loopback listener.
+
+## Resolve managed paths
+
+Use the manager instead of reconstructing paths below versioned npm or Codex
+plugin-cache directories:
+
+```sh
+gestalt path mobile
+gestalt path context-mode
+gestalt path context-mode-plugin
+gestalt path --json
+```
+
+`context-mode` resolves its prepared runtime; `context-mode-plugin` resolves
+the installed plugin source. Sessions launched by Mobile also receive
+`GESTALT_MOBILE_BIN`, `GESTALT_CONTEXT_MODE_RUNTIME`, and the corresponding
+plugin-root environment variables. The command remains the portable discovery
+surface for both interactive shells and executors.
 
 ## Refresh the installation
 

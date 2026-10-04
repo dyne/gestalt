@@ -237,6 +237,13 @@ grep -F '"/tmp" = "write"' "$CODEX_HOME/config.toml" >/dev/null
 grep -F "\"$CODEX_HOME\" = \"read\"" "$CODEX_HOME/config.toml" >/dev/null
 grep -F "\"$GESTALT_HOME\" = \"read\"" "$CODEX_HOME/config.toml" >/dev/null
 grep -F "\"$HOME/.agents\" = \"read\"" "$CODEX_HOME/config.toml" >/dev/null
+grep -F "\"$HOME/.local\" = \"read\"" "$CODEX_HOME/config.toml" >/dev/null
+grep -F "\"$HOME/config\" = \"read\"" "$CODEX_HOME/config.toml" >/dev/null
+if grep -F "\"$HOME/.local\" = \"write\"" "$CODEX_HOME/config.toml" >/dev/null ||
+  grep -F "\"$HOME/config\" = \"write\"" "$CODEX_HOME/config.toml" >/dev/null; then
+  printf 'read-only home support path became writable\n' >&2
+  exit 1
+fi
 grep -F '[permissions.workspace-git.filesystem.":workspace_roots"]' "$CODEX_HOME/config.toml" >/dev/null
 grep -F '".git" = "write"' "$CODEX_HOME/config.toml" >/dev/null
 grep -F '".agents" = "read"' "$CODEX_HOME/config.toml" >/dev/null
@@ -264,6 +271,8 @@ assert_log "codex|CODEX_HOME=$CODEX_HOME|plugin|marketplace|upgrade|dyne-gestalt
 [[ $(grep -Fc "\"$CODEX_HOME\" = \"read\"" "$CODEX_HOME/config.toml") == 1 ]]
 [[ $(grep -Fc "\"$GESTALT_HOME\" = \"read\"" "$CODEX_HOME/config.toml") == 1 ]]
 [[ $(grep -Fc "\"$HOME/.agents\" = \"read\"" "$CODEX_HOME/config.toml") == 1 ]]
+[[ $(grep -Fc "\"$HOME/.local\" = \"read\"" "$CODEX_HOME/config.toml") == 1 ]]
+[[ $(grep -Fc "\"$HOME/config\" = \"read\"" "$CODEX_HOME/config.toml") == 1 ]]
 grep -F 'setup|' "$command_log" | grep -F -- '--extra-skills' >/dev/null
 
 bad_update_source=$test_root/bad-update-source

@@ -29,8 +29,9 @@ Use the same override on later updates. Paths must be absolute and cannot be
 use `workspace-git` by default. This custom permission profile extends Codex's
 workspace policy, keeps workspace `.agents` and `.codex` read-only, and makes
 `.git` writable so development sessions can commit without full host access.
-It also grants read-only access to `CODEX_HOME`, `GESTALT_HOME`, and
-`~/.agents`, including their default `~/.codex-gestalt`, `~/.gestalt`, and
+It also grants read-only access (including directory traversal and executable
+use, but no writes) to `CODEX_HOME`, `GESTALT_HOME`, `~/.agents`, `~/.local`,
+and `~/config`. This includes the default `~/.codex-gestalt`, `~/.gestalt`, and
 `~/.agents` locations. The profile defaults to `approval_policy = "never"`
 (Approve everything).
 

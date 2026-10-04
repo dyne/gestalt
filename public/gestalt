@@ -557,7 +557,8 @@ configure_codex_permissions() {
   local -r config_path=$codex_home/config.toml
 
   node --input-type=module - \
-    "$config_path" "$codex_home" "$gestalt_home" "$HOME/.agents" <<'NODE'
+    "$config_path" "$codex_home" "$gestalt_home" "$HOME/.agents" \
+    "$HOME/.local" "$HOME/config" <<'NODE'
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 

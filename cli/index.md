@@ -54,13 +54,20 @@ plugin-cache directories:
 
 ```sh
 gestalt path mobile
+gestalt path bin
+gestalt path context-mode-cli
+gestalt path org-plan
 gestalt path context-mode
 gestalt path context-mode-plugin
 gestalt path --json
 ```
 
 `context-mode` resolves its prepared runtime; `context-mode-plugin` resolves
-the installed plugin source. Sessions launched by Mobile also receive
+the installed plugin source. `bin` is the stable command directory,
+`~/.gestalt/bin` by default; `context-mode-cli` and `org-plan` print the public
+launchers in that directory. Setup refreshes these launchers on updates and
+keeps one prepared context-mode runtime, without a version history.
+Sessions launched by Mobile also receive
 `GESTALT_MOBILE_BIN`, `GESTALT_CONTEXT_MODE_RUNTIME`, and the corresponding
 plugin-root environment variables. The command remains the portable discovery
 surface for both interactive shells and executors.

@@ -185,8 +185,7 @@ network_access = true
 hooks = true
 EOF
 
-runtime_identity=$($real_node -p '[process.platform, process.arch, "node-" + process.versions.modules].join("-")')
-prepared_runtime=$GESTALT_HOME/runtime/context-mode/2.1.0/$runtime_identity
+prepared_runtime=$GESTALT_HOME/runtime/context-mode
 mkdir -p -- "$prepared_runtime"
 cat > "$prepared_runtime/cli.bundle.mjs" <<'EOF'
 import { appendFileSync } from 'node:fs';
@@ -296,15 +295,28 @@ bash "$repo_root/public/gestalt" cli -- --help
 assert_log "codex|CODEX_HOME=$CODEX_HOME|--help"
 assert_log "codex|CODEX_HOME=$CODEX_HOME|doctor|--summary|--ascii|--no-color"
 assert_log "context-mode|doctor"
-grep -F "codex|CODEX_HOME=$CODEX_HOME|--help|GESTALT_HOME=$GESTALT_HOME|PATH=$CODEX_HOME/bin:" \
+grep -F "codex|CODEX_HOME=$CODEX_HOME|--help|GESTALT_HOME=$GESTALT_HOME|PATH=$GESTALT_HOME/bin:$CODEX_HOME/bin:" \
   "$command_log" >/dev/null
 
 [[ $(bash "$repo_root/public/gestalt" path mobile) == "$GESTALT_HOME/mobile/node_modules/.bin/gestalt-mobile" ]]
 [[ $(GESTALT_CONTEXT_MODE_VERSION=2.1.0 bash "$repo_root/public/gestalt" path context-mode) == "$prepared_runtime" ]]
+[[ $(bash "$repo_root/public/gestalt" path bin) == "$GESTALT_HOME/bin" ]]
+[[ $(bash "$repo_root/public/gestalt" path org-plan) == "$GESTALT_HOME/bin/org-plan" ]]
+[[ $(bash "$repo_root/public/gestalt" path context-mode-cli) == "$GESTALT_HOME/bin/context-mode" ]]
+legacy_identity=$($real_node -p '[process.platform, process.arch, "node-" + process.versions.modules].join("-")')
+mv -- "$prepared_runtime" "$GESTALT_HOME/runtime/previous"
+mkdir -p -- "$prepared_runtime/2.1.0"
+mv -- "$GESTALT_HOME/runtime/previous" "$prepared_runtime/2.1.0/$legacy_identity"
+[[ $(GESTALT_CONTEXT_MODE_VERSION=2.1.0 bash "$repo_root/public/gestalt" path context-mode) == "$prepared_runtime/2.1.0/$legacy_identity" ]]
+mv -- "$prepared_runtime/2.1.0/$legacy_identity" "$GESTALT_HOME/runtime/previous"
+rmdir -- "$prepared_runtime/2.1.0" "$prepared_runtime"
+mv -- "$GESTALT_HOME/runtime/previous" "$prepared_runtime"
 [[ $(GESTALT_CONTEXT_MODE_VERSION=2.1.0 bash "$repo_root/public/gestalt" path context-mode-plugin) == "$CODEX_HOME/plugins/cache/dyne-gestalt-agents/context-mode/2.1.0" ]]
 [[ $(GESTALT_AGENTS_VERSION=2.1.0 bash "$repo_root/public/gestalt" path gestalt-plugin) == "$CODEX_HOME/plugins/cache/dyne-gestalt-agents/gestalt/2.1.0" ]]
 $real_node -e '
   const paths = JSON.parse(process.argv[1]);
+  if (paths.bin !== paths.gestaltHome + "/bin" || paths.orgPlan !== paths.bin + "/org-plan" ||
+      paths.contextModeCli !== paths.bin + "/context-mode") process.exit(1);
   if (paths.mobile !== process.argv[2] || paths.contextModeRuntime !== process.argv[3] ||
       paths.contextModePlugin !== process.argv[4] || paths.gestaltPlugin !== process.argv[5] ||
       paths.codexHome !== process.argv[6] || paths.gestaltHome !== process.argv[7]) process.exit(1);
@@ -319,7 +331,7 @@ assert_log "mobile|CODEX_HOME=$CODEX_HOME|GESTALT_HOME=$GESTALT_HOME"
 grep -F "|GESTALT_MANAGER_VERSION=$manager_version|GESTALT_AGENTS_VERSION=2.1.0|GESTALT_CONTEXT_MODE_VERSION=2.1.0" "$command_log" >/dev/null
 grep -F "|GESTALT_MOBILE_BIN=$GESTALT_HOME/mobile/node_modules/.bin/gestalt-mobile|GESTALT_CONTEXT_MODE_RUNTIME=$prepared_runtime" "$command_log" >/dev/null
 grep -F "|--cwd|$test_home/workspace" "$command_log" | grep -F 'mobile|' >/dev/null
-grep -F "|PATH=$CODEX_HOME/bin:" "$command_log" | grep -F 'mobile|' >/dev/null
+grep -F "|PATH=$GESTALT_HOME/bin:$CODEX_HOME/bin:" "$command_log" | grep -F 'mobile|' >/dev/null
 mobile_restart_state=$(find "$GESTALT_HOME/run" -maxdepth 1 -type f -name 'mobile-*.restart' -print -quit)
 [[ -n $mobile_restart_state && -r $mobile_restart_state ]]
 $real_node -e '

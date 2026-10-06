@@ -864,7 +864,7 @@ command_cli() {
   log "starting Codex with CODEX_HOME=$codex_home"
   exec env CODEX_HOME="$codex_home" GESTALT_HOME="$gestalt_home" \
     GESTALT_STARTUP_DIAGNOSTICS_DONE=1 \
-    PATH="$codex_home/bin:$PATH" \
+    PATH="$gestalt_home/bin:$codex_home/bin:$PATH" \
     codex "${forwarded_args[@]}"
 }
 
@@ -924,7 +924,7 @@ command_mobile() {
     GESTALT_MOBILE_PID="$$" \
     GESTALT_MOBILE_RESTART_STATE="$mobile_restart_state" \
     GESTALT_STARTUP_DIAGNOSTICS_DONE=1 \
-    PATH="$codex_home/bin:$PATH" \
+    PATH="$gestalt_home/bin:$codex_home/bin:$PATH" \
     "$mobile_bin" "${forwarded_args[@]}"
 }
 
@@ -997,11 +997,18 @@ context_mode_native_mcp_is_enabled() {
 }
 
 context_mode_runtime_root() {
-  local -r version=$1
-  local runtime_identity
-  runtime_identity=$(node -p '[process.platform, process.arch, "node-" + process.versions.modules].join("-")') ||
-    return 1
-  printf '%s/runtime/context-mode/%s/%s\n' "$gestalt_home" "$version" "$runtime_identity"
+  # Older marketplace releases still prepare a versioned tree. Keep discovery
+  # compatible until their next setup migrates it to the single runtime.
+  if [[ ! -f $gestalt_home/runtime/context-mode/.context-mode-prepared.json ]]; then
+    local runtime_identity legacy
+    runtime_identity=$(node -p '[process.platform, process.arch, "node-" + process.versions.modules].join("-")') || return 1
+    legacy=$gestalt_home/runtime/context-mode/$1/$runtime_identity
+    if [[ -f $legacy/.context-mode-prepared.json ]]; then
+      printf '%s\n' "$legacy"
+      return
+    fi
+  fi
+  printf '%s/runtime/context-mode\n' "$gestalt_home"
 }
 
 installed_plugin_version() {
@@ -1029,6 +1036,8 @@ managed_path() {
   local version
 
   case $name in
+    bin) printf '%s/bin\n' "$gestalt_home" ;;
+    org-plan | context-mode-cli) printf '%s/bin/%s\n' "$gestalt_home" "${name%-cli}" ;;
     mobile) printf '%s\n' "${GESTALT_MOBILE_BIN:-$mobile_bin}" ;;
     context-mode | context-mode-runtime)
       if [[ -n ${GESTALT_CONTEXT_MODE_RUNTIME:-} ]]; then
@@ -1057,7 +1066,7 @@ managed_path() {
     codex-home) printf '%s\n' "$codex_home" ;;
     gestalt-home) printf '%s\n' "$gestalt_home" ;;
     *)
-      die "unknown managed path: $name (expected mobile, context-mode, context-mode-plugin, gestalt-plugin, codex-home, or gestalt-home)"
+      die "unknown managed path: $name (expected bin, org-plan, context-mode-cli, mobile, context-mode, context-mode-plugin, gestalt-plugin, codex-home, or gestalt-home)"
       ;;
   esac
 }
@@ -1088,11 +1097,15 @@ command_path() {
         gestaltPlugin,
         codexHome,
         gestaltHome,
+        bin: `${gestaltHome}/bin`,
+        contextModeCli: `${gestaltHome}/bin/context-mode`,
+        orgPlan: `${gestaltHome}/bin/org-plan`,
       })}\n`);
     ' "$mobile_path" "$context_runtime" "$context_plugin" "$gestalt_plugin" "$codex_home" "$gestalt_home"
     return
   fi
   print_check 'Gestalt Mobile' "$mobile_path"
+  print_check 'Gestalt commands' "$gestalt_home/bin"
   print_check 'Context-mode runtime' "$context_runtime"
   print_check 'Context-mode plugin' "$context_plugin"
   print_check 'Gestalt plugin' "$gestalt_plugin"

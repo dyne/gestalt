@@ -23,11 +23,25 @@ The replaceable Codex plugin cache contains launchers. The built runtime lives
 under:
 
 ```text
-~/.gestalt/runtime/context-mode/<version>/<platform-architecture-node-abi>/
+~/.gestalt/runtime/context-mode/
 ```
 
 Normal Codex startup only verifies and launches it. Installation, compilation,
 and repair happen explicitly during `gestalt install` or `gestalt update`.
+Updates prepare and verify a replacement before switching, then remove the old
+runtime. Existing version directories are removed during this migration. A
+failed build preserves the previous runtime. Restart sessions after updating.
+
+The CLI is available at `~/.gestalt/bin/context-mode`, alongside `org-plan`.
+Add the directory to your shell's `PATH`:
+
+```sh
+export PATH="$HOME/.gestalt/bin:$PATH"
+context-mode doctor
+```
+
+With a custom `GESTALT_HOME`, use its `bin` directory instead. Gestalt adds this
+directory to the environment of CLI and Mobile sessions automatically.
 
 ## Health check
 

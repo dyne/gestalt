@@ -111,6 +111,67 @@ it sends a fixed unavailable-key marker, so authenticated calls fail visibly
 and an explicitly insecure local node can still serve them. MCP's code-cache
 path is also routed under the managed runtime root.
 
+`gestalt xerj probe` is a read-only readiness operation for startup consumers.
+It prints one JSON object on stdout and returns zero for optional absence or
+unavailability as well as readiness. Schema version 1 has `status` equal to
+`absent`, `unavailable` (with a bounded `reason`), or `ready`. Ready includes
+the pinned `version`, normalized loopback `endpoint`, managed `binary` and
+`dataRoot`, `protocolVersion`, and authentication references (`auth.environment`
+and `auth.keyFile`), never a key or authorization header. Consumers must inspect
+`status`; an exit code alone does not indicate usable retrieval. Invalid command
+usage or a missing Node prerequisite still returns a nonzero manager error.
+
+The probe checks the managed executable's exact version, the native MCP
+`2025-03-26` initialize response and retrieval tool schemas, then authenticated
+`GET /_cluster/health` and `GET /_cat/indices?format=json&h=index`. Those pinned
+rc.87 handlers read engine state and accept an empty index list. MCP discovery
+alone does not reach the backend. The probe deliberately avoids `_search`,
+which appends an audit entry, and `xerj_map`, which refuses a missing autoindex
+catalog. Empty readiness does not imply any repository has been indexed.
+
+`XERJ_READY_TIMEOUT_MS` sets the whole probe budget, including detection, MCP
+startup, HTTP reads and cleanup (default 5000; allowed range 100–60000). Probe
+processes are reaped on timeout, EOF failure or interruption. The operation
+creates no managed files, starts no backend, installs nothing, and never
+indexes or downloads a model. Native diagnostics are suppressed to keep
+credentials off both output streams. It uses the manager's existing Node
+runtime and preserves the single-file checksum-verified distribution.
+
+For a shared backend, use `gestalt xerj ensure-ready`, `gestalt xerj status`,
+and `gestalt xerj stop` with the same `GESTALT_HOME` and `XERJ_URL`. Ensure uses
+the same readiness schema and deadline, including time waiting for another
+startup. A ready result also reports `ownership`: `managed` for a backend
+retained by this manager, or `adopted` for a compatible existing endpoint.
+Status rechecks readiness and ownership without changing managed files. Stop
+returns schema-1 `status: "stopped"` only after its owned server is reaped;
+otherwise it reports bounded unavailability, such as `not-managed`.
+
+Ensure serializes startup and explicit stop using private records under
+`runtime/xerj/.lifecycle`, scoped to the normalized endpoint. It reuses a
+verified endpoint, never replaces an unrelated listener, and starts only the
+installed pinned binary. Automatic server launches bind to loopback, retain
+the native authentication default and managed admin key, and use lexical
+embedding mode so readiness cannot trigger model downloads. No installation,
+indexing, project configuration, profile edits or service registration occurs.
+
+A private manager owner retains the actual server child and accepts
+authenticated local control requests. CLI or Mobile exit and MCP proxy EOF
+leave that shared backend running. Explicit managed stop closes the owned
+server; it never signals a PID read from a saved record or stops an adopted
+instance. Startup records include the lock owner's process birth identity;
+only a proven dead or reused owner permits stale-lock recovery. Unknown or
+incomplete lock ownership remains unavailable rather than being deleted.
+An attempted launch expires and is reaped unless readiness succeeds and the
+caller retains it. A later explicit ensure can restart a stopped backend.
+This is an on-demand process lifetime, with no login autostart or system service.
+
+Lifecycle directories have mode 0700; records, control sockets and event logs
+have mode 0600. Event logs contain only manager event codes, are capped at
+32 KiB per endpoint, and exclude native output and credentials. The default
+five-second budget remains a readiness limit; an explicit longer warmup is
+separate work. These operations provide the shared primitive; agent startup
+configuration must additionally gate the MCP connection and xerj skill together.
+
 Conflicting install/data/state paths, custom config files, diagnostic-output
 and worker-executable overrides are rejected before execution. Managed trees
 must contain no symlinks or multiply linked files; configured root aliases are resolved before checking

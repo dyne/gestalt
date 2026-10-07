@@ -8,6 +8,8 @@ bash -n "$repo_root/public/install.sh"
 bash "$repo_root/tests/gestalt-cli.test.sh"
 bash "$repo_root/tests/install.test.sh"
 bash "$repo_root/tests/xerj.test.sh"
+node --test "$repo_root/tests/xerj-readiness.test.mjs"
+node --test "$repo_root/tests/xerj-lifecycle.test.mjs"
 bash "$repo_root/tests/skills-transfer.test.sh"
 node --test "$repo_root/tests/versioning.test.mjs"
 

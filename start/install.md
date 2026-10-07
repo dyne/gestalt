@@ -75,17 +75,73 @@ gestalt xerj mcp --url http://localhost:9300
 The manager installs the official Linux static-musl or macOS release
 `1.0.0-rc.87`, verifies its published SHA-256, and atomically replaces
 `$GESTALT_HOME/xerj/xerj`. Defaults are `~/.gestalt/xerj` for installation and
-`~/.gestalt/runtime/xerj` for persistent data, configuration, and caches.
+`$CODEX_HOME/xerj-data` (normally `~/.codex-gestalt/xerj-data`) for persistent
+data, configuration, credentials, autoindex state, and caches. Every workspace,
+CLI session, and Mobile session using that Codex home shares the same engineering
+knowledge database. Changing directory does not select another database.
+Installation does not create runtime state or migrate indexes from the earlier
+`$GESTALT_HOME/runtime/xerj` or workspace-local locations.
 Downloads and staging stay in a private install directory which is removed on
 success or failure. A failed download, checksum or extraction preserves the
-previous executable. An explicit install repeats the verified replacement;
-other upstream versions require a new manager audit.
+previous executable. An explicit install repeats the verified pinned replacement.
+
+### Updating and checking upstream fixes
+
+```sh
+gestalt xerj update                 # latest official GitHub release
+gestalt xerj update 1.0.0-rc.89      # an explicit release; optional v prefix
+gestalt xerj -V
+gestalt xerj test                   # readable native regression report
+gestalt xerj test --json > xerj-test.json
+```
+
+`update` uses the same SHA-256 verification and atomic replacement as `install`,
+and checks that the downloaded executable reports the requested version. It does
+not run the upstream self-updater, stop existing servers, migrate indexes, or
+enable automatic indexing. Explicit versions also allow restoring the audited
+binary; `gestalt xerj install` restores the manager's pin.
+
+`test` runs the installed binary directly with synthetic Git repositories, a
+temporary authenticated loopback backend, isolated home/cache/data/journals and
+lexical embeddings. It downloads no fixtures or models and needs Node and Git.
+It never opens the real index. Owned processes and temporary files are removed
+on completion or interruption. The whole run has a four-minute deadline, followed by bounded child cleanup.
+
+Checks cover initial indexing, fork path identities, native exclusions, edits,
+deletions, persistence after backend restart, unchanged document IDs, and these
+upstream reports:
+
+- [#1230](https://github.com/xerj-org/xerj/issues/1230): new files inside an indexed
+  repository, in both direct and watch modes, with a single-repository control.
+  Entirely new repositories have a separate result.
+- [#1231](https://github.com/xerj-org/xerj/issues/1231): rejecting map-only
+  `--dataset` during indexing.
+- [#1232](https://github.com/xerj-org/xerj/issues/1232): native exclusive watcher
+  ownership and release. The test bypasses Gestalt's compensating `flock`.
+- [#1233](https://github.com/xerj-org/xerj/issues/1233): a sub-GB cap includes
+  a small source file and excludes an oversized text artifact. The probe detects
+  native `--max-file-bytes` or `--max-file-mb` options when advertised, otherwise
+  tries fractional `--max-file-gb`.
+
+Exit codes: **0** all checks pass; **1** native regressions/limitations remain;
+**2** setup or a control failed, so later results cannot establish fixes;
+**130** interrupted or the overall deadline expired. JSON includes the detected
+version and individual results; a known upstream defect is a failure, not an
+expected-failure pass. An error report may omit dependent checks.
+
+Passing these issue probes does not certify MCP protocol compatibility or a
+production index migration. Mobile and `ensure-ready` still require the manager's
+audited version until that integration is reviewed and updated. Consequently,
+upgrading to another version can disable automatic session retrieval while you
+evaluate it. Existing server processes continue running their old executable;
+plan their restart separately after compatibility review. Manual mode remains
+the Mobile default.
 
 Forwarding supports the server, `index`, `autoindex` (including map/status),
 `search`, `def`, `gain`, and the native `mcp` stdio proxy. The server and `index` receive `--data-dir` and a
 managed config; autoindex receives its actual supported `--state-dir`. Automatic
-neural-model cache paths are not placed in the user home: model-cache, XDG and
-temporary paths point into the runtime root. `HOME` is preserved. Connection
+model-cache, XDG and temporary paths point into the global runtime root.
+`HOME` is preserved. Connection
 settings `XERJ_URL`, `XERJ_API_KEY`, logging and feedback settings are preserved;
 other inherited environment settings are excluded from the child process.
 Argument boundaries, streams, signals and exit codes pass through directly.
@@ -93,6 +149,24 @@ Use the pinned CLI's split option form (`--port 9300`, not `--port=9300`);
 an optional initial `gestalt xerj --` separates manager dispatch from arguments.
 Input folders and NDJSON files can be outside the managed roots and are read
 without writing project configuration.
+
+Use `gestalt xerj autoindex --cwd /path/to/source-root` to select a local source
+directory (`--cwd=...` is also accepted). Relative paths resolve from the calling
+directory. This is an alias for the positional source path; do not combine both.
+Add `--watch --no-graph` only when continuous indexing is wanted.
+
+For local repository autoindex runs, the default prefix is `ax-<hash>` of the
+canonical source root. Autoindex bookkeeping is separated by prefix beneath
+`xerj-data/autoindex`, so unrelated repositories do not overwrite one another.
+An explicit `--prefix` intentionally overrides this namespace. Discover actual
+indexes and source roots through the catalog before searching across them;
+retrieved code is reference material, not evidence about the current checkout.
+
+Mobile owns automatic indexing outside agent sessions. Installation does not
+add a sandbox write grant for XERJ data or other workspaces. Retrieval scope is
+not modification authority: Codex remains constrained to its active workspace.
+Context-mode retains workspace-local state. MCP processes are subject to their
+host launcher's restrictions; successful retrieval does not change shell permissions.
 
 Server listeners bind explicitly to `127.0.0.1`; `--bind ::1` selects IPv6
 loopback. Public/LAN bindings are rejected. Client URLs must use HTTP and an
@@ -105,7 +179,7 @@ queries and fragments are refused. This service is intended for local agents.
 stdin EOF. It proxies to the local HTTP node; the manager installs no agent
 configuration or bridge. `XERJ_AUTH`/`--auth` carry the full Authorization header
 for MCP, while ordinary clients use `XERJ_API_KEY`. Without an explicit key,
-the wrapper reads only its managed `runtime/xerj/admin.key`; MCP never falls
+the wrapper reads only `$CODEX_HOME/xerj-data/admin.key`; MCP never falls
 back to guessed keys in the working directory or home. With no managed key,
 it sends a fixed unavailable-key marker, so authenticated calls fail visibly
 and an explicitly insecure local node can still serve them. MCP's code-cache
@@ -138,7 +212,11 @@ credentials off both output streams. It uses the manager's existing Node
 runtime and preserves the single-file checksum-verified distribution.
 
 For a shared backend, use `gestalt xerj ensure-ready`, `gestalt xerj status`,
-and `gestalt xerj stop` with the same `GESTALT_HOME` and `XERJ_URL`. Ensure uses
+and `gestalt xerj stop` from any workspace with the same `CODEX_HOME` and
+`GESTALT_HOME`. The shared default endpoint is `http://127.0.0.1:9200`.
+An unrelated listener is reported without
+replacing the listener; `XERJ_URL` can explicitly select another loopback port.
+Use the endpoint returned by readiness for `autoindex --url`. Ensure uses
 the same readiness schema and deadline, including time waiting for another
 startup. A ready result also reports `ownership`: `managed` for a backend
 retained by this manager, or `adopted` for a compatible existing endpoint.
@@ -147,7 +225,7 @@ returns schema-1 `status: "stopped"` only after its owned server is reaped;
 otherwise it reports bounded unavailability, such as `not-managed`.
 
 Ensure serializes startup and explicit stop using private records under
-`runtime/xerj/.lifecycle`, scoped to the normalized endpoint. It reuses a
+`$CODEX_HOME/xerj-data/.lifecycle`, scoped to the normalized endpoint. It reuses a
 verified endpoint, never replaces an unrelated listener, and starts only the
 installed pinned binary. Automatic server launches bind to loopback, retain
 the native authentication default and managed admin key, and use lexical
@@ -243,8 +321,9 @@ and worker-executable overrides are rejected before execution. Managed trees
 must contain no symlinks or multiply linked files; configured root aliases are resolved before checking
 descendants. `init` writes agent/editor/project files; `brain` and `share` spawn
 auxiliary services; `feedback` can write reports and open PRs; `code`/`corpus`
-clone repositories and invoke Git. These commands, service/update/export
-commands and unaudited flags are refused by this wrapper.
+clone repositories and invoke Git. These commands, native service/self-update/export
+commands and unaudited flags are refused by this wrapper. `gestalt xerj update`
+is the manager's verified release installer described above.
 
 This is automatic state routing and path validation, not an OS filesystem
 sandbox. In the pinned server, an administrator can supply a snapshot repository
@@ -260,3 +339,15 @@ Audit basis: [xerj rc.87 source](https://github.com/xerj-org/xerj/tree/fcb73c1c7
 especially `xerj-server/src/main.rs`, `xerj-autoindex/src/cli.rs`, `state.rs`,
 `init.rs`, `xc.rs`, `feedback.rs`, `xerj-ai/src/neural.rs`, and snapshot handling
 in `xerj-api/src/es_compat.rs` under `engine/crates`.
+
+### Mobile root-wide indexing
+
+`gestalt mobile -- --cwd /path/to/source-root --xerj auto` starts optional
+background native XERJ watching (opt-in). The default, `--xerj manual`, keeps retrieval
+without indexing; existing indexes remain available but are not automatically updated.
+`--xerj off` disables the integration. In auto mode, Mobile seeds a native
+`.xerjignore` only when absent, preserves repository paths and reports progress in
+the header configuration menu. Watch mode requires Linux `flock` and `setpriv` for exclusive ownership and
+parent-death cleanup. No Codex filesystem permissions are widened.
+See the [Mobile operational guide](https://github.com/dyne/gestalt-mobile/blob/main/docs/xerj.md)
+for exclusions, native watcher limitations and recovery.

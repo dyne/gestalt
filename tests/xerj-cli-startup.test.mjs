@@ -121,7 +121,7 @@ for (const mode of ['healthy', 'absent', 'bad-auth', 'timeout', 'incompatible', 
         assert.ok(launch.some(arg => arg.startsWith('hooks.state=') && arg.includes('sha256:kept')));
         assert.ok(launch.some(arg => arg.includes('required"=true')));
         assert.ok(launch.some(arg => arg.includes('startup_readiness"="connection"')));
-        assert.ok(launch.some(arg => arg.includes('env_vars"=["GESTALT_HOME","XERJ_API_KEY","XERJ_AUTH"]')));
+        assert.ok(launch.some(arg => arg.includes('env_vars"=["CODEX_HOME","GESTALT_HOME","XERJ_API_KEY","XERJ_AUTH"]')));
       } else assert.ok(launch.some(arg => arg.startsWith('mcp_servers.gestalt-xerj=') && arg.includes('enabled"=false')));
       assert.ok(!JSON.stringify(launch).includes('do-not-expose-secret'));
       assert.ok(!result.stderr.includes('do-not-expose-secret'));
@@ -137,6 +137,7 @@ test('CLI protected overrides follow user config; cwd/profile go to native confi
     assert.deepEqual(result.launches[0].slice(0, args.length), args);
     const read = JSON.parse(await readFile(join(result.root, 'read.json'), 'utf8'));
     assert.equal(read.params.cwd, tmpdir());
+    assert.ok(result.launches[0].some(arg => arg.startsWith('mcp_servers.gestalt-xerj=') && arg.includes(`"cwd"=${JSON.stringify(tmpdir())}`)));
     assert.ok(!read.args.some(arg => arg.startsWith('profile=')), 'v2 profile must not be treated as legacy profile');
     assert.ok(result.launches[0].slice(args.length).some(arg => arg.startsWith('mcp_servers.gestalt-xerj=')));
   } finally { await rm(result.root, { recursive: true, force: true }); }

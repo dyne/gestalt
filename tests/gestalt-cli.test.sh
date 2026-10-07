@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 repo_root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 manager_version=$(bash "$repo_root/public/gestalt" version)
+manager_version=${manager_version%%$'\n'*}
 manager_version=${manager_version#gestalt }
 test_root=$(mktemp -d "${TMPDIR:-/tmp}/gestalt-cli-test.XXXXXXXX")
 test_relay_pid=''
@@ -236,6 +237,10 @@ grep -F 'allow_local_binding = true' "$CODEX_HOME/config.toml" >/dev/null
 grep -F '[permissions.workspace-git.filesystem]' "$CODEX_HOME/config.toml" >/dev/null
 grep -F '"/tmp" = "write"' "$CODEX_HOME/config.toml" >/dev/null
 grep -F "\"$CODEX_HOME\" = \"read\"" "$CODEX_HOME/config.toml" >/dev/null
+if grep -F "\"$CODEX_HOME/xerj-data\" = \"write\"" "$CODEX_HOME/config.toml" >/dev/null; then
+  printf 'XERJ must not expand sandbox write permissions\n' >&2
+  exit 1
+fi
 grep -F "\"$GESTALT_HOME\" = \"read\"" "$CODEX_HOME/config.toml" >/dev/null
 grep -F "\"$HOME/.agents\" = \"read\"" "$CODEX_HOME/config.toml" >/dev/null
 grep -F "\"$HOME/.local\" = \"read\"" "$CODEX_HOME/config.toml" >/dev/null
@@ -414,6 +419,13 @@ grep -E '^Context-mode plugin +2\.1\.0$' "$test_root/doctor.out" >/dev/null
 grep -E '^Context-mode runtime +' "$test_root/doctor.out" >/dev/null
 grep -E '^Plugin MCP source +disabled \(expected\)$' "$test_root/doctor.out" >/dev/null
 grep -E '^Native context MCP +enabled$' "$test_root/doctor.out" >/dev/null
+grep -E '^xerj +NOT AVAILABLE' "$test_root/doctor.out" >/dev/null
+grep -E '^xerj readiness +unavailable' "$test_root/doctor.out" >/dev/null
+check_versions=$(bash "$repo_root/public/gestalt" version)
+grep -E '^Gestalt Mobile +0\.1\.0$' <<< "$check_versions" >/dev/null
+grep -E '^gestalt +2\.1\.0$' <<< "$check_versions" >/dev/null
+grep -E '^context-mode +2\.1\.0$' <<< "$check_versions" >/dev/null
+grep -E '^Codex CLI +codex-cli 1\.0\.0$' <<< "$check_versions" >/dev/null
 grep -E '^Supervision contract +ready \(v1; offline manifests\)$' "$test_root/doctor.out" >/dev/null
 grep -F 'All startup diagnostics passed.' "$test_root/doctor.out" >/dev/null
 

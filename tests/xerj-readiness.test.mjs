@@ -24,8 +24,8 @@ async function fixture(t, mode = 'healthy') {
   const temp = await mkdtemp(join(tmpdir(), 'gestalt readiness '));
   const root = join(temp, 'managed home'), pidFile = join(temp, 'probe.pid');
   await mkdir(join(root, 'xerj'), { recursive: true });
-  await mkdir(join(root, 'runtime', 'xerj'), { recursive: true });
-  await writeFile(join(root, 'runtime', 'xerj', 'admin.key'), secret);
+  await mkdir(join(root, 'xerj-data'), { recursive: true });
+  await writeFile(join(root, 'xerj-data', 'admin.key'), secret);
   const binary = join(root, 'xerj', 'xerj');
   await writeFile(binary, `#!${process.execPath}
 const fs = require('node:fs');
@@ -70,8 +70,8 @@ if (process.argv[2] === '--version') {
   const before = await snapshot(root);
   t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await rm(temp, { recursive: true, force: true }); });
   async function run(overrides = {}, cancel = false) {
-    const env = { HOME: process.env.HOME, PATH: process.env.PATH, GESTALT_HOME: root, XERJ_URL: endpoint, XERJ_READY_TIMEOUT_MS: '750', ...overrides };
-    const child = spawn('bash', [manager, 'xerj', 'probe'], { env });
+    const env = { HOME: process.env.HOME, PATH: process.env.PATH, GESTALT_HOME: root, CODEX_HOME: root, XERJ_URL: endpoint, XERJ_READY_TIMEOUT_MS: '750', ...overrides };
+    const child = spawn('bash', [manager, 'xerj', 'probe'], { env, cwd: root });
     let stdout = '', stderr = '';
     child.stdout.on('data', chunk => stdout += chunk);
     child.stderr.on('data', chunk => stderr += chunk);
@@ -105,7 +105,7 @@ for (const mode of ['healthy', 'empty']) test(`verified ${mode} backend, private
   assert.equal(result.status, 'ready');
   assert.equal(result.endpoint, f.endpoint);
   assert.equal(result.binary, f.binary);
-  assert.equal(result.auth.keyFile, join(f.root, 'runtime', 'xerj', 'admin.key'));
+  assert.equal(result.auth.keyFile, join(f.root, 'xerj-data', 'admin.key'));
   assert.deepEqual(f.reads.map(r => [r.method, r.url]), [['GET', '/_cluster/health'], ['GET', '/_cat/indices?format=json&h=index']]);
   assert.ok(f.reads.every(r => r.auth === `ApiKey ${secret}`));
 });
@@ -124,8 +124,8 @@ test('tool discovery alone cannot prove backend readiness', async t => {
 });
 test('missing credential never falls back to user home or cwd', async t => {
   const f = await fixture(t);
-  await rm(join(f.root, 'runtime', 'xerj', 'admin.key'));
-  delete f.before[join(f.root, 'runtime', 'xerj', 'admin.key')];
+  await rm(join(f.root, 'xerj-data', 'admin.key'));
+  delete f.before[join(f.root, 'xerj-data', 'admin.key')];
   assert.deepEqual(await f.run(), { schemaVersion: 1, status: 'unavailable', reason: 'credentials-unavailable' });
 });
 test('missing managed binary is optional absence', async t => {

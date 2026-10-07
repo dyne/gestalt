@@ -25,7 +25,7 @@ async function fixture(t, mode = 'healthy', port) {
   const starts = join(temp, 'starts.ndjson');
   const endpoint = `http://127.0.0.1:${port}`;
   const name = createHash('sha256').update(endpoint).digest('hex').slice(0, 16);
-  const directory = join(root, 'runtime', 'xerj', '.lifecycle');
+  const directory = join(root, 'xerj-data', '.lifecycle');
   const lock = join(directory, `${name}.lock`), record = join(directory, `${name}.json`);
   await mkdir(join(root, 'xerj'), { recursive: true });
   await writeFile(binary, `#!${process.execPath}
@@ -63,9 +63,9 @@ else if (args[0] === 'mcp') {
 }
 `, { mode: 0o755 });
   let commands = [];
-  async function run(operation, overrides = {}, cancel = false) {
-    const env = { HOME: process.env.HOME, PATH: process.env.PATH, GESTALT_HOME: root, XERJ_URL: endpoint, XERJ_READY_TIMEOUT_MS: '2500', ...overrides };
-    const child = spawn('bash', [manager, 'xerj', operation], { env });
+  async function run(operation, overrides = {}, cancel = false, cwd = root) {
+    const env = { HOME: process.env.HOME, PATH: process.env.PATH, GESTALT_HOME: root, CODEX_HOME: root, XERJ_URL: endpoint, XERJ_READY_TIMEOUT_MS: '2500', ...overrides };
+    const child = spawn('bash', [manager, 'xerj', operation], { env, cwd });
     commands.push(child.pid);
     let stdout = '', stderr = '';
     child.stdout.on('data', chunk => stdout += chunk);
@@ -132,6 +132,31 @@ test('concurrent first launches start exactly one shared server; repeated ensure
   await f.noServers();
   assert.equal((await f.run('ensure-ready')).status, 'ready');
   assert.equal((await f.launched()).length, 2);
+});
+test('different workspaces share one backend and global data directory', async t => {
+  const f = await fixture(t);
+  const workspaces = [join(f.root, 'a'), join(f.root, 'b')];
+  await Promise.all(workspaces.map(cwd => mkdir(cwd)));
+  const overrides = {};
+  try {
+    const results = await Promise.all(workspaces.map(cwd => f.run('ensure-ready', overrides, false, cwd)));
+    assert.ok(results.every(result => result.status === 'ready'), JSON.stringify(results));
+    assert.equal(results[0].endpoint, results[1].endpoint);
+    assert.deepEqual(results.map(result => result.dataRoot), workspaces.map(() => join(f.root, 'xerj-data')));
+    assert.equal((await f.launched()).length, 1);
+    for (let i = 0; i < workspaces.length; i++) {
+      const status = await f.run('status', overrides, false, workspaces[i]);
+      assert.equal(status.endpoint, results[i].endpoint);
+      assert.equal(status.ownership, 'managed');
+      await assert.rejects(stat(join(workspaces[i], '.gestalt')), { code: 'ENOENT' });
+    }
+    assert.equal((await f.run('stop', overrides, false, workspaces[0])).status, 'stopped');
+    assert.equal((await f.run('probe', overrides, false, workspaces[1])).status, 'unavailable');
+    assert.equal((await f.run('ensure-ready', overrides, false, workspaces[1])).status, 'ready');
+    await assert.rejects(stat(join(f.root, 'runtime', 'xerj')), { code: 'ENOENT' });
+  } finally {
+    await Promise.all(workspaces.map(cwd => f.run('stop', overrides, false, cwd)));
+  }
 });
 test('stale lock is reclaimed by verified identity, without signaling its PID', async t => {
   const f = await fixture(t);

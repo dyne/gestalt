@@ -74,7 +74,10 @@ Commands:
   cli [--] [args...]        Start Codex with ~/.codex-gestalt as CODEX_HOME.
   mobile [--] [args...]     Start the managed Gestalt Mobile executable.
   xerj install              Install the checksum-verified managed xerj release.
+  xerj update [VERSION]     Install an official release (default: latest).
+  xerj test [--json]        Test installed XERJ in disposable storage; never real indexes.
   xerj [args...]            Run xerj with managed installation and state paths.
+  xerj autoindex --cwd DIR  Index a source root; add --watch for continuous updates.
   xerj mcp [args...]        Native MCP stdio proxy to a loopback HTTP node.
   xerj probe               Read-only JSON readiness (5-second default deadline).
   xerj ensure-ready        Reuse or start a shared authenticated local backend.
@@ -84,7 +87,7 @@ Commands:
   skills-export [ARCHIVE]   Export installed skills and skill profiles.
   skills-import ARCHIVE     Import a skills archive into this installation.
   doctor                    Check prerequisites and installation state.
-  version                   Print this manager's version.
+  version                   Print manager and detected component versions.
   help                      Show this help.
 
 Environment:
@@ -106,6 +109,7 @@ validate_xerj_url() {
   port=${BASH_REMATCH[3]:-80}
   ((10#$port >= 1 && 10#$port <= 65535)) || die 'xerj URL port must be between 1 and 65535'
   validated_xerj_url=${url/http:\/\/localhost/http:\/\/127.0.0.1}
+  validated_xerj_port=$port
 }
 
 validate_xerj_bind() {
@@ -132,13 +136,12 @@ validate_xerj_path() {
   done
 }
 
-load_xerj_paths() {
-  # Trust the explicitly selected Gestalt root, resolving platform/user aliases.
-  # Only its managed descendants must be free of links (e.g. macOS /var aliases).
-  local ancestor=$gestalt_home suffix='' component
+canonical_xerj_root() {
+  # Resolve selected home aliases; managed descendants must remain link-free.
+  local ancestor=$1 suffix='' component
   [[ $ancestor == /* && $ancestor != */ && $ancestor != *//* && ! $ancestor =~ [[:cntrl:]] ]] ||
-    die 'GESTALT_HOME for xerj must be an absolute normalized path'
-  case /$ancestor/ in */./* | */../*) die 'GESTALT_HOME for xerj cannot contain . or ..' ;; esac
+    die 'xerj home must be an absolute normalized path'
+  case /$ancestor/ in */./* | */../*) die 'xerj home cannot contain . or ..' ;; esac
   while [[ ! -d $ancestor ]]; do
     [[ ! -e $ancestor && ! -L $ancestor ]] || die 'GESTALT_HOME ancestor is not a directory'
     component=${ancestor##*/}
@@ -147,10 +150,15 @@ load_xerj_paths() {
     [[ -n $ancestor ]] || ancestor=/
   done
   ancestor=$(CDPATH='' cd -- "$ancestor" && pwd -P)
-  gestalt_home=${ancestor%/}$suffix
+  printf '%s\n' "${ancestor%/}$suffix"
+}
+
+load_xerj_paths() {
+  gestalt_home=$(canonical_xerj_root "$gestalt_home")
+  codex_home=$(canonical_xerj_root "$codex_home")
   validate_managed_path GESTALT_HOME "$gestalt_home"
   xerj_root=$gestalt_home/xerj
-  xerj_data=$gestalt_home/runtime/xerj
+  xerj_data=$codex_home/xerj-data
   xerj_bin=$xerj_root/xerj
   validate_xerj_path "$xerj_root"
   validate_xerj_path "$xerj_data"
@@ -166,13 +174,32 @@ load_xerj_paths() {
   local directory link
   for directory in "$xerj_root" "$xerj_data"; do
     if [[ -d $directory ]]; then
-      link=$(find "$directory" \( -type l -o \( -type f -links +1 \) \) -print -quit)
+      # Segment compaction removes files while clients start. Ignore only
+      # ENOENT races, retaining the same link checks on every existing entry.
+      require_command node
+      link=$(node - "$directory" <<'NODE'
+const { lstatSync, readdirSync } = require('node:fs');
+const { join } = require('node:path');
+function visit(path) {
+  try {
+    const info = lstatSync(path);
+    if (info.isSymbolicLink() || (info.isFile() && info.nlink > 1)) return path;
+    if (info.isDirectory()) for (const name of readdirSync(path)) {
+      const found = visit(join(path, name));
+      if (found) return found;
+    }
+  } catch (error) { if (error.code !== 'ENOENT') throw error; }
+}
+process.stdout.write(visit(process.argv[2]) ?? '');
+NODE
+)
       [[ -z $link ]] || die "managed xerj tree contains a symbolic or hard link: $link"
     fi
   done
 }
 
 install_xerj() {
+  local version=${1:-$MANAGED_XERJ_VERSION}
   local os cpu target stage asset expected actual member listing
   require_command curl
   require_command tar
@@ -195,11 +222,11 @@ install_xerj() {
   [[ -z ${XERJ_LIBC:-} || ${XERJ_LIBC:-} == musl || $os == Darwin ]] ||
     die 'managed Linux xerj uses the audited static musl release'
   umask 077
-  mkdir -p -- "$xerj_root" "$xerj_data"
+  mkdir -p -- "$xerj_root"
   xerj_install_scratch=$(mktemp -d "$xerj_root/.install.XXXXXXXX")
-  stage=xerj-$MANAGED_XERJ_VERSION-$target
+  stage=xerj-$version-$target
   asset=$stage.tar.gz
-  local base=https://github.com/xerj-org/xerj/releases/download/v$MANAGED_XERJ_VERSION
+  local base=https://github.com/xerj-org/xerj/releases/download/v$version
   # -q disables ~/.curlrc; all downloads and extraction output stay in scratch.
   curl -q --fail --location --silent --show-error --proto '=https' --proto-redir '=https' \
     --connect-timeout 20 --max-time 120 "$base/$asset" --output "$xerj_install_scratch/release.tar.gz"
@@ -222,8 +249,272 @@ install_xerj() {
   tar -xOzf "$xerj_install_scratch/release.tar.gz" "$member" > "$xerj_install_scratch/xerj"
   [[ -s $xerj_install_scratch/xerj ]] || die 'empty xerj binary'
   chmod 0755 "$xerj_install_scratch/xerj"
+  if (($# > 0)); then
+    require_command node
+    node - "$xerj_install_scratch/xerj" "$version" <<'JS'
+const { spawnSync } = require('node:child_process');
+const result = spawnSync(process.argv[2], ['-V'], { timeout: 5000, maxBuffer: 65536,
+  encoding: 'utf8', env: { PATH: process.env.PATH, XERJ_INSTALL_DIR: require('node:path').dirname(process.argv[2]) } });
+const found = result.stdout?.match(/\b(?:v)?(\d+\.\d+\.\d+(?:-[\w.-]+)?)\b/);
+if (result.error || result.status !== 0 || found?.[1] !== process.argv[3]) {
+  console.error('downloaded xerj version does not match requested release; prior binary preserved');
+  process.exit(1);
+}
+JS
+  fi
   mv -f -- "$xerj_install_scratch/xerj" "$xerj_bin"
-  log "installed xerj $MANAGED_XERJ_VERSION at $xerj_bin"
+  log "installed xerj $version at $xerj_bin"
+}
+
+update_xerj() {
+  (($# <= 1)) || die 'usage: gestalt xerj update [VERSION]'
+  local version=${1:-latest}
+  if [[ $version == latest ]]; then
+    require_command curl
+    require_command node
+    version=$(curl -q --fail --location --silent --show-error --proto '=https' --proto-redir '=https' \
+      --connect-timeout 20 --max-time 30 https://api.github.com/repos/xerj-org/xerj/releases/latest |
+      node -e 'let s=""; process.stdin.on("data", b => s+=b); process.stdin.on("end", () => { const r=JSON.parse(s); if(r.draft || typeof r.tag_name!=="string") process.exit(1); process.stdout.write(r.tag_name); });')
+  fi
+  version=${version#v}
+  [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+([.-][a-zA-Z0-9]+)*)?$ ]] || die 'invalid xerj release version'
+  install_xerj "$version"
+  log 'run gestalt xerj test to check upstream regressions; existing servers and indexes were not changed'
+  if [[ $version != "$MANAGED_XERJ_VERSION" ]]; then
+    log "Mobile/MCP readiness remains audited for $MANAGED_XERJ_VERSION; this update does not certify compatibility"
+  fi
+}
+
+# Embedded because the distributed manager is one checksum-verified executable.
+# Exercise the native binary, not the wrapper's compensating watcher lock.
+test_xerj() {
+  (($# == 0)) || { (($# == 1)) && [[ $1 == --json ]]; } || die 'usage: gestalt xerj test [--json]'
+  require_command node
+  require_command git
+  [[ -x $xerj_bin ]] || die "xerj is not installed; run 'gestalt xerj install'"
+  exec node --input-type=module - "$xerj_bin" "${1:-}" <<'JS'
+import { spawn } from 'node:child_process';
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import net from 'node:net';
+const binary = process.argv[2], json = process.argv[3] === '--json';
+const directory = await mkdtemp(join(tmpdir(), 'gestalt-xerj-regression-'));
+const rows = [], children = new Set();
+let version = 'unknown', endpoint, authorization, interrupted = false;
+const env = { PATH: process.env.PATH, HOME: join(directory, 'home'),
+  XDG_CACHE_HOME: join(directory, 'cache'), XDG_CONFIG_HOME: join(directory, 'config'),
+  XDG_DATA_HOME: join(directory, 'data'), TMPDIR: directory,
+  XERJ_INSTALL_DIR: join(binary, '..'), XERJ_CODE_HOME: join(directory, 'code'),
+  HF_HOME: join(directory, 'cache', 'huggingface'), XERJ_DISABLE_FEEDBACK: 'true',
+  GIT_CONFIG_NOSYSTEM: '1', LANG: 'C' };
+const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+function launch(command, args, timeout = 60000) {
+  const child = spawn(command, args, { cwd: directory, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  children.add(child);
+  const state = { child, stdout: '', stderr: '', code: null, ended: false, timedOut: false };
+  for (const stream of ['stdout', 'stderr']) child[stream].on('data', chunk => {
+    state[stream] = (state[stream] + chunk.toString()).slice(-262144);
+  });
+  const timer = timeout ? setTimeout(() => { state.timedOut = true; child.kill('SIGKILL'); }, timeout) : null;
+  state.done = new Promise(resolve => {
+    child.once('error', () => { state.spawnError = true; });
+    child.once('close', code => {
+      clearTimeout(timer); children.delete(child); state.code = code; state.ended = true; resolve(state);
+    });
+  });
+  return state;
+}
+async function stop(state) {
+  if (state.ended) return;
+  state.child.kill('SIGTERM');
+  const timer = setTimeout(() => state.child.kill('SIGKILL'), 2000);
+  await state.done; clearTimeout(timer);
+}
+async function until(predicate, ms = 30000) {
+  const expires = Date.now() + ms;
+  while (Date.now() < expires && !interrupted) {
+    if (await predicate()) return true;
+    await pause(100);
+  }
+  return false;
+}
+function record(name, pass, detail, issue) {
+  const row = { name, status: pass ? 'pass' : 'fail', detail, ...(issue ? { issue } : {}) };
+  rows.push(row);
+  if (!json) console.log(`${pass ? 'PASS' : 'FAIL'} ${name}: ${detail}${issue ? ` (#${issue})` : ''}`);
+  return pass;
+}
+function requirePass(name, pass, detail) {
+  if (!record(name, pass, detail)) throw new Error(`${name} failed; dependent checks were not run`);
+}
+async function request(path, body) {
+  const response = await fetch(endpoint + path, { signal: AbortSignal.timeout(5000),
+    headers: { Authorization: authorization, 'Content-Type': 'application/json' },
+    ...(body ? { method: 'POST', body: JSON.stringify(body) } : {}) });
+  if (!response.ok) throw new Error(`test backend HTTP ${response.status}`);
+  return response.json();
+}
+async function hits(prefix) {
+  return (await request(`/${prefix}-*/_search`, { size: 1000, query: { match_all: {} } })).hits.hits;
+}
+const paths = entries => entries.flatMap(hit => hit._source.ax_paths ?? [hit._source.ax_path]).filter(Boolean);
+async function contains(prefix, wanted, absent = []) {
+  return until(async () => {
+    const found = paths(await hits(prefix));
+    return wanted.every(path => found.includes(path)) && absent.every(path => !found.includes(path));
+  }, 10000);
+}
+const content = ['--no-graph', '--no-semantic', '--yes', '--workers', '2', '--pdf-workers', '1',
+  '--bulk-mb', '4', '--max-file-gb', '1', '--progress', 'json'];
+function args(root, prefix, extra = []) {
+  return ['autoindex', root, '--url', endpoint, '--prefix', prefix,
+    '--state-dir', join(directory, 'journals', prefix), ...content, ...extra];
+}
+const index = (root, prefix, extra = []) => launch(binary, args(root, prefix, extra)).done;
+const succeeded = result => result.code === 0 && !result.timedOut && !result.spawnError;
+const successfulPass = output => output.split('\n').some(line => {
+  try { const value = JSON.parse(line); return value.event === 'done' && value.ok === true; } catch { return false; }
+});
+async function git(root) {
+  await mkdir(root, { recursive: true });
+  if (!succeeded(await launch('git', ['init', '--quiet', root]).done)) throw new Error('fixture git init failed');
+}
+const onSignal = () => {
+  interrupted = true;
+  for (const child of children) child.kill('SIGTERM');
+  setTimeout(() => { for (const child of children) child.kill('SIGKILL'); }, 2000).unref();
+};
+process.on('SIGINT', onSignal); process.on('SIGTERM', onSignal);
+// A bounded whole-run deadline also covers watch processes and setup errors.
+const deadline = setTimeout(onSignal, 240000);
+try {
+  await mkdir(env.HOME);
+  const detected = await launch(binary, ['-V'], 5000).done;
+  const match = detected.stdout.match(/\b(?:v)?(\d+\.\d+\.\d+(?:-[\w.-]+)?)\b/);
+  if (!succeeded(detected) || !match) throw new Error('cannot read installed XERJ version');
+  version = match[1];
+  if (!json) console.log(`Testing XERJ ${version}; disposable source, backend and journals; no real indexes.`);
+  const listener = net.createServer();
+  await new Promise((resolve, reject) => { listener.once('error', reject); listener.listen(0, '127.0.0.1', resolve); });
+  const port = listener.address().port;
+  await new Promise(resolve => listener.close(resolve));
+  endpoint = `http://127.0.0.1:${port}`;
+  const data = join(directory, 'server');
+  const config = join(directory, 'xerj.toml');
+  await writeFile(config, `[embedding]\nmodel_cache_dir = ${JSON.stringify(join(directory, 'cache', 'models'))}\n[tls]\ncert_path = ${JSON.stringify(join(directory, 'cert.pem'))}\nkey_path = ${JSON.stringify(join(directory, 'key.pem'))}\n`);
+  const serverArgs = ['--config', config, '--data-dir', data, '--bind', '127.0.0.1', '--port', String(port), '--embed-mode', 'lexical'];
+  let server = launch(binary, serverArgs, 0);
+  async function ready() {
+    return until(async () => {
+      if (server.ended) throw new Error('test backend exited before readiness');
+      try {
+        const key = (await readFile(join(data, 'admin.key'), 'utf8')).trim();
+        authorization = `ApiKey ${key}`; env.XERJ_API_KEY = key;
+        const health = await request('/_cluster/health');
+        return health.cluster_name === 'xerj' && ['green', 'yellow'].includes(health.status);
+      } catch { return false; }
+    }, 20000);
+  }
+  requirePass('backend', await ready(), 'authenticated temporary loopback backend');
+  const multi = join(directory, 'repositories');
+  for (const name of ['bitcoin-core', 'bitcoin-knots', 'bitcoin-roots']) {
+    const root = join(multi, name); await git(root);
+    await writeFile(join(root, 'shared.ts'), 'export function sharedFork() { return "same implementation"; }\n');
+    await writeFile(join(root, 'unique.ts'), `export const repository = "${name}";\n`);
+  }
+  await writeFile(join(multi, '.xerjignore'), 'node_modules/\nsecrets/\n!vendor/\n');
+  for (const tree of ['node_modules', 'secrets', 'vendor', '.hidden']) {
+    await mkdir(join(multi, tree)); await writeFile(join(multi, tree, 'fixture.ts'), `export const location = "${tree}";\n`);
+  }
+  await writeFile(join(multi, 'bitcoin-core', '.gitignore'), 'ignored.ts\n');
+  await writeFile(join(multi, 'bitcoin-core', 'ignored.ts'), 'export const ignored = true;\n');
+  requirePass('initial-index', succeeded(await index(multi, 'multi')), 'multi-repository initial generation');
+  requirePass('repository-identity', await contains('multi', ['bitcoin-core/shared.ts', 'bitcoin-knots/shared.ts', 'bitcoin-roots/shared.ts']), 'identical source retains all three repository paths');
+  record('exclusions', await contains('multi', ['vendor/fixture.ts'], ['node_modules/fixture.ts', 'secrets/fixture.ts', '.hidden/fixture.ts', 'bitcoin-core/ignored.ts']), 'native ignore policy, hidden names, gitignore and vendor override');
+  await writeFile(join(multi, 'bitcoin-core', 'unique.ts'), 'export const repository = "edited-marker";\n');
+  await rm(join(multi, 'bitcoin-knots', 'unique.ts'));
+  const edited = await index(multi, 'multi');
+  requirePass('edit-delete', succeeded(edited) && await contains('multi', ['bitcoin-core/unique.ts'], ['bitcoin-knots/unique.ts']) && JSON.stringify(await hits('multi')).includes('edited-marker'), 'existing content updates and deleted paths disappear');
+  const before = (await hits('multi')).map(hit => hit._id).sort();
+  await stop(server); server = launch(binary, serverArgs, 0);
+  requirePass('persistence', await ready() && succeeded(await index(multi, 'multi')) && JSON.stringify((await hits('multi')).map(hit => hit._id).sort()) === JSON.stringify(before), 'backend restart and unchanged reindex retain document IDs');
+  const single = join(directory, 'single'); await git(single);
+  await writeFile(join(single, 'one.ts'), 'export const one = 1;\n');
+  requirePass('single-initial', succeeded(await index(single, 'single')), 'single-repository control');
+  await writeFile(join(single, 'two.ts'), 'export const two = 2;\n');
+  await mkdir(join(single, 'nested')); await writeFile(join(single, 'nested', 'three.ts'), 'export const three = 3;\n');
+  requirePass('single-additions', succeeded(await index(single, 'single')) && await contains('single', ['two.ts', 'nested/three.ts']), 'adjacent files and new subdirectories work incrementally');
+  const adjacent = join(multi, 'bitcoin-core', 'adjacent.ts');
+  await writeFile(adjacent, 'export const adjacent = true;\n');
+  let result = await index(multi, 'multi');
+  record('existing-repository-addition', succeeded(result) && await contains('multi', ['bitcoin-core/adjacent.ts']), result.stderr.includes('refusing ambiguous assignment') ? 'native ambiguous assignment still reproduced' : `native exit ${result.code}; verify new path is searchable`, 1230);
+  await rm(adjacent); requirePass('addition-recovery', succeeded(await index(multi, 'multi')), 'removing test addition restores reconciliation');
+  result = await index(single, 'single', ['--dataset', 'nonexistent-map-only-selection']);
+  record('dataset-option-validation', result.code === 2 && /dataset/i.test(result.stderr), `map-only --dataset during indexing exits ${result.code}; expected usage rejection`, 1231);
+  const watchArgs = [...args(multi, 'multi'), '--watch', '--debounce', '100'];
+  const watcher = launch(binary, watchArgs, 0);
+  requirePass('watch-start', await until(() => watcher.ended || successfulPass(watcher.stderr)) && !watcher.ended && successfulPass(watcher.stderr), 'native watcher starts on committed index');
+  watcher.stderr = ''; await writeFile(adjacent, 'export const watchedAdjacent = true;\n');
+  await until(() => watcher.ended || successfulPass(watcher.stderr) || watcher.stderr.includes('FAILED'));
+  record('watched-existing-repository-addition', successfulPass(watcher.stderr) && await contains('multi', ['bitcoin-core/adjacent.ts']), watcher.stderr.includes('refusing ambiguous assignment') ? 'watch mode still refuses ambiguous new file' : 'watch must publish an adjacent new source file', 1230);
+  watcher.stderr = ''; await rm(adjacent);
+  requirePass('watch-recovery', await until(() => successfulPass(watcher.stderr)), 'watcher reconciles after fixture cleanup');
+  watcher.stderr = ''; const addedRepo = join(multi, 'new-repository'); await git(addedRepo);
+  await writeFile(join(addedRepo, 'new.ts'), 'export const newRepository = true;\n');
+  await until(() => watcher.ended || successfulPass(watcher.stderr) || watcher.stderr.includes('FAILED'));
+  record('new-repository-discovery', successfulPass(watcher.stderr) && await contains('multi', ['new-repository/new.ts']), 'separate probe: a wholly new repository becomes searchable', 1230);
+  await stop(watcher);
+  const ownerArgs = [...args(single, 'single'), '--watch', '--debounce', '100'];
+  const first = launch(binary, ownerArgs, 0);
+  requirePass('watch-owner-control', await until(() => first.ended || successfulPass(first.stderr)) && !first.ended, 'first native owner is watching');
+  const second = launch(binary, ownerArgs, 0);
+  await until(() => second.ended || successfulPass(second.stderr), 10000);
+  record('exclusive-native-watcher', second.ended && Number.isInteger(second.code) && second.code > 0 &&
+    !successfulPass(second.stderr) && /lock|already.*watch|watch.*already|owner|busy/i.test(second.stderr),
+    second.ended ? `second watcher exits ${second.code}; expected an ownership refusal` : 'both native watchers remain alive for the same journal', 1232);
+  await stop(second); await stop(first);
+  const replacement = launch(binary, ownerArgs, 0);
+  requirePass('watch-lock-release', await until(() => replacement.ended || successfulPass(replacement.stderr)) && !replacement.ended, 'watcher can restart after owners exit');
+  await stop(replacement);
+  const capRoot = join(directory, 'cap'); await git(capRoot);
+  await writeFile(join(capRoot, 'small.ts'), 'export const small = true;\n');
+  await writeFile(join(capRoot, 'large.txt'), 'source-like generated artifact\n'.repeat(450000));
+  const capArgs = args(capRoot, 'cap');
+  const help = await launch(binary, ['autoindex', '--help'], 5000).done;
+  const options = help.stdout + help.stderr;
+  const capIndex = capArgs.indexOf('--max-file-gb');
+  // Upstream may fix #1233 with a new unit option rather than fractional GB.
+  if (/--max-file-bytes\b/.test(options)) capArgs.splice(capIndex, 2, '--max-file-bytes', '10000000');
+  else if (/--max-file-mb\b/.test(options)) capArgs.splice(capIndex, 2, '--max-file-mb', '10');
+  else capArgs[capIndex + 1] = '0.01';
+  result = await launch(binary, capArgs).done;
+  record('sub-gb-file-cap', [0, 3].includes(result.code) && await contains('cap', ['small.ts'], ['large.txt']),
+    `${capArgs[capIndex]} ${capArgs[capIndex + 1]}: native exit ${result.code}; expected small file included and oversized file excluded`, 1233);
+} catch (error) {
+  rows.push({ name: 'harness', status: 'error', detail: interrupted ? 'interrupted or overall deadline exceeded' : String(error.message).replaceAll(directory, '<temporary>') });
+} finally {
+  clearTimeout(deadline);
+  for (const child of [...children]) {
+    child.kill('SIGTERM');
+    const timer = setTimeout(() => child.kill('SIGKILL'), 2000);
+    await new Promise(resolve => { if (child.exitCode !== null || child.signalCode !== null) resolve(); else child.once('close', resolve); });
+    clearTimeout(timer);
+  }
+  await rm(directory, { recursive: true, force: true });
+  process.removeListener('SIGINT', onSignal); process.removeListener('SIGTERM', onSignal);
+}
+const errors = rows.filter(row => row.status === 'error').length;
+const failed = rows.filter(row => row.status === 'fail').length;
+const report = { schemaVersion: 1, version, passed: rows.filter(row => row.status === 'pass').length, failed, errors, results: rows };
+if (json) console.log(JSON.stringify(report));
+else {
+  for (const row of rows.filter(row => row.status === 'error')) console.log(`ERROR ${row.name}: ${row.detail}`);
+  console.log(`${report.passed} passed, ${failed} failed, ${errors} errors. Temporary backend and data removed.`);
+  console.log('Native issue probes only; a pass does not certify Mobile/MCP protocol compatibility or real-index migration.');
+}
+process.exitCode = interrupted ? 130 : errors ? 2 : failed ? 1 : 0;
+JS
 }
 
 validate_xerj_arguments() {
@@ -233,6 +524,21 @@ validate_xerj_arguments() {
   while (($# > 0)); do
     option=$1
     shift
+    if [[ $mode == autoindex && ( $option == --cwd || $option == --cwd=* ) ]]; then
+      [[ -z $index_source ]] || die 'xerj autoindex accepts either --cwd or one positional source, not both'
+      if [[ $option == --cwd ]]; then
+        (($# > 0)) || die 'xerj --cwd requires a directory'
+        value=$1
+        shift
+      else
+        value=${option#--cwd=}
+      fi
+      [[ -n $value && $value != -* && -d $value ]] || die 'xerj --cwd requires an existing directory'
+      index_source=$(CDPATH='' cd -- "$value" && pwd -P)
+      index_cwd=true
+      xerj_user_args+=("$index_source")
+      continue
+    fi
     xerj_user_args+=("$option")
     case $mode:$option in
       server:--bind | server:-b)
@@ -269,10 +575,15 @@ validate_xerj_arguments() {
         (($# > 0)) || die "xerj option requires a value: $option"
         value=$1
         [[ $value != -* ]] || die "xerj option requires a value, not a flag: $option"
+        if [[ $mode == autoindex && $option == --prefix ]]; then index_prefix=$value; fi
         xerj_user_args+=("$value")
         shift ;;
       autoindex:* | search:* | def:*)
-        [[ $option != -* ]] || die "unsupported managed xerj $mode option: $option" ;;
+        [[ $option != -* ]] || die "unsupported managed xerj $mode option: $option"
+        if [[ $mode == autoindex && $index_cwd == true ]]; then
+          die 'xerj autoindex accepts either --cwd or one positional source, not both'
+        fi
+        if [[ $mode == autoindex && -z $index_source ]]; then index_source=$option; fi ;;
       *) die "unsupported managed xerj $mode option: $option" ;;
     esac
   done
@@ -285,7 +596,7 @@ command_xerj_readiness() {
   require_command node
   # Inline to preserve the checksum-verified, single-file manager distribution.
   # Do not use command_xerj mcp: ordinary forwarding prepares writable state.
-  exec node --input-type=module - "$gestalt_home" "$MANAGED_XERJ_VERSION" "$operation" "${BASH_SOURCE[0]}" <<'JS'
+  exec node --input-type=module - "$gestalt_home" "$MANAGED_XERJ_VERSION" "$operation" "${BASH_SOURCE[0]}" "$codex_home" <<'JS'
 import { spawn } from 'node:child_process';
 import { lstat, stat as followStat, readFile, realpath, readdir, mkdir, writeFile, rename, rm, chmod } from 'node:fs/promises';
 import { createHash, randomBytes } from 'node:crypto';
@@ -293,7 +604,7 @@ import net from 'node:net';
 import { dirname, join, basename } from 'node:path';
 import http from 'node:http';
 
-const [selectedRoot, version, operation, managerPath] = process.argv.slice(2);
+const [selectedRoot, version, operation, managerPath, selectedCodexHome] = process.argv.slice(2);
 const expires = Date.now() + (Number.isSafeInteger(Number(process.env.XERJ_READY_TIMEOUT_MS ?? '5000')) ? Number(process.env.XERJ_READY_TIMEOUT_MS ?? '5000') : 5000);
 const configured = process.env.XERJ_READY_TIMEOUT_MS ?? '5000';
 const timeout = /^\d+$/.test(configured) ? Number(configured) : NaN;
@@ -323,10 +634,10 @@ async function safeTree(path) {
   if (info.isSymbolicLink() || (info.isFile() && info.nlink > 1)) fail('unsafe-path');
   if (info.isDirectory()) for (const name of await readdir(path)) await safeTree(join(path, name));
 }
-async function paths() {
-  if (!selectedRoot.startsWith('/') || /[\x00-\x1f\x7f]/.test(selectedRoot) ||
-      selectedRoot.endsWith('/') || selectedRoot.includes('//') || selectedRoot.split('/').some(p => p === '.' || p === '..')) fail('unsafe-path');
-  let ancestor = selectedRoot;
+async function canonicalRoot(selected) {
+  if (!selected.startsWith('/') || /[\x00-\x1f\x7f]/.test(selected) ||
+      selected.endsWith('/') || selected.includes('//') || selected.split('/').some(p => p === '.' || p === '..')) fail('unsafe-path');
+  let ancestor = selected;
   const suffix = [];
   while (true) {
     const info = await stat(ancestor);
@@ -334,9 +645,13 @@ async function paths() {
     if (info) fail('unsafe-path');
     suffix.unshift(basename(ancestor)); ancestor = dirname(ancestor);
   }
-  const root = join(await realpath(ancestor), ...suffix);
-  const binary = join(root, 'xerj', 'xerj'), dataRoot = join(root, 'runtime', 'xerj');
-  for (const path of [join(root, 'xerj'), join(root, 'runtime'), dataRoot]) {
+  return join(await realpath(ancestor), ...suffix);
+}
+async function paths() {
+  const root = await canonicalRoot(selectedRoot);
+  const codexHome = await canonicalRoot(selectedCodexHome);
+  const binary = join(root, 'xerj', 'xerj'), dataRoot = join(codexHome, 'xerj-data');
+  for (const path of [join(root, 'xerj'), dataRoot]) {
     if ((await stat(path))?.isSymbolicLink()) fail('unsafe-path');
   }
   await safeTree(join(root, 'xerj')); await safeTree(dataRoot);
@@ -470,7 +785,7 @@ function endpointOf() {
 }
 function nativeEnvironment(root, dataRoot, endpoint, auth) {
   return {
-    HOME: process.env.HOME, PATH: process.env.PATH, GESTALT_HOME: root,
+    HOME: process.env.HOME, PATH: process.env.PATH, GESTALT_HOME: root, CODEX_HOME: dirname(dataRoot),
     XERJ_INSTALL_DIR: join(root, 'xerj'), XERJ_URL: endpoint, XERJ_AUTH: auth,
     XERJ_CODE_HOME: join(dataRoot, 'code'), XERJ_DISABLE_FEEDBACK: 'true', XERJ_LOG: 'off',
     XDG_CACHE_HOME: join(dataRoot, 'cache'), XDG_CONFIG_HOME: join(dataRoot, 'config'),
@@ -808,8 +1123,15 @@ command_xerj() {
     install_xerj
     return
   fi
-  local mode=server variable escaped_config xerj_url xerj_api_key xerj_auth
-  local -a forwarded=()
+  if [[ ${1:-} == update ]]; then shift; update_xerj "$@"; return; fi
+  if [[ ${1:-} == test ]]; then
+    shift
+    test_xerj "$@"
+    return
+  fi
+  local mode=server variable escaped_config xerj_url xerj_api_key xerj_auth xerj_port
+  local index_source='' index_prefix='' index_cwd=false autoindex_state
+  local -a forwarded=() xerj_launcher=()
   local -a xerj_user_args=()
   case ${1:-} in
     index | autoindex | search | def | gain | mcp) mode=$1; shift ;;
@@ -818,12 +1140,28 @@ command_xerj() {
   esac
   validate_xerj_url "${XERJ_URL:-http://127.0.0.1:9200}"
   xerj_url=$validated_xerj_url
+  xerj_port=$validated_xerj_port
   if [[ -n ${XERJ_BIND_ADDRESS:-} ]]; then validate_xerj_bind "$XERJ_BIND_ADDRESS"; fi
   validate_xerj_arguments "$mode" "$@"
+  autoindex_state=$xerj_data/autoindex
+  if [[ $mode == autoindex && -n $index_source && $index_source != map && $index_source != status ]]; then
+    if [[ -z $index_prefix ]]; then
+      require_command node
+      index_prefix=$(node -e 'const {realpathSync}=require("node:fs"); const {createHash}=require("node:crypto"); process.stdout.write("ax-"+createHash("sha256").update(/^(s3|r2):\/\//.test(process.argv[1]) ? process.argv[1].replace(/\/+$/, "") : realpathSync(process.argv[1])).digest("hex").slice(0,16));' "$index_source")
+      xerj_user_args+=(--prefix "$index_prefix")
+    fi
+    [[ $index_prefix =~ ^[a-z0-9][a-z0-9_-]{0,79}$ ]] || die 'xerj index prefix must be a lowercase index name (maximum 80 characters)'
+    autoindex_state=$autoindex_state/$index_prefix
+  fi
   for variable in XERJ_CONFIG XERJ_INGEST_MEMORY_OUTPUT XERJ_DEBUG_PROFILE_DIR XERJ_PDF_WORKER_BIN XERJ_NEURAL_LOCAL_DIR XERJ_DECIDE_MODEL_DIR XERJ_ONNX_MODEL XERJ_ONNX_TOKENIZER XERJ_CODE_HOME; do
     [[ -z ${!variable:-} ]] || die "unset $variable before running managed xerj; inherited path overrides are not accepted"
   done
   [[ -x $xerj_bin && -f $xerj_bin ]] || die "xerj is not installed; run 'gestalt xerj install'"
+  if [[ $mode == server ]] && (($# == 1)) && [[ $1 == -V || $1 == --version ]]; then
+    # Version discovery must not create configuration or require writable state.
+    env -i PATH="$PATH" XERJ_INSTALL_DIR="$xerj_root" "$xerj_bin" -V
+    return
+  fi
   xerj_api_key=${XERJ_API_KEY:-}
   if [[ -z $xerj_api_key && -f $xerj_data/admin.key ]]; then
     xerj_api_key=$(< "$xerj_data/admin.key")
@@ -847,12 +1185,31 @@ command_xerj() {
   case $mode in
     server) forwarded=(--config "$xerj_data/managed.toml" --data-dir "$xerj_data" --bind "${XERJ_BIND_ADDRESS:-127.0.0.1}") ;;
     index) forwarded=(index --config "$xerj_data/managed.toml" --data-dir "$xerj_data") ;;
-    autoindex) forwarded=(autoindex --state-dir "$xerj_data/autoindex") ;;
+    autoindex) forwarded=(autoindex --state-dir "$autoindex_state") ;;
     *) forwarded=("$mode") ;;
   esac
+  if [[ $mode == server ]]; then
+    local explicit_port=false argument
+    for argument in "${xerj_user_args[@]}"; do
+      if [[ $argument == --port ]]; then explicit_port=true; fi
+    done
+    if ! "$explicit_port"; then forwarded+=(--port "$xerj_port"); fi
+  fi
+  local watch_requested=false watch_argument
+  for watch_argument in "${xerj_user_args[@]}"; do
+    if [[ $watch_argument == --watch ]]; then watch_requested=true; fi
+  done
+  if [[ $mode == autoindex ]] && "$watch_requested"; then
+    require_command flock
+    require_command setpriv
+    mkdir -p -- "$autoindex_state"
+    # Native journal locking covers a pass, not the idle watcher lifetime.
+    # No PID file: the kernel releases this lock even after an abrupt exit.
+    xerj_launcher=(flock --nonblock --conflict-exit-code 75 --no-fork "$autoindex_state/.gestalt-watch.lock" setpriv --pdeathsig TERM --)
+  fi
   # Preserve HOME, streams and exit/signal identity; use known environment inputs.
   # These settings route automatic state. They do not sandbox server API writes.
-  exec env -i HOME="$HOME" PATH="$PATH" GESTALT_HOME="$gestalt_home" CODEX_HOME="$codex_home" \
+  exec "${xerj_launcher[@]}" env -i HOME="$HOME" PATH="$PATH" GESTALT_HOME="$gestalt_home" CODEX_HOME="$codex_home" \
     XERJ_INSTALL_DIR="$xerj_root" XERJ_API_KEY="$xerj_api_key" XERJ_AUTH="$xerj_auth" XERJ_URL="$xerj_url" \
     XERJ_CODE_HOME="$xerj_data/code" \
     XERJ_LOG="${XERJ_LOG:-info}" XERJ_DISABLE_FEEDBACK="${XERJ_DISABLE_FEEDBACK:-false}" \
@@ -1941,8 +2298,8 @@ let valid = ready.schemaVersion === 1 && ready.status === 'ready' &&
 if (!valid && ready.status === 'unavailable') diagnose(ready.reason);
 let selected = disabledFlags;
 if (valid) {
-  const config = { command: manager, args: ['xerj', 'mcp', '--url', ready.endpoint],
-    env_vars: ['GESTALT_HOME', 'XERJ_API_KEY', 'XERJ_AUTH'],
+  const config = { command: manager, args: ['xerj', 'mcp', '--url', ready.endpoint], cwd,
+    env_vars: ['CODEX_HOME', 'GESTALT_HOME', 'XERJ_API_KEY', 'XERJ_AUTH'],
     enabled: true, required: true, startup_readiness: 'connection', startup_timeout_ms: Math.max(1, remainingTime()),
     enabled_tools: ['xerj_search', 'xerj_map', 'xerj_code_search'], default_tools_approval_mode: 'approve' };
   selected = [...aliases, `mcp_servers.${serverName}=${toml(config)}`,
@@ -2043,6 +2400,7 @@ command_mobile() {
     GESTALT_AGENTS_VERSION="$gestalt_agents_version" \
     GESTALT_AGENTS_PLUGIN_ROOT="$gestalt_plugin_root" \
     GESTALT_CONTEXT_MODE_VERSION="$context_mode_version" \
+    GESTALT_XERJ_VERSION="$(installed_xerj_version)" \
     GESTALT_CONTEXT_MODE_PLUGIN_ROOT="$context_mode_plugin_root" \
     GESTALT_CONTEXT_MODE_RUNTIME="$context_mode_runtime" \
     GESTALT_MOBILE_BIN="$mobile_bin" \
@@ -2057,6 +2415,64 @@ print_check() {
   local -r label=$1
   local -r status=$2
   printf '%-24s %s\n' "$label" "$status"
+}
+
+installed_xerj_version() {
+  local output
+  output=$(bash "${BASH_SOURCE[0]}" xerj -V 2>/dev/null) || return 0
+  if [[ $output =~ ^xerj[[:space:]]+([A-Za-z0-9][A-Za-z0-9.+_-]{0,99})$ ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+  fi
+}
+
+command_version() {
+  local value plugin
+  printf 'gestalt %s\n' "$GESTALT_CLI_VERSION"
+  if [[ -x $mobile_bin ]]; then
+    value=$("$mobile_bin" --version 2>/dev/null) && print_check 'Gestalt Mobile' "$value"
+  fi
+  for plugin in gestalt context-mode; do
+    value=$(CODEX_HOME=$codex_home codex plugin list --marketplace "$marketplace_name" --json 2>/dev/null |
+      read_plugin_version "$plugin" 2>/dev/null) || continue
+    print_check "$plugin" "$value"
+  done
+  if command -v codex >/dev/null 2>&1; then
+    value=$(codex --version 2>/dev/null) && print_check 'Codex CLI' "$value"
+  fi
+  if command -v kimi >/dev/null 2>&1; then
+    value=$(kimi --version 2>/dev/null) && print_check 'Kimi CLI' "$value"
+  fi
+  value=$(installed_xerj_version)
+  if [[ -n $value ]]; then print_check 'xerj' "$value"; fi
+  return 0
+}
+
+check_xerj() {
+  local version report
+  version=$(installed_xerj_version)
+  print_check 'xerj' "${version:-NOT AVAILABLE (optional retrieval)}"
+  if [[ -n $version ]]; then
+    if command -v flock >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1; then
+      print_check 'xerj auto-index' 'available (flock and setpriv)'
+    else
+      print_check 'xerj auto-index' 'unavailable: install util-linux flock/setpriv, or use --xerj manual'
+    fi
+  fi
+  if command -v node >/dev/null 2>&1; then
+    report=$(bash "${BASH_SOURCE[0]}" xerj probe 2>/dev/null) || report='{}'
+    # shellcheck disable=SC2016 # JavaScript owns this interpolation.
+    printf '%s' "$report" | node -e '
+      let input = "";
+      process.stdin.on("data", chunk => { input += chunk; });
+      process.stdin.on("end", () => {
+        let result;
+        try { result = JSON.parse(input); } catch { result = {}; }
+        const reason = /^[a-z-]{1,80}$/.test(result.reason ?? "") ? result.reason : "probe-failed";
+        console.log("xerj readiness".padEnd(24) + " " +
+          (result.status === "ready" ? "ready" : `unavailable (${reason}; direct source search remains available)`));
+      });
+    '
+  fi
 }
 
 read_plugin_version() {
@@ -2477,6 +2893,7 @@ command_doctor() {
   fi
 
   check_supervision_capability_coherence || failed=true
+  check_xerj
 
   if command -v codex >/dev/null 2>&1; then
     run_doctor_command 'Codex doctor' \
@@ -2514,7 +2931,7 @@ main() {
     skills-export) command_skills_export "$@" ;;
     skills-import) command_skills_import "$@" ;;
     doctor) command_doctor "$@" ;;
-    version | --version | -V) printf 'gestalt %s\n' "$GESTALT_CLI_VERSION" ;;
+    version | --version | -V) command_version ;;
     help | --help | -h) usage ;;
     *) die "unknown command: $command_name (run 'gestalt help')" ;;
   esac

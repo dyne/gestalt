@@ -169,8 +169,74 @@ Lifecycle directories have mode 0700; records, control sockets and event logs
 have mode 0600. Event logs contain only manager event codes, are capped at
 32 KiB per endpoint, and exclude native output and credentials. The default
 five-second budget remains a readiness limit; an explicit longer warmup is
-separate work. These operations provide the shared primitive; agent startup
-configuration must additionally gate the MCP connection and xerj skill together.
+separate work. Managed `gestalt cli` startup also binds retrieval tools and
+`gestalt:xerj` to the same verified capability. It reads native Codex
+configuration for the selected working directory, reads a selected native
+profile file without writing it, calls
+ensure-ready, and supplies ephemeral `-c` session overrides. No persistent
+Codex or project configuration is written. The installed plugin must contain
+the canonical xerj skill; native configuration is verified against Codex
+`0.160.0`.
+The self-contained manager embeds the BSD-licensed `smol-toml` parser for
+profile-v2 files (`$CODEX_HOME/<name>.config.toml`). The adapter follows the
+native base-user, profile, project, then session precedence for retrieval
+settings; Codex loads the original profile normally for the launch. Native
+skill selectors and hook trust remain in their original user/profile layers.
+Only existing session selectors/hooks and the managed capability are passed as
+session overrides. Profile project trust is checked through native discovery.
+The parser bundle can be regenerated with `node scripts/bundle-profile-parser.mjs`.
+
+The `gestalt-xerj` stdio entry uses the absolute manager executable, native
+`required = true`, and `startup_readiness = "connection"`, so a cached catalog
+or preliminary probe cannot bypass the runtime's live MCP startup before the
+first turn. One deadline covers prerequisite native config/profile/hook
+discovery, shared backend readiness, and the actual MCP connection. Each step
+uses only the remaining budget; exhaustion launches without xerj. The deadline
+does not limit the interactive session after connection. If native xerj startup
+fails, the launcher retries once with both its MCP entry and skill disabled.
+Authentication stays in the managed key file/inherited environment, not argv.
+Only the three audited retrieval tools (`xerj_search`, `xerj_map`, and
+`xerj_code_search`) are exposed and approved through native MCP tool policy;
+this keeps them callable under `approval_policy = "never"` without approving
+indexing or other native xerj tools.
+Existing unrelated MCP entries and skill selectors are preserved; duplicate
+entries invoking this same managed proxy are disabled for the session.
+Conflicting reserved-server authentication or tool filters make xerj unavailable
+rather than supplying misleading guidance.
+
+A ready runtime enables xerj even when its saved skill selector disables it;
+absence or failure disables it even when a saved selector enables it. Native
+SessionStart and SubagentStart hooks supply the canonical skill's concise
+instructions, including when catalog limits omit its discovery entry. The
+launcher reads the generated handlers' native trust identities and trusts only
+those two pure-output commands through ephemeral session configuration. Existing
+hooks and trust settings remain intact. Unavailable runtimes supply a bounded
+notice that earlier retrieval guidance is inactive. Resume retains conversation
+history; the current catalog, tool registry, and capability notice reflect
+current availability. Codex hooks must already be enabled (`features.hooks =
+true`); disabled hooks or an explicit global skill-instruction-disable setting
+make this optional capability unavailable.
+Native child agents inherit the effective configuration and tool catalog. Codex
+opens a separate stdio client when a child first calls inherited retrieval; the
+managed backend stays shared. Live first-turn connection gating applies to the
+managed CLI launch; child connection errors use the inherited direct-source
+fallback guidance. A new
+CLI invocation, including resume, repeats readiness. A tool failure after a
+turn begins uses direct-source fallback; supplied instructions are not
+retroactively removed. Explicit remote Codex endpoints use their own server's
+configuration and capability policy; the manager does not inject its local
+xerj connection there. Help and configuration-management commands do not start
+retrieval. Mobile receives the absolute `GESTALT_MANAGER_BIN` discovery
+reference and must recheck capability at its own runtime boundaries.
+
+The native startup regression suite uses a pinned Codex development dependency,
+private plugin/configuration fixtures, and a local fake model endpoint. It
+checks the first request, a real MCP call, and a separately observed child
+request without calling a production model service. The configuration and
+inheritance audit uses OpenAI's
+[Codex 0.160.0 source](https://github.com/openai/codex/tree/rust-v0.160.0),
+including `config/src/skills_config.rs`, `core/src/agent/child_config.rs`, and
+`codex-mcp/src/connection_manager/required.rs` under `codex-rs`.
 
 Conflicting install/data/state paths, custom config files, diagnostic-output
 and worker-executable overrides are rejected before execution. Managed trees

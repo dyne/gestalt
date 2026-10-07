@@ -265,7 +265,7 @@ validate_xerj_arguments() {
         die "xerj path override is not supported: $option" ;;
       server:--help | server:-h | server:--version | server:-V | server:--insecure | server:-k | *:--disable-feedback | index:--help | index:-h | autoindex:--help | autoindex:-h | autoindex:--fresh | autoindex:--follow-symlinks | autoindex:--follow-symlinks-outside-root | autoindex:--no-ignore | autoindex:--no-default-ignores | autoindex:--no-semantic | autoindex:--no-graph | autoindex:--watch | autoindex:--yes | autoindex:-y | autoindex:--dry-run | autoindex:--json | autoindex:--md | autoindex:--quiet | autoindex:--once | autoindex:--no-fetch | autoindex:--append-only | autoindex:--allow-cost | search:--help | search:-h | search:--json | def:--help | def:-h | def:--json | gain:--help | gain:-h | gain:--json | mcp:--help | mcp:-h | mcp:--version | mcp:-V)
         ;;
-      server:--port | server:--embed-mode | server:--compat-distribution | server:--compat-version | server:--decide-mode | index:--index | index:-i | index:--file | index:-f | index:--batch | index:-b | index:--workers | index:-w | index:--limit | index:-l | autoindex:--api-key | autoindex:--workers | autoindex:--pdf-workers | autoindex:--pdf-timeout-secs | autoindex:--bulk-mb | autoindex:--bulk-timeout-secs | autoindex:--snapshot-max-gb | autoindex:--in-flight | autoindex:--prefix | autoindex:--endpoint-url | autoindex:--label | autoindex:--stub | autoindex:--max-file-gb | autoindex:--sample | autoindex:--brain | autoindex:--debounce | autoindex:--max-minutes | autoindex:--approve | autoindex:--progress | autoindex:--progress-interval | autoindex:--dataset | autoindex:--poll-interval | autoindex:--max-cycles | autoindex:--region | autoindex:--max-object-mb | autoindex:--max-monthly-ops | autoindex:--max-monthly-gets | autoindex:--page-size | search:--prefix | search:--api-key | search:-n | search:--full | def:--prefix | def:--api-key | def:-n | def:--kind | def:--lang | gain:--api-key)
+      server:--port | server:--embed-mode | server:--compat-distribution | server:--compat-version | server:--decide-mode | index:--index | index:-i | index:--file | index:-f | index:--batch | index:-b | index:--workers | index:-w | index:--limit | index:-l | autoindex:--api-key | autoindex:--workers | autoindex:--pdf-workers | autoindex:--pdf-timeout-secs | autoindex:--bulk-mb | autoindex:--bulk-timeout-secs | autoindex:--snapshot-max-gb | autoindex:--in-flight | autoindex:--prefix | autoindex:--endpoint-url | autoindex:--label | autoindex:--stub | autoindex:--max-file-gb | autoindex:--sample | autoindex:--brain | autoindex:--debounce | autoindex:--max-minutes | autoindex:--approve | autoindex:--progress | autoindex:--progress-interval | autoindex:--dataset | autoindex:--poll-interval | autoindex:--max-cycles | autoindex:--region | autoindex:--max-object-mb | autoindex:--max-monthly-ops | autoindex:--max-monthly-gets | autoindex:--page-size | search:--prefix | search:--api-key | search:-k | search:--full | def:--prefix | def:--api-key | def:-n | def:--kind | def:--lang | gain:--api-key)
         (($# > 0)) || die "xerj option requires a value: $option"
         value=$1
         [[ $value != -* ]] || die "xerj option requires a value, not a flag: $option"
@@ -1635,18 +1635,361 @@ strip_separator() {
   forwarded_args=("$@")
 }
 
+# Session flags never reach persistent Codex configuration. Required, live MCP
+# startup gates the actual first turn; a failed xerj connection retries once
+# with its tools and skill disabled. This is native Codex stdio, not an MCP bridge.
+launch_cli_with_xerj() {
+  CODEX_HOME="$codex_home" GESTALT_HOME="$gestalt_home" \
+    GESTALT_MANAGER_BIN="$manager_target" GESTALT_STARTUP_DIAGNOSTICS_DONE=1 \
+    PATH="$gestalt_home/bin:$codex_home/bin:$PATH" \
+    exec node --input-type=module - "$@" 3<&0 <<'NODE'
+import { spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
+import { readFile, realpath } from 'node:fs/promises';
+import { resolve } from 'node:path';
+
+// BEGIN BUNDLED PROFILE TOML PARSER
+/* smol-toml 1.9.0 (BSD-3-Clause)
+Copyright (c) Squirrel Chat et al., All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+3. Neither the name of the copyright holder nor the names of its contributors
+   may be used to endorse or promote products derived from this software without
+   specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
+var gestaltProfileToml=(()=>{var k=Object.defineProperty;var Z=Object.getOwnPropertyDescriptor;var z=Object.getOwnPropertyNames;var L=Object.prototype.hasOwnProperty;var V=(e,i)=>{for(var r in i)k(e,r,{get:i[r],enumerable:!0})},_=(e,i,r,l)=>{if(i&&typeof i=="object"||typeof i=="function")for(let a of z(i))!L.call(e,a)&&a!==r&&k(e,a,{get:()=>i[a],enumerable:!(l=Z(i,a))||l.enumerable});return e};var B=e=>_(k({},"__esModule",{value:!0}),e);var R={};V(R,{parse:()=>v});function M(e,i){let r=e.slice(0,i).split(/\r?\n/);return[r.length,r.pop().length+1]}function j(e,i,r){let l=e.split(/\r?\n/),a="",t=(Math.log10(i+1)|0)+1;for(let n=i-1;n<=i+1;n++){let o=l[n-1];o&&(a+=n.toString().padEnd(t," "),a+=":  ",a+=o,a+=`
+`,n===i&&(a+=" ".repeat(t+r+2),a+=`^
+`))}return a}var s=class e extends Error{line;column;codeblock;constructor(i,r){let[l,a]=M(r.toml,r.ptr),t=j(r.toml,l,a);super(`Invalid TOML document: ${i}
+
+${t}`,r),this.line=l,this.column=a,this.codeblock=t}static x(i,r,l){throw new e(i,{toml:r.s,ptr:l??r.p})}};function b(e){let i=e.p,r=e.s.charCodeAt(e.p++),l=r,a=r===39,t=r===e.s.charCodeAt(e.p)&&r===e.s.charCodeAt(e.p+1);t&&((r=e.s.charCodeAt(e.p+=2))===10?e.p++:r===13&&e.s.charCodeAt(e.p+1)===10&&(e.p+=2));let n="",o=e.p,f=0;for(;e.p<e.s.length;e.p++)if(r=e.s.charCodeAt(e.p),t&&(r===10||r===13&&e.s.charCodeAt(e.p+1)===10))f=f&&3;else if(r<32&&r!==9||r===127)s.x("control characters are not allowed in strings",e);else if((!f||f===3)&&r===l&&(!t||e.s.charCodeAt(e.p+1)===l&&e.s.charCodeAt(e.p+2)===l)){if(t&&(e.s.charCodeAt(e.p+3)===l&&e.p++,e.s.charCodeAt(e.p+3)===l&&e.p++),!f){let u=e.s.slice(o,e.p);n=n?n+u:u}return e.p+=t?3:1,n}else if(!f)!a&&r===92&&(n+=e.s.slice(o,o=e.p),f=1);else if(f===1)if(r===120||r===117||r===85){let u=e.p++-1,p=0,d=r===120?2:r===117?4:8;for(let A=0;A<d;A++,e.p++){let g=e.s.charCodeAt(e.p),E=g>=48&&g<=57?g-48:g>=65&&g<=70?g-65+10:g>=97&&g<=102?g-97+10:-1;E<0&&s.x("invalid non-hex character in unicode escape",e),p=p<<4|E}(p<0||p>1114111||p>=55296&&p<=57343)&&s.x("invalid unicode escape",e,u),n+=String.fromCodePoint(p),o=e.p--,f=0}else t&&(r===32||r===9)?f=2:(r===98?n+="\b":r===116?n+="	":r===110?n+=`
+`:r===102?n+="\f":r===114?n+="\r":r===101?n+="\x1B":r===34?n+='"':r===92?n+="\\":s.x("unrecognised escape sequence",e),o=e.p+1,f=0);else r!==32&&r!==9&&(f===2&&s.x("invalid escape: only line-ending whitespace may be escaped",e,o),f=!a&&r===92?1:0,o=e.p);s.x("unfinished string",e,i)}var U=/^(\d{4}-\d{2}-\d{2})?[Tt ]?(?:(\d{2}):\d{2}(?::\d{2}(?:\.\d+)?)?)?(Z|z|[-+]\d{2}:\d{2})?$/i,C=class e extends Date{#r=!1;#i=!1;#e=null;constructor(i,r,l){let a=!0,t=!0,n="Z",o;if(typeof i=="string")if(r)e:{if(r<3){if(+i.slice(11,13)>23){i="";break e}r===2?(n=null,i+="Z"):(o=i.charCodeAt(i.length-1))!==90&&o!==122&&(n=i.slice(i.length-6)),l&&(i=i.slice(0,10)+"T"+i.slice(11))}else r===4&&(i=+i.slice(0,2)>23?"":`0000-01-01T${i}Z`);a=r!==4,t=r!==3}else{let f=i.match(U);f?(f[1]||(a=!1,i=`0000-01-01T${i}`),t=!!f[2],t&&i[10]===" "&&(i=i.replace(" ","T")),f[2]&&+f[2]>23?i="":(n=f[3]||null,!n&&t&&(i+="Z"))):i=""}super(i),isNaN(this.getTime())||(this.#r=a,this.#i=t,this.#e=n)}isDateTime(){return this.#r&&this.#i}isLocal(){return!this.#r||!this.#i||!this.#e}isDate(){return this.#r&&!this.#i}isTime(){return this.#i&&!this.#r}isValid(){return this.#r||this.#i}toISOString(){let i=super.toISOString();if(this.isDate())return i.slice(0,10);if(this.isTime())return i.slice(11,23);if(this.#e===null)return i.slice(0,-1);if(this.#e==="Z"||this.#e==="z")return i;let r=+this.#e.slice(1,3)*60+ +this.#e.slice(4,6);return r=this.#e[0]==="-"?r:-r,new Date(this.getTime()-r*6e4).toISOString().slice(0,-1)+this.#e}static wrapAsOffsetDateTime(i,r="Z"){let l=new e(i);return l.#e=r,l}static wrapAsLocalDateTime(i){let r=new e(i);return r.#e=null,r}static wrapAsLocalDate(i){let r=new e(i);return r.#i=!1,r.#e=null,r}static wrapAsLocalTime(i){let r=new e(i);return r.#r=!1,r.#e=null,r}};function h(e,i=10){return i===16?e>47&&e<58||e>64&&e<71||e>96&&e<103:e>47&&e<48+i}function O(e,i){return e===32||e===9||e===10||e===13||i&&(e===i||e===44)||e===35}function w(e,i){let r=e.p,l=e.s.charCodeAt(e.p);if(l===91||l===123){e.d--||s.x("document contains excessively nested structures. aborting.",e);let a=l===91?$(e):I(e);return e.d++,a}return l===34||l===39?b(e):l===116?((e.s.charCodeAt(++e.p)!==114||e.s.charCodeAt(++e.p)!==117||e.s.charCodeAt(++e.p)!==101)&&s.x("invalid value",e,r),e.p++,!0):l===102?((e.s.charCodeAt(++e.p)!==97||e.s.charCodeAt(++e.p)!==108||e.s.charCodeAt(++e.p)!==115||e.s.charCodeAt(++e.p)!==101)&&s.x("invalid value",e,r),e.p++,!1):l===43||l===45?y(e,e.p,e.s.charCodeAt(++e.p),44-l,i):e.s.charCodeAt(e.p+4)===45&&e.s.charCodeAt(e.p+7)===45?W(e,l,i):e.s.charCodeAt(e.p+2)===58?K(e,l,i):y(e,e.p,l,0,i)}function y(e,i,r,l,a){let t=r,n=0,o=!1;if(t===105)return(e.s.charCodeAt(++e.p)!==110||e.s.charCodeAt(++e.p)!==102)&&s.x("invalid value",e,i),e.p++,(l||1)/0;if(t===110)return(e.s.charCodeAt(++e.p)!==97||e.s.charCodeAt(++e.p)!==110)&&s.x("invalid value",e,i),e.p++,NaN;if(t===48){if(++e.p>=e.s.length||O(t=e.s.charCodeAt(e.p),a))return e.bi===!0?0n:0;if(!l){if(t===120)return D(e,i,16,a);if(t===98)return D(e,i,2,a);if(t===111)return D(e,i,8,a)}t===46?n=2:t===101||t===69?n=4:s.x("illegal leading zero",e,i)}else h(t)||s.x("invalid value",e,i);for(;++e.p<e.s.length&&(t=e.s.charCodeAt(e.p),!O(t,a));)n||(n=1),t===95?(n&1||s.x("illegal underscore",e),n+=11,o=!0):n===1&&t===46?n=2:(n===1||n===3)&&(t===101||t===69)?n=4:n===4&&(t===43||t===45)||(h(t)?n>9?n-=11:n&1||n++:s.x("illegal character in numeric literal",e));if(!n){let u=(r-48)*(l||1);return e.bi===!0?BigInt(u):u}n&1||s.x("unfinished numeric value",e,i);let f=e.s.slice(i,e.p);return o&&(f=f.replaceAll("_","")),n>1?parseFloat(f):S(e,f,10,i)}function D(e,i,r,l){let a,t=1;for(;++e.p<e.s.length&&(a=e.s.charCodeAt(e.p),!O(a,l));)a===95?(t&1&&s.x("illegal underscore",e),t=3):h(a,r)?t&1&&t--:s.x("illegal character in numeric literal",e);t&1&&s.x("unfinished numeric value",e);let n=e.s.slice(i+2,e.p);return t&&(n=n.replaceAll("_","")),S(e,n,r,i)}function S(e,i,r,l){if(e.bi!==!0)e:{let a=parseInt(i,r);if(!Number.isSafeInteger(a)){if(e.bi)break e;s.x("integer value cannot be represented losslessly",e,l)}return a}return BigInt(r===10?i:(r===2?"0b":r===8?"0o":"0x")+i)}function W(e,i,r){let l=e.p++,a;if(!h(i)||!h(e.s.charCodeAt(e.p++))||!h(e.s.charCodeAt(e.p++))||!h(e.s.charCodeAt(e.p++)))return y(e,e.p=l,i,0,r);if(e.p+=5,h(e.s.charCodeAt(e.p++))||s.x("invalid date-time: date part is malformed",e,l),e.p>=e.s.length||((i=e.s.charCodeAt(e.p))!==32||(a=!0,!h(e.s.charCodeAt(e.p+1))))&&i!==84&&i!==116){let n=e.s.slice(l,e.p);return T(e,n,3,!1,l)}if(e.s.charCodeAt(e.p+=3)!==58&&s.x("invalid date-time: time part is malformed",e,l),e.s.charCodeAt(e.p+=3)===58&&(e.p+=3),e.s.charCodeAt(e.p)===46)for(;h(e.s.charCodeAt(++e.p)););if(i=e.s.charCodeAt(e.p)){if(i===90||i===122){let n=e.s.slice(l,++e.p);return T(e,n,1,a,l,"[+00:00]")}if(i===43||i===45){let n=e.s.slice(l,e.p+=6);return T(e,n,1,a,l,!e.ld&&"["+e.s.slice(e.p-6,e.p)+"]")}}let t=e.s.slice(l,e.p);return T(e,t,2,a,l)}function K(e,i,r){let l=e.p;if(!h(i)||!h(e.s.charCodeAt(++e.p)))return y(e,--e.p,i,0,r);if(e.s.charCodeAt(e.p+=4)===58&&(e.p+=3),e.s.charCodeAt(e.p)===46)for(;h(e.s.charCodeAt(++e.p)););let a=e.s.slice(l,e.p);return T(e,a,4,!1,l)}function T(e,i,r,l,a,t){if(e.ld){let n=new C(i,r,l);return n.isValid()||s.x("invalid date",e,a),n}try{switch(t&&(i+=t),r){case 1:return Temporal.ZonedDateTime.from(i);case 2:return Temporal.PlainDateTime.from(i);case 3:return Temporal.PlainDate.from(i);case 4:return Temporal.PlainTime.from(i)}}catch(n){s.x(n instanceof Error?n.message:""+n,e,a)}}function F(e){for(;e.p<e.s.length;e.p++){let i=e.s.charCodeAt(e.p);if(i===10)break;if(i===13&&e.s.charCodeAt(e.p+1)===10){e.p++;break}(i<32&&i!==9||i===127)&&s.x("control characters are not allowed in comments",e)}}function m(e,i,r){let l;for(;e.p<e.s.length;){for(;e.p<e.s.length&&((l=e.s.charCodeAt(e.p))===32||l===9||!i&&(l===10||l===13&&e.s.charCodeAt(e.p+1)===10));)e.p++;if(r||l!==35)break;F(e)}}function c(e,i=61){let r,l=0,a=[],t,n=e.s.charCodeAt(r=e.p);do{if(n===i)return l||s.x("unexpected end of key",e),l===1&&a.push(e.s.slice(t,e.p)),e.p++,a;n===46?(l||s.x("illegal empty bare key",e),l===1&&a.push(e.s.slice(t,e.p)),l=0):!l&&(n===34||n===39)?(n===e.s.charCodeAt(e.p+1)&&n===e.s.charCodeAt(e.p+2)&&s.x("illegal quoted key: multiline strings are not allowed",e),a.push(b(e)),l=2,e.p--):n===32||n===9?l===1&&(a.push(e.s.slice(t,e.p)),l=2):l===2||n<48&&n!==45||n>57&&n<65||n>90&&n<97&&n!==95||n>122?s.x("illegal character in key",e):l||(l=1,t=e.p)}while(n=e.s.charCodeAt(++e.p));s.x("incomplete key-value: cannot find end of key",e,r)}function I(e){let i=e.p++,r=Object.create(null),l=new Set,a;for(;e.p<e.s.length;){if(m(e),(a=e.s.charCodeAt(e.p))===125)return e.p++,r;let t,n=r,o=!1,f=e.p,u=c(e);for(let d=0;d<u.length;d++){d&&(n=o?n[t]:n[t]=Object.create(null)),t=u[d],(o=Object.hasOwn(n,t))&&(typeof n[t]!="object"||l.has(n[t]))&&s.x("trying to redefine an already defined value",e,f);let A=t==="__proto__";if(e.uk&&(A||t==="constructor")){n=e.uk!==1&&s.x("document contains an unsafe property",e,f);break}!o&&A&&Object.defineProperty(n,t,{enumerable:!0,configurable:!0,writable:!0})}o&&s.x("trying to redefine an already defined value",e,f),m(e,!0,!0);let p=w(e,125);if(n&&typeof(n[t]=p)=="object"&&l.add(p),m(e),(a=e.s.charCodeAt(e.p++))===125)return r;a!==44&&s.x("expected comma or end of structure",e,e.p-1)}s.x("unfinished table",e,i)}function $(e){let i=e.p++,r=[],l;for(;e.p<e.s.length;){if(m(e),(l=e.s.charCodeAt(e.p))===93)return e.p++,r;if(r.push(w(e,93)),m(e),(l=e.s.charCodeAt(e.p++))===93)return r;l!==44&&s.x("expected comma or end of structure",e,e.p-1)}s.x("unfinished array",e,i)}function N(e,i,r,l,a){let t=r,n=l,o,f=!1,u;for(let p=0;p<i.length;p++){if(p){if(t=f?t[o]:t[o]=Object.create(null),n=(u=n[o]).c,a===0&&(u.t===1||u.t===2))return null;if(u.t===2){let d=t.length-1;t=t[d],n=n[d].c}}if(o=i[p],(f=Object.hasOwn(t,o))&&n[o]?.t===0&&n[o]?.d)return null;if(!f){let d=o==="__proto__";if(e.uk&&(d||o==="constructor"))return!1;d&&(Object.defineProperty(t,o,{enumerable:!0,configurable:!0,writable:!0}),Object.defineProperty(n,o,{enumerable:!0,configurable:!0,writable:!0})),n[o]={t:p<i.length-1&&a===2?3:a,d:!1,i:0,c:Object.create(null)}}}if(u=n[o],u.t!==a&&!(a===1&&u.t===3)||(a===2&&(u.d||(u.d=!0,t[o]=[]),t[o].push(t=Object.create(null)),u.c[u.i++]=u={t:1,d:!1,i:0,c:Object.create(null)}),u.d))return null;if(u.d=!0,a===1)t=f?t[o]:t[o]=Object.create(null);else if(a===0&&f)return null;return[o,t,u.c]}function P(e,i,r){(i===null||e.uk===2)&&s.x(i===null?"trying to redefine an already defined table or value":"document contains an unsafe property",e,r)}function v(e,i={}){let r={s:e,p:0,d:i.maxDepth??1e3,bi:i.integersAsBigInt??!1,ld:i.useLegacyDate??!0,uk:i.unsafeKeyBehaviour==="throw"?2:i.unsafeKeyBehaviour==="drop"?1:0},l=Object.create(null),a=Object.create(null),t,n=!1,o=l,f=a;for(e.charCodeAt(0)===65279&&r.p++,m(r);r.p<e.length;){if(e.charCodeAt(r.p)===91){let u=e.charCodeAt(++r.p)===91;t=r.p+=+u,n=!1;let p=c(r,93);u&&(e.charCodeAt(r.p)!==93&&s.x("expected end of table array declaration",r),r.p++);let d=N(r,p,l,a,u?2:1);d?(f=d[2],o=d[1]):(P(r,d,t),n=!0)}else{t=r.p;let u=c(r),p=N(r,u,o,f,0);!p&&!n&&P(r,p,t),m(r,!0,!0);let d=w(r,void 0);p&&!n&&(p[1][p[0]]=d)}m(r,!0),r.p<e.length&&(t=e.charCodeAt(r.p))!==10&&(t!==13||e.charCodeAt(r.p+1)!==10)&&s.x("each key-value declaration must be followed by an end-of-line",r),m(r)}return l}var me=!!"".isWellFormed;return B(R);})();
+// END BUNDLED PROFILE TOML PARSER
+const args = process.argv.slice(2);
+const serverName = 'gestalt-xerj';
+const manager = process.env.GESTALT_MANAGER_BIN;
+const environment = { ...process.env };
+const requested = Number(environment.XERJ_READY_TIMEOUT_MS ?? 5000);
+const budget = Number.isInteger(requested) && requested >= 100 && requested <= 60000 ? requested : 5000;
+// One deadline covers native discovery, shared readiness and MCP startup.
+const readinessDeadline = Date.now() + budget;
+const remainingTime = () => Math.max(0, readinessDeadline - Date.now());
+// A inherited hint is not evidence for a new or resumed runtime.
+delete environment.GESTALT_XERJ_READY;
+let currentChild;
+let interrupted = false;
+let interruptionCode = 130;
+for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => {
+  interrupted = true;
+  interruptionCode = signal === 'SIGINT' ? 130 : 143;
+  currentChild?.kill(signal);
+});
+const diagnose = reason => process.stderr.write(`gestalt: xerj unavailable (${reason}); continuing with direct source search\n`);
+const toml = value => {
+  if (typeof value === 'string') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(toml).join(',')}]`;
+  if (value && typeof value === 'object') return `{${Object.entries(value).filter(([, v]) => v != null)
+    .map(([k, v]) => `${JSON.stringify(k)}=${toml(v)}`).join(',')}}`;
+  return String(value);
+};
+const appendFlags = flags => {
+  const end = args.indexOf('--');
+  const index = end < 0 ? args.length : end;
+  return [...args.slice(0, index), ...flags.flatMap(flag => ['-c', flag]), ...args.slice(index)];
+};
+const flags = [];
+let cwd = process.cwd();
+let rawSkillConfig;
+let explicitSkills = {};
+let remote = false;
+let namedProfile;
+for (let i = 0; i < args.length && args[i] !== '--'; i++) {
+  const option = args[i];
+  let config;
+  if (option === '-c' || option === '--config') config = args[++i];
+  else if (option.startsWith('--config=')) config = option.slice(9);
+  else if (option.startsWith('-c') && option.length > 2) config = option.slice(2);
+  if (config !== undefined) {
+    flags.push('-c', config);
+    const boundary = config.indexOf('=');
+    const key = config.slice(0, boundary).trim();
+    if (key === 'skills' || key === 'skills.config') {
+      try {
+        const value = gestaltProfileToml.parse('value=' + config.slice(boundary + 1)).value;
+        if (key === 'skills') explicitSkills = value; else explicitSkills.config = value;
+      } catch { /* Native CLI still receives the original invalid override. */ }
+    }
+    if (/^skills\.config\s*=/.test(config)) rawSkillConfig = config.slice(config.indexOf('=') + 1).trim();
+  } else if (option === '-C' || option === '--cd') cwd = resolve(cwd, args[++i] ?? '.');
+  else if (option.startsWith('--cd=')) cwd = resolve(cwd, option.slice(5));
+  else if (option.startsWith('-C') && option.length > 2) cwd = resolve(cwd, option.slice(2));
+  else if (option === '-p' || option === '--profile') { namedProfile = args[++i]; }
+  else if (option.startsWith('--profile=')) namedProfile = option.slice(10);
+  else if (option.startsWith('-p') && option.length > 2) namedProfile = option.slice(2);
+  else if (option === '--enable' || option === '--disable') flags.push('-c', `features.${args[++i]}=${option === '--enable'}`);
+  else if (option.startsWith('--enable=') || option.startsWith('--disable=')) {
+    const [setting, feature] = option.split('=', 2);
+    flags.push('-c', `features.${feature}=${setting === '--enable'}`);
+  }
+  else if (option.startsWith('--remote')) remote = true;
+}
+
+async function snapshot(extra = [], hooksOnly = false, beforeFlags = false) {
+  const remaining = remainingTime();
+  if (!remaining) throw new Error('readiness-deadline');
+  const child = spawn('codex', ['app-server', '--stdio', ...(beforeFlags ? extra.flatMap(value => ['-c', value]) : []), ...flags, ...(!beforeFlags ? extra.flatMap(value => ['-c', value]) : [])], {
+    cwd, env: environment, stdio: ['pipe', 'pipe', 'ignore'],
+  });
+  currentChild = child;
+  const pending = new Map();
+  let id = 0;
+  const fail = () => { for (const value of pending.values()) value.reject(new Error('config-unavailable')); pending.clear(); };
+  child.on('error', fail);
+  child.on('exit', fail);
+  child.stdin.on('error', fail);
+  const lines = createInterface({ input: child.stdout });
+  lines.on('line', line => {
+    let message;
+    try { message = JSON.parse(line); } catch { return; }
+    const waiter = pending.get(message.id);
+    if (!waiter) return;
+    pending.delete(message.id);
+    message.error ? waiter.reject(new Error('config-unavailable')) : waiter.resolve(message.result);
+  });
+  const request = (method, params) => new Promise((resolve, reject) => {
+    const next = ++id;
+    pending.set(next, { resolve, reject });
+    child.stdin.write(`${JSON.stringify({ id: next, method, params })}\n`);
+  });
+  const timer = setTimeout(() => { fail(); child.kill(); }, Math.min(5000, remaining));
+  try {
+    const initialized = await request('initialize', { clientInfo: { name: 'gestalt-xerj-config', version: '1' }, capabilities: {} });
+    child.stdin.write(`${JSON.stringify({ method: 'initialized', params: {} })}\n`);
+    if (hooksOnly) return await request('hooks/list', { cwds: [cwd] });
+    const config = await request('config/read', { cwd, includeLayers: true });
+    const skills = await request('skills/list', { cwds: [cwd], forceReload: true });
+    return { config: config.config, layers: config.layers ?? [], skills: skills.data?.find(entry => entry.cwd === cwd)?.skills ?? [],
+      version: initialized.userAgent ?? '' };
+  } finally {
+    clearTimeout(timer);
+    lines.close();
+    child.stdin.end();
+    child.kill();
+    await new Promise(resolve => child.exitCode != null || child.signalCode != null ? resolve() : child.once('exit', resolve));
+    currentChild = undefined;
+  }
+}
+
+async function readiness(timeout) {
+  timeout = Math.min(timeout, remainingTime());
+  if (!timeout) return { status: 'unavailable', reason: 'readiness-deadline' };
+  const child = spawn(manager, ['xerj', 'ensure-ready'], { cwd, env: {
+    ...environment, XERJ_READY_TIMEOUT_MS: String(timeout),
+  }, stdio: ['ignore', 'pipe', 'ignore'] });
+  currentChild = child;
+  let output = '';
+  child.stdout.on('data', data => { if (output.length < 32768) output += data; });
+  const timer = setTimeout(() => child.kill(), timeout);
+  try {
+    const code = await new Promise(resolve => { child.once('error', () => resolve(-1)); child.once('exit', resolve); });
+    if (code !== 0) return { status: 'unavailable', reason: 'manager-unavailable' };
+    try { return JSON.parse(output); } catch { return { status: 'unavailable', reason: 'invalid-readiness' }; }
+  } finally { clearTimeout(timer); currentChild = undefined; }
+}
+
+async function launch(launchArgs) {
+  const child = spawn('codex', launchArgs, { cwd: process.cwd(), env: environment,
+    // Node's own stdin carries this program. Open the inherited terminal/stdin
+    // separately so prompts and EOF retain normal Codex behavior.
+    stdio: [3, 'inherit', 'pipe'] });
+  currentChild = child;
+  let tail = '';
+  let xerjStartupFailed = false;
+  child.stderr.on('data', data => {
+    process.stderr.write(data);
+    tail = (tail + data.toString()).slice(-8192);
+    if (/required MCP servers failed to initialize:[^\n]*gestalt-xerj:/.test(tail)) xerjStartupFailed = true;
+  });
+  const result = await new Promise(resolve => {
+    child.once('error', () => resolve({ code: 127 }));
+    child.once('exit', (code, signal) => resolve({ code: code ?? (signal === 'SIGINT' ? 130 : 143) }));
+  });
+  currentChild = undefined;
+  return { ...result, xerjStartupFailed };
+}
+
+let state;
+try { state = await snapshot(); } catch { diagnose('native-config-unavailable'); }
+// Codex 0.160 profile-v2 files overlay the base user layer, then projects
+// and session flags win. Only readiness-relevant settings are adapted; the
+// actual CLI retains --profile and loads all other settings natively.
+const profileKeys = ['mcp_servers', 'plugins', 'skills', 'hooks', 'features', 'projects'];
+const table = value => value && typeof value === 'object' && !Array.isArray(value);
+const merge = (base, overlay) => {
+  for (const [key, value] of Object.entries(overlay ?? {})) {
+    if (table(value) && table(base[key])) merge(base[key], value);
+    else base[key] = structuredClone(value);
+  }
+  return base;
+};
+if (state && namedProfile) {
+  try {
+    if (!/^[a-zA-Z0-9_-]+$/.test(namedProfile)) throw new Error('invalid-profile');
+    const profile = gestaltProfileToml.parse(await readFile(resolve(environment.CODEX_HOME, namedProfile + '.config.toml'), 'utf8'));
+    const originalSession = state.layers.find(layer => layer.name?.type === 'sessionFlags');
+    // Profile trust settings participate in native project discovery.
+    if (profile.projects) {
+      const discovered = await snapshot([`projects=${toml(profile.projects)}`], false, true);
+      state.layers = discovered.layers.filter(layer => layer.name?.type !== 'sessionFlags');
+      if (originalSession) state.layers.unshift(originalSession);
+    }
+    const effective = {};
+    let inserted = false;
+    for (const layer of [...state.layers].reverse()) {
+      if (!layer.disabledReason) merge(effective, Object.fromEntries(Object.entries(layer.config).filter(([key]) => profileKeys.includes(key))));
+      if (layer.name?.type === 'user' && !layer.name.profile) {
+        merge(effective, Object.fromEntries(Object.entries(profile).filter(([key]) => profileKeys.includes(key))));
+        inserted = true;
+      }
+    }
+    if (!inserted) throw new Error('profile-layer-unavailable');
+    state.config = { ...state.config, ...effective };
+    // Plugin inclusion is discovered by the native catalog, not inferred from
+    // the profile text. No credentials or unrelated settings enter argv.
+    if (profile.plugins) {
+      const discovered = await snapshot([`plugins=${toml(effective.plugins ?? {})}`]);
+      state.skills = discovered.skills;
+    }
+  } catch { state = undefined; diagnose('profile-discovery-unavailable'); }
+}
+let skill = state?.skills.find(skill => skill.name === 'gestalt:xerj');
+const session = state?.layers?.find(layer => layer.name?.type === 'sessionFlags')?.config ?? {};
+let rules = session.skills?.config ?? explicitSkills?.config ?? [];
+if (!Array.isArray(rules)) rules = [];
+// Preserve unrelated selectors from effective config and user session flags.
+const denialRules = [...(skill ? [{ path: skill.path, enabled: false }] : []), { name: 'gestalt:xerj', enabled: false }];
+const denied = state || rules.length ? toml([...rules, ...denialRules])
+  : rawSkillConfig?.startsWith('[') && rawSkillConfig.endsWith(']')
+    ? `${rawSkillConfig.slice(0, -1).replace(/,\s*$/, '')}${rawSkillConfig.slice(1, -1).trim() ? ',' : ''}{name="gestalt:xerj",enabled=false}]`
+    : '[{name="gestalt:xerj",enabled=false}]';
+const servers = state?.config?.mcp_servers ?? {};
+const duplicateNames = Object.entries(servers).filter(([name, config]) => name !== serverName &&
+  config.command === manager && config.args?.[0] === 'xerj' && config.args?.[1] === 'mcp').map(([name]) => name);
+// Native dotted -c paths do not decode quoted key segments. A sparse
+// session table merges natively with existing servers, preserving their
+// credentials and settings without copying secrets into command arguments.
+const aliases = duplicateNames.length ? [`mcp_servers=${toml(Object.fromEntries(duplicateNames
+  .map(name => [name, { enabled: false }])))}`] : [];
+const reserved = state?.config?.mcp_servers?.[serverName];
+const conflict = reserved && ((reserved.env && Object.keys(reserved.env).length) || reserved.enabled_tools ||
+  reserved.disabled_tools?.length || reserved.tools && Object.keys(reserved.tools).length);
+const inactiveNotice = '<gestalt_xerj_unavailable>\nXerj retrieval is unavailable in this runtime. Earlier capability guidance is inactive; use rg and current source reads.\n</gestalt_xerj_unavailable>';
+const shQuote = value => "'" + value.replaceAll("'", "'\\'" + "'") + "'";
+const hookCommands = new Set();
+const sessionHook = context => ['SessionStart', 'SubagentStart'].map(event => {
+  const command = shQuote(process.execPath) + ' -e ' + shQuote('process.stdout.write(' + JSON.stringify(context) + ')');
+  hookCommands.add(command);
+  return `hooks.${event}=${toml([...(session.hooks?.[event] ?? []),
+    { hooks: [{ type: 'command', timeout: 2, command }] }])}`;
+});
+async function trustedHooks(selected) {
+  const listing = await snapshot(selected, true);
+  const handlers = listing.data?.find(entry => entry.cwd === cwd)?.hooks ?? [];
+  const owned = handlers.filter(hook => hook.source === 'sessionFlags' && hookCommands.has(hook.command));
+  if (owned.length !== 2) throw new Error('guidance-hooks-unavailable');
+  const trust = { ...(session.hooks?.state ?? {}) };
+  for (const hook of owned) trust[hook.key] = { ...trust[hook.key], enabled: true, trusted_hash: hook.currentHash };
+  return [...selected, `hooks.state=${toml(trust)}`];
+}
+const disabledFlags = [...aliases, `mcp_servers.${serverName}=${toml({ command: manager, args: ["xerj", "mcp"], enabled: false, required: false })}`, `skills.config=${denied}`,
+  ...(state ? sessionHook(inactiveNotice) : [])];
+let ready = { status: 'absent' };
+let guidance = '';
+if (state?.config?.skills?.include_instructions === false || state?.config?.features?.hooks !== true) ready = { status: 'unavailable', reason: 'session-config-conflict' };
+if (conflict) ready = { status: "unavailable", reason: "session-config-conflict" };
+if (state && skill && !remote && !conflict && state.config?.skills?.include_instructions !== false && state.config?.features?.hooks === true) {
+  try {
+    const path = await realpath(skill.path);
+    const manifest = JSON.parse(await readFile(resolve(path, '../../../.codex-plugin/plugin.json'), 'utf8'));
+    const nativeVersion = /(?:codex[^0-9]*)?0\.(\d+)\./.exec(state.version);
+    if (manifest.name !== 'gestalt' || manifest.skills !== './skills/' || !nativeVersion || Number(nativeVersion[1]) < 160)
+      throw new Error('incompatible-runtime');
+    guidance = await readFile(path, 'utf8');
+    ready = await readiness(remainingTime());
+  } catch { ready = { status: 'unavailable', reason: 'incompatible-plugin-or-runtime' }; }
+}
+if (interrupted) process.exit(interruptionCode);
+let valid = ready.schemaVersion === 1 && ready.status === 'ready' &&
+  ready.version === '1.0.0-rc.87' && /^http:\/\/(127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(ready.endpoint);
+if (!valid && ready.status === 'unavailable') diagnose(ready.reason);
+let selected = disabledFlags;
+if (valid) {
+  const config = { command: manager, args: ['xerj', 'mcp', '--url', ready.endpoint],
+    env_vars: ['GESTALT_HOME', 'XERJ_API_KEY', 'XERJ_AUTH'],
+    enabled: true, required: true, startup_readiness: 'connection', startup_timeout_ms: Math.max(1, remainingTime()),
+    enabled_tools: ['xerj_search', 'xerj_map', 'xerj_code_search'], default_tools_approval_mode: 'approve' };
+  selected = [...aliases, `mcp_servers.${serverName}=${toml(config)}`,
+    `skills.config=${toml([...rules, { name: 'gestalt:xerj', enabled: true }])}`,
+    ...sessionHook('<gestalt_xerj_capability>\ngestalt:xerj guidance from ' + skill.path + '\nVerified retrieval tools are available for this session.\n' + guidance + '\n</gestalt_xerj_capability>')];
+}
+try { if (state?.config?.features?.hooks === true) selected = await trustedHooks(selected); }
+catch { diagnose('guidance-hooks-unavailable'); selected = disabledFlags; valid = false; }
+// Hook discovery consumes the same deadline. Give the actual required MCP
+// connection only the time still available, never the pre-hook allowance.
+if (valid) {
+  const remaining = remainingTime();
+  if (!remaining) {
+    diagnose('readiness-deadline'); selected = disabledFlags; valid = false;
+  } else {
+    selected = selected.map(flag => flag.startsWith(`mcp_servers.${serverName}=`)
+      ? flag.replace(/"startup_timeout_ms"=\d+/, `"startup_timeout_ms"=${remaining}`) : flag);
+  }
+}
+let result = await launch(appendFlags(selected));
+if (valid && result.code !== 0 && result.xerjStartupFailed && !interrupted) {
+  diagnose('runtime-connection-failed');
+  let fallback = disabledFlags;
+  try { fallback = await trustedHooks(fallback); } catch { /* No capability guidance is exposed. */ }
+  result = await launch(appendFlags(fallback));
+}
+process.exitCode = interrupted ? interruptionCode : result.code;
+NODE
+}
+
 command_cli() {
   check_node_version
   require_command codex
   run_startup_diagnostics
   verify_context_mode_installation
   strip_separator "$@"
+  resolve_manager_target
   log "starting Codex with CODEX_HOME=$codex_home"
-  exec env CODEX_HOME="$codex_home" GESTALT_HOME="$gestalt_home" \
-    GESTALT_STARTUP_DIAGNOSTICS_DONE=1 \
-    PATH="$gestalt_home/bin:$codex_home/bin:$PATH" \
-    codex "${forwarded_args[@]}"
+  case ${forwarded_args[0]:-} in
+    -h | --help | -V | --version | help | login | logout | plugin | mcp | doctor | features | completion)
+      exec env CODEX_HOME="$codex_home" GESTALT_HOME="$gestalt_home" \
+        GESTALT_STARTUP_DIAGNOSTICS_DONE=1 PATH="$gestalt_home/bin:$codex_home/bin:$PATH" \
+        codex "${forwarded_args[@]}" ;;
+  esac
+  launch_cli_with_xerj "${forwarded_args[@]}"
 }
+
 
 command_mobile() {
   local mobile_restart_dir mobile_restart_state mobile_restart_staged restart_cwd
@@ -1692,8 +2035,10 @@ command_mobile() {
   } > "$mobile_restart_staged"
   chmod 0600 "$mobile_restart_staged"
   mv -f -- "$mobile_restart_staged" "$mobile_restart_state"
+  resolve_manager_target
   log "starting Gestalt Mobile from $mobile_root"
   exec env CODEX_HOME="$codex_home" GESTALT_HOME="$gestalt_home" \
+    GESTALT_MANAGER_BIN="$manager_target" \
     GESTALT_MANAGER_VERSION="$GESTALT_CLI_VERSION" \
     GESTALT_AGENTS_VERSION="$gestalt_agents_version" \
     GESTALT_AGENTS_PLUGIN_ROOT="$gestalt_plugin_root" \

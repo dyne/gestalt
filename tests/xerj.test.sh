@@ -166,6 +166,8 @@ for url in https://localhost:9200 http://0.0.0.0:9200 http://localhost:9200@evil
   XERJ_URL="$url" refuse search fixture
 done
 refuse mcp --auth ''
+refuse search fixture -k
+refuse search fixture -n 5
 ln -s "$test_root/source" "$GESTALT_HOME/runtime/xerj/escape"
 refuse --version
 rm "$GESTALT_HOME/runtime/xerj/escape"
@@ -219,11 +221,11 @@ assert r['args'][:5]==['index','--config',str(root/'runtime/xerj/managed.toml'),
 PY
 assertions=$((assertions + 1))
 XERJ_URL=http://localhost:9370 XERJ_API_KEY=fixture-key \
-  "${manager[@]}" xerj search 'query with spaces' --json </dev/null > /dev/null 2> /dev/null
+  "${manager[@]}" xerj search 'query with spaces' -k 5 --json </dev/null > /dev/null 2> /dev/null
 python3 - "$GESTALT_HOME" <<'PY'
 import json, pathlib, sys
 r=json.loads((pathlib.Path(sys.argv[1])/'xerj/forwarded.json').read_text())
-assert r['args']==['search','query with spaces','--json']
+assert r['args']==['search','query with spaces','-k','5','--json']
 assert r['env']['XERJ_URL']=='http://127.0.0.1:9370'
 assert r['env']['XERJ_API_KEY']=='fixture-key'
 PY

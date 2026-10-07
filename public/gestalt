@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-readonly GESTALT_CLI_VERSION='0.5.0'
+readonly GESTALT_CLI_VERSION='0.5.1'
 readonly DEFAULT_INSTALL_BASE_URL='https://dyne.github.io/gestalt'
 readonly DEFAULT_MARKETPLACE='dyne/gestalt-agents'
 readonly DEFAULT_MARKETPLACE_NAME='dyne-gestalt-agents'
@@ -76,6 +76,10 @@ Commands:
   xerj install              Install the checksum-verified managed xerj release.
   xerj [args...]            Run xerj with managed installation and state paths.
   xerj mcp [args...]        Native MCP stdio proxy to a loopback HTTP node.
+  xerj probe               Read-only JSON readiness (5-second default deadline).
+  xerj ensure-ready        Reuse or start a shared authenticated local backend.
+  xerj status              Read-only readiness and lifecycle ownership JSON.
+  xerj stop                Stop only a backend owned by this manager.
   path [NAME|--json]        Print managed executable and runtime paths.
   skills-export [ARCHIVE]   Export installed skills and skill profiles.
   skills-import ARCHIVE     Import a skills archive into this installation.
@@ -91,6 +95,7 @@ Environment:
   GESTALT_MARKETPLACE_NAME   Codex checkout name (default: dyne-gestalt-agents).
   GESTALT_MOBILE_VERSION     npm version or tag (default: latest).
   XERJ_INSTALL_DIR           Must equal $GESTALT_HOME/xerj when set.
+  XERJ_READY_TIMEOUT_MS      Overall readiness deadline (default: 5000).
 EOF
 }
 
@@ -273,7 +278,529 @@ validate_xerj_arguments() {
   done
 }
 
+command_xerj_readiness() {
+  local operation=$1
+  shift
+  (($# == 0)) || die "usage: gestalt xerj $operation"
+  require_command node
+  # Inline to preserve the checksum-verified, single-file manager distribution.
+  # Do not use command_xerj mcp: ordinary forwarding prepares writable state.
+  exec node --input-type=module - "$gestalt_home" "$MANAGED_XERJ_VERSION" "$operation" "${BASH_SOURCE[0]}" <<'JS'
+import { spawn } from 'node:child_process';
+import { lstat, stat as followStat, readFile, realpath, readdir, mkdir, writeFile, rename, rm, chmod } from 'node:fs/promises';
+import { createHash, randomBytes } from 'node:crypto';
+import net from 'node:net';
+import { dirname, join, basename } from 'node:path';
+import http from 'node:http';
+
+const [selectedRoot, version, operation, managerPath] = process.argv.slice(2);
+const expires = Date.now() + (Number.isSafeInteger(Number(process.env.XERJ_READY_TIMEOUT_MS ?? '5000')) ? Number(process.env.XERJ_READY_TIMEOUT_MS ?? '5000') : 5000);
+const configured = process.env.XERJ_READY_TIMEOUT_MS ?? '5000';
+const timeout = /^\d+$/.test(configured) ? Number(configured) : NaN;
+const children = new Set();
+const requests = new Set();
+const controller = new AbortController();
+let timer;
+const fail = reason => { throw new Error(reason); };
+const cancel = () => controller.abort(new Error('cancelled'));
+process.on('SIGTERM', cancel);
+process.on('SIGINT', cancel);
+const bounded = operation => Promise.race([operation, new Promise((_, reject) => {
+  if (controller.signal.aborted) reject(controller.signal.reason);
+  else controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true });
+})]);
+async function stat(path) {
+  controller.signal.throwIfAborted();
+  try {
+    const info = await lstat(path);
+    controller.signal.throwIfAborted();
+    return info;
+  } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+}
+async function safeTree(path) {
+  const info = await stat(path);
+  if (!info) return;
+  if (info.isSymbolicLink() || (info.isFile() && info.nlink > 1)) fail('unsafe-path');
+  if (info.isDirectory()) for (const name of await readdir(path)) await safeTree(join(path, name));
+}
+async function paths() {
+  if (!selectedRoot.startsWith('/') || /[\x00-\x1f\x7f]/.test(selectedRoot) ||
+      selectedRoot.endsWith('/') || selectedRoot.includes('//') || selectedRoot.split('/').some(p => p === '.' || p === '..')) fail('unsafe-path');
+  let ancestor = selectedRoot;
+  const suffix = [];
+  while (true) {
+    const info = await stat(ancestor);
+    if (info?.isDirectory() || (info?.isSymbolicLink() && (await followStat(ancestor)).isDirectory())) break;
+    if (info) fail('unsafe-path');
+    suffix.unshift(basename(ancestor)); ancestor = dirname(ancestor);
+  }
+  const root = join(await realpath(ancestor), ...suffix);
+  const binary = join(root, 'xerj', 'xerj'), dataRoot = join(root, 'runtime', 'xerj');
+  for (const path of [join(root, 'xerj'), join(root, 'runtime'), dataRoot]) {
+    if ((await stat(path))?.isSymbolicLink()) fail('unsafe-path');
+  }
+  await safeTree(join(root, 'xerj')); await safeTree(dataRoot);
+  if (process.env.XERJ_INSTALL_DIR && process.env.XERJ_INSTALL_DIR !== join(root, 'xerj')) fail('unsupported-installation');
+  if (process.env.XERJ_VERSION && ![version, `v${version}`].includes(process.env.XERJ_VERSION)) fail('unsupported-version');
+  if ((process.env.XERJ_REPO && process.env.XERJ_REPO !== 'xerj-org/xerj') ||
+      (process.env.XERJ_INSECURE_SKIP_CHECKSUM && process.env.XERJ_INSECURE_SKIP_CHECKSUM !== '0')) fail('unsupported-installation');
+  return { root, binary, dataRoot };
+}
+function launch(binary, args, env) {
+  controller.signal.throwIfAborted();
+  const child = spawn(binary, args, { env, stdio: ['pipe', 'pipe', 'pipe'] });
+  children.add(child);
+  child.once('close', () => children.delete(child));
+  // Never echo native diagnostics: they may contain authorization headers.
+  child.stderr.resume();
+  return child;
+}
+async function binaryVersion(binary, env) {
+  const child = launch(binary, ['--version'], env);
+  let output = '';
+  child.stdout.on('data', chunk => {
+    output += chunk;
+    if (output.length > 1024) controller.abort(new Error('unsupported-version'));
+  });
+  const code = await new Promise((resolve, reject) => {
+    child.once('error', () => reject(new Error('unsupported-binary')));
+    child.once('close', resolve);
+  });
+  if (code !== 0 || output.trim() !== `xerj v${version}`) fail('unsupported-version');
+}
+function get(url, auth) {
+  controller.signal.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const request = http.get(url, { headers: { Authorization: auth }, signal: controller.signal }, response => {
+      let body = '';
+      response.on('data', chunk => {
+        body += chunk;
+        if (body.length > 262144) request.destroy(new Error('invalid-backend'));
+      });
+      response.on('error', () => reject(new Error('backend-unavailable')));
+      response.on('end', () => {
+        if (response.statusCode === 401 || response.statusCode === 403) return reject(new Error('authentication-failed'));
+        if (response.statusCode !== 200) return reject(new Error('invalid-backend'));
+        try { resolve(JSON.parse(body)); } catch { reject(new Error('invalid-backend')); }
+      });
+    });
+    requests.add(request);
+    request.on('close', () => requests.delete(request));
+    request.on('error', () => reject(new Error('backend-unavailable')));
+  });
+}
+async function mcp(binary, endpoint, env) {
+  const child = launch(binary, ['mcp', '--url', endpoint], env);
+  let buffer = '', total = 0;
+  const pending = new Map();
+  const refuse = () => {
+    for (const { reject } of pending.values()) reject(new Error('invalid-mcp'));
+    pending.clear();
+  };
+  child.on('error', refuse); child.on('close', refuse);
+  child.stdin.on('error', refuse);
+  child.stdout.on('data', chunk => {
+    total += chunk.length; buffer += chunk;
+    if (total > 262144) { refuse(); controller.abort(new Error('invalid-mcp')); return; }
+    let end;
+    while ((end = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, end); buffer = buffer.slice(end + 1);
+      try {
+        const message = JSON.parse(line);
+        if (message.jsonrpc !== '2.0' || !pending.has(message.id) || message.error || !message.result || Array.isArray(message.result)) {
+          refuse(); controller.abort(new Error('invalid-mcp')); return;
+        }
+        pending.get(message.id).resolve(message.result); pending.delete(message.id);
+      } catch { refuse(); controller.abort(new Error('invalid-mcp')); return; }
+    }
+  });
+  const send = message => child.stdin.write(`${JSON.stringify(message)}\n`);
+  const rpc = (id, method, params) => new Promise((resolve, reject) => {
+    pending.set(id, { resolve, reject }); send({ jsonrpc: '2.0', id, method, params });
+  });
+  const initialized = await rpc(1, 'initialize', {
+    protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'gestalt-readiness', version: '1' }
+  });
+  if (initialized.protocolVersion !== '2025-03-26' || !initialized.capabilities?.tools ||
+      initialized.serverInfo?.name !== 'xerj-mcp' || initialized.serverInfo?.version !== version) fail('incompatible-mcp');
+  send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+  const listed = await rpc(2, 'tools/list', {});
+  if (!Array.isArray(listed.tools) || listed.nextCursor || !['xerj_search', 'xerj_map', 'xerj_code_search'].every(name =>
+    listed.tools.some(tool => tool.name === name && tool.inputSchema?.type === 'object'))) fail('incompatible-mcp');
+  child.stdin.end();
+  await new Promise((resolve, reject) => {
+    child.once('close', code => code === 0 ? resolve() : reject(new Error('invalid-mcp')));
+    child.once('error', () => reject(new Error('invalid-mcp')));
+  });
+}
+async function probe() {
+  const { root, binary, dataRoot } = await paths();
+  const info = await stat(binary);
+  if (!info) return { schemaVersion: 1, status: 'absent' };
+  if (!info.isFile() || !(info.mode & 0o111)) fail('unsupported-binary');
+  const endpoint = endpointOf();
+  let key = process.env.XERJ_API_KEY ?? '';
+  if (!key && await stat(join(dataRoot, 'admin.key'))) key = (await readFile(join(dataRoot, 'admin.key'), 'utf8')).trim();
+  const auth = process.env.XERJ_AUTH || (key ? `ApiKey ${key}` : '');
+  if (!auth || /[\r\n\x00]/.test(auth)) fail('credentials-unavailable');
+  const env = nativeEnvironment(root, dataRoot, endpoint, auth);
+  await binaryVersion(binary, env);
+  await mcp(binary, endpoint, env);
+  // rc.87 es_compat::cluster_health + cat_indices_inner use engine reads.
+  // Unlike _search (including MCP xerj_search), these successful GETs do not
+  // append audit state. Missing autoindex-catalog is normal on an empty node.
+  const health = await get(`${endpoint}/_cluster/health`, auth);
+  if (health.cluster_name !== 'xerj' || !['green', 'yellow'].includes(health.status) ||
+      health.timed_out !== false || !(health.number_of_nodes >= 1)) fail('invalid-backend');
+  const indices = await get(`${endpoint}/_cat/indices?format=json&h=index`, auth);
+  if (!Array.isArray(indices) || !indices.every(row => typeof row.index === 'string')) fail('invalid-backend');
+  return { schemaVersion: 1, status: 'ready', version, endpoint, binary, dataRoot,
+    auth: { environment: 'XERJ_AUTH', keyFile: join(dataRoot, 'admin.key') }, protocolVersion: '2025-03-26' };
+}
+function endpointOf() {
+  const raw = process.env.XERJ_URL ?? 'http://127.0.0.1:9200';
+  if (!/^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d{1,5})?\/?$/.test(raw)) fail('unsafe-endpoint');
+  let endpoint;
+  try {
+    const url = new URL(raw.replace('http://localhost', 'http://127.0.0.1'));
+    if (!Number(url.port || 80) || Number(url.port || 80) > 65535) fail('unsafe-endpoint');
+    endpoint = url.origin;
+  } catch { fail('unsafe-endpoint'); }
+  return endpoint;
+}
+function nativeEnvironment(root, dataRoot, endpoint, auth) {
+  return {
+    HOME: process.env.HOME, PATH: process.env.PATH, GESTALT_HOME: root,
+    XERJ_INSTALL_DIR: join(root, 'xerj'), XERJ_URL: endpoint, XERJ_AUTH: auth,
+    XERJ_CODE_HOME: join(dataRoot, 'code'), XERJ_DISABLE_FEEDBACK: 'true', XERJ_LOG: 'off',
+    XDG_CACHE_HOME: join(dataRoot, 'cache'), XDG_CONFIG_HOME: join(dataRoot, 'config'),
+    XDG_DATA_HOME: join(dataRoot, 'share'), HF_HOME: join(dataRoot, 'cache', 'huggingface'), TMPDIR: join(dataRoot, 'tmp')
+  };
+}
+const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+function lifecyclePaths(dataRoot, endpoint) {
+  const directory = join(dataRoot, '.lifecycle');
+  const name = createHash('sha256').update(endpoint).digest('hex').slice(0, 16);
+  return { directory, lock: join(directory, `${name}.lock`), record: join(directory, `${name}.json`),
+    socket: join(directory, `${name}.sock`), log: join(directory, `${name}.log`) };
+}
+async function identity(pid) {
+  if (!Number.isSafeInteger(pid) || pid < 1) return null;
+  if (process.platform === 'linux') {
+    try {
+      const [record, boot] = await Promise.all([readFile(`/proc/${pid}/stat`, 'utf8'), readFile('/proc/sys/kernel/random/boot_id', 'utf8')]);
+      return `${boot.trim()}:${record.slice(record.lastIndexOf(')') + 2).split(' ')[19]}`;
+    } catch (error) { if (error.code === 'ENOENT' || error.code === 'ESRCH') return null; throw error; }
+  }
+  // macOS: birth time plus full command, never PID existence alone.
+  const child = launch('ps', ['-p', String(pid), '-o', 'lstart=', '-o', 'command='], { PATH: process.env.PATH });
+  let text = '';
+  child.stdout.on('data', chunk => { text += chunk; if (text.length > 8192) child.kill('SIGKILL'); });
+  const code = await new Promise((resolve, reject) => { child.once('close', resolve); child.once('error', reject); });
+  return code === 0 && text.trim() ? text.trim() : null;
+}
+async function readJSON(path) {
+  try { return JSON.parse(await readFile(path, 'utf8')); }
+  catch (error) { if (error.code === 'ENOENT') return null; fail('invalid-lifecycle-record'); }
+}
+async function atomicJSON(path, value) {
+  const temporary = `${path}.${randomBytes(8).toString('hex')}.tmp`;
+  try {
+    await writeFile(temporary, JSON.stringify(value), { mode: 0o600, flag: 'wx' });
+    await rename(temporary, path);
+  } finally { await rm(temporary, { force: true }); }
+}
+async function acquireLock(layout, root, endpoint) {
+  const token = randomBytes(24).toString('hex');
+  const owner = { root, endpoint, pid: process.pid, identity: await identity(process.pid), token };
+  if (!owner.identity) fail('lifecycle-busy');
+  while (true) {
+    controller.signal.throwIfAborted();
+    try {
+      await mkdir(layout.lock, { mode: 0o700 });
+      await atomicJSON(join(layout.lock, 'owner.json'), owner);
+      const release = async () => {
+        const current = await readJSON(join(layout.lock, 'owner.json'));
+        if (current?.token === token) await rm(layout.lock, { recursive: true });
+      };
+      release.token = token;
+      return release;
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+    }
+    const previous = await readJSON(join(layout.lock, 'owner.json'));
+    // A new lock may not have its record yet. Unknown/malformed ownership is
+    // never grounds to reclaim it; only a demonstrably dead/reused owner is.
+    if (previous && previous.root === root && previous.endpoint === endpoint &&
+        Number.isSafeInteger(previous.pid) && previous.pid > 0 &&
+        typeof previous.identity === 'string' && /^[a-f0-9]{48}$/.test(previous.token) &&
+        await identity(previous.pid) !== previous.identity) {
+      const current = await readJSON(join(layout.lock, 'owner.json'));
+      if (current?.token === previous.token) {
+        // Serialize stale recovery independently so two recoverers cannot
+        // remove a freshly acquired lock between comparison and removal.
+        const recovery = `${layout.lock}.recovery`;
+        try {
+          await mkdir(recovery, { mode: 0o700 });
+          try {
+            const checked = await readJSON(join(layout.lock, 'owner.json'));
+            if (checked?.token === previous.token && await identity(checked.pid) !== checked.identity)
+              await rm(layout.lock, { recursive: true });
+          } finally { await rm(recovery, { recursive: true }); }
+        } catch (error) { if (error.code !== 'EEXIST') throw error; }
+      }
+    }
+    await delay(20);
+  }
+}
+function control(layout, token, method, allowAborted = false) {
+  if (!allowAborted) controller.signal.throwIfAborted();
+  return new Promise(resolve => {
+    let text = '', done = false;
+    const socket = net.createConnection(layout.socket);
+    const complete = result => { if (!done) { done = true; clearTimeout(deadline); socket.destroy(); resolve(result); } };
+    // Explicit stop includes native shutdown and filesystem cleanup. Its
+    // acknowledgment can take longer than an info roundtrip, while failed
+    // launch cleanup still stays within the reserved overall deadline.
+    const budget = method === 'stop' && !allowAborted ? Math.min(1000, Math.max(1, expires - Date.now() - 100)) : 100;
+    const deadline = setTimeout(() => complete(null), budget);
+    socket.on('error', () => complete(null));
+    socket.on('end', () => complete(null));
+    socket.on('connect', () => socket.write(`${JSON.stringify({ token, method })}\n`));
+    socket.on('data', chunk => {
+      text += chunk;
+      if (text.length > 16384) return complete(null);
+      if (text.includes('\n')) {
+        try { complete(JSON.parse(text.trim())); } catch { complete(null); }
+      }
+    });
+  });
+}
+async function ownerAt(layout, root, endpoint) {
+  const record = await readJSON(layout.record);
+  if (!record) return null;
+  if (record.root !== root || record.endpoint !== endpoint || !/^[a-f0-9]{48}$/.test(record.token)) fail('invalid-lifecycle-record');
+  const result = await control(layout, record.token, 'info');
+  return result?.root === root && result.endpoint === endpoint && result.serverAlive ? record : null;
+}
+async function listenerPresent(endpoint) {
+  const url = new URL(endpoint);
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection({ host: url.hostname.replace(/^\[|\]$/g, ''), port: Number(url.port || 80) });
+    const abort = () => { socket.destroy(); reject(controller.signal.reason); };
+    controller.signal.addEventListener('abort', abort, { once: true });
+    const finish = value => { controller.signal.removeEventListener('abort', abort); socket.destroy(); resolve(value); };
+    socket.on('connect', () => finish(true));
+    socket.on('error', error => error.code === 'ECONNREFUSED' ? finish(false) : finish(true));
+  });
+}
+async function runGuardian() {
+  const { root, dataRoot } = await paths();
+  const endpoint = endpointOf(), layout = lifecyclePaths(dataRoot, endpoint);
+  const token = process.env.GESTALT_XERJ_OWNER_TOKEN ?? '';
+  const deadline = Number(process.env.GESTALT_XERJ_OWNER_DEADLINE);
+  if (!/^[a-f0-9]{48}$/.test(token) || !Number.isSafeInteger(deadline) || deadline <= Date.now() || deadline > Date.now() + 60000)
+    fail('invalid-lifecycle-record');
+  const startupOwner = await readJSON(join(layout.lock, 'owner.json'));
+  if (!startupOwner || startupOwner.root !== root || startupOwner.endpoint !== endpoint ||
+      !Number.isSafeInteger(startupOwner.pid) || typeof startupOwner.identity !== 'string' ||
+      startupOwner.token !== process.env.GESTALT_XERJ_STARTUP_LOCK_TOKEN ||
+      await identity(startupOwner.pid) !== startupOwner.identity) fail('invalid-lifecycle-record');
+  let serverChild, controlServer, retained = false, stopping;
+  const clients = new Set();
+  const event = async name => {
+    // Only manager event codes, never native stdout/stderr or credentials.
+    let previous = '';
+    try { previous = await readFile(layout.log, 'utf8'); } catch {}
+    await writeFile(layout.log, `${previous}${Date.now()} ${name}\n`.slice(-32768), { mode: 0o600 });
+    await chmod(layout.log, 0o600);
+  };
+  const stop = (failed = false) => stopping ??= (async () => {
+    clearTimeout(startupTimer);
+    if (serverChild && serverChild.exitCode === null && serverChild.signalCode === null) {
+      const closed = new Promise(resolve => serverChild.once('close', resolve));
+      serverChild.kill(failed ? 'SIGKILL' : 'SIGTERM');
+      const killTimer = setTimeout(() => serverChild.kill('SIGKILL'), 40);
+      await closed; clearTimeout(killTimer);
+    }
+    const record = await readJSON(layout.record);
+    if (record?.token === token) await rm(layout.record, { force: true });
+    if (controlServer) {
+      for (const client of clients) client.destroy();
+      controlServer.close();
+      await rm(layout.socket, { force: true });
+    }
+    await event(failed ? 'failed-launch-reaped' : 'backend-stopped');
+  })();
+  const startupTimer = setTimeout(() => { if (!retained) void stop(true); }, Math.max(1, deadline - Date.now() - 100));
+  process.removeListener('SIGTERM', cancel); process.removeListener('SIGINT', cancel);
+  process.on('SIGTERM', () => void stop()); process.on('SIGINT', () => void stop());
+  try {
+    if (await stat(layout.socket)) {
+      // Only remove a stale control socket once exclusive startup ownership
+      // has been obtained by ensure-ready and no guardian can answer.
+      const old = await readJSON(layout.record);
+      if (old && await control(layout, old.token, 'info')) fail('lifecycle-busy');
+      await rm(layout.socket, { force: true });
+    }
+    controlServer = net.createServer(client => {
+      clients.add(client); client.on('close', () => clients.delete(client));
+      let input = '';
+      client.setTimeout(1000, () => client.destroy());
+      client.on('error', () => client.destroy());
+      client.on('data', chunk => {
+        input += chunk;
+        if (input.length > 1024) return client.destroy();
+        if (!input.includes('\n')) return;
+        let request;
+        try { request = JSON.parse(input.trim()); } catch { client.destroy(); return; }
+        if (!request || typeof request !== 'object' || request.token !== token) { client.destroy(); return; }
+        const alive = serverChild && serverChild.exitCode === null && serverChild.signalCode === null;
+        const answer = value => client.end(`${JSON.stringify(value)}\n`);
+        if (request.method === 'info') answer({ root, endpoint, serverAlive: Boolean(alive) });
+        else if (request.method === 'retain' && alive && Date.now() < deadline) {
+          retained = true; clearTimeout(startupTimer); answer({ retained: true });
+        } else if (request.method === 'stop') {
+          // Acknowledge only after the child this guardian owns is reaped.
+          clients.delete(client);
+          void stop().then(() => answer({ stopped: true })).catch(() => client.destroy());
+        } else client.destroy();
+      });
+    });
+    await new Promise((resolve, reject) => { controlServer.once('error', reject); controlServer.listen(layout.socket, resolve); });
+    await chmod(layout.socket, 0o600);
+    if (Date.now() >= deadline - 100 || stopping) fail('timeout');
+    const env = nativeEnvironment(root, dataRoot, endpoint, process.env.XERJ_AUTH || 'ApiKey managed-key-unavailable');
+    env.XERJ_API_KEY = process.env.XERJ_API_KEY || '';
+    // The forwarding wrapper derives this confined path itself and rejects
+    // inherited path overrides, including the proxy-only code-cache setting.
+    delete env.XERJ_CODE_HOME;
+    const url = new URL(endpoint);
+    const executable = await realpath(managerPath);
+    if (stopping || Date.now() >= deadline - 100) fail('timeout');
+    serverChild = spawn('bash', [executable, 'xerj', '--port', String(url.port || 80),
+      '--bind', url.hostname === '[::1]' ? '::1' : '127.0.0.1', '--embed-mode', 'lexical'],
+      { env, stdio: ['ignore', 'ignore', 'ignore'] });
+    serverChild.on('error', () => void stop(true));
+    serverChild.on('close', () => { if (!stopping) void stop(true); });
+    await atomicJSON(layout.record, { root, endpoint, token });
+    if (stopping) {
+      if ((await readJSON(layout.record))?.token === token) await rm(layout.record, { force: true });
+      fail('timeout');
+    }
+    await event('backend-started');
+    // Listening control socket and child keep this owner alive across clients.
+  } catch (error) { await stop(true); throw error; }
+}
+async function lifecycle() {
+  if (operation === 'probe') return probe();
+  const { root, binary, dataRoot } = await paths();
+  const endpoint = endpointOf(), layout = lifecyclePaths(dataRoot, endpoint);
+  if (operation === 'status') {
+    const ready = await probe();
+    return { ...ready, ownership: await ownerAt(layout, root, endpoint) ? 'managed' : ready.status === 'ready' ? 'adopted' : 'none' };
+  }
+  if (operation === 'stop') {
+    if (!(await stat(layout.directory))) fail('not-managed');
+    const release = await acquireLock(layout, root, endpoint);
+    try {
+      const owner = await ownerAt(layout, root, endpoint);
+      if (!owner) fail('not-managed');
+      const response = await control(layout, owner.token, 'stop');
+      if (!response?.stopped) fail('stop-failed');
+      return { schemaVersion: 1, status: 'stopped', endpoint, dataRoot };
+    } finally { await release(); }
+  }
+  const info = await stat(binary);
+  if (!info) return { schemaVersion: 1, status: 'absent' };
+  if (!info.isFile() || !(info.mode & 0o111)) fail('unsupported-binary');
+  await binaryVersion(binary, nativeEnvironment(root, dataRoot, endpoint, 'ApiKey managed-key-unavailable'));
+  await mkdir(layout.directory, { recursive: true, mode: 0o700 });
+  await chmod(layout.directory, 0o700);
+  const release = await acquireLock(layout, root, endpoint);
+  let launchToken;
+  try {
+    try {
+      const ready = await probe();
+      if (ready.status === 'ready') return { ...ready, ownership: await ownerAt(layout, root, endpoint) ? 'managed' : 'adopted' };
+    } catch (error) {
+      if (controller.signal.aborted) throw error;
+      if (!['credentials-unavailable', 'backend-unavailable', 'authentication-failed', 'invalid-backend'].includes(error.message)) throw error;
+    }
+    if (await listenerPresent(endpoint)) fail('endpoint-in-use');
+    const previous = await ownerAt(layout, root, endpoint);
+    if (previous) fail('lifecycle-busy');
+    launchToken = randomBytes(24).toString('hex');
+    const env = nativeEnvironment(root, dataRoot, endpoint, process.env.XERJ_AUTH || 'ApiKey managed-key-unavailable');
+    env.XERJ_API_KEY = process.env.XERJ_API_KEY || '';
+    env.GESTALT_XERJ_OWNER_TOKEN = launchToken;
+    env.GESTALT_XERJ_OWNER_DEADLINE = String(expires);
+    env.GESTALT_XERJ_STARTUP_LOCK_TOKEN = release.token;
+    const executable = await realpath(managerPath);
+    controller.signal.throwIfAborted();
+    const guardian = spawn('bash', [executable, 'xerj', '__backend'], { env, detached: true, stdio: 'ignore' });
+    guardian.on('error', () => controller.abort(new Error('launch-failed')));
+    guardian.unref();
+    while (true) {
+      controller.signal.throwIfAborted();
+      await delay(25);
+      const owner = await ownerAt(layout, root, endpoint);
+      if (!owner || owner.token !== launchToken) continue;
+      try {
+        const ready = await probe();
+        if (ready.status === 'ready' && (await control(layout, launchToken, 'retain'))?.retained) {
+          controller.signal.throwIfAborted();
+          launchToken = null;
+          return { ...ready, ownership: 'managed' };
+        }
+      } catch (error) {
+        if (controller.signal.aborted) throw error;
+        if (!['credentials-unavailable', 'backend-unavailable'].includes(error.message)) throw error;
+      }
+    }
+  } finally {
+    if (launchToken) await control(layout, launchToken, 'stop', true);
+    await release();
+  }
+}
+if (operation === '__backend') {
+  try { await runGuardian(); } catch { process.exitCode = 1; }
+} else {
+let result;
+try {
+  if (!Number.isSafeInteger(timeout) || timeout < 100 || timeout > 60000) fail('invalid-deadline');
+  // Reserve cleanup time inside the overall budget, never after it.
+  timer = setTimeout(() => controller.abort(new Error('timeout')), Math.max(1, timeout - 100));
+  result = await bounded(lifecycle());
+} catch (error) {
+  const reasons = new Set(['cancelled', 'timeout', 'unsafe-path', 'unsupported-installation', 'unsupported-version',
+    'unsupported-binary', 'unsafe-endpoint', 'credentials-unavailable', 'authentication-failed',
+    'backend-unavailable', 'invalid-backend', 'invalid-mcp', 'incompatible-mcp', 'invalid-deadline',
+    'invalid-lifecycle-record', 'lifecycle-busy', 'endpoint-in-use', 'not-managed', 'stop-failed', 'launch-failed']);
+  const reason = controller.signal.aborted ? controller.signal.reason.message : error.message;
+  result = { schemaVersion: 1, status: 'unavailable', reason: reasons.has(reason) ? reason : 'probe-failed' };
+} finally {
+  clearTimeout(timer);
+  controller.abort(new Error('cleanup'));
+  for (const request of requests) request.destroy();
+  const exits = [...children].map(child => new Promise(resolve => {
+    child.once('close', resolve); child.kill('SIGKILL');
+  }));
+  await Promise.all(exits);
+}
+console.log(JSON.stringify(result));
+}
+JS
+}
+
 command_xerj() {
+  case ${1:-} in
+    probe | ensure-ready | status | stop | __backend)
+      local operation=$1
+      shift
+      command_xerj_readiness "$operation" "$@"
+      return ;;
+  esac
   load_xerj_paths
   if [[ ${1:-} == -- ]]; then shift; fi
   if [[ ${1:-} == install ]]; then

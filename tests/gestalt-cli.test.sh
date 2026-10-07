@@ -171,6 +171,8 @@ export GESTALT_TEST_REAL_NODE=$real_node
 export CODEX_HOME=$test_home/.codex-gestalt
 export GESTALT_HOME=$test_home/.gestalt
 export GESTALT_INSTALL_BASE_URL=file://$repo_root/public
+# Exercise the fixture's managed paths, regardless of the invoking relay's paths.
+unset GESTALT_MOBILE_BIN GESTALT_CONTEXT_MODE_RUNTIME GESTALT_CONTEXT_MODE_PLUGIN_ROOT GESTALT_AGENTS_PLUGIN_ROOT
 
 mkdir -p -- "$CODEX_HOME"
 cat > "$CODEX_HOME/config.toml" <<'EOF'

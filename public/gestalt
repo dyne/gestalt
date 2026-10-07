@@ -3,12 +3,15 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-readonly GESTALT_CLI_VERSION='0.4.1'
+readonly GESTALT_CLI_VERSION='0.5.0'
 readonly DEFAULT_INSTALL_BASE_URL='https://dyne.github.io/gestalt'
 readonly DEFAULT_MARKETPLACE='dyne/gestalt-agents'
 readonly DEFAULT_MARKETPLACE_NAME='dyne-gestalt-agents'
 readonly SUPERVISION_CAPABILITY_SCHEMA=1
 readonly SUPERVISION_CONTRACT_VERSION=1
+readonly MANAGED_XERJ_VERSION='1.0.0-rc.87'
+xerj_install_scratch=''
+xerj_config_scratch=''
 manager_update_temp_root=''
 manager_update_staged_target=''
 update_restart_lock=''
@@ -33,6 +36,12 @@ on_error() {
 trap 'on_error "$LINENO"' ERR
 
 cleanup() {
+  if [[ -n $xerj_config_scratch && -f $xerj_config_scratch ]]; then
+    rm -f -- "$xerj_config_scratch"
+  fi
+  if [[ -n $xerj_install_scratch && -d $xerj_install_scratch ]]; then
+    rm -rf -- "$xerj_install_scratch"
+  fi
   if [[ -n $manager_update_temp_root && -d $manager_update_temp_root ]]; then
     rm -rf -- "$manager_update_temp_root"
   fi
@@ -64,6 +73,9 @@ Commands:
                             Update from a live Mobile session, then restart Mobile.
   cli [--] [args...]        Start Codex with ~/.codex-gestalt as CODEX_HOME.
   mobile [--] [args...]     Start the managed Gestalt Mobile executable.
+  xerj install              Install the checksum-verified managed xerj release.
+  xerj [args...]            Run xerj with managed installation and state paths.
+  xerj mcp [args...]        Native MCP stdio proxy to a loopback HTTP node.
   path [NAME|--json]        Print managed executable and runtime paths.
   skills-export [ARCHIVE]   Export installed skills and skill profiles.
   skills-import ARCHIVE     Import a skills archive into this installation.
@@ -78,7 +90,248 @@ Environment:
   GESTALT_MARKETPLACE        Marketplace source (default: dyne/gestalt-agents).
   GESTALT_MARKETPLACE_NAME   Codex checkout name (default: dyne-gestalt-agents).
   GESTALT_MOBILE_VERSION     npm version or tag (default: latest).
+  XERJ_INSTALL_DIR           Must equal $GESTALT_HOME/xerj when set.
 EOF
+}
+
+validate_xerj_url() {
+  local url=$1 port
+  local pattern='^http://(127\.0\.0\.1|localhost|\[::1\])(:([0-9]{1,5}))?/?$'
+  [[ $url =~ $pattern ]] || die 'managed xerj URLs must be loopback HTTP with no credentials, path, query or fragment'
+  port=${BASH_REMATCH[3]:-80}
+  ((10#$port >= 1 && 10#$port <= 65535)) || die 'xerj URL port must be between 1 and 65535'
+  validated_xerj_url=${url/http:\/\/localhost/http:\/\/127.0.0.1}
+}
+
+validate_xerj_bind() {
+  case $1 in
+    127.0.0.1 | ::1) ;;
+    *) die 'managed xerj server bind must be 127.0.0.1 or ::1' ;;
+  esac
+}
+
+# Reject lexical escapes and existing links before allocating any xerj paths.
+# This is path validation, not a filesystem sandbox against concurrent changes.
+validate_xerj_path() {
+  local candidate=$1 part current=''
+  local -a components=()
+  [[ $candidate == /* && ! $candidate =~ [[:cntrl:]] ]] ||
+    die 'xerj paths must be absolute and contain no control characters'
+  [[ $candidate != */ && $candidate != *//* ]] || die 'xerj paths must be normalized'
+  IFS='/' read -r -a components <<< "$candidate"
+  for part in "${components[@]}"; do
+    [[ -n $part ]] || continue
+    [[ $part != . && $part != .. ]] || die 'xerj paths cannot contain . or ..'
+    current=$current/$part
+    [[ ! -L $current ]] || die "xerj path cannot traverse a symbolic link: $current"
+  done
+}
+
+load_xerj_paths() {
+  # Trust the explicitly selected Gestalt root, resolving platform/user aliases.
+  # Only its managed descendants must be free of links (e.g. macOS /var aliases).
+  local ancestor=$gestalt_home suffix='' component
+  [[ $ancestor == /* && $ancestor != */ && $ancestor != *//* && ! $ancestor =~ [[:cntrl:]] ]] ||
+    die 'GESTALT_HOME for xerj must be an absolute normalized path'
+  case /$ancestor/ in */./* | */../*) die 'GESTALT_HOME for xerj cannot contain . or ..' ;; esac
+  while [[ ! -d $ancestor ]]; do
+    [[ ! -e $ancestor && ! -L $ancestor ]] || die 'GESTALT_HOME ancestor is not a directory'
+    component=${ancestor##*/}
+    suffix=/$component$suffix
+    ancestor=${ancestor%/*}
+    [[ -n $ancestor ]] || ancestor=/
+  done
+  ancestor=$(CDPATH='' cd -- "$ancestor" && pwd -P)
+  gestalt_home=${ancestor%/}$suffix
+  validate_managed_path GESTALT_HOME "$gestalt_home"
+  xerj_root=$gestalt_home/xerj
+  xerj_data=$gestalt_home/runtime/xerj
+  xerj_bin=$xerj_root/xerj
+  validate_xerj_path "$xerj_root"
+  validate_xerj_path "$xerj_data"
+  [[ ! -e $xerj_bin || -f $xerj_bin ]] || die 'managed xerj executable must be a regular file'
+  [[ ${XERJ_INSTALL_DIR:-$xerj_root} == "$xerj_root" ]] ||
+    die 'XERJ_INSTALL_DIR conflicts with the managed xerj installation'
+  [[ ${XERJ_VERSION:-$MANAGED_XERJ_VERSION} == "$MANAGED_XERJ_VERSION" ||
+     ${XERJ_VERSION:-} == "v$MANAGED_XERJ_VERSION" ]] ||
+    die "only audited xerj $MANAGED_XERJ_VERSION is supported"
+  [[ -z ${XERJ_REPO:-} || ${XERJ_REPO:-} == xerj-org/xerj ]] ||
+    die 'managed xerj uses the official release repository'
+  [[ ${XERJ_INSECURE_SKIP_CHECKSUM:-0} == 0 ]] || die 'xerj checksum verification is required'
+  local directory link
+  for directory in "$xerj_root" "$xerj_data"; do
+    if [[ -d $directory ]]; then
+      link=$(find "$directory" \( -type l -o \( -type f -links +1 \) \) -print -quit)
+      [[ -z $link ]] || die "managed xerj tree contains a symbolic or hard link: $link"
+    fi
+  done
+}
+
+install_xerj() {
+  local os cpu target stage asset expected actual member listing
+  require_command curl
+  require_command tar
+  require_command mktemp
+  unset TAR_OPTIONS GZIP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  os=$(uname -s)
+  cpu=$(uname -m)
+  case $cpu in
+    x86_64 | amd64) cpu=x86_64 ;;
+    aarch64 | arm64) cpu=aarch64 ;;
+    *) die "unsupported xerj CPU: $cpu" ;;
+  esac
+  case $os in
+    Linux) target=$cpu-unknown-linux-musl ;;
+    Darwin) target=$cpu-apple-darwin ;;
+    *) die "managed xerj supports Linux and macOS, not $os" ;;
+  esac
+  [[ -z ${XERJ_LIBC:-} || ${XERJ_LIBC:-} == musl || $os == Darwin ]] ||
+    die 'managed Linux xerj uses the audited static musl release'
+  umask 077
+  mkdir -p -- "$xerj_root" "$xerj_data"
+  xerj_install_scratch=$(mktemp -d "$xerj_root/.install.XXXXXXXX")
+  stage=xerj-$MANAGED_XERJ_VERSION-$target
+  asset=$stage.tar.gz
+  local base=https://github.com/xerj-org/xerj/releases/download/v$MANAGED_XERJ_VERSION
+  # -q disables ~/.curlrc; all downloads and extraction output stay in scratch.
+  curl -q --fail --location --silent --show-error --proto '=https' --proto-redir '=https' \
+    --connect-timeout 20 --max-time 120 "$base/$asset" --output "$xerj_install_scratch/release.tar.gz"
+  curl -q --fail --location --silent --show-error --proto '=https' --proto-redir '=https' \
+    --connect-timeout 20 --max-time 120 "$base/$asset.sha256" --output "$xerj_install_scratch/release.sha256"
+  IFS=' ' read -r expected _ < "$xerj_install_scratch/release.sha256" || die 'missing xerj checksum'
+  [[ $expected =~ ^[[:xdigit:]]{64}$ ]] || die 'invalid xerj checksum'
+  actual=$(calculate_sha256 "$xerj_install_scratch/release.tar.gz")
+  actual=${actual%% *}
+  actual=$(printf '%s' "$actual" | tr 'A-F' 'a-f')
+  expected=$(printf '%s' "$expected" | tr 'A-F' 'a-f')
+  [[ $actual == "$expected" ]] || die 'xerj checksum mismatch; prior binary preserved'
+  member=$stage/xerj
+  listing=$(tar -tzf "$xerj_install_scratch/release.tar.gz")
+  [[ $(printf '%s\n' "$listing" | grep -Fxc "$member") == 1 ]] ||
+    die 'xerj archive must contain exactly one expected binary'
+  listing=$(tar -tvzf "$xerj_install_scratch/release.tar.gz" "$member")
+  [[ $listing == -* ]] || die 'xerj archive binary must be a regular file'
+  # Stream only that regular member. Never unpack archive paths or links.
+  tar -xOzf "$xerj_install_scratch/release.tar.gz" "$member" > "$xerj_install_scratch/xerj"
+  [[ -s $xerj_install_scratch/xerj ]] || die 'empty xerj binary'
+  chmod 0755 "$xerj_install_scratch/xerj"
+  mv -f -- "$xerj_install_scratch/xerj" "$xerj_bin"
+  log "installed xerj $MANAGED_XERJ_VERSION at $xerj_bin"
+}
+
+validate_xerj_arguments() {
+  local mode=$1 option value
+  shift
+  xerj_user_args=()
+  while (($# > 0)); do
+    option=$1
+    shift
+    xerj_user_args+=("$option")
+    case $mode:$option in
+      server:--bind | server:-b)
+        (($# > 0)) || die "xerj option requires a value: $option"
+        validate_xerj_bind "$1"
+        xerj_user_args+=("$1")
+        shift ;;
+      autoindex:--url | search:--url | def:--url | gain:--url | mcp:--url)
+        (($# > 0)) || die "xerj option requires a value: $option"
+        validate_xerj_url "$1"
+        xerj_user_args+=("$validated_xerj_url")
+        shift ;;
+      mcp:--auth)
+        if (($# == 0)) || [[ -z $1 ]]; then die 'MCP --auth requires a nonempty value'; fi
+        xerj_user_args+=("$1")
+        shift ;;
+      server:--data-dir | server:-d | index:--data-dir | index:-d)
+        if (($# == 0)) || [[ $1 != "$xerj_data" ]]; then
+          die 'xerj data directory is managed; omit the override'
+        fi
+        xerj_user_args+=("$1")
+        shift ;;
+      autoindex:--state-dir)
+        if (($# == 0)) || [[ $1 != "$xerj_data/autoindex" ]]; then
+          die 'xerj autoindex state directory is managed'
+        fi
+        xerj_user_args+=("$1")
+        shift ;;
+      server:--config | server:-c | index:--config | index:-c | *:--config=* | *:--data-dir=* | *:--state-dir=* | *:--events-out* | *:--status-file*)
+        die "xerj path override is not supported: $option" ;;
+      server:--help | server:-h | server:--version | server:-V | server:--insecure | server:-k | *:--disable-feedback | index:--help | index:-h | autoindex:--help | autoindex:-h | autoindex:--fresh | autoindex:--follow-symlinks | autoindex:--follow-symlinks-outside-root | autoindex:--no-ignore | autoindex:--no-default-ignores | autoindex:--no-semantic | autoindex:--no-graph | autoindex:--watch | autoindex:--yes | autoindex:-y | autoindex:--dry-run | autoindex:--json | autoindex:--md | autoindex:--quiet | autoindex:--once | autoindex:--no-fetch | autoindex:--append-only | autoindex:--allow-cost | search:--help | search:-h | search:--json | def:--help | def:-h | def:--json | gain:--help | gain:-h | gain:--json | mcp:--help | mcp:-h | mcp:--version | mcp:-V)
+        ;;
+      server:--port | server:--embed-mode | server:--compat-distribution | server:--compat-version | server:--decide-mode | index:--index | index:-i | index:--file | index:-f | index:--batch | index:-b | index:--workers | index:-w | index:--limit | index:-l | autoindex:--api-key | autoindex:--workers | autoindex:--pdf-workers | autoindex:--pdf-timeout-secs | autoindex:--bulk-mb | autoindex:--bulk-timeout-secs | autoindex:--snapshot-max-gb | autoindex:--in-flight | autoindex:--prefix | autoindex:--endpoint-url | autoindex:--label | autoindex:--stub | autoindex:--max-file-gb | autoindex:--sample | autoindex:--brain | autoindex:--debounce | autoindex:--max-minutes | autoindex:--approve | autoindex:--progress | autoindex:--progress-interval | autoindex:--dataset | autoindex:--poll-interval | autoindex:--max-cycles | autoindex:--region | autoindex:--max-object-mb | autoindex:--max-monthly-ops | autoindex:--max-monthly-gets | autoindex:--page-size | search:--prefix | search:--api-key | search:-n | search:--full | def:--prefix | def:--api-key | def:-n | def:--kind | def:--lang | gain:--api-key)
+        (($# > 0)) || die "xerj option requires a value: $option"
+        value=$1
+        [[ $value != -* ]] || die "xerj option requires a value, not a flag: $option"
+        xerj_user_args+=("$value")
+        shift ;;
+      autoindex:* | search:* | def:*)
+        [[ $option != -* ]] || die "unsupported managed xerj $mode option: $option" ;;
+      *) die "unsupported managed xerj $mode option: $option" ;;
+    esac
+  done
+}
+
+command_xerj() {
+  load_xerj_paths
+  if [[ ${1:-} == -- ]]; then shift; fi
+  if [[ ${1:-} == install ]]; then
+    (($# == 1)) || die 'usage: gestalt xerj install'
+    install_xerj
+    return
+  fi
+  local mode=server variable escaped_config xerj_url xerj_api_key xerj_auth
+  local -a forwarded=()
+  local -a xerj_user_args=()
+  case ${1:-} in
+    index | autoindex | search | def | gain | mcp) mode=$1; shift ;;
+    '' | -*) ;;
+    *) die "xerj command '$1' is not managed; init, brain/share, corpus/code, feedback, service, update and export can write outside managed state" ;;
+  esac
+  validate_xerj_url "${XERJ_URL:-http://127.0.0.1:9200}"
+  xerj_url=$validated_xerj_url
+  if [[ -n ${XERJ_BIND_ADDRESS:-} ]]; then validate_xerj_bind "$XERJ_BIND_ADDRESS"; fi
+  validate_xerj_arguments "$mode" "$@"
+  for variable in XERJ_CONFIG XERJ_INGEST_MEMORY_OUTPUT XERJ_DEBUG_PROFILE_DIR XERJ_PDF_WORKER_BIN XERJ_NEURAL_LOCAL_DIR XERJ_DECIDE_MODEL_DIR XERJ_ONNX_MODEL XERJ_ONNX_TOKENIZER XERJ_CODE_HOME; do
+    [[ -z ${!variable:-} ]] || die "unset $variable before running managed xerj; inherited path overrides are not accepted"
+  done
+  [[ -x $xerj_bin && -f $xerj_bin ]] || die "xerj is not installed; run 'gestalt xerj install'"
+  xerj_api_key=${XERJ_API_KEY:-}
+  if [[ -z $xerj_api_key && -f $xerj_data/admin.key ]]; then
+    xerj_api_key=$(< "$xerj_data/admin.key")
+  fi
+  xerj_auth=${XERJ_AUTH:-}
+  if [[ -z $xerj_auth ]]; then
+    # A nonempty explicit header prevents upstream guessing keys in HOME/cwd.
+    xerj_auth="ApiKey ${xerj_api_key:-managed-key-unavailable}"
+  fi
+  umask 077
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  mkdir -p -- "$xerj_data/tmp" "$xerj_data/cache" "$xerj_data/config" "$xerj_data/share"
+  escaped_config=${xerj_data//\\/\\\\}
+  escaped_config=${escaped_config//\"/\\\"}
+  xerj_config_scratch=$(mktemp "$xerj_data/.config.XXXXXXXX")
+  printf '[embedding]\nmodel_cache_dir = "%s/cache/huggingface"\n[tls]\ncert_path = "%s/xerj.crt"\nkey_path = "%s/xerj.key"\n' \
+    "$escaped_config" "$escaped_config" "$escaped_config" > "$xerj_config_scratch"
+  mv -f -- "$xerj_config_scratch" "$xerj_data/managed.toml"
+  xerj_config_scratch=''
+  case $mode in
+    server) forwarded=(--config "$xerj_data/managed.toml" --data-dir "$xerj_data" --bind "${XERJ_BIND_ADDRESS:-127.0.0.1}") ;;
+    index) forwarded=(index --config "$xerj_data/managed.toml" --data-dir "$xerj_data") ;;
+    autoindex) forwarded=(autoindex --state-dir "$xerj_data/autoindex") ;;
+    *) forwarded=("$mode") ;;
+  esac
+  # Preserve HOME, streams and exit/signal identity; use known environment inputs.
+  # These settings route automatic state. They do not sandbox server API writes.
+  exec env -i HOME="$HOME" PATH="$PATH" GESTALT_HOME="$gestalt_home" CODEX_HOME="$codex_home" \
+    XERJ_INSTALL_DIR="$xerj_root" XERJ_API_KEY="$xerj_api_key" XERJ_AUTH="$xerj_auth" XERJ_URL="$xerj_url" \
+    XERJ_CODE_HOME="$xerj_data/code" \
+    XERJ_LOG="${XERJ_LOG:-info}" XERJ_DISABLE_FEEDBACK="${XERJ_DISABLE_FEEDBACK:-false}" \
+    XDG_CACHE_HOME="$xerj_data/cache" XDG_CONFIG_HOME="$xerj_data/config" XDG_DATA_HOME="$xerj_data/share" \
+    HF_HOME="$xerj_data/cache/huggingface" TMPDIR="$xerj_data/tmp" \
+    LANG="${LANG:-C}" TERM="${TERM:-dumb}" "$xerj_bin" "${forwarded[@]}" "${xerj_user_args[@]}"
 }
 
 require_command() {
@@ -1384,6 +1637,7 @@ main() {
     __update-restart-worker) command_update_restart_worker "$@" ;;
     cli) command_cli "$@" ;;
     mobile) command_mobile "$@" ;;
+    xerj) command_xerj "$@" ;;
     path) command_path "$@" ;;
     skills-export) command_skills_export "$@" ;;
     skills-import) command_skills_import "$@" ;;

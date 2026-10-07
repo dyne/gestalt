@@ -7,6 +7,7 @@ bash -n "$repo_root/public/gestalt"
 bash -n "$repo_root/public/install.sh"
 bash "$repo_root/tests/gestalt-cli.test.sh"
 bash "$repo_root/tests/install.test.sh"
+bash "$repo_root/tests/xerj.test.sh"
 bash "$repo_root/tests/skills-transfer.test.sh"
 node --test "$repo_root/tests/versioning.test.mjs"
 
@@ -16,6 +17,7 @@ if command -v shellcheck >/dev/null 2>&1; then
     "$repo_root/public/install.sh" \
     "$repo_root/tests/gestalt-cli.test.sh" \
     "$repo_root/tests/install.test.sh" \
+    "$repo_root/tests/xerj.test.sh" \
     "$repo_root/tests/skills-transfer.test.sh"
 else
   printf 'tests: shellcheck unavailable; static shell lint skipped\n' >&2

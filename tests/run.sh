@@ -10,6 +10,8 @@ bash "$repo_root/tests/install.test.sh"
 bash "$repo_root/tests/xerj.test.sh"
 node --test "$repo_root/tests/xerj-readiness.test.mjs"
 node --test "$repo_root/tests/xerj-lifecycle.test.mjs"
+node --test "$repo_root/tests/xerj-cli-startup.test.mjs"
+node --test "$repo_root/tests/xerj-cli-native.test.mjs"
 bash "$repo_root/tests/skills-transfer.test.sh"
 node --test "$repo_root/tests/versioning.test.mjs"
 

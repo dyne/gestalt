@@ -73,6 +73,7 @@ Commands:
                             Update from a live Mobile session, then restart Mobile.
   cli [--] [args...]        Start Codex with ~/.codex-gestalt as CODEX_HOME.
   mobile [--] [args...]     Start the managed Gestalt Mobile executable.
+  serena mcp --cwd ROOT    Confined workspace MCP; always Codex context and editing mode.
   xerj install              Install the checksum-verified managed xerj release.
   xerj update [VERSION]     Install an official release (default: latest).
   xerj test [--json]        Test installed XERJ in disposable storage; never real indexes.
@@ -1106,6 +1107,249 @@ try {
 console.log(JSON.stringify(result));
 }
 JS
+}
+
+command_serena() {
+  [[ ${1:-} == mcp ]] || die 'usage: gestalt serena mcp --cwd ROOT (install/update are not yet available)'
+  shift
+  [[ $# == 2 && $1 == --cwd && -n $2 ]] || die 'usage: gestalt serena mcp --cwd ROOT; context, mode and project cannot be overridden'
+  require_command node
+  require_command codex
+  [[ -d $2 ]] || die 'Serena workspace must be an existing directory'
+  [[ -f $gestalt_home/serena/active.json ]] || die 'Serena is not installed; run gestalt serena install'
+  GESTALT_SERENA_WORKSPACE=$2 GESTALT_SERENA_INSTALL=$gestalt_home/serena/active.json run_serena_proxy
+}
+
+run_serena_proxy() {
+  exec node --input-type=module - 3<&0 <<'NODE'
+import { spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
+import { createReadStream } from 'node:fs';
+import { readFile, realpath } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const workspace = await realpath(process.env.GESTALT_SERENA_WORKSPACE);
+const install = JSON.parse(await readFile(process.env.GESTALT_SERENA_INSTALL, 'utf8'));
+const prepare = String.raw`import sys, os, json, pathlib, tempfile, fcntl
+sys.dont_write_bytecode = True
+root = pathlib.Path(sys.argv[1])
+executable = sys.argv[2]
+settings = json.loads(sys.argv[3])
+state = root / '.gestalt' / 'serena'
+try:
+    # Refuse redirected state before creating or importing anything that writes.
+    for path in (root / '.gestalt', state):
+        if path.is_symlink() or (path.exists() and not path.is_dir()):
+            raise ValueError('workspace state must be a directory without symlinks')
+    if state.exists():
+        for directory, dirs, files in os.walk(state, followlinks=False):
+            for name in dirs + files:
+                path = pathlib.Path(directory) / name
+                if path.is_symlink():
+                    target = path.resolve()
+                    if not target.is_relative_to(state) and target != pathlib.Path(settings['python']).resolve():
+                        raise ValueError('workspace state contains an escaping symlink')
+    state.mkdir(parents=True, exist_ok=True, mode=0o700)
+    lock = open(state / '.prepare.lock', 'a')
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    directories = ['home', 'tmp', 'uv-tools', 'uv-bin', 'uv-cache', 'xdg-cache', 'xdg-config',
+                   'xdg-data', 'xdg-state', 'pycache', 'python-user', 'npm-cache', 'npm-prefix', 'clangd']
+    for name in directories:
+        (state / name).mkdir(exist_ok=True, mode=0o700)
+    os.environ.update({
+        'SERENA_HOME': str(state), 'SERENA_USAGE_REPORTING': 'false', 'HOME': str(state / 'home'),
+        'TMPDIR': str(state / 'tmp'), 'TMP': str(state / 'tmp'), 'TEMP': str(state / 'tmp'),
+        'UV_TOOL_DIR': str(state / 'uv-tools'), 'UV_TOOL_BIN_DIR': str(state / 'uv-bin'),
+        'UV_CACHE_DIR': str(state / 'uv-cache'), 'UV_PYTHON_INSTALL_DIR': settings['pythonInstallDir'],
+        'UV_PYTHON_DOWNLOADS': 'never', 'PYTHONPYCACHEPREFIX': str(state / 'pycache'),
+        'PYTHONUSERBASE': str(state / 'python-user'), 'PIP_CACHE_DIR': str(state / 'xdg-cache' / 'pip'),
+        'XDG_CACHE_HOME': str(state / 'xdg-cache'), 'XDG_CONFIG_HOME': str(state / 'xdg-config'),
+        'XDG_DATA_HOME': str(state / 'xdg-data'), 'XDG_STATE_HOME': str(state / 'xdg-state'),
+        'npm_config_cache': str(state / 'npm-cache'), 'npm_config_prefix': str(state / 'npm-prefix'),
+        'PATH': str(pathlib.Path(settings['uv']).parent) + os.pathsep + os.environ.get('PATH', ''),
+    })
+    from ruamel.yaml import YAML
+    from serena.config.serena_config import SerenaConfig, ProjectConfig, ProjectConfigAutoGenerationMode
+    yaml = YAML()
+    def load(path):
+        with open(path) as stream:
+            value = yaml.load(stream)
+        if not isinstance(value, dict):
+            raise ValueError('invalid native Serena configuration')
+        return value
+    def save(path, value):
+        if path.exists() and load(path) == value:
+            return
+        with tempfile.NamedTemporaryFile(mode='w', dir=state, delete=False) as stream:
+            staged = stream.name
+            yaml.dump(value, stream)
+        os.replace(staged, path)
+    # Generate the release's own defaults, then apply only managed invariants.
+    SerenaConfig.from_config_file()
+    global_path = state / 'serena_config.yml'
+    config = load(global_path)
+    config['project_serena_folder_location'] = '$projectDir/.gestalt/serena'
+    config['web_dashboard'] = False
+    config['web_dashboard_open_on_launch'] = False
+    config['gui_log_window'] = False
+    config['trusted_project_path_patterns'] = []
+    config['projects'] = [str(root)]
+    config['ignored_paths'] = list(dict.fromkeys([*(config.get('ignored_paths') or []), '.gestalt/**']))
+    ls = config.get('ls_specific_settings') or {}
+    config['ls_specific_settings'] = ls
+    ls.setdefault('cpp', {})['compile_commands_dir'] = '.gestalt/serena/clangd'
+    config['excluded_tools'] = list(dict.fromkeys([*(config.get('excluded_tools') or []),
+        'execute_shell_command', 'activate_project', 'switch_modes']))
+    save(global_path, config)
+    # Preserve legacy data in place. Only initialize the new native configuration
+    # from existing project settings, never copy/move legacy memories or caches.
+    for name in ('project.yml', 'project.local.yml'):
+        destination, legacy = state / name, root / '.serena' / name
+        if not destination.exists() and legacy.is_file():
+            save(destination, load(legacy))
+    native = SerenaConfig.from_config_file()
+    project_path = state / 'project.yml'
+    ProjectConfig.load(root, native, autogen=ProjectConfigAutoGenerationMode.SYNCHRONOUS)
+    project = load(project_path)
+    project['ignored_paths'] = list(dict.fromkeys([*(project.get('ignored_paths') or []), '.gestalt/**']))
+    save(project_path, project)
+    lock.close()
+except Exception as error:
+    sys.stderr.write('gestalt: Serena workspace preparation failed: ' + str(error) + '\n')
+    sys.exit(1)
+os.execve(executable, [executable, *sys.argv[4:]], os.environ)
+`;
+const allowed = new Set(['replace_in_files', 'replace_symbol_body', 'insert_after_symbol', 'insert_before_symbol',
+  'search_for_pattern', 'get_symbols_overview', 'find_symbol', 'find_referencing_symbols', 'find_implementations',
+  'find_declaration', 'get_diagnostics_for_file', 'rename_symbol', 'safe_delete_symbol', 'write_memory', 'read_memory',
+  'list_memories', 'delete_memory', 'rename_memory', 'edit_memory', 'get_current_config', 'onboarding', 'initial_instructions']);
+if (install.schemaVersion !== 1 || install.version !== '1.7.0' || typeof install.executable !== 'string' || typeof install.python !== 'string' ||
+    typeof install.uv !== 'string' || typeof install.pythonInstallDir !== 'string' ||
+    !Array.isArray(install.tools) || !install.tools.length || install.tools.some(t => !t?.name || !t.inputSchema))
+  throw new Error('incompatible Serena installation; run gestalt serena install');
+const tools = install.tools.filter(t => allowed.has(t.name));
+if (!['get_symbols_overview', 'find_symbol', 'initial_instructions'].every(name => tools.some(t => t.name === name)))
+  throw new Error('incomplete Serena tool catalog; run gestalt serena install');
+const guidance = 'Serena is bound to the active workspace. Follow the session instructions and approvals; '
+  + 'collaboration plan mode prohibits edits even when the native filesystem policy permits them. '
+  + 'A listed tool does not grant write authority. Do not switch projects or modes.';
+const send = message => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n');
+let runtime;
+let closed = false;
+let nextId = 0;
+const budget = 30000;
+// The supervisor owns a lifetime pipe separate from MCP stdin. Its EOF survives
+// even an uncatchable proxy/owner exit and reaps the complete native process group.
+const supervise = `
+const {spawn}=require('node:child_process');
+const child=spawn(process.argv[1],JSON.parse(process.argv[2]),{cwd:process.argv[3],env:process.env,detached:process.platform!=='win32',stdio:[3,'inherit','inherit']});
+let ending=false,exitCode=0;
+function stop(){if(ending)return;ending=true;try{process.kill(-child.pid,'SIGTERM');}catch{}setTimeout(()=>{try{process.kill(-child.pid,'SIGKILL');}catch{}process.exit(exitCode);},750);}
+process.stdin.resume();process.stdin.on('end',stop);process.on('SIGTERM',stop);process.on('SIGINT',stop);
+// Leader exit does not prove descendant exit: retain the bounded escalation.
+child.on('error',()=>process.exit(1));child.on('exit',code=>{if(!ending)exitCode=code??1;stop();});
+`;
+async function stop() {
+  const old = runtime;
+  runtime = undefined;
+  if (!old) return;
+  old.child.stdin.end();
+  old.child.stdio[3].end();
+  for (const waiter of old.pending.values()) waiter.reject(new Error('Serena process stopped'));
+  old.pending.clear();
+  await old.exited;
+  old.lines.close();
+}
+function policy(message) {
+  const state = message.params?._meta?.['codex/sandbox-state-meta'];
+  if (!state || state.permissionProfile?.type !== 'managed' ||
+      state.permissionProfile.file_system?.type !== 'restricted' ||
+      !Array.isArray(state.permissionProfile.file_system.entries) || typeof state.sandboxCwd !== 'string')
+    throw new Error('Serena unavailable: supported effective Codex sandbox metadata required');
+  // Accept only the native state for this bound workspace, never caller tool args.
+  if (resolve(fileURLToPath(state.sandboxCwd)) !== workspace)
+    throw new Error('Serena unavailable: Codex sandbox workspace differs from the bound project');
+  return state;
+}
+async function start(state) {
+  const key = JSON.stringify(state);
+  if (runtime?.key === key && runtime.child.exitCode === null) return runtime;
+  await stop();
+  const args = ['sandbox', '--sandbox-state-json', key, '--', install.python, '-c', prepare, workspace, install.executable,
+    JSON.stringify({ python: install.python, uv: install.uv, pythonInstallDir: install.pythonInstallDir }),
+    'start-mcp-server', '--project', workspace, '--context', 'codex', '--mode', 'editing',
+    '--enable-web-dashboard', 'false', '--open-web-dashboard', 'false', '--enable-gui-log-window', 'false'];
+  const child = spawn(process.execPath, ['-e', supervise, 'codex', JSON.stringify(args), workspace],
+    { cwd: workspace, env: process.env, stdio: ['pipe', 'pipe', 'inherit', 'pipe'] });
+  const pending = new Map();
+  const exited = new Promise(resolveExit => {
+    child.once('close', resolveExit);
+    child.once('error', resolveExit);
+  });
+  const lines = createInterface({ input: child.stdout });
+  const instance = { key, child, pending, exited, lines };
+  runtime = instance;
+  const fail = () => { for (const waiter of pending.values()) waiter.reject(new Error('Serena native sandbox exited')); pending.clear(); };
+  child.on('error', fail); child.on('exit', fail); child.stdio[3].on('error', fail); child.stdin.on('error', fail);
+  lines.on('line', line => {
+    let message;
+    try { message = JSON.parse(line); } catch { fail(); child.stdin.end(); return; }
+    const waiter = pending.get(message.id);
+    if (!waiter) return;
+    pending.delete(message.id);
+    message.error ? waiter.reject(new Error('Serena MCP request failed')) : waiter.resolve(message.result);
+  });
+  instance.request = (method, params) => new Promise((resolveRequest, reject) => {
+    const id = ++nextId;
+    const timer = setTimeout(() => { pending.delete(id); reject(new Error('Serena MCP request timed out')); child.stdin.end(); }, budget);
+    pending.set(id, { resolve: result => { clearTimeout(timer); resolveRequest(result); }, reject: error => { clearTimeout(timer); reject(error); } });
+    child.stdio[3].write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
+  });
+  await instance.request('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'gestalt-serena', version: '1' } });
+  child.stdio[3].write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
+  const live = await instance.request('tools/list', {});
+  if (!tools.every(tool => live.tools?.some(t => t.name === tool.name && JSON.stringify(t.inputSchema) === JSON.stringify(tool.inputSchema)))) {
+    await stop();
+    throw new Error('Serena installed tool catalog does not match the running release');
+  }
+  return instance;
+}
+async function handle(message) {
+  if (message.id === undefined) return;
+  try {
+    let result;
+    if (message.method === 'initialize') result = { protocolVersion: message.params?.protocolVersion ?? '2024-11-05',
+      capabilities: { tools: {}, experimental: { 'codex/sandbox-state-meta': {} } },
+      serverInfo: { name: 'gestalt-serena', version: install.version }, instructions: guidance };
+    else if (message.method === 'ping') result = {};
+    else if (message.method === 'tools/list') result = { tools };
+    else if (message.method === 'tools/call') {
+      if (!tools.some(tool => tool.name === message.params?.name)) throw new Error('Serena tool unavailable in the bound Codex context');
+      const state = policy(message);
+      const instance = await start(state);
+      result = await instance.request('tools/call', { name: message.params.name, arguments: message.params.arguments ?? {} });
+      if (message.params.name === 'initial_instructions' && Array.isArray(result.content))
+        result.content.push({ type: 'text', text: guidance });
+    } else { send({ id: message.id, error: { code: -32601, message: 'Unsupported managed Serena MCP method' } }); return; }
+    send({ id: message.id, result });
+  } catch (error) {
+    await stop();
+    send({ id: message.id, error: { code: -32000, message: error.message } });
+  }
+}
+const input = createInterface({ input: createReadStream(null, { fd: 3 }) });
+let queue = Promise.resolve();
+input.on('line', line => {
+  let message;
+  try { message = JSON.parse(line); } catch { send({ id: null, error: { code: -32700, message: 'Invalid JSON' } }); return; }
+  queue = queue.then(() => closed ? undefined : handle(message));
+});
+async function close() { if (closed) return; closed = true; input.close(); await stop(); }
+input.on('close', () => { void close(); });
+for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => { void close(); });
+
+NODE
 }
 
 command_xerj() {
@@ -2927,6 +3171,7 @@ main() {
     cli) command_cli "$@" ;;
     mobile) command_mobile "$@" ;;
     xerj) command_xerj "$@" ;;
+    serena) command_serena "$@" ;;
     path) command_path "$@" ;;
     skills-export) command_skills_export "$@" ;;
     skills-import) command_skills_import "$@" ;;

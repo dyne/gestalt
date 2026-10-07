@@ -13,6 +13,8 @@ node --test "$repo_root/tests/xerj-readiness.test.mjs"
 node --test "$repo_root/tests/xerj-lifecycle.test.mjs"
 node --test "$repo_root/tests/xerj-cli-startup.test.mjs"
 node --test "$repo_root/tests/xerj-cli-native.test.mjs"
+node --test "$repo_root/tests/serena-authority.test.mjs" "$repo_root/tests/serena-storage.test.mjs" \
+  "$repo_root/tests/serena-native.test.mjs" "$repo_root/tests/serena-real.test.mjs"
 bash "$repo_root/tests/skills-transfer.test.sh"
 node --test "$repo_root/tests/versioning.test.mjs"
 

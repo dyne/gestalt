@@ -1404,6 +1404,25 @@ command_serena() {
   local action=${1:-help}
   if (($#)); then shift; fi
   case $action in
+    help | -h | --help)
+      (($# == 0)) || die 'usage: gestalt serena help'
+      cat <<'EOF'
+Usage: gestalt serena <command> [options]
+
+Commands:
+  install                    Install private uv, Python 3.13 and tested Serena.
+  update [VERSION]           Validate and activate a release; retain prior tooling.
+  version                    Read the installed version without starting Serena.
+  doctor [--cwd ROOT] [--json] Check installation and optional workspace readiness.
+  index --cwd ROOT           Warm symbol and language caches for a project.
+  mcp --cwd ROOT             Start the workspace MCP stdio connection.
+
+Install once with 'gestalt serena install'. Codex and Mobile start the MCP
+connection for selected workspaces when the Serena skill is enabled.
+Use 'gestalt serena mcp --cwd /absolute/project/path' for an MCP client;
+the command speaks JSON-RPC over stdin/stdout and runs until the client exits.
+EOF
+      ;;
     install)
       (($# == 0)) || die 'usage: gestalt serena install'
       if [[ -f $gestalt_home/serena/active.json ]] && serena_install_valid; then

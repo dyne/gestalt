@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
 import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 
 const source = await readFile(resolve('public/gestalt'), 'utf8');
-const prepare = source.split('const prepare = String.raw`')[1].split('`;')[0];
+const prepare = source.split("serena_workspace_prepare() {\n  cat <<'PYTHON'\n")[1].split('\nPYTHON\n}')[0];
 const manager = resolve('public/gestalt');
 async function run(command, args, env, input) {
   const child = spawn(command, args, { env, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -128,4 +129,74 @@ test('public MCP rejects caller context/project/mode and missing/non-directory r
     }
     assert.deepEqual(await readdir(f.home), []);
   } finally { await f.close(); }
+});
+
+test('updates retain exact validated interpreter links in uv venvs; other escaping links still fail', async () => {
+  const f = await fixture();
+  try {
+    const state = join(f.workspace, '.gestalt/serena'), bin = join(state, 'uv-cache/archive-v0/retained/bin');
+    const previous = join(f.root, 'retained-python');
+    await writeFile(previous, 'immutable interpreter');
+    await mkdir(bin, { recursive:true }); await symlink(previous,join(bin,'python'));
+    let result = await f.boot(); assert.notEqual(result.code,0);
+    f.settings.pythonExecutables = [previous];
+    result = await f.boot(); assert.equal(result.code,0,result.stderr);
+    await symlink(previous,join(state,'memory-link'));
+    result = await f.boot(); assert.notEqual(result.code,0);assert.match(result.stderr,/escaping symlink/);
+    assert.equal(await readFile(previous,'utf8'),'immutable interpreter');
+  } finally { await f.close(); }
+});
+
+
+test('managed MCP carries retained interpreter targets into actual workspace preparation', async () => {
+  const f = await fixture();
+  let child, lines;
+  try {
+    const state=join(f.workspace,'.gestalt/serena'), bin=join(state,'uv-cache/archive-v0/prior/bin');
+    const previous=join(f.root,'previous-python'), managed=join(f.root,'managed'), commands=join(f.root,'commands');
+    await mkdir(bin,{recursive:true});await mkdir(join(managed,'serena'),{recursive:true});await mkdir(commands);
+    await writeFile(previous,'retained immutable interpreter');await symlink(previous,join(bin,'python'));
+    const catalog=['get_symbols_overview','find_symbol','initial_instructions','replace_symbol_body'].map(name=>({name,inputSchema:{type:'object'}}));
+    const native=join(f.root,'mcp-native');
+    await writeFile(native,`#!/usr/bin/env python3
+import sys,json
+for line in sys.stdin:
+ message=json.loads(line)
+ if 'id' not in message:continue
+ if message['method']=='tools/list':result={'tools':${JSON.stringify(catalog)}}
+ elif message['method']=='initialize':result={}
+ else:result={'content':[{'type':'text','text':'prepared retained cache'}]}
+ print(json.dumps({'id':message['id'],'result':result}),flush=True)
+`,{mode:0o755});
+    // The OS boundary is covered by native tests. This stand-in executes the exact
+    // manager preparation arguments to isolate descriptor propagation regression.
+    await writeFile(join(commands,'codex'),`#!/usr/bin/env python3
+import sys,os
+args=sys.argv[sys.argv.index('--')+1:]
+os.execv(args[0],args)
+`,{mode:0o755});
+    const descriptor={schemaVersion:1,contractVersion:1,version:'1.7.0',python:'/usr/bin/python3',
+      executable:native,uv:f.settings.uv,pythonInstallDir:f.settings.pythonInstallDir,pythonExecutables:[previous],tools:catalog};
+    await writeFile(join(managed,'serena/active.json'),JSON.stringify(descriptor));
+    const env={...f.env,PATH:commands+':'+process.env.PATH,CODEX_HOME:join(f.root,'codex'),GESTALT_HOME:managed};
+    const policy={permissionProfile:{type:'managed',file_system:{type:'restricted',entries:[
+      {path:{type:'special',value:{kind:'root'}},access:'read'},
+      {path:{type:'path',path:f.workspace},access:'write'}]},network:'enabled'},
+      sandboxCwd:new URL('file://'+f.workspace).href,useLegacyLandlock:false};
+    child=spawn('bash',[manager,'serena','mcp','--cwd',f.workspace],{env,stdio:['pipe','pipe','pipe']});
+    let stderr='';child.stderr.on('data',part=>stderr+=part);
+    lines=createInterface({input:child.stdout});
+    const response=new Promise((resolveResponse,reject)=>{
+      const timer=setTimeout(()=>reject(Error('MCP preparation deadline: '+stderr)),10000);
+      lines.on('line',line=>{const message=JSON.parse(line);if(message.id===1){clearTimeout(timer);resolveResponse(message);}});
+    });
+    child.stdin.write(JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'find_symbol',arguments:{},
+      _meta:{'codex/sandbox-state-meta':policy}}})+'\n');
+    const message=await response;assert.ok(!message.error,JSON.stringify(message.error)+' '+stderr);
+    assert.equal(message.result.content[0].text,'prepared retained cache');
+    assert.equal(await readFile(previous,'utf8'),'retained immutable interpreter');
+  } finally {
+    if(child){child.stdin.end();if(child.exitCode===null)await new Promise(r=>child.once('exit',r));}
+    lines?.close();await f.close();
+  }
 });

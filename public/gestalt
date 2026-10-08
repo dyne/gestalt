@@ -10,6 +10,11 @@ readonly DEFAULT_MARKETPLACE_NAME='dyne-gestalt-agents'
 readonly SUPERVISION_CAPABILITY_SCHEMA=1
 readonly SUPERVISION_CONTRACT_VERSION=1
 readonly MANAGED_XERJ_VERSION='1.0.0-rc.87'
+readonly MANAGED_SERENA_VERSION='1.7.0'
+readonly MANAGED_UV_VERSION='0.12.23'
+serena_install_candidate=''
+serena_install_lock=''
+serena_install_process_pid=''
 xerj_install_scratch=''
 xerj_config_scratch=''
 manager_update_temp_root=''
@@ -36,6 +41,24 @@ on_error() {
 trap 'on_error "$LINENO"' ERR
 
 cleanup() {
+  if [[ -n $serena_install_process_pid ]]; then
+    kill -TERM "$serena_install_process_pid" 2>/dev/null || true
+    wait "$serena_install_process_pid" 2>/dev/null || true
+  fi
+  if [[ -n $serena_install_candidate && -d $serena_install_candidate ]]; then
+    # A signal between atomic promotion and clearing the flag must preserve the active release.
+    if node - "$gestalt_home/serena/active.json" "$serena_install_candidate" <<'JS'
+const fs=require('node:fs');
+try {const d=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));process.exit(d.executable===process.argv[3]+'/bin/serena'?1:0);}
+catch(error){process.exit(error.code==='ENOENT'?0:1);}
+JS
+    then
+      rm -rf -- "$serena_install_candidate"
+    fi
+  fi
+  if [[ -n $serena_install_lock && -d $serena_install_lock ]]; then
+    rmdir -- "$serena_install_lock" 2>/dev/null || true
+  fi
   if [[ -n $xerj_config_scratch && -f $xerj_config_scratch ]]; then
     rm -f -- "$xerj_config_scratch"
   fi
@@ -73,7 +96,12 @@ Commands:
                             Update from a live Mobile session, then restart Mobile.
   cli [--] [args...]        Start Codex with ~/.codex-gestalt as CODEX_HOME.
   mobile [--] [args...]     Start the managed Gestalt Mobile executable.
-  serena mcp --cwd ROOT    Confined workspace MCP; always Codex context and editing mode.
+  serena install            Install private uv, Python 3.13 and tested Serena.
+  serena update [VERSION]   Validate and activate a release; retain prior tooling.
+  serena version, -V        Read installed package metadata without creating state.
+  serena doctor [--cwd ROOT] Check install, MCP tools and optional language readiness.
+  serena index --cwd ROOT    Explicit native symbol/cache warmup for one project.
+  serena mcp --cwd ROOT      Confined workspace MCP; always Codex context and editing mode.
   xerj install              Install the checksum-verified managed xerj release.
   xerj update [VERSION]     Install an official release (default: latest).
   xerj test [--json]        Test installed XERJ in disposable storage; never real indexes.
@@ -1109,29 +1137,9 @@ console.log(JSON.stringify(result));
 JS
 }
 
-command_serena() {
-  [[ ${1:-} == mcp ]] || die 'usage: gestalt serena mcp --cwd ROOT (install/update are not yet available)'
-  shift
-  [[ $# == 2 && $1 == --cwd && -n $2 ]] || die 'usage: gestalt serena mcp --cwd ROOT; context, mode and project cannot be overridden'
-  require_command node
-  require_command codex
-  [[ -d $2 ]] || die 'Serena workspace must be an existing directory'
-  [[ -f $gestalt_home/serena/active.json ]] || die 'Serena is not installed; run gestalt serena install'
-  GESTALT_SERENA_WORKSPACE=$2 GESTALT_SERENA_INSTALL=$gestalt_home/serena/active.json run_serena_proxy
-}
-
-run_serena_proxy() {
-  exec node --input-type=module - 3<&0 <<'NODE'
-import { spawn } from 'node:child_process';
-import { createInterface } from 'node:readline';
-import { createReadStream } from 'node:fs';
-import { readFile, realpath } from 'node:fs/promises';
-import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const workspace = await realpath(process.env.GESTALT_SERENA_WORKSPACE);
-const install = JSON.parse(await readFile(process.env.GESTALT_SERENA_INSTALL, 'utf8'));
-const prepare = String.raw`import sys, os, json, pathlib, tempfile, fcntl
+serena_workspace_prepare() {
+  cat <<'PYTHON'
+import sys, os, json, pathlib, tempfile, fcntl
 sys.dont_write_bytecode = True
 root = pathlib.Path(sys.argv[1])
 executable = sys.argv[2]
@@ -1142,13 +1150,18 @@ try:
     for path in (root / '.gestalt', state):
         if path.is_symlink() or (path.exists() and not path.is_dir()):
             raise ValueError('workspace state must be a directory without symlinks')
+    interpreter_targets = {pathlib.Path(settings['python']).resolve()}
+    interpreter_targets.update(pathlib.Path(p).resolve() for p in settings.get('pythonExecutables', []))
     if state.exists():
         for directory, dirs, files in os.walk(state, followlinks=False):
             for name in dirs + files:
                 path = pathlib.Path(directory) / name
                 if path.is_symlink():
                     target = path.resolve()
-                    if not target.is_relative_to(state) and target != pathlib.Path(settings['python']).resolve():
+                    interpreter_link = (path.name in {'python', 'python3', 'python3.13'} and path.parent.name == 'bin'
+                        and (path.is_relative_to(state / 'uv-tools') or path.is_relative_to(state / 'uv-cache'))
+                        and target in interpreter_targets)
+                    if not target.is_relative_to(state) and not interpreter_link:
                         raise ValueError('workspace state contains an escaping symlink')
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
     lock = open(state / '.prepare.lock', 'a')
@@ -1219,17 +1232,451 @@ except Exception as error:
     sys.stderr.write('gestalt: Serena workspace preparation failed: ' + str(error) + '\n')
     sys.exit(1)
 os.execve(executable, [executable, *sys.argv[4:]], os.environ)
+PYTHON
+}
+
+# Own native descendants independently of the SDK's detached stdio process.
+serena_operator_supervisor() {
+  cat <<'JS'
+const {spawn}=require('node:child_process');
+const child=spawn(process.argv[1],JSON.parse(process.argv[2]),{env:process.env,detached:true,stdio:['pipe','inherit','inherit']});
+let ending=false,code=0;
+function stop(){if(ending)return;ending=true;try{process.kill(-child.pid,'SIGTERM');}catch{}setTimeout(()=>{try{process.kill(-child.pid,'SIGKILL');}catch{}process.exit(code);},500);}
+process.stdin.pipe(child.stdin);child.stdin.on('error',()=>{});
+process.stdin.on('end',stop);process.on('SIGTERM',stop);process.on('SIGINT',stop);
+child.on('error',()=>process.exit(1));child.on('exit',value=>{if(!ending)code=value??1;stop();});
+JS
+}
+
+run_serena_install_process() {
+  node -e '
+const {spawn}=require("node:child_process");
+const child=spawn(process.argv[1],process.argv.slice(2),{env:process.env,detached:true,stdio:["ignore","inherit","inherit"]});
+let ending=false,code=0;
+function stop(){if(ending)return;ending=true;try{process.kill(-child.pid,"SIGTERM");}catch{}setTimeout(()=>{try{process.kill(-child.pid,"SIGKILL");}catch{}process.exit(code);},500);}
+process.on("SIGTERM",()=>{code=143;stop();});process.on("SIGINT",()=>{code=130;stop();});
+child.on("error",()=>process.exit(1));child.on("exit",value=>{if(!ending)code=value??1;stop();});
+' "$@" &
+  serena_install_process_pid=$!
+  wait "$serena_install_process_pid"
+  serena_install_process_pid=''
+}
+
+install_serena() {
+  local version=${1:-$MANAGED_SERENA_VERSION} os cpu target asset base expected actual listing candidate
+  [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die 'Serena release must be a stable VERSION (major.minor.patch)'
+  require_command node
+  require_command curl
+  require_command tar
+  require_command mktemp
+  os=$(uname -s)
+  cpu=$(uname -m)
+  case $cpu in
+    x86_64 | amd64) cpu=x86_64 ;;
+    aarch64 | arm64) cpu=aarch64 ;;
+    *) die "unsupported Serena CPU: $cpu" ;;
+  esac
+  case $os in
+    Linux) target=$cpu-unknown-linux-gnu ;;
+    Darwin) target=$cpu-apple-darwin ;;
+    *) die "managed Serena supports Linux and macOS, not $os" ;;
+  esac
+  validate_xerj_path "$gestalt_home/serena"
+  umask 077
+  mkdir -p -- "$gestalt_home/serena"
+  mkdir -- "$gestalt_home/serena/.install-lock" 2>/dev/null ||
+    die 'Serena install already running (after a killed installer, verify it exited before removing .install-lock)'
+  serena_install_lock=$gestalt_home/serena/.install-lock
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  # Construct at the final path: uv environments contain absolute interpreter paths.
+  serena_install_candidate=$(mktemp -d "$gestalt_home/serena/release-$version.XXXXXXXX")
+  candidate=$serena_install_candidate
+  mkdir -- "$candidate/bin" "$candidate/home" "$candidate/tmp"
+  asset=uv-$target.tar.gz
+  base=https://github.com/astral-sh/uv/releases/download/$MANAGED_UV_VERSION
+  curl -q --fail --location --silent --show-error --proto '=https' --proto-redir '=https' \
+    --connect-timeout 20 --max-time 120 "$base/$asset" --output "$candidate/uv.tar.gz"
+  curl -q --fail --location --silent --show-error --proto '=https' --proto-redir '=https' \
+    --connect-timeout 20 --max-time 120 "$base/$asset.sha256" --output "$candidate/uv.sha256"
+  IFS=' ' read -r expected _ < "$candidate/uv.sha256" || die 'missing uv checksum'
+  [[ $expected =~ ^[[:xdigit:]]{64}$ ]] || die 'invalid uv checksum'
+  actual=$(calculate_sha256 "$candidate/uv.tar.gz")
+  actual=${actual%% *}
+  actual=$(printf '%s' "$actual" | tr 'A-F' 'a-f')
+  expected=$(printf '%s' "$expected" | tr 'A-F' 'a-f')
+  [[ $actual == "$expected" ]] || die 'uv checksum mismatch; prior Serena installation preserved'
+  unset TAR_OPTIONS GZIP
+  listing=$(tar -tvzf "$candidate/uv.tar.gz" "uv-$target/uv")
+  [[ $listing == -* && $listing != *$'\n'* ]] || die 'uv archive must contain one regular binary'
+  tar -xOzf "$candidate/uv.tar.gz" "uv-$target/uv" > "$candidate/bin/uv"
+  chmod 0755 "$candidate/bin/uv"
+  case $("$candidate/bin/uv" --version) in
+    "uv $MANAGED_UV_VERSION" | "uv $MANAGED_UV_VERSION ("*")") ;;
+    *) die 'downloaded uv version mismatch' ;;
+  esac
+  # All installation writes are private. Never invoke the uv installer or modify profiles.
+  run_serena_install_process env HOME="$candidate/home" TMPDIR="$candidate/tmp" UV_TOOL_DIR="$candidate/tools" \
+    UV_TOOL_BIN_DIR="$candidate/bin" UV_CACHE_DIR="$candidate/cache" UV_PYTHON_INSTALL_DIR="$candidate/python" \
+    UV_PYTHON_BIN_DIR="$candidate/bin" UV_NO_PROGRESS=1 UV_NO_CONFIG=1 \
+    "$candidate/bin/uv" python install 3.13 --no-bin </dev/null
+  run_serena_install_process env HOME="$candidate/home" TMPDIR="$candidate/tmp" UV_TOOL_DIR="$candidate/tools" \
+    UV_TOOL_BIN_DIR="$candidate/bin" UV_CACHE_DIR="$candidate/cache" UV_PYTHON_INSTALL_DIR="$candidate/python" \
+    UV_PYTHON_DOWNLOADS=never UV_NO_PROGRESS=1 UV_NO_CONFIG=1 \
+    "$candidate/bin/uv" tool install --managed-python --python 3.13 "serena-agent==$version" </dev/null
+  [[ -x $candidate/bin/serena && -x $candidate/tools/serena-agent/bin/python ]] || die 'Serena installation has missing executables'
+  HOME="$candidate/home" TMPDIR="$candidate/tmp" SERENA_HOME="$candidate/probe" \
+    GESTALT_SERENA_PREPARE="$(serena_workspace_prepare)" GESTALT_SERENA_NODE="$(command -v node)" \
+    GESTALT_SERENA_SUPERVISOR="$(serena_operator_supervisor)" \
+    PYTHONDONTWRITEBYTECODE=1 UV_TOOL_DIR="$candidate/tools" UV_TOOL_BIN_DIR="$candidate/bin" \
+    UV_CACHE_DIR="$candidate/cache" UV_PYTHON_INSTALL_DIR="$candidate/python" UV_PYTHON_DOWNLOADS=never \
+    "$candidate/tools/serena-agent/bin/python" - "$candidate" "$version" <<'PYTHON'
+import asyncio, importlib.metadata, json, os, pathlib, subprocess, sys
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+root = pathlib.Path(sys.argv[1])
+version = importlib.metadata.version('serena-agent')
+if version != sys.argv[2] or sys.version_info[:2] != (3, 13):
+    raise RuntimeError('Serena package or managed Python version mismatch')
+executable = root / 'bin' / 'serena'
+settings = dict(python=str(root / 'tools/serena-agent/bin/python'), uv=str(root / 'bin/uv'), pythonInstallDir=str(root / 'python'))
+# Existing workspace uv caches may refer to a retained release's interpreter.
+# Validate those precise immutable targets; never admit a shared directory or arbitrary state link.
+interpreters = {str(pathlib.Path(settings['python']).resolve())}
+for release in root.parent.glob('release-*'):
+    previous_python = release / 'tools/serena-agent/bin/python'
+    if release.is_symlink() or not previous_python.is_file():
+        continue
+    probe = subprocess.run([str(previous_python), '-I', '-B', '-c',
+        'import importlib.metadata, json, sys; print(json.dumps({"serena":importlib.metadata.version("serena-agent"),"python":".".join(map(str,sys.version_info[:3]))}))'],
+        capture_output=True, text=True, timeout=5)
+    try:
+        identity = json.loads(probe.stdout)
+        if probe.returncode == 0 and identity['python'].startswith('3.13.') and release.name.startswith('release-' + identity['serena'] + '.'):
+            resolved = previous_python.resolve()
+            if resolved.is_relative_to(release / 'python'):
+                interpreters.add(str(resolved))
+    except (ValueError, KeyError, TypeError):
+        pass
+settings['pythonExecutables'] = sorted(interpreters)
+workspace = root / 'probe-workspace'
+workspace.mkdir()
+(workspace / 'example.py').write_text('def managed_probe():\n    return 1\n')
+preparation = os.environ['GESTALT_SERENA_PREPARE']
+# Exercise the release's native configuration APIs and project storage relocation.
+subprocess.run([sys.executable, '-c', preparation, str(workspace), str(executable), json.dumps(settings), '--help'],
+    check=True, timeout=20, stdout=subprocess.DEVNULL)
+if not (workspace / '.gestalt/serena/project.yml').is_file() or (workspace / '.serena').exists():
+    raise RuntimeError('incompatible Serena workspace storage contract')
+help_text = subprocess.check_output([str(executable), 'start-mcp-server', '--help'], timeout=15, text=True)
+for option in ('--context', '--mode', '--project', '--enable-web-dashboard', '--enable-gui-log-window'):
+    if option not in help_text:
+        raise RuntimeError('incompatible Serena CLI: missing ' + option)
+async def catalog():
+    parameters = StdioServerParameters(command=sys.executable, args=['-c', preparation, str(workspace), str(executable),
+        json.dumps(settings), 'start-mcp-server', '--context', 'codex', '--mode', 'editing', '--project', str(workspace),
+        '--enable-web-dashboard', 'false', '--open-web-dashboard', 'false', '--enable-gui-log-window', 'false'], env=dict(os.environ))
+    parameters = StdioServerParameters(command=os.environ['GESTALT_SERENA_NODE'],
+        args=['-e',os.environ['GESTALT_SERENA_SUPERVISOR'],parameters.command,json.dumps(parameters.args)],env=parameters.env)
+    async with stdio_client(parameters) as (reader, writer):
+        async with ClientSession(reader, writer) as session:
+            await session.initialize()
+            return [tool.model_dump(mode='json', exclude_none=True) for tool in (await session.list_tools()).tools]
+tools = asyncio.run(asyncio.wait_for(catalog(), timeout=30))
+required = {'get_symbols_overview', 'find_symbol', 'initial_instructions', 'replace_symbol_body', 'insert_after_symbol', 'write_memory'}
+if not required.issubset({tool['name'] for tool in tools}):
+    raise RuntimeError('incomplete Serena Codex editing tool contract')
+# Keep the venv Python path, not its symlink target: it selects installed packages.
+descriptor = dict(schemaVersion=1, contractVersion=1, version=version, executable=str(executable),
+    python=str(root / 'tools/serena-agent/bin/python'), uv=str(root / 'bin/uv'),
+    pythonInstallDir=str(root / 'python'), pythonExecutables=settings['pythonExecutables'], tools=tools)
+(root / 'active.json').write_text(json.dumps(descriptor) + '\n')
+PYTHON
+  mv -f -- "$candidate/active.json" "$gestalt_home/serena/active.json"
+  # Keep candidate and old releases; a live session may still own the old executable.
+  serena_install_candidate=''
+  rm -rf -- "$candidate/probe" "$candidate/probe-workspace" "${candidate:?}/home" "$candidate/tmp" "$candidate/cache"
+  rm -f -- "$candidate/uv.tar.gz" "$candidate/uv.sha256"
+  log "installed Serena $version with uv $MANAGED_UV_VERSION and Python 3.13"
+}
+
+command_serena() {
+  local action=${1:-help}
+  if (($#)); then shift; fi
+  case $action in
+    install)
+      (($# == 0)) || die 'usage: gestalt serena install'
+      if [[ -f $gestalt_home/serena/active.json ]] && serena_install_valid; then
+        log 'Serena already installed and validated'
+      else
+        install_serena
+      fi
+      ;;
+    update)
+      (($# <= 1)) || die 'usage: gestalt serena update [VERSION]'
+      local version=${1:-latest}
+      if [[ $version == latest ]]; then
+        require_command curl
+        require_command node
+        version=$(curl -q --fail --location --silent --show-error --proto '=https' --proto-redir '=https' \
+          --connect-timeout 20 --max-time 30 https://pypi.org/pypi/serena-agent/json | \
+          node -e 'let s=""; process.stdin.on("data",b=>s+=b); process.stdin.on("end",()=>{const d=JSON.parse(s);const versions=Object.keys(d.releases??{}).filter(v=>/^\d+\.\d+\.\d+$/.test(v)&&d.releases[v]?.some(f=>!f.yanked)).sort((a,b)=>{const x=a.split(".").map(Number),y=b.split(".").map(Number);return x[0]-y[0]||x[1]-y[1]||x[2]-y[2];});if(!versions.length)process.exit(1);process.stdout.write(versions.at(-1));});') ||
+          die 'could not resolve the latest stable Serena release; prior installation preserved'
+      fi
+      install_serena "$version"
+      ;;
+    mcp)
+      [[ $# == 2 && $1 == --cwd && -n $2 ]] || die 'usage: gestalt serena mcp --cwd ROOT; context, mode and project cannot be overridden'
+      require_command node
+      require_command codex
+      [[ -d $2 ]] || die 'Serena workspace must be an existing directory'
+      [[ -f $gestalt_home/serena/active.json ]] || die 'Serena is not installed; run gestalt serena install'
+      GESTALT_SERENA_PREPARE="$(serena_workspace_prepare)" GESTALT_SERENA_WORKSPACE=$2 GESTALT_SERENA_INSTALL=$gestalt_home/serena/active.json run_serena_proxy
+      ;;
+    version | -V | --version)
+      (($# == 0)) || die 'usage: gestalt serena version'
+      local value
+      value=$(serena_versions serena) || die 'Serena installation absent or invalid; run gestalt serena install'
+      printf 'serena %s\n' "$value"
+      ;;
+    doctor | index)
+      local workspace='' json_output=false
+      while (($#)); do
+        case $1 in
+          --cwd) [[ $# -ge 2 && -d $2 ]] || die 'Serena --cwd requires an existing directory'; workspace=$2; shift 2 ;;
+          --json) [[ $action == doctor ]] || die '--json is only supported for Serena doctor'; json_output=true; shift ;;
+          *) die 'usage: gestalt serena doctor [--cwd ROOT] [--json] | index --cwd ROOT' ;;
+        esac
+      done
+      [[ $action != index || -n $workspace ]] || die 'usage: gestalt serena index --cwd ROOT'
+      serena_operator "$action" "$workspace" "$json_output"
+      ;;
+    *) die 'usage: gestalt serena install | update [VERSION] | version | doctor [--cwd ROOT] | index --cwd ROOT | mcp --cwd ROOT' ;;
+  esac
+}
+
+serena_install_valid() {
+  require_command node
+  node - "$gestalt_home/serena/active.json" <<'JS'
+const fs = require('node:fs'), {spawnSync} = require('node:child_process');
+try {
+  const d = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+  if (d.schemaVersion !== 1 || (d.contractVersion !== 1 && d.version !== '1.7.0') || !Array.isArray(d.tools) ||
+      !['get_symbols_overview', 'find_symbol', 'replace_symbol_body'].every(n => d.tools.some(t => t.name === n && t.inputSchema))) process.exit(1);
+  for (const p of [d.executable, d.python, d.uv]) fs.accessSync(p, fs.constants.X_OK);
+  if (!fs.statSync(d.pythonInstallDir).isDirectory()) process.exit(1);
+  const result = spawnSync(d.python, ['-I', '-B', '-c', 'import importlib.metadata; print(importlib.metadata.version("serena-agent"))'],
+    {encoding: 'utf8', timeout: 5000});
+  if (result.status !== 0 || result.stdout.trim() !== d.version) process.exit(1);
+} catch { process.exit(1); }
+JS
+}
+
+# Metadata reads never import Serena (its version flag initializes ~/.serena).
+serena_versions() {
+  command -v node >/dev/null 2>&1 || return 1
+  node - "$gestalt_home/serena/active.json" "${1:-json}" <<'JS'
+const fs = require('node:fs'), {spawnSync} = require('node:child_process');
+try {
+  const d = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+  if (d.schemaVersion !== 1 || (d.contractVersion !== 1 && d.version !== '1.7.0') || !/^\d+\.\d+\.\d+$/.test(d.version) ||
+      !Array.isArray(d.tools) || !['find_symbol','get_symbols_overview','replace_symbol_body'].every(n => d.tools.some(t => t.name === n && t.inputSchema))) throw Error();
+  for (const p of [d.python, d.executable, d.uv]) fs.accessSync(p, fs.constants.X_OK);
+  if (!fs.statSync(d.pythonInstallDir).isDirectory()) throw Error();
+  const py = spawnSync(d.python, ['-I', '-B', '-c',
+    'import importlib.metadata, json, sys; print(json.dumps({"serena":importlib.metadata.version("serena-agent"),"python":".".join(map(str,sys.version_info[:3]))}))'],
+    {encoding:'utf8',timeout:5000,maxBuffer:65536});
+  const uv = spawnSync(d.uv,['--version'],{encoding:'utf8',timeout:5000,maxBuffer:65536});
+  if (py.status !== 0 || uv.status !== 0) throw Error('metadata runtime failure');
+  const value = JSON.parse(py.stdout), match = uv.stdout.trim().match(/^uv (\d+\.\d+\.\d+)(?:[ (]|$)/);
+  if (value.serena !== d.version || !/^3\.13\.\d+$/.test(value.python) || !match) throw Error('metadata identity mismatch');
+  value.uv = match[1];
+  console.log(process.argv[3] === 'serena' ? value.serena : process.argv[3] === 'uv' ? value.uv : process.argv[3] === 'python' ? value.python : JSON.stringify(value));
+} catch (error) { console.error('gestalt: Serena versions: ' + (error.message || 'invalid installation')); process.exit(1); }
+JS
+}
+
+serena_operator() {
+  local action=$1 workspace=$2 json_output=$3
+  require_command node
+  GESTALT_SERENA_PREPARE="$(serena_workspace_prepare)" GESTALT_SERENA_NODE="$(command -v node)" \
+    GESTALT_SERENA_SUPERVISOR="$(serena_operator_supervisor)" \
+    node --input-type=module - "$gestalt_home/serena/active.json" "$action" "$workspace" "$json_output" <<'JS'
+import { readFile, realpath, mkdtemp, mkdir, rm, access, stat } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+const [descriptor, action, directory, jsonOutput] = process.argv.slice(2);
+let report = {installed:false,connected:false,projectReady:null,reason:'not-installed'};
+let temporary, child, timer, signal, output = '', stderr = '', code = 1, timedOut=false;
+const budget = Number(process.env.GESTALT_SERENA_DOCTOR_TIMEOUT_MS ?? 30000);
+if (!Number.isInteger(budget) || budget < 100 || budget > 60000) throw Error('Serena doctor timeout must be 100..60000 ms');
+const emit = () => {
+  if (jsonOutput === 'true') console.log(JSON.stringify(report));
+  else {
+    console.log('Serena installed'.padEnd(24) + (report.installed ? 'yes' : 'no'));
+    console.log('Serena connected'.padEnd(24) + (report.connected ? 'yes' : 'no'));
+    console.log('Serena project-ready'.padEnd(24) + (report.projectReady === null ? 'not checked (use --cwd ROOT)' : report.projectReady ? 'yes' : 'no'));
+    console.log('Serena status'.padEnd(24) + report.reason);
+    if (report.reason !== 'ready' && report.reason !== 'connected') console.log('Check gestalt serena install, language dependencies and the active filesystem/network permissions.');
+  }
+};
+function killGroup(kind) { if (child?.pid) { try { process.kill(-child.pid, kind); } catch {} } }
+const driver = String.raw`
+import asyncio, json, os, pathlib, sys
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+settings = json.loads(sys.argv[1])
+root = pathlib.Path(sys.argv[2]) if sys.argv[2] else None
+scratch = pathlib.Path(sys.argv[3])
+report = dict(installed=True, connected=False, projectReady=False if root else None, reason='connection-failed')
+def publish():
+    print(json.dumps(report), flush=True)
+# Select one bounded, regular source file. Never follow project symlinks or inspect state.
+extensions = {'.py','.js','.jsx','.ts','.tsx','.go','.rs','.c','.cpp','.cc','.h','.hpp','.java','.cs','.rb','.php','.swift','.kt','.kts','.scala','.ex','.exs','.clj','.dart','.lua','.sh'}
+target = None
+if root:
+    visited = 0
+    for directory, dirs, files in os.walk(root, followlinks=False):
+        visited += 1
+        dirs[:] = sorted(d for d in dirs if d not in {'.git','.gestalt','.serena','node_modules','.venv','venv','vendor','target','dist','build'} and not (pathlib.Path(directory)/d).is_symlink())
+        for name in sorted(files):
+            if visited >= 1000:
+                break
+            visited += 1
+            p = pathlib.Path(directory)/name
+            if not p.is_symlink() and p.is_file() and p.suffix in extensions:
+                target = p.relative_to(root).as_posix()
+                break
+        if target or visited >= 1000:
+            break
+args = ['start-mcp-server','--context','codex','--mode','editing','--enable-web-dashboard','false','--open-web-dashboard','false','--enable-gui-log-window','false']
+environment = dict(os.environ)
+environment.update(SERENA_HOME=str(scratch/'serena'),HOME=str(scratch/'home'),TMPDIR=str(scratch),
+    PYTHONDONTWRITEBYTECODE='1',UV_TOOL_DIR=str(scratch/'uv-tools'),UV_TOOL_BIN_DIR=str(scratch/'uv-bin'),
+    UV_CACHE_DIR=str(scratch/'uv-cache'),UV_PYTHON_INSTALL_DIR=settings['pythonInstallDir'],UV_PYTHON_DOWNLOADS='never',
+    XDG_CACHE_HOME=str(scratch/'cache'),XDG_CONFIG_HOME=str(scratch/'config'),XDG_DATA_HOME=str(scratch/'data'),
+    PATH=str(pathlib.Path(settings['uv']).parent)+os.pathsep+os.environ.get('PATH',''))
+if target:
+    parameters = StdioServerParameters(command=settings['python'], args=['-c',os.environ['GESTALT_SERENA_PREPARE'],
+        str(root),settings['executable'],json.dumps(settings),*args,'--project',str(root)],env=environment)
+else:
+    parameters = StdioServerParameters(command=settings['executable'],args=args,env=environment)
+parameters = StdioServerParameters(command=os.environ['GESTALT_SERENA_NODE'],
+    args=['-e',os.environ['GESTALT_SERENA_SUPERVISOR'],parameters.command,json.dumps(parameters.args)],env=parameters.env)
+async def check():
+    async with stdio_client(parameters) as (reader,writer):
+        async with ClientSession(reader,writer) as session:
+            await session.initialize()
+            live = {t.name:t.model_dump(mode='json',exclude_none=True) for t in (await session.list_tools()).tools}
+            for tool in settings['tools']:
+                if tool['name'] not in live or tool['inputSchema'] != live[tool['name']]['inputSchema']:
+                    raise RuntimeError('installed catalog differs from native tools')
+            report.update(connected=True,reason='connected')
+            publish()
+            if root and not target:
+                report.update(projectReady=False,reason='no-supported-source-within-probe-limit')
+            elif target:
+                report.update(reason='language-service-failed')
+                publish()
+                result = await session.call_tool('get_symbols_overview',arguments={'relative_path':target})
+                texts = [c.text for c in result.content if getattr(c,'type',None)=='text']
+                # A real structured result proves this file's service; an error string or empty transport does not.
+                payload = None
+                for text in texts:
+                    try:
+                        value = json.loads(text)
+                        if isinstance(value,(dict,list)):
+                            payload = value
+                    except (ValueError,TypeError):
+                        pass
+                if not result.isError and payload is not None and not (isinstance(payload,dict) and 'error' in payload):
+                    report.update(projectReady=True,reason='ready')
+try:
+    asyncio.run(asyncio.wait_for(check(),timeout=float(sys.argv[4])/1000))
+except TimeoutError:
+    report['reason'] = 'language-service-timeout' if report['connected'] else 'connection-timeout'
+except Exception as error:
+    sys.stderr.write('gestalt: Serena doctor: '+str(error)+'\n')
+publish()
+sys.exit(0 if report['connected'] and report['projectReady'] is not False else 1)
 `;
+try {
+  let install;
+  try { install = JSON.parse(await readFile(descriptor,'utf8')); }
+  catch (error) { report.reason = error.code === 'ENOENT' ? 'not-installed' : 'invalid-installation'; throw Error(report.reason); }
+  report.reason = 'invalid-installation';
+  if (install.schemaVersion !== 1 || (install.contractVersion !== 1 && install.version !== '1.7.0') || !Array.isArray(install.tools) ||
+      !['find_symbol','get_symbols_overview','replace_symbol_body'].every(n=>install.tools.some(t=>t.name===n&&t.inputSchema))) throw Error(report.reason);
+  for (const p of [install.python,install.executable,install.uv]) await access(p,constants.X_OK);
+  if (!(await stat(install.pythonInstallDir)).isDirectory()) throw Error(report.reason);
+  const metadata = spawnSync(install.python,['-I','-B','-c','import importlib.metadata, json, sys; print(json.dumps({"serena":importlib.metadata.version("serena-agent"),"python":".".join(map(str,sys.version_info[:3]))}))'],
+    {encoding:'utf8',timeout:5000,maxBuffer:65536});
+  const uv=spawnSync(install.uv,['--version'],{encoding:'utf8',timeout:5000,maxBuffer:65536});
+  if(metadata.status!==0 || uv.status!==0)throw Error(report.reason);
+  const identity=JSON.parse(metadata.stdout);
+  if(identity.serena!==install.version || !/^3\.13\.\d+$/.test(identity.python) || !/^uv \d+\.\d+\.\d+(?:[ (]|$)/.test(uv.stdout.trim()))throw Error(report.reason);
+  report.installed = true;
+  const workspace = directory ? await realpath(directory) : '';
+  report.projectReady = workspace ? false : null;
+  report.reason = action === 'index' ? 'index-failed' : 'connection-failed';
+  temporary = await mkdtemp(join(tmpdir(),'gestalt-serena-doctor-'));
+  await mkdir(join(temporary,'home'));
+  const argv = action === 'index' ? ['-B','-c',process.env.GESTALT_SERENA_PREPARE,workspace,install.executable,
+    JSON.stringify(install),'project','index',workspace,'--timeout','10'] :
+    ['-B','-c',driver,JSON.stringify(install),workspace,temporary,String(budget)];
+  child = spawn(install.python,argv,{detached:true,stdio:['ignore','pipe','pipe'],env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'}});
+  child.stdout.on('data',b=>{ output += b; if (output.length > 1048576) killGroup('SIGTERM'); if(action==='index') process.stdout.write(b); });
+  child.stderr.on('data',b=>{stderr=(stderr+b).slice(-8192); if(action==='index') process.stderr.write(b);});
+  signal = () => killGroup('SIGTERM');
+  process.on('SIGINT',signal);process.on('SIGTERM',signal);
+  timer = setTimeout(()=>{ timedOut=true;report.reason='connection-timeout';killGroup('SIGTERM');setTimeout(()=>killGroup('SIGKILL'),750); },action==='index'?300000:budget+1000);
+  code = await new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',v=>resolve(v??1));});
+  clearTimeout(timer);
+  killGroup('SIGTERM');
+  // Leader exit alone does not prove native language descendants exited.
+  await new Promise(resolve=>setTimeout(resolve,750));killGroup('SIGKILL');
+  if(action==='doctor') {
+    const lines=output.trim().split('\n');
+    for(const line of lines) {try { const value=JSON.parse(line);if(typeof value.installed==='boolean')report=value;} catch {}}
+    if(timedOut) report.reason=report.connected?'language-service-timeout':'connection-timeout';
+    if(stderr && code !== 0) console.error(stderr.trim());
+  }
+} catch (error) { console.error('gestalt: Serena '+action+': '+error.message); }
+finally {
+  clearTimeout(timer);
+  if(signal){process.off('SIGINT',signal);process.off('SIGTERM',signal);}
+  killGroup('SIGKILL');
+  if(temporary) await rm(temporary,{recursive:true,force:true});
+}
+if(action==='doctor'){if(!report.connected||report.projectReady===false)code=1;emit();}
+process.exitCode=code;
+JS
+}
+
+run_serena_proxy() {
+  exec node --input-type=module - 3<&0 <<'NODE'
+import { spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
+import { createReadStream } from 'node:fs';
+import { readFile, realpath } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const workspace = await realpath(process.env.GESTALT_SERENA_WORKSPACE);
+const install = JSON.parse(await readFile(process.env.GESTALT_SERENA_INSTALL, 'utf8'));
+const prepare = process.env.GESTALT_SERENA_PREPARE;
 const allowed = new Set(['replace_in_files', 'replace_symbol_body', 'insert_after_symbol', 'insert_before_symbol',
   'search_for_pattern', 'get_symbols_overview', 'find_symbol', 'find_referencing_symbols', 'find_implementations',
   'find_declaration', 'get_diagnostics_for_file', 'rename_symbol', 'safe_delete_symbol', 'write_memory', 'read_memory',
   'list_memories', 'delete_memory', 'rename_memory', 'edit_memory', 'get_current_config', 'onboarding', 'initial_instructions']);
-if (install.schemaVersion !== 1 || install.version !== '1.7.0' || typeof install.executable !== 'string' || typeof install.python !== 'string' ||
+if (install.schemaVersion !== 1 || (install.contractVersion !== 1 && install.version !== '1.7.0') || typeof install.executable !== 'string' || typeof install.python !== 'string' ||
     typeof install.uv !== 'string' || typeof install.pythonInstallDir !== 'string' ||
     !Array.isArray(install.tools) || !install.tools.length || install.tools.some(t => !t?.name || !t.inputSchema))
   throw new Error('incompatible Serena installation; run gestalt serena install');
 const tools = install.tools.filter(t => allowed.has(t.name));
-if (!['get_symbols_overview', 'find_symbol', 'initial_instructions'].every(name => tools.some(t => t.name === name)))
+if (!['get_symbols_overview', 'find_symbol', 'initial_instructions', 'replace_symbol_body'].every(name => tools.some(t => t.name === name)))
   throw new Error('incomplete Serena tool catalog; run gestalt serena install');
 const guidance = 'Serena is bound to the active workspace. Follow the session instructions and approvals; '
   + 'collaboration plan mode prohibits edits even when the native filesystem policy permits them. '
@@ -1277,7 +1724,7 @@ async function start(state) {
   if (runtime?.key === key && runtime.child.exitCode === null) return runtime;
   await stop();
   const args = ['sandbox', '--sandbox-state-json', key, '--', install.python, '-c', prepare, workspace, install.executable,
-    JSON.stringify({ python: install.python, uv: install.uv, pythonInstallDir: install.pythonInstallDir }),
+    JSON.stringify({ python: install.python, uv: install.uv, pythonInstallDir: install.pythonInstallDir, pythonExecutables: install.pythonExecutables ?? [] }),
     'start-mcp-server', '--project', workspace, '--context', 'codex', '--mode', 'editing',
     '--enable-web-dashboard', 'false', '--open-web-dashboard', 'false', '--enable-gui-log-window', 'false'];
   const child = spawn(process.execPath, ['-e', supervise, 'codex', JSON.stringify(args), workspace],
@@ -2645,6 +3092,9 @@ command_mobile() {
     GESTALT_AGENTS_PLUGIN_ROOT="$gestalt_plugin_root" \
     GESTALT_CONTEXT_MODE_VERSION="$context_mode_version" \
     GESTALT_XERJ_VERSION="$(installed_xerj_version)" \
+    GESTALT_SERENA_VERSION="$(serena_versions serena 2>/dev/null || true)" \
+    GESTALT_UV_VERSION="$(serena_versions uv 2>/dev/null || true)" \
+    GESTALT_SERENA_PYTHON_VERSION="$(serena_versions python 2>/dev/null || true)" \
     GESTALT_CONTEXT_MODE_PLUGIN_ROOT="$context_mode_plugin_root" \
     GESTALT_CONTEXT_MODE_RUNTIME="$context_mode_runtime" \
     GESTALT_MOBILE_BIN="$mobile_bin" \
@@ -2688,6 +3138,12 @@ command_version() {
   fi
   value=$(installed_xerj_version)
   if [[ -n $value ]]; then print_check 'xerj' "$value"; fi
+  value=$(serena_versions serena 2>/dev/null || true)
+  print_check 'Serena' "${value:-NOT INSTALLED (optional)}"
+  value=$(serena_versions uv 2>/dev/null || true)
+  print_check 'uv (Serena)' "${value:-NOT INSTALLED (optional)}"
+  value=$(serena_versions python 2>/dev/null || true)
+  print_check 'Python (Serena)' "${value:-NOT INSTALLED (optional)}"
   return 0
 }
 
@@ -3149,6 +3605,12 @@ command_doctor() {
       env CODEX_HOME="$codex_home" GESTALT_HOME="$gestalt_home" \
       CONTEXT_MODE_PLATFORM=codex CONTEXT_MODE_WORKSPACE="$PWD" \
       node "$context_mode_runtime/cli.bundle.mjs" doctor || failed=true
+  fi
+
+  if [[ -f $gestalt_home/serena/active.json ]]; then
+    run_doctor_command 'Serena doctor' command_serena doctor || failed=true
+  else
+    print_check 'Serena' 'NOT INSTALLED (optional; gestalt serena install)'
   fi
 
   if "$failed"; then

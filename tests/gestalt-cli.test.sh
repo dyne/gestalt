@@ -29,7 +29,7 @@ if [[ ${1:-} == -p && ${2:-} == 'process.versions.node' ]]; then
   printf '24.1.0\n'
   exit 0
 fi
-if [[ ${1:-} == -e || ${1:-} == -p || ${1:-} == --input-type=module || ${1:-} == *.mjs ]]; then
+if [[ ${1:-} == - || ${1:-} == -e || ${1:-} == -p || ${1:-} == --input-type=module || ${1:-} == *.mjs ]]; then
   exec "${GESTALT_TEST_REAL_NODE:?}" "$@"
 fi
 printf 'unexpected node invocation\n' >&2
@@ -67,6 +67,8 @@ set -euo pipefail
   printf '|GESTALT_MANAGER_VERSION=%s|GESTALT_AGENTS_VERSION=%s|GESTALT_CONTEXT_MODE_VERSION=%s' \
     "${GESTALT_MANAGER_VERSION:-}" "${GESTALT_AGENTS_VERSION:-}" \
     "${GESTALT_CONTEXT_MODE_VERSION:-}"
+  printf '|GESTALT_SERENA_VERSION=%s|GESTALT_UV_VERSION=%s|GESTALT_SERENA_PYTHON_VERSION=%s' \
+    "${GESTALT_SERENA_VERSION:-}" "${GESTALT_UV_VERSION:-}" "${GESTALT_SERENA_PYTHON_VERSION:-}"
   printf '|GESTALT_MOBILE_BIN=%s|GESTALT_CONTEXT_MODE_RUNTIME=%s' \
     "${GESTALT_MOBILE_BIN:-}" "${GESTALT_CONTEXT_MODE_RUNTIME:-}"
   printf '|%s' "$@"
@@ -339,6 +341,27 @@ grep -F "|GESTALT_MANAGER_VERSION=$manager_version|GESTALT_AGENTS_VERSION=2.1.0|
 grep -F "|GESTALT_MOBILE_BIN=$GESTALT_HOME/mobile/node_modules/.bin/gestalt-mobile|GESTALT_CONTEXT_MODE_RUNTIME=$prepared_runtime" "$command_log" >/dev/null
 grep -F "|--cwd|$test_home/workspace" "$command_log" | grep -F 'mobile|' >/dev/null
 grep -F "|PATH=$GESTALT_HOME/bin:$CODEX_HOME/bin:" "$command_log" | grep -F 'mobile|' >/dev/null
+# Installed Serena metadata is forwarded to Mobile without importing Serena.
+mkdir -p -- "$GESTALT_HOME/serena/python-runtime"
+cat > "$GESTALT_HOME/serena/python" <<'SERENA_PYTHON'
+#!/usr/bin/env bash
+printf '{"serena":"1.7.0","python":"3.13.9"}\n'
+SERENA_PYTHON
+cat > "$GESTALT_HOME/serena/uv" <<'SERENA_UV'
+#!/usr/bin/env bash
+printf 'uv 0.12.23\n'
+SERENA_UV
+chmod +x "$GESTALT_HOME/serena/python" "$GESTALT_HOME/serena/uv"
+"$real_node" -e '
+const fs=require("node:fs"),root=process.argv[1];
+fs.writeFileSync(root+"/active.json",JSON.stringify({schemaVersion:1,contractVersion:1,version:"1.7.0",
+ python:root+"/python",executable:root+"/python",uv:root+"/uv",pythonInstallDir:root+"/python-runtime",
+ tools:["get_symbols_overview","find_symbol","replace_symbol_body"].map(name=>({name,inputSchema:{type:"object"}}))}));
+' "$GESTALT_HOME/serena"
+bash "$repo_root/public/gestalt" mobile -- --cwd "$test_home/workspace"
+grep -F '|GESTALT_SERENA_VERSION=1.7.0|GESTALT_UV_VERSION=0.12.23|GESTALT_SERENA_PYTHON_VERSION=3.13.9' "$command_log" >/dev/null
+rm -rf -- "$GESTALT_HOME/serena"
+
 mobile_restart_state=$(find "$GESTALT_HOME/run" -maxdepth 1 -type f -name 'mobile-*.restart' -print -quit)
 [[ -n $mobile_restart_state && -r $mobile_restart_state ]]
 $real_node -e '

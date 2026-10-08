@@ -351,3 +351,59 @@ the header configuration menu. Watch mode requires Linux `flock` and `setpriv` f
 parent-death cleanup. No Codex filesystem permissions are widened.
 See the [Mobile operational guide](https://github.com/dyne/gestalt-mobile/blob/main/docs/xerj.md)
 for exclusions, native watcher limitations and recovery.
+
+## Install Serena
+
+Run `gestalt serena install` once to install private uv 0.12.23, managed Python
+3.13 and the tested Serena 1.7.0 release. This explicit command downloads verified
+official uv tooling and installs the released Python package without sudo,
+questions, shell profile changes or client configuration rewrites. Ordinary
+agent sessions never install or upgrade Serena. Linux and macOS x86_64/aarch64
+artifacts are supported; real installation has been verified on Linux only.
+
+`gestalt serena update [VERSION]` prepares a fresh environment at its permanent
+path, verifies package metadata and the Codex editing MCP tool contract, then
+activates it atomically. With no VERSION, update resolves the latest stable official PyPI release. An
+explicit VERSION selects that release. Every candidate must pass native storage
+preparation, Python/package identity, CLI options and Codex editing tool checks;
+incompatible releases are rejected before activation. Failed
+updates preserve the active installation and workspace data. Previous releases
+remain available to running sessions and to existing workspace uv caches.
+Only exact validated managed interpreter targets are allowed for uv venv Python
+links; other project-state links that escape the workspace are rejected. Shared prepared tooling lives below
+`$GESTALT_HOME/serena`; project data belongs to the session workspace's
+`.gestalt/serena`. The installer never moves a constructed uv environment.
+
+`gestalt serena version` (also `gestalt serena -V`) reads installed package
+metadata without importing Serena or creating user state. `gestalt version`
+also reports Serena, its private uv and Python versions. The manager exports
+`GESTALT_SERENA_VERSION`, `GESTALT_UV_VERSION` and
+`GESTALT_SERENA_PYTHON_VERSION` to Mobile, alongside existing component versions.
+
+`gestalt serena doctor` checks installation identity and live MCP tools in
+disposable storage. Add `--cwd ROOT` to prepare that canonical project's native
+`.gestalt/serena` state and read symbols from one supported source file. Output
+separates installed, connected and project-ready; `--json` exposes the same
+states. A successful connection alone does not prove a working language server.
+The bounded source probe checks at most 1,000 files/directories and never follows
+project symlinks. A project with no supported file is reported as not ready.
+The probe does not edit source. Global `gestalt doctor` includes the connection
+check when Serena is installed.
+
+`gestalt serena index --cwd ROOT` explicitly runs Serena's native project index
+to warm symbol caches; it does not run during session startup. Native indexing
+uses a ten-second per-file timeout and a five-minute overall limit. Doctor and
+index are explicit operator commands running under the caller's existing OS
+authority. Session MCP requests still require actual native Codex sandbox
+metadata, and fail closed when that policy cannot start the service. Neither
+command expands filesystem or network permissions. All managed MCP launches
+include `--context codex --mode editing`.
+
+First use of a language may require its upstream language-service packages or
+compiler tools. Python's language service may use workspace-local uv tools and
+cache downloads; C/C++ needs an available `clangd`. Network-restricted or
+read-only policies can prevent first-use startup or cache preparation. Install
+required tools or prepare permitted caches under the intended policy; a health
+check never widens that policy. Runtime config, caches, memories, logs and
+language-tool state remain below `<workspace>/.gestalt/serena`; shared uv, Python
+and Serena environments remain under `$GESTALT_HOME/serena`.

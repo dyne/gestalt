@@ -24,7 +24,9 @@ test('real released Serena edits symbols, persists memory and confines project/r
     await cp(descriptor, join(managed, 'serena/active.json'));
     if (process.env.SERENA_REAL_UV_CACHE) {
       await mkdir(state, { recursive: true });
-      await cp(process.env.SERENA_REAL_UV_CACHE, join(state, 'uv-cache'), { recursive: true, dereference: true });
+      // Preserve native venv interpreter links so post-update caches exercise the
+      // validated retained-interpreter contract instead of copying executables.
+      await cp(process.env.SERENA_REAL_UV_CACHE, join(state, 'uv-cache'), { recursive: true, dereference: false, verbatimSymlinks: true });
     }
     const env = { ...process.env, HOME: home, GESTALT_HOME: managed, CODEX_HOME: join(root, 'codex'), UV_OFFLINE: '1' };
     const policy = { permissionProfile: { type: 'managed', file_system: { type: 'restricted', entries: [

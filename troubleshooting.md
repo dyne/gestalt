@@ -96,3 +96,40 @@ in disposable storage. Exit 1 means upstream issues remain; exit 2 means the
 harness could not complete its controls. This never tests against your real index.
 A newer binary is not automatically certified for Mobile/MCP readiness; see the
 [update and test workflow](start/install.md#updating-and-checking-upstream-fixes).
+
+## Serena installation
+
+Use `gestalt serena install` to prepare missing tooling and
+`gestalt serena update` to repair or refresh the supported release. Download,
+checksum, Python, package and MCP validation failures leave the prior active
+installation intact. Check network access to official GitHub releases, Python
+distribution downloads and the Python package index. No system uv is required.
+
+The install lock prevents concurrent promotion. Interrupts clean up the candidate
+and lock. After an uncatchable kill, verify no installer is still running before
+removing `$GESTALT_HOME/serena/.install-lock` and retrying. Unactivated candidate
+directories can then be removed; retain active and in-use releases.
+
+Run `gestalt serena doctor --cwd /absolute/project/path` to distinguish missing
+installation, a failed MCP connection, and a failed project language service.
+`--json` returns `installed`, `connected`, `projectReady` and `reason`. Without
+`--cwd`, `projectReady` is null because no project was checked. A connected
+transport with a failed language service returns failure; inspect the diagnostic
+on stderr and install the language's prerequisites or allow the required cache
+preparation/downloads through the existing permission workflow. The default
+connection/language deadline is 30 seconds;
+`GESTALT_SERENA_DOCTOR_TIMEOUT_MS` accepts 100–60000 ms for diagnostics.
+
+Use `gestalt serena index --cwd /absolute/project/path` only when you want
+explicit native cache warmup. Normal sessions rely on native lazy language
+services. The doctor avoids Serena's native project health-check command, which
+in the tested release writes logs to legacy `.serena` even with relocated state.
+Legacy `.serena` configuration is preserved in place; existing project settings
+can initialize managed config, while memories and caches are never migrated
+automatically.
+
+A restrictive native network profile has been observed to time out during real
+MCP startup. This remains a closed failure; the manager does not change network
+authority. Collaboration plan mode is an agent instruction: the tested Codex
+0.160.0 supplies the same filesystem metadata in default and plan modes, so
+plan-mode edit prohibitions are not a separate OS permission boundary.

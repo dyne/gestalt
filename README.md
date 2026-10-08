@@ -23,3 +23,16 @@ GitHub repository settings, set **Pages → Build and deployment → Source** to
 **GitHub Actions**. The workflow obtains the repository's actual Pages base
 path from `actions/configure-pages`, runs the shell tests, builds VitePress, and
 deploys the generated artifact.
+
+Managed Serena places clangd compilation-database caches under
+`<workspace>/.gestalt/serena/clangd/<source-name>-<path-hash>/cache/`.
+The path hash separates databases from equally named source directories.
+Workspace preparation refreshes managed copies of `compile_commands.json`
+and selects them through clangd's isolated user configuration on Linux and
+macOS; relative working directories are resolved against the original database.
+Project `.clangd` database selections and their path conditions are retained.
+This applies to managed Serena sessions and indexing commands after restarting
+them with the updated manager. Existing source-tree caches are left in place.
+Explicit `CompilationDatabase: Ancestors` fragments and manually maintained
+user-config overrides retain clangd's native lookup/cache behavior; these are
+not rewritten into a fixed build selection.

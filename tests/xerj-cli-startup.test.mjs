@@ -57,7 +57,7 @@ if (args[0] === 'app-server') {
     }
     if (request.method === 'config/read') {
       fs.writeFileSync(root + '/read.json', JSON.stringify({ args, params: request.params }));
-      result = { config: { features: { hooks: true }, hooks: { state: { 'unrelated.hook': { enabled: false, trusted_hash: 'sha256:kept' } } }, mcp_servers: process.env.FIXTURE_MODE === 'config-conflict' ? { 'gestalt-xerj': { env: { XERJ_AUTH: 'wrong-key' } } } : process.env.FIXTURE_MODE === 'aliases' ? { 'old-xerj': { command: process.env.GESTALT_MANAGER_BIN, args: ['xerj', 'mcp'] }, 'unrelated-secret': { command: 'node', enabled: false, env: { TOKEN: 'do-not-expose-secret' } } } : {}, skills: { config: [{ path: process.env.FIXTURE_SKILL, enabled: false }, { name: 'optional', enabled: false }] } } };
+      result = { config: { approval_policy: args.includes('approval_policy="never"') ? 'never' : 'on-request', features: { hooks: true }, hooks: { state: { 'unrelated.hook': { enabled: false, trusted_hash: 'sha256:kept' } } }, mcp_servers: process.env.FIXTURE_MODE === 'config-conflict' ? { 'gestalt-xerj': { env: { XERJ_AUTH: 'wrong-key' } } } : process.env.FIXTURE_MODE === 'aliases' ? { 'old-xerj': { command: process.env.GESTALT_MANAGER_BIN, args: ['xerj', 'mcp'] }, 'unrelated-secret': { command: 'node', enabled: false, env: { TOKEN: 'do-not-expose-secret' } } } : {}, skills: { config: [{ path: process.env.FIXTURE_SKILL, enabled: false }, { name: 'optional', enabled: false }] } } };
     }
     if (request.method === 'hooks/list') {
       const hooks = args.filter(arg => arg.startsWith('hooks.SessionStart=') || arg.startsWith('hooks.SubagentStart=')).map((arg, index) => ({
@@ -250,7 +250,7 @@ for (const mode of ['serena-healthy', 'serena-absent', 'serena-excluded', 'seren
       assert.ok(config.includes(`"enabled"=${ready}`), config);
       if (ready) {
         assert.match(config, /"args"=\["serena","mcp","--cwd","\/tmp"\]/);
-        assert.ok(!config.includes('default_tools_approval_mode'), 'editing approval policy was overridden');
+        assert.ok(config.includes('\"default_tools_approval_mode\"=\"approve\"'), config);
       }
       assert.ok(launch.includes('approval_policy="never"'));
       const xerj = launch.find(arg => arg.startsWith('mcp_servers.gestalt-xerj='));

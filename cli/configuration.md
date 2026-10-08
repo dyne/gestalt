@@ -33,7 +33,9 @@ It also grants read-only access (including directory traversal and executable
 use, but no writes) to `CODEX_HOME`, `GESTALT_HOME`, `~/.agents`, `~/.local`,
 and `~/.config`. This includes the default `~/.codex-gestalt`, `~/.gestalt`, and
 `~/.agents` locations. The profile defaults to `approval_policy = "never"`
-(Approve everything).
+and pairs it with `default_tools_approval_mode = "approve"` for apps, configured
+MCP servers, and plugin MCP overrides. Explicit server defaults and per-tool
+approval rules are preserved. Tool approval does not change sandbox permissions.
 
 The manager migrates the dedicated profile away from legacy `sandbox_mode` and
 `sandbox_workspace_write` settings while preserving unrelated configuration.

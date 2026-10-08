@@ -11,6 +11,7 @@ import test from 'node:test';
 // No model service, installation/download, or real repository is used.
 const source = await readFile(resolve('public/gestalt'), 'utf8');
 const program = source.split('run_serena_proxy() {')[1].split("<<'NODE'\n")[1].split('\nNODE\n')[0];
+const prepare = source.split("serena_workspace_prepare() {\n  cat <<'PYTHON'\n")[1].split('\nPYTHON\n}')[0];
 const enabled = process.env.SERENA_NATIVE_TESTS === '1';
 for (const mode of ['write', 'read-only', 'plan', 'abrupt-owner']) test(`native effective authority ${mode}`, { skip: !enabled, timeout: 30000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'serena-native-'));
@@ -74,7 +75,7 @@ for line in sys.stdin:
     response.end();
   });
   await new Promise(r => model.listen(0, '127.0.0.1', r));
-  const profile = `default_permissions="fixture"\nmodel_provider="fixture"\nmodel="fixture"\napproval_policy="never"\n[permissions.fixture]\nextends=":read-only"\n[permissions.fixture.filesystem]\n${JSON.stringify(workspace)}="${mode === 'read-only' ? 'read' : 'write'}"\n${['.git', '.codex', '.agents'].map(p => `${JSON.stringify(join(workspace, p))}="read"`).join('\n')}\n[model_providers.fixture]\nname="fixture"\nbase_url="http://127.0.0.1:${model.address().port}/v1"\nwire_api="responses"\nrequires_openai_auth=false\n[features]\ntool_search=false\n[mcp_servers.serena]\ncommand=${JSON.stringify(join(root, 'proxy'))}\ndefault_tools_approval_mode="approve"\n[mcp_servers.serena.env]\nGESTALT_SERENA_WORKSPACE=${JSON.stringify(workspace)}\nGESTALT_SERENA_INSTALL=${JSON.stringify(join(root, 'install.json'))}\n`;
+  const profile = `default_permissions="fixture"\nmodel_provider="fixture"\nmodel="fixture"\napproval_policy="never"\n[permissions.fixture]\nextends=":read-only"\n[permissions.fixture.filesystem]\n${JSON.stringify(workspace)}="${mode === 'read-only' ? 'read' : 'write'}"\n${['.git', '.codex', '.agents'].map(p => `${JSON.stringify(join(workspace, p))}="read"`).join('\n')}\n[model_providers.fixture]\nname="fixture"\nbase_url="http://127.0.0.1:${model.address().port}/v1"\nwire_api="responses"\nrequires_openai_auth=false\n[features]\ntool_search=false\n[mcp_servers.serena]\ncommand=${JSON.stringify(join(root, 'proxy'))}\ndefault_tools_approval_mode="approve"\n[mcp_servers.serena.env]\nGESTALT_SERENA_PREPARE=${JSON.stringify(prepare)}\nGESTALT_SERENA_WORKSPACE=${JSON.stringify(workspace)}\nGESTALT_SERENA_INSTALL=${JSON.stringify(join(root, 'install.json'))}\n`;
   await writeFile(join(home, 'config.toml'), profile);
   let child;
   try {

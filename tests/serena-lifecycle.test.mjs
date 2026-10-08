@@ -6,6 +6,18 @@ import { join, resolve } from 'node:path';
 import test from 'node:test';
 const manager = resolve('public/gestalt');
 const tools = ['get_symbols_overview', 'find_symbol', 'initial_instructions', 'replace_symbol_body', 'insert_after_symbol', 'write_memory'];
+test('Serena commands are discoverable before installation without creating state', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'serena help '));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const env = { ...process.env, HOME: root, GESTALT_HOME: join(root, 'managed'), CODEX_HOME: join(root, 'codex') };
+  for (const args of [[], ['help'], ['--help'], ['-h']]) {
+    const result = spawnSync('bash', [manager, 'serena', ...args], { env, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /install\s+Install private uv/);
+    assert.match(result.stdout, /mcp --cwd ROOT\s+Start the workspace MCP stdio connection/);
+  }
+  assert.deepEqual(await readdir(root), []);
+});
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'serena lifecycle '));
   t.after(() => rm(root, { recursive: true, force: true }));

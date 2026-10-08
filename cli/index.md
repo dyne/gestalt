@@ -16,6 +16,8 @@ relay together without merging their state. Run `gestalt help` at any time.
 | `gestalt serena version` | Print the installed Serena version without startup |
 | `gestalt serena doctor [--cwd ROOT] [--json]` | Check install, connection, and optional project language readiness |
 | `gestalt serena index --cwd ROOT` | Explicitly warm native project caches |
+| `gestalt serena mcp --cwd ROOT` | Start Serena's workspace MCP connection over stdin/stdout |
+| `gestalt serena help` | Show Serena installation and startup commands |
 | `gestalt mobile [args…]` | Launch Gestalt Mobile and forward its options |
 | `gestalt path [NAME\|--json]` | Resolve managed executable, plugin, and runtime paths |
 | `gestalt doctor` | Check prerequisites, paths, Gestalt plugin version, and Mobile version |
@@ -48,6 +50,12 @@ gestalt serena install
 gestalt cli -C /absolute/project/path
 gestalt serena doctor --cwd /absolute/project/path --json
 ```
+
+For an MCP client that needs an explicit launcher, use
+`gestalt serena mcp --cwd /absolute/project/path`. This starts a stdio connection;
+Codex and Mobile manage it automatically for sessions that select Serena.
+Run `gestalt serena help` to see all commands. If an older installed manager
+does not recognize `serena`, update the manager before installing the capability.
 
 When the selected Gestalt plugin includes `gestalt:serena` and Serena is installed,
 the CLI adds a session-only `gestalt-serena` connection bound to the selected

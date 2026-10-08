@@ -52,14 +52,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify current manager version
+      - name: Apply calculated manager version
         env:
-          CURRENT_TAG: ${{ steps.semver.outputs.current }}
-        run: test "$(./public/gestalt version)" = "gestalt ${CURRENT_TAG#v}"
-
-      - name: Apply manager version
-        if: steps.semver.outputs.bump != 'none'
-        run: node scripts/set-manager-version.mjs "${{ steps.semver.outputs.nextStrict }}"
+          RELEASE_VERSION: ${{ steps.semver.outputs.nextStrict || steps.semver.outputs.current }}
+        run: node scripts/set-manager-version.mjs "${RELEASE_VERSION#v}"
 
       - name: Test installation tooling
         run: npm test
@@ -69,6 +65,10 @@ jobs:
           BASE_PATH: ${{ steps.pages.outputs.base_path }}/
         run: npm run build
 
+      # Compatibility for previously installed wrappers; never tracked in Git.
+      - name: Generate legacy updater checksum
+        run: sha256sum .vitepress/dist/gestalt > .vitepress/dist/gestalt.sha256
+
       - name: Commit and tag manager version
         if: steps.semver.outputs.bump != 'none'
         env:
@@ -77,8 +77,10 @@ jobs:
           set -euo pipefail
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add -- public/gestalt public/gestalt.sha256
-          git commit -m "chore(release): $TAG [skip ci]"
+          git add -- public/gestalt
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(release): $TAG [skip ci]"
+          fi
           git tag "$TAG"
           git push --atomic origin HEAD:main "$TAG"
 

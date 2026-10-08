@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Download, verify, and install the Gestalt manager in a user-owned directory.
+# Download and install the Gestalt manager in a user-owned directory.
 set -Eeuo pipefail
 IFS=$'\n\t'
 
@@ -27,7 +27,7 @@ usage() {
   cat <<'EOF'
 Usage: install.sh [--no-setup]
 
-Download and checksum the Gestalt manager, install it under
+Download the Gestalt manager, install it under
 ${GESTALT_BIN_DIR:-$HOME/.local/bin}, then set up Agents and Mobile.
 
   --no-setup  Install only the manager; do not run `gestalt install`.
@@ -56,32 +56,19 @@ bin_dir=${GESTALT_BIN_DIR:-$HOME/.local/bin}
 temp_root=$(mktemp -d "${TMPDIR:-/tmp}/gestalt-install.XXXXXXXX") ||
   die 'could not create a temporary directory'
 manager_download=$temp_root/gestalt
-checksum_download=$temp_root/gestalt.sha256
 
 log "downloading manager from ${base_url%/}/gestalt"
 curl --fail --silent --show-error --location \
   "${base_url%/}/gestalt" --output "$manager_download"
-curl --fail --silent --show-error --location \
-  "${base_url%/}/gestalt.sha256" --output "$checksum_download"
-
-IFS=' ' read -r expected_checksum _ < "$checksum_download" || die 'could not read checksum file'
-[[ $expected_checksum =~ ^[[:xdigit:]]{64}$ ]] || die 'published checksum has an invalid format'
-
-if command -v sha256sum >/dev/null 2>&1; then
-  actual_checksum=$(sha256sum "$manager_download")
-elif command -v shasum >/dev/null 2>&1; then
-  actual_checksum=$(shasum -a 256 "$manager_download")
-else
-  die 'sha256sum or shasum is required to verify the manager'
-fi
-actual_checksum=${actual_checksum%% *}
-[[ $actual_checksum == "$expected_checksum" ]] || die 'manager checksum verification failed'
+bash -n "$manager_download" || die 'downloaded manager has invalid Bash syntax'
+grep -Eq "^readonly GESTALT_CLI_VERSION='[0-9]+\.[0-9]+\.[0-9]+'$" "$manager_download" ||
+  die 'downloaded manager is missing its version declaration'
 
 mkdir -p -- "$bin_dir"
 staged_target=$(mktemp "$bin_dir/.gestalt.XXXXXXXX") || die 'could not stage manager installation'
 install -m 0755 "$manager_download" "$staged_target"
 mv -f -- "$staged_target" "$bin_dir/gestalt"
-log "installed verified manager at $bin_dir/gestalt"
+log "installed manager at $bin_dir/gestalt"
 
 case :$PATH: in
   *:"$bin_dir":*) ;;

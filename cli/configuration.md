@@ -72,7 +72,7 @@ gestalt update
 # then restart Gestalt Mobile
 ```
 
-The manager continues its normal checksum-verified update path; doctor never
+The manager continues its normal download and validation path; doctor never
 downloads or silently changes a component.
 
 ## Transfer skills between installations

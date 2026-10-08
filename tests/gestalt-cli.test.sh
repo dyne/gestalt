@@ -286,8 +286,7 @@ grep -F 'setup|' "$command_log" | grep -F -- '--extra-skills' >/dev/null
 bad_update_source=$test_root/bad-update-source
 bad_managed_bin=$test_root/bad-managed-bin
 mkdir -p -- "$bad_update_source" "$bad_managed_bin"
-cp "$repo_root/public/gestalt" "$bad_update_source/gestalt"
-printf '%064d  gestalt\n' 0 > "$bad_update_source/gestalt.sha256"
+printf '<!DOCTYPE html>\n' > "$bad_update_source/gestalt"
 cp "$repo_root/public/gestalt" "$bad_managed_bin/gestalt"
 printf '\n# manager that must survive a rejected update\n' >> "$bad_managed_bin/gestalt"
 chmod 0755 "$bad_managed_bin/gestalt"
@@ -295,7 +294,7 @@ cp "$bad_managed_bin/gestalt" "$test_root/manager-before-rejected-update"
 
 if GESTALT_INSTALL_BASE_URL=file://$bad_update_source \
   bash "$bad_managed_bin/gestalt" update > /dev/null 2>&1; then
-  printf 'expected manager update with an invalid checksum to fail\n' >&2
+  printf 'expected manager update with an invalid download to fail\n' >&2
   exit 1
 fi
 cmp "$test_root/manager-before-rejected-update" "$bad_managed_bin/gestalt"
@@ -394,14 +393,14 @@ if GESTALT_INSTALL_BASE_URL=file://$bad_update_source \
   bash "$repo_root/public/gestalt" __update-restart-worker \
     "$test_relay_pid" "$failed_restart_state" false "$test_root/failed-update-restart.log" \
     "$failed_restart_lock"; then
-  printf 'update-restart worker unexpectedly accepted a bad manager checksum\n' >&2
+  printf 'update-restart worker unexpectedly accepted an invalid manager download\n' >&2
   exit 1
 fi
 kill -0 "$test_relay_pid"
 kill -TERM "$test_relay_pid"
 wait "$test_relay_pid" 2>/dev/null || true
 test_relay_pid=''
-grep -F 'manager update checksum verification failed' "$test_root/failed-update-restart.log" >/dev/null
+grep -F 'downloaded manager has invalid Bash syntax' "$test_root/failed-update-restart.log" >/dev/null
 [[ ! -e $failed_restart_lock ]]
 
 sleep 30 &

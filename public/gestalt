@@ -314,7 +314,7 @@ update_xerj() {
   fi
 }
 
-# Embedded because the distributed manager is one checksum-verified executable.
+# Embedded because the distributed manager is one self-contained executable.
 # Exercise the native binary, not the wrapper's compensating watcher lock.
 test_xerj() {
   (($# == 0)) || { (($# == 1)) && [[ $1 == --json ]]; } || die 'usage: gestalt xerj test [--json]'
@@ -623,7 +623,7 @@ command_xerj_readiness() {
   shift
   (($# == 0)) || die "usage: gestalt xerj $operation"
   require_command node
-  # Inline to preserve the checksum-verified, single-file manager distribution.
+  # Inline to preserve the self-contained, single-file manager distribution.
   # Do not use command_xerj mcp: ordinary forwarding prepares writable state.
   exec node --input-type=module - "$gestalt_home" "$MANAGED_XERJ_VERSION" "$operation" "${BASH_SOURCE[0]}" "$codex_home" <<'JS'
 import { spawn } from 'node:child_process';
@@ -2340,7 +2340,7 @@ calculate_sha256() {
 
 update_manager() {
   local manager_source manager_dir manager_name manager_target
-  local manager_download checksum_download expected_checksum actual_checksum current_checksum
+  local manager_download
 
   require_command curl
   require_command install
@@ -2356,27 +2356,15 @@ update_manager() {
   manager_update_temp_root=$(mktemp -d "${TMPDIR:-/tmp}/gestalt-update.XXXXXXXX") ||
     die 'could not create a temporary directory for the manager update'
   manager_download=$manager_update_temp_root/gestalt
-  checksum_download=$manager_update_temp_root/gestalt.sha256
 
   log "checking for a manager update at ${install_base_url%/}/gestalt"
   curl --fail --silent --show-error --location \
     "${install_base_url%/}/gestalt" --output "$manager_download"
-  curl --fail --silent --show-error --location \
-    "${install_base_url%/}/gestalt.sha256" --output "$checksum_download"
+  bash -n "$manager_download" || die 'downloaded manager has invalid Bash syntax'
+  grep -Eq "^readonly GESTALT_CLI_VERSION='[0-9]+\.[0-9]+\.[0-9]+'$" "$manager_download" ||
+    die 'downloaded manager is missing its version declaration'
 
-  IFS=' ' read -r expected_checksum _ < "$checksum_download" ||
-    die 'could not read the published manager checksum'
-  [[ $expected_checksum =~ ^[[:xdigit:]]{64}$ ]] ||
-    die 'published manager checksum has an invalid format'
-
-  actual_checksum=$(calculate_sha256 "$manager_download")
-  actual_checksum=${actual_checksum%% *}
-  [[ $actual_checksum == "$expected_checksum" ]] ||
-    die 'manager update checksum verification failed'
-
-  current_checksum=$(calculate_sha256 "$manager_target")
-  current_checksum=${current_checksum%% *}
-  if [[ $current_checksum == "$actual_checksum" ]]; then
+  if cmp -s -- "$manager_target" "$manager_download"; then
     log "manager is already current at $manager_target"
   else
     manager_update_staged_target=$(mktemp "$manager_dir/.gestalt.XXXXXXXX") ||

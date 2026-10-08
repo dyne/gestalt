@@ -22,14 +22,13 @@ installed_version=$(HOME=$test_home "$bin_dir/gestalt" version)
 
 bad_source=$test_root/bad-source
 mkdir -p -- "$bad_source"
-cp "$repo_root/public/gestalt" "$bad_source/gestalt"
-printf '%064d  gestalt\n' 0 > "$bad_source/gestalt.sha256"
+printf '<!DOCTYPE html>\n' > "$bad_source/gestalt"
 
 if HOME=$test_home \
   GESTALT_BIN_DIR=$test_root/bad-bin \
   GESTALT_INSTALL_BASE_URL="file://$bad_source" \
     bash "$repo_root/public/install.sh" --no-setup > /dev/null 2>&1; then
-  printf 'expected invalid checksum to fail\n' >&2
+  printf 'expected invalid manager download to fail\n' >&2
   exit 1
 fi
 

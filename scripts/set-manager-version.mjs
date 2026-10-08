@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import { createHash } from 'node:crypto';
 import { chmod, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -14,7 +13,6 @@ export async function setManagerVersion(root, version) {
   }
 
   const managerPath = join(root, 'public', 'gestalt');
-  const checksumPath = join(root, 'public', 'gestalt.sha256');
   const manager = await readFile(managerPath, 'utf8');
   const declarations = manager.match(versionDeclaration) ?? [];
   if (declarations.length !== 1) {
@@ -25,16 +23,12 @@ export async function setManagerVersion(root, version) {
     versionDeclaration,
     `readonly GESTALT_CLI_VERSION='${version}'`,
   );
-  const digest = createHash('sha256').update(updated).digest('hex');
   const mode = (await stat(managerPath)).mode & 0o777;
   const managerTemporary = `${managerPath}.tmp-${process.pid}`;
-  const checksumTemporary = `${checksumPath}.tmp-${process.pid}`;
 
   await writeFile(managerTemporary, updated, { mode });
   await chmod(managerTemporary, mode);
-  await writeFile(checksumTemporary, `${digest}  public/gestalt\n`);
   await rename(managerTemporary, managerPath);
-  await rename(checksumTemporary, checksumPath);
 }
 
 async function main() {

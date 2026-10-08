@@ -20,6 +20,19 @@ async function fixture(mode, args = [], ready = { schemaVersion: 1, status: 'rea
   const skillPath = join(plugin, 'skills/xerj/SKILL.md');
   await writeFile(skillPath, '---\nname: xerj\ndescription: fixture\n---\n');
   await writeFile(join(plugin, '.codex-plugin/plugin.json'), JSON.stringify({ name: mode === 'incompatible' ? 'other' : 'gestalt', skills: './skills/' }));
+  const serena = mode.startsWith('serena-');
+  const serenaPath = join(plugin, 'skills/serena/SKILL.md');
+  if (serena) {
+    await mkdir(join(plugin, 'skills/serena'), { recursive: true });
+    await writeFile(serenaPath, '---\nname: serena\ndescription: fixture\n---\nSemantic project work.\n');
+    if (mode !== 'serena-absent') {
+      await mkdir(join(root, 'serena'));
+      await writeFile(join(root, 'serena/active.json'), JSON.stringify({ schemaVersion: 1, contractVersion: 1, version: '1.7.0',
+        executable: process.execPath, python: process.execPath, uv: process.execPath,
+        tools: ['get_symbols_overview','find_symbol','initial_instructions','replace_symbol_body'].map(name =>
+          ({ name, inputSchema: { type: 'object' } })) }));
+    }
+  }
   const codex = join(bin, 'codex');
   await writeFile(codex, `#!/usr/bin/env node
 const fs = require('node:fs');
@@ -52,7 +65,8 @@ if (args[0] === 'app-server') {
       result = { data: [{ cwd: request.params.cwds[0], hooks: process.env.FIXTURE_MODE === 'hooks-unavailable' ? [] : hooks }] };
     }
     if (request.method === 'config/read') result.layers = [{ name: { type: 'sessionFlags' }, config: { skills: result.config.skills, hooks: result.config.hooks } }, { name: { type: 'user' }, config: { features: { hooks: true } } }];
-    if (request.method === 'skills/list') result = { data: [{ cwd: request.params.cwds[0], skills: [{ name: 'gestalt:xerj', enabled: false, path: process.env.FIXTURE_SKILL }] }] };
+    if (request.method === 'config/read' && process.env.FIXTURE_MODE === 'serena-conflict') result.config.mcp_servers['gestalt-serena'] = { env: { TOKEN: 'do-not-expose-secret' } };
+    if (request.method === 'skills/list') result = { data: [{ cwd: request.params.cwds[0], skills: [{ name: 'gestalt:xerj', enabled: false, path: process.env.FIXTURE_SKILL }, ...(process.env.FIXTURE_SERENA ? [{ name: 'gestalt:serena', enabled: process.env.FIXTURE_MODE !== 'serena-excluded', path: process.env.FIXTURE_SERENA }] : [])] }] };
     console.log(JSON.stringify({ id: request.id, result }));
   });
 } else {
@@ -62,7 +76,15 @@ if (args[0] === 'app-server') {
     setInterval(() => {}, 1000);
     process.on('SIGTERM', () => { fs.writeFileSync(root + '/signal', 'SIGTERM'); process.exit(0); });
   }
-  if (process.env.FIXTURE_MODE === 'connection-failure' && args.some(arg => arg.includes('required"=true'))) {
+  if (process.env.FIXTURE_MODE === 'serena-connection-failure' && args.some(arg => arg.startsWith('mcp_servers.gestalt-serena=') && arg.includes('required\"=true'))) {
+    process.stderr.write('gestalt-xerj: unrelated earlier diagnostic\\n');
+    process.stderr.write('Error: required MCP servers failed to initialize: gestalt-serena: failed connection\\n');
+    process.exitCode = 1;
+  } else if (process.env.FIXTURE_MODE === 'serena-xerj-connection-failure' && args.some(arg => arg.startsWith('mcp_servers.gestalt-xerj=') && arg.includes('required\"=true'))) {
+    process.stderr.write('gestalt-serena: unrelated earlier diagnostic\\n');
+    process.stderr.write('Error: required MCP servers failed to initialize: gestalt-xerj: failed connection\\n');
+    process.exitCode = 1;
+  } else if (process.env.FIXTURE_MODE === 'connection-failure' && args.some(arg => arg.includes('required"=true'))) {
     process.stderr.write('Error: required MCP servers failed to initialize: gestalt-xerj: failed connection\\n');
     process.exitCode = 1;
   } else {
@@ -84,7 +106,7 @@ ${mode === 'timeout' ? 'setTimeout(() => console.log(process.env.FIXTURE_READY),
   const started = Date.now();
   const child = spawn(command, launchArgs, { env: {
     ...process.env, PATH: `${bin}:${process.env.PATH}`, GESTALT_MANAGER_BIN: owner,
-    CODEX_HOME: root, FIXTURE_ROOT: root, FIXTURE_SKILL: skillPath, FIXTURE_MODE: mode,
+    GESTALT_HOME: root, FIXTURE_SERENA: serena ? serenaPath : '', CODEX_HOME: root, FIXTURE_ROOT: root, FIXTURE_SKILL: skillPath, FIXTURE_MODE: mode,
     FIXTURE_READY: JSON.stringify(ready), XERJ_READY_TIMEOUT_MS: mode === 'timeout' ? '100' : mode.endsWith('-deadline') ? '600' : mode === 'hook-budget' ? '1500' : '5000',
     XERJ_API_KEY: 'do-not-expose-secret', GESTALT_XERJ_READY: 'stale-hint',
   }, stdio: ['pipe', 'pipe', 'pipe', 'pipe'] });
@@ -214,3 +236,32 @@ test('CLI recomputes MCP startup allowance after hook discovery', async () => {
     assert.ok(allowance > 0 && allowance < 1100, `hook time omitted from remaining budget: ${allowance}`);
   } finally { await rm(result.root, { recursive: true, force: true }); }
 });
+
+for (const mode of ['serena-healthy', 'serena-absent', 'serena-excluded', 'serena-conflict', 'serena-connection-failure', 'serena-xerj-connection-failure', 'serena-xerj-unavailable']) {
+  test(`CLI ${mode}: independent workspace capability and approval policy`, async () => {
+    const xerjReady = mode === 'serena-xerj-unavailable' ? { schemaVersion: 1, status: 'unavailable', reason: 'authentication-failed' } : undefined;
+    const result = await fixture(mode, ['exec', '-C', '/tmp', '-c', 'approval_policy="never"', '--', 'prompt'], xerjReady);
+    try {
+      assert.equal(result.code, 0, result.stderr);
+      assert.equal(result.launches.length, mode.endsWith('connection-failure') ? 2 : 1);
+      const launch = result.launches.at(-1);
+      const ready = ['serena-healthy', 'serena-xerj-unavailable', 'serena-xerj-connection-failure'].includes(mode);
+      const config = launch.find(arg => arg.startsWith('mcp_servers.gestalt-serena='));
+      assert.ok(config.includes(`"enabled"=${ready}`), config);
+      if (ready) {
+        assert.match(config, /"args"=\["serena","mcp","--cwd","\/tmp"\]/);
+        assert.ok(!config.includes('default_tools_approval_mode'), 'editing approval policy was overridden');
+      }
+      assert.ok(launch.includes('approval_policy="never"'));
+      const xerj = launch.find(arg => arg.startsWith('mcp_servers.gestalt-xerj='));
+      assert.ok(xerj.includes(`"enabled"=${!['serena-xerj-unavailable', 'serena-xerj-connection-failure'].includes(mode)}`), xerj);
+      const selectors = launch.find(arg => arg.startsWith('skills.config='));
+      assert.ok(selectors.includes(`"name"="gestalt:serena","enabled"=${ready}`), selectors);
+      assert.ok(!JSON.stringify(launch).includes('do-not-expose-secret'));
+      const hooks = launch.filter(arg => arg.startsWith('hooks.SessionStart=') || arg.startsWith('hooks.SubagentStart='));
+      assert.equal(hooks.length, 2, 'capabilities should share the two native lifecycle hooks');
+      assert.equal(hooks.some(arg => arg.includes('<gestalt_serena_capability>')), ready);
+      if (ready) assert.ok(hooks.every(arg => arg.includes('does not prove language readiness')));
+    } finally { await rm(result.root, { recursive: true, force: true }); }
+  });
+}

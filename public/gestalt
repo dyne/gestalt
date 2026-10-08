@@ -2684,8 +2684,9 @@ strip_separator() {
 }
 
 # Session flags never reach persistent Codex configuration. Required, live MCP
-# startup gates the actual first turn; a failed xerj connection retries once
-# with its tools and skill disabled. This is native Codex stdio, not an MCP bridge.
+# startup gates the actual first turn; a failed optional connection retries with
+# only that capability disabled. Serena semantics are verified on the first
+# policy-bearing tool call. This is native Codex stdio, not an MCP bridge.
 launch_cli_with_xerj() {
   CODEX_HOME="$codex_home" GESTALT_HOME="$gestalt_home" \
     GESTALT_MANAGER_BIN="$manager_target" GESTALT_STARTUP_DIAGNOSTICS_DONE=1 \
@@ -2693,7 +2694,8 @@ launch_cli_with_xerj() {
     exec node --input-type=module - "$@" 3<&0 <<'NODE'
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { readFile, realpath } from 'node:fs/promises';
+import { readFile, realpath, access } from 'node:fs/promises';
+import { constants } from 'node:fs';
 import { resolve } from 'node:path';
 
 // BEGIN BUNDLED PROFILE TOML PARSER
@@ -2737,7 +2739,7 @@ const environment = { ...process.env };
 const requested = Number(environment.XERJ_READY_TIMEOUT_MS ?? 5000);
 const budget = Number.isInteger(requested) && requested >= 100 && requested <= 60000 ? requested : 5000;
 // One deadline covers native discovery, shared readiness and MCP startup.
-const readinessDeadline = Date.now() + budget;
+let readinessDeadline = Date.now() + budget;
 const remainingTime = () => Math.max(0, readinessDeadline - Date.now());
 // A inherited hint is not evidence for a new or resumed runtime.
 delete environment.GESTALT_XERJ_READY;
@@ -2869,18 +2871,21 @@ async function launch(launchArgs) {
     stdio: [3, 'inherit', 'pipe'] });
   currentChild = child;
   let tail = '';
-  let xerjStartupFailed = false;
+  const startupFailed = new Set();
   child.stderr.on('data', data => {
     process.stderr.write(data);
     tail = (tail + data.toString()).slice(-8192);
-    if (/required MCP servers failed to initialize:[^\n]*gestalt-xerj:/.test(tail)) xerjStartupFailed = true;
+    // Scope names to the required-failure diagnostic, not unrelated stderr.
+    for (const diagnostic of tail.matchAll(/required MCP servers failed to initialize:([^\r\n]*)/g))
+      for (const name of ['gestalt-xerj', 'gestalt-serena'])
+        if (new RegExp(`(?:^|[\\s,;])${name}:`).test(diagnostic[1])) startupFailed.add(name);
   });
   const result = await new Promise(resolve => {
     child.once('error', () => resolve({ code: 127 }));
     child.once('exit', (code, signal) => resolve({ code: code ?? (signal === 'SIGINT' ? 130 : 143) }));
   });
   currentChild = undefined;
-  return { ...result, xerjStartupFailed };
+  return { ...result, startupFailed };
 }
 
 let state;
@@ -2932,11 +2937,6 @@ const session = state?.layers?.find(layer => layer.name?.type === 'sessionFlags'
 let rules = session.skills?.config ?? explicitSkills?.config ?? [];
 if (!Array.isArray(rules)) rules = [];
 // Preserve unrelated selectors from effective config and user session flags.
-const denialRules = [...(skill ? [{ path: skill.path, enabled: false }] : []), { name: 'gestalt:xerj', enabled: false }];
-const denied = state || rules.length ? toml([...rules, ...denialRules])
-  : rawSkillConfig?.startsWith('[') && rawSkillConfig.endsWith(']')
-    ? `${rawSkillConfig.slice(0, -1).replace(/,\s*$/, '')}${rawSkillConfig.slice(1, -1).trim() ? ',' : ''}{name="gestalt:xerj",enabled=false}]`
-    : '[{name="gestalt:xerj",enabled=false}]';
 const servers = state?.config?.mcp_servers ?? {};
 const duplicateNames = Object.entries(servers).filter(([name, config]) => name !== serverName &&
   config.command === manager && config.args?.[0] === 'xerj' && config.args?.[1] === 'mcp').map(([name]) => name);
@@ -2966,56 +2966,120 @@ async function trustedHooks(selected) {
   for (const hook of owned) trust[hook.key] = { ...trust[hook.key], enabled: true, trusted_hash: hook.currentHash };
   return [...selected, `hooks.state=${toml(trust)}`];
 }
-const disabledFlags = [...aliases, `mcp_servers.${serverName}=${toml({ command: manager, args: ["xerj", "mcp"], enabled: false, required: false })}`, `skills.config=${denied}`,
-  ...(state ? sessionHook(inactiveNotice) : [])];
-let ready = { status: 'absent' };
-let guidance = '';
-if (state?.config?.skills?.include_instructions === false || state?.config?.features?.hooks !== true) ready = { status: 'unavailable', reason: 'session-config-conflict' };
-if (conflict) ready = { status: "unavailable", reason: "session-config-conflict" };
-if (state && skill && !remote && !conflict && state.config?.skills?.include_instructions !== false && state.config?.features?.hooks === true) {
+// Compose two capabilities through the same native discovery and hook path.
+// The outer Serena catalog is connection evidence only. Its backend receives
+// effective permissions on the first native tool call, never from this bootstrap.
+const serenaName = 'gestalt-serena';
+const serenaSkill = state?.skills.find(entry => entry.name === 'gestalt:serena');
+const serenaReserved = servers[serenaName];
+const serenaConflict = serenaReserved && (serenaReserved.env && Object.keys(serenaReserved.env).length ||
+  serenaReserved.enabled === false || serenaReserved.enabled_tools || serenaReserved.disabled_tools?.length ||
+  Object.values(serenaReserved.tools ?? {}).some(tool => tool.enabled !== undefined));
+const serenaAliases = Object.entries(servers).filter(([name, config]) => name !== serenaName &&
+  config.command === manager && config.args?.[0] === 'serena' && config.args?.[1] === 'mcp').map(([name]) => name);
+if (serenaAliases.length) aliases.splice(0, aliases.length, `mcp_servers=${toml(Object.fromEntries([...duplicateNames, ...serenaAliases].map(name => [name, { enabled: false }])))}`);
+const capabilities = [{ name: serverName, skillName: 'gestalt:xerj', skill, valid: false, context: inactiveNotice,
+  config: { command: manager, args: ['xerj', 'mcp'] } },
+  { name: serenaName, skillName: 'gestalt:serena', skill: serenaSkill, valid: false,
+    context: '<gestalt_serena_unavailable>\nSerena is unavailable in this runtime. Earlier Serena guidance is inactive; use native code tools.\n</gestalt_serena_unavailable>',
+    config: { command: manager, args: ['serena', 'mcp', '--cwd', cwd] } }];
+for (const cap of capabilities) cap.inactiveContext = cap.context;
+const diagnoseSerena = reason => process.stderr.write(`gestalt: serena unavailable (${reason}); continuing with native code tools\n`);
+const usableGuidance = async entry => {
+  const path = await realpath(entry.path);
+  const manifest = JSON.parse(await readFile(resolve(path, '../../../.codex-plugin/plugin.json'), 'utf8'));
+  const nativeVersion = /(?:codex[^0-9]*)?0\.(\d+)\./.exec(state.version);
+  if (manifest.name !== 'gestalt' || manifest.skills !== './skills/' || !nativeVersion || Number(nativeVersion[1]) < 160)
+    throw new Error('incompatible-runtime');
+  return await readFile(path, 'utf8');
+};
+const common = state && !remote && state.config?.skills?.include_instructions !== false && state.config?.features?.hooks === true;
+// Serena honors native skill exclusions; absence from the selected plugin catalog
+// also prevents connection. Do not manufacture a globally installed skill path.
+const serenaRules = [...(state?.config?.skills?.config ?? []), ...rules].filter(rule =>
+  rule.name === 'gestalt:serena' || rule.path === serenaSkill?.path);
+if (common && serenaSkill && serenaSkill.enabled !== false && serenaRules.at(-1)?.enabled !== false && !serenaConflict) {
   try {
-    const path = await realpath(skill.path);
-    const manifest = JSON.parse(await readFile(resolve(path, '../../../.codex-plugin/plugin.json'), 'utf8'));
-    const nativeVersion = /(?:codex[^0-9]*)?0\.(\d+)\./.exec(state.version);
-    if (manifest.name !== 'gestalt' || manifest.skills !== './skills/' || !nativeVersion || Number(nativeVersion[1]) < 160)
-      throw new Error('incompatible-runtime');
-    guidance = await readFile(path, 'utf8');
+    const guidance = await usableGuidance(serenaSkill);
+    const install = JSON.parse(await readFile(resolve(environment.GESTALT_HOME, 'serena/active.json'), 'utf8'));
+    if (install.schemaVersion !== 1 || install.contractVersion !== 1 || !/^\d+\.\d+\.\d+$/.test(install.version) ||
+      !Array.isArray(install.tools) || !['get_symbols_overview', 'find_symbol', 'initial_instructions', 'replace_symbol_body']
+        .every(name => install.tools.some(tool => tool.name === name && tool.inputSchema?.type === 'object')))
+      throw new Error('invalid-installation');
+    for (const executable of [install.executable, install.python, install.uv]) await access(executable, constants.X_OK);
+    capabilities[1].valid = true;
+    capabilities[1].config = { ...capabilities[1].config, cwd, env_vars: ['CODEX_HOME', 'GESTALT_HOME'],
+      enabled: true, required: true, startup_readiness: 'connection', startup_timeout_ms: budget };
+    capabilities[1].context = '<gestalt_serena_capability>\nSerena is connected to this workspace through a confined, policy-bearing native proxy. '
+      + 'A listed catalog does not prove language readiness: first call get_symbols_overview on a current project source file '
+      + 'and verify success before relying on semantics or editing. On failure use native code tools. '
+      + 'Session and child permissions and approvals apply; plan mode prohibits edits. Do not switch projects or modes.\n'
+      + guidance + '\n</gestalt_serena_capability>';
+  } catch (error) { diagnoseSerena(error.code === 'ENOENT' ? 'not-installed' : 'invalid-installation-or-plugin'); }
+} else if (serenaConflict) diagnoseSerena('session-config-conflict');
+let ready = { status: 'absent' };
+if (state?.config?.skills?.include_instructions === false || state?.config?.features?.hooks !== true || conflict)
+  ready = { status: 'unavailable', reason: 'session-config-conflict' };
+if (common && skill && !conflict) {
+  try {
+    const guidance = await usableGuidance(skill);
     ready = await readiness(remainingTime());
+    if (ready.schemaVersion === 1 && ready.status === 'ready' && ready.version === '1.0.0-rc.87' &&
+        /^http:\/\/(127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(ready.endpoint)) {
+      capabilities[0].valid = true;
+      capabilities[0].config = { command: manager, args: ['xerj', 'mcp', '--url', ready.endpoint], cwd,
+        env_vars: ['CODEX_HOME', 'GESTALT_HOME', 'XERJ_API_KEY', 'XERJ_AUTH'], enabled: true, required: true,
+        startup_readiness: 'connection', startup_timeout_ms: Math.max(1, remainingTime()),
+        enabled_tools: ['xerj_search', 'xerj_map', 'xerj_code_search'], default_tools_approval_mode: 'approve' };
+      capabilities[0].context = '<gestalt_xerj_capability>\ngestalt:xerj guidance from ' + skill.path
+        + '\nVerified retrieval tools are available for this session.\n' + guidance + '\n</gestalt_xerj_capability>';
+    }
   } catch { ready = { status: 'unavailable', reason: 'incompatible-plugin-or-runtime' }; }
 }
+if (ready.status === 'unavailable') diagnose(ready.reason);
 if (interrupted) process.exit(interruptionCode);
-let valid = ready.schemaVersion === 1 && ready.status === 'ready' &&
-  ready.version === '1.0.0-rc.87' && /^http:\/\/(127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(ready.endpoint);
-if (!valid && ready.status === 'unavailable') diagnose(ready.reason);
-let selected = disabledFlags;
-if (valid) {
-  const config = { command: manager, args: ['xerj', 'mcp', '--url', ready.endpoint], cwd,
-    env_vars: ['CODEX_HOME', 'GESTALT_HOME', 'XERJ_API_KEY', 'XERJ_AUTH'],
-    enabled: true, required: true, startup_readiness: 'connection', startup_timeout_ms: Math.max(1, remainingTime()),
-    enabled_tools: ['xerj_search', 'xerj_map', 'xerj_code_search'], default_tools_approval_mode: 'approve' };
-  selected = [...aliases, `mcp_servers.${serverName}=${toml(config)}`,
-    `skills.config=${toml([...rules, { name: 'gestalt:xerj', enabled: true }])}`,
-    ...sessionHook('<gestalt_xerj_capability>\ngestalt:xerj guidance from ' + skill.path + '\nVerified retrieval tools are available for this session.\n' + guidance + '\n</gestalt_xerj_capability>')];
-}
-try { if (state?.config?.features?.hooks === true) selected = await trustedHooks(selected); }
-catch { diagnose('guidance-hooks-unavailable'); selected = disabledFlags; valid = false; }
-// Hook discovery consumes the same deadline. Give the actual required MCP
-// connection only the time still available, never the pre-hook allowance.
-if (valid) {
-  const remaining = remainingTime();
-  if (!remaining) {
-    diagnose('readiness-deadline'); selected = disabledFlags; valid = false;
-  } else {
+// A failed XERJ readiness episode must not consume Serena's hook/startup budget.
+if (capabilities[1].valid) readinessDeadline = Math.max(readinessDeadline, Date.now() + budget);
+const compose = () => {
+  hookCommands.clear();
+  const selectors = capabilities.flatMap(cap => cap.valid ? [{ name: cap.skillName, enabled: true }] :
+    [...(cap.skill ? [{ path: cap.skill.path, enabled: false }] : []), { name: cap.skillName, enabled: false }]);
+  const deniedSelectors = state || rules.length ? toml([...rules, ...selectors]) :
+    rawSkillConfig?.startsWith('[') && rawSkillConfig.endsWith(']')
+      ? `${rawSkillConfig.slice(0, -1).replace(/,\s*$/, '')}${rawSkillConfig.slice(1, -1).trim() ? ',' : ''}${toml(selectors).slice(1, -1)}]`
+      : toml(selectors);
+  return [...aliases, ...capabilities.map(cap => `mcp_servers.${cap.name}=${toml(cap.valid ? cap.config :
+    { command: manager, args: cap.config.args, enabled: false, required: false })}`), `skills.config=${deniedSelectors}`,
+    ...(state ? sessionHook(capabilities.map(cap => cap.valid ? cap.context : cap.inactiveContext).join('\n')) : [])];
+};
+async function selection() {
+  let selected = compose();
+  try { if (state?.config?.features?.hooks === true) selected = await trustedHooks(selected); }
+  catch {
+    diagnose('guidance-hooks-unavailable');
+    for (const cap of capabilities) cap.valid = false;
+    selected = compose();
+  }
+  if (capabilities[0].valid) {
+    const remaining = remainingTime();
+    if (!remaining) { diagnose('readiness-deadline'); capabilities[0].valid = false; return selection(); }
     selected = selected.map(flag => flag.startsWith(`mcp_servers.${serverName}=`)
       ? flag.replace(/"startup_timeout_ms"=\d+/, `"startup_timeout_ms"=${remaining}`) : flag);
   }
+  return selected;
 }
-let result = await launch(appendFlags(selected));
-if (valid && result.code !== 0 && result.xerjStartupFailed && !interrupted) {
-  diagnose('runtime-connection-failed');
-  let fallback = disabledFlags;
-  try { fallback = await trustedHooks(fallback); } catch { /* No capability guidance is exposed. */ }
-  result = await launch(appendFlags(fallback));
+let result = await launch(appendFlags(await selection()));
+// Drop only the failed optional connection, preserving the independent service.
+// At most two retries: each removes one of the two initially selected servers.
+for (let attempt = 0; result.code !== 0 && !interrupted && attempt < capabilities.length; attempt++) {
+  const failed = capabilities.filter(cap => cap.valid && result.startupFailed.has(cap.name));
+  if (!failed.length) break;
+  for (const cap of failed) {
+    cap.valid = false;
+    (cap.name === serverName ? diagnose : diagnoseSerena)('runtime-connection-failed');
+  }
+  readinessDeadline = Date.now() + budget;
+  result = await launch(appendFlags(await selection()));
 }
 process.exitCode = interrupted ? interruptionCode : result.code;
 NODE

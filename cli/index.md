@@ -11,6 +11,11 @@ relay together without merging their state. Run `gestalt help` at any time.
 | `gestalt update` | Checksum-update the manager, upgrade Agents, rerun setup, and update Mobile |
 | `gestalt update-restart` | From a live Mobile session, update everything and gracefully restart Mobile |
 | `gestalt cli [args…]` | Launch Codex with the isolated Gestalt home |
+| `gestalt serena install` | Prepare the optional managed Serena release |
+| `gestalt serena update [VERSION]` | Validate and activate a Serena update |
+| `gestalt serena version` | Print the installed Serena version without startup |
+| `gestalt serena doctor [--cwd ROOT] [--json]` | Check install, connection, and optional project language readiness |
+| `gestalt serena index --cwd ROOT` | Explicitly warm native project caches |
 | `gestalt mobile [args…]` | Launch Gestalt Mobile and forward its options |
 | `gestalt path [NAME\|--json]` | Resolve managed executable, plugin, and runtime paths |
 | `gestalt doctor` | Check prerequisites, paths, Gestalt plugin version, and Mobile version |
@@ -35,6 +40,57 @@ The `context-mode@dyne-gestalt-agents` plugin source is intentionally shown as
 disabled. Gestalt Agents keeps that package as the implementation source and
 registers one native `context-mode` MCP launcher instead. Enabling the plugin
 by hand can create a second, incorrectly launched MCP server.
+
+## Optional workspace semantics
+
+```sh
+gestalt serena install
+gestalt cli -C /absolute/project/path
+gestalt serena doctor --cwd /absolute/project/path --json
+```
+
+When the selected Gestalt plugin includes `gestalt:serena` and Serena is installed,
+the CLI adds a session-only `gestalt-serena` connection bound to the selected
+directory. Named profiles and skill exclusions apply. Sessions and child agents
+receive the same conditional guidance; resume checks the current installation
+again. Launch never installs or updates Serena and never rewrites global Codex
+configuration.
+
+The connection exposes a validated tool catalog. Verify a successful
+`get_symbols_overview` on a current source file before relying on language
+semantics or editing. The first native call starts the backend with that call's
+effective sandbox policy. Missing tooling, a failed connection or language
+service, denied approval, and read-only cache bootstrap all fall back to native
+code tools. XERJ and Serena are independent optional capabilities.
+
+Use XERJ to discover references, Serena for semantic work in the active project,
+and context-mode to analyze large output. Serena always uses Codex context and
+editing mode; session approvals and permissions still govern every call. The
+manager does not auto-approve Serena edits. Collaboration plan mode also
+prohibits editing through agent instructions.
+
+With `approval_policy = "never"`, tools that require a prompt are denied. For a
+trusted project, an operator can opt into Serena tool execution in their isolated
+Codex configuration or named profile:
+
+```toml
+[mcp_servers.gestalt-serena]
+command = "/home/you/.local/bin/gestalt"
+args = ["serena", "mcp", "--cwd", "/absolute/project/path"]
+default_tools_approval_mode = "approve"
+```
+
+Use your absolute manager and project paths. This approves tool dispatch,
+including editing; it grants no filesystem or network permissions. Native
+sandbox restrictions still apply. Existing per-tool approval overrides are
+preserved: for example, `approval_mode = "prompt"` under
+`[mcp_servers.gestalt-serena.tools.replace_symbol_body]` still denies that edit
+when session approval is `never`, while approved semantic reads remain usable.
+
+Native Serena state stays in the selected project's `.gestalt/serena`. An
+operator doctor result describes its diagnostic process, not the effective
+permissions or language readiness of a later session. See
+[Serena troubleshooting](../troubleshooting.md#serena-installation).
 
 ## Launch Mobile
 

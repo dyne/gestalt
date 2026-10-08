@@ -1199,6 +1199,132 @@ try:
             staged = stream.name
             yaml.dump(value, stream)
         os.replace(staged, path)
+    # clangd stores project shards beside the selected compilation database,
+    # independently of XDG_CACHE_HOME. Give each database a managed copy and
+    # select it through workspace-local user configuration (no source edits).
+    import hashlib, re
+    fragments = []
+    databases = []
+    project_configs = []
+    skipped = {'.git', '.gestalt', '.serena', '.cache', 'node_modules', '.venv'}
+    for directory, dirs, files in os.walk(root, followlinks=False):
+        dirs[:] = sorted(name for name in dirs if name not in skipped
+                         and not (pathlib.Path(directory) / name).is_symlink())
+        if '.clangd' in files:
+            project_configs.append(pathlib.Path(directory) / '.clangd')
+        if 'compile_commands.json' in files:
+            databases.append(pathlib.Path(directory))
+    # Broad scopes precede nested scopes. A root database takes precedence over
+    # clangd's conventional build/ fallback for the same source directory.
+    scopes = {}
+    for directory in sorted(databases):
+        scope = directory.parent if directory.name == 'build' else directory
+        if scope not in scopes or directory == scope:
+            scopes[scope] = directory
+    def managed_database(scope, directory):
+        try:
+            source = directory / 'compile_commands.json'
+            with open(source, encoding='utf-8') as stream:
+                commands = json.load(stream)
+            if not isinstance(commands, list):
+                raise ValueError('compile_commands.json must contain an array')
+            for entry in commands:
+                if not isinstance(entry, dict) or not isinstance(entry.get('directory'), str):
+                    raise ValueError('compile command requires a directory')
+                working = pathlib.Path(entry['directory'])
+                if not working.is_absolute():
+                    entry['directory'] = str((directory / working).resolve())
+        except (OSError, ValueError) as error:
+            # clangd tolerates unusable databases; do not make an unrelated
+            # fixture or incomplete build prevent Serena from starting.
+            sys.stderr.write('gestalt: skipping clangd database ' + str(directory) + ': ' + str(error) + '\n')
+            return str(directory)
+        relative = os.path.relpath(directory, root)
+        # Full relative-path identity prevents equal basenames from aliasing.
+        identity = hashlib.sha256(relative.encode()).hexdigest()[:16]
+        name = re.sub(r'[^A-Za-z0-9._-]', '_', scope.name) or 'source'
+        managed = state / 'clangd' / (name + '-' + identity)
+        database_dir = managed / 'database'
+        cache = managed / 'cache'
+        database_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        cache.mkdir(exist_ok=True, mode=0o700)
+        cache_link = database_dir / '.cache'
+        if not cache_link.exists() and not cache_link.is_symlink():
+            cache_link.symlink_to('../cache', target_is_directory=True)
+        if not cache_link.is_symlink() or cache_link.resolve() != cache:
+            raise ValueError('managed clangd cache link is invalid')
+        target = database_dir / 'compile_commands.json'
+        content = json.dumps(commands, ensure_ascii=False) + '\n'
+        if not target.exists() or target.read_text(encoding='utf-8') != content:
+            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=database_dir, delete=False) as stream:
+                staged = stream.name
+                stream.write(content)
+            os.replace(staged, target)
+        return str(database_dir)
+    for scope, directory in sorted(scopes.items(), key=lambda item: (len(item[0].parts), str(item[0]))):
+        fragments.append({'If': {'PathMatch': re.escape(scope.as_posix()) + '/.*'},
+                          'CompileFlags': {'CompilationDatabase': managed_database(scope, directory)}})
+    # Reproduce explicit project database choices at user-config precedence.
+    # Other project settings remain in their original fragments. Conditions in
+    # project files are relative; user-config conditions must be absolute.
+    for project_config in sorted(project_configs, key=lambda path: (len(path.parts), str(path))):
+        try:
+            with open(project_config, encoding='utf-8') as stream:
+                documents = list(yaml.load_all(stream))
+        except Exception as error:
+            sys.stderr.write('gestalt: skipping clangd config ' + str(project_config) + ': ' + str(error) + '\n')
+            continue
+        for document in documents:
+            if not isinstance(document, dict):
+                continue
+            choice = (document.get('CompileFlags') or {}).get('CompilationDatabase')
+            if choice is None:
+                continue
+            scope = project_config.parent
+            prefix = re.escape(scope.as_posix()) + '/'
+            conditions = dict(document.get('If') or {})
+            for key in ('PathMatch', 'PathExclude'):
+                if key in conditions:
+                    patterns = conditions[key]
+                    if isinstance(patterns, str):
+                        patterns = [patterns]
+                    conditions[key] = [prefix + '(' + pattern + ')' for pattern in patterns]
+            conditions.setdefault('PathMatch', prefix + '.*')
+            if choice == 'Ancestors':
+                # This is a dynamic lookup for each file, including nested
+                # databases. Preserve it rather than freeze one build choice.
+                fragments.append({'If': conditions, 'CompileFlags': {'CompilationDatabase': 'Ancestors'}})
+                continue
+            directory = (scope / str(choice)).resolve()
+            selected = str(choice)
+            if choice != 'None' and (directory / 'compile_commands.json').is_file():
+                selected = managed_database(scope, directory)
+            elif choice != 'None':
+                selected = str(directory)
+            fragments.append({'If': conditions, 'CompileFlags': {'CompilationDatabase': selected}})
+    # Linux and macOS use different user-config discovery paths. Both stay
+    # inside the managed HOME/XDG tree and carry the same generated fragments.
+    begin = '# BEGIN GESTALT CLANGD DATABASES\n'
+    end = '# END GESTALT CLANGD DATABASES\n'
+    generated = begin + ''.join('---\n' + json.dumps(fragment) + '\n' for fragment in fragments) + end
+    for config_path in (state / 'xdg-config/clangd/config.yaml',
+                        state / 'home/Library/Preferences/clangd/config.yaml'):
+        config_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        existing = config_path.read_text(encoding='utf-8') if config_path.exists() else ''
+        if begin in existing:
+            before, tail = existing.split(begin, 1)
+            if end not in tail:
+                raise ValueError('managed clangd configuration markers are invalid')
+            remainder = tail.split(end, 1)[1]
+            if remainder.startswith('---\n'):
+                remainder = remainder[4:]
+            existing = before + remainder
+        content = generated + ('---\n' + existing.strip() + '\n' if existing.strip() else '')
+        if not config_path.exists() or config_path.read_text(encoding='utf-8') != content:
+            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=state, delete=False) as stream:
+                staged = stream.name
+                stream.write(content)
+            os.replace(staged, config_path)
     # Generate the release's own defaults, then apply only managed invariants.
     SerenaConfig.from_config_file()
     global_path = state / 'serena_config.yml'

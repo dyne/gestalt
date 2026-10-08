@@ -132,8 +132,12 @@ for (const mode of ['healthy', 'absent', 'bad-auth', 'timeout', 'incompatible', 
     try {
       assert.equal(result.code, 0);
       assert.equal(result.launches.length, mode === 'connection-failure' ? 2 : 1);
+      for (const invocation of result.launches) {
+        assert.equal(invocation.filter(arg => arg === '--no-daemon').length, 1);
+        assert.ok(invocation.indexOf('--no-daemon') < invocation.indexOf('--'));
+      }
       const launch = result.launches.at(-1);
-      assert.deepEqual(launch.slice(0, 5), ['resume', '--last', '-c', 'unrelated=true', '-c']);
+      assert.deepEqual(launch.slice(0, 6), ['--no-daemon', 'resume', '--last', '-c', 'unrelated=true', '-c']);
       assert.deepEqual(launch.slice(-2), ['--', 'prompt with spaces']);
       assert.equal(await readFile(join(result.root, 'input'), 'utf8'), 'preserved stdin\n');
       const value = launch.find(arg => arg.startsWith('skills.config='));
@@ -151,12 +155,28 @@ for (const mode of ['healthy', 'absent', 'bad-auth', 'timeout', 'incompatible', 
   });
 }
 
+test('explicit embedded mode is preserved without duplication', async () => {
+  const result = await fixture('healthy', ['--no-daemon']);
+  try {
+    assert.equal(result.code, 0);
+    assert.equal(result.launches[0].filter(arg => arg === '--no-daemon').length, 1);
+  } finally { await rm(result.root, { recursive: true, force: true }); }
+});
+
+test('remote endpoint does not acquire a local server mode', async () => {
+  const result = await fixture('healthy', ['--remote', 'ws://127.0.0.1:4321']);
+  try {
+    assert.equal(result.code, 0);
+    assert.ok(!result.launches[0].includes('--no-daemon'));
+  } finally { await rm(result.root, { recursive: true, force: true }); }
+});
+
 test('CLI protected overrides follow user config; cwd/profile go to native config discovery', async () => {
   const args = ['-C', tmpdir(), '--profile', 'private', '-c', 'mcp_servers.gestalt-xerj.enabled=false', 'question'];
   const result = await fixture('healthy', args);
   try {
     assert.equal(result.code, 0);
-    assert.deepEqual(result.launches[0].slice(0, args.length), args);
+    assert.deepEqual(result.launches[0].slice(1, args.length + 1), args);
     const read = JSON.parse(await readFile(join(result.root, 'read.json'), 'utf8'));
     assert.equal(read.params.cwd, tmpdir());
     assert.ok(result.launches[0].some(arg => arg.startsWith('mcp_servers.gestalt-xerj=') && arg.includes(`"cwd"=${JSON.stringify(tmpdir())}`)));
@@ -191,7 +211,7 @@ test('attached profile, cwd and feature arguments keep native semantics', async 
   const result = await fixture('healthy', args);
   try {
     assert.equal(result.code, 0);
-    assert.deepEqual(result.launches[0].slice(0, args.length), args);
+    assert.deepEqual(result.launches[0].slice(1, args.length + 1), args);
     const read = JSON.parse(await readFile(join(result.root, 'read.json'), 'utf8'));
     assert.equal(read.params.cwd, tmpdir());
     assert.ok(read.args.includes('features.hooks=true'));

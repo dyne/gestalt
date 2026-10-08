@@ -2936,7 +2936,10 @@ const toml = value => {
 const appendFlags = flags => {
   const end = args.indexOf('--');
   const index = end < 0 ? args.length : end;
-  return [...args.slice(0, index), ...flags.flatMap(flag => ['-c', flag]), ...args.slice(index)];
+  // Session overrides require an embedded server. Select it explicitly so
+  // Codex does not warn about falling back from the shared daemon on startup.
+  const mode = remote || args.slice(0, index).includes('--no-daemon') ? [] : ['--no-daemon'];
+  return [...mode, ...args.slice(0, index), ...flags.flatMap(flag => ['-c', flag]), ...args.slice(index)];
 };
 const flags = [];
 let cwd = process.cwd();

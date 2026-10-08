@@ -96,6 +96,12 @@ preserved: for example, `approval_mode = "prompt"` under
 `[mcp_servers.gestalt-serena.tools.replace_symbol_body]` still denies that edit
 when session approval is `never`, while approved semantic reads remain usable.
 
+`gestalt doctor` checks Bubblewrap (system or Codex-bundled), Linux user-namespace
+settings, and a bounded native Codex sandbox probe. `gestalt serena doctor`
+includes this evidence in its `sandbox` JSON field and stops before MCP startup
+if the probe fails, with the original sandbox diagnostic. The checks report
+Ubuntu AppArmor restrictions without changing system settings.
+
 Native Serena state stays in the selected project's `.gestalt/serena`. An
 operator doctor result describes its diagnostic process, not the effective
 permissions or language readiness of a later session. See

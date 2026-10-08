@@ -22,6 +22,7 @@ manager_update_staged_target=''
 update_restart_lock=''
 skills_transfer_temp_root=''
 skills_export_staged_target=''
+doctor_sandbox_report=''
 
 log() {
   printf 'gestalt: %s\n' "$*" >&2
@@ -99,7 +100,7 @@ Commands:
   serena install            Install private uv, Python 3.13 and tested Serena.
   serena update [VERSION]   Validate and activate a release; retain prior tooling.
   serena version, -V        Read installed package metadata without creating state.
-  serena doctor [--cwd ROOT] Check install, MCP tools and optional language readiness.
+  serena doctor [--cwd ROOT] Check install, sandbox, MCP tools and optional language readiness.
   serena index --cwd ROOT    Explicit native symbol/cache warmup for one project.
   serena mcp --cwd ROOT      Confined workspace MCP; always Codex context and editing mode.
   xerj install              Install the checksum-verified managed xerj release.
@@ -1515,10 +1516,106 @@ try {
 JS
 }
 
-serena_operator() {
-  local action=$1 workspace=$2 json_output=$3
+codex_sandbox_probe() {
+  node --input-type=module - <<'JS'
+import { readFile, realpath, mkdtemp, rm, access } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import { join, dirname, delimiter } from 'node:path';
+const report = { ready: false, reason: 'codex-not-found', bubblewrap: null, userNamespaces: {} };
+const executable = async path => { try { await access(path, constants.X_OK); return await realpath(path); } catch { return null; } };
+const find = async name => {
+  for (const directory of (process.env.PATH ?? '').split(delimiter)) {
+    const path = await executable(join(directory || '.', name));
+    if (path) return path;
+  }
+  return null;
+};
+let temporary, child, timer, signal;
+try {
+  const codex = await find('codex');
+  if (process.platform === 'linux') {
+    for (const name of ['kernel.unprivileged_userns_clone', 'kernel.apparmor_restrict_unprivileged_userns', 'user.max_user_namespaces']) {
+      try { report.userNamespaces[name] = (await readFile('/proc/sys/' + name.replaceAll('.', '/'), 'utf8')).trim(); }
+      catch { report.userNamespaces[name] = null; }
+    }
+    let bwrap = await find('bwrap'), source = 'system';
+    if (!bwrap && codex) {
+      const candidates = [join(dirname(codex), '../codex-resources/bwrap'), join(dirname(codex), 'codex-resources/bwrap')];
+      if (['x64', 'arm64'].includes(process.arch)) {
+        const triple = (process.arch === 'x64' ? 'x86_64' : 'aarch64') + '-unknown-linux-musl';
+        try {
+          const packagePath = createRequire(codex).resolve('@openai/codex-linux-' + process.arch + '/package.json');
+          candidates.push(join(dirname(packagePath), 'vendor', triple, 'codex-resources/bwrap'));
+        } catch {}
+        candidates.push(join(dirname(codex), '../vendor', triple, 'codex-resources/bwrap'));
+      }
+      for (const candidate of candidates) { bwrap = await executable(candidate); if (bwrap) break; }
+      source = 'bundled';
+    }
+    if (bwrap) {
+      const version = spawnSync(bwrap, ['--version'], { encoding: 'utf8', timeout: 1000, maxBuffer: 4096 });
+      report.bubblewrap = { available: version.status === 0, path: bwrap, source, version: version.status === 0 ? version.stdout.trim() : null };
+    } else report.bubblewrap = { available: false, path: null, source: null, version: null };
+  }
+  if (codex) {
+    temporary = await mkdtemp(join(tmpdir(), 'gestalt-sandbox-doctor-'));
+    let stderr = '', timedOut = false;
+    child = spawn(codex, ['-c', 'default_permissions=":read-only"', 'sandbox', '--', '/bin/true'],
+      { detached: true, env: { ...process.env, CODEX_HOME: temporary }, stdio: ['ignore', 'ignore', 'pipe'] });
+    const kill = kind => { if (child?.pid) { try { process.kill(-child.pid, kind); } catch {} } };
+    signal = () => kill('SIGKILL');
+    process.on('SIGINT', signal); process.on('SIGTERM', signal);
+    child.stderr.on('data', data => { stderr = (stderr + data).slice(-4096); });
+    timer = setTimeout(() => { timedOut = true; kill('SIGKILL'); }, 5000);
+    const result = await new Promise(resolve => {
+      child.once('error', error => resolve({ error })); child.once('close', code => resolve({ code }));
+    });
+    clearTimeout(timer); kill('SIGKILL');
+    report.ready = result.code === 0 && !timedOut;
+    report.reason = timedOut ? 'sandbox-timeout' : report.ready ? 'ready' : 'sandbox-startup-failed';
+    if (!report.ready) report.diagnostic = (stderr.trim() || result.error?.message || 'Codex sandbox exited with code ' + result.code).slice(-4096);
+  }
+} catch (error) { report.reason = 'sandbox-probe-failed'; report.diagnostic = error.message; }
+finally {
+  clearTimeout(timer);
+  if (signal) { process.off('SIGINT', signal); process.off('SIGTERM', signal); }
+  if (temporary) await rm(temporary, { recursive: true, force: true });
+}
+console.log(JSON.stringify(report));
+JS
+}
+
+command_sandbox_doctor() {
   require_command node
-  GESTALT_SERENA_PREPARE="$(serena_workspace_prepare)" GESTALT_SERENA_NODE="$(command -v node)" \
+  doctor_sandbox_report=$(codex_sandbox_probe)
+  node --input-type=module - "$doctor_sandbox_report" <<'JS'
+const report = JSON.parse(process.argv[2]);
+if (report.bubblewrap) {
+  console.log('Bubblewrap'.padEnd(24) + (report.bubblewrap.available
+    ? report.bubblewrap.version + ' (' + report.bubblewrap.source + ')'
+    : 'not found or unusable; check the Codex installation'));
+}
+for (const [name, value] of Object.entries(report.userNamespaces)) console.log(name + ' = ' + (value ?? 'unavailable'));
+console.log('Codex sandbox'.padEnd(24) + (report.ready ? 'ready' : report.reason));
+if (!report.ready) {
+  if (report.diagnostic) console.log(report.diagnostic);
+  console.log('Check Bubblewrap and unprivileged user namespaces, including Ubuntu AppArmor restrictions.');
+}
+process.exitCode = report.ready ? 0 : 1;
+JS
+}
+
+serena_operator() {
+  local action=$1 workspace=$2 json_output=$3 sandbox_report=''
+  require_command node
+  if [[ $action == doctor ]]; then
+    sandbox_report=${doctor_sandbox_report:-$(codex_sandbox_probe)}
+  fi
+  GESTALT_SERENA_SANDBOX_REPORT=$sandbox_report \
+    GESTALT_SERENA_PREPARE="$(serena_workspace_prepare)" GESTALT_SERENA_NODE="$(command -v node)" \
     GESTALT_SERENA_SUPERVISOR="$(serena_operator_supervisor)" \
     node --input-type=module - "$gestalt_home/serena/active.json" "$action" "$workspace" "$json_output" <<'JS'
 import { readFile, realpath, mkdtemp, mkdir, rm, access, stat } from 'node:fs/promises';
@@ -1527,7 +1624,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 const [descriptor, action, directory, jsonOutput] = process.argv.slice(2);
-let report = {installed:false,connected:false,projectReady:null,reason:'not-installed'};
+const sandbox = action === 'doctor' ? JSON.parse(process.env.GESTALT_SERENA_SANDBOX_REPORT) : null;
+let report = {installed:false,connected:false,projectReady:null,reason:'not-installed', ...(sandbox ? { sandbox } : {})};
 let temporary, child, timer, signal, output = '', stderr = '', code = 1, timedOut=false;
 const budget = Number(process.env.GESTALT_SERENA_DOCTOR_TIMEOUT_MS ?? 30000);
 if (!Number.isInteger(budget) || budget < 100 || budget > 60000) throw Error('Serena doctor timeout must be 100..60000 ms');
@@ -1535,6 +1633,8 @@ const emit = () => {
   if (jsonOutput === 'true') console.log(JSON.stringify(report));
   else {
     console.log('Serena installed'.padEnd(24) + (report.installed ? 'yes' : 'no'));
+    console.log('Serena sandbox'.padEnd(24) + (report.sandbox?.ready ? 'ready' : report.sandbox?.reason ?? 'not checked'));
+    if (report.sandbox?.diagnostic) console.log(report.sandbox.diagnostic);
     console.log('Serena connected'.padEnd(24) + (report.connected ? 'yes' : 'no'));
     console.log('Serena project-ready'.padEnd(24) + (report.projectReady === null ? 'not checked (use --cwd ROOT)' : report.projectReady ? 'yes' : 'no'));
     console.log('Serena status'.padEnd(24) + report.reason);
@@ -1637,6 +1737,7 @@ try {
   const identity=JSON.parse(metadata.stdout);
   if(identity.serena!==install.version || !/^3\.13\.\d+$/.test(identity.python) || !/^uv \d+\.\d+\.\d+(?:[ (]|$)/.test(uv.stdout.trim()))throw Error(report.reason);
   report.installed = true;
+  if (sandbox && !sandbox.ready) { report.reason = 'sandbox-unavailable'; throw Error(report.reason); }
   const workspace = directory ? await realpath(directory) : '';
   report.projectReady = workspace ? false : null;
   report.reason = action === 'index' ? 'index-failed' : 'connection-failed';
@@ -1658,7 +1759,7 @@ try {
   await new Promise(resolve=>setTimeout(resolve,750));killGroup('SIGKILL');
   if(action==='doctor') {
     const lines=output.trim().split('\n');
-    for(const line of lines) {try { const value=JSON.parse(line);if(typeof value.installed==='boolean')report=value;} catch {}}
+    for(const line of lines) {try { const value=JSON.parse(line);if(typeof value.installed==='boolean')report={...value, ...(sandbox ? {sandbox} : {})};} catch {}}
     if(timedOut) report.reason=report.connected?'language-service-timeout':'connection-timeout';
     if(stderr && code !== 0) console.error(stderr.trim());
   }
@@ -3745,6 +3846,8 @@ command_doctor() {
       CONTEXT_MODE_PLATFORM=codex CONTEXT_MODE_WORKSPACE="$PWD" \
       node "$context_mode_runtime/cli.bundle.mjs" doctor || failed=true
   fi
+
+  run_doctor_command 'Bubblewrap and Codex sandbox' command_sandbox_doctor || failed=true
 
   if [[ -f $gestalt_home/serena/active.json ]]; then
     run_doctor_command 'Serena doctor' command_serena doctor || failed=true

@@ -9,8 +9,17 @@ const tools = ['get_symbols_overview','find_symbol','replace_symbol_body'].map(n
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(),'serena-doctor-')); t.after(async()=>{await chmod(join(root,'home'),0o755);await chmod(join(root,'workspace with spaces'),0o755);await rm(root,{recursive:true,force:true});});
   const home=join(root,'home'), managed=join(root,'managed'), workspace=join(root,'workspace with spaces'), stubs=join(root,'stubs');
-  for(const p of [home,workspace,join(managed,'serena'),join(root,'python'),join(stubs,'ruamel'),join(stubs,'serena/config'),join(stubs,'mcp/client')])await mkdir(p,{recursive:true});
+  for(const p of [join(root,'bin'),home,workspace,join(managed,'serena'),join(root,'python'),join(stubs,'ruamel'),join(stubs,'serena/config'),join(stubs,'mcp/client')])await mkdir(p,{recursive:true});
   await writeFile(join(workspace,'example.py'),'def greet():\n    return 1\n');
+  await writeFile(join(root,'bin/codex'),`#!/bin/bash
+if [[ $SANDBOX_MODE == blocked ]]; then
+ echo 'bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted' >&2
+ exit 1
+fi
+if [[ $SANDBOX_MODE == timeout ]]; then exec /bin/sleep 60; fi
+exit 0
+`,{mode:0o755});
+  await writeFile(join(root,'bin/bwrap'),'#!/bin/sh\necho "bubblewrap fixture"\n',{mode:0o755});
   const python=join(root,'python-wrapper');
   await writeFile(python,`#!/usr/bin/env python3
 import sys,os,json
@@ -94,7 +103,7 @@ for line in sys.stdin:
 `,{mode:0o755});
   const descriptor=join(managed,'serena/active.json');
   await writeFile(descriptor,JSON.stringify({schemaVersion:1,contractVersion:1,version:'1.7.0',python,executable,uv,pythonInstallDir:join(root,'python'),tools}));
-  const env={...process.env,HOME:home,GESTALT_HOME:managed,CODEX_HOME:join(root,'codex'),PYTHONPATH:stubs,
+  const env={...process.env,PATH:join(root,'bin')+':'+process.env.PATH,HOME:home,GESTALT_HOME:managed,CODEX_HOME:join(root,'codex'),PYTHONPATH:stubs,
     ARGV_LOG:join(root,'args.json'),PID_LOG:join(root,'pid')};
   async function run(args,extra={}) {
     const child=spawn('bash',[manager,...args],{env:{...env,...extra},stdio:['ignore','pipe','pipe']});
@@ -104,7 +113,8 @@ for line in sys.stdin:
   }
   const doctor=async(extra={},cwd=workspace)=>{
     const r=await run(['serena','doctor','--json',...(cwd?['--cwd',cwd]:[])],extra);
-    return {...r,report:JSON.parse(r.stdout)};
+    const {sandbox,...report}=JSON.parse(r.stdout);
+    return {...r,report,sandbox};
   };
   return {root,home,managed,workspace,descriptor,executable,python,uv,env,run,doctor};
 }
@@ -176,4 +186,75 @@ test('source probe enforces entry bound inside a single large directory',async t
   const r=await f.doctor({},root);assert.equal(r.code,1);assert.equal(r.report.connected,true);
   assert.equal(r.report.projectReady,false);assert.match(r.report.reason,/no-supported-source-within-probe-limit/);
   assert.deepEqual(await readdir(root),(await readdir(root)).filter(name=>name!=='.gestalt'));
+});
+
+test('doctor checks Bubblewrap and a bounded Codex sandbox before MCP startup',async t=>{
+  const f=await fixture(t);
+  const r=await f.doctor();
+  assert.equal(r.sandbox.ready,true);
+  assert.equal(r.sandbox.reason,'ready');
+  if(process.platform==='linux') {
+    assert.equal(r.sandbox.bubblewrap.source,'system');
+    assert.equal(r.sandbox.bubblewrap.version,'bubblewrap fixture');
+    assert.ok(Object.hasOwn(r.sandbox.userNamespaces,'kernel.apparmor_restrict_unprivileged_userns'));
+  }
+});
+test('sandbox failure exposes Bubblewrap diagnostic and prevents misleading connection readiness',async t=>{
+  const f=await fixture(t), r=await f.doctor({SANDBOX_MODE:'blocked'});
+  assert.equal(r.code,1);
+  assert.equal(r.report.installed,true);
+  assert.equal(r.report.connected,false);
+  assert.equal(r.report.reason,'sandbox-unavailable');
+  assert.equal(r.sandbox.ready,false);
+  assert.equal(r.sandbox.reason,'sandbox-startup-failed');
+  assert.match(r.sandbox.diagnostic,/Failed RTM_NEWADDR/);
+  await assert.rejects(readFile(join(f.root,'args.json')),{code:'ENOENT'});
+  assert.deepEqual(await readdir(f.home),[]);
+  assert.deepEqual(await readdir(f.workspace),['example.py']);
+  const text=await f.run(['serena','doctor'],{SANDBOX_MODE:'blocked'});
+  assert.match(text.stdout,/Serena sandbox\s+sandbox-startup-failed/);
+  assert.match(text.stdout,/Operation not permitted/);
+  const all=await f.run(['doctor'],{SANDBOX_MODE:'blocked'});
+  assert.equal(all.code,1);
+  assert.match(all.stdout,/Bubblewrap and Codex sandbox/);
+  assert.match(all.stdout,/Codex sandbox\s+sandbox-startup-failed/);
+  assert.match(all.stdout,/Operation not permitted/);
+});
+test('sandbox probe timeout is bounded and keeps the backend stopped',async t=>{
+  const f=await fixture(t),r=await f.doctor({SANDBOX_MODE:'timeout'});
+  assert.equal(r.code,1);
+  assert.equal(r.sandbox.reason,'sandbox-timeout');
+  await assert.rejects(readFile(join(f.root,'args.json')),{code:'ENOENT'});
+});
+
+const source = await readFile(manager, 'utf8');
+const sandboxProgram = source.split("codex_sandbox_probe() {\n  node --input-type=module - <<'JS'\n")[1].split('\nJS\n}')[0];
+async function probe(f) {
+  const child=spawn(process.execPath,['--input-type=module','-'],{env:{...f.env,PATH:join(f.root,'bin')},stdio:['pipe','pipe','pipe']});
+  child.stdin.end(sandboxProgram);
+  let stdout='',stderr='';child.stdout.on('data',b=>stdout+=b);child.stderr.on('data',b=>stderr+=b);
+  const code=await new Promise((r,j)=>{child.on('error',j);child.on('exit',r);});
+  assert.equal(code,0,stderr);
+  return JSON.parse(stdout);
+}
+test('sandbox doctor detects Codex-bundled Bubblewrap without requiring a system binary',async t=>{
+  if(process.platform!=='linux'||!['x64','arm64'].includes(process.arch)){t.skip();return;}
+  const f=await fixture(t);
+  await rm(join(f.root,'bin/bwrap'));
+  const triple=(process.arch==='x64'?'x86_64':'aarch64')+'-unknown-linux-musl';
+  const resources=join(f.root,'vendor',triple,'codex-resources');
+  await mkdir(resources,{recursive:true});
+  await writeFile(join(resources,'bwrap'),'#!/bin/sh\necho "bubblewrap bundled fixture"\n',{mode:0o755});
+  const r=await probe(f);
+  assert.equal(r.ready,true);
+  assert.equal(r.bubblewrap.available,true);
+  assert.equal(r.bubblewrap.source,'bundled');
+  assert.equal(r.bubblewrap.path,join(resources,'bwrap'));
+});
+test('sandbox doctor reports missing Codex independently of Bubblewrap availability',async t=>{
+  const f=await fixture(t);await rm(join(f.root,'bin/codex'));
+  const r=await probe(f);
+  assert.equal(r.ready,false);
+  assert.equal(r.reason,'codex-not-found');
+  if(process.platform==='linux')assert.equal(r.bubblewrap.available,true);
 });

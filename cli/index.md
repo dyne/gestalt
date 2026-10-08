@@ -74,12 +74,13 @@ code tools. XERJ and Serena are independent optional capabilities.
 Use XERJ to discover references, Serena for semantic work in the active project,
 and context-mode to analyze large output. Serena always uses Codex context and
 editing mode; session approvals and permissions still govern every call. The
-manager does not auto-approve Serena edits. Collaboration plan mode also
+manager defaults Serena tools to `approve` in `never` sessions, preserving
+explicit server and per-tool overrides. Collaboration plan mode also
 prohibits editing through agent instructions.
 
-With `approval_policy = "never"`, tools that require a prompt are denied. For a
-trusted project, an operator can opt into Serena tool execution in their isolated
-Codex configuration or named profile:
+With `approval_policy = "never"`, explicit tools that require a prompt are denied.
+Gestalt supplies this Serena default automatically; it can also be configured in
+a named profile:
 
 ```toml
 [mcp_servers.gestalt-serena]

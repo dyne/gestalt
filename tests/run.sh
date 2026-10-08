@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 repo_root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 
+node --test "$repo_root/tests/tool-approvals.test.mjs"
 bash -n "$repo_root/public/gestalt"
 bash -n "$repo_root/public/install.sh"
 bash "$repo_root/tests/gestalt-cli.test.sh"

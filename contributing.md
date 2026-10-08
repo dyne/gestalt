@@ -58,3 +58,9 @@ a compatibility checksum only in the build output for older installed wrappers.
 
 Feature PRs do not need to bump the manager version. The Pages workflow owns
 the published version and accepts source versions that differ from the previous tag.
+
+The Pages job enables unprivileged user namespaces on its disposable hosted
+Linux runner before native Codex tests, matching OpenAI's Codex Action setup.
+A sandbox smoke check runs first so runner restrictions fail with the original
+Codex diagnostic rather than a generic Serena backend error. This setup does
+not change developer installations or self-hosted runners.

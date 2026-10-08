@@ -57,6 +57,28 @@ jobs:
           RELEASE_VERSION: ${{ steps.semver.outputs.nextStrict || steps.semver.outputs.current }}
         run: node scripts/set-manager-version.mjs "${RELEASE_VERSION#v}"
 
+      # Match codex-action's prerequisites on disposable GitHub-hosted runners.
+      - name: Enable native Codex sandbox user namespaces
+        if: runner.os == 'Linux' && runner.environment == 'github-hosted'
+        run: |
+          set -euo pipefail
+          current_userns=$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)
+          if [[ -n $current_userns && $current_userns != 1 ]]; then
+            sudo sysctl -w kernel.unprivileged_userns_clone=1
+          fi
+          current_apparmor=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)
+          if [[ -n $current_apparmor && $current_apparmor != 0 ]]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
+      - name: Verify native Codex sandbox
+        run: |
+          set -euo pipefail
+          sandbox_home=$(mktemp -d)
+          trap 'rm -rf -- "$sandbox_home"' EXIT
+          CODEX_HOME="$sandbox_home" ./node_modules/.bin/codex \
+            -c 'default_permissions=":read-only"' sandbox -- /bin/true
+
       - name: Test installation tooling
         run: npm test
 

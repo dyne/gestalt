@@ -48,7 +48,13 @@ select **GitHub Actions** as the Pages source once before the first deployment.
 The same workflow versions the manager using Conventional Commits and the
 `ietf-tools/semver-action`. `feat` and `feature` commits increment the minor
 version; `fix`, `bugfix`, `perf`, `refactor`, `test`, and `tests` commits
-increment the patch version. When a bump is due, the workflow updates
-`GESTALT_CLI_VERSION` and `public/gestalt.sha256`, commits those synchronized
-files, and creates the matching `vMAJOR.MINOR.PATCH` tag. The versioned manager
+increment the patch version. When a bump is due, the workflow sets `GESTALT_CLI_VERSION` to the calculated
+release version, commits the manager if it changed, and creates the matching `vMAJOR.MINOR.PATCH` tag. The versioned manager
 continues to be distributed only through the latest GitHub Pages deployment.
+
+The manager checksum is not tracked. The installer and updater download one
+manager file and validate its Bash syntax and version declaration. Pages generates
+a compatibility checksum only in the build output for older installed wrappers.
+
+Feature PRs do not need to bump the manager version. The Pages workflow owns
+the published version and accepts source versions that differ from the previous tag.

@@ -137,6 +137,8 @@ Commands:
   impeccable status, doctor [--json], version, path
                             Inspect only the managed binary; never start Live.
   impeccable uninstall     Remove private runtime files; preserve project journals.
+  caddy doctor [--json] --mobile-origin URL --preview-host HOST --ports FIRST-LAST
+                            Read-only bootstrap checks; optional --admin unix//PATH.
   xerj install              Install the checksum-verified managed xerj release.
   xerj update [VERSION]     Install an official release (default: latest).
   xerj test [--json]        Test installed XERJ in disposable storage; never real indexes.
@@ -1565,6 +1567,152 @@ JS
   mv -f -- "$candidate/active.json" "$gestalt_home/impeccable/active.json"
   impeccable_install_candidate=''
   log 'activated pinned Impeccable Live adaptation; prior releases retained'
+}
+
+command_caddy() {
+  [[ ${1:-} == doctor ]] || die 'usage: gestalt caddy doctor [--json] --mobile-origin URL --preview-host HOST --ports FIRST-LAST [--admin unix//PATH]'
+  shift
+  require_command node
+  node --input-type=module - "$@" <<'JS'
+import fs from 'node:fs';
+import path from 'node:path';
+import http from 'node:http';
+import { spawnSync } from 'node:child_process';
+
+const report = {
+  schemaVersion: 1, ready: false, integrationReady: false, reason: 'configuration-required',
+  version: null, adminReady: false, configReady: false, portsReady: false,
+  isolation: { ready: false, reason: 'actual-project-denial-unverified' },
+  runtime: { ready: null, reason: 'use-impeccable-doctor' },
+  dns: { ready: null, reason: 'operator-verification-required' },
+  tls: { ready: null, reason: 'remote-verification-required' },
+};
+const actions = {
+  'configuration-required': 'Supply a dedicated preview hostname, Mobile HTTPS origin and a bounded port pool.',
+  'caddy-absent': 'Install operator-managed Caddy; Gestalt does not install it.',
+  'version-unavailable': 'Check the Caddy binary and its version probe; no service was started.',
+  'unsupported-version': 'Use the audited Caddy 2.x floor 2.11.7 or later; feature and remote proofs remain required.',
+  'admin-insecure': 'Replace TCP/remote admin with the restricted Unix socket using the manual bootstrap.',
+  'admin-inaccessible': 'Have the operator verify the private socket, service identity and authorized boundary.',
+  'admin-permissions': 'Restrict socket mode to 0600 and prevent untrusted writes to its parent directories.',
+  'admin-response-invalid': 'Inspect the operator service; bounded GET /config/ failed or returned an incompatible response.',
+  'preview-host-conflict': 'Use a dedicated preview hostname different from Mobile; ports do not isolate cookies.',
+  'port-conflict': 'Resolve existing listeners with the operator/controller; doctor never removes or replaces them.',
+  'ports-unverified': 'Verify listeners on a supported Linux host; doctor never binds a probe port.',
+  'admin-unisolated': 'Prove denial from the actual project/agent process through the controller boundary before enabling Live.',
+};
+let json = false;
+function finish(reason) {
+  report.reason = reason;
+  report.action = actions[reason];
+  console.log(json ? JSON.stringify(report) : `Caddy bootstrap: not ready (${reason}). ${report.action}\nDNS: ${report.dns.reason}; TLS: ${report.tls.reason}.`);
+  process.exitCode = 1;
+}
+const options = {};
+try {
+  const args = process.argv.slice(2);
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--json' && !json) { json = true; continue; }
+    if (!['--admin', '--mobile-origin', '--preview-host', '--ports'].includes(args[i]) ||
+        options[args[i]] !== undefined || !args[i + 1] || args[i + 1].startsWith('--')) throw Error('configuration-required');
+    options[args[i]] = args[++i];
+  }
+  const mobile = new URL(options['--mobile-origin']);
+  if (mobile.protocol !== 'https:' || mobile.username || mobile.password || mobile.pathname !== '/' || mobile.search || mobile.hash)
+    throw Error('configuration-required');
+  const host = options['--preview-host']?.toLowerCase();
+  if (!host || host.length > 253 || !host.includes('.') || host.split('.').some(label =>
+    !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))) throw Error('configuration-required');
+  if (host === mobile.hostname.toLowerCase().replace(/\.$/, '')) throw Error('preview-host-conflict');
+  const pool = /^(\d{1,5})-(\d{1,5})$/.exec(options['--ports'] ?? '');
+  if (!pool) throw Error('configuration-required');
+  const first = Number(pool[1]), last = Number(pool[2]);
+  if (first < 1024 || last > 65535 || last < first || last - first >= 16) throw Error('configuration-required');
+  report.previewHost = host;
+  report.ports = { first, last };
+  const endpoint = options['--admin'] ?? 'unix//run/caddy/gestalt-admin.sock';
+  // A listen-mode suffix is not part of a client socket address. No TCP
+  // fallback, arbitrary URL, redirect or credential-bearing address is used.
+  if (!endpoint.startsWith('unix//') || endpoint.includes('|') || /[\r\n\0]/.test(endpoint)) throw Error('admin-insecure');
+  const socketPath = endpoint.slice(5);
+  if (!path.isAbsolute(socketPath) || Buffer.byteLength(socketPath) > 103) throw Error('admin-insecure');
+  const version = spawnSync('caddy', ['version'], { encoding: 'utf8', timeout: 3000, killSignal: 'SIGKILL', maxBuffer: 4096 });
+  if (version.error?.code === 'ENOENT') throw Error('caddy-absent');
+  if (version.error || version.status !== 0) throw Error('version-unavailable');
+  const match = /^v(\d+)\.(\d+)\.(\d+)(?:\s|$)/.exec(version.stdout.trim());
+  if (!match) throw Error('unsupported-version');
+  const [, major, minor, patch] = match.map(Number);
+  report.version = `${major}.${minor}.${patch}`;
+  if (major !== 2 || minor < 11 || (minor === 11 && patch < 7)) throw Error('unsupported-version');
+  let socket;
+  try { socket = fs.lstatSync(socketPath); } catch { throw Error('admin-inaccessible'); }
+  if (!socket.isSocket()) throw Error('admin-inaccessible');
+  if ((socket.mode & 0o777) !== 0o600) throw Error('admin-permissions');
+  // Reject writable ancestors, even with a restrictive socket mode. Symlink
+  // ancestors are resolved for the permission check, not followed from API IO.
+  let parent = fs.realpathSync(path.dirname(socketPath));
+  while (parent !== '/') {
+    const stat = fs.statSync(parent);
+    // Sticky /tmp is safe for private fixtures; its child must remain private.
+    if ((stat.mode & 0o022) && !(stat.mode & 0o1000)) throw Error('admin-permissions');
+    parent = path.dirname(parent);
+  }
+  const config = await new Promise((resolve, reject) => {
+    const req = http.request({ socketPath, path: '/config/', method: 'GET', headers: { Host: 'localhost' } }, res => {
+      let body = '', bytes = 0;
+      res.on('data', part => {
+        bytes += part.length;
+        if (bytes > 262144) req.destroy(Error('bounded-response'));
+        else body += part;
+      });
+      res.on('error', reject);
+      res.on('end', () => {
+        try {
+          if (res.statusCode !== 200) throw Error('status');
+          resolve(JSON.parse(body));
+        } catch { reject(Error('admin-response-invalid')); }
+      });
+    });
+    const timer = setTimeout(() => req.destroy(Error('deadline')), 3000);
+    req.on('close', () => clearTimeout(timer));
+    req.on('error', error => reject(Error(['EACCES', 'EPERM', 'ENOENT', 'ECONNREFUSED'].includes(error.code)
+      ? 'admin-inaccessible' : 'admin-response-invalid')));
+    req.end();
+  });
+  // Inspect live state, never adapt/load/reload a candidate or print existing
+  // configuration (which can contain unrelated credentials).
+  if (!config || typeof config !== 'object' || Array.isArray(config)) throw Error('admin-response-invalid');
+  if (config.admin?.remote || config.admin?.disabled ||
+      config.admin?.listen !== `${endpoint}|0600`) throw Error('admin-insecure');
+  report.adminReady = true;
+  const servers = config.apps?.http?.servers ?? {};
+  if (typeof servers !== 'object' || Array.isArray(servers)) throw Error('admin-response-invalid');
+  for (const server of Object.values(servers)) {
+    if (!server || typeof server !== 'object' || !Array.isArray(server.listen)) throw Error('admin-response-invalid');
+    for (const address of server.listen ?? []) {
+      if (typeof address !== 'string') throw Error('admin-response-invalid');
+      const port = /:(\d+)$/.exec(address);
+      if (port && Number(port[1]) >= first && Number(port[1]) <= last) throw Error('port-conflict');
+    }
+  }
+  report.configReady = true;
+  // Linux's read-only listener table catches non-Caddy conflicts too. Do not
+  // reserve ports or connect to application targets while diagnosing setup.
+  try {
+    for (const table of ['/proc/net/tcp', '/proc/net/tcp6']) {
+      for (const line of fs.readFileSync(table, 'utf8').trim().split('\n').slice(1)) {
+        const fields = line.trim().split(/\s+/);
+        const port = parseInt(fields[1]?.split(':')[1], 16);
+        if (fields[3] === '0A' && port >= first && port <= last) throw Error('port-conflict');
+      }
+    }
+  } catch (error) { throw Error(error.message === 'port-conflict' ? 'port-conflict' : 'ports-unverified'); }
+  report.portsReady = true;
+  // No flag or operator assertion substitutes for the actual managed-process
+  // denial proof. L6's controller/broker must establish that boundary.
+  finish('admin-unisolated');
+} catch (error) { finish(Object.hasOwn(actions, error.message) ? error.message : 'configuration-required'); }
+JS
 }
 
 command_impeccable() {
@@ -4233,6 +4381,7 @@ main() {
     xerj) command_xerj "$@" ;;
     serena) command_serena "$@" ;;
     impeccable) command_impeccable "$@" ;;
+    caddy) command_caddy "$@" ;;
     path) command_path "$@" ;;
     skills-export) command_skills_export "$@" ;;
     skills-import) command_skills_import "$@" ;;

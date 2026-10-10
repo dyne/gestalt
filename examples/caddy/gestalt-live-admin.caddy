@@ -1,0 +1,3 @@
+# Import exactly once INSIDE the existing top-level global options block.
+# This is not a complete Caddyfile and creates no preview proxy/listener.
+admin unix//run/caddy/gestalt-admin.sock|0600

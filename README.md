@@ -49,6 +49,15 @@ environment values. Disabled health skips execution entirely. A ready runtime
 still reports `integrationReady: false`: Caddy, DNS, authorization and the running
 app have separate readiness gates.
 
+Operators with an existing Caddy installation should follow the
+[manual Live bootstrap](docs/caddy-live.md). It preserves existing sites, uses a
+restricted Unix admin socket and explains dedicated preview origins, bounded
+ports, process isolation, TLS, reload reconciliation and rollback.
+`gestalt caddy doctor --json --mobile-origin https://mobile.example.com
+--preview-host preview.example.com --ports 9443-9445` checks bootstrap state
+without changing Caddy. Runtime, actual project isolation, DNS and remote TLS
+remain separate gates; secure socket access alone does not enable Live.
+
 `.github/workflows/impeccable-runtime.yml` reconstructs the accepted adaptation
 from a pinned public upstream base plus the checksum-verified patch under
 `vendor/impeccable/`, builds Linux x86_64 musl, verifies bounded real startup,

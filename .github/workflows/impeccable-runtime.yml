@@ -1,6 +1,7 @@
 name: Impeccable pinned runtime
 on:
   push:
+    branches: ['release/impeccable-gestalt-live-1']
     tags: ['impeccable-gestalt-live-1']
   pull_request:
     paths: ['vendor/impeccable/**', 'scripts/*impeccable*', '.github/workflows/impeccable-runtime.yml', '.github/workflows/manager-tests.yml']
@@ -78,9 +79,9 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
   publish:
-    # Only the exact release tag or an explicit main dispatch can publish.
-    # PR jobs remain read-only; environment approval applies to both routes.
-    if: (github.event_name == 'push' && github.ref == 'refs/tags/impeccable-gestalt-live-1') || (github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main')
+    # Only the exact release branch/tag or an explicit main dispatch can publish.
+    # PR jobs remain read-only; environment approval applies to every route.
+    if: (github.event_name == 'push' && (github.ref == 'refs/heads/release/impeccable-gestalt-live-1' || github.ref == 'refs/tags/impeccable-gestalt-live-1')) || (github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main')
     needs: [build, manager]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -103,7 +104,7 @@ jobs:
           name='impeccable-gestalt-live-1-x86_64-unknown-linux-musl.tar.gz'
           def require(ok,message):
               if not ok: raise SystemExit(message)
-          require((os.environ['GITHUB_EVENT_NAME']=='push' and os.environ['GITHUB_REF']=='refs/tags/'+tag) or (os.environ['GITHUB_EVENT_NAME']=='workflow_dispatch' and os.environ['GITHUB_REF']=='refs/heads/main'),'Untrusted publication trigger')
+          require((os.environ['GITHUB_EVENT_NAME']=='push' and os.environ['GITHUB_REF'] in ('refs/heads/release/'+tag,'refs/tags/'+tag)) or (os.environ['GITHUB_EVENT_NAME']=='workflow_dispatch' and os.environ['GITHUB_REF']=='refs/heads/main'),'Untrusted publication trigger')
           def digest(data): return hashlib.sha256(data).hexdigest()
           def api(path,missing=False):
               r=subprocess.run(['gh','api','--include',path],capture_output=True,text=True,timeout=30)

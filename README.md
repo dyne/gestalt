@@ -48,15 +48,17 @@ from a pinned public upstream base plus the checksum-verified patch under
 `vendor/impeccable/`, builds Linux x86_64 musl, verifies bounded real startup,
 health and clean shutdown, and uploads
 archive/checksum/provenance artifacts. PR jobs have read-only repository access.
-Publication runs on the exact `impeccable-gestalt-live-1` tag, allowing a reviewed
-branch commit to build and publish before a main merge. An explicit manual input
-on `main` is also supported. Both routes require green same-run runtime and manager
+Publication runs when the exact `release/impeccable-gestalt-live-1` branch is
+created at a reviewed commit. The Action builds and publishes before a main merge,
+creating the immutable `impeccable-gestalt-live-1` tag and prerelease itself.
+The exact tag trigger and an explicit manual input on `main` are also supported.
+All routes require green same-run runtime and manager
 checks and the `impeccable-release` environment, using a separate job that executes
 no downloaded source or binary. It
 publishes an immutable prerelease, never the latest manager release. Existing
 assets must match before missing assets are uploaded; conflicting tags/assets
 fail without overwrite. Configure required reviewers on the `impeccable-release`
-environment and permit the exact runtime tag in its deployment rules before
+environment and permit the exact release branch/tag in its deployment rules before
 activation. An existing tag must resolve to the current CI commit; it is never moved.
 
 `.github/workflows/manager-tests.yml` runs unchanged `npm test` on a disposable

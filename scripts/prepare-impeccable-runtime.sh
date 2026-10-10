@@ -35,9 +35,4 @@ done <<< "$package_rows"
 sed "s@/usr/@$tools/sysroot/usr/@g" "$tools/sysroot/usr/lib/x86_64-linux-musl/musl-gcc.specs" > "$tools/musl-gcc.specs"
 printf '#!/bin/sh\nexec x86_64-linux-gnu-gcc "$@" -specs "%s"\n' "$tools/musl-gcc.specs" > "$tools/bin/musl-gcc"
 chmod 0755 "$tools/bin/musl-gcc"
-mkdir -p -- "$tools/fontconfig"
-cat > "$tools/fontconfig/fonts.conf" <<EOF
-<?xml version="1.0"?><!DOCTYPE fontconfig SYSTEM "fonts.dtd">
-<fontconfig><dir>$tools/sysroot/usr/share/fonts/truetype/liberation</dir><dir>/usr/share/fonts</dir><cachedir>$tools/fontconfig/cache</cachedir></fontconfig>
-EOF
 printf 'Reconstructed accepted source tree %s; pinned tools extracted privately\n' "$(value reconstructedTree)"

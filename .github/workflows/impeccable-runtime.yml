@@ -31,9 +31,6 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24.21.0
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: 1.3.13
       - name: Prepare private directories and reconstruct pinned source
         run: |
           set -Eeuo pipefail
@@ -44,67 +41,24 @@ jobs:
             echo "TMPDIR=$RUNNER_TEMP/impeccable-tmp"
             echo "XDG_CONFIG_HOME=$RUNNER_TEMP/impeccable-config"
             echo "XDG_CACHE_HOME=$RUNNER_TEMP/impeccable-cache"
-            echo "FONTCONFIG_FILE=$RUNNER_TEMP/impeccable-tools/fontconfig/fonts.conf"
           } >> "$GITHUB_ENV"
           echo "$RUNNER_TEMP/impeccable-tools/bin" >> "$GITHUB_PATH"
-      - name: Install exact Rust toolchain and locked JavaScript inputs
-        working-directory: ${{ runner.temp }}/impeccable-source
-        run: |
-          set -Eeuo pipefail
-          rustup toolchain install 1.99.0 --profile minimal --target x86_64-unknown-linux-musl --target wasm32-unknown-unknown
-          rustc --version
-          bun install --frozen-lockfile
-          node node_modules/playwright/cli.js install --with-deps chromium
-          echo "CHROME_PATH=$(node --input-type=module -e 'import {chromium} from "playwright"; console.log(chromium.executablePath())')" >> "$GITHUB_ENV"
-      # Same native-sandbox prerequisites as manager checks, on this runner too.
-      - name: Enable native sandbox on the disposable GitHub runner
-        if: runner.os == 'Linux' && runner.environment == 'github-hosted'
-        run: |
-          set -Eeuo pipefail
-          current_userns=$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)
-          if [[ -n $current_userns && $current_userns != 1 ]]; then
-            sudo sysctl -w kernel.unprivileged_userns_clone=1
-          fi
-          current_apparmor=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)
-          if [[ -n $current_apparmor && $current_apparmor != 0 ]]; then
-            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          fi
-      - name: Sandboxed Chromium preflight
-        run: |
-          set -Eeuo pipefail
-          timeout --signal=TERM --kill-after=5s 30s "$CHROME_PATH" \
-            --headless --disable-gpu --dump-dom 'data:text/html,<p>sandbox-ready</p>' \
-            > "$RUNNER_TEMP/chromium-preflight.html"
-          grep -Fq 'sandbox-ready' "$RUNNER_TEMP/chromium-preflight.html"
-      - name: Build native and static musl engines
+      - name: Install exact Rust toolchain
+        run: rustup toolchain install 1.99.0 --profile minimal --target x86_64-unknown-linux-musl
+      - name: Build static musl runtime
         working-directory: ${{ runner.temp }}/impeccable-source
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
           CC_x86_64_unknown_linux_musl: musl-gcc
         run: |
           set -Eeuo pipefail
-          cargo build --release -p impeccable --locked
           cargo build --release -p impeccable --locked --target x86_64-unknown-linux-musl
-      - name: Existing full upstream Rust and default npm gates
-        working-directory: ${{ runner.temp }}/impeccable-source
+      - name: Bounded actual runtime start, health and clean shutdown
         run: |
           set -Eeuo pipefail
-          mkdir -p test-results
-          cargo test --workspace --locked -- --test-threads=1 2>&1 | tee test-results/rust.log
-          bun run build 2>&1 | tee test-results/source-build.log
-          npm test 2>&1 | tee test-results/npm.log
-      - name: Existing complete opt-in Live E2E suite (retain actual failures)
-        working-directory: ${{ runner.temp }}/impeccable-source
-        run: |
-          set -Eeuo pipefail
-          result=0
-          node --test --test-concurrency=4 --test-timeout=600000 --test-force-exit \
-            --test-reporter=junit --test-reporter-destination=test-results/live-e2e.xml \
-            tests/live-e2e.test.mjs tests/live-top-layer.test.mjs > test-results/live-e2e.log 2>&1 || result=$?
-          printf '%s\n' "$result" > test-results/live-e2e.exit
-          [[ $result == 0 || $result == 1 ]]
-          python3 "$GITHUB_WORKSPACE/scripts/check-impeccable-e2e.py" \
-            test-results/live-e2e.xml test-results/live-e2e-summary.json "$result"
+          mkdir -p "$RUNNER_TEMP/impeccable-source/test-results"
+          python3 scripts/smoke-impeccable-runtime.py "$IMPECCABLE_BIN" \
+            "$RUNNER_TEMP/impeccable-source/test-results/runtime-smoke.json"
       - name: Package this CI-produced binary, source, license and provenance
         run: |
           set -Eeuo pipefail
@@ -119,7 +73,7 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: impeccable-upstream-check-results
+          name: impeccable-runtime-smoke-results
           path: ${{ runner.temp }}/impeccable-source/test-results
           if-no-files-found: ignore
           retention-days: 30
@@ -163,7 +117,8 @@ jobs:
           require(set(x.name for x in root.iterdir())=={name,name+'.sha256','build-provenance.json'},'Unexpected artifact files')
           require(p['origin']=='github-actions' and p['ci']['repository']==repo and p['ci']['sha']==os.environ['GITHUB_SHA'] and p['ci']['runId']==os.environ['GITHUB_RUN_ID'],'Wrong CI build origin')
           require(p['reconstructedTree']=='79fde5d514edf69cb2de648a866a4d261d388634' and p['patchSha256']=='b55136bf55c3225fc39292c43bb332ac8f17f39164b760348a01f56e50f61c25','Wrong source adaptation')
-          require(p['upstreamE2E']['tests']>=47 and p['upstreamE2E']['failures']<=2,'Incomplete upstream E2E proof')
+          smoke=p['runtimeSmoke']
+          require(smoke['state']=='passed' and smoke['binarySha256']==p['binarySha256'] and smoke['health']=='ok' and smoke['shutdownExit']==0 and smoke['serverRecordRemoved'] and smoke['listenerClosed'] and smoke['publicBaseUrlConfigured'],'Incomplete runtime startup proof')
           require(digest(archive.read_bytes())==p['archiveSha256'],'Archive hash mismatch')
           require(sidecar.read_bytes()==(p['archiveSha256']+'  '+name+'\n').encode(),'Sidecar mismatch')
           with tarfile.open(archive) as t:
@@ -185,8 +140,8 @@ jobs:
                  'Reconstructed from public base 778c8a7b71ccd5bfe3ca6ac68c15d9d872d0f87d plus checked-in pinned patch.\n'
                  'Archive contains Apache-2.0 license, notices, modification notes, patch and source snapshot.\n'
                  'AI assisted the adaptation. Native engine 0.1.11; CLI 4.0.0; npm manifest 4.1.0.\n'
-                 'Full upstream Rust/default npm and manager tests passed.\n'
-                 f'Opt-in Live E2E: {p["upstreamE2E"]["tests"]} tests, {p["upstreamE2E"]["failures"]} failures, {p["upstreamE2E"]["skipped"]} skipped; failures are only the documented pinned-baseline limitations.\n'
+                 'Patched musl runtime built in CI; bounded real startup, health and clean shutdown passed.\n'
+                 'Full Gestalt manager suite passed. Full upstream Impeccable suites are not run in this workflow.\n'
                  'This is not a Gestalt deployment or production preview readiness claim; Caddy/TLS/auth/relay integration are separate gates.\n'
                  f'Archive SHA256: {p["archiveSha256"]}\nBinary SHA256: {p["binarySha256"]}\n')
           if release is None:

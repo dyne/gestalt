@@ -45,7 +45,8 @@ authorized trusted publication and bootstrap of all three exact SHA256 anchors.
 
 `.github/workflows/impeccable-runtime.yml` reconstructs the accepted adaptation
 from a pinned public upstream base plus the checksum-verified patch under
-`vendor/impeccable/`, runs upstream gates, builds Linux x86_64 musl and uploads
+`vendor/impeccable/`, builds Linux x86_64 musl, verifies bounded real startup,
+health and clean shutdown, and uploads
 archive/checksum/provenance artifacts. PR jobs have read-only repository access.
 Publication runs on the exact `impeccable-gestalt-live-1` tag, allowing a reviewed
 branch commit to build and publish before a main merge. An explicit manual input
@@ -61,8 +62,9 @@ activation. An existing tag must resolve to the current CI commit; it is never m
 `.github/workflows/manager-tests.yml` runs unchanged `npm test` on a disposable
 hosted runner with the existing native-sandbox prerequisites. It has no version
 commit, tag, push or Pages deployment. The existing Pages workflow is preserved.
-The exact local prerequisites and two pinned upstream opt-in E2E limitations
-are documented in `vendor/impeccable/README.md`; any new failure blocks the build.
+The build/start inputs are documented in `vendor/impeccable/README.md`. Full
+upstream Impeccable Rust, npm and browser suites are not run in Gestalt CI.
+A failed build/start smoke or manager check blocks publication.
 
 Set `GESTALT_IMPECCABLE_ENABLED=0` to disable runtime availability. Status and
 doctor describe only the managed runtime; they do not claim Caddy, DNS, TLS,

@@ -10,6 +10,66 @@ npm test
 npm run build
 ```
 
+The managed Impeccable Live adaptation initially supports Linux x86_64. Its
+compatible CI-built distribution is **not verified or published yet**; the manager
+does not substitute a local candidate, unpatched upstream release or executable
+found on `PATH`. Installer trust anchors remain unset until actual CI-produced
+bytes have been downloaded and verified. After that bootstrap, a verified CI
+archive can also be installed without network access:
+
+```sh
+gestalt impeccable install --artifact /absolute/path/impeccable-gestalt-live-1-x86_64-unknown-linux-musl.tar.gz
+gestalt impeccable status
+gestalt impeccable doctor --json
+gestalt impeccable path
+```
+
+The installer design pins the archive, binary and adaptation manifest SHA256, verifies
+source/patch identity and license notices, and probes native engine 0.1.11 and
+CLI 4.0.0 (the upstream npm manifest is 4.1.0). It stages private immutable release
+files below `$GESTALT_HOME/impeccable`, then atomically promotes `active.json`.
+`gestalt impeccable update --artifact PATH` revalidates the same pinned release;
+failed downloads, checksum checks and probes retain the old active descriptor.
+Prior releases remain available to existing owners. No project hooks, first-run
+downloads, global installs or sudo are involved.
+
+`GESTALT_IMPECCABLE_ARTIFACT` supplies the same pinned archive to `gestalt install`
+and `gestalt update`; a credential-free HTTPS URL is also accepted. Until the
+distribution is published, shared setup reports Live unavailable when no artifact
+is supplied. Supplying an artifact while trust anchors are unset fails explicitly.
+The proposed official release is `dyne/gestalt`, tag
+`impeccable-gestalt-live-1`, with the archive above and its `.sha256` sidecar.
+That locator is a publication proposal, not an existing download. Local historical
+candidate bytes are not publishable. A default URL requires verified CI artifacts,
+authorized trusted publication and bootstrap of all three exact SHA256 anchors.
+
+`.github/workflows/impeccable-runtime.yml` reconstructs the accepted adaptation
+from a pinned public upstream base plus the checksum-verified patch under
+`vendor/impeccable/`, runs upstream gates, builds Linux x86_64 musl and uploads
+archive/checksum/provenance artifacts. PR jobs have read-only repository access.
+Publication runs on the exact `impeccable-gestalt-live-1` tag, allowing a reviewed
+branch commit to build and publish before a main merge. An explicit manual input
+on `main` is also supported. Both routes require green same-run runtime and manager
+checks and the `impeccable-release` environment, using a separate job that executes
+no downloaded source or binary. It
+publishes an immutable prerelease, never the latest manager release. Existing
+assets must match before missing assets are uploaded; conflicting tags/assets
+fail without overwrite. Configure required reviewers on the `impeccable-release`
+environment and permit the exact runtime tag in its deployment rules before
+activation. An existing tag must resolve to the current CI commit; it is never moved.
+
+`.github/workflows/manager-tests.yml` runs unchanged `npm test` on a disposable
+hosted runner with the existing native-sandbox prerequisites. It has no version
+commit, tag, push or Pages deployment. The existing Pages workflow is preserved.
+The exact local prerequisites and two pinned upstream opt-in E2E limitations
+are documented in `vendor/impeccable/README.md`; any new failure blocks the build.
+
+Set `GESTALT_IMPECCABLE_ENABLED=0` to disable runtime availability. Status and
+doctor describe only the managed runtime; they do not claim Caddy, DNS, TLS,
+authentication or a development app is ready. `gestalt impeccable uninstall`
+removes private component files and preserves every project's `.impeccable/live`
+journal. It does not stop project servers or terminate unrelated processes.
+
 Use `BASE_PATH=/gestalt/ npm run build` for the intended subpath deployment.
 
 The manager installs a `workspace-git` Codex permission profile for development

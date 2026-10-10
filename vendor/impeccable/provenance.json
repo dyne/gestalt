@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "upstream": "https://github.com/pbakaus/impeccable.git",
+  "baseCommit": "778c8a7b71ccd5bfe3ca6ac68c15d9d872d0f87d",
+  "acceptedAdaptationCommit": "b593626bffd40e404c9e8b7972628660e210dbf4",
+  "reconstructedTree": "79fde5d514edf69cb2de648a866a4d261d388634",
+  "patchSha256": "b55136bf55c3225fc39292c43bb332ac8f17f39164b760348a01f56e50f61c25",
+  "cargoLockSha256": "c21772fcd04a5230a934ed8cc6909fff75da554fb38b850bae2130da544045f2",
+  "bunLockSha256": "3335a255c8f63d17b6e1771c7c2222bc431dbc2814b57ff22bdd11f58b8525d7",
+  "rust": "1.99.0",
+  "bun": "1.3.13",
+  "node": "24.21.0",
+  "platform": "x86_64-unknown-linux-musl",
+  "engineVersion": "0.1.11",
+  "cliVersion": "4.0.0",
+  "npmVersion": "4.1.0",
+  "release": "gestalt-live-1",
+  "license": "Apache-2.0",
+  "packages": [
+    {"name":"musl_1.2.5-3.1~deb13u1_amd64.deb","url":"https://deb.debian.org/debian/pool/main/m/musl/musl_1.2.5-3.1~deb13u1_amd64.deb","sha256":"fd4231e1c189c0ebe01182747f83817593fefa7f6b690c484410646288b60058"},
+    {"name":"musl-dev_1.2.5-3.1~deb13u1_amd64.deb","url":"https://deb.debian.org/debian/pool/main/m/musl/musl-dev_1.2.5-3.1~deb13u1_amd64.deb","sha256":"a3f7d47e452129bb65aae201d6c115abf4d5d3efb136b38b7c6b4fa03ec065e9"},
+    {"name":"musl-tools_1.2.5-3.1~deb13u1_amd64.deb","url":"https://deb.debian.org/debian/pool/main/m/musl/musl-tools_1.2.5-3.1~deb13u1_amd64.deb","sha256":"2ffc3e5f7ecffdc2b64eeac23ffc199b21b4c93dca8e7310dd2c9ab9cd42ddd4"},
+    {"name":"fonts-liberation_2.1.5-3_all.deb","url":"https://deb.debian.org/debian/pool/main/f/fonts-liberation/fonts-liberation_2.1.5-3_all.deb","sha256":"3d5c47480067b9615f6bf9b0eda6eefcab9d837af609827015445e8e759b5b8c"}
+  ]
+}

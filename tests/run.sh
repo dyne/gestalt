@@ -9,6 +9,8 @@ bash -n "$repo_root/public/install.sh"
 bash "$repo_root/tests/gestalt-cli.test.sh"
 bash "$repo_root/tests/install.test.sh"
 bash "$repo_root/tests/xerj.test.sh"
+node --test "$repo_root/tests/impeccable-runtime.test.mjs"
+node --test "$repo_root/tests/impeccable-ci.test.mjs"
 node --test "$repo_root/tests/xerj-maintenance.test.mjs"
 node --test "$repo_root/tests/xerj-readiness.test.mjs"
 node --test "$repo_root/tests/xerj-lifecycle.test.mjs"
@@ -29,6 +31,7 @@ if command -v shellcheck >/dev/null 2>&1; then
     "$repo_root/tests/install.test.sh" \
     "$repo_root/tests/xerj.test.sh" \
     "$repo_root/tests/skills-transfer.test.sh"
+  shellcheck "$repo_root/scripts/prepare-impeccable-runtime.sh"
 else
   printf 'tests: shellcheck unavailable; static shell lint skipped\n' >&2
 fi

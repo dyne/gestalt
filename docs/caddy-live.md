@@ -82,7 +82,7 @@ boundary and its denial evidence exist, Live remains not ready
 ## Import without replacing existing configuration
 
 Back up `/etc/caddy/Caddyfile` and any changed service override first. Copy
-[the include](../examples/caddy/gestalt-live-admin.caddy) to
+`examples/caddy/gestalt-live-admin.caddy` from this repository to
 `/etc/caddy/gestalt-live-admin.caddy` as an operator-reviewed, root-owned,
 non-project-writable file. Edit `/etc/caddy/Caddyfile` manually. In its existing
 first global options block replace any existing `admin` option with this import;

@@ -266,6 +266,23 @@ fi
 assert_log "codex|CODEX_HOME=$CODEX_HOME|plugin|marketplace|add|dyne/gestalt-agents"
 assert_log "setup|CODEX_HOME=$CODEX_HOME|GESTALT_HOME=$GESTALT_HOME"
 
+# Optional Live must not break shared setup on an unsupported architecture.
+cat > "$fake_bin/uname" <<'EOF'
+#!/usr/bin/env bash
+if [[ $1 == -s ]]; then printf 'Linux\n'; else printf 'aarch64\n'; fi
+EOF
+chmod 0755 "$fake_bin/uname"
+GESTALT_IMPECCABLE_ENABLED=1 bash "$repo_root/public/gestalt" install > "$test_root/unsupported-install.log" 2>&1
+grep -F 'Live runtime unavailable on this platform' "$test_root/unsupported-install.log" >/dev/null
+[[ -x $GESTALT_HOME/mobile/node_modules/.bin/gestalt-mobile ]]
+if GESTALT_IMPECCABLE_ENABLED=1 bash "$repo_root/public/gestalt" impeccable install --artifact /missing \
+    > "$test_root/unsupported-explicit.log" 2>&1; then
+  printf 'explicit runtime install accepted an unsupported architecture\n' >&2
+  exit 1
+fi
+grep -F 'Linux x86_64 only' "$test_root/unsupported-explicit.log" >/dev/null
+rm -- "$fake_bin/uname"
+
 managed_bin=$test_root/managed-bin
 mkdir -p -- "$managed_bin"
 cp "$repo_root/public/gestalt" "$managed_bin/gestalt"

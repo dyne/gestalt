@@ -1603,6 +1603,8 @@ install_optional_impeccable() {
   impeccable_paths
   if [[ ${GESTALT_IMPECCABLE_ENABLED:-1} == 0 ]]; then
     log 'Impeccable runtime disabled'
+  elif [[ $(uname -s) != Linux || ! $(uname -m) =~ ^(x86_64|amd64)$ ]]; then
+    log 'Live runtime unavailable on this platform; managed Impeccable supports Linux x86_64 only'
   elif [[ -n ${GESTALT_IMPECCABLE_ARTIFACT:-} ]]; then
     command_impeccable install
   elif impeccable_inspect valid; then

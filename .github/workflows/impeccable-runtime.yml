@@ -1,0 +1,170 @@
+name: Impeccable pinned runtime
+on:
+  push:
+    branches: ['release/impeccable-gestalt-live-1']
+    tags: ['impeccable-gestalt-live-1']
+  pull_request:
+    paths: ['vendor/impeccable/**', 'scripts/*impeccable*', '.github/workflows/impeccable-runtime.yml', '.github/workflows/manager-tests.yml']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish this CI build as an immutable prerelease (main only)
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  manager:
+    uses: ./.github/workflows/manager-tests.yml
+    permissions:
+      contents: read
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      RUSTUP_TOOLCHAIN: 1.99.0
+      CI: '1'
+      IMPECCABLE_LIVE_COPY_AGENT: chat
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.21.0
+      - name: Prepare private directories and reconstruct pinned source
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/impeccable-tmp" "$RUNNER_TEMP/impeccable-config" "$RUNNER_TEMP/impeccable-cache"
+          bash scripts/prepare-impeccable-runtime.sh "$RUNNER_TEMP/impeccable-source" "$RUNNER_TEMP/impeccable-tools"
+          {
+            echo "IMPECCABLE_BIN=$RUNNER_TEMP/impeccable-source/target/x86_64-unknown-linux-musl/release/impeccable"
+            echo "TMPDIR=$RUNNER_TEMP/impeccable-tmp"
+            echo "XDG_CONFIG_HOME=$RUNNER_TEMP/impeccable-config"
+            echo "XDG_CACHE_HOME=$RUNNER_TEMP/impeccable-cache"
+          } >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/impeccable-tools/bin" >> "$GITHUB_PATH"
+      - name: Install exact Rust toolchain
+        run: rustup toolchain install 1.99.0 --profile minimal --target x86_64-unknown-linux-musl
+      - name: Build static musl runtime
+        working-directory: ${{ runner.temp }}/impeccable-source
+        env:
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+          CC_x86_64_unknown_linux_musl: musl-gcc
+        run: |
+          set -Eeuo pipefail
+          cargo build --release -p impeccable --locked --target x86_64-unknown-linux-musl
+      - name: Bounded actual runtime start, health and clean shutdown
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/impeccable-source/test-results"
+          python3 scripts/smoke-impeccable-runtime.py "$IMPECCABLE_BIN" \
+            "$RUNNER_TEMP/impeccable-source/test-results/runtime-smoke.json"
+      - name: Package this CI-produced binary, source, license and provenance
+        run: |
+          set -Eeuo pipefail
+          node scripts/package-impeccable-runtime.mjs "$RUNNER_TEMP/impeccable-source" \
+            "$IMPECCABLE_BIN" "$RUNNER_TEMP/impeccable-artifacts"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: impeccable-linux-x64
+          path: ${{ runner.temp }}/impeccable-artifacts
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: impeccable-runtime-smoke-results
+          path: ${{ runner.temp }}/impeccable-source/test-results
+          if-no-files-found: ignore
+          retention-days: 30
+  publish:
+    # Only the exact release branch/tag or an explicit main dispatch can publish.
+    # PR jobs remain read-only; environment approval applies to every route.
+    if: (github.event_name == 'push' && (github.ref == 'refs/heads/release/impeccable-gestalt-live-1' || github.ref == 'refs/tags/impeccable-gestalt-live-1')) || (github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main')
+    needs: [build, manager]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: impeccable-release
+    permissions:
+      contents: write
+    steps:
+      # Same-run artifact data only: no checkout, source scripts or binary execution.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: impeccable-linux-x64
+          path: artifacts
+      - name: Verify CI provenance and publish immutable prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib,subprocess,tarfile,tempfile
+          root=pathlib.Path('artifacts'); repo='dyne/gestalt'; tag='impeccable-gestalt-live-1'
+          name='impeccable-gestalt-live-1-x86_64-unknown-linux-musl.tar.gz'
+          def require(ok,message):
+              if not ok: raise SystemExit(message)
+          require((os.environ['GITHUB_EVENT_NAME']=='push' and os.environ['GITHUB_REF'] in ('refs/heads/release/'+tag,'refs/tags/'+tag)) or (os.environ['GITHUB_EVENT_NAME']=='workflow_dispatch' and os.environ['GITHUB_REF']=='refs/heads/main'),'Untrusted publication trigger')
+          def digest(data): return hashlib.sha256(data).hexdigest()
+          def api(path,missing=False):
+              r=subprocess.run(['gh','api','--include',path],capture_output=True,text=True,timeout=30)
+              first=r.stdout.splitlines()[0] if r.stdout else ''
+              if missing and ' 404 ' in first: return None
+              require(r.returncode==0,'GitHub API request failed; no overwrite attempted')
+              return json.loads(r.stdout.replace('\r\n','\n').split('\n\n',1)[1])
+          def command(args):
+              require(subprocess.run(args,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=180).returncode==0,'Release operation failed; no overwrite attempted')
+          archive=root/name; sidecar=root/(name+'.sha256'); p=json.loads((root/'build-provenance.json').read_text())
+          require(set(x.name for x in root.iterdir())=={name,name+'.sha256','build-provenance.json'},'Unexpected artifact files')
+          require(p['origin']=='github-actions' and p['ci']['repository']==repo and p['ci']['sha']==os.environ['GITHUB_SHA'] and p['ci']['runId']==os.environ['GITHUB_RUN_ID'],'Wrong CI build origin')
+          require(p['reconstructedTree']=='79fde5d514edf69cb2de648a866a4d261d388634' and p['patchSha256']=='b55136bf55c3225fc39292c43bb332ac8f17f39164b760348a01f56e50f61c25','Wrong source adaptation')
+          smoke=p['runtimeSmoke']
+          require(smoke['state']=='passed' and smoke['binarySha256']==p['binarySha256'] and smoke['health']=='ok' and smoke['shutdownExit']==0 and smoke['serverRecordRemoved'] and smoke['listenerClosed'] and smoke['publicBaseUrlConfigured'],'Incomplete runtime startup proof')
+          require(digest(archive.read_bytes())==p['archiveSha256'],'Archive hash mismatch')
+          require(sidecar.read_bytes()==(p['archiveSha256']+'  '+name+'\n').encode(),'Sidecar mismatch')
+          with tarfile.open(archive) as t:
+              m=json.loads(t.extractfile('adaptation.json').read())
+              require(digest(t.extractfile('adaptation.json').read())==p['adaptationSha256'] and m['ci']==p['ci'],'Adaptation provenance mismatch')
+              for file,expected in m['files'].items(): require(digest(t.extractfile(file).read())==expected,'Archive member mismatch')
+          def tag_ok():
+              ref=api(f'repos/{repo}/git/ref/tags/{tag}',True)
+              if ref is None: return False
+              obj=ref['object']
+              for unused in range(5):
+                  if obj['type']=='commit':
+                      require(obj['sha']==os.environ['GITHUB_SHA'],'Existing tag conflicts'); return True
+                  require(obj['type']=='tag','Unsupported tag'); obj=api(f'repos/{repo}/git/tags/{obj["sha"]}')['object']
+              raise SystemExit('Tag indirection exceeds bound')
+          tag_ok(); release=api(f'repos/{repo}/releases/tags/{tag}',True)
+          notes=('CI-built experimental Linux x86_64 Impeccable Live adaptation.\n'
+                 f'CI run: https://github.com/{repo}/actions/runs/{os.environ["GITHUB_RUN_ID"]}\n'
+                 'Reconstructed from public base 778c8a7b71ccd5bfe3ca6ac68c15d9d872d0f87d plus checked-in pinned patch.\n'
+                 'Archive contains Apache-2.0 license, notices, modification notes, patch and source snapshot.\n'
+                 'AI assisted the adaptation. Native engine 0.1.11; CLI 4.0.0; npm manifest 4.1.0.\n'
+                 'Patched musl runtime built in CI; bounded real startup, health and clean shutdown passed.\n'
+                 'Full Gestalt manager suite passed. Full upstream Impeccable suites are not run in this workflow.\n'
+                 'This is not a Gestalt deployment or production preview readiness claim; Caddy/TLS/auth/relay integration are separate gates.\n'
+                 f'Archive SHA256: {p["archiveSha256"]}\nBinary SHA256: {p["binarySha256"]}\n')
+          if release is None:
+              with tempfile.NamedTemporaryFile(mode='w') as n:
+                  n.write(notes); n.flush()
+                  command(['gh','release','create',tag,'--repo',repo,'--target',os.environ['GITHUB_SHA'],'--title',tag,'--prerelease','--latest=false','--notes-file',n.name])
+              release=api(f'repos/{repo}/releases/tags/{tag}')
+          require(tag_ok() and release['prerelease'] and not release['draft'] and release['body']==notes,'Existing release metadata conflicts')
+          assets=api(f'repos/{repo}/releases/{release["id"]}/assets?per_page=100'); names=[a['name'] for a in assets]
+          require(len(names)==len(set(names)) and set(names)<={name,name+'.sha256'},'Existing assets conflict')
+          with tempfile.TemporaryDirectory() as download:
+              for local in (archive,sidecar):
+                  if local.name in names:
+                      command(['gh','release','download',tag,'--repo',repo,'--pattern',local.name,'--dir',download])
+                      require((pathlib.Path(download)/local.name).read_bytes()==local.read_bytes(),'Existing asset bytes conflict')
+                      (pathlib.Path(download)/local.name).unlink()
+              for local in (archive,sidecar):
+                  if local.name not in names: command(['gh','release','upload',tag,str(local),'--repo',repo])
+              for local in (archive,sidecar):
+                  command(['gh','release','download',tag,'--repo',repo,'--pattern',local.name,'--dir',download])
+                  require((pathlib.Path(download)/local.name).read_bytes()==local.read_bytes(),'Published byte verification failed')
+          latest=api(f'repos/{repo}/releases/latest',True)
+          require(latest is None or latest['tag_name']!=tag,'Runtime release unexpectedly latest')
+          print('Published CI-built assets; downloaded bytes verified; manager pin bootstrap remains required.')
+          PY

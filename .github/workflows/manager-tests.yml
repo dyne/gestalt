@@ -1,0 +1,54 @@
+name: Manager checks (no release or deployment)
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  manager:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.21.0
+          cache: npm
+      - run: npm ci
+      # Existing Pages prerequisites, confined to a disposable hosted runner.
+      - name: Enable native sandbox on the disposable GitHub runner
+        if: runner.os == 'Linux' && runner.environment == 'github-hosted'
+        run: |
+          set -Eeuo pipefail
+          current_userns=$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)
+          if [[ -n $current_userns && $current_userns != 1 ]]; then
+            sudo sysctl -w kernel.unprivileged_userns_clone=1
+          fi
+          current_apparmor=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)
+          if [[ -n $current_apparmor && $current_apparmor != 0 ]]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      - name: Native sandbox preflight
+        run: |
+          set -Eeuo pipefail
+          sandbox_home=$(mktemp -d)
+          trap 'rm -rf -- "$sandbox_home"' EXIT
+          CODEX_HOME="$sandbox_home" ./node_modules/.bin/codex \
+            -c 'default_permissions=":read-only"' sandbox -- /bin/true
+      - name: Unchanged full manager suite
+        run: |
+          set -Eeuo pipefail
+          mkdir -p test-results
+          npm test 2>&1 | tee test-results/manager.log
+          git diff --check
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: manager-check-results
+          path: test-results
+          if-no-files-found: ignore

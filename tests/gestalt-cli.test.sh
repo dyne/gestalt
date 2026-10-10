@@ -174,6 +174,9 @@ export GESTALT_TEST_REAL_NODE=$real_node
 export CODEX_HOME=$test_home/.codex-gestalt
 export GESTALT_HOME=$test_home/.gestalt
 export GESTALT_INSTALL_BASE_URL=file://$repo_root/public
+# Unrelated CLI cases stay offline; dedicated shared-flow runs enable the runtime.
+export GESTALT_IMPECCABLE_ENABLED=${GESTALT_TEST_IMPECCABLE_ENABLED:-0}
+export GESTALT_IMPECCABLE_ARTIFACT=${GESTALT_TEST_IMPECCABLE_ARTIFACT:-}
 # Exercise the fixture's managed paths, regardless of the invoking relay's paths.
 unset GESTALT_MOBILE_BIN GESTALT_CONTEXT_MODE_RUNTIME GESTALT_CONTEXT_MODE_PLUGIN_ROOT GESTALT_AGENTS_PLUGIN_ROOT
 
@@ -262,6 +265,23 @@ if grep -E '^(sandbox_mode|\[sandbox_workspace_write])' "$CODEX_HOME/config.toml
 fi
 assert_log "codex|CODEX_HOME=$CODEX_HOME|plugin|marketplace|add|dyne/gestalt-agents"
 assert_log "setup|CODEX_HOME=$CODEX_HOME|GESTALT_HOME=$GESTALT_HOME"
+
+# Optional Live must not break shared setup on an unsupported architecture.
+cat > "$fake_bin/uname" <<'EOF'
+#!/usr/bin/env bash
+if [[ $1 == -s ]]; then printf 'Linux\n'; else printf 'aarch64\n'; fi
+EOF
+chmod 0755 "$fake_bin/uname"
+GESTALT_IMPECCABLE_ENABLED=1 bash "$repo_root/public/gestalt" install > "$test_root/unsupported-install.log" 2>&1
+grep -F 'Live runtime unavailable on this platform' "$test_root/unsupported-install.log" >/dev/null
+[[ -x $GESTALT_HOME/mobile/node_modules/.bin/gestalt-mobile ]]
+if GESTALT_IMPECCABLE_ENABLED=1 bash "$repo_root/public/gestalt" impeccable install --artifact /missing \
+    > "$test_root/unsupported-explicit.log" 2>&1; then
+  printf 'explicit runtime install accepted an unsupported architecture\n' >&2
+  exit 1
+fi
+grep -F 'Linux x86_64 only' "$test_root/unsupported-explicit.log" >/dev/null
+rm -- "$fake_bin/uname"
 
 managed_bin=$test_root/managed-bin
 mkdir -p -- "$managed_bin"

@@ -1,0 +1,933 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 0800b36cb27737781525c66b4447471b7a72e5a9..16d4d93fe57063e8d531b802d26c971b069637d8 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -719,6 +719,7 @@ dependencies = [
+  "sha1",
+  "sha2",
+  "ureq",
++ "url",
+ ]
+ 
+ [[package]]
+diff --git a/crates/live/Cargo.toml b/crates/live/Cargo.toml
+index 041f228fdbe3ff7461774ee883104b5f866cc397..acdb68483621807250a62b9d8afb5aa019b49bbb 100644
+--- a/crates/live/Cargo.toml
++++ b/crates/live/Cargo.toml
+@@ -18,3 +18,4 @@ sha2 = "0.10"
+ ureq = { version = "2", default-features = false, features = ["tls", "json"] }
+ sha1 = "0.10"
+ getrandom = "0.2"
++url = "2"
+diff --git a/crates/live/src/browser_assets.rs b/crates/live/src/browser_assets.rs
+index 06615b13fd47d6c5c1cb4d192d330935896de33c..bea61c2de1ce48406a700b989f1fcca44c6e4110 100644
+--- a/crates/live/src/browser_assets.rs
++++ b/crates/live/src/browser_assets.rs
+@@ -82,10 +82,12 @@ pub fn assemble_live_browser_script(
+     parts: &[(&str, &str, String)],
+     project_ignores: &Value,
+     live_bar_hidden: bool,
++    public_base_url: Option<&str>,
+ ) -> String {
+     let mut out = String::new();
+     out.push_str(&format!("window.__IMPECCABLE_TOKEN__ = '{}';\n", token));
+     out.push_str(&format!("window.__IMPECCABLE_PORT__ = {};\n", port));
++    out.push_str(&format!("window.__IMPECCABLE_PUBLIC_BASE_URL__ = {};\n", serde_json::to_string(&public_base_url).unwrap_or_default()));
+     // The generate lane's helper-wide bar preference, known before the
+     // overlay mounts anything, so the bar is never drawn and then hidden.
+     // A plain helper serves exactly the script it always served.
+diff --git a/crates/live/src/inject/mod.rs b/crates/live/src/inject/mod.rs
+index e8be9787acd6e3de397eceea7396d54a6429833f..aebd9b95db60fcb93ad7591bb0030e3aa7c84a6a 100644
+--- a/crates/live/src/inject/mod.rs
++++ b/crates/live/src/inject/mod.rs
+@@ -225,14 +225,14 @@ pub fn undo_patch(patch: &str, content: &str) -> Option<String> {
+ pub fn adapter_apply(
+     resolved: &ResolvedFramework,
+     cwd: &str,
+-    port: i64,
++    base_url: &str,
+     token: Option<&str>,
+     config: Option<&LiveConfig>,
+ ) -> Value {
+     match &resolved.project {
+-        Project::SvelteKit(_) => sveltekit::apply_sveltekit_live_adapter(cwd, port, token, config),
+-        Project::Nuxt(p) => nuxt::apply_nuxt_live_adapter(cwd, port, token, p),
+-        Project::TanStack(p) => tanstack::apply_tanstack_live_adapter(cwd, port, token, p),
++        Project::SvelteKit(_) => sveltekit::apply_sveltekit_live_adapter(cwd, base_url, token, config),
++        Project::Nuxt(p) => nuxt::apply_nuxt_live_adapter(cwd, base_url, token, p),
++        Project::TanStack(p) => tanstack::apply_tanstack_live_adapter(cwd, base_url, token, p),
+         Project::Generic(_) => Value::Null,
+     }
+ }
+diff --git a/crates/live/src/inject/nuxt.rs b/crates/live/src/inject/nuxt.rs
+index e2461fc7f85aa48a5c63c81da087f3a6362ffbf1..9a616365b2e50e7e3266a4a087d0187e7e1e46b7 100644
+--- a/crates/live/src/inject/nuxt.rs
++++ b/crates/live/src/inject/nuxt.rs
+@@ -63,8 +63,8 @@ pub fn detect_nuxt_project(cwd: &str) -> Option<NuxtProject> {
+     })
+ }
+ 
+-/// JS: buildNuxtPlugin(port, token)
+-pub fn build_nuxt_plugin(port: i64, token: Option<&str>) -> String {
++/// JS: buildNuxtPlugin(base_url, token)
++pub fn build_nuxt_plugin(base_url: &str, token: Option<&str>) -> String {
+     format!(
+         "/* {m} */
+ const liveSrc = '{src}';
+@@ -91,14 +91,14 @@ export default defineNuxtPlugin(() => {{
+ /* /{m} */
+ ",
+         m = NUXT_PLUGIN_MARKER,
+-        src = build_live_script_src(port, token)
++        src = build_live_script_src(base_url, token)
+     )
+ }
+ 
+ /// JS: applyNuxtLiveAdapter({ cwd, port, token, project })
+ pub fn apply_nuxt_live_adapter(
+     cwd: &str,
+-    port: i64,
++    base_url: &str,
+     token: Option<&str>,
+     project: &NuxtProject,
+ ) -> Value {
+@@ -113,7 +113,7 @@ pub fn apply_nuxt_live_adapter(
+             });
+         }
+     }
+-    let content = build_nuxt_plugin(port, token);
++    let content = build_nuxt_plugin(base_url, token);
+     let _ = std::fs::create_dir_all(jsp::dirname(&abs));
+     let changed = existing.as_deref() != Some(content.as_str());
+     if changed {
+diff --git a/crates/live/src/inject/sveltekit.rs b/crates/live/src/inject/sveltekit.rs
+index f2cd60bd0ef709366ef8e9f93a45b433fa215307..28c2dc627fd07490171f8ead014b3c270e2453c0 100644
+--- a/crates/live/src/inject/sveltekit.rs
++++ b/crates/live/src/inject/sveltekit.rs
+@@ -5,7 +5,7 @@
+ 
+ use crate::config::LiveConfig;
+ use crate::util::{
+-    dir_entry_count, encode_uri_component, exists, jsp, read_json, safe_read, sha256_hex,
++    dir_entry_count, exists, jsp, read_json, safe_read, sha256_hex,
+     write_file,
+ };
+ use once_cell::sync::Lazy;
+@@ -79,14 +79,14 @@ pub fn detect_sveltekit_project(
+ /// JS: applySvelteKitLiveAdapter({ cwd, port, token, config })
+ pub fn apply_sveltekit_live_adapter(
+     cwd: &str,
+-    port: i64,
++    base_url: &str,
+     token: Option<&str>,
+     config: Option<&LiveConfig>,
+ ) -> Value {
+     let Some(detected) = detect_sveltekit_project(cwd, config) else {
+         return Value::Null;
+     };
+-    ensure_svelte_live_root_component(cwd, port, token);
++    ensure_svelte_live_root_component(cwd, base_url, token);
+     let layout_rel = detected.layout_file.clone();
+     let layout_abs = jsp::join(&[cwd, &layout_rel]);
+     let _ = std::fs::create_dir_all(jsp::dirname(&layout_abs));
+@@ -222,23 +222,16 @@ pub fn unpatch_svelte_layout(content: &str) -> String {
+     MULTI_NL_RE.replace_all(&out, "\n\n").into_owned()
+ }
+ 
+-/// JS: ensureSvelteLiveRootComponent(cwd, port, token)
+-pub fn ensure_svelte_live_root_component(cwd: &str, port: i64, token: Option<&str>) -> String {
++/// JS: ensureSvelteLiveRootComponent(cwd, base_url, token)
++pub fn ensure_svelte_live_root_component(cwd: &str, base_url: &str, token: Option<&str>) -> String {
+     let file = jsp::join(&[cwd, SVELTE_LIVE_ROOT_COMPONENT]);
+-    let _ = write_file(&file, &build_svelte_live_root_component(port, token));
++    let _ = write_file(&file, &build_svelte_live_root_component(base_url, token));
+     file
+ }
+ 
+-/// JS: buildSvelteLiveRootComponent(port, token)
+-pub fn build_svelte_live_root_component(port: i64, token: Option<&str>) -> String {
+-    let live_url = format!(
+-        "http://localhost:{}/live.js{}",
+-        port,
+-        match token {
+-            Some(t) if !t.is_empty() => format!("?token={}", encode_uri_component(t)),
+-            _ => String::new(),
+-        }
+-    );
++/// JS: buildSvelteLiveRootComponent(base_url, token)
++pub fn build_svelte_live_root_component(base_url: &str, token: Option<&str>) -> String {
++    let live_url = super::tag_strategy::build_live_script_src(base_url, token);
+     format!(
+         "<script>
+   import {{ onMount }} from 'svelte';
+diff --git a/crates/live/src/inject/tag_strategy.rs b/crates/live/src/inject/tag_strategy.rs
+index 7f06860e268db76ba1ed983c419720907e516063..0bd02629383ee2a0c6a87a5f41433846fc6947df 100644
+--- a/crates/live/src/inject/tag_strategy.rs
++++ b/crates/live/src/inject/tag_strategy.rs
+@@ -13,8 +13,8 @@ pub const CSP_MARKER_ATTR: &str = "data-impeccable-csp-original";
+ pub const TAG_PATCH_MARKERS: [&str; 2] = [MARKER_OPEN_TEXT, CSP_MARKER_ATTR];
+ 
+ /// JS: buildLiveScriptSrc(port, token)
+-pub fn build_live_script_src(port: i64, token: Option<&str>) -> String {
+-    let base = format!("http://localhost:{}/live.js", port);
++pub fn build_live_script_src(base_url: &str, token: Option<&str>) -> String {
++    let base = format!("{}/live.js", base_url);
+     match token {
+         Some(t) if !t.is_empty() => format!("{}?token={}", base, encode_uri_component(t)),
+         _ => base,
+@@ -37,7 +37,7 @@ fn comment_close(syntax: &str) -> &'static str {
+ }
+ 
+ /// JS: buildTagBlock(syntax, port, token, scriptAttrs)
+-pub fn build_tag_block(syntax: &str, port: i64, token: Option<&str>, script_attrs: &str) -> String {
++pub fn build_tag_block(syntax: &str, base_url: &str, token: Option<&str>, script_attrs: &str) -> String {
+     let open = comment_open(syntax);
+     let close = comment_close(syntax);
+     format!(
+@@ -47,7 +47,7 @@ pub fn build_tag_block(syntax: &str, port: i64, token: Option<&str>, script_attr
+         m1 = MARKER_OPEN_TEXT,
+         m2 = MARKER_CLOSE_TEXT,
+         a = script_attrs,
+-        src = build_live_script_src(port, token)
++        src = build_live_script_src(base_url, token)
+     )
+ }
+ 
+@@ -88,13 +88,13 @@ pub fn insert_tag(
+     comment_syntax: &str,
+     insert_before: Option<&str>,
+     insert_after: Option<&str>,
+-    port: i64,
++    base_url: &str,
+     token: Option<&str>,
+     script_attrs: &str,
+ ) -> String {
+     let le = detect_line_ending(content);
+     let block = normalize_line_endings(
+-        &build_tag_block(comment_syntax, port, token, script_attrs),
++        &build_tag_block(comment_syntax, base_url, token, script_attrs),
+         le,
+     );
+     // JS: `if (config.insertBefore)`: truthy string
+@@ -286,12 +286,12 @@ fn append_origin_to_directive(csp: &str, directive: &str, origin: &str) -> Strin
+ }
+ 
+ /// JS: patchCspMeta(content, port)
+-pub fn patch_csp_meta(content: &str, port: i64) -> String {
++pub fn patch_csp_meta(content: &str, base_url: &str) -> String {
+     let tags = find_csp_meta_tags(content);
+     if tags.is_empty() {
+         return content.to_string();
+     }
+-    let origin = format!("http://localhost:{}", port);
++    let origin = crate::public_url::helper_origin(base_url);
+     let mut result = content.to_string();
+     for tag in tags.iter().rev() {
+         let attrs = &tag.attrs;
+@@ -401,7 +401,7 @@ mod tests {
+     #[test]
+     fn csp_meta_patch_adds_wasm_unsafe_eval_to_script_src() {
+         let html = "<html><head><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self'; script-src 'self'; img-src 'self'\"></head></html>";
+-        let patched = patch_csp_meta(html, 8412);
++        let patched = patch_csp_meta(html, "http://localhost:8412");
+         assert!(
+             patched.contains("script-src 'self' http://localhost:8412 'wasm-unsafe-eval'"),
+             "{patched}"
+@@ -409,7 +409,7 @@ mod tests {
+         assert!(patched.contains("connect-src 'self' http://localhost:8412"));
+         assert!(patched.contains("img-src 'self' blob:"));
+         // idempotent
+-        assert_eq!(patch_csp_meta(&patched, 8412), patched);
++        assert_eq!(patch_csp_meta(&patched, "http://localhost:8412"), patched);
+         // reverts to the original
+         assert_eq!(revert_csp_meta(&patched), html);
+     }
+@@ -417,7 +417,7 @@ mod tests {
+     #[test]
+     fn csp_meta_patch_creates_script_src_when_missing() {
+         let html = "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self'\">";
+-        let patched = patch_csp_meta(html, 8412);
++        let patched = patch_csp_meta(html, "http://localhost:8412");
+         assert!(
+             patched.contains("script-src 'self' http://localhost:8412 'wasm-unsafe-eval'"),
+             "{patched}"
+diff --git a/crates/live/src/inject/tanstack.rs b/crates/live/src/inject/tanstack.rs
+index ec4751c70f68f66ffe8d666069eec77c8c535e7e..3d2fe83c6151ee26e794d42ad5c47e272d33bbfd 100644
+--- a/crates/live/src/inject/tanstack.rs
++++ b/crates/live/src/inject/tanstack.rs
+@@ -69,12 +69,12 @@ pub fn detect_tanstack_start_project(cwd: &str) -> Option<TanStackProject> {
+ /// JS: applyTanStackLiveAdapter({ cwd, port, token, project })
+ pub fn apply_tanstack_live_adapter(
+     cwd: &str,
+-    port: i64,
++    base_url: &str,
+     token: Option<&str>,
+     project: &TanStackProject,
+ ) -> Value {
+     let component_abs = jsp::join(&[cwd, &project.component_file]);
+-    let component_body = build_tanstack_live_root_component(port, token);
++    let component_body = build_tanstack_live_root_component(base_url, token);
+     let component_existed = exists(&component_abs);
+     if component_existed && !is_managed_component(&safe_read(&component_abs).unwrap_or_default()) {
+         return json!({
+@@ -165,8 +165,8 @@ pub fn unpatch_tanstack_root(content: &str) -> String {
+     MANAGED_IMPORT_RE.replace_all(&out, "").into_owned()
+ }
+ 
+-/// JS: buildTanStackLiveRootComponent(port, token)
+-pub fn build_tanstack_live_root_component(port: i64, token: Option<&str>) -> String {
++/// JS: buildTanStackLiveRootComponent(base_url, token)
++pub fn build_tanstack_live_root_component(base_url: &str, token: Option<&str>) -> String {
+     format!(
+         "/* impeccable-live-tanstack-start */
+ import {{ useEffect }} from 'react';
+@@ -201,7 +201,7 @@ export default function ImpeccableLiveRoot() {{
+   return null;
+ }}
+ ",
+-        src = build_live_script_src(port, token)
++        src = build_live_script_src(base_url, token)
+     )
+ }
+ 
+diff --git a/crates/live/src/lib.rs b/crates/live/src/lib.rs
+index 660299885194488a656596886774ef7689cb5a84..b5c171c7ba2c642b18330d6f3a803f1a6909d1f1 100644
+--- a/crates/live/src/lib.rs
++++ b/crates/live/src/lib.rs
+@@ -26,6 +26,7 @@ pub mod paths;
+ pub mod pending_edits;
+ pub mod preflight;
+ pub mod project_ignores;
++pub mod public_url;
+ pub mod random;
+ pub mod roots;
+ pub mod server;
+diff --git a/crates/live/src/live_boot.rs b/crates/live/src/live_boot.rs
+index 7d24d0ea80e6a7e6dbf38568cd14566f69ea6fbe..b738a2c02ce4f67e47d5fe485f718e4dd3cf7308 100644
+--- a/crates/live/src/live_boot.rs
++++ b/crates/live/src/live_boot.rs
+@@ -69,6 +69,11 @@ pub fn run(args: &[String], io: &mut Io) -> i32 {
+         return 0;
+     }
+ 
++    if let Err(error) = crate::public_url::public_base_url(&env) {
++        println(io, &json_compact(&json!({ "ok": false, "error": "invalid_public_base_url", "message": error })));
++        return 1;
++    }
++
+     if let Some(sel) =
+         resolve_target_selection(&live_target.original_cwd, &live_target.target_options, &env)
+     {
+@@ -324,6 +329,9 @@ pub fn run(args: &[String], io: &mut Io) -> i32 {
+         "_instructions": boot_instructions(&self_cmd),
+     });
+     if let Some(obj) = payload.as_object_mut() {
++        if let Some(base) = server_info.get("publicBaseUrl") {
++            obj.insert("publicBaseUrl".into(), base.clone());
++        }
+         if no_live_bar {
+             obj.insert("liveBarHidden".into(), json!(live_bar_hidden));
+         }
+@@ -372,6 +380,10 @@ fn ensure_server_running(cwd: &str, io: &Io) -> Option<Value> {
+     if let Some((info, _)) = read_live_server_info(cwd, &io.env) {
+         if let Some(pid) = info.pid {
+             if pid_reachable(pid) && crate::util::kill0(pid).is_ok() {
++                let requested = crate::public_url::public_base_url(&io.env).ok()?;
++                if requested.as_deref() != info.raw.get("publicBaseUrl").and_then(Value::as_str) {
++                    return None; // Restart explicitly before changing the browser-facing address.
++                }
+                 return Some(info.raw);
+             }
+         }
+diff --git a/crates/live/src/live_generate.rs b/crates/live/src/live_generate.rs
+index b3aa4880fa7e75f84b57b32725e2c69d1ce43e4c..494c367469fc7d39e6239b929c6faa2433a843e6 100644
+--- a/crates/live/src/live_generate.rs
++++ b/crates/live/src/live_generate.rs
+@@ -425,6 +425,10 @@ pub fn run(args: &[String], io: &mut Io) -> i32 {
+         println(io, HELP);
+         return 0;
+     }
++    let public_url = match crate::public_url::public_base_url(&io.env) {
++        Ok(url) => url,
++        Err(message) => return fail(io, json!({ "ok": false, "error": "invalid_public_base_url", "message": message })),
++    };
+     let flags_probe = match parse_flags(args) {
+         Ok(f) => f,
+         Err(v) => return fail(io, v),
+@@ -521,6 +525,11 @@ pub fn run(args: &[String], io: &mut Io) -> i32 {
+     // hint, else the hint itself (a server the harness runs that answers
+     // without our tag yet, before its first reload).
+     let resolve_dev_url = |boot: &Option<Map<String, Value>>| -> (Option<String>, bool) {
++        if public_url.is_some() {
++            // The server cannot discover an authenticated browser-side preview.
++            // Never replace the caller's remote URL with a reachable local port.
++            return (dev_url_hint.clone(), false);
++        }
+         if let Some(u) = boot.as_ref().and_then(|b| b.get("devUrl")).and_then(Value::as_str).filter(|u| !u.is_empty()) {
+             return (Some(u.to_string()), true);
+         }
+@@ -540,11 +549,12 @@ pub fn run(args: &[String], io: &mut Io) -> i32 {
+     // explicitly (IMPECCABLE_BROWSER or the config's `browser`; the generic
+     // BROWSER variable is not that choice).
+     let harness_has_browser = matches!(harness.as_str(), "cursor" | "claude-code");
+-    let open_ignored = flags.open && harness_has_browser && crate::browser_open::explicit_browser(&cwd, &env).is_none();
++    let remote = public_url.is_some();
++    let open_ignored = flags.open && (remote || (harness_has_browser && crate::browser_open::explicit_browser(&cwd, &env).is_none()));
+     let open = flags.open && !open_ignored;
+     let with_open_note = |mut v: Map<String, Value>| -> Map<String, Value> {
+         if open_ignored {
+-            v.insert("openIgnored".into(), json!("harness browser"));
++            v.insert("openIgnored".into(), json!(if remote { "remote public URL" } else { "harness browser" }));
+         }
+         v
+     };
+diff --git a/crates/live/src/live_inject.rs b/crates/live/src/live_inject.rs
+index 2d7cf2af612d5e6ae088de0402757a127250e03e..ef91beb7015cd38d7fb52e994ad8c85a7ecefa9a 100644
+--- a/crates/live/src/live_inject.rs
++++ b/crates/live/src/live_inject.rs
+@@ -28,6 +28,9 @@ Modes:
+   --remove      Remove the script tag (if present)
+   --check       Print whether .impeccable/live/config.json exists and its content
+ 
++Environment:
++  IMPECCABLE_LIVE_PUBLIC_BASE_URL  Browser-facing HTTP(S) helper URL (optional)
++
+ Output (JSON):
+   { ok, file, inserted|removed, config? }";
+ 
+@@ -180,6 +183,22 @@ pub fn inject_cli(args: &[String], io: &mut Io) -> i32 {
+         );
+         return 1;
+     };
++    let public_url = match crate::public_url::public_base_url(&env) {
++        Ok(url) => url,
++        Err(error) => {
++            eprintln(io, &json_compact(&json!({ "ok": false, "error": "invalid_public_base_url", "message": error })));
++            return 1;
++        }
++    };
++    if let Some(info) = read_json(&jsp::join(&[&cwd, ".impeccable", "live", "server.json"])) {
++        if info.get("port").and_then(Value::as_i64) == Some(port)
++            && info.get("publicBaseUrl").and_then(Value::as_str) != public_url.as_deref()
++        {
++            eprintln(io, &json_compact(&json!({ "ok": false, "error": "public_base_url_mismatch", "message": "Stop the helper before changing IMPECCABLE_LIVE_PUBLIC_BASE_URL" })));
++            return 1;
++        }
++    }
++    let base_url = crate::public_url::helper_base_url(port, public_url.as_deref());
+     let mut token: Option<String> = args
+         .iter()
+         .position(|a| a == "--token")
+@@ -224,7 +243,7 @@ pub fn inject_cli(args: &[String], io: &mut Io) -> i32 {
+     }
+ 
+     if let (true, Some(r)) = (is_adapter, resolved.as_ref()) {
+-        let adapter_result = adapter_apply(r, &cwd, port, token.as_deref(), Some(&config));
++        let adapter_result = adapter_apply(r, &cwd, &base_url, token.as_deref(), Some(&config));
+         let ok = !(adapter_result
+             .get("error")
+             .map(crate::inject::detect_utils::truthy)
+@@ -267,7 +286,7 @@ pub fn inject_cli(args: &[String], io: &mut Io) -> i32 {
+             config.comment_syntax(),
+             config.insert_before(),
+             config.insert_after(),
+-            port,
++            &base_url,
+             token.as_deref(),
+             script_attrs,
+         );
+@@ -281,7 +300,7 @@ pub fn inject_cli(args: &[String], io: &mut Io) -> i32 {
+             );
+             continue;
+         }
+-        let updated = patch_csp_meta(&with_tag, port);
++        let updated = patch_csp_meta(&with_tag, &base_url);
+         let _ = write_file(&abs, &updated);
+         written.push(rel.clone());
+         results.push(json!({ "file": rel, "inserted": true, "cspPatched": updated != with_tag }));
+@@ -328,3 +347,46 @@ fn parse_int_prefix(v: &str) -> Option<i64> {
+         None
+     }
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn remote_public_base_url_injection_preserves_prefix_and_rejects_invalid_urls() {
++        let dir = std::env::temp_dir().join(format!("impeccable-public-url-{}", crate::random::random_uuid()));
++        std::fs::create_dir_all(dir.join(".impeccable/live")).unwrap();
++        std::fs::write(dir.join(".impeccable/live/config.json"), r#"{"files":["index.html"],"insertBefore":"</body>","commentSyntax":"html"}"#).unwrap();
++        let html = "<html><head><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self'\"></head><body></body></html>";
++        for (setting, expected) in [
++            (None, Some("http://localhost:8412")),
++            (Some("https://preview.example/__gestalt_live"), Some("https://preview.example/__gestalt_live")),
++            (Some("https://preview.example/__gestalt_live/"), Some("https://preview.example/__gestalt_live")),
++            (Some("garbage"), None),
++            (Some("file:///tmp/live"), None),
++            (Some("https://user:secret@preview.example/live"), None),
++            (Some("https://preview.example/live?token=bad"), None),
++            (Some("https://preview.example/live#fragment"), None),
++        ] {
++            std::fs::write(dir.join("index.html"), html).unwrap();
++            let mut env = std::collections::HashMap::new();
++            if let Some(value) = setting {
++                env.insert("IMPECCABLE_LIVE_PUBLIC_BASE_URL".into(), value.into());
++            }
++            let (mut io, _) = Io::captured("", dir.clone(), env);
++            let code = inject_cli(&["--port".into(), "8412".into(), "--token".into(), "test token".into()], &mut io);
++            let after = std::fs::read_to_string(dir.join("index.html")).unwrap();
++            if let Some(base) = expected {
++                assert_eq!(code, 0);
++                assert!(after.contains(&format!("src=\"{}/live.js?token=test%20token\"", base)), "{after}");
++                let origin = if setting.is_some() { "https://preview.example" } else { base };
++                assert!(after.contains(&format!("connect-src 'self' {}", origin)), "{after}");
++                assert_eq!(revert_csp_meta(&remove_tag(&after)), html);
++            } else {
++                assert_eq!(code, 1, "{setting:?}");
++                assert_eq!(after, html);
++            }
++        }
++        std::fs::remove_dir_all(dir).unwrap();
++    }
++}
+diff --git a/crates/live/src/live_server.rs b/crates/live/src/live_server.rs
+index 3aa3afc67d2e80d51c98b09b451488babc8ac7d2..8d4d9e04ca8a3f7ef5307e7ce28457e4f9ecdd38 100644
+--- a/crates/live/src/live_server.rs
++++ b/crates/live/src/live_server.rs
+@@ -67,6 +67,9 @@ Options:
+   --keep-inject Only with stop: skip live-inject --remove
+   --help        Show this help
+ 
++Environment:
++  IMPECCABLE_LIVE_PUBLIC_BASE_URL  Browser-facing HTTP(S) helper URL (optional)
++
+ Endpoints:
+   /live.js             Browser script (element picker + variant cycling)
+   /detect.js           Detection overlay (backwards compatible)
+@@ -88,7 +91,7 @@ pub fn run(args: &[String], io: &mut Io) -> i32 {
+         Err(code) => return code,
+     };
+     let cwd = io.cwd.to_string_lossy().into_owned();
+-    let env = io.env.clone();
++    let mut env = io.env.clone();
+ 
+     if argv.iter().any(|a| a == "--help" || a == "-h") {
+         println(io, HELP);
+@@ -99,6 +102,17 @@ pub fn run(args: &[String], io: &mut Io) -> i32 {
+         return stop(&argv, &cwd, io);
+     }
+ 
++    let public_url = match crate::public_url::public_base_url(&env) {
++        Ok(url) => url,
++        Err(error) => {
++            io.err(&format!("{}\n", error));
++            return 1;
++        }
++    };
++    if let Some(base) = &public_url {
++        env.insert(crate::public_url::PUBLIC_BASE_URL_ENV.into(), base.clone());
++    }
++
+     if argv.iter().any(|a| a == "--background") {
+         let child_args: Vec<String> = argv
+             .iter()
+@@ -317,12 +331,12 @@ pub fn run(args: &[String], io: &mut Io) -> i32 {
+ 
+     install_signal_handlers();
+     let _ = listener.set_nonblocking(true);
+-    write_live_server_info(
+-        &cwd,
+-        &env,
+-        &json!({ "pid": std::process::id(), "port": port, "token": token }),
+-    );
+-    let url = format!("http://localhost:{}", port);
++    let mut info = json!({ "pid": std::process::id(), "port": port, "token": token });
++    if let Some(base) = &public_url {
++        info["publicBaseUrl"] = json!(base);
++    }
++    write_live_server_info(&cwd, &env, &info);
++    let url = crate::public_url::helper_base_url(port, public_url.as_deref());
+     io.out(&format!("\nImpeccable live server running on {}\n", url));
+     io.out(&format!("Token: {}\n\n", token));
+     io.out(&format!("Script: {}/live.js\n", url));
+@@ -692,7 +706,7 @@ fn handle_connection(shared: Shared, mut stream: TcpStream, mut ticket: Ticket)
+                 roots.as_ref().and_then(|r| r.context_root.as_deref()),
+                 roots.as_ref().map(|r| r.repo_root.as_str()),
+             );
+-            let body = assemble_live_browser_script(&token_now, port, &prefix, &cwd, &parts, &project_ignores, live_bar_hidden);
++            let body = assemble_live_browser_script(&token_now, port, &prefix, &cwd, &parts, &project_ignores, live_bar_hidden, env.get(crate::public_url::PUBLIC_BASE_URL_ENV).map(String::as_str));
+             respond(
+                 &mut stream,
+                 &cors,
+diff --git a/skill/reference/live.md b/skill/reference/live.md
+index 5823d3407ebd4679ac3531eaa3008db798d9ed12..9863b96a336cf1ddda17832e5961b29ada8f20b8 100644
+--- a/skill/reference/live.md
++++ b/skill/reference/live.md
+@@ -4,10 +4,10 @@ Interactive live variant mode: select elements in the browser, pick a design act
+ 
+ A running dev server with HMR (Vite, Next.js, Bun, etc.), OR a static HTML file open in the browser. If the dev server's default port is busy, the app is very likely ALREADY running; probe the default URL before spawning a second server.
+ 
+-Live editing requires a local checkout; injection into deployed production sites (including HTTPS) is unsupported. For production inspection, use `{{scripts_path}}/impeccable detect <url>` or the browser extension, not the live helper. Do not disable browser security or weaken production CSP to enable live mode.
++Live editing requires a development checkout; injection into deployed production sites (including HTTPS) is unsupported. For production inspection, use `{{scripts_path}}/impeccable detect <url>` or the browser extension, not the live helper. Do not disable browser security or weaken production CSP to enable live mode.
+ 
+ <codex>
+-Codex: run live helper commands, the app dev server, and any dependency-installing setup with `sandbox_permissions: "require_escalated"` from the start; live mode depends on localhost and package-manager network access that the sandbox blocks.
++Codex: use the permissions available in the current environment for the helper, dev server and dependency setup; request additional permissions only if a required operation is actually blocked.
+ </codex>
+ 
+ ## The contract (read once)
+@@ -67,6 +67,26 @@ Output JSON: `{ ok, serverPort, serverToken, pageFiles, roots, hasProduct, produ
+ 
+ If output is `{ ok: false, error: "config_missing" | "config_invalid", path }`, this project needs one-time configuration: read [live-setup.md](live-setup.md) and follow it. If the output carries a non-null `configDrift`, tell the user once which HTML files are uncovered and suggest adding them or switching `files` to a glob; never auto-edit the config.
+ 
++## Remote development preview
++
++Set `IMPECCABLE_LIVE_PUBLIC_BASE_URL` to the browser-facing helper URL before
++starting Live, for example `https://preview.example/__gestalt_live/`. Use the
++same setting for helper and injection commands. HTTP(S) origins and path prefixes
++are supported; trailing slashes are normalized. Userinfo, queries and fragments
++are rejected. Stop the helper before changing this setting. Without it, existing
++`http://localhost:PORT` behavior is unchanged.
++
++The helper still binds to `127.0.0.1`. Your development reverse proxy must forward
++that prefix to the helper, strip the prefix, and support streaming SSE. Protect
++all proxy routes with your preview authentication; the helper's token checks
++remain in place. Use the actual app preview URL to open the page, not the helper
++prefix. With the setting active, `live-generate --open --dev-url <preview-url>`
++reports the page URL for the remote browser instead of invoking a server-side
++browser opener. The boot JSON also reports `publicBaseUrl`. Existing CSP meta
++patches use the configured helper origin; any CSP response headers must allow
++that origin for development scripts and connections. This does not authorize
++changes to production CSP, and requires no Playwright runtime dependency.
++
+ ## Recovery commands
+ 
+ The append-only journal under `.impeccable/live/sessions/` is canonical durable state (not project source). When the chat was interrupted, polling was missed, the helper restarted, or the browser reloaded:
+diff --git a/skill/scripts/live-browser.js b/skill/scripts/live-browser.js
+index c7eed77fb06fa81ef9841f61b5ac28d3bfe5a4f1..34007023cc3925279a31cf636fee3df0f7815173 100644
+--- a/skill/scripts/live-browser.js
++++ b/skill/scripts/live-browser.js
+@@ -1,7 +1,7 @@
+ /**
+  * Impeccable Live Variant Mode - Browser Script
+  *
+- * Injected into the user's page via <script src="http://localhost:PORT/live.js">.
++ * Injected into the user's page from the helper's browser-facing base URL.
+  * The server prepends window.__IMPECCABLE_TOKEN__ and window.__IMPECCABLE_PORT__
+  * before this code.
+  *
+@@ -21,6 +21,7 @@
+ 
+   const TOKEN = window.__IMPECCABLE_TOKEN__;
+   const PORT = window.__IMPECCABLE_PORT__;
++  const BASE_URL = window.__IMPECCABLE_PUBLIC_BASE_URL__ || 'http://localhost:' + PORT;
+   const APP_ROOT = window.__IMPECCABLE_APP_ROOT__ || null;
+   if (!TOKEN || !PORT) {
+     window.__IMPECCABLE_LIVE_INIT__ = false; // reset so the real load can init
+@@ -3822,7 +3823,7 @@
+       // Token in the query string as well as the body: the URL token is what
+       // authorizes the CORS preflight when the page runs on a non-loopback
+       // dev host (ddev, Valet), since the preflight carries no request body.
+-      const res = await fetch('http://localhost:' + PORT + '/manual-edit-stash?token=' + encodeURIComponent(TOKEN), {
++      const res = await fetch(BASE_URL + '/manual-edit-stash?token=' + encodeURIComponent(TOKEN), {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({
+@@ -4139,7 +4140,7 @@
+   async function fetchPendingCount() {
+     try {
+       const res = await fetch(
+-        'http://localhost:' + PORT + '/manual-edit-stash?token=' + encodeURIComponent(TOKEN) + '&pageUrl=' + encodeURIComponent(location.pathname),
++        BASE_URL + '/manual-edit-stash?token=' + encodeURIComponent(TOKEN) + '&pageUrl=' + encodeURIComponent(location.pathname),
+       );
+       if (!res.ok) return;
+       const data = await res.json();
+@@ -4159,7 +4160,7 @@
+     setPendingApplyLoading(true, count);
+     try {
+       const res = await fetch(
+-        'http://localhost:' + PORT + '/manual-edit-commit?token=' + encodeURIComponent(TOKEN) + '&pageUrl=' + encodeURIComponent(location.pathname) + '&async=1',
++        BASE_URL + '/manual-edit-commit?token=' + encodeURIComponent(TOKEN) + '&pageUrl=' + encodeURIComponent(location.pathname) + '&async=1',
+         { method: 'POST', keepalive: true },
+       );
+       if (!res.ok) {
+@@ -4203,7 +4204,7 @@
+     if (!ok) return;
+     try {
+       const res = await fetch(
+-        'http://localhost:' + PORT + '/manual-edit-discard?token=' + encodeURIComponent(TOKEN) + '&pageUrl=' + encodeURIComponent(location.pathname),
++        BASE_URL + '/manual-edit-discard?token=' + encodeURIComponent(TOKEN) + '&pageUrl=' + encodeURIComponent(location.pathname),
+         { method: 'POST' },
+       );
+       if (!res.ok) throw new Error('HTTP ' + res.status);
+@@ -4252,7 +4253,7 @@
+     updateManualApplyRepairState({ attempt: 1, maxAttempts: 3 }, 'repairing');
+     try {
+       const res = await fetch(
+-        'http://localhost:' + PORT + '/manual-edit-commit?token=' + encodeURIComponent(TOKEN) + '&pageUrl=' + encodeURIComponent(location.pathname) + '&async=1&repair=1',
++        BASE_URL + '/manual-edit-commit?token=' + encodeURIComponent(TOKEN) + '&pageUrl=' + encodeURIComponent(location.pathname) + '&async=1&repair=1',
+         { method: 'POST', keepalive: true },
+       );
+       if (!res.ok) throw new Error('HTTP ' + res.status);
+@@ -4271,7 +4272,7 @@
+     if (!ok) return;
+     try {
+       const res = await fetch(
+-        'http://localhost:' + PORT + '/manual-edit-repair-decision?token=' + encodeURIComponent(TOKEN) + '&pageUrl=' + encodeURIComponent(location.pathname),
++        BASE_URL + '/manual-edit-repair-decision?token=' + encodeURIComponent(TOKEN) + '&pageUrl=' + encodeURIComponent(location.pathname),
+         {
+           method: 'POST',
+           headers: { 'Content-Type': 'application/json' },
+@@ -5336,7 +5337,7 @@
+     const dir = String(manifest?.revisionDir || manifest?.componentDir || '').replace(/^\/+/, '');
+     if (!dir) return {};
+     const paramsPath = dir + '/params.json';
+-    const url = 'http://localhost:' + PORT + '/source?token=' + TOKEN + '&path=' + encodeURIComponent(paramsPath);
++    const url = BASE_URL + '/source?token=' + TOKEN + '&path=' + encodeURIComponent(paramsPath);
+     try {
+       const res = await fetch(url);
+       if (!res.ok) return {};
+@@ -5809,7 +5810,7 @@
+     // republish that is STILL broken at the same URL reports again instead of
+     // being swallowed while the agent believes the repair landed.
+     lastReportedMountFailure = null;
+-    const url = 'http://localhost:' + PORT + '/source?token=' + TOKEN + '&path=' + encodeURIComponent(manifestPath);
++    const url = BASE_URL + '/source?token=' + TOKEN + '&path=' + encodeURIComponent(manifestPath);
+     try {
+       const res = await fetch(url);
+       if (!res.ok) throw new Error(String(res.status));
+@@ -6281,7 +6282,7 @@
+    */
+   function probeJsxWrapperForOrphan(filePath, sessionId, opts) {
+     const attempt = opts._orphanAttempt || 0;
+-    const url = 'http://localhost:' + PORT + '/source?token=' + TOKEN + '&path=' + encodeURIComponent(filePath);
++    const url = BASE_URL + '/source?token=' + TOKEN + '&path=' + encodeURIComponent(filePath);
+     const stillActive = () => sessionId === currentSessionId && (state === 'GENERATING' || state === 'CYCLING');
+     const retryLater = () => {
+       setTimeout(() => {
+@@ -6438,7 +6439,7 @@
+       }
+       return;
+     }
+-    const url = 'http://localhost:' + PORT + '/source?token=' + TOKEN + '&path=' + encodeURIComponent(filePath);
++    const url = BASE_URL + '/source?token=' + TOKEN + '&path=' + encodeURIComponent(filePath);
+     fetch(url)
+       .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
+       .then(html => {
+@@ -7165,7 +7166,7 @@
+   // the agent's held-open CLI call.
+ 
+   function postAgentTargetResult(targetId, result) {
+-    fetch('http://localhost:' + PORT + '/agent-target-result?token=' + TOKEN, {
++    fetch(BASE_URL + '/agent-target-result?token=' + TOKEN, {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify({ token: TOKEN, targetId, clientId: AGENT_TARGET_CLIENT_ID, ...result }),
+@@ -7287,7 +7288,7 @@
+   }
+ 
+   function claimAgentTarget(targetId, report) {
+-    return fetch('http://localhost:' + PORT + '/agent-target-claim?token=' + TOKEN, {
++    return fetch(BASE_URL + '/agent-target-claim?token=' + TOKEN, {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify({ token: TOKEN, targetId, clientId: AGENT_TARGET_CLIENT_ID, ...report }),
+@@ -7555,7 +7556,7 @@
+   const SSE_MAX_RETRIES = 20;  // generous: heartbeats keep the connection alive, so retries mean real trouble
+ 
+   function connectSSE() {
+-    evtSource = new EventSource('http://localhost:' + PORT + '/events?token=' + TOKEN + '&clientId=' + AGENT_TARGET_CLIENT_ID);
++    evtSource = new EventSource(BASE_URL + '/events?token=' + TOKEN + '&clientId=' + AGENT_TARGET_CLIENT_ID);
+ 
+     evtSource.onopen = () => {
+       sseRetries = 0; // reset on successful (re)connect
+@@ -7812,7 +7813,7 @@
+     // Token in the query string as well as the body: the URL token is what
+     // authorizes the CORS preflight when the page runs on a non-loopback
+     // dev host (ddev, Valet), since the preflight carries no request body.
+-    const doSend = () => fetch('http://localhost:' + PORT + '/events?token=' + encodeURIComponent(TOKEN), {
++    const doSend = () => fetch(BASE_URL + '/events?token=' + encodeURIComponent(TOKEN), {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify(msg),
+@@ -8417,7 +8418,7 @@
+     if (msLoadPromise) return msLoadPromise;
+     msLoadPromise = new Promise((resolve, reject) => {
+       const s = document.createElement('script');
+-      s.src = 'http://localhost:' + PORT + '/modern-screenshot.js';
++      s.src = BASE_URL + '/modern-screenshot.js';
+       s.onload = () => resolve(window.modernScreenshot);
+       s.onerror = () => { msLoadPromise = null; reject(new Error('modern-screenshot failed to load')); };
+       uiAppendStyle(s);
+@@ -8746,7 +8747,7 @@
+     if (blob && hasAnnotations) {
+       try {
+         const uploadRes = await fetch(
+-          'http://localhost:' + PORT + '/annotation?token=' + encodeURIComponent(TOKEN) +
++          BASE_URL + '/annotation?token=' + encodeURIComponent(TOKEN) +
+           '&eventId=' + encodeURIComponent(basePayload.id),
+           { method: 'POST', headers: { 'Content-Type': 'image/png' }, body: blob },
+         );
+@@ -11574,7 +11575,7 @@ void main() {
+   // the agent already replied done before the reload. The helper's session
+   // record settles it; otherwise the done reply on SSE does.
+   function settleParameterStateFromHelper(sessionId) {
+-    fetch('http://localhost:' + PORT + '/status?token=' + TOKEN, { cache: 'no-store' })
++    fetch(BASE_URL + '/status?token=' + TOKEN, { cache: 'no-store' })
+       .then((res) => (res.ok ? res.json() : null))
+       .then((data) => {
+         if (!data || sessionId !== currentSessionId) return;
+@@ -11586,7 +11587,7 @@ void main() {
+   }
+ 
+   function fetchAgentPollingStatus() {
+-    fetch('http://localhost:' + PORT + '/status?token=' + TOKEN, { cache: 'no-store' })
++    fetch(BASE_URL + '/status?token=' + TOKEN, { cache: 'no-store' })
+       .then((res) => (res.ok ? res.json() : null))
+       .then((data) => {
+         if (data && typeof data.agentPolling === 'boolean') {
+@@ -12216,7 +12217,7 @@ void main() {
+     if (detectScriptLoaded) return;
+     detectScriptLoaded = true;
+     const s = document.createElement('script');
+-    s.src = 'http://localhost:' + PORT + '/detect.js';
++    s.src = BASE_URL + '/detect.js';
+     s.dataset.impeccableExtension = 'true';
+     document.head.appendChild(s);
+   }
+@@ -12764,8 +12765,8 @@ void main() {
+     renderDesignBody();
+     try {
+       const [jsonRes, rawRes] = await Promise.all([
+-        fetch(`http://localhost:${PORT}/design-system.json?token=${TOKEN}`, { cache: 'no-store' }),
+-        fetch(`http://localhost:${PORT}/design-system/raw?token=${TOKEN}`, { cache: 'no-store' }),
++        fetch(`${BASE_URL}/design-system.json?token=${TOKEN}`, { cache: 'no-store' }),
++        fetch(`${BASE_URL}/design-system/raw?token=${TOKEN}`, { cache: 'no-store' }),
+       ]);
+       const jsonData = await jsonRes.json();
+       designState.present = jsonData.present === true;
+diff --git a/tests/live-browser-source.test.mjs b/tests/live-browser-source.test.mjs
+index 546301a55c2ced8d41302c60e2d4feb1f2fa2d31..39f204b8443632a47b677fb135f27188c1c080ae 100644
+--- a/tests/live-browser-source.test.mjs
++++ b/tests/live-browser-source.test.mjs
+@@ -31,7 +31,7 @@ describe('live-browser source contracts', () => {
+         const creation = Promise.withResolvers();
+         const events = [];
+         const context = {
+-          currentSessionId: 'session-a', state: 'GENERATING', PORT: 1234, TOKEN: 'test',
++          currentSessionId: 'session-a', state: 'GENERATING', PORT: 1234, BASE_URL: 'http://localhost:1234', TOKEN: 'test',
+           console, Date,
+           captureElementToBlob: () => capture.promise,
+           showShaderOverlay() {},
+@@ -90,7 +90,7 @@ describe('live-browser source contracts', () => {
+     );
+     assert.match(
+       SOURCE,
+-      /fetch\('http:\/\/localhost:' \+ PORT \+ '\/manual-edit-stash\?token=' \+ encodeURIComponent\(TOKEN\)[\s\S]{0,300}?pageUrl: location\.pathname[\s\S]{0,80}?element: extractContext\(contextElement\)[\s\S]{0,40}?ops,/,
++      /fetch\(BASE_URL \+ '\/manual-edit-stash\?token=' \+ encodeURIComponent\(TOKEN\)[\s\S]{0,300}?pageUrl: location\.pathname[\s\S]{0,80}?element: extractContext\(contextElement\)[\s\S]{0,40}?ops,/,
+       'Save should stage edits through /manual-edit-stash with element context and ops',
+     );
+     assert.match(
+@@ -1061,7 +1061,7 @@ describe('live-browser source contracts', () => {
+     const injectEnd = SOURCE.indexOf('function buildSvelteExpressionTextMap', injectStart);
+     const injectFn = SOURCE.slice(injectStart, injectEnd);
+     const jsxGateIdx = injectFn.indexOf('if (isJsxSourceFile(filePath))');
+-    const htmlFetchIdx = injectFn.indexOf("const url = 'http://localhost:'");
++    const htmlFetchIdx = injectFn.indexOf("const url = BASE_URL + '/source");
+     assert.ok(jsxGateIdx !== -1 && htmlFetchIdx > jsxGateIdx, 'JSX must return before /source fetch');
+     const jsxGate = injectFn.slice(jsxGateIdx, htmlFetchIdx);
+     assert.doesNotMatch(
+diff --git a/tests/live-reference.test.mjs b/tests/live-reference.test.mjs
+index 3e397135a798a8dff0fadc7bb705da19dcc0c01f..9c77d724270752aaa56c934fec3493428bc59a00 100644
+--- a/tests/live-reference.test.mjs
++++ b/tests/live-reference.test.mjs
+@@ -112,13 +112,13 @@ describe('live reference authoring contract', () => {
+ 
+     assert.match(
+       codexLiveMd,
+-      /sandbox_permissions: "require_escalated"/,
+-      'Codex live reference should tell agents to run live commands escalated',
++      /use the permissions available in the current environment/,
++      'Codex live reference should respect effective permissions',
+     );
+     assert.match(
+       codexLiveMd,
+-      /localhost and package-manager network access/,
+-      'Codex live reference should explain why live mode needs escalation',
++      /request additional permissions only if a required operation is actually blocked/,
++      'Codex live reference should condition permission requests on an actual block',
+     );
+     assert.doesNotMatch(
+       codexLiveMd,
+@@ -127,7 +127,7 @@ describe('live reference authoring contract', () => {
+     );
+     assert.doesNotMatch(
+       claudeLiveMd,
+-      /sandbox_permissions: "require_escalated"/,
++      /use the permissions available in the current environment/,
+       'Codex-only sandbox guidance should not appear in Claude live reference',
+     );
+   });
+diff --git a/tests/oracle/golden/live-inject-help.json b/tests/oracle/golden/live-inject-help.json
+index 66f99a5c22c9c67dfcbfe96a38c0f7c98b7e6851..793d93da169f35e72c5dda090684883d08923ef3 100644
+--- a/tests/oracle/golden/live-inject-help.json
++++ b/tests/oracle/golden/live-inject-help.json
+@@ -1,5 +1,5 @@
+ {
+-  "stdout": "Usage: impeccable live-inject [options]\n\nInsert or remove the live mode script tag in the project's HTML entry point.\nReads configuration from .impeccable/live/config.json.\n\nModes:\n  --port PORT   Insert script tag pointing at http://localhost:PORT/live.js\n  --remove      Remove the script tag (if present)\n  --check       Print whether .impeccable/live/config.json exists and its content\n\nOutput (JSON):\n  { ok, file, inserted|removed, config? }\n",
++  "stdout": "Usage: impeccable live-inject [options]\n\nInsert or remove the live mode script tag in the project's HTML entry point.\nReads configuration from .impeccable/live/config.json.\n\nModes:\n  --port PORT   Insert script tag pointing at http://localhost:PORT/live.js\n  --remove      Remove the script tag (if present)\n  --check       Print whether .impeccable/live/config.json exists and its content\n\nEnvironment:\n  IMPECCABLE_LIVE_PUBLIC_BASE_URL  Browser-facing HTTP(S) helper URL (optional)\n\nOutput (JSON):\n  { ok, file, inserted|removed, config? }\n",
+   "stderr": "",
+   "exit": 0,
+   "signal": null,
+diff --git a/tests/oracle/golden/live-server-help.json b/tests/oracle/golden/live-server-help.json
+index 1e43021abd304ea867997da91da609a7f2dc7b89..7de664579b049bfe9ec4a557c06a4edd8b499713 100644
+--- a/tests/oracle/golden/live-server-help.json
++++ b/tests/oracle/golden/live-server-help.json
+@@ -1,5 +1,5 @@
+ {
+-  "stdout": "Usage: impeccable live-server [options]\n\nStart the live variant mode server (zero dependencies).\n\nCommands:\n  (default)     Start the server (foreground)\n  stop          Stop the server and remove the injected live.js script tag\n  stop --keep-inject   Stop the server only (leave the script tag in the HTML entry)\n\nOptions:\n  --background  Start detached, print connection JSON to stdout, then exit\n  --port=PORT   Use a specific port (default: auto-detect starting at 8400)\n  --keep-inject Only with stop: skip live-inject --remove\n  --help        Show this help\n\nEndpoints:\n  /live.js             Browser script (element picker + variant cycling)\n  /detect.js           Detection overlay (backwards compatible)\n  /modern-screenshot.js Vendored modern-screenshot UMD build (lazy-loaded by live.js)\n  /annotation          POST raw image/png to stage a variant screenshot\n  /events              SSE stream (server→browser) + POST (browser→server)\n  /poll                Long-poll for agent CLI\n  /manual-edit-stash   Stage browser copy edits\n  /manual-edit-commit  Apply staged browser copy edits\n  /manual-edit-discard Discard staged browser copy edits\n  /source              Raw source file reader (no-HMR fallback)\n  /status              Durable recovery status (token-protected)\n  /health              Health check\n",
++  "stdout": "Usage: impeccable live-server [options]\n\nStart the live variant mode server (zero dependencies).\n\nCommands:\n  (default)     Start the server (foreground)\n  stop          Stop the server and remove the injected live.js script tag\n  stop --keep-inject   Stop the server only (leave the script tag in the HTML entry)\n\nOptions:\n  --background  Start detached, print connection JSON to stdout, then exit\n  --port=PORT   Use a specific port (default: auto-detect starting at 8400)\n  --keep-inject Only with stop: skip live-inject --remove\n  --help        Show this help\n\nEnvironment:\n  IMPECCABLE_LIVE_PUBLIC_BASE_URL  Browser-facing HTTP(S) helper URL (optional)\n\nEndpoints:\n  /live.js             Browser script (element picker + variant cycling)\n  /detect.js           Detection overlay (backwards compatible)\n  /modern-screenshot.js Vendored modern-screenshot UMD build (lazy-loaded by live.js)\n  /annotation          POST raw image/png to stage a variant screenshot\n  /events              SSE stream (server→browser) + POST (browser→server)\n  /poll                Long-poll for agent CLI\n  /manual-edit-stash   Stage browser copy edits\n  /manual-edit-commit  Apply staged browser copy edits\n  /manual-edit-discard Discard staged browser copy edits\n  /source              Raw source file reader (no-HMR fallback)\n  /status              Durable recovery status (token-protected)\n  /health              Health check\n",
+   "stderr": "",
+   "exit": 0,
+   "signal": null,
+diff --git a/crates/live/src/public_url.rs b/crates/live/src/public_url.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..eb15d8d9da8cc66c5009034c7ebb60f0691b16f9
+--- /dev/null
++++ b/crates/live/src/public_url.rs
+@@ -0,0 +1,33 @@
++//! The browser-facing helper address; server-side clients still use loopback.
++
++use crate::util::Env;
++
++pub const PUBLIC_BASE_URL_ENV: &str = "IMPECCABLE_LIVE_PUBLIC_BASE_URL";
++
++pub fn public_base_url(env: &Env) -> Result<Option<String>, String> {
++    let Some(raw) = env.get(PUBLIC_BASE_URL_ENV) else {
++        return Ok(None);
++    };
++    let invalid = || format!("{} must be an absolute HTTP(S) URL without userinfo, query or fragment", PUBLIC_BASE_URL_ENV);
++    if raw.is_empty() || raw.chars().any(|c| c.is_control() || c.is_whitespace() || c == '\\') {
++        return Err(invalid());
++    }
++    let url = url::Url::parse(raw).map_err(|_| invalid())?;
++    let authority = raw.split_once("://").map(|(_, rest)| rest.split('/').next().unwrap_or("")).unwrap_or("");
++    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none()
++        || authority.is_empty() || authority.contains('@') || !url.username().is_empty() || url.password().is_some()
++        || url.query().is_some() || url.fragment().is_some()
++    {
++        return Err(invalid());
++    }
++    // Adapter source uses quoted JavaScript strings as well as HTML attributes.
++    Ok(Some(url.as_str().trim_end_matches('/').replace('\'', "%27").replace('&', "%26")))
++}
++
++pub fn helper_base_url(port: i64, public: Option<&str>) -> String {
++    public.map(str::to_string).unwrap_or_else(|| format!("http://localhost:{}", port))
++}
++
++pub fn helper_origin(base: &str) -> String {
++    url::Url::parse(base).map(|url| url.origin().ascii_serialization()).unwrap_or_else(|_| base.to_string())
++}

@@ -12,6 +12,15 @@ readonly SUPERVISION_CONTRACT_VERSION=1
 readonly MANAGED_XERJ_VERSION='1.0.0-rc.87'
 readonly MANAGED_SERENA_VERSION='1.7.0'
 readonly MANAGED_UV_VERSION='0.12.23'
+readonly MANAGED_IMPECCABLE_RELEASE='gestalt-live-1'
+# Verified public assets from runtime CI run 38046014336, not local candidates.
+readonly MANAGED_IMPECCABLE_ARCHIVE_SHA256='65e619d4126e3d3fd10fc5bb7a43d332fe327dbc38e0085883d920a2ba752898'
+readonly MANAGED_IMPECCABLE_BINARY_SHA256='81fe24a7430571de1003f34fecf787bdc0acefa1be80525ccea9d4b74b5441a0'
+readonly MANAGED_IMPECCABLE_ADAPTATION_SHA256='02bde3f1ac9a16260aa0fc02c6e24b643062e75c5967b30e56a82a3195622399'
+readonly MANAGED_IMPECCABLE_URL='https://github.com/dyne/gestalt/releases/download/impeccable-gestalt-live-1/impeccable-gestalt-live-1-x86_64-unknown-linux-musl.tar.gz'
+impeccable_install_candidate=''
+impeccable_install_lock=''
+impeccable_install_process_pid=''
 serena_install_candidate=''
 serena_install_lock=''
 serena_install_process_pid=''
@@ -42,6 +51,24 @@ on_error() {
 trap 'on_error "$LINENO"' ERR
 
 cleanup() {
+  if [[ -n $impeccable_install_process_pid ]]; then
+    kill -TERM "$impeccable_install_process_pid" 2>/dev/null || true
+    wait "$impeccable_install_process_pid" 2>/dev/null || true
+  fi
+  if [[ -n $impeccable_install_candidate && -d $impeccable_install_candidate ]]; then
+    # Preserve a promoted release even if a signal arrives before the flag clears.
+    if node - "$gestalt_home/impeccable/active.json" "$impeccable_install_candidate" <<'JS'
+const fs=require('node:fs');
+try { process.exit(JSON.parse(fs.readFileSync(process.argv[2],'utf8')).releaseRoot===process.argv[3]?1:0); }
+catch(error) { process.exit(error.code==='ENOENT'?0:1); }
+JS
+    then
+      rm -rf -- "$impeccable_install_candidate"
+    fi
+  fi
+  if [[ -n $impeccable_install_lock && -d $impeccable_install_lock ]]; then
+    rmdir -- "$impeccable_install_lock" 2>/dev/null || true
+  fi
   if [[ -n $serena_install_process_pid ]]; then
     kill -TERM "$serena_install_process_pid" 2>/dev/null || true
     wait "$serena_install_process_pid" 2>/dev/null || true
@@ -103,6 +130,13 @@ Commands:
   serena doctor [--cwd ROOT] Check install, sandbox, MCP tools and optional language readiness.
   serena index --cwd ROOT    Explicit native symbol/cache warmup for one project.
   serena mcp --cwd ROOT      Confined workspace MCP; always Codex context and editing mode.
+  impeccable install [--artifact PATH|HTTPS_URL]
+                            Install the pinned Live adaptation (release unpublished).
+  impeccable update [--artifact PATH|HTTPS_URL]
+                            Revalidate and atomically replace the pinned adaptation.
+  impeccable status, doctor [--json], version, path
+                            Inspect only the managed binary; never start Live.
+  impeccable uninstall     Remove private runtime files; preserve project journals.
   xerj install              Install the checksum-verified managed xerj release.
   xerj update [VERSION]     Install an official release (default: latest).
   xerj test [--json]        Test installed XERJ in disposable storage; never real indexes.
@@ -127,6 +161,8 @@ Environment:
   GESTALT_MARKETPLACE        Marketplace source (default: dyne/gestalt-agents).
   GESTALT_MARKETPLACE_NAME   Codex checkout name (default: dyne-gestalt-agents).
   GESTALT_MOBILE_VERSION     npm version or tag (default: latest).
+  GESTALT_IMPECCABLE_ARTIFACT Pinned archive source (local absolute path or HTTPS).
+  GESTALT_IMPECCABLE_ENABLED 0 disables Live runtime availability (default: 1).
   XERJ_INSTALL_DIR           Must equal $GESTALT_HOME/xerj when set.
   XERJ_READY_TIMEOUT_MS      Overall readiness deadline (default: 5000).
 EOF
@@ -1387,6 +1423,195 @@ child.on("error",()=>process.exit(1));child.on("exit",value=>{if(!ending)code=va
   serena_install_process_pid=$!
   wait "$serena_install_process_pid"
   serena_install_process_pid=''
+}
+
+# Pin both archive and executable; a pristine upstream release is incompatible.
+impeccable_paths() {
+  gestalt_home=$(canonical_xerj_root "$gestalt_home")
+  validate_xerj_path "$gestalt_home/impeccable"
+  case ${GESTALT_IMPECCABLE_ENABLED:-1} in 0 | 1) ;; *) die 'GESTALT_IMPECCABLE_ENABLED must be 0 or 1' ;; esac
+}
+
+impeccable_inspect() {
+  require_command node
+  impeccable_paths
+  node - "$gestalt_home/impeccable" "$MANAGED_IMPECCABLE_RELEASE" "$MANAGED_IMPECCABLE_BINARY_SHA256" \
+    "$MANAGED_IMPECCABLE_ADAPTATION_SHA256" "${1:-status}" "${2:-}" "${GESTALT_IMPECCABLE_ENABLED:-1}" <<'JS'
+const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),{spawnSync}=require('node:child_process');
+const [root,release,binaryHash,adaptationHash,action,candidate,enabled]=process.argv.slice(2);
+const report={schemaVersion:1,component:'impeccable',ready:false,reason:'not-installed',distributionPublished:true,
+  release,platform:'x86_64-unknown-linux-musl',engineVersion:null,cliVersion:null,executable:null,
+  capabilities:{publicBaseUrl:false,copyAgent:null,protocol:null},integrationReady:false};
+const hash=p=>crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+function regular(p){if(!fs.lstatSync(p).isFile())throw Error('incompatible-installation');}
+function check(directory){
+  if(path.dirname(directory)!==root || !path.basename(directory).startsWith('release-'+release+'.') ||
+     !fs.lstatSync(directory).isDirectory() || fs.lstatSync(directory).isSymbolicLink())throw Error('incompatible-installation');
+  for(const name of ['impeccable','adaptation.json','LICENSE','NOTICE.md','SOURCE.md','source.patch','source.tar.gz'])regular(path.join(directory,name));
+  if(hash(path.join(directory,'adaptation.json'))!==adaptationHash || hash(path.join(directory,'impeccable'))!==binaryHash)
+    throw Error('checksum-mismatch');
+  const metadata=JSON.parse(fs.readFileSync(path.join(directory,'adaptation.json'),'utf8'));
+  if(metadata.schemaVersion!==1 || metadata.contractVersion!==1 || metadata.release!==release ||
+     metadata.platform!=='x86_64-unknown-linux-musl' || metadata.engineVersion!=='0.1.11' || metadata.cliVersion!=='4.0.0' ||
+     metadata.sourceCommit!=='b593626bffd40e404c9e8b7972628660e210dbf4' ||
+     metadata.baseCommit!=='778c8a7b71ccd5bfe3ca6ac68c15d9d872d0f87d' ||
+     metadata.publicBaseUrl!==true || metadata.copyAgent!=='chat' || metadata.protocol!=='impeccable-live-poll-v1' ||
+     metadata.license!=='Apache-2.0')throw Error('incompatible-protocol');
+  for(const name of ['impeccable','LICENSE','NOTICE.md','SOURCE.md','source.patch','source.tar.gz'])
+    if(hash(path.join(directory,name))!==metadata.files?.[name])throw Error('checksum-mismatch');
+  const executable=path.join(directory,'impeccable');
+  fs.accessSync(executable,fs.constants.X_OK);
+  const env={PATH:process.env.PATH,HOME:directory,IMPECCABLE_LIVE_COPY_AGENT:'chat'};
+  function probe(args){
+    const result=spawnSync(executable,args,{cwd:directory,env,encoding:'utf8',timeout:3000,killSignal:'SIGKILL',maxBuffer:65536});
+    if(result.status!==0 || result.error)throw Error('probe-failed');
+    return result.stdout.trim();
+  }
+  if(probe(['engine-probe'])!=='impeccable-engine 0.1.11' || probe(['--version'])!=='4.0.0')throw Error('incompatible-version');
+  if(!probe(['live-server','--help']).includes('IMPECCABLE_LIVE_PUBLIC_BASE_URL') ||
+     !probe(['live-poll','--help']).includes('--then-poll'))throw Error('incompatible-protocol');
+  return {schemaVersion:1,contractVersion:1,release,releaseRoot:directory,executable,
+    platform:metadata.platform,engineVersion:metadata.engineVersion,cliVersion:metadata.cliVersion,
+    binarySha256:binaryHash,adaptationSha256:adaptationHash,sourceCommit:metadata.sourceCommit};
+}
+try {
+  if(enabled==='0' && action!=='candidate'){
+    report.reason='disabled';
+    if(action==='valid' || action==='path' || action==='version')process.exit(1);
+    console.log(JSON.stringify(report));process.exit(action==='doctor'?1:0);
+  }
+  if(action==='candidate'){
+    const descriptor=check(candidate);
+    fs.writeFileSync(path.join(candidate,'active.json'),JSON.stringify(descriptor)+'\n',{mode:0o600,flag:'wx'});
+    process.exit(0);
+  }
+  const active=path.join(root,'active.json');
+  regular(active);
+  const descriptor=JSON.parse(fs.readFileSync(active,'utf8'));
+  const verified=check(descriptor.releaseRoot);
+  if(Object.keys(verified).some(key=>descriptor[key]!==verified[key]))throw Error('incompatible-installation');
+  Object.assign(report,{ready:enabled==='1',reason:enabled==='1'?'ready':'disabled',executable:verified.executable,
+    engineVersion:verified.engineVersion,cliVersion:verified.cliVersion,
+    capabilities:{publicBaseUrl:true,copyAgent:'chat',protocol:'impeccable-live-poll-v1'}});
+}catch(error){
+  const reasons=['checksum-mismatch','incompatible-version','incompatible-protocol','incompatible-installation','probe-failed'];
+  report.reason=error.code==='ENOENT'?'not-installed':reasons.includes(error.message)?error.message:'invalid-installation';
+  if(enabled==='0')report.reason='disabled';
+  if(action==='candidate'){console.error('gestalt: incompatible Impeccable candidate; prior release preserved');process.exit(1);}
+}
+if(action==='valid')process.exit(report.ready?0:1);
+if(action==='path' || action==='version'){
+  if(!report.ready)process.exit(1);
+  console.log(action==='path'?report.executable:report.cliVersion);process.exit(0);
+}
+console.log(JSON.stringify(report));
+if(action==='doctor')process.exit(report.ready?0:1);
+JS
+}
+
+install_impeccable() {
+  local artifact=${1:-${GESTALT_IMPECCABLE_ARTIFACT:-}} os cpu candidate actual name listing
+  require_command node
+  require_command tar
+  require_command mktemp
+  impeccable_paths
+  [[ ${GESTALT_IMPECCABLE_ENABLED:-1} == 1 ]] || die 'Impeccable runtime is disabled'
+  os=$(uname -s); cpu=$(uname -m)
+  [[ $os == Linux && ( $cpu == x86_64 || $cpu == amd64 ) ]] ||
+    die 'managed Impeccable currently supports Linux x86_64 only'
+  artifact=${artifact:-$MANAGED_IMPECCABLE_URL}
+  [[ $MANAGED_IMPECCABLE_ARCHIVE_SHA256 =~ ^[a-f0-9]{64}$ &&
+     $MANAGED_IMPECCABLE_BINARY_SHA256 =~ ^[a-f0-9]{64}$ &&
+     $MANAGED_IMPECCABLE_ADAPTATION_SHA256 =~ ^[a-f0-9]{64}$ ]] ||
+    die 'CI-produced Impeccable distribution has not been verified; installer pin bootstrap is required'
+  umask 077
+  mkdir -p -- "$gestalt_home/impeccable"
+  mkdir -- "$gestalt_home/impeccable/.install-lock" 2>/dev/null || die 'Impeccable install/uninstall already running'
+  impeccable_install_lock=$gestalt_home/impeccable/.install-lock
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  impeccable_install_candidate=$(mktemp -d "$gestalt_home/impeccable/release-$MANAGED_IMPECCABLE_RELEASE.XXXXXXXX")
+  candidate=$impeccable_install_candidate
+  case $artifact in
+    /*) [[ -f $artifact ]] || die 'Impeccable archive is unavailable'; cp -- "$artifact" "$candidate/archive.tar.gz" ;;
+    https://*)
+      require_command curl
+      node - "$artifact" <<'JS'
+try {
+  const url=new URL(process.argv[2]);
+  if(url.protocol!=='https:' || !url.hostname || url.username || url.password || url.search || url.hash)process.exit(1);
+} catch { process.exit(1); }
+JS
+      curl -q --fail --location --silent --show-error --proto '=https' --proto-redir '=https' \
+        --connect-timeout 20 --max-time 120 "$artifact" --output "$candidate/archive.tar.gz" &
+      impeccable_install_process_pid=$!
+      wait "$impeccable_install_process_pid"
+      impeccable_install_process_pid='' ;;
+    *) die 'Impeccable artifact must be an absolute file path or credential-free HTTPS URL' ;;
+  esac
+  actual=$(calculate_sha256 "$candidate/archive.tar.gz"); actual=${actual%% *}
+  [[ $actual == "$MANAGED_IMPECCABLE_ARCHIVE_SHA256" ]] || die 'Impeccable archive checksum mismatch; prior release preserved'
+  unset TAR_OPTIONS GZIP
+  # Extract only pinned regular members; never let archive paths choose destinations.
+  for name in LICENSE NOTICE.md SOURCE.md adaptation.json impeccable source.patch source.tar.gz; do
+    listing=$(tar -tvzf "$candidate/archive.tar.gz" "$name")
+    [[ $listing == -* && $listing != *$'\n'* ]] || die 'Impeccable archive member must be one regular file'
+    tar -xOzf "$candidate/archive.tar.gz" "$name" > "$candidate/$name"
+    chmod 0444 "$candidate/$name"
+  done
+  chmod 0555 "$candidate/impeccable"
+  rm -- "$candidate/archive.tar.gz"
+  impeccable_inspect candidate "$candidate"
+  mv -f -- "$candidate/active.json" "$gestalt_home/impeccable/active.json"
+  impeccable_install_candidate=''
+  log 'activated pinned Impeccable Live adaptation; prior releases retained'
+}
+
+command_impeccable() {
+  local action=${1:-status} artifact=${GESTALT_IMPECCABLE_ARTIFACT:-}
+  if (($#)); then shift; fi
+  case $action in
+    install | update)
+      if (($#)); then [[ $# == 2 && $1 == --artifact && -n $2 ]] || die 'usage: gestalt impeccable install|update [--artifact PATH|HTTPS_URL]'; artifact=$2; fi
+      if [[ $action == install ]] && impeccable_inspect valid; then
+        log 'Impeccable already installed and validated'
+      else
+        install_impeccable "$artifact"
+      fi ;;
+    status | doctor)
+      [[ $# == 0 || ( $# == 1 && $1 == --json ) ]] || die 'usage: gestalt impeccable status|doctor [--json]'
+      impeccable_inspect "$action" ;;
+    version | path)
+      (($# == 0)) || die 'usage: gestalt impeccable version|path'
+      impeccable_inspect "$action" ;;
+    uninstall)
+      (($# == 0)) || die 'usage: gestalt impeccable uninstall'
+      impeccable_paths
+      [[ -d $gestalt_home/impeccable ]] || return 0
+      mkdir -- "$gestalt_home/impeccable/.install-lock" 2>/dev/null || die 'Impeccable install/uninstall already running'
+      impeccable_install_lock=$gestalt_home/impeccable/.install-lock
+      rm -f -- "$gestalt_home/impeccable/active.json"
+      # Never inspect or remove an app's .impeccable/live journal or kill processes.
+      find "$gestalt_home/impeccable" -mindepth 1 -maxdepth 1 ! -name .install-lock -exec rm -rf -- {} +
+      rmdir -- "$impeccable_install_lock" "$gestalt_home/impeccable"
+      impeccable_install_lock='' ;;
+    *) die 'usage: gestalt impeccable install|update|status|doctor|version|path|uninstall' ;;
+  esac
+}
+
+install_optional_impeccable() {
+  impeccable_paths
+  if [[ ${GESTALT_IMPECCABLE_ENABLED:-1} == 0 ]]; then
+    log 'Impeccable runtime disabled'
+  elif [[ $(uname -s) != Linux || ! $(uname -m) =~ ^(x86_64|amd64)$ ]]; then
+    log 'Live runtime unavailable on this platform; managed Impeccable supports Linux x86_64 only'
+  elif [[ -n ${GESTALT_IMPECCABLE_ARTIFACT:-} ]]; then
+    command_impeccable install
+  elif impeccable_inspect valid; then
+    log 'pinned Impeccable runtime already available'
+  else
+    command_impeccable install
+  fi
 }
 
 install_serena() {
@@ -2827,6 +3052,7 @@ command_install() {
   parse_setup_options "$@"
   run_marketplace_setup install "$include_extra_skills"
   install_mobile
+  install_optional_impeccable
   log "installation complete; run 'gestalt doctor', then 'gestalt cli' or 'gestalt mobile'"
 }
 
@@ -2835,6 +3061,7 @@ command_update() {
   update_manager
   run_marketplace_setup upgrade "$include_extra_skills"
   install_mobile
+  install_optional_impeccable
   log 'manager, Agents, and Mobile are up to date'
 }
 
@@ -4005,6 +4232,7 @@ main() {
     mobile) command_mobile "$@" ;;
     xerj) command_xerj "$@" ;;
     serena) command_serena "$@" ;;
+    impeccable) command_impeccable "$@" ;;
     path) command_path "$@" ;;
     skills-export) command_skills_export "$@" ;;
     skills-import) command_skills_import "$@" ;;

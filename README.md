@@ -10,14 +10,14 @@ npm test
 npm run build
 ```
 
-The managed Impeccable Live adaptation initially supports Linux x86_64. Its
-compatible CI-built distribution is **not verified or published yet**; the manager
-does not substitute a local candidate, unpatched upstream release or executable
-found on `PATH`. Installer trust anchors remain unset until actual CI-produced
-bytes have been downloaded and verified. After that bootstrap, a verified CI
-archive can also be installed without network access:
+The managed Impeccable Live adaptation initially supports Linux x86_64. The
+manager downloads the verified [CI-built prerelease](https://github.com/dyne/gestalt/releases/tag/impeccable-gestalt-live-1)
+by default during shared setup or `gestalt impeccable install`. The archive,
+binary and adaptation manifest hashes are pinned from runtime CI run 38046014336.
+A matching downloaded archive can also be installed without network access:
 
 ```sh
+gestalt impeccable install
 gestalt impeccable install --artifact /absolute/path/impeccable-gestalt-live-1-x86_64-unknown-linux-musl.tar.gz
 gestalt impeccable status
 gestalt impeccable doctor --json
@@ -34,14 +34,20 @@ Prior releases remain available to existing owners. No project hooks, first-run
 downloads, global installs or sudo are involved.
 
 `GESTALT_IMPECCABLE_ARTIFACT` supplies the same pinned archive to `gestalt install`
-and `gestalt update`; a credential-free HTTPS URL is also accepted. Until the
-distribution is published, shared setup reports Live unavailable when no artifact
-is supplied. Supplying an artifact while trust anchors are unset fails explicitly.
-The proposed official release is `dyne/gestalt`, tag
-`impeccable-gestalt-live-1`, with the archive above and its `.sha256` sidecar.
-That locator is a publication proposal, not an existing download. Local historical
-candidate bytes are not publishable. A default URL requires verified CI artifacts,
-authorized trusted publication and bootstrap of all three exact SHA256 anchors.
+and `gestalt update`; a credential-free HTTPS URL is also accepted. Without an
+override, shared setup uses the published pinned release. Set
+`GESTALT_IMPECCABLE_ENABLED=0` to disable installation and report the runtime
+disabled. Download and verification failures preserve the previous runtime;
+the manager never substitutes a local candidate, unpatched upstream release or
+executable found on `PATH`. `gestalt impeccable uninstall` removes private
+runtime files and preserves project Live journals.
+
+`gestalt impeccable doctor --json` reports `ready`, `reason`, native versions and
+public-URL/chat-copy/poll-protocol capabilities. Each identity/help probe has a
+three-second timeout; doctor never starts Live or prints probe output, tokens or
+environment values. Disabled health skips execution entirely. A ready runtime
+still reports `integrationReady: false`: Caddy, DNS, authorization and the running
+app have separate readiness gates.
 
 `.github/workflows/impeccable-runtime.yml` reconstructs the accepted adaptation
 from a pinned public upstream base plus the checksum-verified patch under

@@ -13,11 +13,11 @@ readonly MANAGED_XERJ_VERSION='1.0.0-rc.87'
 readonly MANAGED_SERENA_VERSION='1.7.0'
 readonly MANAGED_UV_VERSION='0.12.23'
 readonly MANAGED_IMPECCABLE_RELEASE='gestalt-live-1'
-# Bootstrap only from downloaded, verified CI release bytes. Historical local
-# candidate hashes are deliberately not production trust anchors.
-readonly MANAGED_IMPECCABLE_ARCHIVE_SHA256=''
-readonly MANAGED_IMPECCABLE_BINARY_SHA256=''
-readonly MANAGED_IMPECCABLE_ADAPTATION_SHA256=''
+# Verified public assets from runtime CI run 38046014336, not local candidates.
+readonly MANAGED_IMPECCABLE_ARCHIVE_SHA256='65e619d4126e3d3fd10fc5bb7a43d332fe327dbc38e0085883d920a2ba752898'
+readonly MANAGED_IMPECCABLE_BINARY_SHA256='81fe24a7430571de1003f34fecf787bdc0acefa1be80525ccea9d4b74b5441a0'
+readonly MANAGED_IMPECCABLE_ADAPTATION_SHA256='02bde3f1ac9a16260aa0fc02c6e24b643062e75c5967b30e56a82a3195622399'
+readonly MANAGED_IMPECCABLE_URL='https://github.com/dyne/gestalt/releases/download/impeccable-gestalt-live-1/impeccable-gestalt-live-1-x86_64-unknown-linux-musl.tar.gz'
 impeccable_install_candidate=''
 impeccable_install_lock=''
 impeccable_install_process_pid=''
@@ -1425,7 +1425,6 @@ child.on("error",()=>process.exit(1));child.on("exit",value=>{if(!ending)code=va
   serena_install_process_pid=''
 }
 
-# A default locator is deliberately absent until this exact adaptation is published.
 # Pin both archive and executable; a pristine upstream release is incompatible.
 impeccable_paths() {
   gestalt_home=$(canonical_xerj_root "$gestalt_home")
@@ -1440,7 +1439,7 @@ impeccable_inspect() {
     "$MANAGED_IMPECCABLE_ADAPTATION_SHA256" "${1:-status}" "${2:-}" "${GESTALT_IMPECCABLE_ENABLED:-1}" <<'JS'
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),{spawnSync}=require('node:child_process');
 const [root,release,binaryHash,adaptationHash,action,candidate,enabled]=process.argv.slice(2);
-const report={schemaVersion:1,component:'impeccable',ready:false,reason:'not-installed',distributionPublished:false,
+const report={schemaVersion:1,component:'impeccable',ready:false,reason:'not-installed',distributionPublished:true,
   release,platform:'x86_64-unknown-linux-musl',engineVersion:null,cliVersion:null,executable:null,
   capabilities:{publicBaseUrl:false,copyAgent:null,protocol:null},integrationReady:false};
 const hash=p=>crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
@@ -1464,7 +1463,7 @@ function check(directory){
   fs.accessSync(executable,fs.constants.X_OK);
   const env={PATH:process.env.PATH,HOME:directory,IMPECCABLE_LIVE_COPY_AGENT:'chat'};
   function probe(args){
-    const result=spawnSync(executable,args,{cwd:directory,env,encoding:'utf8',timeout:3000,maxBuffer:65536});
+    const result=spawnSync(executable,args,{cwd:directory,env,encoding:'utf8',timeout:3000,killSignal:'SIGKILL',maxBuffer:65536});
     if(result.status!==0 || result.error)throw Error('probe-failed');
     return result.stdout.trim();
   }
@@ -1476,6 +1475,11 @@ function check(directory){
     binarySha256:binaryHash,adaptationSha256:adaptationHash,sourceCommit:metadata.sourceCommit};
 }
 try {
+  if(enabled==='0' && action!=='candidate'){
+    report.reason='disabled';
+    if(action==='valid' || action==='path' || action==='version')process.exit(1);
+    console.log(JSON.stringify(report));process.exit(action==='doctor'?1:0);
+  }
   if(action==='candidate'){
     const descriptor=check(candidate);
     fs.writeFileSync(path.join(candidate,'active.json'),JSON.stringify(descriptor)+'\n',{mode:0o600,flag:'wx'});
@@ -1515,7 +1519,7 @@ install_impeccable() {
   os=$(uname -s); cpu=$(uname -m)
   [[ $os == Linux && ( $cpu == x86_64 || $cpu == amd64 ) ]] ||
     die 'managed Impeccable currently supports Linux x86_64 only'
-  [[ -n $artifact ]] || die 'compatible Impeccable distribution unpublished; provide the pinned archive with --artifact'
+  artifact=${artifact:-$MANAGED_IMPECCABLE_URL}
   [[ $MANAGED_IMPECCABLE_ARCHIVE_SHA256 =~ ^[a-f0-9]{64}$ &&
      $MANAGED_IMPECCABLE_BINARY_SHA256 =~ ^[a-f0-9]{64}$ &&
      $MANAGED_IMPECCABLE_ADAPTATION_SHA256 =~ ^[a-f0-9]{64}$ ]] ||
@@ -1604,7 +1608,7 @@ install_optional_impeccable() {
   elif impeccable_inspect valid; then
     log 'pinned Impeccable runtime already available'
   else
-    log 'Live runtime unavailable: compatible distribution unpublished; gestalt impeccable install --artifact PATH'
+    command_impeccable install
   fi
 }
 

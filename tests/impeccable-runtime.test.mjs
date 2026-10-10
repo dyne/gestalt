@@ -33,9 +33,16 @@ async function fixture(t, { probeFailure = false } = {}) {
   await mkdir(join(project, '.impeccable/live'), { recursive: true });
   await writeFile(join(project, '.impeccable/live/journal.json'), 'preserved project journal');
   const executable = `#!/usr/bin/env node
+const fs=require('node:fs');
+let control={};try{control=JSON.parse(fs.readFileSync(${JSON.stringify(join(root, 'probe-control.json'))},'utf8'));}catch{}
+if(control.mode==='hang'){
+  fs.writeFileSync(${JSON.stringify(join(root, 'probe-pid'))},String(process.pid));
+  process.on('SIGTERM',()=>{});setInterval(()=>{},1000);
+}else if(control.mode==='failed'){console.error(control.secret);process.exit(9);}
+else
 if(process.argv[2]==='engine-probe'){${probeFailure ? 'process.exit(1);' : "console.log('impeccable-engine 0.1.11');"}}
 else if(process.argv[2]==='--version')console.log('4.0.0');
-else if(process.argv[2]==='live-server' && process.argv[3]==='--help')console.log('IMPECCABLE_LIVE_PUBLIC_BASE_URL');
+else if(process.argv[2]==='live-server' && process.argv[3]==='--help')console.log(control.mode==='protocol'?'incompatible':'IMPECCABLE_LIVE_PUBLIC_BASE_URL');
 else if(process.argv[2]==='live-poll' && process.argv[3]==='--help')console.log('--then-poll');
 else process.exit(99);
 `;
@@ -66,6 +73,7 @@ else process.exit(99);
   // A random PATH binary and sudo must never participate in installation.
   for (const name of ['impeccable', 'sudo']) await writeFile(join(bin, name),
     `#!/bin/sh\nprintf forbidden > ${quote(join(root, name + '-called'))}\nexit 99\n`, { mode: 0o755 });
+  await writeFile(join(bin, 'curl'), `#!/bin/sh\nprintf '%s\\n' "$@" > ${quote(join(root, 'curl-args'))}\nfor destination do :; done\ncp ${quote(archive)} "$destination"\n`, { mode: 0o755 });
   return { root, home, managed, project, packageRoot, bin, manager, archive,
     env: { ...process.env, HOME: home, GESTALT_HOME: managed, CODEX_HOME: join(home, 'codex'),
       GESTALT_IMPECCABLE_ENABLED: '1', GESTALT_IMPECCABLE_ARTIFACT: '', PATH: bin + ':' + process.env.PATH } };
@@ -83,7 +91,7 @@ test('pinned local install is private, idempotent, handles spaces and never uses
   const status = await run(f, ['status']);
   assert.equal(status.code, 0);
   assert.equal(JSON.parse(status.stdout).ready, true);
-  assert.equal(JSON.parse(status.stdout).distributionPublished, false);
+  assert.equal(JSON.parse(status.stdout).distributionPublished, true);
   assert.equal((await run(f, ['install', '--artifact', '/missing/archive'])).code, 0);
   assert.equal(await readFile(active, 'utf8'), before);
   assert.equal((await readdir(join(f.managed, 'impeccable'))).filter(n => n.startsWith('release-')).length, 1);
@@ -173,23 +181,28 @@ test('signal after atomic promotion preserves the newly active release', async t
   assert.equal((await readdir(join(f.managed, 'impeccable'))).length, 3);
 });
 
-test('unsupported platform and unavailable default fail clearly without allocating state', async t => {
+test('default install downloads the published pinned HTTPS release', async t => {
   const f = await fixture(t);
-  const missing = await run(f, ['install']);
-  assert.notEqual(missing.code, 0); assert.match(missing.stderr, /distribution unpublished/);
+  assert.equal((await run(f, ['install'])).code, 0);
+  assert.match(await readFile(join(f.root, 'curl-args'), 'utf8'), /https:\/\/github.com\/dyne\/gestalt\/releases\/download\/impeccable-gestalt-live-1\//);
+  assert.equal(JSON.parse((await run(f, ['doctor', '--json'])).stdout).ready, true);
+});
+
+test('unsupported platform fails clearly without allocating state', async t => {
+  const f = await fixture(t);
   await writeFile(join(f.bin, 'uname'), '#!/bin/sh\nif [ "$1" = -s ]; then echo Linux; else echo aarch64; fi\n', { mode: 0o755 });
   const unsupported = await run(f, ['install', '--artifact', f.archive]);
   assert.notEqual(unsupported.code, 0); assert.match(unsupported.stderr, /Linux x86_64 only/);
   await assert.rejects(readdir(f.managed), { code: 'ENOENT' });
 });
 
-test('production installer cannot substitute historical local bytes for unverified CI pins', async t => {
-  const f = await fixture(t), manager = join(f.root, 'unbootstrapped-manager');
+test('production installer rejects bytes that differ from the published CI release', async t => {
+  const f = await fixture(t), manager = join(f.root, 'production-manager');
   await writeFile(manager, source);
   const denied = await run({ ...f, manager }, ['install', '--artifact', f.archive]);
   assert.notEqual(denied.code, 0);
-  assert.match(denied.stderr, /CI-produced Impeccable distribution has not been verified/);
-  await assert.rejects(readdir(f.managed), { code: 'ENOENT' });
+  assert.match(denied.stderr, /archive checksum mismatch/);
+  await assert.rejects(readFile(join(f.managed, 'impeccable/active.json')), { code: 'ENOENT' });
 });
 
 test('uninstall touches private component state only and missing status never uses PATH', async t => {
@@ -202,4 +215,52 @@ test('uninstall touches private component state only and missing status never us
   assert.equal((await run(f, ['uninstall'])).code, 0);
   assert.equal(await readFile(join(f.project, '.impeccable/live/journal.json'), 'utf8'), 'preserved project journal');
   await assert.rejects(readFile(join(f.root, 'impeccable-called')), { code: 'ENOENT' });
+});
+
+test('doctor reports absent, incompatible and failed runtime without exposing probe output or altering journals', async t => {
+  const f = await fixture(t), secret = 'private-runtime-health-secret';
+  const check = async (reason, ready = false) => {
+    const result = await run(f, ['doctor', '--json'], { PRIVATE_HEALTH_SECRET: secret });
+    const report = JSON.parse(result.stdout);
+    assert.equal(result.code, ready ? 0 : 1);
+    assert.equal(report.reason, reason); assert.equal(report.ready, ready);
+    assert.equal(report.integrationReady, false);
+    assert.ok(!(result.stdout + result.stderr).includes(secret));
+    return report;
+  };
+  await check('not-installed');
+  assert.equal((await run(f, ['install'])).code, 0);
+  const ready = await check('ready', true);
+  assert.deepEqual(ready.capabilities, { publicBaseUrl: true, copyAgent: 'chat', protocol: 'impeccable-live-poll-v1' });
+  await writeFile(join(f.root, 'probe-control.json'), JSON.stringify({ mode: 'protocol' }));
+  await check('incompatible-protocol');
+  await writeFile(join(f.root, 'probe-control.json'), JSON.stringify({ mode: 'failed', secret }));
+  await check('probe-failed');
+  const descriptor = JSON.parse(await readFile(join(f.managed, 'impeccable/active.json'), 'utf8'));
+  await chmod(descriptor.releaseRoot, 0o700); await rm(descriptor.executable);
+  await check('not-installed');
+  assert.equal(await readFile(join(f.project, '.impeccable/live/journal.json'), 'utf8'), 'preserved project journal');
+});
+
+test('disabled doctor does not execute an installed runtime and uninstall returns absent health', async t => {
+  const f = await fixture(t);
+  assert.equal((await run(f, ['install'])).code, 0);
+  await writeFile(join(f.root, 'probe-control.json'), JSON.stringify({ mode: 'hang' }));
+  const result = await run(f, ['doctor', '--json'], { GESTALT_IMPECCABLE_ENABLED: '0' });
+  assert.equal(result.code, 1); assert.equal(JSON.parse(result.stdout).reason, 'disabled');
+  await assert.rejects(readFile(join(f.root, 'probe-pid')), { code: 'ENOENT' });
+  assert.equal((await run(f, ['uninstall'])).code, 0);
+  const absent = await run(f, ['doctor', '--json']);
+  assert.equal(absent.code, 1); assert.equal(JSON.parse(absent.stdout).reason, 'not-installed');
+});
+
+test('doctor kills a probe that ignores SIGTERM within its bounded timeout', async t => {
+  const f = await fixture(t);
+  assert.equal((await run(f, ['install'])).code, 0);
+  await writeFile(join(f.root, 'probe-control.json'), JSON.stringify({ mode: 'hang' }));
+  const started = Date.now(), result = await run(f, ['doctor', '--json']);
+  assert.equal(result.code, 1); assert.equal(JSON.parse(result.stdout).reason, 'probe-failed');
+  assert.ok(Date.now() - started < 8000, 'probe timeout did not bound doctor execution');
+  const pid = Number(await readFile(join(f.root, 'probe-pid'), 'utf8'));
+  assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
 });

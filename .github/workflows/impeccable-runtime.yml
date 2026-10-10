@@ -56,6 +56,26 @@ jobs:
           bun install --frozen-lockfile
           node node_modules/playwright/cli.js install --with-deps chromium
           echo "CHROME_PATH=$(node --input-type=module -e 'import {chromium} from "playwright"; console.log(chromium.executablePath())')" >> "$GITHUB_ENV"
+      # Same native-sandbox prerequisites as manager checks, on this runner too.
+      - name: Enable native sandbox on the disposable GitHub runner
+        if: runner.os == 'Linux' && runner.environment == 'github-hosted'
+        run: |
+          set -Eeuo pipefail
+          current_userns=$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)
+          if [[ -n $current_userns && $current_userns != 1 ]]; then
+            sudo sysctl -w kernel.unprivileged_userns_clone=1
+          fi
+          current_apparmor=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)
+          if [[ -n $current_apparmor && $current_apparmor != 0 ]]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      - name: Sandboxed Chromium preflight
+        run: |
+          set -Eeuo pipefail
+          timeout --signal=TERM --kill-after=5s 30s "$CHROME_PATH" \
+            --headless --disable-gpu --dump-dom 'data:text/html,<p>sandbox-ready</p>' \
+            > "$RUNNER_TEMP/chromium-preflight.html"
+          grep -Fq 'sandbox-ready' "$RUNNER_TEMP/chromium-preflight.html"
       - name: Build native and static musl engines
         working-directory: ${{ runner.temp }}/impeccable-source
         env:

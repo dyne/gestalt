@@ -1,0 +1,94 @@
+name: Live trusted host policy proof (no deployment)
+on:
+  push:
+    branches: ['test/live-host-policy-l9']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  manager:
+    uses: ./.github/workflows/manager-tests.yml
+    permissions:
+      contents: read
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.21.0
+          cache: npm
+      - run: npm ci
+      - name: Read-only accepted Mobile launcher input
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: dyne/gestalt-mobile
+          ref: 2facdae77f2b807798aa02a5d63a12d9161aebc6
+          path: .host-mobile-input
+          persist-credentials: false
+      - name: Prepare checksum-pinned native and Caddy test binaries
+        run: |
+          set -Eeuo pipefail
+          tool_root="$RUNNER_TEMP/live-policy-tools"
+          mkdir -p "$tool_root"
+          install -m0755 public/gestalt "$tool_root/gestalt"
+          npm install --prefix "$tool_root" --no-save --ignore-scripts @openai/codex@0.161.0
+          native_binary="$tool_root/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex"
+          printf '%s  %s\n' 9a820c17865fa825d04db416818679a9d63bd72e50835c396f496e5684626c9c "$native_binary" | sha256sum --check --status
+          curl --fail --silent --show-error --location \
+            https://github.com/caddyserver/caddy/releases/download/v2.11.7/caddy_2.11.7_linux_amd64.tar.gz \
+            --output "$tool_root/caddy.tar.gz"
+          printf '%s  %s\n' \
+            a7a433a1b133efc3c8d10eb0b99d52a24b5ef5c322dc77f5282182b1c0402139ab83f3a99f0c52409df77d20123fb0b523edad8a66d8f5e49136197bf61ef0e7 \
+            "$tool_root/caddy.tar.gz" | sha512sum --check --status
+          tar -xzf "$tool_root/caddy.tar.gz" -C "$tool_root" caddy
+          test "$(git -C .host-mobile-input rev-parse HEAD)" = 2facdae77f2b807798aa02a5d63a12d9161aebc6
+          ./node_modules/.bin/esbuild .host-mobile-input/src/server/platform/codex/codex-process-launcher.ts \
+            --bundle --platform=node --format=esm --target=node24 --outfile="$tool_root/mobile-launcher.mjs" \
+            --metafile="$tool_root/mobile-inputs.json"
+          node --input-type=module - "$tool_root/mobile-inputs.json" <<'NODE'
+          import {readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          const expected={
+            '.host-mobile-input/src/server/platform/codex/json-rpc-client.ts':'e87f911cff7ea8714dcdf689d616109e98c70d9191c15cf9f52dda2e835f62f0',
+            '.host-mobile-input/src/server/platform/catalog/profile-command.ts':'8c6e8906ca7107722eceba172f9ab9028bc69d14a37959b910d7e53d76be4ed3',
+            '.host-mobile-input/src/server/platform/codex/codex-process-launcher.ts':'e7920168cccdaec66ade038e6251948e71e71792478752ff524f6320a4b2e261'
+          };
+          const inputs=Object.keys(JSON.parse(readFileSync(process.argv[2])).inputs).sort();
+          if(JSON.stringify(inputs)!==JSON.stringify(Object.keys(expected).sort()))throw Error('Mobile bundle input inventory changed');
+          for(const [path,sha] of Object.entries(expected))if(createHash('sha256').update(readFileSync(path)).digest('hex')!==sha)throw Error('Mobile input differs from accepted source');
+          NODE
+          {
+            echo "LIVE_HOST_MANAGER_BINARY=$tool_root/gestalt"
+            echo "LIVE_HOST_CODEX_BINARY=$native_binary"
+            echo "LIVE_HOST_MOBILE_MODULE=$tool_root/mobile-launcher.mjs"
+            echo "LIVE_HOST_CADDY_BINARY=$tool_root/caddy"
+          } >> "$GITHUB_ENV"
+      - name: Existing native sandbox prerequisites on disposable hosted runner
+        if: runner.os == 'Linux' && runner.environment == 'github-hosted'
+        run: |
+          set -Eeuo pipefail
+          current_userns=$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)
+          if [[ -n $current_userns && $current_userns != 1 ]]; then
+            sudo sysctl -w kernel.unprivileged_userns_clone=1
+          fi
+          current_apparmor=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)
+          if [[ -n $current_apparmor && $current_apparmor != 0 ]]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      - name: Actual host Mobile, native helper and descendant confinement
+        run: |
+          set -Eeuo pipefail
+          mkdir -p test-results/live-host-policy
+          node scripts/live-host-policy-native-proof.mjs 2>&1 | tee test-results/live-host-policy/proof.log
+          git diff --check
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: live-host-policy-native-results
+          path: test-results/live-host-policy
+          if-no-files-found: ignore
+          retention-days: 30

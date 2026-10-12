@@ -139,6 +139,10 @@ Commands:
   impeccable uninstall     Remove private runtime files; preserve project journals.
   caddy doctor [--json] --mobile-origin URL --preview-host HOST --ports FIRST-LAST
                             Read-only bootstrap checks; optional --admin unix//PATH.
+  live-policy probe|prepare|verify --manifest ABS
+                            Private host policy contract; never starts Live.
+  live-policy run --manifest ABS --command ID --launch-id UUID
+                            Controller-only admitted native subprocess dispatch.
   xerj install              Install the checksum-verified managed xerj release.
   xerj update [VERSION]     Install an official release (default: latest).
   xerj test [--json]        Test installed XERJ in disposable storage; never real indexes.
@@ -2418,6 +2422,409 @@ for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => { void clos
 NODE
 }
 
+command_live_policy() {
+  # Private controller API: policy and admitted native dispatch, never Live Start.
+  GESTALT_LIVE_MANAGER_SOURCE="${BASH_SOURCE[0]}" exec node --input-type=module - "$@" 3<&0 <<'LIVE_POLICY'
+import {constants, readFileSync, realpathSync, lstatSync, statSync, readlinkSync, openSync, closeSync, writeFileSync, renameSync, unlinkSync, mkdirSync, rmdirSync, existsSync, readdirSync} from 'node:fs';
+import {createHash, createHmac, timingSafeEqual} from 'node:crypto';
+import {spawn, spawnSync} from 'node:child_process';
+import {Socket} from 'node:net';
+import {isAbsolute, dirname, join, relative, resolve} from 'node:path';
+import {pathToFileURL, fileURLToPath} from 'node:url';
+
+// This program is controller-side only. No environment variable bypasses checks.
+const VERSION = 1;
+const managerSource = realpathSync(process.env.GESTALT_LIVE_MANAGER_SOURCE);
+const fail = reason => { throw Object.assign(Error(reason), {reason}); };
+const digest = value => createHash('sha256').update(value).digest('hex');
+const stable = value => JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item)
+  ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
+const inside = (root, path) => {
+  const child = relative(root,path);
+  return child !== '..' && !child.startsWith('../') && !isAbsolute(child);
+};
+const exactKeys = (value, keys, optional = []) => value && typeof value === 'object' && !Array.isArray(value)
+  && keys.every(key => Object.hasOwn(value,key))
+  && Object.keys(value).every(key => keys.includes(key) || optional.includes(key));
+function canonical(path) {
+  if (typeof path !== 'string' || !isAbsolute(path) || path.includes('\0')) fail('invalid-path');
+  const result = realpathSync(path);
+  if (resolve(path) !== result) fail('symlink-path');
+  return result;
+}
+function trusted(path, directory = false) {
+  path = canonical(path);
+  const info = lstatSync(path);
+  if (info.uid !== process.getuid() || (info.mode & 0o077) || (directory ? !info.isDirectory() : !info.isFile())) fail('untrusted-storage');
+  // A private child in a project-writable parent can be replaced or renamed.
+  for (let parent = dirname(path); parent !== '/'; parent = dirname(parent)) {
+    const info = lstatSync(parent);
+    if (info.mode & 0o022 && !(info.mode & 0o1000)) fail('untrusted-storage');
+  }
+  return path;
+}
+function readPrivate(path) {
+  trusted(path);
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try { return readFileSync(fd); } finally { closeSync(fd); }
+}
+function identity(pid) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) fail('invalid-process');
+  try {
+    const raw = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const fields = raw.slice(raw.lastIndexOf(')') + 2).split(' ');
+    if (fields[0] === 'Z') fail('stale-process');
+    const uid = Number(readFileSync(`/proc/${pid}/status`, 'utf8').match(/^Uid:\s+(\d+)/m)?.[1]);
+    return {pid, birth:fields[19], uid, namespaces:Object.fromEntries(['mnt','user','pid'].map(key => [key,readlinkSync(`/proc/${pid}/ns/${key}`)]))};
+  } catch (error) {
+    if (error.code === 'ENOENT') fail('stale-process');
+    throw error;
+  }
+}
+function host(controller) {
+  if (!exactKeys(controller,['pid','birth','uid','namespaces']) || !exactKeys(controller.namespaces,['mnt','user','pid'])) fail('invalid-controller');
+  if (process.platform !== 'linux' || !process.getuid) fail('unsupported-host');
+  const current = identity(process.pid);
+  if (stable(identity(controller.pid)) !== stable(controller)) fail('stale-controller');
+  if (controller.uid !== current.uid || stable(controller.namespaces) !== stable(current.namespaces)) fail('unsupported-host-namespace');
+  // Native 0.161 intentionally masks this directory in tool sandboxes. Never repair it.
+  const daemon = `/tmp/codex-daemon-${process.getuid()}`;
+  const info = lstatSync(daemon);
+  if (!info.isDirectory() || info.uid !== current.uid || (info.mode & 0o777) !== 0o700 || realpathSync(daemon) !== daemon) fail('host-launch-unavailable');
+}
+function grantPath(entry) {
+  const p = entry?.path;
+  if (!exactKeys(entry,['path','access']) || !['read','write','deny'].includes(entry.access)) fail('incompatible-profile');
+  if (p?.type === 'path' && exactKeys(p,['type','path'])) {
+    // Paths are native absolute paths at this pinned seam, not remote PathUri values.
+    return canonical(p.path);
+  }
+  if (p?.type === 'glob_pattern' && exactKeys(p,['type','pattern']) && entry.access === 'deny' && typeof p.pattern === 'string') return null;
+  if (p?.type !== 'special' || !exactKeys(p,['type','value']) || !exactKeys(p.value,['kind'])) fail('incompatible-profile');
+  const kind = p.value.kind;
+  if (kind === 'root') return '/';
+  if (kind === 'minimal' && entry.access !== 'write') return null;
+  // Relative project_roots/tmpdir depend on the producer's config/environment.
+  // Require those to be materialized by the trusted producer before dispatch.
+  if (kind === 'slash_tmp') return '/tmp';
+  fail('incompatible-profile');
+}
+function ownedNativeMetadata(path,context) {
+  if (!context || !exactKeys(context,['process','placeholders']) || stable(identity(context.process.pid)) !== stable(context.process)) return false;
+  const info=lstatSync(path);
+  if (!info.isDirectory() || info.uid!==process.getuid() || (info.mode&0o022) || readdirSync(path).length) return false;
+  const pin={dev:info.dev,ino:info.ino,uid:info.uid,mode:info.mode,birthtime:info.birthtimeMs,ctime:info.ctimeMs};
+  if (context.placeholders[path] && stable(context.placeholders[path])!==stable(pin)) return false;
+  context.placeholders[path]=pin;return true;
+}
+function contract(manifestPath, versionProbe = true, nativeMetadata) {
+  manifestPath = trusted(manifestPath);
+  const root = trusted(dirname(manifestPath),true);
+  const bytes = readPrivate(manifestPath);
+  if (bytes.length > 262144) fail('invalid-manifest');
+  const m = JSON.parse(bytes);
+  if (!exactKeys(m,['schemaVersion','profileId','appRoot','controller','binary','sandboxState','configFiles','components','privatePaths','keyFile','runtimeHome','environment'],['commands']) || m.schemaVersion !== VERSION) fail('incompatible-manifest');
+  if (typeof m.profileId !== 'string' || !m.profileId.trim()) fail('missing-profile');
+  const app = canonical(m.appRoot);
+  if (!statSync(app).isDirectory() || inside(app,root) || inside(root,app)) fail('untrusted-storage');
+  host(m.controller);
+  const state = m.sandboxState;
+  if (!exactKeys(state,['permissionProfile','sandboxCwd','useLegacyLandlock'],['codexLinuxSandboxExe','useMxc']) || state.useLegacyLandlock !== false || state.useMxc === true || state.codexLinuxSandboxExe != null) fail('incompatible-profile');
+  const profile = state.permissionProfile;
+  if (!exactKeys(profile,['type','file_system','network']) || profile.type !== 'managed' || profile.network !== 'restricted'
+    || !exactKeys(profile.file_system,['type','entries']) || profile.file_system.type !== 'restricted' || !Array.isArray(profile.file_system.entries) || !profile.file_system.entries.length) fail('incompatible-profile');
+  if (fileURLToPath(state.sandboxCwd) !== app || realpathSync(fileURLToPath(state.sandboxCwd)) !== app) fail('workspace-mismatch');
+  const entries = profile.file_system.entries;
+  const paths = entries.map(entry => grantPath(entry));
+  // Restrict v1 to local, native, restricted-network state; unsupported states are not downgraded.
+  const writeRoots = paths.filter((path,i) => path && entries[i].access === 'write');
+  if (writeRoots.some(path => inside(path,root))) fail('project-writable-policy');
+  const managerInfo=statSync(managerSource);
+  if (!managerInfo.isFile() || (managerInfo.mode & 0o022) || writeRoots.some(path=>inside(path,managerSource))) fail('untrusted-manager');
+  const managerBytes=readFileSync(managerSource);
+  const managerVersion=managerBytes.toString().match(/^readonly GESTALT_CLI_VERSION='([^']+)'$/m)?.[1];
+  if (!managerVersion) fail('incompatible-manager');
+  const binary = m.binary;
+  if (!exactKeys(binary,['path','version','sha256']) || binary.version !== '0.161.0' || !/^[a-f0-9]{64}$/.test(binary.sha256)) fail('incompatible-binary');
+  const bin = canonical(binary.path), info = statSync(bin);
+  if (!info.isFile() || !(info.mode & 0o111) || (info.mode & 0o022) || writeRoots.some(path => inside(path,bin))) fail('untrusted-binary');
+  if (digest(readFileSync(bin)) !== binary.sha256) fail('binary-changed');
+  const runtimeHome = trusted(m.runtimeHome,true);
+  if (!inside(root,runtimeHome)) fail('untrusted-storage');
+  // No hooks, MCP, plugins, project trust or credential file is accepted in the sandbox CLI home.
+  const config = join(runtimeHome,'config.toml');
+  if (readPrivate(config).toString() !== '[shell_environment_policy]\ninherit = "none"\n') fail('unsafe-runtime-config');
+  for (const name of ['auth.json','AGENTS.md','hooks.json','hooks','plugins','skills','.codex']) {
+    try { lstatSync(join(runtimeHome,name));fail('unsafe-runtime-home'); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
+  for (let ancestor = app;; ancestor = dirname(ancestor)) {
+    try { const metadata=join(ancestor,'.codex');lstatSync(metadata);
+      if (ancestor!==app || !ownedNativeMetadata(metadata,nativeMetadata)) throw Object.assign(Error('project-config-present'),{reason:'project-config-present',metadataRole:ancestor===app?'app-root':'ancestor'}); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    if (ancestor === '/') break;
+  }
+  if (!Array.isArray(m.configFiles) || !m.configFiles.length) fail('missing-config');
+  const configs = m.configFiles.map(item => {
+    if (!exactKeys(item,['path','sha256']) || !/^[a-f0-9]{64}$/.test(item.sha256)) fail('invalid-config');
+    const path = trusted(item.path);
+    if (writeRoots.some(root => inside(root,path)) || digest(readPrivate(path)) !== item.sha256) fail('config-changed');
+    return {path,sha256:item.sha256};
+  });
+  if (!configs.some(item=>item.path===config)) fail('missing-config');
+  // System config must be absent in v1; prepared user config replaces ambient CODEX_HOME.
+  for (const path of ['/etc/codex/config.toml','/etc/codex/managed_config.toml','/etc/codex/requirements.toml']) {
+    try { lstatSync(path); fail('unsupported-system-config'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
+  if (!exactKeys(m.components,['manager','mobile','agents']) || Object.values(m.components).some(value=>typeof value !== 'string' || !value)) fail('missing-components');
+  if (!exactKeys(m.privatePaths,['auth','controller','caddy','daemon']) || Object.values(m.privatePaths).some(paths=>!Array.isArray(paths)||!paths.length)) fail('missing-private-paths');
+  const privatePaths = [...new Set([root,'/proc',...Object.values(m.privatePaths).flat()].map(canonical))].sort();
+  if (!m.privatePaths.controller.includes(root) || !m.privatePaths.daemon.includes(`/tmp/codex-daemon-${process.getuid()}`)) fail('missing-private-paths');
+  if (privatePaths.some(path=>inside(path,app))) fail('private-app-overlap');
+  const composed = structuredClone(state);
+  // Native masks freeze a denied directory before masking its children.
+  // Emit covering roots once and remove covered entries, including grants that
+  // would otherwise override parent denial by most-specific precedence.
+  const denyPaths=privatePaths.filter(path=>!privatePaths.some(parent=>parent!==path&&statSync(parent).isDirectory()&&inside(parent,path)));
+  composed.permissionProfile.file_system.entries=entries.filter((entry,index)=>!paths[index]||!denyPaths.some(root=>inside(root,paths[index])))
+    .map(entry=>structuredClone(entry)).concat(denyPaths.map(path=>({path:{type:'path',path},access:'deny'})));
+  const keyFile = trusted(m.keyFile);
+  if (!inside(root,keyFile) || readPrivate(keyFile).length !== 32) fail('invalid-key');
+  if (!exactKeys(m.environment,['PATH','HOME','TMPDIR']) || m.environment.HOME !== runtimeHome || m.environment.TMPDIR !== '/tmp' || m.environment.PATH !== '/usr/bin:/bin') fail('unsafe-environment');
+  const env = {...m.environment,CODEX_HOME:runtimeHome,LANG:'C.UTF-8'};
+  if (versionProbe) {
+    const version = spawnSync(bin,['--version'],{encoding:'utf8',timeout:5000,maxBuffer:1024,env,cwd:root,stdio:['ignore','pipe','ignore']});
+    if (version.status !== 0 || version.stdout.trim() !== `codex-cli ${binary.version}`) fail('incompatible-binary');
+  }
+  const commands = m.commands ?? {};
+  if (!commands || typeof commands !== 'object' || Array.isArray(commands)) fail('invalid-commands');
+  for (const [id,command] of Object.entries(commands)) {
+    if (!/^[a-z][a-z0-9-]{0,63}$/.test(id) || !exactKeys(command,['executable','sha256','args','timeoutMs'])
+        || !Array.isArray(command.args) || command.args.some(arg=>typeof arg !== 'string' || arg.includes('\0'))
+        || !Number.isSafeInteger(command.timeoutMs) || command.timeoutMs < 1 || command.timeoutMs > 86400000) fail('invalid-commands');
+    const path=canonical(command.executable),info=statSync(path);
+    if (!info.isFile() || !(info.mode & 0o111) || (info.mode & 0o022) || writeRoots.some(root=>inside(root,path))
+        || !/^[a-f0-9]{64}$/.test(command.sha256) || digest(readFileSync(path)) !== command.sha256) fail('command-changed');
+  }
+  const bridgeHelpers=Object.fromEntries([['shell','/usr/bin/bash'],['consumer','/usr/bin/cat']].map(([role,helper])=>{
+    const path=canonical(helper),info=statSync(path);
+    if(!info.isFile()||!(info.mode&0o111)||(info.mode&0o022)||writeRoots.some(root=>inside(root,path)))fail('untrusted-stdio-bridge');
+    return [role,{path,sha256:digest(readFileSync(path))}];
+  }));
+  // Native network seccomp denies getsockname; Node socket stdio then becomes
+  // silent empty/black-hole streams. Bash creates real FIFO stdin/stdout/stderr.
+  const stdioBridge={...bridgeHelpers,script:'exec "$@" < <(exec /usr/bin/cat) > >(exec /usr/bin/cat) 2> >(exec /usr/bin/cat >&2)'};
+  const body = {schemaVersion:VERSION,kind:'policy-contract',profileId:m.profileId,manifestDigest:digest(bytes),
+    bootId:readFileSync('/proc/sys/kernel/random/boot_id','utf8').trim(),
+    policyDigest:digest(stable(composed)),configDigest:digest(stable(configs)),binary,components:m.components,
+    manager:{path:managerSource,version:managerVersion,sha256:digest(managerBytes)},
+    app:{path:app,dev:statSync(app).dev,ino:statSync(app).ino},controller:m.controller,sandboxState:composed,commands,
+    launch:{executable:bin,args:['sandbox','--sandbox-state-json',JSON.stringify(composed),'--'],cwd:root,env,
+      stdio:['posix-pipe','posix-pipe','posix-pipe'],stdioBridge,lifetime:'per-call',extraFileDescriptors:false,credentials:false}};
+  return {root,keyFile,body};
+}
+function receipt(body,keyFile) { return {body,mac:createHmac('sha256',readPrivate(keyFile)).update(stable(body)).digest('hex')}; }
+function writeReceipt(path, body, keyFile) {
+  const temporary = `${path}.${process.pid}.tmp`;
+  try { writeFileSync(temporary,JSON.stringify(receipt(body,keyFile))+'\n',{mode:0o600,flag:'wx'}); renameSync(temporary,path); }
+  finally { try { unlinkSync(temporary); } catch (error) { if (error.code !== 'ENOENT') throw error; } }
+}
+function authenticated(path,keyFile) {
+  const saved=JSON.parse(readPrivate(path));
+  if (!exactKeys(saved,['body','mac']) || !saved.body || typeof saved.body !== 'object' || !/^[a-f0-9]{64}$/.test(saved.mac)) fail('tampered-receipt');
+  const expected=receipt(saved.body,keyFile);
+  if (!timingSafeEqual(Buffer.from(saved.mac,'hex'),Buffer.from(expected.mac,'hex'))) fail('tampered-receipt');
+  return saved.body;
+}
+const launchIdValid = id => typeof id === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(id);
+function control(manifestPath,id) {
+  if (!launchIdValid(id)) fail('invalid-launch-id');
+  const root=trusted(dirname(trusted(manifestPath)),true),m=JSON.parse(readPrivate(manifestPath));
+  const keyFile=trusted(m.keyFile);
+  if (!inside(root,keyFile) || readPrivate(keyFile).length !== 32) fail('invalid-key');
+  return {root,keyFile,path:join(root,`process-${id}.json`)};
+}
+function currentPolicy(manifestPath,versionProbe = true,nativeMetadata) {
+  const value=contract(manifestPath,versionProbe,nativeMetadata);
+  if (stable(authenticated(join(value.root,'policy-receipt.json'),value.keyFile)) !== stable(value.body)) fail('stale-receipt');
+  return value;
+}
+async function supervise(manifestPath,commandId,id,parent) {
+  const {root,keyFile,body}=currentPolicy(manifestPath),command=body.commands[commandId];
+  if (!command) fail('unadmitted-command');
+  const path=join(root,`process-${id}.json`),lock=join(root,'dispatch.lock');
+  const authorization=authenticated(path,keyFile);
+  if (authorization.kind !== 'authorized-launch' || authorization.launchId !== id || authorization.commandId !== commandId
+      || stable(authorization.parent) !== stable(parent) || authorization.contractDigest !== digest(stable(body))) fail('stale-receipt');
+  const guardian=new Socket({fd:4,readable:true,writable:false});
+  let child,record,failure,phase='native-spawn',ending=false,leaderExited=false,nativeClosed=false,timer,monitor,finish;
+  const completed=new Promise(resolveExit=>{finish=resolveExit;});
+  const signalOwned = signal => {
+    if (!child?.pid) return;
+    try {
+      if (record) {
+        try { if (stable(identity(child.pid)) !== stable(record.process)) return; }
+        catch (error) { if (error.reason !== 'stale-process' || !leaderExited) throw error; }
+      }
+      // After our observed leader exit, the owned group can still contain descendants.
+      process.kill(-child.pid,signal);
+    } catch (error) { if (error.code !== 'ESRCH' && error.reason !== 'stale-process') throw error; }
+  };
+  const stop = (reason,code=1) => {
+    if (ending) return;
+    ending=true;clearTimeout(timer);clearInterval(monitor);
+    try { signalOwned('SIGTERM'); } catch {}
+    setTimeout(async()=>{
+      try { signalOwned('SIGKILL'); } catch {}
+      for (let attempt=0; child && !nativeClosed && attempt<40; attempt++) await new Promise(done=>setTimeout(done,50));
+      const clean=!child || nativeClosed;
+      if(clean&&record?.nativeMetadata){for(const [metadata,pin] of Object.entries(record.nativeMetadata.placeholders)){try{const info=lstatSync(metadata);
+        if(metadata===join(body.app.path,'.codex')&&info.isDirectory()&&stable({dev:info.dev,ino:info.ino,uid:info.uid,mode:info.mode,birthtime:info.birthtimeMs,ctime:info.ctimeMs})===stable(pin)&&!readdirSync(metadata).length)rmdirSync(metadata);
+        }catch{}}}
+      if (record) {
+        record={...record,status:clean?'exited':'cleanup-required',termination:reason,...(failure?{failure}: {})};
+        try { writeReceipt(path,record,keyFile); } catch {}
+      }
+      if (clean) { try { rmdirSync(lock); } catch {} }
+      finish(clean?code:1);
+    },750);
+  };
+  guardian.resume();guardian.on('end',()=>stop('owner-eof'));guardian.on('error',()=>stop('owner-eof'));
+  process.on('SIGTERM',()=>stop('stop'));process.on('SIGINT',()=>stop('stop'));
+  try {
+    child=spawn(body.launch.stdioBridge.shell.path,['--noprofile','--norc','-c',body.launch.stdioBridge.script,'gestalt-native-stdio',body.launch.executable,...body.launch.args,command.executable,...command.args],
+      {cwd:body.launch.cwd,env:body.launch.env,detached:true,stdio:[3,'inherit','inherit']});
+    child.on('error',error=>{failure={phase:'native-spawn',code:['ENOENT','EACCES','EPERM'].includes(error.code)?error.code:'SPAWN_ERROR'};stop('launch-failed');});
+    child.on('exit',code=>{leaderExited=true;stop('leader-exit',code??1);});
+    child.on('close',()=>{nativeClosed=true;});
+    await new Promise((resolveSpawn,reject)=>{child.once('spawn',resolveSpawn);child.once('error',reject);});
+    if (ending) throw Error('owner exited');
+    phase='native-identity';
+    record={schemaVersion:VERSION,kind:'process-launch',launchId:id,status:'running',commandId,
+      contractDigest:digest(stable(body)),policy:body,parent,owner:identity(process.pid),process:identity(child.pid),processGroup:child.pid};
+    record.nativeMetadata={process:record.process,placeholders:{}};
+    phase='receipt-write';writeReceipt(path,record,keyFile);
+    phase='post-spawn-contract';
+    // Receipt publication never replaces post-spawn validation.
+    const priorMetadata=stable(record.nativeMetadata);
+    if (stable(currentPolicy(manifestPath,true,record.nativeMetadata).body) !== stable(body)) stop('policy-changed');
+    if(priorMetadata!==stable(record.nativeMetadata))writeReceipt(path,record,keyFile);
+    timer=setTimeout(()=>stop('timeout'),command.timeoutMs);
+    monitor=setInterval(()=>{
+      if (ending) return;
+      try { const prior=stable(record.nativeMetadata);if (stable(currentPolicy(manifestPath,false,record.nativeMetadata).body) !== stable(body)) stop('policy-changed');
+        else if(prior!==stable(record.nativeMetadata))writeReceipt(path,record,keyFile); }
+      catch(error) { failure={phase:'lifetime-contract',reason:error.reason,metadataRole:error.metadataRole};stop('policy-changed'); }
+    },500);
+  } catch(error) { failure={phase,reason:error.reason,metadataRole:error.metadataRole,code:['ENOENT','EACCES','EPERM'].includes(error.code)?error.code:undefined,errorClass:['TypeError','ReferenceError','SyntaxError'].includes(error.name)?error.name:undefined};stop('launch-failed'); }
+  const code=await completed;
+  guardian.destroy();process.exit(code);
+}
+async function run(manifestPath,commandId,id) {
+  if (!launchIdValid(id)) fail('invalid-launch-id');
+  let value=currentPolicy(manifestPath);
+  if (!Object.hasOwn(value.body.commands,commandId)) fail('unadmitted-command');
+  const lock=join(value.root,'dispatch.lock'),path=join(value.root,`process-${id}.json`),parent=identity(process.pid);
+  try { mkdirSync(lock,{mode:0o700}); } catch (error) { if (error.code === 'EEXIST') fail('active-launch'); throw error; }
+  let child;
+  try {
+    // Hold the dispatch lock before revalidation and use a never-reused launch id.
+    value=currentPolicy(manifestPath);
+    if (existsSync(path)) fail('reused-launch-id');
+    writeReceipt(path,{schemaVersion:VERSION,kind:'authorized-launch',launchId:id,commandId,parent,contractDigest:digest(stable(value.body))},value.keyFile);
+    const imports=`import {constants,readFileSync,realpathSync,lstatSync,statSync,readlinkSync,openSync,closeSync,writeFileSync,renameSync,unlinkSync,mkdirSync,rmdirSync,existsSync,readdirSync} from 'node:fs';
+import {createHash,createHmac,timingSafeEqual} from 'node:crypto';
+import {spawn,spawnSync} from 'node:child_process';
+import {Socket} from 'node:net';
+import {isAbsolute,dirname,join,relative,resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';\n`;
+    const helpers={fail,digest,stable,inside,exactKeys,launchIdValid};
+    const source=imports+`const VERSION=${VERSION};\nconst managerSource=${JSON.stringify(managerSource)};\n`+Object.entries(helpers).map(([name,fn])=>`const ${name}=${fn.toString()};`).join('\n')
+      +'\n'+[canonical,trusted,readPrivate,identity,host,grantPath,ownedNativeMetadata,contract,receipt,writeReceipt,authenticated,currentPolicy,supervise].map(fn=>fn.toString()).join('\n')
+      +`\ntry { await supervise(${JSON.stringify(manifestPath)},${JSON.stringify(commandId)},${JSON.stringify(id)},${JSON.stringify(parent)}); }
+catch { console.error(JSON.stringify({schemaVersion:1,available:false,reason:'launch-failed'}));process.exitCode=1; }`;
+    child=spawn(process.execPath,['--input-type=module','-'],{cwd:value.root,env:value.body.launch.env,stdio:['pipe','inherit','inherit','pipe','pipe']});
+    child.stdin.end(source);
+    const input=new Socket({fd:3,readable:true,writable:false});input.pipe(child.stdio[3]);
+    child.stdin.on('error',()=>{});child.stdio[3].on('error',()=>{});child.stdio[4].on('error',()=>{});input.on('error',()=>child.stdio[4].end());
+    // FD4 is a private lifetime pipe; only fd3 is remapped to project stdin.
+    const signal=()=>child.stdio[4].end();
+    process.on('SIGTERM',signal);process.on('SIGINT',signal);
+    child.once('exit',()=>{input.destroy();child.stdio[3].destroy();child.stdio[4].destroy();});
+    const code=await new Promise((resolveExit,reject)=>{child.once('error',reject);child.once('close',resolveExit);});
+    process.off('SIGTERM',signal);process.off('SIGINT',signal);input.destroy();
+    // Reconcile an unexpected supervisor exit against the authenticated launch identity.
+    try {
+      const active=authenticated(path,value.keyFile);
+      if (active.kind === 'process-launch' && active.status === 'running' && stable(identity(active.process.pid)) === stable(active.process)) {
+        process.kill(-active.processGroup,'SIGTERM');await new Promise(resolveWait=>setTimeout(resolveWait,750));
+        try { if (stable(identity(active.process.pid)) === stable(active.process)) process.kill(-active.processGroup,'SIGKILL'); } catch {}
+        let gone=false;
+        for (let attempt=0; attempt<40; attempt++) {
+          try { if (stable(identity(active.process.pid)) !== stable(active.process)) {gone=true;break;} }
+          catch (error) { if (error.reason === 'stale-process') {gone=true;break;} }
+          await new Promise(done=>setTimeout(done,50));
+        }
+        writeReceipt(path,{...active,status:gone?'exited':'cleanup-required',termination:'supervisor-exit'},value.keyFile);
+      }
+    } catch {}
+    return code??1;
+  } finally {
+    if (child?.exitCode === null && child?.signalCode === null) child.stdio[4].end();
+    try {
+      const saved=authenticated(path,value.keyFile);
+      if (saved.kind === 'authorized-launch' || saved.status === 'exited') rmdirSync(lock);
+    } catch {}
+  }
+}
+
+const args = process.argv.slice(2);
+let reason = 'invalid-arguments';
+try {
+  if (args[0] === 'run') {
+    if (args.length !== 7 || args[1] !== '--manifest' || args[3] !== '--command' || args[5] !== '--launch-id') fail(reason);
+    process.exitCode=await run(args[2],args[4],args[6]);
+  } else if (['verify-process','stop'].includes(args[0])) {
+    if (args.length !== 5 || args[1] !== '--manifest' || args[3] !== '--launch-id') fail(reason);
+    const {keyFile,path}=control(args[2],args[4]),saved=authenticated(path,keyFile);
+    if (saved.kind !== 'process-launch' || saved.launchId !== args[4] || saved.status !== 'running'
+        || saved.policy?.bootId !== readFileSync('/proc/sys/kernel/random/boot_id','utf8').trim()) fail('stale-process');
+    if (stable(identity(saved.owner.pid)) !== stable(saved.owner) || stable(identity(saved.process.pid)) !== stable(saved.process)) fail('stale-process');
+    if (args[0] === 'stop') process.kill(saved.owner.pid,'SIGTERM');
+    else {
+      if (stable(identity(saved.parent.pid)) !== stable(saved.parent)) fail('stale-process');
+      if (saved.contractDigest !== digest(stable(currentPolicy(args[2],true,saved.nativeMetadata).body))) fail('stale-receipt');
+    }
+    console.log(JSON.stringify({schemaVersion:VERSION,available:true,liveReady:false,reason:args[0] === 'stop'?'stop-requested':'process-verified',launchId:args[4]}));
+  } else {
+  if (args.length !== 3 || !['probe','prepare','verify'].includes(args[0]) || args[1] !== '--manifest') fail(reason);
+  if(args[0]==='prepare'&&existsSync(join(dirname(trusted(args[2])),'dispatch.lock')))fail('active-launch');
+  const {root,keyFile,body} = contract(args[2]);
+  const receiptPath = join(root,'policy-receipt.json');
+  if (args[0] === 'prepare') {
+    if (existsSync(join(root,'dispatch.lock'))) fail('active-launch');
+    const temporary = join(root,`.policy-${process.pid}.tmp`);
+    try { writeFileSync(temporary,JSON.stringify(receipt(body,keyFile))+'\n',{mode:0o600,flag:'wx'}); renameSync(temporary,receiptPath); }
+    finally { try { unlinkSync(temporary); } catch (error) { if (error.code !== 'ENOENT') throw error; } }
+  }
+  if (args[0] === 'verify') {
+    const saved = JSON.parse(readPrivate(receiptPath));
+    if (!exactKeys(saved,['body','mac']) || !saved.body || typeof saved.body !== 'object' || !/^[a-f0-9]{64}$/.test(saved.mac)) fail('tampered-receipt');
+    const expected = receipt(saved.body,keyFile);
+    if (!timingSafeEqual(Buffer.from(saved.mac,'hex'),Buffer.from(expected.mac,'hex'))) fail('tampered-receipt');
+    if (stable(saved.body) !== stable(body)) fail('stale-receipt');
+  }
+  console.log(JSON.stringify({schemaVersion:VERSION,available:true,liveReady:false,reason:'policy-contract-verified',
+    contractVersion:VERSION,nativeVersion:body.binary.version,policyDigest:body.policyDigest,configDigest:body.configDigest,
+    ...(args[0] === 'probe' ? {} : {receipt:receiptPath})}));
+  }
+} catch (error) {
+  reason = error.reason ?? (error.code === 'ENOENT' ? 'missing-prerequisite' : 'invalid-contract');
+  console.log(JSON.stringify({schemaVersion:VERSION,available:false,liveReady:false,reason}));
+  process.exitCode = 1;
+}
+LIVE_POLICY
+}
+
 command_xerj() {
   case ${1:-} in
     probe | ensure-ready | status | stop | __backend)
@@ -4382,6 +4789,7 @@ main() {
     serena) command_serena "$@" ;;
     impeccable) command_impeccable "$@" ;;
     caddy) command_caddy "$@" ;;
+    live-policy) command_live_policy "$@" ;;
     path) command_path "$@" ;;
     skills-export) command_skills_export "$@" ;;
     skills-import) command_skills_import "$@" ;;

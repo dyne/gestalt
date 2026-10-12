@@ -245,3 +245,245 @@ References: Caddy's [import rules](https://caddyserver.com/docs/caddyfile/direct
 [adapt/validate/reload commands](https://caddyserver.com/docs/command-line),
 [API persistence](https://caddyserver.com/docs/api) and
 [service workflows](https://caddyserver.com/docs/running).
+
+
+## Trusted host policy contract (version 1)
+
+`gestalt live-policy probe|prepare|verify --manifest ABS` is a private,
+controller-side interface for L10 packaged tools and L11 production admission.
+It does not enable Start or grant browser/project/agent access to host RPC.
+Normal `gestalt cli`, Mobile, Serena and existing doctor behavior is unchanged.
+All three operations emit one bounded JSON object. Exit 0 means the policy
+contract verified; exit 1 means unavailable. `schemaVersion` and
+`contractVersion` are 1, `nativeVersion` is `0.161.0`, and `liveReady` is always
+false. Success includes `policyDigest` and `configDigest`; preparation and
+verification also return the private receipt path. Failure includes only
+`schemaVersion`, `available:false`, `liveReady:false` and a fixed `reason`.
+No config, credentials, command output or exception text is printed.
+
+The trusted host-started Mobile controller builds the manifest from its current
+resolved native state and trusted bootstrap configuration, not from browser,
+project, MCP tool arguments or a sandbox metadata claim. The manifest is JSON,
+mode 0600, in an owner-only 0700 directory outside every original writable
+root. Its ancestors must be canonical and protected against replacement.
+The controller's native policy must also protect this directory before accepting
+untrusted work. A same-UID file mode is not an enforcement boundary: L9 host
+proof and L11 admission must establish actual native denial. No command here
+installs a service, edits user configuration or repairs a daemon directory.
+
+The exact manifest fields are:
+
+| Field | Version 1 input |
+| --- | --- |
+| `schemaVersion`, `profileId` | `1`, nonempty trusted resolved profile identity |
+| `appRoot` | Existing canonical absolute app directory, without symlink aliases |
+| `controller` | `{pid,birth,uid,namespaces:{mnt,user,pid}}`; birth is Linux `/proc/PID/stat` field 22, namespaces are `/proc/PID/ns/NAME` link values |
+| `binary` | `{path,version:"0.161.0",sha256}`; canonical executable, outside writable roots, hash of installed binary bytes |
+| `sandboxState` | Actual native `codex/sandbox-state-meta` shape: `permissionProfile`, `sandboxCwd`, `useLegacyLandlock:false`; optional `useMxc:false` and `codexLinuxSandboxExe:null` |
+| `configFiles` | Nonempty `[{path,sha256}]` inventory of trusted effective configuration bytes, including prepared `runtimeHome/config.toml`; all private, canonical and outside writable roots |
+| `components` | `{manager,mobile,agents}` with exact component versions/tree pins; changes invalidate previous receipts |
+| `privatePaths` | `{auth:[ABS],controller:[ABS],caddy:[ABS],daemon:[ABS]}`; existing canonical protected paths, with private manifest directory in controller paths and `/tmp/codex-daemon-EUID` in daemon paths |
+| `keyFile` | Private canonical file of exactly 32 random bytes below manifest directory; never forwarded |
+| `runtimeHome` | Owner-only canonical directory below manifest directory |
+| `environment` | Exactly `{PATH:"/usr/bin:/bin",HOME:runtimeHome,TMPDIR:"/tmp"}` |
+
+V1 supports only managed restricted filesystem and restricted network state.
+Filesystem entries use the pinned native shape
+`{path:{type:"path",path:ABS},access:"read"|"write"|"deny"}`. Native special
+root, minimal (read/deny only) and slash_tmp entries are accepted;
+context-dependent project_roots and tmpdir entries must first be materialized
+to absolute paths by the trusted producer; deny-only glob_pattern entries are retained.
+Other states or special paths are explicitly incompatible, with no downgrade
+or escalation. `sandboxCwd` is a native file URL resolving to `appRoot`.
+Named profiles are resolved by the trusted owning runtime before preparing this
+manifest; the manager never re-resolves a profile through ambient user config.
+Missing profile, binary, protected path or config fails closed.
+
+Composition preserves entries outside protected paths and adds covering deny
+roots for private paths, the policy directory and `/proc`. Entries covered by
+those roots are removed, including descendant grants that native most-specific
+precedence could otherwise reopen. Redundant child denies are omitted because
+native directory masks become read-only before child masks are constructed.
+Every declared private category remains covered by a deny root.
+It never adds readable roots, writable roots, enabled networking or credentials.
+The running manager source is also measured: its canonical path, actual CLI
+version and SHA256 bind receipts to the installed implementation. A manager
+inside an original writable root is unavailable; replacing its bytes or version
+invalidates receipts and triggers the worker monitor.
+Private app overlap and initially project-writable policy/binary/config are
+rejected. Symlink aliases, stale controller birth, mismatched UID/namespaces,
+unknown schema fields and changed binary/config hashes are rejected.
+
+The isolated `runtimeHome/config.toml` contains exactly:
+
+```toml
+[shell_environment_policy]
+inherit = "none"
+```
+
+Project `.codex` directories anywhere in app ancestry and system Codex config
+or requirements are unsupported in v1, with an explicit unavailable reason.
+Existing ordinary non-Live workflows remain usable. This deliberately bounded
+prepared config prevents hooks, plugin/MCP config and ambient shell policy from
+being evaluated as launch authority. The trusted controller must inventory the
+owning runtime's effective configuration separately; this sandbox CLI home is
+not a replacement owning-session or model configuration.
+
+`probe` validates paths, hashes, controller identity, directory namespace and
+pinned binary `--version` under the isolated environment. It only diagnoses
+contract compatibility, starts no project process and writes no receipt. A
+masked mode000 native daemon directory yields `host-launch-unavailable`;
+missing prerequisites yield `missing-prerequisite`. On a fresh host, the trusted
+owning runtime may first run a bounded stock native `/usr/bin/true` using its
+trusted named profile: native sandbox construction creates and validates the
+reserved daemon root. The manager probe itself never creates it. Do not chmod the mask,
+disable the sandbox, detach from an agent sandbox or use a second controller.
+
+`prepare` atomically writes `policy-receipt.json` (0600) below the manifest
+directory. It contains `{body,mac}`. `mac` is hex HMAC-SHA256 of recursively
+key-sorted JSON `body` using `keyFile`. Body has `schemaVersion:1`,
+`kind:"policy-contract"`, profile/manifest/policy/config digests, Linux `bootId`, exact binary
+and component identities, app `{path,dev,ino}`, controller birth/namespace/UID,
+the composed `sandboxState`, and `launch`. Launch specifies pinned executable,
+`["sandbox","--sandbox-state-json",JSON.stringify(state),"--"]`, private cwd,
+minimal environment plus `CODEX_HOME:runtimeHome` and `LANG:"C.UTF-8"`,
+`stdio:["posix-pipe","posix-pipe","posix-pipe"]`, `lifetime:"per-call"`,
+`extraFileDescriptors:false` and `credentials:false`.
+
+`verify` authenticates that private receipt and recomputes every input.
+Tampered content/key/MAC, controller restart, app inode replacement, profile,
+permissions, config, private-path set, binary or component changes invalidate it.
+The receipt is a **policy contract**, not evidence that a subprocess is confined.
+L9.2 must issue process-bound launch evidence with actual leader PID/birth,
+UID/namespaces and policy/config/component digest, verify it before reuse, and
+reap only owned process groups/descendants. L10/L11 may never admit an existing
+process by policy receipt, executable name or PID alone. Per-call workers end
+before returning; any policy/config change cancels and reaps owned workers
+before a new contract can be used. Persistent-worker reuse is unsupported by v1.
+
+The L9.2 launcher consumes the private verified contract in the same trusted
+host process, revalidates immediately before launch, passes no inherited extra
+FDs or ambient environment, and appends only the admitted tool/helper command
+and fixed arguments from trusted package/bootstrap configuration. This API is
+never an arbitrary-command/credentials forwarding endpoint. Its native host
+proof must exercise descendants, private sockets/files, proc/FD aliases and
+permission narrowing. L10 separately authenticates package/config admission;
+L11 combines these receipts with owning-session authority. Policy diagnosis
+alone never implies Live readiness.
+
+Focused offline tests use a stand-in binary and an isolated observation of host
+daemon/config ancestry; they validate contracts, precedence and refusal paths.
+They are not native confinement evidence. Actual pinned-host enforcement,
+owned cleanup and full manager gates remain required in L9.2.
+
+### Confined dispatch and process receipts
+
+The optional private manifest `commands` record enables explicit dispatch.
+Each key is a lowercase command ID matching `[a-z][a-z0-9-]{0,63}`; each value
+is exactly `{executable,sha256,args,timeoutMs}`. Executable is a canonical,
+non-writable, checksum-pinned file outside every original writable root; args
+is a fixed array of strings without NUL. Timeout is an integer from 1 to
+86400000 milliseconds. Package/config admission remains L10's responsibility;
+an interpreter or helper's project input is untrusted even when its executable
+is admitted. No command, argv, environment or credentials are taken from a
+browser or generic controller RPC request.
+
+The exact dispatch interface is:
+
+```text
+gestalt live-policy run --manifest ABS --command ID --launch-id UUID
+gestalt live-policy verify-process --manifest ABS --launch-id UUID
+gestalt live-policy stop --manifest ABS --launch-id UUID
+```
+
+UUID is a canonical lowercase random UUIDv4, supplied by the trusted caller and
+never reused. `run` verifies the current signed policy receipt, holds one
+private `dispatch.lock`, revalidates after acquiring it, and starts the pinned
+native `sandbox --sandbox-state-json ... -- ADMITTED_EXECUTABLE FIXED_ARGS`.
+It forwards only the caller's project stdin and the confined child's stdout/
+stderr. Its controller environment is reconstructed; no ambient variables,
+credential files, extra descriptors, startup hooks or alternate sandbox binary
+are forwarded. Control failures use the same bounded unavailable JSON contract;
+child output is project/tool output rather than diagnostic logs. `run` exits
+with the native child status; cancellation and failed cleanup exit nonzero.
+
+A separate manager supervisor owns a private lifetime pipe. Owner EOF,
+SIGTERM/SIGINT, owner death, timeout, leader exit, or changed authenticated
+policy inputs begin owned termination. Nonblocking pipe handles avoid a blocked
+filesystem read holding supervisor teardown open. The supervisor checks
+manifest, policy receipt, binary, command, config and component identities at
+500 ms intervals. It sends TERM then KILL after 750 ms and waits up to another
+two seconds for native close. Preparation is refused while a launch is active;
+new policy preparation can happen only after the owned launch is reaped.
+The owning controller must revoke dispatch and await Stop before publishing
+permission changes; the monitor is a fail-closed backstop, not permission to
+continue using an outdated connection. No persistent worker is reused for a
+second policy or call.
+
+The private `process-UUID.json` record is HMAC-authenticated with the same
+private signing key. Its body is exactly the manager-authored launch provenance:
+`schemaVersion:1`, `kind:"process-launch"`, `launchId`, `status`, `commandId`,
+`contractDigest`, the complete `policy` contract, `parent`, `owner`, `process`
+and `processGroup`. Parent, owner and process each bind PID, Linux birth ticks,
+UID and mount/user/PID namespaces; the enclosing policy also binds the Linux
+boot ID. Old receipts cannot signal a recycled PID after a host reboot. Process identifies the manager's newly
+spawned native sandbox wrapper; it never adopts an external worker. The tested
+native wrapper enforces the supplied state for its actual child/descendants.
+A policy receipt alone still cannot establish that origin.
+
+The temporary `authorized-launch` record is not a running-process receipt.
+`verify-process` requires an authenticated `running` record, current parent
+policy and matching live supervisor/native process identities. It returns
+`process-verified` or a bounded refusal. `stop` validates the stored owned
+identities and requests supervisor cancellation even after the manifest's policy
+changes; it returns `stop-requested`, not a premature reaping claim. The caller
+awaits an authenticated `exited` record. An unconfirmed close becomes
+`cleanup-required` and retains the dispatch lock so new work cannot hide an
+owned-process leak. Tampered records cannot target another PID.
+
+The isolated `live-host-policy-proof.yml` workflow reuses the accepted Mobile
+launcher source from reachable proof commit `2facdae7`: all three transitive
+bundle inputs are byte-identical to accepted `c558dd6`, and CI checks their exact
+inventory and SHA256 before use. This establishes launcher equivalence rather
+than whole-package equivalence. It uses actual pinned native 0.161 binary and temporary Caddy. It runs
+a mandatory exact project-input roundtrip through Node `process.stdin` (streamed
+chunks, EOF and POSIX FIFO identity), plus public/private and proc/FD probes across child and grandchild, including a
+detached grandchild, permission narrowing, owner death, native leader exit and
+owned cleanup. The existing full manager workflow runs separately on the same
+source commit. Uploaded provenance records exact tree, source hashes, component
+pins, binary identity and effective policy. Offline launcher fixtures are not a
+substitute for this supported-host evidence; production readiness remains false
+until L10/L11 admission and Live integration gates are satisfied.
+
+A failed launch may add a signed `failure` object to the process receipt with a
+fixed phase (`native-spawn`, `native-identity`, `receipt-write`, or
+`post-spawn-contract`, or `lifetime-contract`), an internal policy reason, a bounded OS error code, or
+a JavaScript error class. Error messages, paths, environment and private contents
+are never included in this diagnostic.
+
+Before launch, every project/ancestor `.codex` path remains unavailable. Pinned
+native 0.161 creates transient empty `.codex` mount targets while enforcing
+protected metadata. During an authenticated owned launch only, the manager
+accepts an empty, non-symlink directory at `appRoot/.codex` owned by the current
+UID. Its inode, birth/change timestamps and mode are pinned in the signed
+process receipt while native PID/birth/namespaces remain valid. Files, ancestor
+metadata, symlinks, replacements and stale native ownership still revoke the
+launch. After owned reaping, cleanup removes only the same still-empty pinned
+placeholder; it preserves replaced paths and actual project config.
+
+A fixed trusted stdio bridge creates real POSIX pipes for native stdin/stdout/stderr.
+Pinned native network seccomp denies `getsockname`; Node treats inherited Unix
+socket stdio as an unknown handle and silently discards output or reports empty input. The bridge uses
+canonical non-writable `/usr/bin/bash` and `/usr/bin/cat`, hashes both into the
+receipt, and forwards only their pipe bytes to caller stdout/stderr. Bash runs
+with no startup profiles and fixed argument forwarding, then execs the native
+binary so its PID/birth remains the supervised launch identity. The three fixed
+host consumers read only their stdin, remain in the owned process group, and
+receive no extra descriptors or credentials. The input consumer forwards project bytes and EOF through its
+dedicated POSIX pipe; the private lifetime pipe is never inherited by native children.
+
+The `live-policy` Bash entry point execs its Node dispatcher. The caller's owned
+CLI PID/birth therefore matches the receipt parent and the only holder of the
+private lifetime writer. Killing that CLI closes the writer, revokes the native
+launch and reaps its stdio consumers; an orphaned intermediate shell cannot keep
+the owning Node process alive.

@@ -735,4 +735,10 @@ test('startup RPC diagnostic identifies method and fixed error facts without con
  const truncated=diagnose('thread/start',{code:-32603,message:full.slice(0,256)});
  const wire=diagnose('thread/start',{code:-32603,message:full});
  assert.equal(truncated.readOnly,false);assert.equal(wire.readOnly,true);assert.equal(wire.bubblewrapCreateFile,true);assert.ok(wire.messageBytes>256);assert.ok(!JSON.stringify(wire).includes('fixture-secret'));assert.ok(!JSON.stringify(wire).includes('/private'));
+ for(const [phrase,code] of [['Is a directory','EISDIR'],['Not a directory','ENOTDIR'],['File exists','EEXIST'],['Bad file descriptor','EBADF'],['Read-only file system','EROFS']]){
+  const classified=diagnose('thread/start',{code:-32603,message:'error creating thread: bwrap: Can\'t create file at /private/fixture-secret: '+phrase},{metadata:'/private/fixture-secret'});
+  assert.deepEqual(classified.operation,{kind:'create-file',errnoClass:code,targetRole:'metadata'});assert.ok(!JSON.stringify(classified).includes('fixture-secret'));
+ }
+ const unknown=diagnose('thread/start',{code:-32603,message:'bwrap: Can\'t create file at /private/fixture-secret: arbitrary fixture-secret'},{metadata:'/private/fixture-secret'});
+ assert.equal(unknown.operation.errnoClass,'unclassified');assert.ok(!JSON.stringify(unknown).includes('fixture-secret'));
 });

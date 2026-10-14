@@ -89,7 +89,11 @@ const report={schemaVersion:1,provenance,stage:'bootstrap',passed:false,checks:{
  limitations:['Controlled provider; genuine credential-dependent provider proof remains L11.','No production MCP admission or Live picker flow; L10/L11 remain separate gates.']};
 const rpcFailureDiagnostic=(method,error,roles={})=>{
  const text=typeof error.message==='string'?error.message:'';
- return {method,code:typeof error.code==='number'?error.code:undefined,messageBytes:Buffer.byteLength(text),messageSha256:hash(text),
+ const errnoSuffixes={EISDIR:'Is a directory',ENOTDIR:'Not a directory',EEXIST:'File exists',EBADF:'Bad file descriptor',EINVAL:'Invalid argument',EROFS:'Read-only file system',EACCES:'Permission denied',EPERM:'Operation not permitted',ENOENT:'No such file or directory',EBUSY:'Device or resource busy',ENOSPC:'No space left on device',ELOOP:'Too many levels of symbolic links'};
+ const bwrapMatch=text.match(/bwrap: Can't create file at ([^\n]+): ([^\n]+)$/);
+ const errnoClass=bwrapMatch?Object.entries(errnoSuffixes).find(([,phrase])=>bwrapMatch[2]===phrase)?.[0]??'unclassified':undefined;
+ const operation=bwrapMatch?{kind:'create-file',errnoClass,targetRole:Object.entries(roles).find(([,path])=>bwrapMatch[1]===path)?.[0]??'unclassified'}:undefined;
+ return {operation,method,code:typeof error.code==='number'?error.code:undefined,messageBytes:Buffer.byteLength(text),messageSha256:hash(text),
   threadCreation:/^error creating thread:/i.test(text),configLoad:/config|configuration/i.test(text),
   permissionDenied:/Permission denied|Operation not permitted|os error (?:1|13)\b/i.test(text),readOnly:/Read-only file system|os error 30\b/i.test(text),missingPath:/No such file|os error 2\b/i.test(text),
   permissionProfile:/permission.?profile/i.test(text),instructionDiscovery:/AGENTS|instruction|project.?doc/i.test(text),filesystemHelper:/fs.helper|filesystem.helper|bubblewrap|bwrap/i.test(text),
@@ -253,9 +257,26 @@ async function actualSources(value,path,id,startReply,captured){
  value.runtimeProvenance={captureId:id,effectiveConfigDigest:inventory.effectiveConfigDigest,sessionFlagsDigest:inventory.sessionFlagsDigest};writeFileSync(path,JSON.stringify(value),{mode:0o600});
  return {configuration,inventory,startReply,inventoryDigest:hash(stable(inventory))};
 }
-async function startupAt(value){let sampling=false;const sightings=[];
- const timer=setInterval(()=>{if(sampling)return;sampling=true;try{for(const pid of readdirSync('/proc').filter(x=>/^\d+$/.test(x))){try{const args=readFileSync(`/proc/${pid}/cmdline`).toString().split('\0');if(args.includes('--codex-run-as-fs-helper')&&readlinkSync(`/proc/${pid}/exe`)===binary){const processIdentity=identity(Number(pid));if(!sightings.some(x=>x.pid===processIdentity.pid&&x.birth===processIdentity.birth))sightings.push(processIdentity);}}catch{}}}finally{sampling=false;}},10);
- let reply;try{reply=await rpc('thread/start',{cwd:value.appRoot,permissions:value.profileId,approvalPolicy:'never',model:'gpt-6-sol',modelProvider:'controlled'});}finally{clearInterval(timer);}assert.equal(typeof reply.thread?.id,'string');report.startupFilesystemHelpers=(report.startupFilesystemHelpers??[]).concat(sightings);return reply;}
+function originalRuntimeDescendant(pid){for(let depth=0;depth<16;depth++){if(pid===runtime.child.pid)return identity(pid).birth===report.appServer.birth;const match=readFileSync(`/proc/${pid}/status`,'utf8').match(/^PPid:\s+(\d+)/m);if(!match)return false;pid=Number(match[1]);if(pid<=1)return false;}return false;}
+async function startupAt(value){let sampling=false;const sightings=[],masks=[],metadata=[];
+ const protectedPaths=[];for(let path=value.appRoot;;path=dirname(path)){protectedPaths.push(join(path,'.codex'));if(path==='/')break;}
+ const observed=new Set(),maskOps=new Set(['--tmpfs','--remount-ro','--ro-bind-data','--bind-data','--ro-bind','--bind','--dir','--file']);
+ const sample=()=>{if(sampling)return;sampling=true;try{
+  for(const [ancestor,path] of protectedPaths.entries()){try{const info=lstatSync(path),snapshot={ancestor,kind:info.isDirectory()?'directory':info.isSymbolicLink()?'symlink':'file',identity:folderPin(path)};const key=JSON.stringify(snapshot);if(!observed.has(key)&&metadata.length<64){observed.add(key);metadata.push(snapshot);}}catch{}}
+  for(const pid of readdirSync('/proc').filter(x=>/^\d+$/.test(x))){try{const args=readFileSync(`/proc/${pid}/cmdline`).toString().split('\0');
+   const fsHelper=args.includes('--codex-run-as-fs-helper')&&readlinkSync(`/proc/${pid}/exe`)===binary;
+   const hasMasks=args.some(arg=>protectedPaths.includes(arg))&&args.some(arg=>maskOps.has(arg));if(!fsHelper&&!hasMasks)continue;
+   if(!originalRuntimeDescendant(Number(pid)))continue;const processIdentity=identity(Number(pid));
+   if(fsHelper&&!sightings.some(x=>x.pid===processIdentity.pid&&x.birth===processIdentity.birth)&&sightings.length<64)sightings.push(processIdentity);
+   if(hasMasks&&!masks.some(x=>x.process.pid===processIdentity.pid&&x.process.birth===processIdentity.birth)&&masks.length<8&&hash(readFileSync(`/proc/${pid}/exe`))===provenance.bundledBwrap.sha256){
+    const selected=[];for(const [index,arg] of args.entries()){const ancestor=protectedPaths.indexOf(arg);if(ancestor<0)continue;let operation;for(let n=index-1;n>=Math.max(0,index-3);n--)if(maskOps.has(args[n])){operation=args[n];break;}if(operation)selected.push({argumentIndex:index,operation,ancestor});}
+    masks.push({process:processIdentity,executable:'pinned-bubblewrap',metadataMasks:selected});
+   }
+  }catch{}}
+ }finally{sampling=false;}};
+ sample();const timer=setInterval(sample,1);let reply;try{reply=await rpc('thread/start',{cwd:value.appRoot,permissions:value.profileId,approvalPolicy:'never',model:'gpt-6-sol',modelProvider:'controlled'});}finally{clearInterval(timer);sample();report.startupFilesystemHelpers=(report.startupFilesystemHelpers??[]).concat(sightings);report.startupMetadataObservations=(report.startupMetadataObservations??[]).concat(metadata);report.startupMasks=(report.startupMasks??[]).concat(masks);}
+ assert.equal(typeof reply.thread?.id,'string');return reply;}
+
 try {
  assert.equal(hash(readFileSync(manager)),provenance.files['public/gestalt']);assert.equal(provenance.binarySha256,expectedBinary);report.checks.managerInstalledBytes=true;report.checks.binaryPinned=true;
  const {electLiveController}=await import(pathToFileURL(electionModule).href);elected=await electLiveController({privateDirectory:privateRoot,controllerId:'l9-proof',initialize:true});
@@ -321,7 +342,7 @@ try {
  if(publicIngress?.listening)await new Promise(done=>publicIngress.close(done));
  if(provider.listening)await new Promise(done=>provider.close(done));if(server.listening)await new Promise(done=>server.close(done));
  report.metadataPreserved=true;report.fixtureRootRetained=true;report.providerRequests=providerRequests;writeFileSync(join(evidence,'native-proof.json'),JSON.stringify(report,null,2)+'\n');
- const summary={stage:report.stage,passed:report.passed,checks:report.checks,failure:report.failure,failureDetail:report.failureDetail,failedRpc:report.failedRpc,nativeWireFailure:report.nativeWireFailure,failureMetadata:report.failureMetadata,bootstrap:report.bootstrap};
+ const summary={stage:report.stage,passed:report.passed,checks:report.checks,failure:report.failure,failureDetail:report.failureDetail,failedRpc:report.failedRpc,nativeWireFailure:report.nativeWireFailure,failureMetadata:report.failureMetadata,startupMetadataObservations:report.startupMetadataObservations,startupMasks:report.startupMasks,bootstrap:report.bootstrap};
  console.log(JSON.stringify(summary));
  if(!report.passed&&hostedActions)console.log('::error title=Bounded Native proof failure::'+JSON.stringify(summary).replaceAll('%','%25').replaceAll('\r','%0D').replaceAll('\n','%0A'));
 }

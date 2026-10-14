@@ -147,10 +147,10 @@ index 319b6af..339c929 100644
      fn missing_read_only_subpath_uses_empty_file_bind_data() {
          let temp_dir = TempDir::new().expect("temp dir");
 diff --git a/codex-rs/linux-sandbox/tests/suite/landlock.rs b/codex-rs/linux-sandbox/tests/suite/landlock.rs
-index 9666af8..f9eb991 100644
+index 9666af8..9338a47 100644
 --- a/codex-rs/linux-sandbox/tests/suite/landlock.rs
 +++ b/codex-rs/linux-sandbox/tests/suite/landlock.rs
-@@ -1567,3 +1567,63 @@ async fn sandbox_blocks_dev_tcp_redirection() {
+@@ -1567,3 +1567,78 @@ async fn sandbox_blocks_dev_tcp_redirection() {
  
  #[path = "daemon_sockets_tests.rs"]
  mod daemon_sockets_tests;
@@ -200,7 +200,22 @@ index 9666af8..f9eb991 100644
 +            LONG_TIMEOUT_MS,
 +            /*use_legacy_landlock*/ false,
 +        ).await.expect("native sandbox must launch without directory/file mask collision");
-+        assert_eq!(output.exit_code, 0, "metadata type {kind}: {}", output.stderr.text);
++        let stderr_class = if output.stderr.text.contains("Is a directory") {
++            "EISDIR"
++        } else if output.stderr.text.contains("Not a directory") {
++            "ENOTDIR"
++        } else if output.stderr.text.contains("Permission denied") {
++            "EACCES"
++        } else if output.stderr.text.contains("Read-only file system") {
++            "EROFS"
++        } else if output.stderr.text.contains("No such file or directory") {
++            "ENOENT"
++        } else {
++            "unclassified"
++        };
++        assert_eq!(output.exit_code, 0,
++            "NATIVE_METADATA_EXIT kind={kind} exitCode={} stderrClass={stderr_class} stdoutBytes={} stderrBytes={}",
++            output.exit_code, output.stdout.text.len(), output.stderr.text.len());
 +        assert_eq!(output.stdout.text, "instructionsdenied");
 +        assert_eq!(std::fs::read_to_string(workspace.path().join("public")).unwrap(), "allowed");
 +        if kind == "directory" {

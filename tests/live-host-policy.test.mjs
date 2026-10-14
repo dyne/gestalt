@@ -752,7 +752,7 @@ test('Native build failure reports locked dependency classes without raw logs or
   const revision='a'.repeat(40);
   writeFileSync(lock,`name = "mxc"\nsource = "git+https://github.com/microsoft/mxc#${revision}"\n`);
   writeFileSync(version,'rustc 1.95.0\nrelease: 1.95.0\nhost: x86_64-unknown-linux-gnu\n');
-  writeFileSync(log,`failed to load source for dependency \`mxc\`\nfailed to update https://fixture-secret@github.com/microsoft/mxc#${revision}\nrevision ${revision} not found\nHTTP 403\nprivate path /private/fixture-secret prompt=fixture-secret token=fixture-secret\ndependency \`fixture-secret\`\n`);
+  writeFileSync(log,`failed to load source for dependency \`mxc\`\nfailed to update https://fixture-secret@github.com/microsoft/mxc#${revision}\nrevision ${revision} not found\nHTTP 403\nprivate path /private/fixture-secret prompt=fixture-secret token=fixture-secret\ndependency \`fixture-secret\`\n---- suite::landlock::sandbox_enforces_denied_metadata_directory_and_file_types stdout ----\nNATIVE_METADATA_EXIT kind=missing exitCode=12 stderrClass=unclassified stdoutBytes=12 stderrBytes=0\ntest result: FAILED. 80 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out\n`);
   const run=spawnSync('python3',['-','build-bwrap','101',log,lock,version],{input:diagnostic,encoding:'utf8'});
   assert.equal(run.status,0,run.stderr);
   const result=JSON.parse(run.stdout.split('title=Native mask candidate failure::')[1]);
@@ -760,6 +760,9 @@ test('Native build failure reports locked dependency classes without raw logs or
   assert.deepEqual(result.dependencies,['mxc']);assert.deepEqual(result.publicRepositories,['microsoft/mxc']);
   assert.deepEqual(result.lockedRevisions,[revision]);assert.deepEqual(result.httpStatuses,['403']);
   assert.equal(result.rustRelease,'1.95.0');assert.equal(result.host,'x86_64-unknown-linux-gnu');
+  assert.deepEqual(result.failedTests,['suite::landlock::sandbox_enforces_denied_metadata_directory_and_file_types']);
+  assert.deepEqual(result.metadataFailure,{fixtureKind:'missing',exitCode:12,stderrClass:'unclassified',stdoutBytes:12,stderrBytes:0,commandRole:'denied-directory-list-succeeded'});
+  assert.deepEqual(result.testResults,['test result: FAILED. 80 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out']);
   for(const secret of ['fixture-secret','/private/','prompt=','token=','https://'])assert.ok(!run.stdout.includes(secret));
  }finally{rmSync(root,{recursive:true,force:true});}
 });

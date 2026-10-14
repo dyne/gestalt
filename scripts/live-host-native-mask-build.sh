@@ -28,7 +28,11 @@ repositories=[name for name in public_repositories if name in text]
 known_revisions=set(re.findall(r'#[a-f0-9]{40}',lock))
 revisions=sorted(value[1:] for value in known_revisions if value[1:] in text)[:12]
 release=re.search(r'^release: ([0-9.]+)$',toolchain,re.M);host=re.search(r'^host: (x86_64-unknown-linux-gnu)$',toolchain,re.M)
-print('::error title=Native mask candidate failure::'+json.dumps({'stage':stage,'exitCode':int(status),'compilerCodes':codes,'locations':locations,'cargoErrorClasses':classes,'dependencies':dependencies,'publicRepositories':repositories,'lockedRevisions':revisions,'httpStatuses':sorted(set(re.findall(r'\b(?:401|403|404|408|429|500|502|503)\b',text))),'rustRelease':release[1] if release else None,'host':host[1] if host else None,'logBytes':len(text.encode()),'diskFull':'No space left on device' in text,'outOfMemory':'SIGKILL' in text or 'signal: 9' in text}))
+metadata=re.search(r'NATIVE_METADATA_EXIT kind=(missing|empty-directory|directory|empty-file|file) exitCode=(-?[0-9]+) stderrClass=(EISDIR|ENOTDIR|EACCES|EROFS|ENOENT|unclassified) stdoutBytes=([0-9]+) stderrBytes=([0-9]+)',text)
+metadata_failure={'fixtureKind':metadata[1],'exitCode':int(metadata[2]),'stderrClass':metadata[3],'stdoutBytes':int(metadata[4]),'stderrBytes':int(metadata[5]),'commandRole':{'11':'denied-file-read-succeeded','12':'denied-directory-list-succeeded','13':'denied-metadata-write-succeeded'}.get(metadata[2],'launch-or-command-failure')} if metadata else None
+failed_tests=sorted(set(re.findall(r'^---- ([a-zA-Z_][a-zA-Z0-9_:]*) stdout ----$',text,re.M)))[:24]
+test_results=re.findall(r'^test result: (?:ok|FAILED)\. [0-9]+ passed; [0-9]+ failed; [0-9]+ ignored; [0-9]+ measured; [0-9]+ filtered out',text,re.M)[:16]
+print('::error title=Native mask candidate failure::'+json.dumps({'stage':stage,'exitCode':int(status),'compilerCodes':codes,'locations':locations,'cargoErrorClasses':classes,'dependencies':dependencies,'publicRepositories':repositories,'lockedRevisions':revisions,'httpStatuses':sorted(set(re.findall(r'\b(?:401|403|404|408|429|500|502|503)\b',text))),'rustRelease':release[1] if release else None,'host':host[1] if host else None,'failedTests':failed_tests,'testResults':test_results,'metadataFailure':metadata_failure,'logBytes':len(text.encode()),'diskFull':'No space left on device' in text,'outOfMemory':'SIGKILL' in text or 'signal: 9' in text}))
 PY
   exit "$result"
 }

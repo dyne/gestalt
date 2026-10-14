@@ -219,7 +219,15 @@ let publicSocket,publicIngress;
 let roleSteps=new Map(),modelThreads=new Set(),primaryThread,modelPhase='broad',providerRequests=0,providerStage='request',providerShape;
 const modelFinal=id=>({type:'response.output_item.done',item:{type:'message',role:'assistant',phase:'final_answer',id,content:[{type:'output_text',text:'Controlled confinement probe completed.'}]}});
 const flatten=(tools,namespace)=>tools.flatMap(tool=>tool.type==='namespace'?flatten(tool.tools,tool.name):[{...tool,namespace}]);
-function modelCall(tools,id,name,args,custom=false){const tool=tools.find(tool=>tool.name===name);assert.ok(tool,'NATIVE_TOOL_UNAVAILABLE');return {type:'response.output_item.done',item:{type:custom?'custom_tool_call':'function_call',call_id:id,name,input:custom?args:undefined,arguments:custom?undefined:JSON.stringify(args),...(tool.namespace?{namespace:tool.namespace}:{})}};}
+function modelCall(tools,id,name,args,custom=false){
+ let tool=tools.find(tool=>tool.name===name);
+ if(!tool&&['exec_command','apply_patch'].includes(name)){
+  const exec=tools.find(tool=>tool.name==='exec');assert.ok(exec&&exec.description?.includes(`tools.${name}(`),'NATIVE_TOOL_UNAVAILABLE');
+  tool=exec;args=`text(await tools.${name}(${JSON.stringify(args)}));`;name='exec';custom=true;
+  report.codeModeModelTools=true;
+ }
+ assert.ok(tool,'NATIVE_TOOL_UNAVAILABLE');return {type:'response.output_item.done',item:{type:custom?'custom_tool_call':'function_call',call_id:id,name,input:custom?args:undefined,arguments:custom?undefined:JSON.stringify(args),...(tool.namespace?{namespace:tool.namespace}:{})}};
+}
 const modelProbe=role=>`import os,socket,json\nprivate=${JSON.stringify([auth,controlFile,key,manifest])}\nfor path in private+${JSON.stringify([`/proc/${process.pid}/root${auth}`,`/proc/${process.pid}/fd/7`,`/proc/self/root${auth}`])}:\n try:\n  open(path,'rb').read();raise Exception('PRIVATE_BREACH')\n except OSError as e:\n  assert e.errno in (1,2,13,20)\nfor path in ${JSON.stringify([socket,caddySocket])}:\n s=socket.socket(socket.AF_UNIX)\n try:\n  s.connect(path);raise Exception('SOCKET_BREACH')\n except OSError as e:\n  assert e.errno in (1,2,13,20)\n finally:s.close()\nfor name in ['config.toml','hooks.json','rules','agents']:\n try:\n  open(${JSON.stringify(join(app,'.codex'))}+'/'+name,'w').write('injection');raise Exception('METADATA_BREACH')\n except OSError as e:\n  assert e.errno in (1,2,13,20,30)\nassert open(${JSON.stringify(publicFile)}).read()=='public-fixture'\nassert not any(('TOKEN' in k or 'SECRET' in k or 'API_KEY' in k) for k in os.environ)\nassert os.stat(${JSON.stringify(daemon)}).st_mode & 511 == 0\nprint('native-private-and-metadata-denied')\n`;
 async function modelEvent(body){
  providerStage='model-identity';providerShape={expectedModel:body.model==='gpt-6-sol',threadIdType:typeof body.client_metadata?.thread_id};

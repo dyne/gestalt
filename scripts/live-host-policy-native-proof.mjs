@@ -93,18 +93,19 @@ const rpcFailureDiagnostic=(method,error,roles={})=>{
   threadCreation:/^error creating thread:/i.test(text),configLoad:/config|configuration/i.test(text),
   permissionDenied:/Permission denied|Operation not permitted|os error (?:1|13)\b/i.test(text),readOnly:/Read-only file system|os error 30\b/i.test(text),missingPath:/No such file|os error 2\b/i.test(text),
   permissionProfile:/permission.?profile/i.test(text),instructionDiscovery:/AGENTS|instruction|project.?doc/i.test(text),filesystemHelper:/fs.helper|filesystem.helper|bubblewrap|bwrap/i.test(text),
+  bubblewrapCreateFile:/bwrap: Can\'t create file at/i.test(text),protectedMountFailure:/synthetic.*mount|protected.*(?:target|path)|mount.*target/i.test(text),
   createFile:/creat(?:e|ing)|mkdir/i.test(text),readFile:/read|open/i.test(text),shellSnapshot:/shell.?snapshot/i.test(text),rollout:/rollout/i.test(text),
   matchedPathRoles:Object.entries(roles).filter(([,path])=>text.includes(path)).map(([role])=>role),
   sourceLocations:[...text.matchAll(/([a-z_-]+\.rs):(\d+):(\d+)/g)].slice(0,3).map(match=>match.slice(1).join(':'))};
 };
-let runtime,caddy,unowned,active,extraFD,elected,providerFailure,thread,controllerAccepted=0;
+let runtime,caddy,unowned,active,extraFD,elected,providerFailure,thread,currentRpcMethod,controllerAccepted=0;
 const server=createServer(peer=>{controllerAccepted++;peer.end();});
 async function waitFor(fn,budget=12000){const end=Date.now()+budget;while(Date.now()<end){try{const result=fn();if(result)return result;}catch{}await pause(50);}throw Error('PROOF_DEADLINE');}
 function managerCall(args){const result=spawn('bash',[manager,...args],{cwd:app,env:managerEnv,stdio:['ignore','pipe','pipe']});
  let stdout='',stderr='';result.stdout.on('data',b=>stdout+=b);result.stderr.on('data',b=>stderr+=b);
  return new Promise((done,reject)=>{const timer=setTimeout(()=>{result.kill('SIGKILL');reject(Error('MANAGER_DEADLINE'));},15000);result.on('error',error=>{clearTimeout(timer);done({code:null,signal:null,stdout,stderr,errorCode:['ENOENT','EACCES','EPERM'].includes(error.code)?error.code:'SPAWN_ERROR'});});result.on('close',(code,signal)=>{clearTimeout(timer);done({code,signal,stdout,stderr});});});}
 const api=()=>new Promise((done,reject)=>{const req=httpRequest({socketPath:caddySocket,path:'/config/',method:'GET'},res=>{res.resume();res.on('end',()=>done(res.statusCode));});req.on('error',reject);req.end();});
-async function rpc(method,params){try{return await Promise.race([runtime.rpc.request(method,params),new Promise((_,reject)=>{const timer=setTimeout(()=>reject(Error('RPC_DEADLINE')),12000);timer.unref();})]);}
+async function rpc(method,params){currentRpcMethod=method;try{return await Promise.race([runtime.rpc.request(method,params),new Promise((_,reject)=>{const timer=setTimeout(()=>reject(Error('RPC_DEADLINE')),12000);timer.unref();})]);}
  catch(error){report.failedRpc=rpcFailureDiagnostic(method,error,{appRoot:app,originalHome:nativeHome,controllerDirectory:privateRoot,metadata:join(app,'.codex'),daemon});throw error;}}
 function ownedPids(marker){const found=[];for(const pid of readdirSync('/proc').filter(name=>/^\d+$/.test(name))){try{
  const args=readFileSync(`/proc/${pid}/cmdline`).toString().split('\0');if(args.some(arg=>arg===marker))found.push(identity(Number(pid)));
@@ -268,6 +269,12 @@ try {
  report.stage='absence-before-owned-birth';const captured=await captureFor(m,manifest,captureId);for(const c of cases){c.manifest=join(c.directory,'manifest.json');c.value=manifestFor(c.app,c.directory,c.profile,c.session);c.captured=await captureFor(c.value,c.manifest,c.capture);}
  report.checks.absentBeforeOriginalBirth=true;
  const {launchCodexAppServer}=await import(pathToFileURL(mobileModule).href);runtime=launchCodexAppServer({profile:'default',cwd:app,environment:controllerEnv});runtime.child.stderr.on('data',()=>{});
+ // The accepted client intentionally truncates error messages to 256 bytes.
+ // Classify the original error frame before that boundary; retain no frame/text.
+ let wireBuffer='';runtime.child.stdout.on('data',chunk=>{wireBuffer+=chunk.toString();if(Buffer.byteLength(wireBuffer)>1024*1024){wireBuffer='';report.wireDiagnosticOverflow=true;return;}
+  let newline;while((newline=wireBuffer.indexOf('\n'))>=0){const line=wireBuffer.slice(0,newline);wireBuffer=wireBuffer.slice(newline+1);try{const packet=JSON.parse(line);
+   if(typeof packet.id==='number'&&typeof packet.error?.code==='number'&&typeof packet.error?.message==='string')report.nativeWireFailure={id:packet.id,...rpcFailureDiagnostic(currentRpcMethod,packet.error,{appRoot:app,originalHome:nativeHome,controllerDirectory:privateRoot,metadata:join(app,'.codex'),daemon})};
+  }catch{}}});
  await rpc('initialize',{clientInfo:{name:'l9_actual_provenance_proof',version:'2'},capabilities:{experimentalApi:true}});runtime.child.stdin.write(JSON.stringify({method:'initialized',params:{}})+'\n');
  report.appServer=identity(runtime.child.pid);assert.equal(readlinkSync(`/proc/${runtime.child.pid}/exe`),binary);assert.equal(hash(readFileSync(`/proc/${runtime.child.pid}/exe`)),expectedBinary);report.checks.originalOwningNativeIdentity=true;
  const hostRead=await rpc('fs/readFile',{path:auth});assert.equal(hostRead.dataBase64,Buffer.from('private-auth-fixture').toString('base64'));report.checks.controllerFsAuthority=true;
@@ -307,14 +314,14 @@ try {
  report.checks.nativeBornInjectionReplacementLifetimeSessionMatrix=true;
  report.stage='actual-owning-runtime-loss';const orphan=await launch();await nativeMessages(orphan);runtime.child.kill('SIGKILL');await stopped(orphan);await waitFor(()=>ownedPids(childFile).every(dead));assert.equal((await managerCall(['live-policy','verify','--manifest',manifest])).code,1);report.checks.owningRuntimeLossRevokesWorkers=true;
  report.stage='complete';report.passed=true;
-} catch(error){report.failureDetail={stage:report.stage,assertion:error.operator,actual:typeof error.actual==='number'||typeof error.actual==='boolean'?error.actual:undefined,expected:typeof error.expected==='number'||typeof error.expected==='boolean'?error.expected:undefined};report.failure=error.code??(/^[A-Z_]+$/.test(error.message)?error.message:'ASSERTION_FAILED');if(active){report.nativeDiagnostic=active.diagnostic();report.launchBoundary=launchBoundary(active);report.ownedProcessSnapshot=ownedProcessSnapshot(active);}process.exitCode=1;
+} catch(error){report.failureMetadata=metadataPaths.map((path,index)=>{try{const info=lstatSync(path);return {ancestor:index,kind:info.isDirectory()?'directory':info.isSymbolicLink()?'symlink':'file',identity:folderPin(path),empty:info.isDirectory()?readdirSync(path).length===0:undefined};}catch{return {ancestor:index,kind:'absent'};}});report.failureDetail={stage:report.stage,assertion:error.operator,actual:typeof error.actual==='number'||typeof error.actual==='boolean'?error.actual:undefined,expected:typeof error.expected==='number'||typeof error.expected==='boolean'?error.expected:undefined};report.failure=error.code??(/^[A-Z_]+$/.test(error.message)?error.message:'ASSERTION_FAILED');if(active){report.nativeDiagnostic=active.diagnostic();report.launchBoundary=launchBoundary(active);report.ownedProcessSnapshot=ownedProcessSnapshot(active);}process.exitCode=1;
 } finally {
  if(active){try{await managerCall(['live-policy','stop','--manifest',manifest,'--launch-id',active.id]);await stopped(active);}catch{report.passed=false;process.exitCode=1;await closeOwned(active.child);}}
  if(extraFD!==undefined)closeSync(extraFD);try{await closeOwned(runtime?.child);await closeOwned(caddy);await closeOwned(unowned);await elected?.close();report.checks.ownedShutdown=true;}catch{report.passed=false;report.failure='OWNED_SHUTDOWN_FAILED';process.exitCode=1;}
  if(publicIngress?.listening)await new Promise(done=>publicIngress.close(done));
  if(provider.listening)await new Promise(done=>provider.close(done));if(server.listening)await new Promise(done=>server.close(done));
  report.metadataPreserved=true;report.fixtureRootRetained=true;report.providerRequests=providerRequests;writeFileSync(join(evidence,'native-proof.json'),JSON.stringify(report,null,2)+'\n');
- const summary={stage:report.stage,passed:report.passed,checks:report.checks,failure:report.failure,failureDetail:report.failureDetail,failedRpc:report.failedRpc,bootstrap:report.bootstrap};
+ const summary={stage:report.stage,passed:report.passed,checks:report.checks,failure:report.failure,failureDetail:report.failureDetail,failedRpc:report.failedRpc,nativeWireFailure:report.nativeWireFailure,failureMetadata:report.failureMetadata,bootstrap:report.bootstrap};
  console.log(JSON.stringify(summary));
  if(!report.passed&&hostedActions)console.log('::error title=Bounded Native proof failure::'+JSON.stringify(summary).replaceAll('%','%25').replaceAll('\r','%0D').replaceAll('\n','%0A'));
 }

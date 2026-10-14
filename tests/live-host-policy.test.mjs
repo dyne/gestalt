@@ -731,4 +731,8 @@ test('startup RPC diagnostic identifies method and fixed error facts without con
  assert.equal(result.method,'thread/start');assert.equal(result.code,-32603);assert.equal(result.threadCreation,true);assert.equal(result.permissionDenied,true);assert.equal(result.instructionDiscovery,true);
  assert.deepEqual(result.matchedPathRoles,['originalHome']);assert.equal(result.messageSha256,hash(message));
  assert.ok(!JSON.stringify(result).includes('fixture-secret'));assert.ok(!JSON.stringify(result).includes('/private'));assert.ok(!JSON.stringify(result).includes('token='));assert.ok(!JSON.stringify(result).includes('prompt='));
+ const full='error creating thread: failed to load AGENTS.md instructions: fs sandbox helper failed: bwrap: Can\'t create file at /private/'+('x'.repeat(300))+': Read-only file system; fixture-secret';
+ const truncated=diagnose('thread/start',{code:-32603,message:full.slice(0,256)});
+ const wire=diagnose('thread/start',{code:-32603,message:full});
+ assert.equal(truncated.readOnly,false);assert.equal(wire.readOnly,true);assert.equal(wire.bubblewrapCreateFile,true);assert.ok(wire.messageBytes>256);assert.ok(!JSON.stringify(wire).includes('fixture-secret'));assert.ok(!JSON.stringify(wire).includes('/private'));
 });

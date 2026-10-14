@@ -18,13 +18,23 @@ jobs:
           node-version: 24.21.0
           cache: npm
       - run: npm ci
-      - name: Read-only accepted Mobile launcher input
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: dyne/gestalt-mobile
-          ref: c558dd644e4b6ac8d3bce9e57bce762791ea25de
-          path: .host-mobile-input
-          persist-credentials: false
+      - name: Verify exact accepted Mobile source fixture
+        run: |
+          set -Eeuo pipefail
+          node --input-type=module <<'NODE'
+          import {readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          const root='tests/fixtures/live-host-mobile-input';
+          const provenance=JSON.parse(readFileSync(`${root}/provenance.json`));
+          if(provenance.commit!=='c558dd644e4b6ac8d3bce9e57bce762791ea25de')throw Error('Mobile fixture source changed');
+          for(const [path,pin] of Object.entries(provenance.files)){
+            const bytes=readFileSync(`${root}/${path}`);
+            if(createHash('sha256').update(bytes).digest('hex')!==pin.sha256)throw Error('Mobile fixture hash changed');
+            const blob=createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+            if(blob!==pin.gitBlob)throw Error('Mobile fixture Git blob changed');
+          }
+          NODE
+          cp -R tests/fixtures/live-host-mobile-input .host-mobile-input
       - name: Prepare checksum-pinned native and Caddy test binaries
         run: |
           set -Eeuo pipefail
@@ -41,7 +51,6 @@ jobs:
             a7a433a1b133efc3c8d10eb0b99d52a24b5ef5c322dc77f5282182b1c0402139ab83f3a99f0c52409df77d20123fb0b523edad8a66d8f5e49136197bf61ef0e7 \
             "$tool_root/caddy.tar.gz" | sha512sum --check --status
           tar -xzf "$tool_root/caddy.tar.gz" -C "$tool_root" caddy
-          test "$(git -C .host-mobile-input rev-parse HEAD)" = c558dd644e4b6ac8d3bce9e57bce762791ea25de
           npm ci --prefix .host-mobile-input --omit=dev --ignore-scripts
           ./node_modules/.bin/esbuild .host-mobile-input/src/server/platform/live-design/elected-controller.ts \
             --bundle --platform=node --format=esm --target=node24 --outfile="$tool_root/mobile-election.mjs" \

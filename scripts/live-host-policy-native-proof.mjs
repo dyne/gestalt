@@ -9,6 +9,7 @@ import {gunzipSync,inflateSync,zstdDecompressSync} from 'node:zlib';
 import {dirname,join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
+const hostedActions=process.env.GITHUB_ACTIONS==='true';
 const binary=realpathSync(process.env.LIVE_HOST_CODEX_BINARY);
 const mobileModule=realpathSync(process.env.LIVE_HOST_MOBILE_MODULE);
 const electionModule=realpathSync(process.env.LIVE_HOST_ELECTION_MODULE);
@@ -304,5 +305,5 @@ try {
  report.metadataPreserved=true;report.fixtureRootRetained=true;report.providerRequests=providerRequests;writeFileSync(join(evidence,'native-proof.json'),JSON.stringify(report,null,2)+'\n');
  const summary={stage:report.stage,passed:report.passed,checks:report.checks,failure:report.failure,failureDetail:report.failureDetail,bootstrap:report.bootstrap};
  console.log(JSON.stringify(summary));
- if(!report.passed&&process.env.GITHUB_ACTIONS==='true')console.log('::error title=Bounded Native proof failure::'+JSON.stringify(summary).replaceAll('%','%25').replaceAll('\r','%0D').replaceAll('\n','%0A'));
+ if(!report.passed&&hostedActions)console.log('::error title=Bounded Native proof failure::'+JSON.stringify(summary).replaceAll('%','%25').replaceAll('\r','%0D').replaceAll('\n','%0A'));
 }

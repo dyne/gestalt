@@ -6,13 +6,9 @@ on:
 permissions:
   contents: read
 jobs:
-  manager:
-    uses: ./.github/workflows/manager-tests.yml
-    permissions:
-      contents: read
   native:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -26,7 +22,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: dyne/gestalt-mobile
-          ref: 2facdae77f2b807798aa02a5d63a12d9161aebc6
+          ref: c558dd644e4b6ac8d3bce9e57bce762791ea25de
           path: .host-mobile-input
           persist-credentials: false
       - name: Prepare checksum-pinned native and Caddy test binaries
@@ -45,7 +41,11 @@ jobs:
             a7a433a1b133efc3c8d10eb0b99d52a24b5ef5c322dc77f5282182b1c0402139ab83f3a99f0c52409df77d20123fb0b523edad8a66d8f5e49136197bf61ef0e7 \
             "$tool_root/caddy.tar.gz" | sha512sum --check --status
           tar -xzf "$tool_root/caddy.tar.gz" -C "$tool_root" caddy
-          test "$(git -C .host-mobile-input rev-parse HEAD)" = 2facdae77f2b807798aa02a5d63a12d9161aebc6
+          test "$(git -C .host-mobile-input rev-parse HEAD)" = c558dd644e4b6ac8d3bce9e57bce762791ea25de
+          npm ci --prefix .host-mobile-input --omit=dev --ignore-scripts
+          ./node_modules/.bin/esbuild .host-mobile-input/src/server/platform/live-design/elected-controller.ts \
+            --bundle --platform=node --format=esm --target=node24 --outfile="$tool_root/mobile-election.mjs" \
+            --metafile="$tool_root/election-inputs.json"
           ./node_modules/.bin/esbuild .host-mobile-input/src/server/platform/codex/codex-process-launcher.ts \
             --bundle --platform=node --format=esm --target=node24 --outfile="$tool_root/mobile-launcher.mjs" \
             --metafile="$tool_root/mobile-inputs.json"
@@ -65,6 +65,7 @@ jobs:
             echo "LIVE_HOST_MANAGER_BINARY=$tool_root/gestalt"
             echo "LIVE_HOST_CODEX_BINARY=$native_binary"
             echo "LIVE_HOST_MOBILE_MODULE=$tool_root/mobile-launcher.mjs"
+            echo "LIVE_HOST_ELECTION_MODULE=$tool_root/mobile-election.mjs"
             echo "LIVE_HOST_CADDY_BINARY=$tool_root/caddy"
           } >> "$GITHUB_ENV"
       - name: Existing native sandbox prerequisites on disposable hosted runner
@@ -84,6 +85,13 @@ jobs:
           set -Eeuo pipefail
           mkdir -p test-results/live-host-policy
           node scripts/live-host-policy-native-proof.mjs 2>&1 | tee test-results/live-host-policy/proof.log
+          git diff --check
+      - name: Unchanged full Manager suite on the supported host
+        if: always()
+        run: |
+          set -Eeuo pipefail
+          mkdir -p test-results/live-host-policy
+          npm test 2>&1 | tee test-results/live-host-policy/manager.log
           git diff --check
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()

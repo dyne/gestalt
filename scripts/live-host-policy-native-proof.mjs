@@ -1,20 +1,22 @@
-// Isolated hosted proof. No model calls, credentials, deployment or IPC repair.
+// Isolated hosted proof. Actual Native model tools use a controlled provider; no genuine credentials, deployment or IPC repair.
 import assert from 'node:assert/strict';
 import {spawn,execFileSync} from 'node:child_process';
 import {createHash,randomUUID,randomBytes} from 'node:crypto';
-import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,readlinkSync,realpathSync,lstatSync,readdirSync,openSync,closeSync,rmSync,copyFileSync,chmodSync,existsSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,readlinkSync,realpathSync,lstatSync,readdirSync,openSync,closeSync,rmSync,renameSync,symlinkSync,copyFileSync,chmodSync,existsSync} from 'node:fs';
 import {createServer,createConnection} from 'node:net';
-import {request as httpRequest} from 'node:http';
+import {request as httpRequest,createServer as createHttpServer} from 'node:http';
+import {gunzipSync,inflateSync,zstdDecompressSync} from 'node:zlib';
 import {dirname,join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
 const binary=realpathSync(process.env.LIVE_HOST_CODEX_BINARY);
 const mobileModule=realpathSync(process.env.LIVE_HOST_MOBILE_MODULE);
+const electionModule=realpathSync(process.env.LIVE_HOST_ELECTION_MODULE);
 const caddyBinary=realpathSync(process.env.LIVE_HOST_CADDY_BINARY);
 const evidence=resolve(process.env.LIVE_HOST_POLICY_EVIDENCE ?? 'test-results/live-host-policy');
 const manager=realpathSync(process.env.LIVE_HOST_MANAGER_BINARY);
 const expectedBinary='9a820c17865fa825d04db416818679a9d63bd72e50835c396f496e5684626c9c';
-const mobilePin='2facdae77f2b807798aa02a5d63a12d9161aebc6';
+const mobilePin='c558dd644e4b6ac8d3bce9e57bce762791ea25de';
 const acceptedMobilePin='c558dd644e4b6ac8d3bce9e57bce762791ea25de';
 const mobileInputPaths=['src/server/platform/codex/json-rpc-client.ts','src/server/platform/catalog/profile-command.ts','src/server/platform/codex/codex-process-launcher.ts'];
 const agentsPin='4c4f4566ac968e1b7d425e825ba2ad9a8d9f8f1f';
@@ -44,9 +46,11 @@ const managerResultDiagnostic=result=>{
 const tree=execFileSync('git',['rev-parse','HEAD^{tree}'],{encoding:'utf8'}).trim();
 const commit=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
 const provenance={repository:process.env.GITHUB_REPOSITORY,runId:process.env.GITHUB_RUN_ID,commit,tree,
- sourcePin:'979011409de0a60b52f179721948e65531d26144',mobilePin,acceptedMobilePin,agentsPin,nativeVersion:'0.161.0',
+ agentsPackageLoaded:false,sourcePin:'979011409de0a60b52f179721948e65531d26144',mobilePin,acceptedMobilePin,agentsPin,nativeVersion:'0.161.0',
  mobileInputs:Object.fromEntries(mobileInputPaths.map(path=>[path,hash(readFileSync(join('.host-mobile-input',path)))])),
  bundledBwrap:{sha256:hash(readFileSync(bundledBwrap)),mode:(lstatSync(bundledBwrap).mode&0o777).toString(8)},
+ electionModuleSha256:hash(readFileSync(electionModule)),
+ electionInputs:Object.fromEntries(Object.keys(JSON.parse(readFileSync(join(dirname(manager),'election-inputs.json'))).inputs).sort().map(path=>[path,hash(readFileSync(path))])),
  binarySha256:hash(readFileSync(binary)),sourceBinaryMode:(lstatSync(binary).mode&0o777).toString(8),mobileLauncherSha256:hash(readFileSync(mobileModule)),
  files:Object.fromEntries(['public/gestalt','scripts/live-host-policy-native-proof.mjs','tests/live-host-policy.test.mjs','.github/workflows/live-host-policy-proof.yml','docs/caddy-live.md','tests/run.sh']
   .map(path=>[path,hash(readFileSync(path))]))};
@@ -58,27 +62,30 @@ const manifest=join(privateRoot,'manifest.json'),daemon=`/tmp/codex-daemon-${pro
 const socket=join(privateRoot,'controller.sock'),caddySocket=join(privateRoot,'caddy.sock');
 const auth=join(privateRoot,'auth.fixture'),controlFile=join(privateRoot,'controller.fixture');
 writeFileSync(auth,'private-auth-fixture',{mode:0o600});writeFileSync(controlFile,'private-controller-fixture',{mode:0o600});
-const key=join(privateRoot,'signing-key');writeFileSync(key,randomBytes(32),{mode:0o600});
+const key=join(privateRoot,'live-policy.key');writeFileSync(key,randomBytes(32),{mode:0o600});
 const publicFile=join(app,'public.txt'),readOnlyFile=join(app,'read-only.txt');writeFileSync(publicFile,'public-fixture');writeFileSync(readOnlyFile,'preserved-read-only');
 const isolatedConfig='[shell_environment_policy]\ninherit = "none"\n';
 writeFileSync(join(home,'config.toml'),isolatedConfig,{mode:0o600});
-const profile='live-host-policy-proof';
-const owningConfig=`approval_policy = "never"\ndefault_permissions = "${profile}"\nmcp_servers = {}\nplugins = {}\n\n[features]\ndaemon_auto_start = false\nmulti_agent = false\nmulti_agent_v2 = false\nhooks = false\n\n[permissions.${profile}]\nextends = ":workspace"\n\n[permissions.${profile}.filesystem]\n":root" = "read"\n${JSON.stringify(app)} = "write"\n${JSON.stringify(readOnlyFile)} = "read"\n${JSON.stringify(privateRoot)} = "deny"\n\n[permissions.${profile}.network]\nenabled = false\n`;
-writeFileSync(join(nativeHome,'config.toml'),owningConfig,{mode:0o600});
-// Actual Mobile launcher resolves codex from its trusted PATH. This wrapper only
-// execs the checksum-pinned native executable; it is not a second app-server.
-writeFileSync(join(bin,'codex'),`#!/bin/sh\nexec '${binary}' "$@"\n`,{mode:0o700});
-const controllerEnv={PATH:`${bin}:${dirname(process.execPath)}:/usr/bin:/bin`,HOME:nativeHome,CODEX_HOME:nativeHome,TMPDIR:'/tmp',LANG:'C.UTF-8'};
-const managerEnv={...controllerEnv,HOME:privateRoot};
+const profile='live-host-policy-proof',narrowProfile='live-host-policy-narrow';
+const captureId=randomUUID(),sessionId=randomUUID(),sourcePath=join(privateRoot,'actual-source-inventory.json');
+const metadataPaths=[];for(let path=app;;path=dirname(path)){metadataPaths.push(join(path,'.codex'));if(path==='/')break;}
+writeFileSync(join(app,'AGENTS.md'),'Use the registered app and preserve private state.\n',{mode:0o644});
+// Every Native invocation is through the reviewed managed CLI. The actual Mobile
+// launcher keeps its original ChildProcess; this fixed adapter adds no runtime.
+const quote=value=>"'"+value.replaceAll("'","'\\''")+"'";
+writeFileSync(join(bin,'codex'),`#!/bin/sh\n[ "$#" = 2 ] && [ "$1" = app-server ] && [ "$2" = --stdio ] || exit 64\nexec ${quote(manager)} cli -- --live-policy-owning-runtime --manifest ${quote(manifest)} --capture-id ${quote(captureId)}\n`,{mode:0o700});
+const controllerEnv={PATH:`${bin}:${dirname(process.execPath)}:/usr/bin:/bin`,HOME:privateRoot,CODEX_HOME:nativeHome,TMPDIR:'/tmp',LANG:'C.UTF-8'};
+const managerEnv={...controllerEnv};
 for(const name of Object.keys(process.env))delete process.env[name];Object.assign(process.env,controllerEnv);
+const stable=value=>JSON.stringify(value,(_key,item)=>item&&typeof item==='object'&&!Array.isArray(item)?Object.fromEntries(Object.keys(item).sort().map(key=>[key,item[key]])):item);
 const identity=pid=>{
  const raw=readFileSync(`/proc/${pid}/stat`,'utf8');
  return {pid,birth:raw.slice(raw.lastIndexOf(')')+2).split(' ')[19],uid:Number(readFileSync(`/proc/${pid}/status`,'utf8').match(/^Uid:\s+(\d+)/m)[1]),
  namespaces:Object.fromEntries(['mnt','user','pid'].map(name=>[name,readlinkSync(`/proc/${pid}/ns/${name}`)]))};
 };
 const report={schemaVersion:1,provenance,stage:'bootstrap',passed:false,checks:{},controller:identity(process.pid),
- limitations:['No provider/model credentials or native model-file-tool proof.','No production MCP admission or Live picker flow; L10/L11 remain separate gates.']};
-let runtime,caddy,unowned,active,extraFD,controllerAccepted=0;
+ limitations:['Controlled provider; genuine credential-dependent provider proof remains L11.','No production MCP admission or Live picker flow; L10/L11 remain separate gates.']};
+let runtime,caddy,unowned,active,extraFD,elected,providerFailure,thread,controllerAccepted=0;
 const server=createServer(peer=>{controllerAccepted++;peer.end();});
 async function waitFor(fn,budget=12000){const end=Date.now()+budget;while(Date.now()<end){try{const result=fn();if(result)return result;}catch{}await pause(50);}throw Error('PROOF_DEADLINE');}
 function managerCall(args){const result=spawn('bash',[manager,...args],{cwd:app,env:managerEnv,stdio:['ignore','pipe','pipe']});
@@ -105,9 +112,14 @@ async function childProgram() {
  checks.extraFD=true;
  for(let fd=3;fd<128;fd++){try{const info=fs.fstatSync(fd);if(info.dev===input.fdIdentity.dev&&info.ino===input.fdIdentity.ino)checks.extraFD=false;}catch{}}
  try{fs.writeFileSync(input.writeFile+'-'+depth,'public-write');checks.publicWrite=true;}catch(e){checks.publicWrite=false;}
+ if(input.metadataPath){checks.metadataInjection=true;for(const name of ['config.toml','hooks.json','rules','agents']){try{fs.writeFileSync(input.metadataPath+'/'+name,'injection');checks.metadataInjection=false;}catch(e){if(!['EACCES','EPERM','ENOENT','ENOTDIR','EROFS'].includes(e.code))checks.metadataInjection=false;}}}
  stage('controller-socket');checks.controllerSocket=await socketDenied(input.controllerSocket);stage('caddy-socket');checks.caddySocket=await socketDenied(input.caddySocket);stage('daemon');
  try{checks.daemonMask=(fs.lstatSync(input.daemon).mode&0o777)===0;}catch{checks.daemonMask=false;}
  try{fs.readdirSync(input.daemon);checks.daemon=false;}catch(e){checks.daemon=['EACCES','EPERM','ENOENT'].includes(e.code);}
+ if(depth===0&&input.publicSocket){
+  const code=`import os,socket,json\ntry:open(${JSON.stringify(input.privateFiles[0])}).read();raise Exception('DEVSERVER_PRIVATE_BREACH')\nexcept (PermissionError,FileNotFoundError):pass\ns=socket.socket(socket.AF_UNIX);s.bind(${JSON.stringify(input.publicSocket)});s.listen(8)\nprint(json.dumps({'kind':'devserver-ready','privateDenied':True,'pid':os.getpid()}),flush=True)\nwhile True:\n c,_=s.accept();c.recv(4096);body=open(${JSON.stringify(input.publicFile)},'rb').read();c.sendall(b'HTTP/1.1 200 OK\\r\\nConnection: close\\r\\nContent-Length: '+str(len(body)).encode()+b'\\r\\n\\r\\n'+body);c.close()\n`;
+  cp.spawn('/usr/bin/python3',['-u','-c',code],{stdio:['ignore','inherit','inherit']}).on('error',()=>stage('devserver-spawn-error'));
+ }
  stage('ordinary-command');const ordinary=cp.spawnSync('/usr/bin/true',[],{stdio:'ignore',timeout:2000});checks.ordinaryCommand=ordinary.status===0;
  process.stdout.write(JSON.stringify({kind:'probe-result',depth,checks,inputRoundtrip,uid:process.getuid(),pid:process.pid})+'\n');
  if(depth<2){stage('descendant-spawn');cp.spawn(process.execPath,[process.argv[1],process.argv[2],String(depth+1)],{stdio:'inherit',detached:depth===1}).on('error',()=>stage('descendant-spawn-error'));}
@@ -127,7 +139,7 @@ async function prepare(){save();const priorStage=report.stage;report.stage=prior
 
 async function launch(mode='hold') {
  const stdinChunks=['native input with spaces\n','second ','line\n'];
- const id=randomUUID(),input={mode,stdinExpected:stdinChunks.join(''),publicFile,readOnlyFile,writeFile:join(app,'written'),privateFiles:[auth,controlFile,manifest,key,join(nativeHome,'config.toml')],
+ const id=randomUUID(),input={mode,publicSocket:join(app,`public-devserver-${id}.sock`),metadataPath:join(app,'.codex'),stdinExpected:stdinChunks.join(''),publicFile,readOnlyFile,writeFile:join(app,'written'),privateFiles:[auth,controlFile,manifest,key,join(nativeHome,'config.toml')],
  controllerSocket:socket,caddySocket,daemon,fdIdentity:{dev:lstatSync(auth).dev,ino:lstatSync(auth).ino},aliases:[`/proc/${process.pid}/root${auth}`,`/proc/${process.pid}/fd/${extraFD}`,`/proc/self/root${auth}`]};
  m.commands.probe.args=[childFile,JSON.stringify(input)];await prepare();
  const child=spawn('bash',[manager,'live-policy','run','--manifest',manifest,'--command','probe','--launch-id',id],
@@ -137,7 +149,7 @@ async function launch(mode='hold') {
  const result={id,child,ended,path:join(privateRoot,`process-${id}.json`),messages:()=>output.split('\n').slice(0,-1).filter(Boolean).map(line=>JSON.parse(line)).filter(value=>value.kind==='probe-result'),
  state:()=>({closed,code:exitCode??null,signal:exitSignal??null,stdoutBytes:Buffer.byteLength(output),stderrBytes:Buffer.byteLength(stderr)}),diagnostic:()=>nativeDiagnostic(stderr,{policyDirectory:privateRoot,authentication:auth,controllerFile:controlFile,controllerSocket:socket,caddySocket,caddyConfig:join(privateRoot,'caddy.json'),manifest,key,runtimeHome:home,daemon})};
  child.stdout.on('data',()=>{try{report.probeStages=output.split('\n').slice(0,-1).filter(Boolean).map(line=>JSON.parse(line)).filter(value=>value.kind==='probe-stage').slice(0,40).map(value=>({depth:value.depth,stage:value.stage,pid:value.pid}));report.nativeResults=result.messages().filter(value=>Number.isInteger(value.depth)&&value.depth>=0&&value.depth<=2).map(value=>({depth:value.depth,uid:value.uid,pid:value.pid,checks:Object.fromEntries(Object.entries(value.checks??{}).filter(([,flag])=>typeof flag==='boolean'))}));}catch{report.nativeOutputMalformed=true;}});
- active=result;return result;
+ result.publicSocket=input.publicSocket;active=result;return result;
 }
 async function nativeMessages(launch){await Promise.race([waitFor(()=>launch.messages().filter(value=>Number.isInteger(value.depth)&&value.depth>=0&&value.depth<=2).length===3),launch.ended.then(()=>{throw Error('NATIVE_LAUNCH_EARLY_EXIT');})]);}
 function launchBoundary(launch){const state=launch.state();try{const body=JSON.parse(readFileSync(launch.path)).body;
@@ -163,80 +175,131 @@ async function closeOwned(child) {
 }
 async function stopped(launch){await Promise.race([launch.ended,pause(12000).then(()=>{throw Error('REAP_DEADLINE');})]);
  await waitFor(()=>JSON.parse(readFileSync(launch.path)).body.status==='exited');active=undefined;}
+const negativeKinds=['config','hooks','rules','agents','replacement','symlink','stale-owner','generation','session','race'];
+const cases=negativeKinds.map(kind=>({kind,app:join(root,`negative ${kind}`),directory:join(privateRoot,`case-${kind}`),profile:`live-case-${kind}`,capture:randomUUID(),session:randomUUID()}));
+for(const c of cases){mkdirSync(c.app,{mode:0o700});mkdirSync(c.directory,{mode:0o700});mkdirSync(join(c.directory,'worker'),{mode:0o700});writeFileSync(join(c.directory,'worker','config.toml'),isolatedConfig,{mode:0o600});writeFileSync(join(c.app,'AGENTS.md'),'Preserve private state.\n',{mode:0o644});}
+function nativeProfile(name,appRoot,write=true){
+ const metadata=[];for(let path=appRoot;;path=dirname(path)){metadata.push(join(path,'.codex'));if(path==='/')break;}
+ return `[permissions.${name}]\nextends = ":read-only"\n[permissions.${name}.filesystem]\n":root" = "read"\n${JSON.stringify(appRoot)} = "${write?'write':'read'}"\n${JSON.stringify(privateRoot)} = "deny"\n"/proc" = "deny"\n${JSON.stringify(daemon)} = "deny"\n${appRoot===app?JSON.stringify(readOnlyFile)+' = "read"\n':''}${metadata.map(path=>JSON.stringify(path)+' = "deny"\n').join('')}[permissions.${name}.network]\nenabled = false\n`;
+}
+function nativeState(appRoot,write=true){const metadata=[];for(let path=appRoot;;path=dirname(path)){metadata.push(join(path,'.codex'));if(path==='/')break;}
+ return {permissionProfile:{type:'managed',file_system:{type:'restricted',entries:[{path:{type:'special',value:{kind:'root'}},access:'read'},{path:{type:'path',path:appRoot},access:write?'write':'read'},{path:{type:'path',path:privateRoot},access:'deny'},{path:{type:'path',path:'/proc'},access:'deny'},{path:{type:'path',path:daemon},access:'deny'},...(appRoot===app?[{path:{type:'path',path:readOnlyFile},access:'read'}]:[]),...metadata.map(path=>({path:{type:'path',path},access:'deny'}))]},network:'restricted'},sandboxCwd:pathToFileURL(appRoot).href,useLegacyLandlock:false};}
+let publicSocket,publicIngress;
+let roleSteps=new Map(),modelThreads=new Set(),primaryThread,modelPhase='broad',providerRequests=0;
+const modelFinal=id=>({type:'response.output_item.done',item:{type:'message',role:'assistant',phase:'final_answer',id,content:[{type:'output_text',text:'Controlled confinement probe completed.'}]}});
+const flatten=(tools,namespace)=>tools.flatMap(tool=>tool.type==='namespace'?flatten(tool.tools,tool.name):[{...tool,namespace}]);
+function modelCall(tools,id,name,args,custom=false){const tool=tools.find(tool=>tool.name===name);assert.ok(tool,'NATIVE_TOOL_UNAVAILABLE');return {type:'response.output_item.done',item:{type:custom?'custom_tool_call':'function_call',call_id:id,name,input:custom?args:undefined,arguments:custom?undefined:JSON.stringify(args),...(tool.namespace?{namespace:tool.namespace}:{})}};}
+const modelProbe=role=>`import os,socket,json\nprivate=${JSON.stringify([auth,controlFile,key,manifest])}\nfor path in private+${JSON.stringify([`/proc/${process.pid}/root${auth}`,`/proc/${process.pid}/fd/7`,`/proc/self/root${auth}`])}:\n try:\n  open(path,'rb').read();raise Exception('PRIVATE_BREACH')\n except OSError as e:\n  assert e.errno in (1,2,13,20)\nfor path in ${JSON.stringify([socket,caddySocket])}:\n s=socket.socket(socket.AF_UNIX)\n try:\n  s.connect(path);raise Exception('SOCKET_BREACH')\n except OSError as e:\n  assert e.errno in (1,2,13,20)\n finally:s.close()\nfor name in ['config.toml','hooks.json','rules','agents']:\n try:\n  open(${JSON.stringify(join(app,'.codex'))}+'/'+name,'w').write('injection');raise Exception('METADATA_BREACH')\n except OSError as e:\n  assert e.errno in (1,2,13,20,30)\nassert open(${JSON.stringify(publicFile)}).read()=='public-fixture'\nassert not any(('TOKEN' in k or 'SECRET' in k or 'API_KEY' in k) for k in os.environ)\nassert os.stat(${JSON.stringify(daemon)}).st_mode & 511 == 0\nprint('native-private-and-metadata-denied')\n`;
+async function modelEvent(body){
+ assert.equal(body.model,'gpt-6-sol');const tid=body.client_metadata?.thread_id;assert.equal(typeof tid,'string');modelThreads.add(tid);
+ const role=tid===primaryThread?'root':tid,step=roleSteps.get(role)??0;roleSteps.set(role,step+1);
+ const tools=flatten([...(body.tools??[]),...(body.input??[]).filter(x=>x.type==='additional_tools').flatMap(x=>x.tools??[])]);
+ if(step===0)return modelCall(tools,`${role}-0`,'exec_command',{cmd:`/usr/bin/python3 -c ${quote(modelProbe(role))}`,workdir:app,yield_time_ms:1000,max_output_tokens:1000});
+ if(step===1){assert.ok(JSON.stringify(body.input).includes('native-private-and-metadata-denied'));return modelCall(tools,`${role}-1`,'apply_patch',`*** Begin Patch\n*** Add File: ${join(app,`model-${role.replace(/[^a-z0-9-]/gi,'')}.txt`)}\n+permitted-model-file-tool\n*** End Patch`,true);}
+ if(step===2)return modelCall(tools,`${role}-2`,'apply_patch',`*** Begin Patch\n*** Add File: ${join(privateRoot,`forbidden-${role.replace(/[^a-z0-9-]/gi,'')}.txt`)}\n+forbidden\n*** End Patch`,true);
+ if(role==='root'&&step===3){const tool=tools.find(t=>t.name==='spawn_agent');assert.ok(tool,'NATIVE_CHILD_TOOL_UNAVAILABLE');const p=tool.parameters?.properties??{};return modelCall(tools,`${role}-3`,'spawn_agent',{message:'Run the controlled inherited confinement probe and finish.',agent_type:'default',...(p.fork_turns?{fork_turns:'none'}:{fork_context:false}),...(p.task_name?{task_name:'native_confined_probe'}:{})});}
+ if(role==='root'&&step===4)await waitFor(()=>[...roleSteps].some(([name,count])=>name!=='root'&&count>=4),20000);
+ return modelFinal(`${role}-final`);
+}
+const provider=createHttpServer(async(req,res)=>{try{
+ if(req.method==='GET'&&req.url?.startsWith('/v1/models')){res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify({data:[{id:'gpt-6-sol',object:'model',owned_by:'controlled'}]}));return;}
+ assert.equal(req.method,'POST');assert.equal(req.url,'/v1/responses');let size=0,chunks=[];for await(const chunk of req){size+=chunk.length;assert.ok(size<4*1024*1024);chunks.push(chunk);}
+ const raw=Buffer.concat(chunks),encoding=req.headers['content-encoding'],decode={gzip:gunzipSync,deflate:inflateSync,zstd:zstdDecompressSync}[encoding];assert.ok(!encoding||encoding==='identity'||decode);const bytes=decode?decode(raw,{maxOutputLength:4*1024*1024}):raw;
+ assert.ok(!bytes.includes(Buffer.from('private-auth-fixture')));assert.ok(++providerRequests<=40);const event=await modelEvent(JSON.parse(bytes)),id=`l9-native-${providerRequests}`;
+ res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-store'});for(const data of [{type:'response.created',response:{id}},event,{type:'response.completed',response:{id,usage:{input_tokens:1,output_tokens:1,total_tokens:2}}}])res.write(`event: ${data.type}\ndata: ${JSON.stringify(data)}\n\n`);res.end();
+ }catch{providerFailure=true;res.writeHead(500);res.end('controlled-provider-failed');}});
+function filePin(path){const info=lstatSync(path);return {sha256:hash(readFileSync(path)),identity:{dev:info.dev,ino:info.ino,uid:info.uid,mode:info.mode,ctime:info.ctimeMs,mtime:info.mtimeMs}};}
+function folderPin(path){const info=lstatSync(path);return {dev:info.dev,ino:info.ino,uid:info.uid,mode:info.mode,ctime:info.ctimeMs,mtime:info.mtimeMs,birthtime:info.birthtimeMs};}
+function manifestFor(appRoot,directory,profileId,session){return {schemaVersion:2,profileId,appRoot,controller:report.controller,election:report.election,generation:{sessionId:session,generation:1},owningRuntime:{args:['app-server','--stdio'],home:nativeHome},binary:{path:binary,version:'0.161.0',sha256:expectedBinary},sandboxState:nativeState(appRoot),configFiles:[join(directory,'worker','config.toml'),join(nativeHome,'config.toml')].map(path=>({path,sha256:hash(readFileSync(path))})),components:{manager:commit,mobile:mobilePin,agents:agentsPin},privatePaths:{auth:[auth],controller:[privateRoot],caddy:[caddySocket,join(privateRoot,'caddy.json')],daemon:[daemon]},keyFile:key,runtimeHome:join(directory,'worker'),environment:{PATH:'/usr/bin:/bin',HOME:join(directory,'worker'),TMPDIR:'/tmp'},commands:{probe:{executable:admittedNode,sha256:hash(readFileSync(admittedNode)),args:[],timeoutMs:20000}}};}
+async function callFor(path,args){return await managerCall(['live-policy',...args.slice(0,1),'--manifest',path,...args.slice(1)]);}
+async function captureFor(value,path,id){writeFileSync(path,JSON.stringify(value),{mode:0o600});const result=await callFor(path,['capture-runtime','--capture-id',id]);assert.equal(result.code,0,JSON.stringify(managerResultDiagnostic(result)));return JSON.parse(result.stdout);}
+async function actualSources(value,path,id,startReply,captured){
+ const configuration=await rpc('config/read',{cwd:value.appRoot,includeLayers:true});assert.ok(configuration.config&&Array.isArray(configuration.layers)&&configuration.layers.length);
+ assert.equal(configuration.config.features.hooks,false);assert.deepEqual(configuration.config.mcp_servers??{},{});assert.deepEqual(configuration.config.plugins??{},{});
+ const declared=configuration.config.permissions?.[value.profileId];assert.ok(declared);assert.equal(declared.extends,':read-only');assert.equal(declared.network.enabled,false);
+ const expectedFilesystem=Object.fromEntries(value.sandboxState.permissionProfile.file_system.entries.map(entry=>[entry.path.type==='special'?':root':entry.path.path,entry.access]));
+ assert.deepEqual(declared.filesystem,expectedFilesystem);assert.equal(startReply.activePermissionProfile?.extends,':read-only');
+ assert.equal(startReply.activePermissionProfile?.id,value.profileId);assert.equal(startReply.cwd,value.appRoot);assert.ok(startReply.instructionSources.includes(join(value.appRoot,'AGENTS.md')));
+ const pins=new Map(value.configFiles.map(file=>[file.path,file]));let sources=[];const presentFiles=new Set();
+ for(const layer of configuration.layers){assert.equal(typeof layer.version,'string');const name=layer.name;assert.ok(name&&typeof name.type==='string');
+  if(name.type==='sessionFlags')continue;
+  if(name.type==='project'){assert.ok(typeof name.dotCodexFolder==='string');assert.ok(name.dotCodexFolder===join(value.appRoot,'.codex')||value.appRoot.startsWith(dirname(name.dotCodexFolder)+'/'));assert.deepEqual(layer.config,{});continue;}
+  assert.ok(['user','system','packagedDefaults','legacyManagedConfigTomlFromFile'].includes(name.type),'UNKNOWN_NATIVE_SOURCE');assert.equal(typeof name.file,'string');
+  if(!existsSync(name.file)){assert.equal(Object.keys(layer.config).length,0);assert.ok(['/etc/codex/config.toml','/etc/codex/managed_config.toml','/etc/codex/requirements.toml'].includes(name.file),'UNSUPPORTED_ABSENT_SOURCE');continue;}
+  assert.ok(pins.has(name.file),'UNINVENTORIED_NATIVE_FILE');presentFiles.add(name.file);sources.push({kind:'file',role:name.type==='user'?'user':name.type==='system'?'system':name.type==='packagedDefaults'?'packaged-defaults':'managed',...pins.get(name.file)});
+ }
+ assert.ok(presentFiles.has(join(nativeHome,'config.toml')));sources.push({kind:'file',role:'sandbox-worker',...pins.get(join(value.runtimeHome,'config.toml'))});
+ const before=JSON.parse(readFileSync(join(dirname(path),`birth-${id}.json`))).body;
+ for(const entry of before.directories)sources.push(existsSync(entry.path)?{kind:'directory',role:'project',path:entry.path,identity:folderPin(entry.path)}:{kind:'absent',role:'project',path:entry.path});
+ for(const file of ['/etc/codex/config.toml','/etc/codex/managed_config.toml','/etc/codex/requirements.toml'])sources.push({kind:'absent',role:'system',path:file});
+ for(const file of startReply.instructionSources)sources.push({kind:'instruction',path:file,...filePin(file)});
+ const flags=Object.fromEntries(['model','modelProvider','cwd','approvalPolicy','activePermissionProfile','sandbox','reasoningEffort','runtimeWorkspaceRoots','instructionSources'].filter(key=>Object.hasOwn(startReply,key)).map(key=>[key,startReply[key]]));
+ const inventory={schemaVersion:2,runtime:identity(runtime.child.pid),policyDigest:captured.policyDigest,effectiveConfigDigest:hash(stable(configuration.config)),sessionFlagsDigest:hash(stable(flags)),sources};
+ const inventoryFile=join(dirname(path),`sources-${id}.json`);writeFileSync(inventoryFile,JSON.stringify(inventory),{mode:0o600});const seal=await callFor(path,['seal-runtime','--capture-id',id,'--runtime-pid',String(runtime.child.pid),'--sources',inventoryFile]);assert.equal(seal.code,0,JSON.stringify(managerResultDiagnostic(seal)));
+ value.runtimeProvenance={captureId:id,effectiveConfigDigest:inventory.effectiveConfigDigest,sessionFlagsDigest:inventory.sessionFlagsDigest};writeFileSync(path,JSON.stringify(value),{mode:0o600});
+ return {configuration,inventory,startReply,inventoryDigest:hash(stable(inventory))};
+}
+async function startupAt(value){let sampling=false;const sightings=[];
+ const timer=setInterval(()=>{if(sampling)return;sampling=true;try{for(const pid of readdirSync('/proc').filter(x=>/^\d+$/.test(x))){try{const args=readFileSync(`/proc/${pid}/cmdline`).toString().split('\0');if(args.includes('--codex-run-as-fs-helper')&&readlinkSync(`/proc/${pid}/exe`)===binary){const processIdentity=identity(Number(pid));if(!sightings.some(x=>x.pid===processIdentity.pid&&x.birth===processIdentity.birth))sightings.push(processIdentity);}}catch{}}}finally{sampling=false;}},10);
+ let reply;try{reply=await rpc('thread/start',{cwd:value.appRoot,permissions:value.profileId,approvalPolicy:'never',model:'gpt-6-sol',modelProvider:'controlled'});}finally{clearInterval(timer);}assert.equal(typeof reply.thread?.id,'string');report.startupFilesystemHelpers=(report.startupFilesystemHelpers??[]).concat(sightings);return reply;}
 try {
- assert.equal(hash(readFileSync(manager)),provenance.files['public/gestalt']);report.checks.managerInstalledBytes=true;
- assert.equal(provenance.binarySha256,expectedBinary);report.checks.binaryPinned=true;
- await new Promise((done,reject)=>{server.once('error',reject);server.listen(socket,done);});
- const caddyConfig=join(privateRoot,'caddy.json');writeFileSync(caddyConfig,JSON.stringify({admin:{listen:'unix/'+caddySocket},apps:{http:{servers:{fixture:{listen:['127.0.0.1:0'],routes:[{handle:[{handler:'static_response',body:'fixture'}]}]}}}}}),{mode:0o600});
- caddy=spawn(caddyBinary,['run','--config',caddyConfig],{env:controllerEnv,stdio:'ignore'});await waitFor(()=>lstatSync(caddySocket).isSocket());assert.equal(await api(),200);
- report.checks.actualCaddyHostAuthority=true;report.caddy={binarySha256:hash(readFileSync(caddyBinary)),version:execFileSync(caddyBinary,['version'],{env:controllerEnv,encoding:'utf8'}).trim()};
+ assert.equal(hash(readFileSync(manager)),provenance.files['public/gestalt']);assert.equal(provenance.binarySha256,expectedBinary);report.checks.managerInstalledBytes=true;report.checks.binaryPinned=true;
+ const {electLiveController}=await import(pathToFileURL(electionModule).href);elected=await electLiveController({privateDirectory:privateRoot,controllerId:'l9-proof',initialize:true});
+ const holderPid=Number(readFileSync(`/proc/${process.pid}/task/${process.pid}/children`,'utf8').trim().split(/\s+/).find(pid=>{try{return readFileSync(`/proc/${pid}/cmdline`,'utf8').includes('elected');}catch{return false;}}));assert.ok(holderPid);report.election={holder:identity(holderPid),lockFile:join(privateRoot,'controller.lock')};report.checks.existingMobileElection=true;
+ await new Promise(done=>server.listen(socket,done));const caddyConfig=join(privateRoot,'caddy.json');writeFileSync(caddyConfig,JSON.stringify({admin:{listen:'unix/'+caddySocket},apps:{http:{servers:{fixture:{listen:['127.0.0.1:0'],routes:[{handle:[{handler:'static_response',body:'fixture'}]}]}}}}}),{mode:0o600});
+ caddy=spawn(caddyBinary,['run','--config',caddyConfig],{env:controllerEnv,stdio:'ignore'});await waitFor(()=>existsSync(caddySocket));assert.equal(await api(),200);report.checks.actualCaddyHostAuthority=true;
+ await new Promise(done=>provider.listen(0,'127.0.0.1',done));const providerPort=provider.address().port;
+ const allApps=[app,...cases.map(c=>c.app)];const owningConfig=`model = "gpt-6-sol"\nmodel_provider = "controlled"\nmodel_reasoning_effort = "medium"\napproval_policy = "never"\ndefault_permissions = "${profile}"\nmcp_servers = {}\nplugins = {}\n[shell_environment_policy]\ninherit = "none"\n[model_providers.controlled]\nname = "Controlled Native proof"\nbase_url = "http://127.0.0.1:${providerPort}/v1"\nwire_api = "responses"\nrequires_openai_auth = false\n[features]\nshell_snapshot = false\nshell_snapshot_v2 = false\ndaemon_auto_start = false\ncode_mode = false\nmulti_agent = true\nmulti_agent_v2 = true\nhooks = false\n${allApps.map(path=>`[projects.${JSON.stringify(path)}]\ntrust_level = "trusted"\n`).join('')}${nativeProfile(profile,app)}${nativeProfile(narrowProfile,app,false)}${cases.map(c=>nativeProfile(c.profile,c.app)).join('')}`;writeFileSync(join(nativeHome,'config.toml'),owningConfig,{mode:0o600});
+ const worker=join(privateRoot,'worker');mkdirSync(worker,{mode:0o700});writeFileSync(join(worker,'config.toml'),isolatedConfig,{mode:0o600});m=manifestFor(app,privateRoot,profile,sessionId);save();
+ report.stage='managed-native-bootstrap';const bootstrap=await managerCall(['cli','--','--live-policy-bootstrap','--manifest',manifest]);report.bootstrap=managerResultDiagnostic(bootstrap);assert.equal(bootstrap.code,0);assert.equal(lstatSync(daemon).mode&0o777,0o700);report.checks.stockNativeHostBootstrap=true;
+ report.stage='absence-before-owned-birth';const captured=await captureFor(m,manifest,captureId);for(const c of cases){c.manifest=join(c.directory,'manifest.json');c.value=manifestFor(c.app,c.directory,c.profile,c.session);c.captured=await captureFor(c.value,c.manifest,c.capture);}
+ report.checks.absentBeforeOriginalBirth=true;
  const {launchCodexAppServer}=await import(pathToFileURL(mobileModule).href);runtime=launchCodexAppServer({profile:'default',cwd:app,environment:controllerEnv});runtime.child.stderr.on('data',()=>{});
- await rpc('initialize',{clientInfo:{name:'l9_host_policy_proof',version:'1'},capabilities:{experimentalApi:true}});
- runtime.child.stdin.write(JSON.stringify({method:'initialized',params:{}})+'\n');
- report.appServer=identity(runtime.child.pid);assert.equal(hash(readFileSync(`/proc/${runtime.child.pid}/exe`)),expectedBinary);
- assert.equal(report.appServer.namespaces.mnt,report.controller.namespaces.mnt);report.checks.actualMobilePrivateStdio=true;
+ await rpc('initialize',{clientInfo:{name:'l9_actual_provenance_proof',version:'2'},capabilities:{experimentalApi:true}});runtime.child.stdin.write(JSON.stringify({method:'initialized',params:{}})+'\n');
+ report.appServer=identity(runtime.child.pid);assert.equal(readlinkSync(`/proc/${runtime.child.pid}/exe`),binary);assert.equal(hash(readFileSync(`/proc/${runtime.child.pid}/exe`)),expectedBinary);report.checks.originalOwningNativeIdentity=true;
  const hostRead=await rpc('fs/readFile',{path:auth});assert.equal(hostRead.dataBase64,Buffer.from('private-auth-fixture').toString('base64'));report.checks.controllerFsAuthority=true;
- const profiles=await rpc('permissionProfile/list',{cwd:app});assert.ok(profiles.data.some(value=>value.id===profile&&value.allowed));report.checks.namedProfileAllowed=true;
- report.nativeAliasPrerequisite={runtimeHomeOutsideTemporaryRoot:!nativeHome.startsWith('/tmp/'),runtimeHomeMode:(lstatSync(nativeHome).mode&0o777).toString(8),helperAliasesCreated:existsSync(join(nativeHome,'tmp','arg0'))};assert.equal(report.nativeAliasPrerequisite.runtimeHomeOutsideTemporaryRoot,true);assert.equal(report.nativeAliasPrerequisite.helperAliasesCreated,true);
- report.stage='native-bootstrap';
- try{report.daemonBefore={mode:(lstatSync(daemon).mode&0o777).toString(8)};}catch(error){report.daemonBefore={reason:error.code};}
- const bootstrap=await rpc('command/exec',{command:['/usr/bin/true'],cwd:app,permissionProfile:profile,timeoutMs:12000,outputBytesCap:1024});
- report.bootstrapExitCode=bootstrap.exitCode;
- if(bootstrap.exitCode!==0){report.bootstrapDiagnostic=nativeDiagnostic(String(bootstrap.stderr??''));throw Error('NATIVE_BOOTSTRAP_REFUSED');}
- assert.equal(lstatSync(daemon).mode&0o777,0o700);report.checks.stockNativeHostBootstrap=true;
- report.stage='native-node-baseline';const baseline=await rpc('command/exec',{command:[admittedNode,'-e',"process.stdout.write('native-node-startup\\n')"],cwd:app,permissionProfile:profile,timeoutMs:3000,outputBytesCap:512});
- report.nativeNodeBaseline={exitCode:baseline.exitCode,startup:baseline.stdout==='native-node-startup\n',diagnostic:nativeDiagnostic(String(baseline.stderr??''))};
- assert.equal(report.nativeNodeBaseline.exitCode,0);assert.equal(report.nativeNodeBaseline.startup,true);
- report.nodeInterpreter={sha256:hash(readFileSync(admittedNode)),sourceSha256:hash(readFileSync(process.execPath)),sourceMode:(lstatSync(realpathSync(process.execPath)).mode&0o777).toString(8),sourcePathCanonical:realpathSync(process.execPath)===process.execPath,version:process.version};
- assert.equal(report.nodeInterpreter.sha256,report.nodeInterpreter.sourceSha256);
- extraFD=openSync(auth,'r');
- unowned=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{env:controllerEnv,stdio:'ignore'});
- m={schemaVersion:1,profileId:profile,appRoot:app,controller:report.controller,binary:{path:binary,version:'0.161.0',sha256:expectedBinary},
- sandboxState:{permissionProfile:{type:'managed',file_system:{type:'restricted',entries:[{path:{type:'special',value:{kind:'root'}},access:'read'},{path:{type:'path',path:app},access:'write'},{path:{type:'path',path:privateRoot},access:'deny'},{path:{type:'path',path:readOnlyFile},access:'read'}]},network:'restricted'},sandboxCwd:pathToFileURL(app).href,useLegacyLandlock:false},
- configFiles:[join(home,'config.toml'),join(nativeHome,'config.toml')].map(path=>({path,sha256:hash(readFileSync(path))})),components:{manager:commit,mobile:mobilePin,agents:agentsPin},
- privatePaths:{auth:[auth],controller:[privateRoot,socket],caddy:[caddySocket,caddyConfig],daemon:[daemon]},keyFile:key,runtimeHome:home,
- environment:{PATH:'/usr/bin:/bin',HOME:home,TMPDIR:'/tmp'},commands:{probe:{executable:admittedNode,sha256:hash(readFileSync(admittedNode)),args:[],timeoutMs:20000}}};
- report.stage='native-descendants';
- const first=await launch();report.stage='native-descendants/messages';
- await nativeMessages(first);
- const messages=first.messages();report.nativeResults=messages;
- const roundtrip=messages.find(value=>value.depth===0).inputRoundtrip;assert.equal(roundtrip.matches,true);assert.equal(roundtrip.eof,true);assert.equal(roundtrip.fifo,true);assert.ok(roundtrip.chunks>=2);assert.equal(roundtrip.bytes,Buffer.byteLength('native input with spaces\nsecond line\n'));report.checks.projectInputRoundtrip=true;for(const value of messages)assert.ok(Object.values(value.checks).every(Boolean));
- assert.ok(messages.every(value=>value.uid===process.getuid()));report.checks.publicAndPrivateAllGenerations=true;
- report.owned=ownedPids(childFile);assert.ok(report.owned.length>=3);assert.equal(controllerAccepted,0);
- const verified=await managerCall(['live-policy','verify-process','--manifest',manifest,'--launch-id',first.id]);assert.equal(verified.code,0);
- const firstReceipt=JSON.parse(readFileSync(first.path)).body;report.launch={launchId:first.id,owner:firstReceipt.owner,process:firstReceipt.process,contractDigest:firstReceipt.contractDigest,
- policyDigest:firstReceipt.policy.policyDigest,configDigest:firstReceipt.policy.configDigest,manager:firstReceipt.policy.manager};
- assert.equal(firstReceipt.policy.manager.sha256,provenance.files['public/gestalt']);
- report.checks.processBoundReceipt=true;
- const busy=await managerCall(['live-policy','prepare','--manifest',manifest]);assert.equal(JSON.parse(busy.stdout).reason,'active-launch');report.checks.noPolicyReplacementWhileActive=true;
- report.stage='permission-narrowing';m.sandboxState.permissionProfile.file_system.entries[1].access='read';save();await stopped(first);
- assert.equal(JSON.parse(readFileSync(first.path)).body.termination,'policy-changed');await waitFor(()=>report.owned.every(dead));report.checks.narrowingReapsDescendants=true;
- const stale=await managerCall(['live-policy','verify-process','--manifest',manifest,'--launch-id',first.id]);assert.equal(stale.code,1);report.checks.staleReceiptRefused=true;
- const narrow=await launch();await nativeMessages(narrow);
- assert.ok(narrow.messages().every(value=>!value.checks.publicWrite&&value.checks.publicRead&&value.checks.privateFiles));report.checks.narrowedPolicyEnforced=true;
- assert.equal((await managerCall(['live-policy','stop','--manifest',manifest,'--launch-id',narrow.id])).code,0);await stopped(narrow);
- report.stage='owner-death';m.sandboxState.permissionProfile.file_system.entries[1].access='write';const orphan=await launch();await nativeMessages(orphan);
- const orphanPids=ownedPids(childFile);orphan.child.kill('SIGKILL');await stopped(orphan);await waitFor(()=>orphanPids.every(dead));report.checks.ownerDeathReaps=true;
- report.stage='leader-exit';const leader=await launch('leader-exit');await stopped(leader);assert.equal(JSON.parse(readFileSync(leader.path)).body.termination,'leader-exit');
- await waitFor(()=>ownedPids(childFile).length===0);report.checks.leaderExitReapsDetachedGrandchild=true;
- process.kill(unowned.pid,0);assert.equal(await api(),200);assert.equal(lstatSync(daemon).mode&0o777,0o700);
- const retained=await rpc('fs/readFile',{path:auth});assert.equal(retained.dataBase64,hostRead.dataBase64);report.checks.ownedOnlyCleanupAndHostAuthority=true;
- writeFileSync(join(evidence,'effective-policy.json'),JSON.stringify(JSON.parse(readFileSync(join(privateRoot,'policy-receipt.json'))).body.sandboxState,null,2)+'\n');
+ report.stage='actual-original-startup';const initial=await startupAt(m);thread=initial.thread.id;primaryThread=thread;const observed=await actualSources(m,manifest,captureId,initial,captured);
+ assert.ok(existsSync(join(app,'.codex')),'NATIVE_STARTUP_DID_NOT_CREATE_METADATA');assert.equal(readdirSync(join(app,'.codex')).length,0);assert.ok(initial.instructionSources.includes(join(app,'AGENTS.md')));report.checks.actualNativeStartupMetadata=true;report.checks.projectInstructionsLoaded=true;report.appliedFeatures={shellSnapshot:observed.configuration.config.features.shell_snapshot,shellSnapshotV2:observed.configuration.config.features.shell_snapshot_v2,hooks:observed.configuration.config.features.hooks};
+ report.sources={nativeLayerKinds:observed.configuration.layers.map(layer=>layer.name.type),directoryCount:observed.inventory.sources.filter(source=>source.kind==='directory').length,instructionCount:initial.instructionSources.length,inventoryDigest:observed.inventoryDigest,effectiveConfigDigest:observed.inventory.effectiveConfigDigest,sessionFlagsDigest:observed.inventory.sessionFlagsDigest};
+ report.stage='native-model-and-child-tools';await prepare();let completed=false;const off=runtime.rpc.onNotification(message=>{if(message.method==='turn/completed'&&message.params?.threadId===thread)completed=true;});
+ await rpc('turn/start',{threadId:thread,input:[{type:'text',text:'Run the controlled native confinement probe.'}]});await waitFor(()=>completed||providerFailure,90000);off();assert.equal(providerFailure,undefined);assert.ok(modelThreads.size>=2);assert.ok(roleSteps.get('root')>=5);
+ assert.ok(existsSync(join(app,'model-root.txt')));assert.equal(readdirSync(privateRoot).some(name=>name.startsWith('forbidden-')),false);report.checks.actualNativeModelFileTools=true;report.checks.actualNativeChildAgentInheritance=true;report.model={provider:'controlled',requests:providerRequests,threads:modelThreads.size};
+ report.stage='native-helper-and-grandchildren';extraFD=openSync(auth,'r');unowned=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{env:controllerEnv,stdio:'ignore'});
+ const first=await launch();await nativeMessages(first);
+ await waitFor(()=>existsSync(first.publicSocket));publicSocket=first.publicSocket;
+ publicIngress=createHttpServer((req,res)=>{if(req.method!=='GET'||req.url!=='/'){res.writeHead(404);res.end();return;}
+  const upstream=httpRequest({socketPath:publicSocket,path:'/',method:'GET'},incoming=>{res.writeHead(incoming.statusCode,{'content-type':'text/plain'});incoming.pipe(res);});upstream.on('error',()=>{res.writeHead(503);res.end();});upstream.end();});
+ await new Promise(done=>publicIngress.listen(0,'127.0.0.1',done));const ingressPort=publicIngress.address().port;
+ const appBody=await new Promise((done,reject)=>{const request=httpRequest({hostname:'127.0.0.1',port:ingressPort,path:'/'},incoming=>{let text='';incoming.on('data',chunk=>text+=chunk);incoming.on('end',()=>done(text));});request.on('error',reject);request.end();});
+ assert.equal(appBody,'public-fixture');report.checks.actualConfinedDevserverAndRegisteredLoopbackIngress=true;
+ report.devserver={nativeTransport:'public Unix HTTP socket',registeredIngress:'loopback TCP',privateDenied:true};assert.ok(first.messages().every(frame=>Object.values(frame.checks).every(Boolean)));report.nativeResults=first.messages();report.checks.helperAndGrandchildConfinement=true;
+ assert.equal((await managerCall(['live-policy','verify-process','--manifest',manifest,'--launch-id',first.id])).code,0);
+ report.stage='permission-narrowing';m.sandboxState=nativeState(app,false);save();await stopped(first);await waitFor(()=>ownedPids(childFile).every(dead));assert.equal(JSON.parse(readFileSync(first.path)).body.termination,'policy-changed');
+ assert.equal((await managerCall(['live-policy','prepare','--manifest',manifest])).code,1);report.checks.narrowingRevokesAndRefusesStaleAdmission=true;
+ const narrowed=await rpc('command/exec',{cwd:app,permissionProfile:narrowProfile,command:['/usr/bin/python3','-c',`import pathlib\np=pathlib.Path(${JSON.stringify(join(app,'narrow-forbidden'))})\ntry:p.write_text('forbidden');raise Exception('WRITE_BREACH')\nexcept PermissionError:pass\ntry:open(${JSON.stringify(auth)}).read();raise Exception('PRIVATE_BREACH')\nexcept (PermissionError,FileNotFoundError):pass\nprint('narrowed-native-denied')`],timeoutMs:8000,outputBytesCap:1000});assert.equal(narrowed.exitCode,0);assert.ok(narrowed.stdout.includes('narrowed-native-denied'));report.checks.actualNarrowedNativePolicy=true;m.sandboxState=nativeState(app);save();
+ const eof=await launch();await nativeMessages(eof);eof.child.kill('SIGKILL');await stopped(eof);await waitFor(()=>ownedPids(childFile).every(dead));report.checks.callerDeathReaps=true;
+ const leader=await launch('leader-exit');await stopped(leader);await waitFor(()=>ownedPids(childFile).length===0);report.checks.detachedGrandchildReaped=true;
+ process.kill(unowned.pid,0);assert.equal(await api(),200);assert.equal((await rpc('fs/readFile',{path:auth})).dataBase64,hostRead.dataBase64);report.checks.ownedOnlyCleanupAndControllerAuthority=true;
+ report.stage='actual-provenance-negative-matrix';report.negative={};
+ for(const c of cases){const started=await startupAt(c.value);await actualSources(c.value,c.manifest,c.capture,started,c.captured);assert.equal((await callFor(c.manifest,['prepare'])).code,0);const metadata=join(c.app,'.codex');assert.ok(existsSync(metadata));
+  if(['config','hooks','rules','agents'].includes(c.kind)){const name={config:'config.toml',hooks:'hooks.json',rules:'rules',agents:'agents'}[c.kind];writeFileSync(join(metadata,name),'injected-native-source');}
+  if(c.kind==='replacement'){renameSync(metadata,metadata+'-original');mkdirSync(metadata,{mode:0o755});}
+  if(c.kind==='symlink'){renameSync(metadata,metadata+'-original');symlinkSync(privateRoot,metadata);}
+  if(c.kind==='stale-owner'){const receiptPath=join(c.directory,`runtime-${c.capture}.json`),r=JSON.parse(readFileSync(receiptPath));r.body.runtime.process.birth='0';writeFileSync(receiptPath,JSON.stringify(r),{mode:0o600});}
+  if(c.kind==='generation')c.value.generation.generation++;
+  if(c.kind==='session')c.value.generation.sessionId=randomUUID();
+  if(c.kind==='race'){const racer=spawn(process.execPath,['-e',`const fs=require('node:fs'),p=${JSON.stringify(metadata)};for(let i=0;i<8;i++){fs.renameSync(p,p+'-race-'+i);fs.mkdirSync(p,{mode:0o755});}`],{stdio:'ignore',env:controllerEnv});await new Promise(done=>racer.once('close',done));assert.equal(racer.exitCode,0);}
+  writeFileSync(c.manifest,JSON.stringify(c.value),{mode:0o600});const result=await callFor(c.manifest,['verify']);assert.equal(result.code,1);const reason=JSON.parse(result.stdout).reason;assert.ok(['metadata-content-present','metadata-changed','symlink-path','tampered-receipt','revoked-runtime-provenance'].includes(reason),reason);report.negative[c.kind]={passed:true,reason};
+ }
+ report.checks.nativeBornInjectionReplacementLifetimeSessionMatrix=true;
+ report.stage='actual-owning-runtime-loss';const orphan=await launch();await nativeMessages(orphan);runtime.child.kill('SIGKILL');await stopped(orphan);await waitFor(()=>ownedPids(childFile).every(dead));assert.equal((await managerCall(['live-policy','verify','--manifest',manifest])).code,1);report.checks.owningRuntimeLossRevokesWorkers=true;
  report.stage='complete';report.passed=true;
-} catch(error) {
- report.failureDetail={stage:report.stage,assertion:error.operator,actual:typeof error.actual==='number'||typeof error.actual==='boolean'?error.actual:undefined,expected:typeof error.expected==='number'||typeof error.expected==='boolean'?error.expected:undefined};
- report.failure=error.code??(/^[A-Z_]+$/.test(error.message)?error.message:'ASSERTION_FAILED');
- if(active){report.nativeDiagnostic=active.diagnostic();report.launchBoundary=launchBoundary(active);report.ownedProcessSnapshot=ownedProcessSnapshot(active);report.runtimeHomeAudit={mode:(lstatSync(home).mode&0o777).toString(8),configUnchanged:hash(readFileSync(join(home,'config.toml')))===m.configFiles[0].sha256,prohibited:Object.fromEntries(['auth.json','AGENTS.md','hooks.json','hooks','plugins','skills','.codex'].map(name=>[name,existsSync(join(home,name))]))};}process.exitCode=1;
+} catch(error){report.failureDetail={stage:report.stage,assertion:error.operator,actual:typeof error.actual==='number'||typeof error.actual==='boolean'?error.actual:undefined,expected:typeof error.expected==='number'||typeof error.expected==='boolean'?error.expected:undefined};report.failure=error.code??(/^[A-Z_]+$/.test(error.message)?error.message:'ASSERTION_FAILED');if(active){report.nativeDiagnostic=active.diagnostic();report.launchBoundary=launchBoundary(active);report.ownedProcessSnapshot=ownedProcessSnapshot(active);}process.exitCode=1;
 } finally {
- if(active){try{await managerCall(['live-policy','stop','--manifest',manifest,'--launch-id',active.id]);await stopped(active);}catch{report.passed=false;process.exitCode=1;active.child.kill('SIGTERM');}}
- if(extraFD!==undefined)closeSync(extraFD);
- try {
-  report.checks.ownedControllerShutdown=await closeOwned(runtime?.child);
-  report.checks.ownedCaddyShutdown=await closeOwned(caddy);
-  await closeOwned(unowned);
- } catch {report.passed=false;report.failure='OWNED_SHUTDOWN_FAILED';process.exitCode=1;}
- await new Promise(done=>server.close(done));
- writeFileSync(join(evidence,'native-proof.json'),JSON.stringify(report,null,2)+'\n');
- rmSync(root,{recursive:true,force:true});
+ if(active){try{await managerCall(['live-policy','stop','--manifest',manifest,'--launch-id',active.id]);await stopped(active);}catch{report.passed=false;process.exitCode=1;await closeOwned(active.child);}}
+ if(extraFD!==undefined)closeSync(extraFD);try{await closeOwned(runtime?.child);await closeOwned(caddy);await closeOwned(unowned);await elected?.close();report.checks.ownedShutdown=true;}catch{report.passed=false;report.failure='OWNED_SHUTDOWN_FAILED';process.exitCode=1;}
+ if(publicIngress?.listening)await new Promise(done=>publicIngress.close(done));
+ if(provider.listening)await new Promise(done=>provider.close(done));if(server.listening)await new Promise(done=>server.close(done));
+ report.metadataPreserved=true;report.fixtureRootRetained=true;report.providerRequests=providerRequests;writeFileSync(join(evidence,'native-proof.json'),JSON.stringify(report,null,2)+'\n');
  console.log(JSON.stringify({stage:report.stage,passed:report.passed,checks:report.checks,failure:report.failure}));
 }

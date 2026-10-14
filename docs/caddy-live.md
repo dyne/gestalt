@@ -461,15 +461,16 @@ fixed phase (`native-spawn`, `native-identity`, `receipt-write`, or
 a JavaScript error class. Error messages, paths, environment and private contents
 are never included in this diagnostic.
 
-Before launch, every project/ancestor `.codex` path remains unavailable. Pinned
+Under v1, before launch every project/ancestor `.codex` path remains unavailable. Pinned
 native 0.161 creates transient empty `.codex` mount targets while enforcing
 protected metadata. During an authenticated owned launch only, the manager
 accepts an empty, non-symlink directory at `appRoot/.codex` owned by the current
 UID. Its inode, birth/change timestamps and mode are pinned in the signed
 process receipt while native PID/birth/namespaces remain valid. Files, ancestor
 metadata, symlinks, replacements and stale native ownership still revoke the
-launch. After owned reaping, cleanup removes only the same still-empty pinned
-placeholder; it preserves replaced paths and actual project config.
+launch. After owned reaping, cleanup preserves the placeholder and all project
+metadata. It never removes metadata to make a later admission succeed. The v2
+first-admission protocol below handles verified owning-runtime provenance.
 
 A fixed trusted stdio bridge creates real POSIX pipes for native stdin/stdout/stderr.
 Pinned native network seccomp denies `getsockname`; Node treats inherited Unix
@@ -487,3 +488,234 @@ CLI PID/birth therefore matches the receipt parent and the only holder of the
 private lifetime writer. Killing that CLI closes the writer, revokes the native
 launch and reaps its stdio consumers; an orphaned intermediate shell cannot keep
 the owning Node process alive.
+
+## Owning-runtime metadata provenance (contract version 2)
+
+Version 1 remains available for its existing clean-first-launch contract. It
+cannot admit metadata that already existed before preparation. Version 2 adds
+an elected-controller protocol for the actual original owning Native runtime;
+it does not adopt processes by PID or trust a directory because it is empty.
+Use the same configured private controller directory and existing Mobile
+election, rather than creating another controller or another election location.
+The native runtime remains pinned to 0.161.0.
+
+The host controller must obtain its real child-process launch handle, hold
+ordinary/model/tool/child writers before original runtime birth, and keep that
+hold until admission completes. Before launching, it supplies all v1 fields
+with `schemaVersion:2` and these additional fields:
+
+| Field | Exact v2 shape |
+| --- | --- |
+| `election` | `{holder:{pid,birth,uid,namespaces:{mnt,user,pid}},lockFile:ABS}`; the existing elected-controller child and `controller.lock` in the protected configured controller directory, which may be an ancestor of the generation manifest directory |
+| `generation` | `{sessionId:UUID,generation:POSITIVE_SAFE_INTEGER}`; canonical owning relay session and current Live admission generation |
+| `owningRuntime` | `{args:["app-server",...STRINGS]}`; exact original owning Native argv after the pinned executable |
+| `runtimeProvenance` | `{captureId:UUID,effectiveConfigDigest:HEX,sessionFlagsDigest:HEX}`; current observed digests, added only after successful sealing |
+
+UUIDs are lowercase RFC4122 version 4. No other added fields are accepted.
+Manager checks the holder's actual parent, birth, UID and namespace identity,
+its retained descriptor's device/inode, and the kernel FLOCK write lock on that
+inode. An unlocked descriptor, busy-lock assertion, unsigned marker or holder
+PID alone is insufficient. Signing/revocation commands must run as direct
+children of the declared elected host controller. The controller's private
+state and key must already be denied by its native effective profile. V2 uses
+the exact canonical `live-policy.key` below the election directory as its
+32-byte shared signing key; the directory must be declared in
+`privatePaths.controller` and contain the generation manifest directory.
+Per-generation keys cannot bypass an existing app admission fence. V1 retains
+its original key-location requirements.
+
+The sequence is:
+
+```text
+gestalt live-policy capture-runtime --manifest ABS --capture-id UUID
+[the elected controller launches its owning runtime using the managed launch path]
+[the controller resolves and validates that runtime's actual complete config sources]
+gestalt live-policy seal-runtime --manifest ABS --capture-id UUID --runtime-pid PID --sources ABS
+[add runtimeProvenance with captureId and current observed config/flag digests]
+gestalt live-policy probe --manifest ABS
+gestalt live-policy prepare --manifest ABS
+gestalt live-policy verify --manifest ABS
+```
+
+These are private controller APIs, not instructions to launch a second runtime
+from a model sandbox. Operator Codex invocations use `gestalt cli -- ARGS` and
+Mobile invocations use `gestalt mobile -- ARGS`. No bare/resolved Codex
+invocation, production configuration change, installation or restart is needed
+or authorized by this protocol. The owning production adapter must supply the
+original child handle and resolved policy rather than retrofit an already
+running process. Required project-instruction discovery remains enabled.
+
+Capture validates the trusted manifest and composed policy, observes absence
+of `.codex` at every canonical app ancestor, and signs that observation before
+birth. It pins each parent directory's device/inode/UID/mode and records Linux
+USER_HZ ticks after the observation. Runtime birth must be strictly later than
+that tick; equality fails closed. An atomic `runtime-admission-APP_HASH.lock` and signed
+`runtime-admission-APP_HASH.json` reserve one admission in the configured election
+scope, preventing competing captures/session generations even across different
+manifest directories. `APP_HASH` is SHA256 of the canonical app path. Capture IDs cannot
+be reused. Failed or abandoned captures require authenticated revocation.
+
+Sealing verifies the original owner's live process identity, direct controller
+parent, pinned executable bytes and exact argv. Its signed receipt binds the
+actual original environment digest without returning environment values. It
+also checks all captured parent identities and the current closed, empty
+metadata directories using O_DIRECTORY/O_NOFOLLOW descriptors and repeated
+identity/content checks. Directory sources use actual device/inode/UID/mode
+and change timestamps. They never use copied directory snapshots or appear in
+`configFiles`, which continues to contain regular private config files only.
+Content, symlinks, replacement and unknown provenance fail closed.
+
+`--sources` is a private, canonical mode0600 file containing exactly:
+
+```json
+{
+  "schemaVersion": 2,
+  "runtime": {"pid": 123, "birth": "456", "uid": 1000,
+    "namespaces": {"mnt": "mnt:[...]", "user": "user:[...]", "pid": "pid:[...]"}},
+  "policyDigest": "64 lowercase hex characters",
+  "effectiveConfigDigest": "64 lowercase hex characters",
+  "sessionFlagsDigest": "64 lowercase hex characters",
+  "sources": []
+}
+```
+
+The displayed empty array is a shape illustration and is rejected. The elected
+controller derives this inventory from the actual owning Native config response
+and original session flags, including disabled layers and referenced agent-role
+files. It validates all effective launch surfaces with the Agents admission
+contract before signing; no caller-provided digest, reconstructed thread-agnostic
+config, filtered source list or model/project request can supply that authority.
+Manager verifies the observable file/directory inventory and binds that trusted
+controller observation. It cannot discover private native RPC configuration by
+inspecting a process's PID or filesystem alone. L10/L11 must preserve this trust
+boundary, independently validate the effective configuration, and refuse unknown
+or incomplete Native source kinds.
+
+The 1–128 source entries have one of three exact shapes:
+
+- File: `{kind:"file",role:"user"|"system"|"packaged-defaults"|"managed"|"agent-role",path:ABS,sha256:HEX}`.
+  Every original file must match `configFiles`; every original `configFiles`
+  entry must be represented at sealing. Later generated MCP/bootstrap config
+  files may be added to `configFiles`, which invalidates the policy receipt and
+  requires fresh preparation, without pretending they were owning-runtime sources.
+- Project directory: `{kind:"directory",role:"project",path:ABS,identity:{dev,ino,uid,mode,ctime,mtime,birthtime}}`.
+  Only captured ancestral `.codex` paths qualify, and their identities must match
+  the observed closed tree. `ctime`/`mtime`/`birthtime` are numeric `Stats` milliseconds. The native
+  directory birth must be strictly attributable to the post-owner-birth interval.
+  Missing filesystem birth timestamps or ambiguous pre-birth timestamps fail
+  closed. Capture records the full clock-correlation uncertainty interval;
+  sealing and use reject unsupported clock changes rather than tolerating races.
+- Absent source: `{kind:"absent",role:"project"|"system",path:ABS}`.
+  Every absent ancestral `.codex` and all three unsupported system paths
+  `/etc/codex/{config,managed_config,requirements}.toml` must be represented.
+  Unknown absent file sources are rejected. The prepared `runtimeHome/config.toml` must be a
+  present file source. System config remains unsupported.
+
+Paths are unique. Owner identity, effective policy digest and all required
+file/directory/absence sources must match. Arbitrary directories, omitted
+ancestry, duplicate sources and treating a directory as a config file are
+rejected. Original effective config/session-flag digests enter the signed
+source inventory; the producer must re-resolve them before every Live model
+admission, populate the manifest's current observed digest fields, and revoke
+if they change. Manager compares those current observations to the sealed values. Files and directory identities are also
+revalidated by Manager at preparation, verification, every subprocess dispatch
+and the existing running-worker monitor. The composed v2 native profile denies
+all ancestral metadata paths, removes descendant grants that could override
+those denies, and retains all existing private-state and `/proc` protections.
+Native confinement prevents project/helper/child mutation between monitor
+checks; monitoring alone is not an isolation boundary.
+
+Signed `birth-UUID.json` and `runtime-UUID.json` receipts bind the election,
+relay generation, boot, manager/binary/component identities, original policy,
+parent/app identities, runtime birth/executable/argv/environment, and complete
+source inventory. Replacing configuration, permissions, profile, component,
+owner or election invalidates admission. Changing an owner source requires a
+new owning-session resolution and admission; stale receipts cannot grant work.
+An old generation cannot be relabeled to admit another session. Unsupported
+recovery combinations remain unavailable rather than trusting leftover metadata.
+
+```text
+gestalt live-policy revoke-runtime --manifest ABS --capture-id UUID
+```
+
+Revocation verifies live elected controller authority and ownership of the exact
+capture, writes the signed revoked fence before releasing its admission lock,
+and is idempotent. It works after policy/config changes and never adopts or
+signals the original runtime; its owning controller manages that child handle.
+New dispatch is refused immediately; existing owned subprocesses are stopped by
+the lifetime monitor before further authorized work. Shutdown and revocation
+preserve all metadata and provenance artifacts. A later capture does not trust
+leftover directories, even if empty.
+
+Success from capture/seal/revoke uses `schemaVersion:2`, `available:true`,
+`liveReady:false`, the capture ID, and respectively fixed reasons
+`runtime-birth-captured`, `runtime-provenance-sealed`, or
+`runtime-provenance-revoked`. Capture/seal also return the composed policy digest.
+V2 probe/prepare/verify report `schemaVersion:2`, `contractVersion:2`, the existing
+policy/config digest fields plus `sourceInventoryDigest`,
+`runtimeProvenanceDigest`, and `generation`. The policy receipt and subprocess
+receipts carry version 2. Failure retains the existing bounded error envelope
+`schemaVersion:1,available:false,liveReady:false,reason:FIXED_STRING`, exit 1;
+no path/config/environment/exception content is returned. New fixed reasons
+include `missing-election`, `stale-election`, `unauthorized-controller`,
+`invalid-generation`, `invalid-owning-runtime`, `invalid-capture-id`,
+`reused-capture-id`, `active-runtime-admission`, `missing-runtime-provenance`,
+`unverified-owning-runtime`, `stale-runtime-provenance`,
+`incomplete-source-inventory`, `metadata-content-present`, `metadata-changed`,
+`source-changed`, `revoked-runtime-provenance`, `unowned-runtime-admission`, and
+`unsupported-host-clock`, `metadata-before-runtime-birth`, and
+`metadata-provenance-unavailable`. Prior v1 reason categories remain supported.
+
+Focused contract fixtures exercise actual flock/process identities with an
+explicit copied-Node owner and simulated source response. They establish the
+interface and rejection rules, not actual Native admission or confinement.
+Supported-host pinned Native proof, real source discovery and the complete
+Manager suite remain separate required L9.2 gates. Agents v1 manifests/receipts
+and the earlier Mobile inventory are incompatible with this v2 extension and
+must be corrected and reviewed before production consumption.
+
+The supported-host proof also requires a managed original-runtime launch. The
+ordinary interactive CLI runs plugin/service discovery and introduces a
+supervisor, so it cannot be substituted for a verified owning-process birth.
+The following private CLI forms are restricted to the real elected controller:
+
+```text
+gestalt cli -- --live-policy-bootstrap --manifest ABS
+gestalt cli -- --live-policy-owning-runtime --manifest ABS --capture-id UUID
+```
+
+Bootstrap executes only the pinned Native stock read-only `/usr/bin/true` in the
+isolated worker home to establish the reserved host daemon directory. It never
+repairs an existing masked directory or starts model work. The owning form
+requires the signed pre-birth capture, reserves the existing app fence, checks
+absence immediately before handoff, and execs the original app-server image.
+It preserves the actual owning child PID, direct controller parent and private
+stdio. Optional plugin/MCP discovery cannot run before admission. All descriptors
+above 2 are closed and inherited credentials are removed. Ordinary non-Live CLI
+behavior remains unchanged.
+
+`owningRuntime` additionally permits `home:ABS` and `instructionFiles:[ABS]`.
+The original home must be canonical/private, covered by the declared protected
+paths, and its actual config file must be in `configFiles`; it is distinct from
+the sanitized worker home. The controller declares any nonstandard instruction
+source filenames before birth. Capture pins existing `AGENTS.md` and
+`AGENTS.override.md` files throughout app ancestry, original-home `AGENTS.md`,
+and these explicitly declared files. Sealing cannot accept an instruction source
+that was not pinned before original birth.
+
+V2 inventories also distinguish `{kind:"file",role:"sandbox-worker",path,sha256}`
+for the actual sanitized worker config from owning Native config layers, and
+`{kind:"instruction",path,sha256,identity:{dev,ino,uid,mode,ctime,mtime}}` for
+instruction files the actual Native startup reports as loaded. These are actual
+regular files with descriptor/identity/content checks, not copied snapshots.
+Instruction content is never returned or logged. Changes invalidate admission
+and stop owned workers; project instructions remain enabled and are actually
+loaded during the supported-host proof.
+
+The managed handoff writes a signed `image-UUID.json` tying the original child
+identity and handoff clock to its capture. Sealing preserves that image digest
+and rejects stale handoffs or metadata predating it. The underlying Native
+executable/version, original policy, source inventory and directory identity
+must still pass every v2 check. A managed launch receipt alone never grants Live
+readiness. Policy narrowing continues to revoke prior workers and refuse a stale
+admission; it does not silently regrant an older broader policy.

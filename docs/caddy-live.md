@@ -684,7 +684,7 @@ gestalt cli -- --live-policy-bootstrap --manifest ABS
 gestalt cli -- --live-policy-owning-runtime --manifest ABS --capture-id UUID
 ```
 
-Bootstrap executes only the pinned Native stock read-only `/usr/bin/true` in the
+Bootstrap executes only the pinned Native read-only `/usr/bin/true` in the
 isolated worker home to establish the reserved host daemon directory. It never
 repairs an existing masked directory or starts model work. The owning form
 requires the signed pre-birth capture, reserves the existing app fence, checks
@@ -719,3 +719,29 @@ executable/version, original policy, source inventory and directory identity
 must still pass every v2 check. A managed launch receipt alone never grants Live
 readiness. Policy narrowing continues to revoke prior workers and refuse a stale
 admission; it does not silently regrant an older broader policy.
+
+### Native metadata mask candidate
+
+The narrowly authorized Native patch is attributed to upstream commit
+`979011409de0a60b52f179721948e65531d26144` in
+`tests/fixtures/live-host-native-mask/manifest.json`. A missing protected
+metadata directory retains its directory mask when an explicit deny is added.
+An existing denied metadata file receives the stronger deny mask without a
+second consuming file-data operation. Writable symlink checks, explicit denies,
+private proc/FD controls and cleanup ownership remain in force.
+
+The isolated GNU candidate from build run `38645681271` passed all 166 Native
+unit tests and 61 integration tests; three subprocess fixtures remain explicitly
+ignored outside their invoking tests. The baseline directory-mask assertion
+failed before the production patch was applied. The original release lock was
+prepared only by matching its 160 local workspace versions to their manifests;
+external dependencies were unchanged and every Cargo command retained `--locked`.
+
+`tests/fixtures/live-host-native-runtime.json` records the resulting source and
+build trees, build inputs, archive digest and exact Native/bubblewrap/sandbox
+helper hashes. The proof verifies those pins before launching the actual owning
+runtime through `gestalt cli --`. The build manifest remains the original build
+input; the runtime fixture records later verified artifact pins. These artifacts
+and hashes are for the supported-host proof and L9 review. They do not install,
+activate or release a replacement runtime, and a successful build does not
+establish admission or descendant confinement.

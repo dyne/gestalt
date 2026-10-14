@@ -16,7 +16,16 @@ const electionModule=realpathSync(process.env.LIVE_HOST_ELECTION_MODULE);
 const caddyBinary=realpathSync(process.env.LIVE_HOST_CADDY_BINARY);
 const evidence=resolve(process.env.LIVE_HOST_POLICY_EVIDENCE ?? 'test-results/live-host-policy');
 const manager=realpathSync(process.env.LIVE_HOST_MANAGER_BINARY);
-const expectedBinary='9a820c17865fa825d04db416818679a9d63bd72e50835c396f496e5684626c9c';
+const expectedBinary='b2730ae901da317bcc5933d9b87de6dfbea3e46a46b64f806e4268fd9a095578';
+const runtimePinsPath='tests/fixtures/live-host-native-runtime.json';
+const runtimePins=JSON.parse(readFileSync(runtimePinsPath));
+const expectedBwrap='335aa87510fc0eee1bcdbedd3d9bf4aa4d112cffed72d5f1ad7a10b6cc855066';
+const expectedSandboxHelper='396915091a1f0387b48fd06e98d06e61d22f6ff6af33bc806891a634ee03d199';
+assert.equal(runtimePins.binarySha256,expectedBinary);
+assert.equal(runtimePins.bwrapSha256,expectedBwrap);
+assert.equal(runtimePins.sandboxHelperSha256,expectedSandboxHelper);
+assert.equal(runtimePins.managerHead,'75e420c5f65b1b1acb0cd0b3615564d462e365ce');
+assert.equal(runtimePins.runId,'38645681271');
 const mobilePin='c558dd644e4b6ac8d3bce9e57bce762791ea25de';
 const acceptedMobilePin='c558dd644e4b6ac8d3bce9e57bce762791ea25de';
 const mobileInputPaths=['src/server/platform/codex/json-rpc-client.ts','src/server/platform/catalog/profile-command.ts','src/server/platform/codex/codex-process-launcher.ts'];
@@ -27,6 +36,9 @@ const pause=ms=>new Promise(done=>setTimeout(done,ms));
 const bwrapCandidates=[join(dirname(binary),'codex-resources','bwrap'),join(dirname(dirname(binary)),'codex-resources','bwrap'),join(dirname(binary),'bwrap')];
 const bundledBwrap=bwrapCandidates.find(path=>existsSync(path)&&(lstatSync(path).mode&0o111));
 assert.ok(bundledBwrap,'PINNED_NATIVE_PACKAGE_RESOURCE_MISSING');
+assert.equal(createHash('sha256').update(readFileSync(bundledBwrap)).digest('hex'),expectedBwrap);
+const sandboxHelper=join(dirname(binary),'codex-linux-sandbox');
+assert.equal(createHash('sha256').update(readFileSync(sandboxHelper)).digest('hex'),expectedSandboxHelper);
 const nativeDiagnostic=(text,roles={})=>({createFileFailureRole:(()=>{const match=text.match(/Can't create file at (.+): Read-only file system/);if(!match)return undefined;const path=match[1].replace(/^["']|["']$/g,'');return Object.entries(roles).filter(([,root])=>path===root||path.startsWith(root+'/')).sort((a,b)=>b[1].length-a[1].length)[0]?.[0]??'undeclared-path';})(),errorTemplates:text.split('\n').filter(line=>/^(?:Error:|error:|error building bubblewrap command:|bwrap:)/.test(line)).slice(0,3).map(line=>line.replace(/Can't create file at .+: Read-only file system/,"Can't create file at <path>: Read-only file system").replace(/"[^"]*"|'[^']*'/g,'<quoted>').replace(/\/[^\s,;:)]+/g,'<path>').replace(/fixture[-a-z]*/g,'<fixture>').replace(/[a-f0-9]{16,}/gi,'<token>').slice(0,220)),shellFailure:/command failed near line/.test(text),bytes:Buffer.byteLength(text),rustPanic:/panicked at/.test(text),
  nodeCodes:[...new Set(text.match(/\bERR_[A-Z_]+\b/g)??[])].slice(0,4),nodeErrnos:[...new Set(text.match(/\b(?:EACCES|EPERM|ENOENT|ENOTDIR|EISDIR|EROFS|ENOSYS)\b/g)??[])].slice(0,4),nodeErrors:['TypeError','SyntaxError','ReferenceError','RangeError'].filter(name=>text.includes(name+':')||text.includes(name+' [')),temporaryAliasesRefused:/Refusing to create helper binaries under temporary dir/.test(text),invalidSandboxState:/invalid --sandbox-state-json/.test(text),
  bubblewrapUnavailable:/bubblewrap is unavailable/.test(text),bundledResourceFailure:/failed to (open|exec) bundled bubblewrap/.test(text),
@@ -47,6 +59,7 @@ const managerResultDiagnostic=result=>{
 const tree=execFileSync('git',['rev-parse','HEAD^{tree}'],{encoding:'utf8'}).trim();
 const commit=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
 const provenance={repository:process.env.GITHUB_REPOSITORY,runId:process.env.GITHUB_RUN_ID,commit,tree,
+ nativeMaskRevision:{...runtimePins,fixtureSha256:hash(readFileSync(runtimePinsPath))},
  agentsPackageLoaded:false,sourcePin:'979011409de0a60b52f179721948e65531d26144',mobilePin,acceptedMobilePin,agentsPin,nativeVersion:'0.161.0',
  mobileFixtureProvenanceSha256:hash(readFileSync('tests/fixtures/live-host-mobile-input/provenance.json')),
  mobileInputs:Object.fromEntries(mobileInputPaths.map(path=>[path,hash(readFileSync(join('.host-mobile-input',path)))])),

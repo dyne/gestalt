@@ -5,6 +5,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
 jobs:
   native:
     runs-on: ubuntu-24.04
@@ -36,14 +37,32 @@ jobs:
           NODE
           cp -R tests/fixtures/live-host-mobile-input .host-mobile-input
       - name: Prepare checksum-pinned native and Caddy test binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -Eeuo pipefail
           tool_root="$RUNNER_TEMP/live-policy-tools"
           mkdir -p "$tool_root"
           install -m0755 public/gestalt "$tool_root/gestalt"
-          npm install --prefix "$tool_root" --no-save --ignore-scripts @openai/codex@0.161.0
-          native_binary="$tool_root/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex"
-          printf '%s  %s\n' 9a820c17865fa825d04db416818679a9d63bd72e50835c396f496e5684626c9c "$native_binary" | sha256sum --check --status
+          gh run download 38645681271 --repo dyne/gestalt \
+            --name native-mask-candidate-results --dir "$tool_root/native-artifact"
+          native_archive="$tool_root/native-artifact/native-mask-candidate.tar.gz"
+          printf '%s  %s\n' 08a44f4ea2d27d48eaf98b0d67b804c0cc621fcf0bd4db71b8b6832ea282c153 "$native_archive" | sha256sum --check --status
+          mkdir -p "$tool_root/native"
+          tar -xzf "$native_archive" -C "$tool_root/native" bin provenance.json
+          native_binary="$tool_root/native/bin/codex"
+          printf '%s  %s\n' b2730ae901da317bcc5933d9b87de6dfbea3e46a46b64f806e4268fd9a095578 "$native_binary" | sha256sum --check --status
+          printf '%s  %s\n' 335aa87510fc0eee1bcdbedd3d9bf4aa4d112cffed72d5f1ad7a10b6cc855066 "$tool_root/native/bin/codex-resources/bwrap" | sha256sum --check --status
+          printf '%s  %s\n' 396915091a1f0387b48fd06e98d06e61d22f6ff6af33bc806891a634ee03d199 "$tool_root/native/bin/codex-linux-sandbox" | sha256sum --check --status
+          node --input-type=module - "$tool_root/native/provenance.json" <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync} from 'node:fs';
+          const built=JSON.parse(readFileSync(process.argv[2]));
+          const pins=JSON.parse(readFileSync('tests/fixtures/live-host-native-runtime.json'));
+          for(const [key,value] of Object.entries(built))assert.deepEqual(value,pins[key],`Native build provenance ${key}`);
+          assert.equal(built.runId,'38645681271');
+          assert.equal(built.managerHead,'75e420c5f65b1b1acb0cd0b3615564d462e365ce');
+          NODE
           curl --fail --silent --show-error --location \
             https://github.com/caddyserver/caddy/releases/download/v2.11.7/caddy_2.11.7_linux_amd64.tar.gz \
             --output "$tool_root/caddy.tar.gz"

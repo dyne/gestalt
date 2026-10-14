@@ -1,8 +1,21 @@
 diff --git a/codex-rs/linux-sandbox/src/bwrap.rs b/codex-rs/linux-sandbox/src/bwrap.rs
-index 319b6af..339c929 100644
+index 319b6af..4ca458a 100644
 --- a/codex-rs/linux-sandbox/src/bwrap.rs
 +++ b/codex-rs/linux-sandbox/src/bwrap.rs
-@@ -1343,6 +1343,19 @@ fn append_unreadable_root_args(
+@@ -733,6 +733,12 @@ fn create_filesystem_args(
+             if deferred_read_only_subpaths.contains(&subpath) {
+                 continue;
+             }
++            // An explicit file deny supplies the stronger mask below. Do not
++            // first add an automatic metadata file-data mask: bubblewrap
++            // consumes its input FD, so masking the same file twice can fail.
++            if unreadable_paths.contains(&subpath) && subpath.is_file() {
++                continue;
++            }
+             append_read_only_subpath_args(
+                 &mut bwrap_args,
+                 &subpath,
+@@ -1343,6 +1349,19 @@ fn append_unreadable_root_args(
          if let Some(first_missing_component) = find_first_non_existent_component(unreadable_root)
              && is_within_allowed_write_paths(&first_missing_component, allowed_write_paths)
          {
@@ -22,7 +35,7 @@ index 319b6af..339c929 100644
              append_missing_empty_file_bind_data_args(bwrap_args, &first_missing_component)?;
          }
          return Ok(());
-@@ -1356,7 +1369,12 @@ fn append_existing_unreadable_path_args(
+@@ -1356,7 +1375,12 @@ fn append_existing_unreadable_path_args(
      unreadable_root: &Path,
      allowed_write_paths: &[PathBuf],
  ) -> Result<()> {
@@ -36,7 +49,7 @@ index 319b6af..339c929 100644
          let mut writable_descendants: Vec<&Path> = allowed_write_paths
              .iter()
              .map(PathBuf::as_path)
-@@ -2000,6 +2018,109 @@ mod tests {
+@@ -2000,6 +2024,114 @@ mod tests {
          );
      }
  
@@ -98,17 +111,22 @@ index 319b6af..339c929 100644
 +        assert_unreadable_directory_mask(&args, &directory);
 +        assert_eq!(fs::read_to_string(directory.join("config.toml")).unwrap(), "private fixture");
 +
-+        let file = workspace.path().join(".agents");
-+        fs::write(&file, "private fixture").expect("existing metadata file fixture");
-+        let policy = denied_metadata_policy(workspace.path(), &file);
-+        let args = create_filesystem_args(&policy, workspace.path(), BwrapOptions::default())
-+            .expect("file filesystem args");
-+        let target = path_to_string(&file);
-+        assert!(args.args.windows(5).any(|args| {
-+            args[0] == "--perms" && args[1] == "000" && args[2] == "--ro-bind-data"
-+                && args[4] == target
-+        }));
-+        assert_eq!(fs::read_to_string(&file).unwrap(), "private fixture");
++        for contents in ["", "private fixture"] {
++            let file = workspace.path().join(".agents");
++            fs::write(&file, contents).expect("existing metadata file fixture");
++            let policy = denied_metadata_policy(workspace.path(), &file);
++            let args = create_filesystem_args(&policy, workspace.path(), BwrapOptions::default())
++                .expect("file filesystem args");
++            let target = path_to_string(&file);
++            assert_eq!(args.args.windows(3).filter(|args| {
++                args[0] == "--ro-bind-data" && args[2] == target
++            }).count(), 1, "an explicit metadata file deny needs exactly one file mask");
++            assert!(args.args.windows(5).any(|args| {
++                args[0] == "--perms" && args[1] == "000" && args[2] == "--ro-bind-data"
++                    && args[4] == target
++            }));
++            assert_eq!(fs::read_to_string(&file).unwrap(), contents);
++        }
 +    }
 +
 +    #[test]

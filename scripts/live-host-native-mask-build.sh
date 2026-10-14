@@ -106,6 +106,10 @@ export CODEX_BWRAP_SHA256
 CODEX_BWRAP_SHA256=$(sha256sum "$output_root/bin/codex-resources/bwrap" | cut -d' ' -f1)
 mkdir -p "$CARGO_TARGET_DIR/dev-small/codex-resources"
 install -m0755 "$output_root/bin/codex-resources/bwrap" "$CARGO_TARGET_DIR/dev-small/codex-resources/bwrap"
+# The upstream private-/tmp test copies the sandbox away from its bundled
+# resources. Keep the exact built helper reachable in that disposable namespace.
+sudo install -m0755 "$output_root/bin/codex-resources/bwrap" /usr/local/bin/bwrap
+[[ $(sha256sum /usr/local/bin/bwrap | cut -d' ' -f1) == "$CODEX_BWRAP_SHA256" ]]
 
 stage=baseline-regression
 active_log="$output_root/logs/baseline.log"

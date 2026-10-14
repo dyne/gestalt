@@ -7,9 +7,9 @@
     "tree": "2f5a064f40b84945ab9624d6631cdc076d62422e",
     "version": "0.161.0"
   },
-  "patchedTree": "22327b8398a6d0558aac53a67699fd464db8d205",
-  "patchSha256": "5daff145743a46d70e3f358463cee7675362926875802b4d8e1706ed73670d6a",
-  "fixPatchSha256": "4c86121161f949d818249915c79736f031f04c1abb23a321561ab97ef2e04310",
+  "patchedTree": "e7ad8378836c51b583bb54e43af82016e5eaf527",
+  "patchSha256": "e0d942d9a7d4969289da410973c2dbeb9c3393870fabd342feaa62ca5a75eb9c",
+  "fixPatchSha256": "9a05df6ec3cd78298c555db8bbc8b48ce6e17b63c48e97fe506c11303738e6e1",
   "inputs": {
     "codex-rs/Cargo.lock": "3206e2fdb53a3498758ce2f2972f19fae26beb261befd65cc0eb9e02efe23d52",
     "codex-rs/rust-toolchain.toml": "570656042681cfd8795403a455baf9a33035331a07db0645e866bbcea89a3d64",
@@ -38,6 +38,6 @@
     "preparedSha256": "4e43cd81ed341c32bde170917f38c3e79702cbc69d1f96744ab1e09f9e80a601",
     "patchSha256": "9b2995d1b406de9526a4db5b1360c872eaa459bbb5dea1bd2412f560befd36bc",
     "dependencyChanges": false,
-    "preparedBuildTree": "ed674d337b033ef20ea195c0aa64e266c33b0fce"
+    "preparedBuildTree": "b65e1e73e3cfc19a6b9c81ee5ec13ed5aabffbb1"
   }
 }

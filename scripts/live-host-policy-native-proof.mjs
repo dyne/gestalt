@@ -222,7 +222,7 @@ const flatten=(tools,namespace)=>tools.flatMap(tool=>tool.type==='namespace'?fla
 function modelCall(tools,id,name,args,custom=false){
  let tool=tools.find(tool=>tool.name===name);
  if(!tool&&['exec_command','apply_patch'].includes(name)){
-  const exec=tools.find(tool=>tool.name==='exec');assert.ok(exec&&exec.description?.includes(`tools.${name}(`),'NATIVE_TOOL_UNAVAILABLE');
+  const exec=tools.find(tool=>tool.name==='exec');assert.ok(exec&&exec.description?.includes(`${name}(`),'NATIVE_TOOL_UNAVAILABLE');
   tool=exec;args=`text(await tools.${name}(${JSON.stringify(args)}));`;name='exec';custom=true;
   report.codeModeModelTools=true;
  }

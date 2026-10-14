@@ -1,0 +1,37 @@
+diff --git a/codex-rs/linux-sandbox/src/bwrap.rs b/codex-rs/linux-sandbox/src/bwrap.rs
+--- a/codex-rs/linux-sandbox/src/bwrap.rs
++++ b/codex-rs/linux-sandbox/src/bwrap.rs
+@@ -1343,6 +1343,19 @@
+         if let Some(first_missing_component) = find_first_non_existent_component(unreadable_root)
+             && is_within_allowed_write_paths(&first_missing_component, allowed_write_paths)
+         {
++            // Protected metadata may already have a synthetic directory mount.
++            // A file-data mask at that target would fail with EISDIR; retain
++            // its directory shape while enforcing the same unreadable mask.
++            if bwrap_args.synthetic_mount_targets.iter().any(|target| {
++                target.path() == first_missing_component
++                    && target.kind() == SyntheticMountTargetKind::EmptyDirectory
++            }) {
++                return append_existing_unreadable_path_args(
++                    bwrap_args,
++                    &first_missing_component,
++                    allowed_write_paths,
++                );
++            }
+             append_missing_empty_file_bind_data_args(bwrap_args, &first_missing_component)?;
+         }
+         return Ok(());
+@@ -1356,7 +1369,12 @@
+     unreadable_root: &Path,
+     allowed_write_paths: &[PathBuf],
+ ) -> Result<()> {
+-    if unreadable_root.is_dir() {
++    if unreadable_root.is_dir()
++        || bwrap_args.synthetic_mount_targets.iter().any(|target| {
++            target.path() == unreadable_root
++                && target.kind() == SyntheticMountTargetKind::EmptyDirectory
++        })
++    {
+         let mut writable_descendants: Vec<&Path> = allowed_write_paths
+             .iter()
+             .map(PathBuf::as_path)

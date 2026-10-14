@@ -1,0 +1,52 @@
+name: Native metadata mask candidate (test only)
+on:
+  push:
+    branches: ['test/live-host-policy-l9']
+    paths:
+      - '.github/workflows/native-mask-candidate.yml'
+      - 'scripts/live-host-native-mask-build.sh'
+      - 'tests/fixtures/live-host-native-mask/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-mask-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      CARGO_HOME: ${{ runner.temp }}/native-mask-cargo
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Exact original Native source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: openai/codex
+          ref: 979011409de0a60b52f179721948e65531d26144
+          path: .native-mask-input
+          persist-credentials: false
+      - name: Upstream Linux build prerequisites on disposable runner
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential binutils pkg-config libcap-dev libasound2-dev
+          sudo sysctl -w kernel.unprivileged_userns_clone=1
+          if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      - uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582 # upstream pinned 1.95.0
+        with:
+          toolchain: 1.95.0
+      - name: Build helper, reproduce baseline, vet Native regressions and build candidate
+        run: bash scripts/live-host-native-mask-build.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: native-mask-candidate-results
+          path: |
+            ${{ runner.temp }}/native-mask-candidate
+            ${{ runner.temp }}/native-mask-candidate.tar.gz
+            ${{ runner.temp }}/native-mask-candidate.sha256
+          if-no-files-found: ignore
+          retention-days: 30

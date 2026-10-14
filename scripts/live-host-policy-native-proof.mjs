@@ -302,5 +302,7 @@ try {
  if(publicIngress?.listening)await new Promise(done=>publicIngress.close(done));
  if(provider.listening)await new Promise(done=>provider.close(done));if(server.listening)await new Promise(done=>server.close(done));
  report.metadataPreserved=true;report.fixtureRootRetained=true;report.providerRequests=providerRequests;writeFileSync(join(evidence,'native-proof.json'),JSON.stringify(report,null,2)+'\n');
- console.log(JSON.stringify({stage:report.stage,passed:report.passed,checks:report.checks,failure:report.failure}));
+ const summary={stage:report.stage,passed:report.passed,checks:report.checks,failure:report.failure,failureDetail:report.failureDetail,bootstrap:report.bootstrap};
+ console.log(JSON.stringify(summary));
+ if(!report.passed&&process.env.GITHUB_ACTIONS==='true')console.log('::error title=Bounded Native proof failure::'+JSON.stringify(summary).replaceAll('%','%25').replaceAll('\r','%0D').replaceAll('\n','%0A'));
 }

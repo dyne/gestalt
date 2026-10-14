@@ -250,7 +250,14 @@ async function actualSources(value,path,id,startReply,captured){
  report.sourceGuard='mcp-empty';assert.deepEqual(configuration.config.mcp_servers??{},{});
  report.sourceGuard='plugins-empty';assert.deepEqual(configuration.config.plugins??{},{});
  const declared=configuration.config.permissions?.[value.profileId];assert.ok(declared);assert.equal(declared.extends,':read-only');assert.equal(declared.network.enabled,false);
- const expectedFilesystem=Object.fromEntries(value.sandboxState.permissionProfile.file_system.entries.map(entry=>[entry.path.type==='special'?':root':entry.path.path,entry.access]));
+ // Native config/read serializes FilesystemPermissionsToml's unset scan depth
+ // as null. Include that known metadata field while requiring every grant exact.
+ const expectedFilesystem={glob_scan_max_depth:null,...Object.fromEntries(value.sandboxState.permissionProfile.file_system.entries.map(entry=>[entry.path.type==='special'?':root':entry.path.path,entry.access]))};
+ report.sourceGuardDetails={declaredEntryCount:Object.keys(declared.filesystem??{}).length,expectedEntryCount:Object.keys(expectedFilesystem).length,
+  hasScanDepth:Object.hasOwn(declared.filesystem??{},'glob_scan_max_depth'),unsetScanDepth:declared.filesystem?.glob_scan_max_depth===null,
+  missingEntryCount:Object.keys(expectedFilesystem).filter(key=>!Object.hasOwn(declared.filesystem??{},key)).length,
+  unexpectedEntryCount:Object.keys(declared.filesystem??{}).filter(key=>!Object.hasOwn(expectedFilesystem,key)).length,
+  changedEntryCount:Object.keys(expectedFilesystem).filter(key=>declared.filesystem?.[key]!==expectedFilesystem[key]).length};
  report.sourceGuard='declared-filesystem-exact';assert.deepEqual(declared.filesystem,expectedFilesystem);assert.equal(startReply.activePermissionProfile?.extends,':read-only');
  assert.equal(startReply.activePermissionProfile?.id,value.profileId);assert.equal(startReply.cwd,value.appRoot);assert.ok(startReply.instructionSources.includes(join(value.appRoot,'AGENTS.md')));
  const pins=new Map(value.configFiles.map(file=>[file.path,file]));let sources=[];const presentFiles=new Set();
@@ -357,7 +364,7 @@ try {
  if(publicIngress?.listening)await new Promise(done=>publicIngress.close(done));
  if(provider.listening)await new Promise(done=>provider.close(done));if(server.listening)await new Promise(done=>server.close(done));
  report.metadataPreserved=true;report.fixtureRootRetained=true;report.providerRequests=providerRequests;writeFileSync(join(evidence,'native-proof.json'),JSON.stringify(report,null,2)+'\n');
- const summary={stage:report.stage,passed:report.passed,checks:report.checks,failure:report.failure,failureDetail:report.failureDetail,sourceGuard:report.sourceGuard,failedRpc:report.failedRpc,nativeWireFailure:report.nativeWireFailure,failureMetadata:report.failureMetadata,startupMetadataObservations:report.startupMetadataObservations,startupMasks:report.startupMasks,bootstrap:report.bootstrap};
+ const summary={stage:report.stage,passed:report.passed,checks:report.checks,failure:report.failure,failureDetail:report.failureDetail,sourceGuard:report.sourceGuard,sourceGuardDetails:report.sourceGuardDetails,failedRpc:report.failedRpc,nativeWireFailure:report.nativeWireFailure,failureMetadata:report.failureMetadata,startupMetadataObservations:report.startupMetadataObservations,startupMasks:report.startupMasks,bootstrap:report.bootstrap};
  console.log(JSON.stringify(summary));
  if(!report.passed&&hostedActions)console.log('::error title=Bounded Native proof failure::'+JSON.stringify(summary).replaceAll('%','%25').replaceAll('\r','%0D').replaceAll('\n','%0A'));
 }

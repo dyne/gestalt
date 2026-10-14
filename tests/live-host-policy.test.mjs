@@ -721,3 +721,14 @@ provenanceCheck('an instruction injected after original runtime birth cannot be 
  const info=statSync(path),input=f.inventory();input.sources.push({kind:'instruction',path,sha256:hash(readFileSync(path)),identity:{dev:info.dev,ino:info.ino,uid:info.uid,mode:info.mode,ctime:info.ctimeMs,mtime:info.mtimeMs}});
  assert.equal(f.seal(input).reason,'source-changed');
 });
+
+test('startup RPC diagnostic identifies method and fixed error facts without config, instructions or error text',()=>{
+ const proof=readFileSync(resolve('scripts/live-host-policy-native-proof.mjs'),'utf8');
+ const expression=proof.split('const rpcFailureDiagnostic=')[1].split('\nlet runtime,')[0];
+ const diagnose=Function('hash',`return ${expression}`)(hash);
+ const message='error creating thread: Permission denied (os error 13) reading AGENTS.md at /private/fixture-secret; config token=fixture-secret prompt=fixture-secret';
+ const result=diagnose('thread/start',{code:-32603,message},{originalHome:'/private/fixture-secret'});
+ assert.equal(result.method,'thread/start');assert.equal(result.code,-32603);assert.equal(result.threadCreation,true);assert.equal(result.permissionDenied,true);assert.equal(result.instructionDiscovery,true);
+ assert.deepEqual(result.matchedPathRoles,['originalHome']);assert.equal(result.messageSha256,hash(message));
+ assert.ok(!JSON.stringify(result).includes('fixture-secret'));assert.ok(!JSON.stringify(result).includes('/private'));assert.ok(!JSON.stringify(result).includes('token='));assert.ok(!JSON.stringify(result).includes('prompt='));
+});

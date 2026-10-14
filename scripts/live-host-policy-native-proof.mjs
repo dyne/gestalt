@@ -87,6 +87,16 @@ const identity=pid=>{
 };
 const report={schemaVersion:1,provenance,stage:'bootstrap',passed:false,checks:{},controller:identity(process.pid),
  limitations:['Controlled provider; genuine credential-dependent provider proof remains L11.','No production MCP admission or Live picker flow; L10/L11 remain separate gates.']};
+const rpcFailureDiagnostic=(method,error,roles={})=>{
+ const text=typeof error.message==='string'?error.message:'';
+ return {method,code:typeof error.code==='number'?error.code:undefined,messageBytes:Buffer.byteLength(text),messageSha256:hash(text),
+  threadCreation:/^error creating thread:/i.test(text),configLoad:/config|configuration/i.test(text),
+  permissionDenied:/Permission denied|Operation not permitted|os error (?:1|13)\b/i.test(text),readOnly:/Read-only file system|os error 30\b/i.test(text),missingPath:/No such file|os error 2\b/i.test(text),
+  permissionProfile:/permission.?profile/i.test(text),instructionDiscovery:/AGENTS|instruction|project.?doc/i.test(text),filesystemHelper:/fs.helper|filesystem.helper|bubblewrap|bwrap/i.test(text),
+  createFile:/creat(?:e|ing)|mkdir/i.test(text),readFile:/read|open/i.test(text),shellSnapshot:/shell.?snapshot/i.test(text),rollout:/rollout/i.test(text),
+  matchedPathRoles:Object.entries(roles).filter(([,path])=>text.includes(path)).map(([role])=>role),
+  sourceLocations:[...text.matchAll(/([a-z_-]+\.rs):(\d+):(\d+)/g)].slice(0,3).map(match=>match.slice(1).join(':'))};
+};
 let runtime,caddy,unowned,active,extraFD,elected,providerFailure,thread,controllerAccepted=0;
 const server=createServer(peer=>{controllerAccepted++;peer.end();});
 async function waitFor(fn,budget=12000){const end=Date.now()+budget;while(Date.now()<end){try{const result=fn();if(result)return result;}catch{}await pause(50);}throw Error('PROOF_DEADLINE');}
@@ -94,7 +104,8 @@ function managerCall(args){const result=spawn('bash',[manager,...args],{cwd:app,
  let stdout='',stderr='';result.stdout.on('data',b=>stdout+=b);result.stderr.on('data',b=>stderr+=b);
  return new Promise((done,reject)=>{const timer=setTimeout(()=>{result.kill('SIGKILL');reject(Error('MANAGER_DEADLINE'));},15000);result.on('error',error=>{clearTimeout(timer);done({code:null,signal:null,stdout,stderr,errorCode:['ENOENT','EACCES','EPERM'].includes(error.code)?error.code:'SPAWN_ERROR'});});result.on('close',(code,signal)=>{clearTimeout(timer);done({code,signal,stdout,stderr});});});}
 const api=()=>new Promise((done,reject)=>{const req=httpRequest({socketPath:caddySocket,path:'/config/',method:'GET'},res=>{res.resume();res.on('end',()=>done(res.statusCode));});req.on('error',reject);req.end();});
-async function rpc(method,params){return await Promise.race([runtime.rpc.request(method,params),new Promise((_,reject)=>{const timer=setTimeout(()=>reject(Error('RPC_DEADLINE')),12000);timer.unref();})]);}
+async function rpc(method,params){try{return await Promise.race([runtime.rpc.request(method,params),new Promise((_,reject)=>{const timer=setTimeout(()=>reject(Error('RPC_DEADLINE')),12000);timer.unref();})]);}
+ catch(error){report.failedRpc=rpcFailureDiagnostic(method,error,{appRoot:app,originalHome:nativeHome,controllerDirectory:privateRoot,metadata:join(app,'.codex'),daemon});throw error;}}
 function ownedPids(marker){const found=[];for(const pid of readdirSync('/proc').filter(name=>/^\d+$/.test(name))){try{
  const args=readFileSync(`/proc/${pid}/cmdline`).toString().split('\0');if(args.some(arg=>arg===marker))found.push(identity(Number(pid)));
  }catch{}}return found;}
@@ -303,7 +314,7 @@ try {
  if(publicIngress?.listening)await new Promise(done=>publicIngress.close(done));
  if(provider.listening)await new Promise(done=>provider.close(done));if(server.listening)await new Promise(done=>server.close(done));
  report.metadataPreserved=true;report.fixtureRootRetained=true;report.providerRequests=providerRequests;writeFileSync(join(evidence,'native-proof.json'),JSON.stringify(report,null,2)+'\n');
- const summary={stage:report.stage,passed:report.passed,checks:report.checks,failure:report.failure,failureDetail:report.failureDetail,bootstrap:report.bootstrap};
+ const summary={stage:report.stage,passed:report.passed,checks:report.checks,failure:report.failure,failureDetail:report.failureDetail,failedRpc:report.failedRpc,bootstrap:report.bootstrap};
  console.log(JSON.stringify(summary));
  if(!report.passed&&hostedActions)console.log('::error title=Bounded Native proof failure::'+JSON.stringify(summary).replaceAll('%','%25').replaceAll('\r','%0D').replaceAll('\n','%0A'));
 }

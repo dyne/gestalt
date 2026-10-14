@@ -13,8 +13,6 @@ jobs:
   native-mask-build:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
-    env:
-      CARGO_HOME: ${{ runner.temp }}/native-mask-cargo
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -29,6 +27,7 @@ jobs:
       - name: Upstream Linux build prerequisites on disposable runner
         run: |
           set -Eeuo pipefail
+          echo "CARGO_HOME=$RUNNER_TEMP/native-mask-cargo" >> "$GITHUB_ENV"
           sudo apt-get update -y
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential binutils pkg-config libcap-dev libasound2-dev
           sudo sysctl -w kernel.unprivileged_userns_clone=1

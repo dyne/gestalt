@@ -28,5 +28,16 @@
     "sourceDateEpoch": 1791326077
   },
   "scope": "isolated test-only candidate; no production installation/release/activation",
-  "binaryPins": "pending verified CI artifact; not adopted"
+  "binaryPins": "pending verified CI artifact; not adopted",
+  "lockPreparation": {
+    "reason": "Pinned release workspace manifests use0.161.0 while checked-in local lock packages use0.0.0",
+    "localPackageCount": 160,
+    "fromVersion": "0.0.0",
+    "toVersion": "0.161.0",
+    "originalSha256": "3206e2fdb53a3498758ce2f2972f19fae26beb261befd65cc0eb9e02efe23d52",
+    "preparedSha256": "4e43cd81ed341c32bde170917f38c3e79702cbc69d1f96744ab1e09f9e80a601",
+    "patchSha256": "9b2995d1b406de9526a4db5b1360c872eaa459bbb5dea1bd2412f560befd36bc",
+    "dependencyChanges": false,
+    "preparedBuildTree": "7655dd0083d9b97091aa339001e3bf37ac73e445"
+  }
 }

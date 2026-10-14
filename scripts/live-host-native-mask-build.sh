@@ -51,6 +51,34 @@ git -C "$native_root" add -- codex-rs/linux-sandbox/src/bwrap.rs codex-rs/linux-
 patched_tree=$(git -C "$native_root" write-tree)
 expected_tree=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["patchedTree"])' "$fixture_root/manifest.json")
 [[ $patched_tree == "$expected_tree" ]]
+stage=prepare-release-lock
+git -C "$native_root" apply --check "$fixture_root/lock-preparation.patch"
+git -C "$native_root" apply "$fixture_root/lock-preparation.patch"
+python3 - "$native_root" "$fixture_root" <<'PY'
+import hashlib,json,pathlib,subprocess,sys,tomllib
+root,fixture=map(pathlib.Path,sys.argv[1:]);m=json.loads((fixture/'manifest.json').read_text());pin=m['lockPreparation']
+assert hashlib.sha256((fixture/'lock-preparation.patch').read_bytes()).hexdigest()==pin['patchSha256']
+original=subprocess.check_output(['git','-C',str(root),'show',m['upstream']['commit']+':codex-rs/Cargo.lock'])
+prepared=(root/'codex-rs/Cargo.lock').read_bytes()
+assert hashlib.sha256(original).hexdigest()==pin['originalSha256']
+assert hashlib.sha256(prepared).hexdigest()==pin['preparedSha256']
+lock=tomllib.loads(original.decode());local={p['name']:p for p in lock['package'] if 'source' not in p};assert len(local)==pin['localPackageCount']
+workspace=tomllib.loads((root/'codex-rs/Cargo.toml').read_text());assert workspace['workspace']['package']['version']==pin['toVersion']
+versions={}
+for path in (root/'codex-rs').rglob('Cargo.toml'):
+ package=tomllib.loads(path.read_text()).get('package',{});name=package.get('name')
+ if name in local:
+  assert package['version']=={'workspace':True};versions[name]=pin['toVersion']
+assert versions.keys()==local.keys()
+for package in lock['package']:
+ if 'source' not in package:
+  assert package['version']==pin['fromVersion'];package['version']=versions[package['name']]
+assert tomllib.loads(prepared.decode())==lock,'Lock preparation must only synchronize local workspace versions'
+PY
+git -C "$native_root" add -- codex-rs/Cargo.lock
+prepared_tree=$(git -C "$native_root" write-tree)
+expected_build_tree=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["lockPreparation"]["preparedBuildTree"])' "$fixture_root/manifest.json")
+[[ $prepared_tree == "$expected_build_tree" ]]
 export SOURCE_DATE_EPOCH
 SOURCE_DATE_EPOCH=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["build"]["sourceDateEpoch"])' "$fixture_root/manifest.json")
 export CARGO_BUILD_JOBS=2 CARGO_INCREMENTAL=0 CARGO_NET_GIT_FETCH_WITH_CLI=true
@@ -100,7 +128,7 @@ active_log="$output_root/logs/native-build.log"
 cargo build --locked --profile dev-small -p codex-cli -p codex-linux-sandbox > "$active_log" 2>&1
 install -m0755 "$CARGO_TARGET_DIR/dev-small/codex" "$output_root/bin/codex"
 install -m0755 "$CARGO_TARGET_DIR/dev-small/codex-linux-sandbox" "$output_root/bin/codex-linux-sandbox"
-cp "$fixture_root/LICENSE" "$fixture_root/native.patch" "$output_root/"
+cp "$fixture_root/LICENSE" "$fixture_root/native.patch" "$fixture_root/lock-preparation.patch" "$output_root/"
 git -C "$native_root" diff --check
 git -C "$manager_root" diff --check
 
@@ -109,19 +137,19 @@ active_log=""
 python3 - "$manager_root" "$native_root" "$fixture_root" "$output_root" <<'PY'
 import hashlib,json,os,pathlib,re,subprocess,sys
 manager,native,fixture,out=map(pathlib.Path,sys.argv[1:]);m=json.loads((fixture/'manifest.json').read_text())
-assert subprocess.check_output(['git','-C',str(native),'write-tree'],text=True).strip()==m['patchedTree']
-for path,pin in m['inputs'].items():assert hashlib.sha256((native/path).read_bytes()).hexdigest()==pin,path
+assert subprocess.check_output(['git','-C',str(native),'write-tree'],text=True).strip()==m['lockPreparation']['preparedBuildTree']
+for path,pin in m['inputs'].items():assert hashlib.sha256((native/path).read_bytes()).hexdigest()==(m['lockPreparation']['preparedSha256'] if path=='codex-rs/Cargo.lock' else pin),path
 for path in ['codex-rs/linux-sandbox/src/bwrap.rs','codex-rs/linux-sandbox/tests/suite/landlock.rs']:
  assert (native/path).read_bytes()==subprocess.check_output(['git','-C',str(native),'show',m['patchedTree']+':'+path])
 tests=(out/'logs/native-tests.log').read_text(errors='replace')
-result={'schemaVersion':1,'managerHead':subprocess.check_output(['git','-C',str(manager),'rev-parse','HEAD'],text=True).strip(),'managerTree':subprocess.check_output(['git','-C',str(manager),'rev-parse','HEAD^{tree}'],text=True).strip(),'runId':os.environ['GITHUB_RUN_ID'],'upstream':m['upstream'],'patchedSourceTree':m['patchedTree'],'patchSha256':m['patchSha256'],'fixPatchSha256':m['fixPatchSha256'],'build':m['build'],'declaredNativeVersion':'0.161.0','baselineRegression':'failed at intended directory-mask assertion','nativeTests':re.findall(r'test result: ok[^\n]*',tests),'binarySha256':hashlib.sha256((out/'bin/codex').read_bytes()).hexdigest(),'bwrapSha256':hashlib.sha256((out/'bin/codex-resources/bwrap').read_bytes()).hexdigest(),'sandboxHelperSha256':hashlib.sha256((out/'bin/codex-linux-sandbox').read_bytes()).hexdigest(),'sourceInputs':m['inputs'],'buildInputHashes':{name:hashlib.sha256((out/name).read_bytes()).hexdigest() for name in ['rust-toolchain.txt','cargo-toolchain.txt','c-compiler.txt','system-build-inputs.txt']},'runnerImageVersion':os.environ.get('ImageVersion'),'scope':'test-only GNU dev-small candidate; not a release/installation/activation','nativeOwningRuntimeProof':'pending; this build is not L9.2 acceptance'}
+result={'schemaVersion':1,'managerHead':subprocess.check_output(['git','-C',str(manager),'rev-parse','HEAD'],text=True).strip(),'managerTree':subprocess.check_output(['git','-C',str(manager),'rev-parse','HEAD^{tree}'],text=True).strip(),'runId':os.environ['GITHUB_RUN_ID'],'upstream':m['upstream'],'patchedSourceTree':m['patchedTree'],'buildSourceTree':m['lockPreparation']['preparedBuildTree'],'lockPreparation':m['lockPreparation'],'patchSha256':m['patchSha256'],'fixPatchSha256':m['fixPatchSha256'],'build':m['build'],'declaredNativeVersion':'0.161.0','baselineRegression':'failed at intended directory-mask assertion','nativeTests':re.findall(r'test result: ok[^\n]*',tests),'binarySha256':hashlib.sha256((out/'bin/codex').read_bytes()).hexdigest(),'bwrapSha256':hashlib.sha256((out/'bin/codex-resources/bwrap').read_bytes()).hexdigest(),'sandboxHelperSha256':hashlib.sha256((out/'bin/codex-linux-sandbox').read_bytes()).hexdigest(),'sourceInputs':m['inputs'],'buildInputHashes':{name:hashlib.sha256((out/name).read_bytes()).hexdigest() for name in ['rust-toolchain.txt','cargo-toolchain.txt','c-compiler.txt','system-build-inputs.txt']},'runnerImageVersion':os.environ.get('ImageVersion'),'scope':'test-only GNU dev-small candidate; not a release/installation/activation','nativeOwningRuntimeProof':'pending; this build is not L9.2 acceptance'}
 (out/'provenance.json').write_text(json.dumps(result,indent=2)+'\n')
 PY
-tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner -C "$output_root" -czf "$RUNNER_TEMP/native-mask-candidate.tar.gz" bin LICENSE native.patch provenance.json rust-toolchain.txt cargo-toolchain.txt c-compiler.txt system-build-inputs.txt
+tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner -C "$output_root" -czf "$RUNNER_TEMP/native-mask-candidate.tar.gz" bin LICENSE native.patch lock-preparation.patch provenance.json rust-toolchain.txt cargo-toolchain.txt c-compiler.txt system-build-inputs.txt
 sha256sum "$RUNNER_TEMP/native-mask-candidate.tar.gz" > "$RUNNER_TEMP/native-mask-candidate.sha256"
 python3 - "$output_root/provenance.json" "$RUNNER_TEMP/native-mask-candidate.tar.gz" <<'PY'
 import hashlib,json,pathlib,sys
 p=pathlib.Path(sys.argv[1]);result=json.loads(p.read_text());result['archiveSha256']=hashlib.sha256(pathlib.Path(sys.argv[2]).read_bytes()).hexdigest();p.write_text(json.dumps(result,indent=2)+'\n')
-summary={key:result[key] for key in ['managerHead','managerTree','runId','upstream','patchedSourceTree','patchSha256','build','baselineRegression','nativeTests','binarySha256','bwrapSha256','sandboxHelperSha256','archiveSha256','nativeOwningRuntimeProof']}
+summary={key:result[key] for key in ['managerHead','managerTree','runId','upstream','patchedSourceTree','buildSourceTree','lockPreparation','patchSha256','build','baselineRegression','nativeTests','binarySha256','bwrapSha256','sandboxHelperSha256','archiveSha256','nativeOwningRuntimeProof']}
 print('::notice title=Verified Native mask candidate::'+json.dumps(summary,separators=(',',':')))
 PY

@@ -742,3 +742,24 @@ test('startup RPC diagnostic identifies method and fixed error facts without con
  const unknown=diagnose('thread/start',{code:-32603,message:'bwrap: Can\'t create file at /private/fixture-secret: arbitrary fixture-secret'},{metadata:'/private/fixture-secret'});
  assert.equal(unknown.operation.errnoClass,'unclassified');assert.ok(!JSON.stringify(unknown).includes('fixture-secret'));
 });
+
+test('Native build failure reports locked dependency classes without raw logs or credentials',()=>{
+ const root=mkdtempSync(join(tmpdir(),'native build diagnostic '));
+ try{
+  const script=readFileSync(resolve('scripts/live-host-native-mask-build.sh'),'utf8');
+  const diagnostic=script.split("<<'PY'\n")[1].split('\nPY\n')[0];
+  const log=join(root,'log'),lock=join(root,'lock'),version=join(root,'version');
+  const revision='a'.repeat(40);
+  writeFileSync(lock,`name = "mxc"\nsource = "git+https://github.com/microsoft/mxc#${revision}"\n`);
+  writeFileSync(version,'rustc 1.95.0\nrelease: 1.95.0\nhost: x86_64-unknown-linux-gnu\n');
+  writeFileSync(log,`failed to load source for dependency \`mxc\`\nfailed to update https://fixture-secret@github.com/microsoft/mxc#${revision}\nrevision ${revision} not found\nHTTP 403\nprivate path /private/fixture-secret prompt=fixture-secret token=fixture-secret\ndependency \`fixture-secret\`\n`);
+  const run=spawnSync('python3',['-','build-bwrap','101',log,lock,version],{input:diagnostic,encoding:'utf8'});
+  assert.equal(run.status,0,run.stderr);
+  const result=JSON.parse(run.stdout.split('title=Native mask candidate failure::')[1]);
+  assert.deepEqual(result.cargoErrorClasses,['dependencyLoad','missingRevision','sourceUpdate']);
+  assert.deepEqual(result.dependencies,['mxc']);assert.deepEqual(result.publicRepositories,['microsoft/mxc']);
+  assert.deepEqual(result.lockedRevisions,[revision]);assert.deepEqual(result.httpStatuses,['403']);
+  assert.equal(result.rustRelease,'1.95.0');assert.equal(result.host,'x86_64-unknown-linux-gnu');
+  for(const secret of ['fixture-secret','/private/','prompt=','token=','https://'])assert.ok(!run.stdout.includes(secret));
+ }finally{rmSync(root,{recursive:true,force:true});}
+});

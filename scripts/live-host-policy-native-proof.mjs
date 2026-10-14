@@ -233,15 +233,17 @@ async function callFor(path,args){return await managerCall(['live-policy',...arg
 async function captureFor(value,path,id){writeFileSync(path,JSON.stringify(value),{mode:0o600});const result=await callFor(path,['capture-runtime','--capture-id',id]);assert.equal(result.code,0,JSON.stringify(managerResultDiagnostic(result)));return JSON.parse(result.stdout);}
 async function actualSources(value,path,id,startReply,captured){
  const configuration=await rpc('config/read',{cwd:value.appRoot,includeLayers:true});assert.ok(configuration.config&&Array.isArray(configuration.layers)&&configuration.layers.length);
- assert.equal(configuration.config.features.hooks,false);assert.deepEqual(configuration.config.mcp_servers??{},{});assert.deepEqual(configuration.config.plugins??{},{});
+ report.sourceGuard='hooks-disabled';assert.equal(configuration.config.features.hooks,false);
+ report.sourceGuard='mcp-empty';assert.deepEqual(configuration.config.mcp_servers??{},{});
+ report.sourceGuard='plugins-empty';assert.deepEqual(configuration.config.plugins??{},{});
  const declared=configuration.config.permissions?.[value.profileId];assert.ok(declared);assert.equal(declared.extends,':read-only');assert.equal(declared.network.enabled,false);
  const expectedFilesystem=Object.fromEntries(value.sandboxState.permissionProfile.file_system.entries.map(entry=>[entry.path.type==='special'?':root':entry.path.path,entry.access]));
- assert.deepEqual(declared.filesystem,expectedFilesystem);assert.equal(startReply.activePermissionProfile?.extends,':read-only');
+ report.sourceGuard='declared-filesystem-exact';assert.deepEqual(declared.filesystem,expectedFilesystem);assert.equal(startReply.activePermissionProfile?.extends,':read-only');
  assert.equal(startReply.activePermissionProfile?.id,value.profileId);assert.equal(startReply.cwd,value.appRoot);assert.ok(startReply.instructionSources.includes(join(value.appRoot,'AGENTS.md')));
  const pins=new Map(value.configFiles.map(file=>[file.path,file]));let sources=[];const presentFiles=new Set();
  for(const layer of configuration.layers){assert.equal(typeof layer.version,'string');const name=layer.name;assert.ok(name&&typeof name.type==='string');
   if(name.type==='sessionFlags')continue;
-  if(name.type==='project'){assert.ok(typeof name.dotCodexFolder==='string');assert.ok(name.dotCodexFolder===join(value.appRoot,'.codex')||value.appRoot.startsWith(dirname(name.dotCodexFolder)+'/'));assert.deepEqual(layer.config,{});continue;}
+  if(name.type==='project'){assert.ok(typeof name.dotCodexFolder==='string');assert.ok(name.dotCodexFolder===join(value.appRoot,'.codex')||value.appRoot.startsWith(dirname(name.dotCodexFolder)+'/'));report.sourceGuard='project-layer-empty';assert.deepEqual(layer.config,{});continue;}
   assert.ok(['user','system','packagedDefaults','legacyManagedConfigTomlFromFile'].includes(name.type),'UNKNOWN_NATIVE_SOURCE');assert.equal(typeof name.file,'string');
   if(!existsSync(name.file)){assert.equal(Object.keys(layer.config).length,0);assert.ok(['/etc/codex/config.toml','/etc/codex/managed_config.toml','/etc/codex/requirements.toml'].includes(name.file),'UNSUPPORTED_ABSENT_SOURCE');continue;}
   assert.ok(pins.has(name.file),'UNINVENTORIED_NATIVE_FILE');presentFiles.add(name.file);sources.push({kind:'file',role:name.type==='user'?'user':name.type==='system'?'system':name.type==='packagedDefaults'?'packaged-defaults':'managed',...pins.get(name.file)});
@@ -342,7 +344,7 @@ try {
  if(publicIngress?.listening)await new Promise(done=>publicIngress.close(done));
  if(provider.listening)await new Promise(done=>provider.close(done));if(server.listening)await new Promise(done=>server.close(done));
  report.metadataPreserved=true;report.fixtureRootRetained=true;report.providerRequests=providerRequests;writeFileSync(join(evidence,'native-proof.json'),JSON.stringify(report,null,2)+'\n');
- const summary={stage:report.stage,passed:report.passed,checks:report.checks,failure:report.failure,failureDetail:report.failureDetail,failedRpc:report.failedRpc,nativeWireFailure:report.nativeWireFailure,failureMetadata:report.failureMetadata,startupMetadataObservations:report.startupMetadataObservations,startupMasks:report.startupMasks,bootstrap:report.bootstrap};
+ const summary={stage:report.stage,passed:report.passed,checks:report.checks,failure:report.failure,failureDetail:report.failureDetail,sourceGuard:report.sourceGuard,failedRpc:report.failedRpc,nativeWireFailure:report.nativeWireFailure,failureMetadata:report.failureMetadata,startupMetadataObservations:report.startupMetadataObservations,startupMasks:report.startupMasks,bootstrap:report.bootstrap};
  console.log(JSON.stringify(summary));
  if(!report.passed&&hostedActions)console.log('::error title=Bounded Native proof failure::'+JSON.stringify(summary).replaceAll('%','%25').replaceAll('\r','%0D').replaceAll('\n','%0A'));
 }

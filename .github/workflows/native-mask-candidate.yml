@@ -36,7 +36,7 @@ jobs:
           fi
       - uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582 # upstream pinned 1.95.0
         with:
-          toolchain: 1.95.0
+          components: clippy,rustfmt,rust-src
       - name: Build helper, reproduce baseline, vet Native regressions and build candidate
         run: bash scripts/live-host-native-mask-build.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

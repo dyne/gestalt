@@ -11,13 +11,24 @@ active_log=""
 report_failure() {
   local result=$?
   trap - ERR
-  python3 - "$stage" "$result" "$active_log" <<'PY'
+  python3 - "$stage" "$result" "$active_log" "$native_root/codex-rs/Cargo.lock" "$output_root/rust-toolchain.txt" <<'PY'
 import json,pathlib,re,sys
-stage,status,path=sys.argv[1:]
+stage,status,path,lock_path,toolchain_path=sys.argv[1:]
 text=pathlib.Path(path).read_text(errors='replace') if path and pathlib.Path(path).exists() else ''
+lock=pathlib.Path(lock_path).read_text() if pathlib.Path(lock_path).exists() else ''
+toolchain=pathlib.Path(toolchain_path).read_text() if pathlib.Path(toolchain_path).exists() else ''
 codes=sorted(set(re.findall(r'error\[(E[0-9]{4})\]',text)))[:8]
 locations=sorted(set(re.findall(r'(?:src|tests/suite)/(?:bwrap|landlock)\.rs:[0-9]+:[0-9]+',text)))[:8]
-print('::error title=Native mask candidate failure::'+json.dumps({'stage':stage,'exitCode':int(status),'compilerCodes':codes,'locations':locations,'logBytes':len(text.encode()),'diskFull':'No space left on device' in text,'outOfMemory':'SIGKILL' in text or 'signal: 9' in text}))
+patterns={'dependencyLoad':r'failed to (?:load source|get) (?:for )?dependency','sourceUpdate':r'failed to update','gitFetch':r'failed to (?:fetch|clone)|git fetch','missingRevision':r'revision .*not found','repositoryUnavailable':r'Repository not found|repository .*not found','network':r'network failure|connection|timed out|resolve host','tls':r'SSL|TLS|certificate','authentication':r'Authentication failed|could not read Username|Permission denied','lockfileChange':r'lock file.*needs to be updated|lockfile.*needs to be updated|cannot update.*lock.*--locked','registry':r'failed to download|failed to get.*crates.io|download of .*failed','rustVersion':r'requires rustc|not supported by.*rustc','manifest':r'failed to parse manifest|manifest.*invalid','patchPackageMissing':r'patch location.*does not contain','buildScript':r'failed to run custom build command','systemLibrary':r'libcap.*not.*found|pkg-config.*failed'}
+classes=sorted(name for name,pattern in patterns.items() if re.search(pattern,text,re.I))
+known_names=set(re.findall(r'^name = "([a-zA-Z0-9_.-]+)"$',lock,re.M))
+dependencies=sorted({name for name in re.findall(r'(?:dependency|package) `([a-zA-Z0-9_.-]+)`',text) if name in known_names})[:12]
+public_repositories=['openai-oss-forks/crossterm','openai-oss-forks/tokio-tungstenite','openai-oss-forks/tungstenite-rs','microsoft/mxc','modelcontextprotocol/rust-sdk','helix-editor/nucleo','dzbarsky/rules_rust','hyperium/h3']
+repositories=[name for name in public_repositories if name in text]
+known_revisions=set(re.findall(r'#[a-f0-9]{40}',lock))
+revisions=sorted(value[1:] for value in known_revisions if value[1:] in text)[:12]
+release=re.search(r'^release: ([0-9.]+)$',toolchain,re.M);host=re.search(r'^host: (x86_64-unknown-linux-gnu)$',toolchain,re.M)
+print('::error title=Native mask candidate failure::'+json.dumps({'stage':stage,'exitCode':int(status),'compilerCodes':codes,'locations':locations,'cargoErrorClasses':classes,'dependencies':dependencies,'publicRepositories':repositories,'lockedRevisions':revisions,'httpStatuses':sorted(set(re.findall(r'\b(?:401|403|404|408|429|500|502|503)\b',text))),'rustRelease':release[1] if release else None,'host':host[1] if host else None,'logBytes':len(text.encode()),'diskFull':'No space left on device' in text,'outOfMemory':'SIGKILL' in text or 'signal: 9' in text}))
 PY
   exit "$result"
 }
@@ -46,7 +57,12 @@ export CARGO_BUILD_JOBS=2 CARGO_INCREMENTAL=0 CARGO_NET_GIT_FETCH_WITH_CLI=true
 export CARGO_TARGET_DIR="$RUNNER_TEMP/native-mask-target"
 export RUSTFLAGS="--remap-path-prefix=$native_root=/codex-native-mask-source"
 cd "$native_root/codex-rs"
+stage=verify-toolchain
+active_log="$output_root/rust-toolchain.txt"
 rustc --version --verbose > "$output_root/rust-toolchain.txt"
+grep -Fx 'release: 1.95.0' "$output_root/rust-toolchain.txt" >/dev/null
+grep -Fx 'host: x86_64-unknown-linux-gnu' "$output_root/rust-toolchain.txt" >/dev/null
+cargo --version > "$output_root/cargo-toolchain.txt"
 gcc --version > "$output_root/c-compiler.txt"
 dpkg-query -W -f='${Package} ${Version}\n' build-essential binutils pkg-config libcap-dev libasound2-dev > "$output_root/system-build-inputs.txt"
 
@@ -98,10 +114,10 @@ for path,pin in m['inputs'].items():assert hashlib.sha256((native/path).read_byt
 for path in ['codex-rs/linux-sandbox/src/bwrap.rs','codex-rs/linux-sandbox/tests/suite/landlock.rs']:
  assert (native/path).read_bytes()==subprocess.check_output(['git','-C',str(native),'show',m['patchedTree']+':'+path])
 tests=(out/'logs/native-tests.log').read_text(errors='replace')
-result={'schemaVersion':1,'managerHead':subprocess.check_output(['git','-C',str(manager),'rev-parse','HEAD'],text=True).strip(),'managerTree':subprocess.check_output(['git','-C',str(manager),'rev-parse','HEAD^{tree}'],text=True).strip(),'runId':os.environ['GITHUB_RUN_ID'],'upstream':m['upstream'],'patchedSourceTree':m['patchedTree'],'patchSha256':m['patchSha256'],'fixPatchSha256':m['fixPatchSha256'],'build':m['build'],'declaredNativeVersion':'0.161.0','baselineRegression':'failed at intended directory-mask assertion','nativeTests':re.findall(r'test result: ok[^\n]*',tests),'binarySha256':hashlib.sha256((out/'bin/codex').read_bytes()).hexdigest(),'bwrapSha256':hashlib.sha256((out/'bin/codex-resources/bwrap').read_bytes()).hexdigest(),'sandboxHelperSha256':hashlib.sha256((out/'bin/codex-linux-sandbox').read_bytes()).hexdigest(),'sourceInputs':m['inputs'],'buildInputHashes':{name:hashlib.sha256((out/name).read_bytes()).hexdigest() for name in ['rust-toolchain.txt','c-compiler.txt','system-build-inputs.txt']},'runnerImageVersion':os.environ.get('ImageVersion'),'scope':'test-only GNU dev-small candidate; not a release/installation/activation','nativeOwningRuntimeProof':'pending; this build is not L9.2 acceptance'}
+result={'schemaVersion':1,'managerHead':subprocess.check_output(['git','-C',str(manager),'rev-parse','HEAD'],text=True).strip(),'managerTree':subprocess.check_output(['git','-C',str(manager),'rev-parse','HEAD^{tree}'],text=True).strip(),'runId':os.environ['GITHUB_RUN_ID'],'upstream':m['upstream'],'patchedSourceTree':m['patchedTree'],'patchSha256':m['patchSha256'],'fixPatchSha256':m['fixPatchSha256'],'build':m['build'],'declaredNativeVersion':'0.161.0','baselineRegression':'failed at intended directory-mask assertion','nativeTests':re.findall(r'test result: ok[^\n]*',tests),'binarySha256':hashlib.sha256((out/'bin/codex').read_bytes()).hexdigest(),'bwrapSha256':hashlib.sha256((out/'bin/codex-resources/bwrap').read_bytes()).hexdigest(),'sandboxHelperSha256':hashlib.sha256((out/'bin/codex-linux-sandbox').read_bytes()).hexdigest(),'sourceInputs':m['inputs'],'buildInputHashes':{name:hashlib.sha256((out/name).read_bytes()).hexdigest() for name in ['rust-toolchain.txt','cargo-toolchain.txt','c-compiler.txt','system-build-inputs.txt']},'runnerImageVersion':os.environ.get('ImageVersion'),'scope':'test-only GNU dev-small candidate; not a release/installation/activation','nativeOwningRuntimeProof':'pending; this build is not L9.2 acceptance'}
 (out/'provenance.json').write_text(json.dumps(result,indent=2)+'\n')
 PY
-tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner -C "$output_root" -czf "$RUNNER_TEMP/native-mask-candidate.tar.gz" bin LICENSE native.patch provenance.json rust-toolchain.txt c-compiler.txt system-build-inputs.txt
+tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner -C "$output_root" -czf "$RUNNER_TEMP/native-mask-candidate.tar.gz" bin LICENSE native.patch provenance.json rust-toolchain.txt cargo-toolchain.txt c-compiler.txt system-build-inputs.txt
 sha256sum "$RUNNER_TEMP/native-mask-candidate.tar.gz" > "$RUNNER_TEMP/native-mask-candidate.sha256"
 python3 - "$output_root/provenance.json" "$RUNNER_TEMP/native-mask-candidate.tar.gz" <<'PY'
 import hashlib,json,pathlib,sys

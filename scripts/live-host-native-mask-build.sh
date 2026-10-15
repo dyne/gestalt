@@ -86,6 +86,9 @@ expected_build_tree=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[
 export SOURCE_DATE_EPOCH
 SOURCE_DATE_EPOCH=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["build"]["sourceDateEpoch"])' "$fixture_root/manifest.json")
 export CARGO_BUILD_JOBS=2 CARGO_INCREMENTAL=0 CARGO_NET_GIT_FETCH_WITH_CLI=true
+# The locked v8_enable_sandbox variant has no official GNU prebuilt archive.
+# Build that exact variant from its locked source; keep its sandbox enabled.
+export V8_FROM_SOURCE=1 LIBCLANG_PATH=/usr/lib/llvm-19/lib
 export CARGO_TARGET_DIR="$RUNNER_TEMP/native-mask-target"
 export RUSTFLAGS="--remap-path-prefix=$native_root=/codex-native-mask-source"
 cd "$native_root/codex-rs"
@@ -96,7 +99,7 @@ grep -Fx 'release: 1.95.0' "$output_root/rust-toolchain.txt" >/dev/null
 grep -Fx 'host: x86_64-unknown-linux-gnu' "$output_root/rust-toolchain.txt" >/dev/null
 cargo --version > "$output_root/cargo-toolchain.txt"
 gcc --version > "$output_root/c-compiler.txt"
-dpkg-query -W -f='${Package} ${Version}\n' build-essential binutils pkg-config libcap-dev libasound2-dev > "$output_root/system-build-inputs.txt"
+dpkg-query -W -f='${Package} ${Version}\n' build-essential binutils pkg-config libcap-dev libasound2-dev libglib2.0-dev libclang-19-dev > "$output_root/system-build-inputs.txt"
 
 stage=build-bwrap
 active_log="$output_root/logs/bwrap.log"
@@ -145,17 +148,24 @@ git -C "$manager_root" diff --check
 stage=artifact-provenance
 active_log=""
 python3 - "$manager_root" "$native_root" "$fixture_root" "$output_root" <<'PY'
-import hashlib,json,os,pathlib,re,subprocess,sys
+import hashlib,json,os,pathlib,re,subprocess,sys,tomllib
 manager,native,fixture,out=map(pathlib.Path,sys.argv[1:]);m=json.loads((fixture/'manifest.json').read_text())
 assert subprocess.check_output(['git','-C',str(native),'write-tree'],text=True).strip()==m['lockPreparation']['preparedBuildTree']
 for path,pin in m['inputs'].items():assert hashlib.sha256((native/path).read_bytes()).hexdigest()==(m['lockPreparation']['preparedSha256'] if path=='codex-rs/Cargo.lock' else pin),path
 for path in ['codex-rs/linux-sandbox/src/bwrap.rs','codex-rs/linux-sandbox/tests/suite/landlock.rs']:
  assert (native/path).read_bytes()==subprocess.check_output(['git','-C',str(native),'show',m['patchedTree']+':'+path])
 tests=(out/'logs/native-tests.log').read_text(errors='replace')
-result={'schemaVersion':1,'managerHead':subprocess.check_output(['git','-C',str(manager),'rev-parse','HEAD'],text=True).strip(),'managerTree':subprocess.check_output(['git','-C',str(manager),'rev-parse','HEAD^{tree}'],text=True).strip(),'runId':os.environ['GITHUB_RUN_ID'],'upstream':m['upstream'],'patchedSourceTree':m['patchedTree'],'buildSourceTree':m['lockPreparation']['preparedBuildTree'],'lockPreparation':m['lockPreparation'],'patchSha256':m['patchSha256'],'fixPatchSha256':m['fixPatchSha256'],'build':m['build'],'declaredNativeVersion':'0.161.0','baselineRegression':'failed at intended directory-mask assertion','nativeTests':re.findall(r'test result: ok[^\n]*',tests),'binarySha256':hashlib.sha256((out/'bin/codex').read_bytes()).hexdigest(),'bwrapSha256':hashlib.sha256((out/'bin/codex-resources/bwrap').read_bytes()).hexdigest(),'sandboxHelperSha256':hashlib.sha256((out/'bin/codex-linux-sandbox').read_bytes()).hexdigest(),'codeModeHostSha256':hashlib.sha256((out/'bin/codex-code-mode-host').read_bytes()).hexdigest(),'sourceInputs':m['inputs'],'buildInputHashes':{name:hashlib.sha256((out/name).read_bytes()).hexdigest() for name in ['rust-toolchain.txt','cargo-toolchain.txt','c-compiler.txt','system-build-inputs.txt']},'runnerImageVersion':os.environ.get('ImageVersion'),'scope':'test-only GNU dev-small candidate; not a release/installation/activation','nativeOwningRuntimeProof':'pending; this build is not L9.2 acceptance'}
+v8=next(p for p in tomllib.loads((native/'codex-rs/Cargo.lock').read_text())['package'] if p['name']=='v8')
+assert v8['version']=='150.4.0' and os.environ['V8_FROM_SOURCE']=='1'
+v8_inputs={'mode':'source','version':v8['version'],'registryChecksum':v8['checksum'],'nativeFeature':'v8_enable_sandbox','jobs':int(os.environ['CARGO_BUILD_JOBS'])}
+archives=list(pathlib.Path(os.environ['CARGO_TARGET_DIR']).glob('dev-small/gn_out/obj/librusty_v8.a'))
+assert len(archives)==1,'Expected exactly one source-built V8 archive'
+v8_inputs['staticArchiveSha256']=hashlib.file_digest(archives[0].open('rb'),'sha256').hexdigest()
+(out/'v8-build-inputs.json').write_text(json.dumps(v8_inputs,indent=2)+'\n')
+result={'schemaVersion':1,'managerHead':subprocess.check_output(['git','-C',str(manager),'rev-parse','HEAD'],text=True).strip(),'managerTree':subprocess.check_output(['git','-C',str(manager),'rev-parse','HEAD^{tree}'],text=True).strip(),'runId':os.environ['GITHUB_RUN_ID'],'upstream':m['upstream'],'patchedSourceTree':m['patchedTree'],'buildSourceTree':m['lockPreparation']['preparedBuildTree'],'lockPreparation':m['lockPreparation'],'patchSha256':m['patchSha256'],'fixPatchSha256':m['fixPatchSha256'],'build':m['build'],'v8Build':v8_inputs,'declaredNativeVersion':'0.161.0','baselineRegression':'failed at intended directory-mask assertion','nativeTests':re.findall(r'test result: ok[^\n]*',tests),'binarySha256':hashlib.sha256((out/'bin/codex').read_bytes()).hexdigest(),'bwrapSha256':hashlib.sha256((out/'bin/codex-resources/bwrap').read_bytes()).hexdigest(),'sandboxHelperSha256':hashlib.sha256((out/'bin/codex-linux-sandbox').read_bytes()).hexdigest(),'codeModeHostSha256':hashlib.sha256((out/'bin/codex-code-mode-host').read_bytes()).hexdigest(),'sourceInputs':m['inputs'],'buildInputHashes':{name:hashlib.sha256((out/name).read_bytes()).hexdigest() for name in ['rust-toolchain.txt','cargo-toolchain.txt','c-compiler.txt','system-build-inputs.txt','v8-build-inputs.json']},'runnerImageVersion':os.environ.get('ImageVersion'),'scope':'test-only GNU dev-small candidate; not a release/installation/activation','nativeOwningRuntimeProof':'pending; this build is not L9.2 acceptance'}
 (out/'provenance.json').write_text(json.dumps(result,indent=2)+'\n')
 PY
-tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner -C "$output_root" -czf "$RUNNER_TEMP/native-mask-candidate.tar.gz" bin LICENSE native.patch lock-preparation.patch provenance.json rust-toolchain.txt cargo-toolchain.txt c-compiler.txt system-build-inputs.txt
+tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner -C "$output_root" -czf "$RUNNER_TEMP/native-mask-candidate.tar.gz" bin LICENSE native.patch lock-preparation.patch provenance.json rust-toolchain.txt cargo-toolchain.txt c-compiler.txt system-build-inputs.txt v8-build-inputs.json
 sha256sum "$RUNNER_TEMP/native-mask-candidate.tar.gz" > "$RUNNER_TEMP/native-mask-candidate.sha256"
 python3 - "$output_root/provenance.json" "$RUNNER_TEMP/native-mask-candidate.tar.gz" <<'PY'
 import hashlib,json,pathlib,sys

@@ -135,6 +135,26 @@ cargo test --locked --profile dev-small -p codex-linux-sandbox -- --test-threads
 grep -F 'sandbox_enforces_denied_metadata_directory_and_file_types ... ok' "$active_log" >/dev/null
 grep -F 'denied_missing_protected_metadata_keeps_directory_mask ... ok' "$active_log" >/dev/null
 
+stage=prepare-v8-source
+active_log="$output_root/logs/v8-input-fetch.log"
+cargo fetch --locked --target x86_64-unknown-linux-gnu --manifest-path code-mode-host/Cargo.toml > "$active_log" 2>&1
+python3 - "$CARGO_HOME" "$output_root" <<'PY'
+import base64,hashlib,json,pathlib,sys,urllib.request
+cargo,out=map(pathlib.Path,sys.argv[1:]);roots=list(cargo.glob('registry/src/*/v8-150.4.0'))
+assert len(roots)==1,'Expected one exact locked V8 source package'
+pin={'repository':'https://chromium.googlesource.com/chromium/deps/icu.git','commit':'ee5f27adc28bd3f15b2c293f726d14d2e336cbd5','path':'common/icudtl.dat','gitBlob':'d1a12cb93065157498a11ff5f4b9a6501ee22506','sha256':'1cf67874b5a87a8363a86fb3f81e3cbbed54d389062dab8fb52308d5cf8c8612','bytes':10822192,'v8Release':'v150.4.0'}
+url=pin['repository'].removesuffix('.git')+'/+/'+pin['commit']+'/'+pin['path']+'?format=TEXT'
+encoded=urllib.request.urlopen(url,timeout=45).read(16*1024*1024)
+data=base64.b64decode(encoded,validate=True)
+assert len(data)==pin['bytes'] and hashlib.sha256(data).hexdigest()==pin['sha256']
+assert hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()==pin['gitBlob']
+target=roots[0]/'third_party/icu/common/icudtl.dat'
+assert target.parent.is_dir() and not target.is_symlink()
+if target.exists():assert target.read_bytes()==data
+else:
+ with target.open('xb') as stream:stream.write(data)
+(out/'v8-icu-data.json').write_text(json.dumps(pin,indent=2)+'\n')
+PY
 stage=build-native
 active_log="$output_root/logs/native-build.log"
 cargo build --locked --profile dev-small -p codex-cli -p codex-linux-sandbox -p codex-code-mode-host > "$active_log" 2>&1
@@ -157,15 +177,15 @@ for path in ['codex-rs/linux-sandbox/src/bwrap.rs','codex-rs/linux-sandbox/tests
 tests=(out/'logs/native-tests.log').read_text(errors='replace')
 v8=next(p for p in tomllib.loads((native/'codex-rs/Cargo.lock').read_text())['package'] if p['name']=='v8')
 assert v8['version']=='150.4.0' and os.environ['V8_FROM_SOURCE']=='1'
-v8_inputs={'mode':'source','version':v8['version'],'registryChecksum':v8['checksum'],'nativeFeature':'v8_enable_sandbox','jobs':int(os.environ['CARGO_BUILD_JOBS'])}
+v8_inputs={'icuData':json.loads((out/'v8-icu-data.json').read_text()),'mode':'source','version':v8['version'],'registryChecksum':v8['checksum'],'nativeFeature':'v8_enable_sandbox','jobs':int(os.environ['CARGO_BUILD_JOBS'])}
 archives=list(pathlib.Path(os.environ['CARGO_TARGET_DIR']).glob('dev-small/gn_out/obj/librusty_v8.a'))
 assert len(archives)==1,'Expected exactly one source-built V8 archive'
 v8_inputs['staticArchiveSha256']=hashlib.file_digest(archives[0].open('rb'),'sha256').hexdigest()
 (out/'v8-build-inputs.json').write_text(json.dumps(v8_inputs,indent=2)+'\n')
-result={'schemaVersion':1,'managerHead':subprocess.check_output(['git','-C',str(manager),'rev-parse','HEAD'],text=True).strip(),'managerTree':subprocess.check_output(['git','-C',str(manager),'rev-parse','HEAD^{tree}'],text=True).strip(),'runId':os.environ['GITHUB_RUN_ID'],'upstream':m['upstream'],'patchedSourceTree':m['patchedTree'],'buildSourceTree':m['lockPreparation']['preparedBuildTree'],'lockPreparation':m['lockPreparation'],'patchSha256':m['patchSha256'],'fixPatchSha256':m['fixPatchSha256'],'build':m['build'],'v8Build':v8_inputs,'declaredNativeVersion':'0.161.0','baselineRegression':'failed at intended directory-mask assertion','nativeTests':re.findall(r'test result: ok[^\n]*',tests),'binarySha256':hashlib.sha256((out/'bin/codex').read_bytes()).hexdigest(),'bwrapSha256':hashlib.sha256((out/'bin/codex-resources/bwrap').read_bytes()).hexdigest(),'sandboxHelperSha256':hashlib.sha256((out/'bin/codex-linux-sandbox').read_bytes()).hexdigest(),'codeModeHostSha256':hashlib.sha256((out/'bin/codex-code-mode-host').read_bytes()).hexdigest(),'sourceInputs':m['inputs'],'buildInputHashes':{name:hashlib.sha256((out/name).read_bytes()).hexdigest() for name in ['rust-toolchain.txt','cargo-toolchain.txt','c-compiler.txt','system-build-inputs.txt','v8-build-inputs.json']},'runnerImageVersion':os.environ.get('ImageVersion'),'scope':'test-only GNU dev-small candidate; not a release/installation/activation','nativeOwningRuntimeProof':'pending; this build is not L9.2 acceptance'}
+result={'schemaVersion':1,'managerHead':subprocess.check_output(['git','-C',str(manager),'rev-parse','HEAD'],text=True).strip(),'managerTree':subprocess.check_output(['git','-C',str(manager),'rev-parse','HEAD^{tree}'],text=True).strip(),'runId':os.environ['GITHUB_RUN_ID'],'upstream':m['upstream'],'patchedSourceTree':m['patchedTree'],'buildSourceTree':m['lockPreparation']['preparedBuildTree'],'lockPreparation':m['lockPreparation'],'patchSha256':m['patchSha256'],'fixPatchSha256':m['fixPatchSha256'],'build':m['build'],'v8Build':v8_inputs,'declaredNativeVersion':'0.161.0','baselineRegression':'failed at intended directory-mask assertion','nativeTests':re.findall(r'test result: ok[^\n]*',tests),'binarySha256':hashlib.sha256((out/'bin/codex').read_bytes()).hexdigest(),'bwrapSha256':hashlib.sha256((out/'bin/codex-resources/bwrap').read_bytes()).hexdigest(),'sandboxHelperSha256':hashlib.sha256((out/'bin/codex-linux-sandbox').read_bytes()).hexdigest(),'codeModeHostSha256':hashlib.sha256((out/'bin/codex-code-mode-host').read_bytes()).hexdigest(),'sourceInputs':m['inputs'],'buildInputHashes':{name:hashlib.sha256((out/name).read_bytes()).hexdigest() for name in ['rust-toolchain.txt','cargo-toolchain.txt','c-compiler.txt','system-build-inputs.txt','v8-build-inputs.json','v8-icu-data.json']},'runnerImageVersion':os.environ.get('ImageVersion'),'scope':'test-only GNU dev-small candidate; not a release/installation/activation','nativeOwningRuntimeProof':'pending; this build is not L9.2 acceptance'}
 (out/'provenance.json').write_text(json.dumps(result,indent=2)+'\n')
 PY
-tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner -C "$output_root" -czf "$RUNNER_TEMP/native-mask-candidate.tar.gz" bin LICENSE native.patch lock-preparation.patch provenance.json rust-toolchain.txt cargo-toolchain.txt c-compiler.txt system-build-inputs.txt v8-build-inputs.json
+tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner -C "$output_root" -czf "$RUNNER_TEMP/native-mask-candidate.tar.gz" bin LICENSE native.patch lock-preparation.patch provenance.json rust-toolchain.txt cargo-toolchain.txt c-compiler.txt system-build-inputs.txt v8-build-inputs.json v8-icu-data.json
 sha256sum "$RUNNER_TEMP/native-mask-candidate.tar.gz" > "$RUNNER_TEMP/native-mask-candidate.sha256"
 python3 - "$output_root/provenance.json" "$RUNNER_TEMP/native-mask-candidate.tar.gz" <<'PY'
 import hashlib,json,pathlib,sys

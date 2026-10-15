@@ -767,3 +767,11 @@ input; the runtime fixture records later verified artifact pins. These artifacts
 and hashes are for the supported-host proof and L9 review. They do not install,
 activate or release a replacement runtime, and a successful build does not
 establish admission or descendant confinement.
+
+The owning proof uses two original policies declared before runtime birth. The
+restricted policy must reject local devserver binding with a permission errno.
+A separate network-enabled policy must serve public app content through the
+registered loopback ingress while its helper, child and detached grandchild
+retain every private-path, proc, descriptor and metadata exclusion. Version 2
+preserves either original Native network state under the sealed birth-policy
+digest; changing that state revokes admission. Version 1 remains restricted.

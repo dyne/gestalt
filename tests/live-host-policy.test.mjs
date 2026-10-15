@@ -535,6 +535,14 @@ provenanceCheck('elected pre-birth capture and empty Native-shaped directory adm
  assert.ok(saved.sandboxState.permissionProfile.file_system.entries.some(entry=>entry.access==='deny'&&entry.path.path===join(f.app,'.codex')));
  assert.equal(f.capture().reason,'reused-capture-id');assert.equal(f.seal().reason,'reused-capture-id');
 });
+provenanceCheck('original enabled network is preserved only with sealed birth provenance and all private denies',async f=>{
+ f.m.sandboxState.permissionProfile.network='enabled';await f.captureAndStart();assert.equal(f.seal().status,0);assert.equal(f.prepare().status,0);
+ const saved=JSON.parse(readFileSync(join(f.privateRoot,'policy-receipt.json'))).body;
+ assert.equal(saved.sandboxState.permissionProfile.network,'enabled');
+ const denies=saved.sandboxState.permissionProfile.file_system.entries.filter(entry=>entry.access==='deny').map(entry=>entry.path.path);
+ for(const path of [f.privateRoot,'/proc',join(f.app,'.codex')])assert.ok(denies.includes(path));
+ assert.equal(f.run('verify').status,0);f.m.sandboxState.permissionProfile.network='restricted';assert.equal(f.run('verify').status,1);
+});
 provenanceCheck('empty preexisting metadata cannot acquire absence evidence',async f=>{mkdirSync(join(f.app,'.codex'));assert.equal(f.capture().reason,'project-config-present');});
 provenanceCheck('election is mandatory before capture, even when the directory is absent',async f=>{delete f.m.election;assert.equal(f.capture().reason,'missing-election');});
 provenanceCheck('unlocked holder FD is not elected authority',async f=>{f.m.election.holder=identity(process.pid);assert.equal(f.capture().reason,'stale-election');});
@@ -555,7 +563,7 @@ for(const variant of ['missing-directory','missing-system','missing-user','dupli
  if(variant==='extra-source')input.sources.push({kind:'absent',role:'user',path:'/private-uninventoried-user'});
  assert.equal(f.seal(input).reason,'incomplete-source-inventory');
 });
-for(const variant of ['config','hook','rules','agents','symlink','replacement','generation','session','profile','permissions','component','owner-birth','election-birth','parent-replacement','tampered-mac','unsigned-marker'])provenanceCheck(`sealed ${variant} change revokes before next admission`,async f=>{
+for(const variant of ['config','hook','rules','agents','symlink','replacement','generation','session','profile','permissions','network','component','owner-birth','election-birth','parent-replacement','tampered-mac','unsigned-marker'])provenanceCheck(`sealed ${variant} change revokes before next admission`,async f=>{
  await f.captureAndStart();assert.equal(f.seal().status,0);assert.equal(f.prepare().status,0);
  const metadata=join(f.app,'.codex');
  if(['config','hook','rules','agents'].includes(variant))writeFileSync(join(metadata,variant),'fixture-secret');
@@ -566,6 +574,7 @@ for(const variant of ['config','hook','rules','agents','symlink','replacement','
  if(variant==='session')f.m.generation.sessionId=randomUUID();
  if(variant==='profile')f.m.profileId='changed';
  if(variant==='permissions')f.m.sandboxState.permissionProfile.file_system.entries[1].access='read';
+ if(variant==='network')f.m.sandboxState.permissionProfile.network='enabled';
  if(variant==='component')f.m.components.agents='changed';
  if(variant==='election-birth')f.m.election.holder.birth='0';
  if(['owner-birth','tampered-mac','unsigned-marker'].includes(variant)){

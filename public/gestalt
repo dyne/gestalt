@@ -2861,7 +2861,7 @@ function contract(manifestPath, versionProbe = true, nativeMetadata, capturing =
   const state = m.sandboxState;
   if (!exactKeys(state,['permissionProfile','sandboxCwd','useLegacyLandlock'],['codexLinuxSandboxExe','useMxc']) || state.useLegacyLandlock !== false || state.useMxc === true || state.codexLinuxSandboxExe != null) fail('incompatible-profile');
   const profile = state.permissionProfile;
-  if (!exactKeys(profile,['type','file_system','network']) || profile.type !== 'managed' || profile.network !== 'restricted'
+  if (!exactKeys(profile,['type','file_system','network']) || profile.type !== 'managed' || !(profile.network === 'restricted' || (m.schemaVersion === 2 && profile.network === 'enabled'))
     || !exactKeys(profile.file_system,['type','entries']) || profile.file_system.type !== 'restricted' || !Array.isArray(profile.file_system.entries) || !profile.file_system.entries.length) fail('incompatible-profile');
   if (fileURLToPath(state.sandboxCwd) !== app || realpathSync(fileURLToPath(state.sandboxCwd)) !== app) fail('workspace-mismatch');
   const entries = profile.file_system.entries;

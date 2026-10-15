@@ -69,5 +69,35 @@
     "archiveBytes": 236929683,
     "origin": "GitHub public artifact via nightly.link"
   },
-  "acceptance": "candidate pins for isolated supported-host proof; installation and L9 acceptance pending"
+  "acceptance": "candidate pins for isolated supported-host proof; installation and L9 acceptance pending",
+  "codeModeHost": {
+    "verifiedAt": "2026-10-15T05:46:18.041157+00:00",
+    "sourceCommit": "979011409de0a60b52f179721948e65531d26144",
+    "releaseTag": "rust-v0.161.0",
+    "target": "x86_64-unknown-linux-musl",
+    "binarySha256": "e87096087c02aa6ab90a5a85031659665aa0bf3ee20c07ca0b8ab701c83fcd5b",
+    "archiveSha256": "30cc945f77b3eed15ee385cc2f844a33bf1d7c422ff3a97161f701bffe4f77f8",
+    "bundleSha256": "5b7992b56b00440c56951c05ea9e8076a98236cefd1d6eb356c1cfafe4bc29aa",
+    "signatureVerified": true,
+    "identity": "https://github.com/openai/codex/.github/workflows/rust-release.yml@refs/tags/rust-v0.161.0",
+    "issuer": "https://token.actions.githubusercontent.com",
+    "verifier": {
+      "package": "@sigstore/cli",
+      "version": "0.10.3",
+      "tlogThreshold": 1,
+      "ctlogThreshold": 1,
+      "trust": "Sigstore TUF trusted roots",
+      "legacyBundleConversion": "lossless certificate/signature/Rekor inclusion-promise conversion to bundle v0.1"
+    },
+    "v8SandboxEvidence": {
+      "sourceFeature": "code-mode-runtime/Cargo.toml v8_enable_sandbox",
+      "releaseSetup": ".github/actions/setup-rusty-v8/action.yml profile=ptrcomp_sandbox_release"
+    },
+    "abi": {
+      "architecture": "x86-64",
+      "elf": "static PIE; no interpreter program header",
+      "protocol": "same source revision code-mode-protocol, actual handshake pending"
+    },
+    "scope": "exact official host for isolated supported-host proof; no installation or activation"
+  }
 }

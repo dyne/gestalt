@@ -21,9 +21,13 @@ const runtimePinsPath='tests/fixtures/live-host-native-runtime.json';
 const runtimePins=JSON.parse(readFileSync(runtimePinsPath));
 const expectedBwrap='335aa87510fc0eee1bcdbedd3d9bf4aa4d112cffed72d5f1ad7a10b6cc855066';
 const expectedSandboxHelper='396915091a1f0387b48fd06e98d06e61d22f6ff6af33bc806891a634ee03d199';
+const expectedCodeModeHost='e87096087c02aa6ab90a5a85031659665aa0bf3ee20c07ca0b8ab701c83fcd5b';
 assert.equal(runtimePins.binarySha256,expectedBinary);
 assert.equal(runtimePins.bwrapSha256,expectedBwrap);
 assert.equal(runtimePins.sandboxHelperSha256,expectedSandboxHelper);
+assert.equal(runtimePins.codeModeHost.binarySha256,expectedCodeModeHost);
+assert.equal(runtimePins.codeModeHost.sourceCommit,'979011409de0a60b52f179721948e65531d26144');
+assert.equal(runtimePins.codeModeHost.signatureVerified,true);
 assert.equal(runtimePins.managerHead,'75e420c5f65b1b1acb0cd0b3615564d462e365ce');
 assert.equal(runtimePins.runId,'38645681271');
 const mobilePin='c558dd644e4b6ac8d3bce9e57bce762791ea25de';
@@ -39,6 +43,8 @@ assert.ok(bundledBwrap,'PINNED_NATIVE_PACKAGE_RESOURCE_MISSING');
 assert.equal(createHash('sha256').update(readFileSync(bundledBwrap)).digest('hex'),expectedBwrap);
 const sandboxHelper=join(dirname(binary),'codex-linux-sandbox');
 assert.equal(createHash('sha256').update(readFileSync(sandboxHelper)).digest('hex'),expectedSandboxHelper);
+const codeModeHost=join(dirname(binary),'codex-code-mode-host');
+assert.equal(hash(readFileSync(codeModeHost)),expectedCodeModeHost);
 const nativeDiagnostic=(text,roles={})=>({createFileFailureRole:(()=>{const match=text.match(/Can't create file at (.+): Read-only file system/);if(!match)return undefined;const path=match[1].replace(/^["']|["']$/g,'');return Object.entries(roles).filter(([,root])=>path===root||path.startsWith(root+'/')).sort((a,b)=>b[1].length-a[1].length)[0]?.[0]??'undeclared-path';})(),errorTemplates:text.split('\n').filter(line=>/^(?:Error:|error:|error building bubblewrap command:|bwrap:)/.test(line)).slice(0,3).map(line=>line.replace(/Can't create file at .+: Read-only file system/,"Can't create file at <path>: Read-only file system").replace(/"[^"]*"|'[^']*'/g,'<quoted>').replace(/\/[^\s,;:)]+/g,'<path>').replace(/fixture[-a-z]*/g,'<fixture>').replace(/[a-f0-9]{16,}/gi,'<token>').slice(0,220)),shellFailure:/command failed near line/.test(text),bytes:Buffer.byteLength(text),rustPanic:/panicked at/.test(text),
  nodeCodes:[...new Set(text.match(/\bERR_[A-Z_]+\b/g)??[])].slice(0,4),nodeErrnos:[...new Set(text.match(/\b(?:EACCES|EPERM|ENOENT|ENOTDIR|EISDIR|EROFS|ENOSYS)\b/g)??[])].slice(0,4),nodeErrors:['TypeError','SyntaxError','ReferenceError','RangeError'].filter(name=>text.includes(name+':')||text.includes(name+' [')),temporaryAliasesRefused:/Refusing to create helper binaries under temporary dir/.test(text),invalidSandboxState:/invalid --sandbox-state-json/.test(text),
  bubblewrapUnavailable:/bubblewrap is unavailable/.test(text),bundledResourceFailure:/failed to (open|exec) bundled bubblewrap/.test(text),

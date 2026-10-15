@@ -63,6 +63,39 @@ jobs:
           assert.equal(built.runId,'38645681271');
           assert.equal(built.managerHead,'75e420c5f65b1b1acb0cd0b3615564d462e365ce');
           NODE
+          host_release=https://github.com/openai/codex/releases/download/rust-v0.161.0
+          host_name=codex-code-mode-host-x86_64-unknown-linux-musl
+          curl --fail --silent --show-error --location "$host_release/$host_name.tar.gz" --output "$tool_root/host.tar.gz"
+          curl --fail --silent --show-error --location "$host_release/$host_name.sigstore" --output "$tool_root/host.sigstore"
+          printf '%s  %s\n' 30cc945f77b3eed15ee385cc2f844a33bf1d7c422ff3a97161f701bffe4f77f8 "$tool_root/host.tar.gz" | sha256sum --check --status
+          printf '%s  %s\n' 5b7992b56b00440c56951c05ea9e8076a98236cefd1d6eb356c1cfafe4bc29aa "$tool_root/host.sigstore" | sha256sum --check --status
+          tar -xzf "$tool_root/host.tar.gz" -C "$tool_root" "$host_name"
+          printf '%s  %s\n' e87096087c02aa6ab90a5a85031659665aa0bf3ee20c07ca0b8ab701c83fcd5b "$tool_root/$host_name" | sha256sum --check --status
+          node --input-type=module - "$tool_root" <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {X509Certificate} from 'node:crypto';
+          const root=process.argv[2],legacy=JSON.parse(readFileSync(`${root}/host.sigstore`));
+          const entry=legacy.rekorBundle.Payload,body=JSON.parse(Buffer.from(entry.body,'base64'));
+          const certificate=new X509Certificate(Buffer.from(legacy.cert,'base64'));
+          const pins=JSON.parse(readFileSync('tests/fixtures/live-host-native-runtime.json')).codeModeHost;
+          assert.equal(body.spec.data.hash.algorithm,'sha256');
+          assert.equal(body.spec.data.hash.value,pins.binarySha256);
+          assert.ok(certificate.raw.includes(Buffer.from(pins.sourceCommit)));
+          const bundle={mediaType:'application/vnd.dev.sigstore.bundle+json;version=0.1',
+            verificationMaterial:{x509CertificateChain:{certificates:[{rawBytes:certificate.raw.toString('base64')}]},
+              tlogEntries:[{logIndex:String(entry.logIndex),logId:{keyId:Buffer.from(entry.logID,'hex').toString('base64')},
+                kindVersion:{kind:body.kind,version:body.apiVersion},integratedTime:String(entry.integratedTime),
+                inclusionPromise:{signedEntryTimestamp:legacy.rekorBundle.SignedEntryTimestamp},canonicalizedBody:entry.body}]},
+            messageSignature:{messageDigest:{algorithm:'SHA2_256',digest:Buffer.from(body.spec.data.hash.value,'hex').toString('base64')},signature:legacy.base64Signature}};
+          writeFileSync(`${root}/host.bundle.json`,JSON.stringify(bundle));
+          NODE
+          npm exec --cache "$RUNNER_TEMP/live-host-sigstore-cache" --yes --package=@sigstore/cli@0.10.3 -- \
+            sigstore verify "$tool_root/host.bundle.json" --blob-file "$tool_root/$host_name" \
+            --certificate-identity-uri https://github.com/openai/codex/.github/workflows/rust-release.yml@refs/tags/rust-v0.161.0 \
+            --certificate-issuer https://token.actions.githubusercontent.com \
+            --tuf-cache-path "$RUNNER_TEMP/live-host-sigstore-tuf" --json
+          install -m0755 "$tool_root/$host_name" "$tool_root/native/bin/codex-code-mode-host"
           curl --fail --silent --show-error --location \
             https://github.com/caddyserver/caddy/releases/download/v2.11.7/caddy_2.11.7_linux_amd64.tar.gz \
             --output "$tool_root/caddy.tar.gz"

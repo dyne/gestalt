@@ -348,13 +348,16 @@ try {
  assert.ok(existsSync(join(app,'model-root.txt')));assert.equal(readdirSync(privateRoot).some(name=>name.startsWith('forbidden-')),false);report.checks.actualNativeModelFileTools=true;report.checks.actualNativeChildAgentInheritance=true;report.model={provider:'controlled',requests:providerRequests,threads:modelThreads.size};
  report.stage='native-helper-and-grandchildren';extraFD=openSync(auth,'r');unowned=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{env:controllerEnv,stdio:'ignore'});
  const first=await launch();await nativeMessages(first);
- await waitFor(()=>existsSync(first.publicSocket));publicSocket=first.publicSocket;
+ let devserverReady=false;try{await waitFor(()=>existsSync(first.publicSocket),3000);devserverReady=true;}catch{}
+ if(devserverReady){publicSocket=first.publicSocket;
  publicIngress=createHttpServer((req,res)=>{if(req.method!=='GET'||req.url!=='/'){res.writeHead(404);res.end();return;}
   const upstream=httpRequest({socketPath:publicSocket,path:'/',method:'GET'},incoming=>{res.writeHead(incoming.statusCode,{'content-type':'text/plain'});incoming.pipe(res);});upstream.on('error',()=>{res.writeHead(503);res.end();});upstream.end();});
  await new Promise(done=>publicIngress.listen(0,'127.0.0.1',done));const ingressPort=publicIngress.address().port;
  const appBody=await new Promise((done,reject)=>{const request=httpRequest({hostname:'127.0.0.1',port:ingressPort,path:'/'},incoming=>{let text='';incoming.on('data',chunk=>text+=chunk);incoming.on('end',()=>done(text));});request.on('error',reject);request.end();});
  assert.equal(appBody,'public-fixture');report.checks.actualConfinedDevserverAndRegisteredLoopbackIngress=true;
- report.devserver={nativeTransport:'public Unix HTTP socket',registeredIngress:'loopback TCP',privateDenied:true};assert.ok(first.messages().every(frame=>Object.values(frame.checks).every(Boolean)));report.nativeResults=first.messages();report.checks.helperAndGrandchildConfinement=true;
+ report.devserver={supported:true,nativeTransport:'public Unix HTTP socket',registeredIngress:'loopback TCP',privateDenied:true};
+ }else report.devserver={supported:false,reason:first.diagnostic().permissionDenied&&m.sandboxState.permissionProfile.network==='restricted'?'native-network-restricted':'unclassified',positiveProofRequired:true};
+ assert.ok(first.messages().every(frame=>Object.values(frame.checks).every(Boolean)));report.nativeResults=first.messages();report.checks.helperAndGrandchildConfinement=true;
  assert.equal((await managerCall(['live-policy','verify-process','--manifest',manifest,'--launch-id',first.id])).code,0);
  report.stage='permission-narrowing';m.sandboxState=nativeState(app,false);save();await stopped(first);await waitFor(()=>ownedPids(childFile).every(dead));assert.equal(JSON.parse(readFileSync(first.path)).body.termination,'policy-changed');
  assert.equal((await managerCall(['live-policy','prepare','--manifest',manifest])).code,1);report.checks.narrowingRevokesAndRefusesStaleAdmission=true;
@@ -370,11 +373,13 @@ try {
   if(c.kind==='stale-owner'){const receiptPath=join(c.directory,`runtime-${c.capture}.json`),r=JSON.parse(readFileSync(receiptPath));r.body.runtime.process.birth='0';writeFileSync(receiptPath,JSON.stringify(r),{mode:0o600});}
   if(c.kind==='generation')c.value.generation.generation++;
   if(c.kind==='session')c.value.generation.sessionId=randomUUID();
-  if(c.kind==='race'){const racer=spawn(process.execPath,['-e',`const fs=require('node:fs'),p=${JSON.stringify(metadata)};for(let i=0;i<8;i++){fs.renameSync(p,p+'-race-'+i);fs.mkdirSync(p,{mode:0o755});}`],{stdio:'ignore',env:controllerEnv});await new Promise(done=>racer.once('close',done));assert.equal(racer.exitCode,0);}
-  writeFileSync(c.manifest,JSON.stringify(c.value),{mode:0o600});const result=await callFor(c.manifest,['verify']);assert.equal(result.code,1);const reason=JSON.parse(result.stdout).reason;assert.ok(['metadata-content-present','metadata-changed','symlink-path','tampered-receipt','revoked-runtime-provenance'].includes(reason),reason);report.negative[c.kind]={passed:true,reason};
+  let racer,raceEnded,racing=false;
+  if(c.kind==='race'){racer=spawn(process.execPath,['-e',`const fs=require('node:fs'),p=${JSON.stringify(metadata)};let i=0;const tick=()=>{fs.renameSync(p,p+'-race-'+i);fs.mkdirSync(p,{mode:0o755});if(i++===0)process.stdout.write('racing\\n');if(i<64)setTimeout(tick,16);};tick();`],{stdio:['ignore','pipe','ignore'],env:controllerEnv});raceEnded=new Promise(done=>racer.once('close',done));racer.stdout.on('data',chunk=>{if(chunk.toString().includes('racing'))racing=true;});await waitFor(()=>racing);assert.equal(racer.exitCode,null);}
+  writeFileSync(c.manifest,JSON.stringify(c.value),{mode:0o600});const result=await callFor(c.manifest,['verify']);if(racer){await raceEnded;assert.equal(racer.exitCode,0);}assert.equal(result.code,1);const reason=JSON.parse(result.stdout).reason;assert.ok(['metadata-content-present','metadata-changed','symlink-path','tampered-receipt','revoked-runtime-provenance'].includes(reason),reason);report.negative[c.kind]={passed:true,reason,...(racer?{concurrentMutation:true}:{} )};
  }
  report.checks.nativeBornInjectionReplacementLifetimeSessionMatrix=true;
  report.stage='actual-owning-runtime-loss';const orphan=await launch();await nativeMessages(orphan);runtime.child.kill('SIGKILL');await stopped(orphan);await waitFor(()=>ownedPids(childFile).every(dead));assert.equal((await managerCall(['live-policy','verify','--manifest',manifest])).code,1);report.checks.owningRuntimeLossRevokesWorkers=true;
+ report.stage='devserver-capability-required';assert.equal(report.checks.actualConfinedDevserverAndRegisteredLoopbackIngress,true,'REQUIRED_DEVSERVER_PROOF_UNAVAILABLE');
  report.stage='complete';report.passed=true;
 } catch(error){report.failureMetadata=metadataPaths.map((path,index)=>{try{const info=lstatSync(path);return {ancestor:index,kind:info.isDirectory()?'directory':info.isSymbolicLink()?'symlink':'file',identity:folderPin(path),empty:info.isDirectory()?readdirSync(path).length===0:undefined};}catch{return {ancestor:index,kind:'absent'};}});report.failureDetail={stage:report.stage,assertion:error.operator,actual:typeof error.actual==='number'||typeof error.actual==='boolean'?error.actual:undefined,expected:typeof error.expected==='number'||typeof error.expected==='boolean'?error.expected:undefined};report.failure=error.code??(/^[A-Z_]+$/.test(error.message)?error.message:'ASSERTION_FAILED');if(active){report.nativeDiagnostic=active.diagnostic();report.launchBoundary=launchBoundary(active);report.ownedProcessSnapshot=ownedProcessSnapshot(active);}process.exitCode=1;
 } finally {

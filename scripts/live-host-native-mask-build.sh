@@ -143,6 +143,9 @@ git -C "$manager_root" diff --check
 
 stage=artifact-provenance
 active_log=""
+if [[ -n ${CCACHE_DIR:-} ]]; then
+  ccache --print-stats > "$output_root/cache-logs/ccache-final.tsv"
+fi
 python3 - "$manager_root" "$native_root" "$fixture_root" "$output_root" <<'PY'
 import hashlib,json,os,pathlib,re,subprocess,sys
 manager,native,fixture,out=map(pathlib.Path,sys.argv[1:]);m=json.loads((fixture/'manifest.json').read_text())
@@ -152,9 +155,17 @@ for path in ['codex-rs/linux-sandbox/src/bwrap.rs','codex-rs/linux-sandbox/tests
  assert (native/path).read_bytes()==subprocess.check_output(['git','-C',str(native),'show',m['patchedTree']+':'+path])
 tests=(out/'logs/native-tests.log').read_text(errors='replace')
 result={'schemaVersion':1,'managerHead':subprocess.check_output(['git','-C',str(manager),'rev-parse','HEAD'],text=True).strip(),'managerTree':subprocess.check_output(['git','-C',str(manager),'rev-parse','HEAD^{tree}'],text=True).strip(),'runId':os.environ['GITHUB_RUN_ID'],'upstream':m['upstream'],'patchedSourceTree':m['patchedTree'],'buildSourceTree':m['lockPreparation']['preparedBuildTree'],'lockPreparation':m['lockPreparation'],'patchSha256':m['patchSha256'],'fixPatchSha256':m['fixPatchSha256'],'build':m['build'],'declaredNativeVersion':'0.161.0','baselineRegression':'failed at intended directory-mask assertion','nativeTests':re.findall(r'test result: ok[^\n]*',tests),'binarySha256':hashlib.sha256((out/'bin/codex').read_bytes()).hexdigest(),'bwrapSha256':hashlib.sha256((out/'bin/codex-resources/bwrap').read_bytes()).hexdigest(),'sandboxHelperSha256':hashlib.sha256((out/'bin/codex-linux-sandbox').read_bytes()).hexdigest(),'sourceInputs':m['inputs'],'buildInputHashes':{name:hashlib.sha256((out/name).read_bytes()).hexdigest() for name in ['rust-toolchain.txt','cargo-toolchain.txt','c-compiler.txt','system-build-inputs.txt']},'runnerImageVersion':os.environ.get('ImageVersion'),'scope':'test-only GNU dev-small candidate; not a release/installation/activation','nativeOwningRuntimeProof':'pending; this build is not L9.2 acceptance'}
+if (out/'cache-inputs.json').exists():
+ stats={line.split()[0]:int(line.split()[1]) for line in (out/'cache-logs/ccache-final.tsv').read_text().splitlines() if len(line.split())==2}
+ result['cache']={'inputs':json.loads((out/'cache-inputs.json').read_text()),'validation':json.loads((out/'cache-validate.json').read_text()),'ccacheStats':stats,'cacheIsProvenance':False}
+ for name in ['cache-inputs.json','cache-validate.json','cache-logs/ccache-final.tsv']:result['buildInputHashes'][name]=hashlib.sha256((out/name).read_bytes()).hexdigest()
 (out/'provenance.json').write_text(json.dumps(result,indent=2)+'\n')
 PY
-tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner -C "$output_root" -czf "$RUNNER_TEMP/native-mask-candidate.tar.gz" bin LICENSE native.patch lock-preparation.patch provenance.json rust-toolchain.txt cargo-toolchain.txt c-compiler.txt system-build-inputs.txt
+cache_artifacts=()
+for cache_file in cache-inputs.json cache-validate.json cache-logs/ccache-final.tsv; do
+  if [[ -f "$output_root/$cache_file" ]]; then cache_artifacts+=("$cache_file"); fi
+done
+tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner -C "$output_root" -czf "$RUNNER_TEMP/native-mask-candidate.tar.gz" bin LICENSE native.patch lock-preparation.patch provenance.json rust-toolchain.txt cargo-toolchain.txt c-compiler.txt system-build-inputs.txt "${cache_artifacts[@]}"
 sha256sum "$RUNNER_TEMP/native-mask-candidate.tar.gz" > "$RUNNER_TEMP/native-mask-candidate.sha256"
 python3 - "$output_root/provenance.json" "$RUNNER_TEMP/native-mask-candidate.tar.gz" <<'PY'
 import hashlib,json,pathlib,sys

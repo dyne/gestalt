@@ -748,6 +748,19 @@ entry before use. The upstream release preserves V8's sandbox-enabled profile.
 No V8 build is needed. The actual host protocol and confinement checks remain
 part of the owning proof.
 
+The isolated Native workflow caches Cargo archives and Git object databases,
+compiled Cargo artifacts, and ccache objects separately. Keys bind the exact
+toolchain, runner image and installed packages, target, lock, features and build
+inputs. Compiled caches additionally bind the patch and build scripts. Restores
+stay within that complete context and branch; cache contents never establish
+runtime provenance. Restored crate archives are checked against the locked
+checksums and compiled caches require a matching context marker. The workflow
+records restored keys and machine-readable ccache counters. Its default smoke
+compiles C++ twice and rebuilds Native's C bubblewrap package after cleaning that
+package, requiring actual ccache hits in both cases. An explicit `full-build`
+dispatch builds the complete candidate; `cold_build` disables cache restore and
+save. The reused official code-mode host requires no C++ or V8 compilation.
+
 The proof verifies those pins before launching the actual owning
 runtime through `gestalt cli --`. The build manifest remains the original build
 input; the runtime fixture records later verified artifact pins. These artifacts

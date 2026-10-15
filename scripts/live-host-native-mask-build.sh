@@ -134,9 +134,10 @@ grep -F 'denied_missing_protected_metadata_keeps_directory_mask ... ok' "$active
 
 stage=build-native
 active_log="$output_root/logs/native-build.log"
-cargo build --locked --profile dev-small -p codex-cli -p codex-linux-sandbox > "$active_log" 2>&1
+cargo build --locked --profile dev-small -p codex-cli -p codex-linux-sandbox -p codex-code-mode-host > "$active_log" 2>&1
 install -m0755 "$CARGO_TARGET_DIR/dev-small/codex" "$output_root/bin/codex"
 install -m0755 "$CARGO_TARGET_DIR/dev-small/codex-linux-sandbox" "$output_root/bin/codex-linux-sandbox"
+install -m0755 "$CARGO_TARGET_DIR/dev-small/codex-code-mode-host" "$output_root/bin/codex-code-mode-host"
 cp "$fixture_root/LICENSE" "$fixture_root/native.patch" "$fixture_root/lock-preparation.patch" "$output_root/"
 git -C "$native_root" diff --check
 git -C "$manager_root" diff --check
@@ -151,7 +152,7 @@ for path,pin in m['inputs'].items():assert hashlib.sha256((native/path).read_byt
 for path in ['codex-rs/linux-sandbox/src/bwrap.rs','codex-rs/linux-sandbox/tests/suite/landlock.rs']:
  assert (native/path).read_bytes()==subprocess.check_output(['git','-C',str(native),'show',m['patchedTree']+':'+path])
 tests=(out/'logs/native-tests.log').read_text(errors='replace')
-result={'schemaVersion':1,'managerHead':subprocess.check_output(['git','-C',str(manager),'rev-parse','HEAD'],text=True).strip(),'managerTree':subprocess.check_output(['git','-C',str(manager),'rev-parse','HEAD^{tree}'],text=True).strip(),'runId':os.environ['GITHUB_RUN_ID'],'upstream':m['upstream'],'patchedSourceTree':m['patchedTree'],'buildSourceTree':m['lockPreparation']['preparedBuildTree'],'lockPreparation':m['lockPreparation'],'patchSha256':m['patchSha256'],'fixPatchSha256':m['fixPatchSha256'],'build':m['build'],'declaredNativeVersion':'0.161.0','baselineRegression':'failed at intended directory-mask assertion','nativeTests':re.findall(r'test result: ok[^\n]*',tests),'binarySha256':hashlib.sha256((out/'bin/codex').read_bytes()).hexdigest(),'bwrapSha256':hashlib.sha256((out/'bin/codex-resources/bwrap').read_bytes()).hexdigest(),'sandboxHelperSha256':hashlib.sha256((out/'bin/codex-linux-sandbox').read_bytes()).hexdigest(),'sourceInputs':m['inputs'],'buildInputHashes':{name:hashlib.sha256((out/name).read_bytes()).hexdigest() for name in ['rust-toolchain.txt','cargo-toolchain.txt','c-compiler.txt','system-build-inputs.txt']},'runnerImageVersion':os.environ.get('ImageVersion'),'scope':'test-only GNU dev-small candidate; not a release/installation/activation','nativeOwningRuntimeProof':'pending; this build is not L9.2 acceptance'}
+result={'schemaVersion':1,'managerHead':subprocess.check_output(['git','-C',str(manager),'rev-parse','HEAD'],text=True).strip(),'managerTree':subprocess.check_output(['git','-C',str(manager),'rev-parse','HEAD^{tree}'],text=True).strip(),'runId':os.environ['GITHUB_RUN_ID'],'upstream':m['upstream'],'patchedSourceTree':m['patchedTree'],'buildSourceTree':m['lockPreparation']['preparedBuildTree'],'lockPreparation':m['lockPreparation'],'patchSha256':m['patchSha256'],'fixPatchSha256':m['fixPatchSha256'],'build':m['build'],'declaredNativeVersion':'0.161.0','baselineRegression':'failed at intended directory-mask assertion','nativeTests':re.findall(r'test result: ok[^\n]*',tests),'binarySha256':hashlib.sha256((out/'bin/codex').read_bytes()).hexdigest(),'bwrapSha256':hashlib.sha256((out/'bin/codex-resources/bwrap').read_bytes()).hexdigest(),'sandboxHelperSha256':hashlib.sha256((out/'bin/codex-linux-sandbox').read_bytes()).hexdigest(),'codeModeHostSha256':hashlib.sha256((out/'bin/codex-code-mode-host').read_bytes()).hexdigest(),'sourceInputs':m['inputs'],'buildInputHashes':{name:hashlib.sha256((out/name).read_bytes()).hexdigest() for name in ['rust-toolchain.txt','cargo-toolchain.txt','c-compiler.txt','system-build-inputs.txt']},'runnerImageVersion':os.environ.get('ImageVersion'),'scope':'test-only GNU dev-small candidate; not a release/installation/activation','nativeOwningRuntimeProof':'pending; this build is not L9.2 acceptance'}
 (out/'provenance.json').write_text(json.dumps(result,indent=2)+'\n')
 PY
 tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner -C "$output_root" -czf "$RUNNER_TEMP/native-mask-candidate.tar.gz" bin LICENSE native.patch lock-preparation.patch provenance.json rust-toolchain.txt cargo-toolchain.txt c-compiler.txt system-build-inputs.txt
@@ -159,6 +160,6 @@ sha256sum "$RUNNER_TEMP/native-mask-candidate.tar.gz" > "$RUNNER_TEMP/native-mas
 python3 - "$output_root/provenance.json" "$RUNNER_TEMP/native-mask-candidate.tar.gz" <<'PY'
 import hashlib,json,pathlib,sys
 p=pathlib.Path(sys.argv[1]);result=json.loads(p.read_text());result['archiveSha256']=hashlib.sha256(pathlib.Path(sys.argv[2]).read_bytes()).hexdigest();p.write_text(json.dumps(result,indent=2)+'\n')
-summary={key:result[key] for key in ['managerHead','managerTree','runId','upstream','patchedSourceTree','buildSourceTree','lockPreparation','patchSha256','build','baselineRegression','nativeTests','binarySha256','bwrapSha256','sandboxHelperSha256','archiveSha256','nativeOwningRuntimeProof']}
+summary={key:result[key] for key in ['managerHead','managerTree','runId','upstream','patchedSourceTree','buildSourceTree','lockPreparation','patchSha256','build','baselineRegression','nativeTests','binarySha256','bwrapSha256','sandboxHelperSha256','codeModeHostSha256','archiveSha256','nativeOwningRuntimeProof']}
 print('::notice title=Verified Native mask candidate::'+json.dumps(summary,separators=(',',':')))
 PY

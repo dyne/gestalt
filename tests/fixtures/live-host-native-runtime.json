@@ -96,7 +96,7 @@
     "abi": {
       "architecture": "x86-64",
       "elf": "static PIE; no interpreter program header",
-      "protocol": "same source revision code-mode-protocol, actual handshake pending"
+      "protocol": "same exact source revision code-mode-protocol; actual handshake required by owning proof"
     },
     "scope": "exact official host for isolated supported-host proof; no installation or activation"
   }

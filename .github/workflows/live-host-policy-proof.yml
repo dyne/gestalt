@@ -147,6 +147,16 @@ jobs:
           mkdir -p test-results/live-host-policy
           node scripts/live-host-policy-native-proof.mjs 2>&1 | tee test-results/live-host-policy/proof.log
           git diff --check
+      - name: Publish bounded Native proof before the full suite
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: live-host-policy-early-native-proof
+          path: |
+            test-results/live-host-policy/native-proof.json
+            test-results/live-host-policy/proof.log
+          if-no-files-found: ignore
+          retention-days: 30
       - name: Unchanged full Manager suite on the supported host
         if: always()
         run: |

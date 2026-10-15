@@ -722,6 +722,19 @@ provenanceCheck('an instruction injected after original runtime birth cannot be 
  assert.equal(f.seal(input).reason,'source-changed');
 });
 
+test('controlled Native command rejects failed and unfinished results even when they echo the probe marker',async()=>{
+ const proof=readFileSync(resolve('scripts/live-host-policy-native-proof.mjs'),'utf8');
+ const implementation=proof.slice(proof.indexOf('function modelCall('),proof.indexOf('\nconst modelProbe='));
+ const call=Function('assert','report',`${implementation};return modelCall;`)(assert,{});
+ const event=call([{name:'exec',description:'exec_command(args)'}],'probe','exec_command',{cmd:'controlled probe'});
+ const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
+ const invoke=new AsyncFunction('tools','text',event.item.input),outputs=[];
+ for(const exit_code of [1,undefined])await assert.rejects(invoke({exec_command:async()=>({exit_code,output:'native-private-and-metadata-denied'})},value=>outputs.push(value)),/NATIVE_PROBE_EXIT/);
+ assert.equal(outputs.length,0);
+ await invoke({exec_command:async()=>({exit_code:0,output:'native-private-and-metadata-denied'})},value=>outputs.push(value));
+ assert.equal(outputs.length,1);assert.equal(outputs[0].exit_code,0);
+});
+
 test('startup RPC diagnostic identifies method and fixed error facts without config, instructions or error text',()=>{
  const proof=readFileSync(resolve('scripts/live-host-policy-native-proof.mjs'),'utf8');
  const expression=proof.split('const rpcFailureDiagnostic=')[1].split('\nlet runtime,')[0];

@@ -5,14 +5,11 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
 jobs:
-  manager:
-    uses: ./.github/workflows/manager-tests.yml
-    permissions:
-      contents: read
   native:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -22,22 +19,83 @@ jobs:
           node-version: 24.21.0
           cache: npm
       - run: npm ci
-      - name: Read-only accepted Mobile launcher input
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: dyne/gestalt-mobile
-          ref: 2facdae77f2b807798aa02a5d63a12d9161aebc6
-          path: .host-mobile-input
-          persist-credentials: false
+      - name: Verify exact accepted Mobile source fixture
+        run: |
+          set -Eeuo pipefail
+          node --input-type=module <<'NODE'
+          import {readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          const root='tests/fixtures/live-host-mobile-input';
+          const provenance=JSON.parse(readFileSync(`${root}/provenance.json`));
+          if(provenance.commit!=='c558dd644e4b6ac8d3bce9e57bce762791ea25de')throw Error('Mobile fixture source changed');
+          for(const [path,pin] of Object.entries(provenance.files)){
+            const bytes=readFileSync(`${root}/${path}`);
+            if(createHash('sha256').update(bytes).digest('hex')!==pin.sha256)throw Error('Mobile fixture hash changed');
+            const blob=createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+            if(blob!==pin.gitBlob)throw Error('Mobile fixture Git blob changed');
+          }
+          NODE
+          cp -R tests/fixtures/live-host-mobile-input .host-mobile-input
       - name: Prepare checksum-pinned native and Caddy test binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -Eeuo pipefail
           tool_root="$RUNNER_TEMP/live-policy-tools"
           mkdir -p "$tool_root"
           install -m0755 public/gestalt "$tool_root/gestalt"
-          npm install --prefix "$tool_root" --no-save --ignore-scripts @openai/codex@0.161.0
-          native_binary="$tool_root/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex"
-          printf '%s  %s\n' 9a820c17865fa825d04db416818679a9d63bd72e50835c396f496e5684626c9c "$native_binary" | sha256sum --check --status
+          gh run download 38645681271 --repo dyne/gestalt \
+            --name native-mask-candidate-results --dir "$tool_root/native-artifact"
+          native_archive="$tool_root/native-artifact/native-mask-candidate.tar.gz"
+          printf '%s  %s\n' 08a44f4ea2d27d48eaf98b0d67b804c0cc621fcf0bd4db71b8b6832ea282c153 "$native_archive" | sha256sum --check --status
+          mkdir -p "$tool_root/native"
+          tar -xzf "$native_archive" -C "$tool_root/native" bin provenance.json
+          native_binary="$tool_root/native/bin/codex"
+          printf '%s  %s\n' b2730ae901da317bcc5933d9b87de6dfbea3e46a46b64f806e4268fd9a095578 "$native_binary" | sha256sum --check --status
+          printf '%s  %s\n' 335aa87510fc0eee1bcdbedd3d9bf4aa4d112cffed72d5f1ad7a10b6cc855066 "$tool_root/native/bin/codex-resources/bwrap" | sha256sum --check --status
+          printf '%s  %s\n' 396915091a1f0387b48fd06e98d06e61d22f6ff6af33bc806891a634ee03d199 "$tool_root/native/bin/codex-linux-sandbox" | sha256sum --check --status
+          node --input-type=module - "$tool_root/native/provenance.json" <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync} from 'node:fs';
+          const built=JSON.parse(readFileSync(process.argv[2]));
+          const pins=JSON.parse(readFileSync('tests/fixtures/live-host-native-runtime.json'));
+          for(const [key,value] of Object.entries(built))assert.deepEqual(value,pins[key],`Native build provenance ${key}`);
+          assert.equal(built.runId,'38645681271');
+          assert.equal(built.managerHead,'75e420c5f65b1b1acb0cd0b3615564d462e365ce');
+          NODE
+          host_release=https://github.com/openai/codex/releases/download/rust-v0.161.0
+          host_name=codex-code-mode-host-x86_64-unknown-linux-musl
+          curl --fail --silent --show-error --location "$host_release/$host_name.tar.gz" --output "$tool_root/host.tar.gz"
+          curl --fail --silent --show-error --location "$host_release/$host_name.sigstore" --output "$tool_root/host.sigstore"
+          printf '%s  %s\n' 30cc945f77b3eed15ee385cc2f844a33bf1d7c422ff3a97161f701bffe4f77f8 "$tool_root/host.tar.gz" | sha256sum --check --status
+          printf '%s  %s\n' 5b7992b56b00440c56951c05ea9e8076a98236cefd1d6eb356c1cfafe4bc29aa "$tool_root/host.sigstore" | sha256sum --check --status
+          tar -xzf "$tool_root/host.tar.gz" -C "$tool_root" "$host_name"
+          printf '%s  %s\n' e87096087c02aa6ab90a5a85031659665aa0bf3ee20c07ca0b8ab701c83fcd5b "$tool_root/$host_name" | sha256sum --check --status
+          node --input-type=module - "$tool_root" <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {X509Certificate} from 'node:crypto';
+          const root=process.argv[2],legacy=JSON.parse(readFileSync(`${root}/host.sigstore`));
+          const entry=legacy.rekorBundle.Payload,body=JSON.parse(Buffer.from(entry.body,'base64'));
+          const certificate=new X509Certificate(Buffer.from(legacy.cert,'base64'));
+          const pins=JSON.parse(readFileSync('tests/fixtures/live-host-native-runtime.json')).codeModeHost;
+          assert.equal(body.spec.data.hash.algorithm,'sha256');
+          assert.equal(body.spec.data.hash.value,pins.binarySha256);
+          assert.ok(certificate.raw.includes(Buffer.from(pins.sourceCommit)));
+          const bundle={mediaType:'application/vnd.dev.sigstore.bundle+json;version=0.1',
+            verificationMaterial:{x509CertificateChain:{certificates:[{rawBytes:certificate.raw.toString('base64')}]},
+              tlogEntries:[{logIndex:String(entry.logIndex),logId:{keyId:Buffer.from(entry.logID,'hex').toString('base64')},
+                kindVersion:{kind:body.kind,version:body.apiVersion},integratedTime:String(entry.integratedTime),
+                inclusionPromise:{signedEntryTimestamp:legacy.rekorBundle.SignedEntryTimestamp},canonicalizedBody:entry.body}]},
+            messageSignature:{messageDigest:{algorithm:'SHA2_256',digest:Buffer.from(body.spec.data.hash.value,'hex').toString('base64')},signature:legacy.base64Signature}};
+          writeFileSync(`${root}/host.bundle.json`,JSON.stringify(bundle));
+          NODE
+          npm exec --cache "$RUNNER_TEMP/live-host-sigstore-cache" --yes --package=@sigstore/cli@0.10.3 -- \
+            sigstore verify "$tool_root/host.bundle.json" --blob-file "$tool_root/$host_name" \
+            --certificate-identity-uri https://github.com/openai/codex/.github/workflows/rust-release.yml@refs/tags/rust-v0.161.0 \
+            --certificate-issuer https://token.actions.githubusercontent.com \
+            --tuf-cache-path "$RUNNER_TEMP/live-host-sigstore-tuf" --json
+          install -m0755 "$tool_root/$host_name" "$tool_root/native/bin/codex-code-mode-host"
           curl --fail --silent --show-error --location \
             https://github.com/caddyserver/caddy/releases/download/v2.11.7/caddy_2.11.7_linux_amd64.tar.gz \
             --output "$tool_root/caddy.tar.gz"
@@ -45,7 +103,10 @@ jobs:
             a7a433a1b133efc3c8d10eb0b99d52a24b5ef5c322dc77f5282182b1c0402139ab83f3a99f0c52409df77d20123fb0b523edad8a66d8f5e49136197bf61ef0e7 \
             "$tool_root/caddy.tar.gz" | sha512sum --check --status
           tar -xzf "$tool_root/caddy.tar.gz" -C "$tool_root" caddy
-          test "$(git -C .host-mobile-input rev-parse HEAD)" = 2facdae77f2b807798aa02a5d63a12d9161aebc6
+          npm ci --prefix .host-mobile-input --omit=dev --ignore-scripts
+          ./node_modules/.bin/esbuild .host-mobile-input/src/server/platform/live-design/elected-controller.ts \
+            --bundle --platform=node --format=esm --target=node24 --outfile="$tool_root/mobile-election.mjs" \
+            --metafile="$tool_root/election-inputs.json"
           ./node_modules/.bin/esbuild .host-mobile-input/src/server/platform/codex/codex-process-launcher.ts \
             --bundle --platform=node --format=esm --target=node24 --outfile="$tool_root/mobile-launcher.mjs" \
             --metafile="$tool_root/mobile-inputs.json"
@@ -65,6 +126,7 @@ jobs:
             echo "LIVE_HOST_MANAGER_BINARY=$tool_root/gestalt"
             echo "LIVE_HOST_CODEX_BINARY=$native_binary"
             echo "LIVE_HOST_MOBILE_MODULE=$tool_root/mobile-launcher.mjs"
+            echo "LIVE_HOST_ELECTION_MODULE=$tool_root/mobile-election.mjs"
             echo "LIVE_HOST_CADDY_BINARY=$tool_root/caddy"
           } >> "$GITHUB_ENV"
       - name: Existing native sandbox prerequisites on disposable hosted runner
@@ -84,6 +146,23 @@ jobs:
           set -Eeuo pipefail
           mkdir -p test-results/live-host-policy
           node scripts/live-host-policy-native-proof.mjs 2>&1 | tee test-results/live-host-policy/proof.log
+          git diff --check
+      - name: Publish bounded Native proof before the full suite
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: live-host-policy-early-native-proof
+          path: |
+            test-results/live-host-policy/native-proof.json
+            test-results/live-host-policy/proof.log
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Unchanged full Manager suite on the supported host
+        if: always()
+        run: |
+          set -Eeuo pipefail
+          mkdir -p test-results/live-host-policy
+          npm test 2>&1 | tee test-results/live-host-policy/manager.log
           git diff --check
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()

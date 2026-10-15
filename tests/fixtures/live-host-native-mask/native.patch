@@ -1,0 +1,249 @@
+diff --git a/codex-rs/linux-sandbox/src/bwrap.rs b/codex-rs/linux-sandbox/src/bwrap.rs
+index 319b6af..4ca458a 100644
+--- a/codex-rs/linux-sandbox/src/bwrap.rs
++++ b/codex-rs/linux-sandbox/src/bwrap.rs
+@@ -733,6 +733,12 @@ fn create_filesystem_args(
+             if deferred_read_only_subpaths.contains(&subpath) {
+                 continue;
+             }
++            // An explicit file deny supplies the stronger mask below. Do not
++            // first add an automatic metadata file-data mask: bubblewrap
++            // consumes its input FD, so masking the same file twice can fail.
++            if unreadable_paths.contains(&subpath) && subpath.is_file() {
++                continue;
++            }
+             append_read_only_subpath_args(
+                 &mut bwrap_args,
+                 &subpath,
+@@ -1343,6 +1349,19 @@ fn append_unreadable_root_args(
+         if let Some(first_missing_component) = find_first_non_existent_component(unreadable_root)
+             && is_within_allowed_write_paths(&first_missing_component, allowed_write_paths)
+         {
++            // Protected metadata may already have a synthetic directory mount.
++            // A file-data mask at that target would fail with EISDIR; retain
++            // its directory shape while enforcing the same unreadable mask.
++            if bwrap_args.synthetic_mount_targets.iter().any(|target| {
++                target.path() == first_missing_component
++                    && target.kind() == SyntheticMountTargetKind::EmptyDirectory
++            }) {
++                return append_existing_unreadable_path_args(
++                    bwrap_args,
++                    &first_missing_component,
++                    allowed_write_paths,
++                );
++            }
+             append_missing_empty_file_bind_data_args(bwrap_args, &first_missing_component)?;
+         }
+         return Ok(());
+@@ -1356,7 +1375,12 @@ fn append_existing_unreadable_path_args(
+     unreadable_root: &Path,
+     allowed_write_paths: &[PathBuf],
+ ) -> Result<()> {
+-    if unreadable_root.is_dir() {
++    if unreadable_root.is_dir()
++        || bwrap_args.synthetic_mount_targets.iter().any(|target| {
++            target.path() == unreadable_root
++                && target.kind() == SyntheticMountTargetKind::EmptyDirectory
++        })
++    {
+         let mut writable_descendants: Vec<&Path> = allowed_write_paths
+             .iter()
+             .map(PathBuf::as_path)
+@@ -2000,6 +2024,114 @@ mod tests {
+         );
+     }
+ 
++    fn denied_metadata_policy(workspace: &Path, metadata: &Path) -> FileSystemSandboxPolicy {
++        FileSystemSandboxPolicy::restricted(vec![
++            FileSystemSandboxEntry::new(
++                FileSystemPath::Special { value: FileSystemSpecialPath::Root },
++                FileSystemAccessMode::Read,
++            ),
++            FileSystemSandboxEntry::new(
++                AbsolutePathBuf::try_from(workspace).expect("absolute workspace").into(),
++                FileSystemAccessMode::Write,
++            ),
++            FileSystemSandboxEntry::new(
++                AbsolutePathBuf::try_from(metadata).expect("absolute metadata").into(),
++                FileSystemAccessMode::Deny,
++            ),
++        ])
++    }
++
++    fn assert_unreadable_directory_mask(args: &BwrapArgs, target: &Path) {
++        let target = path_to_string(target);
++        assert!(args.args.windows(4).any(|args| {
++            args == ["--perms", "000", "--tmpfs", target.as_str()]
++        }), "denied metadata must use an unreadable directory mask");
++        assert!(!args.args.windows(3).any(|args| {
++            args[0] == "--ro-bind-data" && args[2] == target
++        }), "a directory target must never receive a file-data mask");
++    }
++
++    #[test]
++    fn denied_missing_protected_metadata_keeps_directory_mask() {
++        for name in [".codex", ".git", ".agents", ".aws"] {
++            let workspace = TempDir::new().expect("workspace");
++            let metadata = workspace.path().join(name);
++            let policy = denied_metadata_policy(workspace.path(), &metadata);
++            let args = create_filesystem_args(&policy, workspace.path(), BwrapOptions::default())
++                .expect("filesystem args");
++            assert_unreadable_directory_mask(&args, &metadata);
++            let targets = args.synthetic_mount_targets.iter()
++                .filter(|target| target.path() == metadata).collect::<Vec<_>>();
++            assert_eq!(targets.len(), 1);
++            assert_eq!(targets[0].kind(), SyntheticMountTargetKind::EmptyDirectory);
++            assert!(!metadata.exists(), "argument construction must not create host metadata");
++            assert!(!policy.can_read_local_path_with_cwd(&metadata, workspace.path()));
++            assert!(!policy.can_write_local_path_with_cwd(&metadata, workspace.path()));
++        }
++    }
++
++    #[test]
++    fn denied_existing_metadata_directory_and_file_keep_their_types() {
++        let workspace = TempDir::new().expect("workspace");
++        let directory = workspace.path().join(".codex");
++        fs::create_dir(&directory).expect("existing metadata directory fixture");
++        fs::write(directory.join("config.toml"), "private fixture").expect("fixture content");
++        let policy = denied_metadata_policy(workspace.path(), &directory);
++        let args = create_filesystem_args(&policy, workspace.path(), BwrapOptions::default())
++            .expect("directory filesystem args");
++        assert_unreadable_directory_mask(&args, &directory);
++        assert_eq!(fs::read_to_string(directory.join("config.toml")).unwrap(), "private fixture");
++
++        for contents in ["", "private fixture"] {
++            let file = workspace.path().join(".agents");
++            fs::write(&file, contents).expect("existing metadata file fixture");
++            let policy = denied_metadata_policy(workspace.path(), &file);
++            let args = create_filesystem_args(&policy, workspace.path(), BwrapOptions::default())
++                .expect("file filesystem args");
++            let target = path_to_string(&file);
++            assert_eq!(args.args.windows(3).filter(|args| {
++                args[0] == "--ro-bind-data" && args[2] == target
++            }).count(), 1, "an explicit metadata file deny needs exactly one file mask");
++            assert!(args.args.windows(5).any(|args| {
++                args[0] == "--perms" && args[1] == "000" && args[2] == "--ro-bind-data"
++                    && args[4] == target
++            }));
++            assert_eq!(fs::read_to_string(&file).unwrap(), contents);
++        }
++    }
++
++    #[test]
++    fn synthetic_metadata_directory_deny_survives_file_replacement() {
++        let workspace = TempDir::new().expect("workspace");
++        let metadata = workspace.path().join(".codex");
++        let policy = denied_metadata_policy(workspace.path(), &metadata);
++        let mut args = create_filesystem_args(&policy, workspace.path(), BwrapOptions::default())
++            .expect("missing directory filesystem args");
++        fs::write(&metadata, "replacement fixture").expect("race replacement fixture");
++        append_unreadable_root_args(&mut args, &metadata, &[workspace.path().to_path_buf()])
++            .expect("retained directory deny");
++        assert_unreadable_directory_mask(&args, &metadata);
++        assert_eq!(fs::read_to_string(&metadata).unwrap(), "replacement fixture");
++        assert!(args.synthetic_mount_targets.iter().any(|target| {
++            target.path() == metadata && target.kind() == SyntheticMountTargetKind::EmptyDirectory
++        }));
++    }
++
++    #[test]
++    fn synthetic_metadata_directory_deny_rejects_symlink_replacement() {
++        let workspace = TempDir::new().expect("workspace");
++        let outside = TempDir::new().expect("outside fixture");
++        let metadata = workspace.path().join(".codex");
++        let policy = denied_metadata_policy(workspace.path(), &metadata);
++        let mut args = create_filesystem_args(&policy, workspace.path(), BwrapOptions::default())
++            .expect("missing directory filesystem args");
++        std::os::unix::fs::symlink(outside.path(), &metadata).expect("race symlink fixture");
++        let error = append_unreadable_root_args(
++            &mut args, &metadata, &[workspace.path().to_path_buf()],
++        ).expect_err("writable symlink replacement must fail closed");
++        assert!(error.to_string().contains("writable symlink"));
++    }
++
+     #[test]
+     fn missing_read_only_subpath_uses_empty_file_bind_data() {
+         let temp_dir = TempDir::new().expect("temp dir");
+diff --git a/codex-rs/linux-sandbox/tests/suite/landlock.rs b/codex-rs/linux-sandbox/tests/suite/landlock.rs
+index 9666af8..9338a47 100644
+--- a/codex-rs/linux-sandbox/tests/suite/landlock.rs
++++ b/codex-rs/linux-sandbox/tests/suite/landlock.rs
+@@ -1567,3 +1567,78 @@ async fn sandbox_blocks_dev_tcp_redirection() {
+ 
+ #[path = "daemon_sockets_tests.rs"]
+ mod daemon_sockets_tests;
++
++#[tokio::test]
++async fn sandbox_enforces_denied_metadata_directory_and_file_types() {
++    assert!(!should_skip_bwrap_tests().await, "native metadata regression requires supported bubblewrap");
++    for kind in ["missing", "empty-directory", "directory", "empty-file", "file"] {
++        let workspace = tempfile::tempdir().expect("workspace fixture");
++        let metadata = workspace.path().join(".codex");
++        if kind == "directory" || kind == "empty-directory" {
++            std::fs::create_dir(&metadata).expect("existing directory fixture");
++            if kind == "directory" {
++                std::fs::write(metadata.join("config.toml"), "private fixture").expect("fixture content");
++            }
++        } else if kind == "empty-file" {
++            std::fs::File::create(&metadata).expect("existing empty file fixture");
++        } else if kind == "file" {
++            std::fs::write(&metadata, "private fixture").expect("existing file fixture");
++        }
++        let policy = FileSystemSandboxPolicy::restricted(vec![
++            FileSystemSandboxEntry::new(
++                FileSystemPath::Special { value: FileSystemSpecialPath::Root },
++                FileSystemAccessMode::Read,
++            ),
++            FileSystemSandboxEntry::new(
++                AbsolutePathBuf::try_from(workspace.path()).unwrap().into(),
++                FileSystemAccessMode::Write,
++            ),
++            FileSystemSandboxEntry::new(
++                AbsolutePathBuf::try_from(metadata.as_path()).unwrap().into(),
++                FileSystemAccessMode::Deny,
++            ),
++        ]);
++        let profile = PermissionProfile::from_runtime_permissions(&policy, NetworkSandboxPolicy::Restricted);
++        std::fs::write(workspace.path().join("AGENTS.md"), "instructions").expect("project instructions fixture");
++        let output = run_cmd_result_with_permission_profile_for_cwd(
++            &["bash", "-c", r#"cat "$1/AGENTS.md"
++printf allowed > "$1/public"
++if cat "$1/.codex" 2>/dev/null; then exit 11; fi
++if ls "$1/.codex/" 2>/dev/null; then exit 12; fi
++if (printf injected > "$1/.codex/config.toml") 2>/dev/null; then exit 13; fi
++printf denied"#, "metadata-regression", workspace.path().to_str().unwrap()],
++            AbsolutePathBuf::try_from(workspace.path()).unwrap(),
++            profile,
++            create_env_from_core_vars(),
++            LONG_TIMEOUT_MS,
++            /*use_legacy_landlock*/ false,
++        ).await.expect("native sandbox must launch without directory/file mask collision");
++        let stderr_class = if output.stderr.text.contains("Is a directory") {
++            "EISDIR"
++        } else if output.stderr.text.contains("Not a directory") {
++            "ENOTDIR"
++        } else if output.stderr.text.contains("Permission denied") {
++            "EACCES"
++        } else if output.stderr.text.contains("Read-only file system") {
++            "EROFS"
++        } else if output.stderr.text.contains("No such file or directory") {
++            "ENOENT"
++        } else {
++            "unclassified"
++        };
++        assert_eq!(output.exit_code, 0,
++            "NATIVE_METADATA_EXIT kind={kind} exitCode={} stderrClass={stderr_class} stdoutBytes={} stderrBytes={}",
++            output.exit_code, output.stdout.text.len(), output.stderr.text.len());
++        assert_eq!(output.stdout.text, "instructionsdenied");
++        assert_eq!(std::fs::read_to_string(workspace.path().join("public")).unwrap(), "allowed");
++        if kind == "directory" {
++            assert_eq!(std::fs::read_to_string(metadata.join("config.toml")).unwrap(), "private fixture");
++        } else if kind == "file" {
++            assert_eq!(std::fs::read_to_string(&metadata).unwrap(), "private fixture");
++        } else if kind == "empty-directory" {
++            assert!(metadata.is_dir(), "pre-existing empty directory must be preserved");
++        } else if kind == "empty-file" {
++            assert!(metadata.is_file(), "pre-existing empty file must be preserved");
++        }
++    }
++}

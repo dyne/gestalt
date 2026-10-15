@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "managerHead": "75e420c5f65b1b1acb0cd0b3615564d462e365ce",
+  "managerTree": "a842b5c078e72b1f7f389165152cda26d114c3dc",
+  "runId": "38645681271",
+  "upstream": {
+    "repository": "openai/codex",
+    "commit": "979011409de0a60b52f179721948e65531d26144",
+    "tree": "2f5a064f40b84945ab9624d6631cdc076d62422e",
+    "version": "0.161.0"
+  },
+  "patchedSourceTree": "e7ad8378836c51b583bb54e43af82016e5eaf527",
+  "buildSourceTree": "b65e1e73e3cfc19a6b9c81ee5ec13ed5aabffbb1",
+  "lockPreparation": {
+    "reason": "Pinned release workspace manifests use0.161.0 while checked-in local lock packages use0.0.0",
+    "localPackageCount": 160,
+    "fromVersion": "0.0.0",
+    "toVersion": "0.161.0",
+    "originalSha256": "3206e2fdb53a3498758ce2f2972f19fae26beb261befd65cc0eb9e02efe23d52",
+    "preparedSha256": "4e43cd81ed341c32bde170917f38c3e79702cbc69d1f96744ab1e09f9e80a601",
+    "patchSha256": "9b2995d1b406de9526a4db5b1360c872eaa459bbb5dea1bd2412f560befd36bc",
+    "dependencyChanges": false,
+    "preparedBuildTree": "b65e1e73e3cfc19a6b9c81ee5ec13ed5aabffbb1"
+  },
+  "patchSha256": "e0d942d9a7d4969289da410973c2dbeb9c3393870fabd342feaa62ca5a75eb9c",
+  "fixPatchSha256": "9a05df6ec3cd78298c555db8bbc8b48ce6e17b63c48e97fe506c11303738e6e1",
+  "build": {
+    "rust": "1.95.0",
+    "rustAction": "e081816240890017053eacbb1bdf337761dc5582",
+    "target": "x86_64-unknown-linux-gnu",
+    "profile": "dev-small",
+    "jobs": 2,
+    "locked": true,
+    "sourceDateEpoch": 1791326077
+  },
+  "declaredNativeVersion": "0.161.0",
+  "baselineRegression": "failed at intended directory-mask assertion",
+  "nativeTests": [
+    "test result: ok. 166 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s",
+    "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+    "test result: ok. 61 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 5.35s"
+  ],
+  "binarySha256": "b2730ae901da317bcc5933d9b87de6dfbea3e46a46b64f806e4268fd9a095578",
+  "bwrapSha256": "335aa87510fc0eee1bcdbedd3d9bf4aa4d112cffed72d5f1ad7a10b6cc855066",
+  "sandboxHelperSha256": "396915091a1f0387b48fd06e98d06e61d22f6ff6af33bc806891a634ee03d199",
+  "sourceInputs": {
+    "codex-rs/Cargo.lock": "3206e2fdb53a3498758ce2f2972f19fae26beb261befd65cc0eb9e02efe23d52",
+    "codex-rs/rust-toolchain.toml": "570656042681cfd8795403a455baf9a33035331a07db0645e866bbcea89a3d64",
+    "codex-rs/Cargo.toml": "920c27e9c1e40a65b19db362e4a10931b44529f9967a7731563a147ca6561357",
+    "codex-rs/bwrap/build.rs": "3ca3f0c90e075d38215e74ff19049df1ff6fdd80a04711ee05f3acd39dfd7b70",
+    "codex-rs/vendor/bubblewrap/bubblewrap.c": "9bc38fb46080b6854e0c414ccb5fbd369d9d7c0230fdfa877283d31aef0c5720",
+    "codex-rs/vendor/bubblewrap/utils.c": "c99f12bf7f74bb299e102852fb30ff76a6dfee0a2f6bfed5c840beb3249d4ddb"
+  },
+  "buildInputHashes": {
+    "rust-toolchain.txt": "4fdff2578428e9c5c08ddd7a0d3079c1a106b1cdaa46e73e46f7cd32b0fb9cad",
+    "cargo-toolchain.txt": "c10ec31b8c6e6e2693cf65fc1971b41edbc3da1ae7db6f9f3f36c4823f8dcab5",
+    "c-compiler.txt": "8497f84b2b8334c413d9c6166bd39d009ba55d2ff60a8f23e66dfa5819c2b048",
+    "system-build-inputs.txt": "6cc67e842c094b5ca781adcf1b2b1a0d4d8eafe24a8e20a0ee683168f8552ad9"
+  },
+  "runnerImageVersion": "20261012.334.1",
+  "scope": "test-only GNU dev-small candidate; not a release/installation/activation",
+  "nativeOwningRuntimeProof": "pending; this build is not L9.2 acceptance",
+  "archiveSha256": "08a44f4ea2d27d48eaf98b0d67b804c0cc621fcf0bd4db71b8b6832ea282c153",
+  "artifactVerification": {
+    "runId": 38645681271,
+    "candidateHead": "75e420c5f65b1b1acb0cd0b3615564d462e365ce",
+    "artifactArchiveSha256": "8e2e197ce1f35bbebc2f73682b34b4e44c5d8661f7638d731979f0e054939e7f",
+    "githubPageDigestVerified": true,
+    "archiveBytes": 236929683,
+    "origin": "GitHub public artifact via nightly.link"
+  },
+  "acceptance": "candidate pins for isolated supported-host proof; installation and L9 acceptance pending",
+  "codeModeHost": {
+    "verifiedAt": "2026-10-15T05:46:18.041157+00:00",
+    "sourceCommit": "979011409de0a60b52f179721948e65531d26144",
+    "releaseTag": "rust-v0.161.0",
+    "target": "x86_64-unknown-linux-musl",
+    "binarySha256": "e87096087c02aa6ab90a5a85031659665aa0bf3ee20c07ca0b8ab701c83fcd5b",
+    "archiveSha256": "30cc945f77b3eed15ee385cc2f844a33bf1d7c422ff3a97161f701bffe4f77f8",
+    "bundleSha256": "5b7992b56b00440c56951c05ea9e8076a98236cefd1d6eb356c1cfafe4bc29aa",
+    "signatureVerified": true,
+    "identity": "https://github.com/openai/codex/.github/workflows/rust-release.yml@refs/tags/rust-v0.161.0",
+    "issuer": "https://token.actions.githubusercontent.com",
+    "verifier": {
+      "package": "@sigstore/cli",
+      "version": "0.10.3",
+      "tlogThreshold": 1,
+      "ctlogThreshold": 1,
+      "trust": "Sigstore TUF trusted roots",
+      "legacyBundleConversion": "lossless certificate/signature/Rekor inclusion-promise conversion to bundle v0.1"
+    },
+    "v8SandboxEvidence": {
+      "sourceFeature": "code-mode-runtime/Cargo.toml v8_enable_sandbox",
+      "releaseSetup": ".github/actions/setup-rusty-v8/action.yml profile=ptrcomp_sandbox_release"
+    },
+    "abi": {
+      "architecture": "x86-64",
+      "elf": "static PIE; no interpreter program header",
+      "protocol": "same exact source revision code-mode-protocol; actual handshake required by owning proof"
+    },
+    "scope": "exact official host for isolated supported-host proof; no installation or activation"
+  }
+}

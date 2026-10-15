@@ -141,6 +141,14 @@ Commands:
                             Read-only bootstrap checks; optional --admin unix//PATH.
   live-policy probe|prepare|verify --manifest ABS
                             Private host policy contract; never starts Live.
+  cli -- --live-policy-bootstrap --manifest ABS
+                            Elected-controller fixed native host bootstrap.
+  cli -- --live-policy-owning-runtime --manifest ABS --capture-id UUID
+                            Execute captured original Native birth with private stdio.
+  live-policy capture-runtime|revoke-runtime --manifest ABS --capture-id UUID
+                            Elected-controller owning-runtime birth/revocation.
+  live-policy seal-runtime --manifest ABS --capture-id UUID --runtime-pid PID --sources ABS
+                            Seal verified birth and effective source provenance.
   live-policy run --manifest ABS --command ID --launch-id UUID
                             Controller-only admitted native subprocess dispatch.
   xerj install              Install the checksum-verified managed xerj release.
@@ -2424,8 +2432,10 @@ NODE
 
 command_live_policy() {
   # Private controller API: policy and admitted native dispatch, never Live Start.
-  GESTALT_LIVE_MANAGER_SOURCE="${BASH_SOURCE[0]}" exec node --input-type=module - "$@" 3<&0 <<'LIVE_POLICY'
-import {constants, readFileSync, realpathSync, lstatSync, statSync, readlinkSync, openSync, closeSync, writeFileSync, renameSync, unlinkSync, mkdirSync, rmdirSync, existsSync, readdirSync} from 'node:fs';
+  local -a policy_node=(exec node)
+  case ${1:-} in managed-bootstrap|managed-owning-runtime) [[ -n ${native_controller_node:-} ]] || die 'private native caller unavailable'; policy_node=("$native_controller_node") ;; esac
+  GESTALT_LIVE_MANAGER_SOURCE="${BASH_SOURCE[0]}" "${policy_node[@]}" --input-type=module - "$@" 3<&0 <<'LIVE_POLICY'
+import {constants, readFileSync, realpathSync, lstatSync, statSync, readlinkSync, openSync, fstatSync, closeSync, writeFileSync, renameSync, unlinkSync, mkdirSync, rmdirSync, existsSync, readdirSync} from 'node:fs';
 import {createHash, createHmac, timingSafeEqual} from 'node:crypto';
 import {spawn, spawnSync} from 'node:child_process';
 import {Socket} from 'node:net';
@@ -2466,7 +2476,12 @@ function trusted(path, directory = false) {
 function readPrivate(path) {
   trusted(path);
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-  try { return readFileSync(fd); } finally { closeSync(fd); }
+  try {
+    const before=fstatSync(fd),bytes=readFileSync(fd),after=fstatSync(fd),current=lstatSync(path);
+    const pin=info=>({dev:info.dev,ino:info.ino,uid:info.uid,mode:info.mode,size:info.size,ctime:info.ctimeMs,mtime:info.mtimeMs,nlink:info.nlink});
+    if(realpathSync(path)!==path||!before.isFile()||before.nlink!==1||stable(pin(before))!==stable(pin(after))||stable(pin(before))!==stable(pin(current)))fail('source-changed');
+    return bytes;
+  } finally { closeSync(fd); }
 }
 function identity(pid) {
   if (!Number.isSafeInteger(pid) || pid <= 0) fail('invalid-process');
@@ -2481,7 +2496,7 @@ function identity(pid) {
     throw error;
   }
 }
-function host(controller) {
+function host(controller, allowAbsentDaemon = false) {
   if (!exactKeys(controller,['pid','birth','uid','namespaces']) || !exactKeys(controller.namespaces,['mnt','user','pid'])) fail('invalid-controller');
   if (process.platform !== 'linux' || !process.getuid) fail('unsupported-host');
   const current = identity(process.pid);
@@ -2489,7 +2504,7 @@ function host(controller) {
   if (controller.uid !== current.uid || stable(controller.namespaces) !== stable(current.namespaces)) fail('unsupported-host-namespace');
   // Native 0.161 intentionally masks this directory in tool sandboxes. Never repair it.
   const daemon = `/tmp/codex-daemon-${process.getuid()}`;
-  const info = lstatSync(daemon);
+  let info;try{info=lstatSync(daemon);}catch(error){if(allowAbsentDaemon&&error.code==='ENOENT')return;throw error;}
   if (!info.isDirectory() || info.uid !== current.uid || (info.mode & 0o777) !== 0o700 || realpathSync(daemon) !== daemon) fail('host-launch-unavailable');
 }
 function grantPath(entry) {
@@ -2497,7 +2512,17 @@ function grantPath(entry) {
   if (!exactKeys(entry,['path','access']) || !['read','write','deny'].includes(entry.access)) fail('incompatible-profile');
   if (p?.type === 'path' && exactKeys(p,['type','path'])) {
     // Paths are native absolute paths at this pinned seam, not remote PathUri values.
-    return canonical(p.path);
+    try{return canonical(p.path);}catch(error){
+      // Native can already materialize explicit denials for not-yet-existing
+      // metadata. Preserve those restrictions without treating absence as trust.
+      if(entry.access!=='deny'||error.code!=='ENOENT')throw error;
+      if(typeof p.path!=='string'||!isAbsolute(p.path)||p.path.includes('\0')||resolve(p.path)!==p.path)fail('invalid-path');
+      for(let parent=dirname(p.path);;parent=dirname(parent)) {
+        try{canonical(parent);if(!statSync(parent).isDirectory())fail('invalid-path');break;}
+        catch(parentError){if(parentError.code!=='ENOENT')throw parentError;}
+      }
+      return p.path;
+    }
   }
   if (p?.type === 'glob_pattern' && exactKeys(p,['type','pattern']) && entry.access === 'deny' && typeof p.pattern === 'string') return null;
   if (p?.type !== 'special' || !exactKeys(p,['type','value']) || !exactKeys(p.value,['kind'])) fail('incompatible-profile');
@@ -2517,28 +2542,346 @@ function ownedNativeMetadata(path,context) {
   if (context.placeholders[path] && stable(context.placeholders[path])!==stable(pin)) return false;
   context.placeholders[path]=pin;return true;
 }
-function contract(manifestPath, versionProbe = true, nativeMetadata) {
+// v2 adds a controller-only, two-phase owning-runtime provenance protocol.
+// The trusted controller holds all writers/model calls until sealing completes.
+function processParent(pid) {
+  const raw=readFileSync(`/proc/${pid}/stat`,'utf8');
+  return Number(raw.slice(raw.lastIndexOf(')')+2).split(' ')[1]);
+}
+function directoryPin(path, empty=false, ancestry=false) {
+  canonical(path);
+  const fd=openSync(path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_DIRECTORY);
+  try {
+    const before=fstatSync(fd);
+    if(!before.isDirectory()||(!ancestry&&before.uid!==process.getuid())||(ancestry&&![0,process.getuid()].includes(before.uid))
+      ||((before.mode&0o022)&&!(ancestry&&(before.mode&0o1000))))fail('metadata-changed');
+    const pin=info=>({dev:info.dev,ino:info.ino,uid:info.uid,mode:info.mode,ctime:info.ctimeMs,mtime:info.mtimeMs,birthtime:info.birthtimeMs});
+    if(empty&&readdirSync(path).length)fail('metadata-content-present');
+    if(realpathSync(path)!==path||stable(pin(before))!==stable(pin(fstatSync(fd)))||stable(pin(before))!==stable(pin(lstatSync(path))))fail('metadata-changed');
+    return ancestry?{dev:before.dev,ino:before.ino,uid:before.uid,mode:before.mode}:pin(before);
+  } finally {closeSync(fd);}
+}
+function clockObservation(hz) {
+  const before=Date.now(),uptime=Number(readFileSync('/proc/uptime','utf8').split(' ')[0]),after=Date.now();
+  if(!Number.isFinite(uptime)||!Number.isSafeInteger(hz)||hz<=0||after<before)fail('unsupported-host-clock');
+  // /proc/uptime truncates to centiseconds. Keep the full uncertainty interval;
+  // metadata must be later than the upper bound of the actual process birth.
+  return {hz,originLower:before-(uptime+0.01)*1000,originUpper:after-uptime*1000,afterTick:String(Math.ceil(uptime*hz))};
+}
+function metadataBirth(before,runtime,pin,image) {
+  const now=clockObservation(before.clock?.hz);
+  if(now.originLower>before.clock.originUpper||now.originUpper<before.clock.originLower)fail('unsupported-host-clock');
+  if(!Number.isFinite(pin.birthtime)||pin.birthtime<=0)fail('metadata-provenance-unavailable');
+  const processUpper=before.clock.originUpper+(Number(runtime.process.birth)+1)*1000/before.clock.hz;
+  const upper=image?Math.max(processUpper,image.clock.originUpper+(Number(image.clock.afterTick)+1)*1000/image.clock.hz):processUpper;
+  if(pin.birthtime<upper)fail('metadata-before-runtime-birth');
+}
+function metadataPaths(app) {
+  const paths=[];
+  for(let ancestor=app;;ancestor=dirname(ancestor)) {
+    paths.push(join(ancestor,'.codex'));
+    if (ancestor === '/') break;
+  }
+  return paths;
+}
+function electionAuthority(m,root,caller=false) {
+  if(!exactKeys(m.generation,['sessionId','generation'])||!launchIdValid(m.generation.sessionId)
+    ||!Number.isSafeInteger(m.generation.generation)||m.generation.generation<1)fail('invalid-generation');
+  if(!exactKeys(m.election,['holder','lockFile']))fail('missing-election');
+  const holder=m.election.holder,path=trusted(m.election.lockFile),info=lstatSync(path);
+  const authorityRoot=trusted(dirname(path),true);
+  if(path!==join(authorityRoot,'controller.lock')||!inside(authorityRoot,root)||!m.privatePaths?.controller?.includes(authorityRoot)
+    ||m.keyFile!==join(authorityRoot,'live-policy.key')||stable(identity(holder.pid))!==stable(holder)
+    ||processParent(holder.pid)!==m.controller.pid)fail('stale-election');
+  // Verify the actual flock retained by the existing elected-controller child,
+  // not a marker, PID-only registry, or a contender's claim that a lock is busy.
+  const fdPath=`/proc/${holder.pid}/fd/3`,fdInfo=statSync(fdPath);
+  const descriptors=readdirSync(`/proc/${holder.pid}/fdinfo`);
+  if(descriptors.length>128||fdInfo.dev!==info.dev||fdInfo.ino!==info.ino||readlinkSync(fdPath)!==path)fail('stale-election');
+  const held=descriptors.some(fd=>{
+    try {
+      const locked=statSync(`/proc/${holder.pid}/fd/${fd}`);
+      const locks=readFileSync(`/proc/${holder.pid}/fdinfo/${fd}`,'utf8');
+      return locked.dev===info.dev&&locked.ino===info.ino
+        &&new RegExp(`^lock:\\s+\\d+: FLOCK\\s+ADVISORY\\s+WRITE\\s+${holder.pid}\\s+[^ ]+:${info.ino}\\s+0 EOF$`,'m').test(locks);
+    }catch(error){if(error.code==='ENOENT')return false;throw error;}
+  });
+  if(!held||stable(identity(holder.pid))!==stable(holder))fail('stale-election');
+  if(caller&&processParent(process.pid)!==m.controller.pid)fail('unauthorized-controller');
+  if(!exactKeys(m.owningRuntime,['args'],['home','instructionFiles'])||!Array.isArray(m.owningRuntime.args)||m.owningRuntime.args[0]!=='app-server'
+    ||m.owningRuntime.args.some(arg=>typeof arg!=='string'||arg.includes('\0')))fail('invalid-owning-runtime');
+  return {root:authorityRoot,election:m.election,generation:m.generation,owningRuntime:m.owningRuntime};
+}
+function admissionPaths(m,root) {
+  const directory=trusted(dirname(m.election.lockFile),true),scope=digest(canonical(m.appRoot));
+  if(!inside(directory,root))fail('stale-election');
+  return {receipt:join(directory,`runtime-admission-${scope}.json`),lock:join(directory,`runtime-admission-${scope}.lock`)};
+}
+function keyScope(m,root) {
+  if(m.schemaVersion===2) {
+    const directory=trusted(dirname(trusted(m.election.lockFile)),true);
+    if(!inside(directory,root)||m.keyFile!==join(directory,'live-policy.key'))fail('invalid-key');
+    return directory;
+  }
+  return root;
+}
+function provenanceBasis(body) {
+  return digest(stable({bootId:body.bootId,profileId:body.profileId,policyDigest:body.policyDigest,
+    binary:body.binary,manager:body.manager,app:body.app,controller:body.controller,components:body.components,
+    authority:body.authority}));
+}
+function instructionPin(path) {
+  canonical(path);
+  const fd=openSync(path,constants.O_RDONLY|constants.O_NOFOLLOW);
+  try {
+    const before=fstatSync(fd),bytes=readFileSync(fd),after=fstatSync(fd),current=lstatSync(path);
+    const pin=info=>({dev:info.dev,ino:info.ino,uid:info.uid,mode:info.mode,ctime:info.ctimeMs,mtime:info.mtimeMs});
+    if(!before.isFile()||before.nlink!==1||bytes.length>262144||![0,process.getuid()].includes(before.uid)||(before.mode&0o022)
+      ||realpathSync(path)!==path||stable(pin(before))!==stable(pin(after))||stable(pin(before))!==stable(pin(current)))fail('source-changed');
+    return {sha256:digest(bytes),identity:pin(before)};
+  }finally{closeSync(fd);}
+}
+function sourceInventory(input,m,body,processIdentity,directories,instructions) {
+  if(!exactKeys(input,['schemaVersion','runtime','policyDigest','effectiveConfigDigest','sessionFlagsDigest','sources'])
+    ||input.schemaVersion!==2||stable(input.runtime)!==stable(processIdentity)||input.policyDigest!==body.policyDigest
+    ||![input.effectiveConfigDigest,input.sessionFlagsDigest].every(value=>/^[a-f0-9]{64}$/.test(value))
+    ||!Array.isArray(input.sources)||!input.sources.length||input.sources.length>128)fail('incomplete-source-inventory');
+  // Capture all discovery candidates, including absent and precedence-shadowed
+  // files. Recheck the entire signed state independently of caller selection.
+  if(!instructions||typeof instructions!=='object'||Array.isArray(instructions))fail('incomplete-source-inventory');
+  for(const [path,pin] of Object.entries(instructions)) {
+    if(pin===null) {
+      try{lstatSync(path);}catch(error){if(error.code==='ENOENT')continue;fail('source-changed');}
+      fail('source-changed');
+    }
+    let current;try{current=instructionPin(path);}catch{fail('source-changed');}
+    if(stable(current)!==stable(pin))fail('source-changed');
+  }
+  const seen=new Set(),files=new Set(),dirs=new Set(),instructionPaths=new Set();
+  for(const source of input.sources) {
+    if(!source||typeof source.path!=='string'||seen.has(source.path))fail('incomplete-source-inventory');
+    seen.add(source.path);
+    if(source.kind==='file') {
+      if(!exactKeys(source,['kind','role','path','sha256'])||!['user','system','packaged-defaults','managed','agent-role','sandbox-worker'].includes(source.role)
+        ||!m.configFiles.some(file=>file.path===source.path&&file.sha256===source.sha256))fail('incomplete-source-inventory');
+      if(source.role==='sandbox-worker'&&source.path!==join(m.runtimeHome,'config.toml'))fail('incomplete-source-inventory');
+      files.add(source.path);
+    } else if(source.kind==='instruction'||source.kind==='instruction-candidate') {
+      if(!exactKeys(source,['kind','path','sha256','identity'])||!instructions?.[source.path]||stable(instructions[source.path])!==stable({sha256:source.sha256,identity:source.identity})||stable(instructionPin(source.path))!==stable({sha256:source.sha256,identity:source.identity}))fail('source-changed');
+      instructionPaths.add(source.path);
+    } else if(source.kind==='directory') {
+      if(!exactKeys(source,['kind','role','path','identity'])||source.role!=='project'
+        ||!Object.hasOwn(directories,source.path)||stable(directories[source.path])!==stable(source.identity))fail('incomplete-source-inventory');
+      dirs.add(source.path);
+    } else if(source.kind==='absent') {
+      if(!exactKeys(source,['kind','role','path'])||!['system','project'].includes(source.role))fail('incomplete-source-inventory');
+      if(source.role==='project') {
+        if(!Object.hasOwn(directories,source.path)||directories[source.path]!==null)fail('incomplete-source-inventory');
+        dirs.add(source.path);
+      } else if(!['/etc/codex/config.toml','/etc/codex/managed_config.toml','/etc/codex/requirements.toml'].includes(source.path))fail('incomplete-source-inventory');
+      try{lstatSync(source.path);fail('source-changed');}catch(error){if(error.code!=='ENOENT')throw error;}
+    } else fail('incomplete-source-inventory');
+  }
+  // Inventory the owner config sources separately from later generated MCP files.
+  if(Object.entries(instructions).some(([path,pin])=>pin!==null&&!instructionPaths.has(path))
+    ||!files.has(join(m.runtimeHome,'config.toml'))||Object.keys(directories).some(path=>!dirs.has(path))
+    ||['/etc/codex/config.toml','/etc/codex/managed_config.toml','/etc/codex/requirements.toml'].some(path=>!seen.has(path)))fail('incomplete-source-inventory');
+  return input;
+}
+function runtimeIdentity(pid,m) {
+  const owner=identity(pid),path=readlinkSync(`/proc/${pid}/exe`);
+  if(processParent(pid)!==m.controller.pid||owner.uid!==m.controller.uid||stable(owner.namespaces)!==stable(m.controller.namespaces)
+    ||path!==m.binary.path||digest(readFileSync(path))!==m.binary.sha256)fail('unverified-owning-runtime');
+  const argv=readFileSync(`/proc/${pid}/cmdline`).toString().split('\0').slice(0,-1);
+  if(stable(argv)!==stable([m.binary.path,...m.owningRuntime.args]))fail('unverified-owning-runtime');
+  // The producer binds the actual original launch environment without exposing it.
+  const environmentDigest=digest(readFileSync(`/proc/${pid}/environ`)),exe=statSync(`/proc/${pid}/exe`),installed=statSync(path);
+  if(exe.dev!==installed.dev||exe.ino!==installed.ino||digest(readFileSync(`/proc/${pid}/exe`))!==m.binary.sha256)fail('unverified-owning-runtime');
+  if(stable(identity(pid))!==stable(owner)||processParent(pid)!==m.controller.pid||readlinkSync(`/proc/${pid}/exe`)!==path)fail('unverified-owning-runtime');
+  return {process:owner,parent:m.controller,executable:m.binary,executableIdentity:{dev:exe.dev,ino:exe.ino,uid:exe.uid,mode:exe.mode},argvDigest:digest(stable(argv)),environmentDigest};
+}
+function verifyProvenance(m,root,keyFile,body) {
+  if(!exactKeys(m.runtimeProvenance,['captureId','effectiveConfigDigest','sessionFlagsDigest'])
+    ||![m.runtimeProvenance.effectiveConfigDigest,m.runtimeProvenance.sessionFlagsDigest].every(value=>/^[a-f0-9]{64}$/.test(value)))fail('missing-runtime-provenance');
+  const id=m.runtimeProvenance.captureId;
+  if(!launchIdValid(id))fail('invalid-capture-id');
+  const fence=authenticated(admissionPaths(m,root).receipt,keyFile);
+  if(fence.kind!=='runtime-admission'||fence.status!=='sealed'||fence.captureId!==id||fence.manifestRoot!==root||stable(fence.controller)!==stable(m.controller)||stable(fence.generation)!==stable(m.generation))fail('revoked-runtime-provenance');
+  const sealed=authenticated(join(root,`runtime-${id}.json`),keyFile);
+  const before=authenticated(join(root,`birth-${id}.json`),keyFile);
+  if(before.kind!=='before-runtime-birth'||sealed.kind!=='owning-runtime-provenance'
+    ||!Array.isArray(before.directories)||!sealed.directories||!sealed.parents||sealed.captureId!==id||before.captureId!==id||before.basisDigest!==provenanceBasis(body)
+    ||sealed.basisDigest!==before.basisDigest||sealed.beforeDigest!==digest(stable(before)))fail('stale-runtime-provenance');
+  const current=runtimeIdentity(sealed.runtime.process.pid,m);
+  let image;
+  if(sealed.imageDigest){
+    image=authenticated(join(root,`image-${id}.json`),keyFile);
+    if(image.kind!=='owning-native-image'||image.captureId!==id||image.basisDigest!==before.basisDigest||stable(image.process)!==stable(current.process)||digest(stable(image))!==sealed.imageDigest)fail('stale-runtime-provenance');
+  }
+  if(stable(current)!==stable(sealed.runtime)||BigInt(current.process.birth)<=BigInt(before.afterTick))fail('stale-runtime-provenance');
+  if(stable(Object.keys(sealed.directories))!==stable(before.directories.map(item=>item.path)))fail('stale-runtime-provenance');
+  for(const prior of before.directories) {
+    if(stable(directoryPin(dirname(prior.path),false,true))!==stable(sealed.parents[prior.path]))fail('metadata-changed');
+    const pinned=sealed.directories[prior.path];
+    if(pinned===null) {
+      try{lstatSync(prior.path);fail('metadata-changed');}catch(error){if(error.code!=='ENOENT')throw error;}
+    } else {
+      if(stable(directoryPin(prior.path,true))!==stable(pinned))fail('metadata-changed');
+      metadataBirth(before,sealed.runtime,pinned,image);
+    }
+  }
+  sourceInventory(sealed.inventory,m,body,current.process,sealed.directories,before.instructions);
+  if(m.runtimeProvenance.effectiveConfigDigest!==sealed.inventory.effectiveConfigDigest||m.runtimeProvenance.sessionFlagsDigest!==sealed.inventory.sessionFlagsDigest)fail('source-changed');
+  return {captureId:id,receiptDigest:digest(stable(sealed)),runtime:current,directories:sealed.directories,inventory:sealed.inventory};
+}
+function revokeRuntime(manifestPath,id) {
+  if(!launchIdValid(id))fail('invalid-capture-id');
+  const path=trusted(manifestPath),root=trusted(dirname(path),true),m=JSON.parse(readPrivate(path));
+  if(m.schemaVersion!==2)fail('incompatible-manifest');
+  host(m.controller);electionAuthority(m,root,true);
+  const keyFile=trusted(m.keyFile);
+  if(!inside(keyScope(m,root),keyFile)||readPrivate(keyFile).length!==32)fail('invalid-key');
+  const fencePath=admissionPaths(m,root).receipt,fence=authenticated(fencePath,keyFile);
+  if(fence.kind!=='runtime-admission'||fence.captureId!==id||fence.manifestRoot!==root||stable(fence.controller)!==stable(m.controller))fail('unowned-runtime-admission');
+  // The revocation receipt precedes lock release and any further command admission.
+  writeReceipt(fencePath,{...fence,status:'revoked'},keyFile);
+  try{rmdirSync(admissionPaths(m,root).lock);}catch(error){if(error.code!=='ENOENT')throw error;}
+  console.log(JSON.stringify({schemaVersion:2,available:true,liveReady:false,reason:'runtime-provenance-revoked',captureId:id}));
+}
+function managedNativeLaunch(action,manifestPath,id) {
+  const bootstrap=action==='managed-bootstrap';
+  const {root,keyFile,body}=contract(manifestPath,true,undefined,true,bootstrap),m=JSON.parse(readPrivate(manifestPath));
+  if(m.schemaVersion!==2)fail('incompatible-manifest');
+  electionAuthority(m,root);
+  // The CLI retains its private stdio and execs the checked descriptor. Its
+  // descriptor producer is a bounded Bash subshell plus this Node verifier.
+  let actor=processParent(process.pid);
+  if(processParent(actor)!==m.controller.pid)actor=processParent(actor);
+  const caller=identity(actor),argv=readFileSync(`/proc/${actor}/cmdline`).toString().split('\0').slice(0,-1);
+  const expected=['cli','--',bootstrap?'--live-policy-bootstrap':'--live-policy-owning-runtime','--manifest',manifestPath,...(bootstrap?[]:['--capture-id',id])];
+  if(processParent(actor)!==m.controller.pid||caller.uid!==m.controller.uid||stable(caller.namespaces)!==stable(m.controller.namespaces)
+    ||readlinkSync(`/proc/${actor}/exe`)!==body.launch.stdioBridge.shell.path||argv[1]!==managerSource||stable(argv.slice(2))!==stable(expected))fail('unauthorized-controller');
+  let args,env,beforeBirth;
+  if(bootstrap) {
+    // Fixed trusted stock bootstrap only; no model, hooks, MCP or project command.
+    // The isolated worker config was checked byte-for-byte by contract().
+    args=['-c','default_permissions=":read-only"','sandbox','--','/usr/bin/true'];env=body.launch.env;
+  } else {
+    if(!launchIdValid(id))fail('invalid-capture-id');
+    const before=authenticated(join(root,`birth-${id}.json`),keyFile),fence=authenticated(admissionPaths(m,root).receipt,keyFile);
+    if(before.kind!=='before-runtime-birth'||before.captureId!==id||before.basisDigest!==provenanceBasis(body)
+      ||fence.kind!=='runtime-admission'||fence.status!=='captured'||fence.captureId!==id||fence.manifestRoot!==root
+      ||stable(fence.controller)!==stable(m.controller)||stable(fence.generation)!==stable(m.generation)
+      ||BigInt(caller.birth)<=BigInt(before.afterTick))fail('stale-runtime-provenance');
+    beforeBirth=before;
+    // Recheck absence immediately before executing the original owning image.
+    for(const prior of before.directories){
+      if(stable(directoryPin(dirname(prior.path),false,true))!==stable(prior.parent))fail('metadata-changed');
+      try{lstatSync(prior.path);fail('project-config-present');}catch(error){if(error.code!=='ENOENT')throw error;}
+    }
+    const home=trusted(m.owningRuntime.home??m.runtimeHome,true),config=join(home,'config.toml');
+    if(!Object.values(m.privatePaths).flat().some(path=>inside(canonical(path),home))||!m.configFiles.some(file=>file.path===config&&file.sha256===digest(readPrivate(config))))fail('missing-owning-config');
+    args=m.owningRuntime.args;env={PATH:'/usr/bin:/bin',HOME:home,CODEX_HOME:home,TMPDIR:'/tmp',LANG:'C.UTF-8'};
+  }
+  // Descriptor producer exits before the original CLI execs Native. No Node
+  // supervisor, optional MCP/service discovery or extra controller FD survives.
+  if(!bootstrap)writeReceipt(join(root,`image-${id}.json`),{schemaVersion:2,kind:'owning-native-image',captureId:id,
+    basisDigest:provenanceBasis(body),process:caller,clock:clockObservation(beforeBirth.clock.hz)},keyFile);
+  process.stdout.write([body.launch.stdioBridge.environment.path,'-i',...Object.entries(env).map(([key,value])=>`${key}=${value}`),body.binary.path,...args].join('\0')+'\0');
+}
+async function runtimeProvenanceCommand(action,manifestPath,id,pid,inventoryPath) {
+  if(!launchIdValid(id))fail('invalid-capture-id');
+  const {root,keyFile,body}=contract(manifestPath,true,undefined,true),m=JSON.parse(readPrivate(manifestPath));
+  if(m.schemaVersion!==2)fail('incompatible-manifest');
+  electionAuthority(m,root,true);
+  if(existsSync(join(root,'dispatch.lock')))fail('active-launch');
+  const birthPath=join(root,`birth-${id}.json`),sealPath=join(root,`runtime-${id}.json`);
+  if(action==='capture-runtime') {
+    if(existsSync(birthPath)||existsSync(sealPath))fail('reused-capture-id');
+    if(existsSync(admissionPaths(m,root).lock))fail('active-runtime-admission');
+    const directories=metadataPaths(body.app.path).map(path=>{
+      try{lstatSync(path);fail('project-config-present');}catch(error){if(error.code!=='ENOENT')throw error;}
+      return {path,parent:directoryPin(dirname(path),false,true)};
+    });
+    const declared=m.owningRuntime.instructionFiles??[];
+    if(!Array.isArray(declared)||declared.length>64||declared.some(path=>typeof path!=='string'))fail('invalid-owning-runtime');
+    const candidates=[...new Set([...directories.flatMap(item=>['AGENTS.md','AGENTS.override.md'].map(name=>join(dirname(item.path),name))),
+      join(m.owningRuntime.home??m.runtimeHome,'AGENTS.md'),...declared])];
+    const instructions=Object.fromEntries(candidates.map(path=>{try{return [path,instructionPin(path)];}catch(error){if(error.code==='ENOENT')return [path,null];throw error;}}));
+    // Native Linux starttime is in USER_HZ ticks, not wall-clock timestamps.
+    const clockResult=spawnSync('/usr/bin/getconf',['CLK_TCK'],{encoding:'utf8',env:body.launch.env,timeout:5000});
+    const hz=Number(clockResult.stdout?.trim());
+    if(clockResult.status!==0||!Number.isSafeInteger(hz)||hz<=0)fail('unsupported-host-clock');
+    const clock=clockObservation(hz),afterTick=clock.afterTick;
+    try{mkdirSync(admissionPaths(m,root).lock,{mode:0o700});}catch(error){if(error.code==='EEXIST')fail('active-runtime-admission');throw error;}
+    try {
+      writeReceipt(birthPath,{schemaVersion:2,kind:'before-runtime-birth',captureId:id,basisDigest:provenanceBasis(body),
+        configs:m.configFiles,directories,instructions,afterTick,clock},keyFile);
+      writeReceipt(admissionPaths(m,root).receipt,{schemaVersion:2,kind:'runtime-admission',captureId:id,manifestRoot:root,status:'captured',
+        controller:m.controller,generation:m.generation},keyFile);
+    }catch(error){try{rmdirSync(admissionPaths(m,root).lock);}catch{}throw error;}
+
+  } else {
+    if(existsSync(sealPath))fail('reused-capture-id');
+    const fence=authenticated(admissionPaths(m,root).receipt,keyFile);
+    if(fence.kind!=='runtime-admission'||fence.status!=='captured'||fence.captureId!==id
+      ||stable(fence.controller)!==stable(m.controller)||stable(fence.generation)!==stable(m.generation))fail('revoked-runtime-provenance');
+    const before=authenticated(birthPath,keyFile),runtime=runtimeIdentity(pid,m);
+    let image;
+    if(existsSync(join(root,`image-${id}.json`))){
+      image=authenticated(join(root,`image-${id}.json`),keyFile);
+      if(image.kind!=='owning-native-image'||image.captureId!==id||image.basisDigest!==before.basisDigest||stable(image.process)!==stable(runtime.process))fail('stale-runtime-provenance');
+    }
+    if(before.kind!=='before-runtime-birth'||before.captureId!==id||before.basisDigest!==provenanceBasis(body)
+      ||BigInt(runtime.process.birth)<=BigInt(before.afterTick)||stable(before.configs)!==stable(m.configFiles))fail('stale-runtime-provenance');
+    const directories=Object.fromEntries(before.directories.map(prior=>{
+      // Parent inode/UID/mode remain authoritative; directory creation changes its times.
+      const parent=directoryPin(dirname(prior.path),false,true);
+      for(const key of ['dev','ino','uid','mode'])if(parent[key]!==prior.parent[key])fail('metadata-changed');
+      prior.parent=parent;
+      try{const pin=directoryPin(prior.path,true);metadataBirth(before,runtime,pin,image);return [prior.path,pin];}catch(error){if(error.code==='ENOENT')return [prior.path,null];throw error;}
+    }));
+    const inputBytes=readPrivate(inventoryPath);
+    if(inputBytes.length>262144)fail('incomplete-source-inventory');
+    const inventory=sourceInventory(JSON.parse(inputBytes),m,body,runtime.process,directories,before.instructions);
+    if(m.configFiles.some(file=>!inventory.sources.some(source=>source.kind==='file'&&source.path===file.path&&source.sha256===file.sha256)))fail('incomplete-source-inventory');
+    // Store updated parent times in the seal, leaving immutable absence evidence intact.
+    const parents=Object.fromEntries(before.directories.map(prior=>[prior.path,prior.parent]));
+    writeReceipt(sealPath,{schemaVersion:2,kind:'owning-runtime-provenance',captureId:id,basisDigest:before.basisDigest,
+      beforeDigest:digest(stable(authenticated(birthPath,keyFile))),...(image?{imageDigest:digest(stable(image))}:{}),runtime,directories,parents,inventory},keyFile);
+    // Revalidate immediately before publication; no model dispatch is authorized here.
+    writeReceipt(admissionPaths(m,root).receipt,{...fence,status:'sealed'},keyFile);
+    try{m.runtimeProvenance={captureId:id,effectiveConfigDigest:inventory.effectiveConfigDigest,sessionFlagsDigest:inventory.sessionFlagsDigest};verifyProvenance(m,root,keyFile,body);}catch(error){
+      writeReceipt(admissionPaths(m,root).receipt,{...fence,status:'revoked'},keyFile);throw error;
+    }
+  }
+  console.log(JSON.stringify({schemaVersion:2,available:true,liveReady:false,reason:action==='capture-runtime'?'runtime-birth-captured':'runtime-provenance-sealed',captureId:id,policyDigest:body.policyDigest}));
+}
+
+function contract(manifestPath, versionProbe = true, nativeMetadata, capturing = false, bootstrapping = false) {
   manifestPath = trusted(manifestPath);
   const root = trusted(dirname(manifestPath),true);
   const bytes = readPrivate(manifestPath);
   if (bytes.length > 262144) fail('invalid-manifest');
   const m = JSON.parse(bytes);
-  if (!exactKeys(m,['schemaVersion','profileId','appRoot','controller','binary','sandboxState','configFiles','components','privatePaths','keyFile','runtimeHome','environment'],['commands']) || m.schemaVersion !== VERSION) fail('incompatible-manifest');
+  if (!exactKeys(m,['schemaVersion','profileId','appRoot','controller','binary','sandboxState','configFiles','components','privatePaths','keyFile','runtimeHome','environment'],['commands','election','generation','owningRuntime','runtimeProvenance']) || ![1,2].includes(m.schemaVersion)) fail('incompatible-manifest');
   if (typeof m.profileId !== 'string' || !m.profileId.trim()) fail('missing-profile');
   const app = canonical(m.appRoot);
   if (!statSync(app).isDirectory() || inside(app,root) || inside(root,app)) fail('untrusted-storage');
-  host(m.controller);
+  host(m.controller,bootstrapping);
+  const authority=m.schemaVersion===2?electionAuthority(m,root):undefined;
+  if(m.schemaVersion===1&&['election','generation','owningRuntime','runtimeProvenance'].some(key=>Object.hasOwn(m,key)))fail('incompatible-manifest');
   const state = m.sandboxState;
   if (!exactKeys(state,['permissionProfile','sandboxCwd','useLegacyLandlock'],['codexLinuxSandboxExe','useMxc']) || state.useLegacyLandlock !== false || state.useMxc === true || state.codexLinuxSandboxExe != null) fail('incompatible-profile');
   const profile = state.permissionProfile;
-  if (!exactKeys(profile,['type','file_system','network']) || profile.type !== 'managed' || profile.network !== 'restricted'
+  if (!exactKeys(profile,['type','file_system','network']) || profile.type !== 'managed' || !(profile.network === 'restricted' || (m.schemaVersion === 2 && profile.network === 'enabled'))
     || !exactKeys(profile.file_system,['type','entries']) || profile.file_system.type !== 'restricted' || !Array.isArray(profile.file_system.entries) || !profile.file_system.entries.length) fail('incompatible-profile');
   if (fileURLToPath(state.sandboxCwd) !== app || realpathSync(fileURLToPath(state.sandboxCwd)) !== app) fail('workspace-mismatch');
   const entries = profile.file_system.entries;
   const paths = entries.map(entry => grantPath(entry));
   // Restrict v1 to local, native, restricted-network state; unsupported states are not downgraded.
   const writeRoots = paths.filter((path,i) => path && entries[i].access === 'write');
-  if (writeRoots.some(path => inside(path,root))) fail('project-writable-policy');
+  if (writeRoots.some(path => inside(path,root))||(authority&&writeRoots.some(path=>inside(path,authority.root)||inside(authority.root,path)))) fail('project-writable-policy');
   const managerInfo=statSync(managerSource);
   if (!managerInfo.isFile() || (managerInfo.mode & 0o022) || writeRoots.some(path=>inside(path,managerSource))) fail('untrusted-manager');
   const managerBytes=readFileSync(managerSource);
@@ -2560,7 +2903,7 @@ function contract(manifestPath, versionProbe = true, nativeMetadata) {
   }
   for (let ancestor = app;; ancestor = dirname(ancestor)) {
     try { const metadata=join(ancestor,'.codex');lstatSync(metadata);
-      if (ancestor!==app || !ownedNativeMetadata(metadata,nativeMetadata)) throw Object.assign(Error('project-config-present'),{reason:'project-config-present',metadataRole:ancestor===app?'app-root':'ancestor'}); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      if (m.schemaVersion!==2 && (ancestor!==app || !ownedNativeMetadata(metadata,nativeMetadata))) throw Object.assign(Error('project-config-present'),{reason:'project-config-present',metadataRole:ancestor===app?'app-root':'ancestor'}); } catch (error) { if (error.code !== 'ENOENT') throw error; }
     if (ancestor === '/') break;
   }
   if (!Array.isArray(m.configFiles) || !m.configFiles.length) fail('missing-config');
@@ -2577,18 +2920,27 @@ function contract(manifestPath, versionProbe = true, nativeMetadata) {
   }
   if (!exactKeys(m.components,['manager','mobile','agents']) || Object.values(m.components).some(value=>typeof value !== 'string' || !value)) fail('missing-components');
   if (!exactKeys(m.privatePaths,['auth','controller','caddy','daemon']) || Object.values(m.privatePaths).some(paths=>!Array.isArray(paths)||!paths.length)) fail('missing-private-paths');
-  const privatePaths = [...new Set([root,'/proc',...Object.values(m.privatePaths).flat()].map(canonical))].sort();
-  if (!m.privatePaths.controller.includes(root) || !m.privatePaths.daemon.includes(`/tmp/codex-daemon-${process.getuid()}`)) fail('missing-private-paths');
+  const privatePaths = [...new Set([root,'/proc',...Object.values(m.privatePaths).flat()].map(path=>{
+    try{return canonical(path);}catch(error){
+      if(bootstrapping&&path===`/tmp/codex-daemon-${process.getuid()}`&&error.code==='ENOENT'){canonical(dirname(path));return path;}throw error;
+    }
+  }))].sort();
+  if (!(m.schemaVersion===2?m.privatePaths.controller.some(path=>inside(canonical(path),root)):m.privatePaths.controller.includes(root)) || !m.privatePaths.daemon.includes(`/tmp/codex-daemon-${process.getuid()}`)) fail('missing-private-paths');
   if (privatePaths.some(path=>inside(path,app))) fail('private-app-overlap');
   const composed = structuredClone(state);
   // Native masks freeze a denied directory before masking its children.
   // Emit covering roots once and remove covered entries, including grants that
   // would otherwise override parent denial by most-specific precedence.
-  const denyPaths=privatePaths.filter(path=>!privatePaths.some(parent=>parent!==path&&statSync(parent).isDirectory()&&inside(parent,path)));
+  const denyPaths=privatePaths.filter(path=>!privatePaths.some(parent=>parent!==path&&inside(parent,path)&&statSync(parent).isDirectory()));
   composed.permissionProfile.file_system.entries=entries.filter((entry,index)=>!paths[index]||!denyPaths.some(root=>inside(root,paths[index])))
     .map(entry=>structuredClone(entry)).concat(denyPaths.map(path=>({path:{type:'path',path},access:'deny'})));
+  if(m.schemaVersion===2){
+    const metadata=metadataPaths(app);
+    composed.permissionProfile.file_system.entries=composed.permissionProfile.file_system.entries.filter(entry=>
+      !entry.path.path||!metadata.some(path=>inside(path,entry.path.path))).concat(metadata.map(path=>({path:{type:'path',path},access:'deny'})));
+  }
   const keyFile = trusted(m.keyFile);
-  if (!inside(root,keyFile) || readPrivate(keyFile).length !== 32) fail('invalid-key');
+  if (!inside(keyScope(m,root),keyFile) || readPrivate(keyFile).length !== 32) fail('invalid-key');
   if (!exactKeys(m.environment,['PATH','HOME','TMPDIR']) || m.environment.HOME !== runtimeHome || m.environment.TMPDIR !== '/tmp' || m.environment.PATH !== '/usr/bin:/bin') fail('unsafe-environment');
   const env = {...m.environment,CODEX_HOME:runtimeHome,LANG:'C.UTF-8'};
   if (versionProbe) {
@@ -2605,7 +2957,7 @@ function contract(manifestPath, versionProbe = true, nativeMetadata) {
     if (!info.isFile() || !(info.mode & 0o111) || (info.mode & 0o022) || writeRoots.some(root=>inside(root,path))
         || !/^[a-f0-9]{64}$/.test(command.sha256) || digest(readFileSync(path)) !== command.sha256) fail('command-changed');
   }
-  const bridgeHelpers=Object.fromEntries([['shell','/usr/bin/bash'],['consumer','/usr/bin/cat']].map(([role,helper])=>{
+  const bridgeHelpers=Object.fromEntries([['shell','/usr/bin/bash'],['consumer','/usr/bin/cat'],['environment','/usr/bin/env']].map(([role,helper])=>{
     const path=canonical(helper),info=statSync(path);
     if(!info.isFile()||!(info.mode&0o111)||(info.mode&0o022)||writeRoots.some(root=>inside(root,path)))fail('untrusted-stdio-bridge');
     return [role,{path,sha256:digest(readFileSync(path))}];
@@ -2613,13 +2965,15 @@ function contract(manifestPath, versionProbe = true, nativeMetadata) {
   // Native network seccomp denies getsockname; Node socket stdio then becomes
   // silent empty/black-hole streams. Bash creates real FIFO stdin/stdout/stderr.
   const stdioBridge={...bridgeHelpers,script:'exec "$@" < <(exec /usr/bin/cat) > >(exec /usr/bin/cat) 2> >(exec /usr/bin/cat >&2)'};
-  const body = {schemaVersion:VERSION,kind:'policy-contract',profileId:m.profileId,manifestDigest:digest(bytes),
+  const body = {schemaVersion:m.schemaVersion,kind:'policy-contract',profileId:m.profileId,manifestDigest:digest(bytes),
+    ...(authority?{authority}:{}),
     bootId:readFileSync('/proc/sys/kernel/random/boot_id','utf8').trim(),
     policyDigest:digest(stable(composed)),configDigest:digest(stable(configs)),binary,components:m.components,
     manager:{path:managerSource,version:managerVersion,sha256:digest(managerBytes)},
     app:{path:app,dev:statSync(app).dev,ino:statSync(app).ino},controller:m.controller,sandboxState:composed,commands,
     launch:{executable:bin,args:['sandbox','--sandbox-state-json',JSON.stringify(composed),'--'],cwd:root,env,
       stdio:['posix-pipe','posix-pipe','posix-pipe'],stdioBridge,lifetime:'per-call',extraFileDescriptors:false,credentials:false}};
+  if(m.schemaVersion===2&&!capturing)body.provenance=verifyProvenance(m,root,keyFile,body);
   return {root,keyFile,body};
 }
 function receipt(body,keyFile) { return {body,mac:createHmac('sha256',readPrivate(keyFile)).update(stable(body)).digest('hex')}; }
@@ -2640,7 +2994,7 @@ function control(manifestPath,id) {
   if (!launchIdValid(id)) fail('invalid-launch-id');
   const root=trusted(dirname(trusted(manifestPath)),true),m=JSON.parse(readPrivate(manifestPath));
   const keyFile=trusted(m.keyFile);
-  if (!inside(root,keyFile) || readPrivate(keyFile).length !== 32) fail('invalid-key');
+  if (!inside(keyScope(m,root),keyFile) || readPrivate(keyFile).length !== 32) fail('invalid-key');
   return {root,keyFile,path:join(root,`process-${id}.json`)};
 }
 function currentPolicy(manifestPath,versionProbe = true,nativeMetadata) {
@@ -2677,9 +3031,6 @@ async function supervise(manifestPath,commandId,id,parent) {
       try { signalOwned('SIGKILL'); } catch {}
       for (let attempt=0; child && !nativeClosed && attempt<40; attempt++) await new Promise(done=>setTimeout(done,50));
       const clean=!child || nativeClosed;
-      if(clean&&record?.nativeMetadata){for(const [metadata,pin] of Object.entries(record.nativeMetadata.placeholders)){try{const info=lstatSync(metadata);
-        if(metadata===join(body.app.path,'.codex')&&info.isDirectory()&&stable({dev:info.dev,ino:info.ino,uid:info.uid,mode:info.mode,birthtime:info.birthtimeMs,ctime:info.ctimeMs})===stable(pin)&&!readdirSync(metadata).length)rmdirSync(metadata);
-        }catch{}}}
       if (record) {
         record={...record,status:clean?'exited':'cleanup-required',termination:reason,...(failure?{failure}: {})};
         try { writeReceipt(path,record,keyFile); } catch {}
@@ -2699,7 +3050,7 @@ async function supervise(manifestPath,commandId,id,parent) {
     await new Promise((resolveSpawn,reject)=>{child.once('spawn',resolveSpawn);child.once('error',reject);});
     if (ending) throw Error('owner exited');
     phase='native-identity';
-    record={schemaVersion:VERSION,kind:'process-launch',launchId:id,status:'running',commandId,
+    record={schemaVersion:body.schemaVersion,kind:'process-launch',launchId:id,status:'running',commandId,
       contractDigest:digest(stable(body)),policy:body,parent,owner:identity(process.pid),process:identity(child.pid),processGroup:child.pid};
     record.nativeMetadata={process:record.process,placeholders:{}};
     phase='receipt-write';writeReceipt(path,record,keyFile);
@@ -2730,8 +3081,8 @@ async function run(manifestPath,commandId,id) {
     // Hold the dispatch lock before revalidation and use a never-reused launch id.
     value=currentPolicy(manifestPath);
     if (existsSync(path)) fail('reused-launch-id');
-    writeReceipt(path,{schemaVersion:VERSION,kind:'authorized-launch',launchId:id,commandId,parent,contractDigest:digest(stable(value.body))},value.keyFile);
-    const imports=`import {constants,readFileSync,realpathSync,lstatSync,statSync,readlinkSync,openSync,closeSync,writeFileSync,renameSync,unlinkSync,mkdirSync,rmdirSync,existsSync,readdirSync} from 'node:fs';
+    writeReceipt(path,{schemaVersion:value.body.schemaVersion,kind:'authorized-launch',launchId:id,commandId,parent,contractDigest:digest(stable(value.body))},value.keyFile);
+    const imports=`import {constants,readFileSync,realpathSync,lstatSync,statSync,readlinkSync,openSync,fstatSync,closeSync,writeFileSync,renameSync,unlinkSync,mkdirSync,rmdirSync,existsSync,readdirSync} from 'node:fs';
 import {createHash,createHmac,timingSafeEqual} from 'node:crypto';
 import {spawn,spawnSync} from 'node:child_process';
 import {Socket} from 'node:net';
@@ -2739,7 +3090,7 @@ import {isAbsolute,dirname,join,relative,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';\n`;
     const helpers={fail,digest,stable,inside,exactKeys,launchIdValid};
     const source=imports+`const VERSION=${VERSION};\nconst managerSource=${JSON.stringify(managerSource)};\n`+Object.entries(helpers).map(([name,fn])=>`const ${name}=${fn.toString()};`).join('\n')
-      +'\n'+[canonical,trusted,readPrivate,identity,host,grantPath,ownedNativeMetadata,contract,receipt,writeReceipt,authenticated,currentPolicy,supervise].map(fn=>fn.toString()).join('\n')
+      +'\n'+[canonical,trusted,readPrivate,identity,host,grantPath,ownedNativeMetadata,processParent,directoryPin,clockObservation,metadataBirth,metadataPaths,electionAuthority,admissionPaths,keyScope,provenanceBasis,instructionPin,sourceInventory,runtimeIdentity,verifyProvenance,contract,receipt,writeReceipt,authenticated,currentPolicy,supervise].map(fn=>fn.toString()).join('\n')
       +`\ntry { await supervise(${JSON.stringify(manifestPath)},${JSON.stringify(commandId)},${JSON.stringify(id)},${JSON.stringify(parent)}); }
 catch { console.error(JSON.stringify({schemaVersion:1,available:false,reason:'launch-failed'}));process.exitCode=1; }`;
     child=spawn(process.execPath,['--input-type=module','-'],{cwd:value.root,env:value.body.launch.env,stdio:['pipe','inherit','inherit','pipe','pipe']});
@@ -2780,7 +3131,17 @@ catch { console.error(JSON.stringify({schemaVersion:1,available:false,reason:'la
 const args = process.argv.slice(2);
 let reason = 'invalid-arguments';
 try {
-  if (args[0] === 'run') {
+  if(['managed-bootstrap','managed-owning-runtime'].includes(args[0])) {
+    if(args.length!==(args[0]==='managed-bootstrap'?3:5)||args[1]!=='--manifest'||(args[0]==='managed-owning-runtime'&&args[3]!=='--capture-id'))fail(reason);
+    managedNativeLaunch(args[0],args[2],args[4]);
+  } else if(args[0]==='revoke-runtime') {
+    if(args.length!==5||args[1]!=='--manifest'||args[3]!=='--capture-id')fail(reason);
+    revokeRuntime(args[2],args[4]);
+  } else if(['capture-runtime','seal-runtime'].includes(args[0])) {
+    if(args.length!==(args[0]==='capture-runtime'?5:9)||args[1]!=='--manifest'||args[3]!=='--capture-id'
+      ||(args[0]==='seal-runtime'&&(args[5]!=='--runtime-pid'||args[7]!=='--sources')))fail(reason);
+    await runtimeProvenanceCommand(args[0],args[2],args[4],Number(args[6]),args[8]);
+  } else if (args[0] === 'run') {
     if (args.length !== 7 || args[1] !== '--manifest' || args[3] !== '--command' || args[5] !== '--launch-id') fail(reason);
     process.exitCode=await run(args[2],args[4],args[6]);
   } else if (['verify-process','stop'].includes(args[0])) {
@@ -2794,7 +3155,7 @@ try {
       if (stable(identity(saved.parent.pid)) !== stable(saved.parent)) fail('stale-process');
       if (saved.contractDigest !== digest(stable(currentPolicy(args[2],true,saved.nativeMetadata).body))) fail('stale-receipt');
     }
-    console.log(JSON.stringify({schemaVersion:VERSION,available:true,liveReady:false,reason:args[0] === 'stop'?'stop-requested':'process-verified',launchId:args[4]}));
+    console.log(JSON.stringify({schemaVersion:saved.policy.schemaVersion,available:true,liveReady:false,reason:args[0] === 'stop'?'stop-requested':'process-verified',launchId:args[4]}));
   } else {
   if (args.length !== 3 || !['probe','prepare','verify'].includes(args[0]) || args[1] !== '--manifest') fail(reason);
   if(args[0]==='prepare'&&existsSync(join(dirname(trusted(args[2])),'dispatch.lock')))fail('active-launch');
@@ -2813,8 +3174,9 @@ try {
     if (!timingSafeEqual(Buffer.from(saved.mac,'hex'),Buffer.from(expected.mac,'hex'))) fail('tampered-receipt');
     if (stable(saved.body) !== stable(body)) fail('stale-receipt');
   }
-  console.log(JSON.stringify({schemaVersion:VERSION,available:true,liveReady:false,reason:'policy-contract-verified',
-    contractVersion:VERSION,nativeVersion:body.binary.version,policyDigest:body.policyDigest,configDigest:body.configDigest,
+  console.log(JSON.stringify({schemaVersion:body.schemaVersion,available:true,liveReady:false,reason:'policy-contract-verified',
+    contractVersion:body.schemaVersion,nativeVersion:body.binary.version,policyDigest:body.policyDigest,configDigest:body.configDigest,
+    ...(body.provenance?{sourceInventoryDigest:digest(stable(body.provenance.inventory)),runtimeProvenanceDigest:body.provenance.receiptDigest,generation:body.authority.generation}:{}),
     ...(args[0] === 'probe' ? {} : {receipt:receiptPath})}));
   }
 } catch (error) {
@@ -4172,7 +4534,43 @@ process.exitCode = interrupted ? interruptionCode : result.code;
 NODE
 }
 
+close_native_launch_descriptors() {
+  local native_fd
+  for native_fd in /proc/"$$"/fd/*; do
+    native_fd=${native_fd##*/}
+    if [[ $native_fd =~ ^[0-9]+$ ]] && ((native_fd > 2)); then
+      eval "exec ${native_fd}>&-"
+    fi
+  done
+}
+
 command_cli() {
+  local native_controller_node
+  # Narrow elected-controller launch: no ordinary plugin/service discovery can
+  # interpose a process or evaluate unadmitted config before original birth.
+  strip_separator "$@"
+  case ${forwarded_args[0]:-} in
+    --live-policy-bootstrap)
+      native_controller_node=$(/usr/bin/readlink -f -- "/proc/$PPID/exe") || die 'private native caller unavailable'
+      [[ ${native_controller_node##*/} == node ]] || die 'private native caller unavailable'
+      if ((${#forwarded_args[@]} != 3)) || [[ ${forwarded_args[1]} != --manifest ]]; then die 'invalid private bootstrap arguments'; fi
+      local -a native_launch=()
+      mapfile -d '' -t native_launch < <(command_live_policy managed-bootstrap --manifest "${forwarded_args[2]}")
+      [[ ${native_launch[0]:-} == /usr/bin/env ]] || die 'private native bootstrap unavailable'
+      cd -- "$(/usr/bin/dirname -- "${forwarded_args[2]}")"
+      close_native_launch_descriptors
+      exec "${native_launch[@]}" ;;
+    --live-policy-owning-runtime)
+      native_controller_node=$(/usr/bin/readlink -f -- "/proc/$PPID/exe") || die 'private native caller unavailable'
+      [[ ${native_controller_node##*/} == node ]] || die 'private native caller unavailable'
+      if ((${#forwarded_args[@]} != 5)) || [[ ${forwarded_args[1]} != --manifest || ${forwarded_args[3]} != --capture-id ]]; then die 'invalid private owning-runtime arguments'; fi
+      local -a native_launch=()
+      mapfile -d '' -t native_launch < <(command_live_policy managed-owning-runtime --manifest "${forwarded_args[2]}" --capture-id "${forwarded_args[4]}")
+      [[ ${native_launch[0]:-} == /usr/bin/env ]] || die 'private owning runtime unavailable'
+      cd -- "$(/usr/bin/dirname -- "${forwarded_args[2]}")"
+      close_native_launch_descriptors
+      exec "${native_launch[@]}" ;;
+  esac
   check_node_version
   require_command codex
   run_startup_diagnostics

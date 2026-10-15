@@ -1,0 +1,127 @@
+name: Native metadata mask candidate (test only)
+on:
+  push:
+    branches: ['test/live-host-policy-l9']
+    paths:
+      - '.github/workflows/native-mask-candidate.yml'
+      - 'scripts/live-host-native-cache.sh'
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [cache-smoke, full-build]
+        default: cache-smoke
+      cold_build:
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  native-mask-build:
+    if: github.repository == 'dyne/gestalt' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Exact original Native source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: openai/codex
+          ref: 979011409de0a60b52f179721948e65531d26144
+          path: .native-mask-input
+          persist-credentials: false
+      - name: Upstream Linux build prerequisites on disposable runner
+        run: |
+          set -Eeuo pipefail
+          echo "CARGO_HOME=$RUNNER_TEMP/native-mask-cargo" >> "$GITHUB_ENV"
+          sudo apt-get update -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential binutils pkg-config libcap-dev libasound2-dev ccache
+          sudo sysctl -w kernel.unprivileged_userns_clone=1
+          if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      - uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582 # upstream pinned 1.95.0
+        with:
+          components: clippy,rustfmt,rust-src
+      - name: Compute exact cache input keys and configure C/C++ compiler wrappers
+        id: cache_keys
+        run: bash scripts/live-host-native-cache.sh configure
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        if: ${{ !inputs.cold_build }}
+        id: cargo_downloads
+        with:
+          path: |
+            ${{ runner.temp }}/native-mask-cargo/registry/cache
+            ${{ runner.temp }}/native-mask-cargo/registry/index
+            ${{ runner.temp }}/native-mask-cargo/git/db
+          key: ${{ steps.cache_keys.outputs.downloads_key }}
+          restore-keys: ${{ steps.cache_keys.outputs.downloads_prefix }}
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        if: ${{ !inputs.cold_build }}
+        id: cargo_target
+        with:
+          path: ${{ runner.temp }}/native-mask-target
+          key: ${{ steps.cache_keys.outputs.target_key }}
+          restore-keys: ${{ steps.cache_keys.outputs.target_prefix }}
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        if: ${{ !inputs.cold_build }}
+        id: compiler_cache
+        with:
+          path: ${{ runner.temp }}/native-mask-ccache
+          key: ${{ steps.cache_keys.outputs.ccache_key }}
+          restore-keys: ${{ steps.cache_keys.outputs.ccache_prefix }}
+      - name: Verify restored downloads and exact compiled-cache context
+        id: cache_validate
+        env:
+          NATIVE_DOWNLOAD_CACHE_KEY: ${{ steps.cargo_downloads.outputs.cache-matched-key }}
+          NATIVE_TARGET_CACHE_KEY: ${{ steps.cargo_target.outputs.cache-matched-key }}
+          NATIVE_CCACHE_KEY: ${{ steps.compiler_cache.outputs.cache-matched-key }}
+        run: bash scripts/live-host-native-cache.sh validate
+      - name: Demonstrate actual C++ ccache hit
+        run: bash scripts/live-host-native-cache.sh cpp-smoke
+      - name: Demonstrate actual Native C compilation and repeated ccache hit
+        if: github.event_name != 'workflow_dispatch' || inputs.mode != 'full-build'
+        run: bash scripts/live-host-native-cache.sh native-smoke
+      - name: Build helper, reproduce baseline, vet Native regressions and build candidate
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'full-build'
+        run: bash scripts/live-host-native-mask-build.sh
+      - name: Record actual cache use and validate cache contents before saving
+        if: ${{ !cancelled() && steps.cache_validate.outcome == 'success' }}
+        id: cache_seal
+        env:
+          NATIVE_DOWNLOAD_CACHE_KEY: ${{ steps.cargo_downloads.outputs.cache-matched-key }}
+          NATIVE_TARGET_CACHE_KEY: ${{ steps.cargo_target.outputs.cache-matched-key }}
+          NATIVE_CCACHE_KEY: ${{ steps.compiler_cache.outputs.cache-matched-key }}
+        run: |
+          bash scripts/live-host-native-cache.sh stats
+          bash scripts/live-host-native-cache.sh seal
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        if: ${{ !cancelled() && !inputs.cold_build && steps.cache_seal.outcome == 'success' }}
+        with:
+          path: |
+            ${{ runner.temp }}/native-mask-cargo/registry/cache
+            ${{ runner.temp }}/native-mask-cargo/registry/index
+            ${{ runner.temp }}/native-mask-cargo/git/db
+          key: ${{ steps.cache_keys.outputs.downloads_key }}
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        if: ${{ !cancelled() && !inputs.cold_build && steps.cache_seal.outcome == 'success' }}
+        with:
+          path: ${{ runner.temp }}/native-mask-target
+          key: ${{ steps.cache_keys.outputs.target_key }}
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        if: ${{ !cancelled() && !inputs.cold_build && steps.cache_seal.outcome == 'success' }}
+        with:
+          path: ${{ runner.temp }}/native-mask-ccache
+          key: ${{ steps.cache_keys.outputs.ccache_key }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: native-mask-candidate-results
+          path: |
+            ${{ runner.temp }}/native-mask-candidate
+            ${{ runner.temp }}/native-mask-candidate.tar.gz
+            ${{ runner.temp }}/native-mask-candidate.sha256
+          if-no-files-found: ignore
+          retention-days: 30

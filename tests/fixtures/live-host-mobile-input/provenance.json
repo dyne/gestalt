@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "repository": "dyne/gestalt-mobile",
+  "commit": "c558dd644e4b6ac8d3bce9e57bce762791ea25de",
+  "files": {
+    "LICENSE": {
+      "sha256": "57c8ff33c9c0cfc3ef00e650a1cc910d7ee479a8bc509f6c9209a7c2a11399d6",
+      "gitBlob": "dba13ed2ddf783ee8118c6a581dbf75305f816a3"
+    },
+    "package-lock.json": {
+      "sha256": "ef3a1cd72d3a64864d10950aa8132c03e719252b5e080ce537027bb668c3906c",
+      "gitBlob": "094e094ac4f6c9d3b54d99fc6a4cbff1313f07f1"
+    },
+    "package.json": {
+      "sha256": "b34f759b0af7207280e4b3deb15b84dae35fc39d372de2db5a443b0bf36d174a",
+      "gitBlob": "bdac58987775f5b22a7a144cbb73785c7867bfa5"
+    },
+    "src/server/features/live-design/application/ownership.ts": {
+      "sha256": "9b56160f008a5ce4ca02f26e2e8790077dadf024e797a5e919b3024adfaf6395",
+      "gitBlob": "e46810bc52400c927af7e702f29a9a74e1afa049"
+    },
+    "src/server/features/live-design/application/ports.ts": {
+      "sha256": "88b4288557422fd428f3c23d67617b91b27fdcd60da20b40065da35ac95b7360",
+      "gitBlob": "241b919374f4f6118de89661dfd5176a0f01271c"
+    },
+    "src/server/platform/auth/sqlite.ts": {
+      "sha256": "435014c115fafc32969a09509b05dd8317887851fe5b99eb0301ce065735635c",
+      "gitBlob": "f7328ba85bc655a2b48cc4bb5bb80d8f08891710"
+    },
+    "src/server/platform/catalog/profile-command.ts": {
+      "sha256": "8c6e8906ca7107722eceba172f9ab9028bc69d14a37959b910d7e53d76be4ed3",
+      "gitBlob": "31ade74c90207928be4775cba1897c10afb78ce6"
+    },
+    "src/server/platform/codex/codex-process-launcher.ts": {
+      "sha256": "e7920168cccdaec66ade038e6251948e71e71792478752ff524f6320a4b2e261",
+      "gitBlob": "b0b662809ddb0124d24d2de7de3832146f0a26dc"
+    },
+    "src/server/platform/codex/json-rpc-client.ts": {
+      "sha256": "e87f911cff7ea8714dcdf689d616109e98c70d9191c15cf9f52dda2e835f62f0",
+      "gitBlob": "d04671d5795d2d43e1521007658ae8e79a8c16d7"
+    },
+    "src/server/platform/live-design/elected-controller.ts": {
+      "sha256": "174816646275230d8a83d5f490a71338aa857722b0a6e93302b81d31087fc082",
+      "gitBlob": "dc747a563ec35b929d439c0e9dca22e429a7305f"
+    },
+    "src/server/platform/live-design/sqlite-live-ownership.ts": {
+      "sha256": "cd47531925e9ae28536a33488bf32f3f9356f734254a29608feed67aae132bec",
+      "gitBlob": "5823147d747f8ea9cde05072acb6cb134367e102"
+    }
+  }
+}

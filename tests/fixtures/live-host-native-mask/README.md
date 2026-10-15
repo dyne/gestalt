@@ -1,0 +1,11 @@
+Native mask-composition candidate
+
+Authorized L9.2 prerequisite for the observed `.codex` directory/file mask collision. `native.patch` is the complete two-file Apache-2.0 patch against the exact upstream commit/tree in `manifest.json`; `fix.patch` isolates the production mask correction so CI can reproduce the old regression with the new tests. Directory masks retain their shape under explicit deny. Existing metadata files receive only the stronger deny mask, avoiding a second consuming file-data operation at the same target. Existing Native permissions and directory cleanup ownership remain unchanged. Candidate build pins must be verified before Manager proof adopts them. No installed runtime or public release is changed.
+
+Regressions create explicitly labeled temporary existing/replacement fixtures. They do not seed the original owning-runtime admission proof or provide provenance evidence for it.
+
+The pinned release source declares workspace version `0.161.0`, while its checked-in lockfile still records all 160 local workspace packages as `0.0.0`. `lock-preparation.patch` synchronizes only those local version fields before any Cargo build. The manifest binds original/prepared lock bytes, patch checksum and prepared build tree; the build independently checks every local manifest and verifies that all external versions, checksums, sources and dependencies remain identical. Every Cargo build/test retains `--locked`; no dependency resolution update is used.
+
+The owning proof composes this verified patched CLI/helper artifact with the unchanged, signature-verified official `codex-code-mode-host` from the same upstream source commit. The host is a separate static x86-64 Linux musl executable; its hashes and Sigstore identity are recorded in `live-host-native-runtime.json`. V8 is not rebuilt. The upstream release uses the sandbox-enabled `ptrcomp_sandbox_release` profile. If a GNU host rebuild is ever needed, the pinned `.github/actions/setup-rusty-v8` action supplies the exact checksummed OpenAI-built V8 archive and bindings.
+
+The expensive candidate build is explicitly dispatched; routine proof snapshots reuse the verified artifact.

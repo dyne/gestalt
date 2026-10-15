@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import {spawn,spawnSync} from 'node:child_process';
-import {createHash,createHmac} from 'node:crypto';
-import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,readlinkSync,rmSync,chmodSync,symlinkSync,existsSync,copyFileSync,realpathSync,statSync,readdirSync} from 'node:fs';
+import {createHash,createHmac,randomUUID} from 'node:crypto';
+import {constants,openSync,closeSync,renameSync,mkdtempSync,mkdirSync,writeFileSync,readFileSync,readlinkSync,rmSync,chmodSync,symlinkSync,existsSync,copyFileSync,realpathSync,statSync,readdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {join,resolve} from 'node:path';
+import {dirname,join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import test from 'node:test';
 const source=readFileSync(resolve('public/gestalt'),'utf8');
@@ -31,7 +31,7 @@ function fixture() {
  // Only the host-context directory observation is replaced in these offline
  // contract fixtures. This does not claim native enforcement or host proof.
  const fixtureProgram=program.replace(JSON.stringify(resolve('public/gestalt')),JSON.stringify(managerPath)).replaceAll('/tmp/codex-daemon-',join(root,'daemon-'))
-  .replace("if (ancestor === '/') break;",`if (ancestor === ${JSON.stringify(root)}) break;`);
+  .replaceAll("if (ancestor === '/') break;",`if (ancestor === ${JSON.stringify(root)}) break;`);
  const run=(action='probe',extra=[])=>{save();const result=spawnSync(process.execPath,['--input-type=module','-',action,'--manifest',manifest,...extra],
   {input:fixtureProgram,encoding:'utf8',env:{...process.env,OPENAI_API_KEY:'fixture-secret',NODE_OPTIONS:''}});
   assert.equal(result.stderr,'');assert.ok(!result.stdout.includes('fixture-secret'));return {status:result.status,...JSON.parse(result.stdout)};};
@@ -378,7 +378,7 @@ for(const action of ['owned-empty','real-config','symlink','replacement'])test(`
   if(action==='replacement'){await pause(20);rmSync(metadata,{recursive:true});mkdirSync(metadata,{mode:0o755});}
   await launch.ended;const body=JSON.parse(readFileSync(launch.receiptPath)).body;
   assert.equal(body.status,'exited');assert.ok(!JSON.stringify(body.failure??{}).includes('fixture-secret'));
-  if(action==='owned-empty'){assert.equal(existsSync(metadata),false);assert.equal(f.run('prepare').status,0);}
+  if(action==='owned-empty'){assert.equal(existsSync(metadata),true);assert.equal(f.run('prepare').reason,'project-config-present');}
   else{assert.equal(body.termination,'policy-changed');assert.equal(body.failure.reason,'project-config-present');assert.equal(body.failure.metadataRole,'app-root');assert.equal(f.run().reason,'project-config-present');assert.equal(existsSync(metadata),true);}
  }finally{if(launch?.child.exitCode===null&&launch?.child.signalCode===null)launch.child.kill('SIGKILL');f.cleanup();}
 });
@@ -476,4 +476,331 @@ test('full CLI owner SIGKILL closes the private lifetime writer and reaps native
   const body=JSON.parse(readFileSync(launch.receiptPath)).body;assert.equal(body.status,'exited');assert.equal(body.termination,'owner-eof');
   assert.equal(existsSync(join(f.privateRoot,'dispatch.lock')),false);assert.equal(f.run('prepare').status,0);
  }finally{if(launch?.child.exitCode===null&&launch?.child.signalCode===null)launch.child.kill('SIGKILL');f.cleanup();}
+});
+
+// Actual kernel election and process identities; the copied Node runtime is an
+// explicit fixture, NOT evidence of pinned Native execution or source discovery.
+async function provenanceFixture() {
+ const f=fixture();let holder,owner;
+ const bin=join(f.root,'owning runtime fixture');copyFileSync(realpathSync(process.execPath),bin);chmodSync(bin,0o700);
+ f.m.binary={path:bin,version:'0.161.0',sha256:hash(readFileSync(bin))};
+ renameSync(f.m.keyFile,join(f.privateRoot,'live-policy.key'));f.m.keyFile=join(f.privateRoot,'live-policy.key');
+ f.m.schemaVersion=2;f.m.generation={sessionId:randomUUID(),generation:1};f.m.owningRuntime={args:['app-server']};
+ const lockFile=join(f.privateRoot,'controller.lock'),fd=openSync(lockFile,constants.O_CREAT|constants.O_RDWR,0o600);
+ holder=spawn('/usr/bin/flock',['--nonblock','--no-fork','/proc/self/fd/3',process.execPath,'-e',"console.log('elected');process.stdin.resume()"],{stdio:['pipe','pipe','pipe',fd],env:{}});closeSync(fd);
+ let ready='';holder.stdout.on('data',chunk=>ready+=chunk);await waitFor(()=>ready==='elected\n');
+ f.m.election={holder:identity(holder.pid),lockFile};
+ // Substitute only pinned-binary VERSION discovery for this non-Native fixture.
+ f.program=f.program.replace('version.stdout.trim() !== `codex-cli ${binary.version}`','version.stdout.trim() !== process.version');
+ f.run=(action='probe',extra=[])=>{f.save();const result=spawnSync(process.execPath,['--input-type=module','-',action,'--manifest',f.manifest,...extra],{input:f.program,encoding:'utf8',env:{...process.env,OPENAI_API_KEY:'fixture-secret',NODE_OPTIONS:''}});
+  assert.equal(result.stderr,'');assert.ok(!result.stdout.includes('fixture-secret'));return {status:result.status,...JSON.parse(result.stdout)};};
+ const id=randomUUID(),sources=join(f.privateRoot,'owning-sources.json');
+ const capture=()=>f.run('capture-runtime',['--capture-id',id]);
+ const start=async()=>{
+  // Strictly later than the signed USER_HZ observation.
+  await pause(40);
+  writeFileSync(join(f.privateRoot,'app-server'),`setTimeout(()=>{if(!require('node:fs').existsSync(${JSON.stringify(join(f.app,'.codex'))}))require('node:fs').mkdirSync(${JSON.stringify(join(f.app,'.codex'))},{mode:0o755});console.log('owner-ready');setInterval(()=>{},1000);},40);`,{mode:0o600});
+  owner=spawn(bin,['app-server'],{cwd:f.privateRoot,stdio:['ignore','pipe','pipe'],env:{HOME:f.home,CODEX_HOME:f.home,PATH:'/usr/bin:/bin'}});
+  let output='';owner.stdout.on('data',chunk=>output+=chunk);await waitFor(()=>output==='owner-ready\n');
+  return owner;
+ };
+ const inventory=()=>{
+  const captured=JSON.parse(readFileSync(join(f.privateRoot,`birth-${id}.json`))).body;
+  const paths=captured.directories.map(item=>item.path);
+  // policyDigest is returned by capture and is identical in the signing basis.
+  return {schemaVersion:2,runtime:identity(owner.pid),policyDigest:captureResult.policyDigest,
+   effectiveConfigDigest:hash('actual owner RPC fixture'),sessionFlagsDigest:hash('actual owner flags fixture'),sources:[
+    ...f.m.configFiles.map(file=>({kind:'file',role:'user',...file})),
+    ...paths.map(path=>{
+     if(!existsSync(path))return {kind:'absent',role:'project',path};
+     const info=statSync(path);return {kind:'directory',role:'project',path,identity:{dev:info.dev,ino:info.ino,uid:info.uid,mode:info.mode,ctime:info.ctimeMs,mtime:info.mtimeMs,birthtime:info.birthtimeMs}};
+    }),
+    ...['/etc/codex/config.toml','/etc/codex/managed_config.toml','/etc/codex/requirements.toml'].map(path=>({kind:'absent',role:'system',path})),
+   ]};
+ };
+ let captureResult;
+ const captureAndStart=async(beforeStart)=>{captureResult=capture();assert.equal(captureResult.status,0,JSON.stringify(captureResult));if(beforeStart)beforeStart();await start();};
+ const seal=(input=inventory())=>{writeFileSync(sources,JSON.stringify(input),{mode:0o600});return f.run('seal-runtime',['--capture-id',id,'--runtime-pid',String(owner.pid),'--sources',sources]);};
+ const prepare=()=>{f.m.runtimeProvenance={captureId:id,effectiveConfigDigest:hash('actual owner RPC fixture'),sessionFlagsDigest:hash('actual owner flags fixture')};return f.run('prepare');};
+ const cleanup=async()=>{for(const child of [owner,holder])if(child?.exitCode===null&&child?.signalCode===null){const closed=new Promise(done=>child.once('close',done));child.kill();await closed;}f.cleanup();};
+ return {...f,id,capture,start,captureAndStart,inventory,seal,prepare,cleanup,get owner(){return owner;},get holder(){return holder;}};
+}
+function provenanceCheck(name,fn){test(`owning provenance v2: ${name}`,async()=>{const f=await provenanceFixture();try{await fn(f);}finally{await f.cleanup();}});}
+provenanceCheck('elected pre-birth capture and empty Native-shaped directory admit with explicit directory sources',async f=>{
+ await f.captureAndStart();assert.equal(f.seal().status,0);assert.equal(f.prepare().status,0);assert.equal(f.run('verify').status,0);
+ const saved=JSON.parse(readFileSync(join(f.privateRoot,'policy-receipt.json'))).body;
+ assert.equal(saved.schemaVersion,2);assert.equal(saved.provenance.runtime.process.pid,f.owner.pid);
+ assert.equal(saved.provenance.inventory.sources.filter(source=>source.kind==='directory').length,1);
+ assert.equal(saved.provenance.inventory.sources.some(source=>source.kind==='file'&&source.path.endsWith('/.codex')),false);
+ assert.ok(saved.sandboxState.permissionProfile.file_system.entries.some(entry=>entry.access==='deny'&&entry.path.path===join(f.app,'.codex')));
+ assert.equal(f.capture().reason,'reused-capture-id');assert.equal(f.seal().reason,'reused-capture-id');
+});
+provenanceCheck('original enabled network is preserved only with sealed birth provenance and all private denies',async f=>{
+ f.m.sandboxState.permissionProfile.network='enabled';await f.captureAndStart();assert.equal(f.seal().status,0);assert.equal(f.prepare().status,0);
+ const saved=JSON.parse(readFileSync(join(f.privateRoot,'policy-receipt.json'))).body;
+ assert.equal(saved.sandboxState.permissionProfile.network,'enabled');
+ const denies=saved.sandboxState.permissionProfile.file_system.entries.filter(entry=>entry.access==='deny').map(entry=>entry.path.path);
+ for(const path of [f.privateRoot,'/proc',join(f.app,'.codex')])assert.ok(denies.includes(path));
+ assert.equal(f.run('verify').status,0);f.m.sandboxState.permissionProfile.network='restricted';assert.equal(f.run('verify').status,1);
+});
+provenanceCheck('empty preexisting metadata cannot acquire absence evidence',async f=>{mkdirSync(join(f.app,'.codex'));assert.equal(f.capture().reason,'project-config-present');});
+provenanceCheck('election is mandatory before capture, even when the directory is absent',async f=>{delete f.m.election;assert.equal(f.capture().reason,'missing-election');});
+provenanceCheck('unlocked holder FD is not elected authority',async f=>{f.m.election.holder=identity(process.pid);assert.equal(f.capture().reason,'stale-election');});
+provenanceCheck('capture cannot authorize first prepare until sealed',async f=>{await f.captureAndStart();assert.equal(f.prepare().reason,'revoked-runtime-provenance');});
+for(const name of ['config.toml','hooks.json','rules','agents'])provenanceCheck(`injected ${name} blocks sealing`,async f=>{
+ await f.captureAndStart();writeFileSync(join(f.app,'.codex',name),'fixture-secret');assert.equal(f.seal().reason,'metadata-content-present');
+});
+for(const variant of ['missing-directory','missing-system','missing-user','duplicate','unknown-kind','wrong-policy','wrong-runtime','directory-as-file','extra-source'])provenanceCheck(`incomplete source inventory ${variant} fails closed`,async f=>{
+ await f.captureAndStart();const input=f.inventory();
+ if(variant==='missing-directory')input.sources=input.sources.filter(source=>source.role!=='project');
+ if(variant==='missing-system')input.sources=input.sources.filter(source=>source.role!=='system');
+ if(variant==='missing-user')input.sources=input.sources.filter(source=>source.role!=='user');
+ if(variant==='duplicate')input.sources.push(input.sources[0]);
+ if(variant==='unknown-kind')input.sources[0].kind='copied-directory';
+ if(variant==='wrong-policy')input.policyDigest='0'.repeat(64);
+ if(variant==='wrong-runtime')input.runtime.birth='0';
+ if(variant==='directory-as-file'){const source=input.sources.find(source=>source.kind==='directory');source.kind='file';}
+ if(variant==='extra-source')input.sources.push({kind:'absent',role:'user',path:'/private-uninventoried-user'});
+ assert.equal(f.seal(input).reason,'incomplete-source-inventory');
+});
+for(const variant of ['config','hook','rules','agents','symlink','replacement','generation','session','profile','permissions','network','component','owner-birth','election-birth','parent-replacement','tampered-mac','unsigned-marker'])provenanceCheck(`sealed ${variant} change revokes before next admission`,async f=>{
+ await f.captureAndStart();assert.equal(f.seal().status,0);assert.equal(f.prepare().status,0);
+ const metadata=join(f.app,'.codex');
+ if(['config','hook','rules','agents'].includes(variant))writeFileSync(join(metadata,variant),'fixture-secret');
+ if(variant==='symlink'){renameSync(metadata,metadata+' prior');symlinkSync(f.privateRoot,metadata);}
+ if(variant==='replacement'){renameSync(metadata,metadata+' prior');mkdirSync(metadata,{mode:0o755});}
+ if(variant==='parent-replacement'){renameSync(f.app,f.app+' prior');mkdirSync(f.app,{mode:0o700});mkdirSync(metadata,{mode:0o755});}
+ if(variant==='generation')f.m.generation.generation++;
+ if(variant==='session')f.m.generation.sessionId=randomUUID();
+ if(variant==='profile')f.m.profileId='changed';
+ if(variant==='permissions')f.m.sandboxState.permissionProfile.file_system.entries[1].access='read';
+ if(variant==='network')f.m.sandboxState.permissionProfile.network='enabled';
+ if(variant==='component')f.m.components.agents='changed';
+ if(variant==='election-birth')f.m.election.holder.birth='0';
+ if(['owner-birth','tampered-mac','unsigned-marker'].includes(variant)){
+  const path=join(f.privateRoot,`runtime-${f.id}.json`),saved=JSON.parse(readFileSync(path));
+  if(variant==='owner-birth')saved.body.runtime.process.birth='0';
+  if(variant==='tampered-mac')saved.mac='0'.repeat(64);
+  writeFileSync(path,JSON.stringify(variant==='unsigned-marker'?saved.body:saved),{mode:0o600});
+ }
+ const result=f.run('verify');assert.equal(result.available,false,variant);assert.equal(result.status,1);assert.ok(!JSON.stringify(result).includes('fixture-secret'));
+ assert.equal(existsSync(metadata),true);
+});
+provenanceCheck('actual owner exit invalidates admission and preserves metadata',async f=>{
+ await f.captureAndStart();assert.equal(f.seal().status,0);assert.equal(f.prepare().status,0);
+ const closed=new Promise(done=>f.owner.once('close',done));f.owner.kill();await closed;
+ assert.equal(f.run('verify').available,false);assert.equal(existsSync(join(f.app,'.codex')),true);
+});
+provenanceCheck('actual election holder loss invalidates admission',async f=>{
+ await f.captureAndStart();assert.equal(f.seal().status,0);assert.equal(f.prepare().status,0);
+ const closed=new Promise(done=>f.holder.once('close',done));f.holder.kill();await closed;assert.equal(f.run('verify').available,false);
+});
+provenanceCheck('runtime born before signed absence capture is rejected, even with the correct executable and parent',async f=>{
+ const owner=await f.start();rmSync(join(f.app,'.codex'),{recursive:true}); // fixture-only reset to exercise stale birth; production never deletes metadata.
+ const captured=f.capture();assert.equal(captured.status,0);
+ writeFileSync(join(f.privateRoot,'old-sources.json'),'{}',{mode:0o600});
+ assert.equal(f.run('seal-runtime',['--capture-id',f.id,'--runtime-pid',String(owner.pid),'--sources',join(f.privateRoot,'old-sources.json')]).reason,'stale-runtime-provenance');
+});
+provenanceCheck('competing capture/session cannot replace the active admission fence',async f=>{
+ await f.captureAndStart();assert.equal(f.run('capture-runtime',['--capture-id',randomUUID()]).reason,'active-runtime-admission');
+ const before=JSON.parse(readFileSync(join(f.privateRoot,`runtime-admission-${hash(f.app)}.json`))).body;
+ f.m.generation.sessionId=randomUUID();
+ assert.equal(f.seal().reason,'revoked-runtime-provenance');
+ assert.deepEqual(JSON.parse(readFileSync(join(f.privateRoot,`runtime-admission-${hash(f.app)}.json`))).body,before);
+});
+provenanceCheck('exclusive fence rejects a second capture before either owner starts',async f=>{
+ assert.equal(f.capture().status,0);
+ assert.equal(f.run('capture-runtime',['--capture-id',randomUUID()]).reason,'active-runtime-admission');
+});
+provenanceCheck('explicit revoke is authenticated, idempotent and preserves runtime metadata',async f=>{
+ await f.captureAndStart();assert.equal(f.seal().status,0);assert.equal(f.prepare().status,0);
+ const revoke=()=>f.run('revoke-runtime',['--capture-id',f.id]);
+ assert.equal(f.run('revoke-runtime',['--capture-id',randomUUID()]).reason,'unowned-runtime-admission');
+ // Revocation remains usable after profile/config changes; it cannot grant work.
+ f.m.profileId='changed';assert.equal(revoke().reason,'runtime-provenance-revoked');assert.equal(revoke().status,0);
+ assert.equal(f.run('verify').reason,'revoked-runtime-provenance');
+ assert.equal(existsSync(join(f.app,'.codex')),true);assert.equal(existsSync(join(f.privateRoot,`runtime-admission-${hash(f.app)}.lock`)),false);
+ assert.equal(f.run('capture-runtime',['--capture-id',randomUUID()]).reason,'project-config-present');
+});
+provenanceCheck('revoked capture cannot seal a live child later',async f=>{
+ await f.captureAndStart();assert.equal(f.run('revoke-runtime',['--capture-id',f.id]).status,0);
+ assert.equal(f.seal().reason,'revoked-runtime-provenance');
+});
+provenanceCheck('an intermediary process cannot claim elected-controller signing authority',async f=>{
+ f.save();const code=`const{spawnSync}=require('node:child_process');const r=spawnSync(process.execPath,['--input-type=module','-','capture-runtime','--manifest',${JSON.stringify(f.manifest)},'--capture-id',${JSON.stringify(f.id)}],{input:${JSON.stringify(f.program)},encoding:'utf8'});process.stdout.write(r.stdout);`;
+ const result=spawnSync(process.execPath,['-e',code],{encoding:'utf8'});assert.equal(JSON.parse(result.stdout).reason,'unauthorized-controller');
+});
+for(const field of ['effectiveConfigDigest','sessionFlagsDigest'])provenanceCheck(`current observed ${field} change invalidates sealed source identity`,async f=>{
+ await f.captureAndStart();assert.equal(f.seal().status,0);assert.equal(f.prepare().status,0);
+ f.m.runtimeProvenance[field]='0'.repeat(64);assert.equal(f.run('verify').reason,'source-changed');
+});
+provenanceCheck('changed original regular source bytes revoke sealed owner',async f=>{
+ await f.captureAndStart();assert.equal(f.seal().status,0);assert.equal(f.prepare().status,0);
+ const config=f.m.configFiles[0];writeFileSync(config.path,'unsafe original config');assert.equal(f.run('verify').available,false);
+});
+provenanceCheck('later generated regular config invalidates policy receipt without rewriting original source provenance',async f=>{
+ await f.captureAndStart();assert.equal(f.seal().status,0);assert.equal(f.prepare().status,0);
+ const file=join(f.privateRoot,'live-mcp-config.json');writeFileSync(file,'{}',{mode:0o600});f.m.configFiles.push({path:file,sha256:hash('{}')});
+ assert.equal(f.run('verify').reason,'stale-receipt');assert.equal(f.prepare().status,0);assert.equal(f.run('verify').status,0);
+ const receipt=JSON.parse(readFileSync(join(f.privateRoot,'policy-receipt.json'))).body;
+ assert.equal(receipt.provenance.inventory.sources.some(source=>source.path===file),false);
+});
+for(const reason of ['revocation','owner-exit','metadata-injection','generation-change'])provenanceCheck(`persistent admitted helper is reaped on ${reason} with versioned per-call checks`,async f=>{
+ let helper;
+ try {
+  // Explicit non-Native dispatcher fixture. It exercises the real manager
+  // supervisor, receipts, fences and owned cleanup; it does not enforce a sandbox.
+  writeFileSync(join(f.privateRoot,'sandbox'),`const{spawn}=require('node:child_process');const a=process.argv.slice(2),i=a.indexOf('--');const c=spawn(a[i+1],a.slice(i+2),{stdio:'inherit'});c.on('exit',code=>process.exit(code??1));`,{mode:0o600});
+  f.program=f.program.replace("timer=setTimeout(()=>stop('timeout'),command.timeoutMs);","process.stdout.write('lifetime-ready\\n');timer=setTimeout(()=>stop('timeout'),command.timeoutMs);");
+  f.m.commands={ordinary:{executable:f.m.binary.path,sha256:f.m.binary.sha256,args:['-e',running()],timeoutMs:30000}};
+  await f.captureAndStart();assert.equal(f.seal().status,0);assert.equal(f.prepare().status,0);
+  const id=randomUUID(),path=join(f.privateRoot,`process-${id}.json`);
+  helper=spawn(process.execPath,['--input-type=module','-','run','--manifest',f.manifest,'--command','ordinary','--launch-id',id],{stdio:['pipe','pipe','pipe','pipe']});
+  let output='',errors='';helper.stdout.on('data',chunk=>output+=chunk);helper.stderr.on('data',chunk=>errors+=chunk);
+  helper.stdin.end(f.program);helper.stdio[3].end();helper.once('exit',()=>helper.stdio[3].destroy());
+  const ended=new Promise(done=>helper.once('close',done));await waitFor(()=>output.includes('lifetime-ready'));
+  assert.equal(JSON.parse(readFileSync(path)).body.schemaVersion,2);
+  if(reason==='revocation')assert.equal(f.run('revoke-runtime',['--capture-id',f.id]).status,0);
+  if(reason==='owner-exit'){const closed=new Promise(done=>f.owner.once('close',done));f.owner.kill();await closed;}
+  if(reason==='metadata-injection')writeFileSync(join(f.app,'.codex','config.toml'),'fixture-secret');
+  if(reason==='generation-change'){f.m.generation.generation++;f.save();}
+  await Promise.race([ended,pause(6000).then(()=>assert.fail('v2 lifetime deadline'))]);
+  const receipt=JSON.parse(readFileSync(path)).body;assert.equal(receipt.status,'exited');assert.equal(receipt.termination,'policy-changed');
+  assert.equal(existsSync(join(f.app,'.codex')),true);assert.equal(existsSync(join(f.privateRoot,'dispatch.lock')),false);assert.equal(errors,'');
+ }finally{if(helper?.exitCode===null&&helper?.signalCode===null){const closed=new Promise(done=>helper.once('close',done));helper.kill('SIGKILL');await closed;}}
+});
+provenanceCheck('generation-specific manifest reuses the existing ancestor election and app fence',async f=>{
+ const generation=join(f.privateRoot,'generation with spaces'),home=join(generation,'home');mkdirSync(generation,{mode:0o700});mkdirSync(home,{mode:0o700});
+ const config=join(home,'config.toml');writeFileSync(config,'[shell_environment_policy]\ninherit = "none"\n',{mode:0o600});
+ const manifest=join(generation,'manifest.json'),m=structuredClone(f.m),id=randomUUID();m.runtimeHome=home;m.environment.HOME=home;m.configFiles=[{path:config,sha256:hash(readFileSync(config))}];
+ writeFileSync(manifest,JSON.stringify(m),{mode:0o600});
+ const captured=spawnSync(process.execPath,['--input-type=module','-','capture-runtime','--manifest',manifest,'--capture-id',id],{input:f.program,encoding:'utf8'});
+ assert.equal(captured.status,0,captured.stdout);assert.equal(existsSync(join(generation,`birth-${id}.json`)),true);
+ const fence=JSON.parse(readFileSync(join(f.privateRoot,`runtime-admission-${hash(f.app)}.json`))).body;assert.equal(fence.manifestRoot,generation);assert.equal(fence.captureId,id);
+ // The different manifest directory cannot compete against the same app/election.
+ assert.equal(f.capture().reason,'active-runtime-admission');
+});
+provenanceCheck('a private generation cannot hide an original write grant to the shared election key',async f=>{
+ f.m.sandboxState.permissionProfile.file_system.entries.push({path:{type:'path',path:f.m.keyFile},access:'write'});
+ assert.equal(f.capture().reason,'project-writable-policy');
+});
+provenanceCheck('metadata creation raced between capture and original owning birth is rejected',async f=>{
+ await f.captureAndStart(()=>mkdirSync(join(f.app,'.codex'),{mode:0o755}));
+ assert.equal(f.seal().reason,'metadata-before-runtime-birth');
+});
+provenanceCheck('already materialized Native denial of absent metadata stays denied during capture',async f=>{
+ const path=join(f.app,'.codex');f.m.sandboxState.permissionProfile.file_system.entries.push({path:{type:'path',path},access:'deny'});
+ assert.equal(f.capture().status,0);
+});
+provenanceCheck('missing-denial normalization cannot hide an existing symlink ancestor',async f=>{
+ const alias=join(f.root,'private alias');symlinkSync(f.privateRoot,alias);
+ f.m.sandboxState.permissionProfile.file_system.entries.push({path:{type:'path',path:join(alias,'missing')},access:'deny'});
+ assert.equal(f.capture().reason,'symlink-path');
+});
+provenanceCheck('managed private CLI exec preserves original birth, direct parent and caller stdio',async f=>{
+ let owner,extra;
+ try {
+  const captured=f.capture();assert.equal(captured.status,0);
+  // Install only the fixture Manager script, not plugins or user configuration.
+  const parts=source.split("<<'LIVE_POLICY'\n"),tail=parts[1].split('\nLIVE_POLICY\n')[1];
+  writeFileSync(f.managerPath,parts[0]+"<<'LIVE_POLICY'\n"+f.program+'\nLIVE_POLICY\n'+tail,{mode:0o700});
+  // Manager bytes changed, so use a fresh genuine capture for this exact candidate.
+  assert.equal(f.run('revoke-runtime',['--capture-id',f.id]).status,0);
+  const id=randomUUID();assert.equal(f.run('capture-runtime',['--capture-id',id]).status,0);await pause(40);
+  writeFileSync(join(f.privateRoot,'app-server'),`const keyPin=${JSON.stringify({dev:statSync(f.m.keyFile).dev,ino:statSync(f.m.keyFile).ino})};for(let fd=3;fd<128;fd++){try{const p=require('node:fs').fstatSync(fd);if(p.dev===keyPin.dev&&p.ino===keyPin.ino)process.exit(7)}catch{}};if(Object.keys(process.env).some(key=>/SECRET|TOKEN|API_KEY/.test(key)))process.exit(8);process.stdout.write('managed-ready\\n');process.stdin.on('data',chunk=>process.stdout.write(chunk));process.stdin.on('end',()=>process.exit(0));`,{mode:0o600});
+  extra=openSync(f.m.keyFile,'r');
+  owner=spawn('/usr/bin/bash',[f.managerPath,'cli','--','--live-policy-owning-runtime','--manifest',f.manifest,'--capture-id',id],
+    {cwd:f.app,env:{PATH:`${dirname(process.execPath)}:/usr/bin:/bin`,HOME:f.privateRoot,CODEX_HOME:f.home,GESTALT_HOME:join(f.privateRoot,'manager-state'),OPENAI_API_KEY:'fixture-secret'},stdio:['pipe','pipe','pipe','ignore','ignore','ignore','ignore',extra]});
+  let output='',errors='';owner.stdout.on('data',chunk=>output+=chunk);owner.stderr.on('data',chunk=>errors+=chunk);
+  const ended=new Promise(done=>owner.once('close',done));await Promise.race([waitFor(()=>output==='managed-ready\n'),ended.then(code=>assert.fail(JSON.stringify({code,stdout:output,stderr:errors})))]);
+  assert.equal(readlinkSync(`/proc/${owner.pid}/exe`),f.m.binary.path);
+  assert.equal(readFileSync(`/proc/${owner.pid}/stat`,'utf8').split(')').at(-1).trim().split(' ')[1],String(process.pid));
+  owner.stdin.end('original-private-stdio\n');assert.equal(await ended,0);assert.equal(output,'managed-ready\noriginal-private-stdio\n');
+  assert.ok(!errors.includes('Gestalt manager'));assert.ok(!errors.includes('fixture-secret'));
+ }finally{if(extra!==undefined)closeSync(extra);if(owner?.exitCode===null&&owner?.signalCode===null){const closed=new Promise(done=>owner.once('close',done));owner.kill('SIGKILL');await closed;}}
+});
+provenanceCheck('actual startup instruction source must match its immutable pre-birth pin',async f=>{
+ const path=join(f.app,'AGENTS.md');writeFileSync(path,'original project instructions',{mode:0o644});await f.captureAndStart();
+ const info=statSync(path),input=f.inventory();input.sources.push({kind:'instruction',path,sha256:hash(readFileSync(path)),identity:{dev:info.dev,ino:info.ino,uid:info.uid,mode:info.mode,ctime:info.ctimeMs,mtime:info.mtimeMs}});
+ assert.equal(f.seal(input).status,0);assert.equal(f.prepare().status,0);
+ writeFileSync(path,'changed instruction source');assert.equal(f.run('verify').reason,'source-changed');
+});
+provenanceCheck('an instruction injected after original runtime birth cannot be described as a startup source',async f=>{
+ await f.captureAndStart();const path=join(f.app,'AGENTS.md');writeFileSync(path,'injected instructions',{mode:0o644});
+ const info=statSync(path),input=f.inventory();input.sources.push({kind:'instruction',path,sha256:hash(readFileSync(path)),identity:{dev:info.dev,ino:info.ino,uid:info.uid,mode:info.mode,ctime:info.ctimeMs,mtime:info.mtimeMs}});
+ assert.equal(f.seal(input).reason,'source-changed');
+});
+
+provenanceCheck('omitted original AGENTS instruction cannot seal an incomplete source inventory',async f=>{
+ writeFileSync(join(f.app,'AGENTS.md'),'original instructions',{mode:0o644});await f.captureAndStart();
+ assert.equal(f.seal().reason,'incomplete-source-inventory');
+});
+for(const phase of ['seal','verify'])for(const kind of ['file','symlink'])provenanceCheck(`originally absent instruction ${kind} appearance blocks ${phase}`,async f=>{
+ await f.captureAndStart();if(phase==='verify'){assert.equal(f.seal().status,0);assert.equal(f.prepare().status,0);}
+ const path=join(f.app,'AGENTS.override.md');if(kind==='file')writeFileSync(path,'injected override',{mode:0o644});else symlinkSync(join(f.home,'config.toml'),path);
+ assert.equal((phase==='seal'?f.seal():f.run('verify')).reason,'source-changed');
+});
+provenanceCheck('shadowed instruction candidates remain pinned without claiming Native loaded them',async f=>{
+ const original=join(f.app,'AGENTS.md'),override=join(f.app,'AGENTS.override.md');writeFileSync(original,'shadowed original',{mode:0o644});writeFileSync(override,'selected override',{mode:0o644});await f.captureAndStart();
+ const source=(path,kind)=>{const info=statSync(path);return {kind,path,sha256:hash(readFileSync(path)),identity:{dev:info.dev,ino:info.ino,uid:info.uid,mode:info.mode,ctime:info.ctimeMs,mtime:info.mtimeMs}};};
+ const input=f.inventory();input.sources.push(source(override,'instruction'));assert.equal(f.seal(input).reason,'incomplete-source-inventory');
+ input.sources.push(source(original,'instruction-candidate'));assert.equal(f.seal(input).status,0);assert.equal(f.prepare().status,0);
+ writeFileSync(original,'changed shadowed original');assert.equal(f.run('verify').reason,'source-changed');
+});
+test('controlled Native command rejects failed and unfinished results even when they echo the probe marker',async()=>{
+ const proof=readFileSync(resolve('scripts/live-host-policy-native-proof.mjs'),'utf8');
+ const implementation=proof.slice(proof.indexOf('function modelCall('),proof.indexOf('\nconst modelProbe='));
+ const call=Function('assert','report',`${implementation};return modelCall;`)(assert,{});
+ const event=call([{name:'exec',description:'exec_command(args)'}],'probe','exec_command',{cmd:'controlled probe'});
+ const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
+ const invoke=new AsyncFunction('tools','text',event.item.input),outputs=[];
+ for(const exit_code of [1,undefined])await assert.rejects(invoke({exec_command:async()=>({exit_code,output:'native-private-and-metadata-denied'})},value=>outputs.push(value)),/NATIVE_PROBE_EXIT/);
+ assert.equal(outputs.length,0);
+ await invoke({exec_command:async()=>({exit_code:0,output:'native-private-and-metadata-denied'})},value=>outputs.push(value));
+ assert.equal(outputs.length,1);assert.equal(outputs[0].exit_code,0);
+});
+
+test('startup RPC diagnostic identifies method and fixed error facts without config, instructions or error text',()=>{
+ const proof=readFileSync(resolve('scripts/live-host-policy-native-proof.mjs'),'utf8');
+ const expression=proof.split('const rpcFailureDiagnostic=')[1].split('\nlet runtime,')[0];
+ const diagnose=Function('hash',`return ${expression}`)(hash);
+ const message='error creating thread: Permission denied (os error 13) reading AGENTS.md at /private/fixture-secret; config token=fixture-secret prompt=fixture-secret';
+ const result=diagnose('thread/start',{code:-32603,message},{originalHome:'/private/fixture-secret'});
+ assert.equal(result.method,'thread/start');assert.equal(result.code,-32603);assert.equal(result.threadCreation,true);assert.equal(result.permissionDenied,true);assert.equal(result.instructionDiscovery,true);
+ assert.deepEqual(result.matchedPathRoles,['originalHome']);assert.equal(result.messageSha256,hash(message));
+ assert.ok(!JSON.stringify(result).includes('fixture-secret'));assert.ok(!JSON.stringify(result).includes('/private'));assert.ok(!JSON.stringify(result).includes('token='));assert.ok(!JSON.stringify(result).includes('prompt='));
+ const full='error creating thread: failed to load AGENTS.md instructions: fs sandbox helper failed: bwrap: Can\'t create file at /private/'+('x'.repeat(300))+': Read-only file system; fixture-secret';
+ const truncated=diagnose('thread/start',{code:-32603,message:full.slice(0,256)});
+ const wire=diagnose('thread/start',{code:-32603,message:full});
+ assert.equal(truncated.readOnly,false);assert.equal(wire.readOnly,true);assert.equal(wire.bubblewrapCreateFile,true);assert.ok(wire.messageBytes>256);assert.ok(!JSON.stringify(wire).includes('fixture-secret'));assert.ok(!JSON.stringify(wire).includes('/private'));
+ for(const [phrase,code] of [['Is a directory','EISDIR'],['Not a directory','ENOTDIR'],['File exists','EEXIST'],['Bad file descriptor','EBADF'],['Read-only file system','EROFS']]){
+  const classified=diagnose('thread/start',{code:-32603,message:'error creating thread: bwrap: Can\'t create file at /private/fixture-secret: '+phrase},{metadata:'/private/fixture-secret'});
+  assert.deepEqual(classified.operation,{kind:'create-file',errnoClass:code,targetRole:'metadata'});assert.ok(!JSON.stringify(classified).includes('fixture-secret'));
+ }
+ const unknown=diagnose('thread/start',{code:-32603,message:'bwrap: Can\'t create file at /private/fixture-secret: arbitrary fixture-secret'},{metadata:'/private/fixture-secret'});
+ assert.equal(unknown.operation.errnoClass,'unclassified');assert.ok(!JSON.stringify(unknown).includes('fixture-secret'));
+});
+
+test('Native build failure reports locked dependency classes without raw logs or credentials',()=>{
+ const root=mkdtempSync(join(tmpdir(),'native build diagnostic '));
+ try{
+  const script=readFileSync(resolve('scripts/live-host-native-mask-build.sh'),'utf8');
+  const diagnostic=script.split("<<'PY'\n")[1].split('\nPY\n')[0];
+  const log=join(root,'log'),lock=join(root,'lock'),version=join(root,'version');
+  const revision='a'.repeat(40);
+  writeFileSync(lock,`name = "mxc"\nsource = "git+https://github.com/microsoft/mxc#${revision}"\n`);
+  writeFileSync(version,'rustc 1.95.0\nrelease: 1.95.0\nhost: x86_64-unknown-linux-gnu\n');
+  writeFileSync(log,`failed to load source for dependency \`mxc\`\nfailed to update https://fixture-secret@github.com/microsoft/mxc#${revision}\nrevision ${revision} not found\nHTTP 403\nprivate path /private/fixture-secret prompt=fixture-secret token=fixture-secret\ndependency \`fixture-secret\`\n---- suite::landlock::sandbox_enforces_denied_metadata_directory_and_file_types stdout ----\nNATIVE_METADATA_EXIT kind=missing exitCode=12 stderrClass=unclassified stdoutBytes=12 stderrBytes=0\ntest result: FAILED. 80 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out\n`);
+  const run=spawnSync('python3',['-','build-bwrap','101',log,lock,version],{input:diagnostic,encoding:'utf8'});
+  assert.equal(run.status,0,run.stderr);
+  const result=JSON.parse(run.stdout.split('title=Native mask candidate failure::')[1]);
+  assert.deepEqual(result.cargoErrorClasses,['dependencyLoad','missingRevision','sourceUpdate']);
+  assert.deepEqual(result.dependencies,['mxc']);assert.deepEqual(result.publicRepositories,['microsoft/mxc']);
+  assert.deepEqual(result.lockedRevisions,[revision]);assert.deepEqual(result.httpStatuses,['403']);
+  assert.equal(result.rustRelease,'1.95.0');assert.equal(result.host,'x86_64-unknown-linux-gnu');
+  assert.deepEqual(result.failedTests,['suite::landlock::sandbox_enforces_denied_metadata_directory_and_file_types']);
+  assert.deepEqual(result.metadataFailure,{fixtureKind:'missing',exitCode:12,stderrClass:'unclassified',stdoutBytes:12,stderrBytes:0,commandRole:'denied-directory-list-succeeded'});
+  assert.deepEqual(result.testResults,['test result: FAILED. 80 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out']);
+  for(const secret of ['fixture-secret','/private/','prompt=','token=','https://'])assert.ok(!run.stdout.includes(secret));
+ }finally{rmSync(root,{recursive:true,force:true});}
 });

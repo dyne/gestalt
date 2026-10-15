@@ -739,7 +739,16 @@ external dependencies were unchanged and every Cargo command retained `--locked`
 
 `tests/fixtures/live-host-native-runtime.json` records the resulting source and
 build trees, build inputs, archive digest and exact Native/bubblewrap/sandbox
-helper hashes. The proof verifies those pins before launching the actual owning
+helper hashes. It also records the unchanged official code-mode host from the
+same source commit. That static x86-64 Linux musl executable runs as a separate
+process; it does not link against the GNU CLI. The proof checks its archive,
+binary and signature-bundle hashes and verifies the official release workflow's
+Sigstore identity, GitHub issuer, certificate transparency and transparency-log
+entry before use. The upstream release preserves V8's sandbox-enabled profile.
+No V8 build is needed. The actual host protocol and confinement checks remain
+part of the owning proof.
+
+The proof verifies those pins before launching the actual owning
 runtime through `gestalt cli --`. The build manifest remains the original build
 input; the runtime fixture records later verified artifact pins. These artifacts
 and hashes are for the supported-host proof and L9 review. They do not install,

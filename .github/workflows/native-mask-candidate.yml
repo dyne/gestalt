@@ -1,18 +1,12 @@
 name: Native metadata mask candidate (test only)
 on:
-  push:
-    branches: ['test/live-host-policy-l9']
-    paths:
-      - '.github/workflows/native-mask-candidate.yml'
-      - 'scripts/live-host-native-mask-build.sh'
-      - 'tests/fixtures/live-host-native-mask/**'
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
   native-mask-build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -29,7 +23,7 @@ jobs:
           set -Eeuo pipefail
           echo "CARGO_HOME=$RUNNER_TEMP/native-mask-cargo" >> "$GITHUB_ENV"
           sudo apt-get update -y
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential binutils pkg-config libcap-dev libasound2-dev libglib2.0-dev libclang-19-dev
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential binutils pkg-config libcap-dev libasound2-dev
           sudo sysctl -w kernel.unprivileged_userns_clone=1
           if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0

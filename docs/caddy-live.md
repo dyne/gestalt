@@ -712,6 +712,15 @@ Instruction content is never returned or logged. Changes invalidate admission
 and stop owned workers; project instructions remain enabled and are actually
 loaded during the supported-host proof.
 
+Every present pre-birth instruction candidate must appear in the inventory.
+Candidates that Native did not load use `kind:"instruction-candidate"` with the
+same path, hash and identity fields. This preserves the distinction between
+loaded instructions and files shadowed by an override or outside Native's
+project discovery boundary. Sealing and every later verification independently
+recheck the entire signed candidate map, including absent paths. An omitted
+present candidate is incomplete; any changed present file or newly appearing
+file or symlink fails with `source-changed`, regardless of caller selection.
+
 The managed handoff writes a signed `image-UUID.json` tying the original child
 identity and handoff clock to its capture. Sealing preserves that image digest
 and rejects stale handoffs or metadata predating it. The underlying Native

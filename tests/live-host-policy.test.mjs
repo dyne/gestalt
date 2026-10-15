@@ -731,6 +731,22 @@ provenanceCheck('an instruction injected after original runtime birth cannot be 
  assert.equal(f.seal(input).reason,'source-changed');
 });
 
+provenanceCheck('omitted original AGENTS instruction cannot seal an incomplete source inventory',async f=>{
+ writeFileSync(join(f.app,'AGENTS.md'),'original instructions',{mode:0o644});await f.captureAndStart();
+ assert.equal(f.seal().reason,'incomplete-source-inventory');
+});
+for(const phase of ['seal','verify'])for(const kind of ['file','symlink'])provenanceCheck(`originally absent instruction ${kind} appearance blocks ${phase}`,async f=>{
+ await f.captureAndStart();if(phase==='verify'){assert.equal(f.seal().status,0);assert.equal(f.prepare().status,0);}
+ const path=join(f.app,'AGENTS.override.md');if(kind==='file')writeFileSync(path,'injected override',{mode:0o644});else symlinkSync(join(f.home,'config.toml'),path);
+ assert.equal((phase==='seal'?f.seal():f.run('verify')).reason,'source-changed');
+});
+provenanceCheck('shadowed instruction candidates remain pinned without claiming Native loaded them',async f=>{
+ const original=join(f.app,'AGENTS.md'),override=join(f.app,'AGENTS.override.md');writeFileSync(original,'shadowed original',{mode:0o644});writeFileSync(override,'selected override',{mode:0o644});await f.captureAndStart();
+ const source=(path,kind)=>{const info=statSync(path);return {kind,path,sha256:hash(readFileSync(path)),identity:{dev:info.dev,ino:info.ino,uid:info.uid,mode:info.mode,ctime:info.ctimeMs,mtime:info.mtimeMs}};};
+ const input=f.inventory();input.sources.push(source(override,'instruction'));assert.equal(f.seal(input).reason,'incomplete-source-inventory');
+ input.sources.push(source(original,'instruction-candidate'));assert.equal(f.seal(input).status,0);assert.equal(f.prepare().status,0);
+ writeFileSync(original,'changed shadowed original');assert.equal(f.run('verify').reason,'source-changed');
+});
 test('controlled Native command rejects failed and unfinished results even when they echo the probe marker',async()=>{
  const proof=readFileSync(resolve('scripts/live-host-policy-native-proof.mjs'),'utf8');
  const implementation=proof.slice(proof.indexOf('function modelCall('),proof.indexOf('\nconst modelProbe='));

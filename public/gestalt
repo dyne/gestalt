@@ -2646,7 +2646,18 @@ function sourceInventory(input,m,body,processIdentity,directories,instructions) 
     ||input.schemaVersion!==2||stable(input.runtime)!==stable(processIdentity)||input.policyDigest!==body.policyDigest
     ||![input.effectiveConfigDigest,input.sessionFlagsDigest].every(value=>/^[a-f0-9]{64}$/.test(value))
     ||!Array.isArray(input.sources)||!input.sources.length||input.sources.length>128)fail('incomplete-source-inventory');
-  const seen=new Set(),files=new Set(),dirs=new Set();
+  // Capture all discovery candidates, including absent and precedence-shadowed
+  // files. Recheck the entire signed state independently of caller selection.
+  if(!instructions||typeof instructions!=='object'||Array.isArray(instructions))fail('incomplete-source-inventory');
+  for(const [path,pin] of Object.entries(instructions)) {
+    if(pin===null) {
+      try{lstatSync(path);}catch(error){if(error.code==='ENOENT')continue;fail('source-changed');}
+      fail('source-changed');
+    }
+    let current;try{current=instructionPin(path);}catch{fail('source-changed');}
+    if(stable(current)!==stable(pin))fail('source-changed');
+  }
+  const seen=new Set(),files=new Set(),dirs=new Set(),instructionPaths=new Set();
   for(const source of input.sources) {
     if(!source||typeof source.path!=='string'||seen.has(source.path))fail('incomplete-source-inventory');
     seen.add(source.path);
@@ -2655,8 +2666,9 @@ function sourceInventory(input,m,body,processIdentity,directories,instructions) 
         ||!m.configFiles.some(file=>file.path===source.path&&file.sha256===source.sha256))fail('incomplete-source-inventory');
       if(source.role==='sandbox-worker'&&source.path!==join(m.runtimeHome,'config.toml'))fail('incomplete-source-inventory');
       files.add(source.path);
-    } else if(source.kind==='instruction') {
+    } else if(source.kind==='instruction'||source.kind==='instruction-candidate') {
       if(!exactKeys(source,['kind','path','sha256','identity'])||!instructions?.[source.path]||stable(instructions[source.path])!==stable({sha256:source.sha256,identity:source.identity})||stable(instructionPin(source.path))!==stable({sha256:source.sha256,identity:source.identity}))fail('source-changed');
+      instructionPaths.add(source.path);
     } else if(source.kind==='directory') {
       if(!exactKeys(source,['kind','role','path','identity'])||source.role!=='project'
         ||!Object.hasOwn(directories,source.path)||stable(directories[source.path])!==stable(source.identity))fail('incomplete-source-inventory');
@@ -2671,7 +2683,8 @@ function sourceInventory(input,m,body,processIdentity,directories,instructions) 
     } else fail('incomplete-source-inventory');
   }
   // Inventory the owner config sources separately from later generated MCP files.
-  if(!files.has(join(m.runtimeHome,'config.toml'))||Object.keys(directories).some(path=>!dirs.has(path))
+  if(Object.entries(instructions).some(([path,pin])=>pin!==null&&!instructionPaths.has(path))
+    ||!files.has(join(m.runtimeHome,'config.toml'))||Object.keys(directories).some(path=>!dirs.has(path))
     ||['/etc/codex/config.toml','/etc/codex/managed_config.toml','/etc/codex/requirements.toml'].some(path=>!seen.has(path)))fail('incomplete-source-inventory');
   return input;
 }

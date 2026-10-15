@@ -214,12 +214,12 @@ async function closeOwned(child) {
 }
 async function stopped(launch){await Promise.race([launch.ended,pause(12000).then(()=>{throw Error('REAP_DEADLINE');})]);
  await waitFor(()=>JSON.parse(readFileSync(launch.path)).body.status==='exited');active=undefined;}
-const negativeKinds=['config','hooks','rules','agents','replacement','symlink','stale-owner','generation','session','race'];
+const negativeKinds=['config','hooks','rules','agents','replacement','symlink','stale-owner','generation','session','race','instruction-file','instruction-symlink'];
 const cases=negativeKinds.map(kind=>({kind,app:join(root,`negative ${kind}`),directory:join(privateRoot,`case-${kind}`),profile:`live-case-${kind}`,capture:randomUUID(),session:randomUUID()}));
 for(const c of cases){mkdirSync(c.app,{mode:0o700});mkdirSync(c.directory,{mode:0o700});mkdirSync(join(c.directory,'worker'),{mode:0o700});writeFileSync(join(c.directory,'worker','config.toml'),isolatedConfig,{mode:0o600});writeFileSync(join(c.app,'AGENTS.md'),'Preserve private state.\n',{mode:0o644});}
 const networkCase={app:join(root,'devserver'),directory:join(privateRoot,'devserver-case'),profile:'live-original-network-enabled',capture:randomUUID(),session:randomUUID()};
 for(const path of [networkCase.app,networkCase.directory,join(networkCase.directory,'worker')])mkdirSync(path,{mode:0o700});
-writeFileSync(join(networkCase.directory,'worker','config.toml'),isolatedConfig,{mode:0o600});writeFileSync(join(networkCase.app,'AGENTS.md'),'Preserve private state.\n');
+writeFileSync(join(networkCase.directory,'worker','config.toml'),isolatedConfig,{mode:0o600});writeFileSync(join(networkCase.app,'AGENTS.md'),'Preserve private state.\n');writeFileSync(join(networkCase.app,'AGENTS.override.md'),'Preserve private state and serve only public app content.\n');
 networkCase.publicFile=join(networkCase.app,'public.txt');writeFileSync(networkCase.publicFile,'public-fixture');networkCase.childFile=join(networkCase.app,'native helper.mjs');copyFileSync(childFile,networkCase.childFile);
 function nativeProfile(name,appRoot,write=true,network=false){
  const metadata=[];for(let path=appRoot;;path=dirname(path)){metadata.push(join(path,'.codex'));if(path==='/')break;}
@@ -283,7 +283,7 @@ async function actualSources(value,path,id,startReply,captured){
   unexpectedEntryCount:Object.keys(declared.filesystem??{}).filter(key=>!Object.hasOwn(expectedFilesystem,key)).length,
   changedEntryCount:Object.keys(expectedFilesystem).filter(key=>declared.filesystem?.[key]!==expectedFilesystem[key]).length};
  report.sourceGuard='declared-filesystem-exact';assert.deepEqual(declared.filesystem,expectedFilesystem);assert.equal(startReply.activePermissionProfile?.extends,':read-only');
- report.sourceGuard='active-profile-and-cwd';assert.equal(startReply.activePermissionProfile?.id,value.profileId);assert.equal(startReply.cwd,value.appRoot);report.sourceGuard='instruction-source-observed';report.instructionObservation={profile:value.profileId,count:startReply.instructionSources.length,expectedObserved:startReply.instructionSources.includes(join(value.appRoot,'AGENTS.md'))};assert.ok(report.instructionObservation.expectedObserved);
+ report.sourceGuard='active-profile-and-cwd';assert.equal(startReply.activePermissionProfile?.id,value.profileId);assert.equal(startReply.cwd,value.appRoot);report.sourceGuard='instruction-source-observed';const override=existsSync(join(value.appRoot,'AGENTS.override.md'));report.instructionObservation={profile:value.profileId,count:startReply.instructionSources.length,expectedRole:override?'override':'default',expectedObserved:startReply.instructionSources.includes(join(value.appRoot,override?'AGENTS.override.md':'AGENTS.md'))};assert.ok(report.instructionObservation.expectedObserved);if(override)assert.equal(startReply.instructionSources.includes(join(value.appRoot,'AGENTS.md')),false);
  const pins=new Map(value.configFiles.map(file=>[file.path,file]));let sources=[];const presentFiles=new Set();
  for(const layer of configuration.layers){report.sourceGuard='layer-shape';assert.equal(typeof layer.version,'string');const name=layer.name;assert.ok(name&&typeof name.type==='string');
   if(name.type==='sessionFlags')continue;
@@ -297,6 +297,7 @@ async function actualSources(value,path,id,startReply,captured){
  for(const entry of before.directories)sources.push(existsSync(entry.path)?{kind:'directory',role:'project',path:entry.path,identity:folderPin(entry.path)}:{kind:'absent',role:'project',path:entry.path});
  for(const file of ['/etc/codex/config.toml','/etc/codex/managed_config.toml','/etc/codex/requirements.toml'])sources.push({kind:'absent',role:'system',path:file});
  for(const file of startReply.instructionSources)sources.push({kind:'instruction',path:file,...filePin(file)});
+ for(const [file,pin] of Object.entries(before.instructions))if(pin&&!startReply.instructionSources.includes(file))sources.push({kind:'instruction-candidate',path:file,...pin});
  const flags=Object.fromEntries(['model','modelProvider','cwd','approvalPolicy','activePermissionProfile','sandbox','reasoningEffort','runtimeWorkspaceRoots','instructionSources'].filter(key=>Object.hasOwn(startReply,key)).map(key=>[key,startReply[key]]));
  const inventory={schemaVersion:2,runtime:identity(runtime.child.pid),policyDigest:captured.policyDigest,effectiveConfigDigest:hash(stable(configuration.config)),sessionFlagsDigest:hash(stable(flags)),sources};
  const inventoryFile=join(dirname(path),`sources-${id}.json`);writeFileSync(inventoryFile,JSON.stringify(inventory),{mode:0o600});const seal=await callFor(path,['seal-runtime','--capture-id',id,'--runtime-pid',String(runtime.child.pid),'--sources',inventoryFile]);assert.equal(seal.code,0,JSON.stringify(managerResultDiagnostic(seal)));
@@ -371,13 +372,16 @@ try {
   if(c.kind==='stale-owner'){const receiptPath=join(c.directory,`runtime-${c.capture}.json`),r=JSON.parse(readFileSync(receiptPath));r.body.runtime.process.birth='0';writeFileSync(receiptPath,JSON.stringify(r),{mode:0o600});}
   if(c.kind==='generation')c.value.generation.generation++;
   if(c.kind==='session')c.value.generation.sessionId=randomUUID();
+  if(c.kind==='instruction-file')writeFileSync(join(c.app,'AGENTS.override.md'),'injected override',{mode:0o644});
+  if(c.kind==='instruction-symlink')symlinkSync(auth,join(c.app,'AGENTS.override.md'));
   let racer,raceEnded,racing=false;
   if(c.kind==='race'){racer=spawn(process.execPath,['-e',`const fs=require('node:fs'),p=${JSON.stringify(metadata)};let i=0;const tick=()=>{fs.renameSync(p,p+'-race-'+i);fs.mkdirSync(p,{mode:0o755});if(i++===0)process.stdout.write('racing\\n');if(i<64)setTimeout(tick,16);};tick();`],{stdio:['ignore','pipe','ignore'],env:controllerEnv});raceEnded=new Promise(done=>racer.once('close',done));racer.stdout.on('data',chunk=>{if(chunk.toString().includes('racing'))racing=true;});await waitFor(()=>racing);assert.equal(racer.exitCode,null);}
-  report.negativeCurrent.phase='mutation-verification';writeFileSync(c.manifest,JSON.stringify(c.value),{mode:0o600});const result=await callFor(c.manifest,['verify']);if(racer){await raceEnded;assert.equal(racer.exitCode,0);}assert.equal(result.code,1);const reason=JSON.parse(result.stdout).reason;report.negativeCurrent.reason=reason;assert.ok(['metadata-content-present','metadata-changed','symlink-path','tampered-receipt','revoked-runtime-provenance'].includes(reason),reason);report.negative[c.kind]={passed:true,reason,...(racer?{concurrentMutation:true}:{} )};
+  report.negativeCurrent.phase='mutation-verification';writeFileSync(c.manifest,JSON.stringify(c.value),{mode:0o600});const result=await callFor(c.manifest,['verify']);if(racer){await raceEnded;assert.equal(racer.exitCode,0);}assert.equal(result.code,1);const reason=JSON.parse(result.stdout).reason;report.negativeCurrent.reason=reason;assert.ok((c.kind.startsWith('instruction-')?['source-changed']:['metadata-content-present','metadata-changed','symlink-path','tampered-receipt','revoked-runtime-provenance']).includes(reason),reason);report.negative[c.kind]={passed:true,reason,...(racer?{concurrentMutation:true}:{} )};
  }
  report.checks.nativeBornInjectionReplacementLifetimeSessionMatrix=true;
  report.stage='original-network-enabled-devserver';
  const enabledStartup=await startupAt(networkCase.value);const enabledSources=await actualSources(networkCase.value,networkCase.manifest,networkCase.capture,enabledStartup,networkCase.captured);
+ assert.ok(enabledStartup.instructionSources.includes(join(networkCase.app,'AGENTS.override.md')));assert.equal(enabledStartup.instructionSources.includes(join(networkCase.app,'AGENTS.md')),false);report.checks.actualNativeInstructionCandidatePrecedence=true;
  const enabled=await launch('hold',{app:networkCase.app,m:networkCase.value,manifest:networkCase.manifest,childFile:networkCase.childFile,publicFile:networkCase.publicFile});await nativeMessages(enabled);await waitFor(()=>enabled.frames().some(frame=>frame.kind==='devserver-ready'));
  assert.ok(enabled.messages().every(frame=>Object.values(frame.checks).every(Boolean)));assert.equal((await callFor(networkCase.manifest,['verify-process','--launch-id',enabled.id])).code,0);
  publicSocket=enabled.publicSocket;

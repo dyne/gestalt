@@ -28,9 +28,15 @@ export async function quiesceNative(request,knownThreads){
   const {thread}=await request('thread/read',{threadId,includeTurns:true});
   assert.equal(thread.id,threadId);assert.ok(['idle','notLoaded'].includes(thread.status?.type));
   assert.ok(Array.isArray(thread.turns));assert.equal(thread.turns.some(turn=>turn.status==='inProgress'),false);
-  const terminals=await request('thread/backgroundTerminals/list',{threadId,limit:64});
-  assert.deepEqual(terminals.data,[]);assert.equal(terminals.nextCursor,null);
-  observed.push({threadId,status:thread.status.type,turns:thread.turns.length,terminals:0});
+  const isLoaded=loaded.data.includes(threadId);
+  assert.equal(isLoaded,thread.status.type==='idle');
+  // Native's terminal RPC requires a loaded thread. For a departed child,
+  // require BOTH an actual notLoaded read and absence in its loaded registry.
+  if(isLoaded){
+   const terminals=await request('thread/backgroundTerminals/list',{threadId,limit:64});
+   assert.deepEqual(terminals.data,[]);assert.equal(terminals.nextCursor,null);
+  }
+  observed.push({threadId,status:thread.status.type,turns:thread.turns.length,terminals:isLoaded?0:'unloaded'});
  }
  for(const threadId of threads.toReversed()){
   const result=await request('thread/unsubscribe',{threadId});

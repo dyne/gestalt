@@ -3278,7 +3278,7 @@ import {isAbsolute,dirname,join,relative,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';\n`;
     const helpers={fail,digest,stable,inside,exactKeys,launchIdValid};
     const source=imports+`const VERSION=${VERSION};\nconst managerSource=${JSON.stringify(managerSource)};\n`+Object.entries(helpers).map(([name,fn])=>`const ${name}=${fn.toString()};`).join('\n')
-      +'\n'+[canonical,trusted,readPrivate,identity,host,grantPath,ownedNativeMetadata,processParent,directoryPin,clockObservation,metadataBirth,metadataPaths,electionAuthority,admissionPaths,keyScope,provenanceBasis,instructionPin,sourceInventory,runtimeIdentity,verifyProvenance,contract,receipt,writeReceipt,authenticated,currentPolicy,supervise].map(fn=>fn.toString()).join('\n')
+      +'\n'+[canonical,trusted,readPrivate,identity,host,grantPath,ownedNativeMetadata,processParent,directoryPin,clockObservation,metadataBirth,metadataPaths,electionAuthority,admissionPaths,keyScope,provenanceBasis,instructionPin,sourceInventory,runtimeIdentity,observedIntent,narrowerPolicy,originalGone,drainedGeneration,preservedMetadata,renewalParent,renewalRuntime,verifyProvenance,contract,receipt,writeReceipt,authenticated,currentPolicy,supervise].map(fn=>fn.toString()).join('\n')
       +`\ntry { await supervise(${JSON.stringify(manifestPath)},${JSON.stringify(commandId)},${JSON.stringify(id)},${JSON.stringify(parent)}); }
 catch { console.error(JSON.stringify({schemaVersion:1,available:false,reason:'launch-failed'}));process.exitCode=1; }`;
     child=spawn(process.execPath,['--input-type=module','-'],{cwd:value.root,env:value.body.launch.env,stdio:['pipe','inherit','inherit','pipe','pipe']});

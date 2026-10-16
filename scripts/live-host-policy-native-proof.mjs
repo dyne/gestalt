@@ -123,7 +123,8 @@ const rpcFailureDiagnostic=(method,error,roles={})=>{
   sourceLocations:[...text.matchAll(/([a-z_-]+\.rs):(\d+):(\d+)/g)].slice(0,3).map(match=>match.slice(1).join(':'))};
 };
 let runtime,caddy,unowned,active,extraFD,elected,providerFailure,thread,currentRpcMethod,controllerAccepted=0;
-const startedThreads=new Set();
+const startedThreads=new Set();let nativeServerRequests=0;
+function trackPrivateRequests(child){let buffer="";child.stdout.on("data",chunk=>{buffer+=chunk.toString();if(Buffer.byteLength(buffer)>1024*1024){buffer="";report.nativeWireInvalid=true;return;}let newline;while((newline=buffer.indexOf("\n"))>=0){const line=buffer.slice(0,newline);buffer=buffer.slice(newline+1);try{const packet=JSON.parse(line);if(Object.hasOwn(packet,"id")&&typeof packet.method==="string")nativeServerRequests++;}catch{report.nativeWireInvalid=true;}}});}
 const server=createServer(peer=>{controllerAccepted++;peer.end();});
 async function waitFor(fn,budget=12000){const end=Date.now()+budget;while(Date.now()<end){try{const result=fn();if(result)return result;}catch{}await pause(50);}throw Error('PROOF_DEADLINE');}
 function managerCall(args){const result=spawn('bash',[manager,...args],{cwd:app,env:managerEnv,stdio:['ignore','pipe','pipe']});
@@ -301,7 +302,8 @@ async function actualSources(value,path,id,startReply,captured,{inventoryOnly=fa
  for(const file of startReply.instructionSources)sources.push({kind:'instruction',path:file,...filePin(file)});
  for(const [file,pin] of Object.entries(before.instructions))if(pin&&!startReply.instructionSources.includes(file))sources.push({kind:'instruction-candidate',path:file,...pin});
  const flags=Object.fromEntries(['model','modelProvider','cwd','approvalPolicy','activePermissionProfile','sandbox','reasoningEffort','runtimeWorkspaceRoots','instructionSources'].filter(key=>Object.hasOwn(startReply,key)).map(key=>[key,startReply[key]]));
- const inventory={schemaVersion:2,runtime:identity(runtime.child.pid),policyDigest:captured.policyDigest,effectiveConfigDigest:hash(stable(configuration.config)),sessionFlagsDigest:hash(stable(flags)),sources,observation:controlledObservation(configuration,startReply,await rpc('account/read',{refreshToken:false}))};
+ const account=await rpc('account/read',{refreshToken:false});const observation=controlledObservation(configuration,startReply,account);report.accountObservations??=[];report.accountObservations.push({captureId:id,generation:value.generation.generation,providerId:startReply.modelProvider,accountNull:account.account===null,requiresOpenaiAuth:account.requiresOpenaiAuth,accountDigest:observation.accountDigest});
+ const inventory={schemaVersion:2,runtime:identity(runtime.child.pid),policyDigest:captured.policyDigest,effectiveConfigDigest:hash(stable(configuration.config)),sessionFlagsDigest:hash(stable(flags)),sources,observation};
  const inventoryFile=join(dirname(path),`sources-${id}.json`);writeFileSync(inventoryFile,JSON.stringify(inventory),{mode:0o600});if(inventoryOnly)return {configuration,inventory,startReply,inventoryFile};const seal=await callFor(path,['seal-runtime','--capture-id',id,'--runtime-pid',String(runtime.child.pid),'--sources',inventoryFile]);assert.equal(seal.code,0,JSON.stringify(managerResultDiagnostic(seal)));
  value.runtimeProvenance={captureId:id,effectiveConfigDigest:inventory.effectiveConfigDigest,sessionFlagsDigest:inventory.sessionFlagsDigest};writeFileSync(path,JSON.stringify(value),{mode:0o600});
  return {configuration,inventory,startReply,inventoryDigest:hash(stable(inventory))};
@@ -352,7 +354,7 @@ async function proveRenewal(original){
  assert.equal((await callFor(original.manifest,['revoke-runtime','--capture-id',original.id])).code,0);await stopped(held);await waitFor(()=>descendants.every(dead)&&ownedPids(childFile).every(dead));await oldRefused(original);
  report.renewal.oldHelpersDrained=descendants.length===3;
  const birth=identity(runtime.child.pid);report.stage='renewal-actual-quiescence';
- report.renewal.quiescence=await quiesceNative(rpc,new Set([...startedThreads,...modelThreads]));assert.deepEqual(identity(runtime.child.pid),birth);
+ assert.equal(nativeServerRequests,0);assert.equal(report.nativeWireInvalid,undefined);report.renewal.quiescence=await quiesceNative(rpc,new Set([...startedThreads,...modelThreads]));assert.deepEqual(identity(runtime.child.pid),birth);
  // A rejected attempt publishes no generation. These are actual signed Native
  // lineage inputs, not simulated process/source receipts.
  const invalid=nextRenewal(original);const pristine=readFileSync(invalid.manifest);
@@ -383,7 +385,7 @@ async function proveRenewal(original){
  await quiesceNative(rpc,[survivor.threadId]);await closeOwned(runtime.child);assert.ok(dead(birth));report.renewal.replacedOwnerActuallyExited=true;
  report.stage='renewal-managed-replacement';const replacement=nextRenewal(survivor,{narrow:true});const replacementCapture=await renewCapture(replacement,survivor,'replacement');assert.equal(replacementCapture.code,0,JSON.stringify(managerResultDiagnostic(replacementCapture)));
  writeFileSync(join(bin,'codex'),`#!/bin/sh\n[ "$#" = 2 ] && [ "$1" = app-server ] && [ "$2" = --stdio ] || exit 64\nexec ${quote(manager)} cli -- --live-policy-owning-runtime --manifest ${quote(replacement.manifest)} --capture-id ${quote(replacement.id)}\n`,{mode:0o700});
- const {launchCodexAppServer}=await import(pathToFileURL(mobileModule).href);runtime=launchCodexAppServer({profile:'default',cwd:app,environment:controllerEnv});runtime.child.stderr.on('data',()=>{});
+ const {launchCodexAppServer}=await import(pathToFileURL(mobileModule).href);runtime=launchCodexAppServer({profile:'default',cwd:app,environment:controllerEnv});runtime.child.stderr.on('data',()=>{});trackPrivateRequests(runtime.child);
  await rpc('initialize',{clientInfo:{name:'l9_actual_provenance_proof',version:'2'},capabilities:{experimentalApi:true}});runtime.child.stdin.write(JSON.stringify({method:'initialized',params:{}})+'\n');
  const replacementBirth=identity(runtime.child.pid);assert.notDeepEqual(replacementBirth,birth);report.appServer=replacementBirth;
  const resumed=await resumeRenewal(replacement);const replacementObserved=await actualSources(replacement.value,replacement.manifest,replacement.id,resumed,JSON.parse(replacementCapture.stdout));
@@ -408,7 +410,7 @@ try {
  report.stage='absence-before-owned-birth';const captured=await captureFor(m,manifest,captureId);for(const c of cases){c.manifest=join(c.directory,'manifest.json');c.value=manifestFor(c.app,c.directory,c.profile,c.session);c.captured=await captureFor(c.value,c.manifest,c.capture);}
  networkCase.manifest=join(networkCase.directory,'manifest.json');networkCase.value=manifestFor(networkCase.app,networkCase.directory,networkCase.profile,networkCase.session,true);networkCase.captured=await captureFor(networkCase.value,networkCase.manifest,networkCase.capture);
  report.checks.absentBeforeOriginalBirth=true;
- const {launchCodexAppServer}=await import(pathToFileURL(mobileModule).href);runtime=launchCodexAppServer({profile:'default',cwd:app,environment:controllerEnv});runtime.child.stderr.on('data',()=>{});
+ const {launchCodexAppServer}=await import(pathToFileURL(mobileModule).href);runtime=launchCodexAppServer({profile:'default',cwd:app,environment:controllerEnv});runtime.child.stderr.on('data',()=>{});trackPrivateRequests(runtime.child);
  // The accepted client intentionally truncates error messages to 256 bytes.
  // Classify the original error frame before that boundary; retain no frame/text.
  let wireBuffer='';runtime.child.stdout.on('data',chunk=>{wireBuffer+=chunk.toString();if(Buffer.byteLength(wireBuffer)>1024*1024){wireBuffer='';report.wireDiagnosticOverflow=true;return;}

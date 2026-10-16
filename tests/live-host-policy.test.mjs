@@ -952,3 +952,19 @@ renewalCheck('kernel transition guard releases after verifier death without dele
  const crashed=spawnSync(process.execPath,['--input-type=module','-','renew-runtime','--manifest',n.manifest,'--capture-id',n.id,'--previous-manifest',r.f.manifest,'--previous-capture-id',r.f.id,'--mode','survivor'],{input:code,encoding:'utf8',env:{...process.env,NODE_OPTIONS:''}});assert.equal(crashed.status,88);assert.equal(crashed.stdout,'');
  let result;for(let attempt=0;attempt<10;attempt++){result=n.renew();if(result.reason!=='admission-transition-busy')break;await pause(25);}assert.equal(result.status,0,JSON.stringify(result));assert.equal(n.seal().status,0);assert.equal(n.run('prepare').status,0);
 });
+for(const mode of ['original','survivor'])renewalCheck('actual serialized supervisor accepts observed '+mode+' and revokes its child',async r=>{
+ // Non-Native command dispatcher; the actual process/closure/lineage checks run.
+ r.f.m.commands={ordinary:{executable:r.f.m.binary.path,sha256:r.f.m.binary.sha256,args:['-e',running()],timeoutMs:30000}};
+ assert.equal(r.f.run('prepare').status,0);let manifest=r.f.manifest;
+ if(mode==='survivor'){assert.equal(r.revoke().status,0);const next=r.next();assert.equal(next.renew().status,0);assert.equal(next.seal().status,0);assert.equal(next.run('prepare').status,0);manifest=next.manifest;}
+ writeFileSync(join(dirname(manifest),'sandbox'),`const{spawn}=require('node:child_process');const a=process.argv.slice(2),i=a.indexOf('--');const c=spawn(a[i+1],a.slice(i+2),{stdio:'inherit'});c.on('exit',code=>process.exit(code??1));`,{mode:0o600});
+ const id=randomUUID(),helper=spawn(process.execPath,['--input-type=module','-','run','--manifest',manifest,'--command','ordinary','--launch-id',id],{stdio:['pipe','pipe','pipe','pipe']});
+ let output='',errors='';helper.stdout.on('data',chunk=>output+=chunk);helper.stderr.on('data',chunk=>errors+=chunk);const ended=new Promise(done=>helper.once('close',done));helper.stdin.end(r.f.program);helper.stdio[3].end();helper.once('exit',()=>helper.stdio[3].destroy());
+ try{
+  await Promise.race([waitFor(()=>output.includes('ready')),ended.then(()=>assert.fail('supervisor exited before admitted command: '+errors))]);
+  const receipt=JSON.parse(readFileSync(join(dirname(manifest),`process-${id}.json`))).body;assert.equal(receipt.kind,'process-launch');assert.ok(receipt.policy.provenance.inventory.observation);
+  if(mode==='survivor')assert.ok(receipt.policy.provenance.renewalDigest);
+  assert.equal(r.invoke(manifest,'stop',['--launch-id',id]).status,0);await ended;
+  assert.equal(errors,'');assert.equal(JSON.parse(readFileSync(join(dirname(manifest),`process-${id}.json`))).body.status,'exited');
+ }finally{if(helper.exitCode===null&&helper.signalCode===null){helper.kill('SIGKILL');await ended;}}
+});

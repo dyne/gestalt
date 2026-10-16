@@ -829,6 +829,17 @@ appropriate, and positively settle all work before requesting renewal. Manager
 cannot infer Native internal turn quiescence from a PID. A controller readiness
 callback or cached declaration cannot replace that actual lifecycle operation.
 
+For pinned Native, `thread/unsubscribe` removes subscriptions; it does not
+destroy an idle cached thread. An explicit changed permission override on an
+idle unsubscribed directly owned thread causes `thread/resume` to await cold
+session shutdown before rebuilding. The producer must inspect the actual
+returned flags; ignored overrides do not authorize admission. The signed
+code-mode host is a shared trusted process: shutting down its old remote
+session need not exit that process. Actual model/tool denial under the fresh
+profile distinguishes renewed confinement from a subscription acknowledgment.
+Replacing the owning Native process additionally requires actual exit of its
+old owned process descendants.
+
 Initial sealing may include this optional typed `observation` alongside the
 existing inventory fields; it is mandatory in both the original and fresh seal
 for renewal:

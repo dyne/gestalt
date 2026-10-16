@@ -231,7 +231,7 @@ function nativeProfile(name,appRoot,write=true,network=false){
 function nativeState(appRoot,write=true,network=false){const metadata=[];for(let path=appRoot;;path=dirname(path)){metadata.push(join(path,'.codex'));if(path==='/')break;}
  return {permissionProfile:{type:'managed',file_system:{type:'restricted',entries:[{path:{type:'special',value:{kind:'root'}},access:'read'},{path:{type:'path',path:appRoot},access:write?'write':'read'},{path:{type:'path',path:privateRoot},access:'deny'},{path:{type:'path',path:'/proc'},access:'deny'},{path:{type:'path',path:daemon},access:'deny'},...(appRoot===app?[{path:{type:'path',path:readOnlyFile},access:'read'}]:[]),...metadata.map(path=>({path:{type:'path',path},access:'deny'}))]},network:network?'enabled':'restricted'},sandboxCwd:pathToFileURL(appRoot).href,useLegacyLandlock:false};}
 let publicSocket,publicIngress;
-let roleSteps=new Map(),modelThreads=new Set(),primaryThread,modelPhase='broad',providerRequests=0,providerStage='request',providerShape;
+let roleSteps=new Map(),modelThreads=new Set(),primaryThread,modelPhase='broad',renewalModelStep=0,providerRequests=0,providerStage='request',providerShape;
 const modelFinal=id=>({type:'response.output_item.done',item:{type:'message',role:'assistant',phase:'final_answer',id,content:[{type:'output_text',text:'Controlled confinement probe completed.'}]}});
 const flatten=(tools,namespace)=>tools.flatMap(tool=>tool.type==='namespace'?flatten(tool.tools,tool.name):[{...tool,namespace}]);
 const modelToolResults=body=>(body.input??[]).filter(item=>['custom_tool_call_output','function_call_output'].includes(item.type));
@@ -251,6 +251,12 @@ async function modelEvent(body){
  const role=tid===primaryThread?'root':tid,step=roleSteps.get(role)??0;roleSteps.set(role,step+1);
  const tools=flatten([...(body.tools??[]),...(body.input??[]).filter(x=>x.type==='additional_tools').flatMap(x=>x.tools??[])]);
  providerShape.tools=Object.fromEntries(['exec_command','shell_command','apply_patch','spawn_agent'].map(name=>[name,tools.some(tool=>tool.name===name)]));providerShape.step=step;providerShape.role=role==='root'?'root':'descendant';providerStage='model-step';
+ if(modelPhase==='renewal-narrow'){
+  assert.equal(role,'root');const current=renewalModelStep++;
+  if(current===0)return modelCall(tools,'renewed-narrow-command','exec_command',{cmd:`/usr/bin/python3 -c ${quote(`from pathlib import Path\nassert Path(${JSON.stringify(publicFile)}).read_text()=='public-fixture'\ntry:Path(${JSON.stringify(join(app,'renewed-model-forbidden'))}).write_text('forbidden');raise Exception('WRITE_BREACH')\nexcept OSError as e:assert e.errno in (1,13,30)\ntry:Path(${JSON.stringify(auth)}).read_text();raise Exception('PRIVATE_BREACH')\nexcept (PermissionError,FileNotFoundError):pass\nprint('renewed-model-tool-write-denied')`)}`,workdir:app,yield_time_ms:1000,max_output_tokens:1000});
+  assert.equal(current,1);const result=modelToolResults(body).at(-1);assert.ok(!report.codeModeModelTools||(Array.isArray(result?.output)&&result.output[0]?.text?.startsWith('Script completed\n')));assert.ok(JSON.stringify(result).includes('renewed-model-tool-write-denied'));return modelFinal('renewed-narrow-final');
+ }
+
  if(step===0)return modelCall(tools,`${role}-0`,'exec_command',{cmd:`/usr/bin/python3 -c ${quote(modelProbe(role))}`,workdir:app,yield_time_ms:1000,max_output_tokens:1000});
  if(step===1){const result=modelToolResults(body).at(-1);assert.ok(!report.codeModeModelTools||(Array.isArray(result?.output)&&result.output[0]?.text?.startsWith('Script completed\n')));assert.ok(JSON.stringify(result).includes('native-private-and-metadata-denied'));return modelCall(tools,`${role}-1`,'apply_patch',`*** Begin Patch\n*** Add File: ${join(app,`model-${role.replace(/[^a-z0-9-]/gi,'')}.txt`)}\n+permitted-model-file-tool\n*** End Patch`,true);}
  if(step===2){const output=JSON.stringify(body.input);report.modelFileEffects??=[];report.modelFileEffects.push({role:role==='root'?'root':'descendant',permittedFile:existsSync(join(app,`model-${role.replace(/[^a-z0-9-]/gi,'')}.txt`)),patchSuccess:output.includes('Success. Updated the following files:'),patchInvalid:output.includes('Invalid patch'),patchDenied:output.includes('Permission denied'),patchVerificationFailed:output.includes('patch verification failed'),codeModeError:output.includes('SyntaxError')||output.includes('TypeError'),toolResultTemplates:(body.input??[]).filter(item=>['custom_tool_call_output','function_call_output'].includes(item.type)).slice(-1).map(item=>JSON.stringify(item.output).replace(/\/[^\s"\\]+/g,'<path>').replace(/[a-f0-9]{16,}/gi,'<token>').replace(/private-[a-z-]+fixture/g,'<fixture>').slice(0,600))});return modelCall(tools,`${role}-2`,'apply_patch',`*** Begin Patch\n*** Add File: ${join(privateRoot,`forbidden-${role.replace(/[^a-z0-9-]/gi,'')}.txt`)}\n+forbidden\n*** End Patch`,true);}
@@ -345,6 +351,11 @@ async function startupAt(value,{holdMetadata=false}={}){let sampling=false;const
  }
  return reply;}
 
+async function renewedModelProbe(threadId){
+ modelPhase='renewal-narrow';let completed=false;const off=runtime.rpc.onNotification(message=>{if(message.method==='turn/completed'&&message.params?.threadId===threadId)completed=true;});
+ try{await rpc('turn/start',{threadId,input:[{type:'text',text:'Verify the renewed narrowed policy using the controlled tool probe.'}]});await waitFor(()=>completed||providerFailure,60000);assert.equal(providerFailure,undefined);assert.equal(renewalModelStep,2);}
+ finally{off();modelPhase='broad';}
+}
 let renewedFixture;
 function nextRenewal(previous,{narrow=false,generation=previous.value.generation.generation+1}={}){
  const directory=join(privateRoot,`renewal-${randomUUID().slice(0,8)}`);mkdirSync(directory,{mode:0o700});
@@ -367,7 +378,7 @@ async function resumeRenewal(next){
 }
 async function proveRenewal(original){
  report.renewal={producerBoundary:'Private Native RPC observation; Manager independently verifies signed lineage and helper drainage.',negative:{},generations:[]};
- report.stage='renewal-revoke-and-drain';const held=await launch();await nativeMessages(held);const descendants=held.messages().map(frame=>identity(frame.pid));
+ report.stage='renewal-revoke-and-drain';const held=await launch();await nativeMessages(held);const descendants=ownedPids(childFile).filter(record=>{try{return readlinkSync(`/proc/${record.pid}/exe`)===admittedNode;}catch{return false;}});assert.equal(descendants.length,3);
  assert.equal((await callFor(original.manifest,['revoke-runtime','--capture-id',original.id])).code,0);await stopped(held);await waitFor(()=>descendants.every(dead)&&ownedPids(childFile).every(dead));await oldRefused(original);
  report.renewal.oldHelpersDrained=descendants.length===3;
  const birth=identity(runtime.child.pid);report.stage='renewal-actual-quiescence';
@@ -394,7 +405,7 @@ async function proveRenewal(original){
   assert.equal((await callFor(attempt.manifest,['verify'])).code,1);assert.equal((await callFor(attempt.manifest,['revoke-runtime','--capture-id',attempt.id])).code,0);await quiesceNative(rpc,[original.threadId]);generation++;
  }
  report.stage='renewal-original-survivor';const survivor=nextRenewal(original,{generation,narrow:true});const capture=await renewCapture(survivor,original,'survivor');assert.equal(capture.code,0,JSON.stringify(managerResultDiagnostic(capture)));
- const reply=await resumeRenewal(survivor);const observed=await actualSources(survivor.value,survivor.manifest,survivor.id,reply,JSON.parse(capture.stdout));assert.deepEqual(identity(runtime.child.pid),birth);await waitFor(()=>originalModelWorkers.every(dead));report.renewal.originalNativeWorkersDrained={observed:originalModelWorkers.length,allExited:true};
+ const reply=await resumeRenewal(survivor);const observed=await actualSources(survivor.value,survivor.manifest,survivor.id,reply,JSON.parse(capture.stdout));assert.deepEqual(identity(runtime.child.pid),birth);await renewedModelProbe(survivor.threadId);report.renewal.originalNativeSessionsDrained={coldReconfigureObserved:true,newModelToolWriteDenied:true,sharedHostProcessMayRemain:true};
  assert.equal((await callFor(survivor.manifest,['prepare'])).code,0);await oldRefused(original);
  const stale=nextRenewal(original,{generation:survivor.value.generation.generation+1});const staleResult=await renewCapture(stale,original,'survivor');assert.equal(staleResult.code,1);report.renewal.negative['sealed-overlap']={reason:JSON.parse(staleResult.stdout).reason};
  const survivorWorker=await launch('hold',{app,m:survivor.value,manifest:survivor.manifest,childFile,publicFile});await nativeMessages(survivorWorker);assert.ok(survivorWorker.messages().every(frame=>Object.values(frame.checks).every(Boolean)));
@@ -404,7 +415,7 @@ async function proveRenewal(original){
  const contenders=[nextRenewal(survivor),nextRenewal(survivor)];const published=await Promise.all(contenders.map(value=>renewCapture(value,survivor,'survivor')));assert.equal(published.filter(result=>result.code===0).length,1);assert.equal(published.filter(result=>result.code===1).length,1);
  const winner=contenders[published.findIndex(result=>result.code===0)];assert.equal((await callFor(winner.manifest,['verify'])).code,1);assert.equal((await callFor(winner.manifest,['revoke-runtime','--capture-id',winner.id])).code,0);
  report.renewal.concurrentPublication={oneWinner:true,unsealedReservationDenied:true,revokedForFreshRetry:true,loserReason:JSON.parse(published.find(result=>result.code===1).stdout).reason};
- await closeOwned(runtime.child);assert.ok(dead(birth));report.renewal.replacedOwnerActuallyExited=true;
+ const sharedHosts=[...new Map([...originalModelWorkers,...nativeCodeModeWorkers()].map(record=>[`${record.pid}:${record.birth}`,record])).values()];await closeOwned(runtime.child);assert.ok(dead(birth));await waitFor(()=>sharedHosts.every(dead));report.renewal.replacedOwnerActuallyExited=true;report.renewal.replacedSharedHosts={births:sharedHosts,allExited:true};
  report.stage='renewal-managed-replacement';const replacement=nextRenewal(survivor,{narrow:true,generation:survivor.value.generation.generation+2});const replacementCapture=await renewCapture(replacement,survivor,'replacement');assert.equal(replacementCapture.code,0,JSON.stringify(managerResultDiagnostic(replacementCapture)));
  writeFileSync(join(bin,'codex'),`#!/bin/sh\n[ "$#" = 2 ] && [ "$1" = app-server ] && [ "$2" = --stdio ] || exit 64\nexec ${quote(manager)} cli -- --live-policy-owning-runtime --manifest ${quote(replacement.manifest)} --capture-id ${quote(replacement.id)}\n`,{mode:0o700});
  const {launchCodexAppServer}=await import(pathToFileURL(mobileModule).href);runtime=launchCodexAppServer({profile:'default',cwd:app,environment:controllerEnv});runtime.child.stderr.on('data',()=>{});trackPrivateRequests(runtime.child);

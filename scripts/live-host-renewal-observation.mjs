@@ -43,6 +43,9 @@ export async function quiesceNative(request,knownThreads){
   assert.ok(['unsubscribed','notSubscribed','notLoaded'].includes(result.status));
  }
  const after=await request('thread/loaded/list',{limit:64});
- assert.deepEqual(after.data,[]);assert.equal(after.nextCursor,null);
- return {observed,unloaded:true};
+ assert.ok(Array.isArray(after.data));assert.equal(after.nextCursor,null);
+ assert.equal(after.data.some(id=>!threads.includes(id)),false);
+ // Unsubscribe removes observers, not the cache. Native's explicit resume
+ // override must subsequently prove cold reconfiguration in its returned flags.
+ return {observed,unsubscribed:true,cachedThreads:after.data.length};
 }

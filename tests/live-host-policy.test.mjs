@@ -20,10 +20,10 @@ test('renewal Native observation derives account absence only from explicit supp
 });
 test('renewal Native quiescence checks turns, terminals and unload rather than alive PID',async()=>{
  const calls=[];const request=async(method,params)=>{calls.push(method);if(method==='thread/loaded/list')return {data:calls.filter(v=>v==='thread/loaded/list').length===1?['root','child']:[],nextCursor:null};if(method==='thread/read')return {thread:{id:params.threadId,status:{type:'idle'},turns:[]}};if(method==='thread/backgroundTerminals/list')return {data:[],nextCursor:null};if(method==='thread/unsubscribe')return {status:'unsubscribed'};throw Error('unknown');};
- const result=await quiesceNative(request,['root']);assert.equal(result.observed.length,2);assert.equal(result.unloaded,true);assert.equal(calls.filter(v=>v==='thread/read').length,2);assert.equal(calls.filter(v=>v==='thread/backgroundTerminals/list').length,2);
+ const result=await quiesceNative(request,['root']);assert.equal(result.observed.length,2);assert.equal(result.unsubscribed,true);assert.equal(calls.filter(v=>v==='thread/read').length,2);assert.equal(calls.filter(v=>v==='thread/backgroundTerminals/list').length,2);
 });
-for(const failure of ['active-status','active-turn','terminal','pagination','unknown-status','unload-ignored'])test('renewal Native quiescence refuses '+failure,async()=>{
- const request=async(method,params)=>{if(method==='thread/loaded/list')return {data:['root'],nextCursor:failure==='pagination'?'unobserved':null};if(method==='thread/read')return {thread:{id:params.threadId,status:{type:failure==='active-status'?'active':failure==='unknown-status'?'unknown':'idle'},turns:failure==='active-turn'?[{status:'inProgress'}]:[]}};if(method==='thread/backgroundTerminals/list')return {data:failure==='terminal'?[{}]:[],nextCursor:null};if(method==='thread/unsubscribe')return {status:'unsubscribed'};};
+for(const failure of ['active-status','active-turn','terminal','pagination','unknown-status','subscription-unknown'])test('renewal Native quiescence refuses '+failure,async()=>{
+ const request=async(method,params)=>{if(method==='thread/loaded/list')return {data:['root'],nextCursor:failure==='pagination'?'unobserved':null};if(method==='thread/read')return {thread:{id:params.threadId,status:{type:failure==='active-status'?'active':failure==='unknown-status'?'unknown':'idle'},turns:failure==='active-turn'?[{status:'inProgress'}]:[]}};if(method==='thread/backgroundTerminals/list')return {data:failure==='terminal'?[{}]:[],nextCursor:null};if(method==='thread/unsubscribe')return {status:failure==='subscription-unknown'?'unknown':'unsubscribed'};};
  await assert.rejects(quiesceNative(request,['root']));
 });
 function identity(pid) {
@@ -972,4 +972,19 @@ test('renewal Native departed child requires notLoaded plus absence in actual lo
  const calls=[];const request=async(method,params)=>{calls.push(method);if(method==='thread/loaded/list')return {data:[],nextCursor:null};if(method==='thread/read')return {thread:{id:params.threadId,status:{type:'notLoaded'},turns:[]}};if(method==='thread/unsubscribe')return {status:'notLoaded'};throw Error('terminal observation is unsupported for unloaded Native threads');};
  const result=await quiesceNative(request,['departed-child']);assert.equal(result.observed[0].terminals,'unloaded');assert.equal(calls.includes('thread/backgroundTerminals/list'),false);
  await assert.rejects(quiesceNative(async(method,params)=>method==='thread/loaded/list'?{data:['departed-child'],nextCursor:null}:request(method,params),['departed-child']));
+});
+renewalCheck('failed intent reservations require explicit revoke before fresh survivor retry',async r=>{
+ assert.equal(r.revoke().status,0);let generation=2;
+ for(const field of ['account','modelProvider','model','reasoningEffort']){
+  const next=r.next();next.value.generation.generation=generation;assert.equal(next.renew().status,0);
+  const input=next.inventory();if(field==='account')input.observation.accountDigest=hash('changed-account');else input.observation.sessionFlags[field]='changed';input.sessionFlagsDigest=hash(renewalStable(input.observation.sessionFlags));
+  assert.equal(next.seal(input).reason,'renewal-intent-changed');assert.equal(next.run('verify').status,1);
+  const premature=r.next();premature.value.generation.generation=generation+1;assert.equal(premature.renew().reason,'renewal-not-revoked');
+  assert.equal(next.run('revoke-runtime',['--capture-id',next.id]).status,0);assert.equal(r.f.run('verify').reason,'revoked-runtime-provenance');generation++;
+ }
+ const valid=r.next();valid.value.generation.generation=generation;assert.equal(valid.renew().status,0);assert.equal(valid.seal().status,0);assert.equal(valid.run('prepare').status,0);assert.equal(valid.run('verify').status,0);
+});
+test('renewal Native unsubscribe preserves a measured idle cache without claiming worker shutdown',async()=>{
+ const request=async(method,params)=>{if(method==='thread/loaded/list')return {data:['root'],nextCursor:null};if(method==='thread/read')return {thread:{id:params.threadId,status:{type:'idle'},turns:[]}};if(method==='thread/backgroundTerminals/list')return {data:[],nextCursor:null};if(method==='thread/unsubscribe')return {status:'unsubscribed'};};
+ const result=await quiesceNative(request,['root']);assert.equal(result.unsubscribed,true);assert.equal(result.cachedThreads,1);assert.equal(Object.hasOwn(result,'unloaded'),false);
 });

@@ -408,7 +408,7 @@ test('actual Node probe flow emits bounded stages and completes filesystem/socke
   const publicFile=join(f.app,'public.txt'),readOnlyFile=join(f.app,'read-only.txt'),privateFile=join(f.privateRoot,'auth');
   writeFileSync(publicFile,'public-fixture');writeFileSync(readOnlyFile,'read-only fixture');chmodSync(readOnlyFile,0o400);writeFileSync(privateFile,'fixture-secret');chmodSync(privateFile,0);
   const daemon=join(f.root,'masked daemon');mkdirSync(daemon,{mode:0});
-  const info=statSync(privateFile),input={mode:'hold',publicFile,readOnlyFile,writeFile:join(f.app,'written'),privateFiles:[privateFile],aliases:[join(f.root,'absent proc alias')],controllerSocket:join(f.root,'absent controller socket'),caddySocket:join(f.root,'absent caddy socket'),daemon,fdIdentity:{dev:info.dev,ino:info.ino}};
+  const info=statSync(privateFile),input={mode:'hold',expectedWrite:true,publicFile,readOnlyFile,writeFile:join(f.app,'written'),privateFiles:[privateFile],aliases:[join(f.root,'absent proc alias')],controllerSocket:join(f.root,'absent controller socket'),caddySocket:join(f.root,'absent caddy socket'),daemon,fdIdentity:{dev:info.dev,ino:info.ino}};
   child=spawn(process.execPath,[script,JSON.stringify(input)],{stdio:['ignore','pipe','pipe'],env:{PATH:'/usr/bin:/bin',HOME:f.privateRoot,TMPDIR:'/tmp'}});
   let output='',stderr='';child.stdout.on('data',data=>{output+=data;try{for(const frame of output.split('\n').slice(0,-1).filter(Boolean).map(line=>JSON.parse(line))){if(!pids.some(record=>record.pid===frame.pid))pids.push(identity(frame.pid));}}catch{}});child.stderr.on('data',data=>stderr+=data);
   const frames=()=>output.split('\n').slice(0,-1).filter(Boolean).map(line=>JSON.parse(line));
@@ -967,4 +967,9 @@ for(const mode of ['original','survivor'])renewalCheck('actual serialized superv
   assert.equal(r.invoke(manifest,'stop',['--launch-id',id]).status,0);await ended;
   assert.equal(errors,'');assert.equal(JSON.parse(readFileSync(join(dirname(manifest),`process-${id}.json`))).body.status,'exited');
  }finally{if(helper.exitCode===null&&helper.signalCode===null){helper.kill('SIGKILL');await ended;}}
+});
+test('renewal Native departed child requires notLoaded plus absence in actual loaded registry',async()=>{
+ const calls=[];const request=async(method,params)=>{calls.push(method);if(method==='thread/loaded/list')return {data:[],nextCursor:null};if(method==='thread/read')return {thread:{id:params.threadId,status:{type:'notLoaded'},turns:[]}};if(method==='thread/unsubscribe')return {status:'notLoaded'};throw Error('terminal observation is unsupported for unloaded Native threads');};
+ const result=await quiesceNative(request,['departed-child']);assert.equal(result.observed[0].terminals,'unloaded');assert.equal(calls.includes('thread/backgroundTerminals/list'),false);
+ await assert.rejects(quiesceNative(async(method,params)=>method==='thread/loaded/list'?{data:['departed-child'],nextCursor:null}:request(method,params),['departed-child']));
 });

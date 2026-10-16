@@ -896,7 +896,11 @@ never a recovery mechanism. Metadata changes, newly appearing absent candidates,
 provider/account/model/thinking mismatch, broader policy, stale election/boot,
 unknown drainage, reused IDs or generation rollback fail closed. The new
 `runtimeProvenanceDigest` incorporates the new capture and lineage; existing
-Agents schema2 generation/provenance binding remains applicable. Every old
+Agents schema2 generation/provenance digest binding remains applicable. The
+accepted Agents consumer at `f7a142b` still validates an exact six-key inventory
+and rejects the typed `observation` extension. Renewable admission therefore
+requires a consumer validator update in the owning package milestone; this
+Manager contract does not claim current packaged MCP compatibility. Every old
 capture and tool receipt stays revoked.
 
 A failed captured renewal can be explicitly revoked and retried against the

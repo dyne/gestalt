@@ -161,7 +161,7 @@ async function childProgram() {
   cp.spawn('/usr/bin/python3',['-u','-c',code],{stdio:['ignore','inherit','inherit']}).on('error',()=>stage('devserver-spawn-error'));
  }
  stage('ordinary-command');const ordinary=cp.spawnSync('/usr/bin/true',[],{stdio:'ignore',timeout:2000});checks.ordinaryCommand=ordinary.status===0;
- process.stdout.write(JSON.stringify({kind:'probe-result',depth,checks,inputRoundtrip,uid:process.getuid(),pid:process.pid})+'\n');
+ process.stdout.write(JSON.stringify({kind:'probe-result',depth,checks,expectedPublicWrite:input.expectedWrite,inputRoundtrip,uid:process.getuid(),pid:process.pid})+'\n');
  if(depth<2){stage('descendant-spawn');cp.spawn(process.execPath,[process.argv[1],process.argv[2],String(depth+1)],{stdio:'inherit',detached:depth===1}).on('error',()=>stage('descendant-spawn-error'));}
  process.on('SIGTERM',()=>{});
  if(depth===0&&input.mode==='leader-exit')setTimeout(()=>process.exit(0),1200);
@@ -326,7 +326,13 @@ async function startupAt(value){let sampling=false;const sightings=[],masks=[],m
   }catch{}}
  }finally{sampling=false;}};
  sample();const timer=setInterval(sample,1);let reply;try{reply=await rpc('thread/start',{cwd:value.appRoot,permissions:value.profileId,approvalPolicy:'never',model:'gpt-6-sol',modelProvider:'controlled'});}finally{clearInterval(timer);sample();report.startupFilesystemHelpers=(report.startupFilesystemHelpers??[]).concat(sightings);report.startupMetadataObservations=(report.startupMetadataObservations??[]).concat(metadata);report.startupMasks=(report.startupMasks??[]).concat(masks);}
- assert.equal(typeof reply.thread?.id,'string');startedThreads.add(reply.thread.id);return reply;}
+ assert.equal(typeof reply.thread?.id,'string');startedThreads.add(reply.thread.id);
+ // A cached instruction/config lookup need not invoke the filesystem helper.
+ // Exercise the exact named profile on Native itself; its mask composition
+ // creates any absent mount target after the captured owning birth, never here.
+ const command=await rpc('command/exec',{cwd:value.appRoot,permissionProfile:value.profileId,command:['/usr/bin/true'],timeoutMs:8000,outputBytesCap:1000});
+ assert.equal(command.exitCode,0);assert.equal(command.stdout,'');assert.equal(command.stderr,'');assert.ok(existsSync(join(value.appRoot,'.codex')));
+ report.startupCommands??=[];report.startupCommands.push({profile:value.profileId,exitCode:command.exitCode,nativeBornMetadata:true});return reply;}
 
 let renewedFixture;
 function nextRenewal(previous,{narrow=false,generation=previous.value.generation.generation+1}={}){
@@ -379,11 +385,16 @@ async function proveRenewal(original){
  report.stage='renewal-original-survivor';const survivor=nextRenewal(original,{generation});const capture=await renewCapture(survivor,original,'survivor');assert.equal(capture.code,0,JSON.stringify(managerResultDiagnostic(capture)));
  const reply=await resumeRenewal(survivor);const observed=await actualSources(survivor.value,survivor.manifest,survivor.id,reply,JSON.parse(capture.stdout));assert.deepEqual(identity(runtime.child.pid),birth);
  assert.equal((await callFor(survivor.manifest,['prepare'])).code,0);await oldRefused(original);
+ const stale=nextRenewal(original,{generation:survivor.value.generation.generation+1});const staleResult=await renewCapture(stale,original,'survivor');assert.equal(staleResult.code,1);report.renewal.negative['sealed-overlap']={reason:JSON.parse(staleResult.stdout).reason};
  const survivorWorker=await launch('hold',{app,m:survivor.value,manifest:survivor.manifest,childFile,publicFile});await nativeMessages(survivorWorker);assert.ok(survivorWorker.messages().every(frame=>Object.values(frame.checks).every(Boolean)));
  assert.equal((await callFor(survivor.manifest,['revoke-runtime','--capture-id',survivor.id])).code,0);await stopped(survivorWorker);await waitFor(()=>ownedPids(childFile).every(dead));
  report.renewal.generations.push({mode:'survivor',generation:survivor.value.generation.generation,sameBirth:true,inventoryDigest:observed.inventoryDigest,descendants:survivorWorker.messages()});
- await quiesceNative(rpc,[survivor.threadId]);await closeOwned(runtime.child);assert.ok(dead(birth));report.renewal.replacedOwnerActuallyExited=true;
- report.stage='renewal-managed-replacement';const replacement=nextRenewal(survivor,{narrow:true});const replacementCapture=await renewCapture(replacement,survivor,'replacement');assert.equal(replacementCapture.code,0,JSON.stringify(managerResultDiagnostic(replacementCapture)));
+ await quiesceNative(rpc,[survivor.threadId]);
+ const contenders=[nextRenewal(survivor),nextRenewal(survivor)];const published=await Promise.all(contenders.map(value=>renewCapture(value,survivor,'survivor')));assert.equal(published.filter(result=>result.code===0).length,1);assert.equal(published.filter(result=>result.code===1).length,1);
+ const winner=contenders[published.findIndex(result=>result.code===0)];assert.equal((await callFor(winner.manifest,['verify'])).code,1);assert.equal((await callFor(winner.manifest,['revoke-runtime','--capture-id',winner.id])).code,0);
+ report.renewal.concurrentPublication={oneWinner:true,unsealedReservationDenied:true,revokedForFreshRetry:true,loserReason:JSON.parse(published.find(result=>result.code===1).stdout).reason};
+ await closeOwned(runtime.child);assert.ok(dead(birth));report.renewal.replacedOwnerActuallyExited=true;
+ report.stage='renewal-managed-replacement';const replacement=nextRenewal(survivor,{narrow:true,generation:survivor.value.generation.generation+2});const replacementCapture=await renewCapture(replacement,survivor,'replacement');assert.equal(replacementCapture.code,0,JSON.stringify(managerResultDiagnostic(replacementCapture)));
  writeFileSync(join(bin,'codex'),`#!/bin/sh\n[ "$#" = 2 ] && [ "$1" = app-server ] && [ "$2" = --stdio ] || exit 64\nexec ${quote(manager)} cli -- --live-policy-owning-runtime --manifest ${quote(replacement.manifest)} --capture-id ${quote(replacement.id)}\n`,{mode:0o700});
  const {launchCodexAppServer}=await import(pathToFileURL(mobileModule).href);runtime=launchCodexAppServer({profile:'default',cwd:app,environment:controllerEnv});runtime.child.stderr.on('data',()=>{});trackPrivateRequests(runtime.child);
  await rpc('initialize',{clientInfo:{name:'l9_actual_provenance_proof',version:'2'},capabilities:{experimentalApi:true}});runtime.child.stdin.write(JSON.stringify({method:'initialized',params:{}})+'\n');

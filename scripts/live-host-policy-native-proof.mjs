@@ -335,9 +335,9 @@ async function startupAt(value,{holdMetadata=false}={}){let sampling=false;const
  }finally{sampling=false;}};
  sample();const timer=setInterval(sample,1);let reply;try{reply=await rpc('thread/start',{cwd:value.appRoot,permissions:value.profileId,approvalPolicy:'never',model:'gpt-6-sol',modelProvider:'controlled'});}finally{clearInterval(timer);sample();report.startupFilesystemHelpers=(report.startupFilesystemHelpers??[]).concat(sightings);report.startupMetadataObservations=(report.startupMetadataObservations??[]).concat(metadata);report.startupMasks=(report.startupMasks??[]).concat(masks);}
  assert.equal(typeof reply.thread?.id,'string');startedThreads.add(reply.thread.id);
- // A cached instruction/config lookup need not invoke the filesystem helper.
- // Exercise the exact named profile on Native itself; its mask composition
- // creates any absent mount target after the captured owning birth, never here.
+ // A synthetic Native mask target lives only while a Native owner holds it.
+ // Negative/devserver fixtures hold that actual bounded owner through their
+ // assertions, then settle it before renewal. No host metadata is created here.
  if(holdMetadata){
   const processId=randomUUID(),marker='native-mask-holder-ready';let ready=false;
   const off=runtime.rpc.onNotification(message=>{if(message.method==='command/exec/outputDelta'&&message.params?.processId===processId&&Buffer.from(message.params.deltaBase64,'base64').toString().includes(marker))ready=true;});
@@ -345,9 +345,6 @@ async function startupAt(value,{holdMetadata=false}={}){let sampling=false;const
   let exited=false;finished.finally(()=>{exited=true;off();}).catch(()=>{});await waitFor(()=>ready||exited);assert.equal(ready,true);assert.equal(exited,false);assert.ok(existsSync(join(value.appRoot,'.codex')));
   metadataCommands.set(value.appRoot,{processId,finished,off});
   report.startupCommands??=[];report.startupCommands.push({profile:value.profileId,actualNativeCommand:true,heldDuringSeal:true,nativeBornMetadata:true});
- }else{
-  const command=await rpc('command/exec',{cwd:value.appRoot,permissionProfile:value.profileId,command:['/usr/bin/true'],timeoutMs:8000,outputBytesCap:1000});
-  assert.equal(command.exitCode,0);assert.equal(command.stdout,'');assert.equal(command.stderr,'');
  }
  return reply;}
 
@@ -487,7 +484,7 @@ try {
  }
  report.checks.nativeBornInjectionReplacementLifetimeSessionMatrix=true;
  report.stage='original-network-enabled-devserver';
- const enabledStartup=await startupAt(networkCase.value);const enabledSources=await actualSources(networkCase.value,networkCase.manifest,networkCase.capture,enabledStartup,networkCase.captured);
+ const enabledStartup=await startupAt(networkCase.value,{holdMetadata:true});const enabledSources=await actualSources(networkCase.value,networkCase.manifest,networkCase.capture,enabledStartup,networkCase.captured);
  assert.ok(enabledStartup.instructionSources.includes(join(networkCase.app,'AGENTS.override.md')));assert.equal(enabledStartup.instructionSources.includes(join(networkCase.app,'AGENTS.md')),false);report.checks.actualNativeInstructionCandidatePrecedence=true;
  const enabled=await launch('hold',{app:networkCase.app,m:networkCase.value,manifest:networkCase.manifest,childFile:networkCase.childFile,publicFile:networkCase.publicFile});await nativeMessages(enabled);await waitFor(()=>enabled.frames().some(frame=>frame.kind==='devserver-ready'));
  assert.ok(enabled.messages().every(frame=>Object.values(frame.checks).every(Boolean)));assert.equal((await callFor(networkCase.manifest,['verify-process','--launch-id',enabled.id])).code,0);
@@ -500,7 +497,7 @@ try {
  report.devserver={supported:true,nativeTransport:'public Unix HTTP socket',registeredIngress:'loopback TCP',privateDenied:true};
 
  report.devserver.originalNetwork='enabled';report.devserver.originalPolicyFixture='separate-from-birth';report.devserver.inventoryDigest=enabledSources.inventoryDigest;report.devserver.descendants=enabled.messages();
- assert.equal((await callFor(networkCase.manifest,['stop','--launch-id',enabled.id])).code,0);await stopped(enabled);await waitFor(()=>ownedPids(networkCase.childFile).every(dead));
+ assert.equal((await callFor(networkCase.manifest,['stop','--launch-id',enabled.id])).code,0);await stopped(enabled);await waitFor(()=>ownedPids(networkCase.childFile).every(dead));const enabledHolder=metadataCommands.get(networkCase.app);await rpc('command/exec/terminate',{processId:enabledHolder.processId});const enabledExit=await enabledHolder.finished;assert.ok(Number.isInteger(enabledExit.exitCode));enabledHolder.off();metadataCommands.delete(networkCase.app);report.devserver.nativeCommandSettled=true;
  await proveRenewal({value:m,manifest,id:captureId,threadId:thread});
  report.stage='actual-owning-runtime-loss';const orphan=await launch('hold',renewedFixture);await nativeMessages(orphan);runtime.child.kill('SIGKILL');await stopped(orphan);await waitFor(()=>ownedPids(childFile).every(dead));assert.equal((await managerCall(['live-policy','verify','--manifest',renewedFixture.manifest])).code,1);report.checks.owningRuntimeLossRevokesWorkers=true;
  report.stage='devserver-capability-required';assert.equal(report.checks.actualConfinedDevserverAndRegisteredLoopbackIngress,true,'REQUIRED_DEVSERVER_PROOF_UNAVAILABLE');

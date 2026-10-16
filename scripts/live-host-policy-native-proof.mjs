@@ -1,5 +1,6 @@
 // Isolated hosted proof. Actual Native model tools use a controlled provider; no genuine credentials, deployment or IPC repair.
 import assert from 'node:assert/strict';
+import {controlledObservation,quiesceNative} from './live-host-renewal-observation.mjs';
 import {spawn,execFileSync} from 'node:child_process';
 import {createHash,randomUUID,randomBytes} from 'node:crypto';
 import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,readlinkSync,realpathSync,lstatSync,readdirSync,openSync,closeSync,rmSync,renameSync,symlinkSync,copyFileSync,chmodSync,existsSync} from 'node:fs';
@@ -73,7 +74,7 @@ const provenance={repository:process.env.GITHUB_REPOSITORY,runId:process.env.GIT
  electionModuleSha256:hash(readFileSync(electionModule)),
  electionInputs:Object.fromEntries(Object.keys(JSON.parse(readFileSync(join(dirname(manager),'election-inputs.json'))).inputs).sort().map(path=>[path,hash(readFileSync(path))])),
  binarySha256:hash(readFileSync(binary)),sourceBinaryMode:(lstatSync(binary).mode&0o777).toString(8),mobileLauncherSha256:hash(readFileSync(mobileModule)),
- files:Object.fromEntries(['public/gestalt','scripts/live-host-policy-native-proof.mjs','tests/live-host-policy.test.mjs','.github/workflows/live-host-policy-proof.yml','docs/caddy-live.md','tests/run.sh']
+ files:Object.fromEntries(['public/gestalt','scripts/live-host-policy-native-proof.mjs','tests/live-host-policy.test.mjs','.github/workflows/live-host-policy-proof.yml','docs/caddy-live.md','tests/run.sh','scripts/live-host-renewal-observation.mjs']
   .map(path=>[path,hash(readFileSync(path))]))};
 mkdirSync(evidence,{recursive:true});
 const root=mkdtempSync(join(dirname(manager),'live host policy ')),app=join(root,'app with spaces'),privateRoot=join(root,'controller'),nativeHome=join(privateRoot,'owning-runtime'),home=join(privateRoot,'sandbox-home'),bin=join(root,'bin');
@@ -122,6 +123,8 @@ const rpcFailureDiagnostic=(method,error,roles={})=>{
   sourceLocations:[...text.matchAll(/([a-z_-]+\.rs):(\d+):(\d+)/g)].slice(0,3).map(match=>match.slice(1).join(':'))};
 };
 let runtime,caddy,unowned,active,extraFD,elected,providerFailure,thread,currentRpcMethod,controllerAccepted=0;
+const startedThreads=new Set(),metadataCommands=new Map();let nativeServerRequests=0;
+function trackPrivateRequests(child){let buffer="";child.stdout.on("data",chunk=>{buffer+=chunk.toString();if(Buffer.byteLength(buffer)>1024*1024){buffer="";report.nativeWireInvalid=true;return;}let newline;while((newline=buffer.indexOf("\n"))>=0){const line=buffer.slice(0,newline);buffer=buffer.slice(newline+1);try{const packet=JSON.parse(line);if(Object.hasOwn(packet,"id")&&typeof packet.method==="string")nativeServerRequests++;}catch{report.nativeWireInvalid=true;}}});}
 const server=createServer(peer=>{controllerAccepted++;peer.end();});
 async function waitFor(fn,budget=12000){const end=Date.now()+budget;while(Date.now()<end){try{const result=fn();if(result)return result;}catch{}await pause(50);}throw Error('PROOF_DEADLINE');}
 function managerCall(args){const result=spawn('bash',[manager,...args],{cwd:app,env:managerEnv,stdio:['ignore','pipe','pipe']});
@@ -148,7 +151,7 @@ async function childProgram() {
  environment:!Object.keys(process.env).some(name=>/TOKEN|SECRET|API_KEY|AUTH|GESTALT_MOBILE_ORG/.test(name))};
  checks.extraFD=true;
  for(let fd=3;fd<128;fd++){try{const info=fs.fstatSync(fd);if(info.dev===input.fdIdentity.dev&&info.ino===input.fdIdentity.ino)checks.extraFD=false;}catch{}}
- try{fs.writeFileSync(input.writeFile+'-'+depth,'public-write');checks.publicWrite=true;}catch(e){checks.publicWrite=false;}
+ let publicWrite=false;try{fs.writeFileSync(input.writeFile+'-'+depth,'public-write');publicWrite=true;}catch{}checks.publicWrite=publicWrite===input.expectedWrite;
  if(input.metadataPath){checks.metadataInjection=true;for(const name of ['config.toml','hooks.json','rules','agents']){try{fs.writeFileSync(input.metadataPath+'/'+name,'injection');checks.metadataInjection=false;}catch(e){if(!['EACCES','EPERM','ENOENT','ENOTDIR','EROFS'].includes(e.code))checks.metadataInjection=false;}}}
  stage('controller-socket');checks.controllerSocket=await socketDenied(input.controllerSocket);stage('caddy-socket');checks.caddySocket=await socketDenied(input.caddySocket);stage('daemon');
  try{checks.daemonMask=(fs.lstatSync(input.daemon).mode&0o777)===0;}catch{checks.daemonMask=false;}
@@ -158,7 +161,7 @@ async function childProgram() {
   cp.spawn('/usr/bin/python3',['-u','-c',code],{stdio:['ignore','inherit','inherit']}).on('error',()=>stage('devserver-spawn-error'));
  }
  stage('ordinary-command');const ordinary=cp.spawnSync('/usr/bin/true',[],{stdio:'ignore',timeout:2000});checks.ordinaryCommand=ordinary.status===0;
- process.stdout.write(JSON.stringify({kind:'probe-result',depth,checks,inputRoundtrip,uid:process.getuid(),pid:process.pid})+'\n');
+ process.stdout.write(JSON.stringify({kind:'probe-result',depth,checks,expectedPublicWrite:input.expectedWrite,inputRoundtrip,uid:process.getuid(),pid:process.pid})+'\n');
  if(depth<2){stage('descendant-spawn');cp.spawn(process.execPath,[process.argv[1],process.argv[2],String(depth+1)],{stdio:'inherit',detached:depth===1}).on('error',()=>stage('descendant-spawn-error'));}
  process.on('SIGTERM',()=>{});
  if(depth===0&&input.mode==='leader-exit')setTimeout(()=>process.exit(0),1200);
@@ -177,7 +180,7 @@ async function prepare(){save();const priorStage=report.stage;report.stage=prior
 async function launch(mode='hold',fixture={app,m,manifest,childFile,publicFile}) {
  const {app,m,manifest,childFile,publicFile}=fixture;
  const stdinChunks=['native input with spaces\n','second ','line\n'];
- const id=randomUUID(),input={mode,publicSocket:join(app,`s-${id.slice(0,8)}`),metadataPath:join(app,'.codex'),stdinExpected:stdinChunks.join(''),publicFile,readOnlyFile,writeFile:join(app,'written'),privateFiles:[auth,controlFile,manifest,key,join(nativeHome,'config.toml')],
+ const id=randomUUID(),input={mode,expectedWrite:m.sandboxState.permissionProfile.file_system.entries.find(entry=>entry.path.path===app)?.access==='write',publicSocket:join(app,`s-${id.slice(0,8)}`),metadataPath:join(app,'.codex'),stdinExpected:stdinChunks.join(''),publicFile,readOnlyFile,writeFile:join(app,'written'),privateFiles:[auth,controlFile,manifest,key,join(nativeHome,'config.toml')],
  controllerSocket:socket,caddySocket,daemon,fdIdentity:{dev:lstatSync(auth).dev,ino:lstatSync(auth).ino},aliases:[`/proc/${process.pid}/root${auth}`,`/proc/${process.pid}/fd/${extraFD}`,`/proc/self/root${auth}`]};
  assert.ok(Buffer.byteLength(input.publicSocket)<108,'PUBLIC_SOCKET_PATH_TOO_LONG');
  m.commands.probe.args=[childFile,JSON.stringify(input)];writeFileSync(manifest,JSON.stringify(m),{mode:0o600});const prepared=await callFor(manifest,['prepare']);assert.equal(prepared.code,0,JSON.stringify(managerResultDiagnostic(prepared)));
@@ -228,7 +231,7 @@ function nativeProfile(name,appRoot,write=true,network=false){
 function nativeState(appRoot,write=true,network=false){const metadata=[];for(let path=appRoot;;path=dirname(path)){metadata.push(join(path,'.codex'));if(path==='/')break;}
  return {permissionProfile:{type:'managed',file_system:{type:'restricted',entries:[{path:{type:'special',value:{kind:'root'}},access:'read'},{path:{type:'path',path:appRoot},access:write?'write':'read'},{path:{type:'path',path:privateRoot},access:'deny'},{path:{type:'path',path:'/proc'},access:'deny'},{path:{type:'path',path:daemon},access:'deny'},...(appRoot===app?[{path:{type:'path',path:readOnlyFile},access:'read'}]:[]),...metadata.map(path=>({path:{type:'path',path},access:'deny'}))]},network:network?'enabled':'restricted'},sandboxCwd:pathToFileURL(appRoot).href,useLegacyLandlock:false};}
 let publicSocket,publicIngress;
-let roleSteps=new Map(),modelThreads=new Set(),primaryThread,modelPhase='broad',providerRequests=0,providerStage='request',providerShape;
+let roleSteps=new Map(),modelThreads=new Set(),primaryThread,modelPhase='broad',renewalModelStep=0,providerRequests=0,providerStage='request',providerShape;
 const modelFinal=id=>({type:'response.output_item.done',item:{type:'message',role:'assistant',phase:'final_answer',id,content:[{type:'output_text',text:'Controlled confinement probe completed.'}]}});
 const flatten=(tools,namespace)=>tools.flatMap(tool=>tool.type==='namespace'?flatten(tool.tools,tool.name):[{...tool,namespace}]);
 const modelToolResults=body=>(body.input??[]).filter(item=>['custom_tool_call_output','function_call_output'].includes(item.type));
@@ -248,6 +251,12 @@ async function modelEvent(body){
  const role=tid===primaryThread?'root':tid,step=roleSteps.get(role)??0;roleSteps.set(role,step+1);
  const tools=flatten([...(body.tools??[]),...(body.input??[]).filter(x=>x.type==='additional_tools').flatMap(x=>x.tools??[])]);
  providerShape.tools=Object.fromEntries(['exec_command','shell_command','apply_patch','spawn_agent'].map(name=>[name,tools.some(tool=>tool.name===name)]));providerShape.step=step;providerShape.role=role==='root'?'root':'descendant';providerStage='model-step';
+ if(modelPhase==='renewal-narrow'){
+  assert.equal(role,'root');const current=renewalModelStep++;
+  if(current===0)return modelCall(tools,'renewed-narrow-command','exec_command',{cmd:`/usr/bin/python3 -c ${quote(`from pathlib import Path\nassert Path(${JSON.stringify(publicFile)}).read_text()=='public-fixture'\ntry:Path(${JSON.stringify(join(app,'renewed-model-forbidden'))}).write_text('forbidden');raise Exception('WRITE_BREACH')\nexcept OSError as e:assert e.errno in (1,13,30)\ntry:Path(${JSON.stringify(auth)}).read_text();raise Exception('PRIVATE_BREACH')\nexcept (PermissionError,FileNotFoundError):pass\nprint('renewed-model-tool-write-denied')`)}`,workdir:app,yield_time_ms:1000,max_output_tokens:1000});
+  assert.equal(current,1);const result=modelToolResults(body).at(-1);assert.ok(!report.codeModeModelTools||(Array.isArray(result?.output)&&result.output[0]?.text?.startsWith('Script completed\n')));assert.ok(JSON.stringify(result).includes('renewed-model-tool-write-denied'));return modelFinal('renewed-narrow-final');
+ }
+
  if(step===0)return modelCall(tools,`${role}-0`,'exec_command',{cmd:`/usr/bin/python3 -c ${quote(modelProbe(role))}`,workdir:app,yield_time_ms:1000,max_output_tokens:1000});
  if(step===1){const result=modelToolResults(body).at(-1);assert.ok(!report.codeModeModelTools||(Array.isArray(result?.output)&&result.output[0]?.text?.startsWith('Script completed\n')));assert.ok(JSON.stringify(result).includes('native-private-and-metadata-denied'));return modelCall(tools,`${role}-1`,'apply_patch',`*** Begin Patch\n*** Add File: ${join(app,`model-${role.replace(/[^a-z0-9-]/gi,'')}.txt`)}\n+permitted-model-file-tool\n*** End Patch`,true);}
  if(step===2){const output=JSON.stringify(body.input);report.modelFileEffects??=[];report.modelFileEffects.push({role:role==='root'?'root':'descendant',permittedFile:existsSync(join(app,`model-${role.replace(/[^a-z0-9-]/gi,'')}.txt`)),patchSuccess:output.includes('Success. Updated the following files:'),patchInvalid:output.includes('Invalid patch'),patchDenied:output.includes('Permission denied'),patchVerificationFailed:output.includes('patch verification failed'),codeModeError:output.includes('SyntaxError')||output.includes('TypeError'),toolResultTemplates:(body.input??[]).filter(item=>['custom_tool_call_output','function_call_output'].includes(item.type)).slice(-1).map(item=>JSON.stringify(item.output).replace(/\/[^\s"\\]+/g,'<path>').replace(/[a-f0-9]{16,}/gi,'<token>').replace(/private-[a-z-]+fixture/g,'<fixture>').slice(0,600))});return modelCall(tools,`${role}-2`,'apply_patch',`*** Begin Patch\n*** Add File: ${join(privateRoot,`forbidden-${role.replace(/[^a-z0-9-]/gi,'')}.txt`)}\n+forbidden\n*** End Patch`,true);}
@@ -268,7 +277,7 @@ function folderPin(path){const info=lstatSync(path);return {dev:info.dev,ino:inf
 function manifestFor(appRoot,directory,profileId,session,network=false){return {schemaVersion:2,profileId,appRoot,controller:report.controller,election:report.election,generation:{sessionId:session,generation:1},owningRuntime:{args:['app-server','--stdio'],home:nativeHome},binary:{path:binary,version:'0.161.0',sha256:expectedBinary},sandboxState:nativeState(appRoot,true,network),configFiles:[join(directory,'worker','config.toml'),join(nativeHome,'config.toml')].map(path=>({path,sha256:hash(readFileSync(path))})),components:{manager:commit,mobile:mobilePin,agents:agentsPin},privatePaths:{auth:[auth],controller:[privateRoot],caddy:[caddySocket,join(privateRoot,'caddy.json')],daemon:[daemon]},keyFile:key,runtimeHome:join(directory,'worker'),environment:{PATH:'/usr/bin:/bin',HOME:join(directory,'worker'),TMPDIR:'/tmp'},commands:{probe:{executable:admittedNode,sha256:hash(readFileSync(admittedNode)),args:[],timeoutMs:20000}}};}
 async function callFor(path,args){return await managerCall(['live-policy',...args.slice(0,1),'--manifest',path,...args.slice(1)]);}
 async function captureFor(value,path,id){writeFileSync(path,JSON.stringify(value),{mode:0o600});const result=await callFor(path,['capture-runtime','--capture-id',id]);assert.equal(result.code,0,JSON.stringify(managerResultDiagnostic(result)));return JSON.parse(result.stdout);}
-async function actualSources(value,path,id,startReply,captured){
+async function actualSources(value,path,id,startReply,captured,{inventoryOnly=false}={}){
  const configuration=await rpc('config/read',{cwd:value.appRoot,includeLayers:true});assert.ok(configuration.config&&Array.isArray(configuration.layers)&&configuration.layers.length);
  report.sourceGuard='hooks-disabled';assert.equal(configuration.config.features.hooks,false);
  report.sourceGuard='mcp-empty';assert.deepEqual(configuration.config.mcp_servers??{},{});
@@ -299,13 +308,16 @@ async function actualSources(value,path,id,startReply,captured){
  for(const file of startReply.instructionSources)sources.push({kind:'instruction',path:file,...filePin(file)});
  for(const [file,pin] of Object.entries(before.instructions))if(pin&&!startReply.instructionSources.includes(file))sources.push({kind:'instruction-candidate',path:file,...pin});
  const flags=Object.fromEntries(['model','modelProvider','cwd','approvalPolicy','activePermissionProfile','sandbox','reasoningEffort','runtimeWorkspaceRoots','instructionSources'].filter(key=>Object.hasOwn(startReply,key)).map(key=>[key,startReply[key]]));
- const inventory={schemaVersion:2,runtime:identity(runtime.child.pid),policyDigest:captured.policyDigest,effectiveConfigDigest:hash(stable(configuration.config)),sessionFlagsDigest:hash(stable(flags)),sources};
- const inventoryFile=join(dirname(path),`sources-${id}.json`);writeFileSync(inventoryFile,JSON.stringify(inventory),{mode:0o600});const seal=await callFor(path,['seal-runtime','--capture-id',id,'--runtime-pid',String(runtime.child.pid),'--sources',inventoryFile]);assert.equal(seal.code,0,JSON.stringify(managerResultDiagnostic(seal)));
+ const account=await rpc('account/read',{refreshToken:false});const observation=controlledObservation(configuration,startReply,account);report.accountObservations??=[];report.accountObservations.push({captureId:id,generation:value.generation.generation,providerId:startReply.modelProvider,accountNull:account.account===null,requiresOpenaiAuth:account.requiresOpenaiAuth,accountDigest:observation.accountDigest});
+ const inventory={schemaVersion:2,runtime:identity(runtime.child.pid),policyDigest:captured.policyDigest,effectiveConfigDigest:hash(stable(configuration.config)),sessionFlagsDigest:hash(stable(flags)),sources,observation};
+ const inventoryFile=join(dirname(path),`sources-${id}.json`);writeFileSync(inventoryFile,JSON.stringify(inventory),{mode:0o600});if(inventoryOnly)return {configuration,inventory,startReply,inventoryFile};const seal=await callFor(path,['seal-runtime','--capture-id',id,'--runtime-pid',String(runtime.child.pid),'--sources',inventoryFile]);assert.equal(seal.code,0,JSON.stringify(managerResultDiagnostic(seal)));
  value.runtimeProvenance={captureId:id,effectiveConfigDigest:inventory.effectiveConfigDigest,sessionFlagsDigest:inventory.sessionFlagsDigest};writeFileSync(path,JSON.stringify(value),{mode:0o600});
  return {configuration,inventory,startReply,inventoryDigest:hash(stable(inventory))};
 }
 function originalRuntimeDescendant(pid){for(let depth=0;depth<16;depth++){if(pid===runtime.child.pid)return identity(pid).birth===report.appServer.birth;const match=readFileSync(`/proc/${pid}/status`,'utf8').match(/^PPid:\s+(\d+)/m);if(!match)return false;pid=Number(match[1]);if(pid<=1)return false;}return false;}
-async function startupAt(value){let sampling=false;const sightings=[],masks=[],metadata=[];
+let originalModelWorkers=[];
+function nativeCodeModeWorkers(){const found=[];for(const pid of readdirSync('/proc').filter(value=>/^\d+$/.test(value))){let matches=false;try{matches=readlinkSync(`/proc/${pid}/exe`)===codeModeHost&&originalRuntimeDescendant(Number(pid));}catch{continue;}if(matches){assert.equal(hash(readFileSync(`/proc/${pid}/exe`)),expectedCodeModeHost);found.push(identity(Number(pid)));}}return found;}
+async function startupAt(value,{holdMetadata=false}={}){let sampling=false;const sightings=[],masks=[],metadata=[];
  const protectedPaths=[];for(let path=value.appRoot;;path=dirname(path)){protectedPaths.push(join(path,'.codex'));if(path==='/')break;}
  const observed=new Set(),maskOps=new Set(['--tmpfs','--remount-ro','--ro-bind-data','--bind-data','--ro-bind','--bind','--dir','--file']);
  const sample=()=>{if(sampling)return;sampling=true;try{
@@ -322,7 +334,98 @@ async function startupAt(value){let sampling=false;const sightings=[],masks=[],m
   }catch{}}
  }finally{sampling=false;}};
  sample();const timer=setInterval(sample,1);let reply;try{reply=await rpc('thread/start',{cwd:value.appRoot,permissions:value.profileId,approvalPolicy:'never',model:'gpt-6-sol',modelProvider:'controlled'});}finally{clearInterval(timer);sample();report.startupFilesystemHelpers=(report.startupFilesystemHelpers??[]).concat(sightings);report.startupMetadataObservations=(report.startupMetadataObservations??[]).concat(metadata);report.startupMasks=(report.startupMasks??[]).concat(masks);}
- assert.equal(typeof reply.thread?.id,'string');return reply;}
+ assert.equal(typeof reply.thread?.id,'string');startedThreads.add(reply.thread.id);
+ // A synthetic Native mask target lives only while a Native owner holds it.
+ // Negative/devserver fixtures hold that actual bounded owner through their
+ // assertions, then settle it before renewal. No host metadata is created here.
+ if(holdMetadata){
+  const processId=randomUUID(),marker='native-mask-holder-ready';let ready=false;
+  const off=runtime.rpc.onNotification(message=>{if(message.method==='command/exec/outputDelta'&&message.params?.processId===processId&&Buffer.from(message.params.deltaBase64,'base64').toString().includes(marker))ready=true;});
+  const finished=runtime.rpc.request('command/exec',{processId,cwd:value.appRoot,permissionProfile:value.profileId,command:['/usr/bin/python3','-u','-c',`import time;print('${marker}',flush=True);time.sleep(30)`],timeoutMs:30000,streamStdoutStderr:true,outputBytesCap:1000});
+  let exited=false;finished.finally(()=>{exited=true;off();}).catch(()=>{});await waitFor(()=>ready||exited);assert.equal(ready,true);assert.equal(exited,false);assert.ok(existsSync(join(value.appRoot,'.codex')));
+  metadataCommands.set(value.appRoot,{processId,finished,off});
+  report.startupCommands??=[];report.startupCommands.push({profile:value.profileId,actualNativeCommand:true,heldDuringSeal:true,nativeBornMetadata:true});
+ }
+ return reply;}
+
+async function renewedModelProbe(threadId){
+ modelPhase='renewal-narrow';let completed=false;const off=runtime.rpc.onNotification(message=>{if(message.method==='turn/completed'&&message.params?.threadId===threadId)completed=true;});
+ try{await rpc('turn/start',{threadId,input:[{type:'text',text:'Verify the renewed narrowed policy using the controlled tool probe.'}]});await waitFor(()=>completed||providerFailure,60000);assert.equal(providerFailure,undefined);assert.equal(renewalModelStep,2);}
+ finally{off();modelPhase='broad';}
+}
+let renewedFixture;
+function nextRenewal(previous,{narrow=false,generation=previous.value.generation.generation+1}={}){
+ const directory=join(privateRoot,`renewal-${randomUUID().slice(0,8)}`);mkdirSync(directory,{mode:0o700});
+ const worker=join(directory,'worker');mkdirSync(worker,{mode:0o700});writeFileSync(join(worker,'config.toml'),isolatedConfig,{mode:0o600});
+ const value=structuredClone(previous.value);value.generation.generation=generation;value.runtimeHome=worker;value.environment.HOME=worker;delete value.runtimeProvenance;
+ value.configFiles=value.configFiles.filter(file=>file.path!==join(previous.value.runtimeHome,'config.toml'));value.configFiles.push({path:join(worker,'config.toml'),sha256:hash(readFileSync(join(worker,'config.toml')))});
+ if(narrow){value.profileId=narrowProfile;value.sandboxState=nativeState(app,false);}
+ const result={value,manifest:join(directory,'manifest.json'),id:randomUUID(),threadId:previous.threadId};writeFileSync(result.manifest,JSON.stringify(value),{mode:0o600});return result;
+}
+async function renewCapture(next,previous,mode){
+ return await callFor(next.manifest,['renew-runtime','--capture-id',next.id,'--previous-manifest',previous.manifest,'--previous-capture-id',previous.id,'--mode',mode]);
+}
+async function oldRefused(previous){
+ const refused=await callFor(previous.manifest,['verify']);assert.equal(refused.code,1);assert.equal(JSON.parse(refused.stdout).reason,'revoked-runtime-provenance');
+ assert.equal((await callFor(previous.manifest,['prepare'])).code,1);
+}
+async function resumeRenewal(next){
+ const reply=await rpc('thread/resume',{threadId:next.threadId,cwd:app,permissions:next.value.profileId,approvalPolicy:'never',model:'gpt-6-sol',modelProvider:'controlled',excludeTurns:true});
+ assert.equal(reply.thread.id,next.threadId);return reply;
+}
+async function proveRenewal(original){
+ report.renewal={producerBoundary:'Private Native RPC observation; Manager independently verifies signed lineage and helper drainage.',negative:{},generations:[]};
+ report.stage='renewal-revoke-and-drain';const held=await launch();await nativeMessages(held);const descendants=ownedPids(childFile).filter(record=>{try{return readlinkSync(`/proc/${record.pid}/exe`)===admittedNode;}catch{return false;}});assert.equal(descendants.length,3);
+ assert.equal((await callFor(original.manifest,['revoke-runtime','--capture-id',original.id])).code,0);await stopped(held);await waitFor(()=>descendants.every(dead)&&ownedPids(childFile).every(dead));await oldRefused(original);
+ report.renewal.oldHelpersDrained=descendants.length===3;
+ const birth=identity(runtime.child.pid);report.stage='renewal-actual-quiescence';
+ assert.equal(nativeServerRequests,0);assert.equal(report.nativeWireInvalid,undefined);assert.equal(metadataCommands.size,0);report.renewal.quiescence=await quiesceNative(rpc,new Set([...startedThreads,...modelThreads]));assert.deepEqual(identity(runtime.child.pid),birth);
+ // A rejected attempt publishes no generation. These are actual signed Native
+ // lineage inputs, not simulated process/source receipts.
+ const invalid=nextRenewal(original);const pristine=readFileSync(invalid.manifest);
+ for(const kind of ['generation','session','election','component','broadening','replacement-owner-alive']){
+  const value=JSON.parse(pristine);if(kind==='generation')value.generation.generation=original.value.generation.generation;
+  if(kind==='session')value.generation.sessionId=randomUUID();if(kind==='election')value.election.holder.birth='0';
+  if(kind==='component')value.components.mobile='changed';if(kind==='broadening')value.sandboxState.permissionProfile.network='enabled';
+  writeFileSync(invalid.manifest,JSON.stringify(value),{mode:0o600});const result=await renewCapture(invalid,original,kind==='replacement-owner-alive'?'replacement':'survivor');assert.equal(result.code,1);report.renewal.negative[kind]={reason:JSON.parse(result.stdout).reason};
+ }
+ writeFileSync(invalid.manifest,pristine,{mode:0o600});
+ let generation=2;
+ for(const kind of ['account-intent','provider-intent','model-intent','thinking-intent']){
+  report.stage='renewal-'+kind;const attempt=kind==='account-intent'?invalid:nextRenewal(original,{generation});
+  const captured=await renewCapture(attempt,original,'survivor');assert.equal(captured.code,0,JSON.stringify(managerResultDiagnostic(captured)));
+  const current=await resumeRenewal(attempt);const observation=await actualSources(attempt.value,attempt.manifest,attempt.id,current,JSON.parse(captured.stdout),{inventoryOnly:true});
+  if(kind==='account-intent')observation.inventory.observation.accountDigest=hash('changed-account');
+  else{observation.inventory.observation.sessionFlags[{'provider-intent':'modelProvider','model-intent':'model','thinking-intent':'reasoningEffort'}[kind]]='changed';observation.inventory.sessionFlagsDigest=hash(stable(observation.inventory.observation.sessionFlags));}
+  writeFileSync(observation.inventoryFile,JSON.stringify(observation.inventory),{mode:0o600});
+  const refused=await callFor(attempt.manifest,['seal-runtime','--capture-id',attempt.id,'--runtime-pid',String(runtime.child.pid),'--sources',observation.inventoryFile]);assert.equal(refused.code,1);assert.equal(JSON.parse(refused.stdout).reason,'renewal-intent-changed');report.renewal.negative[kind]={reason:'renewal-intent-changed'};
+  assert.equal((await callFor(attempt.manifest,['verify'])).code,1);assert.equal((await callFor(attempt.manifest,['revoke-runtime','--capture-id',attempt.id])).code,0);await quiesceNative(rpc,[original.threadId]);generation++;
+ }
+ report.stage='renewal-original-survivor';const survivor=nextRenewal(original,{generation,narrow:true});const capture=await renewCapture(survivor,original,'survivor');assert.equal(capture.code,0,JSON.stringify(managerResultDiagnostic(capture)));
+ const reply=await resumeRenewal(survivor);const observed=await actualSources(survivor.value,survivor.manifest,survivor.id,reply,JSON.parse(capture.stdout));assert.deepEqual(identity(runtime.child.pid),birth);await renewedModelProbe(survivor.threadId);report.renewal.originalNativeSessionsDrained={coldReconfigureObserved:true,newModelToolWriteDenied:true,sharedHostProcessMayRemain:true};
+ assert.equal((await callFor(survivor.manifest,['prepare'])).code,0);await oldRefused(original);
+ const stale=nextRenewal(original,{generation:survivor.value.generation.generation+1});const staleResult=await renewCapture(stale,original,'survivor');assert.equal(staleResult.code,1);report.renewal.negative['sealed-overlap']={reason:JSON.parse(staleResult.stdout).reason};
+ const survivorWorker=await launch('hold',{app,m:survivor.value,manifest:survivor.manifest,childFile,publicFile});await nativeMessages(survivorWorker);assert.ok(survivorWorker.messages().every(frame=>Object.values(frame.checks).every(Boolean)));
+ assert.equal((await callFor(survivor.manifest,['revoke-runtime','--capture-id',survivor.id])).code,0);await stopped(survivorWorker);await waitFor(()=>ownedPids(childFile).every(dead));
+ report.renewal.generations.push({mode:'survivor',generation:survivor.value.generation.generation,sameBirth:true,narrowed:true,inventoryDigest:observed.inventoryDigest,descendants:survivorWorker.messages()});
+ await quiesceNative(rpc,[survivor.threadId]);
+ const contenders=[nextRenewal(survivor),nextRenewal(survivor)];const published=await Promise.all(contenders.map(value=>renewCapture(value,survivor,'survivor')));assert.equal(published.filter(result=>result.code===0).length,1);assert.equal(published.filter(result=>result.code===1).length,1);
+ const winner=contenders[published.findIndex(result=>result.code===0)];assert.equal((await callFor(winner.manifest,['verify'])).code,1);assert.equal((await callFor(winner.manifest,['revoke-runtime','--capture-id',winner.id])).code,0);
+ report.renewal.concurrentPublication={oneWinner:true,unsealedReservationDenied:true,revokedForFreshRetry:true,loserReason:JSON.parse(published.find(result=>result.code===1).stdout).reason};
+ const sharedHosts=[...new Map([...originalModelWorkers,...nativeCodeModeWorkers()].map(record=>[`${record.pid}:${record.birth}`,record])).values()];await closeOwned(runtime.child);assert.ok(dead(birth));await waitFor(()=>sharedHosts.every(dead));report.renewal.replacedOwnerActuallyExited=true;report.renewal.replacedSharedHosts={births:sharedHosts,allExited:true};
+ report.stage='renewal-managed-replacement';const replacement=nextRenewal(survivor,{narrow:true,generation:survivor.value.generation.generation+2});const replacementCapture=await renewCapture(replacement,survivor,'replacement');assert.equal(replacementCapture.code,0,JSON.stringify(managerResultDiagnostic(replacementCapture)));
+ writeFileSync(join(bin,'codex'),`#!/bin/sh\n[ "$#" = 2 ] && [ "$1" = app-server ] && [ "$2" = --stdio ] || exit 64\nexec ${quote(manager)} cli -- --live-policy-owning-runtime --manifest ${quote(replacement.manifest)} --capture-id ${quote(replacement.id)}\n`,{mode:0o700});
+ const {launchCodexAppServer}=await import(pathToFileURL(mobileModule).href);runtime=launchCodexAppServer({profile:'default',cwd:app,environment:controllerEnv});runtime.child.stderr.on('data',()=>{});trackPrivateRequests(runtime.child);
+ await rpc('initialize',{clientInfo:{name:'l9_actual_provenance_proof',version:'2'},capabilities:{experimentalApi:true}});runtime.child.stdin.write(JSON.stringify({method:'initialized',params:{}})+'\n');
+ const replacementBirth=identity(runtime.child.pid);assert.notDeepEqual(replacementBirth,birth);report.appServer=replacementBirth;
+ const resumed=await resumeRenewal(replacement);const replacementObserved=await actualSources(replacement.value,replacement.manifest,replacement.id,resumed,JSON.parse(replacementCapture.stdout));
+ assert.equal((await callFor(replacement.manifest,['prepare'])).code,0);await oldRefused(original);await oldRefused(survivor);
+ const result=await rpc('command/exec',{cwd:app,permissionProfile:narrowProfile,command:['/usr/bin/python3','-c',`from pathlib import Path\nassert Path(${JSON.stringify(publicFile)}).read_text()=='public-fixture'\ntry:Path(${JSON.stringify(join(app,'renewal-forbidden'))}).write_text('forbidden');raise Exception('WRITE_BREACH')\nexcept OSError as e:assert e.errno in (1,13,30)\ntry:Path(${JSON.stringify(auth)}).read_text();raise Exception('PRIVATE_BREACH')\nexcept (PermissionError,FileNotFoundError):pass\nprint('renewed-native-narrow-denied')`],timeoutMs:8000,outputBytesCap:1000});assert.equal(result.exitCode,0);assert.ok(result.stdout.includes('renewed-native-narrow-denied'));
+ renewedFixture={app,m:replacement.value,manifest:replacement.manifest,childFile,publicFile};
+ const worker=await launch('hold',renewedFixture);await nativeMessages(worker);assert.ok(worker.messages().every(frame=>Object.values(frame.checks).every(Boolean)));assert.equal((await callFor(replacement.manifest,['stop','--launch-id',worker.id])).code,0);await stopped(worker);await waitFor(()=>ownedPids(childFile).every(dead));
+ report.renewal.generations.push({mode:'replacement',generation:replacement.value.generation.generation,narrowed:true,managedImage:existsSync(join(dirname(replacement.manifest),`image-${replacement.id}.json`)),inventoryDigest:replacementObserved.inventoryDigest,descendants:worker.messages(),actualNativeCommand:true});
+ report.checks.actualOriginalSurvivorRenewal=true;report.checks.actualManagedReplacementNarrowing=true;report.checks.oldAuthorityIrrevocablyRevoked=true;
+}
 
 try {
  assert.equal(hash(readFileSync(manager)),provenance.files['public/gestalt']);assert.equal(provenance.binarySha256,expectedBinary);report.checks.managerInstalledBytes=true;report.checks.binaryPinned=true;
@@ -337,7 +440,7 @@ try {
  report.stage='absence-before-owned-birth';const captured=await captureFor(m,manifest,captureId);for(const c of cases){c.manifest=join(c.directory,'manifest.json');c.value=manifestFor(c.app,c.directory,c.profile,c.session);c.captured=await captureFor(c.value,c.manifest,c.capture);}
  networkCase.manifest=join(networkCase.directory,'manifest.json');networkCase.value=manifestFor(networkCase.app,networkCase.directory,networkCase.profile,networkCase.session,true);networkCase.captured=await captureFor(networkCase.value,networkCase.manifest,networkCase.capture);
  report.checks.absentBeforeOriginalBirth=true;
- const {launchCodexAppServer}=await import(pathToFileURL(mobileModule).href);runtime=launchCodexAppServer({profile:'default',cwd:app,environment:controllerEnv});runtime.child.stderr.on('data',()=>{});
+ const {launchCodexAppServer}=await import(pathToFileURL(mobileModule).href);runtime=launchCodexAppServer({profile:'default',cwd:app,environment:controllerEnv});runtime.child.stderr.on('data',()=>{});trackPrivateRequests(runtime.child);
  // The accepted client intentionally truncates error messages to 256 bytes.
  // Classify the original error frame before that boundary; retain no frame/text.
  let wireBuffer='';runtime.child.stdout.on('data',chunk=>{wireBuffer+=chunk.toString();if(Buffer.byteLength(wireBuffer)>1024*1024){wireBuffer='';report.wireDiagnosticOverflow=true;return;}
@@ -352,7 +455,7 @@ try {
  report.sources={nativeLayerKinds:observed.configuration.layers.map(layer=>layer.name.type),directoryCount:observed.inventory.sources.filter(source=>source.kind==='directory').length,instructionCount:initial.instructionSources.length,inventoryDigest:observed.inventoryDigest,effectiveConfigDigest:observed.inventory.effectiveConfigDigest,sessionFlagsDigest:observed.inventory.sessionFlagsDigest};
  report.stage='native-model-and-child-tools';await prepare();let completed=false;const off=runtime.rpc.onNotification(message=>{if(message.method==='turn/completed'&&message.params?.threadId===thread)completed=true;});
  await rpc('turn/start',{threadId:thread,input:[{type:'text',text:'Run the controlled native confinement probe.'}]});await waitFor(()=>completed||providerFailure,90000);off();assert.equal(providerFailure,undefined);assert.ok(modelThreads.size>=2);assert.ok(roleSteps.get('root')>=5);
- assert.ok(existsSync(join(app,'model-root.txt')));assert.equal(readdirSync(privateRoot).some(name=>name.startsWith('forbidden-')),false);report.checks.actualNativeModelFileTools=true;report.checks.actualNativeChildAgentInheritance=true;report.model={provider:'controlled',requests:providerRequests,threads:modelThreads.size};
+ assert.ok(existsSync(join(app,'model-root.txt')));assert.equal(readdirSync(privateRoot).some(name=>name.startsWith('forbidden-')),false);originalModelWorkers=nativeCodeModeWorkers();report.originalModelWorkers=originalModelWorkers;report.checks.actualNativeModelFileTools=true;report.checks.actualNativeChildAgentInheritance=true;report.model={provider:'controlled',requests:providerRequests,threads:modelThreads.size};
  report.stage='native-helper-and-grandchildren';extraFD=openSync(auth,'r');unowned=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{env:controllerEnv,stdio:'ignore'});
  const first=await launch();await nativeMessages(first);
  await waitFor(()=>first.frames().some(frame=>frame.kind==='devserver-denied'));const denial=first.frames().find(frame=>frame.kind==='devserver-denied');assert.ok([1,13].includes(denial.errno));assert.equal(existsSync(first.publicSocket),false);assert.equal(m.sandboxState.permissionProfile.network,'restricted');report.restrictedDevserver={originalNetwork:'restricted',bindDenied:true,errno:denial.errno};report.checks.originalRestrictedNetworkBindDenied=true;
@@ -365,7 +468,7 @@ try {
  const leader=await launch('leader-exit');await stopped(leader);await waitFor(()=>ownedPids(childFile).length===0);report.checks.detachedGrandchildReaped=true;
  process.kill(unowned.pid,0);assert.equal(await api(),200);assert.equal((await rpc('fs/readFile',{path:auth})).dataBase64,hostRead.dataBase64);report.checks.ownedOnlyCleanupAndControllerAuthority=true;
  report.stage='actual-provenance-negative-matrix';report.negative={};
- for(const c of cases){report.negativeCurrent={kind:c.kind,phase:'startup'};const started=await startupAt(c.value);report.negativeCurrent.phase='source-observation';await actualSources(c.value,c.manifest,c.capture,started,c.captured);assert.equal((await callFor(c.manifest,['prepare'])).code,0);const metadata=join(c.app,'.codex');report.negativeCurrent.phase='native-metadata-observed';assert.ok(existsSync(metadata));
+ for(const c of cases){report.negativeCurrent={kind:c.kind,phase:'startup'};const started=await startupAt(c.value,{holdMetadata:true});report.negativeCurrent.phase='source-observation';await actualSources(c.value,c.manifest,c.capture,started,c.captured);assert.equal((await callFor(c.manifest,['prepare'])).code,0);const metadata=join(c.app,'.codex');report.negativeCurrent.phase='native-metadata-observed';assert.ok(existsSync(metadata));
   if(['config','hooks','rules','agents'].includes(c.kind)){const name={config:'config.toml',hooks:'hooks.json',rules:'rules',agents:'agents'}[c.kind];writeFileSync(join(metadata,name),'injected-native-source');}
   if(c.kind==='replacement'){renameSync(metadata,metadata+'-original');mkdirSync(metadata,{mode:0o755});}
   if(c.kind==='symlink'){renameSync(metadata,metadata+'-original');symlinkSync(privateRoot,metadata);}
@@ -377,10 +480,11 @@ try {
   let racer,raceEnded,racing=false;
   if(c.kind==='race'){racer=spawn(process.execPath,['-e',`const fs=require('node:fs'),p=${JSON.stringify(metadata)};let i=0;const tick=()=>{fs.renameSync(p,p+'-race-'+i);fs.mkdirSync(p,{mode:0o755});if(i++===0)process.stdout.write('racing\\n');if(i<64)setTimeout(tick,16);};tick();`],{stdio:['ignore','pipe','ignore'],env:controllerEnv});raceEnded=new Promise(done=>racer.once('close',done));racer.stdout.on('data',chunk=>{if(chunk.toString().includes('racing'))racing=true;});await waitFor(()=>racing);assert.equal(racer.exitCode,null);}
   report.negativeCurrent.phase='mutation-verification';writeFileSync(c.manifest,JSON.stringify(c.value),{mode:0o600});const result=await callFor(c.manifest,['verify']);if(racer){await raceEnded;assert.equal(racer.exitCode,0);}assert.equal(result.code,1);const reason=JSON.parse(result.stdout).reason;report.negativeCurrent.reason=reason;assert.ok((c.kind.startsWith('instruction-')?['source-changed']:['metadata-content-present','metadata-changed','symlink-path','tampered-receipt','revoked-runtime-provenance']).includes(reason),reason);report.negative[c.kind]={passed:true,reason,...(racer?{concurrentMutation:true}:{} )};
+  assert.equal((await callFor(c.manifest,['revoke-runtime','--capture-id',c.capture])).code,0);const successor=nextRenewal({value:c.value,manifest:c.manifest,id:c.capture,threadId:started.thread.id});const renewal=await renewCapture(successor,{value:c.value,manifest:c.manifest,id:c.capture},'survivor');assert.equal(renewal.code,1);report.negative[c.kind].renewalRefused=JSON.parse(renewal.stdout).reason;const holder=metadataCommands.get(c.app);await rpc('command/exec/terminate',{processId:holder.processId});const commandExit=await holder.finished;assert.ok(Number.isInteger(commandExit.exitCode));holder.off();metadataCommands.delete(c.app);report.negative[c.kind].nativeCommandSettled=true;report.negative[c.kind].nativeCommandExitCode=commandExit.exitCode;
  }
  report.checks.nativeBornInjectionReplacementLifetimeSessionMatrix=true;
  report.stage='original-network-enabled-devserver';
- const enabledStartup=await startupAt(networkCase.value);const enabledSources=await actualSources(networkCase.value,networkCase.manifest,networkCase.capture,enabledStartup,networkCase.captured);
+ const enabledStartup=await startupAt(networkCase.value,{holdMetadata:true});const enabledSources=await actualSources(networkCase.value,networkCase.manifest,networkCase.capture,enabledStartup,networkCase.captured);
  assert.ok(enabledStartup.instructionSources.includes(join(networkCase.app,'AGENTS.override.md')));assert.equal(enabledStartup.instructionSources.includes(join(networkCase.app,'AGENTS.md')),false);report.checks.actualNativeInstructionCandidatePrecedence=true;
  const enabled=await launch('hold',{app:networkCase.app,m:networkCase.value,manifest:networkCase.manifest,childFile:networkCase.childFile,publicFile:networkCase.publicFile});await nativeMessages(enabled);await waitFor(()=>enabled.frames().some(frame=>frame.kind==='devserver-ready'));
  assert.ok(enabled.messages().every(frame=>Object.values(frame.checks).every(Boolean)));assert.equal((await callFor(networkCase.manifest,['verify-process','--launch-id',enabled.id])).code,0);
@@ -393,13 +497,15 @@ try {
  report.devserver={supported:true,nativeTransport:'public Unix HTTP socket',registeredIngress:'loopback TCP',privateDenied:true};
 
  report.devserver.originalNetwork='enabled';report.devserver.originalPolicyFixture='separate-from-birth';report.devserver.inventoryDigest=enabledSources.inventoryDigest;report.devserver.descendants=enabled.messages();
- assert.equal((await callFor(networkCase.manifest,['stop','--launch-id',enabled.id])).code,0);await stopped(enabled);await waitFor(()=>ownedPids(networkCase.childFile).every(dead));
- report.stage='actual-owning-runtime-loss';const orphan=await launch();await nativeMessages(orphan);runtime.child.kill('SIGKILL');await stopped(orphan);await waitFor(()=>ownedPids(childFile).every(dead));assert.equal((await managerCall(['live-policy','verify','--manifest',manifest])).code,1);report.checks.owningRuntimeLossRevokesWorkers=true;
+ assert.equal((await callFor(networkCase.manifest,['stop','--launch-id',enabled.id])).code,0);await stopped(enabled);await waitFor(()=>ownedPids(networkCase.childFile).every(dead));const enabledHolder=metadataCommands.get(networkCase.app);await rpc('command/exec/terminate',{processId:enabledHolder.processId});const enabledExit=await enabledHolder.finished;assert.ok(Number.isInteger(enabledExit.exitCode));enabledHolder.off();metadataCommands.delete(networkCase.app);report.devserver.nativeCommandSettled=true;
+ await proveRenewal({value:m,manifest,id:captureId,threadId:thread});
+ report.stage='actual-owning-runtime-loss';const orphan=await launch('hold',renewedFixture);await nativeMessages(orphan);runtime.child.kill('SIGKILL');await stopped(orphan);await waitFor(()=>ownedPids(childFile).every(dead));assert.equal((await managerCall(['live-policy','verify','--manifest',renewedFixture.manifest])).code,1);report.checks.owningRuntimeLossRevokesWorkers=true;
  report.stage='devserver-capability-required';assert.equal(report.checks.actualConfinedDevserverAndRegisteredLoopbackIngress,true,'REQUIRED_DEVSERVER_PROOF_UNAVAILABLE');
  report.stage='complete';report.passed=true;
 } catch(error){report.failureMetadata=metadataPaths.map((path,index)=>{try{const info=lstatSync(path);return {ancestor:index,kind:info.isDirectory()?'directory':info.isSymbolicLink()?'symlink':'file',identity:folderPin(path),empty:info.isDirectory()?readdirSync(path).length===0:undefined};}catch{return {ancestor:index,kind:'absent'};}});report.failureDetail={stage:report.stage,assertion:error.operator,actual:typeof error.actual==='number'||typeof error.actual==='boolean'?error.actual:undefined,expected:typeof error.expected==='number'||typeof error.expected==='boolean'?error.expected:undefined};report.failure=error.code??(/^[A-Z_]+$/.test(error.message)?error.message:'ASSERTION_FAILED');if(active){report.nativeDiagnostic=active.diagnostic();report.launchBoundary=launchBoundary(active);report.ownedProcessSnapshot=ownedProcessSnapshot(active);}process.exitCode=1;
 } finally {
  if(active){try{await managerCall(['live-policy','stop','--manifest',active.manifestPath,'--launch-id',active.id]);await stopped(active);}catch{report.passed=false;process.exitCode=1;await closeOwned(active.child);}}
+ for(const holder of metadataCommands.values()){try{await rpc('command/exec/terminate',{processId:holder.processId});await holder.finished;}catch{}holder.off();}metadataCommands.clear();
  if(extraFD!==undefined)closeSync(extraFD);try{await closeOwned(runtime?.child);await closeOwned(caddy);await closeOwned(unowned);await elected?.close();report.checks.ownedShutdown=true;}catch{report.passed=false;report.failure='OWNED_SHUTDOWN_FAILED';process.exitCode=1;}
  if(publicIngress?.listening)await new Promise(done=>publicIngress.close(done));
  if(provider.listening)await new Promise(done=>provider.close(done));if(server.listening)await new Promise(done=>server.close(done));

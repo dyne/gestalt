@@ -25,18 +25,24 @@ export async function quiesceNative(request,knownThreads){
  const threads=[...new Set([...knownThreads,...loaded.data])];assert.ok(threads.length>0&&threads.length<=64);
  const observed=[];
  for(const threadId of threads){
-  const {thread}=await request('thread/read',{threadId,includeTurns:true});
+  // Internal Native stores may not implement full-history list_turns. The
+  // current live status is authoritative for turn activity; do not fabricate
+  // an empty history when includeTurns is unavailable.
+  const {thread}=await request('thread/read',{threadId,includeTurns:false});
   assert.equal(thread.id,threadId);assert.ok(['idle','notLoaded'].includes(thread.status?.type));
-  assert.ok(Array.isArray(thread.turns));assert.equal(thread.turns.some(turn=>turn.status==='inProgress'),false);
+  if(Array.isArray(thread.turns))assert.equal(thread.turns.some(turn=>turn.status==='inProgress'),false);
   const isLoaded=loaded.data.includes(threadId);
-  assert.equal(isLoaded,thread.status.type==='idle');
+  // Internal threads can lack an app-server watch entry while remaining in
+  // ThreadManager. Native overlays actual running turns as Active. Query the
+  // terminal registry for every loaded thread, including that internal case.
+  if(!isLoaded)assert.equal(thread.status.type,'notLoaded');
   // Native's terminal RPC requires a loaded thread. For a departed child,
   // require BOTH an actual notLoaded read and absence in its loaded registry.
   if(isLoaded){
    const terminals=await request('thread/backgroundTerminals/list',{threadId,limit:64});
    assert.deepEqual(terminals.data,[]);assert.equal(terminals.nextCursor,null);
   }
-  observed.push({threadId,status:thread.status.type,turns:thread.turns.length,terminals:isLoaded?0:'unloaded'});
+  observed.push({threadId,status:thread.status.type,historyObserved:false,terminals:isLoaded?0:'unloaded'});
  }
  for(const threadId of threads.toReversed()){
   const result=await request('thread/unsubscribe',{threadId});

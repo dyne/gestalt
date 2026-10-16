@@ -988,3 +988,8 @@ test('renewal Native unsubscribe preserves a measured idle cache without claimin
  const request=async(method,params)=>{if(method==='thread/loaded/list')return {data:['root'],nextCursor:null};if(method==='thread/read')return {thread:{id:params.threadId,status:{type:'idle'},turns:[]}};if(method==='thread/backgroundTerminals/list')return {data:[],nextCursor:null};if(method==='thread/unsubscribe')return {status:'unsubscribed'};};
  const result=await quiesceNative(request,['root']);assert.equal(result.unsubscribed,true);assert.equal(result.cachedThreads,1);assert.equal(Object.hasOwn(result,'unloaded'),false);
 });
+test('renewal Native internal loaded thread still requires actual empty terminal registry',async()=>{
+ let terminals=0;const request=async(method,params)=>{if(method==='thread/loaded/list')return {data:['internal-child'],nextCursor:null};if(method==='thread/read'){assert.equal(params.includeTurns,false);return {thread:{id:params.threadId,status:{type:'notLoaded'},turns:[]}};}if(method==='thread/backgroundTerminals/list'){terminals++;return {data:[],nextCursor:null};}if(method==='thread/unsubscribe')return {status:'notSubscribed'};};
+ const result=await quiesceNative(request,['internal-child']);assert.equal(result.cachedThreads,1);assert.equal(terminals,1);assert.equal(result.observed[0].terminals,0);assert.equal(result.observed[0].historyObserved,false);
+ await assert.rejects(quiesceNative(async(method,params)=>method==='thread/backgroundTerminals/list'?{data:[{}],nextCursor:null}:request(method,params),['internal-child']));
+});

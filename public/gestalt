@@ -149,6 +149,9 @@ Commands:
                             Elected-controller owning-runtime birth/revocation.
   live-policy seal-runtime --manifest ABS --capture-id UUID --runtime-pid PID --sources ABS
                             Seal verified birth and effective source provenance.
+  live-policy renew-runtime --manifest NEW --capture-id UUID --previous-manifest OLD
+                            --previous-capture-id UUID --mode survivor|replacement
+                            Capture a fresh, strictly newer authenticated generation.
   live-policy run --manifest ABS --command ID --launch-id UUID
                             Controller-only admitted native subprocess dispatch.
   xerj install              Install the checksum-verified managed xerj release.
@@ -2617,6 +2620,31 @@ function admissionPaths(m,root) {
   if(!inside(directory,root))fail('stale-election');
   return {receipt:join(directory,`runtime-admission-${scope}.json`),lock:join(directory,`runtime-admission-${scope}.lock`)};
 }
+async function admissionTransition(manifestPath,operation) {
+  const path=trusted(manifestPath),root=trusted(dirname(path),true),m=JSON.parse(readPrivate(path));
+  if(m.schemaVersion!==2)fail('incompatible-manifest');host(m.controller);electionAuthority(m,root);
+  const mutex=admissionPaths(m,root).receipt+'.transition',fd=openSync(mutex,constants.O_CREAT|constants.O_RDWR|constants.O_NOFOLLOW,0o600);
+  let child,ended;
+  try {
+    const info=fstatSync(fd);
+    if(!info.isFile()||info.uid!==process.getuid()||info.nlink!==1||(info.mode&0o777)!==0o600)fail('untrusted-storage');
+    // A bounded kernel guard, not a controller/daemon. EOF releases it even if
+    // this verifier dies between publication steps. No descriptor reaches Native.
+    child=spawn('/usr/bin/flock',['--exclusive','--nonblock','--no-fork','/proc/self/fd/3','/usr/bin/bash','--noprofile','--norc','-c','printf "locked\\n"; exec /usr/bin/cat >/dev/null'],
+      {env:{PATH:'/usr/bin:/bin',LANG:'C.UTF-8'},stdio:['pipe','pipe','ignore',fd]});
+    let launchError;child.once('error',error=>{launchError=error;});
+    child.stdin.on('error',()=>{});ended=new Promise(done=>child.once('close',done));
+    let ready=false,reply='';child.stdout.on('data',data=>{reply+=data.toString();if(reply==='locked\n')ready=true;});
+    await Promise.race([new Promise((done,reject)=>{const timer=setInterval(()=>{if(ready){clearInterval(timer);done();}},5);timer.unref();ended.then(()=>{clearInterval(timer);if(!ready)reject(Object.assign(Error('busy'),{reason:launchError?'missing-prerequisite':'admission-transition-busy'}));});}),
+      new Promise((_,reject)=>{const timer=setTimeout(()=>reject(Object.assign(Error('busy'),{reason:'admission-transition-busy'})),2000);timer.unref();})]);
+    const current=lstatSync(mutex);if(current.dev!==info.dev||current.ino!==info.ino)fail('untrusted-storage');
+    return await operation();
+  } finally {
+    closeSync(fd);
+    if(child){child.stdin.end();const timer=setTimeout(()=>child.kill('SIGKILL'),2000);timer.unref();try{await ended;}finally{clearTimeout(timer);}}
+  }
+}
+
 function keyScope(m,root) {
   if(m.schemaVersion===2) {
     const directory=trusted(dirname(trusted(m.election.lockFile)),true);
@@ -2642,10 +2670,11 @@ function instructionPin(path) {
   }finally{closeSync(fd);}
 }
 function sourceInventory(input,m,body,processIdentity,directories,instructions) {
-  if(!exactKeys(input,['schemaVersion','runtime','policyDigest','effectiveConfigDigest','sessionFlagsDigest','sources'])
+  if(!exactKeys(input,['schemaVersion','runtime','policyDigest','effectiveConfigDigest','sessionFlagsDigest','sources'],['observation'])
     ||input.schemaVersion!==2||stable(input.runtime)!==stable(processIdentity)||input.policyDigest!==body.policyDigest
     ||![input.effectiveConfigDigest,input.sessionFlagsDigest].every(value=>/^[a-f0-9]{64}$/.test(value))
     ||!Array.isArray(input.sources)||!input.sources.length||input.sources.length>128)fail('incomplete-source-inventory');
+  if(input.observation)observedIntent(input,body);
   // Capture all discovery candidates, including absent and precedence-shadowed
   // files. Recheck the entire signed state independently of caller selection.
   if(!instructions||typeof instructions!=='object'||Array.isArray(instructions))fail('incomplete-source-inventory');
@@ -2698,8 +2727,157 @@ function runtimeIdentity(pid,m) {
   const environmentDigest=digest(readFileSync(`/proc/${pid}/environ`)),exe=statSync(`/proc/${pid}/exe`),installed=statSync(path);
   if(exe.dev!==installed.dev||exe.ino!==installed.ino||digest(readFileSync(`/proc/${pid}/exe`))!==m.binary.sha256)fail('unverified-owning-runtime');
   if(stable(identity(pid))!==stable(owner)||processParent(pid)!==m.controller.pid||readlinkSync(`/proc/${pid}/exe`)!==path)fail('unverified-owning-runtime');
-  return {process:owner,parent:m.controller,executable:m.binary,executableIdentity:{dev:exe.dev,ino:exe.ino,uid:exe.uid,mode:exe.mode},argvDigest:digest(stable(argv)),environmentDigest};
+  return {process:owner,parent:m.controller,cwd:readlinkSync(`/proc/${pid}/cwd`),executable:m.binary,executableIdentity:{dev:exe.dev,ino:exe.ino,uid:exe.uid,mode:exe.mode},argvDigest:digest(stable(argv)),environmentDigest};
 }
+function observedIntent(input,body) {
+  const observation=input.observation;
+  if(!exactKeys(observation,['sessionFlags','accountDigest'])||!/^[a-f0-9]{64}$/.test(observation.accountDigest))fail('renewal-observation-required');
+  const flags=observation.sessionFlags;
+  if(!exactKeys(flags,['model','modelProvider','cwd','approvalPolicy','activePermissionProfile','sandbox','reasoningEffort'],['runtimeWorkspaceRoots','instructionSources'])
+    ||typeof flags.model!=='string'||!flags.model||typeof flags.modelProvider!=='string'||!flags.modelProvider
+    ||flags.cwd!==body.app.path||!flags.activePermissionProfile||flags.activePermissionProfile.id!==body.profileId
+    ||digest(stable(flags))!==input.sessionFlagsDigest)fail('renewal-observation-required');
+  const comparable=structuredClone(flags);delete comparable.sandbox;delete comparable.activePermissionProfile.id;
+  return {accountDigest:observation.accountDigest,flags:comparable};
+}
+function narrowerPolicy(previous,current) {
+  const left=structuredClone(previous),right=structuredClone(current),a=left.permissionProfile,b=right.permissionProfile;
+  if(a.network!==b.network&&!(a.network==='enabled'&&b.network==='restricted'))fail('renewal-policy-broadened');
+  delete a.network;delete b.network;
+  const first=a.file_system.entries,second=b.file_system.entries,rank={deny:0,read:1,write:2};
+  if(first.length!==second.length)fail('renewal-policy-incompatible');
+  for(let n=0;n<first.length;n++) {
+    if(stable(first[n].path)!==stable(second[n].path)||!(first[n].access in rank)||!(second[n].access in rank))fail('renewal-policy-incompatible');
+    if(rank[second[n].access]>rank[first[n].access])fail('renewal-policy-broadened');
+  }
+  delete a.file_system.entries;delete b.file_system.entries;
+  if(stable(left)!==stable(right))fail('renewal-policy-incompatible');
+}
+function originalGone(record) {
+  if(!record||!Number.isSafeInteger(record.pid)||typeof record.birth!=='string'||!/^\d+$/.test(record.birth))fail('invalid-renewal-lineage');
+  // A changed UID/namespace is not process exit. Only a departed/reused birth is.
+  try{return identity(record.pid).birth!==record.birth;}catch(error){if(error.reason==='stale-process')return true;throw error;}
+}
+function drainedGeneration(root,keyFile) {
+  if(existsSync(join(root,'dispatch.lock')))fail('renewal-undrained');
+  const names=readdirSync(root).filter(name=>/^process-[a-f0-9-]+\.json$/.test(name));
+  if(names.length>256)fail('renewal-undrained');
+  for(const name of names) {
+    const saved=authenticated(join(root,name),keyFile);
+    if(saved.kind!=='process-launch'||saved.status!=='exited'||!Number.isSafeInteger(saved.processGroup)||saved.processGroup<=0||saved.processGroup!==saved.process?.pid||!originalGone(saved.process)||!originalGone(saved.owner))fail('renewal-undrained');
+    try{process.kill(-saved.processGroup,0);fail('renewal-undrained');}catch(error){if(error.code!=='ESRCH')throw error;}
+  }
+}
+function preservedMetadata(before,sealed) {
+  if(stable(Object.keys(sealed.directories))!==stable(before.directories.map(item=>item.path)))fail('stale-runtime-provenance');
+  for(const prior of before.directories) {
+    if(stable(directoryPin(dirname(prior.path),false,true))!==stable(sealed.parents[prior.path]))fail('metadata-changed');
+    const pin=sealed.directories[prior.path];
+    if(pin===null){try{lstatSync(prior.path);fail('metadata-changed');}catch(error){if(error.code!=='ENOENT')throw error;}}
+    else if(stable(directoryPin(prior.path,true))!==stable(pin))fail('metadata-changed');
+  }
+}
+function revocationRecord(root,id,fence,keyFile) {
+  const path=join(root,`revocation-${id}.json`),body={...fence,status:'revoked'};
+  if(existsSync(path)){if(stable(authenticated(path,keyFile))!==stable(body))fail('stale-runtime-provenance');}
+  else writeReceipt(path,body,keyFile);
+  return {path,digest:digest(stable(body))};
+}
+function renewalParent(link,m,body,keyFile,depth=0) {
+  if(depth>=16||!exactKeys(link,['mode','previousManifest','previousCaptureId','manifestDigest','policyDigest','beforeDigest','sealDigest','revocation','reservation'])
+    ||!['survivor','replacement'].includes(link.mode)||!launchIdValid(link.previousCaptureId))fail('invalid-renewal-lineage');
+  const previousPath=trusted(link.previousManifest),root=trusted(dirname(previousPath),true),old=JSON.parse(readPrivate(previousPath));
+  if(digest(readPrivate(previousPath))!==link.manifestDigest||old.keyFile!==m.keyFile)fail('renewal-source-changed');
+  const previous=contract(previousPath,true,undefined,true),policy=authenticated(join(root,'policy-receipt.json'),keyFile);
+  const base=structuredClone(policy);delete base.provenance;
+  if(digest(stable(policy))!==link.policyDigest||stable(base)!==stable(previous.body))fail('renewal-source-changed');
+  const before=authenticated(join(root,`birth-${link.previousCaptureId}.json`),keyFile),sealed=authenticated(join(root,`runtime-${link.previousCaptureId}.json`),keyFile);
+  if(digest(stable(before))!==link.beforeDigest||digest(stable(sealed))!==link.sealDigest||sealed.beforeDigest!==link.beforeDigest
+    ||before.captureId!==link.previousCaptureId||sealed.captureId!==link.previousCaptureId||sealed.basisDigest!==provenanceBasis(previous.body)
+    ||before.basisDigest!==sealed.basisDigest||policy.provenance?.captureId!==link.previousCaptureId||policy.provenance.receiptDigest!==link.sealDigest)fail('invalid-renewal-lineage');
+  for(const reference of [link.revocation,link.reservation]) {
+    if(!exactKeys(reference,['path','digest']))fail('invalid-renewal-lineage');
+    const revoked=authenticated(trusted(reference.path),keyFile);
+    if(digest(stable(revoked))!==reference.digest||revoked.kind!=='runtime-admission'||revoked.status!=='revoked'
+      ||stable(revoked.controller)!==stable(m.controller)||revoked.generation.sessionId!==m.generation.sessionId
+      ||revoked.generation.generation>=m.generation.generation)fail('invalid-renewal-lineage');
+  }
+  if(sealed.imageDigest){const image=authenticated(join(root,`image-${link.previousCaptureId}.json`),keyFile);if(digest(stable(image))!==sealed.imageDigest||image.captureId!==link.previousCaptureId||stable(image.process)!==stable(sealed.runtime.process)||image.basisDigest!==sealed.basisDigest)fail('invalid-renewal-lineage');}
+  const revoked=authenticated(link.revocation.path,keyFile);
+  if(revoked.captureId!==link.previousCaptureId||revoked.manifestRoot!==root||stable(revoked.generation)!==stable(old.generation))fail('invalid-renewal-lineage');
+  if(m.generation.sessionId!==old.generation.sessionId||m.generation.generation<=old.generation.generation
+    ||stable(body.app)!==stable(previous.body.app)||stable(body.controller)!==stable(previous.body.controller)
+    ||stable(body.binary)!==stable(previous.body.binary)||stable(body.manager)!==stable(previous.body.manager)
+    ||stable(body.components)!==stable(previous.body.components)||stable(m.election)!==stable(old.election)
+    ||stable({...m.owningRuntime,home:canonical(m.owningRuntime.home??m.runtimeHome),instructionFiles:m.owningRuntime.instructionFiles??[]})!==stable({...old.owningRuntime,home:canonical(old.owningRuntime.home??old.runtimeHome),instructionFiles:old.owningRuntime.instructionFiles??[]})||m.environment.PATH!==old.environment.PATH||m.environment.TMPDIR!==old.environment.TMPDIR
+    ||stable(m.privatePaths)!==stable(old.privatePaths))fail('renewal-source-changed');
+  const ancestry=before.renewal?renewalParent(before.renewal,old,previous.body,keyFile,depth+1):undefined;
+  const originalConfigs=ancestry?.originalConfigs??before.configs.filter(file=>file.path!==join(old.runtimeHome,'config.toml')||old.runtimeHome===(old.owningRuntime.home??old.runtimeHome));
+  if(originalConfigs.some(file=>!m.configFiles.some(current=>stable(current)===stable(file))))fail('renewal-source-changed');
+  narrowerPolicy(previous.body.sandboxState,body.sandboxState);
+  preservedMetadata(before,sealed);
+  sourceInventory(sealed.inventory,old,previous.body,sealed.runtime.process,sealed.directories,before.instructions);
+  observedIntent(sealed.inventory,previous.body);
+  drainedGeneration(root,keyFile);
+  const ids=[link.previousCaptureId,...(ancestry?.ids??[])];
+  return {root,old,before,sealed,body:previous.body,ids,originalConfigs};
+}
+function renewalRuntime(before,m,body,keyFile,runtime) {
+  const parent=renewalParent(before.renewal,m,body,keyFile);
+  if(before.renewal.mode==='survivor') {
+    if(stable(runtime)!==stable(parent.sealed.runtime))fail('unverified-owning-runtime');
+  } else {
+    if(!originalGone(parent.sealed.runtime.process))fail('renewal-owner-alive');
+    if(runtime.environmentDigest!==parent.sealed.runtime.environmentDigest||runtime.argvDigest!==parent.sealed.runtime.argvDigest
+      ||runtime.cwd!==parent.sealed.runtime.cwd)fail('unverified-owning-runtime');
+  }
+  return parent;
+}
+async function renewRuntime(manifestPath,id,previousPath,previousId,mode) {
+  if(!launchIdValid(id)||!launchIdValid(previousId)||!['survivor','replacement'].includes(mode))fail('invalid-renewal-lineage');
+  const {root,keyFile,body}=contract(manifestPath,true,undefined,true),m=JSON.parse(readPrivate(manifestPath));
+  if(m.schemaVersion!==2)fail('incompatible-manifest');electionAuthority(m,root,true);
+  previousPath=trusted(previousPath);const previousRoot=trusted(dirname(previousPath),true);
+  if(root===previousRoot)fail('renewal-storage-reused');
+  const birthPath=join(root,`birth-${id}.json`),sealPath=join(root,`runtime-${id}.json`);
+  if(existsSync(birthPath)||existsSync(sealPath))fail('reused-capture-id');
+  const paths=admissionPaths(m,root),fence=authenticated(paths.receipt,keyFile);
+  if(fence.kind!=='runtime-admission'||fence.status!=='revoked'||stable(fence.controller)!==stable(m.controller)
+    ||fence.generation.sessionId!==m.generation.sessionId||fence.generation.generation>=m.generation.generation)fail('renewal-not-revoked');
+  const policy=authenticated(join(previousRoot,'policy-receipt.json'),keyFile),before=authenticated(join(previousRoot,`birth-${previousId}.json`),keyFile),sealed=authenticated(join(previousRoot,`runtime-${previousId}.json`),keyFile);
+  if(fence.captureId!==previousId||fence.manifestRoot!==previousRoot) {
+    if(stable(fence.renewalOf)!==stable({manifestRoot:previousRoot,captureId:previousId,sealDigest:digest(stable(sealed))}))fail('invalid-renewal-lineage');
+    drainedGeneration(trusted(fence.manifestRoot,true),keyFile);
+    const failedImage=join(fence.manifestRoot,`image-${fence.captureId}.json`);
+    if(existsSync(failedImage)&&!originalGone(authenticated(failedImage,keyFile).process))fail('renewal-owner-alive');
+  }
+  const revocationPath=join(previousRoot,`revocation-${previousId}.json`);
+  const link={mode,previousManifest:previousPath,previousCaptureId:previousId,manifestDigest:digest(readPrivate(previousPath)),policyDigest:digest(stable(policy)),
+    beforeDigest:digest(stable(before)),sealDigest:digest(stable(sealed)),revocation:{path:revocationPath,digest:digest(stable(authenticated(revocationPath,keyFile)))},
+    reservation:revocationRecord(trusted(fence.manifestRoot,true),fence.captureId,fence,keyFile)};
+  const parent=renewalParent(link,m,body,keyFile);
+  if(parent.ids.includes(id))fail('reused-capture-id');
+  if(mode==='survivor'){if(stable(runtimeIdentity(parent.sealed.runtime.process.pid,m))!==stable(parent.sealed.runtime))fail('unverified-owning-runtime');}
+  else if(!originalGone(parent.sealed.runtime.process))fail('renewal-owner-alive');
+  if(existsSync(join(root,'dispatch.lock')))fail('renewal-undrained');
+  try{mkdirSync(paths.lock,{mode:0o700});}catch(error){if(error.code==='EEXIST')fail('active-runtime-admission');throw error;}
+  const next={schemaVersion:2,kind:'runtime-admission',captureId:id,manifestRoot:root,status:'captured',controller:m.controller,generation:m.generation,
+    renewalOf:{manifestRoot:previousRoot,captureId:previousId,sealDigest:link.sealDigest}};
+  try {
+    if(stable(authenticated(paths.receipt,keyFile))!==stable(fence))fail('renewal-not-revoked');
+    renewalParent(link,m,body,keyFile);
+    writeReceipt(paths.receipt,next,keyFile);
+    const clock=clockObservation(before.clock.hz);
+    writeReceipt(birthPath,{schemaVersion:2,kind:'before-runtime-birth',captureId:id,basisDigest:provenanceBasis(body),configs:m.configFiles,
+      directories:before.directories.map(prior=>({path:prior.path,parent:parent.sealed.parents[prior.path]})),instructions:before.instructions,clock,afterTick:clock.afterTick,renewal:link},keyFile);
+    if(stable(authenticated(paths.receipt,keyFile))!==stable(next))fail('revoked-runtime-provenance');
+  } catch(error) {
+    try{const current=authenticated(paths.receipt,keyFile);if(stable(current)===stable(next)){writeReceipt(paths.receipt,{...next,status:'revoked'},keyFile);revocationRecord(root,id,next,keyFile);rmdirSync(paths.lock);}}catch{}
+    throw error;
+  }
+  console.log(JSON.stringify({schemaVersion:2,available:true,liveReady:false,reason:'runtime-renewal-captured',captureId:id,policyDigest:body.policyDigest,mode}));
+}
+
 function verifyProvenance(m,root,keyFile,body) {
   if(!exactKeys(m.runtimeProvenance,['captureId','effectiveConfigDigest','sessionFlagsDigest'])
     ||![m.runtimeProvenance.effectiveConfigDigest,m.runtimeProvenance.sessionFlagsDigest].every(value=>/^[a-f0-9]{64}$/.test(value)))fail('missing-runtime-provenance');
@@ -2718,7 +2896,7 @@ function verifyProvenance(m,root,keyFile,body) {
     image=authenticated(join(root,`image-${id}.json`),keyFile);
     if(image.kind!=='owning-native-image'||image.captureId!==id||image.basisDigest!==before.basisDigest||stable(image.process)!==stable(current.process)||digest(stable(image))!==sealed.imageDigest)fail('stale-runtime-provenance');
   }
-  if(stable(current)!==stable(sealed.runtime)||BigInt(current.process.birth)<=BigInt(before.afterTick))fail('stale-runtime-provenance');
+  if(stable(current)!==stable(sealed.runtime)||(!before.renewal&&BigInt(current.process.birth)<=BigInt(before.afterTick)))fail('stale-runtime-provenance');
   if(stable(Object.keys(sealed.directories))!==stable(before.directories.map(item=>item.path)))fail('stale-runtime-provenance');
   for(const prior of before.directories) {
     if(stable(directoryPin(dirname(prior.path),false,true))!==stable(sealed.parents[prior.path]))fail('metadata-changed');
@@ -2727,12 +2905,13 @@ function verifyProvenance(m,root,keyFile,body) {
       try{lstatSync(prior.path);fail('metadata-changed');}catch(error){if(error.code!=='ENOENT')throw error;}
     } else {
       if(stable(directoryPin(prior.path,true))!==stable(pinned))fail('metadata-changed');
-      metadataBirth(before,sealed.runtime,pinned,image);
+      if(!before.renewal)metadataBirth(before,sealed.runtime,pinned,image);
     }
   }
+  if(before.renewal)renewalRuntime(before,m,body,keyFile,current);
   sourceInventory(sealed.inventory,m,body,current.process,sealed.directories,before.instructions);
   if(m.runtimeProvenance.effectiveConfigDigest!==sealed.inventory.effectiveConfigDigest||m.runtimeProvenance.sessionFlagsDigest!==sealed.inventory.sessionFlagsDigest)fail('source-changed');
-  return {captureId:id,receiptDigest:digest(stable(sealed)),runtime:current,directories:sealed.directories,inventory:sealed.inventory};
+  return {captureId:id,receiptDigest:digest(stable(sealed)),...(before.renewal?{renewalDigest:digest(stable(before.renewal))}:{}),runtime:current,directories:sealed.directories,inventory:sealed.inventory};
 }
 function revokeRuntime(manifestPath,id) {
   if(!launchIdValid(id))fail('invalid-capture-id');
@@ -2744,8 +2923,9 @@ function revokeRuntime(manifestPath,id) {
   const fencePath=admissionPaths(m,root).receipt,fence=authenticated(fencePath,keyFile);
   if(fence.kind!=='runtime-admission'||fence.captureId!==id||fence.manifestRoot!==root||stable(fence.controller)!==stable(m.controller))fail('unowned-runtime-admission');
   // The revocation receipt precedes lock release and any further command admission.
-  writeReceipt(fencePath,{...fence,status:'revoked'},keyFile);
-  try{rmdirSync(admissionPaths(m,root).lock);}catch(error){if(error.code!=='ENOENT')throw error;}
+  revocationRecord(root,id,fence,keyFile);
+  if(fence.status!=='revoked'){writeReceipt(fencePath,{...fence,status:'revoked'},keyFile);
+    try{rmdirSync(admissionPaths(m,root).lock);}catch(error){if(error.code!=='ENOENT')throw error;}}
   console.log(JSON.stringify({schemaVersion:2,available:true,liveReady:false,reason:'runtime-provenance-revoked',captureId:id}));
 }
 function managedNativeLaunch(action,manifestPath,id) {
@@ -2761,7 +2941,7 @@ function managedNativeLaunch(action,manifestPath,id) {
   const expected=['cli','--',bootstrap?'--live-policy-bootstrap':'--live-policy-owning-runtime','--manifest',manifestPath,...(bootstrap?[]:['--capture-id',id])];
   if(processParent(actor)!==m.controller.pid||caller.uid!==m.controller.uid||stable(caller.namespaces)!==stable(m.controller.namespaces)
     ||readlinkSync(`/proc/${actor}/exe`)!==body.launch.stdioBridge.shell.path||argv[1]!==managerSource||stable(argv.slice(2))!==stable(expected))fail('unauthorized-controller');
-  let args,env,beforeBirth;
+  let args,env,beforeBirth,owningCwd;
   if(bootstrap) {
     // Fixed trusted stock bootstrap only; no model, hooks, MCP or project command.
     // The isolated worker config was checked byte-for-byte by contract().
@@ -2774,20 +2954,22 @@ function managedNativeLaunch(action,manifestPath,id) {
       ||stable(fence.controller)!==stable(m.controller)||stable(fence.generation)!==stable(m.generation)
       ||BigInt(caller.birth)<=BigInt(before.afterTick))fail('stale-runtime-provenance');
     beforeBirth=before;
+    if(before.renewal){if(before.renewal.mode!=='replacement')fail('invalid-renewal-lineage');const parent=renewalParent(before.renewal,m,body,keyFile);if(!originalGone(parent.sealed.runtime.process))fail('renewal-owner-alive');owningCwd=canonical(parent.sealed.runtime.cwd);}
     // Recheck absence immediately before executing the original owning image.
     for(const prior of before.directories){
       if(stable(directoryPin(dirname(prior.path),false,true))!==stable(prior.parent))fail('metadata-changed');
-      try{lstatSync(prior.path);fail('project-config-present');}catch(error){if(error.code!=='ENOENT')throw error;}
+      if(!before.renewal)try{lstatSync(prior.path);fail('project-config-present');}catch(error){if(error.code!=='ENOENT')throw error;}
     }
     const home=trusted(m.owningRuntime.home??m.runtimeHome,true),config=join(home,'config.toml');
     if(!Object.values(m.privatePaths).flat().some(path=>inside(canonical(path),home))||!m.configFiles.some(file=>file.path===config&&file.sha256===digest(readPrivate(config))))fail('missing-owning-config');
     args=m.owningRuntime.args;env={PATH:'/usr/bin:/bin',HOME:home,CODEX_HOME:home,TMPDIR:'/tmp',LANG:'C.UTF-8'};
+    if(before.renewal){const parent=renewalParent(before.renewal,m,body,keyFile);if(digest(Buffer.from(Object.entries(env).map(([key,value])=>`${key}=${value}`).join('\0')+'\0'))!==parent.sealed.runtime.environmentDigest)fail('unverified-owning-runtime');}
   }
   // Descriptor producer exits before the original CLI execs Native. No Node
   // supervisor, optional MCP/service discovery or extra controller FD survives.
   if(!bootstrap)writeReceipt(join(root,`image-${id}.json`),{schemaVersion:2,kind:'owning-native-image',captureId:id,
     basisDigest:provenanceBasis(body),process:caller,clock:clockObservation(beforeBirth.clock.hz)},keyFile);
-  process.stdout.write([body.launch.stdioBridge.environment.path,'-i',...Object.entries(env).map(([key,value])=>`${key}=${value}`),body.binary.path,...args].join('\0')+'\0');
+  process.stdout.write([body.launch.stdioBridge.environment.path,'-i',...(owningCwd?[`--chdir=${owningCwd}`]:[]),...Object.entries(env).map(([key,value])=>`${key}=${value}`),body.binary.path,...args].join('\0')+'\0');
 }
 async function runtimeProvenanceCommand(action,manifestPath,id,pid,inventoryPath) {
   if(!launchIdValid(id))fail('invalid-capture-id');
@@ -2803,10 +2985,11 @@ async function runtimeProvenanceCommand(action,manifestPath,id,pid,inventoryPath
       try{lstatSync(path);fail('project-config-present');}catch(error){if(error.code!=='ENOENT')throw error;}
       return {path,parent:directoryPin(dirname(path),false,true)};
     });
+    if(existsSync(admissionPaths(m,root).receipt))fail('renewal-required');
     const declared=m.owningRuntime.instructionFiles??[];
     if(!Array.isArray(declared)||declared.length>64||declared.some(path=>typeof path!=='string'))fail('invalid-owning-runtime');
     const candidates=[...new Set([...directories.flatMap(item=>['AGENTS.md','AGENTS.override.md'].map(name=>join(dirname(item.path),name))),
-      join(m.owningRuntime.home??m.runtimeHome,'AGENTS.md'),...declared])];
+      join(m.owningRuntime.home??m.runtimeHome,'AGENTS.md'),join(m.owningRuntime.home??m.runtimeHome,'AGENTS.override.md'),...declared])];
     const instructions=Object.fromEntries(candidates.map(path=>{try{return [path,instructionPin(path)];}catch(error){if(error.code==='ENOENT')return [path,null];throw error;}}));
     // Native Linux starttime is in USER_HZ ticks, not wall-clock timestamps.
     const clockResult=spawnSync('/usr/bin/getconf',['CLK_TCK'],{encoding:'utf8',env:body.launch.env,timeout:5000});
@@ -2833,17 +3016,20 @@ async function runtimeProvenanceCommand(action,manifestPath,id,pid,inventoryPath
       if(image.kind!=='owning-native-image'||image.captureId!==id||image.basisDigest!==before.basisDigest||stable(image.process)!==stable(runtime.process))fail('stale-runtime-provenance');
     }
     if(before.kind!=='before-runtime-birth'||before.captureId!==id||before.basisDigest!==provenanceBasis(body)
-      ||BigInt(runtime.process.birth)<=BigInt(before.afterTick)||stable(before.configs)!==stable(m.configFiles))fail('stale-runtime-provenance');
+      ||(!before.renewal&&BigInt(runtime.process.birth)<=BigInt(before.afterTick))||stable(before.configs)!==stable(m.configFiles))fail('stale-runtime-provenance');
+    const renewed=before.renewal?renewalRuntime(before,m,body,keyFile,runtime):undefined;
+    if(renewed&&before.renewal.mode==='replacement'&&(!image||BigInt(runtime.process.birth)<=BigInt(before.afterTick)))fail('unverified-owning-runtime');
     const directories=Object.fromEntries(before.directories.map(prior=>{
       // Parent inode/UID/mode remain authoritative; directory creation changes its times.
       const parent=directoryPin(dirname(prior.path),false,true);
       for(const key of ['dev','ino','uid','mode'])if(parent[key]!==prior.parent[key])fail('metadata-changed');
       prior.parent=parent;
-      try{const pin=directoryPin(prior.path,true);metadataBirth(before,runtime,pin,image);return [prior.path,pin];}catch(error){if(error.code==='ENOENT')return [prior.path,null];throw error;}
+      try{const pin=directoryPin(prior.path,true);if(!renewed)metadataBirth(before,runtime,pin,image);else if(stable(pin)!==stable(renewed.sealed.directories[prior.path]))fail('metadata-changed');return [prior.path,pin];}catch(error){if(error.code==='ENOENT')return [prior.path,null];throw error;}
     }));
     const inputBytes=readPrivate(inventoryPath);
     if(inputBytes.length>262144)fail('incomplete-source-inventory');
     const inventory=sourceInventory(JSON.parse(inputBytes),m,body,runtime.process,directories,before.instructions);
+    if(renewed&&(inventory.effectiveConfigDigest!==renewed.sealed.inventory.effectiveConfigDigest||stable(observedIntent(inventory,body))!==stable(observedIntent(renewed.sealed.inventory,renewed.body))))fail('renewal-intent-changed');
     if(m.configFiles.some(file=>!inventory.sources.some(source=>source.kind==='file'&&source.path===file.path&&source.sha256===file.sha256)))fail('incomplete-source-inventory');
     // Store updated parent times in the seal, leaving immutable absence evidence intact.
     const parents=Object.fromEntries(before.directories.map(prior=>[prior.path,prior.parent]));
@@ -2852,7 +3038,9 @@ async function runtimeProvenanceCommand(action,manifestPath,id,pid,inventoryPath
     // Revalidate immediately before publication; no model dispatch is authorized here.
     writeReceipt(admissionPaths(m,root).receipt,{...fence,status:'sealed'},keyFile);
     try{m.runtimeProvenance={captureId:id,effectiveConfigDigest:inventory.effectiveConfigDigest,sessionFlagsDigest:inventory.sessionFlagsDigest};verifyProvenance(m,root,keyFile,body);}catch(error){
-      writeReceipt(admissionPaths(m,root).receipt,{...fence,status:'revoked'},keyFile);throw error;
+      const current=authenticated(admissionPaths(m,root).receipt,keyFile);
+      if(current.captureId===id&&current.manifestRoot===root){writeReceipt(admissionPaths(m,root).receipt,{...current,status:'revoked'},keyFile);revocationRecord(root,id,current,keyFile);try{rmdirSync(admissionPaths(m,root).lock);}catch(cleanup){if(cleanup.code!=='ENOENT')throw cleanup;}}
+      throw error;
     }
   }
   console.log(JSON.stringify({schemaVersion:2,available:true,liveReady:false,reason:action==='capture-runtime'?'runtime-birth-captured':'runtime-provenance-sealed',captureId:id,policyDigest:body.policyDigest}));
@@ -2897,7 +3085,7 @@ function contract(manifestPath, versionProbe = true, nativeMetadata, capturing =
   // No hooks, MCP, plugins, project trust or credential file is accepted in the sandbox CLI home.
   const config = join(runtimeHome,'config.toml');
   if (readPrivate(config).toString() !== '[shell_environment_policy]\ninherit = "none"\n') fail('unsafe-runtime-config');
-  for (const name of ['auth.json','AGENTS.md','hooks.json','hooks','plugins','skills','.codex']) {
+  for (const name of ['auth.json','AGENTS.md','AGENTS.override.md','hooks.json','hooks','plugins','skills','.codex']) {
     try { lstatSync(join(runtimeHome,name));fail('unsafe-runtime-home'); }
     catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
@@ -3133,14 +3321,18 @@ let reason = 'invalid-arguments';
 try {
   if(['managed-bootstrap','managed-owning-runtime'].includes(args[0])) {
     if(args.length!==(args[0]==='managed-bootstrap'?3:5)||args[1]!=='--manifest'||(args[0]==='managed-owning-runtime'&&args[3]!=='--capture-id'))fail(reason);
-    managedNativeLaunch(args[0],args[2],args[4]);
+    if(args[0]==='managed-bootstrap')managedNativeLaunch(args[0],args[2],args[4]);
+    else await admissionTransition(args[2],()=>managedNativeLaunch(args[0],args[2],args[4]));
+  } else if(args[0]==='renew-runtime') {
+    if(args.length!==11||args[1]!=='--manifest'||args[3]!=='--capture-id'||args[5]!=='--previous-manifest'||args[7]!=='--previous-capture-id'||args[9]!=='--mode')fail(reason);
+    await admissionTransition(args[2],()=>renewRuntime(args[2],args[4],args[6],args[8],args[10]));
   } else if(args[0]==='revoke-runtime') {
     if(args.length!==5||args[1]!=='--manifest'||args[3]!=='--capture-id')fail(reason);
-    revokeRuntime(args[2],args[4]);
+    await admissionTransition(args[2],()=>revokeRuntime(args[2],args[4]));
   } else if(['capture-runtime','seal-runtime'].includes(args[0])) {
     if(args.length!==(args[0]==='capture-runtime'?5:9)||args[1]!=='--manifest'||args[3]!=='--capture-id'
       ||(args[0]==='seal-runtime'&&(args[5]!=='--runtime-pid'||args[7]!=='--sources')))fail(reason);
-    await runtimeProvenanceCommand(args[0],args[2],args[4],Number(args[6]),args[8]);
+    await admissionTransition(args[2],()=>runtimeProvenanceCommand(args[0],args[2],args[4],Number(args[6]),args[8]));
   } else if (args[0] === 'run') {
     if (args.length !== 7 || args[1] !== '--manifest' || args[3] !== '--command' || args[5] !== '--launch-id') fail(reason);
     process.exitCode=await run(args[2],args[4],args[6]);

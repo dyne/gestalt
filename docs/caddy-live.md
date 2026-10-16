@@ -699,7 +699,7 @@ The original home must be canonical/private, covered by the declared protected
 paths, and its actual config file must be in `configFiles`; it is distinct from
 the sanitized worker home. The controller declares any nonstandard instruction
 source filenames before birth. Capture pins existing `AGENTS.md` and
-`AGENTS.override.md` files throughout app ancestry, original-home `AGENTS.md`,
+`AGENTS.override.md` files throughout app ancestry, original-home `AGENTS.md`/`AGENTS.override.md`,
 and these explicitly declared files. Sealing cannot accept an instruction source
 that was not pinned before original birth.
 
@@ -784,3 +784,135 @@ registered loopback ingress while its helper, child and detached grandchild
 retain every private-path, proc, descriptor and metadata exclusion. Version 2
 preserves either original Native network state under the sealed birth-policy
 digest; changing that state revokes admission. Version 1 remains restricted.
+
+
+Authenticated renewal of a revoked owning admission
+
+`renew-runtime` is a private elected-controller API for Stop/Resume and recovery:
+
+```sh
+gestalt live-policy renew-runtime --manifest NEW_ABS --capture-id NEW_UUID \
+  --previous-manifest OLD_ABS --previous-capture-id OLD_UUID \
+  --mode survivor
+# or: --mode replacement
+```
+
+The new manifest occupies a fresh private generation directory under the same
+elected authority. It keeps the same canonical app/inode, relay `sessionId`,
+controller birth, election holder/lock, key, Native binary, original owning home,
+argv, private exclusions, components and owning config sources. Its generation
+is strictly greater than both the prior sealed generation and any subsequently
+revoked reservation. The exact sanitized worker config may move to the new
+private worker home; original owning config bytes and paths remain unchanged.
+Later generated MCP/bootstrap admission configs remain separate from the original
+Native capture sources, as in the existing contract. Fresh generations may omit
+old generated files from their own config list and add newly measured generation
+files through normal preparation; all archived files referenced by old signed
+manifests must remain intact, and L10 still validates generated admission surfaces.
+Keep every previous manifest, policy, birth, image, seal and revocation receipt.
+The old manifest remains immutable after its last prepared policy receipt.
+
+Capture, seal, revoke, renewal and managed-image transitions serialize through
+a separate nonblocking per-app kernel flock. It releases automatically on verifier
+death; `admission-transition-busy` means retry after the competing operation.
+This is separate from the captured/sealed admission lifetime lock. A delayed old
+revoker cannot publish over a new generation, and failed seal publication revokes
+its own reservation before releasing its lifetime lock.
+
+First revoke the old capture through `revoke-runtime`, drain admitted calls and
+wait for their actual process completion. Manager checks the old dispatch lock,
+authenticated process receipts, exited status, actual process/owner births and
+absence of the owned process groups. A signed exited label alone is insufficient.
+The trusted controller must separately quiesce Native turns, child agents and
+commands using its actual private RPC lifecycle, unsubscribe/reconfigure as
+appropriate, and positively settle all work before requesting renewal. Manager
+cannot infer Native internal turn quiescence from a PID. A controller readiness
+callback or cached declaration cannot replace that actual lifecycle operation.
+
+Initial sealing may include this optional typed `observation` alongside the
+existing inventory fields; it is mandatory in both the original and fresh seal
+for renewal:
+
+```json
+{
+  "observation": {
+    "sessionFlags": {
+      "model": "actual Native model",
+      "modelProvider": "actual Native provider",
+      "cwd": "/canonical/app",
+      "approvalPolicy": "never",
+      "activePermissionProfile": {"id": "actual-profile", "extends": ":read-only"},
+      "sandbox": {"type": "actual Native legacy sandbox projection"},
+      "reasoningEffort": "medium",
+      "runtimeWorkspaceRoots": [],
+      "instructionSources": []
+    },
+    "accountDigest": "64 lowercase hex characters"
+  }
+}
+```
+
+The displayed values are illustrative, not a valid source observation. Copy
+session flags from the actual owning Native start/resume/reconfigure response;
+`sessionFlagsDigest` must hash their complete canonical JSON with sorted object
+keys and preserved array order. `runtimeWorkspaceRoots` and `instructionSources`
+are optional only when absent from that actual response. The account digest
+binds canonical `{providerId,accountId}` derived from current trusted account RPC;
+use a null account only for a provider whose genuine auth mode has no Native
+account. Never hash/log a credential. Unknown account or observation semantics
+must be refused by the producer. These are fresh controller observations, not
+model-supplied values or authority inferred from an old receipt.
+
+Fresh effective config digest, account, provider, model, thinking, approval,
+workspace roots and instruction-source selection must match the original.
+The active profile identifier and legacy sandbox projection may change only
+with a same-or-narrower effective native state: entries keep identical paths and
+ordering; accesses may only move write→read→deny, and network may only move
+enabled→restricted. Other structural changes are incompatible. Named narrowing
+profiles therefore must already exist in the unchanged owning config. Changing
+config bytes or adding new roots does not become supported by calling renewal.
+The trusted producer must validate the fresh Native effective state against the
+manifest before sealing, as for initial admission.
+
+In survivor mode the owning process must be the exact original signed
+birth/executable/parent/argv/environment/cwd and remain alive. There is no new
+Native launch, PID adoption or new managed image. After `renew-runtime`, obtain
+fresh actual RPC config/session/account/source observations and `seal-runtime`
+with the surviving PID. In replacement mode the original birth must have
+actually exited. Launch exclusively through `gestalt cli --
+--live-policy-owning-runtime --manifest NEW_ABS --capture-id NEW_UUID` after the
+new observation interval. The managed launcher requires a new signed image,
+executes the exact binary/argv/environment and restores the signed original cwd
+through its fixed trusted env executable. A new PID alone cannot seal. Then
+perform genuine startup/discovery and fresh RPC observation before sealing.
+
+The new birth receipt contains immutable lineage references to the old signed
+manifest/policy/birth/image/seal and revoked fences. All present and absent
+metadata and instruction candidates, parent identities, config sources and
+component identities are revalidated at capture, sealing and every dispatch or
+monitor verification. Preserved directories are accepted only through this
+verified original lineage; empty-directory trust, deletion or precreation is
+never a recovery mechanism. Metadata changes, newly appearing absent candidates,
+provider/account/model/thinking mismatch, broader policy, stale election/boot,
+unknown drainage, reused IDs or generation rollback fail closed. The new
+`runtimeProvenanceDigest` incorporates the new capture and lineage; existing
+Agents schema2 generation/provenance binding remains applicable. Every old
+capture and tool receipt stays revoked.
+
+A failed captured renewal can be explicitly revoked and retried against the
+last sealed parent with a still newer generation. The signed reservation binds
+that parent; any managed failed replacement image must have exited and all
+recorded work must be drained. Replaying old revocation cannot remove a newer
+reservation lock. Partial publication remains closed and cannot authorize work.
+A reservation whose new fence was published can be revoked even if its birth
+file was not published. Unidentifiable locks/receipts or unknown process
+settlement remain unavailable; the API never resets an unknown fence.
+
+Unsupported cases include controller/election transfer, relay/account/component
+or source replacement, changed original environment/cwd, legacy captures without
+an original typed observation, unsealed initial captures without a complete
+parent, arbitrary Native births and chains longer than 16 renewals. No automatic
+adoption, metadata deletion, token/environment forwarding, second controller or
+running installation change is provided. Full pinned Native survivor,
+replacement, narrowing, lifecycle and old-authority denial proof belongs to the
+renewed L9.2 gate; contract fixtures alone do not establish those host results.

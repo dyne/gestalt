@@ -6,9 +6,26 @@ import {tmpdir} from 'node:os';
 import {dirname,join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import test from 'node:test';
+import {controlledObservation,quiesceNative} from '../scripts/live-host-renewal-observation.mjs';
 const source=readFileSync(resolve('public/gestalt'),'utf8');
 const program=`process.env.GESTALT_LIVE_MANAGER_SOURCE=${JSON.stringify(resolve('public/gestalt'))};\n`+source.split("<<'LIVE_POLICY'\n")[1].split('\nLIVE_POLICY\n')[0];
 const hash=value=>createHash('sha256').update(value).digest('hex');
+test('renewal Native observation derives account absence only from explicit supported RPC fields',()=>{
+ const config={config:{model_providers:{controlled:{requires_openai_auth:false}}}};
+ const reply={model:'gpt-6-sol',modelProvider:'controlled',cwd:'/app',approvalPolicy:'never',activePermissionProfile:{id:'proof'},sandbox:{},reasoningEffort:'medium'};
+ const result=controlledObservation(config,reply,{account:null,requiresOpenaiAuth:false,workspaceRouting:null});
+ assert.equal(result.accountDigest,hash(renewalStable({providerId:'controlled',accountId:null})));assert.deepEqual(result.sessionFlags,reply);
+ for(const account of [{},{account:null},{account:null,requiresOpenaiAuth:true},{account:{type:'apiKey'},requiresOpenaiAuth:false},{account:null,requiresOpenaiAuth:false,unknown:null},{account:null,requiresOpenaiAuth:false,workspaceRouting:{account:'unknown'}}])assert.throws(()=>controlledObservation(config,reply,account));
+ assert.throws(()=>controlledObservation({config:{model_providers:{controlled:{requires_openai_auth:true}}}},reply,{account:null,requiresOpenaiAuth:false}));
+});
+test('renewal Native quiescence checks turns, terminals and unload rather than alive PID',async()=>{
+ const calls=[];const request=async(method,params)=>{calls.push(method);if(method==='thread/loaded/list')return {data:calls.filter(v=>v==='thread/loaded/list').length===1?['root','child']:[],nextCursor:null};if(method==='thread/read')return {thread:{id:params.threadId,status:{type:'idle'},turns:[]}};if(method==='thread/backgroundTerminals/list')return {data:[],nextCursor:null};if(method==='thread/unsubscribe')return {status:'unsubscribed'};throw Error('unknown');};
+ const result=await quiesceNative(request,['root']);assert.equal(result.observed.length,2);assert.equal(result.unloaded,true);assert.equal(calls.filter(v=>v==='thread/read').length,2);assert.equal(calls.filter(v=>v==='thread/backgroundTerminals/list').length,2);
+});
+for(const failure of ['active-status','active-turn','terminal','pagination','unknown-status','unload-ignored'])test('renewal Native quiescence refuses '+failure,async()=>{
+ const request=async(method,params)=>{if(method==='thread/loaded/list')return {data:['root'],nextCursor:failure==='pagination'?'unobserved':null};if(method==='thread/read')return {thread:{id:params.threadId,status:{type:failure==='active-status'?'active':failure==='unknown-status'?'unknown':'idle'},turns:failure==='active-turn'?[{status:'inProgress'}]:[]}};if(method==='thread/backgroundTerminals/list')return {data:failure==='terminal'?[{}]:[],nextCursor:null};if(method==='thread/unsubscribe')return {status:'unsubscribed'};};
+ await assert.rejects(quiesceNative(request,['root']));
+});
 function identity(pid) {
  const raw=readFileSync(`/proc/${pid}/stat`,'utf8');
  return {pid,birth:raw.slice(raw.lastIndexOf(')')+2).split(' ')[19],uid:process.getuid(),
@@ -306,7 +323,7 @@ test('owner reconciles an abruptly killed supervisor before releasing admission'
   assert.equal(f.run('prepare').status,0);
  }finally{if(launch?.child.exitCode===null&&launch?.child.signalCode===null)launch.child.kill('SIGKILL');f.cleanup();}
 });
-for(const name of ['auth.json','AGENTS.md','hooks.json','hooks','plugins','skills','.codex'])check(`prepared home rejects injected ${name}`,f=>{
+for(const name of ['auth.json','AGENTS.md','AGENTS.override.md','hooks.json','hooks','plugins','skills','.codex'])check(`prepared home rejects injected ${name}`,f=>{
  writeFileSync(join(f.home,name),'fixture injection',{mode:0o600});assert.equal(f.run().reason,'unsafe-runtime-home');
 });
 
@@ -480,7 +497,7 @@ test('full CLI owner SIGKILL closes the private lifetime writer and reaps native
 
 // Actual kernel election and process identities; the copied Node runtime is an
 // explicit fixture, NOT evidence of pinned Native execution or source discovery.
-async function provenanceFixture() {
+async function provenanceFixture(options={}) {
  const f=fixture();let holder,owner;
  const bin=join(f.root,'owning runtime fixture');copyFileSync(realpathSync(process.execPath),bin);chmodSync(bin,0o700);
  f.m.binary={path:bin,version:'0.161.0',sha256:hash(readFileSync(bin))};
@@ -500,15 +517,15 @@ async function provenanceFixture() {
   // Strictly later than the signed USER_HZ observation.
   await pause(40);
   writeFileSync(join(f.privateRoot,'app-server'),`setTimeout(()=>{if(!require('node:fs').existsSync(${JSON.stringify(join(f.app,'.codex'))}))require('node:fs').mkdirSync(${JSON.stringify(join(f.app,'.codex'))},{mode:0o755});console.log('owner-ready');setInterval(()=>{},1000);},40);`,{mode:0o600});
-  owner=spawn(bin,['app-server'],{cwd:f.privateRoot,stdio:['ignore','pipe','pipe'],env:{HOME:f.home,CODEX_HOME:f.home,PATH:'/usr/bin:/bin'}});
+  owner=spawn(bin,['app-server'],{cwd:f.privateRoot,stdio:['ignore','pipe','pipe'],env:options.managedEnvironment?{PATH:'/usr/bin:/bin',HOME:f.home,CODEX_HOME:f.home,TMPDIR:'/tmp',LANG:'C.UTF-8'}:{HOME:f.home,CODEX_HOME:f.home,PATH:'/usr/bin:/bin'}});
   let output='';owner.stdout.on('data',chunk=>output+=chunk);await waitFor(()=>output==='owner-ready\n');
   return owner;
  };
- const inventory=()=>{
+ const inventory=(runtimeOwner=owner)=>{
   const captured=JSON.parse(readFileSync(join(f.privateRoot,`birth-${id}.json`))).body;
   const paths=captured.directories.map(item=>item.path);
   // policyDigest is returned by capture and is identical in the signing basis.
-  return {schemaVersion:2,runtime:identity(owner.pid),policyDigest:captureResult.policyDigest,
+  return {schemaVersion:2,runtime:identity(runtimeOwner.pid),policyDigest:captureResult.policyDigest,
    effectiveConfigDigest:hash('actual owner RPC fixture'),sessionFlagsDigest:hash('actual owner flags fixture'),sources:[
     ...f.m.configFiles.map(file=>({kind:'file',role:'user',...file})),
     ...paths.map(path=>{
@@ -700,12 +717,10 @@ provenanceCheck('missing-denial normalization cannot hide an existing symlink an
 provenanceCheck('managed private CLI exec preserves original birth, direct parent and caller stdio',async f=>{
  let owner,extra;
  try {
-  const captured=f.capture();assert.equal(captured.status,0);
   // Install only the fixture Manager script, not plugins or user configuration.
   const parts=source.split("<<'LIVE_POLICY'\n"),tail=parts[1].split('\nLIVE_POLICY\n')[1];
   writeFileSync(f.managerPath,parts[0]+"<<'LIVE_POLICY'\n"+f.program+'\nLIVE_POLICY\n'+tail,{mode:0o700});
-  // Manager bytes changed, so use a fresh genuine capture for this exact candidate.
-  assert.equal(f.run('revoke-runtime',['--capture-id',f.id]).status,0);
+  // Capture this exact candidate once; a revoked capture is never reset.
   const id=randomUUID();assert.equal(f.run('capture-runtime',['--capture-id',id]).status,0);await pause(40);
   writeFileSync(join(f.privateRoot,'app-server'),`const keyPin=${JSON.stringify({dev:statSync(f.m.keyFile).dev,ino:statSync(f.m.keyFile).ino})};for(let fd=3;fd<128;fd++){try{const p=require('node:fs').fstatSync(fd);if(p.dev===keyPin.dev&&p.ino===keyPin.ino)process.exit(7)}catch{}};if(Object.keys(process.env).some(key=>/SECRET|TOKEN|API_KEY/.test(key)))process.exit(8);process.stdout.write('managed-ready\\n');process.stdin.on('data',chunk=>process.stdout.write(chunk));process.stdin.on('end',()=>process.exit(0));`,{mode:0o600});
   extra=openSync(f.m.keyFile,'r');
@@ -803,4 +818,137 @@ test('Native build failure reports locked dependency classes without raw logs or
   assert.deepEqual(result.testResults,['test result: FAILED. 80 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out']);
   for(const secret of ['fixture-secret','/private/','prompt=','token=','https://'])assert.ok(!run.stdout.includes(secret));
  }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+const renewalStable=value=>JSON.stringify((function order(input){if(Array.isArray(input))return input.map(order);if(input&&typeof input==='object')return Object.fromEntries(Object.keys(input).sort().map(key=>[key,order(input[key])]));return input;})(value));
+async function renewalFixture({observed=true,explicitHome=true}={}) {
+ const f=await provenanceFixture({managedEnvironment:true});if(explicitHome)f.m.owningRuntime.home=f.home;
+ const parts=source.split("<<'LIVE_POLICY'\n"),tail=parts[1].split('\nLIVE_POLICY\n')[1];writeFileSync(f.managerPath,parts[0]+"<<'LIVE_POLICY'\n"+f.program+'\nLIVE_POLICY\n'+tail,{mode:0o700});
+ const flags=value=>({model:'fixture-model',modelProvider:'fixture-provider',cwd:value.appRoot,approvalPolicy:'never',activePermissionProfile:{id:value.profileId,extends:':read-only'},sandbox:{type:'fixture'},reasoningEffort:'medium',instructionSources:[]});
+ const observedInventory=(value,inventory)=>{if(!observed)return inventory;const observation={sessionFlags:flags(value),accountDigest:hash('account-fixture')};return {...inventory,observation,sessionFlagsDigest:hash(renewalStable(observation.sessionFlags))};};
+ await f.captureAndStart();const original=observedInventory(f.m,f.inventory());assert.equal(f.seal(original).status,0);f.m.runtimeProvenance={captureId:f.id,effectiveConfigDigest:original.effectiveConfigDigest,sessionFlagsDigest:original.sessionFlagsDigest};assert.equal(f.run('prepare').status,0);
+ const invoke=(path,action,args=[])=>{const result=spawnSync(process.execPath,['--input-type=module','-',action,'--manifest',path,...args],{input:f.program,encoding:'utf8',env:{...process.env,NODE_OPTIONS:''}});assert.equal(result.stderr,'');return {status:result.status,...JSON.parse(result.stdout)};};
+ let sequence=1;const generations=[];
+ const next=(previous={manifest:f.manifest,id:f.id,value:f.m})=>{
+  const directory=join(f.privateRoot,'renewal-'+sequence++);mkdirSync(directory,{mode:0o700});const home=join(directory,'worker');mkdirSync(home,{mode:0o700});copyFileSync(join(f.home,'config.toml'),join(home,'config.toml'));chmodSync(join(home,'config.toml'),0o600);
+  const value=structuredClone(previous.value);value.generation.generation++;value.runtimeHome=home;value.environment.HOME=home;delete value.runtimeProvenance;
+  value.configFiles=value.configFiles.filter(file=>file.path!==join(previous.value.runtimeHome,'config.toml')||previous.value.runtimeHome===(previous.value.owningRuntime.home??previous.value.runtimeHome));value.configFiles.push({path:join(home,'config.toml'),sha256:hash(readFileSync(join(home,'config.toml')))});
+  const manifest=join(directory,'manifest.json'),id=randomUUID(),save=()=>writeFileSync(manifest,JSON.stringify(value),{mode:0o600});save();
+  const run=(action,args=[])=>{save();return invoke(manifest,action,args);};
+  const capture=(mode='survivor')=>run('renew-runtime',['--capture-id',id,'--previous-manifest',previous.manifest,'--previous-capture-id',previous.id,'--mode',mode]);
+  const inventory=(pid=f.owner.pid)=>{const result=f.inventory({pid});result.runtime=identity(pid);result.policyDigest=captured.policyDigest;result.sources=result.sources.filter(source=>source.path!==join(f.home,'config.toml')||value.owningRuntime.home===f.home);result.sources=result.sources.filter(source=>!source.path.includes('/renewal-'));result.sources=result.sources.filter(source=>source.kind!=='file'||value.configFiles.some(file=>file.path===source.path&&file.sha256===source.sha256));result.sources.push({kind:'file',role:'sandbox-worker',path:join(home,'config.toml'),sha256:hash(readFileSync(join(home,'config.toml')))});return observedInventory(value,result);};
+  let captured;
+  const renew=(mode='survivor')=>{captured=capture(mode);return captured;};
+  const seal=(input=inventory())=>{const path=join(directory,'observed-sources.json');writeFileSync(path,JSON.stringify(input),{mode:0o600});const result=run('seal-runtime',['--capture-id',id,'--runtime-pid',String(input.runtime.pid),'--sources',path]);if(result.status===0)value.runtimeProvenance={captureId:id,effectiveConfigDigest:input.effectiveConfigDigest,sessionFlagsDigest:input.sessionFlagsDigest};return result;};
+  const result={manifest,id,value,run,renew,inventory,seal,save,previous};generations.push(result);return result;
+ };
+ return {f,next,flags,invoke,original,generations,revoke:()=>f.run('revoke-runtime',['--capture-id',f.id]),cleanup:()=>f.cleanup()};
+}
+function renewalCheck(name,fn,options){test('runtime renewal: '+name,async()=>{const r=await renewalFixture(options);try{await fn(r);}finally{await r.cleanup();}});}
+renewalCheck('survivor gets a fresh generation while old authority remains irrevocably revoked',async r=>{
+ assert.equal(r.revoke().status,0);const n=r.next();const captured=n.renew();assert.equal(captured.status,0,JSON.stringify(captured));const sealed=n.seal();assert.equal(sealed.status,0,JSON.stringify(sealed));const prepared=n.run('prepare');assert.equal(prepared.status,0,JSON.stringify(prepared));assert.equal(n.run('verify').status,0);
+ assert.equal(r.f.run('verify').reason,'revoked-runtime-provenance');assert.equal(r.f.run('revoke-runtime',['--capture-id',r.f.id]).reason,'unowned-runtime-admission');
+ assert.ok(existsSync(join(r.f.app,'.codex')));assert.ok(existsSync(join(r.f.privateRoot,`revocation-${r.f.id}.json`)));
+ assert.equal(n.run('renew-runtime',['--capture-id',n.id,'--previous-manifest',r.f.manifest,'--previous-capture-id',r.f.id,'--mode','survivor']).reason,'reused-capture-id');
+});
+renewalCheck('active old authority cannot be renewed',async r=>{assert.equal(r.next().renew().reason,'renewal-not-revoked');});
+renewalCheck('unobserved legacy capture cannot acquire renewal intent',async r=>{assert.equal(r.revoke().status,0);assert.equal(r.next().renew().reason,'renewal-observation-required');},{observed:false});
+for(const variant of ['generation','session','components','binary','source','account','provider','model','thinking','broadening','entry','metadata','instruction-file','instruction-symlink','dispatch','pending-process','forged-parent'])renewalCheck(`rejects ${variant} mismatch`,async r=>{
+ assert.equal(r.revoke().status,0);const n=r.next();
+ if(variant==='generation')n.value.generation.generation--;
+ if(variant==='session')n.value.generation.sessionId=randomUUID();
+ if(variant==='components')n.value.components.agents='changed';
+ if(variant==='binary')n.value.binary.version='0.160.0';
+ if(variant==='source')writeFileSync(join(r.f.home,'config.toml'),'changed');
+ if(variant==='broadening')n.value.sandboxState.permissionProfile.network='enabled';
+ if(variant==='entry')n.value.sandboxState.permissionProfile.file_system.entries.push({path:{type:'path',path:'/dev/null'},access:'read'});
+ if(variant==='metadata'){renameSync(join(r.f.app,'.codex'),join(r.f.app,'.codex-original'));mkdirSync(join(r.f.app,'.codex'),{mode:0o755});}
+ if(variant==='instruction-file')writeFileSync(join(r.f.app,'AGENTS.override.md'),'injected',{mode:0o644});
+ if(variant==='instruction-symlink')symlinkSync(join(r.f.home,'config.toml'),join(r.f.app,'AGENTS.override.md'));
+ if(variant==='dispatch')mkdirSync(join(r.f.privateRoot,'dispatch.lock'),{mode:0o700});
+ if(variant==='pending-process')writeFileSync(join(r.f.privateRoot,`process-${randomUUID()}.json`),'{}',{mode:0o600});
+ if(variant==='forged-parent'){const path=join(r.f.privateRoot,`runtime-${r.f.id}.json`),saved=JSON.parse(readFileSync(path));saved.body.runtime.process.birth='0';writeFileSync(path,JSON.stringify(saved),{mode:0o600});}
+ const captured=n.renew();
+ if(['account','provider','model','thinking'].includes(variant)){
+  assert.equal(captured.status,0);const input=n.inventory();if(variant==='account')input.observation.accountDigest=hash('other-account');else input.observation.sessionFlags[{provider:'modelProvider',model:'model',thinking:'reasoningEffort'}[variant]]='changed';input.sessionFlagsDigest=hash(renewalStable(input.observation.sessionFlags));assert.equal(n.seal(input).reason,'renewal-intent-changed');
+ }else assert.equal(captured.status,1,JSON.stringify({variant,captured}));
+ assert.equal(r.f.run('verify').status,1);
+});
+renewalCheck('read-only narrowing is allowed but does not revive the old dispatch',async r=>{
+ assert.equal(r.revoke().status,0);const n=r.next();n.value.profileId='trusted-live-narrow';n.value.sandboxState.permissionProfile.file_system.entries[1].access='read';assert.equal(n.renew().status,0);assert.equal(n.seal().status,0);assert.equal(n.run('prepare').status,0);assert.equal(r.f.run('verify').reason,'revoked-runtime-provenance');
+});
+renewalCheck('replacement refuses a live original and survivor refuses a departed original',async r=>{
+ assert.equal(r.revoke().status,0);assert.equal(r.next().renew('replacement').reason,'renewal-owner-alive');const ended=new Promise(done=>r.f.owner.once('close',done));r.f.owner.kill();await ended;assert.equal(r.next().renew('survivor').status,1);
+});
+renewalCheck('renewed lineage remains checked on every verification',async r=>{
+ assert.equal(r.revoke().status,0);const n=r.next();assert.equal(n.renew().status,0);assert.equal(n.seal().status,0);assert.equal(n.run('prepare').status,0);writeFileSync(join(r.f.app,'AGENTS.override.md'),'later injection',{mode:0o644});assert.equal(n.run('verify').reason,'source-changed');
+});
+renewalCheck('an aborted renewal reservation can be revoked and retried at a higher generation',async r=>{
+ assert.equal(r.revoke().status,0);const n=r.next();assert.equal(n.renew().status,0);assert.equal(n.run('revoke-runtime',['--capture-id',n.id]).status,0);const retry=r.next();retry.value.generation.generation=n.value.generation.generation+1;assert.equal(retry.renew().status,0);assert.equal(retry.seal().status,0);assert.equal(retry.run('prepare').status,0);assert.equal(n.run('seal-runtime',['--capture-id',n.id,'--runtime-pid',String(r.f.owner.pid),'--sources',join(r.f.privateRoot,'owning-sources.json')]).reason,'revoked-runtime-provenance');
+});
+
+renewalCheck('managed replacement after actual exit preserves lineage and rejects old authority',async r=>{
+ const ended=new Promise(done=>r.f.owner.once('close',done));r.f.owner.kill();await ended;assert.equal(r.revoke().status,0);const n=r.next();assert.equal(n.renew('replacement').status,0);await pause(40);
+ const child=spawn('/usr/bin/bash',[r.f.managerPath,'cli','--','--live-policy-owning-runtime','--manifest',n.manifest,'--capture-id',n.id],{cwd:r.f.privateRoot,env:{PATH:dirname(process.execPath)+':/usr/bin:/bin',HOME:r.f.privateRoot,CODEX_HOME:r.f.home,GESTALT_HOME:join(r.f.privateRoot,'manager-state')},stdio:['pipe','pipe','pipe']});
+ try{let output='',errors='';child.stdout.on('data',part=>output+=part);child.stderr.on('data',part=>errors+=part);await waitFor(()=>output==='owner-ready\n'||child.exitCode!==null);assert.equal(child.exitCode,null,JSON.stringify({output,errors}));const input=n.inventory(child.pid);const sealed=n.seal(input);assert.equal(sealed.status,0,JSON.stringify(sealed));assert.equal(n.run('prepare').status,0);assert.equal(n.run('verify').status,0);assert.equal(r.f.run('verify').reason,'revoked-runtime-provenance');}
+ finally{if(child.exitCode===null&&child.signalCode===null){const closed=new Promise(done=>child.once('close',done));child.kill();await closed;}}
+});
+renewalCheck('unmanaged replacement cannot seal despite matching executable argv and environment',async r=>{
+ const ended=new Promise(done=>r.f.owner.once('close',done));r.f.owner.kill();await ended;assert.equal(r.revoke().status,0);const n=r.next();assert.equal(n.renew('replacement').status,0);await r.f.start();assert.equal(n.seal(n.inventory(r.f.owner.pid)).reason,'unverified-owning-runtime');
+});
+
+renewalCheck('a signed exited label cannot conceal an actually live old helper',async r=>{
+ const helper=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{detached:true,stdio:'ignore'});
+ try{const processRecord=identity(helper.pid),body={kind:'process-launch',status:'exited',process:processRecord,owner:processRecord,processGroup:helper.pid};writeFileSync(join(r.f.privateRoot,`process-${randomUUID()}.json`),JSON.stringify({body,mac:createHmac('sha256',readFileSync(r.f.m.keyFile)).update(renewalStable(body)).digest('hex')}),{mode:0o600});assert.equal(r.revoke().status,0);assert.equal(r.next().renew().reason,'renewal-undrained');}
+ finally{if(helper.exitCode===null&&helper.signalCode===null){const closed=new Promise(done=>helper.once('close',done));process.kill(-helper.pid,'SIGKILL');await closed;}}
+});
+renewalCheck('old election or generation cannot be relabeled for a successor controller',async r=>{
+ assert.equal(r.revoke().status,0);const n=r.next();n.value.election.holder.birth='0';assert.equal(n.renew().reason,'stale-election');
+});
+renewalCheck('freshly observed config mismatch fails closed at sealing',async r=>{
+ assert.equal(r.revoke().status,0);const n=r.next();assert.equal(n.renew().status,0);const input=n.inventory();input.effectiveConfigDigest=hash('different Native config');assert.equal(n.seal(input).reason,'renewal-intent-changed');
+});
+renewalCheck('successive renewals preserve all revoked ancestors',async r=>{
+ assert.equal(r.revoke().status,0);const first=r.next();assert.equal(first.renew().status,0);assert.equal(first.seal().status,0);assert.equal(first.run('prepare').status,0);assert.equal(first.run('revoke-runtime',['--capture-id',first.id]).status,0);
+ const second=r.next(first);assert.equal(second.renew().status,0);assert.equal(second.seal().status,0);assert.equal(second.run('prepare').status,0);assert.equal(first.run('verify').reason,'revoked-runtime-provenance');assert.equal(r.f.run('verify').reason,'revoked-runtime-provenance');
+});
+renewalCheck('concurrent renewals publish only one fresh capture and old revoke cannot release it',async r=>{
+ assert.equal(r.revoke().status,0);const candidates=[r.next(),r.next()];
+ const results=await Promise.all(candidates.map(n=>new Promise(done=>{n.save();const child=spawn(process.execPath,['--input-type=module','-','renew-runtime','--manifest',n.manifest,'--capture-id',n.id,'--previous-manifest',r.f.manifest,'--previous-capture-id',r.f.id,'--mode','survivor'],{env:{...process.env,NODE_OPTIONS:''},stdio:['pipe','pipe','pipe']});let output='',error='';child.stdout.on('data',part=>output+=part);child.stderr.on('data',part=>error+=part);child.once('close',status=>{assert.equal(error,'');done({n,status,...JSON.parse(output)});});child.stdin.end(r.f.program);})));assert.equal(results.filter(v=>v.status===0).length,1);assert.equal(results.filter(v=>v.status===1).length,1);
+ const winner=results.find(v=>v.status===0).n,fence=JSON.parse(readFileSync(join(r.f.privateRoot,`runtime-admission-${hash(r.f.app)}.json`))).body;assert.equal(fence.captureId,winner.id);assert.equal(fence.status,'captured');assert.equal(r.revoke().reason,'unowned-runtime-admission');assert.ok(existsSync(join(r.f.privateRoot,`runtime-admission-${hash(r.f.app)}.lock`)));
+});
+renewalCheck('crash after fence publication cannot admit work and can be revoked for a newer retry',async r=>{
+ assert.equal(r.revoke().status,0);const n=r.next();n.save();
+ // Test-only process death at the publication boundary; no production fault flag.
+ const code=r.f.program.replace('writeReceipt(paths.receipt,next,keyFile);\n    const clock','writeReceipt(paths.receipt,next,keyFile);process.exit(77);\n    const clock');assert.notEqual(code,r.f.program);
+ const crashed=spawnSync(process.execPath,['--input-type=module','-','renew-runtime','--manifest',n.manifest,'--capture-id',n.id,'--previous-manifest',r.f.manifest,'--previous-capture-id',r.f.id,'--mode','survivor'],{input:code,encoding:'utf8',env:{...process.env,NODE_OPTIONS:''}});assert.equal(crashed.status,77);assert.equal(crashed.stdout,'');assert.equal(n.run('verify').status,1);assert.equal(r.f.run('verify').reason,'revoked-runtime-provenance');assert.equal(n.run('revoke-runtime',['--capture-id',n.id]).status,0);
+ const retry=r.next();retry.value.generation.generation=3;assert.equal(retry.renew().status,0);assert.equal(retry.seal().status,0);assert.equal(retry.run('prepare').status,0);
+});
+
+renewalCheck('generated admission configs stay separate from original Native config lineage',async r=>{
+ const oldGenerated=join(r.f.privateRoot,'old-generated.toml');writeFileSync(oldGenerated,'generated admission fixture',{mode:0o600});r.f.m.configFiles.push({path:oldGenerated,sha256:hash(readFileSync(oldGenerated))});assert.equal(r.f.run('prepare').status,0);assert.equal(r.revoke().status,0);
+ const n=r.next();n.value.configFiles=n.value.configFiles.filter(file=>file.path!==oldGenerated);assert.equal(n.renew().status,0);assert.equal(n.seal().status,0);assert.equal(n.run('prepare').status,0);
+ const freshGenerated=join(dirname(n.manifest),'fresh-generated.toml');writeFileSync(freshGenerated,'new generated admission fixture',{mode:0o600});n.value.configFiles.push({path:freshGenerated,sha256:hash(readFileSync(freshGenerated))});assert.equal(n.run('prepare').status,0);assert.equal(n.run('verify').status,0);
+ writeFileSync(oldGenerated,'changed archived config',{mode:0o600});assert.equal(n.run('verify').reason,'config-changed');
+});
+
+provenanceCheck('original owning-home override absence is captured and rechecked after sealing',async f=>{
+ const home=join(f.privateRoot,'original-home');mkdirSync(home,{mode:0o700});copyFileSync(join(f.home,'config.toml'),join(home,'config.toml'));chmodSync(join(home,'config.toml'),0o600);f.m.owningRuntime.home=home;f.m.configFiles.push({path:join(home,'config.toml'),sha256:hash(readFileSync(join(home,'config.toml')))});
+ await f.captureAndStart();const path=join(home,'AGENTS.override.md');assert.equal(JSON.parse(readFileSync(join(f.privateRoot,`birth-${f.id}.json`))).body.instructions[path],null);assert.equal(f.seal().status,0);assert.equal(f.prepare().status,0);writeFileSync(path,'new original-home override',{mode:0o644});assert.equal(f.run('verify').reason,'source-changed');
+});
+
+renewalCheck('implicit original home can become explicit without relocating owning authority',async r=>{
+ assert.equal(r.revoke().status,0);const n=r.next();n.value.owningRuntime.home=r.f.home;assert.equal(n.renew().status,0);assert.equal(n.seal().status,0);assert.equal(n.run('prepare').status,0);
+},{explicitHome:false});
+renewalCheck('failed seal publication revokes and releases only its own reservation',async r=>{
+ assert.equal(r.revoke().status,0);const n=r.next();assert.equal(n.renew().status,0);const prior=r.f.program;
+ r.f.program=prior.replace('try{m.runtimeProvenance={captureId:id','try{if(before.renewal)fail("renewal-test-publication-failure");m.runtimeProvenance={captureId:id');assert.notEqual(r.f.program,prior);
+ try{assert.equal(n.seal().reason,'renewal-test-publication-failure');}finally{r.f.program=prior;}
+ assert.equal(existsSync(join(r.f.privateRoot,`runtime-admission-${hash(r.f.app)}.lock`)),false);const fence=JSON.parse(readFileSync(join(r.f.privateRoot,`runtime-admission-${hash(r.f.app)}.json`))).body;assert.equal(fence.status,'revoked');assert.equal(fence.captureId,n.id);
+ const retry=r.next();retry.value.generation.generation=3;assert.equal(retry.renew().status,0);assert.equal(retry.seal().status,0);assert.equal(retry.run('prepare').status,0);
+});
+renewalCheck('kernel transition guard releases after verifier death without deleting lock state',async r=>{
+ assert.equal(r.revoke().status,0);const n=r.next();n.save();const code=r.f.program.replace('async function renewRuntime(manifestPath,id,previousPath,previousId,mode) {','async function renewRuntime(manifestPath,id,previousPath,previousId,mode) {process.exit(88);');assert.notEqual(code,r.f.program);
+ const crashed=spawnSync(process.execPath,['--input-type=module','-','renew-runtime','--manifest',n.manifest,'--capture-id',n.id,'--previous-manifest',r.f.manifest,'--previous-capture-id',r.f.id,'--mode','survivor'],{input:code,encoding:'utf8',env:{...process.env,NODE_OPTIONS:''}});assert.equal(crashed.status,88);assert.equal(crashed.stdout,'');
+ let result;for(let attempt=0;attempt<10;attempt++){result=n.renew();if(result.reason!=='admission-transition-busy')break;await pause(25);}assert.equal(result.status,0,JSON.stringify(result));assert.equal(n.seal().status,0);assert.equal(n.run('prepare').status,0);
 });

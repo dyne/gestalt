@@ -140,7 +140,7 @@ function originalRuntimeDiagnostic(){
   stderr:stderr?{...nativeDiagnostic(stderr.text),bytes:stderr.bytes,sha256:stderr.hash.copy().digest('hex'),privateLaunchRefused:/private owning runtime unavailable/.test(stderr.text)}:undefined};
 }
 const server=createServer(peer=>{controllerAccepted++;peer.end();});
-async function waitFor(fn,budget=90000){const end=Date.now()+budget;while(Date.now()<end){try{const result=fn();if(result)return result;}catch{}await pause(50);}throw Error('PROOF_DEADLINE');}
+async function waitFor(fn,budget=90000,retryErrors=true){const end=Date.now()+budget;while(Date.now()<end){try{const result=fn();if(result)return result;}catch(error){if(!retryErrors)throw error;}await pause(50);}throw Error('PROOF_DEADLINE');}
 function managerCall(args){const result=spawn('bash',[manager,...args],{cwd:app,env:managerEnv,stdio:['ignore','pipe','pipe']});
  let stdout='',stderr='';result.stdout.on('data',b=>stdout+=b);result.stderr.on('data',b=>stderr+=b);
  return new Promise((done,reject)=>{const timer=setTimeout(()=>{result.kill('SIGKILL');reject(Error('MANAGER_DEADLINE'));},90000);result.on('error',error=>{clearTimeout(timer);done({code:null,signal:null,stdout,stderr,errorCode:['ENOENT','EACCES','EPERM'].includes(error.code)?error.code:'SPAWN_ERROR'});});result.on('close',(code,signal)=>{clearTimeout(timer);done({code,signal,stdout,stderr});});});}
@@ -214,7 +214,8 @@ async function launch(mode='hold',fixture={app,m,manifest,childFile,publicFile})
  child.stdout.on('data',()=>{try{report.probeStages=output.split('\n').slice(0,-1).filter(Boolean).map(line=>JSON.parse(line)).filter(value=>value.kind==='probe-stage').slice(0,40).map(value=>({depth:value.depth,stage:value.stage,pid:value.pid}));report.nativeResults=result.messages().filter(value=>Number.isInteger(value.depth)&&value.depth>=0&&value.depth<=2).map(value=>({depth:value.depth,uid:value.uid,pid:value.pid,checks:Object.fromEntries(Object.entries(value.checks??{}).filter(([,flag])=>typeof flag==='boolean'))}));}catch{report.nativeOutputMalformed=true;}});
  result.publicSocket=input.publicSocket;active=result;return result;
 }
-async function nativeMessages(launch){await Promise.race([waitFor(()=>launch.messages().filter(value=>Number.isInteger(value.depth)&&value.depth>=0&&value.depth<=2).length===3),launch.ended.then(()=>{throw Error('NATIVE_LAUNCH_EARLY_EXIT');})]);}
+async function nativeMessages(launch){await Promise.race([waitFor(()=>launch.messages().filter(value=>Number.isInteger(value.depth)&&value.depth>=0&&value.depth<=2).length===3
+ &&JSON.parse(readFileSync(launch.path)).body.postSpawnValidated===true),launch.ended.then(()=>{throw Error('NATIVE_LAUNCH_EARLY_EXIT');})]);}
 function launchBoundary(launch){const state=launch.state();try{const body=JSON.parse(readFileSync(launch.path)).body;
  state.receipt={kind:body.kind,status:body.status,termination:body.termination,failure:body.failure};}catch(error){state.receipt={error:['ENOENT','EACCES','EPERM'].includes(error.code)?error.code:'INVALID_RECEIPT'};}return state;}
 function ownedProcessSnapshot(launch){let rootPid;try{rootPid=JSON.parse(readFileSync(launch.path)).body.process.pid;}catch{return [];}
@@ -340,11 +341,22 @@ async function actualSources(value,path,id,startReply,captured,{inventoryOnly=fa
 async function originalBridgeCatalog(threadId,value) {
  const catalog=await rpc('mcpServerStatus/list',{threadId,detail:'toolsAndAuthOnly'});assert.ok(Array.isArray(catalog.data));assert.equal(catalog.nextCursor??null,null);
  const server=catalog.data.find(server=>server.name==='context-mode');assert.ok(server);assert.ok(server.tools?.ctx_execute);assert.ok(server.tools?.ctx_search);
- const descriptor=value.originalLaunchSources[0],processes=ownedPids(descriptor.path).filter(record=>originalRuntimeDescendant(record.pid));assert.ok(processes.length);
- for(const record of processes){assert.equal(readlinkSync(`/proc/${record.pid}/exe`),descriptor.interpreter.path);assert.equal(hash(readFileSync(`/proc/${record.pid}/exe`)),descriptor.interpreter.sha256);}
+ const descriptor=value.originalLaunchSources[0],processes=await waitFor(()=>{const found=originalBridgeProcesses(descriptor);return found.length?found:false;},90000,false);
  return {actualNativeCatalog:true,server:'context-mode',toolCount:Object.keys(server.tools).length,processes,launcherSha256:descriptor.sha256,interpreterSha256:descriptor.interpreter.sha256};
 }
-function originalRuntimeDescendant(pid){for(let depth=0;depth<16;depth++){if(pid===runtime.child.pid)return identity(pid).birth===report.appServer.birth;const match=readFileSync(`/proc/${pid}/status`,'utf8').match(/^PPid:\s+(\d+)/m);if(!match)return false;pid=Number(match[1]);if(pid<=1)return false;}return false;}
+function originalRuntimeDescendant(pid){
+ try{for(let depth=0;depth<16;depth++){if(pid===runtime.child.pid)return identity(pid).birth===report.appServer.birth;const match=readFileSync(`/proc/${pid}/status`,'utf8').match(/^PPid:\s+(\d+)/m);if(!match)return false;pid=Number(match[1]);if(pid<=1)return false;}return false;}
+ catch(error){if(['ENOENT','ESRCH'].includes(error.code))return false;throw error;}
+}
+function originalBridgeProcesses(descriptor){
+ return ownedPids(descriptor.path).filter(record=>{
+  try{
+   if(stable(identity(record.pid))!==stable(record)||!originalRuntimeDescendant(record.pid))return false;
+   assert.equal(readlinkSync(`/proc/${record.pid}/exe`),descriptor.interpreter.path);assert.equal(hash(readFileSync(`/proc/${record.pid}/exe`)),descriptor.interpreter.sha256);
+   return stable(identity(record.pid))===stable(record)&&originalRuntimeDescendant(record.pid);
+  }catch(error){if(['ENOENT','ESRCH'].includes(error.code))return false;throw error;}
+ });
+}
 let originalModelWorkers=[];
 function nativeCodeModeWorkers(){const found=[];for(const pid of readdirSync('/proc').filter(value=>/^\d+$/.test(value))){let matches=false;try{matches=readlinkSync(`/proc/${pid}/exe`)===codeModeHost&&originalRuntimeDescendant(Number(pid));}catch{continue;}if(matches){assert.equal(hash(readFileSync(`/proc/${pid}/exe`)),expectedCodeModeHost);found.push(identity(Number(pid)));}}return found;}
 async function startupAt(value,{holdMetadata=false}={}){let sampling=false;const sightings=[],masks=[],metadata=[];
@@ -566,7 +578,7 @@ try {
  await proveInstalledSourceTamper();
  report.stage='devserver-capability-required';assert.equal(report.checks.actualConfinedDevserverAndRegisteredLoopbackIngress,true,'REQUIRED_DEVSERVER_PROOF_UNAVAILABLE');
  report.stage='complete';report.passed=true;
-} catch(error){report.failureMetadata=metadataPaths.map((path,index)=>{try{const info=lstatSync(path);return {ancestor:index,kind:info.isDirectory()?'directory':info.isSymbolicLink()?'symlink':'file',identity:folderPin(path),empty:info.isDirectory()?readdirSync(path).length===0:undefined};}catch{return {ancestor:index,kind:'absent'};}});report.failureDetail={stage:report.stage,assertion:error.operator,actual:typeof error.actual==='number'||typeof error.actual==='boolean'?error.actual:undefined,expected:typeof error.expected==='number'||typeof error.expected==='boolean'?error.expected:undefined};report.failure=error.code??(/^[A-Z_]+$/.test(error.message)?error.message:'ASSERTION_FAILED');if(active){report.nativeDiagnostic=active.diagnostic();report.launchBoundary=launchBoundary(active);report.ownedProcessSnapshot=ownedProcessSnapshot(active);}process.exitCode=1;
+} catch(error){report.failureMetadata=metadataPaths.map((path,index)=>{try{const info=lstatSync(path);return {ancestor:index,kind:info.isDirectory()?'directory':info.isSymbolicLink()?'symlink':'file',identity:folderPin(path),empty:info.isDirectory()?readdirSync(path).length===0:undefined};}catch{return {ancestor:index,kind:'absent'};}});report.failureDetail={stage:report.stage,assertion:error.operator,actual:typeof error.actual==='number'||typeof error.actual==='boolean'?error.actual:undefined,expected:typeof error.expected==='number'||typeof error.expected==='boolean'?error.expected:undefined,syscall:['readlink','open','stat','lstat','read','scandir'].includes(error.syscall)?error.syscall:undefined,processFileRole:typeof error.path==='string'?error.path.match(/^\/proc\/\d+\/(status|exe|stat)$/)?.[1]:undefined,proofLocation:typeof error.stack==='string'?error.stack.match(/live-host-policy-native-proof\.mjs:(\d+:\d+)/)?.[1]:undefined};report.failure=error.code??(/^[A-Z_]+$/.test(error.message)?error.message:'ASSERTION_FAILED');if(active){report.nativeDiagnostic=active.diagnostic();report.launchBoundary=launchBoundary(active);report.ownedProcessSnapshot=ownedProcessSnapshot(active);}process.exitCode=1;
 } finally {
  if(active){try{await managerCall(['live-policy','stop','--manifest',active.manifestPath,'--launch-id',active.id]);await stopped(active);}catch{report.passed=false;process.exitCode=1;await closeOwned(active.child);}}
  for(const holder of metadataCommands.values()){try{await rpc('command/exec/terminate',{processId:holder.processId});await holder.finished;}catch{}holder.off();}metadataCommands.clear();

@@ -432,6 +432,10 @@ native wrapper enforces the supplied state for its actual child/descendants.
 A policy receipt alone still cannot establish that origin.
 
 The temporary `authorized-launch` record is not a running-process receipt.
+The signed process receipt sets `postSpawnValidated: true` only after the
+post-spawn contract check succeeds and the lifetime monitor is installed.
+Consumers proving lifetime revocation must await that field; child stdout or a
+running-process record alone does not attest that the monitor is ready.
 `verify-process` requires an authenticated `running` record, current parent
 policy and matching live supervisor/native process identities. It returns
 `process-verified` or a bounded refusal. `stop` validates the stored owned

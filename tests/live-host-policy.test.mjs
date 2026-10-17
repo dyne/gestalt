@@ -339,6 +339,37 @@ test('hosted native panic diagnostics classify package failure without exposing 
  assert.deepEqual(result.sourceLocations,['launcher.rs:57:13']);assert.ok(!JSON.stringify(result).includes('fixture-secret'));assert.ok(!JSON.stringify(result).includes('secret/controller'));
 });
 
+function hostedBridgeFunctions(overrides={}){
+ const proof=readFileSync(resolve('scripts/live-host-policy-native-proof.mjs'),'utf8'),extract=(start,end)=>proof.slice(proof.indexOf(start),proof.indexOf(end,proof.indexOf(start)));
+ const descendant=Function('runtime','report','identity','readFileSync',`return ${extract('function originalRuntimeDescendant(','\nfunction originalBridgeProcesses(')}`)({child:{pid:process.pid}},{appServer:identity(process.pid)},identity,readFileSync);
+ const dependencies={ownedPids:()=>[],originalRuntimeDescendant:descendant,identity,readlinkSync,readFileSync,hash,assert,stable:renewalStable,...overrides};
+ const processes=Function(...Object.keys(dependencies),`return ${extract('function originalBridgeProcesses(','\nlet originalModelWorkers')}`)(...Object.values(dependencies));
+ return {descendant,processes,proof};
+}
+test('hosted original bridge discovery binds a live process and tolerates a departed candidate',async()=>{
+ const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});const ended=new Promise(done=>child.once('close',done));
+ try{
+  await waitFor(()=>readlinkSync(`/proc/${child.pid}/exe`)===realpathSync(process.execPath));const record=identity(child.pid),{descendant,processes}=hostedBridgeFunctions({ownedPids:()=>[record]});
+  const descriptor={path:'/observational-marker',interpreter:{path:realpathSync(process.execPath),sha256:hash(readFileSync(process.execPath))}};
+  assert.equal(descendant(child.pid),true);assert.deepEqual(processes(descriptor),[record]);child.kill();await ended;assert.equal(descendant(child.pid),false);assert.deepEqual(processes(descriptor),[]);
+ }finally{if(child.exitCode===null&&child.signalCode===null){child.kill('SIGKILL');await ended;}}
+});
+for(const variant of ['reused-birth','departed-executable','wrong-executable','wrong-digest','unexpected-access-error'])test('hosted original bridge discovery refuses '+variant,()=>{
+ const record={pid:123,birth:'old'},descriptor={path:'/marker',interpreter:{path:'/exact/node',sha256:hash('node-bytes')}};let calls=0;
+ const {processes}=hostedBridgeFunctions({ownedPids:()=>[record],originalRuntimeDescendant:()=>true,identity:()=>({pid:123,birth:variant==='reused-birth'&&calls++?'new':'old'}),readlinkSync:()=>{if(variant==='departed-executable'||variant==='unexpected-access-error')throw Object.assign(Error('fixture'),{code:variant==='departed-executable'?'ENOENT':'EACCES'});return variant==='wrong-executable'?'/other/node':'/exact/node';},readFileSync:()=>variant==='wrong-digest'?'other':'node-bytes'});
+ if(['reused-birth','departed-executable'].includes(variant))assert.deepEqual(processes(descriptor),[]);
+ else assert.throws(()=>processes(descriptor),variant==='unexpected-access-error'?{code:'EACCES'}:{code:'ERR_ASSERTION'});
+});
+test('hosted original bridge catalog cannot succeed with tools but no live owned bridge',async()=>{
+ const {proof}=hostedBridgeFunctions(),start=proof.indexOf('async function originalBridgeCatalog('),expression=proof.slice(start,proof.indexOf('\nfunction originalRuntimeDescendant(',start));
+ const catalog=Function('rpc','assert','waitFor','originalBridgeProcesses',`return ${expression}`)(async()=>({data:[{name:'context-mode',tools:{ctx_execute:{},ctx_search:{}}}],nextCursor:null}),assert,async predicate=>{const found=predicate();assert.ok(found,'missing live bridge');return found;},()=>[]);
+ await assert.rejects(catalog('thread',{originalLaunchSources:[{path:'/marker'}]}),/missing live bridge/);
+ const waitStart=proof.indexOf('async function waitFor('),strictWait=Function('pause',`return ${proof.slice(waitStart,proof.indexOf('\nfunction managerCall(',waitStart))}`)(async()=>{});
+ for(const code of ['EACCES','ERR_ASSERTION']){
+  const failingCatalog=Function('rpc','assert','waitFor','originalBridgeProcesses',`return ${expression}`)(async()=>({data:[{name:'context-mode',tools:{ctx_execute:{},ctx_search:{}}}]}),assert,strictWait,()=>{throw Object.assign(Error('candidate rejected'),{code});});
+  await assert.rejects(failingCatalog('thread',{originalLaunchSources:[{path:'/marker'}]}),{code});
+ }
+});
 check('full CLI with cleared environment rejects equal HOME and CODEX_HOME before dispatch; separated homes return bounded policy JSON',f=>{
  const env={PATH:`${resolve(process.execPath,'..')}:/usr/bin:/bin`,HOME:f.home,CODEX_HOME:f.home,TMPDIR:'/tmp',LANG:'C.UTF-8'};
  const args=[f.managerPath,'live-policy','prepare','--manifest',f.manifest];
@@ -675,7 +706,7 @@ for(const reason of ['revocation','owner-exit','metadata-injection','generation-
   helper=spawn(process.execPath,['--input-type=module','-','run','--manifest',f.manifest,'--command','ordinary','--launch-id',id],{stdio:['pipe','pipe','pipe','pipe']});
   let output='',errors='';helper.stdout.on('data',chunk=>output+=chunk);helper.stderr.on('data',chunk=>errors+=chunk);
   helper.stdin.end(f.program);helper.stdio[3].end();helper.once('exit',()=>helper.stdio[3].destroy());
-  const ended=new Promise(done=>helper.once('close',done));await waitFor(()=>output.includes('lifetime-ready'));
+  const ended=new Promise(done=>helper.once('close',done));await waitFor(()=>output.includes('lifetime-ready')&&JSON.parse(readFileSync(path)).body.postSpawnValidated===true);
   assert.equal(JSON.parse(readFileSync(path)).body.schemaVersion,2);
   if(reason==='revocation')assert.equal(f.run('revoke-runtime',['--capture-id',f.id]).status,0);
   if(reason==='owner-exit'){const closed=new Promise(done=>f.owner.once('close',done));f.owner.kill();await closed;}

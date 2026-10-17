@@ -3396,9 +3396,8 @@ async function supervise(manifestPath,commandId,id,parent) {
     phase='receipt-write';writeReceipt(path,record,keyFile);
     phase='post-spawn-contract';
     // Receipt publication never replaces post-spawn validation.
-    const priorMetadata=stable(record.nativeMetadata);
     if (stable(currentPolicy(manifestPath,true,record.nativeMetadata).body) !== stable(body)) stop('policy-changed');
-    if(priorMetadata!==stable(record.nativeMetadata))writeReceipt(path,record,keyFile);
+    if(!ending){
     timer=setTimeout(()=>stop('timeout'),command.timeoutMs);
     monitor=setInterval(()=>{
       if (ending) return;
@@ -3406,6 +3405,10 @@ async function supervise(manifestPath,commandId,id,parent) {
         else if(prior!==stable(record.nativeMetadata))writeReceipt(path,record,keyFile); }
       catch(error) { failure={phase:'lifetime-contract',reason:error.reason,metadataRole:error.metadataRole};stop('policy-changed'); }
     },500);
+    // Readiness is published only after successful post-spawn validation and
+    // installation of the lifetime monitor, never merely from child stdout.
+    record.postSpawnValidated=true;writeReceipt(path,record,keyFile);
+    }
   } catch(error) { failure={phase,reason:error.reason,metadataRole:error.metadataRole,code:['ENOENT','EACCES','EPERM'].includes(error.code)?error.code:undefined,errorClass:['TypeError','ReferenceError','SyntaxError'].includes(error.name)?error.name:undefined};stop('launch-failed'); }
   const code=await completed;
   guardian.destroy();process.exit(code);

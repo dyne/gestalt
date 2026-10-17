@@ -432,6 +432,12 @@ native wrapper enforces the supplied state for its actual child/descendants.
 A policy receipt alone still cannot establish that origin.
 
 The temporary `authorized-launch` record is not a running-process receipt.
+The signed process receipt sets `postSpawnValidated: true` only after the
+post-spawn contract check succeeds and the lifetime monitor is installed.
+Consumers proving lifetime revocation must await that field; child stdout or a
+running-process record alone does not attest that the monitor is ready.
+The isolated proof measures helper output and monitor readiness as separate
+bounded phases; both must succeed before a lifetime claim.
 `verify-process` requires an authenticated `running` record, current parent
 policy and matching live supervisor/native process identities. It returns
 `process-verified` or a bounded refusal. `stop` validates the stored owned
@@ -931,3 +937,115 @@ adoption, metadata deletion, token/environment forwarding, second controller or
 running installation change is provided. Full pinned Native survivor,
 replacement, narrowing, lifecycle and old-authority denial proof belongs to the
 renewed L9.2 gate; contract fixtures alone do not establish those host results.
+
+### Original installed bridge provenance extension
+
+Manager schema2 optionally supports `original-installed-launch-source-v1`.
+Successful `capture-runtime`, `seal-runtime`, `probe`, `prepare`, and `verify`
+responses advertise it in `extensions`. Consumers must require the capability
+from successful capture before original birth; older Managers reject the additional
+manifest field. A successful capture observation can populate the exact inventory
+entry without starting any original process.
+Schema1 rejects it. Omitting the field preserves the existing schema2 contract.
+An explicit empty array, additional entries, unknown fields or kinds refuse.
+
+`manifest.originalLaunchSources` is exactly one descriptor:
+
+```json
+[{
+  "kind": "context-mode-bridge-v1",
+  "path": "/protected/original-home/bin/context-mode-mcp.mjs",
+  "sha256": "<launcher SHA256>",
+  "gestaltHome": "/protected/gestalt",
+  "interpreter": {"path": "/exact/canonical/node", "sha256": "<Node SHA256>"},
+  "package": {
+    "root": "/protected/cache/context-mode/2.17.0",
+    "version": "2.17.0",
+    "treeDigest": "<complete package tree SHA256>"
+  },
+  "runtime": {
+    "root": "/protected/gestalt/runtime/context-mode",
+    "treeDigest": "<complete prepared runtime tree SHA256>"
+  }
+}]
+```
+
+The original home is `owningRuntime.home` (or `runtimeHome` when omitted).
+The fixed launcher must be owned by the controller UID, mode0755, single-link,
+canonical and outside all admitted write roots. Its original home is private;
+its bin parent must be controller-owned and protected from replacement. Every
+ancestor, interpreter, package/runtime file and directory must be canonical,
+root/controller-owned, protected from admitted writes and non-writable by group
+or other. Package/runtime directory pins additionally require the controller UID. Sticky temporary ancestry is permitted only with protected descendants.
+Symlinks, special files, unexpected paths and missing inputs
+refuse. No original source is rewritten, chmodded, hidden or treated as TOML.
+The launcher and interpreter require one link. Package/runtime hardlinks are
+accepted only when every alias is observed within the same protected tree.
+Unobserved, outside and cross-tree aliases refuse. After traversal Manager
+rechecks every file identity, link count, group membership and directory,
+including initially single-link files; signed identities retain paths and link
+counts for subsequent inventory, lifetime and renewal observations.
+Each observation freshly checks every distinct ancestor and independently
+revalidates those pins before returning; observations are never cached across
+calls.
+
+Manager independently reconstructs the exact accepted configurator's generated
+MCP bridge bytes, including the fixed `GESTALT_HOME` fallback, `codex` platform,
+workspace fallback and sole absolute import of `package.root/start.mjs`.
+The package directory ends in `context-mode/VERSION`; its `package.json` must
+name context-mode at that version. Both full trees are independently hashed
+using Agents' `measureTree` encoding: sorted recursive file traversal, each row
+`[relativePosixPath, mode & 0777, sha256(bytes)]`, then SHA256 of stable JSON.
+The additional observation retains hashes of file/directory identities and
+protected ancestry; identical-byte replacement also invalidates admission.
+The bounded tree has at most20000 nodes and512MiB of file content. The prepared
+runtime must have matching package identity and the exact schema2 preparation
+manifest fields, current platform/architecture/Node modules ABI, and every
+required runtime file with its verified manifest hash. This does not execute
+package code or establish model readiness.
+
+The interpreter must equal the canonical Node executable actually running the
+Manager verifier, with a matching digest and executable mode. Consumers must
+invoke Manager using that pinned interpreter. The original process environment
+is observed without modification: duplicate environment keys, nonempty
+`NODE_OPTIONS`/`NODE_PATH`, conflicting `GESTALT_HOME`/`CONTEXT_MODE_WORKSPACE`,
+relative/empty, missing or writable PATH directories, or a first resolved `node` differing from the exact
+interpreter refuse sealing. This pins the actual original bridge resolution;
+it does not forward environment variables or authorize arbitrary launch commands.
+
+Capture returns `originalLaunchSources`, an array of independently measured
+`{kind:"installed-launch-source", descriptor, observation}` values, and signs
+that exact observation before original process birth. The observation contains
+`launcher`/`interpreter` SHA256 and identity (`dev`, `ino`, `uid`, `mode`, `size`,
+`nlink`, `ctime`, `mtime`), `package`/`runtime` tree and identity digests,
+`parentsDigest`, and original `home`, `bin`, `gestaltHome` directory identities
+(`dev`, `ino`, `uid`, `mode`). Pass that exact object as an additional element of
+`sources` in the schema2 source inventory; it has no config-file role or path
+field outside its descriptor. Omission, duplication or changed observations
+refuse. All previous present/absent config/instruction requirements and unknown
+kind/role rejection remain in force. Consumers independently check the descriptor,
+accepted package/runtime pins and exact generated source; Manager's observation
+is an additional independent check, not a substitute for consumer verification.
+
+The complete observed source enters the policy receipt and provenance basis,
+birth receipt, sealed inventory, generation fence digest and revoked fence.
+Manager remeasures it at capture publication, sealing, preparation,
+verification, every dispatch and the existing lifetime monitor. Renewal retains
+the exact original source/observation across generations, including original
+home when a fresh worker home is generated. Changed sources cannot be blessed
+by updating descriptor digests or relabeling an old generation. Revocation
+remains available after source tampering so the controller can stop admission;
+restoration requires unchanged original provenance or a fresh owning session.
+
+New bounded failure reasons are `invalid-installed-launch-source` (unsupported
+shape, path relationship or prepared descriptor),
+`untrusted-installed-launch-source` (ownership/mode/write authority),
+`installed-launch-source-changed` (bytes, identity or tree mismatch), and
+`unverified-installed-launch-environment` (actual original resolution differs).
+Existing `missing-prerequisite`, `symlink-path`, `incomplete-source-inventory`,
+`stale-runtime-provenance`, `renewal-source-changed` and revocation errors still
+apply. This extension admits no hooks, extra plugins, transports, URLs,
+commands, environment maps or invocation authority. Original native MCP catalog,
+retirement/drain, same app-server/thread preservation and actual post-seal
+initialization remain separate L10/L11 checks; genuine-provider proof remains
+required separately.

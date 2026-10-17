@@ -1,5 +1,6 @@
 // Isolated hosted proof. Actual Native model tools use a controlled provider; no genuine credentials, deployment or IPC repair.
 import assert from 'node:assert/strict';
+import {prepareOriginalInstalledBridge,ACCEPTED_AGENTS} from './live-host-installed-source.mjs';
 import {controlledObservation,quiesceNative} from './live-host-renewal-observation.mjs';
 import {spawn,execFileSync} from 'node:child_process';
 import {createHash,randomUUID,randomBytes} from 'node:crypto';
@@ -10,6 +11,7 @@ import {gunzipSync,inflateSync,zstdDecompressSync} from 'node:zlib';
 import {dirname,join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
+const acceptedAgentsRoot=realpathSync(process.env.LIVE_HOST_AGENTS_ROOT);
 const hostedActions=process.env.GITHUB_ACTIONS==='true';
 const binary=realpathSync(process.env.LIVE_HOST_CODEX_BINARY);
 const mobileModule=realpathSync(process.env.LIVE_HOST_MOBILE_MODULE);
@@ -34,7 +36,7 @@ assert.equal(runtimePins.runId,'38645681271');
 const mobilePin='c558dd644e4b6ac8d3bce9e57bce762791ea25de';
 const acceptedMobilePin='c558dd644e4b6ac8d3bce9e57bce762791ea25de';
 const mobileInputPaths=['src/server/platform/codex/json-rpc-client.ts','src/server/platform/catalog/profile-command.ts','src/server/platform/codex/codex-process-launcher.ts'];
-const agentsPin='4c4f4566ac968e1b7d425e825ba2ad9a8d9f8f1f';
+const agentsPin=ACCEPTED_AGENTS.commit;
 const hash=data=>createHash('sha256').update(data).digest('hex');
 const pause=ms=>new Promise(done=>setTimeout(done,ms));
 // Match pinned native legacy resource resolution without relocating its binary.
@@ -67,14 +69,14 @@ const tree=execFileSync('git',['rev-parse','HEAD^{tree}'],{encoding:'utf8'}).tri
 const commit=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
 const provenance={repository:process.env.GITHUB_REPOSITORY,runId:process.env.GITHUB_RUN_ID,commit,tree,
  nativeMaskRevision:{...runtimePins,fixtureSha256:hash(readFileSync(runtimePinsPath))},
- agentsPackageLoaded:false,sourcePin:'979011409de0a60b52f179721948e65531d26144',mobilePin,acceptedMobilePin,agentsPin,nativeVersion:'0.161.0',
+ agentsPackageLoaded:true,originalInstalledSourceInput:ACCEPTED_AGENTS,sourcePin:'979011409de0a60b52f179721948e65531d26144',mobilePin,acceptedMobilePin,agentsPin,nativeVersion:'0.161.0',
  mobileFixtureProvenanceSha256:hash(readFileSync('tests/fixtures/live-host-mobile-input/provenance.json')),
  mobileInputs:Object.fromEntries(mobileInputPaths.map(path=>[path,hash(readFileSync(join('.host-mobile-input',path)))])),
  bundledBwrap:{sha256:hash(readFileSync(bundledBwrap)),mode:(lstatSync(bundledBwrap).mode&0o777).toString(8)},
  electionModuleSha256:hash(readFileSync(electionModule)),
  electionInputs:Object.fromEntries(Object.keys(JSON.parse(readFileSync(join(dirname(manager),'election-inputs.json'))).inputs).sort().map(path=>[path,hash(readFileSync(path))])),
  binarySha256:hash(readFileSync(binary)),sourceBinaryMode:(lstatSync(binary).mode&0o777).toString(8),mobileLauncherSha256:hash(readFileSync(mobileModule)),
- files:Object.fromEntries(['public/gestalt','scripts/live-host-policy-native-proof.mjs','tests/live-host-policy.test.mjs','.github/workflows/live-host-policy-proof.yml','docs/caddy-live.md','tests/run.sh','scripts/live-host-renewal-observation.mjs']
+ files:Object.fromEntries(['public/gestalt','scripts/live-host-policy-native-proof.mjs','tests/live-host-policy.test.mjs','.github/workflows/live-host-policy-proof.yml','docs/caddy-live.md','tests/run.sh','scripts/live-host-renewal-observation.mjs','scripts/live-host-installed-source.mjs']
   .map(path=>[path,hash(readFileSync(path))]))};
 mkdirSync(evidence,{recursive:true});
 const root=mkdtempSync(join(dirname(manager),'live host policy ')),app=join(root,'app with spaces'),privateRoot=join(root,'controller'),nativeHome=join(privateRoot,'owning-runtime'),home=join(privateRoot,'sandbox-home'),bin=join(root,'bin');
@@ -122,17 +124,36 @@ const rpcFailureDiagnostic=(method,error,roles={})=>{
   matchedPathRoles:Object.entries(roles).filter(([,path])=>text.includes(path)).map(([role])=>role),
   sourceLocations:[...text.matchAll(/([a-z_-]+\.rs):(\d+):(\d+)/g)].slice(0,3).map(match=>match.slice(1).join(':'))};
 };
+let originalBridge;const installedBridges=new Map();
 let runtime,caddy,unowned,active,extraFD,elected,providerFailure,thread,currentRpcMethod,controllerAccepted=0;
 const startedThreads=new Set(),metadataCommands=new Map();let nativeServerRequests=0;
-function trackPrivateRequests(child){let buffer="";child.stdout.on("data",chunk=>{buffer+=chunk.toString();if(Buffer.byteLength(buffer)>1024*1024){buffer="";report.nativeWireInvalid=true;return;}let newline;while((newline=buffer.indexOf("\n"))>=0){const line=buffer.slice(0,newline);buffer=buffer.slice(newline+1);try{const packet=JSON.parse(line);if(Object.hasOwn(packet,"id")&&typeof packet.method==="string")nativeServerRequests++;}catch{report.nativeWireInvalid=true;}}});}
+const originalDiagnostics=new WeakMap();
+function trackPrivateRequests(child){
+ const stderr={text:'',bytes:0,hash:createHash('sha256')};originalDiagnostics.set(child,stderr);
+ child.stderr.on('data',chunk=>{stderr.bytes+=chunk.length;stderr.hash.update(chunk);stderr.text=(stderr.text+chunk.toString()).slice(-65536);});
+ let buffer="";child.stdout.on("data",chunk=>{buffer+=chunk.toString();if(Buffer.byteLength(buffer)>1024*1024){buffer="";report.nativeWireInvalid=true;return;}let newline;while((newline=buffer.indexOf("\n"))>=0){const line=buffer.slice(0,newline);buffer=buffer.slice(newline+1);try{const packet=JSON.parse(line);if(Object.hasOwn(packet,"id")&&typeof packet.method==="string")nativeServerRequests++;}catch{report.nativeWireInvalid=true;}}});
+}
+function originalRuntimeDiagnostic(){
+ const child=runtime?.child,stderr=originalDiagnostics.get(child);let image;
+ try{image=readlinkSync(`/proc/${child.pid}/exe`);}catch{}
+ return {running:child?.exitCode===null&&child?.signalCode===null,nativeImage:image===binary,shellImage:image==='/usr/bin/bash'||image==='/usr/bin/dash',
+  stderr:stderr?{...nativeDiagnostic(stderr.text),bytes:stderr.bytes,sha256:stderr.hash.copy().digest('hex'),privateLaunchRefused:/private owning runtime unavailable/.test(stderr.text)}:undefined};
+}
 const server=createServer(peer=>{controllerAccepted++;peer.end();});
-async function waitFor(fn,budget=12000){const end=Date.now()+budget;while(Date.now()<end){try{const result=fn();if(result)return result;}catch{}await pause(50);}throw Error('PROOF_DEADLINE');}
+async function waitFor(fn,budget=90000,retryErrors=true){const end=Date.now()+budget;while(Date.now()<end){try{const result=fn();if(result)return result;}catch(error){if(!retryErrors)throw error;}await pause(50);}throw Error('PROOF_DEADLINE');}
 function managerCall(args){const result=spawn('bash',[manager,...args],{cwd:app,env:managerEnv,stdio:['ignore','pipe','pipe']});
  let stdout='',stderr='';result.stdout.on('data',b=>stdout+=b);result.stderr.on('data',b=>stderr+=b);
- return new Promise((done,reject)=>{const timer=setTimeout(()=>{result.kill('SIGKILL');reject(Error('MANAGER_DEADLINE'));},15000);result.on('error',error=>{clearTimeout(timer);done({code:null,signal:null,stdout,stderr,errorCode:['ENOENT','EACCES','EPERM'].includes(error.code)?error.code:'SPAWN_ERROR'});});result.on('close',(code,signal)=>{clearTimeout(timer);done({code,signal,stdout,stderr});});});}
+ return new Promise((done,reject)=>{const timer=setTimeout(()=>{result.kill('SIGKILL');reject(Error('MANAGER_DEADLINE'));},90000);result.on('error',error=>{clearTimeout(timer);done({code:null,signal:null,stdout,stderr,errorCode:['ENOENT','EACCES','EPERM'].includes(error.code)?error.code:'SPAWN_ERROR'});});result.on('close',(code,signal)=>{clearTimeout(timer);done({code,signal,stdout,stderr});});});}
 const api=()=>new Promise((done,reject)=>{const req=httpRequest({socketPath:caddySocket,path:'/config/',method:'GET'},res=>{res.resume();res.on('end',()=>done(res.statusCode));});req.on('error',reject);req.end();});
-async function rpc(method,params){currentRpcMethod=method;try{return await Promise.race([runtime.rpc.request(method,params),new Promise((_,reject)=>{const timer=setTimeout(()=>reject(Error('RPC_DEADLINE')),12000);timer.unref();})]);}
- catch(error){report.failedRpc=rpcFailureDiagnostic(method,error,{appRoot:app,originalHome:nativeHome,controllerDirectory:privateRoot,metadata:join(app,'.codex'),daemon});throw error;}}
+async function rpc(method,params){
+ currentRpcMethod=method;const started=performance.now(),budgetMs=method==='initialize'?90000:12000;let timer;
+ // initialize is queued before the managed CLI has observed the full actual
+ // installed trees and execed Native. This is the existing manager launch
+ // budget; subsequent Native RPCs retain their original bounded deadline.
+ try{return await Promise.race([runtime.rpc.request(method,params),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('RPC_DEADLINE')),budgetMs);timer.unref();})]);}
+ catch(error){report.failedRpc=rpcFailureDiagnostic(method,error,{appRoot:app,originalHome:nativeHome,controllerDirectory:privateRoot,metadata:join(app,'.codex'),daemon});report.originalRuntimeAtFailure=originalRuntimeDiagnostic();throw error;}
+ finally{clearTimeout(timer);report.rpcTimings??=[];if(report.rpcTimings.length<256)report.rpcTimings.push({method,budgetMs,elapsedMs:Math.ceil(performance.now()-started)});}
+}
 function ownedPids(marker){const found=[];for(const pid of readdirSync('/proc').filter(name=>/^\d+$/.test(name))){try{
  const args=readFileSync(`/proc/${pid}/cmdline`).toString().split('\0');if(args.some(arg=>arg===marker))found.push(identity(Number(pid)));
  }catch{}}return found;}
@@ -180,7 +201,7 @@ async function prepare(){save();const priorStage=report.stage;report.stage=prior
 async function launch(mode='hold',fixture={app,m,manifest,childFile,publicFile}) {
  const {app,m,manifest,childFile,publicFile}=fixture;
  const stdinChunks=['native input with spaces\n','second ','line\n'];
- const id=randomUUID(),input={mode,expectedWrite:m.sandboxState.permissionProfile.file_system.entries.find(entry=>entry.path.path===app)?.access==='write',publicSocket:join(app,`s-${id.slice(0,8)}`),metadataPath:join(app,'.codex'),stdinExpected:stdinChunks.join(''),publicFile,readOnlyFile,writeFile:join(app,'written'),privateFiles:[auth,controlFile,manifest,key,join(nativeHome,'config.toml')],
+ const id=randomUUID(),input={mode,expectedWrite:m.sandboxState.permissionProfile.file_system.entries.find(entry=>entry.path.path===app)?.access==='write',publicSocket:join(app,`s-${id.slice(0,8)}`),metadataPath:join(app,'.codex'),stdinExpected:stdinChunks.join(''),publicFile,readOnlyFile,writeFile:join(app,'written'),privateFiles:[auth,controlFile,manifest,key,join(m.owningRuntime.home,'config.toml'),...m.originalLaunchSources.flatMap(source=>[source.path,join(source.package.root,'start.mjs'),join(source.runtime.root,'server.bundle.mjs')])],
  controllerSocket:socket,caddySocket,daemon,fdIdentity:{dev:lstatSync(auth).dev,ino:lstatSync(auth).ino},aliases:[`/proc/${process.pid}/root${auth}`,`/proc/${process.pid}/fd/${extraFD}`,`/proc/self/root${auth}`]};
  assert.ok(Buffer.byteLength(input.publicSocket)<108,'PUBLIC_SOCKET_PATH_TOO_LONG');
  m.commands.probe.args=[childFile,JSON.stringify(input)];writeFileSync(manifest,JSON.stringify(m),{mode:0o600});const prepared=await callFor(manifest,['prepare']);assert.equal(prepared.code,0,JSON.stringify(managerResultDiagnostic(prepared)));
@@ -193,9 +214,18 @@ async function launch(mode='hold',fixture={app,m,manifest,childFile,publicFile})
  child.stdout.on('data',()=>{try{report.probeStages=output.split('\n').slice(0,-1).filter(Boolean).map(line=>JSON.parse(line)).filter(value=>value.kind==='probe-stage').slice(0,40).map(value=>({depth:value.depth,stage:value.stage,pid:value.pid}));report.nativeResults=result.messages().filter(value=>Number.isInteger(value.depth)&&value.depth>=0&&value.depth<=2).map(value=>({depth:value.depth,uid:value.uid,pid:value.pid,checks:Object.fromEntries(Object.entries(value.checks??{}).filter(([,flag])=>typeof flag==='boolean'))}));}catch{report.nativeOutputMalformed=true;}});
  result.publicSocket=input.publicSocket;active=result;return result;
 }
-async function nativeMessages(launch){await Promise.race([waitFor(()=>launch.messages().filter(value=>Number.isInteger(value.depth)&&value.depth>=0&&value.depth<=2).length===3),launch.ended.then(()=>{throw Error('NATIVE_LAUNCH_EARLY_EXIT');})]);}
+async function nativeMessages(launch){
+ const started=Date.now(),until=predicate=>Promise.race([waitFor(predicate),launch.ended.then(()=>{throw Error('NATIVE_LAUNCH_EARLY_EXIT');})]);
+ await until(()=>launch.messages().filter(value=>Number.isInteger(value.depth)&&value.depth>=0&&value.depth<=2).length===3);
+ const framesAt=Date.now();
+ // Real installed trees are reobserved through every signed renewal ancestor.
+ // Worker output and post-spawn monitor installation are distinct phases;
+ // each retains the existing90s bound and rejects premature process exit.
+ await until(()=>JSON.parse(readFileSync(launch.path)).body.postSpawnValidated===true);
+ report.launchReadiness??=[];if(report.launchReadiness.length<64)report.launchReadiness.push({launchId:launch.id,framesMs:framesAt-started,monitorMs:Date.now()-framesAt,totalMs:Date.now()-started,postSpawnValidated:true});
+}
 function launchBoundary(launch){const state=launch.state();try{const body=JSON.parse(readFileSync(launch.path)).body;
- state.receipt={kind:body.kind,status:body.status,termination:body.termination,failure:body.failure};}catch(error){state.receipt={error:['ENOENT','EACCES','EPERM'].includes(error.code)?error.code:'INVALID_RECEIPT'};}return state;}
+ state.receipt={kind:body.kind,status:body.status,postSpawnValidated:body.postSpawnValidated===true,termination:body.termination,failure:body.failure};}catch(error){state.receipt={error:['ENOENT','EACCES','EPERM'].includes(error.code)?error.code:'INVALID_RECEIPT'};}return state;}
 function ownedProcessSnapshot(launch){let rootPid;try{rootPid=JSON.parse(readFileSync(launch.path)).body.process.pid;}catch{return [];}
  let rootStdout;try{rootStdout=readlinkSync(`/proc/${rootPid}/fd/1`);}catch{}
  const pending=[rootPid],seen=new Set(),results=[];while(pending.length&&results.length<24){const pid=pending.shift();if(seen.has(pid))continue;seen.add(pid);
@@ -215,7 +245,7 @@ async function closeOwned(child) {
  catch { child.kill('SIGKILL');await waitFor(()=>child.exitCode !== null || child.signalCode !== null,2000); }
  return true;
 }
-async function stopped(launch){await Promise.race([launch.ended,pause(12000).then(()=>{throw Error('REAP_DEADLINE');})]);
+async function stopped(launch){await Promise.race([launch.ended,pause(90000).then(()=>{throw Error('REAP_DEADLINE');})]);
  await waitFor(()=>JSON.parse(readFileSync(launch.path)).body.status==='exited');active=undefined;}
 const negativeKinds=['config','hooks','rules','agents','replacement','symlink','stale-owner','generation','session','race','instruction-file','instruction-symlink'];
 const cases=negativeKinds.map(kind=>({kind,app:join(root,`negative ${kind}`),directory:join(privateRoot,`case-${kind}`),profile:`live-case-${kind}`,capture:randomUUID(),session:randomUUID()}));
@@ -274,14 +304,15 @@ const provider=createHttpServer(async(req,res)=>{try{
  }catch(error){providerFailure=true;report.providerFailureDiagnostic={stage:providerStage,shape:providerShape,assertion:error.operator,knownFailure:['NATIVE_TOOL_UNAVAILABLE','NATIVE_CHILD_TOOL_UNAVAILABLE'].includes(error.message)?error.message:undefined,errorClass:error instanceof SyntaxError?'SyntaxError':error.code==='ERR_ASSERTION'?'Assertion':'Other'};res.writeHead(500);res.end('controlled-provider-failed');}});
 function filePin(path){const info=lstatSync(path);return {sha256:hash(readFileSync(path)),identity:{dev:info.dev,ino:info.ino,uid:info.uid,mode:info.mode,ctime:info.ctimeMs,mtime:info.mtimeMs}};}
 function folderPin(path){const info=lstatSync(path);return {dev:info.dev,ino:info.ino,uid:info.uid,mode:info.mode,ctime:info.ctimeMs,mtime:info.mtimeMs,birthtime:info.birthtimeMs};}
-function manifestFor(appRoot,directory,profileId,session,network=false){return {schemaVersion:2,profileId,appRoot,controller:report.controller,election:report.election,generation:{sessionId:session,generation:1},owningRuntime:{args:['app-server','--stdio'],home:nativeHome},binary:{path:binary,version:'0.161.0',sha256:expectedBinary},sandboxState:nativeState(appRoot,true,network),configFiles:[join(directory,'worker','config.toml'),join(nativeHome,'config.toml')].map(path=>({path,sha256:hash(readFileSync(path))})),components:{manager:commit,mobile:mobilePin,agents:agentsPin},privatePaths:{auth:[auth],controller:[privateRoot],caddy:[caddySocket,join(privateRoot,'caddy.json')],daemon:[daemon]},keyFile:key,runtimeHome:join(directory,'worker'),environment:{PATH:'/usr/bin:/bin',HOME:join(directory,'worker'),TMPDIR:'/tmp'},commands:{probe:{executable:admittedNode,sha256:hash(readFileSync(admittedNode)),args:[],timeoutMs:20000}}};}
+function manifestFor(appRoot,directory,profileId,session,network=false,owningHome=nativeHome,bridge=originalBridge){return {schemaVersion:2,profileId,appRoot,controller:report.controller,election:report.election,generation:{sessionId:session,generation:1},owningRuntime:{args:['app-server','--stdio'],home:owningHome},originalLaunchSources:[bridge.descriptor],binary:{path:binary,version:'0.161.0',sha256:expectedBinary},sandboxState:nativeState(appRoot,true,network),configFiles:[join(directory,'worker','config.toml'),join(owningHome,'config.toml')].map(path=>({path,sha256:hash(readFileSync(path))})),components:{manager:commit,mobile:mobilePin,agents:agentsPin},privatePaths:{auth:[auth],controller:[privateRoot],caddy:[caddySocket,join(privateRoot,'caddy.json')],daemon:[daemon]},keyFile:key,runtimeHome:join(directory,'worker'),environment:{PATH:'/usr/bin:/bin',HOME:join(directory,'worker'),TMPDIR:'/tmp'},commands:{probe:{executable:admittedNode,sha256:hash(readFileSync(admittedNode)),args:[],timeoutMs:180000}}};}
 async function callFor(path,args){return await managerCall(['live-policy',...args.slice(0,1),'--manifest',path,...args.slice(1)]);}
 async function captureFor(value,path,id){writeFileSync(path,JSON.stringify(value),{mode:0o600});const result=await callFor(path,['capture-runtime','--capture-id',id]);assert.equal(result.code,0,JSON.stringify(managerResultDiagnostic(result)));return JSON.parse(result.stdout);}
 async function actualSources(value,path,id,startReply,captured,{inventoryOnly=false}={}){
  const configuration=await rpc('config/read',{cwd:value.appRoot,includeLayers:true});assert.ok(configuration.config&&Array.isArray(configuration.layers)&&configuration.layers.length);
  report.sourceGuard='hooks-disabled';assert.equal(configuration.config.features.hooks,false);
- report.sourceGuard='mcp-empty';assert.deepEqual(configuration.config.mcp_servers??{},{});
- report.sourceGuard='plugins-empty';assert.deepEqual(configuration.config.plugins??{},{});
+ report.sourceGuard='fixed-original-bridge';const bridge=value.originalLaunchSources[0],server=configuration.config.mcp_servers?.['context-mode'];
+ assert.deepEqual(Object.keys(configuration.config.mcp_servers??{}),['context-mode']);assert.equal(server.command,'node');assert.deepEqual(server.args,[bridge.path]);assert.equal(server.enabled,true);assert.equal(server.required,true);assert.equal(server.default_tools_approval_mode,'approve');
+ report.sourceGuard='only-disabled-package-metadata';assert.deepEqual(configuration.config.plugins,{'context-mode@dyne-gestalt-agents':{enabled:false}});installedBridges.get(bridge.path).verify();
  const declared=configuration.config.permissions?.[value.profileId];assert.ok(declared);assert.equal(declared.extends,':read-only');assert.equal(declared.network.enabled,value.sandboxState.permissionProfile.network==='enabled');
  // Native config/read serializes FilesystemPermissionsToml's unset scan depth
  // as null. Include that known metadata field while requiring every grant exact.
@@ -301,8 +332,9 @@ async function actualSources(value,path,id,startReply,captured,{inventoryOnly=fa
   if(!existsSync(name.file)){assert.equal(Object.keys(layer.config).length,0);assert.ok(['/etc/codex/config.toml','/etc/codex/managed_config.toml','/etc/codex/requirements.toml'].includes(name.file),'UNSUPPORTED_ABSENT_SOURCE');continue;}
   assert.ok(pins.has(name.file),'UNINVENTORIED_NATIVE_FILE');presentFiles.add(name.file);sources.push({kind:'file',role:name.type==='user'?'user':name.type==='system'?'system':name.type==='packagedDefaults'?'packaged-defaults':'managed',...pins.get(name.file)});
  }
- assert.ok(presentFiles.has(join(nativeHome,'config.toml')));sources.push({kind:'file',role:'sandbox-worker',...pins.get(join(value.runtimeHome,'config.toml'))});
+ assert.ok(presentFiles.has(join(value.owningRuntime.home,'config.toml')));sources.push({kind:'file',role:'sandbox-worker',...pins.get(join(value.runtimeHome,'config.toml'))});
  const before=JSON.parse(readFileSync(join(dirname(path),`birth-${id}.json`))).body;
+ assert.equal(before.originalLaunchSources?.length,1);assert.deepEqual(before.originalLaunchSources[0].descriptor,value.originalLaunchSources[0]);sources.push(before.originalLaunchSources[0]);
  for(const entry of before.directories)sources.push(existsSync(entry.path)?{kind:'directory',role:'project',path:entry.path,identity:folderPin(entry.path)}:{kind:'absent',role:'project',path:entry.path});
  for(const file of ['/etc/codex/config.toml','/etc/codex/managed_config.toml','/etc/codex/requirements.toml'])sources.push({kind:'absent',role:'system',path:file});
  for(const file of startReply.instructionSources)sources.push({kind:'instruction',path:file,...filePin(file)});
@@ -314,7 +346,25 @@ async function actualSources(value,path,id,startReply,captured,{inventoryOnly=fa
  value.runtimeProvenance={captureId:id,effectiveConfigDigest:inventory.effectiveConfigDigest,sessionFlagsDigest:inventory.sessionFlagsDigest};writeFileSync(path,JSON.stringify(value),{mode:0o600});
  return {configuration,inventory,startReply,inventoryDigest:hash(stable(inventory))};
 }
-function originalRuntimeDescendant(pid){for(let depth=0;depth<16;depth++){if(pid===runtime.child.pid)return identity(pid).birth===report.appServer.birth;const match=readFileSync(`/proc/${pid}/status`,'utf8').match(/^PPid:\s+(\d+)/m);if(!match)return false;pid=Number(match[1]);if(pid<=1)return false;}return false;}
+async function originalBridgeCatalog(threadId,value) {
+ const catalog=await rpc('mcpServerStatus/list',{threadId,detail:'toolsAndAuthOnly'});assert.ok(Array.isArray(catalog.data));assert.equal(catalog.nextCursor??null,null);
+ const server=catalog.data.find(server=>server.name==='context-mode');assert.ok(server);assert.ok(server.tools?.ctx_execute);assert.ok(server.tools?.ctx_search);
+ const descriptor=value.originalLaunchSources[0],processes=await waitFor(()=>{const found=originalBridgeProcesses(descriptor);return found.length?found:false;},90000,false);
+ return {actualNativeCatalog:true,server:'context-mode',toolCount:Object.keys(server.tools).length,processes,launcherSha256:descriptor.sha256,interpreterSha256:descriptor.interpreter.sha256};
+}
+function originalRuntimeDescendant(pid){
+ try{for(let depth=0;depth<16;depth++){if(pid===runtime.child.pid)return identity(pid).birth===report.appServer.birth;const match=readFileSync(`/proc/${pid}/status`,'utf8').match(/^PPid:\s+(\d+)/m);if(!match)return false;pid=Number(match[1]);if(pid<=1)return false;}return false;}
+ catch(error){if(['ENOENT','ESRCH'].includes(error.code))return false;throw error;}
+}
+function originalBridgeProcesses(descriptor){
+ return ownedPids(descriptor.path).filter(record=>{
+  try{
+   if(stable(identity(record.pid))!==stable(record)||!originalRuntimeDescendant(record.pid))return false;
+   assert.equal(readlinkSync(`/proc/${record.pid}/exe`),descriptor.interpreter.path);assert.equal(hash(readFileSync(`/proc/${record.pid}/exe`)),descriptor.interpreter.sha256);
+   return stable(identity(record.pid))===stable(record)&&originalRuntimeDescendant(record.pid);
+  }catch(error){if(['ENOENT','ESRCH'].includes(error.code))return false;throw error;}
+ });
+}
 let originalModelWorkers=[];
 function nativeCodeModeWorkers(){const found=[];for(const pid of readdirSync('/proc').filter(value=>/^\d+$/.test(value))){let matches=false;try{matches=readlinkSync(`/proc/${pid}/exe`)===codeModeHost&&originalRuntimeDescendant(Number(pid));}catch{continue;}if(matches){assert.equal(hash(readFileSync(`/proc/${pid}/exe`)),expectedCodeModeHost);found.push(identity(Number(pid)));}}return found;}
 async function startupAt(value,{holdMetadata=false}={}){let sampling=false;const sightings=[],masks=[],metadata=[];
@@ -341,7 +391,7 @@ async function startupAt(value,{holdMetadata=false}={}){let sampling=false;const
  if(holdMetadata){
   const processId=randomUUID(),marker='native-mask-holder-ready';let ready=false;
   const off=runtime.rpc.onNotification(message=>{if(message.method==='command/exec/outputDelta'&&message.params?.processId===processId&&Buffer.from(message.params.deltaBase64,'base64').toString().includes(marker))ready=true;});
-  const finished=runtime.rpc.request('command/exec',{processId,cwd:value.appRoot,permissionProfile:value.profileId,command:['/usr/bin/python3','-u','-c',`import time;print('${marker}',flush=True);time.sleep(30)`],timeoutMs:30000,streamStdoutStderr:true,outputBytesCap:1000});
+  const finished=runtime.rpc.request('command/exec',{processId,cwd:value.appRoot,permissionProfile:value.profileId,command:['/usr/bin/python3','-u','-c',`import time;print('${marker}',flush=True);time.sleep(300)`],timeoutMs:300000,streamStdoutStderr:true,outputBytesCap:1000});
   let exited=false;finished.finally(()=>{exited=true;off();}).catch(()=>{});await waitFor(()=>ready||exited);assert.equal(ready,true);assert.equal(exited,false);assert.ok(existsSync(join(value.appRoot,'.codex')));
   metadataCommands.set(value.appRoot,{processId,finished,off});
   report.startupCommands??=[];report.startupCommands.push({profile:value.profileId,actualNativeCommand:true,heldDuringSeal:true,nativeBornMetadata:true});
@@ -412,19 +462,46 @@ async function proveRenewal(original){
  const contenders=[nextRenewal(survivor),nextRenewal(survivor)];const published=await Promise.all(contenders.map(value=>renewCapture(value,survivor,'survivor')));assert.equal(published.filter(result=>result.code===0).length,1);assert.equal(published.filter(result=>result.code===1).length,1);
  const winner=contenders[published.findIndex(result=>result.code===0)];assert.equal((await callFor(winner.manifest,['verify'])).code,1);assert.equal((await callFor(winner.manifest,['revoke-runtime','--capture-id',winner.id])).code,0);
  report.renewal.concurrentPublication={oneWinner:true,unsealedReservationDenied:true,revokedForFreshRetry:true,loserReason:JSON.parse(published.find(result=>result.code===1).stdout).reason};
- const sharedHosts=[...new Map([...originalModelWorkers,...nativeCodeModeWorkers()].map(record=>[`${record.pid}:${record.birth}`,record])).values()];await closeOwned(runtime.child);assert.ok(dead(birth));await waitFor(()=>sharedHosts.every(dead));report.renewal.replacedOwnerActuallyExited=true;report.renewal.replacedSharedHosts={births:sharedHosts,allExited:true};
+ const originalBridgeProcesses=ownedPids(originalBridge.descriptor.path).filter(record=>originalRuntimeDescendant(record.pid));
+ const sharedHosts=[...new Map([...originalModelWorkers,...nativeCodeModeWorkers()].map(record=>[`${record.pid}:${record.birth}`,record])).values()];await closeOwned(runtime.child);assert.ok(dead(birth));await waitFor(()=>sharedHosts.every(dead));await waitFor(()=>originalBridgeProcesses.every(dead));report.renewal.originalBridgeRetiredOnOwnerExit={processes:originalBridgeProcesses,allExited:true};report.renewal.replacedOwnerActuallyExited=true;report.renewal.replacedSharedHosts={births:sharedHosts,allExited:true};
  report.stage='renewal-managed-replacement';const replacement=nextRenewal(survivor,{narrow:true,generation:survivor.value.generation.generation+2});const replacementCapture=await renewCapture(replacement,survivor,'replacement');assert.equal(replacementCapture.code,0,JSON.stringify(managerResultDiagnostic(replacementCapture)));
  writeFileSync(join(bin,'codex'),`#!/bin/sh\n[ "$#" = 2 ] && [ "$1" = app-server ] && [ "$2" = --stdio ] || exit 64\nexec ${quote(manager)} cli -- --live-policy-owning-runtime --manifest ${quote(replacement.manifest)} --capture-id ${quote(replacement.id)}\n`,{mode:0o700});
- const {launchCodexAppServer}=await import(pathToFileURL(mobileModule).href);runtime=launchCodexAppServer({profile:'default',cwd:app,environment:controllerEnv});runtime.child.stderr.on('data',()=>{});trackPrivateRequests(runtime.child);
+ const {launchCodexAppServer}=await import(pathToFileURL(mobileModule).href);runtime=launchCodexAppServer({profile:'default',cwd:app,environment:controllerEnv});trackPrivateRequests(runtime.child);
  await rpc('initialize',{clientInfo:{name:'l9_actual_provenance_proof',version:'2'},capabilities:{experimentalApi:true}});runtime.child.stdin.write(JSON.stringify({method:'initialized',params:{}})+'\n');
  const replacementBirth=identity(runtime.child.pid);assert.notDeepEqual(replacementBirth,birth);report.appServer=replacementBirth;
- const resumed=await resumeRenewal(replacement);const replacementObserved=await actualSources(replacement.value,replacement.manifest,replacement.id,resumed,JSON.parse(replacementCapture.stdout));
+ const resumed=await resumeRenewal(replacement);const replacementObserved=await actualSources(replacement.value,replacement.manifest,replacement.id,resumed,JSON.parse(replacementCapture.stdout));report.renewal.replacementBridgeCatalog=await originalBridgeCatalog(resumed.thread.id,replacement.value);
  assert.equal((await callFor(replacement.manifest,['prepare'])).code,0);await oldRefused(original);await oldRefused(survivor);
  const result=await rpc('command/exec',{cwd:app,permissionProfile:narrowProfile,command:['/usr/bin/python3','-c',`from pathlib import Path\nassert Path(${JSON.stringify(publicFile)}).read_text()=='public-fixture'\ntry:Path(${JSON.stringify(join(app,'renewal-forbidden'))}).write_text('forbidden');raise Exception('WRITE_BREACH')\nexcept OSError as e:assert e.errno in (1,13,30)\ntry:Path(${JSON.stringify(auth)}).read_text();raise Exception('PRIVATE_BREACH')\nexcept (PermissionError,FileNotFoundError):pass\nprint('renewed-native-narrow-denied')`],timeoutMs:8000,outputBytesCap:1000});assert.equal(result.exitCode,0);assert.ok(result.stdout.includes('renewed-native-narrow-denied'));
  renewedFixture={app,m:replacement.value,manifest:replacement.manifest,childFile,publicFile};
  const worker=await launch('hold',renewedFixture);await nativeMessages(worker);assert.ok(worker.messages().every(frame=>Object.values(frame.checks).every(Boolean)));assert.equal((await callFor(replacement.manifest,['stop','--launch-id',worker.id])).code,0);await stopped(worker);await waitFor(()=>ownedPids(childFile).every(dead));
  report.renewal.generations.push({mode:'replacement',generation:replacement.value.generation.generation,narrowed:true,managedImage:existsSync(join(dirname(replacement.manifest),`image-${replacement.id}.json`)),inventoryDigest:replacementObserved.inventoryDigest,descendants:worker.messages(),actualNativeCommand:true});
  report.checks.actualOriginalSurvivorRenewal=true;report.checks.actualManagedReplacementNarrowing=true;report.checks.oldAuthorityIrrevocablyRevoked=true;
+}
+
+
+async function proveInstalledSourceTamper() {
+ report.stage='fresh-owning-source-tamper';
+ const appRoot=join(root,'source tamper app'),directory=join(privateRoot,'source-tamper'),originalHome=join(directory,'original'),worker=join(directory,'worker'),profileId='live-installed-source-tamper';
+ for(const path of [appRoot,directory,originalHome,worker])mkdirSync(path,{mode:0o700});
+ writeFileSync(join(appRoot,'AGENTS.md'),'Preserve private state.\n');writeFileSync(join(appRoot,'public.txt'),'public-fixture');copyFileSync(childFile,join(appRoot,'native helper.mjs'));writeFileSync(join(worker,'config.toml'),isolatedConfig,{mode:0o600});
+ const config=readFileSync(join(nativeHome,'config.toml'),'utf8').replace(`default_permissions = "${profile}"`,`default_permissions = "${profileId}"`)+`\n[projects.${JSON.stringify(appRoot)}]\ntrust_level = "trusted"\n`+nativeProfile(profileId,appRoot);
+ writeFileSync(join(originalHome,'config.toml'),config,{mode:0o600});const bridge=originalBridge.forHome(originalHome);installedBridges.set(bridge.descriptor.path,bridge);
+ writeFileSync(join(originalHome,'config.toml'),readFileSync(join(originalHome,'config.toml'),'utf8').replace('hooks = true','hooks = false'),{mode:0o600});
+ const value=manifestFor(appRoot,directory,profileId,randomUUID(),false,originalHome,bridge),path=join(directory,'manifest.json'),id=randomUUID(),captured=await captureFor(value,path,id);
+ writeFileSync(join(bin,'codex'),`#!/bin/sh\n[ "$#" = 2 ] && [ "$1" = app-server ] && [ "$2" = --stdio ] || exit 64\nexec ${quote(manager)} cli -- --live-policy-owning-runtime --manifest ${quote(path)} --capture-id ${quote(id)}\n`,{mode:0o700});
+ const {launchCodexAppServer}=await import(pathToFileURL(mobileModule).href);runtime=launchCodexAppServer({profile:'default',cwd:appRoot,environment:{...controllerEnv,CODEX_HOME:originalHome}});trackPrivateRequests(runtime.child);
+ await rpc('initialize',{clientInfo:{name:'l9_actual_source_tamper',version:'1'},capabilities:{experimentalApi:true}});runtime.child.stdin.write(JSON.stringify({method:'initialized',params:{}})+'\n');report.appServer=identity(runtime.child.pid);
+ const reply=await startupAt(value,{holdMetadata:true}),observed=await actualSources(value,path,id,reply,captured),catalog=await originalBridgeCatalog(reply.thread.id,value);
+ assert.equal((await callFor(path,['prepare'])).code,0);
+ const fixture={app:appRoot,m:value,manifest:path,childFile:join(appRoot,'native helper.mjs'),publicFile:join(appRoot,'public.txt')},held=await launch('hold',fixture);await nativeMessages(held);assert.ok(held.messages().every(frame=>Object.values(frame.checks).every(Boolean)));
+ const before=ownedPids(fixture.childFile).filter(record=>{try{return readlinkSync(`/proc/${record.pid}/exe`)===admittedNode;}catch{return false;}});assert.equal(before.length,3);
+ const bundle=join(bridge.descriptor.runtime.root,'server.bundle.mjs'),unchanged=readFileSync(bundle);writeFileSync(bundle,Buffer.concat([unchanged,Buffer.from('\n// source tamper\n')]));
+ await stopped(held);await waitFor(()=>before.every(dead));const launchReceipt=JSON.parse(readFileSync(held.path)).body;assert.equal(launchReceipt.termination,'policy-changed');
+ const refused=await callFor(path,['verify']);assert.equal(refused.code,1);assert.equal(JSON.parse(refused.stdout).reason,'installed-launch-source-changed');
+ assert.equal((await callFor(path,['revoke-runtime','--capture-id',id])).code,0);
+ const renewed=nextRenewal({value,manifest:path,id,threadId:reply.thread.id});const renewal=await renewCapture(renewed,{value,manifest:path,id},'survivor');assert.equal(renewal.code,1);
+ report.installedSource.tamper={actualNativeCatalog:catalog,inventoryDigest:observed.inventoryDigest,changed:'actual prepared runtime server.bundle.mjs',threeDepthsConfined:true,allHelperBirthsReaped:before.every(dead),termination:launchReceipt.termination,verifyReason:JSON.parse(refused.stdout).reason,revocationSucceeded:true,renewalRefused:JSON.parse(renewal.stdout).reason};
+ report.checks.actualInstalledSourceLifetimeRevocation=true;report.checks.installedSourceChangedRenewalRefused=true;
 }
 
 try {
@@ -434,13 +511,18 @@ try {
  await new Promise(done=>server.listen(socket,done));const caddyConfig=join(privateRoot,'caddy.json');writeFileSync(caddyConfig,JSON.stringify({admin:{listen:'unix/'+caddySocket},apps:{http:{servers:{fixture:{listen:['127.0.0.1:0'],routes:[{handle:[{handler:'static_response',body:'fixture'}]}]}}}}}),{mode:0o600});
  caddy=spawn(caddyBinary,['run','--config',caddyConfig],{env:controllerEnv,stdio:'ignore'});await waitFor(()=>existsSync(caddySocket));assert.equal(await api(),200);report.checks.actualCaddyHostAuthority=true;
  await new Promise(done=>provider.listen(0,'127.0.0.1',done));const providerPort=provider.address().port;
- const allApps=[app,networkCase.app,...cases.map(c=>c.app)];const owningConfig=`model = "gpt-6-sol"\nmodel_provider = "controlled"\nmodel_reasoning_effort = "medium"\napproval_policy = "never"\ndefault_permissions = "${profile}"\nmcp_servers = {}\nplugins = {}\n[shell_environment_policy]\ninherit = "none"\n[model_providers.controlled]\nname = "Controlled Native proof"\nbase_url = "http://127.0.0.1:${providerPort}/v1"\nwire_api = "responses"\nrequires_openai_auth = false\n[features]\nshell_snapshot = false\nshell_snapshot_v2 = false\ndaemon_auto_start = false\ncode_mode = false\nmulti_agent = true\nmulti_agent_v2 = true\nhooks = false\n${allApps.map(path=>`[projects.${JSON.stringify(path)}]\ntrust_level = "trusted"\n`).join('')}${nativeProfile(profile,app)}${nativeProfile(narrowProfile,app,false)}${nativeProfile(networkCase.profile,networkCase.app,true,true)}${cases.map(c=>nativeProfile(c.profile,c.app)).join('')}`;writeFileSync(join(nativeHome,'config.toml'),owningConfig,{mode:0o600});
+ const allApps=[app,networkCase.app,...cases.map(c=>c.app)];const owningConfig=`model = "gpt-6-sol"\nmodel_provider = "controlled"\nmodel_reasoning_effort = "medium"\napproval_policy = "never"\ndefault_permissions = "${profile}"\n[shell_environment_policy]\ninherit = "none"\n[model_providers.controlled]\nname = "Controlled Native proof"\nbase_url = "http://127.0.0.1:${providerPort}/v1"\nwire_api = "responses"\nrequires_openai_auth = false\n[features]\nshell_snapshot = false\nshell_snapshot_v2 = false\ndaemon_auto_start = false\ncode_mode = false\nmulti_agent = true\nmulti_agent_v2 = true\nhooks = false\n${allApps.map(path=>`[projects.${JSON.stringify(path)}]\ntrust_level = "trusted"\n`).join('')}${nativeProfile(profile,app)}${nativeProfile(narrowProfile,app,false)}${nativeProfile(networkCase.profile,networkCase.app,true,true)}${cases.map(c=>nativeProfile(c.profile,c.app)).join('')}`;writeFileSync(join(nativeHome,'config.toml'),owningConfig,{mode:0o600});
+ report.stage='authentic-installed-source-preparation';originalBridge=await prepareOriginalInstalledBridge({agentsRoot:realpathSync(process.env.LIVE_HOST_AGENTS_ROOT??acceptedAgentsRoot),originalHome:nativeHome,gestaltHome:join(privateRoot,'installed-gestalt'),installation:join(privateRoot,'installed-packages')});installedBridges.set(originalBridge.descriptor.path,originalBridge);
+ // Explicit controlled-provider policy fixture: hooks stay disabled. The
+ // authentic MCP bridge remains enabled/required and its package disabled.
+ const generatedConfig=readFileSync(join(nativeHome,'config.toml'),'utf8');assert.ok(generatedConfig.includes('hooks = true'));writeFileSync(join(nativeHome,'config.toml'),generatedConfig.replace('hooks = true','hooks = false'),{mode:0o600});
+ report.installedSource={...originalBridge.provenance,originalBridgeEnabled:true,originalBridgeRequired:true,originalPackageEnabled:false,originalHooksEnabled:false,ordinaryInstalledHomeReadiness:false};
  const worker=join(privateRoot,'worker');mkdirSync(worker,{mode:0o700});writeFileSync(join(worker,'config.toml'),isolatedConfig,{mode:0o600});m=manifestFor(app,privateRoot,profile,sessionId);save();
  report.stage='managed-native-bootstrap';const bootstrap=await managerCall(['cli','--','--live-policy-bootstrap','--manifest',manifest]);report.bootstrap=managerResultDiagnostic(bootstrap);assert.equal(bootstrap.code,0);assert.equal(lstatSync(daemon).mode&0o777,0o700);report.checks.stockNativeHostBootstrap=true;
  report.stage='absence-before-owned-birth';const captured=await captureFor(m,manifest,captureId);for(const c of cases){c.manifest=join(c.directory,'manifest.json');c.value=manifestFor(c.app,c.directory,c.profile,c.session);c.captured=await captureFor(c.value,c.manifest,c.capture);}
  networkCase.manifest=join(networkCase.directory,'manifest.json');networkCase.value=manifestFor(networkCase.app,networkCase.directory,networkCase.profile,networkCase.session,true);networkCase.captured=await captureFor(networkCase.value,networkCase.manifest,networkCase.capture);
  report.checks.absentBeforeOriginalBirth=true;
- const {launchCodexAppServer}=await import(pathToFileURL(mobileModule).href);runtime=launchCodexAppServer({profile:'default',cwd:app,environment:controllerEnv});runtime.child.stderr.on('data',()=>{});trackPrivateRequests(runtime.child);
+ const {launchCodexAppServer}=await import(pathToFileURL(mobileModule).href);runtime=launchCodexAppServer({profile:'default',cwd:app,environment:controllerEnv});trackPrivateRequests(runtime.child);
  // The accepted client intentionally truncates error messages to 256 bytes.
  // Classify the original error frame before that boundary; retain no frame/text.
  let wireBuffer='';runtime.child.stdout.on('data',chunk=>{wireBuffer+=chunk.toString();if(Buffer.byteLength(wireBuffer)>1024*1024){wireBuffer='';report.wireDiagnosticOverflow=true;return;}
@@ -452,6 +534,7 @@ try {
  const hostRead=await rpc('fs/readFile',{path:auth});assert.equal(hostRead.dataBase64,Buffer.from('private-auth-fixture').toString('base64'));report.checks.controllerFsAuthority=true;
  report.stage='actual-original-startup';const initial=await startupAt(m);thread=initial.thread.id;primaryThread=thread;const observed=await actualSources(m,manifest,captureId,initial,captured);
  assert.ok(existsSync(join(app,'.codex')),'NATIVE_STARTUP_DID_NOT_CREATE_METADATA');assert.equal(readdirSync(join(app,'.codex')).length,0);assert.ok(initial.instructionSources.includes(join(app,'AGENTS.md')));report.checks.actualNativeStartupMetadata=true;report.checks.projectInstructionsLoaded=true;report.appliedFeatures={shellSnapshot:observed.configuration.config.features.shell_snapshot,shellSnapshotV2:observed.configuration.config.features.shell_snapshot_v2,hooks:observed.configuration.config.features.hooks};
+ report.installedSource.originalCatalog=await originalBridgeCatalog(thread,m);report.checks.authenticInstalledBridgeActualNativeCatalog=true;
  report.sources={nativeLayerKinds:observed.configuration.layers.map(layer=>layer.name.type),directoryCount:observed.inventory.sources.filter(source=>source.kind==='directory').length,instructionCount:initial.instructionSources.length,inventoryDigest:observed.inventoryDigest,effectiveConfigDigest:observed.inventory.effectiveConfigDigest,sessionFlagsDigest:observed.inventory.sessionFlagsDigest};
  report.stage='native-model-and-child-tools';await prepare();let completed=false;const off=runtime.rpc.onNotification(message=>{if(message.method==='turn/completed'&&message.params?.threadId===thread)completed=true;});
  await rpc('turn/start',{threadId:thread,input:[{type:'text',text:'Run the controlled native confinement probe.'}]});await waitFor(()=>completed||providerFailure,90000);off();assert.equal(providerFailure,undefined);assert.ok(modelThreads.size>=2);assert.ok(roleSteps.get('root')>=5);
@@ -500,9 +583,10 @@ try {
  assert.equal((await callFor(networkCase.manifest,['stop','--launch-id',enabled.id])).code,0);await stopped(enabled);await waitFor(()=>ownedPids(networkCase.childFile).every(dead));const enabledHolder=metadataCommands.get(networkCase.app);await rpc('command/exec/terminate',{processId:enabledHolder.processId});const enabledExit=await enabledHolder.finished;assert.ok(Number.isInteger(enabledExit.exitCode));enabledHolder.off();metadataCommands.delete(networkCase.app);report.devserver.nativeCommandSettled=true;
  await proveRenewal({value:m,manifest,id:captureId,threadId:thread});
  report.stage='actual-owning-runtime-loss';const orphan=await launch('hold',renewedFixture);await nativeMessages(orphan);runtime.child.kill('SIGKILL');await stopped(orphan);await waitFor(()=>ownedPids(childFile).every(dead));assert.equal((await managerCall(['live-policy','verify','--manifest',renewedFixture.manifest])).code,1);report.checks.owningRuntimeLossRevokesWorkers=true;
+ await proveInstalledSourceTamper();
  report.stage='devserver-capability-required';assert.equal(report.checks.actualConfinedDevserverAndRegisteredLoopbackIngress,true,'REQUIRED_DEVSERVER_PROOF_UNAVAILABLE');
  report.stage='complete';report.passed=true;
-} catch(error){report.failureMetadata=metadataPaths.map((path,index)=>{try{const info=lstatSync(path);return {ancestor:index,kind:info.isDirectory()?'directory':info.isSymbolicLink()?'symlink':'file',identity:folderPin(path),empty:info.isDirectory()?readdirSync(path).length===0:undefined};}catch{return {ancestor:index,kind:'absent'};}});report.failureDetail={stage:report.stage,assertion:error.operator,actual:typeof error.actual==='number'||typeof error.actual==='boolean'?error.actual:undefined,expected:typeof error.expected==='number'||typeof error.expected==='boolean'?error.expected:undefined};report.failure=error.code??(/^[A-Z_]+$/.test(error.message)?error.message:'ASSERTION_FAILED');if(active){report.nativeDiagnostic=active.diagnostic();report.launchBoundary=launchBoundary(active);report.ownedProcessSnapshot=ownedProcessSnapshot(active);}process.exitCode=1;
+} catch(error){report.failureMetadata=metadataPaths.map((path,index)=>{try{const info=lstatSync(path);return {ancestor:index,kind:info.isDirectory()?'directory':info.isSymbolicLink()?'symlink':'file',identity:folderPin(path),empty:info.isDirectory()?readdirSync(path).length===0:undefined};}catch{return {ancestor:index,kind:'absent'};}});report.failureDetail={stage:report.stage,assertion:error.operator,actual:typeof error.actual==='number'||typeof error.actual==='boolean'?error.actual:undefined,expected:typeof error.expected==='number'||typeof error.expected==='boolean'?error.expected:undefined,syscall:['readlink','open','stat','lstat','read','scandir'].includes(error.syscall)?error.syscall:undefined,processFileRole:typeof error.path==='string'?error.path.match(/^\/proc\/\d+\/(status|exe|stat)$/)?.[1]:undefined,proofLocation:typeof error.stack==='string'?error.stack.match(/live-host-policy-native-proof\.mjs:(\d+:\d+)/)?.[1]:undefined};report.failure=error.code??(/^[A-Z_]+$/.test(error.message)?error.message:'ASSERTION_FAILED');if(active){report.nativeDiagnostic=active.diagnostic();report.launchBoundary=launchBoundary(active);report.ownedProcessSnapshot=ownedProcessSnapshot(active);}process.exitCode=1;
 } finally {
  if(active){try{await managerCall(['live-policy','stop','--manifest',active.manifestPath,'--launch-id',active.id]);await stopped(active);}catch{report.passed=false;process.exitCode=1;await closeOwned(active.child);}}
  for(const holder of metadataCommands.values()){try{await rpc('command/exec/terminate',{processId:holder.processId});await holder.finished;}catch{}holder.off();}metadataCommands.clear();

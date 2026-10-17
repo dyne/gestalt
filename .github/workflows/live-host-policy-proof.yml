@@ -9,7 +9,7 @@ permissions:
 jobs:
   native:
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -19,6 +19,37 @@ jobs:
           node-version: 24.21.0
           cache: npm
       - run: npm ci
+      - name: Read-only accepted authentic installed-source input
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: dyne/gestalt-agents
+          ref: 129d33bc6d6c58d280d9bcf5155fab6ed9b6e0bd
+          path: .host-agents-input
+          persist-credentials: false
+      - name: Provision the pinned original interpreter on the disposable host
+        if: runner.os == 'Linux' && runner.environment == 'github-hosted'
+        run: |
+          set -Eeuo pipefail
+          proof_node=$(node -p 'process.execPath')
+          proof_npm=$(readlink -f -- "$(command -v npm)")
+          proof_npx=$(readlink -f -- "$(command -v npx)")
+          test "$("$proof_node" -p 'process.versions.node')" = 24.21.0
+          # The supported original PATH is fixed. Provision the same setup-node
+          # bytes there before birth; no policy/environment bypass or production
+          # installation. This job is restricted to a disposable hosted VM.
+          sudo install -m0755 "$proof_node" /usr/bin/node
+          cmp -- "$proof_node" /usr/bin/node
+          sudo ln -sfn -- "$proof_npm" /usr/bin/npm
+          sudo ln -sfn -- "$proof_npx" /usr/bin/npx
+          /usr/bin/node --version
+          PATH=/usr/bin:/bin npm --version
+      - name: Verify accepted package and supported original interpreter
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C .host-agents-input rev-parse HEAD^{tree})" = 414a89284efbb050188ca1802563b92667c50994
+          test "$(git -C .host-agents-input rev-parse HEAD:plugins/context-mode)" = 640de6ca23b854b3b1125d1c034a196179ac7ff8
+          /usr/bin/node -e 'const [major,minor]=process.versions.node.split(".").map(Number);if(major<22||(major===22&&minor<15))throw Error("SUPPORTED_ORIGINAL_NODE_REQUIRED");console.log(JSON.stringify({node:process.versions.node,abi:process.versions.modules,executable:process.execPath}))'
+          PATH=/usr/bin:/bin npm --version
       - name: Verify exact accepted Mobile source fixture
         run: |
           set -Eeuo pipefail
@@ -145,7 +176,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           mkdir -p test-results/live-host-policy
-          node scripts/live-host-policy-native-proof.mjs 2>&1 | tee test-results/live-host-policy/proof.log
+          LIVE_HOST_AGENTS_ROOT="$GITHUB_WORKSPACE/.host-agents-input" PATH=/usr/bin:/bin /usr/bin/node scripts/live-host-policy-native-proof.mjs 2>&1 | tee test-results/live-host-policy/proof.log
           git diff --check
       - name: Publish bounded Native proof before the full suite
         if: always()
@@ -162,7 +193,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           mkdir -p test-results/live-host-policy
-          npm test 2>&1 | tee test-results/live-host-policy/manager.log
+          PATH=/usr/bin:/bin npm test 2>&1 | tee test-results/live-host-policy/manager.log
           git diff --check
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()

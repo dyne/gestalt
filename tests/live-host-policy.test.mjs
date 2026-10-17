@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {spawn,spawnSync} from 'node:child_process';
 import {createHash,createHmac,randomUUID} from 'node:crypto';
-import {constants,openSync,closeSync,renameSync,mkdtempSync,mkdirSync,writeFileSync,readFileSync,readlinkSync,rmSync,chmodSync,symlinkSync,existsSync,copyFileSync,realpathSync,statSync,readdirSync} from 'node:fs';
+import {constants,openSync,closeSync,renameSync,mkdtempSync,mkdirSync,writeFileSync,readFileSync,readlinkSync,rmSync,chmodSync,symlinkSync,linkSync,unlinkSync,existsSync,copyFileSync,realpathSync,statSync,readdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {dirname,join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -339,6 +339,49 @@ test('hosted native panic diagnostics classify package failure without exposing 
  assert.deepEqual(result.sourceLocations,['launcher.rs:57:13']);assert.ok(!JSON.stringify(result).includes('fixture-secret'));assert.ok(!JSON.stringify(result).includes('secret/controller'));
 });
 
+function hostedBridgeFunctions(overrides={}){
+ const proof=readFileSync(resolve('scripts/live-host-policy-native-proof.mjs'),'utf8'),extract=(start,end)=>proof.slice(proof.indexOf(start),proof.indexOf(end,proof.indexOf(start)));
+ const descendant=Function('runtime','report','identity','readFileSync',`return ${extract('function originalRuntimeDescendant(','\nfunction originalBridgeProcesses(')}`)({child:{pid:process.pid}},{appServer:identity(process.pid)},identity,readFileSync);
+ const dependencies={ownedPids:()=>[],originalRuntimeDescendant:descendant,identity,readlinkSync,readFileSync,hash,assert,stable:renewalStable,...overrides};
+ const processes=Function(...Object.keys(dependencies),`return ${extract('function originalBridgeProcesses(','\nlet originalModelWorkers')}`)(...Object.values(dependencies));
+ return {descendant,processes,proof};
+}
+test('hosted original bridge discovery binds a live process and tolerates a departed candidate',async()=>{
+ const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});const ended=new Promise(done=>child.once('close',done));
+ try{
+  await waitFor(()=>readlinkSync(`/proc/${child.pid}/exe`)===realpathSync(process.execPath));const record=identity(child.pid),{descendant,processes}=hostedBridgeFunctions({ownedPids:()=>[record]});
+  const descriptor={path:'/observational-marker',interpreter:{path:realpathSync(process.execPath),sha256:hash(readFileSync(process.execPath))}};
+  assert.equal(descendant(child.pid),true);assert.deepEqual(processes(descriptor),[record]);child.kill();await ended;assert.equal(descendant(child.pid),false);assert.deepEqual(processes(descriptor),[]);
+ }finally{if(child.exitCode===null&&child.signalCode===null){child.kill('SIGKILL');await ended;}}
+});
+for(const variant of ['reused-birth','departed-executable','wrong-executable','wrong-digest','unexpected-access-error'])test('hosted original bridge discovery refuses '+variant,()=>{
+ const record={pid:123,birth:'old'},descriptor={path:'/marker',interpreter:{path:'/exact/node',sha256:hash('node-bytes')}};let calls=0;
+ const {processes}=hostedBridgeFunctions({ownedPids:()=>[record],originalRuntimeDescendant:()=>true,identity:()=>({pid:123,birth:variant==='reused-birth'&&calls++?'new':'old'}),readlinkSync:()=>{if(variant==='departed-executable'||variant==='unexpected-access-error')throw Object.assign(Error('fixture'),{code:variant==='departed-executable'?'ENOENT':'EACCES'});return variant==='wrong-executable'?'/other/node':'/exact/node';},readFileSync:()=>variant==='wrong-digest'?'other':'node-bytes'});
+ if(['reused-birth','departed-executable'].includes(variant))assert.deepEqual(processes(descriptor),[]);
+ else assert.throws(()=>processes(descriptor),variant==='unexpected-access-error'?{code:'EACCES'}:{code:'ERR_ASSERTION'});
+});
+test('hosted original bridge catalog cannot succeed with tools but no live owned bridge',async()=>{
+ const {proof}=hostedBridgeFunctions(),start=proof.indexOf('async function originalBridgeCatalog('),expression=proof.slice(start,proof.indexOf('\nfunction originalRuntimeDescendant(',start));
+ const catalog=Function('rpc','assert','waitFor','originalBridgeProcesses',`return ${expression}`)(async()=>({data:[{name:'context-mode',tools:{ctx_execute:{},ctx_search:{}}}],nextCursor:null}),assert,async predicate=>{const found=predicate();assert.ok(found,'missing live bridge');return found;},()=>[]);
+ await assert.rejects(catalog('thread',{originalLaunchSources:[{path:'/marker'}]}),/missing live bridge/);
+ const waitStart=proof.indexOf('async function waitFor('),strictWait=Function('pause',`return ${proof.slice(waitStart,proof.indexOf('\nfunction managerCall(',waitStart))}`)(async()=>{});
+ for(const code of ['EACCES','ERR_ASSERTION']){
+  const failingCatalog=Function('rpc','assert','waitFor','originalBridgeProcesses',`return ${expression}`)(async()=>({data:[{name:'context-mode',tools:{ctx_execute:{},ctx_search:{}}}]}),assert,strictWait,()=>{throw Object.assign(Error('candidate rejected'),{code});});
+  await assert.rejects(failingCatalog('thread',{originalLaunchSources:[{path:'/marker'}]}),{code});
+ }
+});
+for(const [name,framesAt,readyAt,succeeds] of [['separate bounded startup and monitor phases',75000,110000,true],['frame deadline',90001,110000,false],['monitor deadline',1000,92000,false]])test('hosted Native helper readiness '+name,async()=>{
+ const proof=readFileSync(resolve('scripts/live-host-policy-native-proof.mjs'),'utf8'),start=proof.indexOf('async function nativeMessages('),expression=proof.slice(start,proof.indexOf('\nfunction launchBoundary(',start));let clock=0;
+ const wait=async(predicate,budget=90000)=>{const end=clock+budget;while(clock<end){if(predicate())return true;clock+=1000;}throw Error('PROOF_DEADLINE');};
+ const observe=Function('waitFor','readFileSync','report',`return ${expression}`)(wait,()=>JSON.stringify({body:{postSpawnValidated:clock>=readyAt}}),{});
+ const launch={id:'fixture',path:'/private/receipt',messages:()=>clock>=framesAt?[0,1,2].map(depth=>({depth})):[],ended:new Promise(()=>{})};
+ if(succeeds){await observe(launch);assert.equal(clock,110000);}else await assert.rejects(observe(launch),/PROOF_DEADLINE/);
+});
+test('hosted Native helper readiness rejects exit while awaiting its monitor',async()=>{
+ const proof=readFileSync(resolve('scripts/live-host-policy-native-proof.mjs'),'utf8'),start=proof.indexOf('async function nativeMessages('),expression=proof.slice(start,proof.indexOf('\nfunction launchBoundary(',start));let waits=0;
+ const observe=Function('waitFor','readFileSync','report',`return ${expression}`)(async()=>++waits===1?true:new Promise(()=>{}),()=>JSON.stringify({body:{postSpawnValidated:false}}),{});
+ await assert.rejects(observe({id:'fixture',path:'/private/receipt',messages:()=>[0,1,2].map(depth=>({depth})),ended:Promise.resolve()}),/NATIVE_LAUNCH_EARLY_EXIT/);
+});
 check('full CLI with cleared environment rejects equal HOME and CODEX_HOME before dispatch; separated homes return bounded policy JSON',f=>{
  const env={PATH:`${resolve(process.execPath,'..')}:/usr/bin:/bin`,HOME:f.home,CODEX_HOME:f.home,TMPDIR:'/tmp',LANG:'C.UTF-8'};
  const args=[f.managerPath,'live-policy','prepare','--manifest',f.manifest];
@@ -517,7 +560,7 @@ async function provenanceFixture(options={}) {
   // Strictly later than the signed USER_HZ observation.
   await pause(40);
   writeFileSync(join(f.privateRoot,'app-server'),`setTimeout(()=>{if(!require('node:fs').existsSync(${JSON.stringify(join(f.app,'.codex'))}))require('node:fs').mkdirSync(${JSON.stringify(join(f.app,'.codex'))},{mode:0o755});console.log('owner-ready');setInterval(()=>{},1000);},40);`,{mode:0o600});
-  owner=spawn(bin,['app-server'],{cwd:f.privateRoot,stdio:['ignore','pipe','pipe'],env:options.managedEnvironment?{PATH:'/usr/bin:/bin',HOME:f.home,CODEX_HOME:f.home,TMPDIR:'/tmp',LANG:'C.UTF-8'}:{HOME:f.home,CODEX_HOME:f.home,PATH:'/usr/bin:/bin'}});
+  owner=spawn(bin,['app-server'],{cwd:f.privateRoot,stdio:['ignore','pipe','pipe'],env:{...(options.managedEnvironment?{PATH:'/usr/bin:/bin',HOME:f.home,CODEX_HOME:f.home,TMPDIR:'/tmp',LANG:'C.UTF-8'}:{HOME:f.home,CODEX_HOME:f.home,PATH:'/usr/bin:/bin'}),...options.originalEnvironment}});
   let output='';owner.stdout.on('data',chunk=>output+=chunk);await waitFor(()=>output==='owner-ready\n');
   return owner;
  };
@@ -675,7 +718,7 @@ for(const reason of ['revocation','owner-exit','metadata-injection','generation-
   helper=spawn(process.execPath,['--input-type=module','-','run','--manifest',f.manifest,'--command','ordinary','--launch-id',id],{stdio:['pipe','pipe','pipe','pipe']});
   let output='',errors='';helper.stdout.on('data',chunk=>output+=chunk);helper.stderr.on('data',chunk=>errors+=chunk);
   helper.stdin.end(f.program);helper.stdio[3].end();helper.once('exit',()=>helper.stdio[3].destroy());
-  const ended=new Promise(done=>helper.once('close',done));await waitFor(()=>output.includes('lifetime-ready'));
+  const ended=new Promise(done=>helper.once('close',done));await waitFor(()=>output.includes('lifetime-ready')&&JSON.parse(readFileSync(path)).body.postSpawnValidated===true);
   assert.equal(JSON.parse(readFileSync(path)).body.schemaVersion,2);
   if(reason==='revocation')assert.equal(f.run('revoke-runtime',['--capture-id',f.id]).status,0);
   if(reason==='owner-exit'){const closed=new Promise(done=>f.owner.once('close',done));f.owner.kill();await closed;}
@@ -821,12 +864,13 @@ test('Native build failure reports locked dependency classes without raw logs or
 });
 
 const renewalStable=value=>JSON.stringify((function order(input){if(Array.isArray(input))return input.map(order);if(input&&typeof input==='object')return Object.fromEntries(Object.keys(input).sort().map(key=>[key,order(input[key])]));return input;})(value));
-async function renewalFixture({observed=true,explicitHome=true}={}) {
+async function renewalFixture({observed=true,explicitHome=true,installed=false}={}) {
  const f=await provenanceFixture({managedEnvironment:true});if(explicitHome)f.m.owningRuntime.home=f.home;
+ if(installed)installedBridge(f);
  const parts=source.split("<<'LIVE_POLICY'\n"),tail=parts[1].split('\nLIVE_POLICY\n')[1];writeFileSync(f.managerPath,parts[0]+"<<'LIVE_POLICY'\n"+f.program+'\nLIVE_POLICY\n'+tail,{mode:0o700});
  const flags=value=>({model:'fixture-model',modelProvider:'fixture-provider',cwd:value.appRoot,approvalPolicy:'never',activePermissionProfile:{id:value.profileId,extends:':read-only'},sandbox:{type:'fixture'},reasoningEffort:'medium',instructionSources:[]});
  const observedInventory=(value,inventory)=>{if(!observed)return inventory;const observation={sessionFlags:flags(value),accountDigest:hash('account-fixture')};return {...inventory,observation,sessionFlagsDigest:hash(renewalStable(observation.sessionFlags))};};
- await f.captureAndStart();const original=observedInventory(f.m,f.inventory());assert.equal(f.seal(original).status,0);f.m.runtimeProvenance={captureId:f.id,effectiveConfigDigest:original.effectiveConfigDigest,sessionFlagsDigest:original.sessionFlagsDigest};assert.equal(f.run('prepare').status,0);
+ await f.captureAndStart();const original=observedInventory(f.m,f.inventory());if(installed)original.sources.push(JSON.parse(readFileSync(join(f.privateRoot,`birth-${f.id}.json`))).body.originalLaunchSources[0]);assert.equal(f.seal(original).status,0);f.m.runtimeProvenance={captureId:f.id,effectiveConfigDigest:original.effectiveConfigDigest,sessionFlagsDigest:original.sessionFlagsDigest};assert.equal(f.run('prepare').status,0);
  const invoke=(path,action,args=[])=>{const result=spawnSync(process.execPath,['--input-type=module','-',action,'--manifest',path,...args],{input:f.program,encoding:'utf8',env:{...process.env,NODE_OPTIONS:''}});assert.equal(result.stderr,'');return {status:result.status,...JSON.parse(result.stdout)};};
  let sequence=1;const generations=[];
  const next=(previous={manifest:f.manifest,id:f.id,value:f.m})=>{
@@ -836,7 +880,7 @@ async function renewalFixture({observed=true,explicitHome=true}={}) {
   const manifest=join(directory,'manifest.json'),id=randomUUID(),save=()=>writeFileSync(manifest,JSON.stringify(value),{mode:0o600});save();
   const run=(action,args=[])=>{save();return invoke(manifest,action,args);};
   const capture=(mode='survivor')=>run('renew-runtime',['--capture-id',id,'--previous-manifest',previous.manifest,'--previous-capture-id',previous.id,'--mode',mode]);
-  const inventory=(pid=f.owner.pid)=>{const result=f.inventory({pid});result.runtime=identity(pid);result.policyDigest=captured.policyDigest;result.sources=result.sources.filter(source=>source.path!==join(f.home,'config.toml')||value.owningRuntime.home===f.home);result.sources=result.sources.filter(source=>!source.path.includes('/renewal-'));result.sources=result.sources.filter(source=>source.kind!=='file'||value.configFiles.some(file=>file.path===source.path&&file.sha256===source.sha256));result.sources.push({kind:'file',role:'sandbox-worker',path:join(home,'config.toml'),sha256:hash(readFileSync(join(home,'config.toml')))});return observedInventory(value,result);};
+  const inventory=(pid=f.owner.pid)=>{const result=f.inventory({pid});result.runtime=identity(pid);result.policyDigest=captured.policyDigest;result.sources=result.sources.filter(source=>source.path!==join(f.home,'config.toml')||value.owningRuntime.home===f.home);result.sources=result.sources.filter(source=>!source.path?.includes('/renewal-'));if(installed)result.sources.push(original.sources.find(source=>source.kind==='installed-launch-source'));result.sources=result.sources.filter(source=>source.kind!=='file'||value.configFiles.some(file=>file.path===source.path&&file.sha256===source.sha256));result.sources.push({kind:'file',role:'sandbox-worker',path:join(home,'config.toml'),sha256:hash(readFileSync(join(home,'config.toml')))});return observedInventory(value,result);};
   let captured;
   const renew=(mode='survivor')=>{captured=capture(mode);return captured;};
   const seal=(input=inventory())=>{const path=join(directory,'observed-sources.json');writeFileSync(path,JSON.stringify(input),{mode:0o600});const result=run('seal-runtime',['--capture-id',id,'--runtime-pid',String(input.runtime.pid),'--sources',path]);if(result.status===0)value.runtimeProvenance={captureId:id,effectiveConfigDigest:input.effectiveConfigDigest,sessionFlagsDigest:input.sessionFlagsDigest};return result;};
@@ -952,7 +996,7 @@ renewalCheck('kernel transition guard releases after verifier death without dele
  const crashed=spawnSync(process.execPath,['--input-type=module','-','renew-runtime','--manifest',n.manifest,'--capture-id',n.id,'--previous-manifest',r.f.manifest,'--previous-capture-id',r.f.id,'--mode','survivor'],{input:code,encoding:'utf8',env:{...process.env,NODE_OPTIONS:''}});assert.equal(crashed.status,88);assert.equal(crashed.stdout,'');
  let result;for(let attempt=0;attempt<10;attempt++){result=n.renew();if(result.reason!=='admission-transition-busy')break;await pause(25);}assert.equal(result.status,0,JSON.stringify(result));assert.equal(n.seal().status,0);assert.equal(n.run('prepare').status,0);
 });
-for(const mode of ['original','survivor'])renewalCheck('actual serialized supervisor accepts observed '+mode+' and revokes its child',async r=>{
+for(const mode of ['original','survivor','installed'])renewalCheck('actual serialized supervisor accepts observed '+mode+' and revokes its child',async r=>{
  // Non-Native command dispatcher; the actual process/closure/lineage checks run.
  r.f.m.commands={ordinary:{executable:r.f.m.binary.path,sha256:r.f.m.binary.sha256,args:['-e',running()],timeoutMs:30000}};
  assert.equal(r.f.run('prepare').status,0);let manifest=r.f.manifest;
@@ -964,10 +1008,13 @@ for(const mode of ['original','survivor'])renewalCheck('actual serialized superv
   await Promise.race([waitFor(()=>output.includes('ready')),ended.then(()=>assert.fail('supervisor exited before admitted command: '+errors))]);
   const receipt=JSON.parse(readFileSync(join(dirname(manifest),`process-${id}.json`))).body;assert.equal(receipt.kind,'process-launch');assert.ok(receipt.policy.provenance.inventory.observation);
   if(mode==='survivor')assert.ok(receipt.policy.provenance.renewalDigest);
-  assert.equal(r.invoke(manifest,'stop',['--launch-id',id]).status,0);await ended;
+  if(mode==='installed'){await pause(1200);writeFileSync(r.f.m.originalLaunchSources[0].path,'changed bridge');}
+  else assert.equal(r.invoke(manifest,'stop',['--launch-id',id]).status,0);
+  await ended;
   assert.equal(errors,'');assert.equal(JSON.parse(readFileSync(join(dirname(manifest),`process-${id}.json`))).body.status,'exited');
+  if(mode==='installed')assert.equal(JSON.parse(readFileSync(join(dirname(manifest),`process-${id}.json`))).body.termination,'policy-changed');
  }finally{if(helper.exitCode===null&&helper.signalCode===null){helper.kill('SIGKILL');await ended;}}
-});
+},{installed:mode==='installed'});
 test('renewal Native departed child requires notLoaded plus absence in actual loaded registry',async()=>{
  const calls=[];const request=async(method,params)=>{calls.push(method);if(method==='thread/loaded/list')return {data:[],nextCursor:null};if(method==='thread/read')return {thread:{id:params.threadId,status:{type:'notLoaded'},turns:[]}};if(method==='thread/unsubscribe')return {status:'notLoaded'};throw Error('terminal observation is unsupported for unloaded Native threads');};
  const result=await quiesceNative(request,['departed-child']);assert.equal(result.observed[0].terminals,'unloaded');assert.equal(calls.includes('thread/backgroundTerminals/list'),false);
@@ -992,4 +1039,113 @@ test('renewal Native internal loaded thread still requires actual empty terminal
  let terminals=0;const request=async(method,params)=>{if(method==='thread/loaded/list')return {data:['internal-child'],nextCursor:null};if(method==='thread/read'){assert.equal(params.includeTurns,false);return {thread:{id:params.threadId,status:{type:'notLoaded'},turns:[]}};}if(method==='thread/backgroundTerminals/list'){terminals++;return {data:[],nextCursor:null};}if(method==='thread/unsubscribe')return {status:'notSubscribed'};};
  const result=await quiesceNative(request,['internal-child']);assert.equal(result.cachedThreads,1);assert.equal(terminals,1);assert.equal(result.observed[0].terminals,0);assert.equal(result.observed[0].historyObserved,false);
  await assert.rejects(quiesceNative(async(method,params)=>method==='thread/backgroundTerminals/list'?{data:[{}],nextCursor:null}:request(method,params),['internal-child']));
+});
+
+// Installed launch-source fixtures never execute the bridge/package/runtime.
+// Full tree hashes match the independently implemented Agents measureTree format.
+function installedBridge(f) {
+ const gestaltHome=join(f.privateRoot,'installed gestalt'),packageRoot=join(f.privateRoot,'packages','context-mode','2.17.0'),runtimeRoot=join(gestaltHome,'runtime','context-mode');
+ for(const path of [gestaltHome,packageRoot,runtimeRoot,join(f.home,'bin')])mkdirSync(path,{recursive:true,mode:0o700});
+ const put=(root,path,bytes)=>{mkdirSync(dirname(join(root,path)),{recursive:true,mode:0o700});writeFileSync(join(root,path),bytes,{mode:0o644});};
+ const packageJson=JSON.stringify({name:'context-mode',version:'2.17.0'});
+ put(packageRoot,'package.json',packageJson);put(packageRoot,'start.mjs','// pinned package fixture\n');put(runtimeRoot,'package.json',packageJson);
+ const required=['start.mjs','scripts/codex-profile.mjs','scripts/runtime-location.mjs','scripts/runtime-preflight.mjs','server.bundle.mjs','cli.bundle.mjs',
+  ...['security','session-db','session-extract','session-attribution','session-snapshot','codex-usage'].map(name=>`hooks/${name}.bundle.mjs`),
+  'node_modules/better-sqlite3/package.json','node_modules/better-sqlite3/build/Release/better_sqlite3.node','node_modules/turndown/package.json','node_modules/turndown-plugin-gfm/package.json','node_modules/@mixmark-io/domino/package.json'];
+ for(const path of required)put(runtimeRoot,path,'fixture '+path);
+ put(runtimeRoot,'.context-mode-prepared.json',JSON.stringify({schemaVersion:2,packageVersion:'2.17.0',preparedAt:'fixture',node:process.versions.node,nodeModulesAbi:process.versions.modules,platform:process.platform,arch:process.arch,bun:null,files:Object.fromEntries(required.map(path=>[path,hash(readFileSync(join(runtimeRoot,path)))]))}));
+ const tree=root=>{const files=[];const walk=dir=>{for(const name of readdirSync(dir).sort()){const path=join(dir,name),info=statSync(path);if(info.isDirectory())walk(path);else files.push([path.slice(root.length+1),info.mode&0o777,hash(readFileSync(path))]);}};walk(root);return hash(renewalStable(files));};
+ const path=join(f.home,'bin','context-mode-mcp.mjs');
+ const bytes=`#!/usr/bin/env node\nimport { pathToFileURL } from "node:url";\n\nprocess.env.GESTALT_HOME ||= ${JSON.stringify(gestaltHome)};\nprocess.env.CONTEXT_MODE_PLATFORM = "codex";\nprocess.env.CONTEXT_MODE_WORKSPACE ||= process.cwd();\nawait import(pathToFileURL(${JSON.stringify(join(packageRoot,'start.mjs'))}).href);\n`;
+ writeFileSync(path,bytes,{mode:0o755});
+ f.m.originalLaunchSources=[{kind:'context-mode-bridge-v1',path,sha256:hash(bytes),gestaltHome,interpreter:{path:realpathSync(process.execPath),sha256:hash(readFileSync(process.execPath))},package:{root:packageRoot,version:'2.17.0',treeDigest:tree(packageRoot)},runtime:{root:runtimeRoot,treeDigest:tree(runtimeRoot)}}];
+ return {path,bytes,packageRoot,runtimeRoot,gestaltHome,tree};
+}
+provenanceCheck('installed bridge exact 0755 observation is independently captured and sealed',async f=>{
+ const bridge=installedBridge(f);
+ await f.captureAndStart();
+ const descriptor=f.m.originalLaunchSources[0];
+ // capture's public capability diagnosis intentionally cannot make Live ready.
+ const pin=JSON.parse(readFileSync(join(f.privateRoot,`birth-${f.id}.json`))).body.originalLaunchSources[0];
+ assert.deepEqual(pin.descriptor,descriptor);assert.equal(pin.observation.launcher.identity.mode&0o777,0o755);
+ const input=f.inventory();input.sources.push(pin);assert.equal(f.seal(input).status,0);assert.equal(f.prepare().status,0);assert.equal(f.run('verify').status,0);
+ const saved=JSON.parse(readFileSync(join(f.privateRoot,'policy-receipt.json'))).body;
+ assert.deepEqual(saved.originalLaunchSources,[pin]);assert.deepEqual(saved.provenance.inventory.sources.at(-1),pin);
+ chmodSync(bridge.path,0o744);assert.equal(f.run('verify').reason,'untrusted-installed-launch-source');
+ assert.equal(f.run('revoke-runtime',['--capture-id',f.id]).status,0,'tampering cannot prevent safe revocation');
+});
+for(const variant of ['unknown-kind','extra-field','wrong-bytes','writable','symlink','missing','wrong-interpreter','wrong-entrypoint','wrong-runtime','package-tamper','runtime-tamper','prepared-abi','bin-writable','package-symlink','project-writable','launcher-hardlink','outside-hardlink','cross-tree-hardlink'])provenanceCheck(`installed bridge refuses ${variant}`,async f=>{
+ const b=installedBridge(f),s=f.m.originalLaunchSources[0];
+ if(variant==='unknown-kind')s.kind='hook';
+ if(variant==='extra-field')s.env={TOKEN:'fixture-secret'};
+ if(variant==='wrong-bytes'){writeFileSync(b.path,b.bytes+'// extra\n');s.sha256=hash(readFileSync(b.path));}
+ if(variant==='writable')chmodSync(b.path,0o777);
+ if(variant==='symlink'){renameSync(b.path,b.path+'.old');symlinkSync(b.path+'.old',b.path);}
+ if(variant==='missing')rmSync(b.path);
+ if(variant==='wrong-interpreter')s.interpreter.path=f.m.binary.path;
+ if(variant==='wrong-entrypoint')s.package.root=dirname(b.packageRoot);
+ if(variant==='wrong-runtime')s.runtime.root=b.packageRoot;
+ if(variant==='package-tamper')writeFileSync(join(b.packageRoot,'start.mjs'),'tampered');
+ if(variant==='runtime-tamper')writeFileSync(join(b.runtimeRoot,'server.bundle.mjs'),'tampered');
+ if(variant==='prepared-abi'){const path=join(b.runtimeRoot,'.context-mode-prepared.json'),value=JSON.parse(readFileSync(path));value.nodeModulesAbi='0';writeFileSync(path,JSON.stringify(value));s.runtime.treeDigest=b.tree(b.runtimeRoot);}
+ if(variant==='bin-writable')chmodSync(dirname(b.path),0o777);
+ if(variant==='package-symlink')symlinkSync('/usr/bin/true',join(b.packageRoot,'unexpected'));
+ if(variant==='project-writable')f.m.sandboxState.permissionProfile.file_system.entries.push({path:{type:'path',path:dirname(b.path)},access:'write'});
+ if(variant==='launcher-hardlink')linkSync(b.path,join(f.privateRoot,'launcher-alias'));
+ if(variant==='outside-hardlink')linkSync(join(b.runtimeRoot,'server.bundle.mjs'),join(f.privateRoot,'outside-runtime'));
+ if(variant==='cross-tree-hardlink'){linkSync(join(b.packageRoot,'start.mjs'),join(b.runtimeRoot,'package-alias'));s.runtime.treeDigest=b.tree(b.runtimeRoot);}
+ const result=f.capture();assert.equal(result.available,false);assert.equal(result.liveReady,false);assert.equal(existsSync(join(f.privateRoot,`birth-${f.id}.json`)),false);
+});
+for(const which of ['package','runtime'])provenanceCheck(`installed bridge captures complete ${which} hardlink group and rechecks its lifetime`,async f=>{
+ const b=installedBridge(f),root=which==='package'?b.packageRoot:b.runtimeRoot,path=join(root,'start.mjs'),alias=join(root,'start-alias.mjs');
+ linkSync(path,alias);f.m.originalLaunchSources[0][which].treeDigest=b.tree(root);
+ await f.captureAndStart();const pin=JSON.parse(readFileSync(join(f.privateRoot,`birth-${f.id}.json`))).body.originalLaunchSources[0],input=f.inventory();input.sources.push(pin);
+ assert.equal(f.seal(input).status,0);assert.equal(f.prepare().status,0);assert.equal(f.run('verify').status,0);
+ // Identical tree bytes after a transient outside alias still change identity.
+ const outside=join(f.privateRoot,'transient-alias');linkSync(path,outside);unlinkSync(outside);
+ assert.equal(f.run('verify').reason,'stale-runtime-provenance');
+ assert.equal(f.run('revoke-runtime',['--capture-id',f.id]).status,0);
+});
+for(const variant of ['gain-outside-alias','lose-internal-alias','transient-outside-alias','replace-member'])provenanceCheck(`installed bridge refuses post-traversal hardlink race ${variant}`,async f=>{
+ const b=installedBridge(f),path=join(b.packageRoot,'start.mjs'),alias=join(b.packageRoot,'start-alias.mjs'),outside=join(f.privateRoot,'late-alias');
+ if(variant==='lose-internal-alias'){linkSync(path,alias);f.m.originalLaunchSources[0].package.treeDigest=b.tree(b.packageRoot);}
+ const mutation=variant==='gain-outside-alias'?`linkSync(${JSON.stringify(path)},${JSON.stringify(outside)});`:variant==='lose-internal-alias'?`unlinkSync(${JSON.stringify(alias)});`:variant==='transient-outside-alias'?`linkSync(${JSON.stringify(path)},${JSON.stringify(outside)});unlinkSync(${JSON.stringify(outside)});`:`renameSync(${JSON.stringify(path)},${JSON.stringify(outside)});writeFileSync(${JSON.stringify(path)},readFileSync(${JSON.stringify(outside)}),{mode:0o644});`;
+ const before=f.program;f.program=`import {linkSync} from 'node:fs';\n`+f.program.replace('walk(root);recheck();',`walk(root);if(root===${JSON.stringify(b.packageRoot)}){${mutation}}recheck();`);assert.notEqual(f.program,before);
+ f.save();const result=spawnSync(process.execPath,['--input-type=module','-','capture-runtime','--manifest',f.manifest,'--capture-id',f.id],{input:f.program,encoding:'utf8'});
+ assert.equal(result.stderr,'');assert.equal(JSON.parse(result.stdout).reason,'installed-launch-source-changed');assert.equal(existsSync(join(f.privateRoot,`birth-${f.id}.json`)),false);
+});
+for(const variant of ['writable','replaced'])check(`installed bridge observation refuses cached ancestor ${variant} after traversal`,f=>{
+ f.m.schemaVersion=2;f.m.owningRuntime={home:f.home};const b=installedBridge(f),parent=dirname(dirname(b.packageRoot));
+ const mutation=variant==='writable'?`chmodSync(${JSON.stringify(parent)},0o777);`:`renameSync(${JSON.stringify(parent)},${JSON.stringify(parent+'.old')});mkdirSync(${JSON.stringify(parent)},{mode:0o700});renameSync(${JSON.stringify(join(parent+'.old','context-mode'))},${JSON.stringify(join(parent,'context-mode'))});`;
+ const code=`import {chmodSync} from 'node:fs';\n`+f.program.split('const args = process.argv.slice(2);')[0].replace('walk(root);recheck();',`walk(root);if(root===${JSON.stringify(b.runtimeRoot)}){${mutation}}recheck();`)+`\ntry{installedLaunchSources(${JSON.stringify(f.m)},[]);console.log(JSON.stringify({available:true}));}catch(error){console.log(JSON.stringify({available:false,reason:error.reason}));}`;
+ const result=spawnSync(process.execPath,['--input-type=module','-'],{input:code,encoding:'utf8'});assert.equal(result.stderr,'');assert.deepEqual(JSON.parse(result.stdout),{available:false,reason:variant==='writable'?'untrusted-installed-launch-source':'installed-launch-source-changed'});
+});
+provenanceCheck('installed bridge cannot be omitted from inventory or replaced after original birth',async f=>{
+ const b=installedBridge(f);await f.captureAndStart();assert.equal(f.seal().reason,'incomplete-source-inventory');
+ renameSync(b.path,b.path+'.old');writeFileSync(b.path,b.bytes,{mode:0o755});assert.equal(f.seal().reason,'stale-runtime-provenance');
+});
+check('v1 refuses installed launch source extension',f=>{f.m.originalLaunchSources=[];assert.equal(f.run().reason,'incompatible-manifest');});
+for(const variant of ['launcher','package','runtime','parent','interpreter','observation'])provenanceCheck(`installed bridge postbirth ${variant} replacement refuses sealing`,async f=>{
+ const b=installedBridge(f);await f.captureAndStart();
+ const pin=JSON.parse(readFileSync(join(f.privateRoot,`birth-${f.id}.json`))).body.originalLaunchSources[0],input=f.inventory();input.sources.push(pin);
+ if(variant==='observation')pin.observation.launcher.identity.ino++;
+ else if(variant==='parent'){renameSync(dirname(b.path),dirname(b.path)+'.old');mkdirSync(dirname(b.path),{mode:0o700});renameSync(join(dirname(b.path)+'.old','context-mode-mcp.mjs'),b.path);}
+ else {const path=variant==='launcher'?b.path:variant==='package'?join(b.packageRoot,'start.mjs'):variant==='runtime'?join(b.runtimeRoot,'server.bundle.mjs'):null;if(path){const bytes=readFileSync(path),mode=statSync(path).mode;renameSync(path,path+'.old');writeFileSync(path,bytes,{mode});}}
+ if(variant==='interpreter')f.m.originalLaunchSources[0].interpreter.sha256='0'.repeat(64);
+ assert.equal(f.seal(input).available,false);
+});
+renewalCheck('installed bridge observations survive renewal without relocation or omission',async r=>{
+ assert.equal(r.revoke().status,0);const n=r.next();assert.equal(n.renew().status,0);assert.equal(n.seal().status,0);assert.equal(n.run('prepare').status,0);assert.equal(n.run('verify').status,0);
+ const saved=JSON.parse(readFileSync(join(dirname(n.manifest),'policy-receipt.json'))).body;assert.deepEqual(saved.originalLaunchSources,JSON.parse(readFileSync(join(r.f.privateRoot,'policy-receipt.json'))).body.originalLaunchSources);
+},{installed:true});
+for(const variant of ['omission','relabel','identity','outside-hardlink'])renewalCheck('installed bridge renewal refuses '+variant,async r=>{
+ assert.equal(r.revoke().status,0);const n=r.next();
+ if(variant==='omission')delete n.value.originalLaunchSources;
+ if(variant==='relabel')n.value.originalLaunchSources[0].kind='hook';
+ if(variant==='identity'){const path=n.value.originalLaunchSources[0].path,bytes=readFileSync(path);renameSync(path,path+'.old');writeFileSync(path,bytes,{mode:0o755});}
+ if(variant==='outside-hardlink')linkSync(join(n.value.originalLaunchSources[0].runtime.root,'start.mjs'),join(r.f.privateRoot,'outside-runtime'));
+ assert.equal(n.renew().available,false);
+},{installed:true});
+for(const [name,originalEnvironment] of [['Node options',{NODE_OPTIONS:'--no-warnings'}],['Node module path',{NODE_PATH:'/tmp'}],['different runtime home',{GESTALT_HOME:'/tmp'}],['different workspace',{CONTEXT_MODE_WORKSPACE:'/tmp'}],['relative PATH',{PATH:'.:/usr/bin:/bin'}],['writable PATH',{PATH:'/tmp:/usr/bin:/bin'}]])test('installed bridge refuses original '+name+' without changing it',async()=>{
+ const f=await provenanceFixture({originalEnvironment});try {installedBridge(f);await f.captureAndStart();const input=f.inventory();input.sources.push(JSON.parse(readFileSync(join(f.privateRoot,`birth-${f.id}.json`))).body.originalLaunchSources[0]);assert.equal(f.seal(input).available,false);for(const [key,value] of Object.entries(originalEnvironment))assert.ok(readFileSync(`/proc/${f.owner.pid}/environ`).toString().split('\0').includes(`${key}=${value}`));}finally{await f.cleanup();}
 });

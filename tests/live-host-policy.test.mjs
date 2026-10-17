@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {spawn,spawnSync} from 'node:child_process';
 import {createHash,createHmac,randomUUID} from 'node:crypto';
-import {constants,openSync,closeSync,renameSync,mkdtempSync,mkdirSync,writeFileSync,readFileSync,readlinkSync,rmSync,chmodSync,symlinkSync,existsSync,copyFileSync,realpathSync,statSync,readdirSync} from 'node:fs';
+import {constants,openSync,closeSync,renameSync,mkdtempSync,mkdirSync,writeFileSync,readFileSync,readlinkSync,rmSync,chmodSync,symlinkSync,linkSync,unlinkSync,existsSync,copyFileSync,realpathSync,statSync,readdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {dirname,join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -1031,7 +1031,7 @@ provenanceCheck('installed bridge exact 0755 observation is independently captur
  chmodSync(bridge.path,0o744);assert.equal(f.run('verify').reason,'untrusted-installed-launch-source');
  assert.equal(f.run('revoke-runtime',['--capture-id',f.id]).status,0,'tampering cannot prevent safe revocation');
 });
-for(const variant of ['unknown-kind','extra-field','wrong-bytes','writable','symlink','missing','wrong-interpreter','wrong-entrypoint','wrong-runtime','package-tamper','runtime-tamper','prepared-abi','bin-writable','package-symlink','project-writable'])provenanceCheck(`installed bridge refuses ${variant}`,async f=>{
+for(const variant of ['unknown-kind','extra-field','wrong-bytes','writable','symlink','missing','wrong-interpreter','wrong-entrypoint','wrong-runtime','package-tamper','runtime-tamper','prepared-abi','bin-writable','package-symlink','project-writable','launcher-hardlink','outside-hardlink','cross-tree-hardlink'])provenanceCheck(`installed bridge refuses ${variant}`,async f=>{
  const b=installedBridge(f),s=f.m.originalLaunchSources[0];
  if(variant==='unknown-kind')s.kind='hook';
  if(variant==='extra-field')s.env={TOKEN:'fixture-secret'};
@@ -1048,7 +1048,28 @@ for(const variant of ['unknown-kind','extra-field','wrong-bytes','writable','sym
  if(variant==='bin-writable')chmodSync(dirname(b.path),0o777);
  if(variant==='package-symlink')symlinkSync('/usr/bin/true',join(b.packageRoot,'unexpected'));
  if(variant==='project-writable')f.m.sandboxState.permissionProfile.file_system.entries.push({path:{type:'path',path:dirname(b.path)},access:'write'});
+ if(variant==='launcher-hardlink')linkSync(b.path,join(f.privateRoot,'launcher-alias'));
+ if(variant==='outside-hardlink')linkSync(join(b.runtimeRoot,'server.bundle.mjs'),join(f.privateRoot,'outside-runtime'));
+ if(variant==='cross-tree-hardlink'){linkSync(join(b.packageRoot,'start.mjs'),join(b.runtimeRoot,'package-alias'));s.runtime.treeDigest=b.tree(b.runtimeRoot);}
  const result=f.capture();assert.equal(result.available,false);assert.equal(result.liveReady,false);assert.equal(existsSync(join(f.privateRoot,`birth-${f.id}.json`)),false);
+});
+for(const which of ['package','runtime'])provenanceCheck(`installed bridge captures complete ${which} hardlink group and rechecks its lifetime`,async f=>{
+ const b=installedBridge(f),root=which==='package'?b.packageRoot:b.runtimeRoot,path=join(root,'start.mjs'),alias=join(root,'start-alias.mjs');
+ linkSync(path,alias);f.m.originalLaunchSources[0][which].treeDigest=b.tree(root);
+ await f.captureAndStart();const pin=JSON.parse(readFileSync(join(f.privateRoot,`birth-${f.id}.json`))).body.originalLaunchSources[0],input=f.inventory();input.sources.push(pin);
+ assert.equal(f.seal(input).status,0);assert.equal(f.prepare().status,0);assert.equal(f.run('verify').status,0);
+ // Identical tree bytes after a transient outside alias still change identity.
+ const outside=join(f.privateRoot,'transient-alias');linkSync(path,outside);unlinkSync(outside);
+ assert.equal(f.run('verify').reason,'stale-runtime-provenance');
+ assert.equal(f.run('revoke-runtime',['--capture-id',f.id]).status,0);
+});
+for(const variant of ['gain-outside-alias','lose-internal-alias','transient-outside-alias','replace-member'])provenanceCheck(`installed bridge refuses post-traversal hardlink race ${variant}`,async f=>{
+ const b=installedBridge(f),path=join(b.packageRoot,'start.mjs'),alias=join(b.packageRoot,'start-alias.mjs'),outside=join(f.privateRoot,'late-alias');
+ if(variant==='lose-internal-alias'){linkSync(path,alias);f.m.originalLaunchSources[0].package.treeDigest=b.tree(b.packageRoot);}
+ const mutation=variant==='gain-outside-alias'?`linkSync(${JSON.stringify(path)},${JSON.stringify(outside)});`:variant==='lose-internal-alias'?`unlinkSync(${JSON.stringify(alias)});`:variant==='transient-outside-alias'?`linkSync(${JSON.stringify(path)},${JSON.stringify(outside)});unlinkSync(${JSON.stringify(outside)});`:`renameSync(${JSON.stringify(path)},${JSON.stringify(outside)});writeFileSync(${JSON.stringify(path)},readFileSync(${JSON.stringify(outside)}),{mode:0o644});`;
+ const before=f.program;f.program=`import {linkSync} from 'node:fs';\n`+f.program.replace('walk(root);recheck();',`walk(root);if(root===${JSON.stringify(b.packageRoot)}){${mutation}}recheck();`);assert.notEqual(f.program,before);
+ f.save();const result=spawnSync(process.execPath,['--input-type=module','-','capture-runtime','--manifest',f.manifest,'--capture-id',f.id],{input:f.program,encoding:'utf8'});
+ assert.equal(result.stderr,'');assert.equal(JSON.parse(result.stdout).reason,'installed-launch-source-changed');assert.equal(existsSync(join(f.privateRoot,`birth-${f.id}.json`)),false);
 });
 provenanceCheck('installed bridge cannot be omitted from inventory or replaced after original birth',async f=>{
  const b=installedBridge(f);await f.captureAndStart();assert.equal(f.seal().reason,'incomplete-source-inventory');
@@ -1068,11 +1089,12 @@ renewalCheck('installed bridge observations survive renewal without relocation o
  assert.equal(r.revoke().status,0);const n=r.next();assert.equal(n.renew().status,0);assert.equal(n.seal().status,0);assert.equal(n.run('prepare').status,0);assert.equal(n.run('verify').status,0);
  const saved=JSON.parse(readFileSync(join(dirname(n.manifest),'policy-receipt.json'))).body;assert.deepEqual(saved.originalLaunchSources,JSON.parse(readFileSync(join(r.f.privateRoot,'policy-receipt.json'))).body.originalLaunchSources);
 },{installed:true});
-for(const variant of ['omission','relabel','identity'])renewalCheck('installed bridge renewal refuses '+variant,async r=>{
+for(const variant of ['omission','relabel','identity','outside-hardlink'])renewalCheck('installed bridge renewal refuses '+variant,async r=>{
  assert.equal(r.revoke().status,0);const n=r.next();
  if(variant==='omission')delete n.value.originalLaunchSources;
  if(variant==='relabel')n.value.originalLaunchSources[0].kind='hook';
  if(variant==='identity'){const path=n.value.originalLaunchSources[0].path,bytes=readFileSync(path);renameSync(path,path+'.old');writeFileSync(path,bytes,{mode:0o755});}
+ if(variant==='outside-hardlink')linkSync(join(n.value.originalLaunchSources[0].runtime.root,'start.mjs'),join(r.f.privateRoot,'outside-runtime'));
  assert.equal(n.renew().available,false);
 },{installed:true});
 for(const [name,originalEnvironment] of [['Node options',{NODE_OPTIONS:'--no-warnings'}],['Node module path',{NODE_PATH:'/tmp'}],['different runtime home',{GESTALT_HOME:'/tmp'}],['different workspace',{CONTEXT_MODE_WORKSPACE:'/tmp'}],['relative PATH',{PATH:'.:/usr/bin:/bin'}],['writable PATH',{PATH:'/tmp:/usr/bin:/bin'}]])test('installed bridge refuses original '+name+' without changing it',async()=>{

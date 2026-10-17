@@ -2696,12 +2696,13 @@ function installedLaunchSources(m,writeRoots) {
     }
     return directoryPin(dirname(path),false,true);
   };
-  const filePin=path=>{
+  const fileIdentity=info=>({dev:info.dev,ino:info.ino,uid:info.uid,mode:info.mode,size:info.size,nlink:info.nlink,ctime:info.ctimeMs,mtime:info.mtimeMs});
+  const filePin=(path,treeMember=false)=>{
     checkedPath(path);
     const fd=openSync(path,constants.O_RDONLY|constants.O_NOFOLLOW);
     try {
-      const before=fstatSync(fd),pin=info=>({dev:info.dev,ino:info.ino,uid:info.uid,mode:info.mode,size:info.size,nlink:info.nlink,ctime:info.ctimeMs,mtime:info.mtimeMs});
-      if(!before.isFile()||before.nlink!==1||before.size>512*1024*1024)fail('installed-launch-source-changed');
+      const before=fstatSync(fd),pin=fileIdentity;
+      if(!before.isFile()||(!treeMember&&before.nlink!==1)||before.nlink<1||before.size>512*1024*1024)fail('installed-launch-source-changed');
       const bytes=readFileSync(fd);
       if(realpathSync(path)!==path||stable(pin(before))!==stable(pin(fstatSync(fd)))||stable(pin(before))!==stable(pin(lstatSync(path))))fail('installed-launch-source-changed');
       return {bytes,observation:{sha256:digest(bytes),identity:pin(before)}};
@@ -2710,21 +2711,43 @@ function installedLaunchSources(m,writeRoots) {
   // Match Agents' installed tree digest, additionally retain every file and
   // directory identity so identical-byte replacement cannot renew authority.
   const tree=root=>{
-    const files=[],identities=[],contents=new Map();let bytes=0,nodes=0;
+    const files=[],identities=[],contents=new Map(),groups=new Map(),directories=[];let bytes=0,nodes=0;
     const walk=directory=>{
       if(++nodes>20000)fail('invalid-installed-launch-source');
       checkedPath(directory,true);const pin=directoryPin(directory),names=readdirSync(directory).sort();
+      directories.push({directory,pin,names});
       identities.push([relative(root,directory),pin]);
       for(const name of names) {
         const path=join(directory,name),info=lstatSync(path);
         if(info.isDirectory()){walk(path);continue;}
         if(++nodes>20000||(bytes+=info.size)>512*1024*1024)fail('invalid-installed-launch-source');
-        const current=filePin(path),rel=relative(root,path);
+        const current=filePin(path,true),rel=relative(root,path),identity=current.observation.identity,key=stable([identity.dev,identity.ino]);
+        const group=groups.get(key)??{identity,paths:[]};
+        if(stable(group.identity)!==stable(identity))fail('installed-launch-source-changed');
+        group.paths.push(path);groups.set(key,group);
         files.push([rel,info.mode&0o777,current.observation.sha256]);identities.push([rel,current.observation.identity]);contents.set(rel,current.bytes);
       }
       if(stable(names)!==stable(readdirSync(directory).sort())||stable(pin)!==stable(directoryPin(directory)))fail('installed-launch-source-changed');
     };
-    walk(root);return {contents,observation:{treeDigest:digest(stable(files)),identityDigest:digest(stable(identities))}};
+    // Every alias must occur in this one protected tree. Revalidate all paths
+    // after traversal, including initially single-link files, so a later
+    // link/unlink or replacement cannot hide behind an earlier observation.
+    const recheck=()=>{
+      try {
+      for(const {identity,paths} of groups.values()) {
+        if(paths.length!==identity.nlink)fail('installed-launch-source-changed');
+        for(const path of paths) {
+          checkedPath(path);
+          if(stable(fileIdentity(lstatSync(path)))!==stable(identity))fail('installed-launch-source-changed');
+        }
+      }
+      for(const {directory,pin,names} of directories) {
+        checkedPath(directory,true);
+        if(stable(pin)!==stable(directoryPin(directory))||stable(names)!==stable(readdirSync(directory).sort()))fail('installed-launch-source-changed');
+      }
+      }catch(error){if(error.reason)throw error;fail('installed-launch-source-changed');}
+    };
+    walk(root);recheck();return {contents,recheck,observation:{treeDigest:digest(stable(files)),identityDigest:digest(stable(identities))}};
   };
   const home=trusted(m.owningRuntime.home??m.runtimeHome,true),bin=join(home,'bin');
   checkedPath(home,true);checkedPath(bin,true);
@@ -2737,6 +2760,9 @@ function installedLaunchSources(m,writeRoots) {
   const interpreter=filePin(source.interpreter.path);
   if(!(interpreter.observation.identity.mode&0o111)||interpreter.observation.sha256!==source.interpreter.sha256)fail('installed-launch-source-changed');
   const launcher=filePin(source.path),pkg=tree(source.package.root),runtime=tree(source.runtime.root);
+  pkg.recheck();runtime.recheck();
+  if(stable(fileIdentity(lstatSync(source.path)))!==stable(launcher.observation.identity)
+    ||stable(fileIdentity(lstatSync(source.interpreter.path)))!==stable(interpreter.observation.identity))fail('installed-launch-source-changed');
   const expected=`#!/usr/bin/env node\nimport { pathToFileURL } from "node:url";\n\nprocess.env.GESTALT_HOME ||= ${JSON.stringify(gestaltHome)};\nprocess.env.CONTEXT_MODE_PLATFORM = "codex";\nprocess.env.CONTEXT_MODE_WORKSPACE ||= process.cwd();\nawait import(pathToFileURL(${JSON.stringify(join(source.package.root,'start.mjs'))}).href);\n`;
   if(launcher.bytes.toString()!==expected||launcher.observation.sha256!==source.sha256
     ||pkg.observation.treeDigest!==source.package.treeDigest||runtime.observation.treeDigest!==source.runtime.treeDigest)fail('installed-launch-source-changed');

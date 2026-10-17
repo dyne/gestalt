@@ -971,8 +971,14 @@ its bin parent must be controller-owned and protected from replacement. Every
 ancestor, interpreter, package/runtime file and directory must be canonical,
 root/controller-owned, protected from admitted writes and non-writable by group
 or other. Package/runtime directory pins additionally require the controller UID. Sticky temporary ancestry is permitted only with protected descendants.
-Symlinks, special files, hardlinked files, unexpected paths and missing inputs
+Symlinks, special files, unexpected paths and missing inputs
 refuse. No original source is rewritten, chmodded, hidden or treated as TOML.
+The launcher and interpreter require one link. Package/runtime hardlinks are
+accepted only when every alias is observed within the same protected tree.
+Unobserved, outside and cross-tree aliases refuse. After traversal Manager
+rechecks every file identity, link count, group membership and directory,
+including initially single-link files; signed identities retain paths and link
+counts for subsequent inventory, lifetime and renewal observations.
 
 Manager independently reconstructs the exact accepted configurator's generated
 MCP bridge bytes, including the fixed `GESTALT_HOME` fallback, `codex` platform,

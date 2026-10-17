@@ -2656,7 +2656,7 @@ function keyScope(m,root) {
 function provenanceBasis(body) {
   return digest(stable({bootId:body.bootId,profileId:body.profileId,policyDigest:body.policyDigest,
     binary:body.binary,manager:body.manager,app:body.app,controller:body.controller,components:body.components,
-    authority:body.authority}));
+    authority:body.authority,...(body.originalLaunchSources?{originalLaunchSources:body.originalLaunchSources}:{})}));
 }
 function instructionPin(path) {
   canonical(path);
@@ -2669,7 +2669,98 @@ function instructionPin(path) {
     return {sha256:digest(bytes),identity:pin(before)};
   }finally{closeSync(fd);}
 }
+// Optional schema2 extension. This is observation of one installed bridge, not
+// an executable/environment allowlist or permission to dispatch original MCP.
+function installedLaunchSources(m,writeRoots) {
+  if(!Object.hasOwn(m,'originalLaunchSources'))return [];
+  const sources=m.originalLaunchSources;
+  const reject=()=>fail('invalid-installed-launch-source');
+  if(m.schemaVersion!==2||!Array.isArray(sources)||sources.length!==1)reject();
+  const source=sources[0],hash=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
+  if(!exactKeys(source,['kind','path','sha256','gestaltHome','interpreter','package','runtime'])||source.kind!=='context-mode-bridge-v1'
+    ||!hash(source.sha256)||!exactKeys(source.interpreter,['path','sha256'])||!hash(source.interpreter.sha256)
+    ||!exactKeys(source.package,['root','version','treeDigest'])||!hash(source.package.treeDigest)
+    ||!/^\d+\.\d+\.\d+$/.test(source.package.version)||!exactKeys(source.runtime,['root','treeDigest'])||!hash(source.runtime.treeDigest))reject();
+  const parents=new Map();
+  const checkedPath=(path,directory=false)=>{
+    canonical(path);
+    const info=lstatSync(path);
+    if((directory?!info.isDirectory():!info.isFile())||![0,process.getuid()].includes(info.uid)||(info.mode&0o022)
+      ||writeRoots.some(root=>inside(root,path)))fail('untrusted-installed-launch-source');
+    for(let parent=dirname(path);;parent=dirname(parent)) {
+      canonical(parent);const pin=lstatSync(parent);
+      if(!pin.isDirectory()||![0,process.getuid()].includes(pin.uid)||((pin.mode&0o022)&&!(pin.mode&0o1000))
+        ||writeRoots.some(root=>inside(root,parent)))fail('untrusted-installed-launch-source');
+      parents.set(parent,directoryPin(parent,false,true));
+      if(parent==='/')break;
+    }
+    return directoryPin(dirname(path),false,true);
+  };
+  const filePin=path=>{
+    checkedPath(path);
+    const fd=openSync(path,constants.O_RDONLY|constants.O_NOFOLLOW);
+    try {
+      const before=fstatSync(fd),pin=info=>({dev:info.dev,ino:info.ino,uid:info.uid,mode:info.mode,size:info.size,nlink:info.nlink,ctime:info.ctimeMs,mtime:info.mtimeMs});
+      if(!before.isFile()||before.nlink!==1||before.size>512*1024*1024)fail('installed-launch-source-changed');
+      const bytes=readFileSync(fd);
+      if(realpathSync(path)!==path||stable(pin(before))!==stable(pin(fstatSync(fd)))||stable(pin(before))!==stable(pin(lstatSync(path))))fail('installed-launch-source-changed');
+      return {bytes,observation:{sha256:digest(bytes),identity:pin(before)}};
+    }finally{closeSync(fd);}
+  };
+  // Match Agents' installed tree digest, additionally retain every file and
+  // directory identity so identical-byte replacement cannot renew authority.
+  const tree=root=>{
+    const files=[],identities=[],contents=new Map();let bytes=0,nodes=0;
+    const walk=directory=>{
+      if(++nodes>20000)fail('invalid-installed-launch-source');
+      checkedPath(directory,true);const pin=directoryPin(directory),names=readdirSync(directory).sort();
+      identities.push([relative(root,directory),pin]);
+      for(const name of names) {
+        const path=join(directory,name),info=lstatSync(path);
+        if(info.isDirectory()){walk(path);continue;}
+        if(++nodes>20000||(bytes+=info.size)>512*1024*1024)fail('invalid-installed-launch-source');
+        const current=filePin(path),rel=relative(root,path);
+        files.push([rel,info.mode&0o777,current.observation.sha256]);identities.push([rel,current.observation.identity]);contents.set(rel,current.bytes);
+      }
+      if(stable(names)!==stable(readdirSync(directory).sort())||stable(pin)!==stable(directoryPin(directory)))fail('installed-launch-source-changed');
+    };
+    walk(root);return {contents,observation:{treeDigest:digest(stable(files)),identityDigest:digest(stable(identities))}};
+  };
+  const home=trusted(m.owningRuntime.home??m.runtimeHome,true),bin=join(home,'bin');
+  checkedPath(home,true);checkedPath(bin,true);
+  if(lstatSync(bin).uid!==process.getuid()||source.path!==join(bin,'context-mode-mcp.mjs')||lstatSync(source.path).uid!==process.getuid()
+    ||(lstatSync(source.path).mode&0o7777)!==0o755)fail('untrusted-installed-launch-source');
+  const gestaltHome=canonical(source.gestaltHome);checkedPath(gestaltHome,true);
+  if(source.package.root.split('/').at(-1)!==source.package.version||source.package.root.split('/').at(-2)!=='context-mode'
+    ||source.runtime.root!==join(gestaltHome,'runtime','context-mode')||inside(home,source.package.root)||inside(source.package.root,source.runtime.root))reject();
+  if(source.interpreter.path!==canonical(process.execPath))reject();
+  const interpreter=filePin(source.interpreter.path);
+  if(!(interpreter.observation.identity.mode&0o111)||interpreter.observation.sha256!==source.interpreter.sha256)fail('installed-launch-source-changed');
+  const launcher=filePin(source.path),pkg=tree(source.package.root),runtime=tree(source.runtime.root);
+  const expected=`#!/usr/bin/env node\nimport { pathToFileURL } from "node:url";\n\nprocess.env.GESTALT_HOME ||= ${JSON.stringify(gestaltHome)};\nprocess.env.CONTEXT_MODE_PLATFORM = "codex";\nprocess.env.CONTEXT_MODE_WORKSPACE ||= process.cwd();\nawait import(pathToFileURL(${JSON.stringify(join(source.package.root,'start.mjs'))}).href);\n`;
+  if(launcher.bytes.toString()!==expected||launcher.observation.sha256!==source.sha256
+    ||pkg.observation.treeDigest!==source.package.treeDigest||runtime.observation.treeDigest!==source.runtime.treeDigest)fail('installed-launch-source-changed');
+  const json=(contents,path)=>{try{return JSON.parse(contents.get(path)?.toString());}catch{reject();}};
+  const packageJson=json(pkg.contents,'package.json'),runtimeJson=json(runtime.contents,'package.json'),prepared=json(runtime.contents,'.context-mode-prepared.json');
+  if(packageJson?.name!=='context-mode'||packageJson.version!==source.package.version||runtimeJson?.name!=='context-mode'||runtimeJson.version!==source.package.version
+    ||!pkg.contents.has('start.mjs')||!exactKeys(prepared,['schemaVersion','packageVersion','preparedAt','node','nodeModulesAbi','platform','arch','bun','files'])
+    ||prepared.schemaVersion!==2||prepared.packageVersion!==source.package.version||prepared.platform!==process.platform||prepared.arch!==process.arch
+    ||prepared.nodeModulesAbi!==process.versions.modules||typeof prepared.node!=='string'||typeof prepared.preparedAt!=='string'
+    ||!prepared.files||typeof prepared.files!=='object'||Array.isArray(prepared.files))reject();
+  const required=['start.mjs','scripts/codex-profile.mjs','scripts/runtime-location.mjs','scripts/runtime-preflight.mjs','server.bundle.mjs','cli.bundle.mjs',
+    ...['security','session-db','session-extract','session-attribution','session-snapshot','codex-usage'].map(name=>`hooks/${name}.bundle.mjs`),
+    'node_modules/better-sqlite3/package.json','node_modules/better-sqlite3/build/Release/better_sqlite3.node','node_modules/turndown/package.json','node_modules/turndown-plugin-gfm/package.json','node_modules/@mixmark-io/domino/package.json'];
+  if(required.some(path=>!hash(prepared.files[path])||!runtime.contents.has(path)||digest(runtime.contents.get(path))!==prepared.files[path])
+    ||Object.entries(prepared.files).some(([path,sha])=>!hash(sha)||!runtime.contents.has(path)||digest(runtime.contents.get(path))!==sha))reject();
+  return [{kind:'installed-launch-source',descriptor:source,observation:{launcher:launcher.observation,interpreter:interpreter.observation,
+    package:pkg.observation,runtime:runtime.observation,parentsDigest:digest(stable([...parents].sort(([a],[b])=>a<b?-1:a>b?1:0))),home:directoryPin(home,false,true),bin:directoryPin(bin,false,true),gestaltHome:directoryPin(gestaltHome,false,true)}}];
+}
+function recheckInstalledLaunchSources(m,body) {
+  const roots=m.sandboxState.permissionProfile.file_system.entries.filter(entry=>entry.access==='write').map(grantPath).filter(Boolean);
+  if(stable(installedLaunchSources(m,roots))!==stable(body.originalLaunchSources??[]))fail('installed-launch-source-changed');
+}
 function sourceInventory(input,m,body,processIdentity,directories,instructions) {
+  recheckInstalledLaunchSources(m,body);
   if(!exactKeys(input,['schemaVersion','runtime','policyDigest','effectiveConfigDigest','sessionFlagsDigest','sources'],['observation'])
     ||input.schemaVersion!==2||stable(input.runtime)!==stable(processIdentity)||input.policyDigest!==body.policyDigest
     ||![input.effectiveConfigDigest,input.sessionFlagsDigest].every(value=>/^[a-f0-9]{64}$/.test(value))
@@ -2686,8 +2777,12 @@ function sourceInventory(input,m,body,processIdentity,directories,instructions) 
     let current;try{current=instructionPin(path);}catch{fail('source-changed');}
     if(stable(current)!==stable(pin))fail('source-changed');
   }
-  const seen=new Set(),files=new Set(),dirs=new Set(),instructionPaths=new Set();
+  const seen=new Set(),files=new Set(),dirs=new Set(),instructionPaths=new Set(),launches=new Set();
   for(const source of input.sources) {
+    if(source?.kind==='installed-launch-source') {
+      if(!exactKeys(source,['kind','descriptor','observation'])||!body.originalLaunchSources?.some(pin=>stable(pin)===stable(source))||launches.has(source.descriptor.path))fail('incomplete-source-inventory');
+      launches.add(source.descriptor.path);continue;
+    }
     if(!source||typeof source.path!=='string'||seen.has(source.path))fail('incomplete-source-inventory');
     seen.add(source.path);
     if(source.kind==='file') {
@@ -2712,7 +2807,7 @@ function sourceInventory(input,m,body,processIdentity,directories,instructions) 
     } else fail('incomplete-source-inventory');
   }
   // Inventory the owner config sources separately from later generated MCP files.
-  if(Object.entries(instructions).some(([path,pin])=>pin!==null&&!instructionPaths.has(path))
+  if((body.originalLaunchSources??[]).some(source=>!launches.has(source.descriptor.path))||Object.entries(instructions).some(([path,pin])=>pin!==null&&!instructionPaths.has(path))
     ||!files.has(join(m.runtimeHome,'config.toml'))||Object.keys(directories).some(path=>!dirs.has(path))
     ||['/etc/codex/config.toml','/etc/codex/managed_config.toml','/etc/codex/requirements.toml'].some(path=>!seen.has(path)))fail('incomplete-source-inventory');
   return input;
@@ -2724,7 +2819,26 @@ function runtimeIdentity(pid,m) {
   const argv=readFileSync(`/proc/${pid}/cmdline`).toString().split('\0').slice(0,-1);
   if(stable(argv)!==stable([m.binary.path,...m.owningRuntime.args]))fail('unverified-owning-runtime');
   // The producer binds the actual original launch environment without exposing it.
-  const environmentDigest=digest(readFileSync(`/proc/${pid}/environ`)),exe=statSync(`/proc/${pid}/exe`),installed=statSync(path);
+  const environmentBytes=readFileSync(`/proc/${pid}/environ`);
+  if(m.originalLaunchSources) {
+    const pairs=environmentBytes.toString().split('\0').filter(Boolean).map(value=>{const at=value.indexOf('=');return [value.slice(0,at),value.slice(at+1)];}),env=Object.fromEntries(pairs),source=m.originalLaunchSources[0];
+    if(pairs.length!==Object.keys(env).length||env.NODE_OPTIONS||env.NODE_PATH||env.GESTALT_HOME&&env.GESTALT_HOME!==source.gestaltHome
+      ||env.CONTEXT_MODE_WORKSPACE&&env.CONTEXT_MODE_WORKSPACE!==m.appRoot)fail('unverified-installed-launch-environment');
+    const paths=env.PATH?.split(':');
+    if(!paths?.length||paths.some(path=>!isAbsolute(path)||resolve(path)!==path))fail('unverified-installed-launch-environment');
+    const writes=m.sandboxState.permissionProfile.file_system.entries.filter(entry=>entry.access==='write').map(grantPath).filter(Boolean);
+    for(const path of paths) {
+      if(lstatSync(realpathSync(path)).mode&0o022)fail('unverified-installed-launch-environment');
+      for(let parent=realpathSync(path);;parent=dirname(parent)) {
+        directoryPin(parent,false,true);
+        if(writes.some(root=>inside(root,parent)))fail('unverified-installed-launch-environment');
+        if(parent==='/')break;
+      }
+    }
+    const node=paths.map(path=>join(path,'node')).find(path=>existsSync(path));
+    if(!node||canonical(node)!==source.interpreter.path)fail('unverified-installed-launch-environment');
+  }
+  const environmentDigest=digest(environmentBytes),exe=statSync(`/proc/${pid}/exe`),installed=statSync(path);
   if(exe.dev!==installed.dev||exe.ino!==installed.ino||digest(readFileSync(`/proc/${pid}/exe`))!==m.binary.sha256)fail('unverified-owning-runtime');
   if(stable(identity(pid))!==stable(owner)||processParent(pid)!==m.controller.pid||readlinkSync(`/proc/${pid}/exe`)!==path)fail('unverified-owning-runtime');
   return {process:owner,parent:m.controller,cwd:readlinkSync(`/proc/${pid}/cwd`),executable:m.binary,executableIdentity:{dev:exe.dev,ino:exe.ino,uid:exe.uid,mode:exe.mode},argvDigest:digest(stable(argv)),environmentDigest};
@@ -2808,7 +2922,7 @@ function renewalParent(link,m,body,keyFile,depth=0) {
   if(m.generation.sessionId!==old.generation.sessionId||m.generation.generation<=old.generation.generation
     ||stable(body.app)!==stable(previous.body.app)||stable(body.controller)!==stable(previous.body.controller)
     ||stable(body.binary)!==stable(previous.body.binary)||stable(body.manager)!==stable(previous.body.manager)
-    ||stable(body.components)!==stable(previous.body.components)||stable(m.election)!==stable(old.election)
+    ||stable(body.originalLaunchSources)!==stable(previous.body.originalLaunchSources)||stable(body.components)!==stable(previous.body.components)||stable(m.election)!==stable(old.election)
     ||stable({...m.owningRuntime,home:canonical(m.owningRuntime.home??m.runtimeHome),instructionFiles:m.owningRuntime.instructionFiles??[]})!==stable({...old.owningRuntime,home:canonical(old.owningRuntime.home??old.runtimeHome),instructionFiles:old.owningRuntime.instructionFiles??[]})||m.environment.PATH!==old.environment.PATH||m.environment.TMPDIR!==old.environment.TMPDIR
     ||stable(m.privatePaths)!==stable(old.privatePaths))fail('renewal-source-changed');
   const ancestry=before.renewal?renewalParent(before.renewal,old,previous.body,keyFile,depth+1):undefined;
@@ -2861,14 +2975,14 @@ async function renewRuntime(manifestPath,id,previousPath,previousId,mode) {
   else if(!originalGone(parent.sealed.runtime.process))fail('renewal-owner-alive');
   if(existsSync(join(root,'dispatch.lock')))fail('renewal-undrained');
   try{mkdirSync(paths.lock,{mode:0o700});}catch(error){if(error.code==='EEXIST')fail('active-runtime-admission');throw error;}
-  const next={schemaVersion:2,kind:'runtime-admission',captureId:id,manifestRoot:root,status:'captured',controller:m.controller,generation:m.generation,
+  const next={...(body.originalLaunchSources?{originalLaunchSourcesDigest:digest(stable(body.originalLaunchSources))}:{}),schemaVersion:2,kind:'runtime-admission',captureId:id,manifestRoot:root,status:'captured',controller:m.controller,generation:m.generation,
     renewalOf:{manifestRoot:previousRoot,captureId:previousId,sealDigest:link.sealDigest}};
   try {
     if(stable(authenticated(paths.receipt,keyFile))!==stable(fence))fail('renewal-not-revoked');
     renewalParent(link,m,body,keyFile);
     writeReceipt(paths.receipt,next,keyFile);
     const clock=clockObservation(before.clock.hz);
-    writeReceipt(birthPath,{schemaVersion:2,kind:'before-runtime-birth',captureId:id,basisDigest:provenanceBasis(body),configs:m.configFiles,
+    writeReceipt(birthPath,{schemaVersion:2,kind:'before-runtime-birth',captureId:id,basisDigest:provenanceBasis(body),...(body.originalLaunchSources?{originalLaunchSources:body.originalLaunchSources}:{}),configs:m.configFiles,
       directories:before.directories.map(prior=>({path:prior.path,parent:parent.sealed.parents[prior.path]})),instructions:before.instructions,clock,afterTick:clock.afterTick,renewal:link},keyFile);
     if(stable(authenticated(paths.receipt,keyFile))!==stable(next))fail('revoked-runtime-provenance');
   } catch(error) {
@@ -2885,11 +2999,12 @@ function verifyProvenance(m,root,keyFile,body) {
   if(!launchIdValid(id))fail('invalid-capture-id');
   const fence=authenticated(admissionPaths(m,root).receipt,keyFile);
   if(fence.kind!=='runtime-admission'||fence.status!=='sealed'||fence.captureId!==id||fence.manifestRoot!==root||stable(fence.controller)!==stable(m.controller)||stable(fence.generation)!==stable(m.generation))fail('revoked-runtime-provenance');
+  if(fence.originalLaunchSourcesDigest!==(body.originalLaunchSources?digest(stable(body.originalLaunchSources)):undefined))fail('stale-runtime-provenance');
   const sealed=authenticated(join(root,`runtime-${id}.json`),keyFile);
   const before=authenticated(join(root,`birth-${id}.json`),keyFile);
   if(before.kind!=='before-runtime-birth'||sealed.kind!=='owning-runtime-provenance'
     ||!Array.isArray(before.directories)||!sealed.directories||!sealed.parents||sealed.captureId!==id||before.captureId!==id||before.basisDigest!==provenanceBasis(body)
-    ||sealed.basisDigest!==before.basisDigest||sealed.beforeDigest!==digest(stable(before)))fail('stale-runtime-provenance');
+    ||stable(before.originalLaunchSources)!==stable(body.originalLaunchSources)||sealed.basisDigest!==before.basisDigest||sealed.beforeDigest!==digest(stable(before)))fail('stale-runtime-provenance');
   const current=runtimeIdentity(sealed.runtime.process.pid,m);
   let image;
   if(sealed.imageDigest){
@@ -2998,9 +3113,10 @@ async function runtimeProvenanceCommand(action,manifestPath,id,pid,inventoryPath
     const clock=clockObservation(hz),afterTick=clock.afterTick;
     try{mkdirSync(admissionPaths(m,root).lock,{mode:0o700});}catch(error){if(error.code==='EEXIST')fail('active-runtime-admission');throw error;}
     try {
+      recheckInstalledLaunchSources(m,body);
       writeReceipt(birthPath,{schemaVersion:2,kind:'before-runtime-birth',captureId:id,basisDigest:provenanceBasis(body),
-        configs:m.configFiles,directories,instructions,afterTick,clock},keyFile);
-      writeReceipt(admissionPaths(m,root).receipt,{schemaVersion:2,kind:'runtime-admission',captureId:id,manifestRoot:root,status:'captured',
+        configs:m.configFiles,...(body.originalLaunchSources?{originalLaunchSources:body.originalLaunchSources}:{}),directories,instructions,afterTick,clock},keyFile);
+      writeReceipt(admissionPaths(m,root).receipt,{...(body.originalLaunchSources?{originalLaunchSourcesDigest:digest(stable(body.originalLaunchSources))}:{}),schemaVersion:2,kind:'runtime-admission',captureId:id,manifestRoot:root,status:'captured',
         controller:m.controller,generation:m.generation},keyFile);
     }catch(error){try{rmdirSync(admissionPaths(m,root).lock);}catch{}throw error;}
 
@@ -3016,7 +3132,7 @@ async function runtimeProvenanceCommand(action,manifestPath,id,pid,inventoryPath
       if(image.kind!=='owning-native-image'||image.captureId!==id||image.basisDigest!==before.basisDigest||stable(image.process)!==stable(runtime.process))fail('stale-runtime-provenance');
     }
     if(before.kind!=='before-runtime-birth'||before.captureId!==id||before.basisDigest!==provenanceBasis(body)
-      ||(!before.renewal&&BigInt(runtime.process.birth)<=BigInt(before.afterTick))||stable(before.configs)!==stable(m.configFiles))fail('stale-runtime-provenance');
+      ||stable(before.originalLaunchSources)!==stable(body.originalLaunchSources)||(!before.renewal&&BigInt(runtime.process.birth)<=BigInt(before.afterTick))||stable(before.configs)!==stable(m.configFiles))fail('stale-runtime-provenance');
     const renewed=before.renewal?renewalRuntime(before,m,body,keyFile,runtime):undefined;
     if(renewed&&before.renewal.mode==='replacement'&&(!image||BigInt(runtime.process.birth)<=BigInt(before.afterTick)))fail('unverified-owning-runtime');
     const directories=Object.fromEntries(before.directories.map(prior=>{
@@ -3043,7 +3159,7 @@ async function runtimeProvenanceCommand(action,manifestPath,id,pid,inventoryPath
       throw error;
     }
   }
-  console.log(JSON.stringify({schemaVersion:2,available:true,liveReady:false,reason:action==='capture-runtime'?'runtime-birth-captured':'runtime-provenance-sealed',captureId:id,policyDigest:body.policyDigest}));
+  console.log(JSON.stringify({schemaVersion:2,available:true,liveReady:false,reason:action==='capture-runtime'?'runtime-birth-captured':'runtime-provenance-sealed',captureId:id,policyDigest:body.policyDigest,extensions:['original-installed-launch-source-v1'],...(body.originalLaunchSources?{originalLaunchSources:body.originalLaunchSources}:{})}));
 }
 
 function contract(manifestPath, versionProbe = true, nativeMetadata, capturing = false, bootstrapping = false) {
@@ -3052,13 +3168,13 @@ function contract(manifestPath, versionProbe = true, nativeMetadata, capturing =
   const bytes = readPrivate(manifestPath);
   if (bytes.length > 262144) fail('invalid-manifest');
   const m = JSON.parse(bytes);
-  if (!exactKeys(m,['schemaVersion','profileId','appRoot','controller','binary','sandboxState','configFiles','components','privatePaths','keyFile','runtimeHome','environment'],['commands','election','generation','owningRuntime','runtimeProvenance']) || ![1,2].includes(m.schemaVersion)) fail('incompatible-manifest');
+  if (!exactKeys(m,['schemaVersion','profileId','appRoot','controller','binary','sandboxState','configFiles','components','privatePaths','keyFile','runtimeHome','environment'],['commands','election','generation','owningRuntime','runtimeProvenance','originalLaunchSources']) || ![1,2].includes(m.schemaVersion)) fail('incompatible-manifest');
   if (typeof m.profileId !== 'string' || !m.profileId.trim()) fail('missing-profile');
   const app = canonical(m.appRoot);
   if (!statSync(app).isDirectory() || inside(app,root) || inside(root,app)) fail('untrusted-storage');
   host(m.controller,bootstrapping);
   const authority=m.schemaVersion===2?electionAuthority(m,root):undefined;
-  if(m.schemaVersion===1&&['election','generation','owningRuntime','runtimeProvenance'].some(key=>Object.hasOwn(m,key)))fail('incompatible-manifest');
+  if(m.schemaVersion===1&&['election','generation','owningRuntime','runtimeProvenance','originalLaunchSources'].some(key=>Object.hasOwn(m,key)))fail('incompatible-manifest');
   const state = m.sandboxState;
   if (!exactKeys(state,['permissionProfile','sandboxCwd','useLegacyLandlock'],['codexLinuxSandboxExe','useMxc']) || state.useLegacyLandlock !== false || state.useMxc === true || state.codexLinuxSandboxExe != null) fail('incompatible-profile');
   const profile = state.permissionProfile;
@@ -3153,7 +3269,8 @@ function contract(manifestPath, versionProbe = true, nativeMetadata, capturing =
   // Native network seccomp denies getsockname; Node socket stdio then becomes
   // silent empty/black-hole streams. Bash creates real FIFO stdin/stdout/stderr.
   const stdioBridge={...bridgeHelpers,script:'exec "$@" < <(exec /usr/bin/cat) > >(exec /usr/bin/cat) 2> >(exec /usr/bin/cat >&2)'};
-  const body = {schemaVersion:m.schemaVersion,kind:'policy-contract',profileId:m.profileId,manifestDigest:digest(bytes),
+  const originalLaunchSources=installedLaunchSources(m,writeRoots);
+  const body = {...(originalLaunchSources.length?{originalLaunchSources}:{}),schemaVersion:m.schemaVersion,kind:'policy-contract',profileId:m.profileId,manifestDigest:digest(bytes),
     ...(authority?{authority}:{}),
     bootId:readFileSync('/proc/sys/kernel/random/boot_id','utf8').trim(),
     policyDigest:digest(stable(composed)),configDigest:digest(stable(configs)),binary,components:m.components,
@@ -3278,7 +3395,7 @@ import {isAbsolute,dirname,join,relative,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';\n`;
     const helpers={fail,digest,stable,inside,exactKeys,launchIdValid};
     const source=imports+`const VERSION=${VERSION};\nconst managerSource=${JSON.stringify(managerSource)};\n`+Object.entries(helpers).map(([name,fn])=>`const ${name}=${fn.toString()};`).join('\n')
-      +'\n'+[canonical,trusted,readPrivate,identity,host,grantPath,ownedNativeMetadata,processParent,directoryPin,clockObservation,metadataBirth,metadataPaths,electionAuthority,admissionPaths,keyScope,provenanceBasis,instructionPin,sourceInventory,runtimeIdentity,observedIntent,narrowerPolicy,originalGone,drainedGeneration,preservedMetadata,renewalParent,renewalRuntime,verifyProvenance,contract,receipt,writeReceipt,authenticated,currentPolicy,supervise].map(fn=>fn.toString()).join('\n')
+      +'\n'+[canonical,trusted,readPrivate,identity,host,grantPath,ownedNativeMetadata,processParent,directoryPin,clockObservation,metadataBirth,metadataPaths,electionAuthority,admissionPaths,keyScope,provenanceBasis,instructionPin,installedLaunchSources,recheckInstalledLaunchSources,sourceInventory,runtimeIdentity,observedIntent,narrowerPolicy,originalGone,drainedGeneration,preservedMetadata,renewalParent,renewalRuntime,verifyProvenance,contract,receipt,writeReceipt,authenticated,currentPolicy,supervise].map(fn=>fn.toString()).join('\n')
       +`\ntry { await supervise(${JSON.stringify(manifestPath)},${JSON.stringify(commandId)},${JSON.stringify(id)},${JSON.stringify(parent)}); }
 catch { console.error(JSON.stringify({schemaVersion:1,available:false,reason:'launch-failed'}));process.exitCode=1; }`;
     child=spawn(process.execPath,['--input-type=module','-'],{cwd:value.root,env:value.body.launch.env,stdio:['pipe','inherit','inherit','pipe','pipe']});
@@ -3367,7 +3484,7 @@ try {
     if (stable(saved.body) !== stable(body)) fail('stale-receipt');
   }
   console.log(JSON.stringify({schemaVersion:body.schemaVersion,available:true,liveReady:false,reason:'policy-contract-verified',
-    contractVersion:body.schemaVersion,nativeVersion:body.binary.version,policyDigest:body.policyDigest,configDigest:body.configDigest,
+    contractVersion:body.schemaVersion,extensions:['original-installed-launch-source-v1'],...(body.originalLaunchSources?{originalLaunchSources:body.originalLaunchSources}:{}),nativeVersion:body.binary.version,policyDigest:body.policyDigest,configDigest:body.configDigest,
     ...(body.provenance?{sourceInventoryDigest:digest(stable(body.provenance.inventory)),runtimeProvenanceDigest:body.provenance.receiptDigest,generation:body.authority.generation}:{}),
     ...(args[0] === 'probe' ? {} : {receipt:receiptPath})}));
   }

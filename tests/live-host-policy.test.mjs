@@ -517,7 +517,7 @@ async function provenanceFixture(options={}) {
   // Strictly later than the signed USER_HZ observation.
   await pause(40);
   writeFileSync(join(f.privateRoot,'app-server'),`setTimeout(()=>{if(!require('node:fs').existsSync(${JSON.stringify(join(f.app,'.codex'))}))require('node:fs').mkdirSync(${JSON.stringify(join(f.app,'.codex'))},{mode:0o755});console.log('owner-ready');setInterval(()=>{},1000);},40);`,{mode:0o600});
-  owner=spawn(bin,['app-server'],{cwd:f.privateRoot,stdio:['ignore','pipe','pipe'],env:options.managedEnvironment?{PATH:'/usr/bin:/bin',HOME:f.home,CODEX_HOME:f.home,TMPDIR:'/tmp',LANG:'C.UTF-8'}:{HOME:f.home,CODEX_HOME:f.home,PATH:'/usr/bin:/bin'}});
+  owner=spawn(bin,['app-server'],{cwd:f.privateRoot,stdio:['ignore','pipe','pipe'],env:{...(options.managedEnvironment?{PATH:'/usr/bin:/bin',HOME:f.home,CODEX_HOME:f.home,TMPDIR:'/tmp',LANG:'C.UTF-8'}:{HOME:f.home,CODEX_HOME:f.home,PATH:'/usr/bin:/bin'}),...options.originalEnvironment}});
   let output='';owner.stdout.on('data',chunk=>output+=chunk);await waitFor(()=>output==='owner-ready\n');
   return owner;
  };
@@ -821,12 +821,13 @@ test('Native build failure reports locked dependency classes without raw logs or
 });
 
 const renewalStable=value=>JSON.stringify((function order(input){if(Array.isArray(input))return input.map(order);if(input&&typeof input==='object')return Object.fromEntries(Object.keys(input).sort().map(key=>[key,order(input[key])]));return input;})(value));
-async function renewalFixture({observed=true,explicitHome=true}={}) {
+async function renewalFixture({observed=true,explicitHome=true,installed=false}={}) {
  const f=await provenanceFixture({managedEnvironment:true});if(explicitHome)f.m.owningRuntime.home=f.home;
+ if(installed)installedBridge(f);
  const parts=source.split("<<'LIVE_POLICY'\n"),tail=parts[1].split('\nLIVE_POLICY\n')[1];writeFileSync(f.managerPath,parts[0]+"<<'LIVE_POLICY'\n"+f.program+'\nLIVE_POLICY\n'+tail,{mode:0o700});
  const flags=value=>({model:'fixture-model',modelProvider:'fixture-provider',cwd:value.appRoot,approvalPolicy:'never',activePermissionProfile:{id:value.profileId,extends:':read-only'},sandbox:{type:'fixture'},reasoningEffort:'medium',instructionSources:[]});
  const observedInventory=(value,inventory)=>{if(!observed)return inventory;const observation={sessionFlags:flags(value),accountDigest:hash('account-fixture')};return {...inventory,observation,sessionFlagsDigest:hash(renewalStable(observation.sessionFlags))};};
- await f.captureAndStart();const original=observedInventory(f.m,f.inventory());assert.equal(f.seal(original).status,0);f.m.runtimeProvenance={captureId:f.id,effectiveConfigDigest:original.effectiveConfigDigest,sessionFlagsDigest:original.sessionFlagsDigest};assert.equal(f.run('prepare').status,0);
+ await f.captureAndStart();const original=observedInventory(f.m,f.inventory());if(installed)original.sources.push(JSON.parse(readFileSync(join(f.privateRoot,`birth-${f.id}.json`))).body.originalLaunchSources[0]);assert.equal(f.seal(original).status,0);f.m.runtimeProvenance={captureId:f.id,effectiveConfigDigest:original.effectiveConfigDigest,sessionFlagsDigest:original.sessionFlagsDigest};assert.equal(f.run('prepare').status,0);
  const invoke=(path,action,args=[])=>{const result=spawnSync(process.execPath,['--input-type=module','-',action,'--manifest',path,...args],{input:f.program,encoding:'utf8',env:{...process.env,NODE_OPTIONS:''}});assert.equal(result.stderr,'');return {status:result.status,...JSON.parse(result.stdout)};};
  let sequence=1;const generations=[];
  const next=(previous={manifest:f.manifest,id:f.id,value:f.m})=>{
@@ -836,7 +837,7 @@ async function renewalFixture({observed=true,explicitHome=true}={}) {
   const manifest=join(directory,'manifest.json'),id=randomUUID(),save=()=>writeFileSync(manifest,JSON.stringify(value),{mode:0o600});save();
   const run=(action,args=[])=>{save();return invoke(manifest,action,args);};
   const capture=(mode='survivor')=>run('renew-runtime',['--capture-id',id,'--previous-manifest',previous.manifest,'--previous-capture-id',previous.id,'--mode',mode]);
-  const inventory=(pid=f.owner.pid)=>{const result=f.inventory({pid});result.runtime=identity(pid);result.policyDigest=captured.policyDigest;result.sources=result.sources.filter(source=>source.path!==join(f.home,'config.toml')||value.owningRuntime.home===f.home);result.sources=result.sources.filter(source=>!source.path.includes('/renewal-'));result.sources=result.sources.filter(source=>source.kind!=='file'||value.configFiles.some(file=>file.path===source.path&&file.sha256===source.sha256));result.sources.push({kind:'file',role:'sandbox-worker',path:join(home,'config.toml'),sha256:hash(readFileSync(join(home,'config.toml')))});return observedInventory(value,result);};
+  const inventory=(pid=f.owner.pid)=>{const result=f.inventory({pid});result.runtime=identity(pid);result.policyDigest=captured.policyDigest;result.sources=result.sources.filter(source=>source.path!==join(f.home,'config.toml')||value.owningRuntime.home===f.home);result.sources=result.sources.filter(source=>!source.path?.includes('/renewal-'));if(installed)result.sources.push(original.sources.find(source=>source.kind==='installed-launch-source'));result.sources=result.sources.filter(source=>source.kind!=='file'||value.configFiles.some(file=>file.path===source.path&&file.sha256===source.sha256));result.sources.push({kind:'file',role:'sandbox-worker',path:join(home,'config.toml'),sha256:hash(readFileSync(join(home,'config.toml')))});return observedInventory(value,result);};
   let captured;
   const renew=(mode='survivor')=>{captured=capture(mode);return captured;};
   const seal=(input=inventory())=>{const path=join(directory,'observed-sources.json');writeFileSync(path,JSON.stringify(input),{mode:0o600});const result=run('seal-runtime',['--capture-id',id,'--runtime-pid',String(input.runtime.pid),'--sources',path]);if(result.status===0)value.runtimeProvenance={captureId:id,effectiveConfigDigest:input.effectiveConfigDigest,sessionFlagsDigest:input.sessionFlagsDigest};return result;};
@@ -952,7 +953,7 @@ renewalCheck('kernel transition guard releases after verifier death without dele
  const crashed=spawnSync(process.execPath,['--input-type=module','-','renew-runtime','--manifest',n.manifest,'--capture-id',n.id,'--previous-manifest',r.f.manifest,'--previous-capture-id',r.f.id,'--mode','survivor'],{input:code,encoding:'utf8',env:{...process.env,NODE_OPTIONS:''}});assert.equal(crashed.status,88);assert.equal(crashed.stdout,'');
  let result;for(let attempt=0;attempt<10;attempt++){result=n.renew();if(result.reason!=='admission-transition-busy')break;await pause(25);}assert.equal(result.status,0,JSON.stringify(result));assert.equal(n.seal().status,0);assert.equal(n.run('prepare').status,0);
 });
-for(const mode of ['original','survivor'])renewalCheck('actual serialized supervisor accepts observed '+mode+' and revokes its child',async r=>{
+for(const mode of ['original','survivor','installed'])renewalCheck('actual serialized supervisor accepts observed '+mode+' and revokes its child',async r=>{
  // Non-Native command dispatcher; the actual process/closure/lineage checks run.
  r.f.m.commands={ordinary:{executable:r.f.m.binary.path,sha256:r.f.m.binary.sha256,args:['-e',running()],timeoutMs:30000}};
  assert.equal(r.f.run('prepare').status,0);let manifest=r.f.manifest;
@@ -964,10 +965,13 @@ for(const mode of ['original','survivor'])renewalCheck('actual serialized superv
   await Promise.race([waitFor(()=>output.includes('ready')),ended.then(()=>assert.fail('supervisor exited before admitted command: '+errors))]);
   const receipt=JSON.parse(readFileSync(join(dirname(manifest),`process-${id}.json`))).body;assert.equal(receipt.kind,'process-launch');assert.ok(receipt.policy.provenance.inventory.observation);
   if(mode==='survivor')assert.ok(receipt.policy.provenance.renewalDigest);
-  assert.equal(r.invoke(manifest,'stop',['--launch-id',id]).status,0);await ended;
+  if(mode==='installed'){await pause(1200);writeFileSync(r.f.m.originalLaunchSources[0].path,'changed bridge');}
+  else assert.equal(r.invoke(manifest,'stop',['--launch-id',id]).status,0);
+  await ended;
   assert.equal(errors,'');assert.equal(JSON.parse(readFileSync(join(dirname(manifest),`process-${id}.json`))).body.status,'exited');
+  if(mode==='installed')assert.equal(JSON.parse(readFileSync(join(dirname(manifest),`process-${id}.json`))).body.termination,'policy-changed');
  }finally{if(helper.exitCode===null&&helper.signalCode===null){helper.kill('SIGKILL');await ended;}}
-});
+},{installed:mode==='installed'});
 test('renewal Native departed child requires notLoaded plus absence in actual loaded registry',async()=>{
  const calls=[];const request=async(method,params)=>{calls.push(method);if(method==='thread/loaded/list')return {data:[],nextCursor:null};if(method==='thread/read')return {thread:{id:params.threadId,status:{type:'notLoaded'},turns:[]}};if(method==='thread/unsubscribe')return {status:'notLoaded'};throw Error('terminal observation is unsupported for unloaded Native threads');};
  const result=await quiesceNative(request,['departed-child']);assert.equal(result.observed[0].terminals,'unloaded');assert.equal(calls.includes('thread/backgroundTerminals/list'),false);
@@ -992,4 +996,85 @@ test('renewal Native internal loaded thread still requires actual empty terminal
  let terminals=0;const request=async(method,params)=>{if(method==='thread/loaded/list')return {data:['internal-child'],nextCursor:null};if(method==='thread/read'){assert.equal(params.includeTurns,false);return {thread:{id:params.threadId,status:{type:'notLoaded'},turns:[]}};}if(method==='thread/backgroundTerminals/list'){terminals++;return {data:[],nextCursor:null};}if(method==='thread/unsubscribe')return {status:'notSubscribed'};};
  const result=await quiesceNative(request,['internal-child']);assert.equal(result.cachedThreads,1);assert.equal(terminals,1);assert.equal(result.observed[0].terminals,0);assert.equal(result.observed[0].historyObserved,false);
  await assert.rejects(quiesceNative(async(method,params)=>method==='thread/backgroundTerminals/list'?{data:[{}],nextCursor:null}:request(method,params),['internal-child']));
+});
+
+// Installed launch-source fixtures never execute the bridge/package/runtime.
+// Full tree hashes match the independently implemented Agents measureTree format.
+function installedBridge(f) {
+ const gestaltHome=join(f.privateRoot,'installed gestalt'),packageRoot=join(f.privateRoot,'packages','context-mode','2.17.0'),runtimeRoot=join(gestaltHome,'runtime','context-mode');
+ for(const path of [gestaltHome,packageRoot,runtimeRoot,join(f.home,'bin')])mkdirSync(path,{recursive:true,mode:0o700});
+ const put=(root,path,bytes)=>{mkdirSync(dirname(join(root,path)),{recursive:true,mode:0o700});writeFileSync(join(root,path),bytes,{mode:0o644});};
+ const packageJson=JSON.stringify({name:'context-mode',version:'2.17.0'});
+ put(packageRoot,'package.json',packageJson);put(packageRoot,'start.mjs','// pinned package fixture\n');put(runtimeRoot,'package.json',packageJson);
+ const required=['start.mjs','scripts/codex-profile.mjs','scripts/runtime-location.mjs','scripts/runtime-preflight.mjs','server.bundle.mjs','cli.bundle.mjs',
+  ...['security','session-db','session-extract','session-attribution','session-snapshot','codex-usage'].map(name=>`hooks/${name}.bundle.mjs`),
+  'node_modules/better-sqlite3/package.json','node_modules/better-sqlite3/build/Release/better_sqlite3.node','node_modules/turndown/package.json','node_modules/turndown-plugin-gfm/package.json','node_modules/@mixmark-io/domino/package.json'];
+ for(const path of required)put(runtimeRoot,path,'fixture '+path);
+ put(runtimeRoot,'.context-mode-prepared.json',JSON.stringify({schemaVersion:2,packageVersion:'2.17.0',preparedAt:'fixture',node:process.versions.node,nodeModulesAbi:process.versions.modules,platform:process.platform,arch:process.arch,bun:null,files:Object.fromEntries(required.map(path=>[path,hash(readFileSync(join(runtimeRoot,path)))]))}));
+ const tree=root=>{const files=[];const walk=dir=>{for(const name of readdirSync(dir).sort()){const path=join(dir,name),info=statSync(path);if(info.isDirectory())walk(path);else files.push([path.slice(root.length+1),info.mode&0o777,hash(readFileSync(path))]);}};walk(root);return hash(renewalStable(files));};
+ const path=join(f.home,'bin','context-mode-mcp.mjs');
+ const bytes=`#!/usr/bin/env node\nimport { pathToFileURL } from "node:url";\n\nprocess.env.GESTALT_HOME ||= ${JSON.stringify(gestaltHome)};\nprocess.env.CONTEXT_MODE_PLATFORM = "codex";\nprocess.env.CONTEXT_MODE_WORKSPACE ||= process.cwd();\nawait import(pathToFileURL(${JSON.stringify(join(packageRoot,'start.mjs'))}).href);\n`;
+ writeFileSync(path,bytes,{mode:0o755});
+ f.m.originalLaunchSources=[{kind:'context-mode-bridge-v1',path,sha256:hash(bytes),gestaltHome,interpreter:{path:realpathSync(process.execPath),sha256:hash(readFileSync(process.execPath))},package:{root:packageRoot,version:'2.17.0',treeDigest:tree(packageRoot)},runtime:{root:runtimeRoot,treeDigest:tree(runtimeRoot)}}];
+ return {path,bytes,packageRoot,runtimeRoot,gestaltHome,tree};
+}
+provenanceCheck('installed bridge exact 0755 observation is independently captured and sealed',async f=>{
+ const bridge=installedBridge(f);
+ await f.captureAndStart();
+ const descriptor=f.m.originalLaunchSources[0];
+ // capture's public capability diagnosis intentionally cannot make Live ready.
+ const pin=JSON.parse(readFileSync(join(f.privateRoot,`birth-${f.id}.json`))).body.originalLaunchSources[0];
+ assert.deepEqual(pin.descriptor,descriptor);assert.equal(pin.observation.launcher.identity.mode&0o777,0o755);
+ const input=f.inventory();input.sources.push(pin);assert.equal(f.seal(input).status,0);assert.equal(f.prepare().status,0);assert.equal(f.run('verify').status,0);
+ const saved=JSON.parse(readFileSync(join(f.privateRoot,'policy-receipt.json'))).body;
+ assert.deepEqual(saved.originalLaunchSources,[pin]);assert.deepEqual(saved.provenance.inventory.sources.at(-1),pin);
+ chmodSync(bridge.path,0o744);assert.equal(f.run('verify').reason,'untrusted-installed-launch-source');
+ assert.equal(f.run('revoke-runtime',['--capture-id',f.id]).status,0,'tampering cannot prevent safe revocation');
+});
+for(const variant of ['unknown-kind','extra-field','wrong-bytes','writable','symlink','missing','wrong-interpreter','wrong-entrypoint','wrong-runtime','package-tamper','runtime-tamper','prepared-abi','bin-writable','package-symlink','project-writable'])provenanceCheck(`installed bridge refuses ${variant}`,async f=>{
+ const b=installedBridge(f),s=f.m.originalLaunchSources[0];
+ if(variant==='unknown-kind')s.kind='hook';
+ if(variant==='extra-field')s.env={TOKEN:'fixture-secret'};
+ if(variant==='wrong-bytes'){writeFileSync(b.path,b.bytes+'// extra\n');s.sha256=hash(readFileSync(b.path));}
+ if(variant==='writable')chmodSync(b.path,0o777);
+ if(variant==='symlink'){renameSync(b.path,b.path+'.old');symlinkSync(b.path+'.old',b.path);}
+ if(variant==='missing')rmSync(b.path);
+ if(variant==='wrong-interpreter')s.interpreter.path=f.m.binary.path;
+ if(variant==='wrong-entrypoint')s.package.root=dirname(b.packageRoot);
+ if(variant==='wrong-runtime')s.runtime.root=b.packageRoot;
+ if(variant==='package-tamper')writeFileSync(join(b.packageRoot,'start.mjs'),'tampered');
+ if(variant==='runtime-tamper')writeFileSync(join(b.runtimeRoot,'server.bundle.mjs'),'tampered');
+ if(variant==='prepared-abi'){const path=join(b.runtimeRoot,'.context-mode-prepared.json'),value=JSON.parse(readFileSync(path));value.nodeModulesAbi='0';writeFileSync(path,JSON.stringify(value));s.runtime.treeDigest=b.tree(b.runtimeRoot);}
+ if(variant==='bin-writable')chmodSync(dirname(b.path),0o777);
+ if(variant==='package-symlink')symlinkSync('/usr/bin/true',join(b.packageRoot,'unexpected'));
+ if(variant==='project-writable')f.m.sandboxState.permissionProfile.file_system.entries.push({path:{type:'path',path:dirname(b.path)},access:'write'});
+ const result=f.capture();assert.equal(result.available,false);assert.equal(result.liveReady,false);assert.equal(existsSync(join(f.privateRoot,`birth-${f.id}.json`)),false);
+});
+provenanceCheck('installed bridge cannot be omitted from inventory or replaced after original birth',async f=>{
+ const b=installedBridge(f);await f.captureAndStart();assert.equal(f.seal().reason,'incomplete-source-inventory');
+ renameSync(b.path,b.path+'.old');writeFileSync(b.path,b.bytes,{mode:0o755});assert.equal(f.seal().reason,'stale-runtime-provenance');
+});
+check('v1 refuses installed launch source extension',f=>{f.m.originalLaunchSources=[];assert.equal(f.run().reason,'incompatible-manifest');});
+for(const variant of ['launcher','package','runtime','parent','interpreter','observation'])provenanceCheck(`installed bridge postbirth ${variant} replacement refuses sealing`,async f=>{
+ const b=installedBridge(f);await f.captureAndStart();
+ const pin=JSON.parse(readFileSync(join(f.privateRoot,`birth-${f.id}.json`))).body.originalLaunchSources[0],input=f.inventory();input.sources.push(pin);
+ if(variant==='observation')pin.observation.launcher.identity.ino++;
+ else if(variant==='parent'){renameSync(dirname(b.path),dirname(b.path)+'.old');mkdirSync(dirname(b.path),{mode:0o700});renameSync(join(dirname(b.path)+'.old','context-mode-mcp.mjs'),b.path);}
+ else {const path=variant==='launcher'?b.path:variant==='package'?join(b.packageRoot,'start.mjs'):variant==='runtime'?join(b.runtimeRoot,'server.bundle.mjs'):null;if(path){const bytes=readFileSync(path),mode=statSync(path).mode;renameSync(path,path+'.old');writeFileSync(path,bytes,{mode});}}
+ if(variant==='interpreter')f.m.originalLaunchSources[0].interpreter.sha256='0'.repeat(64);
+ assert.equal(f.seal(input).available,false);
+});
+renewalCheck('installed bridge observations survive renewal without relocation or omission',async r=>{
+ assert.equal(r.revoke().status,0);const n=r.next();assert.equal(n.renew().status,0);assert.equal(n.seal().status,0);assert.equal(n.run('prepare').status,0);assert.equal(n.run('verify').status,0);
+ const saved=JSON.parse(readFileSync(join(dirname(n.manifest),'policy-receipt.json'))).body;assert.deepEqual(saved.originalLaunchSources,JSON.parse(readFileSync(join(r.f.privateRoot,'policy-receipt.json'))).body.originalLaunchSources);
+},{installed:true});
+for(const variant of ['omission','relabel','identity'])renewalCheck('installed bridge renewal refuses '+variant,async r=>{
+ assert.equal(r.revoke().status,0);const n=r.next();
+ if(variant==='omission')delete n.value.originalLaunchSources;
+ if(variant==='relabel')n.value.originalLaunchSources[0].kind='hook';
+ if(variant==='identity'){const path=n.value.originalLaunchSources[0].path,bytes=readFileSync(path);renameSync(path,path+'.old');writeFileSync(path,bytes,{mode:0o755});}
+ assert.equal(n.renew().available,false);
+},{installed:true});
+for(const [name,originalEnvironment] of [['Node options',{NODE_OPTIONS:'--no-warnings'}],['Node module path',{NODE_PATH:'/tmp'}],['different runtime home',{GESTALT_HOME:'/tmp'}],['different workspace',{CONTEXT_MODE_WORKSPACE:'/tmp'}],['relative PATH',{PATH:'.:/usr/bin:/bin'}],['writable PATH',{PATH:'/tmp:/usr/bin:/bin'}]])test('installed bridge refuses original '+name+' without changing it',async()=>{
+ const f=await provenanceFixture({originalEnvironment});try {installedBridge(f);await f.captureAndStart();const input=f.inventory();input.sources.push(JSON.parse(readFileSync(join(f.privateRoot,`birth-${f.id}.json`))).body.originalLaunchSources[0]);assert.equal(f.seal(input).available,false);for(const [key,value] of Object.entries(originalEnvironment))assert.ok(readFileSync(`/proc/${f.owner.pid}/environ`).toString().split('\0').includes(`${key}=${value}`));}finally{await f.cleanup();}
 });

@@ -2688,13 +2688,16 @@ function installedLaunchSources(m,writeRoots) {
     if((directory?!info.isDirectory():!info.isFile())||![0,process.getuid()].includes(info.uid)||(info.mode&0o022)
       ||writeRoots.some(root=>inside(root,path)))fail('untrusted-installed-launch-source');
     for(let parent=dirname(path);;parent=dirname(parent)) {
+      // This observation already checked the complete chain above this parent.
+      // Revalidate every distinct parent independently before returning below.
+      if(parents.has(parent))break;
       canonical(parent);const pin=lstatSync(parent);
       if(!pin.isDirectory()||![0,process.getuid()].includes(pin.uid)||((pin.mode&0o022)&&!(pin.mode&0o1000))
         ||writeRoots.some(root=>inside(root,parent)))fail('untrusted-installed-launch-source');
       parents.set(parent,directoryPin(parent,false,true));
       if(parent==='/')break;
     }
-    return directoryPin(dirname(path),false,true);
+    return parents.get(dirname(path));
   };
   const fileIdentity=info=>({dev:info.dev,ino:info.ino,uid:info.uid,mode:info.mode,size:info.size,nlink:info.nlink,ctime:info.ctimeMs,mtime:info.mtimeMs});
   const filePin=(path,treeMember=false)=>{
@@ -2761,6 +2764,12 @@ function installedLaunchSources(m,writeRoots) {
   if(!(interpreter.observation.identity.mode&0o111)||interpreter.observation.sha256!==source.interpreter.sha256)fail('installed-launch-source-changed');
   const launcher=filePin(source.path),pkg=tree(source.package.root),runtime=tree(source.runtime.root);
   pkg.recheck();runtime.recheck();
+  for(const [parent,pin] of parents) {
+    const current=lstatSync(parent);
+    if(!current.isDirectory()||![0,process.getuid()].includes(current.uid)||((current.mode&0o022)&&!(current.mode&0o1000))
+      ||writeRoots.some(root=>inside(root,parent)))fail('untrusted-installed-launch-source');
+    if(stable(directoryPin(parent,false,true))!==stable(pin))fail('installed-launch-source-changed');
+  }
   if(stable(fileIdentity(lstatSync(source.path)))!==stable(launcher.observation.identity)
     ||stable(fileIdentity(lstatSync(source.interpreter.path)))!==stable(interpreter.observation.identity))fail('installed-launch-source-changed');
   const expected=`#!/usr/bin/env node\nimport { pathToFileURL } from "node:url";\n\nprocess.env.GESTALT_HOME ||= ${JSON.stringify(gestaltHome)};\nprocess.env.CONTEXT_MODE_PLATFORM = "codex";\nprocess.env.CONTEXT_MODE_WORKSPACE ||= process.cwd();\nawait import(pathToFileURL(${JSON.stringify(join(source.package.root,'start.mjs'))}).href);\n`;

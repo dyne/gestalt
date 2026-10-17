@@ -1071,6 +1071,12 @@ for(const variant of ['gain-outside-alias','lose-internal-alias','transient-outs
  f.save();const result=spawnSync(process.execPath,['--input-type=module','-','capture-runtime','--manifest',f.manifest,'--capture-id',f.id],{input:f.program,encoding:'utf8'});
  assert.equal(result.stderr,'');assert.equal(JSON.parse(result.stdout).reason,'installed-launch-source-changed');assert.equal(existsSync(join(f.privateRoot,`birth-${f.id}.json`)),false);
 });
+for(const variant of ['writable','replaced'])check(`installed bridge observation refuses cached ancestor ${variant} after traversal`,f=>{
+ f.m.schemaVersion=2;f.m.owningRuntime={home:f.home};const b=installedBridge(f),parent=dirname(dirname(b.packageRoot));
+ const mutation=variant==='writable'?`chmodSync(${JSON.stringify(parent)},0o777);`:`renameSync(${JSON.stringify(parent)},${JSON.stringify(parent+'.old')});mkdirSync(${JSON.stringify(parent)},{mode:0o700});renameSync(${JSON.stringify(join(parent+'.old','context-mode'))},${JSON.stringify(join(parent,'context-mode'))});`;
+ const code=`import {chmodSync} from 'node:fs';\n`+f.program.split('const args = process.argv.slice(2);')[0].replace('walk(root);recheck();',`walk(root);if(root===${JSON.stringify(b.runtimeRoot)}){${mutation}}recheck();`)+`\ntry{installedLaunchSources(${JSON.stringify(f.m)},[]);console.log(JSON.stringify({available:true}));}catch(error){console.log(JSON.stringify({available:false,reason:error.reason}));}`;
+ const result=spawnSync(process.execPath,['--input-type=module','-'],{input:code,encoding:'utf8'});assert.equal(result.stderr,'');assert.deepEqual(JSON.parse(result.stdout),{available:false,reason:variant==='writable'?'untrusted-installed-launch-source':'installed-launch-source-changed'});
+});
 provenanceCheck('installed bridge cannot be omitted from inventory or replaced after original birth',async f=>{
  const b=installedBridge(f);await f.captureAndStart();assert.equal(f.seal().reason,'incomplete-source-inventory');
  renameSync(b.path,b.path+'.old');writeFileSync(b.path,b.bytes,{mode:0o755});assert.equal(f.seal().reason,'stale-runtime-provenance');

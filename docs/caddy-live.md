@@ -979,6 +979,9 @@ Unobserved, outside and cross-tree aliases refuse. After traversal Manager
 rechecks every file identity, link count, group membership and directory,
 including initially single-link files; signed identities retain paths and link
 counts for subsequent inventory, lifetime and renewal observations.
+Each observation freshly checks every distinct ancestor and independently
+revalidates those pins before returning; observations are never cached across
+calls.
 
 Manager independently reconstructs the exact accepted configurator's generated
 MCP bridge bytes, including the fixed `GESTALT_HOME` fallback, `codex` platform,

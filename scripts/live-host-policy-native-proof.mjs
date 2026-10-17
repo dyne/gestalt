@@ -127,15 +127,33 @@ const rpcFailureDiagnostic=(method,error,roles={})=>{
 let originalBridge;const installedBridges=new Map();
 let runtime,caddy,unowned,active,extraFD,elected,providerFailure,thread,currentRpcMethod,controllerAccepted=0;
 const startedThreads=new Set(),metadataCommands=new Map();let nativeServerRequests=0;
-function trackPrivateRequests(child){let buffer="";child.stdout.on("data",chunk=>{buffer+=chunk.toString();if(Buffer.byteLength(buffer)>1024*1024){buffer="";report.nativeWireInvalid=true;return;}let newline;while((newline=buffer.indexOf("\n"))>=0){const line=buffer.slice(0,newline);buffer=buffer.slice(newline+1);try{const packet=JSON.parse(line);if(Object.hasOwn(packet,"id")&&typeof packet.method==="string")nativeServerRequests++;}catch{report.nativeWireInvalid=true;}}});}
+const originalDiagnostics=new WeakMap();
+function trackPrivateRequests(child){
+ const stderr={text:'',bytes:0,hash:createHash('sha256')};originalDiagnostics.set(child,stderr);
+ child.stderr.on('data',chunk=>{stderr.bytes+=chunk.length;stderr.hash.update(chunk);stderr.text=(stderr.text+chunk.toString()).slice(-65536);});
+ let buffer="";child.stdout.on("data",chunk=>{buffer+=chunk.toString();if(Buffer.byteLength(buffer)>1024*1024){buffer="";report.nativeWireInvalid=true;return;}let newline;while((newline=buffer.indexOf("\n"))>=0){const line=buffer.slice(0,newline);buffer=buffer.slice(newline+1);try{const packet=JSON.parse(line);if(Object.hasOwn(packet,"id")&&typeof packet.method==="string")nativeServerRequests++;}catch{report.nativeWireInvalid=true;}}});
+}
+function originalRuntimeDiagnostic(){
+ const child=runtime?.child,stderr=originalDiagnostics.get(child);let image;
+ try{image=readlinkSync(`/proc/${child.pid}/exe`);}catch{}
+ return {running:child?.exitCode===null&&child?.signalCode===null,nativeImage:image===binary,shellImage:image==='/usr/bin/bash'||image==='/usr/bin/dash',
+  stderr:stderr?{...nativeDiagnostic(stderr.text),bytes:stderr.bytes,sha256:stderr.hash.copy().digest('hex'),privateLaunchRefused:/private owning runtime unavailable/.test(stderr.text)}:undefined};
+}
 const server=createServer(peer=>{controllerAccepted++;peer.end();});
 async function waitFor(fn,budget=90000){const end=Date.now()+budget;while(Date.now()<end){try{const result=fn();if(result)return result;}catch{}await pause(50);}throw Error('PROOF_DEADLINE');}
 function managerCall(args){const result=spawn('bash',[manager,...args],{cwd:app,env:managerEnv,stdio:['ignore','pipe','pipe']});
  let stdout='',stderr='';result.stdout.on('data',b=>stdout+=b);result.stderr.on('data',b=>stderr+=b);
  return new Promise((done,reject)=>{const timer=setTimeout(()=>{result.kill('SIGKILL');reject(Error('MANAGER_DEADLINE'));},90000);result.on('error',error=>{clearTimeout(timer);done({code:null,signal:null,stdout,stderr,errorCode:['ENOENT','EACCES','EPERM'].includes(error.code)?error.code:'SPAWN_ERROR'});});result.on('close',(code,signal)=>{clearTimeout(timer);done({code,signal,stdout,stderr});});});}
 const api=()=>new Promise((done,reject)=>{const req=httpRequest({socketPath:caddySocket,path:'/config/',method:'GET'},res=>{res.resume();res.on('end',()=>done(res.statusCode));});req.on('error',reject);req.end();});
-async function rpc(method,params){currentRpcMethod=method;try{return await Promise.race([runtime.rpc.request(method,params),new Promise((_,reject)=>{const timer=setTimeout(()=>reject(Error('RPC_DEADLINE')),12000);timer.unref();})]);}
- catch(error){report.failedRpc=rpcFailureDiagnostic(method,error,{appRoot:app,originalHome:nativeHome,controllerDirectory:privateRoot,metadata:join(app,'.codex'),daemon});throw error;}}
+async function rpc(method,params){
+ currentRpcMethod=method;const started=performance.now(),budgetMs=method==='initialize'?90000:12000;let timer;
+ // initialize is queued before the managed CLI has observed the full actual
+ // installed trees and execed Native. This is the existing manager launch
+ // budget; subsequent Native RPCs retain their original bounded deadline.
+ try{return await Promise.race([runtime.rpc.request(method,params),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('RPC_DEADLINE')),budgetMs);timer.unref();})]);}
+ catch(error){report.failedRpc=rpcFailureDiagnostic(method,error,{appRoot:app,originalHome:nativeHome,controllerDirectory:privateRoot,metadata:join(app,'.codex'),daemon});report.originalRuntimeAtFailure=originalRuntimeDiagnostic();throw error;}
+ finally{clearTimeout(timer);report.rpcTimings??=[];if(report.rpcTimings.length<256)report.rpcTimings.push({method,budgetMs,elapsedMs:Math.ceil(performance.now()-started)});}
+}
 function ownedPids(marker){const found=[];for(const pid of readdirSync('/proc').filter(name=>/^\d+$/.test(name))){try{
  const args=readFileSync(`/proc/${pid}/cmdline`).toString().split('\0');if(args.some(arg=>arg===marker))found.push(identity(Number(pid)));
  }catch{}}return found;}
@@ -428,7 +446,7 @@ async function proveRenewal(original){
  const sharedHosts=[...new Map([...originalModelWorkers,...nativeCodeModeWorkers()].map(record=>[`${record.pid}:${record.birth}`,record])).values()];await closeOwned(runtime.child);assert.ok(dead(birth));await waitFor(()=>sharedHosts.every(dead));await waitFor(()=>originalBridgeProcesses.every(dead));report.renewal.originalBridgeRetiredOnOwnerExit={processes:originalBridgeProcesses,allExited:true};report.renewal.replacedOwnerActuallyExited=true;report.renewal.replacedSharedHosts={births:sharedHosts,allExited:true};
  report.stage='renewal-managed-replacement';const replacement=nextRenewal(survivor,{narrow:true,generation:survivor.value.generation.generation+2});const replacementCapture=await renewCapture(replacement,survivor,'replacement');assert.equal(replacementCapture.code,0,JSON.stringify(managerResultDiagnostic(replacementCapture)));
  writeFileSync(join(bin,'codex'),`#!/bin/sh\n[ "$#" = 2 ] && [ "$1" = app-server ] && [ "$2" = --stdio ] || exit 64\nexec ${quote(manager)} cli -- --live-policy-owning-runtime --manifest ${quote(replacement.manifest)} --capture-id ${quote(replacement.id)}\n`,{mode:0o700});
- const {launchCodexAppServer}=await import(pathToFileURL(mobileModule).href);runtime=launchCodexAppServer({profile:'default',cwd:app,environment:controllerEnv});runtime.child.stderr.on('data',()=>{});trackPrivateRequests(runtime.child);
+ const {launchCodexAppServer}=await import(pathToFileURL(mobileModule).href);runtime=launchCodexAppServer({profile:'default',cwd:app,environment:controllerEnv});trackPrivateRequests(runtime.child);
  await rpc('initialize',{clientInfo:{name:'l9_actual_provenance_proof',version:'2'},capabilities:{experimentalApi:true}});runtime.child.stdin.write(JSON.stringify({method:'initialized',params:{}})+'\n');
  const replacementBirth=identity(runtime.child.pid);assert.notDeepEqual(replacementBirth,birth);report.appServer=replacementBirth;
  const resumed=await resumeRenewal(replacement);const replacementObserved=await actualSources(replacement.value,replacement.manifest,replacement.id,resumed,JSON.parse(replacementCapture.stdout));report.renewal.replacementBridgeCatalog=await originalBridgeCatalog(resumed.thread.id,replacement.value);
@@ -451,7 +469,7 @@ async function proveInstalledSourceTamper() {
  writeFileSync(join(originalHome,'config.toml'),readFileSync(join(originalHome,'config.toml'),'utf8').replace('hooks = true','hooks = false'),{mode:0o600});
  const value=manifestFor(appRoot,directory,profileId,randomUUID(),false,originalHome,bridge),path=join(directory,'manifest.json'),id=randomUUID(),captured=await captureFor(value,path,id);
  writeFileSync(join(bin,'codex'),`#!/bin/sh\n[ "$#" = 2 ] && [ "$1" = app-server ] && [ "$2" = --stdio ] || exit 64\nexec ${quote(manager)} cli -- --live-policy-owning-runtime --manifest ${quote(path)} --capture-id ${quote(id)}\n`,{mode:0o700});
- const {launchCodexAppServer}=await import(pathToFileURL(mobileModule).href);runtime=launchCodexAppServer({profile:'default',cwd:appRoot,environment:{...controllerEnv,CODEX_HOME:originalHome}});runtime.child.stderr.on('data',()=>{});trackPrivateRequests(runtime.child);
+ const {launchCodexAppServer}=await import(pathToFileURL(mobileModule).href);runtime=launchCodexAppServer({profile:'default',cwd:appRoot,environment:{...controllerEnv,CODEX_HOME:originalHome}});trackPrivateRequests(runtime.child);
  await rpc('initialize',{clientInfo:{name:'l9_actual_source_tamper',version:'1'},capabilities:{experimentalApi:true}});runtime.child.stdin.write(JSON.stringify({method:'initialized',params:{}})+'\n');report.appServer=identity(runtime.child.pid);
  const reply=await startupAt(value,{holdMetadata:true}),observed=await actualSources(value,path,id,reply,captured),catalog=await originalBridgeCatalog(reply.thread.id,value);
  assert.equal((await callFor(path,['prepare'])).code,0);
@@ -484,7 +502,7 @@ try {
  report.stage='absence-before-owned-birth';const captured=await captureFor(m,manifest,captureId);for(const c of cases){c.manifest=join(c.directory,'manifest.json');c.value=manifestFor(c.app,c.directory,c.profile,c.session);c.captured=await captureFor(c.value,c.manifest,c.capture);}
  networkCase.manifest=join(networkCase.directory,'manifest.json');networkCase.value=manifestFor(networkCase.app,networkCase.directory,networkCase.profile,networkCase.session,true);networkCase.captured=await captureFor(networkCase.value,networkCase.manifest,networkCase.capture);
  report.checks.absentBeforeOriginalBirth=true;
- const {launchCodexAppServer}=await import(pathToFileURL(mobileModule).href);runtime=launchCodexAppServer({profile:'default',cwd:app,environment:controllerEnv});runtime.child.stderr.on('data',()=>{});trackPrivateRequests(runtime.child);
+ const {launchCodexAppServer}=await import(pathToFileURL(mobileModule).href);runtime=launchCodexAppServer({profile:'default',cwd:app,environment:controllerEnv});trackPrivateRequests(runtime.child);
  // The accepted client intentionally truncates error messages to 256 bytes.
  // Classify the original error frame before that boundary; retain no frame/text.
  let wireBuffer='';runtime.child.stdout.on('data',chunk=>{wireBuffer+=chunk.toString();if(Buffer.byteLength(wireBuffer)>1024*1024){wireBuffer='';report.wireDiagnosticOverflow=true;return;}

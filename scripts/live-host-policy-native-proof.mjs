@@ -214,10 +214,18 @@ async function launch(mode='hold',fixture={app,m,manifest,childFile,publicFile})
  child.stdout.on('data',()=>{try{report.probeStages=output.split('\n').slice(0,-1).filter(Boolean).map(line=>JSON.parse(line)).filter(value=>value.kind==='probe-stage').slice(0,40).map(value=>({depth:value.depth,stage:value.stage,pid:value.pid}));report.nativeResults=result.messages().filter(value=>Number.isInteger(value.depth)&&value.depth>=0&&value.depth<=2).map(value=>({depth:value.depth,uid:value.uid,pid:value.pid,checks:Object.fromEntries(Object.entries(value.checks??{}).filter(([,flag])=>typeof flag==='boolean'))}));}catch{report.nativeOutputMalformed=true;}});
  result.publicSocket=input.publicSocket;active=result;return result;
 }
-async function nativeMessages(launch){await Promise.race([waitFor(()=>launch.messages().filter(value=>Number.isInteger(value.depth)&&value.depth>=0&&value.depth<=2).length===3
- &&JSON.parse(readFileSync(launch.path)).body.postSpawnValidated===true),launch.ended.then(()=>{throw Error('NATIVE_LAUNCH_EARLY_EXIT');})]);}
+async function nativeMessages(launch){
+ const started=Date.now(),until=predicate=>Promise.race([waitFor(predicate),launch.ended.then(()=>{throw Error('NATIVE_LAUNCH_EARLY_EXIT');})]);
+ await until(()=>launch.messages().filter(value=>Number.isInteger(value.depth)&&value.depth>=0&&value.depth<=2).length===3);
+ const framesAt=Date.now();
+ // Real installed trees are reobserved through every signed renewal ancestor.
+ // Worker output and post-spawn monitor installation are distinct phases;
+ // each retains the existing90s bound and rejects premature process exit.
+ await until(()=>JSON.parse(readFileSync(launch.path)).body.postSpawnValidated===true);
+ report.launchReadiness??=[];if(report.launchReadiness.length<64)report.launchReadiness.push({launchId:launch.id,framesMs:framesAt-started,monitorMs:Date.now()-framesAt,totalMs:Date.now()-started,postSpawnValidated:true});
+}
 function launchBoundary(launch){const state=launch.state();try{const body=JSON.parse(readFileSync(launch.path)).body;
- state.receipt={kind:body.kind,status:body.status,termination:body.termination,failure:body.failure};}catch(error){state.receipt={error:['ENOENT','EACCES','EPERM'].includes(error.code)?error.code:'INVALID_RECEIPT'};}return state;}
+ state.receipt={kind:body.kind,status:body.status,postSpawnValidated:body.postSpawnValidated===true,termination:body.termination,failure:body.failure};}catch(error){state.receipt={error:['ENOENT','EACCES','EPERM'].includes(error.code)?error.code:'INVALID_RECEIPT'};}return state;}
 function ownedProcessSnapshot(launch){let rootPid;try{rootPid=JSON.parse(readFileSync(launch.path)).body.process.pid;}catch{return [];}
  let rootStdout;try{rootStdout=readlinkSync(`/proc/${rootPid}/fd/1`);}catch{}
  const pending=[rootPid],seen=new Set(),results=[];while(pending.length&&results.length<24){const pid=pending.shift();if(seen.has(pid))continue;seen.add(pid);

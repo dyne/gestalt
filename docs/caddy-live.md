@@ -436,6 +436,8 @@ The signed process receipt sets `postSpawnValidated: true` only after the
 post-spawn contract check succeeds and the lifetime monitor is installed.
 Consumers proving lifetime revocation must await that field; child stdout or a
 running-process record alone does not attest that the monitor is ready.
+The isolated proof measures helper output and monitor readiness as separate
+bounded phases; both must succeed before a lifetime claim.
 `verify-process` requires an authenticated `running` record, current parent
 policy and matching live supervisor/native process identities. It returns
 `process-verified` or a bounded refusal. `stop` validates the stored owned

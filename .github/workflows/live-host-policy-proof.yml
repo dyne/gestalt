@@ -26,6 +26,23 @@ jobs:
           ref: 129d33bc6d6c58d280d9bcf5155fab6ed9b6e0bd
           path: .host-agents-input
           persist-credentials: false
+      - name: Provision the pinned original interpreter on the disposable host
+        if: runner.os == 'Linux' && runner.environment == 'github-hosted'
+        run: |
+          set -Eeuo pipefail
+          proof_node=$(node -p 'process.execPath')
+          proof_npm=$(readlink -f -- "$(command -v npm)")
+          proof_npx=$(readlink -f -- "$(command -v npx)")
+          test "$("$proof_node" -p 'process.versions.node')" = 24.21.0
+          # The supported original PATH is fixed. Provision the same setup-node
+          # bytes there before birth; no policy/environment bypass or production
+          # installation. This job is restricted to a disposable hosted VM.
+          sudo install -m0755 "$proof_node" /usr/bin/node
+          cmp -- "$proof_node" /usr/bin/node
+          sudo ln -sfn -- "$proof_npm" /usr/bin/npm
+          sudo ln -sfn -- "$proof_npx" /usr/bin/npx
+          /usr/bin/node --version
+          PATH=/usr/bin:/bin npm --version
       - name: Verify accepted package and supported original interpreter
         run: |
           set -Eeuo pipefail

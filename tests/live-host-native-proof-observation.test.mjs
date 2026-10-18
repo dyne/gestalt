@@ -97,3 +97,24 @@ for(const variant of ['completed','missing-completion','failed-turn','active-aft
  else{await assert.rejects(()=>materialize(threadId));assert.equal(report.splitThreadPersistence,undefined);}
  assert.equal(unsubscribed,true);assert.equal(calls[1],'turn/start');
 });
+for(const variant of ['transient-absent-at-seal','present-at-seal','not-created','nonempty','writable','wrong-owner','different-profile','missing-native-mask','unobserved-inventory'])test(`startup metadata lifetime observer ${variant}`,t=>{
+ const root=mkdtempSync(join(tmpdir(),'live-startup-metadata-'));t.after(()=>rmSync(root,{recursive:true,force:true}));const path=join(root,'.codex');mkdirSync(path,{mode:0o755});
+ const info=lstatSync(path),profileId='observed-profile',snapshot={profile:profileId,ancestor:0,kind:'directory',empty:true,identity:{uid:info.uid,mode:info.mode}};
+ const report={startupMetadataObservations:[snapshot],startupMasks:[{profile:profileId,executable:'pinned-bubblewrap',metadataMasks:[{ancestor:0,operation:'--tmpfs'}]}]};
+ const value={profileId,appRoot:root},inventory={sources:[{kind:variant==='present-at-seal'?'directory':'absent',role:'project',path}]};
+ // Reproduce the observed Native lifetime: an empty target was created during
+ // startup and removed by its owner before a slow seal completed. No Native
+ // execution is claimed by this observer regression.
+ if(variant!=='present-at-seal'){rmSync(path,{recursive:true});assert.equal((()=>{try{lstatSync(path);return true;}catch{return false;}})(),false);}
+ if(variant==='not-created')report.startupMetadataObservations=[];
+ if(variant==='nonempty')snapshot.empty=false;
+ if(variant==='writable')snapshot.identity.mode|=0o002;
+ if(variant==='wrong-owner')snapshot.identity.uid=process.getuid()+1;
+ if(variant==='different-profile')snapshot.profile='other-profile';
+ if(variant==='missing-native-mask')report.startupMasks=[];
+ if(variant==='unobserved-inventory')inventory.sources=[];
+ const observe=Function('assert','report','process','join',extract('function startupMetadataProof(value,inventory) {','async function renewedModelProbe(threadId)')+'\nreturn startupMetadataProof;')(assert,report,process,join);
+ const saved=stable(inventory);
+ if(['transient-absent-at-seal','present-at-seal'].includes(variant)){const result=observe(value,inventory);assert.equal(result.sampledNativeCreatedEmpty,true);assert.equal(result.sealedState,inventory.sources[0].kind);assert.equal(result.presenceExtended,false);assert.equal(stable(inventory),saved);}
+ else assert.throws(()=>observe(value,inventory));
+});

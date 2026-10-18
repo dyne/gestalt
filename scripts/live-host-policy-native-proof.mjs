@@ -426,7 +426,7 @@ async function startupAt(value,{holdMetadata=false}={}){let sampling=false;const
  const protectedPaths=[];for(let path=value.appRoot;;path=dirname(path)){protectedPaths.push(join(path,'.codex'));if(path==='/')break;}
  const observed=new Set(),maskOps=new Set(['--tmpfs','--remount-ro','--ro-bind-data','--bind-data','--ro-bind','--bind','--dir','--file']);
  const sample=()=>{if(sampling)return;sampling=true;try{
-  for(const [ancestor,path] of protectedPaths.entries()){try{const info=lstatSync(path),snapshot={ancestor,kind:info.isDirectory()?'directory':info.isSymbolicLink()?'symlink':'file',identity:folderPin(path)};const key=JSON.stringify(snapshot);if(!observed.has(key)&&metadata.length<64){observed.add(key);metadata.push(snapshot);}}catch{}}
+  for(const [ancestor,path] of protectedPaths.entries()){try{const info=lstatSync(path),snapshot={profile:value.profileId,ancestor,kind:info.isDirectory()?'directory':info.isSymbolicLink()?'symlink':'file',empty:info.isDirectory()?readdirSync(path).length===0:undefined,identity:folderPin(path)};const key=JSON.stringify(snapshot);if(!observed.has(key)&&metadata.length<64){observed.add(key);metadata.push(snapshot);}}catch{}}
   for(const pid of readdirSync('/proc').filter(x=>/^\d+$/.test(x))){try{const args=readFileSync(`/proc/${pid}/cmdline`).toString().split('\0');
    const fsHelper=args.includes('--codex-run-as-fs-helper')&&readlinkSync(`/proc/${pid}/exe`)===binary;
    const hasMasks=args.some(arg=>protectedPaths.includes(arg))&&args.some(arg=>maskOps.has(arg));if(!fsHelper&&!hasMasks)continue;
@@ -434,7 +434,7 @@ async function startupAt(value,{holdMetadata=false}={}){let sampling=false;const
    if(fsHelper&&!sightings.some(x=>x.pid===processIdentity.pid&&x.birth===processIdentity.birth)&&sightings.length<64)sightings.push(processIdentity);
    if(hasMasks&&!masks.some(x=>x.process.pid===processIdentity.pid&&x.process.birth===processIdentity.birth)&&masks.length<8&&hash(readFileSync(`/proc/${pid}/exe`))===provenance.bundledBwrap.sha256){
     const selected=[];for(const [index,arg] of args.entries()){const ancestor=protectedPaths.indexOf(arg);if(ancestor<0)continue;let operation;for(let n=index-1;n>=Math.max(0,index-3);n--)if(maskOps.has(args[n])){operation=args[n];break;}if(operation)selected.push({argumentIndex:index,operation,ancestor});}
-    masks.push({process:processIdentity,executable:'pinned-bubblewrap',metadataMasks:selected});
+    masks.push({profile:value.profileId,process:processIdentity,executable:'pinned-bubblewrap',metadataMasks:selected});
    }
   }catch{}}
  }finally{sampling=false;}};
@@ -452,6 +452,20 @@ async function startupAt(value,{holdMetadata=false}={}){let sampling=false;const
   report.startupCommands??=[];report.startupCommands.push({profile:value.profileId,actualNativeCommand:true,heldDuringSeal:true,nativeBornMetadata:true});
  }
  return reply;}
+
+// Native's mask targets exist only while their actual owners retain them.
+// Assert creation at startup; preserve the separately authenticated exact state
+// at seal. Never recreate or hold a transient path to make its presence pass.
+function startupMetadataProof(value,inventory) {
+ const samples=(report.startupMetadataObservations??[]).filter(item=>item.profile===value.profileId&&item.ancestor===0);
+ assert.ok(samples.some(item=>item.kind==='directory'&&item.empty===true&&item.identity.uid===process.getuid()&&!(item.identity.mode&0o022)),'NATIVE_STARTUP_DID_NOT_CREATE_EMPTY_METADATA');
+ const masked=(report.startupMasks??[]).some(item=>item.profile===value.profileId&&item.executable==='pinned-bubblewrap'&&item.metadataMasks.some(mask=>mask.ancestor===0&&mask.operation==='--tmpfs'));
+ assert.equal(masked,true);
+ const source=inventory.sources.find(item=>item.role==='project'&&item.path===join(value.appRoot,'.codex'));
+ assert.ok(source&&['directory','absent'].includes(source.kind));
+ report.startupMetadataProof={sampledNativeCreatedEmpty:true,pinnedNativeMaskObserved:true,sealedState:source.kind,presenceExtended:false,sourceInventoryUnchanged:true};
+ return report.startupMetadataProof;
+}
 
 async function renewedModelProbe(threadId){
  modelPhase='renewal-narrow';let completed=false;const off=runtime.rpc.onNotification(message=>{if(message.method==='turn/completed'&&message.params?.threadId===threadId)completed=true;});
@@ -655,7 +669,7 @@ try {
  report.appServer=identity(runtime.child.pid);assert.equal(readlinkSync(`/proc/${runtime.child.pid}/exe`),binary);assert.equal(hash(readFileSync(`/proc/${runtime.child.pid}/exe`)),expectedBinary);report.checks.originalOwningNativeIdentity=true;
  const hostRead=await rpc('fs/readFile',{path:auth});assert.equal(hostRead.dataBase64,Buffer.from('private-auth-fixture').toString('base64'));report.checks.controllerFsAuthority=true;
  report.stage='actual-original-startup';const initial=await startupAt(m);thread=initial.thread.id;primaryThread=thread;const observed=await actualSources(m,manifest,captureId,initial,captured);
- assert.ok(existsSync(join(app,'.codex')),'NATIVE_STARTUP_DID_NOT_CREATE_METADATA');assert.equal(readdirSync(join(app,'.codex')).length,0);assert.ok(initial.instructionSources.includes(join(app,'AGENTS.md')));report.checks.actualNativeStartupMetadata=true;report.checks.projectInstructionsLoaded=true;report.appliedFeatures={shellSnapshot:observed.configuration.config.features.shell_snapshot,shellSnapshotV2:observed.configuration.config.features.shell_snapshot_v2,hooks:observed.configuration.config.features.hooks};
+ startupMetadataProof(m,observed.inventory);assert.ok(initial.instructionSources.includes(join(app,'AGENTS.md')));report.checks.actualNativeStartupMetadata=true;report.checks.projectInstructionsLoaded=true;report.appliedFeatures={shellSnapshot:observed.configuration.config.features.shell_snapshot,shellSnapshotV2:observed.configuration.config.features.shell_snapshot_v2,hooks:observed.configuration.config.features.hooks};
  report.installedSource.originalCatalog=await originalBridgeCatalog(thread,m);report.checks.authenticInstalledBridgeActualNativeCatalog=true;
  report.sources={nativeLayerKinds:observed.configuration.layers.map(layer=>layer.name.type),directoryCount:observed.inventory.sources.filter(source=>source.kind==='directory').length,instructionCount:initial.instructionSources.length,inventoryDigest:observed.inventoryDigest,effectiveConfigDigest:observed.inventory.effectiveConfigDigest,sessionFlagsDigest:observed.inventory.sessionFlagsDigest};
  report.stage='native-model-and-child-tools';await prepare();let completed=false;const off=runtime.rpc.onNotification(message=>{if(message.method==='turn/completed'&&message.params?.threadId===thread)completed=true;});

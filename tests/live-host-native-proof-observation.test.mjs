@@ -75,3 +75,25 @@ for(const kind of ['authenticated-closed','tampered-receipt','open-pipe','live-o
  if(kind!=='authenticated-closed'){await assert.rejects(()=>stopped(launch));assert.equal(report.signedCleanups,undefined);}
  else{await stopped(launch);assert.deepEqual(report.signedCleanups,[{launchId:'fixture',signed:true,status:'exited',termination:'policy-changed',nativeBirthExited:true,supervisorBirthExited:true,pipesClosed:true,postSpawnValidated:true}]);}
 });
+for(const variant of ['completed','missing-completion','failed-turn','active-after-completion'])test(`split-home fixture materializes persistent original thread: ${variant}`,async()=>{
+ let notify,unsubscribed=false,persisted=false;const calls=[],report={};
+ const threadId='original-thread',turnId='original-turn';
+ const rpc=async(method,params)=>{
+  calls.push(method);assert.equal(params.threadId,threadId);
+  if(method==='thread/resume'){if(!persisted)throw Object.assign(Error('no rollout found for thread id '+threadId),{code:-32600});return {thread:{id:threadId}};}
+  if(method==='turn/start'){
+   assert.equal(params.input[0].type,'text');
+   if(variant!=='missing-completion'){persisted=true;notify({method:'turn/completed',params:{threadId,turn:{id:turnId,status:variant==='failed-turn'?'failed':'completed'}}});}
+   return {turn:{id:turnId}};
+  }
+  assert.equal(method,'thread/read');assert.equal(params.includeTurns,false);
+  return {thread:{id:threadId,status:{type:variant==='active-after-completion'?'active':'idle'}}};
+ };
+ const deps={assert,runtime:{rpc:{onNotification:callback=>{notify=callback;return ()=>{unsubscribed=true;};}}},rpc,
+  waitFor:async(fn,budget)=>{assert.equal(budget,60000);if(!fn())throw Error('PROOF_DEADLINE');},providerFailure:undefined,report};
+ const materialize=Function(...Object.keys(deps),"let modelPhase='broad';\n"+extract('async function materializeNativeThread(threadId) {','async function proveSplitHomeReplacement() {')+'\nreturn materializeNativeThread;')(...Object.values(deps));
+ await assert.rejects(()=>rpc('thread/resume',{threadId}),{code:-32600});
+ if(variant==='completed'){await materialize(threadId);assert.deepEqual(await rpc('thread/resume',{threadId}),{thread:{id:threadId}});assert.equal(report.splitThreadPersistence.sameThread,true);assert.equal(report.splitThreadPersistence.completedUserTurn,true);}
+ else{await assert.rejects(()=>materialize(threadId));assert.equal(report.splitThreadPersistence,undefined);}
+ assert.equal(unsubscribed,true);assert.equal(calls[1],'turn/start');
+});

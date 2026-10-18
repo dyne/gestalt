@@ -373,13 +373,13 @@ test('hosted original bridge catalog cannot succeed with tools but no live owned
 for(const [name,framesAt,readyAt,succeeds] of [['separate bounded startup and monitor phases',75000,110000,true],['frame deadline',90001,110000,false],['monitor deadline',1000,92000,false]])test('hosted Native helper readiness '+name,async()=>{
  const proof=readFileSync(resolve('scripts/live-host-policy-native-proof.mjs'),'utf8'),start=proof.indexOf('async function nativeMessages('),expression=proof.slice(start,proof.indexOf('\nfunction launchBoundary(',start));let clock=0;
  const wait=async(predicate,budget=90000)=>{const end=clock+budget;while(clock<end){if(predicate())return true;clock+=1000;}throw Error('PROOF_DEADLINE');};
- const observe=Function('waitFor','readFileSync','report',`return ${expression}`)(wait,()=>JSON.stringify({body:{postSpawnValidated:clock>=readyAt}}),{});
+ const observe=Function('waitFor','signedBody','report',`return ${expression}`)(wait,()=>({postSpawnValidated:clock>=readyAt}),{});
  const launch={id:'fixture',path:'/private/receipt',messages:()=>clock>=framesAt?[0,1,2].map(depth=>({depth})):[],ended:new Promise(()=>{})};
  if(succeeds){await observe(launch);assert.equal(clock,110000);}else await assert.rejects(observe(launch),/PROOF_DEADLINE/);
 });
 test('hosted Native helper readiness rejects exit while awaiting its monitor',async()=>{
  const proof=readFileSync(resolve('scripts/live-host-policy-native-proof.mjs'),'utf8'),start=proof.indexOf('async function nativeMessages('),expression=proof.slice(start,proof.indexOf('\nfunction launchBoundary(',start));let waits=0;
- const observe=Function('waitFor','readFileSync','report',`return ${expression}`)(async()=>++waits===1?true:new Promise(()=>{}),()=>JSON.stringify({body:{postSpawnValidated:false}}),{});
+ const observe=Function('waitFor','signedBody','report',`return ${expression}`)(async()=>++waits===1?true:new Promise(()=>{}),()=>({postSpawnValidated:false}),{});
  await assert.rejects(observe({id:'fixture',path:'/private/receipt',messages:()=>[0,1,2].map(depth=>({depth})),ended:Promise.resolve()}),/NATIVE_LAUNCH_EARLY_EXIT/);
 });
 check('full CLI with cleared environment rejects equal HOME and CODEX_HOME before dispatch; separated homes return bounded policy JSON',f=>{

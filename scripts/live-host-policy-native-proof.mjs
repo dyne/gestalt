@@ -334,6 +334,7 @@ async function modelEvent(body){
  const role=tid===primaryThread?'root':tid,step=roleSteps.get(role)??0;roleSteps.set(role,step+1);
  const tools=flatten([...(body.tools??[]),...(body.input??[]).filter(x=>x.type==='additional_tools').flatMap(x=>x.tools??[])]);
  providerShape.tools=Object.fromEntries(['exec_command','shell_command','apply_patch','spawn_agent'].map(name=>[name,tools.some(tool=>tool.name===name)]));providerShape.step=step;providerShape.role=role==='root'?'root':'descendant';providerStage='model-step';
+ if(modelPhase==='split-persist')return modelFinal('split-home-persistent-thread');
  if(modelPhase==='renewal-narrow'){
   assert.equal(role,'root');const current=renewalModelStep++;
   if(current===0)return modelCall(tools,'renewed-narrow-command','exec_command',{cmd:`/usr/bin/python3 -c ${quote(`from pathlib import Path\nassert Path(${JSON.stringify(publicFile)}).read_text()=='public-fixture'\ntry:Path(${JSON.stringify(join(app,'renewed-model-forbidden'))}).write_text('forbidden');raise Exception('WRITE_BREACH')\nexcept OSError as e:assert e.errno in (1,13,30)\ntry:Path(${JSON.stringify(auth)}).read_text();raise Exception('PRIVATE_BREACH')\nexcept (PermissionError,FileNotFoundError):pass\nprint('renewed-model-tool-write-denied')`)}`,workdir:app,yield_time_ms:1000,max_output_tokens:1000});
@@ -533,6 +534,20 @@ async function proveRenewal(original){
 }
 
 
+// Native does not materialize a fresh persistent thread until its first user
+// turn. command/exec is not a conversation turn; it cannot make resume valid.
+async function materializeNativeThread(threadId) {
+ let completed;const off=runtime.rpc.onNotification(message=>{if(message.method==='turn/completed'&&message.params?.threadId===threadId)completed=message.params.turn;});
+ modelPhase='split-persist';
+ try{
+  const started=await rpc('turn/start',{threadId,input:[{type:'text',text:'Record the controlled split-home fixture conversation and finish.'}]});
+  assert.equal(typeof started.turn?.id,'string');await waitFor(()=>completed||providerFailure,60000);assert.equal(providerFailure,undefined);
+  assert.equal(completed?.id,started.turn.id);assert.equal(completed.status,'completed');
+  const current=await rpc('thread/read',{threadId,includeTurns:false});assert.equal(current.thread.id,threadId);assert.equal(current.thread.status.type,'idle');
+  report.splitThreadPersistence={completedUserTurn:true,sameThread:true,threadId,turnId:completed.id,idleObserved:true,controlledFinalOnly:true};
+ }finally{off();modelPhase='broad';}
+}
+
 async function proveSplitHomeReplacement() {
  report.stage='split-home-original-birth';
  const appRoot=join(root,'split home app'),directory=join(privateRoot,'split-home'),originalHome=join(directory,'original'),normalHome=join(directory,'normal-home'),worker=join(directory,'worker'),profileId='live-split-home';
@@ -555,7 +570,7 @@ async function proveSplitHomeReplacement() {
  runtime=launchCodexAppServer({profile:'default',cwd:appRoot,environment:{...controllerEnv,CODEX_HOME:originalHome}});await initialize();
  const birth=identity(runtime.child.pid),reply=await startupAt(value,{holdMetadata:true}),original={value,manifest:path,id,threadId:reply.thread.id};
  const observed=await actualSources(value,path,id,reply,captured);assert.equal(observed.environmentProof.homesEqual,false);assert.equal(observed.environmentProof.environmentDigest,expectedEnvironmentDigest);
- const catalogs=[await originalBridgeCatalog(reply.thread.id,value)];
+ const catalogs=[await originalBridgeCatalog(reply.thread.id,value)];await materializeNativeThread(original.threadId);
  const fixture=current=>({app:appRoot,m:current.value,manifest:current.manifest,childFile:helper,publicFile:publicPath});
  const checkedLaunch=async current=>{const launched=await launch('hold',fixture(current));await nativeMessages(launched);assert.ok(launched.messages().every(frame=>Object.values(frame.checks).every(Boolean)));const births=ownedPids(helper).filter(record=>{try{return readlinkSync(`/proc/${record.pid}/exe`)===admittedNode;}catch{return false;}});assert.equal(births.length,3);return {launched,births};};
  const first=await checkedLaunch(original);assert.equal((await callFor(path,['revoke-runtime','--capture-id',id])).code,0);await stopped(first.launched);await waitFor(()=>first.births.every(dead));await oldRefused(original);

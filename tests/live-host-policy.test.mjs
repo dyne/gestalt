@@ -896,6 +896,14 @@ renewalCheck('survivor gets a fresh generation while old authority remains irrev
  assert.ok(existsSync(join(r.f.app,'.codex')));assert.ok(existsSync(join(r.f.privateRoot,`revocation-${r.f.id}.json`)));
  assert.equal(n.run('renew-runtime',['--capture-id',n.id,'--previous-manifest',r.f.manifest,'--previous-capture-id',r.f.id,'--mode','survivor']).reason,'reused-capture-id');
 });
+renewalCheck('sealed generation requires preparation before independent policy receipt verification',async r=>{
+ assert.equal(r.revoke().status,0);const n=r.next();assert.equal(n.renew().status,0);assert.equal(n.seal().status,0);
+ const path=join(dirname(n.manifest),'policy-receipt.json');assert.equal(existsSync(path),false);
+ const missing=n.run('verify');assert.equal(missing.status,1);assert.equal(missing.reason,'missing-prerequisite');
+ const prepared=n.run('prepare');assert.equal(prepared.status,0,JSON.stringify(prepared));assert.equal(existsSync(path),true);
+ for(let observation=0;observation<2;observation++)assert.equal(n.run('verify').status,0);
+ const saved=JSON.parse(readFileSync(path));saved.mac='0'.repeat(64);writeFileSync(path,JSON.stringify(saved),{mode:0o600});assert.equal(n.run('verify').reason,'tampered-receipt');
+},{splitHome:true});
 renewalCheck('active old authority cannot be renewed',async r=>{assert.equal(r.next().renew().reason,'renewal-not-revoked');});
 renewalCheck('unobserved legacy capture cannot acquire renewal intent',async r=>{assert.equal(r.revoke().status,0);assert.equal(r.next().renew().reason,'renewal-observation-required');},{observed:false});
 for(const variant of ['generation','session','components','binary','source','account','provider','model','thinking','broadening','entry','metadata','instruction-file','instruction-symlink','dispatch','pending-process','forged-parent'])renewalCheck(`rejects ${variant} mismatch`,async r=>{

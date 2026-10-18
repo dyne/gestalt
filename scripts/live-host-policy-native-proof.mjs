@@ -186,7 +186,7 @@ function managerCall(args){const started=performance.now(),stage=report.stage,op
  const result=spawn('bash',[manager,...args],{cwd:app,env:managerEnv,stdio:['ignore','pipe','pipe']});
  let stdout='',stderr='',settled=false;result.stdout.on('data',b=>stdout+=b);result.stderr.on('data',b=>stderr+=b);
  return new Promise((done,reject)=>{
-  const observe=value=>{if(settled)return;settled=true;clearTimeout(timer);report.managerTimings??=[];if(report.managerTimings.length<512)report.managerTimings.push({stage,operation,elapsedMs:Math.ceil(performance.now()-started),code:value.code??null,deadline:value.deadline===true});return value;};
+  const observe=value=>{if(settled)return;settled=true;clearTimeout(timer);let reason;try{const parsed=JSON.parse(value.stdout);if(typeof parsed.reason==='string'&&/^[a-z-]{1,64}$/.test(parsed.reason))reason=parsed.reason;}catch{}report.managerTimings??=[];if(report.managerTimings.length<512)report.managerTimings.push({stage,operation,elapsedMs:Math.ceil(performance.now()-started),code:value.code??null,deadline:value.deadline===true,reason});return value;};
   const timer=setTimeout(()=>{result.kill('SIGKILL');observe({deadline:true});reject(Error('MANAGER_DEADLINE'));},90000);
   result.on('error',error=>{const value={code:null,signal:null,stdout,stderr,errorCode:['ENOENT','EACCES','EPERM'].includes(error.code)?error.code:'SPAWN_ERROR'};if(!settled){observe(value);done(value);}});
   result.on('close',(code,signal)=>{if(!settled){const value={code,signal,stdout,stderr};observe(value);done(value);}});
@@ -601,9 +601,11 @@ async function proveSplitHomeReplacement() {
  await oldRefused(original);await oldRefused(survivor);
  const nativeCommand=await rpc('command/exec',{cwd:appRoot,permissionProfile:profileId,command:['/usr/bin/python3','-c',`from pathlib import Path\nassert Path(${JSON.stringify(publicPath)}).read_text()=='public-fixture'\nPath(${JSON.stringify(join(appRoot,'replacement-command.txt'))}).write_text('permitted-native-write')\nfor private in ${JSON.stringify([auth,join(dirname(replacement.manifest),`environment-${replacement.id}.json`)])}:\n try:Path(private).read_text();raise Exception('PRIVATE_BREACH')\n except (PermissionError,FileNotFoundError):pass\nprint('split-home-replacement-native-command')`],timeoutMs:8000,outputBytesCap:1000});
  assert.equal(nativeCommand.exitCode,0);assert.ok(nativeCommand.stdout.includes('split-home-replacement-native-command'));assert.equal(readFileSync(join(appRoot,'replacement-command.txt'),'utf8'),'permitted-native-write');
- // Two complete independent validations precede a private-receipt mutation.
+ // Sealing runtime provenance does not prepare the separate signed policy
+ // receipt. Publish that receipt before requiring two independent validations.
+ const prepared=await callFor(replacement.manifest,['prepare']);assert.equal(prepared.code,0,JSON.stringify(managerResultDiagnostic(prepared)));
  // The subsequent heartbeat and command must reobserve, rather than reuse it.
- for(let observation=0;observation<2;observation++)assert.equal((await callFor(replacement.manifest,['verify'])).code,0);
+ for(let observation=0;observation<2;observation++){const verified=await callFor(replacement.manifest,['verify']);assert.equal(verified.code,0,JSON.stringify(managerResultDiagnostic(verified)));}
  const third=await checkedLaunch(replacement),environmentPath=join(dirname(replacement.manifest),`environment-${replacement.id}.json`),saved=JSON.parse(readFileSync(environmentPath));saved.mac=(saved.mac[0]==='0'?'1':'0')+saved.mac.slice(1);writeFileSync(environmentPath,JSON.stringify(saved),{mode:0o600});
  report.stage='split-home-environment-tamper';await stopped(third.launched);await waitFor(()=>third.births.every(dead));assert.equal(signedBody(third.launched.path).termination,'policy-changed');
  const refused=await callFor(replacement.manifest,['verify']);assert.equal(refused.code,1);assert.equal((await callFor(replacement.manifest,['revoke-runtime','--capture-id',replacement.id])).code,0);

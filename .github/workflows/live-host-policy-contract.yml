@@ -1,4 +1,4 @@
-name: Live host policy contract suite (no Native or deployment)
+name: Live host policy contract and full Manager suite (no deployment)
 on:
   push:
     branches: ['test/live-host-policy-contract-l9']
@@ -17,18 +17,8 @@ jobs:
         with:
           node-version: 24.21.0
           cache: npm
-      - name: Install locked JavaScript test dependencies without Native binaries or install scripts
-        run: |
-          set -Eeuo pipefail
-          npm ci --ignore-scripts --omit=optional --no-audit --no-fund
-          node --input-type=module <<'NODE'
-          import assert from 'node:assert/strict';
-          import {existsSync,readFileSync} from 'node:fs';
-          const lock=JSON.parse(readFileSync('package-lock.json'));
-          const binaries=Object.keys(lock.packages).filter(path=>/^node_modules\/@openai\/codex-(darwin|linux|win32)-/.test(path));
-          assert.equal(binaries.length,6);
-          for(const path of binaries){assert.equal(lock.packages[path].optional,true);assert.equal(existsSync(path),false);}
-          NODE
+      - name: Install locked full-suite dependencies
+        run: npm ci
       - name: Provision the pinned original interpreter only on the disposable host
         run: |
           set -Eeuo pipefail
@@ -42,6 +32,27 @@ jobs:
           sudo ln -sfn -- "$proof_npm" /usr/bin/npm
           test "$(/usr/bin/node -p 'process.versions.node')" = 24.21.0
           PATH=/usr/bin:/bin npm --version
+      # Existing full-suite Native0.160 prerequisites only, in a disposable VM.
+      # Live0.161 confinement proof and genuine-provider testing are separate.
+      - name: Enable native sandbox on the disposable GitHub runner
+        if: runner.os == 'Linux' && runner.environment == 'github-hosted'
+        run: |
+          set -Eeuo pipefail
+          current_userns=$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)
+          if [[ -n $current_userns && $current_userns != 1 ]]; then
+            sudo sysctl -w kernel.unprivileged_userns_clone=1
+          fi
+          current_apparmor=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)
+          if [[ -n $current_apparmor && $current_apparmor != 0 ]]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      - name: Native sandbox preflight
+        run: |
+          set -Eeuo pipefail
+          sandbox_home=$(mktemp -d)
+          trap 'rm -rf -- "$sandbox_home"' EXIT
+          CODEX_HOME="$sandbox_home" ./node_modules/.bin/codex \
+            -c 'default_permissions=":read-only"' sandbox -- /bin/true
       - name: Bind the exact checked-out source and test interpreter
         run: |
           set -Eeuo pipefail

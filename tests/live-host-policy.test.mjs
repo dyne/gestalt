@@ -248,7 +248,7 @@ const running=()=>"process.stdout.write('ready\\n');setInterval(()=>{},1000)";
 for(const reason of ['stop','policy-change','owner-kill'])test(`offline supervisor ${reason} revokes and records the owned native launch`,async()=>{
  const f=fixture();let launch;try {
   launch=launchFixture(f,running());await waitFor(()=>launch.output().includes('ready'));
-  const saved=await waitFor(()=>{const r=JSON.parse(readFileSync(launch.receiptPath));return r.body.status==='running'&&r;});
+  const saved=await waitFor(()=>{const r=JSON.parse(readFileSync(launch.receiptPath));return r.body.status==='running'&&r.body.postSpawnValidated===true&&r;});
   assert.equal(saved.body.kind,'process-launch');assert.equal(saved.body.process.pid,saved.body.processGroup);
   assert.equal(launch.control('verify-process').reason,'process-verified');
   assert.equal(f.run('prepare').reason,'active-launch');
@@ -286,7 +286,7 @@ test('offline failed native launch rolls back owned lock and permits explicit re
 test('tampered process receipt cannot signal an unrelated process',async()=>{
  const f=fixture();let launch;const unowned=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});
  try {
-  launch=launchFixture(f,running());await waitFor(()=>launch.output().includes('ready'));
+  launch=launchFixture(f,running());await waitFor(()=>launch.output().includes('ready')&&JSON.parse(readFileSync(launch.receiptPath)).body.postSpawnValidated===true);
   const original=readFileSync(launch.receiptPath),saved=JSON.parse(original);saved.body.owner.pid=unowned.pid;writeFileSync(launch.receiptPath,JSON.stringify(saved));
   assert.equal(launch.control('stop').reason,'tampered-receipt');process.kill(unowned.pid,0);
   writeFileSync(launch.receiptPath,original);assert.equal(launch.control('stop').reason,'stop-requested');await launch.ended;process.kill(unowned.pid,0);
@@ -298,7 +298,7 @@ check('project-writable measured manager is unavailable',f=>{
 });
 test('installed manager replacement revokes a running launch even without a manifest edit',async()=>{
  const f=fixture();let launch;try {
-  launch=launchFixture(f,running());await waitFor(()=>launch.output().includes('ready'));
+  launch=launchFixture(f,running());await waitFor(()=>launch.output().includes('ready')&&JSON.parse(readFileSync(launch.receiptPath)).body.postSpawnValidated===true);
   writeFileSync(f.managerPath,source+'\n# fixture manager update\n',{mode:0o700});
   await launch.ended;assert.equal(JSON.parse(readFileSync(launch.receiptPath)).body.termination,'policy-changed');
   assert.equal(f.run('verify').reason,'stale-receipt');
@@ -306,7 +306,7 @@ test('installed manager replacement revokes a running launch even without a mani
 });
 test('a valid signed receipt from another boot cannot authorize Stop',async()=>{
  const f=fixture();let launch;try {
-  launch=launchFixture(f,running());await waitFor(()=>launch.output().includes('ready'));
+  launch=launchFixture(f,running());await waitFor(()=>launch.output().includes('ready')&&JSON.parse(readFileSync(launch.receiptPath)).body.postSpawnValidated===true);
   const original=readFileSync(launch.receiptPath),saved=JSON.parse(original);saved.body.policy.bootId='previous-boot';
   const canonical=value=>JSON.stringify(value,(_key,item)=>item&&typeof item==='object'&&!Array.isArray(item)?Object.fromEntries(Object.keys(item).sort().map(key=>[key,item[key]])):item);
   saved.mac=createHmac('sha256',readFileSync(f.m.keyFile)).update(canonical(saved.body)).digest('hex');writeFileSync(launch.receiptPath,JSON.stringify(saved));
@@ -316,7 +316,7 @@ test('a valid signed receipt from another boot cannot authorize Stop',async()=>{
 });
 test('owner reconciles an abruptly killed supervisor before releasing admission',async()=>{
  const f=fixture();let launch;try {
-  launch=launchFixture(f,running());await waitFor(()=>launch.output().includes('ready'));
+  launch=launchFixture(f,running());await waitFor(()=>launch.output().includes('ready')&&JSON.parse(readFileSync(launch.receiptPath)).body.postSpawnValidated===true);
   const saved=JSON.parse(readFileSync(launch.receiptPath));process.kill(saved.body.owner.pid,'SIGKILL');
   await launch.ended;const final=JSON.parse(readFileSync(launch.receiptPath)).body;
   assert.equal(final.status,'exited');assert.equal(final.termination,'supervisor-exit');assert.equal(existsSync(join(f.privateRoot,'dispatch.lock')),false);
@@ -373,13 +373,13 @@ test('hosted original bridge catalog cannot succeed with tools but no live owned
 for(const [name,framesAt,readyAt,succeeds] of [['separate bounded startup and monitor phases',75000,110000,true],['frame deadline',90001,110000,false],['monitor deadline',1000,92000,false]])test('hosted Native helper readiness '+name,async()=>{
  const proof=readFileSync(resolve('scripts/live-host-policy-native-proof.mjs'),'utf8'),start=proof.indexOf('async function nativeMessages('),expression=proof.slice(start,proof.indexOf('\nfunction launchBoundary(',start));let clock=0;
  const wait=async(predicate,budget=90000)=>{const end=clock+budget;while(clock<end){if(predicate())return true;clock+=1000;}throw Error('PROOF_DEADLINE');};
- const observe=Function('waitFor','readFileSync','report',`return ${expression}`)(wait,()=>JSON.stringify({body:{postSpawnValidated:clock>=readyAt}}),{});
+ const observe=Function('waitFor','signedBody','report',`return ${expression}`)(wait,()=>({postSpawnValidated:clock>=readyAt}),{});
  const launch={id:'fixture',path:'/private/receipt',messages:()=>clock>=framesAt?[0,1,2].map(depth=>({depth})):[],ended:new Promise(()=>{})};
  if(succeeds){await observe(launch);assert.equal(clock,110000);}else await assert.rejects(observe(launch),/PROOF_DEADLINE/);
 });
 test('hosted Native helper readiness rejects exit while awaiting its monitor',async()=>{
  const proof=readFileSync(resolve('scripts/live-host-policy-native-proof.mjs'),'utf8'),start=proof.indexOf('async function nativeMessages('),expression=proof.slice(start,proof.indexOf('\nfunction launchBoundary(',start));let waits=0;
- const observe=Function('waitFor','readFileSync','report',`return ${expression}`)(async()=>++waits===1?true:new Promise(()=>{}),()=>JSON.stringify({body:{postSpawnValidated:false}}),{});
+ const observe=Function('waitFor','signedBody','report',`return ${expression}`)(async()=>++waits===1?true:new Promise(()=>{}),()=>({postSpawnValidated:false}),{});
  await assert.rejects(observe({id:'fixture',path:'/private/receipt',messages:()=>[0,1,2].map(depth=>({depth})),ended:Promise.resolve()}),/NATIVE_LAUNCH_EARLY_EXIT/);
 });
 check('full CLI with cleared environment rejects equal HOME and CODEX_HOME before dispatch; separated homes return bounded policy JSON',f=>{
@@ -560,7 +560,7 @@ async function provenanceFixture(options={}) {
   // Strictly later than the signed USER_HZ observation.
   await pause(40);
   writeFileSync(join(f.privateRoot,'app-server'),`setTimeout(()=>{if(!require('node:fs').existsSync(${JSON.stringify(join(f.app,'.codex'))}))require('node:fs').mkdirSync(${JSON.stringify(join(f.app,'.codex'))},{mode:0o755});console.log('owner-ready');setInterval(()=>{},1000);},40);`,{mode:0o600});
-  owner=spawn(bin,['app-server'],{cwd:f.privateRoot,stdio:['ignore','pipe','pipe'],env:{...(options.managedEnvironment?{PATH:'/usr/bin:/bin',HOME:f.home,CODEX_HOME:f.home,TMPDIR:'/tmp',LANG:'C.UTF-8'}:{HOME:f.home,CODEX_HOME:f.home,PATH:'/usr/bin:/bin'}),...options.originalEnvironment}});
+  owner=spawn(bin,['app-server'],{cwd:f.privateRoot,stdio:['ignore','pipe','pipe'],env:{...(options.managedEnvironment?{PATH:'/usr/bin:/bin',HOME:options.splitHome?f.privateRoot:f.home,CODEX_HOME:f.m.owningRuntime.home??f.home,TMPDIR:'/tmp',LANG:'C.UTF-8'}:{HOME:f.home,CODEX_HOME:f.m.owningRuntime.home??f.home,PATH:'/usr/bin:/bin'}),...options.originalEnvironment}});
   let output='';owner.stdout.on('data',chunk=>output+=chunk);await waitFor(()=>output==='owner-ready\n');
   return owner;
  };
@@ -864,8 +864,8 @@ test('Native build failure reports locked dependency classes without raw logs or
 });
 
 const renewalStable=value=>JSON.stringify((function order(input){if(Array.isArray(input))return input.map(order);if(input&&typeof input==='object')return Object.fromEntries(Object.keys(input).sort().map(key=>[key,order(input[key])]));return input;})(value));
-async function renewalFixture({observed=true,explicitHome=true,installed=false}={}) {
- const f=await provenanceFixture({managedEnvironment:true});if(explicitHome)f.m.owningRuntime.home=f.home;
+async function renewalFixture({observed=true,explicitHome=true,installed=false,splitHome=false}={}) {
+ const f=await provenanceFixture({managedEnvironment:true,splitHome});try{if(explicitHome)f.m.owningRuntime.home=f.home;
  if(installed)installedBridge(f);
  const parts=source.split("<<'LIVE_POLICY'\n"),tail=parts[1].split('\nLIVE_POLICY\n')[1];writeFileSync(f.managerPath,parts[0]+"<<'LIVE_POLICY'\n"+f.program+'\nLIVE_POLICY\n'+tail,{mode:0o700});
  const flags=value=>({model:'fixture-model',modelProvider:'fixture-provider',cwd:value.appRoot,approvalPolicy:'never',activePermissionProfile:{id:value.profileId,extends:':read-only'},sandbox:{type:'fixture'},reasoningEffort:'medium',instructionSources:[]});
@@ -887,6 +887,7 @@ async function renewalFixture({observed=true,explicitHome=true,installed=false}=
   const result={manifest,id,value,run,renew,inventory,seal,save,previous};generations.push(result);return result;
  };
  return {f,next,flags,invoke,original,generations,revoke:()=>f.run('revoke-runtime',['--capture-id',f.id]),cleanup:()=>f.cleanup()};
+ }catch(error){await f.cleanup();throw error;}
 }
 function renewalCheck(name,fn,options){test('runtime renewal: '+name,async()=>{const r=await renewalFixture(options);try{await fn(r);}finally{await r.cleanup();}});}
 renewalCheck('survivor gets a fresh generation while old authority remains irrevocably revoked',async r=>{
@@ -895,6 +896,14 @@ renewalCheck('survivor gets a fresh generation while old authority remains irrev
  assert.ok(existsSync(join(r.f.app,'.codex')));assert.ok(existsSync(join(r.f.privateRoot,`revocation-${r.f.id}.json`)));
  assert.equal(n.run('renew-runtime',['--capture-id',n.id,'--previous-manifest',r.f.manifest,'--previous-capture-id',r.f.id,'--mode','survivor']).reason,'reused-capture-id');
 });
+renewalCheck('sealed generation requires preparation before independent policy receipt verification',async r=>{
+ assert.equal(r.revoke().status,0);const n=r.next();assert.equal(n.renew().status,0);assert.equal(n.seal().status,0);
+ const path=join(dirname(n.manifest),'policy-receipt.json');assert.equal(existsSync(path),false);
+ const missing=n.run('verify');assert.equal(missing.status,1);assert.equal(missing.reason,'missing-prerequisite');
+ const prepared=n.run('prepare');assert.equal(prepared.status,0,JSON.stringify(prepared));assert.equal(existsSync(path),true);
+ for(let observation=0;observation<2;observation++)assert.equal(n.run('verify').status,0);
+ const saved=JSON.parse(readFileSync(path));saved.mac='0'.repeat(64);writeFileSync(path,JSON.stringify(saved),{mode:0o600});assert.equal(n.run('verify').reason,'tampered-receipt');
+},{splitHome:true});
 renewalCheck('active old authority cannot be renewed',async r=>{assert.equal(r.next().renew().reason,'renewal-not-revoked');});
 renewalCheck('unobserved legacy capture cannot acquire renewal intent',async r=>{assert.equal(r.revoke().status,0);assert.equal(r.next().renew().reason,'renewal-observation-required');},{observed:false});
 for(const variant of ['generation','session','components','binary','source','account','provider','model','thinking','broadening','entry','metadata','instruction-file','instruction-symlink','dispatch','pending-process','forged-parent'])renewalCheck(`rejects ${variant} mismatch`,async r=>{
@@ -931,12 +940,12 @@ renewalCheck('an aborted renewal reservation can be revoked and retried at a hig
  assert.equal(r.revoke().status,0);const n=r.next();assert.equal(n.renew().status,0);assert.equal(n.run('revoke-runtime',['--capture-id',n.id]).status,0);const retry=r.next();retry.value.generation.generation=n.value.generation.generation+1;assert.equal(retry.renew().status,0);assert.equal(retry.seal().status,0);assert.equal(retry.run('prepare').status,0);assert.equal(n.run('seal-runtime',['--capture-id',n.id,'--runtime-pid',String(r.f.owner.pid),'--sources',join(r.f.privateRoot,'owning-sources.json')]).reason,'revoked-runtime-provenance');
 });
 
-renewalCheck('managed replacement after actual exit preserves lineage and rejects old authority',async r=>{
+for(const splitHome of [false,true])renewalCheck('managed replacement after actual exit preserves '+(splitHome?'split-home':'same-home')+' lineage and rejects old authority',async r=>{
  const ended=new Promise(done=>r.f.owner.once('close',done));r.f.owner.kill();await ended;assert.equal(r.revoke().status,0);const n=r.next();assert.equal(n.renew('replacement').status,0);await pause(40);
  const child=spawn('/usr/bin/bash',[r.f.managerPath,'cli','--','--live-policy-owning-runtime','--manifest',n.manifest,'--capture-id',n.id],{cwd:r.f.privateRoot,env:{PATH:dirname(process.execPath)+':/usr/bin:/bin',HOME:r.f.privateRoot,CODEX_HOME:r.f.home,GESTALT_HOME:join(r.f.privateRoot,'manager-state')},stdio:['pipe','pipe','pipe']});
- try{let output='',errors='';child.stdout.on('data',part=>output+=part);child.stderr.on('data',part=>errors+=part);await waitFor(()=>output==='owner-ready\n'||child.exitCode!==null);assert.equal(child.exitCode,null,JSON.stringify({output,errors}));const input=n.inventory(child.pid);const sealed=n.seal(input);assert.equal(sealed.status,0,JSON.stringify(sealed));assert.equal(n.run('prepare').status,0);assert.equal(n.run('verify').status,0);assert.equal(r.f.run('verify').reason,'revoked-runtime-provenance');}
- finally{if(child.exitCode===null&&child.signalCode===null){const closed=new Promise(done=>child.once('close',done));child.kill();await closed;}}
-});
+ try{let output='',errors='';child.stdout.on('data',part=>output+=part);child.stderr.on('data',part=>errors+=part);await waitFor(()=>output==='owner-ready\n'||child.exitCode!==null);assert.equal(child.exitCode,null,JSON.stringify({output,errors}));const originalEnvironment=readFileSync(`/proc/${child.pid}/environ`);assert.equal(hash(originalEnvironment),JSON.parse(readFileSync(join(r.f.privateRoot,`runtime-${r.f.id}.json`))).body.runtime.environmentDigest);assert.equal(Object.fromEntries(originalEnvironment.toString().split('\0').filter(Boolean).map(item=>{const at=item.indexOf('=');return [item.slice(0,at),item.slice(at+1)];})).HOME,splitHome?r.f.privateRoot:r.f.home);const input=n.inventory(child.pid);const sealed=n.seal(input);assert.equal(sealed.status,0,JSON.stringify(sealed));assert.equal(n.run('prepare').status,0);assert.equal(n.run('verify').status,0);assert.equal(r.f.run('verify').reason,'revoked-runtime-provenance');}
+ finally{if(child.exitCode===null&&child.signalCode===null){const closed=new Promise(done=>child.once('close',done));child.kill();await closed;assert.notEqual(child.signalCode,null);assert.throws(()=>identity(child.pid));}}
+},{splitHome});
 renewalCheck('unmanaged replacement cannot seal despite matching executable argv and environment',async r=>{
  const ended=new Promise(done=>r.f.owner.once('close',done));r.f.owner.kill();await ended;assert.equal(r.revoke().status,0);const n=r.next();assert.equal(n.renew('replacement').status,0);await r.f.start();assert.equal(n.seal(n.inventory(r.f.owner.pid)).reason,'unverified-owning-runtime');
 });
@@ -1148,4 +1157,92 @@ for(const variant of ['omission','relabel','identity','outside-hardlink'])renewa
 },{installed:true});
 for(const [name,originalEnvironment] of [['Node options',{NODE_OPTIONS:'--no-warnings'}],['Node module path',{NODE_PATH:'/tmp'}],['different runtime home',{GESTALT_HOME:'/tmp'}],['different workspace',{CONTEXT_MODE_WORKSPACE:'/tmp'}],['relative PATH',{PATH:'.:/usr/bin:/bin'}],['writable PATH',{PATH:'/tmp:/usr/bin:/bin'}]])test('installed bridge refuses original '+name+' without changing it',async()=>{
  const f=await provenanceFixture({originalEnvironment});try {installedBridge(f);await f.captureAndStart();const input=f.inventory();input.sources.push(JSON.parse(readFileSync(join(f.privateRoot,`birth-${f.id}.json`))).body.originalLaunchSources[0]);assert.equal(f.seal(input).available,false);for(const [key,value] of Object.entries(originalEnvironment))assert.ok(readFileSync(`/proc/${f.owner.pid}/environ`).toString().split('\0').includes(`${key}=${value}`));}finally{await f.cleanup();}
+});
+
+// Execute the production observation helpers without replacing their file/FD checks.
+function digestHelperProbe(f,body,imports='') {
+ const prefix=program.split('const args = process.argv.slice(2);')[0];
+ const result=spawnSync(process.execPath,['--input-type=module','-'],{input:imports+'\n'+prefix+'\n'+body,encoding:'utf8',env:{PATH:'/usr/bin:/bin'}});
+ assert.equal(result.stderr,'');assert.equal(result.status,0,result.stdout);
+ return JSON.parse(result.stdout);
+}
+check('digest observation scope deduplicates bytes across freshly checked canonical and proc FD aliases only within one boundary',f=>{
+ const result=digestHelperProbe(f,`const scope=digestScope(),path=canonical(process.execPath),size=statSync(path).size;
+ const a=fileDigest(path,scope),b=fileDigest('/proc/'+process.pid+'/exe',scope,path),c=fileDigest(path,scope);digestFence(scope);
+ const next=digestScope();fileDigest(path,next);digestFence(next);
+ console.log(JSON.stringify({same:a===b&&b===c,scope:scope.stats,next:next.stats,size,retained:[...scope.files.values()].every(entry=>Object.keys(entry).sort().join(',')==='pin,sha')}));`);
+ assert.equal(result.same,true);assert.equal(result.retained,true);
+ assert.deepEqual(result.scope,{calls:3,reads:1,hits:2,bytes:result.size,uniqueBytes:result.size});
+ assert.deepEqual(result.next,{calls:1,reads:1,hits:0,bytes:result.size,uniqueBytes:result.size});
+});
+for(const variant of ['same-size','restored-mtime','replacement','symlink','hardlink-added','hardlink-removed','mode','final-fence'])check('digest observation rejects '+variant+' mutation before reuse/final fence',f=>{
+ const path=join(f.privateRoot,'digest input');writeFileSync(path,'before',{mode:0o600});
+ const mutations={
+  'same-size':`writeFileSync(path,'after!');`,
+  'restored-mtime':`const old=statSync(path);writeFileSync(path,'after!');utimesSync(path,old.atime,old.mtime);`,
+  replacement:`renameSync(path,path+'.old');writeFileSync(path,'before',{mode:0o600});`,
+  symlink:`renameSync(path,path+'.old');symlinkSync(path+'.old',path);`,
+  'hardlink-added':`linkSync(path,path+'.alias');`,
+  'hardlink-removed':`unlinkSync(path+'.alias');`,
+  mode:`chmodSync(path,0o400);`,
+  'final-fence':`writeFileSync(path,'after!');`,
+ };
+ if(variant==='hardlink-removed')linkSync(path,path+'.alias');
+ const result=digestHelperProbe(f,`const path=${JSON.stringify(path)},scope=digestScope();fileDigest(path,scope);${mutations[variant]}
+ let refused=false;try{${variant==='final-fence'?'digestFence(scope)':'fileDigest(path,scope)'};}catch{refused=true;}
+ console.log(JSON.stringify({refused,reads:scope.stats.reads}));`,`import {utimesSync,chmodSync,symlinkSync,linkSync} from 'node:fs';`);
+ assert.equal(result.refused,true);assert.equal(result.reads,1);
+});
+check('digest observation refuses an unrelated proc alias even with matching caller digest',f=>{
+ const result=digestHelperProbe(f,`let refused=false;try{fileDigest('/proc/'+process.pid+'/exe',digestScope(),'/usr/bin/bash');}catch{refused=true;}console.log(JSON.stringify({refused}));`);
+ assert.equal(result.refused,true);
+});
+
+for(const variant of ['tampered','public-mode','missing','reordered','wrong-binding'])renewalCheck('private original environment refuses '+variant+' receipt',async r=>{
+ const path=join(r.f.privateRoot,`environment-${r.f.id}.json`);
+ const saved=JSON.parse(readFileSync(path));assert.equal(statSync(path).mode&0o777,0o600);
+ if(variant==='public-mode')chmodSync(path,0o644);
+ else if(variant==='missing')unlinkSync(path);
+ else {if(variant==='tampered')saved.mac='0'.repeat(64);else {if(variant==='reordered')saved.body.entries.reverse();else saved.body.captureId=randomUUID();saved.mac=createHmac('sha256',readFileSync(r.f.m.keyFile)).update(renewalStable(saved.body)).digest('hex');}writeFileSync(path,JSON.stringify(saved),{mode:0o600});}
+ assert.equal(r.f.run('verify').available,false);assert.equal(r.revoke().status,0);assert.equal(r.next().renew('survivor').available,false);
+});
+for(const key of ['OPENAI_API_KEY','NODE_OPTIONS','NODE_PATH','LD_PRELOAD','UNEXPECTED_KEY'])test('original environment rejects disallowed '+key+' without creating a private value receipt',async()=>{
+ const f=await provenanceFixture({managedEnvironment:true,originalEnvironment:{[key]:key==='NODE_OPTIONS'||key==='NODE_PATH'?'':'fixture-secret'}});
+ try{await f.captureAndStart();assert.equal(f.seal().available,false);assert.equal(existsSync(join(f.privateRoot,`environment-${f.id}.json`)),false);}
+ finally{await f.cleanup();}
+});
+check('one complete Manager contract exposes digest-only counters to its private test caller and next contract rereads',f=>{
+ // Command and Native image are intentionally the same file in this fixture.
+ f.m.commands={same:{executable:f.m.binary.path,sha256:f.m.binary.sha256,args:[],timeoutMs:1000}};f.save();
+ const prefix=f.program.split('const args = process.argv.slice(2);')[0];
+ const result=spawnSync(process.execPath,['--input-type=module','-'],{input:prefix+`\nconst rows=[];for(let i=0;i<2;i++){const scope=digestScope();contract(${JSON.stringify(f.manifest)},true,undefined,false,false,scope);rows.push(scope.stats);}console.log(JSON.stringify(rows));`,encoding:'utf8',env:{PATH:'/usr/bin:/bin'}});
+ assert.equal(result.stderr,'');assert.equal(result.status,0,result.stdout);
+ const rows=JSON.parse(result.stdout);assert.deepEqual(rows[0],rows[1]);assert.equal(rows[0].hits,1);assert.equal(rows[0].calls,rows[0].reads+1);assert.equal(rows[0].bytes,rows[0].uniqueBytes);console.log('DIGEST_SCOPE_TEST_COUNTERS '+JSON.stringify({boundary:'independent-v1-contracts',rows}));
+});
+check('digest observation final fence detects owned proc process birth shifts',f=>{
+ // Override only the process-observation function for a deterministic PID-reuse race.
+ const prefix=program.split('const args = process.argv.slice(2);')[0];
+ const result=spawnSync(process.execPath,['--input-type=module','-'],{input:prefix+`\nconst originalIdentity=identity;let changed=false;identity=pid=>({...originalIdentity(pid),...(changed?{birth:'changed'}:{})});const scope=digestScope();fileDigest('/proc/'+process.pid+'/exe',scope,canonical(process.execPath));changed=true;let refused=false;try{digestFence(scope);}catch{refused=true;}console.log(JSON.stringify({refused}));`,encoding:'utf8',env:{PATH:'/usr/bin:/bin'}});
+ assert.equal(result.stderr,'');assert.equal(result.status,0,result.stdout);assert.equal(JSON.parse(result.stdout).refused,true);
+});
+renewalCheck('one renewed Manager validation shares byte observations across Native/proc and ancestor checks but not next validation',async r=>{
+ assert.equal(r.revoke().status,0);const n=r.next();assert.equal(n.renew().status,0);assert.equal(n.seal().status,0);assert.equal(n.run('prepare').status,0);
+ const prefix=r.f.program.split('const args = process.argv.slice(2);')[0];
+ const result=spawnSync(process.execPath,['--input-type=module','-'],{input:prefix+`\nconst rows=[];for(let i=0;i<2;i++){const scope=digestScope();contract(${JSON.stringify(n.manifest)},true,undefined,false,false,scope);rows.push({...scope.stats,files:scope.files.size});}console.log(JSON.stringify(rows));`,encoding:'utf8',env:{PATH:'/usr/bin:/bin'}});
+ assert.equal(result.stderr,'');assert.equal(result.status,0,result.stdout);const rows=JSON.parse(result.stdout);assert.deepEqual(rows[0],rows[1]);assert.ok(rows[0].hits>=3);assert.equal(rows[0].files,rows[0].reads);assert.equal(rows[0].bytes,rows[0].uniqueBytes);console.log('DIGEST_SCOPE_TEST_COUNTERS '+JSON.stringify({boundary:'independent-renewed-v2-contracts',rows}));
+});
+check('digest observation refuses mutation during the initial streamed read even after mtime restoration',f=>{
+ const path=join(f.privateRoot,'stream input');writeFileSync(path,'before',{mode:0o600});
+ const prefix=program.split('const args = process.argv.slice(2);')[0].replace('fstatSync, readSync, closeSync','fstatSync, readSync as originalReadSync, closeSync');
+ const body=`\nconst path=${JSON.stringify(path)};let changed=false;function readSync(...args){const count=originalReadSync(...args);if(!changed&&count){changed=true;const old=statSync(path);writeFileSync(path,'after!');utimesSync(path,old.atime,old.mtime);}return count;}let refused=false;try{fileDigest(path,digestScope());}catch{refused=true;}console.log(JSON.stringify({refused,changed}));`;
+ const result=spawnSync(process.execPath,['--input-type=module','-'],{input:`import {utimesSync} from 'node:fs';\n`+prefix+body,encoding:'utf8',env:{PATH:'/usr/bin:/bin'}});
+ assert.equal(result.stderr,'');assert.equal(result.status,0,result.stdout);assert.deepEqual(JSON.parse(result.stdout),{refused:true,changed:true});
+});
+
+check('digest observation refuses a reused inode generation even when other reported metadata is identical',f=>{
+ const path=join(f.privateRoot,'inode input');writeFileSync(path,'before',{mode:0o600});
+ const prefix=program.split('const args = process.argv.slice(2);')[0];
+ const body=`\nconst originalDigestIdentity=digestIdentity;let generation=0;digestIdentity=info=>originalDigestIdentity({...info,birthtimeNs:info.birthtimeNs+BigInt(generation)});const path=${JSON.stringify(path)},scope=digestScope();fileDigest(path,scope);generation++;let refused=false;try{fileDigest(path,scope);}catch{refused=true;}console.log(JSON.stringify({refused,reads:scope.stats.reads}));`;
+ const result=spawnSync(process.execPath,['--input-type=module','-'],{input:prefix+body,encoding:'utf8',env:{PATH:'/usr/bin:/bin'}});
+ assert.equal(result.stderr,'');assert.equal(result.status,0,result.stdout);assert.deepEqual(JSON.parse(result.stdout),{refused:true,reads:1});
 });

@@ -1049,3 +1049,62 @@ commands, environment maps or invocation authority. Original native MCP catalog,
 retirement/drain, same app-server/thread preservation and actual post-seal
 initialization remain separate L10/L11 checks; genuine-provider proof remains
 required separately.
+
+### Validation-local byte observations and replacement environment
+
+Manager reuses only file SHA256 strings inside one synchronous validation.
+Every use still checks a canonical path (or the specifically bound owned
+`/proc/<pid>/exe` alias), opens an FD, and compares device/inode, UID/GID, mode,
+size, link count and nanosecond ctime/mtime/birthtime before and after observation. A
+changed binding or identity refuses reuse. Final fences recheck all observed
+paths and owned process birth/namespace identity. Directory traversal, membership,
+protected parents, complete internal hardlink groups, configuration, signatures,
+election, revocation and version probes remain fresh. No authority result or
+large executable buffer is stored in this context.
+
+Each independent contract, prelaunch, postspawn and 500ms lifetime check starts
+fresh. Synchronous renewal ancestry can share the current validation's byte
+observations; either side of a mutation/publication starts a new observation.
+There is no TTL, process-wide digest cache, cross-command reuse, skipped version
+probe or substitution for Agents' independent trust checks. Generated supervisors
+include the same observation helpers. Digest-helper counters are private test
+instrumentation, not an admission capability or public timing guarantee.
+
+Sealing now creates a separate signed private `environment-<captureId>.json`
+receipt, mode0600 under the existing protected controller root. Its body has
+exact keys `schemaVersion:1`, `kind:"owning-runtime-environment"`, `captureId`,
+`basisDigest`, `process`, `environmentDigest`, and ordered `entries` of string
+key/value pairs. The sealed runtime receipt binds its digest in
+`environmentReceiptDigest`. Values never enter the public policy response,
+source inventory or diagnostics. The environment is independently read from the
+original process, checked against its environment digest and process identity,
+and authenticated again on verification and renewal.
+
+This representation accepts only HOME, CODEX_HOME and PATH plus optional TMPDIR
+and LANG; an installed bridge additionally permits its exact GESTALT_HOME,
+CONTEXT_MODE_WORKSPACE and CONTEXT_MODE_PLATFORM bindings. CODEX_HOME must equal
+the protected original owning home. HOME must be a canonical existing directory
+outside project write authority and may differ from CODEX_HOME. TMPDIR, when
+present, is `/tmp`; LANG, when present, is `C.UTF-8`. The existing installed
+interpreter/PATH and environment resolution checks still apply. Credential keys,
+NODE_OPTIONS/NODE_PATH (including empty keys), loader variables, unknown keys,
+duplicates, malformed encoding and oversized environments refuse admission.
+Nothing reads replacement values from ambient environment or caller overrides.
+
+Managed replacement reconstructs the authenticated predecessor's exact ordered
+entries, preserving separate HOME/CODEX_HOME, argument digest and working
+directory. It still requires actual predecessor retirement and a fresh managed
+image birth and seal. Changed environment bindings return
+`unverified-owning-environment`; bad signatures/storage and missing receipts
+retain `tampered-receipt`, `untrusted-storage` and `missing-prerequisite` reasons.
+Historical seals lacking the new private receipt are not current evidence and
+cannot renew through this implementation. Revocation remains available after
+source or environment tampering.
+
+`scripts/live-host-digest-benchmark.mjs` runs three alternating pairs against a
+neutral545123336-byte disposable image with a fixed30s child limit, reports
+byte/read counts, wall/CPU/peak RSS and bounded owned cancellation, and removes
+its fixture. It measures byte work only. Actual Native, context admission,
+ordinary enabled-hook home, signed replacement cleanup and genuine-provider
+proof require their separate current evidence; this change enables no additional
+hook or plugin launch descriptor.

@@ -1,0 +1,130 @@
+name: Live host policy contract and full Manager suite (no deployment)
+on:
+  push:
+    branches: ['test/live-host-policy-contract-l9']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.21.0
+          cache: npm
+      - name: Install locked full-suite dependencies
+        run: npm ci
+      - name: Provision the pinned original interpreter only on the disposable host
+        run: |
+          set -Eeuo pipefail
+          test "$RUNNER_OS" = Linux
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          proof_node=$(node -p 'process.execPath')
+          proof_npm=$(readlink -f -- "$(command -v npm)")
+          test "$("$proof_node" -p 'process.versions.node')" = 24.21.0
+          sudo install -m0755 "$proof_node" /usr/bin/node
+          cmp -- "$proof_node" /usr/bin/node
+          sudo ln -sfn -- "$proof_npm" /usr/bin/npm
+          test "$(/usr/bin/node -p 'process.versions.node')" = 24.21.0
+          PATH=/usr/bin:/bin npm --version
+      # Existing full-suite Native0.160 prerequisites only, in a disposable VM.
+      # Live0.161 confinement proof and genuine-provider testing are separate.
+      - name: Enable native sandbox on the disposable GitHub runner
+        if: runner.os == 'Linux' && runner.environment == 'github-hosted'
+        run: |
+          set -Eeuo pipefail
+          current_userns=$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)
+          if [[ -n $current_userns && $current_userns != 1 ]]; then
+            sudo sysctl -w kernel.unprivileged_userns_clone=1
+          fi
+          current_apparmor=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)
+          if [[ -n $current_apparmor && $current_apparmor != 0 ]]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      - name: Native sandbox preflight
+        run: |
+          set -Eeuo pipefail
+          sandbox_home=$(mktemp -d)
+          trap 'rm -rf -- "$sandbox_home"' EXIT
+          CODEX_HOME="$sandbox_home" ./node_modules/.bin/codex \
+            -c 'default_permissions=":read-only"' sandbox -- /bin/true
+      - name: Bind the exact checked-out source and test interpreter
+        run: |
+          set -Eeuo pipefail
+          mkdir -p test-results/live-host-policy-contract
+          cat > "$RUNNER_TEMP/live-host-contract-inventory.mjs" <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync,writeFileSync,readlinkSync,lstatSync,realpathSync} from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          import {createHash} from 'node:crypto';
+          const phase=process.argv[2];assert.ok(['before','after'].includes(phase));
+          const git=(...args)=>execFileSync('/usr/bin/git',args,{encoding:'utf8'});
+          const hash=(algorithm,value)=>createHash(algorithm).update(value).digest('hex');
+          assert.equal(process.versions.node,'24.21.0');assert.equal(realpathSync(process.execPath),'/usr/bin/node');
+          git('diff','--quiet');git('diff','--cached','--quiet');
+          const commit=git('rev-parse','HEAD').trim(),tree=git('rev-parse','HEAD^{tree}').trim();
+          assert.equal(commit,process.env.GITHUB_SHA);
+          const files=git('ls-tree','-rz','--full-tree','HEAD').split('\0').filter(Boolean).map(entry=>{
+            const at=entry.indexOf('\t'),[mode,type,gitBlob]=entry.slice(0,at).split(' '),path=entry.slice(at+1);
+            assert.equal(type,'blob');assert.ok(['100644','100755','120000'].includes(mode));
+            const info=lstatSync(path),bytes=mode==='120000'?Buffer.from(readlinkSync(path)):readFileSync(path);
+            assert.equal(info.isSymbolicLink(),mode==='120000');
+            if(mode!=='120000'){assert.equal(info.isFile(),true);assert.equal(Boolean(info.mode&0o111),mode==='100755');}
+            assert.equal(hash('sha1',Buffer.concat([Buffer.from(`blob ${bytes.length}\0`),bytes])),gitBlob);
+            return {path,mode,gitBlob,sha256:hash('sha256',bytes),size:bytes.length};
+          });
+          const report={schemaVersion:1,kind:'live-host-policy-contract-source',commit,tree,
+            node:{version:process.versions.node,executable:process.execPath,sha256:hash('sha256',readFileSync(process.execPath))},files};
+          const output='test-results/live-host-policy-contract';
+          if(phase==='after')assert.deepEqual(report,JSON.parse(readFileSync(`${output}/source-before.json`)));
+          writeFileSync(`${output}/source-${phase}.json`,JSON.stringify(report,null,2)+'\n');
+          console.log(JSON.stringify({phase,commit,tree,trackedFiles:files.length}));
+          NODE
+          /usr/bin/node "$RUNNER_TEMP/live-host-contract-inventory.mjs" before
+      - name: Unchanged full Manager suite
+        run: |
+          set -Eeuo pipefail
+          PATH=/usr/bin:/bin npm test 2>&1 | tee test-results/live-host-policy-contract/manager.log
+      - name: Bounded alternating digest benchmark
+        if: always()
+        run: |
+          set -Eeuo pipefail
+          test -f test-results/live-host-policy-contract/source-before.json
+          test "$(/usr/bin/node -p 'process.versions.node')" = 24.21.0
+          PATH=/usr/bin:/bin timeout 90s /usr/bin/node scripts/live-host-digest-benchmark.mjs > test-results/live-host-policy-contract/benchmark.json
+      - name: Verify final source identity and unchanged tracked scope
+        if: always()
+        run: |
+          set -Eeuo pipefail
+          /usr/bin/node "$RUNNER_TEMP/live-host-contract-inventory.mjs" after
+          git diff --check
+      - name: Bind retained artifact bytes without environment or home inventory
+        if: always()
+        run: |
+          set -Eeuo pipefail
+          mkdir -p test-results/live-host-policy-contract
+          node --input-type=module <<'NODE'
+          import {readFileSync,writeFileSync,existsSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          const root='test-results/live-host-policy-contract',files={},missing=[];
+          for(const name of ['source-before.json','source-after.json','manager.log','benchmark.json']){
+            if(!existsSync(`${root}/${name}`)){missing.push(name);continue;}
+            const bytes=readFileSync(`${root}/${name}`);
+            files[name]={bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')};
+          }
+          const report={schemaVersion:1,kind:'live-host-policy-contract-artifacts',commit:process.env.GITHUB_SHA,
+            runId:process.env.GITHUB_RUN_ID,attempt:process.env.GITHUB_RUN_ATTEMPT,files,missing};
+          writeFileSync(`${root}/artifact-provenance.json`,JSON.stringify(report,null,2)+'\n');
+          NODE
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: live-host-policy-contract-results
+          path: test-results/live-host-policy-contract
+          if-no-files-found: error
+          retention-days: 30

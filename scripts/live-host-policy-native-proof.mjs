@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {prepareOriginalInstalledBridge,ACCEPTED_AGENTS} from './live-host-installed-source.mjs';
 import {controlledObservation,quiesceNative} from './live-host-renewal-observation.mjs';
 import {spawn,execFileSync} from 'node:child_process';
-import {createHash,randomUUID,randomBytes} from 'node:crypto';
+import {createHash,createHmac,randomUUID,randomBytes} from 'node:crypto';
 import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,readlinkSync,realpathSync,lstatSync,readdirSync,openSync,closeSync,rmSync,renameSync,symlinkSync,copyFileSync,chmodSync,existsSync} from 'node:fs';
 import {createServer,createConnection} from 'node:net';
 import {request as httpRequest,createServer as createHttpServer} from 'node:http';
@@ -76,7 +76,7 @@ const provenance={repository:process.env.GITHUB_REPOSITORY,runId:process.env.GIT
  electionModuleSha256:hash(readFileSync(electionModule)),
  electionInputs:Object.fromEntries(Object.keys(JSON.parse(readFileSync(join(dirname(manager),'election-inputs.json'))).inputs).sort().map(path=>[path,hash(readFileSync(path))])),
  binarySha256:hash(readFileSync(binary)),sourceBinaryMode:(lstatSync(binary).mode&0o777).toString(8),mobileLauncherSha256:hash(readFileSync(mobileModule)),
- files:Object.fromEntries(['public/gestalt','scripts/live-host-policy-native-proof.mjs','tests/live-host-policy.test.mjs','.github/workflows/live-host-policy-proof.yml','docs/caddy-live.md','tests/run.sh','scripts/live-host-renewal-observation.mjs','scripts/live-host-installed-source.mjs']
+ files:Object.fromEntries(['public/gestalt','scripts/live-host-policy-native-proof.mjs','tests/live-host-policy.test.mjs','.github/workflows/live-host-policy-proof.yml','docs/caddy-live.md','tests/run.sh','scripts/live-host-renewal-observation.mjs','scripts/live-host-installed-source.mjs','.github/workflows/live-host-policy-contract.yml','scripts/live-host-digest-benchmark.mjs','tests/live-host-native-proof-observation.test.mjs']
   .map(path=>[path,hash(readFileSync(path))]))};
 mkdirSync(evidence,{recursive:true});
 const root=mkdtempSync(join(dirname(manager),'live host policy ')),app=join(root,'app with spaces'),privateRoot=join(root,'controller'),nativeHome=join(privateRoot,'owning-runtime'),home=join(privateRoot,'sandbox-home'),bin=join(root,'bin');
@@ -94,8 +94,9 @@ const profile='live-host-policy-proof',narrowProfile='live-host-policy-narrow';
 const captureId=randomUUID(),sessionId=randomUUID(),sourcePath=join(privateRoot,'actual-source-inventory.json');
 const metadataPaths=[];for(let path=app;;path=dirname(path)){metadataPaths.push(join(path,'.codex'));if(path==='/')break;}
 writeFileSync(join(app,'AGENTS.md'),'Use the registered app and preserve private state.\n',{mode:0o644});
-// Every Native invocation is through the reviewed managed CLI. The actual Mobile
-// launcher keeps its original ChildProcess; this fixed adapter adds no runtime.
+// Bootstrap and replacements use the reviewed managed CLI. The split-home
+// original fixture below uses a fixed pinned Native birth after capture. The
+// accepted Mobile launcher retains the actual ChildProcess in both cases.
 const quote=value=>"'"+value.replaceAll("'","'\\''")+"'";
 writeFileSync(join(bin,'codex'),`#!/bin/sh\n[ "$#" = 2 ] && [ "$1" = app-server ] && [ "$2" = --stdio ] || exit 64\nexec ${quote(manager)} cli -- --live-policy-owning-runtime --manifest ${quote(manifest)} --capture-id ${quote(captureId)}\n`,{mode:0o700});
 const controllerEnv={PATH:`${bin}:${dirname(process.execPath)}:/usr/bin:/bin`,HOME:privateRoot,CODEX_HOME:nativeHome,TMPDIR:'/tmp',LANG:'C.UTF-8'};
@@ -127,8 +128,48 @@ const rpcFailureDiagnostic=(method,error,roles={})=>{
 let originalBridge;const installedBridges=new Map();
 let runtime,caddy,unowned,active,extraFD,elected,providerFailure,thread,currentRpcMethod,controllerAccepted=0;
 const startedThreads=new Set(),metadataCommands=new Map();let nativeServerRequests=0;
-const originalDiagnostics=new WeakMap();
+const originalDiagnostics=new WeakMap(),ownedChildStates=new WeakMap();
+function trackOwnedChild(child,role='owned') {
+ let state=ownedChildStates.get(child);if(state)return state;
+ let processRecord;try{processRecord=identity(child.pid);}catch{}
+ state={role,process:processRecord,closed:false};ownedChildStates.set(child,state);
+ child.once('close',()=>{state.closed=true;});return state;
+}
+function signedBody(path) {
+ const info=lstatSync(path),parent=lstatSync(dirname(path));
+ assert.equal(realpathSync(path),path);assert.ok(info.isFile());assert.equal(info.uid,process.getuid());assert.equal(info.mode&0o777,0o600);assert.equal(info.nlink,1);
+ assert.ok(parent.isDirectory());assert.equal(parent.uid,process.getuid());assert.equal(parent.mode&0o077,0);
+ const saved=JSON.parse(readFileSync(path));assert.deepEqual(Object.keys(saved).sort(),['body','mac']);
+ assert.equal(saved.mac,createHmac('sha256',readFileSync(key)).update(stable(saved.body)).digest('hex'));
+ return saved.body;
+}
+function privateEnvironmentProof(path,id,pid) {
+ const directory=dirname(path),sealed=signedBody(join(directory,`runtime-${id}.json`)),environment=signedBody(join(directory,`environment-${id}.json`));
+ assert.equal(environment.schemaVersion,1);assert.equal(environment.kind,'owning-runtime-environment');assert.equal(environment.captureId,id);
+ assert.equal(environment.basisDigest,sealed.basisDigest);assert.equal(hash(stable(environment)),sealed.environmentReceiptDigest);
+ assert.equal(stable(environment.process),stable(identity(pid)));assert.equal(stable(environment.process),stable(sealed.runtime.process));
+ const bytes=Buffer.from(environment.entries.map(([name,value])=>`${name}=${value}`).join('\0')+'\0');
+ assert.equal(hash(bytes),environment.environmentDigest);assert.equal(hash(readFileSync(`/proc/${pid}/environ`)),environment.environmentDigest);
+ assert.equal(environment.environmentDigest,sealed.runtime.environmentDigest);
+ const env=Object.fromEntries(environment.entries);assert.equal(Object.keys(env).length,environment.entries.length);
+ assert.ok(Object.keys(env).every(name=>['PATH','HOME','CODEX_HOME','TMPDIR','LANG','GESTALT_HOME','CONTEXT_MODE_WORKSPACE','CONTEXT_MODE_PLATFORM'].includes(name)));
+ // Only bounded assertions and digests leave this function; never the entries.
+ return {captureId:id,signed:true,ownerOnly:true,processBound:true,orderedDigestMatched:true,homesEqual:env.HOME===env.CODEX_HOME,environmentDigest:environment.environmentDigest,valuesExported:false};
+}
+function runtimeChildren() {
+ const found=[];for(const pid of readdirSync('/proc').filter(value=>/^[1-9][0-9]*$/.test(value))){
+  if(Number(pid)===runtime.child.pid)continue;
+  try{if(originalRuntimeDescendant(Number(pid)))found.push(identity(Number(pid)));}catch{}
+ }
+ assert.ok(found.length<=256);return found;
+}
+async function settleRuntime(child,descendants=runtimeChildren()) {
+ await closeOwned(child);await waitFor(()=>descendants.every(dead));
+ report.runtimeRetirements??=[];report.runtimeRetirements.push({owner:ownedChildStates.get(child)?.process,descendants,allBirthsExited:true,pipesClosed:true});
+}
+
 function trackPrivateRequests(child){
+ trackOwnedChild(child,'app-server');
  const stderr={text:'',bytes:0,hash:createHash('sha256')};originalDiagnostics.set(child,stderr);
  child.stderr.on('data',chunk=>{stderr.bytes+=chunk.length;stderr.hash.update(chunk);stderr.text=(stderr.text+chunk.toString()).slice(-65536);});
  let buffer="";child.stdout.on("data",chunk=>{buffer+=chunk.toString();if(Buffer.byteLength(buffer)>1024*1024){buffer="";report.nativeWireInvalid=true;return;}let newline;while((newline=buffer.indexOf("\n"))>=0){const line=buffer.slice(0,newline);buffer=buffer.slice(newline+1);try{const packet=JSON.parse(line);if(Object.hasOwn(packet,"id")&&typeof packet.method==="string")nativeServerRequests++;}catch{report.nativeWireInvalid=true;}}});
@@ -141,9 +182,16 @@ function originalRuntimeDiagnostic(){
 }
 const server=createServer(peer=>{controllerAccepted++;peer.end();});
 async function waitFor(fn,budget=90000,retryErrors=true){const end=Date.now()+budget;while(Date.now()<end){try{const result=fn();if(result)return result;}catch(error){if(!retryErrors)throw error;}await pause(50);}throw Error('PROOF_DEADLINE');}
-function managerCall(args){const result=spawn('bash',[manager,...args],{cwd:app,env:managerEnv,stdio:['ignore','pipe','pipe']});
- let stdout='',stderr='';result.stdout.on('data',b=>stdout+=b);result.stderr.on('data',b=>stderr+=b);
- return new Promise((done,reject)=>{const timer=setTimeout(()=>{result.kill('SIGKILL');reject(Error('MANAGER_DEADLINE'));},90000);result.on('error',error=>{clearTimeout(timer);done({code:null,signal:null,stdout,stderr,errorCode:['ENOENT','EACCES','EPERM'].includes(error.code)?error.code:'SPAWN_ERROR'});});result.on('close',(code,signal)=>{clearTimeout(timer);done({code,signal,stdout,stderr});});});}
+function managerCall(args){const started=performance.now(),stage=report.stage,operation=args[0]==='live-policy'?args[1]:args.includes('--live-policy-bootstrap')?'bootstrap':'owning-runtime';
+ const result=spawn('bash',[manager,...args],{cwd:app,env:managerEnv,stdio:['ignore','pipe','pipe']});
+ let stdout='',stderr='',settled=false;result.stdout.on('data',b=>stdout+=b);result.stderr.on('data',b=>stderr+=b);
+ return new Promise((done,reject)=>{
+  const observe=value=>{if(settled)return;settled=true;clearTimeout(timer);let reason;try{const parsed=JSON.parse(value.stdout);if(typeof parsed.reason==='string'&&/^[a-z-]{1,64}$/.test(parsed.reason))reason=parsed.reason;}catch{}report.managerTimings??=[];if(report.managerTimings.length<512)report.managerTimings.push({stage,operation,elapsedMs:Math.ceil(performance.now()-started),code:value.code??null,deadline:value.deadline===true,reason});return value;};
+  const timer=setTimeout(()=>{result.kill('SIGKILL');observe({deadline:true});reject(Error('MANAGER_DEADLINE'));},90000);
+  result.on('error',error=>{const value={code:null,signal:null,stdout,stderr,errorCode:['ENOENT','EACCES','EPERM'].includes(error.code)?error.code:'SPAWN_ERROR'};if(!settled){observe(value);done(value);}});
+  result.on('close',(code,signal)=>{if(!settled){const value={code,signal,stdout,stderr};observe(value);done(value);}});
+ });}
+
 const api=()=>new Promise((done,reject)=>{const req=httpRequest({socketPath:caddySocket,path:'/config/',method:'GET'},res=>{res.resume();res.on('end',()=>done(res.statusCode));});req.on('error',reject);req.end();});
 async function rpc(method,params){
  currentRpcMethod=method;const started=performance.now(),budgetMs=method==='initialize'?90000:12000;let timer;
@@ -201,12 +249,12 @@ async function prepare(){save();const priorStage=report.stage;report.stage=prior
 async function launch(mode='hold',fixture={app,m,manifest,childFile,publicFile}) {
  const {app,m,manifest,childFile,publicFile}=fixture;
  const stdinChunks=['native input with spaces\n','second ','line\n'];
- const id=randomUUID(),input={mode,expectedWrite:m.sandboxState.permissionProfile.file_system.entries.find(entry=>entry.path.path===app)?.access==='write',publicSocket:join(app,`s-${id.slice(0,8)}`),metadataPath:join(app,'.codex'),stdinExpected:stdinChunks.join(''),publicFile,readOnlyFile,writeFile:join(app,'written'),privateFiles:[auth,controlFile,manifest,key,join(m.owningRuntime.home,'config.toml'),...m.originalLaunchSources.flatMap(source=>[source.path,join(source.package.root,'start.mjs'),join(source.runtime.root,'server.bundle.mjs')])],
+ const id=randomUUID(),input={mode,expectedWrite:m.sandboxState.permissionProfile.file_system.entries.find(entry=>entry.path.path===app)?.access==='write',publicSocket:join(app,`s-${id.slice(0,8)}`),metadataPath:join(app,'.codex'),stdinExpected:stdinChunks.join(''),publicFile,readOnlyFile,writeFile:join(app,'written'),privateFiles:[auth,controlFile,manifest,key,join(m.owningRuntime.home,'config.toml'),join(dirname(manifest),`environment-${m.runtimeProvenance.captureId}.json`),...m.originalLaunchSources.flatMap(source=>[source.path,join(source.package.root,'start.mjs'),join(source.runtime.root,'server.bundle.mjs')])],
  controllerSocket:socket,caddySocket,daemon,fdIdentity:{dev:lstatSync(auth).dev,ino:lstatSync(auth).ino},aliases:[`/proc/${process.pid}/root${auth}`,`/proc/${process.pid}/fd/${extraFD}`,`/proc/self/root${auth}`]};
  assert.ok(Buffer.byteLength(input.publicSocket)<108,'PUBLIC_SOCKET_PATH_TOO_LONG');
  m.commands.probe.args=[childFile,JSON.stringify(input)];writeFileSync(manifest,JSON.stringify(m),{mode:0o600});const prepared=await callFor(manifest,['prepare']);assert.equal(prepared.code,0,JSON.stringify(managerResultDiagnostic(prepared)));
  const child=spawn('bash',[manager,'live-policy','run','--manifest',manifest,'--command','probe','--launch-id',id],
- {cwd:app,env:{...managerEnv,OPENAI_API_KEY:'fixture-secret',GESTALT_MOBILE_ORG_PLAN_MEASUREMENT_TOKEN:'fixture-secret'},stdio:['pipe','pipe','pipe','ignore','ignore','ignore','ignore',extraFD]});
+ {cwd:app,env:{...managerEnv,OPENAI_API_KEY:'fixture-secret',GESTALT_MOBILE_ORG_PLAN_MEASUREMENT_TOKEN:'fixture-secret'},stdio:['pipe','pipe','pipe','ignore','ignore','ignore','ignore',extraFD]});trackOwnedChild(child,'project-supervisor');
  void(async()=>{await waitFor(()=>output.includes('project-input'));for(const chunk of stdinChunks){child.stdin.write(chunk);await pause(50);}child.stdin.end();})().catch(()=>{report.projectInputFeedFailed=true;child.stdin.destroy();});child.stdin.on('error',()=>{report.projectInputFeedFailed=true;});let output='',stderr='';child.stdout.on('data',b=>output+=b);child.stderr.on('data',b=>stderr+=b);
  let closed=false,exitCode,exitSignal;const ended=new Promise(done=>child.on('close',(code,signal)=>{closed=true;exitCode=code;exitSignal=signal;done(code);}));
  const result={id,child,ended,manifestPath:manifest,path:join(dirname(manifest),`process-${id}.json`),frames:()=>output.split('\n').slice(0,-1).filter(Boolean).map(line=>JSON.parse(line)),messages:()=>output.split('\n').slice(0,-1).filter(Boolean).map(line=>JSON.parse(line)).filter(value=>value.kind==='probe-result'),
@@ -221,7 +269,7 @@ async function nativeMessages(launch){
  // Real installed trees are reobserved through every signed renewal ancestor.
  // Worker output and post-spawn monitor installation are distinct phases;
  // each retains the existing90s bound and rejects premature process exit.
- await until(()=>JSON.parse(readFileSync(launch.path)).body.postSpawnValidated===true);
+ await until(()=>signedBody(launch.path).postSpawnValidated===true);
  report.launchReadiness??=[];if(report.launchReadiness.length<64)report.launchReadiness.push({launchId:launch.id,framesMs:framesAt-started,monitorMs:Date.now()-framesAt,totalMs:Date.now()-started,postSpawnValidated:true});
 }
 function launchBoundary(launch){const state=launch.state();try{const body=JSON.parse(readFileSync(launch.path)).body;
@@ -240,13 +288,18 @@ function ownedProcessSnapshot(launch){let rootPid;try{rootPid=JSON.parse(readFil
 }
 async function closeOwned(child) {
  if (!child) return true;
+ const state=trackOwnedChild(child),gone=()=>state.closed&&child.stdio.every(stream=>!stream||stream.destroyed)&&(!state.process||dead(state.process));
  if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
- try { await waitFor(()=>child.exitCode !== null || child.signalCode !== null,2500); }
- catch { child.kill('SIGKILL');await waitFor(()=>child.exitCode !== null || child.signalCode !== null,2000); }
+ try { await waitFor(gone,2500); }
+ catch { child.kill('SIGKILL');await waitFor(gone,2000); }
+ report.ownedClosures??=[];report.ownedClosures.push({role:state.role,process:state.process,code:child.exitCode,signal:child.signalCode,closeObserved:true,pipesClosed:true,birthExited:true});
  return true;
 }
 async function stopped(launch){await Promise.race([launch.ended,pause(90000).then(()=>{throw Error('REAP_DEADLINE');})]);
- await waitFor(()=>JSON.parse(readFileSync(launch.path)).body.status==='exited');active=undefined;}
+ const receipt=await waitFor(()=>{const body=signedBody(launch.path);return body.status==='exited'&&dead(body.process)&&dead(body.owner)&&body;});
+ assert.equal(receipt.kind,'process-launch');assert.equal(launch.state().closed,true);assert.ok(launch.child.stdio.every(stream=>!stream||stream.destroyed));
+ report.signedCleanups??=[];if(report.signedCleanups.length<64)report.signedCleanups.push({launchId:launch.id,signed:true,status:receipt.status,termination:receipt.termination,nativeBirthExited:true,supervisorBirthExited:true,pipesClosed:true,postSpawnValidated:receipt.postSpawnValidated===true});active=undefined;}
+
 const negativeKinds=['config','hooks','rules','agents','replacement','symlink','stale-owner','generation','session','race','instruction-file','instruction-symlink'];
 const cases=negativeKinds.map(kind=>({kind,app:join(root,`negative ${kind}`),directory:join(privateRoot,`case-${kind}`),profile:`live-case-${kind}`,capture:randomUUID(),session:randomUUID()}));
 for(const c of cases){mkdirSync(c.app,{mode:0o700});mkdirSync(c.directory,{mode:0o700});mkdirSync(join(c.directory,'worker'),{mode:0o700});writeFileSync(join(c.directory,'worker','config.toml'),isolatedConfig,{mode:0o600});writeFileSync(join(c.app,'AGENTS.md'),'Preserve private state.\n',{mode:0o644});}
@@ -274,13 +327,14 @@ function modelCall(tools,id,name,args,custom=false){
  }
  assert.ok(tool,'NATIVE_TOOL_UNAVAILABLE');return {type:'response.output_item.done',item:{type:custom?'custom_tool_call':'function_call',call_id:id,name,input:custom?args:undefined,arguments:custom?undefined:JSON.stringify(args),...(tool.namespace?{namespace:tool.namespace}:{})}};
 }
-const modelProbe=role=>`import os,socket,json\nprivate=${JSON.stringify([auth,controlFile,key,manifest])}\nfor path in private+${JSON.stringify([`/proc/${process.pid}/root${auth}`,`/proc/${process.pid}/fd/7`,`/proc/self/root${auth}`])}:\n try:\n  open(path,'rb').read();raise Exception('PRIVATE_BREACH')\n except OSError as e:\n  assert e.errno in (1,2,13,20)\nfor path in ${JSON.stringify([socket,caddySocket])}:\n s=socket.socket(socket.AF_UNIX)\n try:\n  s.connect(path);raise Exception('SOCKET_BREACH')\n except OSError as e:\n  assert e.errno in (1,2,13,20)\n finally:s.close()\nfor name in ['config.toml','hooks.json','rules','agents']:\n try:\n  open(${JSON.stringify(join(app,'.codex'))}+'/'+name,'w').write('injection');raise Exception('METADATA_BREACH')\n except OSError as e:\n  assert e.errno in (1,2,13,20,30)\nassert open(${JSON.stringify(publicFile)}).read()=='public-fixture'\nassert not any(('TOKEN' in k or 'SECRET' in k or 'API_KEY' in k) for k in os.environ)\nassert os.stat(${JSON.stringify(daemon)}).st_mode & 511 == 0\nprint('native-private-and-metadata-denied')\n`;
+const modelProbe=role=>`import os,socket,json\nprivate=${JSON.stringify([auth,controlFile,key,manifest,join(privateRoot,`environment-${captureId}.json`)])}\nfor path in private+${JSON.stringify([`/proc/${process.pid}/root${auth}`,`/proc/${process.pid}/fd/7`,`/proc/self/root${auth}`])}:\n try:\n  open(path,'rb').read();raise Exception('PRIVATE_BREACH')\n except OSError as e:\n  assert e.errno in (1,2,13,20)\nfor path in ${JSON.stringify([socket,caddySocket])}:\n s=socket.socket(socket.AF_UNIX)\n try:\n  s.connect(path);raise Exception('SOCKET_BREACH')\n except OSError as e:\n  assert e.errno in (1,2,13,20)\n finally:s.close()\nfor name in ['config.toml','hooks.json','rules','agents']:\n try:\n  open(${JSON.stringify(join(app,'.codex'))}+'/'+name,'w').write('injection');raise Exception('METADATA_BREACH')\n except OSError as e:\n  assert e.errno in (1,2,13,20,30)\nassert open(${JSON.stringify(publicFile)}).read()=='public-fixture'\nassert not any(('TOKEN' in k or 'SECRET' in k or 'API_KEY' in k) for k in os.environ)\nassert os.stat(${JSON.stringify(daemon)}).st_mode & 511 == 0\nprint('native-private-and-metadata-denied')\n`;
 async function modelEvent(body){
  providerStage='model-identity';providerShape={expectedModel:body.model==='gpt-6-sol',threadIdType:typeof body.client_metadata?.thread_id};
  assert.equal(body.model,'gpt-6-sol');const tid=body.client_metadata?.thread_id;providerStage='thread-identity';assert.equal(typeof tid,'string');modelThreads.add(tid);
  const role=tid===primaryThread?'root':tid,step=roleSteps.get(role)??0;roleSteps.set(role,step+1);
  const tools=flatten([...(body.tools??[]),...(body.input??[]).filter(x=>x.type==='additional_tools').flatMap(x=>x.tools??[])]);
  providerShape.tools=Object.fromEntries(['exec_command','shell_command','apply_patch','spawn_agent'].map(name=>[name,tools.some(tool=>tool.name===name)]));providerShape.step=step;providerShape.role=role==='root'?'root':'descendant';providerStage='model-step';
+ if(modelPhase==='split-persist')return modelFinal('split-home-persistent-thread');
  if(modelPhase==='renewal-narrow'){
   assert.equal(role,'root');const current=renewalModelStep++;
   if(current===0)return modelCall(tools,'renewed-narrow-command','exec_command',{cmd:`/usr/bin/python3 -c ${quote(`from pathlib import Path\nassert Path(${JSON.stringify(publicFile)}).read_text()=='public-fixture'\ntry:Path(${JSON.stringify(join(app,'renewed-model-forbidden'))}).write_text('forbidden');raise Exception('WRITE_BREACH')\nexcept OSError as e:assert e.errno in (1,13,30)\ntry:Path(${JSON.stringify(auth)}).read_text();raise Exception('PRIVATE_BREACH')\nexcept (PermissionError,FileNotFoundError):pass\nprint('renewed-model-tool-write-denied')`)}`,workdir:app,yield_time_ms:1000,max_output_tokens:1000});
@@ -344,7 +398,8 @@ async function actualSources(value,path,id,startReply,captured,{inventoryOnly=fa
  const inventory={schemaVersion:2,runtime:identity(runtime.child.pid),policyDigest:captured.policyDigest,effectiveConfigDigest:hash(stable(configuration.config)),sessionFlagsDigest:hash(stable(flags)),sources,observation};
  const inventoryFile=join(dirname(path),`sources-${id}.json`);writeFileSync(inventoryFile,JSON.stringify(inventory),{mode:0o600});if(inventoryOnly)return {configuration,inventory,startReply,inventoryFile};const seal=await callFor(path,['seal-runtime','--capture-id',id,'--runtime-pid',String(runtime.child.pid),'--sources',inventoryFile]);assert.equal(seal.code,0,JSON.stringify(managerResultDiagnostic(seal)));
  value.runtimeProvenance={captureId:id,effectiveConfigDigest:inventory.effectiveConfigDigest,sessionFlagsDigest:inventory.sessionFlagsDigest};writeFileSync(path,JSON.stringify(value),{mode:0o600});
- return {configuration,inventory,startReply,inventoryDigest:hash(stable(inventory))};
+ const environmentProof=privateEnvironmentProof(path,id,runtime.child.pid);report.environmentObservations??=[];if(report.environmentObservations.length<64)report.environmentObservations.push(environmentProof);
+ return {configuration,inventory,startReply,inventoryDigest:hash(stable(inventory)),environmentProof};
 }
 async function originalBridgeCatalog(threadId,value) {
  const catalog=await rpc('mcpServerStatus/list',{threadId,detail:'toolsAndAuthOnly'});assert.ok(Array.isArray(catalog.data));assert.equal(catalog.nextCursor??null,null);
@@ -371,7 +426,7 @@ async function startupAt(value,{holdMetadata=false}={}){let sampling=false;const
  const protectedPaths=[];for(let path=value.appRoot;;path=dirname(path)){protectedPaths.push(join(path,'.codex'));if(path==='/')break;}
  const observed=new Set(),maskOps=new Set(['--tmpfs','--remount-ro','--ro-bind-data','--bind-data','--ro-bind','--bind','--dir','--file']);
  const sample=()=>{if(sampling)return;sampling=true;try{
-  for(const [ancestor,path] of protectedPaths.entries()){try{const info=lstatSync(path),snapshot={ancestor,kind:info.isDirectory()?'directory':info.isSymbolicLink()?'symlink':'file',identity:folderPin(path)};const key=JSON.stringify(snapshot);if(!observed.has(key)&&metadata.length<64){observed.add(key);metadata.push(snapshot);}}catch{}}
+  for(const [ancestor,path] of protectedPaths.entries()){try{const info=lstatSync(path),snapshot={profile:value.profileId,ancestor,kind:info.isDirectory()?'directory':info.isSymbolicLink()?'symlink':'file',empty:info.isDirectory()?readdirSync(path).length===0:undefined,identity:folderPin(path)};const key=JSON.stringify(snapshot);if(!observed.has(key)&&metadata.length<64){observed.add(key);metadata.push(snapshot);}}catch{}}
   for(const pid of readdirSync('/proc').filter(x=>/^\d+$/.test(x))){try{const args=readFileSync(`/proc/${pid}/cmdline`).toString().split('\0');
    const fsHelper=args.includes('--codex-run-as-fs-helper')&&readlinkSync(`/proc/${pid}/exe`)===binary;
    const hasMasks=args.some(arg=>protectedPaths.includes(arg))&&args.some(arg=>maskOps.has(arg));if(!fsHelper&&!hasMasks)continue;
@@ -379,7 +434,7 @@ async function startupAt(value,{holdMetadata=false}={}){let sampling=false;const
    if(fsHelper&&!sightings.some(x=>x.pid===processIdentity.pid&&x.birth===processIdentity.birth)&&sightings.length<64)sightings.push(processIdentity);
    if(hasMasks&&!masks.some(x=>x.process.pid===processIdentity.pid&&x.process.birth===processIdentity.birth)&&masks.length<8&&hash(readFileSync(`/proc/${pid}/exe`))===provenance.bundledBwrap.sha256){
     const selected=[];for(const [index,arg] of args.entries()){const ancestor=protectedPaths.indexOf(arg);if(ancestor<0)continue;let operation;for(let n=index-1;n>=Math.max(0,index-3);n--)if(maskOps.has(args[n])){operation=args[n];break;}if(operation)selected.push({argumentIndex:index,operation,ancestor});}
-    masks.push({process:processIdentity,executable:'pinned-bubblewrap',metadataMasks:selected});
+    masks.push({profile:value.profileId,process:processIdentity,executable:'pinned-bubblewrap',metadataMasks:selected});
    }
   }catch{}}
  }finally{sampling=false;}};
@@ -397,6 +452,20 @@ async function startupAt(value,{holdMetadata=false}={}){let sampling=false;const
   report.startupCommands??=[];report.startupCommands.push({profile:value.profileId,actualNativeCommand:true,heldDuringSeal:true,nativeBornMetadata:true});
  }
  return reply;}
+
+// Native's mask targets exist only while their actual owners retain them.
+// Assert creation at startup; preserve the separately authenticated exact state
+// at seal. Never recreate or hold a transient path to make its presence pass.
+function startupMetadataProof(value,inventory) {
+ const samples=(report.startupMetadataObservations??[]).filter(item=>item.profile===value.profileId&&item.ancestor===0);
+ assert.ok(samples.some(item=>item.kind==='directory'&&item.empty===true&&item.identity.uid===process.getuid()&&!(item.identity.mode&0o022)),'NATIVE_STARTUP_DID_NOT_CREATE_EMPTY_METADATA');
+ const masked=(report.startupMasks??[]).some(item=>item.profile===value.profileId&&item.executable==='pinned-bubblewrap'&&item.metadataMasks.some(mask=>mask.ancestor===0&&mask.operation==='--tmpfs'));
+ assert.equal(masked,true);
+ const source=inventory.sources.find(item=>item.role==='project'&&item.path===join(value.appRoot,'.codex'));
+ assert.ok(source&&['directory','absent'].includes(source.kind));
+ report.startupMetadataProof={sampledNativeCreatedEmpty:true,pinnedNativeMaskObserved:true,sealedState:source.kind,presenceExtended:false,sourceInventoryUnchanged:true};
+ return report.startupMetadataProof;
+}
 
 async function renewedModelProbe(threadId){
  modelPhase='renewal-narrow';let completed=false;const off=runtime.rpc.onNotification(message=>{if(message.method==='turn/completed'&&message.params?.threadId===threadId)completed=true;});
@@ -452,7 +521,7 @@ async function proveRenewal(original){
   assert.equal((await callFor(attempt.manifest,['verify'])).code,1);assert.equal((await callFor(attempt.manifest,['revoke-runtime','--capture-id',attempt.id])).code,0);await quiesceNative(rpc,[original.threadId]);generation++;
  }
  report.stage='renewal-original-survivor';const survivor=nextRenewal(original,{generation,narrow:true});const capture=await renewCapture(survivor,original,'survivor');assert.equal(capture.code,0,JSON.stringify(managerResultDiagnostic(capture)));
- const reply=await resumeRenewal(survivor);const observed=await actualSources(survivor.value,survivor.manifest,survivor.id,reply,JSON.parse(capture.stdout));assert.deepEqual(identity(runtime.child.pid),birth);await renewedModelProbe(survivor.threadId);report.renewal.originalNativeSessionsDrained={coldReconfigureObserved:true,newModelToolWriteDenied:true,sharedHostProcessMayRemain:true};
+ const reply=await resumeRenewal(survivor);const observed=await actualSources(survivor.value,survivor.manifest,survivor.id,reply,JSON.parse(capture.stdout));assert.equal(observed.environmentProof.homesEqual,true);assert.deepEqual(identity(runtime.child.pid),birth);await renewedModelProbe(survivor.threadId);report.renewal.originalNativeSessionsDrained={coldReconfigureObserved:true,newModelToolWriteDenied:true,sharedHostProcessMayRemain:true};
  assert.equal((await callFor(survivor.manifest,['prepare'])).code,0);await oldRefused(original);
  const stale=nextRenewal(original,{generation:survivor.value.generation.generation+1});const staleResult=await renewCapture(stale,original,'survivor');assert.equal(staleResult.code,1);report.renewal.negative['sealed-overlap']={reason:JSON.parse(staleResult.stdout).reason};
  const survivorWorker=await launch('hold',{app,m:survivor.value,manifest:survivor.manifest,childFile,publicFile});await nativeMessages(survivorWorker);assert.ok(survivorWorker.messages().every(frame=>Object.values(frame.checks).every(Boolean)));
@@ -463,21 +532,90 @@ async function proveRenewal(original){
  const winner=contenders[published.findIndex(result=>result.code===0)];assert.equal((await callFor(winner.manifest,['verify'])).code,1);assert.equal((await callFor(winner.manifest,['revoke-runtime','--capture-id',winner.id])).code,0);
  report.renewal.concurrentPublication={oneWinner:true,unsealedReservationDenied:true,revokedForFreshRetry:true,loserReason:JSON.parse(published.find(result=>result.code===1).stdout).reason};
  const originalBridgeProcesses=ownedPids(originalBridge.descriptor.path).filter(record=>originalRuntimeDescendant(record.pid));
- const sharedHosts=[...new Map([...originalModelWorkers,...nativeCodeModeWorkers()].map(record=>[`${record.pid}:${record.birth}`,record])).values()];await closeOwned(runtime.child);assert.ok(dead(birth));await waitFor(()=>sharedHosts.every(dead));await waitFor(()=>originalBridgeProcesses.every(dead));report.renewal.originalBridgeRetiredOnOwnerExit={processes:originalBridgeProcesses,allExited:true};report.renewal.replacedOwnerActuallyExited=true;report.renewal.replacedSharedHosts={births:sharedHosts,allExited:true};
+ const sharedHosts=[...new Map([...originalModelWorkers,...nativeCodeModeWorkers()].map(record=>[`${record.pid}:${record.birth}`,record])).values()];await settleRuntime(runtime.child);assert.ok(dead(birth));await waitFor(()=>sharedHosts.every(dead));await waitFor(()=>originalBridgeProcesses.every(dead));report.renewal.originalBridgeRetiredOnOwnerExit={processes:originalBridgeProcesses,allExited:true};report.renewal.replacedOwnerActuallyExited=true;report.renewal.replacedSharedHosts={births:sharedHosts,allExited:true};
  report.stage='renewal-managed-replacement';const replacement=nextRenewal(survivor,{narrow:true,generation:survivor.value.generation.generation+2});const replacementCapture=await renewCapture(replacement,survivor,'replacement');assert.equal(replacementCapture.code,0,JSON.stringify(managerResultDiagnostic(replacementCapture)));
  writeFileSync(join(bin,'codex'),`#!/bin/sh\n[ "$#" = 2 ] && [ "$1" = app-server ] && [ "$2" = --stdio ] || exit 64\nexec ${quote(manager)} cli -- --live-policy-owning-runtime --manifest ${quote(replacement.manifest)} --capture-id ${quote(replacement.id)}\n`,{mode:0o700});
  const {launchCodexAppServer}=await import(pathToFileURL(mobileModule).href);runtime=launchCodexAppServer({profile:'default',cwd:app,environment:controllerEnv});trackPrivateRequests(runtime.child);
  await rpc('initialize',{clientInfo:{name:'l9_actual_provenance_proof',version:'2'},capabilities:{experimentalApi:true}});runtime.child.stdin.write(JSON.stringify({method:'initialized',params:{}})+'\n');
  const replacementBirth=identity(runtime.child.pid);assert.notDeepEqual(replacementBirth,birth);report.appServer=replacementBirth;
- const resumed=await resumeRenewal(replacement);const replacementObserved=await actualSources(replacement.value,replacement.manifest,replacement.id,resumed,JSON.parse(replacementCapture.stdout));report.renewal.replacementBridgeCatalog=await originalBridgeCatalog(resumed.thread.id,replacement.value);
+ const resumed=await resumeRenewal(replacement);const replacementObserved=await actualSources(replacement.value,replacement.manifest,replacement.id,resumed,JSON.parse(replacementCapture.stdout));assert.equal(replacementObserved.environmentProof.homesEqual,true);assert.equal(replacementObserved.environmentProof.environmentDigest,observed.environmentProof.environmentDigest);report.renewal.replacementBridgeCatalog=await originalBridgeCatalog(resumed.thread.id,replacement.value);
  assert.equal((await callFor(replacement.manifest,['prepare'])).code,0);await oldRefused(original);await oldRefused(survivor);
  const result=await rpc('command/exec',{cwd:app,permissionProfile:narrowProfile,command:['/usr/bin/python3','-c',`from pathlib import Path\nassert Path(${JSON.stringify(publicFile)}).read_text()=='public-fixture'\ntry:Path(${JSON.stringify(join(app,'renewal-forbidden'))}).write_text('forbidden');raise Exception('WRITE_BREACH')\nexcept OSError as e:assert e.errno in (1,13,30)\ntry:Path(${JSON.stringify(auth)}).read_text();raise Exception('PRIVATE_BREACH')\nexcept (PermissionError,FileNotFoundError):pass\nprint('renewed-native-narrow-denied')`],timeoutMs:8000,outputBytesCap:1000});assert.equal(result.exitCode,0);assert.ok(result.stdout.includes('renewed-native-narrow-denied'));
  renewedFixture={app,m:replacement.value,manifest:replacement.manifest,childFile,publicFile};
  const worker=await launch('hold',renewedFixture);await nativeMessages(worker);assert.ok(worker.messages().every(frame=>Object.values(frame.checks).every(Boolean)));assert.equal((await callFor(replacement.manifest,['stop','--launch-id',worker.id])).code,0);await stopped(worker);await waitFor(()=>ownedPids(childFile).every(dead));
  report.renewal.generations.push({mode:'replacement',generation:replacement.value.generation.generation,narrowed:true,managedImage:existsSync(join(dirname(replacement.manifest),`image-${replacement.id}.json`)),inventoryDigest:replacementObserved.inventoryDigest,descendants:worker.messages(),actualNativeCommand:true});
- report.checks.actualOriginalSurvivorRenewal=true;report.checks.actualManagedReplacementNarrowing=true;report.checks.oldAuthorityIrrevocablyRevoked=true;
+ report.checks.actualSameHomeEnvironmentReplacement=true;report.checks.actualOriginalSurvivorRenewal=true;report.checks.actualManagedReplacementNarrowing=true;report.checks.oldAuthorityIrrevocablyRevoked=true;
 }
 
+
+// Native does not materialize a fresh persistent thread until its first user
+// turn. command/exec is not a conversation turn; it cannot make resume valid.
+async function materializeNativeThread(threadId) {
+ let completed;const off=runtime.rpc.onNotification(message=>{if(message.method==='turn/completed'&&message.params?.threadId===threadId)completed=message.params.turn;});
+ modelPhase='split-persist';
+ try{
+  const started=await rpc('turn/start',{threadId,input:[{type:'text',text:'Record the controlled split-home fixture conversation and finish.'}]});
+  assert.equal(typeof started.turn?.id,'string');await waitFor(()=>completed||providerFailure,60000);assert.equal(providerFailure,undefined);
+  assert.equal(completed?.id,started.turn.id);assert.equal(completed.status,'completed');
+  const current=await rpc('thread/read',{threadId,includeTurns:false});assert.equal(current.thread.id,threadId);assert.equal(current.thread.status.type,'idle');
+  report.splitThreadPersistence={completedUserTurn:true,sameThread:true,threadId,turnId:completed.id,idleObserved:true,controlledFinalOnly:true};
+ }finally{off();modelPhase='broad';}
+}
+
+async function proveSplitHomeReplacement() {
+ report.stage='split-home-original-birth';
+ const appRoot=join(root,'split home app'),directory=join(privateRoot,'split-home'),originalHome=join(directory,'original'),normalHome=join(directory,'normal-home'),worker=join(directory,'worker'),profileId='live-split-home';
+ for(const path of [appRoot,directory,originalHome,normalHome,worker])mkdirSync(path,{mode:0o700});
+ const helper=join(appRoot,'native helper.mjs'),publicPath=join(appRoot,'public.txt');
+ writeFileSync(join(appRoot,'AGENTS.md'),'Preserve private state.\n');writeFileSync(publicPath,'public-fixture');copyFileSync(childFile,helper);writeFileSync(join(worker,'config.toml'),isolatedConfig,{mode:0o600});
+ const config=readFileSync(join(nativeHome,'config.toml'),'utf8').replace(`default_permissions = "${profile}"`,`default_permissions = "${profileId}"`)+`\n[projects.${JSON.stringify(appRoot)}]\ntrust_level = "trusted"\n`+nativeProfile(profileId,appRoot);
+ writeFileSync(join(originalHome,'config.toml'),config,{mode:0o600});const bridge=originalBridge.forHome(originalHome);installedBridges.set(bridge.descriptor.path,bridge);
+ writeFileSync(join(originalHome,'config.toml'),readFileSync(join(originalHome,'config.toml'),'utf8').replace('hooks = true','hooks = false'),{mode:0o600});
+ const value=manifestFor(appRoot,directory,profileId,randomUUID(),false,originalHome,bridge),path=join(directory,'manifest.json'),id=randomUUID(),captured=await captureFor(value,path,id);
+ // Fixed test-only original launch: exactly the accepted five safe entries,
+ // independently observed after birth. No Manager environment override exists.
+ const originalEntries=[['PATH','/usr/bin:/bin'],['HOME',normalHome],['CODEX_HOME',originalHome],['TMPDIR','/tmp'],['LANG','C.UTF-8']];
+ const expectedEnvironmentDigest=hash(Buffer.from(originalEntries.map(([name,value])=>`${name}=${value}`).join('\0')+'\0'));
+ const before=signedBody(join(directory,`birth-${id}.json`));
+ await waitFor(()=>Math.floor(Number(readFileSync('/proc/uptime','utf8').split(' ')[0])*before.clock.hz)>Number(before.afterTick));
+ writeFileSync(join(bin,'codex'),`#!/bin/sh\n[ "$#" = 2 ] && [ "$1" = app-server ] && [ "$2" = --stdio ] || exit 64\nexec /usr/bin/env -i ${originalEntries.map(([name,value])=>quote(name+'='+value)).join(' ')} ${quote(binary)} "$@"\n`,{mode:0o700});
+ const {launchCodexAppServer}=await import(pathToFileURL(mobileModule).href);
+ const initialize=async()=>{trackPrivateRequests(runtime.child);await rpc('initialize',{clientInfo:{name:'l9_split_home_proof',version:'1'},capabilities:{experimentalApi:true}});runtime.child.stdin.write(JSON.stringify({method:'initialized',params:{}})+'\n');report.appServer=identity(runtime.child.pid);assert.equal(readlinkSync(`/proc/${runtime.child.pid}/exe`),binary);};
+ runtime=launchCodexAppServer({profile:'default',cwd:appRoot,environment:{...controllerEnv,CODEX_HOME:originalHome}});await initialize();
+ const birth=identity(runtime.child.pid),reply=await startupAt(value,{holdMetadata:true}),original={value,manifest:path,id,threadId:reply.thread.id};
+ const observed=await actualSources(value,path,id,reply,captured);assert.equal(observed.environmentProof.homesEqual,false);assert.equal(observed.environmentProof.environmentDigest,expectedEnvironmentDigest);
+ const catalogs=[await originalBridgeCatalog(reply.thread.id,value)];await materializeNativeThread(original.threadId);
+ const fixture=current=>({app:appRoot,m:current.value,manifest:current.manifest,childFile:helper,publicFile:publicPath});
+ const checkedLaunch=async current=>{const launched=await launch('hold',fixture(current));await nativeMessages(launched);assert.ok(launched.messages().every(frame=>Object.values(frame.checks).every(Boolean)));const births=ownedPids(helper).filter(record=>{try{return readlinkSync(`/proc/${record.pid}/exe`)===admittedNode;}catch{return false;}});assert.equal(births.length,3);return {launched,births};};
+ const first=await checkedLaunch(original);assert.equal((await callFor(path,['revoke-runtime','--capture-id',id])).code,0);await stopped(first.launched);await waitFor(()=>first.births.every(dead));await oldRefused(original);
+ const holder=metadataCommands.get(appRoot);await rpc('command/exec/terminate',{processId:holder.processId});assert.ok(Number.isInteger((await holder.finished).exitCode));holder.off();metadataCommands.delete(appRoot);await quiesceNative(rpc,[original.threadId]);
+ const resume=async current=>{const result=await rpc('thread/resume',{threadId:current.threadId,cwd:appRoot,permissions:profileId,approvalPolicy:'never',model:'gpt-6-sol',modelProvider:'controlled',excludeTurns:true});assert.equal(result.thread.id,original.threadId);return result;};
+ report.stage='split-home-survivor';const survivor=nextRenewal(original),survivorCapture=await renewCapture(survivor,original,'survivor');assert.equal(survivorCapture.code,0,JSON.stringify(managerResultDiagnostic(survivorCapture)));
+ const survivorReply=await resume(survivor),survivorObserved=await actualSources(survivor.value,survivor.manifest,survivor.id,survivorReply,JSON.parse(survivorCapture.stdout));assert.deepEqual(identity(runtime.child.pid),birth);assert.equal(survivorObserved.environmentProof.homesEqual,false);assert.equal(survivorObserved.environmentProof.environmentDigest,expectedEnvironmentDigest);
+ catalogs.push(await originalBridgeCatalog(survivor.threadId,survivor.value));const second=await checkedLaunch(survivor);assert.equal((await callFor(survivor.manifest,['revoke-runtime','--capture-id',survivor.id])).code,0);await stopped(second.launched);await waitFor(()=>second.births.every(dead));await quiesceNative(rpc,[survivor.threadId]);
+ const originalChildren=runtimeChildren();await settleRuntime(runtime.child,originalChildren);assert.ok(dead(birth));
+ report.stage='split-home-managed-replacement';const replacement=nextRenewal(survivor),replacementCapture=await renewCapture(replacement,survivor,'replacement');assert.equal(replacementCapture.code,0,JSON.stringify(managerResultDiagnostic(replacementCapture)));
+ writeFileSync(join(bin,'codex'),`#!/bin/sh\n[ "$#" = 2 ] && [ "$1" = app-server ] && [ "$2" = --stdio ] || exit 64\nexec ${quote(manager)} cli -- --live-policy-owning-runtime --manifest ${quote(replacement.manifest)} --capture-id ${quote(replacement.id)}\n`,{mode:0o700});
+ runtime=launchCodexAppServer({profile:'default',cwd:appRoot,environment:{...controllerEnv,CODEX_HOME:originalHome}});await initialize();const replacementBirth=identity(runtime.child.pid);assert.notDeepEqual(replacementBirth,birth);
+ const replacementReply=await resume(replacement),replacementObserved=await actualSources(replacement.value,replacement.manifest,replacement.id,replacementReply,JSON.parse(replacementCapture.stdout));assert.equal(replacementObserved.environmentProof.homesEqual,false);assert.equal(replacementObserved.environmentProof.environmentDigest,expectedEnvironmentDigest);catalogs.push(await originalBridgeCatalog(replacement.threadId,replacement.value));
+ await oldRefused(original);await oldRefused(survivor);
+ const nativeCommand=await rpc('command/exec',{cwd:appRoot,permissionProfile:profileId,command:['/usr/bin/python3','-c',`from pathlib import Path\nassert Path(${JSON.stringify(publicPath)}).read_text()=='public-fixture'\nPath(${JSON.stringify(join(appRoot,'replacement-command.txt'))}).write_text('permitted-native-write')\nfor private in ${JSON.stringify([auth,join(dirname(replacement.manifest),`environment-${replacement.id}.json`)])}:\n try:Path(private).read_text();raise Exception('PRIVATE_BREACH')\n except (PermissionError,FileNotFoundError):pass\nprint('split-home-replacement-native-command')`],timeoutMs:8000,outputBytesCap:1000});
+ assert.equal(nativeCommand.exitCode,0);assert.ok(nativeCommand.stdout.includes('split-home-replacement-native-command'));assert.equal(readFileSync(join(appRoot,'replacement-command.txt'),'utf8'),'permitted-native-write');
+ // Sealing runtime provenance does not prepare the separate signed policy
+ // receipt. Publish that receipt before requiring two independent validations.
+ const prepared=await callFor(replacement.manifest,['prepare']);assert.equal(prepared.code,0,JSON.stringify(managerResultDiagnostic(prepared)));
+ // The subsequent heartbeat and command must reobserve, rather than reuse it.
+ for(let observation=0;observation<2;observation++){const verified=await callFor(replacement.manifest,['verify']);assert.equal(verified.code,0,JSON.stringify(managerResultDiagnostic(verified)));}
+ const third=await checkedLaunch(replacement),environmentPath=join(dirname(replacement.manifest),`environment-${replacement.id}.json`),saved=JSON.parse(readFileSync(environmentPath));saved.mac=(saved.mac[0]==='0'?'1':'0')+saved.mac.slice(1);writeFileSync(environmentPath,JSON.stringify(saved),{mode:0o600});
+ report.stage='split-home-environment-tamper';await stopped(third.launched);await waitFor(()=>third.births.every(dead));assert.equal(signedBody(third.launched.path).termination,'policy-changed');
+ const refused=await callFor(replacement.manifest,['verify']);assert.equal(refused.code,1);assert.equal((await callFor(replacement.manifest,['revoke-runtime','--capture-id',replacement.id])).code,0);
+ const later=nextRenewal(replacement),renewed=await renewCapture(later,replacement,'survivor');assert.equal(renewed.code,1);
+ await settleRuntime(runtime.child);
+ report.splitHome={sameOriginalBirthThroughSurvivor:true,sameAppAndThread:true,managedReplacementNewBirth:true,originalEnvironmentDigest:expectedEnvironmentDigest,orderedEnvironmentPreserved:true,environmentValuesExported:false,catalogs,
+  threeGenerationsConfined:true,actualNativeReplacementCommand:true,allNineHelperBirthsExited:[...first.births,...second.births,...third.births].every(dead),originalOwnerExited:dead(birth),replacementOwnerExited:dead(replacementBirth),signedCleanupAndPipeClosure:true,
+  independentValidationsBeforeMutation:2,tamperedPrivateEnvironmentRefused:true,heartbeatRevoked:true,verifyReason:JSON.parse(refused.stdout).reason,renewalReason:JSON.parse(renewed.stdout).reason};
+ report.checks.actualSplitHomeOriginalSurvivorAndReplacement=true;report.checks.privateEnvironmentTamperRevokesAndRefusesRenewal=true;
+}
 
 async function proveInstalledSourceTamper() {
  report.stage='fresh-owning-source-tamper';
@@ -509,7 +647,7 @@ try {
  const {electLiveController}=await import(pathToFileURL(electionModule).href);elected=await electLiveController({privateDirectory:privateRoot,controllerId:'l9-proof',initialize:true});
  const holderPid=Number(readFileSync(`/proc/${process.pid}/task/${process.pid}/children`,'utf8').trim().split(/\s+/).find(pid=>{try{return readFileSync(`/proc/${pid}/cmdline`,'utf8').includes('elected');}catch{return false;}}));assert.ok(holderPid);report.election={holder:identity(holderPid),lockFile:join(privateRoot,'controller.lock')};report.checks.existingMobileElection=true;
  await new Promise(done=>server.listen(socket,done));const caddyConfig=join(privateRoot,'caddy.json');writeFileSync(caddyConfig,JSON.stringify({admin:{listen:'unix/'+caddySocket},apps:{http:{servers:{fixture:{listen:['127.0.0.1:0'],routes:[{handle:[{handler:'static_response',body:'fixture'}]}]}}}}}),{mode:0o600});
- caddy=spawn(caddyBinary,['run','--config',caddyConfig],{env:controllerEnv,stdio:'ignore'});await waitFor(()=>existsSync(caddySocket));assert.equal(await api(),200);report.checks.actualCaddyHostAuthority=true;
+ caddy=spawn(caddyBinary,['run','--config',caddyConfig],{env:controllerEnv,stdio:'ignore'});trackOwnedChild(caddy,'caddy');await waitFor(()=>existsSync(caddySocket));assert.equal(await api(),200);report.checks.actualCaddyHostAuthority=true;
  await new Promise(done=>provider.listen(0,'127.0.0.1',done));const providerPort=provider.address().port;
  const allApps=[app,networkCase.app,...cases.map(c=>c.app)];const owningConfig=`model = "gpt-6-sol"\nmodel_provider = "controlled"\nmodel_reasoning_effort = "medium"\napproval_policy = "never"\ndefault_permissions = "${profile}"\n[shell_environment_policy]\ninherit = "none"\n[model_providers.controlled]\nname = "Controlled Native proof"\nbase_url = "http://127.0.0.1:${providerPort}/v1"\nwire_api = "responses"\nrequires_openai_auth = false\n[features]\nshell_snapshot = false\nshell_snapshot_v2 = false\ndaemon_auto_start = false\ncode_mode = false\nmulti_agent = true\nmulti_agent_v2 = true\nhooks = false\n${allApps.map(path=>`[projects.${JSON.stringify(path)}]\ntrust_level = "trusted"\n`).join('')}${nativeProfile(profile,app)}${nativeProfile(narrowProfile,app,false)}${nativeProfile(networkCase.profile,networkCase.app,true,true)}${cases.map(c=>nativeProfile(c.profile,c.app)).join('')}`;writeFileSync(join(nativeHome,'config.toml'),owningConfig,{mode:0o600});
  report.stage='authentic-installed-source-preparation';originalBridge=await prepareOriginalInstalledBridge({agentsRoot:realpathSync(process.env.LIVE_HOST_AGENTS_ROOT??acceptedAgentsRoot),originalHome:nativeHome,gestaltHome:join(privateRoot,'installed-gestalt'),installation:join(privateRoot,'installed-packages')});installedBridges.set(originalBridge.descriptor.path,originalBridge);
@@ -533,13 +671,13 @@ try {
  report.appServer=identity(runtime.child.pid);assert.equal(readlinkSync(`/proc/${runtime.child.pid}/exe`),binary);assert.equal(hash(readFileSync(`/proc/${runtime.child.pid}/exe`)),expectedBinary);report.checks.originalOwningNativeIdentity=true;
  const hostRead=await rpc('fs/readFile',{path:auth});assert.equal(hostRead.dataBase64,Buffer.from('private-auth-fixture').toString('base64'));report.checks.controllerFsAuthority=true;
  report.stage='actual-original-startup';const initial=await startupAt(m);thread=initial.thread.id;primaryThread=thread;const observed=await actualSources(m,manifest,captureId,initial,captured);
- assert.ok(existsSync(join(app,'.codex')),'NATIVE_STARTUP_DID_NOT_CREATE_METADATA');assert.equal(readdirSync(join(app,'.codex')).length,0);assert.ok(initial.instructionSources.includes(join(app,'AGENTS.md')));report.checks.actualNativeStartupMetadata=true;report.checks.projectInstructionsLoaded=true;report.appliedFeatures={shellSnapshot:observed.configuration.config.features.shell_snapshot,shellSnapshotV2:observed.configuration.config.features.shell_snapshot_v2,hooks:observed.configuration.config.features.hooks};
+ startupMetadataProof(m,observed.inventory);assert.ok(initial.instructionSources.includes(join(app,'AGENTS.md')));report.checks.actualNativeStartupMetadata=true;report.checks.projectInstructionsLoaded=true;report.appliedFeatures={shellSnapshot:observed.configuration.config.features.shell_snapshot,shellSnapshotV2:observed.configuration.config.features.shell_snapshot_v2,hooks:observed.configuration.config.features.hooks};
  report.installedSource.originalCatalog=await originalBridgeCatalog(thread,m);report.checks.authenticInstalledBridgeActualNativeCatalog=true;
  report.sources={nativeLayerKinds:observed.configuration.layers.map(layer=>layer.name.type),directoryCount:observed.inventory.sources.filter(source=>source.kind==='directory').length,instructionCount:initial.instructionSources.length,inventoryDigest:observed.inventoryDigest,effectiveConfigDigest:observed.inventory.effectiveConfigDigest,sessionFlagsDigest:observed.inventory.sessionFlagsDigest};
  report.stage='native-model-and-child-tools';await prepare();let completed=false;const off=runtime.rpc.onNotification(message=>{if(message.method==='turn/completed'&&message.params?.threadId===thread)completed=true;});
  await rpc('turn/start',{threadId:thread,input:[{type:'text',text:'Run the controlled native confinement probe.'}]});await waitFor(()=>completed||providerFailure,90000);off();assert.equal(providerFailure,undefined);assert.ok(modelThreads.size>=2);assert.ok(roleSteps.get('root')>=5);
  assert.ok(existsSync(join(app,'model-root.txt')));assert.equal(readdirSync(privateRoot).some(name=>name.startsWith('forbidden-')),false);originalModelWorkers=nativeCodeModeWorkers();report.originalModelWorkers=originalModelWorkers;report.checks.actualNativeModelFileTools=true;report.checks.actualNativeChildAgentInheritance=true;report.model={provider:'controlled',requests:providerRequests,threads:modelThreads.size};
- report.stage='native-helper-and-grandchildren';extraFD=openSync(auth,'r');unowned=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{env:controllerEnv,stdio:'ignore'});
+ report.stage='native-helper-and-grandchildren';extraFD=openSync(auth,'r');unowned=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{env:controllerEnv,stdio:'ignore'});trackOwnedChild(unowned,'unrelated-control');
  const first=await launch();await nativeMessages(first);
  await waitFor(()=>first.frames().some(frame=>frame.kind==='devserver-denied'));const denial=first.frames().find(frame=>frame.kind==='devserver-denied');assert.ok([1,13].includes(denial.errno));assert.equal(existsSync(first.publicSocket),false);assert.equal(m.sandboxState.permissionProfile.network,'restricted');report.restrictedDevserver={originalNetwork:'restricted',bindDenied:true,errno:denial.errno};report.checks.originalRestrictedNetworkBindDenied=true;
  assert.ok(first.messages().every(frame=>Object.values(frame.checks).every(Boolean)));report.nativeResults=first.messages();report.checks.helperAndGrandchildConfinement=true;
@@ -582,7 +720,8 @@ try {
  report.devserver.originalNetwork='enabled';report.devserver.originalPolicyFixture='separate-from-birth';report.devserver.inventoryDigest=enabledSources.inventoryDigest;report.devserver.descendants=enabled.messages();
  assert.equal((await callFor(networkCase.manifest,['stop','--launch-id',enabled.id])).code,0);await stopped(enabled);await waitFor(()=>ownedPids(networkCase.childFile).every(dead));const enabledHolder=metadataCommands.get(networkCase.app);await rpc('command/exec/terminate',{processId:enabledHolder.processId});const enabledExit=await enabledHolder.finished;assert.ok(Number.isInteger(enabledExit.exitCode));enabledHolder.off();metadataCommands.delete(networkCase.app);report.devserver.nativeCommandSettled=true;
  await proveRenewal({value:m,manifest,id:captureId,threadId:thread});
- report.stage='actual-owning-runtime-loss';const orphan=await launch('hold',renewedFixture);await nativeMessages(orphan);runtime.child.kill('SIGKILL');await stopped(orphan);await waitFor(()=>ownedPids(childFile).every(dead));assert.equal((await managerCall(['live-policy','verify','--manifest',renewedFixture.manifest])).code,1);report.checks.owningRuntimeLossRevokesWorkers=true;
+ report.stage='actual-owning-runtime-loss';const orphan=await launch('hold',renewedFixture);await nativeMessages(orphan);const lossChildren=runtimeChildren();runtime.child.kill('SIGKILL');await stopped(orphan);await settleRuntime(runtime.child,lossChildren);await waitFor(()=>ownedPids(childFile).every(dead));assert.equal((await managerCall(['live-policy','verify','--manifest',renewedFixture.manifest])).code,1);report.checks.owningRuntimeLossRevokesWorkers=true;
+ await proveSplitHomeReplacement();
  await proveInstalledSourceTamper();
  report.stage='devserver-capability-required';assert.equal(report.checks.actualConfinedDevserverAndRegisteredLoopbackIngress,true,'REQUIRED_DEVSERVER_PROOF_UNAVAILABLE');
  report.stage='complete';report.passed=true;
@@ -590,7 +729,7 @@ try {
 } finally {
  if(active){try{await managerCall(['live-policy','stop','--manifest',active.manifestPath,'--launch-id',active.id]);await stopped(active);}catch{report.passed=false;process.exitCode=1;await closeOwned(active.child);}}
  for(const holder of metadataCommands.values()){try{await rpc('command/exec/terminate',{processId:holder.processId});await holder.finished;}catch{}holder.off();}metadataCommands.clear();
- if(extraFD!==undefined)closeSync(extraFD);try{await closeOwned(runtime?.child);await closeOwned(caddy);await closeOwned(unowned);await elected?.close();report.checks.ownedShutdown=true;}catch{report.passed=false;report.failure='OWNED_SHUTDOWN_FAILED';process.exitCode=1;}
+ if(extraFD!==undefined)closeSync(extraFD);try{if(runtime?.child)await settleRuntime(runtime.child);await closeOwned(caddy);await closeOwned(unowned);await elected?.close();if(report.election){await waitFor(()=>dead(report.election.holder));report.electionCleanup={acceptedCloseReturned:true,holderBirthExited:true};}report.checks.ownedShutdown=true;}catch{report.passed=false;report.failure='OWNED_SHUTDOWN_FAILED';process.exitCode=1;}
  if(publicIngress?.listening)await new Promise(done=>publicIngress.close(done));
  if(provider.listening)await new Promise(done=>provider.close(done));if(server.listening)await new Promise(done=>server.close(done));
  report.metadataPreserved=true;report.fixtureRootRetained=true;report.providerRequests=providerRequests;writeFileSync(join(evidence,'native-proof.json'),JSON.stringify(report,null,2)+'\n');

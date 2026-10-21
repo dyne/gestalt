@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "scope": "Pinned offline package contracts; source helper is test-only and never a manager policy implementation",
+  "components": {
+    "agents": {
+      "revision": "70c2014730f56952c37f397071e69e058cd70dd4",
+      "files": [
+        {
+          "fixture": "agents/org-plan",
+          "sourcePath": "plugins/gestalt/skills/org-plan/scripts/org-plan",
+          "sha256": "c44b70ad0948c0d7df5b44642b89b2ae312bddda98e605a3788fb00814e18707"
+        },
+        {
+          "fixture": "agents/capabilities.json",
+          "sourcePath": "plugins/gestalt/gestalt-supervision-capabilities.json",
+          "sha256": "4063da2f4178ff14f5badcd5d9cb04d103a3b1acf52c104766ac645d9f829b04"
+        },
+        {
+          "fixture": "agents/package.json",
+          "sourcePath": "plugins/gestalt/.codex-plugin/plugin.json",
+          "sha256": "761fc32bc0671c52c435d79012993267fb7bdfb26bf6a8134e4d3611a1871648"
+        },
+        {
+          "fixture": "agents/configure-codex.mjs",
+          "sourcePath": "plugins/context-mode/scripts/configure-codex.mjs",
+          "sha256": "012391f97159b24b8c77a3132c80d6b28429ba0383cdf1b71da702dbe445168a"
+        }
+      ]
+    },
+    "mobile": {
+      "revision": "7989790b100fc61cd8444a739d7fe05cc18c1458",
+      "files": [
+        {
+          "fixture": "mobile/capabilities.json",
+          "sourcePath": "gestalt-supervision-capabilities.json",
+          "sha256": "dcb33f680191d1f68a71e66aca4f7d02938a279a496c37b55c2eb6659fe0b3d6"
+        },
+        {
+          "fixture": "mobile/package.json",
+          "sourcePath": "package.json",
+          "sha256": "6aa6b7ba6507743b64b49f2b601893c30681be13081f09dc484e655ab9161c2b"
+        }
+      ]
+    }
+  }
+}

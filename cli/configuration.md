@@ -65,7 +65,7 @@ credential store, or lease ID.
 
 `ready (v1; offline manifests)` means the installed components agree. `UNAVAILABLE`
 means a release did not publish its manifest; `INCOMPATIBLE` means a manifest is
-malformed, stale, or lacks a named capability. Both have one recovery action:
+malformed, stale, or lacks a named capability. The usual upgrade recovery is:
 
 ```sh
 gestalt update
@@ -74,6 +74,53 @@ gestalt update
 
 The manager continues its normal download and validation path; doctor never
 downloads or silently changes a component.
+
+The optional L1 model-policy check adds **SUPPORTED**, **LEGACY**, or
+**INCOMPATIBLE** diagnostics. Supported means schema/configuration agreement,
+with runtime enforcement unavailable; legacy packages retain base supervision.
+An upgrade or rollback of only one package can be incompatible. See the
+[manifest contract](../reference/supervision-capabilities.md) for exact scope,
+setup rollback, and generated-role limitations.
+
+## Verify the installation you will run
+
+Run these read-only commands with the same `CODEX_HOME` and `GESTALT_HOME`
+overrides used for installation:
+
+```sh
+gestalt version
+gestalt path --json
+gestalt doctor
+```
+
+Version output and resolved paths identify installed artifacts, rather than a
+sibling source checkout. Doctor inspects installed package declarations; it does
+not prove runtime model enforcement or production behavior. Source tests and
+documentation builds validate their own candidate only. To establish installed
+behavior, use a fresh isolated installation of the pinned candidate, verify
+package identities and capabilities there, and retain its actual checks.
+
+Successful setup records manager version/source digest, delegated setup digest,
+and config/hooks/role-file digests in
+`<CODEX_HOME>/.gestalt-setup-provenance.json`. This record describes setup-time
+artifacts. Compare current bytes before reuse; it does not attest a running
+session or later edits. Its `runtimeEnforcement` field remains false.
+
+## Compatible rollback
+
+Before an intentional update, close affected sessions and retain a known-good
+copy of the manager executable plus the dedicated Codex and Gestalt homes with
+their modes. Keep the matched Agents/context-mode and Mobile revisions together.
+A backup can contain credentials and session data; keep it private.
+
+If an update fails, distinguish the manager's config rollback from package
+rollback: the setup stage restores previous config, but does not undo downloaded
+packages. There is no manager rollback subcommand. Restore the known-good
+manager and matched isolated homes together using your normal backup procedure,
+then run `gestalt doctor` and restart Mobile/new sessions. Pinning only
+`GESTALT_MOBILE_VERSION` does not pin Agents and cannot establish compatible
+rollback. Verify the restored manifests; do not edit them to claim support.
+Legacy pairs keep base supervision without silently acquiring model policy.
 
 ## Transfer skills between installations
 

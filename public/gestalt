@@ -2760,17 +2760,81 @@ install_mobile() {
   [[ -x $mobile_bin ]] || die "npm completed but the Mobile executable is missing: $mobile_bin"
 }
 
+record_setup_provenance() {
+  node --input-type=module - "$codex_home" "$marketplace_setup" \
+    "${BASH_SOURCE[0]}" "$GESTALT_CLI_VERSION" <<'NODE'
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+const [home, setup, manager, version] = process.argv.slice(2);
+const digest = path => existsSync(path)
+  ? createHash('sha256').update(readFileSync(path)).digest('hex') : null;
+const outputs = Object.fromEntries([
+  'config.toml', 'hooks.json',
+  'agents/org-plan-executor.toml', 'agents/org-plan-reviewer.toml',
+].map(path => [path, digest(join(home, path))]));
+const provenance = JSON.stringify({ schemaVersion: 1, scope: 'setup-artifacts-only',
+  runtimeEnforcement: false, manager: { version, sha256: digest(manager) },
+  delegatedSetupSha256: digest(setup), outputs }, null, 2) + '\n';
+const destination = join(home, '.gestalt-setup-provenance.json');
+if (existsSync(destination) && readFileSync(destination, 'utf8') === provenance) process.exit(0);
+const temporary = `${destination}.tmp-${process.pid}`;
+writeFileSync(temporary, provenance, { mode: 0o600 });
+renameSync(temporary, destination);
+NODE
+}
+
 run_marketplace_setup() {
   local -r mode=$1
   local -r include_extra_skills=$2
   local marketplace_action
+  agents_setup_stage=''
   local -a setup_args=()
 
   check_node_version
   require_command npm
   require_command codex
   mkdir -p -- "$codex_home" "$gestalt_home"
+  agents_setup_lock=$codex_home/.gestalt-setup.lock
+  mkdir -- "$agents_setup_lock" 2>/dev/null ||
+    die 'Agents setup is already running or Codex home is not writable; verify the previous installer exited before removing .gestalt-setup.lock'
+  # Serialize setup and roll back manager-owned config edits on failure. Package
+  # installation and its own profile transaction remain the delegated owner's job.
+  setup_cleanup() {
+    local status=$?
+    trap - EXIT HUP INT TERM ERR
+    # Cleanup must not replace the triggering status or prevent the manager's
+    # preexisting EXIT cleanup (including the update/restart worker lock).
+    set +e
+    if (( status != 0 )) && [[ -n $agents_setup_stage ]]; then
+      if [[ -f $agents_setup_stage/config.toml ]]; then
+        mv -f -- "$agents_setup_stage/config.toml" "$codex_home/config.toml"
+      elif [[ -f $agents_setup_stage/config-absent ]]; then
+        rm -f -- "$codex_home/config.toml"
+      fi
+    fi
+    [[ -z $agents_setup_stage ]] || rm -rf -- "$agents_setup_stage"
+    rmdir -- "$agents_setup_lock" 2>/dev/null || true
+    cleanup
+    exit "$status"
+  }
+  trap setup_cleanup EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  [[ ! -L $codex_home/config.toml &&
+      (! -e $codex_home/config.toml || -f $codex_home/config.toml) ]] ||
+    die 'Codex config must be a regular file for setup'
+  agents_setup_stage=$(mktemp -d "$codex_home/.gestalt-setup.XXXXXXXX")
+  if [[ -f $codex_home/config.toml ]]; then
+    cp -p -- "$codex_home/config.toml" "$agents_setup_stage/config.toml"
+  else
+    touch "$agents_setup_stage/config-absent"
+  fi
   configure_codex_permissions
+  # Establish app defaults before the owner appends its managed MCP section,
+  # keeping first-install ordering identical to later reconciliation.
+  configure_codex_tool_approvals
 
   marketplace_action=upgrade
   if [[ $mode == install && ! -f $marketplace_setup ]]; then
@@ -2802,6 +2866,15 @@ run_marketplace_setup() {
     bash "$marketplace_setup" "${setup_args[@]}"
   verify_context_mode_installation
   configure_codex_tool_approvals
+  # Normalize our block after delegated sections/defaults are reconciled so the
+  # first successful setup has the same bytes as every subsequent setup.
+  configure_codex_permissions
+  record_setup_provenance
+  rm -rf -- "$agents_setup_stage"
+  agents_setup_stage=''
+  rmdir -- "$agents_setup_lock"
+  trap cleanup EXIT
+  trap - HUP INT TERM
 }
 
 parse_setup_options() {
@@ -3755,7 +3828,7 @@ read_supervision_capabilities() {
   # shellcheck disable=SC2016 # The Node program intentionally owns its JavaScript interpolation.
   node -e '
     const fs = require("node:fs");
-    const [file, component, schema, contract] = process.argv.slice(1);
+    const [file, component, schema] = process.argv.slice(1);
     try {
       const value = JSON.parse(fs.readFileSync(file, "utf8"));
       const capabilities = value.capabilities;
@@ -3767,12 +3840,23 @@ read_supervision_capabilities() {
             !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(capability))) {
         process.stdout.write("MALFORMED");
       } else {
-        process.stdout.write(`READY|${value.supervisionContract}|${[...new Set(capabilities)].sort().join(",")}`);
+        const policy = value.modelPolicyContract;
+        const declared = capabilities.some(name => name.startsWith("l1-model-policy-"));
+        if (declared !== (policy !== undefined) || (declared &&
+            (!policy || typeof policy !== "object" || Array.isArray(policy) ||
+             !Number.isInteger(policy.version) || typeof policy.scope !== "string" ||
+             !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(policy.scope) ||
+             typeof policy.runtimeEnforcement !== "boolean"))) {
+          process.stdout.write("MALFORMED");
+        } else {
+          const model = declared ? `${policy.version}:${policy.scope}:${policy.runtimeEnforcement}` : "legacy";
+          process.stdout.write(`READY|${value.supervisionContract}|${[...new Set(capabilities)].sort().join(",")}|${model}`);
+        }
       }
     } catch {
       process.stdout.write("MALFORMED");
     }
-  ' "$manifest" "$component" "$SUPERVISION_CAPABILITY_SCHEMA" "$SUPERVISION_CONTRACT_VERSION"
+  ' "$manifest" "$component" "$SUPERVISION_CAPABILITY_SCHEMA"
 }
 
 has_supervision_capability() {
@@ -3783,7 +3867,7 @@ has_supervision_capability() {
 
 check_supervision_capability_coherence() {
   local agents mobile agents_contract agents_capabilities mobile_contract mobile_capabilities
-  local capability
+  local capability agents_model mobile_model
   local -a agents_required=(supervision-start wait-lease-tool checkpoint-tool agent-capacity-recovery canonical-agent-identity org-plan-contract)
   local -a mobile_required=(supervision-start wait-lease-tool checkpoint-tool agent-capacity-recovery controller-status canonical-agent-identity session-verdict acknowledgement-safe-composer org-plan-contract)
 
@@ -3806,8 +3890,8 @@ check_supervision_capability_coherence() {
     return 1
   fi
 
-  IFS='|' read -r _ agents_contract agents_capabilities <<< "$agents"
-  IFS='|' read -r _ mobile_contract mobile_capabilities <<< "$mobile"
+  IFS='|' read -r _ agents_contract agents_capabilities agents_model <<< "$agents"
+  IFS='|' read -r _ mobile_contract mobile_capabilities mobile_model <<< "$mobile"
   if [[ $agents_contract != "$SUPERVISION_CONTRACT_VERSION" || $mobile_contract != "$SUPERVISION_CONTRACT_VERSION" || $agents_contract != "$mobile_contract" ]]; then
     print_check 'Supervision contract' "INCOMPATIBLE (Agents=$agents_contract Mobile=$mobile_contract; run gestalt update, then restart Mobile)"
     return 1
@@ -3825,6 +3909,20 @@ check_supervision_capability_coherence() {
     fi
   done
   print_check 'Supervision contract' "ready (v$agents_contract; offline manifests)"
+  if [[ $agents_model == legacy && $mobile_model == legacy ]]; then
+    print_check 'L1 model policy' 'LEGACY (base supervision only; update both packages for configured-policy diagnostics)'
+    return 0
+  fi
+  if [[ $agents_model != 1:schema-and-local-contracts:false ||
+        $mobile_model != 1:schema-and-retention:false ]] ||
+      ! has_supervision_capability "$agents_capabilities" l1-model-policy-v1 ||
+      ! has_supervision_capability "$mobile_capabilities" l1-model-policy-v1 ||
+      ! has_supervision_capability "$agents_capabilities" l2-report-boundary ||
+      ! has_supervision_capability "$mobile_capabilities" l2-report-boundary; then
+    print_check 'L1 model policy' 'INCOMPATIBLE (update or roll back Agents and Mobile together; then restart Mobile)'
+    return 1
+  fi
+  print_check 'L1 model policy' 'SUPPORTED (v1 schema/configuration diagnostics; runtimeEnforcement=false; automatic policy launches unsupported)'
 }
 
 verify_context_mode_installation() {

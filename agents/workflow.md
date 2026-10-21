@@ -47,10 +47,33 @@ continues work, follows up the same executor, reviews/corrects, starts the next
 L1, or uses one of the explicit wait, attention, or manual-Off dispositions.
 
 The agent list uses exact positional identities: the root is `l0`, and the
-executor for an L1 is `l# — <current L1 title>`, with the title shown once.
+executor for L1 position `a` is `l<a>`. The current milestone title is separate display metadata.
 Roles, nicknames, the plan title, and generated labels never replace or extend
 those names. An interrupted or older physical replacement retains the same
 positional identity and remains visible with its lifecycle state.
+
+## Model-policy capability
+
+A version 1 model-policy plan declares its version and explicit model, reasoning
+effort, rationale, fallback IDs, and escalation trigger on each L1. The owning
+Agents helper validates that schema; legacy plans remain legacy and are not
+silently migrated. The v1 model pool is `gpt-6-luna`, `gpt-6-sol`, and
+`gpt-6.1-sol`, with medium effort as the authoring default. Higher effort requires
+recorded correctness or reasoning evidence and a return-to-medium condition.
+Schema acceptance does not establish runtime model availability.
+
+Mobile retains this policy and diagnoses configured settings. The manager's
+[capability check](../reference/supervision-capabilities.md#l1-model-policy-agreement)
+reports package agreement with `runtimeEnforcement=false`. Strict runtime
+attestation and native child enforcement remain deferred; automatic launches
+requiring that enforcement remain unsupported. Package presence, a valid plan,
+or a setup provenance record does not authorize such a launch.
+
+Explicit install/update regenerates the two Agents-managed role files. Manual
+customizations inside generated role files are not preserved by setup; preserving
+them is deferred. User configuration and unmanaged profiles remain intact, and
+ordinary launches preserve all installed profiles. See
+[setup ownership](../reference/supervision-capabilities.md#setup-ownership-and-provenance).
 
 ## When a native plan is enough
 

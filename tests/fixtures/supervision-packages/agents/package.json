@@ -1,0 +1,37 @@
+{
+  "name": "gestalt",
+  "version": "2.18.0",
+  "description": "Dyne.org Gestalt planning, debugging, testing, verification, and skill-authoring workflows",
+  "author": {
+    "name": "Dyne.org",
+    "url": "https://dyne.org/gestalt"
+  },
+  "repository": "https://github.com/dyne/gestalt-agents",
+  "license": "MIT",
+  "keywords": [
+    "skills",
+    "planning",
+    "testing",
+    "debugging",
+    "verification"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "org-plan",
+    "shortDescription": "Plan, implement, debug, test, and verify software changes",
+    "longDescription": "Gestalt provides structured Codex workflows for software planning, implementation, debugging, testing, verification, and skill authoring. Org Plan documents remain inspectable execution plans that separate intent, implementation, and review. The methodology was developed by Denis \"Jaromil\" Roio at Dyne.org, drawing on long-term experience in free and open source software engineering.",
+    "developerName": "Dyne.org, led by Denis \"Jaromil\" Roio",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Planning",
+      "Software Development",
+      "Debugging",
+      "Testing",
+      "Verification"
+    ],
+    "defaultPrompt": [
+      "Create or select an Org plan for this task and then ask for approval to start its implementation."
+    ]
+  }
+}

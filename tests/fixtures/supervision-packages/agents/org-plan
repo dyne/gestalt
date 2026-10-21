@@ -1,0 +1,328 @@
+#!/usr/bin/env bash
+# Strict helper for the small Org dialect used by the org-plan skill.
+set -Eeuo pipefail
+
+# All Org parsing, validation, transitions, measurement, and publication live
+# in the shared Node core.  Keep this Bash entry point only for the existing
+# profile-installation commands, whose transactional file setup is unrelated
+# to plan lifecycle semantics.
+if [[ ${1:-} != prepare-executor && ${1:-} != prepare-supervision ]]; then
+  script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
+  cli="$script_dir/org-plan-cli.mjs"
+  # Setup keeps the stable public launcher in CODEX_HOME/bin and installs its
+  # Node implementation as one coherent private bundle below CODEX_HOME/lib.
+  # Retain the colocated source layout for plugin and development use.
+  if [[ ! -f $cli ]]; then
+    cli="$script_dir/../lib/gestalt-org-plan/org-plan-cli.mjs"
+  fi
+  exec node "$cli" "$@"
+fi
+
+show_help() {
+  # The command example is intentionally literal help text.
+  # shellcheck disable=SC2016
+  printf '%s\n' \
+    'usage: org-plan COMMAND [args]' \
+    'commands: validate|next|summary|status|describe|projection|review|l2|measure|set|signal|supervision-start|prepare-executor|prepare-supervision' \
+    'run `org-plan COMMAND --help` for exact command arguments'
+}
+show_command_help() {
+  case $1 in
+    prepare-executor)
+      printf '%s\n' \
+        'usage: org-plan prepare-executor [--model MODEL] [--reasoning-effort EFFORT] [--agents-dir DIR] [--profile-name NAME]' \
+        'setup-only: installs or refreshes the executor role profile'
+      ;;
+    prepare-supervision)
+      printf '%s\n' \
+        'usage: org-plan prepare-supervision [--executor-model MODEL] [--reviewer-model MODEL] [--executor-reasoning-effort EFFORT] [--reviewer-reasoning-effort EFFORT] [--agents-dir DIR] [--executor-profile-name NAME] [--reviewer-profile-name NAME]' \
+        'setup-only: installs or refreshes supervised role profiles'
+      ;;
+    *) return 1 ;;
+  esac
+}
+usage() { show_help >&2; exit 2; }
+valid_model() { [[ $1 =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; }
+valid_reasoning_effort() { [[ $1 == medium || $1 == high || $1 == xhigh ]]; }
+valid_profile_name() { [[ $1 =~ ^[a-z0-9][a-z0-9-]*$ ]]; }
+
+# Keep the generated role profiles aligned without duplicating this contract.
+# shellcheck disable=SC2016 # Literal profile instructions must retain $org-plan.
+attention_contract_requirements() {
+  printf '%s' ' `gestalt_org_plan_attention` is optional: after safe checks use the skill decision table with only the mapped reason and resumeCondition. A successful call ends the root turn; if unavailable, report the blocker normally. Progress, recoverable failures, and idle executors are not attention conditions.'
+}
+
+routing_contract_requirements() {
+  # shellcheck disable=SC2016 # Literal profile instructions retain $gestalt.
+  printf '%s' ' First tool call: read the org-plan skill completely and do nothing else. Then read its supervised-execution reference and governing AGENTS.md before inspecting the plan or repository. Gestalt workflow skills are already loaded; never list or explicitly load them as optional L1 skills. Use native tools for instructions, bounded reads, edits, mutations, and short commands; use context-mode for large or uncertain analysis. Context-mode never mutates Org state.'
+}
+
+supervision_continuation_requirements() {
+  # Literal profile text intentionally contains template notation.
+  # shellcheck disable=SC2016
+  printf '%s' ' Before yielding an incomplete plan, take a legal disposition from the supervision reference; status prose is not one. A lease permits yielding only on accepted:true; unavailable, accepted:false, or wakeAlreadySatisfied require same-turn action. A checkpoint is never a wait: only recorded authorizes its immediate final, alreadyRecorded never duplicates it, and failed/result-less calls require same-turn supervision. Use task_name l<a>; use l<a>_gN only from exact durable Mobile replacement authorization, never inferred. Display l<a>.'
+}
+
+agent_capacity_recovery_requirements() {
+  # Tool names and arguments are intentionally literal profile text.
+  # shellcheck disable=SC2016
+  printf '%s' ' For exhausted pending_init capacity after failed initialization and interruption, follow the reference recovery procedure: root calls `gestalt_agent_capacity_recovery` exactly once, version 1, reason agentThreadLimit. Accepted recovery hands off the runtime, preserving durable root/plan; do not retry spawning or request attention. Unavailable/rejected recovery is a blocker.'
+}
+
+# shellcheck disable=SC2016
+executor_profile_instructions() {
+  # Tool names and template positions are intentionally literal profile text.
+  # shellcheck disable=SC2016
+  printf '%s' 'You are the depth-one executor and only code writer. Own the entire assigned L1 and report only to the root. Follow the org-plan skill and supervised-execution reference. After the governing reads, load exactly the optional L1 Skills; stop without edits if an input or required optional skill is unavailable. Keep changes uncommitted through L1 review. At each DONE L2, return concise changes, sorted files, focused verification, and next action; remain assigned. After all L2s, run the full suite and report the complete diff for review. On REJECT, correct the same diff. After ACCEPT, reject staged Org Plan paths, create one conventional commit when changed, and mark REVIEWED. Never include an Org Plan in Git or relay raw logs.'
+}
+
+# shellcheck disable=SC2016
+reviewer_profile_instructions() {
+  # Tool names and template positions are intentionally literal profile text.
+  # shellcheck disable=SC2016
+  printf '%s' 'You are the depth-zero read-only root: director, supervisor, and routine reviewer. Your roster name is l0. Follow the org-plan skill and supervised-execution reference. Reuse the supplied plan and bundled helper; do not rediscover them or run prepare-supervision. Keep one writer per L1. Validate DONE L2 evidence/diff and helper-selected DONE + UNREVIEWED L1s; return ACCEPT or REJECT directly to the same executor. Enforce the accepted commit/REVIEWED gates. After all L1s and executor closure, launch final_review with agent_type=default, fork_turns=none, model=gpt-6.1-sol, reasoning_effort=medium; never inherit Astra. Assign terminal-reviewer duties; only P0/P1 corrections may be written. Require severity-ranked findings, no P0/P1, a current root full-suite pass, and clean intended scope. Never expose raw logs or child transcripts.'
+}
+
+written_profile=
+profile_stage_dir=
+profile_stage_owned=0
+profile_installing=0
+declare -a staged_profiles=() profile_destinations=() profile_backups=() profile_had_destination=()
+cleanup_profile_stage() {
+  [[ -n $profile_stage_dir ]] || return 0
+  if (( profile_stage_owned )); then rm -rf -- "$profile_stage_dir"; else rmdir -- "$profile_stage_dir" 2>/dev/null || true; fi
+  profile_stage_owned=0
+}
+rollback_profiles() {
+  (( profile_installing )) || return 0
+  local index
+  for ((index=0; index<${#profile_destinations[@]}; index++)); do
+    if [[ ${profile_had_destination[$index]} == 1 ]]; then
+      cp -p -- "${profile_backups[$index]}" "${profile_destinations[$index]}"
+    else
+      rm -f -- "${profile_destinations[$index]}"
+    fi
+  done
+  profile_installing=0
+}
+profile_exit_cleanup() { local status=$?; rollback_profiles; cleanup_profile_stage; return "$status"; }
+profile_signal_cleanup() {
+  local signal=$1 status
+  case $signal in HUP) status=129 ;; INT) status=130 ;; TERM) status=143 ;; esac
+  trap - HUP INT TERM
+  rollback_profiles
+  cleanup_profile_stage
+  trap - EXIT
+  exit "$status"
+}
+begin_profile_transaction() {
+  local agents_dir=$1 suffix="${RANDOM}${RANDOM}"
+  mkdir -p -- "$agents_dir"
+  profile_stage_dir="$agents_dir/.org-plan-stage.$$.${suffix}"
+  profile_stage_owned=0
+  staged_profiles=() profile_destinations=() profile_backups=() profile_had_destination=()
+  profile_installing=0
+  trap profile_exit_cleanup EXIT
+  trap 'profile_signal_cleanup HUP' HUP
+  trap 'profile_signal_cleanup INT' INT
+  trap 'profile_signal_cleanup TERM' TERM
+  if mkdir -m 700 -- "$profile_stage_dir"; then
+    profile_stage_owned=1
+  else
+    profile_stage_owned=0
+    profile_stage_dir=
+    return 1
+  fi
+}
+finish_profile_transaction() {
+  cleanup_profile_stage
+  trap - EXIT HUP INT TERM
+  profile_stage_dir=
+  staged_profiles=() profile_destinations=() profile_backups=() profile_had_destination=()
+}
+stage_profile() {
+  local profile_name=$1 description=$2 instructions=$3 model=$4 agents_dir=$5 sandbox_mode=${6:-} lifecycle_requirements=${7:-} reasoning_effort=${8:-}
+  local destination="$agents_dir/$profile_name.toml" temporary="$profile_stage_dir/$profile_name.toml" mode
+  instructions+=$lifecycle_requirements
+  mode=$(stat -c '%a' "$destination" 2>/dev/null || stat -f '%Lp' "$destination" 2>/dev/null || printf '600')
+  if ! {
+    printf 'name = "%s"\n' "$profile_name"
+    printf 'description = "%s"\n' "$description"
+    printf 'developer_instructions = "%s"\n' "$instructions"
+    printf 'model = "%s"\n' "$model"
+    [[ -z $reasoning_effort ]] || printf 'model_reasoning_effort = "%s"\n' "$reasoning_effort"
+    [[ -z $sandbox_mode ]] || printf 'sandbox_mode = "%s"\n' "$sandbox_mode"
+  } > "$temporary"; then
+    rm -f -- "$temporary"
+    return 1
+  fi
+  if ! chmod "$mode" "$temporary"; then
+    rm -f -- "$temporary"
+    return 1
+  fi
+  staged_profiles+=("$temporary")
+}
+
+prepare_profile_install() {
+  local index destination backup
+  for ((index=0; index<${#profile_destinations[@]}; index++)); do
+    destination=${profile_destinations[$index]}
+    backup="$profile_stage_dir/backup.$index"
+    profile_backups+=("$backup")
+    if [[ -f $destination ]]; then
+      cp -p -- "$destination" "$backup"
+      profile_had_destination+=(1)
+    else
+      profile_had_destination+=(0)
+    fi
+  done
+}
+
+validate_profile_destinations() {
+  local destination
+  for destination in "$@"; do
+    [[ ! -L $destination && (! -e $destination || -f $destination) ]] || {
+      printf 'profile destination is not a regular file: %s\n' "$destination" >&2
+      return 1
+    }
+  done
+}
+
+# Percent-encode unsafe bytes so success records remain one-line key/value data.
+encode_record_value() {
+  local LC_ALL=C value=$1 output character hex index
+  output=
+  for ((index=0; index<${#value}; index++)); do
+    character=${value:index:1}
+    case $character in [A-Za-z0-9._~/-]) output+=$character ;; *) printf -v hex '%02X' "'$character"; output+="%$hex" ;; esac
+  done
+  printf '%s' "$output"
+}
+
+install_profiles() {
+  local index
+  profile_installing=1
+  for ((index=0; index<${#profile_destinations[@]}; index++)); do
+    mv -f -- "${staged_profiles[$index]}" "${profile_destinations[$index]}"
+  done
+  profile_installing=0
+  finish_profile_transaction
+}
+
+write_profile() {
+  local profile_name=$1 agents_dir=$5 destination="$5/$1.toml"
+  validate_profile_destinations "$destination"
+  begin_profile_transaction "$agents_dir"
+  stage_profile "$@"
+  profile_destinations=("$destination")
+  prepare_profile_install
+  install_profiles
+  written_profile=$destination
+}
+
+prepare_executor() {
+  local model='gpt-6.1-sol' reasoning_effort='medium' profile_name='org-plan-executor' agents_dir="${HOME:?HOME is required}/.codex/agents"
+  local lifecycle_requirements=' Use org-plan commands for every lifecycle transition and measurement; direct state edits are forbidden. Follow SKILL invariant 4: report mutations to the active root, never invoke host update_plan. Signal resync after external plan corrections. Before each accepted commit, inspect git diff --cached --name-only and reject the active plan or any .gestalt/*.org path, including force-added paths. No authority overrides the Org Plan Git ban. Status publication is optional without a configured destination.'
+  lifecycle_requirements+=$(attention_contract_requirements)
+  lifecycle_requirements+=$(routing_contract_requirements)
+  while (( $# )); do
+    case $1 in
+      --model) (( $# >= 2 )) || usage; model=$2; shift 2 ;;
+      --reasoning-effort) (( $# >= 2 )) || usage; reasoning_effort=$2; shift 2 ;;
+      --agents-dir) (( $# >= 2 )) || usage; agents_dir=$2; shift 2 ;;
+      --profile-name) (( $# >= 2 )) || usage; profile_name=$2; shift 2 ;;
+      *) usage ;;
+    esac
+  done
+  valid_model "$model" || { printf 'invalid model: %s\n' "$model" >&2; return 2; }
+  valid_reasoning_effort "$reasoning_effort" || { printf 'invalid reasoning effort: %s\n' "$reasoning_effort" >&2; return 2; }
+  valid_profile_name "$profile_name" || { printf 'invalid profile name: %s\n' "$profile_name" >&2; return 2; }
+  # The skill reference is intentionally literal profile text.
+  # shellcheck disable=SC2016
+  write_profile "$profile_name" 'Executes an org-plan implementation.' \
+    "$(executor_profile_instructions)" \
+    "$model" "$agents_dir" '' "$lifecycle_requirements" "$reasoning_effort"
+  printf 'executor=%s model=%s profile=%s\n' "$profile_name" "$model" "$(encode_record_value "$written_profile")"
+}
+
+prepare_supervision() {
+  local executor_model='gpt-6.1-sol' reviewer_model='gpt-6.1-sol'
+  local executor_effort='medium' reviewer_effort='medium'
+  local executor_name='org-plan-executor' reviewer_name='org-plan-reviewer'
+  local agents_dir="${HOME:?HOME is required}/.codex/agents"
+  # Literal profile text intentionally includes backticked tool names.
+  # shellcheck disable=SC2016
+  local reporting_requirements=' Follow the reference boundary templates. A checkpoint creates no review authority. Validated DONE L2: l2Completed is the last tool call before its one final. Accepted L1: commit, REVIEWED, and project before optional l1Accepted and its one final. End that turn even without checkpoint support; never start the next L1 or write post-acceptance commentary. Only an uncheckpointed L2 uses same-turn continuation. The next root turn revalidates and resumes the same executor or launches the next canonical one. Terminal success requires terminal review and final gates.'
+  local lifecycle_requirements=' Use org-plan commands for every lifecycle transition and measurement; direct state edits are forbidden. Follow SKILL invariant 4: the root alone projects mutations through host update_plan; Org state remains authoritative if projection fails. Before each accepted commit, inspect git diff --cached --name-only and reject the active plan or any .gestalt/*.org path. Org Plans are never Git deliverables. Status publication is optional without a configured destination.'
+  local executor_lifecycle_requirements
+  executor_lifecycle_requirements="$lifecycle_requirements$(attention_contract_requirements)$(routing_contract_requirements)"
+  lifecycle_requirements+=' At the start of each new or resumed relay session, validate the exact incomplete plan and run org-plan signal PLAN supervision-start before milestone or roster recovery. A retained same-session signal preserves explicit manual Off; a fresh relay session publishes a new activation signal.'
+  lifecycle_requirements+=$(attention_contract_requirements)
+  lifecycle_requirements+=$(routing_contract_requirements)
+  lifecycle_requirements+=$(supervision_continuation_requirements)
+  while (( $# )); do
+    case $1 in
+      --executor-model) (( $# >= 2 )) || usage; executor_model=$2; shift 2 ;;
+      --reviewer-model) (( $# >= 2 )) || usage; reviewer_model=$2; shift 2 ;;
+      --executor-reasoning-effort) (( $# >= 2 )) || usage; executor_effort=$2; shift 2 ;;
+      --reviewer-reasoning-effort) (( $# >= 2 )) || usage; reviewer_effort=$2; shift 2 ;;
+      --agents-dir) (( $# >= 2 )) || usage; agents_dir=$2; shift 2 ;;
+      --executor-profile-name) (( $# >= 2 )) || usage; executor_name=$2; shift 2 ;;
+      --reviewer-profile-name) (( $# >= 2 )) || usage; reviewer_name=$2; shift 2 ;;
+      *) usage ;;
+    esac
+  done
+  local value
+  for value in "$executor_model" "$reviewer_model"; do
+    valid_model "$value" || { printf 'invalid model: %s\n' "$value" >&2; return 2; }
+  done
+  for value in "$executor_effort" "$reviewer_effort"; do
+    valid_reasoning_effort "$value" || { printf 'invalid reasoning effort: %s\n' "$value" >&2; return 2; }
+  done
+  for value in "$executor_name" "$reviewer_name"; do
+    valid_profile_name "$value" || { printf 'invalid profile name: %s\n' "$value" >&2; return 2; }
+  done
+  [[ $executor_name != "$reviewer_name" ]] || {
+    printf 'profile names must be distinct\n' >&2; return 2;
+  }
+  local reviewer_lifecycle_requirements
+  reviewer_lifecycle_requirements="$lifecycle_requirements$(agent_capacity_recovery_requirements)"
+
+  local -a destinations=(
+    "$agents_dir/$reviewer_name.toml"
+    "$agents_dir/$executor_name.toml"
+  )
+  validate_profile_destinations "${destinations[@]}"
+  begin_profile_transaction "$agents_dir"
+  profile_destinations=("${destinations[@]}")
+  # The skill reference is intentionally literal profile text.
+  # shellcheck disable=SC2016
+  stage_profile "$reviewer_name" 'Directs, supervises, and reviews an org-plan implementation.' \
+    "$(reviewer_profile_instructions)" \
+    "$reviewer_model" "$agents_dir" 'read-only' "$reviewer_lifecycle_requirements$reporting_requirements" "$reviewer_effort"
+  # The skill reference is intentionally literal profile text.
+  # shellcheck disable=SC2016
+  stage_profile "$executor_name" 'Executes an org-plan implementation.' \
+    "$(executor_profile_instructions)" \
+    "$executor_model" "$agents_dir" '' "$executor_lifecycle_requirements" "$executor_effort"
+  prepare_profile_install
+  install_profiles
+  local reviewer_path executor_path
+  reviewer_path=$(encode_record_value "${destinations[0]}")
+  executor_path=$(encode_record_value "${destinations[1]}")
+  printf 'root_reviewer=%s root_reviewer_model=%s root_reviewer_profile=%s executor=%s executor_model=%s executor_profile=%s\n' \
+    "$reviewer_name" "$reviewer_model" "$reviewer_path" \
+    "$executor_name" "$executor_model" "$executor_path"
+}
+
+cmd=$1
+if (( $# == 2 )) && [[ $2 == --help || $2 == -h ]]; then
+  show_command_help "$cmd" || usage
+  exit 0
+fi
+shift
+case $cmd in
+  prepare-executor) prepare_executor "$@" ;;
+  prepare-supervision) prepare_supervision "$@" ;;
+  *) usage ;;
+esac

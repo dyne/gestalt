@@ -17,6 +17,60 @@ It is a transport and memory layer, not another agent.
 Short, fixed output and file edits remain on native tools. Context mode does
 not broaden the authority granted to those tools.
 
+## Compact responses and complete evidence
+
+The current package defaults routine execute, file, batch, and search responses
+to **2048 serialized UTF-8 bytes**, including metadata. A response can summarize
+large captured output without displaying it all. Preserve its exit status,
+coverage, first actionable failure, failure count, and authorized overflow
+reference before drawing a conclusion.
+
+Check the actual tool schema exposed by your session: an installed session may
+have older fields. Where available, `response_bytes` selects a bounded display
+budget. Retrieve a returned report through `ctx_search` using its report ID,
+returned offset, and the next offset until `nextOffset` is null:
+
+```json
+{"response_report":"<returned report id>","response_offset":0,"response_bytes":2048}
+```
+
+These are tool arguments, not a shell command. Use the real returned ID and
+offset. Retrieval rechecks authorization; a denied, missing, changed, or expired
+report leaves evidence incomplete. Search hits cover retrieved chunks, not an
+entire log. Recover every failure page before claiming complete failure coverage.
+If your installed schema lacks continuation fields, derive a bounded summary
+from the authorized saved output or use a bounded native read. Do not restart or
+reconfigure a live session to gain new fields.
+
+Reuse a source window only when its repository, path, and digest still match.
+Reuse test evidence only for matching code, dirty changes, dependencies/config,
+exact command, environment, and CI run/attempt/job; keep its original observation
+time. State the unresolved question and required source range before requesting
+a larger response. A smaller response alone proves neither complete evidence
+nor lower provider usage.
+
+## Reading usage measurements
+
+| Measurement | Meaning |
+| --- | --- |
+| Visible response bytes | Captured serialized tool envelopes; include overflow retrieval in a comparison |
+| Context occupancy | Tokens currently occupying a context window; compaction can reduce this |
+| Cumulative provider usage | Observed input/output/cache/reasoning counters over a defined source and interval, including repeated turns |
+| Account quota or billed cost | Separate provider observations; unknown unless directly available |
+
+Do not add reasoning tokens to output totals or cached subsets to input totals
+again. Counter resets, missing fields, unknown roles, and missing children keep
+coverage partial. Compaction does not undo cumulative usage. Bytes, occupancy,
+and provider counters cannot be converted into account quota savings.
+
+Synthetic corpus comparisons can check response sizes and recoverable findings
+with fixed source/dependency revisions. They do not establish live task quality,
+quota, or billing savings. Live model comparisons are opt-in: obtain explicit
+trial authorization, freeze the task/tools/acceptance criteria, retain failed
+trials and retries, count all agents and overflow retrieval, and report coverage
+alongside results. A comparison-manifest validator does not launch models or
+authorize a trial. No particular savings are guaranteed.
+
 ## Runtime boundary
 
 The replaceable Codex plugin cache contains launchers. The built runtime lives

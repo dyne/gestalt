@@ -306,6 +306,33 @@ assert_log "context-mode|doctor"
 grep -F "codex|CODEX_HOME=$CODEX_HOME|--help|GESTALT_HOME=$GESTALT_HOME|PATH=$GESTALT_HOME/bin:$CODEX_HOME/bin:" \
   "$command_log" >/dev/null
 
+# Launches share the installed profile read-only, including concurrent starts.
+mkdir -p -- "$CODEX_HOME/agents"
+printf 'model = "gpt-6-luna"\nmodel_reasoning_effort = "low"\n' > "$CODEX_HOME/agents/org-plan-executor.toml"
+printf 'User guidance.\n' > "$CODEX_HOME/AGENTS.md"
+cp "$CODEX_HOME/config.toml" "$test_root/config-before-startup"
+cp "$CODEX_HOME/agents/org-plan-executor.toml" "$test_root/profile-before-startup"
+cp "$CODEX_HOME/.gestalt-setup-provenance.json" "$test_root/provenance-before-startup"
+setup_calls_before=$(grep -c '^setup|' "$command_log")
+bash "$repo_root/public/gestalt" cli -- --help > "$test_root/concurrent-start-a.out" 2>&1 &
+startup_a=$!
+bash "$repo_root/public/gestalt" cli -- --help > "$test_root/concurrent-start-b.out" 2>&1 &
+startup_b=$!
+wait "$startup_a"
+wait "$startup_b"
+chmod -R a-w "$CODEX_HOME"
+if ! bash "$repo_root/public/gestalt" cli -- --help > "$test_root/readonly-start.out" 2>&1; then
+  chmod -R u+w "$CODEX_HOME"
+  printf 'startup unexpectedly required a writable Codex home\n' >&2
+  exit 1
+fi
+chmod -R u+w "$CODEX_HOME"
+cmp "$test_root/config-before-startup" "$CODEX_HOME/config.toml"
+cmp "$test_root/profile-before-startup" "$CODEX_HOME/agents/org-plan-executor.toml"
+cmp "$test_root/provenance-before-startup" "$CODEX_HOME/.gestalt-setup-provenance.json"
+[[ $(cat "$CODEX_HOME/AGENTS.md") == 'User guidance.' ]]
+[[ $(grep -c '^setup|' "$command_log") == "$setup_calls_before" ]]
+
 [[ $(bash "$repo_root/public/gestalt" path mobile) == "$GESTALT_HOME/mobile/node_modules/.bin/gestalt-mobile" ]]
 [[ $(GESTALT_CONTEXT_MODE_VERSION=2.1.0 bash "$repo_root/public/gestalt" path context-mode) == "$prepared_runtime" ]]
 [[ $(bash "$repo_root/public/gestalt" path bin) == "$GESTALT_HOME/bin" ]]
@@ -449,7 +476,57 @@ grep -E '^gestalt +2\.1\.0$' <<< "$check_versions" >/dev/null
 grep -E '^context-mode +2\.1\.0$' <<< "$check_versions" >/dev/null
 grep -E '^Codex CLI +codex-cli 1\.0\.0$' <<< "$check_versions" >/dev/null
 grep -E '^Supervision contract +ready \(v1; offline manifests\)$' "$test_root/doctor.out" >/dev/null
+grep -E '^L1 model policy +LEGACY ' "$test_root/doctor.out" >/dev/null
 grep -F 'All startup diagnostics passed.' "$test_root/doctor.out" >/dev/null
+
+# Execute the read-only verification example exactly as documented, through an
+# installed manager copy with the same isolated homes and deterministic packages.
+documented_bin=$test_root/documented-bin
+mkdir -p -- "$documented_bin"
+cp "$repo_root/public/gestalt" "$documented_bin/gestalt"
+chmod 0755 "$documented_bin/gestalt"
+node - "$repo_root/cli/configuration.md" "$test_root/documented-verification.sh" <<'EXAMPLES'
+const fs = require('node:fs');
+const source = fs.readFileSync(process.argv[2], 'utf8');
+const section = source.split('## Verify the installation you will run')[1]?.split('## Compatible rollback')[0];
+const example = section?.match(/```sh\n([\s\S]*?)```/);
+if (!example) throw new Error('Documented installed-verification example missing');
+fs.writeFileSync(process.argv[3], 'set -Eeuo pipefail\n' + example[1]);
+EXAMPLES
+PATH="$documented_bin:$PATH" bash "$test_root/documented-verification.sh" > "$test_root/documented-verification.out"
+grep -F "gestalt $manager_version" "$test_root/documented-verification.out" >/dev/null
+grep -F '"codexHome"' "$test_root/documented-verification.out" >/dev/null
+grep -F 'All startup diagnostics passed.' "$test_root/documented-verification.out" >/dev/null
+
+# Upgrade each package independently to exercise doctor negotiation and rollback.
+upgrade_policy_manifest() {
+  node - "$1" <<'POLICY'
+const fs = require('node:fs');
+const file = process.argv[2];
+const value = JSON.parse(fs.readFileSync(file, 'utf8'));
+value.capabilities.push('l2-report-boundary', 'l1-model-policy-v1');
+value.modelPolicyContract = { version: 1,
+  scope: value.component === 'agents' ? 'schema-and-local-contracts' : 'schema-and-retention',
+  runtimeEnforcement: false };
+fs.writeFileSync(file, JSON.stringify(value));
+POLICY
+}
+upgrade_policy_manifest "$agents_capability_manifest"
+if bash "$repo_root/public/gestalt" doctor > "$test_root/partial-policy-doctor.out" 2>&1; then
+  printf 'doctor unexpectedly accepted a partial policy upgrade\n' >&2
+  exit 1
+fi
+grep -E '^L1 model policy +INCOMPATIBLE ' "$test_root/partial-policy-doctor.out" >/dev/null
+# A diagnostic mismatch must not block unrelated commands.
+bash "$repo_root/public/gestalt" version > "$test_root/partial-policy-version.out"
+grep -F "gestalt $manager_version" "$test_root/partial-policy-version.out" >/dev/null
+upgrade_policy_manifest "$mobile_capability_manifest"
+bash "$repo_root/public/gestalt" doctor > "$test_root/policy-doctor.out"
+grep -E '^L1 model policy +SUPPORTED .*runtimeEnforcement=false; automatic policy launches unsupported' \
+  "$test_root/policy-doctor.out" >/dev/null
+write_capability_manifests
+bash "$repo_root/public/gestalt" doctor > "$test_root/rollback-policy-doctor.out"
+grep -E '^L1 model policy +LEGACY ' "$test_root/rollback-policy-doctor.out" >/dev/null
 
 rm -f -- "$agents_capability_manifest"
 if bash "$repo_root/public/gestalt" doctor > "$test_root/missing-capability-doctor.out" 2>&1; then

@@ -9,7 +9,6 @@ readonly DEFAULT_MARKETPLACE='dyne/gestalt-agents'
 readonly DEFAULT_MARKETPLACE_NAME='dyne-gestalt-agents'
 readonly SUPERVISION_CAPABILITY_SCHEMA=1
 readonly SUPERVISION_CONTRACT_VERSION=1
-readonly MANAGED_XERJ_VERSION='1.0.0-rc.87'
 readonly MANAGED_SERENA_VERSION='1.7.0'
 readonly MANAGED_UV_VERSION='0.12.23'
 serena_install_candidate=''
@@ -195,9 +194,6 @@ load_xerj_paths() {
   [[ ! -e $xerj_bin || -f $xerj_bin ]] || die 'managed xerj executable must be a regular file'
   [[ ${XERJ_INSTALL_DIR:-$xerj_root} == "$xerj_root" ]] ||
     die 'XERJ_INSTALL_DIR conflicts with the managed xerj installation'
-  [[ ${XERJ_VERSION:-$MANAGED_XERJ_VERSION} == "$MANAGED_XERJ_VERSION" ||
-     ${XERJ_VERSION:-} == "v$MANAGED_XERJ_VERSION" ]] ||
-    die "only audited xerj $MANAGED_XERJ_VERSION is supported"
   [[ -z ${XERJ_REPO:-} || ${XERJ_REPO:-} == xerj-org/xerj ]] ||
     die 'managed xerj uses the official release repository'
   [[ ${XERJ_INSECURE_SKIP_CHECKSUM:-0} == 0 ]] || die 'xerj checksum verification is required'
@@ -229,7 +225,7 @@ NODE
 }
 
 install_xerj() {
-  local version=${1:-$MANAGED_XERJ_VERSION}
+  local version=$1
   local os cpu target stage asset expected actual member listing
   require_command curl
   require_command tar
@@ -310,9 +306,6 @@ update_xerj() {
   [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+([.-][a-zA-Z0-9]+)*)?$ ]] || die 'invalid xerj release version'
   install_xerj "$version"
   log 'run gestalt xerj test to check upstream regressions; existing servers and indexes were not changed'
-  if [[ $version != "$MANAGED_XERJ_VERSION" ]]; then
-    log "Mobile/MCP readiness remains audited for $MANAGED_XERJ_VERSION; this update does not certify compatibility"
-  fi
 }
 
 # Embedded because the distributed manager is one self-contained executable.
@@ -626,7 +619,7 @@ command_xerj_readiness() {
   require_command node
   # Inline to preserve the self-contained, single-file manager distribution.
   # Do not use command_xerj mcp: ordinary forwarding prepares writable state.
-  exec node --input-type=module - "$gestalt_home" "$MANAGED_XERJ_VERSION" "$operation" "${BASH_SOURCE[0]}" "$codex_home" <<'JS'
+  exec node --input-type=module - "$gestalt_home" "$operation" "${BASH_SOURCE[0]}" "$codex_home" <<'JS'
 import { spawn } from 'node:child_process';
 import { lstat, stat as followStat, readFile, realpath, readdir, mkdir, writeFile, rename, rm, chmod } from 'node:fs/promises';
 import { createHash, randomBytes } from 'node:crypto';
@@ -634,7 +627,7 @@ import net from 'node:net';
 import { dirname, join, basename } from 'node:path';
 import http from 'node:http';
 
-const [selectedRoot, version, operation, managerPath, selectedCodexHome] = process.argv.slice(2);
+const [selectedRoot, operation, managerPath, selectedCodexHome] = process.argv.slice(2);
 const expires = Date.now() + (Number.isSafeInteger(Number(process.env.XERJ_READY_TIMEOUT_MS ?? '5000')) ? Number(process.env.XERJ_READY_TIMEOUT_MS ?? '5000') : 5000);
 const configured = process.env.XERJ_READY_TIMEOUT_MS ?? '5000';
 const timeout = /^\d+$/.test(configured) ? Number(configured) : NaN;
@@ -686,7 +679,6 @@ async function paths() {
   }
   await safeTree(join(root, 'xerj')); await safeTree(dataRoot);
   if (process.env.XERJ_INSTALL_DIR && process.env.XERJ_INSTALL_DIR !== join(root, 'xerj')) fail('unsupported-installation');
-  if (process.env.XERJ_VERSION && ![version, `v${version}`].includes(process.env.XERJ_VERSION)) fail('unsupported-version');
   if ((process.env.XERJ_REPO && process.env.XERJ_REPO !== 'xerj-org/xerj') ||
       (process.env.XERJ_INSECURE_SKIP_CHECKSUM && process.env.XERJ_INSECURE_SKIP_CHECKSUM !== '0')) fail('unsupported-installation');
   return { root, binary, dataRoot };
@@ -711,7 +703,9 @@ async function binaryVersion(binary, env) {
     child.once('error', () => reject(new Error('unsupported-binary')));
     child.once('close', resolve);
   });
-  if (code !== 0 || output.trim() !== `xerj v${version}`) fail('unsupported-version');
+  const match = /^xerj v?([0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?)$/.exec(output.trim());
+  if (code !== 0 || !match) fail('unsupported-version');
+  return match[1];
 }
 function get(url, auth) {
   controller.signal.throwIfAborted();
@@ -734,7 +728,7 @@ function get(url, auth) {
     request.on('error', () => reject(new Error('backend-unavailable')));
   });
 }
-async function mcp(binary, endpoint, env) {
+async function mcp(binary, endpoint, env, version) {
   const child = launch(binary, ['mcp', '--url', endpoint], env);
   let buffer = '', total = 0;
   const pending = new Map();
@@ -789,8 +783,8 @@ async function probe() {
   const auth = process.env.XERJ_AUTH || (key ? `ApiKey ${key}` : '');
   if (!auth || /[\r\n\x00]/.test(auth)) fail('credentials-unavailable');
   const env = nativeEnvironment(root, dataRoot, endpoint, auth);
-  await binaryVersion(binary, env);
-  await mcp(binary, endpoint, env);
+  const version = await binaryVersion(binary, env);
+  await mcp(binary, endpoint, env, version);
   // rc.87 es_compat::cluster_health + cat_indices_inner use engine reads.
   // Unlike _search (including MCP xerj_search), these successful GETs do not
   // append audit state. Missing autoindex-catalog is normal on an empty node.
@@ -2108,7 +2102,7 @@ command_xerj() {
   if [[ ${1:-} == -- ]]; then shift; fi
   if [[ ${1:-} == install ]]; then
     (($# == 1)) || die 'usage: gestalt xerj install'
-    install_xerj
+    update_xerj
     return
   fi
   if [[ ${1:-} == update ]]; then shift; update_xerj "$@"; return; fi
@@ -3458,7 +3452,7 @@ if (common && skill && !conflict) {
   try {
     const guidance = await usableGuidance(skill);
     ready = await readiness(remainingTime());
-    if (ready.schemaVersion === 1 && ready.status === 'ready' && ready.version === '1.0.0-rc.87' &&
+    if (ready.schemaVersion === 1 && ready.status === 'ready' && typeof ready.version === 'string' && /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$/.test(ready.version) &&
         /^http:\/\/(127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(ready.endpoint)) {
       capabilities[0].valid = true;
       capabilities[0].config = { command: manager, args: ['xerj', 'mcp', '--url', ready.endpoint], cwd,

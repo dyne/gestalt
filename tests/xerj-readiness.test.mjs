@@ -20,7 +20,7 @@ async function snapshot(root) {
   await visit(root);
   return result;
 }
-async function fixture(t, mode = 'healthy') {
+async function fixture(t, mode = 'healthy', version = '1.0.0-rc.87') {
   const temp = await mkdtemp(join(tmpdir(), 'gestalt readiness '));
   const root = join(temp, 'managed home'), pidFile = join(temp, 'probe.pid');
   await mkdir(join(root, 'xerj'), { recursive: true });
@@ -29,11 +29,11 @@ async function fixture(t, mode = 'healthy') {
   const binary = join(root, 'xerj', 'xerj');
   await writeFile(binary, `#!${process.execPath}
 const fs = require('node:fs');
-const mode = ${JSON.stringify(mode)};
+const mode = ${JSON.stringify(mode)}, version = ${JSON.stringify(version)};
 fs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
 if (process.argv[2] === '--version') {
   if (mode === 'version-timeout') setInterval(() => {}, 1000);
-  else console.log(mode === 'unsupported' ? 'xerj v0.0.0' : 'xerj v1.0.0-rc.87');
+  else console.log(mode === 'unsupported' ? 'not a xerj binary' : 'xerj v' + version);
 } else {
   console.error(${JSON.stringify(secret)});
   if (mode === 'eof') process.exit(0);
@@ -45,7 +45,7 @@ if (process.argv[2] === '--version') {
     if (mode === 'malformed') return console.log('invalid ${secret}');
     if (mode === 'partial') return process.stdout.write('{');
     const result = request.method === 'initialize'
-      ? { protocolVersion: mode === 'protocol' ? 'bad' : '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'xerj-mcp', version: '1.0.0-rc.87' } }
+      ? { protocolVersion: mode === 'protocol' ? 'bad' : '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'xerj-mcp', version } }
       : { tools: (mode === 'tools' ? ['xerj_map'] : ['xerj_search', 'xerj_map', 'xerj_code_search']).map(name => ({ name, inputSchema: { type: 'object' } })) };
     console.log(JSON.stringify({ jsonrpc: '2.0', id: request.id, result }));
   });
@@ -141,4 +141,11 @@ test('unsafe endpoint and invalid deadline are bounded structured failures', asy
 test('cancellation reaps its probe without secret diagnostics', async t => {
   const f = await fixture(t, 'cancel');
   assert.deepEqual(await f.run({}, true), { schemaVersion: 1, status: 'unavailable', reason: 'cancelled' });
+});
+
+for (const version of ['1.0.0-rc.98', '2.3.4']) test(`accepts installed ${version} with compatible capabilities`, async t => {
+  const f = await fixture(t, 'healthy', version);
+  const ready = await f.run({ XERJ_VERSION: 'stale-environment-value' });
+  assert.equal(ready.status, 'ready');
+  assert.equal(ready.version, version);
 });

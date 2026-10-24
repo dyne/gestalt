@@ -18,7 +18,7 @@ async function freePort() {
   await new Promise(resolve => server.close(resolve));
   return port;
 }
-async function fixture(t, mode = 'healthy', port) {
+async function fixture(t, mode = 'healthy', port, automatic = false) {
   port ??= await freePort();
   const temp = await mkdtemp(join(tmpdir(), 'xerj life '));
   const root = join(temp, 'home space'), binary = join(root, 'xerj', 'xerj');
@@ -59,12 +59,12 @@ else if (args[0] === 'mcp') {
     });
     server.listen(Number(args[args.indexOf('--port') + 1]), args[args.indexOf('--bind') + 1]);
     process.on('SIGTERM', () => { if (mode === 'ignore-term') return; server.close(() => process.exit(0)); });
-  }, 100);
+  }, mode === 'bind-race' ? 400 : 100);
 }
 `, { mode: 0o755 });
   let commands = [];
   async function run(operation, overrides = {}, cancel = false, cwd = root) {
-    const env = { HOME: process.env.HOME, PATH: process.env.PATH, GESTALT_HOME: root, CODEX_HOME: root, XERJ_URL: endpoint, XERJ_READY_TIMEOUT_MS: '2500', ...overrides };
+    const env = { HOME: process.env.HOME, PATH: process.env.PATH, GESTALT_HOME: root, CODEX_HOME: root, XERJ_URL: automatic ? undefined : endpoint, XERJ_READY_TIMEOUT_MS: '2500', ...overrides };
     const child = spawn('bash', [manager, 'xerj', operation], { env, cwd });
     commands.push(child.pid);
     let stdout = '', stderr = '';
@@ -102,6 +102,64 @@ else if (args[0] === 'mcp') {
   });
   return { root, binary, endpoint, directory, lock, record, run, launched, noServers, commands };
 }
+
+test('automatic endpoints avoid another installation and persist across concurrent clients and restarts', async t => {
+  const first = await fixture(t);
+  assert.equal((await first.run('ensure-ready')).status, 'ready');
+  const second = await fixture(t, 'healthy', undefined, true);
+  await mkdir(second.directory, { recursive: true });
+  const endpointFile = join(second.directory, 'endpoint.json');
+  await writeFile(endpointFile, JSON.stringify({ schemaVersion: 1, endpoint: first.endpoint }));
+  // Different installations do not share the first backend's credentials.
+  const results = await Promise.all(Array.from({ length: 4 }, () => second.run('ensure-ready')));
+  assert.ok(results.every(r => r.status === 'ready'), JSON.stringify(results));
+  const endpoint = results[0].endpoint;
+  assert.notEqual(endpoint, first.endpoint);
+  assert.ok(results.every(r => r.endpoint === endpoint));
+  assert.equal((await second.launched()).length, 1);
+  assert.equal((await second.run('probe')).endpoint, endpoint);
+  assert.equal((await second.run('status')).endpoint, endpoint);
+  assert.equal(JSON.parse(await readFile(endpointFile, 'utf8')).endpoint, endpoint);
+  assert.equal((await stat(endpointFile)).mode & 0o777, 0o600);
+  assert.equal((await second.run('stop')).status, 'stopped');
+  assert.equal((await second.run('ensure-ready')).endpoint, endpoint);
+  assert.equal((await first.run('probe')).status, 'ready');
+});
+
+test('automatic startup replaces an occupied saved endpoint without changing explicit endpoint policy', async t => {
+  const f = await fixture(t, 'healthy', undefined, true);
+  const foreign = createServer((request, response) => { response.writeHead(401); response.end(); });
+  await new Promise(resolve => foreign.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => foreign.close(resolve)));
+  const endpoint = `http://127.0.0.1:${foreign.address().port}`;
+  await mkdir(f.directory, { recursive: true });
+  await writeFile(join(f.directory, 'endpoint.json'), JSON.stringify({ schemaVersion: 1, endpoint }));
+  assert.equal((await f.run('ensure-ready', { XERJ_URL: endpoint })).reason, 'endpoint-in-use');
+  const ready = await f.run('ensure-ready');
+  assert.equal(ready.status, 'ready');
+  assert.notEqual(ready.endpoint, endpoint);
+  assert.equal(foreign.listening, true);
+});
+
+test('automatic startup retries when another listener wins the backend bind race', async t => {
+  const f = await fixture(t, 'bind-race', undefined, true);
+  await mkdir(f.directory, { recursive: true });
+  await writeFile(join(f.directory, 'endpoint.json'), JSON.stringify({ schemaVersion: 1, endpoint: f.endpoint }));
+  const foreign = createServer((request, response) => { response.writeHead(401); response.end(); });
+  t.after(() => new Promise(resolve => foreign.close(resolve)));
+  const startup = f.run('ensure-ready', { XERJ_READY_TIMEOUT_MS: '5000' });
+  for (let i = 0; i < 200 && !(await f.launched()).length; i++) await pause(5);
+  assert.equal((await f.launched()).length, 1, 'backend launch must precede competing bind');
+  await new Promise((resolve, reject) => {
+    foreign.once('error', reject);
+    foreign.listen(Number(new URL(f.endpoint).port), '127.0.0.1', resolve);
+  });
+  const ready = await startup;
+  assert.equal(ready.status, 'ready', JSON.stringify(ready));
+  assert.notEqual(ready.endpoint, f.endpoint);
+  assert.equal((await f.launched()).length, 2);
+  assert.equal(foreign.listening, true);
+});
 
 test('concurrent first launches start exactly one shared server; repeated ensure and clients reuse it', async t => {
   const f = await fixture(t);

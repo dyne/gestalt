@@ -213,9 +213,13 @@ runtime and preserves the single-file checksum-verified distribution.
 
 For a shared backend, use `gestalt xerj ensure-ready`, `gestalt xerj status`,
 and `gestalt xerj stop` from any workspace with the same `CODEX_HOME` and
-`GESTALT_HOME`. The shared default endpoint is `http://127.0.0.1:9200`.
-An unrelated listener is reported without
-replacing the listener; `XERJ_URL` can explicitly select another loopback port.
+`GESTALT_HOME`. Without `XERJ_URL`, startup reuses the saved endpoint (initially
+`http://127.0.0.1:9200`) and selects a free loopback port if an unrelated listener
+occupies it. The selected endpoint is saved privately in
+`$CODEX_HOME/xerj-data/.lifecycle/endpoint.json` for probes, MCP and CLI clients.
+Concurrent starts in the same installation share one backend; separate users
+can run separate backends without competing for port 9200. An explicit
+`XERJ_URL` remains fixed and reports an occupied endpoint instead of changing it.
 Use the endpoint returned by readiness for `autoindex --url`. Ensure uses
 the same readiness schema and deadline, including time waiting for another
 startup. A ready result also reports `ownership`: `managed` for a backend

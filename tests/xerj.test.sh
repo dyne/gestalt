@@ -334,6 +334,13 @@ for cwd in sources:
     assert result['env']['XERJ_URL'] == 'http://127.0.0.1:9200'
     assert result['env']['XERJ_CODE_HOME'] == str(home/'xerj-data/code')
     assert not (cwd/'.gestalt').exists()
+saved = home/'xerj-data/.lifecycle/endpoint.json'
+saved.parent.mkdir(parents=True, exist_ok=True)
+saved.write_text(json.dumps({'schemaVersion': 1, 'endpoint': 'http://127.0.0.1:19371'}))
+for mode, arguments in [('search', ['saved endpoint']), ('autoindex', [str(sources[0]), '--dry-run']), ('mcp', [])]:
+    result = run(sources[0], mode, *arguments)
+    assert result['env']['XERJ_URL'] == 'http://127.0.0.1:19371'
+saved.unlink()
 explicit = run(sources[1], 'autoindex', sources[0], '--prefix', 'prior-art', '--dry-run')
 assert prefix(explicit) == 'prior-art'
 assert explicit['args'][2] == str(home/'xerj-data/autoindex/prior-art')

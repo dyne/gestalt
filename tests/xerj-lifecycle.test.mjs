@@ -32,14 +32,14 @@ async function fixture(t, mode = 'healthy', port, automatic = false) {
 const fs = require('node:fs');
 const mode = ${JSON.stringify(mode)}, secret = ${JSON.stringify(secret)};
 const args = process.argv.slice(2);
-if (args[0] === '--version') { console.log('xerj v1.0.0-rc.87'); }
+if (args[0] === '--version') { console.log('xerj v1.0.0-rc.98'); }
 else if (args[0] === 'mcp') {
   const r = require('node:readline').createInterface({ input: process.stdin });
   r.on('line', line => {
     const q = JSON.parse(line);
     if (!q.id) return;
     const result = q.method === 'initialize'
-      ? { protocolVersion: '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'xerj-mcp', version: '1.0.0-rc.87' } }
+      ? { protocolVersion: '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'xerj-mcp', version: '1.0.0-rc.98' } }
       : { tools: ['xerj_search', 'xerj_map', 'xerj_code_search'].map(name => ({ name, inputSchema: { type: 'object' } })) };
     console.log(JSON.stringify({ jsonrpc: '2.0', id: q.id, result }));
   });

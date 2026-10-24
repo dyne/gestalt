@@ -112,3 +112,10 @@ setInterval(()=>{},1000);
   assert.throws(()=>process.kill(pid,0),{code:'ESRCH'});
   assert.deepEqual(await readdir(f.scratch),[]);
 });
+
+test('install resolves the latest official release without a manager pin', async t => {
+  const f = await fixture(t);
+  await f.run('install');
+  assert.match((await f.run('-V')).stdout, /1\.0\.0-rc\.999/);
+  assert.match(await readFile(join(f.root, 'requests'), 'utf8'), /api.github.com/);
+});

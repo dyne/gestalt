@@ -10,7 +10,7 @@ const source = await readFile(manager, 'utf8');
 const shellFunction = 'launch_cli_with_xerj() {' + source.split('launch_cli_with_xerj() {')[1].split('\ncommand_cli()')[0];
 const program = source.split('launch_cli_with_xerj() {')[1].split("<<'NODE'\n")[1].split('\nNODE\n')[0];
 
-async function fixture(mode, args = [], ready = { schemaVersion: 1, status: 'ready', version: '1.0.0-rc.87', endpoint: 'http://127.0.0.1:9300' }) {
+async function fixture(mode, args = [], ready = { schemaVersion: 1, status: 'ready', version: '1.0.0-rc.98', endpoint: 'http://127.0.0.1:9300' }) {
   const root = await mkdtemp(join(tmpdir(), 'xerj cli startup '));
   const bin = join(root, 'bin');
   const plugin = join(root, 'plugin');

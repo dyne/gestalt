@@ -72,8 +72,7 @@ gestalt xerj search 'query with spaces' --url http://localhost:9300
 gestalt xerj mcp --url http://localhost:9300
 ```
 
-The manager installs the official Linux static-musl or macOS release
-`1.0.0-rc.87`, verifies its published SHA-256, and atomically replaces
+The manager installs the latest official Linux static-musl or macOS release, verifies its published SHA-256, and atomically replaces
 `$GESTALT_HOME/xerj/xerj`. Defaults are `~/.gestalt/xerj` for installation and
 `$CODEX_HOME/xerj-data` (normally `~/.codex-gestalt/xerj-data`) for persistent
 data, configuration, credentials, autoindex state, and caches. Every workspace,
@@ -83,7 +82,7 @@ Installation does not create runtime state or migrate indexes from the earlier
 `$GESTALT_HOME/runtime/xerj` or workspace-local locations.
 Downloads and staging stay in a private install directory which is removed on
 success or failure. A failed download, checksum or extraction preserves the
-previous executable. An explicit install repeats the verified pinned replacement.
+previous executable. An explicit install repeats the verified latest-release replacement.
 
 ### Updating and checking upstream fixes
 
@@ -98,8 +97,7 @@ gestalt xerj test --json > xerj-test.json
 `update` uses the same SHA-256 verification and atomic replacement as `install`,
 and checks that the downloaded executable reports the requested version. It does
 not run the upstream self-updater, stop existing servers, migrate indexes, or
-enable automatic indexing. Explicit versions also allow restoring the audited
-binary; `gestalt xerj install` restores the manager's pin.
+enable automatic indexing. Explicit versions also allow selecting a particular release; `gestalt xerj install` selects the latest release.
 
 `test` runs the installed binary directly with synthetic Git repositories, a
 temporary authenticated loopback backend, isolated home/cache/data/journals and
@@ -129,13 +127,12 @@ Exit codes: **0** all checks pass; **1** native regressions/limitations remain;
 version and individual results; a known upstream defect is a failure, not an
 expected-failure pass. An error report may omit dependent checks.
 
-Passing these issue probes does not certify MCP protocol compatibility or a
-production index migration. Mobile and `ensure-ready` still require the manager's
-audited version until that integration is reviewed and updated. Consequently,
-upgrading to another version can disable automatic session retrieval while you
-evaluate it. Existing server processes continue running their old executable;
-plan their restart separately after compatibility review. Manual mode remains
-the Mobile default.
+Mobile and `ensure-ready` use the installed binary without an exact-version requirement.
+Readiness checks the MCP protocol, required retrieval tools, authentication and backend
+health, and reports the detected version. Startup does not download or update XERJ.
+Existing server processes continue running their old executable; restart them after an
+update. Native XERJ remains responsible for index-format compatibility. Manual mode
+remains the Mobile default.
 
 Forwarding supports the server, `index`, `autoindex` (including map/status),
 `search`, `def`, `gain`, and the native `mcp` stdio proxy. The server and `index` receive `--data-dir` and a
@@ -145,7 +142,7 @@ model-cache, XDG and temporary paths point into the global runtime root.
 settings `XERJ_URL`, `XERJ_API_KEY`, logging and feedback settings are preserved;
 other inherited environment settings are excluded from the child process.
 Argument boundaries, streams, signals and exit codes pass through directly.
-Use the pinned CLI's split option form (`--port 9300`, not `--port=9300`);
+Use the installed CLI's split option form (`--port 9300`, not `--port=9300`);
 an optional initial `gestalt xerj --` separates manager dispatch from arguments.
 Input folders and NDJSON files can be outside the managed roots and are read
 without writing project configuration.
@@ -189,16 +186,16 @@ path is also routed under the managed runtime root.
 It prints one JSON object on stdout and returns zero for optional absence or
 unavailability as well as readiness. Schema version 1 has `status` equal to
 `absent`, `unavailable` (with a bounded `reason`), or `ready`. Ready includes
-the pinned `version`, normalized loopback `endpoint`, managed `binary` and
+the detected `version`, normalized loopback `endpoint`, managed `binary` and
 `dataRoot`, `protocolVersion`, and authentication references (`auth.environment`
 and `auth.keyFile`), never a key or authorization header. Consumers must inspect
 `status`; an exit code alone does not indicate usable retrieval. Invalid command
 usage or a missing Node prerequisite still returns a nonzero manager error.
 
-The probe checks the managed executable's exact version, the native MCP
+The probe detects the installed executable's version, checks the native MCP
 `2025-03-26` initialize response and retrieval tool schemas, then authenticated
-`GET /_cluster/health` and `GET /_cat/indices?format=json&h=index`. Those pinned
-rc.87 handlers read engine state and accept an empty index list. MCP discovery
+`GET /_cluster/health` and `GET /_cat/indices?format=json&h=index`. An empty
+index list is accepted. MCP discovery
 alone does not reach the backend. The probe deliberately avoids `_search`,
 which appends an audit entry, and `xerj_map`, which refuses a missing autoindex
 catalog. Empty readiness does not imply any repository has been indexed.
@@ -231,7 +228,7 @@ otherwise it reports bounded unavailability, such as `not-managed`.
 Ensure serializes startup and explicit stop using private records under
 `$CODEX_HOME/xerj-data/.lifecycle`, scoped to the normalized endpoint. It reuses a
 verified endpoint, never replaces an unrelated listener, and starts only the
-installed pinned binary. Automatic server launches bind to loopback, retain
+installed binary. Automatic server launches bind to loopback, retain
 the native authentication default and managed admin key, and use lexical
 embedding mode so readiness cannot trigger model downloads. No installation,
 indexing, project configuration, profile edits or service registration occurs.
@@ -330,7 +327,7 @@ commands and unaudited flags are refused by this wrapper. `gestalt xerj update`
 is the manager's verified release installer described above.
 
 This is automatic state routing and path validation, not an OS filesystem
-sandbox. In the pinned server, an administrator can supply a snapshot repository
+sandbox. In the previously audited rc.87 server, an administrator can supply a snapshot repository
 destination through the HTTP API, which can write outside these roots. The
 wrapper does not block that API. Concurrent filesystem changes and manually
 replaced binaries are also outside this guarantee.

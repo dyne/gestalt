@@ -16,7 +16,11 @@ cat > "$test_root/source/$stage/xerj" <<'EOF'
 #!/usr/bin/env python3
 import json, os, pathlib, signal, sys
 root=pathlib.Path(os.environ['XERJ_INSTALL_DIR'])
-(root/'forwarded.json').write_text(json.dumps({'args':sys.argv[1:], 'env':dict(os.environ)}))
+if not root.name.startswith('.install.'):
+    (root/'forwarded.json').write_text(json.dumps({'args':sys.argv[1:], 'env':dict(os.environ)}))
+if sys.argv[1:] == ['-V']:
+    print('xerj v1.0.0-rc.87')
+    sys.exit(0)
 if sys.argv[1:2] == ['mcp']:
     print('mcp fixture diagnostics', file=sys.stderr)
     for line in sys.stdin:
@@ -56,6 +60,10 @@ while (($#)); do
     *) shift ;;
   esac
 done
+if [[ $url == https://api.github.com/repos/xerj-org/xerj/releases/latest ]]; then
+  printf '%s\n' '{"tag_name":"v1.0.0-rc.87","draft":false}'
+  exit 0
+fi
 [[ $destination == "$GESTALT_HOME/xerj/.install."* ]]
 [[ $url == https://github.com/xerj-org/xerj/releases/download/v1.0.0-rc.87/* ]]
 [[ ${XERJ_TEST_FAIL_DOWNLOAD:-0} == 0 ]] || exit 22
@@ -145,7 +153,7 @@ cp "$test_root/good-release" "$test_root/source/release.tar.gz"
 cp "$test_root/good-checksum" "$test_root/source/release.sha256"
 XERJ_INSECURE_SKIP_CHECKSUM=1 refuse install
 XERJ_INSTALL_DIR="$test_root/escape" refuse install
-XERJ_VERSION=unreviewed refuse install
+XERJ_VERSION=unreviewed "${manager[@]}" xerj install > /dev/null 2>&1
 refuse --data-dir "$test_root/escape"
 refuse -d "$test_root/escape"
 refuse --config "$test_root/escape"

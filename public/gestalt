@@ -3896,7 +3896,9 @@ read_supervision_capabilities() {
             (!policy || typeof policy !== "object" || Array.isArray(policy) ||
              !Number.isInteger(policy.version) || typeof policy.scope !== "string" ||
              !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(policy.scope) ||
-             typeof policy.runtimeEnforcement !== "boolean"))) {
+             typeof policy.runtimeEnforcement !== "boolean" ||
+             (policy.scope === "configured-launch-and-retention" &&
+              (policy.defaultAssurance !== "configured" || policy.strictAttestation !== false))))) {
           process.stdout.write("MALFORMED");
         } else {
           const model = declared ? `${policy.version}:${policy.scope}:${policy.runtimeEnforcement}` : "legacy";
@@ -3961,6 +3963,15 @@ check_supervision_capability_coherence() {
   print_check 'Supervision contract' "ready (v$agents_contract; offline manifests)"
   if [[ $agents_model == legacy && $mobile_model == legacy ]]; then
     print_check 'L1 model policy' 'LEGACY (base supervision only; update both packages for configured-policy diagnostics)'
+    return 0
+  fi
+  if [[ $agents_model == 1:configured-launch-and-retention:false &&
+        $mobile_model == 1:configured-launch-and-retention:false ]] &&
+      has_supervision_capability "$agents_capabilities" l1-model-policy-v1 &&
+      has_supervision_capability "$mobile_capabilities" l1-model-policy-v1 &&
+      has_supervision_capability "$agents_capabilities" l2-report-boundary &&
+      has_supervision_capability "$mobile_capabilities" l2-report-boundary; then
+    print_check 'L1 model policy' 'SUPPORTED (v1 configured compatibility; explicit strict attestation unsupported; runtimeEnforcement=false)'
     return 0
   fi
   if [[ $agents_model != 1:schema-and-local-contracts:false ||

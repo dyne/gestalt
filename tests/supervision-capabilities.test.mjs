@@ -57,6 +57,24 @@ test('compatible trio supports diagnostics and explicitly disclaims automatic en
   assert.match(output, /runtimeEnforcement=false; automatic policy launches unsupported/);
 });
 
+const configured = component => ({ ...manifest(component), modelPolicyContract: {
+  version: 1, scope: 'configured-launch-and-retention', defaultAssurance: 'configured',
+  strictAttestation: false, runtimeEnforcement: false,
+} });
+test('configured pair admits compatibility without claiming strict attestation', () => {
+  expect(configured('agents'), configured('mobile'), 0,
+    /configured compatibility; explicit strict attestation unsupported; runtimeEnforcement=false/);
+  expect(configured('agents'), manifest('mobile'), 1, /INCOMPATIBLE/);
+  expect(manifest('agents'), configured('mobile'), 1, /INCOMPATIBLE/);
+});
+for (const key of ['defaultAssurance', 'strictAttestation']) {
+  test(`configured support requires truthful ${key}`, () => {
+    const mobile = configured('mobile');
+    delete mobile.modelPolicyContract[key];
+    expect(configured('agents'), mobile, 1, /INCOMPATIBLE/);
+  });
+}
+
 test('legacy packages retain base supervision and coordinated rollback restores it', () => {
   expect(manifest('agents', false), manifest('mobile', false), 0, /L1 model policy: LEGACY/);
   expect(manifest('agents'), manifest('mobile'), 0, /L1 model policy: SUPPORTED/);

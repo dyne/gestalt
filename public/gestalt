@@ -802,8 +802,7 @@ async function probe() {
   return { schemaVersion: 1, status: 'ready', version, endpoint, binary, dataRoot,
     auth: { environment: 'XERJ_AUTH', keyFile: join(dataRoot, 'admin.key') }, protocolVersion: '2025-03-26' };
 }
-function endpointOf() {
-  const raw = process.env.XERJ_URL ?? 'http://127.0.0.1:9200';
+function endpointOf(raw = process.env.XERJ_URL ?? 'http://127.0.0.1:9200') {
   if (!/^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d{1,5})?\/?$/.test(raw)) fail('unsafe-endpoint');
   let endpoint;
   try {
@@ -1037,7 +1036,7 @@ async function runGuardian() {
     // Listening control socket and child keep this owner alive across clients.
   } catch (error) { await stop(true); throw error; }
 }
-async function lifecycle() {
+async function lifecycle(automatic = false) {
   if (operation === 'probe') return probe();
   const { root, binary, dataRoot } = await paths();
   const endpoint = endpointOf(), layout = lifecyclePaths(dataRoot, endpoint);
@@ -1086,11 +1085,19 @@ async function lifecycle() {
     const guardian = spawn('bash', [executable, 'xerj', '__backend'], { env, detached: true, stdio: 'ignore' });
     guardian.on('error', () => controller.abort(new Error('launch-failed')));
     guardian.unref();
+    let observedOwner = false;
     while (true) {
       controller.signal.throwIfAborted();
       await delay(25);
+      if (guardian.exitCode !== null || guardian.signalCode !== null)
+        fail(await listenerPresent(endpoint) ? 'endpoint-in-use' : 'launch-failed');
       const owner = await ownerAt(layout, root, endpoint);
-      if (!owner || owner.token !== launchToken) continue;
+      if (!owner || owner.token !== launchToken) {
+        if (observedOwner && !(await stat(layout.record)))
+          fail(await listenerPresent(endpoint) ? 'endpoint-in-use' : 'launch-failed');
+        continue;
+      }
+      observedOwner = true;
       try {
         const ready = await probe();
         if (ready.status === 'ready' && (await control(layout, launchToken, 'retain'))?.retained) {
@@ -1100,6 +1107,7 @@ async function lifecycle() {
         }
       } catch (error) {
         if (controller.signal.aborted) throw error;
+        if (automatic && ['authentication-failed', 'invalid-backend'].includes(error.message)) fail('endpoint-in-use');
         if (!['credentials-unavailable', 'backend-unavailable'].includes(error.message)) throw error;
       }
     }
@@ -1107,6 +1115,49 @@ async function lifecycle() {
     if (launchToken) await control(layout, launchToken, 'stop', true);
     await release();
   }
+}
+async function automaticLifecycle() {
+  if (process.env.XERJ_URL !== undefined) return lifecycle();
+  const { root, dataRoot } = await paths();
+  const file = join(dataRoot, '.lifecycle', 'endpoint.json');
+  const selectSaved = async () => {
+    const saved = await readJSON(file);
+    if (saved && (saved.schemaVersion !== 1 || typeof saved.endpoint !== 'string')) fail('invalid-lifecycle-record');
+    process.env.XERJ_URL = endpointOf(saved?.endpoint ?? 'http://127.0.0.1:9200');
+  };
+  if (operation !== 'ensure-ready') {
+    await selectSaved();
+    return lifecycle();
+  }
+  // Serialize endpoint selection across all clients of this data directory.
+  // Endpoint-specific locks alone cannot serialize the initial allocation.
+  const layout = lifecyclePaths(dataRoot, 'automatic');
+  await mkdir(layout.directory, { recursive: true, mode: 0o700 });
+  await chmod(layout.directory, 0o700);
+  const release = await acquireLock(layout, root, 'automatic');
+  try {
+    await selectSaved();
+    while (true) {
+      try {
+        const ready = await lifecycle(true);
+        if (ready.status === 'ready') await atomicJSON(file, { schemaVersion: 1, endpoint: ready.endpoint });
+        return ready;
+      } catch (error) {
+        if (error.message !== 'endpoint-in-use') throw error;
+      }
+      // The OS chooses a currently free loopback port. If another user wins
+      // the bind race, the next lifecycle check retries within our deadline.
+      controller.signal.throwIfAborted();
+      const listener = net.createServer();
+      await new Promise((resolve, reject) => {
+        listener.once('error', reject);
+        listener.listen(0, '127.0.0.1', resolve);
+      });
+      const port = listener.address().port;
+      await new Promise(resolve => listener.close(resolve));
+      process.env.XERJ_URL = `http://127.0.0.1:${port}`;
+    }
+  } finally { await release(); }
 }
 if (operation === '__backend') {
   try { await runGuardian(); } catch { process.exitCode = 1; }
@@ -1116,7 +1167,7 @@ try {
   if (!Number.isSafeInteger(timeout) || timeout < 100 || timeout > 60000) fail('invalid-deadline');
   // Reserve cleanup time inside the overall budget, never after it.
   timer = setTimeout(() => controller.abort(new Error('timeout')), Math.max(1, timeout - 100));
-  result = await bounded(lifecycle());
+  result = await bounded(automaticLifecycle());
 } catch (error) {
   const reasons = new Set(['cancelled', 'timeout', 'unsafe-path', 'unsupported-installation', 'unsupported-version',
     'unsupported-binary', 'unsafe-endpoint', 'credentials-unavailable', 'authentication-failed',
@@ -2075,7 +2126,12 @@ command_xerj() {
     '' | -*) ;;
     *) die "xerj command '$1' is not managed; init, brain/share, corpus/code, feedback, service, update and export can write outside managed state" ;;
   esac
-  validate_xerj_url "${XERJ_URL:-http://127.0.0.1:9200}"
+  xerj_url=${XERJ_URL:-}
+  if [[ -z $xerj_url && -f $xerj_data/.lifecycle/endpoint.json ]]; then
+    require_command node
+    xerj_url=$(node -e 'const fs=require("node:fs"); const record=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if(record.schemaVersion!==1 || typeof record.endpoint!=="string") process.exit(1); process.stdout.write(record.endpoint);' "$xerj_data/.lifecycle/endpoint.json") || die 'invalid managed xerj endpoint'
+  fi
+  validate_xerj_url "${xerj_url:-http://127.0.0.1:9200}"
   xerj_url=$validated_xerj_url
   xerj_port=$validated_xerj_port
   if [[ -n ${XERJ_BIND_ADDRESS:-} ]]; then validate_xerj_bind "$XERJ_BIND_ADDRESS"; fi

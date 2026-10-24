@@ -524,6 +524,37 @@ upgrade_policy_manifest "$mobile_capability_manifest"
 bash "$repo_root/public/gestalt" doctor > "$test_root/policy-doctor.out"
 grep -E '^L1 model policy +SUPPORTED .*runtimeEnforcement=false; automatic policy launches unsupported' \
   "$test_root/policy-doctor.out" >/dev/null
+upgrade_configured_manifest() {
+  node - "$1" <<'POLICY'
+const fs = require('node:fs');
+const file = process.argv[2];
+const value = JSON.parse(fs.readFileSync(file, 'utf8'));
+value.modelPolicyContract = { version: 1, scope: 'configured-launch-and-retention',
+  defaultAssurance: 'configured', strictAttestation: false, runtimeEnforcement: false };
+fs.writeFileSync(file, JSON.stringify(value));
+POLICY
+}
+upgrade_configured_manifest "$agents_capability_manifest"
+if bash "$repo_root/public/gestalt" doctor > "$test_root/partial-configured-doctor.out" 2>&1; then
+  printf 'doctor unexpectedly accepted a partial configured-policy upgrade\n' >&2
+  exit 1
+fi
+grep -E '^L1 model policy +INCOMPATIBLE ' "$test_root/partial-configured-doctor.out" >/dev/null
+upgrade_configured_manifest "$mobile_capability_manifest"
+bash "$repo_root/public/gestalt" doctor > "$test_root/configured-doctor.out"
+grep -E '^L1 model policy +SUPPORTED .*configured compatibility; explicit strict attestation unsupported; runtimeEnforcement=false' \
+  "$test_root/configured-doctor.out" >/dev/null
+# A new scope cannot advertise configured support with missing/false assurance metadata.
+node - "$mobile_capability_manifest" <<'POLICY'
+const fs = require('node:fs'), file = process.argv[2];
+const value = JSON.parse(fs.readFileSync(file, 'utf8'));
+delete value.modelPolicyContract.defaultAssurance;
+fs.writeFileSync(file, JSON.stringify(value));
+POLICY
+if bash "$repo_root/public/gestalt" doctor > "$test_root/malformed-configured-doctor.out" 2>&1; then
+  printf 'doctor unexpectedly accepted malformed configured-policy metadata\n' >&2
+  exit 1
+fi
 write_capability_manifests
 bash "$repo_root/public/gestalt" doctor > "$test_root/rollback-policy-doctor.out"
 grep -E '^L1 model policy +LEGACY ' "$test_root/rollback-policy-doctor.out" >/dev/null

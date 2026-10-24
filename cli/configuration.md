@@ -78,6 +78,12 @@ downloads or silently changes a component.
 The optional L1 model-policy check adds **SUPPORTED**, **LEGACY**, or
 **INCOMPATIBLE** diagnostics. Supported means schema/configuration agreement,
 with runtime enforcement unavailable; legacy packages retain base supervision.
+New matched packages report **configured compatibility**, which lets existing
+v1 plans run with explicit validated launch settings and controller ownership.
+Their optional `MODEL_POLICY_ASSURANCE: runtime-attested` declaration remains
+strict and blocked on adapters without receipts. Missing attestation does not
+become another ordinary execution approval. Doctor validates declarations only;
+it cannot establish child execution, review or checkpoint success.
 An upgrade or rollback of only one package can be incompatible. See the
 [manifest contract](../reference/supervision-capabilities.md) for exact scope,
 setup rollback, and generated-role limitations.

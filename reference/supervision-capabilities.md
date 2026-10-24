@@ -55,6 +55,16 @@ additional field (the Mobile scope is `schema-and-retention`):
 
 `gestalt doctor` distinguishes:
 
+New matched Agents/Mobile packages instead use scope
+`configured-launch-and-retention`, `defaultAssurance: "configured"`,
+`strictAttestation: false` and `runtimeEnforcement: false`. Doctor validates these
+fields and reports configured compatibility. Existing v1 plans without an
+assurance declaration use validated requested launch settings and controller
+identity, without rewriting plan metadata. Explicit `MODEL_POLICY_ASSURANCE:
+runtime-attested` stays blocked on adapters without receipts. A partial upgrade
+between these scopes is incompatible; deploy the matching CLI, Agents and Mobile
+updates together. This disclosure is not proof of live or installed execution.
+
 - **SUPPORTED**: both packages declare the v1 capability, expected component
   scopes, report boundary, and `runtimeEnforcement: false`. This establishes
   schema/configuration diagnostics and Mobile retention of policy metadata.

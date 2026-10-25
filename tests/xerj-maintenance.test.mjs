@@ -61,6 +61,14 @@ test('explicit update version avoids latest lookup and rejects malformed argumen
     await assert.rejects(f.run(...args));
 });
 
+test('top-level XERJ selector invokes the verified release installer without installing core components', async t => {
+  const f = await fixture(t);
+  await exec('bash', [manager, 'update', '--component', 'xerj'], { env: f.env, timeout: 15000 });
+  assert.match((await f.run('-V')).stdout, /1\.0\.0-rc\.999/);
+  assert.deepEqual(await readdir(f.home), ['xerj']);
+  assert.deepEqual(await readdir(f.scratch), []);
+});
+
 test('checksum and candidate-version failures preserve the previous binary', async t => {
   const mismatch = await fixture(t, '1.0.0-rc.998');
   await assert.rejects(mismatch.run('update', '1.0.0-rc.999'), /version does not match/);

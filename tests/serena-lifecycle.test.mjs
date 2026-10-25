@@ -78,8 +78,20 @@ fs.writeFileSync(path.join(root, 'active.json'), JSON.stringify({schemaVersion:1
     CODEX_HOME: join(root, 'codex'), FAKE_ARCHIVE: archive, FAKE_PYTHON: python };
   const run = (args, extra = {}) => spawnSync('bash', [manager, 'serena', ...args], { env: { ...env, ...extra },
     input: '', encoding: 'utf8', timeout: 20000 });
-  return { root, home, managed, bin, run };
+  return { root, home, managed, bin, run, env };
 }
+test('top-level Serena selector uses the verified managed installer without installing core components', async t => {
+  const f = await fixture(t);
+  const result = spawnSync('bash', [manager, 'update', 'serena'], {
+    env: f.env, input: '', encoding: 'utf8', timeout: 20000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const active = JSON.parse(await readFile(join(f.managed, 'serena/active.json'), 'utf8'));
+  assert.equal(active.version, '1.7.0');
+  assert.ok((await readFile(active.executable)).length);
+  assert.deepEqual((await readdir(f.managed)).sort(), ['serena']);
+  assert.deepEqual(await readdir(f.home), []);
+});
 test('private unattended install with spaces; idempotence; staged update leaves live prior release usable', async t => {
   const f = await fixture(t);
   let r = f.run(['install']); assert.equal(r.status, 0, r.stderr);

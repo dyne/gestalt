@@ -91,8 +91,9 @@ Manage Gestalt Agents and Gestalt Mobile in isolated, user-owned directories.
 
 Commands:
   install [--extra-skills]  Install or reconcile Agents and Mobile.
-  update [--extra-skills]   Upgrade the manager, Agents, and Mobile.
-  update-restart [--extra-skills]
+  update [COMPONENT] [--extra-skills]
+                            Update all installed managed components (default).
+  update-restart [COMPONENT] [--extra-skills]
                             Update from a live Mobile session, then restart Mobile.
   cli [--] [args...]        Start Codex with ~/.codex-gestalt as CODEX_HOME.
   mobile [--] [args...]     Start the managed Gestalt Mobile executable.
@@ -118,6 +119,17 @@ Commands:
   doctor                    Check prerequisites and installation state.
   version                   Print manager and detected component versions.
   help                      Show this help.
+
+Update components (also accepted as --component COMPONENT):
+  all                       Gestalt core plus installed Serena and XERJ (default).
+  gestalt                   Manager, Agents, Mobile, and context-mode runtime.
+  serena                    Latest stable Serena and its private uv/Python tooling.
+  xerj                      Latest official managed XERJ release.
+
+Optional components absent from this installation are skipped by 'all'.
+Selecting serena or xerj explicitly installs or updates that component only.
+--extra-skills applies only to all or gestalt; it adds curated third-party skills.
+Node, npm, Codex, Kimi, and system language servers are externally maintained.
 
 Environment:
   CODEX_HOME                 Isolated Codex home (default: ~/.codex-gestalt).
@@ -2954,11 +2966,63 @@ command_install() {
 }
 
 command_update() {
-  parse_setup_options "$@"
-  update_manager
-  run_marketplace_setup upgrade "$include_extra_skills"
-  install_mobile
-  log 'manager, Agents, and Mobile are up to date'
+  # XERJ canonicalizes these paths. Keep that normalization local so a live
+  # Mobile restart descriptor retains the path spelling used at launch.
+  local gestalt_home=$gestalt_home codex_home=$codex_home
+  parse_update_options "$@"
+  case $update_component in
+    all | gestalt)
+      update_manager
+      run_marketplace_setup upgrade "$include_extra_skills"
+      install_mobile
+      log 'manager, Agents, Mobile, and context-mode are up to date'
+      ;;
+  esac
+  if [[ $update_component == serena || ( $update_component == all && -f $gestalt_home/serena/active.json ) ]]; then
+    log 'updating Serena and its private uv/Python tooling'
+    command_serena update
+  elif [[ $update_component == all ]]; then
+    log 'skipping Serena (not installed; use gestalt update serena to install)'
+  fi
+  if [[ $update_component == xerj || ( $update_component == all && -e $gestalt_home/xerj/xerj ) ]]; then
+    log 'updating XERJ'
+    command_xerj update
+  elif [[ $update_component == all ]]; then
+    log 'skipping XERJ (not installed; use gestalt update xerj to install)'
+  fi
+  log "update complete ($update_component)"
+}
+
+parse_update_options() {
+  include_extra_skills=false
+  update_component=all
+  local component_selected=false
+  while (($# > 0)); do
+    case $1 in
+      --extra-skills) include_extra_skills=true ;;
+      -h | --help) usage; exit 0 ;;
+      --component)
+        (($# >= 2)) || die '--component requires all, gestalt, serena, or xerj'
+        [[ $component_selected == false ]] || die 'select only one update component'
+        update_component=$2
+        component_selected=true
+        shift
+        ;;
+      all | gestalt | serena | xerj)
+        [[ $component_selected == false ]] || die 'select only one update component'
+        update_component=$1
+        component_selected=true
+        ;;
+      *) die "unknown update option or component: $1 (run 'gestalt update --help')" ;;
+    esac
+    shift
+  done
+  case $update_component in
+    all | gestalt | serena | xerj) ;;
+    *) die "unknown update component: $update_component (choose all, gestalt, serena, or xerj)" ;;
+  esac
+  [[ $include_extra_skills == false || $update_component == all || $update_component == gestalt ]] ||
+    die '--extra-skills requires the all or gestalt update component'
 }
 
 resolve_manager_target() {
@@ -2997,7 +3061,7 @@ process_is_live() {
 command_update_restart() {
   local relay_pid restart_state restart_log restart_lock worker_pid manager_target
 
-  parse_setup_options "$@"
+  parse_update_options "$@"
   relay_pid=${GESTALT_MOBILE_PID:-}
   restart_state=${GESTALT_MOBILE_RESTART_STATE:-}
   validate_mobile_restart_context "$relay_pid" "$restart_state"
@@ -3019,7 +3083,7 @@ command_update_restart() {
     child.unref();
     process.stdout.write(String(child.pid));
   ' "$manager_target" __update-restart-worker \
-    "$relay_pid" "$restart_state" "$include_extra_skills" "$restart_log" "$restart_lock"); then
+    "$relay_pid" "$restart_state" "$include_extra_skills" "$restart_log" "$restart_lock" "$update_component"); then
     rmdir -- "$restart_lock" 2>/dev/null || true
     die 'could not schedule the detached update and restart worker'
   fi
@@ -3038,6 +3102,7 @@ command_update_restart_worker() {
   local -r worker_extra_skills=${3:-false}
   local -r restart_log=${4:-}
   local -r restart_lock=${5:-}
+  local -r worker_component=${6:-all}
   local restart_cwd restart_field manager_target
   local -a restart_record restart_args update_args=()
 
@@ -3068,7 +3133,7 @@ command_update_restart_worker() {
     update_args+=(--extra-skills)
   fi
 
-  command_update "${update_args[@]}"
+  command_update "$worker_component" "${update_args[@]}"
   validate_mobile_restart_context "$relay_pid" "$restart_state"
   log "update succeeded; gracefully stopping Gestalt Mobile process $relay_pid"
   kill -TERM "$relay_pid"

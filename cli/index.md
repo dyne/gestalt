@@ -8,7 +8,7 @@ relay together without merging their state. Run `gestalt help` at any time.
 | Command | Effect |
 | --- | --- |
 | `gestalt install` | Install or reconcile Agents, context mode, profiles, and Mobile |
-| `gestalt update` | Checksum-update the manager, upgrade Agents, rerun setup, and update Mobile |
+| `gestalt update [COMPONENT]` | Update Gestalt core and installed optional components; optionally select one component group |
 | `gestalt update-restart` | From a live Mobile session, update everything and gracefully restart Mobile |
 | `gestalt cli [args…]` | Launch Codex with the isolated Gestalt home |
 | `gestalt serena install` | Prepare the optional managed Serena release |
@@ -147,13 +147,39 @@ surface for both interactive shells and executors.
 
 ```sh
 gestalt update
+gestalt update --help
 ```
 
 This upgrades `dyne/gestalt-agents`, reruns its required setup script, verifies
 the context-mode runtime and complete `$gestalt:*` app-server skill catalog,
 updates the stable `$CODEX_HOME/bin/org-plan` helper, and installs
 `gestalt-mobile@latest` under the Gestalt home. Start a new session after the
-update because running sessions retain their startup catalog.
+update because running sessions retain their startup catalog. By default it also
+updates installed Serena and XERJ through their managed release installers.
+Optional components that are not installed are reported as skipped.
+
+Use one component name to limit the update:
+
+| Component | Scope |
+| --- | --- |
+| `all` | Gestalt core plus installed Serena and XERJ; the default |
+| `gestalt` | Manager, Agents, Mobile, context-mode, and generated profiles/helpers |
+| `serena` | Latest stable Serena with its private managed uv and Python tooling |
+| `xerj` | Latest official managed XERJ release |
+
+```sh
+gestalt update gestalt
+gestalt update serena
+gestalt update xerj
+gestalt update --component xerj
+```
+
+Explicitly selecting `serena` or `xerj` installs that component if absent.
+The `--component NAME` form is equivalent to a positional component name.
+`--extra-skills` is supported only with `all` or `gestalt`. Node, npm, Codex,
+Kimi, and system language servers remain managed by their own installers.
+Serena's release validation and XERJ's checksum/version checks still apply;
+existing XERJ servers and indexes are preserved.
 
 When you are already working in a session opened through Gestalt Mobile, use:
 
@@ -161,12 +187,17 @@ When you are already working in a session opened through Gestalt Mobile, use:
 gestalt update-restart
 ```
 
+The GUI's **Upgrade** action uses this same all-components update path.
 The command schedules the update outside the current Codex process. Mobile
 continues running if any update step fails. After a successful update it shuts
 down gracefully, closes its Codex children, and restarts with the same working
 directory and command-line options. The browser reconnects to the relay and the
 durable sessions remain available. Progress is written to
 `$GESTALT_HOME/update-restart.log`.
+
+`update-restart` also accepts the same optional component selector when called
+from a managed Mobile session. Any failed component update prevents the restart;
+completed component updates are retained and the error is recorded in the log.
 
 The command is intentionally available only to sessions launched by
 `gestalt mobile`; it will not guess at or terminate an unrelated process.

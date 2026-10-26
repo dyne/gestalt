@@ -52,7 +52,9 @@ class StdioServerParameters:
  def __init__(self,**kwargs):self.__dict__.update(kwargs)
 class Tool:
  def __init__(self,value):self.value=value;self.name=value['name']
- def model_dump(self,**kwargs):return self.value
+ def model_dump(self,**kwargs):
+  if kwargs.get('by_alias'):return self.value
+  return {('input_schema' if k=='inputSchema' else k):v for k,v in self.value.items()}
 class ClientSession:
  def __init__(self,reader,writer):self.reader=reader;self.writer=writer
  async def __aenter__(self):return self
@@ -118,6 +120,41 @@ for line in sys.stdin:
   };
   return {root,home,managed,workspace,descriptor,executable,python,uv,env,run,doctor};
 }
+test('installer catalog uses wire aliases and remains usable by doctor with MCP 2 models',async t=>{
+  const f=await fixture(t), source=await readFile(manager,'utf8');
+  // Execute the installer's actual SDK-to-descriptor boundary, then consume its
+  // catalog through the public doctor command and a live fixture MCP connection.
+  const catalog=source.split('async def catalog():\n')[1].split('\nrequired = ')[0];
+  assert.ok(catalog,'installer catalog function must be present');
+  const prepare=source.split("serena_workspace_prepare() {\n  cat <<'PYTHON'\n")[1].split('\nPYTHON\n}')[0];
+  const supervisor=source.split("serena_operator_supervisor() {\n  cat <<'JS'\n")[1].split('\nJS\n}')[0];
+  const settings=JSON.parse(await readFile(f.descriptor,'utf8'));
+  const program=`import asyncio,json,os,sys,pathlib
+from mcp import ClientSession,StdioServerParameters
+from mcp.client.stdio import stdio_client
+settings=json.loads(sys.argv[1])
+workspace=pathlib.Path(sys.argv[2])
+executable=settings['executable']
+preparation=os.environ['GESTALT_SERENA_PREPARE']
+async def catalog():
+${catalog}
+print(json.dumps(tools))
+`;
+  const child=spawn(f.python,['-c',program,JSON.stringify(settings),f.workspace],{env:{...f.env,
+    GESTALT_SERENA_PREPARE:prepare,GESTALT_SERENA_NODE:process.execPath,GESTALT_SERENA_SUPERVISOR:supervisor}});
+  let stdout='',stderr='';child.stdout.on('data',b=>stdout+=b);child.stderr.on('data',b=>stderr+=b);
+  const code=await new Promise((resolve,reject)=>{child.once('error',reject);child.once('close',resolve);});
+  assert.equal(code,0,stderr);
+  settings.tools=JSON.parse(stdout);
+  await writeFile(f.descriptor,JSON.stringify(settings));
+  const r=await f.doctor();
+  assert.equal(r.code,0,r.stderr);
+  assert.deepEqual(r.report,{installed:true,connected:true,projectReady:true,reason:'ready'});
+  for(const tool of settings.tools) {
+    assert.deepEqual(tool.inputSchema,{type:'object'});
+    assert.equal(Object.hasOwn(tool,'input_schema'),false);
+  }
+});
 test('versions/-V use package metadata, leave readonly home and workspace unchanged',async t=>{
   const f=await fixture(t);const before=await readdir(f.workspace);await chmod(f.home,0o555);await chmod(f.workspace,0o555);
   for(const args of [['serena','version'],['serena','-V'],['version']]) {

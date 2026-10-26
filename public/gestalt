@@ -1571,7 +1571,8 @@ async def catalog():
     async with stdio_client(parameters) as (reader, writer):
         async with ClientSession(reader, writer) as session:
             await session.initialize()
-            return [tool.model_dump(mode='json', exclude_none=True) for tool in (await session.list_tools()).tools]
+            # Persist MCP wire names; SDK 2 defaults to Python snake_case names.
+            return [tool.model_dump(mode='json', by_alias=True, exclude_none=True) for tool in (await session.list_tools()).tools]
 tools = asyncio.run(asyncio.wait_for(catalog(), timeout=30))
 required = {'get_symbols_overview', 'find_symbol', 'initial_instructions', 'replace_symbol_body', 'insert_after_symbol', 'write_memory'}
 if not required.issubset({tool['name'] for tool in tools}):
@@ -1877,7 +1878,7 @@ async def check():
     async with stdio_client(parameters) as (reader,writer):
         async with ClientSession(reader,writer) as session:
             await session.initialize()
-            live = {t.name:t.model_dump(mode='json',exclude_none=True) for t in (await session.list_tools()).tools}
+            live = {t.name:t.model_dump(mode='json',by_alias=True,exclude_none=True) for t in (await session.list_tools()).tools}
             for tool in settings['tools']:
                 if tool['name'] not in live or tool['inputSchema'] != live[tool['name']]['inputSchema']:
                     raise RuntimeError('installed catalog differs from native tools')

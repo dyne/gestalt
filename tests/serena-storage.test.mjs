@@ -18,7 +18,7 @@ async function run(command, args, env, input) {
   const code = await new Promise((r, reject) => { child.once('error', reject); child.once('exit', r); });
   return { code, stdout, stderr };
 }
-async function fixture() {
+async function fixture({ agentInterface = false } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'serena-storage-'));
   const workspace = join(root, 'workspace with spaces'), home = join(root, 'home'), stubs = join(root, 'stubs');
   for (const path of [workspace, home, join(stubs, 'ruamel'), join(stubs, 'serena/config')]) await mkdir(path, { recursive: true });
@@ -27,6 +27,7 @@ async function fixture() {
   await writeFile(join(stubs, 'ruamel/yaml.py'), `import json\nclass YAML:\n def load(self,s): return json.load(s)\n def load_all(self,s): return (json.loads(part) for part in s.read().split("---") if part.strip())\n def dump(self,v,s): json.dump(v,s)\n`);
   await writeFile(join(stubs, 'serena/config/serena_config.py'), `import pathlib,os,json
 class SerenaConfig:
+ ${agentInterface ? "agent_interface='REPL'" : '# Legacy release without interface selection'}
  @classmethod
  def from_config_file(cls):
   p=pathlib.Path(os.environ['SERENA_HOME'])/'serena_config.yml'
@@ -81,6 +82,16 @@ for (const language of ['python', 'typescript', 'cpp']) test(`native storage pre
     assert.equal((await f.boot()).code, 0);
     assert.equal(await readFile(join(state, 'project.yml'), 'utf8'), before);
     assert.deepEqual(await readdir(f.home), []);
+  } finally { await f.close(); }
+});
+
+test('Serena 2 MCP launch overrides the default REPL interface with individual tools', async () => {
+  const f = await fixture({ agentInterface: true });
+  try {
+    const result = await f.boot();
+    assert.equal(result.code, 0, result.stderr);
+    const output = JSON.parse(result.stdout);
+    assert.deepEqual(output.args.slice(-6), ['--context', 'codex', '--mode', 'editing', '--agent-interface', 'tools']);
   } finally { await f.close(); }
 });
 

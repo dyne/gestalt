@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import test from 'node:test';
 const manager = resolve('public/gestalt');
 const tools = ['get_symbols_overview','find_symbol','replace_symbol_body'].map(name=>({name,inputSchema:{type:'object'}}));
-async function fixture(t) {
+async function fixture(t,{agentInterface=false}={}) {
   const root = await mkdtemp(join(tmpdir(),'serena-doctor-')); t.after(async()=>{await chmod(join(root,'home'),0o755);await chmod(join(root,'workspace with spaces'),0o755);await rm(root,{recursive:true,force:true});});
   const home=join(root,'home'), managed=join(root,'managed'), workspace=join(root,'workspace with spaces'), stubs=join(root,'stubs');
   for(const p of [join(root,'bin'),home,workspace,join(managed,'serena'),join(root,'python'),join(stubs,'ruamel'),join(stubs,'serena/config'),join(stubs,'mcp/client')])await mkdir(p,{recursive:true});
@@ -33,6 +33,7 @@ else:os.execv('/usr/bin/python3',['/usr/bin/python3',*sys.argv[1:]])
   await writeFile(join(stubs,'ruamel/yaml.py'),'import json\nclass YAML:\n def load(self,s):return json.load(s)\n def dump(self,v,s):json.dump(v,s)\n');
   await writeFile(join(stubs,'serena/config/serena_config.py'),`import pathlib,os,json
 class SerenaConfig:
+ ${agentInterface ? "agent_interface='REPL'" : '# Legacy release without interface selection'}
  @classmethod
  def from_config_file(cls):
   p=pathlib.Path(os.environ['SERENA_HOME'])/'serena_config.yml'
@@ -95,7 +96,10 @@ for line in sys.stdin:
  if message['method']=='initialize':
   if os.environ.get('DOCTOR_MODE')=='handshake':print(json.dumps(dict(error='handshake failed')),flush=True);continue
   result={}
- elif message['method']=='tools/list':result=dict(tools=${JSON.stringify(tools)})
+ elif message['method']=='tools/list':
+  if ${agentInterface ? 'True' : 'False'} and '--agent-interface' not in sys.argv:
+   result=dict(tools=[dict(name='serena_repl',inputSchema=dict(type='object'))])
+  else:result=dict(tools=${JSON.stringify(tools)})
  else:
   if os.environ.get('DOCTOR_MODE')=='lsp-timeout':time.sleep(60)
   error=os.environ.get('DOCTOR_MODE')=='lsp-error'
@@ -181,6 +185,22 @@ test('doctor without project reports connection only, empty project is not ready
   assert.deepEqual(r.report,{installed:true,connected:true,projectReady:null,reason:'connected'});
   const empty=join(f.root,'empty');await mkdir(empty);r=await f.doctor({},empty);
   assert.equal(r.code,1);assert.equal(r.report.connected,true);assert.equal(r.report.projectReady,false);assert.match(r.report.reason,/no-supported-source/);
+  assert.deepEqual(await readdir(empty),[]);
+});
+for(const project of ['none','empty','source'])test(`Serena 2 doctor selects individual tools with ${project} project`,async t=>{
+  const f=await fixture(t,{agentInterface:true});
+  const empty=join(f.root,'empty');await mkdir(empty);
+  const cwd=project==='none'?'':project==='empty'?empty:f.workspace;
+  const r=await f.doctor({},cwd);
+  assert.equal(r.code,project==='empty'?1:0,r.stderr);
+  assert.equal(r.report.installed,true);
+  assert.equal(r.report.connected,true);
+  assert.equal(r.report.projectReady,project==='none'?null:project==='source');
+  const launch=JSON.parse(await readFile(join(f.root,'args.json'),'utf8'));
+  const option=launch.args.indexOf('--agent-interface');
+  assert.notEqual(option,-1);
+  assert.equal(launch.args[option+1],'tools');
+  assert.deepEqual(await readdir(f.home),[]);
   assert.deepEqual(await readdir(empty),[]);
 });
 test('absent/malformed/incompatible metadata and missing runtime fail before startup',async t=>{

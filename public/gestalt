@@ -1415,7 +1415,13 @@ try:
 except Exception as error:
     sys.stderr.write('gestalt: Serena workspace preparation failed: ' + str(error) + '\n')
     sys.exit(1)
-os.execve(executable, [executable, *sys.argv[4:]], os.environ)
+arguments = sys.argv[4:]
+# Serena 2 defaults to REPL, which bypasses the individual tool contract.
+# Use the CLI override so project configuration cannot select REPL instead.
+# Older releases have neither this configuration field nor the CLI option.
+if arguments[:1] == ['start-mcp-server'] and hasattr(SerenaConfig, 'agent_interface'):
+    arguments += ['--agent-interface', 'tools']
+os.execve(executable, [executable, *arguments], os.environ)
 PYTHON
 }
 

@@ -1871,6 +1871,12 @@ if target:
     parameters = StdioServerParameters(command=settings['python'], args=['-c',os.environ['GESTALT_SERENA_PREPARE'],
         str(root),settings['executable'],json.dumps(settings),*args,'--project',str(root)],env=environment)
 else:
+    # Projectless probes bypass workspace preparation, including its Serena 2
+    # interface override. Select the same catalog without passing new options
+    # to legacy releases that have no interface selection.
+    from serena.config.serena_config import SerenaConfig
+    if hasattr(SerenaConfig, 'agent_interface'):
+        args += ['--agent-interface','tools']
     parameters = StdioServerParameters(command=settings['executable'],args=args,env=environment)
 parameters = StdioServerParameters(command=os.environ['GESTALT_SERENA_NODE'],
     args=['-e',os.environ['GESTALT_SERENA_SUPERVISOR'],parameters.command,json.dumps(parameters.args)],env=parameters.env)

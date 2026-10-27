@@ -35,6 +35,7 @@ update_manager() { record_update manager; }
 run_marketplace_setup() { record_update "agents:$1:$2"; }
 install_mobile() { record_update mobile; }
 command_serena() { [[ $1 == update ]]; record_update serena; }
+command_playwright() { [[ $1 == update ]]; record_update playwright; }
 command_xerj() {
   [[ $1 == update ]]; record_update xerj
   if [[ -n \${GESTALT_TEST_RESOLVED_HOME:-} ]]; then gestalt_home=$GESTALT_TEST_RESOLVED_HOME; fi
@@ -173,4 +174,15 @@ test('failed external GUI update leaves the managed relay running and releases t
   assert.equal(relay.signalCode, null);
   assert.deepEqual(await f.operations(), ['manager', 'agents:upgrade:false', 'mobile', 'serena']);
   assert.equal(await readFile(state, 'utf8'), [f.root, '--port', '4321', ''].join('\0'));
+});
+
+
+test('Playwright updates only when installed or explicitly selected', async t => {
+  const f = await fixture(t, false);
+  await f.run(['update', 'playwright']);
+  assert.deepEqual(await f.operations(), ['playwright']);
+  await mkdir(join(f.home, 'playwright'));
+  await writeFile(join(f.home, 'playwright/active.json'), '{}');
+  await f.run(['update']);
+  assert.deepEqual(await f.operations(), ['playwright', 'manager', 'agents:upgrade:false', 'mobile', 'playwright']);
 });

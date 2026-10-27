@@ -6,7 +6,8 @@
     "build": "vitepress build",
     "preview": "vitepress preview",
     "test": "bash tests/run.sh",
-    "test:browser": "playwright test"
+    "test:browser": "playwright test",
+    "test:playwright:real": "node --test tests/playwright-real.test.mjs"
   },
   "devDependencies": {
     "@openai/codex": "0.160.0",

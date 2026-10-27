@@ -97,6 +97,11 @@ Commands:
                             Update from a live Mobile session, then restart Mobile.
   cli [--] [args...]        Start Codex with ~/.codex-gestalt as CODEX_HOME.
   mobile [--] [args...]     Start the managed Gestalt Mobile executable.
+  playwright install [VERSION] Install the pinned MCP package; never install Chrome.
+  playwright update [VERSION]  Stage, verify and activate an explicit package update.
+  playwright version [--json]  Read versioned installation metadata.
+  playwright doctor [--json] [--executable-path PATH] Check package and Chrome separately.
+  playwright mcp --cwd ROOT    Managed headless stdio (workspace profile).
   serena install            Install private uv, Python 3.13 and tested Serena.
   serena update [VERSION]   Validate and activate a release; retain prior tooling.
   serena version, -V        Read installed package metadata without creating state.
@@ -121,13 +126,14 @@ Commands:
   help                      Show this help.
 
 Update components (also accepted as --component COMPONENT):
-  all                       Gestalt core plus installed Serena and XERJ (default).
+  all                       Gestalt core plus installed Serena, XERJ and Playwright (default).
   gestalt                   Manager, Agents, Mobile, and context-mode runtime.
   serena                    Latest stable Serena and its private uv/Python tooling.
   xerj                      Latest official managed XERJ release.
+  playwright                Stable Playwright MCP package; Chrome is externally maintained.
 
 Optional components absent from this installation are skipped by 'all'.
-Selecting serena or xerj explicitly installs or updates that component only.
+Selecting serena, xerj or playwright explicitly installs or updates that component only.
 --extra-skills applies only to all or gestalt; it adds curated third-party skills.
 Node, npm, Codex, Kimi, and system language servers are externally maintained.
 
@@ -1591,6 +1597,394 @@ PYTHON
   log "installed Serena $version with uv $MANAGED_UV_VERSION and Python 3.13"
 }
 
+# Embedded to preserve the manager's single-file distribution contract.
+playwright_runtime() {
+  cat <<'PLAYWRIGHT_JS'
+const fs = require('node:fs');
+process.umask(0o077);
+const path = require('node:path');
+const {spawn, spawnSync} = require('node:child_process');
+const {createHash} = require('node:crypto');
+const [home, action = 'help', ...args] = process.argv.slice(1);
+const root = path.join(home, 'playwright');
+const stable = /^\d+\.\d+\.\d+$/;
+const integrity = /^sha512-[A-Za-z0-9+/]{86}==$/;
+const standard = new Set(['browser_navigate','browser_navigate_back','browser_snapshot','browser_click',
+  'browser_hover','browser_drag','browser_select_option','browser_type','browser_press_key','browser_fill_form',
+  'browser_take_screenshot','browser_wait_for','browser_handle_dialog','browser_file_upload',
+  'browser_console_messages','browser_network_requests','browser_tabs','browser_close','browser_resize']);
+let stage, lock, child;
+function workspaceLayout(workspace) {
+  const canonical=fs.realpathSync(workspace);
+  if(!fs.statSync(canonical).isDirectory())fail('Playwright workspace must be a directory');
+  const state=path.join(root,'workspaces',hash(canonical));
+  return {workspace:canonical,state,userDataDir:path.join(state,'chrome'),lease:path.join(state,'lease')};
+}
+function alive(pid,group=false) {
+  if(!Number.isSafeInteger(pid)||pid<2)return true;
+  try{process.kill(group?-pid:pid,0);return true;}catch(e){return e.code!=='ESRCH';}
+}
+let sessionLease;
+function releaseLease() {
+  if(!sessionLease)return;
+  try {const owner=json(path.join(sessionLease.lease,'owner.json'),8192);if(owner.token===sessionLease.token)fs.rmSync(sessionLease.lease,{recursive:true});}catch{}
+  sessionLease=null;
+}
+function acquire(layout, ownership) {
+  directory(layout.state);
+  const recovering=path.join(layout.state,'recovering');
+  safe(layout.lease);safe(recovering);
+  const claim=()=>{
+    if(fs.existsSync(recovering))fail('Playwright browser busy; chat remains available');
+    try{fs.mkdirSync(layout.lease,{mode:0o700});return true;}catch(e){if(e.code!=='EEXIST')throw e;return false;}
+  };
+  if(!claim()) {
+    // An absent process plus an absent process group is required. Unknown,
+    // partial and live ownership records remain busy; Chromium locks stay intact.
+    let old;try{old=json(path.join(layout.lease,'owner.json'),8192);}catch{fail('Playwright browser busy; incomplete ownership record');}
+    if(old.schemaVersion!==1||old.workspace!==layout.workspace||!/^[a-f0-9]{48}$/.test(old.token||'')||
+       typeof old.identity!=='string'||!old.identity||old.group!==old.pid||old.token!==ownership.staleToken)fail('Playwright browser busy; chat remains available');
+    try{fs.mkdirSync(recovering,{mode:0o700});}catch{fail('Playwright browser busy; recovery in progress');}
+    try {
+      const current=json(path.join(layout.lease,'owner.json'),8192);
+      if(current.token!==old.token)fail('Playwright browser busy; owner changed');
+      fs.rmSync(layout.lease,{recursive:true});
+      fs.mkdirSync(layout.lease,{mode:0o700});
+    }finally{fs.rmdirSync(recovering);}
+  }
+  const token=require('node:crypto').randomBytes(24).toString('hex');
+  sessionLease={...layout,token};
+  const owner={schemaVersion:1,workspace:layout.workspace,pid:ownership.pid,identity:ownership.identity,group:ownership.group,token};
+  if(!Number.isSafeInteger(owner.pid)||owner.pid<2||owner.group!==owner.pid||typeof owner.identity!=='string')fail('invalid browser process ownership');
+  if(!owner.identity)fail('cannot establish browser process identity');
+  fs.writeFileSync(path.join(layout.lease,'owner.json'),JSON.stringify(owner)+'\n',{mode:0o600,flag:'wx'});
+  directory(layout.userDataDir);
+}
+async function backend(workspace,executablePath,ownership) {
+  const d=installed(),chrome=browser(executablePath);
+  if(!chrome.ready)fail('Playwright Chrome unavailable; install Chrome outside Gestalt');
+  const layout=workspaceLayout(workspace);acquire(layout,ownership);
+  const config=path.join(layout.lease,'config.json');
+  fs.writeFileSync(config,JSON.stringify({browser:{browserName:'chromium',userDataDir:layout.userDataDir,
+    launchOptions:{executablePath:chrome.executable,headless:true,chromiumSandbox:true}},
+    capabilities:[],webmcp:false,outputDir:layout.state,codegen:'none'}),{mode:0o600});
+  directory(path.join(layout.state,'config'));directory(path.join(layout.state,'cache'));
+  await new Promise((resolve,reject)=>{
+    // The host launcher owns this group, including Chrome descendants.
+    child=spawn(process.execPath,[d.executable,'--config',config],{cwd:layout.workspace,env:{...runtimeEnv(),XDG_CONFIG_HOME:path.join(layout.state,'config'),XDG_CACHE_HOME:path.join(layout.state,'cache')},stdio:['pipe','pipe','pipe']});
+    child.stderr.resume();child.stdin.on('error',()=>{});
+    child.stdout.pipe(process.stdout);process.stdin.pipe(child.stdin);
+    process.stdin.on('end',()=>child?.kill('SIGTERM'));
+    child.on('error',reject);child.on('close',code=>{child=null;code===0?resolve():reject(Error('browser session exited'));});
+  });
+}
+async function proxy(workspace,executablePath) {
+  const d=installed(),layout=workspaceLayout(workspace);
+  const {createInterface}=require('node:readline');
+  let runtime,next=0,closed=false;
+  const send=value=>process.stdout.write(JSON.stringify({jsonrpc:'2.0',...value})+'\n');
+  const supervise=`const {spawn,spawnSync}=require('node:child_process'),fs=require('node:fs');
+const identity=process.platform==='linux'?fs.readFileSync('/proc/self/stat','utf8').split(') ').at(-1).split(' ')[19]:spawnSync('ps',['-o','lstart=','-p',String(process.pid)],{encoding:'utf8',timeout:2000}).stdout.trim();
+const args=JSON.parse(process.argv[2]);args.push(JSON.stringify({pid:process.pid,group:process.pid,identity,staleToken:process.argv[4]||null}));
+const child=spawn(process.argv[1],args,{cwd:process.argv[3],env:process.env,stdio:[3,'inherit','inherit']});
+let ending=false,code=0;
+function stop(){if(ending)return;ending=true;try{process.kill(-process.pid,'SIGTERM');}catch{}setTimeout(()=>{try{process.kill(-process.pid,'SIGKILL');}catch{}process.exit(code);},750);}
+process.stdin.resume();process.stdin.on('end',stop);process.on('SIGTERM',stop);process.on('SIGINT',stop);
+child.on('error',()=>process.exit(1));child.on('exit',value=>{if(!ending)code=value??1;stop();});`;
+  async function stop() {
+    const old=runtime;runtime=null;if(!old)return;
+    // Close the persistent browser context before terminating its process
+    // group so Chrome can flush cookies and profile databases. If the MCP is
+    // unresponsive, the guardian still bounds teardown of owned descendants.
+    if(old.process.exitCode===null&&old.process.signalCode===null&&old.request) {
+      try{await old.request('tools/call',{name:'browser_close',arguments:{}},2000);}catch{}
+    }
+    old.process.stdin.end();old.process.stdio[3].end();
+    for(const waiter of old.pending.values())waiter.reject(Error('browser session stopped'));
+    old.pending.clear();await old.exited;old.lines.close();
+  }
+  async function start() {
+    if(runtime)return runtime;
+    // The host launcher and its guardian share a process namespace. Only a
+    // provably absent owner and process group authorize stale recovery.
+    let staleToken;
+    try {
+      const owner=json(path.join(layout.lease,'owner.json'),8192);
+      if(owner.schemaVersion!==1||owner.workspace!==layout.workspace||!/^[a-f0-9]{48}$/.test(owner.token||'')||
+         typeof owner.identity!=='string'||!owner.identity||owner.group!==owner.pid||alive(owner.pid)||alive(owner.group,true))fail('Playwright browser busy; chat remains available');
+      staleToken=owner.token;
+    }catch(error){
+      if(error.code!=='ENOENT')throw error;
+      try{if(fs.existsSync(layout.lease))fail('Playwright browser busy; incomplete ownership record');}catch(error){throw error;}
+    }
+    const argv=[...process.execArgv,home,'__backend',layout.workspace,executablePath||''];
+    const processChild=spawn(process.execPath,['-e',supervise,process.execPath,JSON.stringify(argv),layout.workspace,staleToken||''],
+      {cwd:layout.workspace,env:runtimeEnv(),detached:true,stdio:['pipe','pipe','pipe','pipe']});
+    const pending=new Map(),lines=createInterface({input:processChild.stdout});
+    const instance={process:processChild,pending,lines,exited:new Promise(resolve=>processChild.once('close',resolve))};
+    runtime=instance;
+    // Discard upstream/browser stderr (paths, proxy credentials, cookies). Only
+    // fixed manager diagnostics are emitted outside the JSON-RPC protocol.
+    let diagnostic='';
+    processChild.stderr.on('data',b=>{diagnostic=(diagnostic+b).slice(-4096);});
+    processChild.stdin.on('error',()=>{});processChild.stdio[3].on('error',()=>{});
+    const failPending=()=>{
+      const error=Error(diagnostic.includes('gestalt: Playwright browser busy')?'Playwright browser busy; workspace already in use; chat remains available':
+        diagnostic.includes('gestalt: Playwright Chrome unavailable')?'Playwright Chrome unavailable; install Chrome outside Gestalt':'Playwright browser session unavailable; chat remains available');
+      error.managed=true;for(const waiter of pending.values())waiter.reject(error);pending.clear();
+    };
+    processChild.on('error',failPending);processChild.on('exit',failPending);
+    lines.on('line',line=>{
+      let message;try{if(line.length>8*1024*1024)throw Error();message=JSON.parse(line);}catch{failPending();processChild.stdin.end();return;}
+      const waiter=pending.get(message.id);if(!waiter)return;pending.delete(message.id);
+      message.error?waiter.reject(Error('browser request failed')):waiter.resolve(message.result);
+    });
+    instance.request=(method,params,timeout=30000)=>new Promise((resolve,reject)=>{
+      const id=++next,timer=setTimeout(()=>{pending.delete(id);reject(Error('browser request timed out'));processChild.stdin.end();},timeout);
+      pending.set(id,{resolve:value=>{clearTimeout(timer);resolve(value);},reject:error=>{clearTimeout(timer);reject(error);}});
+      processChild.stdio[3].write(JSON.stringify({jsonrpc:'2.0',id,method,params})+'\n');
+    });
+    await instance.request('initialize',{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'gestalt-playwright',version:'1'}});
+    processChild.stdio[3].write(JSON.stringify({jsonrpc:'2.0',method:'notifications/initialized'})+'\n');
+    return instance;
+  }
+  const input=createInterface({input:process.stdin,crlfDelay:Infinity});
+  let work=Promise.resolve();
+  input.on('line',line=>{work=work.then(async()=>{
+    let message;
+    try {
+      if(line.length>1024*1024)fail('oversized Playwright request');
+      message=JSON.parse(line);
+      if(message.id===undefined)return;
+      if(message.method==='initialize')send({id:message.id,result:{protocolVersion:'2024-11-05',capabilities:{tools:{}},serverInfo:{name:'gestalt-playwright',version:d.version},instructions:'Host-owned browser tools use client MCP tool approvals and host filesystem authority. Shell sandbox roots do not constrain this MCP. A listed tool does not grant permission to act.'}});
+      else if(message.method==='ping')send({id:message.id,result:{}});
+      else if(message.method==='tools/list')send({id:message.id,result:{tools:d.toolSchemas}});
+      else if(message.method==='tools/call') {
+        if(!standard.has(message.params?.name)||!d.tools.includes(message.params.name))fail('Playwright tool disabled by managed policy');
+        const connection=await start();
+        const result=await connection.request('tools/call',{name:message.params.name,arguments:message.params.arguments||{}});
+        send({id:message.id,result});
+      } else send({id:message.id,error:{code:-32601,message:'Unsupported managed Playwright method'}});
+    }catch(error){
+      if(message?.id!==undefined)send({id:message.id,error:{code:-32000,message:error.managed?error.message:'Playwright unavailable: browser busy, missing Chrome, or browser session failed; chat remains available'}});
+      // A rejected tool does not disrupt an existing browser connection.
+      if(!error.managed||!error.message.includes('tool disabled'))await stop();
+    }
+  });});
+  const finish=async()=>{if(closed)return;closed=true;await stop();process.exit(0);};
+  input.on('close',finish);process.on('SIGTERM',finish);process.on('SIGINT',finish);
+  await new Promise(resolve=>input.once('close',resolve));
+}
+
+const fail = message => { const error = Error(message); error.managed = true; throw error; };
+const hash = value => createHash('sha256').update(value).digest('hex');
+function safe(p) {
+  if (!path.isAbsolute(p) || path.normalize(p) !== p || /[\x00-\x1f\x7f]/.test(p)) fail('invalid managed path');
+  let current = path.parse(p).root;
+  for (const part of p.slice(current.length).split(path.sep)) {
+    current = path.join(current, part);
+    try { if (fs.lstatSync(current).isSymbolicLink()) fail('managed path traverses symbolic link'); }
+    catch (e) { if (e.code !== 'ENOENT') throw e; }
+  }
+  return p;
+}
+function directory(p) {
+  safe(p); fs.mkdirSync(p, {recursive:true, mode:0o700});
+  const s = fs.statSync(p);
+  if (!s.isDirectory() || (process.getuid && s.uid !== process.getuid())) fail('managed directory has another owner');
+  fs.chmodSync(p, 0o700);
+}
+function json(p, max = 262144) {
+  safe(p); const s = fs.statSync(p);
+  if (!s.isFile() || s.size > max) fail('invalid or oversized metadata');
+  return JSON.parse(fs.readFileSync(p, 'utf8'));
+}
+function installed() {
+  const d = json(path.join(root, 'active.json'));
+  if (d.schemaVersion !== 1 || d.contractVersion !== 1 || !stable.test(d.version) || !integrity.test(d.integrity) ||
+      !/^>=20$/.test(d.node) || !Array.isArray(d.tools) || !d.tools.length || d.tools.some(n => !standard.has(n)) ||
+      !Array.isArray(d.toolSchemas) || d.toolSchemas.length !== d.tools.length || d.toolSchemas.some(t => !d.tools.includes(t.name) || !t.inputSchema)) fail('invalid Playwright installation metadata');
+  const release = safe(d.release);
+  if (path.dirname(release) !== root || !path.basename(release).startsWith('release-' + d.version + '-')) fail('invalid release location');
+  const executable = safe(path.join(release,'node_modules/@playwright/mcp/cli.js'));
+  const pkg = json(path.join(release,'node_modules/@playwright/mcp/package.json'));
+  const packageLock = path.join(release,'package-lock.json');
+  const releaseLock = json(packageLock, 4*1024*1024);
+  if (hash(fs.readFileSync(packageLock)) !== d.lockSha256 || pkg.version !== d.version ||
+      releaseLock.packages?.['node_modules/@playwright/mcp']?.integrity !== d.integrity ||
+      hash(fs.readFileSync(executable)) !== d.executableSha256) fail('Playwright release identity mismatch');
+  return {...d, executable};
+}
+function browser(explicit) {
+  if (explicit && (!path.isAbsolute(explicit) || /[\x00-\x1f\x7f]/.test(explicit))) return {ready:false,reason:'invalid-executable'};
+  const paths = explicit ? [explicit] : process.platform === 'darwin' ?
+    ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium'] :
+    ['/opt/google/chrome/chrome','/usr/bin/google-chrome-stable','/usr/bin/google-chrome','/usr/bin/chromium','/usr/bin/chromium-browser'];
+  for (const p of paths) {
+    try {
+      fs.accessSync(p, fs.constants.X_OK);
+      const r = spawnSync(p,['--version'],{encoding:'utf8',timeout:3000,maxBuffer:8192});
+      const match = r.stdout?.trim().match(/^(?:Google Chrome(?: for Testing)?|Chromium) (\d+)\.([\d.]+)(?:\s.*)?$/);
+      if (r.status === 0 && match && Number(match[1]) >= 120) return {ready:true,executable:fs.realpathSync(p),version:match[1]+'.'+match[2]};
+      if (explicit) return {ready:false,reason:'incompatible-chrome'};
+    } catch {}
+  }
+  return {ready:false,reason:'chrome-missing'};
+}
+// Never forward upstream environment controls, Node injection, or npm hooks.
+function runtimeEnv() {
+  const env = {};
+  for (const name of ['PATH','HOME','USER','LOGNAME','LANG','LC_ALL','TMPDIR','SystemRoot']) if (process.env[name]) env[name] = process.env[name];
+  return {...env, PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD:'1'};
+}
+function stopChild() { if (child?.pid) { try {if(sessionLease)child.kill('SIGTERM');else process.kill(-child.pid,'SIGTERM');} catch {} } }
+function cleanup() {
+  releaseLease();
+  if (stage) { try { const active = json(path.join(root,'active.json')); if (active.release === stage) stage = null; } catch {} }
+  if (stage) fs.rmSync(stage,{recursive:true,force:true});
+  if (lock) fs.rmdirSync(lock);
+}
+async function run(command, argv, options = {}) {
+  return await new Promise((resolve,reject) => {
+    child = spawn(command,argv,{env:runtimeEnv(),detached:true,stdio:['ignore','pipe','pipe'],...options});
+    let stdout = '', bytes = 0;
+    const timer = setTimeout(() => {stopChild(); reject(Error('package command timed out'));},120000);
+    child.stdout.on('data',b => { bytes += b.length; if(bytes > 4*1024*1024) {stopChild(); reject(Error('oversized package output'));} else stdout += b; });
+    // Package diagnostics may contain credentials. Report only bounded manager errors.
+    child.stderr.resume();
+    child.on('error',reject);
+    child.on('exit',code => {clearTimeout(timer); child = null; code === 0 ? resolve(stdout) : reject(Error('package command failed; prior release preserved'));});
+  });
+}
+async function catalog(executable) {
+  return await new Promise((resolve,reject) => {
+    child = spawn(process.execPath,[executable,'--headless','--no-webmcp'],{env:runtimeEnv(),detached:true,stdio:['pipe','pipe','pipe']});
+    let buffer = '', bytes = 0, done = false;
+    const finish = (error, tools) => {if(done)return;done=true;clearTimeout(timer);stopChild();error ? reject(error) : resolve(tools);};
+    const timer = setTimeout(() => finish(Error('MCP catalog timed out')),15000);
+    const send = value => child.stdin.write(JSON.stringify(value)+'\n');
+    child.stderr.resume(); child.stdin.on('error',()=>{});
+    child.on('error',e=>finish(e)); child.on('exit',()=>{child=null;if(!done)finish(Error('MCP catalog exited'));});
+    child.stdout.on('data',b=>{
+      bytes += b.length; if(bytes > 262144) return finish(Error('oversized MCP catalog'));
+      buffer += b;
+      while(buffer.includes('\n')) {
+        const i=buffer.indexOf('\n'), line=buffer.slice(0,i);buffer=buffer.slice(i+1);
+        let value; try {value=JSON.parse(line);} catch {return finish(Error('invalid MCP protocol'));}
+        if(value.id===1) { if(value.error)return finish(Error('MCP initialize failed')); send({jsonrpc:'2.0',method:'notifications/initialized'});send({jsonrpc:'2.0',id:2,method:'tools/list'}); }
+        if(value.id===2) {
+          const tools=value.result?.tools;
+          if(!Array.isArray(tools) || !['browser_navigate','browser_fill_form','browser_take_screenshot','browser_run_code_unsafe'].every(n=>tools.some(t=>t.name===n && t.inputSchema))) return finish(Error('incompatible upstream tools'));
+          finish(null,tools.filter(t=>standard.has(t.name)).sort((a,b)=>a.name.localeCompare(b.name)));
+        }
+      }
+    });
+    send({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'gestalt-install-probe',version:'1'}}});
+  });
+}
+async function install(version) {
+  if (version && !stable.test(version)) fail('Playwright version must be stable major.minor.patch');
+  if (Number(process.versions.node.split('.')[0]) < 20) fail('Playwright requires Node >=20');
+  if (!['linux','darwin'].includes(process.platform)) fail('Playwright supports Linux and macOS');
+  directory(root);
+  lock = path.join(root,'.install-lock');
+  try {fs.mkdirSync(lock,{mode:0o700});} catch {lock=null;fail('Playwright install already running; verify installer exited before removing stale .install-lock');}
+  stage = fs.mkdtempSync(path.join(root,'release-'+(version || 'stable')+'-'));
+  fs.writeFileSync(path.join(stage,'npmrc'),'',{mode:0o600});
+  const npmEnv = {...runtimeEnv(),npm_config_cache:path.join(stage,'cache'),npm_config_userconfig:path.join(stage,'npmrc'),npm_config_globalconfig:'/dev/null',npm_config_registry:'https://registry.npmjs.org/',npm_config_engine_strict:'true',npm_config_ignore_scripts:'true',npm_config_update_notifier:'false'};
+  const npm = argv => run('npm',argv,{cwd:stage,env:npmEnv});
+  const release = JSON.parse(await npm(['view','@playwright/mcp@'+(version || 'latest'),'--json']));
+  if (!stable.test(release.version) || (version && release.version !== version) || !integrity.test(release.dist?.integrity)) fail('invalid stable release metadata');
+  version=release.version;
+  // Use a version-bearing final location before generating lock metadata.
+  const finalStage=path.join(root,'release-'+version+'-'+path.basename(stage).split('-').at(-1));
+  if (finalStage !== stage) {fs.renameSync(stage,finalStage);stage=finalStage;npmEnv.npm_config_cache=path.join(stage,'cache');npmEnv.npm_config_userconfig=path.join(stage,'npmrc');}
+  fs.writeFileSync(path.join(stage,'package.json'),JSON.stringify({private:true,dependencies:{'@playwright/mcp':version}}),{mode:0o600});
+  await npm(['install','--package-lock-only','--ignore-scripts','--no-audit','--no-fund']);
+  const packageLock=path.join(stage,'package-lock.json');
+  const pinned=json(packageLock,4*1024*1024);
+  if (pinned.packages?.['node_modules/@playwright/mcp']?.integrity !== release.dist.integrity) fail('package integrity mismatch');
+  for (const [name,p] of Object.entries(pinned.packages || {})) if (name && (!/^https:\/\/registry\.npmjs\.org\//.test(p.resolved || '') || !integrity.test(p.integrity || ''))) fail('unverified dependency source');
+  await npm(['ci','--ignore-scripts','--no-audit','--no-fund']);
+  const executable=path.join(stage,'node_modules/@playwright/mcp/cli.js');
+  const pkg=json(path.join(stage,'node_modules/@playwright/mcp/package.json'));
+  if(pkg.version!==version) fail('package version mismatch');
+  const help=await run(process.execPath,[executable,'--help']);
+  for(const option of ['--headless','--user-data-dir','--executable-path','--no-webmcp']) if(!help.includes(option)) fail('incompatible upstream CLI');
+  const toolSchemas=await catalog(executable),tools=toolSchemas.map(t=>t.name);
+  const descriptor={schemaVersion:1,contractVersion:1,version,integrity:release.dist.integrity,node:'>=20',release:stage,
+    lockSha256:hash(fs.readFileSync(packageLock)),executableSha256:hash(fs.readFileSync(executable)),tools,toolSchemas};
+  fs.rmSync(path.join(stage,'cache'),{recursive:true,force:true});
+  const staged=path.join(stage,'active.json');
+  fs.writeFileSync(staged,JSON.stringify(descriptor)+'\n',{mode:0o600});
+  fs.renameSync(staged,path.join(root,'active.json'));
+  stage=null; console.error('gestalt: installed Playwright '+version+' (Chrome externally maintained)');
+}
+(async()=>{
+  safe(root);
+  if (['help','-h','--help'].includes(action)) { console.log('Usage: gestalt playwright install [VERSION] | update [VERSION] | version [--json] | doctor [--json] [--cwd ROOT] [--executable-path PATH] | mcp --cwd ROOT [--executable-path PATH]\nInstall and update are explicit. Chrome is externally maintained; startup and doctor never download it.'); return; }
+  if (['install','update'].includes(action)) {
+    if(args.length>1)fail('usage: gestalt playwright '+action+' [VERSION]');
+    if(action==='install' && !args.length) {try {installed(); console.error('gestalt: Playwright already installed and validated');return;}catch{}}
+    await install(args[0] || (action === 'install' ? '0.0.83' : undefined));return;
+  }
+  if(action==='version') {
+    if(args.length && !(args.length===1 && args[0]==='--json')) fail('usage: gestalt playwright version [--json]');
+    const d=installed();console.log(args.length?JSON.stringify(d):'playwright '+d.version);return;
+  }
+  if(action==='doctor') {
+    let explicit, workspace, output=false;
+    for(let i=0;i<args.length;i++) {if(args[i]==='--json')output=true;else if(args[i]==='--cwd' && args[i+1])workspace=args[++i];else if(args[i]==='--executable-path' && args[i+1])explicit=args[++i];else fail('usage: gestalt playwright doctor [--json] [--executable-path PATH]');}
+    let pkg;try {const d=installed();pkg={ready:true,version:d.version,integrity:d.integrity};}catch{pkg={ready:false,reason:'package-absent-or-invalid'};}
+    const chrome=browser(explicit),node=Number(process.versions.node.split('.')[0])>=20;
+    const result={schemaVersion:1,contractVersion:1,ready:pkg.ready&&chrome.ready&&node,package:pkg,chrome,node:{ready:node,version:process.versions.node},...(workspace?{workspace:workspaceLayout(workspace)}:{})};
+    console.log(output?JSON.stringify(result):'Playwright package: '+(pkg.version || pkg.reason)+'\nChrome: '+(chrome.version || chrome.reason)+'\nNode: '+(node?'ready':'requires >=20'));
+    if(!result.ready)process.exitCode=1;return;
+  }
+  if(action==='mcp') {
+    if(Number(process.versions.node.split('.')[0])<20)fail('Playwright requires Node >=20');
+    let workspace,explicit;
+    for(let i=0;i<args.length;i++) {if(args[i]==='--cwd'&&args[i+1])workspace=args[++i];else if(args[i]==='--executable-path'&&args[i+1])explicit=args[++i];else fail('usage: gestalt playwright mcp --cwd ROOT [--executable-path PATH]');}
+    if(!workspace)fail('Playwright mcp requires --cwd ROOT');
+    await proxy(workspace,explicit);return;
+  }
+  if(action==='__backend'&&args.length===3){if(Number(process.versions.node.split('.')[0])<20)fail('Playwright requires Node >=20');await backend(args[0],args[1]||undefined,JSON.parse(args[2]));return;}
+  fail('unknown Playwright command');
+})().catch(error=>{console.error('gestalt: '+(error.managed ? error.message : 'Playwright operation failed; invalid metadata or failed staging; prior release preserved'));process.exitCode=1;}).finally(()=>{try{cleanup();}catch{console.error('gestalt: Playwright cleanup incomplete; verify owned processes');process.exitCode=1;}});
+let stopping=false;
+function shutdown(code) {
+  if(stopping)return;stopping=true;
+  const pid=child?.pid;
+  if(!pid){cleanup();process.exit(code);}
+  const finish=()=>{clearTimeout(timer);cleanup();process.exit(code);};
+  const timer=setTimeout(()=>{try{if(sessionLease)child.kill('SIGKILL');else process.kill(-pid,'SIGKILL');}catch{}finish();},600);
+  child.once('exit',finish);stopChild();
+}
+process.on('SIGTERM',()=>shutdown(143));
+process.on('SIGINT',()=>shutdown(130));
+PLAYWRIGHT_JS
+}
+
+command_playwright() {
+  [[ ${1:-} != __backend ]] || die 'internal Playwright command'
+  require_command node
+  if [[ ${1:-} == mcp ]]; then
+    exec node -e "$(playwright_runtime)" "$gestalt_home" "$@"
+  fi
+  local playwright_pid result=0 saved_int saved_term
+  saved_int=$(trap -p INT)
+  saved_term=$(trap -p TERM)
+  node -e "$(playwright_runtime)" "$gestalt_home" "$@" <&0 &
+  playwright_pid=$!
+  trap 'kill -TERM "$playwright_pid" 2>/dev/null || true; wait "$playwright_pid" 2>/dev/null || true; exit 143' TERM
+  trap 'kill -INT "$playwright_pid" 2>/dev/null || true; wait "$playwright_pid" 2>/dev/null || true; exit 130' INT
+  wait "$playwright_pid" || result=$?
+  trap - INT TERM
+  if [[ -n $saved_int ]]; then eval "$saved_int"; fi
+  if [[ -n $saved_term ]]; then eval "$saved_term"; fi
+  return "$result"
+}
+
 command_serena() {
   local action=${1:-help}
   if (($#)); then shift; fi
@@ -3003,6 +3397,11 @@ command_update() {
   elif [[ $update_component == all ]]; then
     log 'skipping XERJ (not installed; use gestalt update xerj to install)'
   fi
+  if [[ $update_component == playwright || ( $update_component == all && -f $gestalt_home/playwright/active.json ) ]]; then
+    command_playwright update
+  elif [[ $update_component == all ]]; then
+    log 'skipping Playwright (not installed; use gestalt playwright install)'
+  fi
   log "update complete ($update_component)"
 }
 
@@ -3015,13 +3414,13 @@ parse_update_options() {
       --extra-skills) include_extra_skills=true ;;
       -h | --help) usage; exit 0 ;;
       --component)
-        (($# >= 2)) || die '--component requires all, gestalt, serena, or xerj'
+        (($# >= 2)) || die '--component requires all, gestalt, serena, xerj, or playwright'
         [[ $component_selected == false ]] || die 'select only one update component'
         update_component=$2
         component_selected=true
         shift
         ;;
-      all | gestalt | serena | xerj)
+      all | gestalt | serena | xerj | playwright)
         [[ $component_selected == false ]] || die 'select only one update component'
         update_component=$1
         component_selected=true
@@ -3031,8 +3430,8 @@ parse_update_options() {
     shift
   done
   case $update_component in
-    all | gestalt | serena | xerj) ;;
-    *) die "unknown update component: $update_component (choose all, gestalt, serena, or xerj)" ;;
+    all | gestalt | serena | xerj | playwright) ;;
+    *) die "unknown update component: $update_component (choose all, gestalt, serena, xerj, or playwright)" ;;
   esac
   [[ $include_extra_skills == false || $update_component == all || $update_component == gestalt ]] ||
     die '--extra-skills requires the all or gestalt update component'
@@ -3710,6 +4109,10 @@ command_version() {
   if [[ -n $value ]]; then print_check 'xerj' "$value"; fi
   value=$(serena_versions serena 2>/dev/null || true)
   print_check 'Serena' "${value:-NOT INSTALLED (optional)}"
+  value=$(command_playwright version 2>/dev/null || true)
+  print_check 'Playwright' "${value:-NOT INSTALLED (optional)}"
+  value=$(command_playwright doctor 2>/dev/null || true)
+  print_check 'Playwright readiness' "$value"
   value=$(serena_versions uv 2>/dev/null || true)
   print_check 'uv (Serena)' "${value:-NOT INSTALLED (optional)}"
   value=$(serena_versions python 2>/dev/null || true)
@@ -4221,6 +4624,12 @@ command_doctor() {
     print_check 'Serena' 'NOT INSTALLED (optional; gestalt serena install)'
   fi
 
+  if [[ -f $gestalt_home/playwright/active.json ]]; then
+    run_doctor_command 'Playwright doctor' command_playwright doctor || failed=true
+  else
+    print_check 'Playwright' 'NOT INSTALLED (optional; gestalt playwright install)'
+  fi
+
   if "$failed"; then
     printf "\nRun 'gestalt install' or 'gestalt update' to repair missing components.\n" >&2
     return 1
@@ -4242,6 +4651,7 @@ main() {
     mobile) command_mobile "$@" ;;
     xerj) command_xerj "$@" ;;
     serena) command_serena "$@" ;;
+    playwright) command_playwright "$@" ;;
     path) command_path "$@" ;;
     skills-export) command_skills_export "$@" ;;
     skills-import) command_skills_import "$@" ;;

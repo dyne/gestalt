@@ -1672,10 +1672,31 @@ async function backend(workspace,executablePath,ownership) {
   await new Promise((resolve,reject)=>{
     // The host launcher owns this group, including Chrome descendants.
     child=spawn(process.execPath,[d.executable,'--config',config],{cwd:layout.workspace,env:{...runtimeEnv(),XDG_CONFIG_HOME:path.join(layout.state,'config'),XDG_CACHE_HOME:path.join(layout.state,'cache')},stdio:['pipe','pipe','pipe']});
-    child.stderr.resume();child.stdin.on('error',()=>{});
-    child.stdout.pipe(process.stdout);process.stdin.pipe(child.stdin);
-    process.stdin.on('end',()=>child?.kill('SIGTERM'));
-    child.on('error',reject);child.on('close',code=>{child=null;code===0?resolve():reject(Error('browser session exited'));});
+    const upstream=child;
+    let closing=false,terminating=false,closeTimer,killTimer,lines;
+    const terminate=()=>{
+      if(terminating)return;terminating=true;clearTimeout(closeTimer);
+      upstream.kill('SIGTERM');killTimer=setTimeout(()=>upstream.kill('SIGKILL'),600);
+    };
+    const stop=()=>{
+      if(closing)return;closing=true;
+      // The client may kill its proxy before browser_close completes. Keep
+      // this backend's upstream pipe alive and flush independently of it.
+      process.stdin.unpipe(upstream.stdin);upstream.stdout.unpipe(process.stdout);
+      const id='gestalt-managed-browser-close';
+      lines=require('node:readline').createInterface({input:upstream.stdout});
+      lines.on('line',line=>{try{if(JSON.parse(line).id===id)terminate();}catch{}});
+      closeTimer=setTimeout(terminate,2000);
+      upstream.stdin.write(JSON.stringify({jsonrpc:'2.0',id,method:'tools/call',params:{name:'browser_close',arguments:{}}})+'\n');
+    };
+    upstream.stderr.resume();upstream.stdin.on('error',()=>{});
+    upstream.stdout.pipe(process.stdout);process.stdin.pipe(upstream.stdin,{end:false});
+    process.stdin.on('end',stop);process.stdout.on('error',stop);
+    process.on('SIGTERM',stop);process.on('SIGINT',stop);
+    upstream.on('error',reject);upstream.on('close',code=>{
+      clearTimeout(closeTimer);clearTimeout(killTimer);lines?.close();child=null;
+      closing||code===0?resolve():reject(Error('browser session exited'));
+    });
   });
 }
 async function proxy(workspace,executablePath) {
@@ -1687,18 +1708,15 @@ async function proxy(workspace,executablePath) {
 const identity=process.platform==='linux'?fs.readFileSync('/proc/self/stat','utf8').split(') ').at(-1).split(' ')[19]:spawnSync('ps',['-o','lstart=','-p',String(process.pid)],{encoding:'utf8',timeout:2000}).stdout.trim();
 const args=JSON.parse(process.argv[2]);args.push(JSON.stringify({pid:process.pid,group:process.pid,identity,staleToken:process.argv[4]||null}));
 const child=spawn(process.argv[1],args,{cwd:process.argv[3],env:process.env,stdio:[3,'inherit','inherit']});
-let ending=false,code=0;
-function stop(){if(ending)return;ending=true;try{process.kill(-process.pid,'SIGTERM');}catch{}setTimeout(()=>{try{process.kill(-process.pid,'SIGKILL');}catch{}process.exit(code);},750);}
+let ending=false,finished=false,code=0,timer;
+function finish(){if(finished)return;finished=true;ending=true;clearTimeout(timer);try{process.kill(-process.pid,'SIGTERM');}catch{}setTimeout(()=>{try{process.kill(-process.pid,'SIGKILL');}catch{}process.exit(code);},750);}
+function stop(){if(ending)return;ending=true;child.kill('SIGTERM');timer=setTimeout(finish,3000);}
 process.stdin.resume();process.stdin.on('end',stop);process.on('SIGTERM',stop);process.on('SIGINT',stop);
-child.on('error',()=>process.exit(1));child.on('exit',value=>{if(!ending)code=value??1;stop();});`;
+child.on('error',()=>process.exit(1));child.on('exit',value=>{if(!ending)code=value??1;finish();});`;
   async function stop() {
     const old=runtime;runtime=null;if(!old)return;
-    // Close the persistent browser context before terminating its process
-    // group so Chrome can flush cookies and profile databases. If the MCP is
-    // unresponsive, the guardian still bounds teardown of owned descendants.
-    if(old.process.exitCode===null&&old.process.signalCode===null&&old.request) {
-      try{await old.request('tools/call',{name:'browser_close',arguments:{}},2000);}catch{}
-    }
+    // Backend owns persistent-context flushing even if this proxy is killed.
+    // Guardian bounds cleanup of that backend and all its owned descendants.
     old.process.stdin.end();old.process.stdio[3].end();
     for(const waiter of old.pending.values())waiter.reject(Error('browser session stopped'));
     old.pending.clear();await old.exited;old.lines.close();
@@ -1960,8 +1978,12 @@ function shutdown(code) {
   const timer=setTimeout(()=>{try{if(sessionLease)child.kill('SIGKILL');else process.kill(-pid,'SIGKILL');}catch{}finish();},600);
   child.once('exit',finish);stopChild();
 }
-process.on('SIGTERM',()=>shutdown(143));
-process.on('SIGINT',()=>shutdown(130));
+// Stdio proxy/backend handlers own persistent-context and guardian teardown.
+// Generic package shutdown must not preempt their asynchronous browser close.
+if(!['mcp','__backend'].includes(action)) {
+  process.on('SIGTERM',()=>shutdown(143));
+  process.on('SIGINT',()=>shutdown(130));
+}
 PLAYWRIGHT_JS
 }
 

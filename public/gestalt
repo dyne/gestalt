@@ -3644,6 +3644,7 @@ const remainingTime = () => Math.max(0, readinessDeadline - Date.now());
 // A inherited hint is not evidence for a new or resumed runtime.
 delete environment.GESTALT_XERJ_READY;
 let currentChild;
+let playwrightController;
 let interrupted = false;
 let interruptionCode = 130;
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => {
@@ -3662,9 +3663,10 @@ const toml = value => {
 const appendFlags = flags => {
   const end = args.indexOf('--');
   const index = end < 0 ? args.length : end;
-  // Session overrides require an embedded server. Select it explicitly so
-  // Codex does not warn about falling back from the shared daemon on startup.
-  const mode = remote || args.slice(0, index).includes('--no-daemon') ? [] : ['--no-daemon'];
+  // Ordinary session overrides use an embedded server. Managed Playwright
+  // instead supplies its own remote frontend; --no-daemon conflicts there.
+  // An explicit user --no-daemon stays untouched and selects the ordinary path.
+  const mode = remote || playwrightController || args.slice(0, index).includes('--no-daemon') ? [] : ['--no-daemon'];
   return [...mode, ...args.slice(0, index), ...flags.flatMap(flag => ['-c', flag]), ...args.slice(index)];
 };
 const flags = [];
@@ -3704,12 +3706,13 @@ for (let i = 0; i < args.length && args[i] !== '--'; i++) {
   else if (option.startsWith('--remote')) remote = true;
 }
 
-async function snapshot(extra = [], hooksOnly = false, beforeFlags = false) {
-  const remaining = remainingTime();
+async function snapshot(extra = [], hooksOnly = false, beforeFlags = false, deadline = readinessDeadline) {
+  const remaining = Math.max(0, deadline - Date.now());
   if (!remaining) throw new Error('readiness-deadline');
   const child = spawn('codex', ['app-server', '--stdio', ...(beforeFlags ? extra.flatMap(value => ['-c', value]) : []), ...flags, ...(!beforeFlags ? extra.flatMap(value => ['-c', value]) : [])], {
     cwd, env: environment, stdio: ['pipe', 'pipe', 'ignore'],
   });
+  const previousChild = currentChild;
   currentChild = child;
   const pending = new Map();
   let id = 0;
@@ -3746,7 +3749,7 @@ async function snapshot(extra = [], hooksOnly = false, beforeFlags = false) {
     child.stdin.end();
     child.kill();
     await new Promise(resolve => child.exitCode != null || child.signalCode != null ? resolve() : child.once('exit', resolve));
-    currentChild = undefined;
+    currentChild = previousChild;
   }
 }
 
@@ -3768,6 +3771,7 @@ async function readiness(timeout) {
 }
 
 async function launch(launchArgs) {
+  if (playwrightController) return playwrightController(launchArgs);
   const child = spawn('codex', launchArgs, { cwd: process.cwd(), env: environment,
     // Node's own stdin carries this program. Open the inherited terminal/stdin
     // separately so prompts and EOF retain normal Codex behavior.
@@ -3805,14 +3809,14 @@ const merge = (base, overlay) => {
   }
   return base;
 };
-if (state && namedProfile) {
-  try {
+async function resolveNamedProfile(state, deadline = readinessDeadline, includeSkills = true) {
+  if (!state || !namedProfile) return state;
     if (!/^[a-zA-Z0-9_-]+$/.test(namedProfile)) throw new Error('invalid-profile');
     const profile = gestaltProfileToml.parse(await readFile(resolve(environment.CODEX_HOME, namedProfile + '.config.toml'), 'utf8'));
     const originalSession = state.layers.find(layer => layer.name?.type === 'sessionFlags');
     // Profile trust settings participate in native project discovery.
     if (profile.projects) {
-      const discovered = await snapshot([`projects=${toml(profile.projects)}`], false, true);
+      const discovered = await snapshot([`projects=${toml(profile.projects)}`], false, true, deadline);
       state.layers = discovered.layers.filter(layer => layer.name?.type !== 'sessionFlags');
       if (originalSession) state.layers.unshift(originalSession);
     }
@@ -3829,12 +3833,13 @@ if (state && namedProfile) {
     state.config = { ...state.config, ...effective };
     // Plugin inclusion is discovered by the native catalog, not inferred from
     // the profile text. No credentials or unrelated settings enter argv.
-    if (profile.plugins) {
-      const discovered = await snapshot([`plugins=${toml(effective.plugins ?? {})}`]);
+    if (profile.plugins && includeSkills) {
+      const discovered = await snapshot([`plugins=${toml(effective.plugins ?? {})}`], false, false, deadline);
       state.skills = discovered.skills;
     }
-  } catch { state = undefined; diagnose('profile-discovery-unavailable'); }
+  return state;
 }
+try { state = await resolveNamedProfile(state); } catch { state = undefined; diagnose('profile-discovery-unavailable'); }
 let skill = state?.skills.find(skill => skill.name === 'gestalt:xerj');
 const session = state?.layers?.find(layer => layer.name?.type === 'sessionFlags')?.config ?? {};
 let rules = session.skills?.config ?? explicitSkills?.config ?? [];
@@ -3897,6 +3902,464 @@ const usableGuidance = async entry => {
   return await readFile(path, 'utf8');
 };
 const common = state && !remote && state.config?.skills?.include_instructions !== false && state.config?.features?.hooks === true;
+// Managed browser consent is native named-profile state, independent of
+// package installation and of the supervisor's later activation request.
+const playwrightName = 'gestalt-playwright';
+const playwrightSkill = state?.skills.find(entry => entry.name === 'gestalt:playwright');
+const playwrightConfig = servers[playwrightName];
+const playwrightConsent = Boolean(namedProfile && playwrightConfig?.enabled === true);
+const playwrightRequested = Number(environment.GESTALT_PLAYWRIGHT_READY_TIMEOUT_MS ?? 5000);
+const playwrightBudget = Number.isInteger(playwrightRequested) && playwrightRequested >= 100 && playwrightRequested <= 60000 ? playwrightRequested : 5000;
+const playwrightRules = [...(state?.config?.skills?.config ?? []), ...rules].filter(rule =>
+  rule.name === 'gestalt:playwright' || rule.path === playwrightSkill?.path);
+const playwrightNotice = reason => process.stderr.write(`gestalt: playwright unavailable (${reason}); continuing without browser access\n`);
+const refreshPlaywrightConsent = async () => {
+  try {
+    const deadline = Date.now() + playwrightBudget;
+    const current = await resolveNamedProfile(await snapshot([], false, false, deadline), deadline, false);
+    return Boolean(namedProfile && current?.config?.mcp_servers?.[playwrightName]?.enabled === true);
+  } catch { return false; }
+};
+const playwrightAliases = Object.entries(servers).filter(([name, config]) => name !== playwrightName &&
+  config.command === manager && config.args?.[0] === 'playwright' && config.args?.[1] === 'mcp').map(([name]) => name);
+if (playwrightAliases.length) aliases.push(`mcp_servers=${toml(Object.fromEntries(playwrightAliases.map(name => [name, { enabled: false }])))}`);
+
+async function managedPlaywright(launchArgs, reportDiagnostic = () => {}, checkConsent = async () => false) {
+  const budget = playwrightBudget;
+  const fs = await import('node:fs/promises');
+  const { createServer } = await import('node:http');
+  const { createRequire } = await import('node:module');
+  const { join, dirname, basename } = await import('node:path');
+  const { randomUUID, createHash } = await import('node:crypto');
+  const { tmpdir } = await import('node:os');
+  const prefix = `gestalt-${randomUUID()}-`;
+  const workspace = await realpath(cwd);
+  const launcherOptions = [];
+  if (playwrightConfig.args) {
+    if (!Array.isArray(playwrightConfig.args) || playwrightConfig.args[0] !== 'playwright' || playwrightConfig.args[1] !== 'mcp')
+      throw new Error('launcher-config-conflict');
+    for (let i = 2; i < playwrightConfig.args.length; i += 2) {
+      const option = playwrightConfig.args[i], value = playwrightConfig.args[i + 1];
+      if (typeof value !== 'string') throw new Error('launcher-config-conflict');
+      if (option === '--cwd' && await realpath(value) === workspace) continue;
+      if (option !== '--executable-path' || !value.startsWith('/') || /[\x00-\x1f\x7f]/.test(value) || launcherOptions.length)
+        throw new Error('launcher-config-conflict');
+      launcherOptions.push(option, value);
+    }
+  }
+  const packageRoot = await realpath(resolve(environment.GESTALT_HOME, 'playwright'));
+  const metadata = JSON.parse(await fs.readFile(join(packageRoot, 'active.json'), 'utf8'));
+  const release = await realpath(metadata.release);
+  if (metadata.schemaVersion !== 1 || metadata.contractVersion !== 1 || dirname(release) !== packageRoot ||
+      !basename(release).startsWith(`release-${metadata.version}-`)) throw new Error('invalid-installation');
+  const { ws: WebSocket, wsServer: WebSocketServer } = createRequire(join(release, 'package.json'))('playwright-core/lib/utilsBundle');
+  const guidance = await usableGuidance(playwrightSkill);
+  const sessionRecords = join(packageRoot, 'cli-sessions');
+  await fs.mkdir(sessionRecords, { mode: 0o700 }).catch(error => { if (error.code !== 'EEXIST') throw error; });
+  const recordDirectory = await fs.lstat(sessionRecords);
+  if (recordDirectory.isSymbolicLink() || !recordDirectory.isDirectory() || await realpath(sessionRecords) !== sessionRecords)
+    throw new Error('unsafe-session-record-directory');
+  await fs.chmod(sessionRecords, 0o700);
+  const rootDir = await fs.mkdtemp(join(tmpdir(), 'gestalt-cli-playwright-'));
+  await fs.chmod(rootDir, 0o700);
+  const endpoint = join(rootDir, 'frontend.sock');
+  let backend, backendGroup, frontend, tui, rootThread, rootParameters, nativeBaseline, initializeParams, readinessChild, shutdown = false;
+  // Replay the actual composed CLI session configuration into each owned
+  // backend. The TUI may send sparse auxiliary overlays, which depend on these
+  // valid complete MCP transports (including disabled unrelated capabilities).
+  const backendFlags = [];
+  for (let i = 0; i < launchArgs.length && launchArgs[i] !== '--'; i++) {
+    const arg = launchArgs[i];
+    if (arg === '-c' || arg === '--config') backendFlags.push('-c', launchArgs[++i]);
+    else if (arg.startsWith('--config=')) backendFlags.push('-c', arg.slice(9));
+    else if (arg.startsWith('-c') && arg.length > 2) backendFlags.push('-c', arg.slice(2));
+  }
+  let desired = false, connected = false, runtimeEnabled = false, controlAvailable = false, pendingBoundary = false, reason = 'idle', activePlan;
+  let sequence = 0, serial = Promise.resolve();
+  const pending = new Map(), activeTurns = new Set(), plans = new Map();
+  const lifecycle = 'gestalt_managed_playwright';
+  // Plan IDs are an enumerated host catalog, never caller-provided paths.
+  // Binding is root-only and retained in this host session before declarations
+  // can request activation. The Org core validates every subsequent read.
+  let org;
+  try { org = await import(resolve(environment.CODEX_HOME, 'lib/gestalt-org-plan/org-plan-core.mjs')); }
+  catch { /* Explicit supervisor requests remain usable without an Org plan. */ }
+  const discoverPlans = async () => {
+    plans.clear(); if (!org) return;
+    try {
+      const planDir = await realpath(join(workspace, '.gestalt'));
+      if (dirname(planDir) !== workspace) return;
+      let inspected = 0;
+      for await (const entry of await fs.opendir(planDir)) {
+        if (++inspected > 256 || plans.size >= 64) break;
+        if (!entry.isFile() || !/^[a-zA-Z0-9_-]{1,64}\.org$/.test(entry.name)) continue;
+        const path = await realpath(join(planDir, entry.name));
+        if (dirname(path) !== planDir || (await fs.stat(path)).size > 2 * 1024 * 1024) continue;
+        try { org.readPlan(path); plans.set(entry.name.slice(0, -4), path); } catch {}
+      }
+    } catch { /* Missing/invalid plan catalogs do not disable chat. */ }
+  };
+  const tool = { type: 'function', name: lifecycle,
+    description: 'Root supervisor only: request/status/release managed Playwright, or bind a host-cataloged active Org plan ID returned by status. Profile consent is required. Activation may remain pending until an idle owned-runtime resume boundary. No installation.',
+    inputSchema: { type: 'object', additionalProperties: false, required: ['action'], properties: {
+      action: { type: 'string', enum: ['start', 'status', 'stop', 'bind_plan'] },
+      plan: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$', minLength: 1, maxLength: 64 },
+    } } };
+  const schemaHash = createHash('sha256').update(JSON.stringify(tool)).digest('hex');
+  const workspaceHash = createHash('sha256').update(workspace).digest('hex');
+  const nativeVersion = /\b0\.\d+\.\d+\b/.exec(state.version)?.[0];
+  const recordPath = id => typeof id === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(id) ? join(sessionRecords, id + '.json') : undefined;
+  const compatibleSession = async id => {
+    const path = recordPath(id); if (!path) return false;
+    try {
+      const stat = await fs.lstat(path); if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 4096) return false;
+      const record = JSON.parse(await fs.readFile(path, 'utf8'));
+      return record.version === 1 && record.threadId === id && record.workspaceHash === workspaceHash &&
+        record.schemaHash === schemaHash && record.nativeVersion === nativeVersion;
+    } catch { return false; }
+  };
+  const rememberSession = async id => {
+    const path = recordPath(id); if (!path) throw new Error('invalid-thread-id');
+    const temporary = join(sessionRecords, '.' + randomUUID() + '.tmp');
+    try {
+      await fs.writeFile(temporary, JSON.stringify({ version: 1, threadId: id, workspaceHash, schemaHash, nativeVersion }) + '\n', { mode: 0o600, flag: 'wx' });
+      await fs.rename(temporary, path);
+    } finally { await fs.rm(temporary, { force: true }); }
+  };
+  const status = () => ({ capability: 'playwright', status: pendingBoundary ? 'pending' : connected ? 'connected' : desired ? 'unavailable' : 'idle',
+    reason, availablePlans: [...plans.keys()].slice(0, 16), morePlans: plans.size > 16,
+    ...(pendingBoundary ? { boundary: 'owned-runtime-resume' } : {}) });
+  const send = message => { if (frontend?.readyState === WebSocket.OPEN) frontend.send(JSON.stringify(message)); };
+  const write = message => { if (backend?.stdin.writable) backend.stdin.write(JSON.stringify(message) + '\n'); };
+  const request = (method, params) => new Promise((resolve, reject) => {
+    const id = prefix + ++sequence;
+    const timer = setTimeout(() => { pending.delete(id); reject(new Error('runtime-deadline')); }, budget);
+    pending.set(id, { resolve: value => { clearTimeout(timer); resolve(value); }, reject: error => { clearTimeout(timer); reject(error); } });
+    write({ id, method, params });
+  });
+  const doctor = async () => {
+    const child = spawn(manager, ['playwright', 'doctor', '--json', '--cwd', workspace, ...launcherOptions], {
+      cwd: workspace, detached: true, env: Object.fromEntries(['PATH', 'HOME', 'TMPDIR', 'GESTALT_HOME']
+        .filter(key => environment[key] !== undefined).map(key => [key, environment[key]])), stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    readinessChild = child;
+    let output = '', timedOut = false;
+    child.stdout.on('data', data => { if (output.length < 32768) output += data; });
+    const signal = name => { if (child.pid) try { process.kill(-child.pid, name); } catch (error) { if (error.code !== 'ESRCH') throw error; } };
+    let escalation;
+    const timer = setTimeout(() => { timedOut = true; signal('SIGTERM'); escalation = setTimeout(() => signal('SIGKILL'), 200); }, budget);
+    try {
+      const code = await new Promise(resolve => { child.once('error', () => resolve(-1)); child.once('close', resolve); });
+      if (code !== 0 || timedOut) return false;
+      const value = JSON.parse(output);
+      return value.schemaVersion === 1 && value.contractVersion === 1 && value.ready === true &&
+        value.package?.ready === true && value.chrome?.ready === true && value.node?.ready === true;
+    } catch { return false; }
+    finally { clearTimeout(timer); clearTimeout(escalation); signal('SIGKILL'); if (readinessChild === child) readinessChild = undefined; }
+  };
+  const omitNativeAbsent = value => Array.isArray(value) ? value.map(omitNativeAbsent) : value && typeof value === 'object'
+    ? Object.fromEntries(Object.entries(value).filter(([, item]) => item !== null).map(([key, item]) => [key, omitNativeAbsent(item)])) : value;
+  const serverConfig = enabled => ({ ...omitNativeAbsent(playwrightConfig), command: manager,
+    args: ['playwright', 'mcp', '--cwd', workspace, ...launcherOptions], cwd: workspace,
+    env_vars: ['GESTALT_HOME'], enabled, required: false, startup_readiness: 'connection', startup_timeout_ms: budget });
+  const overlay = (config, enabled = desired) => {
+    // Native TUI represents absent config with null, as the protocol permits.
+    // A default argument covers undefined only.
+    config ??= {};
+    const object = value => value && typeof value === 'object' && !Array.isArray(value);
+    const mergeOptions = (base, options) => {
+      if (!object(options)) return structuredClone(options);
+      const result = { ...(object(base) ? base : {}) };
+      // An explicit valid transport replacement wins over inherited transport
+      // fields. Conflicting transports explicitly supplied together still fail
+      // native validation; this adapter does not repair invalid user settings.
+      if (Object.hasOwn(options, 'url') && !Object.hasOwn(options, 'command'))
+        for (const key of ['command', 'args', 'cwd', 'env', 'env_vars']) delete result[key];
+      if (Object.hasOwn(options, 'command') && !Object.hasOwn(options, 'url')) delete result.url;
+      for (const [key, value] of Object.entries(options)) Object.defineProperty(result, key, {
+        value: object(value) ? mergeOptions(Object.hasOwn(result, key) ? result[key] : {}, value) : structuredClone(value),
+        enumerable: true, writable: true, configurable: true,
+      });
+      return result;
+    };
+    // Actual native title requests supply whole tables of {enabled:false}
+    // entries. Rehydrate their transports from the verified effective baseline,
+    // then apply every incoming server option without changing its off state.
+    // config/read serializes absent optional fields as null. Native override
+    // conversion maps JSON null to an empty TOML string, so those *inherited*
+    // absent fields must be omitted; explicit incoming values stay unchanged.
+    let servers = mergeOptions(omitNativeAbsent(nativeBaseline?.mcp_servers ?? {}), config.mcp_servers ?? {});
+    const options = { ...config }; delete options.mcp_servers;
+    for (const key of Object.keys(options).filter(key => key.startsWith('mcp_servers.')).sort()) {
+      const path = key.slice('mcp_servers.'.length).split('.');
+      let value = options[key];
+      for (const part of path.reverse()) value = { [part]: value };
+      servers = mergeOptions(servers, value); delete options[key];
+    }
+    Object.defineProperty(servers, playwrightName, { value: serverConfig(enabled), enumerable: true, configurable: true, writable: true });
+    reportDiagnostic('runtime:overlay-timeouts', { message: 'native-config-roundtrip', cause: Object.entries(servers).map(([name, server]) => ({
+      name, type: typeof server?.tool_timeout_sec, ...(typeof server?.tool_timeout_sec === 'number' ? { value: server.tool_timeout_sec } : {}),
+      nullFields: Object.entries(server ?? {}).filter(([, value]) => value === null).map(([key]) => key),
+    })) });
+    // Emit one coherent table: no competing whole-table/dotted MCP overrides.
+    return { ...options, mcp_servers: servers,
+      'skills.config': [...(config['skills.config'] ?? config.skills?.config ?? state.config?.skills?.config ?? []),
+        { name: 'gestalt:playwright', enabled: enabled && connected }] };
+  };
+  const refreshPlan = () => {
+    if (!activePlan) return;
+    try {
+      const plan = org.readPlan(plans.get(activePlan));
+      const milestone = plan.items.find(item => item.level === 1 && item.state === 'WIP');
+      const required = milestone?.fields.get('Managed MCP') === 'playwright';
+      if (required !== desired) { desired = required; pendingBoundary = true; reason = 'plan-requirement'; }
+    } catch {
+      activePlan = undefined; desired = false; pendingBoundary = runtimeEnabled; reason = 'plan-unavailable';
+    }
+  };
+  const handleLifecycle = async message => {
+    const { threadId, arguments: input } = message.params;
+    let result;
+    if (!rootThread || threadId !== rootThread || !input || typeof input !== 'object' ||
+        Object.keys(input).some(key => !['action', 'plan'].includes(key)) ||
+        !tool.inputSchema.properties.action.enum.includes(input.action) ||
+        (input.action === 'bind_plan' ? typeof input.plan !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(input.plan) : input.plan !== undefined)) {
+      result = { capability: 'playwright', status: 'unavailable', reason: 'root-supervisor-required-or-invalid-request' };
+    } else {
+      if (!controlAvailable) {
+        write({ id: message.id, result: { contentItems: [{ type: 'inputText', text: JSON.stringify({ capability: 'playwright', status: 'unavailable', reason: 'existing-thread-lifecycle-unavailable' }) }], success: true } });
+        return;
+      }
+      if (!await checkConsent()) {
+        activePlan = undefined; desired = false; pendingBoundary = runtimeEnabled; reason = 'profile-disabled-or-unavailable';
+        write({ id: message.id, result: { contentItems: [{ type: 'inputText', text: JSON.stringify({ ...status(), status: 'unavailable' }) }], success: true } });
+        return;
+      }
+      await discoverPlans();
+      if (input.action === 'bind_plan' && !plans.has(input.plan)) {
+        write({ id: message.id, result: { contentItems: [{ type: 'inputText', text: JSON.stringify({ capability: 'playwright', status: 'unavailable', reason: 'unknown-plan-id' }) }], success: true } });
+        return;
+      }
+      if (input.action === 'bind_plan') { activePlan = input.plan; refreshPlan(); }
+      if (input.action === 'start' || input.action === 'stop') {
+        activePlan = undefined;
+        desired = input.action === 'start';
+        pendingBoundary = desired !== runtimeEnabled;
+        reason = pendingBoundary ? 'awaiting-idle-boundary' : desired ? 'verified-tools' : 'released';
+      }
+      result = status();
+    }
+    write({ id: message.id, result: { contentItems: [{ type: 'inputText', text: JSON.stringify(result) }], success: true } });
+  };
+  const stopBackend = async () => {
+    const child = backend, group = backendGroup;
+    backend = undefined; backendGroup = undefined;
+    for (const waiter of pending.values()) waiter.reject(new Error('runtime-restarting'));
+    pending.clear();
+    if (!child) return;
+    const signal = name => { if (group) try { process.kill(-group, name); } catch (error) { if (error.code !== 'ESRCH') throw error; } };
+    signal('SIGTERM');
+    const timer = setTimeout(() => signal('SIGKILL'), 2000);
+    await new Promise(resolve => child.exitCode !== null || child.signalCode !== null ? resolve() : child.once('exit', resolve));
+    clearTimeout(timer); signal('SIGKILL');
+  };
+  const startBackend = () => {
+    const child = spawn('codex', ['app-server', '--stdio', ...backendFlags], { cwd: workspace, env: environment,
+      detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    backend = child; backendGroup = child.pid;
+    reportDiagnostic('runtime:spawn', { message: 'owned-backend', cause: { pid: child.pid } });
+    child.stdin.on('error', () => {});
+    child.stderr.on('data', chunk => process.stderr.write(chunk));
+    child.on('error', () => { reason = 'runtime-unavailable'; });
+    child.on('exit', () => {
+      for (const waiter of pending.values()) waiter.reject(new Error('runtime-exited'));
+      pending.clear();
+      if (backend === child && !shutdown) { connected = false; runtimeEnabled = false; reason = 'runtime-exited'; frontend?.close(1011, 'managed runtime exited'); }
+    });
+    createInterface({ input: child.stdout }).on('line', line => {
+      let message; try { message = JSON.parse(line); } catch { return; }
+      const waiter = pending.get(message.id);
+      if (waiter) { pending.delete(message.id); message.error ? waiter.reject(new Error('runtime-request-failed', { cause: message.error })) : waiter.resolve(message.result); return; }
+      if (message.method === 'item/tool/call' && message.params.tool === lifecycle) {
+        handleLifecycle(message).catch(() => { reason = 'invalid-plan-or-request'; write({ id: message.id, result: {
+          contentItems: [{ type: 'inputText', text: JSON.stringify({ status: 'unavailable', reason }) }], success: false } }); });
+        return;
+      }
+      const turnKey = message.params?.turn?.id;
+      if (message.method === 'turn/started') activeTurns.add(turnKey);
+      if (message.method === 'turn/completed') {
+        activeTurns.delete(turnKey);
+        reportDiagnostic('runtime:turn/completed', { message: message.params.turn.status,
+          cause: { threadId: message.params.threadId, turnId: turnKey, active: activeTurns.size } });
+      }
+      send(message);
+    });
+  };
+  const applyBoundary = async () => {
+    if ((desired || connected) && !await checkConsent()) {
+      activePlan = undefined; desired = false; pendingBoundary = runtimeEnabled; reason = 'profile-disabled-or-unavailable';
+    }
+    refreshPlan();
+    if (!pendingBoundary || !rootThread) return;
+    if (desired && !await doctor()) {
+      connected = false; pendingBoundary = false; reason = 'package-or-chrome-unavailable';
+      return;
+    }
+    // Native queued input can reach this frontend before the preceding turn's
+    // completion notification. Wait for that observed transition rather than
+    // forwarding the next turn with a stale capability configuration.
+    const idleDeadline = Date.now() + budget;
+    while (activeTurns.size && Date.now() < idleDeadline)
+      await new Promise(resolve => setTimeout(resolve, 10));
+    if (activeTurns.size) {
+      reason = 'active-turns';
+      reportDiagnostic('boundary:deferred', { message: reason, cause: { active: activeTurns.size } });
+      return;
+    }
+    // Loaded-thread resume ignores MCP config. Preserve the frontend and the
+    // persisted root thread while restarting ONLY this dedicated host runtime.
+    const loaded = await request('thread/loaded/list', {});
+    for (const id of loaded.data ?? []) {
+      const current = await request('thread/read', { threadId: id, includeTurns: false });
+      if (current.thread.status?.type === 'active') {
+        reason = 'active-threads'; reportDiagnostic('boundary:deferred', { message: reason, cause: { threadId: id } }); return;
+      }
+    }
+    await stopBackend(); connected = false; startBackend();
+    reportDiagnostic('boundary:restart', { message: desired ? 'enable' : 'disable' });
+    await request('initialize', initializeParams);
+    write({ method: 'initialized', params: {} });
+    await request('thread/resume', { ...rootParameters, threadId: rootThread, config: overlay(rootParameters?.config, desired) });
+    runtimeEnabled = desired;
+    if (desired) {
+      try {
+        const listing = await request('mcpServerStatus/list', { threadId: rootThread, serverName: playwrightName });
+        connected = listing.data?.some(server => server.name === playwrightName &&
+          ['browser_navigate', 'browser_snapshot', 'browser_take_screenshot'].every(name => server.tools?.[name]));
+        reason = connected ? 'verified-tools' : 'connection-or-tools-unavailable';
+      } catch { connected = false; reason = 'readiness-timeout-or-unavailable'; }
+    } else reason = 'released';
+    pendingBoundary = false;
+    reportDiagnostic('boundary:ready', { message: reason });
+  };
+  const forward = async message => {
+    let operationHasControl;
+    if (message.method === 'initialize') {
+      message.params.capabilities = { ...message.params.capabilities, experimentalApi: true };
+      initializeParams = message.params;
+    }
+    if (message.method === 'initialized') {
+      write(message);
+      nativeBaseline = (await request('config/read', { cwd: workspace, includeLayers: false })).config;
+      reportDiagnostic('runtime:baseline-timeouts', { message: 'native-optional-fields', cause: Object.entries(nativeBaseline?.mcp_servers ?? {}).map(([name, server]) => ({
+        name, type: typeof server.tool_timeout_sec, absent: server.tool_timeout_sec === null,
+        ...(typeof server.tool_timeout_sec === 'number' ? { value: server.tool_timeout_sec } : {}),
+      })) });
+      return;
+    }
+    if (['thread/start', 'thread/resume', 'thread/fork'].includes(message.method)) {
+      message.params ??= {};
+      operationHasControl = message.params.ephemeral !== true &&
+        (message.method === 'thread/start' || await compatibleSession(message.params.threadId));
+      reportDiagnostic('frontend:' + message.method, { message: message.params.ephemeral === true ? 'auxiliary' : 'persistent',
+        cause: { ephemeral: message.params.ephemeral, threadId: message.params.threadId,
+          serviceName: message.params.serviceName, threadSource: message.params.threadSource } });
+      message.params.config = overlay(message.params.config, false);
+      if (message.method === 'thread/start' && operationHasControl)
+        message.params.dynamicTools = [...(message.params.dynamicTools ?? []), tool];
+    }
+    if (message.method === 'turn/start') {
+      reportDiagnostic('frontend:turn/start', { message: pendingBoundary ? 'pending' : 'unchanged',
+        cause: { threadId: message.params.threadId, active: activeTurns.size } });
+      // Native TUI also creates ephemeral auxiliary threads (for example title
+      // generation). They never become supervisor roots or activate browsers.
+      if (message.params.threadId === rootThread) await applyBoundary();
+      if (connected && message.params.threadId === rootThread) {
+        message.params.input = [{ type: 'text', text: '<gestalt_playwright_capability>\nVerified managed browser tools are connected. Host MCP approvals apply; shell sandbox roots do not confine this host browser.\n' + guidance + '\n</gestalt_playwright_capability>' }, ...(message.params.input ?? [])];
+      } else if (message.params.threadId === rootThread)
+        message.params.input = [{ type: 'text', text: controlAvailable
+          ? '<gestalt_playwright_unavailable>Browser guidance is inactive. Use gestalt_managed_playwright status; activation requires profile consent and a verified host boundary.</gestalt_playwright_unavailable>'
+          : '<gestalt_playwright_unavailable>Managed browser controls cannot be attached to this existing thread by the native runtime. Browser access remains unavailable. Start a fresh opted-in interactive session for managed browser controls; this conversation remains usable.</gestalt_playwright_unavailable>' }, ...(message.params.input ?? [])];
+    }
+    if (['thread/start', 'thread/resume', 'thread/fork'].includes(message.method)) {
+      // Resolve the root from a response to this frontend request, not tool
+      // arguments, environment hints, plan text or an executor's identity.
+      const result = await request(message.method, message.params);
+      reportDiagnostic('runtime:' + message.method, { message: result.thread.ephemeral ? 'auxiliary' : 'persistent',
+        cause: { threadId: result.thread.id, ephemeral: result.thread.ephemeral } });
+      if (message.params.ephemeral !== true && result.thread.ephemeral !== true) {
+        if (rootThread && rootThread !== result.thread.id) {
+          desired = false; pendingBoundary = runtimeEnabled; connected = false; activePlan = undefined; reason = 'root-session-changed';
+        }
+        rootThread = result.thread.id;
+        controlAvailable = operationHasControl;
+        if (controlAvailable) {
+          try { await rememberSession(rootThread); }
+          catch { controlAvailable = false; reason = 'session-record-unavailable'; }
+        } else {
+          reason = 'existing-thread-lifecycle-unavailable';
+          process.stderr.write('gestalt: playwright unavailable (existing thread has no compatible managed controls); start a fresh opted-in session for browser access\n');
+        }
+        // Supported start/resume intersection in the native 0.160 protocol.
+        // Preserve effective frontend permissions and settings across restart.
+        rootParameters = Object.fromEntries(['approvalPolicy', 'approvalsReviewer', 'baseInstructions', 'config', 'cwd',
+          'developerInstructions', 'model', 'modelProvider', 'permissions', 'personality', 'runtimeWorkspaceRoots', 'sandbox', 'serviceTier']
+          .filter(key => message.params[key] !== undefined).map(key => [key, structuredClone(message.params[key])]));
+      }
+      send({ id: message.id, result });
+    } else write(message);
+  };
+  const http = createServer((req, res) => { res.writeHead(404); res.end(); });
+  const websocket = new WebSocketServer({ noServer: true, maxPayload: 4 * 1024 * 1024 });
+  http.on('upgrade', (req, socket, head) => {
+    if (frontend) { socket.destroy(); return; }
+    websocket.handleUpgrade(req, socket, head, connection => {
+      frontend = connection;
+      connection.on('message', data => {
+        let message; try { message = JSON.parse(data.toString()); } catch { connection.close(1003); return; }
+        // Approval/elicitation responses must keep flowing while a queued user
+        // turn waits for idle; otherwise the preceding turn could never finish.
+        if (!message.method && message.id !== undefined) { write(message); return; }
+        serial = serial.then(() => forward(message)).catch(error => {
+          reportDiagnostic(message.method ?? 'response', error);
+          if (message.params?.ephemeral !== true) { connected = false; reason = 'runtime-or-boundary-unavailable'; }
+          if (message.id !== undefined) send({ id: message.id, error: { code: -32603, message: 'Managed runtime request unavailable; retry or resume the session.' } });
+        });
+      });
+    });
+  });
+  try {
+    startBackend();
+    await new Promise((resolve, reject) => { http.once('error', reject); http.listen(endpoint, resolve); });
+    await fs.chmod(endpoint, 0o600);
+    // User-specified remote endpoints and noninteractive subcommands never
+    // enter this dedicated-runtime path. Native arguments remain intact.
+    tui = spawn('codex', ['--remote', `unix://${endpoint}`, ...launchArgs], { cwd: process.cwd(), env: environment,
+      stdio: [3, 'inherit', 'inherit'] });
+    currentChild = tui;
+    const code = await new Promise(resolve => { tui.once('error', () => resolve(127)); tui.once('exit', code => resolve(code ?? 143)); });
+    return { code, startupFailed: new Set() };
+  } finally {
+    shutdown = true; currentChild = undefined;
+    if (readinessChild?.pid) try { process.kill(-readinessChild.pid, 'SIGTERM'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
+    frontend?.terminate(); websocket.close();
+    await new Promise(resolve => http.close(resolve));
+    await stopBackend();
+    await fs.rm(rootDir, { recursive: true, force: true });
+  }
+}
+const interactivePlaywright = !args.some(arg => ['exec', 'e', 'review', '--no-daemon', '--worktree'].includes(arg)) && !remote;
+if (playwrightConsent && interactivePlaywright && playwrightSkill && playwrightRules.at(-1)?.enabled !== false &&
+    state.config?.skills?.include_instructions !== false && (!playwrightConfig.command || playwrightConfig.command === manager) &&
+    !playwrightConfig.env && !playwrightConfig.env_vars?.length) {
+  playwrightController = async launchArgs => {
+    try { return await managedPlaywright(launchArgs, undefined, refreshPlaywrightConsent); }
+    catch {
+      playwrightNotice('managed-runtime-unavailable'); playwrightController = undefined;
+      return launch(['--no-daemon', ...launchArgs]);
+    }
+  };
+} else if (playwrightConsent) playwrightNotice('unsupported-session-or-skill-config');
 // Serena honors native skill exclusions; absence from the selected plugin catalog
 // also prevents connection. Do not manufacture a globally installed skill path.
 const serenaRules = [...(state?.config?.skills?.config ?? []), ...rules].filter(rule =>
@@ -3947,14 +4410,17 @@ if (interrupted) process.exit(interruptionCode);
 if (capabilities[1].valid) readinessDeadline = Math.max(readinessDeadline, Date.now() + budget);
 const compose = () => {
   hookCommands.clear();
-  const selectors = capabilities.flatMap(cap => cap.valid ? [{ name: cap.skillName, enabled: true }] :
-    [...(cap.skill ? [{ path: cap.skill.path, enabled: false }] : []), { name: cap.skillName, enabled: false }]);
+  const selectors = [...capabilities.flatMap(cap => cap.valid ? [{ name: cap.skillName, enabled: true }] :
+    [...(cap.skill ? [{ path: cap.skill.path, enabled: false }] : []), { name: cap.skillName, enabled: false }]),
+    { name: 'gestalt:playwright', enabled: false }];
   const deniedSelectors = state || rules.length ? toml([...rules, ...selectors]) :
     rawSkillConfig?.startsWith('[') && rawSkillConfig.endsWith(']')
       ? `${rawSkillConfig.slice(0, -1).replace(/,\s*$/, '')}${rawSkillConfig.slice(1, -1).trim() ? ',' : ''}${toml(selectors).slice(1, -1)}]`
       : toml(selectors);
   return [...aliases, ...capabilities.map(cap => `mcp_servers.${cap.name}=${toml(cap.valid ? cap.config :
     { command: manager, args: cap.config.args, enabled: false, required: false })}`), `skills.config=${deniedSelectors}`,
+    `mcp_servers.${playwrightName}=${toml({ ...playwrightConfig, command: playwrightConfig?.command ?? manager,
+      args: playwrightConfig?.args ?? ['playwright', 'mcp', '--cwd', cwd], enabled: false, required: false })}`,
     ...(state ? sessionHook(capabilities.map(cap => cap.valid ? cap.context : cap.inactiveContext).join('\n')) : [])];
 };
 async function selection() {

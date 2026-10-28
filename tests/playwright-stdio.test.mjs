@@ -11,7 +11,7 @@ const program=source.split("cat <<'PLAYWRIGHT_JS'\n")[1].split('\nPLAYWRIGHT_JS\
 const digest=b=>createHash('sha256').update(b).digest('hex');
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 const tools=['browser_navigate','browser_snapshot','browser_fill_form','browser_take_screenshot'].map(name=>({name,inputSchema:{type:'object',properties:{}}}));
-async function fixture(t){
+async function fixture(t,{flushOnClose=false,ignoreClose=false}={}){
  const base=await mkdtemp(join(tmpdir(),'playwright stdio ')),home=join(base,'managed'),workspace=join(base,'workspace with spaces'),bin=join(base,'bin');
  for(const p of [home,workspace,bin])await mkdir(p,{recursive:true});
  t.after(()=>rm(base,{recursive:true,force:true}));
@@ -20,13 +20,15 @@ async function fixture(t){
  const server=`const fs=require('node:fs'),path=require('node:path'),{spawn}=require('node:child_process');
 const config=JSON.parse(fs.readFileSync(process.argv[process.argv.indexOf('--config')+1]));
 const profile=config.browser.userDataDir;
+let cookie;
 fs.appendFileSync(${JSON.stringify(join(base,'browser-events'))},JSON.stringify({pid:process.pid,config,env:process.env})+'\\n');
 const worker=spawn(process.execPath,['-e',"process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],{stdio:'ignore'});
 process.on('SIGTERM',()=>process.exit());
-require('node:readline').createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);if(m.id===undefined)return;
+require('node:readline').createInterface({input:process.stdin}).on('line',async line=>{const m=JSON.parse(line);if(m.id===undefined)return;
+if(m.method==='tools/call'&&m.params.name==='browser_close'&&${ignoreClose})return;
 let result={protocolVersion:'2024-11-05',capabilities:{tools:{}},serverInfo:{name:'fixture',version:'1'}};
 if(m.method==='tools/list')result={tools:[...${JSON.stringify(tools)},...['browser_run_code_unsafe','browser_evaluate','browser_install'].map(name=>({name,inputSchema:{type:'object'}}))]};
-if(m.method==='tools/call') {if(m.params.arguments.cookie)fs.writeFileSync(path.join(profile,'cookie'),m.params.arguments.cookie);result={content:[{type:'text',text:JSON.stringify({pid:process.pid,worker:worker.pid,profile,cookie:fs.existsSync(path.join(profile,'cookie'))?fs.readFileSync(path.join(profile,'cookie'),'utf8'):null})}]};}
+if(m.method==='tools/call') {if(m.params.arguments.cookie){cookie=m.params.arguments.cookie;if(!${flushOnClose})fs.writeFileSync(path.join(profile,'cookie'),cookie);}if(m.params.name==='browser_close'&&${flushOnClose}){await new Promise(r=>setTimeout(r,100));if(cookie)fs.writeFileSync(path.join(profile,'cookie'),cookie);}result={content:[{type:'text',text:JSON.stringify({pid:process.pid,worker:worker.pid,profile,cookie:cookie||(fs.existsSync(path.join(profile,'cookie'))?fs.readFileSync(path.join(profile,'cookie'),'utf8'):null)})}]};}
 console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result}));});`;
  await writeFile(executable,server);await writeFile(join(pkg,'package.json'),JSON.stringify({version:'0.0.83'}));
  const sri='sha512-'+'A'.repeat(86)+'==',lock=JSON.stringify({packages:{'node_modules/@playwright/mcp':{version:'0.0.83',integrity:sri}}});
@@ -50,7 +52,7 @@ require('node:fs').appendFileSync(${JSON.stringify(join(base,'sandbox-events'))}
  return {base,home,workspace,chrome,start};
 }
 const payload=m=>{assert.ok(!m.error,m.error?.message);return JSON.parse(m.result.content[0].text);};
-async function dead(pid){for(let i=0;i<80;i++){try{const s=await readFile('/proc/'+pid+'/stat','utf8');if(s.split(' ')[2]==='Z')return;}catch(e){if(e.code==='ENOENT')return;}try{process.kill(pid,0);}catch(e){if(e.code==='ESRCH')return;}await pause(25);}assert.fail('owned process survived '+pid);}
+async function dead(pid,attempts=80){for(let i=0;i<attempts;i++){try{const s=await readFile('/proc/'+pid+'/stat','utf8');if(s.split(' ')[2]==='Z')return;}catch(e){if(e.code==='ENOENT')return;}try{process.kill(pid,0);}catch(e){if(e.code==='ESRCH')return;}await pause(25);}assert.fail('owned process survived '+pid);}
 async function gone(p){for(let i=0;i<80;i++){try{await stat(p);}catch(e){if(e.code==='ENOENT')return;}await pause(25);}assert.fail('owned lease survived '+p);}
 test('offline catalog states host authority and denies unsafe tools and installs',async t=>{
  const f=await fixture(t),c=f.start();const init=await c.request('initialize');assert.equal(init.result.capabilities.experimental,undefined);
@@ -86,8 +88,20 @@ test('workspace aliases share a lease and managed state symlinks fail closed',as
  const state=resolve(p.profile,'..');await rm(join(state,'chrome'),{recursive:true});const outside=join(f.base,'outside');await mkdir(outside);await symlink(outside,join(state,'chrome'));
  const c=f.start();assert.ok((await c.call()).error);assert.deepEqual(await import('node:fs/promises').then(fs=>fs.readdir(outside)),[]);
 });
+for(const {signal,disconnect} of [{signal:'SIGTERM'},{signal:'SIGINT'},{signal:'SIGKILL'},{signal:'SIGTERM',disconnect:true}])test('signal shutdown awaits browser cookie flush and releases owned lease after '+signal+(disconnect?' with concurrent EOF/SIGINT':''),async t=>{
+ const f=await fixture(t,{flushOnClose:true}),c=f.start(f.workspace,{public:true});
+ const a=payload(await c.call('browser_navigate',{cookie:'signal-persistent'}));
+ await assert.rejects(stat(join(a.profile,'cookie')),{code:'ENOENT'});
+ c.p.kill(signal);if(disconnect){c.p.stdin.end();c.p.kill('SIGINT');}await c.exited;await dead(a.pid);await dead(a.worker);await gone(join(a.profile,'../lease'));
+ const again=f.start(),b=payload(await again.call());assert.equal(b.cookie,'signal-persistent');assert.equal(b.profile,a.profile);
+});
 test('public Bash launcher retains MCP stdin and cleans up on EOF',async t=>{
  const f=await fixture(t),c=f.start(f.workspace,{public:true});const a=payload(await c.call());await c.close();await dead(a.pid);await dead(a.worker);
+});
+test('guardian bounds owned cleanup when proxy dies and browser close is unresponsive',{timeout:10000},async t=>{
+ const f=await fixture(t,{ignoreClose:true}),c=f.start(f.workspace,{public:true}),a=payload(await c.call());
+ c.p.kill('SIGKILL');await c.exited;await dead(a.pid,160);await dead(a.worker);await gone(join(a.profile,'../lease'));
+ const again=f.start();payload(await again.call());
 });
 test('stale lease recovery requires both owner and process group to be gone',async t=>{
  const f=await fixture(t),state=join(f.home,'playwright/workspaces',digest(f.workspace)),lease=join(state,'lease');

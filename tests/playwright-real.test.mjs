@@ -45,9 +45,12 @@ test('managed real Chrome: stdio catalog, form, screenshot, persistence and isol
 
  const executableBefore=createHash('sha256').update(await readFile(chrome)).digest('hex');
  const filesBefore=await chromeFiles(dirname(chrome));
+ let signalRequests=0,signalCookies=0;
  const fixture=createServer((request,response)=>{
   if(new URL(request.url,'http://localhost').pathname==='/saved'){response.setHeader('Set-Cookie','managed-proof=retained; Path=/; Max-Age=3600');response.end('<h1>Saved</h1>');return;}
-  response.end('<!doctype html><title>Browser fixture</title><h1>'+((request.headers.cookie||'').includes('managed-proof=retained')?'Returning user':'New user')+'</h1><form action="/saved"><label>Name <input name="name"></label><button>Save</button></form>');
+  if(new URL(request.url,'http://localhost').pathname==='/signal-saved'){signalRequests++;response.setHeader('Set-Cookie','managed-signal=retained; Path=/; Max-Age=3600');response.end('<h1>Signal saved</h1>');return;}
+  const signal=(request.headers.cookie||'').includes('managed-signal=retained');if(signal)signalCookies++;
+  response.end('<!doctype html><title>Browser fixture</title><h1>'+((request.headers.cookie||'').includes('managed-proof=retained')?'Returning user':'New user')+'</h1><p>'+(signal?'Signal cookie retained':'No signal cookie')+'</p><form action="/saved"><label>Name <input name="name"></label><button>Save</button></form>');
  });
  await new Promise(r=>fixture.listen(0,'127.0.0.1',r));
  const url='http://127.0.0.1:'+fixture.address().port;
@@ -80,9 +83,14 @@ test('managed real Chrome: stdio catalog, form, screenshot, persistence and isol
  await s.close();await settled(firstTree);s=start();await s.request('initialize',{protocolVersion:'2024-11-05'});await s.call('browser_navigate',{url});assert.match(JSON.stringify(await s.call('browser_snapshot')),/Returning user/);
  const other=join(root,'other');await mkdir(other);const independent=start(other);await independent.request('initialize',{protocolVersion:'2024-11-05'});await independent.call('browser_navigate',{url});assert.match(JSON.stringify(await independent.call('browser_snapshot')),/New user/);
  const secondTree=await observe(s.child.pid),otherTree=await observe(independent.child.pid);
+ // This cookie has never seen a graceful close. A cookie flushed by the
+ // earlier EOF cannot establish persistence of fresh state across SIGTERM.
+ await s.call('browser_navigate',{url:url+'/signal-saved'});assert.equal(signalRequests,1);
+ await s.call('browser_navigate',{url});assert.match(JSON.stringify(await s.call('browser_snapshot')),/Signal cookie retained/);assert.ok(signalCookies>0);
  s.child.kill('SIGTERM');await s.close();await settled(secondTree);
+ await assert.rejects(stat(join(s.state,'lease')),{code:'ENOENT'});
  assert.match(JSON.stringify(await independent.call('browser_snapshot')),/New user/);
- s=start();await s.request('initialize');await s.call('browser_navigate',{url});assert.match(JSON.stringify(await s.call('browser_snapshot')),/Returning user/);
+ s=start();await s.request('initialize');await s.call('browser_navigate',{url});const afterSignal=JSON.stringify(await s.call('browser_snapshot'));assert.match(afterSignal,/Returning user/);assert.match(afterSignal,/Signal cookie retained/);
  const crashTree=await observe(s.child.pid);s.child.kill('SIGKILL');await s.close();await settled(crashTree);
  s=start();await s.request('initialize');await s.call('browser_navigate',{url});assert.match(JSON.stringify(await s.call('browser_snapshot')),/Returning user/);
  const recoveredTree=await observe(s.child.pid);await s.close();await settled(recoveredTree);

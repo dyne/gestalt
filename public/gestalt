@@ -215,13 +215,16 @@ load_xerj_paths() {
       # Segment compaction removes files while clients start. Ignore only
       # ENOENT races, retaining the same link checks on every existing entry.
       require_command node
-      link=$(node - "$directory" <<'NODE'
+      link=$(node - "$directory" "$xerj_data" <<'NODE'
 const { lstatSync, readdirSync } = require('node:fs');
-const { join } = require('node:path');
+const { join, relative } = require('node:path');
+// Autoindex reuses immutable blobs and prepared documents across generations.
+// Keep the link ban on credentials, configuration, executables and metadata.
+const snapshotContent = path => /^autoindex\/[^/]+\/sync-snapshots\/[^/]+\/(blobs|prepared)\/[^/]+$/.test(relative(process.argv[3], path));
 function visit(path) {
   try {
     const info = lstatSync(path);
-    if (info.isSymbolicLink() || (info.isFile() && info.nlink > 1)) return path;
+    if (info.isSymbolicLink() || (info.isFile() && info.nlink > 1 && !snapshotContent(path))) return path;
     if (info.isDirectory()) for (const name of readdirSync(path)) {
       const found = visit(join(path, name));
       if (found) return found;
@@ -636,7 +639,7 @@ import { spawn } from 'node:child_process';
 import { lstat, stat as followStat, readFile, realpath, readdir, mkdir, writeFile, rename, rm, chmod } from 'node:fs/promises';
 import { createHash, randomBytes } from 'node:crypto';
 import net from 'node:net';
-import { dirname, join, basename } from 'node:path';
+import { dirname, join, basename, relative } from 'node:path';
 import http from 'node:http';
 
 const [selectedRoot, operation, managerPath, selectedCodexHome] = process.argv.slice(2);
@@ -663,11 +666,14 @@ async function stat(path) {
     return info;
   } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
 }
-async function safeTree(path) {
+async function safeTree(path, dataRoot) {
   const info = await stat(path);
   if (!info) return;
-  if (info.isSymbolicLink() || (info.isFile() && info.nlink > 1)) fail('unsafe-path');
-  if (info.isDirectory()) for (const name of await readdir(path)) await safeTree(join(path, name));
+  // Snapshot blobs and prepared documents are immutable and natively linked.
+  // Never exempt symlinks, or hard links in mutable state and installation files.
+  const snapshotContent = dataRoot && /^autoindex\/[^/]+\/sync-snapshots\/[^/]+\/(blobs|prepared)\/[^/]+$/.test(relative(dataRoot, path));
+  if (info.isSymbolicLink() || (info.isFile() && info.nlink > 1 && !snapshotContent)) fail('unsafe-path');
+  if (info.isDirectory()) for (const name of await readdir(path)) await safeTree(join(path, name), dataRoot);
 }
 async function canonicalRoot(selected) {
   if (!selected.startsWith('/') || /[\x00-\x1f\x7f]/.test(selected) ||
@@ -689,7 +695,7 @@ async function paths() {
   for (const path of [join(root, 'xerj'), dataRoot]) {
     if ((await stat(path))?.isSymbolicLink()) fail('unsafe-path');
   }
-  await safeTree(join(root, 'xerj')); await safeTree(dataRoot);
+  await safeTree(join(root, 'xerj')); await safeTree(dataRoot, dataRoot);
   if (process.env.XERJ_INSTALL_DIR && process.env.XERJ_INSTALL_DIR !== join(root, 'xerj')) fail('unsupported-installation');
   if ((process.env.XERJ_REPO && process.env.XERJ_REPO !== 'xerj-org/xerj') ||
       (process.env.XERJ_INSECURE_SKIP_CHECKSUM && process.env.XERJ_INSECURE_SKIP_CHECKSUM !== '0')) fail('unsupported-installation');

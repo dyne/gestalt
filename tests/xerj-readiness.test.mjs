@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, link, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -122,6 +122,37 @@ test('tool discovery alone cannot prove backend readiness', async t => {
   const f = await fixture(t);
   assert.deepEqual(await f.run({ XERJ_URL: 'http://127.0.0.1:1' }), { schemaVersion: 1, status: 'unavailable', reason: 'backend-unavailable' });
 });
+for (const content of ['blobs', 'prepared']) test(`snapshot ${content} hard links survive repeated session readiness checks`, async t => {
+  const f = await fixture(t);
+  const snapshots = join(f.root, 'xerj-data/autoindex/ax-fixture/sync-snapshots');
+  const first = join(snapshots, `run-g1/${content}/00000001`);
+  const second = join(snapshots, `run-g2/${content}/00000001`);
+  await mkdir(join(snapshots, `run-g1/${content}`), { recursive: true });
+  await mkdir(join(snapshots, `run-g2/${content}`), { recursive: true });
+  await writeFile(first, 'immutable snapshot blob');
+  await link(first, second);
+  Object.assign(f.before, await snapshot(f.root));
+  for (let pass = 0; pass < 3; pass++) assert.equal((await f.run()).status, 'ready');
+});
+
+for (const kind of ['symlink', 'credential-hardlink', 'snapshot-metadata-hardlink', 'binary-hardlink']) {
+  test(`snapshot exception still rejects ${kind}`, async t => {
+    const f = await fixture(t);
+    const snapshots = join(f.root, 'xerj-data/autoindex/ax-fixture/sync-snapshots/run-g1');
+    await mkdir(join(snapshots, 'blobs'), { recursive: true });
+    const original = join(f.root, 'fixture-file');
+    await writeFile(original, 'fixture');
+    if (kind === 'symlink') await symlink(original, join(snapshots, 'blobs/00000001'));
+    else if (kind === 'credential-hardlink') {
+      await rm(join(f.root, 'xerj-data/admin.key'));
+      await link(original, join(f.root, 'xerj-data/admin.key'));
+    } else if (kind === 'binary-hardlink') await link(f.binary, join(f.root, 'binary-copy'));
+    else await link(original, join(snapshots, 'manifest.json'));
+    Object.assign(f.before, await snapshot(f.root));
+    assert.equal((await f.run()).reason, 'unsafe-path');
+    assert.equal(f.reads.length, 0);
+  });
+}
 test('missing credential never falls back to user home or cwd', async t => {
   const f = await fixture(t);
   await rm(join(f.root, 'xerj-data', 'admin.key'));

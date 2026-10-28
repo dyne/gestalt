@@ -117,3 +117,26 @@ It checks actual stdio tools, localhost forms and screenshots, persistent cookie
 workspace isolation and unchanged Chrome executable bytes. Unit suites use a
 fixture MCP server and do not establish real browser behavior. The real gate
 retains Chrome's sandbox; it never disables sandboxing or installs prerequisites.
+
+The [CLI browser integration](cli/index.md#optional-managed-browser) uses native
+named-profile consent and root-supervisor requests. Enabling a profile alone
+never launches Chrome. `npm run test:playwright:cli` exercises the actual pinned
+native terminal, profile precedence, lifecycle, resume/fork, child authority and
+bounded failure fallback. Its terminal fixture requires Linux `script`/`stty`.
+Ordinary persisted threads without managed controls remain browser-unavailable;
+native resume/fork cannot attach a new dynamic tool. Compatible managed sessions
+retain their controls, with private schema/workspace records under
+`$GESTALT_HOME/playwright/cli-sessions` (0700 directory, 0600 files). These records
+contain no cookies or credentials and do not authorize access without profile
+consent. See the CLI reference for the fresh-session fallback.
+`npm run test:playwright:cli:plan` additionally requires
+`GESTALT_PLAYWRIGHT_AGENTS_CORE` pointing to the matching accepted source Git
+checkout's `org-plan-core.mjs` and its relative modules; it consumes that dependency
+read-only and records its revision/hash.
+
+Run `npm run test:playwright:cli:real` with the same prepared package/Chrome
+environment variables as the launcher real gate. It navigates a local page,
+fills a form and takes a screenshot through the actual CLI controller, checks
+workspace contention and teardown, and verifies unavailable Chrome preserves
+chat. Set `GESTALT_PLAYWRIGHT_CLI_ARTIFACTS` to an authorized evidence directory
+to retain the fixture screenshot. It never installs or updates prerequisites.

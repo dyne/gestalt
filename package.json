@@ -7,7 +7,10 @@
     "preview": "vitepress preview",
     "test": "bash tests/run.sh",
     "test:browser": "playwright test",
-    "test:playwright:real": "node --test tests/playwright-real.test.mjs"
+    "test:playwright:real": "node --test tests/playwright-real.test.mjs",
+    "test:playwright:cli": "node --test tests/playwright-cli-control.test.mjs tests/playwright-cli-native.test.mjs tests/playwright-cli-startup.test.mjs",
+    "test:playwright:cli:plan": "GESTALT_PLAYWRIGHT_CLI_INTEGRATION=1 node --test tests/playwright-cli-native.test.mjs",
+    "test:playwright:cli:real": "GESTALT_PLAYWRIGHT_CLI_REAL=1 node --test tests/playwright-cli-native.test.mjs"
   },
   "devDependencies": {
     "@openai/codex": "0.160.0",

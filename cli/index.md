@@ -43,6 +43,100 @@ disabled. Gestalt Agents keeps that package as the implementation source and
 registers one native `context-mode` MCP launcher instead. Enabling the plugin
 by hand can create a second, incorrectly launched MCP server.
 
+## Optional managed browser
+
+Install the package explicitly and provide an existing Chrome installation:
+
+```sh
+gestalt playwright install
+gestalt playwright doctor --json
+```
+
+For native Codex profile-v2, create `~/.codex-gestalt/browser.config.toml`
+(or `$CODEX_HOME/browser.config.toml` when using another Gestalt Codex home):
+
+```toml
+[mcp_servers.gestalt-playwright]
+enabled = true
+default_tools_approval_mode = "prompt"
+```
+
+Then select it with `gestalt cli -p browser -C /absolute/project`. This named
+profile format is exercised against Codex 0.160.0. Gestalt supplies the managed
+launcher for the session; this sparse example is intended for `gestalt cli`.
+No selected profile, an absent enabled setting, legacy profile syntax, or an
+effective explicit `enabled = false` leaves managed browser access off. Native
+project/session override precedence remains in effect. Missing skills, package,
+Chrome or supported runtime interfaces leave the capability unavailable.
+
+Opt-in permits access; it does not launch Chrome. In an opted-in interactive
+session the root supervisor uses the fixed `gestalt_managed_playwright` tool:
+
+```json
+{"action":"start"}
+{"action":"status"}
+{"action":"stop"}
+```
+
+`start` initially reports pending. At the next root turn, once all active turns
+are idle, Gestalt restarts only its dedicated Codex backend and resumes the
+same persistent thread with the stdio MCP configured. The native terminal
+frontend remains attached through a private Unix socket. Read-only package and
+Chrome checks and a connected expected tool catalog precede browser guidance.
+Failed checks keep chat and unrelated MCPs usable. `stop` releases the owned
+browser at the same supported boundary. Repeated requests are idempotent.
+Fresh managed sessions and compatible managed resumptions/forks start idle;
+children and native title-generation threads cannot take lifecycle ownership.
+Codex 0.160.0 cannot attach new dynamic lifecycle tools when resuming/forking an
+ordinary saved thread. Those conversations remain usable with browser access
+unavailable; start a fresh opted-in interactive session for managed browser
+controls. Older or incompatible managed tool schemas use the same safe fallback.
+Gestalt records compatible controls only after native fresh-thread creation
+accepts them; the record never replaces current profile consent.
+Ending the CLI tears down its owned
+runtime and MCP processes while preserving workspace Chrome state.
+
+For another Chrome executable, put the operator-selected path in the profile:
+
+```toml
+[mcp_servers.gestalt-playwright]
+enabled = true
+default_tools_approval_mode = "prompt"
+args = ["playwright", "mcp", "--executable-path", "/absolute/path/to/chrome"]
+```
+
+Runtime requests accept no command, environment or executable path. The launcher
+uses the canonical CLI workspace and its private managed browser profile; it
+never uses the personal Chrome profile. A busy workspace remains owned by its
+existing browser session. Close or release that session; do not delete live
+Chromium locks. Package updates and shutdown preserve cookies.
+
+An Org L1 may declare `- Managed MCP :: playwright`. The root binds a validated
+plan already cataloged under this workspace's `.gestalt/`, for example
+`{"action":"bind_plan","plan":"browser-task"}` for `browser-task.org`.
+`status` returns the current host catalog of bounded plan IDs. The persisted
+tool schema does not freeze that catalog, so compatible resumed sessions can
+bind newly created plans. The host derives the active WIP requirement from that
+bound plan. Removing the
+requirement or completing the milestone releases availability at the next
+running root turn. Binding neither installs anything nor resumes paused work,
+and a declaration never overrides profile consent. Unknown plan IDs are
+rejected; arbitrary paths are not accepted.
+
+Ordinary MCP approvals and the shell sandbox configuration are preserved.
+The host MCP has the host user's filesystem authority; shell writable roots do
+not confine browser tools. Chrome retains its own sandbox, uses a browser pipe,
+and runs headless by default. The managed allowlist excludes server JavaScript,
+page evaluation, installation and page-supplied WebMCP tools. No HTTP MCP/CDP
+listener or nested `codex sandbox` is introduced.
+
+Explicit user `--remote`, `--no-daemon`, `--worktree` and noninteractive
+`exec`/`review` retain their native behavior and do not enter this managed
+interactive runtime. Their managed browser capability stays unavailable. The
+ordinary launch path still supports unrelated Serena/XERJ preparation.
+`GESTALT_PLAYWRIGHT_READY_TIMEOUT_MS` bounds individual browser readiness
+operations (100–60000 ms, default 5000), independently of retrieval readiness.
+
 ## Optional workspace semantics
 
 ```sh

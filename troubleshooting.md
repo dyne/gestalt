@@ -88,6 +88,49 @@ Rerun `gestalt update`. Both the Agents runtime publication and the manager
 binary installation are designed to replace prepared artifacts atomically.
 Existing Codex and Mobile state is stored separately from install artifacts.
 
+## XERJ startup fails with `unsafe-path` after indexing
+
+If Mobile reports `XERJ startup failed. Optional retrieval unavailable`, first
+check the installed manager and its read-only readiness result:
+
+```sh
+gestalt version
+gestalt xerj status
+```
+
+Manager 0.9.3 rejects all hard-linked files in managed XERJ storage. Autoindex
+legitimately shares immutable snapshot blobs and prepared documents between
+generations using hard links, so a healthy backend can become unavailable to new
+sessions after indexing. This was reproduced with XERJ 1.0.0-rc.99. The snapshot
+exception shipped in manager 0.9.4; symlinks and hard-linked credentials,
+configuration, executables and snapshot metadata remain rejected.
+
+When the installed manager predates 0.9.4, update the core components from a
+terminal, then check readiness in a new command invocation:
+
+```sh
+gestalt update gestalt
+gestalt version
+gestalt xerj status
+gestalt xerj probe
+```
+
+The `gestalt` update group replaces the manager, Agents, Mobile and context-mode
+without running the old manager's XERJ updater over existing snapshot files.
+Updating only XERJ cannot repair the manager's validator. Pulling source
+repositories also leaves the installed manager unchanged.
+
+After the updated manager reports `ready`, restart Mobile through your normal
+launcher and start a new session so it can negotiate retrieval again. Existing
+sessions may retain the unavailable capability selected at startup. This
+recovery preserves indexes and does not require deleting snapshots, credentials
+or lifecycle records.
+
+An `unsafe-path` result from an updated manager needs separate investigation;
+the status code alone does not establish that snapshot hard links caused it.
+Preserve the trace reference and investigate the rejected path before changing
+managed storage.
+
 ### Rechecking XERJ upstream issues
 
 Use `gestalt xerj update [VERSION]` to install an official checksum-verified

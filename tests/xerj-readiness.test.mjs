@@ -69,9 +69,9 @@ if (process.argv[2] === '--version') {
   const endpoint = `http://127.0.0.1:${server.address().port}`;
   const before = await snapshot(root);
   t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await rm(temp, { recursive: true, force: true }); });
-  async function run(overrides = {}, cancel = false) {
+  async function run(overrides = {}, cancel = false, operation = 'probe') {
     const env = { HOME: process.env.HOME, PATH: process.env.PATH, GESTALT_HOME: root, CODEX_HOME: root, XERJ_URL: endpoint, XERJ_READY_TIMEOUT_MS: '750', ...overrides };
-    const child = spawn('bash', [manager, 'xerj', 'probe'], { env, cwd: root });
+    const child = spawn('bash', [manager, 'xerj', operation], { env, cwd: root });
     let stdout = '', stderr = '';
     child.stdout.on('data', chunk => stdout += chunk);
     child.stderr.on('data', chunk => stderr += chunk);
@@ -122,18 +122,25 @@ test('tool discovery alone cannot prove backend readiness', async t => {
   const f = await fixture(t);
   assert.deepEqual(await f.run({ XERJ_URL: 'http://127.0.0.1:1' }), { schemaVersion: 1, status: 'unavailable', reason: 'backend-unavailable' });
 });
-for (const content of ['blobs', 'prepared']) test(`snapshot ${content} hard links survive repeated session readiness checks`, async t => {
-  const f = await fixture(t);
-  const snapshots = join(f.root, 'xerj-data/autoindex/ax-fixture/sync-snapshots');
-  const first = join(snapshots, `run-g1/${content}/00000001`);
-  const second = join(snapshots, `run-g2/${content}/00000001`);
-  await mkdir(join(snapshots, `run-g1/${content}`), { recursive: true });
-  await mkdir(join(snapshots, `run-g2/${content}`), { recursive: true });
-  await writeFile(first, 'immutable snapshot blob');
-  await link(first, second);
-  Object.assign(f.before, await snapshot(f.root));
-  for (let pass = 0; pass < 3; pass++) assert.equal((await f.run()).status, 'ready');
-});
+for (const version of ['1.0.0-rc.87', '1.0.0-rc.99']) {
+  for (const content of ['blobs', 'prepared']) test(`${version} snapshot ${content} hard links survive repeated session readiness checks`, async t => {
+    const f = await fixture(t, 'healthy', version);
+    const snapshots = join(f.root, 'xerj-data/autoindex/ax-fixture/sync-snapshots');
+    const first = join(snapshots, `run-g1/${content}/00000001`);
+    const second = join(snapshots, `run-g2/${content}/00000001`);
+    await mkdir(join(snapshots, `run-g1/${content}`), { recursive: true });
+    await mkdir(join(snapshots, `run-g2/${content}`), { recursive: true });
+    await writeFile(first, 'immutable snapshot blob');
+    await link(first, second);
+    Object.assign(f.before, await snapshot(f.root));
+    for (const operation of ['status', 'probe', 'probe']) {
+      const ready = await f.run({}, false, operation);
+      assert.equal(ready.status, 'ready');
+      assert.equal(ready.version, version);
+      assert.equal(ready.endpoint, f.endpoint);
+    }
+  });
+}
 
 for (const kind of ['symlink', 'credential-hardlink', 'snapshot-metadata-hardlink', 'binary-hardlink']) {
   test(`snapshot exception still rejects ${kind}`, async t => {

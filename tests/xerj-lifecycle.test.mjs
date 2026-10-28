@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import net from 'node:net';
-import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, stat } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, stat, link } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -124,6 +124,31 @@ test('automatic endpoints avoid another installation and persist across concurre
   assert.equal((await second.run('stop')).status, 'stopped');
   assert.equal((await second.run('ensure-ready')).endpoint, endpoint);
   assert.equal((await first.run('probe')).status, 'ready');
+});
+
+test('new concurrent sessions reuse the running backend after autoindex links snapshot blobs', async t => {
+  const f = await fixture(t, 'healthy', undefined, true);
+  const first = await f.run('ensure-ready');
+  assert.equal(first.status, 'ready');
+  const snapshots = join(f.root, 'xerj-data/autoindex/ax-fixture/sync-snapshots');
+  const blob = join(snapshots, 'run-g1/blobs/00000001');
+  const reused = join(snapshots, 'run-g2/blobs/00000001');
+  await mkdir(join(snapshots, 'run-g1/blobs'), { recursive: true });
+  await mkdir(join(snapshots, 'run-g2/blobs'), { recursive: true });
+  await writeFile(blob, 'immutable snapshot blob');
+  await link(blob, reused);
+  await mkdir(join(snapshots, 'run-g1/prepared'), { recursive: true });
+  await mkdir(join(snapshots, 'run-g2/prepared'), { recursive: true });
+  const prepared = join(snapshots, 'run-g1/prepared/00000001.ndjson');
+  await writeFile(prepared, '{}\n');
+  await link(prepared, join(snapshots, 'run-g2/prepared/00000001.ndjson'));
+  const results = await Promise.all(Array.from({ length: 4 }, () => f.run('ensure-ready')));
+  assert.ok(results.every(r => r.status === 'ready' && r.endpoint === first.endpoint), JSON.stringify(results));
+  assert.equal((await f.launched()).length, 1, 'new sessions must not replace the running backend');
+  assert.equal((await f.run('status')).status, 'ready');
+  assert.equal((await f.run('probe')).status, 'ready');
+  assert.equal((await stat(blob)).nlink, 2);
+  assert.equal((await stat(blob)).ino, (await stat(reused)).ino);
 });
 
 test('automatic startup replaces an occupied saved endpoint without changing explicit endpoint policy', async t => {

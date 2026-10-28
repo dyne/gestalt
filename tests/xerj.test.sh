@@ -310,6 +310,20 @@ import json, os, pathlib, subprocess, sys
 manager, home, temporary = map(pathlib.Path, sys.argv[1:])
 sources = [temporary/'first'/'repo', temporary/'second'/'repo']
 for source in sources: source.mkdir(parents=True)
+# Native autoindex snapshots reuse immutable blobs by hard link. All ordinary
+# forwarding paths (including MCP) must accept that persistent managed state.
+snapshots = home/'xerj-data/autoindex/ax-fixture/sync-snapshots'
+blob = snapshots/'run-g1/blobs/00000001'
+reused = snapshots/'run-g2/blobs/00000001'
+blob.parent.mkdir(parents=True)
+reused.parent.mkdir(parents=True)
+blob.write_text('immutable snapshot blob')
+os.link(blob, reused)
+prepared = snapshots/'run-g1/prepared/00000001.ndjson'
+prepared.parent.mkdir(parents=True)
+(snapshots/'run-g2/prepared').mkdir()
+prepared.write_text('{}\n')
+os.link(prepared, snapshots/'run-g2/prepared/00000001.ndjson')
 def run(cwd, *args):
     subprocess.run(['bash', str(manager), 'xerj', *map(str, args)], cwd=cwd,
                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
@@ -352,6 +366,15 @@ saved.unlink()
 explicit = run(sources[1], 'autoindex', sources[0], '--prefix', 'prior-art', '--dry-run')
 assert prefix(explicit) == 'prior-art'
 assert explicit['args'][2] == str(home/'xerj-data/autoindex/prior-art')
+assert blob.stat().st_ino == reused.stat().st_ino and blob.stat().st_nlink == 2
+for name, symbolic in [('blobs/unsafe-link', True), ('manifest.json', False)]:
+    invalid = snapshots/'run-g2'/name
+    if symbolic: invalid.symlink_to(blob)
+    else: os.link(blob, invalid)
+    result = subprocess.run(['bash', str(manager), 'xerj', 'mcp'], cwd=sources[0],
+                            capture_output=True, text=True)
+    assert result.returncode != 0 and 'link' in result.stderr, result.stderr
+    invalid.unlink()
 PY
 assertions=$((assertions + 1))
 printf 'xerj: %s assertions passed (install, failures, confinement, forwarding, signals)\n' "$assertions"

@@ -159,6 +159,13 @@ An explicit `--prefix` intentionally overrides this namespace. Discover actual
 indexes and source roots through the catalog before searching across them;
 retrieved code is reference material, not evidence about the current checkout.
 
+Inspect that root's retained journal with
+`gestalt xerj autoindex status --cwd /path/to/source-root`. With no `--cwd`,
+status selects the current directory; `--prefix` selects an explicitly named
+namespace. Status uses the managed endpoint and reads existing state without
+creating directories or rewriting configuration, including in restricted agent
+sessions. It does not restart the watcher or retry indexing.
+
 Mobile owns automatic indexing outside agent sessions. Installation does not
 add a sandbox write grant for XERJ data or other workspaces. Retrieval scope is
 not modification authority: Codex remains constrained to its active workspace.

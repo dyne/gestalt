@@ -10,7 +10,7 @@ const manager = new URL('../public/gestalt', import.meta.url).pathname;
 const source = await readFile(manager, 'utf8');
 const helper = source.slice(source.indexOf('configure_codex_tool_approvals() {'), source.indexOf('\ninstall_mobile() {'));
 for (const policy of ['never', 'on-request']) {
-  test(`tool defaults for ${policy} preserve explicit overrides and are idempotent`, async () => {
+  test(`managed tool defaults for ${policy} leave third parties untouched and are idempotent`, async () => {
     const root = await mkdtemp(join(tmpdir(), 'gestalt-approvals-'));
     try {
       const configPath = join(root, 'config.toml');
@@ -25,6 +25,18 @@ enabled = false
 command = "example"
 default_tools_approval_mode = "writes"
 [mcp_servers.fresh.tools.edit]
+approval_mode = "prompt"
+[mcp_servers.gestalt-playwright]
+command = ${JSON.stringify(manager)}
+args = ["playwright", "mcp"]
+enabled = false
+default_tools_approval_mode = "prompt"
+enabled_tools = ["browser_navigate"]
+disabled_tools = ["browser_evaluate"]
+[mcp_servers.gestalt-playwright.tools.browser_navigate]
+approval_mode = "prompt"
+[mcp_servers.gestalt-playwright.tools.browser_evaluate]
+enabled = false
 approval_mode = "prompt"
 [plugins."custom@market".mcp_servers.example]
 [plugins."custom@market".mcp_servers.overridden]
@@ -41,11 +53,17 @@ default_tools_approval_mode = "auto"
       run();
       const first = await readFile(configPath, 'utf8');
       const parsed = parse(first);
-      if (policy === 'never') {
-        assert.equal(parsed.apps._default.default_tools_approval_mode, 'approve');
-        assert.equal(parsed.mcp_servers.fresh.default_tools_approval_mode, 'approve');
-        assert.equal(parsed.plugins['custom@market'].mcp_servers.example.default_tools_approval_mode, 'approve');
-      } else assert.equal(first, config);
+      assert.equal(parsed.apps._default, undefined);
+      assert.equal(parsed.mcp_servers.fresh.default_tools_approval_mode, undefined);
+      assert.equal(parsed.plugins['custom@market'].mcp_servers.example.default_tools_approval_mode, undefined);
+      const browser = parsed.mcp_servers['gestalt-playwright'];
+      assert.equal(browser.default_tools_approval_mode, 'approve');
+      assert.equal(browser.tools.browser_navigate.approval_mode, 'approve');
+      assert.equal(browser.tools.browser_evaluate.enabled, false);
+      assert.deepEqual(browser.enabled_tools, ['browser_navigate']);
+      assert.deepEqual(browser.disabled_tools, ['browser_evaluate']);
+      assert.equal(browser.enabled, false);
+      assert.equal(parsed.approval_policy, policy);
       assert.equal(parsed.model, 'example');
       assert.ok(first.includes('# preserve this comment'));
       assert.equal(parsed.apps.custom.default_tools_approval_mode, 'prompt');
@@ -71,7 +89,7 @@ test('inline TOML and an explicit app default retain their meaning', async () =>
     assert.equal(result.status, 0, result.stderr);
     const parsed = parse(await readFile(configPath, 'utf8'));
     assert.equal(parsed.apps._default.default_tools_approval_mode, 'prompt');
-    assert.equal(parsed.mcp_servers.example.default_tools_approval_mode, 'approve');
+    assert.equal(parsed.mcp_servers.example.default_tools_approval_mode, undefined);
     assert.equal(parsed.mcp_servers.example.tools.edit.approval_mode, 'prompt');
   } finally { await rm(root, { recursive: true, force: true }); }
 });

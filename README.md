@@ -84,7 +84,11 @@ Chrome uses Playwright's browser pipe and retains its native Chromium sandbox.
 It accepts ordinary MCP calls without Codex-specific metadata and never launches
 a nested `codex sandbox`. The trusted host owns this MCP process and its
 filesystem authority: shell sandbox roots do not constrain host MCP access.
-Clients must enforce MCP tool approvals, profile consent and session policy.
+Gestalt preapproves its managed servers' enabled tools at the effective Codex
+runtime boundary, including per-tool overrides, while retaining profile consent,
+tool exclusions, session permissions and `approval_policy = "never"`. Unrelated
+servers keep their own approval policy. Already-running runtimes must be recreated
+after updating the manager; see [managed browser configuration](cli/index.md#optional-managed-browser).
 Chrome's sandbox protects browser execution; it does not provide project-scoped
 filesystem permissions for MCP tools. Upstream environment overrides and Node
 injection variables are not forwarded.

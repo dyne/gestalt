@@ -11,8 +11,10 @@ import test from 'node:test';
 import { parse } from 'smol-toml';
 
 const source = await readFile(resolve('public/gestalt'), 'utf8');
+const nativeCodex = resolve(process.env.GESTALT_PLAYWRIGHT_NATIVE_CODEX ?? 'node_modules/.bin/codex');
 const program = source.split('launch_cli_with_xerj() {')[1].split("<<'NODE'\n")[1].split('\nNODE\n')[0];
-const controller = 'async function managedPlaywright(launchArgs, reportDiagnostic = () => {}, checkConsent = async () => false) {' + program.split('async function managedPlaywright(launchArgs, reportDiagnostic = () => {}, checkConsent = async () => false) {')[1].split('\nconst interactivePlaywright')[0];
+const policy = program.split('// BEGIN MANAGED MCP APPROVAL POLICY\n')[1].split('// END MANAGED MCP APPROVAL POLICY')[0];
+const controller = policy + '\nasync function managedPlaywright(launchArgs, reportDiagnostic = () => {}, checkConsent = async () => false) {' + program.split('async function managedPlaywright(launchArgs, reportDiagnostic = () => {}, checkConsent = async () => false) {')[1].split('\nconst interactivePlaywright')[0];
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
 const waitFor = async (predicate, description, timeout = 20000) => {
   const deadline = Date.now() + timeout;
@@ -26,7 +28,7 @@ const execute = (command, args, env, cwd) => new Promise((resolve, reject) => {
   child.once('error', reject); child.once('exit', code => { clearTimeout(timer); code === 0 ? resolve(output) : reject(new Error(output.slice(-1800))); });
 });
 async function seedPersistentThread(env, workspace) {
-  const child = spawn(resolve('node_modules/.bin/codex'), ['app-server', '--stdio'], {
+  const child = spawn(nativeCodex, ['app-server', '--stdio'], {
     env, cwd: workspace, detached: true, stdio: ['pipe', 'pipe', 'pipe'],
   });
   const pending = new Map(), events = []; let next = 0, stderr = '';
@@ -176,8 +178,8 @@ for (const mode of modes) test(`native TUI ${mode} retains session across pendin
     steps.splice(5, 2, { action: 'status', browser: false }, { text: 'THIRD_TURN_DONE', browser: false });
   }
   if (mode === 'profile-child') steps.splice(2, 0, { nativeTool: 'spawn_agent', browser: true }, { nativeTool: 'wait_agent', browser: true });
-  if (mode === 'profile-real-browser') steps.splice(2, 0, ...['browser_navigate', 'browser_snapshot', 'browser_fill_form', 'browser_snapshot', 'browser_click', 'browser_take_screenshot']
-    .map(nativeTool => ({ nativeTool, browser: true })));
+  if (mode === 'profile-real-browser') steps.splice(2, 0, ...['browser_navigate', 'browser_navigate', 'browser_snapshot', 'browser_fill_form', 'browser_snapshot', 'browser_click', 'browser_take_screenshot']
+    .map((nativeTool,index) => ({ nativeTool, browser: true, ...(index === 0 ? {url:'https://example.com'} : {}) })));
   if (mode === 'profile-real-browser') steps.splice(9, 0, { nativeTool: 'browser_snapshot', browser: true });
   const root = await mkdtemp(join(tmpdir(), 'playwright-native-tui-'));
   const home = join(root, 'codex home'), workspace = join(root, 'workspace');
@@ -191,12 +193,12 @@ for (const mode of modes) test(`native TUI ${mode} retains session across pendin
   const nativeArguments = ['--no-alt-screen', '-c', userOverride, 'ROOT_FIXTURE'];
   const eventsPath = join(root, 'private-events.jsonl');
   const env = { ...process.env, CODEX_HOME: home, GESTALT_HOME: managed, GESTALT_MANAGER_BIN: browserManager,
-    TERM: 'xterm-256color', PATH: resolve('node_modules/.bin') + ':' + process.env.PATH };
+    TERM: 'xterm-256color', PATH: dirname(nativeCodex) + ':' + resolve('node_modules/.bin') + ':' + process.env.PATH };
   for (const key of Object.keys(env)) if (key.startsWith('CONTEXT_MODE_') || key.startsWith('GESTALT_MOBILE_') || key.startsWith('GESTALT_ORG_PLAN_')) delete env[key];
   if (mode === 'profile-timeout') env.GESTALT_PLAYWRIGHT_READY_TIMEOUT_MS = '1000';
   const events = async () => { try { return (await readFile(eventsPath, 'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse); } catch { return []; } };
   let terminal, output = '', stderr = '', phase = 0, auxiliaryRequests = 0, childSeen = false, childCalled = false, modelRequests = 0;
-  let seededId, planFile, planText, corePath, configBaseline, pageFixture, pageUrl, profileContents, packageBefore, chromeBefore, realVerified = false, observedPids = [];
+  let seededId, planFile, planText, corePath, configBaseline, pageFixture, pageUrl, profileContents, packageBefore, chromeBefore, realVerified = false, exampleVerified = false, observedPids = [];
   const catalogs = [], fixtureErrors = [];
   const model = createServer(async (request, response) => {
     try {
@@ -246,14 +248,20 @@ for (const mode of modes) test(`native TUI ${mode} retains session across pendin
         else if (operation === 'wait_agent') { assert.ok(agent, 'native child identity absent'); args = { targets: [agent], timeout_ms: 10000 }; }
         else {
           const text = toolText(input.input.filter(item => item.type === 'function_call_output').at(-1)?.output);
-          if (operation === 'browser_navigate') args = { url: pageUrl };
+          if (steps[phase-1]?.url === 'https://example.com') {
+            assert.ok(text.includes('Example Domain'),'real example.com navigation did not complete without approval');
+            exampleVerified = true;
+          }
+          if (operation === 'browser_navigate') args = { url: steps[phase].url ?? pageUrl };
           if (operation === 'browser_snapshot') args = {};
           if (operation === 'browser_fill_form') {
-            const target = text.match(/textbox "Name" \[ref=(e\d+)\]/)?.[1]; assert.ok(target, 'fresh real textbox reference missing');
+            // The upstream target contract also accepts a unique selector;
+            // snapshot formatting can differ between compatible Chrome releases.
+            const target = text.match(/textbox "Name" \[ref=(e\d+)\]/)?.[1] ?? 'input[name="name"]';
             args = { fields: [{ name: 'Name', element: 'Name', type: 'textbox', target, value: 'Native CLI browser' }] };
           }
           if (operation === 'browser_click') {
-            const target = text.match(/button "Save" \[ref=(e\d+)\]/)?.[1]; assert.ok(target, 'fresh real button reference missing');
+            const target = text.match(/button "Save" \[ref=(e\d+)\]/)?.[1] ?? 'button';
             args = { element: 'Save', target };
           }
           if (operation === 'browser_take_screenshot') args = { type: 'png', filename: join(workspace, 'cli-proof.png') };
@@ -343,11 +351,11 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
       await writeFile(join(marketplace, '.agents/plugins/marketplace.json'), JSON.stringify({ name: 'playwright-fixture', plugins: [
         { name: 'gestalt', source: { source: 'local', path: './plugins/gestalt' } },
       ] }));
-      const codex = resolve('node_modules/.bin/codex');
+      const codex = nativeCodex;
       await execute(codex, ['plugin', 'marketplace', 'add', marketplace], env, workspace);
       await execute(codex, ['plugin', 'add', 'gestalt@playwright-fixture'], env, workspace);
       profileContents = '[mcp_servers.gestalt-playwright]\nenabled=true\n' + (realBrowser ?
-        `default_tools_approval_mode="approve"\nargs=["playwright","mcp","--executable-path",${JSON.stringify(mode === 'profile-missing-chrome' ? join(root, 'absent-chrome') : env.GESTALT_PLAYWRIGHT_REAL_CHROME)}]\n` : '');
+        `default_tools_approval_mode="prompt"\nargs=["playwright","mcp","--executable-path",${JSON.stringify(mode === 'profile-missing-chrome' ? join(root, 'absent-chrome') : env.GESTALT_PLAYWRIGHT_REAL_CHROME)}]\n[mcp_servers.gestalt-playwright.tools.browser_navigate]\napproval_mode="prompt"\n` : '');
       await writeFile(join(home, 'browser.config.toml'), profileContents);
     }
     // Preseed native onboarding. The native availability marker is a launch
@@ -359,8 +367,9 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
       '[mcp_servers.fixture-user]\ncommand="/fixture-disabled-original"\nargs=[]\nenabled=false\n' +
       (bootstrap ? 'tool_timeout_sec=7.5\n' : '') +
       (bootstrap ? '[plugins."gestalt@playwright-fixture"]\nenabled=true\n' : '');
-    await writeFile(join(home, 'config.toml'), config);
-    configBaseline = config;
+    const effectiveConfig = realBrowser ? config.replace('approval_policy="on-request"','approval_policy="never"') : config;
+    await writeFile(join(home, 'config.toml'), effectiveConfig);
+    configBaseline = effectiveConfig;
     if (planMode) {
       assert.ok(process.env.GESTALT_PLAYWRIGHT_AGENTS_CORE, 'Set fixed GESTALT_PLAYWRIGHT_AGENTS_CORE to accepted real Org core source');
       corePath = await realpath(process.env.GESTALT_PLAYWRIGHT_AGENTS_CORE);
@@ -525,8 +534,10 @@ const result=await managedPlaywright(${JSON.stringify(nativeArguments)},(stage,e
       const state = join(managed, 'playwright/workspaces', createHash('sha256').update(workspace).digest('hex'));
       await assert.rejects(stat(join(state, 'lease')), { code: 'ENOENT' }, 'CLI left workspace lease owned');
       if (mode === 'profile-real-browser') {
+        assert.ok(exampleVerified,'example.com navigation was not verified');
         assert.equal((await stat(join(state, 'chrome'))).mode & 0o777, 0o700);
-        t.diagnostic(JSON.stringify({ realBrowserProcesses: observedPids.length,
+        t.diagnostic(JSON.stringify({ realBrowserProcesses: observedPids.length, approvalPolicy:'never',
+          navigation:'https://example.com', navigationSucceeded:exampleVerified,
           package: JSON.parse(packageBefore).version, chrome: (await execute(env.GESTALT_PLAYWRIGHT_REAL_CHROME, ['--version'], env, workspace)).trim(),
           screenshotSha256: createHash('sha256').update(await readFile(join(workspace, 'cli-proof.png'))).digest('hex') }));
       } else await assert.rejects(stat(join(state, 'chrome')), { code: 'ENOENT' }, 'missing Chrome created a browser profile');
@@ -534,7 +545,7 @@ const result=await managedPlaywright(${JSON.stringify(nativeArguments)},(stage,e
     }
     t.diagnostic(JSON.stringify({ catalogs, managerCalls: managerCalls.length }));
   } catch (error) {
-    t.diagnostic(JSON.stringify({ phase, catalogs, events: (await events()).slice(-12) }));
+    t.diagnostic(JSON.stringify({ phase, catalogs, fixtureErrors:fixtureErrors.slice(-3), exampleVerified, events: (await events()).slice(-12) }));
     t.diagnostic('terminal tail: ' + output.slice(-1800).replaceAll('\x1b', '<ESC>') + stderr);
     throw error;
   } finally {

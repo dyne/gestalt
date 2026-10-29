@@ -366,7 +366,16 @@ assert_log "mobile|CODEX_HOME=$CODEX_HOME|GESTALT_HOME=$GESTALT_HOME"
 grep -F "|GESTALT_MANAGER_VERSION=$manager_version|GESTALT_AGENTS_VERSION=2.1.0|GESTALT_CONTEXT_MODE_VERSION=2.1.0" "$command_log" >/dev/null
 grep -F "|GESTALT_MOBILE_BIN=$GESTALT_HOME/mobile/node_modules/.bin/gestalt-mobile|GESTALT_CONTEXT_MODE_RUNTIME=$prepared_runtime" "$command_log" >/dev/null
 grep -F "|--cwd|$test_home/workspace" "$command_log" | grep -F 'mobile|' >/dev/null
-grep -F "|PATH=$GESTALT_HOME/bin:$CODEX_HOME/bin:" "$command_log" | grep -F 'mobile|' >/dev/null
+"$real_node" - "$command_log" "$GESTALT_HOME" "$CODEX_HOME" <<'NODE'
+const fs=require('node:fs'),assert=require('node:assert/strict');
+const [log,home,codex]=process.argv.slice(2);
+const row=fs.readFileSync(log,'utf8').split('\n').filter(row=>row.startsWith('mobile|')&&row.includes('|--cwd|')).at(-1);
+const entries=row.split('|PATH=')[1].split('|')[0].split(':');
+assert.ok(entries[0].startsWith(home+'/run/codex-approval.')&&entries[0].endsWith('/bin'));
+assert.deepEqual(entries.slice(1,3),[home+'/bin',codex+'/bin']);
+assert.equal(fs.statSync(entries[0]+'/codex').mode&0o777,0o700);
+assert.ok(fs.readFileSync(entries[0]+'/codex','utf8').includes('__codex-app-server'));
+NODE
 # Installed Serena metadata is forwarded to Mobile without importing Serena.
 mkdir -p -- "$GESTALT_HOME/serena/python-runtime"
 cat > "$GESTALT_HOME/serena/python" <<'SERENA_PYTHON'

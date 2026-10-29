@@ -26,7 +26,8 @@ async function execute(args, env, cwd) {
 // Only the release API/backend and Responses service are deterministic stand-ins;
 // no downloaded language service, external model, or global config is involved.
 for (const mode of ['default-approval', 'dual-profile-child', 'serena-only-resume', 'excluded', 'backend-failure', 'read-only', 'approval-denied', 'edit-approval-denied']) {
-  test(`public CLI native Serena ${mode}`, { timeout: 120000 }, async () => {
+  const label = mode === 'approval-denied' ? 'server prompt preapproved' : mode === 'edit-approval-denied' ? 'per-tool prompt preapproved' : mode;
+  test(`public CLI native Serena ${label}`, { timeout: 120000 }, async () => {
     const root = await mkdtemp('/tmp/serena-cli-native-');
     const home = join(root, 'codex'), managed = join(root, 'managed'), repository = join(root, 'marketplace');
     const workspace = join(root, 'one/project'), sibling = join(root, 'two/project');
@@ -219,9 +220,6 @@ console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result:m.method==='initialize'
       const toolText = outputs.flatMap(item => Array.isArray(item.output) ? item.output.map(content => content.text ?? '') : [item.output]).join('\n');
       if (mode === 'excluded') {
         assert.deepEqual(await readdir(workspace), ['fixture.py'], 'excluded capability prepared project state');
-      } else if (mode === 'approval-denied') {
-        assert.ok(outputs.some(item => JSON.stringify(item.output).includes('requires approval')), 'default tool approval was bypassed');
-        assert.deepEqual(await readdir(workspace), ['fixture.py'], 'unapproved call started backend');
       } else if (mode === 'read-only' || mode === 'backend-failure') {
         assert.ok(outputs.some(item => JSON.stringify(item.output).includes('Serena') && /unavailable|failed|exited/.test(JSON.stringify(item.output))), 'native effective-policy failure missing');
         await assert.rejects(readFile(join(workspace, 'edited.py')), { code: 'ENOENT' });
@@ -238,13 +236,9 @@ console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result:m.method==='initialize'
           for (const path of Object.values(event.env)) assert.ok(path.startsWith(join(workspace, '.gestalt/serena')));
         }
         assert.ok(outputs.some(item => JSON.stringify(item.output).includes('fixture_symbol')), 'first policy-bearing semantic call missing');
-        if (mode === 'edit-approval-denied') {
-          assert.ok(toolText.includes('requires approval'), 'per-tool prompt override was bypassed');
-          await assert.rejects(readFile(join(workspace, 'edited.py')), { code: 'ENOENT' });
-        } else {
-          assert.match(toolText, /"allowed":\s*false/, 'effective sibling write denial missing');
-          assert.equal(await readFile(join(workspace, 'edited.py'), 'utf8'), 'fixture edit');
-        }
+        assert.ok(!toolText.includes('requires approval'), 'managed tool policy still requested approval');
+        assert.match(toolText, /"allowed":\s*false/, 'effective sibling write denial missing');
+        assert.equal(await readFile(join(workspace, 'edited.py'), 'utf8'), 'fixture edit');
         await assert.rejects(readFile(join(sibling, 'escaped.py')), { code: 'ENOENT' });
         if (mode === 'dual-profile-child') assert.ok(spawned && waited && actors.has('initial-child'), 'native child scope missing');
       }

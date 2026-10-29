@@ -4,6 +4,7 @@ set -Eeuo pipefail
 repo_root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 
 node --test "$repo_root/tests/tool-approvals.test.mjs"
+node --test "$repo_root/tests/managed-mcp-approvals.test.mjs"
 node --test "$repo_root/tests/supervision-capabilities.test.mjs"
 node --test "$repo_root/tests/setup-contract.test.mjs"
 node --test "$repo_root/tests/packaged-supervision.test.mjs"

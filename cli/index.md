@@ -68,7 +68,7 @@ For native Codex profile-v2, create `~/.codex-gestalt/browser.config.toml`
 ```toml
 [mcp_servers.gestalt-playwright]
 enabled = true
-default_tools_approval_mode = "prompt"
+default_tools_approval_mode = "approve"
 ```
 
 Then select it with `gestalt cli -p browser -C /absolute/project`. This named
@@ -78,6 +78,36 @@ No selected profile, an absent enabled setting, legacy profile syntax, or an
 effective explicit `enabled = false` leaves managed browser access off. Native
 project/session override precedence remains in effect. Missing skills, package,
 Chrome or supported runtime interfaces leave the capability unavailable.
+
+Gestalt preapproves tools from its managed MCP servers: XERJ, Serena, Playwright,
+and its own context-mode launcher/plugin. The effective server default is
+`default_tools_approval_mode = "approve"`. Existing per-tool approval overrides
+on those servers are normalized to `approve` too, so an old `prompt` entry
+cannot defeat that default. Keep `approval_policy = "never"`: preapproval does
+not require interactive requests. Server enablement, tool allow/deny lists,
+per-tool `enabled = false`, profile consent, native permissions and shell/browser
+sandboxes are preserved. Unrelated MCP transports, plugins and app settings are
+not changed. A third-party transport using a reserved server name is not trusted.
+
+This is applied to the effective runtime configuration, not just `config.toml`.
+The interactive launcher injects it into fresh/resumed sessions and into the
+dedicated runtime recreated at a browser activation boundary. `gestalt mobile`
+provides a private Codex launcher that normalizes native `config/read` results
+and the final `thread/start`, `thread/resume` and `thread/fork` MCP overrides,
+including tables generated dynamically by Mobile. Other native commands and
+approval/elicitation messages pass through unchanged. The launcher never changes
+`approvalPolicy`, `permissions`, `sandbox`, or browser enablement.
+
+After updating the manager, restart `gestalt mobile` to load the launcher, or
+restart `gestalt cli -p browser` and resume the conversation. Already-running
+Codex processes retain their old tool policy; resuming a thread already loaded
+in that same process does not replace its MCP configuration. The existing
+owned-runtime activation/recreation boundary applies the new configuration while
+retaining the persisted thread. Existing shell/browser state is not deleted, and
+browser-off profiles remain off. Launchers under `$GESTALT_HOME/run/codex-approval.*`
+are small private executable records; retain them while their Mobile process is
+running. Directly invoking a separately installed Mobile executable bypasses this
+manager launch policy; start it with `gestalt mobile`.
 
 Opt-in permits access; it does not launch Chrome. In an opted-in interactive
 session the root supervisor uses the fixed `gestalt_managed_playwright` tool:

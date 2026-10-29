@@ -23,6 +23,7 @@ update_restart_lock=''
 skills_transfer_temp_root=''
 skills_export_staged_target=''
 doctor_sandbox_report=''
+codex_approval_launcher=''
 
 log() {
   printf 'gestalt: %s\n' "$*" >&2
@@ -3269,45 +3270,46 @@ if (!bundle) throw new Error('Bundled TOML parser missing');
 const { parse, stringify } = runInNewContext(bundle[1] + '\ngestaltProfileToml');
 const source = readFileSync(configPath, 'utf8');
 const config = parse(source);
-if (config.approval_policy !== 'never') process.exit(0);
-const additions = [];
-const approve = (server, path) => {
-  if (server.default_tools_approval_mode !== undefined) return;
-  server.default_tools_approval_mode = 'approve';
-  additions.push(path);
+const policy = readFileSync(managerPath, 'utf8').match(/^\/\/ BEGIN MANAGED MCP APPROVAL POLICY\n([\s\S]*?)^\/\/ END MANAGED MCP APPROVAL POLICY/m);
+if (!policy) throw new Error('Managed MCP approval policy missing');
+const { managedMcpApprovals } = runInNewContext(policy[1] + '\n({managedMcpApprovals})');
+const expected = managedMcpApprovals(config, {manager:managerPath,codexHome:configPath.slice(0,-'/config.toml'.length)});
+const changes = [];
+const changed = (before, after, path = []) => {
+  for (const [key, value] of Object.entries(after ?? {})) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) changed(before?.[key], value, [...path,key]);
+    else if (before?.[key] !== value && ['default_tools_approval_mode','approval_mode'].includes(key)) changes.push([...path,key]);
+  }
 };
-config.apps ??= {};
-config.apps._default ??= {};
-approve(config.apps._default, ['apps', '_default']);
-for (const [name, server] of Object.entries(config.mcp_servers ?? {})) approve(server, ['mcp_servers', name]);
-for (const [name, plugin] of Object.entries(config.plugins ?? {}))
-  for (const [serverName, server] of Object.entries(plugin.mcp_servers ?? {}))
-    approve(server, ['plugins', name, 'mcp_servers', serverName]);
-if (!additions.length) process.exit(0);
+changed(config, expected);
+if (!changes.length) process.exit(0);
 // Insert into ordinary tables without discarding comments or formatting.
 // Inline and dotted table definitions fall back to semantic serialization.
 let output = source;
-for (const path of additions) {
+for (const fullPath of changes) {
+  const path = fullPath.slice(0,-1), key = fullPath.at(-1);
   const header = '[' + path.map(key => JSON.stringify(key)).join('.') + ']';
   let inserted = false;
-  output = output.replace(/^\s*\[[^\n]+\]\s*(?:#[^\n]*)?$/gm, line => {
-    if (inserted || line.trimStart().startsWith('[[')) return line;
+  output = output.split(/(?=^[ \t]*\[)/m).map(section => {
+    const line = section.split('\n')[0];
+    if (inserted || line.trimStart().startsWith('[[')) return section;
     try {
       let table = parse(line + '\n__gestalt_marker = true');
       for (const key of path) table = table?.[key];
-      if (table?.__gestalt_marker !== true) return line;
+      if (table?.__gestalt_marker !== true) return section;
       inserted = true;
-      return line + '\ndefault_tools_approval_mode = "approve"';
-    } catch { return line; }
-  });
-  if (!inserted) output += '\n' + header + '\ndefault_tools_approval_mode = "approve"\n';
+      const assignment = new RegExp('^[ \\t]*'+key+'[ \\t]*=[^\\n]*','m');
+      return assignment.test(section) ? section.replace(assignment, key+' = "approve"') : line+'\n'+key+' = "approve"'+section.slice(line.length);
+    } catch { return section; }
+  }).join('');
+  if (!inserted) output += '\n' + header + '\n'+key+' = "approve"\n';
 }
 const canonical = value => JSON.stringify(value, (_key, item) =>
   item && typeof item === 'object' && !Array.isArray(item)
     ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
 try {
-  if (canonical(parse(output)) !== canonical(config)) output = stringify(config);
-} catch { output = stringify(config); }
+  if (canonical(parse(output)) !== canonical(expected)) output = stringify(expected);
+} catch { output = stringify(expected); }
 const temporary = `${configPath}.tmp-${process.pid}`;
 writeFileSync(temporary, output, { mode: 0o600 });
 chmodSync(temporary, statSync(configPath).mode & 0o777);
@@ -3688,6 +3690,64 @@ import { createInterface } from 'node:readline';
 import { readFile, realpath, access } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { resolve } from 'node:path';
+
+// BEGIN MANAGED MCP APPROVAL POLICY
+function managedToolApproval(server) {
+  return {...server, default_tools_approval_mode:'approve', ...(server.tools ? {tools:Object.fromEntries(
+    Object.entries(server.tools).map(([name, tool]) => [name, tool && typeof tool === 'object' &&
+      Object.hasOwn(tool,'approval_mode') ? {...tool,approval_mode:'approve'} : tool]))} : {})};
+}
+function isGestaltManagedMcp(name, server, owner) {
+  if (!server || typeof server !== 'object' || server.url) return false;
+  const components = {'gestalt-xerj':'xerj','gestalt-serena':'serena','gestalt-playwright':'playwright'};
+  if (Object.hasOwn(components,name)) return (!server.command && !server.args) ||
+    ([owner.manager,'gestalt'].includes(server.command) && server.args?.[0] === components[name] && server.args?.[1] === 'mcp');
+  return name === 'context-mode' && String(server.command).split('/').at(-1) === 'node' &&
+    server.args?.includes(owner.codexHome+'/bin/context-mode-mcp.mjs');
+}
+function managedMcpApprovals(config, owner) {
+  const result = {...config};
+  if (config.mcp_servers) result.mcp_servers = Object.fromEntries(Object.entries(config.mcp_servers)
+    .map(([name,server]) => [name,isGestaltManagedMcp(name,server,owner) ? managedToolApproval(server) : server]));
+  if (config.plugins) result.plugins = Object.fromEntries(Object.entries(config.plugins).map(([name,plugin]) =>
+    [name,name === 'context-mode@dyne-gestalt-agents' && plugin?.mcp_servers ? {...plugin,mcp_servers:Object.fromEntries(
+      Object.entries(plugin.mcp_servers).map(([serverName,server]) => [serverName,serverName === 'context-mode' ? managedToolApproval(server) : server]))} : plugin]));
+  return result;
+}
+function managedMcpOverrides(config, baseline, owner) {
+  const object = value => value && typeof value === 'object' && !Array.isArray(value);
+  const omitAbsent = value => Array.isArray(value) ? value.map(omitAbsent) : object(value) ?
+    Object.fromEntries(Object.entries(value).filter(([,v]) => v !== null).map(([k,v]) => [k,omitAbsent(v)])) : value;
+  const merge = (base, options) => {
+    const result = {...base};
+    if (Object.hasOwn(options,'url') && !Object.hasOwn(options,'command'))
+      for (const key of ['command','args','cwd','env','env_vars']) delete result[key];
+    if (Object.hasOwn(options,'command') && !Object.hasOwn(options,'url')) delete result.url;
+    for (const [key,value] of Object.entries(options)) Object.defineProperty(result,key,{value:
+      object(value) ? merge(object(result[key]) ? result[key] : {},value) : value,enumerable:true,configurable:true,writable:true});
+    return result;
+  };
+  // Preserve effective native transports and enablement. Absent inherited nulls
+  // cannot be round-tripped through Codex's JSON-to-TOML config overrides.
+  const result = {...config};
+  for (const section of ['mcp_servers','plugins']) {
+    let effective = merge(omitAbsent(baseline?.[section] ?? {}),config?.[section] ?? {});
+    for (const key of Object.keys(result).filter(key => key.startsWith(section+'.')).sort()) {
+      let value = result[key];
+      for (const part of key.slice(section.length+1).split('.').reverse()) value = {[part]:value};
+      effective = merge(effective,value);
+    }
+    const approved = managedMcpApprovals({[section]:effective},owner)[section];
+    // Do not serialize unrelated inherited settings/credentials into overrides.
+    const changed = Object.fromEntries(Object.entries(approved).filter(([name,server]) =>
+      JSON.stringify(server) !== JSON.stringify(effective[name])));
+    for (const name of Object.keys(changed)) for (const key of Object.keys(result))
+      if (key === section+'.'+name || key.startsWith(section+'.'+name+'.')) delete result[key];
+    if (Object.keys(changed).length || config?.[section]) result[section] = merge(config?.[section] ?? {},changed);
+  }
+  return result;
+}
+// END MANAGED MCP APPROVAL POLICY
 
 // BEGIN BUNDLED PROFILE TOML PARSER
 /* smol-toml 1.9.0 (BSD-3-Clause)
@@ -4159,7 +4219,7 @@ async function managedPlaywright(launchArgs, reportDiagnostic = () => {}, checkC
   };
   const omitNativeAbsent = value => Array.isArray(value) ? value.map(omitNativeAbsent) : value && typeof value === 'object'
     ? Object.fromEntries(Object.entries(value).filter(([, item]) => item !== null).map(([key, item]) => [key, omitNativeAbsent(item)])) : value;
-  const serverConfig = enabled => ({ ...omitNativeAbsent(playwrightConfig), command: manager,
+  const serverConfig = enabled => managedToolApproval({ ...omitNativeAbsent(playwrightConfig), command: manager,
     args: ['playwright', 'mcp', '--cwd', workspace, ...launcherOptions], cwd: workspace,
     env_vars: ['GESTALT_HOME'], enabled, required: false, startup_readiness: 'connection', startup_timeout_ms: budget });
   const overlay = (config, enabled = desired) => {
@@ -4202,9 +4262,9 @@ async function managedPlaywright(launchArgs, reportDiagnostic = () => {}, checkC
       nullFields: Object.entries(server ?? {}).filter(([, value]) => value === null).map(([key]) => key),
     })) });
     // Emit one coherent table: no competing whole-table/dotted MCP overrides.
-    return { ...options, mcp_servers: servers,
+    return managedMcpApprovals({ ...options, mcp_servers: servers,
       'skills.config': [...(config['skills.config'] ?? config.skills?.config ?? state.config?.skills?.config ?? []),
-        { name: 'gestalt:playwright', enabled: enabled && connected }] };
+        { name: 'gestalt:playwright', enabled: enabled && connected }] },{manager,codexHome:environment.CODEX_HOME});
   };
   const refreshPlan = () => {
     if (!activePlan) return;
@@ -4474,10 +4534,9 @@ if (common && serenaSkill && serenaSkill.enabled !== false && serenaRules.at(-1)
       throw new Error('invalid-installation');
     for (const executable of [install.executable, install.python, install.uv]) await access(executable, constants.X_OK);
     capabilities[1].valid = true;
-    capabilities[1].config = { ...serenaReserved, ...capabilities[1].config,
-      ...(state.config?.approval_policy === 'never' && serenaReserved?.default_tools_approval_mode === undefined
-        ? { default_tools_approval_mode: 'approve' } : {}), cwd, env_vars: ['CODEX_HOME', 'GESTALT_HOME'],
-      enabled: true, required: true, startup_readiness: 'connection', startup_timeout_ms: budget };
+    capabilities[1].config = managedToolApproval({ ...serenaReserved, ...capabilities[1].config,
+      cwd, env_vars: ['CODEX_HOME', 'GESTALT_HOME'],
+      enabled: true, required: true, startup_readiness: 'connection', startup_timeout_ms: budget });
     capabilities[1].context = '<gestalt_serena_capability>\nSerena is connected to this workspace through a confined, policy-bearing native proxy. '
       + 'A listed catalog does not prove language readiness: first call get_symbols_overview on a current project source file '
       + 'and verify success before relying on semantics or editing. On failure use native code tools. '
@@ -4510,6 +4569,19 @@ if (interrupted) process.exit(interruptionCode);
 if (capabilities[1].valid) readinessDeadline = Math.max(readinessDeadline, Date.now() + budget);
 const compose = () => {
   hookCommands.clear();
+  const approved = managedMcpApprovals(state?.config ?? {},{manager,codexHome:environment.CODEX_HOME});
+  const approvalFlags = [];
+  for (const [name,server] of Object.entries(approved.mcp_servers ?? {})) if (isGestaltManagedMcp(name,server,{manager,codexHome:environment.CODEX_HOME})) {
+    approvalFlags.push(`mcp_servers.${name}.default_tools_approval_mode="approve"`);
+    for (const [tool,options] of Object.entries(server.tools ?? {})) if (options?.approval_mode === 'approve')
+      approvalFlags.push(`mcp_servers.${name}.tools.${tool}.approval_mode="approve"`);
+  }
+  for (const [name,plugin] of Object.entries(approved.plugins ?? {})) if (name === 'context-mode@dyne-gestalt-agents')
+    for (const [server,options] of Object.entries(plugin.mcp_servers ?? {})) if (server === 'context-mode') {
+      approvalFlags.push(`plugins.${name}.mcp_servers.${server}.default_tools_approval_mode="approve"`);
+      for (const [tool,setting] of Object.entries(options.tools ?? {})) if (setting?.approval_mode === 'approve')
+        approvalFlags.push(`plugins.${name}.mcp_servers.${server}.tools.${tool}.approval_mode="approve"`);
+    }
   const selectors = [...capabilities.flatMap(cap => cap.valid ? [{ name: cap.skillName, enabled: true }] :
     [...(cap.skill ? [{ path: cap.skill.path, enabled: false }] : []), { name: cap.skillName, enabled: false }]),
     { name: 'gestalt:playwright', enabled: false }];
@@ -4517,10 +4589,13 @@ const compose = () => {
     rawSkillConfig?.startsWith('[') && rawSkillConfig.endsWith(']')
       ? `${rawSkillConfig.slice(0, -1).replace(/,\s*$/, '')}${rawSkillConfig.slice(1, -1).trim() ? ',' : ''}${toml(selectors).slice(1, -1)}]`
       : toml(selectors);
-  return [...aliases, ...capabilities.map(cap => `mcp_servers.${cap.name}=${toml(cap.valid ? cap.config :
+  const browserOff = { ...playwrightConfig, command: playwrightConfig?.command ?? manager,
+    args: playwrightConfig?.args ?? ['playwright', 'mcp', '--cwd', cwd], enabled:false, required:false };
+  const browserPolicy = isGestaltManagedMcp(playwrightName,browserOff,{manager,codexHome:environment.CODEX_HOME})
+    ? managedToolApproval(browserOff) : browserOff;
+  return [...approvalFlags, ...aliases, ...capabilities.map(cap => `mcp_servers.${cap.name}=${toml(cap.valid ? managedToolApproval(cap.config) :
     { command: manager, args: cap.config.args, enabled: false, required: false })}`), `skills.config=${deniedSelectors}`,
-    `mcp_servers.${playwrightName}=${toml({ ...playwrightConfig, command: playwrightConfig?.command ?? manager,
-      args: playwrightConfig?.args ?? ['playwright', 'mcp', '--cwd', cwd], enabled: false, required: false })}`,
+    `mcp_servers.${playwrightName}=${toml(browserPolicy)}`,
     ...(state ? sessionHook(capabilities.map(cap => cap.valid ? cap.context : cap.inactiveContext).join('\n')) : [])];
 };
 async function selection() {
@@ -4574,6 +4649,89 @@ command_cli() {
 }
 
 
+prepare_codex_approval_launcher() {
+  local native_codex native_path='' entry launcher_root
+  local -a entries=()
+  IFS=: read -r -a entries <<< "$PATH"
+  for entry in "${entries[@]}"; do
+    # A live update may inherit an older launcher's PATH. Never wrap a wrapper.
+    [[ $entry == "$gestalt_home"/run/codex-approval.*/bin ]] && continue
+    native_path+=${native_path:+:}${entry:-.}
+  done
+  native_codex=$(PATH="$native_path" command -v codex) || die 'native Codex executable is missing'
+  [[ $native_codex == /* && -x $native_codex ]] || die 'native Codex executable must have an absolute path'
+  mkdir -p -- "$gestalt_home/run"
+  launcher_root=$(mktemp -d "$gestalt_home/run/codex-approval.XXXXXXXX")
+  codex_approval_launcher=$launcher_root/bin
+  mkdir -m 700 -- "$codex_approval_launcher"
+  # Variables in the generated launcher expand when that launcher runs.
+  # shellcheck disable=SC2016
+  printf '#!/usr/bin/env bash\nif [[ ${1:-} == app-server ]]; then\n  shift\n  exec %q __codex-app-server %q "$@"\nfi\nexec %q "$@"\n' \
+    "$manager_target" "$native_codex" "$native_codex" > "$codex_approval_launcher/codex"
+  chmod 0700 "$codex_approval_launcher/codex"
+}
+
+# Mobile supplies dynamic MCP tables directly to Codex. Normalize at the final
+# host launch boundary, after those tables are composed, not just in config.toml.
+command_codex_app_server() {
+  local native_codex=${1:-}
+  [[ $native_codex == /* && -x $native_codex ]] || die 'native Codex executable is missing'
+  shift
+  exec node --input-type=module - "${BASH_SOURCE[0]}" "$native_codex" "$@" 3<&0 <<'NODE'
+import {readFileSync} from 'node:fs';
+import {runInNewContext} from 'node:vm';
+import {spawn} from 'node:child_process';
+import {createReadStream} from 'node:fs';
+import {createInterface} from 'node:readline';
+import {randomUUID} from 'node:crypto';
+const [manager,native,...args] = process.argv.slice(2);
+const policy = readFileSync(manager,'utf8').match(/^\/\/ BEGIN MANAGED MCP APPROVAL POLICY\n([\s\S]*?)^\/\/ END MANAGED MCP APPROVAL POLICY/m);
+if (!policy) throw new Error('Managed MCP approval policy missing');
+const {managedMcpApprovals,managedMcpOverrides} = runInNewContext(policy[1]+'\n({managedMcpApprovals,managedMcpOverrides})');
+const owner = {manager:process.env.GESTALT_MANAGER_BIN ?? manager,codexHome:process.env.CODEX_HOME};
+const child = spawn(native,['app-server',...args],{stdio:['pipe','pipe','inherit'],detached:true});
+const pending = new Map(),reads = new Set(),prefix = 'gestalt-approvals-'+randomUUID()+'-';
+let sequence = 0,closing = false;
+const write = message => child.stdin.write(JSON.stringify(message)+'\n');
+const send = message => process.stdout.write(JSON.stringify(message)+'\n');
+const request = params => new Promise((resolve,reject) => {
+  const id = prefix+(++sequence),timer = setTimeout(()=>{pending.delete(id);reject(Error('config-timeout'));},5000);
+  pending.set(id,{resolve:value=>{clearTimeout(timer);resolve(value);},reject:error=>{clearTimeout(timer);reject(error);}});
+  write({id,method:'config/read',params});
+});
+const output = createInterface({input:child.stdout});
+output.on('line',line=>{
+  let message;try {message=JSON.parse(line);}catch {return stop(1);}
+  const waiter=pending.get(message.id);
+  if(waiter){pending.delete(message.id);message.error?waiter.reject(Error('config-unavailable')):waiter.resolve(message.result);return;}
+  if((message.result || message.error) && reads.delete(message.id) && message.result?.config)
+    message.result={...message.result,config:managedMcpApprovals(message.result.config,owner)};
+  send(message);
+});
+const input = createInterface({input:createReadStream(null,{fd:3})});
+input.on('line',async line=>{
+  let message;try {message=JSON.parse(line);}catch {return stop(1);}
+  try {
+    if(['thread/start','thread/resume','thread/fork'].includes(message.method)) {
+      const baseline=await request({includeLayers:false,...(message.params?.cwd?{cwd:message.params.cwd}:{})});
+      message.params={...message.params,config:managedMcpOverrides(message.params?.config??{},baseline.config??{},owner)};
+    }
+    if(message.method==='config/read' && message.id!==undefined)reads.add(message.id);
+    write(message);
+  }catch {
+    if(message.id!==undefined)send({id:message.id,error:{code:-32603,message:'Could not prepare managed MCP approval policy'}});
+  }
+});
+function signal(name){if(child.pid)try{process.kill(-child.pid,name);}catch(error){if(error.code!=='ESRCH')throw error;}}
+function stop(code=0){if(closing)return;closing=true;input.close();child.stdin.end();signal('SIGTERM');
+  const timer=setTimeout(()=>signal('SIGKILL'),2000);child.once('close',()=>{clearTimeout(timer);process.exit(code);});}
+input.on('close',()=>stop());child.stdin.on('error',()=>stop(1));
+child.on('error',()=>process.exit(1));
+child.on('close',code=>{for(const waiter of pending.values())waiter.reject(Error('runtime-exited'));if(!closing)process.exit(code??1);});
+process.on('SIGTERM',()=>stop(143));process.on('SIGINT',()=>stop(130));
+NODE
+}
+
 command_mobile() {
   local mobile_restart_dir mobile_restart_state mobile_restart_staged restart_cwd
   local context_mode_runtime context_mode_plugin_root gestalt_plugin_root
@@ -4620,6 +4778,7 @@ command_mobile() {
   mv -f -- "$mobile_restart_staged" "$mobile_restart_state"
   resolve_manager_target
   log "starting Gestalt Mobile from $mobile_root"
+  prepare_codex_approval_launcher
   exec env CODEX_HOME="$codex_home" GESTALT_HOME="$gestalt_home" \
     GESTALT_MANAGER_BIN="$manager_target" \
     GESTALT_MANAGER_VERSION="$GESTALT_CLI_VERSION" \
@@ -4636,7 +4795,7 @@ command_mobile() {
     GESTALT_MOBILE_PID="$$" \
     GESTALT_MOBILE_RESTART_STATE="$mobile_restart_state" \
     GESTALT_STARTUP_DIAGNOSTICS_DONE=1 \
-    PATH="$gestalt_home/bin:$codex_home/bin:$PATH" \
+    PATH="$codex_approval_launcher:$gestalt_home/bin:$codex_home/bin:$PATH" \
     "$mobile_bin" "${forwarded_args[@]}"
 }
 
@@ -5220,6 +5379,7 @@ main() {
     update) command_update "$@" ;;
     update-restart) command_update_restart "$@" ;;
     __update-restart-worker) command_update_restart_worker "$@" ;;
+    __codex-app-server) command_codex_app_server "$@" ;;
     cli) command_cli "$@" ;;
     mobile) command_mobile "$@" ;;
     xerj) command_xerj "$@" ;;

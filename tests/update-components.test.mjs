@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
+import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 
 const exec = promisify(execFile);
@@ -57,8 +58,74 @@ main "$@"
   const run = (args, extra = {}) => exec('bash', [manager, ...args], {
     env: { ...env, ...extra }, timeout: 15_000,
   });
-  return { root, home, log, env, run, operations };
+  return { root, home, log, manager, env, run, operations };
 }
+
+async function reloadFixture(t, current = false) {
+  const f = await fixture(t);
+  const release = join(f.root, 'release');
+  await mkdir(release);
+  const render = revision => source.replace(/\nmain "\$@"\s*$/, `
+record_update() {
+  printf '%s\\n' "${revision}:$1" >> "$GESTALT_TEST_UPDATE_LOG"
+  [[ \${GESTALT_TEST_UPDATE_FAIL:-} != "$1" ]] || return 42
+}
+curl() {
+  printf 'download\\n' >> "$GESTALT_TEST_UPDATE_LOG"
+  command curl "$@"
+}
+run_marketplace_setup() { record_update "agents:$1:$2"; }
+install_mobile() { record_update mobile; }
+command_serena() { record_update serena; }
+command_xerj() { record_update xerj; }
+command_mobile() { record_update "restart:$1:$2:$3"; }
+main "$@"
+`);
+  const replacement = render('new');
+  await writeFile(f.manager, current ? replacement : render('old'), { mode: 0o755 });
+  await writeFile(join(release, 'gestalt'), replacement);
+  f.env.GESTALT_INSTALL_BASE_URL = pathToFileURL(release).href;
+  f.env.TMPDIR = f.root;
+  return { ...f, replacement, release };
+}
+
+for (const [args, extra, optional] of [
+  [['update'], false, true],
+  [['update', '--extra-skills'], true, true],
+  [['update', 'gestalt'], false, false],
+  [['update', '--component', 'gestalt', '--extra-skills'], true, false],
+]) test(`${args.join(' ')} resumes component updates in the replacement manager exactly once`, async t => {
+  const f = await reloadFixture(t);
+  await f.run(args);
+  assert.deepEqual(await f.operations(), [
+    'download', `new:agents:upgrade:${extra}`, 'new:mobile',
+    ...(optional ? ['new:serena', 'new:xerj'] : []),
+  ]);
+  assert.equal(await readFile(f.manager, 'utf8'), f.replacement);
+  assert.deepEqual((await readdir(f.root)).filter(name => name.startsWith('gestalt-update.')), []);
+});
+
+test('an unchanged manager completes the update with one download', async t => {
+  const f = await reloadFixture(t, true);
+  const { stderr } = await f.run(['update', 'gestalt']);
+  assert.match(stderr, /manager is already current/);
+  assert.deepEqual(await f.operations(), ['download', 'new:agents:upgrade:false', 'new:mobile']);
+});
+
+test('a replacement manager failure propagates without continuing old component code', async t => {
+  const f = await reloadFixture(t);
+  await assert.rejects(f.run(['update'], { GESTALT_TEST_UPDATE_FAIL: 'mobile' }), { code: 42 });
+  assert.deepEqual(await f.operations(), ['download', 'new:agents:upgrade:false', 'new:mobile']);
+});
+
+test('an invalid replacement leaves the installed manager intact and runs no components', async t => {
+  const f = await reloadFixture(t);
+  const before = await readFile(f.manager, 'utf8');
+  await writeFile(join(f.release, 'gestalt'), '<!DOCTYPE html>');
+  await assert.rejects(f.run(['update', 'gestalt']));
+  assert.equal(await readFile(f.manager, 'utf8'), before);
+  assert.deepEqual(await f.operations(), ['download']);
+});
 
 test('update help lists component groups without invoking any installer', async t => {
   const f = await fixture(t, false);
@@ -129,6 +196,35 @@ async function until(predicate) {
   }
   assert.fail('detached update worker did not settle within its deadline');
 }
+
+for (const fail of [false, true]) test(`reloaded detached update worker ${fail ? 'preserves the relay on failure' : 'restarts with new code and releases its lock'}`, async t => {
+  const f = await reloadFixture(t);
+  const relay = spawn('sleep', ['30']);
+  const stopped = new Promise(resolve => relay.once('exit', resolve));
+  t.after(async () => { relay.kill(); await stopped; });
+  const state = join(f.home, `run/mobile-${relay.pid}.restart`);
+  const descriptor = [f.root, '--port', '4321', ''].join('\0');
+  await writeFile(state, descriptor);
+  await f.run(['update-restart', 'gestalt', '--extra-skills'], {
+    GESTALT_MOBILE_PID: String(relay.pid), GESTALT_MOBILE_RESTART_STATE: state,
+    GESTALT_TEST_UPDATE_FAIL: fail ? 'mobile' : '',
+  });
+  if (!fail) {
+    await until(async () => (await f.operations()).includes('new:restart:--:--port:4321'));
+    await stopped;
+  }
+  await until(() => readFile(join(f.home, 'run/update-restart.lock')).then(() => false,
+    error => error.code === 'ENOENT'));
+  assert.deepEqual(await f.operations(), [
+    'download', 'new:agents:upgrade:true', 'new:mobile',
+    ...(fail ? [] : ['new:restart:--:--port:4321']),
+  ]);
+  if (fail) {
+    assert.equal(relay.exitCode, null);
+    assert.equal(relay.signalCode, null);
+    assert.equal(await readFile(state, 'utf8'), descriptor);
+  } else await assert.rejects(readFile(state), { code: 'ENOENT' });
+});
 
 for (const scenario of ['all', 'xerj', 'all-with-symlink']) {
   const component = scenario === 'xerj' ? 'xerj' : 'all';

@@ -570,6 +570,12 @@ validate_xerj_arguments() {
   while (($# > 0)); do
     option=$1
     shift
+    if "$index_status"; then
+      case $option in
+        --cwd | --cwd=* | --prefix | --url | --api-key | --help | -h | --json | --md | --quiet | --disable-feedback) ;;
+        *) die "unsupported managed xerj autoindex status option: $option" ;;
+      esac
+    fi
     if [[ $mode == autoindex && ( $option == --cwd || $option == --cwd=* ) ]]; then
       [[ -z $index_source ]] || die 'xerj autoindex accepts either --cwd or one positional source, not both'
       if [[ $option == --cwd ]]; then
@@ -582,7 +588,7 @@ validate_xerj_arguments() {
       [[ -n $value && $value != -* && -d $value ]] || die 'xerj --cwd requires an existing directory'
       index_source=$(CDPATH='' cd -- "$value" && pwd -P)
       index_cwd=true
-      xerj_user_args+=("$index_source")
+      if ! "$index_status"; then xerj_user_args+=("$index_source"); fi
       continue
     fi
     xerj_user_args+=("$option")
@@ -2623,7 +2629,7 @@ command_xerj() {
     return
   fi
   local mode=server variable escaped_config xerj_url xerj_api_key xerj_auth xerj_port
-  local index_source='' index_prefix='' index_cwd=false autoindex_state
+  local index_source='' index_prefix='' index_cwd=false index_status=false autoindex_state
   local -a forwarded=() xerj_launcher=()
   local -a xerj_user_args=()
   case ${1:-} in
@@ -2631,6 +2637,10 @@ command_xerj() {
     '' | -*) ;;
     *) die "xerj command '$1' is not managed; init, brain/share, corpus/code, feedback, service, update and export can write outside managed state" ;;
   esac
+  if [[ $mode == autoindex && ${1:-} == status ]]; then
+    index_status=true
+    shift
+  fi
   xerj_url=${XERJ_URL:-}
   if [[ -z $xerj_url && -f $xerj_data/.lifecycle/endpoint.json ]]; then
     require_command node
@@ -2641,6 +2651,10 @@ command_xerj() {
   xerj_port=$validated_xerj_port
   if [[ -n ${XERJ_BIND_ADDRESS:-} ]]; then validate_xerj_bind "$XERJ_BIND_ADDRESS"; fi
   validate_xerj_arguments "$mode" "$@"
+  if "$index_status"; then
+    index_source=${index_source:-$(pwd -P)}
+    xerj_user_args=(status "${xerj_user_args[@]}")
+  fi
   autoindex_state=$xerj_data/autoindex
   if [[ $mode == autoindex && -n $index_source && $index_source != map && $index_source != status ]]; then
     if [[ -z $index_prefix ]]; then
@@ -2650,6 +2664,15 @@ command_xerj() {
     fi
     [[ $index_prefix =~ ^[a-z0-9][a-z0-9_-]{0,79}$ ]] || die 'xerj index prefix must be a lowercase index name (maximum 80 characters)'
     autoindex_state=$autoindex_state/$index_prefix
+  fi
+  if "$index_status"; then
+    # The native status reader needs the same destination as the watcher.
+    # It otherwise uses its own default port, even with XERJ_URL set.
+    local status_url=false status_argument
+    for status_argument in "${xerj_user_args[@]}"; do
+      if [[ $status_argument == --url ]]; then status_url=true; fi
+    done
+    if ! "$status_url"; then xerj_user_args+=(--url "$xerj_url"); fi
   fi
   for variable in XERJ_CONFIG XERJ_INGEST_MEMORY_OUTPUT XERJ_DEBUG_PROFILE_DIR XERJ_PDF_WORKER_BIN XERJ_NEURAL_LOCAL_DIR XERJ_DECIDE_MODEL_DIR XERJ_ONNX_MODEL XERJ_ONNX_TOKENIZER XERJ_CODE_HOME; do
     [[ -z ${!variable:-} ]] || die "unset $variable before running managed xerj; inherited path overrides are not accepted"
@@ -2672,14 +2695,16 @@ command_xerj() {
   umask 077
   trap 'exit 130' INT
   trap 'exit 143' TERM
-  mkdir -p -- "$xerj_data/tmp" "$xerj_data/cache" "$xerj_data/config" "$xerj_data/share"
-  escaped_config=${xerj_data//\\/\\\\}
-  escaped_config=${escaped_config//\"/\\\"}
-  xerj_config_scratch=$(mktemp "$xerj_data/.config.XXXXXXXX")
-  printf '[embedding]\nmodel_cache_dir = "%s/cache/huggingface"\n[tls]\ncert_path = "%s/xerj.crt"\nkey_path = "%s/xerj.key"\n' \
-    "$escaped_config" "$escaped_config" "$escaped_config" > "$xerj_config_scratch"
-  mv -f -- "$xerj_config_scratch" "$xerj_data/managed.toml"
-  xerj_config_scratch=''
+  if ! "$index_status"; then
+    mkdir -p -- "$xerj_data/tmp" "$xerj_data/cache" "$xerj_data/config" "$xerj_data/share"
+    escaped_config=${xerj_data//\\/\\\\}
+    escaped_config=${escaped_config//\"/\\\"}
+    xerj_config_scratch=$(mktemp "$xerj_data/.config.XXXXXXXX")
+    printf '[embedding]\nmodel_cache_dir = "%s/cache/huggingface"\n[tls]\ncert_path = "%s/xerj.crt"\nkey_path = "%s/xerj.key"\n' \
+      "$escaped_config" "$escaped_config" "$escaped_config" > "$xerj_config_scratch"
+    mv -f -- "$xerj_config_scratch" "$xerj_data/managed.toml"
+    xerj_config_scratch=''
+  fi
   case $mode in
     server) forwarded=(--config "$xerj_data/managed.toml" --data-dir "$xerj_data" --bind "${XERJ_BIND_ADDRESS:-127.0.0.1}") ;;
     index) forwarded=(index --config "$xerj_data/managed.toml" --data-dir "$xerj_data") ;;

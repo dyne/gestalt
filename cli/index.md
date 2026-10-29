@@ -45,12 +45,22 @@ by hand can create a second, incorrectly launched MCP server.
 
 ## Optional managed browser
 
-Install the package explicitly and provide an existing Chrome installation:
+Install the package explicitly:
 
 ```sh
 gestalt playwright install
 gestalt playwright doctor --json
 ```
+
+On Debian and Debian-derived Linux systems with `amd64` packages, `install` also
+installs Google Chrome system-wide if no Chrome or Chromium executable is found.
+It downloads Google's stable `.deb` into a private temporary directory, runs
+`sudo apt-get install -y` (or `apt-get` directly as root), verifies the binary with
+`--version`, and removes the download. Sudo may prompt for your password. An
+existing browser is left in place. Repeating `install` retries missing Chrome
+without reinstalling an already validated MCP package. Other operating systems
+and architectures require a separately installed browser. `update`, `doctor`,
+MCP startup and browser sessions never install Chrome.
 
 For native Codex profile-v2, create `~/.codex-gestalt/browser.config.toml`
 (or `$CODEX_HOME/browser.config.toml` when using another Gestalt Codex home):

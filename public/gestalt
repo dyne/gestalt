@@ -18,6 +18,7 @@ xerj_install_scratch=''
 xerj_config_scratch=''
 manager_update_temp_root=''
 manager_update_staged_target=''
+manager_update_resumed=false
 update_restart_lock=''
 skills_transfer_temp_root=''
 skills_export_staged_target=''
@@ -3063,8 +3064,10 @@ calculate_sha256() {
 }
 
 update_manager() {
+  # The replacement has already been installed and validated by this invocation.
+  [[ $manager_update_resumed == false ]] || return 0
   local manager_source manager_dir manager_name manager_target
-  local manager_download
+  local manager_download manager_replaced=false
 
   require_command curl
   require_command install
@@ -3096,11 +3099,18 @@ update_manager() {
     install -m 0755 "$manager_download" "$manager_update_staged_target"
     mv -f -- "$manager_update_staged_target" "$manager_target"
     manager_update_staged_target=''
+    manager_replaced=true
     log "updated manager at $manager_target"
   fi
 
   rm -rf -- "$manager_update_temp_root"
   manager_update_temp_root=''
+  if [[ $manager_replaced == true ]]; then
+    # Preserve the complete invocation, including a detached restart worker's
+    # arguments and PID. exec keeps its lock held; the new worker owns cleanup.
+    log 'continuing update with the newly installed manager'
+    exec bash "$manager_target" __updated-manager "${manager_invocation[@]}"
+  fi
 }
 
 check_node_version() {
@@ -5132,6 +5142,13 @@ command_doctor() {
 }
 
 main() {
+  # Private, one-time continuation: skip only the completed manager download.
+  # Keep the marker in argv rather than exporting it to installers or Mobile.
+  if [[ ${1:-} == __updated-manager ]]; then
+    manager_update_resumed=true
+    shift
+  fi
+  local -a manager_invocation=("$@")
   local command_name=${1:-help}
   if (($# > 0)); then shift; fi
 

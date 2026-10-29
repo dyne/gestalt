@@ -252,6 +252,13 @@ update because running sessions retain their startup catalog. By default it also
 updates installed Serena and XERJ through their managed release installers.
 Optional components that are not installed are reported as skipped.
 
+Both `gestalt update` and `gestalt update gestalt` update the manager first.
+When its contents change, the updater replaces itself with the new manager
+process before updating the remaining components. It preserves the selected
+component group and `--extra-skills`, and skips a second manager download.
+An already-current manager continues directly. Detached `update-restart`
+workers use the same handoff and retain their restart lock until completion.
+
 Use one component name to limit the update:
 
 | Component | Scope |

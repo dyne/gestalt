@@ -98,7 +98,7 @@ Commands:
                             Update from a live Mobile session, then restart Mobile.
   cli [--] [args...]        Start Codex with ~/.codex-gestalt as CODEX_HOME.
   mobile [--] [args...]     Start the managed Gestalt Mobile executable.
-  playwright install [VERSION] Install the pinned MCP package; never install Chrome.
+  playwright install [VERSION] Install MCP; add missing system Chrome on Debian amd64.
   playwright update [VERSION]  Stage, verify and activate an explicit package update.
   playwright version [--json]  Read versioned installation metadata.
   playwright doctor [--json] [--executable-path PATH] Check package and Chrome separately.
@@ -1947,7 +1947,7 @@ async function install(version) {
 }
 (async()=>{
   safe(root);
-  if (['help','-h','--help'].includes(action)) { console.log('Usage: gestalt playwright install [VERSION] | update [VERSION] | version [--json] | doctor [--json] [--cwd ROOT] [--executable-path PATH] | mcp --cwd ROOT [--executable-path PATH]\nInstall and update are explicit. Chrome is externally maintained; startup and doctor never download it.'); return; }
+  if (['help','-h','--help'].includes(action)) { console.log('Usage: gestalt playwright install [VERSION] | update [VERSION] | version [--json] | doctor [--json] [--cwd ROOT] [--executable-path PATH] | mcp --cwd ROOT [--executable-path PATH]\nInstall adds missing system Chrome on Debian amd64. Chrome is externally maintained; update, startup and doctor never download it.'); return; }
   if (['install','update'].includes(action)) {
     if(args.length>1)fail('usage: gestalt playwright '+action+' [VERSION]');
     if(action==='install' && !args.length) {try {installed(); console.error('gestalt: Playwright already installed and validated');return;}catch{}}
@@ -1994,6 +1994,67 @@ if(!['mcp','__backend'].includes(action)) {
 PLAYWRIGHT_JS
 }
 
+playwright_chrome_binary() {
+  local chrome
+  for chrome in google-chrome google-chrome-stable chromium chromium-browser; do
+    if command -v "$chrome" >/dev/null 2>&1; then
+      command -v "$chrome"
+      return 0
+    fi
+  done
+  for chrome in '/opt/google/chrome/chrome' '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' '/Applications/Chromium.app/Contents/MacOS/Chromium'; do
+    if [[ -x $chrome ]]; then printf '%s\n' "$chrome"; return 0; fi
+  done
+  return 1
+}
+
+playwright_debian_host() {
+  local ID='' ID_LIKE=''
+  [[ -r /etc/os-release ]] || return 1
+  # Standard host-owned distribution metadata, not an operator-supplied file.
+  # shellcheck source=/dev/null
+  . /etc/os-release
+  [[ $ID == debian || " $ID_LIKE " == *' debian '* ]]
+}
+
+install_playwright_chrome() (
+  local chrome chrome_install_scratch='' architecture
+  local -a privilege=()
+  if chrome=$(playwright_chrome_binary); then
+    log "system browser already available: $chrome"
+    return 0
+  fi
+  if [[ $(uname -s) != Linux ]] || ! playwright_debian_host; then
+    log 'Chrome is missing; install it separately on this operating system'
+    return 0
+  fi
+  require_command dpkg
+  architecture=$(dpkg --print-architecture)
+  if [[ $architecture != amd64 ]]; then
+    log "Chrome's Debian package requires amd64 (host: $architecture); install a supported browser separately"
+    return 0
+  fi
+  require_command curl
+  require_command apt-get
+  if [[ $(id -u) != 0 ]]; then require_command sudo; privilege=(sudo); fi
+  log 'installing missing Google Chrome system-wide from Google (sudo may prompt)'
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  trap '[[ -z $chrome_install_scratch ]] || rm -rf -- "$chrome_install_scratch"' EXIT
+  chrome_install_scratch=$(mktemp -d "${TMPDIR:-/tmp}/gestalt-chrome.XXXXXXXX")
+  if ! curl -q --fail --location --silent --show-error --proto '=https' --proto-redir '=https' \
+    --connect-timeout 20 --max-time 300 \
+    https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
+    --output "$chrome_install_scratch/google-chrome-stable.deb"; then
+    die 'Chrome download failed; rerun gestalt playwright install to retry'
+  fi
+  if ! "${privilege[@]}" apt-get install -y "$chrome_install_scratch/google-chrome-stable.deb"; then
+    die 'Chrome system installation failed; rerun gestalt playwright install to retry'
+  fi
+  chrome=$(playwright_chrome_binary) || die 'Chrome installation completed but its binary was not found'
+  "$chrome" --version || die 'installed Chrome could not report its version'
+)
+
 command_playwright() {
   [[ ${1:-} != __backend ]] || die 'internal Playwright command'
   require_command node
@@ -2011,6 +2072,7 @@ command_playwright() {
   trap - INT TERM
   if [[ -n $saved_int ]]; then eval "$saved_int"; fi
   if [[ -n $saved_term ]]; then eval "$saved_term"; fi
+  if [[ $result == 0 && ${1:-} == install ]]; then install_playwright_chrome || return $?; fi
   return "$result"
 }
 

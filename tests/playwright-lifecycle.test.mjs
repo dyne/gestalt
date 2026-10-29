@@ -13,6 +13,8 @@ async function fixture(t) {
   const base = await mkdtemp(join(tmpdir(),'playwright lifecycle '));
   t.after(()=>rm(base,{recursive:true,force:true}));
   const home=join(base,'managed'),bin=join(base,'bin'),log=join(base,'npm.log');await mkdir(bin);
+  // Explicit install can now provision system Chrome; fixtures always supply one.
+  await writeFile(join(bin,'google-chrome'),'#!/bin/sh\necho "Google Chrome 140.0.1.2"\n',{mode:0o755});
   // Only package acquisition is simulated. Manager staging, metadata validation,
   // integrity matching, catalog handshake and atomic activation stay real.
   await writeFile(join(bin,'npm'),`#!${process.execPath}

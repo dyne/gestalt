@@ -4703,10 +4703,10 @@ command_codex_app_server() {
   [[ $native_codex == /* && -x $native_codex ]] || die 'native Codex executable is missing'
   shift
   exec node --input-type=module - "${BASH_SOURCE[0]}" "$native_codex" "$@" 3<&0 <<'NODE'
-import {readFileSync} from 'node:fs';
+import {createReadStream,fstatSync,readFileSync} from 'node:fs';
 import {runInNewContext} from 'node:vm';
 import {spawn} from 'node:child_process';
-import {createReadStream} from 'node:fs';
+import {Socket} from 'node:net';
 import {createInterface} from 'node:readline';
 import {randomUUID} from 'node:crypto';
 const [manager,native,...args] = process.argv.slice(2);
@@ -4733,7 +4733,12 @@ output.on('line',line=>{
     message.result={...message.result,config:managedMcpApprovals(message.result.config,owner)};
   send(message);
 });
-const input = createInterface({input:createReadStream(null,{fd:3})});
+// fs.ReadStream queues a blocking read on this pipe. Even process.exit() can
+// then wait forever for its worker while Mobile keeps the write end open.
+const inputType = fstatSync(3);
+const inputStream = inputType.isFIFO() || inputType.isSocket()
+  ? new Socket({fd:3,readable:true,writable:false}) : createReadStream(null,{fd:3});
+const input = createInterface({input:inputStream});
 input.on('line',async line=>{
   let message;try {message=JSON.parse(line);}catch {return stop(1);}
   try {
@@ -4748,10 +4753,14 @@ input.on('line',async line=>{
   }
 });
 function signal(name){if(child.pid)try{process.kill(-child.pid,name);}catch(error){if(error.code!=='ESRCH')throw error;}}
-function stop(code=0){if(closing)return;closing=true;input.close();child.stdin.end();signal('SIGTERM');
-  const timer=setTimeout(()=>signal('SIGKILL'),2000);child.once('close',()=>{clearTimeout(timer);process.exit(code);});}
-input.on('close',()=>stop());child.stdin.on('error',()=>stop(1));
-child.on('error',()=>process.exit(1));
+function stop(code=0){if(closing)return;closing=true;input.close();inputStream.destroy();child.stdin.end();signal('SIGTERM');
+  // Bound the proxy too: descendants may retain stdout after the native child
+  // exits, so waiting for ChildProcess.close alone is not a shutdown deadline.
+  const timer=setTimeout(()=>{signal('SIGKILL');process.exit(code);},2000);
+  child.once('close',()=>{clearTimeout(timer);process.exit(code);});}
+input.on('close',()=>stop());inputStream.on('error',()=>stop(1));child.stdin.on('error',()=>stop(1));
+child.on('error',()=>{inputStream.destroy();process.exit(1);});
+child.on('exit',code=>{if(!closing)stop(code??1);});
 child.on('close',code=>{for(const waiter of pending.values())waiter.reject(Error('runtime-exited'));if(!closing)process.exit(code??1);});
 process.on('SIGTERM',()=>stop(143));process.on('SIGINT',()=>stop(130));
 NODE

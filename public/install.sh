@@ -28,7 +28,7 @@ usage() {
 Usage: install.sh [--no-setup]
 
 Download the Gestalt manager, install it under
-${GESTALT_BIN_DIR:-$HOME/.local/bin}, then set up Agents and Mobile.
+${GESTALT_BIN_DIR:-$HOME/.local/bin}, then set up Agents, optional skills and Mobile.
 
   --no-setup  Install only the manager; do not run `gestalt install`.
   -h, --help  Show this help.

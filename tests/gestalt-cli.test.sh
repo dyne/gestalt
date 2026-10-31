@@ -20,7 +20,18 @@ fake_bin=$test_root/bin
 test_home=$test_root/home
 command_log=$test_root/commands.log
 real_node=$(command -v node)
+real_git=$(command -v git)
 mkdir -p -- "$fake_bin" "$test_home"
+"$real_node" "$repo_root/tests/skills-fixture.mjs" "$test_root/collection"
+
+cat > "$fake_bin/git" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+for argument in "$@"; do
+  if [[ $argument == fetch ]]; then printf 'skills-fetch|once\n' >> "${GESTALT_TEST_LOG:?}"; fi
+done
+exec "${GESTALT_TEST_REAL_GIT:?}" "$@"
+EOF
 
 cat > "$fake_bin/node" <<'EOF'
 #!/usr/bin/env bash
@@ -165,12 +176,15 @@ fi
 exit 0
 EOF
 
-chmod 0755 "$fake_bin/node" "$fake_bin/npm" "$fake_bin/codex"
+chmod 0755 "$fake_bin/node" "$fake_bin/npm" "$fake_bin/codex" "$fake_bin/git"
 
 export HOME=$test_home
 export PATH=$fake_bin:/usr/bin:/bin
 export GESTALT_TEST_LOG=$command_log
 export GESTALT_TEST_REAL_NODE=$real_node
+export GESTALT_TEST_REAL_GIT=$real_git
+export GESTALT_SKILLS_SOURCE=$test_root/collection
+unset GESTALT_SKILLS_REF
 export CODEX_HOME=$test_home/.codex-gestalt
 export GESTALT_HOME=$test_home/.gestalt
 export GESTALT_INSTALL_BASE_URL=file://$repo_root/public
@@ -223,7 +237,10 @@ assert_log() {
   fi
 }
 
+skills_fetch_count() { grep -c '^skills-fetch|' "$command_log" 2>/dev/null || true; }
 bash "$repo_root/public/gestalt" install
+[[ $(skills_fetch_count) == 1 ]]
+[[ -f $CODEX_HOME/gestalt-skills/receipt.json && -L $CODEX_HOME/skills/nuklear-gui ]]
 [[ -x $GESTALT_HOME/mobile/node_modules/.bin/gestalt-mobile ]]
 [[ -f $agents_capability_manifest && -f $mobile_capability_manifest ]]
 grep -F 'model = "gpt-5.6-terra"' "$CODEX_HOME/config.toml" >/dev/null
@@ -270,6 +287,7 @@ printf '\n# stale local manager copy\n' >> "$managed_bin/gestalt"
 chmod 0755 "$managed_bin/gestalt"
 
 bash "$managed_bin/gestalt" update --extra-skills
+[[ $(skills_fetch_count) == 2 ]]
 cmp "$repo_root/public/gestalt" "$managed_bin/gestalt"
 [[ $(grep -Fc 'default_permissions = "workspace-git"' "$CODEX_HOME/config.toml") == 1 ]]
 [[ $(grep -Fc '[permissions.workspace-git]' "$CODEX_HOME/config.toml") == 1 ]]
@@ -282,6 +300,33 @@ assert_log "codex|CODEX_HOME=$CODEX_HOME|plugin|marketplace|upgrade|dyne-gestalt
 [[ $(grep -Fc "\"$HOME/.local\" = \"read\"" "$CODEX_HOME/config.toml") == 1 ]]
 [[ $(grep -Fc "\"$HOME/.config\" = \"read\"" "$CODEX_HOME/config.toml") == 1 ]]
 grep -F 'setup|' "$command_log" | grep -F -- '--extra-skills' >/dev/null
+
+# Collection maintenance always runs once, independently of third-party extras.
+bash "$repo_root/public/gestalt" install --extra-skills > "$test_root/extra-install.out" 2>&1
+[[ $(skills_fetch_count) == 3 ]]
+setup_before_skills=$(grep -c '^setup|' "$command_log")
+npm_before_skills=$(grep -c '^npm|' "$command_log")
+bash "$repo_root/public/gestalt" skills install
+bash "$repo_root/public/gestalt" skills update
+[[ $(skills_fetch_count) == 5 ]]
+[[ $(grep -c '^setup|' "$command_log") == "$setup_before_skills" ]]
+[[ $(grep -c '^npm|' "$command_log") == "$npm_before_skills" ]]
+cp "$CODEX_HOME/gestalt-skills/receipt.json" "$test_root/receipt-before-failure"
+for action in install update; do
+  if GESTALT_SKILLS_SOURCE=$test_root/unavailable bash "$managed_bin/gestalt" "$action" > "$test_root/skills-failure-$action.out" 2>&1; then
+    printf 'default %s unexpectedly succeeded without the collection\n' "$action" >&2
+    exit 1
+  fi
+  grep -F 'could not retrieve collection' "$test_root/skills-failure-$action.out" >/dev/null
+  if grep -E 'installation complete|are up to date' "$test_root/skills-failure-$action.out" >/dev/null; then
+    printf 'failed collection operation reported complete installation\n' >&2
+    exit 1
+  fi
+done
+cmp "$test_root/receipt-before-failure" "$CODEX_HOME/gestalt-skills/receipt.json"
+[[ $(grep -c '^setup|' "$command_log") == "$setup_before_skills" ]]
+[[ $(grep -c '^npm|' "$command_log") == "$npm_before_skills" ]]
+fetches_before_restart=$(skills_fetch_count)
 
 bad_update_source=$test_root/bad-update-source
 bad_managed_bin=$test_root/bad-managed-bin
@@ -433,6 +478,18 @@ if GESTALT_INSTALL_BASE_URL=file://$bad_update_source \
   exit 1
 fi
 kill -0 "$test_relay_pid"
+# A collection failure also keeps the relay alive and releases worker ownership.
+mkdir "$failed_restart_lock"
+if GESTALT_SKILLS_SOURCE=$test_root/unavailable \
+  bash "$repo_root/public/gestalt" __update-restart-worker \
+    "$test_relay_pid" "$failed_restart_state" false "$test_root/failed-skills-restart.log" \
+    "$failed_restart_lock"; then
+  printf 'update-restart worker unexpectedly accepted a failed collection update\n' >&2
+  exit 1
+fi
+kill -0 "$test_relay_pid"
+grep -F 'could not retrieve collection' "$test_root/failed-skills-restart.log" >/dev/null
+[[ ! -e $failed_restart_lock ]]
 kill -TERM "$test_relay_pid"
 wait "$test_relay_pid" 2>/dev/null || true
 test_relay_pid=''
@@ -441,6 +498,7 @@ grep -F 'downloaded manager has invalid Bash syntax' "$test_root/failed-update-r
 
 sleep 30 &
 test_relay_pid=$!
+fetches_before_restart=$(skills_fetch_count)
 live_restart_state=$GESTALT_HOME/run/mobile-$test_relay_pid.restart
 printf '%s\0%s\0%s\0' "$test_home/restarted-workspace" --port 4321 > "$live_restart_state"
 mkdir "$GESTALT_HOME/run/update-restart.lock"
@@ -470,6 +528,7 @@ test_relay_pid=''
 grep -F 'mobile|' "$command_log" | grep -F '|--port|4321|' >/dev/null
 grep -F 'restarting Gestalt Mobile with its previous options' \
   "$GESTALT_HOME/update-restart.log" >/dev/null
+[[ $(skills_fetch_count) == $((fetches_before_restart + 1)) ]]
 
 bash "$repo_root/public/gestalt" doctor > "$test_root/doctor.out"
 grep -E '^Gestalt plugins +2\.1\.0$' "$test_root/doctor.out" >/dev/null
@@ -487,6 +546,23 @@ grep -E '^Codex CLI +codex-cli 1\.0\.0$' <<< "$check_versions" >/dev/null
 grep -E '^Supervision contract +ready \(v1; offline manifests\)$' "$test_root/doctor.out" >/dev/null
 grep -E '^L1 model policy +LEGACY ' "$test_root/doctor.out" >/dev/null
 grep -F 'All startup diagnostics passed.' "$test_root/doctor.out" >/dev/null
+grep -E '^Gestalt skills +READY \(0\.1\.0; [a-f0-9]+\)$' "$test_root/doctor.out" >/dev/null
+grep -F 'Skills integrity         ok (source override; unverified)' "$test_root/doctor.out" >/dev/null
+mv "$CODEX_HOME/gestalt-skills" "$test_root/collection-backup"
+if bash "$repo_root/public/gestalt" doctor > "$test_root/missing-skills-doctor.out" 2>&1; then
+  printf 'doctor unexpectedly accepted a missing default collection\n' >&2
+  exit 1
+fi
+grep -E '^Gestalt skills +MISSING$' "$test_root/missing-skills-doctor.out" >/dev/null
+mv "$test_root/collection-backup" "$CODEX_HOME/gestalt-skills"
+cp "$CODEX_HOME/gestalt-skills/skills/nuklear-gui/SKILL.md" "$test_root/skill-before-tamper"
+printf '\nlocal edit\n' >> "$CODEX_HOME/gestalt-skills/skills/nuklear-gui/SKILL.md"
+if bash "$repo_root/public/gestalt" doctor > "$test_root/damaged-skills-doctor.out" 2>&1; then
+  printf 'doctor unexpectedly accepted a damaged default collection\n' >&2
+  exit 1
+fi
+grep -E '^Gestalt skills +DAMAGED' "$test_root/damaged-skills-doctor.out" >/dev/null
+cp "$test_root/skill-before-tamper" "$CODEX_HOME/gestalt-skills/skills/nuklear-gui/SKILL.md"
 
 # Execute the read-only verification example exactly as documented, through an
 # installed manager copy with the same isolated homes and deterministic packages.

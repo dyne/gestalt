@@ -34,6 +34,7 @@ record_update() {
 }
 update_manager() { record_update manager; }
 run_marketplace_setup() { record_update "agents:$1:$2"; }
+command_skills() { [[ $1 == update ]]; record_update "skills:$1"; }
 install_mobile() { record_update mobile; }
 command_serena() { [[ $1 == update ]]; record_update serena; }
 command_playwright() { [[ $1 == update ]]; record_update playwright; }
@@ -75,6 +76,7 @@ curl() {
   command curl "$@"
 }
 run_marketplace_setup() { record_update "agents:$1:$2"; }
+command_skills() { [[ $1 == update ]]; record_update "skills:$1"; }
 install_mobile() { record_update mobile; }
 command_serena() { record_update serena; }
 command_xerj() { record_update xerj; }
@@ -98,7 +100,7 @@ for (const [args, extra, optional] of [
   const f = await reloadFixture(t);
   await f.run(args);
   assert.deepEqual(await f.operations(), [
-    'download', `new:agents:upgrade:${extra}`, 'new:mobile',
+    'download', 'new:skills:update', `new:agents:upgrade:${extra}`, 'new:mobile',
     ...(optional ? ['new:serena', 'new:xerj'] : []),
   ]);
   assert.equal(await readFile(f.manager, 'utf8'), f.replacement);
@@ -109,13 +111,13 @@ test('an unchanged manager completes the update with one download', async t => {
   const f = await reloadFixture(t, true);
   const { stderr } = await f.run(['update', 'gestalt']);
   assert.match(stderr, /manager is already current/);
-  assert.deepEqual(await f.operations(), ['download', 'new:agents:upgrade:false', 'new:mobile']);
+  assert.deepEqual(await f.operations(), ['download', 'new:skills:update', 'new:agents:upgrade:false', 'new:mobile']);
 });
 
 test('a replacement manager failure propagates without continuing old component code', async t => {
   const f = await reloadFixture(t);
   await assert.rejects(f.run(['update'], { GESTALT_TEST_UPDATE_FAIL: 'mobile' }), { code: 42 });
-  assert.deepEqual(await f.operations(), ['download', 'new:agents:upgrade:false', 'new:mobile']);
+  assert.deepEqual(await f.operations(), ['download', 'new:skills:update', 'new:agents:upgrade:false', 'new:mobile']);
 });
 
 test('an invalid replacement leaves the installed manager intact and runs no components', async t => {
@@ -142,13 +144,13 @@ test('update help lists component groups without invoking any installer', async 
 test('default update includes all installed managed components in order', async t => {
   const f = await fixture(t);
   await f.run(['update', '--extra-skills']);
-  assert.deepEqual(await f.operations(), ['manager', 'agents:upgrade:true', 'mobile', 'serena', 'xerj']);
+  assert.deepEqual(await f.operations(), ['manager', 'skills:update', 'agents:upgrade:true', 'mobile', 'serena', 'xerj']);
 });
 
 test('default update skips absent optional components with an explicit message', async t => {
   const f = await fixture(t, false);
   const { stderr } = await f.run(['update']);
-  assert.deepEqual(await f.operations(), ['manager', 'agents:upgrade:false', 'mobile']);
+  assert.deepEqual(await f.operations(), ['manager', 'skills:update', 'agents:upgrade:false', 'mobile']);
   assert.match(stderr, /skipping Serena \(not installed/);
   assert.match(stderr, /skipping XERJ \(not installed/);
 });
@@ -158,7 +160,7 @@ for (const component of ['all', 'gestalt', 'serena', 'xerj']) {
     test(`update ${selector.join(' ')} changes only the selected component group`, async t => {
       const f = await fixture(t, component === 'all' || component === 'gestalt');
       await f.run(['update', ...selector]);
-      const core = ['manager', 'agents:upgrade:false', 'mobile'];
+      const core = ['manager', 'skills:update', 'agents:upgrade:false', 'mobile'];
       assert.deepEqual(await f.operations(), component === 'all' ? [...core, 'serena', 'xerj']
         : component === 'gestalt' ? core : [component]);
     });
@@ -176,10 +178,10 @@ for (const args of [
   });
 }
 
-for (const failed of ['manager', 'agents:upgrade:false', 'mobile', 'serena', 'xerj']) {
+for (const failed of ['manager', 'skills:update', 'agents:upgrade:false', 'mobile', 'serena', 'xerj']) {
   test(`a failed ${failed} update stops subsequent components and never claims completion`, async t => {
     const f = await fixture(t);
-    const order = ['manager', 'agents:upgrade:false', 'mobile', 'serena', 'xerj'];
+    const order = ['manager', 'skills:update', 'agents:upgrade:false', 'mobile', 'serena', 'xerj'];
     await assert.rejects(f.run(['update'], { GESTALT_TEST_UPDATE_FAIL: failed }), error => {
       assert.doesNotMatch(error.stderr, /update complete/);
       return true;
@@ -216,7 +218,7 @@ for (const fail of [false, true]) test(`reloaded detached update worker ${fail ?
   await until(() => readFile(join(f.home, 'run/update-restart.lock')).then(() => false,
     error => error.code === 'ENOENT'));
   assert.deepEqual(await f.operations(), [
-    'download', 'new:agents:upgrade:true', 'new:mobile',
+    'download', 'new:skills:update', 'new:agents:upgrade:true', 'new:mobile',
     ...(fail ? [] : ['new:restart:--:--port:4321']),
   ]);
   if (fail) {
@@ -244,7 +246,7 @@ for (const scenario of ['all', 'xerj', 'all-with-symlink']) {
     await until(async () => (await f.operations()).some(item => item.startsWith('restart:')));
     await stopped;
     const expected = component === 'all'
-      ? ['manager', 'agents:upgrade:false', 'mobile', 'serena', 'xerj'] : ['xerj'];
+      ? ['manager', 'skills:update', 'agents:upgrade:false', 'mobile', 'serena', 'xerj'] : ['xerj'];
     assert.deepEqual(await f.operations(), [...expected, 'restart:--:--port:4321']);
   });
 }
@@ -268,7 +270,7 @@ test('failed external GUI update leaves the managed relay running and releases t
     error => error.code === 'ENOENT'));
   assert.equal(relay.exitCode, null);
   assert.equal(relay.signalCode, null);
-  assert.deepEqual(await f.operations(), ['manager', 'agents:upgrade:false', 'mobile', 'serena']);
+  assert.deepEqual(await f.operations(), ['manager', 'skills:update', 'agents:upgrade:false', 'mobile', 'serena']);
   assert.equal(await readFile(state, 'utf8'), [f.root, '--port', '4321', ''].join('\0'));
 });
 
@@ -280,5 +282,5 @@ test('Playwright updates only when installed or explicitly selected', async t =>
   await mkdir(join(f.home, 'playwright'));
   await writeFile(join(f.home, 'playwright/active.json'), '{}');
   await f.run(['update']);
-  assert.deepEqual(await f.operations(), ['playwright', 'manager', 'agents:upgrade:false', 'mobile', 'playwright']);
+  assert.deepEqual(await f.operations(), ['playwright', 'manager', 'skills:update', 'agents:upgrade:false', 'mobile', 'playwright']);
 });

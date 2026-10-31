@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import net from 'node:net';
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, stat, link } from 'node:fs/promises';
@@ -124,6 +125,25 @@ test('automatic endpoints avoid another installation and persist across concurre
   assert.equal((await second.run('stop')).status, 'stopped');
   assert.equal((await second.run('ensure-ready')).endpoint, endpoint);
   assert.equal((await first.run('probe')).status, 'ready');
+});
+
+test('a large retained snapshot history does not exhaust the default startup budget', async t => {
+  const f = await fixture(t);
+  const snapshots = join(f.root, 'xerj-data/autoindex/ax-fixture/sync-snapshots');
+  // Match an accumulated managed store without copying source or index contents.
+  // All paths still pass the same per-file lstat and link checks during startup.
+  for (let generation = 0; generation < 75; generation++) {
+    const blobs = join(snapshots, `run-${generation}`, 'blobs');
+    mkdirSync(blobs, { recursive: true });
+    for (let file = 0; file < 1200; file++) writeFileSync(join(blobs, String(file)), '');
+  }
+  const overrides = { XERJ_READY_TIMEOUT_MS: '5000' };
+  const ready = await f.run('ensure-ready', overrides);
+  assert.equal(ready.status, 'ready', JSON.stringify(ready));
+  assert.equal((await f.run('probe', overrides)).status, 'ready');
+  assert.equal((await f.launched()).length, 1);
+  assert.equal((await f.run('stop', overrides)).status, 'stopped');
+  await f.noServers();
 });
 
 test('new concurrent sessions reuse the running backend after autoindex links snapshot blobs', async t => {

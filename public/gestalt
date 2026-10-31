@@ -650,6 +650,8 @@ command_xerj_readiness() {
   # Do not use command_xerj mcp: ordinary forwarding prepares writable state.
   exec node --input-type=module - "$gestalt_home" "$operation" "${BASH_SOURCE[0]}" "$codex_home" <<'JS'
 import { spawn } from 'node:child_process';
+import { lstatSync, readdirSync } from 'node:fs';
+import { setImmediate as yieldToIO } from 'node:timers/promises';
 import { lstat, stat as followStat, readFile, realpath, readdir, mkdir, writeFile, rename, rm, chmod } from 'node:fs/promises';
 import { createHash, randomBytes } from 'node:crypto';
 import net from 'node:net';
@@ -681,13 +683,28 @@ async function stat(path) {
   } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
 }
 async function safeTree(path, dataRoot) {
-  const info = await stat(path);
-  if (!info) return;
-  // Snapshot blobs and prepared documents are immutable and natively linked.
-  // Never exempt symlinks, or hard links in mutable state and installation files.
-  const snapshotContent = dataRoot && /^autoindex\/[^/]+\/sync-snapshots\/[^/]+\/(blobs|prepared)\/[^/]+$/.test(relative(dataRoot, path));
-  if (info.isSymbolicLink() || (info.isFile() && info.nlink > 1 && !snapshotContent)) fail('unsafe-path');
-  if (info.isDirectory()) for (const name of await readdir(path)) await safeTree(join(path, name), dataRoot);
+  // Snapshot histories can contain tens of thousands of files. Keep every
+  // lstat/link check without a promise round trip per file. Yield between
+  // bounded batches so cancellation and the shared deadline remain effective.
+  const pending = [path];
+  while (pending.length) {
+    controller.signal.throwIfAborted();
+    for (let count = 0; count < 256 && pending.length; count++) {
+      const path = pending.pop();
+      let info;
+      try { info = lstatSync(path); }
+      catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+      // Snapshot blobs and prepared documents are immutable and natively linked.
+      // Never exempt symlinks, or hard links in mutable state and installation files.
+      const snapshotContent = dataRoot && /^autoindex\/[^/]+\/sync-snapshots\/[^/]+\/(blobs|prepared)\/[^/]+$/.test(relative(dataRoot, path));
+      if (info.isSymbolicLink() || (info.isFile() && info.nlink > 1 && !snapshotContent)) fail('unsafe-path');
+      if (info.isDirectory()) {
+        try { for (const name of readdirSync(path)) pending.push(join(path, name)); }
+        catch (error) { if (error.code !== 'ENOENT') throw error; }
+      }
+    }
+    await yieldToIO();
+  }
 }
 async function canonicalRoot(selected) {
   if (!selected.startsWith('/') || /[\x00-\x1f\x7f]/.test(selected) ||

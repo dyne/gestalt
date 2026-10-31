@@ -1,8 +1,9 @@
 # Install Gestalt
 
 The installer is a small Bash bootstrapper. It downloads the versioned manager
-script, verifies its SHA-256 checksum, installs it atomically in a user-owned
-directory, and runs `gestalt install`.
+script, validates its Bash syntax and version declaration, installs it atomically
+in a user-owned directory, and runs `gestalt install` for Agents, the optional
+Dyne.org skill collection, and Mobile.
 
 ## One-line install
 
@@ -19,6 +20,8 @@ to your shell profile.
 | --- | --- |
 | `~/.local/bin/gestalt` | Manager CLI |
 | `~/.codex-gestalt` | Isolated Codex home, plugins, and generated agent profiles |
+| `~/.codex-gestalt/gestalt-skills` | Stable optional collection, manifest, and installer receipt |
+| `~/.codex-gestalt/skills/<name>` | Discovery links to optional collection skills |
 | `~/.gestalt/runtime` | Prepared context-mode runtime |
 | `~/.gestalt/mobile` | User-local Gestalt Mobile npm installation |
 | `~/.gestalt/skill-profiles` | Optional Mobile skill profiles |
@@ -57,6 +60,35 @@ bash /tmp/gestalt-install.sh --no-setup
 ```
 
 Later, run `gestalt install`.
+
+## Optional skill collection
+
+Ordinary installation and update include the independent
+[`dyne/gestalt-skills`](https://github.com/dyne/gestalt-skills) collection. Its
+initial version `0.1.0` provides the ordinary optional skill `nuklear-gui`.
+This is independent of the third-party bundle selected by `--extra-skills`.
+
+```sh
+gestalt skills install          # collection only
+gestalt skills update           # refresh collection only
+gestalt skills status           # read-only version, revision and integrity
+gestalt skills status --json
+```
+
+Choose activation in existing Mobile skill profiles. Updates preserve selections,
+including disabled skills and complete profiles that omit newly added skills.
+The canonical content and discovery paths stay stable across releases; do not add
+versioned paths to profiles or duplicate the collection under `~/.agents/skills`.
+The collection does not install GUI toolchains or execute downloaded validators.
+
+`gestalt doctor` reports missing or damaged collection state and a recovery command.
+Maintenance refuses user-skill name collisions or edited managed content. Preserve
+local changes and resolve the indicated conflict before retrying; unrelated skills,
+`.system` and saved profiles remain untouched. A failed collection step fails the
+default install/update and leaves the previous usable collection and receipt.
+
+See [the collection and transfer rules](../agents/skills.md#optional-dyneorg-collection)
+for source overrides, manifests, portable archives and intentional release updates.
 
 ## Managed xerj
 

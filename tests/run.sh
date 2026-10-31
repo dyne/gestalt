@@ -28,6 +28,7 @@ node --test "$repo_root/tests/serena-cli-native.test.mjs"
 node --test "$repo_root/tests/serena-authority.test.mjs" "$repo_root/tests/serena-storage.test.mjs" \
   "$repo_root/tests/serena-native.test.mjs" "$repo_root/tests/serena-real.test.mjs" \
   "$repo_root/tests/serena-lifecycle.test.mjs" "$repo_root/tests/serena-doctor.test.mjs"
+node --test "$repo_root/tests/skills-lifecycle.test.mjs"
 bash "$repo_root/tests/skills-transfer.test.sh"
 node --test "$repo_root/tests/versioning.test.mjs"
 

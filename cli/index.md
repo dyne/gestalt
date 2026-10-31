@@ -7,7 +7,7 @@ relay together without merging their state. Run `gestalt help` at any time.
 
 | Command | Effect |
 | --- | --- |
-| `gestalt install` | Install or reconcile Agents, context mode, profiles, and Mobile |
+| `gestalt install` | Install or reconcile Agents, context mode, profiles, optional skills, and Mobile |
 | `gestalt update [COMPONENT]` | Update Gestalt core and installed optional components; optionally select one component group |
 | `gestalt update-restart` | From a live Mobile session, update everything and gracefully restart Mobile |
 | `gestalt cli [args…]` | Launch Codex with the isolated Gestalt home |
@@ -22,6 +22,9 @@ relay together without merging their state. Run `gestalt help` at any time.
 | `gestalt path [NAME\|--json]` | Resolve managed executable, plugin, and runtime paths |
 | `gestalt doctor` | Check prerequisites, paths, Gestalt plugin version, and Mobile version |
 | `gestalt version` | Print the manager version |
+| `gestalt skills install` | Install or reconcile only the optional Dyne.org collection |
+| `gestalt skills update` | Update only the collection, preserving profiles and unrelated skills |
+| `gestalt skills status [--json]` | Read collection version, revision, integrity and recovery action |
 | `gestalt skills-export [ARCHIVE]` | Export installed skills and skill profiles to a portable `.tar.gz` archive |
 | `gestalt skills-import ARCHIVE` | Merge a validated skills archive into this installation |
 | `gestalt help` | Print command help |
@@ -287,7 +290,10 @@ gestalt update --help
 This upgrades `dyne/gestalt-agents`, reruns its required setup script, verifies
 the context-mode runtime and complete `$gestalt:*` app-server skill catalog,
 updates the stable `$CODEX_HOME/bin/org-plan` helper, and installs
-`gestalt-mobile@latest` under the Gestalt home. Start a new session after the
+`gestalt-mobile@latest` under the Gestalt home. It also validates and refreshes
+the independent optional collection under `$CODEX_HOME/gestalt-skills`, regardless
+of `--extra-skills`. A collection failure makes the update fail; update-restart
+then keeps Mobile running. Start a new session after the
 update because running sessions retain their startup catalog. By default it also
 updates installed Serena and XERJ through their managed release installers.
 Optional components that are not installed are reported as skipped.
@@ -304,7 +310,7 @@ Use one component name to limit the update:
 | Component | Scope |
 | --- | --- |
 | `all` | Gestalt core plus installed Serena and XERJ; the default |
-| `gestalt` | Manager, Agents, Mobile, context-mode, and generated profiles/helpers |
+| `gestalt` | Manager, Agents, optional skills, Mobile, context-mode, and generated profiles/helpers |
 | `serena` | Latest stable Serena with its private managed uv and Python tooling |
 | `xerj` | Latest official managed XERJ release |
 
@@ -348,3 +354,11 @@ To opt into the curated third-party skill set maintained by Gestalt Agents:
 ```sh
 gestalt update --extra-skills
 ```
+
+For collection-only maintenance, use `gestalt skills install` or
+`gestalt skills update`; these do not reinstall Agents or Mobile.
+`gestalt skills status [--json]` and `gestalt doctor` use the same local integrity
+check. Status exits zero only for a ready collection, and nonzero for missing,
+damaged, busy or recovery-required state. Help and status perform no download,
+installation, recovery or profile write. See [optional skills](../agents/skills.md#optional-dyneorg-collection)
+for activation, collision handling, portable transfer and release rules.

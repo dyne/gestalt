@@ -203,12 +203,14 @@ function scratchOwnerContext(workspace, ownerId) {
 function scratchLeaseRecords(context) {
   const directory = scratchPath.join(context.directory, 'leases');
   scratchPrivate(directory);
-  return scratchFs.readdirSync(directory).filter(name => !name.startsWith('.')).map(name => {
+  return scratchFs.readdirSync(directory).map(name => {
     scratchAssert(scratchUuid(name.replace(/\.json$/, '')) && name.endsWith('.json'));
     const value = scratchJson(scratchPath.join(directory, name));
     scratchAssert(value?.schemaVersion === 1 && value.ownerId === context.ownerId && value.workspacePath === context.workspacePath &&
       name === value.leaseId + '.json' && ['active', 'released'].includes(value.state) && scratchUuid(value.processIdentity) &&
-      Array.isArray(value.consumers) && value.consumers.every(scratchId));
+      typeof value.createdAt === 'string' && Number.isFinite(Date.parse(value.createdAt)) &&
+      typeof value.updatedAt === 'string' && Number.isFinite(Date.parse(value.updatedAt)) &&
+      Array.isArray(value.consumers) && value.consumers.every(scratchId) && (value.state !== 'released' || value.consumers.length === 0));
     return value;
   });
 }
@@ -226,26 +228,59 @@ function scratchAllocate(workspace,kind,consumer) {
 }
 function scratchRelease(ownership) {
   const {context, lease, lock} = ownership;
-  scratchContext({[scratchVariable]: JSON.stringify(context)});
+  return scratchMetadata(context, () => {
+  scratchPrivate(scratchPath.join(context.directory, 'leases'));
   // Unknown or unreleased borrowers protect the complete owner, not just one
   // process's view of it. Never use a PID or timestamp to retire another lease.
   if (!ownership.borrowed && scratchLeaseRecords(context).some(value => value.leaseId !== lease.leaseId && value.state !== 'released')) return false;
-  if (scratchFs.existsSync(scratchPath.join(context.directory, '.association-lock'))) return false;
   const file = scratchPath.join(context.directory, 'leases', lease.leaseId + '.json');
   const current = scratchJson(file);
-  scratchAssert(current.processIdentity === lease.processIdentity && current.state === 'active');
+  scratchAssert(current.schemaVersion === 1 && current.ownerId === context.ownerId && current.workspacePath === context.workspacePath &&
+    current.leaseId === lease.leaseId && current.processIdentity === lease.processIdentity && current.state === 'active' &&
+    current.createdAt === lease.createdAt && typeof current.updatedAt === 'string' && Number.isFinite(Date.parse(current.updatedAt)) &&
+    JSON.stringify(current.consumers) === JSON.stringify(lease.consumers));
   scratchPublish(file, {...current, state: 'released', consumers: [], updatedAt: new Date().toISOString()});
   if (!ownership.borrowed) {scratchPrivate(lock); scratchFs.rmdirSync(lock);}
   return true;
+  });
+}
+function scratchMetadata(context, operation, waitMs = 0) {
+  scratchContext({[scratchVariable]: JSON.stringify(context)});
+  const mobile = scratchJson(context.markerPath).ownerKind === 'mobile-session';
+  // Mobile cleanup/association use this same controller fence. CLI/service
+  // controllers already hold it for their lifetime and serialize borrowers
+  // against primary release with the association fence instead.
+  const lock = scratchPath.join(context.directory, mobile ? '.controller-lock' : '.association-lock');
+  const deadline = Date.now() + waitMs;
+  while (true) {
+    try {scratchFs.mkdirSync(lock, {mode: 0o700}); break;} catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      if (Date.now() >= deadline) return false;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+    }
+  }
+  try {
+    scratchPrivate(lock);
+    scratchContext({[scratchVariable]: JSON.stringify(context)});
+    if (mobile) scratchAssert(!scratchFs.existsSync(scratchPath.join(context.directory, '.association-lock')));
+    return operation();
+  } finally {scratchFs.rmdirSync(lock);}
 }
 function scratchBorrow(context, consumer) {
   scratchAssert(scratchId(consumer));
-  scratchContext({[scratchVariable]: JSON.stringify(context)});
+  const ownership = scratchMetadata(context, () => {
+  const directory = scratchPath.join(context.directory, 'leases');
+  try {scratchFs.mkdirSync(directory, {mode: 0o700});} catch (error) {if (error.code !== 'EEXIST') throw error;}
+  scratchPrivate(directory);
+  scratchLeaseRecords(context);
   const leaseId = scratchCrypto.randomUUID(), time = new Date().toISOString();
   const lease = {schemaVersion: 1, ownerId: context.ownerId, workspacePath: context.workspacePath, leaseId,
     state: 'active', processIdentity: scratchCrypto.randomUUID(), createdAt: time, updatedAt: time, consumers: [consumer]};
   scratchPublish(scratchPath.join(context.directory, 'leases', leaseId + '.json'), lease, true);
   return {context, lease, borrowed: true};
+  }, 1000);
+  scratchAssert(ownership);
+  return ownership;
 }
 async function scratchReleaseReady(ownership) {
   const deadline = Date.now() + 3500;
@@ -257,7 +292,7 @@ async function scratchReleaseReady(ownership) {
 }
 function scratchGuardianProgram(manager, consumer, browser = false) {
   const context = scratchContext();
-  if (!context || !['cli-session', 'workspace-service'].includes(scratchJson(context.markerPath).ownerKind)) return null;
+  if (!context) return null;
   const ownership = scratchBorrow(context, consumer);
   const source = scratchFs.readFileSync(manager, 'utf8').match(/^\/\/ BEGIN SESSION SCRATCH RUNTIME\n([\s\S]*?)^\/\/ END SESSION SCRATCH RUNTIME/m);
   scratchAssert(source);
@@ -2102,14 +2137,11 @@ child.on('error',()=>process.exit(1));child.on('exit',value=>{if(!ending)code=va
     const argv=[...process.execArgv,home,'__backend',layout.workspace,executablePath||''];
     let supervisor=supervise;
     if(process.env.GESTALT_SESSION_TMP_CONTEXT) {
-      const context=JSON.parse(process.env.GESTALT_SESSION_TMP_CONTEXT),marker=JSON.parse(fs.readFileSync(context.markerPath,'utf8'));
-      if(['cli-session','workspace-service'].includes(marker.ownerKind)) {
-        const manager=process.env.GESTALT_PLAYWRIGHT_MANAGER;
-        const source=fs.readFileSync(manager,'utf8').match(/^\/\/ BEGIN SESSION SCRATCH RUNTIME\n([\s\S]*?)^\/\/ END SESSION SCRATCH RUNTIME/m);
-        if(!source)fail('temporary lifecycle runtime missing');
-        const scratch=new Function('require',source[1]+'\nreturn {scratchGuardianProgram};')(require);
-        supervisor=scratch.scratchGuardianProgram(manager,'playwright-mcp',true)||supervise;
-      }
+      const manager=process.env.GESTALT_PLAYWRIGHT_MANAGER;
+      const source=fs.readFileSync(manager,'utf8').match(/^\/\/ BEGIN SESSION SCRATCH RUNTIME\n([\s\S]*?)^\/\/ END SESSION SCRATCH RUNTIME/m);
+      if(!source)fail('temporary lifecycle runtime missing');
+      const scratch=new Function('require',source[1]+'\nreturn {scratchGuardianProgram};')(require);
+      supervisor=scratch.scratchGuardianProgram(manager,'playwright-mcp',true)||supervise;
     }
     const processChild=spawn(process.execPath,['-e',supervisor,process.execPath,JSON.stringify(argv),layout.workspace,staleToken||''],
       {cwd:layout.workspace,env:runtimeEnv(),detached:true,stdio:['pipe','pipe','pipe','pipe']});
@@ -2901,16 +2933,12 @@ async function start(state) {
     '--enable-web-dashboard', 'false', '--open-web-dashboard', 'false', '--enable-gui-log-window', 'false'];
   let supervisor = supervise;
   if (process.env.GESTALT_SESSION_TMP_CONTEXT) {
-    const context = JSON.parse(process.env.GESTALT_SESSION_TMP_CONTEXT);
-    const marker = JSON.parse(await readFile(context.markerPath, 'utf8'));
-    if (['cli-session', 'workspace-service'].includes(marker.ownerKind)) {
-      const manager = process.argv[2];
-      const source = (await readFile(manager, 'utf8')).match(/^\/\/ BEGIN SESSION SCRATCH RUNTIME\n([\s\S]*?)^\/\/ END SESSION SCRATCH RUNTIME/m);
-      if (!source) throw Error('temporary lifecycle runtime missing');
-      const {createRequire} = await import('node:module');
-      const scratch = new Function('require', source[1] + '\nreturn {scratchGuardianProgram};')(createRequire(import.meta.url));
-      supervisor = scratch.scratchGuardianProgram(manager, 'serena-mcp') ?? supervise;
-    }
+    const manager = process.argv[2];
+    const source = (await readFile(manager, 'utf8')).match(/^\/\/ BEGIN SESSION SCRATCH RUNTIME\n([\s\S]*?)^\/\/ END SESSION SCRATCH RUNTIME/m);
+    if (!source) throw Error('temporary lifecycle runtime missing');
+    const {createRequire} = await import('node:module');
+    const scratch = new Function('require', source[1] + '\nreturn {scratchGuardianProgram};')(createRequire(import.meta.url));
+    supervisor = scratch.scratchGuardianProgram(manager, 'serena-mcp') ?? supervise;
   }
   const child = spawn(process.execPath, ['-e', supervisor, 'codex', JSON.stringify(args), workspace],
     { cwd: workspace, env: process.env, stdio: ['pipe', 'pipe', 'inherit', 'pipe'] });
@@ -5001,6 +5029,29 @@ const playwrightAliases = Object.entries(servers).filter(([name, config]) => nam
 if (playwrightAliases.length) aliases.push(`mcp_servers=${toml(Object.fromEntries(playwrightAliases.map(name => [name, { enabled: false }])))}`);
 
 async function managedPlaywright(launchArgs, reportDiagnostic = () => {}, checkConsent = async () => false) {
+  // BEGIN MANAGED BROWSER SOCKET ADDRESS
+  async function managedBrowserSocket(directory) {
+    const fs = await import('node:fs/promises');
+    const {constants} = await import('node:fs');
+    const {join} = await import('node:path');
+    const endpoint = join(directory, 'frontend.sock');
+    if (Buffer.byteLength(endpoint) < 100 || process.platform !== 'linux')
+      return {endpoint, address:endpoint, close:async () => {}};
+    const handle = await fs.open(directory, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    try {
+      const info = await handle.stat();
+      if (!info.isDirectory() || (info.mode & 0o777) !== 0o700 ||
+          process.getuid && info.uid !== process.getuid() || await fs.realpath(directory) !== directory)
+        throw new Error('managed-browser-socket-directory-invalid');
+      // Keep the actual socket in its private owner. Linux resolves this short
+      // descriptor address to that same directory for bind and native connect.
+      const address = `/proc/${process.pid}/fd/${handle.fd}/frontend.sock`;
+      const target = await fs.stat(`/proc/${process.pid}/fd/${handle.fd}`);
+      if (target.dev !== info.dev || target.ino !== info.ino) throw new Error('managed-browser-socket-directory-changed');
+      return {endpoint, address, close:() => handle.close()};
+    } catch (error) {await handle.close(); throw error;}
+  }
+  // END MANAGED BROWSER SOCKET ADDRESS
   const budget = playwrightBudget;
   const fs = await import('node:fs/promises');
   const { createServer } = await import('node:http');
@@ -5038,7 +5089,7 @@ async function managedPlaywright(launchArgs, reportDiagnostic = () => {}, checkC
   await fs.chmod(sessionRecords, 0o700);
   const rootDir = await fs.mkdtemp(join(tmpdir(), 'gestalt-cli-playwright-'));
   await fs.chmod(rootDir, 0o700);
-  const endpoint = join(rootDir, 'frontend.sock');
+  let socketAddress;
   let backend, backendGroup, backendLease, frontend, tui, rootThread, rootParameters, nativeBaseline, initializeParams, readinessChild, shutdown = false;
   // Replay the actual composed CLI session configuration into each owned
   // backend. The TUI may send sparse auxiliary overlays, which depend on these
@@ -5241,7 +5292,7 @@ async function managedPlaywright(launchArgs, reportDiagnostic = () => {}, checkC
     clearTimeout(timer); signal('SIGKILL');
   };
   const startBackend = () => {
-    if(cliOwned)backendLease=scratchApi.scratchBorrow(JSON.parse(environment.GESTALT_SESSION_TMP_CONTEXT),'cli-browser-runtime');
+    if(scratchApi)backendLease=scratchApi.scratchBorrow(JSON.parse(environment.GESTALT_SESSION_TMP_CONTEXT),'cli-browser-runtime');
     const child = spawn('codex', ['app-server', '--stdio', ...backendFlags], { cwd: workspace, env: environment,
       detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
     backend = child; backendGroup = child.pid;
@@ -5407,12 +5458,13 @@ async function managedPlaywright(launchArgs, reportDiagnostic = () => {}, checkC
     });
   });
   try {
+    socketAddress = await managedBrowserSocket(rootDir);
     startBackend();
-    await new Promise((resolve, reject) => { http.once('error', reject); http.listen(endpoint, resolve); });
-    await fs.chmod(endpoint, 0o600);
+    await new Promise((resolve, reject) => { http.once('error', reject); http.listen(socketAddress.address, resolve); });
+    await fs.chmod(socketAddress.endpoint, 0o600);
     // User-specified remote endpoints and noninteractive subcommands never
     // enter this dedicated-runtime path. Native arguments remain intact.
-    tui = spawn('codex', ['--remote', `unix://${endpoint}`, ...launchArgs], { cwd: process.cwd(), env: environment,
+    tui = spawn('codex', ['--remote', `unix://${socketAddress.address}`, ...launchArgs], { cwd: process.cwd(), env: environment,
       stdio: [3, 'inherit', 'inherit'] });
     currentChild = tui;
     const code = await new Promise(resolve => { tui.once('error', () => resolve(127)); tui.once('exit', code => resolve(code ?? 143)); });
@@ -5422,8 +5474,8 @@ async function managedPlaywright(launchArgs, reportDiagnostic = () => {}, checkC
     if (readinessChild?.pid) try { process.kill(-readinessChild.pid, 'SIGTERM'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
     frontend?.terminate(); websocket.close();
     await new Promise(resolve => http.close(resolve));
-    await stopBackend();
-    await fs.rm(rootDir, { recursive: true, force: true });
+    try {await stopBackend();}
+    finally {await socketAddress?.close(); await fs.rm(rootDir, { recursive: true, force: true });}
   }
 }
 const interactivePlaywright = !args.some(arg => ['exec', 'e', 'review', '--no-daemon', '--worktree'].includes(arg)) && !remote;

@@ -12,6 +12,13 @@ import test from 'node:test';
 const manager = new URL('../public/gestalt', import.meta.url).pathname;
 const secret = 'private-lifecycle-test-key';
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function closeListener(server) {
+  server.closeAllConnections?.();
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('fixture listener close deadline')), 1000);
+    server.close(() => { clearTimeout(timer); resolve(); });
+  });
+}
 async function freePort() {
   const server = createServer();
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -21,12 +28,17 @@ async function freePort() {
 }
 async function fixture(t, mode = 'healthy', port, automatic = false) {
   port ??= await freePort();
-  const temp = await mkdtemp(join(tmpdir(), 'xerj life '));
-  const root = join(temp, 'home space'), binary = join(root, 'xerj', 'xerj');
+  const temp = await mkdtemp(join(tmpdir(), 'x '));
+  const root = join(temp, 'h'), binary = join(root, 'xerj', 'xerj');
   const starts = join(temp, 'starts.ndjson');
   const endpoint = `http://127.0.0.1:${port}`;
   const name = createHash('sha256').update(endpoint).digest('hex').slice(0, 16);
   const directory = join(root, 'xerj-data', '.lifecycle');
+  const socket = join(directory, `${name}.sock`);
+  if (Buffer.byteLength(socket) > 107) {
+    await rm(temp, {recursive:true,force:true});
+    assert.fail('fixture Unix control path exceeds 107-byte budget');
+  }
   const lock = join(directory, `${name}.lock`), record = join(directory, `${name}.json`);
   await mkdir(join(root, 'xerj'), { recursive: true });
   await writeFile(binary, `#!${process.execPath}
@@ -45,7 +57,8 @@ else if (args[0] === 'mcp') {
     console.log(JSON.stringify({ jsonrpc: '2.0', id: q.id, result }));
   });
 } else {
-  fs.appendFileSync(${JSON.stringify(starts)}, JSON.stringify({ pid: process.pid, args, env: process.env }) + '\\n');
+  const identity=process.platform==='linux'?fs.readFileSync('/proc/self/stat','utf8').split(') ').at(-1).split(' ')[19]:undefined;
+  fs.appendFileSync(${JSON.stringify(starts)}, JSON.stringify({ pid: process.pid, identity, args, env: process.env }) + '\\n');
   const data = args[args.indexOf('--data-dir') + 1];
   fs.writeFileSync(require('node:path').join(data, 'admin.key'), secret, { mode: 0o600 });
   console.error(secret.repeat(10000));
@@ -71,17 +84,30 @@ else if (args[0] === 'mcp') {
     let stdout = '', stderr = '';
     child.stdout.on('data', chunk => stdout += chunk);
     child.stderr.on('data', chunk => stderr += chunk);
+    // Register before the cancellation wait: an early launch failure can close
+    // while no starts file exists, and that event must not be lost.
+    const exited = new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
+    let timedOut=false, killTimer;
+    const timer=setTimeout(()=>{
+      timedOut=true;
+      if(child.exitCode===null&&child.signalCode===null)child.kill('SIGTERM');
+      killTimer=setTimeout(()=>{if(child.exitCode===null&&child.signalCode===null)child.kill('SIGKILL');},500);
+    },8000);
+    try {
     if (cancel) {
       for (let attempt = 0; attempt < 200; attempt++) {
+        if(child.exitCode!==null||child.signalCode!==null)break;
         try { await readFile(starts); break; } catch { await pause(5); }
       }
-      child.kill('SIGTERM');
+      if(child.exitCode===null&&child.signalCode===null)child.kill('SIGTERM');
     }
-    const code = await new Promise(resolve => child.on('close', resolve));
+    const code = await exited;
+    assert.equal(timedOut,false,'fixture manager command exceeded bounded deadline');
     assert.equal(code, 0, stderr);
     assert.equal(stderr, '');
     assert.ok(!stdout.includes(secret));
     return JSON.parse(stdout);
+    } finally {clearTimeout(timer);clearTimeout(killTimer);}
   }
   async function launched() {
     try { return (await readFile(starts, 'utf8')).trim().split('\n').map(JSON.parse); }
@@ -97,9 +123,23 @@ else if (args[0] === 'mcp') {
     assert.fail('owned server was not reaped');
   }
   t.after(async () => {
-    await run('stop').catch(() => {});
-    await noServers();
-    await rm(temp, { recursive: true, force: true });
+    let failure;
+    try {await run('stop');await noServers();}
+    catch(error){
+      failure=error;
+      // Settle only this fixture's positively captured, still-live processes.
+      // Never signal a numeric PID after its creation identity has changed.
+      for(const record of await launched())for(const signal of ['SIGTERM','SIGKILL']){
+        if(process.platform!=='linux'||!record.identity)continue;
+        try{
+          const fields=(await readFile('/proc/'+record.pid+'/stat','utf8')).split(') ').at(-1).split(' ');
+          if(fields[19]!==record.identity||fields[0]==='Z')break;
+          process.kill(record.pid,signal);await pause(150);
+        }catch(error){if(['ENOENT','ESRCH'].includes(error.code))break;throw error;}
+      }
+      await noServers();
+    }finally{await rm(temp, { recursive: true, force: true });}
+    if(failure)throw failure;
   });
   return { root, binary, endpoint, directory, lock, record, run, launched, noServers, commands };
 }
@@ -196,7 +236,7 @@ test('automatic startup replaces an occupied saved endpoint without changing exp
   const f = await fixture(t, 'healthy', undefined, true);
   const foreign = createServer((request, response) => { response.writeHead(401); response.end(); });
   await new Promise(resolve => foreign.listen(0, '127.0.0.1', resolve));
-  t.after(() => new Promise(resolve => foreign.close(resolve)));
+  t.after(() => closeListener(foreign));
   const endpoint = `http://127.0.0.1:${foreign.address().port}`;
   await mkdir(f.directory, { recursive: true });
   await writeFile(join(f.directory, 'endpoint.json'), JSON.stringify({ schemaVersion: 1, endpoint }));
@@ -212,7 +252,7 @@ test('automatic startup retries when another listener wins the backend bind race
   await mkdir(f.directory, { recursive: true });
   await writeFile(join(f.directory, 'endpoint.json'), JSON.stringify({ schemaVersion: 1, endpoint: f.endpoint }));
   const foreign = createServer((request, response) => { response.writeHead(401); response.end(); });
-  t.after(() => new Promise(resolve => foreign.close(resolve)));
+  t.after(() => closeListener(foreign));
   const startup = f.run('ensure-ready', { XERJ_READY_TIMEOUT_MS: '5000' });
   for (let i = 0; i < 200 && !(await f.launched()).length; i++) await pause(5);
   assert.equal((await f.launched()).length, 1, 'backend launch must precede competing bind');
@@ -309,7 +349,7 @@ test('stale server PID record cannot stop a reused or unrelated process', async 
 test('unrelated port listener is preserved, never replaced or stopped', async t => {
   const listener = createServer((_, response) => response.end('{"service":"other"}'));
   await new Promise(resolve => listener.listen(0, '127.0.0.1', resolve));
-  t.after(() => { listener.closeAllConnections(); listener.close(); });
+  t.after(() => closeListener(listener));
   const f = await fixture(t, 'healthy', listener.address().port);
   assert.equal((await f.run('ensure-ready')).reason, 'endpoint-in-use');
   assert.equal((await f.run('stop')).reason, 'not-managed');
@@ -323,7 +363,7 @@ test('compatible adopted backend is reused and explicit stop refuses it', async 
       ? JSON.stringify({ cluster_name: 'xerj', status: 'green', timed_out: false, number_of_nodes: 1 }) : '[]');
   });
   await new Promise(resolve => listener.listen(0, '127.0.0.1', resolve));
-  t.after(() => { listener.closeAllConnections(); listener.close(); });
+  t.after(() => closeListener(listener));
   const f = await fixture(t, 'healthy', listener.address().port);
   const result = await f.run('ensure-ready', { XERJ_API_KEY: secret });
   assert.equal(result.status, 'ready'); assert.equal(result.ownership, 'adopted');
@@ -401,6 +441,7 @@ test('malformed or unauthorized control requests cannot disrupt a shared backend
   for (const input of ['null\n', '{invalid\n', '{"token":"wrong","method":"stop"}\n']) {
     await new Promise((resolve, reject) => {
       const client = net.createConnection(socketPath);
+      client.setTimeout(1000,()=>client.destroy(new Error('fixture control client deadline')));
       client.on('error', reject); client.on('close', resolve);
       client.on('connect', () => client.write(input));
     });
@@ -414,7 +455,9 @@ test('explicit stop waits for ownership acknowledgment within its overall deadli
   await mkdir(f.directory, { recursive: true, mode: 0o700 });
   const token = 'd'.repeat(48);
   await writeFile(f.record, JSON.stringify({ root: f.root, endpoint: f.endpoint, token }), { mode: 0o600 });
+  const connections=new Set();
   const owner = net.createServer(client => {
+    connections.add(client);client.once('close',()=>connections.delete(client));
     let input = '';
     client.on('data', chunk => {
       input += chunk;
@@ -430,5 +473,5 @@ test('explicit stop waits for ownership acknowledgment within its overall deadli
     const began = performance.now();
     assert.equal((await f.run('stop')).status, 'stopped');
     assert.ok(performance.now() - began >= 300);
-  } finally { await new Promise(resolve => owner.close(resolve)); }
+  } finally {for(const client of connections)client.destroy();await closeListener(owner);}
 });

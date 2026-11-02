@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
-import {sessionScratch} from './session-scratch-fixture.mjs';
+import {sessionScratch,mobileResourceLease} from './session-scratch-fixture.mjs';
 
 const source = await readFile(resolve('public/gestalt'), 'utf8');
 const prepare = source.split("serena_workspace_prepare() {\n  cat <<'PYTHON'\n")[1].split('\nPYTHON\n}')[0];
@@ -47,10 +47,28 @@ class ProjectConfig:
   await writeFile(executable, `#!/usr/bin/env python3\nimport os,json,sys\nprint(json.dumps({'env':dict(os.environ),'args':sys.argv[1:]}))\n`, { mode: 0o755 });
   const settings = { python: '/usr/bin/python3', uv: join(root, 'uv'), pythonInstallDir: join(root, 'python') };
   const env = { ...process.env, HOME: home, PYTHONPATH: stubs };
+  // The fixture root already uses the host's chosen temporary directory.
+  // Default child cases exercise the no-operator fallback explicitly.
+  for (const key of ['GESTALT_SESSION_TMP_CONTEXT','TMPDIR','TMP','TEMP']) delete env[key];
   const boot = (cwd = workspace) => run('python3', ['-c', prepare, cwd, executable, JSON.stringify(settings),
     'start-mcp-server', '--project', cwd, '--context', 'codex', '--mode', 'editing'], env);
   return { root, workspace, home, boot, env, settings, close: () => rm(root, { recursive: true, force: true }) };
 }
+
+test('standalone Serena preserves explicit operator temporary roots while persistent state stays in the project', async () => {
+  const f=await fixture();
+  try {
+    const operator={TMPDIR:join(f.root,'operator tmpdir'),TMP:join(f.root,'operator tmp'),TEMP:join(f.root,'operator temp')};
+    for(const path of Object.values(operator))await mkdir(path,{mode:0o700});
+    Object.assign(f.env,operator);
+    const result=await f.boot();assert.equal(result.code,0,result.stderr);const output=JSON.parse(result.stdout);
+    assert.equal(output.env.GESTALT_SESSION_TMP_CONTEXT,undefined);
+    for(const [key,path]of Object.entries(operator))assert.equal(output.env[key],path);
+    for(const key of ['SERENA_HOME','HOME','UV_TOOL_DIR','UV_TOOL_BIN_DIR','UV_CACHE_DIR','XDG_CACHE_HOME',
+      'XDG_CONFIG_HOME','XDG_DATA_HOME','XDG_STATE_HOME','PYTHONPYCACHEPREFIX','PYTHONUSERBASE','npm_config_cache'])
+      assert.ok(output.env[key].startsWith(join(f.workspace,'.gestalt/serena')),key+' persistent root changed');
+  } finally {await f.close();}
+});
 
 test('Serena keeps managed scratch across workspace preparation while persistent caches remain in project state', async () => {
   const f = await fixture();
@@ -302,6 +320,7 @@ test('managed MCP carries retained interpreter targets into actual workspace pre
   const f = await fixture();
   let child, lines;
   try {
+    const scratch=await sessionScratch(f.workspace),parent=await mobileResourceLease(scratch),observation=join(f.root,'mobile-native.json');
     const state=join(f.workspace,'.gestalt/serena'), bin=join(state,'uv-cache/archive-v0/prior/bin');
     const previous=join(f.root,'previous-python'), managed=join(f.root,'managed'), commands=join(f.root,'commands');
     await mkdir(bin,{recursive:true});await mkdir(join(managed,'serena'),{recursive:true});await mkdir(commands);
@@ -309,7 +328,8 @@ test('managed MCP carries retained interpreter targets into actual workspace pre
     const catalog=['get_symbols_overview','find_symbol','initial_instructions','replace_symbol_body'].map(name=>({name,inputSchema:{type:'object'}}));
     const native=join(f.root,'mcp-native');
     await writeFile(native,`#!/usr/bin/env python3
-import sys,json
+import sys,json,os
+with open(${JSON.stringify(observation)},'w') as capture:capture.write(json.dumps({'pid':os.getpid(),'env':{k:os.environ[k] for k in ['GESTALT_SESSION_TMP_CONTEXT','TMPDIR','TMP','TEMP']}}))
 for line in sys.stdin:
  message=json.loads(line)
  if 'id' not in message:continue
@@ -328,7 +348,7 @@ os.execv(args[0],args)
     const descriptor={schemaVersion:1,contractVersion:1,version:'1.7.0',python:'/usr/bin/python3',
       executable:native,uv:f.settings.uv,pythonInstallDir:f.settings.pythonInstallDir,pythonExecutables:[previous],tools:catalog};
     await writeFile(join(managed,'serena/active.json'),JSON.stringify(descriptor));
-    const env={...f.env,PATH:commands+':'+process.env.PATH,CODEX_HOME:join(f.root,'codex'),GESTALT_HOME:managed};
+    const env={...f.env,...scratch.environment,PATH:commands+':'+process.env.PATH,CODEX_HOME:join(f.root,'codex'),GESTALT_HOME:managed};
     const policy={permissionProfile:{type:'managed',file_system:{type:'restricted',entries:[
       {path:{type:'special',value:{kind:'root'}},access:'read'},
       {path:{type:'path',path:f.workspace},access:'write'}]},network:'enabled'},
@@ -345,6 +365,17 @@ os.execv(args[0],args)
     const message=await response;assert.ok(!message.error,JSON.stringify(message.error)+' '+stderr);
     assert.equal(message.result.content[0].text,'prepared retained cache');
     assert.equal(await readFile(previous,'utf8'),'retained immutable interpreter');
+    const nativeObservation=JSON.parse(await readFile(observation,'utf8'));assert.deepEqual(nativeObservation.env,scratch.environment);
+    const leases=join(scratch.context.directory,'leases');
+    const records=await Promise.all((await readdir(leases)).map(async name=>({path:join(leases,name),value:JSON.parse(await readFile(join(leases,name),'utf8'))})));
+    const borrower=records.find(record=>record.value.consumers.includes('serena-mcp'));
+    assert.ok(borrower,'Mobile detached Serena borrower not published');assert.equal(borrower.value.state,'active');
+    await writeFile(parent.path,JSON.stringify({...parent.lease,state:'released',consumers:[]}));
+    assert.equal(JSON.parse(await readFile(borrower.path,'utf8')).state,'active');
+    const exited=new Promise(r=>child.once('exit',r));child.stdin.end();await exited;
+    assert.equal(JSON.parse(await readFile(borrower.path,'utf8')).state,'released');
+    assert.throws(()=>process.kill(nativeObservation.pid,0),/ESRCH/);
+    assert.throws(()=>process.kill(-nativeObservation.pid,0),/ESRCH/);
   } finally {
     if(child){child.stdin.end();if(child.exitCode===null)await new Promise(r=>child.once('exit',r));}
     lines?.close();await f.close();

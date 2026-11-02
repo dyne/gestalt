@@ -448,6 +448,7 @@ const environment={...process.env},cwd=${JSON.stringify(workspace)},manager=${JS
 const playwrightName='gestalt-playwright',playwrightConfig={enabled:true},playwrightSkill={},state={version:'codex 0.160.0'};
 // This extracted controller fixture represents a launch without CLI scratch ownership.
 const cliOwned=false;
+let scratchApi;
 const scratchNames=['GESTALT_SESSION_TMP_CONTEXT','TMPDIR','TMP','TEMP'];
 const usableGuidance=async()=> 'VERIFIED_BROWSER_GUIDANCE';
 let currentChild;

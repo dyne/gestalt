@@ -115,3 +115,33 @@ publishes active metadata while holding the fence; release publishes only
 after confirmed shutdown and removes the fence last. Unknown/partial locks or
 leases are preserved. These files grant no authority to delete arbitrary paths.
 Stopping the CLI retains its directory; deletion belongs to later cleanup.
+## Mobile detached tool borrowers and long Unix socket paths
+
+Validated Mobile owners use the same v1 borrower records as CLI and service
+owners. A Mobile marker retains its `mobile-roster` authority; a tool never
+invents a primary CLI lease or changes the marker. Before launching a detached
+Serena, Playwright or existing browser-broker backend, the launcher publishes
+its own private active lease. It creates a missing private `leases` directory
+under the owner's controller fence and validates an existing directory. A
+Mobile resource controller may release its own lease while a detached tool
+borrower remains active; cleanup must inspect every lease.
+
+Mobile borrower publication and release briefly claim `.controller-lock`, the
+same fence used by Mobile cleanup and association. Existing or crashed fences
+are never stolen. CLI/service controllers retain their lifetime controller
+fence; their borrower publication and primary release serialize through
+`.association-lock`. Unknown, malformed and partially published metadata stay
+protected. A borrower releases only its exact claim after the guardian confirms
+the complete owned process group absent. EOF and TERM initiate owned shutdown;
+an unconfirmed or hard-killed guardian leaves its active lease intact.
+
+The optional browser broker keeps its private Unix socket inside its managed
+temporary directory. A confirmed long-owner-path failure exceeded the Unix
+socket address limit. On Linux the broker holds an open directory descriptor
+and binds/connects through `/proc/<broker-pid>/fd/<descriptor>/frontend.sock`.
+This addresses the same socket file under the owner, with mode 0600; it neither
+relocates scratch nor introduces a network listener. The descriptor stays open
+through frontend/backend shutdown. Short socket paths retain their existing
+address. Other platforms preserve their existing socket address and surface
+unsupported-path errors; there is no outside-owner fallback. Native arguments, stdin and
+the existing Unix transport/control protocol remain unchanged.

@@ -4,6 +4,9 @@ repo_root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 test_root=$(mktemp -d "${TMPDIR:-/tmp}/gestalt-xerj-test.XXXXXXXX")
 test_root=$(CDPATH='' cd -- "$test_root" && pwd -P)
 trap 'rm -rf -- "$test_root"' EXIT
+# Allocate under the host's selected temporary root, then isolate the profile
+# fallback cases from operator/session temporary settings.
+unset TMPDIR TMP TEMP GESTALT_SESSION_TMP_CONTEXT
 mkdir -p "$test_root/bin" "$test_root/source" "$test_root/managed home"
 export GESTALT_HOME="$test_root/managed home"
 export CODEX_HOME="$GESTALT_HOME"
@@ -222,6 +225,23 @@ for key in ['TMPDIR','XDG_CACHE_HOME','XDG_CONFIG_HOME','XDG_DATA_HOME','HF_HOME
     assert env[key].startswith(str(root/'xerj-data')+'/'), (key,env[key])
 assert env['GESTALT_HOME']==str(root)
 assert env['XERJ_INSTALL_DIR']==str(root/'xerj')
+PY
+assertions=$((assertions + 1))
+mkdir -p "$test_root/operator tmpdir" "$test_root/operator tmp" "$test_root/operator temp"
+TMPDIR="$test_root/operator tmpdir" TMP="$test_root/operator tmp" TEMP="$test_root/operator temp" \
+  "${manager[@]}" xerj autoindex "$test_root/source" --dry-run --json </dev/null > /dev/null 2> /dev/null
+python3 - "$GESTALT_HOME" "$test_root/operator tmpdir" "$test_root/operator tmp" "$test_root/operator temp" <<'PY'
+import json, pathlib, sys
+import hashlib
+root=pathlib.Path(sys.argv[1]); record=json.loads((root/'xerj/forwarded.json').read_text()); env=record['env']
+prefix='ax-'+hashlib.sha256(str(root.parent/'source').encode()).hexdigest()[:16]
+assert record['args']==['autoindex','--state-dir',str(root/'xerj-data/autoindex'/prefix),
+                        str(root.parent/'source'),'--dry-run','--json','--prefix',prefix]
+assert 'GESTALT_SESSION_TMP_CONTEXT' not in env
+for key, expected in zip(['TMPDIR','TMP','TEMP'],sys.argv[2:]):
+    assert env[key] == expected, (key,env[key])
+for key in ['XDG_CACHE_HOME','XDG_CONFIG_HOME','XDG_DATA_HOME','HF_HOME']:
+    assert env[key].startswith(str(root/'xerj-data')+'/'), (key,env[key])
 PY
 assertions=$((assertions + 1))
 "${manager[@]}" xerj -- --version </dev/null > /dev/null 2> /dev/null

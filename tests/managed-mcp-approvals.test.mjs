@@ -33,6 +33,8 @@ test('only owned servers/tools are preapproved; allowlists, off states and permi
   assert.deepEqual(result.mcp_servers['gestalt-playwright'].enabled_tools,browser.enabled_tools);
   assert.deepEqual(result.mcp_servers['gestalt-playwright'].disabled_tools,browser.disabled_tools);
   assert.equal(result.mcp_servers['gestalt-serena'].tools.replace_symbol_body.output_token_limit,2000);
+  for(const name of ['gestalt-playwright','gestalt-serena','gestalt-xerj','context-mode'])
+    assert.deepEqual(result.mcp_servers[name].env_vars,['GESTALT_SESSION_TMP_CONTEXT','TMPDIR','TMP','TEMP']);
   assert.deepEqual(result.mcp_servers.third,baseline.mcp_servers.third);
   assert.deepEqual(result.plugins['unrelated@market'],baseline.plugins['unrelated@market']);
   assert.equal(result.plugins['context-mode@dyne-gestalt-agents'].enabled,false);

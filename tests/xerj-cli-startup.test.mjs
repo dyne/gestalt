@@ -147,7 +147,7 @@ for (const mode of ['healthy', 'absent', 'bad-auth', 'timeout', 'incompatible', 
         assert.ok(launch.some(arg => arg.startsWith('hooks.state=') && arg.includes('sha256:kept')));
         assert.ok(launch.some(arg => arg.includes('required"=true')));
         assert.ok(launch.some(arg => arg.includes('startup_readiness"="connection"')));
-        assert.ok(launch.some(arg => arg.includes('env_vars"=["CODEX_HOME","GESTALT_HOME","XERJ_API_KEY","XERJ_AUTH"]')));
+        assert.ok(launch.some(arg => arg.includes('env_vars"=["CODEX_HOME","GESTALT_HOME","XERJ_API_KEY","XERJ_AUTH","GESTALT_SESSION_TMP_CONTEXT","TMPDIR","TMP","TEMP"]')));
       } else assert.ok(launch.some(arg => arg.startsWith('mcp_servers.gestalt-xerj=') && arg.includes('enabled"=false')));
       assert.ok(!JSON.stringify(launch).includes('do-not-expose-secret'));
       assert.ok(!result.stderr.includes('do-not-expose-secret'));

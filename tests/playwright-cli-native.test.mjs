@@ -192,6 +192,41 @@ for (const mode of modes) test(`native TUI ${mode} retains session across pendin
   const userOverride = `mcp_servers.fixture-user={command=${JSON.stringify(manager)},args=["unrelated"],enabled=true}`;
   const nativeArguments = ['--no-alt-screen', '-c', userOverride, 'ROOT_FIXTURE'];
   const eventsPath = join(root, 'private-events.jsonl');
+  const witnessDir = mode === 'profile-child' ? process.env.GESTALT_PLAYWRIGHT_CLI_WITNESS_DIR : undefined;
+  const witnessTrace = join(root, 'mcp-process-events.jsonl'), witnessPhase = join(root, 'mcp-phase.json'), witnessSnapshots = [];
+  const processEvents = async () => (await readFile(witnessTrace, 'utf8').catch(error => {
+    if (error.code === 'ENOENT') return ''; throw error;
+  })).trim().split('\n').filter(Boolean).map(JSON.parse).slice(-256);
+  const snapshotProcesses = async (scope, browser, childAuthorityDenied) => {
+    if (!witnessDir) return;
+    const row = {at: new Date().toISOString(), phase, scope, browser, childAuthorityDenied, processes: []};
+    await writeFile(witnessPhase, JSON.stringify({phase, scope}));
+    for (const start of (await processEvents()).filter(event => event.kind === 'start')) {
+      try {
+        const fields = (await readFile('/proc/' + start.pid + '/stat', 'utf8')).split(') ').at(-1).split(' ');
+        const sameHome = (await readFile('/proc/' + start.pid + '/environ', 'utf8')).split('\0').includes('CODEX_HOME=' + home);
+        row.processes.push({pid:start.pid, ppid:Number(fields[1]), identity:fields[19], state:fields[0],
+          verified: fields[19] === start.identity && sameHome, absent:false});
+      } catch (error) {
+        if (!['ENOENT','ESRCH'].includes(error.code)) throw error;
+        row.processes.push({pid:start.pid, identity:start.identity, absent:true});
+      }
+    }
+    if (witnessSnapshots.length < 128) witnessSnapshots.push(row);
+  };
+  const saveWitness = async (outcome, error) => {
+    if (!witnessDir) return;
+    await snapshotProcesses('terminal-' + outcome, false, undefined);
+    await mkdir(witnessDir, {recursive:true, mode:0o700});
+    const file = join(witnessDir, 'profile-child-witness-' + Date.now() + '-' + process.pid + '.json');
+    const runtime = (await events()).map(event => ({stage:event.stage, message:event.message,
+      pid:event.cause?.pid, threadId:event.cause?.threadId})).slice(-128);
+    await writeFile(file, JSON.stringify({mode,outcome,error:error?.message,
+      authority:'Fixture manager serves MCP transports, not browser owner leases; child lifecycle authority is checked separately.',
+      sourceSha256:createHash('sha256').update(source).digest('hex'),
+      processes:await processEvents(), snapshots:witnessSnapshots, runtime}, null, 2), {mode:0o600});
+    t.diagnostic('process witness: ' + file);
+  };
   const env = { ...process.env, CODEX_HOME: home, GESTALT_HOME: managed, GESTALT_MANAGER_BIN: browserManager,
     TERM: 'xterm-256color', PATH: dirname(nativeCodex) + ':' + resolve('node_modules/.bin') + ':' + process.env.PATH };
   for (const key of Object.keys(env)) if (key.startsWith('CONTEXT_MODE_') || key.startsWith('GESTALT_MOBILE_') || key.startsWith('GESTALT_ORG_PLAN_')) delete env[key];
@@ -212,6 +247,8 @@ for (const mode of modes) test(`native TUI ${mode} retains session across pendin
       const seed = latestUser.includes('SEED_NATIVE_THREAD');
       const child = latestUser.includes('CHILD_AUTHORITY_FIXTURE');
       const auxiliary = (!lifecycle && !(ordinary && tools.some(tool => tool.name?.includes('fixture_user_read')))) || seed;
+      await snapshotProcesses(child ? 'child' : auxiliary ? 'auxiliary' : 'root', browser,
+        child && JSON.stringify(input.input).includes('root-supervisor-required-or-invalid-request'));
       if (planMode && !auxiliary && phase === 0) {
         const planSchema = (lifecycle.parameters ?? lifecycle.inputSchema)?.properties?.plan;
         assert.equal(planSchema?.type, 'string', 'persisted plan control schema unavailable');
@@ -330,9 +367,22 @@ const fs=require('node:fs');
 fs.appendFileSync(${JSON.stringify(join(root, 'manager-calls'))},JSON.stringify(process.argv.slice(2))+'\\n');
 if(process.argv[2]==='playwright'&&process.argv[3]==='doctor'){console.log(JSON.stringify({schemaVersion:1,contractVersion:1,ready:true,package:{ready:true},chrome:{ready:true},node:{ready:true}}));process.exit(0);}
 const browser=!process.argv.includes('unrelated');
+const witness=${JSON.stringify(Boolean(witnessDir))}&&browser&&process.argv[3]==='mcp';
+let witnessRows=0;
+const witnessRecord=(kind,extra={})=>{
+ if(!witness||witnessRows++>=32)return;
+ let phase;try{phase=JSON.parse(fs.readFileSync(${JSON.stringify(witnessPhase)},'utf8'));}catch{}
+ const fields=fs.readFileSync('/proc/self/stat','utf8').split(') ').at(-1).split(' ');
+ fs.appendFileSync(${JSON.stringify(witnessTrace)},JSON.stringify({kind,at:new Date().toISOString(),pid:process.pid,ppid:process.ppid,identity:fields[19],phase,...extra})+'\\n');
+};
+witnessRecord('start');
+process.once('exit',code=>witnessRecord('natural-exit',{code}));
+process.stdin.once('end',()=>witnessRecord('stdio-end'));
+process.stdin.once('close',()=>witnessRecord('stdio-close'));
 if(browser&&${JSON.stringify(mode)}==='profile-server-exit')process.exit(1);
 require('node:readline').createInterface({input:process.stdin}).on('line',line=>{
  const m=JSON.parse(line);if(m.id===undefined)return;let result={};
+ witnessRecord('rpc',{method:m.method,tool:m.method==='tools/call'?m.params?.name:undefined});
  if(m.method==='initialize')result={protocolVersion:m.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:'fixture',version:'1'}};
  if(m.method==='tools/list'&&browser&&${JSON.stringify(mode)}==='profile-timeout')return;
  if(m.method==='tools/list')result={tools:(!browser?['fixture_user_read']:${JSON.stringify(mode)}==='profile-empty-tools'?[]:['browser_navigate','browser_snapshot','browser_take_screenshot']).map(name=>({name,description:'Fixture tool',inputSchema:{type:'object',properties:{}},annotations:{readOnlyHint:true}}))};
@@ -396,6 +446,9 @@ import {resolve} from 'node:path';
 import {appendFileSync} from 'node:fs';
 const environment={...process.env},cwd=${JSON.stringify(workspace)},manager=${JSON.stringify(manager)},playwrightBudget=5000,flags=[];
 const playwrightName='gestalt-playwright',playwrightConfig={enabled:true},playwrightSkill={},state={version:'codex 0.160.0'};
+// This extracted controller fixture represents a launch without CLI scratch ownership.
+const cliOwned=false;
+const scratchNames=['GESTALT_SESSION_TMP_CONTEXT','TMPDIR','TMP','TEMP'];
 const usableGuidance=async()=> 'VERIFIED_BROWSER_GUIDANCE';
 let currentChild;
 for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>{currentChild?.kill(signal);setTimeout(()=>currentChild?.kill('SIGKILL'),2000).unref();});
@@ -544,7 +597,9 @@ const result=await managedPlaywright(${JSON.stringify(nativeArguments)},(stage,e
       realVerified = true;
     }
     t.diagnostic(JSON.stringify({ catalogs, managerCalls: managerCalls.length }));
+    await saveWitness('passed');
   } catch (error) {
+    await saveWitness('failed', error);
     t.diagnostic(JSON.stringify({ phase, catalogs, fixtureErrors:fixtureErrors.slice(-3), exampleVerified, events: (await events()).slice(-12) }));
     t.diagnostic('terminal tail: ' + output.slice(-1800).replaceAll('\x1b', '<ESC>') + stderr);
     throw error;

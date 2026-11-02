@@ -66,7 +66,7 @@ else if (args[0] === 'mcp') {
   let commands = [];
   async function run(operation, overrides = {}, cancel = false, cwd = root) {
     const env = { HOME: process.env.HOME, PATH: process.env.PATH, GESTALT_HOME: root, CODEX_HOME: root, XERJ_URL: automatic ? undefined : endpoint, XERJ_READY_TIMEOUT_MS: '2500', ...overrides };
-    const child = spawn('bash', [manager, 'xerj', operation], { env, cwd });
+    const child = spawn('bash', [manager, 'xerj', ...(Array.isArray(operation) ? operation : [operation])], { env, cwd });
     commands.push(child.pid);
     let stdout = '', stderr = '';
     child.stdout.on('data', chunk => stdout += chunk);
@@ -103,6 +103,27 @@ else if (args[0] === 'mcp') {
   });
   return { root, binary, endpoint, directory, lock, record, run, launched, noServers, commands };
 }
+
+test('shared backend owns workspace-service scratch across caller exit and reuse from another workspace', async t => {
+  const f = await fixture(t), first = join(f.root, 'workspace one'), second = join(f.root, 'workspace two');
+  await mkdir(first); await mkdir(second);
+  const ready = await f.run(['ensure-ready', '--cwd', first]); assert.equal(ready.status, 'ready');
+  const starts = await f.launched(); assert.equal(starts.length, 1);
+  const context = JSON.parse(starts[0].env.GESTALT_SESSION_TMP_CONTEXT);
+  assert.equal(context.workspacePath, first); assert.match(context.ownerId, /^service-/);
+  for (const key of ['TMPDIR', 'TMP', 'TEMP']) assert.equal(starts[0].env[key], context.directory);
+  const marker = JSON.parse(await readFile(context.markerPath, 'utf8'));
+  const lease = join(context.directory, 'leases', marker.authority.leaseId+'.json');
+  assert.equal(JSON.parse(await readFile(lease, 'utf8')).state, 'active');
+  await f.run(['ensure-ready', '--cwd', second]);
+  assert.equal((await f.launched()).length, 1);
+  assert.equal(JSON.parse(await readFile(lease, 'utf8')).state, 'active');
+  await assert.rejects(stat(join(second, 'tmp')), {code: 'ENOENT'});
+  const index = join(f.root, 'xerj-data', 'retained-index'); await writeFile(index, 'persistent');
+  const stopped = await f.run('stop'); assert.equal(stopped.status, 'stopped'); await f.noServers();
+  assert.equal(JSON.parse(await readFile(lease, 'utf8')).state, 'released');
+  assert.equal(await readFile(index, 'utf8'), 'persistent');
+});
 
 test('automatic endpoints avoid another installation and persist across concurrent clients and restarts', async t => {
   const first = await fixture(t);

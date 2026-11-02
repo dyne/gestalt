@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
+import {sessionScratch} from './session-scratch-fixture.mjs';
 
 const source = await readFile(resolve('public/gestalt'), 'utf8');
 const prepare = source.split("serena_workspace_prepare() {\n  cat <<'PYTHON'\n")[1].split('\nPYTHON\n}')[0];
@@ -50,6 +51,22 @@ class ProjectConfig:
     'start-mcp-server', '--project', cwd, '--context', 'codex', '--mode', 'editing'], env);
   return { root, workspace, home, boot, env, settings, close: () => rm(root, { recursive: true, force: true }) };
 }
+
+test('Serena keeps managed scratch across workspace preparation while persistent caches remain in project state', async () => {
+  const f = await fixture();
+  try {
+    const scratch = await sessionScratch(f.workspace);
+    Object.assign(f.env, scratch.environment);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const result = await f.boot(); assert.equal(result.code, 0, result.stderr);
+      const output = JSON.parse(result.stdout);
+      for (const [key, value] of Object.entries(scratch.environment)) assert.equal(output.env[key], value);
+      for (const key of ['SERENA_HOME', 'UV_CACHE_DIR', 'XDG_CACHE_HOME', 'PYTHONPYCACHEPREFIX'])
+        assert.ok(output.env[key].startsWith(join(f.workspace, '.gestalt/serena')));
+    }
+    assert.equal(await readFile(scratch.context.markerPath, 'utf8'), JSON.stringify(scratch.marker));
+  } finally { await f.close(); }
+});
 
 for (const language of ['python', 'typescript', 'cpp']) test(`native storage preserves existing ${language} project settings and legacy data`, async () => {
   const f = await fixture();

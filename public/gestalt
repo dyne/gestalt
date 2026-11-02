@@ -26,6 +26,7 @@ skills_transfer_temp_root=''
 skills_export_staged_target=''
 doctor_sandbox_report=''
 codex_approval_launcher=''
+session_tmp_owner_kind=''
 
 log() {
   printf 'gestalt: %s\n' "$*" >&2
@@ -86,6 +87,316 @@ JS
   fi
 }
 trap cleanup EXIT
+
+# Kept in the distributed manager: installed launchers have no adjacent modules.
+session_scratch_runtime() {
+  cat <<'SCRATCH_JS'
+// BEGIN SESSION SCRATCH RUNTIME
+const scratchFs = require('node:fs');
+const scratchPath = require('node:path');
+const scratchCrypto = require('node:crypto');
+const scratchVariable = 'GESTALT_SESSION_TMP_CONTEXT';
+const scratchNames = [scratchVariable, 'TMPDIR', 'TMP', 'TEMP'];
+
+const scratchId = value => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$/.test(value);
+const scratchUuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value);
+function scratchAssert(condition) { if (!condition) throw Error('SESSION_SCRATCH_INVALID_CONTEXT'); }
+function scratchCanonical(directory) {
+  scratchAssert(typeof directory === 'string' && scratchPath.isAbsolute(directory) &&
+    !/[\x00-\x1f\x7f]/.test(directory) && scratchPath.resolve(directory) === directory);
+  let current = scratchPath.parse(directory).root;
+  for (const component of directory.slice(current.length).split('/').filter(Boolean)) {
+    current = scratchPath.join(current, component);
+    const info = scratchFs.lstatSync(current);
+    scratchAssert(info.isDirectory() && !info.isSymbolicLink());
+  }
+  scratchAssert(scratchFs.realpathSync(directory) === directory);
+}
+function scratchPrivate(directory) {
+  scratchCanonical(directory);
+  const info = scratchFs.lstatSync(directory);
+  scratchAssert((!process.getuid || info.uid === process.getuid()) &&
+    (process.platform === 'win32' || (info.mode & 0o777) === 0o700));
+}
+function scratchJson(file) {
+  const fd = scratchFs.openSync(file, scratchFs.constants.O_RDONLY | scratchFs.constants.O_NOFOLLOW);
+  try {
+    const info = scratchFs.fstatSync(fd);
+    scratchAssert(info.isFile() && info.nlink === 1 && info.size <= 16384 &&
+      (!process.getuid || info.uid === process.getuid()) &&
+      (process.platform === 'win32' || (info.mode & 0o077) === 0));
+    return JSON.parse(scratchFs.readFileSync(fd, 'utf8'));
+  } finally { scratchFs.closeSync(fd); }
+}
+function scratchContext(environment = process.env, allowReleased = false) {
+  if (!Object.hasOwn(environment, scratchVariable)) return null;
+  const context = JSON.parse(environment[scratchVariable]);
+  scratchAssert(context?.schemaVersion === 1 && scratchId(context.ownerId));
+  scratchCanonical(context.workspacePath);
+  const container = scratchPath.join(context.workspacePath, 'tmp', 'sessions');
+  scratchAssert(context.directory === scratchPath.join(container, context.ownerId) &&
+    context.markerPath === scratchPath.join(context.directory, '.gestalt-owner.json'));
+  // tmp may already contain user files/rules. Match the producer's parent
+  // check without changing its existing permissions; managed descendants alone
+  // require 0700.
+  const parent = scratchPath.dirname(container);
+  scratchCanonical(parent);
+  scratchAssert(!process.getuid || scratchFs.lstatSync(parent).uid === process.getuid());
+  for (const directory of [container, context.directory]) scratchPrivate(directory);
+  const marker = scratchJson(context.markerPath);
+  scratchAssert(marker?.schemaVersion === 1 && marker.ownerId === context.ownerId &&
+    marker.workspacePath === context.workspacePath && scratchId(marker.sessionId) &&
+    typeof marker.createdAt === 'string' && Number.isFinite(Date.parse(marker.createdAt)) &&
+    Array.isArray(marker.providerThreads) && marker.providerThreads.every(thread =>
+      ['codex', 'kimi'].includes(thread?.provider) && scratchId(thread.threadId)));
+  if (marker.ownerKind === 'mobile-session') {
+    scratchAssert(context.ownerId === 'mobile-' + scratchCrypto.createHash('sha256').update(marker.sessionId).digest('hex') &&
+      marker.authority?.kind === 'mobile-roster' && marker.authority.sessionId === marker.sessionId);
+  } else {
+    const prefix = marker.ownerKind === 'cli-session' ? 'cli-' : marker.ownerKind === 'workspace-service' ? 'service-' : '';
+    scratchAssert(prefix && context.ownerId.startsWith(prefix) && scratchUuid(context.ownerId.slice(prefix.length)) &&
+      marker.sessionId === context.ownerId && marker.authority?.kind === 'lease' && scratchUuid(marker.authority.leaseId));
+    const leases = scratchPath.join(context.directory, 'leases');
+    scratchPrivate(leases);
+    const lease = scratchJson(scratchPath.join(leases, marker.authority.leaseId + '.json'));
+    scratchAssert(lease?.schemaVersion === 1 && lease.ownerId === context.ownerId && lease.workspacePath === context.workspacePath &&
+      lease.leaseId === marker.authority.leaseId && (lease.state === 'active' || allowReleased && lease.state === 'released') && scratchUuid(lease.processIdentity) &&
+      typeof lease.createdAt === 'string' && Number.isFinite(Date.parse(lease.createdAt)) &&
+      typeof lease.updatedAt === 'string' && Number.isFinite(Date.parse(lease.updatedAt)) &&
+      Array.isArray(lease.consumers) && lease.consumers.every(scratchId));
+  }
+  return context;
+}
+function scratchEnvironment(environment = process.env) {
+  const context = scratchContext(environment);
+  return context ? { ...environment, TMPDIR: context.directory, TMP: context.directory, TEMP: context.directory } : { ...environment };
+}
+function scratchDiscoveryEnvironment(environment = process.env) {
+  const result = { ...environment };
+  if (Object.hasOwn(result, scratchVariable)) for (const name of scratchNames) delete result[name];
+  return result;
+}
+function scratchPublish(file, value, initial = false) {
+  const staged = initial ? file : scratchPath.join(scratchPath.dirname(file), '.' + scratchCrypto.randomUUID() + '.json');
+  const fd = scratchFs.openSync(staged, 'wx', 0o600);
+  try { scratchFs.writeFileSync(fd, JSON.stringify(value) + '\n'); scratchFs.fsyncSync(fd); }
+  finally { scratchFs.closeSync(fd); }
+  if (!initial) scratchFs.renameSync(staged, file);
+}
+function scratchContainer(workspace) {
+  scratchCanonical(workspace);
+  const parent = scratchPath.join(workspace, 'tmp');
+  try { scratchFs.mkdirSync(parent, {mode: 0o700}); } catch (e) { if (e.code !== 'EEXIST') throw e; }
+  scratchCanonical(parent);
+  scratchAssert(!process.getuid || scratchFs.lstatSync(parent).uid === process.getuid());
+  const container = scratchPath.join(parent, 'sessions');
+  try { scratchFs.mkdirSync(container, {mode: 0o700}); } catch (e) { if (e.code !== 'EEXIST') throw e; }
+  scratchPrivate(container);
+  try { scratchFs.writeFileSync(scratchPath.join(container, '.gitignore'), '*\n', {mode: 0o600, flag: 'wx'}); }
+  catch (e) { if (e.code !== 'EEXIST') throw e; }
+  return container;
+}
+function scratchOwnerContext(workspace, ownerId) {
+  const directory = scratchPath.join(workspace, 'tmp', 'sessions', ownerId);
+  return {schemaVersion: 1, workspacePath: workspace, ownerId, directory, markerPath: scratchPath.join(directory, '.gestalt-owner.json')};
+}
+function scratchLeaseRecords(context) {
+  const directory = scratchPath.join(context.directory, 'leases');
+  scratchPrivate(directory);
+  return scratchFs.readdirSync(directory).filter(name => !name.startsWith('.')).map(name => {
+    scratchAssert(scratchUuid(name.replace(/\.json$/, '')) && name.endsWith('.json'));
+    const value = scratchJson(scratchPath.join(directory, name));
+    scratchAssert(value?.schemaVersion === 1 && value.ownerId === context.ownerId && value.workspacePath === context.workspacePath &&
+      name === value.leaseId + '.json' && ['active', 'released'].includes(value.state) && scratchUuid(value.processIdentity) &&
+      Array.isArray(value.consumers) && value.consumers.every(scratchId));
+    return value;
+  });
+}
+function scratchAllocate(workspace,kind,consumer) {
+ scratchAssert(['cli-session','workspace-service'].includes(kind)&&scratchId(consumer));scratchContainer(workspace);
+ const ownerId=(kind==='cli-session'?'cli-':'service-')+scratchCrypto.randomUUID(),context=scratchOwnerContext(workspace,ownerId);
+ scratchFs.mkdirSync(context.directory,{mode:0o700});scratchPrivate(context.directory);
+ const lock=scratchPath.join(context.directory,'.controller-lock');scratchFs.mkdirSync(lock,{mode:0o700});
+ scratchFs.mkdirSync(scratchPath.join(context.directory,'leases'),{mode:0o700});
+ const leaseId=scratchCrypto.randomUUID(),time=new Date().toISOString();
+ const lease={schemaVersion:1,ownerId,workspacePath:workspace,leaseId,state:'active',processIdentity:scratchCrypto.randomUUID(),createdAt:time,updatedAt:time,consumers:[consumer]};
+ const marker={schemaVersion:1,ownerKind:kind,ownerId,workspacePath:workspace,sessionId:ownerId,createdAt:time,authority:{kind:'lease',leaseId},providerThreads:[]};
+ scratchPublish(scratchPath.join(context.directory,'leases',leaseId+'.json'),lease,true);scratchPublish(context.markerPath,marker,true);
+ scratchContext({[scratchVariable]:JSON.stringify(context)});return {context,lease,lock};
+}
+function scratchRelease(ownership) {
+  const {context, lease, lock} = ownership;
+  scratchContext({[scratchVariable]: JSON.stringify(context)});
+  // Unknown or unreleased borrowers protect the complete owner, not just one
+  // process's view of it. Never use a PID or timestamp to retire another lease.
+  if (!ownership.borrowed && scratchLeaseRecords(context).some(value => value.leaseId !== lease.leaseId && value.state !== 'released')) return false;
+  if (scratchFs.existsSync(scratchPath.join(context.directory, '.association-lock'))) return false;
+  const file = scratchPath.join(context.directory, 'leases', lease.leaseId + '.json');
+  const current = scratchJson(file);
+  scratchAssert(current.processIdentity === lease.processIdentity && current.state === 'active');
+  scratchPublish(file, {...current, state: 'released', consumers: [], updatedAt: new Date().toISOString()});
+  if (!ownership.borrowed) {scratchPrivate(lock); scratchFs.rmdirSync(lock);}
+  return true;
+}
+function scratchBorrow(context, consumer) {
+  scratchAssert(scratchId(consumer));
+  scratchContext({[scratchVariable]: JSON.stringify(context)});
+  const leaseId = scratchCrypto.randomUUID(), time = new Date().toISOString();
+  const lease = {schemaVersion: 1, ownerId: context.ownerId, workspacePath: context.workspacePath, leaseId,
+    state: 'active', processIdentity: scratchCrypto.randomUUID(), createdAt: time, updatedAt: time, consumers: [consumer]};
+  scratchPublish(scratchPath.join(context.directory, 'leases', leaseId + '.json'), lease, true);
+  return {context, lease, borrowed: true};
+}
+async function scratchReleaseReady(ownership) {
+  const deadline = Date.now() + 3500;
+  while (!scratchRelease(ownership)) {
+    if (Date.now() >= deadline) return false;
+    await scratchDelay(25);
+  }
+  return true;
+}
+function scratchGuardianProgram(manager, consumer, browser = false) {
+  const context = scratchContext();
+  if (!context || !['cli-session', 'workspace-service'].includes(scratchJson(context.markerPath).ownerKind)) return null;
+  const ownership = scratchBorrow(context, consumer);
+  const source = scratchFs.readFileSync(manager, 'utf8').match(/^\/\/ BEGIN SESSION SCRATCH RUNTIME\n([\s\S]*?)^\/\/ END SESSION SCRATCH RUNTIME/m);
+  scratchAssert(source);
+  return source[1] + '\nconst args=JSON.parse(process.argv[2]);' +
+    (browser ? 'args.push(JSON.stringify({useProcessIdentity:true,staleToken:process.argv[4]||null}));' : '') +
+    'scratchGuard('+JSON.stringify(ownership)+',process.argv[1],args,process.argv[3]).catch(()=>{process.stderr.write("gestalt: managed tool release unconfirmed; temporary owner protected\\n");process.exitCode=1;process.stdin.destroy();});';
+}
+function scratchAssociate(environment, threadId) {
+  const context = scratchContext(environment);
+  scratchAssert(context && scratchId(threadId));
+  const lock = scratchPath.join(context.directory, '.association-lock'), deadline = Date.now() + 1000;
+  while (true) {
+    try {scratchFs.mkdirSync(lock, {mode: 0o700}); break;} catch (e) {
+      if (e.code !== 'EEXIST' || Date.now() >= deadline) throw e;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+    }
+  }
+  try {
+    const marker = scratchJson(context.markerPath);
+    scratchAssert(marker.ownerKind === 'cli-session');
+    if (!marker.providerThreads.some(value => value.provider === 'codex' && value.threadId === threadId)) {
+      const updated={...marker,providerThreads:[...marker.providerThreads,{provider:'codex',threadId}]};
+      scratchPublish(context.markerPath,updated);
+    }
+  } finally {scratchFs.rmdirSync(lock);}
+}
+const scratchDelay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+function scratchGroupAbsent(pid) {
+  if (!Number.isSafeInteger(pid) || pid < 2) return false;
+  try { process.kill(-pid, 0); return false; } catch (e) { return e.code === 'ESRCH'; }
+}
+async function scratchStopped(child, stop = false, options = {}) {
+  const running = () => child.exitCode === null && child.signalCode === null;
+  const signal = name => {if (running() && child.pid) try {process.kill(-child.pid, name);} catch (e) {if (e.code !== 'ESRCH') throw e;}};
+  if (stop) signal('SIGTERM');
+  const deadline = Date.now() + (options.maxMs ?? 3500), escalation = Date.now() + (options.graceMs ?? 1500);
+  while (Date.now() < deadline) {
+    if (!running() && scratchGroupAbsent(child.pid)) return true;
+    if (stop && Date.now() >= escalation) signal('SIGKILL');
+    await scratchDelay(25);
+  }
+  // Leader exit permits read-only absence checks only. A cached numeric group
+  // never authorizes a fresh termination signal after that boundary.
+  return !running() && scratchGroupAbsent(child.pid);
+}
+async function scratchGuard(ownership, command, args, cwd) {
+  const {spawn} = require('node:child_process');
+  const environment = scratchEnvironment({...process.env, [scratchVariable]: JSON.stringify(ownership.context)});
+  const child = spawn(command, args, {cwd, env: environment, detached: true, stdio: [3, 'inherit', 'inherit']});
+  let stopping;
+  const stop = code => stopping ??= (async () => {
+    const stopped = await scratchStopped(child, true);
+    if (stopped) await scratchReleaseReady(ownership);
+    else process.stderr.write('gestalt: temporary owner remains protected; subprocess release is unconfirmed\n');
+    process.exitCode = code;
+    process.stdin.destroy();
+  })();
+  process.stdin.resume(); process.stdin.on('end', () => void stop(143));
+  process.on('SIGTERM', () => void stop(143)); process.on('SIGINT', () => void stop(130));
+  await new Promise(resolve => {child.once('error', () => resolve(127)); child.once('exit', code => resolve(code ?? 143));})
+    .then(async code => {
+      if (stopping) return stopping;
+      stopping = (async () => {
+        if (await scratchStopped(child)) await scratchReleaseReady(ownership);
+        else process.stderr.write('gestalt: temporary owner remains protected; subprocess release is unconfirmed\n');
+        process.exitCode = code; process.stdin.destroy();
+      })();
+      return stopping;
+    });
+}
+async function scratchSupervise(manager, ownership, command, args) {
+  const {spawn} = require('node:child_process');
+  const source = scratchFs.readFileSync(manager, 'utf8').match(/^\/\/ BEGIN SESSION SCRATCH RUNTIME\n([\s\S]*?)^\/\/ END SESSION SCRATCH RUNTIME/m);
+  scratchAssert(source);
+  const program = source[1] + '\nscratchGuard(JSON.parse(process.argv[1]),process.argv[2],JSON.parse(process.argv[3])).catch(()=>{process.stderr.write("gestalt: owned temporary lifetime failed; owner remains protected\\n");process.exitCode=1;process.stdin.destroy();});';
+  // Separate lifetime pipe and original terminal/stdin: guardian EOF survives
+  // an uncatchable controller exit and never consumes the native CLI's input.
+  const guardian = spawn(process.execPath, ['-e', program, JSON.stringify(ownership), command, JSON.stringify(args)],
+    {stdio: ['pipe', 'inherit', 'inherit', 0]});
+  guardian.stdin.on('error', () => {});
+  for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => {
+    if (guardian.exitCode === null && guardian.signalCode === null) guardian.kill(signal);
+  });
+  const code = await new Promise(resolve => {guardian.once('error', () => resolve(127)); guardian.once('exit', value => resolve(value ?? 143));});
+  guardian.stdin.end(); process.exitCode = code;
+}
+async function scratchCli(manager, args) {
+  let selected;
+  for (let i = 0; i < args.length && args[i] !== '--'; i++) {
+    const arg = args[i];
+    if (['-c', '--config', '-p', '--profile', '--model', '-m', '--sandbox', '-s', '--ask-for-approval', '-a', '--image', '-i', '--permissions', '--remote', '--add-dir', '--local-provider'].includes(arg)) {i++; continue;}
+    if (arg === '-C' || arg === '--cd') {scratchAssert(typeof args[i + 1] === 'string'); selected = scratchPath.resolve(selected ?? process.cwd(), args[++i]);}
+    else if (arg.startsWith('--cd=')) selected = scratchPath.resolve(selected ?? process.cwd(), arg.slice(5));
+    else if (arg.startsWith('-C') && arg.length > 2) selected = scratchPath.resolve(selected ?? process.cwd(), arg.slice(2));
+  }
+  if (!selected) {
+    process.stderr.write('gestalt: no selected workspace; CLI temporary ownership unavailable (select with -C)\n');
+    const {spawn} = require('node:child_process');
+    const child = spawn('bash', [manager, '__cli-owned', ...args], {stdio: 'inherit'});
+    for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => child.kill(signal));
+    process.exitCode = await new Promise(resolve => {child.once('error', () => resolve(127)); child.once('exit', value => resolve(value ?? 143));});
+    return;
+  }
+  scratchCanonical(selected);
+  // One invocation owns one stable UUID before native thread selection. Native
+  // selectors, stdin and permission flags pass through without interception.
+  const ownership = scratchAllocate(selected, 'cli-session', 'cli-controller');
+  await scratchSupervise(manager, ownership, 'bash', [manager, '__cli-owned', ...args]);
+}
+// END SESSION SCRATCH RUNTIME
+if (process.argv[1] === 'validate') {
+  try {const context = scratchContext(); process.stdout.write(scratchJson(context.markerPath).ownerKind + '\n' + context.directory);}
+  catch { process.stderr.write('gestalt: invalid managed session temporary context\n'); process.exitCode = 1; }
+}
+if (process.argv[1] === 'cli') scratchCli(process.argv[2], process.argv.slice(3)).catch(() => {
+  process.stderr.write('gestalt: managed CLI temporary ownership unavailable\n'); process.exitCode = 1;
+});
+if(process.argv[1]==='hook') {
+ let input='';process.stdin.on('data',bytes=>{input+=bytes;if(input.length>16384)process.stdin.destroy();});
+ process.stdin.on('end',()=>{try {
+  const value=JSON.parse(input);scratchAssert(value.hook_event_name==='SubagentStart'||value.hook_event_name==='SessionStart'&&['startup','resume'].includes(value.source));
+  scratchAssociate(process.env,value.hook_event_name==='SubagentStart'?value.agent_id:value.session_id);
+ }catch{try{scratchBorrow(scratchContext(),'cli-provider-association-failed');}catch{}process.stderr.write('gestalt: CLI provider association failed; temporary owner remains protected\n');process.exitCode=1;}});
+}
+SCRATCH_JS
+}
+
+validate_session_tmp_context() {
+  # Presence, including an empty value, must fail closed before state creation.
+  if [[ ${GESTALT_SESSION_TMP_CONTEXT+x} ]]; then
+    require_command node
+    local session_directory validated
+    validated=$(node -e "$(session_scratch_runtime)" validate) ||
+      die 'managed session temporary context rejected'
+    session_tmp_owner_kind=${validated%%$'\n'*}
+    session_directory=${validated#*$'\n'}
+    export TMPDIR="$session_directory" TMP="$session_directory" TEMP="$session_directory"
+  fi
+}
 
 usage() {
   cat <<'EOF'
@@ -650,11 +961,13 @@ validate_xerj_arguments() {
 command_xerj_readiness() {
   local operation=$1
   shift
-  (($# == 0)) || die "usage: gestalt xerj $operation"
+  local service_workspace=''
+  if (($# == 2)) && [[ $1 == --cwd ]]; then service_workspace=$2; shift 2; fi
+  (($# == 0)) || die "usage: gestalt xerj $operation [--cwd ROOT]"
   require_command node
   # Inline to preserve the self-contained, single-file manager distribution.
   # Do not use command_xerj mcp: ordinary forwarding prepares writable state.
-  exec node --input-type=module - "$gestalt_home" "$operation" "${BASH_SOURCE[0]}" "$codex_home" <<'JS'
+  exec node --input-type=module - "$gestalt_home" "$operation" "${BASH_SOURCE[0]}" "$codex_home" "$service_workspace" <<'JS'
 import { spawn } from 'node:child_process';
 import { lstatSync, readdirSync } from 'node:fs';
 import { setImmediate as yieldToIO } from 'node:timers/promises';
@@ -663,8 +976,9 @@ import { createHash, randomBytes } from 'node:crypto';
 import net from 'node:net';
 import { dirname, join, basename, relative } from 'node:path';
 import http from 'node:http';
+import { createRequire } from 'node:module';
 
-const [selectedRoot, operation, managerPath, selectedCodexHome] = process.argv.slice(2);
+const [selectedRoot, operation, managerPath, selectedCodexHome, serviceWorkspace] = process.argv.slice(2);
 const expires = Date.now() + (Number.isSafeInteger(Number(process.env.XERJ_READY_TIMEOUT_MS ?? '5000')) ? Number(process.env.XERJ_READY_TIMEOUT_MS ?? '5000') : 5000);
 const configured = process.env.XERJ_READY_TIMEOUT_MS ?? '5000';
 const timeout = /^\d+$/.test(configured) ? Number(configured) : NaN;
@@ -999,6 +1313,11 @@ async function runGuardian() {
       !Number.isSafeInteger(startupOwner.pid) || typeof startupOwner.identity !== 'string' ||
       startupOwner.token !== process.env.GESTALT_XERJ_STARTUP_LOCK_TOKEN ||
       await identity(startupOwner.pid) !== startupOwner.identity) fail('invalid-lifecycle-record');
+  const runtimeSource = (await readFile(managerPath, 'utf8')).match(/^\/\/ BEGIN SESSION SCRATCH RUNTIME\n([\s\S]*?)^\/\/ END SESSION SCRATCH RUNTIME/m);
+  if (!runtimeSource) fail('scratch-runtime-unavailable');
+  const scratch = new Function('require', runtimeSource[1] + '\nreturn {scratchAllocate,scratchEnvironment,scratchRelease,scratchStopped};')(createRequire(import.meta.url));
+  const serviceOwnership = serviceWorkspace ? scratch.scratchAllocate(serviceWorkspace, 'workspace-service', 'xerj-backend') : null;
+  if (!serviceOwnership) process.stderr.write('gestalt: no selected workspace; shared XERJ temporary ownership unavailable\n');
   let serverChild, controlServer, retained = false, stopping;
   const clients = new Set();
   const event = async name => {
@@ -1010,20 +1329,19 @@ async function runGuardian() {
   };
   const stop = (failed = false) => stopping ??= (async () => {
     clearTimeout(startupTimer);
-    if (serverChild && serverChild.exitCode === null && serverChild.signalCode === null) {
-      const closed = new Promise(resolve => serverChild.once('close', resolve));
-      serverChild.kill(failed ? 'SIGKILL' : 'SIGTERM');
-      const killTimer = setTimeout(() => serverChild.kill('SIGKILL'), 40);
-      await closed; clearTimeout(killTimer);
-    }
+    // Control clients wait at most one second for stop acknowledgement. Keep
+    // TERM grace and confirmed KILL/absence inside that existing protocol bound.
+    const stopped = !serverChild || await scratch.scratchStopped(serverChild, true, {graceMs: 100, maxMs: 700});
+    if (stopped && serviceOwnership) scratch.scratchRelease(serviceOwnership);
     const record = await readJSON(layout.record);
-    if (record?.token === token) await rm(layout.record, { force: true });
+    if (stopped && record?.token === token) await rm(layout.record, { force: true });
     if (controlServer) {
       for (const client of clients) client.destroy();
       controlServer.close();
       await rm(layout.socket, { force: true });
     }
-    await event(failed ? 'failed-launch-reaped' : 'backend-stopped');
+    await event(stopped ? failed ? 'failed-launch-reaped' : 'backend-stopped' : 'backend-stop-unconfirmed');
+    return stopped;
   })();
   const startupTimer = setTimeout(() => { if (!retained) void stop(true); }, Math.max(1, deadline - Date.now() - 100));
   process.removeListener('SIGTERM', cancel); process.removeListener('SIGINT', cancel);
@@ -1056,7 +1374,7 @@ async function runGuardian() {
         } else if (request.method === 'stop') {
           // Acknowledge only after the child this guardian owns is reaped.
           clients.delete(client);
-          void stop().then(() => answer({ stopped: true })).catch(() => client.destroy());
+          void stop().then(stopped => answer({ stopped })).catch(() => client.destroy());
         } else client.destroy();
       });
     });
@@ -1064,6 +1382,8 @@ async function runGuardian() {
     await chmod(layout.socket, 0o600);
     if (Date.now() >= deadline - 100 || stopping) fail('timeout');
     const env = nativeEnvironment(root, dataRoot, endpoint, process.env.XERJ_AUTH || 'ApiKey managed-key-unavailable');
+    if (serviceOwnership) Object.assign(env, scratch.scratchEnvironment({...env,
+      GESTALT_SESSION_TMP_CONTEXT: JSON.stringify(serviceOwnership.context)}));
     env.XERJ_API_KEY = process.env.XERJ_API_KEY || '';
     // The forwarding wrapper derives this confined path itself and rejects
     // inherited path overrides, including the proxy-only code-cache setting.
@@ -1073,7 +1393,7 @@ async function runGuardian() {
     if (stopping || Date.now() >= deadline - 100) fail('timeout');
     serverChild = spawn('bash', [executable, 'xerj', '--port', String(url.port || 80),
       '--bind', url.hostname === '[::1]' ? '::1' : '127.0.0.1', '--embed-mode', 'lexical'],
-      { env, stdio: ['ignore', 'ignore', 'ignore'] });
+      { env, detached: true, stdio: ['ignore', 'ignore', 'ignore'] });
     serverChild.on('error', () => void stop(true));
     serverChild.on('close', () => { if (!stopping) void stop(true); });
     await atomicJSON(layout.record, { root, endpoint, token });
@@ -1131,7 +1451,7 @@ async function lifecycle(automatic = false) {
     env.GESTALT_XERJ_STARTUP_LOCK_TOKEN = release.token;
     const executable = await realpath(managerPath);
     controller.signal.throwIfAborted();
-    const guardian = spawn('bash', [executable, 'xerj', '__backend'], { env, detached: true, stdio: 'ignore' });
+    const guardian = spawn('bash', [executable, 'xerj', '__backend', ...(serviceWorkspace ? ['--cwd', serviceWorkspace] : [])], { env, detached: true, stdio: 'ignore' });
     guardian.on('error', () => controller.abort(new Error('launch-failed')));
     guardian.unref();
     let observedOwner = false;
@@ -1273,7 +1593,9 @@ try:
         (state / name).mkdir(exist_ok=True, mode=0o700)
     os.environ.update({
         'SERENA_HOME': str(state), 'SERENA_USAGE_REPORTING': 'false', 'HOME': str(state / 'home'),
-        'TMPDIR': str(state / 'tmp'), 'TMP': str(state / 'tmp'), 'TEMP': str(state / 'tmp'),
+        'TMPDIR': os.environ.get('TMPDIR', str(state / 'tmp')),
+        'TMP': os.environ.get('TMP', os.environ.get('TMPDIR', str(state / 'tmp'))),
+        'TEMP': os.environ.get('TEMP', os.environ.get('TMPDIR', str(state / 'tmp'))),
         'UV_TOOL_DIR': str(state / 'uv-tools'), 'UV_TOOL_BIN_DIR': str(state / 'uv-bin'),
         'UV_CACHE_DIR': str(state / 'uv-cache'), 'UV_PYTHON_INSTALL_DIR': settings['pythonInstallDir'],
         'UV_PYTHON_DOWNLOADS': 'never', 'PYTHONPYCACHEPREFIX': str(state / 'pycache'),
@@ -1698,6 +2020,11 @@ function acquire(layout, ownership) {
   directory(layout.userDataDir);
 }
 async function backend(workspace,executablePath,ownership) {
+  if(ownership.useProcessIdentity) {
+    const identity=process.platform==='linux'?fs.readFileSync('/proc/self/stat','utf8').split(') ').at(-1).split(' ')[19]:
+      spawnSync('ps',['-o','lstart=','-p',String(process.pid)],{encoding:'utf8',timeout:2000}).stdout.trim();
+    ownership={...ownership,pid:process.pid,group:process.pid,identity};
+  }
   const d=installed(),chrome=browser(executablePath);
   if(!chrome.ready)fail('Playwright Chrome unavailable; install Chrome outside Gestalt');
   const layout=workspaceLayout(workspace);acquire(layout,ownership);
@@ -1773,7 +2100,18 @@ child.on('error',()=>process.exit(1));child.on('exit',value=>{if(!ending)code=va
       try{if(fs.existsSync(layout.lease))fail('Playwright browser busy; incomplete ownership record');}catch(error){throw error;}
     }
     const argv=[...process.execArgv,home,'__backend',layout.workspace,executablePath||''];
-    const processChild=spawn(process.execPath,['-e',supervise,process.execPath,JSON.stringify(argv),layout.workspace,staleToken||''],
+    let supervisor=supervise;
+    if(process.env.GESTALT_SESSION_TMP_CONTEXT) {
+      const context=JSON.parse(process.env.GESTALT_SESSION_TMP_CONTEXT),marker=JSON.parse(fs.readFileSync(context.markerPath,'utf8'));
+      if(['cli-session','workspace-service'].includes(marker.ownerKind)) {
+        const manager=process.env.GESTALT_PLAYWRIGHT_MANAGER;
+        const source=fs.readFileSync(manager,'utf8').match(/^\/\/ BEGIN SESSION SCRATCH RUNTIME\n([\s\S]*?)^\/\/ END SESSION SCRATCH RUNTIME/m);
+        if(!source)fail('temporary lifecycle runtime missing');
+        const scratch=new Function('require',source[1]+'\nreturn {scratchGuardianProgram};')(require);
+        supervisor=scratch.scratchGuardianProgram(manager,'playwright-mcp',true)||supervise;
+      }
+    }
+    const processChild=spawn(process.execPath,['-e',supervisor,process.execPath,JSON.stringify(argv),layout.workspace,staleToken||''],
       {cwd:layout.workspace,env:runtimeEnv(),detached:true,stdio:['pipe','pipe','pipe','pipe']});
     const pending=new Map(),lines=createInterface({input:processChild.stdout});
     const instance={process:processChild,pending,lines,exited:new Promise(resolve=>processChild.once('close',resolve))};
@@ -1889,7 +2227,7 @@ function browser(explicit) {
 // Never forward upstream environment controls, Node injection, or npm hooks.
 function runtimeEnv() {
   const env = {};
-  for (const name of ['PATH','HOME','USER','LOGNAME','LANG','LC_ALL','TMPDIR','SystemRoot']) if (process.env[name]) env[name] = process.env[name];
+  for (const name of ['PATH','HOME','USER','LOGNAME','LANG','LC_ALL','TMPDIR','TMP','TEMP','GESTALT_SESSION_TMP_CONTEXT','SystemRoot']) if (process.env[name]) env[name] = process.env[name];
   return {...env, PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD:'1'};
 }
 function stopChild() { if (child?.pid) { try {if(sessionLease)child.kill('SIGTERM');else process.kill(-child.pid,'SIGTERM');} catch {} } }
@@ -2089,12 +2427,13 @@ command_playwright() {
   [[ ${1:-} != __backend ]] || die 'internal Playwright command'
   require_command node
   if [[ ${1:-} == mcp ]]; then
+    export GESTALT_PLAYWRIGHT_MANAGER="${BASH_SOURCE[0]}"
     exec node -e "$(playwright_runtime)" "$gestalt_home" "$@"
   fi
   local playwright_pid result=0 saved_int saved_term
   saved_int=$(trap -p INT)
   saved_term=$(trap -p TERM)
-  node -e "$(playwright_runtime)" "$gestalt_home" "$@" <&0 &
+  GESTALT_PLAYWRIGHT_MANAGER="${BASH_SOURCE[0]}" node -e "$(playwright_runtime)" "$gestalt_home" "$@" <&0 &
   playwright_pid=$!
   trap 'kill -TERM "$playwright_pid" 2>/dev/null || true; wait "$playwright_pid" 2>/dev/null || true; exit 143' TERM
   trap 'kill -INT "$playwright_pid" 2>/dev/null || true; wait "$playwright_pid" 2>/dev/null || true; exit 130' INT
@@ -2377,11 +2716,13 @@ if root:
             break
 args = ['start-mcp-server','--context','codex','--mode','editing','--enable-web-dashboard','false','--open-web-dashboard','false','--enable-gui-log-window','false']
 environment = dict(os.environ)
-environment.update(SERENA_HOME=str(scratch/'serena'),HOME=str(scratch/'home'),TMPDIR=str(scratch),
+environment.update(SERENA_HOME=str(scratch/'serena'),HOME=str(scratch/'home'),
     PYTHONDONTWRITEBYTECODE='1',UV_TOOL_DIR=str(scratch/'uv-tools'),UV_TOOL_BIN_DIR=str(scratch/'uv-bin'),
     UV_CACHE_DIR=str(scratch/'uv-cache'),UV_PYTHON_INSTALL_DIR=settings['pythonInstallDir'],UV_PYTHON_DOWNLOADS='never',
     XDG_CACHE_HOME=str(scratch/'cache'),XDG_CONFIG_HOME=str(scratch/'config'),XDG_DATA_HOME=str(scratch/'data'),
     PATH=str(pathlib.Path(settings['uv']).parent)+os.pathsep+os.environ.get('PATH',''))
+if 'GESTALT_SESSION_TMP_CONTEXT' not in environment:
+    environment.update(TMPDIR=str(scratch),TMP=str(scratch),TEMP=str(scratch))
 if target:
     parameters = StdioServerParameters(command=settings['python'], args=['-c',os.environ['GESTALT_SERENA_PREPARE'],
         str(root),settings['executable'],json.dumps(settings),*args,'--project',str(root)],env=environment)
@@ -2487,7 +2828,7 @@ JS
 }
 
 run_serena_proxy() {
-  exec node --input-type=module - 3<&0 <<'NODE'
+  exec node --input-type=module - "${BASH_SOURCE[0]}" 3<&0 <<'NODE'
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { createReadStream } from 'node:fs';
@@ -2558,7 +2899,20 @@ async function start(state) {
     JSON.stringify({ python: install.python, uv: install.uv, pythonInstallDir: install.pythonInstallDir, pythonExecutables: install.pythonExecutables ?? [] }),
     'start-mcp-server', '--project', workspace, '--context', 'codex', '--mode', 'editing',
     '--enable-web-dashboard', 'false', '--open-web-dashboard', 'false', '--enable-gui-log-window', 'false'];
-  const child = spawn(process.execPath, ['-e', supervise, 'codex', JSON.stringify(args), workspace],
+  let supervisor = supervise;
+  if (process.env.GESTALT_SESSION_TMP_CONTEXT) {
+    const context = JSON.parse(process.env.GESTALT_SESSION_TMP_CONTEXT);
+    const marker = JSON.parse(await readFile(context.markerPath, 'utf8'));
+    if (['cli-session', 'workspace-service'].includes(marker.ownerKind)) {
+      const manager = process.argv[2];
+      const source = (await readFile(manager, 'utf8')).match(/^\/\/ BEGIN SESSION SCRATCH RUNTIME\n([\s\S]*?)^\/\/ END SESSION SCRATCH RUNTIME/m);
+      if (!source) throw Error('temporary lifecycle runtime missing');
+      const {createRequire} = await import('node:module');
+      const scratch = new Function('require', source[1] + '\nreturn {scratchGuardianProgram};')(createRequire(import.meta.url));
+      supervisor = scratch.scratchGuardianProgram(manager, 'serena-mcp') ?? supervise;
+    }
+  }
+  const child = spawn(process.execPath, ['-e', supervisor, 'codex', JSON.stringify(args), workspace],
     { cwd: workspace, env: process.env, stdio: ['pipe', 'pipe', 'inherit', 'pipe'] });
   const pending = new Map();
   const exited = new Promise(resolveExit => {
@@ -2753,6 +3107,15 @@ command_xerj() {
     # No PID file: the kernel releases this lock even after an abrupt exit.
     xerj_launcher=(flock --nonblock --conflict-exit-code 75 --no-fork "$autoindex_state/.gestalt-watch.lock" setpriv --pdeathsig TERM --)
   fi
+  local -a xerj_temporary_environment=(TMPDIR="$xerj_data/tmp" TMP="$xerj_data/tmp" TEMP="$xerj_data/tmp")
+  # The shared backend must never borrow a calling session's owner. Its service
+  # lifetime is independent; client/index/MCP work retains the validated context.
+  if [[ $mode != server || $session_tmp_owner_kind == workspace-service ]]; then
+    xerj_temporary_environment=(TMPDIR="${TMPDIR:-$xerj_data/tmp}" TMP="${TMP:-${TMPDIR:-$xerj_data/tmp}}" TEMP="${TEMP:-${TMPDIR:-$xerj_data/tmp}}")
+    if [[ ${GESTALT_SESSION_TMP_CONTEXT+x} ]]; then
+      xerj_temporary_environment+=(GESTALT_SESSION_TMP_CONTEXT="$GESTALT_SESSION_TMP_CONTEXT")
+    fi
+  fi
   # Preserve HOME, streams and exit/signal identity; use known environment inputs.
   # These settings route automatic state. They do not sandbox server API writes.
   exec "${xerj_launcher[@]}" env -i HOME="$HOME" PATH="$PATH" GESTALT_HOME="$gestalt_home" CODEX_HOME="$codex_home" \
@@ -2760,7 +3123,7 @@ command_xerj() {
     XERJ_CODE_HOME="$xerj_data/code" \
     XERJ_LOG="${XERJ_LOG:-info}" XERJ_DISABLE_FEEDBACK="${XERJ_DISABLE_FEEDBACK:-false}" \
     XDG_CACHE_HOME="$xerj_data/cache" XDG_CONFIG_HOME="$xerj_data/config" XDG_DATA_HOME="$xerj_data/share" \
-    HF_HOME="$xerj_data/cache/huggingface" TMPDIR="$xerj_data/tmp" \
+    HF_HOME="$xerj_data/cache/huggingface" "${xerj_temporary_environment[@]}" \
     LANG="${LANG:-C}" TERM="${TERM:-dumb}" "$xerj_bin" "${forwarded[@]}" "${xerj_user_args[@]}"
 }
 
@@ -3785,7 +4148,7 @@ const changes = [];
 const changed = (before, after, path = []) => {
   for (const [key, value] of Object.entries(after ?? {})) {
     if (value && typeof value === 'object' && !Array.isArray(value)) changed(before?.[key], value, [...path,key]);
-    else if (before?.[key] !== value && ['default_tools_approval_mode','approval_mode'].includes(key)) changes.push([...path,key]);
+    else if (JSON.stringify(before?.[key]) !== JSON.stringify(value) && ['default_tools_approval_mode','approval_mode','env_vars'].includes(key)) changes.push([...path,key]);
   }
 };
 changed(config, expected);
@@ -3795,6 +4158,8 @@ if (!changes.length) process.exit(0);
 let output = source;
 for (const fullPath of changes) {
   const path = fullPath.slice(0,-1), key = fullPath.at(-1);
+  const value = fullPath.reduce((item, key) => item[key], expected);
+  const rendered = stringify({[key]: value}).trimEnd();
   const header = '[' + path.map(key => JSON.stringify(key)).join('.') + ']';
   let inserted = false;
   output = output.split(/(?=^[ \t]*\[)/m).map(section => {
@@ -3806,10 +4171,34 @@ for (const fullPath of changes) {
       if (table?.__gestalt_marker !== true) return section;
       inserted = true;
       const assignment = new RegExp('^[ \\t]*'+key+'[ \\t]*=[^\\n]*','m');
-      return assignment.test(section) ? section.replace(assignment, key+' = "approve"') : line+'\n'+key+' = "approve"'+section.slice(line.length);
+      const existing = assignment.exec(section);
+      if (key === 'env_vars' && existing) {
+        // Extend the actual TOML array in place, retaining multiline layout,
+        // comments and the operator's existing environment names.
+        let end = existing.index + existing[0].length, parsed;
+        while (true) {
+          try { parsed = parse(section.slice(existing.index, end))[key]; break; }
+          catch { const next = section.indexOf('\n', end + 1); if (next < 0) throw new Error('Incomplete environment array'); end = next; }
+        }
+        const original = section.slice(existing.index, end);
+        let close = original.indexOf(']');
+        while (close >= 0) {
+          try { if (JSON.stringify(parse(original.slice(0, close + 1))[key]) === JSON.stringify(parsed)) break; } catch {}
+          close = original.indexOf(']', close + 1);
+        }
+        if (close < 0 || !Array.isArray(parsed)) throw new Error('Invalid environment array');
+        const missing = value.filter(name => !parsed.includes(name));
+        if (!missing.length) return section;
+        let separator = '';
+        if (parsed.length) try { parse(original.slice(0, close) + ',]'); separator = ','; } catch { /* Already has a trailing comma. */ }
+        const additions = stringify({env_vars: missing}).trim().replace(/^env_vars\s*=\s*\[/, '').replace(/\]$/, '');
+        const updated = original.slice(0, close) + separator + ' ' + additions + original.slice(close);
+        return section.slice(0, existing.index) + updated + section.slice(end);
+      }
+      return existing ? section.replace(assignment, rendered) : line+'\n'+rendered+section.slice(line.length);
     } catch { return section; }
   }).join('');
-  if (!inserted) output += '\n' + header + '\n'+key+' = "approve"\n';
+  if (!inserted) output += '\n' + header + '\n'+rendered+'\n';
 }
 const canonical = value => JSON.stringify(value, (_key, item) =>
   item && typeof item === 'object' && !Array.isArray(item)
@@ -4199,10 +4588,11 @@ import { createInterface } from 'node:readline';
 import { readFile, realpath, access } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { resolve } from 'node:path';
+import { createRequire } from 'node:module';
 
 // BEGIN MANAGED MCP APPROVAL POLICY
 function managedToolApproval(server) {
-  return {...server, default_tools_approval_mode:'approve', ...(server.tools ? {tools:Object.fromEntries(
+  return {...server, ...(!server.url ? {env_vars:[...new Set([...(server.env_vars ?? []),'GESTALT_SESSION_TMP_CONTEXT','TMPDIR','TMP','TEMP'])]} : {}), default_tools_approval_mode:'approve', ...(server.tools ? {tools:Object.fromEntries(
     Object.entries(server.tools).map(([name, tool]) => [name, tool && typeof tool === 'object' &&
       Object.hasOwn(tool,'approval_mode') ? {...tool,approval_mode:'approve'} : tool]))} : {})};
 }
@@ -4304,7 +4694,23 @@ ${s}`:n||s}function $(e,{maxDepth:r=1e3,numbersAsFloat:i=!1,strictTemporal:t=!1}
 const args = process.argv.slice(2);
 const serverName = 'gestalt-xerj';
 const manager = process.env.GESTALT_MANAGER_BIN;
-const environment = { ...process.env };
+const scratchNames=['GESTALT_SESSION_TMP_CONTEXT','TMPDIR','TMP','TEMP'];
+const environment={...process.env};
+let cliOwned=false,scratchApi;
+if(Object.hasOwn(environment,scratchNames[0])) {
+ const source=(await readFile(manager,'utf8')).match(/^\/\/ BEGIN SESSION SCRATCH RUNTIME\n([\s\S]*?)^\/\/ END SESSION SCRATCH RUNTIME/m);
+ if(!source)throw Error('managed scratch runtime missing');
+ scratchApi=new Function('require',source[1]+'\nreturn {scratchEnvironment,scratchJson,scratchBorrow,scratchRelease,scratchStopped};')(createRequire(import.meta.url));
+ Object.assign(environment,scratchApi.scratchEnvironment(environment));
+ cliOwned=scratchApi.scratchJson(JSON.parse(environment.GESTALT_SESSION_TMP_CONTEXT).markerPath).ownerKind==='cli-session';
+}
+const discoveryEnvironment={...environment};
+if(Object.hasOwn(discoveryEnvironment,scratchNames[0]))for(const name of scratchNames)delete discoveryEnvironment[name];
+let mappingUnknown=false;
+const protectUnknownMapping=()=>{
+ if(cliOwned&&!mappingUnknown){mappingUnknown=true;scratchApi.scratchBorrow(JSON.parse(environment.GESTALT_SESSION_TMP_CONTEXT),'cli-provider-mapping-unknown');
+ process.stderr.write('gestalt: native provider association unavailable; CLI temporary owner remains protected\n');}
+};
 const requested = Number(environment.XERJ_READY_TIMEOUT_MS ?? 5000);
 const budget = Number.isInteger(requested) && requested >= 100 && requested <= 60000 ? requested : 5000;
 // One deadline covers native discovery, shared readiness and MCP startup.
@@ -4379,7 +4785,7 @@ async function snapshot(extra = [], hooksOnly = false, beforeFlags = false, dead
   const remaining = Math.max(0, deadline - Date.now());
   if (!remaining) throw new Error('readiness-deadline');
   const child = spawn('codex', ['app-server', '--stdio', ...(beforeFlags ? extra.flatMap(value => ['-c', value]) : []), ...flags, ...(!beforeFlags ? extra.flatMap(value => ['-c', value]) : [])], {
-    cwd, env: environment, stdio: ['pipe', 'pipe', 'ignore'],
+    cwd, env: discoveryEnvironment, stdio: ['pipe', 'pipe', 'ignore'],
   });
   const previousChild = currentChild;
   currentChild = child;
@@ -4425,8 +4831,9 @@ async function snapshot(extra = [], hooksOnly = false, beforeFlags = false, dead
 async function readiness(timeout) {
   timeout = Math.min(timeout, remainingTime());
   if (!timeout) return { status: 'unavailable', reason: 'readiness-deadline' };
-  const child = spawn(manager, ['xerj', 'ensure-ready'], { cwd, env: {
-    ...environment, XERJ_READY_TIMEOUT_MS: String(timeout),
+  const selectedWorkspace=environment.GESTALT_SESSION_TMP_CONTEXT?JSON.parse(environment.GESTALT_SESSION_TMP_CONTEXT).workspacePath:null;
+  const child = spawn(manager, ['xerj', 'ensure-ready',...(selectedWorkspace?['--cwd',selectedWorkspace]:[])], { cwd, env: {
+    ...discoveryEnvironment, XERJ_READY_TIMEOUT_MS: String(timeout),
   }, stdio: ['ignore', 'pipe', 'ignore'] });
   currentChild = child;
   let output = '';
@@ -4529,7 +4936,7 @@ const inactiveNotice = '<gestalt_xerj_unavailable>\nXerj retrieval is unavailabl
 const shQuote = value => "'" + value.replaceAll("'", "'\\'" + "'") + "'";
 const hookCommands = new Set();
 const sessionHook = context => ['SessionStart', 'SubagentStart'].map(event => {
-  const command = shQuote(process.execPath) + ' -e ' + shQuote('process.stdout.write(' + JSON.stringify(context) + ')');
+  const command = (cliOwned&&!mappingUnknown?shQuote(manager)+' __scratch-hook && ':'')+shQuote(process.execPath) + ' -e ' + shQuote('process.stdout.write(' + JSON.stringify(context) + ')');
   hookCommands.add(command);
   return `hooks.${event}=${toml([...(session.hooks?.[event] ?? []),
     { hooks: [{ type: 'command', timeout: 2, command }] }])}`;
@@ -4632,7 +5039,7 @@ async function managedPlaywright(launchArgs, reportDiagnostic = () => {}, checkC
   const rootDir = await fs.mkdtemp(join(tmpdir(), 'gestalt-cli-playwright-'));
   await fs.chmod(rootDir, 0o700);
   const endpoint = join(rootDir, 'frontend.sock');
-  let backend, backendGroup, frontend, tui, rootThread, rootParameters, nativeBaseline, initializeParams, readinessChild, shutdown = false;
+  let backend, backendGroup, backendLease, frontend, tui, rootThread, rootParameters, nativeBaseline, initializeParams, readinessChild, shutdown = false;
   // Replay the actual composed CLI session configuration into each owned
   // backend. The TUI may send sparse auxiliary overlays, which depend on these
   // valid complete MCP transports (including disabled unrelated capabilities).
@@ -4708,7 +5115,7 @@ async function managedPlaywright(launchArgs, reportDiagnostic = () => {}, checkC
   });
   const doctor = async () => {
     const child = spawn(manager, ['playwright', 'doctor', '--json', '--cwd', workspace, ...launcherOptions], {
-      cwd: workspace, detached: true, env: Object.fromEntries(['PATH', 'HOME', 'TMPDIR', 'GESTALT_HOME']
+      cwd: workspace, detached: true, env: Object.fromEntries(['PATH','HOME','TMPDIR','TMP','TEMP','GESTALT_SESSION_TMP_CONTEXT','GESTALT_HOME']
         .filter(key => environment[key] !== undefined).map(key => [key, environment[key]])), stdio: ['ignore', 'pipe', 'ignore'],
     });
     readinessChild = child;
@@ -4730,7 +5137,7 @@ async function managedPlaywright(launchArgs, reportDiagnostic = () => {}, checkC
     ? Object.fromEntries(Object.entries(value).filter(([, item]) => item !== null).map(([key, item]) => [key, omitNativeAbsent(item)])) : value;
   const serverConfig = enabled => managedToolApproval({ ...omitNativeAbsent(playwrightConfig), command: manager,
     args: ['playwright', 'mcp', '--cwd', workspace, ...launcherOptions], cwd: workspace,
-    env_vars: ['GESTALT_HOME'], enabled, required: false, startup_readiness: 'connection', startup_timeout_ms: budget });
+    env_vars: ['GESTALT_HOME',...scratchNames], enabled, required: false, startup_readiness: 'connection', startup_timeout_ms: budget });
   const overlay = (config, enabled = desired) => {
     // Native TUI represents absent config with null, as the protocol permits.
     // A default argument covers undefined only.
@@ -4821,11 +5228,12 @@ async function managedPlaywright(launchArgs, reportDiagnostic = () => {}, checkC
     write({ id: message.id, result: { contentItems: [{ type: 'inputText', text: JSON.stringify(result) }], success: true } });
   };
   const stopBackend = async () => {
-    const child = backend, group = backendGroup;
-    backend = undefined; backendGroup = undefined;
+    const child = backend, group = backendGroup, lease=backendLease;
+    backend = undefined; backendGroup = undefined; backendLease=undefined;
     for (const waiter of pending.values()) waiter.reject(new Error('runtime-restarting'));
     pending.clear();
     if (!child) return;
+    if(lease){if(await scratchApi.scratchStopped(child,true))scratchApi.scratchRelease(lease);else process.stderr.write('gestalt: browser CLI runtime release unconfirmed; temporary owner remains protected\n');return;}
     const signal = name => { if (group) try { process.kill(-group, name); } catch (error) { if (error.code !== 'ESRCH') throw error; } };
     signal('SIGTERM');
     const timer = setTimeout(() => signal('SIGKILL'), 2000);
@@ -4833,6 +5241,7 @@ async function managedPlaywright(launchArgs, reportDiagnostic = () => {}, checkC
     clearTimeout(timer); signal('SIGKILL');
   };
   const startBackend = () => {
+    if(cliOwned)backendLease=scratchApi.scratchBorrow(JSON.parse(environment.GESTALT_SESSION_TMP_CONTEXT),'cli-browser-runtime');
     const child = spawn('codex', ['app-server', '--stdio', ...backendFlags], { cwd: workspace, env: environment,
       detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
     backend = child; backendGroup = child.pid;
@@ -5044,7 +5453,7 @@ if (common && serenaSkill && serenaSkill.enabled !== false && serenaRules.at(-1)
     for (const executable of [install.executable, install.python, install.uv]) await access(executable, constants.X_OK);
     capabilities[1].valid = true;
     capabilities[1].config = managedToolApproval({ ...serenaReserved, ...capabilities[1].config,
-      cwd, env_vars: ['CODEX_HOME', 'GESTALT_HOME'],
+      cwd, env_vars: ['CODEX_HOME','GESTALT_HOME',...scratchNames],
       enabled: true, required: true, startup_readiness: 'connection', startup_timeout_ms: budget });
     capabilities[1].context = '<gestalt_serena_capability>\nSerena is connected to this workspace through a confined, policy-bearing native proxy. '
       + 'A listed catalog does not prove language readiness: first call get_symbols_overview on a current project source file '
@@ -5064,7 +5473,7 @@ if (common && skill && !conflict) {
         /^http:\/\/(127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(ready.endpoint)) {
       capabilities[0].valid = true;
       capabilities[0].config = { command: manager, args: ['xerj', 'mcp', '--url', ready.endpoint], cwd,
-        env_vars: ['CODEX_HOME', 'GESTALT_HOME', 'XERJ_API_KEY', 'XERJ_AUTH'], enabled: true, required: true,
+        env_vars: ['CODEX_HOME','GESTALT_HOME','XERJ_API_KEY','XERJ_AUTH',...scratchNames], enabled: true, required: true,
         startup_readiness: 'connection', startup_timeout_ms: Math.max(1, remainingTime()),
         enabled_tools: ['xerj_search', 'xerj_map', 'xerj_code_search'], default_tools_approval_mode: 'approve' };
       capabilities[0].context = '<gestalt_xerj_capability>\ngestalt:xerj guidance from ' + skill.path
@@ -5108,10 +5517,12 @@ const compose = () => {
     ...(state ? sessionHook(capabilities.map(cap => cap.valid ? cap.context : cap.inactiveContext).join('\n')) : [])];
 };
 async function selection() {
+  if(cliOwned&&state?.config?.features?.hooks!==true)protectUnknownMapping();
   let selected = compose();
   try { if (state?.config?.features?.hooks === true) selected = await trustedHooks(selected); }
   catch {
     diagnose('guidance-hooks-unavailable');
+    protectUnknownMapping();
     for (const cap of capabilities) cap.valid = false;
     selected = compose();
   }
@@ -5143,9 +5554,25 @@ NODE
 command_cli() {
   check_node_version
   require_command codex
+  strip_separator "$@"
+  case ${forwarded_args[0]:-} in
+    -h | --help | -V | --version | help | login | logout | plugin | mcp | doctor | features | completion)
+      command_cli_owned "${forwarded_args[@]}"
+      return ;;
+  esac
+  if [[ ! ${GESTALT_SESSION_TMP_CONTEXT+x} ]]; then
+    resolve_manager_target
+    exec node -e "$(session_scratch_runtime)" cli "$manager_target" "${forwarded_args[@]}"
+  fi
+  command_cli_owned "${forwarded_args[@]}"
+}
+
+command_cli_owned() {
+  check_node_version
+  require_command codex
   run_startup_diagnostics
   verify_context_mode_installation
-  strip_separator "$@"
+  forwarded_args=("$@")
   resolve_manager_target
   log "starting Codex with CODEX_HOME=$codex_home"
   case ${forwarded_args[0]:-} in
@@ -5892,6 +6319,7 @@ main() {
   local command_name=${1:-help}
   if (($# > 0)); then shift; fi
 
+  validate_session_tmp_context
   load_paths
   case $command_name in
     install) command_install "$@" ;;
@@ -5899,6 +6327,8 @@ main() {
     update-restart) command_update_restart "$@" ;;
     __update-restart-worker) command_update_restart_worker "$@" ;;
     __codex-app-server) command_codex_app_server "$@" ;;
+    __cli-owned) command_cli_owned "$@" ;;
+    __scratch-hook) exec node -e "$(session_scratch_runtime)" hook "$@" ;;
     cli) command_cli "$@" ;;
     mobile) command_mobile "$@" ;;
     xerj) command_xerj "$@" ;;

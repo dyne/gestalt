@@ -6,12 +6,13 @@ import {mkdtemp,mkdir,readFile,writeFile,rm,stat,symlink} from 'node:fs/promises
 import {join,resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import test from 'node:test';
+import {sessionScratch} from './session-scratch-fixture.mjs';
 const manager=resolve('public/gestalt'),source=await readFile(manager,'utf8');
 const program=source.split("cat <<'PLAYWRIGHT_JS'\n")[1].split('\nPLAYWRIGHT_JS\n')[0];
 const digest=b=>createHash('sha256').update(b).digest('hex');
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 const tools=['browser_navigate','browser_snapshot','browser_fill_form','browser_take_screenshot'].map(name=>({name,inputSchema:{type:'object',properties:{}}}));
-async function fixture(t,{flushOnClose=false,ignoreClose=false}={}){
+async function fixture(t,{flushOnClose=false,ignoreClose=false,managedScratch=false}={}){
  const base=await mkdtemp(join(tmpdir(),'playwright stdio ')),home=join(base,'managed'),workspace=join(base,'workspace with spaces'),bin=join(base,'bin');
  for(const p of [home,workspace,bin])await mkdir(p,{recursive:true});
  t.after(()=>rm(base,{recursive:true,force:true}));
@@ -39,6 +40,8 @@ console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result}));});`;
  await writeFile(join(bin,'codex'),`#!${process.execPath}
 require('node:fs').appendFileSync(${JSON.stringify(join(base,'sandbox-events'))},'unexpected Codex invocation');process.exit(99);`,{mode:0o755});
  const env={...process.env,PATH:bin+':'+process.env.PATH,GESTALT_HOME:home,PLAYWRIGHT_MCP_PORT:'9999',PLAYWRIGHT_MCP_NO_SANDBOX:'1',NODE_OPTIONS:''};
+ const scratch=managedScratch?await sessionScratch(workspace):undefined;
+ if(scratch)Object.assign(env,scratch.environment,{TMPDIR:'/hostile',TMP:'/hostile',TEMP:'/hostile'});
  function start(project=workspace,options={}){
   const p=options.public?spawn('bash',[manager,'playwright','mcp','--cwd',project,'--executable-path',chrome],{env,stdio:['pipe','pipe','pipe']}):spawn(process.execPath,['-e',program,home,'mcp','--cwd',project,'--executable-path',chrome],{env,stdio:['pipe','pipe','pipe']});
   const pending=new Map(),lines=createInterface({input:p.stdout});let id=0,stderr='';p.stderr.on('data',b=>stderr+=b);
@@ -49,7 +52,7 @@ require('node:fs').appendFileSync(${JSON.stringify(join(base,'sandbox-events'))}
   const close=async()=>{if(p.exitCode===null&&p.signalCode===null)p.stdin.end();await exited;lines.close();};
   t.after(close);return{p,request,call,close,exited,get stderr(){return stderr;}};
  }
- return {base,home,workspace,chrome,start};
+ return {base,home,workspace,chrome,start,scratch};
 }
 const payload=m=>{assert.ok(!m.error,m.error?.message);return JSON.parse(m.result.content[0].text);};
 async function dead(pid,attempts=80){for(let i=0;i<attempts;i++){try{const s=await readFile('/proc/'+pid+'/stat','utf8');if(s.split(' ')[2]==='Z')return;}catch(e){if(e.code==='ENOENT')return;}try{process.kill(pid,0);}catch(e){if(e.code==='ESRCH')return;}await pause(25);}assert.fail('owned process survived '+pid);}
@@ -97,6 +100,16 @@ for(const {signal,disconnect} of [{signal:'SIGTERM'},{signal:'SIGINT'},{signal:'
 });
 test('public Bash launcher retains MCP stdin and cleans up on EOF',async t=>{
  const f=await fixture(t),c=f.start(f.workspace,{public:true});const a=payload(await c.call());await c.close();await dead(a.pid);await dead(a.worker);
+});
+test('managed browser inherits validated session context through guardian and restart while profiles persist',async t=>{
+ const f=await fixture(t,{managedScratch:true}),c=f.start(f.workspace,{public:true});
+ const a=payload(await c.call('browser_navigate',{cookie:'retained'}));await c.close();await dead(a.pid);await dead(a.worker);
+ const again=f.start(f.workspace,{public:true}),b=payload(await again.call());assert.equal(b.cookie,'retained');
+ const events=(await readFile(join(f.base,'browser-events'),'utf8')).trim().split('\n').map(JSON.parse);
+ assert.equal(events.length,2);
+ for(const event of events)for(const [key,value]of Object.entries(f.scratch.environment))assert.equal(event.env[key],value);
+ assert.ok(a.profile.startsWith(f.home+'/playwright/'));
+ assert.equal(await readFile(f.scratch.context.markerPath,'utf8'),JSON.stringify(f.scratch.marker));
 });
 test('guardian bounds owned cleanup when proxy dies and browser close is unresponsive',{timeout:10000},async t=>{
  const f=await fixture(t,{ignoreClose:true}),c=f.start(f.workspace,{public:true}),a=payload(await c.call());

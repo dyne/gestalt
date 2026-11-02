@@ -29,6 +29,10 @@ approval_mode = "prompt"
 [mcp_servers.gestalt-playwright]
 command = ${JSON.stringify(manager)}
 args = ["playwright", "mcp"]
+env_vars = [
+  "USER_SETTING", # retain this environment comment
+  "TMPDIR",
+] # retain this array comment with ]
 enabled = false
 default_tools_approval_mode = "prompt"
 enabled_tools = ["browser_navigate"]
@@ -58,6 +62,9 @@ default_tools_approval_mode = "auto"
       assert.equal(parsed.plugins['custom@market'].mcp_servers.example.default_tools_approval_mode, undefined);
       const browser = parsed.mcp_servers['gestalt-playwright'];
       assert.equal(browser.default_tools_approval_mode, 'approve');
+      assert.deepEqual(browser.env_vars, ['USER_SETTING','TMPDIR','GESTALT_SESSION_TMP_CONTEXT','TMP','TEMP']);
+      assert.ok(first.includes('# retain this environment comment'));
+      assert.ok(first.includes('# retain this array comment with ]'));
       assert.equal(browser.tools.browser_navigate.approval_mode, 'approve');
       assert.equal(browser.tools.browser_evaluate.enabled, false);
       assert.deepEqual(browser.enabled_tools, ['browser_navigate']);

@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { parse } from 'smol-toml';
+import { verifyChildTransports } from './playwright-child-transport-fixture.mjs';
 
 const source = await readFile(resolve('public/gestalt'), 'utf8');
 const nativeCodex = resolve(process.env.GESTALT_PLAYWRIGHT_NATIVE_CODEX ?? 'node_modules/.bin/codex');
@@ -192,13 +193,14 @@ for (const mode of modes) test(`native TUI ${mode} retains session across pendin
   const userOverride = `mcp_servers.fixture-user={command=${JSON.stringify(manager)},args=["unrelated"],enabled=true}`;
   const nativeArguments = ['--no-alt-screen', '-c', userOverride, 'ROOT_FIXTURE'];
   const eventsPath = join(root, 'private-events.jsonl');
+  const auditChildTransports = mode === 'profile-child' && process.platform === 'linux';
   const witnessDir = mode === 'profile-child' ? process.env.GESTALT_PLAYWRIGHT_CLI_WITNESS_DIR : undefined;
   const witnessTrace = join(root, 'mcp-process-events.jsonl'), witnessPhase = join(root, 'mcp-phase.json'), witnessSnapshots = [];
   const processEvents = async () => (await readFile(witnessTrace, 'utf8').catch(error => {
     if (error.code === 'ENOENT') return ''; throw error;
   })).trim().split('\n').filter(Boolean).map(JSON.parse).slice(-256);
   const snapshotProcesses = async (scope, browser, childAuthorityDenied) => {
-    if (!witnessDir) return;
+    if (!auditChildTransports && !witnessDir) return;
     const row = {at: new Date().toISOString(), phase, scope, browser, childAuthorityDenied, processes: []};
     await writeFile(witnessPhase, JSON.stringify({phase, scope}));
     for (const start of (await processEvents()).filter(event => event.kind === 'start')) {
@@ -206,7 +208,7 @@ for (const mode of modes) test(`native TUI ${mode} retains session across pendin
         const fields = (await readFile('/proc/' + start.pid + '/stat', 'utf8')).split(') ').at(-1).split(' ');
         const sameHome = (await readFile('/proc/' + start.pid + '/environ', 'utf8')).split('\0').includes('CODEX_HOME=' + home);
         row.processes.push({pid:start.pid, ppid:Number(fields[1]), identity:fields[19], state:fields[0],
-          verified: fields[19] === start.identity && sameHome, absent:false});
+          identityMatches: fields[19] === start.identity, sameHome, absent:false});
       } catch (error) {
         if (!['ENOENT','ESRCH'].includes(error.code)) throw error;
         row.processes.push({pid:start.pid, identity:start.identity, absent:true});
@@ -224,6 +226,8 @@ for (const mode of modes) test(`native TUI ${mode} retains session across pendin
     await writeFile(file, JSON.stringify({mode,outcome,error:error?.message,
       authority:'Fixture manager serves MCP transports, not browser owner leases; child lifecycle authority is checked separately.',
       sourceSha256:createHash('sha256').update(source).digest('hex'),
+      childAuthority:{seen:childSeen,called:childCalled,lifecycleAbsent:childLifecycleAbsent,denied:childLifecycleDenied},
+      transportVerification,
       processes:await processEvents(), snapshots:witnessSnapshots, runtime}, null, 2), {mode:0o600});
     t.diagnostic('process witness: ' + file);
   };
@@ -232,7 +236,8 @@ for (const mode of modes) test(`native TUI ${mode} retains session across pendin
   for (const key of Object.keys(env)) if (key.startsWith('CONTEXT_MODE_') || key.startsWith('GESTALT_MOBILE_') || key.startsWith('GESTALT_ORG_PLAN_')) delete env[key];
   if (mode === 'profile-timeout') env.GESTALT_PLAYWRIGHT_READY_TIMEOUT_MS = '1000';
   const events = async () => { try { return (await readFile(eventsPath, 'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse); } catch { return []; } };
-  let terminal, output = '', stderr = '', phase = 0, auxiliaryRequests = 0, childSeen = false, childCalled = false, modelRequests = 0;
+  let terminal, output = '', stderr = '', phase = 0, auxiliaryRequests = 0, childSeen = false, childCalled = false, childLifecycleAbsent = false, childLifecycleDenied = false, modelRequests = 0;
+  let transportVerification;
   let seededId, planFile, planText, corePath, configBaseline, pageFixture, pageUrl, profileContents, packageBefore, chromeBefore, realVerified = false, exampleVerified = false, observedPids = [];
   const catalogs = [], fixtureErrors = [];
   const model = createServer(async (request, response) => {
@@ -261,12 +266,16 @@ for (const mode of modes) test(`native TUI ${mode} retains session across pendin
       let item;
       if (child) {
         childSeen = true;
+        if (!lifecycle && !childCalled) childLifecycleAbsent = true;
         if (lifecycle && !childCalled) {
           childCalled = true;
           item = { id: 'child_fc', type: 'function_call', status: 'completed', name: lifecycle.name,
             ...(lifecycle.namespace ? { namespace: lifecycle.namespace } : {}), call_id: 'child_call', arguments: '{"action":"start"}' };
         } else {
-          if (childCalled && !JSON.stringify(input.input).includes('root-supervisor-required-or-invalid-request')) fixtureErrors.push('child lifecycle authority was not rejected');
+          if (childCalled) {
+            childLifecycleDenied = JSON.stringify(input.input).includes('root-supervisor-required-or-invalid-request');
+            if (!childLifecycleDenied) fixtureErrors.push('child lifecycle authority was not rejected');
+          }
           item = { id: 'child_done', type: 'message', status: 'completed', role: 'assistant', content: [{ type: 'output_text', text: 'CHILD_AUTHORITY_DONE', annotations: [] }] };
         }
       } else if (auxiliary) {
@@ -364,30 +373,39 @@ for (const mode of modes) test(`native TUI ${mode} retains session across pendin
     }
     await writeFile(manager, `#!/usr/bin/env node
 const fs=require('node:fs');
-fs.appendFileSync(${JSON.stringify(join(root, 'manager-calls'))},JSON.stringify(process.argv.slice(2))+'\\n');
-if(process.argv[2]==='playwright'&&process.argv[3]==='doctor'){console.log(JSON.stringify({schemaVersion:1,contractVersion:1,ready:true,package:{ready:true},chrome:{ready:true},node:{ready:true}}));process.exit(0);}
 const browser=!process.argv.includes('unrelated');
-const witness=${JSON.stringify(Boolean(witnessDir))}&&browser&&process.argv[3]==='mcp';
+const audited=${JSON.stringify(auditChildTransports)}&&browser&&process.argv[3]==='mcp';
+const identity=audited?fs.readFileSync('/proc/self/stat','utf8').split(') ').at(-1).split(' ')[19]:undefined;
+const instance={pid:process.pid,ppid:process.ppid,identity};
+fs.appendFileSync(${JSON.stringify(join(root, 'manager-calls'))},JSON.stringify(audited?{args:process.argv.slice(2),...instance}:process.argv.slice(2))+'\\n');
+if(process.argv[2]==='playwright'&&process.argv[3]==='doctor'){console.log(JSON.stringify({schemaVersion:1,contractVersion:1,ready:true,package:{ready:true},chrome:{ready:true},node:{ready:true}}));process.exit(0);}
+const witness=(audited||${JSON.stringify(Boolean(witnessDir))})&&browser&&process.argv[3]==='mcp';
 let witnessRows=0;
 const witnessRecord=(kind,extra={})=>{
- if(!witness||witnessRows++>=32)return;
+ if(!witness||witnessRows>128)return;
+ if(witnessRows++===128)kind='truncated';
  let phase;try{phase=JSON.parse(fs.readFileSync(${JSON.stringify(witnessPhase)},'utf8'));}catch{}
  const fields=fs.readFileSync('/proc/self/stat','utf8').split(') ').at(-1).split(' ');
- fs.appendFileSync(${JSON.stringify(witnessTrace)},JSON.stringify({kind,at:new Date().toISOString(),pid:process.pid,ppid:process.ppid,identity:fields[19],phase,...extra})+'\\n');
+ fs.appendFileSync(${JSON.stringify(witnessTrace)},JSON.stringify({kind,at:new Date().toISOString(),pid:process.pid,ppid:process.ppid,identity:fields[19],phase,...extra})+'\\n',{mode:0o600});
 };
 witnessRecord('start');
 process.once('exit',code=>witnessRecord('natural-exit',{code}));
 process.stdin.once('end',()=>witnessRecord('stdio-end'));
 process.stdin.once('close',()=>witnessRecord('stdio-close'));
+if(audited)process.stdin.on('data',data=>witnessRecord('input',{bytes:data.length}));
 if(browser&&${JSON.stringify(mode)}==='profile-server-exit')process.exit(1);
 require('node:readline').createInterface({input:process.stdin}).on('line',line=>{
- const m=JSON.parse(line);if(m.id===undefined)return;let result={};
+ const m=JSON.parse(line);
+ if(m.id===undefined){if(audited)witnessRecord('notification',{method:m.method});return;}
+ let result={};
  witnessRecord('rpc',{method:m.method,tool:m.method==='tools/call'?m.params?.name:undefined});
  if(m.method==='initialize')result={protocolVersion:m.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:'fixture',version:'1'}};
  if(m.method==='tools/list'&&browser&&${JSON.stringify(mode)}==='profile-timeout')return;
  if(m.method==='tools/list')result={tools:(!browser?['fixture_user_read']:${JSON.stringify(mode)}==='profile-empty-tools'?[]:['browser_navigate','browser_snapshot','browser_take_screenshot']).map(name=>({name,description:'Fixture tool',inputSchema:{type:'object',properties:{}},annotations:{readOnlyHint:true}}))};
  if(m.method==='tools/call')result={content:[{type:'text',text:'fixture browser'}]};
- console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result}));
+ const reply=JSON.stringify({jsonrpc:'2.0',id:m.id,result});
+ if(audited)process.stdout.write(reply+'\\n',error=>witnessRecord(error?'write-error':'served',{method:m.method}));
+ else console.log(reply);
 });`, { mode: 0o755 });
     await new Promise(resolve => model.listen(0, '127.0.0.1', resolve));
     if (bootstrap) {
@@ -550,7 +568,11 @@ const result=await managedPlaywright(${JSON.stringify(nativeArguments)},(stage,e
       assert.notEqual(rootId, seededId, 'native fork reused source thread');
       assert.ok((await events()).some(e => e.stage === 'frontend:thread/fork' && e.cause.threadId === seededId));
     }
-    if (mode === 'profile-child') assert.ok(childSeen, 'actual native child did not run');
+    if (mode === 'profile-child') {
+      assert.ok(childSeen, 'actual native child did not run');
+      assert.ok(childCalled ? childLifecycleDenied : childLifecycleAbsent,
+        'actual child must lack lifecycle capability or receive an observed authority denial');
+    }
     const failures = (await events()).filter(event => ['thread/start', 'thread/resume', 'thread/fork', 'turn/start'].includes(event.stage));
     assert.deepEqual(failures, [], 'native auxiliary/root configuration request failed');
     const timeouts = (await events()).filter(event => event.stage === 'runtime:overlay-timeouts').flatMap(event => event.cause);
@@ -564,10 +586,21 @@ const result=await managedPlaywright(${JSON.stringify(nativeArguments)},(stage,e
         mode === 'profile-consent-loss' ? '[mcp_servers.gestalt-playwright]\nenabled=false\n' : profileContents,
         parse(configBaseline).tui.model_availability_nux['gpt-6.1-sol']);
     }
-    const managerCalls = (await readFile(join(root, 'manager-calls'), 'utf8')).trim().split('\n').map(JSON.parse);
+    const rawManagerCalls = (await readFile(join(root, 'manager-calls'), 'utf8')).trim().split('\n').map(JSON.parse);
+    const managerCalls = rawManagerCalls.map(row => Array.isArray(row) ? row : row.args);
     assert.ok(managerCalls.every(args => args[0] === 'unrelated' || (args[0] === 'playwright' && ['mcp', 'doctor'].includes(args[1]))),
       'CLI startup invoked package installation/update or an unexpected manager operation');
-    if (!realBrowser) assert.equal(managerCalls.filter(args => args[0] === 'playwright' && args[1] === 'mcp').length, ordinary || incompatible ? 0 : 1, 'unexpected or duplicate MCP owner');
+    if (auditChildTransports) {
+      // This fake manager has transports, not browser leases. Require one actual
+      // serving transport; a canceled spawn is admissible only with complete
+      // zero-protocol termination evidence and verified process absence.
+      const starts = rawManagerCalls.filter(row => row.args?.[0] === 'playwright' && row.args?.[1] === 'mcp');
+      assert.equal(starts.length, managerCalls.filter(args => args[0] === 'playwright' && args[1] === 'mcp').length);
+      const verified = await verifyChildTransports(starts, await processEvents());
+      transportVerification={at:new Date().toISOString(),serving:verified.serving,canceled:verified.canceled,
+        allOriginalProcessesAbsent:true,budgetMs:5000};
+      t.diagnostic(JSON.stringify({servingTransports:verified.serving.length,canceledStarts:verified.canceled.length}));
+    } else if (!realBrowser) assert.equal(managerCalls.filter(args => args[0] === 'playwright' && args[1] === 'mcp').length, ordinary || incompatible ? 0 : 1, 'unexpected or duplicate MCP owner');
     if (ordinary || incompatible) {
       assert.ok(output.includes('existing thread has no compatible managed controls'), 'unsupported old thread did not receive truthful diagnostic');
       assert.ok(catalogs.every(row => row.browser === false));

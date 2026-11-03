@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import {spawn} from 'node:child_process';
-import {mkdtemp,mkdir,writeFile,readFile,readdir,rm,stat} from 'node:fs/promises';
+import {spawn,spawnSync} from 'node:child_process';
+import {mkdtemp,mkdir,writeFile,readFile,readdir,rm,stat,open,rmdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import test from 'node:test';
+import {sessionScratch} from './session-scratch-fixture.mjs';
 
 const manager=resolve('public/gestalt');
 const rootThread='01a19bd7-bdb5-76e0-bc41-28d650392275',childThread='01a19bd7-bdb5-76e0-bc41-28d650392276';
@@ -48,16 +49,23 @@ if(args[0]==='app-server'){
 `,{mode:0o700});
   const env={...process.env,HOME:home,CODEX_HOME:codexHome,GESTALT_HOME:managed,GESTALT_STARTUP_DIAGNOSTICS_DONE:'1',PATH:bin+':'+process.env.PATH};
   if(Object.hasOwn(env,'GESTALT_SESSION_TMP_CONTEXT'))for(const key of ['GESTALT_SESSION_TMP_CONTEXT','TMPDIR','TMP','TEMP'])delete env[key];
-  const run=async(args,source='startup')=>{
-    const child=spawn('bash',[manager,'cli','--',...args],{cwd:root,env:{...env,FIXTURE_SOURCE:source},stdio:['pipe','pipe','pipe']});
+  const invoke=async(args,source='startup',overrides={})=>{
+    const child=spawn('bash',[manager,'cli','--',...args],{cwd:root,env:{...env,FIXTURE_SOURCE:source,...overrides},stdio:['pipe','pipe','pipe']});
+    const exited=new Promise((r,reject)=>{child.once('error',reject);child.once('close',r);});
+    child.stdin.on('error',()=>{});
     let stdout='',stderr='';child.stdout.on('data',v=>stdout+=v);child.stderr.on('data',v=>stderr+=v);child.stdin.end('original stdin bytes\n');
-    const timer=setTimeout(()=>child.kill('SIGTERM'),20000);
-    const code=await new Promise((r,reject)=>{child.once('error',reject);child.once('close',r);});clearTimeout(timer);
+    let killTimer;
+    const timer=setTimeout(()=>{if(child.exitCode===null&&child.signalCode===null)child.kill('SIGTERM');
+      killTimer=setTimeout(()=>{if(child.exitCode===null&&child.signalCode===null)child.kill('SIGKILL');},500);},20000);
+    try{return{code:await exited,stdout,stderr};}finally{clearTimeout(timer);clearTimeout(killTimer);}
+  };
+  const run=async(args,source='startup')=>{
+    const {code,stdout,stderr}=await invoke(args,source);
     assert.equal(code,0,stderr);assert.match(stdout,/Gestalt manager 0\.12\.0/);
     assert.equal(stdout.match(/NATIVE_STDOUT/g)?.length,1);assert.ok(stdout.endsWith('NATIVE_STDOUT\n'));
     return {value:JSON.parse(await readFile(log,'utf8')),stderr};
   };
-  return {root,workspace,other,run};
+  return {root,workspace,other,run,invoke};
 }
 test('public manager preserves native selectors/images/permissions/stdin and publishes observed root and child IDs per invocation',{timeout:60000},async t=>{
   const f=await fixture(t),contexts=[];
@@ -82,4 +90,58 @@ test('public manager reports unselected workspace without inventing an owner or 
   const f=await fixture(t),args=['resume','--last','MANAGER_FIXTURE_PROMPT'];const {value,stderr}=await f.run(args);
   assert.equal(value.context,null);assert.deepEqual(value.args.slice(1,1+args.length),args);assert.match(stderr,/no selected workspace/);
   await assert.rejects(stat(join(f.root,'tmp')),{code:'ENOENT'});
+});
+
+test('public CLI nested publication fails under an independent Mobile containment fence and succeeds after release',{timeout:30000},async t=>{
+  const f=await fixture(t),outer=await sessionScratch(f.workspace,'outer-mobile');
+  const selected=join(outer.context.directory,'selected workspace'),lock=join(outer.context.directory,'.containment-lock');
+  await mkdir(selected,{mode:0o700});await mkdir(lock,{mode:0o700});
+  const held=await open(lock,'r'),identity=await held.stat();
+  try{
+    const result=await f.invoke(['-C',selected,'resume','--last','MANAGER_FIXTURE_PROMPT']);
+    assert.notEqual(result.code,0);assert.match(result.stderr,/temporary ownership unavailable/);
+    await assert.rejects(stat(join(selected,'tmp')),{code:'ENOENT'});
+    const current=await stat(lock);assert.equal(current.dev,identity.dev);assert.equal(current.ino,identity.ino);
+  }finally{
+    try{const current=await stat(lock);assert.equal(current.dev,identity.dev);assert.equal(current.ino,identity.ino);await rmdir(lock);}
+    finally{await held.close();}
+  }
+  const {value}=await f.run(['-C',selected,'resume','--last','MANAGER_FIXTURE_PROMPT']);
+  assert.equal(value.context.workspacePath,selected);assert.equal(value.stdin,'original stdin bytes\n');
+  await assert.rejects(stat(lock),{code:'ENOENT'});
+});
+
+test('public CLI holds ancestor containment through full metadata publication against independent cleanup claim',{timeout:30000},async t=>{
+  const f=await fixture(t),outer=await sessionScratch(f.workspace,'outer-mobile-publisher');
+  const selected=join(outer.context.directory,'selected workspace'),lock=join(outer.context.directory,'.containment-lock');
+  await mkdir(selected,{mode:0o700});
+  const paused=join(f.root,'publisher-paused'),release=join(f.root,'release-publisher'),preload=join(f.root,'publication preload.cjs');
+  await writeFile(preload,`const fs=require('node:fs'),original=fs.openSync;
+fs.openSync=function(path,...args){
+ if(typeof path==='string'&&path.startsWith(${JSON.stringify(join(selected,'tmp/sessions/cli-'))})&&path.endsWith('/.gestalt-owner.json')&&args[0]==='wx'){
+  fs.writeFileSync(${JSON.stringify(paused)},'held');const deadline=Date.now()+10000;
+  while(!fs.existsSync(${JSON.stringify(release)})){if(Date.now()>=deadline)throw Error('bounded publication fixture deadline');Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,10);}
+ }
+ return original.call(fs,path,...args);
+};
+`);
+  const pending=f.invoke(['-C',selected,'exec','MANAGER_FIXTURE_PROMPT'],'startup',{NODE_OPTIONS:'--require '+JSON.stringify(preload)})
+    .then(value=>({value}),error=>({error}));
+  let result;
+  try{
+    const deadline=Date.now()+6000;
+    while(true){try{await stat(paused);break;}catch(error){if(error.code!=='ENOENT')throw error;}
+      assert.ok(Date.now()<deadline,'publisher did not reach controlled metadata boundary');await new Promise(r=>setTimeout(r,20));}
+    assert.equal((await stat(lock)).mode&0o777,0o700);
+    const cleanup=spawnSync(process.execPath,['-e',`const fs=require('node:fs');try{fs.mkdirSync(process.argv[1],{mode:0o700});fs.rmdirSync(process.argv[1]);console.log('claimed');}catch(e){if(e.code!=='EEXIST')throw e;console.log('busy');}`,lock],
+      {encoding:'utf8',timeout:2000});
+    assert.equal(cleanup.status,0,cleanup.stderr);assert.equal(cleanup.stdout,'busy\n');
+    const owners=(await readdir(join(selected,'tmp/sessions'))).filter(name=>name.startsWith('cli-'));assert.equal(owners.length,1);
+    const directory=join(selected,'tmp/sessions',owners[0]),leases=await readdir(join(directory,'leases'));
+    assert.equal(leases.length,1);const lease=JSON.parse(await readFile(join(directory,'leases',leases[0]),'utf8'));
+    assert.equal(lease.schemaVersion,1);assert.equal(lease.ownerId,owners[0]);assert.equal(lease.state,'active');
+    await assert.rejects(stat(join(directory,'.gestalt-owner.json')),{code:'ENOENT'});
+  }finally{await writeFile(release,'continue');const settled=await pending;if(settled.error)throw settled.error;result=settled.value;}
+  assert.equal(result.code,0,result.stderr);assert.ok(result.stdout.endsWith('NATIVE_STDOUT\n'));
+  await assert.rejects(stat(lock),{code:'ENOENT'});
 });

@@ -25,6 +25,7 @@ disposable operation scratch, persistent state and destination-local staging.
 
 | Site | Ownership and routing | Retention |
 | --- | --- | --- |
+| Nested CLI/service owner publication: `.containment-lock` | Short private fence on every validated attributed ancestor, outermost first | Coordination metadata, not payload; reverse release only for the acquired identity. Busy/crashed/replaced claims stay protected |
 | `test_xerj`: `gestalt-xerj-regression-*` | `mkdtemp(tmpdir())`; inherits validated managed directory | Removes only its fixture tree after owned test children stop |
 | `codex_sandbox_probe`: `gestalt-sandbox-doctor-*` | `mkdtemp(tmpdir())`; managed directory when context exists | Probe-owned tree removed on completion |
 | `serena_operator`: `gestalt-serena-doctor-*` | `mkdtemp(tmpdir())`; managed directory when context exists | Probe-owned tree; temporary probe HOME/config stays inside it |
@@ -115,6 +116,36 @@ publishes active metadata while holding the fence; release publishes only
 after confirmed shutdown and removes the fence last. Unknown/partial locks or
 leases are preserved. These files grant no authority to delete arbitrary paths.
 Stopping the CLI retains its directory; deletion belongs to later cleanup.
+## Nested owner publication and containment
+
+A selected workspace may be inside another managed owner's payload. Before
+creating a CLI or workspace-service owner there, the launcher validates all
+attributed `tmp/sessions/<owner>` ancestors and claims their private
+`.containment-lock` directories, outermost first. These short publication
+fences are separate from lifetime `.controller-lock` and metadata
+`.association-lock` claims. Ordinary workspaces require no ancestor fence.
+
+Under those claims the launcher revalidates the canonical selected workspace,
+directory identities and immutable ancestor marker provenance. A retired,
+replaced, aliased or indeterminate ancestor fails before allocation; it never
+recursively recreates a missing workspace. Valid released CLI/service ancestors
+still supply attribution, without supplying deletion authority. Unknown markers,
+partial leases and existing containment fences are not repaired, adopted or
+expired by timestamp/PID.
+
+Full owner and initial lease metadata are published synchronously before reverse
+release. An open directory handle and filesystem identity distinguish each
+acquired fence from a replacement; a mismatched claim is retained. Failures
+release only still-matching owned instances. No containment claim spans the
+native process lifetime, changes the v1 envelope or changes native arguments,
+stdin, permissions, persistent roots or per-invocation CLI UUIDs.
+
+Mobile cleanup/publication uses the same containment namespace and lock order.
+Cleanup must hold the corresponding claims through its final authority checks
+and retirement/deletion, and conservatively protect existing nested owner or
+indeterminate namespaces. Launcher publication alone never grants cleanup
+authority over the outer or inner payload.
+
 ## Mobile detached tool borrowers and long Unix socket paths
 
 Validated Mobile owners use the same v1 borrower records as CLI and service

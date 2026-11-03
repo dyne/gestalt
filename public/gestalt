@@ -214,8 +214,94 @@ function scratchLeaseRecords(context) {
     return value;
   });
 }
+function scratchDirectoryIdentity(directory) {
+  const info = scratchFs.lstatSync(directory, {bigint: true});
+  scratchAssert(info.isDirectory() && !info.isSymbolicLink());
+  return {dev: info.dev, ino: info.ino, birth: info.birthtimeNs};
+}
+function scratchSameDirectory(left, right) {
+  return left.dev === right.dev && left.ino === right.ino && left.birth === right.birth;
+}
+function scratchAncestorOwner(context) {
+  // Released CLI/service ancestors still have positive attribution. This read
+  // grants no cleanup authority and never expires a lease or steals a fence.
+  scratchContext({[scratchVariable]: JSON.stringify(context)}, true);
+  const marker = scratchJson(context.markerPath);
+  try {
+    scratchFs.lstatSync(scratchPath.join(context.directory, 'leases'));
+    scratchLeaseRecords(context);
+  } catch (error) {if (error.code !== 'ENOENT' || marker.ownerKind !== 'mobile-session') throw error;}
+  return {
+    context, identity: scratchDirectoryIdentity(context.directory),
+    provenance: JSON.stringify([marker.schemaVersion, marker.ownerKind, marker.ownerId, marker.workspacePath,
+      marker.sessionId, marker.createdAt, marker.authority.kind, marker.authority.sessionId ?? null, marker.authority.leaseId ?? null]),
+  };
+}
+function scratchManagedAncestors(workspace) {
+  const parts = workspace.slice(scratchPath.parse(workspace).root.length).split(scratchPath.sep).filter(Boolean);
+  const ancestors = [];
+  let directory = scratchPath.parse(workspace).root;
+  for (let i = 0; i < parts.length; i++) {
+    directory = scratchPath.join(directory, parts[i]);
+    if (i >= 2 && parts[i - 1] === 'sessions' && parts[i - 2] === 'tmp') {
+      const ownerWorkspace = scratchPath.dirname(scratchPath.dirname(scratchPath.dirname(directory)));
+      ancestors.push(scratchAncestorOwner(scratchOwnerContext(ownerWorkspace, parts[i])));
+    }
+  }
+  return ancestors;
+}
+function scratchRevalidateAncestor(ancestor) {
+  const current = scratchAncestorOwner(ancestor.context);
+  scratchAssert(scratchSameDirectory(ancestor.identity, current.identity) && ancestor.provenance === current.provenance);
+}
+function scratchWithContainment(workspace, publish) {
+  scratchCanonical(workspace);
+  const selected = scratchDirectoryIdentity(workspace), ancestors = scratchManagedAncestors(workspace), claims = [];
+  try {
+    // Path traversal supplies outermost-first order. These short fences precede
+    // new-owner controller/association work and never span a runtime lifetime.
+    for (const ancestor of ancestors) {
+      const path = scratchPath.join(ancestor.context.directory, '.containment-lock');
+      try {scratchFs.mkdirSync(path, {mode: 0o700});}
+      catch (error) {
+        if (error.code === 'EEXIST') throw new Error('SESSION_SCRATCH_CONTAINMENT_BUSY');
+        throw error;
+      }
+      const claim = {path, identity: scratchDirectoryIdentity(path), fd: undefined};
+      claims.push(claim);
+      scratchPrivate(path);
+      claim.fd = scratchFs.openSync(path, scratchFs.constants.O_RDONLY | scratchFs.constants.O_DIRECTORY | scratchFs.constants.O_NOFOLLOW);
+      const held = scratchFs.fstatSync(claim.fd, {bigint: true});
+      scratchAssert(scratchSameDirectory(claim.identity, {dev: held.dev, ino: held.ino, birth: held.birthtimeNs}));
+      scratchRevalidateAncestor(ancestor);
+    }
+    scratchCanonical(workspace);
+    scratchAssert(scratchSameDirectory(selected, scratchDirectoryIdentity(workspace)));
+    for (const ancestor of ancestors) scratchRevalidateAncestor(ancestor);
+    // This publication callback is synchronous. No recursive workspace creation:
+    // retirement or alias/identity changes
+    // between discovery and fencing fail before scratchContainer publishes.
+    return publish();
+  } finally {
+    let failure;
+    for (const claim of claims.reverse()) {
+      try {
+        if (!scratchSameDirectory(claim.identity, scratchDirectoryIdentity(claim.path)))
+          throw new Error('SESSION_SCRATCH_CONTAINMENT_FENCE_CHANGED');
+        scratchFs.rmdirSync(claim.path);
+      } catch (error) {failure ??= error;}
+      finally {
+        try {if (claim.fd !== undefined) scratchFs.closeSync(claim.fd);}
+        catch (error) {failure ??= error;}
+      }
+    }
+    if (failure) throw failure;
+  }
+}
 function scratchAllocate(workspace,kind,consumer) {
- scratchAssert(['cli-session','workspace-service'].includes(kind)&&scratchId(consumer));scratchContainer(workspace);
+ scratchAssert(['cli-session','workspace-service'].includes(kind)&&scratchId(consumer));
+ return scratchWithContainment(workspace,()=>{
+ scratchContainer(workspace);
  const ownerId=(kind==='cli-session'?'cli-':'service-')+scratchCrypto.randomUUID(),context=scratchOwnerContext(workspace,ownerId);
  scratchFs.mkdirSync(context.directory,{mode:0o700});scratchPrivate(context.directory);
  const lock=scratchPath.join(context.directory,'.controller-lock');scratchFs.mkdirSync(lock,{mode:0o700});
@@ -225,6 +311,7 @@ function scratchAllocate(workspace,kind,consumer) {
  const marker={schemaVersion:1,ownerKind:kind,ownerId,workspacePath:workspace,sessionId:ownerId,createdAt:time,authority:{kind:'lease',leaseId},providerThreads:[]};
  scratchPublish(scratchPath.join(context.directory,'leases',leaseId+'.json'),lease,true);scratchPublish(context.markerPath,marker,true);
  scratchContext({[scratchVariable]:JSON.stringify(context)});return {context,lease,lock};
+ });
 }
 function scratchRelease(ownership) {
   const {context, lease, lock} = ownership;

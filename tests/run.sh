@@ -31,6 +31,7 @@ node --test "$repo_root/tests/xerj-index-status.test.mjs"
 node --test "$repo_root/tests/xerj-readiness.test.mjs"
 node --test "$repo_root/tests/xerj-lifecycle.test.mjs"
 node --test "$repo_root/tests/xerj-cli-startup.test.mjs"
+node --test "$repo_root/tests/cli-startup-args.test.mjs" "$repo_root/tests/cli-startup-native.test.mjs"
 node --test "$repo_root/tests/xerj-cli-native.test.mjs"
 node --test "$repo_root/tests/serena-cli-native.test.mjs"
 node --test "$repo_root/tests/serena-authority.test.mjs" "$repo_root/tests/serena-storage.test.mjs" \

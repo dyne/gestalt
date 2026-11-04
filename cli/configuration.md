@@ -23,6 +23,38 @@ CODEX_HOME="$HOME/.codex-gestalt-lab" gestalt cli
 Use the same override on later updates. Paths must be absolute and cannot be
 `/` or your home directory.
 
+## Startup instructions and retained threads
+
+Codex selects `developer_instructions` using its native configuration precedence:
+CLI overrides, closest trusted project, selected profile, then user defaults.
+Gestalt preserves that selected value, including multiline text. Repository and
+global `AGENTS.md` files keep their native scope. See the official
+[configuration precedence](https://developers.openai.com/codex/config-basic/).
+
+With compatible selected Agents package data and enabled, trusted hooks, Gestalt
+adds its small versioned startup block on a fresh thread and eligible child
+launch. Capability guidance stays separate and reflects the current optional
+providers. Missing or incompatible package data follows a bounded legacy
+fallback. Hooks or skill inclusion disabled by the user stay disabled. The skill
+catalog locates workflows; full skill instructions are loaded when needed, and
+listed tools still require task-specific readiness checks.
+
+Resume, fork and runtime restart retain the thread's durable instruction bytes.
+Updating a package does not migrate those bytes or add the block to every user
+prompt. A legacy thread can therefore retain no startup block. In-place refresh
+of inherited startup instructions is unsupported by this adapter: use a fresh
+thread to assemble guidance from the current selected package. Named child roles
+keep their native role-file instructions; the bootstrap grants no Org Plan
+controller or reviewer duties. A current block already owned by the selected
+role is reused. Ambiguous, changed or unavailable role metadata produces a
+bounded diagnostic and omits new role delivery; it never rewrites the role file.
+
+Gestalt does not set a replacement foundation or personality to install this
+guidance. An explicitly configured `model_instructions_file` remains an advanced
+user choice and replaces Codex's built-in foundation, unlike additive developer
+guidance. See the official
+[configuration reference](https://developers.openai.com/codex/config-reference/).
+
 ## Workspace and Git permissions
 
 `gestalt install` and `gestalt update` configure the isolated Codex profile to

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFile, spawn } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { test } from 'node:test';
 
@@ -98,27 +98,37 @@ test('test --json reports backend failure as harness error and removes disposabl
 test('interrupting test terminates its native child and cleans temporary state', async t => {
   const f = await fixture(t);
   const binary = join(f.home, 'xerj', 'xerj');
+  const witness = join(f.root, 'native-child.json');
   await writeFile(binary, `#!/usr/bin/env node
 if(process.argv.includes('-V')) {console.log('xerj v1.0.0-rc.999');process.exit(0);}
-require('node:fs').writeFileSync(require('node:path').join(process.env.TMPDIR,'child.pid'),String(process.pid));
+require('node:fs').writeFileSync(${JSON.stringify(witness)},JSON.stringify({pid:process.pid,directory:process.env.TMPDIR}));
 setInterval(()=>{},1000);
 `); await chmod(binary, 0o755);
   const child = spawn('bash', [manager, 'xerj', 'test', '--json'], { env: f.env, stdio: ['ignore','pipe','pipe'] });
-  t.after(() => { if(child.exitCode===null && child.signalCode===null) child.kill('SIGKILL'); });
   let output=''; child.stdout.on('data', chunk=>output+=chunk);
   const closed = new Promise(resolve=>child.once('close',resolve));
-  let pid;
+  t.after(async () => {
+    if(child.exitCode!==null || child.signalCode!==null)return;
+    child.kill('SIGTERM');
+    const timer=setTimeout(()=>{if(child.exitCode===null&&child.signalCode===null)child.kill('SIGKILL');},3000);
+    try {await closed;} finally {clearTimeout(timer);}
+  });
+  let pid, directory;
   for(let i=0;i<100 && !pid;i++) {
-    const dirs=await readdir(f.scratch);
-    try { if(dirs[0]) pid=Number(await readFile(join(f.scratch,dirs[0],'child.pid'),'utf8')); } catch {}
+    try { ({pid,directory}=JSON.parse(await readFile(witness,'utf8'))); }
+    catch(error) { if(error.code!=='ENOENT'&&!(error instanceof SyntaxError))throw error; }
     if(!pid) await new Promise(resolve=>setTimeout(resolve,50));
   }
   assert.ok(pid,'native child started');
+  const temporaryRoot=Object.hasOwn(f.env,'GESTALT_SESSION_TMP_CONTEXT') ?
+    JSON.parse(f.env.GESTALT_SESSION_TMP_CONTEXT).directory : f.scratch;
+  assert.ok(dirname(directory)===temporaryRoot&&basename(directory).startsWith('gestalt-xerj-regression-'),'native child outside disposable harness');
   child.kill('SIGTERM');
   assert.equal(await closed,130);
   assert.equal(JSON.parse(output).errors,1);
   assert.throws(()=>process.kill(pid,0),{code:'ESRCH'});
   assert.deepEqual(await readdir(f.scratch),[]);
+  await assert.rejects(stat(directory),{code:'ENOENT'});
 });
 
 test('install resolves the latest official release without a manager pin', async t => {

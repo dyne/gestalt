@@ -6,6 +6,7 @@ import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
+import { managerStubScratchRuntime } from './manager-stub-fixture.mjs';
 
 const source = await readFile(resolve('public/gestalt'), 'utf8');
 const serializedHookCount = input => JSON.stringify(input.input).split('UNRELATED_PROFILE_HOOK').length - 1;
@@ -76,6 +77,7 @@ for (const mode of ['healthy-child', 'healthy-resume', 'failed-connection', 'abs
   // Native MCP process, controlled through the same manager argv as production.
   // No replacement provider transport or real model service is used.
   await writeFile(owner, `#!/usr/bin/env node
+${managerStubScratchRuntime(source)}
 const fs = require('node:fs');
 const root = ${JSON.stringify(root)};
 const mode = ${JSON.stringify(mode)};

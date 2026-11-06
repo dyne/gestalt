@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, writeFile, rm, readdir } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { mkdtemp, readFile, writeFile, rm, readdir, stat } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
 
@@ -12,6 +12,11 @@ async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'gestalt chrome install '));
   t.after(() => rm(root, { recursive: true, force: true }));
   const manager = join(root, 'gestalt'), log = join(root, 'calls');
+  // The public launcher normalizes hostile TMPDIR to the managed context.
+  // Invalid inherited context must fail rather than select the fallback.
+  const temporaryRoot = Object.hasOwn(process.env, 'GESTALT_SESSION_TMP_CONTEXT') ?
+    JSON.parse(process.env.GESTALT_SESSION_TMP_CONTEXT).directory : root;
+  assert.ok(typeof temporaryRoot === 'string' && temporaryRoot.length > 0, 'temporary root missing');
   // Keep production install orchestration and cleanup. All package, network and
   // privilege operations are local stubs: these tests cannot install software.
   await writeFile(manager, source.replace(/\nmain "\$@"\s*$/, `
@@ -54,8 +59,20 @@ main "$@"
   const calls = async () => readFile(log, 'utf8').then(
     s => s.trim().split('\n').map(JSON.parse), e => { if (e.code === 'ENOENT') return []; throw e; },
   );
-  const cleaned = async () => assert.deepEqual((await readdir(root)).filter(n => n.startsWith('gestalt-chrome.')), []);
-  return { root, run, calls, cleaned };
+  const cleaned = async () => {
+    assert.deepEqual((await readdir(root)).filter(n => n.startsWith('gestalt-chrome.')), []);
+    for (const call of await calls()) {
+      if (call[0] !== 'curl') continue;
+      const output = call.indexOf('--output');
+      assert.ok(output >= 0 && typeof call[output + 1] === 'string', 'fixture download output missing');
+      const staging = dirname(call[output + 1]);
+      assert.ok(dirname(staging) === temporaryRoot && staging.startsWith(temporaryRoot + '/gestalt-chrome.'), 'download outside selected temporary root');
+      let absent = false;
+      try { await stat(staging); } catch (error) { if (error.code !== 'ENOENT') throw error; absent = true; }
+      assert.ok(absent, 'fixture Chrome download staging directory survived cleanup');
+    }
+  };
+  return { root, temporaryRoot, run, calls, cleaned };
 }
 
 for (const uid of ['0', '1000']) test(`missing Debian amd64 Chrome installs and verifies with uid ${uid}`, async t => {
@@ -68,7 +85,7 @@ for (const uid of ['0', '1000']) test(`missing Debian amd64 Chrome installs and 
   assert.ok(calls[0].includes('--fail'));
   const apt = calls.at(-1);
   assert.deepEqual(apt.slice(0, 3), ['apt-get', 'install', '-y']);
-  assert.ok(apt[3].startsWith(f.root + '/gestalt-chrome.'));
+  assert.ok(apt[3].startsWith(f.temporaryRoot + '/gestalt-chrome.'), 'apt package outside selected temporary root');
   await f.cleaned();
   assert.equal(f.run().status, 0);
   assert.deepEqual(await f.calls(), calls, 'repeat install must not download or use apt');

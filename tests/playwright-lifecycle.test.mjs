@@ -97,13 +97,27 @@ test('a concurrent updater cannot stage or activate another release',async t=>{
 test('interrupted staging terminates package subprocess and preserves the active release',async t=>{
   const f=await fixture(t);assert.equal(f.run(['install']).status,0);const before=await f.active();
   await writeFile(join(f.base,'delay'),'');
+  const baseline=(await readFile(f.log,'utf8')).trim().split('\n').filter(Boolean).length;
   const p=spawn('bash',[manager,'playwright','update'],{env:f.env,stdio:'ignore'});
   const exited=new Promise(resolve=>p.on('exit',(code,signal)=>resolve({code,signal})));
-  for(let i=0;i<100;i++){try{await stat(join(f.home,'playwright/.install-lock'));break;}catch{await new Promise(r=>setTimeout(r,20));}}
-  p.kill('SIGTERM');await exited;
-  assert.deepEqual(await f.active(),before);
-  assert.ok(!(await readdir(join(f.home,'playwright'))).includes('.install-lock'));
-  assert.equal((await readdir(join(f.home,'playwright'))).filter(n=>n.startsWith('release-')).length,1);
+  try {
+    // Lock creation precedes npm startup; interrupt the intended package child.
+    let started=false;
+    for(let i=0;i<100;i++){
+      const entries=(await readFile(f.log,'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse);
+      started=entries.slice(baseline).some(entry=>entry.args?.[0]==='view'&&entry.args?.[1]==='@playwright/mcp@latest');
+      if(started)break;
+      await new Promise(r=>setTimeout(r,20));
+    }
+    assert.ok(started,'update package subprocess did not start');
+    p.kill('SIGTERM');await exited;
+    assert.deepEqual(await f.active(),before);
+    assert.ok(!(await readdir(join(f.home,'playwright'))).includes('.install-lock'));
+    assert.equal((await readdir(join(f.home,'playwright'))).filter(n=>n.startsWith('release-')).length,1);
+  } finally {
+    if(p.exitCode===null&&p.signalCode===null)p.kill('SIGTERM');
+    await exited;
+  }
 });
 test('failed atomic activation never advertises a staged candidate',async t=>{
   const f=await fixture(t);

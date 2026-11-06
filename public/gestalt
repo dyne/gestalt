@@ -254,6 +254,73 @@ function scratchRevalidateAncestor(ancestor) {
   const current = scratchAncestorOwner(ancestor.context);
   scratchAssert(scratchSameDirectory(ancestor.identity, current.identity) && ancestor.provenance === current.provenance);
 }
+// Offline operator recovery only. An empty directory supplies no evidence that
+// its publisher died, so normal allocation must never invoke this override.
+function scratchContainmentSnapshot(workspace, ownerId) {
+  scratchAssert(scratchId(ownerId));
+  const context = scratchOwnerContext(workspace, ownerId);
+  const ancestor = scratchAncestorOwner(context);
+  scratchAssert(scratchJson(context.markerPath).ownerKind === 'mobile-session');
+  const path = scratchPath.join(context.directory, '.containment-lock');
+  const expected = scratchDirectoryIdentity(path);
+  scratchPrivate(path);
+  scratchAssert(scratchFs.readdirSync(path).length === 0);
+  // Other metadata writers must be quiescent too; their claims are never
+  // cleared by containment recovery, regardless of age or apparent PID state.
+  for (const name of ['.controller-lock', '.association-lock']) {
+    try {scratchFs.lstatSync(scratchPath.join(context.directory, name));}
+    catch (error) {if (error.code === 'ENOENT') continue; throw error;}
+    throw new Error('SESSION_SCRATCH_RECOVERY_WRITER_BUSY');
+  }
+  const token = scratchCrypto.createHash('sha256').update(JSON.stringify({
+    owner: ancestor.provenance,
+    ownerIdentity: ancestor.identity,
+    marker: scratchJson(context.markerPath),
+    leases: scratchFs.existsSync(scratchPath.join(context.directory, 'leases'))
+      ? scratchLeaseRecords(context).sort((left, right) => left.leaseId.localeCompare(right.leaseId)) : [],
+    lockIdentity: expected,
+  }, (_, value) => typeof value === 'bigint' ? value.toString() : value)).digest('hex');
+  return {context, ancestor, path, expected, token};
+}
+function scratchRecoverContainment(workspace, ownerId, token) {
+  scratchAssert(typeof token === 'string' && /^[a-f0-9]{64}$/.test(token));
+  const snapshot = scratchContainmentSnapshot(workspace, ownerId);
+  if (snapshot.token !== token) throw new Error('SESSION_SCRATCH_RECOVERY_SNAPSHOT_CHANGED');
+  const fd = scratchFs.openSync(snapshot.path, scratchFs.constants.O_RDONLY | scratchFs.constants.O_DIRECTORY | scratchFs.constants.O_NOFOLLOW);
+  try {
+    const held = scratchFs.fstatSync(fd, {bigint: true});
+    scratchAssert(scratchSameDirectory(snapshot.expected, {dev: held.dev, ino: held.ino, birth: held.birthtimeNs}));
+    scratchRevalidateAncestor(snapshot.ancestor);
+    // Recheck after opening. This is explicitly offline recovery, not a claim
+    // that check-then-rmdir is safe against a concurrent cooperating writer.
+    const current = scratchContainmentSnapshot(workspace, ownerId);
+    if (current.token !== token) throw new Error('SESSION_SCRATCH_RECOVERY_SNAPSHOT_CHANGED');
+    scratchFs.rmdirSync(snapshot.path); // Empty only; never recursive.
+  } finally {scratchFs.closeSync(fd);}
+}
+function scratchRecoveryCommand(args) {
+  const [action, ...options] = args;
+  scratchAssert(['inspect', 'recover'].includes(action));
+  const values = {};
+  let confirmed = false;
+  for (let index = 0; index < options.length; index++) {
+    const name = options[index];
+    if (name === '--confirm-quiescent') {scratchAssert(!confirmed); confirmed = true; continue;}
+    scratchAssert(['--cwd', '--owner', '--expect'].includes(name) && !Object.hasOwn(values, name));
+    scratchAssert(typeof options[index + 1] === 'string' && !options[index + 1].startsWith('--'));
+    values[name] = options[++index];
+  }
+  scratchAssert(values['--cwd'] && values['--owner']);
+  if (action === 'inspect') {
+    scratchAssert(!confirmed && !values['--expect']);
+    const snapshot = scratchContainmentSnapshot(values['--cwd'], values['--owner']);
+    process.stdout.write(JSON.stringify({schemaVersion: 1, status: 'confirmationRequired', token: snapshot.token}) + '\n');
+  } else {
+    scratchAssert(confirmed && values['--expect']);
+    scratchRecoverContainment(values['--cwd'], values['--owner'], values['--expect']);
+    process.stdout.write(JSON.stringify({schemaVersion: 1, status: 'recovered'}) + '\n');
+  }
+}
 function scratchWithContainment(workspace, publish) {
   scratchCanonical(workspace);
   const selected = scratchDirectoryIdentity(workspace), ancestors = scratchManagedAncestors(workspace), claims = [];
@@ -494,6 +561,14 @@ if (process.argv[1] === 'validate') {
   try {const context = scratchContext(); process.stdout.write(scratchJson(context.markerPath).ownerKind + '\n' + context.directory);}
   catch { process.stderr.write('gestalt: invalid managed session temporary context\n'); process.exitCode = 1; }
 }
+if (process.argv[1] === 'scratch') {
+  try {scratchRecoveryCommand(process.argv.slice(2));}
+  catch (error) {
+    const code = ['SESSION_SCRATCH_RECOVERY_WRITER_BUSY', 'SESSION_SCRATCH_RECOVERY_SNAPSHOT_CHANGED'].includes(error.message)
+      ? error.message : 'SESSION_SCRATCH_RECOVERY_REJECTED';
+    process.stderr.write('gestalt: ' + code + '; see gestalt scratch --help\n'); process.exitCode = 1;
+  }
+}
 if (process.argv[1] === 'cli') scratchCli(process.argv[2], process.argv.slice(3)).catch(() => {
   process.stderr.write('gestalt: managed CLI temporary ownership unavailable\n'); process.exitCode = 1;
 });
@@ -534,6 +609,10 @@ Commands:
                             Update from a live Mobile session, then restart Mobile.
   cli [--] [args...]        Start Codex with ~/.codex-gestalt as CODEX_HOME.
   mobile [--] [args...]     Start the managed Gestalt Mobile executable.
+  scratch inspect --cwd ROOT --owner ID
+                            Inspect an empty Mobile containment fence (read-only).
+  scratch recover --cwd ROOT --owner ID --expect TOKEN --confirm-quiescent
+                            Offline recovery after all owner processes have stopped.
   playwright install [VERSION] Install MCP; add missing system Chrome on Debian amd64.
   playwright update [VERSION]  Stage, verify and activate an explicit package update.
   playwright version [--json]  Read versioned installation metadata.
@@ -6468,6 +6547,18 @@ main() {
     __codex-app-server) command_codex_app_server "$@" ;;
     __cli-owned) command_cli_owned "$@" ;;
     __scratch-hook) exec node -e "$(session_scratch_runtime)" hook "$@" ;;
+    scratch)
+      if [[ ${1:-} == --help || ${1:-} == -h ]]; then
+        printf '%s\n' 'Stop Mobile and all runtimes/tools using this owner before recovery.' \
+          'gestalt scratch inspect --cwd ROOT --owner ID' \
+          'gestalt scratch recover --cwd ROOT --owner ID --expect TOKEN --confirm-quiescent' \
+          'Use the token from inspect. Only an empty Mobile containment fence is removed.' \
+          'Never use this override on a live session. Leases and payload are retained.'
+      else
+        require_command node
+        exec node -e "$(session_scratch_runtime)" scratch "$@"
+      fi
+      ;;
     cli) command_cli "$@" ;;
     mobile) command_mobile "$@" ;;
     xerj) command_xerj "$@" ;;

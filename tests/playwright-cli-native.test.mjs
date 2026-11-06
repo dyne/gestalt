@@ -10,6 +10,7 @@ import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { parse } from 'smol-toml';
 import { verifyChildTransports } from './playwright-child-transport-fixture.mjs';
+import { managerStubScratchRuntime } from './manager-stub-fixture.mjs';
 
 const source = await readFile(resolve('public/gestalt'), 'utf8');
 const nativeCodex = resolve(process.env.GESTALT_PLAYWRIGHT_NATIVE_CODEX ?? 'node_modules/.bin/codex');
@@ -372,6 +373,7 @@ for (const mode of modes) test(`native TUI ${mode} retains session across pendin
       pageUrl = 'http://127.0.0.1:' + pageFixture.address().port;
     }
     await writeFile(manager, `#!/usr/bin/env node
+${managerStubScratchRuntime(source)}
 const fs=require('node:fs');
 const browser=!process.argv.includes('unrelated');
 const audited=${JSON.stringify(auditChildTransports)}&&browser&&process.argv[3]==='mcp';

@@ -3,9 +3,12 @@ import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { mkdtemp, mkdir, readFile, writeFile, rm, readdir, stat, realpath } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import test from 'node:test';
 
 const manager = resolve('public/gestalt');
+const inheritedScratch = Object.hasOwn(process.env, 'GESTALT_SESSION_TMP_CONTEXT');
+const inheritedContext = inheritedScratch ? JSON.parse(process.env.GESTALT_SESSION_TMP_CONTEXT) : undefined;
 const catalog = ['get_symbols_overview', 'find_symbol', 'initial_instructions', 'replace_symbol_body']
   .map(name => ({ name, description: 'isolated native fixture', inputSchema: { type: 'object', properties:
     name === 'get_symbols_overview' ? { relative_path: { type: 'string' } } : {} } }));
@@ -24,6 +27,17 @@ async function execute(args, env, cwd) {
 
 async function owningInvocation(workspace, stdout) {
   workspace = await realpath(workspace);
+  const events = stdout.split('\n').flatMap(line => { try { return [JSON.parse(line)]; } catch { return []; } });
+  const root = events.find(event => event.type === 'thread.started')?.thread_id;
+  assert.ok(root, 'native root thread event missing');
+  if (inheritedScratch) {
+    const marker = JSON.parse(await readFile(inheritedContext.markerPath, 'utf8'));
+    assert.equal(marker.ownerId, inheritedContext.ownerId);
+    assert.equal(marker.workspacePath, inheritedContext.workspacePath);
+    assert.equal(await realpath(inheritedContext.directory), inheritedContext.directory);
+    await assert.rejects(stat(join(workspace, 'tmp/sessions')), {code:'ENOENT'}, 'inherited invocation created a replacement owner');
+    return inheritedContext;
+  }
   const sessions = join(workspace, 'tmp/sessions');
   const owners = (await readdir(sessions)).filter(name => name.startsWith('cli-'));
   assert.equal(owners.length, 1, 'one CLI invocation owner expected');
@@ -41,19 +55,16 @@ async function owningInvocation(workspace, stdout) {
   for (const path of [sessions, directory]) assert.equal((await stat(path)).mode & 0o777, 0o700);
   assert.equal((await stat(markerPath)).mode & 0o777, 0o600);
   assert.equal(await realpath(directory), directory);
-  const events = stdout.split('\n').flatMap(line => { try { return [JSON.parse(line)]; } catch { return []; } });
-  const root = events.find(event => event.type === 'thread.started')?.thread_id;
-  assert.ok(root, 'native root thread event missing');
   assert.ok(marker.providerThreads.some(value => value.provider === 'codex' && value.threadId === root));
   return {schemaVersion: 1, workspacePath: workspace, ownerId, directory, markerPath};
 }
 
-function assertNativeEnvironment(event, context) {
+function assertNativeEnvironment(event, context, workspace) {
   assert.deepEqual(JSON.parse(event.env.GESTALT_SESSION_TMP_CONTEXT), context);
   for (const key of ['TMPDIR', 'TMP', 'TEMP']) assert.equal(event.env[key], context.directory);
   for (const key of ['SERENA_HOME', 'HOME', 'UV_CACHE_DIR'])
-    assert.ok(event.env[key].startsWith(join(context.workspacePath, '.gestalt/serena')), key + ' persistent root changed');
-  assert.equal(event.env.SERENA_HOME, join(context.workspacePath, '.gestalt/serena'));
+    assert.ok(event.env[key].startsWith(join(workspace, '.gestalt/serena')), key + ' persistent root changed');
+  assert.equal(event.env.SERENA_HOME, join(workspace, '.gestalt/serena'));
 }
 
 // Entire public CLI path, actual native Codex and effective sandbox metadata.
@@ -62,7 +73,7 @@ function assertNativeEnvironment(event, context) {
 for (const mode of ['default-approval', 'dual-profile-child', 'serena-only-resume', 'excluded', 'backend-failure', 'read-only', 'approval-denied', 'edit-approval-denied']) {
   const label = mode === 'approval-denied' ? 'server prompt preapproved' : mode === 'edit-approval-denied' ? 'per-tool prompt preapproved' : mode;
   test(`public CLI native Serena ${label}`, { timeout: 120000 }, async () => {
-    const root = await mkdtemp('/tmp/serena-cli-native-');
+    const root = await mkdtemp(join(tmpdir(), 'serena-cli-native-'));
     const home = join(root, 'codex'), managed = join(root, 'managed'), repository = join(root, 'marketplace');
     const workspace = join(root, 'one/project'), sibling = join(root, 'two/project');
     const plugin = join(repository, 'plugins/gestalt'), context = join(repository, 'plugins/context-mode');
@@ -73,7 +84,7 @@ for (const mode of ['default-approval', 'dual-profile-child', 'serena-only-resum
       await mkdir(path, { recursive: true });
     for (const project of [workspace, sibling]) await writeFile(join(project, 'fixture.py'), 'def fixture_symbol():\n    return 1\n');
     const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('CONTEXT_MODE_')));
-    Object.assign(env, { CODEX_HOME: home, GESTALT_HOME: managed, TMPDIR: '/tmp', PYTHONPATH: stubs, XERJ_READY_TIMEOUT_MS: '5000',
+    Object.assign(env, { CODEX_HOME: home, GESTALT_HOME: managed, PYTHONPATH: stubs, XERJ_READY_TIMEOUT_MS: '5000',
       GESTALT_SERENA_DOCTOR_TIMEOUT_MS: '500' });
     await writeFile(join(plugin, '.codex-plugin/plugin.json'), JSON.stringify({ name: 'gestalt', version: '0.0.1',
       description: 'native session composition fixture', skills: './skills/' }));
@@ -254,9 +265,11 @@ console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result:m.method==='initialize'
       const toolText = outputs.flatMap(item => Array.isArray(item.output) ? item.output.map(content => content.text ?? '') : [item.output]).join('\n');
       const invocation = await owningInvocation(workspace, result.stdout);
       if (mode === 'excluded') {
-        assert.deepEqual((await readdir(workspace)).sort(), ['fixture.py', 'tmp'], 'excluded capability prepared project state');
-        assert.deepEqual(await readdir(join(workspace, 'tmp')), ['sessions']);
-        assert.deepEqual((await readdir(join(workspace, 'tmp/sessions'))).sort(), ['.gitignore', invocation.ownerId].sort());
+        assert.deepEqual((await readdir(workspace)).sort(), inheritedScratch ? ['fixture.py'] : ['fixture.py', 'tmp'], 'excluded capability prepared project state');
+        if (!inheritedScratch) {
+          assert.deepEqual(await readdir(join(workspace, 'tmp')), ['sessions']);
+          assert.deepEqual((await readdir(join(workspace, 'tmp/sessions'))).sort(), ['.gitignore', invocation.ownerId].sort());
+        }
       } else if (mode === 'read-only' || mode === 'backend-failure') {
         assert.ok(outputs.some(item => JSON.stringify(item.output).includes('Serena') && /unavailable|failed|exited/.test(JSON.stringify(item.output))), 'native effective-policy failure missing');
         await assert.rejects(readFile(join(workspace, 'edited.py')), { code: 'ENOENT' });
@@ -270,7 +283,7 @@ console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result:m.method==='initialize'
           assert.equal(event.args[event.args.indexOf('--project') + 1], workspace);
           assert.equal(event.args[event.args.indexOf('--context') + 1], 'codex');
           assert.equal(event.args[event.args.indexOf('--mode') + 1], 'editing');
-          assertNativeEnvironment(event, invocation);
+          assertNativeEnvironment(event, invocation, workspace);
         }
         assert.ok(outputs.some(item => JSON.stringify(item.output).includes('fixture_symbol')), 'first policy-bearing semantic call missing');
         assert.ok(!toolText.includes('requires approval'), 'managed tool policy still requested approval');
@@ -279,8 +292,10 @@ console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result:m.method==='initialize'
         await assert.rejects(readFile(join(sibling, 'escaped.py')), { code: 'ENOENT' });
         if (mode === 'dual-profile-child') {
           assert.ok(spawned && waited && actors.has('initial-child'), 'native child scope missing');
-          const marker = JSON.parse(await readFile(invocation.markerPath, 'utf8'));
-          assert.ok(marker.providerThreads.length >= 2, 'root and child provider associations missing');
+          if (!inheritedScratch) {
+            const marker = JSON.parse(await readFile(invocation.markerPath, 'utf8'));
+            assert.ok(marker.providerThreads.length >= 2, 'root and child provider associations missing');
+          }
         }
       }
       if (mode === 'serena-only-resume') {
@@ -305,8 +320,9 @@ console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result:m.method==='initialize'
         assert.equal(event.args[event.args.indexOf('--mode') + 1], 'editing');
         assert.equal(event.env.SERENA_HOME, join(sibling, '.gestalt/serena'));
         const secondInvocation = await owningInvocation(sibling, second.stdout);
-        assert.notEqual(secondInvocation.ownerId, invocation.ownerId);
-        assertNativeEnvironment(event, secondInvocation);
+        if (inheritedScratch) assert.deepEqual(secondInvocation, invocation);
+        else assert.notEqual(secondInvocation.ownerId, invocation.ownerId);
+        assertNativeEnvironment(event, secondInvocation, sibling);
         assert.equal(await readFile(join(sibling, 'edited.py'), 'utf8'), 'fixture edit');
         await assert.rejects(readFile(join(workspace, 'escaped.py')), { code: 'ENOENT' });
         phase = 'resume'; expectedSerena = false;

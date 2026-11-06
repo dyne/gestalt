@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
+import { managerStubScratchRuntime } from './manager-stub-fixture.mjs';
 
 const manager = resolve('public/gestalt');
 const source = await readFile(manager, 'utf8');
@@ -96,6 +97,7 @@ if (args[0] === 'app-server') {
 `, { mode: 0o755 });
   const owner = join(bin, 'manager');
   await writeFile(owner, `#!/usr/bin/env node
+${managerStubScratchRuntime(source)}
 require('node:fs').appendFileSync(process.env.FIXTURE_ROOT + '/ensure.jsonl', JSON.stringify(process.argv.slice(2)) + '\\n');
 ${mode === 'timeout' ? 'setTimeout(() => console.log(process.env.FIXTURE_READY), 5000);' : 'console.log(process.env.FIXTURE_READY);'}
 `, { mode: 0o755 });

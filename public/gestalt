@@ -377,15 +377,14 @@ async function scratchReleaseReady(ownership) {
   }
   return true;
 }
-function scratchGuardianProgram(manager, consumer, browser = false) {
+function scratchGuardianProgram(manager, consumer, lifetimeSupervisor = null) {
   const context = scratchContext();
   if (!context) return null;
   const ownership = scratchBorrow(context, consumer);
   const source = scratchFs.readFileSync(manager, 'utf8').match(/^\/\/ BEGIN SESSION SCRATCH RUNTIME\n([\s\S]*?)^\/\/ END SESSION SCRATCH RUNTIME/m);
   scratchAssert(source);
   return source[1] + '\nconst args=JSON.parse(process.argv[2]);' +
-    (browser ? 'args.push(JSON.stringify({useProcessIdentity:true,staleToken:process.argv[4]||null}));' : '') +
-    'scratchGuard('+JSON.stringify(ownership)+',process.argv[1],args,process.argv[3]).catch(()=>{process.stderr.write("gestalt: managed tool release unconfirmed; temporary owner protected\\n");process.exitCode=1;process.stdin.destroy();});';
+    'scratchGuard('+JSON.stringify(ownership)+',process.argv[1],args,process.argv[3],'+JSON.stringify(lifetimeSupervisor)+',process.argv[4]||"").catch(()=>{process.stderr.write("gestalt: managed tool release unconfirmed; temporary owner protected\\n");process.exitCode=1;process.stdin.destroy();});';
 }
 function scratchAssociate(environment, threadId) {
   const context = scratchContext(environment);
@@ -413,7 +412,10 @@ function scratchGroupAbsent(pid) {
 }
 async function scratchStopped(child, stop = false, options = {}) {
   const running = () => child.exitCode === null && child.signalCode === null;
-  const signal = name => {if (running() && child.pid) try {process.kill(-child.pid, name);} catch (e) {if (e.code !== 'ESRCH') throw e;}};
+  const signal = name => {if (running() && child.pid) try {
+    if (options.leaderFirst && name === 'SIGTERM') child.kill(name);
+    else process.kill(-child.pid, name);
+  } catch (e) {if (e.code !== 'ESRCH') throw e;}};
   if (stop) signal('SIGTERM');
   const deadline = Date.now() + (options.maxMs ?? 3500), escalation = Date.now() + (options.graceMs ?? 1500);
   while (Date.now() < deadline) {
@@ -425,13 +427,20 @@ async function scratchStopped(child, stop = false, options = {}) {
   // never authorizes a fresh termination signal after that boundary.
   return !running() && scratchGroupAbsent(child.pid);
 }
-async function scratchGuard(ownership, command, args, cwd) {
+async function scratchGuard(ownership, command, args, cwd, lifetimeSupervisor = null, staleToken = '') {
   const {spawn} = require('node:child_process');
   const environment = scratchEnvironment({...process.env, [scratchVariable]: JSON.stringify(ownership.context)});
-  const child = spawn(command, args, {cwd, env: environment, detached: true, stdio: [3, 'inherit', 'inherit']});
+  // Composed supervision retains a live group leader through consumer shutdown,
+  // then terminates its owned descendants before the outer guardian releases.
+  const composed = typeof lifetimeSupervisor === 'string';
+  const child = spawn(composed ? process.execPath : command,
+    composed ? ['-e', lifetimeSupervisor, command, JSON.stringify(args), cwd, staleToken] : args,
+    {cwd, env: environment, detached: true, stdio: composed ? ['pipe', 'inherit', 'inherit', 3] : [3, 'inherit', 'inherit']});
+  if (composed) child.stdin.on('error', () => {});
   let stopping;
   const stop = code => stopping ??= (async () => {
-    const stopped = await scratchStopped(child, true);
+    if (composed) child.stdin.end();
+    const stopped = await scratchStopped(child, true, composed ? {leaderFirst: true, graceMs: 4000, maxMs: 6000} : {});
     if (stopped) await scratchReleaseReady(ownership);
     else process.stderr.write('gestalt: temporary owner remains protected; subprocess release is unconfirmed\n');
     process.exitCode = code;
@@ -1091,9 +1100,9 @@ command_xerj_readiness() {
   # Do not use command_xerj mcp: ordinary forwarding prepares writable state.
   exec node --input-type=module - "$gestalt_home" "$operation" "${BASH_SOURCE[0]}" "$codex_home" "$service_workspace" <<'JS'
 import { spawn } from 'node:child_process';
-import { lstatSync, readdirSync } from 'node:fs';
+import { lstatSync, readdirSync, constants as fsConstants } from 'node:fs';
 import { setImmediate as yieldToIO } from 'node:timers/promises';
-import { lstat, stat as followStat, readFile, realpath, readdir, mkdir, writeFile, rename, rm, chmod } from 'node:fs/promises';
+import { lstat, stat as followStat, readFile, realpath, readdir, mkdir, writeFile, rename, rm, chmod, open } from 'node:fs/promises';
 import { createHash, randomBytes } from 'node:crypto';
 import net from 'node:net';
 import { dirname, join, basename, relative } from 'node:path';
@@ -1328,6 +1337,25 @@ async function identity(pid) {
   const code = await new Promise((resolve, reject) => { child.once('close', resolve); child.once('error', reject); });
   return code === 0 && text.trim() ? text.trim() : null;
 }
+async function lifecycleSocketAddress(layout) {
+  if (process.platform !== 'linux' || Buffer.byteLength(layout.socket) < 100)
+    return {address: layout.socket, shortened: false, close: async () => {}};
+  if (layout.socket !== join(layout.directory, basename(layout.socket)) ||
+      !/^[a-f0-9]{16}\.sock$/.test(basename(layout.socket))) fail('unsafe-path');
+  const handle = await open(layout.directory, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
+  try {
+    const held = await handle.stat(), current = await lstat(layout.directory);
+    if (!held.isDirectory() || (held.mode & 0o777) !== 0o700 ||
+        process.getuid && held.uid !== process.getuid() || current.isSymbolicLink() ||
+        current.dev !== held.dev || current.ino !== held.ino ||
+        await realpath(layout.directory) !== layout.directory) fail('unsafe-path');
+    const descriptor = '/proc/' + process.pid + '/fd/' + handle.fd;
+    const target = await followStat(descriptor);
+    if (target.dev !== held.dev || target.ino !== held.ino) fail('unsafe-path');
+    let closing;
+    return {address: descriptor + '/' + basename(layout.socket), shortened: true, close: () => closing ??= handle.close()};
+  } catch (error) {await handle.close(); throw error;}
+}
 async function readJSON(path) {
   try { return JSON.parse(await readFile(path, 'utf8')); }
   catch (error) { if (error.code === 'ENOENT') return null; fail('invalid-lifecycle-record'); }
@@ -1382,11 +1410,22 @@ async function acquireLock(layout, root, endpoint) {
     await delay(20);
   }
 }
-function control(layout, token, method, allowAborted = false) {
+async function control(layout, token, method, allowAborted = false) {
   if (!allowAborted) controller.signal.throwIfAborted();
-  return new Promise(resolve => {
+  // A stale record without a control socket cannot prove managed ownership.
+  // Preserve that absent-channel result before opening a directory descriptor.
+  let endpoint;
+  try {endpoint = await lstat(layout.socket);}
+  catch (error) {if (error.code === 'ENOENT') return null; throw error;}
+  if (!endpoint.isSocket()) return null;
+  const address = await lifecycleSocketAddress(layout);
+  let socket, closed;
+  try {
+  if (!allowAborted) controller.signal.throwIfAborted();
+  return await new Promise(resolve => {
     let text = '', done = false;
-    const socket = net.createConnection(layout.socket);
+    socket = net.createConnection(address.address);
+    closed = new Promise(resolve => socket.once('close', resolve));
     const complete = result => { if (!done) { done = true; clearTimeout(deadline); socket.destroy(); resolve(result); } };
     // Explicit stop includes native shutdown and filesystem cleanup. Its
     // acknowledgment can take longer than an info roundtrip, while failed
@@ -1404,6 +1443,11 @@ function control(layout, token, method, allowAborted = false) {
       }
     });
   });
+  } finally {
+    socket?.destroy();
+    if (address.shortened) await closed;
+    await address.close();
+  }
 }
 async function ownerAt(layout, root, endpoint) {
   const record = await readJSON(layout.record);
@@ -1440,7 +1484,7 @@ async function runGuardian() {
   const scratch = new Function('require', runtimeSource[1] + '\nreturn {scratchAllocate,scratchEnvironment,scratchRelease,scratchStopped};')(createRequire(import.meta.url));
   const serviceOwnership = serviceWorkspace ? scratch.scratchAllocate(serviceWorkspace, 'workspace-service', 'xerj-backend') : null;
   if (!serviceOwnership) process.stderr.write('gestalt: no selected workspace; shared XERJ temporary ownership unavailable\n');
-  let serverChild, controlServer, retained = false, stopping;
+  let serverChild, controlServer, controlAddress, retained = false, stopping;
   const clients = new Set();
   const event = async name => {
     // Only manager event codes, never native stdout/stderr or credentials.
@@ -1457,11 +1501,19 @@ async function runGuardian() {
     if (stopped && serviceOwnership) scratch.scratchRelease(serviceOwnership);
     const record = await readJSON(layout.record);
     if (stopped && record?.token === token) await rm(layout.record, { force: true });
+    const address = controlAddress;
+    controlAddress = undefined;
     if (controlServer) {
       for (const client of clients) client.destroy();
-      controlServer.close();
+      // The stop requester receives its acknowledgement after this function.
+      // Keep the fd through that final connection without awaiting it here.
+      controlServer.close(() => {
+        if (address) void address.close().catch(() => {
+          process.stderr.write('gestalt: XERJ control descriptor close unconfirmed\n'); process.exitCode = 1;
+        });
+      });
       await rm(layout.socket, { force: true });
-    }
+    } else await address?.close();
     await event(stopped ? failed ? 'failed-launch-reaped' : 'backend-stopped' : 'backend-stop-unconfirmed');
     return stopped;
   })();
@@ -1500,7 +1552,11 @@ async function runGuardian() {
         } else client.destroy();
       });
     });
-    await new Promise((resolve, reject) => { controlServer.once('error', reject); controlServer.listen(layout.socket, resolve); });
+    controlAddress = await lifecycleSocketAddress(layout);
+    if (stopping || Date.now() >= deadline - 100) {
+      await controlAddress?.close(); controlAddress = undefined; fail('timeout');
+    }
+    await new Promise((resolve, reject) => { controlServer.once('error', reject); controlServer.listen(controlAddress.address, resolve); });
     await chmod(layout.socket, 0o600);
     if (Date.now() >= deadline - 100 || stopping) fail('timeout');
     const env = nativeEnvironment(root, dataRoot, endpoint, process.env.XERJ_AUTH || 'ApiKey managed-key-unavailable');
@@ -2228,7 +2284,7 @@ child.on('error',()=>process.exit(1));child.on('exit',value=>{if(!ending)code=va
       const source=fs.readFileSync(manager,'utf8').match(/^\/\/ BEGIN SESSION SCRATCH RUNTIME\n([\s\S]*?)^\/\/ END SESSION SCRATCH RUNTIME/m);
       if(!source)fail('temporary lifecycle runtime missing');
       const scratch=new Function('require',source[1]+'\nreturn {scratchGuardianProgram};')(require);
-      supervisor=scratch.scratchGuardianProgram(manager,'playwright-mcp',true)||supervise;
+      supervisor=scratch.scratchGuardianProgram(manager,'playwright-mcp',supervise)||supervise;
     }
     const processChild=spawn(process.execPath,['-e',supervisor,process.execPath,JSON.stringify(argv),layout.workspace,staleToken||''],
       {cwd:layout.workspace,env:runtimeEnv(),detached:true,stdio:['pipe','pipe','pipe','pipe']});
@@ -2988,6 +3044,16 @@ process.stdin.resume();process.stdin.on('end',stop);process.on('SIGTERM',stop);p
 // Leader exit does not prove descendant exit: retain the bounded escalation.
 child.on('error',()=>process.exit(1));child.on('exit',code=>{if(!ending)exitCode=code??1;stop();});
 `;
+// Only scratchGuard launches this supervisor, detached as the live group
+// leader. Native leader exit never authorizes signaling its cached PID/group.
+const managedSupervise = `
+const {spawn}=require('node:child_process');
+const child=spawn(process.argv[1],JSON.parse(process.argv[2]),{cwd:process.argv[3],env:process.env,stdio:[3,'inherit','inherit']});
+let ending=false,exitCode=0;
+function stop(){if(ending)return;ending=true;try{process.kill(-process.pid,'SIGTERM');}catch{}setTimeout(()=>{try{process.kill(-process.pid,'SIGKILL');}catch{}process.exit(exitCode);},750);}
+process.stdin.resume();process.stdin.on('end',stop);process.on('SIGTERM',stop);process.on('SIGINT',stop);
+child.on('error',()=>{exitCode=1;stop();});child.on('exit',code=>{if(!ending)exitCode=code??1;stop();});
+`;
 async function stop() {
   const old = runtime;
   runtime = undefined;
@@ -3025,7 +3091,7 @@ async function start(state) {
     if (!source) throw Error('temporary lifecycle runtime missing');
     const {createRequire} = await import('node:module');
     const scratch = new Function('require', source[1] + '\nreturn {scratchGuardianProgram};')(createRequire(import.meta.url));
-    supervisor = scratch.scratchGuardianProgram(manager, 'serena-mcp') ?? supervise;
+    supervisor = scratch.scratchGuardianProgram(manager, 'serena-mcp', managedSupervise) ?? supervise;
   }
   const child = spawn(process.execPath, ['-e', supervisor, 'codex', JSON.stringify(args), workspace],
     { cwd: workspace, env: process.env, stdio: ['pipe', 'pipe', 'inherit', 'pipe'] });

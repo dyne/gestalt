@@ -39,7 +39,7 @@ console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result}));});`;
  // Any nested Codex launch is a regression, including a shell-sandbox proxy.
  await writeFile(join(bin,'codex'),`#!${process.execPath}
 require('node:fs').appendFileSync(${JSON.stringify(join(base,'sandbox-events'))},'unexpected Codex invocation');process.exit(99);`,{mode:0o755});
- const env={...process.env,PATH:bin+':'+process.env.PATH,GESTALT_HOME:home,PLAYWRIGHT_MCP_PORT:'9999',PLAYWRIGHT_MCP_NO_SANDBOX:'1',NODE_OPTIONS:''};
+ const env={...process.env,PATH:bin+':'+process.env.PATH,GESTALT_HOME:home,GESTALT_PLAYWRIGHT_MANAGER:manager,PLAYWRIGHT_MCP_PORT:'9999',PLAYWRIGHT_MCP_NO_SANDBOX:'1',NODE_OPTIONS:''};
  const scratch=managedScratch?await sessionScratch(workspace):undefined;
  const resource=parentResource?await mobileResourceLease(scratch):undefined;
  if(scratch)Object.assign(env,scratch.environment,{TMPDIR:'/hostile',TMP:'/hostile',TEMP:'/hostile'});
@@ -92,12 +92,33 @@ test('workspace aliases share a lease and managed state symlinks fail closed',as
  const state=resolve(p.profile,'..');await rm(join(state,'chrome'),{recursive:true});const outside=join(f.base,'outside');await mkdir(outside);await symlink(outside,join(state,'chrome'));
  const c=f.start();assert.ok((await c.call()).error);assert.deepEqual(await import('node:fs/promises').then(fs=>fs.readdir(outside)),[]);
 });
-for(const {signal,disconnect} of [{signal:'SIGTERM'},{signal:'SIGINT'},{signal:'SIGKILL'},{signal:'SIGTERM',disconnect:true}])test('signal shutdown awaits browser cookie flush and releases owned lease after '+signal+(disconnect?' with concurrent EOF/SIGINT':''),async t=>{
- const f=await fixture(t,{flushOnClose:true}),c=f.start(f.workspace,{public:true});
+for(const managedScratch of [false,true])
+for(const {signal,disconnect} of [{signal:'SIGTERM'},{signal:'SIGINT'},{signal:'SIGKILL'},{signal:'SIGTERM',disconnect:true}])test((managedScratch?'managed scratch ':'')+'signal shutdown awaits browser cookie flush and releases owned lease after '+signal+(disconnect?' with concurrent EOF/SIGINT':''),async t=>{
+ const f=await fixture(t,{flushOnClose:true,managedScratch}),c=f.start(f.workspace,{public:true});
  const a=payload(await c.call('browser_navigate',{cookie:'signal-persistent'}));
+ let borrower;
+ if(managedScratch){
+  const leases=join(f.scratch.context.directory,'leases');
+  for(const name of await readdir(leases)){
+   const path=join(leases,name),value=JSON.parse(await readFile(path,'utf8'));
+   if(value.consumers.includes('playwright-mcp'))borrower=path;
+  }
+  assert.ok(borrower,'managed browser borrower missing');
+ }
  await assert.rejects(stat(join(a.profile,'cookie')),{code:'ENOENT'});
  c.p.kill(signal);if(disconnect){c.p.stdin.end();c.p.kill('SIGINT');}await c.exited;await dead(a.pid);await dead(a.worker);await gone(join(a.profile,'../lease'));
  const again=f.start(),b=payload(await again.call());assert.equal(b.cookie,'signal-persistent');assert.equal(b.profile,a.profile);
+ if(managedScratch){
+  let released=false;
+  for(let i=0;i<80;i++){
+   released=JSON.parse(await readFile(borrower,'utf8')).state==='released';
+   if(released)break;
+   await pause(25);
+  }
+  assert.ok(released,'managed browser borrower was not released after group exit');
+  const first=JSON.parse((await readFile(join(f.base,'browser-events'),'utf8')).trim().split('\n')[0]);
+  for(const [key,value]of Object.entries(f.scratch.environment))assert.equal(first.env[key],value);
+ }
 });
 test('public Bash launcher retains MCP stdin and cleans up on EOF',async t=>{
  const f=await fixture(t),c=f.start(f.workspace,{public:true});const a=payload(await c.call());await c.close();await dead(a.pid);await dead(a.worker);

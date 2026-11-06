@@ -3,10 +3,10 @@ import { spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import net from 'node:net';
-import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, stat, link } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, stat, link, open, realpath } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname, basename } from 'node:path';
 import test from 'node:test';
 
 const manager = new URL('../public/gestalt', import.meta.url).pathname;
@@ -26,19 +26,23 @@ async function freePort() {
   await new Promise(resolve => server.close(resolve));
   return port;
 }
-async function fixture(t, mode = 'healthy', port, automatic = false) {
+// Raw test peers use their existing private directory; production owns all
+// validation/authentication. This helper only adapts the transport address.
+async function fixtureControlAddress(path) {
+  if (process.platform !== 'linux' || Buffer.byteLength(path) < 100)
+    return {address:path, close:async()=>{}};
+  const handle=await open(dirname(path),'r');
+  return {address:'/proc/'+process.pid+'/fd/'+handle.fd+'/'+basename(path),close:()=>handle.close()};
+}
+async function fixture(t, mode = 'healthy', port, automatic = false, longControlPath = false) {
   port ??= await freePort();
   const temp = await mkdtemp(join(tmpdir(), 'x '));
-  const root = join(temp, 'h'), binary = join(root, 'xerj', 'xerj');
+  const root = join(temp, longControlPath ? 'long-control-root-' + 'x'.repeat(120) : 'h'), binary = join(root, 'xerj', 'xerj');
   const starts = join(temp, 'starts.ndjson');
   const endpoint = `http://127.0.0.1:${port}`;
   const name = createHash('sha256').update(endpoint).digest('hex').slice(0, 16);
   const directory = join(root, 'xerj-data', '.lifecycle');
   const socket = join(directory, `${name}.sock`);
-  if (Buffer.byteLength(socket) > 107) {
-    await rm(temp, {recursive:true,force:true});
-    assert.fail('fixture Unix control path exceeds 107-byte budget');
-  }
   const lock = join(directory, `${name}.lock`), record = join(directory, `${name}.json`);
   await mkdir(join(root, 'xerj'), { recursive: true });
   await writeFile(binary, `#!${process.execPath}
@@ -141,7 +145,7 @@ else if (args[0] === 'mcp') {
     }finally{await rm(temp, { recursive: true, force: true });}
     if(failure)throw failure;
   });
-  return { root, binary, endpoint, directory, lock, record, run, launched, noServers, commands };
+  return { root, binary, endpoint, directory, socket, lock, record, run, launched, noServers, commands };
 }
 
 test('shared backend owns workspace-service scratch across caller exit and reuse from another workspace', async t => {
@@ -438,14 +442,17 @@ test('malformed or unauthorized control requests cannot disrupt a shared backend
   assert.equal((await f.run('ensure-ready')).status, 'ready');
   const socketPath = join(f.directory, (await readdir(f.directory)).find(name => name.endsWith('.sock')));
   assert.equal((await stat(socketPath)).mode & 0o777, 0o600);
+  const peer=await fixtureControlAddress(socketPath);
+  try {
   for (const input of ['null\n', '{invalid\n', '{"token":"wrong","method":"stop"}\n']) {
     await new Promise((resolve, reject) => {
-      const client = net.createConnection(socketPath);
+      const client = net.createConnection(peer.address);
       client.setTimeout(1000,()=>client.destroy(new Error('fixture control client deadline')));
       client.on('error', reject); client.on('close', resolve);
       client.on('connect', () => client.write(input));
     });
   }
+  } finally {await peer.close();}
   assert.equal((await f.run('status')).ownership, 'managed');
   assert.equal((await f.run('stop')).status, 'stopped');
   await f.noServers();
@@ -468,10 +475,57 @@ test('explicit stop waits for ownership acknowledgment within its overall deadli
       else setTimeout(() => client.end('{"stopped":true}\n'), 300);
     });
   });
-  await new Promise(resolve => owner.listen(f.record.replace(/\.json$/, '.sock'), resolve));
+  const peer=await fixtureControlAddress(f.record.replace(/\.json$/, '.sock'));
   try {
+    await new Promise((resolve,reject) => {owner.once('error',reject);owner.listen(peer.address,resolve);});
     const began = performance.now();
     assert.equal((await f.run('stop')).status, 'stopped');
     assert.ok(performance.now() - began >= 300);
-  } finally {for(const client of connections)client.destroy();await closeListener(owner);}
+  } finally {
+    try {for(const client of connections)client.destroy();await closeListener(owner);}
+    finally {await peer.close();}
+  }
+});
+
+test('long Linux canonical control paths preserve authenticated ownership and service scratch cleanup',
+  {skip:process.platform!=='linux'}, async t => {
+  const f=await fixture(t,'healthy',undefined,false,true);
+  assert.ok(Buffer.byteLength(f.socket)>107,'long-path regression did not exceed Unix pathname limit');
+  const first=join(f.root,'workspace one'),second=join(f.root,'workspace two');
+  await mkdir(first);await mkdir(second);
+  assert.equal((await f.run(['ensure-ready','--cwd',first])).status,'ready');
+  const socket=await stat(f.socket);
+  assert.ok(socket.isSocket());
+  assert.equal(socket.mode&0o777,0o600);
+  assert.equal((await stat(f.directory)).mode&0o777,0o700);
+  assert.equal(await realpath(f.socket),f.socket,'canonical control socket moved');
+  const record=JSON.parse(await readFile(f.record,'utf8'));
+  assert.equal(record.root,f.root);assert.equal(record.endpoint,f.endpoint);
+  assert.match(record.token,/^[a-f0-9]{48}$/);
+  assert.equal((await stat(f.record)).mode&0o777,0o600);
+  const starts=await f.launched();assert.equal(starts.length,1);
+  const context=JSON.parse(starts[0].env.GESTALT_SESSION_TMP_CONTEXT);
+  assert.equal(context.workspacePath,first);assert.match(context.ownerId,/^service-/);
+  for(const name of ['TMPDIR','TMP','TEMP'])assert.equal(starts[0].env[name],context.directory);
+  const marker=JSON.parse(await readFile(context.markerPath,'utf8'));
+  const lease=join(context.directory,'leases',marker.authority.leaseId+'.json');
+  assert.equal(JSON.parse(await readFile(lease,'utf8')).state,'active');
+  const peer=await fixtureControlAddress(f.socket);
+  try {
+    await new Promise((resolve,reject)=>{
+      const client=net.createConnection(peer.address);
+      client.setTimeout(1000,()=>client.destroy(new Error('fixture unauthorized control deadline')));
+      client.on('error',reject);client.on('close',resolve);
+      client.on('connect',()=>client.write('{"token":"wrong","method":"stop"}\n'));
+    });
+  } finally {await peer.close();}
+  assert.deepEqual(JSON.parse(await readFile(f.record,'utf8')),record,'unauthorized request changed owner');
+  assert.equal((await f.run('status')).ownership,'managed');
+  assert.equal((await f.run(['ensure-ready','--cwd',second])).status,'ready');
+  assert.equal((await f.launched()).length,1,'long-path reuse started another backend');
+  await assert.rejects(stat(join(second,'tmp')),{code:'ENOENT'});
+  assert.equal((await f.run('stop')).status,'stopped');await f.noServers();
+  assert.equal(JSON.parse(await readFile(lease,'utf8')).state,'released');
+  await assert.rejects(stat(f.socket),{code:'ENOENT'});
+  await assert.rejects(stat(f.record),{code:'ENOENT'});
 });

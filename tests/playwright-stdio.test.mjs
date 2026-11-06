@@ -69,6 +69,8 @@ test('ordinary MCP calls need no Codex metadata; Chrome sandbox, pipes and priva
  const f=await fixture(t),c=f.start();const a=payload(await c.call());
  await assert.rejects(stat(join(f.base,'sandbox-events')),{code:'ENOENT'});
  const e=JSON.parse((await readFile(join(f.base,'browser-events'),'utf8')).trim());assert.equal(e.config.browser.launchOptions.chromiumSandbox,true);assert.equal(e.config.browser.launchOptions.headless,true);assert.equal(e.config.webmcp,false);assert.deepEqual(e.config.capabilities,[]);assert.equal(e.config.server,undefined);
+ assert.equal(e.config.browser.launchOptions.executablePath,f.chrome);
+ assert.equal(e.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD,'1');
  assert.equal(e.env.PLAYWRIGHT_MCP_PORT,undefined);assert.equal(e.env.PLAYWRIGHT_MCP_NO_SANDBOX,undefined);assert.equal(e.env.NODE_OPTIONS,undefined);
  assert.equal((await stat(a.profile)).mode&0o777,0o700);assert.equal((await stat(join(a.profile,'../lease/owner.json'))).mode&0o777,0o600);
  await c.close();await dead(a.pid);await dead(a.worker);await gone(join(a.profile,'../lease'));

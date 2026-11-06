@@ -146,6 +146,39 @@ and retirement/deletion, and conservatively protect existing nested owner or
 indeterminate namespaces. Launcher publication alone never grants cleanup
 authority over the outer or inner payload.
 
+### Recovering an abandoned Mobile containment fence
+
+A publisher killed during metadata publication cannot run its `finally` block.
+An empty `.containment-lock` may then block every later context-mode execution
+with `SESSION_SCRATCH_BORROW_FAILED`. Its age, emptiness and a missing PID do not
+prove that it is abandoned. Normal publication continues to fail closed.
+
+For **offline operator recovery**, first stop Mobile and **all** runtimes,
+tools and other publishers using the affected owner, including detached tools.
+Pausing Autopilot alone is insufficient. Preserve a redacted incident capture
+before stopping services. Do not run recovery against an active session.
+
+```sh
+gestalt scratch inspect --cwd /absolute/workspace --owner mobile-OWNER_HASH
+gestalt scratch recover --cwd /absolute/workspace --owner mobile-OWNER_HASH \
+  --expect TOKEN_FROM_INSPECT --confirm-quiescent
+```
+
+`inspect` is read-only and emits a token bound to the validated Mobile owner
+and exact empty fence identity. `recover` revalidates both, requires the
+operator's explicit quiescence assertion, and removes only that empty directory.
+It rejects changed identities, aliases, non-private or nonempty fences, unknown
+owner/lease metadata and existing controller or association claims. It never
+expires leases, deletes payload, changes a session database or resumes a session.
+Active lease records remain protective after recovery. CLI/service lifetime
+claims and other unknown locks are outside this recovery command's scope.
+
+The token prevents accidental recovery of a replacement fence; it is not a
+process-liveness test or synchronization with a live writer. After recovery,
+restart the owner normally and resolve any pending attention request with
+Resume, optionally providing guidance. This source change is not deployed until
+the installed manager has been updated.
+
 ## Mobile detached tool borrowers and long Unix socket paths
 
 Validated Mobile owners use the same v1 borrower records as CLI and service

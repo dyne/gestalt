@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
+import { managerStubScratchRuntime } from './manager-stub-fixture.mjs';
 
 const manager = resolve('public/gestalt');
 const source = await readFile(manager, 'utf8');
@@ -96,6 +97,7 @@ if (args[0] === 'app-server') {
 `, { mode: 0o755 });
   const owner = join(bin, 'manager');
   await writeFile(owner, `#!/usr/bin/env node
+${managerStubScratchRuntime(source)}
 require('node:fs').appendFileSync(process.env.FIXTURE_ROOT + '/ensure.jsonl', JSON.stringify(process.argv.slice(2)) + '\\n');
 ${mode === 'timeout' ? 'setTimeout(() => console.log(process.env.FIXTURE_READY), 5000);' : 'console.log(process.env.FIXTURE_READY);'}
 `, { mode: 0o755 });
@@ -176,12 +178,19 @@ test('CLI protected overrides follow user config; cwd/profile go to native confi
   const result = await fixture('healthy', args);
   try {
     assert.equal(result.code, 0);
-    assert.deepEqual(result.launches[0].slice(1, args.length + 1), args);
+    const launch = result.launches[0];
+    // Generated config follows the original root-level override, before the
+    // original prompt. All user arguments retain their relative order.
+    assert.deepEqual(launch.slice(1, args.length), args.slice(0, -1));
+    assert.equal(launch.at(-1), args.at(-1));
+    const generated = launch.slice(args.length, -1);
+    assert.ok(generated.length > 0 && generated.length % 2 === 0);
+    for (let i = 0; i < generated.length; i += 2) assert.equal(generated[i], '-c');
     const read = JSON.parse(await readFile(join(result.root, 'read.json'), 'utf8'));
     assert.equal(read.params.cwd, tmpdir());
     assert.ok(result.launches[0].some(arg => arg.startsWith('mcp_servers.gestalt-xerj=') && arg.includes(`"cwd"=${JSON.stringify(tmpdir())}`)));
     assert.ok(!read.args.some(arg => arg.startsWith('profile=')), 'v2 profile must not be treated as legacy profile');
-    assert.ok(result.launches[0].slice(args.length).some(arg => arg.startsWith('mcp_servers.gestalt-xerj=')));
+    assert.ok(generated.some(arg => arg.startsWith('mcp_servers.gestalt-xerj=')));
   } finally { await rm(result.root, { recursive: true, force: true }); }
 });
 

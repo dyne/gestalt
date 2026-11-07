@@ -6,11 +6,18 @@ import { join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
+import { managerStubScratchRuntime } from './manager-stub-fixture.mjs';
 
 const require = createRequire(import.meta.url);
 const parser = pathToFileURL(require.resolve('smol-toml')).href;
 const source = await readFile(resolve('public/gestalt'), 'utf8');
 const program = source.split('launch_cli_with_xerj() {')[1].split("<<'NODE'\n")[1].split('\nNODE\n')[0];
+
+function managedFrontendAddress(address) {
+  return typeof address === 'string' && (
+    /^unix:\/\/\/(?:[^/]+\/)*gestalt-cli-playwright-[^/]+\/frontend\.sock$/.test(address) ||
+    process.platform === 'linux' && /^unix:\/\/\/proc\/[1-9]\d*\/fd\/\d+\/frontend\.sock$/.test(address));
+}
 
 const cases = [
   { name: 'no named profile remains off despite installed package and base enabled', base: true },
@@ -51,10 +58,11 @@ for (const scenario of cases) test(`Playwright CLI bootstrap: ${scenario.name}`,
     if (selected && !scenario.missing) await writeFile(join(home, 'browser.config.toml'),
       scenario.profile ?? '[mcp_servers.gestalt-playwright]\nenabled=true\n');
     await writeFile(owner, `#!/usr/bin/env node
+${managerStubScratchRuntime(source)}
 require('node:fs').appendFileSync(${JSON.stringify(join(root, 'unexpected-manager'))},JSON.stringify(process.argv.slice(2)));process.exit(1);
 `, { mode: 0o755 });
     await writeFile(join(bin, 'codex.mjs'), `#!/usr/bin/env node
-import fs from 'node:fs';import{createInterface}from'node:readline';import{parse}from${JSON.stringify(parser)};
+import fs from 'node:fs';import{dirname}from'node:path';import{createInterface}from'node:readline';import{parse}from${JSON.stringify(parser)};
 const args=process.argv.slice(2),root=${JSON.stringify(root)},workspace=${JSON.stringify(workspace)};
 fs.appendFileSync(root+'/invocations',JSON.stringify(args)+'\\n');
 if(args[0]==='app-server'){
@@ -69,7 +77,18 @@ if(args[0]==='app-server'){
   if(m.method==='skills/list')result={data:[{cwd:workspace,skills:${scenario.missingSkill ? '[]' : `[{name:'gestalt:playwright',path:${JSON.stringify(skill)},enabled:true}]`}}]};
   console.log(JSON.stringify({id:m.id,result}));
  });
-}else fs.writeFileSync(root+'/launched.json',JSON.stringify(args));
+}else{
+ fs.writeFileSync(root+'/launched.json',JSON.stringify(args));
+ if(${Boolean(scenario.on && !scenario.off)}){
+  const managedFrontendAddress=${managedFrontendAddress.toString()};
+  const observed={ownedAddress:args[0]==='--remote'&&managedFrontendAddress(args[1]),socket:false,directory:false,socketMode:null,directoryMode:null};
+  if(observed.ownedAddress){
+   const endpoint=args[1].slice('unix://'.length),socket=fs.statSync(endpoint),directory=fs.statSync(dirname(endpoint));
+   Object.assign(observed,{socket:socket.isSocket(),directory:directory.isDirectory(),socketMode:socket.mode&0o777,directoryMode:directory.mode&0o777});
+  }
+  fs.writeFileSync(root+'/frontend.json',JSON.stringify(observed));
+ }
+}
 `, { mode: 0o755 });
     await symlink('codex.mjs', join(bin, 'codex'));
     const selection = !selected ? [] : scenario.long ? ['--profile', 'browser'] : scenario.equals ? ['--profile=browser'] : ['-pbrowser'];
@@ -87,7 +106,9 @@ if(args[0]==='app-server'){
     assert.equal(code, 0, stderr);
     const launched = JSON.parse(await readFile(join(root, 'launched.json'), 'utf8'));
     const shouldOwnRuntime = Boolean(scenario.on && !scenario.off);
-    assert.equal(launched[0] === '--remote' && launched[1]?.includes('gestalt-cli-playwright-'), shouldOwnRuntime, stderr);
+    assert.equal(launched[0] === '--remote' && managedFrontendAddress(launched[1]), shouldOwnRuntime, stderr);
+    if (shouldOwnRuntime) assert.deepEqual(JSON.parse(await readFile(join(root, 'frontend.json'), 'utf8')),
+      { ownedAddress: true, socket: true, directory: true, socketMode: 0o600, directoryMode: 0o700 });
     assert.equal(launched.includes('--no-daemon'), !shouldOwnRuntime && !scenario.remote,
       'manager mode flag conflicts with its owned remote frontend or changed ordinary native behavior');
     for (const original of args) assert.ok(launched.includes(original), 'native argument lost: ' + original);

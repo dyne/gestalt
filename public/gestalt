@@ -444,15 +444,14 @@ async function scratchReleaseReady(ownership) {
   }
   return true;
 }
-function scratchGuardianProgram(manager, consumer, browser = false) {
+function scratchGuardianProgram(manager, consumer, lifetimeSupervisor = null) {
   const context = scratchContext();
   if (!context) return null;
   const ownership = scratchBorrow(context, consumer);
   const source = scratchFs.readFileSync(manager, 'utf8').match(/^\/\/ BEGIN SESSION SCRATCH RUNTIME\n([\s\S]*?)^\/\/ END SESSION SCRATCH RUNTIME/m);
   scratchAssert(source);
   return source[1] + '\nconst args=JSON.parse(process.argv[2]);' +
-    (browser ? 'args.push(JSON.stringify({useProcessIdentity:true,staleToken:process.argv[4]||null}));' : '') +
-    'scratchGuard('+JSON.stringify(ownership)+',process.argv[1],args,process.argv[3]).catch(()=>{process.stderr.write("gestalt: managed tool release unconfirmed; temporary owner protected\\n");process.exitCode=1;process.stdin.destroy();});';
+    'scratchGuard('+JSON.stringify(ownership)+',process.argv[1],args,process.argv[3],'+JSON.stringify(lifetimeSupervisor)+',process.argv[4]||"").catch(()=>{process.stderr.write("gestalt: managed tool release unconfirmed; temporary owner protected\\n");process.exitCode=1;process.stdin.destroy();});';
 }
 function scratchAssociate(environment, threadId) {
   const context = scratchContext(environment);
@@ -480,7 +479,10 @@ function scratchGroupAbsent(pid) {
 }
 async function scratchStopped(child, stop = false, options = {}) {
   const running = () => child.exitCode === null && child.signalCode === null;
-  const signal = name => {if (running() && child.pid) try {process.kill(-child.pid, name);} catch (e) {if (e.code !== 'ESRCH') throw e;}};
+  const signal = name => {if (running() && child.pid) try {
+    if (options.leaderFirst && name === 'SIGTERM') child.kill(name);
+    else process.kill(-child.pid, name);
+  } catch (e) {if (e.code !== 'ESRCH') throw e;}};
   if (stop) signal('SIGTERM');
   const deadline = Date.now() + (options.maxMs ?? 3500), escalation = Date.now() + (options.graceMs ?? 1500);
   while (Date.now() < deadline) {
@@ -492,13 +494,20 @@ async function scratchStopped(child, stop = false, options = {}) {
   // never authorizes a fresh termination signal after that boundary.
   return !running() && scratchGroupAbsent(child.pid);
 }
-async function scratchGuard(ownership, command, args, cwd) {
+async function scratchGuard(ownership, command, args, cwd, lifetimeSupervisor = null, staleToken = '') {
   const {spawn} = require('node:child_process');
   const environment = scratchEnvironment({...process.env, [scratchVariable]: JSON.stringify(ownership.context)});
-  const child = spawn(command, args, {cwd, env: environment, detached: true, stdio: [3, 'inherit', 'inherit']});
+  // Composed supervision retains a live group leader through consumer shutdown,
+  // then terminates its owned descendants before the outer guardian releases.
+  const composed = typeof lifetimeSupervisor === 'string';
+  const child = spawn(composed ? process.execPath : command,
+    composed ? ['-e', lifetimeSupervisor, command, JSON.stringify(args), cwd, staleToken] : args,
+    {cwd, env: environment, detached: true, stdio: composed ? ['pipe', 'inherit', 'inherit', 3] : [3, 'inherit', 'inherit']});
+  if (composed) child.stdin.on('error', () => {});
   let stopping;
   const stop = code => stopping ??= (async () => {
-    const stopped = await scratchStopped(child, true);
+    if (composed) child.stdin.end();
+    const stopped = await scratchStopped(child, true, composed ? {leaderFirst: true, graceMs: 4000, maxMs: 6000} : {});
     if (stopped) await scratchReleaseReady(ownership);
     else process.stderr.write('gestalt: temporary owner remains protected; subprocess release is unconfirmed\n');
     process.exitCode = code;
@@ -1170,9 +1179,9 @@ command_xerj_readiness() {
   # Do not use command_xerj mcp: ordinary forwarding prepares writable state.
   exec node --input-type=module - "$gestalt_home" "$operation" "${BASH_SOURCE[0]}" "$codex_home" "$service_workspace" <<'JS'
 import { spawn } from 'node:child_process';
-import { lstatSync, readdirSync } from 'node:fs';
+import { lstatSync, readdirSync, constants as fsConstants } from 'node:fs';
 import { setImmediate as yieldToIO } from 'node:timers/promises';
-import { lstat, stat as followStat, readFile, realpath, readdir, mkdir, writeFile, rename, rm, chmod } from 'node:fs/promises';
+import { lstat, stat as followStat, readFile, realpath, readdir, mkdir, writeFile, rename, rm, chmod, open } from 'node:fs/promises';
 import { createHash, randomBytes } from 'node:crypto';
 import net from 'node:net';
 import { dirname, join, basename, relative } from 'node:path';
@@ -1407,6 +1416,25 @@ async function identity(pid) {
   const code = await new Promise((resolve, reject) => { child.once('close', resolve); child.once('error', reject); });
   return code === 0 && text.trim() ? text.trim() : null;
 }
+async function lifecycleSocketAddress(layout) {
+  if (process.platform !== 'linux' || Buffer.byteLength(layout.socket) < 100)
+    return {address: layout.socket, shortened: false, close: async () => {}};
+  if (layout.socket !== join(layout.directory, basename(layout.socket)) ||
+      !/^[a-f0-9]{16}\.sock$/.test(basename(layout.socket))) fail('unsafe-path');
+  const handle = await open(layout.directory, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
+  try {
+    const held = await handle.stat(), current = await lstat(layout.directory);
+    if (!held.isDirectory() || (held.mode & 0o777) !== 0o700 ||
+        process.getuid && held.uid !== process.getuid() || current.isSymbolicLink() ||
+        current.dev !== held.dev || current.ino !== held.ino ||
+        await realpath(layout.directory) !== layout.directory) fail('unsafe-path');
+    const descriptor = '/proc/' + process.pid + '/fd/' + handle.fd;
+    const target = await followStat(descriptor);
+    if (target.dev !== held.dev || target.ino !== held.ino) fail('unsafe-path');
+    let closing;
+    return {address: descriptor + '/' + basename(layout.socket), shortened: true, close: () => closing ??= handle.close()};
+  } catch (error) {await handle.close(); throw error;}
+}
 async function readJSON(path) {
   try { return JSON.parse(await readFile(path, 'utf8')); }
   catch (error) { if (error.code === 'ENOENT') return null; fail('invalid-lifecycle-record'); }
@@ -1461,11 +1489,22 @@ async function acquireLock(layout, root, endpoint) {
     await delay(20);
   }
 }
-function control(layout, token, method, allowAborted = false) {
+async function control(layout, token, method, allowAborted = false) {
   if (!allowAborted) controller.signal.throwIfAborted();
-  return new Promise(resolve => {
+  // A stale record without a control socket cannot prove managed ownership.
+  // Preserve that absent-channel result before opening a directory descriptor.
+  let endpoint;
+  try {endpoint = await lstat(layout.socket);}
+  catch (error) {if (error.code === 'ENOENT') return null; throw error;}
+  if (!endpoint.isSocket()) return null;
+  const address = await lifecycleSocketAddress(layout);
+  let socket, closed;
+  try {
+  if (!allowAborted) controller.signal.throwIfAborted();
+  return await new Promise(resolve => {
     let text = '', done = false;
-    const socket = net.createConnection(layout.socket);
+    socket = net.createConnection(address.address);
+    closed = new Promise(resolve => socket.once('close', resolve));
     const complete = result => { if (!done) { done = true; clearTimeout(deadline); socket.destroy(); resolve(result); } };
     // Explicit stop includes native shutdown and filesystem cleanup. Its
     // acknowledgment can take longer than an info roundtrip, while failed
@@ -1483,6 +1522,11 @@ function control(layout, token, method, allowAborted = false) {
       }
     });
   });
+  } finally {
+    socket?.destroy();
+    if (address.shortened) await closed;
+    await address.close();
+  }
 }
 async function ownerAt(layout, root, endpoint) {
   const record = await readJSON(layout.record);
@@ -1519,7 +1563,7 @@ async function runGuardian() {
   const scratch = new Function('require', runtimeSource[1] + '\nreturn {scratchAllocate,scratchEnvironment,scratchRelease,scratchStopped};')(createRequire(import.meta.url));
   const serviceOwnership = serviceWorkspace ? scratch.scratchAllocate(serviceWorkspace, 'workspace-service', 'xerj-backend') : null;
   if (!serviceOwnership) process.stderr.write('gestalt: no selected workspace; shared XERJ temporary ownership unavailable\n');
-  let serverChild, controlServer, retained = false, stopping;
+  let serverChild, controlServer, controlAddress, retained = false, stopping;
   const clients = new Set();
   const event = async name => {
     // Only manager event codes, never native stdout/stderr or credentials.
@@ -1536,11 +1580,19 @@ async function runGuardian() {
     if (stopped && serviceOwnership) scratch.scratchRelease(serviceOwnership);
     const record = await readJSON(layout.record);
     if (stopped && record?.token === token) await rm(layout.record, { force: true });
+    const address = controlAddress;
+    controlAddress = undefined;
     if (controlServer) {
       for (const client of clients) client.destroy();
-      controlServer.close();
+      // The stop requester receives its acknowledgement after this function.
+      // Keep the fd through that final connection without awaiting it here.
+      controlServer.close(() => {
+        if (address) void address.close().catch(() => {
+          process.stderr.write('gestalt: XERJ control descriptor close unconfirmed\n'); process.exitCode = 1;
+        });
+      });
       await rm(layout.socket, { force: true });
-    }
+    } else await address?.close();
     await event(stopped ? failed ? 'failed-launch-reaped' : 'backend-stopped' : 'backend-stop-unconfirmed');
     return stopped;
   })();
@@ -1579,7 +1631,11 @@ async function runGuardian() {
         } else client.destroy();
       });
     });
-    await new Promise((resolve, reject) => { controlServer.once('error', reject); controlServer.listen(layout.socket, resolve); });
+    controlAddress = await lifecycleSocketAddress(layout);
+    if (stopping || Date.now() >= deadline - 100) {
+      await controlAddress?.close(); controlAddress = undefined; fail('timeout');
+    }
+    await new Promise((resolve, reject) => { controlServer.once('error', reject); controlServer.listen(controlAddress.address, resolve); });
     await chmod(layout.socket, 0o600);
     if (Date.now() >= deadline - 100 || stopping) fail('timeout');
     const env = nativeEnvironment(root, dataRoot, endpoint, process.env.XERJ_AUTH || 'ApiKey managed-key-unavailable');
@@ -2307,7 +2363,7 @@ child.on('error',()=>process.exit(1));child.on('exit',value=>{if(!ending)code=va
       const source=fs.readFileSync(manager,'utf8').match(/^\/\/ BEGIN SESSION SCRATCH RUNTIME\n([\s\S]*?)^\/\/ END SESSION SCRATCH RUNTIME/m);
       if(!source)fail('temporary lifecycle runtime missing');
       const scratch=new Function('require',source[1]+'\nreturn {scratchGuardianProgram};')(require);
-      supervisor=scratch.scratchGuardianProgram(manager,'playwright-mcp',true)||supervise;
+      supervisor=scratch.scratchGuardianProgram(manager,'playwright-mcp',supervise)||supervise;
     }
     const processChild=spawn(process.execPath,['-e',supervisor,process.execPath,JSON.stringify(argv),layout.workspace,staleToken||''],
       {cwd:layout.workspace,env:runtimeEnv(),detached:true,stdio:['pipe','pipe','pipe','pipe']});
@@ -3067,6 +3123,16 @@ process.stdin.resume();process.stdin.on('end',stop);process.on('SIGTERM',stop);p
 // Leader exit does not prove descendant exit: retain the bounded escalation.
 child.on('error',()=>process.exit(1));child.on('exit',code=>{if(!ending)exitCode=code??1;stop();});
 `;
+// Only scratchGuard launches this supervisor, detached as the live group
+// leader. Native leader exit never authorizes signaling its cached PID/group.
+const managedSupervise = `
+const {spawn}=require('node:child_process');
+const child=spawn(process.argv[1],JSON.parse(process.argv[2]),{cwd:process.argv[3],env:process.env,stdio:[3,'inherit','inherit']});
+let ending=false,exitCode=0;
+function stop(){if(ending)return;ending=true;try{process.kill(-process.pid,'SIGTERM');}catch{}setTimeout(()=>{try{process.kill(-process.pid,'SIGKILL');}catch{}process.exit(exitCode);},750);}
+process.stdin.resume();process.stdin.on('end',stop);process.on('SIGTERM',stop);process.on('SIGINT',stop);
+child.on('error',()=>{exitCode=1;stop();});child.on('exit',code=>{if(!ending)exitCode=code??1;stop();});
+`;
 async function stop() {
   const old = runtime;
   runtime = undefined;
@@ -3104,7 +3170,7 @@ async function start(state) {
     if (!source) throw Error('temporary lifecycle runtime missing');
     const {createRequire} = await import('node:module');
     const scratch = new Function('require', source[1] + '\nreturn {scratchGuardianProgram};')(createRequire(import.meta.url));
-    supervisor = scratch.scratchGuardianProgram(manager, 'serena-mcp') ?? supervise;
+    supervisor = scratch.scratchGuardianProgram(manager, 'serena-mcp', managedSupervise) ?? supervise;
   }
   const child = spawn(process.execPath, ['-e', supervisor, 'codex', JSON.stringify(args), workspace],
     { cwd: workspace, env: process.env, stdio: ['pipe', 'pipe', 'inherit', 'pipe'] });
@@ -4931,11 +4997,15 @@ const toml = value => {
 };
 const appendFlags = flags => {
   const end = args.indexOf('--');
-  const index = end < 0 ? args.length : end;
+  const boundary = end < 0 ? args.length : end;
+  // Codex 0.160 replaces the root repeated-config list when another config
+  // flag appears at subcommand scope. Add at the user's selected parse level,
+  // after its overrides, without moving or copying any original user argument.
+  const index = configInsertion ?? boundary;
   // Ordinary session overrides use an embedded server. Managed Playwright
   // instead supplies its own remote frontend; --no-daemon conflicts there.
   // An explicit user --no-daemon stays untouched and selects the ordinary path.
-  const mode = remote || playwrightController || args.slice(0, index).includes('--no-daemon') ? [] : ['--no-daemon'];
+  const mode = remote || playwrightController || args.slice(0, boundary).includes('--no-daemon') ? [] : ['--no-daemon'];
   return [...mode, ...args.slice(0, index), ...flags.flatMap(flag => ['-c', flag]), ...args.slice(index)];
 };
 const flags = [];
@@ -4944,6 +5014,7 @@ let rawSkillConfig;
 let explicitSkills = {};
 let remote = false;
 let namedProfile;
+let configInsertion;
 for (let i = 0; i < args.length && args[i] !== '--'; i++) {
   const option = args[i];
   let config;
@@ -4951,6 +5022,7 @@ for (let i = 0; i < args.length && args[i] !== '--'; i++) {
   else if (option.startsWith('--config=')) config = option.slice(9);
   else if (option.startsWith('-c') && option.length > 2) config = option.slice(2);
   if (config !== undefined) {
+    configInsertion = i + 1;
     flags.push('-c', config);
     const boundary = config.indexOf('=');
     const key = config.slice(0, boundary).trim();
@@ -5070,7 +5142,7 @@ try { state = await snapshot(); } catch { diagnose('native-config-unavailable');
 // Codex 0.160 profile-v2 files overlay the base user layer, then projects
 // and session flags win. Only readiness-relevant settings are adapted; the
 // actual CLI retains --profile and loads all other settings natively.
-const profileKeys = ['approval_policy', 'mcp_servers', 'plugins', 'skills', 'hooks', 'features', 'projects'];
+const profileKeys = ['approval_policy', 'mcp_servers', 'plugins', 'skills', 'hooks', 'features', 'projects', 'developer_instructions'];
 const table = value => value && typeof value === 'object' && !Array.isArray(value);
 const merge = (base, overlay) => {
   for (const [key, value] of Object.entries(overlay ?? {})) {
@@ -5129,17 +5201,25 @@ const conflict = reserved && ((reserved.env && Object.keys(reserved.env).length)
 const inactiveNotice = '<gestalt_xerj_unavailable>\nXerj retrieval is unavailable in this runtime. Earlier capability guidance is inactive; use rg and current source reads.\n</gestalt_xerj_unavailable>';
 const shQuote = value => "'" + value.replaceAll("'", "'\\'" + "'") + "'";
 const hookCommands = new Set();
+let startupHook;
+let expectedHookCount = 0;
 const sessionHook = context => ['SessionStart', 'SubagentStart'].map(event => {
   const command = (cliOwned&&!mappingUnknown?shQuote(manager)+' __scratch-hook && ':'')+shQuote(process.execPath) + ' -e ' + shQuote('process.stdout.write(' + JSON.stringify(context) + ')');
   hookCommands.add(command);
+  if (startupHook) hookCommands.add(startupHook);
+  expectedHookCount += startupHook ? 2 : 1;
   return `hooks.${event}=${toml([...(session.hooks?.[event] ?? []),
+    // Native SessionStart matches its source. Stable instructions belong to a
+    // fresh thread; capability/ownership hooks still run on resume as before.
+    ...(startupHook ? [{ ...(event === 'SessionStart' ? { matcher: 'startup' } : {}),
+      hooks: [{ type: 'command', timeout: 2, command: startupHook }] }] : []),
     { hooks: [{ type: 'command', timeout: 2, command }] }])}`;
 });
 async function trustedHooks(selected) {
   const listing = await snapshot(selected, true);
   const handlers = listing.data?.find(entry => entry.cwd === cwd)?.hooks ?? [];
   const owned = handlers.filter(hook => hook.source === 'sessionFlags' && hookCommands.has(hook.command));
-  if (owned.length !== 2) throw new Error('guidance-hooks-unavailable');
+  if (owned.length !== expectedHookCount) throw new Error('guidance-hooks-unavailable');
   const trust = { ...(session.hooks?.state ?? {}) };
   for (const hook of owned) trust[hook.key] = { ...trust[hook.key], enabled: true, trusted_hash: hook.currentHash };
   return [...selected, `hooks.state=${toml(trust)}`];
@@ -5172,6 +5252,108 @@ const usableGuidance = async entry => {
   return await readFile(path, 'utf8');
 };
 const common = state && !remote && state.config?.skills?.include_instructions !== false && state.config?.features?.hooks === true;
+const startupNotice = reason => process.stderr.write(`gestalt: startup guidance unavailable (${reason}); retaining legacy instructions\n`);
+// The selected native skill catalog identifies the installed package. Never
+// select a cache version by directory order or consult a source checkout.
+async function selectedStartupHook() {
+  if (!common) return;
+  const nativeVersion = /0\.(\d+)\./.exec(state.version);
+  if (!nativeVersion || Number(nativeVersion[1]) < 160) { startupNotice('unsupported-runtime'); return; }
+  const selected = state.skills.filter(entry => entry.name.startsWith('gestalt:') && entry.enabled !== false &&
+    [...(state.config.skills?.config ?? []), ...rules].filter(rule => rule.name === entry.name || rule.path === entry.path).at(-1)?.enabled !== false);
+  if (!selected.length) return;
+  try {
+    const roots = new Set(await Promise.all(selected.map(async entry => resolve(await realpath(entry.path), '../../..'))));
+    if (roots.size !== 1) { startupNotice('ambiguous-selected-package'); return; }
+    const packageRoot = [...roots][0];
+    const manifest = JSON.parse(await readFile(resolve(packageRoot, '.codex-plugin/plugin.json'), 'utf8'));
+    if (manifest.name !== 'gestalt' || manifest.skills !== './skills/') throw Error('invalid-package');
+    let descriptor;
+    try { descriptor = JSON.parse(await readFile(resolve(packageRoot, 'gestalt-startup-contract.json'), 'utf8')); }
+    catch (error) { if (error.code === 'ENOENT') { startupNotice('missing-contract'); return; } throw error; }
+    if (descriptor.schemaVersion !== 1 || descriptor.blockVersion !== 1) { startupNotice('unsupported-contract'); return; }
+    if (descriptor.composer !== 'scripts/startup-contract.mjs') throw Error('invalid-composer');
+    const { pathToFileURL } = await import('node:url');
+    const { createHash } = await import('node:crypto');
+    const composer = pathToFileURL(resolve(packageRoot, descriptor.composer)).href;
+    const { readStartupContract, composeStartup } = await import(composer);
+    const contract = await readStartupContract(packageRoot);
+    if (contract.status !== 'ready') { startupNotice(contract.reason === 'unsupported-contract' ? 'unsupported-contract' : 'missing-contract'); return; }
+    const block = composeStartup('', contract);
+    const effective = state.config.developer_instructions ?? '';
+    // A scalar owned by native config is immutable through this hook channel.
+    // Reuse a current single block there; stale/duplicate blocks need an
+    // explicit migration, never an additional hook copy or scalar override.
+    const composed = composeStartup(effective, contract);
+    const rootNeedsBlock = !effective.includes('<!-- gestalt:startup');
+    if (effective.includes('<!-- gestalt:startup')) {
+      if (composed !== effective) startupNotice('migration-required');
+    }
+    // Native standalone role names come from TOML, not filenames. Retain only
+    // decisions and fingerprints; never serialize private role instructions.
+    // Multiple matching definitions are left to native precedence and omitted
+    // from bootstrap delivery with a bounded compatibility diagnostic.
+    const { readdir } = await import('node:fs/promises');
+    const rolePolicies = Object.create(null);
+    const roleFolders = new Set([resolve(environment.CODEX_HOME, 'agents'), ...state.layers
+      .filter(layer => layer.name?.type === 'project' && !layer.disabledReason && layer.name.dotCodexFolder)
+      .map(layer => resolve(layer.name.dotCodexFolder, 'agents'))]);
+    for (const folder of roleFolders) {
+      let names;
+      try { names = await readdir(folder); } catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+      for (const name of names.filter(name => name.endsWith('.toml')).sort()) {
+        const path = resolve(folder, name), text = await readFile(path, 'utf8');
+        const role = gestaltProfileToml.parse(text);
+        if (typeof role.name !== 'string' || typeof role.developer_instructions !== 'string') continue;
+        let action = 'append';
+        try {
+          if (role.developer_instructions.includes('<!-- gestalt:startup'))
+            action = composeStartup(role.developer_instructions, contract) === role.developer_instructions ? 'reuse' : 'migration-required';
+        } catch { action = 'migration-required'; }
+        const policy = { path, digest: createHash('sha256').update(text).digest('hex'), action };
+        rolePolicies[role.name] = rolePolicies[role.name] ? { action: 'ambiguous-role' } : policy;
+      }
+    }
+    const digest = createHash('sha256').update(block).digest('hex');
+    async function emitStartup(composer, packageRoot, digest, rootNeedsBlock, roles) {
+      let reason = 'package-changed';
+      try {
+        let raw = '';
+        for await (const chunk of process.stdin) { raw += chunk; if (raw.length > 16384) throw Error('invalid-hook-input'); }
+        const input = JSON.parse(raw);
+        if (input.hook_event_name === 'SessionStart' && !rootNeedsBlock) return;
+        if (input.hook_event_name === 'SubagentStart') {
+          const role = roles[input.agent_type ?? 'default'];
+          if (role) {
+            if (role.action === 'ambiguous-role') { reason = 'ambiguous-role'; throw Error('ambiguous-role'); }
+            reason = 'role-config-changed';
+            const { readFile } = await import('node:fs/promises');
+            const { createHash } = await import('node:crypto');
+            if (!role.path || createHash('sha256').update(await readFile(role.path)).digest('hex') !== role.digest) throw Error('role-config-changed');
+            if (role.action === 'reuse') return;
+            if (role.action !== 'append') { reason = role.action; throw Error('role-migration'); }
+          } else if (!['default', 'worker', 'explorer'].includes(input.agent_type ?? 'default')) {
+            reason = 'role-discovery-unavailable'; throw Error('unknown-role');
+          } else if (!rootNeedsBlock) return;
+        }
+        reason = 'package-changed';
+        const { readStartupContract, composeStartup } = await import(composer);
+        const { createHash } = await import('node:crypto');
+        const contract = await readStartupContract(packageRoot);
+        if (contract.status !== 'ready') throw Error('package-changed');
+        const block = composeStartup('', contract);
+        if (createHash('sha256').update(block).digest('hex') !== digest) throw Error('package-changed');
+        process.stdout.write(block);
+      } catch {
+        process.stderr.write(`gestalt: startup guidance unavailable (${reason}); retaining legacy instructions\n`);
+      }
+    }
+    // Only package identity and a digest enter argv. Canonical stable text and
+    // effective user instructions are read in-process, never pasted into flags.
+    return shQuote(process.execPath) + ' --input-type=module -e ' + shQuote(`(${emitStartup.toString()})(${JSON.stringify(composer)},${JSON.stringify(packageRoot)},${JSON.stringify(digest)},${rootNeedsBlock},${JSON.stringify(rolePolicies)})`);
+  } catch { startupNotice('invalid-contract-or-instructions'); }
+}
+startupHook = await selectedStartupHook();
 // Managed browser consent is native named-profile state, independent of
 // package installation and of the supervisor's later activation request.
 const playwrightName = 'gestalt-playwright';
@@ -5705,6 +5887,7 @@ if (interrupted) process.exit(interruptionCode);
 if (capabilities[1].valid) readinessDeadline = Math.max(readinessDeadline, Date.now() + budget);
 const compose = () => {
   hookCommands.clear();
+  expectedHookCount = 0;
   const approved = managedMcpApprovals(state?.config ?? {},{manager,codexHome:environment.CODEX_HOME});
   const approvalFlags = [];
   for (const [name,server] of Object.entries(approved.mcp_servers ?? {})) if (isGestaltManagedMcp(name,server,{manager,codexHome:environment.CODEX_HOME})) {
@@ -5740,6 +5923,7 @@ async function selection() {
   try { if (state?.config?.features?.hooks === true) selected = await trustedHooks(selected); }
   catch {
     diagnose('guidance-hooks-unavailable');
+    if (startupHook) { startupNotice('guidance-hooks-unavailable'); startupHook = undefined; }
     protectUnknownMapping();
     for (const cap of capabilities) cap.valid = false;
     selected = compose();

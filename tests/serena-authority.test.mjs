@@ -1,15 +1,17 @@
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
 import {createInterface} from 'node:readline';
-import {mkdtemp,mkdir,readFile,writeFile,rm,symlink} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,writeFile,rm,symlink,readdir} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import test from 'node:test';
+import {sessionScratch} from './session-scratch-fixture.mjs';
 const source=await readFile(resolve('public/gestalt'),'utf8');
 const program=source.split('run_serena_proxy() {')[1].split("<<'NODE'\n")[1].split('\nNODE\n')[0];
 const catalog=['find_symbol','get_symbols_overview','initial_instructions','replace_symbol_body','activate_project','switch_modes','execute_shell_command'].map(name=>({name,description:name,inputSchema:{type:'object',properties:{}}}));
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
-async function fixture({spawnError=false,rootKind='canonical'}={}){
+async function fixture({spawnError=false,rootKind='canonical',managedScratch=false}={}){
  const root=await mkdtemp(join(tmpdir(),'serena-policy-')),workspace=join(root,'workspace with spaces');
  await mkdir(workspace);await mkdir(join(root,'bin'));
  const workspaceAlias=join(root,'workspace alias');
@@ -19,6 +21,7 @@ async function fixture({spawnError=false,rootKind='canonical'}={}){
  // is checked separately with the native Codex sandbox and disposable roots.
  await writeFile(join(root,'bin/codex'),`#!/usr/bin/env node
 const fs=require('node:fs'),{spawn}=require('node:child_process');const args=process.argv.slice(2);
+const scratch=process.env.GESTALT_SESSION_TMP_CONTEXT;
 fs.appendFileSync(${JSON.stringify(join(root,'starts'))},JSON.stringify(args)+'\\n');
 const descendant=spawn(process.execPath,['-e',"process.on('SIGTERM',()=>{});process.send('ready');setInterval(()=>{},1000)"],{stdio:['ignore','ignore','ignore','ipc']});
 // Wait for the descendant's actual handler before returning any tool result.
@@ -27,18 +30,37 @@ process.on('SIGTERM',()=>process.exit(0));
 require('node:readline').createInterface({input:process.stdin}).on('line',async line=>{await ready;const m=JSON.parse(line);if(m.id===undefined)return;let result={};
 if(m.method==='initialize')result={protocolVersion:m.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:'Serena',version:'SDK'}};
 if(m.method==='tools/list')result={tools:${JSON.stringify(catalog)}};
-if(m.method==='tools/call')result={content:[{type:'text',text:JSON.stringify({pid:process.pid,descendant:descendant.pid,state:JSON.parse(args[2]),args})}],isError:false};
+if(m.method==='tools/call')result={content:[{type:'text',text:JSON.stringify({pid:process.pid,descendant:descendant.pid,state:JSON.parse(args[2]),args,contextSha256:scratch?require('node:crypto').createHash('sha256').update(scratch).digest('hex'):null,temporaryMatches:scratch?['TMPDIR','TMP','TEMP'].every(name=>process.env[name]===JSON.parse(scratch).directory):null})}],isError:false};
 process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n',()=>{if(m.params?.arguments?.exitLeader)process.exit(0);});});
 `,{mode:0o755});
- const child=spawn(process.execPath,['--input-type=module','-'],{cwd:workspace,env:{...process.env,PATH:join(root,'bin')+':'+process.env.PATH,GESTALT_SERENA_WORKSPACE:rootKind==='relative'?'.':rootKind==='symlink'?workspaceAlias:workspace,GESTALT_SERENA_INSTALL:join(root,'install.json')},stdio:['pipe','pipe','pipe','pipe']});
+ const scratch=managedScratch?await sessionScratch(workspace):undefined;
+ const environment={...process.env,PATH:join(root,'bin')+':'+process.env.PATH,GESTALT_SERENA_WORKSPACE:rootKind==='relative'?'.':rootKind==='symlink'?workspaceAlias:workspace,GESTALT_SERENA_INSTALL:join(root,'install.json'),...scratch?.environment};
+ const child=spawn(process.execPath,['--input-type=module','-',resolve('public/gestalt')],{cwd:workspace,env:environment,stdio:['pipe','pipe','pipe','pipe']});
  child.stdin.end(spawnError?program.replace('const child = spawn(process.execPath,',"const child = spawn('/nonexistent-serena-supervisor',"):program);let stderr='';child.stderr.on('data',x=>stderr+=x);
  const lines=createInterface({input:child.stdout}),pending=new Map();let id=0;
  lines.on('line',line=>{const m=JSON.parse(line),w=pending.get(m.id);if(w){pending.delete(m.id);w(m);}});
  const request=(method,params)=>new Promise((resolveRequest,reject)=>{const n=++id,timer=setTimeout(()=>reject(Error('proxy deadline: '+stderr)),5000);pending.set(n,m=>{clearTimeout(timer);resolveRequest(m);});child.stdio[3].write(JSON.stringify({jsonrpc:'2.0',id:n,method,params})+'\n');});
  const state={permissionProfile:{type:'managed',file_system:{type:'restricted',entries:[{path:{type:'path',path:workspace},access:'write'},{path:{type:'path',path:join(workspace,'.git')},access:'read'}]},network:'restricted'},sandboxCwd:new URL('file://'+workspace).href,useLegacyLandlock:false};
  const call=(name,policy=state)=>request('tools/call',{name,arguments:{},...(policy?{_meta:{'codex/sandbox-state-meta':policy}}:{})});
- const close=async()=>{child.stdio[3].end();if(child.exitCode===null&&child.signalCode===null)await new Promise(r=>child.once('exit',r));lines.close();await rm(root,{recursive:true,force:true});};
- return {root,workspace,child,request,state,call,close};
+ const close=async()=>{
+  child.stdio[3].end();if(child.exitCode===null&&child.signalCode===null)await new Promise(r=>child.once('exit',r));lines.close();
+  if(scratch){
+   let released=false;
+   for(let i=0;i<80;i++){
+    const leases=await managedBorrowers(scratch);
+    released=leases.length>0&&leases.every(lease=>lease.state==='released'&&lease.consumers.length===0);
+    if(released)break;await pause(25);
+   }
+   assert.ok(released,'synthetic Serena borrowers did not release after group exit');
+   assert.equal(await readFile(scratch.context.markerPath,'utf8'),JSON.stringify(scratch.marker),'synthetic owner marker changed');
+  }
+  await rm(root,{recursive:true,force:true});
+ };
+ return {root,workspace,child,request,state,call,close,scratch};
+}
+async function managedBorrowers(scratch){
+ const directory=join(scratch.context.directory,'leases');
+ return Promise.all((await readdir(directory)).map(async name=>JSON.parse(await readFile(join(directory,name),'utf8'))));
 }
 const payload=m=>{assert.ok(!m.error,m.error?.message);return JSON.parse(m.result.content[0].text);};
 async function dead(pid){for(let i=0;i<40;i++){try{const status=await readFile(`/proc/${pid}/stat`,'utf8');if(status.split(' ')[2]==='Z')return;}catch(e){if(e.code==='ENOENT')return;}try{process.kill(pid,0);}catch(e){if(e.code==='ESRCH')return;}await pause(50);}assert.fail(`owned process ${pid} survived cleanup`);}
@@ -71,3 +93,34 @@ test('missing, disabled, external, mismatched and unrestricted authority fail cl
  for(const profile of [{type:'disabled'},{type:'external',network:'enabled'},{type:'managed',file_system:{type:'unrestricted'},network:'enabled'}])assert.match((await f.call('find_symbol',{...f.state,permissionProfile:profile})).error.message,/metadata required/);
  assert.match((await f.call('find_symbol',{...f.state,sandboxCwd:'file:///sibling'})).error.message,/differs/);await assert.rejects(readFile(join(f.root,'starts')),{code:'ENOENT'});
 }finally{await f.close();}});
+
+for(const variant of ['policy restart','EOF','SIGKILL','native leader exit'])
+test('synthetic managed scratch retains context and releases borrowers after '+variant,async()=>{
+ const f=await fixture({managedScratch:true});
+ try{
+  const running=payload(await f.request('tools/call',{name:'find_symbol',
+   arguments:variant==='native leader exit'?{exitLeader:true}:{},_meta:{'codex/sandbox-state-meta':f.state}}));
+  const expected=createHash('sha256').update(f.scratch.environment.GESTALT_SESSION_TMP_CONTEXT).digest('hex');
+  assert.equal(running.contextSha256,expected);assert.equal(running.temporaryMatches,true);
+  assert.deepEqual(running.state,f.state);
+  const initial=await managedBorrowers(f.scratch);
+  assert.equal(initial.length,1);assert.equal(initial[0].state,'active');
+  assert.deepEqual(initial[0].consumers,['serena-mcp']);
+  if(variant==='policy restart'){
+   const narrowed=structuredClone(f.state);narrowed.permissionProfile.file_system.entries[0].path.path+='/child';
+   const second=payload(await f.call('find_symbol',narrowed));
+   assert.notEqual(second.pid,running.pid);assert.deepEqual(second.state,narrowed);
+   assert.equal(second.contextSha256,expected);assert.equal(second.temporaryMatches,true);
+   await dead(running.pid);await dead(running.descendant);
+   const readonly=structuredClone(f.state);readonly.permissionProfile.file_system.entries[0].access='read';
+   const third=payload(await f.call('find_symbol',readonly));
+   assert.notEqual(third.pid,second.pid);assert.deepEqual(third.state,readonly);
+   assert.equal(third.contextSha256,expected);assert.equal(third.temporaryMatches,true);
+   await dead(second.pid);await dead(second.descendant);
+  }else{
+   if(variant==='SIGKILL')f.child.kill('SIGKILL');
+   else if(variant==='EOF')f.child.stdio[3].end();
+   await dead(running.pid);await dead(running.descendant);
+  }
+ }finally{await f.close();}
+});

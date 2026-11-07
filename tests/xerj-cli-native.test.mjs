@@ -6,6 +6,7 @@ import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
+import { managerStubScratchRuntime } from './manager-stub-fixture.mjs';
 
 const source = await readFile(resolve('public/gestalt'), 'utf8');
 const serializedHookCount = input => JSON.stringify(input.input).split('UNRELATED_PROFILE_HOOK').length - 1;
@@ -76,6 +77,7 @@ for (const mode of ['healthy-child', 'healthy-resume', 'failed-connection', 'abs
   // Native MCP process, controlled through the same manager argv as production.
   // No replacement provider transport or real model service is used.
   await writeFile(owner, `#!/usr/bin/env node
+${managerStubScratchRuntime(source)}
 const fs = require('node:fs');
 const root = ${JSON.stringify(root)};
 const mode = ${JSON.stringify(mode)};
@@ -192,7 +194,7 @@ if (args[1] === 'ensure-ready') {
     }
     const args = [...(profile ? ['-pfixture-profile', '-c', 'skills.config=[{name="gestalt:session-kept",enabled=true}]'] : []), 'exec', '--skip-git-repo-check', '--json', '-C', workspace, 'ROOT_FIXTURE: report retrieval capability.'];
     const result = await execute(process.execPath, ['--input-type=module', '-', ...args], env, program, workspace);
-    await writeFile(join('/tmp', `xerj-cli-native-${mode}.json`), JSON.stringify({ result, requests, fixtureErrors }, null, 2));
+    await writeFile(join(root, `xerj-cli-native-${mode}.json`), JSON.stringify({ result, requests, fixtureErrors }, null, 2));
     assert.equal(result.code, 0, result.stderr.slice(-1200));
     assert.ok(!result.stderr.includes('do-not-expose-secret'));
     assert.ok(!result.stdout.includes('do-not-expose-secret'));
@@ -223,7 +225,7 @@ if (args[1] === 'ensure-ready') {
         const resumed = await execute(process.execPath, ['--input-type=module', '-', '-C', workspace, 'exec', 'resume', '--last', '--json', '--skip-git-repo-check', 'RESUME_FIXTURE: report retrieval capability.'], env, program, workspace);
         assert.equal(resumed.code, 0, resumed.stderr.slice(-1000));
         assert.ok(requests.length > priorCount, 'resume model request not observed');
-        await writeFile(join('/tmp', 'xerj-cli-native-resume.json'), JSON.stringify({ resumed, requests, fixtureErrors }, null, 2));
+        await writeFile(join(root, 'xerj-cli-native-resume.json'), JSON.stringify({ resumed, requests, fixtureErrors }, null, 2));
         assert.deepEqual(fixtureErrors, []);
         assert.equal(await readFile(join(home, 'config.toml'), 'utf8'), config);
       }

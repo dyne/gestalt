@@ -121,5 +121,7 @@ setInterval(()=>{},1000);`);
   controller.kill(event); await exited;
   await until(() => readLease(owner), lease => lease.state === 'released');
   assert.throws(() => process.kill(child.pid, 0), /ESRCH/);
-  assert.ok(!(await readdir(owner.context.directory)).includes('.controller-lock'));
+  // The guardian publishes the released lease before removing its controller
+  // fence. After SIGKILL, controller exit does not wait for guardian cleanup.
+  await until(() => readdir(owner.context.directory), entries => !entries.includes('.controller-lock'));
 });

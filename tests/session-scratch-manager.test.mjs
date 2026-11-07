@@ -7,6 +7,9 @@ import test from 'node:test';
 import {sessionScratch} from './session-scratch-fixture.mjs';
 
 const manager=resolve('public/gestalt');
+// Release preparation updates the public manager before this suite runs.
+const managerVersion=(await readFile(manager,'utf8')).match(/^readonly GESTALT_CLI_VERSION='([^']+)'$/m)?.[1];
+assert.ok(managerVersion,'public manager declares its version');
 const rootThread='01a19bd7-bdb5-76e0-bc41-28d650392275',childThread='01a19bd7-bdb5-76e0-bc41-28d650392276';
 async function fixture(t) {
   const root=await mkdtemp(join(tmpdir(),'gestalt manager entry ')),home=join(root,'home'),codexHome=join(root,'codex-home'),managed=join(root,'managed'),bin=join(root,'bin');
@@ -61,7 +64,7 @@ if(args[0]==='app-server'){
   };
   const run=async(args,source='startup')=>{
     const {code,stdout,stderr}=await invoke(args,source);
-    assert.equal(code,0,stderr);assert.match(stdout,/Gestalt manager 0\.12\.0/);
+    assert.equal(code,0,stderr);assert.equal(stdout.split('\n')[0],`Gestalt manager ${managerVersion}`);
     assert.equal(stdout.match(/NATIVE_STDOUT/g)?.length,1);assert.ok(stdout.endsWith('NATIVE_STDOUT\n'));
     return {value:JSON.parse(await readFile(log,'utf8')),stderr};
   };

@@ -298,9 +298,53 @@ function scratchRecoverContainment(workspace, ownerId, token) {
     scratchFs.rmdirSync(snapshot.path); // Empty only; never recursive.
   } finally {scratchFs.closeSync(fd);}
 }
+// A closed roster row cannot prove detached tool exit. These legacy leases
+// have no durable process handle; only an explicit offline operator assertion
+// can retire them. Normal allocation, shutdown and cleanup never call this.
+function scratchToolLeaseSnapshot(workspace, ownerId) {
+  scratchAssert(scratchId(ownerId));
+  const context = scratchOwnerContext(workspace, ownerId);
+  const ancestor = scratchAncestorOwner(context);
+  const marker = scratchJson(context.markerPath);
+  scratchAssert(marker.ownerKind === 'mobile-session');
+  for (const name of ['.controller-lock', '.association-lock', '.containment-lock']) {
+    try {scratchFs.lstatSync(scratchPath.join(context.directory, name));}
+    catch (error) {if (error.code === 'ENOENT') continue; throw error;}
+    throw new Error('SESSION_SCRATCH_RECOVERY_WRITER_BUSY');
+  }
+  const directory = scratchPath.join(context.directory, 'leases');
+  const leases = scratchLeaseRecords(context).sort((a, b) => a.leaseId.localeCompare(b.leaseId));
+  const active = leases.filter(lease => lease.state === 'active');
+  scratchAssert(active.length > 0 && active.every(lease => lease.consumers.length === 1 &&
+    ['serena-mcp', 'playwright-mcp'].includes(lease.consumers[0])));
+  const fileIdentity = path => {
+    const info = scratchFs.lstatSync(path, {bigint: true});
+    return {dev: info.dev, ino: info.ino, birth: info.birthtimeNs};
+  };
+  const token = scratchCrypto.createHash('sha256').update(JSON.stringify({
+    kind: 'mobile-tool-leases', owner: ancestor.provenance, ownerIdentity: ancestor.identity,
+    marker, markerIdentity: fileIdentity(context.markerPath),
+    leaseDirectory: scratchDirectoryIdentity(directory),
+    leases: leases.map(lease => ({lease, identity: fileIdentity(scratchPath.join(directory, lease.leaseId + '.json'))})),
+  }, (_, value) => typeof value === 'bigint' ? value.toString() : value)).digest('hex');
+  return {context, active, token};
+}
+function scratchRecoverToolLeases(workspace, ownerId, token) {
+  scratchAssert(typeof token === 'string' && /^[a-f0-9]{64}$/.test(token));
+  const snapshot = scratchToolLeaseSnapshot(workspace, ownerId);
+  if (snapshot.token !== token) throw new Error('SESSION_SCRATCH_RECOVERY_SNAPSHOT_CHANGED');
+  // Recheck the entire inspected set before publishing any changes. This is
+  // offline recovery, not synchronization with a running metadata writer.
+  if (scratchToolLeaseSnapshot(workspace, ownerId).token !== token)
+    throw new Error('SESSION_SCRATCH_RECOVERY_SNAPSHOT_CHANGED');
+  for (const lease of snapshot.active) {
+    scratchPublish(scratchPath.join(snapshot.context.directory, 'leases', lease.leaseId + '.json'),
+      {...lease, state: 'released', consumers: [], updatedAt: new Date().toISOString()});
+  }
+}
 function scratchRecoveryCommand(args) {
   const [action, ...options] = args;
-  scratchAssert(['inspect', 'recover'].includes(action));
+  scratchAssert(['inspect', 'recover', 'inspect-tool-leases', 'recover-tool-leases'].includes(action));
   const values = {};
   let confirmed = false;
   for (let index = 0; index < options.length; index++) {
@@ -311,13 +355,16 @@ function scratchRecoveryCommand(args) {
     values[name] = options[++index];
   }
   scratchAssert(values['--cwd'] && values['--owner']);
-  if (action === 'inspect') {
+  if (action === 'inspect' || action === 'inspect-tool-leases') {
     scratchAssert(!confirmed && !values['--expect']);
-    const snapshot = scratchContainmentSnapshot(values['--cwd'], values['--owner']);
-    process.stdout.write(JSON.stringify({schemaVersion: 1, status: 'confirmationRequired', token: snapshot.token}) + '\n');
+    const snapshot = action === 'inspect' ? scratchContainmentSnapshot(values['--cwd'], values['--owner'])
+      : scratchToolLeaseSnapshot(values['--cwd'], values['--owner']);
+    process.stdout.write(JSON.stringify({schemaVersion: 1, status: 'confirmationRequired', token: snapshot.token,
+      ...(snapshot.active ? {activeToolLeases: snapshot.active.length} : {})}) + '\n');
   } else {
     scratchAssert(confirmed && values['--expect']);
-    scratchRecoverContainment(values['--cwd'], values['--owner'], values['--expect']);
+    if (action === 'recover') scratchRecoverContainment(values['--cwd'], values['--owner'], values['--expect']);
+    else scratchRecoverToolLeases(values['--cwd'], values['--owner'], values['--expect']);
     process.stdout.write(JSON.stringify({schemaVersion: 1, status: 'recovered'}) + '\n');
   }
 }
@@ -6737,7 +6784,10 @@ main() {
           'gestalt scratch inspect --cwd ROOT --owner ID' \
           'gestalt scratch recover --cwd ROOT --owner ID --expect TOKEN --confirm-quiescent' \
           'Use the token from inspect. Only an empty Mobile containment fence is removed.' \
-          'Never use this override on a live session. Leases and payload are retained.'
+          'gestalt scratch inspect-tool-leases --cwd ROOT --owner ID' \
+          'gestalt scratch recover-tool-leases --cwd ROOT --owner ID --expect TOKEN --confirm-quiescent' \
+          'Use the token from inspect-tool-leases to release abandoned Mobile Serena/Playwright borrowers.' \
+          'Never use these overrides on a live session. Payload and provider history are retained.'
       else
         require_command node
         exec node -e "$(session_scratch_runtime)" scratch "$@"

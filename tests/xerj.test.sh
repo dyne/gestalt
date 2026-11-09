@@ -407,7 +407,7 @@ manager=sys.argv[1]
 root=pathlib.Path(os.environ['GESTALT_HOME'])
 marker=root/'xerj/waiting'
 marker.unlink(missing_ok=True)
-args=[manager,'xerj','autoindex',str(root),'--watch','--no-graph']
+args=[manager,'xerj','autoindex',str(root.parent/'source'),'--watch','--no-graph']
 owner=subprocess.Popen(args+['--stub','wait-for-signal'],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
 try:
     deadline=time.monotonic()+5

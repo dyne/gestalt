@@ -184,6 +184,28 @@ directory (`--cwd=...` is also accepted). Relative paths resolve from the callin
 directory. This is an alias for the positional source path; do not combine both.
 Add `--watch --no-graph` only when continuous indexing is wanted.
 
+A watcher must keep its resume journals outside the folder it watches. This
+includes hidden folders: watching `~` conflicts with the default
+`~/.codex-gestalt/xerj-data/autoindex`. Check the intended root with
+`gestalt doctor --cwd /path/to/source-root`. Prefer starting Mobile with
+`gestalt mobile -- --cwd /path/to/source-root` pointing to a narrower source folder.
+Reinstalling components or restarting Mobile does not fix an overlapping layout.
+
+If watching the home folder is intentional, set `GESTALT_XERJ_AUTO_INDEX_HOME`
+to a private, persistent, absolute directory outside that folder before starting
+Mobile. The same setting must be present when reading `gestalt xerj autoindex
+status --cwd /path/to/source-root`. This changes journal storage only; the backend,
+index data and Mobile's configuration fingerprints remain in their managed homes.
+Existing journals are preserved and are not migrated automatically. Do not use
+session temporary storage: resume journals must survive session cleanup.
+
+Doctor checks managed components and runtime health separately. Its Codex check
+omits absent session-only scratch forwarding variables for that invocation,
+without editing the saved configuration or suppressing missing operator secrets.
+When run inside a Codex sandbox that masks its daemon socket directory, the nested
+sandbox check reports that host health cannot be established. Run doctor in a host
+shell to check host sandbox health.
+
 For local repository autoindex runs, the default prefix is `ax-<hash>` of the
 canonical source root. Autoindex bookkeeping is separated by prefix beneath
 `xerj-data/autoindex`, so unrelated repositories do not overwrite one another.

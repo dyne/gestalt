@@ -648,7 +648,7 @@ Commands:
   skills status [--json]   Read installed version, revision and integrity.
   skills-export [ARCHIVE]   Export installed skills and skill profiles.
   skills-import ARCHIVE     Import a skills archive into this installation.
-  doctor                    Check prerequisites and installation state.
+  doctor [--cwd ROOT]        Check prerequisites, installation and watcher layout.
   version                   Print manager and detected component versions.
   help                      Show this help.
 
@@ -735,9 +735,11 @@ load_xerj_paths() {
   validate_managed_path GESTALT_HOME "$gestalt_home"
   xerj_root=$gestalt_home/xerj
   xerj_data=$codex_home/xerj-data
+  xerj_autoindex_home=${GESTALT_XERJ_AUTO_INDEX_HOME:-$xerj_data/autoindex}
   xerj_bin=$xerj_root/xerj
   validate_xerj_path "$xerj_root"
   validate_xerj_path "$xerj_data"
+  validate_xerj_path "$xerj_autoindex_home"
   [[ ! -e $xerj_bin || -f $xerj_bin ]] || die 'managed xerj executable must be a regular file'
   [[ ${XERJ_INSTALL_DIR:-$xerj_root} == "$xerj_root" ]] ||
     die 'XERJ_INSTALL_DIR conflicts with the managed xerj installation'
@@ -745,7 +747,7 @@ load_xerj_paths() {
     die 'managed xerj uses the official release repository'
   [[ ${XERJ_INSECURE_SKIP_CHECKSUM:-0} == 0 ]] || die 'xerj checksum verification is required'
   local directory link
-  for directory in "$xerj_root" "$xerj_data"; do
+  for directory in "$xerj_root" "$xerj_data" "$xerj_autoindex_home"; do
     if [[ -d $directory ]]; then
       # Segment compaction removes files while clients start. Ignore only
       # ENOENT races, retaining the same link checks on every existing entry.
@@ -2816,7 +2818,7 @@ JS
 
 codex_sandbox_probe() {
   node --input-type=module - <<'JS'
-import { readFile, realpath, mkdtemp, rm, access } from 'node:fs/promises';
+import { readFile, realpath, mkdtemp, rm, access, stat } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
@@ -2875,6 +2877,15 @@ try {
     report.ready = result.code === 0 && !timedOut;
     report.reason = timedOut ? 'sandbox-timeout' : report.ready ? 'ready' : 'sandbox-startup-failed';
     if (!report.ready) report.diagnostic = (stderr.trim() || result.error?.message || 'Codex sandbox exited with code ' + result.code).slice(-4096);
+    if (!report.ready && process.platform === 'linux' &&
+        report.diagnostic?.includes('app-server socket directory must be a user-owned directory with mode 0700')) {
+      const daemon = join(await realpath('/tmp'), 'codex-daemon-' + process.getuid());
+      const info = await stat(daemon).catch(() => null);
+      if (info?.isDirectory() && info.uid === process.getuid() && (info.mode & 0o777) === 0) {
+        report.reason = 'sandbox-check-unavailable';
+        report.diagnostic = 'The current sandbox masks the Codex daemon directory. Run gestalt doctor from a host shell; this nested check cannot establish host sandbox health.';
+      }
+    }
   }
 } catch (error) { report.reason = 'sandbox-probe-failed'; report.diagnostic = error.message; }
 finally {
@@ -2900,7 +2911,8 @@ for (const [name, value] of Object.entries(report.userNamespaces)) console.log(n
 console.log('Codex sandbox'.padEnd(24) + (report.ready ? 'ready' : report.reason));
 if (!report.ready) {
   if (report.diagnostic) console.log(report.diagnostic);
-  console.log('Check Bubblewrap and unprivileged user namespaces, including Ubuntu AppArmor restrictions.');
+  if (report.reason !== 'sandbox-check-unavailable')
+    console.log('Check Bubblewrap and unprivileged user namespaces, including Ubuntu AppArmor restrictions.');
 }
 process.exitCode = report.ready ? 0 : 1;
 JS
@@ -3292,7 +3304,7 @@ command_xerj() {
     index_source=${index_source:-$(pwd -P)}
     xerj_user_args=(status "${xerj_user_args[@]}")
   fi
-  autoindex_state=$xerj_data/autoindex
+  autoindex_state=$xerj_autoindex_home
   if [[ $mode == autoindex && -n $index_source && $index_source != map && $index_source != status ]]; then
     if [[ -z $index_prefix ]]; then
       require_command node
@@ -3360,6 +3372,7 @@ command_xerj() {
     if [[ $watch_argument == --watch ]]; then watch_requested=true; fi
   done
   if [[ $mode == autoindex ]] && "$watch_requested"; then
+    check_xerj_watch_layout "$index_source" "$autoindex_state" || return 1
     require_command flock
     require_command setpriv
     mkdir -p -- "$autoindex_state"
@@ -6083,13 +6096,19 @@ command_mobile() {
   local mobile_restart_dir mobile_restart_state mobile_restart_staged restart_cwd
   local context_mode_runtime context_mode_plugin_root gestalt_plugin_root
   local plugin_inventory='' gestalt_agents_version='' context_mode_version=''
+  local mobile_workspace=$PWD mobile_arg_index
 
   strip_separator "$@"
   if [[ ! -x $mobile_bin ]]; then
     log 'Gestalt Mobile is not installed; installing it now'
     install_mobile
   fi
-  run_startup_diagnostics
+  for ((mobile_arg_index = 0; mobile_arg_index < ${#forwarded_args[@]}; mobile_arg_index++)); do
+    if [[ ${forwarded_args[mobile_arg_index]} == --cwd && -d ${forwarded_args[mobile_arg_index+1]:-} ]]; then
+      mobile_workspace=${forwarded_args[mobile_arg_index+1]}
+    fi
+  done
+  run_startup_diagnostics --cwd "$mobile_workspace"
   plugin_inventory=$(CODEX_HOME=$codex_home codex plugin list \
     --marketplace "$marketplace_name" --json 2>/dev/null) || plugin_inventory=''
   if [[ -n $plugin_inventory ]]; then
@@ -6575,14 +6594,60 @@ run_doctor_command() {
 
 run_startup_diagnostics() {
   log 'running startup diagnostics'
-  if ! command_doctor; then
+  if ! command_doctor "$@"; then
     log 'startup diagnostics reported a problem; launch will continue after required runtime checks'
   fi
+}
+
+check_xerj_watch_layout() {
+  case $1 in s3://* | r2://*) return 0 ;; esac
+  local source state
+  source=$(CDPATH='' cd -- "$1" && pwd -P) || return 1
+  state=$(canonical_xerj_root "$2") || return 1
+  if [[ $source == / || $state == "$source" || $state == "$source/"* ]]; then
+    printf '%s\n' 'gestalt: XERJ watcher state is inside the watched root. Start Mobile with --cwd pointing to a narrower source folder, or set GESTALT_XERJ_AUTO_INDEX_HOME to a persistent absolute directory outside that root before starting Mobile. Restarting or reinstalling components does not repair this layout.' >&2
+    return 1
+  fi
+}
+
+run_codex_doctor() {
+  # Session scratch forwarding is required for session launches, but is optional
+  # for an operator's read-only diagnostics. Do not invent an owner or edit config.
+  CODEX_HOME="$codex_home" node --input-type=module - "${BASH_SOURCE[0]}" <<'NODE'
+import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
+import { spawn } from 'node:child_process';
+const args = ['doctor', '--summary', '--ascii', '--no-color'];
+const scratch = new Set(['GESTALT_SESSION_TMP_CONTEXT', 'TMPDIR', 'TMP', 'TEMP']);
+try {
+  const source = readFileSync(process.argv[2], 'utf8');
+  const bundle = source.match(/^\/\/ BEGIN BUNDLED PROFILE TOML PARSER\n([\s\S]*?)^\/\/ END BUNDLED PROFILE TOML PARSER/m);
+  const { parse } = runInNewContext(bundle[1] + '\ngestaltProfileToml');
+  const config = parse(readFileSync(process.env.CODEX_HOME + '/config.toml', 'utf8'));
+  const policy = source.match(/^\/\/ BEGIN MANAGED MCP APPROVAL POLICY\n([\s\S]*?)^\/\/ END MANAGED MCP APPROVAL POLICY/m);
+  const { isGestaltManagedMcp } = runInNewContext(policy[1] + '\n({isGestaltManagedMcp})');
+  for (const [name, server] of Object.entries(config.mcp_servers ?? {})) {
+    if (!isGestaltManagedMcp(name, server, {manager: process.argv[2], codexHome: process.env.CODEX_HOME})) continue;
+    const names = server.env_vars ?? [];
+    const retained = names.filter(key => !scratch.has(key) || Object.hasOwn(process.env, key));
+    if (retained.length !== names.length)
+      args.push('-c', 'mcp_servers.' + name + '.env_vars=' + JSON.stringify(retained));
+  }
+} catch { /* Native doctor owns reporting missing or malformed configuration. */ }
+const child = spawn('codex', args, {stdio: ['ignore', 'inherit', 'inherit']});
+child.once('error', () => {process.exitCode = 1;});
+child.once('close', code => {process.exitCode = code ?? 1;});
+NODE
 }
 
 command_doctor() {
   local failed=false node_version codex_version gestalt_plugin_version
   local context_mode_plugin_version context_mode_runtime mobile_version_output
+  local workspace=$PWD
+  if (($#)); then
+    [[ $# == 2 && $1 == --cwd && -d $2 ]] || die 'usage: gestalt doctor [--cwd ROOT]'
+    workspace=$2
+  fi
 
   printf 'Gestalt manager %s\n\n' "$GESTALT_CLI_VERSION"
   print_check 'Codex home' "$codex_home"
@@ -6675,11 +6740,18 @@ command_doctor() {
 
   check_supervision_capability_coherence || failed=true
   check_xerj
+  if [[ -x $gestalt_home/xerj/xerj ]]; then
+    if check_xerj_watch_layout "$workspace" "${GESTALT_XERJ_AUTO_INDEX_HOME:-$codex_home/xerj-data/autoindex}"; then
+      print_check 'XERJ watch layout' 'ready'
+    else
+      print_check 'XERJ watch layout' 'INVALID (watcher journals must be outside --cwd)'
+      failed=true
+    fi
+  fi
   run_doctor_command 'Optional skill collection' command_skills status || failed=true
 
   if command -v codex >/dev/null 2>&1; then
-    run_doctor_command 'Codex doctor' \
-      env CODEX_HOME="$codex_home" codex doctor --summary --ascii --no-color || failed=true
+    run_doctor_command 'Codex doctor' run_codex_doctor || failed=true
   fi
 
   if [[ -n ${context_mode_runtime:-} && -f $context_mode_runtime/cli.bundle.mjs ]]; then
@@ -6704,7 +6776,7 @@ command_doctor() {
   fi
 
   if "$failed"; then
-    printf "\nRun 'gestalt install' or 'gestalt update' to repair missing components.\n" >&2
+    printf "\nDiagnostics reported a problem; follow the failing check's guidance above. Use 'gestalt install' or 'gestalt update' only for missing or incompatible managed components.\n" >&2
     return 1
   fi
   printf "\nAll startup diagnostics passed.\n"

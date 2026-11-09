@@ -179,6 +179,38 @@ restart the owner normally and resolve any pending attention request with
 Resume, optionally providing guidance. This source change is not deployed until
 the installed manager has been updated.
 
+### Recovering abandoned Mobile tool leases that block Forget
+
+A closed Mobile session can still fail Forget with `SESSION_CLEANUP_FAILED`
+when a Serena or Playwright guardian left an active borrower lease. Updating
+the manager does not retire historical leases. Closed session state and a
+missing process ID are insufficient proof that detached tools have stopped.
+
+After preserving diagnostics, stop Mobile and **all** runtimes, tools and
+publishers using that owner, including detached processes. Then use the
+offline recovery commands:
+
+```sh
+gestalt scratch inspect-tool-leases --cwd /absolute/workspace --owner mobile-OWNER_HASH
+gestalt scratch recover-tool-leases --cwd /absolute/workspace --owner mobile-OWNER_HASH \
+  --expect TOKEN_FROM_INSPECT_TOOL_LEASES --confirm-quiescent
+```
+
+Inspection is read-only. Recovery requires the explicit quiescence assertion
+and a token bound to the owner, marker, lease directory and every lease's
+contents and file identity. It releases only active, single-consumer
+`serena-mcp` and `playwright-mcp` borrower records in a validated Mobile owner.
+Existing controller, association or containment claims, malformed metadata,
+unknown active consumers and changed snapshots are rejected. CLI/service
+owners and active Mobile runtime leases are outside this command's scope.
+
+Recovery preserves already released leases, owner attribution, payload,
+provider history and session databases. Restart Mobile and retry Forget to
+perform ordinary cleanup. If recovery is interrupted, inspect again for a
+fresh token before retrying. The command does not detect process liveness;
+never run it on a live owner. This source change must be installed before
+these commands are available.
+
 ## Mobile detached tool borrowers and long Unix socket paths
 
 Validated Mobile owners use the same v1 borrower records as CLI and service

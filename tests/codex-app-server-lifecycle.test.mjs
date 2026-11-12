@@ -6,6 +6,7 @@ import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {createInterface} from 'node:readline';
 import test from 'node:test';
+import {workerProgram,stopFixtureWorkers} from './fixture-workers.mjs';
 
 const manager = resolve(process.env.GESTALT_TEST_MANAGER_BIN ?? 'public/gestalt');
 
@@ -49,13 +50,15 @@ createInterface({input: process.stdin}).on('line', line => {
   const request = JSON.parse(line);
   const result = {pid: process.pid};
   if (mode === 'early-exit') process.exitCode = 7, setImmediate(() => process.exit(7));
-  if (mode === 'inherited-pipe') {
-    result.descendantPid = spawn(process.execPath, ['-e', "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"], {stdio: ['ignore', 'inherit', 'inherit']}).pid;
-    setTimeout(() => process.exit(7), 100);
+  if (mode === 'inherited-pipe' || mode === 'closed-pipes') {
+    const worker = spawn(process.execPath, [${JSON.stringify(join(root, 'worker.cjs'))}], {stdio: ['ignore', mode === 'inherited-pipe' ? 'inherit' : 'ignore', mode === 'inherited-pipe' ? 'inherit' : 'ignore', 'ipc']});
+    worker.once('message', () => process.exit(7));
+    result.descendantPid = worker.pid;
   }
   console.log(JSON.stringify({id: request.id, result}));
 });
 `, {mode: 0o755});
+  await writeFile(join(root, 'worker.cjs'), workerProgram(join(root,'workers.jsonl'), "process.on('SIGTERM',()=>{});process.send('ready');setInterval(()=>{},1000);"));
   const child = spawn('bash', [manager, '__codex-app-server', native, '--stdio'], {
     env: {...process.env, GESTALT_HOME: root}, stdio: [inputFd ?? 'pipe', 'pipe', 'pipe'],
   });
@@ -70,6 +73,7 @@ createInterface({input: process.stdin}).on('line', line => {
     try { killGroup(Number(await readFile(join(root, 'pid'), 'utf8'))); }
     catch (error) { if (error.code !== 'ENOENT') throw error; }
     lines.close();
+    await stopFixtureWorkers(join(root,'workers.jsonl'));
     await rm(root, {recursive: true, force: true});
   });
   if (inputFd !== undefined) return {child, exit};
@@ -132,6 +136,20 @@ test('native exit cannot leave a wrapper waiting on descendant output pipes', as
   assert.deepEqual(await deadline(exit), [7, null]);
   await assertStopped(nativePid);
   await assertStopped(descendantPid);
+});
+
+test('native exit still reaps a resistant descendant with all output pipes closed', async t => {
+  const {exit, nativePid, descendantPid} = await fixture(t, 'closed-pipes');
+  assert.deepEqual(await deadline(exit), [7, null]);
+  await assertStopped(nativePid);
+  await assertStopped(descendantPid);
+});
+
+test('an uncatchable wrapper exit closes the native group lifetime pipe', async t => {
+  const {child, exit, nativePid} = await fixture(t, 'stubborn');
+  child.kill('SIGKILL');
+  await deadline(exit);
+  await assertStopped(nativePid);
 });
 
 test('repeated temporary readers exit without caller EOF', async t => {

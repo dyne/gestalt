@@ -7,6 +7,7 @@ import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import test from 'node:test';
 import {sessionScratch} from './session-scratch-fixture.mjs';
+import {workerProgram,stopFixtureWorkers} from './fixture-workers.mjs';
 const source=await readFile(resolve('public/gestalt'),'utf8');
 const program=source.split('run_serena_proxy() {')[1].split("<<'NODE'\n")[1].split('\nNODE\n')[0];
 const catalog=['find_symbol','get_symbols_overview','initial_instructions','replace_symbol_body','activate_project','switch_modes','execute_shell_command'].map(name=>({name,description:name,inputSchema:{type:'object',properties:{}}}));
@@ -23,7 +24,7 @@ async function fixture({spawnError=false,rootKind='canonical',managedScratch=fal
 const fs=require('node:fs'),{spawn}=require('node:child_process');const args=process.argv.slice(2);
 const scratch=process.env.GESTALT_SESSION_TMP_CONTEXT;
 fs.appendFileSync(${JSON.stringify(join(root,'starts'))},JSON.stringify(args)+'\\n');
-const descendant=spawn(process.execPath,['-e',"process.on('SIGTERM',()=>{});process.send('ready');setInterval(()=>{},1000)"],{stdio:['ignore','ignore','ignore','ipc']});
+const descendant=spawn(process.execPath,[${JSON.stringify(join(root,'worker.cjs'))}],{stdio:['ignore','ignore','ignore','ipc']});
 // Wait for the descendant's actual handler before returning any tool result.
 const ready=new Promise(resolve=>descendant.once('message',resolve));
 process.on('SIGTERM',()=>process.exit(0));
@@ -33,16 +34,18 @@ if(m.method==='tools/list')result={tools:${JSON.stringify(catalog)}};
 if(m.method==='tools/call')result={content:[{type:'text',text:JSON.stringify({pid:process.pid,descendant:descendant.pid,state:JSON.parse(args[2]),args,contextSha256:scratch?require('node:crypto').createHash('sha256').update(scratch).digest('hex'):null,temporaryMatches:scratch?['TMPDIR','TMP','TEMP'].every(name=>process.env[name]===JSON.parse(scratch).directory):null})}],isError:false};
 process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n',()=>{if(m.params?.arguments?.exitLeader)process.exit(0);});});
 `,{mode:0o755});
+ await writeFile(join(root,'worker.cjs'),workerProgram(join(root,'workers.jsonl'),"process.on('SIGTERM',()=>{});process.send('ready');setInterval(()=>{},1000);"));
  const scratch=managedScratch?await sessionScratch(workspace):undefined;
  const environment={...process.env,PATH:join(root,'bin')+':'+process.env.PATH,GESTALT_SERENA_WORKSPACE:rootKind==='relative'?'.':rootKind==='symlink'?workspaceAlias:workspace,GESTALT_SERENA_INSTALL:join(root,'install.json'),...scratch?.environment};
  const child=spawn(process.execPath,['--input-type=module','-',resolve('public/gestalt')],{cwd:workspace,env:environment,stdio:['pipe','pipe','pipe','pipe']});
- child.stdin.end(spawnError?program.replace('const child = spawn(process.execPath,',"const child = spawn('/nonexistent-serena-supervisor',"):program);let stderr='';child.stderr.on('data',x=>stderr+=x);
+ child.stdin.end(spawnError?program.replace('const child = scratch.scratchSpawnProgram(supervisor,',"const child = spawn('/nonexistent-serena-supervisor',"):program);let stderr='';child.stderr.on('data',x=>stderr+=x);
  const lines=createInterface({input:child.stdout}),pending=new Map();let id=0;
  lines.on('line',line=>{const m=JSON.parse(line),w=pending.get(m.id);if(w){pending.delete(m.id);w(m);}});
  const request=(method,params)=>new Promise((resolveRequest,reject)=>{const n=++id,timer=setTimeout(()=>reject(Error('proxy deadline: '+stderr)),5000);pending.set(n,m=>{clearTimeout(timer);resolveRequest(m);});child.stdio[3].write(JSON.stringify({jsonrpc:'2.0',id:n,method,params})+'\n');});
  const state={permissionProfile:{type:'managed',file_system:{type:'restricted',entries:[{path:{type:'path',path:workspace},access:'write'},{path:{type:'path',path:join(workspace,'.git')},access:'read'}]},network:'restricted'},sandboxCwd:new URL('file://'+workspace).href,useLegacyLandlock:false};
  const call=(name,policy=state)=>request('tools/call',{name,arguments:{},...(policy?{_meta:{'codex/sandbox-state-meta':policy}}:{})});
  const close=async()=>{
+  try {
   child.stdio[3].end();if(child.exitCode===null&&child.signalCode===null)await new Promise(r=>child.once('exit',r));lines.close();
   if(scratch){
    let released=false;
@@ -54,7 +57,10 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n',()=>{i
    assert.ok(released,'synthetic Serena borrowers did not release after group exit');
    assert.equal(await readFile(scratch.context.markerPath,'utf8'),JSON.stringify(scratch.marker),'synthetic owner marker changed');
   }
-  await rm(root,{recursive:true,force:true});
+  } finally {
+   await stopFixtureWorkers(join(root,'workers.jsonl'));
+   await rm(root,{recursive:true,force:true});
+  }
  };
  return {root,workspace,child,request,state,call,close,scratch};
 }

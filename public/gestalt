@@ -491,6 +491,33 @@ async function scratchReleaseReady(ownership) {
   }
   return true;
 }
+// Source travels over stdin once; fd 4 remains the independent lifetime/input
+// pipe. Neither source nor a nested supervisor program appears in argv or ps.
+function scratchProgramBootstrap() {
+  process.argv.splice(1, 2);
+  process[Symbol.for('gestalt.stdin.fd')] = 4;
+  const fs = require('node:fs');
+  Object.defineProperty(process, 'stdin', {configurable: true, get() {
+    const type = fs.fstatSync(4);
+    const input = type.isFIFO() || type.isSocket()
+      ? new (require('node:net').Socket)({fd: 4, readable: true, writable: false})
+      : fs.createReadStream(null, {fd: 4});
+    Object.defineProperty(process, 'stdin', {value: input, configurable: true});
+    return input;
+  }});
+}
+function scratchSpawnProgram(program, args, options = {}) {
+  const {spawn} = require('node:child_process');
+  const {label = 'gestalt-supervisor', ...settings} = options;
+  const stdio = settings.stdio ?? ['pipe', 'inherit', 'inherit'];
+  const child = spawn(process.execPath, ['--input-type=commonjs', '-', label],
+    {...settings, stdio: ['pipe', stdio[1], stdio[2], stdio[3] ?? 'ignore', stdio[0]]});
+  const source = child.stdin;
+  child.stdin = child.stdio[4];
+  source.on('error', () => {});
+  source.end('(' + scratchProgramBootstrap.toString() + ')();\nprocess.argv.push(...' + JSON.stringify(args) + ');\n' + program);
+  return child;
+}
 function scratchGuardianProgram(manager, consumer, lifetimeSupervisor = null) {
   const context = scratchContext();
   if (!context) return null;
@@ -547,9 +574,10 @@ async function scratchGuard(ownership, command, args, cwd, lifetimeSupervisor = 
   // Composed supervision retains a live group leader through consumer shutdown,
   // then terminates its owned descendants before the outer guardian releases.
   const composed = typeof lifetimeSupervisor === 'string';
-  const child = spawn(composed ? process.execPath : command,
-    composed ? ['-e', lifetimeSupervisor, command, JSON.stringify(args), cwd, staleToken] : args,
-    {cwd, env: environment, detached: true, stdio: composed ? ['pipe', 'inherit', 'inherit', 3] : [3, 'inherit', 'inherit']});
+  const child = composed
+    ? scratchSpawnProgram(lifetimeSupervisor, [command, JSON.stringify(args), cwd, staleToken],
+      {cwd, env: environment, detached: true, stdio: ['pipe', 'inherit', 'inherit', 3], label: 'gestalt-tool-lifetime'})
+    : spawn(command, args, {cwd, env: environment, detached: true, stdio: [3, 'inherit', 'inherit']});
   if (composed) child.stdin.on('error', () => {});
   let stopping;
   const stop = code => stopping ??= (async () => {
@@ -580,8 +608,8 @@ async function scratchSupervise(manager, ownership, command, args) {
   const program = source[1] + '\nscratchGuard(JSON.parse(process.argv[1]),process.argv[2],JSON.parse(process.argv[3])).catch(()=>{process.stderr.write("gestalt: owned temporary lifetime failed; owner remains protected\\n");process.exitCode=1;process.stdin.destroy();});';
   // Separate lifetime pipe and original terminal/stdin: guardian EOF survives
   // an uncatchable controller exit and never consumes the native CLI's input.
-  const guardian = spawn(process.execPath, ['-e', program, JSON.stringify(ownership), command, JSON.stringify(args)],
-    {stdio: ['pipe', 'inherit', 'inherit', 0]});
+  const guardian = scratchSpawnProgram(program, [JSON.stringify(ownership), command, JSON.stringify(args)],
+    {stdio: ['pipe', 'inherit', 'inherit', process[Symbol.for('gestalt.stdin.fd')] ?? 0], label: 'gestalt-cli-lifetime'});
   guardian.stdin.on('error', () => {});
   for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => {
     if (guardian.exitCode === null && guardian.signalCode === null) guardian.kill(signal);
@@ -601,7 +629,7 @@ async function scratchCli(manager, args) {
   if (!selected) {
     process.stderr.write('gestalt: no selected workspace; CLI temporary ownership unavailable (select with -C)\n');
     const {spawn} = require('node:child_process');
-    const child = spawn('bash', [manager, '__cli-owned', ...args], {stdio: 'inherit'});
+    const child = spawn('bash', [manager, '__cli-owned', ...args], {stdio: [process[Symbol.for('gestalt.stdin.fd')] ?? 0, 'inherit', 'inherit']});
     for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => child.kill(signal));
     process.exitCode = await new Promise(resolve => {child.once('error', () => resolve(127)); child.once('exit', value => resolve(value ?? 143));});
     return;
@@ -2110,14 +2138,15 @@ JS
 }
 
 run_serena_install_process() {
-  node -e '
+  node --input-type=commonjs - "$@" <<'JS' &
+process.argv.splice(1,1);
 const {spawn}=require("node:child_process");
 const child=spawn(process.argv[1],process.argv.slice(2),{env:process.env,detached:true,stdio:["ignore","inherit","inherit"]});
 let ending=false,code=0;
 function stop(){if(ending)return;ending=true;try{process.kill(-child.pid,"SIGTERM");}catch{}setTimeout(()=>{try{process.kill(-child.pid,"SIGKILL");}catch{}process.exit(code);},500);}
 process.on("SIGTERM",()=>{code=143;stop();});process.on("SIGINT",()=>{code=130;stop();});
 child.on("error",()=>process.exit(1));child.on("exit",value=>{if(!ending)code=value??1;stop();});
-' "$@" &
+JS
   serena_install_process_pid=$!
   wait "$serena_install_process_pid"
   serena_install_process_pid=''
@@ -2377,7 +2406,11 @@ async function proxy(workspace,executablePath) {
   const supervise=`const {spawn,spawnSync}=require('node:child_process'),fs=require('node:fs');
 const identity=process.platform==='linux'?fs.readFileSync('/proc/self/stat','utf8').split(') ').at(-1).split(' ')[19]:spawnSync('ps',['-o','lstart=','-p',String(process.pid)],{encoding:'utf8',timeout:2000}).stdout.trim();
 const args=JSON.parse(process.argv[2]);args.push(JSON.stringify({pid:process.pid,group:process.pid,identity,staleToken:process.argv[4]||null}));
-const child=spawn(process.argv[1],args,{cwd:process.argv[3],env:process.env,stdio:[3,'inherit','inherit']});
+const manager=fs.readFileSync(process.env.GESTALT_PLAYWRIGHT_MANAGER,'utf8');
+const runtime=manager.split('// BEGIN SESSION SCRATCH RUNTIME\\n')[1].split('// END SESSION SCRATCH RUNTIME')[0];
+const {scratchSpawnProgram}=new Function('require',runtime+'\\nreturn {scratchSpawnProgram};')(require);
+const program=manager.split("cat <<'PLAYWRIGHT_JS'\\n")[1].split('\\nPLAYWRIGHT_JS\\n')[0];
+const child=scratchSpawnProgram(program,args,{cwd:process.argv[3],env:process.env,stdio:[3,'inherit','inherit'],label:'gestalt-playwright-backend'});
 let ending=false,finished=false,code=0,timer;
 function finish(){if(finished)return;finished=true;ending=true;clearTimeout(timer);try{process.kill(-process.pid,'SIGTERM');}catch{}setTimeout(()=>{try{process.kill(-process.pid,'SIGKILL');}catch{}process.exit(code);},750);}
 function stop(){if(ending)return;ending=true;child.kill('SIGTERM');timer=setTimeout(finish,3000);}
@@ -2405,17 +2438,14 @@ child.on('error',()=>process.exit(1));child.on('exit',value=>{if(!ending)code=va
       if(error.code!=='ENOENT')throw error;
       try{if(fs.existsSync(layout.lease))fail('Playwright browser busy; incomplete ownership record');}catch(error){throw error;}
     }
-    const argv=[...process.execArgv,home,'__backend',layout.workspace,executablePath||''];
-    let supervisor=supervise;
-    if(process.env.GESTALT_SESSION_TMP_CONTEXT) {
-      const manager=process.env.GESTALT_PLAYWRIGHT_MANAGER;
-      const source=fs.readFileSync(manager,'utf8').match(/^\/\/ BEGIN SESSION SCRATCH RUNTIME\n([\s\S]*?)^\/\/ END SESSION SCRATCH RUNTIME/m);
-      if(!source)fail('temporary lifecycle runtime missing');
-      const scratch=new Function('require',source[1]+'\nreturn {scratchGuardianProgram};')(require);
-      supervisor=scratch.scratchGuardianProgram(manager,'playwright-mcp',supervise)||supervise;
-    }
-    const processChild=spawn(process.execPath,['-e',supervisor,process.execPath,JSON.stringify(argv),layout.workspace,staleToken||''],
-      {cwd:layout.workspace,env:runtimeEnv(),detached:true,stdio:['pipe','pipe','pipe','pipe']});
+    const argv=[home,'__backend',layout.workspace,executablePath||''];
+    const manager=process.env.GESTALT_PLAYWRIGHT_MANAGER;
+    const source=fs.readFileSync(manager,'utf8').match(/^\/\/ BEGIN SESSION SCRATCH RUNTIME\n([\s\S]*?)^\/\/ END SESSION SCRATCH RUNTIME/m);
+    if(!source)fail('temporary lifecycle runtime missing');
+    const scratch=new Function('require',source[1]+'\nreturn {scratchGuardianProgram,scratchSpawnProgram};')(require);
+    const supervisor=scratch.scratchGuardianProgram(manager,'playwright-mcp',supervise)||supervise;
+    const processChild=scratch.scratchSpawnProgram(supervisor,[process.execPath,JSON.stringify(argv),layout.workspace,staleToken||''],
+      {cwd:layout.workspace,env:{...runtimeEnv(),GESTALT_PLAYWRIGHT_MANAGER:manager},detached:true,stdio:['pipe','pipe','pipe','pipe'],label:'gestalt-playwright-lifetime'});
     const pending=new Map(),lines=createInterface({input:processChild.stdout});
     const instance={process:processChild,pending,lines,exited:new Promise(resolve=>processChild.once('close',resolve))};
     runtime=instance;
@@ -2726,17 +2756,40 @@ install_playwright_chrome() (
   "$chrome" --version || die 'installed Chrome could not report its version'
 )
 
+# Keep the single-file manager while passing embedded programs on a source pipe.
+# fd 4 preserves the caller's stdin independently of Node's initial source read.
+exec_node_program() {
+  local program=$1
+  shift
+  exec node --input-type=commonjs - "$@" 4<&0 <<NODE
+process.argv.splice(1, 1);
+process[Symbol.for('gestalt.stdin.fd')] = 4;
+{
+  const fs = require('node:fs');
+  Object.defineProperty(process,'stdin',{configurable:true,get(){
+    const type=fs.fstatSync(4);
+    const input=type.isFIFO()||type.isSocket()
+      ? new (require('node:net').Socket)({fd:4,readable:true,writable:false})
+      : fs.createReadStream(null,{fd:4});
+    Object.defineProperty(process,'stdin',{value:input,configurable:true});
+    return input;
+  }});
+}
+$program
+NODE
+}
+
 command_playwright() {
   [[ ${1:-} != __backend ]] || die 'internal Playwright command'
   require_command node
   if [[ ${1:-} == mcp ]]; then
     export GESTALT_PLAYWRIGHT_MANAGER="${BASH_SOURCE[0]}"
-    exec node -e "$(playwright_runtime)" "$gestalt_home" "$@"
+    exec_node_program "$(playwright_runtime)" "$gestalt_home" "$@"
   fi
   local playwright_pid result=0 saved_int saved_term
   saved_int=$(trap -p INT)
   saved_term=$(trap -p TERM)
-  GESTALT_PLAYWRIGHT_MANAGER="${BASH_SOURCE[0]}" node -e "$(playwright_runtime)" "$gestalt_home" "$@" <&0 &
+  GESTALT_PLAYWRIGHT_MANAGER="${BASH_SOURCE[0]}" exec_node_program "$(playwright_runtime)" "$gestalt_home" "$@" <&0 &
   playwright_pid=$!
   trap 'kill -TERM "$playwright_pid" 2>/dev/null || true; wait "$playwright_pid" 2>/dev/null || true; exit 143' TERM
   trap 'kill -INT "$playwright_pid" 2>/dev/null || true; wait "$playwright_pid" 2>/dev/null || true; exit 130' INT
@@ -3175,21 +3228,11 @@ const budget = 30000;
 // even an uncatchable proxy/owner exit and reaps the complete native process group.
 const supervise = `
 const {spawn}=require('node:child_process');
-const child=spawn(process.argv[1],JSON.parse(process.argv[2]),{cwd:process.argv[3],env:process.env,detached:process.platform!=='win32',stdio:[3,'inherit','inherit']});
-let ending=false,exitCode=0;
-function stop(){if(ending)return;ending=true;try{process.kill(-child.pid,'SIGTERM');}catch{}setTimeout(()=>{try{process.kill(-child.pid,'SIGKILL');}catch{}process.exit(exitCode);},750);}
-process.stdin.resume();process.stdin.on('end',stop);process.on('SIGTERM',stop);process.on('SIGINT',stop);
-// Leader exit does not prove descendant exit: retain the bounded escalation.
-child.on('error',()=>process.exit(1));child.on('exit',code=>{if(!ending)exitCode=code??1;stop();});
-`;
-// Only scratchGuard launches this supervisor, detached as the live group
-// leader. Native leader exit never authorizes signaling its cached PID/group.
-const managedSupervise = `
-const {spawn}=require('node:child_process');
 const child=spawn(process.argv[1],JSON.parse(process.argv[2]),{cwd:process.argv[3],env:process.env,stdio:[3,'inherit','inherit']});
 let ending=false,exitCode=0;
 function stop(){if(ending)return;ending=true;try{process.kill(-process.pid,'SIGTERM');}catch{}setTimeout(()=>{try{process.kill(-process.pid,'SIGKILL');}catch{}process.exit(exitCode);},750);}
 process.stdin.resume();process.stdin.on('end',stop);process.on('SIGTERM',stop);process.on('SIGINT',stop);
+// Leader exit does not prove descendant exit: retain the bounded escalation.
 child.on('error',()=>{exitCode=1;stop();});child.on('exit',code=>{if(!ending)exitCode=code??1;stop();});
 `;
 async function stop() {
@@ -3222,17 +3265,14 @@ async function start(state) {
     JSON.stringify({ python: install.python, uv: install.uv, pythonInstallDir: install.pythonInstallDir, pythonExecutables: install.pythonExecutables ?? [] }),
     'start-mcp-server', '--project', workspace, '--context', 'codex', '--mode', 'editing',
     '--enable-web-dashboard', 'false', '--open-web-dashboard', 'false', '--enable-gui-log-window', 'false'];
-  let supervisor = supervise;
-  if (process.env.GESTALT_SESSION_TMP_CONTEXT) {
-    const manager = process.argv[2];
-    const source = (await readFile(manager, 'utf8')).match(/^\/\/ BEGIN SESSION SCRATCH RUNTIME\n([\s\S]*?)^\/\/ END SESSION SCRATCH RUNTIME/m);
-    if (!source) throw Error('temporary lifecycle runtime missing');
-    const {createRequire} = await import('node:module');
-    const scratch = new Function('require', source[1] + '\nreturn {scratchGuardianProgram};')(createRequire(import.meta.url));
-    supervisor = scratch.scratchGuardianProgram(manager, 'serena-mcp', managedSupervise) ?? supervise;
-  }
-  const child = spawn(process.execPath, ['-e', supervisor, 'codex', JSON.stringify(args), workspace],
-    { cwd: workspace, env: process.env, stdio: ['pipe', 'pipe', 'inherit', 'pipe'] });
+  const manager = process.argv[2];
+  const source = (await readFile(manager, 'utf8')).match(/^\/\/ BEGIN SESSION SCRATCH RUNTIME\n([\s\S]*?)^\/\/ END SESSION SCRATCH RUNTIME/m);
+  if (!source) throw Error('temporary lifecycle runtime missing');
+  const {createRequire} = await import('node:module');
+  const scratch = new Function('require', source[1] + '\nreturn {scratchGuardianProgram,scratchSpawnProgram};')(createRequire(import.meta.url));
+  const supervisor = scratch.scratchGuardianProgram(manager, 'serena-mcp', supervise) ?? supervise;
+  const child = scratch.scratchSpawnProgram(supervisor, ['codex', JSON.stringify(args), workspace],
+    { cwd: workspace, env: process.env, detached: true, stdio: ['pipe', 'pipe', 'inherit', 'pipe'], label: 'gestalt-serena-lifetime' });
   const pending = new Map();
   const exited = new Promise(resolveExit => {
     child.once('close', resolveExit);
@@ -6024,7 +6064,7 @@ command_cli() {
   esac
   if [[ ! ${GESTALT_SESSION_TMP_CONTEXT+x} ]]; then
     resolve_manager_target
-    exec node -e "$(session_scratch_runtime)" cli "$manager_target" "${forwarded_args[@]}"
+    exec_node_program "$(session_scratch_runtime)" cli "$manager_target" "${forwarded_args[@]}"
   fi
   command_cli_owned "${forwarded_args[@]}"
 }
@@ -6082,12 +6122,30 @@ import {spawn} from 'node:child_process';
 import {Socket} from 'node:net';
 import {createInterface} from 'node:readline';
 import {randomUUID} from 'node:crypto';
+import {createRequire} from 'node:module';
 const [manager,native,...args] = process.argv.slice(2);
 const policy = readFileSync(manager,'utf8').match(/^\/\/ BEGIN MANAGED MCP APPROVAL POLICY\n([\s\S]*?)^\/\/ END MANAGED MCP APPROVAL POLICY/m);
 if (!policy) throw new Error('Managed MCP approval policy missing');
 const {managedMcpApprovals,managedMcpOverrides} = runInNewContext(policy[1]+'\n({managedMcpApprovals,managedMcpOverrides})');
 const owner = {manager:process.env.GESTALT_MANAGER_BIN ?? manager,codexHome:process.env.CODEX_HOME};
-const child = spawn(native,['app-server',...args],{stdio:['pipe','pipe','inherit'],detached:true});
+const source = readFileSync(manager,'utf8').match(/^\/\/ BEGIN SESSION SCRATCH RUNTIME\n([\s\S]*?)^\/\/ END SESSION SCRATCH RUNTIME/m);
+if (!source) throw new Error('Managed subprocess runtime missing');
+const {scratchSpawnProgram} = new Function('require',source[1]+'\nreturn {scratchSpawnProgram};')(createRequire(import.meta.url));
+// Keep a live leader until the entire owned group is stopped. Native exit and
+// closed output pipes must not cancel escalation for resistant descendants.
+const supervisor = `const {spawn}=require('node:child_process');
+const child=spawn(process.argv[1],JSON.parse(process.argv[2]),{stdio:['pipe','inherit','inherit']});
+let ending=false;
+function stop(){if(ending)return;ending=true;try{process.kill(-process.pid,'SIGTERM');}catch{}
+setTimeout(()=>{try{process.kill(-process.pid,'SIGKILL');}catch{}},750);}
+process.on('SIGTERM',stop);process.on('SIGINT',stop);
+process.stdin.pipe(child.stdin);process.stdin.on('end',stop);child.stdin.on('error',stop);
+child.once('error',()=>{process.send?.({exitCode:127});stop();});
+child.once('exit',code=>{process.send?.({exitCode:code??1});stop();});`;
+const child = scratchSpawnProgram(supervisor,[native,JSON.stringify(['app-server',...args])],
+  {stdio:['pipe','pipe','inherit','ipc'],detached:true,label:'gestalt-codex-lifetime'});
+let nativeExitCode;
+child.on('message',message=>{if(Number.isInteger(message?.exitCode))nativeExitCode=message.exitCode;});
 const pending = new Map(),reads = new Set(),prefix = 'gestalt-approvals-'+randomUUID()+'-';
 let sequence = 0,closing = false;
 const write = message => child.stdin.write(JSON.stringify(message)+'\n');
@@ -6125,7 +6183,7 @@ input.on('line',async line=>{
     if(message.id!==undefined)send({id:message.id,error:{code:-32603,message:'Could not prepare managed MCP approval policy'}});
   }
 });
-function signal(name){if(child.pid)try{process.kill(-child.pid,name);}catch(error){if(error.code!=='ESRCH')throw error;}}
+function signal(name){if(child.pid&&child.exitCode===null&&child.signalCode===null)try{process.kill(-child.pid,name);}catch(error){if(error.code!=='ESRCH')throw error;}}
 function stop(code=0){if(closing)return;closing=true;input.close();inputStream.destroy();child.stdin.end();signal('SIGTERM');
   // Bound the proxy too: descendants may retain stdout after the native child
   // exits, so waiting for ChildProcess.close alone is not a shutdown deadline.
@@ -6133,8 +6191,8 @@ function stop(code=0){if(closing)return;closing=true;input.close();inputStream.d
   child.once('close',()=>{clearTimeout(timer);process.exit(code);});}
 input.on('close',()=>stop());inputStream.on('error',()=>stop(1));child.stdin.on('error',()=>stop(1));
 child.on('error',()=>{inputStream.destroy();process.exit(1);});
-child.on('exit',code=>{if(!closing)stop(code??1);});
-child.on('close',code=>{for(const waiter of pending.values())waiter.reject(Error('runtime-exited'));if(!closing)process.exit(code??1);});
+child.on('exit',code=>{if(!closing)stop(nativeExitCode??code??1);});
+child.on('close',code=>{for(const waiter of pending.values())waiter.reject(Error('runtime-exited'));if(!closing)process.exit(nativeExitCode??code??1);});
 process.on('SIGTERM',()=>stop(143));process.on('SIGINT',()=>stop(130));
 NODE
 }
@@ -6849,7 +6907,7 @@ main() {
     __update-restart-worker) command_update_restart_worker "$@" ;;
     __codex-app-server) command_codex_app_server "$@" ;;
     __cli-owned) command_cli_owned "$@" ;;
-    __scratch-hook) exec node -e "$(session_scratch_runtime)" hook "$@" ;;
+    __scratch-hook) exec_node_program "$(session_scratch_runtime)" hook "$@" ;;
     scratch)
       if [[ ${1:-} == --help || ${1:-} == -h ]]; then
         printf '%s\n' 'Stop Mobile and all runtimes/tools using this owner before recovery.' \
@@ -6862,7 +6920,7 @@ main() {
           'Never use these overrides on a live session. Payload and provider history are retained.'
       else
         require_command node
-        exec node -e "$(session_scratch_runtime)" scratch "$@"
+        exec_node_program "$(session_scratch_runtime)" scratch "$@"
       fi
       ;;
     cli) command_cli "$@" ;;

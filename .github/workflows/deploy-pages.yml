@@ -17,6 +17,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -80,6 +81,7 @@ jobs:
             -c 'default_permissions=":read-only"' sandbox -- /bin/true
 
       - name: Test installation tooling
+        timeout-minutes: 5
         run: npm test
 
       - name: Build documentation
@@ -112,6 +114,7 @@ jobs:
           path: .vitepress/dist
 
   deploy:
+    timeout-minutes: 10
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

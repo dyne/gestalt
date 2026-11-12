@@ -6,6 +6,7 @@
     "build": "vitepress build",
     "preview": "vitepress preview",
     "test": "bash tests/run.sh",
+    "test:integration": "bash tests/run-integration.sh",
     "test:browser": "playwright test",
     "test:playwright:real": "node --test tests/playwright-real.test.mjs",
     "test:playwright:cli": "node --test tests/playwright-cli-control.test.mjs tests/playwright-cli-native.test.mjs tests/playwright-cli-startup.test.mjs",

@@ -6174,7 +6174,10 @@ const {scratchSpawnProgram} = new Function('require',source[1]+'\nreturn {scratc
 // Keep a live leader until the entire owned group is stopped. Native exit and
 // closed output pipes must not cancel escalation for resistant descendants.
 const supervisor = `const {spawn}=require('node:child_process');
-const child=spawn(process.argv[1],JSON.parse(process.argv[2]),{stdio:['pipe','inherit','inherit']});
+// Node's stdin-source bootstrap can make inherited stdout nonblocking. Native
+// app-server writes must use their own pipe, or large history replies hit EAGAIN.
+const child=spawn(process.argv[1],JSON.parse(process.argv[2]),{stdio:['pipe','pipe','inherit']});
+child.stdout.pipe(process.stdout);
 let ending=false;
 function stop(){if(ending)return;ending=true;try{process.kill(-process.pid,'SIGTERM');}catch{}
 setTimeout(()=>{try{process.kill(-process.pid,'SIGKILL');}catch{}},750);}

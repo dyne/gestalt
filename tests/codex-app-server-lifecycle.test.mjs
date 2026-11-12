@@ -41,7 +41,7 @@ async function fixture(t, mode = 'normal', inputFd) {
   const native = join(root, 'codex');
   await writeFile(native, `#!${process.execPath}
 const {createInterface} = require('node:readline');
-const {writeFileSync} = require('node:fs');
+const {writeFileSync,writeSync} = require('node:fs');
 const {spawn} = require('node:child_process');
 writeFileSync(${JSON.stringify(join(root, 'pid'))}, String(process.pid));
 const mode = ${JSON.stringify(mode)};
@@ -49,20 +49,28 @@ if (mode === 'stubborn') { process.on('SIGTERM', () => {}); setInterval(() => {}
 createInterface({input: process.stdin}).on('line', line => {
   const request = JSON.parse(line);
   const result = {pid: process.pid};
+  if (mode === 'large-history' && request.method === 'thread/read') {
+    const reply = Buffer.from(JSON.stringify({id:request.id,result:{history:'x'.repeat(2*1024*1024)}})+'\\n');
+    let offset = 0;
+    while (offset < reply.length) offset += writeSync(1,reply,offset,reply.length-offset);
+    return;
+  }
   if (mode === 'early-exit') process.exitCode = 7, setImmediate(() => process.exit(7));
   if (mode === 'inherited-pipe' || mode === 'closed-pipes') {
     const worker = spawn(process.execPath, [${JSON.stringify(join(root, 'worker.cjs'))}], {stdio: ['ignore', mode === 'inherited-pipe' ? 'inherit' : 'ignore', mode === 'inherited-pipe' ? 'inherit' : 'ignore', 'ipc']});
     worker.once('message', () => process.exit(7));
     result.descendantPid = worker.pid;
   }
-  console.log(JSON.stringify({id: request.id, result}));
+  // Match a native stdout writer; console.log would itself set O_NONBLOCK.
+  writeSync(1, JSON.stringify({id: request.id, result})+'\\n');
 });
 `, {mode: 0o755});
   await writeFile(join(root, 'worker.cjs'), workerProgram(join(root,'workers.jsonl'), "process.on('SIGTERM',()=>{});process.send('ready');setInterval(()=>{},1000);"));
   const child = spawn('bash', [manager, '__codex-app-server', native, '--stdio'], {
     env: {...process.env, GESTALT_HOME: root}, stdio: [inputFd ?? 'pipe', 'pipe', 'pipe'],
   });
-  child.stderr.resume();
+  let diagnostics = '';
+  child.stderr.on('data', bytes => { diagnostics = (diagnostics + bytes).slice(-2048); });
   child.stdin?.on('error', () => {});
   const exit = once(child, 'exit');
   const lines = createInterface({input: child.stdout});
@@ -79,11 +87,26 @@ createInterface({input: process.stdin}).on('line', line => {
   if (inputFd !== undefined) return {child, exit};
   const response = once(lines, 'line');
   child.stdin.write(JSON.stringify({id: 1, method: 'initialize', params: {}}) + '\n');
-  const [line] = await deadline(response);
+  const [line] = await deadline(response).catch(error => {
+    throw new Error(`${error.message}: ${diagnostics}`, {cause:error});
+  });
   const message = JSON.parse(line);
   assert.equal(message.id, 1);
-  return {child, exit, nativePid: message.result.pid, descendantPid: message.result.descendantPid};
+  return {child, exit, lines, nativePid: message.result.pid, descendantPid: message.result.descendantPid};
 }
+
+test('large native history replies arrive intact and leave the protocol usable', async t => {
+  const {child, lines} = await fixture(t, 'large-history');
+  const history = once(lines, 'line');
+  child.stdin.write(JSON.stringify({id:2,method:'thread/read',params:{includeTurns:true}})+'\n');
+  const [line] = await deadline(history);
+  const response = JSON.parse(line);
+  assert.equal(response.id, 2);
+  assert.equal(response.result.history, 'x'.repeat(2*1024*1024));
+  const next = once(lines, 'line');
+  child.stdin.write(JSON.stringify({id:3,method:'config/read',params:{}})+'\n');
+  assert.equal(JSON.parse((await deadline(next))[0]).id, 3);
+});
 
 for (const [signal, code] of [['SIGTERM', 143], ['SIGINT', 130]]) {
   test(`${signal} exits with caller input still open`, async t => {

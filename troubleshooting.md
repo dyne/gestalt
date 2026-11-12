@@ -76,6 +76,29 @@ gestalt mobile --help
 The installed executable is authoritative. The manager forwards arguments
 unchanged.
 
+## Processes remain after stopping Mobile
+
+Console Ctrl+C and the menu's Quit action both call Mobile's graceful close.
+Repeated Ctrl+C or SIGTERM signals remain intercepted while cleanup finishes.
+Owned Codex, browser, index-watcher and host-test processes must stop; subprocess
+supervisors retain their own process groups until resistant descendants have
+been terminated. Embedded supervisor programs travel over source pipes, so
+process listings show short helper names instead of JavaScript bodies.
+
+The detached XERJ backend is a shared service for the current user. It can remain
+after Mobile exits so other CLI and MCP clients can keep using it. To stop that
+service explicitly, run this from the account that owns it:
+
+```sh
+gestalt xerj status
+gestalt xerj stop
+```
+
+Each Unix account has separate managed state and process ownership. Avoid
+system-wide process-name kills on hosts with several Gestalt users. Processes
+left by an older installation or an interrupted test need separate inspection;
+updating the launcher does not retroactively attach ownership to them.
+
 ## Passkey origin errors
 
 Check that `--public-origin` exactly matches the address in the browser,

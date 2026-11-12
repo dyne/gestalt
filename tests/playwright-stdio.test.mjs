@@ -7,6 +7,7 @@ import {join,resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import test from 'node:test';
 import {sessionScratch,mobileResourceLease} from './session-scratch-fixture.mjs';
+import {workerProgram,stopFixtureWorkers} from './fixture-workers.mjs';
 const manager=resolve('public/gestalt'),source=await readFile(manager,'utf8');
 const program=source.split("cat <<'PLAYWRIGHT_JS'\n")[1].split('\nPLAYWRIGHT_JS\n')[0];
 const digest=b=>createHash('sha256').update(b).digest('hex');
@@ -15,7 +16,7 @@ const tools=['browser_navigate','browser_snapshot','browser_fill_form','browser_
 async function fixture(t,{flushOnClose=false,ignoreClose=false,managedScratch=false,parentResource=false,cooperative=false}={}){
  const base=await mkdtemp(join(tmpdir(),'playwright stdio ')),home=join(base,'managed'),workspace=join(base,'workspace with spaces'),bin=join(base,'bin');
  for(const p of [home,workspace,bin])await mkdir(p,{recursive:true});
- t.after(()=>rm(base,{recursive:true,force:true}));
+ t.after(async()=>{await stopFixtureWorkers(join(base,'workers.jsonl'));await rm(base,{recursive:true,force:true});});
  const release=join(home,'playwright/release-0.0.83-fixture'),pkg=join(release,'node_modules/@playwright/mcp');await mkdir(pkg,{recursive:true});
  const executable=join(pkg,'cli.js');
  const server=`const fs=require('node:fs'),path=require('node:path'),{spawn}=require('node:child_process');
@@ -23,7 +24,7 @@ const config=JSON.parse(fs.readFileSync(process.argv[process.argv.indexOf('--con
 const profile=config.browser.userDataDir;
 let cookie;
 fs.appendFileSync(${JSON.stringify(join(base,'browser-events'))},JSON.stringify({pid:process.pid,config,env:process.env})+'\\n');
-const worker=spawn(process.execPath,['-e',${JSON.stringify(cooperative?'setInterval(()=>{},1000)':"process.on('SIGTERM',()=>{});setInterval(()=>{},1000)")}],{stdio:'ignore'});
+const worker=spawn(process.execPath,[${JSON.stringify(join(base,'worker.cjs'))}],{stdio:'ignore'});
 process.on('SIGTERM',()=>{if(${cooperative}){worker.once('exit',()=>process.exit());worker.kill('SIGTERM');}else process.exit();});
 require('node:readline').createInterface({input:process.stdin}).on('line',async line=>{const m=JSON.parse(line);if(m.id===undefined)return;
 if(m.method==='tools/call'&&m.params.name==='browser_close'&&${ignoreClose})return;
@@ -31,6 +32,7 @@ let result={protocolVersion:'2024-11-05',capabilities:{tools:{}},serverInfo:{nam
 if(m.method==='tools/list')result={tools:[...${JSON.stringify(tools)},...['browser_run_code_unsafe','browser_evaluate','browser_install'].map(name=>({name,inputSchema:{type:'object'}}))]};
 if(m.method==='tools/call') {if(m.params.arguments.cookie){cookie=m.params.arguments.cookie;if(!${flushOnClose})fs.writeFileSync(path.join(profile,'cookie'),cookie);}if(m.params.name==='browser_close'&&${flushOnClose}){await new Promise(r=>setTimeout(r,100));if(cookie)fs.writeFileSync(path.join(profile,'cookie'),cookie);}result={content:[{type:'text',text:JSON.stringify({pid:process.pid,worker:worker.pid,profile,cookie:cookie||(fs.existsSync(path.join(profile,'cookie'))?fs.readFileSync(path.join(profile,'cookie'),'utf8'):null)})}]};}
 console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result}));});`;
+ await writeFile(join(base,'worker.cjs'),workerProgram(join(base,'workers.jsonl'),cooperative?'setInterval(()=>{},1000)':"process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"));
  await writeFile(executable,server);await writeFile(join(pkg,'package.json'),JSON.stringify({version:'0.0.83'}));
  const sri='sha512-'+'A'.repeat(86)+'==',lock=JSON.stringify({packages:{'node_modules/@playwright/mcp':{version:'0.0.83',integrity:sri}}});
  await writeFile(join(release,'package-lock.json'),lock);

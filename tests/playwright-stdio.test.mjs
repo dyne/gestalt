@@ -121,6 +121,7 @@ for(const {signal,disconnect} of [{signal:'SIGTERM'},{signal:'SIGINT'},{signal:'
  if(managedScratch){
   const leases=join(f.scratch.context.directory,'leases');
   for(const name of await readdir(leases)){
+   if(name.startsWith('.'))continue;
    const path=join(leases,name),value=JSON.parse(await readFile(path,'utf8'));
    if(value.consumers.includes('playwright-mcp'))borrower=path;
   }
@@ -148,7 +149,7 @@ test('managed browser inherits validated session context through guardian and re
  const f=await fixture(t,{managedScratch:true,parentResource:true,cooperative:true}),c=f.start(f.workspace,{public:true});
  const a=payload(await c.call('browser_navigate',{cookie:'retained'}));
  const leases=join(f.scratch.context.directory,'leases');
- const records=await Promise.all((await readdir(leases)).map(async name=>({path:join(leases,name),value:JSON.parse(await readFile(join(leases,name),'utf8'))})));
+ const records=await Promise.all((await readdir(leases)).filter(name=>!name.startsWith('.')).map(async name=>({path:join(leases,name),value:JSON.parse(await readFile(join(leases,name),'utf8'))})));
  const borrower=records.find(record=>record.value.consumers.includes('playwright-mcp'));
  assert.ok(borrower,'Mobile detached browser borrower missing');assert.equal(borrower.value.state,'active');
  await writeFile(f.resource.path,JSON.stringify({...f.resource.lease,state:'released',consumers:[]}));

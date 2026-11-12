@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
 import {createInterface} from 'node:readline';
-import {mkdtemp,mkdir,readFile,writeFile,rm,symlink,readdir} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,writeFile,rm,symlink,readdir,rename} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
@@ -64,10 +64,30 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n',()=>{i
  };
  return {root,workspace,child,request,state,call,close,scratch};
 }
-async function managedBorrowers(scratch){
+async function managedBorrowers(scratch,enumerate=readdir){
  const directory=join(scratch.context.directory,'leases');
- return Promise.all((await readdir(directory)).map(async name=>JSON.parse(await readFile(join(directory,name),'utf8'))));
+ // Lease updates stage a hidden .UUID.json before rename. It is not a
+ // committed record and may disappear between directory enumeration and read.
+ return Promise.all((await enumerate(directory)).filter(name=>!name.startsWith('.')).map(async name=>JSON.parse(await readFile(join(directory,name),'utf8'))));
 }
+test('lease observer tolerates an atomic staging rename without hiding missing committed records',async t=>{
+ const directory=await mkdtemp(join(tmpdir(),'serena-lease-observer-'));
+ t.after(()=>rm(directory,{recursive:true,force:true}));
+ const scratch={context:{directory}},leases=join(directory,'leases');
+ await mkdir(leases);
+ const committed='59bf4b7e-7c89-4b45-b9e6-83295c3d941a.json';
+ const staged='.901b67ae-56dd-4583-aabb-3b32771b5371.json';
+ const released={state:'released',consumers:[]};
+ await writeFile(join(leases,committed),JSON.stringify({state:'active',consumers:['serena-mcp']}));
+ await writeFile(join(leases,staged),JSON.stringify(released));
+ const records=await managedBorrowers(scratch,async path=>{
+  const names=await readdir(path);
+  await rename(join(path,staged),join(path,committed));
+  return names;
+ });
+ assert.deepEqual(records,[released]);
+ await assert.rejects(managedBorrowers(scratch,async()=>['missing.json']),{code:'ENOENT'});
+});
 const payload=m=>{assert.ok(!m.error,m.error?.message);return JSON.parse(m.result.content[0].text);};
 async function dead(pid){for(let i=0;i<40;i++){try{const status=await readFile(`/proc/${pid}/stat`,'utf8');if(status.split(' ')[2]==='Z')return;}catch(e){if(e.code==='ENOENT')return;}try{process.kill(pid,0);}catch(e){if(e.code==='ESRCH')return;}await pause(50);}assert.fail(`owned process ${pid} survived cleanup`);}
 test('catalog exposes edits, excludes project/mode/shell tools, includes plan guidance and starts no process',async()=>{const f=await fixture();try{

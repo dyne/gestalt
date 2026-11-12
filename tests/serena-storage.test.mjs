@@ -367,7 +367,7 @@ os.execv(args[0],args)
     assert.equal(await readFile(previous,'utf8'),'retained immutable interpreter');
     const nativeObservation=JSON.parse(await readFile(observation,'utf8'));assert.deepEqual(nativeObservation.env,scratch.environment);
     const leases=join(scratch.context.directory,'leases');
-    const records=await Promise.all((await readdir(leases)).map(async name=>({path:join(leases,name),value:JSON.parse(await readFile(join(leases,name),'utf8'))})));
+    const records=await Promise.all((await readdir(leases)).filter(name=>!name.startsWith('.')).map(async name=>({path:join(leases,name),value:JSON.parse(await readFile(join(leases,name),'utf8'))})));
     const borrower=records.find(record=>record.value.consumers.includes('serena-mcp'));
     assert.ok(borrower,'Mobile detached Serena borrower not published');assert.equal(borrower.value.state,'active');
     await writeFile(parent.path,JSON.stringify({...parent.lease,state:'released',consumers:[]}));

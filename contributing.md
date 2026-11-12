@@ -40,6 +40,10 @@ commands. They do not alter a developer's Codex profile or global npm packages.
 
 ## GitHub Pages deployment
 
+Pull requests targeting `main` run installation-tooling tests and a documentation
+build through the separate Pull request checks workflow. It uses read-only
+repository permissions and runs without release credentials.
+
 The Pages workflow runs on pushes to `main` and can also be started manually.
 It derives `BASE_PATH` from GitHub Pages configuration, so project-site routes
 and assets work under the repository subpath. Repository administrators must

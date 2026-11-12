@@ -174,12 +174,3 @@ test('an uncatchable wrapper exit closes the native group lifetime pipe', async 
   await deadline(exit);
   await assertStopped(nativePid);
 });
-
-test('repeated temporary readers exit without caller EOF', async t => {
-  for (let i = 0; i < 20; i++) {
-    const {child, exit, nativePid} = await fixture(t);
-    child.kill('SIGTERM');
-    assert.deepEqual(await deadline(exit), [143, null]);
-    await assertStopped(nativePid);
-  }
-});

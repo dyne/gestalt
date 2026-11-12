@@ -38,6 +38,24 @@ npm test
 The focused Bash tests use isolated temporary homes and mocked external
 commands. They do not alter a developer's Codex profile or global npm packages.
 
+The default suite covers installation and updates, managed permissions, scratch
+ownership, large Codex history responses and process shutdown. PR and release
+test steps have a five-minute limit so a hung subprocess cannot hold publication
+for an hour. The repeated twenty-reader shutdown stress loop was removed;
+individual signal, EOF and resistant-descendant regressions remain.
+
+Native Codex, terminal and protocol-probe integration tests run explicitly:
+
+```sh
+npm run test:integration
+```
+
+These suites require their native runtime prerequisites and the configured host
+test runner when they create a nested Codex sandbox. They are not part of
+`npm test` or automatic publication. Installed-release Serena checks additionally
+require `SERENA_REAL_INSTALL`; real-browser checks retain their existing opt-in
+commands. Skipped optional checks do not establish installed-runtime coverage.
+
 ## GitHub Pages deployment
 
 Pull requests targeting `main` run installation-tooling tests and a documentation

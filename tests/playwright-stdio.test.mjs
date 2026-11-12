@@ -77,6 +77,23 @@ test('ordinary MCP calls need no Codex metadata; Chrome sandbox, pipes and priva
  assert.equal((await stat(a.profile)).mode&0o777,0o700);assert.equal((await stat(join(a.profile,'../lease/owner.json'))).mode&0o777,0o600);
  await c.close();await dead(a.pid);await dead(a.worker);await gone(join(a.profile,'../lease'));
 });
+test('long managed scratch uses a live directory descriptor for Chrome while MCP keeps owner context',async t=>{
+ const f=await fixture(t,{managedScratch:true}),c=f.start(f.workspace,{public:true});
+ const a=payload(await c.call());
+ const e=JSON.parse((await readFile(join(f.base,'browser-events'),'utf8')).trim());
+ const env=e.config.browser.launchOptions.env;
+ assert.match(env.TMPDIR,/^\/proc\/\d+\/fd\/\d+$/);
+ assert.ok(Buffer.byteLength(env.TMPDIR)<50);
+ for(const name of ['TMPDIR','TMP','TEMP'])assert.equal(env[name],env.TMPDIR);
+ const fs=await import('node:fs/promises');
+ assert.equal(await fs.realpath(env.TMPDIR),f.scratch.context.directory);
+ assert.equal(e.env.TMPDIR,f.scratch.context.directory);
+ assert.equal(e.env.PWTEST_SOCKETS_DIR,env.TMPDIR);
+ assert.equal(env.GESTALT_SESSION_TMP_CONTEXT,f.scratch.environment.GESTALT_SESSION_TMP_CONTEXT);
+ await c.close();await dead(a.pid);await dead(a.worker);
+ await assert.rejects(fs.stat(env.TMPDIR),{code:'ENOENT'});
+ assert.ok((await stat(f.scratch.context.directory)).isDirectory());
+});
 test('same-workspace contention cannot disturb owner; independent workspaces run in parallel',async t=>{
  const f=await fixture(t),first=f.start(),a=payload(await first.call('browser_navigate',{cookie:'one'}));
  const second=f.start();assert.ok((await second.call()).error);assert.equal(payload(await first.call()).cookie,'one');

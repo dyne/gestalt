@@ -59,6 +59,14 @@ and Google Chrome or Chromium under `/Applications` on macOS. Use
 Chromium, version 120 or newer; browser launch compatibility is also checked by
 the browser smoke gate. Missing or incompatible Chrome never triggers a download.
 
+Use `gestalt playwright doctor --json --launch` to test a disposable local page
+with the installed Playwright and Chrome. It reports `browserTest` as `passed`,
+`failed`, or `not-run`; the default doctor checks prerequisites without launching
+a browser. The page check uses a temporary profile, never the workspace's live
+browser profile. On Linux, long session temp paths use a held directory
+descriptor for Chrome and Playwright sockets, keeping files in their existing
+owner directory without exceeding Unix socket path limits.
+
 `gestalt playwright version --json` is the read-only schema/contract version 1
 installation contract: package version, registry integrity, release path, locked
 dependency digest, executable digest, Node requirement and the standard tool

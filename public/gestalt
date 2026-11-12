@@ -700,7 +700,7 @@ Commands:
   playwright install [VERSION] Install MCP; add missing system Chrome on Debian amd64.
   playwright update [VERSION]  Stage, verify and activate an explicit package update.
   playwright version [--json]  Read versioned installation metadata.
-  playwright doctor [--json] [--executable-path PATH] Check package and Chrome separately.
+  playwright doctor [--json] [--launch] [--executable-path PATH] Check package and Chrome; optionally test a local page.
   playwright mcp --cwd ROOT    Managed headless stdio (workspace profile).
   serena install            Install private uv, Python 3.13 and tested Serena.
   serena update [VERSION]   Validate and activate a release; retain prior tooling.
@@ -2307,7 +2307,25 @@ const standard = new Set(['browser_navigate','browser_navigate_back','browser_sn
   'browser_hover','browser_drag','browser_select_option','browser_type','browser_press_key','browser_fill_form',
   'browser_take_screenshot','browser_wait_for','browser_handle_dialog','browser_file_upload',
   'browser_console_messages','browser_network_requests','browser_tabs','browser_close','browser_resize']);
-let stage, lock, child;
+let stage, lock, child, browserScratchFd, browserProbe;
+function browserEnvironment() {
+  const env=runtimeEnv(),directory=env.TMPDIR||env.TMP||env.TEMP;
+  // Chromium appends a random directory and SingletonSocket to TMPDIR. Keep
+  // the same owned storage but shorten its name below Linux's sun_path limit.
+  // The backend holds this descriptor until Chrome has finished shutting down.
+  if(process.platform==='linux' && directory && Buffer.byteLength(directory)>50) {
+    const canonical=fs.realpathSync(directory);
+    browserScratchFd=fs.openSync(canonical,fs.constants.O_RDONLY|fs.constants.O_DIRECTORY|fs.constants.O_NOFOLLOW);
+    const held=fs.fstatSync(browserScratchFd),current=fs.statSync(canonical);
+    const alias='/proc/'+process.pid+'/fd/'+browserScratchFd;
+    const target=fs.statSync(alias);
+    if(!held.isDirectory() || process.getuid && held.uid!==process.getuid() ||
+       held.dev!==current.dev || held.ino!==current.ino || target.dev!==held.dev || target.ino!==held.ino)
+      fail('cannot establish browser temporary directory ownership');
+    return {...env,TMPDIR:alias,TMP:alias,TEMP:alias};
+  }
+  return env;
+}
 function workspaceLayout(workspace) {
   const canonical=fs.realpathSync(workspace);
   if(!fs.statSync(canonical).isDirectory())fail('Playwright workspace must be a directory');
@@ -2363,14 +2381,14 @@ async function backend(workspace,executablePath,ownership) {
   const d=installed(),chrome=browser(executablePath);
   if(!chrome.ready)fail('Playwright Chrome unavailable; install Chrome outside Gestalt');
   const layout=workspaceLayout(workspace);acquire(layout,ownership);
-  const config=path.join(layout.lease,'config.json');
+  const config=path.join(layout.lease,'config.json'),browserEnv=browserEnvironment();
   fs.writeFileSync(config,JSON.stringify({browser:{browserName:'chromium',userDataDir:layout.userDataDir,
-    launchOptions:{executablePath:chrome.executable,headless:true,chromiumSandbox:true}},
+    launchOptions:{executablePath:chrome.executable,headless:true,chromiumSandbox:true,env:browserEnv}},
     capabilities:[],webmcp:false,outputDir:layout.state,codegen:'none'}),{mode:0o600});
   directory(path.join(layout.state,'config'));directory(path.join(layout.state,'cache'));
   await new Promise((resolve,reject)=>{
     // The host launcher owns this group, including Chrome descendants.
-    child=spawn(process.execPath,[d.executable,'--config',config],{cwd:layout.workspace,env:{...runtimeEnv(),XDG_CONFIG_HOME:path.join(layout.state,'config'),XDG_CACHE_HOME:path.join(layout.state,'cache')},stdio:['pipe','pipe','pipe']});
+    child=spawn(process.execPath,[d.executable,'--config',config],{cwd:layout.workspace,env:{...runtimeEnv(),PWTEST_SOCKETS_DIR:browserEnv.TMPDIR,XDG_CONFIG_HOME:path.join(layout.state,'config'),XDG_CACHE_HOME:path.join(layout.state,'cache')},stdio:['pipe','pipe','pipe']});
     const upstream=child;
     let closing=false,terminating=false,closeTimer,killTimer,lines;
     const terminate=()=>{
@@ -2566,6 +2584,7 @@ function runtimeEnv() {
 function stopChild() { if (child?.pid) { try {if(sessionLease)child.kill('SIGTERM');else process.kill(-child.pid,'SIGTERM');} catch {} } }
 function cleanup() {
   releaseLease();
+  if(browserScratchFd!==undefined){fs.closeSync(browserScratchFd);browserScratchFd=undefined;}
   if (stage) { try { const active = json(path.join(root,'active.json')); if (active.release === stage) stage = null; } catch {} }
   if (stage) fs.rmSync(stage,{recursive:true,force:true});
   if (lock) fs.rmdirSync(lock);
@@ -2648,7 +2667,7 @@ async function install(version) {
 }
 (async()=>{
   safe(root);
-  if (['help','-h','--help'].includes(action)) { console.log('Usage: gestalt playwright install [VERSION] | update [VERSION] | version [--json] | doctor [--json] [--cwd ROOT] [--executable-path PATH] | mcp --cwd ROOT [--executable-path PATH]\nInstall adds missing system Chrome on Debian amd64. Chrome is externally maintained; update, startup and doctor never download it.'); return; }
+  if (['help','-h','--help'].includes(action)) { console.log('Usage: gestalt playwright install [VERSION] | update [VERSION] | version [--json] | doctor [--json] [--launch] [--cwd ROOT] [--executable-path PATH] | mcp --cwd ROOT [--executable-path PATH]\nInstall adds missing system Chrome on Debian amd64. Chrome is externally maintained; update, startup and doctor never download it. --launch tests a disposable local page.'); return; }
   if (['install','update'].includes(action)) {
     if(args.length>1)fail('usage: gestalt playwright '+action+' [VERSION]');
     if(action==='install' && !args.length) {try {installed(); console.error('gestalt: Playwright already installed and validated');return;}catch{}}
@@ -2659,11 +2678,31 @@ async function install(version) {
     const d=installed();console.log(args.length?JSON.stringify(d):'playwright '+d.version);return;
   }
   if(action==='doctor') {
-    let explicit, workspace, output=false;
-    for(let i=0;i<args.length;i++) {if(args[i]==='--json')output=true;else if(args[i]==='--cwd' && args[i+1])workspace=args[++i];else if(args[i]==='--executable-path' && args[i+1])explicit=args[++i];else fail('usage: gestalt playwright doctor [--json] [--executable-path PATH]');}
-    let pkg;try {const d=installed();pkg={ready:true,version:d.version,integrity:d.integrity};}catch{pkg={ready:false,reason:'package-absent-or-invalid'};}
+    let explicit, workspace, output=false,launch=false;
+    for(let i=0;i<args.length;i++) {if(args[i]==='--json')output=true;else if(args[i]==='--launch')launch=true;else if(args[i]==='--cwd' && args[i+1])workspace=args[++i];else if(args[i]==='--executable-path' && args[i+1])explicit=args[++i];else fail('usage: gestalt playwright doctor [--json] [--launch] [--executable-path PATH]');}
+    let pkg;try {const d=installed();let engine;try{engine=json(path.join(d.release,'node_modules/playwright/package.json')).version;}catch{}pkg={ready:true,version:d.version,integrity:d.integrity,playwrightVersion:typeof engine==='string' && /^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$/.test(engine) && engine.length<=100?engine:null};}catch{pkg={ready:false,reason:'package-absent-or-invalid'};}
     const chrome=browser(explicit),node=Number(process.versions.node.split('.')[0])>=20;
     const result={schemaVersion:1,contractVersion:1,ready:pkg.ready&&chrome.ready&&node,package:pkg,chrome,node:{ready:node,version:process.versions.node},...(workspace?{workspace:workspaceLayout(workspace)}:{})};
+    result.browserTest='not-run';
+    if(launch && result.ready) {
+      let scratch;
+      try {
+        const env=browserEnvironment();
+        scratch=fs.mkdtempSync(path.join(env.TMPDIR||require('node:os').tmpdir(),'playwright-probe-'));
+        const {chromium}=require(path.join(installed().release,'node_modules/playwright'));
+        browserProbe=await chromium.launchPersistentContext(path.join(scratch,'profile'),{
+          executablePath:chrome.executable,headless:true,chromiumSandbox:true,env,timeout:8000});
+        const page=await browserProbe.newPage();
+        await page.goto('data:text/html,<title>Gestalt browser check</title>',{timeout:3000});
+        if(await page.title()!=='Gestalt browser check')throw Error('browser check failed');
+        result.browserTest='passed';
+      }catch{result.browserTest='failed';result.ready=false;}
+      finally {
+        try{if(browserProbe)await browserProbe.close();}catch{result.browserTest='failed';result.ready=false;}
+        browserProbe=null;
+        if(scratch)fs.rmSync(scratch,{recursive:true,force:true});
+      }
+    }
     console.log(output?JSON.stringify(result):'Playwright package: '+(pkg.version || pkg.reason)+'\nChrome: '+(chrome.version || chrome.reason)+'\nNode: '+(node?'ready':'requires >=20'));
     if(!result.ready)process.exitCode=1;return;
   }
@@ -2680,6 +2719,7 @@ async function install(version) {
 let stopping=false;
 function shutdown(code) {
   if(stopping)return;stopping=true;
+  if(browserProbe){browserProbe.close().catch(()=>{}).finally(()=>{cleanup();process.exit(code);});return;}
   const pid=child?.pid;
   if(!pid){cleanup();process.exit(code);}
   const finish=()=>{clearTimeout(timer);cleanup();process.exit(code);};

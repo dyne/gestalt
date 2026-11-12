@@ -7,6 +7,7 @@ import {join,resolve,dirname} from 'node:path';
 import {tmpdir} from 'node:os';
 import {createHash} from 'node:crypto';
 import test from 'node:test';
+import {sessionScratch} from './session-scratch-fixture.mjs';
 const manager=resolve('public/gestalt');
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 async function chromeFiles(root){
@@ -36,6 +37,22 @@ async function observe(pid){
 async function settled(pids){for(let i=0;i<120;i++){const live=[];for(const pid of pids)try{const fields=(await readFile('/proc/'+pid+'/stat','utf8')).split(') ').at(-1).split(' ');if(fields[0]!=='Z')live.push(pid);}catch{}if(!live.length)return;await pause(25);}assert.fail('owned browser descendants survived shutdown');}
 // Explicit integration gate; no browser or package acquisition is performed.
 // Run with the externally prepared install/Chrome prerequisites documented below.
+test('doctor page check uses installed Chrome under long session scratch without taking a browser lease', {timeout:30000},async t=>{
+ const managed=process.env.GESTALT_PLAYWRIGHT_REAL_HOME,chrome=process.env.GESTALT_PLAYWRIGHT_REAL_CHROME;
+ assert.ok(managed&&chrome,'Set existing real-browser prerequisites');
+ const root=await mkdtemp(join(tmpdir(),'playwright-doctor-'));t.after(()=>rm(root,{recursive:true,force:true}));
+ const scratch=await sessionScratch(root);
+ assert.ok(Buffer.byteLength(scratch.context.directory)>100);
+ const child=spawn('bash',[manager,'playwright','doctor','--json','--launch','--cwd',root,'--executable-path',chrome],{
+  env:{...process.env,...scratch.environment,GESTALT_HOME:managed},stdio:['ignore','pipe','pipe']});
+ let output='';child.stdout.on('data',b=>output+=b);child.stderr.resume();
+ const code=await new Promise((resolve,reject)=>{child.on('error',reject);child.on('close',resolve);});
+ assert.equal(code,0);const result=JSON.parse(output);
+ assert.equal(result.ready,true);assert.equal(result.browserTest,'passed');assert.equal(result.chrome.ready,true);
+ assert.match(result.package.playwrightVersion,/^\d+\.\d+\.\d+/);
+ await assert.rejects(stat(join(result.workspace.state,'lease')),{code:'ENOENT'});
+ assert.deepEqual((await readdir(scratch.context.directory)).filter(name=>name.startsWith('playwright-probe-')),[]);
+});
 test('managed real Chrome: stdio catalog, form, screenshot, persistence and isolation', {timeout:120000},async t=>{
  const managed=process.env.GESTALT_PLAYWRIGHT_REAL_HOME,chrome=process.env.GESTALT_PLAYWRIGHT_REAL_CHROME;
  assert.ok(managed&&chrome,'Set GESTALT_PLAYWRIGHT_REAL_HOME and GESTALT_PLAYWRIGHT_REAL_CHROME to existing test prerequisites');

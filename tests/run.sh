@@ -25,6 +25,7 @@ node --test "$repo_root/tests/playwright-child-transport.test.mjs"
 node --test "$repo_root/tests/playwright-cli-startup.test.mjs"
 bash -n "$repo_root/public/gestalt"
 bash -n "$repo_root/public/install.sh"
+bash -n "$repo_root/npm/gestalt"
 bash "$repo_root/tests/gestalt-cli.test.sh"
 bash "$repo_root/tests/install.test.sh"
 bash "$repo_root/tests/xerj.test.sh"
@@ -41,6 +42,7 @@ node --test "$repo_root/tests/serena-authority.test.mjs" "$repo_root/tests/seren
 node --test "$repo_root/tests/skills-lifecycle.test.mjs"
 bash "$repo_root/tests/skills-transfer.test.sh"
 node --test "$repo_root/tests/versioning.test.mjs"
+node --test "$repo_root/tests/npm-package.test.mjs" "$repo_root/tests/npm-publication.test.mjs"
 
 if command -v shellcheck >/dev/null 2>&1; then
   shellcheck \

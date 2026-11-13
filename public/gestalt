@@ -2306,7 +2306,8 @@ const integrity = /^sha512-[A-Za-z0-9+/]{86}==$/;
 const standard = new Set(['browser_navigate','browser_navigate_back','browser_snapshot','browser_click',
   'browser_hover','browser_drag','browser_select_option','browser_type','browser_press_key','browser_fill_form',
   'browser_take_screenshot','browser_wait_for','browser_handle_dialog','browser_file_upload',
-  'browser_console_messages','browser_network_requests','browser_tabs','browser_close','browser_resize']);
+  'browser_console_messages','browser_network_requests','browser_tabs','browser_close','browser_resize',
+  'browser_run_code_unsafe','browser_evaluate']);
 let stage, lock, child, browserScratchFd, browserProbe;
 function browserEnvironment() {
   const env=runtimeEnv(),directory=env.TMPDIR||env.TMP||env.TEMP;
@@ -2492,6 +2493,16 @@ child.on('error',()=>process.exit(1));child.on('exit',value=>{if(!ending)code=va
     processChild.stdio[3].write(JSON.stringify({jsonrpc:'2.0',method:'notifications/initialized'})+'\n');
     return instance;
   }
+  async function toolsFor(connection) {
+    if(!connection.tools) {
+      // Older installations cached a navigation-only catalog. Read the actual
+      // connected package's schemas without reinstalling it or changing Chrome.
+      const listed=await connection.request('tools/list',{});
+      if(!Array.isArray(listed?.tools) || listed.nextCursor)fail('incompatible Playwright tool catalog');
+      connection.tools=listed.tools.filter(tool=>standard.has(tool.name) && tool.inputSchema);
+    }
+    return connection.tools;
+  }
   const input=createInterface({input:process.stdin,crlfDelay:Infinity});
   let work=Promise.resolve();
   input.on('line',line=>{work=work.then(async()=>{
@@ -2502,10 +2513,11 @@ child.on('error',()=>process.exit(1));child.on('exit',value=>{if(!ending)code=va
       if(message.id===undefined)return;
       if(message.method==='initialize')send({id:message.id,result:{protocolVersion:'2024-11-05',capabilities:{tools:{}},serverInfo:{name:'gestalt-playwright',version:d.version},instructions:'Host-owned browser tools use client MCP tool approvals and host filesystem authority. Shell sandbox roots do not constrain this MCP. A listed tool does not grant permission to act.'}});
       else if(message.method==='ping')send({id:message.id,result:{}});
-      else if(message.method==='tools/list')send({id:message.id,result:{tools:d.toolSchemas}});
+      else if(message.method==='tools/list')send({id:message.id,result:{tools:await toolsFor(await start())}});
       else if(message.method==='tools/call') {
-        if(!standard.has(message.params?.name)||!d.tools.includes(message.params.name))fail('Playwright tool disabled by managed policy');
+        if(!standard.has(message.params?.name))fail('Playwright tool disabled by managed policy');
         const connection=await start();
+        if(!(await toolsFor(connection)).some(tool=>tool.name===message.params.name))fail('Playwright tool unavailable in connected package');
         const result=await connection.request('tools/call',{name:message.params.name,arguments:message.params.arguments||{}});
         send({id:message.id,result});
       } else send({id:message.id,error:{code:-32601,message:'Unsupported managed Playwright method'}});

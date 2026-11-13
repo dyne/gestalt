@@ -81,11 +81,21 @@ The host starts a client connection through `gestalt playwright mcp --cwd
 stdio child-process entry point for the trusted host, not an agent-shell fallback.
 Profile consent and supervisor/plan activation controls belong to the client
 integration; installing this component does not enable access. Standard navigation, form,
-snapshot and screenshot tools are available. The managed catalog and call
-handler both exclude server JavaScript execution, page evaluation, browser
-installation and page-supplied WebMCP tools. The upstream release's core group
-contains unsafe execution tools, so capability flags alone are insufficient;
-the manager enforces its standard tool allowlist before forwarding any call.
+snapshot and screenshot tools are available, along with `browser_run_code_unsafe`
+for Playwright operations and `browser_evaluate` for page inspection. Code runs
+with the host's authority and remains subject to client tool approvals. The
+manager reads actual tool schemas from the connected package, including for
+installations whose saved catalog predates code access. It excludes browser
+installation and page-supplied WebMCP tools.
+
+Use the connected Chrome for accessibility emulation and verification. A
+repository runner expecting a missing bundled browser should select the same
+installed Chrome with `channel: 'chrome'` or its verified `executablePath`.
+Do not download or request another browser as a fallback. Media preferences can
+be set with `page.emulateMedia`; Chromium emulation can be applied through a
+Playwright CDP session. Keep that session attached while using its overrides and
+reset them after verification. OS text scaling, browser zoom and screenshot
+pixel density are different checks; report the one actually exercised.
 
 The launcher speaks stdio only and does not create an HTTP MCP or CDP listener.
 Chrome uses Playwright's browser pipe and retains its native Chromium sandbox.

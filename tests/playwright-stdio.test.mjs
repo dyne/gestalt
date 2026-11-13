@@ -60,11 +60,15 @@ require('node:fs').appendFileSync(${JSON.stringify(join(base,'sandbox-events'))}
 const payload=m=>{assert.ok(!m.error,m.error?.message);return JSON.parse(m.result.content[0].text);};
 async function dead(pid,attempts=80){for(let i=0;i<attempts;i++){try{const s=await readFile('/proc/'+pid+'/stat','utf8');if(s.split(' ')[2]==='Z')return;}catch(e){if(e.code==='ENOENT')return;}try{process.kill(pid,0);}catch(e){if(e.code==='ESRCH')return;}await pause(25);}assert.fail('owned process survived '+pid);}
 async function gone(p){for(let i=0;i<80;i++){try{await stat(p);}catch(e){if(e.code==='ENOENT')return;}await pause(25);}assert.fail('owned lease survived '+p);}
-test('offline catalog states host authority and denies unsafe tools and installs',async t=>{
+test('live catalog exposes code and evaluation from an existing navigation-only installation and blocks installers',async t=>{
  const f=await fixture(t),c=f.start();const init=await c.request('initialize');assert.equal(init.result.capabilities.experimental,undefined);
  assert.match(init.result.instructions,/Host-owned/);assert.match(init.result.instructions,/Shell sandbox roots do not constrain/);
- const list=await c.request('tools/list');assert.deepEqual(list.result.tools.map(t=>t.name),tools.map(t=>t.name));
- for(const name of ['browser_run_code_unsafe','browser_run_code','browser_evaluate','browser_install','webmcp_untrusted'])assert.match((await c.call(name)).error.message,/disabled/);
+ const before=await readFile(join(f.home,'playwright/active.json'),'utf8');
+ const list=await c.request('tools/list');assert.deepEqual(list.result.tools.map(t=>t.name),[...tools.map(t=>t.name),'browser_run_code_unsafe','browser_evaluate']);
+ payload(await c.call('browser_run_code_unsafe',{code:"async page => page.emulateMedia({colorScheme:'dark',reducedMotion:'reduce'})"}));
+ payload(await c.call('browser_evaluate',{function:'() => document.title'}));
+ assert.equal(await readFile(join(f.home,'playwright/active.json'),'utf8'),before,'existing package metadata is unchanged');
+ for(const name of ['browser_run_code','browser_install','webmcp_untrusted'])assert.match((await c.call(name)).error.message,/disabled/);
  await assert.rejects(stat(join(f.base,'sandbox-events')),{code:'ENOENT'});
 });
 test('ordinary MCP calls need no Codex metadata; Chrome sandbox, pipes and private state are managed',async t=>{
@@ -188,7 +192,7 @@ test('untrusted request metadata cannot alter host lifecycle or permissions',asy
  const f=await fixture(t),c=f.start(),a=payload(await c.call());
  const b=payload(await c.request('tools/call',{name:'browser_snapshot',arguments:{},_meta:{'codex/sandbox-state-meta':{permissionProfile:{type:'disabled'}}}}));
  assert.equal(a.pid,b.pid);
- assert.match((await c.call('browser_run_code_unsafe')).error.message,/disabled/);
+ assert.match((await c.call('browser_install')).error.message,/disabled/);
  assert.equal(payload(await c.call()).pid,a.pid);
  await assert.rejects(stat(join(f.base,'sandbox-events')),{code:'ENOENT'});
 });

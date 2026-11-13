@@ -333,8 +333,8 @@ for (const mode of modes) test(`native TUI ${mode} retains session across pendin
         if (mode === 'profile-real-browser' && steps[phase]?.action === 'stop' &&
             !toolText(input.input.filter(item => item.type === 'function_call_output').at(-1)?.output).includes('Saved'))
           fixtureErrors.push('contending owner disrupted the original browser');
-        if (realBrowser && tools.some(tool => tool.name?.includes('browser_') && /run_code|evaluate|install/.test(tool.name)))
-          fixtureErrors.push('unsafe browser capability exposed by default');
+        if (realBrowser && tools.some(tool => tool.name?.includes('browser_') && /install/.test(tool.name)))
+          fixtureErrors.push('browser installer exposed by default');
         phase++;
       }
       const result = { id: `resp_${++modelRequests}`, object: 'response', created_at: 1, status: 'completed', model: 'fixture', output: [item],

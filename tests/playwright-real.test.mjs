@@ -67,7 +67,7 @@ test('managed real Chrome: stdio catalog, form, screenshot, persistence and isol
   if(new URL(request.url,'http://localhost').pathname==='/saved'){response.setHeader('Set-Cookie','managed-proof=retained; Path=/; Max-Age=3600');response.end('<h1>Saved</h1>');return;}
   if(new URL(request.url,'http://localhost').pathname==='/signal-saved'){signalRequests++;response.setHeader('Set-Cookie','managed-signal=retained; Path=/; Max-Age=3600');response.end('<h1>Signal saved</h1>');return;}
   const signal=(request.headers.cookie||'').includes('managed-signal=retained');if(signal)signalCookies++;
-  response.end('<!doctype html><title>Browser fixture</title><h1>'+((request.headers.cookie||'').includes('managed-proof=retained')?'Returning user':'New user')+'</h1><p>'+(signal?'Signal cookie retained':'No signal cookie')+'</p><form action="/saved"><label>Name <input name="name"></label><button>Save</button></form>');
+  response.end('<!doctype html><title>Browser fixture</title><h1>'+((request.headers.cookie||'').includes('managed-proof=retained')?'Returning user':'New user')+'</h1><p>'+(signal?'Signal cookie retained':'No signal cookie')+'</p><p id="script-state">Script did not run</p><script>document.querySelector("#script-state").textContent="Script ran"</script><form action="/saved"><label>Name <input name="name"></label><button>Save</button></form>');
  });
  await new Promise(r=>fixture.listen(0,'127.0.0.1',r));
  const url='http://127.0.0.1:'+fixture.address().port;
@@ -86,12 +86,22 @@ test('managed real Chrome: stdio catalog, form, screenshot, persistence and isol
  t.after(async()=>{for(const s of sessions)await s.close();await new Promise(r=>fixture.close(r));await rm(root,{recursive:true,force:true});});
  let s=start();await s.request('initialize',{protocolVersion:'2024-11-05'});
  const listed=await s.request('tools/list');assert.ok(listed.result.tools.some(t=>t.name==='browser_navigate'));
- assert.ok(!listed.result.tools.some(t=>/run_code|evaluate|install|webmcp/.test(t.name)));
- const forbidden=await s.request('tools/call',{name:'browser_run_code_unsafe',arguments:{code:'()=>1'}});assert.match(forbidden.error.message,/disabled/);
+ for(const name of ['browser_run_code_unsafe','browser_evaluate'])assert.ok(listed.result.tools.some(t=>t.name===name));
+ assert.ok(!listed.result.tools.some(t=>/install|webmcp/.test(t.name)));
+ const forbidden=await s.request('tools/call',{name:'browser_install',arguments:{}});assert.match(forbidden.error.message,/disabled/);
  await s.call('browser_navigate',{url});const page=await s.call('browser_snapshot');const snapshot=page.content.filter(item=>item.type==='text').map(item=>item.text).join('\n');assert.match(snapshot,/New user/);
- const input=snapshot.match(/textbox "Name" \[ref=(e\d+)\]/);assert.ok(input,'fixture textbox reference missing');
+ // Exercise the installed Chrome through the actual manager, not a second
+ // browser or a repository's missing headless-shell cache.
+ await s.call('browser_run_code_unsafe',{code:"async page => { await page.emulateMedia({colorScheme:'dark',reducedMotion:'reduce'}); page.gestaltEmulation = await page.context().newCDPSession(page); await page.gestaltEmulation.send('Emulation.setEmulatedOSTextScale',{scale:2}); await page.gestaltEmulation.send('Emulation.setScriptExecutionDisabled',{value:true}); }"});
+ const media=await s.call('browser_evaluate',{function:"() => ({dark:matchMedia('(prefers-color-scheme: dark)').matches,reduced:matchMedia('(prefers-reduced-motion: reduce)').matches})"});
+ assert.match(JSON.stringify(media),/\\?"dark\\?": true/);assert.match(JSON.stringify(media),/\\?"reduced\\?": true/);
+ await s.call('browser_navigate',{url});assert.match(JSON.stringify(await s.call('browser_snapshot')),/Script did not run/);
+ await s.call('browser_run_code_unsafe',{code:"async page => { await page.gestaltEmulation.send('Emulation.setScriptExecutionDisabled',{value:false}); await page.gestaltEmulation.send('Emulation.setEmulatedOSTextScale',{scale:1}); await page.gestaltEmulation.detach(); await page.emulateMedia({colorScheme:'light',reducedMotion:'no-preference'}); }"});
+ await s.call('browser_navigate',{url});assert.match(JSON.stringify(await s.call('browser_snapshot')),/Script ran/);
+ const restoredSnapshot=(await s.call('browser_snapshot')).content.filter(item=>item.type==='text').map(item=>item.text).join('\n');
+ const input=restoredSnapshot.match(/textbox "Name" \[ref=([^\]\s]+)\]/);assert.ok(input,'fixture textbox reference missing: '+restoredSnapshot);
  await s.call('browser_fill_form',{fields:[{name:'Name',element:'Name',type:'textbox',target:input[1],value:'Managed browser'}]});
- const button=snapshot.match(/button "Save" \[ref=(e\d+)\]/);assert.ok(button);
+ const button=restoredSnapshot.match(/button "Save" \[ref=([^\]\s]+)\]/);assert.ok(button);
  await s.call('browser_click',{element:'Save',target:button[1]});
  const shot=await s.call('browser_take_screenshot',{type:'png',filename:join(workspace,'proof.png')});assert.ok(shot.content.length);assert.ok((await stat(join(workspace,'proof.png'))).size>0);
  const firstTree=await observe(s.child.pid);

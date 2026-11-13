@@ -47,7 +47,7 @@ test('help, missing version and doctor leave managed state absent',async t=>{
 test('fresh install pins integrity and standard catalog, reinstall is offline and immutable',async t=>{
   const f=await fixture(t);let r=f.run(['install']);assert.equal(r.status,0,r.stderr);
   const d=await f.active();assert.equal(d.version,'0.0.83');assert.equal(d.integrity,sri);assert.equal(d.contractVersion,1);
-  assert.ok(d.tools.includes('browser_navigate'));assert.ok(!d.tools.includes('browser_run_code_unsafe'));assert.ok(!d.tools.includes('browser_install'));
+  assert.ok(d.tools.includes('browser_navigate'));assert.ok(d.tools.includes('browser_run_code_unsafe'));assert.ok(d.tools.includes('browser_evaluate'));assert.ok(!d.tools.includes('browser_install'));
   const before=await readFile(f.log,'utf8');await writeFile(join(f.base,'fail'),'');
   r=f.run(['install']);assert.equal(r.status,0,r.stderr);assert.equal(await readFile(f.log,'utf8'),before);
   assert.deepEqual(await f.active(),d);

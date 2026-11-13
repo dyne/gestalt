@@ -16,6 +16,8 @@ concurrency:
 
 jobs:
   build:
+    outputs:
+      manager-version: ${{ steps.manager-version.outputs.version }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -54,9 +56,12 @@ jobs:
         run: npm ci
 
       - name: Apply calculated manager version
+        id: manager-version
         env:
           RELEASE_VERSION: ${{ steps.semver.outputs.nextStrict || steps.semver.outputs.current }}
-        run: node scripts/set-manager-version.mjs "${RELEASE_VERSION#v}"
+        run: |
+          node scripts/set-manager-version.mjs "${RELEASE_VERSION#v}"
+          echo "version=${RELEASE_VERSION#v}" >> "$GITHUB_OUTPUT"
 
       # Match codex-action's prerequisites on disposable GitHub-hosted runners.
       - name: Enable native Codex sandbox user namespaces
@@ -88,6 +93,9 @@ jobs:
         env:
           BASE_PATH: ${{ steps.pages.outputs.base_path }}/
         run: npm run build
+
+      - name: Verify npm package
+        run: npm run build:package
 
       # Compatibility for previously installed wrappers; never tracked in Git.
       - name: Generate legacy updater checksum
@@ -124,3 +132,37 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
+
+  publish-npm:
+    name: Publish npm package
+    if: github.repository == 'dyne/gestalt' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out verified manager release
+        uses: actions/checkout@v6
+        with:
+          ref: refs/tags/v${{ needs.build.outputs.manager-version }}
+          persist-credentials: false
+      - name: Set up Node.js for npm trusted publishing
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Build the tagged npm package
+        run: npm run build:package
+      - name: Verify packed installation
+        run: npm run test:package
+      - name: Inspect npm release state
+        id: publication
+        run: node scripts/inspect-npm-publication.mjs dist/npm
+      - name: Publish through OIDC
+        if: steps.publication.outputs.publish == 'true'
+        run: |
+          npm install -g npm@latest
+          npm publish ./dist/npm --access public --tag latest

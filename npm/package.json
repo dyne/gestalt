@@ -1,0 +1,19 @@
+{
+  "name": "@jaromil/gestalt",
+  "version": "0.0.0",
+  "description": "Manage Gestalt's isolated Codex profile, agent skills and Mobile installation",
+  "license": "AGPL-3.0-or-later",
+  "author": "Dyne.org foundation",
+  "homepage": "https://dyne.github.io/gestalt/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dyne/gestalt.git"
+  },
+  "bugs": { "url": "https://github.com/dyne/gestalt/issues" },
+  "keywords": ["gestalt", "codex", "agents", "cli"],
+  "bin": { "gestalt": "bin/gestalt" },
+  "files": ["bin/gestalt", "lib/gestalt", "README.md", "LICENSE"],
+  "engines": { "node": ">=24.0.0" },
+  "os": ["linux", "darwin"],
+  "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org/" }
+}

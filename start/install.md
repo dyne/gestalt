@@ -5,7 +5,31 @@ script, validates its Bash syntax and version declaration, installs it atomicall
 in a user-owned directory, and runs `gestalt install` for Agents, the optional
 Dyne.org skill collection, and Mobile.
 
-## One-line install
+## Install with npm
+
+On Linux or macOS with Node.js 24 or newer and Bash:
+
+```sh
+npm install -g @jaromil/gestalt
+gestalt install
+```
+
+The npm package installs the `gestalt` command without running setup hooks.
+`gestalt install` then sets up Agents, the optional skill collection, and Mobile.
+The executable lives in npm's configured global prefix; use `command -v gestalt`
+to check which installation your shell selects.
+
+Update the command with `npm install -g @jaromil/gestalt@latest`. For an npm
+installation, `gestalt update` updates managed components and reminds you to
+update the command through npm. It preserves npm's executable and package files.
+
+You can inspect the command without installing it globally:
+
+```sh
+npx @jaromil/gestalt --help
+```
+
+## One-line Bash install
 
 ```sh
 curl -fsSL https://dyne.github.io/gestalt/install.sh | bash

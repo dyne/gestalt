@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Resolve npm's executable symlink before entering the standalone manager.
+set -Eeuo pipefail
+
+entry=${BASH_SOURCE[0]}
+while [[ -L $entry ]]; do
+  entry_directory=$(CDPATH='' cd -- "$(dirname -- "$entry")" && pwd -P)
+  entry=$(readlink -- "$entry")
+  [[ $entry == /* ]] || entry=$entry_directory/$entry
+done
+package_directory=$(CDPATH='' cd -- "$(dirname -- "$entry")/.." && pwd -P)
+
+export GESTALT_MANAGER_DISTRIBUTION=npm
+exec bash "$package_directory/lib/gestalt" "$@"

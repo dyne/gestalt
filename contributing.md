@@ -72,7 +72,10 @@ The same workflow versions the manager using Conventional Commits and the
 version; `fix`, `bugfix`, `perf`, `refactor`, `test`, and `tests` commits
 increment the patch version. When a bump is due, the workflow sets `GESTALT_CLI_VERSION` to the calculated
 release version, commits the manager if it changed, and creates the matching `vMAJOR.MINOR.PATCH` tag. The versioned manager
-continues to be distributed only through the latest GitHub Pages deployment.
+is distributed through GitHub Pages and the public npm package `@jaromil/gestalt`.
+The npm job checks out that exact release tag, tests a packed offline installation,
+and uses GitHub Actions OIDC authentication, following Mobile's publication model.
+It runs independently of Pages deployment. See [npm release operations](docs/npm-releases.md).
 
 The manager checksum is not tracked. The installer and updater download one
 manager file and validate its Bash syntax and version declaration. Pages generates

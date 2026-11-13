@@ -4,9 +4,22 @@ The Dyne-styled VitePress documentation hub for Gestalt Agents and Gestalt
 Mobile. It includes the onboarding journey, operational guides, copied source
 documentation, a one-line installer, and the `gestalt` manager CLI.
 
+The manager is also distributed as the public npm package `@jaromil/gestalt`:
+
+```sh
+npm install -g @jaromil/gestalt
+gestalt install
+```
+
+It requires Bash and Node.js 24 or newer on Linux or macOS. The package contains
+the same standalone manager used by the Bash installer, with no runtime npm
+dependencies or install hooks. See [npm release operations](docs/npm-releases.md)
+for packaging, trusted publishing, and first-publication setup.
+
 ```sh
 npm ci
 npm test
+npm run test:package
 npm run build
 ```
 

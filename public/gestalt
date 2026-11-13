@@ -4409,6 +4409,10 @@ calculate_sha256() {
 }
 
 update_manager() {
+  if [[ ${GESTALT_MANAGER_DISTRIBUTION:-} == npm ]]; then
+    log 'manager is installed with npm; update it with: npm install -g @jaromil/gestalt@latest'
+    return 0
+  fi
   # The replacement has already been installed and validated by this invocation.
   [[ $manager_update_resumed == false ]] || return 0
   local manager_source manager_dir manager_name manager_target
@@ -4794,7 +4798,11 @@ command_update() {
       command_skills update
       run_marketplace_setup upgrade "$include_extra_skills"
       install_mobile
-      log 'manager, Agents, optional skills, Mobile, and context-mode are up to date'
+      if [[ ${GESTALT_MANAGER_DISTRIBUTION:-} == npm ]]; then
+        log 'Agents, optional skills, Mobile, and context-mode are up to date; update the manager with npm install -g @jaromil/gestalt@latest'
+      else
+        log 'manager, Agents, optional skills, Mobile, and context-mode are up to date'
+      fi
       ;;
   esac
   if [[ $update_component == serena || ( $update_component == all && -f $gestalt_home/serena/active.json ) ]]; then

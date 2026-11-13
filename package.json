@@ -6,6 +6,8 @@
     "build": "vitepress build",
     "preview": "vitepress preview",
     "test": "bash tests/run.sh",
+    "build:package": "node scripts/build-npm-package.mjs",
+    "test:package": "node --test tests/npm-package.test.mjs tests/npm-publication.test.mjs",
     "test:integration": "bash tests/run-integration.sh",
     "test:browser": "playwright test",
     "test:playwright:real": "node --test tests/playwright-real.test.mjs",

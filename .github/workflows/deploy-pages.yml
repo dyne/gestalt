@@ -138,7 +138,7 @@ jobs:
         uses: actions/deploy-pages@v5
 
   publish-npm:
-    name: Stage npm package
+    name: Release npm package
     if: github.repository == 'dyne/gestalt' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest

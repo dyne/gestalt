@@ -134,7 +134,7 @@ jobs:
         uses: actions/deploy-pages@v5
 
   publish-npm:
-    name: Publish npm package
+    name: Stage npm package
     if: github.repository == 'dyne/gestalt' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
@@ -154,6 +154,8 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
+      - name: Install npm with staged publishing support
+        run: npm install -g npm@latest
       - name: Build the tagged npm package
         run: npm run build:package
       - name: Verify packed installation
@@ -161,8 +163,6 @@ jobs:
       - name: Inspect npm release state
         id: publication
         run: node scripts/inspect-npm-publication.mjs dist/npm
-      - name: Publish through OIDC
-        if: steps.publication.outputs.publish == 'true'
-        run: |
-          npm install -g npm@latest
-          npm publish ./dist/npm --access public --tag latest
+      - name: Stage through OIDC for maintainer approval
+        if: steps.publication.outputs.stage == 'true'
+        run: npm stage publish ./dist/npm --access public --tag latest

@@ -40,8 +40,10 @@ commands. They do not alter a developer's Codex profile or global npm packages.
 
 The default suite covers installation and updates, managed permissions, scratch
 ownership, large Codex history responses and process shutdown. PR and release
-test steps have a five-minute limit so a hung subprocess cannot hold publication
-for an hour. The repeated twenty-reader shutdown stress loop was removed;
+tests run in two sequential shards, each with a five-minute limit so a hung
+subprocess cannot hold publication for an hour. Run either shard locally with
+`npm test -- --shard 1/2` or `npm test -- --shard 2/2`; ordinary `npm test` runs both.
+The repeated twenty-reader shutdown stress loop was removed;
 individual signal, EOF and resistant-descendant regressions remain.
 
 Native Codex, terminal and protocol-probe integration tests run explicitly:

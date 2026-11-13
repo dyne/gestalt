@@ -53,9 +53,13 @@ jobs:
           CODEX_HOME="$sandbox_home" ./node_modules/.bin/codex \
             -c 'default_permissions=":read-only"' sandbox -- /bin/true
 
-      - name: Test installation tooling
+      - name: Test installation tooling (1/2)
         timeout-minutes: 5
-        run: npm test
+        run: npm test -- --shard 1/2
+
+      - name: Test installation tooling (2/2)
+        timeout-minutes: 5
+        run: npm test -- --shard 2/2
 
       - name: Build documentation
         env:

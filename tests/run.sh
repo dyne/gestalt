@@ -1,8 +1,18 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+test_shard=all
+if (($# > 0)); then
+  if [[ $# != 2 || $1 != --shard || ! $2 =~ ^[12]/2$ ]]; then
+    printf 'Usage: npm test [-- --shard 1/2|2/2]\n' >&2
+    exit 2
+  fi
+  test_shard=$2
+fi
+
 repo_root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 
+if [[ $test_shard != 2/2 ]]; then
 node --test "$repo_root/tests/session-scratch.test.mjs"
 node --test "$repo_root/tests/session-scratch-lifetimes.test.mjs"
 node --test "$repo_root/tests/session-scratch-containment.test.mjs"
@@ -23,6 +33,9 @@ node --test "$repo_root/tests/playwright-chrome-install.test.mjs"
 node --test "$repo_root/tests/playwright-browser-config.test.mjs"
 node --test "$repo_root/tests/playwright-child-transport.test.mjs"
 node --test "$repo_root/tests/playwright-cli-startup.test.mjs"
+fi
+
+if [[ $test_shard != 1/2 ]]; then
 bash -n "$repo_root/public/gestalt"
 bash -n "$repo_root/public/install.sh"
 bash -n "$repo_root/npm/gestalt"
@@ -55,5 +68,6 @@ if command -v shellcheck >/dev/null 2>&1; then
 else
   printf 'tests: shellcheck unavailable; static shell lint skipped\n' >&2
 fi
+fi
 
-printf 'tests: all focused shell tests passed\n'
+printf 'tests: focused shell tests passed (shard %s)\n' "$test_shard"

@@ -687,6 +687,7 @@ Manage Gestalt Agents and Gestalt Mobile in isolated, user-owned directories.
 
 Commands:
   install [--extra-skills]  Install or reconcile Agents, optional skills, and Mobile.
+  agents install, update    Install or reconcile Agents and context-mode only.
   update [COMPONENT] [--extra-skills]
                             Update all installed managed components (default).
   update-restart [COMPONENT] [--extra-skills]
@@ -4779,6 +4780,20 @@ parse_setup_options() {
   done
 }
 
+command_agents() {
+  if (($# == 0)) || [[ $# == 1 && ( $1 == help || $1 == -h || $1 == --help ) ]]; then
+    printf '%s\n' 'Usage: gestalt agents install|update' \
+      'Install or reconcile Gestalt Agents and their context-mode runtime.'
+    return 0
+  fi
+  (($# == 1)) || die 'usage: gestalt agents install|update'
+  case $1 in
+    install) run_marketplace_setup install false ;;
+    update) run_marketplace_setup upgrade false ;;
+    *) die 'usage: gestalt agents install|update' ;;
+  esac
+}
+
 command_install() {
   parse_setup_options "$@"
   command_skills install
@@ -6965,6 +6980,7 @@ main() {
   load_paths
   case $command_name in
     install) command_install "$@" ;;
+    agents) command_agents "$@" ;;
     update) command_update "$@" ;;
     update-restart) command_update_restart "$@" ;;
     __update-restart-worker) command_update_restart_worker "$@" ;;

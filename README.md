@@ -8,12 +8,17 @@ The manager is also distributed as the public npm package `@jaromil/gestalt`:
 
 ```sh
 npm install -g @jaromil/gestalt
-gestalt install
+gestalt cli
 ```
 
-It requires Bash and Node.js 24 or newer on Linux or macOS. The package contains
-the same standalone manager used by the Bash installer, with no runtime npm
-dependencies or install hooks. See [npm release operations](docs/npm-releases.md)
+It requires Bash, Node.js 24 or newer, and the Codex CLI on Linux or macOS.
+Global npm installation automatically reconciles Gestalt Agents and their
+context-mode runtime in the isolated profile when install scripts are allowed.
+With npm 12, use `npm install -g @jaromil/gestalt --allow-scripts=@jaromil/gestalt`.
+Run `gestalt install` to add Mobile
+and the optional skill collection, or `gestalt agents install` to retry only Agents.
+The package contains the same standalone manager used by the Bash installer.
+See [npm release operations](docs/npm-releases.md)
 for packaging, trusted publishing, and first-publication setup.
 
 ```sh

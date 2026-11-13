@@ -19,6 +19,7 @@ export async function buildNpmPackage(root) {
   await mkdir(join(destination, 'bin'), { recursive: true });
   await mkdir(join(destination, 'lib'));
   await copyFile(join(root, 'npm/gestalt'), join(destination, 'bin/gestalt'));
+  await copyFile(join(root, 'npm/postinstall.mjs'), join(destination, 'postinstall.mjs'));
   await copyFile(join(root, 'public/gestalt'), join(destination, 'lib/gestalt'));
   await copyFile(join(root, 'npm/README.md'), join(destination, 'README.md'));
   await copyFile(join(root, 'npm/LICENSE'), join(destination, 'LICENSE'));

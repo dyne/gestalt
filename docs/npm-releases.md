@@ -3,8 +3,13 @@
 `@jaromil/gestalt` packages the standalone Bash manager; it is not a TypeScript
 rewrite. `npm/gestalt` resolves npm's executable symlink and replaces itself with
 the bundled manager, retaining arguments, standard input, signals, and exit status.
-There are no runtime npm dependencies or installation hooks. Setup remains an
-explicit `gestalt install` operation.
+There are no declared runtime npm dependencies. Global installation runs a
+post-install hook to reconcile Gestalt Agents and their context-mode runtime.
+The Codex CLI must already be installed. Mobile and the optional skill collection
+remain an explicit `gestalt install` operation.
+On npm 12, installation must allow this package's lifecycle script, for example
+`npm install -g @jaromil/gestalt --allow-scripts=@jaromil/gestalt`. The package
+does not override npm's script policy; `--ignore-scripts` keeps setup explicit.
 
 ## Release journey in Bash
 
@@ -54,8 +59,9 @@ gestalt --version
 gestalt install
 ```
 
-`gestalt install` is explicit setup of managed components, not an npm lifecycle
-hook. Keep the staged version, the approved/public version, and the installed
+The global npm install above automatically reconciles Agents. `gestalt install`
+also provisions Mobile and the optional collection. Keep the staged version,
+the approved/public version, and the installed
 version distinct when checking progress.
 
 ## Build and verify
@@ -67,7 +73,8 @@ npm pack ./dist/npm --ignore-scripts
 ```
 
 The build creates `dist/npm` from an explicit list: the launcher, the canonical
-`public/gestalt` manager, the npm README, the license, and package metadata. The
+`public/gestalt` manager, the post-install script, the npm README, the license,
+and package metadata. The
 package version comes from `GESTALT_CLI_VERSION`; `gitHead` records the checked-out
 commit. The VitePress development package remains private.
 
@@ -75,6 +82,12 @@ The smoke tests pack and install the actual tarball into an isolated npm prefix,
 offline and with lifecycle scripts disabled. They verify the installed command,
 symlink handling, argument and stdin forwarding, exit status, and preservation of
 npm-owned files during component updates.
+
+Additional lifecycle tests enable the actual npm post-install hook against a
+stubbed Agents installer: initial and repeated global installations reconcile
+Agents, installer failures fail npm with recovery guidance, and `--ignore-scripts`
+and non-global installation leave profile provisioning explicit. Nested runtime
+npm operations do not inherit the outer global install's prefix or global mode.
 
 ## Automatic releases
 

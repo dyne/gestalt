@@ -6,6 +6,58 @@ the bundled manager, retaining arguments, standard input, signals, and exit stat
 There are no runtime npm dependencies or installation hooks. Setup remains an
 explicit `gestalt install` operation.
 
+## Release journey in Bash
+
+Prepare releases on Linux or macOS with Bash, Node.js 24 or newer, and Git.
+Use npm 11.15 or newer for staging; the commands below explicitly select a
+known staging-capable npm client without replacing your global installation.
+
+For the initial release, build the verified tag in a separate checkout:
+
+```bash
+git clone --depth 1 --branch v0.14.0 https://github.com/dyne/gestalt.git gestalt-release
+cd gestalt-release
+npm run build:package
+npm run test:package
+node -p "JSON.stringify(require('./dist/npm/package.json'), null, 2)"
+```
+
+Detached HEAD is expected when checking out a release tag. Packaging uses only
+Node's standard library and Git, so `npm ci` is not needed for these commands.
+Check the generated name `@jaromil/gestalt`, version, `gitHead`, `bin.gestalt`,
+public access, and repository URL before submission. The actual package is the
+`dist/npm` directory; `npm pack ./dist/npm` can also produce a reviewable tarball.
+
+Authenticate and submit the package for review:
+
+```bash
+npm login
+npx --yes npm@11.19.1 stage publish ./dist/npm --access public --tag latest
+npx --yes npm@11.19.1 stage list @jaromil/gestalt
+```
+
+Configure the npm trusted publisher using the fields below. Then inspect the
+staged version in **npmjs.com → account settings → Staged Packages**, or use its
+reported stage ID:
+
+```bash
+npx --yes npm@11.19.1 stage view STAGE_ID
+npx --yes npm@11.19.1 stage approve STAGE_ID
+npm view @jaromil/gestalt version dist-tags --json
+```
+
+Approval requires your 2FA. After approval, check installation on a supported host:
+
+```bash
+npm install -g @jaromil/gestalt
+gestalt --version
+gestalt install
+```
+
+`gestalt install` is explicit setup of managed components, not an npm lifecycle
+hook. Keep the staged version, the approved/public version, and the installed
+version distinct when checking progress.
+
 ## Build and verify
 
 ```sh
@@ -48,8 +100,15 @@ Configure the trusted publisher for `@jaromil/gestalt` with:
 | Organization | `dyne` |
 | Repository | `gestalt` |
 | Workflow filename | `deploy-pages.yml` |
-| Environment | Leave empty |
-| Allowed action | Stage publish only; disable direct Publish |
+| Environment name | Leave empty |
+| `npm stage publish` | Always allowed |
+| Allow direct `npm publish` | Unchecked |
+| Allow managing dist-tags | Unchecked |
+
+Enter only `deploy-pages.yml`, not `.github/workflows/deploy-pages.yml`. The npm
+job has no GitHub environment; `github-pages` belongs to documentation deployment
+and must not be entered here. The staged version already carries its `latest`
+tag, so CI does not need permission to manage dist-tags separately.
 
 ## First package registration
 
@@ -67,6 +126,13 @@ npm login
 npm run build:package
 npm run test:package
 npm stage publish ./dist/npm --access public --tag latest
+```
+
+If `npm stage` reports `Unknown command`, use a staging-capable client without
+changing the global npm installation:
+
+```sh
+npx --yes npm@11.19.1 stage publish ./dist/npm --access public --tag latest
 ```
 
 Then configure the trusted publisher in the package's npm settings, or use npm
@@ -89,14 +155,39 @@ Open **Staged Packages** in npm account settings, inspect the version, and click
 **Approve** with 2FA. Alternatively, use an authenticated maintainer session:
 
 ```sh
-npm stage list @jaromil/gestalt
-npm stage view STAGE_ID
-npm stage approve STAGE_ID
+npx --yes npm@11.19.1 stage list @jaromil/gestalt
+npx --yes npm@11.19.1 stage view STAGE_ID
+npx --yes npm@11.19.1 stage approve STAGE_ID
 ```
 
 The version becomes installable with its `latest` tag only after approval.
 GitHub's staging job succeeding does not mean the package is publicly published.
 See [npm staged publishing](https://docs.npmjs.com/staged-publishing/).
+
+## Activate GitHub Actions
+
+Save the trusted-publisher configuration on npm, then merge the staging workflow
+change after its PR checks pass. A conventional `fix` or `feat` on `main` produces
+the next version and tag through the existing Pages workflow. The `Stage npm
+package` job builds that exact tag and submits it through GitHub OIDC. No npm
+token secret or reusable Mobile credential is needed.
+
+For a fresh manual run after the workflow is on `main`:
+
+```bash
+gh workflow run deploy-pages.yml --repo dyne/gestalt --ref main
+gh run list --repo dyne/gestalt --workflow deploy-pages.yml --limit 5
+```
+
+Do not rerun a pre-fix workflow attempt expecting it to use the new staging
+command: reruns retain the old workflow revision. Start a fresh run of `main`.
+Watch for `Stage npm package` to succeed, then review and approve the resulting
+version on npmjs.com. CI never performs approval.
+
+A new trusted-publisher connection initially shows **Pending validation**. Make
+the first successful CI submission before the deadline displayed by npm, then
+confirm validation in npm settings. A local/manual staging request establishes
+the package but does not demonstrate that the GitHub OIDC connection works.
 
 ## Retries
 

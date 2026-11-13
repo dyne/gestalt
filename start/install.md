@@ -7,19 +7,36 @@ Dyne.org skill collection, and Mobile.
 
 ## Install with npm
 
-On Linux or macOS with Node.js 24 or newer and Bash:
+On Linux or macOS with Node.js 24 or newer, Bash, and the Codex CLI:
 
 ```sh
 npm install -g @jaromil/gestalt
-gestalt install
+gestalt cli
 ```
 
-The npm package installs the `gestalt` command without running setup hooks.
-`gestalt install` then sets up Agents, the optional skill collection, and Mobile.
+Global npm installation automatically installs or reconciles Agents and their
+context-mode runtime in the isolated Codex profile when install scripts are allowed.
+With npm 12, approve this package for the install:
+
+```sh
+npm install -g @jaromil/gestalt --allow-scripts=@jaromil/gestalt
+```
+
+The same approval is needed on npm 12 updates unless it is already configured
+in npm. The installer respects blocked-script policies.
+
+Run `gestalt install` to add
+the optional skill collection and Mobile. Use `gestalt agents install` to retry
+Agents setup, or `gestalt agents update` to refresh it independently.
+
+`npm install -g @jaromil/gestalt --ignore-scripts` installs only the wrapper;
+Agents setup remains explicit in that case. Local dependency installs and npx
+inspection do not provision the profile. Setup failures fail npm installation
+and print recovery instructions.
 The executable lives in npm's configured global prefix; use `command -v gestalt`
 to check which installation your shell selects.
 
-Update the command with `npm install -g @jaromil/gestalt@latest`. For an npm
+Update the command and reconcile Agents with `npm install -g @jaromil/gestalt@latest`. For an npm
 installation, `gestalt update` updates managed components and reminds you to
 update the command through npm. It preserves npm's executable and package files.
 

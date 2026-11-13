@@ -12,7 +12,8 @@
   "bugs": { "url": "https://github.com/dyne/gestalt/issues" },
   "keywords": ["gestalt", "codex", "agents", "cli"],
   "bin": { "gestalt": "bin/gestalt" },
-  "files": ["bin/gestalt", "lib/gestalt", "README.md", "LICENSE"],
+  "files": ["bin/gestalt", "lib/gestalt", "postinstall.mjs", "README.md", "LICENSE"],
+  "scripts": { "postinstall": "node postinstall.mjs" },
   "engines": { "node": ">=24.0.0" },
   "os": ["linux", "darwin"],
   "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org/" }

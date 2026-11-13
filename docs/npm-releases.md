@@ -78,7 +78,7 @@ npm-owned files during component updates.
 
 ## Automatic releases
 
-The `Stage npm package` job in `.github/workflows/deploy-pages.yml` follows the
+The `Release npm package` job in `.github/workflows/deploy-pages.yml` follows the
 tested manager release produced by the existing Pages build job. It checks out
 the exact `vMAJOR.MINOR.PATCH` tag, builds and verifies the npm payload, and then
 submits it with `npm stage publish ./dist/npm --access public --tag latest`.
@@ -168,7 +168,7 @@ See [npm staged publishing](https://docs.npmjs.com/staged-publishing/).
 
 Save the trusted-publisher configuration on npm, then merge the staging workflow
 change after its PR checks pass. A conventional `fix` or `feat` on `main` produces
-the next version and tag through the existing Pages workflow. The `Stage npm
+the next version and tag through the existing Pages workflow. The `Release npm
 package` job builds that exact tag and submits it through GitHub OIDC. No npm
 token secret or reusable Mobile credential is needed.
 
@@ -181,7 +181,7 @@ gh run list --repo dyne/gestalt --workflow deploy-pages.yml --limit 5
 
 Do not rerun a pre-fix workflow attempt expecting it to use the new staging
 command: reruns retain the old workflow revision. Start a fresh run of `main`.
-Watch for `Stage npm package` to succeed, then review and approve the resulting
+Watch for `Release npm package` to succeed, then review and approve the resulting
 version on npmjs.com. CI never performs approval.
 
 A new trusted-publisher connection initially shows **Pending validation**. Make

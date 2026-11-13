@@ -49,9 +49,12 @@ test('builds a versioned executable package containing the canonical manager and
 test('installs the actual npm tarball offline and preserves symlinks, arguments, stdin and exit status', async t => {
   const root = await fixture(t);
   const destination = await buildNpmPackage(root);
+  const manifest = JSON.parse(await readFile(join(destination, 'package.json'), 'utf8'));
   const npmOptions = ['--cache', join(root, 'cache'), '--ignore-scripts'];
-  const packed = JSON.parse((await exec('npm', ['pack', destination, '--json', '--pack-destination', root,
-    ...npmOptions], { cwd: root, timeout: 30_000 })).stdout)[0];
+  const packResult = JSON.parse((await exec('npm', ['pack', destination, '--json', '--pack-destination', root,
+    ...npmOptions], { cwd: root, timeout: 30_000 })).stdout);
+  const packed = Array.isArray(packResult) ? packResult[0] : packResult[manifest.name];
+  assert.ok(packed, 'npm pack did not return metadata for the expected package');
   assert.deepEqual(packed.files.map(file => file.path).sort(),
     ['LICENSE', 'README.md', 'bin/gestalt', 'lib/gestalt', 'package.json']);
   const prefix = join(root, 'global prefix');
@@ -59,7 +62,6 @@ test('installs the actual npm tarball offline and preserves symlinks, arguments,
     ...npmOptions, join(root, packed.filename)], { cwd: root, timeout: 30_000 });
   const binary = join(prefix, 'bin/gestalt');
   assert.ok((await lstat(binary)).isSymbolicLink());
-  const manifest = JSON.parse(await readFile(join(destination, 'package.json'), 'utf8'));
   assert.match((await exec(binary, ['--version'])).stdout, new RegExp(`^gestalt ${manifest.version.replaceAll('.', '\\.')}\\n`));
   assert.match((await exec(binary, ['--help'])).stdout, /Usage: gestalt/);
   const installedManager = join(prefix, 'lib/node_modules/@jaromil/gestalt/lib/gestalt');

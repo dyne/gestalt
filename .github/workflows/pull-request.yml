@@ -65,3 +65,7 @@ jobs:
         env:
           BASE_PATH: /gestalt/
         run: npm run build
+
+      - name: Verify package with the publication npm client
+        timeout-minutes: 2
+        run: npx --yes npm@latest run test:package

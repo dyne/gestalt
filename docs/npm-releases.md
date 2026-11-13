@@ -11,7 +11,27 @@ On npm 12, installation must allow this package's lifecycle script, for example
 `npm install -g @jaromil/gestalt --allow-scripts=@jaromil/gestalt`. The package
 does not override npm's script policy; `--ignore-scripts` keeps setup explicit.
 
-## Release journey in Bash
+## Routine releases
+
+GitHub Actions publishes new releases directly to npm through OIDC. There is no
+staging or maintainer approval step for these releases. Before merging the switch
+to direct publishing, enable **Allow direct `npm publish`** on the existing
+trusted publisher in the npm package settings. Keep the workflow filename
+`deploy-pages.yml` and the environment name empty.
+
+After the release job succeeds, verify the public version:
+
+```bash
+npm view @jaromil/gestalt version dist-tags --json
+npm install -g @jaromil/gestalt --allow-scripts=@jaromil/gestalt
+gestalt --version
+```
+
+## Initial staged release journey in Bash
+
+The commands in this section record the manual bootstrap process used before
+trusted publishing was configured. They also apply to an explicitly chosen
+manual staged release; routine CI releases now publish directly.
 
 Prepare releases on Linux or macOS with Bash, Node.js 24 or newer, and Git.
 Use npm 11.15 or newer for staging; the commands below explicitly select a
@@ -94,14 +114,13 @@ npm operations do not inherit the outer global install's prefix or global mode.
 The `Release npm package` job in `.github/workflows/deploy-pages.yml` follows the
 tested manager release produced by the existing Pages build job. It checks out
 the exact `vMAJOR.MINOR.PATCH` tag, builds and verifies the npm payload, and then
-submits it with `npm stage publish ./dist/npm --access public --tag latest`.
-It appears in the maintainer's **Staged Packages** page until the maintainer
-approves it with 2FA. CI never approves a staged version or runs direct
-`npm publish`. Submission runs only for `main` in
+publishes it with `npm publish ./dist/npm --access public --tag latest`.
+Successful publication makes the version available immediately with the
+`latest` tag. Publication runs only for `main` in
 `dyne/gestalt`, independently of the Pages deployment job.
 
 As in Gestalt Mobile, authentication uses npm trusted publishing through GitHub
-Actions OIDC. The staging job has `contents: read` and `id-token: write`.
+Actions OIDC. The publishing job has `contents: read` and `id-token: write`.
 There is no npm token secret to copy from Mobile. npm must separately authorize
 this package and workflow.
 
@@ -115,13 +134,13 @@ Configure the trusted publisher for `@jaromil/gestalt` with:
 | Workflow filename | `deploy-pages.yml` |
 | Environment name | Leave empty |
 | `npm stage publish` | Always allowed |
-| Allow direct `npm publish` | Unchecked |
+| Allow direct `npm publish` | Checked |
 | Allow managing dist-tags | Unchecked |
 
 Enter only `deploy-pages.yml`, not `.github/workflows/deploy-pages.yml`. The npm
 job has no GitHub environment; `github-pages` belongs to documentation deployment
-and must not be entered here. The staged version already carries its `latest`
-tag, so CI does not need permission to manage dist-tags separately.
+and must not be entered here. Publication assigns the `latest` tag, so CI does
+not need permission to manage dist-tags separately.
 
 ## First package registration
 
@@ -156,13 +175,17 @@ npm trust github @jaromil/gestalt --repo dyne/gestalt \
   --file deploy-pages.yml --allow-stage-publish
 ```
 
-Only stage-publish permission is needed; direct publishing should remain disabled
-for this trust relationship. Later staging jobs need no npm login or long-lived
-publish token in CI. Run the next CI staging job within npm's trust-configuration
+This command establishes stage-publish permission for the bootstrap. Enable
+**Allow direct `npm publish`** in npm settings before using the routine release
+workflow. Later publishing jobs need no npm login or long-lived
+publish token in CI. Run the next CI publishing job within npm's trust-configuration
 expiry window; see the current
 [npm trusted publishing documentation](https://docs.npmjs.com/trusted-publishers/).
 
-## Review and approval
+## Review and approval of existing staged versions
+
+Switching CI to direct publishing does not approve existing staged versions.
+These instructions apply only to versions already staged or staged manually.
 
 Open **Staged Packages** in npm account settings, inspect the version, and click
 **Approve** with 2FA. Alternatively, use an authenticated maintainer session:
@@ -179,10 +202,11 @@ See [npm staged publishing](https://docs.npmjs.com/staged-publishing/).
 
 ## Activate GitHub Actions
 
-Save the trusted-publisher configuration on npm, then merge the staging workflow
+Save the trusted-publisher configuration on npm with direct publishing enabled,
+then merge the direct-publishing workflow
 change after its PR checks pass. A conventional `fix` or `feat` on `main` produces
 the next version and tag through the existing Pages workflow. The `Release npm
-package` job builds that exact tag and submits it through GitHub OIDC. No npm
+package` job builds that exact tag and publishes it through GitHub OIDC. No npm
 token secret or reusable Mobile credential is needed.
 
 For a fresh manual run after the workflow is on `main`:
@@ -192,10 +216,10 @@ gh workflow run deploy-pages.yml --repo dyne/gestalt --ref main
 gh run list --repo dyne/gestalt --workflow deploy-pages.yml --limit 5
 ```
 
-Do not rerun a pre-fix workflow attempt expecting it to use the new staging
+Do not rerun an older workflow attempt expecting it to use the new publishing
 command: reruns retain the old workflow revision. Start a fresh run of `main`.
-Watch for `Release npm package` to succeed, then review and approve the resulting
-version on npmjs.com. CI never performs approval.
+Watch for `Release npm package` to succeed, then verify the public version with
+`npm view @jaromil/gestalt version dist-tags --json`.
 
 A new trusted-publisher connection initially shows **Pending validation**. Make
 the first successful CI submission before the deadline displayed by npm, then
@@ -204,17 +228,17 @@ the package but does not demonstrate that the GitHub OIDC connection works.
 
 ## Retries
 
-The registry check skips an already approved version only when its package
+The registry check skips an already published version only when its package
 name, version, and `gitHead` match the checked-out release. An existing version
 from another commit, an authentication failure, or a registry outage fails the
 job. Do not overwrite versions or move release tags to force a retry.
 
-If staging fails before submission after Pages or tagging succeeds, rerun the
-workflow. It rebuilds from the same release tag and retries staging.
+If publishing fails after Pages or tagging succeeds, rerun the
+workflow. It rebuilds from the same release tag and checks the registry before
+retrying publication.
 
-Staged and approved versions share the same version namespace. If a previous
-attempt already staged the version, npm rejects a duplicate submission: inspect
-and approve the existing item instead of repeatedly rerunning CI. OIDC staging
-credentials cannot run `npm stage list`, `view`, or `approve`, so CI does not try
-to inspect, replace, or approve pending versions. Do not interpret a missing
-public registry version as proof that no staged version exists.
+Staged and published versions share the same version namespace. If an older
+workflow already staged the version, npm rejects direct publication of that
+same version: inspect and approve the existing item or release a new version.
+CI does not inspect, replace, or approve pending stages. Do not interpret a
+missing public registry version as proof that no staged version exists.

@@ -4,7 +4,7 @@ import { appendFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-export function shouldStage(expected, published) {
+export function shouldPublish(expected, published) {
   if (!published) return true;
   if (published.name !== expected.name || published.version !== expected.version ||
       published.gitHead !== expected.gitHead)
@@ -24,10 +24,10 @@ async function main() {
   if (!response.ok && response.status !== 404)
     throw new Error(`npm registry query failed with status ${response.status}`);
   const published = response.status === 404 ? null : await response.json();
-  const stage = shouldStage(expected, published);
+  const publish = shouldPublish(expected, published);
   if (!process.env.GITHUB_OUTPUT) throw new Error('GITHUB_OUTPUT is required');
-  await appendFile(process.env.GITHUB_OUTPUT, `stage=${stage}\n`);
-  console.log(stage ? `Stage ${expected.name}@${expected.version} for approval` : 'Exact release already published');
+  await appendFile(process.env.GITHUB_OUTPUT, `publish=${publish}\n`);
+  console.log(publish ? `Publish ${expected.name}@${expected.version}` : 'Exact release already published');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

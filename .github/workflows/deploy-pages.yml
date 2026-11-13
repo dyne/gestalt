@@ -158,7 +158,7 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
-      - name: Install npm with staged publishing support
+      - name: Install npm with trusted publishing support
         run: npm install -g npm@latest
       - name: Build the tagged npm package
         run: npm run build:package
@@ -167,6 +167,6 @@ jobs:
       - name: Inspect npm release state
         id: publication
         run: node scripts/inspect-npm-publication.mjs dist/npm
-      - name: Stage through OIDC for maintainer approval
-        if: steps.publication.outputs.stage == 'true'
-        run: npm stage publish ./dist/npm --access public --tag latest
+      - name: Publish through OIDC
+        if: steps.publication.outputs.publish == 'true'
+        run: npm publish ./dist/npm --access public --tag latest

@@ -16,8 +16,6 @@ readonly DEFAULT_SKILLS_REF='main'
 serena_install_candidate=''
 serena_install_lock=''
 serena_install_process_pid=''
-xerj_install_scratch=''
-xerj_config_scratch=''
 manager_update_temp_root=''
 manager_update_staged_target=''
 manager_update_resumed=false
@@ -26,7 +24,6 @@ skills_transfer_temp_root=''
 skills_export_staged_target=''
 doctor_sandbox_report=''
 codex_approval_launcher=''
-session_tmp_owner_kind=''
 
 log() {
   printf 'gestalt: %s\n' "$*" >&2
@@ -63,12 +60,6 @@ JS
   fi
   if [[ -n $serena_install_lock && -d $serena_install_lock ]]; then
     rmdir -- "$serena_install_lock" 2>/dev/null || true
-  fi
-  if [[ -n $xerj_config_scratch && -f $xerj_config_scratch ]]; then
-    rm -f -- "$xerj_config_scratch"
-  fi
-  if [[ -n $xerj_install_scratch && -d $xerj_install_scratch ]]; then
-    rm -rf -- "$xerj_install_scratch"
   fi
   if [[ -n $manager_update_temp_root && -d $manager_update_temp_root ]]; then
     rm -rf -- "$manager_update_temp_root"
@@ -673,7 +664,6 @@ validate_session_tmp_context() {
     local session_directory validated
     validated=$(node -e "$(session_scratch_runtime)" validate) ||
       die 'managed session temporary context rejected'
-    session_tmp_owner_kind=${validated%%$'\n'*}
     session_directory=${validated#*$'\n'}
     export TMPDIR="$session_directory" TMP="$session_directory" TEMP="$session_directory"
   fi
@@ -709,34 +699,23 @@ Commands:
   serena doctor [--cwd ROOT] Check install, sandbox, MCP tools and optional language readiness.
   serena index --cwd ROOT    Explicit native symbol/cache warmup for one project.
   serena mcp --cwd ROOT      Confined workspace MCP; always Codex context and editing mode.
-  xerj install              Install the checksum-verified managed xerj release.
-  xerj update [VERSION]     Install an official release (default: latest).
-  xerj test [--json]        Test installed XERJ in disposable storage; never real indexes.
-  xerj [args...]            Run xerj with managed installation and state paths.
-  xerj autoindex --cwd DIR  Index a source root; add --watch for continuous updates.
-  xerj mcp [args...]        Native MCP stdio proxy to a loopback HTTP node.
-  xerj probe               Read-only JSON readiness (5-second default deadline).
-  xerj ensure-ready        Reuse or start a shared authenticated local backend.
-  xerj status              Read-only readiness and lifecycle ownership JSON.
-  xerj stop                Stop only a backend owned by this manager.
   path [NAME|--json]        Print managed executable and runtime paths.
   skills install, update   Maintain the optional Dyne.org skill collection only.
   skills status [--json]   Read installed version, revision and integrity.
   skills-export [ARCHIVE]   Export installed skills and skill profiles.
   skills-import ARCHIVE     Import a skills archive into this installation.
-  doctor [--cwd ROOT]        Check prerequisites, installation and watcher layout.
+  doctor [--cwd ROOT]        Check prerequisites and installation.
   version                   Print manager and detected component versions.
   help                      Show this help.
 
 Update components (also accepted as --component COMPONENT):
-  all                       Gestalt core plus installed Serena, XERJ and Playwright (default).
+  all                       Gestalt core plus installed Serena and Playwright (default).
   gestalt                   Manager, Agents, Mobile, and context-mode runtime.
   serena                    Latest stable Serena and its private uv/Python tooling.
-  xerj                      Latest official managed XERJ release.
   playwright                Stable Playwright MCP package; Chrome is externally maintained.
 
 Optional components absent from this installation are skipped by 'all'.
-Selecting serena, xerj or playwright explicitly installs or updates that component only.
+Selecting serena or playwright explicitly installs or updates that component only.
 --extra-skills applies only to all or gestalt; it adds curated third-party skills.
 Node, npm, Codex, Kimi, and system language servers are externally maintained.
 
@@ -749,1148 +728,23 @@ Environment:
   GESTALT_MOBILE_VERSION     npm version or tag (default: latest).
   GESTALT_SKILLS_SOURCE      Collection source override (always unverified).
   GESTALT_SKILLS_REF         Collection Git ref or immutable revision (default: main).
-  XERJ_INSTALL_DIR           Must equal $GESTALT_HOME/xerj when set.
-  XERJ_READY_TIMEOUT_MS      Overall readiness deadline (default: 5000).
 EOF
 }
 
-validate_xerj_url() {
-  local url=$1 port
-  local pattern='^http://(127\.0\.0\.1|localhost|\[::1\])(:([0-9]{1,5}))?/?$'
-  [[ $url =~ $pattern ]] || die 'managed xerj URLs must be loopback HTTP with no credentials, path, query or fragment'
-  port=${BASH_REMATCH[3]:-80}
-  ((10#$port >= 1 && 10#$port <= 65535)) || die 'xerj URL port must be between 1 and 65535'
-  validated_xerj_url=${url/http:\/\/localhost/http:\/\/127.0.0.1}
-  validated_xerj_port=$port
-}
-
-validate_xerj_bind() {
-  case $1 in
-    127.0.0.1 | ::1) ;;
-    *) die 'managed xerj server bind must be 127.0.0.1 or ::1' ;;
-  esac
-}
-
-# Reject lexical escapes and existing links before allocating any xerj paths.
-# This is path validation, not a filesystem sandbox against concurrent changes.
-validate_xerj_path() {
+# Reject lexical escapes and link traversal before allocating managed tooling.
+validate_managed_tree_path() {
   local candidate=$1 part current=''
   local -a components=()
   [[ $candidate == /* && ! $candidate =~ [[:cntrl:]] ]] ||
-    die 'xerj paths must be absolute and contain no control characters'
-  [[ $candidate != */ && $candidate != *//* ]] || die 'xerj paths must be normalized'
+    die 'managed paths must be absolute and contain no control characters'
+  [[ $candidate != */ && $candidate != *//* ]] || die 'managed paths must be normalized'
   IFS='/' read -r -a components <<< "$candidate"
   for part in "${components[@]}"; do
     [[ -n $part ]] || continue
-    [[ $part != . && $part != .. ]] || die 'xerj paths cannot contain . or ..'
+    [[ $part != . && $part != .. ]] || die 'managed paths cannot contain . or ..'
     current=$current/$part
-    [[ ! -L $current ]] || die "xerj path cannot traverse a symbolic link: $current"
+    [[ ! -L $current ]] || die "managed path cannot traverse a symbolic link: $current"
   done
-}
-
-canonical_xerj_root() {
-  # Resolve selected home aliases; managed descendants must remain link-free.
-  local ancestor=$1 suffix='' component
-  [[ $ancestor == /* && $ancestor != */ && $ancestor != *//* && ! $ancestor =~ [[:cntrl:]] ]] ||
-    die 'xerj home must be an absolute normalized path'
-  case /$ancestor/ in */./* | */../*) die 'xerj home cannot contain . or ..' ;; esac
-  while [[ ! -d $ancestor ]]; do
-    [[ ! -e $ancestor && ! -L $ancestor ]] || die 'GESTALT_HOME ancestor is not a directory'
-    component=${ancestor##*/}
-    suffix=/$component$suffix
-    ancestor=${ancestor%/*}
-    [[ -n $ancestor ]] || ancestor=/
-  done
-  ancestor=$(CDPATH='' cd -- "$ancestor" && pwd -P)
-  printf '%s\n' "${ancestor%/}$suffix"
-}
-
-load_xerj_paths() {
-  gestalt_home=$(canonical_xerj_root "$gestalt_home")
-  codex_home=$(canonical_xerj_root "$codex_home")
-  validate_managed_path GESTALT_HOME "$gestalt_home"
-  xerj_root=$gestalt_home/xerj
-  xerj_data=$codex_home/xerj-data
-  xerj_autoindex_home=${GESTALT_XERJ_AUTO_INDEX_HOME:-$xerj_data/autoindex}
-  xerj_bin=$xerj_root/xerj
-  validate_xerj_path "$xerj_root"
-  validate_xerj_path "$xerj_data"
-  validate_xerj_path "$xerj_autoindex_home"
-  [[ ! -e $xerj_bin || -f $xerj_bin ]] || die 'managed xerj executable must be a regular file'
-  [[ ${XERJ_INSTALL_DIR:-$xerj_root} == "$xerj_root" ]] ||
-    die 'XERJ_INSTALL_DIR conflicts with the managed xerj installation'
-  [[ -z ${XERJ_REPO:-} || ${XERJ_REPO:-} == xerj-org/xerj ]] ||
-    die 'managed xerj uses the official release repository'
-  [[ ${XERJ_INSECURE_SKIP_CHECKSUM:-0} == 0 ]] || die 'xerj checksum verification is required'
-  local directory link
-  for directory in "$xerj_root" "$xerj_data" "$xerj_autoindex_home"; do
-    if [[ -d $directory ]]; then
-      # Segment compaction removes files while clients start. Ignore only
-      # ENOENT races, retaining the same link checks on every existing entry.
-      require_command node
-      link=$(node - "$directory" "$xerj_data" <<'NODE'
-const { lstatSync, readdirSync } = require('node:fs');
-const { join, relative } = require('node:path');
-// Autoindex reuses immutable blobs and prepared documents across generations.
-// Keep the link ban on credentials, configuration, executables and metadata.
-const snapshotContent = path => /^autoindex\/[^/]+\/sync-snapshots\/[^/]+\/(blobs|prepared)\/[^/]+$/.test(relative(process.argv[3], path));
-function visit(path) {
-  try {
-    const info = lstatSync(path);
-    if (info.isSymbolicLink() || (info.isFile() && info.nlink > 1 && !snapshotContent(path))) return path;
-    if (info.isDirectory()) for (const name of readdirSync(path)) {
-      const found = visit(join(path, name));
-      if (found) return found;
-    }
-  } catch (error) { if (error.code !== 'ENOENT') throw error; }
-}
-process.stdout.write(visit(process.argv[2]) ?? '');
-NODE
-)
-      [[ -z $link ]] || die "managed xerj tree contains a symbolic or hard link: $link"
-    fi
-  done
-}
-
-install_xerj() {
-  local version=$1
-  local os cpu target stage asset expected actual member listing
-  require_command curl
-  require_command tar
-  require_command mktemp
-  unset TAR_OPTIONS GZIP
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
-  os=$(uname -s)
-  cpu=$(uname -m)
-  case $cpu in
-    x86_64 | amd64) cpu=x86_64 ;;
-    aarch64 | arm64) cpu=aarch64 ;;
-    *) die "unsupported xerj CPU: $cpu" ;;
-  esac
-  case $os in
-    Linux) target=$cpu-unknown-linux-musl ;;
-    Darwin) target=$cpu-apple-darwin ;;
-    *) die "managed xerj supports Linux and macOS, not $os" ;;
-  esac
-  [[ -z ${XERJ_LIBC:-} || ${XERJ_LIBC:-} == musl || $os == Darwin ]] ||
-    die 'managed Linux xerj uses the audited static musl release'
-  umask 077
-  mkdir -p -- "$xerj_root"
-  xerj_install_scratch=$(mktemp -d "$xerj_root/.install.XXXXXXXX")
-  stage=xerj-$version-$target
-  asset=$stage.tar.gz
-  local base=https://github.com/xerj-org/xerj/releases/download/v$version
-  # -q disables ~/.curlrc; all downloads and extraction output stay in scratch.
-  curl -q --fail --location --silent --show-error --proto '=https' --proto-redir '=https' \
-    --connect-timeout 20 --max-time 120 "$base/$asset" --output "$xerj_install_scratch/release.tar.gz"
-  curl -q --fail --location --silent --show-error --proto '=https' --proto-redir '=https' \
-    --connect-timeout 20 --max-time 120 "$base/$asset.sha256" --output "$xerj_install_scratch/release.sha256"
-  IFS=' ' read -r expected _ < "$xerj_install_scratch/release.sha256" || die 'missing xerj checksum'
-  [[ $expected =~ ^[[:xdigit:]]{64}$ ]] || die 'invalid xerj checksum'
-  actual=$(calculate_sha256 "$xerj_install_scratch/release.tar.gz")
-  actual=${actual%% *}
-  actual=$(printf '%s' "$actual" | tr 'A-F' 'a-f')
-  expected=$(printf '%s' "$expected" | tr 'A-F' 'a-f')
-  [[ $actual == "$expected" ]] || die 'xerj checksum mismatch; prior binary preserved'
-  member=$stage/xerj
-  listing=$(tar -tzf "$xerj_install_scratch/release.tar.gz")
-  [[ $(printf '%s\n' "$listing" | grep -Fxc "$member") == 1 ]] ||
-    die 'xerj archive must contain exactly one expected binary'
-  listing=$(tar -tvzf "$xerj_install_scratch/release.tar.gz" "$member")
-  [[ $listing == -* ]] || die 'xerj archive binary must be a regular file'
-  # Stream only that regular member. Never unpack archive paths or links.
-  tar -xOzf "$xerj_install_scratch/release.tar.gz" "$member" > "$xerj_install_scratch/xerj"
-  [[ -s $xerj_install_scratch/xerj ]] || die 'empty xerj binary'
-  chmod 0755 "$xerj_install_scratch/xerj"
-  if (($# > 0)); then
-    require_command node
-    node - "$xerj_install_scratch/xerj" "$version" <<'JS'
-const { spawnSync } = require('node:child_process');
-const result = spawnSync(process.argv[2], ['-V'], { timeout: 5000, maxBuffer: 65536,
-  encoding: 'utf8', env: { PATH: process.env.PATH, XERJ_INSTALL_DIR: require('node:path').dirname(process.argv[2]) } });
-const found = result.stdout?.match(/\b(?:v)?(\d+\.\d+\.\d+(?:-[\w.-]+)?)\b/);
-if (result.error || result.status !== 0 || found?.[1] !== process.argv[3]) {
-  console.error('downloaded xerj version does not match requested release; prior binary preserved');
-  process.exit(1);
-}
-JS
-  fi
-  mv -f -- "$xerj_install_scratch/xerj" "$xerj_bin"
-  log "installed xerj $version at $xerj_bin"
-}
-
-update_xerj() {
-  (($# <= 1)) || die 'usage: gestalt xerj update [VERSION]'
-  local version=${1:-latest}
-  if [[ $version == latest ]]; then
-    require_command curl
-    require_command node
-    version=$(curl -q --fail --location --silent --show-error --proto '=https' --proto-redir '=https' \
-      --connect-timeout 20 --max-time 30 https://api.github.com/repos/xerj-org/xerj/releases/latest |
-      node -e 'let s=""; process.stdin.on("data", b => s+=b); process.stdin.on("end", () => { const r=JSON.parse(s); if(r.draft || typeof r.tag_name!=="string") process.exit(1); process.stdout.write(r.tag_name); });')
-  fi
-  version=${version#v}
-  [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+([.-][a-zA-Z0-9]+)*)?$ ]] || die 'invalid xerj release version'
-  install_xerj "$version"
-  log 'run gestalt xerj test to check upstream regressions; existing servers and indexes were not changed'
-}
-
-# Embedded because the distributed manager is one self-contained executable.
-# Exercise the native binary, not the wrapper's compensating watcher lock.
-test_xerj() {
-  (($# == 0)) || { (($# == 1)) && [[ $1 == --json ]]; } || die 'usage: gestalt xerj test [--json]'
-  require_command node
-  require_command git
-  [[ -x $xerj_bin ]] || die "xerj is not installed; run 'gestalt xerj install'"
-  exec node --input-type=module - "$xerj_bin" "${1:-}" <<'JS'
-import { spawn } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import net from 'node:net';
-const binary = process.argv[2], json = process.argv[3] === '--json';
-const directory = await mkdtemp(join(tmpdir(), 'gestalt-xerj-regression-'));
-const rows = [], children = new Set();
-let version = 'unknown', endpoint, authorization, interrupted = false;
-const env = { PATH: process.env.PATH, HOME: join(directory, 'home'),
-  XDG_CACHE_HOME: join(directory, 'cache'), XDG_CONFIG_HOME: join(directory, 'config'),
-  XDG_DATA_HOME: join(directory, 'data'), TMPDIR: directory,
-  XERJ_INSTALL_DIR: join(binary, '..'), XERJ_CODE_HOME: join(directory, 'code'),
-  HF_HOME: join(directory, 'cache', 'huggingface'), XERJ_DISABLE_FEEDBACK: 'true',
-  GIT_CONFIG_NOSYSTEM: '1', LANG: 'C' };
-const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
-function launch(command, args, timeout = 60000) {
-  const child = spawn(command, args, { cwd: directory, env, stdio: ['ignore', 'pipe', 'pipe'] });
-  children.add(child);
-  const state = { child, stdout: '', stderr: '', code: null, ended: false, timedOut: false };
-  for (const stream of ['stdout', 'stderr']) child[stream].on('data', chunk => {
-    state[stream] = (state[stream] + chunk.toString()).slice(-262144);
-  });
-  const timer = timeout ? setTimeout(() => { state.timedOut = true; child.kill('SIGKILL'); }, timeout) : null;
-  state.done = new Promise(resolve => {
-    child.once('error', () => { state.spawnError = true; });
-    child.once('close', code => {
-      clearTimeout(timer); children.delete(child); state.code = code; state.ended = true; resolve(state);
-    });
-  });
-  return state;
-}
-async function stop(state) {
-  if (state.ended) return;
-  state.child.kill('SIGTERM');
-  const timer = setTimeout(() => state.child.kill('SIGKILL'), 2000);
-  await state.done; clearTimeout(timer);
-}
-async function until(predicate, ms = 30000) {
-  const expires = Date.now() + ms;
-  while (Date.now() < expires && !interrupted) {
-    if (await predicate()) return true;
-    await pause(100);
-  }
-  return false;
-}
-function record(name, pass, detail, issue) {
-  const row = { name, status: pass ? 'pass' : 'fail', detail, ...(issue ? { issue } : {}) };
-  rows.push(row);
-  if (!json) console.log(`${pass ? 'PASS' : 'FAIL'} ${name}: ${detail}${issue ? ` (#${issue})` : ''}`);
-  return pass;
-}
-function requirePass(name, pass, detail) {
-  if (!record(name, pass, detail)) throw new Error(`${name} failed; dependent checks were not run`);
-}
-async function request(path, body) {
-  const response = await fetch(endpoint + path, { signal: AbortSignal.timeout(5000),
-    headers: { Authorization: authorization, 'Content-Type': 'application/json' },
-    ...(body ? { method: 'POST', body: JSON.stringify(body) } : {}) });
-  if (!response.ok) throw new Error(`test backend HTTP ${response.status}`);
-  return response.json();
-}
-async function hits(prefix) {
-  return (await request(`/${prefix}-*/_search`, { size: 1000, query: { match_all: {} } })).hits.hits;
-}
-const paths = entries => entries.flatMap(hit => hit._source.ax_paths ?? [hit._source.ax_path]).filter(Boolean);
-async function contains(prefix, wanted, absent = []) {
-  return until(async () => {
-    const found = paths(await hits(prefix));
-    return wanted.every(path => found.includes(path)) && absent.every(path => !found.includes(path));
-  }, 10000);
-}
-const content = ['--no-graph', '--no-semantic', '--yes', '--workers', '2', '--pdf-workers', '1',
-  '--bulk-mb', '4', '--max-file-gb', '1', '--progress', 'json'];
-function args(root, prefix, extra = []) {
-  return ['autoindex', root, '--url', endpoint, '--prefix', prefix,
-    '--state-dir', join(directory, 'journals', prefix), ...content, ...extra];
-}
-const index = (root, prefix, extra = []) => launch(binary, args(root, prefix, extra)).done;
-const succeeded = result => result.code === 0 && !result.timedOut && !result.spawnError;
-const successfulPass = output => output.split('\n').some(line => {
-  try { const value = JSON.parse(line); return value.event === 'done' && value.ok === true; } catch { return false; }
-});
-async function git(root) {
-  await mkdir(root, { recursive: true });
-  if (!succeeded(await launch('git', ['init', '--quiet', root]).done)) throw new Error('fixture git init failed');
-}
-const onSignal = () => {
-  interrupted = true;
-  for (const child of children) child.kill('SIGTERM');
-  setTimeout(() => { for (const child of children) child.kill('SIGKILL'); }, 2000).unref();
-};
-process.on('SIGINT', onSignal); process.on('SIGTERM', onSignal);
-// A bounded whole-run deadline also covers watch processes and setup errors.
-const deadline = setTimeout(onSignal, 240000);
-try {
-  await mkdir(env.HOME);
-  const detected = await launch(binary, ['-V'], 5000).done;
-  const match = detected.stdout.match(/\b(?:v)?(\d+\.\d+\.\d+(?:-[\w.-]+)?)\b/);
-  if (!succeeded(detected) || !match) throw new Error('cannot read installed XERJ version');
-  version = match[1];
-  if (!json) console.log(`Testing XERJ ${version}; disposable source, backend and journals; no real indexes.`);
-  const listener = net.createServer();
-  await new Promise((resolve, reject) => { listener.once('error', reject); listener.listen(0, '127.0.0.1', resolve); });
-  const port = listener.address().port;
-  await new Promise(resolve => listener.close(resolve));
-  endpoint = `http://127.0.0.1:${port}`;
-  const data = join(directory, 'server');
-  const config = join(directory, 'xerj.toml');
-  await writeFile(config, `[embedding]\nmodel_cache_dir = ${JSON.stringify(join(directory, 'cache', 'models'))}\n[tls]\ncert_path = ${JSON.stringify(join(directory, 'cert.pem'))}\nkey_path = ${JSON.stringify(join(directory, 'key.pem'))}\n`);
-  const serverArgs = ['--config', config, '--data-dir', data, '--bind', '127.0.0.1', '--port', String(port), '--embed-mode', 'lexical'];
-  let server = launch(binary, serverArgs, 0);
-  async function ready() {
-    return until(async () => {
-      if (server.ended) throw new Error('test backend exited before readiness');
-      try {
-        const key = (await readFile(join(data, 'admin.key'), 'utf8')).trim();
-        authorization = `ApiKey ${key}`; env.XERJ_API_KEY = key;
-        const health = await request('/_cluster/health');
-        return health.cluster_name === 'xerj' && ['green', 'yellow'].includes(health.status);
-      } catch { return false; }
-    }, 20000);
-  }
-  requirePass('backend', await ready(), 'authenticated temporary loopback backend');
-  const multi = join(directory, 'repositories');
-  for (const name of ['bitcoin-core', 'bitcoin-knots', 'bitcoin-roots']) {
-    const root = join(multi, name); await git(root);
-    await writeFile(join(root, 'shared.ts'), 'export function sharedFork() { return "same implementation"; }\n');
-    await writeFile(join(root, 'unique.ts'), `export const repository = "${name}";\n`);
-  }
-  await writeFile(join(multi, '.xerjignore'), 'node_modules/\nsecrets/\n!vendor/\n');
-  for (const tree of ['node_modules', 'secrets', 'vendor', '.hidden']) {
-    await mkdir(join(multi, tree)); await writeFile(join(multi, tree, 'fixture.ts'), `export const location = "${tree}";\n`);
-  }
-  await writeFile(join(multi, 'bitcoin-core', '.gitignore'), 'ignored.ts\n');
-  await writeFile(join(multi, 'bitcoin-core', 'ignored.ts'), 'export const ignored = true;\n');
-  requirePass('initial-index', succeeded(await index(multi, 'multi')), 'multi-repository initial generation');
-  requirePass('repository-identity', await contains('multi', ['bitcoin-core/shared.ts', 'bitcoin-knots/shared.ts', 'bitcoin-roots/shared.ts']), 'identical source retains all three repository paths');
-  record('exclusions', await contains('multi', ['vendor/fixture.ts'], ['node_modules/fixture.ts', 'secrets/fixture.ts', '.hidden/fixture.ts', 'bitcoin-core/ignored.ts']), 'native ignore policy, hidden names, gitignore and vendor override');
-  await writeFile(join(multi, 'bitcoin-core', 'unique.ts'), 'export const repository = "edited-marker";\n');
-  await rm(join(multi, 'bitcoin-knots', 'unique.ts'));
-  const edited = await index(multi, 'multi');
-  requirePass('edit-delete', succeeded(edited) && await contains('multi', ['bitcoin-core/unique.ts'], ['bitcoin-knots/unique.ts']) && JSON.stringify(await hits('multi')).includes('edited-marker'), 'existing content updates and deleted paths disappear');
-  const before = (await hits('multi')).map(hit => hit._id).sort();
-  await stop(server); server = launch(binary, serverArgs, 0);
-  requirePass('persistence', await ready() && succeeded(await index(multi, 'multi')) && JSON.stringify((await hits('multi')).map(hit => hit._id).sort()) === JSON.stringify(before), 'backend restart and unchanged reindex retain document IDs');
-  const single = join(directory, 'single'); await git(single);
-  await writeFile(join(single, 'one.ts'), 'export const one = 1;\n');
-  requirePass('single-initial', succeeded(await index(single, 'single')), 'single-repository control');
-  await writeFile(join(single, 'two.ts'), 'export const two = 2;\n');
-  await mkdir(join(single, 'nested')); await writeFile(join(single, 'nested', 'three.ts'), 'export const three = 3;\n');
-  requirePass('single-additions', succeeded(await index(single, 'single')) && await contains('single', ['two.ts', 'nested/three.ts']), 'adjacent files and new subdirectories work incrementally');
-  const adjacent = join(multi, 'bitcoin-core', 'adjacent.ts');
-  await writeFile(adjacent, 'export const adjacent = true;\n');
-  let result = await index(multi, 'multi');
-  record('existing-repository-addition', succeeded(result) && await contains('multi', ['bitcoin-core/adjacent.ts']), result.stderr.includes('refusing ambiguous assignment') ? 'native ambiguous assignment still reproduced' : `native exit ${result.code}; verify new path is searchable`, 1230);
-  await rm(adjacent); requirePass('addition-recovery', succeeded(await index(multi, 'multi')), 'removing test addition restores reconciliation');
-  result = await index(single, 'single', ['--dataset', 'nonexistent-map-only-selection']);
-  record('dataset-option-validation', result.code === 2 && /dataset/i.test(result.stderr), `map-only --dataset during indexing exits ${result.code}; expected usage rejection`, 1231);
-  const watchArgs = [...args(multi, 'multi'), '--watch', '--debounce', '100'];
-  const watcher = launch(binary, watchArgs, 0);
-  requirePass('watch-start', await until(() => watcher.ended || successfulPass(watcher.stderr)) && !watcher.ended && successfulPass(watcher.stderr), 'native watcher starts on committed index');
-  watcher.stderr = ''; await writeFile(adjacent, 'export const watchedAdjacent = true;\n');
-  await until(() => watcher.ended || successfulPass(watcher.stderr) || watcher.stderr.includes('FAILED'));
-  record('watched-existing-repository-addition', successfulPass(watcher.stderr) && await contains('multi', ['bitcoin-core/adjacent.ts']), watcher.stderr.includes('refusing ambiguous assignment') ? 'watch mode still refuses ambiguous new file' : 'watch must publish an adjacent new source file', 1230);
-  watcher.stderr = ''; await rm(adjacent);
-  requirePass('watch-recovery', await until(() => successfulPass(watcher.stderr)), 'watcher reconciles after fixture cleanup');
-  watcher.stderr = ''; const addedRepo = join(multi, 'new-repository'); await git(addedRepo);
-  await writeFile(join(addedRepo, 'new.ts'), 'export const newRepository = true;\n');
-  await until(() => watcher.ended || successfulPass(watcher.stderr) || watcher.stderr.includes('FAILED'));
-  record('new-repository-discovery', successfulPass(watcher.stderr) && await contains('multi', ['new-repository/new.ts']), 'separate probe: a wholly new repository becomes searchable', 1230);
-  await stop(watcher);
-  const ownerArgs = [...args(single, 'single'), '--watch', '--debounce', '100'];
-  const first = launch(binary, ownerArgs, 0);
-  requirePass('watch-owner-control', await until(() => first.ended || successfulPass(first.stderr)) && !first.ended, 'first native owner is watching');
-  const second = launch(binary, ownerArgs, 0);
-  await until(() => second.ended || successfulPass(second.stderr), 10000);
-  record('exclusive-native-watcher', second.ended && Number.isInteger(second.code) && second.code > 0 &&
-    !successfulPass(second.stderr) && /lock|already.*watch|watch.*already|owner|busy/i.test(second.stderr),
-    second.ended ? `second watcher exits ${second.code}; expected an ownership refusal` : 'both native watchers remain alive for the same journal', 1232);
-  await stop(second); await stop(first);
-  const replacement = launch(binary, ownerArgs, 0);
-  requirePass('watch-lock-release', await until(() => replacement.ended || successfulPass(replacement.stderr)) && !replacement.ended, 'watcher can restart after owners exit');
-  await stop(replacement);
-  const capRoot = join(directory, 'cap'); await git(capRoot);
-  await writeFile(join(capRoot, 'small.ts'), 'export const small = true;\n');
-  await writeFile(join(capRoot, 'large.txt'), 'source-like generated artifact\n'.repeat(450000));
-  const capArgs = args(capRoot, 'cap');
-  const help = await launch(binary, ['autoindex', '--help'], 5000).done;
-  const options = help.stdout + help.stderr;
-  const capIndex = capArgs.indexOf('--max-file-gb');
-  // Upstream may fix #1233 with a new unit option rather than fractional GB.
-  if (/--max-file-bytes\b/.test(options)) capArgs.splice(capIndex, 2, '--max-file-bytes', '10000000');
-  else if (/--max-file-mb\b/.test(options)) capArgs.splice(capIndex, 2, '--max-file-mb', '10');
-  else capArgs[capIndex + 1] = '0.01';
-  result = await launch(binary, capArgs).done;
-  record('sub-gb-file-cap', [0, 3].includes(result.code) && await contains('cap', ['small.ts'], ['large.txt']),
-    `${capArgs[capIndex]} ${capArgs[capIndex + 1]}: native exit ${result.code}; expected small file included and oversized file excluded`, 1233);
-} catch (error) {
-  rows.push({ name: 'harness', status: 'error', detail: interrupted ? 'interrupted or overall deadline exceeded' : String(error.message).replaceAll(directory, '<temporary>') });
-} finally {
-  clearTimeout(deadline);
-  for (const child of [...children]) {
-    child.kill('SIGTERM');
-    const timer = setTimeout(() => child.kill('SIGKILL'), 2000);
-    await new Promise(resolve => { if (child.exitCode !== null || child.signalCode !== null) resolve(); else child.once('close', resolve); });
-    clearTimeout(timer);
-  }
-  await rm(directory, { recursive: true, force: true });
-  process.removeListener('SIGINT', onSignal); process.removeListener('SIGTERM', onSignal);
-}
-const errors = rows.filter(row => row.status === 'error').length;
-const failed = rows.filter(row => row.status === 'fail').length;
-const report = { schemaVersion: 1, version, passed: rows.filter(row => row.status === 'pass').length, failed, errors, results: rows };
-if (json) console.log(JSON.stringify(report));
-else {
-  for (const row of rows.filter(row => row.status === 'error')) console.log(`ERROR ${row.name}: ${row.detail}`);
-  console.log(`${report.passed} passed, ${failed} failed, ${errors} errors. Temporary backend and data removed.`);
-  console.log('Native issue probes only; a pass does not certify Mobile/MCP protocol compatibility or real-index migration.');
-}
-process.exitCode = interrupted ? 130 : errors ? 2 : failed ? 1 : 0;
-JS
-}
-
-validate_xerj_arguments() {
-  local mode=$1 option value
-  shift
-  xerj_user_args=()
-  while (($# > 0)); do
-    option=$1
-    shift
-    if "$index_status"; then
-      case $option in
-        --cwd | --cwd=* | --prefix | --url | --api-key | --help | -h | --json | --md | --quiet | --disable-feedback) ;;
-        *) die "unsupported managed xerj autoindex status option: $option" ;;
-      esac
-    fi
-    if [[ $mode == autoindex && ( $option == --cwd || $option == --cwd=* ) ]]; then
-      [[ -z $index_source ]] || die 'xerj autoindex accepts either --cwd or one positional source, not both'
-      if [[ $option == --cwd ]]; then
-        (($# > 0)) || die 'xerj --cwd requires a directory'
-        value=$1
-        shift
-      else
-        value=${option#--cwd=}
-      fi
-      [[ -n $value && $value != -* && -d $value ]] || die 'xerj --cwd requires an existing directory'
-      index_source=$(CDPATH='' cd -- "$value" && pwd -P)
-      index_cwd=true
-      if ! "$index_status"; then xerj_user_args+=("$index_source"); fi
-      continue
-    fi
-    xerj_user_args+=("$option")
-    case $mode:$option in
-      server:--bind | server:-b)
-        (($# > 0)) || die "xerj option requires a value: $option"
-        validate_xerj_bind "$1"
-        xerj_user_args+=("$1")
-        shift ;;
-      autoindex:--url | search:--url | def:--url | gain:--url | mcp:--url)
-        (($# > 0)) || die "xerj option requires a value: $option"
-        validate_xerj_url "$1"
-        xerj_user_args+=("$validated_xerj_url")
-        shift ;;
-      mcp:--auth)
-        if (($# == 0)) || [[ -z $1 ]]; then die 'MCP --auth requires a nonempty value'; fi
-        xerj_user_args+=("$1")
-        shift ;;
-      server:--data-dir | server:-d | index:--data-dir | index:-d)
-        if (($# == 0)) || [[ $1 != "$xerj_data" ]]; then
-          die 'xerj data directory is managed; omit the override'
-        fi
-        xerj_user_args+=("$1")
-        shift ;;
-      autoindex:--state-dir)
-        if (($# == 0)) || [[ $1 != "$xerj_data/autoindex" ]]; then
-          die 'xerj autoindex state directory is managed'
-        fi
-        xerj_user_args+=("$1")
-        shift ;;
-      server:--config | server:-c | index:--config | index:-c | *:--config=* | *:--data-dir=* | *:--state-dir=* | *:--events-out* | *:--status-file*)
-        die "xerj path override is not supported: $option" ;;
-      server:--help | server:-h | server:--version | server:-V | server:--insecure | server:-k | *:--disable-feedback | index:--help | index:-h | autoindex:--help | autoindex:-h | autoindex:--fresh | autoindex:--follow-symlinks | autoindex:--follow-symlinks-outside-root | autoindex:--no-ignore | autoindex:--no-default-ignores | autoindex:--no-semantic | autoindex:--no-graph | autoindex:--watch | autoindex:--yes | autoindex:-y | autoindex:--dry-run | autoindex:--json | autoindex:--md | autoindex:--quiet | autoindex:--once | autoindex:--no-fetch | autoindex:--append-only | autoindex:--allow-cost | search:--help | search:-h | search:--json | def:--help | def:-h | def:--json | gain:--help | gain:-h | gain:--json | mcp:--help | mcp:-h | mcp:--version | mcp:-V)
-        ;;
-      server:--port | server:--embed-mode | server:--compat-distribution | server:--compat-version | server:--decide-mode | index:--index | index:-i | index:--file | index:-f | index:--batch | index:-b | index:--workers | index:-w | index:--limit | index:-l | autoindex:--api-key | autoindex:--workers | autoindex:--pdf-workers | autoindex:--pdf-timeout-secs | autoindex:--bulk-mb | autoindex:--bulk-timeout-secs | autoindex:--snapshot-max-gb | autoindex:--in-flight | autoindex:--prefix | autoindex:--endpoint-url | autoindex:--label | autoindex:--stub | autoindex:--max-file-gb | autoindex:--sample | autoindex:--brain | autoindex:--debounce | autoindex:--max-minutes | autoindex:--approve | autoindex:--progress | autoindex:--progress-interval | autoindex:--dataset | autoindex:--poll-interval | autoindex:--max-cycles | autoindex:--region | autoindex:--max-object-mb | autoindex:--max-monthly-ops | autoindex:--max-monthly-gets | autoindex:--page-size | search:--prefix | search:--api-key | search:-k | search:--full | def:--prefix | def:--api-key | def:-n | def:--kind | def:--lang | gain:--api-key)
-        (($# > 0)) || die "xerj option requires a value: $option"
-        value=$1
-        [[ $value != -* ]] || die "xerj option requires a value, not a flag: $option"
-        if [[ $mode == autoindex && $option == --prefix ]]; then index_prefix=$value; fi
-        xerj_user_args+=("$value")
-        shift ;;
-      autoindex:* | search:* | def:*)
-        [[ $option != -* ]] || die "unsupported managed xerj $mode option: $option"
-        if [[ $mode == autoindex && $index_cwd == true ]]; then
-          die 'xerj autoindex accepts either --cwd or one positional source, not both'
-        fi
-        if [[ $mode == autoindex && -z $index_source ]]; then index_source=$option; fi ;;
-      *) die "unsupported managed xerj $mode option: $option" ;;
-    esac
-  done
-}
-
-command_xerj_readiness() {
-  local operation=$1
-  shift
-  local service_workspace=''
-  if (($# == 2)) && [[ $1 == --cwd ]]; then service_workspace=$2; shift 2; fi
-  (($# == 0)) || die "usage: gestalt xerj $operation [--cwd ROOT]"
-  require_command node
-  # Inline to preserve the self-contained, single-file manager distribution.
-  # Do not use command_xerj mcp: ordinary forwarding prepares writable state.
-  exec node --input-type=module - "$gestalt_home" "$operation" "${BASH_SOURCE[0]}" "$codex_home" "$service_workspace" <<'JS'
-import { spawn } from 'node:child_process';
-import { lstatSync, readdirSync, constants as fsConstants } from 'node:fs';
-import { setImmediate as yieldToIO } from 'node:timers/promises';
-import { lstat, stat as followStat, readFile, realpath, readdir, mkdir, writeFile, rename, rm, chmod, open } from 'node:fs/promises';
-import { createHash, randomBytes } from 'node:crypto';
-import net from 'node:net';
-import { dirname, join, basename, relative } from 'node:path';
-import http from 'node:http';
-import { createRequire } from 'node:module';
-
-const [selectedRoot, operation, managerPath, selectedCodexHome, serviceWorkspace] = process.argv.slice(2);
-const expires = Date.now() + (Number.isSafeInteger(Number(process.env.XERJ_READY_TIMEOUT_MS ?? '5000')) ? Number(process.env.XERJ_READY_TIMEOUT_MS ?? '5000') : 5000);
-const configured = process.env.XERJ_READY_TIMEOUT_MS ?? '5000';
-const timeout = /^\d+$/.test(configured) ? Number(configured) : NaN;
-const children = new Set();
-const requests = new Set();
-const controller = new AbortController();
-let timer;
-const fail = reason => { throw new Error(reason); };
-const cancel = () => controller.abort(new Error('cancelled'));
-process.on('SIGTERM', cancel);
-process.on('SIGINT', cancel);
-const bounded = operation => Promise.race([operation, new Promise((_, reject) => {
-  if (controller.signal.aborted) reject(controller.signal.reason);
-  else controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true });
-})]);
-async function stat(path) {
-  controller.signal.throwIfAborted();
-  try {
-    const info = await lstat(path);
-    controller.signal.throwIfAborted();
-    return info;
-  } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
-}
-async function safeTree(path, dataRoot) {
-  // Snapshot histories can contain tens of thousands of files. Keep every
-  // lstat/link check without a promise round trip per file. Yield between
-  // bounded batches so cancellation and the shared deadline remain effective.
-  const pending = [path];
-  while (pending.length) {
-    controller.signal.throwIfAborted();
-    for (let count = 0; count < 256 && pending.length; count++) {
-      const path = pending.pop();
-      let info;
-      try { info = lstatSync(path); }
-      catch (error) { if (error.code === 'ENOENT') continue; throw error; }
-      // Snapshot blobs and prepared documents are immutable and natively linked.
-      // Never exempt symlinks, or hard links in mutable state and installation files.
-      const snapshotContent = dataRoot && /^autoindex\/[^/]+\/sync-snapshots\/[^/]+\/(blobs|prepared)\/[^/]+$/.test(relative(dataRoot, path));
-      if (info.isSymbolicLink() || (info.isFile() && info.nlink > 1 && !snapshotContent)) fail('unsafe-path');
-      if (info.isDirectory()) {
-        try { for (const name of readdirSync(path)) pending.push(join(path, name)); }
-        catch (error) { if (error.code !== 'ENOENT') throw error; }
-      }
-    }
-    await yieldToIO();
-  }
-}
-async function canonicalRoot(selected) {
-  if (!selected.startsWith('/') || /[\x00-\x1f\x7f]/.test(selected) ||
-      selected.endsWith('/') || selected.includes('//') || selected.split('/').some(p => p === '.' || p === '..')) fail('unsafe-path');
-  let ancestor = selected;
-  const suffix = [];
-  while (true) {
-    const info = await stat(ancestor);
-    if (info?.isDirectory() || (info?.isSymbolicLink() && (await followStat(ancestor)).isDirectory())) break;
-    if (info) fail('unsafe-path');
-    suffix.unshift(basename(ancestor)); ancestor = dirname(ancestor);
-  }
-  return join(await realpath(ancestor), ...suffix);
-}
-async function paths() {
-  const root = await canonicalRoot(selectedRoot);
-  const codexHome = await canonicalRoot(selectedCodexHome);
-  const binary = join(root, 'xerj', 'xerj'), dataRoot = join(codexHome, 'xerj-data');
-  for (const path of [join(root, 'xerj'), dataRoot]) {
-    if ((await stat(path))?.isSymbolicLink()) fail('unsafe-path');
-  }
-  await safeTree(join(root, 'xerj')); await safeTree(dataRoot, dataRoot);
-  if (process.env.XERJ_INSTALL_DIR && process.env.XERJ_INSTALL_DIR !== join(root, 'xerj')) fail('unsupported-installation');
-  if ((process.env.XERJ_REPO && process.env.XERJ_REPO !== 'xerj-org/xerj') ||
-      (process.env.XERJ_INSECURE_SKIP_CHECKSUM && process.env.XERJ_INSECURE_SKIP_CHECKSUM !== '0')) fail('unsupported-installation');
-  return { root, binary, dataRoot };
-}
-function launch(binary, args, env) {
-  controller.signal.throwIfAborted();
-  const child = spawn(binary, args, { env, stdio: ['pipe', 'pipe', 'pipe'] });
-  children.add(child);
-  child.once('close', () => children.delete(child));
-  // Never echo native diagnostics: they may contain authorization headers.
-  child.stderr.resume();
-  return child;
-}
-async function binaryVersion(binary, env) {
-  const child = launch(binary, ['--version'], env);
-  let output = '';
-  child.stdout.on('data', chunk => {
-    output += chunk;
-    if (output.length > 1024) controller.abort(new Error('unsupported-version'));
-  });
-  const code = await new Promise((resolve, reject) => {
-    child.once('error', () => reject(new Error('unsupported-binary')));
-    child.once('close', resolve);
-  });
-  const match = /^xerj v?([0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?)$/.exec(output.trim());
-  if (code !== 0 || !match) fail('unsupported-version');
-  return match[1];
-}
-function get(url, auth) {
-  controller.signal.throwIfAborted();
-  return new Promise((resolve, reject) => {
-    const request = http.get(url, { headers: { Authorization: auth }, signal: controller.signal }, response => {
-      let body = '';
-      response.on('data', chunk => {
-        body += chunk;
-        if (body.length > 262144) request.destroy(new Error('invalid-backend'));
-      });
-      response.on('error', () => reject(new Error('backend-unavailable')));
-      response.on('end', () => {
-        if (response.statusCode === 401 || response.statusCode === 403) return reject(new Error('authentication-failed'));
-        if (response.statusCode !== 200) return reject(new Error('invalid-backend'));
-        try { resolve(JSON.parse(body)); } catch { reject(new Error('invalid-backend')); }
-      });
-    });
-    requests.add(request);
-    request.on('close', () => requests.delete(request));
-    request.on('error', () => reject(new Error('backend-unavailable')));
-  });
-}
-async function mcp(binary, endpoint, env, version) {
-  const child = launch(binary, ['mcp', '--url', endpoint], env);
-  let buffer = '', total = 0;
-  const pending = new Map();
-  const refuse = () => {
-    for (const { reject } of pending.values()) reject(new Error('invalid-mcp'));
-    pending.clear();
-  };
-  child.on('error', refuse); child.on('close', refuse);
-  child.stdin.on('error', refuse);
-  child.stdout.on('data', chunk => {
-    total += chunk.length; buffer += chunk;
-    if (total > 262144) { refuse(); controller.abort(new Error('invalid-mcp')); return; }
-    let end;
-    while ((end = buffer.indexOf('\n')) >= 0) {
-      const line = buffer.slice(0, end); buffer = buffer.slice(end + 1);
-      try {
-        const message = JSON.parse(line);
-        if (message.jsonrpc !== '2.0' || !pending.has(message.id) || message.error || !message.result || Array.isArray(message.result)) {
-          refuse(); controller.abort(new Error('invalid-mcp')); return;
-        }
-        pending.get(message.id).resolve(message.result); pending.delete(message.id);
-      } catch { refuse(); controller.abort(new Error('invalid-mcp')); return; }
-    }
-  });
-  const send = message => child.stdin.write(`${JSON.stringify(message)}\n`);
-  const rpc = (id, method, params) => new Promise((resolve, reject) => {
-    pending.set(id, { resolve, reject }); send({ jsonrpc: '2.0', id, method, params });
-  });
-  const initialized = await rpc(1, 'initialize', {
-    protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'gestalt-readiness', version: '1' }
-  });
-  if (initialized.protocolVersion !== '2025-03-26' || !initialized.capabilities?.tools ||
-      initialized.serverInfo?.name !== 'xerj-mcp' || initialized.serverInfo?.version !== version) fail('incompatible-mcp');
-  send({ jsonrpc: '2.0', method: 'notifications/initialized' });
-  const listed = await rpc(2, 'tools/list', {});
-  if (!Array.isArray(listed.tools) || listed.nextCursor || !['xerj_search', 'xerj_map', 'xerj_code_search'].every(name =>
-    listed.tools.some(tool => tool.name === name && tool.inputSchema?.type === 'object'))) fail('incompatible-mcp');
-  child.stdin.end();
-  await new Promise((resolve, reject) => {
-    child.once('close', code => code === 0 ? resolve() : reject(new Error('invalid-mcp')));
-    child.once('error', () => reject(new Error('invalid-mcp')));
-  });
-}
-async function probe() {
-  const { root, binary, dataRoot } = await paths();
-  const info = await stat(binary);
-  if (!info) return { schemaVersion: 1, status: 'absent' };
-  if (!info.isFile() || !(info.mode & 0o111)) fail('unsupported-binary');
-  const endpoint = endpointOf();
-  let key = process.env.XERJ_API_KEY ?? '';
-  if (!key && await stat(join(dataRoot, 'admin.key'))) key = (await readFile(join(dataRoot, 'admin.key'), 'utf8')).trim();
-  const auth = process.env.XERJ_AUTH || (key ? `ApiKey ${key}` : '');
-  if (!auth || /[\r\n\x00]/.test(auth)) fail('credentials-unavailable');
-  const env = nativeEnvironment(root, dataRoot, endpoint, auth);
-  const version = await binaryVersion(binary, env);
-  await mcp(binary, endpoint, env, version);
-  // rc.87 es_compat::cluster_health + cat_indices_inner use engine reads.
-  // Unlike _search (including MCP xerj_search), these successful GETs do not
-  // append audit state. Missing autoindex-catalog is normal on an empty node.
-  const health = await get(`${endpoint}/_cluster/health`, auth);
-  if (health.cluster_name !== 'xerj' || !['green', 'yellow'].includes(health.status) ||
-      health.timed_out !== false || !(health.number_of_nodes >= 1)) fail('invalid-backend');
-  const indices = await get(`${endpoint}/_cat/indices?format=json&h=index`, auth);
-  if (!Array.isArray(indices) || !indices.every(row => typeof row.index === 'string')) fail('invalid-backend');
-  return { schemaVersion: 1, status: 'ready', version, endpoint, binary, dataRoot,
-    auth: { environment: 'XERJ_AUTH', keyFile: join(dataRoot, 'admin.key') }, protocolVersion: '2025-03-26' };
-}
-function endpointOf(raw = process.env.XERJ_URL ?? 'http://127.0.0.1:9200') {
-  if (!/^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d{1,5})?\/?$/.test(raw)) fail('unsafe-endpoint');
-  let endpoint;
-  try {
-    const url = new URL(raw.replace('http://localhost', 'http://127.0.0.1'));
-    if (!Number(url.port || 80) || Number(url.port || 80) > 65535) fail('unsafe-endpoint');
-    endpoint = url.origin;
-  } catch { fail('unsafe-endpoint'); }
-  return endpoint;
-}
-function nativeEnvironment(root, dataRoot, endpoint, auth) {
-  return {
-    HOME: process.env.HOME, PATH: process.env.PATH, GESTALT_HOME: root, CODEX_HOME: dirname(dataRoot),
-    XERJ_INSTALL_DIR: join(root, 'xerj'), XERJ_URL: endpoint, XERJ_AUTH: auth,
-    XERJ_CODE_HOME: join(dataRoot, 'code'), XERJ_DISABLE_FEEDBACK: 'true', XERJ_LOG: 'off',
-    XDG_CACHE_HOME: join(dataRoot, 'cache'), XDG_CONFIG_HOME: join(dataRoot, 'config'),
-    XDG_DATA_HOME: join(dataRoot, 'share'), HF_HOME: join(dataRoot, 'cache', 'huggingface'), TMPDIR: join(dataRoot, 'tmp')
-  };
-}
-const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
-function lifecyclePaths(dataRoot, endpoint) {
-  const directory = join(dataRoot, '.lifecycle');
-  const name = createHash('sha256').update(endpoint).digest('hex').slice(0, 16);
-  return { directory, lock: join(directory, `${name}.lock`), record: join(directory, `${name}.json`),
-    socket: join(directory, `${name}.sock`), log: join(directory, `${name}.log`) };
-}
-async function identity(pid) {
-  if (!Number.isSafeInteger(pid) || pid < 1) return null;
-  if (process.platform === 'linux') {
-    try {
-      const [record, boot] = await Promise.all([readFile(`/proc/${pid}/stat`, 'utf8'), readFile('/proc/sys/kernel/random/boot_id', 'utf8')]);
-      return `${boot.trim()}:${record.slice(record.lastIndexOf(')') + 2).split(' ')[19]}`;
-    } catch (error) { if (error.code === 'ENOENT' || error.code === 'ESRCH') return null; throw error; }
-  }
-  // macOS: birth time plus full command, never PID existence alone.
-  const child = launch('ps', ['-p', String(pid), '-o', 'lstart=', '-o', 'command='], { PATH: process.env.PATH });
-  let text = '';
-  child.stdout.on('data', chunk => { text += chunk; if (text.length > 8192) child.kill('SIGKILL'); });
-  const code = await new Promise((resolve, reject) => { child.once('close', resolve); child.once('error', reject); });
-  return code === 0 && text.trim() ? text.trim() : null;
-}
-async function lifecycleSocketAddress(layout) {
-  if (process.platform !== 'linux' || Buffer.byteLength(layout.socket) < 100)
-    return {address: layout.socket, shortened: false, close: async () => {}};
-  if (layout.socket !== join(layout.directory, basename(layout.socket)) ||
-      !/^[a-f0-9]{16}\.sock$/.test(basename(layout.socket))) fail('unsafe-path');
-  const handle = await open(layout.directory, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
-  try {
-    const held = await handle.stat(), current = await lstat(layout.directory);
-    if (!held.isDirectory() || (held.mode & 0o777) !== 0o700 ||
-        process.getuid && held.uid !== process.getuid() || current.isSymbolicLink() ||
-        current.dev !== held.dev || current.ino !== held.ino ||
-        await realpath(layout.directory) !== layout.directory) fail('unsafe-path');
-    const descriptor = '/proc/' + process.pid + '/fd/' + handle.fd;
-    const target = await followStat(descriptor);
-    if (target.dev !== held.dev || target.ino !== held.ino) fail('unsafe-path');
-    let closing;
-    return {address: descriptor + '/' + basename(layout.socket), shortened: true, close: () => closing ??= handle.close()};
-  } catch (error) {await handle.close(); throw error;}
-}
-async function readJSON(path) {
-  try { return JSON.parse(await readFile(path, 'utf8')); }
-  catch (error) { if (error.code === 'ENOENT') return null; fail('invalid-lifecycle-record'); }
-}
-async function atomicJSON(path, value) {
-  const temporary = `${path}.${randomBytes(8).toString('hex')}.tmp`;
-  try {
-    await writeFile(temporary, JSON.stringify(value), { mode: 0o600, flag: 'wx' });
-    await rename(temporary, path);
-  } finally { await rm(temporary, { force: true }); }
-}
-async function acquireLock(layout, root, endpoint) {
-  const token = randomBytes(24).toString('hex');
-  const owner = { root, endpoint, pid: process.pid, identity: await identity(process.pid), token };
-  if (!owner.identity) fail('lifecycle-busy');
-  while (true) {
-    controller.signal.throwIfAborted();
-    try {
-      await mkdir(layout.lock, { mode: 0o700 });
-      await atomicJSON(join(layout.lock, 'owner.json'), owner);
-      const release = async () => {
-        const current = await readJSON(join(layout.lock, 'owner.json'));
-        if (current?.token === token) await rm(layout.lock, { recursive: true });
-      };
-      release.token = token;
-      return release;
-    } catch (error) {
-      if (error.code !== 'EEXIST') throw error;
-    }
-    const previous = await readJSON(join(layout.lock, 'owner.json'));
-    // A new lock may not have its record yet. Unknown/malformed ownership is
-    // never grounds to reclaim it; only a demonstrably dead/reused owner is.
-    if (previous && previous.root === root && previous.endpoint === endpoint &&
-        Number.isSafeInteger(previous.pid) && previous.pid > 0 &&
-        typeof previous.identity === 'string' && /^[a-f0-9]{48}$/.test(previous.token) &&
-        await identity(previous.pid) !== previous.identity) {
-      const current = await readJSON(join(layout.lock, 'owner.json'));
-      if (current?.token === previous.token) {
-        // Serialize stale recovery independently so two recoverers cannot
-        // remove a freshly acquired lock between comparison and removal.
-        const recovery = `${layout.lock}.recovery`;
-        try {
-          await mkdir(recovery, { mode: 0o700 });
-          try {
-            const checked = await readJSON(join(layout.lock, 'owner.json'));
-            if (checked?.token === previous.token && await identity(checked.pid) !== checked.identity)
-              await rm(layout.lock, { recursive: true });
-          } finally { await rm(recovery, { recursive: true }); }
-        } catch (error) { if (error.code !== 'EEXIST') throw error; }
-      }
-    }
-    await delay(20);
-  }
-}
-async function control(layout, token, method, allowAborted = false) {
-  if (!allowAborted) controller.signal.throwIfAborted();
-  // A stale record without a control socket cannot prove managed ownership.
-  // Preserve that absent-channel result before opening a directory descriptor.
-  let endpoint;
-  try {endpoint = await lstat(layout.socket);}
-  catch (error) {if (error.code === 'ENOENT') return null; throw error;}
-  if (!endpoint.isSocket()) return null;
-  const address = await lifecycleSocketAddress(layout);
-  let socket, closed;
-  try {
-  if (!allowAborted) controller.signal.throwIfAborted();
-  return await new Promise(resolve => {
-    let text = '', done = false;
-    socket = net.createConnection(address.address);
-    closed = new Promise(resolve => socket.once('close', resolve));
-    const complete = result => { if (!done) { done = true; clearTimeout(deadline); socket.destroy(); resolve(result); } };
-    // Explicit stop includes native shutdown and filesystem cleanup. Its
-    // acknowledgment can take longer than an info roundtrip, while failed
-    // launch cleanup still stays within the reserved overall deadline.
-    const budget = method === 'stop' && !allowAborted ? Math.min(1000, Math.max(1, expires - Date.now() - 100)) : 100;
-    const deadline = setTimeout(() => complete(null), budget);
-    socket.on('error', () => complete(null));
-    socket.on('end', () => complete(null));
-    socket.on('connect', () => socket.write(`${JSON.stringify({ token, method })}\n`));
-    socket.on('data', chunk => {
-      text += chunk;
-      if (text.length > 16384) return complete(null);
-      if (text.includes('\n')) {
-        try { complete(JSON.parse(text.trim())); } catch { complete(null); }
-      }
-    });
-  });
-  } finally {
-    socket?.destroy();
-    if (address.shortened) await closed;
-    await address.close();
-  }
-}
-async function ownerAt(layout, root, endpoint) {
-  const record = await readJSON(layout.record);
-  if (!record) return null;
-  if (record.root !== root || record.endpoint !== endpoint || !/^[a-f0-9]{48}$/.test(record.token)) fail('invalid-lifecycle-record');
-  const result = await control(layout, record.token, 'info');
-  return result?.root === root && result.endpoint === endpoint && result.serverAlive ? record : null;
-}
-async function listenerPresent(endpoint) {
-  const url = new URL(endpoint);
-  return new Promise((resolve, reject) => {
-    const socket = net.createConnection({ host: url.hostname.replace(/^\[|\]$/g, ''), port: Number(url.port || 80) });
-    const abort = () => { socket.destroy(); reject(controller.signal.reason); };
-    controller.signal.addEventListener('abort', abort, { once: true });
-    const finish = value => { controller.signal.removeEventListener('abort', abort); socket.destroy(); resolve(value); };
-    socket.on('connect', () => finish(true));
-    socket.on('error', error => error.code === 'ECONNREFUSED' ? finish(false) : finish(true));
-  });
-}
-async function runGuardian() {
-  const { root, dataRoot } = await paths();
-  const endpoint = endpointOf(), layout = lifecyclePaths(dataRoot, endpoint);
-  const token = process.env.GESTALT_XERJ_OWNER_TOKEN ?? '';
-  const deadline = Number(process.env.GESTALT_XERJ_OWNER_DEADLINE);
-  if (!/^[a-f0-9]{48}$/.test(token) || !Number.isSafeInteger(deadline) || deadline <= Date.now() || deadline > Date.now() + 60000)
-    fail('invalid-lifecycle-record');
-  const startupOwner = await readJSON(join(layout.lock, 'owner.json'));
-  if (!startupOwner || startupOwner.root !== root || startupOwner.endpoint !== endpoint ||
-      !Number.isSafeInteger(startupOwner.pid) || typeof startupOwner.identity !== 'string' ||
-      startupOwner.token !== process.env.GESTALT_XERJ_STARTUP_LOCK_TOKEN ||
-      await identity(startupOwner.pid) !== startupOwner.identity) fail('invalid-lifecycle-record');
-  const runtimeSource = (await readFile(managerPath, 'utf8')).match(/^\/\/ BEGIN SESSION SCRATCH RUNTIME\n([\s\S]*?)^\/\/ END SESSION SCRATCH RUNTIME/m);
-  if (!runtimeSource) fail('scratch-runtime-unavailable');
-  const scratch = new Function('require', runtimeSource[1] + '\nreturn {scratchAllocate,scratchEnvironment,scratchRelease,scratchStopped};')(createRequire(import.meta.url));
-  const serviceOwnership = serviceWorkspace ? scratch.scratchAllocate(serviceWorkspace, 'workspace-service', 'xerj-backend') : null;
-  if (!serviceOwnership) process.stderr.write('gestalt: no selected workspace; shared XERJ temporary ownership unavailable\n');
-  let serverChild, controlServer, controlAddress, retained = false, stopping;
-  const clients = new Set();
-  const event = async name => {
-    // Only manager event codes, never native stdout/stderr or credentials.
-    let previous = '';
-    try { previous = await readFile(layout.log, 'utf8'); } catch {}
-    await writeFile(layout.log, `${previous}${Date.now()} ${name}\n`.slice(-32768), { mode: 0o600 });
-    await chmod(layout.log, 0o600);
-  };
-  const stop = (failed = false) => stopping ??= (async () => {
-    clearTimeout(startupTimer);
-    // Control clients wait at most one second for stop acknowledgement. Keep
-    // TERM grace and confirmed KILL/absence inside that existing protocol bound.
-    const stopped = !serverChild || await scratch.scratchStopped(serverChild, true, {graceMs: 100, maxMs: 700});
-    if (stopped && serviceOwnership) scratch.scratchRelease(serviceOwnership);
-    const record = await readJSON(layout.record);
-    if (stopped && record?.token === token) await rm(layout.record, { force: true });
-    const address = controlAddress;
-    controlAddress = undefined;
-    if (controlServer) {
-      for (const client of clients) client.destroy();
-      // The stop requester receives its acknowledgement after this function.
-      // Keep the fd through that final connection without awaiting it here.
-      controlServer.close(() => {
-        if (address) void address.close().catch(() => {
-          process.stderr.write('gestalt: XERJ control descriptor close unconfirmed\n'); process.exitCode = 1;
-        });
-      });
-      await rm(layout.socket, { force: true });
-    } else await address?.close();
-    await event(stopped ? failed ? 'failed-launch-reaped' : 'backend-stopped' : 'backend-stop-unconfirmed');
-    return stopped;
-  })();
-  const startupTimer = setTimeout(() => { if (!retained) void stop(true); }, Math.max(1, deadline - Date.now() - 100));
-  process.removeListener('SIGTERM', cancel); process.removeListener('SIGINT', cancel);
-  process.on('SIGTERM', () => void stop()); process.on('SIGINT', () => void stop());
-  try {
-    if (await stat(layout.socket)) {
-      // Only remove a stale control socket once exclusive startup ownership
-      // has been obtained by ensure-ready and no guardian can answer.
-      const old = await readJSON(layout.record);
-      if (old && await control(layout, old.token, 'info')) fail('lifecycle-busy');
-      await rm(layout.socket, { force: true });
-    }
-    controlServer = net.createServer(client => {
-      clients.add(client); client.on('close', () => clients.delete(client));
-      let input = '';
-      client.setTimeout(1000, () => client.destroy());
-      client.on('error', () => client.destroy());
-      client.on('data', chunk => {
-        input += chunk;
-        if (input.length > 1024) return client.destroy();
-        if (!input.includes('\n')) return;
-        let request;
-        try { request = JSON.parse(input.trim()); } catch { client.destroy(); return; }
-        if (!request || typeof request !== 'object' || request.token !== token) { client.destroy(); return; }
-        const alive = serverChild && serverChild.exitCode === null && serverChild.signalCode === null;
-        const answer = value => client.end(`${JSON.stringify(value)}\n`);
-        if (request.method === 'info') answer({ root, endpoint, serverAlive: Boolean(alive) });
-        else if (request.method === 'retain' && alive && Date.now() < deadline) {
-          retained = true; clearTimeout(startupTimer); answer({ retained: true });
-        } else if (request.method === 'stop') {
-          // Acknowledge only after the child this guardian owns is reaped.
-          clients.delete(client);
-          void stop().then(stopped => answer({ stopped })).catch(() => client.destroy());
-        } else client.destroy();
-      });
-    });
-    controlAddress = await lifecycleSocketAddress(layout);
-    if (stopping || Date.now() >= deadline - 100) {
-      await controlAddress?.close(); controlAddress = undefined; fail('timeout');
-    }
-    await new Promise((resolve, reject) => { controlServer.once('error', reject); controlServer.listen(controlAddress.address, resolve); });
-    await chmod(layout.socket, 0o600);
-    if (Date.now() >= deadline - 100 || stopping) fail('timeout');
-    const env = nativeEnvironment(root, dataRoot, endpoint, process.env.XERJ_AUTH || 'ApiKey managed-key-unavailable');
-    if (serviceOwnership) Object.assign(env, scratch.scratchEnvironment({...env,
-      GESTALT_SESSION_TMP_CONTEXT: JSON.stringify(serviceOwnership.context)}));
-    env.XERJ_API_KEY = process.env.XERJ_API_KEY || '';
-    // The forwarding wrapper derives this confined path itself and rejects
-    // inherited path overrides, including the proxy-only code-cache setting.
-    delete env.XERJ_CODE_HOME;
-    const url = new URL(endpoint);
-    const executable = await realpath(managerPath);
-    if (stopping || Date.now() >= deadline - 100) fail('timeout');
-    serverChild = spawn('bash', [executable, 'xerj', '--port', String(url.port || 80),
-      '--bind', url.hostname === '[::1]' ? '::1' : '127.0.0.1', '--embed-mode', 'lexical'],
-      { env, detached: true, stdio: ['ignore', 'ignore', 'ignore'] });
-    serverChild.on('error', () => void stop(true));
-    serverChild.on('close', () => { if (!stopping) void stop(true); });
-    await atomicJSON(layout.record, { root, endpoint, token });
-    if (stopping) {
-      if ((await readJSON(layout.record))?.token === token) await rm(layout.record, { force: true });
-      fail('timeout');
-    }
-    await event('backend-started');
-    // Listening control socket and child keep this owner alive across clients.
-  } catch (error) { await stop(true); throw error; }
-}
-async function lifecycle(automatic = false) {
-  if (operation === 'probe') return probe();
-  const { root, binary, dataRoot } = await paths();
-  const endpoint = endpointOf(), layout = lifecyclePaths(dataRoot, endpoint);
-  if (operation === 'status') {
-    const ready = await probe();
-    return { ...ready, ownership: await ownerAt(layout, root, endpoint) ? 'managed' : ready.status === 'ready' ? 'adopted' : 'none' };
-  }
-  if (operation === 'stop') {
-    if (!(await stat(layout.directory))) fail('not-managed');
-    const release = await acquireLock(layout, root, endpoint);
-    try {
-      const owner = await ownerAt(layout, root, endpoint);
-      if (!owner) fail('not-managed');
-      const response = await control(layout, owner.token, 'stop');
-      if (!response?.stopped) fail('stop-failed');
-      return { schemaVersion: 1, status: 'stopped', endpoint, dataRoot };
-    } finally { await release(); }
-  }
-  const info = await stat(binary);
-  if (!info) return { schemaVersion: 1, status: 'absent' };
-  if (!info.isFile() || !(info.mode & 0o111)) fail('unsupported-binary');
-  await binaryVersion(binary, nativeEnvironment(root, dataRoot, endpoint, 'ApiKey managed-key-unavailable'));
-  await mkdir(layout.directory, { recursive: true, mode: 0o700 });
-  await chmod(layout.directory, 0o700);
-  const release = await acquireLock(layout, root, endpoint);
-  let launchToken;
-  try {
-    try {
-      const ready = await probe();
-      if (ready.status === 'ready') return { ...ready, ownership: await ownerAt(layout, root, endpoint) ? 'managed' : 'adopted' };
-    } catch (error) {
-      if (controller.signal.aborted) throw error;
-      if (!['credentials-unavailable', 'backend-unavailable', 'authentication-failed', 'invalid-backend'].includes(error.message)) throw error;
-    }
-    if (await listenerPresent(endpoint)) fail('endpoint-in-use');
-    const previous = await ownerAt(layout, root, endpoint);
-    if (previous) fail('lifecycle-busy');
-    launchToken = randomBytes(24).toString('hex');
-    const env = nativeEnvironment(root, dataRoot, endpoint, process.env.XERJ_AUTH || 'ApiKey managed-key-unavailable');
-    env.XERJ_API_KEY = process.env.XERJ_API_KEY || '';
-    env.GESTALT_XERJ_OWNER_TOKEN = launchToken;
-    env.GESTALT_XERJ_OWNER_DEADLINE = String(expires);
-    env.GESTALT_XERJ_STARTUP_LOCK_TOKEN = release.token;
-    const executable = await realpath(managerPath);
-    controller.signal.throwIfAborted();
-    const guardian = spawn('bash', [executable, 'xerj', '__backend', ...(serviceWorkspace ? ['--cwd', serviceWorkspace] : [])], { env, detached: true, stdio: 'ignore' });
-    guardian.on('error', () => controller.abort(new Error('launch-failed')));
-    guardian.unref();
-    let observedOwner = false;
-    while (true) {
-      controller.signal.throwIfAborted();
-      await delay(25);
-      if (guardian.exitCode !== null || guardian.signalCode !== null)
-        fail(await listenerPresent(endpoint) ? 'endpoint-in-use' : 'launch-failed');
-      const owner = await ownerAt(layout, root, endpoint);
-      if (!owner || owner.token !== launchToken) {
-        if (observedOwner && !(await stat(layout.record)))
-          fail(await listenerPresent(endpoint) ? 'endpoint-in-use' : 'launch-failed');
-        continue;
-      }
-      observedOwner = true;
-      try {
-        const ready = await probe();
-        if (ready.status === 'ready' && (await control(layout, launchToken, 'retain'))?.retained) {
-          controller.signal.throwIfAborted();
-          launchToken = null;
-          return { ...ready, ownership: 'managed' };
-        }
-      } catch (error) {
-        if (controller.signal.aborted) throw error;
-        if (automatic && ['authentication-failed', 'invalid-backend'].includes(error.message)) fail('endpoint-in-use');
-        if (!['credentials-unavailable', 'backend-unavailable'].includes(error.message)) throw error;
-      }
-    }
-  } finally {
-    if (launchToken) await control(layout, launchToken, 'stop', true);
-    await release();
-  }
-}
-async function automaticLifecycle() {
-  if (process.env.XERJ_URL !== undefined) return lifecycle();
-  const { root, dataRoot } = await paths();
-  const file = join(dataRoot, '.lifecycle', 'endpoint.json');
-  const selectSaved = async () => {
-    const saved = await readJSON(file);
-    if (saved && (saved.schemaVersion !== 1 || typeof saved.endpoint !== 'string')) fail('invalid-lifecycle-record');
-    process.env.XERJ_URL = endpointOf(saved?.endpoint ?? 'http://127.0.0.1:9200');
-  };
-  if (operation !== 'ensure-ready') {
-    await selectSaved();
-    return lifecycle();
-  }
-  // Serialize endpoint selection across all clients of this data directory.
-  // Endpoint-specific locks alone cannot serialize the initial allocation.
-  const layout = lifecyclePaths(dataRoot, 'automatic');
-  await mkdir(layout.directory, { recursive: true, mode: 0o700 });
-  await chmod(layout.directory, 0o700);
-  const release = await acquireLock(layout, root, 'automatic');
-  try {
-    await selectSaved();
-    while (true) {
-      try {
-        const ready = await lifecycle(true);
-        if (ready.status === 'ready') await atomicJSON(file, { schemaVersion: 1, endpoint: ready.endpoint });
-        return ready;
-      } catch (error) {
-        if (error.message !== 'endpoint-in-use') throw error;
-      }
-      // The OS chooses a currently free loopback port. If another user wins
-      // the bind race, the next lifecycle check retries within our deadline.
-      controller.signal.throwIfAborted();
-      const listener = net.createServer();
-      await new Promise((resolve, reject) => {
-        listener.once('error', reject);
-        listener.listen(0, '127.0.0.1', resolve);
-      });
-      const port = listener.address().port;
-      await new Promise(resolve => listener.close(resolve));
-      process.env.XERJ_URL = `http://127.0.0.1:${port}`;
-    }
-  } finally { await release(); }
-}
-if (operation === '__backend') {
-  try { await runGuardian(); } catch { process.exitCode = 1; }
-} else {
-let result;
-try {
-  if (!Number.isSafeInteger(timeout) || timeout < 100 || timeout > 60000) fail('invalid-deadline');
-  // Reserve cleanup time inside the overall budget, never after it.
-  timer = setTimeout(() => controller.abort(new Error('timeout')), Math.max(1, timeout - 100));
-  result = await bounded(automaticLifecycle());
-} catch (error) {
-  const reasons = new Set(['cancelled', 'timeout', 'unsafe-path', 'unsupported-installation', 'unsupported-version',
-    'unsupported-binary', 'unsafe-endpoint', 'credentials-unavailable', 'authentication-failed',
-    'backend-unavailable', 'invalid-backend', 'invalid-mcp', 'incompatible-mcp', 'invalid-deadline',
-    'invalid-lifecycle-record', 'lifecycle-busy', 'endpoint-in-use', 'not-managed', 'stop-failed', 'launch-failed']);
-  const reason = controller.signal.aborted ? controller.signal.reason.message : error.message;
-  result = { schemaVersion: 1, status: 'unavailable', reason: reasons.has(reason) ? reason : 'probe-failed' };
-} finally {
-  clearTimeout(timer);
-  controller.abort(new Error('cleanup'));
-  for (const request of requests) request.destroy();
-  const exits = [...children].map(child => new Promise(resolve => {
-    child.once('close', resolve); child.kill('SIGKILL');
-  }));
-  await Promise.all(exits);
-}
-console.log(JSON.stringify(result));
-}
-JS
 }
 
 serena_workspace_prepare() {
@@ -2172,7 +1026,7 @@ install_serena() {
     Darwin) target=$cpu-apple-darwin ;;
     *) die "managed Serena supports Linux and macOS, not $os" ;;
   esac
-  validate_xerj_path "$gestalt_home/serena"
+  validate_managed_tree_path "$gestalt_home/serena"
   umask 077
   mkdir -p -- "$gestalt_home/serena"
   mkdir -- "$gestalt_home/serena/.install-lock" 2>/dev/null ||
@@ -3394,150 +2248,6 @@ input.on('close', () => { void close(); });
 for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => { void close(); });
 
 NODE
-}
-
-command_xerj() {
-  case ${1:-} in
-    probe | ensure-ready | status | stop | __backend)
-      local operation=$1
-      shift
-      command_xerj_readiness "$operation" "$@"
-      return ;;
-  esac
-  load_xerj_paths
-  if [[ ${1:-} == -- ]]; then shift; fi
-  if [[ ${1:-} == install ]]; then
-    (($# == 1)) || die 'usage: gestalt xerj install'
-    update_xerj
-    return
-  fi
-  if [[ ${1:-} == update ]]; then shift; update_xerj "$@"; return; fi
-  if [[ ${1:-} == test ]]; then
-    shift
-    test_xerj "$@"
-    return
-  fi
-  local mode=server variable escaped_config xerj_url xerj_api_key xerj_auth xerj_port
-  local index_source='' index_prefix='' index_cwd=false index_status=false autoindex_state
-  local -a forwarded=() xerj_launcher=()
-  local -a xerj_user_args=()
-  case ${1:-} in
-    index | autoindex | search | def | gain | mcp) mode=$1; shift ;;
-    '' | -*) ;;
-    *) die "xerj command '$1' is not managed; init, brain/share, corpus/code, feedback, service, update and export can write outside managed state" ;;
-  esac
-  if [[ $mode == autoindex && ${1:-} == status ]]; then
-    index_status=true
-    shift
-  fi
-  xerj_url=${XERJ_URL:-}
-  if [[ -z $xerj_url && -f $xerj_data/.lifecycle/endpoint.json ]]; then
-    require_command node
-    xerj_url=$(node -e 'const fs=require("node:fs"); const record=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if(record.schemaVersion!==1 || typeof record.endpoint!=="string") process.exit(1); process.stdout.write(record.endpoint);' "$xerj_data/.lifecycle/endpoint.json") || die 'invalid managed xerj endpoint'
-  fi
-  validate_xerj_url "${xerj_url:-http://127.0.0.1:9200}"
-  xerj_url=$validated_xerj_url
-  xerj_port=$validated_xerj_port
-  if [[ -n ${XERJ_BIND_ADDRESS:-} ]]; then validate_xerj_bind "$XERJ_BIND_ADDRESS"; fi
-  validate_xerj_arguments "$mode" "$@"
-  if "$index_status"; then
-    index_source=${index_source:-$(pwd -P)}
-    xerj_user_args=(status "${xerj_user_args[@]}")
-  fi
-  autoindex_state=$xerj_autoindex_home
-  if [[ $mode == autoindex && -n $index_source && $index_source != map && $index_source != status ]]; then
-    if [[ -z $index_prefix ]]; then
-      require_command node
-      index_prefix=$(node -e 'const {realpathSync}=require("node:fs"); const {createHash}=require("node:crypto"); process.stdout.write("ax-"+createHash("sha256").update(/^(s3|r2):\/\//.test(process.argv[1]) ? process.argv[1].replace(/\/+$/, "") : realpathSync(process.argv[1])).digest("hex").slice(0,16));' "$index_source")
-      xerj_user_args+=(--prefix "$index_prefix")
-    fi
-    [[ $index_prefix =~ ^[a-z0-9][a-z0-9_-]{0,79}$ ]] || die 'xerj index prefix must be a lowercase index name (maximum 80 characters)'
-    autoindex_state=$autoindex_state/$index_prefix
-  fi
-  if "$index_status"; then
-    # The native status reader needs the same destination as the watcher.
-    # It otherwise uses its own default port, even with XERJ_URL set.
-    local status_url=false status_argument
-    for status_argument in "${xerj_user_args[@]}"; do
-      if [[ $status_argument == --url ]]; then status_url=true; fi
-    done
-    if ! "$status_url"; then xerj_user_args+=(--url "$xerj_url"); fi
-  fi
-  for variable in XERJ_CONFIG XERJ_INGEST_MEMORY_OUTPUT XERJ_DEBUG_PROFILE_DIR XERJ_PDF_WORKER_BIN XERJ_NEURAL_LOCAL_DIR XERJ_DECIDE_MODEL_DIR XERJ_ONNX_MODEL XERJ_ONNX_TOKENIZER XERJ_CODE_HOME; do
-    [[ -z ${!variable:-} ]] || die "unset $variable before running managed xerj; inherited path overrides are not accepted"
-  done
-  [[ -x $xerj_bin && -f $xerj_bin ]] || die "xerj is not installed; run 'gestalt xerj install'"
-  if [[ $mode == server ]] && (($# == 1)) && [[ $1 == -V || $1 == --version ]]; then
-    # Version discovery must not create configuration or require writable state.
-    env -i PATH="$PATH" XERJ_INSTALL_DIR="$xerj_root" "$xerj_bin" -V
-    return
-  fi
-  xerj_api_key=${XERJ_API_KEY:-}
-  if [[ -z $xerj_api_key && -f $xerj_data/admin.key ]]; then
-    xerj_api_key=$(< "$xerj_data/admin.key")
-  fi
-  xerj_auth=${XERJ_AUTH:-}
-  if [[ -z $xerj_auth ]]; then
-    # A nonempty explicit header prevents upstream guessing keys in HOME/cwd.
-    xerj_auth="ApiKey ${xerj_api_key:-managed-key-unavailable}"
-  fi
-  umask 077
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
-  if ! "$index_status"; then
-    mkdir -p -- "$xerj_data/tmp" "$xerj_data/cache" "$xerj_data/config" "$xerj_data/share"
-    escaped_config=${xerj_data//\\/\\\\}
-    escaped_config=${escaped_config//\"/\\\"}
-    xerj_config_scratch=$(mktemp "$xerj_data/.config.XXXXXXXX")
-    printf '[embedding]\nmodel_cache_dir = "%s/cache/huggingface"\n[tls]\ncert_path = "%s/xerj.crt"\nkey_path = "%s/xerj.key"\n' \
-      "$escaped_config" "$escaped_config" "$escaped_config" > "$xerj_config_scratch"
-    mv -f -- "$xerj_config_scratch" "$xerj_data/managed.toml"
-    xerj_config_scratch=''
-  fi
-  case $mode in
-    server) forwarded=(--config "$xerj_data/managed.toml" --data-dir "$xerj_data" --bind "${XERJ_BIND_ADDRESS:-127.0.0.1}") ;;
-    index) forwarded=(index --config "$xerj_data/managed.toml" --data-dir "$xerj_data") ;;
-    autoindex) forwarded=(autoindex --state-dir "$autoindex_state") ;;
-    *) forwarded=("$mode") ;;
-  esac
-  if [[ $mode == server ]]; then
-    local explicit_port=false argument
-    for argument in "${xerj_user_args[@]}"; do
-      if [[ $argument == --port ]]; then explicit_port=true; fi
-    done
-    if ! "$explicit_port"; then forwarded+=(--port "$xerj_port"); fi
-  fi
-  local watch_requested=false watch_argument
-  for watch_argument in "${xerj_user_args[@]}"; do
-    if [[ $watch_argument == --watch ]]; then watch_requested=true; fi
-  done
-  if [[ $mode == autoindex ]] && "$watch_requested"; then
-    check_xerj_watch_layout "$index_source" "$autoindex_state" || return 1
-    require_command flock
-    require_command setpriv
-    mkdir -p -- "$autoindex_state"
-    # Native journal locking covers a pass, not the idle watcher lifetime.
-    # No PID file: the kernel releases this lock even after an abrupt exit.
-    xerj_launcher=(flock --nonblock --conflict-exit-code 75 --no-fork "$autoindex_state/.gestalt-watch.lock" setpriv --pdeathsig TERM --)
-  fi
-  local -a xerj_temporary_environment=(TMPDIR="$xerj_data/tmp" TMP="$xerj_data/tmp" TEMP="$xerj_data/tmp")
-  # The shared backend must never borrow a calling session's owner. Its service
-  # lifetime is independent; client/index/MCP work retains the validated context.
-  if [[ $mode != server || $session_tmp_owner_kind == workspace-service ]]; then
-    xerj_temporary_environment=(TMPDIR="${TMPDIR:-$xerj_data/tmp}" TMP="${TMP:-${TMPDIR:-$xerj_data/tmp}}" TEMP="${TEMP:-${TMPDIR:-$xerj_data/tmp}}")
-    if [[ ${GESTALT_SESSION_TMP_CONTEXT+x} ]]; then
-      xerj_temporary_environment+=(GESTALT_SESSION_TMP_CONTEXT="$GESTALT_SESSION_TMP_CONTEXT")
-    fi
-  fi
-  # Preserve HOME, streams and exit/signal identity; use known environment inputs.
-  # These settings route automatic state. They do not sandbox server API writes.
-  exec "${xerj_launcher[@]}" env -i HOME="$HOME" PATH="$PATH" GESTALT_HOME="$gestalt_home" CODEX_HOME="$codex_home" \
-    XERJ_INSTALL_DIR="$xerj_root" XERJ_API_KEY="$xerj_api_key" XERJ_AUTH="$xerj_auth" XERJ_URL="$xerj_url" \
-    XERJ_CODE_HOME="$xerj_data/code" \
-    XERJ_LOG="${XERJ_LOG:-info}" XERJ_DISABLE_FEEDBACK="${XERJ_DISABLE_FEEDBACK:-false}" \
-    XDG_CACHE_HOME="$xerj_data/cache" XDG_CONFIG_HOME="$xerj_data/config" XDG_DATA_HOME="$xerj_data/share" \
-    HF_HOME="$xerj_data/cache/huggingface" "${xerj_temporary_environment[@]}" \
-    LANG="${LANG:-C}" TERM="${TERM:-dumb}" "$xerj_bin" "${forwarded[@]}" "${xerj_user_args[@]}"
 }
 
 require_command() {
@@ -4794,6 +3504,105 @@ command_agents() {
   esac
 }
 
+# Retire configuration only when its executable and complete argument contract
+# prove ownership. Old processes, indexes, binaries and bare restart records
+# have no transferable ownership proof; preserve them for operator inspection.
+retire_managed_xerj() {
+  node --input-type=module - "$codex_home" "$gestalt_home" "${BASH_SOURCE[0]}" <<'NODE'
+import { readFileSync, readdirSync, lstatSync, realpathSync, openSync, writeFileSync, fchmodSync, fsyncSync, closeSync, renameSync, unlinkSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { randomBytes } from 'node:crypto';
+import { runInNewContext } from 'node:vm';
+const [selectedCodex, selectedHome, manager] = process.argv.slice(2);
+const source = readFileSync(manager, 'utf8');
+const bundle = source.match(/^\/\/ BEGIN BUNDLED PROFILE TOML PARSER\n([\s\S]*?)^\/\/ END BUNDLED PROFILE TOML PARSER/m);
+if (!bundle) throw new Error('Bundled TOML parser missing');
+const { parse } = runInNewContext(bundle[1] + '\ngestaltProfileToml');
+const notices = new Set();
+const notice = kind => notices.add(kind);
+const exists = path => { try { return lstatSync(path); } catch (error) { if (error.code === 'ENOENT') return null; throw error; } };
+const canonical = path => { try { return realpathSync(path); } catch { return null; } };
+const codex = canonical(selectedCodex), home = canonical(selectedHome), executable = canonical(manager);
+// Home aliases are allowed. Descendant links/hardlinks are never write targets.
+const plain = path => {
+  const info = exists(path);
+  return info?.isFile() && info.nlink === 1 && (!process.getuid || info.uid === process.getuid()) ? info : null;
+};
+const owned = server => server && !server.url && typeof server.command === 'string' &&
+  server.command.startsWith('/') && canonical(server.command) === executable &&
+  Array.isArray(server.args) && JSON.stringify(server.args) === '["xerj","mcp"]';
+const related = (name, server) => /xerj/i.test(name) || server?.args?.[0] === 'xerj';
+const stable = value => JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item)
+  ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
+function migrate(path) {
+  if (!exists(path)) return;
+  const info = plain(path);
+  if (!info) { notice('configuration'); return; }
+  const bytes = readFileSync(path, 'utf8');
+  let config;
+  try { config = parse(bytes); } catch { notice('configuration'); return; }
+  const names = Object.entries(config.mcp_servers ?? {}).filter(([name, server]) => {
+    if (owned(server)) return true;
+    if (related(name, server)) notice('configuration');
+    return false;
+  }).map(([name]) => name);
+  if (!names.length) return;
+  const expected = structuredClone(config);
+  for (const name of names) delete expected.mcp_servers[name];
+  // Preserve physical bytes of every unrelated section and every standalone
+  // comment. Validate the entire semantic result before committing any edit;
+  // inline/dotted or multiline constructs that cannot be localized stay intact.
+  let removing = false;
+  const output = bytes.split(/(?<=\n)/).filter(line => {
+    if (/^[ \t]*\[/.test(line)) {
+      removing = false;
+      try {
+        const table = parse(line + '\n__gestalt_retirement_marker = true\n');
+        removing = names.some(name => table.mcp_servers?.[name]);
+      } catch { /* Whole-result validation below rejects uncertain edits. */ }
+    }
+    return !removing || line.trim() === '' || /^[ \t]*#/.test(line);
+  }).join('');
+  // TOML does not retain empty implicit parent tables after removing children.
+  if (!Object.keys(expected.mcp_servers).length) delete expected.mcp_servers;
+  try { if (stable(parse(output)) !== stable(expected)) { notice('configuration'); return; } }
+  catch { notice('configuration'); return; }
+  if (bytes === output) return;
+  const temporary = join(dirname(path), '.gestalt-retirement-' + randomBytes(12).toString('hex'));
+  let handle;
+  try {
+    handle = openSync(temporary, 'wx', 0o600);
+    writeFileSync(handle, output); fchmodSync(handle, info.mode & 0o777); fsyncSync(handle);
+    closeSync(handle); handle = undefined;
+    const current = plain(path);
+    if (!current || current.dev !== info.dev || current.ino !== info.ino || readFileSync(path, 'utf8') !== bytes)
+      throw new Error('configuration changed during Xerj retirement; retry update');
+    renameSync(temporary, path);
+  } finally {
+    if (handle !== undefined) closeSync(handle);
+    try { unlinkSync(temporary); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
+}
+if (codex) {
+  for (const name of readdirSync(codex).sort())
+    if (name === 'config.toml' || /^[a-zA-Z0-9_-]+\.config\.toml$/.test(name)) migrate(join(codex, name));
+  // No PID, socket, endpoint or record alone proves a live process belongs to
+  // this updater. Do not probe it, send signals, or delete persistent data.
+  if (exists(join(codex, 'xerj-data', '.lifecycle'))) notice('process records');
+}
+if (home && exists(join(home, 'run'))) {
+  const run = join(home, 'run');
+  if (!exists(run).isDirectory()) notice('restart descriptors');
+  else for (const name of readdirSync(run)) if (/^mobile-[1-9][0-9]*\.restart$/.test(name)) {
+    const file = join(run, name);
+    if (!plain(file)) { notice('restart descriptors'); continue; }
+    if (readFileSync(file).includes(Buffer.from('--xerj'))) notice('restart descriptors');
+  }
+}
+for (const kind of notices) process.stderr.write(`gestalt: Xerj retirement: ${kind} preserved; review legacy Xerj entries/processes manually, then retry update. User data and binaries are retained.\n`);
+NODE
+}
+
 command_install() {
   parse_setup_options "$@"
   command_skills install
@@ -4803,13 +3612,11 @@ command_install() {
 }
 
 command_update() {
-  # XERJ canonicalizes these paths. Keep that normalization local so a live
-  # Mobile restart descriptor retains the path spelling used at launch.
-  local gestalt_home=$gestalt_home codex_home=$codex_home
   parse_update_options "$@"
   case $update_component in
     all | gestalt)
       update_manager
+      retire_managed_xerj
       command_skills update
       run_marketplace_setup upgrade "$include_extra_skills"
       install_mobile
@@ -4826,12 +3633,6 @@ command_update() {
   elif [[ $update_component == all ]]; then
     log 'skipping Serena (not installed; use gestalt update serena to install)'
   fi
-  if [[ $update_component == xerj || ( $update_component == all && -e $gestalt_home/xerj/xerj ) ]]; then
-    log 'updating XERJ'
-    command_xerj update
-  elif [[ $update_component == all ]]; then
-    log 'skipping XERJ (not installed; use gestalt update xerj to install)'
-  fi
   if [[ $update_component == playwright || ( $update_component == all && -f $gestalt_home/playwright/active.json ) ]]; then
     command_playwright update
   elif [[ $update_component == all ]]; then
@@ -4846,16 +3647,17 @@ parse_update_options() {
   local component_selected=false
   while (($# > 0)); do
     case $1 in
+      xerj) die 'Xerj has been retired; run gestalt update to migrate managed configuration. User data is retained.' ;;
       --extra-skills) include_extra_skills=true ;;
       -h | --help) usage; exit 0 ;;
       --component)
-        (($# >= 2)) || die '--component requires all, gestalt, serena, xerj, or playwright'
+        (($# >= 2)) || die '--component requires all, gestalt, serena, or playwright'
         [[ $component_selected == false ]] || die 'select only one update component'
         update_component=$2
         component_selected=true
         shift
         ;;
-      all | gestalt | serena | xerj | playwright)
+      all | gestalt | serena | playwright)
         [[ $component_selected == false ]] || die 'select only one update component'
         update_component=$1
         component_selected=true
@@ -4865,8 +3667,9 @@ parse_update_options() {
     shift
   done
   case $update_component in
-    all | gestalt | serena | xerj | playwright) ;;
-    *) die "unknown update component: $update_component (choose all, gestalt, serena, xerj, or playwright)" ;;
+    xerj) die 'Xerj has been retired; run gestalt update to migrate managed configuration. User data is retained.' ;;
+    all | gestalt | serena | playwright) ;;
+    *) die "unknown update component: $update_component (choose all, gestalt, serena, or playwright)" ;;
   esac
   [[ $include_extra_skills == false || $update_component == all || $update_component == gestalt ]] ||
     die '--extra-skills requires the all or gestalt update component'
@@ -4943,6 +3746,29 @@ command_update_restart() {
   log "progress will be written to $restart_log; this session will reconnect after restart"
 }
 
+# Old managers stored these options in NUL-delimited restart descriptors. Adapt
+# only the arguments consumed by this explicitly requested restart; unproven
+# records on disk remain untouched. Never reinterpret unknown retirement values.
+retire_mobile_restart_arguments() {
+  migrated_restart_args=()
+  while (($#)); do
+    case $1 in
+      --xerj)
+        (($# >= 2)) || die 'legacy --xerj restart option has no value; review the restart descriptor before updating'
+        case $2 in
+          auto | manual | off) shift 2 ;;
+          *) die 'legacy --xerj restart option is ambiguous; review the restart descriptor before updating' ;;
+        esac
+        ;;
+      --)
+        migrated_restart_args+=("$@")
+        break
+        ;;
+      *) migrated_restart_args+=("$1"); shift ;;
+    esac
+  done
+}
+
 command_update_restart_worker() {
   local -r relay_pid=${1:-}
   local -r restart_state=${2:-}
@@ -4951,7 +3777,7 @@ command_update_restart_worker() {
   local -r restart_lock=${5:-}
   local -r worker_component=${6:-all}
   local restart_cwd restart_field manager_target
-  local -a restart_record restart_args update_args=()
+  local -a restart_record restart_args migrated_restart_args update_args=()
 
   [[ -n $restart_log ]] || die 'the update-restart worker log path is missing'
   validate_managed_path 'update-restart log' "$restart_log"
@@ -4972,6 +3798,8 @@ command_update_restart_worker() {
   ((${#restart_record[@]} >= 1)) || die 'the Gestalt Mobile restart descriptor is empty'
   restart_cwd=${restart_record[0]}
   restart_args=("${restart_record[@]:1}")
+  retire_mobile_restart_arguments "${restart_args[@]}"
+  restart_args=("${migrated_restart_args[@]}")
   [[ $restart_cwd == /* && -d $restart_cwd ]] ||
     die "the Gestalt Mobile restart directory is invalid: $restart_cwd"
   [[ $worker_extra_skills == false || $worker_extra_skills == true ]] ||
@@ -5013,7 +3841,7 @@ strip_separator() {
 # startup gates the actual first turn; a failed optional connection retries with
 # only that capability disabled. Serena semantics are verified on the first
 # policy-bearing tool call. This is native Codex stdio, not an MCP bridge.
-launch_cli_with_xerj() {
+launch_cli_with_capabilities() {
   CODEX_HOME="$codex_home" GESTALT_HOME="$gestalt_home" \
     GESTALT_MANAGER_BIN="$manager_target" GESTALT_STARTUP_DIAGNOSTICS_DONE=1 \
     PATH="$gestalt_home/bin:$codex_home/bin:$PATH" \
@@ -5033,7 +3861,7 @@ function managedToolApproval(server) {
 }
 function isGestaltManagedMcp(name, server, owner) {
   if (!server || typeof server !== 'object' || server.url) return false;
-  const components = {'gestalt-xerj':'xerj','gestalt-serena':'serena','gestalt-playwright':'playwright'};
+  const components = {'gestalt-serena':'serena','gestalt-playwright':'playwright'};
   if (Object.hasOwn(components,name)) return (!server.command && !server.args) ||
     ([owner.manager,'gestalt'].includes(server.command) && server.args?.[0] === components[name] && server.args?.[1] === 'mcp');
   return name === 'context-mode' && String(server.command).split('/').at(-1) === 'node' &&
@@ -5127,7 +3955,6 @@ ${s}`:n||s}function $(e,{maxDepth:r=1e3,numbersAsFloat:i=!1,strictTemporal:t=!1}
 `:a}return R(le);})();
 // END BUNDLED PROFILE TOML PARSER
 const args = process.argv.slice(2);
-const serverName = 'gestalt-xerj';
 const manager = process.env.GESTALT_MANAGER_BIN;
 const scratchNames=['GESTALT_SESSION_TMP_CONTEXT','TMPDIR','TMP','TEMP'];
 const environment={...process.env};
@@ -5146,13 +3973,9 @@ const protectUnknownMapping=()=>{
  if(cliOwned&&!mappingUnknown){mappingUnknown=true;scratchApi.scratchBorrow(JSON.parse(environment.GESTALT_SESSION_TMP_CONTEXT),'cli-provider-mapping-unknown');
  process.stderr.write('gestalt: native provider association unavailable; CLI temporary owner remains protected\n');}
 };
-const requested = Number(environment.XERJ_READY_TIMEOUT_MS ?? 5000);
-const budget = Number.isInteger(requested) && requested >= 100 && requested <= 60000 ? requested : 5000;
+const budget = 5000;
 // One deadline covers native discovery, shared readiness and MCP startup.
 let readinessDeadline = Date.now() + budget;
-const remainingTime = () => Math.max(0, readinessDeadline - Date.now());
-// A inherited hint is not evidence for a new or resumed runtime.
-delete environment.GESTALT_XERJ_READY;
 let currentChild;
 let playwrightController;
 let interrupted = false;
@@ -5162,7 +3985,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => {
   interruptionCode = signal === 'SIGINT' ? 130 : 143;
   currentChild?.kill(signal);
 });
-const diagnose = reason => process.stderr.write(`gestalt: xerj unavailable (${reason}); continuing with direct source search\n`);
+const diagnose = reason => process.stderr.write(`gestalt: capability discovery unavailable (${reason}); continuing with native tools\n`);
 const toml = value => {
   if (typeof value === 'string') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(toml).join(',')}]`;
@@ -5252,7 +4075,7 @@ async function snapshot(extra = [], hooksOnly = false, beforeFlags = false, dead
   });
   const timer = setTimeout(() => { fail(); child.kill(); }, Math.min(5000, remaining));
   try {
-    const initialized = await request('initialize', { clientInfo: { name: 'gestalt-xerj-config', version: '1' }, capabilities: {} });
+    const initialized = await request('initialize', { clientInfo: { name: 'gestalt-capability-config', version: '1' }, capabilities: {} });
     child.stdin.write(`${JSON.stringify({ method: 'initialized', params: {} })}\n`);
     if (hooksOnly) return await request('hooks/list', { cwds: [cwd] });
     const config = await request('config/read', { cwd, includeLayers: true });
@@ -5269,24 +4092,6 @@ async function snapshot(extra = [], hooksOnly = false, beforeFlags = false, dead
   }
 }
 
-async function readiness(timeout) {
-  timeout = Math.min(timeout, remainingTime());
-  if (!timeout) return { status: 'unavailable', reason: 'readiness-deadline' };
-  const selectedWorkspace=environment.GESTALT_SESSION_TMP_CONTEXT?JSON.parse(environment.GESTALT_SESSION_TMP_CONTEXT).workspacePath:null;
-  const child = spawn(manager, ['xerj', 'ensure-ready',...(selectedWorkspace?['--cwd',selectedWorkspace]:[])], { cwd, env: {
-    ...discoveryEnvironment, XERJ_READY_TIMEOUT_MS: String(timeout),
-  }, stdio: ['ignore', 'pipe', 'ignore'] });
-  currentChild = child;
-  let output = '';
-  child.stdout.on('data', data => { if (output.length < 32768) output += data; });
-  const timer = setTimeout(() => child.kill(), timeout);
-  try {
-    const code = await new Promise(resolve => { child.once('error', () => resolve(-1)); child.once('exit', resolve); });
-    if (code !== 0) return { status: 'unavailable', reason: 'manager-unavailable' };
-    try { return JSON.parse(output); } catch { return { status: 'unavailable', reason: 'invalid-readiness' }; }
-  } finally { clearTimeout(timer); currentChild = undefined; }
-}
-
 async function launch(launchArgs) {
   if (playwrightController) return playwrightController(launchArgs);
   const child = spawn('codex', launchArgs, { cwd: process.cwd(), env: environment,
@@ -5301,7 +4106,7 @@ async function launch(launchArgs) {
     tail = (tail + data.toString()).slice(-8192);
     // Scope names to the required-failure diagnostic, not unrelated stderr.
     for (const diagnostic of tail.matchAll(/required MCP servers failed to initialize:([^\r\n]*)/g))
-      for (const name of ['gestalt-xerj', 'gestalt-serena'])
+      for (const name of ['gestalt-serena'])
         if (new RegExp(`(?:^|[\\s,;])${name}:`).test(diagnostic[1])) startupFailed.add(name);
   });
   const result = await new Promise(resolve => {
@@ -5357,23 +4162,11 @@ async function resolveNamedProfile(state, deadline = readinessDeadline, includeS
   return state;
 }
 try { state = await resolveNamedProfile(state); } catch { state = undefined; diagnose('profile-discovery-unavailable'); }
-let skill = state?.skills.find(skill => skill.name === 'gestalt:xerj');
 const session = state?.layers?.find(layer => layer.name?.type === 'sessionFlags')?.config ?? {};
 let rules = session.skills?.config ?? explicitSkills?.config ?? [];
 if (!Array.isArray(rules)) rules = [];
 // Preserve unrelated selectors from effective config and user session flags.
 const servers = state?.config?.mcp_servers ?? {};
-const duplicateNames = Object.entries(servers).filter(([name, config]) => name !== serverName &&
-  config.command === manager && config.args?.[0] === 'xerj' && config.args?.[1] === 'mcp').map(([name]) => name);
-// Native dotted -c paths do not decode quoted key segments. A sparse
-// session table merges natively with existing servers, preserving their
-// credentials and settings without copying secrets into command arguments.
-const aliases = duplicateNames.length ? [`mcp_servers=${toml(Object.fromEntries(duplicateNames
-  .map(name => [name, { enabled: false }])))}`] : [];
-const reserved = state?.config?.mcp_servers?.[serverName];
-const conflict = reserved && ((reserved.env && Object.keys(reserved.env).length) || reserved.enabled_tools ||
-  reserved.disabled_tools?.length || reserved.tools && Object.keys(reserved.tools).length);
-const inactiveNotice = '<gestalt_xerj_unavailable>\nXerj retrieval is unavailable in this runtime. Earlier capability guidance is inactive; use rg and current source reads.\n</gestalt_xerj_unavailable>';
 const shQuote = value => "'" + value.replaceAll("'", "'\\'" + "'") + "'";
 const hookCommands = new Set();
 let startupHook;
@@ -5399,7 +4192,7 @@ async function trustedHooks(selected) {
   for (const hook of owned) trust[hook.key] = { ...trust[hook.key], enabled: true, trusted_hash: hook.currentHash };
   return [...selected, `hooks.state=${toml(trust)}`];
 }
-// Compose two capabilities through the same native discovery and hook path.
+// Compose retained capabilities through the native discovery and hook path.
 // The outer Serena catalog is connection evidence only. Its backend receives
 // effective permissions on the first native tool call, never from this bootstrap.
 const serenaName = 'gestalt-serena';
@@ -5410,10 +4203,8 @@ const serenaConflict = serenaReserved && (serenaReserved.env && Object.keys(sere
   Object.values(serenaReserved.tools ?? {}).some(tool => tool.enabled !== undefined));
 const serenaAliases = Object.entries(servers).filter(([name, config]) => name !== serenaName &&
   config.command === manager && config.args?.[0] === 'serena' && config.args?.[1] === 'mcp').map(([name]) => name);
-if (serenaAliases.length) aliases.splice(0, aliases.length, `mcp_servers=${toml(Object.fromEntries([...duplicateNames, ...serenaAliases].map(name => [name, { enabled: false }])))}`);
-const capabilities = [{ name: serverName, skillName: 'gestalt:xerj', skill, valid: false, context: inactiveNotice,
-  config: { command: manager, args: ['xerj', 'mcp'] } },
-  { name: serenaName, skillName: 'gestalt:serena', skill: serenaSkill, valid: false,
+const aliases = serenaAliases.length ? [`mcp_servers=${toml(Object.fromEntries(serenaAliases.map(name => [name, { enabled: false }])))}`] : [];
+const capabilities = [{ name: serenaName, skillName: 'gestalt:serena', skill: serenaSkill, valid: false,
     context: '<gestalt_serena_unavailable>\nSerena is unavailable in this runtime. Earlier Serena guidance is inactive; use native code tools.\n</gestalt_serena_unavailable>',
     config: { command: manager, args: ['serena', 'mcp', '--cwd', cwd] } }];
 for (const cap of capabilities) cap.inactiveContext = cap.context;
@@ -6026,40 +4817,19 @@ if (common && serenaSkill && serenaSkill.enabled !== false && serenaRules.at(-1)
         .every(name => install.tools.some(tool => tool.name === name && tool.inputSchema?.type === 'object')))
       throw new Error('invalid-installation');
     for (const executable of [install.executable, install.python, install.uv]) await access(executable, constants.X_OK);
-    capabilities[1].valid = true;
-    capabilities[1].config = managedToolApproval({ ...serenaReserved, ...capabilities[1].config,
+    capabilities[0].valid = true;
+    capabilities[0].config = managedToolApproval({ ...serenaReserved, ...capabilities[0].config,
       cwd, env_vars: ['CODEX_HOME','GESTALT_HOME',...scratchNames],
       enabled: true, required: true, startup_readiness: 'connection', startup_timeout_ms: budget });
-    capabilities[1].context = '<gestalt_serena_capability>\nSerena is connected to this workspace through a confined, policy-bearing native proxy. '
+    capabilities[0].context = '<gestalt_serena_capability>\nSerena is connected to this workspace through a confined, policy-bearing native proxy. '
       + 'A listed catalog does not prove language readiness: first call get_symbols_overview on a current project source file '
       + 'and verify success before relying on semantics or editing. On failure use native code tools. '
       + 'Session and child permissions and approvals apply; plan mode prohibits edits. Do not switch projects or modes.\n'
       + guidance + '\n</gestalt_serena_capability>';
   } catch (error) { diagnoseSerena(error.code === 'ENOENT' ? 'not-installed' : 'invalid-installation-or-plugin'); }
 } else if (serenaConflict) diagnoseSerena('session-config-conflict');
-let ready = { status: 'absent' };
-if (state?.config?.skills?.include_instructions === false || state?.config?.features?.hooks !== true || conflict)
-  ready = { status: 'unavailable', reason: 'session-config-conflict' };
-if (common && skill && !conflict) {
-  try {
-    const guidance = await usableGuidance(skill);
-    ready = await readiness(remainingTime());
-    if (ready.schemaVersion === 1 && ready.status === 'ready' && typeof ready.version === 'string' && /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$/.test(ready.version) &&
-        /^http:\/\/(127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(ready.endpoint)) {
-      capabilities[0].valid = true;
-      capabilities[0].config = { command: manager, args: ['xerj', 'mcp', '--url', ready.endpoint], cwd,
-        env_vars: ['CODEX_HOME','GESTALT_HOME','XERJ_API_KEY','XERJ_AUTH',...scratchNames], enabled: true, required: true,
-        startup_readiness: 'connection', startup_timeout_ms: Math.max(1, remainingTime()),
-        enabled_tools: ['xerj_search', 'xerj_map', 'xerj_code_search'], default_tools_approval_mode: 'approve' };
-      capabilities[0].context = '<gestalt_xerj_capability>\ngestalt:xerj guidance from ' + skill.path
-        + '\nVerified retrieval tools are available for this session.\n' + guidance + '\n</gestalt_xerj_capability>';
-    }
-  } catch { ready = { status: 'unavailable', reason: 'incompatible-plugin-or-runtime' }; }
-}
-if (ready.status === 'unavailable') diagnose(ready.reason);
 if (interrupted) process.exit(interruptionCode);
-// A failed XERJ readiness episode must not consume Serena's hook/startup budget.
-if (capabilities[1].valid) readinessDeadline = Math.max(readinessDeadline, Date.now() + budget);
+if (capabilities[0].valid) readinessDeadline = Math.max(readinessDeadline, Date.now() + budget);
 const compose = () => {
   hookCommands.clear();
   expectedHookCount = 0;
@@ -6103,23 +4873,17 @@ async function selection() {
     for (const cap of capabilities) cap.valid = false;
     selected = compose();
   }
-  if (capabilities[0].valid) {
-    const remaining = remainingTime();
-    if (!remaining) { diagnose('readiness-deadline'); capabilities[0].valid = false; return selection(); }
-    selected = selected.map(flag => flag.startsWith(`mcp_servers.${serverName}=`)
-      ? flag.replace(/"startup_timeout_ms"=\d+/, `"startup_timeout_ms"=${remaining}`) : flag);
-  }
   return selected;
 }
 let result = await launch(appendFlags(await selection()));
 // Drop only the failed optional connection, preserving the independent service.
-// At most two retries: each removes one of the two initially selected servers.
+// Retry only the selected retained service after a connection failure.
 for (let attempt = 0; result.code !== 0 && !interrupted && attempt < capabilities.length; attempt++) {
   const failed = capabilities.filter(cap => cap.valid && result.startupFailed.has(cap.name));
   if (!failed.length) break;
   for (const cap of failed) {
     cap.valid = false;
-    (cap.name === serverName ? diagnose : diagnoseSerena)('runtime-connection-failed');
+    diagnoseSerena('runtime-connection-failed');
   }
   readinessDeadline = Date.now() + budget;
   result = await launch(appendFlags(await selection()));
@@ -6158,7 +4922,7 @@ command_cli_owned() {
         GESTALT_STARTUP_DIAGNOSTICS_DONE=1 PATH="$gestalt_home/bin:$codex_home/bin:$PATH" \
         codex "${forwarded_args[@]}" ;;
   esac
-  launch_cli_with_xerj "${forwarded_args[@]}"
+  launch_cli_with_capabilities "${forwarded_args[@]}"
 }
 
 
@@ -6282,6 +5046,13 @@ command_mobile() {
   local mobile_workspace=$PWD mobile_arg_index
 
   strip_separator "$@"
+  # Reject obsolete manually supplied options before installation or startup.
+  # Stored descriptors are adapted separately by the explicit restart worker.
+  for ((mobile_arg_index = 0; mobile_arg_index < ${#forwarded_args[@]}; mobile_arg_index++)); do
+    case ${forwarded_args[mobile_arg_index]} in
+      --xerj | --xerj=*) die 'Xerj has been retired; omit --xerj when starting Mobile. Run gestalt update before restarting older generated launchers.' ;;
+    esac
+  done
   if [[ ! -x $mobile_bin ]]; then
     log 'Gestalt Mobile is not installed; installing it now'
     install_mobile
@@ -6334,7 +5105,6 @@ command_mobile() {
     GESTALT_AGENTS_VERSION="$gestalt_agents_version" \
     GESTALT_AGENTS_PLUGIN_ROOT="$gestalt_plugin_root" \
     GESTALT_CONTEXT_MODE_VERSION="$context_mode_version" \
-    GESTALT_XERJ_VERSION="$(installed_xerj_version)" \
     GESTALT_SERENA_VERSION="$(serena_versions serena 2>/dev/null || true)" \
     GESTALT_UV_VERSION="$(serena_versions uv 2>/dev/null || true)" \
     GESTALT_SERENA_PYTHON_VERSION="$(serena_versions python 2>/dev/null || true)" \
@@ -6354,14 +5124,6 @@ print_check() {
   printf '%-24s %s\n' "$label" "$status"
 }
 
-installed_xerj_version() {
-  local output
-  output=$(bash "${BASH_SOURCE[0]}" xerj -V 2>/dev/null) || return 0
-  if [[ $output =~ ^xerj[[:space:]]+([A-Za-z0-9][A-Za-z0-9.+_-]{0,99})$ ]]; then
-    printf '%s' "${BASH_REMATCH[1]}"
-  fi
-}
-
 command_version() {
   local value plugin
   printf 'gestalt %s\n' "$GESTALT_CLI_VERSION"
@@ -6379,8 +5141,6 @@ command_version() {
   if command -v kimi >/dev/null 2>&1; then
     value=$(kimi --version 2>/dev/null) && print_check 'Kimi CLI' "$value"
   fi
-  value=$(installed_xerj_version)
-  if [[ -n $value ]]; then print_check 'xerj' "$value"; fi
   value=$(serena_versions serena 2>/dev/null || true)
   print_check 'Serena' "${value:-NOT INSTALLED (optional)}"
   value=$(command_playwright version 2>/dev/null || true)
@@ -6392,34 +5152,6 @@ command_version() {
   value=$(serena_versions python 2>/dev/null || true)
   print_check 'Python (Serena)' "${value:-NOT INSTALLED (optional)}"
   return 0
-}
-
-check_xerj() {
-  local version report
-  version=$(installed_xerj_version)
-  print_check 'xerj' "${version:-NOT AVAILABLE (optional retrieval)}"
-  if [[ -n $version ]]; then
-    if command -v flock >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1; then
-      print_check 'xerj auto-index' 'available (flock and setpriv)'
-    else
-      print_check 'xerj auto-index' 'unavailable: install util-linux flock/setpriv, or use --xerj manual'
-    fi
-  fi
-  if command -v node >/dev/null 2>&1; then
-    report=$(bash "${BASH_SOURCE[0]}" xerj probe 2>/dev/null) || report='{}'
-    # shellcheck disable=SC2016 # JavaScript owns this interpolation.
-    printf '%s' "$report" | node -e '
-      let input = "";
-      process.stdin.on("data", chunk => { input += chunk; });
-      process.stdin.on("end", () => {
-        let result;
-        try { result = JSON.parse(input); } catch { result = {}; }
-        const reason = /^[a-z-]{1,80}$/.test(result.reason ?? "") ? result.reason : "probe-failed";
-        console.log("xerj readiness".padEnd(24) + " " +
-          (result.status === "ready" ? "ready" : `unavailable (${reason}; direct source search remains available)`));
-      });
-    '
-  fi
 }
 
 read_plugin_version() {
@@ -6782,17 +5514,6 @@ run_startup_diagnostics() {
   fi
 }
 
-check_xerj_watch_layout() {
-  case $1 in s3://* | r2://*) return 0 ;; esac
-  local source state
-  source=$(CDPATH='' cd -- "$1" && pwd -P) || return 1
-  state=$(canonical_xerj_root "$2") || return 1
-  if [[ $source == / || $state == "$source" || $state == "$source/"* ]]; then
-    printf '%s\n' 'gestalt: XERJ watcher state is inside the watched root. Start Mobile with --cwd pointing to a narrower source folder, or set GESTALT_XERJ_AUTO_INDEX_HOME to a persistent absolute directory outside that root before starting Mobile. Restarting or reinstalling components does not repair this layout.' >&2
-    return 1
-  fi
-}
-
 run_codex_doctor() {
   # Session scratch forwarding is required for session launches, but is optional
   # for an operator's read-only diagnostics. Do not invent an owner or edit config.
@@ -6922,15 +5643,6 @@ command_doctor() {
   fi
 
   check_supervision_capability_coherence || failed=true
-  check_xerj
-  if [[ -x $gestalt_home/xerj/xerj ]]; then
-    if check_xerj_watch_layout "$workspace" "${GESTALT_XERJ_AUTO_INDEX_HOME:-$codex_home/xerj-data/autoindex}"; then
-      print_check 'XERJ watch layout' 'ready'
-    else
-      print_check 'XERJ watch layout' 'INVALID (watcher journals must be outside --cwd)'
-      failed=true
-    fi
-  fi
   run_doctor_command 'Optional skill collection' command_skills status || failed=true
 
   if command -v codex >/dev/null 2>&1; then
@@ -7004,7 +5716,7 @@ main() {
       ;;
     cli) command_cli "$@" ;;
     mobile) command_mobile "$@" ;;
-    xerj) command_xerj "$@" ;;
+    xerj) die 'Xerj has been retired; run gestalt update to migrate managed configuration. User data is retained.' ;;
     serena) command_serena "$@" ;;
     playwright) command_playwright "$@" ;;
     path) command_path "$@" ;;

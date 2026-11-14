@@ -12,15 +12,13 @@ environment values. It also verifies that the context-mode plugin source is
 disabled as expected and that the native context-mode MCP bridge is enabled.
 
 `gestalt version` (also `-V` or `--version`) lists the manager and detected
-Mobile, Agents, context-mode, Codex, Kimi, and xerj versions. The first line
-remains the manager version. Mobile's header menu includes the xerj version
-detected by its launcher; restart Mobile after updating components.
+Mobile, Agents, context-mode, Codex, Kimi, Serena and Playwright versions.
+The first line remains the manager version. Restart Mobile after updating
+components so its installed capabilities are rediscovered.
 
-Doctor also probes xerj readiness without starting a backend or indexing files.
-Unavailable xerj is reported as optional: direct source search still works.
-`gestalt xerj -V` reports the installed binary version without writing runtime
-configuration. A version alone does not prove that retrieval is ready or that
-the current workspace has been indexed.
+For an older installation, follow the [Xerj retirement guidance](start/install.md#retiring-older-xerj-installations).
+A retirement diagnostic requires reviewing the indicated legacy configuration;
+reinstalling a binary or deleting index data is unnecessary.
 
 ## `gestalt: command not found`
 
@@ -80,19 +78,10 @@ unchanged.
 
 Console Ctrl+C and the menu's Quit action both call Mobile's graceful close.
 Repeated Ctrl+C or SIGTERM signals remain intercepted while cleanup finishes.
-Owned Codex, browser, index-watcher and host-test processes must stop; subprocess
+Owned Codex, browser and host-test processes must stop; subprocess
 supervisors retain their own process groups until resistant descendants have
 been terminated. Embedded supervisor programs travel over source pipes, so
 process listings show short helper names instead of JavaScript bodies.
-
-The detached XERJ backend is a shared service for the current user. It can remain
-after Mobile exits so other CLI and MCP clients can keep using it. To stop that
-service explicitly, run this from the account that owns it:
-
-```sh
-gestalt xerj status
-gestalt xerj stop
-```
 
 Each Unix account has separate managed state and process ownership. Avoid
 system-wide process-name kills on hosts with several Gestalt users. Processes
@@ -110,58 +99,6 @@ without HTTPS. Do not change the RP-ID hostname after devices are enrolled.
 Rerun `gestalt update`. Both the Agents runtime publication and the manager
 binary installation are designed to replace prepared artifacts atomically.
 Existing Codex and Mobile state is stored separately from install artifacts.
-
-## XERJ startup fails with `unsafe-path` after indexing
-
-If Mobile reports `XERJ startup failed. Optional retrieval unavailable`, first
-check the installed manager and its read-only readiness result:
-
-```sh
-gestalt version
-gestalt xerj status
-```
-
-Manager 0.9.3 rejects all hard-linked files in managed XERJ storage. Autoindex
-legitimately shares immutable snapshot blobs and prepared documents between
-generations using hard links, so a healthy backend can become unavailable to new
-sessions after indexing. This was reproduced with XERJ 1.0.0-rc.99. The snapshot
-exception shipped in manager 0.9.4; symlinks and hard-linked credentials,
-configuration, executables and snapshot metadata remain rejected.
-
-When the installed manager predates 0.9.4, update the core components from a
-terminal, then check readiness in a new command invocation:
-
-```sh
-gestalt update gestalt
-gestalt version
-gestalt xerj status
-gestalt xerj probe
-```
-
-The `gestalt` update group replaces the manager, Agents, Mobile and context-mode
-without running the old manager's XERJ updater over existing snapshot files.
-Updating only XERJ cannot repair the manager's validator. Pulling source
-repositories also leaves the installed manager unchanged.
-
-After the updated manager reports `ready`, restart Mobile through your normal
-launcher and start a new session so it can negotiate retrieval again. Existing
-sessions may retain the unavailable capability selected at startup. This
-recovery preserves indexes and does not require deleting snapshots, credentials
-or lifecycle records.
-
-An `unsafe-path` result from an updated manager needs separate investigation;
-the status code alone does not establish that snapshot hard links caused it.
-Preserve the trace reference and investigate the rejected path before changing
-managed storage.
-
-### Rechecking XERJ upstream issues
-
-Use `gestalt xerj update [VERSION]` to install an official checksum-verified
-release, then `gestalt xerj test` (or `test --json`) to exercise synthetic indexes
-in disposable storage. Exit 1 means upstream issues remain; exit 2 means the
-harness could not complete its controls. This never tests against your real index.
-A newer binary is not automatically certified for Mobile/MCP readiness; see the
-[update and test workflow](start/install.md#updating-and-checking-upstream-fixes).
 
 ## Serena installation
 

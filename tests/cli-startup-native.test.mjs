@@ -10,8 +10,8 @@ import test from 'node:test';
 import { parse } from 'smol-toml';
 
 const source = await readFile(resolve('public/gestalt'), 'utf8');
-const program = source.split('launch_cli_with_xerj() {')[1].split("<<'NODE'\n")[1].split('\nNODE\n')[0];
-const shellFunction = 'launch_cli_with_xerj() {' + source.split('launch_cli_with_xerj() {')[1].split('\ncommand_cli()')[0];
+const program = source.split('launch_cli_with_capabilities() {')[1].split("<<'NODE'\n")[1].split('\nNODE\n')[0];
+const shellFunction = 'launch_cli_with_capabilities() {' + source.split('launch_cli_with_capabilities() {')[1].split('\ncommand_cli()')[0];
 
 async function execute(command, args, env, cwd, input) {
   const child = spawn(command, args, { env, cwd, stdio: ['pipe', 'pipe', 'pipe', 'pipe'] });
@@ -142,7 +142,7 @@ async function deliveredFixture(t, mode) {
   await writeFile(join(marketplace, '.agents/plugins/marketplace.json'), JSON.stringify({ name: 'startup-fixture', plugins: [{ name: 'gestalt', source: { source: 'local', path: './plugins/gestalt' } }] }));
   const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('CONTEXT_MODE_') &&
     !['GESTALT_SESSION_TMP_CONTEXT', 'TMPDIR', 'TMP', 'TEMP'].includes(name)));
-  Object.assign(env, { CODEX_HOME: home, GESTALT_HOME: join(root, 'managed'), GESTALT_MANAGER_BIN: join(root, 'manager'), XERJ_READY_TIMEOUT_MS: '10000' });
+  Object.assign(env, { CODEX_HOME: home, GESTALT_HOME: join(root, 'managed'), GESTALT_MANAGER_BIN: join(root, 'manager') });
   await writeFile(env.GESTALT_MANAGER_BIN, '#!/bin/sh\nprintf \'{"schemaVersion":1,"status":"absent"}\\n\'\n', { mode: 0o755 });
   for (const args of [['plugin', 'marketplace', 'add', marketplace], ['plugin', 'add', 'gestalt@startup-fixture']]) {
     const result = await execute('codex', args, env, workspace);
@@ -252,7 +252,7 @@ async function deliveredFixture(t, mode) {
         const manager = resolve('public/gestalt');
         const launchScript = join(root, 'launch.sh'), controller = join(root, 'controller.cjs');
         await writeFile(launchScript, 'codex_home=$CODEX_HOME\ngestalt_home=$GESTALT_HOME\nmanager_target=$GESTALT_MANAGER_BIN\n' + shellFunction +
-          '\n# Both native baselines use the same validated owner/environment.\ndirect_args=("$@")\ndirect_args[${#direct_args[@]}-1]=STARTUP_DIRECT\nprintf direct > "$STARTUP_PHASE_FILE"\ncodex --no-daemon "${direct_args[@]}" || exit $?\nprintf wrapped > "$STARTUP_PHASE_FILE"\nlaunch_cli_with_xerj "$@"\n');
+          '\n# Both native baselines use the same validated owner/environment.\ndirect_args=("$@")\ndirect_args[${#direct_args[@]}-1]=STARTUP_DIRECT\nprintf direct > "$STARTUP_PHASE_FILE"\ncodex --no-daemon "${direct_args[@]}" || exit $?\nprintf wrapped > "$STARTUP_PHASE_FILE"\nlaunch_cli_with_capabilities "$@"\n');
         await writeFile(controller, `const fs=require('node:fs');
 const manager=${JSON.stringify(manager)};
 const source=fs.readFileSync(manager,'utf8').match(/^\\/\\/ BEGIN SESSION SCRATCH RUNTIME\\n([\\s\\S]*?)^\\/\\/ END SESSION SCRATCH RUNTIME/m)[1];
@@ -324,7 +324,7 @@ api.scratchSupervise(manager,ownership,'bash',[${JSON.stringify(launchScript)},.
       assertNativeContent(baseline, input);
       if (!omitted && mode !== 'stale-block' && !(mode === 'stale-role-block' && child)) assert.ok(text.includes(block), 'selected installed composer content absent');
       if (mode === 'stale-role-block') assert.equal(count(text, 'OLD_ROLE_BLOCK'), child ? 1 : 0, 'stale role bytes changed');
-      if (!omitted && !['existing-block', 'stale-block', 'role-owned-block', 'stale-role-block'].includes(mode)) assert.ok(text.indexOf('<!-- gestalt:startup:v1 -->') < text.indexOf('<gestalt_xerj_unavailable>'), 'stable/capability order changed');
+      if (!omitted && !['existing-block', 'stale-block', 'role-owned-block', 'stale-role-block'].includes(mode)) assert.ok(text.indexOf('<!-- gestalt:startup:v1 -->') < text.indexOf('<gestalt_serena_unavailable>'), 'stable/capability order changed');
       if (mode === 'stale-block') assert.equal(count(text, 'OLD_STARTUP_BLOCK'), 1);
       if (profile && mode !== 'named-profile') assert.equal(count(text, 'PROFILE_STARTUP_SCALAR'), 0, 'lower-priority scalar concatenated');
       if (mode === 'explicit-cli') assert.equal(count(text, 'CLOSEST_STARTUP_SCALAR'), 0);
@@ -455,7 +455,7 @@ for (const legacy of [false, true]) test(`native retained startup lifecycle: ${l
   const block = await packageFixture(plugin);
   await writeFile(join(marketplace, '.agents/plugins/marketplace.json'), JSON.stringify({ name: 'startup-fixture', plugins: [{ name: 'gestalt', source: { source: 'local', path: './plugins/gestalt' } }] }));
   const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('CONTEXT_MODE_') && !['GESTALT_SESSION_TMP_CONTEXT', 'TMPDIR', 'TMP', 'TEMP'].includes(name)));
-  Object.assign(env, { CODEX_HOME: home, GESTALT_HOME: join(root, 'managed'), GESTALT_MANAGER_BIN: join(root, 'manager'), XERJ_READY_TIMEOUT_MS: '10000' });
+  Object.assign(env, { CODEX_HOME: home, GESTALT_HOME: join(root, 'managed'), GESTALT_MANAGER_BIN: join(root, 'manager') });
   await writeFile(env.GESTALT_MANAGER_BIN, '#!/bin/sh\nprintf \'{"schemaVersion":1,"status":"absent"}\\n\'\n', { mode: 0o755 });
   for (const args of [['plugin', 'marketplace', 'add', marketplace], ['plugin', 'add', 'gestalt@startup-fixture']]) {
     const result = await execute('codex', args, env, cwd); assert.equal(result.code, 0, 'isolated plugin installation failed');

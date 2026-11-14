@@ -12,8 +12,8 @@ repairs a marker or falls back from invalid managed context to OS scratch.
 
 Native Codex descendants, managed MCP transports, Serena preparation and browser
 guardians inherit these four values. The selected workspace remains independent
-of a nested command or MCP project cwd. CLI configuration discovery and XERJ
-shared-backend readiness scrub all four owning-session values. Without context,
+of a nested command or MCP project cwd. CLI configuration discovery
+scrubs all four owning-session values. Without context,
 discovery retains operator-supplied temporary roots. Persistent tool variables,
 existing environment allowlists and native permission profiles retain their
 other settings; managed MCP allowlists append only the four contract variables.
@@ -26,14 +26,11 @@ disposable operation scratch, persistent state and destination-local staging.
 | Site | Ownership and routing | Retention |
 | --- | --- | --- |
 | Nested CLI/service owner publication: `.containment-lock` | Short private fence on every validated attributed ancestor, outermost first | Coordination metadata, not payload; reverse release only for the acquired identity. Busy/crashed/replaced claims stay protected |
-| `test_xerj`: `gestalt-xerj-regression-*` | `mkdtemp(tmpdir())`; inherits validated managed directory | Removes only its fixture tree after owned test children stop |
 | `codex_sandbox_probe`: `gestalt-sandbox-doctor-*` | `mkdtemp(tmpdir())`; managed directory when context exists | Probe-owned tree removed on completion |
 | `serena_operator`: `gestalt-serena-doctor-*` | `mkdtemp(tmpdir())`; managed directory when context exists | Probe-owned tree; temporary probe HOME/config stays inside it |
 | Serena workspace preparation | Managed temp variables preserved; standalone defaults remain `.gestalt/serena/tmp`, with operator overrides honored | `.gestalt/serena` indexes, caches, configuration, memories, prepared compilation inputs and language-server state remain persistent |
 | Playwright CLI frontend: `gestalt-cli-playwright-*` | `mkdtemp(tmpdir())`; managed directory when context exists | Dedicated socket and frontend tree removed after backend shutdown |
 | Playwright stdio backend and Chrome children | Validated context forwarded through the allowlist and guardian | Profiles, cookies, browser output, package metadata and workspace contention records stay in existing `GESTALT_HOME/playwright` state |
-| XERJ MCP/search/index/autoindex | Validated context forwarded through the restricted native environment; absent context preserves operator temporary roots | `CODEX_HOME/xerj-data`, code storage, indexes, model/dependency caches and autoindex journals stay persistent |
-| XERJ shared backend/readiness | Scrubs caller's context. A new backend with explicit `--cwd ROOT` receives its own workspace-service owner | Reused backends retain their original workspace/owner across callers. Without a selected root, existing tool storage remains outside managed cleanup; never infer a root from cwd |
 | Chrome download: `gestalt-chrome.*` | `mktemp` under validated `TMPDIR`, or standalone operator/OS fallback | Download removed after installer completion |
 | Skills archive transfer: `gestalt-skills-export.*`, `gestalt-skills-import.*` | `mktemp` under validated `TMPDIR`, or standalone fallback | Operation-owned transfer tree removed on completion |
 | Manager download: `gestalt-update.*` | `mktemp` under validated `TMPDIR`, or standalone fallback | Download removed on completion |
@@ -45,8 +42,9 @@ These paths remain beside their destinations. Moving them to session scratch
 would turn a same-filesystem rename into a potentially non-atomic copy/move.
 Their existence does not authorize Clean TMP to delete their parent directories.
 
-- XERJ `.install.*` release download/extraction and `.config.*` replacement
-  files, under its managed installation/data roots.
+- Retirement migration `.gestalt-retirement-*` configuration replacements,
+  staged beside the selected Codex profile. Interrupted private stages are retained
+  for inspection; a retry never promotes an old stage.
 - Serena `release-<version>.*`, including private installer HOME, uv tooling,
   cache and tmp. The validated release is promoted in place; installer temporary
   paths are deliberately confined to the candidate release. Interpreter/model
@@ -56,7 +54,7 @@ Their existence does not authorize Clean TMP to delete their parent directories.
 - Optional skills `.gestalt-skills-stage-*` and Agents `.gestalt-setup.*`
   checkout/install candidates, promoted beside persistent managed content.
 - Skill archive `.gestalt-skills.*`, profile `.gestalt-profile.*`, manager
-  `.gestalt.*`, Mobile `.mobile-*`, and XERJ lifecycle/config replacements.
+  `.gestalt.*` and Mobile `.mobile-*` replacements.
 - Serena configuration and prepared compilation-database `NamedTemporaryFile`
   replacements, each in the directory containing the destination.
 - Existing CLI browser compatibility records use a temporary file in their
@@ -103,10 +101,7 @@ protected metadata. A released lease has no consumers.
 
 Managed Serena/browser guardians register borrower leases before detached
 native work starts; the invocation's primary lease cannot release until those
-borrowers release. XERJ's shared backend has an independent `service-<UUID>`
-owner and service consumer, so caller exit does not release or relocate it.
-Its stop acknowledgement waits for confirmed native-group absence within the
-existing control deadline. Persistent indexes, profiles and caches survive.
+borrowers release. Persistent indexes, profiles and caches survive.
 
 L4 must treat `tmp/sessions/<owner>/.controller-lock` as the owner's lifetime
 fence and `.association-lock` as an in-progress marker update. Cleanup may claim

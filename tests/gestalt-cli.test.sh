@@ -536,8 +536,10 @@ grep -E '^Context-mode plugin +2\.1\.0$' "$test_root/doctor.out" >/dev/null
 grep -E '^Context-mode runtime +' "$test_root/doctor.out" >/dev/null
 grep -E '^Plugin MCP source +disabled \(expected\)$' "$test_root/doctor.out" >/dev/null
 grep -E '^Native context MCP +enabled$' "$test_root/doctor.out" >/dev/null
-grep -E '^xerj +NOT AVAILABLE' "$test_root/doctor.out" >/dev/null
-grep -E '^xerj readiness +unavailable' "$test_root/doctor.out" >/dev/null
+if grep -i xerj "$test_root/doctor.out" >/dev/null; then
+  printf 'doctor advertised retired Xerj integration\n' >&2
+  exit 1
+fi
 check_versions=$(bash "$repo_root/public/gestalt" version)
 grep -E '^Gestalt Mobile +0\.1\.0$' <<< "$check_versions" >/dev/null
 grep -E '^gestalt +2\.1\.0$' <<< "$check_versions" >/dev/null

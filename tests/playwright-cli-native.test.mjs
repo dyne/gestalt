@@ -14,7 +14,7 @@ import { managerStubScratchRuntime } from './manager-stub-fixture.mjs';
 
 const source = await readFile(resolve('public/gestalt'), 'utf8');
 const nativeCodex = resolve(process.env.GESTALT_PLAYWRIGHT_NATIVE_CODEX ?? 'node_modules/.bin/codex');
-const program = source.split('launch_cli_with_xerj() {')[1].split("<<'NODE'\n")[1].split('\nNODE\n')[0];
+const program = source.split('launch_cli_with_capabilities() {')[1].split("<<'NODE'\n")[1].split('\nNODE\n')[0];
 const policy = program.split('// BEGIN MANAGED MCP APPROVAL POLICY\n')[1].split('// END MANAGED MCP APPROVAL POLICY')[0];
 const controller = policy + '\nasync function managedPlaywright(launchArgs, reportDiagnostic = () => {}, checkConsent = async () => false) {' + program.split('async function managedPlaywright(launchArgs, reportDiagnostic = () => {}, checkConsent = async () => false) {')[1].split('\nconst interactivePlaywright')[0];
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
@@ -431,7 +431,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
     // Preseed native onboarding. The native availability marker is a launch
     // counter; assert its exact single increment and compare all other fields.
     // This capability does not depend on command hooks. Explicit native off
-    // prevents unrelated XERJ/Serena guidance-hook review from driving this
+    // prevents unrelated Serena guidance-hook review from driving this
     // browser fixture; deep config equality asserts it stays off throughout.
     const config = `model_provider="fixture"\nmodel="fixture"\napproval_policy="on-request"\nsandbox_mode="read-only"\n[projects.${JSON.stringify(workspace)}]\ntrust_level="trusted"\n[model_providers.fixture]\nname="fixture"\nbase_url="http://127.0.0.1:${model.address().port}/v1"\nwire_api="responses"\nrequires_openai_auth=false\nrequest_max_retries=0\n[features]\ntool_search=false\nhooks=false\n${mode === 'profile-child' ? 'multi_agent=true\n' : ''}[tui]\nscreen_reader_detection_done=true\n[tui.model_availability_nux]\n"gpt-6.1-sol"=1\n` +
       '[mcp_servers.fixture-user]\ncommand="/fixture-disabled-original"\nargs=[]\nenabled=false\n' +

@@ -49,9 +49,10 @@ for line in sys.stdin:
 `, { mode: 0o755 });
   await writeFile(join(root, 'install.json'), JSON.stringify({ schemaVersion: 1, version: '1.7.0', executable: native, python: native, uv: '/usr/bin/uv', pythonInstallDir: join(root,'python'), tools: catalog }));
   // A file entry instead of a Node heredoc lets this fixture provide MCP stdin
-  // through fd3 exactly as the distributed Bash manager does.
+  // through fd3 exactly as the distributed Bash manager does. Its manager argv
+  // supplies the shared scratch/lifetime runtime used on the first tool call.
   await writeFile(join(root, 'proxy.mjs'), program);
-  await writeFile(join(root, 'proxy'), `#!/usr/bin/env bash\necho $$ > ${JSON.stringify(join(root, 'proxy.pid'))}\nexec node ${JSON.stringify(join(root, 'proxy.mjs'))} 3<&0 2>${JSON.stringify(join(root, 'native.log'))}\n`, { mode: 0o755 });
+  await writeFile(join(root, 'proxy'), `#!/usr/bin/env bash\necho $$ > ${JSON.stringify(join(root, 'proxy.pid'))}\nexec node ${JSON.stringify(join(root, 'proxy.mjs'))} ${JSON.stringify(resolve('public/gestalt'))} 3<&0 2>${JSON.stringify(join(root, 'native.log'))}\n`, { mode: 0o755 });
   const requests = []; let called = false, instructed = false;
   const model = createServer(async (request, response) => {
     let body = ''; for await (const part of request) body += part;

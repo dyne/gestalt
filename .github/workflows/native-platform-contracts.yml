@@ -32,6 +32,31 @@ jobs:
           mkdir -p native-evidence
           node -e 'console.log(JSON.stringify({platform:process.platform,arch:process.arch,node:process.version,os:require("node:os").release(),sha:process.env.GITHUB_SHA,observedAt:new Date().toISOString()}))' > native-evidence/runner.json
           cp dist/cli/native/*.provenance.json native-evidence/
+      # Match the existing pull-request.yml native sandbox prerequisite. This
+      # prepares only the disposable GitHub-hosted runner, never product runtime.
+      - name: Prepare disposable Ubuntu namespace prerequisites
+        if: runner.os == 'Linux' && runner.environment == 'github-hosted'
+        run: |
+          set -euo pipefail
+          {
+            date -u +'%Y-%m-%dT%H:%M:%SZ'
+            id
+            printf 'before unprivileged_userns_clone=%s\n' "$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)"
+            printf 'before apparmor_restrict_unprivileged_userns=%s\n' "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)"
+          } > native-evidence/linux-namespace-prerequisites.log
+          current_userns=$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)
+          if [[ -n $current_userns && $current_userns != 1 ]]; then
+            sudo sysctl -w kernel.unprivileged_userns_clone=1
+          fi
+          current_apparmor=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)
+          if [[ -n $current_apparmor && $current_apparmor != 0 ]]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          {
+            printf 'after unprivileged_userns_clone=%s\n' "$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)"
+            printf 'after apparmor_restrict_unprivileged_userns=%s\n' "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)"
+            date -u +'%Y-%m-%dT%H:%M:%SZ'
+          } >> native-evidence/linux-namespace-prerequisites.log
       - name: Record supported macOS broker commands without changing services
         if: runner.os == 'macOS'
         run: |

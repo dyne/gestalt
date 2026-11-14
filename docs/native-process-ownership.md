@@ -48,6 +48,17 @@ Namespace support is a runtime prerequisite, not permission to change host
 settings or run an unconfined fallback. Managed processes cannot elevate
 credentials; inherited session scratch variables remain unchanged.
 
+Namespace creation alone is insufficient: policy must permit the capabilities
+needed for identity mapping and the private PID/proc setup. For example, Ubuntu
+can transition a newly created user namespace into an AppArmor profile that
+denies those operations. Refusals report the setup stage, errno, requested/current
+IDs, proc ownership and active policy; unknown results retain scratch. Runtime
+does not change sysctls, install profiles, or retry outside confinement. The
+disposable GitHub-hosted Ubuntu test job uses the same narrowly scoped userns
+prerequisite setup as the existing full-PR workflow and records before/after
+values. Evidence from that prepared runner does not establish support under a
+different production policy.
+
 These ownership units cover actual OS descendants. Work delegated to an existing
 external broker/service is outside that ancestry and requires its own lifetime
 contract; consumers cannot infer its absence from this lease. The adapter is a

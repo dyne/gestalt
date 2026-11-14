@@ -46,6 +46,12 @@ npm install -g @jaromil/gestalt@latest
 updating this package. It preserves the npm-managed executable and package metadata.
 Installing a newer global npm version also reconciles Agents automatically.
 
+When upgrading an older installation, run `gestalt update gestalt` after updating
+the npm package. It retires positively identified managed Xerj MCP entries while
+preserving unrelated configuration, binaries, indexes, sessions and credentials.
+Remove obsolete `--xerj` options from manually maintained Mobile launch commands.
+See the [migration rules](https://dyne.github.io/gestalt/start/install#retiring-older-xerj-installations).
+
 You can also run the command without a global installation:
 
 ```sh

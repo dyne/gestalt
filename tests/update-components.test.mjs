@@ -101,7 +101,7 @@ for (const [args, extra, optional] of [
   await f.run(args);
   assert.deepEqual(await f.operations(), [
     'download', 'new:skills:update', `new:agents:upgrade:${extra}`, 'new:mobile',
-    ...(optional ? ['new:serena', 'new:xerj'] : []),
+    ...(optional ? ['new:serena'] : []),
   ]);
   assert.equal(await readFile(f.manager, 'utf8'), f.replacement);
   assert.deepEqual((await readdir(f.root)).filter(name => name.startsWith('gestalt-update.')), []);
@@ -133,7 +133,7 @@ test('update help lists component groups without invoking any installer', async 
   const f = await fixture(t, false);
   for (const args of [['update', '--help'], ['update-restart', '--help']]) {
     const { stdout } = await f.run(args);
-    for (const name of ['all', 'gestalt', 'serena', 'xerj'])
+    for (const name of ['all', 'gestalt', 'serena'])
       assert.match(stdout, new RegExp(`^  ${name} +`, 'm'));
     assert.match(stdout, /context-mode/);
     assert.match(stdout, /private uv\/Python/);
@@ -144,7 +144,7 @@ test('update help lists component groups without invoking any installer', async 
 test('default update includes all installed managed components in order', async t => {
   const f = await fixture(t);
   await f.run(['update', '--extra-skills']);
-  assert.deepEqual(await f.operations(), ['manager', 'skills:update', 'agents:upgrade:true', 'mobile', 'serena', 'xerj']);
+  assert.deepEqual(await f.operations(), ['manager', 'skills:update', 'agents:upgrade:true', 'mobile', 'serena']);
 });
 
 test('default update skips absent optional components with an explicit message', async t => {
@@ -152,23 +152,23 @@ test('default update skips absent optional components with an explicit message',
   const { stderr } = await f.run(['update']);
   assert.deepEqual(await f.operations(), ['manager', 'skills:update', 'agents:upgrade:false', 'mobile']);
   assert.match(stderr, /skipping Serena \(not installed/);
-  assert.match(stderr, /skipping XERJ \(not installed/);
+  assert.doesNotMatch(stderr, /skipping XERJ/);
 });
 
-for (const component of ['all', 'gestalt', 'serena', 'xerj']) {
+for (const component of ['all', 'gestalt', 'serena']) {
   for (const selector of [[component], ['--component', component]]) {
     test(`update ${selector.join(' ')} changes only the selected component group`, async t => {
       const f = await fixture(t, component === 'all' || component === 'gestalt');
       await f.run(['update', ...selector]);
       const core = ['manager', 'skills:update', 'agents:upgrade:false', 'mobile'];
-      assert.deepEqual(await f.operations(), component === 'all' ? [...core, 'serena', 'xerj']
+      assert.deepEqual(await f.operations(), component === 'all' ? [...core, 'serena']
         : component === 'gestalt' ? core : [component]);
     });
   }
 }
 
 for (const args of [
-  ['unknown'], ['--component'], ['--component', 'unknown'], ['serena', 'xerj'],
+  ['xerj'], ['--component', 'xerj'], ['unknown'], ['--component'], ['--component', 'unknown'], ['serena', 'xerj'],
   ['--component', 'xerj', 'xerj'], ['--unexpected'], ['serena', '--extra-skills'],
 ]) {
   test(`invalid update arguments are rejected before any change: ${args.join(' ')}`, async t => {
@@ -178,10 +178,10 @@ for (const args of [
   });
 }
 
-for (const failed of ['manager', 'skills:update', 'agents:upgrade:false', 'mobile', 'serena', 'xerj']) {
+for (const failed of ['manager', 'skills:update', 'agents:upgrade:false', 'mobile', 'serena']) {
   test(`a failed ${failed} update stops subsequent components and never claims completion`, async t => {
     const f = await fixture(t);
-    const order = ['manager', 'skills:update', 'agents:upgrade:false', 'mobile', 'serena', 'xerj'];
+    const order = ['manager', 'skills:update', 'agents:upgrade:false', 'mobile', 'serena'];
     await assert.rejects(f.run(['update'], { GESTALT_TEST_UPDATE_FAIL: failed }), error => {
       assert.doesNotMatch(error.stderr, /update complete/);
       return true;
@@ -205,7 +205,7 @@ for (const fail of [false, true]) test(`reloaded detached update worker ${fail ?
   const stopped = new Promise(resolve => relay.once('exit', resolve));
   t.after(async () => { relay.kill(); await stopped; });
   const state = join(f.home, `run/mobile-${relay.pid}.restart`);
-  const descriptor = [f.root, '--port', '4321', ''].join('\0');
+  const descriptor = [f.root, '--xerj', 'auto', '--port', '4321', ''].join('\0');
   await writeFile(state, descriptor);
   await f.run(['update-restart', 'gestalt', '--extra-skills'], {
     GESTALT_MOBILE_PID: String(relay.pid), GESTALT_MOBILE_RESTART_STATE: state,
@@ -228,7 +228,7 @@ for (const fail of [false, true]) test(`reloaded detached update worker ${fail ?
   } else await assert.rejects(readFile(state), { code: 'ENOENT' });
 });
 
-for (const scenario of ['all', 'xerj', 'all-with-symlink']) {
+for (const scenario of ['all', 'all-with-symlink']) {
   const component = scenario === 'xerj' ? 'xerj' : 'all';
   test(`GUI-compatible detached update-restart forwards ${scenario} before restarting`, async t => {
     const f = await fixture(t);
@@ -246,7 +246,7 @@ for (const scenario of ['all', 'xerj', 'all-with-symlink']) {
     await until(async () => (await f.operations()).some(item => item.startsWith('restart:')));
     await stopped;
     const expected = component === 'all'
-      ? ['manager', 'skills:update', 'agents:upgrade:false', 'mobile', 'serena', 'xerj'] : ['xerj'];
+      ? ['manager', 'skills:update', 'agents:upgrade:false', 'mobile', 'serena'] : ['xerj'];
     assert.deepEqual(await f.operations(), [...expected, 'restart:--:--port:4321']);
   });
 }

@@ -139,25 +139,3 @@ console.log(JSON.stringify({id:m.id,result:{environment:Object.fromEntries(['GES
   assert.notEqual(one.result.node, two.result.node);
   assert.equal(await readFile(other.context.markerPath, 'utf8'), JSON.stringify(other.marker));
 });
-
-test('XERJ clients retain session scratch while server scratch and persistent indexes are independent', async t => {
-  const f = await fixture(t), home = join(f.root, 'managed'), codex = join(f.root, 'codex home');
-  await mkdir(join(home, 'xerj'), {recursive: true});
-  await mkdir(join(codex, 'xerj-data'), {recursive: true});
-  const index = join(codex, 'xerj-data', 'persistent-index'); await writeFile(index, 'retain');
-  await writeFile(join(home, 'xerj/xerj'), `#!${process.execPath}
-console.log(JSON.stringify({env:process.env,args:process.argv.slice(2)}));`, {mode: 0o700});
-  const env = {...cleanEnvironment(), ...f.environment, GESTALT_HOME: home, CODEX_HOME: codex, TMPDIR: '/hostile'};
-  for (const args of [['mcp'], ['search', 'fixture'], []]) {
-    const result = spawnSync('bash', [manager, 'xerj', ...args], {cwd: f.nested, env, encoding: 'utf8', timeout: 5000});
-    assert.equal(result.status, 0, result.stderr); const output = JSON.parse(result.stdout).env;
-    if (args.length) for (const [key, value] of Object.entries(f.environment)) assert.equal(output[key], value);
-    else {
-      assert.equal(output.GESTALT_SESSION_TMP_CONTEXT, undefined);
-      assert.equal(output.TMPDIR, join(codex, 'xerj-data/tmp'));
-    }
-    assert.equal(output.XERJ_CODE_HOME, join(codex, 'xerj-data/code'));
-    assert.equal(output.XDG_CACHE_HOME, join(codex, 'xerj-data/cache'));
-  }
-  assert.equal(await readFile(index, 'utf8'), 'retain');
-});

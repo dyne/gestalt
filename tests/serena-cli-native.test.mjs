@@ -70,7 +70,7 @@ function assertNativeEnvironment(event, context, workspace) {
 // Entire public CLI path, actual native Codex and effective sandbox metadata.
 // Only the release API/backend and Responses service are deterministic stand-ins;
 // no downloaded language service, external model, or global config is involved.
-for (const mode of ['default-approval', 'dual-profile-child', 'serena-only-resume', 'excluded', 'backend-failure', 'read-only', 'approval-denied', 'edit-approval-denied']) {
+for (const mode of ['default-approval', 'profile-child', 'serena-only-resume', 'excluded', 'backend-failure', 'read-only', 'approval-denied', 'edit-approval-denied']) {
   const label = mode === 'approval-denied' ? 'server prompt preapproved' : mode === 'edit-approval-denied' ? 'per-tool prompt preapproved' : mode;
   test(`public CLI native Serena ${label}`, { timeout: 120000 }, async () => {
     const root = await mkdtemp(join(tmpdir(), 'serena-cli-native-'));
@@ -78,19 +78,19 @@ for (const mode of ['default-approval', 'dual-profile-child', 'serena-only-resum
     const workspace = join(root, 'one/project'), sibling = join(root, 'two/project');
     const plugin = join(repository, 'plugins/gestalt'), context = join(repository, 'plugins/context-mode');
     const stubs = join(root, 'stubs');
-    for (const path of [home, workspace, sibling, join(managed, 'serena'), join(managed, 'xerj'),
-      join(home, 'bin'), join(home, 'xerj-data'), join(plugin, '.codex-plugin'), join(context, '.codex-plugin'),
+    for (const path of [home, workspace, sibling, join(managed, 'serena'),
+      join(home, 'bin'), join(plugin, '.codex-plugin'), join(context, '.codex-plugin'),
       join(repository, '.agents/plugins'), join(stubs, 'ruamel'), join(stubs, 'serena/config')])
       await mkdir(path, { recursive: true });
     for (const project of [workspace, sibling]) await writeFile(join(project, 'fixture.py'), 'def fixture_symbol():\n    return 1\n');
     const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('CONTEXT_MODE_')));
-    Object.assign(env, { CODEX_HOME: home, GESTALT_HOME: managed, PYTHONPATH: stubs, XERJ_READY_TIMEOUT_MS: '5000',
+    Object.assign(env, { CODEX_HOME: home, GESTALT_HOME: managed, PYTHONPATH: stubs,
       GESTALT_SERENA_DOCTOR_TIMEOUT_MS: '500' });
     await writeFile(join(plugin, '.codex-plugin/plugin.json'), JSON.stringify({ name: 'gestalt', version: '0.0.1',
       description: 'native session composition fixture', skills: './skills/' }));
     await writeFile(join(context, '.codex-plugin/plugin.json'), JSON.stringify({ name: 'context-mode', version: '0.0.1',
       description: 'native manager prerequisite fixture' }));
-    for (const name of ['serena', 'xerj', 'kept']) {
+    for (const name of ['serena', 'kept']) {
       await mkdir(join(plugin, 'skills', name), { recursive: true });
       await writeFile(join(plugin, 'skills', name, 'SKILL.md'), `---\nname: ${name}\ndescription: Native fixture ${name}.\n---\nFixture ${name} guidance.\n`);
     }
@@ -147,26 +147,6 @@ for line in sys.stdin:
     const descriptor = { schemaVersion: 1, contractVersion: 1, version: '1.7.0', executable: native,
       python, uv: process.execPath, pythonInstallDir: root, pythonExecutables: [], tools: catalog };
     await writeFile(join(managed, 'serena/active.json'), JSON.stringify(descriptor));
-    await writeFile(join(home, 'xerj-data/admin.key'), 'fixture-key');
-    await writeFile(join(managed, 'xerj/xerj'), `#!${process.execPath}
-if(process.argv[2]==='--version'){console.log('xerj v1.0.0-rc.87');process.exit(0);}
-require('node:readline').createInterface({input:process.stdin}).on('line',line=>{
- const m=JSON.parse(line);if(m.id===undefined)return;
- const result=m.method==='initialize'?{protocolVersion:'2025-03-26',capabilities:{tools:{}},serverInfo:{name:'xerj-mcp',version:'1.0.0-rc.87'}}:
-  m.method==='tools/list'?{tools:['xerj_search','xerj_map','xerj_code_search'].map(name=>({name,inputSchema:{type:'object',properties:{}}}))}:
-  {content:[{type:'text',text:'independent fixture retrieval'}],isError:false};
- console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result}));
-});
-`, { mode: 0o755 });
-    const backend = createServer((request, response) => {
-      response.setHeader('Content-Type', 'application/json');
-      response.end(JSON.stringify(request.url === '/_cluster/health'
-        ? { cluster_name: 'xerj', status: 'green', timed_out: false, number_of_nodes: 1 } : [{ index: 'fixture' }]));
-    });
-    await new Promise(resolve => backend.listen(0, '127.0.0.1', resolve));
-    env.XERJ_URL = `http://127.0.0.1:${backend.address().port}`;
-    if (mode === 'serena-only-resume') await rm(join(managed, 'xerj/xerj'));
-
     const requests = [], errors = [], actors = new Map();
     let spawned = false, waited = false, expectedSerena = mode !== 'excluded', phase = 'initial';
     const model = createServer(async (request, response) => {
@@ -189,20 +169,19 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
       if (!JSON.stringify(input.input).includes('KEPT_INSTRUCTIONS')) errors.push(`${actorKey}: original instructions lost`);
       if (!child && phase === 'initial' && JSON.stringify(input.input).split('KEPT_SESSION_HOOK').length - 1 !== 1)
         errors.push(`${actorKey}: unrelated hook lost or duplicated`);
-      const expectedXerj = mode !== 'serena-only-resume';
-      if (tools.some(tool => tool.name?.includes('xerj_search')) !== expectedXerj) errors.push(`${actorKey}: independent XERJ catalog`);
+      if (tools.some(tool => tool.name?.includes('xerj'))) errors.push(`${actorKey}: retired retrieval tool exposed`);
       let item;
-      const names = [...(expectedSerena ? ['get_symbols_overview', 'replace_symbol_body'] : []), ...(expectedXerj ? ['xerj_search'] : [])];
+      const names = expectedSerena ? ['get_symbols_overview', 'replace_symbol_body'] : [];
       if (actor.index < names.length) {
         const name = names[actor.index++], tool = tools.find(tool => tool.name?.includes(name));
         if (tool) item = { id: 'fixture_call', type: 'function_call', status: 'completed', name: tool.name,
           ...(tool.namespace ? { namespace: tool.namespace } : {}), call_id: 'fixture_call_' + actor.index,
           arguments: JSON.stringify(name === 'get_symbols_overview' ? { relative_path: 'fixture.py' } : {}) };
-      } else if (mode === 'dual-profile-child' && !child && !spawned) {
+      } else if (mode === 'profile-child' && !child && !spawned) {
         const tool = tools.find(tool => tool.name === 'spawn_agent');
         if (tool) { spawned = true; item = { id: 'spawn', type: 'function_call', status: 'completed', name: tool.name,
           ...(tool.namespace ? { namespace: tool.namespace } : {}), call_id: 'spawn', arguments: JSON.stringify({ message: 'CHILD_FIXTURE: use Serena in this workspace.', fork_context: false }) }; }
-      } else if (mode === 'dual-profile-child' && !child && !waited) {
+      } else if (mode === 'profile-child' && !child && !waited) {
         const tool = tools.find(tool => tool.name === 'wait_agent');
         const agent = input.input.filter(item => item.type === 'function_call_output').map(item => { try { return JSON.parse(item.output).agent_id; } catch { return undefined; } }).find(Boolean);
         if (tool && agent) { waited = true; item = { id: 'wait', type: 'function_call', status: 'completed', name: tool.name,
@@ -277,7 +256,7 @@ console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result:m.method==='initialize'
         const evidence = await readFile(join(workspace, '.gestalt/serena/native-events.jsonl'), 'utf8')
           .catch(() => { throw new Error('Native backend evidence missing: ' + JSON.stringify(outputs.slice(0, 3)).slice(-2000) + '\n' + result.stderr.slice(-1500)); });
         const events = evidence.trim().split('\n').map(JSON.parse);
-        assert.equal(events.length, mode === 'dual-profile-child' ? 2 : 1, 'wrong per-thread backend count');
+        assert.equal(events.length, mode === 'profile-child' ? 2 : 1, 'wrong per-thread backend count');
         for (const event of events) {
           assert.equal(event.cwd, workspace);
           assert.equal(event.args[event.args.indexOf('--project') + 1], workspace);
@@ -290,7 +269,7 @@ console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result:m.method==='initialize'
         assert.match(toolText, /"allowed":\s*false/, 'effective sibling write denial missing');
         assert.equal(await readFile(join(workspace, 'edited.py'), 'utf8'), 'fixture edit');
         await assert.rejects(readFile(join(sibling, 'escaped.py')), { code: 'ENOENT' });
-        if (mode === 'dual-profile-child') {
+        if (mode === 'profile-child') {
           assert.ok(spawned && waited && actors.has('initial-child'), 'native child scope missing');
           if (!inheritedScratch) {
             const marker = JSON.parse(await readFile(invocation.markerPath, 'utf8'));
@@ -333,10 +312,9 @@ console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result:m.method==='initialize'
         assert.deepEqual(errors, []);
         assert.equal(await readFile(join(home, 'config.toml'), 'utf8'), config);
       }
-      if (mode !== 'serena-only-resume') assert.ok(outputs.some(item => JSON.stringify(item.output).includes('independent fixture retrieval')), 'Serena failure disabled XERJ');
     } finally {
-      model.closeAllConnections(); backend.closeAllConnections();
-      await Promise.all([new Promise(resolve => model.close(resolve)), new Promise(resolve => backend.close(resolve))]);
+      model.closeAllConnections();
+      await new Promise(resolve => model.close(resolve));
       await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
   });

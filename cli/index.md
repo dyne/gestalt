@@ -82,7 +82,7 @@ effective explicit `enabled = false` leaves managed browser access off. Native
 project/session override precedence remains in effect. Missing skills, package,
 Chrome or supported runtime interfaces leave the capability unavailable.
 
-Gestalt preapproves tools from its managed MCP servers: XERJ, Serena, Playwright,
+Gestalt preapproves tools from its managed MCP servers: Serena, Playwright,
 and its own context-mode launcher/plugin. The effective server default is
 `default_tools_approval_mode = "approve"`. Existing per-tool approval overrides
 on those servers are normalized to `approve` too, so an old `prompt` entry
@@ -176,9 +176,9 @@ listener or nested `codex sandbox` is introduced.
 Explicit user `--remote`, `--no-daemon`, `--worktree` and noninteractive
 `exec`/`review` retain their native behavior and do not enter this managed
 interactive runtime. Their managed browser capability stays unavailable. The
-ordinary launch path still supports unrelated Serena/XERJ preparation.
+ordinary launch path still supports unrelated Serena preparation.
 `GESTALT_PLAYWRIGHT_READY_TIMEOUT_MS` bounds individual browser readiness
-operations (100–60000 ms, default 5000), independently of retrieval readiness.
+operations (100–60000 ms, default 5000), independently of other capability discovery.
 
 ## Optional workspace semantics
 
@@ -206,10 +206,10 @@ The connection exposes a validated tool catalog. Verify a successful
 semantics or editing. The first native call starts the backend with that call's
 effective sandbox policy. Missing tooling, a failed connection or language
 service, denied approval, and read-only cache bootstrap all fall back to native
-code tools. XERJ and Serena are independent optional capabilities.
+code tools.
 
-Use XERJ to discover references, Serena for semantic work in the active project,
-and context-mode to analyze large output. Serena always uses Codex context and
+Use scoped `rg` and current source reads to discover references, verified Serena
+for semantic work in the active project, and context-mode to analyze large output. Serena always uses Codex context and
 editing mode; session approvals and permissions still govern every call. The
 manager defaults Serena tools to `approve` in `never` sessions, preserving
 explicit server and per-tool overrides. Collaboration plan mode also
@@ -295,7 +295,7 @@ the independent optional collection under `$CODEX_HOME/gestalt-skills`, regardle
 of `--extra-skills`. A collection failure makes the update fail; update-restart
 then keeps Mobile running. Start a new session after the
 update because running sessions retain their startup catalog. By default it also
-updates installed Serena and XERJ through their managed release installers.
+updates installed Serena and Playwright through their managed release installers.
 Optional components that are not installed are reported as skipped.
 
 Both `gestalt update` and `gestalt update gestalt` update the manager first.
@@ -309,24 +309,26 @@ Use one component name to limit the update:
 
 | Component | Scope |
 | --- | --- |
-| `all` | Gestalt core plus installed Serena and XERJ; the default |
+| `all` | Gestalt core plus installed Serena and Playwright; the default |
 | `gestalt` | Manager, Agents, optional skills, Mobile, context-mode, and generated profiles/helpers |
 | `serena` | Latest stable Serena with its private managed uv and Python tooling |
-| `xerj` | Latest official managed XERJ release |
+| `playwright` | Stable managed Playwright MCP package |
 
 ```sh
 gestalt update gestalt
 gestalt update serena
-gestalt update xerj
-gestalt update --component xerj
+gestalt update playwright
+gestalt update --component playwright
 ```
 
-Explicitly selecting `serena` or `xerj` installs that component if absent.
+Explicitly selecting `serena` or `playwright` installs that component if absent.
 The `--component NAME` form is equivalent to a positional component name.
 `--extra-skills` is supported only with `all` or `gestalt`. Node, npm, Codex,
 Kimi, and system language servers remain managed by their own installers.
-Serena's release validation and XERJ's checksum/version checks still apply;
-existing XERJ servers and indexes are preserved.
+Release validation still applies to managed component updates.
+
+For an older installation, see the [Xerj retirement and migration rules](../start/install.md#retiring-older-xerj-installations). The core update migrates only
+positively identified manager entries and preserves user data.
 
 When you are already working in a session opened through Gestalt Mobile, use:
 

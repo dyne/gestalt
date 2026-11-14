@@ -28,6 +28,8 @@ node --test "$repo_root/tests/supervision-capabilities.test.mjs"
 node --test "$repo_root/tests/setup-contract.test.mjs"
 node --test "$repo_root/tests/packaged-supervision.test.mjs"
 node --test "$repo_root/tests/update-components.test.mjs"
+node --test "$repo_root/tests/xerj-retirement.test.mjs"
+node --test "$repo_root/tests/manager-compatibility.test.mjs"
 node --test "$repo_root/tests/playwright-lifecycle.test.mjs" "$repo_root/tests/playwright-stdio.test.mjs"
 node --test "$repo_root/tests/playwright-chrome-install.test.mjs"
 node --test "$repo_root/tests/playwright-browser-config.test.mjs"
@@ -41,14 +43,7 @@ bash -n "$repo_root/public/install.sh"
 bash -n "$repo_root/npm/gestalt"
 bash "$repo_root/tests/gestalt-cli.test.sh"
 bash "$repo_root/tests/install.test.sh"
-bash "$repo_root/tests/xerj.test.sh"
-node --test "$repo_root/tests/xerj-maintenance.test.mjs"
-node --test "$repo_root/tests/xerj-index-status.test.mjs"
-node --test "$repo_root/tests/xerj-watch-doctor.test.mjs"
-node --test "$repo_root/tests/xerj-watch-installed.test.mjs"
-node --test "$repo_root/tests/xerj-readiness.test.mjs"
-node --test "$repo_root/tests/xerj-lifecycle.test.mjs"
-node --test "$repo_root/tests/xerj-cli-startup.test.mjs"
+node --test "$repo_root/tests/cli-capabilities.test.mjs"
 node --test "$repo_root/tests/cli-startup-args.test.mjs"
 node --test "$repo_root/tests/serena-authority.test.mjs" "$repo_root/tests/serena-storage.test.mjs" \
   "$repo_root/tests/serena-lifecycle.test.mjs" "$repo_root/tests/serena-doctor.test.mjs"
@@ -63,7 +58,6 @@ if command -v shellcheck >/dev/null 2>&1; then
     "$repo_root/public/install.sh" \
     "$repo_root/tests/gestalt-cli.test.sh" \
     "$repo_root/tests/install.test.sh" \
-    "$repo_root/tests/xerj.test.sh" \
     "$repo_root/tests/skills-transfer.test.sh"
 else
   printf 'tests: shellcheck unavailable; static shell lint skipped\n' >&2

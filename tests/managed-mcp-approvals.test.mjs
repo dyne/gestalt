@@ -25,7 +25,7 @@ const baseline={approval_policy:'never',sandbox_mode:'workspace-write',mcp_serve
 
 test('only owned servers/tools are preapproved; allowlists, off states and permissions survive',()=>{
   const before=JSON.stringify(baseline),result=plain(managedMcpApprovals(baseline,owner));
-  for(const name of ['gestalt-playwright','gestalt-serena','gestalt-xerj','context-mode'])
+  for(const name of ['gestalt-playwright','gestalt-serena','context-mode'])
     assert.equal(result.mcp_servers[name].default_tools_approval_mode,'approve');
   assert.equal(result.mcp_servers['gestalt-playwright'].tools.browser_navigate.approval_mode,'approve');
   assert.equal(result.mcp_servers['gestalt-playwright'].enabled,false);
@@ -33,9 +33,10 @@ test('only owned servers/tools are preapproved; allowlists, off states and permi
   assert.deepEqual(result.mcp_servers['gestalt-playwright'].enabled_tools,browser.enabled_tools);
   assert.deepEqual(result.mcp_servers['gestalt-playwright'].disabled_tools,browser.disabled_tools);
   assert.equal(result.mcp_servers['gestalt-serena'].tools.replace_symbol_body.output_token_limit,2000);
-  for(const name of ['gestalt-playwright','gestalt-serena','gestalt-xerj','context-mode'])
+  for(const name of ['gestalt-playwright','gestalt-serena','context-mode'])
     assert.deepEqual(result.mcp_servers[name].env_vars,['GESTALT_SESSION_TMP_CONTEXT','TMPDIR','TMP','TEMP']);
   assert.deepEqual(result.mcp_servers.third,baseline.mcp_servers.third);
+  assert.deepEqual(result.mcp_servers['gestalt-xerj'],baseline.mcp_servers['gestalt-xerj'], 'retired transport receives no managed privileges');
   assert.deepEqual(result.plugins['unrelated@market'],baseline.plugins['unrelated@market']);
   assert.equal(result.plugins['context-mode@dyne-gestalt-agents'].enabled,false);
   assert.equal(result.plugins['context-mode@dyne-gestalt-agents'].mcp_servers['context-mode'].tools.ctx_execute.approval_mode,'approve');

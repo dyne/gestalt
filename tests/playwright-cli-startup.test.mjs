@@ -11,7 +11,7 @@ import { managerStubScratchRuntime } from './manager-stub-fixture.mjs';
 const require = createRequire(import.meta.url);
 const parser = pathToFileURL(require.resolve('smol-toml')).href;
 const source = await readFile(resolve('public/gestalt'), 'utf8');
-const program = source.split('launch_cli_with_xerj() {')[1].split("<<'NODE'\n")[1].split('\nNODE\n')[0];
+const program = source.split('launch_cli_with_capabilities() {')[1].split("<<'NODE'\n")[1].split('\nNODE\n')[0];
 
 function managedFrontendAddress(address) {
   return typeof address === 'string' && (

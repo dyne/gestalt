@@ -58,6 +58,22 @@ export interface ProcessPort {
   identity(pid: number): Promise<ProcessIdentity | null>;
   signal(expected: ProcessIdentity, signal: 'interrupt' | 'terminate'): Promise<boolean>;
 }
+/** A lease belongs to one live kernel ownership object, never to a PID lookup. */
+export type OwnershipClaim =
+  | { readonly kind: 'unknown'; readonly lease: string; readonly reason: string }
+  | { readonly kind: 'active'; readonly lease: string; readonly backend: string }
+  | { readonly kind: 'released'; readonly lease: string; readonly backend: string; readonly result: ProcessResult };
+export interface OwnedProcessLease {
+  readonly id: string;
+  claim(): OwnershipClaim;
+  readonly completed: Promise<OwnershipClaim>;
+  /** Concurrent stops share one operation. A deadline produces unknown, never release. */
+  stop(): Promise<OwnershipClaim>;
+}
+export interface OwnedProcessPort {
+  launch(executable: string, invocation: CommandInvocation, streams: CommandStreams,
+    limits?: { readonly graceMs?: number; readonly deadlineMs?: number }): Promise<OwnedProcessLease>;
+}
 /** Fail closed if ownership/privacy cannot be proved, including Windows ACLs. */
 export interface PrivateStoragePort {
   assertPrivate(path: string, kind: 'file' | 'directory'): Promise<void>;

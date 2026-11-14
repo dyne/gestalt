@@ -10,5 +10,6 @@ New-Item -ItemType Directory -Path $nativeScratch -Force | Out-Null
 $env:TMP = $nativeScratch
 $env:TEMP = $nativeScratch
 Set-Location -LiteralPath $Repository
-& $Node --test --test-reporter=tap tests/native-platform.test.mjs
+$env:GESTALT_NATIVE_TEST_EVIDENCE = Join-Path $Repository 'native-evidence'
+& $Node --test --test-reporter=tap tests/native-platform.test.mjs tests/native-process.test.mjs
 exit $LASTEXITCODE

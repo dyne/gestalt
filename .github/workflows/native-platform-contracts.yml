@@ -34,6 +34,8 @@ jobs:
           cp dist/cli/native/*.provenance.json native-evidence/
       - name: Execute actual native contracts
         run: npm run test:platform > native-evidence/contracts.tap 2>&1
+        env:
+          GESTALT_NATIVE_TEST_EVIDENCE: native-evidence
       - uses: actions/upload-artifact@v6
         if: always()
         with:
@@ -79,6 +81,8 @@ jobs:
             New-Item -ItemType Directory native-evidence -Force | Out-Null
             Copy-Item (Join-Path $work 'contracts.tap') native-evidence/
             Copy-Item (Join-Path $work 'runner.stderr') native-evidence/
+            $ownedProvenance = Join-Path $source 'native-evidence/owned-process-tested.provenance.json'
+            if (Test-Path -LiteralPath $ownedProvenance) { Copy-Item -LiteralPath $ownedProvenance native-evidence/ }
             $nodeVersion = & node --version
             $nodeArchitecture = & node -p process.arch
             @{ platform = 'win32'; arch = $nodeArchitecture; node = $nodeVersion; os = [Environment]::OSVersion.VersionString; sha = $env:GITHUB_SHA; observedAt = [DateTime]::UtcNow.ToString('o') } | ConvertTo-Json > native-evidence/runner.json

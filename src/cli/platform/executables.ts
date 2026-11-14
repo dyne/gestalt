@@ -37,7 +37,7 @@ export class NativeExecutables implements ExecutablePort {
 }
 
 /** Recognize the complete npm cmd-shim Node template; never evaluate batch source. */
-async function commandTarget(executable: string): Promise<{ executable: string; prefix: string[] }> {
+export async function commandTarget(executable: string): Promise<{ executable: string; prefix: string[] }> {
   if (!/\.(cmd|bat)$/i.test(executable)) return { executable, prefix: [] };
   const source = (await readFile(executable, 'utf8')).replace(/\r\n/g, '\n');
   // npm 11.19.1 assigns PATHEXT inside ELSE. The newer upstream template

@@ -4,15 +4,14 @@ import { execFileSync } from 'node:child_process';
 import { chmod, copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { managerVersion } from './manager-metadata.mjs';
 
 export async function buildNpmPackage(root) {
   const source = await readFile(join(root, 'public/gestalt'), 'utf8');
-  const versions = [...source.matchAll(/^readonly GESTALT_CLI_VERSION='([^']*)'$/gm)];
-  if (versions.length !== 1 || !/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(versions[0][1]))
-    throw new Error('expected exactly one strict manager version');
+  const version = managerVersion(source);
   const manifest = JSON.parse(await readFile(join(root, 'npm/package.json'), 'utf8'));
   if (manifest.name !== '@jaromil/gestalt') throw new Error('unexpected npm package identity');
-  manifest.version = versions[0][1];
+  manifest.version = version;
   manifest.gitHead = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
   const destination = join(root, 'dist/npm');
   await rm(destination, { recursive: true, force: true });

@@ -39,6 +39,9 @@ node --test "$repo_root/tests/playwright-cli-startup.test.mjs"
 fi
 
 if [[ $test_shard != 1/2 ]]; then
+npm --prefix "$repo_root" run typecheck:cli
+npm --prefix "$repo_root" run build:cli
+npm --prefix "$repo_root" run test:contracts
 bash -n "$repo_root/public/gestalt"
 bash -n "$repo_root/public/install.sh"
 bash -n "$repo_root/npm/gestalt"

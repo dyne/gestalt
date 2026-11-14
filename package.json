@@ -6,6 +6,10 @@
     "build": "vitepress build",
     "preview": "vitepress preview",
     "test": "bash tests/run.sh",
+    "dev:cli": "node scripts/dev-cli.mjs",
+    "build:cli": "node scripts/build-cli.mjs",
+    "typecheck:cli": "tsc --project tsconfig.cli.json",
+    "test:contracts": "node --test tests/cli-contracts.test.mjs tests/native-cli.test.mjs",
     "build:package": "node scripts/build-npm-package.mjs",
     "test:package": "node --test tests/npm-package.test.mjs tests/npm-publication.test.mjs",
     "test:integration": "bash tests/run-integration.sh",
@@ -18,8 +22,10 @@
   "devDependencies": {
     "@openai/codex": "0.160.0",
     "@playwright/test": "^1.62.1",
+    "@types/node": "24.19.2",
     "esbuild": "0.27.7",
     "smol-toml": "1.9.0",
+    "typescript": "5.9.3",
     "vitepress": "^2.0.0-alpha.17",
     "vue": "^3.5.32"
   }

@@ -5,6 +5,7 @@ import path from 'node:path';
 // Fixed source only: request values are JSON data, never PowerShell or C# source.
 export const windowsSystemScript = String.raw`
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 try {
   $request = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:GESTALT_NATIVE_REQUEST)) | ConvertFrom-Json
   $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User

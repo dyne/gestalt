@@ -1,11 +1,12 @@
 # Test-only original MIT source. Never provisions profiles or live services.
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 $request = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:GESTALT_PIPE_FIXTURE)) | ConvertFrom-Json
 $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
-$acl = New-Object Security.AccessControl.PipeSecurity
+$acl = New-Object IO.Pipes.PipeSecurity
 $acl.SetOwner($sid)
 $acl.SetAccessRuleProtection($true, $false)
-$acl.AddAccessRule((New-Object Security.AccessControl.PipeAccessRule($sid, 'FullControl', 'Allow')))
+$acl.AddAccessRule((New-Object IO.Pipes.PipeAccessRule($sid, 'FullControl', 'Allow')))
 $self = [Diagnostics.Process]::GetCurrentProcess()
 $identity = @{ pid = $self.Id; started = $self.StartTime.ToUniversalTime().Ticks.ToString(); executable = $self.MainModule.FileName }
 for ($index = 0; $index -lt 2; $index++) {

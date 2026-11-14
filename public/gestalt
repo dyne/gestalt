@@ -3186,40 +3186,48 @@ configure_codex_permissions() {
   local -r config_path=$codex_home/config.toml
 
   node --input-type=module - \
-    "$config_path" "$codex_home" "$gestalt_home" "$HOME/.agents" \
+    "$config_path" "${BASH_SOURCE[0]}" "$codex_home" "$gestalt_home" "$HOME/.agents" \
     "$HOME/.local" "$HOME/.config" <<'NODE'
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { runInNewContext } from 'node:vm';
 
 const configPath = process.argv[2];
-const homeReadRoots = [...new Set(process.argv.slice(3))];
+const managerPath = process.argv[3];
+const homeReadRoots = [...new Set(process.argv.slice(4))];
+const bundle = readFileSync(managerPath, 'utf8').match(/^\/\/ BEGIN BUNDLED PROFILE TOML PARSER\n([\s\S]*?)^\/\/ END BUNDLED PROFILE TOML PARSER/m);
+if (!bundle) throw new Error('Bundled TOML parser missing');
+const { parse } = runInNewContext(bundle[1] + '\ngestaltProfileToml');
 const source = existsSync(configPath) ? readFileSync(configPath, 'utf8') : '';
-const lines = source.split(/\r?\n/);
+parse(source); // Reject invalid input before any replacement is staged.
+const newline = source.match(/\r\n|\n|\r/)?.[0] ?? '\n';
 const retained = [];
-let section = '';
+let rootSection = true;
 let removingSection = false;
-
-for (const line of lines) {
-  const table = line.match(/^\s*\[([^\]]+)]\s*(?:#.*)?$/);
-  if (table) {
-    section = table[1].trim();
-    removingSection =
-      section === 'sandbox_workspace_write' ||
-      section === 'permissions.workspace-git' ||
-      section.startsWith('permissions.workspace-git.');
-    if (removingSection) continue;
+let permissionsPosition;
+let statement = '';
+// Complete TOML statements keep multiline strings/arrays opaque. Retain raw
+// comment, whitespace and unrelated statement bytes, including mixed newlines.
+for (const line of source.match(/[^\r\n]*(?:\r\n|\n|\r|$)/g) ?? []) {
+  if (!line) continue;
+  statement += line;
+  let parsed;
+  try { parsed = parse(statement); } catch { continue; }
+  const current = statement;
+  statement = '';
+  if (/^[ \t]*\[/.test(current)) {
+    rootSection = false;
+    removingSection = Boolean(parsed.sandbox_workspace_write || parsed.permissions?.['workspace-git']);
+    if (removingSection) {
+      permissionsPosition ??= retained.length;
+      continue;
+    }
   }
-  if (removingSection) continue;
-  if (
-    section === '' &&
-    /^\s*(?:approval_policy|default_permissions|sandbox_mode)\s*=/.test(line)
-  )
-    continue;
-  retained.push(line);
+  if (removingSection && Object.keys(parsed).length) continue;
+  if (rootSection && ['approval_policy', 'default_permissions', 'sandbox_mode'].some(key => Object.hasOwn(parsed, key))) continue;
+  retained.push(current);
 }
-
-while (retained.length > 0 && retained[0].trim() === '') retained.shift();
-while (retained.length > 0 && retained.at(-1).trim() === '') retained.pop();
+if (statement) throw new Error('Could not safely localize permissions configuration');
 
 const root = [
   'approval_policy = "never"',
@@ -3245,7 +3253,15 @@ const profile = [
   '".agents" = "read"',
   '".codex" = "read"',
 ];
-const output = [...root, ...(retained.length > 0 ? ['', ...retained] : []), '', ...profile, ''].join('\n');
+const position = permissionsPosition ?? retained.length;
+let before = retained.slice(0, position).join('');
+if (before && !/[\r\n]$/.test(before)) before += newline;
+// Keep the replacement at the original owned-table boundary. Moving it past
+// another setup writer's table would strand that writer's separator on repeats.
+// Existing comments/blank lines stay intact; generated tables add no new gaps.
+const output = root.join(newline) + newline + before +
+  profile.filter(line => line !== '').join(newline) + newline + retained.slice(position).join('');
+parse(output);
 if (output === source) process.exit(0);
 
 mkdirSync(dirname(configPath), { recursive: true });

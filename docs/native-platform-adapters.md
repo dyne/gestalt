@@ -24,6 +24,13 @@ programs require a separate, explicitly designed command contract. Unix npm
 symlinks continue to resolve to executable files. Child-tree ownership belongs
 to the separate ownership adapter; stream forwarding proves no tree cleanup.
 
+The npm 11.19.1 Windows capture in `tests/fixtures/native-npm-node-shim.json`
+preserves the exact 337 bytes and SHA256 from the standard-user native run.
+Its PATHEXT assignment is inside the `ELSE` block. The recognizer accepts that
+complete template and the previously supported final-line assignment form;
+missing/duplicate assignments, changed interpreters and extra batch source fail.
+Both forms resolve a plain Node entry and forward tokens through Node directly.
+
 `NativePrivateStorage.open` creates a single private directory or validates an
 existing one without changing its ACL/mode or removing unrelated entries.
 Operations require a private root and private existing intermediate directories.

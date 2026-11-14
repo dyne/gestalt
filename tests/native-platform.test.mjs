@@ -38,6 +38,21 @@ async function forward(executable, argv, cwd, input = Buffer.from([0, 255, 10, 1
   return { result, stdout: Buffer.concat(out), stderr: Buffer.concat(err) };
 }
 
+async function capturedShim(t) {
+  const { directory } = await fixture(t);
+  const captured = JSON.parse(await readFile(path.join(root, 'tests/fixtures/native-npm-node-shim.json'), 'utf8'));
+  const bytes = Buffer.from(captured.base64, 'base64');
+  assert.equal(bytes.length, captured.bytes);
+  assert.equal(createHash('sha256').update(bytes).digest('hex'), captured.sha256);
+  assert.equal(captured.sha256, '154461822f097521778f41e0bcd358a7827ec9e9428f762d4d1f9e19f04ecee2');
+  await mkdir(path.join(directory, 'bin'));
+  await mkdir(path.join(directory, 'native-forward-fixture'));
+  await writeFile(path.join(directory, 'native-forward-fixture/entry.mjs'), '#!/usr/bin/env node\nconst chunks=[];for await(const b of process.stdin)chunks.push(b);console.log(JSON.stringify({argv:process.argv.slice(2),input:Buffer.concat(chunks).toString("hex")}));process.exitCode=31;\n');
+  const executable = path.join(directory, 'bin/fixture.cmd');
+  await writeFile(executable, bytes);
+  return { directory, executable, source: bytes.toString('utf8') };
+}
+
 test('native binary forwarding preserves empty, Unicode, spaces and shell metacharacters with binary stdin and nonzero exit', async t => {
   const { directory } = await fixture(t);
   const entry = path.join(directory, 'worker space é.mjs');
@@ -96,6 +111,34 @@ test('unrecognized batch source fails closed instead of interpolating caller arg
   const entry = path.join(directory, 'arbitrary.cmd');
   await writeFile(entry, '@echo unsafe %*\r\n');
   await assert.rejects(forward(entry, ['& echo unsafe'], directory), /Unsupported batch shim/);
+});
+
+test('captured real Windows npm shim forwards literal argv/binary input and preserves existing template compatibility', async t => {
+  const { directory, executable, source } = await capturedShim(t);
+  const argv = ['', 'space é', '&echo should-not-run', '%PATH%', '!PATH!', '|', '"', '^', 'foo\\'];
+  const variants = [source, source.replace('  SET PATHEXT=%PATHEXT:;.JS;=;%\r\n', '').replace('title %COMSPEC% & ', 'title %COMSPEC% & set PATHEXT=%PATHEXT:;.JS;=;% & ')];
+  for (const variant of variants) {
+    await writeFile(executable, variant);
+    const result = await forward(executable, argv, directory);
+    assert.deepEqual(result.result, { kind: 'exit', code: 31 });
+    assert.deepEqual(JSON.parse(result.stdout), { argv, input: '00ff0a0d80' });
+    assert.equal(result.stderr.length, 0);
+  }
+});
+
+test('captured npm shim rejects extra batch source, changed interpreter, and ambiguous PATHEXT placement', async t => {
+  const { directory, executable, source } = await capturedShim(t);
+  const invalid = [
+    source + 'echo injected\r\n',
+    source.replace('SET "_prog=node"', 'SET "_prog=cmd"'),
+    source.replace('  SET PATHEXT=%PATHEXT:;.JS;=;%\r\n', ''),
+    source.replace('title %COMSPEC% & ', 'title %COMSPEC% & set PATHEXT=%PATHEXT:;.JS;=;% & '),
+    source.replace('CALL :find_dp0', 'CALL :find_dp0\r\necho injected'),
+  ];
+  for (const variant of invalid) {
+    await writeFile(executable, variant);
+    await assert.rejects(forward(executable, ['&echo untrusted'], directory), /Unsupported batch shim/);
+  }
 });
 
 test('canonical containment refuses lexical escapes, prefix siblings, and external redirects', async t => {

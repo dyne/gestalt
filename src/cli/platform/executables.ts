@@ -40,10 +40,14 @@ export class NativeExecutables implements ExecutablePort {
 async function commandTarget(executable: string): Promise<{ executable: string; prefix: string[] }> {
   if (!/\.(cmd|bat)$/i.test(executable)) return { executable, prefix: [] };
   const source = (await readFile(executable, 'utf8')).replace(/\r\n/g, '\n');
-  const template = /^@ECHO off\nGOTO start\n:find_dp0\nSET dp0=%~dp0\nEXIT \/b\n:start\nSETLOCAL\nCALL :find_dp0\n\nIF EXIST "%dp0%\\node\.exe" \(\n  SET "_prog=%dp0%\\node\.exe"\n\) ELSE \(\n  SET "_prog=node"\n\)\n\nendLocal & goto #_undefined_# 2>NUL \|\| title %COMSPEC% & set PATHEXT=%PATHEXT:;\.JS;=;% & "%_prog%"  "%dp0%\\([^"\n%]+)" %\*\n$/;
+  // npm 11.19.1 assigns PATHEXT inside ELSE. The newer upstream template
+  // assigns it on the final line. Recognize exactly one complete placement.
+  const template = /^@ECHO off\nGOTO start\n:find_dp0\nSET dp0=%~dp0\nEXIT \/b\n:start\nSETLOCAL\nCALL :find_dp0\n\nIF EXIST "%dp0%\\node\.exe" \(\n  SET "_prog=%dp0%\\node\.exe"\n\) ELSE \(\n  SET "_prog=node"\n(?<inside>  SET PATHEXT=%PATHEXT:;\.JS;=;%\n)?\)\n\nendLocal & goto #_undefined_# 2>NUL \|\| title %COMSPEC% & (?<outside>set PATHEXT=%PATHEXT:;\.JS;=;% & )?"%_prog%"  "%dp0%\\(?<entry>[^"\r\n%]+)" %\*\n$/;
   const match = source.match(template);
-  if (!match?.[1]) throw new Error('Unsupported batch shim; a standard npm Node shim is required');
-  const target = await realpath(path.resolve(path.dirname(executable), match[1].split('\\').join(path.sep)));
+  const entry = match?.groups?.entry;
+  if (!entry || Boolean(match?.groups?.inside) === Boolean(match?.groups?.outside))
+    throw new Error('Unsupported batch shim; a standard npm Node shim is required');
+  const target = await realpath(path.resolve(path.dirname(executable), entry.split('\\').join(path.sep)));
   const firstLine = (await readFile(target, 'utf8')).split(/\r?\n/, 1)[0];
   if (!/^#!\s*(?:\/usr\/bin\/env\s+)?node\s*$/.test(firstLine ?? '')) throw new Error('npm shim target is not a plain Node entry');
   return { executable: process.execPath, prefix: [target] };

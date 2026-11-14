@@ -13,7 +13,7 @@ if (mode === 'echo') {
   const signal = () => { if (behavior === 'graceful') process.exit(17); };
   process.on('SIGTERM', signal);
   if (process.platform === 'win32') process.on('SIGBREAK', signal);
-  console.log(JSON.stringify({ kind: mode, pid: process.pid }));
+  console.log(JSON.stringify({ kind: mode === 'exit-parent' ? 'root' : mode, pid: process.pid }));
   if (mode === 'root' || mode === 'exit-parent') {
     const worker = spawn(process.execPath, [fixture, 'worker', behavior, process.env.GESTALT_OWNED_FIXTURE ?? ''], { stdio: ['ignore', 'inherit', 'inherit', 'ipc'], env: process.env });
     worker.on('message', message => {

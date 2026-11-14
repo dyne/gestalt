@@ -38,6 +38,7 @@
 #include <sys/wait.h>
 #include <sys/prctl.h>
 #include <sys/mount.h>
+#include <sys/stat.h>
 #include <time.h>
 #endif
 
@@ -112,7 +113,29 @@ static uint64_t millis(void) {
 static int mapping(const char *file, unsigned int id) {
   char data[96]; int size = snprintf(data, sizeof(data), "%u %u 1\n", id, id);
   int fd = open(file, O_WRONLY | O_CLOEXEC); if (fd < 0) return -1;
-  int result = write_all(fd, data, (uint32_t)size); close(fd); return result;
+  int result = write_all(fd, data, (uint32_t)size); int error = errno; close(fd); errno = error; return result;
+}
+static int namespace_error(const char *stage, int error, unsigned int uid, unsigned int gid) {
+  struct stat info; int known = stat("/proc/self/setgroups", &info) == 0;
+  char state[16] = "unreadable", policy[128] = "unreadable", caps[32] = "unreadable", text[900];
+  int fd = open("/proc/self/setgroups", O_RDONLY | O_CLOEXEC);
+  if (fd >= 0) { ssize_t n = read(fd, state, sizeof(state) - 1); if (n >= 0) state[n] = 0; close(fd); }
+  state[strcspn(state, "\r\n")] = 0;
+  fd = open("/proc/self/attr/current", O_RDONLY | O_CLOEXEC);
+  if (fd >= 0) { ssize_t n = read(fd, policy, sizeof(policy) - 1); if (n >= 0) policy[n] = 0; close(fd); }
+  policy[strcspn(policy, "\r\n")] = 0;
+  FILE *status = fopen("/proc/self/status", "r");
+  if (status) {
+    char line[256];
+    while (fgets(line, sizeof(line), status)) if (strncmp(line, "CapEff:", 7) == 0) {
+      (void)sscanf(line + 7, "%31s", caps); break;
+    }
+    fclose(status);
+  }
+  snprintf(text, sizeof(text), "Namespace setup refused: stage=%s errno=%d (%s) requested-uid=%u requested-gid=%u euid=%u egid=%u dumpable=%d setgroups-owner=%ld:%ld mode=%lo state=%s CapEff=%s policy=%s",
+      stage, error, strerror(error), uid, gid, (unsigned int)geteuid(), (unsigned int)getegid(), prctl(PR_GET_DUMPABLE),
+      known ? (long)info.st_uid : -1, known ? (long)info.st_gid : -1, known ? (unsigned long)(info.st_mode & 0777) : 0, state, caps, policy);
+  message('X', text); return 2;
 }
 static void graceful(int sig) { (void)sig; (void)kill(-1, SIGTERM); }
 static void init_process(char **argv, int in[2], int out[2], int err[2], int life[2], int status[2], int ready[2]) {
@@ -155,13 +178,14 @@ static int run_owned(char **argv, unsigned int grace, pid_t controller) {
   if (prctl(PR_SET_PDEATHSIG, SIGKILL) || getppid() != controller) return 2;
   if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) return 2;
   unsigned int uid = getuid(), gid = getgid();
-  if (unshare(CLONE_NEWUSER | CLONE_NEWNS)) { message('X', "Kernel user/mount namespaces unavailable; managed launch refused"); return 2; }
+  if (unshare(CLONE_NEWUSER | CLONE_NEWNS)) return namespace_error("unshare-user-mount", errno, uid, gid);
   int groups = open("/proc/self/setgroups", O_WRONLY | O_CLOEXEC);
-  if (groups < 0 || write_all(groups, "deny", 4)) { if (groups >= 0) close(groups); message('X', "Namespace group mapping refused"); return 2; }
+  if (groups < 0) return namespace_error("setgroups-open", errno, uid, gid);
+  if (write_all(groups, "deny", 4)) { int error = errno; close(groups); return namespace_error("setgroups-write", error, uid, gid); }
   close(groups);
-  if (mapping("/proc/self/uid_map", uid) || mapping("/proc/self/gid_map", gid) || unshare(CLONE_NEWPID)) {
-    message('X', "Kernel PID namespace or identity mapping unavailable; managed launch refused"); return 2;
-  }
+  if (mapping("/proc/self/uid_map", uid)) return namespace_error("uid-map", errno, uid, gid);
+  if (mapping("/proc/self/gid_map", gid)) return namespace_error("gid-map", errno, uid, gid);
+  if (unshare(CLONE_NEWPID)) return namespace_error("unshare-pid", errno, uid, gid);
   int in[2], out[2], err[2], life[2], status[2], ready[2];
   if (pipe2(in, O_CLOEXEC) || pipe2(out, O_CLOEXEC) || pipe2(err, O_CLOEXEC) || pipe2(life, O_CLOEXEC) || pipe2(status, O_CLOEXEC) || pipe2(ready, O_CLOEXEC)) return 2;
   pid_t init = fork(); if (init < 0) return 2;

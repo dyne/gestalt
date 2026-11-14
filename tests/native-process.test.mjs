@@ -17,7 +17,15 @@ const supported = ['linux', 'win32'].includes(process.platform);
 const native = { skip: supported ? false : 'No enforceable standard-user macOS owned-tree primitive; L2.2 remains incomplete', timeout: 60000 };
 const artifact = await mkdtemp(path.join(tmpdir(), 'gestalt-ownership-build-'));
 let helper;
-test.before(async () => {
+test.before(async t => {
+  if (process.platform === 'linux') {
+    const runtime = { kind: 'native-ownership-namespace-prerequisites', uid: process.getuid(), gid: process.getgid(), groups: process.getgroups() };
+    for (const [key, file] of Object.entries({ uidMap: '/proc/self/uid_map', gidMap: '/proc/self/gid_map', setgroups: '/proc/self/setgroups', policy: '/proc/self/attr/current', apparmorUserns: '/proc/sys/kernel/apparmor_restrict_unprivileged_userns' })) {
+      try { runtime[key] = (await readFile(file, 'utf8')).trim(); } catch (error) { runtime[key] = `unavailable:${error.code}`; }
+    }
+    runtime.capabilities = (await readFile('/proc/self/status', 'utf8')).split('\n').filter(line => /^(Cap(Eff|Prm|Bnd)|NoNewPrivs|Seccomp):/.test(line));
+    t.diagnostic(JSON.stringify(runtime));
+  }
   helper = await buildOwnedProcess(root, artifact);
   if (helper && process.env.GESTALT_NATIVE_TEST_EVIDENCE) {
     const evidence = path.resolve(process.env.GESTALT_NATIVE_TEST_EVIDENCE);
@@ -46,13 +54,18 @@ function collected() {
     }
   }, stderr: async bytes => { err.push(Buffer.from(bytes)); } } };
 }
+function readyOrFailure(lease, reached, label) {
+  return bounded(Promise.race([reached, lease.completed.then(claim => {
+    throw new Error(`${label} precondition not reached: ${JSON.stringify(claim)}`);
+  })]), label);
+}
 async function launchTree(t, behavior = 'resistant', mode = 'root', options = {}, nested = false) {
   const token = randomUUID(), data = collected();
   const lease = await new NativeOwnedProcesses(helper).launch(process.execPath, {
     argv: [tree, mode, behavior, token], cwd: root, environment: { ...process.env, GESTALT_OWNED_FIXTURE: token, ...(nested ? { GESTALT_NESTED_HELPER: helper } : {}) },
   }, data.streams, options);
   t.after(async () => { await bounded(lease.stop(), 'owned cleanup'); });
-  await bounded(Promise.race([data.reached, lease.completed.then(claim => { throw new Error(`Tree exited before readiness: ${JSON.stringify(claim)} ${Buffer.concat(data.err)}`); })]), 'tree readiness');
+  await readyOrFailure(lease, data.reached, 'tree readiness');
   return { token, data, lease };
 }
 async function linuxMembers(token) {
@@ -71,6 +84,12 @@ async function linuxMembers(token) {
   return result;
 }
 async function observer(t, token, events) {
+  for (const kind of ['root', 'worker', 'leaf']) {
+    const role = events.filter(event => event.kind === kind);
+    assert.equal(role.length, 1, `Actual held ${kind} identity required: ${JSON.stringify(events)}`);
+    assert.ok(Number.isSafeInteger(role[0].pid) && role[0].pid > 0);
+  }
+  const pids = [...new Set(events.filter(event => ['root', 'worker', 'leaf'].includes(event.kind)).map(event => event.pid))];
   if (process.platform === 'linux') {
     const members = await linuxMembers(token);
     assert.ok(members.length >= 4, `Expected actual init/root/worker/detached leaf; got ${JSON.stringify(members)}`);
@@ -90,13 +109,12 @@ async function observer(t, token, events) {
       }
     };
   }
-  const pids = [...new Set(events.filter(event => ['root', 'worker', 'leaf'].includes(event.kind)).map(event => event.pid))];
-  assert.equal(pids.length, 3);
+  assert.equal(pids.length, 3, `Distinct held Windows process identities required: ${JSON.stringify(events)}`);
   // Keep read-only handles to the actual held fixtures across stop. These
   // observations cannot signal a PID or confuse a later reused PID with it.
   const script = `$ErrorActionPreference='Stop';$ids=ConvertFrom-Json $env:GESTALT_FIXTURE_IDS;$held=@();foreach($id in $ids){$p=[Diagnostics.Process]::GetProcessById($id);[void]$p.Handle;$held+=,$p};[Console]::Out.WriteLine('held');[Console]::In.ReadLine()|Out-Null;foreach($p in $held){if(-not $p.WaitForExit(15000)){throw 'Fixture identity remains alive'}};[Console]::Out.WriteLine('absent')`;
   const child = spawn(path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'), ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { shell: false, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, GESTALT_FIXTURE_IDS: JSON.stringify(pids) } });
-  const exit = once(child, 'exit'); let text = '', error = ''; let held;
+  const exit = once(child, 'close'); let text = '', error = ''; let held;
   const ready = new Promise(resolve => { held = resolve; });
   child.stdout.on('data', bytes => { text += bytes; if (text.includes('held')) held(); });
   child.stderr.on('data', bytes => { error += bytes; });
@@ -106,7 +124,7 @@ async function observer(t, token, events) {
 }
 async function sentinel(t) {
   const child = spawn(process.execPath, ['-e', 'console.log("ready");setInterval(()=>{},1000)'], { stdio: ['ignore', 'pipe', 'pipe'] });
-  const exit = once(child, 'exit'); await bounded(once(child.stdout, 'data'), 'sentinel readiness');
+  const exit = once(child, 'close'); await bounded(once(child.stdout, 'data'), 'sentinel readiness');
   t.after(async () => { if (child.exitCode === null) child.kill('SIGKILL'); await bounded(exit, 'sentinel cleanup'); });
   return () => { assert.equal(child.exitCode, null); assert.equal(child.signalCode, null); assert.equal(process.kill(child.pid, 0), true); };
 }
@@ -120,7 +138,7 @@ test('owned native execution preserves argv, binary streams, environment, cwd an
   const lease = await new NativeOwnedProcesses(helper).launch(process.execPath, { argv: [tree, 'echo', ...argv], cwd: root, environment: { ...process.env, RETAINED: 'kept' } }, {
     stdin: (async function* () { yield Buffer.from([0, 255, 13, 10]); })(), stdout: async b => { out.push(Buffer.from(b)); }, stderr: async b => { err.push(Buffer.from(b)); },
   });
-  const result = await bounded(lease.completed, 'binary worker'); assert.equal(result.kind, 'released'); assert.deepEqual(result.result, { kind: 'exit', code: 23 });
+  const result = await bounded(lease.completed, 'binary worker'); assert.equal(result.kind, 'released', JSON.stringify(result)); assert.deepEqual(result.result, { kind: 'exit', code: 23 });
   assert.deepEqual(JSON.parse(Buffer.concat(out)), { argv, input: '00ff0d0a', cwd: root, retained: 'kept' }); assert.deepEqual(Buffer.concat(err), Buffer.from([255, 0, 13]));
 });
 test('owned native execution resolves the captured npm shim without evaluating batch arguments', native, async t => {
@@ -131,7 +149,7 @@ test('owned native execution resolves the captured npm shim without evaluating b
   await writeFile(path.join(directory, 'native-forward-fixture/entry.mjs'), '#!/usr/bin/env node\nconsole.log(JSON.stringify(process.argv.slice(2)));process.exitCode=29;\n');
   const argv = ['', 'space é 東京', '&echo unsafe', '%PATH%', '!PATH!', '"', 'tail\\']; const out = [];
   const lease = await new NativeOwnedProcesses(helper).launch(executable, { argv, cwd: directory, environment: process.env }, { ...emptyStreams(), stdout: async bytes => { out.push(Buffer.from(bytes)); } });
-  const claim = await bounded(lease.completed, 'owned npm shim'); assert.equal(claim.kind, 'released'); assert.deepEqual(claim.result, { kind: 'exit', code: 29 }); assert.deepEqual(JSON.parse(Buffer.concat(out)), argv);
+  const claim = await bounded(lease.completed, 'owned npm shim'); assert.equal(claim.kind, 'released', JSON.stringify(claim)); assert.deepEqual(claim.result, { kind: 'exit', code: 29 }); assert.deepEqual(JSON.parse(Buffer.concat(out)), argv);
 });
 test('resistant detached grandchild is contained, concurrent stops share one operation, sentinel is untouched', native, async t => {
   const untouched = await sentinel(t); const { token, data, lease } = await launchTree(t);
@@ -150,7 +168,7 @@ test('root exit cannot release a live detached descendant; native ownership empt
   const lease = await new NativeOwnedProcesses(helper).launch(process.execPath, { argv: [tree, 'exit-parent', 'resistant', token], cwd: root, environment: { ...process.env, GESTALT_OWNED_FIXTURE: token } }, data.streams);
   t.after(async () => { release(); await bounded(lease.stop(), 'root exit cleanup'); });
   try {
-    await bounded(data.reached, 'held parent/grandchild readiness'); const absent = await observer(t, token, data.events); release();
+    await readyOrFailure(lease, data.reached, 'held parent/grandchild readiness'); const absent = await observer(t, token, data.events); release();
     const result = await bounded(lease.completed, 'root exit tree cleanup'); assert.equal(result.kind, 'released'); assert.deepEqual(result.result, { kind: 'exit', code: 41 }); await absent();
   } finally { release(); }
 });
@@ -160,7 +178,7 @@ test('nested kernel ownership remains inside the outer ownership boundary', nati
 });
 test('launch failure before readiness proves the never-running ownership object empty', native, async () => {
   const lease = await new NativeOwnedProcesses(helper).launch(path.join(root, 'definitely-absent-owned-executable'), { argv: [], cwd: root, environment: process.env }, emptyStreams());
-  const result = await bounded(lease.completed, 'failed launch'); assert.equal(result.kind, 'released'); assert.equal(result.result.kind, 'spawn-error');
+  const result = await bounded(lease.completed, 'failed launch'); assert.equal(result.kind, 'released', JSON.stringify(result)); assert.equal(result.result.kind, 'spawn-error');
 });
 test('stale lease recovery stays unknown and cannot authorize a signal against a replacement owner', native, async t => {
   const first = await launchTree(t); assert.equal((await first.lease.stop()).kind, 'released');
@@ -171,14 +189,14 @@ test('stale lease recovery stays unknown and cannot authorize a signal against a
 test('abrupt controller death closes the ownership lifetime channel and contains resistant descendants', native, async t => {
   const untouched = await sentinel(t), token = randomUUID(), data = collected();
   const child = spawn(process.execPath, [controller, helper, tree, token], { stdio: ['ignore', 'pipe', 'pipe', 'ipc'], env: process.env });
-  const exit = once(child, 'exit'); child.stdout.on('data', bytes => { void data.streams.stdout(bytes); }); child.stderr.on('data', bytes => { data.err.push(bytes); });
+  const exit = once(child, 'close'); child.stdout.on('data', bytes => { void data.streams.stdout(bytes); }); child.stderr.on('data', bytes => { data.err.push(bytes); });
   t.after(async () => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); await bounded(exit, 'controller cleanup'); });
   await bounded(Promise.race([data.reached, exit.then(() => { throw new Error(`Controller exited early: ${Buffer.concat(data.err)}`); })]), 'controller tree readiness');
   const absent = await observer(t, token, data.events); child.kill('SIGKILL'); await bounded(exit, 'abrupt controller exit'); await absent(); untouched();
 });
 test('controller crash during launch cannot leave a suspended or unattached managed process', native, async t => {
   const token = randomUUID(); const child = spawn(process.execPath, [controller, helper, tree, token, 'immediate-crash'], { stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
-  const exit = once(child, 'exit'); child.stdout.resume(); child.stderr.resume(); await bounded(exit, 'immediate controller crash');
+  const exit = once(child, 'close'); child.stdout.resume(); child.stderr.resume(); await bounded(exit, 'immediate controller crash');
   if (process.platform === 'linux') {
     const end = Date.now() + 15000;
     while ((await linuxMembers(token)).length) { assert.ok(Date.now() < end, 'Namespace member survived launch-time controller crash'); await delay(20); }
@@ -186,7 +204,7 @@ test('controller crash during launch cannot leave a suspended or unattached mana
     const script = `$ErrorActionPreference='Stop';$end=[DateTime]::UtcNow.AddSeconds(20);do{$live=@(Get-CimInstance Win32_Process -Filter "Name = 'node.exe' OR Name = 'gestalt-owned-process.exe'" | Where-Object {$_.CommandLine -and $_.CommandLine.Contains($env:GESTALT_FIXTURE_TOKEN)});if($live.Count -eq 0){exit 0};Start-Sleep -Milliseconds 25}while([DateTime]::UtcNow -lt $end);throw 'Launch-time fixture or native job controller survived'`;
     const observed = spawn(path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'), ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { shell: false, env: { ...process.env, GESTALT_FIXTURE_TOKEN: token }, stdio: ['ignore', 'pipe', 'pipe'] });
     let diagnostic = ''; observed.stdout.resume(); observed.stderr.on('data', bytes => { diagnostic += bytes; });
-    const exitObserved = once(observed, 'exit'); t.after(async () => { if (observed.exitCode === null) observed.kill('SIGKILL'); await bounded(exitObserved, 'launch observer cleanup'); });
+    const exitObserved = once(observed, 'close'); t.after(async () => { if (observed.exitCode === null) observed.kill('SIGKILL'); await bounded(exitObserved, 'launch observer cleanup'); });
     assert.equal((await bounded(exitObserved, 'launch-time fixture absence', 30000))[0], 0, diagnostic);
   }
   t.diagnostic('Atomic namespace/job attachment precedes target execution; actual controller was SIGKILLed during launch.');
@@ -198,7 +216,7 @@ test('a held output-consumer boundary makes cleanup deadline unknown and retains
   const lease = await new NativeOwnedProcesses(helper).launch(process.execPath, { argv: [tree, 'root', 'resistant'], cwd: root, environment: { ...process.env, GESTALT_OWNED_FIXTURE: token } }, data.streams, { graceMs: 0, deadlineMs: 150 });
   t.after(async () => { release(); await bounded(lease.stop(), 'held fixture cleanup'); });
   try {
-    await bounded(reached, 'held output precondition'); const absent = await observer(t, token, data.events);
+    await readyOrFailure(lease, reached, 'held output precondition'); const absent = await observer(t, token, data.events);
     const claim = await bounded(lease.stop(), 'deadline result'); assert.equal(claim.kind, 'unknown'); assert.match(claim.reason, /deadline/);
     release(); await bounded(lease.completed, 'released output/closed native controller'); await absent(); assert.equal(lease.claim().kind, 'unknown');
   } finally { release(); }

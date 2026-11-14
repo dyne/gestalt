@@ -7,5 +7,6 @@ const launched = new NativeOwnedProcesses(helper).launch(process.execPath, {
 if (mode === 'immediate-crash') setImmediate(() => process.kill(process.pid, 'SIGKILL'));
 const lease = await launched;
 process.send?.({ kind: 'lease-ready', claim: lease.claim() });
+if (lease.claim().kind === 'unknown') throw new Error(`Ownership launch refused: ${JSON.stringify(lease.claim())}`);
 process.on('message', message => { if (message === 'crash') process.kill(process.pid, 'SIGKILL'); });
 await lease.completed;

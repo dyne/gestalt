@@ -32,6 +32,15 @@ jobs:
           mkdir -p native-evidence
           node -e 'console.log(JSON.stringify({platform:process.platform,arch:process.arch,node:process.version,os:require("node:os").release(),sha:process.env.GITHUB_SHA,observedAt:new Date().toISOString()}))' > native-evidence/runner.json
           cp dist/cli/native/*.provenance.json native-evidence/
+      - name: Record supported macOS broker commands without changing services
+        if: runner.os == 'macOS'
+        run: |
+          node --input-type=module <<'JS'
+          import { spawnSync } from 'node:child_process';
+          import { writeFileSync } from 'node:fs';
+          const result = spawnSync('/bin/launchctl', ['help'], { encoding: 'utf8', shell: false });
+          writeFileSync('native-evidence/launchctl-help.json', JSON.stringify({ command: ['/bin/launchctl', 'help'], status: result.status, signal: result.signal, error: result.error?.message, stdout: result.stdout, stderr: result.stderr, observedAt: new Date().toISOString() }));
+          JS
       - name: Execute actual native contracts
         run: npm run test:platform > native-evidence/contracts.tap 2>&1
         env:

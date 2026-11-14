@@ -179,7 +179,7 @@ test('private storage refuses redirects, hardlinks, and writes outside its root 
   await assert.rejects(storage.replaceFile(file, Buffer.from('changed')), /Hardlinked/);
   assert.equal(await readFile(file, 'utf8'), 'preserve');
   assert.equal(await readFile(unmanaged, 'utf8'), 'preserve');
-  await assert.rejects(NativePrivateStorage.open(path.join(managed, 'redirect')), /Redirected/);
+  await assert.rejects(NativePrivateStorage.open(path.join(managed, 'redirect'), peerProbe), /Redirected/);
 });
 
 test('Unix storage refuses a private existing root and a new root under a writable non-sticky parent', { skip: windows }, async t => {
@@ -349,6 +349,14 @@ test('Unix storage rejects permissive existing directories without changing perm
   const exposed = path.join(managed, 'exposed'); await mkdir(exposed, { mode: 0o755 }); await chmod(exposed, 0o755);
   await assert.rejects(storage.assertPrivate(exposed, 'directory'), /not private/);
   assert.equal((await lstat(exposed)).mode & 0o777, 0o755);
+});
+
+test('macOS refuses a missing namespace ACL probe before creating a managed root', { skip: process.platform !== 'darwin' }, async t => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'gn-missing-probe-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const destination = path.join(directory, 'private');
+  await assert.rejects(NativePrivateStorage.open(destination), /Target-built native macOS namespace ACL probe is required/);
+  await assert.rejects(lstat(destination), { code: 'ENOENT' });
 });
 
 test('macOS rejects an extended allow ACL even when POSIX mode bits remain private', { skip: process.platform !== 'darwin' }, async t => {

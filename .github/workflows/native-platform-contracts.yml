@@ -73,7 +73,7 @@ jobs:
             $credential = New-Object Management.Automation.PSCredential(($env:COMPUTERNAME + '\' + $name), $password)
             $node = (Get-Command node.exe).Source
             $script = Join-Path $source 'scripts/test-platform-standard-user.ps1'
-            $arguments = '-NoLogo -NoProfile -NonInteractive -File "' + $script + '" -Repository "' + $source + '" -Node "' + $node + '" -Scratch "' + (Join-Path $work 'scratch') + '"'
+            $arguments = '-NoLogo -NoProfile -NonInteractive -File "' + $script + '" -Repository "' + $source + '" -Node "' + $node + '"'
             $process = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Credential $credential -LoadUserProfile -ArgumentList $arguments -Wait -PassThru -RedirectStandardOutput (Join-Path $work 'contracts.tap') -RedirectStandardError (Join-Path $work 'runner.stderr')
             $result = $process.ExitCode
             New-Item -ItemType Directory native-evidence -Force | Out-Null

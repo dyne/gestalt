@@ -34,6 +34,16 @@ Both forms resolve a plain Node entry and forward tokens through Node directly.
 `NativePrivateStorage.open` creates a single private directory or validates an
 existing one without changing its ACL/mode or removing unrelated entries.
 Operations require a private root and private existing intermediate directories.
+The lookup namespace is checked before creation and on every storage operation:
+every ancestor must be owned by the current user or the trusted OS namespace
+custodian and must refuse replacement by other unprivileged principals. Unix
+rejects group/other-writable non-sticky ancestors; sticky OS temporary roots are
+allowed. macOS also inspects ancestor ACL mutation rights. Windows checks owner
+and DACL deletion, permission/ownership and attribute mutation rights, including
+null DACL refusal and read-only verification of administrator owners. Unknown
+owner/group/ACL evidence is a refusal. A protected root DACL or repeated inode
+check alone does not establish this precondition. Existing unsafe directories
+and their data/permissions are retained rather than repaired automatically.
 Unix checks user ownership and excludes group/other mode bits. macOS also requires
 the target-built probe to inspect extended ACLs, including private socket ACLs;
 allow entries for other principals fail even if mode bits remain `0700`.
@@ -57,6 +67,12 @@ A failure after promotion can report uncertain durability with the complete new
 file present; it never rolls back over a later transaction. Cooperative writers
 use these locks; arbitrary concurrent modifications by the same user or an
 administrator are outside the private-directory boundary.
+
+The interruption contract uses a child-only I/O hold after a real partial stage
+write and sync. IPC readiness establishes the live lock, private partial stage
+and old destination before the child is killed. Teardown releases and settles
+any surviving gate. Filesystem notifications and large writes are not used as
+proof that interruption happened before promotion.
 
 `NativeLocalIpc` uses local Unix sockets or managed Windows named pipes. It never
 falls back to TCP. Unix checks private socket/directory ownership, then passes the

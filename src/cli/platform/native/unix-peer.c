@@ -38,15 +38,16 @@
 #endif
 
 #ifdef __APPLE__
-static int private_acl(const char *path) {
+static int private_acl(const char *path, int parent) {
   // Query the ACL property after a successful security-aware lstat. A missing
   // property is distinct from acl_get_file returning an ambiguous NULL/ENOENT.
   filesec_t security = filesec_init();
   if (!security) return 1;
-  struct stat info; int present = 0, result = 1;
+  struct stat info, system_root; int present = 0, result = 1;
   acl_t acl = NULL;
-  if (lstatx_np(path, &info, security) != 0 || info.st_uid != getuid() ||
-      (info.st_mode & 077) != 0 || S_ISLNK(info.st_mode) ||
+  if (stat("/", &system_root) != 0 || lstatx_np(path, &info, security) != 0 ||
+      (info.st_uid != getuid() && (!parent || info.st_uid != system_root.st_uid)) ||
+      (parent ? (!S_ISDIR(info.st_mode) || ((info.st_mode & 022) != 0 && (info.st_mode & 01000) == 0)) : (info.st_mode & 077) != 0) || S_ISLNK(info.st_mode) ||
       (S_ISREG(info.st_mode) && info.st_nlink != 1) ||
       filesec_query_property(security, FILESEC_ACL, &present) != 0) goto done;
   if (!present) { result = 0; goto done; }
@@ -67,7 +68,15 @@ static int private_acl(const char *path) {
     if (!principal) goto done;
     int trusted = memcmp(principal, user_uuid, sizeof(uuid_t)) == 0 || memcmp(principal, root_uuid, sizeof(uuid_t)) == 0;
     acl_free(principal);
-    if (!trusted) goto done;
+    if (!trusted) {
+      if (!parent) goto done;
+      acl_permset_t permissions;
+      if (acl_get_permset(entry, &permissions) != 0) goto done;
+      const acl_perm_t mutations[] = { ACL_DELETE, ACL_DELETE_CHILD, ACL_WRITE_SECURITY,
+          ACL_CHANGE_OWNER, ACL_WRITE_ATTRIBUTES, ACL_WRITE_EXTATTRIBUTES };
+      for (size_t index = 0; index < sizeof(mutations) / sizeof(mutations[0]); index++)
+        if (acl_get_perm_np(permissions, mutations[index]) != 0) goto done;
+    }
   }
   if (errno != EINVAL) goto done;
   result = 0;
@@ -118,7 +127,8 @@ static int identity(pid_t pid, uid_t uid) {
 int main(int argc, char **argv) {
   pid_t pid; uid_t uid;
 #ifdef __APPLE__
-  if (argc == 3 && strcmp(argv[1], "--private") == 0) return private_acl(argv[2]);
+  if (argc == 3 && strcmp(argv[1], "--private") == 0) return private_acl(argv[2], 0);
+  if (argc == 3 && strcmp(argv[1], "--namespace") == 0) return private_acl(argv[2], 1);
 #endif
   if (argc == 3 && strcmp(argv[1], "--identity") == 0) {
     char *end = NULL; errno = 0;

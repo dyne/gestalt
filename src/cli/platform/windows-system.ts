@@ -20,7 +20,31 @@ try {
     }
     if (-not $full) { throw 'Current user lacks private full control' }
   }
-  if ($request.operation -eq 'create-directory') {
+  if ($request.operation -eq 'assert-namespace') {
+    $trusted = @($sid.Value, 'S-1-5-18', 'S-1-5-32-544', 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')
+    $adminMembers = $null
+    function Is-TrustedNamespacePrincipal([string]$identity) {
+      if ($identity -in $trusted) { return $true }
+      if ($identity -notmatch '^S-1-(5-21|12-1)-') { return $false }
+      if ($null -eq $script:adminMembers) {
+        $script:adminMembers = @(Get-LocalGroupMember -SID 'S-1-5-32-544' -ErrorAction Stop | Where-Object { $_.ObjectClass -eq 'User' } | ForEach-Object { $_.SID.Value })
+      }
+      return $identity -in $script:adminMembers
+    }
+    $mutating = [Security.AccessControl.FileSystemRights]::Delete -bor [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor [Security.AccessControl.FileSystemRights]::ChangePermissions -bor [Security.AccessControl.FileSystemRights]::TakeOwnership -bor [Security.AccessControl.FileSystemRights]::WriteData -bor [Security.AccessControl.FileSystemRights]::WriteAttributes -bor [Security.AccessControl.FileSystemRights]::WriteExtendedAttributes
+    foreach ($ancestor in $request.paths) {
+      $item = Get-Item -LiteralPath $ancestor -Force
+      if (-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw "Redirected namespace parent: $ancestor" }
+      $acl = $item.GetAccessControl()
+      $raw = New-Object Security.AccessControl.RawSecurityDescriptor($acl.GetSecurityDescriptorBinaryForm(), 0)
+      if ($null -eq $raw.DiscretionaryAcl) { throw "Unrestricted namespace parent ACL: $ancestor" }
+      if (-not (Is-TrustedNamespacePrincipal $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value)) { throw "Untrusted namespace parent owner: $ancestor" }
+      foreach ($rule in $acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {
+        if (($rule.PropagationFlags -band [Security.AccessControl.PropagationFlags]::InheritOnly) -ne 0) { continue }
+        if ($rule.AccessControlType -eq 'Allow' -and ($rule.FileSystemRights -band $mutating) -ne 0 -and -not (Is-TrustedNamespacePrincipal $rule.IdentityReference.Value)) { throw "Untrusted namespace parent can redirect managed storage: $ancestor" }
+      }
+    }
+  } elseif ($request.operation -eq 'create-directory') {
     if ([IO.Directory]::Exists($request.path) -or [IO.File]::Exists($request.path)) { throw 'Destination already exists' }
     $acl = New-Object Security.AccessControl.DirectorySecurity
     $acl.SetOwner($sid)

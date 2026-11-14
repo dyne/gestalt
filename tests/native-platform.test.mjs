@@ -7,7 +7,6 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { watch } from 'node:fs';
 import test from 'node:test';
 import { buildNativePlatform } from '../scripts/build-native-platform.mjs';
 import { NativePaths } from '../src/cli/platform/paths.ts';
@@ -51,6 +50,21 @@ async function capturedShim(t) {
   const executable = path.join(directory, 'bin/fixture.cmd');
   await writeFile(executable, bytes);
   return { directory, executable, source: bytes.toString('utf8') };
+}
+
+async function boundedFixture(promise, label, milliseconds = 30000) {
+  let timer;
+  try { return await Promise.race([promise, new Promise((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} did not settle`)), milliseconds);
+  })]); } finally { clearTimeout(timer); }
+}
+
+async function releaseFixture(child, exited) {
+  if (child.exitCode === null && child.signalCode === null) {
+    if (child.connected) child.send({ kind: 'release-stage' }, () => {});
+    try { await boundedFixture(exited, 'released fixture exit', 5000); }
+    catch { child.kill('SIGKILL'); await boundedFixture(exited, 'fixture cleanup exit', 10000); }
+  } else await boundedFixture(exited, 'closed fixture cleanup', 10000);
 }
 
 test('native binary forwarding preserves empty, Unicode, spaces and shell metacharacters with binary stdin and nonzero exit', async t => {
@@ -168,6 +182,39 @@ test('private storage refuses redirects, hardlinks, and writes outside its root 
   await assert.rejects(NativePrivateStorage.open(path.join(managed, 'redirect')), /Redirected/);
 });
 
+test('Unix storage refuses a private existing root and a new root under a writable non-sticky parent', { skip: windows }, async t => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'gn-namespace-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const parent = path.join(directory, 'writable-parent'); await mkdir(parent, { mode: 0o777 }); await chmod(parent, 0o777);
+  const existing = path.join(parent, 'existing'); await mkdir(existing, { mode: 0o700 });
+  await writeFile(path.join(existing, 'unmanaged'), 'retain', { mode: 0o600 });
+  for (const destination of [existing, path.join(parent, 'new')]) {
+    await assert.rejects(NativePrivateStorage.open(destination, peerProbe), error => /Untrusted namespace parent/.test(error.message) && error.message.includes(parent));
+  }
+  assert.equal(await readFile(path.join(existing, 'unmanaged'), 'utf8'), 'retain');
+  assert.equal((await lstat(existing)).mode & 0o777, 0o700);
+  assert.equal((await lstat(parent)).mode & 0o777, 0o777);
+  await assert.rejects(lstat(path.join(parent, 'new')), { code: 'ENOENT' });
+});
+
+test('Windows storage refuses parent DeleteChild rights even when the existing managed root has a private DACL', { skip: !windows, timeout: 120000 }, async t => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'gn-namespace-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const parent = path.join(directory, 'writable-parent'); await mkdir(parent);
+  const existing = path.join(parent, 'existing');
+  await windowsSystem({ operation: 'create-directory', path: existing });
+  await writeFile(path.join(existing, 'unmanaged'), 'retain');
+  const script = "$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';$item=Get-Item -LiteralPath $env:GESTALT_TEST_PARENT;$acl=$item.GetAccessControl();$everyone=New-Object Security.Principal.SecurityIdentifier('S-1-1-0');$acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($everyone,'DeleteSubdirectoriesAndFiles','Allow')));$item.SetAccessControl($acl)";
+  const granted = spawnSync(path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'), ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
+    { encoding: 'utf8', timeout: 15000, env: { ...process.env, GESTALT_TEST_PARENT: parent } });
+  assert.equal(granted.status, 0, granted.stderr);
+  await windowsSystem({ operation: 'assert-private', path: existing });
+  for (const destination of [existing, path.join(parent, 'new')])
+    await assert.rejects(NativePrivateStorage.open(destination), error => /namespace parent/.test(error.message) && error.message.includes('writable-parent'));
+  assert.equal(await readFile(path.join(existing, 'unmanaged'), 'utf8'), 'retain');
+  await assert.rejects(lstat(path.join(parent, 'new')), { code: 'ENOENT' });
+});
+
 test('replacing the managed root object cannot redirect an existing storage adapter', async t => {
   const { storage, managed } = await fixture(t);
   const moved = `${managed}-original`;
@@ -222,23 +269,68 @@ test('an actual interrupted staged write retains the working destination and ref
   const { storage, managed } = await fixture(t);
   const target = path.join(managed, 'state');
   await storage.replaceFile(target, Buffer.from('working'));
-  const storageUrl = pathToFileURL(path.join(root, 'src/cli/platform/storage.ts')).href;
-  let child;
-  const watcher = watch(managed);
-  const staged = new Promise((resolve, reject) => {
-    watcher.on('error', reject);
-    watcher.on('change', (_event, name) => {
-      if (String(name).endsWith('.stage')) { child.kill('SIGKILL'); resolve(String(name)); }
-    });
-  });
-  t.after(async () => { watcher.close(); if (child && child.exitCode === null && child.signalCode === null) { child.kill('SIGKILL'); await once(child, 'close'); } });
-  child = spawn(process.execPath, ['--input-type=module', '-e', `import {NativePrivateStorage} from ${JSON.stringify(storageUrl)};const s=await NativePrivateStorage.open(process.argv[1],process.argv[3]);await s.replaceFile(process.argv[2],Buffer.alloc(64*1024*1024,0x5a));`, managed, target, peerProbe ?? ''], { stdio: ['ignore', 'ignore', 'pipe'] });
+  const child = spawn(process.execPath, [path.join(root, 'tests/fixtures/native-platform-interrupted-write.mjs'), managed, target, peerProbe ?? ''],
+    { stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
   const exited = once(child, 'close');
-  const stage = await Promise.race([staged, exited.then(([code]) => { throw new Error(`stage fixture exited before interruption: ${code}`); })]);
-  await exited; watcher.close();
-  assert.equal(await readFile(target, 'utf8'), 'working');
-  assert.ok((await lstat(path.join(managed, stage))).isFile());
-  await assert.rejects(storage.replaceFile(target, Buffer.from('unsafe recovery')), /EEXIST/);
+  let diagnostic = '', held = false, interrupted = false;
+  child.stderr.on('data', bytes => { diagnostic += bytes; });
+  try {
+    const [ready] = await boundedFixture(Promise.race([once(child, 'message'), exited.then(([code]) => {
+      throw new Error(`stage fixture exited before held write: ${code}: ${diagnostic}`);
+    })]), 'stage readiness');
+    assert.equal(ready.kind, 'stage-held');
+    held = true;
+    assert.equal(path.dirname(ready.stage), managed);
+    assert.match(path.basename(ready.stage), /^\.state\..+\.stage$/);
+    assert.equal(ready.bytesWritten, 8);
+    assert.ok(ready.totalBytes > ready.bytesWritten);
+    assert.equal((await lstat(ready.stage)).size, ready.bytesWritten);
+    assert.equal(await readFile(ready.stage, 'utf8'), 'replacem');
+    await storage.assertPrivate(ready.stage, 'file');
+    assert.ok((await lstat(`${target}.lock`)).isFile());
+    assert.equal(await readFile(target, 'utf8'), 'working');
+    assert.equal(child.exitCode, null);
+    assert.equal(child.signalCode, null);
+    assert.equal(child.kill('SIGKILL'), true);
+    const [code, signal] = await boundedFixture(exited, 'interrupted fixture exit', 10000);
+    assert.ok(code !== 0 || signal !== null);
+    interrupted = true;
+    assert.equal(await readFile(target, 'utf8'), 'working');
+    assert.equal(await readFile(ready.stage, 'utf8'), 'replacem');
+    await assert.rejects(storage.replaceFile(target, Buffer.from('unsafe recovery')), /EEXIST/);
+  } finally {
+    await releaseFixture(child, exited);
+    t.diagnostic(JSON.stringify({ kind: 'interrupted-stage-preconditions', held, interrupted, remainingHeld: 0, settled: true }));
+  }
+});
+
+test('releasing a held real staged write settles the fixture and publishes the complete transaction', { timeout: 120000 }, async t => {
+  const { storage, managed } = await fixture(t);
+  const target = path.join(managed, 'state');
+  await storage.replaceFile(target, Buffer.from('working'));
+  const child = spawn(process.execPath, [path.join(root, 'tests/fixtures/native-platform-interrupted-write.mjs'), managed, target, peerProbe ?? ''],
+    { stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
+  const exited = once(child, 'close');
+  let held = false, released = false, diagnostic = '';
+  child.stderr.on('data', bytes => { diagnostic += bytes; });
+  try {
+    const [ready] = await boundedFixture(Promise.race([once(child, 'message'), exited.then(([code]) => {
+      throw new Error(`release fixture exited before held write: ${code}: ${diagnostic}`);
+    })]), 'held write readiness');
+    assert.equal(ready.kind, 'stage-held');
+    held = true;
+    assert.equal(await readFile(ready.stage, 'utf8'), 'replacem');
+    assert.equal(await readFile(target, 'utf8'), 'working');
+    await boundedFixture(new Promise((resolve, reject) => child.send({ kind: 'release-stage' }, error => error ? reject(error) : resolve())), 'release acknowledgement', 5000);
+    released = true;
+    const [code] = await boundedFixture(exited, 'released transaction exit');
+    assert.equal(code, 0, diagnostic);
+    assert.equal(await readFile(target, 'utf8'), 'replacement-transaction-payload');
+    assert.deepEqual(await readdir(managed), ['state']);
+  } finally {
+    await releaseFixture(child, exited);
+    t.diagnostic(JSON.stringify({ kind: 'released-stage-preconditions', held, released, remainingHeld: 0, settled: true }));
+  }
 });
 
 test('native long paths and Unicode names retain private storage contracts', async t => {
@@ -266,6 +358,19 @@ test('macOS rejects an extended allow ACL even when POSIX mode bits remain priva
   assert.equal(changed.status, 0, changed.stderr);
   assert.equal((await lstat(exposed)).mode & 0o077, 0);
   await assert.rejects(storage.assertPrivate(exposed, 'directory'), /macOS ACL validation failed/);
+});
+
+test('macOS storage refuses extended parent delete-child rights without relying on POSIX mode bits', { skip: process.platform !== 'darwin' }, async t => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'gn-namespace-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const parent = path.join(directory, 'acl-parent'); await mkdir(parent, { mode: 0o755 });
+  const existing = path.join(parent, 'existing'); await mkdir(existing, { mode: 0o700 });
+  await writeFile(path.join(existing, 'unmanaged'), 'retain', { mode: 0o600 });
+  const granted = spawnSync('/bin/chmod', ['+a', 'everyone allow delete_child', parent], { encoding: 'utf8' });
+  assert.equal(granted.status, 0, granted.stderr);
+  assert.equal((await lstat(parent)).mode & 0o022, 0);
+  await assert.rejects(NativePrivateStorage.open(existing, peerProbe), error => /namespace ACL validation failed/.test(error.message) && error.message.includes(parent));
+  assert.equal(await readFile(path.join(existing, 'unmanaged'), 'utf8'), 'retain');
 });
 
 test('Unix IPC validates credentials on the connected socket, carries binary protocol, and rejects mismatched creation identity', { skip: windows }, async t => {

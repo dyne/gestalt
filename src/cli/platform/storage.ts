@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import type { Bytes, PrivateStoragePort } from '../contracts.ts';
 import { NativePaths, validateNativePath } from './paths.ts';
 import { windowsSystem } from './windows-system.ts';
+import { assertStableParents } from './namespace.ts';
 
 const absent = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT';
 const execute = promisify(execFile);
@@ -26,6 +27,7 @@ export class NativePrivateStorage implements PrivateStoragePort {
     // Resolve parent aliases (e.g. macOS /var) before creation; never follow a root link.
     const destination = path.join(await realpath(path.dirname(path.resolve(root))), path.basename(root));
     if (destination === path.parse(destination).root) throw new Error('A filesystem root cannot be private managed storage');
+    await assertStableParents(destination, unixProbe);
     try { await lstat(destination); }
     catch (error) {
       if (!absent(error)) throw error;
@@ -41,6 +43,7 @@ export class NativePrivateStorage implements PrivateStoragePort {
     const destination = path.resolve(value);
     const currentRoot = await lstat(this.root, { bigint: true });
     if (currentRoot.dev !== this.rootIdentity.dev || currentRoot.ino !== this.rootIdentity.ino) throw new Error('Managed root identity changed; refusing redirected operation');
+    await assertStableParents(this.root, this.unixProbe);
     await this.paths.assertContained(this.root, destination);
     const relative = path.relative(this.root, destination);
     let cursor = this.root;

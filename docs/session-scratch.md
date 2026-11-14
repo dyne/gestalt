@@ -18,6 +18,40 @@ discovery retains operator-supplied temporary roots. Persistent tool variables,
 existing environment allowlists and native permission profiles retain their
 other settings; managed MCP allowlists append only the four contract variables.
 
+## Project commands that create Unix sockets
+
+Linux Unix socket addresses have a 108-byte limit, including the terminating
+NUL. Chrome appends `/com.google.Chrome.XXXXXX/SingletonSocket` to its temporary
+root. A canonical workspace/session path can exceed that limit before Chrome
+adds its suffix. Managed Playwright already shortens its browser paths, but a
+project's own browser tests or other native commands bypass that launcher.
+
+Inside a managed CLI or Mobile session, run these commands with:
+
+```sh
+gestalt scratch run -- npm run test:e2e
+gestalt scratch run -- npx playwright test
+```
+
+For a long Linux temporary root, the runner sets the command's `TMPDIR`, `TMP`
+and `TEMP` to `/proc/<guardian-pid>/fd/<descriptor>`. This is the same open-directory
+approach used by managed Chrome and the browser broker. It addresses the
+existing private workspace owner without creating a shared `/tmp/<pid>`
+directory. The runner verifies the directory's ownership and identity, keeps
+the descriptor open during command shutdown, and retains the canonical
+`GESTALT_SESSION_TMP_CONTEXT` for attribution. Short roots and non-Linux
+platforms retain their canonical temporary environment.
+
+Arguments after `--`, cwd, stdin, stdout, stderr and normal command exit codes
+pass through. The command runs under the caller's existing permissions. Run
+foreground commands: the existing guardian supervises the command group, and
+its borrower lease is released only after confirmed group exit. Payload stays
+in the owner for normal Forget cleanup. A missing or invalid managed context
+is rejected before command execution. Programs that canonicalize `TMPDIR`,
+override it themselves, or enter a separate PID namespace need their own
+socket-path configuration; a launcher cannot shorten arbitrary application
+socket names. The runner does not install or restart tools.
+
 ## Allocation inventory
 
 All paths below are created by `public/gestalt`. This inventory distinguishes
@@ -25,6 +59,7 @@ disposable operation scratch, persistent state and destination-local staging.
 
 | Site | Ownership and routing | Retention |
 | --- | --- | --- |
+| `scratch run` foreground command | Validated owner and a `socket-command` borrower; long Linux roots addressed through a held directory descriptor | Same session-owned payload; descriptor closes after shutdown, lease releases only after confirmed group exit |
 | Nested CLI/service owner publication: `.containment-lock` | Short private fence on every validated attributed ancestor, outermost first | Coordination metadata, not payload; reverse release only for the acquired identity. Busy/crashed/replaced claims stay protected |
 | `codex_sandbox_probe`: `gestalt-sandbox-doctor-*` | `mkdtemp(tmpdir())`; managed directory when context exists | Probe-owned tree removed on completion |
 | `serena_operator`: `gestalt-serena-doctor-*` | `mkdtemp(tmpdir())`; managed directory when context exists | Probe-owned tree; temporary probe HOME/config stays inside it |

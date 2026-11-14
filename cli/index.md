@@ -19,6 +19,7 @@ relay together without merging their state. Run `gestalt help` at any time.
 | `gestalt serena mcp --cwd ROOT` | Start Serena's workspace MCP connection over stdin/stdout |
 | `gestalt serena help` | Show Serena installation and startup commands |
 | `gestalt mobile [args…]` | Launch Gestalt Mobile and forward its options |
+| `gestalt scratch run -- COMMAND [ARG…]` | Run a managed session command with short Linux temporary paths for Chrome and other Unix socket users; see [temporary routing](../docs/session-scratch.md#project-commands-that-create-unix-sockets) |
 | `gestalt path [NAME\|--json]` | Resolve managed executable, plugin, and runtime paths |
 | `gestalt doctor` | Check prerequisites, paths, Gestalt plugin version, and Mobile version |
 | `gestalt version` | Print the manager version |

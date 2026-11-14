@@ -61,6 +61,12 @@ jobs:
         timeout-minutes: 5
         run: npm test -- --shard 2/2
 
+      # Installed Chrome is provided by the GitHub Ubuntu runner. Exercise
+      # project commands separately from the managed MCP launch path.
+      - name: Verify project Chrome socket paths
+        timeout-minutes: 2
+        run: GESTALT_TEST_CHROME="$(command -v google-chrome)" npm run test:scratch:chrome
+
       - name: Build documentation
         env:
           BASE_PATH: /gestalt/

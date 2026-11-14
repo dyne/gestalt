@@ -559,9 +559,30 @@ async function scratchStopped(child, stop = false, options = {}) {
   // never authorizes a fresh termination signal after that boundary.
   return !running() && scratchGroupAbsent(child.pid);
 }
-async function scratchGuard(ownership, command, args, cwd, lifetimeSupervisor = null, staleToken = '') {
+function scratchSocketEnvironment(environment) {
+  const directory = environment.TMPDIR;
+  if (process.platform !== 'linux' || Buffer.byteLength(directory) <= 50)
+    return {environment, close() {}};
+  // The guardian and its children share a PID namespace. Hold the original
+  // owner open until the complete command group has stopped, just as the
+  // managed Chrome and browser-broker launchers do for their Unix sockets.
+  const fd = scratchFs.openSync(directory, scratchFs.constants.O_RDONLY | scratchFs.constants.O_DIRECTORY | scratchFs.constants.O_NOFOLLOW);
+  try {
+    const held = scratchFs.fstatSync(fd), current = scratchFs.statSync(directory);
+    const alias = '/proc/' + process.pid + '/fd/' + fd;
+    const target = scratchFs.statSync(alias);
+    scratchAssert(held.isDirectory() && (!process.getuid || held.uid === process.getuid()) &&
+      (held.mode & 0o777) === 0o700 && held.dev === current.dev && held.ino === current.ino &&
+      target.dev === held.dev && target.ino === held.ino && Buffer.byteLength(alias) <= 50);
+    return {environment: {...environment, TMPDIR: alias, TMP: alias, TEMP: alias}, close() {scratchFs.closeSync(fd);}};
+  } catch (error) {scratchFs.closeSync(fd); throw error;}
+}
+async function scratchGuard(ownership, command, args, cwd, lifetimeSupervisor = null, staleToken = '', shortTemporary = false) {
   const {spawn} = require('node:child_process');
-  const environment = scratchEnvironment({...process.env, [scratchVariable]: JSON.stringify(ownership.context)});
+  const canonical = scratchEnvironment({...process.env, [scratchVariable]: JSON.stringify(ownership.context)});
+  const temporary = shortTemporary ? scratchSocketEnvironment(canonical) : {environment: canonical, close() {}};
+  const environment = temporary.environment;
+  try {
   // Composed supervision retains a live group leader through consumer shutdown,
   // then terminates its owned descendants before the outer guardian releases.
   const composed = typeof lifetimeSupervisor === 'string';
@@ -591,15 +612,16 @@ async function scratchGuard(ownership, command, args, cwd, lifetimeSupervisor = 
       })();
       return stopping;
     });
+  } finally {temporary.close();}
 }
-async function scratchSupervise(manager, ownership, command, args) {
+async function scratchSupervise(manager, ownership, command, args, shortTemporary = false) {
   const {spawn} = require('node:child_process');
   const source = scratchFs.readFileSync(manager, 'utf8').match(/^\/\/ BEGIN SESSION SCRATCH RUNTIME\n([\s\S]*?)^\/\/ END SESSION SCRATCH RUNTIME/m);
   scratchAssert(source);
-  const program = source[1] + '\nscratchGuard(JSON.parse(process.argv[1]),process.argv[2],JSON.parse(process.argv[3])).catch(()=>{process.stderr.write("gestalt: owned temporary lifetime failed; owner remains protected\\n");process.exitCode=1;process.stdin.destroy();});';
+  const program = source[1] + '\nscratchGuard(JSON.parse(process.argv[1]),process.argv[2],JSON.parse(process.argv[3]),undefined,null,"",JSON.parse(process.argv[4])).catch(()=>{process.stderr.write("gestalt: owned temporary lifetime failed; owner remains protected\\n");process.exitCode=1;process.stdin.destroy();});';
   // Separate lifetime pipe and original terminal/stdin: guardian EOF survives
   // an uncatchable controller exit and never consumes the native CLI's input.
-  const guardian = scratchSpawnProgram(program, [JSON.stringify(ownership), command, JSON.stringify(args)],
+  const guardian = scratchSpawnProgram(program, [JSON.stringify(ownership), command, JSON.stringify(args), JSON.stringify(shortTemporary)],
     {stdio: ['pipe', 'inherit', 'inherit', process[Symbol.for('gestalt.stdin.fd')] ?? 0], label: 'gestalt-cli-lifetime'});
   guardian.stdin.on('error', () => {});
   for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => {
@@ -607,6 +629,13 @@ async function scratchSupervise(manager, ownership, command, args) {
   });
   const code = await new Promise(resolve => {guardian.once('error', () => resolve(127)); guardian.once('exit', value => resolve(value ?? 143));});
   guardian.stdin.end(); process.exitCode = code;
+}
+async function scratchRun(manager, args) {
+  scratchAssert(args[0] === '--' && typeof args[1] === 'string' && args[1].length > 0);
+  const context = scratchContext();
+  scratchAssert(context);
+  const ownership = scratchBorrow(context, 'socket-command');
+  await scratchSupervise(manager, ownership, args[1], args.slice(2), true);
 }
 async function scratchCli(manager, args) {
   let selected;
@@ -647,6 +676,10 @@ if (process.argv[1] === 'scratch') {
 if (process.argv[1] === 'cli') scratchCli(process.argv[2], process.argv.slice(3)).catch(() => {
   process.stderr.write('gestalt: managed CLI temporary ownership unavailable\n'); process.exitCode = 1;
 });
+if (process.argv[1] === 'scratch-run') scratchRun(process.argv[2], process.argv.slice(3)).catch(() => {
+  process.stderr.write('gestalt: scratch run requires a valid managed context and -- COMMAND [ARG...]; owner remains protected on launch failure\n');
+  process.exitCode = 1;
+});
 if(process.argv[1]==='hook') {
  let input='';process.stdin.on('data',bytes=>{input+=bytes;if(input.length>16384)process.stdin.destroy();});
  process.stdin.on('end',()=>{try {
@@ -684,6 +717,8 @@ Commands:
                             Update from a live Mobile session, then restart Mobile.
   cli [--] [args...]        Start Codex with ~/.codex-gestalt as CODEX_HOME.
   mobile [--] [args...]     Start the managed Gestalt Mobile executable.
+  scratch run -- COMMAND [ARG...]
+                            Run a session command with short Linux Unix socket paths.
   scratch inspect --cwd ROOT --owner ID
                             Inspect an empty Mobile containment fence (read-only).
   scratch recover --cwd ROOT --owner ID --expect TOKEN --confirm-quiescent
@@ -5717,7 +5752,9 @@ main() {
     __scratch-hook) exec_node_program "$(session_scratch_runtime)" hook "$@" ;;
     scratch)
       if [[ ${1:-} == --help || ${1:-} == -h ]]; then
-        printf '%s\n' 'Stop Mobile and all runtimes/tools using this owner before recovery.' \
+        printf '%s\n' 'gestalt scratch run -- COMMAND [ARG...]' \
+          'Run a foreground command in the current managed session with short Linux socket paths.' \
+          'Stop Mobile and all runtimes/tools using this owner before recovery.' \
           'gestalt scratch inspect --cwd ROOT --owner ID' \
           'gestalt scratch recover --cwd ROOT --owner ID --expect TOKEN --confirm-quiescent' \
           'Use the token from inspect. Only an empty Mobile containment fence is removed.' \
@@ -5725,6 +5762,11 @@ main() {
           'gestalt scratch recover-tool-leases --cwd ROOT --owner ID --expect TOKEN --confirm-quiescent' \
           'Use the token from inspect-tool-leases to release abandoned Mobile Serena/Playwright borrowers.' \
           'Never use these overrides on a live session. Payload and provider history are retained.'
+      elif [[ ${1:-} == run ]]; then
+        shift
+        require_command node
+        resolve_manager_target
+        exec_node_program "$(session_scratch_runtime)" scratch-run "$manager_target" "$@"
       else
         require_command node
         exec_node_program "$(session_scratch_runtime)" scratch "$@"

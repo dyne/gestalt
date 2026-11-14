@@ -1,0 +1,95 @@
+name: Native platform contracts
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck:cli
+      - run: npm run build:platform
+      - name: Record target and helper identities
+        run: |
+          mkdir -p native-evidence
+          node -e 'console.log(JSON.stringify({platform:process.platform,arch:process.arch,node:process.version,os:require("node:os").release(),sha:process.env.GITHUB_SHA,observedAt:new Date().toISOString()}))' > native-evidence/runner.json
+          cp dist/cli/native/*.provenance.json native-evidence/
+      - name: Execute actual native contracts
+        run: npm run test:platform > native-evidence/contracts.tap 2>&1
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: native-platform-${{ matrix.os }}
+          path: native-evidence/
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck:cli
+      - name: Execute contracts as an isolated standard user
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $name = 'gn' + [Guid]::NewGuid().ToString('N').Substring(0, 12)
+          $password = ConvertTo-SecureString ([Guid]::NewGuid().ToString('N') + '!aA1') -AsPlainText -Force
+          $user = New-LocalUser -Name $name -Password $password -AccountNeverExpires
+          $work = Join-Path $env:RUNNER_TEMP $name
+          try {
+            $users = Get-LocalGroup -SID 'S-1-5-32-545'
+            Add-LocalGroupMember -Group $users -Member $user
+            New-Item -ItemType Directory -Path $work | Out-Null
+            $source = Join-Path $work 'source'
+            & robocopy $env:GITHUB_WORKSPACE $source /E /XD .git dist native-evidence /NFL /NDL /NJH /NJS /NP
+            if ($LASTEXITCODE -gt 7) { throw 'Native candidate copy failed' }
+            & icacls $work /grant ('*' + $user.SID.Value + ':(OI)(CI)F') /T /Q | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'Native fixture access setup failed' }
+            $credential = New-Object Management.Automation.PSCredential(($env:COMPUTERNAME + '\' + $name), $password)
+            $node = (Get-Command node.exe).Source
+            $script = Join-Path $source 'scripts/test-platform-standard-user.ps1'
+            $arguments = '-NoLogo -NoProfile -NonInteractive -File "' + $script + '" -Repository "' + $source + '" -Node "' + $node + '" -Scratch "' + (Join-Path $work 'scratch') + '"'
+            $process = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Credential $credential -LoadUserProfile -ArgumentList $arguments -Wait -PassThru -RedirectStandardOutput (Join-Path $work 'contracts.tap') -RedirectStandardError (Join-Path $work 'runner.stderr')
+            $result = $process.ExitCode
+            New-Item -ItemType Directory native-evidence -Force | Out-Null
+            Copy-Item (Join-Path $work 'contracts.tap') native-evidence/
+            Copy-Item (Join-Path $work 'runner.stderr') native-evidence/
+            $nodeVersion = & node --version
+            $nodeArchitecture = & node -p process.arch
+            @{ platform = 'win32'; arch = $nodeArchitecture; node = $nodeVersion; os = [Environment]::OSVersion.VersionString; sha = $env:GITHUB_SHA; observedAt = [DateTime]::UtcNow.ToString('o') } | ConvertTo-Json > native-evidence/runner.json
+            Get-FileHash src/cli/platform/windows-system.ts -Algorithm SHA256 | Format-List > native-evidence/windows-source.sha256
+            $PSVersionTable | ConvertTo-Json > native-evidence/powershell.json
+            if ($result -ne 0) { throw "Native standard-user contracts exited $result" }
+          } finally {
+            Remove-LocalUser -Name $name -ErrorAction SilentlyContinue
+          }
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: native-platform-windows
+          path: native-evidence/

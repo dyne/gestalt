@@ -39,8 +39,11 @@ not inherited. Controller-channel EOF stops the tree; a helper crash closes the
 last job handle. Nested-job failures refuse launch rather than requesting
 breakaway. A private helper console permits best-effort CTRL_BREAK to the owned
 group; escalation uses `TerminateJobObject`. Release requires successful active
-process accounting of zero on that same job handle, a root-handle result, settled
-streams and a successful helper exit. Parent exit, `taskkill`, process-name
+process accounting of zero on that same job handle, settled streams, and a
+signalled original root-process handle before querying its final result. Empty
+job accounting can precede that process object's termination signal; a bounded
+five-second same-handle wait bridges this gap. Wait timeout/failure retains
+unknown ownership. A successful helper exit is also required. Parent exit, `taskkill`, process-name
 matching and elapsed time are not release evidence. See Microsoft's
 [atomic job assignment](https://devblogs.microsoft.com/oldnewthing/20230209-00/?p=107812/)
 and [Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects).

@@ -543,7 +543,15 @@ static int run_owned_windows(int argc, wchar_t **argv, unsigned int grace) {
   if (input_write) CloseHandle(input_write);
   if (!proven) { CloseHandle(job); return 2; }
   if (WaitForMultipleObjects(2, pumps, TRUE, 5000) != WAIT_OBJECT_0) { message('X', "Owned output did not settle after empty job proof"); CloseHandle(job); return 2; }
-  if (!GetExitCodeProcess(process.hProcess, &root_code) || WaitForSingleObject(process.hProcess, 0) != WAIT_OBJECT_0 || output_failed) { CloseHandle(job); return 2; }
+  /* Empty job accounting can precede the process object's termination signal.
+   * Keep the original handle, bound its settlement, then query its final code. */
+  DWORD root_wait = WaitForSingleObject(process.hProcess, 5000);
+  if (root_wait != WAIT_OBJECT_0) {
+    DWORD error = root_wait == WAIT_FAILED ? GetLastError() : 0;
+    char reason[160]; snprintf(reason, sizeof(reason), "Owned root handle did not settle after empty job/output proof (wait=%lu error=%lu)", (unsigned long)root_wait, (unsigned long)error);
+    message('X', reason); CloseHandle(job); return 2;
+  }
+  if (!GetExitCodeProcess(process.hProcess, &root_code) || output_failed) { message('X', "Owned root result/output verification failed after signalled handle"); CloseHandle(job); return 2; }
   CloseHandle(pumps[0]); CloseHandle(pumps[1]); CloseHandle(output_read); CloseHandle(error_read);
   char result[64]; snprintf(result, sizeof(result), "exit:%lu", (unsigned long)root_code); message('F', result);
   /* This handle identifies the same job created before launch, with breakaway

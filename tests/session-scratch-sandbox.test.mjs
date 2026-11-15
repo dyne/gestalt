@@ -13,12 +13,22 @@ const execute=promisify(execFile);
 const source=await readFile(resolve('public/gestalt'),'utf8');
 const program=source.match(/^\/\/ BEGIN SESSION SCRATCH RUNTIME\n([\s\S]*?)^\/\/ END SESSION SCRATCH RUNTIME/m)[1];
 const api=new Function('require',program+'\nreturn {scratchAllocate,scratchRelease,scratchEnvironment};')(createRequire(import.meta.url));
-test('real workspace sandbox permits bounded session sockets while preserving sealed configuration restrictions',{timeout:30000},async t=>{
+test('real managed sandbox permits bounded session sockets while preserving sealed configuration restrictions',{timeout:30000},async t=>{
   const root=await realpath(await mkdtemp(join(tmpdir(),'scratch-native-')));
   const workspace=join(root,'workspace'),home=join(root,'codex-home');
   await mkdir(workspace);await mkdir(home);
   const clean={...process.env,CODEX_HOME:home};
   for(const key of ['GESTALT_SESSION_TMP_CONTEXT','TMPDIR','TMP','TEMP'])delete clean[key];
+  // Generate the exact existing Gestalt profile, including local binding,
+  // through its production writer. Do not replace it with Codex's built-in
+  // :workspace profile, which intentionally denies local sockets on macOS.
+  assert.match(source,/\nmain "\$@"\s*$/);
+  const writer=join(root,'permissions-writer'),userHome=join(root,'user-home');
+  await mkdir(userHome);
+  await writeFile(writer,source.replace(/\nmain "\$@"\s*$/,'\nload_paths\nconfigure_codex_permissions\n'));
+  await execute('bash',[writer],{env:{...clean,HOME:userHome,GESTALT_HOME:join(root,'managed')},timeout:10000});
+  const config=await readFile(join(home,'config.toml'),'utf8');
+  assert.match(config,/default_permissions = "workspace-git"/);
   await execute('git',['init','-q',workspace],{env:clean});
   await mkdir(join(workspace,'.codex'));
   const sealed=join(workspace,'.codex','protected');await writeFile(sealed,'preserved');
@@ -40,7 +50,7 @@ with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as server:
    assert peer.recv(4)==b'ping';peer.sendall(b'pong');assert client.recv(4)==b'pong'
 os.unlink(path);print('native-socket-and-restriction-ok')`;
   const binary=process.env.GESTALT_TEST_CODEX || resolve('node_modules/.bin/codex');
-  const policy=['-c','default_permissions=":workspace"','-c','approval_policy="never"','sandbox','--'];
+  const policy=['sandbox','--'];
   const result=await execute(binary,[...policy,'python3','-c',code,sealed],{cwd:workspace,env,timeout:20000});
   assert.equal(result.stdout.trim(),'native-socket-and-restriction-ok');
   assert.equal(await readFile(sealed,'utf8'),'preserved');
@@ -48,4 +58,5 @@ os.unlink(path);print('native-socket-and-restriction-ok')`;
   await execute('c++',['-std=c++17',resolve('tests/fixtures/session-scratch-socket.cpp'),'-o',cpp],{env,cwd:workspace,timeout:20000});
   const native=await execute(binary,[...policy,cpp],{cwd:workspace,env,timeout:20000});
   assert.equal(native.stdout.trim(),`cpp-socket-ok ${process.platform==='linux'?108:104}`);
+  assert.equal(await readFile(join(home,'config.toml'),'utf8'),config,'native test must preserve the production profile');
 });

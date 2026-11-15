@@ -9,7 +9,9 @@ import path from 'node:path';
 import test from 'node:test';
 import { buildCli } from '../scripts/build-cli.mjs';
 import { buildNativePlatform } from '../scripts/build-native-platform.mjs';
+import { buildOwnedProcess } from '../scripts/build-owned-process.mjs';
 import { commandTarget, NativeExecutables } from '../src/cli/platform/executables.ts';
+import { NativeOwnedProcesses } from '../src/cli/platform/processes.ts';
 
 const root = path.resolve(import.meta.dirname, '..');
 const evidence = process.env.GESTALT_NATIVE_SETUP_EVIDENCE;
@@ -23,13 +25,25 @@ test('actual compiled manager provisions accepted native Agents and repeats offl
   t.after(() => rm(base, { recursive: true, force: true }));
   const manager = await buildCli(root, path.join(base, 'gestalt.mjs'));
   const probe = await buildNativePlatform(root, path.join(base, 'native'));
+  const ownershipHelper = await buildOwnedProcess(root, path.join(base, 'native'));
+  await writeFile(path.join(evidence, 'installed-ownership.provenance.json'), await readFile(`${ownershipHelper}.provenance.json`));
   const home = path.join(base, 'home ü &'), codex = path.join(home, 'Codex ü &'), gestalt = path.join(home, 'Gestalt ü &');
   await mkdir(home, { mode: 0o700 });
   const environment = { ...process.env, HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: path.join(home, '.claude'), CONTEXT_MODE_DIR: path.join(home, 'context-mode-data'),
     CODEX_HOME: codex, GESTALT_HOME: gestalt, GESTALT_MANAGER_DISTRIBUTION: 'npm', GESTALT_AGENTS_SOURCE: await realpath(dependency),
-    GESTALT_AGENTS_SETUP_SHA256: digest(await readFile(path.join(dependency, 'gestalt-setup.mjs'))), GESTALT_NATIVE_UNIX_PROBE: probe || '',
+    GESTALT_AGENTS_SETUP_SHA256: digest(await readFile(path.join(dependency, 'gestalt-setup.mjs'))),
     CONTEXT_MODE_PACKAGE_MANAGER: 'npm', npm_config_ignore_scripts: 'true', CONTEXT_MODE_PLATFORM: 'codex', CONTEXT_MODE_WORKSPACE: base };
   for (const key of Object.keys(environment)) if (key.startsWith('GESTALT_MOBILE_ORG_PLAN_')) delete environment[key];
+  // Capture the actual filesystem UID view inside the same ownership backend.
+  // This diagnostic never substitutes for the real accepted Agents setup below.
+  const namespaceProbe = `const fs=require('node:fs'),path=require('node:path');const roots=process.argv.slice(1),ancestors=[];for(let p=path.dirname(roots[0]);;p=path.dirname(p)){try{const s=fs.statSync(p);ancestors.push({path:p,uid:s.uid,gid:s.gid,mode:s.mode&511});}catch(e){ancestors.push({path:p,error:e.code});}if(p===path.dirname(p))break;}let uidMap=null,gidMap=null;for(const [key,file] of [['uid','/proc/self/uid_map'],['gid','/proc/self/gid_map']])try{const value=fs.readFileSync(file,'utf8');if(key==='uid')uidMap=value;else gidMap=value;}catch{}console.log(JSON.stringify({platform:process.platform,uid:process.getuid?.()??null,gid:process.getgid?.()??null,uidMap,gidMap,ancestors}));`;
+  const diagnosticOutput = [], diagnosticError = [];
+  const diagnostic = await new NativeOwnedProcesses(ownershipHelper).launch(process.execPath,
+    { argv: ['-e', namespaceProbe, codex, gestalt], cwd: base, environment },
+    { stdin: (async function* () {})(), stdout: async bytes => { diagnosticOutput.push(Buffer.from(bytes)); }, stderr: async bytes => { diagnosticError.push(Buffer.from(bytes)); } });
+  const diagnosticResult = await diagnostic.result, diagnosticClaim = await diagnostic.stop();
+  await writeFile(path.join(evidence, 'owned-setup-namespace.json'), JSON.stringify({ observedAt: new Date().toISOString(), result: diagnosticResult, claim: diagnosticClaim,
+    stdout: Buffer.concat(diagnosticOutput).toString('utf8'), stderr: Buffer.concat(diagnosticError).toString('utf8'), ownershipHelperSha256: digest(await readFile(ownershipHelper)) }, null, 2));
   const checks = [];
   const run = async (label, argv, extra = {}) => {
     const observedAt = new Date().toISOString();
@@ -58,5 +72,5 @@ test('actual compiled manager provisions accepted native Agents and repeats offl
   await writeFile(path.join(evidence, 'installed-identity.json'), JSON.stringify({ platform: process.platform, architecture: process.arch, node: process.version,
     abi: process.versions.modules, managerSha256: digest(await readFile(manager)), dependencySource: environment.GESTALT_AGENTS_SOURCE,
     delegatedSetupSha256: provenance.delegatedSetupSha256, codexVersion: version.stdout?.trim(), codexStatus: version.status,
-    runtime: prepared, observedAt: new Date().toISOString() }, null, 2));
+    runtime: prepared, ownershipHelperSha256: digest(await readFile(ownershipHelper)), observedAt: new Date().toISOString() }, null, 2));
 });

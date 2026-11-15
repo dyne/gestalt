@@ -34,6 +34,18 @@ jobs:
       - run: npm install --global --ignore-scripts @openai/codex@0.164.0
       - run: npm run typecheck:cli
       - run: node scripts/record-native-setup.mjs
+      - name: Prepare disposable Ubuntu ownership namespace prerequisites
+        if: runner.os == 'Linux' && runner.environment == 'github-hosted'
+        run: |
+          set -euo pipefail
+          current_userns=$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)
+          if [[ -n $current_userns && $current_userns != 1 ]]; then
+            sudo sysctl -w kernel.unprivileged_userns_clone=1
+          fi
+          current_apparmor=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)
+          if [[ -n $current_apparmor && $current_apparmor != 0 ]]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
       - name: Execute actual native setup and installed Agents owner
         env:
           GESTALT_NATIVE_SETUP_EVIDENCE: native-evidence/setup
@@ -49,7 +61,9 @@ jobs:
 
   windows:
     runs-on: windows-latest
-    timeout-minutes: 30
+    # Snapshot3 spent ~21m in transactions despite five early fixture failures;
+    # successful repeat/selection phases plus owned cleanup need more headroom.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
         with:

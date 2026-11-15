@@ -29,6 +29,7 @@ export async function updateManager(context: SetupContext, originalArgv: readonl
   const lockIdentity = await lstat(lockRoot, { bigint: true });
   const scratch = await mkdtemp(path.join(tmpdir(), 'gestalt-update.'));
   const unlisten = context.listen();
+  let validated = false;
   try {
     const base = context.environment.GESTALT_INSTALL_BASE_URL || 'https://dyne.github.io/gestalt';
     const url = new URL(`${base.replace(/\/$/, '')}/gestalt.mjs`);
@@ -56,6 +57,7 @@ export async function updateManager(context: SetupContext, originalArgv: readonl
     const downloaded = path.join(scratch, 'gestalt.mjs');
     await writeFile(downloaded, bytes, { mode: 0o600 });
     await context.run(process.execPath, ['--check', downloaded]);
+    validated = true;
     if (current.bytes.equals(bytes)) { await context.log(`manager is already current at ${target}`); return false; }
     const staged = path.join(storage.root, 'gestalt.mjs');
     await storage.replaceFile(staged, bytes);
@@ -68,10 +70,14 @@ export async function updateManager(context: SetupContext, originalArgv: readonl
     await context.log(`updated manager at ${target}; continuing update with the newly installed manager`);
   } finally {
     unlisten();
-    await rm(scratch, { recursive: true, force: true });
+    if (context.canRollback()) await rm(scratch, { recursive: true, force: true });
+    else {
+      await writeFile(path.join(scratch, 'ownership-unknown.json'), JSON.stringify({ schemaVersion: 1, claims: context.unknownOwnership }) + '\n', { mode: 0o600 });
+      await context.log(`manager update subprocess cleanup is unknown; temporary download retained at ${scratch}`);
+    }
     const currentLock = await lstat(lockRoot, { bigint: true });
     if (currentLock.dev !== lockIdentity.dev || currentLock.ino !== lockIdentity.ino) throw new Error('manager update lock identity changed; retained');
-    await rm(lockRoot, { recursive: true });
+    if (context.canRollback() || validated) await rm(lockRoot, { recursive: true });
   }
   try { await context.run(process.execPath, [target, '__updated-manager', ...originalArgv]); }
   catch (error) { if (error instanceof CommandFailure) throw error; throw new Error('could not resume the updated manager', { cause: error }); }

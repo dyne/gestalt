@@ -78,9 +78,10 @@ export async function restartWorker(context: SetupContext, args: readonly string
   const existingLog = await readProfile(log);
   if (existingLog) await storage.assertPrivate(log, 'file');
   const handle = await open(log, 'a', 0o600);
+  let worker: SetupContext | null = null, retainLock = false;
   try {
     const write = async (bytes: Uint8Array) => { await handle.write(bytes); };
-    const worker = new SetupContext(context.invocation, { ...context.streams, stdout: write, stderr: write }, context.paths, context.version);
+    worker = new SetupContext(context.invocation, { ...context.streams, stdout: write, stderr: write }, context.paths, context.version);
     await worker.log(`starting live update at ${new Date().toISOString()}`);
     // Preserve the endpoint's chance to flush its accepted response.
     await delay(1000);
@@ -104,10 +105,11 @@ export async function restartWorker(context: SetupContext, args: readonly string
     await worker.run(process.execPath, [context.paths.manager, 'mobile', '--', ...argv], { cwd });
     return 0;
   } catch (error) {
+    retainLock = worker !== null && !worker.canRollback();
     await handle.write(`gestalt: ${error instanceof Error ? error.message : error}\n`);
     return error instanceof CommandFailure ? error.status : 1;
   } finally {
     await handle.close();
-    if (await optionalStat(lock)) { await checkLock(); await unlink(path.join(lock, 'owner.json')); await rmdir(lock); }
+    if (!retainLock && await optionalStat(lock)) { await checkLock(); await unlink(path.join(lock, 'owner.json')); await rmdir(lock); }
   }
 }

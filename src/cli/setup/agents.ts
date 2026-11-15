@@ -3,7 +3,7 @@ import path from 'node:path';
 import { approvalConfiguration, permissionConfiguration } from './configuration.mjs';
 import { acquireSetupGate, digest, readProfile, replaceProfile } from './profile-files.ts';
 import type { ProfileSnapshot } from './profile-files.ts';
-import { optionalStat, SetupContext } from './context.ts';
+import { CommandFailure, optionalStat, SetupContext } from './context.ts';
 import type { NativePrivateStorage } from '../platform/storage.ts';
 
 type Plugin = { name?: string; version?: string; installed?: boolean; enabled?: boolean };
@@ -54,12 +54,12 @@ async function claimHomes(storages: readonly NativePrivateStorage[]): Promise<()
  * package, runtime, hooks, profiles and its independent rollback transaction. */
 export async function setupAgents(context: SetupContext, mode: 'install' | 'upgrade', extraSkills: boolean): Promise<void> {
   if (Number(process.versions.node.split('.')[0]) < 24) throw new Error(`Node.js 24 or newer is required; found ${process.versions.node}`);
-  await context.require('npm'); await context.require('codex');
+  await context.require('npm'); await context.require('codex'); await context.requireOwnership();
   const { codexHome, gestaltHome, marketplace, marketplaceName, userHome, manager } = context.paths;
   const codexStorage = await context.storage(codexHome), gestaltStorage = await context.storage(gestaltHome);
   const operation = await codexStorage.acquireLock(path.join(codexHome, '.gestalt-manager-setup.lock'));
   let releaseGate: (() => Promise<void>) | null = null;
-  let stage: string | null = null, original: ProfileSnapshot | null = null, snapshotReady = false, preserve = false;
+  let stage: string | null = null, original: ProfileSnapshot | null = null, snapshotReady = false, preserve = false, retainLocks = false;
   const configFile = path.join(codexHome, 'config.toml');
   const normalize = async () => {
     const before = await readProfile(configFile), source = before?.bytes.toString('utf8') ?? '';
@@ -116,13 +116,29 @@ export async function setupAgents(context: SetupContext, mode: 'install' | 'upgr
     const destination = path.join(codexHome, '.gestalt-setup-provenance.json');
     const old = await readProfile(destination);
     if (!old?.bytes.equals(provenance)) await codexStorage.replaceFile(destination, provenance);
+    if (!context.canRollback()) {
+      preserve = true;
+      await codexStorage.replaceFile(path.join(stage, 'ownership-unknown.json'), Buffer.from(JSON.stringify({
+        schemaVersion: 1, status: 'command-succeeded-cleanup-unknown', claims: context.unknownOwnership,
+      }) + '\n'));
+      await context.log(`setup command succeeded; complete descendant absence is unknown on macOS; snapshot retained at ${stage}`);
+    }
   } catch (error) {
+    if (!context.canRollback()) {
+      preserve = true; retainLocks = true;
+      if (stage) await codexStorage.replaceFile(path.join(stage, 'ownership-unknown.json'), Buffer.from(JSON.stringify({
+        schemaVersion: 1, status: 'failed-cleanup-unknown', claims: context.unknownOwnership,
+      }) + '\n')).catch(() => {});
+      throw new CommandFailure(`${error instanceof Error ? error.message : error}; setup rollback is unconfirmed; configuration snapshot and setup locks retained at ${stage ?? codexHome}`,
+        error instanceof CommandFailure ? error.status : 1);
+    }
     if (snapshotReady) {
       try {
         releaseGate ??= await claimHomes([codexStorage, gestaltStorage]);
         const current = await readProfile(configFile);
         if (original) await replaceProfile(codexStorage, configFile, original.bytes, current);
         else if (current) await unlink(configFile);
+        await context.log('previous configuration restored after owned setup writers stopped');
       } catch (rollback) {
         preserve = true;
         throw new Error(`${error instanceof Error ? error.message : error}; configuration rollback needs inspection at ${stage}: ${rollback instanceof Error ? rollback.message : rollback}`, { cause: error });
@@ -131,8 +147,8 @@ export async function setupAgents(context: SetupContext, mode: 'install' | 'upgr
     throw error;
   } finally {
     unlisten();
-    if (releaseGate) await releaseGate();
+    if (releaseGate && !retainLocks) await releaseGate();
     if (stage && !preserve) await rm(stage, { recursive: true });
-    await operation.release();
+    if (!retainLocks) await operation.release();
   }
 }

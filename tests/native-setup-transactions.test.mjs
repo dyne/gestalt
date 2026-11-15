@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -9,18 +9,29 @@ import test from 'node:test';
 import { parse } from 'smol-toml';
 import { buildCli } from '../scripts/build-cli.mjs';
 import { buildNativePlatform } from '../scripts/build-native-platform.mjs';
+import { buildOwnedProcess } from '../scripts/build-owned-process.mjs';
 import { NativePrivateStorage } from '../src/cli/platform/storage.ts';
 import { CommandFailure, SetupContext } from '../src/cli/setup/context.ts';
 import { restartWorker } from '../src/cli/setup/restart.ts';
 import { updateManager } from '../src/cli/setup/manager-update.ts';
+import { capturedNodeCommand } from './fixtures/native-node-command.mjs';
 
 const repository = path.resolve(import.meta.dirname, '..');
 const artifacts = await mkdtemp(path.join(tmpdir(), 'native-setup-build-'));
 const manager = await buildCli(repository, path.join(artifacts, 'gestalt.mjs'));
 const unixProbe = await buildNativePlatform(repository, path.join(artifacts, 'native'));
+const ownershipHelper = await buildOwnedProcess(repository, path.join(artifacts, 'native'));
+if (process.env.GESTALT_NATIVE_SETUP_EVIDENCE) {
+  await mkdir(process.env.GESTALT_NATIVE_SETUP_EVIDENCE, { recursive: true });
+  await copyFile(`${ownershipHelper}.provenance.json`, path.join(process.env.GESTALT_NATIVE_SETUP_EVIDENCE, 'transaction-ownership.provenance.json'));
+  await copyFile(ownershipHelper, path.join(process.env.GESTALT_NATIVE_SETUP_EVIDENCE, path.basename(ownershipHelper)));
+}
 test.after(() => rm(artifacts, { recursive: true, force: true }));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const custom = '# keep custom model\nmodel="fixture-custom"\n[mcp_servers.custom]\ncommand="custom"\ndefault_tools_approval_mode="prompt"\n';
+// Native Windows ACL setup measured 117–138s even on an early failed attempt;
+// readiness remains an observed phase, never a deadline-based success condition.
+const phaseBudgetMs = process.platform === 'win32' ? 300_000 : 60_000;
 
 async function command(bin, name, body) {
   const script = path.join(bin, `${name}.mjs`);
@@ -29,14 +40,15 @@ async function command(bin, name, body) {
     await writeFile(path.join(bin, name), '#!/usr/bin/env node\n' + body, { mode: 0o755 });
   } else {
     const captured = JSON.parse(await readFile(path.join(repository, 'tests/fixtures/native-npm-node-shim.json'), 'utf8'));
-    const shim = Buffer.from(captured.base64, 'base64').toString('utf8').replace('.\\native-forward-fixture\\entry.mjs', `${name}.mjs`);
+    const shim = capturedNodeCommand(captured, `${name}.mjs`);
     await writeFile(path.join(bin, `${name}.cmd`), shim);
   }
 }
 
 async function fixture(t, config = custom) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), 'native setup ü & ')));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  let retained = false;
+  t.after(() => retained ? undefined : rm(root, { recursive: true, force: true }));
   const home = path.join(root, 'home ü &'), codex = path.join(home, 'Codex ü &'), gestalt = path.join(home, 'Gestalt ü &');
   await mkdir(home, { mode: 0o700 });
   const storage = await NativePrivateStorage.open(codex, unixProbe);
@@ -73,7 +85,7 @@ for(const file of ['cli.bundle.mjs','server.bundle.mjs'])await fs.writeFile(path
 `);
   const env = { ...process.env, HOME: home, USERPROFILE: home, CODEX_HOME: codex, GESTALT_HOME: gestalt,
     GESTALT_AGENTS_SOURCE: ownerRoot, GESTALT_AGENTS_SETUP_SHA256: hash(await readFile(owner)), GESTALT_MANAGER_DISTRIBUTION: 'npm',
-    GESTALT_NATIVE_UNIX_PROBE: unixProbe || '', FIXTURE_LOG: log, FIXTURE_READY: path.join(root, 'ready'), FIXTURE_RELEASE: path.join(root, 'release'),
+    FIXTURE_LOG: log, FIXTURE_READY: path.join(root, 'ready'), FIXTURE_RELEASE: path.join(root, 'release'),
     PATH: [bin, path.dirname(process.execPath), process.env.PATH].join(path.delimiter), PATHEXT: '.CMD;.EXE' };
   for (const name of Object.keys(env)) if (name.toUpperCase() === 'PATH' && name !== 'PATH') delete env[name];
   function start(argv, extra = {}) {
@@ -83,17 +95,164 @@ for(const file of ['cli.bundle.mjs','server.bundle.mjs'])await fs.writeFile(path
     const result = new Promise((resolve, reject) => { child.once('error', reject); child.once('close', status => resolve({ status, stdout, stderr })); });
     return { child, result };
   }
-  return { root, home, codex, gestalt, owner, ownerRoot, env, log, storage, start,
+  return { root, home, codex, gestalt, owner, ownerRoot, env, log, storage, start, retain: () => { retained = true; },
     run: (argv = ['agents', 'install'], extra) => start(argv, extra).result,
     config: () => readFile(path.join(codex, 'config.toml'), 'utf8'),
     provenance: () => readFile(path.join(codex, '.gestalt-setup-provenance.json'), 'utf8') };
 }
-async function until(check, message) {
-  const deadline = Date.now() + 15_000;
-  while (Date.now() < deadline) { if (await check()) return; await new Promise(resolve => setTimeout(resolve, 20)); }
+async function until(check, message, timeoutMs = 15_000, operation) {
+  const deadline = Date.now() + timeoutMs;
+  let completed;
+  if (operation) void operation.then(result => { completed = result; }, error => { completed = { status: 'spawn-error', stderr: error.message }; });
+  while (Date.now() < deadline) {
+    if (await check()) return;
+    if (completed) assert.fail(`${message}; command exited before the phase (status ${completed.status}): ${(completed.stderr || '').slice(-2048)}`);
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
   assert.fail(message);
 }
+async function settleFixture(pending, fixture) {
+  let timer;
+  try {
+    return await Promise.race([pending.result, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('released fixture did not settle within its phase budget')), phaseBudgetMs + 60_000);
+    })]);
+  } catch (error) {
+    fixture.retain();
+    if (pending.child.exitCode === null && pending.child.signalCode === null) pending.child.kill('SIGKILL');
+    await pending.result.catch(() => {});
+    throw error;
+  } finally { clearTimeout(timer); }
+}
 const exists = file => stat(file).then(() => true, error => { if (error.code === 'ENOENT') return false; throw error; });
+async function linuxSetupIdentities(token) {
+  const members = [];
+  for (const pid of (await readdir('/proc')).filter(name => /^\d+$/.test(name))) {
+    try {
+      if (!(await readFile(`/proc/${pid}/environ`, 'utf8')).split('\0').includes(`GESTALT_SETUP_DESCENDANT=${token}`)) continue;
+      const info = await readFile(`/proc/${pid}/stat`, 'utf8');
+      members.push({ pid: Number(pid), started: info.slice(info.lastIndexOf(')') + 2).split(' ')[19] });
+    } catch (error) { if (!['ENOENT', 'ESRCH', 'EACCES', 'EPERM'].includes(error.code)) throw error; }
+  }
+  return members;
+}
+async function windowsSetupObserver(pid) {
+  const script = "$ErrorActionPreference='Stop';$p=[Diagnostics.Process]::GetProcessById([int]$env:GESTALT_SETUP_OBSERVE_PID);[void]$p.Handle;[Console]::Out.WriteLine('held:'+ $p.Id + ':' + $p.StartTime.ToUniversalTime().Ticks);[Console]::In.ReadLine()|Out-Null;if(-not $p.WaitForExit(15000)){throw 'Captured setup descendant remains alive'};[Console]::Out.WriteLine('absent')";
+  const child = spawn(path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'), ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
+    { shell: false, env: { ...process.env, GESTALT_SETUP_OBSERVE_PID: String(pid) }, stdio: ['pipe', 'pipe', 'pipe'] });
+  let stdout = '', stderr = '', exit;
+  const completion = new Promise((resolve, reject) => { child.once('error', reject); child.once('close', status => { exit = status; resolve(status); }); });
+  void completion.catch(() => {});
+  child.stdin.on('error', () => {});
+  child.stdout.on('data', data => stdout += data); child.stderr.on('data', data => stderr += data);
+  try {
+    await until(async () => { if (exit !== undefined) throw new Error(`native setup observer failed before identity capture: ${stderr}`); return /held:\d+:\d+/.test(stdout); }, 'native setup observer did not capture a process handle');
+  } catch (error) {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    await completion.catch(() => {}); throw error;
+  }
+  const identity = stdout.match(/held:(\d+):(\d+)/).slice(1);
+  let verified = false;
+  return { identity, verify: async () => {
+    if (verified) return;
+    child.stdin.end('\n');
+    assert.equal(await completion, 0, stderr); assert.match(stdout, /absent/); verified = true;
+  } };
+}
+
+test('actual native interruption fences setup descendants or retains unknown transaction ownership', { timeout: phaseBudgetMs + 120_000 }, async t => {
+  const f = await fixture(t), ready = path.join(f.root, 'descendant.json'), heartbeat = path.join(f.root, 'descendant-writes'), release = path.join(f.root, 'stop-descendant'), done = path.join(f.root, 'descendant-done');
+  const token = crypto.randomUUID(), config = path.join(f.codex, 'config.toml');
+  const descendant = `const fs=require('node:fs');process.on('SIGTERM',()=>{});process.on('SIGINT',()=>{});const token=${JSON.stringify(token)};
+fs.writeFileSync(${JSON.stringify(ready)},JSON.stringify({pid:process.pid,token}));
+const interval=setInterval(()=>{if(fs.existsSync(${JSON.stringify(release)})){clearInterval(interval);fs.writeFileSync(${JSON.stringify(done)},token);process.exit(0);}fs.appendFileSync(${JSON.stringify(heartbeat)},token+'\\n');fs.writeFileSync(${JSON.stringify(config)},'# resistant descendant '+token+'\\n');},40);setTimeout(()=>process.exit(0),20000);`;
+  await writeFile(f.owner, `import {spawn} from 'node:child_process';const child=spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{detached:true,stdio:'ignore'});child.unref();setInterval(()=>{},1000);`);
+  const extra = { GESTALT_AGENTS_SETUP_SHA256: hash(await readFile(f.owner)), GESTALT_SETUP_DESCENDANT: token };
+  let leases;
+  // A synthetic owner is isolated CI data. An existing owning context is always
+  // inherited unchanged rather than remapping the active session's TMP roots.
+  if (process.platform !== 'win32' && !Object.hasOwn(process.env, 'GESTALT_SESSION_TMP_CONTEXT')) {
+    const sessionId = `setup-${token}`, ownerId = 'mobile-' + hash(Buffer.from(sessionId)), directory = path.join(f.root, 'tmp/sessions', ownerId), markerPath = path.join(directory, '.gestalt-owner.json');
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    await writeFile(markerPath, JSON.stringify({ schemaVersion: 1, ownerKind: 'mobile-session', ownerId, workspacePath: f.root, sessionId,
+      createdAt: new Date().toISOString(), authority: { kind: 'mobile-roster', sessionId }, providerThreads: [] }), { mode: 0o600 });
+    extra.GESTALT_SESSION_TMP_CONTEXT = JSON.stringify({ schemaVersion: 1, workspacePath: f.root, ownerId, directory, markerPath });
+    leases = path.join(directory, 'leases');
+  }
+  const pending = f.start(['agents', 'install'], extra);
+  let started = false, observer, heldIdentities = null;
+  try {
+    await until(async () => {
+      if (!(await exists(ready)) || !(await exists(heartbeat))) return false;
+      const identity = JSON.parse(await readFile(ready, 'utf8'));
+      return identity.token === token && (await readFile(heartbeat, 'utf8')).split('\n').length >= 3;
+    }, 'resistant detached descendant did not establish its writes', phaseBudgetMs, pending.result);
+    started = true;
+    if (process.platform === 'linux') {
+      heldIdentities = await linuxSetupIdentities(token);
+      assert.ok(heldIdentities.length >= 4, 'real controller/helper/installer/detached identities must be captured before cancellation');
+    } else if (process.platform === 'win32') {
+      observer = await windowsSetupObserver(JSON.parse(await readFile(ready, 'utf8')).pid);
+      heldIdentities = observer.identity;
+    }
+    // Windows TerminateProcess is an actual abrupt parent death; POSIX uses a
+    // real catchable SIGTERM. Neither path injects a fake platform or release.
+    pending.child.kill(process.platform === 'win32' ? 'SIGKILL' : 'SIGTERM');
+    const result = await pending.result;
+    if (process.platform !== 'win32') assert.equal(result.status, 143, result.stderr);
+    if (process.platform === 'linux') {
+      assert.equal(await f.config(), custom);
+      assert.match(result.stderr, /previous configuration restored after owned setup writers stopped/);
+      assert.equal(await exists(path.join(f.codex, '.gestalt-manager-setup.lock')), false);
+    } else {
+      assert.equal(await exists(path.join(f.codex, '.gestalt-manager-setup.lock')), true);
+      const stages = (await readdir(f.codex)).filter(name => name.startsWith('.gestalt-setup.'));
+      assert.equal(stages.length, 1);
+      assert.equal(await readFile(path.join(f.codex, stages[0], 'config.toml'), 'utf8'), custom);
+      assert.doesNotMatch(result.stderr, /previous configuration restored/);
+    }
+    if (process.platform === 'win32') await observer.verify();
+    else if (process.platform === 'linux') await until(async () => {
+      for (const expected of heldIdentities) {
+        try { const info = await readFile(`/proc/${expected.pid}/stat`, 'utf8'); if (info.slice(info.lastIndexOf(')') + 2).split(' ')[19] === expected.started) return false; }
+        catch (error) { if (!['ENOENT', 'ESRCH'].includes(error.code)) throw error; }
+      }
+      return true;
+    }, 'captured setup process creation identities remain after release');
+    const before = await readFile(heartbeat, 'utf8'), profile = await f.config();
+    await new Promise(resolve => setTimeout(resolve, 400));
+    const after = await readFile(heartbeat, 'utf8');
+    const fenced = before === after;
+    if (process.platform === 'darwin') {
+      assert.equal(fenced, false, 'detached macOS fixture must exercise the unknown-retention case');
+      assert.match(result.stderr, /rollback is unconfirmed/);
+      const second = await f.run(); assert.notEqual(second.status, 0); assert.match(second.stderr, /EEXIST|already running/);
+    } else { assert.equal(fenced, true, 'an owned descendant wrote after cancellation completed'); assert.equal(await f.config(), profile); }
+    const leaseStates = leases ? await Promise.all((await readdir(leases)).map(async name => JSON.parse(await readFile(path.join(leases, name), 'utf8')).state)) : null;
+    if (leaseStates) {
+      assert.ok(leaseStates.length > 0);
+      assert.ok(leaseStates.every(state => state === (process.platform === 'darwin' ? 'active' : 'released')));
+    }
+    if (process.env.GESTALT_NATIVE_SETUP_EVIDENCE) await writeFile(path.join(process.env.GESTALT_NATIVE_SETUP_EVIDENCE, 'setup-interruption.json'), JSON.stringify({
+      observedAt: new Date().toISOString(), platform: process.platform, architecture: process.arch, actualSignal: process.platform === 'win32' ? 'TerminateProcess parent death' : 'SIGTERM',
+      managerStatus: result.status, descendantReadyToken: token, descendantWritesFenced: fenced, rollback: process.platform === 'linux' ? 'restored after release proof' : 'snapshot and lock retained',
+      borrowerStates: leaseStates, heldCreationIdentities: heldIdentities, capturedIdentitiesAbsent: process.platform !== 'darwin', ownershipHelperSha256: hash(await readFile(ownershipHelper)),
+    }, null, 2));
+  } finally {
+    await writeFile(release, token);
+    if (pending.child.exitCode === null && pending.child.signalCode === null) pending.child.kill(process.platform === 'win32' ? 'SIGKILL' : 'SIGTERM');
+    await settleFixture(pending, f);
+    if (process.platform === 'darwin' && started) {
+      try {
+        await until(() => exists(done), 'controlled detached macOS fixture did not stop after explicit release');
+        const pid = JSON.parse(await readFile(ready, 'utf8')).pid;
+        await until(async () => { try { process.kill(pid, 0); return false; } catch (error) { if (error.code === 'ESRCH') return true; throw error; } }, 'explicitly released macOS fixture did not exit');
+      }
+      catch (error) { f.retain(); throw error; }
+    }
+    if (observer) { try { await observer.verify(); } catch (error) { f.retain(); throw error; } }
+  }
+});
 
 for (const initial of [null, custom]) test(`compiled native ${initial === null ? 'fresh' : 'custom'} Agents setup repeats with stable config and provenance`, async t => {
   const f = await fixture(t, initial);
@@ -109,17 +268,35 @@ for (const initial of [null, custom]) test(`compiled native ${initial === null ?
   assert.equal(metadata.outputs['config.toml'], hash(Buffer.from(config)));
   const repeat = await f.run(['agents', 'update']); assert.equal(repeat.status, 0, repeat.stderr);
   assert.equal(await f.config(), config); assert.equal(await f.provenance(), provenance);
-  assert.deepEqual((await readdir(f.codex)).filter(name => name.startsWith('.gestalt-setup.') || name === '.gestalt-manager-setup.lock' || name === '.gestalt-setup.lock'), []);
+  const retained = (await readdir(f.codex)).filter(name => name.startsWith('.gestalt-setup.'));
+  if (process.platform === 'darwin') {
+    assert.ok(retained.length >= 2);
+    for (const name of retained) assert.equal(JSON.parse(await readFile(path.join(f.codex, name, 'ownership-unknown.json'), 'utf8')).status, 'command-succeeded-cleanup-unknown');
+  } else assert.deepEqual(retained, []);
+  assert.equal(await exists(path.join(f.codex, '.gestalt-manager-setup.lock')), false);
+  assert.equal(await exists(path.join(f.codex, '.gestalt-setup.lock')), false);
   if (process.platform !== 'win32' && initial) assert.equal((await stat(path.join(f.codex, 'config.toml'))).mode & 0o777, 0o640);
 });
 
 for (const failure of ['FIXTURE_FAIL', 'FIXTURE_VERIFY_FAIL', 'FIXTURE_MARKETPLACE_FAIL'])
-  for (const initial of [null, custom]) test(`${failure} restores ${initial === null ? 'absent' : 'custom'} native profile without successful provenance`, async t => {
+  for (const initial of [null, custom]) test(`${failure} ${process.platform === 'darwin' ? 'retains unknown setup and' : 'restores'} ${initial === null ? 'absent' : 'custom'} native profile without successful provenance`, async t => {
     const f = await fixture(t, initial), result = await f.run(undefined, { [failure]: '1' });
     assert.notEqual(result.status, 0);
-    if (initial === null) assert.equal(await exists(path.join(f.codex, 'config.toml')), false); else assert.equal(await f.config(), initial);
+    if (process.platform === 'darwin') {
+      assert.match(result.stderr, /rollback is unconfirmed/);
+      assert.doesNotMatch(result.stderr, /previous configuration restored/);
+      assert.equal(await exists(path.join(f.codex, '.gestalt-manager-setup.lock')), true);
+      const stages = (await readdir(f.codex)).filter(name => name.startsWith('.gestalt-setup.'));
+      assert.equal(stages.length, 1);
+      const stage = path.join(f.codex, stages[0]), snapshot = JSON.parse(await readFile(path.join(stage, 'snapshot.json'), 'utf8'));
+      assert.equal(snapshot.present, initial !== null);
+      if (initial !== null) assert.equal(await readFile(path.join(stage, 'config.toml'), 'utf8'), initial);
+      assert.equal(JSON.parse(await readFile(path.join(stage, 'ownership-unknown.json'), 'utf8')).status, 'failed-cleanup-unknown');
+    } else {
+      if (initial === null) assert.equal(await exists(path.join(f.codex, 'config.toml')), false); else assert.equal(await f.config(), initial);
+      assert.deepEqual((await readdir(f.codex)).filter(name => name.startsWith('.gestalt-setup') || name === '.gestalt-manager-setup.lock'), []);
+    }
     assert.equal(await exists(path.join(f.codex, '.gestalt-setup-provenance.json')), false);
-    assert.deepEqual((await readdir(f.codex)).filter(name => name.startsWith('.gestalt-setup') || name === '.gestalt-manager-setup.lock'), []);
   });
 
 test('native setup preserves last successful provenance on a failed repeat', async t => {
@@ -129,13 +306,14 @@ test('native setup preserves last successful provenance on a failed repeat', asy
   assert.equal(await f.config(), before); assert.equal(await f.provenance(), provenance);
 });
 
-test('native setup serializes concurrent managers and releases only its own lock', async t => {
+test('native setup serializes concurrent managers and releases only its own lock', { timeout: process.platform === 'win32' ? 900_000 : 180_000 }, async t => {
   const f = await fixture(t), first = f.start(['agents', 'install'], { FIXTURE_WAIT: '1' });
+  let firstResult;
   try {
-    await until(() => exists(f.env.FIXTURE_READY), 'first owner did not reach controlled wait');
+    await until(() => exists(f.env.FIXTURE_READY), 'first owner did not reach controlled wait', phaseBudgetMs, first.result);
     const second = await f.run(); assert.notEqual(second.status, 0); assert.match(second.stderr, /EEXIST|already running/);
-  } finally { await writeFile(f.env.FIXTURE_RELEASE, 'release'); }
-  assert.equal((await first.result).status, 0); assert.equal((await f.run()).status, 0);
+  } finally { await writeFile(f.env.FIXTURE_RELEASE, 'release'); firstResult = await settleFixture(first, f); }
+  assert.equal(firstResult.status, 0, firstResult.stderr); assert.equal((await f.run()).status, 0);
 });
 
 test('native setup refuses an existing delegated-owner lock before modifying config', async t => {
@@ -217,7 +395,7 @@ test('native restart update failure retains the live relay, descriptor and non-o
   const log = path.join(f.gestalt, 'update-restart.log');
   const context = new SetupContext({ argv: [], cwd: f.root, environment: f.env },
     { stdin: (async function* () {})(), stdout: async () => {}, stderr: async () => {} },
-    { userHome: f.home, codexHome: f.codex, gestaltHome: f.gestalt, marketplace: 'fixture', marketplaceName: 'fixture', manager, unixProbe: unixProbe || undefined }, '0.16.1');
+    { userHome: f.home, codexHome: f.codex, gestaltHome: f.gestalt, marketplace: 'fixture', marketplaceName: 'fixture', manager, unixProbe: unixProbe || undefined, ownershipHelper }, '0.16.1');
   const status = await restartWorker(context, [String(relay.pid), descriptor, 'false', log, lock, 'gestalt', token],
     async () => { throw new CommandFailure('fixture update failed (exit 42)', 42); });
   assert.equal(status, 42); assert.equal(relay.exitCode, null); assert.equal(relay.signalCode, null);
@@ -237,11 +415,11 @@ for (const invalid of [false, true]) test(`native standalone ${invalid ? 'invali
   const env = { ...f.env, GESTALT_MANAGER_DISTRIBUTION: '', GESTALT_INSTALL_BASE_URL: pathToFileURL(release).href };
   const context = new SetupContext({ argv: [], cwd: f.root, environment: env },
     { stdin: (async function* () {})(), stdout: async () => {}, stderr: async () => {} },
-    { userHome: f.home, codexHome: f.codex, gestaltHome: f.gestalt, marketplace: 'fixture', marketplaceName: 'fixture', manager: target, unixProbe: unixProbe || undefined }, '0.16.1');
+    { userHome: f.home, codexHome: f.codex, gestaltHome: f.gestalt, marketplace: 'fixture', marketplaceName: 'fixture', manager: target, unixProbe: unixProbe || undefined, ownershipHelper }, '0.16.1');
   const argv = ['update', 'gestalt', '--extra-skills', 'space ü & literal'];
   await assert.rejects(updateManager(context, argv, false), error => invalid || error.status === 42);
   assert.equal(await readFile(target, 'utf8'), invalid ? previous : replacement);
   if (!invalid) assert.deepEqual(JSON.parse(await readFile(resultFile, 'utf8')), ['__updated-manager', ...argv]);
-  assert.equal(await exists(path.join(directory, '.gestalt-manager-update.lock')), false);
+  assert.equal(await exists(path.join(directory, '.gestalt-manager-update.lock')), process.platform === 'darwin' && invalid);
   if (process.platform !== 'win32') assert.equal((await stat(target)).mode & 0o777, 0o755);
 });

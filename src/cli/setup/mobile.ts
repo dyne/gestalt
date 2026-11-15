@@ -22,6 +22,7 @@ export async function installMobile(context: SetupContext, explicit = false): Pr
   const destination = path.join(storage.root, 'mobile'), stage = path.join(storage.root, `.mobile-${randomUUID()}`);
   const previous = path.join(storage.root, `.mobile-previous-${randomUUID()}`);
   let movedPrevious = false, activated = false;
+  let retainLocks = false;
   const unlisten = context.listen();
   try {
     const old = await optionalStat(destination);
@@ -47,14 +48,19 @@ export async function installMobile(context: SetupContext, explicit = false): Pr
     context.check();
     if (old) { await rename(destination, previous); movedPrevious = true; }
     await rename(stage, destination); activated = true;
-    if (movedPrevious) await rm(previous, { recursive: true });
+    if (movedPrevious && context.canRollback()) await rm(previous, { recursive: true });
     return true;
   } catch (error) {
+    if (!context.canRollback()) {
+      retainLocks = true;
+      await context.log(`Mobile update cleanup is unconfirmed; installation stage, previous package and lock retained at ${stage}`);
+      throw error;
+    }
     if (movedPrevious && !activated) await rename(previous, destination);
     throw error;
   } finally {
     unlisten();
-    if (!activated) await rm(stage, { recursive: true, force: true });
-    await lock.release();
+    if (!activated && !retainLocks) await rm(stage, { recursive: true, force: true });
+    if (!retainLocks) await lock.release();
   }
 }

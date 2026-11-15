@@ -10,6 +10,11 @@ import { SetupContext } from '../src/cli/setup/context.ts';
 import { mobileHostSupport } from '../src/cli/setup/mobile.ts';
 import { retiredRestartArguments } from '../src/cli/setup/restart.ts';
 import { captureCopyTree, compareCopyTrees } from '../scripts/native-copy-provenance.mjs';
+import { borrowSetupScratch, releaseSetupScratch } from '../src/cli/setup/scratch-context.mjs';
+import { createHash, randomUUID } from 'node:crypto';
+import { readFile, readdir, realpath } from 'node:fs/promises';
+import { capturedNodeCommand } from './fixtures/native-node-command.mjs';
+import { commandTarget } from '../src/cli/platform/executables.ts';
 
 test('native configuration preserves custom bytes, modes-independent content and repeated reconciliation', () => {
   const custom = '# keep this comment\r\nmodel = "custom" # and this one\r\napproval_policy = "on-request"\r\n[features]\r\nhooks = true\r\n[mcp_servers.custom]\r\ncommand = "unrelated"\r\ndefault_tools_approval_mode = "prompt"\r\n';
@@ -93,4 +98,90 @@ test('native copy preflight inventories nested dist and reports all missing or c
   assert.equal(differences[0].expected.bytes, differences[0].actual.bytes);
   assert.notEqual(differences[0].expected.sha256, differences[0].actual.sha256);
   assert.equal(differences[2].actual, null);
+});
+
+test('setup waits for the ownership release proof before propagating cancellation', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'gestalt setup owned wait '));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  let finishStop, stopped = false;
+  const result = { kind: 'exit', code: 143 }, claim = { kind: 'released', lease: 'controlled', backend: 'controlled-test', result };
+  const completion = new Promise(resolve => { finishStop = resolve; });
+  const context = new SetupContext({ argv: [], cwd: root, environment: {} },
+    { stdin: (async function* () {})(), stdout: async () => {}, stderr: async () => {} },
+    { userHome: root, codexHome: path.join(root, 'codex'), gestaltHome: path.join(root, 'gestalt'), manager: process.execPath,
+      marketplace: 'fixture', marketplaceName: 'fixture', unixProbe: undefined, ownershipHelper: process.execPath }, 'fixture',
+    { launch: async () => ({ id: 'controlled', result: Promise.resolve(result), completed: completion, claim: () => ({ kind: 'active', lease: 'controlled', backend: 'controlled-test' }),
+      stop: async () => { stopped = true; return completion; } }) });
+  const unlisten = context.listen();
+  let settled = false;
+  const operation = context.run(process.execPath, []).finally(() => { settled = true; });
+  void operation.catch(() => {});
+  try {
+    const deadline = Date.now() + 5000;
+    while (!stopped && Date.now() < deadline) await new Promise(resolve => setImmediate(resolve));
+    assert.equal(stopped, true, 'controlled ownership cleanup was not reached');
+    process.emit('SIGTERM');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(settled, false, 'cancellation returned before descendant cleanup completed');
+    finishStop(claim);
+    await assert.rejects(operation, error => error.status === 143 && !/previous configuration restored/.test(error.message));
+    assert.equal(context.canRollback(), true);
+  } finally { finishStop(claim); await operation.catch(() => {}); unlisten(); }
+});
+
+test('setup retains failed unknown ownership instead of authorizing rollback', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'gestalt setup unknown '));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const result = { kind: 'exit', code: 7 }, claim = { kind: 'unknown', lease: 'controlled-unknown', reason: 'controlled ownership loss' };
+  const context = new SetupContext({ argv: [], cwd: root, environment: {} },
+    { stdin: (async function* () {})(), stdout: async () => {}, stderr: async () => {} },
+    { userHome: root, codexHome: path.join(root, 'codex'), gestaltHome: path.join(root, 'gestalt'), manager: process.execPath,
+      marketplace: 'fixture', marketplaceName: 'fixture', unixProbe: undefined, ownershipHelper: process.execPath }, 'fixture',
+    { launch: async () => ({ id: claim.lease, result: Promise.resolve(result), completed: Promise.resolve(claim), claim: () => claim, stop: async () => claim }) });
+  await assert.rejects(context.run(process.execPath, []), error => error.status === 7 && /absence is unconfirmed/.test(error.message));
+  assert.equal(context.canRollback(), false);
+  assert.equal(context.unknownOwnership.length, 1);
+});
+
+test('setup borrower publication preserves the existing owner and releases only the exact stopped claim', async t => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'gestalt setup borrower ')));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const sessionId = randomUUID(), ownerId = 'mobile-' + createHash('sha256').update(sessionId).digest('hex');
+  const directory = path.join(root, 'tmp/sessions', ownerId), markerPath = path.join(directory, '.gestalt-owner.json');
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  const marker = JSON.stringify({ schemaVersion: 1, ownerKind: 'mobile-session', ownerId, workspacePath: root, sessionId,
+    createdAt: new Date().toISOString(), authority: { kind: 'mobile-roster', sessionId }, providerThreads: [] });
+  await writeFile(markerPath, marker, { mode: 0o600 });
+  const environment = { GESTALT_SESSION_TMP_CONTEXT: JSON.stringify({ schemaVersion: 1, workspacePath: root, ownerId, directory, markerPath }) };
+  if (process.platform === 'win32') {
+    assert.throws(() => borrowSetupScratch(environment), /portable Windows scratch broker/);
+    assert.equal(await readFile(markerPath, 'utf8'), marker);
+    assert.deepEqual((await readdir(directory)).sort(), ['.gestalt-owner.json']);
+    return;
+  }
+  const lease = borrowSetupScratch(environment), leases = path.join(directory, 'leases'), names = await readdir(leases);
+  assert.equal(names.length, 1);
+  const file = path.join(leases, names[0]), active = JSON.parse(await readFile(file, 'utf8'));
+  assert.equal(active.state, 'active'); assert.deepEqual(active.consumers, ['manager-setup']);
+  assert.equal(await readFile(markerPath, 'utf8'), marker);
+  assert.equal(await releaseSetupScratch(lease), true);
+  const released = JSON.parse(await readFile(file, 'utf8'));
+  assert.equal(released.state, 'released'); assert.deepEqual(released.consumers, []);
+  assert.equal(released.leaseId, active.leaseId); assert.equal(released.processIdentity, active.processIdentity);
+  assert.equal(await readFile(markerPath, 'utf8'), marker);
+});
+
+test('captured setup command shim resolves the complete sibling Node entry without a leading dot', async t => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'gestalt captured setup shim ')));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const captured = JSON.parse(await readFile(new URL('./fixtures/native-npm-node-shim.json', import.meta.url), 'utf8'));
+  for (const name of ['codex', 'npm']) {
+    const entry = path.join(root, `${name}.mjs`), shim = path.join(root, `${name}.cmd`);
+    await writeFile(entry, '#!/usr/bin/env node\n');
+    const generated = capturedNodeCommand(captured, `${name}.mjs`);
+    assert.ok(generated.includes(`"%dp0%\\${name}.mjs"`));
+    assert.ok(!generated.includes(`"%dp0%\\.${name}.mjs"`));
+    await writeFile(shim, generated);
+    assert.deepEqual(await commandTarget(shim), { executable: process.execPath, prefix: [await realpath(entry)] });
+  }
 });

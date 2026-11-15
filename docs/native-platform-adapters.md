@@ -126,3 +126,32 @@ installation is attempted. Long paths use explicit extended Windows path syntax.
 Native execution evidence is pending for Windows/macOS until actual runner
 results are recorded. ARM64 and UNC-share execution remain separate target
 coverage; path parsing/escape refusal alone does not prove an accessible share.
+
+## Setup ownership and rollback
+
+The development Node setup/update commands use `NativeOwnedProcesses` for
+installer and verification subprocesses. A command's exit status does not prove
+that its descendants stopped. Configuration rollback and transaction cleanup
+wait for the ownership adapter's release proof. Windows uses its Job Object;
+Linux requires permitted unprivileged user, mount and PID namespaces. Missing
+helpers or namespace authority fail explicitly; setup never falls back to an
+unconfined child. The target-built ownership and ACL helpers are resolved beside
+the compiled CLI, without environment-based helper redirection.
+
+Inherited POSIX managed contexts register `manager-setup` borrower leases through
+the existing v1/v2 publication and metadata fences. Only confirmed process
+release permits borrower release. Unknown ownership leaves the borrower active;
+elapsed time, parent exit and process lookup do not release it. The current
+Windows development setup rejects an inherited context until the native scratch
+broker is available; ordinary Windows setup without a managed context remains
+independently testable. This boundary does not change the scratch schema or
+relocate an existing owner/runtime root.
+
+On macOS a successful command outcome remains usable under the approved
+best-effort contract. Complete descendant absence stays unknown, so ownership
+reports and setup snapshots remain retained. A failed or interrupted operation
+with unknown ownership keeps its snapshot and manager transaction lock and
+reports that rollback is unconfirmed. A later setup refuses the retained lock;
+it never steals it by age or PID. Existing `recover-tool-leases` handling for
+Serena/Playwright does not retire `manager-setup` borrowers. Inspection and any
+manual recovery require all affected publishers and descendants to be stopped.

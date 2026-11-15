@@ -1,12 +1,13 @@
-import { spawn } from 'node:child_process';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { lstat, realpath } from 'node:fs/promises';
-import type { CommandInvocation, CommandStreams, Environment } from '../contracts.ts';
-import { NativeExecutables, commandTarget } from '../platform/executables.ts';
+import type { CommandInvocation, CommandStreams, Environment, OwnedProcessLease, OwnedProcessPort, OwnedProcessResult, OwnershipClaim } from '../contracts.ts';
+import { NativeExecutables } from '../platform/executables.ts';
+import { NativeOwnedProcesses } from '../platform/processes.ts';
 import { NativePaths, validateNativePath } from '../platform/paths.ts';
 import { NativePrivateStorage } from '../platform/storage.ts';
+import { borrowSetupScratch, releaseSetupScratch } from './scratch-context.mjs';
 
 export class CommandFailure extends Error {
   readonly status: number;
@@ -24,6 +25,7 @@ export interface SetupPaths {
   readonly marketplaceName: string;
   readonly manager: string;
   readonly unixProbe: string | undefined;
+  readonly ownershipHelper?: string;
 }
 export async function setupPaths(environment: Environment): Promise<SetupPaths> {
   const userHome = await realpath(environment.HOME || environment.USERPROFILE || homedir());
@@ -47,7 +49,7 @@ export async function setupPaths(environment: Environment): Promise<SetupPaths> 
   const manager = fileURLToPath(import.meta.url);
   return { userHome, codexHome, gestaltHome, marketplaceName,
     marketplace: environment.GESTALT_MARKETPLACE || 'dyne/gestalt-agents', manager,
-    unixProbe: environment.GESTALT_NATIVE_UNIX_PROBE || path.join(path.dirname(manager), 'native', 'gestalt-unix-peer') };
+    unixProbe: path.join(path.dirname(manager), 'native', 'gestalt-unix-peer') };
 }
 
 /** A single foreground operation owns its children and forwards interruption
@@ -59,18 +61,26 @@ export class SetupContext {
   readonly paths: SetupPaths;
   readonly version: string;
   private readonly executables = new NativeExecutables();
+  private readonly ownedProcesses: OwnedProcessPort | undefined;
   private interrupted = 0;
-  private active: ReturnType<typeof spawn> | null = null;
+  private active: OwnedProcessLease | null = null;
+  private unsafeStatus = 0;
+  readonly unknownOwnership: { claim: OwnershipClaim; result: OwnedProcessResult; borrower: unknown }[] = [];
   private readonly handlers = new Map<NodeJS.Signals, () => void>();
-  constructor(invocation: CommandInvocation, streams: CommandStreams, paths: SetupPaths, version: string) {
+  constructor(invocation: CommandInvocation, streams: CommandStreams, paths: SetupPaths, version: string, ownedProcesses?: OwnedProcessPort) {
     this.invocation = invocation; this.streams = streams; this.paths = paths; this.version = version;
+    this.ownedProcesses = ownedProcesses;
     this.environment = { ...invocation.environment, CODEX_HOME: paths.codexHome, GESTALT_HOME: paths.gestaltHome };
   }
   async log(message: string): Promise<void> { await this.streams.stderr(Buffer.from(`gestalt: ${message}\n`)); }
-  check(): void { if (this.interrupted) throw new CommandFailure('setup interrupted; previous configuration restored', this.interrupted); }
+  canRollback(): boolean { return this.unsafeStatus === 0 && this.unknownOwnership.length === 0; }
+  check(): void {
+    if (this.unsafeStatus) throw new CommandFailure('setup subprocess absence is unconfirmed; configuration snapshots and locks must be retained', this.interrupted || this.unsafeStatus);
+    if (this.interrupted) throw new CommandFailure('setup interrupted', this.interrupted);
+  }
   listen(): () => void {
     for (const [signal, status] of [['SIGINT', 130], ['SIGTERM', 143], ['SIGHUP', 129]] as const) {
-      const handler = () => { this.interrupted ||= status; this.active?.kill(signal); };
+      const handler = () => { this.interrupted ||= status; if (this.active) void this.active.stop(); };
       this.handlers.set(signal, handler); process.on(signal, handler);
     }
     return () => { for (const [signal, handler] of this.handlers) process.removeListener(signal, handler); };
@@ -80,37 +90,72 @@ export class SetupContext {
     if (!executable) throw new Error(`${name} is required and was not found on PATH`);
     return executable;
   }
+  async requireOwnership(): Promise<string> {
+    const selected = this.paths.ownershipHelper || path.join(path.dirname(this.paths.manager), 'native',
+      process.platform === 'win32' ? 'gestalt-owned-process.exe' : 'gestalt-owned-process');
+    const helper = await this.executables.resolve(selected, this.environment);
+    if (!helper) throw new Error(`target-built native process ownership helper is required: ${selected}; install the matching native Gestalt artifact`);
+    return helper;
+  }
+  private async retainUnknown(claim: OwnershipClaim, result: OwnedProcessResult, borrower: unknown): Promise<void> {
+    this.unknownOwnership.push({ claim, result, borrower });
+    try {
+      const storage = await this.storage(path.join(this.paths.gestaltHome, 'run/setup-claims'));
+      await storage.replaceFile(path.join(storage.root, `${claim.lease}.json`), Buffer.from(JSON.stringify({
+        schemaVersion: 1, scope: 'setup-process-ownership', claim, result, borrower, observedAt: new Date().toISOString(),
+      }) + '\n'));
+    } catch {
+      await this.log('setup ownership is unknown; preserve any active borrower and transaction state (ownership report could not be written)');
+    }
+  }
   async run(name: string, argv: readonly string[], options: { capture?: boolean; cwd?: string; environment?: Environment; program?: string } = {}): Promise<string> {
     this.check();
-    const command = await commandTarget(await this.require(name));
-    const child = spawn(command.executable, [...command.prefix, ...argv], {
-      cwd: options.cwd || this.invocation.cwd, env: options.environment || this.environment,
-      shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    this.active = child;
-    child.stdin.on('error', () => {});
-    child.stdin.end(options.program);
+    const executable = await this.require(name), helper = await this.requireOwnership();
+    const environment = options.environment || this.environment;
+    const borrower = borrowSetupScratch(environment);
     const chunks: Buffer[] = []; let bytes = 0;
     let outputFailure: unknown;
-    const copy = async (stream: AsyncIterable<Buffer>, write: (bytes: Buffer) => Promise<void>) => {
-      try { for await (const chunk of stream) await write(chunk); }
-      catch (error) { outputFailure = error; child.kill('SIGTERM'); }
-    };
-    const output = Promise.all([
-      copy(child.stdout, async chunk => {
-        if (!options.capture) return this.streams.stdout(chunk);
-        bytes += chunk.length;
-        if (bytes > 16 * 1024 * 1024) throw new Error('command output exceeds supported size');
-        chunks.push(chunk);
-      }),
-      copy(child.stderr, chunk => this.streams.stderr(chunk)),
-    ]);
+    let lease: OwnedProcessLease;
     try {
-      const status = await new Promise<number>((resolve, reject) => {
-        child.once('error', reject);
-        child.once('close', (code, signal) => resolve(code ?? (signal === 'SIGINT' ? 130 : signal === 'SIGHUP' ? 129 : 143)));
-      });
-      await output;
+      lease = await (this.ownedProcesses || new NativeOwnedProcesses(helper)).launch(executable,
+        { argv, cwd: options.cwd || this.invocation.cwd, environment }, {
+          stdin: (async function* () { if (options.program !== undefined) yield Buffer.from(options.program); })(),
+          stdout: async chunk => {
+            if (!options.capture) return this.streams.stdout(chunk);
+            bytes += chunk.length;
+            if (bytes > 16 * 1024 * 1024) {
+              outputFailure = new Error('command output exceeds supported size');
+              if (this.active) void this.active.stop();
+            } else chunks.push(Buffer.from(chunk));
+          }, stderr: chunk => this.streams.stderr(chunk),
+        }, { graceMs: 1000, deadlineMs: 10_000 });
+    } catch (error) {
+      // A failed adapter call supplies no ownership proof. The borrower is kept.
+      this.unsafeStatus = this.interrupted || 1;
+      throw error;
+    }
+    this.active = lease;
+    try {
+      if (this.interrupted || outputFailure) void lease.stop();
+      const result = await lease.result;
+      // Command outcome is separate from the proof that all owned writers have
+      // stopped. stop() also bounds cleanup after a normally exited installer.
+      const claim = await lease.stop();
+      const status = result.kind === 'exit' ? result.code : result.kind === 'signal'
+        ? (Number.isInteger(Number(result.signal)) ? 128 + Number(result.signal) : ({ SIGINT: 130, SIGTERM: 143, SIGHUP: 129 }[result.signal] ?? 143)) : 1;
+      if (claim.kind === 'released') {
+        if (borrower && !await releaseSetupScratch(borrower)) throw new Error('setup stopped, but its borrower release is unconfirmed; owner remains protected');
+      } else {
+        await this.retainUnknown(claim, result, borrower);
+        // macOS retains its approved best-effort behavior for successful command
+        // outcomes. Failed/interrupted unknown writers never permit rollback.
+        if (process.platform !== 'darwin' || status !== 0 || this.interrupted || outputFailure || result.kind === 'unknown') {
+          this.unsafeStatus = this.interrupted || status || 1;
+          const prerequisite = process.platform === 'linux' && claim.kind === 'unknown' && /Namespace setup refused/.test(claim.reason)
+            ? '; Linux setup requires a host profile permitting unprivileged user, mount and PID namespaces' : '';
+          throw new CommandFailure(`native setup subprocess absence is unconfirmed: ${claim.kind === 'unknown' ? claim.reason : 'no release proof'}${prerequisite}; transaction state requires inspection`, this.unsafeStatus);
+        }
+      }
       this.check();
       if (outputFailure) throw outputFailure;
       if (status !== 0) throw new CommandFailure(`${name} failed (exit ${status})`, status);

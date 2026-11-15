@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { buildCli } from '../scripts/build-cli.mjs';
 import { managerHelp, managerVersion } from '../scripts/manager-metadata.mjs';
@@ -90,4 +91,24 @@ test('development entry builds and forwards argv and numeric exit status', () =>
   assert.equal(result.status, 1);
   assert.equal(result.stdout, '');
   assert.equal(result.stderr, "gestalt: unknown command: unknown command (run 'gestalt help')\n");
+});
+
+test('compiled replacement API imports without CLI effects and honors explicit cancelled invocation', async t => {
+  const fixture = await mkdtemp(join(tmpdir(), 'native update API ü '));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  const entry = await buildCli(root, join(fixture, 'gestalt.mjs'));
+  const program = `const api=await import(${JSON.stringify(pathToFileURL(entry).href+'?test-import-safe=1')});
+const controller=new AbortController();controller.abort({status:143});const errors=[];
+const outcome=await api.continueUpdatedManager({argv:['__updated-manager','update','gestalt'],cwd:${JSON.stringify(fixture)},environment:{HOME:${JSON.stringify(fixture)}}},
+{stdin:(async function*(){})(),stdout:async()=>{throw new Error('unexpected CLI output')},stderr:async b=>errors.push(Buffer.from(b).toString())},
+{commands:{apiVersion:1,launch:async()=>{throw new Error('cancelled handoff launched a command')}},signal:controller.signal});
+console.log(JSON.stringify({version:api.UPDATED_MANAGER_API_VERSION,capabilities:api.UPDATED_MANAGER_API_CAPABILITIES,outcome,errors}));`;
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', program], {
+    cwd: fixture, encoding: 'utf8', timeout: 15000, env: { ...process.env, NODE_OPTIONS: '', NODE_PATH: '' },
+  });
+  assert.equal(result.status, 0, result.stderr); assert.equal(result.stderr, '');
+  const receipt = JSON.parse(result.stdout);
+  assert.equal(receipt.version, 1); assert.ok(receipt.capabilities.includes('host-filesystem-v1'));
+  assert.equal(receipt.outcome.status, 143); assert.equal(receipt.outcome.ownership.kind, 'released');
+  assert.deepEqual(receipt.errors, ['gestalt: setup interrupted\n']);
 });

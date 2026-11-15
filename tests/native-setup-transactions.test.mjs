@@ -449,11 +449,13 @@ test('native restart update failure retains the live relay, descriptor and non-o
 for (const invalid of [false, true]) test(`native standalone ${invalid ? 'invalid replacement preserves installed executable' : 'replacement resumes exact argv and propagates failure'}`, async t => {
   const f = await fixture(t), directory = path.join(f.root, 'public bin ü'), release = path.join(f.root, 'release');
   await mkdir(directory, { mode: 0o755 }); await mkdir(release, { mode: 0o700 });
-  const target = path.join(directory, 'gestalt.mjs'), marker = '#!/usr/bin/env node\n// GESTALT_CLI_VERSION=\'0.16.1\'\n';
+  const target = path.join(directory, 'gestalt.mjs'), marker = '#!/usr/bin/env node\n// GESTALT_CLI_VERSION=\'0.16.1\'\n// GESTALT_UPDATED_MANAGER_API=\'1\'\n';
   const previous = marker + '// previous release\n';
   await writeFile(target, previous, { mode: 0o755 });
   const resultFile = path.join(f.root, 'replacement-argv.json');
-  const replacement = invalid ? marker + 'invalid javascript !' : marker + `import fs from 'node:fs';fs.writeFileSync(${JSON.stringify(resultFile)},JSON.stringify(process.argv.slice(2)));process.exitCode=42;\n`;
+  const replacement = invalid ? marker + 'invalid javascript !' : marker + `import fs from 'node:fs';
+export const UPDATED_MANAGER_API_VERSION=1,UPDATED_MANAGER_API_CAPABILITIES=['host-filesystem-v1','async-owned-commands-v1','cancellation-v1'];
+export async function continueUpdatedManager(invocation,streams,{commands,signal}){if(commands.apiVersion!==1||signal.aborted)throw new Error('bad managed handoff');fs.writeFileSync(${JSON.stringify(resultFile)},JSON.stringify(invocation.argv));return {apiVersion:1,status:42,ownership:{kind:'released'}};}\n`;
   await writeFile(path.join(release, 'gestalt.mjs'), replacement);
   const env = { ...f.env, GESTALT_MANAGER_DISTRIBUTION: '', GESTALT_INSTALL_BASE_URL: pathToFileURL(release).href };
   const context = new SetupContext({ argv: [], cwd: f.root, environment: env },
@@ -463,6 +465,89 @@ for (const invalid of [false, true]) test(`native standalone ${invalid ? 'invali
   await assert.rejects(updateManager(context, argv, false), error => invalid || error.status === 42);
   assert.equal(await readFile(target, 'utf8'), invalid ? previous : replacement);
   if (!invalid) assert.deepEqual(JSON.parse(await readFile(resultFile, 'utf8')), ['__updated-manager', ...argv]);
-  assert.equal(await exists(path.join(directory, '.gestalt-manager-update.lock')), process.platform === 'darwin' && invalid);
+  const lock = path.join(directory, '.gestalt-manager-update.lock');
+  assert.equal(await exists(lock), process.platform === 'darwin');
+  if (process.platform === 'darwin') {
+    f.retain();
+    const receipt = JSON.parse(await readFile(path.join(lock, 'ownership-unknown.json'), 'utf8'));
+    assert.equal(receipt.promoted, !invalid); assert.ok(receipt.claims.length > 0);
+    assert.ok(receipt.claims.some(entry => entry.claim.kind === 'unknown'));
+    assert.equal(await exists(path.join(receipt.scratch, 'gestalt.mjs')), true);
+    assert.equal(await exists(path.join(receipt.scratch, 'ownership-unknown.json')), true);
+  }
   if (process.platform !== 'win32') assert.equal((await stat(target)).mode & 0o777, 0o755);
 });
+
+for (const scenario of ['interrupt-before-handoff', 'failure-before-handoff', 'interrupt-active-handoff'])
+  test(`standalone update ${scenario} retains only unknown authority and settles its owned commands`, { timeout: phaseBudgetMs + 180_000 }, async t => {
+    const f = await fixture(t), directory = path.join(f.root, 'manager bin'), release = path.join(f.root, 'release');
+    await mkdir(directory, { mode: 0o755 }); await mkdir(release, { mode: 0o700 });
+    const target = path.join(directory, 'gestalt.mjs'), entered = path.join(f.root, 'handoff-entered'), ready = path.join(f.root, 'handoff-worker-ready');
+    const marker = '#!/usr/bin/env node\n// GESTALT_CLI_VERSION=\'0.16.1\'\n// GESTALT_UPDATED_MANAGER_API=\'1\'\n';
+    await writeFile(target, marker + '// old complete executable\n', { mode: 0o755 });
+    const worker = `const fs=require('node:fs');process.on('SIGTERM',()=>{});fs.writeFileSync(${JSON.stringify(ready)},'ready');setInterval(()=>{},1000);`;
+    const replacement = marker + `import fs from 'node:fs';
+export const UPDATED_MANAGER_API_VERSION=1,UPDATED_MANAGER_API_CAPABILITIES=['host-filesystem-v1','async-owned-commands-v1','cancellation-v1'];
+export async function continueUpdatedManager(invocation,streams,{commands,signal}){
+fs.writeFileSync(${JSON.stringify(entered)},JSON.stringify(invocation));
+const lease=await commands.launch(process.execPath,{argv:['-e',${JSON.stringify(worker)}],cwd:invocation.cwd,environment:invocation.environment},streams,{graceMs:1000,deadlineMs:10000});
+const abort=()=>{void lease.stop();};signal.addEventListener('abort',abort,{once:true});if(signal.aborted)abort();
+try{await lease.result;const claim=await lease.stop();return {apiVersion:1,status:signal.aborted?signal.reason.status:0,ownership:{kind:claim.kind==='released'?'released':'unknown'}};}finally{signal.removeEventListener('abort',abort);}}
+`;
+    await writeFile(path.join(release, 'gestalt.mjs'), replacement);
+    const env = { ...f.env, GESTALT_MANAGER_DISTRIBUTION: '', GESTALT_INSTALL_BASE_URL: pathToFileURL(release).href };
+    let reached, releaseGate;
+    const gate = new Promise(resolve => { releaseGate = resolve; }), reachedGate = new Promise(resolve => { reached = resolve; });
+    const log = [];
+    const context = new SetupContext({ argv: [], cwd: f.root, environment: env },
+      { stdin: (async function* () {})(), stdout: async () => {}, stderr: async bytes => {
+        const text = Buffer.from(bytes).toString('utf8'); log.push(text);
+        if (text.includes('updated manager at') && scenario !== 'interrupt-active-handoff') {
+          reached(); await gate;
+          if (scenario === 'failure-before-handoff') throw new Error('controlled failure after replacement');
+        }
+      } },
+      { userHome: f.home, codexHome: f.codex, gestaltHome: f.gestalt, marketplace: 'fixture', marketplaceName: 'fixture', manager: target,
+        unixProbe: unixProbe || undefined, ownershipHelper }, '0.16.1');
+    const argv = ['update', 'gestalt', '--extra-skills', 'literal ü & token'];
+    const operation = updateManager(context, argv, false); void operation.catch(() => {});
+    const lock = path.join(directory, '.gestalt-manager-update.lock');
+    try {
+      if (scenario === 'interrupt-active-handoff') {
+        await until(() => exists(ready), 'replacement external command did not reach controlled readiness', phaseBudgetMs,
+          operation.then(() => ({ status: 0 }), error => ({ status: error.status || 1, stderr: error.message })));
+        assert.equal(await exists(lock), true, 'serialization lock must span the active continuation');
+        const forwarded = JSON.parse(await readFile(entered, 'utf8'));
+        assert.deepEqual(forwarded.argv, ['__updated-manager', ...argv]);
+        assert.equal(forwarded.cwd, f.root); assert.equal(forwarded.environment.CODEX_HOME, f.codex);
+        process.emit('SIGTERM');
+      } else {
+        let timer;
+        try { await Promise.race([reachedGate,
+          operation.then(() => { throw new Error('manager ended before the controlled handoff phase'); }, error => { throw error; }),
+          new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('replacement phase was not reached')), phaseBudgetMs); })]); }
+        finally { clearTimeout(timer); }
+        assert.equal(await exists(lock), true);
+        if (scenario === 'interrupt-before-handoff') process.emit('SIGTERM');
+        releaseGate();
+      }
+      await assert.rejects(operation, error => scenario === 'failure-before-handoff'
+        ? /controlled failure after replacement/.test(error.message) : error.status === 143);
+      assert.equal(await readFile(target, 'utf8'), replacement, 'a complete installed replacement is not rolled back');
+      assert.equal(await exists(entered), scenario === 'interrupt-active-handoff');
+      assert.equal(await exists(lock), process.platform === 'darwin');
+      if (process.platform === 'darwin') {
+        const receipt = JSON.parse(await readFile(path.join(lock, 'ownership-unknown.json'), 'utf8'));
+        assert.equal(receipt.promoted, true); assert.equal(await exists(path.join(receipt.scratch, 'gestalt.mjs')), true);
+      } else {
+        assert.equal(context.canRollback(), true); assert.deepEqual(context.unknownOwnership, []);
+      }
+      if (process.env.GESTALT_NATIVE_SETUP_EVIDENCE) await writeFile(path.join(process.env.GESTALT_NATIVE_SETUP_EVIDENCE, `manager-update-${scenario}.json`),
+        JSON.stringify({ observedAt: new Date().toISOString(), platform: process.platform, scenario, injectedSignal: scenario !== 'failure-before-handoff',
+          replacementSha256: hash(Buffer.from(replacement)), installedSha256: hash(await readFile(target)), continuationEntered: await exists(entered),
+          lockRetained: await exists(lock), cleanupAuthorized: context.canRollback(), unknownClaims: context.unknownOwnership, log }, null, 2));
+    } finally {
+      releaseGate(); await context.stopActive(); await operation.catch(() => {});
+      if (!context.canRollback()) f.retain();
+    }
+  });

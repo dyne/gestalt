@@ -81,7 +81,7 @@ export async function restartWorker(context: SetupContext, args: readonly string
   let worker: SetupContext | null = null, retainLock = false;
   try {
     const write = async (bytes: Uint8Array) => { await handle.write(bytes); };
-    worker = new SetupContext(context.invocation, { ...context.streams, stdout: write, stderr: write }, context.paths, context.version);
+    worker = await context.withStreams({ ...context.streams, stdout: write, stderr: write });
     await worker.log(`starting live update at ${new Date().toISOString()}`);
     // Preserve the endpoint's chance to flush its accepted response.
     await delay(1000);

@@ -147,7 +147,7 @@ test('setup retains failed unknown ownership instead of authorizing rollback', a
 test('managed Agents commands share cancellation and await each owned release before manager compensation', async t => {
   const root = await mkdtemp(path.join(tmpdir(), 'gestalt managed capability '));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const held = [], result = { kind: 'exit', code: 0 };
+  const held = [], result = { kind: 'exit', code: 0 }, upstream = new AbortController();
   const context = new SetupContext({ argv: [], cwd: root, environment: { FIXTURE: 'manager' } },
     { stdin: (async function* () {})(), stdout: async () => {}, stderr: async () => {} },
     { userHome: root, codexHome: path.join(root, 'codex'), gestaltHome: path.join(root, 'gestalt'), manager: process.execPath,
@@ -158,18 +158,22 @@ test('managed Agents commands share cancellation and await each owned release be
       const entry = { id, invocation, release, stopped: false }; held.push(entry);
       return { id, result: Promise.resolve(result), completed, claim: () => ({ kind: 'active', lease: id, backend: 'controlled-test' }),
         stop: async () => { entry.stopped = true; return completed; } };
-    } });
+    } }, upstream.signal);
   const capability = await context.managedCommands(); assert.equal(capability.apiVersion, 1);
   const unlisten = context.listen();
   try {
     const streams = { stdin: (async function* () {})(), stdout: async () => {}, stderr: async () => {} };
     const first = await capability.launch(process.execPath, { argv: ['literal & ü'], cwd: root, environment: { FIXTURE: 'first' } }, streams);
-    const second = await capability.launch(process.execPath, { argv: ['second'], cwd: root, environment: { FIXTURE: 'second' } }, streams);
+    const redirected = await context.withStreams(streams), unlistenRedirected = redirected.listen();
+    t.after(async () => { await redirected.stopActive(); unlistenRedirected(); });
+    const second = await (await redirected.managedCommands()).launch(process.execPath,
+      { argv: ['second'], cwd: root, environment: { FIXTURE: 'second' } }, streams);
     assert.equal(context.canRollback(), false);
     assert.equal(context.environment.FIXTURE, 'manager');
     assert.deepEqual(held.map(entry => entry.invocation.environment.FIXTURE), ['first', 'second']);
-    process.emit('SIGTERM');
+    upstream.abort({ status: 143 });
     assert.equal(context.signal.aborted, true); assert.equal(context.signal.reason.status, 143);
+    assert.equal(redirected.signal.aborted, true); assert.equal(redirected.signal.reason.status, 143);
     assert.ok(held.every(entry => entry.stopped));
     held[0].release({ kind: 'released', lease: first.id, backend: 'controlled-test', result });
     await first.completed; assert.equal(context.canRollback(), false);

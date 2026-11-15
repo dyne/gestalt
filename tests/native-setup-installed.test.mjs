@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { buildCli } from '../scripts/build-cli.mjs';
 import { buildNativePlatform } from '../scripts/build-native-platform.mjs';
@@ -23,13 +24,34 @@ const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 
 test(`actual compiled manager provisions accepted native Agents ${process.platform === 'darwin' ? 'and retains managed unknown authority' : 'and repeats offline'}`, { timeout: 1_200_000 }, async t => {
   const base = await realpath(await mkdtemp(path.join(tmpdir(), 'gestalt core installed ü & ')));
-  t.after(() => rm(base, { recursive: true, force: true }));
+  let retainFixture = true;
+  t.after(() => retainFixture ? undefined : rm(base, { recursive: true, force: true }));
   const manager = await buildCli(root, path.join(base, 'gestalt.mjs'));
   const probe = await buildNativePlatform(root, path.join(base, 'native'));
   const ownershipHelper = await buildOwnedProcess(root, path.join(base, 'native'));
   await writeFile(path.join(evidence, 'installed-ownership.provenance.json'), await readFile(`${ownershipHelper}.provenance.json`));
   const home = path.join(base, 'home ü &'), codex = path.join(home, 'Codex ü &'), gestalt = path.join(home, 'Gestalt ü &');
   await mkdir(home, { mode: 0o700 });
+  // Local package inputs exercise the actual update composition without a
+  // floating optional-skills/Mobile release or a running Mobile service.
+  const collection = path.join(base, 'skills source'), mobilePackage = path.join(base, 'mobile package'), release = path.join(base, 'release');
+  await mkdir(path.join(collection, 'skills/native-update'), { recursive: true });
+  const skill = '---\nname: native-update\ndescription: Native update fixture.\n---\n# Fixture\n';
+  await writeFile(path.join(collection, 'skills/native-update/SKILL.md'), skill);
+  await writeFile(path.join(collection, 'LICENSE'), 'MIT fixture\n');
+  await writeFile(path.join(collection, 'manifest.json'), JSON.stringify({ schemaVersion: 1, repository: 'dyne/gestalt-skills', source: 'https://github.com/dyne/gestalt-skills', version: '0.1.0',
+    skills: [{ name: 'native-update', entry: 'skills/native-update/SKILL.md', files: [{ path: 'skills/native-update/SKILL.md', sha256: digest(Buffer.from(skill)) }] }] }));
+  for (const argv of [['init', '--initial-branch=main', '--template='], ['add', '--all'], ['commit', '-m', 'native standalone update fixture']]) {
+    const result = spawnSync('git', ['-c', 'core.hooksPath='+path.join(collection, '.empty-hooks'), '-c', 'commit.gpgSign=false', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', ...argv],
+      { cwd: collection, encoding: 'utf8', shell: false });
+    assert.equal(result.status, 0, result.stderr);
+  }
+  await mkdir(mobilePackage); await mkdir(release);
+  await writeFile(path.join(mobilePackage, 'package.json'), JSON.stringify({ name: 'gestalt-mobile', version: '0.0.0', bin: { 'gestalt-mobile': 'cli.mjs' } }));
+  await writeFile(path.join(mobilePackage, 'cli.mjs'), '#!/usr/bin/env node\nthrow new Error("Fixture Mobile must never launch");\n', { mode: 0o755 });
+  const previousManagerSha256 = digest(await readFile(manager));
+  const replacement = Buffer.concat([await readFile(manager), Buffer.from('\n// hosted native standalone replacement fixture\n')]);
+  await writeFile(path.join(release, 'gestalt.mjs'), replacement);
   const environment = { ...process.env, HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: path.join(home, '.claude'), CONTEXT_MODE_DIR: path.join(home, 'context-mode-data'),
     CODEX_HOME: codex, GESTALT_HOME: gestalt, GESTALT_MANAGER_DISTRIBUTION: 'npm', GESTALT_AGENTS_SOURCE: await realpath(dependency),
     GESTALT_AGENTS_SETUP_SHA256: digest(await readFile(path.join(dependency, 'gestalt-setup.mjs'))),
@@ -67,7 +89,26 @@ test(`actual compiled manager provisions accepted native Agents ${process.platfo
       assert.match(result.stderr, /EEXIST|already running/);
     } else assert.equal(result.status, 0, `${label}: ${result.error?.message ?? ''}; see ${log}: ${(result.stderr ?? '').slice(-3000)}`);
   };
-  await run('manager-agents-fresh', ['agents', 'install']);
+  await run('manager-standalone-update-fresh', ['update', 'gestalt'], {
+    GESTALT_MANAGER_DISTRIBUTION: '', GESTALT_INSTALL_BASE_URL: pathToFileURL(release).href,
+    GESTALT_SKILLS_SOURCE: collection, GESTALT_MOBILE_PACKAGE: mobilePackage, npm_config_install_links: 'true',
+  });
+  retainFixture = process.platform === 'darwin';
+  assert.deepEqual(await readFile(manager), replacement, 'compiled updated-manager API must run the actual installed replacement');
+  assert.equal(await readFile(path.join(codex, 'skills/native-update/SKILL.md'), 'utf8'), skill);
+  const updateLock = path.join(base, '.gestalt-manager-update.lock');
+  const updateLockExists = await stat(updateLock).then(() => true, error => { if (error.code === 'ENOENT') return false; throw error; });
+  assert.equal(updateLockExists, process.platform === 'darwin');
+  const updateReceipt = process.platform === 'darwin' ? JSON.parse(await readFile(path.join(updateLock, 'ownership-unknown.json'), 'utf8')) : null;
+  if (updateReceipt) {
+    assert.equal(updateReceipt.promoted, true); assert.equal(updateReceipt.phase, 'continued');
+    assert.ok((await stat(path.join(updateReceipt.scratch, 'gestalt.mjs'))).isFile());
+  }
+  await writeFile(path.join(evidence, 'standalone-compiled-update.json'), JSON.stringify({ observedAt: new Date().toISOString(),
+    previousManagerSha256, replacementSha256: digest(replacement), installedManagerSha256: digest(await readFile(manager)),
+    updateApiVersion: 1, hostFilesystem: true, actualAcceptedAgentsSource: environment.GESTALT_AGENTS_SOURCE,
+    skillsFixtureSha256: digest(Buffer.from(skill)), mobileFixtureManifestSha256: digest(await readFile(path.join(mobilePackage, 'package.json'))),
+    updateLockRetained: updateLockExists, updateReceipt }, null, 2));
   const outputs = ['config.toml', 'hooks.json', 'bin/context-mode-mcp.mjs', 'bin/context-mode-hook.mjs',
     ...(process.platform === 'darwin' ? [] : ['.gestalt-setup-provenance.json'])];
   const first = await Promise.all(outputs.map(async file => digest(await readFile(path.join(codex, file)))));

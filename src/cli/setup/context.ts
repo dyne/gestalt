@@ -62,21 +62,28 @@ export class SetupContext {
   readonly version: string;
   private readonly executables = new NativeExecutables();
   private readonly ownedProcesses: OwnedProcessPort | undefined;
+  private readonly inheritedSignal: AbortSignal | undefined;
   private interrupted = 0;
   private readonly active = new Set<OwnedProcessLease>();
   private readonly cancellation = new AbortController();
   private unsafeStatus = 0;
   readonly unknownOwnership: { claim: OwnershipClaim; result: OwnedProcessResult; borrower: unknown }[] = [];
   private readonly handlers = new Map<NodeJS.Signals, () => void>();
-  constructor(invocation: CommandInvocation, streams: CommandStreams, paths: SetupPaths, version: string, ownedProcesses?: OwnedProcessPort) {
+  constructor(invocation: CommandInvocation, streams: CommandStreams, paths: SetupPaths, version: string,
+    ownedProcesses?: OwnedProcessPort, inheritedSignal?: AbortSignal) {
     this.invocation = invocation; this.streams = streams; this.paths = paths; this.version = version;
     this.ownedProcesses = ownedProcesses;
+    this.inheritedSignal = inheritedSignal;
     this.environment = { ...invocation.environment, CODEX_HOME: paths.codexHome, GESTALT_HOME: paths.gestaltHome };
   }
   async log(message: string): Promise<void> { await this.streams.stderr(Buffer.from(`gestalt: ${message}\n`)); }
   canRollback(): boolean { return this.unsafeStatus === 0 && this.unknownOwnership.length === 0 && this.active.size === 0; }
   get signal(): AbortSignal { return this.cancellation.signal; }
   check(): void {
+    if (this.inheritedSignal?.aborted && !this.interrupted) {
+      this.interrupted = this.inheritedSignal.reason?.status || 130;
+      this.cancellation.abort({ status: this.interrupted });
+    }
     if (this.unsafeStatus) throw new CommandFailure('setup subprocess absence is unconfirmed; configuration snapshots and locks must be retained', this.interrupted || this.unsafeStatus);
     if (this.interrupted) throw new CommandFailure('setup interrupted', this.interrupted);
   }
@@ -89,7 +96,17 @@ export class SetupContext {
       };
       this.handlers.set(signal, handler); process.on(signal, handler);
     }
-    return () => { for (const [signal, handler] of this.handlers) process.removeListener(signal, handler); };
+    const inheritedAbort = () => {
+      this.interrupted ||= this.inheritedSignal?.reason?.status || 130;
+      this.cancellation.abort({ status: this.interrupted });
+      void this.stopActive();
+    };
+    this.inheritedSignal?.addEventListener('abort', inheritedAbort, { once: true });
+    if (this.inheritedSignal?.aborted) inheritedAbort();
+    return () => {
+      for (const [signal, handler] of this.handlers) process.removeListener(signal, handler);
+      this.inheritedSignal?.removeEventListener('abort', inheritedAbort);
+    };
   }
   async require(name: string): Promise<string> {
     const executable = await this.executables.resolve(name, this.environment);
@@ -151,6 +168,9 @@ export class SetupContext {
   }
   async stopActive(): Promise<void> {
     await Promise.allSettled([...this.active].map(lease => lease.stop()));
+  }
+  async withStreams(streams: CommandStreams): Promise<SetupContext> {
+    return new SetupContext(this.invocation, streams, this.paths, this.version, await this.managedCommands(), this.inheritedSignal ?? this.signal);
   }
   retainDelegatedState(): void { this.unsafeStatus ||= this.interrupted || 1; }
   async run(name: string, argv: readonly string[], options: { capture?: boolean; cwd?: string; environment?: Environment; program?: string } = {}): Promise<string> {

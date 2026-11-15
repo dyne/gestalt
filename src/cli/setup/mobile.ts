@@ -49,6 +49,10 @@ export async function installMobile(context: SetupContext, explicit = false): Pr
     if (old) { await rename(destination, previous); movedPrevious = true; }
     await rename(stage, destination); activated = true;
     if (movedPrevious && context.canRollback()) await rm(previous, { recursive: true });
+    if (!context.canRollback()) {
+      retainLocks = true;
+      await context.log(`Mobile command succeeded; cleanup remains unknown; package state and lock retained at ${destination}`);
+    }
     return true;
   } catch (error) {
     if (!context.canRollback()) {

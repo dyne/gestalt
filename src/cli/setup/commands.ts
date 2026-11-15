@@ -1,5 +1,5 @@
 import path from 'node:path';
-import type { CommandHandler } from '../contracts.ts';
+import type { CommandHandler, OwnedProcessPort } from '../contracts.ts';
 import type { CliMetadata, CommandHandlers } from '../dispatch.ts';
 import { setupAgents } from './agents.ts';
 import { CommandFailure, optionalStat, setupPaths, SetupContext } from './context.ts';
@@ -89,15 +89,29 @@ export async function runUpdate(context: SetupContext, options: UpdateOptions, o
   return false;
 }
 
-export function createSetupHandlers(metadata: CliMetadata, operations: SetupOperations = defaults, resumed = false): CommandHandlers {
+export interface ManagedSetup {
+  readonly commands: OwnedProcessPort;
+  readonly signal: AbortSignal;
+  unknown(): void;
+}
+export function createSetupHandlers(metadata: CliMetadata, operations: SetupOperations = defaults, resumed = false,
+  managed?: ManagedSetup): CommandHandlers {
   const wrap = (command: string, body: (context: SetupContext, argv: readonly string[]) => Promise<number>): CommandHandler => async (invocation, streams) => {
+    let context: SetupContext | undefined;
     try {
       const environment = scratchEnvironment(invocation.environment);
-      const context = new SetupContext({ ...invocation, environment }, streams, await setupPaths(environment), metadata.version);
+      context = new SetupContext({ ...invocation, environment }, streams, await setupPaths(environment), metadata.version,
+        managed?.commands, managed?.signal);
+      context.check();
       return await body(context, invocation.argv);
     } catch (error) {
       await streams.stderr(Buffer.from(`gestalt: ${error instanceof Error ? error.message : `${command} failed`}\n`));
       return error instanceof CommandFailure ? error.status : 1;
+    } finally {
+      if (context) {
+        await context.stopActive();
+        if (!context.canRollback()) managed?.unknown();
+      }
     }
   };
   return {
@@ -129,7 +143,7 @@ export function createSetupHandlers(metadata: CliMetadata, operations: SetupOper
     }),
     '__updated-manager': async (invocation, streams) => {
       const [command, ...argv] = invocation.argv;
-      const handlers = createSetupHandlers(metadata, operations, true);
+      const handlers = createSetupHandlers(metadata, operations, true, managed);
       const handler = command && Object.hasOwn(handlers, command) ? handlers[command as keyof CommandHandlers] : undefined;
       if (!handler || command === '__updated-manager') { await streams.stderr(Buffer.from('gestalt: invalid updated-manager continuation\n')); return 1; }
       return handler({ ...invocation, argv }, streams);

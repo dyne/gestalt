@@ -167,3 +167,18 @@ record or automatically repeat/update that managed transaction. The successful
 command outcome remains separate from that retained authority. Standalone Agents
 setup retains its documented direct-child compatibility; it makes no complete-tree
 claim and is never used as a managed fallback.
+
+Standalone manager replacement keeps its serialization lock and cancellation
+listener through the continuation. A native version declaration and update API
+v1 marker identify the downloaded format; syntax success is never ownership
+release. Promotion uses a destination-local stage and records the pending
+handoff. The new compiled module imports without starting its CLI and receives
+literal invocation tokens, cwd, copied environment, streams, cancellation and
+the shared owned-command capability. Its filesystem owners remain in the host
+namespace. Only external commands enter the native ownership backend.
+Failure or interruption may leave the complete replacement installed; there is
+no automatic executable rollback or crash-resume/exactly-once promise. Unknown
+lifetime retains the update lock, receipt and download even after successful
+syntax validation or continuation. Confirmed release allows cleanup of only
+this update's private state. Managed macOS repeats may require explicit recovery
+of this authority as well as the Agents setup authority.

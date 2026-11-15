@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "mode": "frozen-public-api-capture",
+  "tag": "rust-v0.164.0",
+  "commit": "6aaac694803004a63c6f393d153c96d22521a6b9",
+  "release": "https://github.com/openai/codex/releases/tag/rust-v0.164.0",
+  "reference": {
+    "ref": "refs/tags/rust-v0.164.0",
+    "node_id": "REF_kwDOOYsS4bdyZWZzL3RhZ3MvcnVzdC12MC4xNjQuMA",
+    "url": "https://api.github.com/repos/openai/codex/git/refs/tags/rust-v0.164.0",
+    "object": {
+      "sha": "fe3b29455488c2e189e43ad5526a107900c5e1b7",
+      "type": "tag",
+      "url": "https://api.github.com/repos/openai/codex/git/tags/fe3b29455488c2e189e43ad5526a107900c5e1b7"
+    }
+  },
+  "resolved": {
+    "sha": "6aaac694803004a63c6f393d153c96d22521a6b9",
+    "type": "commit",
+    "url": "https://api.github.com/repos/openai/codex/git/commits/6aaac694803004a63c6f393d153c96d22521a6b9"
+  },
+  "capture": {
+    "observedAt": "2026-11-16T05:32:23.983Z",
+    "meaning": "Successful v2 public API tag/commit/release verification; runtime acquisition does not claim fresh upstream metadata",
+    "apiUrls": [
+      "https://api.github.com/repos/openai/codex/git/ref/tags/rust-v0.164.0",
+      "https://api.github.com/repos/openai/codex/git/tags/fe3b29455488c2e189e43ad5526a107900c5e1b7",
+      "https://api.github.com/repos/openai/codex/releases/tags/rust-v0.164.0"
+    ],
+    "rawReleaseResponseSha256": "b5b2852c195a903c89f3e005d668eaddcf0e92e8933371531aedaa57420da23a",
+    "successfulV2ArtifactRecordSha256": "e789bca818629f8e4fc583a5acee347619059574d8f90aca3a5e5cf1bd952e2b"
+  },
+  "assets": [
+    {
+      "name": "codex-x86_64-unknown-linux-musl.tar.gz",
+      "bytes": 114979035,
+      "url": "https://github.com/openai/codex/releases/download/rust-v0.164.0/codex-x86_64-unknown-linux-musl.tar.gz",
+      "publishedDigest": "sha256:90dd0b03b28afcb7fa733a4f73b413db2916a47347efd43fb669cc1c774ee8e4"
+    },
+    {
+      "name": "codex-aarch64-unknown-linux-musl.tar.gz",
+      "bytes": 106977873,
+      "url": "https://github.com/openai/codex/releases/download/rust-v0.164.0/codex-aarch64-unknown-linux-musl.tar.gz",
+      "publishedDigest": "sha256:29a507a2a3fd8f6cd94b96b762d281d299d15d7902dee6132d314b78cf9108eb"
+    },
+    {
+      "name": "codex-aarch64-apple-darwin.tar.gz",
+      "bytes": 101767166,
+      "url": "https://github.com/openai/codex/releases/download/rust-v0.164.0/codex-aarch64-apple-darwin.tar.gz",
+      "publishedDigest": "sha256:aa8299c169d80111aac05543ad2621c9bdbedb9bc252c905fe3f5a5baf9a4142"
+    },
+    {
+      "name": "codex-x86_64-apple-darwin.tar.gz",
+      "bytes": 110491441,
+      "url": "https://github.com/openai/codex/releases/download/rust-v0.164.0/codex-x86_64-apple-darwin.tar.gz",
+      "publishedDigest": "sha256:de6bbc013c56337f6ddd3f26dfbfd62aad5924cb68cd5ef6430538922bfa0e75"
+    },
+    {
+      "name": "codex-x86_64-pc-windows-msvc.exe",
+      "bytes": 354558768,
+      "url": "https://github.com/openai/codex/releases/download/rust-v0.164.0/codex-x86_64-pc-windows-msvc.exe",
+      "publishedDigest": "sha256:6f267830b029ee25d9339864aa867cd45de9f8fd4c5ea007d2e63c13a0c66d36"
+    }
+  ]
+}

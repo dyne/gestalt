@@ -58,6 +58,45 @@ export interface ProcessPort {
   identity(pid: number): Promise<ProcessIdentity | null>;
   signal(expected: ProcessIdentity, signal: 'interrupt' | 'terminate'): Promise<boolean>;
 }
+/** A lease belongs to one live kernel ownership object, never to a PID lookup. */
+export type OwnershipClaim =
+  | { readonly kind: 'unknown'; readonly lease: string; readonly reason: string }
+  | { readonly kind: 'active'; readonly lease: string; readonly backend: string }
+  | { readonly kind: 'released'; readonly lease: string; readonly backend: string; readonly result: ProcessResult };
+export type OwnedProcessResult = ProcessResult | { readonly kind: 'unknown'; readonly message: string };
+export interface OwnedProcessLease {
+  readonly id: string;
+  claim(): OwnershipClaim;
+  /** Observed command outcome, independent of whether descendant cleanup is certified. */
+  readonly result: Promise<OwnedProcessResult>;
+  readonly completed: Promise<OwnershipClaim>;
+  /** Concurrent stops share one operation. A deadline produces unknown, never release. */
+  stop(): Promise<OwnershipClaim>;
+}
+export interface OwnedProcessPort {
+  launch(executable: string, invocation: CommandInvocation, streams: CommandStreams,
+    limits?: { readonly graceMs?: number; readonly deadlineMs?: number }): Promise<OwnedProcessLease>;
+}
+export interface TerminalSize {
+  readonly columns: number;
+  readonly rows: number;
+}
+/** Fresh owned terminal, with stdout/stderr merged by the terminal itself.
+ * Bytes include terminal echo and VT/control sequences. A finite input stream
+ * requests bounded stop after its queued bytes drain; it cannot half-close a
+ * terminal. Send control bytes explicitly for application-level EOF/interrupt.
+ */
+export interface OwnedTerminalStreams {
+  readonly input: AsyncIterable<Bytes>;
+  output(bytes: Bytes): Promise<void>;
+}
+export interface OwnedTerminalLease extends OwnedProcessLease {
+  resize(size: TerminalSize): Promise<void>;
+}
+export interface OwnedTerminalPort {
+  launchTerminal(executable: string, invocation: CommandInvocation, streams: OwnedTerminalStreams,
+    size: TerminalSize, limits?: { readonly graceMs?: number; readonly deadlineMs?: number }): Promise<OwnedTerminalLease>;
+}
 /** Fail closed if ownership/privacy cannot be proved, including Windows ACLs. */
 export interface PrivateStoragePort {
   assertPrivate(path: string, kind: 'file' | 'directory'): Promise<void>;

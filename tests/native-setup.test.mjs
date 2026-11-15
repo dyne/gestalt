@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -9,6 +9,7 @@ import { parseSetupOptions, parseUpdateOptions, runUpdate } from '../src/cli/set
 import { SetupContext } from '../src/cli/setup/context.ts';
 import { mobileHostSupport } from '../src/cli/setup/mobile.ts';
 import { retiredRestartArguments } from '../src/cli/setup/restart.ts';
+import { captureCopyTree, compareCopyTrees } from '../scripts/native-copy-provenance.mjs';
 
 test('native configuration preserves custom bytes, modes-independent content and repeated reconciliation', () => {
   const custom = '# keep this comment\r\nmodel = "custom" # and this one\r\napproval_policy = "on-request"\r\n[features]\r\nhooks = true\r\n[mcp_servers.custom]\r\ncommand = "unrelated"\r\ndefault_tools_approval_mode = "prompt"\r\n';
@@ -71,4 +72,25 @@ test('retired restart options adapt only explicit known values and preserve argu
   for (const argv of [['--xerj'], ['--xerj', 'ambiguous']]) assert.throws(() => retiredRestartArguments(argv), /missing or ambiguous/);
   assert.equal(mobileHostSupport('win32').supported, false);
   assert.match(mobileHostSupport('win32').prerequisite, /native win32.*owned-process.*session-scratch/);
+});
+
+test('native copy preflight inventories nested dist and reports all missing or changed dependency bytes', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'gestalt native copy '));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const source = path.join(root, 'source'), copied = path.join(root, 'copied');
+  await mkdir(path.join(source, 'smol-toml/dist'), { recursive: true });
+  await mkdir(path.join(source, 'native/bin'), { recursive: true });
+  await writeFile(path.join(source, 'smol-toml/package.json'), '{"exports":"./dist/index.js"}');
+  await writeFile(path.join(source, 'smol-toml/dist/index.js'), 'export const parser = "fixture";\n');
+  await writeFile(path.join(source, 'native/bin/compiler.exe'), Buffer.from([0, 255, 10, 128]));
+  const expected = await captureCopyTree(source);
+  await cp(source, copied, { recursive: true });
+  assert.deepEqual(compareCopyTrees(expected, await captureCopyTree(copied)), []);
+  await rm(path.join(copied, 'smol-toml/dist'), { recursive: true });
+  await writeFile(path.join(copied, 'native/bin/compiler.exe'), Buffer.from([0, 0, 10, 128]));
+  const differences = compareCopyTrees(expected, await captureCopyTree(copied));
+  assert.deepEqual(differences.map(entry => entry.path), ['native/bin/compiler.exe', 'smol-toml/dist', 'smol-toml/dist/index.js']);
+  assert.equal(differences[0].expected.bytes, differences[0].actual.bytes);
+  assert.notEqual(differences[0].expected.sha256, differences[0].actual.sha256);
+  assert.equal(differences[2].actual, null);
 });

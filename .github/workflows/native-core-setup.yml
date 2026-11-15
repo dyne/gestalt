@@ -80,7 +80,9 @@ jobs:
             Add-LocalGroupMember -Group $users -Member $user
             New-Item -ItemType Directory -Path $work | Out-Null
             $source = Join-Path $work 'source'
-            & robocopy $env:GITHUB_WORKSPACE $source /E /XD .git dist /NFL /NDL /NJH /NJS /NP
+            # Preserve installed dependency dist directories and native binaries.
+            # An unqualified /XD dist removes those at every depth.
+            & robocopy $env:GITHUB_WORKSPACE $source /E /XD .git /NFL /NDL /NJH /NJS /NP
             if ($LASTEXITCODE -gt 7) { throw 'Native candidate copy failed' }
             & icacls $work /grant ('*' + $user.SID.Value + ':(OI)(CI)F') /T /Q | Out-Null
             if ($LASTEXITCODE -ne 0) { throw 'Native fixture access setup failed' }

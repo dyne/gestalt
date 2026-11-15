@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { captureCopyTree, compareCopyTrees } from './native-copy-provenance.mjs';
 const root = path.resolve(import.meta.dirname, '..');
 const evidence = path.join(root, 'native-evidence/setup');
 const dependency = path.join(root, '.native-dependencies/agents');
@@ -13,8 +14,15 @@ if (process.argv[2] === '--verify-copy') {
   const expected = JSON.parse(await readFile(path.join(evidence, 'checkout.json'), 'utf8'));
   for (const [directory, entry] of [[root, expected.manager], [dependency, expected.agents]])
     for (const file of entry.files) assert.equal(digest(await readFile(path.join(directory, file.path))), file.sha256, `copied source differs: ${file.path}`);
+  assert.ok(Array.isArray(expected.toolchain?.entries), 'installed dependency inventory is required before copying');
+  const actual = await captureCopyTree(path.join(root, 'node_modules'));
+  const differences = compareCopyTrees(expected.toolchain.entries, actual);
+  await writeFile(path.join(evidence, 'copied-toolchain-verification.json'), JSON.stringify({ observedAt: new Date().toISOString(),
+    status: differences.length ? 'mismatch' : 'matched', expectedEntries: expected.toolchain.entries.length, actualEntries: actual.length, differences }, null, 2));
+  assert.equal(differences.length, 0, `copied installed toolchain differs at ${differences[0]?.path}; see copied-toolchain-verification.json for every mismatch`);
   await writeFile(path.join(evidence, 'copied-source-verification.json'), JSON.stringify({ observedAt: new Date().toISOString(), status: 'matched', manager: expected.manager.head, managerTree: expected.manager.tree,
-    agents: expected.agents.head, agentsTree: expected.agents.tree, files: expected.manager.files.length + expected.agents.files.length }));
+    agents: expected.agents.head, agentsTree: expected.agents.tree, files: expected.manager.files.length + expected.agents.files.length,
+    installedToolchainEntries: actual.length }));
 } else {
   const inspect = async directory => {
     const files = [];
@@ -28,6 +36,7 @@ if (process.argv[2] === '--verify-copy') {
   };
   const agents = await inspect(dependency);
   assert.equal(agents.tree, '8036c523454bcf203b33866cb1365278da5df1ef', 'CI must consume the accepted Agents tree');
+  const toolchain = { root: 'node_modules', entries: await captureCopyTree(path.join(root, 'node_modules')) };
   await writeFile(path.join(evidence, 'checkout.json'), JSON.stringify({ observedAt: new Date().toISOString(), githubSha: process.env.GITHUB_SHA,
-    acceptedAgentsCommit: '9053297f036773ef83dceb57df6d91da0077ef43', equivalentAgentsSnapshot: 'ee0dd9b96add7634de4e470f93c3dee111b521b9', manager: await inspect(root), agents }, null, 2));
+    acceptedAgentsCommit: '9053297f036773ef83dceb57df6d91da0077ef43', equivalentAgentsSnapshot: 'ee0dd9b96add7634de4e470f93c3dee111b521b9', manager: await inspect(root), agents, toolchain }, null, 2));
 }

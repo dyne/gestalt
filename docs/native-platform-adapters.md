@@ -130,7 +130,13 @@ coverage; path parsing/escape refusal alone does not prove an accessible share.
 ## Setup ownership and rollback
 
 The development Node setup/update commands use `NativeOwnedProcesses` for
-installer and verification subprocesses. A command's exit status does not prove
+installer and verification subprocesses. The canonical Agents setup API v1 runs
+its filesystem orchestration in the host namespace and receives an explicit
+asynchronous owned-command capability, environment, streams, cwd and cancellation
+signal. Required host-filesystem/shared-context capabilities and selected source
+digests are checked before calling it; missing APIs fail with an update instruction.
+The whole Agents CLI is never launched inside the caller-only UID namespace.
+A command's exit status does not prove
 that its descendants stopped. Configuration rollback and transaction cleanup
 wait for the ownership adapter's release proof. Windows uses its Job Object;
 Linux requires permitted unprivileged user, mount and PID namespaces. Missing
@@ -155,3 +161,9 @@ reports that rollback is unconfirmed. A later setup refuses the retained lock;
 it never steals it by age or PID. Existing `recover-tool-leases` handling for
 Serena/Playwright does not retire `manager-setup` borrowers. Inspection and any
 manual recovery require all affected publishers and descendants to be stopped.
+Managed macOS success also retains the manager operation lock and the canonical
+Agents transaction locks/snapshots. It does not publish a released-setup provenance
+record or automatically repeat/update that managed transaction. The successful
+command outcome remains separate from that retained authority. Standalone Agents
+setup retains its documented direct-child compatibility; it makes no complete-tree
+claim and is never used as a managed fallback.

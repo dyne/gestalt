@@ -143,6 +143,60 @@ test('setup retains failed unknown ownership instead of authorizing rollback', a
   assert.equal(context.unknownOwnership.length, 1);
 });
 
+test('managed Agents commands share cancellation and await each owned release before manager compensation', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'gestalt managed capability '));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const held = [], result = { kind: 'exit', code: 0 };
+  const context = new SetupContext({ argv: [], cwd: root, environment: { FIXTURE: 'manager' } },
+    { stdin: (async function* () {})(), stdout: async () => {}, stderr: async () => {} },
+    { userHome: root, codexHome: path.join(root, 'codex'), gestaltHome: path.join(root, 'gestalt'), manager: process.execPath,
+      marketplace: 'fixture', marketplaceName: 'fixture', unixProbe: undefined }, 'fixture',
+    { launch: async (_executable, invocation) => {
+      const id = `nested-${held.length}`;
+      let release; const completed = new Promise(resolve => { release = resolve; });
+      const entry = { id, invocation, release, stopped: false }; held.push(entry);
+      return { id, result: Promise.resolve(result), completed, claim: () => ({ kind: 'active', lease: id, backend: 'controlled-test' }),
+        stop: async () => { entry.stopped = true; return completed; } };
+    } });
+  const capability = await context.managedCommands(); assert.equal(capability.apiVersion, 1);
+  const unlisten = context.listen();
+  try {
+    const streams = { stdin: (async function* () {})(), stdout: async () => {}, stderr: async () => {} };
+    const first = await capability.launch(process.execPath, { argv: ['literal & ü'], cwd: root, environment: { FIXTURE: 'first' } }, streams);
+    const second = await capability.launch(process.execPath, { argv: ['second'], cwd: root, environment: { FIXTURE: 'second' } }, streams);
+    assert.equal(context.canRollback(), false);
+    assert.equal(context.environment.FIXTURE, 'manager');
+    assert.deepEqual(held.map(entry => entry.invocation.environment.FIXTURE), ['first', 'second']);
+    process.emit('SIGTERM');
+    assert.equal(context.signal.aborted, true); assert.equal(context.signal.reason.status, 143);
+    assert.ok(held.every(entry => entry.stopped));
+    held[0].release({ kind: 'released', lease: first.id, backend: 'controlled-test', result });
+    await first.completed; assert.equal(context.canRollback(), false);
+    held[1].release({ kind: 'released', lease: second.id, backend: 'controlled-test', result });
+    await second.completed; await context.stopActive(); assert.equal(context.canRollback(), true);
+    assert.deepEqual(context.unknownOwnership, []);
+  } finally {
+    for (const entry of held) entry.release({ kind: 'released', lease: entry.id, backend: 'controlled-test', result });
+    await context.stopActive(); unlisten();
+  }
+});
+
+test('managed Agents capability records unknown once across stop and completion', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'gestalt managed unknown '));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const claim = { kind: 'unknown', lease: 'api-unknown', reason: 'controlled loss' }, result = { kind: 'exit', code: 0 };
+  const context = new SetupContext({ argv: [], cwd: root, environment: {} },
+    { stdin: (async function* () {})(), stdout: async () => {}, stderr: async () => {} },
+    { userHome: root, codexHome: path.join(root, 'codex'), gestaltHome: path.join(root, 'gestalt'), manager: process.execPath,
+      marketplace: 'fixture', marketplaceName: 'fixture', unixProbe: undefined }, 'fixture',
+    { launch: async () => ({ id: claim.lease, result: Promise.resolve(result), completed: Promise.resolve(claim), claim: () => claim, stop: async () => claim }) });
+  const capability = await context.managedCommands();
+  const lease = await capability.launch(process.execPath, context.invocation, context.streams);
+  const [completed, stopped] = await Promise.all([lease.completed, lease.stop()]);
+  assert.deepEqual(completed, claim); assert.deepEqual(stopped, claim);
+  assert.equal(context.unknownOwnership.length, 1); assert.equal(context.canRollback(), false);
+});
+
 test('setup borrower publication preserves the existing owner and releases only the exact stopped claim', async t => {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), 'gestalt setup borrower ')));
   t.after(() => rm(root, { recursive: true, force: true }));

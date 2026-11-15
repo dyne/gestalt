@@ -35,8 +35,8 @@ if (process.argv[2] === '--verify-copy') {
     return { head: git(directory, 'rev-parse', 'HEAD'), tree: git(directory, 'rev-parse', 'HEAD^{tree}'), branch: git(directory, 'rev-parse', '--abbrev-ref', 'HEAD'), files };
   };
   const agents = await inspect(dependency);
-  assert.equal(agents.tree, '8036c523454bcf203b33866cb1365278da5df1ef', 'CI must consume the accepted Agents tree');
+  assert.equal(agents.tree, '0038005169b5c843b57e887ea8f463d7fba666c4', 'CI must consume the accepted Agents tree');
   const toolchain = { root: 'node_modules', entries: await captureCopyTree(path.join(root, 'node_modules')) };
   await writeFile(path.join(evidence, 'checkout.json'), JSON.stringify({ observedAt: new Date().toISOString(), githubSha: process.env.GITHUB_SHA,
-    acceptedAgentsCommit: '9053297f036773ef83dceb57df6d91da0077ef43', equivalentAgentsSnapshot: 'ee0dd9b96add7634de4e470f93c3dee111b521b9', manager: await inspect(root), agents, toolchain }, null, 2));
+    acceptedAgentsCommit: 'e98a4cd15f945a7749d02e071126a854376b93c0', equivalentAgentsSnapshot: '8827347387ee32e2c5bd7eb912f9b80185cdad45', manager: await inspect(root), agents, toolchain }, null, 2));
 }

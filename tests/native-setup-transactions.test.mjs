@@ -56,6 +56,20 @@ async function fixture(t, config = custom) {
   const bin = path.join(root, 'bin'); await mkdir(bin, { mode: 0o700 });
   const ownerRoot = path.join(root, 'Agents ü &'); await mkdir(ownerRoot, { mode: 0o700 });
   const owner = path.join(ownerRoot, 'gestalt-setup.mjs'), log = path.join(root, 'calls.jsonl');
+  const apiOwner = path.join(ownerRoot, 'scripts/setup-agents.mjs'), worker = path.join(ownerRoot, 'setup-worker.mjs');
+  await mkdir(path.dirname(apiOwner), { mode: 0o700 });
+  await writeFile(owner, "export * from './scripts/setup-agents.mjs';\n");
+  await writeFile(apiOwner, `import {fileURLToPath} from 'node:url';
+export const SETUP_API_VERSION=1,SETUP_API_CAPABILITIES=['async-owned-commands-v1','host-filesystem-v1','shared-context-v1'];
+export async function setupAgents(args,{mode,commands,environment,cwd,streams,signal}){
+if(mode!=='managed'||commands?.apiVersion!==1)throw new Error('explicit managed capability required');
+const lease=await commands.launch(process.execPath,{argv:[fileURLToPath(new URL('../setup-worker.mjs',import.meta.url)),...args],cwd,environment},streams,{graceMs:1000,deadlineMs:10000});
+const abort=()=>{void lease.stop();};signal.addEventListener('abort',abort,{once:true});if(signal.aborted)abort();
+try{const result=await lease.result,claim=await lease.stop(),status=signal.aborted?signal.reason.status:result.kind==='exit'?result.code:1;
+const execution={apiVersion:1,mode,ownership:claim.kind==='released'?{kind:'released',completeTree:true}:{kind:'unknown',claims:[claim]},retained:[]};
+if(status!==0||(claim.kind!=='released'&&process.platform!=='darwin'))throw Object.assign(new Error('fixture setup failed ('+status+')'),{status:status||1,execution});
+return execution;}finally{signal.removeEventListener('abort',abort);}}
+`);
   if (config !== null) await writeFile(path.join(codex, 'config.toml'), config, { mode: 0o640 });
   await mkdir(path.join(codex, 'agents'), { mode: 0o700 });
   await writeFile(path.join(codex, 'agents/custom.toml'), 'model="preserve"\n');
@@ -70,7 +84,7 @@ if(args[0]==='plugin'&&args[1]==='marketplace'){if(process.env.FIXTURE_MARKETPLA
 else if(args[0]==='plugin'&&args[1]==='list')console.log(JSON.stringify({installed:[{name:'gestalt',version:'1.2.3',installed:true},{name:'context-mode',version:process.env.FIXTURE_VERIFY_FAIL==='1'?'9.9.9':'1.2.3',installed:true,enabled:false}]}));
 else if(args[0]==='mcp')console.log(JSON.stringify({enabled:true,command:'node',args:[path.join(process.env.CODEX_HOME,'bin/context-mode-mcp.mjs')]}));
 else throw new Error('unexpected fixture Codex invocation');`);
-  await writeFile(owner, `import fs from 'node:fs/promises';import path from 'node:path';
+  await writeFile(worker, `import fs from 'node:fs/promises';import path from 'node:path';
 await fs.appendFile(process.env.FIXTURE_LOG,JSON.stringify(['setup',...process.argv.slice(2)])+'\\n');
 if(process.env.FIXTURE_WAIT==='1'){await fs.writeFile(process.env.FIXTURE_READY,'ready');while(true){try{await fs.stat(process.env.FIXTURE_RELEASE);break;}catch{}await new Promise(r=>setTimeout(r,20));}}
 if(process.env.FIXTURE_FAIL==='1')process.exit(9);
@@ -82,6 +96,7 @@ const config=path.join(home,'config.toml');let source=await fs.readFile(config,'
 const runtime=path.join(gestalt,'runtime/context-mode');await fs.mkdir(runtime,{recursive:true,mode:0o700});
 await fs.writeFile(path.join(runtime,'.context-mode-prepared.json'),JSON.stringify({packageVersion:'1.2.3',nodeModulesAbi:process.versions.modules,platform:process.platform,arch:process.arch}));
 for(const file of ['cli.bundle.mjs','server.bundle.mjs'])await fs.writeFile(path.join(runtime,file),'// fixture');
+if(process.env.FIXTURE_VERIFY_FAIL==='1')process.exit(9);
 `);
   const env = { ...process.env, HOME: home, USERPROFILE: home, CODEX_HOME: codex, GESTALT_HOME: gestalt,
     GESTALT_AGENTS_SOURCE: ownerRoot, GESTALT_AGENTS_SETUP_SHA256: hash(await readFile(owner)), GESTALT_MANAGER_DISTRIBUTION: 'npm',
@@ -95,7 +110,7 @@ for(const file of ['cli.bundle.mjs','server.bundle.mjs'])await fs.writeFile(path
     const result = new Promise((resolve, reject) => { child.once('error', reject); child.once('close', status => resolve({ status, stdout, stderr })); });
     return { child, result };
   }
-  return { root, home, codex, gestalt, owner, ownerRoot, env, log, storage, start, retain: () => { retained = true; },
+  return { root, home, codex, gestalt, owner, apiOwner, worker, ownerRoot, env, log, storage, start, retain: () => { retained = true; },
     run: (argv = ['agents', 'install'], extra) => start(argv, extra).result,
     config: () => readFile(path.join(codex, 'config.toml'), 'utf8'),
     provenance: () => readFile(path.join(codex, '.gestalt-setup-provenance.json'), 'utf8') };
@@ -166,7 +181,7 @@ test('actual native interruption fences setup descendants or retains unknown tra
   const descendant = `const fs=require('node:fs');process.on('SIGTERM',()=>{});process.on('SIGINT',()=>{});const token=${JSON.stringify(token)};
 fs.writeFileSync(${JSON.stringify(ready)},JSON.stringify({pid:process.pid,token}));
 const interval=setInterval(()=>{if(fs.existsSync(${JSON.stringify(release)})){clearInterval(interval);fs.writeFileSync(${JSON.stringify(done)},token);process.exit(0);}fs.appendFileSync(${JSON.stringify(heartbeat)},token+'\\n');fs.writeFileSync(${JSON.stringify(config)},'# resistant descendant '+token+'\\n');},40);setTimeout(()=>process.exit(0),20000);`;
-  await writeFile(f.owner, `import {spawn} from 'node:child_process';const child=spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{detached:true,stdio:'ignore'});child.unref();setInterval(()=>{},1000);`);
+  await writeFile(f.worker, `import {spawn} from 'node:child_process';const child=spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{detached:true,stdio:'ignore'});child.unref();setInterval(()=>{},1000);`);
   const extra = { GESTALT_AGENTS_SETUP_SHA256: hash(await readFile(f.owner)), GESTALT_SETUP_DESCENDANT: token };
   let leases;
   // A synthetic owner is isolated CI data. An existing owning context is always
@@ -254,9 +269,23 @@ const interval=setInterval(()=>{if(fs.existsSync(${JSON.stringify(release)})){cl
   }
 });
 
-for (const initial of [null, custom]) test(`compiled native ${initial === null ? 'fresh' : 'custom'} Agents setup repeats with stable config and provenance`, async t => {
+for (const initial of [null, custom]) test(`compiled native ${initial === null ? 'fresh' : 'custom'} Agents setup ${process.platform === 'darwin' ? 'retains unknown authority and refuses repeat' : 'repeats with stable config and provenance'}`, async t => {
   const f = await fixture(t, initial);
   const first = await f.run(); assert.equal(first.status, 0, first.stderr);
+  if (process.platform === 'darwin') {
+    assert.match(first.stderr, /command succeeded.*snapshot and setup locks retained/);
+    const config = await f.config();
+    const retained = (await readdir(f.codex)).filter(name => name.startsWith('.gestalt-setup.'));
+    assert.equal(retained.length, 1);
+    assert.equal(JSON.parse(await readFile(path.join(f.codex, retained[0], 'ownership-unknown.json'), 'utf8')).status, 'command-succeeded-cleanup-unknown');
+    assert.equal(await exists(path.join(f.codex, '.gestalt-manager-setup.lock')), true);
+    assert.equal(await exists(path.join(f.codex, '.gestalt-setup-provenance.json')), false);
+    const repeat = await f.run(['agents', 'update']);
+    assert.notEqual(repeat.status, 0); assert.match(repeat.stderr, /EEXIST|already running/);
+    assert.equal(await f.config(), config);
+    assert.equal(await readFile(path.join(f.codex, 'AGENTS.md'), 'utf8'), 'user instructions\n');
+    return;
+  }
   const config = await f.config(), provenance = await f.provenance(), parsed = parse(config), metadata = JSON.parse(provenance);
   assert.equal(parsed.approval_policy, 'never'); assert.equal(parsed.default_permissions, 'workspace-git');
   assert.equal(parsed.mcp_servers['context-mode'].default_tools_approval_mode, 'approve');
@@ -269,10 +298,7 @@ for (const initial of [null, custom]) test(`compiled native ${initial === null ?
   const repeat = await f.run(['agents', 'update']); assert.equal(repeat.status, 0, repeat.stderr);
   assert.equal(await f.config(), config); assert.equal(await f.provenance(), provenance);
   const retained = (await readdir(f.codex)).filter(name => name.startsWith('.gestalt-setup.'));
-  if (process.platform === 'darwin') {
-    assert.ok(retained.length >= 2);
-    for (const name of retained) assert.equal(JSON.parse(await readFile(path.join(f.codex, name, 'ownership-unknown.json'), 'utf8')).status, 'command-succeeded-cleanup-unknown');
-  } else assert.deepEqual(retained, []);
+  assert.deepEqual(retained, []);
   assert.equal(await exists(path.join(f.codex, '.gestalt-manager-setup.lock')), false);
   assert.equal(await exists(path.join(f.codex, '.gestalt-setup.lock')), false);
   if (process.platform !== 'win32' && initial) assert.equal((await stat(path.join(f.codex, 'config.toml'))).mode & 0o777, 0o640);
@@ -301,6 +327,13 @@ for (const failure of ['FIXTURE_FAIL', 'FIXTURE_VERIFY_FAIL', 'FIXTURE_MARKETPLA
 
 test('native setup preserves last successful provenance on a failed repeat', async t => {
   const f = await fixture(t); assert.equal((await f.run()).status, 0);
+  if (process.platform === 'darwin') {
+    const before = await f.config();
+    const repeated = await f.run(['agents', 'update'], { FIXTURE_FAIL: '1' });
+    assert.notEqual(repeated.status, 0); assert.match(repeated.stderr, /EEXIST|already running/);
+    assert.equal(await f.config(), before); assert.equal(await exists(path.join(f.codex, '.gestalt-setup-provenance.json')), false);
+    return;
+  }
   const before = await f.config(), provenance = await f.provenance();
   assert.notEqual((await f.run(['agents', 'update'], { FIXTURE_FAIL: '1' })).status, 0);
   assert.equal(await f.config(), before); assert.equal(await f.provenance(), provenance);
@@ -313,7 +346,10 @@ test('native setup serializes concurrent managers and releases only its own lock
     await until(() => exists(f.env.FIXTURE_READY), 'first owner did not reach controlled wait', phaseBudgetMs, first.result);
     const second = await f.run(); assert.notEqual(second.status, 0); assert.match(second.stderr, /EEXIST|already running/);
   } finally { await writeFile(f.env.FIXTURE_RELEASE, 'release'); firstResult = await settleFixture(first, f); }
-  assert.equal(firstResult.status, 0, firstResult.stderr); assert.equal((await f.run()).status, 0);
+  assert.equal(firstResult.status, 0, firstResult.stderr);
+  const repeated = await f.run();
+  if (process.platform === 'darwin') { assert.notEqual(repeated.status, 0); assert.match(repeated.stderr, /EEXIST|already running/); }
+  else assert.equal(repeated.status, 0, repeated.stderr);
 });
 
 test('native setup refuses an existing delegated-owner lock before modifying config', async t => {
@@ -368,7 +404,14 @@ test('compiled install/update preserves native skills, extra selection and optio
     assert.equal(await exists(path.join(f.gestalt, 'mobile')), false);
     assert.doesNotMatch(installed.stderr, /then 'gestalt cli' or 'gestalt mobile'/);
   } else await writeFile(path.join(f.gestalt, 'mobile/user-data.txt'), 'preserve this data\n');
-  const updated = await f.run(['update', 'gestalt'], env); assert.equal(updated.status, 0, updated.stderr);
+  const updated = await f.run(['update', 'gestalt'], env);
+  if (process.platform === 'darwin') {
+    assert.notEqual(updated.status, 0); assert.match(updated.stderr, /EEXIST|already running/);
+    assert.match(installed.stderr, /command succeeded.*snapshot and setup locks retained/);
+    assert.equal(await readFile(path.join(f.gestalt, 'mobile/user-data.txt'), 'utf8'), 'preserve this data\n');
+    return;
+  }
+  assert.equal(updated.status, 0, updated.stderr);
   assert.equal(await readFile(path.join(f.codex, 'skills/native-fixture/SKILL.md'), 'utf8'), skill);
   assert.equal(await readFile(path.join(f.codex, 'gestalt-skills/receipt.json'), 'utf8'), JSON.stringify(receipt, null, 2) + '\n');
   if (process.platform === 'win32') assert.doesNotMatch(updated.stderr, /Mobile, and context-mode are up to date/);

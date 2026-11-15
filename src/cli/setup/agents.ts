@@ -1,5 +1,6 @@
 import { mkdir, readFile, realpath, rm, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { approvalConfiguration, permissionConfiguration } from './configuration.mjs';
 import { acquireSetupGate, digest, readProfile, replaceProfile } from './profile-files.ts';
 import type { ProfileSnapshot } from './profile-files.ts';
@@ -7,6 +8,7 @@ import { CommandFailure, optionalStat, SetupContext } from './context.ts';
 import type { NativePrivateStorage } from '../platform/storage.ts';
 
 type Plugin = { name?: string; version?: string; installed?: boolean; enabled?: boolean };
+const setupCapabilities = ['async-owned-commands-v1', 'host-filesystem-v1', 'shared-context-v1'] as const;
 function installedPlugins(text: string): Plugin[] {
   const result: unknown = JSON.parse(text);
   const plugins = Array.isArray(result) ? result : (result as { installed?: unknown })?.installed;
@@ -96,12 +98,53 @@ export async function setupAgents(context: SetupContext, mode: 'install' | 'upgr
         await context.run('codex', ['plugin', 'marketplace', action === 'add' ? 'upgrade' : 'add', action === 'add' ? marketplaceName : marketplace]);
       }
     }
-    if (!(await optionalStat(setup))?.isFile()) throw new Error(`marketplace native Node setup is missing: ${setup}; update Gestalt Agents to a native-capable release`);
+    if (!(await optionalStat(setup))?.isFile() || await realpath(setup) !== setup)
+      throw new Error(`marketplace native Node setup is missing or redirected: ${setup}; update Gestalt Agents to a native-capable release`);
+    const owner = path.join(sourceRoot, 'scripts/setup-agents.mjs');
+    if (!(await optionalStat(owner))?.isFile() || await realpath(owner) !== owner)
+      throw new Error(`canonical Agents setup API is missing or redirected: ${owner}; update the selected Agents checkout`);
     const expected = context.environment.GESTALT_AGENTS_SETUP_SHA256;
     const setupDigest = digest(await readFile(setup));
     if (expected && expected !== setupDigest) throw new Error('Agents Node setup digest differs from the selected dependency');
+    const ownerDigest = digest(await readFile(owner));
+    if (context.environment.GESTALT_AGENTS_SETUP_OWNER_SHA256 && context.environment.GESTALT_AGENTS_SETUP_OWNER_SHA256 !== ownerDigest)
+      throw new Error('Agents setup API owner digest differs from the selected dependency');
+    const api = await import(pathToFileURL(owner).href);
+    if (api.SETUP_API_VERSION !== 1 || typeof api.setupAgents !== 'function' ||
+        !Array.isArray(api.SETUP_API_CAPABILITIES) || !setupCapabilities.every(value => api.SETUP_API_CAPABILITIES.includes(value)))
+      throw new Error('Agents setup API v1 with host filesystem and async owned commands is required; update the selected Agents checkout');
     await context.log('preparing context mode, plugins, and agent profiles');
-    await context.run(process.execPath, [setup, ...(extraSkills ? ['--extra-skills'] : [])]);
+    let outcome;
+    try {
+      outcome = await api.setupAgents(extraSkills ? ['--extra-skills'] : [], {
+        mode: 'managed', commands: await context.managedCommands(), environment: { ...context.environment },
+        cwd: context.invocation.cwd, streams: context.streams, signal: context.signal,
+      });
+    } catch (error) {
+      await context.stopActive();
+      if ((error as { execution?: { ownership?: { kind?: string } } })?.execution?.ownership?.kind === 'unknown') context.retainDelegatedState();
+      const status = (error as { status?: number })?.status;
+      throw new CommandFailure(error instanceof Error ? error.message : 'Agents setup failed',
+        Number.isInteger(status) && status! > 0 && status! < 256 ? status : 1);
+    }
+    if (outcome?.apiVersion !== 1 || outcome.mode !== 'managed' || !Array.isArray(outcome.retained) ||
+        !['released', 'unknown'].includes(outcome.ownership?.kind) ||
+        (outcome.ownership.kind === 'released' && outcome.ownership.completeTree !== true)) {
+      context.retainDelegatedState();
+      throw new Error('Agents returned an invalid managed setup outcome; preserve the transaction for inspection');
+    }
+    if (outcome.ownership.kind === 'unknown' && process.platform !== 'darwin') {
+      context.retainDelegatedState();
+      throw new Error('Agents setup did not establish native descendant absence; retained transaction requires inspection');
+    }
+    if (outcome.ownership.kind === 'unknown' || !context.canRollback()) {
+      preserve = true; retainLocks = true;
+      await codexStorage.replaceFile(path.join(stage, 'ownership-unknown.json'), Buffer.from(JSON.stringify({
+        schemaVersion: 1, status: 'command-succeeded-cleanup-unknown', claims: context.unknownOwnership, delegated: outcome,
+      }) + '\n'));
+      await context.log(`Agents setup command succeeded; complete descendant absence is unknown; manager snapshot and setup locks retained at ${stage}; inspect retained transaction state before repeating managed setup`);
+      return;
+    }
     await verifyAgents(context);
     releaseGate = await claimHomes([codexStorage, gestaltStorage]);
     context.check();
@@ -112,18 +155,20 @@ export async function setupAgents(context: SetupContext, mode: 'install' | 'upgr
       outputs[relative] = await optionalStat(file) ? digest(await readFile(file)) : null;
     }
     const provenance = Buffer.from(JSON.stringify({ schemaVersion: 1, scope: 'setup-artifacts-only', runtimeEnforcement: false,
-      manager: { version: context.version, sha256: digest(await readFile(manager)) }, delegatedSetupSha256: setupDigest, outputs }, null, 2) + '\n');
+      manager: { version: context.version, sha256: digest(await readFile(manager)) }, delegatedSetupSha256: setupDigest,
+      delegatedApi: { apiVersion: 1, capabilities: setupCapabilities, ownerSha256: ownerDigest, mode: 'managed', ownership: 'released' }, outputs }, null, 2) + '\n');
     const destination = path.join(codexHome, '.gestalt-setup-provenance.json');
     const old = await readProfile(destination);
     if (!old?.bytes.equals(provenance)) await codexStorage.replaceFile(destination, provenance);
     if (!context.canRollback()) {
-      preserve = true;
+      preserve = true; retainLocks = true;
       await codexStorage.replaceFile(path.join(stage, 'ownership-unknown.json'), Buffer.from(JSON.stringify({
         schemaVersion: 1, status: 'command-succeeded-cleanup-unknown', claims: context.unknownOwnership,
       }) + '\n'));
       await context.log(`setup command succeeded; complete descendant absence is unknown on macOS; snapshot retained at ${stage}`);
     }
   } catch (error) {
+    await context.stopActive();
     if (!context.canRollback()) {
       preserve = true; retainLocks = true;
       if (stage) await codexStorage.replaceFile(path.join(stage, 'ownership-unknown.json'), Buffer.from(JSON.stringify({

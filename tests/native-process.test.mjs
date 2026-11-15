@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -143,6 +143,62 @@ test('owned native execution preserves argv, binary streams, environment, cwd an
   if (process.platform === 'darwin') assert.equal(result.kind, 'unknown', JSON.stringify(result));
   else { assert.equal(result.kind, 'released', JSON.stringify(result)); assert.deepEqual(result.result, { kind: 'exit', code: 23 }); }
   assert.deepEqual(JSON.parse(Buffer.concat(out)), { argv, input: '00ff0d0a', cwd: root, retained: 'kept' }); assert.deepEqual(Buffer.concat(err), Buffer.from([255, 0, 13]));
+});
+test('repeated fast normal exits settle the same owned process handle and preserve every result', allNative, async t => {
+  const executions = [];
+  try {
+    for (let iteration = 0; iteration < 32; iteration++) {
+      const code = iteration % 2 ? 23 : 0;
+      const lease = await new NativeOwnedProcesses(helper).launch(process.execPath, {
+        argv: ['-e', 'process.exitCode=Number(process.argv[1]);', String(code)], cwd: root, environment: process.env,
+      }, emptyStreams());
+      try {
+        const claim = await bounded(lease.completed, `fast exit ${iteration}`), result = await lease.result;
+        executions.push({ iteration, expected: code, result, ownership: claim.kind });
+        assert.deepEqual(result, { kind: 'exit', code });
+        if (process.platform === 'darwin') assert.equal(claim.kind, 'unknown', JSON.stringify(claim));
+        else { assert.equal(claim.kind, 'released', JSON.stringify(claim)); assert.deepEqual(claim.result, result); }
+      } finally {
+        await bounded(lease.stop(), 'fast exit cleanup');
+        await bounded(lease.completed, 'fast exit settlement');
+      }
+    }
+  } finally { t.diagnostic(JSON.stringify({ kind: 'native-fast-exit-sequence', executions })); }
+});
+test('Windows final process-handle timeout or failure remains unknown despite empty job and settled output', { skip: process.platform !== 'win32', timeout: 60000 }, async t => {
+  const source = await readFile(path.join(root, 'src/cli/platform/native/owned-process.c'), 'utf8');
+  const wait = 'WaitForSingleObject(process.hProcess, 5000)';
+  assert.equal(source.split(wait).length, 2, 'Inject only the final same-handle wait');
+  for (const [name, expression, expected] of [
+    ['timeout', '(DWORD)WAIT_TIMEOUT', /wait=258 error=0/],
+    ['failure', '(SetLastError(ERROR_INVALID_HANDLE), (DWORD)WAIT_FAILED)', /wait=4294967295 error=6/],
+  ]) {
+    // A test-only source copy forces just the final wait result after real job
+    // accounting/output settlement. The primary helper and its proof are intact.
+    const injected = source.replace(wait, `(GetEnvironmentVariableW(L"GESTALT_TEST_FINAL_WAIT", NULL, 0) ? ${expression} : ${wait})`);
+    const fixtureRoot = path.join(artifact, name), file = path.join(fixtureRoot, 'src/cli/platform/native/owned-process.c');
+    await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, injected);
+    const fixtureHelper = await buildOwnedProcess(fixtureRoot, path.join(fixtureRoot, 'bin'));
+    const scratch = path.join(fixtureRoot, 'retained-scratch'); await writeFile(scratch, 'keep');
+    if (process.env.GESTALT_NATIVE_TEST_EVIDENCE) {
+      const prefix = path.join(path.resolve(process.env.GESTALT_NATIVE_TEST_EVIDENCE), `windows-settlement-${name}`);
+      await copyFile(file, `${prefix}.c`); await copyFile(fixtureHelper, `${prefix}.exe`);
+      await copyFile(`${fixtureHelper}.provenance.json`, `${prefix}.provenance.json`);
+      const digest = value => createHash('sha256').update(value).digest('hex');
+      await writeFile(`${prefix}.fixture.json`, JSON.stringify({ testOnly: true, replacesAcceptance: false,
+        originalSourceSha256: digest(source), injectedSourceSha256: digest(injected), originalWait: wait, forcedResult: name }));
+    }
+    const lease = await new NativeOwnedProcesses(fixtureHelper).launch(process.execPath, {
+      argv: ['-e', 'process.exitCode=0;'], cwd: root, environment: { ...process.env, GESTALT_TEST_FINAL_WAIT: '1' },
+    }, emptyStreams());
+    try {
+      const claim = await bounded(lease.completed, `final handle ${name}`);
+      assert.equal(claim.kind, 'unknown', JSON.stringify(claim)); assert.match(claim.reason, /Owned root handle did not settle/); assert.match(claim.reason, expected);
+      assert.equal((await lease.result).kind, 'unknown'); assert.equal((await lease.stop()).kind, 'unknown');
+      assert.equal(await readFile(scratch, 'utf8'), 'keep'); assert.equal(recoveredOwnershipClaim(lease.id).kind, 'unknown');
+      t.diagnostic(JSON.stringify({ kind: 'native-final-handle-fault', forcedResult: name, claim }));
+    } finally { await bounded(lease.stop(), 'fault helper cleanup'); await bounded(lease.completed, 'fault helper settlement'); }
+  }
 });
 test('large simultaneous stdin stdout and stderr preserve bytes and drain input before EOF', allNative, async () => {
   const bytes = Buffer.alloc(3 * 1024 * 1024 + 137);

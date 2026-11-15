@@ -119,6 +119,8 @@ jobs:
             if (Test-Path -LiteralPath $ownedProvenance) { Copy-Item -LiteralPath $ownedProvenance native-evidence/ }
             $ownedBinary = Join-Path $source 'native-evidence/gestalt-owned-process.exe'
             if (Test-Path -LiteralPath $ownedBinary) { Copy-Item -LiteralPath $ownedBinary native-evidence/ }
+            $testEvidence = Join-Path $source 'native-evidence'
+            if (Test-Path -LiteralPath $testEvidence) { Get-ChildItem -LiteralPath $testEvidence -Filter 'windows-settlement-*' -File | Copy-Item -Destination native-evidence/ }
             $nodeVersion = & node --version
             $nodeArchitecture = & node -p process.arch
             @{ platform = 'win32'; arch = $nodeArchitecture; node = $nodeVersion; os = [Environment]::OSVersion.VersionString; sha = $env:GITHUB_SHA; observedAt = [DateTime]::UtcNow.ToString('o') } | ConvertTo-Json > native-evidence/runner.json

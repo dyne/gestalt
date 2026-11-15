@@ -1,0 +1,15 @@
+{
+  "description": "Exact npm Node shim bytes generated on the Windows standard-user runner by the controlled native-forward-fixture package",
+  "platform": "win32",
+  "architecture": "x64",
+  "node": "v24.22.2",
+  "npm": "11.19.1",
+  "run": 43637407599,
+  "job": 132577136234,
+  "snapshot": "24e651fbd09d897e2f4c751cee0876bdab3a7884",
+  "testedMerge": "dbfa57eaf0622883c10a361cbdf760dee44eff0a",
+  "tapSha256": "6eb36bca0740c056f72ab6bc318288aca777b43a305d4c4f8f4cab621fe77272",
+  "bytes": 337,
+  "sha256": "154461822f097521778f41e0bcd358a7827ec9e9428f762d4d1f9e19f04ecee2",
+  "base64": "QEVDSE8gb2ZmDQpHT1RPIHN0YXJ0DQo6ZmluZF9kcDANClNFVCBkcDA9JX5kcDANCkVYSVQgL2INCjpzdGFydA0KU0VUTE9DQUwNCkNBTEwgOmZpbmRfZHAwDQoNCklGIEVYSVNUICIlZHAwJVxub2RlLmV4ZSIgKA0KICBTRVQgIl9wcm9nPSVkcDAlXG5vZGUuZXhlIg0KKSBFTFNFICgNCiAgU0VUICJfcHJvZz1ub2RlIg0KICBTRVQgUEFUSEVYVD0lUEFUSEVYVDo7LkpTOz07JQ0KKQ0KDQplbmRMb2NhbCAmIGdvdG8gI191bmRlZmluZWRfIyAyPk5VTCB8fCB0aXRsZSAlQ09NU1BFQyUgJiAiJV9wcm9nJSIgICIlZHAwJVwuLlxuYXRpdmUtZm9yd2FyZC1maXh0dXJlXGVudHJ5Lm1qcyIgJSoNCg=="
+}

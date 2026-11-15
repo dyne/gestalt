@@ -16,7 +16,22 @@ const tools=['browser_navigate','browser_snapshot','browser_fill_form','browser_
 async function fixture(t,{flushOnClose=false,ignoreClose=false,managedScratch=false,parentResource=false,cooperative=false}={}){
  const base=await mkdtemp(join(tmpdir(),'playwright stdio ')),home=join(base,'managed'),workspace=join(base,'workspace with spaces'),bin=join(base,'bin');
  for(const p of [home,workspace,bin])await mkdir(p,{recursive:true});
- t.after(async()=>{await stopFixtureWorkers(join(base,'workers.jsonl'));await rm(base,{recursive:true,force:true});});
+ const clients=[];
+ const diagnostics=()=>clients.map(c=>c.diagnostics());
+ // Node stops running later after-hooks if an earlier hook fails. Settle every
+ // client before touching its live profile, then attempt both fallback cleanup
+ // steps even when one fails. Otherwise a directory error strands open proxies
+ // and the runner can hide the original assertion behind its outer timeout.
+ t.after(async()=>{
+  const errors=(await Promise.allSettled(clients.map(c=>c.close()))).filter(r=>r.status==='rejected').map(r=>r.reason);
+  try{await stopFixtureWorkers(join(base,'workers.jsonl'));}catch(error){errors.push(error);}
+  try{await rm(base,{recursive:true,force:true});}catch(error){errors.push(error);}
+  if(errors.length){
+   for(const error of errors)console.error('Playwright fixture cleanup: '+error.stack);
+   console.error('Playwright fixture clients: '+JSON.stringify(diagnostics()));
+   throw new AggregateError(errors,'Playwright fixture cleanup failed');
+  }
+ });
  const release=join(home,'playwright/release-0.0.83-fixture'),pkg=join(release,'node_modules/@playwright/mcp');await mkdir(pkg,{recursive:true});
  const executable=join(pkg,'cli.js');
  const server=`const fs=require('node:fs'),path=require('node:path'),{spawn}=require('node:child_process');
@@ -48,14 +63,34 @@ require('node:fs').appendFileSync(${JSON.stringify(join(base,'sandbox-events'))}
  function start(project=workspace,options={}){
   const p=options.public?spawn('bash',[manager,'playwright','mcp','--cwd',project,'--executable-path',chrome],{env,stdio:['pipe','pipe','pipe']}):spawn(process.execPath,['-e',program,home,'mcp','--cwd',project,'--executable-path',chrome],{env,stdio:['pipe','pipe','pipe']});
   const pending=new Map(),lines=createInterface({input:p.stdout});let id=0,stderr='';p.stderr.on('data',b=>stderr+=b);
-  lines.on('line',line=>{const m=JSON.parse(line),w=pending.get(m.id);if(w){pending.delete(m.id);w(m);}});
-  const request=(method,params={})=>new Promise((resolve,reject)=>{const n=++id,timer=setTimeout(()=>reject(Error('MCP deadline '+stderr)),8000);pending.set(n,m=>{clearTimeout(timer);resolve(m);});p.stdin.write(JSON.stringify({jsonrpc:'2.0',id:n,method,params})+'\n');});
+  const diagnostic=()=>({pid:p.pid,project,exitCode:p.exitCode,signalCode:p.signalCode,pending:[...pending.keys()],stderr});
+  const rejectPending=error=>{for(const waiter of pending.values())waiter.reject(error);};
+  lines.on('line',line=>{const m=JSON.parse(line),w=pending.get(m.id);if(w)w.resolve(m);});
+  const request=(method,params={})=>new Promise((resolve,reject)=>{
+   const n=++id,finish=(done,value)=>{clearTimeout(timer);pending.delete(n);done(value);};
+   const timer=setTimeout(()=>finish(reject,Error('MCP deadline '+JSON.stringify(diagnostic()))),8000);
+   pending.set(n,{resolve:m=>finish(resolve,m),reject:error=>finish(reject,error)});
+   p.stdin.write(JSON.stringify({jsonrpc:'2.0',id:n,method,params})+'\n');
+  });
   const call=(name='browser_snapshot',args={})=>request('tools/call',{name,arguments:args});
-  const exited=new Promise(r=>p.once('exit',(code,signal)=>r({code,signal})));
-  const close=async()=>{if(p.exitCode===null&&p.signalCode===null)p.stdin.end();await exited;lines.close();};
-  t.after(close);return{p,request,call,close,exited,get stderr(){return stderr;}};
+  const exited=new Promise(r=>p.once('exit',(code,signal)=>{rejectPending(Error('MCP exited '+JSON.stringify(diagnostic())));r({code,signal});}));
+  p.stdin.on('error',error=>rejectPending(error));
+  let closing;
+  const close=()=>closing??=(async()=>{
+   let timer;
+   try{
+    if(p.exitCode===null&&p.signalCode===null)p.stdin.end();
+    await Promise.race([exited,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('MCP close deadline '+JSON.stringify(diagnostic()))),8000);})]);
+   }catch(error){
+    // This is the exact ChildProcess handle created by this fixture. Retire it
+    // on a teardown deadline; never search for or signal an unrelated PID.
+    p.kill('SIGKILL');await exited;throw error;
+   }finally{clearTimeout(timer);lines.close();rejectPending(Error('MCP client closed'));}
+  })();
+  const client={p,request,call,close,exited,diagnostics:diagnostic,get stderr(){return stderr;}};
+  clients.push(client);return client;
  }
- return {base,home,workspace,chrome,start,scratch,resource};
+ return {base,home,workspace,chrome,start,scratch,resource,diagnostics};
 }
 const payload=m=>{assert.ok(!m.error,m.error?.message);return JSON.parse(m.result.content[0].text);};
 async function dead(pid,attempts=80){for(let i=0;i<attempts;i++){try{const s=await readFile('/proc/'+pid+'/stat','utf8');if(s.split(' ')[2]==='Z')return;}catch(e){if(e.code==='ENOENT')return;}try{process.kill(pid,0);}catch(e){if(e.code==='ESRCH')return;}await pause(25);}assert.fail('owned process survived '+pid);}
@@ -99,10 +134,13 @@ test('long managed scratch uses a live directory descriptor for Chrome while MCP
  assert.ok((await stat(f.scratch.context.directory)).isDirectory());
 });
 test('same-workspace contention cannot disturb owner; independent workspaces run in parallel',async t=>{
- const f=await fixture(t),first=f.start(),a=payload(await first.call('browser_navigate',{cookie:'one'}));
+ const f=await fixture(t);
+ try{
+ const first=f.start(),a=payload(await first.call('browser_navigate',{cookie:'one'}));
  const second=f.start();assert.ok((await second.call()).error);assert.equal(payload(await first.call()).cookie,'one');
  const other=join(f.base,'other');await mkdir(other);const third=f.start(other);
  const b=payload(await third.call());assert.notEqual(a.profile,b.profile);assert.equal(b.cookie,null);assert.equal(payload(await first.call()).pid,a.pid);
+ }catch(error){console.error('Playwright contention failure: '+error.stack);console.error('Playwright contention clients: '+JSON.stringify(f.diagnostics()));throw error;}
 });
 for(const method of ['EOF','SIGTERM','SIGKILL'])test('cookies survive restart and all descendants stop after '+method,async t=>{
  const f=await fixture(t),c=f.start(),a=payload(await c.call('browser_navigate',{cookie:'persistent'}));

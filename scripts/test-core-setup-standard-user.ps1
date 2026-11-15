@@ -47,5 +47,29 @@ $env:GESTALT_NATIVE_AGENTS_SOURCE = Join-Path $Repository '.native-dependencies/
 $env:GESTALT_NATIVE_SETUP_EVIDENCE = Join-Path $Repository 'native-evidence/setup'
 $identity = @{ platform='win32'; arch=(& $Node -p process.arch); node=(& $Node --version); abi=(& $Node -p process.versions.modules); standardUser=$true; noBashPath=$true; observedAt=[DateTime]::UtcNow.ToString('o') }
 [IO.File]::WriteAllText((Join-Path $env:GESTALT_NATIVE_SETUP_EVIDENCE 'runner.json'), ($identity | ConvertTo-Json), (New-Object Text.UTF8Encoding($false)))
+# Exercise the same two privacy contracts first, under this exact token/PATH
+# and copied candidate. Their separate logs/counts never replace the full suite.
+$fullEvidence = $env:GESTALT_NATIVE_SETUP_EVIDENCE
+$preflightEvidence = Join-Path $fullEvidence 'privacy-preflight'
+New-Item -ItemType Directory -Path $preflightEvidence -Force | Out-Null
+$privacyPattern = '^install/update reject existing permissive (codex|gestalt) root without repair or subordinate mutation$'
+$preflightStart = [DateTime]::UtcNow.ToString('o')
+try {
+  $env:GESTALT_NATIVE_SETUP_EVIDENCE = $preflightEvidence
+  $preflight = Start-Process -FilePath $Node -ArgumentList ('--test --test-reporter=tap --test-name-pattern "' + $privacyPattern + '" tests/native-setup-transactions.test.mjs') -NoNewWindow -Wait -PassThru -RedirectStandardOutput (Join-Path $preflightEvidence 'contracts.tap') -RedirectStandardError (Join-Path $preflightEvidence 'runner.stderr')
+  $tap = [IO.File]::ReadAllText((Join-Path $preflightEvidence 'contracts.tap'))
+  $counts = @{}
+  foreach ($metric in @('tests', 'pass', 'fail', 'cancelled', 'skipped')) {
+    $matchesForMetric = [regex]::Matches($tap, ('(?m)^# ' + $metric + ' ([0-9]+)\r?$'))
+    if ($matchesForMetric.Count -ne 1) { throw "Privacy preflight is missing a unique $metric count" }
+    $counts[$metric] = [int]$matchesForMetric[0].Groups[1].Value
+  }
+  $counts.executed = $counts.tests - $counts.skipped
+  $receipt = @{ scope='two-privacy-test-preflight'; command=@($Node, '--test', '--test-reporter=tap', '--test-name-pattern', $privacyPattern, 'tests/native-setup-transactions.test.mjs'); cwd=$Repository; exit=$preflight.ExitCode; counts=$counts; standardUser=$true; noBashPath=$true; startedAt=$preflightStart; observedAt=[DateTime]::UtcNow.ToString('o'); fullSuiteStillRequired=$true }
+  [IO.File]::WriteAllText((Join-Path $preflightEvidence 'result.json'), ($receipt | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding($false)))
+  if ($preflight.ExitCode -ne 0 -or $counts.executed -ne 2 -or $counts.pass -ne 2 -or $counts.fail -ne 0 -or $counts.cancelled -ne 0) { throw 'Standard-user privacy preflight did not pass both intended tests; inspect privacy-preflight evidence' }
+} finally {
+  $env:GESTALT_NATIVE_SETUP_EVIDENCE = $fullEvidence
+}
 & $Node --test --test-reporter=tap tests/native-cli.test.mjs tests/native-setup.test.mjs tests/native-setup-transactions.test.mjs tests/native-setup-installed.test.mjs
 exit $LASTEXITCODE

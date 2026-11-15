@@ -372,24 +372,41 @@ test('native setup rejects invalid session context and unsupported options befor
 });
 
 async function fixturePermissions(file, makePermissive = false) {
-  let sddl = null;
+  let acl = null;
   if (process.platform === 'win32') {
-    const script = `$ErrorActionPreference='Stop';$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:GESTALT_FIXTURE_ACL_PATH));$acl=(Get-Item -LiteralPath $p).GetAccessControl();
-if($env:GESTALT_FIXTURE_ACL_WIDEN -eq '1'){$sid=New-Object Security.Principal.SecurityIdentifier('S-1-1-0');$rule=New-Object Security.AccessControl.FileSystemAccessRule($sid,'ReadAndExecute','ContainerInherit,ObjectInherit','None','Allow');$acl.AddAccessRule($rule);Set-Acl -LiteralPath $p -AclObject $acl;$acl=(Get-Item -LiteralPath $p).GetAccessControl();if(-not($acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])|Where-Object {$_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Value -eq 'S-1-1-0'})){throw 'Permissive fixture ACL was not established'}};[Console]::Out.Write($acl.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::All))`;
+    if (makePermissive) {
+      // icacls /grant changes this fixture's DACL only. Set-Acl can request a
+      // SACL write and SeSecurityPrivilege even for a directory we own.
+      const result = spawnSync(path.join(process.env.SystemRoot, 'System32/icacls.exe'),
+        [file, '/grant', '*S-1-1-0:(OI)(CI)RX', '/Q'], { encoding: 'utf8', shell: false, timeout: 30_000 });
+      assert.equal(result.status, 0, result.stderr || result.stdout);
+    }
+    const script = `$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:GESTALT_FIXTURE_ACL_PATH));$acl=(Get-Item -LiteralPath $p).GetAccessControl();
+$everyone=@($acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])|Where-Object {$_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Value -eq 'S-1-1-0'});
+@{owner=$acl.GetOwner([Security.Principal.SecurityIdentifier]).Value;group=$acl.GetGroup([Security.Principal.SecurityIdentifier]).Value;dacl=$acl.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access);everyoneAllow=($everyone.Count -gt 0)}|ConvertTo-Json -Compress`;
     const result = spawnSync(path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'),
       ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
-      { env: { ...process.env, GESTALT_FIXTURE_ACL_PATH: Buffer.from(file).toString('base64'), GESTALT_FIXTURE_ACL_WIDEN: makePermissive ? '1' : '0' }, encoding: 'utf8', shell: false, timeout: 30_000 });
-    assert.equal(result.status, 0, result.stderr); sddl = result.stdout;
-    assert.ok(sddl.length > 0, 'fixture ACL inspection must return a security descriptor');
+      { env: { ...process.env, GESTALT_FIXTURE_ACL_PATH: Buffer.from(file).toString('base64') }, encoding: 'utf8', shell: false, timeout: 30_000 });
+    assert.equal(result.status, 0, result.stderr); acl = JSON.parse(result.stdout);
+    assert.match(acl.owner, /^S-1-/); assert.match(acl.group, /^S-1-/);
+    assert.ok(acl.dacl.length > 0, 'fixture ACL inspection must return a DACL');
+    if (makePermissive) assert.equal(acl.everyoneAllow, true, 'permissive fixture allow must actually be established');
   } else if (makePermissive) await chmod(file, 0o755);
   const info = await stat(file);
-  return { mode: info.mode & 0o7777, uid: info.uid, gid: info.gid, dev: info.dev, ino: info.ino, mtimeMs: info.mtimeMs, ctimeMs: info.ctimeMs, sddl };
+  return { mode: info.mode & 0o7777, uid: info.uid, gid: info.gid, dev: info.dev, ino: info.ino, mtimeMs: info.mtimeMs, ctimeMs: info.ctimeMs, acl };
 }
 
 for (const selected of ['codex', 'gestalt']) test(`install/update reject existing permissive ${selected} root without repair or subordinate mutation`,
   { timeout: process.platform === 'win32' ? 600_000 : 120_000 }, async t => {
     const f = await fixture(t), root = f[selected];
+    const initialPermissions = await fixturePermissions(root);
     const permissions = await fixturePermissions(root, true);
+    if (process.platform === 'win32') {
+      assert.equal(permissions.acl.owner, initialPermissions.acl.owner, 'DACL fixture operation must preserve owner');
+      assert.equal(permissions.acl.group, initialPermissions.acl.group, 'DACL fixture operation must preserve group');
+      assert.equal(initialPermissions.acl.everyoneAllow, false); assert.equal(permissions.acl.everyoneAllow, true);
+      assert.notEqual(permissions.acl.dacl, initialPermissions.acl.dacl);
+    }
     const before = { codex: await captureSetupRetention(f.codex), gestalt: await captureSetupRetention(f.gestalt) };
     for (const argv of [['install'], ['update', 'gestalt']]) {
       const result = await f.run(argv);
@@ -399,7 +416,7 @@ for (const selected of ['codex', 'gestalt']) test(`install/update reject existin
       assert.deepEqual({ codex: await captureSetupRetention(f.codex), gestalt: await captureSetupRetention(f.gestalt) }, before);
     }
     if (process.env.GESTALT_NATIVE_SETUP_EVIDENCE) await writeFile(path.join(process.env.GESTALT_NATIVE_SETUP_EVIDENCE, `permissive-${selected}-root.json`),
-      JSON.stringify({ observedAt: new Date().toISOString(), platform: process.platform, selected, permissions, preserved: true, subordinateCommandStarted: false }, null, 2));
+      JSON.stringify({ observedAt: new Date().toISOString(), platform: process.platform, selected, initialPermissions, permissions, preserved: true, subordinateCommandStarted: false }, null, 2));
   });
 
 test('npm-owned native manager update preserves package executable and retains component failure status', async t => {

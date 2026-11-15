@@ -44,7 +44,8 @@ test('compiled Node artifact runs outside the repository without a runtime compi
   assert.equal(unknown.status, 1);
   assert.equal(unknown.stdout, '');
   assert.equal(unknown.stderr, "gestalt: unknown command: not a command (run 'gestalt help')\n");
-  for (const command of [...commandNames.filter(name => !['help', 'version'].includes(name)), ...internalCommandNames]) {
+  const setupCommands = ['install', 'agents', 'update', 'update-restart', '__updated-manager', '__update-restart-worker'];
+  for (const command of [...commandNames.filter(name => !['help', 'version', ...setupCommands].includes(name)), ...internalCommandNames.filter(name => !setupCommands.includes(name))]) {
     const result = run([command]);
     assert.equal(result.status, 1, result.stderr);
     assert.equal(result.stdout, '');

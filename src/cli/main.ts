@@ -2,6 +2,7 @@
 import type { Writable } from 'node:stream';
 import { runCli } from './dispatch.ts';
 import type { Bytes, CommandStreams } from './contracts.ts';
+import { createSetupHandlers } from './setup/commands.ts';
 
 declare const GESTALT_BUILD_VERSION: string;
 declare const GESTALT_BUILD_HELP: string;
@@ -18,8 +19,9 @@ export async function main(): Promise<number> {
     stdout: bytes => write(process.stdout, bytes),
     stderr: bytes => write(process.stderr, bytes),
   };
+  const metadata = { version: GESTALT_BUILD_VERSION, help: GESTALT_BUILD_HELP };
   return runCli({ argv: process.argv.slice(2), cwd: process.cwd(), environment: process.env }, streams,
-    { version: GESTALT_BUILD_VERSION, help: GESTALT_BUILD_HELP });
+    metadata, createSetupHandlers(metadata));
 }
 
 main().then(code => { process.exitCode = code; }).catch(error => {

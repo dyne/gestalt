@@ -2,7 +2,7 @@ import { commandAliases, commandNames, internalCommandNames, retiredCommandNames
 import type { CommandHandler, CommandInvocation, CommandName, CommandStreams } from './contracts.ts';
 
 export interface CliMetadata { readonly version: string; readonly help: string }
-export type CommandHandlers = Partial<Readonly<Record<CommandName, CommandHandler>>>;
+export type CommandHandlers = Partial<Readonly<Record<CommandName | typeof internalCommandNames[number], CommandHandler>>>;
 
 /** Development composition seam. Later milestones replace each unfinished handler here. */
 export async function runCli(
@@ -24,8 +24,11 @@ export async function runCli(
   if (alias === 'help') { await write(metadata.help); return 0; }
   if (alias === 'version') { await write(`gestalt ${metadata.version}\n`); return 0; }
   if (!(commandNames as readonly string[]).includes(alias)) {
-    if ((internalCommandNames as readonly string[]).includes(token))
-      return fail(`development handler is not implemented: ${token}`);
+    if ((internalCommandNames as readonly string[]).includes(token)) {
+      const handler = handlers[token as typeof internalCommandNames[number]];
+      return handler ? handler({ ...invocation, argv: invocation.argv.slice(1) }, streams)
+        : fail(`development handler is not implemented: ${token}`);
+    }
     return fail(`unknown command: ${token} (run 'gestalt help')`);
   }
   const handler = handlers[alias as CommandName];

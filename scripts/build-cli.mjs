@@ -4,13 +4,16 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { managerHelp, managerVersion } from './manager-metadata.mjs';
+import { skillsSetupProgram } from './cli-embedded.mjs';
 
 export async function buildCli(root, output = join(root, 'dist/cli/gestalt.mjs')) {
   const source = await readFile(join(root, 'public/gestalt'), 'utf8');
   await build({
     entryPoints: [join(root, 'src/cli/main.ts')], outfile: output,
     bundle: true, platform: 'node', target: 'node24', format: 'esm',
-    define: { GESTALT_BUILD_VERSION: JSON.stringify(managerVersion(source)), GESTALT_BUILD_HELP: JSON.stringify(managerHelp(source)) },
+    banner: { js: `// GESTALT_CLI_VERSION='${managerVersion(source)}'` },
+    define: { GESTALT_BUILD_VERSION: JSON.stringify(managerVersion(source)), GESTALT_BUILD_HELP: JSON.stringify(managerHelp(source)),
+      GESTALT_BUILD_SKILLS_PROGRAM: JSON.stringify(skillsSetupProgram(source)) },
   });
   await chmod(output, 0o755);
   return output;

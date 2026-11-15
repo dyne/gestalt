@@ -77,7 +77,8 @@ test('public manager preserves native selectors/images/permissions/stdin and pub
     const {value}=await f.run(args,'resume');
     assert.deepEqual(value.args.slice(1,1+args.length),args);assert.equal(value.stdin,'original stdin bytes\n');
     assert.deepEqual(value.hookExits,[0,0]);assert.equal(value.context.workspacePath,workspace);
-    for(const key of ['TMPDIR','TMP','TEMP'])assert.equal(value.environment[key],value.context.directory);
+    for(const key of ['TMPDIR','TMP','TEMP'])assert.equal(value.environment[key],value.context.runtime.directory);
+    assert.ok(Buffer.byteLength(value.environment.TMPDIR)<=48);
     const marker=JSON.parse(await readFile(value.context.markerPath,'utf8'));
     assert.deepEqual(marker.providerThreads,[{provider:'codex',threadId:rootThread},{provider:'codex',threadId:childThread}]);
     assert.match(marker.ownerId,/^cli-/);assert.notEqual(marker.sessionId,rootThread);

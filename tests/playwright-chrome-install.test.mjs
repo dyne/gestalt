@@ -14,8 +14,9 @@ async function fixture(t) {
   const manager = join(root, 'gestalt'), log = join(root, 'calls');
   // The public launcher normalizes hostile TMPDIR to the managed context.
   // Invalid inherited context must fail rather than select the fallback.
-  const temporaryRoot = Object.hasOwn(process.env, 'GESTALT_SESSION_TMP_CONTEXT') ?
-    JSON.parse(process.env.GESTALT_SESSION_TMP_CONTEXT).directory : root;
+  const context = Object.hasOwn(process.env, 'GESTALT_SESSION_TMP_CONTEXT') ?
+    JSON.parse(process.env.GESTALT_SESSION_TMP_CONTEXT) : null;
+  const temporaryRoot = context ? context.runtime?.directory ?? context.directory : root;
   assert.ok(typeof temporaryRoot === 'string' && temporaryRoot.length > 0, 'temporary root missing');
   // Keep production install orchestration and cleanup. All package, network and
   // privilege operations are local stubs: these tests cannot install software.

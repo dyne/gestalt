@@ -57,6 +57,10 @@ jobs:
         timeout-minutes: 5
         run: npm test -- --shard 1/2
 
+      - name: Verify session sockets and restrictions in native sandbox
+        timeout-minutes: 2
+        run: npm run test:scratch:sandbox
+
       - name: Test installation tooling (2/2)
         timeout-minutes: 5
         run: npm test -- --shard 2/2
@@ -69,3 +73,21 @@ jobs:
       - name: Verify package with the publication npm client
         timeout-minutes: 2
         run: npx --yes npm@latest run test:package
+
+  scratch-macos:
+    name: macOS scratch sockets
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Verify physical roots and socket byte limits
+        run: node --test tests/session-scratch-runtime.test.mjs
+      - name: Verify native sandbox sockets and restrictions
+        run: npm run test:scratch:sandbox

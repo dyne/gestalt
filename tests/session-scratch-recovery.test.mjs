@@ -59,12 +59,17 @@ test('killed publisher leaves a durable block; explicit offline recovery restore
     }
   }
   const before = await stat(f.lock);
-  assert.throws(() => api.scratchAllocate(f.selected, 'cli-session', 'blocked'), /CONTAINMENT_BUSY/);
+  assert.throws(() => api.scratchAllocate(f.selected, 'cli-session', 'blocked'), /SESSION_SCRATCH_BUSY/);
   const marker = await readFile(f.context.markerPath, 'utf8');
   const token = f.inspect();
   assert.equal((await stat(f.lock)).ino, before.ino, 'inspection never mutates the fence');
   assert.equal(f.recover(token).status, 0);
   await assert.rejects(stat(f.lock), {code: 'ENOENT'});
+  const publication = f.run('inspect-publication', '--cwd', f.selected);
+  assert.equal(publication.status, 0, publication.stderr);
+  const publicationToken = JSON.parse(publication.stdout).token;
+  assert.notEqual(f.run('recover-publication', '--cwd', f.selected, '--expect', publicationToken).status, 0);
+  assert.equal(f.run('recover-publication', '--cwd', f.selected, '--expect', publicationToken, '--confirm-quiescent').status, 0);
   const owner = api.scratchAllocate(f.selected, 'cli-session', 'recovered');
   assert.equal(api.scratchRelease(owner), true);
   assert.equal(await readFile(f.context.markerPath, 'utf8'), marker);
@@ -130,4 +135,20 @@ test('invalid, duplicate and unknown options fail without mutation; help explain
   }
   assert.match(f.run('--help').stdout, /Stop Mobile and all runtimes\/tools/);
   await stat(f.lock);
+});
+
+test('publication recovery rejects replaced or nonempty fences without changing them', async t => {
+  const f = await fixture(t);
+  const path = join(f.selected, '.gestalt-scratch-lock');
+  await mkdir(path, {mode:0o700});
+  const inspect = () => JSON.parse(f.run('inspect-publication', '--cwd', f.selected).stdout).token;
+  const token = inspect();
+  await fs.promises.rename(path, path+'-original');
+  await mkdir(path,{mode:0o700});
+  const recover = value => f.run('recover-publication','--cwd',f.selected,'--expect',value,'--confirm-quiescent');
+  assert.match(recover(token).stderr,/SNAPSHOT_CHANGED/);
+  const replacement = inspect();
+  await writeFile(join(path,'unknown'),'retain');
+  assert.notEqual(recover(replacement).status,0);
+  assert.equal(await readFile(join(path,'unknown'),'utf8'),'retain');
 });

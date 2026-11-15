@@ -14,6 +14,7 @@ repo_root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 
 if [[ $test_shard != 2/2 ]]; then
 node --test "$repo_root/tests/session-scratch.test.mjs"
+node --test "$repo_root/tests/session-scratch-runtime.test.mjs"
 node --test "$repo_root/tests/session-scratch-lifetimes.test.mjs"
 node --test "$repo_root/tests/session-scratch-containment.test.mjs"
 node --test "$repo_root/tests/session-scratch-recovery.test.mjs"

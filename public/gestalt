@@ -119,10 +119,92 @@ function scratchJson(file) {
     return JSON.parse(scratchFs.readFileSync(fd, 'utf8'));
   } finally { scratchFs.closeSync(fd); }
 }
+function scratchRuntimeContainer() {
+  scratchAssert(typeof process.getuid === 'function');
+  return scratchPath.join(scratchFs.realpathSync('/tmp'), 'gs-' + process.getuid());
+}
+function scratchRuntimeIdentity(directory) {
+  scratchPrivate(directory);
+  const info = scratchFs.lstatSync(directory, {bigint:true});
+  return `${info.dev}:${info.ino}:${info.birthtimeNs}`;
+}
+function scratchRuntimeRecord(owner, runtime) {
+  return {schemaVersion:2,ownerId:owner.ownerId,workspacePath:owner.workspacePath,token:runtime.token,identity:runtime.identity};
+}
+function scratchAllocateRuntime(owner) {
+  const container = scratchRuntimeContainer();
+  try {scratchFs.mkdirSync(container,{mode:0o700});} catch(error) {if(error.code!=='EEXIST')throw error;}
+  scratchPrivate(container);
+  for(let attempt=0;attempt<16;attempt++) {
+    const directory=scratchPath.join(container,scratchCrypto.randomBytes(10).toString('hex'));
+    if(Buffer.byteLength(directory)>48)throw Error('SESSION_SCRATCH_RUNTIME_ROOT_TOO_LONG');
+    try {scratchFs.mkdirSync(directory,{mode:0o700});} catch(error) {if(error.code==='EEXIST')continue;throw error;}
+    const runtime={directory,token:scratchCrypto.randomBytes(32).toString('hex'),identity:scratchRuntimeIdentity(directory)};
+    scratchPublish(scratchPath.join(directory,'.gestalt-runtime.json'),scratchRuntimeRecord(owner,runtime),true);
+    return runtime;
+  }
+  throw Error('SESSION_SCRATCH_RUNTIME_COLLISION');
+}
+function scratchValidateRuntime(owner,runtime) {
+  const container=scratchRuntimeContainer();
+  scratchAssert(runtime && typeof runtime.directory==='string' && scratchPath.dirname(runtime.directory)===container &&
+    /^[0-9a-f]{20}$/.test(scratchPath.basename(runtime.directory)) && Buffer.byteLength(runtime.directory)<=48 &&
+    typeof runtime.token==='string' && /^[0-9a-f]{64}$/.test(runtime.token) &&
+    typeof runtime.identity==='string' && /^\d+:\d+:\d+$/.test(runtime.identity) && runtime.retiring===undefined);
+  scratchPrivate(container);
+  scratchAssert(scratchRuntimeIdentity(runtime.directory)===runtime.identity &&
+    JSON.stringify(scratchJson(scratchPath.join(runtime.directory,'.gestalt-runtime.json')))===JSON.stringify(scratchRuntimeRecord(owner,runtime)));
+}
+function scratchTemporaryDirectory(context) {return context.runtime?.directory ?? context.directory;}
+function scratchSocketPath(endpoint,capacity=({linux:108,darwin:104})[process.platform]) {
+  if(!capacity)throw Error('UNIX_SOCKET_PLATFORM_UNSUPPORTED: no verified pathname capacity for this platform');
+  if(endpoint.includes('\0') || Buffer.byteLength(endpoint)+1>capacity)
+    throw Error('UNIX_SOCKET_PATH_TOO_LONG: shorten the endpoint name or temporary root');
+  return endpoint;
+}
+function scratchWorkspacePublication(workspace,publish) {
+  scratchCanonical(workspace);
+  const path=scratchPath.join(workspace,'.gestalt-scratch-lock');
+  let claimed=false;
+  for(let attempt=0;attempt<100;attempt++) {
+    try {scratchFs.mkdirSync(path,{mode:0o700});claimed=true;break;}
+    catch(error){if(error.code!=='EEXIST')throw error;Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,10);}
+  }
+  if(!claimed)throw Error('SESSION_SCRATCH_BUSY');
+  scratchPrivate(path);
+  const fd=scratchFs.openSync(path,scratchFs.constants.O_RDONLY|scratchFs.constants.O_DIRECTORY|scratchFs.constants.O_NOFOLLOW);
+  const held=scratchFs.fstatSync(fd,{bigint:true});
+  try {
+    const parents=scratchManagedAncestors(workspace).map(ancestor=>ancestor.context.workspacePath);
+    scratchCheckParentPublications(workspace,parents);
+    const result=publish();
+    scratchCheckParentPublications(workspace,parents);
+    return result;
+  }
+  finally {
+    try {
+      const current=scratchFs.lstatSync(path,{bigint:true});
+      scratchAssert(current.isDirectory() && !current.isSymbolicLink() && current.dev===held.dev && current.ino===held.ino && current.birthtimeNs===held.birthtimeNs);
+      scratchFs.rmdirSync(path);
+    } finally {scratchFs.closeSync(fd);}
+  }
+}
+function scratchCheckParentPublications(workspace,logicalParents=[]) {
+  const parents=new Set(logicalParents);let current=scratchPath.parse(workspace).root;
+  for(const part of workspace.slice(current.length).split(scratchPath.sep).filter(Boolean)) {
+    current=scratchPath.join(current,part);if(part==='tmp')parents.add(scratchPath.dirname(current));
+  }
+  parents.delete(workspace);
+  for(const parent of parents) {
+    try{scratchFs.lstatSync(scratchPath.join(parent,'.gestalt-scratch-lock'));}
+    catch(error){if(error.code==='ENOENT')continue;throw error;}
+    throw Error('SESSION_SCRATCH_BUSY');
+  }
+}
 function scratchContext(environment = process.env, allowReleased = false) {
   if (!Object.hasOwn(environment, scratchVariable)) return null;
   const context = JSON.parse(environment[scratchVariable]);
-  scratchAssert(context?.schemaVersion === 1 && scratchId(context.ownerId));
+  scratchAssert([1,2].includes(context?.schemaVersion) && scratchId(context.ownerId));
   scratchCanonical(context.workspacePath);
   const container = scratchPath.join(context.workspacePath, 'tmp', 'sessions');
   scratchAssert(context.directory === scratchPath.join(container, context.ownerId) &&
@@ -135,11 +217,15 @@ function scratchContext(environment = process.env, allowReleased = false) {
   scratchAssert(!process.getuid || scratchFs.lstatSync(parent).uid === process.getuid());
   for (const directory of [container, context.directory]) scratchPrivate(directory);
   const marker = scratchJson(context.markerPath);
-  scratchAssert(marker?.schemaVersion === 1 && marker.ownerId === context.ownerId &&
+  scratchAssert(marker?.schemaVersion === context.schemaVersion && marker.ownerId === context.ownerId &&
     marker.workspacePath === context.workspacePath && scratchId(marker.sessionId) &&
     typeof marker.createdAt === 'string' && Number.isFinite(Date.parse(marker.createdAt)) &&
     Array.isArray(marker.providerThreads) && marker.providerThreads.every(thread =>
       ['codex', 'kimi'].includes(thread?.provider) && scratchId(thread.threadId)));
+  if(context.schemaVersion===2) {
+    scratchAssert(JSON.stringify(context.runtime)===JSON.stringify(marker.runtime));
+    scratchValidateRuntime(marker,marker.runtime);
+  } else scratchAssert(context.runtime===undefined && marker.runtime===undefined);
   if (marker.ownerKind === 'mobile-session') {
     scratchAssert(context.ownerId === 'mobile-' + scratchCrypto.createHash('sha256').update(marker.sessionId).digest('hex') &&
       marker.authority?.kind === 'mobile-roster' && marker.authority.sessionId === marker.sessionId);
@@ -160,7 +246,8 @@ function scratchContext(environment = process.env, allowReleased = false) {
 }
 function scratchEnvironment(environment = process.env) {
   const context = scratchContext(environment);
-  return context ? { ...environment, TMPDIR: context.directory, TMP: context.directory, TEMP: context.directory } : { ...environment };
+  const directory=context && scratchTemporaryDirectory(context);
+  return context ? { ...environment, TMPDIR: directory, TMP: directory, TEMP: directory } : { ...environment };
 }
 function scratchDiscoveryEnvironment(environment = process.env) {
   const result = { ...environment };
@@ -189,7 +276,10 @@ function scratchContainer(workspace) {
 }
 function scratchOwnerContext(workspace, ownerId) {
   const directory = scratchPath.join(workspace, 'tmp', 'sessions', ownerId);
-  return {schemaVersion: 1, workspacePath: workspace, ownerId, directory, markerPath: scratchPath.join(directory, '.gestalt-owner.json')};
+  const context={schemaVersion:1,workspacePath:workspace,ownerId,directory,markerPath:scratchPath.join(directory,'.gestalt-owner.json')};
+  try {const marker=scratchJson(context.markerPath);if(marker.schemaVersion===2){context.schemaVersion=2;context.runtime=marker.runtime;}}
+  catch(error){if(error.code!=='ENOENT')throw error;}
+  return context;
 }
 function scratchLeaseRecords(context) {
   const directory = scratchPath.join(context.directory, 'leases');
@@ -225,20 +315,34 @@ function scratchAncestorOwner(context) {
   return {
     context, identity: scratchDirectoryIdentity(context.directory),
     provenance: JSON.stringify([marker.schemaVersion, marker.ownerKind, marker.ownerId, marker.workspacePath,
-      marker.sessionId, marker.createdAt, marker.authority.kind, marker.authority.sessionId ?? null, marker.authority.leaseId ?? null]),
+      marker.sessionId, marker.createdAt, marker.authority.kind, marker.authority.sessionId ?? null, marker.authority.leaseId ?? null, marker.runtime ?? null]),
   };
 }
-function scratchManagedAncestors(workspace) {
+function scratchManagedAncestors(workspace, ancestors=[], visiting=new Set()) {
+  scratchAssert(!visiting.has(workspace) && visiting.size<64);
+  visiting.add(workspace);
   const parts = workspace.slice(scratchPath.parse(workspace).root.length).split(scratchPath.sep).filter(Boolean);
-  const ancestors = [];
+  const runtimeBase=process.getuid?scratchRuntimeContainer():undefined;
   let directory = scratchPath.parse(workspace).root;
   for (let i = 0; i < parts.length; i++) {
     directory = scratchPath.join(directory, parts[i]);
+    if(runtimeBase && scratchPath.dirname(directory)===runtimeBase) {
+      scratchPrivate(directory);
+      const locator=scratchJson(scratchPath.join(directory,'.gestalt-runtime.json'));
+      scratchAssert(typeof locator.workspacePath==='string' && scratchId(locator.ownerId));
+      const owner=scratchOwnerContext(locator.workspacePath,locator.ownerId);
+      scratchContext({[scratchVariable]:JSON.stringify(owner)},true);
+      scratchAssert(owner.runtime?.directory===directory);
+      scratchManagedAncestors(owner.directory,ancestors,visiting);
+    }
     if (i >= 2 && parts[i - 1] === 'sessions' && parts[i - 2] === 'tmp') {
+      if(ancestors.some(ancestor=>ancestor.context.directory===directory))continue;
+      scratchAssert(ancestors.length<64);
       const ownerWorkspace = scratchPath.dirname(scratchPath.dirname(scratchPath.dirname(directory)));
       ancestors.push(scratchAncestorOwner(scratchOwnerContext(ownerWorkspace, parts[i])));
     }
   }
+  visiting.delete(workspace);
   return ancestors;
 }
 function scratchRevalidateAncestor(ancestor) {
@@ -333,9 +437,38 @@ function scratchRecoverToolLeases(workspace, ownerId, token) {
       {...lease, state: 'released', consumers: [], updatedAt: new Date().toISOString()});
   }
 }
+// Offline-only publication recovery also works when allocation never reached an owner.
+function scratchPublicationSnapshot(workspace) {
+  scratchCanonical(workspace);
+  const path=scratchPath.join(workspace,'.gestalt-scratch-lock');
+  scratchPrivate(path);
+  scratchAssert(scratchFs.readdirSync(path).length===0);
+  const expected=scratchDirectoryIdentity(path);
+  const token=scratchCrypto.createHash('sha256').update(JSON.stringify({
+    workspace:scratchDirectoryIdentity(workspace),lock:expected,
+    ancestors:scratchManagedAncestors(workspace).map(ancestor=>({
+      owner:ancestor.provenance,identity:ancestor.identity,
+      leases:scratchFs.existsSync(scratchPath.join(ancestor.context.directory,'leases'))
+        ? scratchLeaseRecords(ancestor.context).sort((a,b)=>a.leaseId.localeCompare(b.leaseId)):[],
+    })),
+  },(_,value)=>typeof value==='bigint'?value.toString():value)).digest('hex');
+  return {path,expected,token};
+}
+function scratchRecoverPublication(workspace,token) {
+  scratchAssert(typeof token==='string' && /^[a-f0-9]{64}$/.test(token));
+  const snapshot=scratchPublicationSnapshot(workspace);
+  if(snapshot.token!==token)throw Error('SESSION_SCRATCH_RECOVERY_SNAPSHOT_CHANGED');
+  const fd=scratchFs.openSync(snapshot.path,scratchFs.constants.O_RDONLY|scratchFs.constants.O_DIRECTORY|scratchFs.constants.O_NOFOLLOW);
+  try {
+    const held=scratchFs.fstatSync(fd,{bigint:true});
+    scratchAssert(scratchSameDirectory(snapshot.expected,{dev:held.dev,ino:held.ino,birth:held.birthtimeNs}));
+    if(scratchPublicationSnapshot(workspace).token!==token)throw Error('SESSION_SCRATCH_RECOVERY_SNAPSHOT_CHANGED');
+    scratchFs.rmdirSync(snapshot.path);
+  } finally {scratchFs.closeSync(fd);}
+}
 function scratchRecoveryCommand(args) {
   const [action, ...options] = args;
-  scratchAssert(['inspect', 'recover', 'inspect-tool-leases', 'recover-tool-leases'].includes(action));
+  scratchAssert(['inspect', 'recover', 'inspect-tool-leases', 'recover-tool-leases', 'inspect-publication', 'recover-publication'].includes(action));
   const values = {};
   let confirmed = false;
   for (let index = 0; index < options.length; index++) {
@@ -345,7 +478,18 @@ function scratchRecoveryCommand(args) {
     scratchAssert(typeof options[index + 1] === 'string' && !options[index + 1].startsWith('--'));
     values[name] = options[++index];
   }
-  scratchAssert(values['--cwd'] && values['--owner']);
+  scratchAssert(values['--cwd'] && (action.endsWith('-publication') ? !values['--owner'] : values['--owner']));
+  if(action.endsWith('-publication')) {
+    if(action==='inspect-publication') {
+      scratchAssert(!confirmed && !values['--expect']);
+      process.stdout.write(JSON.stringify({schemaVersion:1,status:'confirmationRequired',token:scratchPublicationSnapshot(values['--cwd']).token})+'\n');
+    } else {
+      scratchAssert(confirmed && values['--expect']);
+      scratchRecoverPublication(values['--cwd'],values['--expect']);
+      process.stdout.write(JSON.stringify({schemaVersion:1,status:'recovered'})+'\n');
+    }
+    return;
+  }
   if (action === 'inspect' || action === 'inspect-tool-leases') {
     scratchAssert(!confirmed && !values['--expect']);
     const snapshot = action === 'inspect' ? scratchContainmentSnapshot(values['--cwd'], values['--owner'])
@@ -360,6 +504,7 @@ function scratchRecoveryCommand(args) {
   }
 }
 function scratchWithContainment(workspace, publish) {
+  return scratchWorkspacePublication(workspace,()=>{
   scratchCanonical(workspace);
   const selected = scratchDirectoryIdentity(workspace), ancestors = scratchManagedAncestors(workspace), claims = [];
   try {
@@ -402,6 +547,7 @@ function scratchWithContainment(workspace, publish) {
     }
     if (failure) throw failure;
   }
+  });
 }
 function scratchAllocate(workspace,kind,consumer) {
  scratchAssert(['cli-session','workspace-service'].includes(kind)&&scratchId(consumer));
@@ -414,6 +560,10 @@ function scratchAllocate(workspace,kind,consumer) {
  const leaseId=scratchCrypto.randomUUID(),time=new Date().toISOString();
  const lease={schemaVersion:1,ownerId,workspacePath:workspace,leaseId,state:'active',processIdentity:scratchCrypto.randomUUID(),createdAt:time,updatedAt:time,consumers:[consumer]};
  const marker={schemaVersion:1,ownerKind:kind,ownerId,workspacePath:workspace,sessionId:ownerId,createdAt:time,authority:{kind:'lease',leaseId},providerThreads:[]};
+ if(process.platform!=='win32') {
+   marker.schemaVersion=2;marker.runtime=scratchAllocateRuntime(marker);
+   context.schemaVersion=2;context.runtime=marker.runtime;
+ }
  scratchPublish(scratchPath.join(context.directory,'leases',leaseId+'.json'),lease,true);scratchPublish(context.markerPath,marker,true);
  scratchContext({[scratchVariable]:JSON.stringify(context)});return {context,lease,lock};
  });
@@ -437,6 +587,7 @@ function scratchRelease(ownership) {
   });
 }
 function scratchMetadata(context, operation, waitMs = 0) {
+  return scratchWorkspacePublication(context.workspacePath,()=>{
   scratchContext({[scratchVariable]: JSON.stringify(context)});
   const mobile = scratchJson(context.markerPath).ownerKind === 'mobile-session';
   // Mobile cleanup/association use this same controller fence. CLI/service
@@ -457,6 +608,7 @@ function scratchMetadata(context, operation, waitMs = 0) {
     if (mobile) scratchAssert(!scratchFs.existsSync(scratchPath.join(context.directory, '.association-lock')));
     return operation();
   } finally {scratchFs.rmdirSync(lock);}
+  });
 }
 function scratchBorrow(context, consumer) {
   scratchAssert(scratchId(consumer));
@@ -633,7 +785,7 @@ async function scratchCli(manager, args) {
 }
 // END SESSION SCRATCH RUNTIME
 if (process.argv[1] === 'validate') {
-  try {const context = scratchContext(); process.stdout.write(scratchJson(context.markerPath).ownerKind + '\n' + context.directory);}
+  try {const context = scratchContext(); process.stdout.write(scratchJson(context.markerPath).ownerKind + '\n' + scratchTemporaryDirectory(context));}
   catch { process.stderr.write('gestalt: invalid managed session temporary context\n'); process.exitCode = 1; }
 }
 if (process.argv[1] === 'scratch') {
@@ -4365,8 +4517,12 @@ async function managedPlaywright(launchArgs, reportDiagnostic = () => {}, checkC
     const {constants} = await import('node:fs');
     const {join} = await import('node:path');
     const endpoint = join(directory, 'frontend.sock');
-    if (Buffer.byteLength(endpoint) < 100 || process.platform !== 'linux')
+    const capacity = ({linux:108,darwin:104})[process.platform];
+    if (!capacity) throw new Error('UNIX_SOCKET_PLATFORM_UNSUPPORTED: no verified pathname capacity for this platform');
+    if (Buffer.byteLength(endpoint) + 1 <= capacity)
       return {endpoint, address:endpoint, close:async () => {}};
+    if (process.platform !== 'linux')
+      throw new Error('UNIX_SOCKET_PATH_TOO_LONG: use a bounded managed runtime root or shorten the endpoint name');
     const handle = await fs.open(directory, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
     try {
       const info = await handle.stat();
@@ -4376,6 +4532,8 @@ async function managedPlaywright(launchArgs, reportDiagnostic = () => {}, checkC
       // Keep the actual socket in its private owner. Linux resolves this short
       // descriptor address to that same directory for bind and native connect.
       const address = `/proc/${process.pid}/fd/${handle.fd}/frontend.sock`;
+      if (Buffer.byteLength(address) + 1 > capacity)
+        throw new Error('UNIX_SOCKET_PATH_TOO_LONG: shorten the endpoint name');
       const target = await fs.stat(`/proc/${process.pid}/fd/${handle.fd}`);
       if (target.dev !== info.dev || target.ino !== info.ino) throw new Error('managed-browser-socket-directory-changed');
       return {endpoint, address, close:() => handle.close()};
@@ -4814,7 +4972,11 @@ if (playwrightConsent && interactivePlaywright && playwrightSkill && playwrightR
     !playwrightConfig.env && !playwrightConfig.env_vars?.length) {
   playwrightController = async launchArgs => {
     try { return await managedPlaywright(launchArgs, undefined, refreshPlaywrightConsent); }
-    catch {
+    catch (error) {
+      if (error?.message?.startsWith('UNIX_SOCKET_PATH_TOO_LONG'))
+        process.stderr.write('gestalt: Unix socket pathname exceeds the platform byte limit; create a new v2 session or shorten the endpoint name.\n');
+      if (error?.message?.startsWith('UNIX_SOCKET_PLATFORM_UNSUPPORTED'))
+        process.stderr.write('gestalt: no verified Unix socket pathname capacity for this platform.\n');
       playwrightNotice('managed-runtime-unavailable'); playwrightController = undefined;
       return launch(['--no-daemon', ...launchArgs]);
     }
@@ -5724,6 +5886,9 @@ main() {
           'gestalt scratch inspect-tool-leases --cwd ROOT --owner ID' \
           'gestalt scratch recover-tool-leases --cwd ROOT --owner ID --expect TOKEN --confirm-quiescent' \
           'Use the token from inspect-tool-leases to release abandoned Mobile Serena/Playwright borrowers.' \
+          'gestalt scratch inspect-publication --cwd ROOT' \
+          'gestalt scratch recover-publication --cwd ROOT --expect TOKEN --confirm-quiescent' \
+          'Use the token from inspect-publication to clear an abandoned empty workspace publication fence.' \
           'Never use these overrides on a live session. Payload and provider history are retained.'
       else
         require_command node

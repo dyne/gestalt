@@ -114,7 +114,7 @@ setInterval(()=>{},1000);`);
   t.after(async () => {if (controller.exitCode === null && controller.signalCode === null) controller.kill('SIGTERM'); await exited;});
   const child = await until(() => readFile(observation, 'utf8').then(JSON.parse), Boolean);
   for (const env of [child.environment, child.nested]) {
-    assert.equal(env.TMPDIR, owner.context.directory); assert.equal(env.TMP, env.TMPDIR); assert.equal(env.TEMP, env.TMPDIR);
+    assert.equal(env.TMPDIR, owner.context.runtime.directory); assert.equal(env.TMP, env.TMPDIR); assert.equal(env.TEMP, env.TMPDIR);
     assert.equal(env.GESTALT_SESSION_TMP_CONTEXT, environment(owner).GESTALT_SESSION_TMP_CONTEXT);
   }
   assert.equal((await readLease(owner)).state, 'active');

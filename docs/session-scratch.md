@@ -1,14 +1,46 @@
 # Launcher temporary routing
 
-The launcher consumes version 1 of Mobile's `docs/session-scratch-contract.md`.
+The launcher consumes versions 1 and 2 of Mobile's `docs/session-scratch-contract.md`.
 `GESTALT_SESSION_TMP_CONTEXT` locates the selected canonical workspace and owner;
 it is validated before command dispatch creates state. A present invalid value
 fails visibly. The launcher rejects links, foreign ownership, nonprivate managed
 directories, malformed markers, mismatched session hashes and invalid leases.
 An existing user-owned workspace `tmp` parent keeps its permissions and contents;
 the private-directory requirement applies to `sessions`, owners and leases.
-It derives `TMPDIR`, `TMP` and `TEMP` from the validated directory. It never
+It derives `TMPDIR`, `TMP` and `TEMP` from the validated runtime root (v2), or
+the workspace owner directory for retained v1 contexts. It never
 repairs a marker or falls back from invalid managed context to OS scratch.
+
+New POSIX CLI/service and Mobile owners bind durable workspace metadata to an
+exclusive physical `<canonical /tmp>/gs-<uid>/<20 random hex digits>` payload
+directory. The private canonical root is inode-bound and capped at 48 encoded
+bytes regardless of workspace depth. Both records must agree before launch;
+copied, replaced, partial and symlinked allocations fail closed. PID reuse cannot
+select another session's root. Restart/reopen reuse the binding; missing storage
+fails visibly instead of silently creating replacement payload.
+
+Linux's 108-byte `sun_path` includes NUL, so its pathname budget is 107 bytes.
+macOS checks reserve NUL within 104 bytes; unverified endpoint platforms fail
+before launch. The root cap leaves at least 55
+appended bytes including separators for supported Bitcoin and Chrome patterns.
+Gestalt checks complete generated endpoints before launch. Multibyte names use
+encoded bytes; unlimited third-party suffixes and overrides cannot be guaranteed.
+
+Normal project commands inherit the short physical TMPDIR automatically in v2;
+canonicalization keeps it short. No wrapper or socket-only variable is required.
+Existing v1 owners are accepted without live relocation and retain their original
+path limitation. Upgrade all three components together before v2 use; older
+consumers reject it. After authoritative release/Forget, a new session gets v2.
+Sandbox/approval profiles remain unchanged; context supplies no extra grants.
+Persistent profiles, indexes and authentication keep their original paths.
+Windows allocation remains v1. See Mobile's shared contract for retirement and
+conservative retry behavior when either metadata or runtime storage is lost.
+
+The broker also shares `<workspace>/.gestalt-scratch-lock` with Mobile and
+Agents. Allocation and metadata publication claim it before containment/owner
+fences; final Forget holds it through durable finalization. Temporary and logical
+ancestors are checked before and after publication. Unknown claims never expire
+by age/PID, and a directory replacement cannot be released as another owner.
 
 Native Codex descendants, managed MCP transports, Serena preparation and browser
 guardians inherit these four values. The selected workspace remains independent
@@ -236,3 +268,11 @@ through frontend/backend shutdown. Short socket paths retain their existing
 address. Other platforms preserve their existing socket address and surface
 unsupported-path errors; there is no outside-owner fallback. Native arguments, stdin and
 the existing Unix transport/control protocol remain unchanged.
+
+A killed scratch publisher leaves its workspace publication fence in place. After
+stopping every process that can publish or clean that workspace, inspect it with
+`gestalt scratch inspect-publication --cwd ROOT`, then explicitly recover the
+inspected empty fence with `gestalt scratch recover-publication --cwd ROOT
+--expect TOKEN --confirm-quiescent`. This checks directory identity and ancestor
+ownership/lease metadata; it never treats age or missing PIDs as release evidence.
+Containment fences, if present, require their separate offline recovery too.

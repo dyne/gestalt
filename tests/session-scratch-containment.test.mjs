@@ -24,13 +24,14 @@ async function nestedMobile(t) {
 }
 async function unpublished(workspace){await assert.rejects(stat(join(workspace,'tmp')),{code:'ENOENT'});}
 
-test('ordinary workspace CLI and service publication retains v1 context and existing lifetime locks',async t=>{
+test('ordinary workspace CLI and service publication uses bounded v2 roots and existing lifetime locks',async t=>{
   const f=await fixture(t),api=runtime();
   const cli=api.scratchAllocate(f.workspace,'cli-session','cli-controller');
   const service=api.scratchAllocate(f.workspace,'workspace-service','shared-tool');
   for(const own of [cli,service]){
     const env=api.scratchEnvironment({GESTALT_SESSION_TMP_CONTEXT:JSON.stringify(own.context)});
-    for(const key of ['TMPDIR','TMP','TEMP'])assert.equal(env[key],own.context.directory);
+    for(const key of ['TMPDIR','TMP','TEMP'])assert.equal(env[key],own.context.runtime.directory);
+    assert.equal(own.context.schemaVersion,2);assert.ok(Buffer.byteLength(env.TMPDIR)<=48);
     assert.ok((await stat(own.lock)).isDirectory());assert.equal(api.scratchRelease(own),true);
   }
   await assert.rejects(stat(join(f.workspace,'.containment-lock')),{code:'ENOENT'});

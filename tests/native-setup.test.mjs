@@ -15,6 +15,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFile, readdir, realpath } from 'node:fs/promises';
 import { capturedNodeCommand } from './fixtures/native-node-command.mjs';
 import { commandTarget } from '../src/cli/platform/executables.ts';
+import { captureSetupRetention } from './fixtures/setup-retention.mjs';
 
 test('native configuration preserves custom bytes, modes-independent content and repeated reconciliation', () => {
   const custom = '# keep this comment\r\nmodel = "custom" # and this one\r\napproval_policy = "on-request"\r\n[features]\r\nhooks = true\r\n[mcp_servers.custom]\r\ncommand = "unrelated"\r\ndefault_tools_approval_mode = "prompt"\r\n';
@@ -238,4 +239,26 @@ test('captured setup command shim resolves the complete sibling Node entry witho
     await writeFile(shim, generated);
     assert.deepEqual(await commandTarget(shim), { executable: process.execPath, prefix: [await realpath(entry)] });
   }
+});
+
+test('retained setup inventory distinguishes manager snapshots, Agents snapshots and the colliding lock prefix', async t => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'gestalt retained owners ')));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const manager = `.gestalt-setup.${randomUUID()}`, agents = `.gestalt-setup-state-${randomUUID()}`;
+  for (const name of [manager, agents, '.gestalt-setup.lock']) await mkdir(path.join(root, name));
+  const snapshot = { present: false, mode: null }, ownership = { schemaVersion: 1, status: 'command-succeeded-cleanup-unknown' };
+  const owner = { schemaVersion: 1, root, pid: process.pid, records: [{ relative: 'config.toml', present: true, index: 0 }] };
+  await writeFile(path.join(root, manager, 'snapshot.json'), JSON.stringify(snapshot));
+  await writeFile(path.join(root, manager, 'ownership-unknown.json'), JSON.stringify(ownership));
+  await writeFile(path.join(root, agents, 'owner.json'), JSON.stringify(owner));
+  await writeFile(path.join(root, agents, '0'), 'preserved config');
+  await writeFile(path.join(root, '.gestalt-manager-setup.lock'), JSON.stringify({ version: 1, token: randomUUID() }));
+  await writeFile(path.join(root, '.gestalt-setup.lock', `owner-${process.pid}-${randomUUID()}.json`), JSON.stringify({ schemaVersion: 1, pid: process.pid }));
+  const before = await captureSetupRetention(root);
+  assert.deepEqual(before.managerSnapshots, [{ name: manager, snapshot, ownership }]);
+  assert.deepEqual(before.agentsSnapshots, [{ name: agents, owner }]);
+  assert.equal(before.agentsLock.length, 1); assert.equal(before.managerLock.version, 1);
+  assert.deepEqual(await captureSetupRetention(root), before, 'inspection must not modify retained state');
+  await writeFile(path.join(root, agents, '0'), 'late changed config');
+  assert.notDeepEqual((await captureSetupRetention(root)).entries, before.entries, 'snapshot byte mutations must be observable');
 });

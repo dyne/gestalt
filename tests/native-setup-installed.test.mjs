@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -12,6 +12,7 @@ import { buildNativePlatform } from '../scripts/build-native-platform.mjs';
 import { buildOwnedProcess } from '../scripts/build-owned-process.mjs';
 import { commandTarget, NativeExecutables } from '../src/cli/platform/executables.ts';
 import { NativeOwnedProcesses } from '../src/cli/platform/processes.ts';
+import { captureSetupRetention } from './fixtures/setup-retention.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 const evidence = process.env.GESTALT_NATIVE_SETUP_EVIDENCE;
@@ -70,20 +71,41 @@ test(`actual compiled manager provisions accepted native Agents ${process.platfo
   const outputs = ['config.toml', 'hooks.json', 'bin/context-mode-mcp.mjs', 'bin/context-mode-hook.mjs',
     ...(process.platform === 'darwin' ? [] : ['.gestalt-setup-provenance.json'])];
   const first = await Promise.all(outputs.map(async file => digest(await readFile(path.join(codex, file)))));
+  const retainedBefore = process.platform === 'darwin' ? {
+    codex: await captureSetupRetention(codex), gestalt: await captureSetupRetention(gestalt),
+  } : null;
+  if (retainedBefore) await writeFile(path.join(evidence, 'retained-setup-before-repeat.json'), JSON.stringify(retainedBefore, null, 2));
   await run('manager-agents-repeat-offline', ['agents', 'update'], { npm_config_offline: 'true' }, process.platform === 'darwin');
   assert.deepEqual(await Promise.all(outputs.map(async file => digest(await readFile(path.join(codex, file))))), first);
   const prepared = JSON.parse(await readFile(path.join(gestalt, 'runtime/context-mode/.context-mode-prepared.json'), 'utf8'));
   assert.equal(prepared.platform, process.platform); assert.equal(prepared.arch, process.arch); assert.equal(prepared.nodeModulesAbi, process.versions.modules);
   let provenance = null, retained = null;
   if (process.platform === 'darwin') {
-    const stages = (await readdir(codex)).filter(name => name.startsWith('.gestalt-setup.'));
-    assert.equal(stages.length, 1);
-    retained = JSON.parse(await readFile(path.join(codex, stages[0], 'ownership-unknown.json'), 'utf8'));
+    const retainedAfter = { codex: await captureSetupRetention(codex), gestalt: await captureSetupRetention(gestalt) };
+    await writeFile(path.join(evidence, 'retained-setup-after-repeat.json'), JSON.stringify(retainedAfter, null, 2));
+    assert.deepEqual(retainedAfter, retainedBefore, 'refused managed repeat changed retained setup state');
+    const stages = retainedAfter.codex.managerSnapshots;
+    assert.equal(stages.length, 1, 'one manager-owned receipt must be retained');
+    assert.equal(stages[0].snapshot.present, false, 'fresh manager snapshot preserves the absent original config');
+    retained = stages[0].ownership;
+    assert.equal(retained.schemaVersion, 1);
     assert.equal(retained.status, 'command-succeeded-cleanup-unknown');
     assert.equal(retained.delegated.mode, 'managed'); assert.equal(retained.delegated.ownership.kind, 'unknown');
     assert.ok(retained.delegated.retained.length > 0);
-    assert.ok((await stat(path.join(codex, '.gestalt-manager-setup.lock'))).isFile());
-    assert.ok((await stat(path.join(codex, '.gestalt-setup.lock'))).isDirectory());
+    assert.equal(retainedAfter.codex.managerLock.version, 1);
+    assert.equal(typeof retainedAfter.codex.managerLock.token, 'string');
+    assert.equal(retainedAfter.codex.entries.some(entry => entry.path === '.gestalt-setup-provenance.json'), false);
+    for (const home of [retainedAfter.codex, retainedAfter.gestalt]) {
+      assert.equal(home.agentsSnapshots.length, 1, 'canonical Agents snapshot remains independently retained');
+      const owner = home.agentsSnapshots[0].owner;
+      assert.equal(owner.schemaVersion, 1); assert.equal(owner.root, home.root);
+      assert.ok(Number.isInteger(owner.pid) && owner.pid > 0);
+      assert.ok(owner.records.length > 0);
+      assert.ok(owner.records.every(record => typeof record.relative === 'string' && typeof record.present === 'boolean' && Number.isInteger(record.index)));
+      assert.ok(Array.isArray(home.agentsLock), 'canonical Agents setup lock remains retained');
+      assert.ok(home.agentsLock.some(entry => entry.name.startsWith('owner-') && entry.record.schemaVersion === 1 && entry.record.pid === owner.pid));
+      assert.ok(home.agentsLock.some(entry => entry.name.startsWith('command-') && entry.record.schemaVersion === 1 && entry.record.mode === 'managed'));
+    }
   } else {
     provenance = JSON.parse(await readFile(path.join(codex, '.gestalt-setup-provenance.json'), 'utf8'));
     assert.equal(provenance.manager.sha256, digest(await readFile(manager)));

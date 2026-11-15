@@ -1,0 +1,202 @@
+name: Native platform contracts
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: dyne/gestalt-agents
+          # Frozen existing snapshot; all15 accepted e98 Org blobs/modes are
+          # checked before imports. No mutable upstream lookup or PR81 change.
+          ref: 8827347387ee32e2c5bd7eb912f9b80185cdad45
+          path: .native-compat-agents
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck:cli
+      - run: npm run build:cli
+      - name: Record Unix compatibility target
+        run: |
+          mkdir -p native-evidence
+          node -e 'console.log(JSON.stringify({platform:process.platform,arch:process.arch,node:process.version,os:require("node:os").release(),uid:process.getuid(),gid:process.getgid(),sha:process.env.GITHUB_SHA,observedAt:new Date().toISOString()}))' > native-evidence/runner.json
+      # Existing Codex sandbox test prerequisite only; not a new CLI process
+      # namespace backend or production policy requirement.
+      - name: Prepare existing disposable Ubuntu sandbox prerequisites
+        if: runner.os == 'Linux' && runner.environment == 'github-hosted'
+        run: |
+          set -euo pipefail
+          {
+            date -u +'%Y-%m-%dT%H:%M:%SZ'
+            id
+            printf 'before userns=%s\n' "$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)"
+            printf 'before apparmor_userns=%s\n' "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)"
+          } > native-evidence/linux-sandbox-prerequisites.log
+          current_userns=$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)
+          if [[ -n $current_userns && $current_userns != 1 ]]; then sudo sysctl -w kernel.unprivileged_userns_clone=1; fi
+          current_apparmor=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)
+          if [[ -n $current_apparmor && $current_apparmor != 0 ]]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
+          {
+            printf 'after userns=%s\n' "$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)"
+            printf 'after apparmor_userns=%s\n' "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)"
+          } >> native-evidence/linux-sandbox-prerequisites.log
+      - name: Verify replacement, identity, terminal and unchanged manager behavior
+        run: node --test --test-reporter=tap tests/unix-compatibility.test.mjs > native-evidence/compatibility.tap 2>&1
+      - name: Verify unchanged Org guards and whole authenticated host IPC
+        run: node tests/native-unix-compatibility.mjs --agents .native-compat-agents --evidence native-evidence/authority > native-evidence/authority.log 2>&1
+      - name: Verify existing Unix scratch sockets and native sandbox restrictions
+        run: npm run test:scratch:sandbox > native-evidence/sandbox.tap 2>&1
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: unix-compatibility-${{ matrix.os }}
+          path: native-evidence/
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck:cli
+      - name: Execute contracts as an isolated standard user
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $name = 'gn' + [Guid]::NewGuid().ToString('N').Substring(0, 12)
+          $password = ConvertTo-SecureString ([Guid]::NewGuid().ToString('N') + '!aA1') -AsPlainText -Force
+          $user = New-LocalUser -Name $name -Password $password -AccountNeverExpires
+          $work = Join-Path $env:RUNNER_TEMP $name
+          $source = Join-Path $work 'source'
+          $process = $null
+          $harnessTimedOut = $false
+          $harnessExitObserved = $false
+          $harnessHandleRetained = $false
+          New-Item -ItemType Directory native-evidence -Force | Out-Null
+          try {
+            $users = Get-LocalGroup -SID 'S-1-5-32-545'
+            Add-LocalGroupMember -Group $users -Member $user
+            New-Item -ItemType Directory -Path $work | Out-Null
+            $source = Join-Path $work 'source'
+            & robocopy $env:GITHUB_WORKSPACE $source /E /XD .git dist native-evidence /NFL /NDL /NJH /NJS /NP
+            if ($LASTEXITCODE -gt 7) { throw 'Native candidate copy failed' }
+            & icacls $work /grant ('*' + $user.SID.Value + ':(OI)(CI)F') /T /Q | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'Native fixture access setup failed' }
+            $credential = New-Object Management.Automation.PSCredential(($env:COMPUTERNAME + '\' + $name), $password)
+            $node = (Get-Command node.exe).Source
+            # Windows PowerShell's native-credential launch may return a Process
+            # wrapper without a retained handle. Pin it before waiting; verify
+            # known nonzero results before trusting this CI observation path.
+            foreach ($expectedExit in @(0, 23)) {
+              $probeGate = Join-Path $work ('probe-' + $expectedExit + '.gate')
+              $probeScript = '$gate=''' + $probeGate.Replace("'", "''") + ''';$end=[DateTime]::UtcNow.AddSeconds(10);while(-not [IO.File]::Exists($gate)){if([DateTime]::UtcNow -ge $end){exit 96};Start-Sleep -Milliseconds 10};exit ' + $expectedExit
+              $probeArguments = '-NoLogo -NoProfile -NonInteractive -EncodedCommand ' + [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($probeScript))
+              $probe = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Credential $credential -LoadUserProfile -ArgumentList $probeArguments -PassThru -RedirectStandardOutput (Join-Path $work ('probe-' + $expectedExit + '.stdout')) -RedirectStandardError (Join-Path $work ('probe-' + $expectedExit + '.stderr'))
+              $probeHandle = $probe.Handle
+              if ($probeHandle -eq [IntPtr]::Zero -or $probeHandle -eq [IntPtr](-1)) { throw 'CI direct-process probe handle was not retained' }
+              # The trusted probe cannot exit normally before this actual
+              # associated handle is retained. No startup-delay assumption.
+              [IO.File]::WriteAllText($probeGate, 'release')
+              $probeEnded = $probe.WaitForExit(10000)
+              $probeExit = $null
+              if ($probeEnded) { $probeExit = $probe.ExitCode }
+              @{observedAt=[DateTime]::UtcNow.ToString('o'); expected=$expectedExit; directExitObserved=$probeEnded; exit=$probeExit; handleRetained=$true; gateReleasedAfterHandle=$true; scope='CI direct process only, no native ownership proof'} | ConvertTo-Json > ('native-evidence/harness-exit-probe-' + $expectedExit + '.json')
+              if (-not $probeEnded) { $probe.Kill(); throw 'CI direct-process probe deadline; descendant state unknown' }
+              if ($null -eq $probeExit -or $probeExit -ne $expectedExit) { throw 'CI direct-process probe did not preserve its exact exit code' }
+              $probe.Dispose()
+            }
+            $script = Join-Path $source 'scripts/test-platform-standard-user.ps1'
+            $arguments = '-NoLogo -NoProfile -NonInteractive -File "' + $script + '" -Repository "' + $source + '" -Node "' + $node + '"'
+            if ($env:GESTALT_CI_TERMINAL_LANE -eq 'windows-correction') { $arguments += ' -Lane windows-correction' }
+            @{stage='harness-start-before'; observedAt=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json > native-evidence/harness-start.json
+            $process = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Credential $credential -LoadUserProfile -ArgumentList $arguments -PassThru -RedirectStandardOutput (Join-Path $work 'contracts.tap') -RedirectStandardError (Join-Path $work 'runner.stderr')
+            $harnessHandle = $process.Handle
+            if ($harnessHandle -eq [IntPtr]::Zero -or $harnessHandle -eq [IntPtr](-1)) { throw 'CI harness process handle was not retained' }
+            $harnessHandleRetained = $true
+            $waitMs = if ($env:GESTALT_CI_TERMINAL_LANE -eq 'windows-correction') { 300000 } else { 1080000 }
+            @{stage='harness-wait-before'; pid=$process.Id; deadlineMs=$waitMs; observedAt=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json > native-evidence/harness-wait.json
+            # CI observation of this associated PS process only. This is never
+            # the production Job/stream/same-root-handle absence proof.
+            $harnessExitObserved = $process.WaitForExit($waitMs)
+            if (-not $harnessExitObserved) {
+              $harnessTimedOut = $true
+              try { $process.Kill(); $harnessExitObserved = $process.WaitForExit(5000) } catch { $_ | Out-String | Set-Content native-evidence/harness-stop-error.txt }
+              throw 'CI harness deadline: descendant settlement UNKNOWN; partial artifacts preserved; fixture teardown deferred to disposable runner'
+            }
+            $result = $process.ExitCode
+            if ($null -eq $result) { throw 'Associated CI harness exit code was not observed' }
+            New-Item -ItemType Directory native-evidence -Force | Out-Null
+            Copy-Item (Join-Path $work 'contracts.tap') native-evidence/
+            Copy-Item (Join-Path $work 'runner.stderr') native-evidence/
+            $ownedProvenance = Join-Path $source 'native-evidence/owned-process-tested.provenance.json'
+            if (Test-Path -LiteralPath $ownedProvenance) { Copy-Item -LiteralPath $ownedProvenance native-evidence/ }
+            $ownedBinary = Join-Path $source 'native-evidence/gestalt-owned-process.exe'
+            if (Test-Path -LiteralPath $ownedBinary) { Copy-Item -LiteralPath $ownedBinary native-evidence/ }
+            $testEvidence = Join-Path $source 'native-evidence'
+            $preflightEvidence = Join-Path $testEvidence 'windows-terminal-preflight'
+            if (Test-Path -LiteralPath $preflightEvidence) { Copy-Item -LiteralPath $preflightEvidence -Destination native-evidence/ -Recurse }
+            if (Test-Path -LiteralPath $testEvidence) { Get-ChildItem -LiteralPath $testEvidence -Filter 'windows-settlement-*' -File | Copy-Item -Destination native-evidence/ }
+            if (Test-Path -LiteralPath $testEvidence) { Get-ChildItem -LiteralPath $testEvidence -Filter 'terminal-owned-process*' -File | Copy-Item -Destination native-evidence/ }
+            if (Test-Path -LiteralPath $testEvidence) { Get-ChildItem -LiteralPath $testEvidence -Filter 'terminal-resize-no-ack*' -File | Copy-Item -Destination native-evidence/ }
+            $codexEvidence = Join-Path $testEvidence 'pinned-codex'
+            if (Test-Path -LiteralPath $codexEvidence) { Copy-Item -LiteralPath $codexEvidence -Destination native-evidence/ -Recurse }
+            $nodeVersion = & node --version
+            $nodeArchitecture = & node -p process.arch
+            @{ platform = 'win32'; arch = $nodeArchitecture; node = $nodeVersion; os = [Environment]::OSVersion.VersionString; sha = $env:GITHUB_SHA; observedAt = [DateTime]::UtcNow.ToString('o') } | ConvertTo-Json > native-evidence/runner.json
+            Get-FileHash src/cli/platform/windows-system.ts -Algorithm SHA256 | Format-List > native-evidence/windows-source.sha256
+            $PSVersionTable | ConvertTo-Json > native-evidence/powershell.json
+            if ($result -ne 0) { throw "Native standard-user contracts exited $result" }
+          } finally {
+            # Preserve partial progress even when setup/wait/copy fails. Copy
+            # errors are evidence too; no process-tree absence is inferred.
+            foreach ($file in @('contracts.tap','runner.stderr')) {
+              $partial = Join-Path $work $file
+              if (Test-Path -LiteralPath $partial) { try { Copy-Item -LiteralPath $partial -Destination native-evidence/ -Force } catch { $_ | Out-String | Add-Content native-evidence/partial-copy-errors.txt } }
+            }
+            $partialEvidence = Join-Path $source 'native-evidence'
+            if (Test-Path -LiteralPath $partialEvidence) {
+              foreach ($file in @('standard-user-progress.jsonl','windows-terminal-preflight')) {
+                $partial = Join-Path $partialEvidence $file
+                if (Test-Path -LiteralPath $partial) { try { Copy-Item -LiteralPath $partial -Destination native-evidence/ -Recurse -Force } catch { $_ | Out-String | Add-Content native-evidence/partial-copy-errors.txt } }
+              }
+            }
+            $harnessExit = $null
+            if ($harnessExitObserved) { try { $harnessExit = $process.ExitCode } catch { $_ | Out-String | Add-Content native-evidence/harness-stop-error.txt } }
+            @{stage='harness-finally'; observedAt=[DateTime]::UtcNow.ToString('o'); handleRetained=$harnessHandleRetained; directExitObserved=$harnessExitObserved; exit=$harnessExit; timedOut=$harnessTimedOut; descendants='UNKNOWN by outer Process observation; consult native scenario proofs separately'; fixtureTeardown= $(if ($harnessTimedOut) {'deferred to disposable runner'} else {'account removal attempted; not descendant absence proof'})} | ConvertTo-Json > native-evidence/harness-observation.json
+            if (-not $harnessTimedOut) { Remove-LocalUser -Name $name -ErrorAction SilentlyContinue }
+          }
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: native-platform-windows
+          path: |
+            native-evidence/
+            !native-evidence/pinned-codex/artifact/bin/**
+            !native-evidence/pinned-codex/artifact/home/**
+            !native-evidence/pinned-codex/fixtures/home/**
+            !native-evidence/pinned-codex/artifact/*.tar.gz
+            !native-evidence/pinned-codex/artifact/*.exe

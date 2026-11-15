@@ -60,17 +60,40 @@ for (const selected of ['all', 'gestalt', 'serena', 'playwright']) test(`native 
   const streams = { stdin: (async function* () {})(), stdout: async () => {}, stderr: async () => {} };
   const context = new SetupContext({ argv: [], cwd: root, environment: { GESTALT_MANAGER_DISTRIBUTION: 'npm' } }, streams, paths, '0.0.0');
   const order = [];
+  // This contract exercises orchestration ordering. Real mode/ACL checks and
+  // absent-home creation execute in the native composition contracts.
+  context.prepareHomes = async () => { order.push('homes'); };
   const operations = { manager: async () => { order.push('manager'); return false; }, skills: async (_c, mode) => { order.push(`skills:${mode}`); }, agents: async (_c, mode, extra) => { order.push(`agents:${mode}:${extra}`); }, mobile: async () => { order.push('mobile'); }, component: async (_c, component) => { order.push(component); } };
   await runUpdate(context, parseUpdateOptions([selected]), ['update', selected], false, operations);
-  const core = ['manager', 'skills:update', 'agents:upgrade:false', 'mobile'];
+  const core = ['manager', 'homes', 'skills:update', 'agents:upgrade:false', 'mobile'];
   assert.deepEqual(order, selected === 'all' ? [...core, 'serena', 'playwright'] : selected === 'gestalt' ? core : [selected]);
   for (const failed of [...order]) {
     const seen = [];
     const fail = label => { seen.push(label); if (label === failed) throw new Error('controlled failure'); };
+    context.prepareHomes = async () => fail('homes');
     const failing = { manager: async () => { fail('manager'); return false; }, skills: async () => fail('skills:update'), agents: async () => fail('agents:upgrade:false'), mobile: async () => fail('mobile'), component: async (_c, c) => fail(c) };
     await assert.rejects(runUpdate(context, parseUpdateOptions([selected]), ['update', selected], false, failing), /controlled failure/);
     assert.deepEqual(seen, order.slice(0, order.indexOf(failed) + 1));
   }
+});
+
+test('private-home preparation rejects an existing refused home before creating an absent peer', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'gestalt home preparation '));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const codex = path.join(root, 'absent Codex'), gestalt = path.join(root, 'existing Gestalt');
+  await mkdir(gestalt); await writeFile(path.join(gestalt, 'user-data'), 'preserve');
+  const context = new SetupContext({ argv: [], cwd: root, environment: {} },
+    { stdin: (async function* () {})(), stdout: async () => {}, stderr: async () => {} },
+    { userHome: root, codexHome: codex, gestaltHome: gestalt, manager: process.execPath,
+      marketplace: 'fixture', marketplaceName: 'fixture', unixProbe: undefined }, 'fixture');
+  const inspected = [];
+  // Controlled refusal verifies ordering without pretending this local fixture
+  // establishes a native positive privacy/ACL result.
+  context.storage = async selected => { inspected.push(selected); throw new Error('controlled private-storage refusal'); };
+  await assert.rejects(context.prepareHomes(), /controlled private-storage refusal/);
+  assert.deepEqual(inspected, [gestalt]);
+  await assert.rejects(readFile(codex), error => error.code === 'ENOENT');
+  assert.equal(await readFile(path.join(gestalt, 'user-data'), 'utf8'), 'preserve');
 });
 
 test('retired restart options adapt only explicit known values and preserve argument boundaries', () => {

@@ -173,6 +173,17 @@ export class SetupContext {
     return new SetupContext(this.invocation, streams, this.paths, this.version, await this.managedCommands(), this.inheritedSignal ?? this.signal);
   }
   retainDelegatedState(): void { this.unsafeStatus ||= this.interrupted || 1; }
+  async prepareHomes(): Promise<void> {
+    const missing = [];
+    // Reject every existing unsafe home before creating either absent root.
+    // NativePrivateStorage validates existing modes/ACLs without repairing them.
+    for (const root of [this.paths.codexHome, this.paths.gestaltHome]) {
+      this.check();
+      if (await optionalStat(root)) await this.storage(root);
+      else missing.push(root);
+    }
+    for (const root of missing) { this.check(); await this.storage(root); }
+  }
   async run(name: string, argv: readonly string[], options: { capture?: boolean; cwd?: string; environment?: Environment; program?: string } = {}): Promise<string> {
     this.check();
     const executable = await this.require(name), commands = await this.managedCommands();

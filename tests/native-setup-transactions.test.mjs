@@ -15,6 +15,7 @@ import { CommandFailure, SetupContext } from '../src/cli/setup/context.ts';
 import { restartWorker } from '../src/cli/setup/restart.ts';
 import { updateManager } from '../src/cli/setup/manager-update.ts';
 import { capturedNodeCommand } from './fixtures/native-node-command.mjs';
+import { captureSetupRetention } from './fixtures/setup-retention.mjs';
 
 const repository = path.resolve(import.meta.dirname, '..');
 const artifacts = await mkdtemp(path.join(tmpdir(), 'native-setup-build-'));
@@ -45,14 +46,14 @@ async function command(bin, name, body) {
   }
 }
 
-async function fixture(t, config = custom) {
+async function fixture(t, config = custom, { freshHomes = false } = {}) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), 'native setup ü & ')));
   let retained = false;
   t.after(() => retained ? undefined : rm(root, { recursive: true, force: true }));
   const home = path.join(root, 'home ü &'), codex = path.join(home, 'Codex ü &'), gestalt = path.join(home, 'Gestalt ü &');
   await mkdir(home, { mode: 0o700 });
-  const storage = await NativePrivateStorage.open(codex, unixProbe);
-  await NativePrivateStorage.open(gestalt, unixProbe);
+  const storage = freshHomes ? null : await NativePrivateStorage.open(codex, unixProbe);
+  if (!freshHomes) await NativePrivateStorage.open(gestalt, unixProbe);
   const bin = path.join(root, 'bin'); await mkdir(bin, { mode: 0o700 });
   const ownerRoot = path.join(root, 'Agents ü &'); await mkdir(ownerRoot, { mode: 0o700 });
   const owner = path.join(ownerRoot, 'gestalt-setup.mjs'), log = path.join(root, 'calls.jsonl');
@@ -70,10 +71,12 @@ const execution={apiVersion:1,mode,ownership:claim.kind==='released'?{kind:'rele
 if(status!==0||(claim.kind!=='released'&&process.platform!=='darwin'))throw Object.assign(new Error('fixture setup failed ('+status+')'),{status:status||1,execution});
 return execution;}finally{signal.removeEventListener('abort',abort);}}
 `);
-  if (config !== null) await writeFile(path.join(codex, 'config.toml'), config, { mode: 0o640 });
-  await mkdir(path.join(codex, 'agents'), { mode: 0o700 });
-  await writeFile(path.join(codex, 'agents/custom.toml'), 'model="preserve"\n');
-  await writeFile(path.join(codex, 'AGENTS.md'), 'user instructions\n');
+  if (!freshHomes) {
+    if (config !== null) await writeFile(path.join(codex, 'config.toml'), config, { mode: 0o640 });
+    await mkdir(path.join(codex, 'agents'), { mode: 0o700 });
+    await writeFile(path.join(codex, 'agents/custom.toml'), 'model="preserve"\n');
+    await writeFile(path.join(codex, 'AGENTS.md'), 'user instructions\n');
+  }
   await command(bin, 'npm', `import fs from 'node:fs';import path from 'node:path';
 const args=process.argv.slice(2),index=args.indexOf('--prefix');
 if(process.env.FIXTURE_MOBILE_FAIL==='1')process.exit(41);
@@ -368,6 +371,37 @@ test('native setup rejects invalid session context and unsupported options befor
   }
 });
 
+async function fixturePermissions(file, makePermissive = false) {
+  let sddl = null;
+  if (process.platform === 'win32') {
+    const script = `$ErrorActionPreference='Stop';$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:GESTALT_FIXTURE_ACL_PATH));$acl=(Get-Item -LiteralPath $p).GetAccessControl();
+if($env:GESTALT_FIXTURE_ACL_WIDEN -eq '1'){$sid=New-Object Security.Principal.SecurityIdentifier('S-1-1-0');$rule=New-Object Security.AccessControl.FileSystemAccessRule($sid,'ReadAndExecute','ContainerInherit,ObjectInherit','None','Allow');$acl.AddAccessRule($rule);Set-Acl -LiteralPath $p -AclObject $acl;$acl=(Get-Item -LiteralPath $p).GetAccessControl();if(-not($acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])|Where-Object {$_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Value -eq 'S-1-1-0'})){throw 'Permissive fixture ACL was not established'}};[Console]::Out.Write($acl.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::All))`;
+    const result = spawnSync(path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'),
+      ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
+      { env: { ...process.env, GESTALT_FIXTURE_ACL_PATH: Buffer.from(file).toString('base64'), GESTALT_FIXTURE_ACL_WIDEN: makePermissive ? '1' : '0' }, encoding: 'utf8', shell: false, timeout: 30_000 });
+    assert.equal(result.status, 0, result.stderr); sddl = result.stdout;
+    assert.ok(sddl.length > 0, 'fixture ACL inspection must return a security descriptor');
+  } else if (makePermissive) await chmod(file, 0o755);
+  const info = await stat(file);
+  return { mode: info.mode & 0o7777, uid: info.uid, gid: info.gid, dev: info.dev, ino: info.ino, mtimeMs: info.mtimeMs, ctimeMs: info.ctimeMs, sddl };
+}
+
+for (const selected of ['codex', 'gestalt']) test(`install/update reject existing permissive ${selected} root without repair or subordinate mutation`,
+  { timeout: process.platform === 'win32' ? 600_000 : 120_000 }, async t => {
+    const f = await fixture(t), root = f[selected];
+    const permissions = await fixturePermissions(root, true);
+    const before = { codex: await captureSetupRetention(f.codex), gestalt: await captureSetupRetention(f.gestalt) };
+    for (const argv of [['install'], ['update', 'gestalt']]) {
+      const result = await f.run(argv);
+      assert.notEqual(result.status, 0); assert.match(result.stderr, /Storage is not private|ACL permits another principal/);
+      assert.equal(await exists(f.log), false, 'no selected/dependency command may run before private-home validation');
+      assert.deepEqual(await fixturePermissions(root), permissions, 'existing permissive mode/ACL must remain unchanged');
+      assert.deepEqual({ codex: await captureSetupRetention(f.codex), gestalt: await captureSetupRetention(f.gestalt) }, before);
+    }
+    if (process.env.GESTALT_NATIVE_SETUP_EVIDENCE) await writeFile(path.join(process.env.GESTALT_NATIVE_SETUP_EVIDENCE, `permissive-${selected}-root.json`),
+      JSON.stringify({ observedAt: new Date().toISOString(), platform: process.platform, selected, permissions, preserved: true, subordinateCommandStarted: false }, null, 2));
+  });
+
 test('npm-owned native manager update preserves package executable and retains component failure status', async t => {
   const f = await fixture(t), before = await readFile(manager);
   const result = await f.run(['update', 'gestalt'], { GESTALT_SKILLS_SOURCE: path.join(f.root, 'missing-fixture-collection') });
@@ -383,7 +417,8 @@ test('native updated-manager continuation rejects invalid reentry without mutati
 });
 
 test('compiled install/update preserves native skills, extra selection and optional Mobile policy', async t => {
-  const f = await fixture(t), collection = path.join(f.root, 'collection ü');
+  const f = await fixture(t, null, { freshHomes: true }), collection = path.join(f.root, 'collection ü');
+  assert.equal(await exists(f.codex), false); assert.equal(await exists(f.gestalt), false);
   await mkdir(path.join(collection, 'skills/native-fixture'), { recursive: true });
   const skill = '---\nname: native-fixture\ndescription: Native setup fixture.\n---\n# Fixture\n';
   await writeFile(path.join(collection, 'skills/native-fixture/SKILL.md'), skill);

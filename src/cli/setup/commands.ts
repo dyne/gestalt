@@ -67,8 +67,8 @@ export async function runUpdate(context: SetupContext, options: UpdateOptions, o
   resumed: boolean, operations: SetupOperations = defaults): Promise<boolean> {
   if (options.component === 'all' || options.component === 'gestalt') {
     if (await operations.manager(context, originalArgv, resumed)) return true;
+    await context.prepareHomes();
     // Retire only proven managed configuration; user data and binaries survive.
-    if (await optionalStat(context.paths.codexHome)) await context.storage(context.paths.codexHome);
     for (const notice of retireManagedConfiguration(context.paths.codexHome, context.paths.gestaltHome, context.paths.manager))
       await context.log(`Xerj retirement: ${notice} preserved; review legacy Xerj entries/processes manually, then retry update. User data and binaries are retained.`);
     await operations.skills(context, 'update');
@@ -125,6 +125,7 @@ export function createSetupHandlers(metadata: CliMetadata, operations: SetupOper
     install: wrap('install', async (context, argv) => {
       const options = parseSetupOptions(argv);
       if (options.help) { await context.streams.stdout(Buffer.from(metadata.help)); return 0; }
+      await context.prepareHomes();
       await operations.skills(context, 'install');
       await operations.agents(context, 'install', options.extra);
       const mobile = await operations.mobile(context);

@@ -136,6 +136,10 @@ asynchronous owned-command capability, environment, streams, cwd and cancellatio
 signal. Required host-filesystem/shared-context capabilities and selected source
 digests are checked before calling it; missing APIs fail with an update instruction.
 The whole Agents CLI is never launched inside the caller-only UID namespace.
+Install/core update validate all existing managed homes first and create absent
+homes through the private-storage adapter before running skills or Agents. An
+existing permissive mode or ACL is rejected unchanged; setup does not repair it
+with chmod or allow a subordinate installer to choose the root's permissions.
 A command's exit status does not prove
 that its descendants stopped. Configuration rollback and transaction cleanup
 wait for the ownership adapter's release proof. Windows uses its Job Object;

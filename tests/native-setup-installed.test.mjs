@@ -64,7 +64,7 @@ test(`actual compiled manager provisions accepted native Agents ${process.platfo
     if (parent === path.dirname(parent)) break;
   }
   await writeFile(path.join(evidence, 'host-setup-namespace.json'), JSON.stringify({ observedAt: new Date().toISOString(),
-    uid: process.getuid?.() ?? null, gid: process.getgid?.() ?? null, ancestors: hostAncestors, setupApiVersion: 1 }, null, 2));
+    uid: process.getuid?.() ?? null, gid: process.getgid?.() ?? null, umask: process.umask(), ancestors: hostAncestors, setupApiVersion: 1 }, null, 2));
   // Capture the actual filesystem UID view inside the same ownership backend.
   // This diagnostic never substitutes for the real accepted Agents setup below.
   const namespaceProbe = `const fs=require('node:fs'),path=require('node:path');const roots=process.argv.slice(1),ancestors=[];for(let p=path.dirname(roots[0]);;p=path.dirname(p)){try{const s=fs.statSync(p);ancestors.push({path:p,uid:s.uid,gid:s.gid,mode:s.mode&511});}catch(e){ancestors.push({path:p,error:e.code});}if(p===path.dirname(p))break;}let uidMap=null,gidMap=null;for(const [key,file] of [['uid','/proc/self/uid_map'],['gid','/proc/self/gid_map']])try{const value=fs.readFileSync(file,'utf8');if(key==='uid')uidMap=value;else gidMap=value;}catch{}console.log(JSON.stringify({platform:process.platform,uid:process.getuid?.()??null,gid:process.getgid?.()??null,uidMap,gidMap,ancestors}));`;
@@ -79,6 +79,11 @@ test(`actual compiled manager provisions accepted native Agents ${process.platfo
   const run = async (label, argv, extra = {}, blocked = false) => {
     const observedAt = new Date().toISOString();
     const result = spawnSync(process.execPath, [manager, ...argv], { env: { ...environment, ...extra }, cwd: base, encoding: 'utf8', timeout: 1_080_000, maxBuffer: 16 * 1024 * 1024, shell: false });
+    const roots = await Promise.all([codex, gestalt].map(async selected => {
+      try { const info = await stat(selected); return { path: selected, uid: info.uid, gid: info.gid, mode: info.mode & 0o7777, directory: info.isDirectory() }; }
+      catch (error) { return { path: selected, error: error.code }; }
+    }));
+    await writeFile(path.join(evidence, `${label}-managed-roots.json`), JSON.stringify({ observedAt: new Date().toISOString(), roots }, null, 2));
     const log = path.join(evidence, `${label}.log`), bytes = Buffer.from((result.stdout ?? '') + (result.stderr ?? ''));
     await writeFile(log, bytes);
     checks.push({ label, command: [process.execPath, manager, ...argv], cwd: base, status: result.status, signal: result.signal, error: result.error?.message ?? null,
@@ -89,11 +94,15 @@ test(`actual compiled manager provisions accepted native Agents ${process.platfo
       assert.match(result.stderr, /EEXIST|already running/);
     } else assert.equal(result.status, 0, `${label}: ${result.error?.message ?? ''}; see ${log}: ${(result.stderr ?? '').slice(-3000)}`);
   };
+  for (const selected of [codex, gestalt]) await assert.rejects(stat(selected), error => error.code === 'ENOENT', 'fresh composition must begin with both managed roots absent');
   await run('manager-standalone-update-fresh', ['update', 'gestalt'], {
     GESTALT_MANAGER_DISTRIBUTION: '', GESTALT_INSTALL_BASE_URL: pathToFileURL(release).href,
     GESTALT_SKILLS_SOURCE: collection, GESTALT_MOBILE_PACKAGE: mobilePackage, npm_config_install_links: 'true',
   });
   retainFixture = process.platform === 'darwin';
+  if (process.platform !== 'win32') for (const selected of [codex, gestalt]) {
+    const info = await stat(selected); assert.equal(info.mode & 0o077, 0); assert.equal(info.uid, process.getuid());
+  }
   assert.deepEqual(await readFile(manager), replacement, 'compiled updated-manager API must run the actual installed replacement');
   assert.equal(await readFile(path.join(codex, 'skills/native-update/SKILL.md'), 'utf8'), skill);
   const updateLock = path.join(base, '.gestalt-manager-update.lock');

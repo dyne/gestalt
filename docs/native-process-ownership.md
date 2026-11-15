@@ -20,6 +20,16 @@ ID always returns `unknown`: a PID or an old JSON claim cannot reopen ownership
 or authorize a signal. This adapter never deletes scratch. Consumers must retain
 it on unknown and require the current lease's native empty proof before release.
 
+Input forwarding has one acknowledged frame of at most 32 KiB in flight. Unix
+target-input pipes are nonblocking and share the output/control poll loop through
+write readiness; a child that writes large outputs before reading input cannot
+block that loop's stdin write. The producer waits for each drained-frame
+acknowledgement before submitting more input or EOF. Stop frames remain writable
+while input is backpressured. EOF closes target stdin only after queued bytes
+drain; an executable closing stdin early retires that pipe. Other input failures
+refuse verification. Large simultaneous stdin/stdout/stderr contracts verify
+exact byte order, EOF and command status on the actual targets.
+
 On Windows 10 or later the target is created atomically inside an unnamed Job
 Object with `PROC_THREAD_ATTRIBUTE_JOB_LIST`. This avoids the suspended-process
 gap before a later `AssignProcessToJobObject`. The job has kill-on-last-close and

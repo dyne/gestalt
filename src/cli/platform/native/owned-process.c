@@ -52,7 +52,8 @@
 /* Binary protocol: little-endian uint32 length, byte kind, payload. No shell,
  * JSON parser, executable source interpolation, PID-based recovery or TCP.
  * L commit launch, I stdin bytes, E stdin EOF, S stop; R ready, O stdout,
- * B stderr, F root result, D proven empty, U best-effort unknown, X error.
+ * B stderr, A stdin frame drained, F root result, D proven empty,
+ * U best-effort unknown, X error.
  */
 #define MAX_FRAME (1024U * 1024U)
 static unsigned char payload[MAX_FRAME];
@@ -113,6 +114,49 @@ static int read_frame(uint32_t *size) {
 }
 
 #ifndef _WIN32
+/* Only one bounded stdin frame may be in flight. The controller waits for A
+ * before sending the next I, while S remains independently writable. Never
+ * block this output/control poll loop on a target that is not reading stdin. */
+#define INPUT_BLOCK 32768U
+struct input_queue { int fd, eof; uint32_t offset, size; unsigned char bytes[INPUT_BLOCK]; };
+static int nonblocking(int fd) {
+  int flags = fcntl(fd, F_GETFL);
+  return flags < 0 ? -1 : fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+}
+static void close_input(struct input_queue *input) {
+  if (input->fd >= 0) close(input->fd);
+  input->fd = -1; input->size = input->offset = 0;
+}
+static int queue_input(struct input_queue *input, int kind, uint32_t size) {
+  if (kind == 'E') {
+    input->eof = 1;
+    if (!input->size) close_input(input);
+    return 0;
+  }
+  if (input->eof || input->size || size > INPUT_BLOCK) return -1;
+  if (input->fd < 0 || !size) return message('A', "");
+  memcpy(input->bytes, payload + 1, size); input->offset = 0; input->size = size;
+  return 0;
+}
+static int drain_input(struct input_queue *input) {
+  if (!input->size) return 0;
+  ssize_t count = write(input->fd, input->bytes + input->offset, input->size - input->offset);
+  if (count < 0) {
+    if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) return 0;
+    if (errno != EPIPE) return -1;
+    /* An executable may close stdin early. Retire that pipe and acknowledge
+     * the discarded frame so it cannot strand the controller's input pump. */
+    close_input(input); return message('A', "");
+  }
+  if (!count) return -1;
+  input->offset += (uint32_t)count;
+  if (input->offset == input->size) {
+    input->offset = input->size = 0;
+    if (input->eof) close_input(input);
+    return message('A', "");
+  }
+  return 0;
+}
 static uint64_t millis(void) {
   struct timespec t; if (clock_gettime(CLOCK_MONOTONIC, &t)) return 0;
   return (uint64_t)t.tv_sec * 1000 + (uint64_t)t.tv_nsec / 1000000;
@@ -197,6 +241,7 @@ static int run_owned(char **argv, unsigned int grace, pid_t controller) {
   if (unshare(CLONE_NEWPID)) return namespace_error("unshare-pid", errno, uid, gid);
   int in[2], out[2], err[2], life[2], status[2], ready[2];
   if (pipe2(in, O_CLOEXEC) || pipe2(out, O_CLOEXEC) || pipe2(err, O_CLOEXEC) || pipe2(life, O_CLOEXEC) || pipe2(status, O_CLOEXEC) || pipe2(ready, O_CLOEXEC)) return 2;
+  if (nonblocking(in[1])) return 2;
   pid_t init = fork(); if (init < 0) return 2;
   if (!init) init_process(argv, in, out, err, life, status, ready);
   close(in[0]); close(out[1]); close(err[1]); close(life[0]); close(status[1]); close(ready[1]);
@@ -207,15 +252,15 @@ static int run_owned(char **argv, unsigned int grace, pid_t controller) {
     message('F', "spawn-error:Native launch failed before readiness"); message('D', "linux-pid-namespace"); return 0;
   }
   close(ready[0]); message('R', "linux-pid-namespace");
-  int stopping = 0, reaped = 0, input_open = 1, output_open = 1, error_open = 1, control_open = 1, root_result = 0, have_result = 0;
+  struct input_queue input = { .fd = in[1] };
+  int stopping = 0, reaped = 0, output_open = 1, error_open = 1, control_open = 1, root_result = 0, have_result = 0;
   uint64_t deadline = 0;
   while (!reaped || output_open || error_open) {
-    struct pollfd fds[3] = {{control_open ? 0 : -1, POLLIN | POLLHUP, 0}, {output_open ? out[0] : -1, POLLIN | POLLHUP, 0}, {error_open ? err[0] : -1, POLLIN | POLLHUP, 0}};
-    if (poll(fds, 3, 10) < 0 && errno != EINTR) { message('X', "Ownership control poll failed"); break; }
+    struct pollfd fds[4] = {{control_open ? 0 : -1, POLLIN | POLLHUP, 0}, {output_open ? out[0] : -1, POLLIN | POLLHUP, 0}, {error_open ? err[0] : -1, POLLIN | POLLHUP, 0}, {input.size ? input.fd : -1, POLLOUT, 0}};
+    if (poll(fds, 4, 10) < 0 && errno != EINTR) { message('X', "Ownership control poll failed"); break; }
     if (fds[0].revents & (POLLIN | POLLHUP)) {
       uint32_t size; int kind = read_frame(&size);
-      if (kind == 'I' && input_open) { if (write_all(in[1], payload + 1, size)) { close(in[1]); input_open = 0; } }
-      else if (kind == 'E' && input_open) { close(in[1]); input_open = 0; }
+      if (kind == 'I' || kind == 'E') { if (queue_input(&input, kind, size)) { message('X', "Invalid or failed queued stdin frame"); break; } }
       else if (kind == 'S' || kind < 0) {
         if (!stopping && !reaped) { (void)kill(init, SIGUSR1); deadline = millis() + (kind < 0 ? 0 : grace); stopping = 1; }
         if (kind < 0) control_open = 0;
@@ -227,11 +272,13 @@ static int run_owned(char **argv, unsigned int grace, pid_t controller) {
       else if (n == 0) { close(fds[i].fd); if (i == 1) output_open = 0; else error_open = 0; }
       else if (errno != EINTR) { message('X', "Owned stream read failed"); break; }
     }
+    if (fds[3].revents & (POLLOUT | POLLERR | POLLHUP))
+      if (drain_input(&input)) { message('X', "Owned stdin write failed"); break; }
     if (!reaped && stopping && millis() >= deadline) (void)kill(init, SIGKILL);
     if (!reaped) {
       pid_t waited = waitpid(init, NULL, WNOHANG);
       if (waited == init) {
-        reaped = 1; close(life[1]); if (input_open) { close(in[1]); input_open = 0; }
+        reaped = 1; close(life[1]); close_input(&input);
         have_result = read_all(status[0], &root_result, sizeof(root_result)) == 0;
       } else if (waited < 0 && errno != EINTR) { message('X', "Exact namespace-init wait failed"); break; }
     }
@@ -302,6 +349,7 @@ static int run_owned(char **argv, unsigned int grace, pid_t controller) {
   close(ready[0]);
   int in[2], out[2], err[2];
   if (mac_pipe(in) || mac_pipe(out) || mac_pipe(err)) return 2;
+  if (nonblocking(in[1])) return 2;
   posix_spawnattr_t attributes; posix_spawn_file_actions_t actions;
   if (posix_spawnattr_init(&attributes) || posix_spawn_file_actions_init(&actions)) return 2;
   sigset_t defaults, mask; sigemptyset(&defaults); sigemptyset(&mask);
@@ -325,7 +373,8 @@ static int run_owned(char **argv, unsigned int grace, pid_t controller) {
     message('F', reason); message('U', "macOS launch failed; complete descendant absence is unknown; retain scratch"); return 0;
   }
   message('R', "macos-session-group");
-  int stopping = 0, forced = 0, root_reaped = 0, input_open = 1, output_open = 1, error_open = 1, control_open = 1, result_sent = 0, anchor_lost = 0;
+  struct input_queue input = { .fd = in[1] };
+  int stopping = 0, forced = 0, root_reaped = 0, output_open = 1, error_open = 1, control_open = 1, result_sent = 0, anchor_lost = 0;
   uint64_t deadline = 0, drain_deadline = 0;
   while (1) {
     if (!root_reaped) {
@@ -352,12 +401,11 @@ static int run_owned(char **argv, unsigned int grace, pid_t controller) {
       if (!reaped) { pid_t waited = waitpid(anchor, NULL, WNOHANG); if (waited == anchor) reaped = 1; }
       if ((root_reaped && reaped && !output_open && !error_open) || millis() >= drain_deadline) break;
     }
-    struct pollfd fds[3] = {{control_open ? 0 : -1, POLLIN | POLLHUP, 0}, {output_open ? out[0] : -1, POLLIN | POLLHUP, 0}, {error_open ? err[0] : -1, POLLIN | POLLHUP, 0}};
-    if (poll(fds, 3, 10) < 0 && errno != EINTR) { message('U', "macOS group supervision poll failed; retain scratch"); break; }
+    struct pollfd fds[4] = {{control_open ? 0 : -1, POLLIN | POLLHUP, 0}, {output_open ? out[0] : -1, POLLIN | POLLHUP, 0}, {error_open ? err[0] : -1, POLLIN | POLLHUP, 0}, {input.size ? input.fd : -1, POLLOUT, 0}};
+    if (poll(fds, 4, 10) < 0 && errno != EINTR) { message('U', "macOS group supervision poll failed; retain scratch"); break; }
     if (fds[0].revents & (POLLIN | POLLHUP)) {
       uint32_t size; int kind = read_frame(&size);
-      if (kind == 'I' && input_open) { if (write_all(in[1], payload + 1, size)) { close(in[1]); input_open = 0; } }
-      else if (kind == 'E' && input_open) { close(in[1]); input_open = 0; }
+      if (kind == 'I' || kind == 'E') { if (queue_input(&input, kind, size)) { message('U', "macOS queued stdin frame failed; retain scratch"); break; } }
       else if (kind == 'S' || kind < 0) {
         if (!stopping) {
           if (mac_signal_group(anchor, &reaped, SIGTERM)) anchor_lost = 1;
@@ -372,8 +420,10 @@ static int run_owned(char **argv, unsigned int grace, pid_t controller) {
       else if (n == 0) { close(fds[i].fd); if (i == 1) output_open = 0; else error_open = 0; }
       else if (errno != EINTR) { message('U', "macOS stream inspection failed; retain scratch"); anchor_lost = 1; }
     }
+    if (fds[3].revents & (POLLOUT | POLLERR | POLLHUP))
+      if (drain_input(&input)) { message('U', "macOS stdin write failed; retain scratch"); break; }
   }
-  if (input_open) close(in[1]); if (output_open) close(out[0]); if (error_open) close(err[0]);
+  close_input(&input); if (output_open) close(out[0]); if (error_open) close(err[0]);
   /* EOF also makes a surviving anchor attempt bounded group cleanup. A helper
    * or anchor crash still has no kernel whole-descendant guarantee on macOS. */
   close(life[1]);
@@ -468,8 +518,9 @@ static int run_owned_windows(int argc, wchar_t **argv, unsigned int grace) {
     DWORD available = 0; BOOL control = PeekNamedPipe(control_input, NULL, 0, NULL, &available, NULL);
     if (!control || available) {
       uint32_t size; int kind = control ? read_frame(&size) : -1;
-      if (kind == 'I' && input_write) {
-        if (write_all(input_write, payload + 1, size)) { CloseHandle(input_write); input_write = NULL; }
+      if (kind == 'I') {
+        if (input_write && write_all(input_write, payload + 1, size)) { CloseHandle(input_write); input_write = NULL; }
+        if (message('A', "")) break;
       } else if (kind == 'E' && input_write) { CloseHandle(input_write); input_write = NULL; }
       else if (kind == 'S' || kind < 0) {
         if (!stopping) {

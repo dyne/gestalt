@@ -144,6 +144,32 @@ test('owned native execution preserves argv, binary streams, environment, cwd an
   else { assert.equal(result.kind, 'released', JSON.stringify(result)); assert.deepEqual(result.result, { kind: 'exit', code: 23 }); }
   assert.deepEqual(JSON.parse(Buffer.concat(out)), { argv, input: '00ff0d0a', cwd: root, retained: 'kept' }); assert.deepEqual(Buffer.concat(err), Buffer.from([255, 0, 13]));
 });
+test('large simultaneous stdin stdout and stderr preserve bytes and drain input before EOF', allNative, async () => {
+  const bytes = Buffer.alloc(3 * 1024 * 1024 + 137);
+  for (let i = 0; i < bytes.length; i++) bytes[i] = (i * 29 + 7) & 255;
+  const out = [], err = [], prefix = Buffer.alloc(1024 * 1024, 79), errors = Buffer.alloc(1024 * 1024, 69);
+  // Deliberately fill output pipes before reading any input. A supervisor that
+  // blocks writing stdin instead of polling all streams deadlocks this command.
+  const program = `(async()=>{const write=(s,b)=>new Promise((r,j)=>s.write(b,e=>e?j(e):r()));await write(process.stdout,Buffer.alloc(1024*1024,79));await write(process.stderr,Buffer.alloc(1024*1024,69));const input=[];for await(const b of process.stdin)input.push(b);await write(process.stdout,Buffer.concat(input));process.exitCode=37;})().catch(e=>{console.error(e);process.exitCode=98;});`;
+  const lease = await new NativeOwnedProcesses(helper).launch(process.execPath, {
+    argv: ['-e', program], cwd: root, environment: process.env,
+  }, {
+    stdin: (async function* () {
+      for (let offset = 0; offset < bytes.length; offset += 65537) yield bytes.subarray(offset, offset + 65537);
+    })(), stdout: async b => { out.push(Buffer.from(b)); }, stderr: async b => { err.push(Buffer.from(b)); },
+  }, { graceMs: 50, deadlineMs: 1000 });
+  try {
+    const claim = await bounded(lease.completed, 'full duplex stream completion');
+    assert.deepEqual(await lease.result, { kind: 'exit', code: 37 });
+    if (process.platform === 'darwin') assert.equal(claim.kind, 'unknown', JSON.stringify(claim));
+    else { assert.equal(claim.kind, 'released', JSON.stringify(claim)); assert.deepEqual(claim.result, { kind: 'exit', code: 37 }); }
+    assert.deepEqual(Buffer.concat(out), Buffer.concat([prefix, bytes]));
+    assert.deepEqual(Buffer.concat(err), errors);
+  } finally {
+    await bounded(lease.stop(), 'full duplex stop');
+    await bounded(lease.completed, 'full duplex teardown settlement');
+  }
+});
 test('owned native execution resolves the captured npm shim without evaluating batch arguments', allNative, async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'owned shim é ')); t.after(() => rm(directory, { recursive: true, force: true }));
   const captured = JSON.parse(await readFile(path.join(root, 'tests/fixtures/native-npm-node-shim.json'), 'utf8'));

@@ -40,6 +40,7 @@ export class NativeOwnedProcesses implements OwnedProcessPort {
     let claim: OwnershipClaim = recoveredOwnershipClaim(id);
     let result: ProcessResult | undefined;
     let nativeEmpty = false, backend = '', settled = false, verificationLost = false;
+    let inputWaiter: { resolve: () => void; reject: (error: Error) => void } | undefined;
     let finish!: (claim: OwnershipClaim) => void;
     const completed = new Promise<OwnershipClaim>(resolve => { finish = resolve; });
     let finishResult!: (result: OwnedProcessResult) => void;
@@ -52,6 +53,8 @@ export class NativeOwnedProcesses implements OwnedProcessPort {
     const settle = () => {
       if (!settled) {
         settled = true;
+        inputWaiter?.reject(new Error('Ownership helper ended before stdin drain acknowledgement'));
+        inputWaiter = undefined;
         finishResult(result ?? { kind: 'unknown', message: 'Supervisor ended before the command outcome could be observed' });
         finish(claim);
       }
@@ -68,6 +71,14 @@ export class NativeOwnedProcesses implements OwnedProcessPort {
     const send = (kind: string, bytes?: Uint8Array) => new Promise<void>((resolve, reject) => {
       child.stdin.write(packet(kind, bytes), error => error ? reject(error) : resolve());
     });
+    const sendInput = (bytes: Uint8Array) => new Promise<void>((resolve, reject) => {
+      if (inputWaiter) { reject(new Error('Overlapping native stdin frames')); return; }
+      const waiter = { resolve, reject }; inputWaiter = waiter;
+      void send('I', bytes).catch(error => {
+        if (inputWaiter === waiter) inputWaiter = undefined;
+        reject(error);
+      });
+    });
     const read = (async () => {
       let buffered = Buffer.alloc(0);
       for await (const chunk of child.stdout) {
@@ -81,6 +92,10 @@ export class NativeOwnedProcesses implements OwnedProcessPort {
           buffered = buffered.subarray(length + 4);
           if (kind === 'O') await streams.stdout(bytes);
           else if (kind === 'B') await streams.stderr(bytes);
+          else if (kind === 'A') {
+            if (bytes.length || !inputWaiter) throw new Error('Unexpected native stdin drain acknowledgement');
+            const waiter = inputWaiter; inputWaiter = undefined; waiter.resolve();
+          }
           else if (kind === 'R') {
             if (backend || nativeEmpty) throw new Error('Repeated native ownership readiness');
             backend = bytes.toString();
@@ -135,8 +150,10 @@ export class NativeOwnedProcesses implements OwnedProcessPort {
       void (async () => {
         for await (const chunk of streams.stdin) {
           if (settled) break;
-          for (let offset = 0; offset < chunk.byteLength; offset += 32768)
-            await send('I', chunk.subarray(offset, offset + 32768));
+          // A drained-frame acknowledgement bounds native buffering to 32KiB.
+          // stop() writes S independently while this input producer is paused.
+          for (let offset = 0; offset < chunk.byteLength && !settled; offset += 32768)
+            await sendInput(chunk.subarray(offset, offset + 32768));
         }
         if (!settled) await send('E');
       })().catch(() => { if (!settled) void stop(); });

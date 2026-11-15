@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
-import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -14,7 +15,9 @@ const root = path.resolve(import.meta.dirname, '..');
 const tree = path.join(root, 'tests/fixtures/native-owned-tree.mjs');
 const controller = path.join(root, 'tests/fixtures/native-owned-controller.mjs');
 const supported = ['linux', 'win32'].includes(process.platform);
-const native = { skip: supported ? false : 'No enforceable standard-user macOS owned-tree primitive; L2.2 remains incomplete', timeout: 60000 };
+const native = { skip: supported ? false : 'Complete-tree assertions apply to Windows/Linux; macOS has separate best-effort contracts', timeout: 60000 };
+const allNative = { timeout: 60000 };
+const macNative = { skip: process.platform !== 'darwin', timeout: 60000 };
 const artifact = await mkdtemp(path.join(tmpdir(), 'gestalt-ownership-build-'));
 let helper;
 test.before(async t => {
@@ -31,6 +34,7 @@ test.before(async t => {
     const evidence = path.resolve(process.env.GESTALT_NATIVE_TEST_EVIDENCE);
     await mkdir(evidence, { recursive: true });
     await copyFile(`${helper}.provenance.json`, path.join(evidence, 'owned-process-tested.provenance.json'));
+    await copyFile(helper, path.join(evidence, path.basename(helper)));
   }
 });
 test.after(() => rm(artifact, { recursive: true, force: true }));
@@ -129,19 +133,18 @@ async function sentinel(t) {
   return () => { assert.equal(child.exitCode, null); assert.equal(child.signalCode, null); assert.equal(process.kill(child.pid, 0), true); };
 }
 
-test('unsupported macOS owned-tree launch is refused before any unmanaged child is launched', { skip: process.platform !== 'darwin' }, async () => {
-  assert.equal(helper, null);
-  await assert.rejects(new NativeOwnedProcesses(process.execPath).launch(process.execPath, { argv: ['-e', 'throw Error("must not launch")'], cwd: root, environment: process.env }, emptyStreams()), /managed launch refused/);
-});
-test('owned native execution preserves argv, binary streams, environment, cwd and nonzero result', native, async () => {
+test('owned native execution preserves argv, binary streams, environment, cwd and nonzero result', allNative, async () => {
   const out = [], err = [], argv = ['', 'space é 東京', '&echo no', '|', '%PATH%', '!PATH!', '"quoted"', 'trail\\', '$()', '\r\n'];
   const lease = await new NativeOwnedProcesses(helper).launch(process.execPath, { argv: [tree, 'echo', ...argv], cwd: root, environment: { ...process.env, RETAINED: 'kept' } }, {
     stdin: (async function* () { yield Buffer.from([0, 255, 13, 10]); })(), stdout: async b => { out.push(Buffer.from(b)); }, stderr: async b => { err.push(Buffer.from(b)); },
   });
-  const result = await bounded(lease.completed, 'binary worker'); assert.equal(result.kind, 'released', JSON.stringify(result)); assert.deepEqual(result.result, { kind: 'exit', code: 23 });
+  assert.deepEqual(await bounded(lease.result, 'binary command outcome'), { kind: 'exit', code: 23 });
+  const result = await bounded(lease.completed, 'binary worker');
+  if (process.platform === 'darwin') assert.equal(result.kind, 'unknown', JSON.stringify(result));
+  else { assert.equal(result.kind, 'released', JSON.stringify(result)); assert.deepEqual(result.result, { kind: 'exit', code: 23 }); }
   assert.deepEqual(JSON.parse(Buffer.concat(out)), { argv, input: '00ff0d0a', cwd: root, retained: 'kept' }); assert.deepEqual(Buffer.concat(err), Buffer.from([255, 0, 13]));
 });
-test('owned native execution resolves the captured npm shim without evaluating batch arguments', native, async t => {
+test('owned native execution resolves the captured npm shim without evaluating batch arguments', allNative, async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'owned shim é ')); t.after(() => rm(directory, { recursive: true, force: true }));
   const captured = JSON.parse(await readFile(path.join(root, 'tests/fixtures/native-npm-node-shim.json'), 'utf8'));
   await mkdir(path.join(directory, 'bin')); await mkdir(path.join(directory, 'native-forward-fixture'));
@@ -149,7 +152,11 @@ test('owned native execution resolves the captured npm shim without evaluating b
   await writeFile(path.join(directory, 'native-forward-fixture/entry.mjs'), '#!/usr/bin/env node\nconsole.log(JSON.stringify(process.argv.slice(2)));process.exitCode=29;\n');
   const argv = ['', 'space é 東京', '&echo unsafe', '%PATH%', '!PATH!', '"', 'tail\\']; const out = [];
   const lease = await new NativeOwnedProcesses(helper).launch(executable, { argv, cwd: directory, environment: process.env }, { ...emptyStreams(), stdout: async bytes => { out.push(Buffer.from(bytes)); } });
-  const claim = await bounded(lease.completed, 'owned npm shim'); assert.equal(claim.kind, 'released', JSON.stringify(claim)); assert.deepEqual(claim.result, { kind: 'exit', code: 29 }); assert.deepEqual(JSON.parse(Buffer.concat(out)), argv);
+  assert.deepEqual(await bounded(lease.result, 'npm shim command outcome'), { kind: 'exit', code: 29 });
+  const claim = await bounded(lease.completed, 'owned npm shim');
+  if (process.platform === 'darwin') assert.equal(claim.kind, 'unknown', JSON.stringify(claim));
+  else { assert.equal(claim.kind, 'released', JSON.stringify(claim)); assert.deepEqual(claim.result, { kind: 'exit', code: 29 }); }
+  assert.deepEqual(JSON.parse(Buffer.concat(out)), argv);
 });
 test('resistant detached grandchild is contained, concurrent stops share one operation, sentinel is untouched', native, async t => {
   const untouched = await sentinel(t); const { token, data, lease } = await launchTree(t);
@@ -225,4 +232,95 @@ test('stream-consumer failure loses verification and never turns into released a
   const lease = await new NativeOwnedProcesses(helper).launch(process.execPath, { argv: [tree, 'echo'], cwd: root, environment: process.env }, { stdin: input(), stdout: async () => { throw new Error('fixture output consumer failure'); }, stderr: async () => {} });
   t.after(() => bounded(lease.stop(), 'failed-consumer cleanup'));
   const result = await bounded(lease.completed, 'failed stream verification'); assert.equal(result.kind, 'unknown'); assert.match(result.reason, /consumer failure/);
+});
+
+async function macControl(t) {
+  const directory = await mkdtemp(path.join(tmpdir(), 'gm-'));
+  const endpoint = path.join(directory, 's'), token = randomUUID(), clients = new Map();
+  assert.ok(Buffer.byteLength(endpoint) <= 100, 'Fixture socket path exceeds native Unix limit');
+  let reached, fail, closing;
+  const ready = new Promise((resolve, reject) => { reached = resolve; fail = reject; });
+  const server = createServer(socket => {
+    if (closing) { socket.end('release\n'); return; }
+    let text = ''; let closed;
+    const settled = new Promise(resolve => { closed = resolve; }); socket.once('close', closed);
+    socket.on('error', () => {});
+    socket.on('data', bytes => {
+      text += bytes; if (!text.includes('\n')) return;
+      const message = JSON.parse(text.slice(0, text.indexOf('\n'))); text = '';
+      if (message.token !== token || !['root', 'leaf'].includes(message.role) || clients.has(message.role)) {
+        fail(new Error('Invalid fixture readiness identity')); socket.destroy(); return;
+      }
+      clients.set(message.role, { socket, closed: settled, pid: message.pid });
+      if (clients.size === 2) reached();
+    });
+  });
+  server.listen(endpoint); await bounded(once(server, 'listening'), 'Mac control listener'); await chmod(endpoint, 0o600);
+  const scratch = path.join(directory, 'retained-scratch'); await writeFile(scratch, 'keep');
+  const close = () => {
+    closing ??= (async () => {
+      for (const client of clients.values()) if (!client.socket.destroyed) client.socket.end('release\n');
+      await bounded(Promise.all([...clients.values()].map(client => client.closed)), 'controlled Mac fixture release');
+      await bounded(new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())), 'Mac control server close');
+      await rm(directory, { recursive: true, force: true });
+    })();
+    return closing;
+  };
+  t.after(close);
+  return { ready, clients, token, endpoint, scratch, close,
+    environment: { ...process.env, GESTALT_MAC_FIXTURE_SOCKET: endpoint } };
+}
+
+test('macOS bounded stop observes its live group cleanup, preserves command result and keeps scratch unknown', macNative, async t => {
+  const control = await macControl(t), untouched = await sentinel(t); let lease;
+  try {
+    lease = await new NativeOwnedProcesses(helper).launch(process.execPath, {
+      argv: [path.join(root, 'tests/fixtures/native-macos-group.mjs'), 'root', 'graceful', control.token], cwd: root, environment: control.environment,
+    }, emptyStreams());
+    await readyOrFailure(lease, control.ready, 'actual Mac root/leaf readiness');
+    assert.equal(control.clients.get('leaf').socket.destroyed, false);
+    const first = lease.stop(); assert.equal(first, lease.stop());
+    assert.equal((await bounded(first, 'bounded Mac group stop')).kind, 'unknown');
+    assert.deepEqual(await bounded(lease.result, 'independent Mac root outcome'), { kind: 'exit', code: 17 });
+    await bounded(Promise.all([...control.clients.values()].map(client => client.closed)), 'observed Mac group fixture exits');
+    assert.equal(await readFile(control.scratch, 'utf8'), 'keep'); untouched();
+  } finally { if (lease) await bounded(lease.stop(), 'Mac stop finalizer'); await control.close(); }
+});
+
+test('macOS controller EOF attempts bounded live-group cleanup without claiming complete absence', macNative, async t => {
+  const control = await macControl(t); let child, closed;
+  try {
+    child = spawn(process.execPath, [controller, helper, path.join(root, 'tests/fixtures/native-macos-group.mjs'), control.token], {
+      env: control.environment, stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+    });
+    closed = once(child, 'close'); child.stdout.resume(); let error = ''; child.stderr.on('data', bytes => { error += bytes; });
+    let recorded;
+    const leaseReady = new Promise(resolve => { child.on('message', message => { if (message.kind === 'lease-ready') { recorded = message.claim; resolve(); } }); });
+    await bounded(Promise.race([Promise.all([control.ready, leaseReady]), closed.then(() => { throw new Error(`Mac controller exited before fixture readiness: ${error}`); })]), 'Mac EOF fixture readiness');
+    assert.equal(recorded.kind, 'active');
+    child.kill('SIGKILL'); await bounded(closed, 'abrupt Mac controller exit');
+    await bounded(Promise.all([...control.clients.values()].map(client => client.closed)), 'observed EOF group cleanup');
+    assert.equal(recoveredOwnershipClaim(recorded.lease).kind, 'unknown'); assert.equal(await readFile(control.scratch, 'utf8'), 'keep');
+  } finally {
+    if (child && child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    if (closed) await bounded(closed, 'EOF controller finalizer'); await control.close();
+  }
+});
+
+test('macOS detached survivor remains unknown with retained scratch and controlled independent teardown', macNative, async t => {
+  const control = await macControl(t); let lease;
+  try {
+    lease = await new NativeOwnedProcesses(helper).launch(process.execPath, {
+      argv: [path.join(root, 'tests/fixtures/native-macos-group.mjs'), 'root', 'graceful', control.token], cwd: root,
+      environment: { ...control.environment, GESTALT_MAC_DETACH: '1' },
+    }, emptyStreams());
+    await readyOrFailure(lease, control.ready, 'detached Mac leaf live precondition');
+    assert.equal(control.clients.get('leaf').socket.destroyed, false);
+    assert.equal((await bounded(lease.stop(), 'detached Mac stop')).kind, 'unknown');
+    assert.deepEqual(await bounded(lease.result, 'detached-root command outcome'), { kind: 'exit', code: 17 });
+    await bounded(control.clients.get('root').closed, 'owned Mac root exit');
+    assert.equal(control.clients.get('leaf').socket.destroyed, false, 'Actual detached fixture must survive group cleanup');
+    assert.equal(lease.claim().kind, 'unknown'); assert.equal((await lease.stop()).kind, 'unknown');
+    assert.equal(await readFile(control.scratch, 'utf8'), 'keep');
+  } finally { if (lease) await bounded(lease.stop(), 'detached Mac finalizer'); await control.close(); }
 });

@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import type { CommandInvocation, CommandStreams, OwnedProcessLease, OwnedProcessPort, OwnershipClaim, ProcessResult } from '../contracts.ts';
+import type { CommandInvocation, CommandStreams, OwnedProcessLease, OwnedProcessPort, OwnedProcessResult, OwnershipClaim, ProcessResult } from '../contracts.ts';
 import { commandTarget } from './executables.ts';
 
 const maximumFrame = 1024 * 1024;
@@ -29,24 +29,33 @@ export class NativeOwnedProcesses implements OwnedProcessPort {
 
   async launch(executable: string, invocation: CommandInvocation, streams: CommandStreams,
     limits: { readonly graceMs?: number; readonly deadlineMs?: number } = {}): Promise<OwnedProcessLease> {
-    if (!['linux', 'win32'].includes(process.platform))
-      throw new Error('Complete native process ownership is unavailable on this target; managed launch refused');
+    if (!['linux', 'win32', 'darwin'].includes(process.platform))
+      throw new Error('Native process lifetime adapter is unavailable on this target');
     if (!path.isAbsolute(executable) || !path.isAbsolute(invocation.cwd)) throw new Error('Owned executable and cwd must be absolute');
     const grace = boundedInteger(limits.graceMs ?? 250, 0, 60000, 'grace interval');
     const deadline = boundedInteger(limits.deadlineMs ?? 10000, grace + 1, 120000, 'cleanup deadline');
     const target = await commandTarget(executable);
     const id = randomUUID();
+    const expectedBackend = process.platform === 'win32' ? 'windows-job' : process.platform === 'darwin' ? 'macos-session-group' : 'linux-pid-namespace';
     let claim: OwnershipClaim = recoveredOwnershipClaim(id);
     let result: ProcessResult | undefined;
     let nativeEmpty = false, backend = '', settled = false, verificationLost = false;
     let finish!: (claim: OwnershipClaim) => void;
     const completed = new Promise<OwnershipClaim>(resolve => { finish = resolve; });
+    let finishResult!: (result: OwnedProcessResult) => void;
+    const commandResult = new Promise<OwnedProcessResult>(resolve => { finishResult = resolve; });
     const child = spawn(this.helper, ['--controller', String(process.pid), '--grace', String(grace), '--', target.executable, ...target.prefix, ...invocation.argv], {
       cwd: invocation.cwd, env: invocation.environment, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
     });
     // Only this object owns the helper channel. It is never rediscovered by PID.
     const unknown = (reason: string) => { verificationLost = true; claim = { kind: 'unknown', lease: id, reason }; };
-    const settle = () => { if (!settled) { settled = true; finish(claim); } };
+    const settle = () => {
+      if (!settled) {
+        settled = true;
+        finishResult(result ?? { kind: 'unknown', message: 'Supervisor ended before the command outcome could be observed' });
+        finish(claim);
+      }
+    };
     let ready!: () => void;
     const started = new Promise<void>(resolve => { ready = resolve; });
     let stopPromise: Promise<OwnershipClaim> | undefined;
@@ -54,7 +63,7 @@ export class NativeOwnedProcesses implements OwnedProcessPort {
     let diagnostics = '';
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', value => { diagnostics = (diagnostics + value).slice(-4096); });
-    child.on('error', error => { unknown(`Ownership helper spawn failed: ${error.message}`); ready(); settle(); });
+    child.on('error', error => { result = { kind: 'spawn-error', message: error.message }; unknown(`Ownership helper spawn failed: ${error.message}`); ready(); settle(); });
     child.stdin.on('error', () => { /* The exact helper close determines the claim. */ });
     const send = (kind: string, bytes?: Uint8Array) => new Promise<void>((resolve, reject) => {
       child.stdin.write(packet(kind, bytes), error => error ? reject(error) : resolve());
@@ -75,7 +84,7 @@ export class NativeOwnedProcesses implements OwnedProcessPort {
           else if (kind === 'R') {
             if (backend || nativeEmpty) throw new Error('Repeated native ownership readiness');
             backend = bytes.toString();
-            if (backend !== (process.platform === 'win32' ? 'windows-job' : 'linux-pid-namespace')) throw new Error('Unexpected native ownership backend');
+            if (backend !== expectedBackend) throw new Error('Unexpected native ownership backend');
             if (!verificationLost && !settled) claim = { kind: 'active', lease: id, backend }; ready();
           } else if (kind === 'F') {
             if (result) throw new Error('Repeated native process result');
@@ -84,10 +93,14 @@ export class NativeOwnedProcesses implements OwnedProcessPort {
             else if (/^signal:\d+$/.test(text)) result = { kind: 'signal', signal: text.slice(7) };
             else if (text.startsWith('spawn-error:')) result = { kind: 'spawn-error', message: text.slice(12) };
             else throw new Error('Invalid native process result');
+            finishResult(result);
           } else if (kind === 'D') {
             const name = bytes.toString();
-            if (!result || nativeEmpty || name !== (process.platform === 'win32' ? 'windows-job' : 'linux-pid-namespace')) throw new Error('Invalid native empty-ownership proof');
+            if (process.platform === 'darwin' || !result || nativeEmpty || name !== expectedBackend) throw new Error('Invalid native empty-ownership proof');
             backend = name; nativeEmpty = true;
+          } else if (kind === 'U') {
+            if (process.platform !== 'darwin') throw new Error('Unexpected best-effort ownership result');
+            unknown(bytes.toString() || 'macOS complete descendant absence is unknown; retain scratch');
           } else if (kind === 'X') throw new Error(bytes.toString());
           else throw new Error('Unknown native ownership frame');
         }
@@ -128,6 +141,6 @@ export class NativeOwnedProcesses implements OwnedProcessPort {
         if (!settled) await send('E');
       })().catch(() => { if (!settled) void stop(); });
     }
-    return { id, claim: () => claim, completed, stop };
+    return { id, claim: () => claim, result: commandResult, completed, stop };
   }
 }

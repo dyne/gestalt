@@ -117,6 +117,8 @@ jobs:
             Copy-Item (Join-Path $work 'runner.stderr') native-evidence/
             $ownedProvenance = Join-Path $source 'native-evidence/owned-process-tested.provenance.json'
             if (Test-Path -LiteralPath $ownedProvenance) { Copy-Item -LiteralPath $ownedProvenance native-evidence/ }
+            $ownedBinary = Join-Path $source 'native-evidence/gestalt-owned-process.exe'
+            if (Test-Path -LiteralPath $ownedBinary) { Copy-Item -LiteralPath $ownedBinary native-evidence/ }
             $nodeVersion = & node --version
             $nodeArchitecture = & node -p process.arch
             @{ platform = 'win32'; arch = $nodeArchitecture; node = $nodeVersion; os = [Environment]::OSVersion.VersionString; sha = $env:GITHUB_SHA; observedAt = [DateTime]::UtcNow.ToString('o') } | ConvertTo-Json > native-evidence/runner.json

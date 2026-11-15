@@ -11,8 +11,11 @@ batch text and caller arguments are never evaluated by a shell. The returned
 lease has a unique ID and `unknown`, `active` or `released` claim. Concurrent stops
 share one operation. Grace and cleanup intervals are bounded; reaching a deadline
 produces `unknown`, retains the lease and kills the controller helper. A late
-message cannot change that uncertainty into release. `completed` additionally
-waits for the helper and stream processing to settle. Recovery from a saved lease
+message cannot change that uncertainty into release. `result` reports the observed
+command exit/signal independently; if supervision ends before observation it reports
+an unknown outcome. `completed` waits for helper/stream processing and reports
+cleanup certainty. Callers await both to flush streams and preserve command status,
+including when macOS cleanup remains unknown. Recovery from a saved lease
 ID always returns `unknown`: a PID or an old JSON claim cannot reopen ownership
 or authorize a signal. This adapter never deletes scratch. Consumers must retain
 it on unknown and require the current lease's native empty proof before release.
@@ -65,19 +68,30 @@ contract; consumers cannot infer its absence from this lease. The adapter is a
 lifetime boundary, not a filesystem/network sandbox against arbitrary same-user
 or administrator interference.
 
-macOS currently refuses managed launch. Its current XNU headers state that
-[`NOTE_TRACK` fork following is unsupported](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/event.h).
-`setsid`/`setpgid` can detach descendants without a sandbox permission gate;
-group/session scans cannot establish complete containment. XNU
-[coalition lifecycle calls](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/sys_coalition.c)
-require a privileged coalition and do not provide this standard-user helper with
-kill-on-close semantics. No process-group approximation or privileged install is
-used. A passing macOS refusal test does **not** satisfy the planned real macOS
-owned-tree acceptance criterion. That requirement remains open.
+macOS uses the approved best-effort lifetime contract. The native helper creates
+a private session and keeps a dedicated group-anchor child alive. It uses
+[`posix_spawn` group attributes](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/posix_spawnattr_setpgroup.3.html)
+to put the command in that group before user code runs. TERM followed by bounded
+KILL targets only that live, unreaped owned anchor's group; PID/group recovery is
+never attempted. A separate private pipe makes the anchor attempt bounded group
+cleanup if its supervisor dies. Controller-channel EOF also initiates cleanup.
+The supervisor observes the actual command result separately from group cleanup.
+
+This is useful native execution, not complete descendant containment. A child
+can detach through a new group/session, and abrupt supervisor/anchor loss has no
+established kernel kill-on-close guarantee. Group absence, parent exit and elapsed
+time never become release evidence. Every completed macOS lease remains unknown,
+including a normally exited command; scratch must stay retained. Stream draining
+and stop attempts are bounded, so detached processes/output may outlive them.
+Native code never emits the complete-tree release frame on macOS and TypeScript
+rejects one there. The `active` state denotes a live execution/anchor, not a
+certificate that no descendant escaped. No broker, privileged service, profile
+installation or system-policy change is required. Windows/Linux keep their
+stronger release guarantees.
 
 The original MIT helper source and full license are in
 `src/cli/platform/native/owned-process.c`. `npm run build:ownership` uses the
-target's installed C compiler: `cc` on Linux or an installed MSVC/Windows SDK
+target's installed C compiler: `cc`/Clang on Linux/macOS or an installed MSVC/Windows SDK
 discovered through Microsoft's `vswhere` on Windows. It installs nothing. Only
 the validated installed `VsDevCmd.bat` path enters a fixed compiler-environment
 command; candidate paths and managed argv remain native token arrays. Missing
@@ -96,3 +110,11 @@ verification until after the cleanup deadline, then releases and settles the
 fixture; the claim remains unknown. Linux fixture identities and Windows retained
 read-only process handles independently check fixture cleanup. Target/architecture
 coverage and failed/prerequisite-limited executions must accompany any result.
+
+macOS additionally exercises literal argv/binary streams/nonzero results, bounded
+group stop, controller EOF and an actually detached survivor. Independent private
+fixture channels observe cleanup and allow the survivor to exit voluntarily after
+the unknown/retained-scratch assertions. The test never uses a stale PID kill as
+teardown authority. Hosted Apple Silicon evidence and unexecuted Intel/other
+scenarios are reported separately; there is no local Mac or exhaustive parity
+prerequisite under the approved best-effort plan.

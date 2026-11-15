@@ -16,6 +16,9 @@
  * DEALINGS IN THE SOFTWARE.
  */
 #define _GNU_SOURCE
+#ifndef _DARWIN_C_SOURCE
+#define _DARWIN_C_SOURCE
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -34,18 +37,22 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <poll.h>
-#include <sched.h>
 #include <sys/wait.h>
+#include <time.h>
+#ifdef __linux__
+#include <sched.h>
 #include <sys/prctl.h>
 #include <sys/mount.h>
 #include <sys/stat.h>
-#include <time.h>
+#elif defined(__APPLE__)
+#include <spawn.h>
+#endif
 #endif
 
 /* Binary protocol: little-endian uint32 length, byte kind, payload. No shell,
  * JSON parser, executable source interpolation, PID-based recovery or TCP.
  * L commit launch, I stdin bytes, E stdin EOF, S stop; R ready, O stdout,
- * B stderr, F root result, D proven empty, X diagnostic (unknown).
+ * B stderr, F root result, D proven empty, U best-effort unknown, X error.
  */
 #define MAX_FRAME (1024U * 1024U)
 static unsigned char payload[MAX_FRAME];
@@ -110,6 +117,8 @@ static uint64_t millis(void) {
   struct timespec t; if (clock_gettime(CLOCK_MONOTONIC, &t)) return 0;
   return (uint64_t)t.tv_sec * 1000 + (uint64_t)t.tv_nsec / 1000000;
 }
+#endif
+#ifdef __linux__
 static int mapping(const char *file, unsigned int id) {
   char data[96]; int size = snprintf(data, sizeof(data), "%u %u 1\n", id, id);
   int fd = open(file, O_WRONLY | O_CLOEXEC); if (fd < 0) return -1;
@@ -233,6 +242,144 @@ static int run_owned(char **argv, unsigned int grace, pid_t controller) {
   else if (have_result && WIFSIGNALED(root_result)) snprintf(text, sizeof(text), "signal:%d", WTERMSIG(root_result));
   else snprintf(text, sizeof(text), "signal:9");
   message('F', text); message('D', "linux-pid-namespace"); return 0;
+}
+#elif defined(__APPLE__)
+extern char **environ;
+static int mac_pipe(int pair[2]) {
+  if (pipe(pair)) return -1;
+  if (fcntl(pair[0], F_SETFD, FD_CLOEXEC) || fcntl(pair[1], F_SETFD, FD_CLOEXEC)) {
+    close(pair[0]); close(pair[1]); return -1;
+  }
+  return 0;
+}
+static void mac_pause(unsigned int ms) {
+  struct timespec remaining = { ms / 1000, (long)(ms % 1000) * 1000000 };
+  while (nanosleep(&remaining, &remaining) && errno == EINTR) {}
+}
+/* This direct child pins the private process-group identity until reaped.
+ * Its pipe has exactly one writer, in the supervisor. A supervisor crash
+ * therefore also attempts bounded cleanup, without claiming kernel containment. */
+static void mac_anchor(int life[2], int ready[2], unsigned int grace) {
+  close(life[1]); close(ready[0]);
+  signal(SIGTERM, SIG_IGN); signal(SIGINT, SIG_IGN);
+  int error = setpgid(0, 0) ? errno : 0;
+  if (write_all(ready[1], &error, sizeof(error)) || error) _exit(121);
+  close(ready[1]); close(0); close(1); close(2);
+  char byte; ssize_t n;
+  do { n = read(life[0], &byte, 1); } while (n < 0 && errno == EINTR);
+  /* The anchor is itself still a member of this private group; no lookup or
+   * stale PID recovery is involved. Detached descendants remain outside it. */
+  (void)kill(0, SIGTERM); mac_pause(grace); (void)kill(0, SIGKILL); _exit(122);
+}
+static int mac_live_anchor(pid_t anchor, int *reaped) {
+  if (*reaped) return 0;
+  pid_t state = waitpid(anchor, NULL, WNOHANG);
+  if (state == anchor) { *reaped = 1; return 0; }
+  if (state != 0) return 0;
+  return getpgid(anchor) == anchor && getsid(anchor) == getpid();
+}
+static int mac_signal_group(pid_t anchor, int *reaped, int signal_number) {
+  if (!mac_live_anchor(anchor, reaped)) return -1;
+  /* Even if the anchor exits here, it remains our unreaped direct child:
+   * its PID cannot be reused for a replacement group before this signal. */
+  return kill(-anchor, signal_number);
+}
+static int run_owned(char **argv, unsigned int grace, pid_t controller) {
+  if (getppid() != controller || setsid() < 0) {
+    message('F', "spawn-error:Private macOS session could not be established");
+    message('U', "macOS session unavailable; retain scratch"); return 0;
+  }
+  int life[2], ready[2];
+  if (mac_pipe(life) || mac_pipe(ready)) return 2;
+  pid_t anchor = fork(); if (anchor < 0) return 2;
+  if (!anchor) mac_anchor(life, ready, grace);
+  close(life[0]); close(ready[1]);
+  int reaped = 0, start_error = -1;
+  if (read_all(ready[0], &start_error, sizeof(start_error)) || start_error || !mac_live_anchor(anchor, &reaped)) {
+    if (!reaped) { (void)kill(anchor, SIGKILL); while (waitpid(anchor, NULL, 0) < 0 && errno == EINTR) {} }
+    message('F', "spawn-error:Live macOS group anchor unavailable"); message('U', "macOS anchor unavailable; retain scratch"); return 0;
+  }
+  close(ready[0]);
+  int in[2], out[2], err[2];
+  if (mac_pipe(in) || mac_pipe(out) || mac_pipe(err)) return 2;
+  posix_spawnattr_t attributes; posix_spawn_file_actions_t actions;
+  if (posix_spawnattr_init(&attributes) || posix_spawn_file_actions_init(&actions)) return 2;
+  sigset_t defaults, mask; sigemptyset(&defaults); sigemptyset(&mask);
+  sigaddset(&defaults, SIGTERM); sigaddset(&defaults, SIGINT); sigaddset(&defaults, SIGPIPE); sigaddset(&defaults, SIGHUP); sigaddset(&defaults, SIGQUIT);
+  short flags = POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK;
+#ifdef POSIX_SPAWN_CLOEXEC_DEFAULT
+  flags |= POSIX_SPAWN_CLOEXEC_DEFAULT;
+#endif
+  int setup = posix_spawnattr_setflags(&attributes, flags) || posix_spawnattr_setpgroup(&attributes, anchor) ||
+      posix_spawnattr_setsigdefault(&attributes, &defaults) || posix_spawnattr_setsigmask(&attributes, &mask) ||
+      posix_spawn_file_actions_adddup2(&actions, in[0], 0) || posix_spawn_file_actions_adddup2(&actions, out[1], 1) ||
+      posix_spawn_file_actions_adddup2(&actions, err[1], 2) || posix_spawn_file_actions_addclose(&actions, life[1]);
+  pid_t root = -1;
+  int spawned = setup ? EINVAL : posix_spawn(&root, argv[0], &actions, &attributes, argv, environ);
+  posix_spawn_file_actions_destroy(&actions); posix_spawnattr_destroy(&attributes);
+  close(in[0]); close(out[1]); close(err[1]);
+  if (spawned) {
+    (void)mac_signal_group(anchor, &reaped, SIGKILL);
+    if (!reaped) while (waitpid(anchor, NULL, 0) < 0 && errno == EINTR) {}
+    char reason[160]; snprintf(reason, sizeof(reason), "spawn-error:Native macOS launch failed (%d: %s)", spawned, strerror(spawned));
+    message('F', reason); message('U', "macOS launch failed; complete descendant absence is unknown; retain scratch"); return 0;
+  }
+  message('R', "macos-session-group");
+  int stopping = 0, forced = 0, root_reaped = 0, input_open = 1, output_open = 1, error_open = 1, control_open = 1, result_sent = 0, anchor_lost = 0;
+  uint64_t deadline = 0, drain_deadline = 0;
+  while (1) {
+    if (!root_reaped) {
+      int status; pid_t waited = waitpid(root, &status, WNOHANG);
+      if (waited == root) {
+        char result[64]; root_reaped = 1;
+        if (WIFEXITED(status)) snprintf(result, sizeof(result), "exit:%d", WEXITSTATUS(status));
+        else if (WIFSIGNALED(status)) snprintf(result, sizeof(result), "signal:%d", WTERMSIG(status));
+        else { message('U', "macOS command status unavailable; retain scratch"); break; }
+        message('F', result); result_sent = 1;
+      } else if (waited < 0 && errno != EINTR) { message('U', "macOS command wait failed; retain scratch"); break; }
+    }
+    if (root_reaped && !stopping) {
+      if (mac_signal_group(anchor, &reaped, SIGTERM)) anchor_lost = 1;
+      stopping = 1; deadline = millis() + grace;
+    }
+    if (!forced && !anchor_lost && !mac_live_anchor(anchor, &reaped)) anchor_lost = 1;
+    if (anchor_lost) { message('U', "macOS live group anchor lost; no stale group signal; retain scratch"); break; }
+    if (stopping && !forced && millis() >= deadline) {
+      if (mac_signal_group(anchor, &reaped, SIGKILL)) { message('U', "macOS group escalation could not be verified; retain scratch"); break; }
+      forced = 1; drain_deadline = millis() + 1000;
+    }
+    if (forced) {
+      if (!reaped) { pid_t waited = waitpid(anchor, NULL, WNOHANG); if (waited == anchor) reaped = 1; }
+      if ((root_reaped && reaped && !output_open && !error_open) || millis() >= drain_deadline) break;
+    }
+    struct pollfd fds[3] = {{control_open ? 0 : -1, POLLIN | POLLHUP, 0}, {output_open ? out[0] : -1, POLLIN | POLLHUP, 0}, {error_open ? err[0] : -1, POLLIN | POLLHUP, 0}};
+    if (poll(fds, 3, 10) < 0 && errno != EINTR) { message('U', "macOS group supervision poll failed; retain scratch"); break; }
+    if (fds[0].revents & (POLLIN | POLLHUP)) {
+      uint32_t size; int kind = read_frame(&size);
+      if (kind == 'I' && input_open) { if (write_all(in[1], payload + 1, size)) { close(in[1]); input_open = 0; } }
+      else if (kind == 'E' && input_open) { close(in[1]); input_open = 0; }
+      else if (kind == 'S' || kind < 0) {
+        if (!stopping) {
+          if (mac_signal_group(anchor, &reaped, SIGTERM)) anchor_lost = 1;
+          stopping = 1; deadline = millis() + grace;
+        }
+        if (kind < 0) control_open = 0;
+      } else if (kind != 'I' && kind != 'E') { message('U', "macOS control channel invalid; retain scratch"); break; }
+    }
+    for (int i = 1; i < 3; i++) if (fds[i].revents & (POLLIN | POLLHUP)) {
+      unsigned char bytes[32768]; ssize_t n = read(fds[i].fd, bytes, sizeof(bytes));
+      if (n > 0) { if (frame(i == 1 ? 'O' : 'B', bytes, (uint32_t)n)) { stopping = 1; deadline = 0; } }
+      else if (n == 0) { close(fds[i].fd); if (i == 1) output_open = 0; else error_open = 0; }
+      else if (errno != EINTR) { message('U', "macOS stream inspection failed; retain scratch"); anchor_lost = 1; }
+    }
+  }
+  if (input_open) close(in[1]); if (output_open) close(out[0]); if (error_open) close(err[0]);
+  /* EOF also makes a surviving anchor attempt bounded group cleanup. A helper
+   * or anchor crash still has no kernel whole-descendant guarantee on macOS. */
+  close(life[1]);
+  if (!result_sent) message('U', "macOS command result unavailable after bounded cleanup; retain scratch");
+  message('U', "macOS best-effort group cleanup ended; detached descendants may survive; complete absence unknown; retain scratch");
+  return 0;
 }
 #else
 static volatile LONG output_failed = 0;

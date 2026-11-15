@@ -6,8 +6,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export async function buildOwnedProcess(root, outputDirectory = path.join(root, 'dist/cli/native')) {
-  if (process.platform === 'darwin') return null; // No unconfined group fallback.
-  if (!['linux', 'win32'].includes(process.platform)) throw new Error('Unsupported ownership target');
+  if (!['linux', 'win32', 'darwin'].includes(process.platform)) throw new Error('Unsupported ownership target');
   await mkdir(outputDirectory, { recursive: true });
   const source = path.join(root, 'src/cli/platform/native/owned-process.c');
   const output = path.join(outputDirectory, process.platform === 'win32' ? 'gestalt-owned-process.exe' : 'gestalt-owned-process');
@@ -49,4 +48,4 @@ export async function buildOwnedProcess(root, outputDirectory = path.join(root, 
   return output;
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
-  buildOwnedProcess(path.dirname(path.dirname(fileURLToPath(import.meta.url)))).then(output => console.log(output ?? 'macOS: complete owned-tree launch unavailable; refused')).catch(error => { console.error(error.message); process.exitCode = 1; });
+  buildOwnedProcess(path.dirname(path.dirname(fileURLToPath(import.meta.url)))).then(output => console.log(output)).catch(error => { console.error(error.message); process.exitCode = 1; });

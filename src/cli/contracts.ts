@@ -63,9 +63,12 @@ export type OwnershipClaim =
   | { readonly kind: 'unknown'; readonly lease: string; readonly reason: string }
   | { readonly kind: 'active'; readonly lease: string; readonly backend: string }
   | { readonly kind: 'released'; readonly lease: string; readonly backend: string; readonly result: ProcessResult };
+export type OwnedProcessResult = ProcessResult | { readonly kind: 'unknown'; readonly message: string };
 export interface OwnedProcessLease {
   readonly id: string;
   claim(): OwnershipClaim;
+  /** Observed command outcome, independent of whether descendant cleanup is certified. */
+  readonly result: Promise<OwnedProcessResult>;
   readonly completed: Promise<OwnershipClaim>;
   /** Concurrent stops share one operation. A deadline produces unknown, never release. */
   stop(): Promise<OwnershipClaim>;

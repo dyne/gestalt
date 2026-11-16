@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   unix:
+    if: ${{ false }} # Temporary Windows dependency diagnostic only
     strategy:
       fail-fast: false
       matrix:
@@ -71,8 +72,9 @@ jobs:
           name: unix-compatibility-${{ matrix.os }}
           path: native-evidence/
   windows:
+    name: Windows dependency preflight (quoting and natural EOF)
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@v6
         with:
@@ -129,15 +131,14 @@ jobs:
               if ($null -eq $probeExit -or $probeExit -ne $expectedExit) { throw 'CI direct-process probe did not preserve its exact exit code' }
               $probe.Dispose()
             }
-            $script = Join-Path $source 'scripts/test-platform-standard-user.ps1'
+            $script = Join-Path $source 'tests/fixtures/native-windows-dependency-preflight.ps1'
             $arguments = '-NoLogo -NoProfile -NonInteractive -File "' + $script + '" -Repository "' + $source + '" -Node "' + $node + '"'
-            if ($env:GESTALT_CI_TERMINAL_LANE -eq 'windows-correction') { $arguments += ' -Lane windows-correction' }
             @{stage='harness-start-before'; observedAt=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json > native-evidence/harness-start.json
             $process = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Credential $credential -LoadUserProfile -ArgumentList $arguments -PassThru -RedirectStandardOutput (Join-Path $work 'contracts.tap') -RedirectStandardError (Join-Path $work 'runner.stderr')
             $harnessHandle = $process.Handle
             if ($harnessHandle -eq [IntPtr]::Zero -or $harnessHandle -eq [IntPtr](-1)) { throw 'CI harness process handle was not retained' }
             $harnessHandleRetained = $true
-            $waitMs = if ($env:GESTALT_CI_TERMINAL_LANE -eq 'windows-correction') { 300000 } else { 1080000 }
+            $waitMs = 180000 # CI direct-process observation only, not native absence proof
             @{stage='harness-wait-before'; pid=$process.Id; deadlineMs=$waitMs; observedAt=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json > native-evidence/harness-wait.json
             # CI observation of this associated PS process only. This is never
             # the production Job/stream/same-root-handle absence proof.

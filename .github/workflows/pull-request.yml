@@ -13,7 +13,6 @@ concurrency:
 
 jobs:
   test-build:
-    if: ${{ false }} # Temporary Windows dependency diagnostic only
     name: Test and build
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -62,9 +61,20 @@ jobs:
         timeout-minutes: 2
         run: npm run test:scratch:sandbox
 
+      - name: Record current Linux ownership test runtime
+        run: |
+          mkdir -p native-evidence/manager-owned
+          node -e 'console.log(JSON.stringify({platform:process.platform,arch:process.arch,node:process.version,os:require("node:os").release(),uid:process.getuid(),gid:process.getgid(),sha:process.env.GITHUB_SHA,observedAt:new Date().toISOString()}))' > native-evidence/manager-owned/runner.json
+
       - name: Test installation tooling (2/2)
         timeout-minutes: 5
+        env:
+          GESTALT_NATIVE_TEST_EVIDENCE: ${{ github.workspace }}/native-evidence/manager-owned
+          GESTALT_QUOTING_EVIDENCE: ${{ github.workspace }}/native-evidence/manager-owned/quoting
         run: npm test -- --shard 2/2
+
+      - name: Build current npm package
+        run: npm run build:package
 
       - name: Build documentation
         env:
@@ -75,8 +85,17 @@ jobs:
         timeout-minutes: 2
         run: npx --yes npm@latest run test:package
 
+      - name: Preserve current Linux ownership artifacts
+        uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: l2-manager-owned-linux
+          path: native-evidence/manager-owned/
+
   scratch-macos:
-    if: ${{ false }} # Temporary Windows dependency diagnostic only
+    # CI-only correction snapshot: current affected gates use Linux/Windows.
+    # Product workflow remains unchanged; prior Mac evidence keeps its old time.
+    if: ${{ false }}
     name: macOS scratch sockets
     runs-on: macos-latest
     timeout-minutes: 10

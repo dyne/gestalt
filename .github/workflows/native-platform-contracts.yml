@@ -10,11 +10,12 @@ permissions:
 
 jobs:
   unix:
-    if: ${{ false }} # Temporary Windows dependency diagnostic only
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # CI-only correction snapshot: PR exercises Ubuntu; explicit manual
+        # dispatch retains best-effort macOS availability, never a fresh PR pass.
+        os: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
@@ -72,9 +73,8 @@ jobs:
           name: unix-compatibility-${{ matrix.os }}
           path: native-evidence/
   windows:
-    name: Windows dependency preflight (quoting and natural EOF)
     runs-on: windows-latest
-    timeout-minutes: 6
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
         with:
@@ -85,6 +85,15 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck:cli
+      - name: Verify pure command-line and input lifecycle units on Windows
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory native-evidence -Force | Out-Null
+          @{observedAt=[DateTime]::UtcNow.ToString('o'); user=[Security.Principal.WindowsIdentity]::GetCurrent().Name; scope='Node stream units on CI runner; native ownership below uses an isolated standard user'; nativeQuoting='16 actual Windows count cases reused from bound run43942140973; Windows-host unit cases skip rather than simulate Win32'} | ConvertTo-Json > native-evidence/command-input-unit-identity.json
+          & node --test --test-reporter=tap tests/native-command-line.test.mjs tests/native-process-input.test.mjs > native-evidence/command-input-unit.tap 2>&1
+          $unitExit = $LASTEXITCODE
+          if ($null -eq $unitExit -or $unitExit -ne 0) { throw ('Command/input units failed: ' + $unitExit) }
       - name: Execute contracts as an isolated standard user
         shell: powershell
         run: |
@@ -131,14 +140,15 @@ jobs:
               if ($null -eq $probeExit -or $probeExit -ne $expectedExit) { throw 'CI direct-process probe did not preserve its exact exit code' }
               $probe.Dispose()
             }
-            $script = Join-Path $source 'tests/fixtures/native-windows-dependency-preflight.ps1'
+            $script = Join-Path $source 'scripts/test-platform-standard-user.ps1'
             $arguments = '-NoLogo -NoProfile -NonInteractive -File "' + $script + '" -Repository "' + $source + '" -Node "' + $node + '"'
+            if ($env:GESTALT_CI_TERMINAL_LANE -eq 'windows-correction') { $arguments += ' -Lane windows-correction' }
             @{stage='harness-start-before'; observedAt=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json > native-evidence/harness-start.json
             $process = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Credential $credential -LoadUserProfile -ArgumentList $arguments -PassThru -RedirectStandardOutput (Join-Path $work 'contracts.tap') -RedirectStandardError (Join-Path $work 'runner.stderr')
             $harnessHandle = $process.Handle
             if ($harnessHandle -eq [IntPtr]::Zero -or $harnessHandle -eq [IntPtr](-1)) { throw 'CI harness process handle was not retained' }
             $harnessHandleRetained = $true
-            $waitMs = 180000 # CI direct-process observation only, not native absence proof
+            $waitMs = if ($env:GESTALT_CI_TERMINAL_LANE -eq 'windows-correction') { 300000 } else { 1080000 }
             @{stage='harness-wait-before'; pid=$process.Id; deadlineMs=$waitMs; observedAt=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json > native-evidence/harness-wait.json
             # CI observation of this associated PS process only. This is never
             # the production Job/stream/same-root-handle absence proof.

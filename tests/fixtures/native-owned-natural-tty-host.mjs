@@ -8,6 +8,8 @@ process.on('beforeExit', code => journal(record, 'host-beforeExit', { code, ...r
 process.on('exit', code => journal(record, 'host-exit', { code }));
 assert.deepEqual([process.stdin.isTTY, process.stdout.isTTY, process.stderr.isTTY], [true, true, true]);
 const observer = observeOwnedHelpers(helper, traceDirectory, 'inner'), raw = Boolean(process.stdin.isRaw);
+const inputEvents = ['readable', 'end', 'error', 'close'];
+const callerListeners = inputEvents.map(event => process.stdin.listeners(event));
 journal(record, 'host-start', resources());
 try {
   process.stdin.setRawMode(true);
@@ -16,6 +18,8 @@ try {
   journal(record, 'inner-launch', { claim: lease.claim(), ...resources() });
   const result = await lease.result; journal(record, 'inner-result', { result, claim: lease.claim(), ...resources() });
   const completed = await lease.completed; journal(record, 'inner-completed', { completed, claim: lease.claim(), ...resources() });
+  assert.deepEqual(inputEvents.map(event => process.stdin.listeners(event)), callerListeners, 'Adapter-owned input listeners must be removed before completed');
+  assert.equal(process.stdin.destroyed, false, 'Caller stdin must remain usable');
   assert.deepEqual(result, { kind: 'exit', code: 23 }); assert.equal(completed.kind, 'released'); assert.equal(completed.backend, 'windows-job'); assert.equal(completed.lease, lease.id);
   const stop = await lease.stop(); journal(record, 'inner-idempotent-stop', { claim: stop });
   process.exitCode = 23;

@@ -35,10 +35,10 @@ function argvReport(bytes) {
   const r = wideReader(bytes); assert.equal(r.integer(), 0x41524756); const argc = r.integer(), tty = [r.integer(), r.integer(), r.integer()].map(Boolean), inJob = Boolean(r.integer()), commandLine = r.string(), argv = [];
   for (let i = 0; i < argc; i++) argv.push(r.string()); r.done(); return { tty, inJob, commandLine, argv };
 }
-async function apiScenario(name, helper, target, argv, terminal, natural = false, host = false) {
+async function apiScenario(name, helper, target, argv, terminal, natural = false, host = false, expectedOuterRejection = false) {
   const location = path.join(evidence, name); await mkdir(location, { recursive: true });
   const scratch = await mkdtemp(path.join(tmpdir(), 'q-')), report = path.join(scratch, 'argv.bin'), leafRecord = path.join(location, 'leaf.jsonl'), hostRecord = path.join(location, 'host.jsonl');
-  const record = { name, terminal, natural, observedAt: new Date().toISOString(), pass: false, forcedCleanup: false, inputEndedBeforeNaturalResult: false, scratch };
+  const record = { name, terminal, natural, expectedOuterRejection, observedAt: new Date().toISOString(), pass: false, forcedCleanup: false, inputEndedBeforeNaturalResult: false, scratch };
   const input = new PassThrough(), chunks = [], observer = observeOwnedHelpers(helper, location, 'outer'); let lease, completedObserved = false;
   try {
     const invocation = { argv: natural ? host ? [hostBundle, helper, leafBundle, leafRecord, hostRecord, location] : [leafBundle, leafRecord] : argv,
@@ -46,6 +46,7 @@ async function apiScenario(name, helper, target, argv, terminal, natural = false
     record.invocation = { executable: target, argv: invocation.argv, cwd: invocation.cwd };
     lease = terminal ? await new NativeOwnedProcesses(helper).launchTerminal(target, invocation, { input, output: async bytes => { chunks.push(Buffer.from(bytes)); } }, { columns: 91, rows: 37 }, { graceMs: 50, deadlineMs: 5000 }) :
       await new NativeOwnedProcesses(helper).launch(target, invocation, { stdin: input, stdout: async bytes => { chunks.push(Buffer.from(bytes)); }, stderr: async bytes => { chunks.push(Buffer.from(bytes)); } }, { graceMs: 50, deadlineMs: 5000 });
+    assert.equal(expectedOuterRejection, false, 'Expected pre-helper outer command-line rejection; a lease is not that proof');
     record.initialClaim = lease.claim();
     if (natural) {
       const end = Date.now() + 15000;
@@ -65,7 +66,18 @@ async function apiScenario(name, helper, target, argv, terminal, natural = false
       if (host) { const events = (await readFile(hostRecord, 'utf8')).trim().split('\n').map(JSON.parse); record.hostPhases = events; assert.ok(events.some(r => r.phase === 'host-exit' && r.code === 23)); assert.ok(events.some(r => r.phase === 'inner-completed' && r.completed.kind === 'released')); }
     }
     record.pass = true;
-  } catch (error) { record.error = { message: error.message, stack: error.stack }; }
+  } catch (error) {
+    record.error = { message: error.message, code: error.code, stack: error.stack };
+    if (expectedOuterRejection) {
+      try {
+        assert.equal(error.code, 'ENAMETOOLONG'); assert.equal(lease, undefined);
+        assert.equal(observer.traces.length, 0); assert.equal(chunks.length, 0);
+        await assert.rejects(readFile(report), { code: 'ENOENT' });
+        record.boundaryObservation = 'Expected safe pre-helper ENAMETOOLONG: no lease, helper frames or payload report; not a target-limit launch';
+        record.payloadNeverStarted = true; record.pass = true;
+      } catch (verification) { record.boundaryVerificationError = verification.message; }
+    }
+  }
   finally {
     if (lease && (!completedObserved || lease.claim().kind === 'active')) {
       record.forcedCleanup = true;
@@ -74,7 +86,7 @@ async function apiScenario(name, helper, target, argv, terminal, natural = false
     }
     input.end(); observer.restore(); record.traces = observer.traces; record.traceCompleteness = observer.traces.every(t => t.close) ? 'complete' : 'partial'; record.outputBytes = Buffer.concat(chunks).length;
     await writeFile(path.join(location, 'output.bin'), Buffer.concat(chunks));
-    if (observer.traces.length !== 1) { record.traceError = 'Expected exactly one observed production helper'; record.pass = false; }
+    if (observer.traces.length !== (expectedOuterRejection ? 0 : 1)) { record.traceError = 'Unexpected production helper observation count'; record.pass = false; }
     for (const trace of observer.traces) {
       try {
         const raw = await readFile(trace.stdout), parsed = decodeFrames(raw); trace.raw = { bytes: raw.length, sha256: hash(raw), pendingBytes: parsed.pendingBytes, error: parsed.error, frames: parsed.frames.map(f => ({ kind: f.kind, text: 'OB'.includes(f.kind) ? undefined : f.bytes.toString(), bytes: f.bytes.length })) };
@@ -133,8 +145,7 @@ try {
   for (const terminal of [false, true]) await apiScenario('production-literal-' + (terminal ? 'terminal' : 'byte'), helper, probe, literals, terminal);
   const edge = [probe, '--echo', 'é東京🚀', '']; edge[3] = 'a'.repeat(32767 - (quoteReference(edge).length + 1)); assert.equal(quoteReference(edge).length + 1, 32767);
   for (const terminal of [false, true]) { await vectorScenario('OS-boundary-' + (terminal ? 'terminal' : 'byte'), probe, edge, terminal); await vectorScenario('OS-oversize-' + (terminal ? 'terminal' : 'byte'), probe, [...edge.slice(0, -1), edge.at(-1) + 'a'], terminal, true); }
-  await apiScenario('production-exact-limit-observation', helper, probe, edge.slice(1), false);
-  manifest.cases.at(-1).boundaryObservation = 'A failure is an unresolved production transport gap, not overridden by the test-only vector entry';
+  await apiScenario('production-outer-limit-rejection', helper, probe, edge.slice(1), false, false, false, true);
   // Actual production API near-limit leaves explicit budget for helper/control
   // argv. Exact OS-boundary calls above isolate that existing outer ceiling.
   const near = ['--echo', '', '']; near[2] = 'a'.repeat(32000 - (quoteReference([probe, ...near]).length + 1));

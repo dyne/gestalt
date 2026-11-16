@@ -87,24 +87,23 @@ test('inert provider captures actual method/path/body bytes/hash/times and rejec
   } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
 });
 
-test('terminal controls wait for a new observed interrupt-to-idle transition before idle Ctrl-C', () => {
+test('terminal controls wait for a fresh submitted-turn settled status before their only UI-quit Ctrl-C', () => {
   const controls = terminalControls('interrupt');
-  const before = '\x1b]7501;state=idle\x07\x1b]7501;state=working\x07 Native core slice no-model barrier';
-  assert.equal(controls.observe(before, false), null);
-  assert.equal(controls.observe(before, true), '\x03');
-  assert.equal(controls.observe(before, true), null, 'Existing idle marker must not authorize the next Ctrl-C');
-  assert.equal(controls.observe(before + ' Conversation interrupted', true), null);
-  assert.equal(controls.observe(before + ' Conversation interrupted \x1b]7501;state=idle', true), '\x03');
-  assert.equal(controls.observe(before + ' Conversation interrupted \x1b]7501;state=idle', true), null);
-  assert.deepEqual(controls.events.map(event => event.action), ['ctrl-c-after-barrier', 'ctrl-c-after-settled']);
-  assert.equal(controls.events.at(-1).conversationInterruptedObserved, true);
-  const completed = terminalControls('interrupt'); completed.observe(before, true);
-  assert.equal(completed.observe(before + '\x1b]7501;state=done', true), '\x03');
-  assert.equal(completed.events.at(-1).conversationInterruptedObserved, false, 'Do not infer active cancellation from normal blocked-turn completion');
-  const eof = terminalControls('eof'); assert.equal(eof.observe(before, true), '\x04'); assert.equal(eof.observe(before, true), null);
+  const startup = '\x1b]7501;state=idle\x07 Native core slice no-model barrier';
+  assert.equal(controls.observe(startup, true), null, 'Startup idle is not this submitted turn completion');
+  const working = startup + '\x1b]7501;state=working\x07';
+  assert.equal(controls.observe(working, true), null, 'Working must never trigger this UI-quit case');
+  assert.equal(controls.observe(working + ' Conversation interrupted', true), null, 'Text is not a settled status');
+  const done = working + '\x1b]7501;state=done\x1b\\';
+  assert.equal(controls.observe(done, false), null, 'Actual authority and no-model barrier remain mandatory');
+  assert.equal(controls.observe(done, true), '\x03', 'Separate Working and Done callbacks produce one quit only after Done');
+  assert.equal(controls.observe(done + '\x1b]7501;state=idle\x1b\\\x1b]7501;state=clear\x1b\\', true), null);
+  assert.equal(controls.events.length, 1); assert.equal(controls.events[0].intent, 'settled-ui-quit');
+  assert.equal(controls.events[0].activeCancellationClaimed, false);
+  assert.ok(controls.events[0].settledStatusOffset > controls.events[0].workingStatusOffset);
 });
 
-for (const state of ['idle', 'done']) test(`terminal controls send only one Ctrl-C when the blocked turn was already ${state}`, () => {
+for (const state of ['idle', 'done']) test(`terminal controls quit once when the submitted turn is already ${state} in the same callback`, () => {
   const controls = terminalControls('interrupt');
   const before = '\x1b]7501;state=working\x07Native core slice no-model barrier\x1b]7501;state=' + state + '\x1b\\';
   assert.equal(controls.observe(before, true), '\x03');
@@ -113,6 +112,13 @@ for (const state of ['idle', 'done']) test(`terminal controls send only one Ctrl
   assert.equal(controls.observe(before + '\x1b]7501;state=idle\x1b\\', true), null);
   assert.equal(controls.observe(before + '\x1b]7501;state=idle\x1b\\\x1b]7501;state=clear\x1b\\', true), null);
   assert.equal(controls.events.length, 1);
+});
+
+test('terminal controls preserve immediate EOF04 after authority/barrier without requiring settled status', () => {
+  const eof = terminalControls('eof'), working = '\x1b]7501;state=working Native core slice no-model barrier';
+  assert.equal(eof.observe(working, false), null); assert.equal(eof.observe(working, true), '\x04');
+  assert.equal(eof.observe(working + '\x1b]7501;state=done', true), null);
+  assert.equal(eof.events.length, 1); assert.equal(eof.events[0].action, 'eof');
 });
 
 for (const control of ['eof', 'interrupt']) test(`actual POSIX PTY fixture sends ${control} controls according to observed child state`,

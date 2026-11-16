@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { createServer, createConnection } from 'node:net';
 import { access, mkdir, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { buildNativePlatform } from '../scripts/build-native-platform.mjs';
 import { interactiveBackendFor, selectInteractiveRuntime } from '../src/cli/platform/interactive.ts';
+import { observeHostSocket, readAuthorityReport } from './fixtures/unix-compat-peer.mjs';
 const root=path.resolve(import.meta.dirname,'..'), unix=['linux','darwin'].includes(process.platform);
 const options={skip:unix?false:'Unix replacement contracts; Windows owned producer has separate native evidence',timeout:15000};
 const directory=await mkdtemp(path.join(tmpdir(),'unix-compat-'));let peer;
@@ -59,4 +61,28 @@ test('the original Unix caller process receives cancellation after replacement w
   await bounded(Promise.race([ready,exit.then(()=>{throw Error('replacement exited before signal readiness')})]));
   const target=JSON.parse(text.split('\n')[0]);assert.equal(target.pid,child.pid);assert.deepEqual(target.identity,JSON.parse(await readFile(before,'utf8')).identity);
   child.kill('SIGTERM');assert.equal((await bounded(exit))[0],19);assert.match(text,/signal-observed/);
+});
+test('a real diagnostic peer probe restores the host socket reader before binary echo',options,async()=>{
+  const previous=process.cwd(),scratch=await mkdtemp(path.join(tmpdir(),'gs-')),sockets=new Set(),events=[];
+  let client,measurement;
+  const server=createServer(socket=>{
+    sockets.add(socket);socket.on('close',()=>sockets.delete(socket));socket.on('error',()=>{});
+    measurement=observeHostSocket(peer,socket,(phase,value)=>events.push({phase,...value}));
+    socket.on('data',bytes=>{void measurement.then(()=>socket.end(bytes));});
+  });
+  try{
+    process.chdir(scratch);server.listen('s');await once(server,'listening');
+    client=createConnection('s');await once(client,'connect');const input=Buffer.from([0,255,13,10,...Buffer.from('é東京')]);client.write(input);
+    const chunks=[];await bounded((async()=>{for await(const bytes of client)chunks.push(bytes);})());
+    assert.deepEqual(Buffer.concat(chunks),input);const observed=await measurement;
+    assert.equal(observed.exit,0);assert.equal(observed.timedOut,false);assert.equal(observed.peer.pid,process.pid);
+    assert.equal(events.find(e=>e.phase==='host-credential-probe-close').readerPaused,true);
+    assert.equal(events.find(e=>e.phase==='host-protocol-reader-resumed').readerPaused,false);
+  }finally{client?.destroy();for(const socket of sockets)socket.destroy();await new Promise(resolve=>server.close(resolve));process.chdir(previous);await rm(scratch,{recursive:true,force:true});}
+});
+test('authority timeout remains the primary failure when its partial report is absent',async()=>{
+  const deadline={message:'Authority deadline exceeded; child terminated',status:{exit:null,signal:'SIGKILL'}};
+  const missing=path.join(directory,'missing-authority.json'),report=await readAuthorityReport(missing,deadline);
+  assert.equal(report.primaryError,deadline);assert.equal(report.observed,null);assert.match(report.readError,/ENOENT/);
+  const absent=await readAuthorityReport(missing,null);assert.equal(absent.primaryError.message,'Authority report unavailable');
 });

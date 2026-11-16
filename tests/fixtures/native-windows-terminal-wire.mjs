@@ -6,14 +6,19 @@ export function terminalVariants(source) {
     if (source.split(from).length !== 2) throw Error(`Exactly one diagnostic injection required: ${from}`);
     return source.replace(from, to);
   };
+  const isolation = [
+    '  /* ConPTY must install its own console handles in the child. Otherwise the',
+    "   * helper's standard-handle table can carry private protocol pipes into it.",
+    '   * The captured control_input/control_output values remain open and pinned. */',
+    '  if (terminal_columns &&',
+    '      (!SetStdHandle(STD_INPUT_HANDLE, NULL) || !SetStdHandle(STD_OUTPUT_HANDLE, NULL) || !SetStdHandle(STD_ERROR_HANDLE, NULL))) {',
+    '    message(\'X\', "Owned ConPTY standard-handle isolation failed before payload launch"); CloseHandle(job); free(line); return 2;',
+    '  }',
+  ].join('\n');
   return [
     { name: 'primary', source, role: 'unchanged production candidate' },
-    { name: 'zero-startup-fields', role: 'test-only STARTUPINFO standard fields', source: replace(
-      'startup.StartupInfo.wShowWindow = SW_HIDE; startup.StartupInfo.hStdInput = input_read;\n  startup.StartupInfo.hStdOutput = output_write; startup.StartupInfo.hStdError = error_write; startup.lpAttributeList = attributes;',
-      'startup.StartupInfo.wShowWindow = SW_HIDE;\n  if (!terminal_columns) { startup.StartupInfo.hStdInput = input_read; startup.StartupInfo.hStdOutput = output_write; startup.StartupInfo.hStdError = error_write; }\n  startup.lpAttributeList = attributes;') },
-    { name: 'empty-parent-stdio', role: 'test-only parent standard-handle table; saved control handles unchanged', source: replace(
-      'BOOL created = line && CreateProcessW',
-      'if (terminal_columns) { SetStdHandle(STD_INPUT_HANDLE, NULL); SetStdHandle(STD_OUTPUT_HANDLE, NULL); SetStdHandle(STD_ERROR_HANDLE, NULL); }\n  BOOL created = line && CreateProcessW') },
+    { name: 'legacy-parent-stdio', role: 'test-only reproduction with standard-handle isolation removed', source: replace(isolation, '  /* test-only legacy standard-handle table */') },
+    { name: 'setstd-failure', role: 'test-only failed SetStdHandle before payload', source: replace('!SetStdHandle(STD_INPUT_HANDLE, NULL)', '!(SetLastError(ERROR_INVALID_HANDLE), FALSE)') },
   ];
 }
 export function encodeFrame(kind, payload = Buffer.alloc(0)) {

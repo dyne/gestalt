@@ -18,7 +18,9 @@ test('Windows diagnostic variants bind one current source location and preserve 
       for (const proof of ['PROC_THREAD_ATTRIBUTE_JOB_LIST', 'JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE', 'WaitForSingleObject(process.hProcess, 5000)', "message('D', \"windows-job\")"])
         assert.equal(variant.source.split(proof).length, actual.split(proof).length);
     }
-    assert.throws(() => terminalVariants(actual.replace('BOOL created = line && CreateProcessW', 'changed')), /Exactly one/);
+    assert.equal(variants[1].source.includes('!SetStdHandle(STD_INPUT_HANDLE, NULL)'), false);
+    assert.match(variants[2].source, /SetLastError\(ERROR_INVALID_HANDLE\), FALSE/);
+    assert.throws(() => terminalVariants(actual.replace('!SetStdHandle(STD_INPUT_HANDLE, NULL)', 'changed')), /Exactly one/);
   }
 });
 

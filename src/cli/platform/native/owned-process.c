@@ -568,6 +568,13 @@ static int run_owned_windows(int argc, wchar_t **argv, unsigned int grace) {
   startup.StartupInfo.hStdOutput = output_write; startup.StartupInfo.hStdError = error_write; startup.lpAttributeList = attributes;
   PROCESS_INFORMATION process; memset(&process, 0, sizeof(process));
   wchar_t *line = command_line(argc, argv);
+  /* ConPTY must install its own console handles in the child. Otherwise the
+   * helper's standard-handle table can carry private protocol pipes into it.
+   * The captured control_input/control_output values remain open and pinned. */
+  if (terminal_columns &&
+      (!SetStdHandle(STD_INPUT_HANDLE, NULL) || !SetStdHandle(STD_OUTPUT_HANDLE, NULL) || !SetStdHandle(STD_ERROR_HANDLE, NULL))) {
+    message('X', "Owned ConPTY standard-handle isolation failed before payload launch"); CloseHandle(job); free(line); return 2;
+  }
   BOOL created = line && CreateProcessW(argv[0], line, NULL, NULL, terminal_columns ? FALSE : TRUE,
       EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | (terminal_columns ? 0 : CREATE_NEW_PROCESS_GROUP), NULL, NULL, &startup.StartupInfo, &process);
   DWORD creation_error = created ? 0 : GetLastError(); free(line); DeleteProcThreadAttributeList(attributes); free(attributes);

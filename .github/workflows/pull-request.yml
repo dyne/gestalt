@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   test-build:
-    # TEST TRANSPORT OVERLAY: full acceptance deferred, not a passing gate.
+    # TEST CORRECTION OVERLAY: full acceptance UNEXECUTED here.
     if: ${{ false }}
     name: Test and build
     runs-on: ubuntu-latest

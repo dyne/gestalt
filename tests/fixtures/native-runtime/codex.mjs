@@ -127,6 +127,7 @@ export async function exerciseCodexTerminal({ helper, artifact, directory, evide
     await bounded(lease.completed, 'pinned Codex pipe rejection');
     const pipe = { mode: 'owned-byte-pipes', result: await lease.result, claim: lease.claim(), stdout: Buffer.concat(pipeOut).toString(), stderr: Buffer.concat(pipeErr).toString() };
     records.push(pipe); input.destroy(); assert.match(pipe.stdout + pipe.stderr, /stdin is not a terminal/); assert.deepEqual(pipe.result, { kind: 'exit', code: 1 });
+    assert.equal(pipe.claim.kind, process.platform === 'darwin' ? 'unknown' : 'released', 'Pinned byte-path cleanup certainty');
     input = new PassThrough(); const output = []; let tail = '', ready, cursorReplies = 0, raw = '';
     const initialized = new Promise(resolve => { ready = resolve; });
     lease = await adapter.launchTerminal(artifact.binary, invocation, { input, output: async b => {
@@ -146,6 +147,7 @@ export async function exerciseCodexTerminal({ helper, artifact, directory, evide
       records.push({ mode: 'owned-real-terminal', interactiveSignInChoices: interactive, cursorReplies, result: await lease.result, claim: lease.claim(), output: raw });
     }
     assert.equal(interactive, true); assert.doesNotMatch(raw, /(?:stdin|stdout) is not a terminal/);
+    assert.equal(records.at(-1).claim.kind, process.platform === 'darwin' ? 'unknown' : 'released', 'Pinned terminal cleanup certainty');
   } finally {
     if (lease) { await lease.stop(); await bounded(lease.completed, 'final pinned TUI cleanup'); }
     input?.destroy();

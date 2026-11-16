@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   unix:
-    # TEST TRANSPORT OVERLAY: acceptance not executed in this correction lane.
+    # TEST CORRECTION OVERLAY: Unix acceptance UNEXECUTED here.
     if: ${{ false }}
     strategy:
       fail-fast: false
@@ -89,7 +89,7 @@ jobs:
             !native-evidence/pinned-codex/artifact/*.exe
   windows:
     env:
-      GESTALT_CI_TERMINAL_PREFLIGHT_ONLY: '1'
+      GESTALT_CI_TERMINAL_LANE: windows-correction
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -110,6 +110,11 @@ jobs:
           $password = ConvertTo-SecureString ([Guid]::NewGuid().ToString('N') + '!aA1') -AsPlainText -Force
           $user = New-LocalUser -Name $name -Password $password -AccountNeverExpires
           $work = Join-Path $env:RUNNER_TEMP $name
+          $source = Join-Path $work 'source'
+          $process = $null
+          $harnessTimedOut = $false
+          $harnessExitObserved = $false
+          New-Item -ItemType Directory native-evidence -Force | Out-Null
           try {
             $users = Get-LocalGroup -SID 'S-1-5-32-545'
             Add-LocalGroupMember -Group $users -Member $user
@@ -123,9 +128,21 @@ jobs:
             $node = (Get-Command node.exe).Source
             $script = Join-Path $source 'scripts/test-platform-standard-user.ps1'
             $arguments = '-NoLogo -NoProfile -NonInteractive -File "' + $script + '" -Repository "' + $source + '" -Node "' + $node + '"'
-            if ($env:GESTALT_CI_TERMINAL_PREFLIGHT_ONLY -eq '1') { $arguments += ' -PreflightOnly' }
-            $process = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Credential $credential -LoadUserProfile -ArgumentList $arguments -Wait -PassThru -RedirectStandardOutput (Join-Path $work 'contracts.tap') -RedirectStandardError (Join-Path $work 'runner.stderr')
+            if ($env:GESTALT_CI_TERMINAL_LANE -eq 'windows-correction') { $arguments += ' -Lane windows-correction' }
+            @{stage='harness-start-before'; observedAt=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json > native-evidence/harness-start.json
+            $process = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Credential $credential -LoadUserProfile -ArgumentList $arguments -PassThru -RedirectStandardOutput (Join-Path $work 'contracts.tap') -RedirectStandardError (Join-Path $work 'runner.stderr')
+            $waitMs = if ($env:GESTALT_CI_TERMINAL_LANE -eq 'windows-correction') { 300000 } else { 1080000 }
+            @{stage='harness-wait-before'; pid=$process.Id; deadlineMs=$waitMs; observedAt=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json > native-evidence/harness-wait.json
+            # CI observation of this associated PS process only. This is never
+            # the production Job/stream/same-root-handle absence proof.
+            $harnessExitObserved = $process.WaitForExit($waitMs)
+            if (-not $harnessExitObserved) {
+              $harnessTimedOut = $true
+              try { $process.Kill(); $harnessExitObserved = $process.WaitForExit(5000) } catch { $_ | Out-String | Set-Content native-evidence/harness-stop-error.txt }
+              throw 'CI harness deadline: descendant settlement UNKNOWN; partial artifacts preserved; fixture teardown deferred to disposable runner'
+            }
             $result = $process.ExitCode
+            if ($null -eq $result) { throw 'Associated CI harness exit code was not observed' }
             New-Item -ItemType Directory native-evidence -Force | Out-Null
             Copy-Item (Join-Path $work 'contracts.tap') native-evidence/
             Copy-Item (Join-Path $work 'runner.stderr') native-evidence/
@@ -148,7 +165,23 @@ jobs:
             $PSVersionTable | ConvertTo-Json > native-evidence/powershell.json
             if ($result -ne 0) { throw "Native standard-user contracts exited $result" }
           } finally {
-            Remove-LocalUser -Name $name -ErrorAction SilentlyContinue
+            # Preserve partial progress even when setup/wait/copy fails. Copy
+            # errors are evidence too; no process-tree absence is inferred.
+            foreach ($file in @('contracts.tap','runner.stderr')) {
+              $partial = Join-Path $work $file
+              if (Test-Path -LiteralPath $partial) { try { Copy-Item -LiteralPath $partial -Destination native-evidence/ -Force } catch { $_ | Out-String | Add-Content native-evidence/partial-copy-errors.txt } }
+            }
+            $partialEvidence = Join-Path $source 'native-evidence'
+            if (Test-Path -LiteralPath $partialEvidence) {
+              foreach ($file in @('standard-user-progress.jsonl','windows-terminal-preflight')) {
+                $partial = Join-Path $partialEvidence $file
+                if (Test-Path -LiteralPath $partial) { try { Copy-Item -LiteralPath $partial -Destination native-evidence/ -Recurse -Force } catch { $_ | Out-String | Add-Content native-evidence/partial-copy-errors.txt } }
+              }
+            }
+            $harnessExit = $null
+            if ($harnessExitObserved) { try { $harnessExit = $process.ExitCode } catch { $_ | Out-String | Add-Content native-evidence/harness-stop-error.txt } }
+            @{stage='harness-finally'; observedAt=[DateTime]::UtcNow.ToString('o'); directExitObserved=$harnessExitObserved; exit=$harnessExit; timedOut=$harnessTimedOut; descendants='UNKNOWN by outer Process observation; consult native scenario proofs separately'; fixtureTeardown= $(if ($harnessTimedOut) {'deferred to disposable runner'} else {'account removal attempted; not descendant absence proof'})} | ConvertTo-Json > native-evidence/harness-observation.json
+            if (-not $harnessTimedOut) { Remove-LocalUser -Name $name -ErrorAction SilentlyContinue }
           }
       - uses: actions/upload-artifact@v6
         if: always()

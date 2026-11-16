@@ -79,20 +79,28 @@ without credentials or a model request.
 The explicit Windows preflight runs before the complete standard-user suite.
 It saves raw private-protocol stdout/stderr, independent Win32/Node target
 reports, actual three-descriptor terminal detection, token, dimensions,
-Unicode/control input, exit status and helper build provenance. Two isolated
-test-only variants change either the STARTUPINFO standard fields or the
-parent standard-handle table. They retain the Job ownership operations and
-never replace the production helper. Successful variants cannot satisfy a
-failing primary. Corrupt protocol is retained without resynchronizing it into
+Unicode/control input, exit status and helper build provenance. ConPTY launch
+clears the helper's standard-handle table while preserving its already captured
+private protocol handles. A failed clear refuses before payload launch. The
+primary must pass before a test-only legacy variant reproduces the original
+pipe/TTY/framing failure, and a forced-clear failure verifies refusal. Variants
+retain Job operations and never replace the primary. Corrupt protocol is retained without resynchronizing it into
 release. Deadlines terminate only the actual owned helper; diagnostic teardown
 is recorded separately from a successful scenario.
 
-`scripts/test-platform-standard-user.ps1 -PreflightOnly` is an explicit
-correction lane. It reports the full suite/Codex acceptance as unexecuted; the
-default invocation still requires preflight, full native contracts and the
-pinned real Codex TUI. A manifested temporary CI overlay can select only the
+`scripts/test-platform-standard-user.ps1 -Lane windows-correction` first requires
+the primary preflight, then focused ownership/terminal/harness contracts and the
+pinned real Codex TUI. Full storage/native-platform, Unix and repository acceptance
+stay explicitly unexecuted. The default lane still requires preflight, full native
+contracts and the pinned TUI. A manifested temporary CI overlay can select only the
 Windows correction job. Disabled repository/Unix jobs supply no acceptance
 evidence. Stable acceptance runs the full affected gates again.
+
+Opt-in build/case journals preserve UTC progress and distinguish helper process
+exit from stream closure. The outer CI wait observes only its associated harness
+process, bounds the diagnostic lane, and copies partial artifacts in `finally`.
+An unobserved/null exit cannot pass. This harness wait supplies no descendant
+absence proof; a timeout fails and retains unknown teardown for runner disposal.
 
 macOS uses the approved best-effort lifetime contract. The native helper creates
 a private session and keeps a dedicated group-anchor child alive. It uses

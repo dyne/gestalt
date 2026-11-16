@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { buildCli } from '../scripts/build-cli.mjs';
 import { managerHelp, managerVersion } from '../scripts/manager-metadata.mjs';
@@ -19,14 +20,15 @@ test('shared metadata rejects absent, duplicate and non-strict version identitie
   assert.throws(() => managerHelp(''), /exactly one manager usage block/);
 });
 
-test('compiled Node artifact runs outside the repository without a runtime compiler or source files', async t => {
+test('compiled Windows Node artifact runs without Bash, a runtime compiler or source files', { skip: process.platform !== 'win32' ? 'Unix direct entry uses the packaged compatibility backend' : false }, async t => {
   const fixture = await mkdtemp(join(tmpdir(), 'native cli consumer '));
   t.after(() => rm(fixture, { recursive: true, force: true }));
   const entry = await buildCli(root, join(fixture, 'gestalt.mjs'));
   assert.match(await readFile(entry, 'utf8'), /^#!\/usr\/bin\/env node\n/);
   const run = argv => spawnSync(process.execPath, [entry, ...argv], {
     cwd: fixture, encoding: 'utf8', timeout: 10000,
-    env: { ...process.env, PATH: '', NODE_PATH: '', NODE_OPTIONS: '' },
+    env: { ...process.env, HOME: fixture, USERPROFILE: fixture, CODEX_HOME: join(fixture, 'isolated Codex'),
+      GESTALT_HOME: join(fixture, 'isolated Gestalt'), GESTALT_MOBILE_BIN: '', PATH: '', NODE_PATH: '', NODE_OPTIONS: '' },
   });
   for (const argv of [[], ['help'], ['--help'], ['-h'], ['help', 'ignored']]) {
     const result = run(argv);
@@ -37,23 +39,45 @@ test('compiled Node artifact runs outside the repository without a runtime compi
   for (const alias of ['version', '--version', '-V']) {
     const result = run([alias]);
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout, `gestalt ${metadata.version}\n`);
+    assert.equal(result.stdout, `gestalt ${metadata.version}\n` + ['Serena', 'Playwright', 'Playwright readiness', 'uv (Serena)', 'Python (Serena)'].map(label => label.padEnd(24) + 'NOT INSTALLED (optional)\n').join(''));
     assert.equal(result.stderr, '');
   }
   const unknown = run(['not a command']);
   assert.equal(unknown.status, 1);
   assert.equal(unknown.stdout, '');
   assert.equal(unknown.stderr, "gestalt: unknown command: not a command (run 'gestalt help')\n");
-  for (const command of [...commandNames.filter(name => !['help', 'version'].includes(name)), ...internalCommandNames]) {
+  // Component bodies have their own later native milestones. Core dispatch is
+  // exercised by isolated runtime/transfer/protocol contracts, never by calling
+  // a scratch hook against the operator's inherited live owner in this smoke.
+  for (const command of ['serena', 'playwright']) {
     const result = run([command]);
     assert.equal(result.status, 1, result.stderr);
     assert.equal(result.stdout, '');
     assert.equal(result.stderr, `gestalt: development handler is not implemented: ${command}\n`);
   }
+  const paths = run(['path', 'codex-home']);
+  assert.equal(paths.status, 0, paths.stderr); assert.equal(paths.stdout, join(fixture, 'isolated Codex') + '\n');
+  const skills = run(['skills', '--help']); assert.equal(skills.status, 0, skills.stderr); assert.match(skills.stdout, /^Usage: gestalt skills/);
   const retired = run(['xerj', 'mcp']);
   assert.equal(retired.status, 1);
   assert.equal(retired.stdout, '');
   assert.match(retired.stderr, /Xerj has been retired.*User data is retained/);
+});
+
+test('compiled Unix direct entry uses the byte-identical packaged legacy manager', { skip: process.platform === 'win32' }, async t => {
+  const fixture = await mkdtemp(join(tmpdir(), 'native cli Unix consumer ü '));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  const entry = await buildCli(root, join(fixture, 'gestalt.mjs'));
+  assert.equal(await readFile(join(fixture, 'legacy/gestalt'), 'utf8'), source);
+  const environment = { ...process.env, HOME: fixture, USERPROFILE: fixture, CODEX_HOME: join(fixture, 'Codex ü'), GESTALT_HOME: join(fixture, 'Gestalt ü') };
+  for (const argv of [['help'], ['path', 'codex-home'], ['xerj'], ['unknown command']]) {
+    const options = { cwd: fixture, encoding: 'utf8', timeout: 10000, env: environment };
+    const actual = spawnSync(process.execPath, [entry, ...argv], options);
+    const legacy = spawnSync(join(root, 'public/gestalt'), argv, options);
+    assert.equal(actual.error, undefined); assert.equal(legacy.error, undefined);
+    assert.equal(actual.status, legacy.status); assert.equal(actual.signal, legacy.signal);
+    assert.equal(actual.stdout, legacy.stdout); assert.equal(actual.stderr, legacy.stderr);
+  }
 });
 
 test('dispatch forwards argv, cwd, environment, binary streams and handler exit without shell evaluation', async () => {
@@ -86,7 +110,31 @@ test('development entry builds and forwards argv and numeric exit status', () =>
   const result = spawnSync(process.execPath, [join(root, 'scripts/dev-cli.mjs'), 'unknown command'], {
     cwd: root, encoding: 'utf8', timeout: 15000,
   });
-  assert.equal(result.status, 1);
-  assert.equal(result.stdout, '');
-  assert.equal(result.stderr, "gestalt: unknown command: unknown command (run 'gestalt help')\n");
+  if (process.platform === 'win32') {
+    assert.equal(result.status, 1); assert.equal(result.stdout, '');
+    assert.equal(result.stderr, "gestalt: unknown command: unknown command (run 'gestalt help')\n");
+  } else {
+    const legacy = spawnSync(join(root, 'public/gestalt'), ['unknown command'], { cwd: root, encoding: 'utf8', timeout: 15000 });
+    assert.equal(result.status, legacy.status); assert.equal(result.stdout, legacy.stdout); assert.equal(result.stderr, legacy.stderr);
+  }
+});
+
+test('compiled replacement API imports without CLI effects and honors explicit cancelled invocation', async t => {
+  const fixture = await mkdtemp(join(tmpdir(), 'native update API ü '));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  const entry = await buildCli(root, join(fixture, 'gestalt.mjs'));
+  const program = `const api=await import(${JSON.stringify(pathToFileURL(entry).href+'?test-import-safe=1')});
+const controller=new AbortController();controller.abort({status:143});const errors=[];
+const outcome=await api.continueUpdatedManager({argv:['__updated-manager','update','gestalt'],cwd:${JSON.stringify(fixture)},environment:{HOME:${JSON.stringify(fixture)}}},
+{stdin:(async function*(){})(),stdout:async()=>{throw new Error('unexpected CLI output')},stderr:async b=>errors.push(Buffer.from(b).toString())},
+{commands:{apiVersion:1,launch:async()=>{throw new Error('cancelled handoff launched a command')}},signal:controller.signal});
+console.log(JSON.stringify({version:api.UPDATED_MANAGER_API_VERSION,capabilities:api.UPDATED_MANAGER_API_CAPABILITIES,outcome,errors}));`;
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', program], {
+    cwd: fixture, encoding: 'utf8', timeout: 15000, env: { ...process.env, NODE_OPTIONS: '', NODE_PATH: '' },
+  });
+  assert.equal(result.status, 0, result.stderr); assert.equal(result.stderr, '');
+  const receipt = JSON.parse(result.stdout);
+  assert.equal(receipt.version, 1); assert.ok(receipt.capabilities.includes('host-filesystem-v1'));
+  assert.equal(receipt.outcome.status, 143); assert.equal(receipt.outcome.ownership.kind, 'released');
+  assert.deepEqual(receipt.errors, ['gestalt: setup interrupted\n']);
 });

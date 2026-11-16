@@ -9,7 +9,7 @@
     "dev:cli": "node scripts/dev-cli.mjs",
     "build:cli": "node scripts/build-cli.mjs",
     "typecheck:cli": "tsc --project tsconfig.cli.json",
-    "test:contracts": "node --test tests/cli-contracts.test.mjs tests/native-cli.test.mjs tests/native-platform.test.mjs tests/native-process.test.mjs tests/native-terminal.test.mjs tests/native-harness.test.mjs",
+    "test:contracts": "node --test tests/cli-contracts.test.mjs tests/native-cli.test.mjs tests/native-setup.test.mjs tests/native-platform.test.mjs tests/native-process.test.mjs tests/native-terminal.test.mjs tests/native-harness.test.mjs",
     "build:platform": "node scripts/build-native-platform.mjs",
     "build:ownership": "node scripts/build-owned-process.mjs",
     "test:platform": "node --test --test-reporter=tap tests/native-platform.test.mjs tests/native-process.test.mjs tests/native-terminal.test.mjs tests/native-harness.test.mjs",
@@ -21,7 +21,10 @@
     "test:playwright:real": "node --test tests/playwright-real.test.mjs",
     "test:playwright:cli": "node --test tests/playwright-cli-control.test.mjs tests/playwright-cli-native.test.mjs tests/playwright-cli-startup.test.mjs",
     "test:playwright:cli:plan": "GESTALT_PLAYWRIGHT_CLI_INTEGRATION=1 node --test tests/playwright-cli-native.test.mjs",
-    "test:playwright:cli:real": "GESTALT_PLAYWRIGHT_CLI_REAL=1 node --test tests/playwright-cli-native.test.mjs"
+    "test:playwright:cli:real": "GESTALT_PLAYWRIGHT_CLI_REAL=1 node --test tests/playwright-cli-native.test.mjs",
+    "test:core-setup": "node --test --test-reporter=tap tests/native-cli.test.mjs tests/native-setup.test.mjs tests/native-setup-transactions.test.mjs tests/native-setup-installed.test.mjs",
+    "test:core-runtime:focused": "node --test --test-reporter=tap tests/native-archive.test.mjs tests/native-diagnostics.test.mjs tests/native-app-server.test.mjs tests/native-capabilities.test.mjs tests/native-skills-owner.test.mjs tests/native-skills-transfer.test.mjs tests/native-scratch.test.mjs tests/native-hook-command.test.mjs",
+    "test:core-runtime": "node --test --test-reporter=tap tests/native-archive.test.mjs tests/native-diagnostics.test.mjs tests/native-app-server.test.mjs tests/native-capabilities.test.mjs tests/native-skills-owner.test.mjs tests/native-skills-transfer.test.mjs tests/native-scratch.test.mjs tests/native-hook-command.test.mjs tests/native-runtime-installed.test.mjs"
   },
   "devDependencies": {
     "@openai/codex": "0.160.0",

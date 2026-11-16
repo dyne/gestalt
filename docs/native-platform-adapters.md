@@ -126,3 +126,107 @@ installation is attempted. Long paths use explicit extended Windows path syntax.
 Native execution evidence is pending for Windows/macOS until actual runner
 results are recorded. ARM64 and UNC-share execution remain separate target
 coverage; path parsing/escape refusal alone does not prove an accessible share.
+
+## Setup ownership and rollback
+
+The development Node setup/update commands use `NativeOwnedProcesses` for
+installer and verification subprocesses. The canonical Agents setup API v1 runs
+its filesystem orchestration in the host namespace and receives an explicit
+asynchronous owned-command capability, environment, streams, cwd and cancellation
+signal. Required host-filesystem/shared-context capabilities and selected source
+digests are checked before calling it; missing APIs fail with an update instruction.
+The whole Agents CLI is never launched inside the caller-only UID namespace.
+Install/core update validate all existing managed homes first and create absent
+homes through the private-storage adapter before running skills or Agents. An
+existing permissive mode or ACL is rejected unchanged; setup does not repair it
+with chmod or allow a subordinate installer to choose the root's permissions.
+A command's exit status does not prove
+that its descendants stopped. Configuration rollback and transaction cleanup
+wait for the ownership adapter's release proof. Windows uses its Job Object;
+Linux requires permitted unprivileged user, mount and PID namespaces. Missing
+helpers or namespace authority fail explicitly; setup never falls back to an
+unconfined child. The target-built ownership and ACL helpers are resolved beside
+the compiled CLI, without environment-based helper redirection.
+
+Inherited managed contexts register `manager-setup` borrower leases through
+the existing v1/v2 publication and metadata fences. Only confirmed process
+release permits borrower release. Unknown ownership leaves the borrower active;
+elapsed time, parent exit and process lookup do not release it. The current
+development runtime uses the shared host-side scratch metadata owner. Windows
+validates native namespace/DACL privacy and privately creates new fences; it
+does not substitute POSIX mode bits for an ACL. This boundary does not change the scratch schema or
+relocate an existing owner/runtime root.
+
+On macOS a successful command outcome remains usable under the approved
+best-effort contract. Complete descendant absence stays unknown, so ownership
+reports and setup snapshots remain retained. A failed or interrupted operation
+with unknown ownership keeps its snapshot and manager transaction lock and
+reports that rollback is unconfirmed. A later setup refuses the retained lock;
+it never steals it by age or PID. Existing `recover-tool-leases` handling for
+Serena/Playwright does not retire `manager-setup` borrowers. Inspection and any
+manual recovery require all affected publishers and descendants to be stopped.
+Managed macOS success also retains the manager operation lock and the canonical
+Agents transaction locks/snapshots. It does not publish a released-setup provenance
+record or automatically repeat/update that managed transaction. The successful
+command outcome remains separate from that retained authority. Standalone Agents
+setup retains its documented direct-child compatibility; it makes no complete-tree
+claim and is never used as a managed fallback.
+
+Standalone manager replacement keeps its serialization lock and cancellation
+listener through the continuation. A native version declaration and update API
+v1 marker identify the downloaded format; syntax success is never ownership
+release. Promotion uses a destination-local stage and records the pending
+handoff. The new compiled module imports without starting its CLI and receives
+literal invocation tokens, cwd, copied environment, streams, cancellation and
+the shared owned-command capability. Its filesystem owners remain in the host
+namespace. Only external commands enter the native ownership backend.
+Failure or interruption may leave the complete replacement installed; there is
+no automatic executable rollback or crash-resume/exactly-once promise. Unknown
+lifetime retains the update lock, receipt and download even after successful
+syntax validation or continuation. Confirmed release allows cleanup of only
+this update's private state. Managed macOS repeats may require explicit recovery
+of this authority as well as the Agents setup authority.
+
+## Development runtime composition
+
+The compiled development entry composes CLI/AppServer, diagnostics, scratch and
+skills handlers in Node. The extracted profile/startup and managed MCP approval
+policies keep explicit environment, cwd and stream inputs. External commands
+use the same native lifetime port as setup; AppServer client EOF, command exit
+and interruption remain separate outcomes. Unknown lifetime protects borrowed
+scratch rather than inferring complete release from a PID, group or timeout.
+The public Bash/npm entry and operating-system admission remain separate
+delivery gates; building this artifact does not switch the installed command.
+
+The native integration lane exercises the actual Codex binary, accepted Agents
+API, inherited scratch and authenticated host IPC. Linux's caller-only UID
+mapping changes the ownership view of root-owned ancestors; compatibility with
+filesystem owners and host peer identity must be established by those real
+checks. A refusal must retain authority and explain the prerequisite. It must
+not be repaired by weakening ownership checks or by launching unconfined.
+
+Path/version and doctor do not install components or reconcile configuration.
+A sandbox probe uses the selected native Codex OS sandbox and a private isolated
+home, never a Linux-only prerequisite on another OS. With an inherited session
+temporary owner, the read-only diagnostic reports that the host-shell probe is
+unavailable rather than altering its leases. An uncertain probe retains its
+private data. Optional component installation metadata is distinct from live
+Serena/Playwright readiness, which belongs to the component owners.
+
+The development Mobile command and successful restart handoff require a native
+Mobile host with authenticated live restart authority. A descriptor and numeric
+PID do not grant that authority. Until that host boundary is present, explicit
+requests fail with a prerequisite, preserving CLI/Agents and the running relay.
+The restart worker can finish an update without terminating the relay; it
+reports the unavailable handoff and preserves its descriptor.
+
+Skills collection filesystem transactions run on the host; only Git crosses
+the owned command boundary. Unknown ownership retains the collection lock and
+journal even after a successful command. Inspection yields a current inventory
+token; explicit offline quiescence confirmation is required for recovery, never
+PID-age inference. Collection maintenance and archive transfer fence each other.
+Archive format 1 is read/written with Node tar/gzip handling. Validation covers
+all members before extraction, including PAX/GNU pathname metadata, link and
+special-file refusal, collisions and bounded input/payload sizes. Existing
+unrelated skills remain in place. Imported selected entries use destination-local
+candidates and exact rollback journals; package content is never executed.

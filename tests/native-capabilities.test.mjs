@@ -8,8 +8,10 @@ import test from 'node:test';
 import { launchCapabilities } from '../src/cli/runtime/capabilities.mjs';
 import { RuntimeCommands } from '../src/cli/runtime/commands.ts';
 import { capturedNodeCommand } from './fixtures/native-node-command.mjs';
+import { parse } from 'smol-toml';
+import { createHash } from 'node:crypto';
 
-async function fixture(t, discovery = true, terminal = false) {
+async function fixture(t, discovery = true, terminal = false, managedHooks = false, refuseHooks = false) {
   const root = await mkdtemp(path.join(tmpdir(), 'gestalt capability host ü ')); t.after(() => rm(root, { recursive: true, force: true }));
   const bin = path.join(root, 'bin'); await mkdir(bin); const body = '#!/usr/bin/env node\n';
   await writeFile(path.join(bin, 'codex.mjs'), body, { mode: 0o755 });
@@ -18,6 +20,11 @@ async function fixture(t, discovery = true, terminal = false) {
     await writeFile(path.join(bin, 'codex.cmd'), capturedNodeCommand(captured, 'codex.mjs'));
   } else await writeFile(path.join(bin, 'codex'), body, { mode: 0o755 });
   const calls = [], nativeInput = [], out = [], err = [], input = Buffer.from([0, 255, 13, 10, 128]), terminalEvents = [];
+  const nativeConfig = { features: { hooks: managedHooks }, approval_policy: 'on-request', ...(managedHooks ? { mcp_servers: {
+    'context-mode': { command: process.execPath, args: [path.join(root, 'bin/context-mode-mcp.mjs')], enabled: false,
+      env: { RETAINED: 'literal ü' }, tools: { selected: { approval_mode: 'prompt' } } },
+    operator: { url: 'https://operator.invalid/private', enabled: false },
+  } } : {}) };
   const port = { async launch(executable, invocation, streams) {
     calls.push(invocation); let stopped = false, resolveResult, resolveComplete;
     const result = new Promise(r => resolveResult = r), completed = new Promise(r => resolveComplete = r);
@@ -29,7 +36,18 @@ async function fixture(t, discovery = true, terminal = false) {
       const lines = createInterface({ input: Readable.from(streams.stdin) });
       void (async () => { for await (const line of lines) {
         const message = JSON.parse(line); if (message.id === undefined) continue;
-        const value = message.method === 'initialize' ? { userAgent: 'codex/0.160.0 controlled' } : message.method === 'config/read' ? { config: { features: { hooks: false }, approval_policy: 'on-request' }, layers: [] } : { data: [] };
+        if (message.method === 'hooks/list' && refuseHooks) {
+          await streams.stdout(Buffer.from(JSON.stringify({ id: message.id, error: { message: 'controlled hook query refusal' } }) + '\n')); continue;
+        }
+        const hooks = [];
+        for (const argument of invocation.argv) for (const event of ['SessionStart', 'SubagentStart']) if (argument.startsWith(`hooks.${event}=`)) {
+          const groups = parse('value=' + argument.slice(argument.indexOf('=') + 1)).value;
+          for (const [index, group] of groups.entries()) for (const hook of group.hooks)
+            hooks.push({ ...hook, source: 'sessionFlags', eventName: event, key: `C:\\<session-flags>\\config.toml:${event}:${index}:0`,
+              currentHash: 'sha256:' + createHash('sha256').update(event + hook.command).digest('hex') });
+        }
+        const value = message.method === 'initialize' ? { userAgent: 'codex/0.160.0 controlled' } : message.method === 'config/read' ?
+          { config: nativeConfig, layers: [] } : message.method === 'hooks/list' ? { data: [{ cwd: root, hooks }] } : { data: [] };
         await streams.stdout(Buffer.from(JSON.stringify({ id: message.id, result: value }) + '\n'));
       } })().catch(() => {});
     } else void (async () => {
@@ -46,7 +64,7 @@ async function fixture(t, discovery = true, terminal = false) {
   const argv = ['-m', 'operator-model', '-c', 'approval_policy="on-request"', 'exec', '--', 'literal $HOME', '', '東京'];
   const invocation = { argv, cwd: root, environment: { PATH: bin, PATHEXT: '.CMD;.EXE', CODEX_HOME: root, GESTALT_HOME: root, TMPDIR: 'operator-tmp-value', RETAINED: 'kept' } };
   const streams = { stdin: (async function* () { yield input; })(), stdout: async bytes => out.push(Buffer.from(bytes)), stderr: async bytes => err.push(Buffer.from(bytes)) };
-  return { invocation, input, calls, nativeInput, out, err, terminalEvents, commands: new RuntimeCommands(invocation, streams, process.execPath, port,
+  return { invocation, input, calls, nativeInput, out, err, terminalEvents, nativeConfig, commands: new RuntimeCommands(invocation, streams, process.execPath, port,
     terminal ? { size: () => ({ columns: 113, rows: 39 }), enter: () => { terminalEvents.push({ kind: 'enter' }); return () => terminalEvents.push({ kind: 'restore' }); },
       onResize: listener => { terminalEvents.push({ kind: 'subscribe' }); listener(); return () => terminalEvents.push({ kind: 'unsubscribe' }); } } : undefined) };
 }
@@ -63,6 +81,33 @@ for (const discovery of [true, false]) test(`host capability composition preserv
   assert.equal(launched.environment.RETAINED, 'kept'); assert.equal(launched.environment.TMPDIR, 'operator-tmp-value');
   assert.match(Buffer.concat(f.err).toString(), /native-stderr/); assert.equal(f.commands.unknown.length, 0);
   assert.equal(actual.filter(value => value === 'operator-model').length, 1);
+});
+
+for (const refusal of [false, true]) test(`managed native hook trust ${refusal ? 'refusal omits generated hooks' : 'preserves transport and scopes exact trust'}`, { timeout: 10000 }, async t => {
+  const f = await fixture(t, true, false, true, refusal);
+  assert.equal(await launchCapabilities(f.commands, f.invocation, process.execPath), 23);
+  const final = f.calls.find(call => call.argv[0] !== 'app-server'), values = final.argv.filter((_, i, a) => i > 0 && a[i - 1] === '-c');
+  const server = JSON.parse(JSON.stringify(parse('value=' + values.find(v => v.startsWith('mcp_servers.context-mode=')).slice('mcp_servers.context-mode='.length)).value));
+  assert.deepEqual(server, { ...f.nativeConfig.mcp_servers['context-mode'],
+    env_vars: ['GESTALT_SESSION_TMP_CONTEXT', 'TMPDIR', 'TMP', 'TEMP'], default_tools_approval_mode: 'approve', tools: { selected: { approval_mode: 'approve' } } });
+  assert.equal(values.some(v => v.startsWith('mcp_servers.context-mode.')), false, 'Partial policy override must not replace native transport');
+  assert.equal(values.some(v => v.includes('operator.invalid')), false, 'Unrelated inherited server must not enter overrides');
+  assert.equal(values.includes('approval_policy="on-request"'), true);
+  if (refusal) {
+    assert.equal(values.some(v => /^hooks\.(SessionStart|SubagentStart|state)=/.test(v)), false);
+    assert.match(Buffer.concat(f.err).toString(), /guidance-hooks-unavailable/);
+  } else {
+    const state = parse('value=' + values.find(v => v.startsWith('hooks.state=')).slice('hooks.state='.length)).value;
+    const query = f.calls.find(call => call.argv.some(v => v.startsWith('hooks.SessionStart=')));
+    for (const event of ['SessionStart', 'SubagentStart']) {
+      const groups = parse('value=' + query.argv.find(v => v.startsWith(`hooks.${event}=`)).slice(`hooks.${event}=`.length)).value;
+      for (const [index, group] of groups.entries()) for (const hook of group.hooks)
+        assert.deepEqual({ ...state[`C:\\<session-flags>\\config.toml:${event}:${index}:0`] }, { enabled: true,
+          trusted_hash: 'sha256:' + createHash('sha256').update(event + hook.command).digest('hex') });
+    }
+    assert.equal(Object.keys(state).length, 2);
+  }
+  assert.equal(f.commands.unknown.length, 0); assert.equal(f.commands.active.size, 0);
 });
 
 test('interactive capability launch uses the owned terminal and restores it after settlement', { timeout: 10000 }, async t => {

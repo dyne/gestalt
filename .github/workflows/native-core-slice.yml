@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(inputs.target == 'linux' && '["ubuntu-latest"]' || inputs.target == 'macos' && '["macos-latest"]' || '["ubuntu-latest","macos-latest"]') }}
+        os: ${{ fromJSON(github.event_name == 'push' && '["ubuntu-latest"]' || inputs.target == 'linux' && '["ubuntu-latest"]' || inputs.target == 'macos' && '["macos-latest"]' || '["ubuntu-latest","macos-latest"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:

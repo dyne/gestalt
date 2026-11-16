@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn, execFileSync } from 'node:child_process';
 import { once } from 'node:events';
-import { appendFile, chmod, cp, lstat, mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
+import { access, appendFile, chmod, cp, lstat, mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { createServer as httpServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -24,6 +24,7 @@ import { observeHostSocket } from './fixtures/unix-compat-peer.mjs';
 import { sessionScratch } from './session-scratch-fixture.mjs';
 import { authorizeFixtureHooks } from './fixtures/native-cli-hook-trust.mjs';
 import { assertMetadataProbesOnly, captureProviderProbes } from './fixtures/native-provider-probes.mjs';
+import { terminalControls } from './fixtures/native-cli-slice-controls.mjs';
 import { verifySourceRecord } from './fixtures/native-runtime/source-binding.mjs';
 import { bounded, digest, isolatedEnvironment, pinnedCodex } from './fixtures/native-runtime/codex.mjs';
 
@@ -195,6 +196,7 @@ async function terminal(entry, environment, cwd, report, evidence, helper, contr
     assert.equal(exit, 0, JSON.stringify({ signal, stdout, stderr })); return json(result);
   }
   const input = new PassThrough(), chunks = []; let tail = '', submitted = false, controlSent = false, lease, failure;
+  const controls = terminalControls(control);
   const adapter = new NativeOwnedProcesses(helper);
   try {
     lease = await adapter.launchTerminal(process.execPath,
@@ -204,11 +206,12 @@ async function terminal(entry, environment, cwd, report, evidence, helper, contr
         for (const _ of query.matchAll(/\x1b\[6n/g)) input.write('\x1b[1;1R'); tail = query.slice(-3);
         const output = Buffer.concat(chunks).toString();
         if (!submitted && output.includes('7501;state=idle')) { input.write('Native core slice; trusted hook must block provider I/O\r'); submitted = true; }
-        if (!controlSent && output.includes('Native core slice no-model barrier')) { input.write(control === 'eof' ? '\x04' : '\x03\x03'); controlSent = true; }
+        const controlBytes = controls.observe(output, await access(report).then(() => true, () => false));
+        if (controlBytes) { input.write(controlBytes); controlSent = true; }
       } }, { columns: 110, rows: 40 }, { graceMs: 1000, deadlineMs: 10000 });
     const outcome = await bounded(lease.result, 'actual compiled Windows consumer TUI', 300000);
     const claim = await lease.stop(); await lease.completed;
-    const result = { result: outcome, claim, submittedBlockedFixtureTurn: submitted, control, controlSent,
+    const result = { result: outcome, claim, submittedBlockedFixtureTurn: submitted, control, controlSent, controlEvents: controls.events,
       outputBase64: Buffer.concat(chunks).toString('base64'), observedAt: new Date().toISOString() };
     await record(path.join(evidence, 'terminal.json'), result);
     assert.equal(submitted, true); assert.equal(controlSent, true); assert.deepEqual(outcome, { kind: 'exit', code: 0 }); assert.equal(claim.kind, 'released');
@@ -217,7 +220,7 @@ async function terminal(entry, environment, cwd, report, evidence, helper, contr
   finally {
     if (lease) {
       const claim = await lease.stop();
-      await record(path.join(evidence, 'terminal-final.json'), { claim, failure: failure ?? null, submittedBlockedFixtureTurn: submitted, control, controlSent,
+      await record(path.join(evidence, 'terminal-final.json'), { claim, failure: failure ?? null, submittedBlockedFixtureTurn: submitted, control, controlSent, controlEvents: controls.events,
         outputBase64: Buffer.concat(chunks).toString('base64'), observedAt: new Date().toISOString() });
       await bounded(lease.completed, 'native consumer helper closure', 15000);
     }

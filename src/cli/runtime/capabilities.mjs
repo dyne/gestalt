@@ -429,15 +429,15 @@ if (common && serenaSkill && serenaSkill.enabled !== false && serenaRules.at(-1)
   diagnoseSerena('native-serena-component-required');
 if (interrupted) return interruptionCode;
 if (capabilities[0].valid) readinessDeadline = Math.max(readinessDeadline, Date.now() + budget);
-const compose = () => {
+const compose = (includeGeneratedHooks = true) => {
   hookCommands.clear();
   expectedHookCount = 0;
   const approved = managedMcpApprovals(state?.config ?? {},{manager,codexHome:environment.CODEX_HOME});
   const approvalFlags = [];
   for (const [name,server] of Object.entries(approved.mcp_servers ?? {})) if (isGestaltManagedMcp(name,server,{manager,codexHome:environment.CODEX_HOME})) {
-    approvalFlags.push(`mcp_servers.${name}.default_tools_approval_mode="approve"`);
-    for (const [tool,options] of Object.entries(server.tools ?? {})) if (options?.approval_mode === 'approve')
-      approvalFlags.push(`mcp_servers.${name}.tools.${tool}.approval_mode="approve"`);
+    // Native config flags replace this server table. A policy-only dotted
+    // override can discard its transport and prevent the hook-trust query.
+    approvalFlags.push(`mcp_servers.${name}=${toml(server)}`);
   }
   for (const [name,plugin] of Object.entries(approved.plugins ?? {})) if (name === 'context-mode@dyne-gestalt-agents')
     for (const [server,options] of Object.entries(plugin.mcp_servers ?? {})) if (server === 'context-mode') {
@@ -459,7 +459,7 @@ const compose = () => {
   return [...approvalFlags, ...aliases, ...capabilities.map(cap => `mcp_servers.${cap.name}=${toml(cap.valid ? managedToolApproval(cap.config) :
     { command: manager, args: cap.config.args, enabled: false, required: false })}`), `skills.config=${deniedSelectors}`,
     `mcp_servers.${playwrightName}=${toml(browserPolicy)}`,
-    ...(state ? sessionHook(capabilities.map(cap => cap.valid ? cap.context : cap.inactiveContext).join('\n')) : [])];
+    ...(state && includeGeneratedHooks ? sessionHook(capabilities.map(cap => cap.valid ? cap.context : cap.inactiveContext).join('\n')) : [])];
 };
 async function selection() {
   if(cliOwned&&state?.config?.features?.hooks!==true)protectUnknownMapping();
@@ -470,7 +470,10 @@ async function selection() {
     if (startupHook) { startupNotice('guidance-hooks-unavailable'); startupHook = undefined; }
     protectUnknownMapping();
     for (const cap of capabilities) cap.valid = false;
-    selected = compose();
+    // An unsuccessful query supplies no trust authority. Preserve the user's
+    // original hooks/flags and retain unknown mapping, without creating fresh
+    // untrusted manager hooks in the fallback launch.
+    selected = compose(false);
   }
   return selected;
 }

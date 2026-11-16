@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -10,6 +10,7 @@ import { createServer, request } from 'node:http';
 import { createHash } from 'node:crypto';
 import { authorizeFixtureHooks } from './fixtures/native-cli-hook-trust.mjs';
 import { assertMetadataProbesOnly, captureProviderProbes, providerProbeViolation } from './fixtures/native-provider-probes.mjs';
+import { terminalControls } from './fixtures/native-cli-slice-controls.mjs';
 
 const expected = [
   { kind: 'verified-installed-context-mode', sourcePath: '/isolated/Codex/hooks.json', eventName: 'sessionStart', command: 'exact accepted managed command' },
@@ -85,3 +86,38 @@ test('inert provider captures actual method/path/body bytes/hash/times and rejec
     assert.throws(() => assertMetadataProbesOnly(records, 'eof'));
   } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
 });
+
+test('terminal controls wait for a new observed interrupt-to-idle transition before idle Ctrl-C', () => {
+  const controls = terminalControls('interrupt');
+  const before = '\x1b]7501;state=idle Native core slice no-model barrier';
+  assert.equal(controls.observe(before, false), null);
+  assert.equal(controls.observe(before, true), '\x03');
+  assert.equal(controls.observe(before, true), null, 'Existing idle marker must not authorize the next Ctrl-C');
+  assert.equal(controls.observe(before + ' Conversation interrupted', true), null);
+  assert.equal(controls.observe(before + ' Conversation interrupted \x1b]7501;state=idle', true), '\x03');
+  assert.equal(controls.observe(before + ' Conversation interrupted \x1b]7501;state=idle', true), null);
+  assert.deepEqual(controls.events.map(event => event.action), ['ctrl-c-after-barrier', 'ctrl-c-after-settled']);
+  assert.equal(controls.events.at(-1).conversationInterruptedObserved, true);
+  const completed = terminalControls('interrupt'); completed.observe(before, true);
+  assert.equal(completed.observe(before + '\x1b]7501;state=done', true), '\x03');
+  assert.equal(completed.events.at(-1).conversationInterruptedObserved, false, 'Do not infer active cancellation from normal blocked-turn completion');
+  const eof = terminalControls('eof'); assert.equal(eof.observe(before, true), '\x04'); assert.equal(eof.observe(before, true), null);
+});
+
+for (const control of ['eof', 'interrupt']) test(`actual POSIX PTY fixture sends ${control} controls according to observed child state`,
+  { skip: process.platform === 'win32' ? 'Windows uses the same tested JS state gate with ConPTY; no Python prerequisite' : false, timeout: 15000 }, async t => {
+    const fixture = await mkdtemp(path.join(tmpdir(), 'core-slice-control-')); t.after(() => rm(fixture, { recursive: true, force: true }));
+    const report = path.join(fixture, 'authority.json'), result = path.join(fixture, 'terminal.json');
+    const program = `import{writeFileSync}from'node:fs';process.stdin.setRawMode(true);let submitted=false,interrupted=false;
+      setTimeout(()=>process.exit(97),5000).unref();process.stdout.write('\\x1b]7501;state=idle\\x07');
+      process.stdin.on('data',chunk=>{const s=chunk.toString();if(s.includes('\\r')){submitted=true;writeFileSync(${JSON.stringify(report)},'{}');process.stdout.write('Native core slice no-model barrier');}
+      if(s.includes('\\x04'))process.exit(submitted?0:96);if(s.includes('\\x03\\x03'))process.exit(95);
+      if(s.includes('\\x03')){if(!submitted)process.exit(94);if(interrupted)process.exit(0);interrupted=true;process.stdout.write('Conversation interrupted\\x1b]7501;state=idle\\x07');}});`;
+    const request = path.join(fixture, 'request.json');
+    await writeFile(request, JSON.stringify({ command: [process.execPath, '--input-type=module', '-e', program], cwd: fixture, environment: process.env, report, result, control }));
+    const child = spawnSync('python3', [path.join(import.meta.dirname, 'fixtures/native-cli-slice-pty.py'), request], { timeout: 10000 });
+    assert.equal(child.status, 0, child.stderr.toString());
+    const record = JSON.parse(await readFile(result, 'utf8')); assert.equal(record.exit, 0); assert.equal(record.timedOut, false);
+    assert.deepEqual(record.controlEvents.map(event => event.action), control === 'eof' ? ['eof'] : ['ctrl-c-after-barrier', 'ctrl-c-after-settled']);
+    assert.equal(record.submittedBlockedFixtureTurn, true); assert.equal(record.controlSent, true);
+  });

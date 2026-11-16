@@ -89,7 +89,7 @@ test('inert provider captures actual method/path/body bytes/hash/times and rejec
 
 test('terminal controls wait for a new observed interrupt-to-idle transition before idle Ctrl-C', () => {
   const controls = terminalControls('interrupt');
-  const before = '\x1b]7501;state=idle Native core slice no-model barrier';
+  const before = '\x1b]7501;state=idle\x07\x1b]7501;state=working\x07 Native core slice no-model barrier';
   assert.equal(controls.observe(before, false), null);
   assert.equal(controls.observe(before, true), '\x03');
   assert.equal(controls.observe(before, true), null, 'Existing idle marker must not authorize the next Ctrl-C');
@@ -102,6 +102,17 @@ test('terminal controls wait for a new observed interrupt-to-idle transition bef
   assert.equal(completed.observe(before + '\x1b]7501;state=done', true), '\x03');
   assert.equal(completed.events.at(-1).conversationInterruptedObserved, false, 'Do not infer active cancellation from normal blocked-turn completion');
   const eof = terminalControls('eof'); assert.equal(eof.observe(before, true), '\x04'); assert.equal(eof.observe(before, true), null);
+});
+
+for (const state of ['idle', 'done']) test(`terminal controls send only one Ctrl-C when the blocked turn was already ${state}`, () => {
+  const controls = terminalControls('interrupt');
+  const before = '\x1b]7501;state=working\x07Native core slice no-model barrier\x1b]7501;state=' + state + '\x1b\\';
+  assert.equal(controls.observe(before, true), '\x03');
+  assert.equal(controls.events[0].stateBeforeControl, state);
+  assert.equal(controls.events[0].awaitingSettledControl, false);
+  assert.equal(controls.observe(before + '\x1b]7501;state=idle\x1b\\', true), null);
+  assert.equal(controls.observe(before + '\x1b]7501;state=idle\x1b\\\x1b]7501;state=clear\x1b\\', true), null);
+  assert.equal(controls.events.length, 1);
 });
 
 for (const control of ['eof', 'interrupt']) test(`actual POSIX PTY fixture sends ${control} controls according to observed child state`,

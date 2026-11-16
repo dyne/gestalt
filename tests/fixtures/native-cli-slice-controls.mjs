@@ -8,9 +8,15 @@ export function terminalControls(control) {
     events,
     observe(output, authorityReady) {
       const settled = [...output.matchAll(/\x1b\]7501;state=(idle|done)/g)];
+      const stateBeforeControl = [...output.matchAll(/\x1b\]7501;state=([a-z]+)/g)].at(-1)?.[1] ?? null;
       if (phase === 'barrier' && authorityReady && output.includes('Native core slice no-model barrier')) {
-        offset = output.length; settledCount = settled.length; phase = control === 'eof' ? 'done' : 'interrupted';
-        events.push({ action: control === 'eof' ? 'eof' : 'ctrl-c-after-barrier', outputOffset: offset, settledCount, observedAt: new Date().toISOString() });
+        // With double-press quit disabled, one Ctrl-C after an already settled
+        // turn begins shutdown. Its later idle/clear output is not another
+        // invitation for control input while terminal modes are restoring.
+        offset = output.length; settledCount = settled.length;
+        phase = control === 'eof' || ['idle', 'done'].includes(stateBeforeControl) ? 'done' : 'interrupted';
+        events.push({ action: control === 'eof' ? 'eof' : 'ctrl-c-after-barrier', outputOffset: offset, settledCount,
+          stateBeforeControl, awaitingSettledControl: phase === 'interrupted', observedAt: new Date().toISOString() });
         return control === 'eof' ? '\x04' : '\x03';
       }
       if (phase === 'interrupted' && settled.length > settledCount) {

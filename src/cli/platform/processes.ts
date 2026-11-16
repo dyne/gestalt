@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type { CommandInvocation, CommandStreams, OwnedProcessLease, OwnedProcessPort, OwnedProcessResult, OwnershipClaim, ProcessResult, OwnedTerminalLease, OwnedTerminalPort, OwnedTerminalStreams, TerminalSize } from '../contracts.ts';
 import { commandTarget } from './executables.ts';
+import { borrowedProcessInput } from './process-input.ts';
 
 const maximumFrame = 1024 * 1024;
 function packet(kind: string, bytes: Uint8Array = new Uint8Array()): Buffer {
@@ -62,6 +63,7 @@ export class NativeOwnedProcesses implements OwnedProcessPort, OwnedTerminalPort
     let nativeEmpty = false, backend = '', settled = false, verificationLost = false;
     let inputWaiter: { resolve: () => void; reject: (error: Error) => void } | undefined;
     let resizeWaiter: { resolve: () => void; reject: (error: Error) => void } | undefined;
+    let closeInput = () => {};
     let finish!: (claim: OwnershipClaim) => void;
     const completed = new Promise<OwnershipClaim>(resolve => { finish = resolve; });
     let finishResult!: (result: OwnedProcessResult) => void;
@@ -75,6 +77,7 @@ export class NativeOwnedProcesses implements OwnedProcessPort, OwnedTerminalPort
     const settle = () => {
       if (!settled) {
         settled = true;
+        closeInput();
         inputWaiter?.reject(new Error('Ownership helper ended before stdin drain acknowledgement'));
         inputWaiter = undefined;
         resizeWaiter?.reject(new Error('Ownership helper ended before terminal resize acknowledgement'));
@@ -152,6 +155,7 @@ export class NativeOwnedProcesses implements OwnedProcessPort, OwnedTerminalPort
     })();
     void read.catch(error => { unknown(`Ownership verification failed: ${error.message}`); child.kill('SIGKILL'); });
     child.once('close', (code, signal) => {
+      closeInput();
       void read.then(() => {
         if (resizeWaiter) unknown(`Terminal ended before resize acknowledgement; retain scratch${claim.kind === 'unknown' ? `; ${claim.reason}` : ''}`);
         if (!settled && !verificationLost && code === 0 && !signal && nativeEmpty && result)
@@ -176,16 +180,25 @@ export class NativeOwnedProcesses implements OwnedProcessPort, OwnedTerminalPort
     const startupTimer = setTimeout(() => { unknown('Native launch readiness deadline reached; retain scratch'); child.kill('SIGKILL'); ready(); }, Math.max(10000, deadline));
     await started; clearTimeout(startupTimer);
     if (claim.kind === 'active') {
+      const input = borrowedProcessInput(streams.stdin);
+      let inputCancelled = false;
+      closeInput = () => { inputCancelled = true; input.close(); };
       void (async () => {
-        for await (const chunk of streams.stdin) {
-          if (settled) break;
-          // A drained-frame acknowledgement bounds native buffering to 32KiB.
-          // stop() writes S independently while this input producer is paused.
-          for (let offset = 0; offset < chunk.byteLength && !settled; offset += 32768)
-            await sendInput(chunk.subarray(offset, offset + 32768));
+        try {
+          while (!settled && !inputCancelled) {
+            const next = await input.next();
+            if (settled || inputCancelled || next.done) break;
+            const chunk = next.value;
+            // A drained-frame acknowledgement bounds native buffering to 32KiB.
+            // stop() writes S independently while this input producer is paused.
+            for (let offset = 0; offset < chunk.byteLength && !settled; offset += 32768)
+              await sendInput(chunk.subarray(offset, offset + 32768));
+          }
+          if (!settled && !inputCancelled) { if (terminal) void stop(); else await send('E'); }
+        } finally {
+          input.close();
         }
-        if (!settled) { if (terminal) void stop(); else await send('E'); }
-      })().catch(() => { if (!settled) void stop(); });
+      })().catch(() => { if (!settled && !inputCancelled) void stop(); });
     }
     let resizeTail = Promise.resolve();
     const resize = async (size: TerminalSize): Promise<void> => {

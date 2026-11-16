@@ -507,27 +507,49 @@ static int active_processes(HANDLE job, DWORD *count) {
   if (!QueryInformationJobObject(job, JobObjectBasicAccountingInformation, &info, sizeof(info), NULL)) return -1;
   *count = info.ActiveProcesses; return 0;
 }
-static wchar_t *command_line(int argc, wchar_t **argv) {
-  size_t needed = 1;
-  for (int i = 0; i < argc; i++) needed += wcslen(argv[i]) * 2 + 4;
-  if (needed > 32767) return NULL;
-  wchar_t *line = calloc(needed, sizeof(wchar_t)); if (!line) return NULL;
-  wchar_t *p = line;
+/* Windows CRT quoting: count and write the same UTF16 units. Reserve one
+ * unit for NUL; an allocation upper bound is not the CreateProcessW limit. */
+#define WINDOWS_COMMAND_LINE_UNITS 32767U
+static int command_line_add(wchar_t *line, size_t *used, size_t capacity, wchar_t unit, size_t count) {
+  if (*used > capacity || count > capacity - *used) return 0;
+  if (line) for (size_t i = 0; i < count; i++) line[*used + i] = unit;
+  *used += count; return 1;
+}
+static int command_line_quote(int argc, wchar_t **argv, wchar_t *line, size_t capacity, size_t *length) {
+  size_t used = 0;
   for (int i = 0; i < argc; i++) {
-    if (i) *p++ = L' '; *p++ = L'"';
+    if ((i && !command_line_add(line, &used, capacity, L' ', 1)) ||
+        !command_line_add(line, &used, capacity, L'"', 1)) return 0;
     size_t slashes = 0;
     for (const wchar_t *s = argv[i]; ; s++) {
-      if (*s == L'\\') { slashes++; continue; }
-      size_t copies = slashes * ((*s == L'"' || !*s) ? 2 : 1);
-      for (size_t n = 0; n < copies; n++) *p++ = L'\\';
+      if (*s == L'\\') {
+        if (slashes == WINDOWS_COMMAND_LINE_UNITS - 1) return 0;
+        slashes++; continue;
+      }
+      size_t factor = (*s == L'"' || !*s) ? 2 : 1;
+      if (slashes > (WINDOWS_COMMAND_LINE_UNITS - 1) / factor ||
+          !command_line_add(line, &used, capacity, L'\\', slashes * factor)) return 0;
       slashes = 0;
       if (!*s) break;
-      if (*s == L'"') *p++ = L'\\';
-      *p++ = *s;
+      if ((*s == L'"' && !command_line_add(line, &used, capacity, L'\\', 1)) ||
+          !command_line_add(line, &used, capacity, *s, 1)) return 0;
     }
-    *p++ = L'"';
+    if (!command_line_add(line, &used, capacity, L'"', 1)) return 0;
   }
-  *p = 0; return line;
+  if (line) line[used] = 0;
+  *length = used; return 1;
+}
+static wchar_t *command_line(int argc, wchar_t **argv) {
+  size_t length;
+  if (!command_line_quote(argc, argv, NULL, WINDOWS_COMMAND_LINE_UNITS - 1, &length) ||
+      length + 1 > SIZE_MAX / sizeof(wchar_t)) { SetLastError(ERROR_FILENAME_EXCED_RANGE); return NULL; }
+  wchar_t *line = calloc(length + 1, sizeof(wchar_t));
+  if (!line) { SetLastError(ERROR_NOT_ENOUGH_MEMORY); return NULL; }
+  size_t actual;
+  if (!command_line_quote(argc, argv, line, length, &actual) || actual != length) {
+    free(line); SetLastError(ERROR_INVALID_DATA); return NULL;
+  }
+  return line;
 }
 static int run_owned_windows(int argc, wchar_t **argv, unsigned int grace) {
   HANDLE job = CreateJobObjectW(NULL, NULL); if (!job) return 2;
@@ -568,6 +590,7 @@ static int run_owned_windows(int argc, wchar_t **argv, unsigned int grace) {
   startup.StartupInfo.hStdOutput = output_write; startup.StartupInfo.hStdError = error_write; startup.lpAttributeList = attributes;
   PROCESS_INFORMATION process; memset(&process, 0, sizeof(process));
   wchar_t *line = command_line(argc, argv);
+  DWORD line_error = line ? 0 : GetLastError();
   /* ConPTY must install its own console handles in the child. Otherwise the
    * helper's standard-handle table can carry private protocol pipes into it.
    * The captured control_input/control_output values remain open and pinned. */
@@ -577,7 +600,7 @@ static int run_owned_windows(int argc, wchar_t **argv, unsigned int grace) {
   }
   BOOL created = line && CreateProcessW(argv[0], line, NULL, NULL, terminal_columns ? FALSE : TRUE,
       EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | (terminal_columns ? 0 : CREATE_NEW_PROCESS_GROUP), NULL, NULL, &startup.StartupInfo, &process);
-  DWORD creation_error = created ? 0 : GetLastError(); free(line); DeleteProcThreadAttributeList(attributes); free(attributes);
+  DWORD creation_error = created ? 0 : (line ? GetLastError() : line_error); free(line); DeleteProcThreadAttributeList(attributes); free(attributes);
   CloseHandle(input_read); CloseHandle(output_write); if (error_write) CloseHandle(error_write);
   if (!created) {
     char reason[128]; snprintf(reason, sizeof(reason), "spawn-error:Atomic job launch failed (%lu)", (unsigned long)creation_error); message('F', reason);

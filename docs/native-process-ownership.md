@@ -30,6 +30,26 @@ drain; an executable closing stdin early retires that pipe. Other input failures
 refuse verification. Large simultaneous stdin/stdout/stderr contracts verify
 exact byte order, EOF and command status on the actual targets.
 
+Input is borrowed. Helper close cancels the adapter's pending input read and
+removes its listeners before `completed` settles; it pauses Node Readables
+without destroying them or consuming queued/future bytes. Caller listeners stay
+installed. Generic async iterables receive `return()` on cancellation and must
+cooperate to release their own pending I/O; a foreign unbounded `return()` cannot
+hold native settlement open. Input completion still sends byte EOF or requests
+terminal stop, and input errors request stop. This cleanup changes neither the
+native absence proof nor the result-versus-completion contract.
+
+Windows quoting counts the actual escaped UTF-16 command line, including its
+terminating NUL, against the native 32767-unit limit. The public Node adapter
+also launches an outer helper command line containing control arguments and the
+target vector. That outer command line has its own Windows limit: a target vector
+at the native limit can therefore fail safely before helper/payload launch with
+`ENAMETOOLONG`. This adapter does not promise every 32767-unit target vector will
+fit through the outer wrapper. Literal empty, Unicode, quote and backslash
+arguments are preserved within that outer budget; no shell or alternate argv
+transport is used. Native helper limit tests and outer-wrapper refusal tests
+cover these separate boundaries.
+
 `launchTerminal` is an additive `OwnedTerminalPort`; byte-stream `launch` keeps
 its existing contract. Each terminal lease allocates a new POSIX PTY or Windows
 ConPTY inside the same ownership lifetime. The target receives actual terminal

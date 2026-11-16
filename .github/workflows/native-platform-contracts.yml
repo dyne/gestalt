@@ -10,17 +10,23 @@ permissions:
 
 jobs:
   unix:
-    # TEST CORRECTION OVERLAY: Unix acceptance UNEXECUTED here.
-    if: ${{ false }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
         with:
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: dyne/gestalt-agents
+          # Frozen existing snapshot; all15 accepted e98 Org blobs/modes are
+          # checked before imports. No mutable upstream lookup or PR81 change.
+          ref: 8827347387ee32e2c5bd7eb912f9b80185cdad45
+          path: .native-compat-agents
           persist-credentials: false
       - uses: actions/setup-node@v6
         with:
@@ -28,68 +34,45 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck:cli
-      - run: npm run build:platform
-      - name: Record target and helper identities
+      - run: npm run build:cli
+      - name: Record Unix compatibility target
         run: |
           mkdir -p native-evidence
-          node -e 'console.log(JSON.stringify({platform:process.platform,arch:process.arch,node:process.version,os:require("node:os").release(),sha:process.env.GITHUB_SHA,observedAt:new Date().toISOString()}))' > native-evidence/runner.json
-          cp dist/cli/native/*.provenance.json native-evidence/
-      # Match the existing pull-request.yml native sandbox prerequisite. This
-      # prepares only the disposable GitHub-hosted runner, never product runtime.
-      - name: Prepare disposable Ubuntu namespace prerequisites
+          node -e 'console.log(JSON.stringify({platform:process.platform,arch:process.arch,node:process.version,os:require("node:os").release(),uid:process.getuid(),gid:process.getgid(),sha:process.env.GITHUB_SHA,observedAt:new Date().toISOString()}))' > native-evidence/runner.json
+      # Existing Codex sandbox test prerequisite only; not a new CLI process
+      # namespace backend or production policy requirement.
+      - name: Prepare existing disposable Ubuntu sandbox prerequisites
         if: runner.os == 'Linux' && runner.environment == 'github-hosted'
         run: |
           set -euo pipefail
           {
             date -u +'%Y-%m-%dT%H:%M:%SZ'
             id
-            printf 'before unprivileged_userns_clone=%s\n' "$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)"
-            printf 'before apparmor_restrict_unprivileged_userns=%s\n' "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)"
-          } > native-evidence/linux-namespace-prerequisites.log
+            printf 'before userns=%s\n' "$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)"
+            printf 'before apparmor_userns=%s\n' "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)"
+          } > native-evidence/linux-sandbox-prerequisites.log
           current_userns=$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)
-          if [[ -n $current_userns && $current_userns != 1 ]]; then
-            sudo sysctl -w kernel.unprivileged_userns_clone=1
-          fi
+          if [[ -n $current_userns && $current_userns != 1 ]]; then sudo sysctl -w kernel.unprivileged_userns_clone=1; fi
           current_apparmor=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)
-          if [[ -n $current_apparmor && $current_apparmor != 0 ]]; then
-            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          fi
+          if [[ -n $current_apparmor && $current_apparmor != 0 ]]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
           {
-            printf 'after unprivileged_userns_clone=%s\n' "$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)"
-            printf 'after apparmor_restrict_unprivileged_userns=%s\n' "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)"
-            date -u +'%Y-%m-%dT%H:%M:%SZ'
-          } >> native-evidence/linux-namespace-prerequisites.log
-      - name: Record supported macOS broker commands without changing services
-        if: runner.os == 'macOS'
-        run: |
-          node --input-type=module <<'JS'
-          import { spawnSync } from 'node:child_process';
-          import { writeFileSync } from 'node:fs';
-          const result = spawnSync('/bin/launchctl', ['help'], { encoding: 'utf8', shell: false });
-          writeFileSync('native-evidence/launchctl-help.json', JSON.stringify({ command: ['/bin/launchctl', 'help'], status: result.status, signal: result.signal, error: result.error?.message, stdout: result.stdout, stderr: result.stderr, observedAt: new Date().toISOString() }));
-          JS
-      - name: Execute actual native contracts
-        run: npm run test:platform > native-evidence/contracts.tap 2>&1
-        env:
-          GESTALT_NATIVE_TEST_EVIDENCE: native-evidence
-      - name: Exercise official pinned Codex in the actual owned terminal without a model request
-        run: node tests/native-codex-terminal.mjs > native-evidence/codex-terminal.log 2>&1
-        env:
-          GESTALT_NATIVE_TEST_EVIDENCE: native-evidence
+            printf 'after userns=%s\n' "$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)"
+            printf 'after apparmor_userns=%s\n' "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)"
+          } >> native-evidence/linux-sandbox-prerequisites.log
+      - name: Verify replacement, identity, terminal and unchanged manager behavior
+        run: node --test --test-reporter=tap tests/unix-compatibility.test.mjs > native-evidence/compatibility.tap 2>&1
+      - name: Verify unchanged Org guards and whole authenticated host IPC
+        run: node tests/native-unix-compatibility.mjs --agents .native-compat-agents --evidence native-evidence/authority > native-evidence/authority.log 2>&1
+      - name: Verify existing Unix scratch sockets and native sandbox restrictions
+        run: npm run test:scratch:sandbox > native-evidence/sandbox.tap 2>&1
       - uses: actions/upload-artifact@v6
         if: always()
         with:
-          name: native-platform-${{ matrix.os }}
-          path: |
-            native-evidence/
-            !native-evidence/pinned-codex/artifact/bin/**
-            !native-evidence/pinned-codex/artifact/home/**
-            !native-evidence/pinned-codex/fixtures/home/**
-            !native-evidence/pinned-codex/artifact/*.tar.gz
-            !native-evidence/pinned-codex/artifact/*.exe
+          name: unix-compatibility-${{ matrix.os }}
+          path: native-evidence/
   windows:
-    env:
-      GESTALT_CI_TERMINAL_LANE: windows-correction
+    # UNIX CORRECTION OVERLAY: unchanged Windows evidence reused; no execution.
+    if: ${{ false }}
     runs-on: windows-latest
     timeout-minutes: 20
     steps:

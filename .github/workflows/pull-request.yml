@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   test-build:
-    # TEST CORRECTION OVERLAY: full acceptance UNEXECUTED here.
+    # UNIX CORRECTION OVERLAY: full Manager acceptance remains unexecuted.
     if: ${{ false }}
     name: Test and build
     runs-on: ubuntu-latest

@@ -57,9 +57,12 @@ The core-first release preserves the existing Unix launch, sandbox, Org/IPC and
 cleanup implementations through its compatibility backend. The development
 Linux PID-namespace helper is not a compatible interactive runtime: caller-only
 UID mapping can hide host-root owners, and host peer PIDs can become
-unrepresentable. It must not wrap interactive Unix descendants. Selection of
-the established Unix consumer path is a separate integration step; this
-Windows diagnostic candidate does not claim that integration is complete.
+unrepresentable. It must not wrap interactive Unix descendants. The
+discriminated selection in `platform/interactive.ts` returns the legacy entry
+and explicit stdio-only process replacement on Unix, and the owned producer on
+Windows. See [the Unix compatibility handoff](native-unix-compatibility.md).
+L4 consumer composition remains separate; producer tests do not establish the
+complete consumer integration.
 Direct-child compatibility execution supplies no managed complete-tree proof.
 Actual unknown managed lifetimes still retain resources.
 

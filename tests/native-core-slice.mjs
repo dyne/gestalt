@@ -21,6 +21,8 @@ import { NativeOwnedProcesses } from '../src/cli/platform/processes.ts';
 import { createScratchOwner } from '../src/cli/runtime/scratch-owner.mjs';
 import { nodeHookCommand } from '../src/cli/runtime/hook-command.mjs';
 import { observeHostSocket } from './fixtures/unix-compat-peer.mjs';
+import { sessionScratch } from './session-scratch-fixture.mjs';
+import { authorizeFixtureHooks } from './fixtures/native-cli-hook-trust.mjs';
 import { verifySourceRecord } from './fixtures/native-runtime/source-binding.mjs';
 import { bounded, digest, isolatedEnvironment, pinnedCodex } from './fixtures/native-runtime/codex.mjs';
 
@@ -28,6 +30,17 @@ const root = path.resolve(import.meta.dirname, '..'), args = process.argv.slice(
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const json = async file => JSON.parse(await readFile(file, 'utf8'));
 const record = async (file, value) => writeFile(file, JSON.stringify(value, null, 2) + '\n');
+function observeTerminalCase(control, report, terminalReport, attempted, readError) {
+  if (!report) return { control, status: attempted ? 'unknown-no-valid-terminal-report' : 'unexecuted',
+    terminalReport, readError, fixtureTurnSubmitted: null, barrierTextObserved: null };
+  const submitted = typeof report.submittedBlockedFixtureTurn === 'boolean' ? report.submittedBlockedFixtureTurn : null;
+  const output = typeof report.outputBase64 === 'string' ? Buffer.from(report.outputBase64, 'base64').toString() : null;
+  const blocked = output === null ? null : output.includes('Native core slice no-model barrier');
+  return { control, status: 'observed-terminal-report', terminalReport,
+    fixtureTurnSubmitted: submitted, barrierTextObserved: blocked,
+    controlSent: typeof report.controlSent === 'boolean' ? report.controlSent : null,
+    timedOut: typeof report.timedOut === 'boolean' ? report.timedOut : null, result: report.result ?? { exit: report.exit ?? null } };
+}
 async function sourceBindings(agents, copiedBinding) {
   const binding = await json(path.join(root, 'tests/fixtures/native-runtime/agents-source.json'));
   const head = copiedBinding?.head ?? execFileSync('git', ['-C', agents, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
@@ -46,7 +59,8 @@ async function sourceBindings(agents, copiedBinding) {
     } else files.push({ path: expected.path, gitTree: tree, ...verifySourceRecord(expected, actual, tree) });
   }
   const setupApi = [];
-  for (const name of ['gestalt-setup.mjs', 'scripts/setup-agents.mjs']) {
+  for (const name of ['gestalt-setup.mjs', 'scripts/setup-agents.mjs', 'plugins/context-mode/scripts/configure-codex.mjs',
+    'plugins/context-mode/hooks/runtime-hook.mjs', 'plugins/context-mode/scripts/session-scratch.mjs']) {
     const bytes = await readFile(path.join(agents, name)), actual = { path: name, bytes: bytes.length, sha256: sha256(bytes) };
     const expected = copiedBinding ? copiedBinding.setupApi.find(file => file.path === name) :
       (() => { const committed = execFileSync('git', ['-C', agents, 'show', `${head}:${name}`]); return { bytes: committed.length, sha256: sha256(committed) }; })();
@@ -58,11 +72,12 @@ async function sourceBindings(agents, copiedBinding) {
 async function prepare(output, agents) {
   await mkdir(path.join(output, 'native'), { recursive: true });
   await buildCli(root, path.join(output, 'gestalt.mjs'));
+  await cp(path.join(root, 'tests/fixtures/native-cli-spawn-capture.mjs'), path.join(output, 'spawn-capture.mjs'));
   const compiled = await build({ entryPoints: [path.join(root, 'tests/fixtures/native-cli-authority.mjs')],
     outfile: path.join(output, 'authority.mjs'), bundle: true, platform: 'node', target: 'node24', format: 'esm', metafile: true });
   const peer = await buildNativePlatform(root, path.join(output, 'native'));
   const helper = process.platform === 'win32' ? await buildOwnedProcess(root, path.join(output, 'native')) : null;
-  const files = [path.join(output, 'gestalt.mjs'), path.join(output, 'legacy/gestalt'), path.join(output, 'authority.mjs'),
+  const files = [path.join(output, 'gestalt.mjs'), path.join(output, 'legacy/gestalt'), path.join(output, 'authority.mjs'), path.join(output, 'spawn-capture.mjs'),
     ...[peer, helper].filter(Boolean).flatMap(file => [file, file + '.provenance.json'])];
   const artifacts = await Promise.all(files.map(async file => ({ relative: path.relative(output, file), ...await digest(file) })));
   assert.equal(sha256(await readFile(path.join(output, 'legacy/gestalt'))), sha256(await readFile(path.join(root, 'public/gestalt'))));
@@ -73,8 +88,8 @@ async function prepare(output, agents) {
     scope: 'Builder only. The copied compiled consumer requires no compiler, TS source or repository modules.' });
 }
 
-async function trustFixtureHook(binary, environment, cwd, configFile) {
-  const child = spawn(binary, ['app-server', '--stdio'], { env: environment, cwd, stdio: ['pipe', 'pipe', 'pipe'], shell: false });
+async function queryHooks(binary, environment, cwd, overrides = []) {
+  const child = spawn(binary, ['app-server', '--stdio', ...overrides], { env: environment, cwd, stdio: ['pipe', 'pipe', 'pipe'], shell: false });
   const closed = once(child, 'close'), lines = createInterface({ input: child.stdout }), pending = new Map(); let id = 0, stderr = '';
   child.stderr.on('data', bytes => { stderr += bytes; });
   lines.on('line', line => { const message = JSON.parse(line); pending.get(message.id)?.(message); pending.delete(message.id); });
@@ -82,15 +97,57 @@ async function trustFixtureHook(binary, environment, cwd, configFile) {
   try {
     await rpc('initialize', { clientInfo: { name: 'gestalt-core-slice-hook-fixture', version: '1' }, capabilities: {} });
     child.stdin.write('{"method":"initialized"}\n');
-    const result = await rpc('hooks/list', { cwds: [cwd] }), hooks = result.result?.data?.find(entry => entry.cwd === cwd)?.hooks ?? [];
-    const config = parse(await readFile(configFile, 'utf8'));
-    const fixture = hooks.filter(hook => hook.command === config.hooks.SessionStart.at(-1).hooks[0].command);
-    assert.equal(fixture.length, 1, JSON.stringify(result));
-    config.hooks.state ??= {};
-    for (const hook of fixture) config.hooks.state[hook.key] = { enabled: true, trusted_hash: hook.currentHash };
-    await writeFile(configFile, stringify(config));
-    return { source: 'Isolated explicit fixture hook only; no live trust change', result, stderr };
+    const result = await rpc('hooks/list', { cwds: [cwd] }); assert.equal(result.error, undefined, JSON.stringify(result));
+    return { result, stderr, overrides };
   } finally { lines.close(); child.stdin.end(); child.kill(); await bounded(closed, 'fixture config query cleanup'); }
+}
+
+async function trustFixtureHooks(binary, environment, cwd, configFile, expected) {
+  const before = await queryHooks(binary, environment, cwd), hooks = before.result.result?.data?.find(entry => entry.cwd === cwd)?.hooks ?? [];
+  const authorized = authorizeFixtureHooks(hooks, expected), config = parse(await readFile(configFile, 'utf8'));
+  config.hooks.state ??= {};
+  for (const hook of authorized) config.hooks.state[hook.key] = { enabled: true, trusted_hash: hook.currentHash };
+  await writeFile(configFile, stringify(config));
+  const after = await queryHooks(binary, environment, cwd), current = after.result.result?.data?.find(entry => entry.cwd === cwd)?.hooks ?? [];
+  const readback = authorizeFixtureHooks(current, expected);
+  assert.deepEqual(readback, authorized);
+  for (const hook of current) assert.equal(hook.trustStatus, 'trusted', JSON.stringify(hook));
+  return { source: 'Only the exact isolated fixture and six verified accepted installed managed hooks; no live trust change', authorized, before, after };
+}
+
+async function verifyInstalledHooks(agents, fixture) {
+  const home = path.join(fixture, 'Codex'), hooksFile = path.join(home, 'hooks.json'), launcher = path.join(home, 'bin/context-mode-hook.mjs');
+  const { reconcileCodexHooks } = await import(pathToFileURL(path.join(agents, 'plugins/context-mode/scripts/configure-codex.mjs')));
+  const expected = JSON.parse(reconcileCodexHooks('', launcher)), actual = await json(hooksFile);
+  assert.deepEqual(actual, expected, 'Installed hooks differ from the exact accepted canonical fixture configuration');
+  const marketplace = (await json(path.join(agents, '.agents/plugins/marketplace.json'))).name;
+  const version = (await json(path.join(agents, 'plugins/context-mode/package.json'))).version;
+  const plugin = path.join(home, 'plugins/cache', marketplace, 'context-mode', version);
+  const installedOwner = path.join(plugin, 'hooks/runtime-hook.mjs'), acceptedOwner = path.join(agents, 'plugins/context-mode/hooks/runtime-hook.mjs');
+  assert.deepEqual(await readFile(installedOwner), await readFile(acceptedOwner));
+  const expectedBridge = `#!/usr/bin/env node\nimport { pathToFileURL } from "node:url";\n\nprocess.env.GESTALT_HOME ||= ${JSON.stringify(path.join(fixture, 'Gestalt'))};\nprocess.env.CONTEXT_MODE_PLATFORM = "codex";\nawait import(pathToFileURL(${JSON.stringify(installedOwner)}).href);\n`;
+  assert.equal(await readFile(launcher, 'utf8'), expectedBridge, 'Installed hook bridge differs from the accepted fixed launcher');
+  const entries = Object.entries(expected.hooks).flatMap(([event, groups]) => groups.flatMap(group => group.hooks.map(hook =>
+    ({ eventName: event[0].toLowerCase() + event.slice(1), sourcePath: hooksFile, command: hook.command, kind: 'verified-installed-context-mode' }))));
+  assert.equal(entries.length, 6);
+  return { entries, proof: { hooksFile: await digest(hooksFile), launcher: await digest(launcher), installedOwner: await digest(installedOwner), acceptedOwner: await digest(acceptedOwner) } };
+}
+
+async function composedHooks(binary, environment, cwd, capture) {
+  const calls = (await readFile(capture, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+  const tui = calls.filter(call => call.argv[0] !== 'app-server' && call.argv.includes('--no-alt-screen')).at(-1);
+  assert.ok(tui, 'Actual candidate final Codex argv was not observed');
+  const overrides = [];
+  for (let i = 0; i < tui.argv.length; i++) {
+    if (tui.argv[i] === '-c' || tui.argv[i] === '--config') { assert.ok(i + 1 < tui.argv.length); overrides.push('-c', tui.argv[++i]); }
+    else if (tui.argv[i].startsWith('--config=')) overrides.push('-c', tui.argv[i].slice(9));
+  }
+  const effective = await queryHooks(binary, environment, cwd, overrides), hooks = effective.result.result?.data?.find(entry => entry.cwd === cwd)?.hooks ?? [];
+  assert.equal(hooks.filter(hook => hook.source === 'user').length, 7);
+  assert.ok(hooks.filter(hook => hook.source === 'sessionFlags').length >= 2, 'Manager-composed hook flags were not exercised');
+  for (const hook of hooks) assert.equal(hook.trustStatus, 'trusted', JSON.stringify(hook));
+  return { calls, exactFinalArgv: tui.argv, effective,
+    scope: 'Actual captured final candidate argv, then exact -c flags queried through real Codex hooks/list; no protocol/stream interception or unscoped trust' };
 }
 
 async function hostIpc(fixture, peer, evidence, environment) {
@@ -206,20 +263,28 @@ async function consume(artifacts, agents, evidence) {
   const dispatcher = await readFile(path.join(fixture, 'Codex/bin/org-plan'), 'utf8'), bundle = /bundles\/([a-f0-9-]{36})\/org-plan-cli\.mjs/.exec(dispatcher)?.[1];
   assert.ok(bundle, 'Actual installed dispatcher must pin one immutable Org bundle');
   const orgBundle = path.join(fixture, 'Codex/lib/gestalt-org-plan/bundles', bundle), configFile = path.join(fixture, 'Codex/config.toml');
-  const owner = createScratchOwner(peer), primary = owner.scratchAllocate(path.join(fixture, 'workspace'), 'workspace-service', 'core-consumer-slice');
+  const owner = createScratchOwner(peer);
+  // Accepted context-mode2.26 is a v1 consumer. Exercise the existing Unix
+  // inherited-owner fixture, without converting or weakening any real v2 owner.
+  const primary = process.platform === 'win32' ? owner.scratchAllocate(path.join(fixture, 'workspace'), 'workspace-service', 'core-consumer-slice') :
+    await sessionScratch(path.join(fixture, 'workspace'), 'core-consumer-slice-' + randomUUID());
   const selected = owner.scratchEnvironment({ ...environment, GESTALT_SESSION_TMP_CONTEXT: JSON.stringify(primary.context),
     GESTALT_MOBILE_ORG_PLAN_STATUS_DIRECTORY: path.join(fixture, 'status') });
   const inherited = Object.fromEntries(['GESTALT_SESSION_TMP_CONTEXT', 'TMPDIR', 'TMP', 'TEMP'].map(key => [key, selected[key] ?? null]));
+  const installedHooks = await verifyInstalledHooks(agents, fixture);
+  await record(path.join(evidence, 'verified-installed-hooks.json'), installedHooks);
   const plan = path.join(fixture, 'probe.org');
   await writeFile(plan, ['#+TITLE: Private core slice', '#+SUBTITLE: Disposable test only', '#+DATE: 2026-11-16', '#+KEYWORDS: native core slice',
     '* TODO [#A] Probe', ':PROPERTIES:', ':ID: slice-probe', ':SKILLS: $gestalt:coding', ':REVIEW_STATUS: UNREVIEWED', ':END:',
     '- Effort :: Small.', '- Goal :: Actual private publication.', '- Notes :: Not a session plan.',
     ...['first', 'second'].flatMap(id => ['** TODO [#A] ' + id, ':PROPERTIES:', ':ID: slice-' + id, ':END:', '- Why :: Test inherited authority.', '- Change :: Disposable fixture.', '- Tests :: Actual publication and IPC.', '- Done when :: Exchange completes.'])].join('\n') + '\n', { mode: 0o600 });
   let requests = [];
+  const attemptedCases = new Set();
   const sentinel = httpServer((request, response) => { requests.push({ method: request.method, path: request.url }); response.writeHead(503); response.end('No model service in this fixture'); });
   sentinel.listen(0, '127.0.0.1'); await once(sentinel, 'listening');
   try {
     for (const control of ['eof', 'interrupt']) {
+      attemptedCases.add(control);
       const current = path.join(evidence, control); await mkdir(current);
       const host = await hostIpc(fixture, peer, current, selected), report = path.join(current, 'authority.json'), configuration = path.join(current, 'configuration.json');
       try {
@@ -233,8 +298,18 @@ async function consume(artifacts, agents, evidence) {
           command: nodeHookCommand(`await import(${JSON.stringify(pathToFileURL(path.join(consumer, 'authority.mjs')).href)});`) }] }];
         await writeFile(configFile, stringify(config));
         const launchEnvironment = { ...selected, GESTALT_SLICE_CONFIGURATION: configuration };
-        await record(path.join(current, 'fixture-hook-trust.json'), await trustFixtureHook(artifact.binary, launchEnvironment, path.join(fixture, 'workspace'), configFile));
-        const result = await terminal(entry, launchEnvironment, path.join(fixture, 'workspace'), report, current, helper, control);
+        const expected = [...installedHooks.entries, { eventName: 'sessionStart', sourcePath: configFile, command: config.hooks.SessionStart[0].hooks[0].command, kind: 'explicit-blocking-fixture' }];
+        await record(path.join(current, 'fixture-hook-trust.json'), await trustFixtureHooks(artifact.binary, launchEnvironment, path.join(fixture, 'workspace'), configFile, expected));
+        const capture = path.join(current, 'candidate-spawn.jsonl');
+        const observedEnvironment = { ...launchEnvironment, NODE_OPTIONS: '--import=' + pathToFileURL(path.join(consumer, 'spawn-capture.mjs')).href,
+          GESTALT_SLICE_CODEX_BINARY: path.join(fixture, 'bin', process.platform === 'win32' ? 'codex.exe' : 'codex'), GESTALT_SLICE_SPAWN_CAPTURE: capture };
+        let result, terminalFailure;
+        try { result = await terminal(entry, observedEnvironment, path.join(fixture, 'workspace'), report, current, helper, control); }
+        catch (error) { terminalFailure = error; throw error; }
+        finally {
+          try { await record(path.join(current, 'effective-manager-hooks.json'), await composedHooks(artifact.binary, launchEnvironment, path.join(fixture, 'workspace'), capture)); }
+          catch (error) { await record(path.join(current, 'effective-manager-hooks-failure.json'), { message: error.message, stack: error.stack }); if (!terminalFailure) throw error; }
+        }
         const authority = await json(report); assert.equal(authority.pass, true, JSON.stringify(authority.error)); assert.equal(authority.installedBindings.length, 15);
         if (process.platform !== 'win32') assert.ok(host.measurements.some(value => value.exit === 0 &&
           value.peer.pid === authority.identity.pid && value.peer.started === authority.identity.started &&
@@ -248,7 +323,19 @@ async function consume(artifacts, agents, evidence) {
     console.log(JSON.stringify({ kind: 'actual-compiled-cli-codex-installed-org-authenticated-ipc', platform: process.platform, arch: process.arch, tests: 2, pass: 2, fail: 0, skip: 0 }));
   } finally {
     await new Promise(resolve => sentinel.close(resolve));
-    await record(path.join(evidence, 'provider-requests.json'), { requests, noAuthenticationSelection: true, fixtureTurnSubmittedAndBlocked: true });
+    const cases = [];
+    for (const control of ['eof', 'interrupt']) {
+      let report = null, terminalReport = null, readError = null;
+      for (const name of ['terminal.json', 'terminal-final.json']) {
+        const file = path.join(evidence, control, name);
+        try { report = await json(file); terminalReport = file; break; }
+        catch (error) { if (error.code !== 'ENOENT') { readError = error.message; terminalReport = file; break; } }
+      }
+      cases.push(observeTerminalCase(control, report, terminalReport, attemptedCases.has(control), readError));
+    }
+    await record(path.join(evidence, 'provider-requests.json'), { requests, cases,
+      observationScope: 'Requests received by the local sentinel; zero requests alone does not establish that a fixture turn executed.',
+      authenticationSelectionPolicy: 'The fixture driver sends no authentication selection; this is policy, not independent observation of Codex UI behavior.' });
     await record(path.join(evidence, 'retained-fixture.json'), { fixture, primary: primary.context, inherited, manifest, consumer: await digest(entry),
       scope: 'Retained isolated fixture; no automatic unknown cleanup and no live installation', observedAt: new Date().toISOString() });
   }

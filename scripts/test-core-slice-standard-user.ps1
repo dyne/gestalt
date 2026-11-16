@@ -19,15 +19,36 @@ for ($attempt = 0; $attempt -lt 4; $attempt++) {
 }
 if (-not $nativeGit) { throw 'Native Git cmd\git.exe is required without a Bash PATH entry' }
 $gitCommandDirectory = Split-Path -Parent $nativeGit
-$env:PATH = $nodeDirectory + ';' + $gitCommandDirectory + ';' + $env:SystemRoot + '\System32;' + $env:SystemRoot + '\System32\WindowsPowerShell\v1.0;' + $env:SystemRoot
-foreach ($command in @('bash.exe', 'sh.exe', 'cl.exe', 'gcc.exe', 'clang.exe', 'tsc.cmd')) {
-  if (Get-Command $command -ErrorAction SilentlyContinue) { throw "Consumer PATH unexpectedly provides $command" }
-}
-$developmentMode = Get-ItemPropertyValue -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' -Name 'AllowDevelopmentWithoutDevLicense' -ErrorAction SilentlyContinue
-if ($developmentMode -eq 1) { throw 'Native core slice must run without Developer Mode' }
 Set-Location -LiteralPath $Repository
 $evidence = Join-Path $Repository 'native-evidence/core-slice'
 New-Item -ItemType Directory -Path $evidence -Force | Out-Null
+$forbidden = @('bash.exe', 'sh.exe', 'wsl.exe', 'wslconfig.exe', 'lxrun.exe', 'cl.exe', 'gcc.exe', 'clang.exe', 'tsc.cmd')
+function Write-ExecutableDiscovery([string]$Name) {
+  $resolved = @()
+  foreach ($command in $forbidden + @('node.exe', 'npm.cmd', 'git.exe', 'powershell.exe', 'cmd.exe')) {
+    foreach ($entry in @(Get-Command $command -All -ErrorAction SilentlyContinue)) {
+      $item = Get-Item -LiteralPath $entry.Source -ErrorAction Stop
+      $resolved += @{requested=$command; path=$entry.Source; commandType=$entry.CommandType.ToString(); bytes=$item.Length; sha256=(Get-FileHash -LiteralPath $entry.Source -Algorithm SHA256).Hash; description=$item.VersionInfo.FileDescription; product=$item.VersionInfo.ProductName}
+    }
+  }
+  @{observedAt=[DateTime]::UtcNow.ToString('o'); pathEntries=@($env:PATH -split ';'); comSpec=$env:ComSpec; resolutions=$resolved} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $evidence $Name)
+}
+# Retain the exact offending executable even if a future assertion fails. The
+# old run captured its name only; it cannot establish that it was a WSL stub.
+$env:PATH = $nodeDirectory + ';' + $gitCommandDirectory + ';' + $env:SystemRoot + '\System32;' + $env:SystemRoot + '\System32\WindowsPowerShell\v1.0;' + $env:SystemRoot
+Write-ExecutableDiscovery 'executable-discovery-before.json'
+# Fixed native OS helpers and the Codex hook shell use absolute system paths.
+# Exposing all System32 also exposes optional Bash/WSL aliases on some images.
+$env:ComSpec = Join-Path $env:SystemRoot 'System32\cmd.exe'
+if (-not (Test-Path -LiteralPath $env:ComSpec -PathType Leaf)) { throw 'Absolute native cmd.exe is required for the existing hook contract' }
+$env:PATH = $nodeDirectory + ';' + $gitCommandDirectory + ';' + $env:SystemRoot + '\System32\WindowsPowerShell\v1.0'
+Write-ExecutableDiscovery 'executable-discovery-after.json'
+foreach ($command in $forbidden) {
+  $resolved = @(Get-Command $command -All -ErrorAction SilentlyContinue)
+  if ($resolved.Count) { throw ('Consumer PATH unexpectedly provides ' + $command + ': ' + (($resolved | ForEach-Object { $_.Source }) -join ', ')) }
+}
+$developmentMode = Get-ItemPropertyValue -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' -Name 'AllowDevelopmentWithoutDevLicense' -ErrorAction SilentlyContinue
+if ($developmentMode -eq 1) { throw 'Native core slice must run without Developer Mode' }
 @{observedAt=[DateTime]::UtcNow.ToString('o'); sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value; standardUser=$true; noBashPath=$true; noConsumerCompilerPath=$true; developerMode=$developmentMode; node=$Node; git=$nativeGit; pathEntries=@($env:PATH -split ';'); TMPDIR=$env:TMPDIR; TMP=$env:TMP; TEMP=$env:TEMP; context=$env:GESTALT_SESSION_TMP_CONTEXT} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $evidence 'consumer-token.json')
 & $Node tests/native-core-slice.mjs --artifacts native-evidence/core-slice-prebuilt --agents .native-dependencies/agents --evidence $evidence
 $result = $LASTEXITCODE

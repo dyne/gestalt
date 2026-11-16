@@ -114,6 +114,7 @@ jobs:
           $process = $null
           $harnessTimedOut = $false
           $harnessExitObserved = $false
+          $harnessHandleRetained = $false
           New-Item -ItemType Directory native-evidence -Force | Out-Null
           try {
             $users = Get-LocalGroup -SID 'S-1-5-32-545'
@@ -126,11 +127,35 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Native fixture access setup failed' }
             $credential = New-Object Management.Automation.PSCredential(($env:COMPUTERNAME + '\' + $name), $password)
             $node = (Get-Command node.exe).Source
+            # Windows PowerShell's native-credential launch may return a Process
+            # wrapper without a retained handle. Pin it before waiting; verify
+            # known nonzero results before trusting this CI observation path.
+            foreach ($expectedExit in @(0, 23)) {
+              $probeGate = Join-Path $work ('probe-' + $expectedExit + '.gate')
+              $probeScript = '$gate=''' + $probeGate.Replace("'", "''") + ''';$end=[DateTime]::UtcNow.AddSeconds(10);while(-not [IO.File]::Exists($gate)){if([DateTime]::UtcNow -ge $end){exit 96};Start-Sleep -Milliseconds 10};exit ' + $expectedExit
+              $probeArguments = '-NoLogo -NoProfile -NonInteractive -EncodedCommand ' + [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($probeScript))
+              $probe = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Credential $credential -LoadUserProfile -ArgumentList $probeArguments -PassThru -RedirectStandardOutput (Join-Path $work ('probe-' + $expectedExit + '.stdout')) -RedirectStandardError (Join-Path $work ('probe-' + $expectedExit + '.stderr'))
+              $probeHandle = $probe.Handle
+              if ($probeHandle -eq [IntPtr]::Zero -or $probeHandle -eq [IntPtr](-1)) { throw 'CI direct-process probe handle was not retained' }
+              # The trusted probe cannot exit normally before this actual
+              # associated handle is retained. No startup-delay assumption.
+              [IO.File]::WriteAllText($probeGate, 'release')
+              $probeEnded = $probe.WaitForExit(10000)
+              $probeExit = $null
+              if ($probeEnded) { $probeExit = $probe.ExitCode }
+              @{observedAt=[DateTime]::UtcNow.ToString('o'); expected=$expectedExit; directExitObserved=$probeEnded; exit=$probeExit; handleRetained=$true; gateReleasedAfterHandle=$true; scope='CI direct process only, no native ownership proof'} | ConvertTo-Json > ('native-evidence/harness-exit-probe-' + $expectedExit + '.json')
+              if (-not $probeEnded) { $probe.Kill(); throw 'CI direct-process probe deadline; descendant state unknown' }
+              if ($null -eq $probeExit -or $probeExit -ne $expectedExit) { throw 'CI direct-process probe did not preserve its exact exit code' }
+              $probe.Dispose()
+            }
             $script = Join-Path $source 'scripts/test-platform-standard-user.ps1'
             $arguments = '-NoLogo -NoProfile -NonInteractive -File "' + $script + '" -Repository "' + $source + '" -Node "' + $node + '"'
             if ($env:GESTALT_CI_TERMINAL_LANE -eq 'windows-correction') { $arguments += ' -Lane windows-correction' }
             @{stage='harness-start-before'; observedAt=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json > native-evidence/harness-start.json
             $process = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Credential $credential -LoadUserProfile -ArgumentList $arguments -PassThru -RedirectStandardOutput (Join-Path $work 'contracts.tap') -RedirectStandardError (Join-Path $work 'runner.stderr')
+            $harnessHandle = $process.Handle
+            if ($harnessHandle -eq [IntPtr]::Zero -or $harnessHandle -eq [IntPtr](-1)) { throw 'CI harness process handle was not retained' }
+            $harnessHandleRetained = $true
             $waitMs = if ($env:GESTALT_CI_TERMINAL_LANE -eq 'windows-correction') { 300000 } else { 1080000 }
             @{stage='harness-wait-before'; pid=$process.Id; deadlineMs=$waitMs; observedAt=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json > native-evidence/harness-wait.json
             # CI observation of this associated PS process only. This is never
@@ -180,7 +205,7 @@ jobs:
             }
             $harnessExit = $null
             if ($harnessExitObserved) { try { $harnessExit = $process.ExitCode } catch { $_ | Out-String | Add-Content native-evidence/harness-stop-error.txt } }
-            @{stage='harness-finally'; observedAt=[DateTime]::UtcNow.ToString('o'); directExitObserved=$harnessExitObserved; exit=$harnessExit; timedOut=$harnessTimedOut; descendants='UNKNOWN by outer Process observation; consult native scenario proofs separately'; fixtureTeardown= $(if ($harnessTimedOut) {'deferred to disposable runner'} else {'account removal attempted; not descendant absence proof'})} | ConvertTo-Json > native-evidence/harness-observation.json
+            @{stage='harness-finally'; observedAt=[DateTime]::UtcNow.ToString('o'); handleRetained=$harnessHandleRetained; directExitObserved=$harnessExitObserved; exit=$harnessExit; timedOut=$harnessTimedOut; descendants='UNKNOWN by outer Process observation; consult native scenario proofs separately'; fixtureTeardown= $(if ($harnessTimedOut) {'deferred to disposable runner'} else {'account removal attempted; not descendant absence proof'})} | ConvertTo-Json > native-evidence/harness-observation.json
             if (-not $harnessTimedOut) { Remove-LocalUser -Name $name -ErrorAction SilentlyContinue }
           }
       - uses: actions/upload-artifact@v6

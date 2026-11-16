@@ -112,6 +112,7 @@ async function observer(t, token, events) {
     assert.equal(role.length, 1, `Actual held ${kind} identity required: ${JSON.stringify(events)}`);
     assert.ok(Number.isSafeInteger(role[0].pid) && role[0].pid > 0);
   }
+  assert.equal(events.find(event => event.kind === 'leaf').worker, events.find(event => event.kind === 'worker').pid, 'Leaf identity must be bound through its actual worker IPC channel');
   const pids = [...new Set(events.filter(event => ['root', 'worker', 'leaf'].includes(event.kind)).map(event => event.pid))];
   if (process.platform === 'linux') {
     const members = await linuxMembers(token);

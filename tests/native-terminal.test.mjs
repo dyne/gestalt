@@ -35,7 +35,17 @@ async function terminal(t, source, options = {}) {
     for (const wake of waiters) wake();
     await options.outputGate?.(text);
   } }, { columns: 91, rows: 37 }, options.limits ?? { graceMs: 50, deadlineMs: 10000 });
-  t.after(async () => { input.destroy(); await bounded(lease.stop(), 'terminal teardown'); await bounded(lease.completed, 'terminal helper close'); });
+  t.after(async () => {
+    try { input.destroy(); await bounded(lease.stop(), 'terminal teardown'); await bounded(lease.completed, 'terminal helper close'); }
+    finally {
+      if (options.evidenceName && process.env.GESTALT_NATIVE_TEST_EVIDENCE) {
+        const prefix = path.join(path.resolve(process.env.GESTALT_NATIVE_TEST_EVIDENCE), options.evidenceName);
+        await writeFile(`${prefix}.stdout.bin`, Buffer.concat(output));
+        await writeFile(`${prefix}.runtime.json`, JSON.stringify({ observedAt: new Date().toISOString(), source, helper: options.helper ?? helper,
+          claim: lease.claim(), outputBytes: Buffer.concat(output).length, text }, null, 2) + '\n');
+      }
+    }
+  });
   const until = (pattern) => bounded(new Promise((resolve, reject) => {
     const wake = () => { const match = text.match(pattern); if (match) { waiters.delete(wake); resolve(match); } };
     waiters.add(wake); wake();
@@ -107,13 +117,29 @@ test('an applied resize without acknowledgement is bounded and remains unknown t
     await copyFile(`${fixtureHelper}.provenance.json`, `${prefix}.provenance.json`);
   }
   for (const concurrentStop of [false, true]) {
+    const runtimeFile = path.join(artifact, `resize-runtime-${concurrentStop}.json`);
+    const evidenceName = `terminal-resize-no-ack-${concurrentStop ? 'concurrent' : 'serial'}`;
     const child = await terminal(t, `
-      process.stdin.resume();process.stdout.on('resize',()=>console.log('APPLIED:'+process.stdout.columns+':'+process.stdout.rows));
+      const save=(phase)=>require('node:fs').writeFileSync(${JSON.stringify(runtimeFile)},JSON.stringify({phase,observedAt:new Date().toISOString(),node:process.version,versions:process.versions,rawMode:process.stdin.isRaw,tty:[!!process.stdin.isTTY,!!process.stdout.isTTY],columns:process.stdout.columns,rows:process.stdout.rows}));
+      if(!process.stdin.isTTY||!process.stdout.isTTY)throw Error('actual resize fixture terminal required');
+      process.stdin.setRawMode(true);process.stdin.resume();
+      process.stdout.on('resize',()=>{save('applied');console.log('APPLIED:'+process.stdout.columns+':'+process.stdout.rows)});
+      save('ready');
       console.log('NO-ACK-READY');setInterval(()=>{},1000);
-    `, { helper: fixtureHelper, limits: { graceMs: 0, deadlineMs: 500 } });
+    `, { helper: fixtureHelper, limits: { graceMs: 0, deadlineMs: 500 }, evidenceName });
+    t.after(async () => {
+      if (process.env.GESTALT_NATIVE_TEST_EVIDENCE) {
+        const target = path.join(path.resolve(process.env.GESTALT_NATIVE_TEST_EVIDENCE), `${evidenceName}.target.json`);
+        try { await copyFile(runtimeFile, target); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      }
+    });
     await child.until(/NO-ACK-READY/);
     const rejected = assert.rejects(child.lease.resize({ columns: 102, rows: 40 }), /resize acknowledgement/);
     await child.until(/APPLIED:102:40/);
+    assert.equal(child.lease.claim().kind, 'active', 'Actual resize application must precede the unacknowledged deadline');
+    const applied = JSON.parse(await readFile(runtimeFile, 'utf8'));
+    assert.equal(applied.phase, 'applied'); assert.equal(applied.rawMode, true);
+    assert.deepEqual([applied.columns, applied.rows], [102, 40]);
     if (concurrentStop) await bounded(child.lease.stop(), 'stop with pending resize');
     await bounded(rejected, 'missing resize acknowledgement rejection');
     const claim = await bounded(child.lease.completed, 'no-ack helper close');

@@ -101,6 +101,17 @@ exit from stream closure. The outer CI wait observes only its associated harness
 process, bounds the diagnostic lane, and copies partial artifacts in `finally`.
 An unobserved/null exit cannot pass. This harness wait supplies no descendant
 absence proof; a timeout fails and retains unknown teardown for runner disposal.
+The CI wrapper pins its associated process handle before waiting and verifies
+known exit 0/23 fixtures through that same observation path. Null or mismatched
+codes fail before running the native suite; they are never coerced to success.
+
+Tree fixtures relay the detached leaf's actual identity through the existing
+leaf/worker IPC channel before reporting readiness. Each worker validates its
+child's PID, and the test still retains real process handles across stop. A
+detached Windows child cannot supply its identity through the parent's console.
+The missing-resize-ack fixture explicitly enables raw terminal input so Windows
+window-input events can reach Node, observes actual application before its
+unchanged deadline, and retains raw terminal output and target phase evidence.
 
 macOS uses the approved best-effort lifetime contract. The native helper creates
 a private session and keeps a dedicated group-anchor child alive. It uses

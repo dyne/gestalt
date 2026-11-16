@@ -99,6 +99,12 @@ jobs:
       - run: npm run typecheck:cli
       - name: Build target artifacts outside the consumer account
         run: node tests/native-core-slice.mjs --prepare native-evidence/core-slice-prebuilt --agents .native-dependencies/agents
+      - name: Disable Developer Mode only on this disposable hosted test runner
+        if: runner.environment == 'github-hosted'
+        shell: powershell
+        env:
+          GESTALT_TEST_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: ./scripts/prepare-core-slice-windows.ps1
       - name: Consume the exact compiled artifact as a standard user
         shell: powershell
         run: |

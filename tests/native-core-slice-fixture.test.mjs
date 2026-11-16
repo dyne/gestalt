@@ -5,7 +5,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
+import { once } from 'node:events';
+import { createServer, request } from 'node:http';
+import { createHash } from 'node:crypto';
 import { authorizeFixtureHooks } from './fixtures/native-cli-hook-trust.mjs';
+import { assertMetadataProbesOnly, captureProviderProbes, providerProbeViolation } from './fixtures/native-provider-probes.mjs';
 
 const expected = [
   { kind: 'verified-installed-context-mode', sourcePath: '/isolated/Codex/hooks.json', eventName: 'sessionStart', command: 'exact accepted managed command' },
@@ -46,4 +50,38 @@ for (const writable of [true, false]) test(`passive spawn capture preserves lite
     const calls = (await readFile(capture, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
     assert.equal(calls.length, 1); assert.equal(calls[0].target, process.execPath); assert.deepEqual(calls[0].argv.slice(-2), ['literal ü & $HOME', '']);
   }
+});
+
+const probe = (method, path, extra = {}) => ({ control: 'eof', method, path, bodyBytes: 0, bodyComplete: true,
+  contentLength: null, transferEncoding: null, blockedHeaderNames: [], ...extra });
+test('provider fixture permits only the pinned empty doctor metadata sequence', () => {
+  const records = [probe('HEAD', '/responses'), probe('GET', '/models')];
+  assert.deepEqual(assertMetadataProbesOnly(records, 'eof'), { control: 'eof', metadataProbes: 2, generationOrOtherRequests: 0 });
+  assert.deepEqual(assertMetadataProbesOnly(records, 'interrupt'), { control: 'interrupt', metadataProbes: 0, generationOrOtherRequests: 0 });
+});
+for (const [name, record] of [
+  ['generation POST', probe('POST', '/responses')], ['query', probe('GET', '/models?prompt=synthetic')],
+  ['body', probe('GET', '/models', { bodyBytes: 1 })], ['partial', probe('HEAD', '/responses', { bodyComplete: false })],
+  ['declared body', probe('HEAD', '/responses', { contentLength: '1' })], ['chunked', probe('HEAD', '/responses', { transferEncoding: 'chunked' })],
+  ['prompt header', probe('HEAD', '/responses', { blockedHeaderNames: ['x-prompt'] })], ['outside case', probe('HEAD', '/responses', { control: null })],
+]) test('provider fixture refuses ' + name, () => { assert.notEqual(providerProbeViolation(record), null); assert.throws(() => assertMetadataProbesOnly([record], 'eof')); });
+test('provider fixture refuses repeated probes and a catalog request without the doctor HEAD', () => {
+  assert.throws(() => assertMetadataProbesOnly([probe('HEAD', '/responses'), probe('HEAD', '/responses')], 'eof'));
+  assert.throws(() => assertMetadataProbesOnly([probe('GET', '/models')], 'eof'));
+});
+test('inert provider captures actual method/path/body bytes/hash/times and rejects synthetic prompt data', { timeout: 10000 }, async () => {
+  const records = [], server = createServer(captureProviderProbes(records, () => 'eof'));
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const send = (method, path, body = '') => new Promise((resolve, reject) => {
+    const req = request({ hostname: '127.0.0.1', port: server.address().port, method, path, headers: { 'content-length': Buffer.byteLength(body) } },
+      res => { res.resume(); res.once('end', resolve); }); req.once('error', reject); req.end(body);
+  });
+  try {
+    await send('HEAD', '/responses'); await send('GET', '/models'); assertMetadataProbesOnly(records, 'eof');
+    await send('POST', '/responses', 'synthetic prompt fixture');
+    assert.equal(records[2].bodyBytes, Buffer.byteLength('synthetic prompt fixture'));
+    assert.equal(records[2].bodySha256, createHash('sha256').update('synthetic prompt fixture').digest('hex'));
+    assert.equal(records[2].bodyComplete, true); assert.ok(Date.parse(records[2].receivedAt) <= Date.parse(records[2].completedAt));
+    assert.throws(() => assertMetadataProbesOnly(records, 'eof'));
+  } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
 });

@@ -23,6 +23,7 @@ import { nodeHookCommand } from '../src/cli/runtime/hook-command.mjs';
 import { observeHostSocket } from './fixtures/unix-compat-peer.mjs';
 import { sessionScratch } from './session-scratch-fixture.mjs';
 import { authorizeFixtureHooks } from './fixtures/native-cli-hook-trust.mjs';
+import { assertMetadataProbesOnly, captureProviderProbes } from './fixtures/native-provider-probes.mjs';
 import { verifySourceRecord } from './fixtures/native-runtime/source-binding.mjs';
 import { bounded, digest, isolatedEnvironment, pinnedCodex } from './fixtures/native-runtime/codex.mjs';
 
@@ -279,11 +280,14 @@ async function consume(artifacts, agents, evidence) {
     '- Effort :: Small.', '- Goal :: Actual private publication.', '- Notes :: Not a session plan.',
     ...['first', 'second'].flatMap(id => ['** TODO [#A] ' + id, ':PROPERTIES:', ':ID: slice-' + id, ':END:', '- Why :: Test inherited authority.', '- Change :: Disposable fixture.', '- Tests :: Actual publication and IPC.', '- Done when :: Exchange completes.'])].join('\n') + '\n', { mode: 0o600 });
   let requests = [];
+  let activeCase = null;
+  let runFailure = null;
   const attemptedCases = new Set();
-  const sentinel = httpServer((request, response) => { requests.push({ method: request.method, path: request.url }); response.writeHead(503); response.end('No model service in this fixture'); });
+  const sentinel = httpServer(captureProviderProbes(requests, () => activeCase));
   sentinel.listen(0, '127.0.0.1'); await once(sentinel, 'listening');
   try {
     for (const control of ['eof', 'interrupt']) {
+      activeCase = control;
       attemptedCases.add(control);
       const current = path.join(evidence, control); await mkdir(current);
       const host = await hostIpc(fixture, peer, current, selected), report = path.join(current, 'authority.json'), configuration = path.join(current, 'configuration.json');
@@ -315,13 +319,14 @@ async function consume(artifacts, agents, evidence) {
           value.peer.pid === authority.identity.pid && value.peer.started === authority.identity.started &&
           value.peer.executable === authority.identity.executable && value.peer.uid === process.getuid()), 'Host did not observe the actual installed-hook client identity');
         else assert.equal(authority.identity.observerSid, host.host.sid, 'Host and installed hook must use the same ordinary principal');
-        assert.equal(requests.length, 0, 'A model/provider request escaped the blocking fixture hook');
-        await record(path.join(current, 'result.json'), { pass: true, terminal: result, actualInstalledOrgAndWholeIpc: true, zeroProviderRequests: true, requests,
+        const provider = assertMetadataProbesOnly(requests, control);
+        await record(path.join(current, 'result.json'), { pass: true, terminal: result, actualInstalledOrgAndWholeIpc: true, zeroGenerationOrOtherRequests: true, provider, requests,
           modelPolicy: 'Explicit isolated test provider only; no production admission/default change', claims: process.platform === 'win32' ? 'Windows matching Job release' : 'Existing Unix compatibility, no new complete-tree claim' });
       } finally { await host.stop(); }
     }
-    console.log(JSON.stringify({ kind: 'actual-compiled-cli-codex-installed-org-authenticated-ipc', platform: process.platform, arch: process.arch, tests: 2, pass: 2, fail: 0, skip: 0 }));
-  } finally {
+  } catch (error) { runFailure = error; throw error; }
+  finally {
+    sentinel.closeAllConnections();
     await new Promise(resolve => sentinel.close(resolve));
     const cases = [];
     for (const control of ['eof', 'interrupt']) {
@@ -333,12 +338,17 @@ async function consume(artifacts, agents, evidence) {
       }
       cases.push(observeTerminalCase(control, report, terminalReport, attemptedCases.has(control), readError));
     }
-    await record(path.join(evidence, 'provider-requests.json'), { requests, cases,
-      observationScope: 'Requests received by the local sentinel; zero requests alone does not establish that a fixture turn executed.',
+    let finalPolicyFailure = null;
+    try { for (const control of ['eof', 'interrupt']) assertMetadataProbesOnly(requests, control); }
+    catch (error) { finalPolicyFailure = error; }
+    await record(path.join(evidence, 'provider-requests.json'), { requests, cases, policyError: finalPolicyFailure?.message ?? null,
+      observationScope: 'Exact local requests, timestamps and complete body byte counts. Only pinned doctor HEAD /responses then GET /models with empty bodies are permitted, at most once each per case. No generation service exists; no POST, query, body, authentication, upgrade or other request is permitted. Metadata alone does not establish a fixture turn.',
       authenticationSelectionPolicy: 'The fixture driver sends no authentication selection; this is policy, not independent observation of Codex UI behavior.' });
     await record(path.join(evidence, 'retained-fixture.json'), { fixture, primary: primary.context, inherited, manifest, consumer: await digest(entry),
       scope: 'Retained isolated fixture; no automatic unknown cleanup and no live installation', observedAt: new Date().toISOString() });
+    if (!runFailure && finalPolicyFailure) throw finalPolicyFailure;
   }
+  console.log(JSON.stringify({ kind: 'actual-compiled-cli-codex-installed-org-authenticated-ipc', platform: process.platform, arch: process.arch, tests: 2, pass: 2, fail: 0, skip: 0 }));
 }
 
 if (args[0] === '--prepare' && args[2] === '--agents' && args.length === 4) await prepare(path.resolve(args[1]), await realpath(args[3]));

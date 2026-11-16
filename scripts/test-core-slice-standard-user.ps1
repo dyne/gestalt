@@ -2,7 +2,8 @@
 param([Parameter(Mandatory=$true)][string]$Repository, [Parameter(Mandatory=$true)][string]$Node, [Parameter(Mandatory=$true)][string]$GitDirectory)
 $ErrorActionPreference = 'Stop'
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
-if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Core slice requires a standard-user token' }
+$administrator = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if ($administrator) { throw 'Core slice requires a standard-user token' }
 $localData = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
 $scratch = Join-Path $localData ('Temp\gestalt-core-slice-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $scratch -Force | Out-Null
@@ -47,9 +48,14 @@ foreach ($command in $forbidden) {
   $resolved = @(Get-Command $command -All -ErrorAction SilentlyContinue)
   if ($resolved.Count) { throw ('Consumer PATH unexpectedly provides ' + $command + ': ' + (($resolved | ForEach-Object { $_.Source }) -join ', ')) }
 }
-$developmentMode = Get-ItemPropertyValue -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' -Name 'AllowDevelopmentWithoutDevLicense' -ErrorAction SilentlyContinue
-if ($developmentMode -eq 1) { throw 'Native core slice must run without Developer Mode' }
-@{observedAt=[DateTime]::UtcNow.ToString('o'); sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value; standardUser=$true; noBashPath=$true; noConsumerCompilerPath=$true; developerMode=$developmentMode; node=$Node; git=$nativeGit; pathEntries=@($env:PATH -split ';'); TMPDIR=$env:TMPDIR; TMP=$env:TMP; TEMP=$env:TEMP; context=$env:GESTALT_SESSION_TMP_CONTEXT} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $evidence 'consumer-token.json')
+$developmentModeKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock'
+$developmentModeName = 'AllowDevelopmentWithoutDevLicense'
+$developmentModeKind = (Get-Item -LiteralPath $developmentModeKey).GetValueKind($developmentModeName).ToString()
+$developmentMode = Get-ItemPropertyValue -LiteralPath $developmentModeKey -Name $developmentModeName
+@{observedAt=[DateTime]::UtcNow.ToString('o'); sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value; administrator=$administrator; standardUser=$true; noBashPath=$true; noConsumerCompilerPath=$true; developerMode=$developmentMode; developerModeKind=$developmentModeKind; node=$Node; git=$nativeGit; pathEntries=@($env:PATH -split ';'); TMPDIR=$env:TMPDIR; TMP=$env:TMP; TEMP=$env:TEMP; context=$env:GESTALT_SESSION_TMP_CONTEXT} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $evidence 'consumer-token.json')
+if ($developmentModeKind -ne 'DWord' -or $developmentMode -ne 0) { throw 'Native core slice requires explicit Developer Mode DWORD0 readback' }
+& $Node tests/fixtures/native-no-devmode.mjs (Join-Path $evidence 'developer-mode-negative-capability.json')
+if ($LASTEXITCODE -ne 0) { throw 'Actual ordinary-user no-Developer-Mode capability check failed' }
 & $Node tests/native-core-slice.mjs --artifacts native-evidence/core-slice-prebuilt --agents .native-dependencies/agents --evidence $evidence
 $result = $LASTEXITCODE
 if ($null -eq $result) { throw 'Native core slice exit code was not observed' }

@@ -13,8 +13,6 @@ concurrency:
 
 jobs:
   test-build:
-    # UNIX CORRECTION OVERLAY: full Manager acceptance remains unexecuted.
-    if: ${{ false }}
     name: Test and build
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -77,7 +75,6 @@ jobs:
         run: npx --yes npm@latest run test:package
 
   scratch-macos:
-    if: ${{ false }}
     name: macOS scratch sockets
     runs-on: macos-latest
     timeout-minutes: 10

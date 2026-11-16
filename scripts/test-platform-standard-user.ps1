@@ -9,7 +9,11 @@ $nativeScratch = Join-Path $nativeLocalData ('Temp\gestalt-native-' + [Guid]::Ne
 New-Item -ItemType Directory -Path $nativeScratch -Force | Out-Null
 $env:TMP = $nativeScratch
 $env:TEMP = $nativeScratch
+$env:GESTALT_NATIVE_CODEX_FIXTURE = Join-Path $nativeLocalData ('GestaltNativeCodex-' + [Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $env:GESTALT_NATIVE_CODEX_FIXTURE | Out-Null
 Set-Location -LiteralPath $Repository
 $env:GESTALT_NATIVE_TEST_EVIDENCE = Join-Path $Repository 'native-evidence'
-& $Node --test --test-reporter=tap tests/native-platform.test.mjs tests/native-process.test.mjs
+& $Node --test --test-reporter=tap tests/native-platform.test.mjs tests/native-process.test.mjs tests/native-terminal.test.mjs
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& $Node tests/native-codex-terminal.mjs
 exit $LASTEXITCODE

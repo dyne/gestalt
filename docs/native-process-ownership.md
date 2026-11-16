@@ -30,6 +30,66 @@ drain; an executable closing stdin early retires that pipe. Other input failures
 refuse verification. Large simultaneous stdin/stdout/stderr contracts verify
 exact byte order, EOF and command status on the actual targets.
 
+`launchTerminal` is an additive `OwnedTerminalPort`; byte-stream `launch` keeps
+its existing contract. Each terminal lease allocates a new POSIX PTY or Windows
+ConPTY inside the same ownership lifetime. The target receives actual terminal
+stdin, stdout and stderr. Supply the initial `{ columns, rows }` and await
+`resize` to apply subsequent dimensions. Dimensions range from 1 to 32767.
+Dimension errors reject asynchronously. Each resize acknowledgement is bounded
+by the lease's cleanup deadline. A lost acknowledgement, control write failure,
+or helper ending with an outstanding resize retains unknown ownership. Queued
+resize requests reject after stop begins; resize never blocks the stop channel.
+Terminal output is one merged byte stream, including stderr, echo, Unicode and
+VT/control sequences. Consumers render those bytes and answer terminal queries;
+they cannot recover separate stderr from a terminal stream.
+
+Input is literal bytes with the same bounded acknowledged queue. Send control
+characters explicitly: a raw-mode application receives them as input, while
+normal terminal processing can turn Ctrl-C into an interrupt. Ctrl-D has the
+application/terminal line discipline's meaning. A terminal has no independent
+stdin half-close: ending the input iterable requests bounded owned stop after
+the queued input drains. `stop` and controller EOF use the ownership mechanism,
+independently of whether the application reads input. Windows ConPTY uses a
+separate input worker so a stalled console cannot block control handling;
+its output drains while bounded terminal close runs on another thread.
+
+The Linux terminal candidate currently uses the existing PID-namespace backend.
+That backend does **not** establish compatibility with inherited host authority:
+caller-only UID mapping can hide host-root owners, and host peer PIDs can be
+unrepresentable in its private PID namespace. Actual strict Org/storage guards
+and authenticated host IPC must be checked under any proposed replacement;
+terminal detection alone is insufficient. A host-namespace ptrace/seccomp
+prototype is being evaluated separately and is not selected by this adapter.
+In particular, tracing restricts nested debuggers and rejecting clone3 requires
+compatible legacy clone fallback; neither restriction is transparent parity.
+
+The explicit hosted diagnostic in `tests/native-inherited-diagnostic.mjs` keeps
+that prototype under `tests/fixtures/native-ptrace/`, outside the production
+build and package. It records the exact native compiler, source/binary digests,
+ABI and kernel observations. Its inherited seccomp filter rejects untraced
+clone flags, returns ENOSYS for clone3/x32 calls and kills mismatched compatibility
+ABI calls. No-new-privileges is inherited. The tracer uses only lifecycle stops,
+including automatic fork/vfork/clone attachment and nonleader exec, rather than
+syscall stepping or mutable syscall arguments. Its 1024-entry table is a bounded
+experiment, not a production task-capacity guarantee. Kernel denial refuses
+before the payload gate; tracer exit uses EXITKILL. Nested debuggers and
+clone3-only/compatibility binaries remain unresolved adoption restrictions.
+
+Hosted checks distinguish unchanged whole Org publication and authenticated IPC
+from same-socket credential extraction, contrasting host/prototype execution
+with the legacy namespace's actual negative result. They verify all 15 accepted
+Agents Org scripts before imports. The accepted local commit and immutable
+remote checkout are recorded separately; only that complete script subtree has
+verified equivalent bytes/modes. Fixtures never publish a session's live plan.
+The pinned official Codex 0.164.0 artifact is checked against its release digest
+and source commit. Real sign-in choices, byte-pipe rejection, owned terminal
+input and an isolated sandbox command are observed without credentials or a
+model request. Downloaded Codex binaries remain disposable test artifacts;
+artifact records retain their official URL/digests while CI omits large cached
+binaries and private homes from uploads. Native ownership helper binaries and
+their source/compiler provenance remain retained. Unavailable host namespaces
+or fixed daemon-directory prerequisites fail the diagnostic, never waive it.
+
 On Windows 10 or later the target is created atomically inside an unnamed Job
 Object with `PROC_THREAD_ATTRIBUTE_JOB_LIST`. This avoids the suspended-process
 gap before a later `AssignProcessToJobObject`. The job has kill-on-last-close and

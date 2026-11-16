@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import type { CommandInvocation, CommandStreams, OwnedProcessLease, OwnedProcessPort, OwnedProcessResult, OwnershipClaim, ProcessResult } from '../contracts.ts';
+import type { CommandInvocation, CommandStreams, OwnedProcessLease, OwnedProcessPort, OwnedProcessResult, OwnershipClaim, ProcessResult, OwnedTerminalLease, OwnedTerminalPort, OwnedTerminalStreams, TerminalSize } from '../contracts.ts';
 import { commandTarget } from './executables.ts';
 
 const maximumFrame = 1024 * 1024;
@@ -20,7 +20,7 @@ export function recoveredOwnershipClaim(lease: string): OwnershipClaim {
   return { kind: 'unknown', lease, reason: 'No live kernel ownership handle; retain scratch' };
 }
 
-export class NativeOwnedProcesses implements OwnedProcessPort {
+export class NativeOwnedProcesses implements OwnedProcessPort, OwnedTerminalPort {
   private readonly helper: string;
   constructor(helper: string) {
     if (!path.isAbsolute(helper)) throw new Error('Target-built ownership helper must be absolute');
@@ -29,23 +29,45 @@ export class NativeOwnedProcesses implements OwnedProcessPort {
 
   async launch(executable: string, invocation: CommandInvocation, streams: CommandStreams,
     limits: { readonly graceMs?: number; readonly deadlineMs?: number } = {}): Promise<OwnedProcessLease> {
+    return this.launchNative(executable, invocation, streams, limits);
+  }
+
+  async launchTerminal(executable: string, invocation: CommandInvocation, streams: OwnedTerminalStreams,
+    size: TerminalSize, limits: { readonly graceMs?: number; readonly deadlineMs?: number } = {}): Promise<OwnedTerminalLease> {
+    return this.launchNative(executable, invocation, {
+      stdin: streams.input, stdout: bytes => streams.output(bytes),
+      stderr: async () => { throw new Error('Unexpected separate stderr from owned terminal'); },
+    }, limits, size);
+  }
+
+  private async launchNative(executable: string, invocation: CommandInvocation, streams: CommandStreams,
+    limits: { readonly graceMs?: number; readonly deadlineMs?: number }, terminal?: TerminalSize): Promise<OwnedTerminalLease> {
     if (!['linux', 'win32', 'darwin'].includes(process.platform))
       throw new Error('Native process lifetime adapter is unavailable on this target');
     if (!path.isAbsolute(executable) || !path.isAbsolute(invocation.cwd)) throw new Error('Owned executable and cwd must be absolute');
     const grace = boundedInteger(limits.graceMs ?? 250, 0, 60000, 'grace interval');
     const deadline = boundedInteger(limits.deadlineMs ?? 10000, grace + 1, 120000, 'cleanup deadline');
     const target = await commandTarget(executable);
+    const dimensions = (size: TerminalSize) => {
+      const bytes = Buffer.alloc(4);
+      bytes.writeUInt16LE(boundedInteger(size.columns, 1, 32767, 'terminal columns'), 0);
+      bytes.writeUInt16LE(boundedInteger(size.rows, 1, 32767, 'terminal rows'), 2);
+      return bytes;
+    };
+    if (terminal) dimensions(terminal);
     const id = randomUUID();
     const expectedBackend = process.platform === 'win32' ? 'windows-job' : process.platform === 'darwin' ? 'macos-session-group' : 'linux-pid-namespace';
     let claim: OwnershipClaim = recoveredOwnershipClaim(id);
     let result: ProcessResult | undefined;
     let nativeEmpty = false, backend = '', settled = false, verificationLost = false;
     let inputWaiter: { resolve: () => void; reject: (error: Error) => void } | undefined;
+    let resizeWaiter: { resolve: () => void; reject: (error: Error) => void } | undefined;
     let finish!: (claim: OwnershipClaim) => void;
     const completed = new Promise<OwnershipClaim>(resolve => { finish = resolve; });
     let finishResult!: (result: OwnedProcessResult) => void;
     const commandResult = new Promise<OwnedProcessResult>(resolve => { finishResult = resolve; });
-    const child = spawn(this.helper, ['--controller', String(process.pid), '--grace', String(grace), '--', target.executable, ...target.prefix, ...invocation.argv], {
+    const terminalArguments = terminal ? ['--terminal', String(terminal.columns), String(terminal.rows)] : [];
+    const child = spawn(this.helper, ['--controller', String(process.pid), '--grace', String(grace), ...terminalArguments, '--', target.executable, ...target.prefix, ...invocation.argv], {
       cwd: invocation.cwd, env: invocation.environment, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
     });
     // Only this object owns the helper channel. It is never rediscovered by PID.
@@ -55,6 +77,8 @@ export class NativeOwnedProcesses implements OwnedProcessPort {
         settled = true;
         inputWaiter?.reject(new Error('Ownership helper ended before stdin drain acknowledgement'));
         inputWaiter = undefined;
+        resizeWaiter?.reject(new Error('Ownership helper ended before terminal resize acknowledgement'));
+        resizeWaiter = undefined;
         finishResult(result ?? { kind: 'unknown', message: 'Supervisor ended before the command outcome could be observed' });
         finish(claim);
       }
@@ -96,6 +120,10 @@ export class NativeOwnedProcesses implements OwnedProcessPort {
             if (bytes.length || !inputWaiter) throw new Error('Unexpected native stdin drain acknowledgement');
             const waiter = inputWaiter; inputWaiter = undefined; waiter.resolve();
           }
+          else if (kind === 'Z') {
+            if (bytes.length || !terminal || !resizeWaiter) throw new Error('Unexpected native terminal resize acknowledgement');
+            const waiter = resizeWaiter; resizeWaiter = undefined; waiter.resolve();
+          }
           else if (kind === 'R') {
             if (backend || nativeEmpty) throw new Error('Repeated native ownership readiness');
             backend = bytes.toString();
@@ -125,6 +153,7 @@ export class NativeOwnedProcesses implements OwnedProcessPort {
     void read.catch(error => { unknown(`Ownership verification failed: ${error.message}`); child.kill('SIGKILL'); });
     child.once('close', (code, signal) => {
       void read.then(() => {
+        if (resizeWaiter) unknown(`Terminal ended before resize acknowledgement; retain scratch${claim.kind === 'unknown' ? `; ${claim.reason}` : ''}`);
         if (!settled && !verificationLost && code === 0 && !signal && nativeEmpty && result)
           claim = { kind: 'released', lease: id, backend, result };
         else if (!settled && !verificationLost) unknown(`No complete native absence proof (${signal ?? code}); ${diagnostics}`);
@@ -155,9 +184,34 @@ export class NativeOwnedProcesses implements OwnedProcessPort {
           for (let offset = 0; offset < chunk.byteLength && !settled; offset += 32768)
             await sendInput(chunk.subarray(offset, offset + 32768));
         }
-        if (!settled) await send('E');
+        if (!settled) { if (terminal) void stop(); else await send('E'); }
       })().catch(() => { if (!settled) void stop(); });
     }
-    return { id, claim: () => claim, result: commandResult, completed, stop };
+    let resizeTail = Promise.resolve();
+    const resize = async (size: TerminalSize): Promise<void> => {
+      if (!terminal) return Promise.reject(new Error('This lease has no terminal'));
+      const bytes = dimensions(size);
+      const operation = resizeTail.then(() => new Promise<void>((resolve, reject) => {
+        if (settled || verificationLost || stopPromise || claim.kind !== 'active') { reject(new Error('Terminal is no longer actively owned')); return; }
+        const resizeTimer = setTimeout(() => {
+          if (resizeWaiter !== waiter) return;
+          resizeWaiter = undefined;
+          unknown('Terminal resize acknowledgement deadline reached; retain scratch');
+          child.kill('SIGKILL'); reject(new Error('Terminal resize acknowledgement deadline reached'));
+        }, deadline);
+        const waiter = {
+          resolve: () => { clearTimeout(resizeTimer); resolve(); },
+          reject: (error: Error) => { clearTimeout(resizeTimer); reject(error); },
+        };
+        resizeWaiter = waiter;
+        void send('W', bytes).catch(error => {
+          if (resizeWaiter === waiter) resizeWaiter = undefined;
+          unknown('Terminal resize control write failed; retain scratch'); child.kill('SIGKILL'); waiter.reject(error);
+        });
+      }));
+      resizeTail = operation.catch(() => {});
+      return operation;
+    };
+    return { id, claim: () => claim, result: commandResult, completed, stop, resize };
   }
 }

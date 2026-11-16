@@ -38,6 +38,7 @@
 #include <signal.h>
 #include <poll.h>
 #include <sys/wait.h>
+#include <sys/ioctl.h>
 #include <time.h>
 #ifdef __linux__
 #include <sched.h>
@@ -53,10 +54,11 @@
  * JSON parser, executable source interpolation, PID-based recovery or TCP.
  * L commit launch, I stdin bytes, E stdin EOF, S stop; R ready, O stdout,
  * B stderr, A stdin frame drained, F root result, D proven empty,
- * U best-effort unknown, X error.
+ * U best-effort unknown, X error; W terminal dimensions, Z resize applied.
  */
 #define MAX_FRAME (1024U * 1024U)
 static unsigned char payload[MAX_FRAME];
+static unsigned int terminal_columns, terminal_rows;
 static int frame(unsigned char kind, const void *data, uint32_t size);
 #ifdef _WIN32
 static CRITICAL_SECTION output_lock;
@@ -123,12 +125,43 @@ static int nonblocking(int fd) {
   int flags = fcntl(fd, F_GETFL);
   return flags < 0 ? -1 : fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
+/* Each terminal is allocated here, never inherited from the controller. The
+ * master carries one merged byte stream; a duplicate keeps input/output closes
+ * independent. Terminal transport EOF requests stop in the TypeScript port. */
+static int terminal_master = -1;
+static int terminal_resize(unsigned int columns, unsigned int rows) {
+  struct winsize size; memset(&size, 0, sizeof(size));
+  size.ws_col = (unsigned short)columns; size.ws_row = (unsigned short)rows;
+  return ioctl(terminal_master, TIOCSWINSZ, &size);
+}
+static int terminal_control(uint32_t size) {
+  if (terminal_master < 0 || size != 4) return -1;
+  unsigned int columns = payload[1] | (unsigned int)payload[2] << 8;
+  unsigned int rows = payload[3] | (unsigned int)payload[4] << 8;
+  if (!columns || columns > 32767 || !rows || rows > 32767 || terminal_resize(columns, rows)) return -1;
+  return message('Z', "");
+}
+static int terminal_pipes(int in[2], int out[2], int err[2]) {
+  int master = posix_openpt(O_RDWR | O_NOCTTY | O_CLOEXEC);
+  if (master < 0) return -1;
+  if (grantpt(master) || unlockpt(master)) { close(master); return -1; }
+  char *name = ptsname(master);
+  int slave = name ? open(name, O_RDWR | O_NOCTTY | O_CLOEXEC) : -1;
+  if (slave < 0) { close(master); return -1; }
+  int input = dup(master);
+  if (input < 0 || fcntl(input, F_SETFD, FD_CLOEXEC)) { if (input >= 0) close(input); close(slave); close(master); return -1; }
+  terminal_master = master;
+  if (terminal_resize(terminal_columns, terminal_rows)) { close(input); close(slave); close(master); terminal_master = -1; return -1; }
+  in[0] = slave; in[1] = input; out[0] = master; out[1] = slave; err[0] = -1; err[1] = slave;
+  return 0;
+}
 static void close_input(struct input_queue *input) {
   if (input->fd >= 0) close(input->fd);
   input->fd = -1; input->size = input->offset = 0;
 }
 static int queue_input(struct input_queue *input, int kind, uint32_t size) {
   if (kind == 'E') {
+    if (terminal_columns) return -1;
     input->eof = 1;
     if (!input->size) close_input(input);
     return 0;
@@ -206,6 +239,9 @@ static void init_process(char **argv, int in[2], int out[2], int err[2], int lif
   if (root < 0) _exit(115);
   if (!root) {
     close(launch[0]);
+    if (terminal_columns && (setsid() < 0 || ioctl(in[0], TIOCSCTTY, 0))) {
+      int error = errno; (void)write_all(launch[1], &error, sizeof(error)); _exit(116);
+    }
     if (dup2(in[0], 0) < 0 || dup2(out[1], 1) < 0 || dup2(err[1], 2) < 0) _exit(116);
     signal(SIGPIPE, SIG_DFL);
     /* All nonstandard descriptors are CLOEXEC; none of the lifetime/control
@@ -240,7 +276,7 @@ static int run_owned(char **argv, unsigned int grace, pid_t controller) {
   if (mapping("/proc/self/gid_map", gid)) return namespace_error("gid-map", errno, uid, gid);
   if (unshare(CLONE_NEWPID)) return namespace_error("unshare-pid", errno, uid, gid);
   int in[2], out[2], err[2], life[2], status[2], ready[2];
-  if (pipe2(in, O_CLOEXEC) || pipe2(out, O_CLOEXEC) || pipe2(err, O_CLOEXEC) || pipe2(life, O_CLOEXEC) || pipe2(status, O_CLOEXEC) || pipe2(ready, O_CLOEXEC)) return 2;
+  if ((terminal_columns ? terminal_pipes(in, out, err) : (pipe2(in, O_CLOEXEC) || pipe2(out, O_CLOEXEC) || pipe2(err, O_CLOEXEC))) || pipe2(life, O_CLOEXEC) || pipe2(status, O_CLOEXEC) || pipe2(ready, O_CLOEXEC)) return 2;
   if (nonblocking(in[1])) return 2;
   pid_t init = fork(); if (init < 0) return 2;
   if (!init) init_process(argv, in, out, err, life, status, ready);
@@ -253,7 +289,7 @@ static int run_owned(char **argv, unsigned int grace, pid_t controller) {
   }
   close(ready[0]); message('R', "linux-pid-namespace");
   struct input_queue input = { .fd = in[1] };
-  int stopping = 0, reaped = 0, output_open = 1, error_open = 1, control_open = 1, root_result = 0, have_result = 0;
+  int stopping = 0, reaped = 0, output_open = 1, error_open = !terminal_columns, control_open = 1, root_result = 0, have_result = 0;
   uint64_t deadline = 0;
   while (!reaped || output_open || error_open) {
     struct pollfd fds[4] = {{control_open ? 0 : -1, POLLIN | POLLHUP, 0}, {output_open ? out[0] : -1, POLLIN | POLLHUP, 0}, {error_open ? err[0] : -1, POLLIN | POLLHUP, 0}, {input.size ? input.fd : -1, POLLOUT, 0}};
@@ -261,6 +297,7 @@ static int run_owned(char **argv, unsigned int grace, pid_t controller) {
     if (fds[0].revents & (POLLIN | POLLHUP)) {
       uint32_t size; int kind = read_frame(&size);
       if (kind == 'I' || kind == 'E') { if (queue_input(&input, kind, size)) { message('X', "Invalid or failed queued stdin frame"); break; } }
+      else if (kind == 'W') { if (terminal_control(size)) { message('X', "Terminal resize failed"); break; } }
       else if (kind == 'S' || kind < 0) {
         if (!stopping && !reaped) { (void)kill(init, SIGUSR1); deadline = millis() + (kind < 0 ? 0 : grace); stopping = 1; }
         if (kind < 0) control_open = 0;
@@ -269,7 +306,7 @@ static int run_owned(char **argv, unsigned int grace, pid_t controller) {
     for (int i = 1; i < 3; i++) if (fds[i].revents & (POLLIN | POLLHUP)) {
       unsigned char bytes[32768]; ssize_t n = read(fds[i].fd, bytes, sizeof(bytes));
       if (n > 0) { if (frame(i == 1 ? 'O' : 'B', bytes, (uint32_t)n)) { (void)kill(init, SIGKILL); } }
-      else if (n == 0) { close(fds[i].fd); if (i == 1) output_open = 0; else error_open = 0; }
+      else if (n == 0 || (terminal_columns && i == 1 && n < 0 && errno == EIO)) { close(fds[i].fd); if (i == 1) output_open = 0; else error_open = 0; }
       else if (errno != EINTR) { message('X', "Owned stream read failed"); break; }
     }
     if (fds[3].revents & (POLLOUT | POLLERR | POLLHUP))
@@ -348,12 +385,18 @@ static int run_owned(char **argv, unsigned int grace, pid_t controller) {
   }
   close(ready[0]);
   int in[2], out[2], err[2];
-  if (mac_pipe(in) || mac_pipe(out) || mac_pipe(err)) return 2;
+  if (terminal_columns ? terminal_pipes(in, out, err) : (mac_pipe(in) || mac_pipe(out) || mac_pipe(err))) return 2;
+  if (terminal_columns) {
+    /* The helper is the private session leader, while the live anchor pins its
+     * foreground group. The target joins that group atomically at spawn. */
+    signal(SIGTTOU, SIG_IGN);
+    if (ioctl(in[0], TIOCSCTTY, 0) || tcsetpgrp(in[0], anchor)) { message('X', "Owned macOS controlling terminal could not be established"); return 2; }
+  }
   if (nonblocking(in[1])) return 2;
   posix_spawnattr_t attributes; posix_spawn_file_actions_t actions;
   if (posix_spawnattr_init(&attributes) || posix_spawn_file_actions_init(&actions)) return 2;
   sigset_t defaults, mask; sigemptyset(&defaults); sigemptyset(&mask);
-  sigaddset(&defaults, SIGTERM); sigaddset(&defaults, SIGINT); sigaddset(&defaults, SIGPIPE); sigaddset(&defaults, SIGHUP); sigaddset(&defaults, SIGQUIT);
+  sigaddset(&defaults, SIGTERM); sigaddset(&defaults, SIGINT); sigaddset(&defaults, SIGPIPE); sigaddset(&defaults, SIGHUP); sigaddset(&defaults, SIGQUIT); sigaddset(&defaults, SIGTTOU);
   short flags = POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK;
 #ifdef POSIX_SPAWN_CLOEXEC_DEFAULT
   flags |= POSIX_SPAWN_CLOEXEC_DEFAULT;
@@ -374,7 +417,7 @@ static int run_owned(char **argv, unsigned int grace, pid_t controller) {
   }
   message('R', "macos-session-group");
   struct input_queue input = { .fd = in[1] };
-  int stopping = 0, forced = 0, root_reaped = 0, output_open = 1, error_open = 1, control_open = 1, result_sent = 0, anchor_lost = 0;
+  int stopping = 0, forced = 0, root_reaped = 0, output_open = 1, error_open = !terminal_columns, control_open = 1, result_sent = 0, anchor_lost = 0;
   uint64_t deadline = 0, drain_deadline = 0;
   while (1) {
     if (!root_reaped) {
@@ -406,6 +449,7 @@ static int run_owned(char **argv, unsigned int grace, pid_t controller) {
     if (fds[0].revents & (POLLIN | POLLHUP)) {
       uint32_t size; int kind = read_frame(&size);
       if (kind == 'I' || kind == 'E') { if (queue_input(&input, kind, size)) { message('U', "macOS queued stdin frame failed; retain scratch"); break; } }
+      else if (kind == 'W') { if (terminal_control(size)) { message('U', "macOS terminal resize failed; retain scratch"); break; } }
       else if (kind == 'S' || kind < 0) {
         if (!stopping) {
           if (mac_signal_group(anchor, &reaped, SIGTERM)) anchor_lost = 1;
@@ -417,7 +461,7 @@ static int run_owned(char **argv, unsigned int grace, pid_t controller) {
     for (int i = 1; i < 3; i++) if (fds[i].revents & (POLLIN | POLLHUP)) {
       unsigned char bytes[32768]; ssize_t n = read(fds[i].fd, bytes, sizeof(bytes));
       if (n > 0) { if (frame(i == 1 ? 'O' : 'B', bytes, (uint32_t)n)) { stopping = 1; deadline = 0; } }
-      else if (n == 0) { close(fds[i].fd); if (i == 1) output_open = 0; else error_open = 0; }
+      else if (n == 0 || (terminal_columns && i == 1 && n < 0 && errno == EIO)) { close(fds[i].fd); if (i == 1) output_open = 0; else error_open = 0; }
       else if (errno != EINTR) { message('U', "macOS stream inspection failed; retain scratch"); anchor_lost = 1; }
     }
     if (fds[3].revents & (POLLOUT | POLLERR | POLLHUP))
@@ -433,6 +477,24 @@ static int run_owned(char **argv, unsigned int grace, pid_t controller) {
 }
 #else
 static volatile LONG output_failed = 0;
+struct terminal_input {
+  HANDLE pipe, ready;
+  volatile LONG closed, pending;
+  uint32_t size; unsigned char bytes[32768];
+};
+static DWORD WINAPI pump_terminal_input(void *argument) {
+  struct terminal_input *input = argument;
+  while (WaitForSingleObject(input->ready, INFINITE) == WAIT_OBJECT_0) {
+    if (input->closed) break;
+    int failed = write_all(input->pipe, input->bytes, input->size);
+    InterlockedExchange(&input->pending, 0);
+    if (message('A', "") || failed) break;
+  }
+  CloseHandle(input->pipe); return 0;
+}
+static DWORD WINAPI close_terminal(void *argument) {
+  ClosePseudoConsole((HPCON)argument); return 0;
+}
 struct pump { HANDLE source; unsigned char kind; };
 static DWORD WINAPI pump_output(void *argument) {
   struct pump *p = argument; unsigned char bytes[32768]; DWORD count;
@@ -476,42 +538,59 @@ static int run_owned_windows(int argc, wchar_t **argv, unsigned int grace) {
   if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof(limits))) { CloseHandle(job); return 2; }
   SECURITY_ATTRIBUTES security = { sizeof(security), NULL, TRUE };
   HANDLE input_read = NULL, input_write = NULL, output_read = NULL, output_write = NULL, error_read = NULL, error_write = NULL;
-  if (!CreatePipe(&input_read, &input_write, &security, 0) || !CreatePipe(&output_read, &output_write, &security, 0) || !CreatePipe(&error_read, &error_write, &security, 0)) { CloseHandle(job); return 2; }
-  if (!SetHandleInformation(input_write, HANDLE_FLAG_INHERIT, 0) || !SetHandleInformation(output_read, HANDLE_FLAG_INHERIT, 0) || !SetHandleInformation(error_read, HANDLE_FLAG_INHERIT, 0)) { CloseHandle(job); return 2; }
+  if (!CreatePipe(&input_read, &input_write, &security, 0) || !CreatePipe(&output_read, &output_write, &security, 0) ||
+      (!terminal_columns && !CreatePipe(&error_read, &error_write, &security, 0))) { CloseHandle(job); return 2; }
+  if (!SetHandleInformation(input_write, HANDLE_FLAG_INHERIT, 0) || !SetHandleInformation(output_read, HANDLE_FLAG_INHERIT, 0) ||
+      (!terminal_columns && !SetHandleInformation(error_read, HANDLE_FLAG_INHERIT, 0))) { CloseHandle(job); return 2; }
+  HPCON terminal = NULL;
+  if (terminal_columns) {
+    COORD dimensions = { (SHORT)terminal_columns, (SHORT)terminal_rows };
+    if (FAILED(CreatePseudoConsole(dimensions, input_read, output_write, 0, &terminal))) {
+      message('X', "Owned ConPTY creation failed; no inherited terminal fallback"); CloseHandle(job); return 2;
+    }
+  }
   SIZE_T size = 0; InitializeProcThreadAttributeList(NULL, 2, 0, &size);
   LPPROC_THREAD_ATTRIBUTE_LIST attributes = malloc(size);
   HANDLE inherited[3] = {input_read, output_write, error_write};
   if (!attributes || !InitializeProcThreadAttributeList(attributes, 2, 0, &size) ||
       !UpdateProcThreadAttribute(attributes, 0, PROC_THREAD_ATTRIBUTE_JOB_LIST, &job, sizeof(job), NULL, NULL) ||
-      !UpdateProcThreadAttribute(attributes, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inherited, sizeof(inherited), NULL, NULL)) {
+      !(terminal_columns ? UpdateProcThreadAttribute(attributes, 0, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, terminal, sizeof(terminal), NULL, NULL) :
+        UpdateProcThreadAttribute(attributes, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inherited, sizeof(inherited), NULL, NULL))) {
     message('X', "Atomic Windows job assignment unavailable; no suspended-process fallback"); CloseHandle(job); return 2;
   }
   /* A private helper console permits best-effort CTRL_BREAK to the owned
    * process group without broadcasting to the controller or other processes. */
-  FreeConsole(); BOOL console = AllocConsole();
+  FreeConsole(); BOOL console = terminal_columns ? FALSE : AllocConsole();
   if (console) { HWND window = GetConsoleWindow(); if (window) ShowWindow(window, SW_HIDE); }
   STARTUPINFOEXW startup; memset(&startup, 0, sizeof(startup)); startup.StartupInfo.cb = sizeof(startup);
-  startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+  startup.StartupInfo.dwFlags = terminal_columns ? 0 : STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
   startup.StartupInfo.wShowWindow = SW_HIDE; startup.StartupInfo.hStdInput = input_read;
   startup.StartupInfo.hStdOutput = output_write; startup.StartupInfo.hStdError = error_write; startup.lpAttributeList = attributes;
   PROCESS_INFORMATION process; memset(&process, 0, sizeof(process));
   wchar_t *line = command_line(argc, argv);
-  BOOL created = line && CreateProcessW(argv[0], line, NULL, NULL, TRUE,
-      EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_PROCESS_GROUP, NULL, NULL, &startup.StartupInfo, &process);
+  BOOL created = line && CreateProcessW(argv[0], line, NULL, NULL, terminal_columns ? FALSE : TRUE,
+      EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | (terminal_columns ? 0 : CREATE_NEW_PROCESS_GROUP), NULL, NULL, &startup.StartupInfo, &process);
   DWORD creation_error = created ? 0 : GetLastError(); free(line); DeleteProcThreadAttributeList(attributes); free(attributes);
-  CloseHandle(input_read); CloseHandle(output_write); CloseHandle(error_write);
+  CloseHandle(input_read); CloseHandle(output_write); if (error_write) CloseHandle(error_write);
   if (!created) {
     char reason[128]; snprintf(reason, sizeof(reason), "spawn-error:Atomic job launch failed (%lu)", (unsigned long)creation_error); message('F', reason);
     DWORD active;
     if (!active_processes(job, &active) && active == 0) message('D', "windows-job");
+    if (terminal) ClosePseudoConsole(terminal);
     CloseHandle(job); return 0;
   }
   CloseHandle(process.hThread);
   BOOL member = FALSE;
   if (!IsProcessInJob(process.hProcess, job, &member) || !member) { CloseHandle(job); message('X', "Atomic job membership not established"); return 2; }
   struct pump output = { output_read, 'O' }, error = { error_read, 'B' };
-  HANDLE pumps[2] = {CreateThread(NULL, 0, pump_output, &output, 0, NULL), CreateThread(NULL, 0, pump_output, &error, 0, NULL)};
-  if (!pumps[0] || !pumps[1]) { CloseHandle(job); return 2; }
+  HANDLE pumps[2] = {CreateThread(NULL, 0, pump_output, &output, 0, NULL), terminal_columns ? NULL : CreateThread(NULL, 0, pump_output, &error, 0, NULL)};
+  if (!pumps[0] || (!terminal_columns && !pumps[1])) { CloseHandle(job); return 2; }
+  struct terminal_input terminal_input; memset(&terminal_input, 0, sizeof(terminal_input));
+  HANDLE input_pump = NULL;
+  if (terminal_columns) {
+    terminal_input.pipe = input_write; terminal_input.ready = CreateEventW(NULL, FALSE, FALSE, NULL);
+    if (!terminal_input.ready || !(input_pump = CreateThread(NULL, 0, pump_terminal_input, &terminal_input, 0, NULL))) { CloseHandle(job); return 2; }
+  }
   message('R', "windows-job");
   int stopping = 0, root_exited = 0, proven = 0; ULONGLONG deadline = 0; DWORD root_code = 1;
   while (1) {
@@ -519,9 +598,23 @@ static int run_owned_windows(int argc, wchar_t **argv, unsigned int grace) {
     if (!control || available) {
       uint32_t size; int kind = control ? read_frame(&size) : -1;
       if (kind == 'I') {
-        if (input_write && write_all(input_write, payload + 1, size)) { CloseHandle(input_write); input_write = NULL; }
-        if (message('A', "")) break;
-      } else if (kind == 'E' && input_write) { CloseHandle(input_write); input_write = NULL; }
+        if (terminal_columns) {
+          if (size > sizeof(terminal_input.bytes) || terminal_input.pending || terminal_input.closed || WaitForSingleObject(input_pump, 0) != WAIT_TIMEOUT) { message('X', "Invalid terminal input queue"); break; }
+          memcpy(terminal_input.bytes, payload + 1, size); terminal_input.size = size;
+          InterlockedExchange(&terminal_input.pending, 1); SetEvent(terminal_input.ready);
+        } else {
+          if (input_write && write_all(input_write, payload + 1, size)) { CloseHandle(input_write); input_write = NULL; }
+          if (message('A', "")) break;
+        }
+      } else if (kind == 'E' && input_write && !terminal_columns) { CloseHandle(input_write); input_write = NULL; }
+      else if (kind == 'W' && terminal_columns) {
+        if (size != 4) { message('X', "Invalid terminal resize frame"); break; }
+        unsigned int columns = payload[1] | (unsigned int)payload[2] << 8, rows = payload[3] | (unsigned int)payload[4] << 8;
+        COORD dimensions = { (SHORT)columns, (SHORT)rows };
+        if (!columns || columns > 32767 || !rows || rows > 32767 || FAILED(ResizePseudoConsole(terminal, dimensions)) || message('Z', "")) {
+          message('X', "Owned ConPTY resize failed"); break;
+        }
+      }
       else if (kind == 'S' || kind < 0) {
         if (!stopping) {
           if (console && WaitForSingleObject(process.hProcess, 0) == WAIT_TIMEOUT) (void)GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, process.dwProcessId);
@@ -540,9 +633,21 @@ static int run_owned_windows(int argc, wchar_t **argv, unsigned int grace) {
       if (!TerminateJobObject(job, 137)) { message('X', "Owned job termination failed"); break; }
     Sleep(10);
   }
+  if (input_pump) {
+    InterlockedExchange(&terminal_input.closed, 1); SetEvent(terminal_input.ready); CancelSynchronousIo(input_pump);
+    if (WaitForSingleObject(input_pump, 5000) != WAIT_OBJECT_0) { message('X', "Owned terminal input did not settle"); CloseHandle(job); return 2; }
+    CloseHandle(input_pump); CloseHandle(terminal_input.ready); input_write = NULL;
+  }
   if (input_write) CloseHandle(input_write);
   if (!proven) { CloseHandle(job); return 2; }
-  if (WaitForMultipleObjects(2, pumps, TRUE, 5000) != WAIT_OBJECT_0) { message('X', "Owned output did not settle after empty job proof"); CloseHandle(job); return 2; }
+  if (terminal) {
+    /* Keep draining output on its own thread while ClosePseudoConsole waits
+     * on older Windows. A bounded failure remains unknown, never release. */
+    HANDLE closer = CreateThread(NULL, 0, close_terminal, terminal, 0, NULL);
+    if (!closer || WaitForSingleObject(closer, 5000) != WAIT_OBJECT_0) { message('X', "Owned ConPTY close did not settle"); CloseHandle(job); return 2; }
+    CloseHandle(closer);
+  }
+  if (WaitForMultipleObjects(terminal_columns ? 1 : 2, pumps, TRUE, 5000) != WAIT_OBJECT_0) { message('X', "Owned output did not settle after empty job proof"); CloseHandle(job); return 2; }
   /* Empty job accounting can precede the process object's termination signal.
    * Keep the original handle, bound its settlement, then query its final code. */
   DWORD root_wait = WaitForSingleObject(process.hProcess, 5000);
@@ -552,7 +657,7 @@ static int run_owned_windows(int argc, wchar_t **argv, unsigned int grace) {
     message('X', reason); CloseHandle(job); return 2;
   }
   if (!GetExitCodeProcess(process.hProcess, &root_code) || output_failed) { message('X', "Owned root result/output verification failed after signalled handle"); CloseHandle(job); return 2; }
-  CloseHandle(pumps[0]); CloseHandle(pumps[1]); CloseHandle(output_read); CloseHandle(error_read);
+  CloseHandle(pumps[0]); if (pumps[1]) CloseHandle(pumps[1]); CloseHandle(output_read); if (error_read) CloseHandle(error_read);
   char result[64]; snprintf(result, sizeof(result), "exit:%lu", (unsigned long)root_code); message('F', result);
   /* This handle identifies the same job created before launch, with breakaway
    * disabled. No PID scan, parent-exit inference or elapsed-time empty claim. */
@@ -562,12 +667,20 @@ static int run_owned_windows(int argc, wchar_t **argv, unsigned int grace) {
 
 #ifndef _WIN32
 int main(int argc, char **argv) {
-  if (argc < 7 || strcmp(argv[1], "--controller") || strcmp(argv[3], "--grace") || strcmp(argv[5], "--")) return 2;
+  if (argc < 7 || strcmp(argv[1], "--controller") || strcmp(argv[3], "--grace")) return 2;
   char *end; long controller = strtol(argv[2], &end, 10); if (*end || controller < 1 || controller > INT_MAX) return 2;
   long grace = strtol(argv[4], &end, 10); if (*end || grace < 0 || grace > 60000) return 2;
+  int target = 6;
+  if (!strcmp(argv[5], "--terminal")) {
+    if (argc < 10) return 2;
+    long columns = strtol(argv[6], &end, 10); if (*end || columns < 1 || columns > 32767) return 2;
+    long rows = strtol(argv[7], &end, 10); if (*end || rows < 1 || rows > 32767) return 2;
+    terminal_columns = (unsigned int)columns; terminal_rows = (unsigned int)rows; target = 9;
+  }
+  if (strcmp(argv[target - 1], "--")) return 2;
   signal(SIGPIPE, SIG_IGN);
   uint32_t size; if (read_frame(&size) != 'L' || size) return 2;
-  return run_owned(argv + 6, (unsigned int)grace, (pid_t)controller);
+  return run_owned(argv + target, (unsigned int)grace, (pid_t)controller);
 }
 #endif
 
@@ -575,9 +688,17 @@ int main(int argc, char **argv) {
 int wmain(int argc, wchar_t **argv) {
   InitializeCriticalSection(&output_lock);
   control_input = GetStdHandle(STD_INPUT_HANDLE); control_output = GetStdHandle(STD_OUTPUT_HANDLE);
-  if (argc < 7 || wcscmp(argv[1], L"--controller") || wcscmp(argv[3], L"--grace") || wcscmp(argv[5], L"--")) return 2;
+  if (argc < 7 || wcscmp(argv[1], L"--controller") || wcscmp(argv[3], L"--grace")) return 2;
   wchar_t *end; long grace = wcstol(argv[4], &end, 10); if (*end || grace < 0 || grace > 60000) return 2;
+  int target = 6;
+  if (!wcscmp(argv[5], L"--terminal")) {
+    if (argc < 10) return 2;
+    long columns = wcstol(argv[6], &end, 10); if (*end || columns < 1 || columns > 32767) return 2;
+    long rows = wcstol(argv[7], &end, 10); if (*end || rows < 1 || rows > 32767) return 2;
+    terminal_columns = (unsigned int)columns; terminal_rows = (unsigned int)rows; target = 9;
+  }
+  if (wcscmp(argv[target - 1], L"--")) return 2;
   uint32_t size; if (read_frame(&size) != 'L' || size) return 2;
-  return run_owned_windows(argc - 6, argv + 6, (unsigned int)grace);
+  return run_owned_windows(argc - target, argv + target, (unsigned int)grace);
 }
 #endif

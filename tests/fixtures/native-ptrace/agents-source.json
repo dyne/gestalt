@@ -1,0 +1,127 @@
+{
+  "acceptedCommit": "e98a4cd15f945a7749d02e071126a854376b93c0",
+  "remoteCheckoutCommit": "8827347387ee32e2c5bd7eb912f9b80185cdad45",
+  "equivalenceScope": "Only the complete15-file Org scripts subtree; no claim of whole-repository identity",
+  "files": [
+    {
+      "path": "plugins/gestalt/skills/org-plan/scripts/org-plan",
+      "gitMode": "100755",
+      "blobOid": "2d157a28d8db148fd51393ee61270467b53cea6b",
+      "bytes": 318,
+      "sha256": "cb768d4b6b5067e233238685b5e424d1808588dd890539eebeafa201f91003ee",
+      "physicalMode": "775"
+    },
+    {
+      "path": "plugins/gestalt/skills/org-plan/scripts/org-plan-cli.mjs",
+      "gitMode": "100644",
+      "blobOid": "6013ab126e2e87cd962c1baba2d19ef7a78935db",
+      "bytes": 6634,
+      "sha256": "61bcbc93edb318183e50b436da0c1917b796749914086aa887dcd9654cb21719",
+      "physicalMode": "664"
+    },
+    {
+      "path": "plugins/gestalt/skills/org-plan/scripts/org-plan-core.mjs",
+      "gitMode": "100644",
+      "blobOid": "31841f1511c042e2ee1189f9b63537b503f8c755",
+      "bytes": 256,
+      "sha256": "2502530e8789dea3f86af4f3be1ce3caa35801e3b351889a8dcb75b8f76072eb",
+      "physicalMode": "664"
+    },
+    {
+      "path": "plugins/gestalt/skills/org-plan/scripts/org-plan-effective-settings.mjs",
+      "gitMode": "100644",
+      "blobOid": "e7f3f8611b93e03e37f91688bfa3f596f2fba01d",
+      "bytes": 6697,
+      "sha256": "0aa7af2f4848b8cba23a5153aa0a9334ad96faffa24821bf69c91a29496707a9",
+      "physicalMode": "664"
+    },
+    {
+      "path": "plugins/gestalt/skills/org-plan/scripts/org-plan-executor-launch.mjs",
+      "gitMode": "100644",
+      "blobOid": "c86a31123ca1497b54baaae165e03fb7b0a8b3aa",
+      "bytes": 3885,
+      "sha256": "f843995b2dad42c0451e94409e56f9ac8ae47206d27bb7cfb1eedd1e6ba29bcd",
+      "physicalMode": "664"
+    },
+    {
+      "path": "plugins/gestalt/skills/org-plan/scripts/org-plan-files.mjs",
+      "gitMode": "100644",
+      "blobOid": "7496b7034021299300ae2b3798cc61ec445bb1e6",
+      "bytes": 1263,
+      "sha256": "da7e2fcbba6795331477ce5497e2495827d2c5f086accb2cc8bcd872f0762247",
+      "physicalMode": "664"
+    },
+    {
+      "path": "plugins/gestalt/skills/org-plan/scripts/org-plan-model-comparison.mjs",
+      "gitMode": "100644",
+      "blobOid": "bb166606cba7cde31e2f24067706ac1b41d7fb7b",
+      "bytes": 8043,
+      "sha256": "d39ed2e532d97d3fdb5320cb3b4f8c16ac733eeff87a271835a571806bd80585",
+      "physicalMode": "664"
+    },
+    {
+      "path": "plugins/gestalt/skills/org-plan/scripts/org-plan-model-policy.mjs",
+      "gitMode": "100644",
+      "blobOid": "17e28ddaf5b34fb39218209762d236a0cd46cf66",
+      "bytes": 4620,
+      "sha256": "6a17a13f330e469b092b2923cdd931e79a0f8538870611f84cacf71ea7b02a3a",
+      "physicalMode": "664"
+    },
+    {
+      "path": "plugins/gestalt/skills/org-plan/scripts/org-plan-model-schema.mjs",
+      "gitMode": "100644",
+      "blobOid": "a389dfbdd2d1981ca3bed194e5b615755d473941",
+      "bytes": 4005,
+      "sha256": "c5c6aaa272fb745ea41015709f1da16f426707c3c001f84739500be10a67b46a",
+      "physicalMode": "664"
+    },
+    {
+      "path": "plugins/gestalt/skills/org-plan/scripts/org-plan-parser.mjs",
+      "gitMode": "100644",
+      "blobOid": "5583fc9d768960999881161a9ed738ca9ef393ac",
+      "bytes": 14826,
+      "sha256": "c74d3c8e8ab261fbfb594dbf0c2f5df43c1feb2fe9af7a2c6e87cd5a2d962ef1",
+      "physicalMode": "664"
+    },
+    {
+      "path": "plugins/gestalt/skills/org-plan/scripts/org-plan-profile-defaults.mjs",
+      "gitMode": "100644",
+      "blobOid": "b65e1ce38b1fc3a609fea10940fa88c1b01e144f",
+      "bytes": 8983,
+      "sha256": "c3f177a265da56401246f7e8bd5d93c982645f9aa42fe05522edc21b659edae1",
+      "physicalMode": "664"
+    },
+    {
+      "path": "plugins/gestalt/skills/org-plan/scripts/org-plan-profiles.mjs",
+      "gitMode": "100644",
+      "blobOid": "2aa0771f0d78e6e3a4349d0f1f1952269f6f2888",
+      "bytes": 6867,
+      "sha256": "07c2963d1f72b3faff06b937c747c17d333fb3b1ffae0d10f045e0df6f040f4f",
+      "physicalMode": "664"
+    },
+    {
+      "path": "plugins/gestalt/skills/org-plan/scripts/org-plan-publication.mjs",
+      "gitMode": "100644",
+      "blobOid": "2930f5cbe6b0a1424f67074a02c0dfe2c9405969",
+      "bytes": 6047,
+      "sha256": "e4157a44444ef86755a62a77a84b7446a0a4062ced1c8b12e46d8d4ea3ef6c74",
+      "physicalMode": "664"
+    },
+    {
+      "path": "plugins/gestalt/skills/org-plan/scripts/org-plan-storage.mjs",
+      "gitMode": "100644",
+      "blobOid": "bb3f701467053128fdd0f83ce9f5e1829c2986eb",
+      "bytes": 14594,
+      "sha256": "b59f08bdf7a14afa8ec4779991bb7e38c23ce5f865c380a32c2fb26c1595a5ee",
+      "physicalMode": "664"
+    },
+    {
+      "path": "plugins/gestalt/skills/org-plan/scripts/org-plan-transitions.mjs",
+      "gitMode": "100644",
+      "blobOid": "2814217d9c00f30a6578a6931f95d153bd604dad",
+      "bytes": 11646,
+      "sha256": "da1029bb4bff46a45ba2fb1255bbaa4488f84276af5a56261cce0363ca7207d1",
+      "physicalMode": "664"
+    }
+  ]
+}

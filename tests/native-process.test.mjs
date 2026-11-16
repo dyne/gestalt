@@ -6,6 +6,7 @@ import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } fro
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { PassThrough } from 'node:stream';
 import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
 import { buildOwnedProcess } from '../scripts/build-owned-process.mjs';
@@ -46,11 +47,23 @@ function bounded(promise, label, milliseconds = 20000) {
     timer = setTimeout(() => reject(new Error(`${label}: fixture did not settle`)), milliseconds);
   })]).finally(() => clearTimeout(timer));
 }
-function collected() {
+function collected(terminalMode = false) {
   const events = [], out = [], err = []; let partial = '', ready;
   const reached = new Promise(resolve => { ready = resolve; });
   return { events, out, err, reached, streams: { stdin: input(), stdout: async bytes => {
     out.push(Buffer.from(bytes)); partial += Buffer.from(bytes).toString();
+    if (terminalMode) {
+      // ConPTY emits VT rendering commands rather than preserving pipe lines.
+      // These fixture events are flat JSON objects with short literal values.
+      partial = partial.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
+      for (;;) {
+        const start = partial.indexOf('{'), end = partial.indexOf('}', start);
+        if (start < 0 || end < 0) break;
+        const event = JSON.parse(partial.slice(start, end + 1)); partial = partial.slice(end + 1);
+        events.push(event); if (event.kind === 'tree-ready') ready();
+      }
+      return;
+    }
     for (;;) {
       const newline = partial.indexOf('\n'); if (newline < 0) break;
       const line = partial.slice(0, newline); partial = partial.slice(newline + 1);
@@ -63,11 +76,17 @@ function readyOrFailure(lease, reached, label) {
     throw new Error(`${label} precondition not reached: ${JSON.stringify(claim)}`);
   })]), label);
 }
-async function launchTree(t, behavior = 'resistant', mode = 'root', options = {}, nested = false) {
-  const token = randomUUID(), data = collected();
-  const lease = await new NativeOwnedProcesses(helper).launch(process.execPath, {
+function launch(t, executable, invocation, streams, options, terminalMode = false) {
+  const adapter = new NativeOwnedProcesses(helper);
+  if (!terminalMode) return adapter.launch(executable, invocation, streams, options);
+  const input = new PassThrough(); t.after(() => input.destroy());
+  return adapter.launchTerminal(executable, invocation, { input, output: streams.stdout }, { columns: 100, rows: 35 }, options);
+}
+async function launchTree(t, behavior = 'resistant', mode = 'root', options = {}, nested = false, terminalMode = false) {
+  const token = randomUUID(), data = collected(terminalMode);
+  const lease = await launch(t, process.execPath, {
     argv: [tree, mode, behavior, token], cwd: root, environment: { ...process.env, GESTALT_OWNED_FIXTURE: token, ...(nested ? { GESTALT_NESTED_HELPER: helper } : {}) },
-  }, data.streams, options);
+  }, data.streams, options, terminalMode);
   t.after(async () => { await bounded(lease.stop(), 'owned cleanup'); });
   await readyOrFailure(lease, data.reached, 'tree readiness');
   return { token, data, lease };
@@ -275,9 +294,15 @@ test('stale lease recovery stays unknown and cannot authorize a signal against a
   assert.equal(recoveredOwnershipClaim(first.lease.id).kind, 'unknown'); await first.lease.stop();
   assert.equal(replacement.lease.claim().kind, 'active'); assert.equal((await replacement.lease.stop()).kind, 'released');
 });
-test('abrupt controller death closes the ownership lifetime channel and contains resistant descendants', native, async t => {
-  const untouched = await sentinel(t), token = randomUUID(), data = collected();
-  const child = spawn(process.execPath, [controller, helper, tree, token], { stdio: ['ignore', 'pipe', 'pipe', 'ipc'], env: process.env });
+test('owned terminal stop contains resistant detached descendants and leaves the non-owned sentinel untouched', native, async t => {
+  const untouched = await sentinel(t), { token, data, lease } = await launchTree(t, 'resistant', 'root', {}, false, true);
+  const absent = await observer(t, token, data.events);
+  assert.equal((await bounded(lease.stop(), 'owned terminal stop')).kind, 'released');
+  await absent(); untouched();
+});
+for (const terminalMode of [false, true]) test(`abrupt controller death closes the ownership lifetime channel and contains resistant descendants${terminalMode ? ' in an owned terminal' : ''}`, native, async t => {
+  const untouched = await sentinel(t), token = randomUUID(), data = collected(terminalMode);
+  const child = spawn(process.execPath, [controller, helper, tree, token], { stdio: ['ignore', 'pipe', 'pipe', 'ipc'], env: { ...process.env, GESTALT_TEST_OWNED_TERMINAL: terminalMode ? '1' : '' } });
   const exit = once(child, 'close'); child.stdout.on('data', bytes => { void data.streams.stdout(bytes); }); child.stderr.on('data', bytes => { data.err.push(bytes); });
   t.after(async () => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); await bounded(exit, 'controller cleanup'); });
   await bounded(Promise.race([data.reached, exit.then(() => { throw new Error(`Controller exited early: ${Buffer.concat(data.err)}`); })]), 'controller tree readiness');
@@ -298,16 +323,16 @@ test('controller crash during launch cannot leave a suspended or unattached mana
   }
   t.diagnostic('Atomic namespace/job attachment precedes target execution; actual controller was SIGKILLed during launch.');
 });
-test('a held output-consumer boundary makes cleanup deadline unknown and retains the lease after release', native, async t => {
+for (const terminalMode of [false, true]) test(`a held output-consumer boundary makes cleanup deadline unknown and retains the lease after release${terminalMode ? ' in an owned terminal' : ''}`, native, async t => {
   let release, held; const gate = new Promise(resolve => { release = resolve; }), reached = new Promise(resolve => { held = resolve; });
-  const data = collected(), token = randomUUID(); const original = data.streams.stdout;
+  const data = collected(terminalMode), token = randomUUID(), untouched = await sentinel(t); const original = data.streams.stdout;
   data.streams.stdout = async bytes => { await original(bytes); if (data.events.some(event => event.kind === 'tree-ready')) { held(); await gate; } };
-  const lease = await new NativeOwnedProcesses(helper).launch(process.execPath, { argv: [tree, 'root', 'resistant'], cwd: root, environment: { ...process.env, GESTALT_OWNED_FIXTURE: token } }, data.streams, { graceMs: 0, deadlineMs: 150 });
+  const lease = await launch(t, process.execPath, { argv: [tree, 'root', 'resistant'], cwd: root, environment: { ...process.env, GESTALT_OWNED_FIXTURE: token } }, data.streams, { graceMs: 0, deadlineMs: 150 }, terminalMode);
   t.after(async () => { release(); await bounded(lease.stop(), 'held fixture cleanup'); });
   try {
     await readyOrFailure(lease, reached, 'held output precondition'); const absent = await observer(t, token, data.events);
     const claim = await bounded(lease.stop(), 'deadline result'); assert.equal(claim.kind, 'unknown'); assert.match(claim.reason, /deadline/);
-    release(); await bounded(lease.completed, 'released output/closed native controller'); await absent(); assert.equal(lease.claim().kind, 'unknown');
+    release(); await bounded(lease.completed, 'released output/closed native controller'); await absent(); assert.equal(lease.claim().kind, 'unknown'); untouched();
   } finally { release(); }
 });
 test('stream-consumer failure loses verification and never turns into released after helper cleanup', native, async t => {
@@ -353,12 +378,12 @@ async function macControl(t) {
     environment: { ...process.env, GESTALT_MAC_FIXTURE_SOCKET: endpoint } };
 }
 
-test('macOS bounded stop observes its live group cleanup, preserves command result and keeps scratch unknown', macNative, async t => {
+for (const terminalMode of [false, true]) test(`macOS bounded stop observes its live group cleanup, preserves command result and keeps scratch unknown${terminalMode ? ' in an owned terminal' : ''}`, macNative, async t => {
   const control = await macControl(t), untouched = await sentinel(t); let lease;
   try {
-    lease = await new NativeOwnedProcesses(helper).launch(process.execPath, {
+    lease = await launch(t, process.execPath, {
       argv: [path.join(root, 'tests/fixtures/native-macos-group.mjs'), 'root', 'graceful', control.token], cwd: root, environment: control.environment,
-    }, emptyStreams());
+    }, emptyStreams(), {}, terminalMode);
     await readyOrFailure(lease, control.ready, 'actual Mac root/leaf readiness');
     assert.equal(control.clients.get('leaf').socket.destroyed, false);
     const first = lease.stop(); assert.equal(first, lease.stop());
@@ -369,11 +394,11 @@ test('macOS bounded stop observes its live group cleanup, preserves command resu
   } finally { if (lease) await bounded(lease.stop(), 'Mac stop finalizer'); await control.close(); }
 });
 
-test('macOS controller EOF attempts bounded live-group cleanup without claiming complete absence', macNative, async t => {
+for (const terminalMode of [false, true]) test(`macOS controller EOF attempts bounded live-group cleanup without claiming complete absence${terminalMode ? ' in an owned terminal' : ''}`, macNative, async t => {
   const control = await macControl(t); let child, closed;
   try {
     child = spawn(process.execPath, [controller, helper, path.join(root, 'tests/fixtures/native-macos-group.mjs'), control.token], {
-      env: control.environment, stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      env: { ...control.environment, GESTALT_TEST_OWNED_TERMINAL: terminalMode ? '1' : '' }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     });
     closed = once(child, 'close'); child.stdout.resume(); let error = ''; child.stderr.on('data', bytes => { error += bytes; });
     let recorded;
@@ -389,13 +414,13 @@ test('macOS controller EOF attempts bounded live-group cleanup without claiming 
   }
 });
 
-test('macOS detached survivor remains unknown with retained scratch and controlled independent teardown', macNative, async t => {
+for (const terminalMode of [false, true]) test(`macOS detached survivor remains unknown with retained scratch and controlled independent teardown${terminalMode ? ' in an owned terminal' : ''}`, macNative, async t => {
   const control = await macControl(t); let lease;
   try {
-    lease = await new NativeOwnedProcesses(helper).launch(process.execPath, {
+    lease = await launch(t, process.execPath, {
       argv: [path.join(root, 'tests/fixtures/native-macos-group.mjs'), 'root', 'graceful', control.token], cwd: root,
       environment: { ...control.environment, GESTALT_MAC_DETACH: '1' },
-    }, emptyStreams());
+    }, emptyStreams(), {}, terminalMode);
     await readyOrFailure(lease, control.ready, 'detached Mac leaf live precondition');
     assert.equal(control.clients.get('leaf').socket.destroyed, false);
     assert.equal((await bounded(lease.stop(), 'detached Mac stop')).kind, 'unknown');

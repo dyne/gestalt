@@ -77,6 +77,26 @@ export interface OwnedProcessPort {
   launch(executable: string, invocation: CommandInvocation, streams: CommandStreams,
     limits?: { readonly graceMs?: number; readonly deadlineMs?: number }): Promise<OwnedProcessLease>;
 }
+export interface TerminalSize {
+  readonly columns: number;
+  readonly rows: number;
+}
+/** Fresh owned terminal, with stdout/stderr merged by the terminal itself.
+ * Bytes include terminal echo and VT/control sequences. A finite input stream
+ * requests bounded stop after its queued bytes drain; it cannot half-close a
+ * terminal. Send control bytes explicitly for application-level EOF/interrupt.
+ */
+export interface OwnedTerminalStreams {
+  readonly input: AsyncIterable<Bytes>;
+  output(bytes: Bytes): Promise<void>;
+}
+export interface OwnedTerminalLease extends OwnedProcessLease {
+  resize(size: TerminalSize): Promise<void>;
+}
+export interface OwnedTerminalPort {
+  launchTerminal(executable: string, invocation: CommandInvocation, streams: OwnedTerminalStreams,
+    size: TerminalSize, limits?: { readonly graceMs?: number; readonly deadlineMs?: number }): Promise<OwnedTerminalLease>;
+}
 /** Fail closed if ownership/privacy cannot be proved, including Windows ACLs. */
 export interface PrivateStoragePort {
   assertPrivate(path: string, kind: 'file' | 'directory'): Promise<void>;

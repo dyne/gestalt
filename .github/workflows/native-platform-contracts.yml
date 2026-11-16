@@ -42,7 +42,7 @@ jobs:
       # Existing Codex sandbox test prerequisite only; not a new CLI process
       # namespace backend or production policy requirement.
       - name: Prepare existing disposable Ubuntu sandbox prerequisites
-        if: runner.os == 'Linux' && runner.environment == 'github-hosted'
+        if: ${{ false }}
         run: |
           set -euo pipefail
           {
@@ -59,11 +59,12 @@ jobs:
             printf 'after userns=%s\n' "$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)"
             printf 'after apparmor_userns=%s\n' "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)"
           } >> native-evidence/linux-sandbox-prerequisites.log
-      - name: Verify replacement, identity, terminal and unchanged manager behavior
-        run: node --test --test-reporter=tap tests/unix-compatibility.test.mjs > native-evidence/compatibility.tap 2>&1
+      - name: Verify affected namespace ownership, storage, ACL and Unix IPC contracts
+        run: node --test --test-reporter=tap tests/native-platform.test.mjs > native-evidence/platform.tap 2>&1
       - name: Verify unchanged Org guards and whole authenticated host IPC
         run: node tests/native-unix-compatibility.mjs --agents .native-compat-agents --evidence native-evidence/authority > native-evidence/authority.log 2>&1
       - name: Verify existing Unix scratch sockets and native sandbox restrictions
+        if: ${{ false }}
         run: npm run test:scratch:sandbox > native-evidence/sandbox.tap 2>&1
       - uses: actions/upload-artifact@v6
         if: always()

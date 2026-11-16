@@ -3,6 +3,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { createHash } from 'node:crypto';
 import { chmod, link, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import filesystem from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -14,6 +16,7 @@ import { NativeExecutables, forwardCommand } from '../src/cli/platform/executabl
 import { NativePrivateStorage } from '../src/cli/platform/storage.ts';
 import { NativeLocalIpc, localEndpoint } from '../src/cli/platform/ipc.ts';
 import { windowsSystem } from '../src/cli/platform/windows-system.ts';
+import { assertStableParents } from '../src/cli/platform/namespace.ts';
 
 const root = path.resolve(import.meta.dirname, '..');
 const windows = process.platform === 'win32';
@@ -443,4 +446,57 @@ test('Windows runner records a standard-user token for native acceptance', { ski
   const result = spawnSync(path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'), ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { encoding: 'utf8', timeout: 15000 });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /standard-user/);
+});
+
+async function withNamespaceObservations(t, observe, action) {
+  // Read-only unit observations; never chown/chmod real ancestors or bypass a
+  // NativePrivateStorage instance. Each named builtin binding is restored.
+  const mocked = t.mock.method(filesystem, 'lstat', async value => observe(String(value)));
+  syncBuiltinESMExports();
+  try { await action(); } finally { mocked.mock.restore(); syncBuiltinESMExports(); }
+}
+
+test('namespace owner guard refuses overflow-owned ancestors even when the visible filesystem root shares that UID', { skip: windows }, async t => {
+  const parent = path.join(path.parse(root).root, 'namespace-owner-observation');
+  await withNamespaceObservations(t, () => ({ uid: 65534, mode: 0o40755, isDirectory: () => true }), async () => {
+    await assert.rejects(assertStableParents(path.join(parent, 'private'), peerProbe), error => /Untrusted namespace parent/.test(error.message) && error.message.includes(parent));
+  });
+});
+
+test('namespace owner guard does not promote an overflow current UID into a trusted principal', { skip: windows }, async t => {
+  const parent = path.join(path.parse(root).root, 'namespace-owner-observation');
+  const uid = t.mock.method(process, 'getuid', () => 65534);
+  try {
+    await withNamespaceObservations(t, value => ({ uid: value === parent ? 65534 : 0, mode: 0o40755, isDirectory: () => true }), async () => {
+      await assert.rejects(assertStableParents(path.join(parent, 'private'), peerProbe), error => /Untrusted namespace parent/.test(error.message) && error.message.includes(parent));
+    });
+  } finally { uid.mock.restore(); }
+});
+
+test('namespace owner guard preserves trusted root/current owners, sticky protection and directory checks', { skip: process.platform !== 'linux' }, async t => {
+  // Linux-only policy table: macOS additionally requires actual ACL inspection,
+  // exercised by the existing native ACL/storage cases rather than a fake probe.
+  const caller = process.getuid(), parent = '/namespace-owner-observation';
+  const cases = [
+    { uid: 0, mode: 0o40755, accepted: true }, { uid: caller, mode: 0o40700, accepted: true },
+    { uid: 0, mode: 0o41777, accepted: true }, { uid: caller, mode: 0o41777, accepted: true },
+    { uid: caller, mode: 0o40777 }, { uid: caller + 1, mode: 0o40755 },
+    { uid: caller + 1, mode: 0o41777 }, { uid: caller, mode: 0o100700, directory: false },
+    { uid: caller, mode: 0o40700, rootUid: 65534 },
+  ];
+  for (const value of cases) {
+    await withNamespaceObservations(t, current => current === parent ? { uid: value.uid, mode: value.mode, isDirectory: () => value.directory !== false } : { uid: value.rootUid ?? 0, mode: 0o40755, isDirectory: () => true }, async () => {
+      const checked = assertStableParents(path.join(parent, 'private'));
+      if (value.accepted) await checked; else await assert.rejects(checked, /Untrusted namespace parent/);
+    });
+  }
+  t.diagnostic(`controlled namespace owner/mode cases: ${cases.length}; no native macOS ACL claim`);
+});
+
+test('namespace owner guard checks the actual visible Unix root without allocating or repairing a namespace', { skip: windows }, async t => {
+  const systemRoot = path.parse(root).root, entry = await lstat(systemRoot);
+  t.diagnostic(JSON.stringify({ root: systemRoot, uid: entry.uid, caller: process.getuid(), mode: (entry.mode & 0o7777).toString(8) }));
+  const checked = assertStableParents(path.join(systemRoot, 'namespace-owner-observation-only'), peerProbe);
+  if (entry.uid === 65534) await assert.rejects(checked, /Untrusted namespace parent/);
+  else { assert.ok(entry.uid === 0 || entry.uid === process.getuid()); await checked; }
 });

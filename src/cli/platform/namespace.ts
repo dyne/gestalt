@@ -20,10 +20,12 @@ export async function assertStableParents(root: string, unixProbe?: string): Pro
     await windowsSystem({ operation: 'assert-namespace', paths: parents.map(value => path.toNamespacedPath(value)) });
     return;
   }
-  const systemOwner = (await lstat(path.parse(root).root)).uid;
   for (const current of parents) {
     const entry = await lstat(current);
-    const trustedOwner = entry.uid === process.getuid?.() || entry.uid === systemOwner;
+    // A mapped filesystem root owner is not evidence of system authority.
+    // UID 65534 may represent unrelated unmapped principals; refuse it even
+    // when the caller itself has an unverifiable overflow identity.
+    const trustedOwner = entry.uid !== 65534 && (entry.uid === 0 || entry.uid === process.getuid?.());
     if (!entry.isDirectory() || !trustedOwner || ((entry.mode & 0o022) !== 0 && (entry.mode & 0o1000) === 0))
       throw new Error(`Untrusted namespace parent can redirect managed storage: ${current}`);
     if (process.platform === 'darwin') {

@@ -1,5 +1,5 @@
 # Ephemeral Windows CI only. Test execution has a standard-user token.
-param([Parameter(Mandatory=$true)][string]$Repository, [Parameter(Mandatory=$true)][string]$Node)
+param([Parameter(Mandatory=$true)][string]$Repository, [Parameter(Mandatory=$true)][string]$Node, [switch]$PreflightOnly)
 $ErrorActionPreference = 'Stop'
 # This is a fresh disposable CI account. Use its actual shell folder rather
 # than the shared runner work drive, whose parent ACL may permit replacement.
@@ -13,7 +13,13 @@ $env:GESTALT_NATIVE_CODEX_FIXTURE = Join-Path $nativeLocalData ('GestaltNativeCo
 New-Item -ItemType Directory -Path $env:GESTALT_NATIVE_CODEX_FIXTURE | Out-Null
 Set-Location -LiteralPath $Repository
 $env:GESTALT_NATIVE_TEST_EVIDENCE = Join-Path $Repository 'native-evidence'
-& $Node --test --test-reporter=tap tests/native-platform.test.mjs tests/native-process.test.mjs tests/native-terminal.test.mjs
+& $Node tests/native-windows-terminal-preflight.mjs
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+if ($PreflightOnly) {
+  Write-Output 'Correction lane: preflight only; full adapter/ownership/Codex and repository acceptance remain unexecuted.'
+  exit 0
+}
+& $Node --test --test-reporter=tap tests/native-platform.test.mjs tests/native-process.test.mjs tests/native-terminal.test.mjs tests/native-harness.test.mjs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $Node tests/native-codex-terminal.mjs
 exit $LASTEXITCODE

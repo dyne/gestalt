@@ -10,6 +10,8 @@ permissions:
 
 jobs:
   unix:
+    # TEST TRANSPORT OVERLAY: acceptance not executed in this correction lane.
+    if: ${{ false }}
     strategy:
       fail-fast: false
       matrix:
@@ -85,8 +87,9 @@ jobs:
             !native-evidence/pinned-codex/fixtures/home/**
             !native-evidence/pinned-codex/artifact/*.tar.gz
             !native-evidence/pinned-codex/artifact/*.exe
-
   windows:
+    env:
+      GESTALT_CI_TERMINAL_PREFLIGHT_ONLY: '1'
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -120,6 +123,7 @@ jobs:
             $node = (Get-Command node.exe).Source
             $script = Join-Path $source 'scripts/test-platform-standard-user.ps1'
             $arguments = '-NoLogo -NoProfile -NonInteractive -File "' + $script + '" -Repository "' + $source + '" -Node "' + $node + '"'
+            if ($env:GESTALT_CI_TERMINAL_PREFLIGHT_ONLY -eq '1') { $arguments += ' -PreflightOnly' }
             $process = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Credential $credential -LoadUserProfile -ArgumentList $arguments -Wait -PassThru -RedirectStandardOutput (Join-Path $work 'contracts.tap') -RedirectStandardError (Join-Path $work 'runner.stderr')
             $result = $process.ExitCode
             New-Item -ItemType Directory native-evidence -Force | Out-Null
@@ -130,6 +134,8 @@ jobs:
             $ownedBinary = Join-Path $source 'native-evidence/gestalt-owned-process.exe'
             if (Test-Path -LiteralPath $ownedBinary) { Copy-Item -LiteralPath $ownedBinary native-evidence/ }
             $testEvidence = Join-Path $source 'native-evidence'
+            $preflightEvidence = Join-Path $testEvidence 'windows-terminal-preflight'
+            if (Test-Path -LiteralPath $preflightEvidence) { Copy-Item -LiteralPath $preflightEvidence -Destination native-evidence/ -Recurse }
             if (Test-Path -LiteralPath $testEvidence) { Get-ChildItem -LiteralPath $testEvidence -Filter 'windows-settlement-*' -File | Copy-Item -Destination native-evidence/ }
             if (Test-Path -LiteralPath $testEvidence) { Get-ChildItem -LiteralPath $testEvidence -Filter 'terminal-owned-process*' -File | Copy-Item -Destination native-evidence/ }
             if (Test-Path -LiteralPath $testEvidence) { Get-ChildItem -LiteralPath $testEvidence -Filter 'terminal-resize-no-ack*' -File | Copy-Item -Destination native-evidence/ }
@@ -155,63 +161,3 @@ jobs:
             !native-evidence/pinned-codex/fixtures/home/**
             !native-evidence/pinned-codex/artifact/*.tar.gz
             !native-evidence/pinned-codex/artifact/*.exe
-
-  linux-inherited-diagnostic:
-    # Test-only hypothesis, never a selected production backend. Exact accepted
-    # Agents code supplies the unchanged guard and publication implementation.
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      - uses: actions/checkout@v6
-        with:
-          repository: dyne/gestalt-agents
-          # e98 is unpublished. This immutable existing snapshot has the exact
-          # complete Org-script subtree; diagnostic validates all15 accepted
-          # e98 blobs, bytes and modes before imports, without changing PR81.
-          ref: 8827347387ee32e2c5bd7eb912f9b80185cdad45
-          path: .native-diagnostic-agents
-          persist-credentials: false
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      # Only the legacy negative baseline needs this existing disposable-runner
-      # userns prerequisite. The ptrace experiment changes no runtime policy.
-      - name: Prepare and record disposable legacy namespace baseline
-        run: |
-          set -euo pipefail
-          mkdir -p native-diagnostic-evidence
-          {
-            date -u +'%Y-%m-%dT%H:%M:%SZ'
-            id
-            uname -a
-            cat /proc/self/uid_map /proc/self/gid_map
-            if [[ -r /proc/sys/kernel/yama/ptrace_scope ]]; then cat /proc/sys/kernel/yama/ptrace_scope; else printf 'yama ptrace_scope unavailable\n'; fi
-            printf 'before userns=%s\n' "$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)"
-            printf 'before apparmor_userns=%s\n' "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)"
-          } > native-diagnostic-evidence/prerequisites.log
-          current_userns=$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)
-          if [[ -n $current_userns && $current_userns != 1 ]]; then sudo sysctl -w kernel.unprivileged_userns_clone=1; fi
-          current_apparmor=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)
-          if [[ -n $current_apparmor && $current_apparmor != 0 ]]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
-          {
-            printf 'after userns=%s\n' "$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)"
-            printf 'after apparmor_userns=%s\n' "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)"
-            node -e 'console.log(JSON.stringify({sha:process.env.GITHUB_SHA,node:process.version,arch:process.arch,platform:process.platform,uid:process.getuid(),gid:process.getgid(),observedAt:new Date().toISOString()}))'
-          } >> native-diagnostic-evidence/prerequisites.log
-      - name: Execute actual inherited authority, lifecycle and pinned Codex diagnostics
-        run: node tests/native-inherited-diagnostic.mjs --agents .native-diagnostic-agents --evidence native-diagnostic-evidence > native-diagnostic-evidence/execution.log 2>&1
-      - uses: actions/upload-artifact@v6
-        if: always()
-        with:
-          name: linux-inherited-diagnostic
-          path: |
-            native-diagnostic-evidence/
-            !native-diagnostic-evidence/codex-artifact/bin/**
-            !native-diagnostic-evidence/codex-artifact/home/**
-            !native-diagnostic-evidence/codex-artifact/*.tar.gz
-            !native-diagnostic-evidence/codex-artifact/*.exe

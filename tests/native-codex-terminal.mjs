@@ -2,7 +2,7 @@
 import path from 'node:path';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { buildOwnedProcess } from '../scripts/build-owned-process.mjs';
-import { pinnedCodex, exerciseCodexTerminal } from './fixtures/native-ptrace/codex.mjs';
+import { pinnedCodex, exerciseCodexTerminal } from './fixtures/native-runtime/codex.mjs';
 const root = path.resolve(import.meta.dirname, '..');
 const evidence = path.resolve(process.env.GESTALT_NATIVE_TEST_EVIDENCE ?? 'native-evidence', 'pinned-codex');
 await mkdir(evidence, { recursive: true, mode: 0o700 });

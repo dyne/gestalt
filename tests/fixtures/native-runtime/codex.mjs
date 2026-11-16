@@ -8,6 +8,7 @@ import { chmod, lstat, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { PassThrough, Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { fileURLToPath } from 'node:url';
 import { NativeOwnedProcesses } from '../../../src/cli/platform/processes.ts';
 
 const tag = 'rust-v0.164.0', commit = '6aaac694803004a63c6f393d153c96d22521a6b9';
@@ -47,31 +48,55 @@ export async function command(executable, argv, options = {}) {
     child.stdin.destroy();
   }
 }
-async function github(resource) {
-  const response = await fetch(`https://api.github.com/repos/openai/codex/${resource}`, { headers: { Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(30000) });
-  assert.equal(response.ok, true, `Official GitHub metadata ${resource}: ${response.status}`);
-  return response.json();
+export function verifyFrozenMetadata(metadata, name, sha256) {
+  assert.equal(metadata.mode, 'frozen-public-api-capture'); assert.equal(metadata.tag, tag); assert.equal(metadata.commit, commit);
+  assert.equal(metadata.reference.ref, `refs/tags/${tag}`); assert.equal(metadata.reference.object.type, 'tag');
+  assert.equal(metadata.reference.object.sha, 'fe3b29455488c2e189e43ad5526a107900c5e1b7');
+  assert.equal(metadata.resolved.type, 'commit'); assert.equal(metadata.resolved.sha, commit);
+  const asset = metadata.assets.find(a => a.name === name); assert.ok(asset, 'Pinned target absent from verified public metadata');
+  assert.equal(asset.publishedDigest, `sha256:${sha256}`, 'Frozen official artifact digest differs');
+  assert.equal(asset.url, `https://github.com/openai/codex/releases/download/${tag}/${name}`);
+  return asset;
+}
+export async function saveHttpFailure(response, directory, requestedUrl) {
+  const headers = {};
+  for (const key of ['date', 'server', 'content-type', 'retry-after', 'x-github-request-id', 'x-ratelimit-limit', 'x-ratelimit-remaining', 'x-ratelimit-reset', 'x-ratelimit-resource']) {
+    const value = response.headers.get(key); if (value !== null) headers[key] = value;
+  }
+  const chunks = []; let size = 0, truncated = false;
+  if (response.body) {
+    const reader = response.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read(); if (done) break;
+      const remaining = 65536 - size; chunks.push(Buffer.from(value.subarray(0, remaining))); size += Math.min(value.length, remaining);
+      if (value.length >= remaining) { truncated = true; await reader.cancel(); break; }
+    }
+  }
+  const safeUrl = value => { const u = new URL(value); return `${u.origin}${u.pathname}`; };
+  const record = { requestedUrl: safeUrl(requestedUrl), responseUrl: safeUrl(response.url || requestedUrl), status: response.status,
+    statusText: response.statusText, headers, body: Buffer.concat(chunks).toString(), bodyBytesCaptured: size, bodyTruncated: truncated,
+    cause: 'HTTP failure observed; rate-limit or other cause is not inferred without supporting headers/body', observedAt: new Date().toISOString() };
+  const file = path.join(directory, 'download-http-failure.json'); await writeFile(file, JSON.stringify(record, null, 2) + '\n'); return file;
 }
 export async function pinnedCodex(directory, { homeDirectory } = {}) {
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const target = assets[`${process.platform}-${process.arch}`]; assert.ok(target, 'Unverified Codex test target');
   const [name, sha256] = target;
-  const reference = await github(`git/ref/tags/${tag}`);
-  const resolved = reference.object.type === 'tag' ? (await github(`git/tags/${reference.object.sha}`)).object : reference.object;
-  assert.equal(resolved.type, 'commit'); assert.equal(resolved.sha, commit);
-  const release = await github(`releases/tags/${tag}`), asset = release.assets.find(a => a.name === name);
-  assert.ok(asset); assert.equal(asset.digest, `sha256:${sha256}`);
-  assert.equal(asset.browser_download_url, `https://github.com/openai/codex/releases/download/${tag}/${name}`);
+  const metadataPath = fileURLToPath(new URL('./codex-release.json', import.meta.url));
+  const metadata = JSON.parse(await readFile(metadataPath, 'utf8')), asset = verifyFrozenMetadata(metadata, name, sha256);
   const archive = path.join(directory, name);
   try { assert.equal((await digest(archive)).sha256, sha256); }
   catch (error) {
     if (error.code !== 'ENOENT') throw error;
-    const response = await fetch(asset.browser_download_url, { signal: AbortSignal.timeout(180000) });
-    assert.equal(response.ok, true, `Official artifact download ${response.status}`);
+    // No metadata API call or CI credential crosses the standard-user boundary.
+    // Artifact redirects are anonymous and every response is bound to fixed SHA.
+    const response = await fetch(asset.url, { signal: AbortSignal.timeout(180000) });
+    if (!response.ok) { const failure = await saveHttpFailure(response, directory, asset.url); throw Error(`Official artifact download ${response.status}; ${failure}`); }
     const hash = createHash('sha256');
     await pipeline(Readable.fromWeb(response.body), new Transform({ transform(chunk, _, done) { hash.update(chunk); done(null, chunk); } }), createWriteStream(archive, { flags: 'wx', mode: 0o600 }));
     assert.equal(hash.digest('hex'), sha256);
   }
+  assert.equal((await lstat(archive)).size, asset.bytes);
   let binary = archive;
   if (process.platform !== 'win32') {
     const expected = name.slice(0, -'.tar.gz'.length), bin = path.join(directory, 'bin'); await mkdir(bin, { recursive: true, mode: 0o700 });
@@ -83,9 +108,10 @@ export async function pinnedCodex(directory, { homeDirectory } = {}) {
   const home = homeDirectory ?? path.join(directory, 'home'); await mkdir(home, { recursive: true, mode: 0o700 });
   const version = await command(binary, ['--version'], { env: isolatedEnvironment(home), cwd: directory });
   assert.equal(version.exit, 0, version.stderr); assert.match(version.stdout, /^codex-cli 0\.164\.0\s*$/);
-  const record = { tag, commit, reference, resolved, release: release.html_url, platform: process.platform, arch: process.arch,
+  const record = { tag, commit, reference: metadata.reference, resolved: metadata.resolved, release: metadata.release, platform: process.platform, arch: process.arch,
+    metadataVerification: { mode: metadata.mode, upstreamRechecked: false, capture: metadata.capture, sourceSnapshot: await digest(metadataPath) },
     source: `https://github.com/openai/codex/tree/${commit}`, license: `https://github.com/openai/codex/blob/${commit}/LICENSE`,
-    asset: { name, url: asset.browser_download_url, publishedDigest: asset.digest, ...await digest(archive) },
+    asset: { name, url: asset.url, publishedDigest: asset.publishedDigest, ...await digest(archive) },
     binary: await digest(binary), version, acquisition: 'isolated test artifact only; no host/global installation', observedAt: new Date().toISOString() };
   await writeFile(path.join(directory, 'artifact.json'), JSON.stringify(record, null, 2) + '\n');
   return { binary, home, record };

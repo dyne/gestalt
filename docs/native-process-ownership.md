@@ -53,93 +53,46 @@ independently of whether the application reads input. Windows ConPTY uses a
 separate input worker so a stalled console cannot block control handling;
 its output drains while bounded terminal close runs on another thread.
 
-The Linux terminal candidate currently uses the existing PID-namespace backend.
-That backend does **not** establish compatibility with inherited host authority:
-caller-only UID mapping can hide host-root owners, and host peer PIDs can be
-unrepresentable in its private PID namespace. Actual strict Org/storage guards
-and authenticated host IPC must be checked under any proposed replacement;
-terminal detection alone is insufficient. A host-namespace ptrace/seccomp
-prototype is being evaluated separately and is not selected by this adapter.
-In particular, tracing restricts nested debuggers and rejecting clone3 requires
-compatible legacy clone fallback; neither restriction is transparent parity.
+The core-first release preserves the existing Unix launch, sandbox, Org/IPC and
+cleanup implementations through its compatibility backend. The development
+Linux PID-namespace helper is not a compatible interactive runtime: caller-only
+UID mapping can hide host-root owners, and host peer PIDs can become
+unrepresentable. It must not wrap interactive Unix descendants. Selection of
+the established Unix consumer path is a separate integration step; this
+Windows diagnostic candidate does not claim that integration is complete.
+Direct-child compatibility execution supplies no managed complete-tree proof.
+Actual unknown managed lifetimes still retain resources.
 
-The explicit hosted diagnostic in `tests/native-inherited-diagnostic.mjs` keeps
-that prototype under `tests/fixtures/native-ptrace/`, outside the production
-build and package. It records the exact native compiler, source/binary digests,
-ABI and kernel observations. Its inherited seccomp filter rejects untraced
-clone flags, returns ENOSYS for clone3/x32 calls and kills mismatched compatibility
-ABI calls. No-new-privileges is inherited. The tracer uses only lifecycle stops,
-including automatic fork/vfork/clone attachment and nonleader exec, rather than
-syscall stepping or mutable syscall arguments. Its 1024-entry table is a bounded
-experiment, not a production task-capacity guarantee. Kernel denial refuses
-before the payload gate; tracer exit uses EXITKILL. Nested debuggers and
-clone3-only/compatibility binaries remain unresolved adoption restrictions.
+The experimental ptrace/seccomp diagnostic and exact pre-revision source have
+been archived, removed from the candidate fixtures and removed from CI. It is
+not a shipping backend or a release gate. There is no new Unix debugger/ABI
+restriction, delegated cgroup, broker or service requirement.
 
-Hosted checks distinguish unchanged whole Org publication and authenticated IPC
-from same-socket credential extraction, contrasting host/prototype execution
-with the legacy namespace's actual negative result. They verify all 15 accepted
-Agents Org scripts before imports. The accepted local commit and immutable
-remote checkout are recorded separately; only that complete script subtree has
-verified equivalent bytes/modes. Fixtures never publish a session's live plan.
-The pinned official Codex 0.164.0 artifact is checked against its release digest
-and source commit. Real sign-in choices, byte-pipe rejection, owned terminal
-input and an isolated sandbox command are observed without credentials or a
-model request. Downloaded Codex binaries remain disposable test artifacts;
-artifact records retain their official URL/digests while CI omits large cached
-binaries and private homes from uploads. Native ownership helper binaries and
-their source/compiler provenance remain retained. Unavailable host namespaces
-or fixed daemon-directory prerequisites fail the diagnostic, never waive it.
+Neutral fixed-asset helpers remain under `tests/fixtures/native-runtime/`.
+Canonical Git modes and executable semantics are checked separately from local
+umask bits; they never change the real Org/private-storage guard. Pinned Codex
+0.164.0 uses frozen official metadata and fixed published SHA256 values, with
+the original observation recorded separately from downloads. No live metadata
+API/token is needed. The terminal exercise observes actual sign-in choices
+without credentials or a model request.
 
-On Windows 10 or later the target is created atomically inside an unnamed Job
-Object with `PROC_THREAD_ATTRIBUTE_JOB_LIST`. This avoids the suspended-process
-gap before a later `AssignProcessToJobObject`. The job has kill-on-last-close and
-both breakaway options disabled. Only target stdin/stdout/stderr handles enter
-`PROC_THREAD_ATTRIBUTE_HANDLE_LIST`; the job and private control-pipe handles are
-not inherited. Controller-channel EOF stops the tree; a helper crash closes the
-last job handle. Nested-job failures refuse launch rather than requesting
-breakaway. A private helper console permits best-effort CTRL_BREAK to the owned
-group; escalation uses `TerminateJobObject`. Release requires successful active
-process accounting of zero on that same job handle, settled streams, and a
-signalled original root-process handle before querying its final result. Empty
-job accounting can precede that process object's termination signal; a bounded
-five-second same-handle wait bridges this gap. Wait timeout/failure retains
-unknown ownership. A successful helper exit is also required. Parent exit, `taskkill`, process-name
-matching and elapsed time are not release evidence. See Microsoft's
-[atomic job assignment](https://devblogs.microsoft.com/oldnewthing/20230209-00/?p=107812/)
-and [Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects).
+The explicit Windows preflight runs before the complete standard-user suite.
+It saves raw private-protocol stdout/stderr, independent Win32/Node target
+reports, actual three-descriptor terminal detection, token, dimensions,
+Unicode/control input, exit status and helper build provenance. Two isolated
+test-only variants change either the STARTUPINFO standard fields or the
+parent standard-handle table. They retain the Job ownership operations and
+never replace the production helper. Successful variants cannot satisfy a
+failing primary. Corrupt protocol is retained without resynchronizing it into
+release. Deadlines terminate only the actual owned helper; diagnostic teardown
+is recorded separately from a successful scenario.
 
-On Linux the helper creates new user/mount and PID namespaces, maps only the
-current UID/GID, sets no-new-privileges and mounts a private proc view. It refuses
-launch if these kernel operations are unavailable. A small namespace init starts
-the command and reaps its root; descendants may fork, create sessions/groups or
-enter nested namespaces and still belong to the enclosing PID namespace.
-Controller death kills the helper through `PR_SET_PDEATHSIG`; helper death kills
-namespace init. A private liveness pipe closes the pre-prctl race before target
-creation. Graceful stop signals within that private PID namespace; escalation
-kills its init. Release requires reaping that exact direct child. Linux's
-[`zap_pid_ns_processes`](https://github.com/torvalds/linux/blob/master/kernel/pid_namespace.c)
-disables PID allocation, kills and waits for remaining members before init can
-be reaped. No host process-group scan or PID existence check supplies this proof.
-Namespace support is a runtime prerequisite, not permission to change host
-settings or run an unconfined fallback. Managed processes cannot elevate
-credentials; inherited session scratch variables remain unchanged.
-
-Namespace creation alone is insufficient: policy must permit the capabilities
-needed for identity mapping and the private PID/proc setup. For example, Ubuntu
-can transition a newly created user namespace into an AppArmor profile that
-denies those operations. Refusals report the setup stage, errno, requested/current
-IDs, proc ownership and active policy; unknown results retain scratch. Runtime
-does not change sysctls, install profiles, or retry outside confinement. The
-disposable GitHub-hosted Ubuntu test job uses the same narrowly scoped userns
-prerequisite setup as the existing full-PR workflow and records before/after
-values. Evidence from that prepared runner does not establish support under a
-different production policy.
-
-These ownership units cover actual OS descendants. Work delegated to an existing
-external broker/service is outside that ancestry and requires its own lifetime
-contract; consumers cannot infer its absence from this lease. The adapter is a
-lifetime boundary, not a filesystem/network sandbox against arbitrary same-user
-or administrator interference.
+`scripts/test-platform-standard-user.ps1 -PreflightOnly` is an explicit
+correction lane. It reports the full suite/Codex acceptance as unexecuted; the
+default invocation still requires preflight, full native contracts and the
+pinned real Codex TUI. A manifested temporary CI overlay can select only the
+Windows correction job. Disabled repository/Unix jobs supply no acceptance
+evidence. Stable acceptance runs the full affected gates again.
 
 macOS uses the approved best-effort lifetime contract. The native helper creates
 a private session and keeps a dedicated group-anchor child alive. It uses

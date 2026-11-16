@@ -2,6 +2,7 @@
   "acceptedCommit": "e98a4cd15f945a7749d02e071126a854376b93c0",
   "remoteCheckoutCommit": "8827347387ee32e2c5bd7eb912f9b80185cdad45",
   "equivalenceScope": "Only the complete15-file Org scripts subtree; no claim of whole-repository identity",
+  "physicalModeMeaning": "Original local export observation only. Canonical checkout644/755 and local664/775 preserve exact Gitmode and executable bits; only the group-write umask delta is allowed and recorded. Real Org/storage guards remain unchanged.",
   "files": [
     {
       "path": "plugins/gestalt/skills/org-plan/scripts/org-plan",

@@ -19,7 +19,6 @@ const helper = path.join(artifacts, manifest.helper), provenance = JSON.parse(aw
 assert.equal(provenance.platform, 'win32'); assert.equal(provenance.architecture, process.arch);
 assert.equal(createHash('sha256').update(await readFile(helper)).digest('hex'), provenance.artifactSha256);
 assert.deepEqual(await verifyOwnershipBuildInputs(provenance, root), manifest.nativeHelperInputs);
-const outer = await mkdtemp(path.join(tmpdir(), 'storage-parity-')), storage = await NativePrivateStorage.open(path.join(outer, 'private'));
 const powershell = path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe');
 const script = path.join(root, 'tests/fixtures/native-storage-acl.ps1');
 function acl(file, operation = 'inspect', kind) {
@@ -29,7 +28,7 @@ function acl(file, operation = 'inspect', kind) {
   }); return JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/, ''));
 }
 const results = [], construction = [];
-let failure, expectedRequiredTests = null;
+let failure, expectedRequiredTests = null, storage = null, descriptorPreflight = null;
 async function check(name, file, operation, expected) {
   const before = acl(file), info = await lstat(file), content = info.isFile() ? await readFile(file) : null;
   const request = operation === 'assert-private' ? { operation, path: file } : { operation, paths: [path.toNamespacedPath(file)] };
@@ -49,6 +48,25 @@ async function check(name, file, operation, expected) {
   assert.equal(result.readonly, true, 'Guard mutated owner/group/DACL/data/mode: ' + name); result.pass = true;
 }
 try {
+  // Shared PowerShell builder constructs/serializes every fixed kind in memory
+  // before fixture ACL application or a native guard case is allowed to run.
+  const preflightCommand = spawnSync(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-File', script], {
+    env: { ...process.env, GESTALT_STORAGE_PARITY_REQUEST: Buffer.from(JSON.stringify({ operation: 'preflight' })).toString('base64') },
+    shell: false, windowsHide: true, timeout: 10000, maxBuffer: 65536,
+  });
+  const stdout = Buffer.from(preflightCommand.stdout ?? []), stderr = Buffer.from(preflightCommand.stderr ?? []);
+  await writeFile(path.join(evidence, 'descriptor-preflight-command.json'), JSON.stringify({ status: preflightCommand.status, signal: preflightCommand.signal,
+    error: preflightCommand.error?.message ?? null, stdoutBase64: stdout.toString('base64'), stderrBase64: stderr.toString('base64') }, null, 2));
+  descriptorPreflight = JSON.parse(stdout.toString('utf8').replace(/^\uFEFF/, ''));
+  await writeFile(path.join(evidence, 'descriptor-preflight.json'), JSON.stringify(descriptorPreflight, null, 2));
+  assert.equal(preflightCommand.error, undefined); assert.equal(preflightCommand.signal, null); assert.equal(preflightCommand.status, 0);
+  assert.equal(descriptorPreflight.kind, 'ordinary-windows-fixture-descriptor-construction'); assert.equal(descriptorPreflight.pass, true);
+  assert.equal(descriptorPreflight.plannedKinds, 7); assert.equal(descriptorPreflight.constructedKinds, 7); assert.equal(descriptorPreflight.failedKinds, 0);
+  assert.equal(descriptorPreflight.records.length, 7); assert.equal(new Set(descriptorPreflight.records.map(record => record.kind)).size, 7);
+  assert.equal(descriptorPreflight.declaredKinds.length, 7); assert.equal(new Set(descriptorPreflight.declaredKinds).size, 7);
+  assert.ok(descriptorPreflight.records.every(record => record.success === true && descriptorPreflight.declaredKinds.includes(record.kind)));
+  assert.equal(descriptorPreflight.skip, 0); assert.equal(descriptorPreflight.filesystemApplied, false); assert.equal(descriptorPreflight.nativeCasesExecuted, 0);
+  const outer = await mkdtemp(path.join(tmpdir(), 'storage-parity-')); storage = await NativePrivateStorage.open(path.join(outer, 'private'));
   for (const name of ['positive ü space', 'others-read', 'others-write', 'inherit-only', 'deny-read', 'null', 'empty', 'changing', 'junction-target']) {
     const file = path.join(storage.root, name); await mkdir(file);
     const before = acl(file), snapshot = acl(file, 'apply', name.startsWith('positive') || ['changing', 'junction-target'].includes(name) ? 'private' : name);
@@ -98,9 +116,9 @@ try {
 finally {
   await writeFile(path.join(evidence, 'result.json'), JSON.stringify({ kind: 'ordinary-windows-native-storage-read-parity', pass: !failure,
     tests: results.length, passed: results.filter(result => result.pass).length, failed: results.filter(result => !result.pass).length,
-    expectedRequiredTests, construction,
+    expectedRequiredTests, construction, descriptorPreflight,
     harnessFailures: failure && results.every(result => result.pass) ? 1 : 0,
-    skip: 0, failure: failure ?? null, results, fixture: storage.root, nativeHelper: provenance,
+    skip: 0, failure: failure ?? null, results, fixture: storage?.root ?? null, nativeHelper: provenance,
     optionalUNC: { executed: false, reason: 'No approved remote share fixture; no UNC support proof claimed' },
     scope: 'Required local NTFS cases cannot skip. Exact readonly DACL/owner/group/data/mode comparisons and fresh ACL mutation. No lifetime/kernel release claim.' }, null, 2) + '\n');
 }

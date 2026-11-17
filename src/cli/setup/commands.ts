@@ -3,7 +3,7 @@ import type { CommandHandler, OwnedProcessPort } from '../contracts.ts';
 import type { CliMetadata, CommandHandlers } from '../dispatch.ts';
 import { setupAgents } from './agents.ts';
 import { CommandFailure, optionalStat, setupPaths, SetupContext } from './context.ts';
-import { installMobile } from './mobile.ts';
+import { installMobile, mobileHostSupport } from './mobile.ts';
 import { updateManager } from './manager-update.ts';
 import { retireManagedConfiguration } from './retirement.mjs';
 import { restartWorker, scheduleRestart } from './restart.ts';
@@ -62,8 +62,43 @@ const defaults: SetupOperations = {
   component: async (_context, component) => { throw new Error(`native ${component} update is not available in this development artifact`); },
 };
 
+function deferredSelection(component: string, platform: NodeJS.Platform): string | undefined {
+  if (platform !== 'win32' || !['serena', 'playwright', 'mobile'].includes(component)) return;
+  const prerequisite = component === 'mobile' ? mobileHostSupport(platform).prerequisite
+    : `use an existing supported Unix Gestalt installation for ${component}`;
+  return `native ${component} support is deferred in this core release; ${prerequisite}`;
+}
+function requireSelection(component: string, platform: NodeJS.Platform): void {
+  const message = deferredSelection(component, platform);
+  if (message) throw new Error(message);
+}
+async function optionalMobile(context: SetupContext, operations: SetupOperations, platform: NodeJS.Platform): Promise<unknown> {
+  const support = mobileHostSupport(platform);
+  if (support.supported) return operations.mobile(context);
+  await context.log(`Mobile omitted: ${support.prerequisite}; Gestalt CLI and Agents remain available`);
+  return false;
+}
+async function deferredOmission(context: SetupContext, component: 'serena' | 'playwright', platform: NodeJS.Platform): Promise<void> {
+  await context.log(`${component === 'serena' ? 'Serena' : 'Playwright'} omitted: ${deferredSelection(component, platform)}`);
+}
+
+// Platform is an internal composition input, never a CLI/environment override.
+// Omitted callers retain the actual host policy and existing Unix operations.
+export async function runInstall(context: SetupContext, extra: boolean, operations: SetupOperations = defaults,
+  platform: NodeJS.Platform = process.platform): Promise<void> {
+  await context.prepareHomes();
+  await operations.skills(context, 'install');
+  await operations.agents(context, 'install', extra);
+  const mobile = await optionalMobile(context, operations, platform);
+  if (platform === 'win32') for (const component of ['serena', 'playwright'] as const)
+    await deferredOmission(context, component, platform);
+  await context.log(mobile === false ? "installation complete; run 'gestalt doctor', then 'gestalt cli'"
+    : "installation complete; run 'gestalt doctor', then 'gestalt cli' or 'gestalt mobile'");
+}
+
 export async function runUpdate(context: SetupContext, options: UpdateOptions, originalArgv: readonly string[],
-  resumed: boolean, operations: SetupOperations = defaults): Promise<boolean> {
+  resumed: boolean, operations: SetupOperations = defaults, platform: NodeJS.Platform = process.platform): Promise<boolean> {
+  requireSelection(options.component, platform);
   if (options.component === 'all' || options.component === 'gestalt') {
     if (await operations.manager(context, originalArgv, resumed)) return true;
     await context.prepareHomes();
@@ -72,13 +107,17 @@ export async function runUpdate(context: SetupContext, options: UpdateOptions, o
       await context.log(`Xerj retirement: ${notice} preserved; review legacy Xerj entries/processes manually, then retry update. User data and binaries are retained.`);
     await operations.skills(context, 'update');
     await operations.agents(context, 'upgrade', options.extra);
-    const mobile = await operations.mobile(context);
+    const mobile = await optionalMobile(context, operations, platform);
     const summary = mobile === false ? 'Agents, optional skills, and context-mode' : 'Agents, optional skills, Mobile, and context-mode';
     await context.log(context.environment.GESTALT_MANAGER_DISTRIBUTION === 'npm'
       ? `${summary} are up to date; update the manager with npm install -g @jaromil/gestalt@latest`
       : `manager, ${summary} are up to date`);
   }
   for (const component of ['serena', 'playwright'] as const) {
+    if (platform === 'win32') {
+      if (options.component === 'all') await deferredOmission(context, component, platform);
+      continue;
+    }
     if (options.component === component || (options.component === 'all' && await optionalStat(path.join(context.paths.gestaltHome, component, 'active.json'))))
       await operations.component(context, component);
     else if (options.component === 'all') await context.log(component === 'serena'
@@ -94,7 +133,19 @@ export interface ManagedSetup {
   unknown(): void;
 }
 export function createSetupHandlers(metadata: CliMetadata, operations: SetupOperations = defaults, resumed = false,
-  managed?: ManagedSetup): CommandHandlers {
+  managed?: ManagedSetup, platform: NodeJS.Platform = process.platform): CommandHandlers {
+  const selectionGuard = (handler: CommandHandler): CommandHandler => async (invocation, streams) => {
+    // Refuse named deferred actions before scratch validation, setup paths or
+    // context construction. Help and retired-option parsing retain their rules.
+    if (!invocation.argv.some(token => ['--help', '-h', 'xerj'].includes(token))) {
+      for (const token of invocation.argv) {
+        const component = token.startsWith('--component=') ? token.slice('--component='.length) : token;
+        const message = deferredSelection(component, platform);
+        if (message) { await streams.stderr(Buffer.from(`gestalt: ${message}. No profile or installation was changed.\n`)); return 1; }
+      }
+    }
+    return handler(invocation, streams);
+  };
   const wrap = (command: string, body: (context: SetupContext, argv: readonly string[]) => Promise<number>): CommandHandler => async (invocation, streams) => {
     let context: SetupContext | undefined;
     try {
@@ -121,35 +172,30 @@ export function createSetupHandlers(metadata: CliMetadata, operations: SetupOper
       if (argv.length !== 1 || !['install', 'update'].includes(argv[0]!)) throw new Error('usage: gestalt agents install|update');
       await operations.agents(context, argv[0] === 'install' ? 'install' : 'upgrade', false); return 0;
     }),
-    install: wrap('install', async (context, argv) => {
+    install: selectionGuard(wrap('install', async (context, argv) => {
       const options = parseSetupOptions(argv);
       if (options.help) { await context.streams.stdout(Buffer.from(metadata.help)); return 0; }
-      await context.prepareHomes();
-      await operations.skills(context, 'install');
-      await operations.agents(context, 'install', options.extra);
-      const mobile = await operations.mobile(context);
-      await context.log(mobile === false ? "installation complete; run 'gestalt doctor', then 'gestalt cli'"
-        : "installation complete; run 'gestalt doctor', then 'gestalt cli' or 'gestalt mobile'"); return 0;
-    }),
-    update: wrap('update', async (context, argv) => {
+      await runInstall(context, options.extra, operations, platform); return 0;
+    })),
+    update: selectionGuard(wrap('update', async (context, argv) => {
       const options = parseUpdateOptions(argv);
       if (options.help) { await context.streams.stdout(Buffer.from(metadata.help)); return 0; }
-      await runUpdate(context, options, ['update', ...argv], resumed, operations); return 0;
-    }),
-    'update-restart': wrap('update-restart', async (context, argv) => {
+      await runUpdate(context, options, ['update', ...argv], resumed, operations, platform); return 0;
+    })),
+    'update-restart': selectionGuard(wrap('update-restart', async (context, argv) => {
       const options = parseUpdateOptions(argv);
       if (options.help) { await context.streams.stdout(Buffer.from(metadata.help)); return 0; }
       await scheduleRestart(context, options.component, options.extra); return 0;
-    }),
+    })),
     '__updated-manager': async (invocation, streams) => {
       const [command, ...argv] = invocation.argv;
-      const handlers = createSetupHandlers(metadata, operations, true, managed);
+      const handlers = createSetupHandlers(metadata, operations, true, managed, platform);
       const handler = command && Object.hasOwn(handlers, command) ? handlers[command as keyof CommandHandlers] : undefined;
       if (!handler || command === '__updated-manager') { await streams.stderr(Buffer.from('gestalt: invalid updated-manager continuation\n')); return 1; }
       return handler({ ...invocation, argv }, streams);
     },
     '__update-restart-worker': wrap('__update-restart-worker', async (context, argv) =>
       restartWorker(context, argv, (worker, component, extra) => runUpdate(worker,
-        parseUpdateOptions([component, ...(extra ? ['--extra-skills'] : [])]), ['__update-restart-worker', ...argv], resumed, operations))),
+        parseUpdateOptions([component, ...(extra ? ['--extra-skills'] : [])]), ['__update-restart-worker', ...argv], resumed, operations, platform))),
   };
 }

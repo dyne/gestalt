@@ -1,31 +1,48 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { parse } from 'smol-toml';
-import { buildCli } from '../scripts/build-cli.mjs';
-import { buildNativePlatform } from '../scripts/build-native-platform.mjs';
-import { buildOwnedProcess } from '../scripts/build-owned-process.mjs';
 import { NativePrivateStorage } from '../src/cli/platform/storage.ts';
 import { CommandFailure, SetupContext } from '../src/cli/setup/context.ts';
 import { restartWorker } from '../src/cli/setup/restart.ts';
 import { updateManager } from '../src/cli/setup/manager-update.ts';
 import { capturedNodeCommand } from './fixtures/native-node-command.mjs';
 import { captureSetupRetention } from './fixtures/setup-retention.mjs';
+import { captureCopyTree } from '../scripts/native-copy-provenance.mjs';
 
 const repository = path.resolve(import.meta.dirname, '..');
-const artifacts = await mkdtemp(path.join(tmpdir(), 'native-setup-build-'));
-const manager = await buildCli(repository, path.join(artifacts, 'gestalt.mjs'));
-const unixProbe = await buildNativePlatform(repository, path.join(artifacts, 'native'));
-const ownershipHelper = await buildOwnedProcess(repository, path.join(artifacts, 'native'));
+// TEST transport only: outside-built exact Windows artifacts, no compiler or fallback.
+assert.equal(process.platform,'win32','This prebuilt setup gate is Windows-only');
+assert.ok(process.env.GESTALT_NATIVE_SETUP_ARTIFACTS && path.isAbsolute(process.env.GESTALT_NATIVE_SETUP_ARTIFACTS),'Explicit absolute prebuilt setup artifacts required');
+assert.ok(process.env.GESTALT_NATIVE_SETUP_EVIDENCE && path.isAbsolute(process.env.GESTALT_NATIVE_SETUP_EVIDENCE),'Explicit absolute setup evidence required');
+const prebuiltRoot=await realpath(process.env.GESTALT_NATIVE_SETUP_ARTIFACTS);
+const prebuiltManifest=JSON.parse(await readFile(path.join(prebuiltRoot,'artifacts.json'),'utf8'));
+assert.equal(prebuiltManifest.platform,process.platform);assert.equal(prebuiltManifest.arch,process.arch);assert.equal(prebuiltManifest.abi,process.versions.modules);assert.equal(prebuiltManifest.peer,null);
+assert.equal(prebuiltManifest.helper,path.join('native','gestalt-owned-process.exe'));
+const prebuiltDigest=bytes=>createHash('sha256').update(bytes).digest('hex');
+const requiredArtifactNames=['gestalt.mjs','legacy/gestalt','authority.mjs','spawn-capture.mjs','native/gestalt-owned-process.exe','native/gestalt-owned-process.exe.provenance.json'];
+assert.deepEqual(prebuiltManifest.artifacts.map(value=>value.relative.replaceAll('\\','/')).sort(),[...requiredArtifactNames].sort());
+for(const record of prebuiltManifest.artifacts){assert.ok(!path.isAbsolute(record.relative)&&!record.relative.split(/[\\/]/).includes('..'));const file=path.join(prebuiltRoot,record.relative);assert.equal((await lstat(file)).isFile(),true);const bytes=await readFile(file);assert.equal(bytes.length,record.bytes);assert.equal(prebuiltDigest(bytes),record.sha256);}
+const prebuiltManager=await readFile(path.join(prebuiltRoot,'gestalt.mjs'));assert.equal(prebuiltManager.length,336071);assert.equal(prebuiltDigest(prebuiltManager),'216b6ea052ceb2fa4223f8fc51b9129af020adcfca32fbfd70011e5f9a59bf60');
+const prebuiltHelper=path.join(prebuiltRoot,prebuiltManifest.helper),prebuiltProvenance=JSON.parse(await readFile(prebuiltHelper+'.provenance.json','utf8'));
+assert.equal(prebuiltProvenance.platform,process.platform);assert.equal(prebuiltProvenance.architecture,process.arch);assert.equal(prebuiltProvenance.artifactSha256,prebuiltDigest(await readFile(prebuiltHelper)));assert.deepEqual(prebuiltProvenance.sourceInputs,prebuiltManifest.nativeHelperInputs);
+assert.deepEqual(prebuiltProvenance.sourceInputs.map(value=>value.path),['src/cli/platform/native/owned-process.c','src/cli/platform/native/windows-storage-check.c','src/cli/platform/native/windows-storage-check.h']);
+for(const input of prebuiltProvenance.sourceInputs){const bytes=await readFile(path.join(repository,input.path));assert.equal(bytes.length,input.bytes);assert.equal(prebuiltDigest(bytes),input.sha256);}assert.equal(prebuiltProvenance.sourceSha256,prebuiltProvenance.sourceInputs[0].sha256);
+// Only disposable copies are used by tests/cleanup, never the prebuilt root.
+const artifacts=await mkdtemp(path.join(tmpdir(),'native-setup-build-'));
+assert.notEqual(await realpath(artifacts),prebuiltRoot);
+for(const record of prebuiltManifest.artifacts){const destination=path.join(artifacts,record.relative);await mkdir(path.dirname(destination),{recursive:true});await copyFile(path.join(prebuiltRoot,record.relative),destination);assert.equal(prebuiltDigest(await readFile(destination)),record.sha256);}
+const manager=path.join(artifacts,'gestalt.mjs'),unixProbe=null,ownershipHelper=path.join(artifacts,prebuiltManifest.helper);
 if (process.env.GESTALT_NATIVE_SETUP_EVIDENCE) {
   await mkdir(process.env.GESTALT_NATIVE_SETUP_EVIDENCE, { recursive: true });
   await copyFile(`${ownershipHelper}.provenance.json`, path.join(process.env.GESTALT_NATIVE_SETUP_EVIDENCE, 'transaction-ownership.provenance.json'));
   await copyFile(ownershipHelper, path.join(process.env.GESTALT_NATIVE_SETUP_EVIDENCE, path.basename(ownershipHelper)));
+  await writeFile(path.join(process.env.GESTALT_NATIVE_SETUP_EVIDENCE,'prebuilt-setup-binding.json'),JSON.stringify({observedAt:new Date().toISOString(),platform:process.platform,arch:process.arch,node:process.version,abi:process.versions.modules,CLI:prebuiltDigest(prebuiltManager),CLIBytes:prebuiltManager.length,helperSha256:prebuiltProvenance.artifactSha256,sourceInputs:prebuiltProvenance.sourceInputs,prebuiltRoot,copiedArtifactRoot:artifacts,sourceBuilderSeparateFromConsumer:true,consumerCompilerRequired:false,prebuiltRootNeverCleaned:true,scope:'Strict outside-builder artifacts copied into disposable test directory; no actualAgents provisioning claim from compatible fixture'},null,2));
 }
 test.after(() => rm(artifacts, { recursive: true, force: true }));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -446,7 +463,25 @@ test('compiled install/update preserves native skills, extra selection and optio
     assert.equal(git.status, 0, git.stderr);
   }
   const env = { GESTALT_SKILLS_SOURCE: collection };
-  const installed = await f.run(['install', '--extra-skills'], env); assert.equal(installed.status, 0, installed.stderr);
+  const policy = { platform: process.platform, observedAt: new Date().toISOString(), observations: [], complete: false };
+  const observePolicy = async (phase, argv, result) => {
+    policy.observations.push({ phase, argv, result });
+    if (process.env.GESTALT_NATIVE_SETUP_EVIDENCE) await writeFile(path.join(process.env.GESTALT_NATIVE_SETUP_EVIDENCE, 'compiled-setup-selection.json'), JSON.stringify(policy, null, 2));
+  };
+  const refuseDeferred = async phase => {
+    const before = await captureCopyTree(f.home), priorLog = await readFile(f.log).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+    for (const command of ['install', 'update', 'update-restart']) for (const component of ['serena', 'playwright', 'mobile']) {
+      const argv = [command, component], result = await f.run(argv, { ...env, GESTALT_SESSION_TMP_CONTEXT: '{}' });
+      await observePolicy(phase, argv, result);
+      assert.equal(result.status, 1, result.stderr); assert.match(result.stderr, new RegExp(`native ${component} support is deferred`, 'i'));
+      assert.doesNotMatch(result.stderr, /SESSION_SCRATCH_INVALID_CONTEXT/);
+      assert.deepEqual(await captureCopyTree(f.home), before);
+      assert.deepEqual(await readFile(f.log).catch(error => { if (error.code === 'ENOENT') return null; throw error; }), priorLog);
+    }
+  };
+  if (process.platform === 'win32') await refuseDeferred('absent-profiles');
+  const installed = await f.run(['install', '--extra-skills'], env);
+  await observePolicy('install', ['install', '--extra-skills'], installed); assert.equal(installed.status, 0, installed.stderr);
   const receipt = JSON.parse(await readFile(path.join(f.codex, 'gestalt-skills/receipt.json'), 'utf8'));
   assert.equal(receipt.verifiedSource, false);
   assert.equal(await readFile(path.join(f.codex, 'skills/native-fixture/SKILL.md'), 'utf8'), skill);
@@ -455,8 +490,21 @@ test('compiled install/update preserves native skills, extra selection and optio
     assert.match(installed.stderr, /Mobile omitted:.*native win32.*owned-process.*session-scratch/);
     assert.equal(await exists(path.join(f.gestalt, 'mobile')), false);
     assert.doesNotMatch(installed.stderr, /then 'gestalt cli' or 'gestalt mobile'/);
+    assert.match(installed.stderr, /Serena omitted:.*deferred/); assert.match(installed.stderr, /Playwright omitted:.*deferred/);
+    const retained = await NativePrivateStorage.open(f.gestalt, unixProbe);
+    for (const component of ['serena', 'playwright', 'mobile']) {
+      await retained.createDirectory(path.join(f.gestalt, component));
+      await retained.replaceFile(path.join(f.gestalt, component, 'active.json'), Buffer.from('retained operator metadata\n'));
+    }
+    await refuseDeferred('existing-profiles');
+    const all = await f.run(['update', 'all'], { ...env, FIXTURE_MOBILE_FAIL: '1' });
+    await observePolicy('update-all', ['update', 'all'], all); assert.equal(all.status, 0, all.stderr);
+    assert.match(all.stderr, /Serena omitted:.*deferred/); assert.match(all.stderr, /Playwright omitted:.*deferred/);
+    assert.doesNotMatch(all.stderr, /use gestalt update serena to install|use gestalt playwright install/);
+    for (const component of ['serena', 'playwright', 'mobile']) assert.equal(await readFile(path.join(f.gestalt, component, 'active.json'), 'utf8'), 'retained operator metadata\n');
   } else await writeFile(path.join(f.gestalt, 'mobile/user-data.txt'), 'preserve this data\n');
   const updated = await f.run(['update', 'gestalt'], env);
+  await observePolicy('update-gestalt', ['update', 'gestalt'], updated);
   if (process.platform === 'darwin') {
     assert.notEqual(updated.status, 0); assert.match(updated.stderr, /EEXIST|already running/);
     assert.match(installed.stderr, /command succeeded.*snapshot and setup locks retained/);
@@ -474,6 +522,8 @@ test('compiled install/update preserves native skills, extra selection and optio
     assert.equal(await readFile(path.join(f.gestalt, 'mobile/user-data.txt'), 'utf8'), 'preserve this data\n');
     assert.doesNotMatch(failed.stderr, /update complete/);
   }
+  policy.complete = true;
+  await observePolicy('complete', [], { status: 0 });
 });
 
 test('native restart update failure retains the live relay, descriptor and non-owned data', async t => {

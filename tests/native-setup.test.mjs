@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { parse } from 'smol-toml';
 import { approvalConfiguration, permissionConfiguration } from '../src/cli/setup/configuration.mjs';
-import { parseSetupOptions, parseUpdateOptions, runUpdate } from '../src/cli/setup/commands.ts';
+import { createSetupHandlers, parseSetupOptions, parseUpdateOptions, runInstall, runUpdate } from '../src/cli/setup/commands.ts';
 import { SetupContext } from '../src/cli/setup/context.ts';
 import { mobileHostSupport } from '../src/cli/setup/mobile.ts';
 import { retiredRestartArguments } from '../src/cli/setup/restart.ts';
@@ -54,7 +54,7 @@ test('setup and component parsing reject unsupported policy before any operation
   for (const argv of [['xerj'], ['--component', 'xerj'], ['--component'], ['all', 'gestalt'], ['serena', '--extra-skills'], ['--unknown']]) assert.throws(() => parseUpdateOptions(argv));
 });
 
-for (const selected of ['all', 'gestalt', 'serena', 'playwright']) test(`native update selection preserves ${selected} boundaries and ordering`, async t => {
+for (const selected of ['all', 'gestalt', 'serena', 'playwright']) test(`Unix update selection policy preserves ${selected} boundaries and ordering`, async t => {
   const root = await mkdtemp(path.join(tmpdir(), 'gestalt native selection '));
   t.after(() => rm(root, { recursive: true, force: true }));
   const paths = { userHome: root, codexHome: path.join(root, 'codex'), gestaltHome: path.join(root, 'gestalt'), marketplace: 'fixture', marketplaceName: 'fixture', manager: path.join(root, 'manager'), unixProbe: undefined };
@@ -66,7 +66,7 @@ for (const selected of ['all', 'gestalt', 'serena', 'playwright']) test(`native 
   // absent-home creation execute in the native composition contracts.
   context.prepareHomes = async () => { order.push('homes'); };
   const operations = { manager: async () => { order.push('manager'); return false; }, skills: async (_c, mode) => { order.push(`skills:${mode}`); }, agents: async (_c, mode, extra) => { order.push(`agents:${mode}:${extra}`); }, mobile: async () => { order.push('mobile'); }, component: async (_c, component) => { order.push(component); } };
-  await runUpdate(context, parseUpdateOptions([selected]), ['update', selected], false, operations);
+  await runUpdate(context, parseUpdateOptions([selected]), ['update', selected], false, operations, 'linux');
   const core = ['manager', 'homes', 'skills:update', 'agents:upgrade:false', 'mobile'];
   assert.deepEqual(order, selected === 'all' ? [...core, 'serena', 'playwright'] : selected === 'gestalt' ? core : [selected]);
   for (const failed of [...order]) {
@@ -74,7 +74,7 @@ for (const selected of ['all', 'gestalt', 'serena', 'playwright']) test(`native 
     const fail = label => { seen.push(label); if (label === failed) throw new Error('controlled failure'); };
     context.prepareHomes = async () => fail('homes');
     const failing = { manager: async () => { fail('manager'); return false; }, skills: async () => fail('skills:update'), agents: async () => fail('agents:upgrade:false'), mobile: async () => fail('mobile'), component: async (_c, c) => fail(c) };
-    await assert.rejects(runUpdate(context, parseUpdateOptions([selected]), ['update', selected], false, failing), /controlled failure/);
+    await assert.rejects(runUpdate(context, parseUpdateOptions([selected]), ['update', selected], false, failing, 'linux'), /controlled failure/);
     assert.deepEqual(seen, order.slice(0, order.indexOf(failed) + 1));
   }
 });
@@ -286,4 +286,115 @@ test('retained setup inventory distinguishes manager snapshots, Agents snapshots
   assert.deepEqual(await captureSetupRetention(root), before, 'inspection must not modify retained state');
   await writeFile(path.join(root, agents, '0'), 'late changed config');
   assert.notDeepEqual((await captureSetupRetention(root)).entries, before.entries, 'snapshot byte mutations must be observable');
+});
+
+async function selectionPolicyFixture(t, present) {
+  const root = await mkdtemp(path.join(tmpdir(), 'gestalt setup policy ü '));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const paths = { userHome: root, codexHome: path.join(root, 'Codex'), gestaltHome: path.join(root, 'Gestalt'),
+    marketplace: 'fixture', marketplaceName: 'fixture', manager: path.join(root, 'manager') };
+  if (present) for (const component of ['serena', 'playwright', 'mobile']) {
+    await mkdir(path.join(paths.gestaltHome, component), { recursive: true });
+    await writeFile(path.join(paths.gestaltHome, component, 'active.json'), 'retained operator metadata\n');
+  }
+  const logs = [], calls = [], streams = { stdin: (async function* () { throw Error('Policy command consumed stdin'); })(),
+    stdout: async () => {}, stderr: async bytes => logs.push(Buffer.from(bytes)) };
+  const context = new SetupContext({ argv: [], cwd: root, environment: { GESTALT_MANAGER_DISTRIBUTION: 'npm' } }, streams, paths, 'fixture');
+  // Policy/orchestration fixture only: no native privacy or process proof.
+  context.prepareHomes = async () => { calls.push('homes'); };
+  const operations = { manager: async () => { calls.push('manager'); return false; },
+    skills: async (_context, mode) => { calls.push('skills:' + mode); },
+    agents: async (_context, mode, extra) => { calls.push(`agents:${mode}:${extra}`); },
+    mobile: async () => { calls.push('mobile'); throw Error('Unsupported Mobile operation must never run'); },
+    component: async (_context, component) => { calls.push(component); throw Error('Deferred component operation must never run'); } };
+  return { root, paths, context, operations, streams, calls, output: () => Buffer.concat(logs).toString() };
+}
+for (const present of [false, true]) test(`native setup policy Windows all omits deferred operations with retained components=${present}`, async t => {
+  assert.equal(mobileHostSupport('win32').supported, false);
+  const f = await selectionPolicyFixture(t, present);
+  await runUpdate(f.context, parseUpdateOptions([]), ['update'], false, f.operations, 'win32');
+  assert.deepEqual(f.calls, ['manager', 'homes', 'skills:update', 'agents:upgrade:false']);
+  assert.match(f.output(), /Serena omitted:.*deferred/); assert.match(f.output(), /Playwright omitted:.*deferred/);
+  assert.match(f.output(), /Mobile omitted:.*native win32.*owned-process.*session-scratch/);
+  assert.doesNotMatch(f.output(), /use gestalt update serena to install|use gestalt playwright install/);
+  for (const component of present ? ['serena', 'playwright', 'mobile'] : [])
+    assert.equal(await readFile(path.join(f.paths.gestaltHome, component, 'active.json'), 'utf8'), 'retained operator metadata\n');
+  t.diagnostic('Controlled Windows policy input on actual ' + process.platform + '; native Windows execution is a separate gate');
+});
+for (const command of ['install', 'update', 'update-restart']) for (const component of ['serena', 'playwright', 'mobile'])
+  test(`native setup policy Windows explicit ${command} ${component} refuses before context and profile work`, async t => {
+    const f = await selectionPolicyFixture(t, false);
+    const environment = { HOME: f.root, USERPROFILE: f.root, CODEX_HOME: f.paths.codexHome, GESTALT_HOME: f.paths.gestaltHome,
+      GESTALT_SESSION_TMP_CONTEXT: '{}' };
+    const before = await readdir(f.root);
+    const handlers = createSetupHandlers({ version: 'fixture', help: 'help\n' }, f.operations, false, undefined, 'win32');
+    assert.equal(await handlers[command]({ argv: [component], cwd: f.root, environment }, f.streams), 1);
+    assert.match(f.output(), new RegExp(`native ${component} support is deferred`, 'i'));
+    if (component === 'mobile') assert.match(f.output(), /native win32.*owned-process.*session-scratch/);
+    assert.doesNotMatch(f.output(), /SESSION_SCRATCH_INVALID_CONTEXT/);
+    assert.deepEqual(f.calls, []); assert.deepEqual(await readdir(f.root), before);
+  });
+
+for (const extra of [false, true]) test(`native setup policy Windows install keeps supported operations and extra selection=${extra}`, async t => {
+  const f = await selectionPolicyFixture(t, true);
+  await runInstall(f.context, extra, f.operations, 'win32');
+  assert.deepEqual(f.calls, ['homes', 'skills:install', `agents:install:${extra}`]);
+  assert.match(f.output(), /Mobile omitted:/); assert.match(f.output(), /Serena omitted:.*deferred/); assert.match(f.output(), /Playwright omitted:.*deferred/);
+  assert.match(f.output(), /then 'gestalt cli'/); assert.doesNotMatch(f.output(), /or 'gestalt mobile'/);
+  for (const component of ['serena', 'playwright', 'mobile']) assert.equal(await readFile(path.join(f.paths.gestaltHome, component, 'active.json'), 'utf8'), 'retained operator metadata\n');
+});
+test('native setup policy rejects a direct Windows named update before any core or optional operation', async t => {
+  const f = await selectionPolicyFixture(t, true);
+  for (const component of ['serena', 'playwright']) await assert.rejects(runUpdate(f.context, parseUpdateOptions([component]), ['update', component], false, f.operations, 'win32'), /support is deferred/);
+  assert.deepEqual(f.calls, []);
+});
+test('native setup policy uses actual host support by default and keeps ordinary Unix Mobile failures visible', async t => {
+  const f = await selectionPolicyFixture(t, false), supported = mobileHostSupport().supported;
+  if (supported) {
+    await assert.rejects(runInstall(f.context, false, f.operations), /Unsupported Mobile operation/);
+    assert.deepEqual(f.calls, ['homes', 'skills:install', 'agents:install:false', 'mobile']);
+  } else {
+    await runInstall(f.context, false, f.operations);
+    assert.deepEqual(f.calls, ['homes', 'skills:install', 'agents:install:false']);
+  }
+});
+test('native setup policy Windows core-only update preserves extra skills and npm manager ownership', async t => {
+  const f = await selectionPolicyFixture(t, true);
+  await runUpdate(f.context, parseUpdateOptions(['gestalt', '--extra-skills']), ['update', 'gestalt', '--extra-skills'], false, f.operations, 'win32');
+  assert.deepEqual(f.calls, ['manager', 'homes', 'skills:update', 'agents:upgrade:true']);
+  assert.match(f.output(), /update the manager with npm install -g/); assert.match(f.output(), /update complete \(gestalt\)/);
+  assert.doesNotMatch(f.output(), /Mobile, and context-mode are up to date/);
+});
+test('native setup policy Windows does not hide required core failure or continue after manager handoff', async t => {
+  for (const failed of ['manager', 'homes', 'skills', 'agents']) {
+    const f = await selectionPolicyFixture(t, false), order = [];
+    const step = name => { order.push(name); if (name === failed) throw Error('required core failed'); };
+    f.context.prepareHomes = async () => step('homes');
+    const operations = { ...f.operations, manager: async () => { step('manager'); return false; },
+      skills: async () => step('skills'), agents: async () => step('agents') };
+    await assert.rejects(runUpdate(f.context, parseUpdateOptions(['all']), ['update', 'all'], false, operations, 'win32'), /required core failed/);
+    assert.deepEqual(order, ['manager', 'homes', 'skills', 'agents'].slice(0, ['manager', 'homes', 'skills', 'agents'].indexOf(failed) + 1));
+    assert.doesNotMatch(f.output(), /update complete/); assert.deepEqual(f.calls, []);
+  }
+  const f = await selectionPolicyFixture(t, true);
+  assert.equal(await runUpdate(f.context, parseUpdateOptions(['all']), ['update', 'all'], false,
+    { ...f.operations, manager: async () => { f.calls.push('handoff'); return true; } }, 'win32'), true);
+  assert.deepEqual(f.calls, ['handoff']);
+});
+test('native setup policy Windows named component flag forms preserve existing profile bytes before refusal', async t => {
+  const f = await selectionPolicyFixture(t, true); await mkdir(f.paths.codexHome);
+  await writeFile(path.join(f.paths.codexHome, 'config.toml'), '# operator\nmodel="unchanged"\n');
+  const before = await captureCopyTree(f.root);
+  const environment = { HOME: f.root, USERPROFILE: f.root, CODEX_HOME: f.paths.codexHome, GESTALT_HOME: f.paths.gestaltHome, GESTALT_SESSION_TMP_CONTEXT: '{}' };
+  const handlers = createSetupHandlers({ version: 'fixture', help: 'help\n' }, f.operations, false, undefined, 'win32');
+  for (const component of ['serena', 'playwright', 'mobile']) for (const argv of [['--component', component], ['--component=' + component]]) {
+    assert.equal(await handlers.update({ argv, cwd: f.root, environment }, f.streams), 1);
+    assert.deepEqual(await captureCopyTree(f.root), before); assert.deepEqual(f.calls, []);
+  }
+});
+test('native setup policy Windows explicit all flag retains the same supported-only update', async t => {
+  const f = await selectionPolicyFixture(t, true);
+  await runUpdate(f.context, parseUpdateOptions(['--component', 'all']), ['update', '--component', 'all'], false, f.operations, 'win32');
+  assert.deepEqual(f.calls, ['manager', 'homes', 'skills:update', 'agents:upgrade:false']);
+  assert.match(f.output(), /update complete \(all\)/);
 });

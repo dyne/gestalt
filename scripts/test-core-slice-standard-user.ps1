@@ -61,22 +61,25 @@ $env:GESTALT_NATIVE_RUNTIME_ARTIFACTS = [IO.Path]::GetFullPath((Join-Path $Repos
 $env:GESTALT_NATIVE_AGENTS_SOURCE = [IO.Path]::GetFullPath((Join-Path $Repository '.native-dependencies/agents'))
 $env:GESTALT_NATIVE_RUNTIME_EVIDENCE = Join-Path $evidence 'runtime'
 New-Item -ItemType Directory -Path $env:GESTALT_NATIVE_RUNTIME_EVIDENCE -Force | Out-Null
+$env:GESTALT_NATIVE_SETUP_ARTIFACTS = $env:GESTALT_NATIVE_RUNTIME_ARTIFACTS
+$env:GESTALT_NATIVE_SETUP_EVIDENCE = $env:GESTALT_NATIVE_RUNTIME_EVIDENCE
 $bindingProgram = @'
 import assert from 'node:assert/strict';import path from 'node:path';import fs from 'node:fs';import crypto from 'node:crypto';
 const root=process.env.GESTALT_NATIVE_RUNTIME_ARTIFACTS,agents=process.env.GESTALT_NATIVE_AGENTS_SOURCE,out=path.join(process.env.GESTALT_NATIVE_RUNTIME_EVIDENCE,'native-binding.json');
 const hash=b=>crypto.createHash('sha256').update(b).digest('hex');const read=p=>fs.readFileSync(p);const m=JSON.parse(read(path.join(root,'artifacts.json')));const checked=[];
 assert.equal(process.platform,'win32');assert.equal(m.platform,process.platform);assert.equal(m.arch,process.arch);assert.equal(m.abi,process.versions.modules);assert.equal(m.helper,path.win32.join('native','gestalt-owned-process.exe'));assert.equal(m.peer,null);
 for(const a of m.artifacts){assert.equal(path.isAbsolute(a.relative),false);assert.equal(a.relative.split(/[\\/]/).includes('..'),false);const b=read(path.join(root,a.relative));assert.equal(b.length,a.bytes);assert.equal(hash(b),a.sha256);checked.push(a);}
-assert.equal(hash(read(path.join(root,'gestalt.mjs'))),'73176c372648d53d0783f129d8cadab3730c2df450dd1094ce1c97bd7338d9da');assert.equal(read(path.join(root,'gestalt.mjs')).length,333789);
+assert.equal(hash(read(path.join(root,'gestalt.mjs'))),'216b6ea052ceb2fa4223f8fc51b9129af020adcfca32fbfd70011e5f9a59bf60');assert.equal(read(path.join(root,'gestalt.mjs')).length,336071);
 const h=path.join(root,m.helper),p=JSON.parse(read(h+'.provenance.json'));assert.equal(p.artifactSha256,hash(read(h)));assert.deepEqual(p.sourceInputs,m.nativeHelperInputs);assert.deepEqual(p.sourceInputs.map(a=>a.path),['src/cli/platform/native/owned-process.c','src/cli/platform/native/windows-storage-check.c','src/cli/platform/native/windows-storage-check.h']);
 for(const a of p.sourceInputs){const b=read(path.join(process.cwd(),a.path));assert.equal(b.length,a.bytes);assert.equal(hash(b),a.sha256);}assert.equal(p.sourceSha256,p.sourceInputs[0].sha256);
 assert.equal(m.orgSource.head,'8827347387ee32e2c5bd7eb912f9b80185cdad45');assert.equal(m.orgSource.files.length,15);assert.equal(m.orgSource.setupApi.length,5);for(const a of [...m.orgSource.files,...m.orgSource.setupApi]){const b=read(path.join(agents,a.path));assert.equal(b.length,a.bytes);assert.equal(hash(b),a.sha256);}
+fs.writeFileSync(path.join(process.env.GESTALT_NATIVE_RUNTIME_EVIDENCE,'setup-selection-mode.json'),JSON.stringify({observedAt:new Date().toISOString(),platform:process.platform,mode:'setup-selection',policyTests:24,compiledTests:1,TTY:0,setupArtifacts:process.env.GESTALT_NATIVE_SETUP_ARTIFACTS,setupEvidence:process.env.GESTALT_NATIVE_SETUP_EVIDENCE,runtimeArtifacts:root,agentsSource:agents,scope:'Explicit ordinary-account selection; no runtime/TUI/query/model turn'},null,2));
 fs.writeFileSync(out,JSON.stringify({observedAt:new Date().toISOString(),pass:true,platform:process.platform,arch:process.arch,node:process.version,abi:process.versions.modules,CLI:hash(read(path.join(root,'gestalt.mjs'))),helperSha256:hash(read(h)),sourceInputs:p.sourceInputs,artifacts:checked,orgFiles:15,setupApi:5,scope:'Actual ordinary-token metadata binding, not runtime behavior'},null,2));
 '@
 $bindingProgram | & $Node --input-type=module
 if ($null -eq $LASTEXITCODE -or $LASTEXITCODE -ne 0) { throw 'Actual ordinary-token fixed manifest preflight failed' }
-$closure = @{scope='Affected Windows diagnostic only: one installed fresh/resume case (TTY0/selected1/installed1/common0), not full closure; readiness/parity reused from run44015990174';startedAt=[DateTime]::UtcNow.ToString('o');complete=$false;stages=@();postcheckErrors=@();terminalCases=0;selectedTests=$null;installedTests=$null;commonTests=$null;deferredTests=0;planned=@{terminal=0;selected=1;installed=1;common=0};productTimersChanged=$false}
-function Save-Closure { $closure.observedAt=[DateTime]::UtcNow.ToString('o'); $closure | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath (Join-Path $evidence 'closure-execution.json') }
+$closure = @{scope='Affected Windows setup policy only: policy24+compiled1, 25unique; TTY0/no runtime or query replay';startedAt=[DateTime]::UtcNow.ToString('o');complete=$false;stages=@();postcheckErrors=@();terminalCases=0;selectedTests=$null;installedTests=$null;commonTests=$null;policyTests=$null;compiledTests=$null;deferredTests=0;planned=@{terminal=0;selected=25;installed=1;common=24;policy=24;compiled=1};productTimersChanged=$false}
+function Save-Closure { $closure.observedAt=[DateTime]::UtcNow.ToString('o'); $closure | ConvertTo-Json -Depth 40 | Set-Content -LiteralPath (Join-Path $evidence 'closure-execution.json') }
 function Invoke-ClosureStage([string]$Name,[string[]]$NodeArguments) {
   $out = Join-Path $evidence ($Name + '.tap'); $err = Join-Path $evidence ($Name + '.stderr'); $code=$null;$problem=$null;$started=[DateTime]::UtcNow.ToString('o')
   $priorErrorPreference=$ErrorActionPreference
@@ -86,54 +89,55 @@ function Invoke-ClosureStage([string]$Name,[string[]]$NodeArguments) {
   Save-Closure
 }
 Save-Closure
-$required=@('actual compiled CLI uses accepted Agents, fresh/resume native sessions and a local synthetic Responses fixture')
-$installedRequired=@($required[0])
-$affectedPattern='^(?:actual\ compiled\ CLI\ uses\ accepted\ Agents,\ fresh/resume\ native\ sessions\ and\ a\ local\ synthetic\ Responses\ fixture)$'
-Invoke-ClosureStage 'runtime' @('--test','--test-reporter=tap',('--test-name-pattern='+$affectedPattern),'tests/native-runtime-installed.test.mjs')
+$policyRequired=@('setup and component parsing reject unsupported policy before any operation','Unix update selection policy preserves all boundaries and ordering','Unix update selection policy preserves gestalt boundaries and ordering','Unix update selection policy preserves serena boundaries and ordering','Unix update selection policy preserves playwright boundaries and ordering','native setup policy Windows all omits deferred operations with retained components=false','native setup policy Windows all omits deferred operations with retained components=true','native setup policy Windows explicit install serena refuses before context and profile work','native setup policy Windows explicit install playwright refuses before context and profile work','native setup policy Windows explicit install mobile refuses before context and profile work','native setup policy Windows explicit update serena refuses before context and profile work','native setup policy Windows explicit update playwright refuses before context and profile work','native setup policy Windows explicit update mobile refuses before context and profile work','native setup policy Windows explicit update-restart serena refuses before context and profile work','native setup policy Windows explicit update-restart playwright refuses before context and profile work','native setup policy Windows explicit update-restart mobile refuses before context and profile work','native setup policy Windows install keeps supported operations and extra selection=false','native setup policy Windows install keeps supported operations and extra selection=true','native setup policy rejects a direct Windows named update before any core or optional operation','native setup policy uses actual host support by default and keeps ordinary Unix Mobile failures visible','native setup policy Windows core-only update preserves extra skills and npm manager ownership','native setup policy Windows does not hide required core failure or continue after manager handoff','native setup policy Windows named component flag forms preserve existing profile bytes before refusal','native setup policy Windows explicit all flag retains the same supported-only update')
+$compiledRequired=@('compiled install/update preserves native skills, extra selection and optional Mobile policy')
+$policyPattern='^(?:setup\ and\ component\ parsing\ reject\ unsupported\ policy\ before\ any\ operation|Unix\ update\ selection\ policy\ preserves\ all\ boundaries\ and\ ordering|Unix\ update\ selection\ policy\ preserves\ gestalt\ boundaries\ and\ ordering|Unix\ update\ selection\ policy\ preserves\ serena\ boundaries\ and\ ordering|Unix\ update\ selection\ policy\ preserves\ playwright\ boundaries\ and\ ordering|native\ setup\ policy\ Windows\ all\ omits\ deferred\ operations\ with\ retained\ components=false|native\ setup\ policy\ Windows\ all\ omits\ deferred\ operations\ with\ retained\ components=true|native\ setup\ policy\ Windows\ explicit\ install\ serena\ refuses\ before\ context\ and\ profile\ work|native\ setup\ policy\ Windows\ explicit\ install\ playwright\ refuses\ before\ context\ and\ profile\ work|native\ setup\ policy\ Windows\ explicit\ install\ mobile\ refuses\ before\ context\ and\ profile\ work|native\ setup\ policy\ Windows\ explicit\ update\ serena\ refuses\ before\ context\ and\ profile\ work|native\ setup\ policy\ Windows\ explicit\ update\ playwright\ refuses\ before\ context\ and\ profile\ work|native\ setup\ policy\ Windows\ explicit\ update\ mobile\ refuses\ before\ context\ and\ profile\ work|native\ setup\ policy\ Windows\ explicit\ update\-restart\ serena\ refuses\ before\ context\ and\ profile\ work|native\ setup\ policy\ Windows\ explicit\ update\-restart\ playwright\ refuses\ before\ context\ and\ profile\ work|native\ setup\ policy\ Windows\ explicit\ update\-restart\ mobile\ refuses\ before\ context\ and\ profile\ work|native\ setup\ policy\ Windows\ install\ keeps\ supported\ operations\ and\ extra\ selection=false|native\ setup\ policy\ Windows\ install\ keeps\ supported\ operations\ and\ extra\ selection=true|native\ setup\ policy\ rejects\ a\ direct\ Windows\ named\ update\ before\ any\ core\ or\ optional\ operation|native\ setup\ policy\ uses\ actual\ host\ support\ by\ default\ and\ keeps\ ordinary\ Unix\ Mobile\ failures\ visible|native\ setup\ policy\ Windows\ core\-only\ update\ preserves\ extra\ skills\ and\ npm\ manager\ ownership|native\ setup\ policy\ Windows\ does\ not\ hide\ required\ core\ failure\ or\ continue\ after\ manager\ handoff|native\ setup\ policy\ Windows\ named\ component\ flag\ forms\ preserve\ existing\ profile\ bytes\ before\ refusal|native\ setup\ policy\ Windows\ explicit\ all\ flag\ retains\ the\ same\ supported\-only\ update)$'
+$compiledPattern='^(?:compiled\ install/update\ preserves\ native\ skills,\ extra\ selection\ and\ optional\ Mobile\ policy)$'
+Invoke-ClosureStage 'policy' @('--test','--test-reporter=tap',('--test-name-pattern='+$policyPattern),'tests/native-setup.test.mjs')
+Invoke-ClosureStage 'compiled' @('--test','--test-reporter=tap',('--test-name-pattern='+$compiledPattern),'tests/native-setup-transactions.test.mjs')
 function Read-Json([string]$Relative) { Get-Content -LiteralPath (Join-Path $evidence $Relative) -Raw | ConvertFrom-Json }
 function Require([bool]$Value,[string]$Message) { if (-not $Value) { throw $Message } }
-function Check-Tap([string]$Name,[string[]]$RequiredNames,[int]$ExpectedSkips) {
-  $text=Get-Content -LiteralPath (Join-Path $evidence ($Name+'.tap')) -Raw
-  $counts=@{};foreach($key in @('tests','pass','fail','skipped')){ $m=[regex]::Match($text,'(?m)^# '+$key+' (\d+)\s*$');Require $m.Success ($Name+' TAP missing '+$key);$counts[$key]=[int]$m.Groups[1].Value }
-  Require ($counts.tests -gt 0 -and $counts.fail -eq 0 -and $counts.skipped -eq $ExpectedSkips -and ($counts.pass+$counts.skipped) -eq $counts.tests) ($Name+' TAP counts invalid')
-  $ids=@([regex]::Matches($text,'(?m)^# Subtest: (.+)\r?$') | ForEach-Object { $_.Groups[1].Value.TrimEnd("`r") });Require ($ids.Count -eq $counts.tests) ($Name+' test identity count differs')
-  foreach($id in $RequiredNames){Require (@($ids|Where-Object {$_ -ceq $id}).Count -eq 1) ('Missing/duplicate required test '+$id);Require ([regex]::IsMatch($text,'(?m)^ok \d+ - '+[regex]::Escape($id)+'\r?$')) ('Required test failed/skipped '+$id)}
-  return @{counts=$counts;identities=$ids;requiredIdentities=@($RequiredNames);scope='Actual TAP, not expected counts or zero-match success'}
+function Capture-Tap([string]$Name,[string[]]$RequiredNames) {
+  $record=@{name=$Name;expected=@($RequiredNames);observedAt=[DateTime]::UtcNow.ToString('o');counts=@{};identities=@();outcomes=@();rawFailures=@();captureError=$null;pass=$false}
+  try {
+    $file=Join-Path $evidence ($Name+'.tap');$text=Get-Content -LiteralPath $file -Raw
+    $record.sha256=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash;$record.bytes=(Get-Item -LiteralPath $file).Length
+    foreach($key in @('tests','pass','fail','skipped','cancelled')){$m=[regex]::Match($text,'(?m)^# '+$key+' (\d+)\s*$');Require $m.Success ($Name+' TAP missing '+$key);$record.counts[$key]=[int]$m.Groups[1].Value}
+    $record.identities=@([regex]::Matches($text,'(?m)^# Subtest: (.+)\r?$')|ForEach-Object{$_.Groups[1].Value.TrimEnd("`r")})
+    $record.outcomes=@([regex]::Matches($text,'(?m)^(not ok|ok) (\d+) - ([^\r\n]+)')|ForEach-Object{@{status=$_.Groups[1].Value;number=[int]$_.Groups[2].Value;name=($_.Groups[3].Value -split ' # SKIP',2)[0];skipped=($_.Groups[3].Value -match ' # SKIP')}})
+    $record.rawFailures=@([regex]::Matches($text,'(?ms)^not ok [^\r\n]*\r?\n.*?(?=^# Subtest:|^1\.\.|\z)')|ForEach-Object{$_.Value})
+    Require ($record.counts.tests -eq $RequiredNames.Count -and $record.counts.pass -eq $RequiredNames.Count -and $record.counts.fail -eq 0 -and $record.counts.skipped -eq 0 -and $record.counts.cancelled -eq 0 -and $record.identities.Count -eq $RequiredNames.Count -and $record.outcomes.Count -eq $RequiredNames.Count) ($Name+' TAP exact counts failed')
+    foreach($id in $RequiredNames){Require (@($record.identities|Where-Object{$_ -ceq $id}).Count -eq 1) ('Missing/duplicate required test '+$id);Require ([regex]::IsMatch($text,'(?m)^ok \d+ - '+[regex]::Escape($id)+'\r?$')) ('Required test failed/skipped '+$id)}
+    $record.pass=$true
+  } catch { $record.captureError=$_.Exception.Message }
+  return $record
 }
-# Record every actual TAP result and complete raw failure including failure or missing exit.
-$affected=@{scope='Exactly1 selected identity, installed1/common0; TTY not executed; no full closure claim';expected=@($required);expectedInstalled=@($installedRequired);observedAt=[DateTime]::UtcNow.ToString('o');counts=@{};identities=@();outcomes=@();rawFailures=@();captureError=$null}
-try {
-  $tapPath=Join-Path $evidence 'runtime.tap';$text=Get-Content -LiteralPath $tapPath -Raw
-  $affected.sha256=(Get-FileHash -LiteralPath $tapPath -Algorithm SHA256).Hash;$affected.bytes=(Get-Item -LiteralPath $tapPath).Length
-  foreach($key in @('tests','pass','fail','skipped','cancelled')){$m=[regex]::Match($text,'(?m)^# '+$key+' (\d+)\s*$');if($m.Success){$affected.counts[$key]=[int]$m.Groups[1].Value}else{$affected.counts[$key]=$null}}
-  $affected.identities=@([regex]::Matches($text,'(?m)^# Subtest: (.+)\r?$')|ForEach-Object{$_.Groups[1].Value.TrimEnd("`r")})
-  $affected.outcomes=@([regex]::Matches($text,'(?m)^(not ok|ok) (\d+) - ([^\r\n]+)')|ForEach-Object{@{status=$_.Groups[1].Value;number=[int]$_.Groups[2].Value;name=($_.Groups[3].Value -split ' # SKIP',2)[0];skipped=($_.Groups[3].Value -match ' # SKIP')}})
-  $affected.rawFailures=@([regex]::Matches($text,'(?ms)^not ok [^\r\n]*\r?\n.*?(?=^# Subtest:|^1\.\.|\z)')|ForEach-Object{$_.Value})
-} catch {$affected.captureError=$_.Exception.Message}
-$affected | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $evidence 'affected-runtime-results.json')
-$closure.affectedResults=$affected
-$closure.selectedTests=@($affected.outcomes|Where-Object{-not $_.skipped}).Count
-$closure.installedTests=@($affected.outcomes|Where-Object{-not $_.skipped -and $_.name -cin $installedRequired}).Count
-$closure.commonTests=@($affected.outcomes|Where-Object{-not $_.skipped -and $_.name -cin $required -and $_.name -cnotin $installedRequired}).Count
+# Both actual TAP captures/full failures persist independently before validation.
+$policy=Capture-Tap 'policy' $policyRequired;$compiled=Capture-Tap 'compiled' $compiledRequired
+@{observedAt=[DateTime]::UtcNow.ToString('o');policy=$policy;compiled=$compiled;scope='25unique required, source policy24/compiled1, no TTY/fullsuite claim'} | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath (Join-Path $evidence 'affected-setup-results.json')
+$closure.policyTap=$policy;$closure.compiledTap=$compiled
+$closure.policyTests=@($policy.outcomes|Where-Object{-not $_.skipped}).Count;$closure.compiledTests=@($compiled.outcomes|Where-Object{-not $_.skipped}).Count
+$closure.selectedTests=$closure.policyTests+$closure.compiledTests;$closure.installedTests=$closure.compiledTests;$closure.commonTests=$closure.policyTests
 Save-Closure
 try {
-  Require ($closure.stages.Count -eq 1) 'One installed stage required'
-  foreach($s in $closure.stages){Require ($null -ne $s.exit -and $s.exit -eq 0 -and -not $s.error) ('Stage failed/unknown '+$s.name)}
-  Require (-not $affected.captureError) 'Affected TAP capture incomplete'
-  $closure.runtimeTap=Check-Tap 'runtime' $required 0
-  Require ($closure.runtimeTap.counts.tests -eq 1 -and $closure.runtimeTap.counts.pass -eq 1 -and $closure.selectedTests -eq 1 -and $closure.installedTests -eq 1 -and $closure.commonTests -eq 0 -and $affected.rawFailures.Count -eq 0) 'Exactly1 passed installed result/common0 required'
-  $binding=Read-Json 'runtime/native-binding.json';$installed=Read-Json 'runtime/runtime-build.json';Require ($binding.pass -eq $true -and $binding.CLI -ceq $installed.managerSha256 -and $binding.helperSha256 -ceq $installed.helperSha256 -and $installed.sourceBuilderSeparateFromConsumer -eq $true -and $installed.consumerCompilerRequired -eq $false) 'Installed current artifact binding differs'
-  $fresh=Read-Json 'runtime/actual-cli-fresh.json';$resumed=Read-Json 'runtime/actual-cli-resume.json';$session=Read-Json 'runtime/actual-cli-session-associations.json';$partial=Read-Json 'runtime/actual-cli-session-observations.json'
-  Require ($fresh.fresh.status -eq 0 -and $resumed.resumed.status -eq 0 -and $partial.freshStatus -eq 0 -and $partial.resumeStatus -eq 0) 'Actual fresh/resume results must be0'
-  Require ($session.threadId -and $session.threadId -ceq $resumed.threadId -and $session.threadId -ceq $partial.threadId) 'Actual same native thread required'
-  Require ($session.syntheticModel -eq $true -and $session.realModelAdoptionClaimed -eq $false -and $partial.syntheticModel -eq $true -and $partial.realModelAdoptionClaimed -eq $false -and $session.syntheticModelRequests -ge 2 -and $session.syntheticModelRequests -eq $partial.syntheticModelRequests) 'Actual loopback synthetic requests required, no adoption claim'
-  Require ($session.associated.Count -eq 2 -and $partial.associated.Count -eq 2 -and $session.associated[0].ownerId -and $session.associated[1].ownerId -and $session.associated[0].ownerId -cne $session.associated[1].ownerId -and $session.associated[0].ownerId -ceq $partial.associated[0].ownerId -and $session.associated[1].ownerId -ceq $partial.associated[1].ownerId) 'Two distinct retained invocation owners required'
-  foreach($owner in $session.associated){Require (@($owner.providerThreads|Where-Object{$_.provider -ceq 'codex' -and $_.threadId -ceq $session.threadId}).Count -gt 0) 'Every owner must associate the actual native thread'}
-  Require ($partial.phase -ceq 'before-strict-profile-byte-assertion' -and $partial.profileByteAssertion -ceq 'not-yet-executed') 'Partial receipt must retain its preassertion scope'
-  Require ($partial.profileBefore.truncated -eq $false -and $partial.profileAfter.truncated -eq $false -and $partial.profileBefore.bytes -eq $partial.profileAfter.bytes -and $partial.profileBefore.sha256 -ceq $partial.profileAfter.sha256 -and $partial.profileBefore.base64 -ceq $partial.profileAfter.base64 -and $session.profileSha256 -ceq $partial.profileBefore.sha256) 'Exact profile bytes and final strict-assert success receipt required'
-  $closure.sessionAssociations=$session;$closure.preAssertionObservations=$partial
-  $closure.binding=$binding;$closure.complete=$true
+  Require ($closure.stages.Count -eq 2) 'Two independent setup stages required'
+  foreach($stage in $closure.stages){Require ($null -ne $stage.exit -and $stage.exit -eq 0 -and -not $stage.error) ('Stage failed/unknown '+$stage.name)}
+  Require ($policy.pass -eq $true -and $compiled.pass -eq $true -and $closure.selectedTests -eq 25 -and $closure.policyTests -eq 24 -and $closure.compiledTests -eq 1 -and $closure.terminalCases -eq 0) 'Exactly25 required actual tests must pass without skips'
+  $mode=Read-Json 'runtime/setup-selection-mode.json';Require ($mode.mode -ceq 'setup-selection' -and $mode.platform -ceq 'win32' -and $mode.policyTests -eq 24 -and $mode.compiledTests -eq 1 -and $mode.TTY -eq 0 -and $mode.setupArtifacts -ceq $env:GESTALT_NATIVE_SETUP_ARTIFACTS -and $mode.setupEvidence -ceq $env:GESTALT_NATIVE_SETUP_EVIDENCE -and $mode.runtimeArtifacts -ceq $env:GESTALT_NATIVE_RUNTIME_ARTIFACTS) 'Actual explicit ordinary setup selection required'
+  $binding=Read-Json 'runtime/native-binding.json';$prebuilt=Read-Json 'runtime/prebuilt-setup-binding.json'
+  Require ($binding.pass -eq $true -and $binding.CLI -ceq '216b6ea052ceb2fa4223f8fc51b9129af020adcfca32fbfd70011e5f9a59bf60' -and $prebuilt.CLI -ceq $binding.CLI -and $prebuilt.CLIBytes -eq 336071 -and $prebuilt.helperSha256 -ceq $binding.helperSha256 -and $prebuilt.platform -ceq 'win32' -and $prebuilt.sourceBuilderSeparateFromConsumer -eq $true -and $prebuilt.consumerCompilerRequired -eq $false -and $prebuilt.prebuiltRootNeverCleaned -eq $true) 'Strict current prebuilt setup consumption required'
+  foreach($artifact in $binding.artifacts){$file=Join-Path $env:GESTALT_NATIVE_RUNTIME_ARTIFACTS $artifact.relative;Require ((Test-Path -LiteralPath $file -PathType Leaf) -and (Get-Item -LiteralPath $file).Length -eq $artifact.bytes -and (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -ieq $artifact.sha256) 'Prebuilt source artifacts changed or missing'}
+  $selection=Read-Json 'runtime/compiled-setup-selection.json';Require ($selection.platform -ceq 'win32' -and $selection.complete -eq $true -and $selection.observations.Count -eq 22) 'Complete native compiled selection observations required'
+  foreach($phase in @('absent-profiles','existing-profiles')){
+    $observed=@($selection.observations|Where-Object{$_.phase -ceq $phase});Require ($observed.Count -eq 9) ('All deferred refusals required '+$phase)
+    foreach($command in @('install','update','update-restart')){foreach($component in @('serena','playwright','mobile')){
+      $one=@($observed|Where-Object{$_.argv.Count -eq 2 -and $_.argv[0] -ceq $command -and $_.argv[1] -ceq $component});Require ($one.Count -eq 1 -and $one[0].result.status -eq 1 -and $one[0].result.stderr -match ('native '+$component+' support is deferred') -and $one[0].result.stderr -notmatch 'SESSION_SCRATCH_INVALID_CONTEXT') 'Exact pre-context refusal missing/failed'
+    }}
+  }
+  foreach($phase in @('install','update-all','update-gestalt')){$one=@($selection.observations|Where-Object{$_.phase -ceq $phase});Require ($one.Count -eq 1 -and $one[0].result.status -eq 0) ('Actual core phase failed '+$phase)}
+  Require (@($selection.observations|Where-Object{$_.phase -ceq 'complete' -and $_.result.status -eq 0}).Count -eq 1) 'Native source assertions did not finish'
+  $closure.binding=$binding;$closure.prebuilt=$prebuilt;$closure.compiledSelection=$selection;$closure.complete=$true
 } catch { $closure.postcheckErrors += $_.Exception.Message }
 Save-Closure
-if (-not $closure.complete -or $closure.postcheckErrors.Count) { throw ('Affected diagnostic gate failed/unknown: '+($closure.postcheckErrors -join '; ')) }
+if (-not $closure.complete -or $closure.postcheckErrors.Count) { throw ('Affected setup gate failed/unknown: '+($closure.postcheckErrors -join '; ')) }
 exit 0

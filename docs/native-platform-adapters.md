@@ -253,6 +253,13 @@ roundtrip through Windows extraction/re-export; no metadata sidecar is invented.
 Windows runtime scratch checks can opt into the packaged ownership helper's
 separate `--storage-check-v1` read mode. It reads literal path owner/DACL and
 reparse metadata using the current token, at every existing guard checkpoint.
+Metadata comes from `GetFileAttributesW`; owner/DACL comes from a separate
+`GetNamedSecurityInfoW` read, matching the existing path-based guard semantics.
+These are separate snapshots with existing path/ACL race limits, not an atomic
+path-to-object binding. The caller retains its existing Node identity checks,
+private namespace checks and mutation fences; this read mode adds no confinement
+or process-lifetime authority. Fixed diagnostic stages identify failures in the
+current call without attributing an earlier generic guard error to an API.
 It emits no ownership or release claim, keeps no cross-request validation cache,
 and never changes ACLs or launches a target. Missing/mismatched helpers and
 unsupported callback/object/conditional ACE representations fail with an

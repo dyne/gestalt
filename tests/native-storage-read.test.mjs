@@ -32,6 +32,16 @@ test('passive observation labels the literal native read mode while preserving t
   assert.equal(wrapped.call(receiver, '/fixed/helper', ['--storage-check-v1', 'private', '--', 'literal'], {}), result);
   assert.equal(observer.report().events[0].privateOperation, 'native-read-private');
 });
+test('native read stage diagnostics remain refusals and preserve stage, error and path index', () => {
+  for (const stage of ['metadata', 'type', 'security', 'descriptor', 'owner', 'ace', 'full']) {
+    const stderr = Buffer.from(`GESTALT_STORAGE_CHECK_V1 ${stage} error=5 index=127\n`);
+    assert.equal(windowsReadFailure({ stderr }), `Windows private namespace/ACL validation failed (${stage}, error 5, path index 127)`);
+    assert.throws(() => assertWindowsReadReply(stderr));
+  }
+  assert.match(windowsReadFailure({ stderr: Buffer.from('GESTALT_STORAGE_CHECK_V1 ace error=50 index=0\n') }), /representation is unsupported/);
+  for (const incomplete of ['GESTALT_STORAGE_CHECK_V1 security error=5', 'GESTALT_STORAGE_CHECK_V1 metadata error=5 index=0\nextra'])
+    assert.match(windowsReadFailure({ stderr: Buffer.from(incomplete) }), /unconfirmed/);
+});
 function inventory() {
   const context = { ownerId: 'service-' + randomUUID(), workspacePath: 'C:\\private\\workspace' }, primaryId = randomUUID();
   const make = (leaseId, state, consumers) => ({ file: 'C:\\private\\leases\\' + leaseId + '.json', sha256: 'a'.repeat(64), lease: {

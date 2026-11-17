@@ -134,24 +134,29 @@ static int valid_path(const wchar_t *path) {
   }
   return 1;
 }
-static int check_path(struct principals *p, const wchar_t *path, int namespace_mode, DWORD *error) {
-  HANDLE handle = CreateFileW(path, READ_CONTROL,
-    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING,
-    FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
-  if (handle == INVALID_HANDLE_VALUE) { *error = GetLastError(); return 0; }
-  BY_HANDLE_FILE_INFORMATION attributes; PSECURITY_DESCRIPTOR descriptor = NULL; PSID owner = NULL; PACL acl = NULL;
+static int check_path(struct principals *p, wchar_t *path, int namespace_mode, DWORD *error, const char **stage) {
+  /* Match the existing path-metadata + named-security guard. This is not an
+   * atomic path/object binding; the caller retains its existing identity fences. */
+  *stage = "metadata";
+  DWORD attributes = GetFileAttributesW(path);
+  if (attributes == INVALID_FILE_ATTRIBUTES) { *error = GetLastError(); return 0; }
+  PSECURITY_DESCRIPTOR descriptor = NULL; PSID owner = NULL; PACL acl = NULL;
   int ok = 0, full = 0;
-  if (!GetFileInformationByHandle(handle, &attributes)) { *error = GetLastError(); goto done; }
-  if ((attributes.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) ||
-      (namespace_mode && !(attributes.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))) { *error = ERROR_REPARSE_TAG_INVALID; goto done; }
-  *error = GetSecurityInfo(handle, SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION, &owner, NULL, &acl, NULL, &descriptor);
+  *stage = "type";
+  if ((attributes & FILE_ATTRIBUTE_REPARSE_POINT) ||
+      (namespace_mode && !(attributes & FILE_ATTRIBUTE_DIRECTORY))) { *error = ERROR_REPARSE_TAG_INVALID; goto done; }
+  *stage = "security";
+  *error = GetNamedSecurityInfoW(path, SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION, &owner, NULL, &acl, NULL, &descriptor);
   if (*error != ERROR_SUCCESS) goto done;
+  *stage = "descriptor";
   if (!descriptor || !IsValidSecurityDescriptor(descriptor)) { *error = ERROR_INVALID_SECURITY_DESCR; goto done; }
   DWORD size = GetSecurityDescriptorLength(descriptor);
   if (size > MAX_SECURITY_BYTES || !bounded_sid(descriptor, size, owner) || !acl ||
       !inside(descriptor, size, acl, sizeof(ACL)) || !inside(descriptor, size, acl, acl->AclSize) || !IsValidAcl(acl)) { *error = ERROR_INVALID_ACL; goto done; }
+  *stage = "owner";
   int owner_ok = namespace_mode ? trusted(p, owner) : EqualSid(owner, p->caller);
   if (owner_ok != 1) { *error = owner_ok < 0 ? p->error : ERROR_ACCESS_DENIED; goto done; }
+  *stage = "ace";
   for (DWORD i = 0; i < acl->AceCount; i++) {
     void *value = NULL;
     if (!GetAce(acl, i, &value) || !inside(acl, acl->AclSize, value, sizeof(ACE_HEADER))) { *error = ERROR_INVALID_ACL; goto done; }
@@ -173,11 +178,12 @@ static int check_path(struct principals *p, const wchar_t *path, int namespace_m
       if (EqualSid(sid, p->caller) && (ace->Mask & 2032127U) == 2032127U) full = 1;
     }
   }
+  *stage = "full";
   if (!namespace_mode && !full) { *error = ERROR_ACCESS_DENIED; goto done; }
   ok = 1;
 done:
   if (descriptor) LocalFree(descriptor);
-  CloseHandle(handle); return ok;
+  return ok;
 }
 int gestalt_windows_storage_check(int argc, wchar_t **argv) {
   int namespace_mode = argc > 2 && !wcscmp(argv[2], L"namespace");
@@ -189,7 +195,8 @@ int gestalt_windows_storage_check(int argc, wchar_t **argv) {
   if (!initialize_principals(p)) { DWORD error = GetLastError(); free(p); return diagnostic("token", error, -1, 1); }
   for (int i = 4; i < argc; i++) {
     DWORD error = ERROR_INVALID_DATA;
-    if (!check_path(p, argv[i], namespace_mode, &error)) { free(p); return diagnostic("guard", error, i - 4, 1); }
+    const char *stage = "guard";
+    if (!check_path(p, argv[i], namespace_mode, &error, &stage)) { free(p); return diagnostic(stage, error, i - 4, 1); }
   }
   free(p);
   const char token[] = "GESTALT_STORAGE_CHECK_V1_OK\n"; DWORD written = 0;

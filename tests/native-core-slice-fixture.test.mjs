@@ -12,7 +12,8 @@ import { authorizeFixtureHooks } from './fixtures/native-cli-hook-trust.mjs';
 import { assertMetadataProbesOnly, captureProviderProbes, providerProbeViolation } from './fixtures/native-provider-probes.mjs';
 import { terminalControls } from './fixtures/native-cli-slice-controls.mjs';
 import { createReadinessObserver } from './fixtures/native-cli-spawn-capture.mjs';
-import { selectedSliceMode, readinessArgv, finalCapturedInvocation, readinessObservations } from './native-core-slice.mjs';
+import { selectedSliceMode, readinessArgv, finalCapturedInvocation, readinessObservations,
+  selectedReadinessComparison, observerFreeEnvironment, readinessComparison } from './native-core-slice.mjs';
 import { EventEmitter } from 'node:events';
 
 const wire = (kind, data = '') => {
@@ -29,6 +30,53 @@ test('readiness selection is explicit Windows-only and exercises nonadministrati
   const final = { argv: ['--no-daemon', 'exec', '--help'] };
   assert.equal(finalCapturedInvocation([{ argv: ['app-server', '--stdio'] }, final], 'readiness'), final);
   assert.throws(() => finalCapturedInvocation([final, final], 'readiness'));
+});
+test('comparator selection requires its own explicit Windows readiness flag and stays off normally', () => {
+  assert.equal(selectedReadinessComparison({}, 'readiness', 'win32'), false);
+  assert.equal(selectedReadinessComparison({ GESTALT_CORE_SLICE_READINESS_COMPARISON: '0' }, 'readiness', 'win32'), false);
+  assert.equal(selectedReadinessComparison({ GESTALT_CORE_SLICE_READINESS_COMPARISON: '1' }, 'readiness', 'win32'), true);
+  for (const [flag, mode, platform] of [['yes', 'readiness', 'win32'], ['1', 'terminal', 'win32'], ['1', 'readiness', 'linux']])
+    assert.throws(() => selectedReadinessComparison({ GESTALT_CORE_SLICE_READINESS_COMPARISON: flag }, mode, platform));
+});
+test('comparator removes only the exact observer import and capture inputs while preserving owner TMP and policy environment', () => {
+  const observerImport = 'file:///fixture/spawn-capture.mjs', observed = {
+    NODE_OPTIONS: '--import=' + observerImport, GESTALT_SLICE_CODEX_BINARY: '/fixture/codex', GESTALT_SLICE_SPAWN_CAPTURE: '/fixture/argv.jsonl', GESTALT_SLICE_READINESS_CAPTURE: '/fixture/observation.json',
+    GESTALT_SESSION_TMP_CONTEXT: 'exact context bytes', TMPDIR: '/fixture/tmp', TMP: '/fixture/tmp', TEMP: '/fixture/tmp',
+    CODEX_HOME: '/fixture/profile', GESTALT_HOME: '/fixture/install', GESTALT_SLICE_CONFIGURATION: '/fixture/configuration.json', PATH: '/fixture/native', RETAINED: 'literal ü',
+  }, before = { ...observed }, { environment, changes } = observerFreeEnvironment(observed, observerImport);
+  assert.deepEqual(observed, before); assert.equal(environment.NODE_OPTIONS, '');
+  assert.deepEqual(changes.map(change => change.key), ['GESTALT_SLICE_CODEX_BINARY', 'GESTALT_SLICE_READINESS_CAPTURE', 'GESTALT_SLICE_SPAWN_CAPTURE', 'NODE_OPTIONS']);
+  for (const [key, value] of Object.entries(observed)) if (!changes.some(change => change.key === key)) assert.equal(environment[key], value);
+  assert.throws(() => observerFreeEnvironment({ ...observed, NODE_OPTIONS: '--require=other --import=' + observerImport }, observerImport));
+});
+test('comparator structured failure is retained and observed readiness still executes exactly once afterwards', async () => {
+  const order = [], saved = [];
+  const result = await readinessComparison(async control => { order.push(control); if (control === 'comparator') throw Error('controlled measurement failure'); },
+    async record => { saved.push(structuredClone(record)); });
+  assert.deepEqual(order, ['comparator', 'readiness']); assert.equal(result.pass, false);
+  assert.match(saved[0].failure.message, /controlled measurement/); assert.equal(saved[0].completed, false); assert.equal(saved[1].completed, true);
+  assert.equal(result.plannedQueryInvocations, 2); assert.equal(result.submittedTurns, 0); assert.equal(result.terminalCasesExecuted, 0);
+});
+test('comparator missing result capture cannot pass or prevent the unchanged observed readiness failure from being retained', async () => {
+  const order = [];
+  const result = await readinessComparison(async control => { order.push(control); if (control === 'readiness') throw Error('controlled original readiness gate'); },
+    async record => { if (record.control === 'comparator') throw Error('controlled missing capture'); });
+  assert.deepEqual(order, ['comparator', 'readiness']); assert.equal(result.pass, false);
+  assert.equal(result.cases[0].completed, false); assert.match(result.cases[0].captureFailure.message, /missing capture/);
+  assert.equal(result.cases[1].completed, false); assert.match(result.cases[1].failure.message, /original readiness gate/);
+});
+test('observer-free comparator child has no test import or capture files and preserves actual output status and inherited bytes', async t => {
+  const fixture = await mkdtemp(path.join(tmpdir(), 'readiness-comparator-')); t.after(() => rm(fixture, { recursive: true, force: true }));
+  const observerImport = pathToFileURL(path.resolve(import.meta.dirname, 'fixtures/native-cli-spawn-capture.mjs')).href;
+  const capture = path.join(fixture, 'argv.jsonl'), observation = path.join(fixture, 'observation.json');
+  const { environment } = observerFreeEnvironment({ ...process.env, NODE_OPTIONS: '--import=' + observerImport,
+    GESTALT_SLICE_CODEX_BINARY: process.execPath, GESTALT_SLICE_SPAWN_CAPTURE: capture, GESTALT_SLICE_READINESS_CAPTURE: observation,
+    GESTALT_SESSION_TMP_CONTEXT: 'controlled exact context', TMPDIR: fixture, TMP: fixture, TEMP: fixture }, observerImport);
+  const program = `const p=process.env;if(p.NODE_OPTIONS!==''||p.GESTALT_SLICE_CODEX_BINARY!==undefined||p.GESTALT_SLICE_SPAWN_CAPTURE!==undefined||p.GESTALT_SLICE_READINESS_CAPTURE!==undefined)throw Error('observer enabled');process.stdout.write(Buffer.from([0,255,13,10]));process.stderr.write(JSON.stringify([p.GESTALT_SESSION_TMP_CONTEXT,p.TMPDIR,p.TMP,p.TEMP]));process.exitCode=23;`;
+  const child = spawnSync(process.execPath, ['-e', program], { env: environment, timeout: 10000 });
+  assert.equal(child.status, 23); assert.deepEqual(child.stdout, Buffer.from([0, 255, 13, 10]));
+  assert.deepEqual(JSON.parse(child.stderr), ['controlled exact context', fixture, fixture, fixture]);
+  await assert.rejects(readFile(capture), { code: 'ENOENT' }); await assert.rejects(readFile(observation), { code: 'ENOENT' });
 });
 test('readiness observer preserves read/write/emit identities, callbacks, bytes and listener counts without extra reads', () => {
   const observer = createReadinessObserver(), child = new EventEmitter(), chunks = []; let reads = 0, callbackCalls = 0;

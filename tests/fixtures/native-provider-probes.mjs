@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 
 export function providerProbeViolation(record) {
-  if (!['eof', 'interrupt', 'readiness'].includes(record.control)) return 'request outside an active fixture case';
+  if (!['eof', 'interrupt', 'readiness', 'comparator'].includes(record.control)) return 'request outside an active fixture case';
   if (!(record.method === 'HEAD' && record.path === '/responses' || record.method === 'GET' && record.path === '/models'))
     return 'generation, query-bearing or other request';
   if (record.bodyComplete !== true || record.bodyBytes !== 0) return 'nonempty or unconfirmed request body';

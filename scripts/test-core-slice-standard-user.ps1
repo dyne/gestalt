@@ -57,6 +57,7 @@ if ($developmentModeKind -ne 'DWord' -or $developmentMode -ne 0) { throw 'Native
 & $Node tests/fixtures/native-no-devmode.mjs (Join-Path $evidence 'developer-mode-negative-capability.json')
 if ($LASTEXITCODE -ne 0) { throw 'Actual ordinary-user no-Developer-Mode capability check failed' }
 $env:GESTALT_CORE_SLICE_READINESS_ONLY = '1'
+$env:GESTALT_CORE_SLICE_READINESS_COMPARISON = '1'
 & $Node tests/native-core-slice.mjs --artifacts native-evidence/core-slice-prebuilt --agents .native-dependencies/agents --evidence $evidence
 $result = $LASTEXITCODE
 if ($null -eq $result) { throw 'Native core slice exit code was not observed' }

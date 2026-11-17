@@ -67,7 +67,7 @@ jobs:
           name: core-consumer-slice-${{ matrix.os }}
           path: |
             native-evidence/
-            !native-evidence/core-slice/codex-artifact/**
+            !native-evidence/core-slice/**/codex-artifact/**
 
   windows:
     if: github.event_name == 'push' || inputs.target == 'all' || inputs.target == 'windows'
@@ -149,13 +149,20 @@ jobs:
             $observed = $process.WaitForExit(1200000)
             if (-not $observed) { $timedOut = $true; $process.Kill(); throw 'Consumer deadline; product descendant certainty remains unknown' }
             $exit = $process.ExitCode
-            if ($null -eq $exit -or $exit -ne 0) { throw "Native consumer slice failed: $exit" }
-            $readinessModeEntry = Get-Content -LiteralPath (Join-Path $source 'native-evidence/core-slice/mode-entry.json') -Raw | ConvertFrom-Json
-            if ($readinessModeEntry.mode -ne 'readiness' -or $readinessModeEntry.flag -ne '1') { throw 'Ordinary-account readiness selection was not observed' }
-            $readinessResult = Get-Content -LiteralPath (Join-Path $source 'native-evidence/core-slice/readiness/result.json') -Raw | ConvertFrom-Json
-            if ($readinessResult.kind -ne 'actual-compiled-windows-owned-query-readiness' -or $readinessResult.tests -ne 1 -or $readinessResult.pass -isnot [bool] -or $readinessResult.pass -ne $true -or $readinessResult.failed -ne 0 -or $readinessResult.skip -ne 0 -or $readinessResult.submittedTurns -ne 0 -or $readinessResult.terminalCasesExecuted -ne 0) {
-              throw 'Readiness1/0TUI/0turn success evidence is missing; a normal two-case result is not readiness proof'
+            # Collect both independent cases even when the consumer returned failure.
+            $capture = @{}; $captureErrors = @()
+            foreach ($item in @(@('mode','mode-entry.json'), @('comparison','comparison.json'), @('comparator','comparator/comparator/result.json'), @('readiness','readiness/readiness/result.json'))) {
+              try { $capture[$item[0]] = Get-Content -LiteralPath (Join-Path $source ('native-evidence/core-slice/' + $item[1])) -Raw | ConvertFrom-Json }
+              catch { $captureErrors += @{name=$item[0];path=$item[1];error=$_.Exception.Message} }
             }
+            @{observedAt=[DateTime]::UtcNow.ToString('o');exit=$exit;captures=$capture;captureErrors=$captureErrors;scope='Independent comparator measurement and original observed readiness; missing is unknown/fail'} | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath 'native-evidence/readiness-comparison-postchecks.json'
+            if ($captureErrors.Count) { throw 'Independent comparator/readiness capture missing; inspect both retained case directories' }
+            $mode = $capture['mode']; $comparison = $capture['comparison']; $comparator = $capture['comparator']; $readiness = $capture['readiness']
+            if ($mode.mode -ne 'readiness' -or $mode.flag -ne '1' -or $mode.comparisonFlag -ne '1' -or $mode.comparison -isnot [bool] -or $mode.comparison -ne $true) { throw 'Ordinary-account readiness comparison selection was not observed' }
+            if ($comparison.plannedQueryInvocations -ne 2 -or $comparison.actualQueryInvocations -ne 2 -or $comparison.cases.Count -ne 2 -or $comparison.cases[0].control -ne 'comparator' -or $comparison.cases[1].control -ne 'readiness' -or $comparison.pass -isnot [bool] -or $comparison.pass -ne $true -or $comparison.readinessPass -ne $true -or $comparison.submittedTurns -ne 0 -or $comparison.terminalCasesExecuted -ne 0) { throw 'Both independent query invocations must complete; diagnostics are not readiness proof' }
+            if ($comparator.kind -ne 'actual-compiled-windows-observer-free-query-comparator' -or $comparator.measurementComplete -ne $true -or $comparator.readinessPass -ne $null -or $comparator.rawInnerRecordsClaimed -ne $false -or $comparator.innerPhasesClaimed -ne $false -or $comparator.zeroProviderRequests -ne $true -or $comparator.tests -ne 1 -or $comparator.failed -ne 0 -or $comparator.skip -ne 0 -or $comparator.submittedTurns -ne 0 -or $comparator.terminalCasesExecuted -ne 0) { throw 'Observer-free symptom measurement incomplete or falsely claims inner readiness' }
+            if ($readiness.kind -ne 'actual-compiled-windows-owned-query-readiness' -or $readiness.tests -ne 1 -or $readiness.pass -isnot [bool] -or $readiness.pass -ne $true -or $readiness.failed -ne 0 -or $readiness.skip -ne 0 -or $readiness.submittedTurns -ne 0 -or $readiness.terminalCasesExecuted -ne 0) { throw 'Original observed readiness gate did not pass independently' }
+            if ($null -eq $exit -or $exit -ne 0) { throw "Native consumer slice failed: $exit" }
           } finally {
             foreach ($file in @('slice.stdout', 'slice.stderr')) {
               $partial = Join-Path $work $file
@@ -172,4 +179,4 @@ jobs:
           name: core-consumer-slice-windows
           path: |
             native-evidence/
-            !native-evidence/core-slice/codex-artifact/**
+            !native-evidence/core-slice/**/codex-artifact/**

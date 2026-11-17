@@ -9,6 +9,7 @@ import { createServer as httpServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
+import { performance } from 'node:perf_hooks';
 import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
@@ -40,6 +41,33 @@ export function selectedSliceMode(environment, platform = process.platform) {
   return 'readiness';
 }
 export const readinessArgv = entry => [entry, 'cli', '--', 'exec', '--help'];
+export function selectedReadinessComparison(environment, mode, platform = process.platform) {
+  const flag = environment.GESTALT_CORE_SLICE_READINESS_COMPARISON;
+  if (flag === undefined || flag === '' || flag === '0') return false;
+  if (flag !== '1' || mode !== 'readiness' || platform !== 'win32') throw Error('Comparison requires explicit flag1 with Windows readiness selected');
+  return true;
+}
+export function observerFreeEnvironment(observed, observerImport) {
+  assert.equal(observed.NODE_OPTIONS, '--import=' + observerImport, 'Remove only this fixture observer import');
+  const environment = { ...observed, NODE_OPTIONS: '' };
+  for (const key of ['GESTALT_SLICE_CODEX_BINARY', 'GESTALT_SLICE_SPAWN_CAPTURE', 'GESTALT_SLICE_READINESS_CAPTURE']) delete environment[key];
+  const changes = [...new Set([...Object.keys(observed), ...Object.keys(environment)])].sort().filter(key => observed[key] !== environment[key])
+    .map(key => ({ key, before: observed[key] ?? null, after: environment[key] ?? null, afterPresent: Object.hasOwn(environment, key) }));
+  assert.deepEqual(changes.map(change => change.key), ['GESTALT_SLICE_CODEX_BINARY', 'GESTALT_SLICE_READINESS_CAPTURE', 'GESTALT_SLICE_SPAWN_CAPTURE', 'NODE_OPTIONS']);
+  return { environment, changes };
+}
+export async function readinessComparison(run, save) {
+  const cases = [];
+  for (const control of ['comparator', 'readiness']) {
+    let failure = null;
+    try { await run(control); } catch (error) { failure = { message: error.message, stack: error.stack }; }
+    const result = { control, completed: failure === null, failure };
+    cases.push(result);
+    try { await save(result); }
+    catch (error) { result.completed = false; result.captureFailure = { message: error.message, stack: error.stack }; }
+  }
+  return { cases, pass: cases.every(result => result.completed), plannedQueryInvocations: 2, submittedTurns: 0, terminalCasesExecuted: 0 };
+}
 export function finalCapturedInvocation(calls, mode = 'terminal') {
   if (mode === 'terminal') return calls.filter(call => call.argv[0] !== 'app-server' && call.argv.includes('--no-alt-screen')).at(-1);
   const selected = calls.filter(call => queryPhase(call.argv) === 'final-help');
@@ -219,6 +247,58 @@ async function borrowerInventory(primary) {
   }
   return records;
 }
+async function queryComparator(entry, observedEnvironment, cwd, directory, helper, primary, configFile, hooksFile, inherited, observerImport) {
+  const { environment, changes } = observerFreeEnvironment(observedEnvironment, observerImport);
+  const policy = async label => Promise.all([configFile, hooksFile].map(async file => {
+    const bytes = await readFile(file), copy = path.join(directory, label + '-' + path.basename(file)); await writeFile(copy, bytes, { flag: 'wx', mode: 0o600 });
+    return { file, sha256: sha256(bytes), bytes: bytes.length, copy };
+  }));
+  const beforePolicy = await policy('before'), beforeBorrowers = await borrowerInventory(primary);
+  const adapter = new NativeOwnedProcesses(helper), stdout = [], stderr = [];
+  let lease, outcome, claim, failure, afterBorrowers, afterPolicy, resultMonotonicMs;
+  await record(path.join(directory, 'invocation.json'), { executable: process.execPath, argv: readinessArgv(entry), cwd, inherited,
+    environmentDeltaFromThisFixturesObservedInvocation: changes, observerImport, observerEnabled: false,
+    scope: 'Exactly the test observer import and its three capture inputs removed. Other environment values, including owner/TMP, are unchanged within this fresh fixture; separate fixtures have different homes/owners/ports.' });
+  const startedMonotonicMs = performance.now(), startedAt = new Date().toISOString();
+  try {
+    lease = await adapter.launch(process.execPath, { argv: readinessArgv(entry), cwd, environment }, {
+      stdin: (async function* () {})(), stdout: async bytes => stdout.push(Buffer.from(bytes)), stderr: async bytes => stderr.push(Buffer.from(bytes)),
+    }, { graceMs: 1000, deadlineMs: 10000 });
+    outcome = await bounded(lease.result, 'actual compiled Windows query comparator', 300000);
+    resultMonotonicMs = performance.now();
+  } catch (error) { failure = { message: error.message, stack: error.stack }; }
+  finally {
+    if (lease) {
+      try { claim = await lease.stop(); await bounded(lease.completed, 'query comparator helper closure', 15000); }
+      catch (error) { failure ??= { message: error.message, stack: error.stack }; }
+    }
+    try { afterBorrowers = await borrowerInventory(primary); afterPolicy = await policy('after'); }
+    catch (error) { failure ??= { message: error.message, stack: error.stack }; }
+  }
+  const completedMonotonicMs = performance.now(), output = Buffer.concat(stdout).toString(), diagnostics = Buffer.concat(stderr).toString();
+  const errors = [];
+  if (failure) errors.push('comparator-execution-or-capture-failure');
+  if (outcome?.kind !== 'exit' || outcome.code !== 0 || claim?.kind !== 'released' || claim.lease !== lease?.id ||
+      claim.backend !== 'windows-job' || claim.result?.kind !== 'exit' || claim.result.code !== 0) errors.push('outer-natural0-or-matching-lease-unconfirmed');
+  if (!/Usage:.*codex exec/s.test(output)) errors.push('native-exec-help-unobserved');
+  if (!afterPolicy || beforePolicy.some((value, index) => value.file !== afterPolicy[index]?.file || value.sha256 !== afterPolicy[index]?.sha256)) errors.push('configuration-policy-bytes-changed');
+  const previous = new Set(beforeBorrowers.map(value => value.lease.leaseId)), added = afterBorrowers?.filter(value => !previous.has(value.lease.leaseId)) ?? [];
+  if (!added.length || added.some(value => value.lease.state !== 'released' || value.lease.ownerId !== primary.context.ownerId ||
+      value.lease.workspacePath !== primary.context.workspacePath || !value.lease.consumers?.includes('manager-runtime'))) errors.push('new-runtime-borrowers-not-confirmed-released');
+  const beforePrimary = beforeBorrowers.find(value => value.lease.leaseId === primary.lease.leaseId), afterPrimary = afterBorrowers?.find(value => value.lease.leaseId === primary.lease.leaseId);
+  if (beforePrimary?.lease.state !== 'active' || afterPrimary?.lease.state !== 'active' || beforePrimary?.sha256 !== afterPrimary?.sha256) errors.push('primary-fixture-lease-not-retained-active-and-unchanged');
+  const result = { kind: 'actual-compiled-windows-observer-free-query-comparator', measurementComplete: errors.length === 0, failures: errors,
+    result: outcome ?? null, outerClaim: claim ?? null, outerLease: lease?.id ?? null, failure: failure ?? null,
+    startedAt, startedMonotonicMs, resultMonotonicMs: resultMonotonicMs ?? null, completedMonotonicMs,
+    elapsedToResultMs: resultMonotonicMs === undefined ? null : resultMonotonicMs - startedMonotonicMs, elapsedThroughClosureMs: completedMonotonicMs - startedMonotonicMs,
+    fallbackObserved: /capability discovery unavailable|startup guidance unavailable|complete descendant release is unconfirmed/.test(diagnostics),
+    beforePolicy, afterPolicy, beforeBorrowers, afterBorrowers, addedBorrowers: added, environmentChanges: changes, inherited,
+    readinessPass: null, rawInnerRecordsClaimed: false, innerPhasesClaimed: false, submittedTurns: 0, terminalCasesExecuted: 0,
+    scope: 'Observer-free symptom comparator only. Help0, no fallback and outer Job release do not prove complete inner readiness. Separate fresh fixtures/order/OS caches limit causal comparison.' };
+  await writeFile(path.join(directory, 'manager.stdout'), Buffer.concat(stdout)); await writeFile(path.join(directory, 'manager.stderr'), Buffer.concat(stderr));
+  await record(path.join(directory, 'query-result.json'), result);
+  assert.equal(result.measurementComplete, true, JSON.stringify(errors)); return result;
+}
 async function queryReadiness(entry, environment, cwd, directory, helper, primary, configFile, hooksFile, inherited) {
   const adapter = new NativeOwnedProcesses(helper), stdout = [], stderr = [];
   const policy = async label => Promise.all([configFile, hooksFile].map(async file => {
@@ -343,6 +423,7 @@ async function terminal(entry, environment, cwd, report, evidence, helper, contr
 }
 
 async function consume(artifacts, agents, evidence, mode) {
+  const queryMode = mode === 'readiness' || mode === 'comparator';
   await mkdir(evidence, { recursive: true, mode: 0o700 });
   const manifest = await json(path.join(artifacts, 'artifacts.json'));
   assert.equal(manifest.platform, process.platform); assert.equal(manifest.arch, process.arch); assert.equal(manifest.abi, process.versions.modules);
@@ -357,7 +438,7 @@ async function consume(artifacts, agents, evidence, mode) {
   for (const name of ['home', 'Codex', 'Gestalt', 'bin', 'workspace', 'status']) await storage.createDirectory(path.join(fixture, name));
   const consumer = path.join(fixture, 'consumer'); await cp(artifacts, consumer, { recursive: true });
   const entry = path.join(consumer, 'gestalt.mjs'), peer = manifest.peer ? path.join(consumer, manifest.peer) : undefined, helper = manifest.helper ? path.join(consumer, manifest.helper) : undefined;
-  if (mode === 'readiness') assert.equal((await digest(entry)).sha256, '9e045a38e22ad84044b528bcff0a9a33af0e8e7d14827ad8f6517d8753fd0cd4', 'Readiness must consume the sealed current product binary');
+  if (queryMode) assert.equal((await digest(entry)).sha256, '9e045a38e22ad84044b528bcff0a9a33af0e8e7d14827ad8f6517d8753fd0cd4', 'Readiness must consume the sealed current product binary');
   const artifact = await pinnedCodex(path.join(evidence, 'codex-artifact'), { homeDirectory: path.join(fixture, 'Codex') });
   await cp(artifact.binary, path.join(fixture, 'bin', process.platform === 'win32' ? 'codex.exe' : 'codex'));
   if (process.platform !== 'win32') await chmod(path.join(fixture, 'bin/codex'), 0o700);
@@ -383,7 +464,7 @@ async function consume(artifacts, agents, evidence, mode) {
   assert.ok(bundle, 'Actual installed dispatcher must pin one immutable Org bundle');
   const orgBundle = path.join(fixture, 'Codex/lib/gestalt-org-plan/bundles', bundle), configFile = path.join(fixture, 'Codex/config.toml');
   let readinessInstalledBindings;
-  if (mode === 'readiness') {
+  if (queryMode) {
     readinessInstalledBindings = [];
     for (const expected of binding.binding.files) {
       const file = path.join(orgBundle, path.basename(expected.path)), bytes = await readFile(file), info = await lstat(file);
@@ -413,7 +494,7 @@ async function consume(artifacts, agents, evidence, mode) {
   let activeCase = null;
   let runFailure = null;
   const attemptedCases = new Set();
-  const selectedCases = mode === 'readiness' ? ['readiness'] : ['eof', 'interrupt'];
+  const selectedCases = queryMode ? [mode] : ['eof', 'interrupt'];
   const sentinel = httpServer(captureProviderProbes(requests, () => activeCase));
   sentinel.listen(0, '127.0.0.1'); await once(sentinel, 'listening');
   try {
@@ -438,14 +519,21 @@ async function consume(artifacts, agents, evidence, mode) {
         const capture = path.join(current, 'candidate-spawn.jsonl');
         const observedEnvironment = { ...launchEnvironment, NODE_OPTIONS: '--import=' + pathToFileURL(path.join(consumer, 'spawn-capture.mjs')).href,
           GESTALT_SLICE_CODEX_BINARY: path.join(fixture, 'bin', process.platform === 'win32' ? 'codex.exe' : 'codex'), GESTALT_SLICE_SPAWN_CAPTURE: capture };
-        if (mode === 'readiness') observedEnvironment.GESTALT_SLICE_READINESS_CAPTURE = path.join(current, 'observation.json');
+        if (queryMode) observedEnvironment.GESTALT_SLICE_READINESS_CAPTURE = path.join(current, 'observation.json');
         let result, terminalFailure;
-        try { result = mode === 'readiness' ? await queryReadiness(entry, observedEnvironment, path.join(fixture, 'workspace'), current, helper, primary, configFile, path.join(fixture, 'Codex/hooks.json'), inherited) :
+        try { result = mode === 'comparator' ? await queryComparator(entry, observedEnvironment, path.join(fixture, 'workspace'), current, helper, primary, configFile, path.join(fixture, 'Codex/hooks.json'), inherited, pathToFileURL(path.join(consumer, 'spawn-capture.mjs')).href) :
+          mode === 'readiness' ? await queryReadiness(entry, observedEnvironment, path.join(fixture, 'workspace'), current, helper, primary, configFile, path.join(fixture, 'Codex/hooks.json'), inherited) :
           await terminal(entry, observedEnvironment, path.join(fixture, 'workspace'), report, current, helper, control); }
         catch (error) { terminalFailure = error; throw error; }
         finally {
-          try { await record(path.join(current, 'effective-manager-hooks.json'), await composedHooks(artifact.binary, launchEnvironment, path.join(fixture, 'workspace'), capture, mode)); }
+          try { if (mode !== 'comparator') await record(path.join(current, 'effective-manager-hooks.json'), await composedHooks(artifact.binary, launchEnvironment, path.join(fixture, 'workspace'), capture, mode)); }
           catch (error) { await record(path.join(current, 'effective-manager-hooks-failure.json'), { message: error.message, stack: error.stack }); if (!terminalFailure) throw error; }
+        }
+        if (mode === 'comparator') {
+          const provider = assertMetadataProbesOnly(requests, control); assert.equal(requests.length, 0, 'Observer-free comparator requires zero provider requests');
+          await record(path.join(current, 'result.json'), { ...result, provider, tests: 1, pass: true, failed: 0, skip: 0,
+            zeroProviderRequests: true, actualInstalledBindingsVerified: readinessInstalledBindings.length, readinessPass: null });
+          continue;
         }
         if (mode === 'readiness') {
           const provider = assertMetadataProbesOnly(requests, control);
@@ -469,7 +557,7 @@ async function consume(artifacts, agents, evidence, mode) {
     await new Promise(resolve => sentinel.close(resolve));
     const cases = [];
     for (const control of selectedCases) {
-      if (control === 'readiness') {
+      if (queryMode) {
         let query = null; try { query = await json(path.join(evidence, control, 'query-result.json')); } catch { /* unknown if unexecuted/abrupt */ }
         cases.push({ control, mode, attempted: attemptedCases.has(control), submittedTurns: 0, terminalCasesExecuted: 0, query }); continue;
       }
@@ -491,7 +579,7 @@ async function consume(artifacts, agents, evidence, mode) {
       scope: 'Retained isolated fixture; no automatic unknown cleanup and no live installation', observedAt: new Date().toISOString() });
     if (!runFailure && finalPolicyFailure) throw finalPolicyFailure;
   }
-  if (mode === 'readiness') console.log(JSON.stringify({ kind: 'actual-compiled-windows-owned-query-readiness', platform: process.platform, arch: process.arch, tests: 1, pass: 1, fail: 0, skip: 0, terminalCasesExecuted: 0, submittedTurns: 0 }));
+  if (queryMode) console.log(JSON.stringify({ kind: mode === 'readiness' ? 'actual-compiled-windows-owned-query-readiness' : 'actual-compiled-windows-observer-free-query-comparator', platform: process.platform, arch: process.arch, tests: 1, pass: 1, fail: 0, skip: 0, terminalCasesExecuted: 0, submittedTurns: 0 }));
   else console.log(JSON.stringify({ kind: 'actual-compiled-cli-codex-installed-org-authenticated-ipc', platform: process.platform, arch: process.arch, tests: 2, pass: 2, fail: 0, skip: 0 }));
 }
 
@@ -500,11 +588,29 @@ if (args[0] === '--prepare' && args[2] === '--agents' && args.length === 4) awai
 else if (args[0] === '--artifacts' && args[2] === '--agents' && args[4] === '--evidence' && args.length === 6) {
   const evidence = path.resolve(args[5]); await mkdir(evidence, { recursive: true });
   const mode = selectedSliceMode(process.env);
+  const comparison = selectedReadinessComparison(process.env, mode);
   await record(path.join(evidence, 'mode-entry.json'), { mode, flag: process.env.GESTALT_CORE_SLICE_READINESS_ONLY ?? null,
+    comparison, comparisonFlag: process.env.GESTALT_CORE_SLICE_READINESS_COMPARISON ?? null,
     platform: process.platform, pid: process.pid, node: process.version, observedAt: new Date().toISOString(),
     scope: 'Read inside the actual ordinary-account Node entry; CI step environment inheritance is not assumed' });
   let failure;
-  try { await consume(path.resolve(args[1]), await realpath(args[3]), evidence, mode); }
+  try {
+    if (!comparison) await consume(path.resolve(args[1]), await realpath(args[3]), evidence, mode);
+    else {
+      const results = await readinessComparison(control => consume(path.resolve(args[1]), path.resolve(args[3]), path.join(evidence, control), control),
+        result => record(path.join(evidence, result.control + '-execution.json'), result));
+      let actualQueryInvocations = 0;
+      for (const control of ['comparator', 'readiness']) {
+        try { const query = await json(path.join(evidence, control, control, 'query-result.json')); if (query.outerLease) actualQueryInvocations++; }
+        catch { /* Missing/abrupt capture is not an observed query. */ }
+      }
+      await record(path.join(evidence, 'comparison.json'), { ...results, actualQueryInvocations,
+        readinessPass: results.cases.find(result => result.control === 'readiness')?.completed === true,
+        scope: 'Fixed observer-free first / instrumented second ordering, separate fresh fixtures and contexts. OS/cache/order differ; no inner phase claim from comparator.' });
+      assert.equal(actualQueryInvocations, 2, 'Both actual query invocations must be captured');
+      assert.equal(results.pass, true, 'Comparator measurement and unchanged observed readiness must independently succeed');
+    }
+  }
   catch (error) { failure = { message: error.message, stack: error.stack }; throw error; }
   finally { await record(path.join(evidence, 'execution.json'), { command: [process.execPath, ...process.argv.slice(1)], cwd: process.cwd(), failure: failure ?? null, observedAt: new Date().toISOString() }); }
 } else throw Error('usage: native-core-slice.mjs --prepare OUTPUT --agents ACCEPTED_CHECKOUT | --artifacts OUTPUT --agents ACCEPTED_CHECKOUT --evidence OUTPUT');

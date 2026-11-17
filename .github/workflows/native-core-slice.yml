@@ -1,30 +1,18 @@
-name: Native core consumer slice
+name: L4 stable Manager acceptance
 
-# Correction transport is explicit. Stable parent acceptance still runs the
-# full Manager/native gates; this lane never substitutes for those results.
+# TEST transport only: current full Manager + existing Unix compatibility.
+# Windows policy25 and unchanged runtime/producer receipts are bound separately.
 on:
   push:
     branches: [test/native-core-runtime-slice-l4]
-  workflow_dispatch:
-    inputs:
-      target:
-        type: choice
-        required: true
-        default: all
-        options: [all, windows, linux, macos]
 
 permissions:
   contents: read
 
 jobs:
-  unix:
-    if: github.event_name != 'push' && inputs.target != 'windows'
-    strategy:
-      fail-fast: false
-      matrix:
-        os: ${{ fromJSON(github.event_name == 'push' && '["ubuntu-latest"]' || inputs.target == 'linux' && '["ubuntu-latest"]' || inputs.target == 'macos' && '["macos-latest"]' || '["ubuntu-latest","macos-latest"]') }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+  linux-full:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v6
         env:
@@ -48,129 +36,64 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm run typecheck:cli
-      - name: Build the compiled consumer and verify immutable Org inputs
-        run: node tests/native-core-slice.mjs --prepare native-evidence/core-slice-prebuilt --agents .native-dependencies/agents
-      - name: Existing disposable Ubuntu Codex sandbox prerequisites
+      - name: Record exact source and accepted dependency identity
+        run: node scripts/record-native-setup.mjs
+      - name: Existing disposable Ubuntu sandbox prerequisites
         if: runner.os == 'Linux' && runner.environment == 'github-hosted'
         run: |
           set -euo pipefail
+          mkdir -p native-evidence/l4-stable
+          {
+            date -u +'%Y-%m-%dT%H:%M:%SZ'
+            id
+            stat -c 'tmp uid=%u mode=%a' /tmp
+            printf 'before userns=%s\n' "$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)"
+            printf 'before apparmor_userns=%s\n' "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)"
+          } > native-evidence/l4-stable/host-prerequisites.log
           current_userns=$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)
           if [[ -n $current_userns && $current_userns != 1 ]]; then sudo sysctl -w kernel.unprivileged_userns_clone=1; fi
           current_apparmor=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)
           if [[ -n $current_apparmor && $current_apparmor != 0 ]]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
-      - name: Actual candidate terminal to installed Org and authenticated host IPC
-        run: node tests/native-core-slice.mjs --artifacts native-evidence/core-slice-prebuilt --agents .native-dependencies/agents --evidence native-evidence/core-slice > native-evidence/slice.stdout 2> native-evidence/slice.stderr
-      - uses: actions/upload-artifact@v6
-        if: always()
-        with:
-          name: core-consumer-slice-${{ matrix.os }}
-          path: |
-            native-evidence/
-            !native-evidence/core-slice/**/codex-artifact/**
-
-  windows:
-    if: github.event_name == 'push' || inputs.target == 'all' || inputs.target == 'windows'
-    runs-on: windows-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v6
-        env:
-          GIT_CONFIG_COUNT: 1
-          GIT_CONFIG_KEY_0: core.autocrlf
-          GIT_CONFIG_VALUE_0: 'false'
-        with:
-          persist-credentials: false
-      - uses: actions/checkout@v6
-        env:
-          GIT_CONFIG_COUNT: 1
-          GIT_CONFIG_KEY_0: core.autocrlf
-          GIT_CONFIG_VALUE_0: 'false'
-        with:
-          repository: dyne/gestalt-agents
-          ref: 8827347387ee32e2c5bd7eb912f9b80185cdad45
-          path: .native-dependencies/agents
-          persist-credentials: false
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npm run typecheck:cli
-      - name: Build target artifacts outside the consumer account
-        run: node tests/native-core-slice.mjs --prepare native-evidence/core-slice-prebuilt --agents .native-dependencies/agents
-      - name: Disable Developer Mode only on this disposable hosted test runner
-        if: runner.environment == 'github-hosted'
-        shell: powershell
-        env:
-          GESTALT_TEST_RUNNER_ENVIRONMENT: ${{ runner.environment }}
-        run: ./scripts/prepare-core-slice-windows.ps1
-      - name: Consume the exact compiled artifact as a standard user
-        shell: powershell
+          {
+            printf 'after userns=%s\n' "$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)"
+            printf 'after apparmor_userns=%s\n' "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)"
+          } >> native-evidence/l4-stable/host-prerequisites.log
+      - name: Current full gates and actual Unix authority, with independent captures
+        shell: bash
         run: |
-          $ErrorActionPreference = 'Stop'
-          $name = 'gs' + [Guid]::NewGuid().ToString('N').Substring(0, 12)
-          $password = ConvertTo-SecureString ([Guid]::NewGuid().ToString('N') + '!aA1') -AsPlainText -Force
-          $user = New-LocalUser -Name $name -Password $password -AccountNeverExpires
-          $work = Join-Path $env:RUNNER_TEMP $name
-          $source = Join-Path $work 'source'
-          $process = $null; $observed = $false; $timedOut = $false
-          try {
-            $users = Get-LocalGroup -SID 'S-1-5-32-545'; Add-LocalGroupMember -Group $users -Member $user
-            New-Item -ItemType Directory -Path $work | Out-Null
-            & robocopy $env:GITHUB_WORKSPACE $source /E /XD .git /NFL /NDL /NJH /NJS /NP
-            if ($LASTEXITCODE -gt 7) { throw 'Candidate copy failed' }
-            & icacls $work /grant ('*' + $user.SID.Value + ':(OI)(CI)F') /T /Q | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw 'Fixture access setup failed' }
-            $credential = New-Object Management.Automation.PSCredential(($env:COMPUTERNAME + '\' + $name), $password)
-            $node = (Get-Command node.exe).Source
-            $gitDirectory = Split-Path -Parent (Get-Command git.exe).Source
-            # Verify associated Process exit observation under this credential;
-            # it is CI observation, not a product descendant-release proof.
-            foreach ($expectedExit in @(0, 23)) {
-              $gate = Join-Path $work ('probe-' + $expectedExit + '.gate')
-              $program = '$gate=''' + $gate.Replace("'", "''") + ''';$end=[DateTime]::UtcNow.AddSeconds(10);while(-not [IO.File]::Exists($gate)){if([DateTime]::UtcNow -ge $end){exit 96};Start-Sleep -Milliseconds 10};exit ' + $expectedExit
-              $probeArguments = '-NoLogo -NoProfile -NonInteractive -EncodedCommand ' + [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($program))
-              $probe = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Credential $credential -LoadUserProfile -ArgumentList $probeArguments -PassThru
-              $handle = $probe.Handle
-              if ($handle -eq [IntPtr]::Zero -or $handle -eq [IntPtr](-1)) { throw 'Exit probe handle unavailable' }
-              [IO.File]::WriteAllText($gate, 'release')
-              if (-not $probe.WaitForExit(10000)) { $probe.Kill(); throw 'Exit probe deadline; descendant state unknown' }
-              $exit = $probe.ExitCode
-              @{observedAt=[DateTime]::UtcNow.ToString('o');expected=$expectedExit;exit=$exit;handleRetained=$true} | ConvertTo-Json > ('native-evidence/exit-probe-' + $expectedExit + '.json')
-              $probe.Dispose()
-              if ($null -eq $exit -or $exit -ne $expectedExit) { throw 'Exit probe result differs' }
-            }
-            $script = Join-Path $source 'scripts/test-core-slice-standard-user.ps1'
-            $arguments = '-NoLogo -NoProfile -NonInteractive -File "' + $script + '" -Repository "' + $source + '" -Node "' + $node + '" -GitDirectory "' + $gitDirectory + '"'
-            $process = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Credential $credential -LoadUserProfile -ArgumentList $arguments -PassThru -RedirectStandardOutput (Join-Path $work 'slice.stdout') -RedirectStandardError (Join-Path $work 'slice.stderr')
-            $handle = $process.Handle
-            if ($handle -eq [IntPtr]::Zero -or $handle -eq [IntPtr](-1)) { throw 'Consumer harness handle unavailable' }
-            $observed = $process.WaitForExit(3300000)
-            if (-not $observed) { $timedOut = $true; $process.Kill(); throw 'Consumer deadline; product descendant certainty remains unknown' }
-            $exit = $process.ExitCode
-            # Current closure captures are independent; missing observations fail.
-            $closure = $null; $closureError = $null
-            try { $closure = Get-Content -LiteralPath (Join-Path $source 'native-evidence/core-slice/closure-execution.json') -Raw | ConvertFrom-Json }
-            catch { $closureError = $_.Exception.Message }
-            @{observedAt=[DateTime]::UtcNow.ToString('o');exit=$exit;closure=$closure;captureError=$closureError;scope='Affected setup policy24+compiled1/25unique/TTY0; no runtime or whole-suite claim'} | ConvertTo-Json -Depth 40 | Set-Content -LiteralPath 'native-evidence/runtime-closure-postchecks.json'
-            if ($closureError -or $null -eq $closure -or $closure.complete -ne $true -or $closure.postcheckErrors.Count -ne 0 -or $closure.stages.Count -ne 2 -or $closure.terminalCases -ne 0 -or $closure.selectedTests -ne 25 -or $closure.installedTests -ne 1 -or $closure.commonTests -ne 24 -or $closure.policyTests -ne 24 -or $closure.compiledTests -ne 1 -or $closure.deferredTests -ne 0) { throw 'Affected setup gate incomplete; inspect both independent stages and all25 actual identities' }
-            foreach($stage in $closure.stages){if($null -eq $stage.exit -or $stage.exit -ne 0 -or $stage.error){throw ('Closure stage failed/unknown: '+$stage.name)}}
-            if ($null -eq $exit -or $exit -ne 0) { throw "Native consumer slice failed: $exit" }
-          } finally {
-            foreach ($file in @('slice.stdout', 'slice.stderr')) {
-              $partial = Join-Path $work $file
-              if (Test-Path -LiteralPath $partial) { Copy-Item -LiteralPath $partial -Destination native-evidence/ -Force }
-            }
-            $partial = Join-Path $source 'native-evidence/core-slice'
-            if (Test-Path -LiteralPath $partial) { Copy-Item -LiteralPath $partial -Destination native-evidence/ -Recurse -Force }
-            @{observedAt=[DateTime]::UtcNow.ToString('o');directExitObserved=$observed;timedOut=$timedOut;scope='CI handle observation only; consult matching native Job claims';teardown=$(if ($timedOut) {'deferred to disposable runner'} else {'account removal; no independent tree proof'})} | ConvertTo-Json > native-evidence/harness-observation.json
-            if (-not $timedOut) { Remove-LocalUser -Name $name -ErrorAction SilentlyContinue }
-          }
+          python3 - <<'PY'
+          import pathlib,subprocess,datetime,json,hashlib,os,re
+          root=pathlib.Path.cwd();e=root/'native-evidence/l4-stable';e.mkdir(exist_ok=True)
+          now=lambda:datetime.datetime.now(datetime.timezone.utc).isoformat()
+          digest=lambda b:hashlib.sha256(b).hexdigest()
+          commands=[('manager-full',['npm','test']),('scratch-sandbox',['npm','run','test:scratch:sandbox']),('build-package',['npm','run','build:package']),('docs-build',['npm','run','build']),('unix-authority',['node','tests/native-unix-compatibility.mjs','--agents','.native-dependencies/agents','--evidence','native-evidence/l4-stable/unix-authority'])]
+          records=[]
+          for name,argv in commands:
+              record={'name':name,'argv':argv,'cwd':str(root),'startedAt':now(),'head':os.environ['GITHUB_SHA'],'exit':None,'status':'running'}
+              records.append(record);(e/'commands.json').write_text(json.dumps(records,indent=2)+'\n')
+              out=e/(name+'.stdout');err=e/(name+'.stderr')
+              with out.open('wb') as stdout,err.open('wb') as stderr:result=subprocess.run(argv,stdout=stdout,stderr=stderr)
+              record.update({'exit':result.returncode,'status':'completed','observedAt':now()})
+              for key,p in [('stdout',out),('stderr',err)]:
+                  b=p.read_bytes();record[key]={'relative':p.relative_to(e).as_posix(),'bytes':len(b),'sha256':digest(b)}
+              content=out.read_text(errors='replace')+'\n'+err.read_text(errors='replace')
+              counts={}
+              for key,value in re.findall(r'(?m)^(?:ℹ |# )(tests|pass|fail|skipped|cancelled) (\d+)\r?$',content):counts[key]=counts.get(key,0)+int(value)
+              record['reportedCounts']=counts or None
+              record['countScope']='Aggregated Node summary blocks only; shell assertions and process probes are separately exit-bound; no invented test counts'
+              if name in ['manager-full','scratch-sandbox'] and (not counts.get('tests') or counts.get('fail',0) or counts.get('cancelled',0) or counts.get('tests')!=counts.get('pass',0)+counts.get('fail',0)+counts.get('skipped',0)):
+                  record['summaryError']='Missing/contradictory/failed Node summary'
+              (e/'commands.json').write_text(json.dumps(records,indent=2)+'\n')
+          cli=root/'dist/cli/gestalt.mjs';cliBytes=cli.read_bytes()
+          identity={'observedAt':now(),'head':os.environ['GITHUB_SHA'],'node':subprocess.check_output(['node','--version'],text=True).strip(),'npm':subprocess.check_output(['npm','--version'],text=True).strip(),'CLI':{'bytes':len(cliBytes),'sha256':digest(cliBytes)},'platform':'linux','arch':subprocess.check_output(['node','-p','process.arch'],text=True).strip(),'jobs':'one hosted Ubuntu job; no Windows/macOS execution in this run','complete':all(x['exit']==0 and not x.get('summaryError') for x in records),'scope':'Current full Manager/sandbox/package/docs and actual existing Unix authority; prior Windows proof remains separately fingerprint-bound'}
+          (e/'result.json').write_text(json.dumps(identity,indent=2)+'\n')
+          assert identity['CLI']=={'bytes':336071,'sha256':'216b6ea052ceb2fa4223f8fc51b9129af020adcfca32fbfd70011e5f9a59bf60'},'Current compiled CLI differs from frozen seal'
+          assert identity['complete'],'At least one independent stable gate failed; all command captures retained'
+          PY
       - uses: actions/upload-artifact@v6
         if: always()
         with:
-          name: core-consumer-slice-windows
+          name: l4-stable-manager-linux
           path: |
-            native-evidence/
-            !native-evidence/core-slice/**/codex-artifact/**
+            native-evidence/l4-stable/
+            native-evidence/setup/checkout.json

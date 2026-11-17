@@ -3,8 +3,9 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import test from 'node:test';
 import { existsSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { inflateRawSync } from 'node:zlib';
 import { nodeHookCommand, associationHookProgram } from '../src/cli/runtime/hook-command.mjs';
 
 test('native hook shell transports literal JavaScript/data and raw streams to Node with exact command outcome', { timeout: 30000 }, async () => {
@@ -46,4 +47,79 @@ test('Windows hook commands carry compressed program data and never interpolate 
   assert.match(bridge, /CopyToAsync/); assert.match(bridge, /UseShellExecute=\$false/);
   // This structural test is not Windows execution evidence. The preceding test
   // executes the same generated bridge on the actual Windows native runner.
+});
+
+test('PowerShell parses compact hook filename and arguments as exact literal values', { timeout: 30000, skip: !powershell && 'Optional local PowerShell unavailable; Windows gate always executes' }, async t => {
+  const cache = await mkdtemp(path.join(tmpdir(), 'hook-literal-cache-')); t.after(() => rm(cache, { recursive: true, force: true }));
+  const node = "C:\\Node ' ü 東京 $(exit 99) %PATH% &\\node.exe";
+  const program = "process.stdout.write(\"' ü 東京 $(exit 99) %PATH% &\");";
+  const command = nodeHookCommand(program, node, 'win32');
+  const bridge = Buffer.from(command.split(' ').at(-1), 'base64').toString('utf16le');
+  const start = bridge.indexOf('$p=[Diagnostics.Process]::Start($i)'); assert.ok(start > 0);
+  // Execute the real parser and ProcessStartInfo assignments, but never launch
+  // the deliberately nonexistent filename or execute its JavaScript.
+  const inspection = bridge.slice(0, start) + `
+$json=ConvertTo-Json -Compress -InputObject @{filename=$i.FileName;arguments=$i.Arguments}
+$bytes=[Text.Encoding]::UTF8.GetBytes($json)
+[Console]::OpenStandardOutput().Write($bytes,0,$bytes.Length)
+`;
+  const child = spawn(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(inspection, 'utf16le').toString('base64')], {
+    stdio: ['pipe', 'pipe', 'pipe'], shell: false, env: { ...process.env, XDG_CACHE_HOME: path.join(cache, 'cache'), XDG_DATA_HOME: path.join(cache, 'data'), XDG_CONFIG_HOME: path.join(cache, 'config') },
+  });
+  const output = [], errors = []; child.stdout.on('data', b => output.push(b)); child.stderr.on('data', b => errors.push(b));
+  const closed = new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); }); child.stdin.end();
+  assert.equal(await closed, 0, Buffer.concat(errors).toString()); assert.equal(Buffer.concat(errors).length, 0);
+  const values = JSON.parse(Buffer.concat(output)); assert.equal(values.filename, node);
+  assert.match(values.arguments, /^--input-type=module -e "/); assert.ok(values.arguments.endsWith('"'));
+  const compressed = /Buffer\.from\('([A-Za-z0-9+/=]+)','base64'\)/.exec(values.arguments); assert.ok(compressed);
+  assert.equal(inflateRawSync(Buffer.from(compressed[1], 'base64')).toString(), program);
+});
+
+test('captured complete Windows hook composition fits helper and payload limits without dropping argv or trust', async () => {
+  const fixture = JSON.parse(await readFile(new URL('./fixtures/native-runtime/windows-hook-budget.json', import.meta.url)));
+  assert.equal(fixture.schemaVersion, 1); assert.equal(fixture.observedRun, 44035381057);
+  assert.match(fixture.scope, /NOT claimed as observed fresh final argv/);
+  assert.equal(fixture.captureProvenance.length, 4); for (const ref of fixture.captureProvenance) assert.match(ref.sha256, /^[a-f0-9]{64}$/);
+  const { query, originalUserArguments: original, representativeFinalTrustState: trust } = fixture;
+  assert.deepEqual(query.argv.slice(0, 2), ['app-server', '--stdio']); assert.equal(query.argv.length, 14);
+  assert.equal((trust.match(/sha256:[a-f0-9]{64}/g) ?? []).length, 4);
+  assert.equal((trust.match(/trusted_hash/g) ?? []).length, 4); assert.equal((trust.match(/enabled\\?"?=true/g) ?? []).length, 4);
+  const selected = query.argv.slice(2), changes = [];
+  const compact = selected.map(arg => arg.replace(/powershell\.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand [A-Za-z0-9+/=]+/g, old => {
+    const bridge = Buffer.from(old.split(' ').at(-1), 'base64').toString('utf16le');
+    const data = /\$r=\[Text.Encoding\]::UTF8.GetString\(\[Convert\]::FromBase64String\('([^']+)'\)\)\|ConvertFrom-Json/.exec(bridge); assert.ok(data);
+    const values = JSON.parse(Buffer.from(data[1], 'base64')); assert.deepEqual(Object.keys(values), ['node', 'arguments']);
+    const compressed = /Buffer\.from\('([A-Za-z0-9+/=]+)','base64'\)/.exec(values.arguments); assert.ok(compressed);
+    const program = inflateRawSync(Buffer.from(compressed[1], 'base64')).toString();
+    const next = nodeHookCommand(program, values.node, 'win32');
+    const nextBridge = Buffer.from(next.split(' ').at(-1), 'base64').toString('utf16le');
+    // Only the two transport assignments may change; program bytes and all
+    // pumps/wait/result/progress code remain the actual captured bridge.
+    const literal = value => "'" + value.replaceAll("'", "''") + "'";
+    const expected = bridge.replace(/^\$r=.*\r?\n/m, '').replace('$i.FileName=$r.node;$i.Arguments=$r.arguments;', `$i.FileName=${literal(values.node)};$i.Arguments=${literal(values.arguments)};`);
+    assert.equal(nextBridge, expected); assert.ok(next.length < 30000);
+    changes.push([old.length, next.length]); return next;
+  }));
+  assert.deepEqual(changes, [[9210, 7178], [5806, 4630], [9210, 7178], [5806, 4630]]);
+  assert.equal(compact.length, selected.length);
+  // CRT writer/count policy is quoted for every payload argument. libuv's
+  // helper command quotes only empty/space/tab/quote arguments. JS length is
+  // UTF16 code units, including surrogate pairs, exactly as both Windows APIs.
+  const crt = value => '"' + value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, '$1$1') + '"';
+  const uv = value => !value || /[ \t"]/.test(value) ? crt(value) : value;
+  const count = (argv, quote) => argv.map(quote).join(' ').length;
+  const helper = argv => [query.executable, '--controller', String(query.observer), '--grace', '1000', '--', query.target, ...argv];
+  const final = flags => ['--no-daemon', ...original, ...flags, '-c', trust];
+  assert.deepEqual(final(compact).slice(1, 1 + original.length), original);
+  assert.equal(final(compact).at(-1), trust);
+  const measured = {
+    lastObservedSuccessfulHookQueryHelper: count(helper(query.argv), uv),
+    derivedFreshFinalHelper: count(helper(final(selected)), uv),
+    derivedFreshPayloadIfItCouldBeReached: count([query.target, ...final(selected)], crt),
+    candidateCompactFinalHelper: count(helper(final(compact)), uv),
+    candidateCompactFinalPayload: count([query.target, ...final(compact)], crt),
+  };
+  assert.deepEqual(measured, fixture.expectedCounts); assert.equal(fixture.maximumExcludingNul, 32766);
+  assert.ok(measured.derivedFreshFinalHelper > 32766); assert.ok(measured.derivedFreshPayloadIfItCouldBeReached > 32766);
+  assert.ok(measured.candidateCompactFinalHelper <= 32766); assert.ok(measured.candidateCompactFinalPayload <= 32766);
 });

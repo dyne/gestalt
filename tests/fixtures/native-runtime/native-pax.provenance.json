@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "scope": "Real GNU tar POSIX/PAX producer frozen for native archive reader interoperability; Windows stock tar production is not asserted fixed. Extraction never adopts PAX owner or unsafe permissions.",
+  "producer": {
+    "observedAt": "2026-11-17T07:55:56.885221+00:00",
+    "platform": "Linux",
+    "executable": "/usr/bin/tar",
+    "executableSha256": "38adf50825f773d353d6bda1a7cd70c22f8877823e44821c1d2bd0a52ddc3871",
+    "version": "tar (GNU tar) 1.35\nCopyright (C) 2023 Free Software Foundation, Inc.\nLicense GPLv3+: GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>.\nThis is free software: you are free to change and redistribute it.\nThere is NO WARRANTY, to the extent permitted by law.\n\nWritten by John Gilmore and Jay Fenlason.\n",
+    "argv": [
+      "/usr/bin/tar",
+      "--format=pax",
+      "-czf",
+      "/home/gestalt-dyne/gestalt/gestalt-workspace/gestalt-native/tests/fixtures/native-runtime/native-pax.tar.gz",
+      "-C",
+      "/home/gestalt-dyne/gestalt/gestalt-workspace/tmp/sessions/mobile-9c0dcfc3c438beaa2a381612147315b05291634bdbe67e2e0705319d494e2eb5/gestalt-pax-producer-tcem24a8",
+      "gestalt-skills"
+    ],
+    "cwd": "/home/gestalt-dyne/gestalt/gestalt-workspace",
+    "exitCode": 0,
+    "stdoutBytes": 0,
+    "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderrBytes": 0,
+    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "evidenceDirectory": "/home/gestalt-dyne/gestalt/gestalt-workspace/.gestalt/native-platforms-evidence/l4-2-hook-pax-corrections-v20",
+    "invocations": 1
+  },
+  "inputs": [
+    {
+      "path": "gestalt-skills",
+      "kind": "directory",
+      "mode": "0700",
+      "uid": 1002,
+      "gid": 1002
+    },
+    {
+      "path": "gestalt-skills/nested space 東京",
+      "kind": "directory",
+      "mode": "0700",
+      "uid": 1002,
+      "gid": 1002
+    },
+    {
+      "path": "gestalt-skills/nested space 東京/file",
+      "kind": "file",
+      "mode": "0600",
+      "uid": 1002,
+      "gid": 1002,
+      "bytes": 4,
+      "base64": "AP8KDQ==",
+      "sha256": "f474676c75e488e84e18f37502e7fc3e7b8850471fae5251290ff6cc4c8843bc"
+    }
+  ],
+  "archive": {
+    "file": "native-pax.tar.gz",
+    "bytes": 355,
+    "sha256": "76784247fd40f79fd58df6b3746f854f49f8aa5c423ca45679df304d3b9d2a1e",
+    "headerTypes": [
+      "x",
+      "5",
+      "x",
+      "5",
+      "x",
+      "0"
+    ]
+  }
+}

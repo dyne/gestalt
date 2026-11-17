@@ -7,7 +7,10 @@ export function windowsReadArguments(request) {
   if (!Array.isArray(paths) || paths.length < 1 || paths.length > 128 ||
       paths.some(value => typeof value !== 'string' || !path.win32.isAbsolute(value) || /[\x00-\x1f\x7f]/.test(value)))
     throw Error('Windows native storage read request is invalid');
-  return ['--storage-check-v1', operation === 'assert-private' ? 'private' : 'namespace', '--', ...paths.map(value => path.win32.toNamespacedPath(value))];
+  // Re-converting an extended drive root removes its final separator in Node.
+  // Forward extended bytes literally; the native path validator still applies.
+  return ['--storage-check-v1', operation === 'assert-private' ? 'private' : 'namespace', '--',
+    ...paths.map(value => value.startsWith('\\\\?\\') ? value : path.win32.toNamespacedPath(value))];
 }
 export function assertWindowsReadReply(reply) {
   if (Buffer.from(reply).toString('utf8') !== storageReadToken) throw Error('Windows native storage read reply is unconfirmed; install the matching target-built helper');

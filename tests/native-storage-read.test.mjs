@@ -18,6 +18,31 @@ test('Windows native read requests preserve literal paths and reject unsupported
     { operation: 'assert-private', path: 'C:\\nul\0byte' }, { operation: 'assert-namespace', paths: [] }, { operation: 'assert-namespace', paths: Array(129).fill(request.path) }])
     assert.throws(() => windowsReadArguments(bad));
 });
+test('native read forwarding preserves an already extended drive root without removing its separator', () => {
+  const root = '\\\\?\\C:\\';
+  assert.equal(root.length, 7);
+  const request = Object.freeze({ operation: 'assert-namespace', paths: Object.freeze([root]) });
+  assert.deepEqual(windowsReadArguments(request), ['--storage-check-v1', 'namespace', '--', root]);
+});
+test('native read path conversion happens once and forwarding is idempotent without changing requests', () => {
+  // UNC vectors establish literal argv only, not remote filesystem support.
+  const vectors = [
+    ['C:\\', '\\\\?\\C:\\'], ['C:/', '\\\\?\\C:\\'], ['\\\\?\\C:\\', '\\\\?\\C:\\'],
+    ['C:\\folder\\resource', '\\\\?\\C:\\folder\\resource'], ['\\\\?\\C:\\folder\\resource', '\\\\?\\C:\\folder\\resource'],
+    ['C:\\space ü\\résumé.txt', '\\\\?\\C:\\space ü\\résumé.txt'], ['\\\\?\\C:\\space ü\\résumé.txt', '\\\\?\\C:\\space ü\\résumé.txt'],
+    ['\\\\server\\share\\space ü', '\\\\?\\UNC\\server\\share\\space ü'], ['\\\\?\\UNC\\server\\share\\space ü', '\\\\?\\UNC\\server\\share\\space ü'],
+    ['\\\\?\\UNC\\server\\share\\', '\\\\?\\UNC\\server\\share\\'],
+  ];
+  for (const [input, expected] of vectors) for (const operation of ['assert-private', 'assert-namespace']) {
+    const request = operation === 'assert-private' ? { operation, path: input } : { operation, paths: Object.freeze([input]) };
+    const before = structuredClone(request); Object.freeze(request);
+    const argv = windowsReadArguments(request);
+    assert.deepEqual(argv, ['--storage-check-v1', operation === 'assert-private' ? 'private' : 'namespace', '--', expected]);
+    assert.deepEqual(request, before);
+    const forwarded = operation === 'assert-private' ? { operation, path: argv[3] } : { operation, paths: argv.slice(3) };
+    assert.deepEqual(windowsReadArguments(forwarded), argv);
+  }
+});
 test('native storage success requires its exact token and never accepts process ownership frames or noisy/partial replies', () => {
   assert.doesNotThrow(() => assertWindowsReadReply(Buffer.from(storageReadToken)));
   for (const bad of ['', 'GESTALT_STORAGE_CHECK_V1_OK', storageReadToken.replace('\n', '\r\n'), '\uFEFF' + storageReadToken,

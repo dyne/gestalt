@@ -444,7 +444,7 @@ async function consume(artifacts, agents, evidence, mode) {
   for (const name of ['home', 'Codex', 'Gestalt', 'bin', 'workspace', 'status']) await storage.createDirectory(path.join(fixture, name));
   const consumer = path.join(fixture, 'consumer'); await cp(artifacts, consumer, { recursive: true });
   const entry = path.join(consumer, 'gestalt.mjs'), peer = manifest.peer ? path.join(consumer, manifest.peer) : undefined, helper = manifest.helper ? path.join(consumer, manifest.helper) : undefined;
-  if (queryMode) assert.equal((await digest(entry)).sha256, '6e4317827d089c47a50d44121d9f793c0abf5d1bb45649a83bc8894f5974975e', 'Readiness must consume the sealed current product binary');
+  if (queryMode) assert.equal((await digest(entry)).sha256, '1d4f38d3b88c40cd3d44820fd463b078b47fd459c7d3f7c4b328b89ba8bc7d87', 'Readiness must consume the sealed current product binary');
   const artifact = await pinnedCodex(path.join(evidence, 'codex-artifact'), { homeDirectory: path.join(fixture, 'Codex') });
   await cp(artifact.binary, path.join(fixture, 'bin', process.platform === 'win32' ? 'codex.exe' : 'codex'));
   if (process.platform !== 'win32') await chmod(path.join(fixture, 'bin/codex'), 0o700);

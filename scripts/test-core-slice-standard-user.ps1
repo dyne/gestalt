@@ -57,8 +57,6 @@ if ($developmentModeKind -ne 'DWord' -or $developmentMode -ne 0) { throw 'Native
 & $Node tests/fixtures/native-no-devmode.mjs (Join-Path $evidence 'developer-mode-negative-capability.json')
 if ($LASTEXITCODE -ne 0) { throw 'Actual ordinary-user no-Developer-Mode capability check failed' }
 # TEST closure mode only. Keep every preceding ordinary-account prerequisite.
-$env:GESTALT_CORE_SLICE_READINESS_ONLY = '0'
-$env:GESTALT_CORE_SLICE_READINESS_COMPARISON = '0'
 $env:GESTALT_NATIVE_RUNTIME_ARTIFACTS = [IO.Path]::GetFullPath((Join-Path $Repository 'native-evidence/core-slice-prebuilt'))
 $env:GESTALT_NATIVE_AGENTS_SOURCE = [IO.Path]::GetFullPath((Join-Path $Repository '.native-dependencies/agents'))
 $env:GESTALT_NATIVE_RUNTIME_EVIDENCE = Join-Path $evidence 'runtime'
@@ -69,11 +67,6 @@ const root=process.env.GESTALT_NATIVE_RUNTIME_ARTIFACTS,agents=process.env.GESTA
 const hash=b=>crypto.createHash('sha256').update(b).digest('hex');const read=p=>fs.readFileSync(p);const m=JSON.parse(read(path.join(root,'artifacts.json')));const checked=[];
 assert.equal(process.platform,'win32');assert.equal(m.platform,process.platform);assert.equal(m.arch,process.arch);assert.equal(m.abi,process.versions.modules);assert.equal(m.helper,path.win32.join('native','gestalt-owned-process.exe'));assert.equal(m.peer,null);
 for(const a of m.artifacts){assert.equal(path.isAbsolute(a.relative),false);assert.equal(a.relative.split(/[\\/]/).includes('..'),false);const b=read(path.join(root,a.relative));assert.equal(b.length,a.bytes);assert.equal(hash(b),a.sha256);checked.push(a);}
-const paxPath=path.join(process.cwd(),'tests/fixtures/native-runtime/native-pax.tar.gz'),paxProvenancePath=path.join(process.cwd(),'tests/fixtures/native-runtime/native-pax.provenance.json');
-const pax=read(paxPath),paxProvenanceBytes=read(paxProvenancePath),paxProvenance=JSON.parse(paxProvenanceBytes);
-assert.equal(pax.length,355);assert.equal(hash(pax),'76784247fd40f79fd58df6b3746f854f49f8aa5c423ca45679df304d3b9d2a1e');assert.equal(paxProvenanceBytes.length,2479);assert.equal(hash(paxProvenanceBytes),'7751272d9a0273b8e42db89ac652960f35fdf8d2a3eed554147df5204207c99d');
-assert.equal(paxProvenance.schemaVersion,1);assert.equal(paxProvenance.producer.exitCode,0);assert.equal(paxProvenance.archive.bytes,pax.length);assert.equal(paxProvenance.archive.sha256,hash(pax));
-fs.writeFileSync(path.join(process.env.GESTALT_NATIVE_RUNTIME_EVIDENCE,'native-pax-fixture.json'),JSON.stringify({observedAt:new Date().toISOString(),archive:{path:paxPath,bytes:pax.length,sha256:hash(pax)},provenance:{path:paxProvenancePath,bytes:paxProvenanceBytes.length,sha256:hash(paxProvenanceBytes)},scope:'Read-only frozen native Unix PAX bytes/provenance binding only; not Windows extraction behavior or stock tar production'},null,2));
 assert.equal(hash(read(path.join(root,'gestalt.mjs'))),'73176c372648d53d0783f129d8cadab3730c2df450dd1094ce1c97bd7338d9da');assert.equal(read(path.join(root,'gestalt.mjs')).length,333789);
 const h=path.join(root,m.helper),p=JSON.parse(read(h+'.provenance.json'));assert.equal(p.artifactSha256,hash(read(h)));assert.deepEqual(p.sourceInputs,m.nativeHelperInputs);assert.deepEqual(p.sourceInputs.map(a=>a.path),['src/cli/platform/native/owned-process.c','src/cli/platform/native/windows-storage-check.c','src/cli/platform/native/windows-storage-check.h']);
 for(const a of p.sourceInputs){const b=read(path.join(process.cwd(),a.path));assert.equal(b.length,a.bytes);assert.equal(hash(b),a.sha256);}assert.equal(p.sourceSha256,p.sourceInputs[0].sha256);
@@ -82,7 +75,7 @@ fs.writeFileSync(out,JSON.stringify({observedAt:new Date().toISOString(),pass:tr
 '@
 $bindingProgram | & $Node --input-type=module
 if ($null -eq $LASTEXITCODE -or $LASTEXITCODE -ne 0) { throw 'Actual ordinary-token fixed manifest preflight failed' }
-$closure = @{scope='Affected Windows diagnostic only: currentTTY2 plus selected6 (installed1/common5), not full closure; readiness/parity reused from run44015990174';startedAt=[DateTime]::UtcNow.ToString('o');complete=$false;stages=@();postcheckErrors=@();terminalCases=0;selectedTests=$null;installedTests=$null;commonTests=$null;deferredTests=0;planned=@{terminal=2;selected=6;installed=1;common=5};productTimersChanged=$false}
+$closure = @{scope='Affected Windows diagnostic only: one installed fresh/resume case (TTY0/selected1/installed1/common0), not full closure; readiness/parity reused from run44015990174';startedAt=[DateTime]::UtcNow.ToString('o');complete=$false;stages=@();postcheckErrors=@();terminalCases=0;selectedTests=$null;installedTests=$null;commonTests=$null;deferredTests=0;planned=@{terminal=0;selected=1;installed=1;common=0};productTimersChanged=$false}
 function Save-Closure { $closure.observedAt=[DateTime]::UtcNow.ToString('o'); $closure | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath (Join-Path $evidence 'closure-execution.json') }
 function Invoke-ClosureStage([string]$Name,[string[]]$NodeArguments) {
   $out = Join-Path $evidence ($Name + '.tap'); $err = Join-Path $evidence ($Name + '.stderr'); $code=$null;$problem=$null;$started=[DateTime]::UtcNow.ToString('o')
@@ -93,11 +86,10 @@ function Invoke-ClosureStage([string]$Name,[string[]]$NodeArguments) {
   Save-Closure
 }
 Save-Closure
-Invoke-ClosureStage 'terminal' @('tests/native-core-slice.mjs','--artifacts','native-evidence/core-slice-prebuilt','--agents','.native-dependencies/agents','--evidence',$evidence)
-$required=@('archive accepts existing native tar PAX names/metadata without adopting owner, mode or extension authority','native hook shell transports literal JavaScript/data and raw streams to Node with exact command outcome','cold Windows hook bridge suppresses its own forced progress while preserving child raw stderr and status','PowerShell parses compact hook filename and arguments as exact literal values','captured complete Windows hook composition fits helper and payload limits without dropping argv or trust','actual compiled CLI uses accepted Agents, fresh/resume native sessions and a local synthetic Responses fixture')
-$installedRequired=@($required[5])
-$affectedPattern='^(?:archive\ accepts\ existing\ native\ tar\ PAX\ names/metadata\ without\ adopting\ owner,\ mode\ or\ extension\ authority|native\ hook\ shell\ transports\ literal\ JavaScript/data\ and\ raw\ streams\ to\ Node\ with\ exact\ command\ outcome|cold\ Windows\ hook\ bridge\ suppresses\ its\ own\ forced\ progress\ while\ preserving\ child\ raw\ stderr\ and\ status|PowerShell\ parses\ compact\ hook\ filename\ and\ arguments\ as\ exact\ literal\ values|captured\ complete\ Windows\ hook\ composition\ fits\ helper\ and\ payload\ limits\ without\ dropping\ argv\ or\ trust|actual\ compiled\ CLI\ uses\ accepted\ Agents,\ fresh/resume\ native\ sessions\ and\ a\ local\ synthetic\ Responses\ fixture)$'
-Invoke-ClosureStage 'runtime' @('--test','--test-reporter=tap',('--test-name-pattern='+$affectedPattern),'tests/native-archive.test.mjs','tests/native-hook-command.test.mjs','tests/native-runtime-installed.test.mjs')
+$required=@('actual compiled CLI uses accepted Agents, fresh/resume native sessions and a local synthetic Responses fixture')
+$installedRequired=@($required[0])
+$affectedPattern='^(?:actual\ compiled\ CLI\ uses\ accepted\ Agents,\ fresh/resume\ native\ sessions\ and\ a\ local\ synthetic\ Responses\ fixture)$'
+Invoke-ClosureStage 'runtime' @('--test','--test-reporter=tap',('--test-name-pattern='+$affectedPattern),'tests/native-runtime-installed.test.mjs')
 function Read-Json([string]$Relative) { Get-Content -LiteralPath (Join-Path $evidence $Relative) -Raw | ConvertFrom-Json }
 function Require([bool]$Value,[string]$Message) { if (-not $Value) { throw $Message } }
 function Check-Tap([string]$Name,[string[]]$RequiredNames,[int]$ExpectedSkips) {
@@ -108,8 +100,8 @@ function Check-Tap([string]$Name,[string[]]$RequiredNames,[int]$ExpectedSkips) {
   foreach($id in $RequiredNames){Require (@($ids|Where-Object {$_ -ceq $id}).Count -eq 1) ('Missing/duplicate required test '+$id);Require ([regex]::IsMatch($text,'(?m)^ok \d+ - '+[regex]::Escape($id)+'\r?$')) ('Required test failed/skipped '+$id)}
   return @{counts=$counts;identities=$ids;requiredIdentities=@($RequiredNames);scope='Actual TAP, not expected counts or zero-match success'}
 }
-# Record every actual TAP result and complete raw failure independently of TTY success.
-$affected=@{scope='Exactly6 selected identities, installed1/common5; no full closure claim';expected=@($required);expectedInstalled=@($installedRequired);observedAt=[DateTime]::UtcNow.ToString('o');counts=@{};identities=@();outcomes=@();rawFailures=@();captureError=$null}
+# Record every actual TAP result and complete raw failure including failure or missing exit.
+$affected=@{scope='Exactly1 selected identity, installed1/common0; TTY not executed; no full closure claim';expected=@($required);expectedInstalled=@($installedRequired);observedAt=[DateTime]::UtcNow.ToString('o');counts=@{};identities=@();outcomes=@();rawFailures=@();captureError=$null}
 try {
   $tapPath=Join-Path $evidence 'runtime.tap';$text=Get-Content -LiteralPath $tapPath -Raw
   $affected.sha256=(Get-FileHash -LiteralPath $tapPath -Algorithm SHA256).Hash;$affected.bytes=(Get-Item -LiteralPath $tapPath).Length
@@ -125,30 +117,21 @@ $closure.installedTests=@($affected.outcomes|Where-Object{-not $_.skipped -and $
 $closure.commonTests=@($affected.outcomes|Where-Object{-not $_.skipped -and $_.name -cin $required -and $_.name -cnotin $installedRequired}).Count
 Save-Closure
 try {
-  Require ($closure.stages.Count -eq 2) 'Two independent stages required'
+  Require ($closure.stages.Count -eq 1) 'One installed stage required'
   foreach($s in $closure.stages){Require ($null -ne $s.exit -and $s.exit -eq 0 -and -not $s.error) ('Stage failed/unknown '+$s.name)}
-  $mode=Read-Json 'mode-entry.json';Require ($mode.platform -eq 'win32' -and $mode.mode -eq 'terminal' -and $mode.flag -eq '0' -and $mode.comparisonFlag -eq '0' -and $mode.comparison -eq $false) 'Actual ordinary terminal mode0/0 required'
-  $provider=Read-Json 'provider-requests.json';Require (-not $provider.policyError -and $provider.cases.Count -eq 2) 'Terminal provider policy/cases invalid'
-  $retained=Read-Json 'retained-fixture.json';$prebinding=Read-Json 'runtime/native-binding.json';Require ($retained.consumer.sha256 -ceq $prebinding.CLI -and $prebinding.CLI -ceq '73176c372648d53d0783f129d8cadab3730c2df450dd1094ce1c97bd7338d9da' -and $retained.consumer.bytes -eq 333789) 'Actual terminal copied consumer binding differs'
-  foreach($name in @('eof','interrupt')) {
-    $r=Read-Json ($name+'/result.json');$f=Read-Json ($name+'/terminal-final.json');$a=Read-Json ($name+'/authority.json');$cfg=Read-Json ($name+'/configuration.json');$t=$r.terminal
-    Require ($r.pass -eq $true -and $r.actualInstalledOrgAndWholeIpc -eq $true -and $r.zeroGenerationOrOtherRequests -eq $true) ('Actual TTY authority/IPC gate failed '+$name)
-    Require ($t.result.kind -eq 'exit' -and $t.result.code -eq 0 -and $t.claim.kind -eq 'released' -and $t.claim.backend -eq 'windows-job' -and $t.claim.result.kind -eq 'exit' -and $t.claim.result.code -eq 0 -and $t.claim.lease -match '^[a-f0-9-]{36}$') ('Natural0 reportedJob required '+$name)
-    Require (-not $f.failure -and $f.claim.kind -eq 'released' -and $f.claim.backend -eq 'windows-job' -and $f.claim.lease -ceq $t.claim.lease -and $f.claim.result.code -eq 0 -and $t.controlSent -eq $true -and $t.submittedBlockedFixtureTurn -eq $true) ('Final matchingJob/control required '+$name)
-    Require ($t.submission.promptBytesWritten -eq $true -and $t.submission.submitControlWritten -eq $true -and $t.submission.freshWorkingObserved -eq $true -and $t.submission.authorityBarrierObserved -eq $true -and $t.submission.acceptedWorkObserved -eq $true -and $f.submission.acceptedWorkObserved -eq $true) ('Actual accepted Working/barrier required '+$name)
-    Require ($t.submission.events.Count -eq 2 -and $t.submission.events[0].action -eq 'bracketed-paste' -and $t.submission.events[1].action -eq 'submit-enter' -and $t.submission.events[1].outputOffset -gt $t.submission.events[0].outputOffset) ('Exactly one observed paste/draft/submit required '+$name)
-    Require ($a.pass -eq $true -and $a.installedBindings.Count -eq 15 -and $a.publication.published -eq $true -and $a.publishedFile.planMatches -eq $true -and $a.publishedFile.schemaVersion -eq 1 -and $a.identityMismatch.refused -eq $true -and $a.ipc.ok -eq $true -and $a.ipc.requestHex -ceq $a.ipc.replyHex) ('Canonical publication/wholeIPC/refusal required '+$name)
-    foreach($key in @('sid','pid','started','executable')){Require ($a.ipc.host.$key -ceq $cfg.host.$key) ('Expected authenticated host differs '+$key)}
-    Require ($a.identity.observerSid -ceq $cfg.host.sid) 'Ordinary principal differs'
-    foreach($key in @('GESTALT_SESSION_TMP_CONTEXT','TMPDIR','TMP','TEMP')){Require ($a.inherited.$key -ceq $cfg.inherited.$key) ('Inherited authority/TMP differs '+$key)}
-    Require ($t.controlEvents.Count -eq 1 -and $t.controlEvents[0].activeCancellationClaimed -eq $false) 'Exactly one honest control event required'
-    if($name -eq 'interrupt'){Require ($t.controlEvents[0].action -eq 'ctrl-c-ui-quit' -and $t.controlEvents[0].intent -eq 'settled-ui-quit' -and $t.controlEvents[0].settledStatusOffset -gt $t.controlEvents[0].workingStatusOffset) 'Settled UI quit, not active cancellation'}else{Require ($t.controlEvents[0].action -eq 'eof') 'EOF control required'}
-    $closure.terminalCases++
-  }
   Require (-not $affected.captureError) 'Affected TAP capture incomplete'
   $closure.runtimeTap=Check-Tap 'runtime' $required 0
-  Require ($closure.runtimeTap.counts.tests -eq 6 -and $closure.runtimeTap.counts.pass -eq 6 -and $closure.selectedTests -eq 6 -and $closure.installedTests -eq 1 -and $closure.commonTests -eq 5 -and $affected.rawFailures.Count -eq 0) 'Exactly6 passed selected results (1installed/5common) required'
+  Require ($closure.runtimeTap.counts.tests -eq 1 -and $closure.runtimeTap.counts.pass -eq 1 -and $closure.selectedTests -eq 1 -and $closure.installedTests -eq 1 -and $closure.commonTests -eq 0 -and $affected.rawFailures.Count -eq 0) 'Exactly1 passed installed result/common0 required'
   $binding=Read-Json 'runtime/native-binding.json';$installed=Read-Json 'runtime/runtime-build.json';Require ($binding.pass -eq $true -and $binding.CLI -ceq $installed.managerSha256 -and $binding.helperSha256 -ceq $installed.helperSha256 -and $installed.sourceBuilderSeparateFromConsumer -eq $true -and $installed.consumerCompilerRequired -eq $false) 'Installed current artifact binding differs'
+  $fresh=Read-Json 'runtime/actual-cli-fresh.json';$resumed=Read-Json 'runtime/actual-cli-resume.json';$session=Read-Json 'runtime/actual-cli-session-associations.json';$partial=Read-Json 'runtime/actual-cli-session-observations.json'
+  Require ($fresh.fresh.status -eq 0 -and $resumed.resumed.status -eq 0 -and $partial.freshStatus -eq 0 -and $partial.resumeStatus -eq 0) 'Actual fresh/resume results must be0'
+  Require ($session.threadId -and $session.threadId -ceq $resumed.threadId -and $session.threadId -ceq $partial.threadId) 'Actual same native thread required'
+  Require ($session.syntheticModel -eq $true -and $session.realModelAdoptionClaimed -eq $false -and $partial.syntheticModel -eq $true -and $partial.realModelAdoptionClaimed -eq $false -and $session.syntheticModelRequests -ge 2 -and $session.syntheticModelRequests -eq $partial.syntheticModelRequests) 'Actual loopback synthetic requests required, no adoption claim'
+  Require ($session.associated.Count -eq 2 -and $partial.associated.Count -eq 2 -and $session.associated[0].ownerId -and $session.associated[1].ownerId -and $session.associated[0].ownerId -cne $session.associated[1].ownerId -and $session.associated[0].ownerId -ceq $partial.associated[0].ownerId -and $session.associated[1].ownerId -ceq $partial.associated[1].ownerId) 'Two distinct retained invocation owners required'
+  foreach($owner in $session.associated){Require (@($owner.providerThreads|Where-Object{$_.provider -ceq 'codex' -and $_.threadId -ceq $session.threadId}).Count -gt 0) 'Every owner must associate the actual native thread'}
+  Require ($partial.phase -ceq 'before-strict-profile-byte-assertion' -and $partial.profileByteAssertion -ceq 'not-yet-executed') 'Partial receipt must retain its preassertion scope'
+  Require ($partial.profileBefore.truncated -eq $false -and $partial.profileAfter.truncated -eq $false -and $partial.profileBefore.bytes -eq $partial.profileAfter.bytes -and $partial.profileBefore.sha256 -ceq $partial.profileAfter.sha256 -and $partial.profileBefore.base64 -ceq $partial.profileAfter.base64 -and $session.profileSha256 -ceq $partial.profileBefore.sha256) 'Exact profile bytes and final strict-assert success receipt required'
+  $closure.sessionAssociations=$session;$closure.preAssertionObservations=$partial
   $closure.binding=$binding;$closure.complete=$true
 } catch { $closure.postcheckErrors += $_.Exception.Message }
 Save-Closure

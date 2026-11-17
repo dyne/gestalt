@@ -153,8 +153,8 @@ jobs:
             $closure = $null; $closureError = $null
             try { $closure = Get-Content -LiteralPath (Join-Path $source 'native-evidence/core-slice/closure-execution.json') -Raw | ConvertFrom-Json }
             catch { $closureError = $_.Exception.Message }
-            @{observedAt=[DateTime]::UtcNow.ToString('o');exit=$exit;closure=$closure;captureError=$closureError;scope='Affected diagnosticTTY2+selected6/installed1/common5; not full closure; no readiness/parity replay'} | ConvertTo-Json -Depth 40 | Set-Content -LiteralPath 'native-evidence/runtime-closure-postchecks.json'
-            if ($closureError -or $null -eq $closure -or $closure.complete -ne $true -or $closure.postcheckErrors.Count -ne 0 -or $closure.stages.Count -ne 2 -or $closure.terminalCases -ne 2 -or $closure.selectedTests -ne 6 -or $closure.installedTests -ne 1 -or $closure.commonTests -ne 5 -or $closure.deferredTests -ne 0) { throw 'Affected diagnostic gate incomplete; inspect all independent stages and six actual TAP results' }
+            @{observedAt=[DateTime]::UtcNow.ToString('o');exit=$exit;closure=$closure;captureError=$closureError;scope='Affected diagnosticTTY0+selected1/installed1/common0; not full closure; no readiness/parity replay'} | ConvertTo-Json -Depth 40 | Set-Content -LiteralPath 'native-evidence/runtime-closure-postchecks.json'
+            if ($closureError -or $null -eq $closure -or $closure.complete -ne $true -or $closure.postcheckErrors.Count -ne 0 -or $closure.stages.Count -ne 1 -or $closure.terminalCases -ne 0 -or $closure.selectedTests -ne 1 -or $closure.installedTests -ne 1 -or $closure.commonTests -ne 0 -or $closure.deferredTests -ne 0) { throw 'Affected diagnostic gate incomplete; inspect all independent stages and one actual installed TAP result' }
             foreach($stage in $closure.stages){if($null -eq $stage.exit -or $stage.exit -ne 0 -or $stage.error){throw ('Closure stage failed/unknown: '+$stage.name)}}
             if ($null -eq $exit -or $exit -ne 0) { throw "Native consumer slice failed: $exit" }
           } finally {

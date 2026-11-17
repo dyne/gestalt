@@ -150,7 +150,7 @@ async function nativeCodexIdentity() {
 }
 async function trustInstalledFixtureHooks(t, f, codex, agents, workspace) {
   const hooksFile = path.join(f.root, 'Codex/hooks.json'), launcher = path.join(f.root, 'Codex/bin/context-mode-hook.mjs');
-  const { reconcileCodexHooks } = await import(pathToFileURL(path.join(agents, 'plugins/context-mode/scripts/configure-codex.mjs')));
+  const { reconcileCodexHooks, reconcileCodexToml } = await import(pathToFileURL(path.join(agents, 'plugins/context-mode/scripts/configure-codex.mjs')));
   const expected = JSON.parse(reconcileCodexHooks('', launcher)); assert.deepEqual(JSON.parse(await readFile(hooksFile, 'utf8')), expected);
   const marketplace = JSON.parse(await readFile(path.join(agents, '.agents/plugins/marketplace.json'), 'utf8')).name;
   const installed = path.join(f.root, 'Codex/plugins/cache', marketplace, 'context-mode/2.26.0/hooks/runtime-hook.mjs');
@@ -170,7 +170,13 @@ async function trustInstalledFixtureHooks(t, f, codex, agents, workspace) {
   const authorized = authorizeFixtureHooks(await query(), entries), configFile = path.join(f.root, 'Codex/config.toml');
   const config = parse(await readFile(configFile, 'utf8')); config.hooks ??= {}; config.hooks.state ??= {};
   for (const hook of authorized) config.hooks.state[hook.key] = { enabled: true, trusted_hash: hook.currentHash };
-  await f.storage.replaceFile(configFile, Buffer.from(stringify(config)));
+  // Fixture serialization must preserve the accepted managed MCP canonical
+  // form before establishing the strict post-session byte baseline.
+  const canonical = reconcileCodexToml(stringify(config), {
+    launcherPath: path.join(f.root, 'Codex/bin/context-mode-mcp.mjs'), pluginId: `context-mode@${marketplace}`,
+  });
+  assert.deepEqual(parse(canonical), config, 'Fixture canonicalization must not change any config value');
+  await f.storage.replaceFile(configFile, Buffer.from(canonical));
   const current = await query(); assert.deepEqual(authorizeFixtureHooks(current, entries), authorized);
   assert.ok(current.every(hook => hook.trustStatus === 'trusted'));
   await evidence('runtime-fixture-hook-trust.json', { scope: 'Only six exact verified isolated accepted hooks; no live or global trust change', authorized });
@@ -296,6 +302,12 @@ test('actual compiled CLI uses accepted Agents, fresh/resume native sessions and
   for (const id of await readdir(path.join(workspace, 'tmp/sessions'))) if (id.startsWith('cli-')) markers.push(JSON.parse(await readFile(path.join(workspace, 'tmp/sessions', id, '.gestalt-owner.json'), 'utf8')));
   const associated = markers.filter(marker => marker.providerThreads.some(value => value.provider === 'codex' && value.threadId === threadId));
   assert.equal(associated.length, 2, 'fresh and resume must associate the actual native thread with distinct invocation owners'); assert.notEqual(associated[0].ownerId, associated[1].ownerId);
+  const afterProfile = await readFile(path.join(f.root, 'Codex/config.toml'));
+  const retainedBytes = bytes => ({ bytes: bytes.length, sha256: hash(bytes), truncated: bytes.length > 65536, base64: bytes.subarray(0, 65536).toString('base64') });
+  await evidence('actual-cli-session-observations.json', { observedAt: new Date().toISOString(), platform: process.platform,
+    phase: 'before-strict-profile-byte-assertion', profileByteAssertion: 'not-yet-executed', threadId, associated,
+    freshStatus: fresh.status, resumeStatus: resumed.status, syntheticModelRequests: requests.length, metadataRequests,
+    syntheticModel: true, realModelAdoptionClaimed: false, profileBefore: retainedBytes(profile), profileAfter: retainedBytes(afterProfile) });
   assert.deepEqual(await readFile(path.join(f.root, 'Codex/config.toml')), profile);
   f.retain(); // keep logical markers and physical runtime associations together
   await evidence('actual-cli-session-associations.json', { observedAt: new Date().toISOString(), platform: process.platform, threadId, associated, syntheticModelRequests: requests.length,

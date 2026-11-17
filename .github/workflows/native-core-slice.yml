@@ -81,8 +81,10 @@ jobs:
               for key,value in re.findall(r'(?m)^(?:ℹ |# )(tests|pass|fail|skipped|cancelled) (\d+)\r?$',content):counts[key]=counts.get(key,0)+int(value)
               record['reportedCounts']=counts or None
               record['countScope']='Aggregated Node summary blocks only; shell assertions and process probes are separately exit-bound; no invented test counts'
-              if name in ['manager-full','scratch-sandbox'] and (not counts.get('tests') or counts.get('fail',0) or counts.get('cancelled',0) or counts.get('tests')!=counts.get('pass',0)+counts.get('fail',0)+counts.get('skipped',0)):
-                  record['summaryError']='Missing/contradictory/failed Node summary'
+              if name=='manager-full' and (set(counts)!={'tests','pass','fail','skipped','cancelled'} or counts.get('pass',0)<=0 or counts.get('fail',0)!=0 or counts.get('cancelled',0)!=0 or counts.get('tests')!=counts.get('pass',0)+counts.get('fail',0)+counts.get('skipped',0)):
+                  record['summaryError']='Missing/contradictory/failed/all-skipped Manager Node summary'
+              if name=='scratch-sandbox' and counts!={'tests':1,'pass':1,'fail':0,'skipped':0,'cancelled':0}:
+                  record['summaryError']='Exactly one passed, unskipped sandbox test is required'
               (e/'commands.json').write_text(json.dumps(records,indent=2)+'\n')
           cli=root/'dist/cli/gestalt.mjs';cliBytes=cli.read_bytes()
           identity={'observedAt':now(),'head':os.environ['GITHUB_SHA'],'node':subprocess.check_output(['node','--version'],text=True).strip(),'npm':subprocess.check_output(['npm','--version'],text=True).strip(),'CLI':{'bytes':len(cliBytes),'sha256':digest(cliBytes)},'platform':'linux','arch':subprocess.check_output(['node','-p','process.arch'],text=True).strip(),'jobs':'one hosted Ubuntu job; no Windows/macOS execution in this run','complete':all(x['exit']==0 and not x.get('summaryError') for x in records),'scope':'Current full Manager/sandbox/package/docs and actual existing Unix authority; prior Windows proof remains separately fingerprint-bound'}

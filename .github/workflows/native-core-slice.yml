@@ -150,6 +150,12 @@ jobs:
             if (-not $observed) { $timedOut = $true; $process.Kill(); throw 'Consumer deadline; product descendant certainty remains unknown' }
             $exit = $process.ExitCode
             if ($null -eq $exit -or $exit -ne 0) { throw "Native consumer slice failed: $exit" }
+            $readinessModeEntry = Get-Content -LiteralPath (Join-Path $source 'native-evidence/core-slice/mode-entry.json') -Raw | ConvertFrom-Json
+            if ($readinessModeEntry.mode -ne 'readiness' -or $readinessModeEntry.flag -ne '1') { throw 'Ordinary-account readiness selection was not observed' }
+            $readinessResult = Get-Content -LiteralPath (Join-Path $source 'native-evidence/core-slice/readiness/result.json') -Raw | ConvertFrom-Json
+            if ($readinessResult.kind -ne 'actual-compiled-windows-owned-query-readiness' -or $readinessResult.tests -ne 1 -or $readinessResult.pass -isnot [bool] -or $readinessResult.pass -ne $true -or $readinessResult.failed -ne 0 -or $readinessResult.skip -ne 0 -or $readinessResult.submittedTurns -ne 0 -or $readinessResult.terminalCasesExecuted -ne 0) {
+              throw 'Readiness1/0TUI/0turn success evidence is missing; a normal two-case result is not readiness proof'
+            }
           } finally {
             foreach ($file in @('slice.stdout', 'slice.stderr')) {
               $partial = Join-Path $work $file

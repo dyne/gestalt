@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
@@ -7,6 +7,7 @@ import { createDiagnosticHandlers, pluginVersion, verifyContextRuntime, Diagnost
 import { setupPaths } from '../src/cli/setup/context.ts';
 import { diagnosticEnvironment } from '../src/cli/runtime/commands.ts';
 import { runCli } from '../src/cli/dispatch.ts';
+import { sessionScratch } from './session-scratch-fixture.mjs';
 
 const metadata = { version: '0.16.1', help: 'help\n' };
 async function fixture(t) {
@@ -39,9 +40,40 @@ test('version aliases route to runtime diagnostics with no implicit setup or met
   for (const token of ['version', '--version', '-V']) {
     const f = await fixture(t), before = await inventory(f.root);
     assert.equal(await runCli({ argv: [token], cwd: f.root, environment: f.environment }, f.streams, metadata, createDiagnosticHandlers(metadata)), 0);
-    assert.match(f.output(), /^gestalt 0\.16\.1\n/); assert.match(f.output(), /NOT INSTALLED \(optional\)/);
+    assert.match(f.output(), /^gestalt 0\.16\.1\n/); assert.match(f.output(), process.platform === 'win32' ? /DEFERRED \(native optional feature\)/ : /NOT INSTALLED \(optional\)/);
     assert.deepEqual(await inventory(f.root), before); assert.equal(f.error(), '');
   }
+});
+test('default diagnostics read exact installed metadata without launching commands or changing profiles, claims or TMP', async t => {
+  const f = await fixture(t), bin = path.join(f.root, 'bin'); await mkdir(bin);
+  for (const name of ['codex', 'npm']) {
+    const file = path.join(bin, name + (process.platform === 'win32' ? '.exe' : ''));
+    await copyFile(process.execPath, file); if (process.platform !== 'win32') await chmod(file, 0o700);
+  }
+  f.environment.PATH = bin;
+  const paths = await setupPaths(f.environment), runtime = path.join(paths.gestaltHome, 'runtime/context-mode');
+  await mkdir(runtime, { recursive: true }); await mkdir(paths.codexHome, { recursive: true });
+  await writeFile(path.join(runtime, '.context-mode-prepared.json'), JSON.stringify({ packageVersion: '2.26.0', platform: process.platform, arch: process.arch, nodeModulesAbi: process.versions.modules }));
+  for (const name of ['gestalt', 'context-mode']) {
+    const plugin = path.join(paths.codexHome, 'plugins/cache', paths.marketplaceName, name, '2.26.0/.codex-plugin');
+    await mkdir(plugin, { recursive: true }); await writeFile(path.join(plugin, 'plugin.json'), JSON.stringify({ name, version: '2.26.0' }));
+  }
+  await writeFile(path.join(paths.codexHome, 'config.toml'), `[plugins."context-mode@${paths.marketplaceName}"]\nenabled=false\n[mcp_servers.context-mode]\ncommand="node"\nargs=${JSON.stringify([path.join(paths.codexHome, 'bin/context-mode-mcp.mjs')])}\n`);
+  await writeFile(path.join(paths.codexHome, 'claims.json'), '{"retained":true}\n');
+  const selected = diagnosticEnvironment({ ...f.environment, TMPDIR: 'operator-tmp', TMP: 'operator-tmp', TEMP: 'operator-tmp' });
+  assert.equal(selected.TMPDIR, 'operator-tmp'); assert.equal(selected.TMP, 'operator-tmp'); assert.equal(selected.TEMP, 'operator-tmp');
+  let launches = 0;
+  const port = { launch: async () => { launches++; throw new Error('read-only diagnostic launched a subprocess'); } };
+  const context = new DiagnosticContext(paths, { argv: [], cwd: f.root, environment: selected }, f.streams, port);
+  const before = await inventory(f.root);
+  assert.equal(await verifyContextRuntime(context), runtime);
+  const handlers = createDiagnosticHandlers(metadata, port);
+  for (const argv of [['path', '--json'], ['version'], ['doctor']]) {
+    await runCli({ argv, cwd: f.root, environment: selected }, f.streams, metadata, handlers);
+    assert.deepEqual(await inventory(f.root), before);
+  }
+  assert.equal(launches, 0); assert.match(f.output(), /Codex sandbox\s+NOT PROBED.*--probe-sandbox/);
+  assert.doesNotMatch(f.output(), /Codex sandbox\s+ready/);
 });
 test('diagnostic version selectors cannot escape the plugin cache', () => {
   for (const version of ['../escape', '..', '.', 'a/b', 'a\\b', 'a\n']) assert.equal(pluginVersion([{ name: 'gestalt', version }], 'gestalt'), null);
@@ -55,6 +87,15 @@ test('diagnostics reject an invalid inherited scratch context before any probe o
   assert.equal(await runCli({ argv: ['path', 'codex-home'], cwd: f.root, environment: { ...f.environment, GESTALT_SESSION_TMP_CONTEXT: '{}' } }, f.streams, metadata, handlers), 1);
   assert.deepEqual(await inventory(f.root), before); assert.match(f.error(), /SESSION_SCRATCH_INVALID_CONTEXT/);
 });
+test('validated runtime-query environment preserves the real inherited v1 context and all TMP values without metadata writes',
+  { skip: process.platform !== 'linux' ? 'Source-only Linux metadata validation; native ACL/compiled-peer integration is a separate target gate' : false }, async t => {
+    const f = await fixture(t), scratch = await sessionScratch(f.root), environment = { ...f.environment, ...scratch.environment };
+    const before = await inventory(f.root), selected = diagnosticEnvironment(environment);
+    assert.deepEqual(JSON.parse(selected.GESTALT_SESSION_TMP_CONTEXT), scratch.context);
+    for (const key of ['TMPDIR', 'TMP', 'TEMP']) assert.equal(selected[key], environment[key]);
+    assert.deepEqual(await inventory(f.root), before); assert.deepEqual(environment, { ...f.environment, ...scratch.environment });
+    // Context validation supplies no metadata-write or descendant-absence proof.
+  });
 test('required context-runtime verification refuses ABI/skew/source conflicts without repair', async t => {
   const f = await fixture(t), paths = await setupPaths(f.environment), context = new DiagnosticContext(paths, { argv: [], cwd: f.root, environment: f.environment }, f.streams);
   const runtime = path.join(paths.gestaltHome, 'runtime/context-mode'); await mkdir(runtime, { recursive: true });

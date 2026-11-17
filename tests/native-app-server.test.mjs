@@ -6,8 +6,8 @@ import test from 'node:test';
 
 function deferred() { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; }
 function controlledPort(mode = 'released') {
-  const calls = [], stopped = [], received = [], command = deferred(), complete = deferred();
-  return { calls, stopped, received, command, port: { async launch(executable, invocation, streams) {
+  const calls = [], stopped = [], received = [], command = deferred(), complete = deferred(), stopStarted = deferred(), release = deferred();
+  return { calls, stopped, received, command, stopStarted, release, port: { async launch(executable, invocation, streams) {
     calls.push({ executable, invocation }); let claim = { kind: 'active', lease: 'controlled', backend: 'controlled-native-fixture' };
     const lines = createInterface({ input: PassThrough.from(streams.stdin) });
     const config = { model: 'operator-model', mcp_servers: { 'gestalt-serena': { command: 'gestalt', args: ['serena', 'mcp'], enabled: false, default_tools_approval_mode: 'prompt' },
@@ -24,7 +24,9 @@ function controlledPort(mode = 'released') {
       }
     })().catch(() => {});
     const lease = { id: 'controlled', result: command.promise, completed: complete.promise, claim: () => claim, stop: async () => {
-      stopped.push('stop'); lines.close(); command.resolve({ kind: 'exit', code: 0 });
+      stopped.push('stop'); stopStarted.resolve();
+      if (mode === 'held-release') await release.promise;
+      lines.close(); command.resolve({ kind: 'exit', code: 0 });
       claim = mode !== 'unknown' ? { kind: 'released', lease: 'controlled', backend: 'controlled-native-fixture', result: await command.promise } : { kind: 'unknown', lease: 'controlled', reason: 'controlled absence unknown' };
       complete.resolve(claim); return claim;
     } }; return lease;
@@ -69,4 +71,15 @@ test('host AppServer proxy returns policy error without forwarding a thread when
 test('host AppServer proxy preserves unknown lifetime separately from a nonzero command outcome', { timeout: 10000 }, async t => {
   const f = await run(t, 'unknown'); f.input.write('{"method":"exit"}\n');
   assert.equal(await f.result, 7); assert.match(Buffer.concat(f.errors).toString(), /unconfirmed.*protected/);
+});
+test('controlled AppServer interruption waits for owned settlement and preserves the interrupt result', { timeout: 10000 }, async t => {
+  const f = await run(t, 'held-release'), reply = f.response(1);
+  f.input.write('{"id":1,"method":"initialize","params":{}}\n'); await reply;
+  let settled = false; void f.result.then(() => { settled = true; });
+  try {
+    process.emit('SIGTERM'); // Controlled listener injection, not an OS signal or active-model cancellation.
+    await f.control.stopStarted.promise; await new Promise(resolve => setImmediate(resolve));
+    assert.equal(settled, false, 'Proxy returned before its owned stop settled');
+  } finally { f.control.release.resolve(); }
+  assert.equal(await f.result, 143); assert.ok(f.control.stopped.length > 0); assert.equal(f.errors.length, 0);
 });

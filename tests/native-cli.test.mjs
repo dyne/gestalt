@@ -9,6 +9,7 @@ import { buildCli } from '../scripts/build-cli.mjs';
 import { managerHelp, managerVersion } from '../scripts/manager-metadata.mjs';
 import { runCli } from '../src/cli/dispatch.ts';
 import { commandNames, internalCommandNames } from '../src/cli/contracts.ts';
+import { createRuntimeHandlers } from '../src/cli/runtime/index.ts';
 
 const root = resolve(import.meta.dirname, '..');
 const source = await readFile(join(root, 'public/gestalt'), 'utf8');
@@ -39,7 +40,8 @@ test('compiled Windows Node artifact runs without Bash, a runtime compiler or so
   for (const alias of ['version', '--version', '-V']) {
     const result = run([alias]);
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout, `gestalt ${metadata.version}\n` + ['Serena', 'Playwright', 'Playwright readiness', 'uv (Serena)', 'Python (Serena)'].map(label => label.padEnd(24) + 'NOT INSTALLED (optional)\n').join(''));
+    assert.equal(result.stdout, `gestalt ${metadata.version}\n` + ['Serena', 'Playwright', 'Playwright readiness', 'Gestalt Mobile'].map(label => label.padEnd(24) + 'DEFERRED (native optional feature)\n').join('') +
+      ['uv (Serena)', 'Python (Serena)'].map(label => label.padEnd(24) + 'NOT REQUIRED (native Serena deferred)\n').join(''));
     assert.equal(result.stderr, '');
   }
   const unknown = run(['not a command']);
@@ -53,7 +55,7 @@ test('compiled Windows Node artifact runs without Bash, a runtime compiler or so
     const result = run([command]);
     assert.equal(result.status, 1, result.stderr);
     assert.equal(result.stdout, '');
-    assert.equal(result.stderr, `gestalt: development handler is not implemented: ${command}\n`);
+    assert.match(result.stderr, new RegExp(`native ${command} support is deferred.*existing supported Unix`));
   }
   const paths = run(['path', 'codex-home']);
   assert.equal(paths.status, 0, paths.stderr); assert.equal(paths.stdout, join(fixture, 'isolated Codex') + '\n');
@@ -62,6 +64,36 @@ test('compiled Windows Node artifact runs without Bash, a runtime compiler or so
   assert.equal(retired.status, 1);
   assert.equal(retired.stdout, '');
   assert.match(retired.stderr, /Xerj has been retired.*User data is retained/);
+});
+
+test('deferred native tool requests refuse before touching absent or existing profiles', async t => {
+  const fixture = await mkdtemp(join(tmpdir(), 'native deferred ü '));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  const { mkdir, readdir, lstat, writeFile } = await import('node:fs/promises');
+  const codexHome = join(fixture, 'Codex'), gestaltHome = join(fixture, 'Gestalt');
+  const environment = { HOME: fixture, USERPROFILE: fixture, CODEX_HOME: codexHome, GESTALT_HOME: gestaltHome, PATH: '' };
+  for (const present of [false, true]) {
+    if (present) {
+      await mkdir(codexHome); await mkdir(gestaltHome);
+      await writeFile(join(codexHome, 'config.toml'), 'model="operator"\n');
+    }
+    const inventory = async () => {
+      const entries = [];
+      for (const name of (await readdir(fixture)).sort()) {
+        const directory = join(fixture, name), info = await lstat(directory);
+        entries.push([name, info.mode, info.mtimeMs]);
+        for (const child of (await readdir(directory)).sort()) entries.push([name, child, (await readFile(join(directory, child))).toString('base64')]);
+      }
+      return entries;
+    };
+    const before = await inventory();
+    for (const command of ['serena', 'playwright']) {
+      const output = [], error = [], streams = { stdin: (async function* () { throw new Error('deferred command consumed stdin'); })(), stdout: async bytes => output.push(bytes), stderr: async bytes => error.push(bytes) };
+      assert.equal(await runCli({ argv: [command, 'install', '--cwd', 'literal ü'], cwd: fixture, environment }, streams, metadata, createRuntimeHandlers(metadata)), 1);
+      assert.equal(output.length, 0); assert.match(Buffer.concat(error).toString(), /support is deferred.*existing supported Unix.*No profile or installation was changed/);
+      assert.deepEqual(await inventory(), before);
+    }
+  }
 });
 
 test('compiled Unix direct entry uses the byte-identical packaged legacy manager', { skip: process.platform === 'win32' }, async t => {

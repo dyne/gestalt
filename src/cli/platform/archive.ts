@@ -6,7 +6,11 @@ import type { ArchiveMember, ArchivePort } from '../contracts.ts';
 import { windowsSystem } from './windows-system.ts';
 
 const maximumArchive = 64 * 1024 * 1024, maximumPayload = 256 * 1024 * 1024, maximumMembers = 10000;
-interface Entry extends ArchiveMember { readonly data: Buffer }
+interface Entry extends ArchiveMember { readonly data: Buffer; readonly mode: number }
+// Archives carry only the resource's owner-execute intent. Ownership, special
+// bits and group/other permissions never become extraction authority. Windows
+// has no independent POSIX execute bit; its private ACL remains authoritative.
+const privateFileMode = (mode: number): number => 0o600 | (mode & 0o100);
 function name(value: string): string {
   const normalized = value.replace(/\/$/, '');
   if (!normalized || Buffer.byteLength(normalized) > 4096 || /[\\\x00-\x1f\x7f:]/.test(normalized) ||
@@ -37,7 +41,7 @@ function parse(bytes: Buffer): Entry[] {
     for (let index = 0; index < 512; index++) sum += index >= 148 && index < 156 ? 32 : header[index]!;
     if (sum !== octal(header, 148, 8)) throw new Error('Invalid tar header checksum');
     if (++headers > maximumMembers * 3) throw new Error('Archive contains too many headers');
-    const type = header[156], storedSize = octal(header, 124, 12);
+    const type = header[156], storedSize = octal(header, 124, 12), mode = octal(header, 100, 8);
     if ([120, 103, 76].includes(type!)) {
       if (storedSize > 65536 || offset + storedSize > tar.length) throw new Error('Invalid tar extended header size');
       const data = tar.subarray(offset, offset + storedSize);
@@ -74,7 +78,7 @@ function parse(bytes: Buffer): Entry[] {
           (previous.startsWith(folded + '/') && type !== 53)) throw new Error('Archive file/directory collision');
     }
     const kind = type === 53 ? 'directory' : 'file'; seen.set(folded, kind);
-    entries.push({ path: member, kind, data: tar.subarray(offset, offset + size) });
+    entries.push({ path: member, kind, mode: privateFileMode(mode), data: tar.subarray(offset, offset + size) });
     if (entries.length > maximumMembers) throw new Error('Archive contains too many members');
     offset += Math.ceil(size / 512) * 512;
   }
@@ -125,7 +129,7 @@ export class NativeArchives implements ArchivePort {
     };
     for (const entry of entries) {
       if (entry.kind === 'directory') await parents(entry.path);
-      else { await parents(path.posix.dirname(entry.path)); await writeFile(path.join(directory, ...entry.path.split('/')), entry.data, { flag: 'wx', mode: 0o600 }); }
+      else { await parents(path.posix.dirname(entry.path)); await writeFile(path.join(directory, ...entry.path.split('/')), entry.data, { flag: 'wx', mode: entry.mode }); }
     }
   }
   async create(sourceDirectory: string, destination: string): Promise<void> {
@@ -147,7 +151,7 @@ export class NativeArchives implements ArchivePort {
         prefix = member.slice(0, split); short = member.slice(split + 1);
       }
       header.write(short, 0, 100, 'utf8'); header.write(prefix, 345, 155, 'utf8');
-      number(header, 100, 8, info.isDirectory() ? 0o700 : 0o600); number(header, 108, 8, 0); number(header, 116, 8, 0);
+      number(header, 100, 8, info.isDirectory() ? 0o700 : privateFileMode(info.mode)); number(header, 108, 8, 0); number(header, 116, 8, 0);
       number(header, 124, 12, info.isFile() ? info.size : 0); number(header, 136, 12, 0);
       header.fill(32, 148, 156); header[156] = info.isDirectory() ? 53 : 48; header.write('ustar\0', 257); header.write('00', 263);
       number(header, 148, 8, header.reduce((sum, byte) => sum + byte, 0)); entries.push(header);

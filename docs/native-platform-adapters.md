@@ -129,6 +129,11 @@ coverage; path parsing/escape refusal alone does not prove an accessible share.
 
 ## Setup ownership and rollback
 
+Direct Unix commands now enter the unchanged packaged legacy backend before
+acquiring Node resources, as described in `native-unix-compatibility.md`.
+The managed Node API details below describe that API's explicit ownership
+contract; they do not replace the existing public Unix setup/cleanup backend.
+
 The development Node setup/update commands use `NativeOwnedProcesses` for
 installer and verification subprocesses. The canonical Agents setup API v1 runs
 its filesystem orchestration in the host namespace and receives an explicit
@@ -189,8 +194,10 @@ of this authority as well as the Agents setup authority.
 
 ## Development runtime composition
 
-The compiled development entry composes CLI/AppServer, diagnostics, scratch and
-skills handlers in Node. The extracted profile/startup and managed MCP approval
+The Windows compiled development entry composes CLI/AppServer, diagnostics,
+scratch and skills handlers in Node. Direct Unix entries delegate to the existing
+packaged manager before acquiring resources or consuming streams. The extracted
+profile/startup and managed MCP approval
 policies keep explicit environment, cwd and stream inputs. External commands
 use the same native lifetime port as setup; AppServer client EOF, command exit
 and interruption remain separate outcomes. Unknown lifetime protects borrowed
@@ -198,20 +205,26 @@ scratch rather than inferring complete release from a PID, group or timeout.
 The public Bash/npm entry and operating-system admission remain separate
 delivery gates; building this artifact does not switch the installed command.
 
-The native integration lane exercises the actual Codex binary, accepted Agents
-API, inherited scratch and authenticated host IPC. Linux's caller-only UID
-mapping changes the ownership view of root-owned ancestors; compatibility with
-filesystem owners and host peer identity must be established by those real
-checks. A refusal must retain authority and explain the prerequisite. It must
-not be repaired by weakening ownership checks or by launching unconfined.
+The consumer integration lane exercises the actual Codex binary, accepted
+installed Org scripts, inherited scratch and authenticated host IPC. Windows
+uses Job/ConPTY authority; Unix retains the existing launch/sandbox backend and
+host identity. A caller-only mapped UID namespace is not a Unix compatibility
+backend. A refusal must retain authority and explain the prerequisite; ownership
+checks are never weakened to turn it into a pass.
 
-Path/version and doctor do not install components or reconcile configuration.
-A sandbox probe uses the selected native Codex OS sandbox and a private isolated
+Default Node path/version/doctor handlers read filesystem metadata and do not
+launch commands, publish borrowers, initialize profiles or reconcile configuration.
+Package metadata is labeled separately from a probed executable version.
+Required CLI launch verification is a separate owned operation and preserves
+the validated inherited context and TMP variables. `doctor --probe-sandbox`
+explicitly requests the selected native Codex OS sandbox and a private isolated
 home, never a Linux-only prerequisite on another OS. With an inherited session
 temporary owner, the read-only diagnostic reports that the host-shell probe is
 unavailable rather than altering its leases. An uncertain probe retains its
 private data. Optional component installation metadata is distinct from live
-Serena/Playwright readiness, which belongs to the component owners.
+Serena/Playwright readiness. Native Serena, Playwright and Mobile ports are
+deferred in this core release; Windows diagnostics state this without requiring
+Python, uv or a browser. Existing supported Unix delegates remain available.
 
 The development Mobile command and successful restart handoff require a native
 Mobile host with authenticated live restart authority. A descriptor and numeric
@@ -230,3 +243,9 @@ all members before extraction, including PAX/GNU pathname metadata, link and
 special-file refusal, collisions and bounded input/payload sizes. Existing
 unrelated skills remain in place. Imported selected entries use destination-local
 candidates and exact rollback journals; package content is never executed.
+Tar files retain only owner-execute intent: files extract as `0600` or `0700`
+and directories as `0700`, without special or group/other permission bits.
+POSIX executable resources survive extraction, import and re-export. Windows
+private ACLs remain authoritative and cannot represent an independent POSIX
+owner-execute bit. Byte preservation on Windows does not promise a POSIX-mode
+roundtrip through Windows extraction/re-export; no metadata sidecar is invented.

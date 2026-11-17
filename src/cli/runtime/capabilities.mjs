@@ -11,6 +11,7 @@ import { resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { nodeHookCommand, associationHookProgram } from './hook-command.mjs';
+import { diagnosticEnvironment } from './commands.ts';
 
 
 export async function launchCapabilities(commands, invocation, manager) {
@@ -33,8 +34,9 @@ if(Object.hasOwn(environment,scratchNames[0])) {
  Object.assign(environment,scratchApi.scratchEnvironment(environment));
  cliOwned=scratchApi.scratchJson(JSON.parse(environment.GESTALT_SESSION_TMP_CONTEXT).markerPath).ownerKind==='cli-session';
 }
-const discoveryEnvironment={...environment};
-if(Object.hasOwn(discoveryEnvironment,scratchNames[0]))for(const name of scratchNames)delete discoveryEnvironment[name];
+// These are required runtime queries, not default read-only diagnostics. Keep
+// the validated caller namespace and publish real owned borrowers as usual.
+const discoveryEnvironment=diagnosticEnvironment(environment);
 let mappingUnknown=false;
 const protectUnknownMapping=()=>{
  if(cliOwned&&!mappingUnknown){mappingUnknown=true;scratchApi.scratchBorrow(JSON.parse(environment.GESTALT_SESSION_TMP_CONTEXT),'cli-provider-mapping-unknown');

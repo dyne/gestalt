@@ -6,12 +6,21 @@ import { appServerHandler } from './app-server.ts';
 import { cliHandler } from './cli.ts';
 import { mobileHostSupport } from '../setup/mobile.ts';
 import type { RuntimeTerminal } from './commands.ts';
+import type { CommandHandler } from '../contracts.ts';
+
+function deferredTool(name: string): CommandHandler {
+  return async (_invocation, streams) => {
+    await streams.stderr(Buffer.from(`gestalt: native ${name} support is deferred in this core release; use an existing supported Unix Gestalt installation for ${name}. Gestalt CLI and Agents remain available. No profile or installation was changed.\n`));
+    return 1;
+  };
+}
 
 export function createRuntimeHandlers(metadata: CliMetadata, terminal?: RuntimeTerminal): CommandHandlers {
   return { ...createDiagnosticHandlers(metadata), skills: skillsHandler(metadata),
     'skills-export': skillsTransferHandler(metadata, 'export'), 'skills-import': skillsTransferHandler(metadata, 'import'),
     scratch: scratchHandler, '__scratch-hook': scratchHookHandler, '__codex-app-server': appServerHandler(),
     cli: cliHandler(metadata, false, undefined, terminal), '__cli-owned': cliHandler(metadata, true, undefined, terminal),
+    serena: deferredTool('serena'), playwright: deferredTool('playwright'),
     mobile: async (invocation, streams) => {
       // The selected Mobile owner must supply its host-side/native lifecycle
       // boundary in L7. Never run the whole filesystem owner in a mapped Linux

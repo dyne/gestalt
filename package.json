@@ -24,7 +24,7 @@
     "test:playwright:cli:real": "GESTALT_PLAYWRIGHT_CLI_REAL=1 node --test tests/playwright-cli-native.test.mjs",
     "test:core-setup": "node --test --test-reporter=tap tests/native-cli.test.mjs tests/native-setup.test.mjs tests/native-setup-transactions.test.mjs tests/native-setup-installed.test.mjs",
     "test:core-runtime:focused": "node --test --test-reporter=tap tests/native-archive.test.mjs tests/native-diagnostics.test.mjs tests/native-app-server.test.mjs tests/native-capabilities.test.mjs tests/native-skills-owner.test.mjs tests/native-skills-transfer.test.mjs tests/native-scratch.test.mjs tests/native-hook-command.test.mjs",
-    "test:core-runtime": "node --test --test-reporter=tap tests/native-archive.test.mjs tests/native-diagnostics.test.mjs tests/native-app-server.test.mjs tests/native-capabilities.test.mjs tests/native-skills-owner.test.mjs tests/native-skills-transfer.test.mjs tests/native-scratch.test.mjs tests/native-hook-command.test.mjs tests/native-runtime-installed.test.mjs"
+    "test:core-runtime": "node scripts/test-core-runtime.mjs"
   },
   "devDependencies": {
     "@openai/codex": "0.160.0",

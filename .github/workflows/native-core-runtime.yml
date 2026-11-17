@@ -31,29 +31,16 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm install --global --ignore-scripts @openai/codex@0.164.0
       - run: npm run typecheck:cli
       - run: node scripts/record-native-setup.mjs
-      - name: Prepare disposable Ubuntu ownership namespace prerequisites
-        if: runner.os == 'Linux' && runner.environment == 'github-hosted'
-        run: |
-          set -euo pipefail
-          current_userns=$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)
-          if [[ -n $current_userns && $current_userns != 1 ]]; then
-            sudo sysctl -w kernel.unprivileged_userns_clone=1
-          fi
-          current_apparmor=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)
-          if [[ -n $current_apparmor && $current_apparmor != 0 ]]; then
-            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          fi
-      - name: Execute actual compiled runtime and inherited owner integration
+      - name: Common runtime contracts and actual compiled Unix compatibility entry
         env:
           GESTALT_NATIVE_SETUP_EVIDENCE: native-evidence/setup
           GESTALT_NATIVE_RUNTIME_EVIDENCE: native-evidence/setup
           GESTALT_NATIVE_AGENTS_SOURCE: ${{ github.workspace }}/.native-dependencies/agents
         run: |
           node -e 'require("node:fs").writeFileSync("native-evidence/setup/runner.json",JSON.stringify({platform:process.platform,arch:process.arch,node:process.version,abi:process.versions.modules,sha:process.env.GITHUB_SHA,observedAt:new Date().toISOString()}))'
-          node --test --test-reporter=tap tests/native-archive.test.mjs tests/native-diagnostics.test.mjs tests/native-app-server.test.mjs tests/native-capabilities.test.mjs tests/native-skills-owner.test.mjs tests/native-skills-transfer.test.mjs tests/native-scratch.test.mjs tests/native-hook-command.test.mjs tests/native-runtime-installed.test.mjs > native-evidence/setup/contracts.tap 2>&1
+          node scripts/test-core-runtime.mjs > native-evidence/setup/contracts.tap 2>&1
       - uses: actions/upload-artifact@v6
         if: always()
         with:
@@ -67,9 +54,17 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
+        env:
+          GIT_CONFIG_COUNT: 1
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: 'false'
         with:
           persist-credentials: false
       - uses: actions/checkout@v6
+        env:
+          GIT_CONFIG_COUNT: 1
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: 'false'
         with:
           repository: dyne/gestalt-agents
           ref: 8827347387ee32e2c5bd7eb912f9b80185cdad45
@@ -82,6 +77,8 @@ jobs:
       - run: npm ci
       - run: npm run typecheck:cli
       - run: node scripts/record-native-setup.mjs
+      - name: Build runtime artifacts outside the consumer account
+        run: node tests/native-core-slice.mjs --prepare native-evidence/core-slice-prebuilt --agents .native-dependencies/agents
       - name: Run native core runtime with an isolated standard-user token
         shell: powershell
         run: |

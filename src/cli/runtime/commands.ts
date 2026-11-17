@@ -118,12 +118,9 @@ export class RuntimeCommands {
   }
 }
 
-/** Validate a supplied owner without borrowing or changing its metadata.
- * Discovery/diagnostics receive no access to that owner's temporary namespace. */
+/** Validate and preserve the caller's temporary namespace. Read-only diagnostic
+ * handlers must not launch commands or publish borrowers; an explicit runtime
+ * operation uses the same validated owner rather than an ambient-TMP fallback. */
 export function diagnosticEnvironment(environment: Environment): Environment {
-  scratchEnvironment(environment);
-  const result = { ...environment };
-  if (Object.hasOwn(result, 'GESTALT_SESSION_TMP_CONTEXT'))
-    for (const key of ['GESTALT_SESSION_TMP_CONTEXT', 'TMPDIR', 'TMP', 'TEMP']) delete result[key];
-  return result;
+  return scratchEnvironment(environment);
 }

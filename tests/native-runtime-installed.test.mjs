@@ -8,28 +8,45 @@ import { createInterface } from 'node:readline';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
-import { createRequire } from 'node:module';
 import test from 'node:test';
-import { buildCli } from '../scripts/build-cli.mjs';
-import { buildOwnedProcess } from '../scripts/build-owned-process.mjs';
-import { buildNativePlatform } from '../scripts/build-native-platform.mjs';
 import { NativePrivateStorage } from '../src/cli/platform/storage.ts';
 import { createScratchOwner } from '../src/cli/runtime/scratch-owner.mjs';
 import { capturedNodeCommand } from './fixtures/native-node-command.mjs';
 import { NativeArchives } from '../src/cli/platform/archive.ts';
+import { NativeExecutables } from '../src/cli/platform/executables.ts';
 import { captureCopyTree } from '../scripts/native-copy-provenance.mjs';
-import { NativeExecutables, commandTarget } from '../src/cli/platform/executables.ts';
-import { until, linuxIdentities, assertLinuxAbsent, windowsObserver } from './fixtures/native-owned-observer.mjs';
+import { until, windowsObserver } from './fixtures/native-owned-observer.mjs';
 import { SetupContext } from '../src/cli/setup/context.ts';
 import { restartWorker } from '../src/cli/setup/restart.ts';
 import { parse, stringify } from 'smol-toml';
+import { pinnedCodex } from './fixtures/native-runtime/codex.mjs';
+import { authorizeFixtureHooks } from './fixtures/native-cli-hook-trust.mjs';
 
 const repository = path.resolve(import.meta.dirname, '..');
-const build = await realpath(await mkdtemp(path.join(tmpdir(), 'gestalt-runtime-build-')));
-const entry = await buildCli(repository, path.join(build, 'gestalt.mjs'));
-const peer = await buildNativePlatform(repository, path.join(build, 'native'));
-const helper = await buildOwnedProcess(repository, path.join(build, 'native'));
+assert.equal(process.platform, 'win32', 'Native Node installed runtime is a Windows gate; Unix exercises its unchanged legacy backend and the compiled compatibility entry');
+assert.ok(process.env.GESTALT_NATIVE_RUNTIME_ARTIFACTS, 'Build artifacts outside the consumer token with native-core-slice.mjs --prepare');
+const artifactRoot = await realpath(process.env.GESTALT_NATIVE_RUNTIME_ARTIFACTS);
+const artifacts = JSON.parse(await readFile(path.join(artifactRoot, 'artifacts.json'), 'utf8'));
+assert.equal(artifacts.platform, process.platform); assert.equal(artifacts.arch, process.arch); assert.equal(artifacts.abi, process.versions.modules);
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+for (const file of artifacts.artifacts) {
+  assert.ok(!path.isAbsolute(file.relative) && !file.relative.split(/[\\/]/).includes('..'));
+  const bytes = await readFile(path.join(artifactRoot, file.relative));
+  assert.equal(bytes.length, file.bytes); assert.equal(hash(bytes), file.sha256);
+}
+const build = await realpath(await mkdtemp(path.join(tmpdir(), 'gestalt-runtime-build-')));
+const entry = path.join(artifactRoot, 'gestalt.mjs'), peer = null;
+assert.equal(artifacts.helper, 'native/gestalt-owned-process.exe');
+const helper = path.join(artifactRoot, artifacts.helper);
+const helperProvenance = JSON.parse(await readFile(helper + '.provenance.json', 'utf8'));
+assert.equal(helperProvenance.artifactSha256, hash(await readFile(helper)));
+assert.equal(helperProvenance.sourceSha256, hash(await readFile(path.join(repository, 'src/cli/platform/native/owned-process.c'))));
+assert.ok(['e98a4cd15f945a7749d02e071126a854376b93c0', '8827347387ee32e2c5bd7eb912f9b80185cdad45'].includes(artifacts.orgSource.head));
+assert.ok(process.env.GESTALT_NATIVE_AGENTS_SOURCE && path.isAbsolute(process.env.GESTALT_NATIVE_AGENTS_SOURCE), 'exact accepted Agents source is required');
+const agentsRoot = await realpath(process.env.GESTALT_NATIVE_AGENTS_SOURCE);
+for (const file of [...artifacts.orgSource.files, ...artifacts.orgSource.setupApi]) {
+  const bytes = await readFile(path.join(agentsRoot, file.path)); assert.equal(bytes.length, file.bytes); assert.equal(hash(bytes), file.sha256);
+}
 if (process.env.GESTALT_NATIVE_RUNTIME_EVIDENCE) {
   const directory = process.env.GESTALT_NATIVE_RUNTIME_EVIDENCE; await mkdir(directory, { recursive: true });
   await copyFile(entry, path.join(directory, 'runtime-gestalt.mjs'));
@@ -56,7 +73,7 @@ async function fixture(t) {
   const manager = path.join(root, 'consumer/gestalt.mjs'); await copyFile(entry, manager);
   for (const file of [helper, peer].filter(Boolean)) { await copyFile(file, path.join(root, 'consumer/native', path.basename(file))); if (process.platform !== 'win32') await chmod(path.join(root, 'consumer/native', path.basename(file)), 0o755); }
   const environment = { ...process.env, HOME: path.join(root, 'home'), USERPROFILE: path.join(root, 'home'), CODEX_HOME: path.join(root, 'Codex'), GESTALT_HOME: path.join(root, 'Gestalt'),
-    PATH: [path.join(root, 'bin'), path.dirname(process.execPath), ...(process.platform === 'win32' ? [path.join(process.env.SystemRoot, 'System32'), path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0'), process.env.SystemRoot] : [])].join(path.delimiter), PATHEXT: '.CMD;.EXE' };
+    PATH: [path.join(root, 'bin'), path.dirname(process.execPath), path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0')].join(path.delimiter), PATHEXT: '.CMD;.EXE' };
   for (const key of Object.keys(environment)) if (key.toUpperCase() === 'PATH' && key !== 'PATH') delete environment[key];
   return { root, storage, manager, environment, retain: () => { retained = true; } };
 }
@@ -104,23 +121,44 @@ async function profiles(f) {
   return result;
 }
 async function nativeCodexIdentity() {
-  const executable = await new NativeExecutables().resolve('codex', process.env); assert.ok(executable, 'real target Codex is required');
-  let commandDirectory;
-  for (const directory of (process.env.PATH ?? '').split(path.delimiter).filter(path.isAbsolute)) {
-    const candidate = path.join(directory, process.platform === 'win32' ? 'codex.cmd' : 'codex');
-    try { if (await realpath(candidate) === executable) { commandDirectory = directory; break; } } catch { /* other PATH directory */ }
-  }
-  assert.ok(commandDirectory, 'native Codex command alias must resolve through its actual PATH directory');
-  const target = await commandTarget(executable), entry = target.prefix[0] || executable;
-  const packageName = `@openai/codex-${process.platform}-${process.arch}`;
-  const manifest = createRequire(entry).resolve(packageName + '/package.json'), packageRoot = path.dirname(manifest), binaries = [];
-  async function visit(directory) { for (const item of await readdir(directory, { withFileTypes: true })) {
-    const file = path.join(directory, item.name); if (item.isDirectory()) await visit(file);
-    else if (item.isFile() && ['codex', 'codex.exe'].includes(item.name)) binaries.push(file);
-  } }
-  await visit(path.join(packageRoot, 'vendor')); assert.equal(binaries.length, 1, 'exact native Codex binary is required');
-  return { executable, commandDirectory, entry, entrySha256: hash(await readFile(entry)), packageName, packageVersion: JSON.parse(await readFile(manifest, 'utf8')).version,
-    binary: binaries[0], binarySha256: hash(await readFile(binaries[0])), binaryMode: (await lstat(binaries[0])).mode };
+  if (!nativeCodexIdentity.pending) nativeCodexIdentity.pending = (async () => {
+    const artifact = await pinnedCodex(path.join(build, 'codex-artifact'));
+    const commandDirectory = path.join(build, 'codex-bin'); await mkdir(commandDirectory);
+    const executable = path.join(commandDirectory, 'codex.exe'); await copyFile(artifact.binary, executable);
+    assert.equal(hash(await readFile(executable)), artifact.record.binary.sha256);
+    return { executable, commandDirectory, entry: executable, entrySha256: artifact.record.binary.sha256, packageVersion: '0.164.0',
+      binary: executable, binarySha256: artifact.record.binary.sha256, binaryMode: (await lstat(executable)).mode,
+      source: artifact.record, scope: 'Pinned test dependency only; no product version admission policy' };
+  })();
+  return nativeCodexIdentity.pending;
+}
+async function trustInstalledFixtureHooks(t, f, codex, agents, workspace) {
+  const hooksFile = path.join(f.root, 'Codex/hooks.json'), launcher = path.join(f.root, 'Codex/bin/context-mode-hook.mjs');
+  const { reconcileCodexHooks } = await import(pathToFileURL(path.join(agents, 'plugins/context-mode/scripts/configure-codex.mjs')));
+  const expected = JSON.parse(reconcileCodexHooks('', launcher)); assert.deepEqual(JSON.parse(await readFile(hooksFile, 'utf8')), expected);
+  const marketplace = JSON.parse(await readFile(path.join(agents, '.agents/plugins/marketplace.json'), 'utf8')).name;
+  const installed = path.join(f.root, 'Codex/plugins/cache', marketplace, 'context-mode/2.26.0/hooks/runtime-hook.mjs');
+  assert.deepEqual(await readFile(installed), await readFile(path.join(agents, 'plugins/context-mode/hooks/runtime-hook.mjs')));
+  assert.equal(await readFile(launcher, 'utf8'), `#!/usr/bin/env node\nimport { pathToFileURL } from "node:url";\n\nprocess.env.GESTALT_HOME ||= ${JSON.stringify(path.join(f.root, 'Gestalt'))};\nprocess.env.CONTEXT_MODE_PLATFORM = "codex";\nawait import(pathToFileURL(${JSON.stringify(installed)}).href);\n`);
+  const entries = Object.entries(expected.hooks).flatMap(([event, groups]) => groups.flatMap(group => group.hooks.map(hook =>
+    ({ eventName: event[0].toLowerCase() + event.slice(1), sourcePath: hooksFile, command: hook.command }))));
+  assert.equal(entries.length, 6);
+  const query = async () => {
+    const proxy = await appServer(t, f, codex.executable, f.environment, ['--stdio']);
+    await proxy.request(1, 'initialize', { clientInfo: { name: 'native-runtime-fixture-trust', version: '1' }, capabilities: {} });
+    proxy.child.stdin.write('{"method":"initialized","params":{}}\n');
+    const result = await proxy.request(2, 'hooks/list', { cwds: [workspace] }); proxy.child.stdin.end();
+    assert.equal((await proxy.closed).status, 0); assert.equal(result.error, undefined, JSON.stringify(result));
+    return result.result.data.find(entry => entry.cwd === workspace).hooks;
+  };
+  const authorized = authorizeFixtureHooks(await query(), entries), configFile = path.join(f.root, 'Codex/config.toml');
+  const config = parse(await readFile(configFile, 'utf8')); config.hooks ??= {}; config.hooks.state ??= {};
+  for (const hook of authorized) config.hooks.state[hook.key] = { enabled: true, trusted_hash: hook.currentHash };
+  await f.storage.replaceFile(configFile, Buffer.from(stringify(config)));
+  const current = await query(); assert.deepEqual(authorizeFixtureHooks(current, entries), authorized);
+  assert.ok(current.every(hook => hook.trustStatus === 'trusted'));
+  await evidence('runtime-fixture-hook-trust.json', { scope: 'Only six exact verified isolated accepted hooks; no live or global trust change', authorized });
+  return readFile(configFile);
 }
 test('native restart completion refuses missing authenticated authority and preserves the live relay/descriptor', { timeout: 600000 }, async t => {
   const f = await fixture(t), run = path.join(f.root, 'Gestalt/run'); await f.storage.createDirectory(run);
@@ -151,18 +189,16 @@ test('actual runtime interruption fences detached descendants or retains unknown
   try {
     await until(async () => { try { return JSON.parse(await readFile(ready, 'utf8')).token === token && (await readFile(heartbeat, 'utf8')).split('\n').length >= 3; } catch (error) { if (error.code === 'ENOENT') return false; throw error; } }, 'runtime detached descendant did not establish actual writes', process.platform === 'win32' ? 300000 : 60000);
     activated = true;
-    if (process.platform === 'linux') { held = await linuxIdentities('GESTALT_RUNTIME_DESCENDANT=' + token); assert.ok(held.length >= 4, 'actual controller/helper/native/detached identities must be held before cancellation'); }
     if (process.platform === 'win32') { observer = await windowsObserver(JSON.parse(await readFile(ready, 'utf8')).pid); held = observer.identity; }
     proxy.child.kill(process.platform === 'win32' ? 'SIGKILL' : 'SIGTERM'); const result = await proxy.closed;
     if (process.platform !== 'win32') assert.equal(result.status, 143, result.stderr);
-    if (observer) await observer.verify(); if (process.platform === 'linux') await assertLinuxAbsent(held);
+    if (observer) await observer.verify();
     const before = await readFile(heartbeat, 'utf8'); await new Promise(resolve => setTimeout(resolve, 400)); const after = await readFile(heartbeat, 'utf8'), fenced = before === after;
     const leases = await Promise.all((await readdir(path.join(primary.context.directory, 'leases'))).map(async file => JSON.parse(await readFile(path.join(primary.context.directory, 'leases', file), 'utf8'))));
     const borrowers = leases.filter(lease => lease.leaseId !== primary.lease.leaseId); assert.ok(borrowers.length > 0);
-    if (process.platform === 'linux') { assert.equal(fenced, true); assert.ok(borrowers.every(lease => lease.state === 'released')); assert.equal(await owner.scratchReleaseReady(primary), true); }
-    else { f.retain(); assert.ok(borrowers.every(lease => lease.state === 'active')); if (process.platform === 'win32') assert.equal(fenced, true); else assert.equal(fenced, false); }
+    f.retain(); assert.ok(borrowers.every(lease => lease.state === 'active')); assert.equal(fenced, true);
     await evidence('runtime-interruption.json', { observedAt: new Date().toISOString(), platform: process.platform, arch: process.arch, node: process.version, actualInterruption: process.platform === 'win32' ? 'TerminateProcess parent death' : 'SIGTERM',
-      result, heldCreationIdentities: held ?? null, writesFenced: fenced, borrowers, primaryRetained: process.platform !== 'linux', helperSha256: hash(await readFile(helper)), injectedSignal: false });
+      result, heldCreationIdentities: held ?? null, writesFenced: fenced, borrowers, primaryRetained: true, helperSha256: hash(await readFile(helper)), injectedSignal: false });
   } finally {
     await writeFile(release, token); if (proxy.child.exitCode === null && proxy.child.signalCode === null) proxy.child.kill(process.platform === 'win32' ? 'SIGKILL' : 'SIGTERM'); await proxy.closed;
     if (process.platform === 'darwin' && activated) await until(async () => { try { return await readFile(done, 'utf8') === 'done'; } catch (error) { if (error.code === 'ENOENT') return false; throw error; } }, 'controlled detached Mac writer did not acknowledge explicit fixture release');
@@ -187,7 +223,7 @@ test('actual compiled AppServer uses the target native Codex protocol and preser
 test('actual compiled CLI uses accepted Agents, fresh/resume native sessions and a local synthetic Responses fixture', { timeout: 1800000 }, async t => {
   const f = await fixture(t), codex = await nativeCodexIdentity(), agents = process.env.GESTALT_NATIVE_AGENTS_SOURCE;
   assert.ok(agents && path.isAbsolute(agents), 'exact accepted Agents dependency is required');
-  const setupEnvironment = { ...f.environment, PATH: process.env.PATH, GESTALT_AGENTS_SOURCE: await realpath(agents),
+  const setupEnvironment = { ...f.environment, PATH: [codex.commandDirectory, process.env.PATH].join(path.delimiter), GESTALT_AGENTS_SOURCE: await realpath(agents),
     GESTALT_AGENTS_SETUP_SHA256: hash(await readFile(path.join(agents, 'gestalt-setup.mjs'))),
     GESTALT_AGENTS_SETUP_OWNER_SHA256: hash(await readFile(path.join(agents, 'scripts/setup-agents.mjs'))),
     CLAUDE_CONFIG_DIR: path.join(f.root, 'home/.claude'), CONTEXT_MODE_DIR: path.join(f.root, 'home/context-mode-data'),
@@ -207,8 +243,13 @@ test('actual compiled CLI uses accepted Agents, fresh/resume native sessions and
   assert.deepEqual(await readFile(path.join(f.root, 'Codex/config.toml')), before);
   // Real native session/hook/resume behavior, using only a local synthetic
   // Responses fixture. No real model/authentication or model adoption claim.
-  const requests = [], model = createHttpServer(async (request, response) => {
+  const requests = [], metadataRequests = [], model = createHttpServer(async (request, response) => {
     let raw = ''; for await (const chunk of request) { raw += chunk; if (raw.length > 16 * 1024 * 1024) { response.writeHead(413); response.end(); return; } }
+    if (!raw && (request.method === 'HEAD' && request.url === '/v1/responses' || request.method === 'GET' && request.url === '/v1/models')) {
+      metadataRequests.push({ method: request.method, path: request.url, bodyBytes: 0, observedAt: new Date().toISOString() });
+      response.writeHead(200, { 'Content-Type': 'application/json' }); response.end(JSON.stringify({ data: [], models: [] })); return;
+    }
+    if (request.method !== 'POST' || request.url !== '/v1/responses') { response.writeHead(400); response.end('unexpected fixture request'); return; }
     requests.push(JSON.parse(raw));
     const item = { id: 'msg_' + requests.length, type: 'message', status: 'completed', role: 'assistant', content: [{ type: 'output_text', text: 'Native fixture completed.', annotations: [] }] };
     const result = { id: 'resp_' + requests.length, object: 'response', created_at: 1, status: 'completed', model: 'fixture', output: [item], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } };
@@ -222,7 +263,8 @@ test('actual compiled CLI uses accepted Agents, fresh/resume native sessions and
   const workspace = path.join(f.root, 'workspace'), config = parse(before.toString());
   config.model = 'fixture'; config.model_provider = 'fixture'; config.model_providers = { fixture: { name: 'fixture', base_url: `http://127.0.0.1:${model.address().port}/v1`, wire_api: 'responses', requires_openai_auth: false } };
   config.projects = { [workspace]: { trust_level: 'trusted' } }; config.features = { ...config.features, hooks: true, tool_search: false };
-  const profile = Buffer.from(stringify(config)); await f.storage.replaceFile(path.join(f.root, 'Codex/config.toml'), profile);
+  await f.storage.replaceFile(path.join(f.root, 'Codex/config.toml'), Buffer.from(stringify(config)));
+  const profile = await trustInstalledFixtureHooks(t, f, codex, agents, workspace);
   f.retain(); // preserve v2 logical/physical associations even on an assertion failure
   const fresh = await managerCommand(f, ['cli', '--', 'exec', '--skip-git-repo-check', '--json', '-C', workspace, 'NATIVE_FRESH'], f.environment, 540000);
   await evidence('actual-cli-fresh.json', { observedAt: new Date().toISOString(), platform: process.platform, fresh, syntheticModel: true, realModelAdoptionClaimed: false });
@@ -239,12 +281,12 @@ test('actual compiled CLI uses accepted Agents, fresh/resume native sessions and
   assert.deepEqual(await readFile(path.join(f.root, 'Codex/config.toml')), profile);
   f.retain(); // keep logical markers and physical runtime associations together
   await evidence('actual-cli-session-associations.json', { observedAt: new Date().toISOString(), platform: process.platform, threadId, associated, syntheticModelRequests: requests.length,
-    syntheticModel: true, realModelAdoptionClaimed: false, profileSha256: hash(profile), helperSha256: hash(await readFile(helper)) });
+    syntheticModel: true, realModelAdoptionClaimed: false, metadataRequests, profileSha256: hash(profile), helperSha256: hash(await readFile(helper)) });
 });
 test('actual native Codex OS sandbox succeeds without an unconfined fallback or other-platform sandbox prerequisite', { timeout: 600000 }, async t => {
   const f = await fixture(t), codex = await nativeCodexIdentity();
   f.environment.PATH = [codex.commandDirectory, f.environment.PATH].join(path.delimiter);
-  const result = await managerCommand(f, ['doctor']);
+  const result = await managerCommand(f, ['doctor', '--probe-sandbox']);
   await evidence('actual-codex-sandbox.json', { observedAt: new Date().toISOString(), platform: process.platform, arch: process.arch, node: process.version, codex,
     managerSha256: hash(await readFile(f.manager)), helperSha256: hash(await readFile(helper)), result, fallbackAllowed: false });
   // Missing optional installation components still make doctor nonzero. The
@@ -271,6 +313,38 @@ test('actual compiled skills export/import relocates profiles and preserves unre
   assert.equal(await readFile(path.join(target.root, 'Codex/skills/unrelated/user-data'), 'utf8'), 'preserve exactly');
   await evidence('skills-transfer-native.json', { observedAt: new Date().toISOString(), platform: process.platform, arch: process.arch, node: process.version,
     managerSha256: hash(await readFile(source.manager)), archiveSha256: hash(await readFile(archive)), exported, imported, profile });
+});
+test('actual compiled skills install/update/status preserve receipt integrity and refuse local modifications', { timeout: 600000 }, async t => {
+  const f = await fixture(t), collection = path.join(f.root, 'collection'), relative = 'skills/native-lifecycle/SKILL.md';
+  for (const directory of ['collection', 'collection/skills', 'collection/skills/native-lifecycle']) await f.storage.createDirectory(path.join(f.root, directory));
+  const noHooks = path.join(f.root, 'fixture-no-hooks'); await f.storage.createDirectory(noHooks);
+  const git = await new NativeExecutables().resolve('git', process.env); assert.ok(git, 'native fixture Git is required');
+  const environment = { ...f.environment, PATH: process.env.PATH, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: 'NUL', GIT_TERMINAL_PROMPT: '0' };
+  const runGit = args => execFileSync(git, ['-c', 'user.name=Native fixture', '-c', 'user.email=native@example.invalid', '-c', 'core.hooksPath=' + noHooks, ...args],
+    { cwd: collection, env: environment, shell: false, stdio: 'pipe' });
+  runGit(['init', '--initial-branch=main']);
+  const revision = async (version, text) => {
+    await f.storage.replaceFile(path.join(collection, relative), Buffer.from(text));
+    await f.storage.replaceFile(path.join(collection, 'LICENSE'), Buffer.from('MIT fixture\n'));
+    await f.storage.replaceFile(path.join(collection, 'manifest.json'), Buffer.from(JSON.stringify({ schemaVersion: 1, repository: 'dyne/gestalt-skills',
+      source: 'https://github.com/dyne/gestalt-skills', version, skills: [{ name: 'native-lifecycle', entry: relative, files: [{ path: relative, sha256: hash(Buffer.from(text)) }] }] })));
+    runGit(['add', '--', 'manifest.json', 'LICENSE', relative]); runGit(['commit', '-m', version]);
+  };
+  const selected = { ...f.environment, PATH: process.env.PATH, GESTALT_SKILLS_SOURCE: collection, GESTALT_SKILLS_REF: 'main' };
+  await revision('0.1.0', '# first\n'); const installed = await managerCommand(f, ['skills', 'install'], selected);
+  assert.equal(installed.status, 0, installed.stderr);
+  const status = await managerCommand(f, ['skills', 'status', '--json'], selected);
+  assert.equal(status.status, 0, status.stderr); assert.equal(JSON.parse(status.stdout).version, '0.1.0');
+  await revision('0.2.0', '# second\n'); const updated = await managerCommand(f, ['skills', 'update'], selected);
+  assert.equal(updated.status, 0, updated.stderr);
+  const receiptFile = path.join(f.root, 'Codex/gestalt-skills/receipt.json'), receipt = await readFile(receiptFile);
+  assert.equal(JSON.parse(receipt).version, '0.2.0');
+  const discovered = path.join(f.root, 'Codex/skills/native-lifecycle/SKILL.md'); assert.equal(await readFile(discovered, 'utf8'), '# second\n');
+  await f.storage.replaceFile(path.join(f.root, 'Codex/gestalt-skills', relative), Buffer.from('operator changes\n'));
+  const refused = await managerCommand(f, ['skills', 'update'], selected); assert.equal(refused.status, 1); assert.match(refused.stderr, /local changes/);
+  assert.equal(await readFile(discovered, 'utf8'), 'operator changes\n'); assert.deepEqual(await readFile(receiptFile), receipt);
+  await evidence('skills-lifecycle-native.json', { observedAt: new Date().toISOString(), platform: process.platform, managerSha256: hash(await readFile(f.manager)),
+    installed, status, updated, refused, receiptSha256: hash(receipt), sourceOverride: true, verifiedPublicSource: false, packageContentsExecuted: false });
 });
 test('actual compiled scratch inspection is read-only and exact offline recovery requires confirmation', { timeout: 600000 }, async t => {
   const f = await fixture(t), workspace = path.join(f.root, 'workspace'), sessionId = randomUUID(), ownerId = 'mobile-' + hash(Buffer.from(sessionId));

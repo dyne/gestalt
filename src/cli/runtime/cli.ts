@@ -34,14 +34,17 @@ export function cliHandler(metadata: CliMetadata, owned = false, port?: OwnedPro
       }
       commands = new RuntimeCommands(selected, streams, paths.manager, port, terminal); unlisten = commands.listen();
       const codex = await commands.resolve('codex'); if (!codex) throw new Error('codex is required and was not found on PATH');
-      const diagnostic = new DiagnosticContext(paths, selected, streams, port), unlistenDiagnostic = diagnostic.commands.listen();
+      const diagnostic = new DiagnosticContext(paths, selected, streams, port);
+      const required = new DiagnosticContext(paths, selected, streams, port, true), unlistenDiagnostic = required.commands.listen();
       try {
         await streams.stderr(Buffer.from('gestalt: running startup diagnostics\n'));
         if (await doctor(diagnostic, [], metadata) !== 0)
           await streams.stderr(Buffer.from('gestalt: startup diagnostics reported a problem; launch will continue after required runtime checks\n'));
-        if (diagnostic.commands.interrupted) return diagnostic.commands.interrupted;
-        await verifyContextRuntime(diagnostic);
-      } finally { await diagnostic.commands.stop(); unlistenDiagnostic(); }
+        if (required.commands.interrupted) return required.commands.interrupted;
+        // Required launch checks are owned commands, distinct from read-only
+        // diagnostics. They retain the caller's validated namespace/borrowers.
+        await verifyContextRuntime(required);
+      } finally { await required.commands.stop(); unlistenDiagnostic(); }
       await streams.stderr(Buffer.from(`gestalt: starting Codex with CODEX_HOME=${paths.codexHome}\n`));
       if (admin) {
         prepared = true;

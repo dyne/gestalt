@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn, execFileSync } from 'node:child_process';
 import { once } from 'node:events';
-import { access, appendFile, chmod, cp, lstat, mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
+import { access, appendFile, chmod, cp, lstat, mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { createServer as httpServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -25,6 +25,7 @@ import { sessionScratch } from './session-scratch-fixture.mjs';
 import { authorizeFixtureHooks } from './fixtures/native-cli-hook-trust.mjs';
 import { assertMetadataProbesOnly, captureProviderProbes } from './fixtures/native-provider-probes.mjs';
 import { terminalControls } from './fixtures/native-cli-slice-controls.mjs';
+import { queryPhase } from './fixtures/native-cli-spawn-capture.mjs';
 import { verifySourceRecord } from './fixtures/native-runtime/source-binding.mjs';
 import { bounded, digest, isolatedEnvironment, pinnedCodex } from './fixtures/native-runtime/codex.mjs';
 
@@ -32,6 +33,63 @@ const root = path.resolve(import.meta.dirname, '..'), args = process.argv.slice(
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const json = async file => JSON.parse(await readFile(file, 'utf8'));
 const record = async (file, value) => writeFile(file, JSON.stringify(value, null, 2) + '\n');
+export function selectedSliceMode(environment, platform = process.platform) {
+  const flag = environment.GESTALT_CORE_SLICE_READINESS_ONLY;
+  if (flag === undefined || flag === '' || flag === '0') return 'terminal';
+  if (flag !== '1' || platform !== 'win32') throw Error('Readiness requires explicit flag1 inside the Windows ordinary account');
+  return 'readiness';
+}
+export const readinessArgv = entry => [entry, 'cli', '--', 'exec', '--help'];
+export function finalCapturedInvocation(calls, mode = 'terminal') {
+  if (mode === 'terminal') return calls.filter(call => call.argv[0] !== 'app-server' && call.argv.includes('--no-alt-screen')).at(-1);
+  const selected = calls.filter(call => queryPhase(call.argv) === 'final-help');
+  assert.equal(selected.length, 1, 'Readiness requires one actual final exec --help invocation');
+  return selected[0];
+}
+export function readinessObservations(observation, inherited, target, helper) {
+  const failures = [], required = ['required-inventory', 'required-mcp', 'capability-config', 'capability-hooks', 'final-help'];
+  const fail = id => failures.push(id);
+  if (!observation || observation.overflow || observation.errors?.length || observation.processExit !== 0) fail('observation-missing-overflow-error-or-exit');
+  const channels = Array.isArray(observation?.channels) ? observation.channels : [], events = Array.isArray(observation?.events) ? observation.events : [];
+  if (channels.length !== required.length) fail('expected-five-owned-product-phases');
+  for (const phase of required) {
+    const matches = channels.filter(channel => channel.phase === phase);
+    if (matches.length !== 1) { fail(phase + ':missing-or-duplicate'); continue; }
+    const channel = matches[0], current = events.filter(event => event.channel === channel.id);
+    if (!channel.call || typeof channel.call.target !== 'string' || !channel.environment ||
+        !Array.isArray(channel.incompleteFrameBytes) || !Array.isArray(channel.incompleteRpcBytes)) { fail(phase + ':malformed-observation'); continue; }
+    if (channel.call.transport !== 'accepted-owned-helper' || channel.call.target.toLowerCase() !== target.toLowerCase()) fail(phase + ':wrong-owned-target');
+    if (helper && (typeof channel.call.executable !== 'string' || channel.call.executable.toLowerCase() !== helper.toLowerCase())) fail(phase + ':wrong-current-helper');
+    if (Object.keys(inherited).some(key => channel.environment[key] !== inherited[key])) fail(phase + ':context-or-TMP-changed');
+    if ([...channel.incompleteFrameBytes, ...channel.incompleteRpcBytes].some(Boolean)) fail(phase + ':incomplete-frame-or-RPC');
+    const frames = current.filter(event => event.type === 'native-frame'), payload = kind => frames.filter(event => event.kind === kind);
+    if (['R', 'F', 'D'].some(kind => payload(kind).length !== 1) || frames.some(event => ['U', 'X'].includes(event.kind))) fail(phase + ':missing-native-RFD-or-unknown');
+    if (payload('R').length === 1 && payload('F').length === 1 && payload('D').length === 1 &&
+        !(frames.indexOf(payload('R')[0]) < frames.indexOf(payload('F')[0]) && frames.indexOf(payload('F')[0]) < frames.indexOf(payload('D')[0]))) fail(phase + ':native-frame-order');
+    const text = kind => Buffer.from(payload(kind)[0]?.payloadBase64 ?? '', 'base64').toString();
+    if (text('R') !== 'windows-job' || text('D') !== 'windows-job') fail(phase + ':wrong-native-backend');
+    const closes = current.filter(event => event.type === 'helper-close');
+    if (closes.length !== 1 || closes[0].code !== 0 || closes[0].signal !== null) fail(phase + ':helper-not-naturally-closed0');
+    if (closes.length === 1 && payload('D').length === 1 && current.indexOf(closes[0]) <= current.indexOf(payload('D')[0])) fail(phase + ':close-before-empty-frame');
+    if (phase.startsWith('capability-')) {
+      const methods = phase === 'capability-config' ? ['initialize', 'config/read', 'skills/list'] : ['initialize', 'hooks/list'];
+      for (const method of methods) {
+        const requests = current.filter(event => event.type === 'rpc' && event.direction === 'input' && event.method === method);
+        if (requests.length !== 1) { fail(phase + ':RPC-' + method + '-missing-or-duplicate'); continue; }
+        const replies = current.filter(event => event.type === 'rpc' && event.direction === 'output' && event.id === requests[0].id);
+        if (replies.length !== 1 || replies[0].error || replies[0].response !== true || replies[0].hasResult !== true) fail(phase + ':RPC-' + method + '-incomplete-or-error');
+      }
+      // Existing snapshot closes its server after replies. Keep the original
+      // F result; an intentional stop is not normalized into natural command0.
+      if (!/^exit:\d+$|^signal:\d+$/.test(text('F'))) fail(phase + ':invalid-command-result');
+      if (text('F') !== 'exit:0' && !current.some(event => event.type === 'native-control' && event.kind === 'S' && current.indexOf(event) < current.indexOf(payload('F')[0]))) fail(phase + ':nonzero-without-prior-observed-owned-stop');
+    } else if (text('F') !== 'exit:0') fail(phase + ':command-not-natural0');
+  }
+  const created = events.filter(event => event.type === 'timer-created');
+  if (created.filter(event => /\bat [^\n]*\.capture\s+\(/.test(event.callsite) && event.delay === 10000).length < 2) fail('required-capture10s-timers-unobserved');
+  if (created.filter(event => /\bat snapshot\s+\(/.test(event.callsite) && event.delay > 0 && event.delay <= 5000).length < 2) fail('shared-readiness5s-snapshot-timers-unobserved');
+  return { pass: failures.length === 0, failures, requiredPhases: required, rawInnerRecordsAreLeaseClaims: false, timerClearProvesNonexpiry: false };
+}
 function observeTerminalCase(control, report, terminalReport, attempted, readError) {
   if (!report) return { control, status: attempted ? 'unknown-no-valid-terminal-report' : 'unexecuted',
     terminalReport, readError, fixtureTurnSubmitted: null, barrierTextObserved: null };
@@ -135,9 +193,9 @@ async function verifyInstalledHooks(agents, fixture) {
   return { entries, proof: { hooksFile: await digest(hooksFile), launcher: await digest(launcher), installedOwner: await digest(installedOwner), acceptedOwner: await digest(acceptedOwner) } };
 }
 
-async function composedHooks(binary, environment, cwd, capture) {
+async function composedHooks(binary, environment, cwd, capture, mode = 'terminal') {
   const calls = (await readFile(capture, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
-  const tui = calls.filter(call => call.argv[0] !== 'app-server' && call.argv.includes('--no-alt-screen')).at(-1);
+  const tui = finalCapturedInvocation(calls, mode);
   assert.ok(tui, 'Actual candidate final Codex argv was not observed');
   const overrides = [];
   for (let i = 0; i < tui.argv.length; i++) {
@@ -150,6 +208,62 @@ async function composedHooks(binary, environment, cwd, capture) {
   for (const hook of hooks) assert.equal(hook.trustStatus, 'trusted', JSON.stringify(hook));
   return { calls, exactFinalArgv: tui.argv, effective,
     scope: 'Actual captured final candidate argv, then exact -c flags queried through real Codex hooks/list; no protocol/stream interception or unscoped trust' };
+}
+
+async function borrowerInventory(primary) {
+  const directory = path.join(primary.context.directory, 'leases'), records = [];
+  for (const name of (await readdir(directory)).sort()) {
+    const file = path.join(directory, name), info = await lstat(file);
+    assert.ok(info.isFile() && !info.isSymbolicLink() && info.nlink === 1 && info.size <= 16384);
+    const bytes = await readFile(file); records.push({ file, sha256: sha256(bytes), lease: JSON.parse(bytes) });
+  }
+  return records;
+}
+async function queryReadiness(entry, environment, cwd, directory, helper, primary, configFile, hooksFile, inherited) {
+  const adapter = new NativeOwnedProcesses(helper), stdout = [], stderr = [];
+  const policy = async label => Promise.all([configFile, hooksFile].map(async file => {
+    const bytes = await readFile(file), copy = path.join(directory, label + '-' + path.basename(file)); await writeFile(copy, bytes, { flag: 'wx', mode: 0o600 });
+    return { file, sha256: sha256(bytes), bytes: bytes.length, copy };
+  }));
+  const beforePolicy = await policy('before'), beforeBorrowers = await borrowerInventory(primary);
+  let lease, outcome, claim, failure, observation, afterBorrowers, afterPolicy;
+  try {
+    lease = await adapter.launch(process.execPath, { argv: readinessArgv(entry), cwd, environment }, {
+      stdin: (async function* () {})(), stdout: async bytes => stdout.push(Buffer.from(bytes)), stderr: async bytes => stderr.push(Buffer.from(bytes)),
+    }, { graceMs: 1000, deadlineMs: 10000 });
+    outcome = await bounded(lease.result, 'actual compiled Windows query readiness', 300000);
+  } catch (error) { failure = { message: error.message, stack: error.stack }; }
+  finally {
+    if (lease) {
+      try { claim = await lease.stop(); await bounded(lease.completed, 'query readiness helper closure', 15000); }
+      catch (error) { failure ??= { message: error.message, stack: error.stack }; }
+    }
+    try { observation = await json(environment.GESTALT_SLICE_READINESS_CAPTURE); } catch (error) { failure ??= { message: 'Readiness observation unavailable: ' + error.message }; }
+    try { afterBorrowers = await borrowerInventory(primary); afterPolicy = await policy('after'); } catch (error) { failure ??= { message: error.message }; }
+  }
+  const observed = readinessObservations(observation, inherited, environment.GESTALT_SLICE_CODEX_BINARY, helper);
+  const errors = [...observed.failures];
+  if (failure) errors.push('readiness-execution-or-capture-failure');
+  if (JSON.stringify(observation?.managerArgv?.slice(1)) !== JSON.stringify(readinessArgv(entry))) errors.push('observation-not-from-exact-manager-invocation');
+  if (outcome?.kind !== 'exit' || outcome.code !== 0 || claim?.kind !== 'released' || claim.lease !== lease?.id ||
+      claim.backend !== 'windows-job' || claim.result?.kind !== 'exit' || claim.result.code !== 0) errors.push('outer-natural0-or-matching-lease-unconfirmed');
+  const output = Buffer.concat(stdout).toString(), diagnostics = Buffer.concat(stderr).toString();
+  if (!/Usage:.*codex exec/s.test(output)) errors.push('native-exec-help-unobserved');
+  if (/capability discovery unavailable|startup guidance unavailable|complete descendant release is unconfirmed/.test(diagnostics)) errors.push('required-query-or-guidance-fallback');
+  if (!afterPolicy || beforePolicy.some((record, index) => record.file !== afterPolicy[index]?.file || record.sha256 !== afterPolicy[index]?.sha256)) errors.push('configuration-policy-bytes-changed');
+  const previous = new Set(beforeBorrowers.map(record => record.lease.leaseId)), added = afterBorrowers?.filter(record => !previous.has(record.lease.leaseId)) ?? [];
+  if (added.length !== 5 || added.some(record => record.lease.state !== 'released' || record.lease.ownerId !== primary.context.ownerId ||
+      record.lease.workspacePath !== primary.context.workspacePath || !Array.isArray(record.lease.consumers) || !record.lease.consumers.includes('manager-runtime'))) errors.push('new-runtime-borrowers-not-five-released');
+  const beforePrimary = beforeBorrowers.find(record => record.lease.leaseId === primary.lease.leaseId), afterPrimary = afterBorrowers?.find(record => record.lease.leaseId === primary.lease.leaseId);
+  if (beforePrimary?.lease.state !== 'active' || afterPrimary?.lease.state !== 'active' || beforePrimary?.sha256 !== afterPrimary?.sha256) errors.push('primary-fixture-lease-not-retained-active-and-unchanged');
+  const result = { kind: 'actual-compiled-windows-owned-query-readiness', pass: errors.length === 0, failures: errors,
+    result: outcome ?? null, outerClaim: claim ?? null, outerLease: lease?.id ?? null, failure: failure ?? null,
+    observationGate: observed, beforePolicy, afterPolicy, beforeBorrowers, afterBorrowers, addedBorrowers: added,
+    submittedTurns: 0, terminalCasesExecuted: 0, modelRequestPolicy: 'No generation endpoint; fixture submits only exec --help',
+    scope: 'Instrumented readiness only; inner raw records are not adapter lease UUID claims. Timer clear alone proves no deadline outcome.' };
+  await writeFile(path.join(directory, 'manager.stdout'), Buffer.concat(stdout)); await writeFile(path.join(directory, 'manager.stderr'), Buffer.concat(stderr));
+  await record(path.join(directory, 'query-result.json'), result);
+  assert.equal(result.pass, true, JSON.stringify(errors)); return result;
 }
 
 async function hostIpc(fixture, peer, evidence, environment) {
@@ -228,7 +342,7 @@ async function terminal(entry, environment, cwd, report, evidence, helper, contr
   }
 }
 
-async function consume(artifacts, agents, evidence) {
+async function consume(artifacts, agents, evidence, mode) {
   await mkdir(evidence, { recursive: true, mode: 0o700 });
   const manifest = await json(path.join(artifacts, 'artifacts.json'));
   assert.equal(manifest.platform, process.platform); assert.equal(manifest.arch, process.arch); assert.equal(manifest.abi, process.versions.modules);
@@ -243,6 +357,7 @@ async function consume(artifacts, agents, evidence) {
   for (const name of ['home', 'Codex', 'Gestalt', 'bin', 'workspace', 'status']) await storage.createDirectory(path.join(fixture, name));
   const consumer = path.join(fixture, 'consumer'); await cp(artifacts, consumer, { recursive: true });
   const entry = path.join(consumer, 'gestalt.mjs'), peer = manifest.peer ? path.join(consumer, manifest.peer) : undefined, helper = manifest.helper ? path.join(consumer, manifest.helper) : undefined;
+  if (mode === 'readiness') assert.equal((await digest(entry)).sha256, '9e045a38e22ad84044b528bcff0a9a33af0e8e7d14827ad8f6517d8753fd0cd4', 'Readiness must consume the sealed current product binary');
   const artifact = await pinnedCodex(path.join(evidence, 'codex-artifact'), { homeDirectory: path.join(fixture, 'Codex') });
   await cp(artifact.binary, path.join(fixture, 'bin', process.platform === 'win32' ? 'codex.exe' : 'codex'));
   if (process.platform !== 'win32') await chmod(path.join(fixture, 'bin/codex'), 0o700);
@@ -267,6 +382,18 @@ async function consume(artifacts, agents, evidence) {
   const dispatcher = await readFile(path.join(fixture, 'Codex/bin/org-plan'), 'utf8'), bundle = /bundles\/([a-f0-9-]{36})\/org-plan-cli\.mjs/.exec(dispatcher)?.[1];
   assert.ok(bundle, 'Actual installed dispatcher must pin one immutable Org bundle');
   const orgBundle = path.join(fixture, 'Codex/lib/gestalt-org-plan/bundles', bundle), configFile = path.join(fixture, 'Codex/config.toml');
+  let readinessInstalledBindings;
+  if (mode === 'readiness') {
+    readinessInstalledBindings = [];
+    for (const expected of binding.binding.files) {
+      const file = path.join(orgBundle, path.basename(expected.path)), bytes = await readFile(file), info = await lstat(file);
+      assert.ok(info.isFile() && !info.isSymbolicLink()); assert.equal(bytes.length, expected.bytes); assert.equal(sha256(bytes), expected.sha256);
+      readinessInstalledBindings.push({ file, bytes: bytes.length, sha256: sha256(bytes), observedMode: (info.mode & 0o7777).toString(8), expectedGitMode: expected.gitMode });
+    }
+    assert.equal(readinessInstalledBindings.length, 15);
+    await record(path.join(evidence, 'readiness-installed-bindings.json'), { files: readinessInstalledBindings,
+      scope: 'Actual installed bytes; Windows stat mode is observed, not POSIX execute-bit semantics or a publication/IPC claim' });
+  }
   const owner = createScratchOwner(peer);
   // Accepted context-mode2.26 is a v1 consumer. Exercise the existing Unix
   // inherited-owner fixture, without converting or weakening any real v2 owner.
@@ -286,10 +413,11 @@ async function consume(artifacts, agents, evidence) {
   let activeCase = null;
   let runFailure = null;
   const attemptedCases = new Set();
+  const selectedCases = mode === 'readiness' ? ['readiness'] : ['eof', 'interrupt'];
   const sentinel = httpServer(captureProviderProbes(requests, () => activeCase));
   sentinel.listen(0, '127.0.0.1'); await once(sentinel, 'listening');
   try {
-    for (const control of ['eof', 'interrupt']) {
+    for (const control of selectedCases) {
       activeCase = control;
       attemptedCases.add(control);
       const current = path.join(evidence, control); await mkdir(current);
@@ -310,12 +438,20 @@ async function consume(artifacts, agents, evidence) {
         const capture = path.join(current, 'candidate-spawn.jsonl');
         const observedEnvironment = { ...launchEnvironment, NODE_OPTIONS: '--import=' + pathToFileURL(path.join(consumer, 'spawn-capture.mjs')).href,
           GESTALT_SLICE_CODEX_BINARY: path.join(fixture, 'bin', process.platform === 'win32' ? 'codex.exe' : 'codex'), GESTALT_SLICE_SPAWN_CAPTURE: capture };
+        if (mode === 'readiness') observedEnvironment.GESTALT_SLICE_READINESS_CAPTURE = path.join(current, 'observation.json');
         let result, terminalFailure;
-        try { result = await terminal(entry, observedEnvironment, path.join(fixture, 'workspace'), report, current, helper, control); }
+        try { result = mode === 'readiness' ? await queryReadiness(entry, observedEnvironment, path.join(fixture, 'workspace'), current, helper, primary, configFile, path.join(fixture, 'Codex/hooks.json'), inherited) :
+          await terminal(entry, observedEnvironment, path.join(fixture, 'workspace'), report, current, helper, control); }
         catch (error) { terminalFailure = error; throw error; }
         finally {
-          try { await record(path.join(current, 'effective-manager-hooks.json'), await composedHooks(artifact.binary, launchEnvironment, path.join(fixture, 'workspace'), capture)); }
+          try { await record(path.join(current, 'effective-manager-hooks.json'), await composedHooks(artifact.binary, launchEnvironment, path.join(fixture, 'workspace'), capture, mode)); }
           catch (error) { await record(path.join(current, 'effective-manager-hooks-failure.json'), { message: error.message, stack: error.stack }); if (!terminalFailure) throw error; }
+        }
+        if (mode === 'readiness') {
+          const provider = assertMetadataProbesOnly(requests, control);
+          await record(path.join(current, 'result.json'), { ...result, tests: 1, pass: true, failed: 0, skip: 0, provider,
+            zeroGenerationOrOtherRequests: true, actualInstalledOrgAndWholeIpcClaimed: false, actualInstalledBindingsVerified: readinessInstalledBindings.length, submittedTurns: 0, terminalCasesExecuted: 0 });
+          continue;
         }
         const authority = await json(report); assert.equal(authority.pass, true, JSON.stringify(authority.error)); assert.equal(authority.installedBindings.length, 15);
         if (process.platform !== 'win32') assert.ok(host.measurements.some(value => value.exit === 0 &&
@@ -332,7 +468,11 @@ async function consume(artifacts, agents, evidence) {
     sentinel.closeAllConnections();
     await new Promise(resolve => sentinel.close(resolve));
     const cases = [];
-    for (const control of ['eof', 'interrupt']) {
+    for (const control of selectedCases) {
+      if (control === 'readiness') {
+        let query = null; try { query = await json(path.join(evidence, control, 'query-result.json')); } catch { /* unknown if unexecuted/abrupt */ }
+        cases.push({ control, mode, attempted: attemptedCases.has(control), submittedTurns: 0, terminalCasesExecuted: 0, query }); continue;
+      }
       let report = null, terminalReport = null, readError = null;
       for (const name of ['terminal.json', 'terminal-final.json']) {
         const file = path.join(evidence, control, name);
@@ -342,7 +482,7 @@ async function consume(artifacts, agents, evidence) {
       cases.push(observeTerminalCase(control, report, terminalReport, attemptedCases.has(control), readError));
     }
     let finalPolicyFailure = null;
-    try { for (const control of ['eof', 'interrupt']) assertMetadataProbesOnly(requests, control); }
+    try { for (const control of selectedCases) assertMetadataProbesOnly(requests, control); }
     catch (error) { finalPolicyFailure = error; }
     await record(path.join(evidence, 'provider-requests.json'), { requests, cases, policyError: finalPolicyFailure?.message ?? null,
       observationScope: 'Exact local requests, timestamps and complete body byte counts. Only pinned doctor HEAD /responses then GET /models with empty bodies are permitted, at most once each per case. No generation service exists; no POST, query, body, authentication, upgrade or other request is permitted. Metadata alone does not establish a fixture turn.',
@@ -351,14 +491,21 @@ async function consume(artifacts, agents, evidence) {
       scope: 'Retained isolated fixture; no automatic unknown cleanup and no live installation', observedAt: new Date().toISOString() });
     if (!runFailure && finalPolicyFailure) throw finalPolicyFailure;
   }
-  console.log(JSON.stringify({ kind: 'actual-compiled-cli-codex-installed-org-authenticated-ipc', platform: process.platform, arch: process.arch, tests: 2, pass: 2, fail: 0, skip: 0 }));
+  if (mode === 'readiness') console.log(JSON.stringify({ kind: 'actual-compiled-windows-owned-query-readiness', platform: process.platform, arch: process.arch, tests: 1, pass: 1, fail: 0, skip: 0, terminalCasesExecuted: 0, submittedTurns: 0 }));
+  else console.log(JSON.stringify({ kind: 'actual-compiled-cli-codex-installed-org-authenticated-ipc', platform: process.platform, arch: process.arch, tests: 2, pass: 2, fail: 0, skip: 0 }));
 }
 
+if (process.argv[1] && import.meta.url === pathToFileURL(await realpath(process.argv[1])).href) {
 if (args[0] === '--prepare' && args[2] === '--agents' && args.length === 4) await prepare(path.resolve(args[1]), await realpath(args[3]));
 else if (args[0] === '--artifacts' && args[2] === '--agents' && args[4] === '--evidence' && args.length === 6) {
   const evidence = path.resolve(args[5]); await mkdir(evidence, { recursive: true });
+  const mode = selectedSliceMode(process.env);
+  await record(path.join(evidence, 'mode-entry.json'), { mode, flag: process.env.GESTALT_CORE_SLICE_READINESS_ONLY ?? null,
+    platform: process.platform, pid: process.pid, node: process.version, observedAt: new Date().toISOString(),
+    scope: 'Read inside the actual ordinary-account Node entry; CI step environment inheritance is not assumed' });
   let failure;
-  try { await consume(path.resolve(args[1]), await realpath(args[3]), evidence); }
+  try { await consume(path.resolve(args[1]), await realpath(args[3]), evidence, mode); }
   catch (error) { failure = { message: error.message, stack: error.stack }; throw error; }
   finally { await record(path.join(evidence, 'execution.json'), { command: [process.execPath, ...process.argv.slice(1)], cwd: process.cwd(), failure: failure ?? null, observedAt: new Date().toISOString() }); }
 } else throw Error('usage: native-core-slice.mjs --prepare OUTPUT --agents ACCEPTED_CHECKOUT | --artifacts OUTPUT --agents ACCEPTED_CHECKOUT --evidence OUTPUT');
+}

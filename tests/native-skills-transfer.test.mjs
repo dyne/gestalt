@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile } from 'node:fs/promises';
+import { chmod, cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
@@ -31,6 +32,9 @@ async function fixture(t) {
 }
 test('skills transfer round trip preserves unrelated entries and relocates profiles without invoking package contents', async t => {
   const source = await fixture(t), target = await fixture(t), archive = path.join(source.root, 'export.tar.gz');
+  const resource = path.join(source.user, 'user-skill/resource');
+  await writeFile(resource, `#!${process.execPath}\nprocess.stdout.write('imported-resource\\n');\n`);
+  if (process.platform !== 'win32') await chmod(resource, 0o755);
   // The export command's namespace/ACL proof belongs to the installed native
   // suite. This transaction unit uses the same writer on an explicit bundle.
   const { NativeArchives } = await import('../src/cli/platform/archive.ts');
@@ -42,6 +46,12 @@ test('skills transfer round trip preserves unrelated entries and relocates profi
   await importSkills(target.context, [archive]);
   assert.equal(await readFile(path.join(target.codex, 'unrelated/operator'), 'utf8'), 'keep');
   assert.equal(await readFile(path.join(target.user, 'user-skill/SKILL.md'), 'utf8'), '# user-skill');
+  const importedResource = path.join(target.user, 'user-skill/resource');
+  assert.deepEqual(await readFile(importedResource), await readFile(resource));
+  if (process.platform !== 'win32') {
+    assert.equal((await lstat(importedResource)).mode & 0o7777, 0o700);
+    assert.equal(execFileSync(importedResource, [], { encoding: 'utf8', shell: false }), 'imported-resource\n');
+  }
   assert.equal((await lstat(path.join(target.codex, 'managed-skill'))).isSymbolicLink(), true);
   const profile = await readFile(path.join(target.profiles, 'default.yaml'), 'utf8'); assert.ok(profile.includes(target.user)); assert.ok(!profile.includes(source.user));
   assert.ok(!(await readdir(target.paths.codexHome)).includes('.gestalt-skills-transfer.lock'));

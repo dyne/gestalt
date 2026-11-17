@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -11,6 +11,144 @@ import { createHash } from 'node:crypto';
 import { authorizeFixtureHooks } from './fixtures/native-cli-hook-trust.mjs';
 import { assertMetadataProbesOnly, captureProviderProbes, providerProbeViolation } from './fixtures/native-provider-probes.mjs';
 import { terminalControls } from './fixtures/native-cli-slice-controls.mjs';
+import { createReadinessObserver } from './fixtures/native-cli-spawn-capture.mjs';
+import { selectedSliceMode, readinessArgv, finalCapturedInvocation, readinessObservations } from './native-core-slice.mjs';
+import { EventEmitter } from 'node:events';
+
+const wire = (kind, data = '') => {
+  const bytes = Buffer.from(data), packet = Buffer.alloc(5 + bytes.length);
+  packet.writeUInt32LE(1 + bytes.length); packet[4] = kind.charCodeAt(0); bytes.copy(packet, 5); return packet;
+};
+test('readiness selection is explicit Windows-only and exercises nonadministrative exec before help', () => {
+  assert.equal(selectedSliceMode({}), 'terminal'); assert.equal(selectedSliceMode({ GESTALT_CORE_SLICE_READINESS_ONLY: '0' }), 'terminal');
+  assert.equal(selectedSliceMode({ GESTALT_CORE_SLICE_READINESS_ONLY: '1' }, 'win32'), 'readiness');
+  for (const flag of ['true', 'yes', '2']) assert.throws(() => selectedSliceMode({ GESTALT_CORE_SLICE_READINESS_ONLY: flag }, 'win32'));
+  assert.throws(() => selectedSliceMode({ GESTALT_CORE_SLICE_READINESS_ONLY: '1' }, 'linux'));
+  assert.deepEqual(readinessArgv('/fixture/gestalt.mjs'), ['/fixture/gestalt.mjs', 'cli', '--', 'exec', '--help']);
+  assert.throws(() => finalCapturedInvocation([{ argv: ['--help'] }], 'readiness'));
+  const final = { argv: ['--no-daemon', 'exec', '--help'] };
+  assert.equal(finalCapturedInvocation([{ argv: ['app-server', '--stdio'] }, final], 'readiness'), final);
+  assert.throws(() => finalCapturedInvocation([final, final], 'readiness'));
+});
+test('readiness observer preserves read/write/emit identities, callbacks, bytes and listener counts without extra reads', () => {
+  const observer = createReadinessObserver(), child = new EventEmitter(), chunks = []; let reads = 0, callbackCalls = 0;
+  const callback = () => { callbackCalls++; }, written = [];
+  child.stdout = { read(...args) { assert.equal(this, child.stdout); assert.deepEqual(args, [17]); reads++; return chunks.shift() ?? null; } };
+  child.stdin = { write(...args) { assert.equal(this, child.stdin); written.push(args); args.at(-1)(); return false; } };
+  let closes = 0; child.on('close', (code, signal) => { assert.equal(code, 0); assert.equal(signal, null); closes++; });
+  const listeners = child.listenerCount('close');
+  observer.observeHelper(child, { argv: ['app-server', '--stdio'], target: '/fixture/codex', transport: 'accepted-owned-helper' }, {});
+  assert.equal(reads, 0); assert.equal(child.listenerCount('close'), listeners);
+  const input = wire('I', '{"id":1,"method":"initialize"}\n');
+  assert.equal(child.stdin.write(input, 'utf8', callback), false);
+  assert.equal(written[0][0], input); assert.equal(written[0][2], callback); assert.equal(callbackCalls, 1);
+  const output = Buffer.concat([wire('R', 'windows-job'), wire('O', '{"id":1,"result":{"text":"東京"}}\n'), wire('F', 'exit:0'), wire('D', 'windows-job')]);
+  for (let i = 0; i < output.length; i++) { const chunk = output.subarray(i, i + 1); chunks.push(chunk); assert.equal(child.stdout.read(17), chunk); }
+  assert.equal(reads, output.length);
+  assert.equal(child.emit('close', 0, null), true); assert.equal(closes, 1); assert.equal(child.listenerCount('close'), listeners);
+  const report = observer.report(); assert.deepEqual(report.errors, []); assert.equal(report.overflow, false);
+  assert.deepEqual(report.channels[0].incompleteFrameBytes, [0, 0]); assert.deepEqual(report.channels[0].incompleteRpcBytes, [0, 0]);
+  assert.deepEqual(report.events.filter(e => e.type === 'native-frame').map(e => e.kind), ['R', 'F', 'D']);
+  assert.equal(report.events.filter(e => e.type === 'rpc' && e.direction === 'output').length, 1);
+});
+test('readiness observer preserves synchronous return/throw and native timer callback/handle/delay', () => {
+  const observer = createReadinessObserver(), receiver = {}, payload = Buffer.from([0, 255]);
+  const sync = observer.sync(function (...args) { assert.equal(this, receiver); assert.deepEqual(args, ['native', ['literal', '']]); return payload; }, 'controlled');
+  assert.equal(sync.call(receiver, 'native', ['literal', '']), payload);
+  const failure = { get message() { throw Error('observer getter must not replace original exception'); } };
+  assert.throws(() => observer.sync(() => { throw failure; }, 'controlled')('native'), e => e === failure);
+  const handle = Object.freeze({ native: true }), token = Symbol('clear'), callback = () => {};
+  const set = observer.setTimeout(function (...args) { assert.equal(this, receiver); assert.equal(args[0], callback); assert.deepEqual(args.slice(1), [5000, payload]); return handle; });
+  assert.equal(set.call(receiver, callback, 5000, payload), handle);
+  const clear = observer.clearTimeout(function (actual) { assert.equal(this, receiver); assert.equal(actual, handle); return token; });
+  assert.equal(clear.call(receiver, handle), token);
+  assert.equal(observer.report().events.find(e => e.type === 'timer-cleared').provesNonexpiry, false);
+});
+test('readiness observer follows existing async-iterator reads on real Node pipes with a controlled frame producer', async t => {
+  const fixture = await mkdtemp(path.join(tmpdir(), 'readiness-pipe-')); t.after(() => rm(fixture, { recursive: true, force: true }));
+  const file = path.join(fixture, 'input.bin'), input = wire('I', '{"id":1,"method":"initialize"}\n');
+  const output = Buffer.concat([wire('R', 'windows-job'), wire('O', '{"id":1,"result":{}}\n'), wire('F', 'exit:0'), wire('D', 'windows-job')]);
+  const program = `const chunks=[];for await(const b of process.stdin)chunks.push(b);(await import('node:fs')).writeFileSync(${JSON.stringify(file)},Buffer.concat(chunks));process.stderr.write('controlled diagnostic\\n');process.stdout.write(Buffer.from(${JSON.stringify(output.toString('base64'))},'base64'));`;
+  const child = spawn(process.execPath, ['--input-type=module', '-e', program], { stdio: ['pipe', 'pipe', 'pipe'] }), closed = once(child, 'close');
+  const diagnostics = []; child.stderr.on('data', bytes => diagnostics.push(bytes)); const listeners = child.stderr.listenerCount('data');
+  const observer = createReadinessObserver(); observer.observeHelper(child, { argv: ['app-server', '--stdio'], target: 'controlled-node-producer', transport: 'controlled-fixture' }, {});
+  assert.equal(child.stderr.listenerCount('data'), listeners);
+  child.stdin.write(input); child.stdin.end(); const chunks = []; for await (const chunk of child.stdout) chunks.push(chunk);
+  assert.deepEqual(await closed, [0, null]); assert.deepEqual(Buffer.concat(chunks), output); assert.deepEqual(await readFile(file), input);
+  const report = observer.report(); assert.deepEqual(report.errors, []);
+  assert.deepEqual(report.events.filter(e => e.type === 'native-frame').map(e => e.kind), ['R', 'F', 'D']);
+  assert.equal(report.events.filter(e => e.type === 'rpc').length, 2); assert.equal(report.events.filter(e => e.type === 'helper-close').length, 1);
+  assert.deepEqual(report.channels[0].incompleteFrameBytes, [0, 0]);
+  assert.equal(Buffer.concat(diagnostics).toString(), 'controlled diagnostic\n');
+  assert.equal(Buffer.concat(report.events.filter(e => e.type === 'helper-stderr').map(e => Buffer.from(e.payloadBase64, 'base64'))).toString(), 'controlled diagnostic\n');
+});
+test('readiness observer overflow is bounded and cannot become complete positive evidence', () => {
+  const observer = createReadinessObserver({ maxBytes: 64, maxRecords: 2 });
+  observer.argv({ argv: ['x'.repeat(1000)] }); observer.observeHelper({}, { argv: [] }, {});
+  const report = observer.report(); assert.equal(report.overflow, true); assert.ok(report.usedBytes <= 64);
+  assert.equal(report.argvCalls.length, 0); assert.equal(report.channels.length, 0);
+  assert.equal(readinessObservations(report, {}, '/fixture/codex').pass, false);
+});
+
+function controlledReadiness() {
+  const inherited = { GESTALT_SESSION_TMP_CONTEXT: 'controlled-fixture', TMPDIR: '/fixture/tmp', TMP: '/fixture/tmp', TEMP: '/fixture/tmp' };
+  const phases = ['required-inventory', 'required-mcp', 'capability-config', 'capability-hooks', 'final-help'];
+  const observation = { overflow: false, errors: [], processExit: 0, channels: [], events: [] };
+  for (const [index, phase] of phases.entries()) {
+    const id = index + 1; observation.channels.push({ id, phase, call: { transport: 'accepted-owned-helper', target: '/fixture/codex' }, environment: { ...inherited }, incompleteFrameBytes: [0, 0], incompleteRpcBytes: [0, 0] });
+    observation.events.push({ type: 'native-frame', channel: id, kind: 'R', payloadBase64: Buffer.from('windows-job').toString('base64') });
+    if (phase.startsWith('capability-')) {
+      const methods = phase === 'capability-config' ? ['initialize', 'config/read', 'skills/list'] : ['initialize', 'hooks/list'];
+      for (const [rpcId, method] of methods.entries()) observation.events.push({ type: 'rpc', channel: id, direction: 'input', method, id: rpcId }, { type: 'rpc', channel: id, direction: 'output', id: rpcId, error: null, response: true, hasResult: true });
+      observation.events.push({ type: 'native-control', channel: id, kind: 'S' });
+    }
+    observation.events.push({ type: 'native-frame', channel: id, kind: 'F', payloadBase64: Buffer.from(phase.startsWith('capability-') ? 'exit:137' : 'exit:0').toString('base64') },
+      { type: 'native-frame', channel: id, kind: 'D', payloadBase64: Buffer.from('windows-job').toString('base64') }, { type: 'helper-close', channel: id, code: 0, signal: null });
+  }
+  for (let i = 0; i < 2; i++) observation.events.push({ type: 'timer-created', delay: 10000, callsite: 'at RuntimeCommands.capture (compiled-fixture:1)' },
+    { type: 'timer-created', delay: 4990, callsite: 'at snapshot (compiled-fixture:2)' });
+  return { observation, inherited };
+}
+test('controlled readiness gate distinguishes command captures, shared snapshots and raw records from lease claims', () => {
+  const { observation, inherited } = controlledReadiness(), report = readinessObservations(observation, inherited, '/fixture/codex');
+  assert.equal(report.pass, true); assert.equal(report.rawInnerRecordsAreLeaseClaims, false); assert.equal(report.timerClearProvesNonexpiry, false);
+});
+for (const fault of ['missing-phase', 'context', 'missing-D', 'unknown', 'RPC', 'helper-close', 'timer-callsite', 'missing-stop']) test('controlled readiness gate rejects ' + fault, () => {
+  const { observation, inherited } = controlledReadiness();
+  if (fault === 'missing-phase') observation.channels.pop();
+  if (fault === 'context') observation.channels[2].environment.TMPDIR = '/ambient';
+  if (fault === 'missing-D') observation.events = observation.events.filter(e => !(e.channel === 3 && e.kind === 'D'));
+  if (fault === 'unknown') observation.events.push({ type: 'native-frame', channel: 3, kind: 'U' });
+  if (fault === 'RPC') observation.events = observation.events.filter(e => !(e.channel === 3 && e.type === 'rpc' && e.direction === 'output'));
+  if (fault === 'helper-close') observation.events.find(e => e.channel === 3 && e.type === 'helper-close').code = 2;
+  if (fault === 'timer-callsite') for (const e of observation.events) if (e.type === 'timer-created') e.callsite = 'at launchNative (native-cli-spawn-capture.mjs:1)';
+  if (fault === 'missing-stop') observation.events = observation.events.filter(e => e.type !== 'native-control');
+  assert.equal(readinessObservations(observation, inherited, '/fixture/codex').pass, false);
+});
+
+test('readiness observer normal-off import leaves methods unchanged and readiness capture flushes only after critical work', async t => {
+  const fixture = await mkdtemp(path.join(tmpdir(), 'readiness-observer-')); t.after(() => rm(fixture, { recursive: true, force: true }));
+  const observer = pathToFileURL(path.resolve(import.meta.dirname, 'fixtures/native-cli-spawn-capture.mjs')).href;
+  const off = `import cp from 'node:child_process';const before=[cp.spawn,cp.execFileSync,cp.spawnSync,setTimeout,clearTimeout];await import(${JSON.stringify(observer)});if(before.some((v,i)=>v!==[cp.spawn,cp.execFileSync,cp.spawnSync,setTimeout,clearTimeout][i]))throw Error('normal-off changed method');`;
+  assert.equal(spawnSync(process.execPath, ['--input-type=module', '-e', off], { env: { ...process.env, GESTALT_SLICE_CODEX_BINARY: '', GESTALT_SLICE_SPAWN_CAPTURE: '', GESTALT_SLICE_READINESS_CAPTURE: '' } }).status, 0);
+  const capture = path.join(fixture, 'argv.jsonl'), report = path.join(fixture, 'readiness.json'), bytes = Buffer.from([0, 255, 13, 10, 128]);
+  const child = `const chunks=[];for await(const b of process.stdin)chunks.push(b);process.stdout.write(Buffer.concat(chunks));process.stderr.write(JSON.stringify(process.argv.slice(1)));process.exitCode=23;`;
+  const program = `import{spawn}from'node:child_process';import{existsSync}from'node:fs';const c=spawn(process.execPath,['--input-type=module','-e',${JSON.stringify(child)},'literal ü',''],{stdio:['pipe','pipe','pipe']});process.stdin.pipe(c.stdin);c.stdout.pipe(process.stdout);c.stderr.pipe(process.stderr);c.on('close',code=>{if(existsSync(${JSON.stringify(capture)})||existsSync(${JSON.stringify(report)}))throw Error('observer wrote during critical work');process.exitCode=code});`;
+  const result = spawnSync(process.execPath, ['--import=' + observer, '--input-type=module', '-e', program], { input: bytes, timeout: 10000,
+    env: { ...process.env, GESTALT_SLICE_CODEX_BINARY: process.execPath, GESTALT_SLICE_SPAWN_CAPTURE: capture, GESTALT_SLICE_READINESS_CAPTURE: report } });
+  assert.equal(result.status, 23, result.stderr.toString()); assert.deepEqual(result.stdout, bytes); assert.deepEqual(JSON.parse(result.stderr), ['literal ü', '']);
+  const actual = JSON.parse(await readFile(report)); assert.equal(actual.processExit, 23); assert.equal(actual.overflow, false);
+  assert.equal((await readFile(capture, 'utf8')).trim().split('\n').length, 1);
+});
+test('readiness observer abrupt termination leaves missing capture unknown rather than passing', async t => {
+  const fixture = await mkdtemp(path.join(tmpdir(), 'readiness-abrupt-')); t.after(() => rm(fixture, { recursive: true, force: true }));
+  const observer = pathToFileURL(path.resolve(import.meta.dirname, 'fixtures/native-cli-spawn-capture.mjs')).href;
+  const capture = path.join(fixture, 'argv.jsonl'), report = path.join(fixture, 'readiness.json');
+  const result = spawnSync(process.execPath, ['--import=' + observer, '-e', 'process.kill(process.pid,"SIGKILL")'], { timeout: 10000,
+    env: { ...process.env, GESTALT_SLICE_CODEX_BINARY: process.execPath, GESTALT_SLICE_SPAWN_CAPTURE: capture, GESTALT_SLICE_READINESS_CAPTURE: report } });
+  assert.notEqual(result.status, 0); await assert.rejects(readFile(report), { code: 'ENOENT' });
+  assert.equal(readinessObservations(undefined, {}, '/fixture/codex').pass, false);
+});
 
 const expected = [
   { kind: 'verified-installed-context-mode', sourcePath: '/isolated/Codex/hooks.json', eventName: 'sessionStart', command: 'exact accepted managed command' },
@@ -59,6 +197,11 @@ test('provider fixture permits only the pinned empty doctor metadata sequence', 
   const records = [probe('HEAD', '/responses'), probe('GET', '/models')];
   assert.deepEqual(assertMetadataProbesOnly(records, 'eof'), { control: 'eof', metadataProbes: 2, generationOrOtherRequests: 0 });
   assert.deepEqual(assertMetadataProbesOnly(records, 'interrupt'), { control: 'interrupt', metadataProbes: 0, generationOrOtherRequests: 0 });
+});
+test('readiness provider label preserves the exact empty metadata sequence and rejects generation', () => {
+  const records = [probe('HEAD', '/responses', { control: 'readiness' }), probe('GET', '/models', { control: 'readiness' })];
+  assert.deepEqual(assertMetadataProbesOnly(records, 'readiness'), { control: 'readiness', metadataProbes: 2, generationOrOtherRequests: 0 });
+  assert.throws(() => assertMetadataProbesOnly([...records, probe('POST', '/responses', { control: 'readiness' })], 'readiness'));
 });
 for (const [name, record] of [
   ['generation POST', probe('POST', '/responses')], ['query', probe('GET', '/models?prompt=synthetic')],

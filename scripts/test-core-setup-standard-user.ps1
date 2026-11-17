@@ -75,6 +75,11 @@ try {
 & $Node --test --test-reporter=tap tests/native-cli.test.mjs tests/native-setup.test.mjs tests/native-setup-transactions.test.mjs tests/native-setup-installed.test.mjs
 } else {
   $env:GESTALT_NATIVE_RUNTIME_EVIDENCE = $env:GESTALT_NATIVE_SETUP_EVIDENCE
-  & $Node --test --test-reporter=tap tests/native-archive.test.mjs tests/native-diagnostics.test.mjs tests/native-app-server.test.mjs tests/native-capabilities.test.mjs tests/native-skills-owner.test.mjs tests/native-skills-transfer.test.mjs tests/native-scratch.test.mjs tests/native-hook-command.test.mjs tests/native-runtime-installed.test.mjs
+  $env:GESTALT_NATIVE_RUNTIME_ARTIFACTS = Join-Path $Repository 'native-evidence/core-slice-prebuilt'
+  $env:PATH = $nodeDirectory + ';' + $tools + ';' + $GitDirectory + ';' + $env:SystemRoot + '\System32\WindowsPowerShell\v1.0'
+  foreach ($command in @('bash.exe', 'sh.exe', 'wsl.exe', 'wslconfig.exe', 'lxrun.exe', 'cl.exe', 'gcc.exe', 'clang.exe', 'tsc.cmd')) {
+    if (@(Get-Command $command -All -ErrorAction SilentlyContinue).Count) { throw ('Runtime consumer PATH unexpectedly provides ' + $command) }
+  }
+  & $Node scripts/test-core-runtime.mjs
 }
 exit $LASTEXITCODE

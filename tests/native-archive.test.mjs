@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile, link, truncate } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile, link, truncate, chmod, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { gunzipSync, gzipSync } from 'node:zlib';
@@ -44,6 +44,51 @@ async function altered(archive, mutate) {
   }
   await writeFile(archive, gzipSync(bytes));
 }
+function headers(bytes) {
+  const result = [];
+  for (let offset = 0; offset + 512 <= bytes.length;) {
+    const header = bytes.subarray(offset, offset + 512);
+    if (header.every(byte => byte === 0)) break;
+    result.push(header);
+    offset += 512 + Math.ceil(Number.parseInt(header.subarray(124, 136).toString().replace(/\0.*$/, ''), 8) / 512) * 512;
+  }
+  return result;
+}
+test('archive round trip preserves an executable skill resource with only private owner permissions',
+  { skip: process.platform === 'win32' ? 'Windows does not represent POSIX owner-execute permissions' : false }, async t => {
+    const { root, source } = await fixture(t), resource = path.join(source, 'run-resource');
+    await writeFile(resource, `#!${process.execPath}\nprocess.stdout.write('resource-ready\\n');\n`);
+    await chmod(resource, 0o755);
+    const archive = path.join(root, 'executable.tar.gz'), stage = path.join(root, 'executable-stage');
+    await archives.create(source, archive); await privateStage(stage);
+    await archives.extract(archive, stage, 'gestalt-skills');
+    const installed = path.join(stage, 'gestalt-skills/run-resource');
+    assert.equal((await stat(installed)).mode & 0o7777, 0o700);
+    assert.equal(execFileSync(installed, [], { encoding: 'utf8', shell: false }), 'resource-ready\n');
+    assert.equal((await stat(path.join(stage, 'gestalt-skills/nested space 東京/file'))).mode & 0o7777, 0o600);
+    const repeated = path.join(root, 'repeated.tar.gz'); await archives.create(path.join(stage, 'gestalt-skills'), repeated);
+    assert.deepEqual(await readFile(repeated), await readFile(archive));
+  });
+test('archive mode metadata grants only owner-execute and rejects malformed fields before extraction', async t => {
+  const { root, archive } = await fixture(t), original = await readFile(archive), stage = path.join(root, 'stage');
+  await privateStage(stage);
+  await altered(archive, bytes => { for (const header of headers(bytes)) header.write('0007777\0', 100, 8, 'ascii'); });
+  await archives.extract(archive, stage, 'gestalt-skills');
+  if (process.platform !== 'win32') {
+    for (const relative of ['gestalt-skills', 'gestalt-skills/nested space 東京', 'gestalt-skills/nested space 東京/file'])
+      assert.equal((await stat(path.join(stage, relative))).mode & 0o7777, 0o700);
+  }
+  await writeFile(archive, original);
+  await altered(archive, bytes => { for (const header of headers(bytes)) header.write('0007666\0', 100, 8, 'ascii'); });
+  const nonExecutable = path.join(root, 'non-executable-stage'); await privateStage(nonExecutable);
+  await archives.extract(archive, nonExecutable, 'gestalt-skills');
+  if (process.platform !== 'win32') assert.equal((await stat(path.join(nonExecutable, 'gestalt-skills/nested space 東京/file'))).mode & 0o7777, 0o600);
+  await writeFile(archive, original);
+  await altered(archive, bytes => headers(bytes).at(-1).write('0008888\0', 100, 8, 'ascii'));
+  const invalidStage = path.join(root, 'invalid-stage'); await privateStage(invalidStage);
+  await assert.rejects(archives.extract(archive, invalidStage, 'gestalt-skills'), /numeric field/);
+  assert.deepEqual(await readdir(invalidStage), []);
+});
 for (const unsafe of ['/escape', '../escape', 'gestalt-skills/../escape', 'gestalt-skills\\escape', 'C:/escape', 'gestalt-skills/CON', 'gestalt-skills/a.'])
   test(`archive rejects unsafe path ${JSON.stringify(unsafe)} before any extraction`, async t => {
     const { root, archive } = await fixture(t), stage = path.join(root, 'stage'); await privateStage(stage);

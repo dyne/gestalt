@@ -249,3 +249,15 @@ POSIX executable resources survive extraction, import and re-export. Windows
 private ACLs remain authoritative and cannot represent an independent POSIX
 owner-execute bit. Byte preservation on Windows does not promise a POSIX-mode
 roundtrip through Windows extraction/re-export; no metadata sidecar is invented.
+
+Windows runtime scratch checks can opt into the packaged ownership helper's
+separate `--storage-check-v1` read mode. It reads literal path owner/DACL and
+reparse metadata using the current token, at every existing guard checkpoint.
+It emits no ownership or release claim, keeps no cross-request validation cache,
+and never changes ACLs or launches a target. Missing/mismatched helpers and
+unsupported callback/object/conditional ACE representations fail with an
+actionable prerequisite; no PowerShell read fallback or ACL repair is attempted.
+The existing setup/default scratch factory and secure-directory creation retain
+their fixed PowerShell checker. Unix paths and process/terminal modes are
+unchanged. Actual native predicate parity and readiness require target evidence;
+the protocol and source build alone do not prove them.

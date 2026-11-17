@@ -27,7 +27,8 @@ import { authorizeFixtureHooks } from './fixtures/native-cli-hook-trust.mjs';
 import { assertMetadataProbesOnly, captureProviderProbes } from './fixtures/native-provider-probes.mjs';
 import { terminalControls } from './fixtures/native-cli-slice-controls.mjs';
 import { queryPhase } from './fixtures/native-cli-spawn-capture.mjs';
-import { verifySourceRecord } from './fixtures/native-runtime/source-binding.mjs';
+import { releasedBorrowerInventory } from './fixtures/native-released-borrowers.mjs';
+import { verifySourceRecord, verifyOwnershipBuildInputs } from './fixtures/native-runtime/source-binding.mjs';
 import { bounded, digest, isolatedEnvironment, pinnedCodex } from './fixtures/native-runtime/codex.mjs';
 
 const root = path.resolve(import.meta.dirname, '..'), args = process.argv.slice(2);
@@ -165,6 +166,7 @@ async function prepare(output, agents) {
     outfile: path.join(output, 'authority.mjs'), bundle: true, platform: 'node', target: 'node24', format: 'esm', metafile: true });
   const peer = await buildNativePlatform(root, path.join(output, 'native'));
   const helper = process.platform === 'win32' ? await buildOwnedProcess(root, path.join(output, 'native')) : null;
+  const nativeHelperInputs = helper ? await verifyOwnershipBuildInputs(await json(helper + '.provenance.json'), root) : null;
   const files = [path.join(output, 'gestalt.mjs'), path.join(output, 'legacy/gestalt'), path.join(output, 'authority.mjs'), path.join(output, 'spawn-capture.mjs'),
     ...[peer, helper].filter(Boolean).flatMap(file => [file, file + '.provenance.json'])];
   const artifacts = await Promise.all(files.map(async file => ({ relative: path.relative(output, file), ...await digest(file) })));
@@ -172,7 +174,7 @@ async function prepare(output, agents) {
   const inputs = await Promise.all(Object.keys(compiled.metafile.inputs).map(file => digest(path.resolve(file))));
   await record(path.join(output, 'artifacts.json'), { observedAt: new Date().toISOString(), platform: process.platform, arch: process.arch,
     node: process.version, abi: process.versions.modules, peer: peer ? path.relative(output, peer) : null,
-    helper: helper ? path.relative(output, helper) : null, artifacts, authorityBuildInputs: inputs, orgSource: await sourceBindings(agents),
+    helper: helper ? path.relative(output, helper) : null, nativeHelperInputs, artifacts, authorityBuildInputs: inputs, orgSource: await sourceBindings(agents),
     scope: 'Builder only. The copied compiled consumer requires no compiler, TS source or repository modules.' });
 }
 
@@ -282,9 +284,8 @@ async function queryComparator(entry, observedEnvironment, cwd, directory, helpe
       claim.backend !== 'windows-job' || claim.result?.kind !== 'exit' || claim.result.code !== 0) errors.push('outer-natural0-or-matching-lease-unconfirmed');
   if (!/Usage:.*codex exec/s.test(output)) errors.push('native-exec-help-unobserved');
   if (!afterPolicy || beforePolicy.some((value, index) => value.file !== afterPolicy[index]?.file || value.sha256 !== afterPolicy[index]?.sha256)) errors.push('configuration-policy-bytes-changed');
-  const previous = new Set(beforeBorrowers.map(value => value.lease.leaseId)), added = afterBorrowers?.filter(value => !previous.has(value.lease.leaseId)) ?? [];
-  if (!added.length || added.some(value => value.lease.state !== 'released' || value.lease.ownerId !== primary.context.ownerId ||
-      value.lease.workspacePath !== primary.context.workspacePath || !value.lease.consumers?.includes('manager-runtime'))) errors.push('new-runtime-borrowers-not-confirmed-released');
+  const borrowerGate = releasedBorrowerInventory(primary, beforeBorrowers, afterBorrowers), added = borrowerGate.added;
+  if (!borrowerGate.pass) errors.push('new-runtime-borrowers-not-confirmed-released', ...borrowerGate.failures);
   const beforePrimary = beforeBorrowers.find(value => value.lease.leaseId === primary.lease.leaseId), afterPrimary = afterBorrowers?.find(value => value.lease.leaseId === primary.lease.leaseId);
   if (beforePrimary?.lease.state !== 'active' || afterPrimary?.lease.state !== 'active' || beforePrimary?.sha256 !== afterPrimary?.sha256) errors.push('primary-fixture-lease-not-retained-active-and-unchanged');
   const result = { kind: 'actual-compiled-windows-observer-free-query-comparator', measurementComplete: errors.length === 0, failures: errors,
@@ -292,7 +293,7 @@ async function queryComparator(entry, observedEnvironment, cwd, directory, helpe
     startedAt, startedMonotonicMs, resultMonotonicMs: resultMonotonicMs ?? null, completedMonotonicMs,
     elapsedToResultMs: resultMonotonicMs === undefined ? null : resultMonotonicMs - startedMonotonicMs, elapsedThroughClosureMs: completedMonotonicMs - startedMonotonicMs,
     fallbackObserved: /capability discovery unavailable|startup guidance unavailable|complete descendant release is unconfirmed/.test(diagnostics),
-    beforePolicy, afterPolicy, beforeBorrowers, afterBorrowers, addedBorrowers: added, environmentChanges: changes, inherited,
+    beforePolicy, afterPolicy, beforeBorrowers, afterBorrowers, addedBorrowers: added, borrowerGate, environmentChanges: changes, inherited,
     readinessPass: null, rawInnerRecordsClaimed: false, innerPhasesClaimed: false, submittedTurns: 0, terminalCasesExecuted: 0,
     scope: 'Observer-free symptom comparator only. Help0, no fallback and outer Job release do not prove complete inner readiness. Separate fresh fixtures/order/OS caches limit causal comparison.' };
   await writeFile(path.join(directory, 'manager.stdout'), Buffer.concat(stdout)); await writeFile(path.join(directory, 'manager.stderr'), Buffer.concat(stderr));
@@ -331,14 +332,13 @@ async function queryReadiness(entry, environment, cwd, directory, helper, primar
   if (!/Usage:.*codex exec/s.test(output)) errors.push('native-exec-help-unobserved');
   if (/capability discovery unavailable|startup guidance unavailable|complete descendant release is unconfirmed/.test(diagnostics)) errors.push('required-query-or-guidance-fallback');
   if (!afterPolicy || beforePolicy.some((record, index) => record.file !== afterPolicy[index]?.file || record.sha256 !== afterPolicy[index]?.sha256)) errors.push('configuration-policy-bytes-changed');
-  const previous = new Set(beforeBorrowers.map(record => record.lease.leaseId)), added = afterBorrowers?.filter(record => !previous.has(record.lease.leaseId)) ?? [];
-  if (added.length !== 5 || added.some(record => record.lease.state !== 'released' || record.lease.ownerId !== primary.context.ownerId ||
-      record.lease.workspacePath !== primary.context.workspacePath || !Array.isArray(record.lease.consumers) || !record.lease.consumers.includes('manager-runtime'))) errors.push('new-runtime-borrowers-not-five-released');
+  const borrowerGate = releasedBorrowerInventory(primary, beforeBorrowers, afterBorrowers, 5), added = borrowerGate.added;
+  if (!borrowerGate.pass) errors.push('new-runtime-borrowers-not-five-released', ...borrowerGate.failures);
   const beforePrimary = beforeBorrowers.find(record => record.lease.leaseId === primary.lease.leaseId), afterPrimary = afterBorrowers?.find(record => record.lease.leaseId === primary.lease.leaseId);
   if (beforePrimary?.lease.state !== 'active' || afterPrimary?.lease.state !== 'active' || beforePrimary?.sha256 !== afterPrimary?.sha256) errors.push('primary-fixture-lease-not-retained-active-and-unchanged');
   const result = { kind: 'actual-compiled-windows-owned-query-readiness', pass: errors.length === 0, failures: errors,
     result: outcome ?? null, outerClaim: claim ?? null, outerLease: lease?.id ?? null, failure: failure ?? null,
-    observationGate: observed, beforePolicy, afterPolicy, beforeBorrowers, afterBorrowers, addedBorrowers: added,
+    observationGate: observed, beforePolicy, afterPolicy, beforeBorrowers, afterBorrowers, addedBorrowers: added, borrowerGate,
     submittedTurns: 0, terminalCasesExecuted: 0, modelRequestPolicy: 'No generation endpoint; fixture submits only exec --help',
     scope: 'Instrumented readiness only; inner raw records are not adapter lease UUID claims. Timer clear alone proves no deadline outcome.' };
   await writeFile(path.join(directory, 'manager.stdout'), Buffer.concat(stdout)); await writeFile(path.join(directory, 'manager.stderr'), Buffer.concat(stderr));
@@ -428,6 +428,12 @@ async function consume(artifacts, agents, evidence, mode) {
   const manifest = await json(path.join(artifacts, 'artifacts.json'));
   assert.equal(manifest.platform, process.platform); assert.equal(manifest.arch, process.arch); assert.equal(manifest.abi, process.versions.modules);
   for (const expected of manifest.artifacts) { const actual = await digest(path.join(artifacts, expected.relative)); assert.equal(actual.sha256, expected.sha256); assert.equal(actual.bytes, expected.bytes); }
+  if (manifest.helper) {
+    const helper = path.join(artifacts, manifest.helper), provenance = await json(helper + '.provenance.json');
+    assert.equal(provenance.artifactSha256, (await digest(helper)).sha256);
+    const inputs = await verifyOwnershipBuildInputs(provenance, root); assert.deepEqual(inputs, manifest.nativeHelperInputs);
+    await record(path.join(evidence, 'native-helper-inputs.json'), { inputs, provenance, scope: 'All current native C/header inputs and exact copied helper bytes; not execution proof' });
+  }
   const binding = await sourceBindings(agents, manifest.orgSource); await record(path.join(evidence, 'accepted-agents-source.json'), binding);
   // Preserve the caller's validated TMP/context. Missing privacy is a hard
   // target failure, not an all-skipped gate or a remapped local TMP workaround.
@@ -438,7 +444,7 @@ async function consume(artifacts, agents, evidence, mode) {
   for (const name of ['home', 'Codex', 'Gestalt', 'bin', 'workspace', 'status']) await storage.createDirectory(path.join(fixture, name));
   const consumer = path.join(fixture, 'consumer'); await cp(artifacts, consumer, { recursive: true });
   const entry = path.join(consumer, 'gestalt.mjs'), peer = manifest.peer ? path.join(consumer, manifest.peer) : undefined, helper = manifest.helper ? path.join(consumer, manifest.helper) : undefined;
-  if (queryMode) assert.equal((await digest(entry)).sha256, '9e045a38e22ad84044b528bcff0a9a33af0e8e7d14827ad8f6517d8753fd0cd4', 'Readiness must consume the sealed current product binary');
+  if (queryMode) assert.equal((await digest(entry)).sha256, '6e4317827d089c47a50d44121d9f793c0abf5d1bb45649a83bc8894f5974975e', 'Readiness must consume the sealed current product binary');
   const artifact = await pinnedCodex(path.join(evidence, 'codex-artifact'), { homeDirectory: path.join(fixture, 'Codex') });
   await cp(artifact.binary, path.join(fixture, 'bin', process.platform === 'win32' ? 'codex.exe' : 'codex'));
   if (process.platform !== 'win32') await chmod(path.join(fixture, 'bin/codex'), 0o700);

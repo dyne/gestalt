@@ -6,9 +6,19 @@ import * as scratchCrypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { windowsSystemScript } from '../platform/windows-system.ts';
+import { windowsReadArguments, assertWindowsReadReply, windowsReadFailure } from './windows-scratch-read.mjs';
 
-export function createScratchOwner(privateProbe = scratchPath.join(scratchPath.dirname(fileURLToPath(import.meta.url)),'native/gestalt-unix-peer')) {
+export function createScratchOwner(privateProbe = scratchPath.join(scratchPath.dirname(fileURLToPath(import.meta.url)),'native/gestalt-unix-peer'), windowsReadProbe) {
+if (windowsReadProbe !== undefined && (typeof windowsReadProbe !== 'string' || !scratchPath.isAbsolute(windowsReadProbe)))
+  throw Error('Windows native storage read helper must be absolute');
 function scratchWindows(request) {
+  if (windowsReadProbe && ['assert-private', 'assert-namespace'].includes(request.operation)) {
+    try {
+      const reply = execFileSync(windowsReadProbe, windowsReadArguments(request),
+        {env:process.env,shell:false,windowsHide:true,timeout:10000,maxBuffer:16384,stdio:['ignore','pipe','pipe']});
+      assertWindowsReadReply(reply); return;
+    } catch (error) { throw Error(windowsReadFailure(error), {cause:error}); }
+  }
   const systemRoot = process.env.SystemRoot;
   scratchAssert(systemRoot && scratchPath.isAbsolute(systemRoot));
   if (request.path) request = {...request, path: scratchPath.toNamespacedPath(request.path)};

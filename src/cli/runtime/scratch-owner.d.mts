@@ -19,7 +19,7 @@ export function scratchRecoveryCommand(args: readonly string[], write?: (text: s
 export function scratchAssociate(environment: Environment, threadId: string): void;
 export function scratchJson(file: string): any;
 export function scratchSocketPath(endpoint: string, capacity?: number): string;
-export function createScratchOwner(privateProbe?: string): {
+export function createScratchOwner(privateProbe?: string, windowsReadProbe?: string): {
   scratchContext: typeof scratchContext; scratchEnvironment: typeof scratchEnvironment; scratchDiscoveryEnvironment: typeof scratchDiscoveryEnvironment;
   scratchAllocate: typeof scratchAllocate; scratchBorrow: typeof scratchBorrow; scratchRelease: typeof scratchRelease; scratchReleaseReady: typeof scratchReleaseReady;
   scratchRecoveryCommand: typeof scratchRecoveryCommand; scratchAssociate: typeof scratchAssociate; scratchJson: typeof scratchJson; scratchSocketPath: typeof scratchSocketPath;

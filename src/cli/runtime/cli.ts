@@ -3,7 +3,7 @@ import { setupPaths } from '../setup/context.ts';
 import type { CommandHandler, OwnedProcessPort } from '../contracts.ts';
 import type { CliMetadata } from '../dispatch.ts';
 import { cliScratch } from './scratch.ts';
-import { scratchReleaseReady, scratchContext, scratchEnvironment } from './scratch-owner.mjs';
+import { scratchReleaseReady, scratchContext, scratchEnvironment } from './scratch-runtime.mjs';
 import { DiagnosticContext, verifyContextRuntime, doctor } from './diagnostics.ts';
 import { resultStatus, RuntimeCommands, type RuntimeTerminal } from './commands.ts';
 import { launchCapabilities } from './capabilities.mjs';

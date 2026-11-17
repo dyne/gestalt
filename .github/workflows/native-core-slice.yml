@@ -151,12 +151,14 @@ jobs:
             $exit = $process.ExitCode
             # Collect both independent cases even when the consumer returned failure.
             $capture = @{}; $captureErrors = @()
-            foreach ($item in @(@('mode','mode-entry.json'), @('comparison','comparison.json'), @('comparator','comparator/comparator/result.json'), @('readiness','readiness/readiness/result.json'))) {
+            foreach ($item in @(@('parity','storage-parity/result.json'), @('mode','mode-entry.json'), @('comparison','comparison.json'), @('comparator','comparator/comparator/result.json'), @('readiness','readiness/readiness/result.json'))) {
               try { $capture[$item[0]] = Get-Content -LiteralPath (Join-Path $source ('native-evidence/core-slice/' + $item[1])) -Raw | ConvertFrom-Json }
               catch { $captureErrors += @{name=$item[0];path=$item[1];error=$_.Exception.Message} }
             }
             @{observedAt=[DateTime]::UtcNow.ToString('o');exit=$exit;captures=$capture;captureErrors=$captureErrors;scope='Independent comparator measurement and original observed readiness; missing is unknown/fail'} | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath 'native-evidence/readiness-comparison-postchecks.json'
             if ($captureErrors.Count) { throw 'Independent comparator/readiness capture missing; inspect both retained case directories' }
+            $parity = $capture['parity']
+            if ($parity.kind -ne 'ordinary-windows-native-storage-read-parity' -or $parity.pass -isnot [bool] -or $parity.pass -ne $true -or $parity.tests -le 0 -or $parity.tests -ne $parity.expectedRequiredTests -or $parity.passed -ne $parity.tests -or $parity.failed -ne 0 -or $parity.harnessFailures -ne 0 -or $parity.skip -ne 0) { throw 'Required ordinary Windows native ACL parity cases did not all pass; no required skips permitted' }
             $mode = $capture['mode']; $comparison = $capture['comparison']; $comparator = $capture['comparator']; $readiness = $capture['readiness']
             if ($mode.mode -ne 'readiness' -or $mode.flag -ne '1' -or $mode.comparisonFlag -ne '1' -or $mode.comparison -isnot [bool] -or $mode.comparison -ne $true) { throw 'Ordinary-account readiness comparison selection was not observed' }
             if ($comparison.plannedQueryInvocations -ne 2 -or $comparison.actualQueryInvocations -ne 2 -or $comparison.cases.Count -ne 2 -or $comparison.cases[0].control -ne 'comparator' -or $comparison.cases[1].control -ne 'readiness' -or $comparison.pass -isnot [bool] -or $comparison.pass -ne $true -or $comparison.readinessPass -ne $true -or $comparison.submittedTurns -ne 0 -or $comparison.terminalCasesExecuted -ne 0) { throw 'Both independent query invocations must complete; diagnostics are not readiness proof' }

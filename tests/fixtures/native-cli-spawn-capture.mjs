@@ -115,7 +115,8 @@ export function createReadinessObserver({ maxBytes = 8 * 1024 * 1024, maxRecords
       finally {
         let request;
         try { const encoded = args[2]?.env?.GESTALT_NATIVE_REQUEST;
-          if (encoded && encoded.length <= 131072) request = JSON.parse(Buffer.from(encoded, 'base64')).operation;
+          if (args[1]?.[0] === '--storage-check-v1') request = 'native-read-' + args[1][1];
+          else if (encoded && encoded.length <= 131072) request = JSON.parse(Buffer.from(encoded, 'base64')).operation;
         } catch { error('Invalid private-operation observation'); }
         try { add({ type: 'sync-command', operation, executable: String(args[0]), privateOperation: request ?? null, ...start,
           completed: stamp(), callsite: new Error().stack, error: failure ? { message: failure.message, status: failure.status ?? null, signal: failure.signal ?? null } : null }); }

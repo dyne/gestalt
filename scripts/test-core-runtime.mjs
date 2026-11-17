@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 // Windows owns the new native Node runtime. Unix proves the same common
 // libraries and its actual compiled-to-legacy entry, never the retired mapped
 // namespace experiment. The Manager suite covers the existing Unix backend.
-const focused = ['archive', 'diagnostics', 'app-server', 'capabilities', 'skills-owner', 'skills-transfer', 'scratch', 'hook-command']
+const focused = ['archive', 'diagnostics', 'app-server', 'capabilities', 'skills-owner', 'skills-transfer', 'scratch', 'hook-command', 'storage-read']
   .map(name => `tests/native-${name}.test.mjs`);
 const files = [...focused, 'tests/native-cli.test.mjs', ...(process.platform === 'win32' ? ['tests/native-runtime-installed.test.mjs'] : [])];
 const result = spawnSync(process.execPath, ['--test', '--test-reporter=tap', ...files], {

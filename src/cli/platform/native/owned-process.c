@@ -32,6 +32,7 @@
 #include <windows.h>
 #include <io.h>
 #include <fcntl.h>
+#include "windows-storage-check.h"
 #else
 #include <unistd.h>
 #include <fcntl.h>
@@ -716,6 +717,11 @@ int main(int argc, char **argv) {
 
 #ifdef _WIN32
 int wmain(int argc, wchar_t **argv) {
+  if (argc > 1 && !wcscmp(argv[1], L"--storage-check-v1")) {
+    size_t units;
+    if (!command_line_quote(argc, argv, NULL, WINDOWS_COMMAND_LINE_UNITS - 1, &units)) return 2;
+    return gestalt_windows_storage_check(argc, argv);
+  }
   InitializeCriticalSection(&output_lock);
   control_input = GetStdHandle(STD_INPUT_HANDLE); control_output = GetStdHandle(STD_OUTPUT_HANDLE);
   if (argc < 7 || wcscmp(argv[1], L"--controller") || wcscmp(argv[3], L"--grace")) return 2;

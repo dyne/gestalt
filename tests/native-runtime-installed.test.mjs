@@ -21,6 +21,7 @@ import { restartWorker } from '../src/cli/setup/restart.ts';
 import { parse, stringify } from 'smol-toml';
 import { pinnedCodex } from './fixtures/native-runtime/codex.mjs';
 import { authorizeFixtureHooks } from './fixtures/native-cli-hook-trust.mjs';
+import { verifyOwnershipBuildInputs } from './fixtures/native-runtime/source-binding.mjs';
 
 const repository = path.resolve(import.meta.dirname, '..');
 assert.equal(process.platform, 'win32', 'Native Node installed runtime is a Windows gate; Unix exercises its unchanged legacy backend and the compiled compatibility entry');
@@ -41,6 +42,8 @@ const helper = path.join(artifactRoot, artifacts.helper);
 const helperProvenance = JSON.parse(await readFile(helper + '.provenance.json', 'utf8'));
 assert.equal(helperProvenance.artifactSha256, hash(await readFile(helper)));
 assert.equal(helperProvenance.sourceSha256, hash(await readFile(path.join(repository, 'src/cli/platform/native/owned-process.c'))));
+const helperInputs = await verifyOwnershipBuildInputs(helperProvenance, repository);
+assert.deepEqual(helperInputs, artifacts.nativeHelperInputs);
 assert.ok(['e98a4cd15f945a7749d02e071126a854376b93c0', '8827347387ee32e2c5bd7eb912f9b80185cdad45'].includes(artifacts.orgSource.head));
 assert.ok(process.env.GESTALT_NATIVE_AGENTS_SOURCE && path.isAbsolute(process.env.GESTALT_NATIVE_AGENTS_SOURCE), 'exact accepted Agents source is required');
 const agentsRoot = await realpath(process.env.GESTALT_NATIVE_AGENTS_SOURCE);

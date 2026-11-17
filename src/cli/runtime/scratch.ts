@@ -1,7 +1,7 @@
 import path from 'node:path';
 import type { CommandHandler, CommandInvocation } from '../contracts.ts';
 import { scratchAllocate, scratchAssociate, scratchContext, scratchEnvironment, scratchRecoveryCommand,
-  type ScratchOwnership } from './scratch-owner.mjs';
+  type ScratchOwnership } from './scratch-runtime.mjs';
 
 export const scratchHelp = 'Stop Mobile and all runtimes/tools using this owner before recovery.\n' +
   'gestalt scratch inspect --cwd ROOT --owner ID\n' +
@@ -34,7 +34,7 @@ export const scratchHookHandler: CommandHandler = async (invocation, streams) =>
   } catch {
     // Missing association protects the whole owner rather than manufacturing
     // a provider identity from argv, a resume selector, transcript or a PID.
-    const { scratchBorrow } = await import('./scratch-owner.mjs');
+    const { scratchBorrow } = await import('./scratch-runtime.mjs');
     try { const context = scratchContext(invocation.environment); if (context) scratchBorrow(context, 'cli-provider-association-failed'); } catch { /* validation never grants write authority */ }
     await streams.stderr(Buffer.from('gestalt: native provider association unavailable; CLI temporary owner remains protected\n')); return 1;
   }

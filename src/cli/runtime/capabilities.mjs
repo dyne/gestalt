@@ -3,7 +3,7 @@
 import * as gestaltProfileToml from 'smol-toml';
 import { managedToolApproval, managedMcpApprovals, isGestaltManagedMcp } from './approvals.mjs';
 import { managedChild } from './child.ts';
-import { scratchEnvironment, scratchJson, scratchBorrow, scratchRelease } from './scratch-owner.mjs';
+import { scratchEnvironment, scratchJson, scratchBorrow, scratchRelease } from './scratch-runtime.mjs';
 import { createInterface } from 'node:readline';
 import { readFile, realpath, access } from 'node:fs/promises';
 import { constants } from 'node:fs';

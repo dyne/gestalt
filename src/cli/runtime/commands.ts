@@ -3,8 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { NativeExecutables } from '../platform/executables.ts';
 import { NativeOwnedProcesses } from '../platform/processes.ts';
 import type { CommandInvocation, CommandStreams, Environment, OwnedProcessLease, OwnedProcessPort, OwnershipClaim, OwnedTerminalLease, OwnedTerminalPort, TerminalSize } from '../contracts.ts';
-import { scratchEnvironment } from '../setup/scratch-context.mjs';
-import { scratchContext, scratchBorrow, scratchReleaseReady } from './scratch-owner.mjs';
+import { scratchEnvironment, scratchContext, scratchBorrow, scratchReleaseReady } from './scratch-runtime.mjs';
 
 export const resultStatus = (result: Awaited<OwnedProcessLease['result']>): number => result.kind === 'exit' ? result.code :
   result.kind === 'signal' ? (Number.isInteger(Number(result.signal)) ? 128 + Number(result.signal) :

@@ -27,7 +27,11 @@ if ($request.operation -eq 'apply') {
   $method = $type.DefinePInvokeMethod('SetFileSecurityW', 'advapi32.dll', $attributes, [Reflection.CallingConventions]::Standard, [bool], [Type[]]@([string], [uint32], [byte[]]), [Runtime.InteropServices.CallingConvention]::Winapi, [Runtime.InteropServices.CharSet]::Unicode)
   $method.SetImplementationFlags([Reflection.MethodImplAttributes]::PreserveSig)
   $native = $type.CreateType()
-  if (-not $native.GetMethod('SetFileSecurityW').Invoke($null, [object[]]@($request.path, [uint32]2147483652, $bytes))) { throw 'DACL-only fixture construction failed' }
+  $fixedArguments = New-Object object[] 3
+  $fixedArguments[0] = [string]$request.path
+  $fixedArguments[1] = [uint32]2147483652
+  $fixedArguments[2] = $bytes.PSObject.BaseObject
+  if (-not $native.GetMethod('SetFileSecurityW').Invoke($null, $fixedArguments)) { throw 'DACL-only fixture construction failed' }
 } elseif ($request.operation -ne 'inspect') { throw 'Unknown fixture operation' }
 $item = Get-Item -LiteralPath $request.path -Force
 $acl = $item.GetAccessControl(); $raw = New-Object Security.AccessControl.RawSecurityDescriptor($acl.GetSecurityDescriptorBinaryForm(), 0)

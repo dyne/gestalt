@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, writeFile, readFile, lstat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { NativePrivateStorage } from '../src/cli/platform/storage.ts';
 import { windowsSystem } from '../src/cli/platform/windows-system.ts';
 import { windowsReadArguments, assertWindowsReadReply } from '../src/cli/runtime/windows-scratch-read.mjs';
@@ -39,7 +40,7 @@ async function check(name, file, operation, expected) {
   let token = false; try { assertWindowsReadReply(native.stdout); token = true; } catch { /* refusal has no success authority */ }
   const after = acl(file), current = await lstat(file);
   const result = { name, operation, file, expected, golden, goldenError, native: { status: native.status, signal: native.signal, error: native.error?.message ?? null,
-    stdout: native.stdout.toString(), stderr: native.stderr.toString() }, before, after, readonly: JSON.stringify(before) === JSON.stringify(after) && info.mode === current.mode && info.ino === current.ino && info.dev === current.dev &&
+    stdout: native.stdout.toString(), stderr: native.stderr.toString() }, before, after, readonly: isDeepStrictEqual(before, after) && info.mode === current.mode && info.ino === current.ino && info.dev === current.dev &&
       (content === null || content.equals(await readFile(file))), pass: false };
   results.push(result);
   assert.equal(native.error, undefined); assert.equal(native.signal, null); assert.equal(golden, expected, 'Golden fixture predicate did not match intended case: ' + name);

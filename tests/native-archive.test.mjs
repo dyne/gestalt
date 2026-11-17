@@ -9,6 +9,22 @@ import { windowsSystem } from '../src/cli/platform/windows-system.ts';
 import { execFileSync } from 'node:child_process';
 
 const archives = new NativeArchives();
+async function retainPaxProducerFailure(error, invocation, save) {
+  const raw = value => { const bytes = Buffer.from(value ?? []); return { totalBytes: bytes.length, truncated: bytes.length > 65536, base64: bytes.subarray(0, 65536).toString('base64') }; };
+  try { await save({ observedAt: new Date().toISOString(), platform: process.platform, node: process.version, ...invocation,
+    status: error.status ?? null, signal: error.signal ?? null, message: String(error.message).slice(0, 1024),
+    stdout: raw(error.stdout), stderr: raw(error.stderr), scope: 'Actual failed external fixture producer; no retry, normalization or product extraction claim' }); }
+  catch { /* Evidence failure cannot replace the original producer exception. */ }
+  throw error;
+}
+test('PAX producer failure retains bounded raw bytes/status and rethrows the exact original exception', async () => {
+  const error = Object.assign(Error('controlled producer'), { status: 2, signal: null, stdout: Buffer.from([255, 0]), stderr: Buffer.alloc(65537, 128) });
+  let capture;
+  await assert.rejects(retainPaxProducerFailure(error, { argv: ['literal ü', ''], cwd: '/fixture' }, value => { capture = value; }), value => value === error);
+  assert.equal(capture.status, 2); assert.deepEqual(Buffer.from(capture.stdout.base64, 'base64'), error.stdout);
+  assert.equal(capture.stderr.totalBytes, 65537); assert.equal(capture.stderr.truncated, true); assert.equal(Buffer.from(capture.stderr.base64, 'base64').length, 65536);
+  await assert.rejects(retainPaxProducerFailure(error, {}, () => { throw Error('controlled capture failure'); }), value => value === error);
+});
 async function privateStage(directory) {
   if (process.platform === 'win32') await windowsSystem({ operation: 'create-directory', path: directory });
   else await mkdir(directory, { mode: 0o700 });
@@ -105,7 +121,13 @@ for (const type of ['1', '2', '3', '6', 'K']) test(`archive rejects tar type ${t
 test('archive accepts existing native tar PAX names/metadata without adopting owner, mode or extension authority', async t => {
   const { root, source } = await fixture(t), archive = path.join(root, 'existing-pax.tar.gz'), stage = path.join(root, 'stage'); await privateStage(stage);
   const tar = process.platform === 'win32' ? path.join(process.env.SystemRoot, 'System32', 'tar.exe') : 'tar';
-  execFileSync(tar, ['--format=pax', '-czf', archive, '-C', path.dirname(source), path.basename(source)], { shell: false, stdio: 'pipe' });
+  const argv = ['--format=pax', '-czf', archive, '-C', path.dirname(source), path.basename(source)];
+  try { execFileSync(tar, argv, { shell: false, stdio: 'pipe' }); }
+  catch (error) { await retainPaxProducerFailure(error, { executable: tar, argv, cwd: process.cwd() }, async value => {
+    if (!process.env.GESTALT_NATIVE_RUNTIME_EVIDENCE) { t.diagnostic(JSON.stringify(value)); return; }
+    const directory = process.env.GESTALT_NATIVE_RUNTIME_EVIDENCE; await mkdir(directory, { recursive: true });
+    await writeFile(path.join(directory, 'archive-pax-producer-failure.json'), JSON.stringify(value, null, 2), { flag: 'wx' });
+  }); }
   await archives.extract(archive, stage, 'gestalt-skills');
   assert.deepEqual(await readFile(path.join(stage, 'gestalt-skills/nested space 東京/file')), Buffer.from([0, 255, 10, 13]));
 });

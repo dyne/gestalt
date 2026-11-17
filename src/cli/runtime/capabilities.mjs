@@ -189,7 +189,11 @@ async function launch(launchArgs) {
         if (new RegExp(`(?:^|[\\s,;])${name}:`).test(diagnostic[1])) startupFailed.add(name);
   });
   const result = await new Promise(resolve => {
-    child.once('error', () => resolve({ code: 127 }));
+    child.once('error', error => {
+      const reason = String(error?.message ?? 'native launch failed').replace(/[\r\n\0]/g, ' ').slice(0, 512);
+      process.stderr.write(`gestalt: native command launch failed (${reason})\n`);
+      resolve({ code: 127 });
+    });
     child.once('exit', (code, signal) => resolve({ code: code ?? (signal === 'SIGINT' ? 130 : 143) }));
   });
   await child.stop(); currentChild = undefined;

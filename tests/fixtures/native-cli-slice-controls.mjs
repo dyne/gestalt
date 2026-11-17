@@ -1,3 +1,33 @@
+export const fixturePrompt = 'Native core slice; trusted hook must block provider I/O';
+
+/** Windows paste events are explicit; a rapid unbracketed CR can become draft
+ * text. This fixture writes once, observes the rendered draft, then submits
+ * once. Delivery is recorded separately from actual accepted work. */
+export function terminalSubmission() {
+  let pastedAt = null, submittedAt = null, working = false, barrier = false;
+  const events = [];
+  return {
+    events,
+    observe(output, authorityReady) {
+      if (pastedAt === null) {
+        if (!output.includes('\x1b[?2004h') || !output.includes('7501;state=idle')) return null;
+        pastedAt = output.length; events.push({ action: 'bracketed-paste', outputOffset: pastedAt, observedAt: new Date().toISOString() });
+        return '\x1b[200~' + fixturePrompt + '\x1b[201~';
+      }
+      if (submittedAt === null) {
+        const rendered = output.slice(pastedAt).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '');
+        if (!rendered.includes(fixturePrompt)) return null;
+        submittedAt = output.length; events.push({ action: 'submit-enter', outputOffset: submittedAt, observedAt: new Date().toISOString() }); return '\r';
+      }
+      working ||= output.slice(submittedAt).includes('7501;state=working');
+      barrier ||= authorityReady && output.slice(submittedAt).includes('Native core slice no-model barrier');
+      return null;
+    },
+    facts() { return { promptBytesWritten: pastedAt !== null, submitControlWritten: submittedAt !== null,
+      freshWorkingObserved: working, authorityBarrierObserved: barrier, acceptedWorkObserved: working && barrier, events: [...events] }; },
+  };
+}
+
 // Test-only UI quit: pinned0.164 Ctrl-C quits at a settled turn. Wait for the
 // submitted blocking turn to settle, then send exactly one control. This case
 // proves quit/control forwarding, never active work cancellation.

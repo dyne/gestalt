@@ -4,6 +4,7 @@ import { PassThrough, Readable } from 'node:stream';
 import { createInterface } from 'node:readline';
 import path from 'node:path';
 import type { CommandInvocation, CommandStreams, OwnedProcessPort } from '../contracts.ts';
+import { borrowedProcessInput } from '../platform/process-input.ts';
 import { managedMcpApprovals, managedMcpOverrides } from './approvals.mjs';
 import { resultStatus, RuntimeCommands } from './commands.ts';
 import { scratchEnvironment } from './scratch-owner.mjs';
@@ -16,7 +17,13 @@ export async function proxyAppServer(invocation: CommandInvocation, streams: Com
   if (!path.isAbsolute(native)) throw new Error('native Codex executable must have an absolute path');
   const commands = new RuntimeCommands(invocation, streams, manager, port), unlisten = commands.listen();
   const incoming = new PassThrough(), outgoing = new PassThrough();
-  const inputBytes = Readable.from(streams.stdin), input = createInterface({ input: inputBytes }), output = createInterface({ input: outgoing });
+  // Let readline own its normal flowing read on a caller Readable. A
+  // readable-mode wrapper can leave real stdin reading after cancellation.
+  const callerReadable = streams.stdin instanceof Readable ? streams.stdin : undefined;
+  const borrowedInput = callerReadable ? undefined : borrowedProcessInput(streams.stdin);
+  const inputBytes = callerReadable ?? Readable.from({ [Symbol.asyncIterator]: () => ({ next: borrowedInput!.next,
+    return: async () => { borrowedInput!.close(); return { done: true, value: undefined }; } }) });
+  const input = createInterface({ input: inputBytes }), output = createInterface({ input: outgoing });
   // Clients may send initialize before the ownership helper is ready. readline
   // otherwise consumes and drops those lines before its async iterator starts.
   input.pause();
@@ -37,7 +44,7 @@ export async function proxyAppServer(invocation: CommandInvocation, streams: Com
     if (ending) return; ending = true;
     shutdownStatus = status;
     for (const waiter of pending.values()) waiter.reject(new Error('runtime-exited')); pending.clear();
-    input.close(); inputBytes.destroy(); incoming.end();
+    input.close(); borrowedInput?.close(); if (!callerReadable) inputBytes.destroy(); incoming.end();
     await lease?.stop(); outgoing.end();
   };
   const outputTask = (async () => {
@@ -79,7 +86,7 @@ export async function proxyAppServer(invocation: CommandInvocation, streams: Com
     return status || (commands.unknown.length && process.platform !== 'darwin' ? 1 : 0);
   } finally {
     await finish(); await commands.stop(); unlisten();
-    input.close(); inputBytes.destroy(); incoming.destroy(); outgoing.destroy();
+    input.close(); borrowedInput?.close(); if (!callerReadable) inputBytes.destroy(); incoming.destroy(); outgoing.destroy();
     await outputTask.catch(() => {});
   }
 }

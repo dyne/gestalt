@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import test from 'node:test';
+import { existsSync } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { nodeHookCommand, associationHookProgram } from '../src/cli/runtime/hook-command.mjs';
 
 test('native hook shell transports literal JavaScript/data and raw streams to Node with exact command outcome', { timeout: 30000 }, async () => {
@@ -16,6 +19,22 @@ test('native hook shell transports literal JavaScript/data and raw streams to No
   const input = Buffer.from([0, 255, 10, 13, 128]); child.stdin.end(input);
   assert.equal(await closed, 23, Buffer.concat(errors).toString());
   assert.deepEqual(JSON.parse(Buffer.concat(output)), { literals, input: input.toString('hex') }); assert.deepEqual(Buffer.concat(errors), Buffer.from([255, 0, 10]));
+});
+const powershell = process.platform === 'win32' ? path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe') :
+  existsSync('/usr/bin/pwsh') ? '/usr/bin/pwsh' : null;
+test('cold Windows hook bridge suppresses its own forced progress while preserving child raw stderr and status', { timeout: 30000, skip: !powershell && 'Optional local PowerShell unavailable; Windows gate always executes' }, async t => {
+  const cache = await mkdtemp(path.join(tmpdir(), 'hook-bridge-cache-')); t.after(() => rm(cache, { recursive: true, force: true }));
+  const command = nodeHookCommand("process.stdout.write(Buffer.from([0,255,13,10]));process.stderr.write(Buffer.from([255,0,10]));process.exitCode=23;", process.execPath, 'win32');
+  let bridge = Buffer.from(command.split(' ').at(-1), 'base64').toString('utf16le');
+  assert.ok(bridge.includes("$ProgressPreference='SilentlyContinue'"));
+  bridge = bridge.replace("$ProgressPreference='SilentlyContinue'", "$ProgressPreference='SilentlyContinue'\nWrite-Progress -Activity 'Forced cold bridge progress' -Status 'Preparing modules' -PercentComplete 10");
+  const child = spawn(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(bridge, 'utf16le').toString('base64')], {
+    stdio: ['pipe', 'pipe', 'pipe'], shell: false, env: { ...process.env, XDG_CACHE_HOME: path.join(cache, 'cache'), XDG_DATA_HOME: path.join(cache, 'data'), XDG_CONFIG_HOME: path.join(cache, 'config') },
+  });
+  const stdout = [], stderr = []; child.stdout.on('data', b => stdout.push(b)); child.stderr.on('data', b => stderr.push(b));
+  const closed = new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); }); child.stdin.end();
+  assert.equal(await closed, 23, Buffer.concat(stderr).toString());
+  assert.deepEqual(Buffer.concat(stdout), Buffer.from([0, 255, 13, 10])); assert.deepEqual(Buffer.concat(stderr), Buffer.from([255, 0, 10]));
 });
 test('Windows hook commands carry compressed program data and never interpolate managed paths into cmd source', () => {
   const program = associationHookProgram('file:///C:/space%20%C3%BC%20%26/gestalt.mjs', 'retained context & %PATH%', true);

@@ -93,15 +93,17 @@ async function appServer(t, f, native, environment = f.environment, argv = ['--s
   const closed = new Promise((resolve, reject) => { child.once('error', reject); child.once('close', (status, signal) => resolve({ status, signal, stderr })); });
   const waiters = new Map(), lines = createInterface({ input: child.stdout });
   lines.on('line', line => { const message = JSON.parse(line); waiters.get(message.id)?.(message); });
-  const timer = setTimeout(() => { f.retain(); child.kill('SIGKILL'); }, process.platform === 'win32' ? 300000 : 60000);
+  const lifecycle = { startedAt: new Date().toISOString(), watchdogAt: null };
+  const timer = setTimeout(() => { lifecycle.watchdogAt = new Date().toISOString(); f.retain(); child.kill('SIGKILL'); }, process.platform === 'win32' ? 300000 : 60000);
   t.after(async () => { clearTimeout(timer); if (child.exitCode === null && child.signalCode === null) child.stdin.end(); await closed; lines.close(); });
-  return { child, closed, request: (id, method, params = {}) => new Promise((resolve, reject) => {
+  return { child, closed, lifecycle, request: (id, method, params = {}) => new Promise((resolve, reject) => {
     waiters.set(id, message => { waiters.delete(id); resolve(message); });
     void closed.then(result => { if (waiters.delete(id)) reject(new Error(`native AppServer exited before reply ${id}: ${JSON.stringify(result)}`)); }, reject);
     child.stdin.write(JSON.stringify({ id, method, params }) + '\n');
   }) };
 }
-async function managerCommand(f, argv, environment = f.environment, deadline = process.platform === 'win32' ? 300000 : 60000) {
+async function managerCommand(f, argv, environment = f.environment, deadline = process.platform === 'win32' ? 300000 : 60000, boundary) {
+  const startedAt = new Date().toISOString(), started = performance.now(); let observedStatus, observedFailure;
   const child = spawn(process.execPath, [f.manager, ...argv], { cwd: f.root, env: environment, stdio: ['ignore', 'pipe', 'pipe'], shell: false });
   const stdout = [], stderr = []; child.stdout.on('data', bytes => stdout.push(bytes)); child.stderr.on('data', bytes => stderr.push(bytes));
   let timer; try {
@@ -109,8 +111,19 @@ async function managerCommand(f, argv, environment = f.environment, deadline = p
       timer = setTimeout(() => { f.retain(); child.kill('SIGKILL'); reject(new Error('installed runtime command did not settle')); }, deadline);
       child.once('error', reject); child.once('close', resolve);
     });
+    observedStatus = status;
     return { status, stdout: Buffer.concat(stdout).toString(), stderr: Buffer.concat(stderr).toString() };
-  } finally { clearTimeout(timer); }
+  } catch (error) { observedFailure = { message: error.message, code: error.code ?? null }; throw error; }
+  finally {
+    clearTimeout(timer);
+    if (boundary) {
+      const raw = chunks => { const bytes = Buffer.concat(chunks); return { totalBytes: bytes.length, truncated: bytes.length > 65536, base64: bytes.subarray(0, 65536).toString('base64') }; };
+      await evidence(boundary, { startedAt, observedAt: new Date().toISOString(), elapsedMs: performance.now() - started, argv, executable: process.execPath,
+        cwd: f.root, status: observedStatus ?? null, failure: observedFailure ?? null, stdout: raw(stdout), stderr: raw(stderr),
+        inherited: Object.fromEntries(['GESTALT_SESSION_TMP_CONTEXT', 'TMPDIR', 'TMP', 'TEMP'].map(key => [key, environment[key] ?? null])),
+        scope: 'Actual command boundary; nonzero/unknown preserved. No inferred inner result, model adoption or release.' });
+    }
+  }
 }
 async function profiles(f) {
   const result = [];
@@ -269,7 +282,9 @@ test('actual compiled CLI uses accepted Agents, fresh/resume native sessions and
   await f.storage.replaceFile(path.join(f.root, 'Codex/config.toml'), Buffer.from(stringify(config)));
   const profile = await trustInstalledFixtureHooks(t, f, codex, agents, workspace);
   f.retain(); // preserve v2 logical/physical associations even on an assertion failure
-  const fresh = await managerCommand(f, ['cli', '--', 'exec', '--skip-git-repo-check', '--json', '-C', workspace, 'NATIVE_FRESH'], f.environment, 540000);
+  const observedEnvironment = { ...f.environment, NODE_OPTIONS: '--import=' + pathToFileURL(path.join(artifactRoot, 'spawn-capture.mjs')).href,
+    GESTALT_SLICE_CODEX_BINARY: codex.executable, GESTALT_SLICE_SPAWN_CAPTURE: path.join(process.env.GESTALT_NATIVE_RUNTIME_EVIDENCE || build, 'fresh-native-spawn.jsonl') };
+  const fresh = await managerCommand(f, ['cli', '--', 'exec', '--skip-git-repo-check', '--json', '-C', workspace, 'NATIVE_FRESH'], observedEnvironment, 540000, 'fresh-command-boundary.json');
   await evidence('actual-cli-fresh.json', { observedAt: new Date().toISOString(), platform: process.platform, fresh, syntheticModel: true, realModelAdoptionClaimed: false });
   assert.equal(fresh.status, 0, fresh.stderr);
   const events = fresh.stdout.split('\n').flatMap(line => { try { return [JSON.parse(line)]; } catch { return []; } });
@@ -383,12 +398,16 @@ test('actual compiled diagnostics leave isolated profiles/configuration unchange
     configSha256: hash(before.config), userDataSha256: hash(before.data), beforeInventory: before.inventory, afterInventory: await profiles(f), modelChanged: false, installationAttempted: false });
 });
 test('actual compiled AppServer forwards early protocol, large stdout and command result without a consumer compiler', { timeout: 360000 }, async t => {
-  const f = await fixture(t), native = await command(f, 'codex', `import {createInterface} from 'node:readline';
-createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);if(m.method==='exit'){process.exit(7);return;}process.stdout.write(JSON.stringify({id:m.id,result:{argv:process.argv.slice(2),history:m.method==='thread/read'?'x'.repeat(2*1024*1024):'',home:process.env.CODEX_HOME}})+'\\n');});`);
+  const f = await fixture(t), leafMarker = path.join(f.root, 'leaf-before-exit7.json'), native = await command(f, 'codex', `import {createInterface} from 'node:readline';import {writeFileSync} from 'node:fs';
+createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);if(m.method==='exit'){writeFileSync(${JSON.stringify(leafMarker)},JSON.stringify({pid:process.pid,status:7,observedAt:new Date().toISOString()}),{flag:'wx',mode:0o600});process.exit(7);return;}process.stdout.write(JSON.stringify({id:m.id,result:{argv:process.argv.slice(2),history:m.method==='thread/read'?'x'.repeat(2*1024*1024):'',home:process.env.CODEX_HOME}})+'\\n');});`);
   const proxy = await appServer(t, f, native), first = await proxy.request(1, 'initialize');
   assert.deepEqual(first.result.argv, ['app-server', '--stdio', '', 'literal ü & $HOME']); assert.equal(first.result.home, f.environment.CODEX_HOME);
   assert.equal((await proxy.request(2, 'thread/read')).result.history.length, 2 * 1024 * 1024);
-  proxy.child.stdin.write('{"method":"exit"}\n'); const result = await proxy.closed; assert.equal(result.status, 7, result.stderr);
+  proxy.child.stdin.write('{"method":"exit"}\n'); const result = await proxy.closed;
+  let leaf, leafReadError; try { leaf = JSON.parse(await readFile(leafMarker, 'utf8')); } catch (error) { leafReadError = error.message; }
+  await evidence('app-server-failure-boundary.json', { observedAt: new Date().toISOString(), lifecycle: proxy.lifecycle, result, leaf: leaf ?? null, leafReadError: leafReadError ?? null,
+    historyBytes: 2 * 1024 * 1024, callerInputEnded: proxy.child.stdin.writableEnded, scope: 'Pre-exit leaf marker is not a native result/release proof; watchdog and null/7 result remain literal' });
+  assert.equal(result.status, 7, result.stderr);
   await evidence('app-server-native.json', { observedAt: new Date().toISOString(), platform: process.platform, arch: process.arch, node: process.version, abi: process.versions.modules,
     managerSha256: hash(await readFile(f.manager)), helperSha256: hash(await readFile(helper)), argv: first.result.argv, historyBytes: 2 * 1024 * 1024, result,
     consumerPath: f.environment.PATH, sourceCopied: false, runtimeCompilerRequired: false });
@@ -403,7 +422,7 @@ test('actual inherited owned boundary preserves canonical Agents filesystem guar
   let endpoint, expected, server, pipe;
   if (process.platform === 'win32') {
     const name = 'gestalt-' + randomUUID(); endpoint = '\\\\.\\pipe\\' + name;
-    const script = `$ErrorActionPreference='Stop';$sid=[Security.Principal.WindowsIdentity]::GetCurrent().User;$acl=New-Object IO.Pipes.PipeSecurity;$acl.SetAccessRuleProtection($true,$false);$acl.SetOwner($sid);$acl.AddAccessRule((New-Object IO.Pipes.PipeAccessRule($sid,'FullControl','Allow')));$p=New-Object IO.Pipes.NamedPipeServerStream('${name}',[IO.Pipes.PipeDirection]::InOut,1,[IO.Pipes.PipeTransmissionMode]::Byte,[IO.Pipes.PipeOptions]::None,4096,4096,$acl);$me=[Diagnostics.Process]::GetCurrentProcess();[Console]::WriteLine((@{pid=$PID;started=$me.StartTime.ToUniversalTime().Ticks.ToString();executable=$me.MainModule.FileName}|ConvertTo-Json -Compress));$p.WaitForConnection();$r=New-Object IO.StreamReader($p);$w=New-Object IO.StreamWriter($p);$w.AutoFlush=$true;$line=$r.ReadLine();$w.WriteLine('pong');$p.Dispose();`;
+    const script = `$ErrorActionPreference='Stop';$sid=[Security.Principal.WindowsIdentity]::GetCurrent().User;$acl=New-Object IO.Pipes.PipeSecurity;$acl.SetAccessRuleProtection($true,$false);$acl.SetOwner($sid);$acl.AddAccessRule((New-Object IO.Pipes.PipeAccessRule($sid,'FullControl','Allow')));$p=New-Object IO.Pipes.NamedPipeServerStream('${name}',[IO.Pipes.PipeDirection]::InOut,1,[IO.Pipes.PipeTransmissionMode]::Byte,[IO.Pipes.PipeOptions]::None,4096,4096,$acl);$me=[Diagnostics.Process]::GetCurrentProcess();[Console]::WriteLine((@{pid=$PID;started=$me.StartTime.ToUniversalTime().Ticks.ToString();executable=$me.MainModule.FileName}|ConvertTo-Json -Compress));$p.WaitForConnection();$r=New-Object IO.StreamReader($p);$w=New-Object IO.StreamWriter($p);$w.AutoFlush=$true;$line=$r.ReadLine();$w.Write('pong'+[char]10);$p.Dispose();`;
     pipe = spawn(path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'), ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { stdio: ['ignore', 'pipe', 'pipe'] });
     const lines = createInterface({ input: pipe.stdout }); expected = await new Promise((resolve, reject) => { lines.once('line', line => resolve(JSON.parse(line))); pipe.once('error', reject); pipe.once('exit', code => reject(new Error('pipe owner exited before readiness: ' + code))); });
     t.after(() => { lines.close(); if (pipe.exitCode === null) pipe.kill(); });

@@ -25,7 +25,7 @@ import { observeHostSocket } from './fixtures/unix-compat-peer.mjs';
 import { sessionScratch } from './session-scratch-fixture.mjs';
 import { authorizeFixtureHooks } from './fixtures/native-cli-hook-trust.mjs';
 import { assertMetadataProbesOnly, captureProviderProbes } from './fixtures/native-provider-probes.mjs';
-import { terminalControls } from './fixtures/native-cli-slice-controls.mjs';
+import { terminalControls, terminalSubmission } from './fixtures/native-cli-slice-controls.mjs';
 import { queryPhase } from './fixtures/native-cli-spawn-capture.mjs';
 import { releasedBorrowerInventory } from './fixtures/native-released-borrowers.mjs';
 import { verifySourceRecord, verifyOwnershipBuildInputs } from './fixtures/native-runtime/source-binding.mjs';
@@ -127,6 +127,9 @@ function observeTerminalCase(control, report, terminalReport, attempted, readErr
   const blocked = output === null ? null : output.includes('Native core slice no-model barrier');
   return { control, status: 'observed-terminal-report', terminalReport,
     fixtureTurnSubmitted: submitted, barrierTextObserved: blocked,
+    ...(report.submission ? { inputWriteFacts: report.submission,
+      acceptedWorkObserved: report.submission.acceptedWorkObserved,
+      submissionScope: 'Legacy submitted flag records control delivery; accepted work requires fresh Working and actual authority/barrier' } : {}),
     controlSent: typeof report.controlSent === 'boolean' ? report.controlSent : null,
     timedOut: typeof report.timedOut === 'boolean' ? report.timedOut : null, result: report.result ?? { exit: report.exit ?? null } };
 }
@@ -390,7 +393,7 @@ async function terminal(entry, environment, cwd, report, evidence, helper, contr
     assert.equal(exit, 0, JSON.stringify({ signal, stdout, stderr })); return json(result);
   }
   const input = new PassThrough(), chunks = []; let tail = '', submitted = false, controlSent = false, lease, failure;
-  const controls = terminalControls(control);
+  const controls = terminalControls(control), submission = terminalSubmission();
   const adapter = new NativeOwnedProcesses(helper);
   try {
     lease = await adapter.launchTerminal(process.execPath,
@@ -399,22 +402,25 @@ async function terminal(entry, environment, cwd, report, evidence, helper, contr
         chunks.push(Buffer.from(bytes)); const query = tail + Buffer.from(bytes).toString('latin1');
         for (const _ of query.matchAll(/\x1b\[6n/g)) input.write('\x1b[1;1R'); tail = query.slice(-3);
         const output = Buffer.concat(chunks).toString();
-        if (!submitted && output.includes('7501;state=idle')) { input.write('Native core slice; trusted hook must block provider I/O\r'); submitted = true; }
-        const controlBytes = controls.observe(output, await access(report).then(() => true, () => false));
+        const authorityReady = await access(report).then(() => true, () => false);
+        const submitBytes = submission.observe(output, authorityReady);
+        if (submitBytes) input.write(submitBytes);
+        submitted = submission.facts().submitControlWritten;
+        const controlBytes = controls.observe(output, authorityReady);
         if (controlBytes) { input.write(controlBytes); controlSent = true; }
       } }, { columns: 110, rows: 40 }, { graceMs: 1000, deadlineMs: 10000 });
     const outcome = await bounded(lease.result, 'actual compiled Windows consumer TUI', 300000);
     const claim = await lease.stop(); await lease.completed;
-    const result = { result: outcome, claim, submittedBlockedFixtureTurn: submitted, control, controlSent, controlEvents: controls.events,
+    const result = { result: outcome, claim, submittedBlockedFixtureTurn: submitted, submission: submission.facts(), control, controlSent, controlEvents: controls.events,
       outputBase64: Buffer.concat(chunks).toString('base64'), observedAt: new Date().toISOString() };
     await record(path.join(evidence, 'terminal.json'), result);
-    assert.equal(submitted, true); assert.equal(controlSent, true); assert.deepEqual(outcome, { kind: 'exit', code: 0 }); assert.equal(claim.kind, 'released');
+    assert.equal(submitted, true); assert.equal(submission.facts().acceptedWorkObserved, true); assert.equal(controlSent, true); assert.deepEqual(outcome, { kind: 'exit', code: 0 }); assert.equal(claim.kind, 'released');
     return result;
   } catch (error) { failure = { message: error.message, stack: error.stack }; throw error; }
   finally {
     if (lease) {
       const claim = await lease.stop();
-      await record(path.join(evidence, 'terminal-final.json'), { claim, failure: failure ?? null, submittedBlockedFixtureTurn: submitted, control, controlSent, controlEvents: controls.events,
+      await record(path.join(evidence, 'terminal-final.json'), { claim, failure: failure ?? null, submittedBlockedFixtureTurn: submitted, submission: submission.facts(), control, controlSent, controlEvents: controls.events,
         outputBase64: Buffer.concat(chunks).toString('base64'), observedAt: new Date().toISOString() });
       await bounded(lease.completed, 'native consumer helper closure', 15000);
     }

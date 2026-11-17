@@ -10,7 +10,7 @@ import { createServer, request } from 'node:http';
 import { createHash } from 'node:crypto';
 import { authorizeFixtureHooks } from './fixtures/native-cli-hook-trust.mjs';
 import { assertMetadataProbesOnly, captureProviderProbes, providerProbeViolation } from './fixtures/native-provider-probes.mjs';
-import { terminalControls } from './fixtures/native-cli-slice-controls.mjs';
+import { terminalControls, terminalSubmission, fixturePrompt } from './fixtures/native-cli-slice-controls.mjs';
 import { createReadinessObserver } from './fixtures/native-cli-spawn-capture.mjs';
 import { selectedSliceMode, readinessArgv, finalCapturedInvocation, readinessObservations,
   selectedReadinessComparison, observerFreeEnvironment, readinessComparison } from './native-core-slice.mjs';
@@ -20,6 +20,31 @@ const wire = (kind, data = '') => {
   const bytes = Buffer.from(data), packet = Buffer.alloc(5 + bytes.length);
   packet.writeUInt32LE(1 + bytes.length); packet[4] = kind.charCodeAt(0); bytes.copy(packet, 5); return packet;
 };
+test('Windows terminal submission requires actual paste-enable/idle and rendered draft before its single Enter', () => {
+  const submission = terminalSubmission(); let output = '';
+  assert.equal(submission.observe('7501;state=idle', false), null);
+  for (const fragment of ['\x1b[?20', '04h', '\x1b]7501;state=', 'idle\x1b\\']) {
+    output += fragment; const result = submission.observe(output, false);
+    if (output.endsWith('idle\x1b\\')) assert.equal(result, '\x1b[200~' + fixturePrompt + '\x1b[201~'); else assert.equal(result, null);
+  }
+  assert.equal(submission.facts().submitControlWritten, false);
+  output += '\x1b[32m' + fixturePrompt.slice(0, 15); assert.equal(submission.observe(output, false), null);
+  output += fixturePrompt.slice(15) + '\x1b[0m'; assert.equal(submission.observe(output, false), '\r');
+  assert.equal(submission.observe(output, true), null); assert.equal(submission.facts().acceptedWorkObserved, false);
+  output += '\x1b]7501;state=working\x1b\\'; assert.equal(submission.observe(output, false), null);
+  assert.equal(submission.facts().freshWorkingObserved, true); assert.equal(submission.facts().acceptedWorkObserved, false);
+  output += 'Native core slice no-model barrier'; assert.equal(submission.observe(output, true), null);
+  assert.equal(submission.facts().acceptedWorkObserved, true); assert.deepEqual(submission.events.map(x => x.action), ['bracketed-paste', 'submit-enter']);
+});
+test('Windows terminal draft/initial Working and missing authority cannot manufacture accepted work or repeated submit', () => {
+  const submission = terminalSubmission(); let output = '\x1b[?2004h\x1b]7501;state=working\x1b\\7501;state=idle';
+  assert.ok(submission.observe(output, false));
+  assert.equal(submission.observe(output, false), null);
+  output += fixturePrompt; assert.equal(submission.observe(output, false), '\r');
+  for (let i = 0; i < 3; i++) { output += 'Native core slice no-model barrier'; assert.equal(submission.observe(output, false), null); }
+  assert.equal(submission.facts().acceptedWorkObserved, false); assert.equal(submission.facts().freshWorkingObserved, false);
+  assert.equal(submission.events.filter(x => x.action === 'submit-enter').length, 1);
+});
 test('readiness selection is explicit Windows-only and exercises nonadministrative exec before help', () => {
   assert.equal(selectedSliceMode({}), 'terminal'); assert.equal(selectedSliceMode({ GESTALT_CORE_SLICE_READINESS_ONLY: '0' }), 'terminal');
   assert.equal(selectedSliceMode({ GESTALT_CORE_SLICE_READINESS_ONLY: '1' }, 'win32'), 'readiness');

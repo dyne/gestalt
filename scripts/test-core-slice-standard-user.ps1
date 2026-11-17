@@ -76,7 +76,7 @@ const root=process.env.GESTALT_NATIVE_RUNTIME_ARTIFACTS,agents=process.env.GESTA
 const hash=b=>crypto.createHash('sha256').update(b).digest('hex');const read=p=>fs.readFileSync(p);const m=JSON.parse(read(path.join(root,'artifacts.json')));const checked=[];
 assert.equal(process.platform,'win32');assert.equal(m.platform,process.platform);assert.equal(m.arch,process.arch);assert.equal(m.abi,process.versions.modules);assert.equal(m.helper,path.win32.join('native','gestalt-owned-process.exe'));assert.equal(m.peer,null);
 for(const a of m.artifacts){assert.equal(path.isAbsolute(a.relative),false);assert.equal(a.relative.split(/[\\/]/).includes('..'),false);const b=read(path.join(root,a.relative));assert.equal(b.length,a.bytes);assert.equal(hash(b),a.sha256);checked.push(a);}
-assert.equal(hash(read(path.join(root,'gestalt.mjs'))),'651db98194c2a24aa2da9f9e9ff9f8df2090c895df1a85ee4527f55c5fcae463');
+assert.equal(hash(read(path.join(root,'gestalt.mjs'))),'84fca3f08e6d3f873e1e3b07afc9ea1b23f1b767e7d2ed8a2ff64abf626c4bb0');assert.equal(read(path.join(root,'gestalt.mjs')).length,333843);
 const h=path.join(root,m.helper),p=JSON.parse(read(h+'.provenance.json'));assert.equal(p.artifactSha256,hash(read(h)));assert.deepEqual(p.sourceInputs,m.nativeHelperInputs);assert.deepEqual(p.sourceInputs.map(a=>a.path),['src/cli/platform/native/owned-process.c','src/cli/platform/native/windows-storage-check.c','src/cli/platform/native/windows-storage-check.h']);
 for(const a of p.sourceInputs){const b=read(path.join(process.cwd(),a.path));assert.equal(b.length,a.bytes);assert.equal(hash(b),a.sha256);}assert.equal(p.sourceSha256,p.sourceInputs[0].sha256);
 assert.equal(m.orgSource.head,'8827347387ee32e2c5bd7eb912f9b80185cdad45');assert.equal(m.orgSource.files.length,15);assert.equal(m.orgSource.setupApi.length,5);for(const a of [...m.orgSource.files,...m.orgSource.setupApi]){const b=read(path.join(agents,a.path));assert.equal(b.length,a.bytes);assert.equal(hash(b),a.sha256);}
@@ -84,18 +84,22 @@ fs.writeFileSync(out,JSON.stringify({observedAt:new Date().toISOString(),pass:tr
 '@
 $bindingProgram | & $Node --input-type=module
 if ($null -eq $LASTEXITCODE -or $LASTEXITCODE -ne 0) { throw 'Actual ordinary-token fixed manifest preflight failed' }
-$closure = @{scope='Current compiled TTY and runtime closure, readiness/parity reused from run44015990174';startedAt=[DateTime]::UtcNow.ToString('o');complete=$false;stages=@();postcheckErrors=@();terminalCases=0;installedTests=0;deferredTests=0;productTimersChanged=$false}
+$closure = @{scope='Affected Windows diagnostic only: currentTTY2 plus selected8 (installed3/common5), not full closure; readiness/parity reused from run44015990174';startedAt=[DateTime]::UtcNow.ToString('o');complete=$false;stages=@();postcheckErrors=@();terminalCases=0;selectedTests=$null;installedTests=$null;commonTests=$null;deferredTests=0;planned=@{terminal=2;selected=8;installed=3;common=5};productTimersChanged=$false}
 function Save-Closure { $closure.observedAt=[DateTime]::UtcNow.ToString('o'); $closure | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath (Join-Path $evidence 'closure-execution.json') }
 function Invoke-ClosureStage([string]$Name,[string[]]$NodeArguments) {
   $out = Join-Path $evidence ($Name + '.tap'); $err = Join-Path $evidence ($Name + '.stderr'); $code=$null;$problem=$null;$started=[DateTime]::UtcNow.ToString('o')
-  try { & $Node @NodeArguments 1> $out 2> $err; $code=$LASTEXITCODE } catch { $problem=$_.Exception.Message }
+  $priorErrorPreference=$ErrorActionPreference
+  try { $ErrorActionPreference='Continue'; & $Node @NodeArguments 1> $out 2> $err; $code=$LASTEXITCODE } catch { $problem=$_.Exception.Message }
+  finally { $ErrorActionPreference=$priorErrorPreference }
   $closure.stages += @{name=$Name;argv=@($NodeArguments);exit=$code;error=$problem;startedAt=$started;observedAt=[DateTime]::UtcNow.ToString('o');stdout=$out;stderr=$err;encoding='PowerShell redirected text; raw binary product observations are in per-fixture artifacts'}
   Save-Closure
 }
 Save-Closure
 Invoke-ClosureStage 'terminal' @('tests/native-core-slice.mjs','--artifacts','native-evidence/core-slice-prebuilt','--agents','.native-dependencies/agents','--evidence',$evidence)
-Invoke-ClosureStage 'runtime' @('--test','--test-reporter=tap','tests/native-archive.test.mjs','tests/native-diagnostics.test.mjs','tests/native-app-server.test.mjs','tests/native-capabilities.test.mjs','tests/native-skills-owner.test.mjs','tests/native-skills-transfer.test.mjs','tests/native-scratch.test.mjs','tests/native-hook-command.test.mjs','tests/native-storage-read.test.mjs','tests/native-runtime-installed.test.mjs')
-Invoke-ClosureStage 'deferred' @('--test','--test-reporter=tap','--test-name-pattern=deferred native tool requests','tests/native-cli.test.mjs')
+$required=@('archive accepts existing native tar PAX names/metadata without adopting owner, mode or extension authority','native hook shell transports literal JavaScript/data and raw streams to Node with exact command outcome','actual compiled CLI uses accepted Agents, fresh/resume native sessions and a local synthetic Responses fixture','actual compiled AppServer forwards early protocol, large stdout and command result without a consumer compiler','actual inherited owned boundary preserves canonical Agents filesystem guards and authenticated host IPC','cold Windows hook bridge suppresses its own forced progress while preserving child raw stderr and status','standalone AppServer naturally exits after result7 with actual caller stdin held open','AppServer cancels a cooperative generic input iterator after owned result without waiting for caller EOF')
+$installedRequired=@($required[2],$required[3],$required[4])
+$affectedPattern='^(?:archive\ accepts\ existing\ native\ tar\ PAX\ names/metadata\ without\ adopting\ owner,\ mode\ or\ extension\ authority|native\ hook\ shell\ transports\ literal\ JavaScript/data\ and\ raw\ streams\ to\ Node\ with\ exact\ command\ outcome|actual\ compiled\ CLI\ uses\ accepted\ Agents,\ fresh/resume\ native\ sessions\ and\ a\ local\ synthetic\ Responses\ fixture|actual\ compiled\ AppServer\ forwards\ early\ protocol,\ large\ stdout\ and\ command\ result\ without\ a\ consumer\ compiler|actual\ inherited\ owned\ boundary\ preserves\ canonical\ Agents\ filesystem\ guards\ and\ authenticated\ host\ IPC|cold\ Windows\ hook\ bridge\ suppresses\ its\ own\ forced\ progress\ while\ preserving\ child\ raw\ stderr\ and\ status|standalone\ AppServer\ naturally\ exits\ after\ result7\ with\ actual\ caller\ stdin\ held\ open|AppServer\ cancels\ a\ cooperative\ generic\ input\ iterator\ after\ owned\ result\ without\ waiting\ for\ caller\ EOF)$'
+Invoke-ClosureStage 'runtime' @('--test','--test-reporter=tap',('--test-name-pattern='+$affectedPattern),'tests/native-archive.test.mjs','tests/native-hook-command.test.mjs','tests/native-runtime-installed.test.mjs','tests/native-app-server.test.mjs')
 function Read-Json([string]$Relative) { Get-Content -LiteralPath (Join-Path $evidence $Relative) -Raw | ConvertFrom-Json }
 function Require([bool]$Value,[string]$Message) { if (-not $Value) { throw $Message } }
 function Check-Tap([string]$Name,[string[]]$RequiredNames,[int]$ExpectedSkips) {
@@ -106,17 +110,35 @@ function Check-Tap([string]$Name,[string[]]$RequiredNames,[int]$ExpectedSkips) {
   foreach($id in $RequiredNames){Require (@($ids|Where-Object {$_ -ceq $id}).Count -eq 1) ('Missing/duplicate required test '+$id);Require ([regex]::IsMatch($text,'(?m)^ok \d+ - '+[regex]::Escape($id)+'\r?$')) ('Required test failed/skipped '+$id)}
   return @{counts=$counts;identities=$ids;requiredIdentities=@($RequiredNames);scope='Actual TAP, not expected counts or zero-match success'}
 }
+# Record every actual TAP result and complete raw failure independently of TTY success.
+$affected=@{scope='Exactly8 selected identities, installed3/common5; no full closure claim';expected=@($required);expectedInstalled=@($installedRequired);observedAt=[DateTime]::UtcNow.ToString('o');counts=@{};identities=@();outcomes=@();rawFailures=@();captureError=$null}
 try {
-  Require ($closure.stages.Count -eq 3) 'Three independent stages required'
+  $tapPath=Join-Path $evidence 'runtime.tap';$text=Get-Content -LiteralPath $tapPath -Raw
+  $affected.sha256=(Get-FileHash -LiteralPath $tapPath -Algorithm SHA256).Hash;$affected.bytes=(Get-Item -LiteralPath $tapPath).Length
+  foreach($key in @('tests','pass','fail','skipped','cancelled')){$m=[regex]::Match($text,'(?m)^# '+$key+' (\d+)\s*$');if($m.Success){$affected.counts[$key]=[int]$m.Groups[1].Value}else{$affected.counts[$key]=$null}}
+  $affected.identities=@([regex]::Matches($text,'(?m)^# Subtest: (.+)\r?$')|ForEach-Object{$_.Groups[1].Value.TrimEnd("`r")})
+  $affected.outcomes=@([regex]::Matches($text,'(?m)^(not ok|ok) (\d+) - ([^\r\n]+)')|ForEach-Object{@{status=$_.Groups[1].Value;number=[int]$_.Groups[2].Value;name=($_.Groups[3].Value -split ' # SKIP',2)[0];skipped=($_.Groups[3].Value -match ' # SKIP')}})
+  $affected.rawFailures=@([regex]::Matches($text,'(?ms)^not ok [^\r\n]*\r?\n.*?(?=^# Subtest:|^1\.\.|\z)')|ForEach-Object{$_.Value})
+} catch {$affected.captureError=$_.Exception.Message}
+$affected | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $evidence 'affected-runtime-results.json')
+$closure.affectedResults=$affected
+$closure.selectedTests=@($affected.outcomes|Where-Object{-not $_.skipped}).Count
+$closure.installedTests=@($affected.outcomes|Where-Object{-not $_.skipped -and $_.name -cin $installedRequired}).Count
+$closure.commonTests=@($affected.outcomes|Where-Object{-not $_.skipped -and $_.name -cin $required -and $_.name -cnotin $installedRequired}).Count
+Save-Closure
+try {
+  Require ($closure.stages.Count -eq 2) 'Two independent stages required'
   foreach($s in $closure.stages){Require ($null -ne $s.exit -and $s.exit -eq 0 -and -not $s.error) ('Stage failed/unknown '+$s.name)}
   $mode=Read-Json 'mode-entry.json';Require ($mode.platform -eq 'win32' -and $mode.mode -eq 'terminal' -and $mode.flag -eq '0' -and $mode.comparisonFlag -eq '0' -and $mode.comparison -eq $false) 'Actual ordinary terminal mode0/0 required'
   $provider=Read-Json 'provider-requests.json';Require (-not $provider.policyError -and $provider.cases.Count -eq 2) 'Terminal provider policy/cases invalid'
-  $retained=Read-Json 'retained-fixture.json';$prebinding=Read-Json 'runtime/native-binding.json';Require ($retained.consumer.sha256 -ceq $prebinding.CLI -and $prebinding.CLI -ceq '651db98194c2a24aa2da9f9e9ff9f8df2090c895df1a85ee4527f55c5fcae463') 'Actual terminal copied consumer binding differs'
+  $retained=Read-Json 'retained-fixture.json';$prebinding=Read-Json 'runtime/native-binding.json';Require ($retained.consumer.sha256 -ceq $prebinding.CLI -and $prebinding.CLI -ceq '84fca3f08e6d3f873e1e3b07afc9ea1b23f1b767e7d2ed8a2ff64abf626c4bb0' -and $retained.consumer.bytes -eq 333843) 'Actual terminal copied consumer binding differs'
   foreach($name in @('eof','interrupt')) {
     $r=Read-Json ($name+'/result.json');$f=Read-Json ($name+'/terminal-final.json');$a=Read-Json ($name+'/authority.json');$cfg=Read-Json ($name+'/configuration.json');$t=$r.terminal
     Require ($r.pass -eq $true -and $r.actualInstalledOrgAndWholeIpc -eq $true -and $r.zeroGenerationOrOtherRequests -eq $true) ('Actual TTY authority/IPC gate failed '+$name)
     Require ($t.result.kind -eq 'exit' -and $t.result.code -eq 0 -and $t.claim.kind -eq 'released' -and $t.claim.backend -eq 'windows-job' -and $t.claim.result.kind -eq 'exit' -and $t.claim.result.code -eq 0 -and $t.claim.lease -match '^[a-f0-9-]{36}$') ('Natural0 reportedJob required '+$name)
     Require (-not $f.failure -and $f.claim.kind -eq 'released' -and $f.claim.backend -eq 'windows-job' -and $f.claim.lease -ceq $t.claim.lease -and $f.claim.result.code -eq 0 -and $t.controlSent -eq $true -and $t.submittedBlockedFixtureTurn -eq $true) ('Final matchingJob/control required '+$name)
+    Require ($t.submission.promptBytesWritten -eq $true -and $t.submission.submitControlWritten -eq $true -and $t.submission.freshWorkingObserved -eq $true -and $t.submission.authorityBarrierObserved -eq $true -and $t.submission.acceptedWorkObserved -eq $true -and $f.submission.acceptedWorkObserved -eq $true) ('Actual accepted Working/barrier required '+$name)
+    Require ($t.submission.events.Count -eq 2 -and $t.submission.events[0].action -eq 'bracketed-paste' -and $t.submission.events[1].action -eq 'submit-enter' -and $t.submission.events[1].outputOffset -gt $t.submission.events[0].outputOffset) ('Exactly one observed paste/draft/submit required '+$name)
     Require ($a.pass -eq $true -and $a.installedBindings.Count -eq 15 -and $a.publication.published -eq $true -and $a.publishedFile.planMatches -eq $true -and $a.publishedFile.schemaVersion -eq 1 -and $a.identityMismatch.refused -eq $true -and $a.ipc.ok -eq $true -and $a.ipc.requestHex -ceq $a.ipc.replyHex) ('Canonical publication/wholeIPC/refusal required '+$name)
     foreach($key in @('sid','pid','started','executable')){Require ($a.ipc.host.$key -ceq $cfg.host.$key) ('Expected authenticated host differs '+$key)}
     Require ($a.identity.observerSid -ceq $cfg.host.sid) 'Ordinary principal differs'
@@ -125,17 +147,12 @@ try {
     if($name -eq 'interrupt'){Require ($t.controlEvents[0].action -eq 'ctrl-c-ui-quit' -and $t.controlEvents[0].intent -eq 'settled-ui-quit' -and $t.controlEvents[0].settledStatusOffset -gt $t.controlEvents[0].workingStatusOffset) 'Settled UI quit, not active cancellation'}else{Require ($t.controlEvents[0].action -eq 'eof') 'EOF control required'}
     $closure.terminalCases++
   }
-  $required=@([regex]::Matches((Get-Content -LiteralPath 'tests/native-runtime-installed.test.mjs' -Raw),"(?m)^test\('([^']+)'") | ForEach-Object {$_.Groups[1].Value});Require ($required.Count -eq 11) 'Exact eleven installed contract identities required'
-  $closure.runtimeTap=Check-Tap 'runtime' $required 2
-  $runtimeText=Get-Content -LiteralPath (Join-Path $evidence 'runtime.tap') -Raw
-  $skips=@([regex]::Matches($runtimeText,'(?m)^ok \d+ - (.+?) # SKIP[^\r\n]*')|ForEach-Object{$_.Groups[1].Value})
-  $allowedSkips=@('archive round trip preserves an executable skill resource with only private owner permissions','validated runtime-query environment preserves the real inherited v1 context and all TMP values without metadata writes')
-  foreach($id in $skips){Require ($id -cin $allowedSkips) ('Unapproved skip '+$id)}
-  $closure.installedTests=11
-  $id='deferred native tool requests refuse before touching absent or existing profiles';$closure.deferredTap=Check-Tap 'deferred' @($id) 0;Require ($closure.deferredTap.counts.tests -eq 1 -and $closure.deferredTap.counts.pass -eq 1) 'Exactly one deferred test required';$closure.deferredTests=1
+  Require (-not $affected.captureError) 'Affected TAP capture incomplete'
+  $closure.runtimeTap=Check-Tap 'runtime' $required 0
+  Require ($closure.runtimeTap.counts.tests -eq 8 -and $closure.runtimeTap.counts.pass -eq 8 -and $closure.selectedTests -eq 8 -and $closure.installedTests -eq 3 -and $closure.commonTests -eq 5 -and $affected.rawFailures.Count -eq 0) 'Exactly8 passed selected results (3installed/5common) required'
   $binding=Read-Json 'runtime/native-binding.json';$installed=Read-Json 'runtime/runtime-build.json';Require ($binding.pass -eq $true -and $binding.CLI -ceq $installed.managerSha256 -and $binding.helperSha256 -ceq $installed.helperSha256 -and $installed.sourceBuilderSeparateFromConsumer -eq $true -and $installed.consumerCompilerRequired -eq $false) 'Installed current artifact binding differs'
   $closure.binding=$binding;$closure.complete=$true
 } catch { $closure.postcheckErrors += $_.Exception.Message }
 Save-Closure
-if (-not $closure.complete -or $closure.postcheckErrors.Count) { throw ('Closure gate failed/unknown: '+($closure.postcheckErrors -join '; ')) }
+if (-not $closure.complete -or $closure.postcheckErrors.Count) { throw ('Affected diagnostic gate failed/unknown: '+($closure.postcheckErrors -join '; ')) }
 exit 0

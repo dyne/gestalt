@@ -10,6 +10,7 @@ export function nodeHookCommand(program, node = process.execPath, platform = pro
   const loader = "const{inflateRawSync}=await import('node:zlib');await import('data:text/javascript;base64,'+inflateRawSync(Buffer.from('" + deflateRawSync(Buffer.from(program)).toString('base64') + "','base64')).toString('base64'))";
   const data = Buffer.from(JSON.stringify({ node, arguments: '--input-type=module -e "' + loader + '"' })).toString('base64');
   const bridge = `$ErrorActionPreference='Stop'
+$ProgressPreference='SilentlyContinue'
 $r=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${data}'))|ConvertFrom-Json
 $i=New-Object Diagnostics.ProcessStartInfo
 $i.FileName=$r.node;$i.Arguments=$r.arguments;$i.UseShellExecute=$false;$i.CreateNoWindow=$true

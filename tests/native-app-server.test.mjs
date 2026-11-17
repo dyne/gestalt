@@ -3,6 +3,7 @@ import { PassThrough } from 'node:stream';
 import { createInterface } from 'node:readline';
 import { proxyAppServer } from '../src/cli/runtime/app-server.ts';
 import test from 'node:test';
+import { spawn } from 'node:child_process';
 
 function deferred() { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; }
 function controlledPort(mode = 'released') {
@@ -82,4 +83,56 @@ test('controlled AppServer interruption waits for owned settlement and preserves
     assert.equal(settled, false, 'Proxy returned before its owned stop settled');
   } finally { f.control.release.resolve(); }
   assert.equal(await f.result, 143); assert.ok(f.control.stopped.length > 0); assert.equal(f.errors.length, 0);
+});
+
+test('standalone AppServer naturally exits after result7 with actual caller stdin held open', { timeout: 10000 }, async t => {
+  const program = `import {PassThrough} from 'node:stream';import {createInterface} from 'node:readline';
+import {proxyAppServer} from ${JSON.stringify(import.meta.resolve('../src/cli/runtime/app-server.ts'))};
+${deferred.toString()}
+${controlledPort.toString()}
+const control=controlledPort();const write=(stream,bytes)=>new Promise((resolve,reject)=>stream.write(bytes,error=>error?reject(error):resolve()));
+const status=await proxyAppServer({argv:['--stdio'],cwd:process.cwd(),environment:{PATH:'',CODEX_HOME:process.cwd()}},
+{stdin:process.stdin,stdout:bytes=>write(process.stdout,bytes),stderr:bytes=>write(process.stderr,bytes)},process.execPath,process.execPath,control.port);
+const observe=phase=>process.stdout.write(JSON.stringify({fixtureSettled:status,phase,
+resources:process.getActiveResourcesInfo(),stdinDestroyed:process.stdin.destroyed,stdinPaused:process.stdin.isPaused(),stdinReadableFlowing:process.stdin.readableFlowing,
+stdinListeners:Object.fromEntries(['readable','data','end','close','error','pause','resume'].map(event=>[event,process.stdin.listenerCount(event)])),
+stdinInternalObservation:{handleHasRef:process.stdin._handle?.hasRef?.(),handleReading:process.stdin._handle?.reading,readableStateReading:process.stdin._readableState?.reading},
+scope:'Passive local Node stdin/resource diagnosis; internal fields are version-specific observations, not a product API'})+'\\n');
+observe('proxy-returned');setImmediate(()=>observe('next-event-loop-turn'));process.exitCode=status;`;
+  const child = spawn(process.execPath, ['--input-type=module', '-e', program], { stdio: ['pipe', 'pipe', 'pipe'], shell: false });
+  const errors = [], lines = createInterface({ input: child.stdout }), observed = [], waiters = new Map();
+  child.stderr.on('data', bytes => errors.push(Buffer.from(bytes)));
+  lines.on('line', line => { const value = JSON.parse(line); observed.push(value); waiters.get(value.id ?? 'settled')?.(value); });
+  const closed = new Promise((resolve, reject) => { child.once('error', reject); child.once('close', (code, signal) => resolve({ code, signal })); });
+  let deadline = false;
+  const timer = setTimeout(() => { deadline = true; child.kill('SIGKILL'); }, 4000);
+  t.after(async () => { clearTimeout(timer); if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); await closed; child.stdin.destroy(); lines.close(); });
+  const history = new Promise(resolve => waiters.set('history', resolve));
+  child.stdin.write('{"id":"history","method":"thread/read","params":{}}\n');
+  assert.equal((await history).result.history.length, 2 * 1024 * 1024);
+  child.stdin.write('{"method":"exit"}\n'); // Deliberately keep the caller's real pipe open.
+  const result = await closed;
+  assert.equal(deadline, false, JSON.stringify({ result, observed: observed.map(v => v.fixtureSettled !== undefined ? v : { id: v.id }), stderr: Buffer.concat(errors).toString(), callerStdinEnded: child.stdin.writableEnded }));
+  assert.equal(child.stdin.writableEnded, false); assert.deepEqual(result, { code: 7, signal: null });
+});
+
+test('AppServer cancels a cooperative generic input iterator after owned result without waiting for caller EOF', { timeout: 10000 }, async () => {
+  const control = controlledPort(), waiting = deferred(), history = deferred();
+  let delivered = false, returned = 0, pending, cancelled = false;
+  const iterator = {
+    next() {
+      if (!delivered) { delivered = true; return Promise.resolve({ done: false, value: Buffer.from('{"id":"history","method":"thread/read","params":{}}\n') }); }
+      waiting.resolve(); return new Promise(resolve => { pending = resolve; });
+    },
+    return() { returned++; cancelled = true; pending?.({ done: true, value: undefined }); return Promise.resolve({ done: true, value: undefined }); },
+  };
+  const result = proxyAppServer({ argv: ['--stdio'], cwd: process.cwd(), environment: { PATH: '', CODEX_HOME: process.cwd() } }, {
+    stdin: { [Symbol.asyncIterator]: () => iterator },
+    stdout: async bytes => { const value = JSON.parse(Buffer.from(bytes)); if (value.id === 'history') history.resolve(value); },
+    stderr: async bytes => { throw Error(Buffer.from(bytes).toString()); },
+  }, process.execPath, process.execPath, control.port);
+  assert.equal((await history.promise).result.history.length, 2 * 1024 * 1024);
+  await waiting.promise; control.command.resolve({ kind: 'exit', code: 7 });
+  assert.equal(await result, 7); assert.equal(returned, 1); assert.equal(cancelled, true);
+  assert.ok(control.stopped.length > 0); assert.equal(control.received.filter(value => value.id === 'history').length, 1);
 });

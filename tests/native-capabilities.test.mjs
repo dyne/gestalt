@@ -26,6 +26,7 @@ async function fixture(t, discovery = true, terminal = false, managedHooks = fal
     operator: { url: 'https://operator.invalid/private', enabled: false },
   } } : {}) };
   const port = { async launch(executable, invocation, streams) {
+    timing?.beforeLaunch?.(invocation);
     calls.push(invocation); let stopped = false, resolveResult, resolveComplete;
     const result = new Promise(r => resolveResult = r), completed = new Promise(r => resolveComplete = r);
     const claim = { kind: 'released', lease: String(calls.length), backend: 'controlled', result: { kind: 'exit', code: 23 } };
@@ -83,6 +84,17 @@ for (const discovery of [true, false]) test(`host capability composition preserv
   assert.equal(launched.environment.RETAINED, 'kept'); assert.equal(launched.environment.TMPDIR, 'operator-tmp-value');
   assert.match(Buffer.concat(f.err).toString(), /native-stderr/); assert.equal(f.commands.unknown.length, 0);
   assert.equal(actual.filter(value => value === 'operator-model').length, 1);
+});
+
+test('rejected final native launch reports its bounded cause and preserves127/unknown ownership', { timeout: 10000 }, async t => {
+  const f = await fixture(t, true, false, false, false, {
+    beforeLaunch(invocation) { if (invocation.argv[0] !== 'app-server') throw Error('controlled launch failure\n' + 'x'.repeat(1024)); },
+  });
+  assert.equal(await launchCapabilities(f.commands, f.invocation, process.execPath), 127);
+  const diagnostic = Buffer.concat(f.err).toString().split('\n').find(line => line.startsWith('gestalt: native command launch failed'));
+  assert.ok(diagnostic.includes('controlled launch failure ')); assert.ok(diagnostic.length < 560);
+  assert.equal(f.commands.unknown.length, 1); assert.equal(f.commands.unknown[0].kind, 'unknown'); assert.equal(f.commands.active.size, 0);
+  assert.equal(f.calls.filter(call => call.argv[0] !== 'app-server').length, 0);
 });
 
 for (const refusal of [false, true]) test(`managed native hook trust ${refusal ? 'refusal omits generated hooks' : 'preserves transport and scopes exact trust'}`, { timeout: 10000 }, async t => {

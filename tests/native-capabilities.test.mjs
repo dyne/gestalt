@@ -11,7 +11,7 @@ import { capturedNodeCommand } from './fixtures/native-node-command.mjs';
 import { parse } from 'smol-toml';
 import { createHash } from 'node:crypto';
 
-async function fixture(t, discovery = true, terminal = false, managedHooks = false, refuseHooks = false) {
+async function fixture(t, discovery = true, terminal = false, managedHooks = false, refuseHooks = false, timing) {
   const root = await mkdtemp(path.join(tmpdir(), 'gestalt capability host ü ')); t.after(() => rm(root, { recursive: true, force: true }));
   const bin = path.join(root, 'bin'); await mkdir(bin); const body = '#!/usr/bin/env node\n';
   await writeFile(path.join(bin, 'codex.mjs'), body, { mode: 0o755 });
@@ -30,12 +30,14 @@ async function fixture(t, discovery = true, terminal = false, managedHooks = fal
     const result = new Promise(r => resolveResult = r), completed = new Promise(r => resolveComplete = r);
     const claim = { kind: 'released', lease: String(calls.length), backend: 'controlled', result: { kind: 'exit', code: 23 } };
     const lease = { id: claim.lease, result, completed, claim: () => stopped ? claim : { kind: 'active', lease: claim.lease, backend: 'controlled' },
-      stop: async () => { stopped = true; resolveResult(claim.result); resolveComplete(claim); return claim; } };
+      stop: async () => { if (!stopped) { stopped = true; timing?.stop?.(invocation); } resolveResult(claim.result); resolveComplete(claim); return claim; } };
     if (invocation.argv[0] === 'app-server') {
+      timing?.launch?.(invocation);
       if (!discovery) { resolveResult({ kind: 'exit', code: 1 }); return lease; }
       const lines = createInterface({ input: Readable.from(streams.stdin) });
       void (async () => { for await (const line of lines) {
         const message = JSON.parse(line); if (message.id === undefined) continue;
+        timing?.reply?.(invocation, message);
         if (message.method === 'hooks/list' && refuseHooks) {
           await streams.stdout(Buffer.from(JSON.stringify({ id: message.id, error: { message: 'controlled hook query refusal' } }) + '\n')); continue;
         }
@@ -118,5 +120,69 @@ test('interactive capability launch uses the owned terminal and restores it afte
   assert.deepEqual(f.terminalEvents.find(event => event.kind === 'launch').size, { columns: 113, rows: 39 });
   assert.deepEqual(Buffer.concat(f.nativeInput), f.input);
   assert.deepEqual(Buffer.concat(f.out), Buffer.concat([Buffer.from([255, 0, 13, 10]), Buffer.from('native-stderr\n')]));
+  assert.equal(f.commands.active.size, 0); assert.equal(f.commands.unknown.length, 0);
+});
+
+function capabilityClock(t) {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 100000 });
+  const original = globalThis.setTimeout, snapshots = [];
+  t.mock.method(globalThis, 'setTimeout', function (callback, delay, ...args) {
+    if (/\bat snapshot\s+\(/.test(new Error().stack)) snapshots.push({ delay, createdAt: Date.now() });
+    return Reflect.apply(original, this, [callback, delay, ...args]);
+  });
+  return { snapshots, advance: milliseconds => t.mock.timers.tick(milliseconds) };
+}
+test('shared capability deadline charges both query startups and cleanup without resetting the query cap', { timeout: 10000 }, async t => {
+  let clock, queries = 0;
+  const stopped = new Set();
+  const f = await fixture(t, true, false, true, false, {
+    launch() { queries++; clock.advance(1800); },
+    reply(_invocation, message) { if (queries === 1 && message.method === 'config/read') clock.advance(200); },
+    stop(invocation) {
+      stopped.add(invocation);
+      if (invocation.argv[0] === 'app-server' && !invocation.argv.some(value => value.startsWith('hooks.SessionStart='))) clock.advance(1500);
+    },
+  });
+  clock = capabilityClock(t);
+  assert.equal(await launchCapabilities(f.commands, f.invocation, process.execPath), 23);
+  const windows = process.platform === 'win32', final = f.calls.find(call => call.argv[0] !== 'app-server');
+  assert.deepEqual(clock.snapshots.map(timer => timer.delay), windows ? [5000, 5000] : [5000, 1500]);
+  assert.deepEqual(clock.snapshots.map(timer => timer.createdAt), [100000, 103500]);
+  assert.equal(final.argv.some(value => value.startsWith('hooks.state=')), windows);
+  assert.equal(Buffer.concat(f.err).toString().includes('guidance-hooks-unavailable'), !windows);
+  assert.equal(queries, 2); assert.equal(stopped.size, f.calls.length);
+  assert.equal(f.commands.active.size, 0); assert.equal(f.commands.unknown.length, 0);
+});
+test('shared capability deadline retains the 5000ms individual query cap during startup', { timeout: 10000 }, async t => {
+  let clock;
+  const stopped = new Set();
+  const f = await fixture(t, true, false, true, false, {
+    launch() { clock.advance(5100); }, stop(invocation) { stopped.add(invocation); },
+  });
+  clock = capabilityClock(t);
+  assert.equal(await launchCapabilities(f.commands, f.invocation, process.execPath), 23);
+  assert.deepEqual(clock.snapshots.map(timer => timer.delay), [5000]);
+  assert.equal(f.calls.filter(call => call.argv[0] === 'app-server').length, 1);
+  assert.match(Buffer.concat(f.err).toString(), /native-config-unavailable/);
+  assert.equal(f.calls.find(call => call.argv[0] !== 'app-server').argv.some(value => value.startsWith('hooks.state=')), false);
+  assert.equal(stopped.size, f.calls.length);
+  assert.equal(f.commands.active.size, 0); assert.equal(f.commands.unknown.length, 0);
+});
+test('shared capability deadline rejects the second query before launch after global exhaustion', { timeout: 10000 }, async t => {
+  let clock;
+  const stopped = new Set();
+  const f = await fixture(t, true, false, true, false, {
+    stop(invocation) {
+      stopped.add(invocation);
+      if (invocation.argv[0] === 'app-server') clock.advance(process.platform === 'win32' ? 11000 : 6000);
+    },
+  });
+  clock = capabilityClock(t);
+  assert.equal(await launchCapabilities(f.commands, f.invocation, process.execPath), 23);
+  assert.deepEqual(clock.snapshots.map(timer => timer.delay), [5000]);
+  assert.equal(f.calls.filter(call => call.argv[0] === 'app-server').length, 1);
+  assert.match(Buffer.concat(f.err).toString(), /guidance-hooks-unavailable/);
+  assert.equal(f.calls.find(call => call.argv[0] !== 'app-server').argv.some(value => value.startsWith('hooks.state=')), false);
+  assert.equal(stopped.size, f.calls.length);
   assert.equal(f.commands.active.size, 0); assert.equal(f.commands.unknown.length, 0);
 });

@@ -160,8 +160,10 @@ function controlledReadiness() {
 test('controlled readiness gate distinguishes command captures, shared snapshots and raw records from lease claims', () => {
   const { observation, inherited } = controlledReadiness(), report = readinessObservations(observation, inherited, '/fixture/codex');
   assert.equal(report.pass, true); assert.equal(report.rawInnerRecordsAreLeaseClaims, false); assert.equal(report.timerClearProvesNonexpiry, false);
+  assert.match(report.timerObservationScope, /Per-query5s cap only/);
+  assert.match(report.timerObservationScope, /not an observed callback timestamp/);
 });
-for (const fault of ['missing-phase', 'context', 'missing-D', 'unknown', 'RPC', 'helper-close', 'timer-callsite', 'missing-stop']) test('controlled readiness gate rejects ' + fault, () => {
+for (const fault of ['missing-phase', 'context', 'missing-D', 'unknown', 'RPC', 'helper-close', 'timer-callsite', 'perquery-cap', 'missing-stop']) test('controlled readiness gate rejects ' + fault, () => {
   const { observation, inherited } = controlledReadiness();
   if (fault === 'missing-phase') observation.channels.pop();
   if (fault === 'context') observation.channels[2].environment.TMPDIR = '/ambient';
@@ -170,8 +172,11 @@ for (const fault of ['missing-phase', 'context', 'missing-D', 'unknown', 'RPC', 
   if (fault === 'RPC') observation.events = observation.events.filter(e => !(e.channel === 3 && e.type === 'rpc' && e.direction === 'output'));
   if (fault === 'helper-close') observation.events.find(e => e.channel === 3 && e.type === 'helper-close').code = 2;
   if (fault === 'timer-callsite') for (const e of observation.events) if (e.type === 'timer-created') e.callsite = 'at launchNative (native-cli-spawn-capture.mjs:1)';
+  if (fault === 'perquery-cap') for (const e of observation.events) if (e.type === 'timer-created' && e.callsite.includes('at snapshot ')) e.delay = 5001;
   if (fault === 'missing-stop') observation.events = observation.events.filter(e => e.type !== 'native-control');
-  assert.equal(readinessObservations(observation, inherited, '/fixture/codex').pass, false);
+  const report = readinessObservations(observation, inherited, '/fixture/codex');
+  assert.equal(report.pass, false);
+  if (fault === 'perquery-cap') assert.ok(report.failures.includes('per-query5s-snapshot-cap-timers-unobserved'));
 });
 
 test('readiness observer normal-off import leaves methods unchanged and readiness capture flushes only after critical work', async t => {

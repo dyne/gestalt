@@ -268,3 +268,14 @@ The existing setup/default scratch factory and secure-directory creation retain
 their fixed PowerShell checker. Unix paths and process/terminal modes are
 unchanged. Actual native predicate parity and readiness require target evidence;
 the protocol and source build alone do not prove them.
+
+Native capability discovery uses a shared startup budget of 10 seconds on
+Windows and 5 seconds on other platforms. This Windows allowance includes
+validated owner/ACL bookkeeping for consecutive config and hook queries. Each
+query retains its own cap of `min(5000 ms, remaining shared budget)`; the shared
+deadline starts before launch and is not reset per query. This is a new bounded
+Windows policy, not evidence that the earlier 5-second policy passed. Required
+command captures keep their separate 10-second timers. Synchronous checks can
+delay timer delivery, and owned cleanup can extend elapsed wall time beyond a
+logical readiness deadline; this policy is not a hard whole-CLI runtime limit.
+No guard, inherited temporary context, cleanup proof or hook-trust gate is waived.

@@ -56,6 +56,8 @@ $developmentMode = Get-ItemPropertyValue -LiteralPath $developmentModeKey -Name 
 if ($developmentModeKind -ne 'DWord' -or $developmentMode -ne 0) { throw 'Native core slice requires explicit Developer Mode DWORD0 readback' }
 & $Node tests/fixtures/native-no-devmode.mjs (Join-Path $evidence 'developer-mode-negative-capability.json')
 if ($LASTEXITCODE -ne 0) { throw 'Actual ordinary-user no-Developer-Mode capability check failed' }
+& $Node --test --test-reporter=tap '--test-name-pattern=shared capability deadline' tests/native-capabilities.test.mjs
+if ($LASTEXITCODE -ne 0) { throw 'Controlled capability deadline preflight failed; parity/readiness unexecuted' }
 & $Node tests/native-storage-read-parity.mjs --artifacts native-evidence/core-slice-prebuilt --evidence (Join-Path $evidence 'storage-parity')
 if ($LASTEXITCODE -ne 0) { throw 'Required native storage ACL parity preflight failed; readiness unexecuted' }
 $env:GESTALT_CORE_SLICE_READINESS_ONLY = '1'

@@ -116,8 +116,8 @@ export function readinessObservations(observation, inherited, target, helper) {
   }
   const created = events.filter(event => event.type === 'timer-created');
   if (created.filter(event => /\bat [^\n]*\.capture\s+\(/.test(event.callsite) && event.delay === 10000).length < 2) fail('required-capture10s-timers-unobserved');
-  if (created.filter(event => /\bat snapshot\s+\(/.test(event.callsite) && event.delay > 0 && event.delay <= 5000).length < 2) fail('shared-readiness5s-snapshot-timers-unobserved');
-  return { pass: failures.length === 0, failures, requiredPhases: required, rawInnerRecordsAreLeaseClaims: false, timerClearProvesNonexpiry: false };
+  if (created.filter(event => /\bat snapshot\s+\(/.test(event.callsite) && event.delay > 0 && event.delay <= 5000).length < 2) fail('per-query5s-snapshot-cap-timers-unobserved');
+  return { pass: failures.length === 0, failures, requiredPhases: required, rawInnerRecordsAreLeaseClaims: false, timerClearProvesNonexpiry: false, timerObservationScope: 'Per-query5s cap only; shared global budget is source policy, not an observed callback timestamp' };
 }
 function observeTerminalCase(control, report, terminalReport, attempted, readError) {
   if (!report) return { control, status: attempted ? 'unknown-no-valid-terminal-report' : 'unexecuted',
@@ -444,7 +444,7 @@ async function consume(artifacts, agents, evidence, mode) {
   for (const name of ['home', 'Codex', 'Gestalt', 'bin', 'workspace', 'status']) await storage.createDirectory(path.join(fixture, name));
   const consumer = path.join(fixture, 'consumer'); await cp(artifacts, consumer, { recursive: true });
   const entry = path.join(consumer, 'gestalt.mjs'), peer = manifest.peer ? path.join(consumer, manifest.peer) : undefined, helper = manifest.helper ? path.join(consumer, manifest.helper) : undefined;
-  if (queryMode) assert.equal((await digest(entry)).sha256, '1d4f38d3b88c40cd3d44820fd463b078b47fd459c7d3f7c4b328b89ba8bc7d87', 'Readiness must consume the sealed current product binary');
+  if (queryMode) assert.equal((await digest(entry)).sha256, '651db98194c2a24aa2da9f9e9ff9f8df2090c895df1a85ee4527f55c5fcae463', 'Readiness must consume the sealed current product binary');
   const artifact = await pinnedCodex(path.join(evidence, 'codex-artifact'), { homeDirectory: path.join(fixture, 'Codex') });
   await cp(artifact.binary, path.join(fixture, 'bin', process.platform === 'win32' ? 'codex.exe' : 'codex'));
   if (process.platform !== 'win32') await chmod(path.join(fixture, 'bin/codex'), 0o700);

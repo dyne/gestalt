@@ -42,7 +42,9 @@ const protectUnknownMapping=()=>{
  if(cliOwned&&!mappingUnknown){mappingUnknown=true;scratchApi.scratchBorrow(JSON.parse(environment.GESTALT_SESSION_TMP_CONTEXT),'cli-provider-mapping-unknown');
  process.stderr.write('gestalt: native provider association unavailable; CLI temporary owner remains protected\n');}
 };
-const budget = 5000;
+// Windows owner/ACL bookkeeping is charged to this shared startup window.
+// Each snapshot still has its separate 5s cap and the deadline starts before launch.
+const budget = globalThis.process.platform === 'win32' ? 10000 : 5000;
 // One deadline covers native discovery, shared readiness and MCP startup.
 let readinessDeadline = Date.now() + budget;
 let currentChild;

@@ -89,7 +89,7 @@ function Save-Closure { $closure.observedAt=[DateTime]::UtcNow.ToString('o'); $c
 function Invoke-ClosureStage([string]$Name,[string[]]$NodeArguments) {
   $out = Join-Path $evidence ($Name + '.tap'); $err = Join-Path $evidence ($Name + '.stderr'); $code=$null;$problem=$null;$started=[DateTime]::UtcNow.ToString('o')
   $priorErrorPreference=$ErrorActionPreference
-  try { $ErrorActionPreference='Continue'; & $Node @NodeArguments 1> $out 2> $err; $code=$LASTEXITCODE } catch { $problem=$_.Exception.Message }
+  try { $ErrorActionPreference='Continue'; $global:LASTEXITCODE=$null; & $Node @NodeArguments 1> $out 2> $err; $code=$global:LASTEXITCODE } catch { $problem=$_.Exception.Message }
   finally { $ErrorActionPreference=$priorErrorPreference }
   $closure.stages += @{name=$Name;argv=@($NodeArguments);exit=$code;error=$problem;startedAt=$started;observedAt=[DateTime]::UtcNow.ToString('o');stdout=$out;stderr=$err;encoding='PowerShell redirected text; raw binary product observations are in per-fixture artifacts'}
   Save-Closure

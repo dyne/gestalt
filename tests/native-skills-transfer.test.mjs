@@ -5,6 +5,7 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
 import { importSkills } from '../src/cli/runtime/skills-transfer.ts';
+import { windowsSystem } from '../src/cli/platform/windows-system.ts';
 
 // Controlled filesystem transaction seam. This suite verifies selection,
 // journals and rollback; real native namespace/ACL admission remains mandatory
@@ -18,7 +19,7 @@ async function fixture(t) {
     storage: async directory => {
       await mkdir(directory, { recursive: true, mode: 0o700 });
       return { root: directory, assertPrivate: async () => {},
-        createDirectory: target => mkdir(target, { mode: 0o700 }),
+        createDirectory: target => process.platform === 'win32' ? windowsSystem({ operation: 'create-directory', path: target }) : mkdir(target, { mode: 0o700 }),
         acquireLock: async target => { await writeFile(target, 'controlled lock', { flag: 'wx', mode: 0o600 }); return { release: () => unlink(target) }; },
         replaceFile: async (target, bytes) => { await writeFile(target, bytes, { mode: 0o600 });
           if (interruptPromotion && path.basename(target) === 'journal.json' && JSON.parse(bytes).promotions.some(entry => entry.promoted)) interrupted = true; },

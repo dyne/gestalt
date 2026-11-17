@@ -37,7 +37,7 @@ for (const file of artifacts.artifacts) {
 }
 const build = await realpath(await mkdtemp(path.join(tmpdir(), 'gestalt-runtime-build-')));
 const entry = path.join(artifactRoot, 'gestalt.mjs'), peer = null;
-assert.equal(artifacts.helper, 'native/gestalt-owned-process.exe');
+assert.equal(artifacts.helper, path.join('native', 'gestalt-owned-process.exe'));
 const helper = path.join(artifactRoot, artifacts.helper);
 const helperProvenance = JSON.parse(await readFile(helper + '.provenance.json', 'utf8'));
 assert.equal(helperProvenance.artifactSha256, hash(await readFile(helper)));

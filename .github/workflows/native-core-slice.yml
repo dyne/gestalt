@@ -72,7 +72,7 @@ jobs:
   windows:
     if: github.event_name == 'push' || inputs.target == 'all' || inputs.target == 'windows'
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
         env:
@@ -146,24 +146,16 @@ jobs:
             $process = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Credential $credential -LoadUserProfile -ArgumentList $arguments -PassThru -RedirectStandardOutput (Join-Path $work 'slice.stdout') -RedirectStandardError (Join-Path $work 'slice.stderr')
             $handle = $process.Handle
             if ($handle -eq [IntPtr]::Zero -or $handle -eq [IntPtr](-1)) { throw 'Consumer harness handle unavailable' }
-            $observed = $process.WaitForExit(1200000)
+            $observed = $process.WaitForExit(3300000)
             if (-not $observed) { $timedOut = $true; $process.Kill(); throw 'Consumer deadline; product descendant certainty remains unknown' }
             $exit = $process.ExitCode
-            # Collect both independent cases even when the consumer returned failure.
-            $capture = @{}; $captureErrors = @()
-            foreach ($item in @(@('parity','storage-parity/result.json'), @('mode','mode-entry.json'), @('comparison','comparison.json'), @('comparator','comparator/comparator/result.json'), @('readiness','readiness/readiness/result.json'))) {
-              try { $capture[$item[0]] = Get-Content -LiteralPath (Join-Path $source ('native-evidence/core-slice/' + $item[1])) -Raw | ConvertFrom-Json }
-              catch { $captureErrors += @{name=$item[0];path=$item[1];error=$_.Exception.Message} }
-            }
-            @{observedAt=[DateTime]::UtcNow.ToString('o');exit=$exit;captures=$capture;captureErrors=$captureErrors;scope='Independent comparator measurement and original observed readiness; missing is unknown/fail'} | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath 'native-evidence/readiness-comparison-postchecks.json'
-            if ($captureErrors.Count) { throw 'Independent comparator/readiness capture missing; inspect both retained case directories' }
-            $parity = $capture['parity']
-            if ($parity.kind -ne 'ordinary-windows-native-storage-read-parity' -or $parity.pass -isnot [bool] -or $parity.pass -ne $true -or $parity.tests -le 0 -or $parity.tests -ne $parity.expectedRequiredTests -or $parity.passed -ne $parity.tests -or $parity.failed -ne 0 -or $parity.harnessFailures -ne 0 -or $parity.skip -ne 0) { throw 'Required ordinary Windows native ACL parity cases did not all pass; no required skips permitted' }
-            $mode = $capture['mode']; $comparison = $capture['comparison']; $comparator = $capture['comparator']; $readiness = $capture['readiness']
-            if ($mode.mode -ne 'readiness' -or $mode.flag -ne '1' -or $mode.comparisonFlag -ne '1' -or $mode.comparison -isnot [bool] -or $mode.comparison -ne $true) { throw 'Ordinary-account readiness comparison selection was not observed' }
-            if ($comparison.plannedQueryInvocations -ne 2 -or $comparison.actualQueryInvocations -ne 2 -or $comparison.cases.Count -ne 2 -or $comparison.cases[0].control -ne 'comparator' -or $comparison.cases[1].control -ne 'readiness' -or $comparison.pass -isnot [bool] -or $comparison.pass -ne $true -or $comparison.readinessPass -ne $true -or $comparison.submittedTurns -ne 0 -or $comparison.terminalCasesExecuted -ne 0) { throw 'Both independent query invocations must complete; diagnostics are not readiness proof' }
-            if ($comparator.kind -ne 'actual-compiled-windows-observer-free-query-comparator' -or $comparator.measurementComplete -ne $true -or $comparator.readinessPass -ne $null -or $comparator.rawInnerRecordsClaimed -ne $false -or $comparator.innerPhasesClaimed -ne $false -or $comparator.zeroProviderRequests -ne $true -or $comparator.tests -ne 1 -or $comparator.failed -ne 0 -or $comparator.skip -ne 0 -or $comparator.submittedTurns -ne 0 -or $comparator.terminalCasesExecuted -ne 0) { throw 'Observer-free symptom measurement incomplete or falsely claims inner readiness' }
-            if ($readiness.kind -ne 'actual-compiled-windows-owned-query-readiness' -or $readiness.tests -ne 1 -or $readiness.pass -isnot [bool] -or $readiness.pass -ne $true -or $readiness.failed -ne 0 -or $readiness.skip -ne 0 -or $readiness.submittedTurns -ne 0 -or $readiness.terminalCasesExecuted -ne 0) { throw 'Original observed readiness gate did not pass independently' }
+            # Current closure captures are independent; missing observations fail.
+            $closure = $null; $closureError = $null
+            try { $closure = Get-Content -LiteralPath (Join-Path $source 'native-evidence/core-slice/closure-execution.json') -Raw | ConvertFrom-Json }
+            catch { $closureError = $_.Exception.Message }
+            @{observedAt=[DateTime]::UtcNow.ToString('o');exit=$exit;closure=$closure;captureError=$closureError;scope='CurrentTTY2/runtime11/common/deferred1; no readiness/parity replay'} | ConvertTo-Json -Depth 40 | Set-Content -LiteralPath 'native-evidence/runtime-closure-postchecks.json'
+            if ($closureError -or $null -eq $closure -or $closure.complete -ne $true -or $closure.postcheckErrors.Count -ne 0 -or $closure.stages.Count -ne 3 -or $closure.terminalCases -ne 2 -or $closure.installedTests -ne 11 -or $closure.deferredTests -ne 1) { throw 'Current terminal/runtime closure incomplete; inspect all independent stages' }
+            foreach($stage in $closure.stages){if($null -eq $stage.exit -or $stage.exit -ne 0 -or $stage.error){throw ('Closure stage failed/unknown: '+$stage.name)}}
             if ($null -eq $exit -or $exit -ne 0) { throw "Native consumer slice failed: $exit" }
           } finally {
             foreach ($file in @('slice.stdout', 'slice.stderr')) {

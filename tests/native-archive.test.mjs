@@ -104,7 +104,8 @@ for (const type of ['1', '2', '3', '6', 'K']) test(`archive rejects tar type ${t
 });
 test('archive accepts existing native tar PAX names/metadata without adopting owner, mode or extension authority', async t => {
   const { root, source } = await fixture(t), archive = path.join(root, 'existing-pax.tar.gz'), stage = path.join(root, 'stage'); await privateStage(stage);
-  execFileSync('tar', ['--format=pax', '-czf', archive, '-C', path.dirname(source), path.basename(source)], { shell: false, stdio: 'pipe' });
+  const tar = process.platform === 'win32' ? path.join(process.env.SystemRoot, 'System32', 'tar.exe') : 'tar';
+  execFileSync(tar, ['--format=pax', '-czf', archive, '-C', path.dirname(source), path.basename(source)], { shell: false, stdio: 'pipe' });
   await archives.extract(archive, stage, 'gestalt-skills');
   assert.deepEqual(await readFile(path.join(stage, 'gestalt-skills/nested space 東京/file')), Buffer.from([0, 255, 10, 13]));
 });

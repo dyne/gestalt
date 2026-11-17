@@ -175,7 +175,7 @@ async function trustInstalledFixtureHooks(t, f, codex, agents, workspace) {
   const canonical = reconcileCodexToml(stringify(config), {
     launcherPath: path.join(f.root, 'Codex/bin/context-mode-mcp.mjs'), pluginId: `context-mode@${marketplace}`,
   });
-  assert.deepEqual(parse(canonical), config, 'Fixture canonicalization must not change any config value');
+  assert.deepEqual(parse(canonical), parse(stringify(config)), 'Fixture canonicalization must not change any config value');
   await f.storage.replaceFile(configFile, Buffer.from(canonical));
   const current = await query(); assert.deepEqual(authorizeFixtureHooks(current, entries), authorized);
   assert.ok(current.every(hook => hook.trustStatus === 'trusted'));

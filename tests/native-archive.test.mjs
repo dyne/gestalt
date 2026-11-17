@@ -1,0 +1,191 @@
+import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile, link, truncate, chmod, stat } from 'node:fs/promises';
+import path from 'node:path';
+import { tmpdir } from 'node:os';
+import { gunzipSync, gzipSync } from 'node:zlib';
+import test from 'node:test';
+import { NativeArchives } from '../src/cli/platform/archive.ts';
+import { windowsSystem } from '../src/cli/platform/windows-system.ts';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+
+const archives = new NativeArchives();
+async function retainPaxProducerFailure(error, invocation, save) {
+  const raw = value => { const bytes = Buffer.from(value ?? []); return { totalBytes: bytes.length, truncated: bytes.length > 65536, base64: bytes.subarray(0, 65536).toString('base64') }; };
+  try { await save({ observedAt: new Date().toISOString(), platform: process.platform, node: process.version, ...invocation,
+    status: error.status ?? null, signal: error.signal ?? null, message: String(error.message).slice(0, 1024),
+    stdout: raw(error.stdout), stderr: raw(error.stderr), scope: 'Actual failed external fixture producer; no retry, normalization or product extraction claim' }); }
+  catch { /* Evidence failure cannot replace the original producer exception. */ }
+  throw error;
+}
+test('PAX producer failure retains bounded raw bytes/status and rethrows the exact original exception', async () => {
+  const error = Object.assign(Error('controlled producer'), { status: 2, signal: null, stdout: Buffer.from([255, 0]), stderr: Buffer.alloc(65537, 128) });
+  let capture;
+  await assert.rejects(retainPaxProducerFailure(error, { argv: ['literal ü', ''], cwd: '/fixture' }, value => { capture = value; }), value => value === error);
+  assert.equal(capture.status, 2); assert.deepEqual(Buffer.from(capture.stdout.base64, 'base64'), error.stdout);
+  assert.equal(capture.stderr.totalBytes, 65537); assert.equal(capture.stderr.truncated, true); assert.equal(Buffer.from(capture.stderr.base64, 'base64').length, 65536);
+  await assert.rejects(retainPaxProducerFailure(error, {}, () => { throw Error('controlled capture failure'); }), value => value === error);
+});
+async function privateStage(directory) {
+  if (process.platform === 'win32') await windowsSystem({ operation: 'create-directory', path: directory });
+  else await mkdir(directory, { mode: 0o700 });
+}
+async function fixture(t) {
+  const root = await mkdtemp(path.join(tmpdir(), 'gestalt archive é '));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const source = path.join(root, 'gestalt-skills'); await mkdir(source);
+  await mkdir(path.join(source, 'nested space 東京'));
+  await writeFile(path.join(source, 'nested space 東京', 'file'), Buffer.from([0, 255, 10, 13]));
+  const archive = path.join(root, 'archive.tar.gz'); await archives.create(source, archive);
+  return { root, source, archive };
+}
+test('Node archive round trip preserves names and binary bytes without external tools', async t => {
+  const { root, archive } = await fixture(t), stage = path.join(root, 'stage'); await privateStage(stage);
+  assert.deepEqual(await archives.list(archive), [
+    { path: 'gestalt-skills', kind: 'directory' }, { path: 'gestalt-skills/nested space 東京', kind: 'directory' },
+    { path: 'gestalt-skills/nested space 東京/file', kind: 'file' },
+  ]);
+  await archives.extract(archive, stage, 'gestalt-skills');
+  assert.deepEqual(await readFile(path.join(stage, 'gestalt-skills/nested space 東京/file')), Buffer.from([0, 255, 10, 13]));
+  await assert.rejects(archives.create(path.join(stage, 'gestalt-skills'), archive), /EEXIST/);
+});
+
+async function altered(archive, mutate) {
+  const bytes = gunzipSync(await readFile(archive)); mutate(bytes);
+  // Recompute each modified header's checksum; test validation beyond integrity.
+  for (let offset = 0; offset + 512 <= bytes.length; ) {
+    const header = bytes.subarray(offset, offset + 512); if (header.every(b => b === 0)) break;
+    header.fill(32, 148, 156); const sum = header.reduce((total, b) => total + b, 0);
+    header.write(sum.toString(8).padStart(7, '0') + '\0', 148, 8, 'ascii');
+    offset += 512 + Math.ceil(Number.parseInt(header.subarray(124, 136).toString().replace(/\0.*$/, ''), 8) / 512) * 512;
+  }
+  await writeFile(archive, gzipSync(bytes));
+}
+function headers(bytes) {
+  const result = [];
+  for (let offset = 0; offset + 512 <= bytes.length;) {
+    const header = bytes.subarray(offset, offset + 512);
+    if (header.every(byte => byte === 0)) break;
+    result.push(header);
+    offset += 512 + Math.ceil(Number.parseInt(header.subarray(124, 136).toString().replace(/\0.*$/, ''), 8) / 512) * 512;
+  }
+  return result;
+}
+test('archive round trip preserves an executable skill resource with only private owner permissions',
+  { skip: process.platform === 'win32' ? 'Windows does not represent POSIX owner-execute permissions' : false }, async t => {
+    const { root, source } = await fixture(t), resource = path.join(source, 'run-resource');
+    await writeFile(resource, `#!${process.execPath}\nprocess.stdout.write('resource-ready\\n');\n`);
+    await chmod(resource, 0o755);
+    const archive = path.join(root, 'executable.tar.gz'), stage = path.join(root, 'executable-stage');
+    await archives.create(source, archive); await privateStage(stage);
+    await archives.extract(archive, stage, 'gestalt-skills');
+    const installed = path.join(stage, 'gestalt-skills/run-resource');
+    assert.equal((await stat(installed)).mode & 0o7777, 0o700);
+    assert.equal(execFileSync(installed, [], { encoding: 'utf8', shell: false }), 'resource-ready\n');
+    assert.equal((await stat(path.join(stage, 'gestalt-skills/nested space 東京/file'))).mode & 0o7777, 0o600);
+    const repeated = path.join(root, 'repeated.tar.gz'); await archives.create(path.join(stage, 'gestalt-skills'), repeated);
+    assert.deepEqual(await readFile(repeated), await readFile(archive));
+  });
+test('archive mode metadata grants only owner-execute and rejects malformed fields before extraction', async t => {
+  const { root, archive } = await fixture(t), original = await readFile(archive), stage = path.join(root, 'stage');
+  await privateStage(stage);
+  await altered(archive, bytes => { for (const header of headers(bytes)) header.write('0007777\0', 100, 8, 'ascii'); });
+  await archives.extract(archive, stage, 'gestalt-skills');
+  if (process.platform !== 'win32') {
+    for (const relative of ['gestalt-skills', 'gestalt-skills/nested space 東京', 'gestalt-skills/nested space 東京/file'])
+      assert.equal((await stat(path.join(stage, relative))).mode & 0o7777, 0o700);
+  }
+  await writeFile(archive, original);
+  await altered(archive, bytes => { for (const header of headers(bytes)) header.write('0007666\0', 100, 8, 'ascii'); });
+  const nonExecutable = path.join(root, 'non-executable-stage'); await privateStage(nonExecutable);
+  await archives.extract(archive, nonExecutable, 'gestalt-skills');
+  if (process.platform !== 'win32') assert.equal((await stat(path.join(nonExecutable, 'gestalt-skills/nested space 東京/file'))).mode & 0o7777, 0o600);
+  await writeFile(archive, original);
+  await altered(archive, bytes => headers(bytes).at(-1).write('0008888\0', 100, 8, 'ascii'));
+  const invalidStage = path.join(root, 'invalid-stage'); await privateStage(invalidStage);
+  await assert.rejects(archives.extract(archive, invalidStage, 'gestalt-skills'), /numeric field/);
+  assert.deepEqual(await readdir(invalidStage), []);
+});
+for (const unsafe of ['/escape', '../escape', 'gestalt-skills/../escape', 'gestalt-skills\\escape', 'C:/escape', 'gestalt-skills/CON', 'gestalt-skills/a.'])
+  test(`archive rejects unsafe path ${JSON.stringify(unsafe)} before any extraction`, async t => {
+    const { root, archive } = await fixture(t), stage = path.join(root, 'stage'); await privateStage(stage);
+    await altered(archive, bytes => { bytes.fill(0, 0, 100); bytes.write(unsafe); });
+    await assert.rejects(archives.extract(archive, stage, 'gestalt-skills'), /Unsafe/);
+    assert.deepEqual(await readdir(stage), []);
+  });
+for (const type of ['1', '2', '3', '6', 'K']) test(`archive rejects tar type ${type} before extraction`, async t => {
+  const { root, archive } = await fixture(t), stage = path.join(root, 'stage'); await privateStage(stage);
+  await altered(archive, bytes => { bytes[156] = type.charCodeAt(0); });
+  await assert.rejects(archives.extract(archive, stage, 'gestalt-skills'), /link or special/);
+  assert.deepEqual(await readdir(stage), []);
+});
+async function frozenNativePax() {
+  const base = new URL('./fixtures/native-runtime/', import.meta.url);
+  const provenance = JSON.parse(await readFile(new URL('native-pax.provenance.json', base)));
+  const bytes = await readFile(new URL('native-pax.tar.gz', base));
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  assert.equal(provenance.schemaVersion, 1); assert.equal(provenance.producer.exitCode, 0); assert.equal(provenance.producer.invocations, 1);
+  assert.equal(provenance.archive.file, 'native-pax.tar.gz'); assert.equal(bytes.length, provenance.archive.bytes);
+  assert.equal(digest, provenance.archive.sha256); assert.equal(digest, '76784247fd40f79fd58df6b3746f854f49f8aa5c423ca45679df304d3b9d2a1e');
+  assert.ok(provenance.producer.argv.includes('--format=pax')); assert.ok(provenance.archive.headerTypes.includes('x'));
+  assert.deepEqual(provenance.inputs.map(input => input.path), ['gestalt-skills', 'gestalt-skills/nested space 東京', 'gestalt-skills/nested space 東京/file']);
+  assert.deepEqual(Buffer.from(provenance.inputs.at(-1).base64, 'base64'), Buffer.from([0, 255, 10, 13]));
+  return bytes;
+}
+test('frozen native Unix PAX fixture verifies provenance and extracts Unicode names and binary bytes', async t => {
+  const { root } = await fixture(t), archive = path.join(root, 'frozen-pax.tar.gz'), stage = path.join(root, 'frozen-stage'); await privateStage(stage);
+  await writeFile(archive, await frozenNativePax());
+  assert.deepEqual(await archives.list(archive), [
+    { path: 'gestalt-skills', kind: 'directory' }, { path: 'gestalt-skills/nested space 東京', kind: 'directory' },
+    { path: 'gestalt-skills/nested space 東京/file', kind: 'file' },
+  ]);
+  await archives.extract(archive, stage, 'gestalt-skills');
+  const file = path.join(stage, 'gestalt-skills/nested space 東京/file');
+  assert.deepEqual(await readFile(file), Buffer.from([0, 255, 10, 13]));
+  if (process.platform !== 'win32') assert.equal((await stat(file)).mode & 0o7777, 0o600);
+});
+test('archive accepts existing native tar PAX names/metadata without adopting owner, mode or extension authority', async t => {
+  const { root, source } = await fixture(t), archive = path.join(root, 'existing-pax.tar.gz'), stage = path.join(root, 'stage'); await privateStage(stage);
+  if (process.platform === 'win32') {
+    // Read an actual native PAX archive. Windows stock tar production crashed
+    // before extraction in the retained run; that producer is not repaired here.
+    await writeFile(archive, await frozenNativePax());
+  } else {
+  const tar = process.platform === 'win32' ? path.join(process.env.SystemRoot, 'System32', 'tar.exe') : 'tar';
+  const argv = ['--format=pax', '-czf', archive, '-C', path.dirname(source), path.basename(source)];
+  try { execFileSync(tar, argv, { shell: false, stdio: 'pipe' }); }
+  catch (error) { await retainPaxProducerFailure(error, { executable: tar, argv, cwd: process.cwd() }, async value => {
+    if (!process.env.GESTALT_NATIVE_RUNTIME_EVIDENCE) { t.diagnostic(JSON.stringify(value)); return; }
+    const directory = process.env.GESTALT_NATIVE_RUNTIME_EVIDENCE; await mkdir(directory, { recursive: true });
+    await writeFile(path.join(directory, 'archive-pax-producer-failure.json'), JSON.stringify(value, null, 2), { flag: 'wx' });
+  }); }
+  }
+  await archives.extract(archive, stage, 'gestalt-skills');
+  assert.deepEqual(await readFile(path.join(stage, 'gestalt-skills/nested space 東京/file')), Buffer.from([0, 255, 10, 13]));
+});
+test('archive rejects case collisions, wrong roots, damaged checksums and trailing payload', async t => {
+  const { root, archive } = await fixture(t), original = await readFile(archive), stage = path.join(root, 'stage'); await privateStage(stage);
+  await altered(archive, bytes => { bytes.fill(0, 512, 612); bytes.write('GESTALT-SKILLS', 512); });
+  await assert.rejects(archives.extract(archive, stage, 'gestalt-skills'), /case-colliding/);
+  await writeFile(archive, original); await assert.rejects(archives.extract(archive, stage, 'other-root'), /Unexpected/);
+  const checksum = gunzipSync(original); checksum[1] ^= 1; await writeFile(archive, gzipSync(checksum));
+  await assert.rejects(archives.list(archive), /checksum/);
+  await writeFile(archive, gzipSync(Buffer.concat([gunzipSync(original), Buffer.from('extra')])));
+  await assert.rejects(archives.list(archive), /trailing/); assert.deepEqual(await readdir(stage), []);
+});
+test('archive creation refuses hardlinks and existing extraction payloads', async t => {
+  const { root, source, archive } = await fixture(t), stage = path.join(root, 'stage'); await privateStage(stage);
+  await writeFile(path.join(stage, 'keep'), 'private data');
+  await assert.rejects(archives.extract(archive, stage, 'gestalt-skills'), /empty/);
+  await link(path.join(source, 'nested space 東京/file'), path.join(source, 'hardlink'));
+  await assert.rejects(archives.create(source, path.join(root, 'bad.tar.gz')), /link/);
+  assert.equal(await readFile(path.join(stage, 'keep'), 'utf8'), 'private data');
+});
+test('archive refuses oversized compressed input and declared payload before extraction', async t => {
+  const { root, archive } = await fixture(t), original = await readFile(archive), stage = path.join(root, 'stage'); await privateStage(stage);
+  await truncate(archive, 64 * 1024 * 1024 + 1);
+  await assert.rejects(archives.extract(archive, stage, 'gestalt-skills'), /bounded file/); assert.deepEqual(await readdir(stage), []);
+  await writeFile(archive, original);
+  await altered(archive, bytes => { bytes.write((256 * 1024 * 1024 + 1).toString(8).padStart(11, '0') + '\0', 124, 12, 'ascii'); });
+  await assert.rejects(archives.extract(archive, stage, 'gestalt-skills'), /member size/); assert.deepEqual(await readdir(stage), []);
+});

@@ -10,6 +10,7 @@ export async function buildOwnedProcess(root, outputDirectory = path.join(root, 
   if (!['linux', 'win32', 'darwin'].includes(process.platform)) throw new Error('Unsupported ownership target');
   await mkdir(outputDirectory, { recursive: true });
   const source = path.join(root, 'src/cli/platform/native/owned-process.c');
+  const windowsInputs = ['src/cli/platform/native/windows-storage-check.c', 'src/cli/platform/native/windows-storage-check.h'];
   const output = path.join(outputDirectory, process.platform === 'win32' ? 'gestalt-owned-process.exe' : 'gestalt-owned-process');
   // Opt-in CI observations only. No runtime/ownership contract is inferred.
   const journal = process.env.GESTALT_NATIVE_BUILD_DIAGNOSTICS === '1' ? path.join(outputDirectory, 'build-progress.jsonl') : undefined;
@@ -47,7 +48,8 @@ export async function buildOwnedProcess(root, outputDirectory = path.join(root, 
       const equals = line.indexOf('='); return [line.slice(0, equals), line.slice(equals + 1)];
     }));
     compiler = 'cl.exe';
-    argv = ['/nologo', '/W3', '/WX', '/std:c11', '/O2', '/D_CRT_SECURE_NO_WARNINGS', source, `/Fe:${output}`, `/Fo:${path.join(outputDirectory, 'owned-process.obj')}`, 'user32.lib'];
+    argv = ['/nologo', '/W3', '/WX', '/std:c11', '/O2', '/D_CRT_SECURE_NO_WARNINGS', source, path.join(root, windowsInputs[0]),
+      `/Fe:${output}`, `/Fo:${outputDirectory}${path.sep}`, 'user32.lib', 'advapi32.lib', 'netapi32.lib'];
   } else argv = ['-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-D_FORTIFY_SOURCE=2', source, '-o', output];
   const compiled = invoke('compiler', compiler, argv, { env: environment, encoding: 'utf8', shell: false });
   if (compiled.status !== 0) throw new Error(`Native ownership build failed: ${compiled.error?.message ?? ''}\n${compiled.stdout}\n${compiled.stderr}`);
@@ -60,6 +62,9 @@ export async function buildOwnedProcess(root, outputDirectory = path.join(root, 
     compiler, compilerVersion: `${version.stdout ?? ''}${version.stderr ?? ''}`.trim(), argv,
     observedAt: new Date().toISOString(),
   };
+  if (process.platform === 'win32') provenance.sourceInputs = await Promise.all(['src/cli/platform/native/owned-process.c', ...windowsInputs].map(async relative => {
+    const bytes = await readFile(path.join(root, relative)); return { path: relative, bytes: bytes.length, sha256: digest(bytes) };
+  }));
   await writeFile(`${output}.provenance.json`, `${JSON.stringify(provenance, null, 2)}\n`);
   return output;
 }

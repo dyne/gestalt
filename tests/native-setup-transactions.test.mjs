@@ -17,19 +17,41 @@ import { updateManager } from '../src/cli/setup/manager-update.ts';
 import { capturedNodeCommand } from './fixtures/native-node-command.mjs';
 import { captureSetupRetention } from './fixtures/setup-retention.mjs';
 import { captureCopyTree } from '../scripts/native-copy-provenance.mjs';
+import { verifyOwnershipBuildInputs } from './fixtures/native-runtime/source-binding.mjs';
 
 const repository = path.resolve(import.meta.dirname, '..');
-const artifacts = await mkdtemp(path.join(tmpdir(), 'native-setup-build-'));
-const manager = await buildCli(repository, path.join(artifacts, 'gestalt.mjs'));
-const unixProbe = await buildNativePlatform(repository, path.join(artifacts, 'native'));
-const ownershipHelper = await buildOwnedProcess(repository, path.join(artifacts, 'native'));
+const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+const prebuilt = process.env.GESTALT_NATIVE_SETUP_ARTIFACTS;
+const artifacts = prebuilt ? await realpath(prebuilt) : await mkdtemp(path.join(tmpdir(), 'native-setup-build-'));
+let manager = path.join(artifacts, 'gestalt.mjs'), ownershipHelper, unixProbe;
+if (prebuilt) {
+  assert.equal(process.platform, 'win32');
+  const manifest = JSON.parse(await readFile(path.join(artifacts, 'artifacts.json'), 'utf8'));
+  assert.equal(manifest.platform, process.platform);
+  assert.equal(manifest.arch, process.arch);
+  assert.equal(manifest.abi, process.versions.modules);
+  assert.equal(manifest.helper, path.join('native', 'gestalt-owned-process.exe'));
+  ownershipHelper = path.join(artifacts, manifest.helper);
+  for (const file of [manager, ownershipHelper, ownershipHelper + '.provenance.json']) {
+    const expected = manifest.artifacts.find(entry => entry.relative === path.relative(artifacts, file));
+    const bytes = await readFile(file);
+    assert.equal(bytes.length, expected?.bytes);
+    assert.equal(hash(bytes), expected?.sha256);
+  }
+  const provenance = JSON.parse(await readFile(ownershipHelper + '.provenance.json', 'utf8'));
+  assert.equal(provenance.artifactSha256, hash(await readFile(ownershipHelper)));
+  assert.deepEqual(await verifyOwnershipBuildInputs(provenance, repository), manifest.nativeHelperInputs);
+} else {
+  await buildCli(repository, manager);
+  unixProbe = await buildNativePlatform(repository, path.join(artifacts, 'native'));
+  ownershipHelper = await buildOwnedProcess(repository, path.join(artifacts, 'native'));
+  test.after(() => rm(artifacts, { recursive: true, force: true }));
+}
 if (process.env.GESTALT_NATIVE_SETUP_EVIDENCE) {
   await mkdir(process.env.GESTALT_NATIVE_SETUP_EVIDENCE, { recursive: true });
   await copyFile(`${ownershipHelper}.provenance.json`, path.join(process.env.GESTALT_NATIVE_SETUP_EVIDENCE, 'transaction-ownership.provenance.json'));
   await copyFile(ownershipHelper, path.join(process.env.GESTALT_NATIVE_SETUP_EVIDENCE, path.basename(ownershipHelper)));
 }
-test.after(() => rm(artifacts, { recursive: true, force: true }));
-const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const custom = '# keep custom model\nmodel="fixture-custom"\n[mcp_servers.custom]\ncommand="custom"\ndefault_tools_approval_mode="prompt"\n';
 // Native Windows ACL setup measured 117–138s even on an early failed attempt;
 // readiness remains an observed phase, never a deadline-based success condition.

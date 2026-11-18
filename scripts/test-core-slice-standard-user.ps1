@@ -1,5 +1,5 @@
 # Disposable CI account only. Artifacts were built before this consumer token.
-param([Parameter(Mandatory=$true)][string]$Repository, [Parameter(Mandatory=$true)][string]$Node, [Parameter(Mandatory=$true)][string]$GitDirectory)
+param([Parameter(Mandatory=$true)][string]$Repository, [Parameter(Mandatory=$true)][string]$Node, [Parameter(Mandatory=$true)][string]$GitDirectory, [switch]$FinalPackage)
 $ErrorActionPreference = 'Stop'
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 $administrator = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -56,7 +56,29 @@ $developmentMode = Get-ItemPropertyValue -LiteralPath $developmentModeKey -Name 
 if ($developmentModeKind -ne 'DWord' -or $developmentMode -ne 0) { throw 'Native core slice requires explicit Developer Mode DWORD0 readback' }
 & $Node tests/fixtures/native-no-devmode.mjs (Join-Path $evidence 'developer-mode-negative-capability.json')
 if ($LASTEXITCODE -ne 0) { throw 'Actual ordinary-user no-Developer-Mode capability check failed' }
+if ($FinalPackage) {
+  & $Node scripts/record-native-setup.mjs --verify-copy
+  if ($LASTEXITCODE -ne 0) { throw 'Copied source or toolchain verification failed' }
+  $env:GESTALT_CORE_SLICE_NPM12_ENTRY = Join-Path $Repository '.native-dependencies/npm12/package/bin/npm-cli.js'
+}
 & $Node tests/native-core-slice.mjs --artifacts native-evidence/core-slice-prebuilt --agents .native-dependencies/agents --evidence $evidence
 $result = $LASTEXITCODE
 if ($null -eq $result) { throw 'Native core slice exit code was not observed' }
+if ($FinalPackage -and $result -eq 0) {
+  $env:GESTALT_NATIVE_PACKAGE_FOCUSED = '1'
+  $env:GESTALT_NATIVE_RUNTIME_ARTIFACTS = Join-Path $Repository 'native-evidence/core-slice-prebuilt'
+  $env:GESTALT_NATIVE_RUNTIME_EVIDENCE = Join-Path $evidence 'installed-runtime'
+  $env:GESTALT_NATIVE_AGENTS_SOURCE = Join-Path $Repository '.native-dependencies/agents'
+  & $Node scripts/test-core-runtime.mjs
+  $result = $LASTEXITCODE
+  if ($null -eq $result) { throw 'Installed runtime contracts exit code was not observed' }
+  if ($result -eq 0) {
+    $env:GESTALT_NATIVE_SETUP_ARTIFACTS = $env:GESTALT_NATIVE_RUNTIME_ARTIFACTS
+    $env:GESTALT_NATIVE_SETUP_EVIDENCE = Join-Path $evidence 'transactions'
+    $selection = '^(native setup preserves last successful provenance on a failed repeat|compiled install/update preserves native skills, extra selection and optional Mobile policy|native restart update failure retains the live relay, descriptor and non-owned data|native standalone invalid replacement preserves installed executable)$'
+    & $Node --test --test-reporter=tap "--test-name-pattern=$selection" tests/native-setup-transactions.test.mjs
+    $result = $LASTEXITCODE
+    if ($null -eq $result) { throw 'Native setup transaction contracts exit code was not observed' }
+  }
+}
 exit $result

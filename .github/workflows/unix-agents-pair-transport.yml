@@ -1,0 +1,51 @@
+name: Unix Agents pairing test transport
+on:
+  push:
+    branches: [test/native-unix-agents-pair-r2]
+permissions:
+  contents: read
+jobs:
+  pair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Verify disposable runner
+        shell: bash
+        env:
+          PAIR_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: test "$PAIR_RUNNER_ENVIRONMENT" = github-hosted
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: dyne/gestalt-agents
+          ref: 8827347387ee32e2c5bd7eb912f9b80185cdad45
+          path: .native-dependencies/agents
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.3
+      - name: Prepare pinned npm and frozen Manager dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p native-evidence/unix-agents-pair/preflight
+          test "$(node -p 'process.version')" = v24.22.3
+          test "$(node -p 'process.platform+"-"+process.arch')" = linux-x64
+          test "$(id -u)" != 0
+          npm install --prefix "$RUNNER_TEMP/unix-pair-toolchain" --ignore-scripts --save-exact --no-audit --no-fund npm@11.19.1 > native-evidence/unix-agents-pair/preflight/npm-bootstrap.log 2>&1
+          export PATH="$RUNNER_TEMP/unix-pair-toolchain/node_modules/.bin:$PATH"
+          test "$(npm --version)" = 11.19.1
+          printf '%s\n' "$RUNNER_TEMP/unix-pair-toolchain/node_modules/.bin" >> "$GITHUB_PATH"
+          npm ci --ignore-scripts --no-audit --no-fund > native-evidence/unix-agents-pair/preflight/manager-dependencies.log 2>&1
+      - name: Build current package and verify both exact setup owners on Linux
+        shell: bash
+        run: node tests/unix-pair-transport/driver.mjs .native-dependencies/agents native-evidence/unix-agents-pair
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: unix-agents-pair-linux-x64
+          path: native-evidence/unix-agents-pair/
+          if-no-files-found: error

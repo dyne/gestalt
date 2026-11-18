@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Unix paired Manager and Agents result",
+  "type": "object",
+  "required": ["schemaVersion", "startedAt", "finishedAt", "platform", "architecture", "node", "abi", "uid", "commands", "cases", "state", "failure", "fixtureCleanup"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "startedAt": {"type": "string", "format": "date-time"},
+    "finishedAt": {"type": "string", "format": "date-time"},
+    "platform": {"const": "linux"},
+    "architecture": {"const": "x64"},
+    "node": {"const": "v24.22.3"},
+    "abi": {"type": "string"},
+    "uid": {"type": "integer", "minimum": 1},
+    "state": {"enum": ["pass", "fail"]},
+    "failure": {"type": ["object", "null"]},
+    "fixtureCleanup": {
+      "type": "object",
+      "required": ["attempted", "removed", "path"],
+      "properties": {"attempted": {"type": "boolean"}, "removed": {"type": "boolean"}, "path": {"type": ["string", "null"]}}
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "argv", "cwd", "exit", "signal", "error", "startedAt", "observedAt", "stdout", "stderr"],
+        "properties": {"exit": {"type": ["integer", "null"]}, "stdout": {"$ref": "#/$defs/file"}, "stderr": {"$ref": "#/$defs/file"}}
+      }
+    },
+    "cases": {
+      "type": "array",
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "required": ["name", "startedAt", "observedAt", "status"],
+        "properties": {
+          "name": {"enum": ["fresh-022-direct", "repeat-direct", "preexisting-private-operator-update", "npm-global-lifecycle-and-repeat"]},
+          "status": {"enum": ["pass", "fail"]}
+        }
+      }
+    }
+  },
+  "allOf": [{
+    "if": {"properties": {"state": {"const": "pass"}}},
+    "then": {
+      "required": ["manager", "agents", "codex", "package", "preconditions"],
+      "properties": {"cases": {"minItems": 4, "items": {"properties": {"status": {"const": "pass"}}}}}
+    }
+  }],
+  "$defs": {
+    "file": {
+      "type": "object",
+      "required": ["path", "bytes", "sha256", "mode"],
+      "properties": {"sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "bytes": {"type": "integer", "minimum": 0}}
+    }
+  }
+}

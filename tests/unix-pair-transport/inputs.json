@@ -1,0 +1,17 @@
+{
+  "managerBase": "283c74bfee93ca05bd4c82dd9608429434cff490",
+  "agentsAccepted": "e98a4cd15f945a7749d02e071126a854376b93c0",
+  "agentsTransport": "8827347387ee32e2c5bd7eb912f9b80185cdad45",
+  "agentsTree": "0038005169b5c843b57e887ea8f463d7fba666c4",
+  "agentsRuntimeLock": "e28000921d10392fe3570d48c18b45e0c7561d168ada67876cd0c1f0b5353084",
+  "node": "v24.22.3",
+  "npm": "11.19.1",
+  "sources": {
+    "public/gestalt": "7d3040aeb6eee25e130045c999e148176692e0a9a0657e819907922baf14f863",
+    "tests/setup-contract.test.mjs": "2c9d48dc79af9431d3c7d6736a8add3c53bbb765c3f8057015a18120c21791dd",
+    "package-lock.json": "0366b1b625488569af0a4e7a512cbeeb0676f05f0a7f22b203b7c3f1fc778775",
+    "tests/fixtures/native-runtime/codex-release.json": "83c1098fa9e5ac00b1bb2210bcb19d79f5539d0fec9ccf54897edd2bc9d15202",
+    "tests/unix-pair-transport/frozen/gestalt-owned-process.exe": "753b5842c0dd0aa293bc0246312b73e955718ec97491088939e0f951ae2e6128",
+    "tests/unix-pair-transport/frozen/gestalt-owned-process.exe.provenance.json": "6577dc64c6f53d55d6bd103a8bcd2624d8cb916d1963f54b7227b62e6cdc6645"
+  }
+}

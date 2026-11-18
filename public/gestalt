@@ -3546,37 +3546,119 @@ renameSync(temporary, destination);
 NODE
 }
 
+agents_setup_uses_node() {
+  [[ -f $marketplace_setup && -f ${marketplace_setup%.sh}.mjs && -f ${marketplace_setup%/*}/scripts/setup-agents.mjs ]]
+}
+
+prepare_agents_homes() {
+  local native_owner=false
+  if agents_setup_uses_node; then native_owner=true; fi
+  node - "$codex_home" "$gestalt_home" "$native_owner" <<'NODE'
+const { accessSync, constants, mkdirSync, realpathSync, statSync } = require('node:fs');
+const { basename, dirname, isAbsolute, join, relative, sep } = require('node:path');
+function canonical(path) {
+  try { return realpathSync(path); }
+  catch (error) {
+    if (error.code !== 'ENOENT' || dirname(path) === path) throw error;
+    return join(canonical(dirname(path)), basename(path));
+  }
+}
+function read(path) {
+  try { return statSync(path); }
+  catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+}
+try {
+  const [selectedCodex, selectedGestalt, nativeOwner] = process.argv.slice(2);
+  const [codex, gestalt] = [selectedCodex, selectedGestalt].map(canonical);
+  const within = (root, path) => {
+    const rest = relative(root, path);
+    return !isAbsolute(rest) && rest !== '..' && !rest.startsWith('..' + sep);
+  };
+  const home = realpathSync(process.env.HOME);
+  if (within(codex, gestalt) || within(gestalt, codex) || [codex, gestalt].some(path => within(path, home)))
+    throw new Error('CODEX_HOME and GESTALT_HOME must be separate managed directories outside HOME itself');
+  const missing = [];
+  for (const path of [codex, gestalt]) {
+    const info = read(path);
+    if (!info) { missing.push(path); continue; }
+    try {
+      if (!info.isDirectory()) throw new Error('expected a directory');
+      accessSync(path, constants.W_OK | constants.X_OK);
+    } catch { throw new Error('managed directory is not writable: ' + path); }
+    if (nativeOwner === 'true' && (info.uid !== process.getuid() || (info.mode & 0o077) !== 0))
+      throw new Error('native Agents setup requires a directory private to its owner: ' + path + '; select private managed homes before retrying');
+  }
+  for (const path of missing) mkdirSync(path, { recursive: true, mode: 0o700 });
+} catch (error) { console.error('gestalt: ' + error.message); process.exitCode = 1; }
+NODE
+}
+
 run_marketplace_setup() {
   local -r mode=$1
   local -r include_extra_skills=$2
   local marketplace_action
-  agents_setup_stage=''
+  # Bash can unwind this function before running the shell's EXIT trap.
+  agents_setup_stage='' agents_setup_handoff=false agents_setup_snapshot_ready=false
+  agents_codex_gate=false agents_gestalt_gate=false
+  agents_operation_lock=$codex_home/.gestalt-manager-setup.lock
+  agents_codex_gate_path=$codex_home/.gestalt-setup.lock
+  agents_gestalt_gate_path=$gestalt_home/.gestalt-setup.lock
   local -a setup_args=()
 
   check_node_version
   require_command npm
   require_command codex
-  mkdir -p -- "$codex_home" "$gestalt_home"
-  agents_setup_lock=$codex_home/.gestalt-setup.lock
-  mkdir -- "$agents_setup_lock" 2>/dev/null ||
-    die 'Agents setup is already running or Codex home is not writable; verify the previous installer exited before removing .gestalt-setup.lock'
-  # Serialize setup and roll back manager-owned config edits on failure. Package
-  # installation and its own profile transaction remain the delegated owner's job.
+  prepare_agents_homes
+  mkdir -m 700 -- "$agents_operation_lock" 2>/dev/null ||
+    die "Agents setup is already running or ownership is unknown: $agents_operation_lock"
+  setup_acquire_gates() {
+    if ! "$agents_codex_gate"; then
+      mkdir -m 700 -- "$agents_codex_gate_path" 2>/dev/null || return 1
+      agents_codex_gate=true
+    fi
+    if ! "$agents_gestalt_gate"; then
+      mkdir -m 700 -- "$agents_gestalt_gate_path" 2>/dev/null || return 1
+      agents_gestalt_gate=true
+    fi
+  }
+  setup_release_gates() {
+    local status=0
+    if "$agents_gestalt_gate"; then
+      if rmdir -- "$agents_gestalt_gate_path"; then agents_gestalt_gate=false; else status=1; fi
+    fi
+    if "$agents_codex_gate"; then
+      if rmdir -- "$agents_codex_gate_path"; then agents_codex_gate=false; else status=1; fi
+    fi
+    return "$status"
+  }
+  # Keep the Manager operation lock while the Node delegate owns its setup
+  # gates. Only restore a delegated snapshot with both gates and known bytes.
   setup_cleanup() {
     local status=$?
+    local retain=false
     trap - EXIT HUP INT TERM ERR
     # Cleanup must not replace the triggering status or prevent the manager's
     # preexisting EXIT cleanup (including the update/restart worker lock).
     set +e
-    if (( status != 0 )) && [[ -n $agents_setup_stage ]]; then
-      if [[ -f $agents_setup_stage/config.toml ]]; then
-        mv -f -- "$agents_setup_stage/config.toml" "$codex_home/config.toml"
+    if (( status != 0 )) && "$agents_setup_snapshot_ready" && [[ -n $agents_setup_stage ]]; then
+      if ! setup_acquire_gates; then
+        retain=true
+      elif "$agents_setup_handoff" && { [[ -L $codex_home/config.toml ]] ||
+          ! cmp -s -- "$agents_setup_stage/config-delegated" "$codex_home/config.toml"; }; then
+        retain=true
+      elif [[ -f $agents_setup_stage/config.toml ]]; then
+        mv -f -- "$agents_setup_stage/config.toml" "$codex_home/config.toml" || retain=true
       elif [[ -f $agents_setup_stage/config-absent ]]; then
-        rm -f -- "$codex_home/config.toml"
+        rm -f -- "$codex_home/config.toml" || retain=true
       fi
     fi
-    [[ -z $agents_setup_stage ]] || rm -rf -- "$agents_setup_stage"
-    rmdir -- "$agents_setup_lock" 2>/dev/null || true
+    setup_release_gates || retain=true
+    if "$retain"; then
+      log "Agents setup ownership or rollback is unconfirmed; preserved lock $agents_operation_lock and snapshot ${agents_setup_stage:-unavailable}"
+    else
+      [[ -z $agents_setup_stage ]] || rm -rf -- "$agents_setup_stage"
+      rmdir -- "$agents_operation_lock" 2>/dev/null || true
+    fi
     cleanup
     exit "$status"
   }
@@ -3584,6 +3666,7 @@ run_marketplace_setup() {
   trap 'exit 129' HUP
   trap 'exit 130' INT
   trap 'exit 143' TERM
+  setup_acquire_gates || die 'Agents setup is already running or its setup lock ownership is unknown'
   [[ ! -L $codex_home/config.toml &&
       (! -e $codex_home/config.toml || -f $codex_home/config.toml) ]] ||
     die 'Codex config must be a regular file for setup'
@@ -3593,11 +3676,7 @@ run_marketplace_setup() {
   else
     touch "$agents_setup_stage/config-absent"
   fi
-  configure_codex_permissions
-  # Establish app defaults before the owner appends its managed MCP section,
-  # keeping first-install ordering identical to later reconciliation.
-  configure_codex_tool_approvals
-
+  agents_setup_snapshot_ready=true
   marketplace_action=upgrade
   if [[ $mode == install && ! -f $marketplace_setup ]]; then
     marketplace_action=add
@@ -3619,13 +3698,28 @@ run_marketplace_setup() {
   [[ -f $marketplace_setup ]] ||
     die "marketplace setup script is missing after ${marketplace_action}: $marketplace_setup"
 
+  # Refresh can replace the legacy owner. Check the selected owner before
+  # editing the profile, while the original snapshot is still available.
+  if agents_setup_uses_node; then prepare_agents_homes; fi
+  configure_codex_permissions
+  # Establish app defaults before the owner appends its managed MCP section.
+  configure_codex_tool_approvals
+
   if [[ $include_extra_skills == true ]]; then
     setup_args+=(--extra-skills)
   fi
 
   log 'preparing context mode, plugins, and agent profiles'
+  if agents_setup_uses_node; then
+    cp -p -- "$codex_home/config.toml" "$agents_setup_stage/config-delegated"
+    agents_setup_handoff=true
+    setup_release_gates
+  fi
   CODEX_HOME=$codex_home GESTALT_HOME=$gestalt_home \
     bash "$marketplace_setup" "${setup_args[@]}"
+  setup_acquire_gates || die 'Agents setup lock ownership is unknown after delegation'
+  # Across the portable handoff another setup may have completed. If later
+  # work fails, retain a changed configuration and the original snapshot.
   verify_context_mode_installation
   configure_codex_tool_approvals
   # Normalize our block after delegated sections/defaults are reconciled so the
@@ -3634,7 +3728,8 @@ run_marketplace_setup() {
   record_setup_provenance
   rm -rf -- "$agents_setup_stage"
   agents_setup_stage=''
-  rmdir -- "$agents_setup_lock"
+  setup_release_gates
+  rmdir -- "$agents_operation_lock"
   trap cleanup EXIT
   trap - HUP INT TERM
 }
@@ -3773,6 +3868,7 @@ NODE
 
 command_install() {
   parse_setup_options "$@"
+  prepare_agents_homes
   command_skills install
   run_marketplace_setup install "$include_extra_skills"
   install_mobile
@@ -3784,6 +3880,7 @@ command_update() {
   case $update_component in
     all | gestalt)
       update_manager
+      prepare_agents_homes
       retire_managed_xerj
       command_skills update
       run_marketplace_setup upgrade "$include_extra_skills"

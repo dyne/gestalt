@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, writeFile, readFile, readdir, readlink, lstat, rm, symlink, link, rename } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, readdir, readlink, lstat, rm, symlink, link, rename, realpath } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
 
-const wrapper = new URL('../public/gestalt', import.meta.url).pathname;
+const installedEntry = process.env.GESTALT_TEST_INSTALLED_ENTRY;
+const wrapper = installedEntry || new URL('../public/gestalt', import.meta.url).pathname;
 const canonicalSource = 'https://github.com/dyne/gestalt-skills';
 const realGit = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -31,8 +32,8 @@ async function snapshot(root, prefix = '') {
   }
   return rows;
 }
-async function fixture(t) {
-  const temp = await mkdtemp(join(tmpdir(), 'gestalt skills lifecycle '));
+async function fixture(t, temporaryParent = tmpdir()) {
+  const temp = await realpath(await mkdtemp(join(temporaryParent, 'gestalt skills lifecycle ')));
   const home = join(temp, 'home'), codex = join(home, 'custom codex'), gestalt = join(home, 'custom gestalt');
   const source = join(temp, 'release repository'), bin = join(temp, 'bin');
   const root = join(codex, 'gestalt-skills'), discovery = join(codex, 'skills');
@@ -88,7 +89,7 @@ run();\n`, { mode: 0o755 });
   function startArgs(args, overrides = {}) {
     const env = { HOME: home, CODEX_HOME: codex, GESTALT_HOME: gestalt, PATH: `${bin}:${process.env.PATH}`, GESTALT_SKILLS_SOURCE: source, FIXTURE_SOURCE: source, ...overrides };
     for (const key of Object.keys(env)) if (env[key] === undefined) delete env[key];
-    const child = spawn('bash', [wrapper, ...args], { env, cwd: temp });
+    const child = spawn(installedEntry ? process.execPath : 'bash', [wrapper, ...args], { env, cwd: temp });
     children.add(child);
     let stdout = '', stderr = '';
     child.stdout.on('data', data => stdout += data); child.stderr.on('data', data => stderr += data);
@@ -136,6 +137,20 @@ if (process.argv[1] === '-') {
 }
 function success(result) { assert.equal(result.code, 0, result.stderr); }
 function failure(result, pattern) { assert.notEqual(result.code, 0, result.stdout); assert.match(result.stderr, pattern); }
+
+test('aliased temporary parents produce canonical skill fixture receipts and discovery paths', async t => {
+  const outer = await realpath(await mkdtemp(join(tmpdir(), 'skills alias ')));
+  t.after(() => rm(outer, { recursive: true, force: true }));
+  const physical = join(outer, 'physical'), alias = join(outer, 'alias');
+  await mkdir(physical); await symlink(physical, alias);
+  const f = await fixture(t, alias);
+  assert.equal(f.temp, await realpath(f.temp));
+  success(await f.run());
+  const receipt = JSON.parse(await readFile(join(f.root, 'receipt.json')));
+  assert.equal(receipt.managedRoot, f.root); assert.equal(receipt.discoveryRoot, f.discovery);
+  assert.equal(await readlink(join(f.discovery, 'nuklear-gui')), join(f.root, 'skills/nuklear-gui'));
+  await f.clean();
+});
 
 test('fresh and repeated installs validate contents, preserve profiles and stable paths, and retain the receipt on unchanged reruns', async t => {
   const f = await fixture(t);

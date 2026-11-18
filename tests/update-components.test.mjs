@@ -42,7 +42,14 @@ command_xerj() {
   [[ $1 == update ]]; record_update xerj
   if [[ -n \${GESTALT_TEST_RESOLVED_HOME:-} ]]; then gestalt_home=$GESTALT_TEST_RESOLVED_HOME; fi
 }
-command_mobile() { record_update "restart:$1:$2:$3"; }
+command_mobile() {
+  if [[ -n \${GESTALT_TEST_RESTART_ARGV:-} ]]; then
+    printf '%s\\0' "$@" > "$GESTALT_TEST_RESTART_ARGV"
+    record_update restart-argv
+  else
+    record_update "restart:$1:$2:$3"
+  fi
+}
 main "$@"
 `), { mode: 0o755 });
   const env = {
@@ -80,7 +87,14 @@ command_skills() { [[ $1 == update ]]; record_update "skills:$1"; }
 install_mobile() { record_update mobile; }
 command_serena() { record_update serena; }
 command_xerj() { record_update xerj; }
-command_mobile() { record_update "restart:$1:$2:$3"; }
+command_mobile() {
+  if [[ -n \${GESTALT_TEST_RESTART_ARGV:-} ]]; then
+    printf '%s\\0' "$@" > "$GESTALT_TEST_RESTART_ARGV"
+    record_update restart-argv
+  else
+    record_update "restart:$1:$2:$3"
+  fi
+}
 main "$@"
 `);
   const replacement = render('new');
@@ -198,6 +212,47 @@ async function until(predicate) {
   }
   assert.fail('detached update worker did not settle within its deadline');
 }
+
+for (const [name, args, expected, extraSkills] of [
+  ['no options', [], [], false],
+  ['no options with extra skills', [], [], true],
+  ['empty and literal arguments', ['', 'space é 東京', '$(not-evaluated)', '"quoted"', '--', '--xerj', 'auto', ''],
+    ['', 'space é 東京', '$(not-evaluated)', '"quoted"', '--', '--xerj', 'auto', ''], false],
+  ['retired options and separate port arguments', ['--xerj', 'auto', '--port', '4321'], ['--port', '4321'], false],
+]) test(`reloaded detached worker preserves ${name} as exact NUL-delimited argv`, async t => {
+  const f = await reloadFixture(t);
+  const relay = spawn('sleep', ['30']);
+  const stopped = new Promise(resolve => relay.once('exit', resolve));
+  t.after(async () => { relay.kill(); await stopped; });
+  const state = join(f.home, `run/mobile-${relay.pid}.restart`);
+  const argvFile = join(f.root, 'restart-argv');
+  await writeFile(state, [f.root, ...args, ''].join('\0'));
+  await f.run(['update-restart', 'gestalt', ...(extraSkills ? ['--extra-skills'] : [])], {
+    GESTALT_MOBILE_PID: String(relay.pid), GESTALT_MOBILE_RESTART_STATE: state,
+    GESTALT_TEST_RESTART_ARGV: argvFile,
+  });
+  await until(async () => (await f.operations()).includes('new:restart-argv'));
+  await stopped;
+  assert.deepEqual((await readFile(argvFile, 'utf8')).split('\0').slice(0, -1), ['--', ...expected]);
+  assert.deepEqual(await f.operations(), ['download', 'new:skills:update', `new:agents:upgrade:${extraSkills}`, 'new:mobile', 'new:restart-argv']);
+  await assert.rejects(readFile(state), { code: 'ENOENT' });
+  await assert.rejects(readFile(join(f.home, 'run/update-restart.lock')), { code: 'ENOENT' });
+});
+
+test('empty restart descriptor fails before component updates and preserves the relay', async t => {
+  const f = await fixture(t);
+  const relay = spawn('sleep', ['30']);
+  const stopped = new Promise(resolve => relay.once('exit', resolve));
+  t.after(async () => { relay.kill(); await stopped; });
+  const state = join(f.home, `run/mobile-${relay.pid}.restart`);
+  await writeFile(state, '');
+  await f.run(['update-restart'], { GESTALT_MOBILE_PID: String(relay.pid), GESTALT_MOBILE_RESTART_STATE: state });
+  await until(async () => (await readFile(join(f.home, 'update-restart.log'), 'utf8').catch(() => '')).includes('restart descriptor is empty'));
+  await until(() => readFile(join(f.home, 'run/update-restart.lock')).then(() => false, error => error.code === 'ENOENT'));
+  assert.deepEqual(await f.operations(), []);
+  assert.equal(relay.exitCode, null); assert.equal(relay.signalCode, null);
+  assert.equal(await readFile(state, 'utf8'), '');
+});
 
 for (const fail of [false, true]) test(`reloaded detached update worker ${fail ? 'preserves the relay on failure' : 'restarts with new code and releases its lock'}`, async t => {
   const f = await reloadFixture(t);

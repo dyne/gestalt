@@ -3944,7 +3944,7 @@ command_update_restart_worker() {
   local -r restart_log=${4:-}
   local -r restart_lock=${5:-}
   local -r worker_component=${6:-all}
-  local restart_cwd restart_field manager_target
+  local restart_cwd restart_field restart_index manager_target
   local -a restart_record restart_args migrated_restart_args update_args=()
 
   [[ -n $restart_log ]] || die 'the update-restart worker log path is missing'
@@ -3963,11 +3963,18 @@ command_update_restart_worker() {
   while IFS= read -r -d '' restart_field; do
     restart_record+=("$restart_field")
   done < "$restart_state"
-  ((${#restart_record[@]} >= 1)) || die 'the Gestalt Mobile restart descriptor is empty'
+  [[ ${restart_record[0]+present} ]] || die 'the Gestalt Mobile restart descriptor is empty'
   restart_cwd=${restart_record[0]}
-  restart_args=("${restart_record[@]:1}")
-  retire_mobile_restart_arguments "${restart_args[@]}"
-  restart_args=("${migrated_restart_args[@]}")
+  # Bash 3.2 can join a quoted array slice into one argument. Copy each field
+  # explicitly, preserving empty fields and literal separators from the record.
+  restart_args=()
+  for ((restart_index = 1; restart_index < ${#restart_record[@]}; restart_index += 1)); do
+    restart_args+=("${restart_record[restart_index]}")
+  done
+  # Empty arrays are unset under Bash 3.2 nounset; conditional expansion emits
+  # zero arguments for them and retains each argument of a nonempty array.
+  retire_mobile_restart_arguments ${restart_args[@]+"${restart_args[@]}"}
+  restart_args=(${migrated_restart_args[@]+"${migrated_restart_args[@]}"})
   [[ $restart_cwd == /* && -d $restart_cwd ]] ||
     die "the Gestalt Mobile restart directory is invalid: $restart_cwd"
   [[ $worker_extra_skills == false || $worker_extra_skills == true ]] ||
@@ -3976,7 +3983,7 @@ command_update_restart_worker() {
     update_args+=(--extra-skills)
   fi
 
-  command_update "$worker_component" "${update_args[@]}"
+  command_update "$worker_component" ${update_args[@]+"${update_args[@]}"}
   validate_mobile_restart_context "$relay_pid" "$restart_state"
   log "update succeeded; gracefully stopping Gestalt Mobile process $relay_pid"
   kill -TERM "$relay_pid"
@@ -3995,7 +4002,7 @@ command_update_restart_worker() {
   resolve_manager_target
   cd -- "$restart_cwd"
   log 'restarting Gestalt Mobile with its previous options'
-  exec "$manager_target" mobile -- "${restart_args[@]}"
+  exec "$manager_target" mobile -- ${restart_args[@]+"${restart_args[@]}"}
 }
 
 strip_separator() {

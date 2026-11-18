@@ -2,6 +2,11 @@
 set -Eeuo pipefail
 
 repo_root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
+manager_command=(bash "$repo_root/public/gestalt")
+if [[ -n ${GESTALT_TEST_INSTALLED_ENTRY:-} ]]; then
+  [[ $GESTALT_TEST_INSTALLED_ENTRY == /* && -f $GESTALT_TEST_INSTALLED_ENTRY && -x $GESTALT_TEST_INSTALLED_ENTRY ]] || exit 2
+  manager_command=(node "$GESTALT_TEST_INSTALLED_ENTRY")
+fi
 test_root=$(mktemp -d "${TMPDIR:-/tmp}/gestalt-skills-transfer.XXXXXXXX")
 trap 'rm -rf -- "$test_root"' EXIT
 
@@ -39,7 +44,7 @@ skills:
 EOF
 
 HOME=$source_home CODEX_HOME=$source_codex GESTALT_HOME=$source_gestalt \
-  bash "$repo_root/public/gestalt" skills-export "$archive"
+  "${manager_command[@]}" skills-export "$archive"
 [[ -f $archive ]]
 tar -tzf "$archive" > "$test_root/members"
 grep -F 'gestalt-skills/user-agents-skills/user-skill/SKILL.md' "$test_root/members" >/dev/null
@@ -51,7 +56,7 @@ if grep -F '.system' "$test_root/members" >/dev/null; then
   exit 1
 fi
 if HOME=$source_home CODEX_HOME=$source_codex GESTALT_HOME=$source_gestalt \
-  bash "$repo_root/public/gestalt" skills-export "$archive" >/dev/null 2>&1; then
+  "${manager_command[@]}" skills-export "$archive" >/dev/null 2>&1; then
   printf 'skills export unexpectedly overwrote its destination\n' >&2
   exit 1
 fi
@@ -62,7 +67,7 @@ target_gestalt=$target_home/.gestalt
 mkdir -p "$target_home/.agents/skills/unrelated"
 printf '%s\n' '# Unrelated' > "$target_home/.agents/skills/unrelated/SKILL.md"
 HOME=$target_home CODEX_HOME=$target_codex GESTALT_HOME=$target_gestalt \
-  bash "$repo_root/public/gestalt" skills-import "$archive"
+  "${manager_command[@]}" skills-import "$archive"
 
 cmp "$source_home/.agents/skills/user-skill/SKILL.md" \
   "$target_home/.agents/skills/user-skill/SKILL.md"
@@ -87,9 +92,9 @@ fi
 printf '%s\n' '# Restored user skill' > "$source_home/.agents/skills/user-skill/SKILL.md"
 second_archive=$test_root/second.tar.gz
 HOME=$source_home CODEX_HOME=$source_codex GESTALT_HOME=$source_gestalt \
-  bash "$repo_root/public/gestalt" skills-export "$second_archive"
+  "${manager_command[@]}" skills-export "$second_archive"
 HOME=$target_home CODEX_HOME=$target_codex GESTALT_HOME=$target_gestalt \
-  bash "$repo_root/public/gestalt" skills-import "$second_archive"
+  "${manager_command[@]}" skills-import "$second_archive"
 grep -F '# Restored user skill' "$target_home/.agents/skills/user-skill/SKILL.md" >/dev/null
 
 malicious_root=$test_root/malicious
@@ -98,7 +103,7 @@ ln -s /etc/passwd "$malicious_root/gestalt-skills/user-agents-skills/bad-skill/S
 malicious_archive=$test_root/malicious.tar.gz
 tar -czf "$malicious_archive" -C "$malicious_root" gestalt-skills
 if HOME=$target_home CODEX_HOME=$target_codex GESTALT_HOME=$target_gestalt \
-  bash "$repo_root/public/gestalt" skills-import "$malicious_archive" >/dev/null 2>&1; then
+  "${manager_command[@]}" skills-import "$malicious_archive" >/dev/null 2>&1; then
   printf 'skills import unexpectedly accepted an archive link\n' >&2
   exit 1
 fi

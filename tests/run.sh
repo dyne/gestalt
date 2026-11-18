@@ -47,7 +47,7 @@ node --test "$repo_root/tests/unix-compatibility.test.mjs"
 npm --prefix "$repo_root" run test:core-runtime:focused
 bash -n "$repo_root/public/gestalt"
 bash -n "$repo_root/public/install.sh"
-bash -n "$repo_root/npm/gestalt"
+node --check "$repo_root/npm/gestalt"
 bash "$repo_root/tests/gestalt-cli.test.sh"
 bash "$repo_root/tests/install.test.sh"
 node --test "$repo_root/tests/cli-capabilities.test.mjs"

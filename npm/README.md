@@ -1,8 +1,14 @@
 # Gestalt
 
 The Gestalt command manages an isolated Codex profile, agent skills, and the
-Gestalt Mobile web interface. Requires Linux or macOS, Bash, Node.js 24 or newer,
-and an installed Codex CLI for automatic Agents setup.
+Gestalt Mobile web interface. The core CLI supports native Windows x64 and
+existing Linux/macOS installations. Node.js 24 or newer and an installed Codex
+CLI are required for automatic Agents setup. Linux and macOS also require Bash;
+Windows does not require Bash, WSL, Developer Mode, administrator access or a compiler.
+
+Native Windows Serena, Playwright/Chrome and Mobile hosting are deferred. Core
+Agents/context-mode setup remains usable without them. Other native Windows
+architectures are unsupported; macOS retains its existing best-effort Unix behavior.
 
 ```sh
 npm install -g @jaromil/gestalt
@@ -22,7 +28,8 @@ npm install -g @jaromil/gestalt --allow-scripts=@jaromil/gestalt
 Use the same flag for npm 12 updates unless the package is already approved in
 your npm configuration. The package does not override blocked-script policies.
 
-To add Mobile and the optional skill collection, run `gestalt install`.
+On Unix, `gestalt install` can also add Mobile and the optional skill collection.
+On Windows it installs the available core and reports deferred components.
 Retry or refresh only Agents with `gestalt agents install` or `gestalt agents update`.
 Setup errors fail the npm installation and print recovery instructions.
 
@@ -32,7 +39,6 @@ do not automatically provision a user profile.
 
 ```sh
 gestalt cli
-gestalt mobile
 gestalt --help
 ```
 

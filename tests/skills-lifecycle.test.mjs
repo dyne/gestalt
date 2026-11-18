@@ -6,7 +6,8 @@ import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
 
-const wrapper = new URL('../public/gestalt', import.meta.url).pathname;
+const installedEntry = process.env.GESTALT_TEST_INSTALLED_ENTRY;
+const wrapper = installedEntry || new URL('../public/gestalt', import.meta.url).pathname;
 const canonicalSource = 'https://github.com/dyne/gestalt-skills';
 const realGit = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -88,7 +89,7 @@ run();\n`, { mode: 0o755 });
   function startArgs(args, overrides = {}) {
     const env = { HOME: home, CODEX_HOME: codex, GESTALT_HOME: gestalt, PATH: `${bin}:${process.env.PATH}`, GESTALT_SKILLS_SOURCE: source, FIXTURE_SOURCE: source, ...overrides };
     for (const key of Object.keys(env)) if (env[key] === undefined) delete env[key];
-    const child = spawn('bash', [wrapper, ...args], { env, cwd: temp });
+    const child = spawn(installedEntry ? process.execPath : 'bash', [wrapper, ...args], { env, cwd: temp });
     children.add(child);
     let stdout = '', stderr = '';
     child.stdout.on('data', data => stdout += data); child.stderr.on('data', data => stderr += data);

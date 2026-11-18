@@ -56,7 +56,11 @@ $developmentMode = Get-ItemPropertyValue -LiteralPath $developmentModeKey -Name 
 if ($developmentModeKind -ne 'DWord' -or $developmentMode -ne 0) { throw 'Native core slice requires explicit Developer Mode DWORD0 readback' }
 & $Node tests/fixtures/native-no-devmode.mjs (Join-Path $evidence 'developer-mode-negative-capability.json')
 if ($LASTEXITCODE -ne 0) { throw 'Actual ordinary-user no-Developer-Mode capability check failed' }
-& $Node tests/native-core-slice.mjs --artifacts native-evidence/core-slice-prebuilt --agents .native-dependencies/agents --evidence $evidence
+$env:GESTALT_NATIVE_RUNTIME_ARTIFACTS = (Resolve-Path -LiteralPath 'native-evidence/core-slice-prebuilt').Path
+$env:GESTALT_NATIVE_RUNTIME_EVIDENCE = $evidence
+$env:GESTALT_NATIVE_AGENTS_SOURCE = (Resolve-Path -LiteralPath '.native-dependencies/agents').Path
+$env:GESTALT_NATIVE_PACKAGE_FOCUSED = '1'
+& $Node scripts/test-core-runtime.mjs
 $result = $LASTEXITCODE
 if ($null -eq $result) { throw 'Native core slice exit code was not observed' }
 exit $result

@@ -9,8 +9,9 @@ import test from 'node:test';
 import {createRequire} from 'node:module';
 import {sessionScratch} from './session-scratch-fixture.mjs';
 
-const manager = resolve('public/gestalt');
-const program = (await readFile(manager, 'utf8')).match(/^\/\/ BEGIN SESSION SCRATCH RUNTIME\n([\s\S]*?)^\/\/ END SESSION SCRATCH RUNTIME/m)[1];
+const installedEntry = process.env.GESTALT_TEST_INSTALLED_ENTRY;
+const manager = installedEntry || resolve('public/gestalt');
+const program = (await readFile(resolve('public/gestalt'), 'utf8')).match(/^\/\/ BEGIN SESSION SCRATCH RUNTIME\n([\s\S]*?)^\/\/ END SESSION SCRATCH RUNTIME/m)[1];
 const api = new Function('require', program + '\nreturn {scratchAllocate,scratchRelease};')(createRequire(import.meta.url));
 
 async function fixture(t) {
@@ -25,7 +26,7 @@ async function fixture(t) {
   await writeFile(join(context.directory, 'payload'), 'retained');
   const env = {...process.env};
   for (const key of ['GESTALT_SESSION_TMP_CONTEXT', 'TMPDIR', 'TMP', 'TEMP']) delete env[key];
-  const run = (...args) => spawnSync('bash', [manager, 'scratch', ...args], {env, encoding: 'utf8', timeout: 5000});
+  const run = (...args) => spawnSync(installedEntry ? process.execPath : 'bash', [manager, 'scratch', ...args], {env, encoding: 'utf8', timeout: 5000});
   const inspect = () => {
     const result = run('inspect', '--cwd', workspace, '--owner', context.ownerId);
     assert.equal(result.status, 0, result.stderr);

@@ -1,0 +1,46 @@
+name: Windows ordinary input test transport
+on:
+  push:
+    branches: [test/ordinary-input-r2]
+permissions:
+  contents: read
+jobs:
+  ordinary-input:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: "false"
+    steps:
+      - name: Verify disposable Windows runner
+        shell: pwsh
+        env:
+          ORDINARY_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          if ($env:ORDINARY_RUNNER_ENVIRONMENT -ne 'github-hosted') { throw 'A disposable GitHub-hosted runner is required' }
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.3
+          architecture: x64
+          package-manager-cache: false
+      - name: Build and verify ordinary byte input
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $evidence = Join-Path $PWD 'native-evidence/windows-ordinary-input'
+          New-Item -ItemType Directory -Path $evidence -Force | Out-Null
+          & node tests/windows-ordinary-input-transport/driver.mjs $evidence 1> (Join-Path $evidence 'driver.stdout') 2> (Join-Path $evidence 'driver.stderr')
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: windows-ordinary-input-win32-x64
+          path: native-evidence/windows-ordinary-input/
+          if-no-files-found: error

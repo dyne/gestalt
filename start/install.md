@@ -1,44 +1,87 @@
 # Install Gestalt
 
-The installer is a small Bash bootstrapper. It downloads the versioned manager
-script, validates its Bash syntax and version declaration, installs it atomically
-in a user-owned directory, and runs `gestalt install` for Agents, the optional
-Dyne.org skill collection, and Mobile.
+Use npm for the core CLI. Linux and macOS users can also use the existing Bash
+installer. The native Windows x64 candidate has been validated separately from
+the public npm release. The published `0.16.1` package supports Linux and macOS.
 
 ## Install with npm
 
-On Linux or macOS with Node.js 24 or newer, Bash, and the Codex CLI:
+Install Node.js 24 or newer, npm and a compatible Codex CLI in the same account.
+Linux and macOS also need Bash. Native Windows x64 uses PowerShell or cmd and
+requires no Bash, WSL, Developer Mode, administrator privileges or compiler
+for core setup. Keep native Git on PATH when you use the Git-backed skill
+collection or a local Agents checkout.
+
+On Windows, check the registry before installing from `latest`. Use a release
+whose `os` includes `win32`, or an explicitly supplied and verified Windows-enabled
+tarball.
+
+```powershell
+npm view @jaromil/gestalt@latest version os
+```
+
+On Linux or macOS, or once the registry lists a Windows-enabled release, use the
+following command with npm 11.
 
 ```sh
 npm install -g @jaromil/gestalt
-gestalt cli
 ```
 
-Global npm installation automatically installs or reconciles Agents and their
-context-mode runtime in the isolated Codex profile when install scripts are allowed.
-With npm 12, approve this package for the install:
+With npm 12, approve the package's lifecycle script. Use a Node version supported
+by your npm client. npm 12.2.2 requires at least Node 24.15.0 on the Node 24 line.
 
 ```sh
 npm install -g @jaromil/gestalt --allow-scripts=@jaromil/gestalt
 ```
 
-The same approval is needed on npm 12 updates unless it is already configured
-in npm. The installer respects blocked-script policies.
+For a verified local tarball, approve the resolved file instead. In PowerShell,
+substitute the supplied tarball filename.
 
-Run `gestalt install` to add
-the optional skill collection and Mobile. Use `gestalt agents install` to retry
-Agents setup, or `gestalt agents update` to refresh it independently.
+```powershell
+$tarball = (Resolve-Path .\gestalt-candidate.tgz).Path
+npm install -g "--allow-scripts=file:$tarball" $tarball
+```
 
-`npm install -g @jaromil/gestalt --ignore-scripts` installs only the wrapper;
-Agents setup remains explicit in that case. Local dependency installs and npx
-inspection do not provision the profile. Setup failures fail npm installation
-and print recovery instructions.
-The executable lives in npm's configured global prefix; use `command -v gestalt`
-to check which installation your shell selects.
+When lifecycle scripts are allowed, a global install reconciles Agents and
+context-mode in the isolated Codex profile. Use `--ignore-scripts` to install
+only the command, then run `gestalt agents install` when ready. Local dependency
+installs and `npx @jaromil/gestalt --help` leave profile setup explicit. If setup fails,
+its diagnostic names the next action. Retry Agents with `gestalt agents install`
+or refresh them with `gestalt agents update`.
 
-Update the command and reconcile Agents with `npm install -g @jaromil/gestalt@latest`. For an npm
-installation, `gestalt update` updates managed components and reminds you to
-update the command through npm. It preserves npm's executable and package files.
+Check which command PowerShell selects with `Get-Command gestalt -All`. If
+PowerShell blocks the npm-generated script, invoke the `gestalt.cmd` shim.
+Use `where gestalt` in cmd or `command -v gestalt` on Unix.
+
+```powershell
+gestalt.cmd --version
+gestalt.cmd doctor
+gestalt.cmd cli
+```
+
+Native Windows defers Serena, Playwright/Chrome and Mobile hosting. Core
+setup and updates report these omissions. An explicit request for a deferred
+component fails before profile or install state changes. Linux and macOS keep
+their existing optional routes. Use `gestalt install` there to add Mobile and
+the optional skill collection.
+
+### Upgrade or roll back an npm installation
+
+Use npm to upgrade the command. On Windows, verify that the requested release
+lists `win32` first. On npm 12, supply the lifecycle approval again unless
+already configured.
+
+```sh
+npm install -g @jaromil/gestalt@latest
+```
+
+`gestalt update` updates managed components and preserves the npm executable
+and package files. To return to a previously validated compatible npm version,
+install it explicitly with `npm install -g @jaromil/gestalt@VERSION --ignore-scripts`
+after substituting the version. This restores the executable and package
+files only. Keep the profile and managed data, review the reported component
+state, and reconcile Agents only after confirming the older command and
+Agents version work together.
 
 You can inspect the command without installing it globally:
 
@@ -47,6 +90,10 @@ npx @jaromil/gestalt --help
 ```
 
 ## One-line Bash install
+
+On Linux and macOS, the Bash bootstrapper downloads the versioned manager,
+validates its syntax and version declaration, installs it atomically in a
+user-owned directory, and runs `gestalt install`.
 
 ```sh
 curl -fsSL https://dyne.github.io/gestalt/install.sh | bash
@@ -133,53 +180,15 @@ for source overrides, manifests, portable archives and intentional release updat
 
 ## Retiring older Xerj installations
 
-Gestalt no longer installs, launches, probes or updates Xerj. Use scoped `rg`
-searches and current source reads for text discovery, verified Serena for
-semantic operations, and context-mode for large output.
-
-Update the manager through your existing installation method, then run:
-
-```sh
-gestalt update gestalt
-gestalt doctor
-```
-
-For an npm installation, first update the command with
-`npm install -g @jaromil/gestalt@latest`. The core update reconciles Agents,
-Mobile and context-mode. Restart Mobile and start a new session afterward so
-installed skills and runtime capabilities are rediscovered.
-
-The update removes MCP entries only when their absolute executable resolves to
-this manager and their complete arguments are exactly `["xerj", "mcp"]`.
-Canonical names and aliases use the same ownership check. Ordinary tables in
-`CODEX_HOME/config.toml` and named `*.config.toml` profiles are edited atomically;
-unrelated settings and comments remain intact. User-defined servers, modified
-arguments, bare executable names, linked configuration files and layouts that
-cannot be safely localized are preserved with a manual-review diagnostic.
-Inspect those entries before changing them; a name alone does not prove ownership.
-
-Old explicit `gestalt xerj` and `gestalt update xerj` invocations now report
-retirement before doing work. Remove `--xerj auto`, `--xerj manual` or `--xerj off`
-from manually maintained Mobile launch commands. The explicit update/restart
-worker removes recognized pairs from the arguments it consumes; it does not
-rewrite unrelated or unproven restart files. An unknown legacy value fails
-before the update or relay shutdown.
-
-Binaries, index directories, repositories, sessions, credentials, passkeys and
-saved skill profiles are retained. The update neither signals legacy processes
-nor deletes their records. Existing process records and obsolete restart files
-receive bounded review guidance because a PID or filename alone cannot establish
-ownership. Stop any separately running old service through its original owner
-after inspecting its current identity; do not use process-name kills.
-
-Update the manager, Mobile and Agents together before relying on the removal.
-An older Mobile can use its optional-capability fallback when the retired manager
-command is unavailable. A new Mobile launched by an older manager must ignore
-obsolete version metadata; an obsolete explicit launch option instead requires
-removing that option and updating the launcher. No backend or feature switch is
-retained for compatibility.
+The former Xerj integration is retired. Ordinary core upgrades remove only
+positively identified manager-owned entries. Unrelated configuration and
+legacy binaries, indexes, sessions, credentials and profiles are preserved.
+The [CLI contract](../docs/native-cli-contract.md) records the retirement
+behavior for older configurations and commands.
 
 ## Install Serena
+
+This route applies to Linux and macOS.
 
 Run `gestalt serena install` once to install private uv 0.12.23, managed Python
 3.13 and the tested Serena 1.7.0 release. This explicit command downloads verified

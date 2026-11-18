@@ -10,13 +10,13 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import { performance } from 'node:perf_hooks';
-import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { parse, stringify } from 'smol-toml';
 import { buildCli } from '../scripts/build-cli.mjs';
 import { buildNpmPackage } from '../scripts/build-npm-package.mjs';
-import { commandTarget, NativeExecutables } from '../src/cli/platform/executables.ts';
+import { managerVersion } from '../scripts/manager-metadata.mjs';
+import { NativeExecutables } from '../src/cli/platform/executables.ts';
 import { buildNativePlatform } from '../scripts/build-native-platform.mjs';
 import { buildOwnedProcess } from '../scripts/build-owned-process.mjs';
 import { NativePrivateStorage } from '../src/cli/platform/storage.ts';
@@ -32,7 +32,8 @@ import { queryPhase } from './fixtures/native-cli-spawn-capture.mjs';
 import { releasedBorrowerInventory } from './fixtures/native-released-borrowers.mjs';
 import { verifySourceRecord, verifyOwnershipBuildInputs } from './fixtures/native-runtime/source-binding.mjs';
 import { bounded, digest, isolatedEnvironment, pinnedCodex } from './fixtures/native-runtime/codex.mjs';
-import { installPackedCore } from './fixtures/packed-core.mjs';
+import { installPackedCore, npmPrerequisiteTarget } from './fixtures/packed-core.mjs';
+import { queryFixtureHooks } from './fixtures/native-hook-query.mjs';
 
 const root = path.resolve(import.meta.dirname, '..'), args = process.argv.slice(2);
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -190,32 +191,28 @@ async function prepare(output, agents) {
   assert.equal(sha256(await readFile(path.join(output, 'legacy/gestalt'))), sha256(await readFile(path.join(root, 'public/gestalt'))));
   const inputs = await Promise.all(Object.keys(compiled.metafile.inputs).map(file => digest(path.resolve(file))));
   let packed = null;
+  const sourceManifest = path.join(root, 'npm/package.json');
   if (process.env.GESTALT_CORE_SLICE_NPM_TARBALL) {
     assert.equal(process.env.GESTALT_CORE_SLICE_PACKAGE, '1');
+    const sourceHead = process.env.GESTALT_CORE_SLICE_NPM_SOURCE_HEAD;
+    assert.match(sourceHead ?? '', /^[a-f0-9]{40}$/, 'Frozen tarball requires its exact source commit');
     const supplied = await realpath(process.env.GESTALT_CORE_SLICE_NPM_TARBALL), actual = await digest(supplied);
     assert.equal(actual.sha256, process.env.GESTALT_CORE_SLICE_NPM_SHA256, 'Frozen package input must match its explicitly reviewed digest');
     const filename = 'packed-core-candidate.tgz'; await cp(supplied, path.join(output, filename));
     packed = { ...await digest(path.join(output, filename)), relative: filename,
-      supplied: actual, metadataException: 'See frozen transport manifest; inspect actual installed package manifest' };
+      supplied: actual, sourceHead, sourceManifest: await digest(sourceManifest) };
   } else if (process.env.GESTALT_CORE_SLICE_PACKAGE === '1') {
     const destination = await buildNpmPackage(root, { nativeDirectory: path.join(output, 'native') });
-    const staged = path.join(output, 'npm-package'); await cp(destination, staged, { recursive: true });
-    const packageManifest = await json(path.join(staged, 'package.json'));
-    const excludedWindows = process.platform === 'win32' && !packageManifest.os.includes('win32');
-    if (excludedWindows) {
-      // Disposable candidate admission only. Never changes source metadata or
-      // the release build. Remove this exception only after real packed proof.
-      packageManifest.os.push('win32');
-      await record(path.join(staged, 'package.json'), packageManifest);
-    }
+    const packageManifest = await json(path.join(destination, 'package.json'));
+    assert.ok(packageManifest.os.includes(process.platform), 'Source package must admit the actual consumer platform');
     const npm = await new NativeExecutables().resolve('npm', process.env);
-    assert.ok(npm); const target = await commandTarget(npm);
-    const result = JSON.parse(execFileSync(target.executable, [...target.prefix, 'pack', staged, '--json', '--ignore-scripts',
+    assert.ok(npm); const target = await npmPrerequisiteTarget(npm, {});
+    const result = JSON.parse(execFileSync(target.executable, [...target.prefix, 'pack', destination, '--json', '--ignore-scripts',
       '--pack-destination', path.resolve(output), '--cache', path.join(root, 'node_modules/.cache/gestalt-package')], { cwd: root, encoding: 'utf8' }));
     const item = Array.isArray(result) ? result[0] : result[packageManifest.name];
     assert.ok(item?.filename);
-    packed = { ...await digest(path.join(output, item.filename)), relative: item.filename, testOnlyWin32MetadataException: excludedWindows,
-      sourceManifest: await digest(path.join(root, 'npm/package.json')), packedManifest: await digest(path.join(staged, 'package.json')) };
+    packed = { ...await digest(path.join(output, item.filename)), relative: item.filename, sourceHead: packageManifest.gitHead,
+      sourceManifest: await digest(sourceManifest), packedManifest: await digest(path.join(destination, 'package.json')) };
   }
   await record(path.join(output, 'artifacts.json'), { observedAt: new Date().toISOString(), platform: process.platform, arch: process.arch,
     node: process.version, abi: process.versions.modules, peer: peer ? path.relative(output, peer) : null,
@@ -223,27 +220,15 @@ async function prepare(output, agents) {
     scope: 'Builder only. The copied compiled consumer requires no compiler, TS source or repository modules.' });
 }
 
-async function queryHooks(binary, environment, cwd, overrides = []) {
-  const child = spawn(binary, ['app-server', '--stdio', ...overrides], { env: environment, cwd, stdio: ['pipe', 'pipe', 'pipe'], shell: false });
-  const closed = once(child, 'close'), lines = createInterface({ input: child.stdout }), pending = new Map(); let id = 0, stderr = '';
-  child.stderr.on('data', bytes => { stderr += bytes; });
-  lines.on('line', line => { const message = JSON.parse(line); pending.get(message.id)?.(message); pending.delete(message.id); });
-  const rpc = (method, params) => bounded(new Promise(resolve => { pending.set(++id, resolve); child.stdin.write(JSON.stringify({ id, method, params }) + '\n'); }), method);
-  try {
-    await rpc('initialize', { clientInfo: { name: 'gestalt-core-slice-hook-fixture', version: '1' }, capabilities: {} });
-    child.stdin.write('{"method":"initialized"}\n');
-    const result = await rpc('hooks/list', { cwds: [cwd] }); assert.equal(result.error, undefined, JSON.stringify(result));
-    return { result, stderr, overrides };
-  } finally { lines.close(); child.stdin.end(); child.kill(); await bounded(closed, 'fixture config query cleanup'); }
-}
-
-async function trustFixtureHooks(binary, environment, cwd, configFile, expected) {
-  const before = await queryHooks(binary, environment, cwd), hooks = before.result.result?.data?.find(entry => entry.cwd === cwd)?.hooks ?? [];
+async function trustFixtureHooks(binary, environment, cwd, configFile, expected, evidence) {
+  const before = await queryFixtureHooks(binary, environment, cwd, [], path.join(evidence, 'hook-query-before-trust.json'));
+  const hooks = before.result.result?.data?.find(entry => entry.cwd === cwd)?.hooks ?? [];
   const authorized = authorizeFixtureHooks(hooks, expected), config = parse(await readFile(configFile, 'utf8'));
   config.hooks.state ??= {};
   for (const hook of authorized) config.hooks.state[hook.key] = { enabled: true, trusted_hash: hook.currentHash };
   await writeFile(configFile, stringify(config));
-  const after = await queryHooks(binary, environment, cwd), current = after.result.result?.data?.find(entry => entry.cwd === cwd)?.hooks ?? [];
+  const after = await queryFixtureHooks(binary, environment, cwd, [], path.join(evidence, 'hook-query-after-trust.json'));
+  const current = after.result.result?.data?.find(entry => entry.cwd === cwd)?.hooks ?? [];
   const readback = authorizeFixtureHooks(current, expected);
   assert.deepEqual(readback, authorized);
   for (const hook of current) assert.equal(hook.trustStatus, 'trusted', JSON.stringify(hook));
@@ -268,7 +253,7 @@ async function verifyInstalledHooks(agents, fixture) {
   return { entries, proof: { hooksFile: await digest(hooksFile), launcher: await digest(launcher), installedOwner: await digest(installedOwner), acceptedOwner: await digest(acceptedOwner) } };
 }
 
-async function composedHooks(binary, environment, cwd, capture, mode = 'terminal') {
+async function composedHooks(binary, environment, cwd, capture, mode, evidence) {
   const calls = (await readFile(capture, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
   const tui = finalCapturedInvocation(calls, mode);
   assert.ok(tui, 'Actual candidate final Codex argv was not observed');
@@ -277,7 +262,8 @@ async function composedHooks(binary, environment, cwd, capture, mode = 'terminal
     if (tui.argv[i] === '-c' || tui.argv[i] === '--config') { assert.ok(i + 1 < tui.argv.length); overrides.push('-c', tui.argv[++i]); }
     else if (tui.argv[i].startsWith('--config=')) overrides.push('-c', tui.argv[i].slice(9));
   }
-  const effective = await queryHooks(binary, environment, cwd, overrides), hooks = effective.result.result?.data?.find(entry => entry.cwd === cwd)?.hooks ?? [];
+  const effective = await queryFixtureHooks(binary, environment, cwd, overrides, path.join(evidence, 'hook-query-composed.json'));
+  const hooks = effective.result.result?.data?.find(entry => entry.cwd === cwd)?.hooks ?? [];
   assert.equal(hooks.filter(hook => hook.source === 'user').length, 7);
   assert.ok(hooks.filter(hook => hook.source === 'sessionFlags').length >= 2, 'Manager-composed hook flags were not exercised');
   for (const hook of hooks) assert.equal(hook.trustStatus, 'trusted', JSON.stringify(hook));
@@ -507,16 +493,27 @@ async function consume(artifacts, agents, evidence, mode) {
     GESTALT_HOME: path.join(fixture, 'Gestalt'), PATH: [path.join(fixture, 'bin'), path.dirname(process.execPath), process.env.PATH].join(path.delimiter),
     npm_config_ignore_scripts: 'true', CONTEXT_MODE_PACKAGE_MANAGER: 'npm', CLAUDE_CONFIG_DIR: path.join(fixture, 'home/.claude'), CONTEXT_MODE_DIR: path.join(fixture, 'home/context-mode-data') };
   for (const key of Object.keys(environment)) if (key.toUpperCase() === 'PATH' && key !== 'PATH') delete environment[key];
-  let packed;
+  const baseEnvironment = environment;
+  const npm12Entry = process.env.GESTALT_CORE_SLICE_NPM12_ENTRY;
+  if (npm12Entry) assert.ok(process.platform === 'win32' && manifest.package && !queryMode);
+  let packed, expectedPackage;
   if (manifest.package) {
     assert.equal(queryMode, false, 'Packed installation must exercise the actual terminal/Org/IPC slice');
+    const sourceManifest = path.join(root, 'npm/package.json');
+    assert.equal((await digest(sourceManifest)).sha256, manifest.package.sourceManifest.sha256);
+    assert.match(manifest.package.sourceHead, /^[a-f0-9]{40}$/);
+    expectedPackage = { ...await json(sourceManifest),
+      version: managerVersion(await readFile(path.join(root, 'public/gestalt'), 'utf8')), gitHead: manifest.package.sourceHead };
+    assert.ok(expectedPackage.os.includes(process.platform));
     packed = await installPackedCore(await realpath(path.join(artifacts, manifest.package.relative)), fixture, environment, agents, evidence);
+    await record(path.join(evidence, 'packed-install.json'), packed.receipt);
+    assert.deepEqual(packed.receipt.manifest, expectedPackage);
+    if (npm12Entry) assert.match(packed.receipt.npmVersion, /^11\./);
     entry = packed.entry; environment = packed.environment;
     assert.equal((await digest(path.join(packed.packageRoot, 'lib/gestalt.mjs'))).sha256,
       (await digest(path.join(consumer, 'gestalt.mjs'))).sha256, 'Installed payload must equal the source-bound compiled candidate');
     if (helper) assert.equal((await digest(path.join(packed.packageRoot, 'lib/native/gestalt-owned-process.exe'))).sha256,
       (await digest(helper)).sha256, 'Installed helper must equal the source-bound target-built artifact');
-    await record(path.join(evidence, 'packed-install.json'), packed.receipt);
   }
   // Setup is the accepted dependency's explicit standalone fixture mode, with
   // its honest no-complete-tree result. It is not a manager fallback or gate.
@@ -586,7 +583,7 @@ async function consume(artifacts, agents, evidence, mode) {
         await writeFile(configFile, stringify(config));
         const launchEnvironment = { ...selected, GESTALT_SLICE_CONFIGURATION: configuration };
         const expected = [...installedHooks.entries, { eventName: 'sessionStart', sourcePath: configFile, command: config.hooks.SessionStart[0].hooks[0].command, kind: 'explicit-blocking-fixture' }];
-        await record(path.join(current, 'fixture-hook-trust.json'), await trustFixtureHooks(artifact.binary, launchEnvironment, path.join(fixture, 'workspace'), configFile, expected));
+        await record(path.join(current, 'fixture-hook-trust.json'), await trustFixtureHooks(artifact.binary, launchEnvironment, path.join(fixture, 'workspace'), configFile, expected, current));
         const capture = path.join(current, 'candidate-spawn.jsonl');
         const observedEnvironment = { ...launchEnvironment, NODE_OPTIONS: '--import=' + pathToFileURL(path.join(consumer, 'spawn-capture.mjs')).href,
           GESTALT_SLICE_CODEX_BINARY: path.join(fixture, 'bin', process.platform === 'win32' ? 'codex.exe' : 'codex'), GESTALT_SLICE_SPAWN_CAPTURE: capture };
@@ -597,7 +594,7 @@ async function consume(artifacts, agents, evidence, mode) {
           await terminal(entry, observedEnvironment, path.join(fixture, 'workspace'), report, current, helper, control); }
         catch (error) { terminalFailure = error; throw error; }
         finally {
-          try { if (mode !== 'comparator') await record(path.join(current, 'effective-manager-hooks.json'), await composedHooks(artifact.binary, launchEnvironment, path.join(fixture, 'workspace'), capture, mode)); }
+          try { if (mode !== 'comparator') await record(path.join(current, 'effective-manager-hooks.json'), await composedHooks(artifact.binary, launchEnvironment, path.join(fixture, 'workspace'), capture, mode, current)); }
           catch (error) { await record(path.join(current, 'effective-manager-hooks-failure.json'), { message: error.message, stack: error.stack }); if (!terminalFailure) throw error; }
         }
         if (mode === 'comparator') {
@@ -649,6 +646,23 @@ async function consume(artifacts, agents, evidence, mode) {
     await record(path.join(evidence, 'retained-fixture.json'), { fixture, primary: primary.context, inherited, manifest, consumer: await digest(entry),
       scope: 'Retained isolated fixture; no automatic unknown cleanup and no live installation', observedAt: new Date().toISOString() });
     if (!runFailure && finalPolicyFailure) throw finalPolicyFailure;
+  }
+  if (npm12Entry) {
+    const smoke = path.join(fixture, 'npm 12 smoke ü');
+    await storage.createDirectory(smoke);
+    const smokeEvidence = path.join(evidence, 'npm12');
+    await mkdir(smokeEvidence);
+    for (const name of ['home', 'Codex', 'Gestalt']) await storage.createDirectory(path.join(smoke, name));
+    const smokeEnvironment = { ...baseEnvironment, HOME: path.join(smoke, 'home'), USERPROFILE: path.join(smoke, 'home'),
+      CODEX_HOME: path.join(smoke, 'Codex'), GESTALT_HOME: path.join(smoke, 'Gestalt'),
+      CLAUDE_CONFIG_DIR: path.join(smoke, 'home/.claude'), CONTEXT_MODE_DIR: path.join(smoke, 'home/context-mode-data') };
+    const installed = await installPackedCore(packed.receipt.tarball, smoke, smokeEnvironment, agents, smokeEvidence, { npm12Entry });
+    await record(path.join(smokeEvidence, 'packed-install.json'), installed.receipt);
+    assert.deepEqual(installed.receipt.manifest, expectedPackage);
+    const orgPlan = await readFile(path.join(smoke, 'Codex/bin/org-plan'), 'utf8');
+    assert.match(orgPlan, /bundles\/[a-f0-9-]{36}\/org-plan-cli\.mjs/);
+    await record(path.join(smokeEvidence, 'lifecycle.json'), { pass: true, npmVersion: installed.receipt.npmVersion,
+      tarballSha256: installed.receipt.sha256, installedOrgDispatcherSha256: sha256(orgPlan), observedAt: new Date().toISOString() });
   }
   if (queryMode) console.log(JSON.stringify({ kind: mode === 'readiness' ? 'actual-compiled-windows-owned-query-readiness' : 'actual-compiled-windows-observer-free-query-comparator', platform: process.platform, arch: process.arch, tests: 1, pass: 1, fail: 0, skip: 0, terminalCasesExecuted: 0, submittedTurns: 0 }));
   else console.log(JSON.stringify({ kind: 'actual-compiled-cli-codex-installed-org-authenticated-ipc', platform: process.platform, arch: process.arch, tests: 2, pass: 2, fail: 0, skip: 0 }));

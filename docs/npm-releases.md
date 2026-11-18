@@ -1,28 +1,55 @@
 # npm release operations
 
-`@jaromil/gestalt` packages the standalone Bash manager; it is not a TypeScript
-rewrite. `npm/gestalt` resolves npm's executable symlink and replaces itself with
-the bundled manager, retaining arguments, standard input, signals, and exit status.
-There are no declared runtime npm dependencies. Global installation runs a
-post-install hook to reconcile Gestalt Agents and their context-mode runtime.
-The Codex CLI must already be installed. Mobile and the optional skill collection
-remain an explicit `gestalt install` operation.
-On npm 12, installation must allow this package's lifecycle script, for example
-`npm install -g @jaromil/gestalt --allow-scripts=@jaromil/gestalt`. The package
-does not override npm's script policy; `--ignore-scripts` keeps setup explicit.
+`@jaromil/gestalt` bundles the Node CLI, the existing Unix Bash backend, and a
+source-verified Windows x64 helper for the native core candidate. There are no
+declared runtime npm dependencies. A global postinstall reconciles Gestalt
+Agents and context-mode when lifecycle scripts are allowed. The compatible
+Codex CLI is a prerequisite. Linux and macOS keep optional Mobile, Serena and
+Playwright routes. Native Windows defers these features.
+
+Public npm version `0.16.1` is a different Linux/macOS artifact. The locally
+validated native candidate also identifies itself as `0.16.1`. Its package
+supports `win32` and needs a new release version for delivery. Check the
+published version and `os` metadata before giving Windows installation
+instructions.
+
+For npm 12 registry installs use `--allow-scripts=@jaromil/gestalt`. For a
+local tarball allow its resolved `file:` identity instead. Use
+`--ignore-scripts` to defer profile provisioning. See
+[installation and rollback](../start/install.md#install-with-npm) for the commands.
+
+## Native candidate acceptance
+
+| Target | Validated coverage |
+| --- | --- |
+| Windows x64, Node 24.22.3, Codex 0.164.0 | Ordinary-account core install, npm 11.19.1 and npm 12.2.2 lifecycle, terminal and AppServer, installed Org and authenticated IPC, setup/update and rollback behavior, skills and scratch |
+| Linux x64 | Existing Unix backend, installed npm package, native sandbox and sockets, full Manager suite, previous standalone upgrades |
+| macOS arm64 | Existing Unix backend, installed npm package, previous standalone upgrades and installer checks. Process cleanup remains best effort |
+
+The candidate validation leaves other Windows architectures, actual UNC paths
+and optional native integrations outside the release scope. Native Windows
+has Job-based managed ownership. If cleanup cannot be confirmed, retain the
+affected state for inspection. macOS may retain detached processes.
+
+Deliver the compatible Agents marketplace first. Validate its published
+setup API and installed runtime against the Manager release target, then
+approve that target for publication. The native candidate used an immutable
+Agents snapshot. A newer marketplace checkout needs its own relevant-input
+comparison and validation. Confirm the new version is available in the
+registry namespace, including staged releases, before publishing.
 
 ## Routine releases
 
-GitHub Actions publishes new releases directly to npm through OIDC. There is no
-staging or maintainer approval step for these releases. Before merging the switch
-to direct publishing, enable **Allow direct `npm publish`** on the existing
-trusted publisher in the npm package settings. Keep the workflow filename
-`deploy-pages.yml` and the environment name empty.
+GitHub Actions publishes new releases directly to npm through OIDC after the
+approved release enters `main`. Review the exact release and dependency inputs
+before merging. The existing trusted publisher must allow direct
+`npm publish`. Keep its workflow filename `deploy-pages.yml` and environment
+name empty.
 
 After the release job succeeds, verify the public version:
 
 ```bash
-npm view @jaromil/gestalt version dist-tags --json
+npm view @jaromil/gestalt version dist-tags os gitHead --json
 npm install -g @jaromil/gestalt --allow-scripts=@jaromil/gestalt
 gestalt --version
 ```
@@ -36,6 +63,9 @@ manual staged release; routine CI releases now publish directly.
 Prepare releases on Linux or macOS with Bash, Node.js 24 or newer, and Git.
 Use npm 11.15 or newer for staging; the commands below explicitly select a
 known staging-capable npm client without replacing your global installation.
+
+The following steps describe the original Unix-only artifact. Use the current
+build and verification process below for a native-capable release.
 
 For the initial release, build the verified tag in a separate checkout:
 
@@ -86,17 +116,24 @@ version distinct when checking progress.
 
 ## Build and verify
 
+Use a clean checkout of the intended release commit, Node.js 24 and a
+lockfile-based `npm ci`. For a Windows-enabled manifest, first put the helper
+and its provenance JSON from a Windows x64 build of the same three native
+source files in `dist/cli/native`. The package builder verifies their identity.
+
 ```sh
 npm run build:package
 npm run test:package
 npm pack ./dist/npm --ignore-scripts
 ```
 
-The build creates `dist/npm` from an explicit list: the launcher, the canonical
-`public/gestalt` manager, the post-install script, the npm README, the license,
-and package metadata. The
-package version comes from `GESTALT_CLI_VERSION`; `gitHead` records the checked-out
-commit. The VitePress development package remains private.
+The build creates `dist/npm` with the launcher, compiled CLI, canonical Unix
+backend, Windows helper and provenance and license, post-install script, npm
+README, root license and package manifest. The package version comes from
+`GESTALT_CLI_VERSION`. The manifest's `gitHead` records the checked-out
+commit. A preview from a working tree with changes therefore needs a separate
+source and payload digest. Release provenance comes from a clean, verified
+release checkout. The VitePress development package remains private.
 
 The smoke tests pack and install the actual tarball into an isolated npm prefix,
 offline and with lifecycle scripts disabled. They verify the installed command,

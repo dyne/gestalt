@@ -6,23 +6,26 @@
 gestalt doctor
 ```
 
-It checks Node, npm, Codex, configured directories, installed plugins, and the
-Mobile executable without printing prompts, model output, secrets, or arbitrary
-environment values. It also verifies that the context-mode plugin source is
-disabled as expected and that the native context-mode MCP bridge is enabled.
+It reports Node, npm, Codex, configured directories, installed plugins and the
+component state. Some fields establish presence without probing a version or
+starting a service. Check the specific diagnostic, including missing Agents
+marketplace or skills state, before retrying. On native Windows x64, Serena,
+Playwright and Mobile show as deferred. An optional deferral alone needs no setup.
 
 `gestalt version` (also `-V` or `--version`) lists the manager and detected
-Mobile, Agents, context-mode, Codex, Kimi, Serena and Playwright versions.
-The first line remains the manager version. Restart Mobile after updating
-components so its installed capabilities are rediscovered.
-
-For an older installation, follow the [Xerj retirement guidance](start/install.md#retiring-older-xerj-installations).
-A retirement diagnostic requires reviewing the indicated legacy configuration;
-reinstalling a binary or deleting index data is unnecessary.
+component versions or status. The first line is the manager version.
+On supported Unix Mobile installations, restart Mobile after updating
+components so it discovers the new capabilities.
 
 ## `gestalt: command not found`
 
-Add the default user binary directory to `PATH`:
+On Windows, check npm's global prefix with `npm prefix -g` and check command
+resolution with `where.exe gestalt` or `Get-Command gestalt -All`. The generated
+`gestalt.cmd` command can run from either PowerShell or cmd. If npm reports
+`EBADPLATFORM`, check that the selected version lists `win32` before retrying.
+Public version `0.16.1` lists Linux and macOS.
+
+For a standalone Unix install, add the default user binary directory to `PATH`:
 
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
@@ -35,11 +38,14 @@ Put the same line in your shell profile, then open a new terminal.
 If `ctx-doctor` or startup reports `CONTEXT_MODE_NOT_PREPARED`:
 
 ```sh
-gestalt update
+gestalt agents update
 ```
 
-Confirm Node.js, `python3`, `make`, and a C/C++ compiler are installed. Also
-check that a second context-mode marketplace variant is not enabled.
+Confirm Node.js and Codex are available. If the npm lifecycle script was blocked,
+run `gestalt agents install` after confirming the selected Agents marketplace
+contains the compatible setup. For npm 12 installation approval syntax see
+[Install with npm](start/install.md#install-with-npm). Check whether a second
+context-mode marketplace variant is enabled before changing plugin state.
 
 ## Context-mode plugin says disabled
 
@@ -54,6 +60,8 @@ gestalt update
 ```
 
 ## Mobile will not start
+
+These checks apply to the existing Linux and macOS Mobile routes.
 
 ```sh
 codex --version
@@ -94,13 +102,25 @@ Check that `--public-origin` exactly matches the address in the browser,
 including `https://` and any non-default port. Only `http://localhost` is valid
 without HTTPS. Do not change the RP-ID hostname after devices are enrolled.
 
-## Update fails halfway
+## An update fails or retains state
 
-Rerun `gestalt update`. Both the Agents runtime publication and the manager
-binary installation are designed to replace prepared artifacts atomically.
-Existing Codex and Mobile state is stored separately from install artifacts.
+Check the first reported stage that failed. In an npm install, update or restore
+the command through npm. See [npm upgrade and rollback](start/install.md#upgrade-or-roll-back-an-npm-installation).
+In a standalone Unix update, an invalid replacement leaves the existing
+executable available. Completed component steps may persist after a later failure.
+
+If the diagnostic reports unknown ownership or retention, keep the named
+snapshot, lock and scratch records. Windows performs managed process cleanup
+through the owning Job. Linux follows its existing Unix supervision and
+sandbox rules. macOS provides best-effort cleanup and detached work can
+outlive its anchor. Treat an unknown result as unresolved before retrying
+setup or using the offline scratch recovery commands. Inspection tokens
+identify retained records and require separate operator confirmation that
+the owner is quiescent. See [scratch inspection](cli/index.md#inspect-retained-scratch-state).
 
 ## Serena installation
+
+This route applies to Linux and macOS. Native Windows core setup omits Serena.
 
 Use `gestalt serena install` to prepare missing tooling and
 `gestalt serena update` to repair or refresh the supported release. Download,

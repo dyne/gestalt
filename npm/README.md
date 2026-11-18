@@ -1,14 +1,26 @@
 # Gestalt
 
-The Gestalt command manages an isolated Codex profile, agent skills, and the
-Gestalt Mobile web interface. The core CLI supports native Windows x64 and
-existing Linux/macOS installations. Node.js 24 or newer and an installed Codex
-CLI are required for automatic Agents setup. Linux and macOS also require Bash;
-Windows does not require Bash, WSL, Developer Mode, administrator access or a compiler.
+Gestalt manages an isolated Codex profile and its Agents, context-mode and
+skills. It keeps the existing Linux and macOS routes, including optional Mobile.
+The native core candidate was validated on Windows x64. Public npm version
+`0.16.1` supports Linux and macOS. On Windows, check that the version you plan
+to install lists `win32`, or use an explicitly supplied, verified tarball.
+
+```sh
+npm view @jaromil/gestalt@latest version os
+```
+
+Core setup needs Node.js 24 or newer, npm and an installed, compatible Codex CLI.
+Linux and macOS also require Bash. Native Windows x64 uses PowerShell or cmd
+under a standard user account, without Bash, WSL, Developer Mode or a compiler.
 
 Native Windows Serena, Playwright/Chrome and Mobile hosting are deferred. Core
-Agents/context-mode setup remains usable without them. Other native Windows
-architectures are unsupported; macOS retains its existing best-effort Unix behavior.
+Agents/context-mode setup and core updates report these omissions. Explicit
+requests for deferred components fail before setup changes the profile.
+Other Windows architectures and UNC paths were outside the validation.
+macOS retains its best-effort Unix behavior.
+
+With npm 11, install a release available for your platform.
 
 ```sh
 npm install -g @jaromil/gestalt
@@ -19,14 +31,22 @@ When install scripts are allowed, global installation makes the command availabl
 and automatically installs or reconciles Gestalt Agents, their context-mode runtime, and the isolated Codex
 profile under `~/.codex-gestalt`. Your normal `~/.codex` profile remains separate.
 
-npm 12 requires approval for install scripts. Allow this package's setup with:
+npm 12 requires approval for install scripts. Allow the registry package's
+lifecycle script with the following command. npm 12.2.2 requires at least
+Node 24.15.0 when using Node 24.
 
 ```sh
 npm install -g @jaromil/gestalt --allow-scripts=@jaromil/gestalt
 ```
 
 Use the same flag for npm 12 updates unless the package is already approved in
-your npm configuration. The package does not override blocked-script policies.
+your npm configuration. For a local tarball, approve its resolved `file:` identity.
+This PowerShell example uses a tarball supplied separately.
+
+```powershell
+$tarball = (Resolve-Path .\gestalt-candidate.tgz).Path
+npm install -g "--allow-scripts=file:$tarball" $tarball
+```
 
 On Unix, `gestalt install` can also add Mobile and the optional skill collection.
 On Windows it installs the available core and reports deferred components.
@@ -37,10 +57,10 @@ To install only the wrapper, use `npm install -g @jaromil/gestalt --ignore-scrip
 run `gestalt agents install` later. Local dependency installs and npx inspection
 do not automatically provision a user profile.
 
-```sh
-gestalt cli
-gestalt --help
-```
+Run `gestalt --help`, `gestalt --version` and `gestalt doctor` to inspect the
+installed command. On Windows use `gestalt.cmd` explicitly from PowerShell
+or cmd if needed. The version's first line names the manager version. The
+remaining lines report local component status, including deferrals.
 
 Update the npm-installed command with:
 
@@ -52,11 +72,11 @@ npm install -g @jaromil/gestalt@latest
 updating this package. It preserves the npm-managed executable and package metadata.
 Installing a newer global npm version also reconciles Agents automatically.
 
-When upgrading an older installation, run `gestalt update gestalt` after updating
-the npm package. It retires positively identified managed Xerj MCP entries while
-preserving unrelated configuration, binaries, indexes, sessions and credentials.
-Remove obsolete `--xerj` options from manually maintained Mobile launch commands.
-See the [migration rules](https://dyne.github.io/gestalt/start/install#retiring-older-xerj-installations).
+To restore a previously validated compatible npm version, install it by its
+exact version with `--ignore-scripts`. This restores the command and package
+files. Retain the current profile and data, then check component compatibility
+before reconciling Agents again. An unknown cleanup state after a failed setup
+requires inspection of the retained state before retrying.
 
 You can also run the command without a global installation:
 

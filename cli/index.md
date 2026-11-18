@@ -1,15 +1,24 @@
 # Gestalt CLI
 
-`gestalt` is the small manager that keeps the Agents plugin profile and Mobile
-relay together without merging their state. Run `gestalt help` at any time.
+`gestalt` manages an isolated Codex profile and its Agents and skills. Existing
+Linux and macOS installations can also manage the Mobile relay. Run
+`gestalt help` to see the command forms.
+
+The unreleased native Windows x64 candidate covers CLI launch and resume,
+AppServer, Agents/context-mode setup, skills and scratch handling. Serena,
+Playwright/Chrome and Mobile hosting are deferred on native Windows. The
+shared command help includes the existing Unix routes. Check
+[installation availability](../start/install.md#install-with-npm) before using
+the Windows examples with a public npm package.
 
 ## Commands
 
 | Command | Effect |
 | --- | --- |
-| `gestalt install` | Install or reconcile Agents, context mode, profiles, optional skills, and Mobile |
+| `gestalt install` | Install or reconcile Agents, context-mode, profiles and optional skills. Adds Mobile on Linux and macOS |
+| `gestalt agents install` / `gestalt agents update` | Set up or refresh only Agents and context-mode |
 | `gestalt update [COMPONENT]` | Update Gestalt core and installed optional components; optionally select one component group |
-| `gestalt update-restart` | From a live Mobile session, update everything and gracefully restart Mobile |
+| `gestalt update-restart` | From a supported Unix Mobile session, update and gracefully restart Mobile |
 | `gestalt cli [args…]` | Launch Codex with the isolated Gestalt home |
 | `gestalt serena install` | Prepare the optional managed Serena release |
 | `gestalt serena update [VERSION]` | Validate and activate a Serena update |
@@ -18,15 +27,16 @@ relay together without merging their state. Run `gestalt help` at any time.
 | `gestalt serena index --cwd ROOT` | Explicitly warm native project caches |
 | `gestalt serena mcp --cwd ROOT` | Start Serena's workspace MCP connection over stdin/stdout |
 | `gestalt serena help` | Show Serena installation and startup commands |
-| `gestalt mobile [args…]` | Launch Gestalt Mobile and forward its options |
+| `gestalt mobile [args…]` | Launch Gestalt Mobile and forward its options on Linux or macOS |
 | `gestalt path [NAME\|--json]` | Resolve managed executable, plugin, and runtime paths |
-| `gestalt doctor` | Check prerequisites, paths, Gestalt plugin version, and Mobile version |
-| `gestalt version` | Print the manager version |
+| `gestalt doctor` | Check paths, prerequisites and locally detected components |
+| `gestalt version` | Print the manager version on the first line, followed by component status |
 | `gestalt skills install` | Install or reconcile only the optional Dyne.org collection |
 | `gestalt skills update` | Update only the collection, preserving profiles and unrelated skills |
 | `gestalt skills status [--json]` | Read collection version, revision, integrity and recovery action |
 | `gestalt skills-export [ARCHIVE]` | Export installed skills and skill profiles to a portable `.tar.gz` archive |
 | `gestalt skills-import ARCHIVE` | Merge a validated skills archive into this installation |
+| `gestalt scratch --help` | List the read-only inspection and explicit offline recovery commands |
 | `gestalt help` | Print command help |
 
 ## Launch Codex
@@ -35,6 +45,11 @@ relay together without merging their state. Run `gestalt help` at any time.
 gestalt cli
 gestalt cli --help
 ```
+
+On native Windows x64, use `gestalt.cmd cli` from PowerShell or cmd if the shell
+needs the explicit npm shim. The existing Codex arguments still apply. For
+example, `gestalt cli -- resume` passes `resume` to Codex, and
+`gestalt cli -- app-server --stdio` starts its stdio AppServer.
 
 Before launch, the command verifies that the prepared context-mode runtime and
 native MCP bridge match the installed plugin version. It exports
@@ -47,6 +62,8 @@ registers one native `context-mode` MCP launcher instead. Enabling the plugin
 by hand can create a second, incorrectly launched MCP server.
 
 ## Optional managed browser
+
+This route applies to Linux and macOS.
 
 Install the package explicitly:
 
@@ -182,6 +199,8 @@ operations (100–60000 ms, default 5000), independently of other capability dis
 
 ## Optional workspace semantics
 
+The managed Serena route below applies to Linux and macOS.
+
 ```sh
 gestalt serena install
 gestalt cli -C /absolute/project/path
@@ -246,6 +265,8 @@ permissions or language readiness of a later session. See
 
 ## Launch Mobile
 
+The Mobile launch route applies to Linux and macOS.
+
 ```sh
 gestalt mobile --cwd "$HOME/devel"
 gestalt mobile --cwd "$HOME/devel" --port 3000
@@ -287,7 +308,14 @@ gestalt update
 gestalt update --help
 ```
 
-This upgrades `dyne/gestalt-agents`, reruns its required setup script, verifies
+On native Windows, `gestalt update` refreshes the available core and reports
+deferred components. `gestalt update gestalt` selects that same core group.
+Selecting Serena, Playwright or Mobile explicitly is rejected before setup
+writes. Use `gestalt agents update` for only Agents and context-mode, or use the
+skills commands for collection-only maintenance. Start a new Codex session
+after updating so it discovers the new skill and runtime state.
+
+On Linux and macOS, the update upgrades `dyne/gestalt-agents`, reruns its required setup script, verifies
 the context-mode runtime and complete `$gestalt:*` app-server skill catalog,
 updates the stable `$CODEX_HOME/bin/org-plan` helper, and installs
 `gestalt-mobile@latest` under the Gestalt home. It also validates and refreshes
@@ -298,14 +326,19 @@ update because running sessions retain their startup catalog. By default it also
 updates installed Serena and Playwright through their managed release installers.
 Optional components that are not installed are reported as skipped.
 
-Both `gestalt update` and `gestalt update gestalt` update the manager first.
+For an npm-owned installation, update the command with npm. The manager
+preserves npm-owned files and prints the npm upgrade command. Restore an earlier
+compatible npm command using the [rollback guidance](../start/install.md#upgrade-or-roll-back-an-npm-installation).
+
+For a standalone Unix installer installation, `gestalt update` and
+`gestalt update gestalt` update the manager first.
 When its contents change, the updater replaces itself with the new manager
 process before updating the remaining components. It preserves the selected
 component group and `--extra-skills`, and skips a second manager download.
 An already-current manager continues directly. Detached `update-restart`
 workers use the same handoff and retain their restart lock until completion.
 
-Use one component name to limit the update:
+On Linux and macOS, use one component name to limit the update:
 
 | Component | Scope |
 | --- | --- |
@@ -327,10 +360,7 @@ The `--component NAME` form is equivalent to a positional component name.
 Kimi, and system language servers remain managed by their own installers.
 Release validation still applies to managed component updates.
 
-For an older installation, see the [Xerj retirement and migration rules](../start/install.md#retiring-older-xerj-installations). The core update migrates only
-positively identified manager entries and preserves user data.
-
-When you are already working in a session opened through Gestalt Mobile, use:
+When you are already working in a supported Unix session opened through Gestalt Mobile, use:
 
 ```sh
 gestalt update-restart
@@ -364,3 +394,20 @@ check. Status exits zero only for a ready collection, and nonzero for missing,
 damaged, busy or recovery-required state. Help and status perform no download,
 installation, recovery or profile write. See [optional skills](../agents/skills.md#optional-dyneorg-collection)
 for activation, collision handling, portable transfer and release rules.
+
+## Inspect retained scratch state
+
+Start with `gestalt scratch --help`. Use the read-only command matching the
+reported issue. For an owner-scoped inspection, pass the reported owner ID
+and the workspace path.
+
+```text
+gestalt scratch inspect --cwd ROOT --owner ID
+```
+
+Recovery requires the current inspection token and an operator's explicit
+confirmation that every runtime and tool using that owner has stopped.
+Recovery preserves payload and provider history. An unknown ownership result
+means Gestalt retained the affected state for review. See
+[troubleshooting](../troubleshooting.md#an-update-fails-or-retains-state) before
+retrying or removing retained files.

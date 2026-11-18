@@ -1,0 +1,40 @@
+{
+  "managerBase": "283c74bfee93ca05bd4c82dd9608429434cff490",
+  "node": "v24.22.3",
+  "npm": {
+    "version": "11.12.1",
+    "url": "https://registry.npmjs.org/npm/-/npm-11.12.1.tgz",
+    "bytes": 2833345,
+    "sha512": "cdca14b85d647b3192028d02aadbe82d75f79a446aceea9874be98e6d768f20ebd3555770a48d0e9906106007877bbc690f715e9372f2e2dc644a3c3157fb14c"
+  },
+  "formerWindowsHelperSha256": "753b5842c0dd0aa293bc0246312b73e955718ec97491088939e0f951ae2e6128",
+  "normalCliSha256": "216b6ea052ceb2fa4223f8fc51b9129af020adcfca32fbfd70011e5f9a59bf60",
+  "sources": {
+    ".github/workflows/deploy-pages.yml": "995849482bbf527e271e92845b7be33e41faa25190886bcf65bf25280d2f5a88",
+    ".github/workflows/pull-request.yml": "1d01d4f4932a4d21347ab9fb05900d4801c431ae1d6040dc11ea424dfaff2a29",
+    "npm/LICENSE": "57c8ff33c9c0cfc3ef00e650a1cc910d7ee479a8bc509f6c9209a7c2a11399d6",
+    "npm/README.md": "be6897234af408d7f51f6a983255ad65deadba571adb5ae3ed1ef28d13f11fe8",
+    "npm/gestalt": "7a7d633955a6cca77de0926bfd5a8ea993bc3e32be27c761b886b6f3ff07e66b",
+    "npm/package.json": "023cbb2090f530319de38e27e8473bf05d2befcd642380273f3eb5e4ec0c4b81",
+    "npm/postinstall.mjs": "8d2ccc3b43e00b0b9d182a28ad57a9f752227d8c9c28e81ee44a07402790d53c",
+    "package-lock.json": "0366b1b625488569af0a4e7a512cbeeb0676f05f0a7f22b203b7c3f1fc778775",
+    "package.json": "18f1b112b42ea2e5d038a087857fbb195daf702f2b096564d61130cafdd21d92",
+    "public/gestalt": "7d3040aeb6eee25e130045c999e148176692e0a9a0657e819907922baf14f863",
+    "scripts/build-cli.mjs": "0ec793d6ca9b2c991bdb89d2271d31ff589dfe197d26e3d3c3a0319e45c498b9",
+    "scripts/build-npm-package.mjs": "916b4c746efe386f4a06c0cc432b22596586e7396229ce53767733a98ee5922e",
+    "scripts/build-owned-process.mjs": "1e1467f3186eac820d03fa67eedc41e3339fbd2384bd7ed518eac99b53242eab",
+    "src/cli/platform/native/owned-process.c": "8b8499245e4213e3e842497f815d4b0d19685bcd806b461fdacb66119500ad58",
+    "src/cli/platform/native/windows-storage-check.c": "c4bc745ebab6352394ac4358b1bd9e630540ec51bf90f0e70f659682a7e96376",
+    "src/cli/platform/native/windows-storage-check.h": "cae6c68ae671e6c0fcb73ce01e7fc8252928ed5a1c7f65102b329569e7b18019",
+    "src/cli/platform/processes.ts": "909941d6915e2c68c64909dac1d02fb369d014a2b0524a9598f1846c028cd380",
+    "tests/fixtures/stage-owned-process-source.mjs": "59035fccaafef2cf473518987a36630d65acc222e8ac4936631eb9a9bd10948e",
+    "tests/native-archive.test.mjs": "4a6a1cd433dcaebb4f08c8e738347299e3bb0b471e139af26c5e59e64373dd7c",
+    "tests/native-diagnostics.test.mjs": "df21f7da8c93c5804c36e2474dfcb34986676468b5adbef1730cc69d33ecb2e7",
+    "tests/native-process.test.mjs": "de10425dbd47afb30b7e3afd2fe6d2ea613566d047bb36a15fe1abc0c80fb311",
+    "tests/native-skills-transfer.test.mjs": "8535308fd033f48cdcfc3055333a9adc9c248c2cf3ac478e3f545ebe97a11496",
+    "tests/native-terminal.test.mjs": "1a4619bf0c62d8baac7c623b10d51f454501b5d6547045e87d8ed6d2244445c4",
+    "tests/native-windows-dependency-preflight.mjs": "8b4a7e3f11c47cd874bd5bab23c444c8e3db509aca0ab095030d4708f9708a0e",
+    "tests/native-windows-terminal-preflight.mjs": "04862e7a6ab521c9e6ea813e89561f8180ddc0de2cfe224d1de5b61a415cdcf7",
+    "tests/setup-contract.test.mjs": "2c9d48dc79af9431d3c7d6736a8add3c53bbb765c3f8057015a18120c21791dd"
+  }
+}

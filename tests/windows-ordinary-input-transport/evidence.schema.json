@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Ordinary Windows x64 byte input verification",
+  "type": "object",
+  "required": ["schemaVersion", "state", "startedAt", "finishedAt", "platform", "arch", "node", "commands", "cases", "expectedCases", "unexecutedCases", "excluded", "failure", "cleanup"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "state": {"enum": ["pass", "fail"]},
+    "startedAt": {"type": "string", "format": "date-time"},
+    "finishedAt": {"type": "string", "format": "date-time"},
+    "platform": {"type": "string"},
+    "arch": {"type": "string"},
+    "node": {"type": "string"},
+    "expectedCases": {"const": ["empty-eof", "small-binary-sequence"]},
+    "unexecutedCases": {"type": "array", "items": {"enum": ["empty-eof", "small-binary-sequence"]}, "uniqueItems": true},
+    "excluded": {"type": "array", "minItems": 5, "items": {"type": "string"}},
+    "failure": {"type": ["object", "null"]},
+    "cleanup": {
+      "type": "object",
+      "required": ["attempted", "removed", "path", "normalReleaseUnverified"],
+      "properties": {"attempted": {"type": "boolean"}, "removed": {"type": "boolean"}, "path": {"type": ["string", "null"]}, "normalReleaseUnverified": {"type": "boolean"}}
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "argv", "cwd", "timeout", "startedAt", "observedAt", "exit", "signal", "error", "stdout", "stderr"],
+        "properties": {"exit": {"type": ["integer", "null"]}, "stdout": {"$ref": "#/$defs/file"}, "stderr": {"$ref": "#/$defs/file"}}
+      }
+    },
+    "cases": {
+      "type": "array",
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "required": ["name", "status", "command", "chunkSizes", "stdin", "stdout", "stderr", "runtimeSettled", "expectedExit", "startedAt", "observedAt"],
+        "properties": {
+          "name": {"enum": ["empty-eof", "small-binary-sequence"]},
+          "status": {"enum": ["pass", "fail"]},
+          "chunkSizes": {"type": "array", "maxItems": 3, "items": {"type": "integer", "minimum": 1, "maximum": 4096}},
+          "stdin": {"$ref": "#/$defs/file"},
+          "stdout": {"$ref": "#/$defs/file"},
+          "stderr": {"$ref": "#/$defs/file"},
+          "runtimeSettled": {"type": "boolean"}
+        },
+        "allOf": [
+          {"if": {"properties": {"status": {"const": "fail"}}}, "then": {"required": ["failure"]}},
+          {"if": {"properties": {"status": {"const": "pass"}}}, "then": {"required": ["result", "claim"], "properties": {"runtimeSettled": {"const": true}, "result": {"properties": {"kind": {"const": "exit"}}}, "claim": {"properties": {"kind": {"const": "released"}, "backend": {"const": "windows-job"}}}}}}
+        ]
+      }
+    }
+  },
+  "allOf": [{
+    "if": {"properties": {"state": {"const": "pass"}}},
+    "then": {
+      "required": ["source", "npm", "helper", "buildOnly", "package"],
+      "properties": {
+        "platform": {"const": "win32"}, "arch": {"const": "x64"}, "node": {"const": "v24.22.3"},
+        "failure": {"type": "null"},
+        "cases": {"minItems": 2, "prefixItems": [{"properties": {"name": {"const": "empty-eof"}, "status": {"const": "pass"}}}, {"properties": {"name": {"const": "small-binary-sequence"}, "status": {"const": "pass"}}}]},
+        "unexecutedCases": {"maxItems": 0},
+        "cleanup": {"properties": {"attempted": {"const": true}, "removed": {"const": true}, "normalReleaseUnverified": {"const": false}}}
+      }
+    }
+  }],
+  "$defs": {
+    "file": {
+      "type": "object",
+      "required": ["path", "bytes", "sha256"],
+      "properties": {"path": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "bytes": {"type": "integer", "minimum": 0}}
+    }
+  }
+}

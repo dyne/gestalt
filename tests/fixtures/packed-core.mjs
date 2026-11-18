@@ -43,7 +43,7 @@ export async function npmPrerequisiteTarget(executable, receipt, nodeExecutable 
   return target;
 }
 
-export async function installPackedCore(tarball, fixture, environment, agents, evidence) {
+export async function installPackedCore(tarball, fixture, environment, agents, evidence, { npm12Entry } = {}) {
   const prefix = path.join(fixture, 'npm prefix');
   const cache = path.join(fixture, 'npm cache');
   let env = { ...environment }, failure = null;
@@ -56,9 +56,21 @@ export async function installPackedCore(tarball, fixture, environment, agents, e
     return result;
   };
   try {
-    const npm = await new NativeExecutables().resolve('npm', environment);
-    assert.ok(npm, 'The primary supported npm lane is required');
-    const target = await npmPrerequisiteTarget(npm, prerequisite);
+    let target;
+    if (npm12Entry) {
+      assert.equal(process.platform, 'win32', 'This lifecycle smoke uses the Windows ordinary account');
+      const entry = await realpath(npm12Entry);
+      prerequisite.entry = { path: entry, sha256: hash(await readFile(entry)) };
+      target = { executable: process.execPath, prefix: [entry] };
+    } else {
+      const npm = await new NativeExecutables().resolve('npm', environment);
+      assert.ok(npm, 'The primary supported npm lane is required');
+      target = await npmPrerequisiteTarget(npm, prerequisite);
+    }
+    const npmVersion = run(target.executable, [...target.prefix, '--version']);
+    assert.equal(npmVersion.status, 0, npmVersion.stderr);
+    prerequisite.version = npmVersion.stdout.trim();
+    if (npm12Entry) assert.match(prerequisite.version, /^12\./);
     env = { ...environment, GESTALT_AGENTS_SOURCE: agents,
       GESTALT_AGENTS_SETUP_SHA256: hash(await readFile(path.join(agents, 'gestalt-setup.mjs'))),
       GESTALT_AGENTS_SETUP_OWNER_SHA256: hash(await readFile(path.join(agents, 'scripts/setup-agents.mjs'))) };
@@ -67,7 +79,8 @@ export async function installPackedCore(tarball, fixture, environment, agents, e
     // real global lifecycle against the immutable accepted Node setup owner.
     const install = run(target.executable, [...target.prefix, 'install', '--global', '--prefix', prefix, '--cache', cache,
       '--no-audit', '--no-fund', ...(process.platform === 'win32' ? [] : ['--offline']), '--foreground-scripts',
-      process.platform === 'win32' ? '--ignore-scripts=false' : '--ignore-scripts', tarball]);
+      process.platform === 'win32' ? '--ignore-scripts=false' : '--ignore-scripts',
+      ...(npm12Entry ? [`--allow-scripts=file:${tarball}`] : []), tarball]);
     assert.equal(install.status, 0, install.stderr);
     const commandDirectory = process.platform === 'win32' ? prefix : path.join(prefix, 'bin');
     env.PATH = [commandDirectory, env.PATH].join(path.delimiter);
@@ -88,9 +101,15 @@ export async function installPackedCore(tarball, fixture, environment, agents, e
     const packageRoot = process.platform === 'win32' ? path.join(prefix, 'node_modules/@jaromil/gestalt') : path.join(prefix, 'lib/node_modules/@jaromil/gestalt');
     const entry = path.join(packageRoot, 'bin/gestalt');
     const manifest = JSON.parse(await readFile(path.join(packageRoot, 'package.json')));
+    if (process.platform === 'win32') {
+      const result = run(path.join(env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'),
+        ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', 'gestalt.cmd --version']);
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout.trim(), `gestalt ${manifest.version}`);
+    }
     return { entry, packageRoot, environment: env, receipt: { tarball, sha256: hash(await readFile(tarball)), manifest,
       prefix, actualGlobalShim: path.join(commandDirectory, process.platform === 'win32' ? 'gestalt.cmd' : 'gestalt'),
-      lifecycleRequested: process.platform === 'win32', observedAt: new Date().toISOString() } };
+      npmVersion: prerequisite.version, lifecycleRequested: process.platform === 'win32', observedAt: new Date().toISOString() } };
   } catch (error) {
     failure = { message: error.message, stack: error.stack }; throw error;
   } finally {

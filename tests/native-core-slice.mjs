@@ -16,7 +16,8 @@ import { build } from 'esbuild';
 import { parse, stringify } from 'smol-toml';
 import { buildCli } from '../scripts/build-cli.mjs';
 import { buildNpmPackage } from '../scripts/build-npm-package.mjs';
-import { commandTarget, NativeExecutables } from '../src/cli/platform/executables.ts';
+import { managerVersion } from '../scripts/manager-metadata.mjs';
+import { NativeExecutables } from '../src/cli/platform/executables.ts';
 import { buildNativePlatform } from '../scripts/build-native-platform.mjs';
 import { buildOwnedProcess } from '../scripts/build-owned-process.mjs';
 import { NativePrivateStorage } from '../src/cli/platform/storage.ts';
@@ -32,7 +33,7 @@ import { queryPhase } from './fixtures/native-cli-spawn-capture.mjs';
 import { releasedBorrowerInventory } from './fixtures/native-released-borrowers.mjs';
 import { verifySourceRecord, verifyOwnershipBuildInputs } from './fixtures/native-runtime/source-binding.mjs';
 import { bounded, digest, isolatedEnvironment, pinnedCodex } from './fixtures/native-runtime/codex.mjs';
-import { installPackedCore } from './fixtures/packed-core.mjs';
+import { installPackedCore, npmPrerequisiteTarget } from './fixtures/packed-core.mjs';
 
 const root = path.resolve(import.meta.dirname, '..'), args = process.argv.slice(2);
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -190,32 +191,28 @@ async function prepare(output, agents) {
   assert.equal(sha256(await readFile(path.join(output, 'legacy/gestalt'))), sha256(await readFile(path.join(root, 'public/gestalt'))));
   const inputs = await Promise.all(Object.keys(compiled.metafile.inputs).map(file => digest(path.resolve(file))));
   let packed = null;
+  const sourceManifest = path.join(root, 'npm/package.json');
   if (process.env.GESTALT_CORE_SLICE_NPM_TARBALL) {
     assert.equal(process.env.GESTALT_CORE_SLICE_PACKAGE, '1');
+    const sourceHead = process.env.GESTALT_CORE_SLICE_NPM_SOURCE_HEAD;
+    assert.match(sourceHead ?? '', /^[a-f0-9]{40}$/, 'Frozen tarball requires its exact source commit');
     const supplied = await realpath(process.env.GESTALT_CORE_SLICE_NPM_TARBALL), actual = await digest(supplied);
     assert.equal(actual.sha256, process.env.GESTALT_CORE_SLICE_NPM_SHA256, 'Frozen package input must match its explicitly reviewed digest');
     const filename = 'packed-core-candidate.tgz'; await cp(supplied, path.join(output, filename));
     packed = { ...await digest(path.join(output, filename)), relative: filename,
-      supplied: actual, metadataException: 'See frozen transport manifest; inspect actual installed package manifest' };
+      supplied: actual, sourceHead, sourceManifest: await digest(sourceManifest) };
   } else if (process.env.GESTALT_CORE_SLICE_PACKAGE === '1') {
     const destination = await buildNpmPackage(root, { nativeDirectory: path.join(output, 'native') });
-    const staged = path.join(output, 'npm-package'); await cp(destination, staged, { recursive: true });
-    const packageManifest = await json(path.join(staged, 'package.json'));
-    const excludedWindows = process.platform === 'win32' && !packageManifest.os.includes('win32');
-    if (excludedWindows) {
-      // Disposable candidate admission only. Never changes source metadata or
-      // the release build. Remove this exception only after real packed proof.
-      packageManifest.os.push('win32');
-      await record(path.join(staged, 'package.json'), packageManifest);
-    }
+    const packageManifest = await json(path.join(destination, 'package.json'));
+    assert.ok(packageManifest.os.includes(process.platform), 'Source package must admit the actual consumer platform');
     const npm = await new NativeExecutables().resolve('npm', process.env);
-    assert.ok(npm); const target = await commandTarget(npm);
-    const result = JSON.parse(execFileSync(target.executable, [...target.prefix, 'pack', staged, '--json', '--ignore-scripts',
+    assert.ok(npm); const target = await npmPrerequisiteTarget(npm, {});
+    const result = JSON.parse(execFileSync(target.executable, [...target.prefix, 'pack', destination, '--json', '--ignore-scripts',
       '--pack-destination', path.resolve(output), '--cache', path.join(root, 'node_modules/.cache/gestalt-package')], { cwd: root, encoding: 'utf8' }));
     const item = Array.isArray(result) ? result[0] : result[packageManifest.name];
     assert.ok(item?.filename);
-    packed = { ...await digest(path.join(output, item.filename)), relative: item.filename, testOnlyWin32MetadataException: excludedWindows,
-      sourceManifest: await digest(path.join(root, 'npm/package.json')), packedManifest: await digest(path.join(staged, 'package.json')) };
+    packed = { ...await digest(path.join(output, item.filename)), relative: item.filename, sourceHead: packageManifest.gitHead,
+      sourceManifest: await digest(sourceManifest), packedManifest: await digest(path.join(destination, 'package.json')) };
   }
   await record(path.join(output, 'artifacts.json'), { observedAt: new Date().toISOString(), platform: process.platform, arch: process.arch,
     node: process.version, abi: process.versions.modules, peer: peer ? path.relative(output, peer) : null,
@@ -507,16 +504,27 @@ async function consume(artifacts, agents, evidence, mode) {
     GESTALT_HOME: path.join(fixture, 'Gestalt'), PATH: [path.join(fixture, 'bin'), path.dirname(process.execPath), process.env.PATH].join(path.delimiter),
     npm_config_ignore_scripts: 'true', CONTEXT_MODE_PACKAGE_MANAGER: 'npm', CLAUDE_CONFIG_DIR: path.join(fixture, 'home/.claude'), CONTEXT_MODE_DIR: path.join(fixture, 'home/context-mode-data') };
   for (const key of Object.keys(environment)) if (key.toUpperCase() === 'PATH' && key !== 'PATH') delete environment[key];
-  let packed;
+  const baseEnvironment = environment;
+  const npm12Entry = process.env.GESTALT_CORE_SLICE_NPM12_ENTRY;
+  if (npm12Entry) assert.ok(process.platform === 'win32' && manifest.package && !queryMode);
+  let packed, expectedPackage;
   if (manifest.package) {
     assert.equal(queryMode, false, 'Packed installation must exercise the actual terminal/Org/IPC slice');
+    const sourceManifest = path.join(root, 'npm/package.json');
+    assert.equal((await digest(sourceManifest)).sha256, manifest.package.sourceManifest.sha256);
+    assert.match(manifest.package.sourceHead, /^[a-f0-9]{40}$/);
+    expectedPackage = { ...await json(sourceManifest),
+      version: managerVersion(await readFile(path.join(root, 'public/gestalt'), 'utf8')), gitHead: manifest.package.sourceHead };
+    assert.ok(expectedPackage.os.includes(process.platform));
     packed = await installPackedCore(await realpath(path.join(artifacts, manifest.package.relative)), fixture, environment, agents, evidence);
+    await record(path.join(evidence, 'packed-install.json'), packed.receipt);
+    assert.deepEqual(packed.receipt.manifest, expectedPackage);
+    if (npm12Entry) assert.match(packed.receipt.npmVersion, /^11\./);
     entry = packed.entry; environment = packed.environment;
     assert.equal((await digest(path.join(packed.packageRoot, 'lib/gestalt.mjs'))).sha256,
       (await digest(path.join(consumer, 'gestalt.mjs'))).sha256, 'Installed payload must equal the source-bound compiled candidate');
     if (helper) assert.equal((await digest(path.join(packed.packageRoot, 'lib/native/gestalt-owned-process.exe'))).sha256,
       (await digest(helper)).sha256, 'Installed helper must equal the source-bound target-built artifact');
-    await record(path.join(evidence, 'packed-install.json'), packed.receipt);
   }
   // Setup is the accepted dependency's explicit standalone fixture mode, with
   // its honest no-complete-tree result. It is not a manager fallback or gate.
@@ -649,6 +657,23 @@ async function consume(artifacts, agents, evidence, mode) {
     await record(path.join(evidence, 'retained-fixture.json'), { fixture, primary: primary.context, inherited, manifest, consumer: await digest(entry),
       scope: 'Retained isolated fixture; no automatic unknown cleanup and no live installation', observedAt: new Date().toISOString() });
     if (!runFailure && finalPolicyFailure) throw finalPolicyFailure;
+  }
+  if (npm12Entry) {
+    const smoke = path.join(fixture, 'npm 12 smoke ü');
+    await storage.createDirectory(smoke);
+    const smokeEvidence = path.join(evidence, 'npm12');
+    await mkdir(smokeEvidence);
+    for (const name of ['home', 'Codex', 'Gestalt']) await storage.createDirectory(path.join(smoke, name));
+    const smokeEnvironment = { ...baseEnvironment, HOME: path.join(smoke, 'home'), USERPROFILE: path.join(smoke, 'home'),
+      CODEX_HOME: path.join(smoke, 'Codex'), GESTALT_HOME: path.join(smoke, 'Gestalt'),
+      CLAUDE_CONFIG_DIR: path.join(smoke, 'home/.claude'), CONTEXT_MODE_DIR: path.join(smoke, 'home/context-mode-data') };
+    const installed = await installPackedCore(packed.receipt.tarball, smoke, smokeEnvironment, agents, smokeEvidence, { npm12Entry });
+    await record(path.join(smokeEvidence, 'packed-install.json'), installed.receipt);
+    assert.deepEqual(installed.receipt.manifest, expectedPackage);
+    const orgPlan = await readFile(path.join(smoke, 'Codex/bin/org-plan'), 'utf8');
+    assert.match(orgPlan, /bundles\/[a-f0-9-]{36}\/org-plan-cli\.mjs/);
+    await record(path.join(smokeEvidence, 'lifecycle.json'), { pass: true, npmVersion: installed.receipt.npmVersion,
+      tarballSha256: installed.receipt.sha256, installedOrgDispatcherSha256: sha256(orgPlan), observedAt: new Date().toISOString() });
   }
   if (queryMode) console.log(JSON.stringify({ kind: mode === 'readiness' ? 'actual-compiled-windows-owned-query-readiness' : 'actual-compiled-windows-observer-free-query-comparator', platform: process.platform, arch: process.arch, tests: 1, pass: 1, fail: 0, skip: 0, terminalCasesExecuted: 0, submittedTurns: 0 }));
   else console.log(JSON.stringify({ kind: 'actual-compiled-cli-codex-installed-org-authenticated-ipc', platform: process.platform, arch: process.arch, tests: 2, pass: 2, fail: 0, skip: 0 }));

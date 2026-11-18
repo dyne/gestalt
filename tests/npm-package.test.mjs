@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import { execFile, spawnSync } from 'node:child_process';
-import { copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
 
 import { buildNpmPackage } from '../scripts/build-npm-package.mjs';
+import { buildCli } from '../scripts/build-cli.mjs';
 
 const exec = promisify(execFile);
 const repository = resolve(import.meta.dirname, '..');
@@ -18,11 +20,29 @@ async function fixture(t) {
     await mkdir(dirname(join(root, file)), { recursive: true });
     await copyFile(join(repository, file), join(root, file));
   }
+  await cp(join(repository, 'src'), join(root, 'src'), { recursive: true });
+  await cp(join(repository, 'node_modules/smol-toml'), join(root, 'node_modules/smol-toml'), { recursive: true });
+  // These Unix fixture tests deliberately omit the native delivery artifact.
+  // Actual Windows support uses the unmodified manifest and source-bound PE in
+  // the explicit installed package target gate.
+  const manifestPath = join(root, 'npm/package.json');
+  const manifest = JSON.parse(await readFile(manifestPath));
+  manifest.os = ['linux', 'darwin'];
+  await writeFile(manifestPath, JSON.stringify(manifest));
   await exec('git', ['init', '--quiet', root]);
   await exec('git', ['-c', 'user.name=Package test', '-c', 'user.email=package-test@example.invalid',
     'commit', '--quiet', '--allow-empty', '-m', 'fixture'], { cwd: root });
   return root;
 }
+
+test('compiled package payload is independent of the builder current directory', async t => {
+  const root = await fixture(t);
+  const first = join(root, 'first/gestalt.mjs'), second = join(root, 'second/gestalt.mjs');
+  await buildCli(root, first);
+  const program = `import { buildCli } from ${JSON.stringify(new URL('../scripts/build-cli.mjs', import.meta.url).href)}; await buildCli(${JSON.stringify(root)}, ${JSON.stringify(second)});`;
+  await exec(process.execPath, ['--input-type=module', '-e', program], { cwd: root });
+  assert.deepEqual(await readFile(first), await readFile(second));
+});
 
 test('builds a versioned executable package with the canonical manager and automatic Agents setup', async t => {
   const root = await fixture(t);
@@ -36,13 +56,14 @@ test('builds a versioned executable package with the canonical manager and autom
   assert.equal(manifest.publishConfig.access, 'public');
   assert.equal(manifest.dependencies, undefined);
   assert.deepEqual(manifest.scripts, { postinstall: 'node postinstall.mjs' });
-  assert.equal(await readFile(join(destination, 'lib/gestalt'), 'utf8'), manager);
+  assert.equal(await readFile(join(destination, 'lib/legacy/gestalt'), 'utf8'), manager);
+  assert.match(await readFile(join(destination, 'lib/gestalt.mjs'), 'utf8'), /^#!\/usr\/bin\/env node/);
   assert.equal((await stat(join(destination, 'bin/gestalt'))).mode & 0o777, 0o755);
-  const files = (await readdir(destination, { recursive: true })).filter(file => !['bin', 'lib'].includes(file)).sort();
-  assert.deepEqual(files, ['LICENSE', 'README.md', 'bin/gestalt', 'lib/gestalt', 'package.json', 'postinstall.mjs']);
+  const files = (await readdir(destination, { recursive: true })).filter(file => !['bin', 'lib', 'lib/legacy'].includes(file)).sort();
+  assert.deepEqual(files, ['LICENSE', 'README.md', 'bin/gestalt', 'lib/gestalt.mjs', 'lib/legacy/gestalt', 'package.json', 'postinstall.mjs']);
   await writeFile(join(destination, 'stale-file'), 'not part of the next release');
   await buildNpmPackage(root);
-  assert.equal(await readFile(join(destination, 'lib/gestalt'), 'utf8'), manager);
+  assert.equal(await readFile(join(destination, 'lib/legacy/gestalt'), 'utf8'), manager);
   await assert.rejects(stat(join(destination, 'stale-file')), { code: 'ENOENT' });
 });
 
@@ -56,7 +77,7 @@ test('installs the actual npm tarball offline and preserves symlinks, arguments,
   const packed = Array.isArray(packResult) ? packResult[0] : packResult[manifest.name];
   assert.ok(packed, 'npm pack did not return metadata for the expected package');
   assert.deepEqual(packed.files.map(file => file.path).sort(),
-    ['LICENSE', 'README.md', 'bin/gestalt', 'lib/gestalt', 'package.json', 'postinstall.mjs']);
+    ['LICENSE', 'README.md', 'bin/gestalt', 'lib/gestalt.mjs', 'lib/legacy/gestalt', 'package.json', 'postinstall.mjs']);
   const prefix = join(root, 'global prefix');
   await exec('npm', ['install', '--global', '--prefix', prefix, '--offline', '--no-audit', '--no-fund',
     ...npmOptions, join(root, packed.filename)], { cwd: root, timeout: 30_000 });
@@ -64,7 +85,7 @@ test('installs the actual npm tarball offline and preserves symlinks, arguments,
   assert.ok((await lstat(binary)).isSymbolicLink());
   assert.match((await exec(binary, ['--version'])).stdout, new RegExp(`^gestalt ${manifest.version.replaceAll('.', '\\.')}\\n`));
   assert.match((await exec(binary, ['--help'])).stdout, /Usage: gestalt/);
-  const installedManager = join(prefix, 'lib/node_modules/@jaromil/gestalt/lib/gestalt');
+  const installedManager = join(prefix, 'lib/node_modules/@jaromil/gestalt/lib/legacy/gestalt');
   await writeFile(installedManager, '#!/usr/bin/env bash\nprintf "%s\\n" "$GESTALT_MANAGER_DISTRIBUTION" "$@"\ncat\nexit 23\n');
   const forwarding = spawnSync(binary, ['a b', '--literal=$HOME', ''], { input: 'standard input\n', encoding: 'utf8', timeout: 10_000 });
   assert.equal(forwarding.status, 23);
@@ -76,7 +97,7 @@ test('npm updates leave the package and executable symlinks intact and print the
   const destination = await buildNpmPackage(root);
   const binary = join(root, 'gestalt');
   await symlink(join(destination, 'bin/gestalt'), binary);
-  const managerPath = join(destination, 'lib/gestalt');
+  const managerPath = join(destination, 'lib/legacy/gestalt');
   const source = await readFile(managerPath, 'utf8');
   const instrumented = source.replace(/\nmain "\$@"\s*$/, '\nupdate_manager\n');
   assert.notEqual(instrumented, source);
@@ -94,6 +115,40 @@ test('rejects invalid manager versions before replacing an existing package', as
   await writeFile(join(root, 'public/gestalt'), "readonly GESTALT_CLI_VERSION='invalid'\n");
   await assert.rejects(buildNpmPackage(root), /strict manager version/);
   assert.equal(await readFile(join(destination, 'package.json'), 'utf8'), original);
+});
+
+test('packages only a source-bound Windows helper and rejects incomplete or tampered delivery inputs', async t => {
+  const root = await fixture(t), nativeDirectory = join(root, 'native delivery');
+  await mkdir(nativeDirectory);
+  const binary = join(nativeDirectory, 'gestalt-owned-process.exe');
+  const provenanceFile = `${binary}.provenance.json`;
+  // Provenance contract fixture only; this byte string is never executed and
+  // supplies no native runtime coverage.
+  const bytes = Buffer.from('test-only helper payload');
+  const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+  await writeFile(binary, bytes);
+  const inputs = ['owned-process.c', 'windows-storage-check.c', 'windows-storage-check.h'];
+  const sourceInputs = await Promise.all(inputs.map(async name => {
+    const path = `src/cli/platform/native/${name}`, bytes = await readFile(join(root, path));
+    return { path, bytes: bytes.length, sha256: hash(bytes) };
+  }));
+  const provenance = { platform: 'win32', architecture: 'x64', artifactSha256: hash(bytes), sourceInputs };
+  await writeFile(provenanceFile, JSON.stringify(provenance));
+  const destination = await buildNpmPackage(root, { nativeDirectory });
+  assert.deepEqual(await readFile(join(destination, 'lib/native/gestalt-owned-process.exe')), bytes);
+  assert.deepEqual(JSON.parse(await readFile(join(destination, 'lib/native/gestalt-owned-process.exe.provenance.json'))), provenance);
+  assert.match(await readFile(join(destination, 'lib/native/LICENSE.txt'), 'utf8'), /Permission is hereby granted[\s\S]*THE SOFTWARE IS PROVIDED/);
+  await writeFile(binary, 'tampered');
+  await assert.rejects(buildNpmPackage(root, { nativeDirectory }), /artifact provenance mismatch/);
+  await writeFile(binary, bytes);
+  await writeFile(provenanceFile, JSON.stringify({ ...provenance, sourceInputs: sourceInputs.slice(1) }));
+  await assert.rejects(buildNpmPackage(root, { nativeDirectory }), /complete source provenance/);
+  await writeFile(provenanceFile, JSON.stringify(provenance));
+  await writeFile(join(root, sourceInputs[0].path), 'changed source');
+  await assert.rejects(buildNpmPackage(root, { nativeDirectory }), /source provenance mismatch/);
+  await rm(provenanceFile);
+  await assert.rejects(buildNpmPackage(root, { nativeDirectory }), { code: 'ENOENT' });
+  assert.deepEqual(await readFile(join(destination, 'lib/native/gestalt-owned-process.exe')), bytes);
 });
 
 async function agentsBootstrap(t) {

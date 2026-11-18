@@ -2,19 +2,20 @@ import assert from 'node:assert/strict';
 import {spawn, spawnSync} from 'node:child_process';
 import {once} from 'node:events';
 import fs from 'node:fs';
-import {mkdtemp, mkdir, readFile, rm, stat, writeFile} from 'node:fs/promises';
+import {mkdtemp, mkdir, readFile, rm, stat, writeFile, realpath, symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join, resolve} from 'node:path';
+import {basename, join, resolve} from 'node:path';
 import test from 'node:test';
 import {createRequire} from 'node:module';
 import {sessionScratch} from './session-scratch-fixture.mjs';
 
-const manager = resolve('public/gestalt');
-const program = (await readFile(manager, 'utf8')).match(/^\/\/ BEGIN SESSION SCRATCH RUNTIME\n([\s\S]*?)^\/\/ END SESSION SCRATCH RUNTIME/m)[1];
+const installedEntry = process.env.GESTALT_TEST_INSTALLED_ENTRY;
+const manager = installedEntry || resolve('public/gestalt');
+const program = (await readFile(resolve('public/gestalt'), 'utf8')).match(/^\/\/ BEGIN SESSION SCRATCH RUNTIME\n([\s\S]*?)^\/\/ END SESSION SCRATCH RUNTIME/m)[1];
 const api = new Function('require', program + '\nreturn {scratchAllocate,scratchRelease};')(createRequire(import.meta.url));
 
-async function fixture(t) {
-  const root = await mkdtemp(join(tmpdir(), 'scratch recovery '));
+async function fixture(t, temporaryParent = tmpdir()) {
+  const root = await realpath(await mkdtemp(join(temporaryParent, 'scratch recovery ')));
   t.after(() => rm(root, {recursive: true, force: true}));
   const workspace = join(root, 'workspace with spaces');
   await mkdir(workspace, {mode: 0o700});
@@ -25,7 +26,7 @@ async function fixture(t) {
   await writeFile(join(context.directory, 'payload'), 'retained');
   const env = {...process.env};
   for (const key of ['GESTALT_SESSION_TMP_CONTEXT', 'TMPDIR', 'TMP', 'TEMP']) delete env[key];
-  const run = (...args) => spawnSync('bash', [manager, 'scratch', ...args], {env, encoding: 'utf8', timeout: 5000});
+  const run = (...args) => spawnSync(installedEntry ? process.execPath : 'bash', [manager, 'scratch', ...args], {env, encoding: 'utf8', timeout: 5000});
   const inspect = () => {
     const result = run('inspect', '--cwd', workspace, '--owner', context.ownerId);
     assert.equal(result.status, 0, result.stderr);
@@ -35,6 +36,30 @@ async function fixture(t) {
     '--expect', token, '--confirm-quiescent');
   return {root, workspace, context, lock, selected, run, inspect, recover};
 }
+
+test('aliased temporary parents canonicalize recovery fixtures while aliased cwd and lease identities stay rejected', async t => {
+  const outer = await realpath(await mkdtemp(join(tmpdir(), 'recovery alias ')));
+  t.after(() => rm(outer, {recursive: true, force: true}));
+  const physical = join(outer, 'physical'), alias = join(outer, 'alias');
+  await mkdir(physical); await symlink(physical, alias);
+  const f = await fixture(t, alias);
+  assert.equal(f.root, await realpath(f.root)); assert.equal(f.workspace, f.context.workspacePath);
+  const aliasedWorkspace = join(alias, basename(f.root), 'workspace with spaces');
+  await mkdir(f.lock, {mode: 0o700}); await mkdir(join(f.context.directory, 'leases'), {mode: 0o700});
+  const {randomUUID} = await import('node:crypto');
+  const leaseId = randomUUID(), now = new Date().toISOString(), file = join(f.context.directory, 'leases', leaseId + '.json');
+  const lease = {schemaVersion: 1, ownerId: f.context.ownerId, workspacePath: aliasedWorkspace, leaseId,
+    state: 'active', processIdentity: randomUUID(), createdAt: now, updatedAt: now, consumers: ['retained']};
+  await writeFile(file, JSON.stringify(lease), {mode: 0o600});
+  assert.match(f.run('inspect', '--cwd', f.workspace, '--owner', f.context.ownerId).stderr, /RECOVERY_REJECTED/);
+  const canonicalLease = JSON.stringify({...lease, workspacePath: f.workspace});
+  await writeFile(file, canonicalLease, {mode: 0o600});
+  const token = f.inspect();
+  assert.match(f.run('inspect', '--cwd', aliasedWorkspace, '--owner', f.context.ownerId).stderr, /RECOVERY_REJECTED/);
+  assert.equal(f.recover(token).status, 0);
+  assert.equal(await readFile(file, 'utf8'), canonicalLease);
+  assert.equal(await readFile(join(f.context.directory, 'payload'), 'utf8'), 'retained');
+});
 
 test('killed publisher leaves a durable block; explicit offline recovery restores nested publication', {timeout: 10000}, async t => {
   const f = await fixture(t);

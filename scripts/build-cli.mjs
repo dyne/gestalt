@@ -14,6 +14,7 @@ export async function buildCli(root, output = join(root, 'dist/cli/gestalt.mjs')
   await writeFile(legacy, source, { mode: 0o755 });
   await chmod(legacy, 0o755);
   await build({
+    absWorkingDir: root,
     entryPoints: [join(root, 'src/cli/main.ts')], outfile: output,
     bundle: true, platform: 'node', target: 'node24', format: 'esm',
     banner: { js: `// GESTALT_CLI_VERSION='${managerVersion(source)}'\n// GESTALT_UPDATED_MANAGER_API='1'` },

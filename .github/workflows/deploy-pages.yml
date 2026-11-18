@@ -15,7 +15,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  native-package-helper:
+    name: Build Windows x64 delivery helper
+    runs-on: windows-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          architecture: x64
+      - name: Build target artifact outside consumer installation
+        run: node scripts/build-owned-process.mjs
+      - uses: actions/upload-artifact@v6
+        with:
+          name: gestalt-package-win32-x64
+          path: |
+            dist/cli/native/gestalt-owned-process.exe
+            dist/cli/native/gestalt-owned-process.exe.provenance.json
+          if-no-files-found: error
+
   build:
+    needs: native-package-helper
     outputs:
       manager-version: ${{ steps.manager-version.outputs.version }}
     runs-on: ubuntu-latest
@@ -99,6 +124,12 @@ jobs:
         run: npm run build
 
       - name: Verify npm package
+        uses: actions/download-artifact@v6
+        with:
+          name: gestalt-package-win32-x64
+          path: dist/cli/native
+
+      - name: Build npm payload with verified native provenance
         run: npm run build:package
 
       # Compatibility for previously installed wrappers; never tracked in Git.
@@ -160,6 +191,13 @@ jobs:
           package-manager-cache: false
       - name: Install npm with trusted publishing support
         run: npm install -g npm@latest
+      - name: Install package build dependencies
+        run: npm ci
+      - name: Retrieve target-built Windows helper
+        uses: actions/download-artifact@v6
+        with:
+          name: gestalt-package-win32-x64
+          path: dist/cli/native
       - name: Build the tagged npm package
         run: npm run build:package
       - name: Verify packed installation

@@ -1,0 +1,38 @@
+[
+  {
+    "tag": "v0.14.2",
+    "commit": "8fd37b66ccde3397aedc481480fbd30636e9c5c0",
+    "path": "public/gestalt",
+    "blob": "a3f08fd79d78b8a808d657cd3857817a4fe8885a",
+    "fixture": "v0.14.2-gestalt.gz",
+    "bytes": 405516,
+    "sha256": "bf60fe85f06d2c7803a528f8b59cc042266ed02b4fcc2dd09326f7a7b701a218"
+  },
+  {
+    "tag": "v0.14.2",
+    "commit": "8fd37b66ccde3397aedc481480fbd30636e9c5c0",
+    "path": "public/install.sh",
+    "blob": "c0369aba7d78a25d88ee026a10c31470c4c933e6",
+    "fixture": "v0.14.2-install.sh.gz",
+    "bytes": 2274,
+    "sha256": "768439d5e72fa1f49aa695ce85df814eb0e5ba24b99a007b4601c6bd5c897746"
+  },
+  {
+    "tag": "v0.15.1",
+    "commit": "a9e4bdf49be9047c067a77ddb8bc3b810121e2d6",
+    "path": "public/gestalt",
+    "blob": "2b82b4de59dbd48fe0bb9fdafc2082579f32bcf4",
+    "fixture": "v0.15.1-gestalt.gz",
+    "bytes": 406127,
+    "sha256": "965734b0cf895b7003ea752b8c88a61b344287d26a36051d9717e1d88a947d8d"
+  },
+  {
+    "tag": "v0.15.1",
+    "commit": "a9e4bdf49be9047c067a77ddb8bc3b810121e2d6",
+    "path": "public/install.sh",
+    "blob": "c0369aba7d78a25d88ee026a10c31470c4c933e6",
+    "fixture": "v0.15.1-install.sh.gz",
+    "bytes": 2274,
+    "sha256": "768439d5e72fa1f49aa695ce85df814eb0e5ba24b99a007b4601c6bd5c897746"
+  }
+]

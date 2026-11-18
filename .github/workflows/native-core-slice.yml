@@ -4,7 +4,7 @@ name: Native core consumer slice
 # full Manager/native gates; this lane never substitutes for those results.
 on:
   push:
-    branches: [test/native-core-runtime-slice-l4]
+    branches: [test/native-package-l5-prerequisite]
   workflow_dispatch:
     inputs:
       target:
@@ -12,13 +12,17 @@ on:
         required: true
         default: all
         options: [all, windows, linux, macos]
+      package:
+        description: Exercise the actual npm tarball and isolated global command
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
   unix:
-    if: inputs.target != 'windows'
+    if: github.event_name != 'push' && inputs.target != 'windows'
     strategy:
       fail-fast: false
       matrix:
@@ -50,6 +54,11 @@ jobs:
       - run: npm ci
       - run: npm run typecheck:cli
       - name: Build the compiled consumer and verify immutable Org inputs
+        env:
+          GESTALT_CORE_SLICE_PACKAGE: '1'
+          GESTALT_CORE_SLICE_NPM_TARBALL: tests/fixtures/native-package-transport/candidate.tgz
+          GESTALT_CORE_SLICE_NPM_SHA256: bdb95fda7e3907f871f475ca0145e8980c360f974b4a6580af275f7c44872ea3
+          GESTALT_CORE_SLICE_NATIVE_ARTIFACTS: tests/fixtures/native-package-transport
         run: node tests/native-core-slice.mjs --prepare native-evidence/core-slice-prebuilt --agents .native-dependencies/agents
       - name: Existing disposable Ubuntu Codex sandbox prerequisites
         if: runner.os == 'Linux' && runner.environment == 'github-hosted'
@@ -98,6 +107,11 @@ jobs:
       - run: npm ci
       - run: npm run typecheck:cli
       - name: Build target artifacts outside the consumer account
+        env:
+          GESTALT_CORE_SLICE_PACKAGE: '1'
+          GESTALT_CORE_SLICE_NPM_TARBALL: tests/fixtures/native-package-transport/candidate.tgz
+          GESTALT_CORE_SLICE_NPM_SHA256: bdb95fda7e3907f871f475ca0145e8980c360f974b4a6580af275f7c44872ea3
+          GESTALT_CORE_SLICE_NATIVE_ARTIFACTS: tests/fixtures/native-package-transport
         run: node tests/native-core-slice.mjs --prepare native-evidence/core-slice-prebuilt --agents .native-dependencies/agents
       - name: Disable Developer Mode only on this disposable hosted test runner
         if: runner.environment == 'github-hosted'

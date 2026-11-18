@@ -1,29 +1,12 @@
-name: Native core consumer slice
-
-# Correction transport is explicit. Stable parent acceptance still runs the
-# full Manager/native gates; this lane never substitutes for those results.
+name: Bash 3.2 Unix upgrade correction (TEST only)
 on:
   push:
-    branches: [test/native-core-runtime-slice-l4]
-  workflow_dispatch:
-    inputs:
-      target:
-        type: choice
-        required: true
-        default: all
-        options: [all, windows, linux, macos]
-
+    branches: [test/native-package-l5-unix-bash32]
 permissions:
   contents: read
-
 jobs:
-  unix:
-    if: inputs.target != 'windows'
-    strategy:
-      fail-fast: false
-      matrix:
-        os: ${{ fromJSON(github.event_name == 'push' && '["ubuntu-latest"]' || inputs.target == 'linux' && '["ubuntu-latest"]' || inputs.target == 'macos' && '["macos-latest"]' || '["ubuntu-latest","macos-latest"]') }}
-    runs-on: ${{ matrix.os }}
+  macos:
+    runs-on: macos-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
@@ -34,10 +17,6 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions/checkout@v6
-        env:
-          GIT_CONFIG_COUNT: 1
-          GIT_CONFIG_KEY_0: core.autocrlf
-          GIT_CONFIG_VALUE_0: 'false'
         with:
           repository: dyne/gestalt-agents
           ref: 8827347387ee32e2c5bd7eb912f9b80185cdad45
@@ -48,122 +27,43 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm run typecheck:cli
-      - name: Build the compiled consumer and verify immutable Org inputs
-        run: node tests/native-core-slice.mjs --prepare native-evidence/core-slice-prebuilt --agents .native-dependencies/agents
-      - name: Existing disposable Ubuntu Codex sandbox prerequisites
-        if: runner.os == 'Linux' && runner.environment == 'github-hosted'
+      - name: Uninstrumented released upgrade and restart contracts
+        id: contracts
+        shell: bash
         run: |
           set -euo pipefail
-          current_userns=$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)
-          if [[ -n $current_userns && $current_userns != 1 ]]; then sudo sysctl -w kernel.unprivileged_userns_clone=1; fi
-          current_apparmor=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)
-          if [[ -n $current_apparmor && $current_apparmor != 0 ]]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
-      - name: Actual candidate terminal to installed Org and authenticated host IPC
-        run: node tests/native-core-slice.mjs --artifacts native-evidence/core-slice-prebuilt --agents .native-dependencies/agents --evidence native-evidence/core-slice > native-evidence/slice.stdout 2> native-evidence/slice.stderr
-      - uses: actions/upload-artifact@v6
+          export PATH="/bin:$PATH"
+          mkdir -p native-evidence
+          node --version > native-evidence/node-version.txt
+          git rev-parse HEAD > native-evidence/head.txt
+          command -v bash > native-evidence/bash-path.txt
+          bash --version > native-evidence/bash-version.txt
+          node --test --test-reporter=tap tests/unix-upgrade.test.mjs tests/update-components.test.mjs tests/manager-compatibility.test.mjs > native-evidence/upgrades.stdout 2> native-evidence/upgrades.stderr
+      - name: Current standalone installer in isolated home
         if: always()
-        with:
-          name: core-consumer-slice-${{ matrix.os }}
-          path: |
-            native-evidence/
-            !native-evidence/core-slice/codex-artifact/**
-
-  windows:
-    if: github.event_name == 'push' || inputs.target == 'all' || inputs.target == 'windows'
-    runs-on: windows-latest
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v6
-        env:
-          GIT_CONFIG_COUNT: 1
-          GIT_CONFIG_KEY_0: core.autocrlf
-          GIT_CONFIG_VALUE_0: 'false'
-        with:
-          persist-credentials: false
-      - uses: actions/checkout@v6
-        env:
-          GIT_CONFIG_COUNT: 1
-          GIT_CONFIG_KEY_0: core.autocrlf
-          GIT_CONFIG_VALUE_0: 'false'
-        with:
-          repository: dyne/gestalt-agents
-          ref: 8827347387ee32e2c5bd7eb912f9b80185cdad45
-          path: .native-dependencies/agents
-          persist-credentials: false
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npm run typecheck:cli
-      - name: Build target artifacts outside the consumer account
-        run: node tests/native-core-slice.mjs --prepare native-evidence/core-slice-prebuilt --agents .native-dependencies/agents
-      - name: Disable Developer Mode only on this disposable hosted test runner
-        if: runner.environment == 'github-hosted'
-        shell: powershell
-        env:
-          GESTALT_TEST_RUNNER_ENVIRONMENT: ${{ runner.environment }}
-        run: ./scripts/prepare-core-slice-windows.ps1
-      - name: Consume the exact compiled artifact as a standard user
-        shell: powershell
+        shell: bash
         run: |
-          $ErrorActionPreference = 'Stop'
-          $name = 'gs' + [Guid]::NewGuid().ToString('N').Substring(0, 12)
-          $password = ConvertTo-SecureString ([Guid]::NewGuid().ToString('N') + '!aA1') -AsPlainText -Force
-          $user = New-LocalUser -Name $name -Password $password -AccountNeverExpires
-          $work = Join-Path $env:RUNNER_TEMP $name
-          $source = Join-Path $work 'source'
-          $process = $null; $observed = $false; $timedOut = $false
-          try {
-            $users = Get-LocalGroup -SID 'S-1-5-32-545'; Add-LocalGroupMember -Group $users -Member $user
-            New-Item -ItemType Directory -Path $work | Out-Null
-            & robocopy $env:GITHUB_WORKSPACE $source /E /XD .git /NFL /NDL /NJH /NJS /NP
-            if ($LASTEXITCODE -gt 7) { throw 'Candidate copy failed' }
-            & icacls $work /grant ('*' + $user.SID.Value + ':(OI)(CI)F') /T /Q | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw 'Fixture access setup failed' }
-            $credential = New-Object Management.Automation.PSCredential(($env:COMPUTERNAME + '\' + $name), $password)
-            $node = (Get-Command node.exe).Source
-            $gitDirectory = Split-Path -Parent (Get-Command git.exe).Source
-            # Verify associated Process exit observation under this credential;
-            # it is CI observation, not a product descendant-release proof.
-            foreach ($expectedExit in @(0, 23)) {
-              $gate = Join-Path $work ('probe-' + $expectedExit + '.gate')
-              $program = '$gate=''' + $gate.Replace("'", "''") + ''';$end=[DateTime]::UtcNow.AddSeconds(10);while(-not [IO.File]::Exists($gate)){if([DateTime]::UtcNow -ge $end){exit 96};Start-Sleep -Milliseconds 10};exit ' + $expectedExit
-              $probeArguments = '-NoLogo -NoProfile -NonInteractive -EncodedCommand ' + [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($program))
-              $probe = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Credential $credential -LoadUserProfile -ArgumentList $probeArguments -PassThru
-              $handle = $probe.Handle
-              if ($handle -eq [IntPtr]::Zero -or $handle -eq [IntPtr](-1)) { throw 'Exit probe handle unavailable' }
-              [IO.File]::WriteAllText($gate, 'release')
-              if (-not $probe.WaitForExit(10000)) { $probe.Kill(); throw 'Exit probe deadline; descendant state unknown' }
-              $exit = $probe.ExitCode
-              @{observedAt=[DateTime]::UtcNow.ToString('o');expected=$expectedExit;exit=$exit;handleRetained=$true} | ConvertTo-Json > ('native-evidence/exit-probe-' + $expectedExit + '.json')
-              $probe.Dispose()
-              if ($null -eq $exit -or $exit -ne $expectedExit) { throw 'Exit probe result differs' }
-            }
-            $script = Join-Path $source 'scripts/test-core-slice-standard-user.ps1'
-            $arguments = '-NoLogo -NoProfile -NonInteractive -File "' + $script + '" -Repository "' + $source + '" -Node "' + $node + '" -GitDirectory "' + $gitDirectory + '"'
-            $process = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Credential $credential -LoadUserProfile -ArgumentList $arguments -PassThru -RedirectStandardOutput (Join-Path $work 'slice.stdout') -RedirectStandardError (Join-Path $work 'slice.stderr')
-            $handle = $process.Handle
-            if ($handle -eq [IntPtr]::Zero -or $handle -eq [IntPtr](-1)) { throw 'Consumer harness handle unavailable' }
-            $observed = $process.WaitForExit(1200000)
-            if (-not $observed) { $timedOut = $true; $process.Kill(); throw 'Consumer deadline; product descendant certainty remains unknown' }
-            $exit = $process.ExitCode
-            if ($null -eq $exit -or $exit -ne 0) { throw "Native consumer slice failed: $exit" }
-          } finally {
-            foreach ($file in @('slice.stdout', 'slice.stderr')) {
-              $partial = Join-Path $work $file
-              if (Test-Path -LiteralPath $partial) { Copy-Item -LiteralPath $partial -Destination native-evidence/ -Force }
-            }
-            $partial = Join-Path $source 'native-evidence/core-slice'
-            if (Test-Path -LiteralPath $partial) { Copy-Item -LiteralPath $partial -Destination native-evidence/ -Recurse -Force }
-            @{observedAt=[DateTime]::UtcNow.ToString('o');directExitObserved=$observed;timedOut=$timedOut;scope='CI handle observation only; consult matching native Job claims';teardown=$(if ($timedOut) {'deferred to disposable runner'} else {'account removal; no independent tree proof'})} | ConvertTo-Json > native-evidence/harness-observation.json
-            if (-not $timedOut) { Remove-LocalUser -Name $name -ErrorAction SilentlyContinue }
-          }
+          mkdir -p native-evidence
+          bash tests/install.test.sh > native-evidence/install.stdout 2> native-evidence/install.stderr
+      - name: Actual current tar installed Unix package contracts
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="/bin:$PATH"
+          mkdir -p native-evidence
+          node scripts/test-unix-package.mjs tests/fixtures/native-package-transport/candidate.tgz 36ce3852be3aa47d51d827064fafe20097717b5d8dd73d3693e9f48af286df67 .native-dependencies/agents native-evidence/unix-package > native-evidence/package.stdout 2> native-evidence/package.stderr
+      - name: Retain bounded worker diagnostics if uninstrumented assertions fail
+        if: ${{ failure() && steps.contracts.outcome == 'failure' }}
+        shell: bash
+        env:
+          GESTALT_UPGRADE_DIAGNOSTICS: ${{ github.workspace }}/native-evidence/workers
+        run: |
+          set -euo pipefail
+          export PATH="/bin:$PATH"
+          node --test --test-reporter=tap --test-name-pattern='^(reloaded detached|GUI-compatible detached|failed external GUI|empty restart descriptor)' tests/fixtures/upgrade-correction-diagnostic.test.mjs > native-evidence/workers.stdout 2> native-evidence/workers.stderr
       - uses: actions/upload-artifact@v6
         if: always()
         with:
-          name: core-consumer-slice-windows
-          path: |
-            native-evidence/
-            !native-evidence/core-slice/codex-artifact/**
+          name: unix-bash32-correction-macos
+          path: native-evidence/

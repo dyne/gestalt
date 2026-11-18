@@ -1,0 +1,362 @@
+import { captureWorkerFixture } from './upgrade-worker-diagnostics.mjs';
+import assert from 'node:assert/strict';
+import { execFile, spawn } from 'node:child_process';
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { promisify } from 'node:util';
+import { pathToFileURL } from 'node:url';
+import test from 'node:test';
+
+const exec = promisify(execFile);
+const source = await readFile(resolve('public/gestalt'), 'utf8');
+assert.match(source, /\nmain "\$@"\s*$/);
+
+async function fixture(t, installed = true) {
+  const root = await mkdtemp(join(tmpdir(), 'gestalt update components '));
+  t.after(async () => { await captureWorkerFixture(root, t.name); await rm(root, { recursive: true, force: true }); });
+  const home = join(root, 'managed');
+  const log = join(root, 'operations');
+  const manager = join(root, 'gestalt');
+  await mkdir(join(home, 'run'), { recursive: true });
+  if (installed) {
+    await mkdir(join(home, 'serena'));
+    await writeFile(join(home, 'serena/active.json'), '{}');
+    await mkdir(join(home, 'xerj'));
+    await writeFile(join(home, 'xerj/xerj'), 'installed fixture');
+  }
+  // Retain the production parser, orchestration, detached worker and restart
+  // lifecycle. Replace only release installers/launchers so these tests cannot
+  // download software, update the real installation, or start Mobile.
+  await writeFile(manager, source.replace(/\nmain "\$@"\s*$/, `
+record_update() {
+  printf '%s\\n' "$1" >> "$GESTALT_TEST_UPDATE_LOG"
+  [[ \${GESTALT_TEST_UPDATE_FAIL:-} != "$1" ]] || return 42
+}
+update_manager() { record_update manager; }
+run_marketplace_setup() { record_update "agents:$1:$2"; }
+command_skills() { [[ $1 == update ]]; record_update "skills:$1"; }
+install_mobile() { record_update mobile; }
+command_serena() { [[ $1 == update ]]; record_update serena; }
+command_playwright() { [[ $1 == update ]]; record_update playwright; }
+command_xerj() {
+  [[ $1 == update ]]; record_update xerj
+  if [[ -n \${GESTALT_TEST_RESOLVED_HOME:-} ]]; then gestalt_home=$GESTALT_TEST_RESOLVED_HOME; fi
+}
+command_mobile() {
+  if [[ -n \${GESTALT_TEST_RESTART_ARGV:-} ]]; then
+    printf '%s\\0' "$@" > "$GESTALT_TEST_RESTART_ARGV"
+    record_update restart-argv
+  else
+    record_update "restart:$1:$2:$3"
+  fi
+}
+case \${1:-}:\${2:-} in
+  __update-restart-worker:* | __updated-manager:__update-restart-worker) exec 2>> "$GESTALT_TEST_UPDATE_LOG.worker-startup" ;;
+esac
+set -x
+main "$@"
+`), { mode: 0o755 });
+  const env = {
+    ...process.env,
+    CODEX_HOME: join(root, 'codex'),
+    GESTALT_HOME: home,
+    GESTALT_TEST_UPDATE_LOG: log,
+    GESTALT_TEST_UPDATE_FAIL: '',
+  };
+  const operations = async () => readFile(log, 'utf8').then(
+    text => text.trim().split('\n').filter(Boolean),
+    error => { if (error.code === 'ENOENT') return []; throw error; },
+  );
+  const run = async (args, extra = {}) => {
+    const result = await exec('bash', [manager, ...args], { env: { ...env, ...extra }, timeout: 15_000 });
+    const ownedPath = join(root, 'owned-processes.json');
+    const owned = JSON.parse(await readFile(ownedPath, 'utf8').catch(() => '{}'));
+    const match = /scheduled update and Mobile restart \(worker (\d+)\)/.exec(result.stderr);
+    if (match) owned.worker = Number(match[1]);
+    await writeFile(ownedPath, JSON.stringify(owned));
+    await writeFile(join(root, 'invocation.json'), JSON.stringify({ args, stdout: result.stdout.slice(-32768), stderr: result.stderr.slice(-32768) }));
+    return result;
+  };
+  return { root, home, log, manager, env, run, operations };
+}
+
+async function reloadFixture(t, current = false) {
+  const f = await fixture(t);
+  const release = join(f.root, 'release');
+  await mkdir(release);
+  const render = revision => source.replace(/\nmain "\$@"\s*$/, `
+record_update() {
+  printf '%s\\n' "${revision}:$1" >> "$GESTALT_TEST_UPDATE_LOG"
+  [[ \${GESTALT_TEST_UPDATE_FAIL:-} != "$1" ]] || return 42
+}
+curl() {
+  printf 'download\\n' >> "$GESTALT_TEST_UPDATE_LOG"
+  command curl "$@"
+}
+run_marketplace_setup() { record_update "agents:$1:$2"; }
+command_skills() { [[ $1 == update ]]; record_update "skills:$1"; }
+install_mobile() { record_update mobile; }
+command_serena() { record_update serena; }
+command_xerj() { record_update xerj; }
+command_mobile() {
+  if [[ -n \${GESTALT_TEST_RESTART_ARGV:-} ]]; then
+    printf '%s\\0' "$@" > "$GESTALT_TEST_RESTART_ARGV"
+    record_update restart-argv
+  else
+    record_update "restart:$1:$2:$3"
+  fi
+}
+case \${1:-}:\${2:-} in
+  __update-restart-worker:* | __updated-manager:__update-restart-worker) exec 2>> "$GESTALT_TEST_UPDATE_LOG.worker-startup" ;;
+esac
+set -x
+main "$@"
+`);
+  const replacement = render('new');
+  await writeFile(f.manager, current ? replacement : render('old'), { mode: 0o755 });
+  await writeFile(join(release, 'gestalt'), replacement);
+  f.env.GESTALT_INSTALL_BASE_URL = pathToFileURL(release).href;
+  f.env.TMPDIR = f.root;
+  return { ...f, replacement, release };
+}
+
+for (const [args, extra, optional] of [
+  [['update'], false, true],
+  [['update', '--extra-skills'], true, true],
+  [['update', 'gestalt'], false, false],
+  [['update', '--component', 'gestalt', '--extra-skills'], true, false],
+]) test(`${args.join(' ')} resumes component updates in the replacement manager exactly once`, async t => {
+  const f = await reloadFixture(t);
+  await f.run(args);
+  assert.deepEqual(await f.operations(), [
+    'download', 'new:skills:update', `new:agents:upgrade:${extra}`, 'new:mobile',
+    ...(optional ? ['new:serena'] : []),
+  ]);
+  assert.equal(await readFile(f.manager, 'utf8'), f.replacement);
+  assert.deepEqual((await readdir(f.root)).filter(name => name.startsWith('gestalt-update.')), []);
+});
+
+test('an unchanged manager completes the update with one download', async t => {
+  const f = await reloadFixture(t, true);
+  const { stderr } = await f.run(['update', 'gestalt']);
+  assert.match(stderr, /manager is already current/);
+  assert.deepEqual(await f.operations(), ['download', 'new:skills:update', 'new:agents:upgrade:false', 'new:mobile']);
+});
+
+test('a replacement manager failure propagates without continuing old component code', async t => {
+  const f = await reloadFixture(t);
+  await assert.rejects(f.run(['update'], { GESTALT_TEST_UPDATE_FAIL: 'mobile' }), { code: 42 });
+  assert.deepEqual(await f.operations(), ['download', 'new:skills:update', 'new:agents:upgrade:false', 'new:mobile']);
+});
+
+test('an invalid replacement leaves the installed manager intact and runs no components', async t => {
+  const f = await reloadFixture(t);
+  const before = await readFile(f.manager, 'utf8');
+  await writeFile(join(f.release, 'gestalt'), '<!DOCTYPE html>');
+  await assert.rejects(f.run(['update', 'gestalt']));
+  assert.equal(await readFile(f.manager, 'utf8'), before);
+  assert.deepEqual(await f.operations(), ['download']);
+});
+
+test('update help lists component groups without invoking any installer', async t => {
+  const f = await fixture(t, false);
+  for (const args of [['update', '--help'], ['update-restart', '--help']]) {
+    const { stdout } = await f.run(args);
+    for (const name of ['all', 'gestalt', 'serena'])
+      assert.match(stdout, new RegExp(`^  ${name} +`, 'm'));
+    assert.match(stdout, /context-mode/);
+    assert.match(stdout, /private uv\/Python/);
+  }
+  assert.deepEqual(await f.operations(), []);
+});
+
+test('default update includes all installed managed components in order', async t => {
+  const f = await fixture(t);
+  await f.run(['update', '--extra-skills']);
+  assert.deepEqual(await f.operations(), ['manager', 'skills:update', 'agents:upgrade:true', 'mobile', 'serena']);
+});
+
+test('default update skips absent optional components with an explicit message', async t => {
+  const f = await fixture(t, false);
+  const { stderr } = await f.run(['update']);
+  assert.deepEqual(await f.operations(), ['manager', 'skills:update', 'agents:upgrade:false', 'mobile']);
+  assert.match(stderr, /skipping Serena \(not installed/);
+  assert.doesNotMatch(stderr, /skipping XERJ/);
+});
+
+for (const component of ['all', 'gestalt', 'serena']) {
+  for (const selector of [[component], ['--component', component]]) {
+    test(`update ${selector.join(' ')} changes only the selected component group`, async t => {
+      const f = await fixture(t, component === 'all' || component === 'gestalt');
+      await f.run(['update', ...selector]);
+      const core = ['manager', 'skills:update', 'agents:upgrade:false', 'mobile'];
+      assert.deepEqual(await f.operations(), component === 'all' ? [...core, 'serena']
+        : component === 'gestalt' ? core : [component]);
+    });
+  }
+}
+
+for (const args of [
+  ['xerj'], ['--component', 'xerj'], ['unknown'], ['--component'], ['--component', 'unknown'], ['serena', 'xerj'],
+  ['--component', 'xerj', 'xerj'], ['--unexpected'], ['serena', '--extra-skills'],
+]) {
+  test(`invalid update arguments are rejected before any change: ${args.join(' ')}`, async t => {
+    const f = await fixture(t);
+    await assert.rejects(f.run(['update', ...args]));
+    assert.deepEqual(await f.operations(), []);
+  });
+}
+
+for (const failed of ['manager', 'skills:update', 'agents:upgrade:false', 'mobile', 'serena']) {
+  test(`a failed ${failed} update stops subsequent components and never claims completion`, async t => {
+    const f = await fixture(t);
+    const order = ['manager', 'skills:update', 'agents:upgrade:false', 'mobile', 'serena'];
+    await assert.rejects(f.run(['update'], { GESTALT_TEST_UPDATE_FAIL: failed }), error => {
+      assert.doesNotMatch(error.stderr, /update complete/);
+      return true;
+    });
+    assert.deepEqual(await f.operations(), order.slice(0, order.indexOf(failed) + 1));
+  });
+}
+
+async function until(predicate) {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    if (await predicate()) return;
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  assert.fail('detached update worker did not settle within its deadline');
+}
+
+for (const [name, args, expected, extraSkills] of [
+  ['no options', [], [], false],
+  ['no options with extra skills', [], [], true],
+  ['empty and literal arguments', ['', 'space é 東京', '$(not-evaluated)', '"quoted"', '--', '--xerj', 'auto', ''],
+    ['', 'space é 東京', '$(not-evaluated)', '"quoted"', '--', '--xerj', 'auto', ''], false],
+  ['retired options and separate port arguments', ['--xerj', 'auto', '--port', '4321'], ['--port', '4321'], false],
+]) test(`reloaded detached worker preserves ${name} as exact NUL-delimited argv`, async t => {
+  const f = await reloadFixture(t);
+  const relay = spawn('sleep', ['30']);
+  await writeFile(join(f.root, 'owned-processes.json'), JSON.stringify({ relay: relay.pid }));
+  const stopped = new Promise(resolve => relay.once('exit', resolve));
+  t.after(async () => { relay.kill(); await stopped; });
+  const state = join(f.home, `run/mobile-${relay.pid}.restart`);
+  const argvFile = join(f.root, 'restart-argv');
+  await writeFile(state, [f.root, ...args, ''].join('\0'));
+  await f.run(['update-restart', 'gestalt', ...(extraSkills ? ['--extra-skills'] : [])], {
+    GESTALT_MOBILE_PID: String(relay.pid), GESTALT_MOBILE_RESTART_STATE: state,
+    GESTALT_TEST_RESTART_ARGV: argvFile,
+  });
+  await until(async () => (await f.operations()).includes('new:restart-argv'));
+  await stopped;
+  assert.deepEqual((await readFile(argvFile, 'utf8')).split('\0').slice(0, -1), ['--', ...expected]);
+  assert.deepEqual(await f.operations(), ['download', 'new:skills:update', `new:agents:upgrade:${extraSkills}`, 'new:mobile', 'new:restart-argv']);
+  await assert.rejects(readFile(state), { code: 'ENOENT' });
+  await assert.rejects(readFile(join(f.home, 'run/update-restart.lock')), { code: 'ENOENT' });
+});
+
+test('empty restart descriptor fails before component updates and preserves the relay', async t => {
+  const f = await fixture(t);
+  const relay = spawn('sleep', ['30']);
+  await writeFile(join(f.root, 'owned-processes.json'), JSON.stringify({ relay: relay.pid }));
+  const stopped = new Promise(resolve => relay.once('exit', resolve));
+  t.after(async () => { relay.kill(); await stopped; });
+  const state = join(f.home, `run/mobile-${relay.pid}.restart`);
+  await writeFile(state, '');
+  await f.run(['update-restart'], { GESTALT_MOBILE_PID: String(relay.pid), GESTALT_MOBILE_RESTART_STATE: state });
+  await until(async () => (await readFile(join(f.home, 'update-restart.log'), 'utf8').catch(() => '')).includes('restart descriptor is empty'));
+  await until(() => readFile(join(f.home, 'run/update-restart.lock')).then(() => false, error => error.code === 'ENOENT'));
+  assert.deepEqual(await f.operations(), []);
+  assert.equal(relay.exitCode, null); assert.equal(relay.signalCode, null);
+  assert.equal(await readFile(state, 'utf8'), '');
+});
+
+for (const fail of [false, true]) test(`reloaded detached update worker ${fail ? 'preserves the relay on failure' : 'restarts with new code and releases its lock'}`, async t => {
+  const f = await reloadFixture(t);
+  const relay = spawn('sleep', ['30']);
+  await writeFile(join(f.root, 'owned-processes.json'), JSON.stringify({ relay: relay.pid }));
+  const stopped = new Promise(resolve => relay.once('exit', resolve));
+  t.after(async () => { relay.kill(); await stopped; });
+  const state = join(f.home, `run/mobile-${relay.pid}.restart`);
+  const descriptor = [f.root, '--xerj', 'auto', '--port', '4321', ''].join('\0');
+  await writeFile(state, descriptor);
+  await f.run(['update-restart', 'gestalt', '--extra-skills'], {
+    GESTALT_MOBILE_PID: String(relay.pid), GESTALT_MOBILE_RESTART_STATE: state,
+    GESTALT_TEST_UPDATE_FAIL: fail ? 'mobile' : '',
+  });
+  if (!fail) {
+    await until(async () => (await f.operations()).includes('new:restart:--:--port:4321'));
+    await stopped;
+  }
+  await until(() => readFile(join(f.home, 'run/update-restart.lock')).then(() => false,
+    error => error.code === 'ENOENT'));
+  assert.deepEqual(await f.operations(), [
+    'download', 'new:skills:update', 'new:agents:upgrade:true', 'new:mobile',
+    ...(fail ? [] : ['new:restart:--:--port:4321']),
+  ]);
+  if (fail) {
+    assert.equal(relay.exitCode, null);
+    assert.equal(relay.signalCode, null);
+    assert.equal(await readFile(state, 'utf8'), descriptor);
+  } else await assert.rejects(readFile(state), { code: 'ENOENT' });
+});
+
+for (const scenario of ['all', 'all-with-symlink']) {
+  const component = scenario === 'xerj' ? 'xerj' : 'all';
+  test(`GUI-compatible detached update-restart forwards ${scenario} before restarting`, async t => {
+    const f = await fixture(t);
+    const home = scenario === 'all-with-symlink' ? join(f.root, 'managed-alias') : f.home;
+    if (home !== f.home) await symlink(f.home, home);
+    const relay = spawn('sleep', ['30']);
+  await writeFile(join(f.root, 'owned-processes.json'), JSON.stringify({ relay: relay.pid }));
+    const stopped = new Promise(resolve => relay.once('exit', resolve));
+    t.after(async () => { relay.kill(); await stopped; });
+    const state = join(home, `run/mobile-${relay.pid}.restart`);
+    await writeFile(state, [f.root, '--port', '4321', ''].join('\0'));
+    await f.run(['update-restart', ...(component === 'all' ? [] : [component])], {
+      GESTALT_MOBILE_PID: String(relay.pid), GESTALT_MOBILE_RESTART_STATE: state,
+      GESTALT_HOME: home, GESTALT_TEST_RESOLVED_HOME: f.home,
+    });
+    await until(async () => (await f.operations()).some(item => item.startsWith('restart:')));
+    await stopped;
+    const expected = component === 'all'
+      ? ['manager', 'skills:update', 'agents:upgrade:false', 'mobile', 'serena'] : ['xerj'];
+    assert.deepEqual(await f.operations(), [...expected, 'restart:--:--port:4321']);
+  });
+}
+
+test('failed external GUI update leaves the managed relay running and releases the worker lock', async t => {
+  const f = await fixture(t);
+  const relay = spawn('sleep', ['30']);
+  await writeFile(join(f.root, 'owned-processes.json'), JSON.stringify({ relay: relay.pid }));
+  const stopped = new Promise(resolve => relay.once('exit', resolve));
+  t.after(async () => { relay.kill(); await stopped; });
+  const state = join(f.home, `run/mobile-${relay.pid}.restart`);
+  await writeFile(state, [f.root, '--port', '4321', ''].join('\0'));
+  await f.run(['update-restart'], {
+    GESTALT_MOBILE_PID: String(relay.pid), GESTALT_MOBILE_RESTART_STATE: state,
+    GESTALT_TEST_UPDATE_FAIL: 'serena',
+  });
+  await until(async () => {
+    try { return (await readFile(join(f.home, 'update-restart.log'), 'utf8')).includes('exit 42'); }
+    catch { return false; }
+  });
+  await until(() => readFile(join(f.home, 'run/update-restart.lock')).then(() => false,
+    error => error.code === 'ENOENT'));
+  assert.equal(relay.exitCode, null);
+  assert.equal(relay.signalCode, null);
+  assert.deepEqual(await f.operations(), ['manager', 'skills:update', 'agents:upgrade:false', 'mobile', 'serena']);
+  assert.equal(await readFile(state, 'utf8'), [f.root, '--port', '4321', ''].join('\0'));
+});
+
+
+test('Playwright updates only when installed or explicitly selected', async t => {
+  const f = await fixture(t, false);
+  await f.run(['update', 'playwright']);
+  assert.deepEqual(await f.operations(), ['playwright']);
+  await mkdir(join(f.home, 'playwright'));
+  await writeFile(join(f.home, 'playwright/active.json'), '{}');
+  await f.run(['update']);
+  assert.deepEqual(await f.operations(), ['playwright', 'manager', 'skills:update', 'agents:upgrade:false', 'mobile', 'playwright']);
+});

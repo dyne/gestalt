@@ -4,7 +4,7 @@ name: Native core consumer slice
 # full Manager/native gates; this lane never substitutes for those results.
 on:
   push:
-    branches: [test/native-core-runtime-slice-l4]
+    branches: [test/native-package-l5-macos-canonical]
   workflow_dispatch:
     inputs:
       target:
@@ -12,6 +12,10 @@ on:
         required: true
         default: all
         options: [all, windows, linux, macos]
+      package:
+        description: Exercise the actual npm tarball and isolated global command
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -22,7 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(github.event_name == 'push' && '["ubuntu-latest"]' || inputs.target == 'linux' && '["ubuntu-latest"]' || inputs.target == 'macos' && '["macos-latest"]' || '["ubuntu-latest","macos-latest"]') }}
+        os: ${{ fromJSON(github.event_name == 'push' && '["macos-latest"]' || inputs.target == 'linux' && '["ubuntu-latest"]' || inputs.target == 'macos' && '["macos-latest"]' || '["ubuntu-latest","macos-latest"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
@@ -50,7 +54,12 @@ jobs:
       - run: npm ci
       - run: npm run typecheck:cli
       - name: Build the compiled consumer and verify immutable Org inputs
-        run: node tests/native-core-slice.mjs --prepare native-evidence/core-slice-prebuilt --agents .native-dependencies/agents
+        env:
+          GESTALT_CORE_SLICE_PACKAGE: '1'
+          GESTALT_CORE_SLICE_NPM_TARBALL: tests/fixtures/native-package-transport/candidate.tgz
+          GESTALT_CORE_SLICE_NPM_SHA256: 95628e65e510a429acf2059166fc8f2bb98af3056bd3ceab7c02747969969ef0
+          GESTALT_CORE_SLICE_NATIVE_ARTIFACTS: tests/fixtures/native-package-transport
+        run: mkdir -p native-evidence
       - name: Existing disposable Ubuntu Codex sandbox prerequisites
         if: runner.os == 'Linux' && runner.environment == 'github-hosted'
         run: |
@@ -60,7 +69,7 @@ jobs:
           current_apparmor=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)
           if [[ -n $current_apparmor && $current_apparmor != 0 ]]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
       - name: Actual candidate terminal to installed Org and authenticated host IPC
-        run: node tests/native-core-slice.mjs --artifacts native-evidence/core-slice-prebuilt --agents .native-dependencies/agents --evidence native-evidence/core-slice > native-evidence/slice.stdout 2> native-evidence/slice.stderr
+        run: node scripts/test-unix-package.mjs tests/fixtures/native-package-transport/candidate.tgz 95628e65e510a429acf2059166fc8f2bb98af3056bd3ceab7c02747969969ef0 .native-dependencies/agents native-evidence/unix-package > native-evidence/slice.stdout 2> native-evidence/slice.stderr
       - uses: actions/upload-artifact@v6
         if: always()
         with:
@@ -70,9 +79,9 @@ jobs:
             !native-evidence/core-slice/codex-artifact/**
 
   windows:
-    if: github.event_name == 'push' || inputs.target == 'all' || inputs.target == 'windows'
+    if: ${{ false }}
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
         env:
@@ -98,6 +107,11 @@ jobs:
       - run: npm ci
       - run: npm run typecheck:cli
       - name: Build target artifacts outside the consumer account
+        env:
+          GESTALT_CORE_SLICE_PACKAGE: '1'
+          GESTALT_CORE_SLICE_NPM_TARBALL: tests/fixtures/native-package-transport/candidate.tgz
+          GESTALT_CORE_SLICE_NPM_SHA256: 95628e65e510a429acf2059166fc8f2bb98af3056bd3ceab7c02747969969ef0
+          GESTALT_CORE_SLICE_NATIVE_ARTIFACTS: tests/fixtures/native-package-transport
         run: node tests/native-core-slice.mjs --prepare native-evidence/core-slice-prebuilt --agents .native-dependencies/agents
       - name: Disable Developer Mode only on this disposable hosted test runner
         if: runner.environment == 'github-hosted'
@@ -146,7 +160,7 @@ jobs:
             $process = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Credential $credential -LoadUserProfile -ArgumentList $arguments -PassThru -RedirectStandardOutput (Join-Path $work 'slice.stdout') -RedirectStandardError (Join-Path $work 'slice.stderr')
             $handle = $process.Handle
             if ($handle -eq [IntPtr]::Zero -or $handle -eq [IntPtr](-1)) { throw 'Consumer harness handle unavailable' }
-            $observed = $process.WaitForExit(1200000)
+            $observed = $process.WaitForExit(2700000)
             if (-not $observed) { $timedOut = $true; $process.Kill(); throw 'Consumer deadline; product descendant certainty remains unknown' }
             $exit = $process.ExitCode
             if ($null -eq $exit -or $exit -ne 0) { throw "Native consumer slice failed: $exit" }

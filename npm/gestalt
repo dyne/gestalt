@@ -1,14 +1,14 @@
-#!/usr/bin/env bash
-# Resolve npm's executable symlink before entering the standalone manager.
-set -Eeuo pipefail
-
-entry=${BASH_SOURCE[0]}
-while [[ -L $entry ]]; do
-  entry_directory=$(CDPATH='' cd -- "$(dirname -- "$entry")" && pwd -P)
-  entry=$(readlink -- "$entry")
-  [[ $entry == /* ]] || entry=$entry_directory/$entry
-done
-package_directory=$(CDPATH='' cd -- "$(dirname -- "$entry")/.." && pwd -P)
-
-export GESTALT_MANAGER_DISTRIBUTION=npm
-exec bash "$package_directory/lib/gestalt" "$@"
+#!/usr/bin/env node
+// npm owns this installation, including when invoked through its global shim.
+if (process.platform === 'win32' && process.arch !== 'x64') {
+  console.error('gestalt: this release supports native Windows x64 only; a matching native helper is unavailable for this architecture');
+  process.exitCode = 1;
+} else {
+  process.env.GESTALT_MANAGER_DISTRIBUTION = 'npm';
+  const { main } = await import('../lib/gestalt.mjs');
+  try { process.exitCode = await main(); }
+  catch (error) {
+    console.error(`gestalt: ${error instanceof Error ? error.message : 'CLI failed'}`);
+    process.exitCode = 1;
+  }
+}

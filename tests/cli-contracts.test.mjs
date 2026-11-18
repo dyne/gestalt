@@ -30,8 +30,8 @@ test('real standalone and npm wrappers preserve read-only help/version/error con
   const packaged = await buildNpmPackage(root);
   const env = { ...process.env, CODEX_HOME: codexHome, GESTALT_HOME: gestaltHome };
   const version = /^readonly GESTALT_CLI_VERSION='([^']+)'$/m.exec(source)[1];
-  for (const entry of [join(root, 'public/gestalt'), join(packaged, 'bin/gestalt')]) {
-    const run = args => spawnSync('bash', [entry, ...args], { env, encoding: 'utf8', timeout: 15000 });
+  for (const [executable, entry] of [['bash', join(root, 'public/gestalt')], [process.execPath, join(packaged, 'bin/gestalt')]]) {
+    const run = args => spawnSync(executable, [entry, ...args], { env, encoding: 'utf8', timeout: 15000, shell: false });
     const help = run([]);
     assert.equal(help.status, 0, help.stderr);
     assert.equal(help.stderr, '');

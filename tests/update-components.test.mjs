@@ -1,3 +1,4 @@
+import { captureWorkerFixture } from './upgrade-worker-diagnostics.mjs';
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
@@ -13,7 +14,7 @@ assert.match(source, /\nmain "\$@"\s*$/);
 
 async function fixture(t, installed = true) {
   const root = await mkdtemp(join(tmpdir(), 'gestalt update components '));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(async () => { await captureWorkerFixture(root, t.name); await rm(root, { recursive: true, force: true }); });
   const home = join(root, 'managed');
   const log = join(root, 'operations');
   const manager = join(root, 'gestalt');
@@ -43,6 +44,10 @@ command_xerj() {
   if [[ -n \${GESTALT_TEST_RESOLVED_HOME:-} ]]; then gestalt_home=$GESTALT_TEST_RESOLVED_HOME; fi
 }
 command_mobile() { record_update "restart:$1:$2:$3"; }
+case \${1:-}:\${2:-} in
+  __update-restart-worker:* | __updated-manager:__update-restart-worker) exec 2>> "$GESTALT_TEST_UPDATE_LOG.worker-startup" ;;
+esac
+set -x
 main "$@"
 `), { mode: 0o755 });
   const env = {
@@ -56,9 +61,16 @@ main "$@"
     text => text.trim().split('\n').filter(Boolean),
     error => { if (error.code === 'ENOENT') return []; throw error; },
   );
-  const run = (args, extra = {}) => exec('bash', [manager, ...args], {
-    env: { ...env, ...extra }, timeout: 15_000,
-  });
+  const run = async (args, extra = {}) => {
+    const result = await exec('bash', [manager, ...args], { env: { ...env, ...extra }, timeout: 15_000 });
+    const ownedPath = join(root, 'owned-processes.json');
+    const owned = JSON.parse(await readFile(ownedPath, 'utf8').catch(() => '{}'));
+    const match = /scheduled update and Mobile restart \(worker (\d+)\)/.exec(result.stderr);
+    if (match) owned.worker = Number(match[1]);
+    await writeFile(ownedPath, JSON.stringify(owned));
+    await writeFile(join(root, 'invocation.json'), JSON.stringify({ args, stdout: result.stdout.slice(-32768), stderr: result.stderr.slice(-32768) }));
+    return result;
+  };
   return { root, home, log, manager, env, run, operations };
 }
 
@@ -81,6 +93,10 @@ install_mobile() { record_update mobile; }
 command_serena() { record_update serena; }
 command_xerj() { record_update xerj; }
 command_mobile() { record_update "restart:$1:$2:$3"; }
+case \${1:-}:\${2:-} in
+  __update-restart-worker:* | __updated-manager:__update-restart-worker) exec 2>> "$GESTALT_TEST_UPDATE_LOG.worker-startup" ;;
+esac
+set -x
 main "$@"
 `);
   const replacement = render('new');
@@ -202,6 +218,7 @@ async function until(predicate) {
 for (const fail of [false, true]) test(`reloaded detached update worker ${fail ? 'preserves the relay on failure' : 'restarts with new code and releases its lock'}`, async t => {
   const f = await reloadFixture(t);
   const relay = spawn('sleep', ['30']);
+  await writeFile(join(f.root, 'owned-processes.json'), JSON.stringify({ relay: relay.pid }));
   const stopped = new Promise(resolve => relay.once('exit', resolve));
   t.after(async () => { relay.kill(); await stopped; });
   const state = join(f.home, `run/mobile-${relay.pid}.restart`);
@@ -235,6 +252,7 @@ for (const scenario of ['all', 'all-with-symlink']) {
     const home = scenario === 'all-with-symlink' ? join(f.root, 'managed-alias') : f.home;
     if (home !== f.home) await symlink(f.home, home);
     const relay = spawn('sleep', ['30']);
+  await writeFile(join(f.root, 'owned-processes.json'), JSON.stringify({ relay: relay.pid }));
     const stopped = new Promise(resolve => relay.once('exit', resolve));
     t.after(async () => { relay.kill(); await stopped; });
     const state = join(home, `run/mobile-${relay.pid}.restart`);
@@ -254,6 +272,7 @@ for (const scenario of ['all', 'all-with-symlink']) {
 test('failed external GUI update leaves the managed relay running and releases the worker lock', async t => {
   const f = await fixture(t);
   const relay = spawn('sleep', ['30']);
+  await writeFile(join(f.root, 'owned-processes.json'), JSON.stringify({ relay: relay.pid }));
   const stopped = new Promise(resolve => relay.once('exit', resolve));
   t.after(async () => { relay.kill(); await stopped; });
   const state = join(f.home, `run/mobile-${relay.pid}.restart`);

@@ -13,7 +13,8 @@ import { NativePrivateStorage } from '../src/cli/platform/storage.ts';
 import { createScratchOwner } from '../src/cli/runtime/scratch-owner.mjs';
 import { capturedNodeCommand } from './fixtures/native-node-command.mjs';
 import { NativeArchives } from '../src/cli/platform/archive.ts';
-import { NativeExecutables } from '../src/cli/platform/executables.ts';
+import { commandTarget, NativeExecutables } from '../src/cli/platform/executables.ts';
+import { npmPrerequisiteTarget } from './fixtures/packed-core.mjs';
 import { captureCopyTree } from '../scripts/native-copy-provenance.mjs';
 import { until, windowsObserver } from './fixtures/native-owned-observer.mjs';
 import { SetupContext } from '../src/cli/setup/context.ts';
@@ -34,6 +35,11 @@ for (const file of artifacts.artifacts) {
   assert.ok(!path.isAbsolute(file.relative) && !file.relative.split(/[\\/]/).includes('..'));
   const bytes = await readFile(path.join(artifactRoot, file.relative));
   assert.equal(bytes.length, file.bytes); assert.equal(hash(bytes), file.sha256);
+}
+const packedTarball = artifacts.package ? path.join(artifactRoot, artifacts.package.relative) : null;
+if (packedTarball) {
+  const bytes = await readFile(packedTarball);
+  assert.equal(bytes.length, artifacts.package.bytes); assert.equal(hash(bytes), artifacts.package.sha256);
 }
 const build = await realpath(await mkdtemp(path.join(tmpdir(), 'gestalt-runtime-build-')));
 const entry = path.join(artifactRoot, 'gestalt.mjs'), peer = null;
@@ -73,12 +79,36 @@ async function fixture(t) {
   t.after(() => retained ? undefined : rm(outer, { recursive: true, force: true }));
   const storage = await NativePrivateStorage.open(path.join(outer, 'private'), peer), root = storage.root;
   for (const directory of ['home', 'Codex', 'Gestalt', 'bin', 'consumer', 'consumer/native', 'workspace']) await storage.createDirectory(path.join(root, directory));
-  const manager = path.join(root, 'consumer/gestalt.mjs'); await copyFile(entry, manager);
-  for (const file of [helper, peer].filter(Boolean)) { await copyFile(file, path.join(root, 'consumer/native', path.basename(file))); if (process.platform !== 'win32') await chmod(path.join(root, 'consumer/native', path.basename(file)), 0o755); }
+  let manager = path.join(root, 'consumer/gestalt.mjs'), packageRoot, globalShim, launchTarget;
   const environment = { ...process.env, HOME: path.join(root, 'home'), USERPROFILE: path.join(root, 'home'), CODEX_HOME: path.join(root, 'Codex'), GESTALT_HOME: path.join(root, 'Gestalt'),
     PATH: [path.join(root, 'bin'), path.dirname(process.execPath), path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0')].join(path.delimiter), PATHEXT: '.CMD;.EXE' };
   for (const key of Object.keys(environment)) if (key.toUpperCase() === 'PATH' && key !== 'PATH') delete environment[key];
-  return { root, storage, manager, environment, retain: () => { retained = true; } };
+  if (packedTarball) {
+    const npm = await new NativeExecutables().resolve('npm', process.env); assert.ok(npm);
+    const prerequisite = {}, target = await npmPrerequisiteTarget(npm, prerequisite), prefix = path.join(root, 'package prefix');
+    const argv = [...target.prefix, 'install', '--global', '--prefix', prefix, '--cache', path.join(root, 'npm cache'),
+      '--ignore-scripts', '--offline', '--no-audit', '--no-fund', packedTarball];
+    let installed, failure;
+    try { installed = execFileSync(target.executable, argv, { cwd: root, env: { ...environment, PATH: process.env.PATH }, encoding: 'utf8', shell: false, timeout: 60000 }); }
+    catch (error) { failure = { status: error.status, signal: error.signal, message: error.message, stdout: error.stdout?.toString(), stderr: error.stderr?.toString() }; throw error; }
+    finally { await evidence(`package-install-${path.basename(outer)}.json`, { command: [target.executable, ...argv], cwd: root, observedAt: new Date().toISOString(),
+      stdout: installed ?? null, failure: failure ?? null, prerequisite, tarballSha256: artifacts.package.sha256, lifecycleRequested: false }); }
+    packageRoot = path.join(prefix, 'node_modules/@jaromil/gestalt'); manager = path.join(packageRoot, 'bin/gestalt'); globalShim = path.join(prefix, 'gestalt.cmd');
+    launchTarget = await commandTarget(globalShim);
+    assert.equal(launchTarget.executable, process.execPath); assert.deepEqual(launchTarget.prefix, [manager]);
+    assert.equal(hash(await readFile(path.join(packageRoot, 'lib/gestalt.mjs'))), hash(await readFile(entry)));
+    assert.equal(hash(await readFile(path.join(packageRoot, 'lib/native/gestalt-owned-process.exe'))), hash(await readFile(helper)));
+    const literal = execFileSync(path.join(process.env.SystemRoot, 'System32/cmd.exe'), ['/d', '/s', '/c', 'gestalt --version'],
+      { cwd: root, env: { ...environment, PATH: [prefix, environment.PATH].join(path.delimiter) }, encoding: 'utf8', shell: false });
+    const packedManifest = JSON.parse(await readFile(path.join(packageRoot, 'package.json')));
+    assert.ok(literal.startsWith(`gestalt ${packedManifest.version}\n`));
+    await evidence(`package-binding-${path.basename(outer)}.json`, { observedAt: new Date().toISOString(), packageRoot, globalShim, launchTarget,
+      manifest: packedManifest, installed: await captureCopyTree(packageRoot), literalVersion: literal });
+  } else {
+    await copyFile(entry, manager);
+    for (const file of [helper, peer].filter(Boolean)) { await copyFile(file, path.join(root, 'consumer/native', path.basename(file))); if (process.platform !== 'win32') await chmod(path.join(root, 'consumer/native', path.basename(file)), 0o755); }
+  }
+  return { root, storage, manager, packageRoot, globalShim, launchTarget, environment, retain: () => { retained = true; } };
 }
 async function command(f, name, program) {
   const file = path.join(f.root, 'bin', name + '.mjs'); await writeFile(file, '#!/usr/bin/env node\n' + program, { mode: 0o755 });
@@ -87,7 +117,8 @@ async function command(f, name, program) {
   const target = path.join(f.root, 'bin', name + '.cmd'); await writeFile(target, capturedNodeCommand(capture, name + '.mjs')); return target;
 }
 async function appServer(t, f, native, environment = f.environment, argv = ['--stdio', '', 'literal ü & $HOME']) {
-  const child = spawn(process.execPath, [f.manager, '__codex-app-server', native, ...argv],
+  const target = f.launchTarget || { executable: process.execPath, prefix: [f.manager] };
+  const child = spawn(target.executable, [...target.prefix, '__codex-app-server', native, ...argv],
     { cwd: f.root, env: environment, stdio: ['pipe', 'pipe', 'pipe'], shell: false });
   let stderr = ''; child.stderr.on('data', bytes => stderr += bytes);
   const closed = new Promise((resolve, reject) => { child.once('error', reject); child.once('close', (status, signal) => resolve({ status, signal, stderr })); });
@@ -104,7 +135,8 @@ async function appServer(t, f, native, environment = f.environment, argv = ['--s
 }
 async function managerCommand(f, argv, environment = f.environment, deadline = process.platform === 'win32' ? 300000 : 60000, boundary) {
   const startedAt = new Date().toISOString(), started = performance.now(); let observedStatus, observedFailure;
-  const child = spawn(process.execPath, [f.manager, ...argv], { cwd: f.root, env: environment, stdio: ['ignore', 'pipe', 'pipe'], shell: false });
+  const target = f.launchTarget || { executable: process.execPath, prefix: [f.manager] };
+  const child = spawn(target.executable, [...target.prefix, ...argv], { cwd: f.root, env: environment, stdio: ['ignore', 'pipe', 'pipe'], shell: false });
   const stdout = [], stderr = []; child.stdout.on('data', bytes => stdout.push(bytes)); child.stderr.on('data', bytes => stderr.push(bytes));
   let timer; try {
     const status = await new Promise((resolve, reject) => {
@@ -255,6 +287,27 @@ test('actual compiled CLI uses accepted Agents, fresh/resume native sessions and
   await evidence('actual-cli-agents-setup.json', { observedAt: new Date().toISOString(), platform: process.platform, arch: process.arch, node: process.version, codex, setup,
     managerSha256: hash(await readFile(f.manager)), setupEntrySha256: setupEnvironment.GESTALT_AGENTS_SETUP_SHA256, setupOwnerSha256: setupEnvironment.GESTALT_AGENTS_SETUP_OWNER_SHA256 });
   assert.equal(setup.status, 0, setup.stderr);
+  if (f.packageRoot) {
+    const beforePackage = await captureCopyTree(f.packageRoot), beforeShim = await readFile(f.globalShim);
+    const update = await managerCommand(f, ['agents', 'update'], setupEnvironment, 1080000);
+    assert.equal(update.status, 0, update.stderr);
+    const collection = path.join(f.root, 'update-collection'), skill = '---\nname: package-update\ndescription: Local package ownership fixture.\n---\n# Fixture\n';
+    await mkdir(path.join(collection, 'skills/package-update'), { recursive: true });
+    await writeFile(path.join(collection, 'skills/package-update/SKILL.md'), skill);
+    await writeFile(path.join(collection, 'LICENSE'), 'MIT fixture\n');
+    await writeFile(path.join(collection, 'manifest.json'), JSON.stringify({ schemaVersion: 1, repository: 'dyne/gestalt-skills', source: 'https://github.com/dyne/gestalt-skills', version: '0.1.0',
+      skills: [{ name: 'package-update', entry: 'skills/package-update/SKILL.md', files: [{ path: 'skills/package-update/SKILL.md', sha256: hash(Buffer.from(skill)) }] }] }));
+    const git = await new NativeExecutables().resolve('git', process.env); assert.ok(git);
+    for (const argv of [['init', '--initial-branch=main', '--template='], ['add', '--all'], ['commit', '-m', 'local update fixture']])
+      execFileSync(git, ['-c', 'core.hooksPath=' + path.join(f.root, 'empty-hooks'), '-c', 'commit.gpgSign=false', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', ...argv],
+        { cwd: collection, env: setupEnvironment, encoding: 'utf8', shell: false });
+    const ownedUpdate = await managerCommand(f, ['update', 'gestalt'], { ...setupEnvironment, GESTALT_SKILLS_SOURCE: collection, GESTALT_SKILLS_REF: 'main',
+      GESTALT_INSTALL_BASE_URL: pathToFileURL(path.join(f.root, 'forbidden-self-update')).href }, 1080000);
+    await evidence('packed-agents-update.json', { observedAt: new Date().toISOString(), update, ownedUpdate, beforePackage,
+      afterPackage: await captureCopyTree(f.packageRoot), globalShim: f.globalShim, beforeShimSha256: hash(beforeShim), afterShimSha256: hash(await readFile(f.globalShim)) });
+    assert.equal(ownedUpdate.status, 0, ownedUpdate.stderr); assert.match(ownedUpdate.stderr, /npm install -g @jaromil\/gestalt@latest/);
+    assert.deepEqual(await captureCopyTree(f.packageRoot), beforePackage); assert.deepEqual(await readFile(f.globalShim), beforeShim);
+  }
   f.environment.PATH = [codex.commandDirectory, f.environment.PATH].join(path.delimiter);
   const before = await readFile(path.join(f.root, 'Codex/config.toml'));
   const result = await managerCommand(f, ['cli', '--', 'exec', '--help'], f.environment, 540000);

@@ -6,6 +6,7 @@ import { PassThrough } from 'node:stream';
 import test from 'node:test';
 import { buildOwnedProcess } from '../scripts/build-owned-process.mjs';
 import { NativeOwnedProcesses } from '../src/cli/platform/processes.ts';
+import { stageOwnedProcessSource } from './fixtures/stage-owned-process-source.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 const artifact = await mkdtemp(path.join(tmpdir(), 'gestalt-terminal-build-'));
@@ -108,8 +109,8 @@ test('an applied resize without acknowledgement is bounded and remains unknown t
   const acknowledgement = `message('Z', "")`;
   assert.equal(source.split(acknowledgement).length, 3, 'Inject exactly Unix and Windows resize acknowledgement sites');
   const injected = source.replaceAll(acknowledgement, '0 /* test-only withheld resize acknowledgement */');
-  const fixtureRoot = path.join(artifact, 'no-resize-ack'), file = path.join(fixtureRoot, 'src/cli/platform/native/owned-process.c');
-  await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, injected);
+  const fixtureRoot = path.join(artifact, 'no-resize-ack');
+  const file = await stageOwnedProcessSource(root, fixtureRoot, injected);
   const fixtureHelper = await buildOwnedProcess(fixtureRoot, path.join(fixtureRoot, 'bin'));
   if (process.env.GESTALT_NATIVE_TEST_EVIDENCE) {
     const prefix = path.join(path.resolve(process.env.GESTALT_NATIVE_TEST_EVIDENCE), 'terminal-resize-no-ack');

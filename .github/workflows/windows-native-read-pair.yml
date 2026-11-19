@@ -1,0 +1,44 @@
+name: windows-native-read-pair
+on:
+  push:
+    branches: [test/windows-native-read-pair-r1]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  paired-read:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v6
+        env:
+          GIT_CONFIG_COUNT: 1
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: 'false'
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.3
+          architecture: x64
+          package-manager-cache: false
+      - uses: actions/download-artifact@v6
+        with:
+          name: final-current-msvc-x64-1
+          run-id: 44440431389
+          repository: dyne/gestalt
+          github-token: ${{ github.token }}
+          path: native-evidence/windows-native-read-input
+      - name: Observe fixed native reads as a standard user
+        shell: powershell
+        env:
+          PROBE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          & ./tests/windows-native-read-pair/standard-user.ps1
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: windows-native-read-pair-r1-evidence-${{ github.run_attempt }}
+          path: native-evidence/windows-native-read-pair/
+          if-no-files-found: error

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -16,6 +16,7 @@ import { restartWorker } from '../src/cli/setup/restart.ts';
 import { updateManager } from '../src/cli/setup/manager-update.ts';
 import { capturedNodeCommand } from './fixtures/native-node-command.mjs';
 import { captureSetupRetention } from './fixtures/setup-retention.mjs';
+import { compositionInputs } from './fixtures/setup-composition-inputs.mjs';
 import { captureCopyTree } from '../scripts/native-copy-provenance.mjs';
 import { verifyOwnershipBuildInputs } from './fixtures/native-runtime/source-binding.mjs';
 
@@ -56,6 +57,8 @@ const custom = '# keep custom model\nmodel="fixture-custom"\n[mcp_servers.custom
 // Native Windows ACL setup measured 117–138s even on an early failed attempt;
 // readiness remains an observed phase, never a deadline-based success condition.
 const phaseBudgetMs = process.platform === 'win32' ? 300_000 : 60_000;
+const managedEntrypoint = path.join(repository, 'tests/fixtures/run-managed-setup.mjs');
+const compiledBackend = process.platform === 'win32' ? 'compiled native' : 'managed JavaScript';
 
 async function command(bin, name, body) {
   const script = path.join(bin, `${name}.mjs`);
@@ -69,20 +72,30 @@ async function command(bin, name, body) {
   }
 }
 
-async function fixture(t, config = custom, { freshHomes = false } = {}) {
+async function fixture(t, config = custom, { freshHomes = false, publicUnix = false } = {}) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), 'native setup ü & ')));
   let retained = false;
   t.after(() => retained ? undefined : rm(root, { recursive: true, force: true }));
   const home = path.join(root, 'home ü &'), codex = path.join(home, 'Codex ü &'), gestalt = path.join(home, 'Gestalt ü &');
   await mkdir(home, { mode: 0o700 });
-  const storage = freshHomes ? null : await NativePrivateStorage.open(codex, unixProbe);
-  if (!freshHomes) await NativePrivateStorage.open(gestalt, unixProbe);
+  let storage = null;
+  if (!freshHomes) {
+    if (publicUnix) {
+      await mkdir(codex, { mode: 0o700 }); await mkdir(gestalt, { mode: 0o700 });
+    } else {
+      const windowsReadHelper = process.platform === 'win32' ? async () => ownershipHelper : undefined;
+      storage = await NativePrivateStorage.open(codex, unixProbe, windowsReadHelper);
+      await NativePrivateStorage.open(gestalt, unixProbe, windowsReadHelper);
+    }
+  }
   const bin = path.join(root, 'bin'); await mkdir(bin, { mode: 0o700 });
   const ownerRoot = path.join(root, 'Agents ü &'); await mkdir(ownerRoot, { mode: 0o700 });
   const owner = path.join(ownerRoot, 'gestalt-setup.mjs'), log = path.join(root, 'calls.jsonl');
   const apiOwner = path.join(ownerRoot, 'scripts/setup-agents.mjs'), worker = path.join(ownerRoot, 'setup-worker.mjs');
   await mkdir(path.dirname(apiOwner), { mode: 0o700 });
   await writeFile(owner, "export * from './scripts/setup-agents.mjs';\n");
+  if (publicUnix) await writeFile(path.join(ownerRoot, 'gestalt-setup.sh'),
+    '#!/usr/bin/env bash\nset -e\nexec node "$(dirname -- "$0")/setup-worker.mjs" "$@"\n', { mode: 0o700 });
   await writeFile(apiOwner, `import {fileURLToPath} from 'node:url';
 export const SETUP_API_VERSION=1,SETUP_API_CAPABILITIES=['async-owned-commands-v1','host-filesystem-v1','shared-context-v1'];
 export async function setupAgents(args,{mode,commands,environment,cwd,streams,signal}){
@@ -102,18 +115,29 @@ return execution;}finally{signal.removeEventListener('abort',abort);}}
   }
   await command(bin, 'npm', `import fs from 'node:fs';import path from 'node:path';
 const args=process.argv.slice(2),index=args.indexOf('--prefix');
+if(process.env.FIXTURE_PUBLIC_UNIX==='1')fs.appendFileSync(process.env.FIXTURE_LOG,JSON.stringify(['npm',...args])+'\\n');
 if(process.env.FIXTURE_MOBILE_FAIL==='1')process.exit(41);
 if(index>=0){const prefix=args[index+1],bin=path.join(prefix,'node_modules/.bin');fs.mkdirSync(bin,{recursive:true,mode:0o700});fs.mkdirSync(path.join(prefix,'node_modules/gestalt-mobile'),{recursive:true,mode:0o700});fs.writeFileSync(path.join(prefix,'node_modules/gestalt-mobile/package.json'),JSON.stringify({name:'gestalt-mobile',version:'0.0.1'}));fs.writeFileSync(path.join(bin,'gestalt-mobile'),'#!/usr/bin/env node\\n',{mode:0o755});}`);
   await command(bin, 'codex', `import fs from 'node:fs';import path from 'node:path';
 const args=process.argv.slice(2);fs.appendFileSync(process.env.FIXTURE_LOG,JSON.stringify(['codex',...args])+'\\n');
-if(args[0]==='plugin'&&args[1]==='marketplace'){if(process.env.FIXTURE_MARKETPLACE_FAIL==='1')process.exit(7);}
-else if(args[0]==='plugin'&&args[1]==='list')console.log(JSON.stringify({installed:[{name:'gestalt',version:'1.2.3',installed:true},{name:'context-mode',version:process.env.FIXTURE_VERIFY_FAIL==='1'?'9.9.9':'1.2.3',installed:true,enabled:false}]}));
+if(args[0]==='plugin'&&args[1]==='marketplace'){
+  if(process.env.FIXTURE_MARKETPLACE_FAIL==='1'){fs.appendFileSync(process.env.FIXTURE_LOG,JSON.stringify(['phase','marketplace-failure',7])+'\\n');process.exit(7);}
+  if(process.env.FIXTURE_PUBLIC_UNIX==='1'){
+    const cache=path.join(process.env.CODEX_HOME,'.tmp/marketplaces/dyne-gestalt-agents');
+    fs.mkdirSync(path.dirname(cache),{recursive:true,mode:0o700});
+    if(!fs.existsSync(cache))fs.symlinkSync(process.env.GESTALT_AGENTS_SOURCE,cache);
+  }
+}
+else if(args[0]==='plugin'&&args[1]==='list'){
+  if(process.env.FIXTURE_VERIFY_FAIL==='1')fs.appendFileSync(process.env.FIXTURE_LOG,JSON.stringify(['phase','plugin-verification',0])+'\\n');
+  console.log(JSON.stringify({installed:[{name:'gestalt',version:'1.2.3',installed:true},{name:'context-mode',version:process.env.FIXTURE_VERIFY_FAIL==='1'?'9.9.9':'1.2.3',installed:true,enabled:false}]}));
+}
 else if(args[0]==='mcp')console.log(JSON.stringify({enabled:true,command:'node',args:[path.join(process.env.CODEX_HOME,'bin/context-mode-mcp.mjs')]}));
 else throw new Error('unexpected fixture Codex invocation');`);
   await writeFile(worker, `import fs from 'node:fs/promises';import path from 'node:path';
 await fs.appendFile(process.env.FIXTURE_LOG,JSON.stringify(['setup',...process.argv.slice(2)])+'\\n');
 if(process.env.FIXTURE_WAIT==='1'){await fs.writeFile(process.env.FIXTURE_READY,'ready');while(true){try{await fs.stat(process.env.FIXTURE_RELEASE);break;}catch{}await new Promise(r=>setTimeout(r,20));}}
-if(process.env.FIXTURE_FAIL==='1')process.exit(9);
+if(process.env.FIXTURE_FAIL==='1'){await fs.appendFile(process.env.FIXTURE_LOG,JSON.stringify(['phase','owner-failure',9])+'\\n');process.exit(9);}
 const home=process.env.CODEX_HOME,gestalt=process.env.GESTALT_HOME;
 await fs.mkdir(path.join(home,'agents'),{recursive:true,mode:0o700});
 await fs.writeFile(path.join(home,'agents/org-plan-executor.toml'),'model="fixture-default"\\n');await fs.writeFile(path.join(home,'agents/org-plan-reviewer.toml'),'model="fixture-default"\\n');
@@ -122,15 +146,25 @@ const config=path.join(home,'config.toml');let source=await fs.readFile(config,'
 const runtime=path.join(gestalt,'runtime/context-mode');await fs.mkdir(runtime,{recursive:true,mode:0o700});
 await fs.writeFile(path.join(runtime,'.context-mode-prepared.json'),JSON.stringify({packageVersion:'1.2.3',nodeModulesAbi:process.versions.modules,platform:process.platform,arch:process.arch}));
 for(const file of ['cli.bundle.mjs','server.bundle.mjs'])await fs.writeFile(path.join(runtime,file),'// fixture');
-if(process.env.FIXTURE_VERIFY_FAIL==='1')process.exit(9);
+if(process.env.FIXTURE_VERIFY_FAIL==='1'&&process.env.FIXTURE_PUBLIC_UNIX!=='1'){
+  await fs.appendFile(process.env.FIXTURE_LOG,JSON.stringify(['phase','owner-verification-failure',9])+'\\n');process.exit(9);
+}
+await fs.appendFile(process.env.FIXTURE_LOG,JSON.stringify(['phase','owner-completed',0])+'\\n');
 `);
   const env = { ...process.env, HOME: home, USERPROFILE: home, CODEX_HOME: codex, GESTALT_HOME: gestalt,
     GESTALT_AGENTS_SOURCE: ownerRoot, GESTALT_AGENTS_SETUP_SHA256: hash(await readFile(owner)), GESTALT_MANAGER_DISTRIBUTION: 'npm',
     FIXTURE_LOG: log, FIXTURE_READY: path.join(root, 'ready'), FIXTURE_RELEASE: path.join(root, 'release'),
+    FIXTURE_PUBLIC_UNIX: publicUnix ? '1' : '',
     PATH: [bin, path.dirname(process.execPath), process.env.PATH].join(path.delimiter), PATHEXT: '.CMD;.EXE' };
+  if (publicUnix) {
+    env.GESTALT_MARKETPLACE = 'dyne/gestalt-agents';
+    env.GESTALT_MARKETPLACE_NAME = 'dyne-gestalt-agents';
+  }
   for (const name of Object.keys(env)) if (name.toUpperCase() === 'PATH' && name !== 'PATH') delete env[name];
   function start(argv, extra = {}) {
-    const child = spawn(process.execPath, [manager, ...argv], { env: { ...env, ...extra }, cwd: root, stdio: ['ignore', 'pipe', 'pipe'], shell: false });
+    const args = process.platform === 'win32' || publicUnix ? [manager, ...argv]
+      : [managedEntrypoint, manager, ownershipHelper, ...(argv[0] === '__updated-manager' ? argv : ['__updated-manager', ...argv])];
+    const child = spawn(process.execPath, args, { env: { ...env, ...extra }, cwd: root, stdio: ['ignore', 'pipe', 'pipe'], shell: false });
     let stdout = '', stderr = '';
     child.stdout.on('data', b => stdout += b); child.stderr.on('data', b => stderr += b);
     const result = new Promise((resolve, reject) => { child.once('error', reject); child.once('close', status => resolve({ status, stdout, stderr })); });
@@ -139,7 +173,8 @@ if(process.env.FIXTURE_VERIFY_FAIL==='1')process.exit(9);
   return { root, home, codex, gestalt, owner, apiOwner, worker, ownerRoot, env, log, storage, start, retain: () => { retained = true; },
     run: (argv = ['agents', 'install'], extra) => start(argv, extra).result,
     config: () => readFile(path.join(codex, 'config.toml'), 'utf8'),
-    provenance: () => readFile(path.join(codex, '.gestalt-setup-provenance.json'), 'utf8') };
+    provenance: () => readFile(path.join(codex, '.gestalt-setup-provenance.json'), 'utf8'),
+    events: async () => (await readFile(log, 'utf8')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line)) };
 }
 async function until(check, message, timeoutMs = 15_000, operation) {
   const deadline = Date.now() + timeoutMs;
@@ -201,7 +236,7 @@ async function windowsSetupObserver(pid) {
   } };
 }
 
-test('actual native interruption fences setup descendants or retains unknown transaction ownership', { timeout: phaseBudgetMs + 120_000 }, async t => {
+test(`${compiledBackend} interruption fences setup descendants or retains unknown transaction ownership`, { timeout: phaseBudgetMs + 120_000 }, async t => {
   const f = await fixture(t), ready = path.join(f.root, 'descendant.json'), heartbeat = path.join(f.root, 'descendant-writes'), release = path.join(f.root, 'stop-descendant'), done = path.join(f.root, 'descendant-done');
   const token = crypto.randomUUID(), config = path.join(f.codex, 'config.toml');
   const descendant = `const fs=require('node:fs');process.on('SIGTERM',()=>{});process.on('SIGINT',()=>{});const token=${JSON.stringify(token)};
@@ -295,7 +330,7 @@ const interval=setInterval(()=>{if(fs.existsSync(${JSON.stringify(release)})){cl
   }
 });
 
-for (const initial of [null, custom]) test(`compiled native ${initial === null ? 'fresh' : 'custom'} Agents setup ${process.platform === 'darwin' ? 'retains unknown authority and refuses repeat' : 'repeats with stable config and provenance'}`, async t => {
+for (const initial of [null, custom]) test(`${compiledBackend} ${initial === null ? 'fresh' : 'custom'} Agents setup ${process.platform === 'darwin' ? 'retains unknown authority and refuses repeat' : 'repeats with stable config and provenance'}`, async t => {
   const f = await fixture(t, initial);
   const first = await f.run(); assert.equal(first.status, 0, first.stderr);
   if (process.platform === 'darwin') {
@@ -333,7 +368,13 @@ for (const initial of [null, custom]) test(`compiled native ${initial === null ?
 for (const failure of ['FIXTURE_FAIL', 'FIXTURE_VERIFY_FAIL', 'FIXTURE_MARKETPLACE_FAIL'])
   for (const initial of [null, custom]) test(`${failure} ${process.platform === 'darwin' ? 'retains unknown setup and' : 'restores'} ${initial === null ? 'absent' : 'custom'} native profile without successful provenance`, async t => {
     const f = await fixture(t, initial), result = await f.run(undefined, { [failure]: '1' });
-    assert.notEqual(result.status, 0);
+    const [phase, status] = {
+      FIXTURE_FAIL: ['owner-failure', 9],
+      FIXTURE_VERIFY_FAIL: ['owner-verification-failure', 9],
+      FIXTURE_MARKETPLACE_FAIL: ['marketplace-failure', 7],
+    }[failure];
+    assert.equal(result.status, status, result.stderr);
+    assert.deepEqual((await f.events()).filter(event => event[0] === 'phase'), [['phase', phase, status]]);
     if (process.platform === 'darwin') {
       assert.match(result.stderr, /rollback is unconfirmed/);
       assert.doesNotMatch(result.stderr, /previous configuration restored/);
@@ -361,7 +402,9 @@ test('native setup preserves last successful provenance on a failed repeat', asy
     return;
   }
   const before = await f.config(), provenance = await f.provenance();
-  assert.notEqual((await f.run(['agents', 'update'], { FIXTURE_FAIL: '1' })).status, 0);
+  const failed = await f.run(['agents', 'update'], { FIXTURE_FAIL: '1' });
+  assert.equal(failed.status, 9, failed.stderr);
+  assert.deepEqual((await f.events()).at(-1), ['phase', 'owner-failure', 9]);
   assert.equal(await f.config(), before); assert.equal(await f.provenance(), provenance);
 });
 
@@ -449,14 +492,170 @@ test('npm-owned native manager update preserves package executable and retains c
   assert.deepEqual(await readFile(manager), before); assert.equal(await exists(f.log), false);
 });
 
-test('native updated-manager continuation rejects invalid reentry without mutation', async t => {
-  const f = await fixture(t);
+test(`${compiledBackend} updated-manager continuation rejects invalid reentry without mutation`, async t => {
+  const f = await fixture(t, custom, { freshHomes: process.platform !== 'win32' });
+  const before = await captureCopyTree(f.home);
   for (const args of [[], ['__updated-manager'], ['unknown']]) {
-    const result = await f.run(['__updated-manager', ...args]); assert.notEqual(result.status, 0); assert.equal(await exists(f.log), false);
+    const result = await f.run(['__updated-manager', ...args]);
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, /invalid updated-manager continuation/);
+    assert.equal(await exists(f.log), false);
+    assert.deepEqual(await captureCopyTree(f.home), before);
   }
 });
 
-test('compiled install/update preserves native skills, extra selection and optional Mobile policy', async t => {
+// This fixture controls the marketplace/owner edges. The installed suite
+// separately binds the real owner and real Codex to the public Unix entry.
+if (process.platform !== 'win32') {
+  const bash = path.join(path.dirname(manager), 'legacy/gestalt');
+  const setupFiles = async f => (await readdir(f.codex)).filter(name => name.startsWith('.gestalt-setup.') || name === '.gestalt-manager-setup.lock');
+  const phases = async f => (await f.events()).filter(event => event[0] === 'phase');
+  for (const initial of [null, custom]) {
+    const profile = initial === null ? 'fresh profile' : 'custom profile';
+    test(`public Unix Bash installs, repeats and retains last successful provenance (${profile})`, { timeout: 30_000 }, async t => {
+      const f = await fixture(t, initial, { publicUnix: true });
+      const first = await f.run();
+      assert.equal(first.status, 0, first.stderr);
+      assert.deepEqual(await phases(f), [['phase', 'owner-completed', 0]]);
+      const [config, provenance] = await Promise.all([f.config(), f.provenance()]);
+      const record = JSON.parse(provenance);
+      assert.equal(record.manager.sha256, hash(await readFile(bash)));
+      assert.equal(record.delegatedSetupSha256, hash(await readFile(path.join(f.ownerRoot, 'gestalt-setup.sh'))));
+      assert.equal(record.outputs['config.toml'], hash(Buffer.from(config)));
+      assert.equal(Object.hasOwn(record, 'delegatedApi'), false);
+      assert.equal(parse(config).default_permissions, 'workspace-git');
+      if (initial !== null) {
+        assert.equal(parse(config).model, 'fixture-custom');
+        assert.match(config, /# keep custom model/);
+        assert.equal((await stat(path.join(f.codex, 'config.toml'))).mode & 0o777, 0o640);
+      }
+      const repeated = await f.run(['agents', 'update']);
+      assert.equal(repeated.status, 0, repeated.stderr);
+      assert.deepEqual(await phases(f), [['phase', 'owner-completed', 0], ['phase', 'owner-completed', 0]]);
+      assert.equal(await f.config(), config);
+      assert.equal(await f.provenance(), provenance);
+      const failed = await f.run(['agents', 'update'], { FIXTURE_FAIL: '1' });
+      assert.equal(failed.status, 9, failed.stderr);
+      assert.deepEqual((await phases(f)).at(-1), ['phase', 'owner-failure', 9]);
+      assert.equal(await f.config(), config);
+      assert.equal(await f.provenance(), provenance);
+      assert.equal(await readFile(path.join(f.codex, 'AGENTS.md'), 'utf8'), 'user instructions\n');
+      assert.deepEqual(await setupFiles(f), []);
+      for (const home of [f.codex, f.gestalt]) assert.equal(await exists(path.join(home, '.gestalt-setup.lock')), false);
+    });
+
+    for (const failure of [
+      { key: 'FIXTURE_FAIL', status: 9, phases: [['phase', 'owner-failure', 9]], retained: false },
+      { key: 'FIXTURE_VERIFY_FAIL', status: 1, phases: [['phase', 'owner-completed', 0], ['phase', 'plugin-verification', 0], ['phase', 'plugin-verification', 0]], retained: true },
+      { key: 'FIXTURE_MARKETPLACE_FAIL', status: 7, phases: [['phase', 'marketplace-failure', 7], ['phase', 'marketplace-failure', 7]], retained: false },
+    ]) test(`public Unix Bash ${failure.key} reaches its configured phase (${profile})`, { timeout: 30_000 }, async t => {
+      const f = await fixture(t, initial, { publicUnix: true });
+      const result = await f.run(undefined, { [failure.key]: '1' });
+      const observed = await phases(f);
+      t.diagnostic(JSON.stringify({ backend: 'unix-bash', controlledFixture: true, exit: result.status, phases: observed }));
+      assert.equal(result.status, failure.status, result.stderr);
+      assert.deepEqual(observed, failure.phases);
+      assert.equal(await exists(path.join(f.codex, '.gestalt-setup-provenance.json')), false);
+      if (failure.retained) {
+        assert.match(result.stderr, /plugin version skew after marketplace setup/);
+        assert.match(result.stderr, /ownership or rollback is unconfirmed/);
+        const entries = await setupFiles(f);
+        assert.ok(entries.includes('.gestalt-manager-setup.lock'));
+        const stages = entries.filter(name => name.startsWith('.gestalt-setup.'));
+        assert.equal(stages.length, 1);
+        const stage = path.join(f.codex, stages[0]);
+        if (initial === null) assert.equal(await exists(path.join(stage, 'config-absent')), true);
+        else {
+          const snapshot = path.join(stage, 'config.toml');
+          assert.equal(await readFile(snapshot, 'utf8'), initial);
+          assert.equal((await stat(snapshot)).mode & 0o777, 0o640);
+        }
+        assert.match(await f.config(), /mcp_servers\.context-mode/);
+      } else {
+        if (initial === null) assert.equal(await exists(path.join(f.codex, 'config.toml')), false);
+        else {
+          assert.equal(await f.config(), initial);
+          assert.equal((await stat(path.join(f.codex, 'config.toml'))).mode & 0o777, 0o640);
+        }
+        assert.deepEqual(await setupFiles(f), []);
+      }
+      for (const home of [f.codex, f.gestalt]) assert.equal(await exists(path.join(home, '.gestalt-setup.lock')), false);
+      assert.equal(await readFile(path.join(f.codex, 'AGENTS.md'), 'utf8'), 'user instructions\n');
+    });
+  }
+
+  for (const selected of ['codex', 'gestalt']) test(`public Unix Bash refuses unsafe existing ${selected} home with a selected native owner`, { timeout: 30_000 }, async t => {
+    const f = await fixture(t, custom, { publicUnix: true });
+    const market = path.join(f.codex, '.tmp/marketplaces/dyne-gestalt-agents');
+    await mkdir(path.dirname(market), { recursive: true, mode: 0o700 });
+    await symlink(f.ownerRoot, market, 'dir');
+    await chmod(f[selected], 0o755);
+    const before = await captureCopyTree(f.home);
+    const result = await f.run(['agents', 'update']);
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, /native Agents setup requires a directory private to its owner/);
+    assert.ok(result.stderr.includes(f[selected]));
+    assert.equal(await exists(f.log), false);
+    assert.equal((await stat(f[selected])).mode & 0o777, 0o755);
+    assert.deepEqual(await captureCopyTree(f.home), before);
+  });
+
+  test('public Unix Bash validates, replaces and reenters the packaged update asset', { timeout: 60_000 }, async t => {
+    const f = await fixture(t, null, { freshHomes: true, publicUnix: true });
+    const { collection, release, skill } = await compositionInputs(f.root);
+    const compiled = await buildCli(repository, path.join(f.root, 'public bin ü', 'gestalt.mjs'));
+    const backend = path.join(path.dirname(compiled), 'legacy/gestalt');
+    const asset = path.join(release, 'gestalt');
+    const previous = await readFile(backend), compiledBefore = await readFile(compiled);
+    const env = { ...f.env, GESTALT_MANAGER_DISTRIBUTION: '', GESTALT_SKILLS_SOURCE: collection,
+      GESTALT_INSTALL_BASE_URL: pathToFileURL(release).href };
+    const run = (extra = {}) => spawnSync(process.execPath, [compiled, 'update', 'gestalt', '--extra-skills'],
+      { env: { ...env, ...extra }, cwd: f.root, encoding: 'utf8', shell: false, timeout: 30_000 });
+    await writeFile(asset, '#!/usr/bin/env bash\nif then\n');
+    const invalid = run();
+    assert.equal(invalid.status, 1, invalid.stderr);
+    assert.match(invalid.stderr, /downloaded manager has invalid Bash syntax/);
+    assert.deepEqual(await readFile(backend), previous);
+    assert.equal(await exists(f.codex), false);
+    assert.equal(await exists(f.gestalt), false);
+    assert.equal(await exists(f.log), false);
+
+    const replacement = Buffer.concat([previous, Buffer.from('\n# controlled standalone Bash replacement\n')]);
+    await writeFile(asset, replacement);
+    const fetched = spawnSync('curl', ['--fail', '--silent', '--show-error', pathToFileURL(asset).href],
+      { env, cwd: f.root, shell: false, timeout: 30_000 });
+    assert.equal(fetched.status, 0, fetched.stderr?.toString());
+    assert.deepEqual(fetched.stdout, replacement);
+    const updated = run();
+    assert.equal(updated.status, 0, updated.stderr);
+    assert.equal((updated.stderr.match(/checking for a manager update/g) ?? []).length, 1);
+    assert.match(updated.stderr, /continuing update with the newly installed manager/);
+    assert.deepEqual(await readFile(backend), replacement);
+    assert.deepEqual(await readFile(compiled), compiledBefore);
+    assert.equal(await readFile(path.join(f.codex, 'skills/native-update/SKILL.md'), 'utf8'), skill);
+    const setup = JSON.parse(await f.provenance());
+    assert.equal(setup.manager.sha256, hash(replacement));
+    assert.equal(setup.delegatedSetupSha256, hash(await readFile(path.join(f.ownerRoot, 'gestalt-setup.sh'))));
+    const calls = await f.events();
+    assert.deepEqual(calls.find(row => row[0] === 'setup'), ['setup', '--extra-skills']);
+    assert.ok(calls.some(row => row[0] === 'npm' && row[1] === 'install' && /^gestalt-mobile@/.test(row.at(-1))));
+    const userData = path.join(f.gestalt, 'mobile/operator.txt');
+    await writeFile(userData, 'preserved');
+    const failedMobile = run({ GESTALT_MANAGER_DISTRIBUTION: 'npm', FIXTURE_MOBILE_FAIL: '1' });
+    assert.equal(failedMobile.status, 41, failedMobile.stderr);
+    const failingCall = (await f.events()).at(-1);
+    assert.equal(failingCall[0], 'npm');
+    assert.match(failingCall.at(-1), /^gestalt-mobile@/);
+    assert.match(failedMobile.stderr, /manager is installed with npm/);
+    assert.doesNotMatch(failedMobile.stderr, /checking for a manager update|update complete/);
+    assert.equal(await readFile(userData, 'utf8'), 'preserved');
+    assert.deepEqual(await readFile(backend), replacement);
+  });
+}
+
+test(process.platform === 'win32'
+  ? 'compiled install/update preserves native skills, extra selection and optional Mobile policy'
+  : 'managed JavaScript install/update preserves native skills, extra selection and optional Mobile policy', async t => {
   const f = await fixture(t, null, { freshHomes: true }), collection = path.join(f.root, 'collection ü');
   assert.equal(await exists(f.codex), false); assert.equal(await exists(f.gestalt), false);
   await mkdir(path.join(collection, 'skills/native-fixture'), { recursive: true });
@@ -497,7 +696,7 @@ test('compiled install/update preserves native skills, extra selection and optio
     assert.equal(await exists(path.join(f.gestalt, 'mobile')), false);
     assert.doesNotMatch(installed.stderr, /then 'gestalt cli' or 'gestalt mobile'/);
     assert.match(installed.stderr, /Serena omitted:.*deferred/); assert.match(installed.stderr, /Playwright omitted:.*deferred/);
-    const retained = await NativePrivateStorage.open(f.gestalt, unixProbe);
+    const retained = await NativePrivateStorage.open(f.gestalt, unixProbe, async () => ownershipHelper);
     for (const component of ['serena', 'playwright', 'mobile']) {
       await retained.createDirectory(path.join(f.gestalt, component));
       await retained.replaceFile(path.join(f.gestalt, component, 'active.json'), Buffer.from('retained operator metadata\n'));
@@ -509,12 +708,36 @@ test('compiled install/update preserves native skills, extra selection and optio
     assert.doesNotMatch(all.stderr, /use gestalt update serena to install|use gestalt playwright install/);
     for (const component of ['serena', 'playwright', 'mobile']) assert.equal(await readFile(path.join(f.gestalt, component, 'active.json'), 'utf8'), 'retained operator metadata\n');
   } else await writeFile(path.join(f.gestalt, 'mobile/user-data.txt'), 'preserve this data\n');
+  const captureRetainedSetup = async () => ({
+    codex: await captureSetupRetention(f.codex),
+    gestalt: await captureSetupRetention(f.gestalt),
+    subordinateCalls: await readFile(f.log, 'utf8'),
+  });
+  const retained = process.platform === 'darwin' ? await captureRetainedSetup() : null;
+  if (retained) {
+    assert.match(installed.stderr, /command succeeded.*snapshot and setup locks retained/);
+    assert.ok(retained.codex.managerLock, 'the Manager setup operation lock must be retained');
+    assert.deepEqual(retained.codex.managerSnapshots.map(snapshot => snapshot.ownership.status),
+      ['command-succeeded-cleanup-unknown']);
+    const owner = JSON.parse(await readFile(path.join(f.codex, '.gestalt-skills.lock/owner.json'), 'utf8'));
+    assert.equal(owner.schemaVersion, 1);
+    assert.equal(owner.home, f.codex);
+    assert.equal(owner.committed, true);
+    assert.ok(owner.journal.links.some(link => link.name === 'native-fixture'));
+    assert.equal(path.dirname(owner.stage), f.codex);
+    assert.match(path.basename(owner.stage), /^\.gestalt-skills-stage-[A-Za-z0-9]+$/);
+    assert.ok(retained.codex.entries.some(entry => entry.path === path.basename(owner.stage) && entry.kind === 'directory'));
+  }
   const updated = await f.run(['update', 'gestalt'], env);
   await observePolicy('update-gestalt', ['update', 'gestalt'], updated);
-  if (process.platform === 'darwin') {
-    assert.notEqual(updated.status, 0); assert.match(updated.stderr, /EEXIST|already running/);
-    assert.match(installed.stderr, /command succeeded.*snapshot and setup locks retained/);
+  if (retained) {
+    assert.equal(updated.status, 1, updated.stderr);
+    assert.match(updated.stderr, /skills transaction is retained; use gestalt skills inspect-recovery.*explicit confirmed recovery/);
+    assert.doesNotMatch(updated.stderr, /update complete/);
+    assert.deepEqual(await captureRetainedSetup(), retained, 'refused update must preserve retained state and start no subordinate fixture commands');
     assert.equal(await readFile(path.join(f.gestalt, 'mobile/user-data.txt'), 'utf8'), 'preserve this data\n');
+    policy.complete = true;
+    await observePolicy('retained-state-verified', [], { status: 0 });
     return;
   }
   assert.equal(updated.status, 0, updated.stderr);

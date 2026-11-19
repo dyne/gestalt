@@ -15,6 +15,12 @@ declare const GESTALT_BUILD_HELP: string;
 export const UPDATED_MANAGER_API_VERSION = 1;
 export const UPDATED_MANAGER_API_CAPABILITIES = ['host-filesystem-v1', 'async-owned-commands-v1', 'cancellation-v1'] as const;
 
+// The installed Windows entry and its continuation each bind their own
+// packaged helper. Unbundled handler callers can omit this binding.
+function packagedWindowsHelper(): string | undefined {
+  return process.platform === 'win32' ? fileURLToPath(new URL('./native/gestalt-owned-process.exe', import.meta.url)) : undefined;
+}
+
 /** Versioned host-side handoff. Filesystem orchestration never enters a mapped
  * user namespace; only the injected external command capability does. */
 export async function continueUpdatedManager(invocation: CommandInvocation, streams: CommandStreams,
@@ -24,7 +30,8 @@ export async function continueUpdatedManager(invocation: CommandInvocation, stre
   let unknown = false;
   const metadata = { version: GESTALT_BUILD_VERSION, help: GESTALT_BUILD_HELP };
   const status = await runCli({ argv: [...invocation.argv], cwd: invocation.cwd, environment: { ...invocation.environment } }, streams,
-    metadata, createSetupHandlers(metadata, undefined, false, { commands: options.commands, signal: options.signal, unknown: () => { unknown = true; } }));
+    metadata, createSetupHandlers(metadata, undefined, false, { commands: options.commands, signal: options.signal, unknown: () => { unknown = true; } },
+      process.platform, packagedWindowsHelper()));
   return { apiVersion: UPDATED_MANAGER_API_VERSION, status, ownership: { kind: unknown ? 'unknown' : 'released' } };
 }
 
@@ -48,8 +55,9 @@ export async function main(): Promise<number> {
     stderr: bytes => write(process.stderr, bytes),
   };
   const metadata = { version: GESTALT_BUILD_VERSION, help: GESTALT_BUILD_HELP };
+  const ownershipHelper = packagedWindowsHelper();
   return runCli({ argv: process.argv.slice(2), cwd: process.cwd(), environment: process.env }, streams,
-    metadata, { ...createSetupHandlers(metadata), ...createRuntimeHandlers(metadata,
+    metadata, { ...createSetupHandlers(metadata, undefined, false, undefined, process.platform, ownershipHelper), ...createRuntimeHandlers(metadata,
       process.stdin.isTTY && process.stdout.isTTY ? {
         size: () => ({ columns: process.stdout.columns || 80, rows: process.stdout.rows || 24 }),
         enter: () => {
@@ -58,7 +66,7 @@ export async function main(): Promise<number> {
           return () => { process.stdin.setRawMode(wasRaw); process.stdin.pause(); };
         },
         onResize: listener => { process.stdout.on('resize', listener); return () => { process.stdout.off('resize', listener); }; },
-      } : undefined) });
+      } : undefined, ownershipHelper) });
 }
 
 // A digest-qualified import by an updating instance must have no CLI effects.

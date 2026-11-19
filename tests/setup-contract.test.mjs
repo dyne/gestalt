@@ -35,8 +35,8 @@ default_tools_approval_mode = "prompt"
 async function fixture(t, config = custom) {
   const root = await mkdtemp(join(tmpdir(), 'gestalt-setup-contract-'));
   const home = join(root, 'home'), codex = join(home, '.codex-gestalt'), managed = join(home, '.gestalt');
-  await mkdir(codex, { recursive: true });
-  await mkdir(managed);
+  await mkdir(codex, { recursive: true, mode: 0o700 });
+  await mkdir(managed, { mode: 0o700 });
   if (config !== null) await writeFile(join(codex, 'config.toml'), config, { mode: 0o640 });
   await mkdir(join(codex, 'agents'));
   await writeFile(join(codex, 'agents/custom.toml'), 'model="gpt-6-luna"\n');
@@ -52,8 +52,19 @@ async function fixture(t, config = custom) {
   await writeFile(owner, `#!/usr/bin/env bash
 set -Eeuo pipefail
 printf 'setup' >> "$FIXTURE_LOG"
-printf '|%s' "$@" >> "$FIXTURE_LOG"
+for arg do
+  printf '|%s' "$arg" >> "$FIXTURE_LOG"
+done
 printf '\\n' >> "$FIXTURE_LOG"
+if [[ \${FIXTURE_SETUP_GATES:-} == 1 ]]; then
+  [[ -d $CODEX_HOME/.gestalt-manager-setup.lock ]] || exit 11
+  mkdir -- "$CODEX_HOME/.gestalt-setup.lock" "$GESTALT_HOME/.gestalt-setup.lock" || exit 12
+  if [[ \${FIXTURE_RETAIN_SETUP:-} == 1 ]]; then
+    printf 'model="retained-delegate"\\n' > "$CODEX_HOME/config.toml"
+    exit 13
+  fi
+  trap 'rmdir -- "$GESTALT_HOME/.gestalt-setup.lock" "$CODEX_HOME/.gestalt-setup.lock"' EXIT
+fi
 if [[ \${FIXTURE_WAIT:-} == 1 ]]; then
   touch "$FIXTURE_READY"
   for ((attempt=0; attempt<400; attempt++)); do
@@ -70,7 +81,15 @@ node "$FIXTURE_CONFIGURATOR" --codex-home "$CODEX_HOME" --gestalt-home "$GESTALT
 `);
   const script = join(root, 'manager-setup.sh');
   await writeFile(script, `set -Eeuo pipefail
-log() { :; }
+umask 022
+log() { printf '%s\\n' "$*" >&2; }
+cp() {
+  if [[ \${FIXTURE_FAIL_SNAPSHOT:-} == 1 && \${!#} == */.gestalt-setup.*/config.toml ]]; then
+    printf 'incomplete backup' > "\${!#}"
+    return 16
+  fi
+  command cp "$@"
+}
 ${cleanupInitializers}
 ${productionCleanup}
 cleanup() {
@@ -87,8 +106,18 @@ fi
 die() { printf '%s\\n' "$*" >&2; exit 1; }
 check_node_version() { :; }
 require_command() { command -v "$1" >/dev/null; }
-codex() { printf 'codex|%s\\n' "$*" >> "$FIXTURE_LOG"; [[ \${FIXTURE_MARKETPLACE_FAIL:-} != 1 ]]; }
-verify_context_mode_installation() { [[ \${FIXTURE_VERIFY_FAIL:-} != 1 ]]; }
+codex() {
+  printf 'codex|%s\\n' "$*" >> "$FIXTURE_LOG"
+  [[ \${FIXTURE_MARKETPLACE_FAIL:-} != 1 ]] || return 1
+  if [[ \${FIXTURE_REFRESH_PORTABLE:-} == 1 ]]; then
+    mkdir -p -- "\${FIXTURE_OWNER%/*}/scripts"
+    touch "\${FIXTURE_OWNER%.sh}.mjs" "\${FIXTURE_OWNER%/*}/scripts/setup-agents.mjs"
+  fi
+}
+verify_context_mode_installation() {
+  if [[ \${FIXTURE_VERIFY_EXIT_EARLY:-} == 1 ]]; then exit 0; fi
+  [[ \${FIXTURE_VERIFY_FAIL:-} != 1 ]]
+}
 codex_home=$CODEX_HOME
 gestalt_home=$GESTALT_HOME
 marketplace_setup=$FIXTURE_OWNER
@@ -96,7 +125,7 @@ marketplace=fixture-marketplace
 marketplace_name=fixture-marketplace
 GESTALT_CLI_VERSION=${version}
 ${helpers}
-run_marketplace_setup install "\${FIXTURE_EXTRA:-false}"
+run_marketplace_setup "\${FIXTURE_SETUP_MODE:-install}" "\${FIXTURE_EXTRA:-false}"
 `);
   const env = { ...process.env, HOME: home, CODEX_HOME: codex, GESTALT_HOME: managed,
     FIXTURE_OWNER: owner, FIXTURE_PLUGIN: plugin,
@@ -118,10 +147,16 @@ run_marketplace_setup install "\${FIXTURE_EXTRA:-false}"
     return { child, result };
   }
   t.after(async () => { await chmod(codex, 0o700); await rm(root, { recursive: true, force: true }); });
-  return { root, home, codex, owner, env, start,
+  return { root, home, codex, managed, owner, env, start,
     run: overrides => start(overrides).result,
     config: () => readFile(join(codex, 'config.toml'), 'utf8'),
     provenance: () => readFile(join(codex, '.gestalt-setup-provenance.json'), 'utf8') };
+}
+
+async function selectPortableSetup(f) {
+  await mkdir(join(f.root, 'scripts'));
+  await writeFile(join(f.root, 'scripts/setup-agents.mjs'), '// fixture for portable setup selection\n');
+  await writeFile(f.owner.replace(/\.sh$/, '.mjs'), '// fixture for portable setup selection\n');
 }
 
 for (const config of [null, custom]) {
@@ -192,6 +227,16 @@ test('failed repeated setup retains last successful provenance', async t => {
   assert.equal(await f.provenance(), provenance);
 });
 
+test('a failed configuration snapshot cannot replace the original with partial bytes', async t => {
+  const f = await fixture(t);
+  const result = await f.run({ FIXTURE_FAIL_SNAPSHOT: '1' });
+  assert.equal(result.code, 16, result.stderr);
+  assert.equal(await f.config(), custom);
+  assert.deepEqual((await readdir(f.codex)).filter(name => name.startsWith('.gestalt-setup')), []);
+  await assert.rejects(stat(join(f.codex, '.gestalt-manager-setup.lock')), { code: 'ENOENT' });
+  await assert.rejects(readFile(f.env.FIXTURE_LOG), { code: 'ENOENT' });
+});
+
 test('read-only Codex home fails before delegation and leaves user bytes untouched', async t => {
   const f = await fixture(t);
   await chmod(f.codex, 0o500);
@@ -200,6 +245,93 @@ test('read-only Codex home fails before delegation and leaves user bytes untouch
   assert.match(result.stderr, /not writable/);
   assert.equal(await f.config(), custom);
   await assert.rejects(readFile(f.env.FIXTURE_LOG), { code: 'ENOENT' });
+});
+
+test('setup creates missing homes with private modes under umask 022', async t => {
+  const f = await fixture(t, null);
+  await rm(f.codex, { recursive: true });
+  await rm(f.managed, { recursive: true });
+  const fresh = await f.run();
+  assert.equal(fresh.code, 0, fresh.stderr);
+  for (const home of [f.codex, f.managed]) assert.equal((await stat(home)).mode & 0o777, 0o700);
+});
+
+test('legacy setup installs and updates with existing 0755 homes', async t => {
+  const f = await fixture(t);
+  for (const home of [f.codex, f.managed]) await chmod(home, 0o755);
+  for (const mode of ['install', 'upgrade']) {
+    const result = await f.run({ FIXTURE_SETUP_MODE: mode });
+    assert.equal(result.code, 0, result.stderr);
+    for (const home of [f.codex, f.managed]) assert.equal((await stat(home)).mode & 0o777, 0o755);
+    assert.equal(parse(await f.config()).model, 'gpt-6-luna');
+  }
+  assert.match(await readFile(f.env.FIXTURE_LOG, 'utf8'), /codex\|plugin marketplace upgrade/);
+});
+
+test('selected native setup refuses a broader existing home before external calls', async t => {
+  const f = await fixture(t);
+  await selectPortableSetup(f);
+  await chmod(f.codex, 0o755);
+  const existing = await f.run();
+  assert.notEqual(existing.code, 0);
+  assert.match(existing.stderr, /private to its owner/);
+  assert.equal((await stat(f.codex)).mode & 0o777, 0o755);
+  assert.equal(await f.config(), custom);
+  await assert.rejects(readFile(f.env.FIXTURE_LOG), { code: 'ENOENT' });
+});
+
+test('marketplace refresh to a native owner refuses unsafe homes before delegation', async t => {
+  const f = await fixture(t);
+  await chmod(f.managed, 0o755);
+  const result = await f.run({ FIXTURE_REFRESH_PORTABLE: '1', FIXTURE_SETUP_MODE: 'upgrade' });
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /private to its owner/);
+  assert.equal((await stat(f.managed)).mode & 0o777, 0o755);
+  assert.equal(await f.config(), custom);
+  assert.equal(await readFile(f.env.FIXTURE_LOG, 'utf8'), 'codex|plugin marketplace upgrade fixture-marketplace\n');
+  assert.deepEqual((await readdir(f.codex)).filter(name => name.startsWith('.gestalt-setup')), []);
+});
+
+test('portable setup delegates both setup gates while retaining the Manager operation lock', async t => {
+  const f = await fixture(t);
+  await selectPortableSetup(f);
+  const result = await f.run({ FIXTURE_SETUP_GATES: '1' });
+  assert.equal(result.code, 0, result.stderr);
+  for (const lock of [join(f.codex, '.gestalt-manager-setup.lock'), join(f.codex, '.gestalt-setup.lock'), join(f.managed, '.gestalt-setup.lock')]) {
+    await assert.rejects(stat(lock), { code: 'ENOENT' });
+  }
+});
+
+test('failed portable setup retains delegate locks and configuration for inspection', async t => {
+  const f = await fixture(t);
+  await selectPortableSetup(f);
+  const result = await f.run({ FIXTURE_SETUP_GATES: '1', FIXTURE_RETAIN_SETUP: '1' });
+  assert.equal(result.code, 13, result.stderr);
+  assert.match(result.stderr, /ownership or rollback is unconfirmed/);
+  for (const lock of [join(f.codex, '.gestalt-manager-setup.lock'), join(f.codex, '.gestalt-setup.lock'), join(f.managed, '.gestalt-setup.lock')]) {
+    assert.equal((await stat(lock)).isDirectory(), true);
+  }
+  assert.equal(await f.config(), 'model="retained-delegate"\n');
+  const stages = (await readdir(f.codex)).filter(name => name.startsWith('.gestalt-setup.') && name !== '.gestalt-setup.lock');
+  assert.equal(stages.length, 1);
+  assert.equal(await readFile(join(f.codex, stages[0], 'config.toml'), 'utf8'), custom);
+});
+
+test('verification failure after portable delegation preserves changed configuration', async t => {
+  const f = await fixture(t);
+  await selectPortableSetup(f);
+  const result = await f.run({ FIXTURE_SETUP_GATES: '1', FIXTURE_VERIFY_FAIL: '1' });
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /ownership or rollback is unconfirmed/);
+  const config = parse(await f.config());
+  assert.equal(config.model, 'gpt-6-luna');
+  assert.equal(config.mcp_servers['context-mode'].command, 'node');
+  assert.equal((await stat(join(f.codex, '.gestalt-manager-setup.lock'))).isDirectory(), true);
+  await assert.rejects(stat(join(f.codex, '.gestalt-setup.lock')), { code: 'ENOENT' });
+  await assert.rejects(stat(join(f.managed, '.gestalt-setup.lock')), { code: 'ENOENT' });
+  const stages = (await readdir(f.codex)).filter(name => name.startsWith('.gestalt-setup.'));
+  assert.equal(stages.length, 1);
+  assert.equal(await readFile(join(f.codex, stages[0], 'config.toml'), 'utf8'), custom);
 });
 
 test('concurrent setup rejects the competing writer and releases the lock', async t => {
@@ -235,12 +367,27 @@ test('interruption restores configuration and releases the lock', async t => {
   await assert.rejects(stat(join(f.codex, '.gestalt-setup.lock')), { code: 'ENOENT' });
 });
 
-test('only the existing supported extra-skills option is delegated', async t => {
+test('ordinary setup delegates zero arguments or exactly --extra-skills', async t => {
   const f = await fixture(t);
-  assert.equal((await f.run({ FIXTURE_EXTRA: 'true' })).code, 0);
+  const defaultSetup = await f.run();
+  assert.equal(defaultSetup.code, 0, defaultSetup.stderr);
+  const extraSetup = await f.run({ FIXTURE_EXTRA: 'true' });
+  assert.equal(extraSetup.code, 0, extraSetup.stderr);
   const calls = await readFile(f.env.FIXTURE_LOG, 'utf8');
-  assert.match(calls, /setup\|--extra-skills\n/);
-  assert.doesNotMatch(calls, /--(?:executor|reviewer|model|reasoning|policy)/);
+  assert.deepEqual(calls.split('\n').filter(line => line.startsWith('setup')), ['setup', 'setup|--extra-skills']);
+});
+
+test('an incomplete setup cannot report success through the EXIT trap', async t => {
+  const f = await fixture(t);
+  const result = await f.run({ FIXTURE_VERIFY_EXIT_EARLY: '1' });
+  assert.equal(result.code, 1, result.stderr);
+  assert.match(result.stderr, /Agents setup exited before completing/);
+  assert.match(await readFile(f.env.FIXTURE_LOG, 'utf8'), /^setup$/m);
+  assert.equal(await f.config(), custom);
+  assert.equal((await stat(join(f.codex, 'config.toml'))).mode & 0o777, 0o640);
+  await assert.rejects(f.provenance(), { code: 'ENOENT' });
+  assert.deepEqual((await readdir(f.codex)).filter(name => /^\.gestalt-(?:manager-)?setup[.-]/.test(name)), []);
+  await assert.rejects(stat(join(f.managed, '.gestalt-setup.lock')), { code: 'ENOENT' });
 });
 
 test('unsupported policy defaults fail before public install can mutate user state', async t => {

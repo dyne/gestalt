@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmod, cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile } from 'node:fs/promises';
+import { chmod, cp, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
@@ -11,7 +11,8 @@ import { windowsSystem } from '../src/cli/platform/windows-system.ts';
 // journals and rollback; real native namespace/ACL admission remains mandatory
 // in the installed-host suite and is never inferred from this fixture.
 async function fixture(t) {
-  const root = await mkdtemp(path.join(tmpdir(), 'gestalt transfer logic ü ')); t.after(() => rm(root, { recursive: true, force: true }));
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'gestalt transfer logic ü ')));
+  t.after(() => rm(root, { recursive: true, force: true }));
   const paths = { userHome: path.join(root, 'home'), codexHome: path.join(root, 'Codex'), gestaltHome: path.join(root, 'Gestalt') };
   for (const directory of Object.values(paths)) await mkdir(directory, { mode: 0o700 });
   const events = []; let interrupted = false, interruptPromotion = false;

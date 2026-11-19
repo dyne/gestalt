@@ -27,7 +27,7 @@ if any('importlib.metadata' in arg for arg in sys.argv):
     if os.environ.get('BAD_METADATA'):sys.exit(1)
     if any('json.dumps' in arg for arg in sys.argv):print(json.dumps(dict(serena='1.7.0',python='3.13.9')))
     else:print('1.7.0')
-else:os.execv('/usr/bin/python3',['/usr/bin/python3',*sys.argv[1:]])
+else:os.execv(sys.executable,[sys.executable,*sys.argv[1:]])
 `,{mode:0o755});
   const uv=join(root,'uv');await writeFile(uv,'#!/bin/sh\necho "uv 0.12.23"\n',{mode:0o755});
   await writeFile(join(stubs,'ruamel/yaml.py'),'import json\nclass YAML:\n def load(self,s):return json.load(s)\n def dump(self,v,s):json.dump(v,s)\n');

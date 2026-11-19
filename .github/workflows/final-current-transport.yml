@@ -1,0 +1,102 @@
+name: Final current Manager verification
+on:
+  push:
+    branches: [test/final-current-r3]
+permissions:
+  contents: read
+jobs:
+  windows-producer:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        env:
+          GIT_CONFIG_COUNT: 1
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: 'false'
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        env:
+          GIT_CONFIG_COUNT: 1
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: 'false'
+        with:
+          repository: dyne/gestalt-agents
+          ref: 8827347387ee32e2c5bd7eb912f9b80185cdad45
+          path: .native-dependencies/agents
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.3
+          architecture: x64
+          package-manager-cache: false
+      - name: Run windows-producer verification
+        shell: powershell
+        env:
+          FINAL_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          node tests/final-current-transport/driver.mjs windows-producer
+      - uses: actions/upload-artifact@v6
+        with:
+          name: final-current-msvc-x64-${{ github.run_attempt }}
+          path: |
+            native-evidence/final-current/producer/gestalt-owned-process.exe
+            native-evidence/final-current/producer/gestalt-owned-process.exe.provenance.json
+            native-evidence/final-current/producer/helper-receipt.json
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: final-current-windows-producer-evidence-${{ github.run_attempt }}
+          path: |
+            native-evidence/final-current/windows-producer/
+            !native-evidence/final-current/windows-producer/private-toolchain/**
+          if-no-files-found: error
+  linux-full:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 65
+    needs: windows-producer
+    steps:
+      - uses: actions/checkout@v6
+        env:
+          GIT_CONFIG_COUNT: 1
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: 'false'
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        env:
+          GIT_CONFIG_COUNT: 1
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: 'false'
+        with:
+          repository: dyne/gestalt-agents
+          ref: 8827347387ee32e2c5bd7eb912f9b80185cdad45
+          path: .native-dependencies/agents
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.3
+          architecture: x64
+          package-manager-cache: false
+      - uses: actions/download-artifact@v6
+        with:
+          name: final-current-msvc-x64-${{ github.run_attempt }}
+          path: native-evidence/final-current/input
+      - name: Run linux-full verification
+        shell: bash
+        env:
+          FINAL_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          node tests/final-current-transport/driver.mjs linux-full
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: final-current-linux-full-evidence-${{ github.run_attempt }}
+          path: |
+            native-evidence/final-current/linux-full/
+            !native-evidence/final-current/linux-full/private-toolchain/**
+          if-no-files-found: error

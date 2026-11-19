@@ -110,6 +110,12 @@ jobs:
           CODEX_HOME="$sandbox_home" ./node_modules/.bin/codex \
             -c 'default_permissions=":read-only"' sandbox -- /bin/true
 
+      - name: Verify npm package
+        uses: actions/download-artifact@v6
+        with:
+          name: gestalt-package-win32-x64
+          path: dist/cli/native
+
       - name: Test installation tooling (1/2)
         timeout-minutes: 5
         run: npm test -- --shard 1/2
@@ -122,12 +128,6 @@ jobs:
         env:
           BASE_PATH: ${{ steps.pages.outputs.base_path }}/
         run: npm run build
-
-      - name: Verify npm package
-        uses: actions/download-artifact@v6
-        with:
-          name: gestalt-package-win32-x64
-          path: dist/cli/native
 
       - name: Build npm payload with verified native provenance
         run: npm run build:package

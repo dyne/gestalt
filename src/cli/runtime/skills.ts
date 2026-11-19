@@ -6,7 +6,7 @@ import { manageSkills } from './skills-owner.mjs';
 import { exportSkills, importSkills } from './skills-transfer.ts';
 
 export const skillsHelp = 'Usage: gestalt skills install|update|status [--json]\nInstall/update maintain only the optional collection; choose activation in skill profiles.\nStatus reads current version, revision and integrity without changing files or downloading.\nRetained transactions: gestalt skills inspect-recovery; then gestalt skills recover --expect TOKEN --confirm-quiescent after stopping every user of this owner.\n';
-export function skillsHandler(metadata: CliMetadata): CommandHandler {
+export function skillsHandler(metadata: CliMetadata, ownershipHelper?: string): CommandHandler {
   return async (invocation, streams) => {
     let context: SetupContext | undefined, unlisten: (() => void) | undefined;
     try {
@@ -22,7 +22,7 @@ export function skillsHandler(metadata: CliMetadata): CommandHandler {
         recovery = { token: options[1]!, confirmed: true };
       } else if (options.length || !['install', 'update', 'status', 'inspect-recovery'].includes(operation)) throw new Error(skillsHelp.trimEnd());
       const environment = scratchEnvironment(invocation.environment);
-      context = new SetupContext({ ...invocation, environment }, streams, await setupPaths(environment), metadata.version);
+      context = new SetupContext({ ...invocation, environment }, streams, await setupPaths(environment, ownershipHelper), metadata.version);
       unlisten = context.listen();
       if (operation === 'install' || operation === 'update') await context.require('git');
       if (operation === 'recover') await context.storage(context.paths.codexHome);
@@ -33,12 +33,12 @@ export function skillsHandler(metadata: CliMetadata): CommandHandler {
     } finally { await context?.stopActive(); unlisten?.(); }
   };
 }
-export function skillsTransferHandler(metadata: CliMetadata, direction: 'import' | 'export'): CommandHandler {
+export function skillsTransferHandler(metadata: CliMetadata, direction: 'import' | 'export', ownershipHelper?: string): CommandHandler {
   return async (invocation, streams) => {
     let context: SetupContext | undefined, unlisten: (() => void) | undefined;
     try {
       const environment = scratchEnvironment(invocation.environment);
-      context = new SetupContext({ ...invocation, environment }, streams, await setupPaths(environment), metadata.version);
+      context = new SetupContext({ ...invocation, environment }, streams, await setupPaths(environment, ownershipHelper), metadata.version);
       unlisten = context.listen(); await (direction === 'import' ? importSkills : exportSkills)(context, invocation.argv); return 0;
     } catch (error) { await streams.stderr(Buffer.from(`gestalt: skills ${direction}: ${error instanceof Error ? error.message : 'transfer failed'}\n`)); return error instanceof CommandFailure ? error.status : 1; }
     finally { await context?.stopActive(); unlisten?.(); }

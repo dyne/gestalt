@@ -8,6 +8,7 @@ import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { buildOwnedProcess } from '../scripts/build-owned-process.mjs';
 import { encodeFrame, decodeFrames, terminalVariants } from './fixtures/native-windows-terminal-wire.mjs';
+import { stageOwnedProcessSource } from './fixtures/stage-owned-process-source.mjs';
 
 assert.equal(process.platform, 'win32', 'Preflight requires actual Windows, not mocked platform');
 const root = path.resolve(import.meta.dirname, '..');
@@ -28,8 +29,8 @@ const manifest = { kind: 'standard-user-windows-terminal-preflight', observedAt:
   sourcePath, sourceSha256: digest(Buffer.from(original)), cases: [], builds: [], failures: [], fullNativeSuite: 'not executed by this script', productionSelectionChanged: false };
 async function build(name, source, role, origin) {
   progress('build-before', { name, role, origin });
-  const location = path.join(evidence, 'builds', name), fixtureSource = path.join(location, 'src/cli/platform/native/owned-process.c');
-  await mkdir(path.dirname(fixtureSource), { recursive: true }); await writeFile(fixtureSource, source);
+  const location = path.join(evidence, 'builds', name);
+  const fixtureSource = await stageOwnedProcessSource(root, location, source);
   const executable = await buildOwnedProcess(location, path.join(location, 'bin'));
   manifest.builds.push({ name, role, origin, fixtureSource, sourceSha256: digest(Buffer.from(source)), executable,
     provenance: JSON.parse(await readFile(`${executable}.provenance.json`, 'utf8')) });

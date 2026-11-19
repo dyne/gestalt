@@ -1,0 +1,417 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Unix paired Manager and Agents result",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "startedAt",
+    "finishedAt",
+    "platform",
+    "architecture",
+    "node",
+    "abi",
+    "uid",
+    "commands",
+    "cases",
+    "coverage",
+    "state",
+    "failure",
+    "fixtureCleanup"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 2
+    },
+    "startedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "finishedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "platform": {
+      "enum": [
+        "linux",
+        "darwin"
+      ]
+    },
+    "architecture": {
+      "enum": [
+        "x64",
+        "arm64"
+      ]
+    },
+    "node": {
+      "const": "v24.22.3"
+    },
+    "abi": {
+      "type": "string"
+    },
+    "uid": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "state": {
+      "enum": [
+        "pass",
+        "fail"
+      ]
+    },
+    "failure": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "fixtureCleanup": {
+      "type": "object",
+      "required": [
+        "attempted",
+        "removed",
+        "path"
+      ],
+      "properties": {
+        "attempted": {
+          "type": "boolean"
+        },
+        "removed": {
+          "type": "boolean"
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "argv",
+          "cwd",
+          "exit",
+          "signal",
+          "error",
+          "startedAt",
+          "observedAt",
+          "stdout",
+          "stderr",
+          "timeout"
+        ],
+        "properties": {
+          "exit": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "stdout": {
+            "$ref": "#/$defs/file"
+          },
+          "stderr": {
+            "$ref": "#/$defs/file"
+          }
+        }
+      }
+    },
+    "cases": {
+      "type": "array",
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "startedAt",
+          "observedAt",
+          "status"
+        ],
+        "properties": {
+          "name": {
+            "$ref": "#/$defs/caseName"
+          },
+          "status": {
+            "enum": [
+              "pass",
+              "fail",
+              "blocked"
+            ]
+          },
+          "blockedBy": {
+            "const": "fresh-022-direct"
+          },
+          "error": {
+            "type": "object",
+            "required": [
+              "name",
+              "message"
+            ]
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "blocked"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "blockedBy"
+              ],
+              "properties": {
+                "name": {
+                  "const": "repeat-direct"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "fail"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "error"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "pass"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "result"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "required": [
+        "expected",
+        "executed",
+        "passed",
+        "failed",
+        "blocked",
+        "unexecuted"
+      ],
+      "properties": {
+        "expected": {
+          "const": [
+            "fresh-022-direct",
+            "repeat-direct",
+            "preexisting-private-operator-update",
+            "npm-global-lifecycle-and-repeat"
+          ]
+        },
+        "executed": {
+          "$ref": "#/$defs/caseNames"
+        },
+        "passed": {
+          "$ref": "#/$defs/caseNames"
+        },
+        "failed": {
+          "$ref": "#/$defs/caseNames"
+        },
+        "blocked": {
+          "type": "array",
+          "maxItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "blockedBy"
+            ],
+            "properties": {
+              "name": {
+                "const": "repeat-direct"
+              },
+              "blockedBy": {
+                "const": "fresh-022-direct"
+              }
+            }
+          }
+        },
+        "unexecuted": {
+          "$ref": "#/$defs/caseNames"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "platform": {
+            "const": "linux"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "architecture": {
+            "const": "x64"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "architecture": {
+            "const": "arm64"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "pass"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "manager",
+          "agents",
+          "codex",
+          "package",
+          "preconditions",
+          "bash",
+          "lockfileModules",
+          "inertWindowsHelper",
+          "npm"
+        ],
+        "properties": {
+          "cases": {
+            "minItems": 4,
+            "prefixItems": [
+              {
+                "properties": {
+                  "name": {
+                    "const": "fresh-022-direct"
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "name": {
+                    "const": "repeat-direct"
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "name": {
+                    "const": "preexisting-private-operator-update"
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "name": {
+                    "const": "npm-global-lifecycle-and-repeat"
+                  }
+                }
+              }
+            ],
+            "allOf": [
+              {
+                "items": {
+                  "properties": {
+                    "status": {
+                      "const": "pass"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "coverage": {
+            "properties": {
+              "executed": {
+                "minItems": 4
+              },
+              "passed": {
+                "minItems": 4
+              },
+              "failed": {
+                "maxItems": 0
+              },
+              "blocked": {
+                "maxItems": 0
+              },
+              "unexecuted": {
+                "maxItems": 0
+              }
+            }
+          },
+          "fixtureCleanup": {
+            "properties": {
+              "attempted": {
+                "const": true
+              },
+              "removed": {
+                "const": true
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "caseName": {
+      "enum": [
+        "fresh-022-direct",
+        "repeat-direct",
+        "preexisting-private-operator-update",
+        "npm-global-lifecycle-and-repeat"
+      ]
+    },
+    "caseNames": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/caseName"
+      }
+    },
+    "file": {
+      "type": "object",
+      "required": [
+        "path",
+        "bytes",
+        "sha256",
+        "mode"
+      ],
+      "properties": {
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

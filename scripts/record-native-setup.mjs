@@ -35,8 +35,11 @@ if (process.argv[2] === '--verify-copy') {
     return { head: git(directory, 'rev-parse', 'HEAD'), tree: git(directory, 'rev-parse', 'HEAD^{tree}'), branch: git(directory, 'rev-parse', '--abbrev-ref', 'HEAD'), files };
   };
   const agents = await inspect(dependency);
-  assert.equal(agents.tree, '0038005169b5c843b57e887ea8f463d7fba666c4', 'CI must consume the accepted Agents tree');
+  const acceptedAgents = JSON.parse(await readFile(path.join(root, 'tests/fixtures/native-runtime/agents-source.json'), 'utf8'));
+  assert.equal(agents.head, acceptedAgents.acceptedCommit, 'CI must consume the accepted Agents commit');
+  assert.equal(agents.tree, acceptedAgents.acceptedTree, 'CI must consume the accepted Agents tree');
   const toolchain = { root: 'node_modules', entries: await captureCopyTree(path.join(root, 'node_modules')) };
   await writeFile(path.join(evidence, 'checkout.json'), JSON.stringify({ observedAt: new Date().toISOString(), githubSha: process.env.GITHUB_SHA,
-    acceptedAgentsCommit: 'e98a4cd15f945a7749d02e071126a854376b93c0', equivalentAgentsSnapshot: '8827347387ee32e2c5bd7eb912f9b80185cdad45', manager: await inspect(root), agents, toolchain }, null, 2));
+    acceptedAgentsCommit: acceptedAgents.acceptedCommit, equivalentAgentsSnapshot: acceptedAgents.remoteCheckoutCommit,
+    manager: await inspect(root), agents, toolchain }, null, 2));
 }

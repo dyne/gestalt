@@ -50,7 +50,8 @@ assert.equal(helperProvenance.artifactSha256, hash(await readFile(helper)));
 assert.equal(helperProvenance.sourceSha256, hash(await readFile(path.join(repository, 'src/cli/platform/native/owned-process.c'))));
 const helperInputs = await verifyOwnershipBuildInputs(helperProvenance, repository);
 assert.deepEqual(helperInputs, artifacts.nativeHelperInputs);
-assert.ok(['e98a4cd15f945a7749d02e071126a854376b93c0', '8827347387ee32e2c5bd7eb912f9b80185cdad45'].includes(artifacts.orgSource.head));
+const acceptedAgents = JSON.parse(await readFile(new URL('./fixtures/native-runtime/agents-source.json', import.meta.url), 'utf8'));
+assert.equal(artifacts.orgSource.head, acceptedAgents.acceptedCommit);
 assert.ok(process.env.GESTALT_NATIVE_AGENTS_SOURCE && path.isAbsolute(process.env.GESTALT_NATIVE_AGENTS_SOURCE), 'exact accepted Agents source is required');
 const agentsRoot = await realpath(process.env.GESTALT_NATIVE_AGENTS_SOURCE);
 for (const file of [...artifacts.orgSource.files, ...artifacts.orgSource.setupApi]) {
@@ -77,7 +78,7 @@ async function fixture(t) {
   const outer = await realpath(await mkdtemp(path.join(tmpdir(), 'gestalt native runtime ü ')));
   let retained = process.platform === 'darwin';
   t.after(() => retained ? undefined : rm(outer, { recursive: true, force: true }));
-  const storage = await NativePrivateStorage.open(path.join(outer, 'private'), peer), root = storage.root;
+  const storage = await NativePrivateStorage.open(path.join(outer, 'private'), peer, async () => helper), root = storage.root;
   for (const directory of ['home', 'Codex', 'Gestalt', 'bin', 'consumer', 'consumer/native', 'workspace']) await storage.createDirectory(path.join(root, directory));
   let manager = path.join(root, 'consumer/gestalt.mjs'), packageRoot, globalShim, launchTarget;
   const environment = { ...process.env, HOME: path.join(root, 'home'), USERPROFILE: path.join(root, 'home'), CODEX_HOME: path.join(root, 'Codex'), GESTALT_HOME: path.join(root, 'Gestalt'),

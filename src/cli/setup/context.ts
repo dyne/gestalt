@@ -7,6 +7,7 @@ import { NativeExecutables } from '../platform/executables.ts';
 import { NativeOwnedProcesses } from '../platform/processes.ts';
 import { NativePaths, validateNativePath } from '../platform/paths.ts';
 import { NativePrivateStorage } from '../platform/storage.ts';
+import type { WindowsReadHelper } from '../platform/windows-system.ts';
 import { borrowSetupScratch, releaseSetupScratch } from './scratch-context.mjs';
 
 export class CommandFailure extends Error {
@@ -27,7 +28,7 @@ export interface SetupPaths {
   readonly unixProbe: string | undefined;
   readonly ownershipHelper?: string;
 }
-export async function setupPaths(environment: Environment): Promise<SetupPaths> {
+export async function setupPaths(environment: Environment, ownershipHelper?: string): Promise<SetupPaths> {
   const userHome = await realpath(environment.HOME || environment.USERPROFILE || homedir());
   const native = new NativePaths();
   const managed = async (value: string, label: string) => {
@@ -49,7 +50,8 @@ export async function setupPaths(environment: Environment): Promise<SetupPaths> 
   const manager = fileURLToPath(import.meta.url);
   return { userHome, codexHome, gestaltHome, marketplaceName,
     marketplace: environment.GESTALT_MARKETPLACE || 'dyne/gestalt-agents', manager,
-    unixProbe: path.join(path.dirname(manager), 'native', 'gestalt-unix-peer') };
+    unixProbe: path.join(path.dirname(manager), 'native', 'gestalt-unix-peer'),
+    ...(ownershipHelper === undefined ? {} : { ownershipHelper }) };
 }
 
 /** A single foreground operation owns its children and forwards interruption
@@ -60,6 +62,7 @@ export class SetupContext {
   readonly streams: CommandStreams;
   readonly paths: SetupPaths;
   readonly version: string;
+  readonly windowsReadHelper: WindowsReadHelper | undefined;
   private readonly executables = new NativeExecutables();
   private readonly ownedProcesses: OwnedProcessPort | undefined;
   private readonly inheritedSignal: AbortSignal | undefined;
@@ -74,6 +77,16 @@ export class SetupContext {
     this.invocation = invocation; this.streams = streams; this.paths = paths; this.version = version;
     this.ownedProcesses = ownedProcesses;
     this.inheritedSignal = inheritedSignal;
+    const helper = paths.ownershipHelper;
+    if (process.platform === 'win32' && helper !== undefined) {
+      this.windowsReadHelper = () => {
+        // The existing resolver must receive an explicit executable so it
+        // cannot consult the current drive, PATH, or PATHEXT.
+        if (path.win32.parse(helper).root.length < 3 || !/\.exe$/i.test(helper))
+          throw new Error('Windows storage read helper binding must be an absolute executable path');
+        return this.requireOwnership();
+      };
+    }
     this.environment = { ...invocation.environment, CODEX_HOME: paths.codexHome, GESTALT_HOME: paths.gestaltHome };
   }
   async log(message: string): Promise<void> { await this.streams.stderr(Buffer.from(`gestalt: ${message}\n`)); }
@@ -248,6 +261,6 @@ export class SetupContext {
       const storage = await this.storage(parent);
       await storage.assertPrivate(storage.root, 'directory');
     }
-    return NativePrivateStorage.open(root, this.paths.unixProbe);
+    return NativePrivateStorage.open(root, this.paths.unixProbe, this.windowsReadHelper);
   }
 }

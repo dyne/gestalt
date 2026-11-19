@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmod, copyFile, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
@@ -11,7 +11,7 @@ import { sessionScratch } from './session-scratch-fixture.mjs';
 
 const metadata = { version: '0.16.1', help: 'help\n' };
 async function fixture(t) {
-  const root = await mkdtemp(path.join(tmpdir(), 'gestalt diagnostic ü '));
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'gestalt diagnostic ü ')));
   t.after(() => rm(root, { recursive: true, force: true }));
   const environment = { HOME: root, USERPROFILE: root, PATH: '', CODEX_HOME: path.join(root, 'custom Codex'), GESTALT_HOME: path.join(root, 'custom Gestalt'),
     GESTALT_AGENTS_VERSION: '2.26.0', GESTALT_CONTEXT_MODE_VERSION: '2.26.0' };

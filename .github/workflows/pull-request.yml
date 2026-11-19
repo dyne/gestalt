@@ -12,8 +12,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  native-package-helper:
+    name: Build Windows x64 delivery helper
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          architecture: x64
+      - name: Build package helper and source provenance
+        run: node scripts/build-owned-process.mjs
+      - uses: actions/upload-artifact@v6
+        with:
+          name: gestalt-pr-package-win32-x64
+          path: |
+            dist/cli/native/gestalt-owned-process.exe
+            dist/cli/native/gestalt-owned-process.exe.provenance.json
+          if-no-files-found: error
+
   test-build:
     name: Test and build
+    needs: native-package-helper
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -30,6 +53,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Retrieve target-built Windows helper
+        uses: actions/download-artifact@v6
+        with:
+          name: gestalt-pr-package-win32-x64
+          path: dist/cli/native
 
       # Match the native sandbox prerequisites in the deployment workflow.
       - name: Enable native Codex sandbox user namespaces

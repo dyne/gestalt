@@ -1,0 +1,46 @@
+name: Windows Agents storage diagnostic
+on:
+  push:
+    branches: [test/final-current-r6]
+permissions:
+  contents: read
+jobs:
+  agents-storage-diagnostic:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v6
+        env:
+          GIT_CONFIG_COUNT: 1
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: 'false'
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        env:
+          GIT_CONFIG_COUNT: 1
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: 'false'
+        with:
+          repository: dyne/gestalt-agents
+          ref: 8827347387ee32e2c5bd7eb912f9b80185cdad45
+          path: .native-dependencies/agents
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.3
+          architecture: x64
+          package-manager-cache: false
+      - name: Observe one accepted Agents storage check as a standard user
+        shell: powershell
+        env:
+          PROBE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          & ./tests/windows-agents-storage-diagnostic/standard-user.ps1
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: windows-agents-storage-diagnostic-evidence-${{ github.run_attempt }}
+          path: native-evidence/windows-agents-storage-diagnostic/
+          if-no-files-found: error

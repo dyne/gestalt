@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile, link, truncate, chmod, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile, link, truncate, chmod, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { gunzipSync, gzipSync } from 'node:zlib';
@@ -31,7 +31,7 @@ async function privateStage(directory) {
   else await mkdir(directory, { mode: 0o700 });
 }
 async function fixture(t) {
-  const root = await mkdtemp(path.join(tmpdir(), 'gestalt archive é '));
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'gestalt archive é ')));
   t.after(() => rm(root, { recursive: true, force: true }));
   const source = path.join(root, 'gestalt-skills'); await mkdir(source);
   await mkdir(path.join(source, 'nested space 東京'));

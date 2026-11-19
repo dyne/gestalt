@@ -6,11 +6,12 @@ the public npm release. The published `0.16.1` package supports Linux and macOS.
 
 ## Install with npm
 
-Install Node.js 24 or newer, npm and a compatible Codex CLI in the same account.
-Linux and macOS also need Bash. Native Windows x64 uses PowerShell or cmd and
-requires no Bash, WSL, Developer Mode, administrator privileges or compiler
-for core setup. Keep native Git on PATH when you use the Git-backed skill
-collection or a local Agents checkout.
+Agents-only setup needs Node.js 24 or newer, npm and a compatible Codex CLI in
+the same account. Linux and macOS also need Bash. Native Windows x64 uses
+PowerShell or cmd and requires no Bash, WSL, Developer Mode, administrator
+privileges or compiler for core setup. On Windows, full `gestalt install` and
+the default `gestalt update` also require Git on `PATH` for the Git-backed skill
+collection. Use Git to clone or update a local Agents checkout.
 
 On Windows, check the registry before installing from `latest`. Use a release
 whose `os` includes `win32`, or an explicitly supplied and verified Windows-enabled

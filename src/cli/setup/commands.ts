@@ -133,7 +133,7 @@ export interface ManagedSetup {
   unknown(): void;
 }
 export function createSetupHandlers(metadata: CliMetadata, operations: SetupOperations = defaults, resumed = false,
-  managed?: ManagedSetup, platform: NodeJS.Platform = process.platform): CommandHandlers {
+  managed?: ManagedSetup, platform: NodeJS.Platform = process.platform, ownershipHelper?: string): CommandHandlers {
   const selectionGuard = (handler: CommandHandler): CommandHandler => async (invocation, streams) => {
     // Refuse named deferred actions before scratch validation, setup paths or
     // context construction. Help and retired-option parsing retain their rules.
@@ -150,7 +150,7 @@ export function createSetupHandlers(metadata: CliMetadata, operations: SetupOper
     let context: SetupContext | undefined;
     try {
       const environment = scratchEnvironment(invocation.environment);
-      context = new SetupContext({ ...invocation, environment }, streams, await setupPaths(environment), metadata.version,
+      context = new SetupContext({ ...invocation, environment }, streams, await setupPaths(environment, ownershipHelper), metadata.version,
         managed?.commands, managed?.signal);
       context.check();
       return await body(context, invocation.argv);
@@ -189,7 +189,7 @@ export function createSetupHandlers(metadata: CliMetadata, operations: SetupOper
     })),
     '__updated-manager': async (invocation, streams) => {
       const [command, ...argv] = invocation.argv;
-      const handlers = createSetupHandlers(metadata, operations, true, managed, platform);
+      const handlers = createSetupHandlers(metadata, operations, true, managed, platform, ownershipHelper);
       const handler = command && Object.hasOwn(handlers, command) ? handlers[command as keyof CommandHandlers] : undefined;
       if (!handler || command === '__updated-manager') { await streams.stderr(Buffer.from('gestalt: invalid updated-manager continuation\n')); return 1; }
       return handler({ ...invocation, argv }, streams);

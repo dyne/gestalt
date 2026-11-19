@@ -1,0 +1,44 @@
+{
+  "source": "src/cli/platform/native/owned-process.c",
+  "license": "MIT (full license in source)",
+  "sourceSha256": "8b8499245e4213e3e842497f815d4b0d19685bcd806b461fdacb66119500ad58",
+  "artifactSha256": "8b01eb55f40f31e27f2a6f8b0dcf24c34955115ca4cc1b70c7069b38a76c1273",
+  "platform": "win32",
+  "architecture": "x64",
+  "node": "v24.22.3",
+  "compiler": "cl.exe",
+  "compilerVersion": "usage: cl [ option... ] filename... [ /link linkoption... ]\r\nMicrosoft (R) C/C++ Optimizing Compiler Version 19.51.36260 for x64\r\nCopyright (C) Microsoft Corporation.  All rights reserved.",
+  "argv": [
+    "/nologo",
+    "/W3",
+    "/WX",
+    "/std:c11",
+    "/O2",
+    "/D_CRT_SECURE_NO_WARNINGS",
+    "D:\\a\\gestalt\\gestalt\\src\\cli\\platform\\native\\owned-process.c",
+    "D:\\a\\gestalt\\gestalt\\src\\cli\\platform\\native\\windows-storage-check.c",
+    "/Fe:D:\\a\\gestalt\\gestalt\\dist\\cli\\native\\gestalt-owned-process.exe",
+    "/Fo:D:\\a\\gestalt\\gestalt\\dist\\cli\\native\\",
+    "user32.lib",
+    "advapi32.lib",
+    "netapi32.lib"
+  ],
+  "observedAt": "2026-11-18T23:55:43.169Z",
+  "sourceInputs": [
+    {
+      "path": "src/cli/platform/native/owned-process.c",
+      "bytes": 45328,
+      "sha256": "8b8499245e4213e3e842497f815d4b0d19685bcd806b461fdacb66119500ad58"
+    },
+    {
+      "path": "src/cli/platform/native/windows-storage-check.c",
+      "bytes": 11137,
+      "sha256": "c4bc745ebab6352394ac4358b1bd9e630540ec51bf90f0e70f659682a7e96376"
+    },
+    {
+      "path": "src/cli/platform/native/windows-storage-check.h",
+      "bytes": 237,
+      "sha256": "cae6c68ae671e6c0fcb73ce01e7fc8252928ed5a1c7f65102b329569e7b18019"
+    }
+  ]
+}

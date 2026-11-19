@@ -77,7 +77,7 @@ async function fixture(t) {
   const outer = await realpath(await mkdtemp(path.join(tmpdir(), 'gestalt native runtime ü ')));
   let retained = process.platform === 'darwin';
   t.after(() => retained ? undefined : rm(outer, { recursive: true, force: true }));
-  const storage = await NativePrivateStorage.open(path.join(outer, 'private'), peer), root = storage.root;
+  const storage = await NativePrivateStorage.open(path.join(outer, 'private'), peer, async () => helper), root = storage.root;
   for (const directory of ['home', 'Codex', 'Gestalt', 'bin', 'consumer', 'consumer/native', 'workspace']) await storage.createDirectory(path.join(root, directory));
   let manager = path.join(root, 'consumer/gestalt.mjs'), packageRoot, globalShim, launchTarget;
   const environment = { ...process.env, HOME: path.join(root, 'home'), USERPROFILE: path.join(root, 'home'), CODEX_HOME: path.join(root, 'Codex'), GESTALT_HOME: path.join(root, 'Gestalt'),

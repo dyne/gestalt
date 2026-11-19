@@ -2,7 +2,7 @@ import { lstat } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
-import { windowsSystem } from './windows-system.ts';
+import { windowsSystem, type WindowsReadHelper } from './windows-system.ts';
 
 const execute = promisify(execFile);
 
@@ -10,14 +10,14 @@ const execute = promisify(execFile);
  * ancestor entry. This is a prerequisite for path-based operations, not an
  * assertion that repeated inode checks themselves make those operations atomic.
  */
-export async function assertStableParents(root: string, unixProbe?: string): Promise<void> {
+export async function assertStableParents(root: string, unixProbe?: string, windowsReadHelper?: WindowsReadHelper): Promise<void> {
   const parents: string[] = [];
   for (let current = path.dirname(root);; current = path.dirname(current)) {
     parents.push(current);
     if (path.dirname(current) === current) break;
   }
   if (process.platform === 'win32') {
-    await windowsSystem({ operation: 'assert-namespace', paths: parents.map(value => path.toNamespacedPath(value)) });
+    await windowsSystem({ operation: 'assert-namespace', paths: parents.map(value => path.toNamespacedPath(value)) }, windowsReadHelper);
     return;
   }
   for (const current of parents) {

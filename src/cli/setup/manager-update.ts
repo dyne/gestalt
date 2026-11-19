@@ -17,7 +17,7 @@ export async function updateManager(context: SetupContext, originalArgv: readonl
   }
   if (resumed) return false;
   const target = context.paths.manager, directory = path.dirname(target);
-  await assertStableParents(target, context.paths.unixProbe);
+  await assertStableParents(target, context.paths.unixProbe, context.windowsReadHelper);
   const current = await readProfile(target);
   if (!current) throw new Error(`could not resolve manager executable: ${target}`);
   // A user executable directory may intentionally be 0755. Keep staging private
@@ -25,7 +25,7 @@ export async function updateManager(context: SetupContext, originalArgv: readonl
   const lockRoot = path.join(directory, '.gestalt-manager-update.lock');
   if (process.platform === 'win32') await windowsSystem({ operation: 'create-directory', path: lockRoot });
   else await mkdir(lockRoot, { mode: 0o700 });
-  const storage = await NativePrivateStorage.open(lockRoot, context.paths.unixProbe);
+  const storage = await NativePrivateStorage.open(lockRoot, context.paths.unixProbe, context.windowsReadHelper);
   const lockIdentity = await lstat(lockRoot, { bigint: true });
   const scratch = await mkdtemp(path.join(tmpdir(), 'gestalt-update.'));
   const unlisten = context.listen();
@@ -65,7 +65,7 @@ export async function updateManager(context: SetupContext, originalArgv: readonl
     if (current.bytes.equals(bytes)) { await context.log(`manager is already current at ${target}`); return false; }
     const staged = path.join(storage.root, 'gestalt.mjs');
     await storage.replaceFile(staged, bytes);
-    await assertStableParents(target, context.paths.unixProbe);
+    await assertStableParents(target, context.paths.unixProbe, context.windowsReadHelper);
     const rechecked = await readProfile(target);
     if (!rechecked || rechecked.dev !== current.dev || rechecked.ino !== current.ino || !rechecked.bytes.equals(current.bytes))
       throw new Error('manager changed during update; installed executable retained');

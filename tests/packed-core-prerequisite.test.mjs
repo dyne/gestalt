@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { commandTarget, NativeExecutables } from '../src/cli/platform/executables.ts';
-import { installPackedCore, npmPrerequisiteTarget } from './fixtures/packed-core.mjs';
+import { installPackedCore, npmPrerequisiteTarget, windowsPackedShimEnvironment } from './fixtures/packed-core.mjs';
 import { capturedNodeCommand } from './fixtures/native-node-command.mjs';
 
 // Authentic npm11.19.1 bin/npm.cmd, read from the installed npm package on
@@ -78,6 +78,26 @@ test('bundled npm entry must exist and carry a plain Node shebang', async t => {
   await assert.rejects(npmPrerequisiteTarget(f.npm, {}, f.node));
   await rm(f.entry);
   await assert.rejects(npmPrerequisiteTarget(f.npm, {}, f.node), { code: 'ENOENT' });
+});
+
+test('Windows literal packed shim keeps the toolchain after the owned prefix for PATH and Path', () => {
+  const prefix = String.raw`C:\Owned fixture ü &\npm prefix`;
+  const configured = String.raw`D:\tools;C:\Program Files\Git\cmd;C:\Windows\System32`;
+  for (const key of ['PATH', 'Path', 'path']) {
+    const original = { [key]: configured, PATHEXT: '.COM;.EXE;.BAT;.CMD', TEMP: 'unchanged' };
+    const child = windowsPackedShimEnvironment(original, prefix);
+    assert.deepEqual(child, { PATH: prefix + ';' + configured, PATHEXT: '.COM;.EXE;.BAT;.CMD', TEMP: 'unchanged' });
+    assert.deepEqual(original, { [key]: configured, PATHEXT: '.COM;.EXE;.BAT;.CMD', TEMP: 'unchanged' });
+  }
+});
+
+test('Windows literal packed shim rejects ambiguous and missing path values', () => {
+  const prefix = String.raw`C:\Owned fixture\npm prefix`;
+  assert.throws(() => windowsPackedShimEnvironment({}, prefix), /exactly one PATH key/);
+  assert.throws(() => windowsPackedShimEnvironment({ PATH: 'tools', Path: 'tools' }, prefix), /exactly one PATH key/);
+  for (const value of [undefined, '', '  ']) {
+    assert.throws(() => windowsPackedShimEnvironment({ Path: value }, prefix), /nonempty PATH/);
+  }
 });
 
 test('prerequisite discovery failure is preserved before any installation command runs', async t => {

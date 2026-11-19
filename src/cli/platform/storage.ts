@@ -6,7 +6,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { Bytes, PrivateStoragePort } from '../contracts.ts';
 import { NativePaths, validateNativePath } from './paths.ts';
-import { windowsSystem } from './windows-system.ts';
+import { windowsSystem, type WindowsReadHelper } from './windows-system.ts';
 import { assertStableParents } from './namespace.ts';
 
 const absent = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT';
@@ -18,23 +18,25 @@ export class NativePrivateStorage implements PrivateStoragePort {
   private readonly paths = new NativePaths();
   private readonly rootIdentity: { dev: bigint; ino: bigint };
   private readonly unixProbe: string | undefined;
-  private constructor(root: string, identity: { dev: bigint; ino: bigint }, unixProbe?: string) {
+  private readonly windowsReadHelper: WindowsReadHelper | undefined;
+  private constructor(root: string, identity: { dev: bigint; ino: bigint }, unixProbe?: string, windowsReadHelper?: WindowsReadHelper) {
     this.root = root; this.rootIdentity = identity; this.unixProbe = unixProbe;
+    this.windowsReadHelper = windowsReadHelper;
   }
 
-  static async open(root: string, unixProbe?: string): Promise<NativePrivateStorage> {
+  static async open(root: string, unixProbe?: string, windowsReadHelper?: WindowsReadHelper): Promise<NativePrivateStorage> {
     validateNativePath(root);
     // Resolve parent aliases (e.g. macOS /var) before creation; never follow a root link.
     const destination = path.join(await realpath(path.dirname(path.resolve(root))), path.basename(root));
     if (destination === path.parse(destination).root) throw new Error('A filesystem root cannot be private managed storage');
-    await assertStableParents(destination, unixProbe);
+    await assertStableParents(destination, unixProbe, windowsReadHelper);
     try { await lstat(destination); }
     catch (error) {
       if (!absent(error)) throw error;
       if (process.platform === 'win32') await windowsSystem({ operation: 'create-directory', path: destination });
       else await mkdir(destination, { mode: 0o700 });
     }
-    const storage = new NativePrivateStorage(destination, await lstat(destination, { bigint: true }), unixProbe);
+    const storage = new NativePrivateStorage(destination, await lstat(destination, { bigint: true }), unixProbe, windowsReadHelper);
     await storage.assertPrivate(destination, 'directory');
     return storage;
   }
@@ -43,7 +45,7 @@ export class NativePrivateStorage implements PrivateStoragePort {
     const destination = path.resolve(value);
     const currentRoot = await lstat(this.root, { bigint: true });
     if (currentRoot.dev !== this.rootIdentity.dev || currentRoot.ino !== this.rootIdentity.ino) throw new Error('Managed root identity changed; refusing redirected operation');
-    await assertStableParents(this.root, this.unixProbe);
+    await assertStableParents(this.root, this.unixProbe, this.windowsReadHelper);
     await this.paths.assertContained(this.root, destination);
     const relative = path.relative(this.root, destination);
     let cursor = this.root;
@@ -54,7 +56,7 @@ export class NativePrivateStorage implements PrivateStoragePort {
         const entry = await lstat(cursor);
         if (entry.isSymbolicLink()) throw new Error('Redirected storage path refused');
         if (entry.isFile() && entry.nlink !== 1) throw new Error('Hardlinked storage path refused');
-        if (process.platform === 'win32') await windowsSystem({ operation: 'assert-private', path: cursor });
+        if (process.platform === 'win32') await windowsSystem({ operation: 'assert-private', path: cursor }, this.windowsReadHelper);
         else if (entry.uid !== process.getuid?.() || (entry.mode & 0o077) !== 0) throw new Error('Storage is not private to current user');
         if (process.platform === 'darwin') {
           if (!this.unixProbe || !path.isAbsolute(this.unixProbe)) throw new Error('Target-built native macOS ACL probe is required');

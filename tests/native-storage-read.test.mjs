@@ -106,10 +106,30 @@ test('Windows native provenance requires every translation and header byte, not 
   await assert.rejects(verifyOwnershipBuildInputs({ ...provenance, sourceInputs: sourceInputs.slice(0, 1) }, directory));
   await writeFile(path.join(directory, paths[2]), 'changed header'); await assert.rejects(verifyOwnershipBuildInputs(provenance, directory));
 });
-test('native read extension preserves the complete old ownership/Unix C after removing only its additive dispatch/include', async () => {
+test('native read hooks preserve shared and Unix code and the reviewed Windows ownership baseline', async () => {
   const source = await readFile(new URL('../src/cli/platform/native/owned-process.c', import.meta.url), 'utf8');
+  const include = '#include "windows-storage-check.h"\n';
   const dispatch = `  if (argc > 1 && !wcscmp(argv[1], L"--storage-check-v1")) {\n    size_t units;\n    if (!command_line_quote(argc, argv, NULL, WINDOWS_COMMAND_LINE_UNITS - 1, &units)) return 2;\n    return gestalt_windows_storage_check(argc, argv);\n  }\n`;
+  assert.equal(source.split(include).length, 2);
   assert.equal(source.split(dispatch).length, 2);
-  const previous = source.replace('#include "windows-storage-check.h"\n', '').replace(dispatch, '');
-  assert.equal(createHash('sha256').update(previous).digest('hex'), 'c146a03458442268e16e1f0ae8db7276563deac8a63e0b88b611daad7b6b3871');
+  assert.ok(source.includes(`#include <fcntl.h>\n${include}#else\n#include <unistd.h>`));
+  const windowsEntry = '\n#ifdef _WIN32\nint wmain(int argc, wchar_t **argv) {\n';
+  assert.ok(source.includes(`${windowsEntry}${dispatch}  InitializeCriticalSection(&output_lock);`));
+
+  const splitAt = (body, boundary) => {
+    const parts = body.split(boundary);
+    assert.equal(parts.length, 2, 'Expected one platform boundary: ' + boundary.trim());
+    return [parts[0], boundary + parts[1]];
+  };
+  const digest = body => createHash('sha256').update(body).digest('hex');
+  const withoutStorage = source.replace(include, '').replace(dispatch, '');
+  const [sharedAndUnix, ownershipTail] = splitAt(withoutStorage, '\n#else\nstatic volatile LONG output_failed = 0;\n');
+  const [windowsOwnership, entryPoints] = splitAt(ownershipTail, '\n#endif\n\n#ifndef _WIN32\nint main(');
+  const [unixMain, windowsMain] = splitAt(entryPoints, windowsEntry);
+
+  // These regions match the accepted 283c74b helper before the Windows byte-input correction.
+  assert.equal(digest(sharedAndUnix + unixMain), 'c33fde90b40c0e60d1376dd9d617ac3109d620e8a869a898959e846567cd39ac');
+  assert.equal(digest(windowsMain), '284f6d2b86dc0ee89bb2ab7bc575bac190c14c88f2289053411548f7d0215b4b');
+  // Only the Windows ownership region is re-sealed for the reviewed byte-input worker (source SHA-256 8b8499245e42).
+  assert.equal(digest(windowsOwnership), '67c94f4bda37b138897f671aae5e044f51c7a0c2c33454559dcf865d3028dc6c');
 });

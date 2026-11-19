@@ -15,6 +15,7 @@ import { NativeOwnedProcesses } from '../src/cli/platform/processes.ts';
 import { countProbeSource, vectorBytes, wideReader, quoteReference, quotingCases, checkCountResult } from './fixtures/native-command-line.mjs';
 import { journal, observeOwnedHelpers } from './fixtures/native-owned-observer.mjs';
 import { encodeFrame, decodeFrames } from './fixtures/native-windows-terminal-wire.mjs';
+import { stageOwnedProcessSource } from './fixtures/stage-owned-process-source.mjs';
 assert.equal(process.platform, 'win32', 'Actual Windows required, not mocked process.platform');
 const root = path.resolve(import.meta.dirname, '..'), evidence = path.resolve(process.env.GESTALT_NATIVE_TEST_EVIDENCE ?? 'native-evidence', 'windows-terminal-preflight/dependency-correction');
 await mkdir(evidence, { recursive: true });
@@ -25,8 +26,8 @@ async function save() { await writeFile(path.join(evidence, 'manifest.partial.js
 async function bounded(promise, label, ms = 15000) { let timer; try { return await Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(Error(`${label} deadline`)), ms); })]); } finally { clearTimeout(timer); } }
 async function fixtureBuild(name, source, role) {
   progress('build-before', { name, role });
-  const location = path.join(evidence, 'builds', name), file = path.join(location, 'src/cli/platform/native/owned-process.c');
-  await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, source);
+  const location = path.join(evidence, 'builds', name);
+  await stageOwnedProcessSource(root, location, source);
   const executable = await buildOwnedProcess(location, path.join(location, 'bin'));
   manifest.builds.push({ name, role, sourceSha256: hash(Buffer.from(source)), executable, provenance: JSON.parse(await readFile(executable + '.provenance.json', 'utf8')) });
   progress('build-after', { name }); await save(); return executable;

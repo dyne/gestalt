@@ -11,6 +11,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
 import { buildOwnedProcess } from '../scripts/build-owned-process.mjs';
 import { NativeOwnedProcesses, recoveredOwnershipClaim } from '../src/cli/platform/processes.ts';
+import { stageOwnedProcessSource } from './fixtures/stage-owned-process-source.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 const tree = path.join(root, 'tests/fixtures/native-owned-tree.mjs');
@@ -196,8 +197,8 @@ test('Windows final process-handle timeout or failure remains unknown despite em
     // A test-only source copy forces just the final wait result after real job
     // accounting/output settlement. The primary helper and its proof are intact.
     const injected = source.replace(wait, `(GetEnvironmentVariableW(L"GESTALT_TEST_FINAL_WAIT", NULL, 0) ? ${expression} : ${wait})`);
-    const fixtureRoot = path.join(artifact, name), file = path.join(fixtureRoot, 'src/cli/platform/native/owned-process.c');
-    await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, injected);
+    const fixtureRoot = path.join(artifact, name);
+    const file = await stageOwnedProcessSource(root, fixtureRoot, injected);
     const fixtureHelper = await buildOwnedProcess(fixtureRoot, path.join(fixtureRoot, 'bin'));
     const scratch = path.join(fixtureRoot, 'retained-scratch'); await writeFile(scratch, 'keep');
     if (process.env.GESTALT_NATIVE_TEST_EVIDENCE) {

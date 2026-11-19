@@ -1,7 +1,7 @@
 {
-  "acceptedCommit": "e98a4cd15f945a7749d02e071126a854376b93c0",
-  "remoteCheckoutCommit": "8827347387ee32e2c5bd7eb912f9b80185cdad45",
-  "equivalenceScope": "Only the complete15-file Org scripts subtree; no claim of whole-repository identity",
+  "acceptedCommit": "b4f783d75c0543010c665072bf7aef07f74f973f",
+  "remoteCheckoutCommit": "b4f783d75c0543010c665072bf7aef07f74f973f",
+  "equivalenceScope": "Local and hosted checkouts use the same pinned commit and tree. This manifest binds all 15 Org scripts; the full dependency inventory is recorded separately.",
   "physicalModeMeaning": "Original local export observation only. Canonical checkout644/755 and local664/775 preserve exact Gitmode and executable bits; only the group-write umask delta is allowed and recorded. Real Org/storage guards remain unchanged.",
   "files": [
     {
@@ -111,9 +111,9 @@
     {
       "path": "plugins/gestalt/skills/org-plan/scripts/org-plan-storage.mjs",
       "gitMode": "100644",
-      "blobOid": "bb3f701467053128fdd0f83ce9f5e1829c2986eb",
-      "bytes": 14594,
-      "sha256": "b59f08bdf7a14afa8ec4779991bb7e38c23ce5f865c380a32c2fb26c1595a5ee",
+      "blobOid": "12690f164a9d1e5d5841de27e8587f040f728b35",
+      "bytes": 14968,
+      "sha256": "aa2a059206016eaa8173e64a7bac6c46452313829139ee5fb50f4b334c24aad4",
       "physicalMode": "664"
     },
     {
@@ -124,5 +124,6 @@
       "sha256": "da1029bb4bff46a45ba2fb1255bbaa4488f84276af5a56261cce0363ca7207d1",
       "physicalMode": "664"
     }
-  ]
+  ],
+  "acceptedTree": "69980d21f265610045293a872c18803de5568a8c"
 }

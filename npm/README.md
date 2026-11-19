@@ -10,9 +10,12 @@ to install lists `win32`, or use an explicitly supplied, verified tarball.
 npm view @jaromil/gestalt@latest version os
 ```
 
-Core setup needs Node.js 24 or newer, npm and an installed, compatible Codex CLI.
-Linux and macOS also require Bash. Native Windows x64 uses PowerShell or cmd
-under a standard user account, without Bash, WSL, Developer Mode or a compiler.
+Agents-only setup needs Node.js 24 or newer, npm and an installed, compatible
+Codex CLI. Linux and macOS also require Bash. Native Windows x64 uses PowerShell
+or cmd under a standard user account, without Bash, WSL, Developer Mode or a
+compiler. On Windows, full `gestalt install` and the default `gestalt update`
+also require Git on `PATH` for the Git-backed skill collection. Use Git to
+clone or update a local Agents checkout.
 
 Native Windows Serena, Playwright/Chrome and Mobile hosting are deferred. Core
 Agents/context-mode setup and core updates report these omissions. Explicit

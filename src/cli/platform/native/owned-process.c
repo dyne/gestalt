@@ -478,20 +478,96 @@ static int run_owned(char **argv, unsigned int grace, pid_t controller) {
 }
 #else
 static volatile LONG output_failed = 0;
-struct terminal_input {
+/* Both byte pipes and ConPTY take synchronous writes. Keep them off the
+ * control observer and publish only one slot until the frame is drained. */
+struct windows_input {
   HANDLE pipe, ready;
-  volatile LONG closed, pending;
+  volatile LONG stopping, pending, eof, failed;
+  SRWLOCK write_lock;
+  BOOL writing;
   uint32_t size; unsigned char bytes[32768];
 };
-static DWORD WINAPI pump_terminal_input(void *argument) {
-  struct terminal_input *input = argument;
-  while (WaitForSingleObject(input->ready, INFINITE) == WAIT_OBJECT_0) {
-    if (input->closed) break;
-    int failed = write_all(input->pipe, input->bytes, input->size);
-    InterlockedExchange(&input->pending, 0);
-    if (message('A', "") || failed) break;
+static LONG input_flag(volatile LONG *flag) {
+  return InterlockedCompareExchange(flag, 0, 0);
+}
+static DWORD write_windows_input(struct windows_input *input) {
+  AcquireSRWLockExclusive(&input->write_lock);
+  input->writing = TRUE;
+  ReleaseSRWLockExclusive(&input->write_lock);
+  DWORD error = ERROR_SUCCESS;
+  DWORD offset = 0;
+  while (offset < input->size) {
+    if (input_flag(&input->stopping)) { error = ERROR_OPERATION_ABORTED; break; }
+    DWORD count;
+    if (!WriteFile(input->pipe, input->bytes + offset, input->size - offset, &count, NULL)) { error = GetLastError(); break; }
+    if (!count) { error = ERROR_WRITE_FAULT; break; }
+    offset += count;
   }
-  CloseHandle(input->pipe); return 0;
+  AcquireSRWLockExclusive(&input->write_lock);
+  input->writing = FALSE;
+  ReleaseSRWLockExclusive(&input->write_lock);
+  return error;
+}
+static DWORD WINAPI pump_windows_input(void *argument) {
+  struct windows_input *input = argument;
+  for (;;) {
+    if (WaitForSingleObject(input->ready, INFINITE) != WAIT_OBJECT_0) {
+      InterlockedExchange(&input->failed, 1); break;
+    }
+    if (input_flag(&input->stopping)) break;
+    if (input_flag(&input->pending)) {
+      DWORD error = input->pipe ? write_windows_input(input) : ERROR_SUCCESS;
+      if (input_flag(&input->stopping)) break;
+      if (error != ERROR_SUCCESS) {
+        if (!terminal_columns && error != ERROR_BROKEN_PIPE && error != ERROR_NO_DATA && error != ERROR_PIPE_NOT_CONNECTED) {
+          InterlockedExchange(&input->failed, 1); break;
+        }
+        /* A target may close stdin early. Retire the pipe and acknowledge a
+         * discarded byte frame, including later frames on the same channel. */
+        CloseHandle(input->pipe); input->pipe = NULL;
+      }
+      InterlockedExchange(&input->pending, 0);
+      if (message('A', "")) { InterlockedExchange(&output_failed, 1); break; }
+      if (error != ERROR_SUCCESS && terminal_columns) break;
+    }
+    /* Read EOF before pending: the observer publishes any accepted slot
+     * before EOF. A coalesced wake still drains that slot before closing. */
+    if (input_flag(&input->eof) && !input_flag(&input->pending)) break;
+  }
+  if (input->pipe) CloseHandle(input->pipe);
+  return 0;
+}
+static int stop_windows_input(struct windows_input *input, HANDLE thread) {
+  InterlockedExchange(&input->stopping, 1);
+  if (!SetEvent(input->ready)) return -1;
+  ULONGLONG deadline = GetTickCount64() + 5000;
+  for (;;) {
+    /* Only cancel target writes, never a protocol frame on the same worker.
+     * Cancellation can miss the interval before WriteFile starts, so retry. */
+    if (TryAcquireSRWLockExclusive(&input->write_lock)) {
+      if (input->writing) (void)CancelSynchronousIo(thread);
+      ReleaseSRWLockExclusive(&input->write_lock);
+    }
+    ULONGLONG now = GetTickCount64();
+    DWORD wait = now >= deadline ? 0 : (deadline - now > 10 ? 10 : (DWORD)(deadline - now));
+    DWORD status = WaitForSingleObject(thread, wait);
+    if (status == WAIT_OBJECT_0) break;
+    if (status != WAIT_TIMEOUT || !wait) return -1;
+  }
+  CloseHandle(thread); CloseHandle(input->ready);
+  return 0;
+}
+static int queue_windows_input(struct windows_input *input, HANDLE thread, int kind, uint32_t size) {
+  if (kind == 'E') {
+    if (terminal_columns) return 0;
+    InterlockedExchange(&input->eof, 1);
+  } else {
+    if (size > sizeof(input->bytes) || input_flag(&input->pending) || input_flag(&input->eof) ||
+        WaitForSingleObject(thread, 0) != WAIT_TIMEOUT) return -1;
+    memcpy(input->bytes, payload + 1, size); input->size = size;
+    InterlockedExchange(&input->pending, 1);
+  }
+  return SetEvent(input->ready) ? 0 : -1;
 }
 static DWORD WINAPI close_terminal(void *argument) {
   ClosePseudoConsole((HPCON)argument); return 0;
@@ -613,14 +689,19 @@ static int run_owned_windows(int argc, wchar_t **argv, unsigned int grace) {
   CloseHandle(process.hThread);
   BOOL member = FALSE;
   if (!IsProcessInJob(process.hProcess, job, &member) || !member) { CloseHandle(job); message('X', "Atomic job membership not established"); return 2; }
-  struct pump output = { output_read, 'O' }, error = { error_read, 'B' };
+  /* The helper exits on an unverified join. Keep worker state alive until
+   * then, and leave any unsettled handle to process teardown. */
+  static struct pump output, error;
+  output.source = output_read; output.kind = 'O'; error.source = error_read; error.kind = 'B';
   HANDLE pumps[2] = {CreateThread(NULL, 0, pump_output, &output, 0, NULL), terminal_columns ? NULL : CreateThread(NULL, 0, pump_output, &error, 0, NULL)};
   if (!pumps[0] || (!terminal_columns && !pumps[1])) { CloseHandle(job); return 2; }
-  struct terminal_input terminal_input; memset(&terminal_input, 0, sizeof(terminal_input));
-  HANDLE input_pump = NULL;
-  if (terminal_columns) {
-    terminal_input.pipe = input_write; terminal_input.ready = CreateEventW(NULL, FALSE, FALSE, NULL);
-    if (!terminal_input.ready || !(input_pump = CreateThread(NULL, 0, pump_terminal_input, &terminal_input, 0, NULL))) { CloseHandle(job); return 2; }
+  static struct windows_input input;
+  InitializeSRWLock(&input.write_lock);
+  input.pipe = input_write; input.ready = CreateEventW(NULL, FALSE, FALSE, NULL);
+  HANDLE input_pump = input.ready ? CreateThread(NULL, 0, pump_windows_input, &input, 0, NULL) : NULL;
+  if (!input_pump) {
+    if (input.ready) CloseHandle(input.ready);
+    CloseHandle(input_write); CloseHandle(job); return 2;
   }
   message('R', "windows-job");
   int stopping = 0, root_exited = 0, proven = 0; ULONGLONG deadline = 0; DWORD root_code = 1;
@@ -628,16 +709,7 @@ static int run_owned_windows(int argc, wchar_t **argv, unsigned int grace) {
     DWORD available = 0; BOOL control = PeekNamedPipe(control_input, NULL, 0, NULL, &available, NULL);
     if (!control || available) {
       uint32_t size; int kind = control ? read_frame(&size) : -1;
-      if (kind == 'I') {
-        if (terminal_columns) {
-          if (size > sizeof(terminal_input.bytes) || terminal_input.pending || terminal_input.closed || WaitForSingleObject(input_pump, 0) != WAIT_TIMEOUT) { message('X', "Invalid terminal input queue"); break; }
-          memcpy(terminal_input.bytes, payload + 1, size); terminal_input.size = size;
-          InterlockedExchange(&terminal_input.pending, 1); SetEvent(terminal_input.ready);
-        } else {
-          if (input_write && write_all(input_write, payload + 1, size)) { CloseHandle(input_write); input_write = NULL; }
-          if (message('A', "")) break;
-        }
-      } else if (kind == 'E' && input_write && !terminal_columns) { CloseHandle(input_write); input_write = NULL; }
+      if (kind == 'I' || kind == 'E') { if (queue_windows_input(&input, input_pump, kind, size)) break; }
       else if (kind == 'W' && terminal_columns) {
         if (size != 4) { message('X', "Invalid terminal resize frame"); break; }
         unsigned int columns = payload[1] | (unsigned int)payload[2] << 8, rows = payload[3] | (unsigned int)payload[4] << 8;
@@ -651,8 +723,9 @@ static int run_owned_windows(int argc, wchar_t **argv, unsigned int grace) {
           if (console && WaitForSingleObject(process.hProcess, 0) == WAIT_TIMEOUT) (void)GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, process.dwProcessId);
           stopping = 1; deadline = GetTickCount64() + (kind < 0 ? 0 : grace);
         }
-      } else if (kind != 'I' && kind != 'E') { message('X', "Invalid ownership control frame"); break; }
+      } else { message('X', "Invalid ownership control frame"); break; }
     }
+    if (input_flag(&input.failed)) break;
     if (!root_exited && WaitForSingleObject(process.hProcess, 0) == WAIT_OBJECT_0) {
       if (!GetExitCodeProcess(process.hProcess, &root_code)) { message('X', "Root handle result unavailable"); break; }
       root_exited = 1;
@@ -660,17 +733,16 @@ static int run_owned_windows(int argc, wchar_t **argv, unsigned int grace) {
     DWORD active;
     if (active_processes(job, &active)) { message('X', "Job active-process accounting unavailable"); break; }
     if (active == 0) { proven = 1; break; }
-    if (root_exited || (stopping && GetTickCount64() >= deadline) || output_failed)
+    if (root_exited || (stopping && GetTickCount64() >= deadline) || input_flag(&output_failed))
       if (!TerminateJobObject(job, 137)) { message('X', "Owned job termination failed"); break; }
     Sleep(10);
   }
-  if (input_pump) {
-    InterlockedExchange(&terminal_input.closed, 1); SetEvent(terminal_input.ready); CancelSynchronousIo(input_pump);
-    if (WaitForSingleObject(input_pump, 5000) != WAIT_OBJECT_0) { message('X', "Owned terminal input did not settle"); CloseHandle(job); return 2; }
-    CloseHandle(input_pump); CloseHandle(terminal_input.ready); input_write = NULL;
-  }
-  if (input_write) CloseHandle(input_write);
-  if (!proven) { CloseHandle(job); return 2; }
+  /* Close the kill-on-close job promptly if the loop lost verification. A
+   * failed input join must also exit without waiting on the output writer. */
+  if (!proven) CloseHandle(job);
+  int input_stopped = stop_windows_input(&input, input_pump);
+  if (!proven) return 2;
+  if (input_stopped || input_flag(&input.failed)) { CloseHandle(job); return 2; }
   if (terminal) {
     /* Keep draining output on its own thread while ClosePseudoConsole waits
      * on older Windows. A bounded failure remains unknown, never release. */
@@ -687,7 +759,7 @@ static int run_owned_windows(int argc, wchar_t **argv, unsigned int grace) {
     char reason[160]; snprintf(reason, sizeof(reason), "Owned root handle did not settle after empty job/output proof (wait=%lu error=%lu)", (unsigned long)root_wait, (unsigned long)error);
     message('X', reason); CloseHandle(job); return 2;
   }
-  if (!GetExitCodeProcess(process.hProcess, &root_code) || output_failed) { message('X', "Owned root result/output verification failed after signalled handle"); CloseHandle(job); return 2; }
+  if (!GetExitCodeProcess(process.hProcess, &root_code) || input_flag(&output_failed)) { message('X', "Owned root result/output verification failed after signalled handle"); CloseHandle(job); return 2; }
   CloseHandle(pumps[0]); if (pumps[1]) CloseHandle(pumps[1]); CloseHandle(output_read); if (error_read) CloseHandle(error_read);
   char result[64]; snprintf(result, sizeof(result), "exit:%lu", (unsigned long)root_code); message('F', result);
   /* This handle identifies the same job created before launch, with breakaway

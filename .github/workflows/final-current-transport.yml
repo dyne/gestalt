@@ -1,0 +1,139 @@
+name: Final native platforms Linux verification
+on:
+  push:
+    branches: [test/final-linux-r1]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  manager-linux:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v6
+        env:
+          GIT_CONFIG_COUNT: 1
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: 'false'
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        env:
+          GIT_CONFIG_COUNT: 1
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: 'false'
+        with:
+          repository: dyne/gestalt-agents
+          ref: b4f783d75c0543010c665072bf7aef07f74f973f
+          path: .native-dependencies/agents
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.3
+          architecture: x64
+          package-manager-cache: false
+      - uses: actions/download-artifact@v6
+        with:
+          repository: dyne/gestalt
+          run-id: 44513012796
+          name: final-current-msvc-x64-1
+          github-token: ${{ github.token }}
+          path: native-evidence/final-current/input
+      - name: Verify Manager on existing Linux profile
+        env:
+          FINAL_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          git diff --check HEAD^ HEAD
+          node tests/final-current-transport/driver.mjs linux-full
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: final-linux-manager-${{ github.run_attempt }}
+          path: native-evidence/final-current/linux-full/
+          if-no-files-found: error
+  agents-linux:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        env:
+          GIT_CONFIG_COUNT: 1
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: 'false'
+        with:
+          repository: dyne/gestalt-agents
+          ref: b4f783d75c0543010c665072bf7aef07f74f973f
+          path: .native-dependencies/agents
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.3
+          architecture: x64
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - name: Verify corrected Agents with existing suite
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          agents="$PWD/.native-dependencies/agents"
+          output="$PWD/native-evidence/final-linux-agents"
+          mkdir -p "$output"
+          test "$(git -C "$agents" rev-parse HEAD)" = b4f783d75c0543010c665072bf7aef07f74f973f
+          test "$(git -C "$agents" rev-parse HEAD^{tree})" = 69980d21f265610045293a872c18803de5568a8c
+          test "$(git -C "$agents" rev-parse HEAD^)" = e98a4cd15f945a7749d02e071126a854376b93c0
+          test -z "$(git -C "$agents" status --porcelain --untracked-files=all)"
+          git -C "$agents" ls-tree -r HEAD > "$output/agents-tree.txt"
+          test "$(wc -l < "$output/agents-tree.txt")" -eq 755
+          expected_paths=$'plugins/gestalt/skills/org-plan/scripts/org-plan-storage.mjs\ntests/repository/test-native-setup.mjs'
+          test "$(git -C "$agents" diff --name-only HEAD^ HEAD)" = "$expected_paths"
+          git -C "$agents" diff --check HEAD^ HEAD
+
+          # The existing Agents CI uses real Codex for isolated marketplace/MCP
+          # smoke. Reuse the Manager's exact lockfile toolchain, no latest lookup.
+          toolchain=$(mktemp -d "${RUNNER_TEMP:?}/gestalt-agents-ci.XXXXXXXX")
+          trap 'rm -rf -- "$toolchain"' EXIT
+          export HOME="$toolchain/home" CODEX_HOME="$toolchain/codex" GESTALT_HOME="$toolchain/gestalt"
+          export npm_config_cache="$toolchain/npm-cache" GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0
+          mkdir -m 700 "$HOME" "$CODEX_HOME" "$GESTALT_HOME" "$toolchain/bin"
+          bun_path=$(command -v bun)
+          ln -s "$bun_path" "$toolchain/bin/bun"
+          export PATH="$toolchain/bin:$PATH"
+          curl --fail --silent --show-error --proto '=https' --max-time 60 \
+            https://registry.npmjs.org/npm/-/npm-11.12.1.tgz -o "$toolchain/npm.tgz"
+          printf '%s  %s\n' cdca14b85d647b3192028d02aadbe82d75f79a446aceea9874be98e6d768f20ebd3555770a48d0e9906106007877bbc690f715e9372f2e2dc644a3c3157fb14c "$toolchain/npm.tgz" | sha512sum --check
+          tar -xzf "$toolchain/npm.tgz" -C "$toolchain"
+          ln -s "$toolchain/package/bin/npm-cli.js" "$toolchain/bin/npm"
+          ln -s "$toolchain/package/bin/npx-cli.js" "$toolchain/bin/npx"
+          test "$(npm --version)" = 11.12.1
+          timeout 5m npm ci --ignore-scripts --no-audit --no-fund
+          ln -s "$PWD/node_modules/.bin/codex" "$toolchain/bin/codex"
+          test "$(codex --version)" = 'codex-cli 0.160.0'
+          export OVERHEAD_BASE_REVISION=e98a4cd15f945a7749d02e071126a854376b93c0
+          export OVERHEAD_EVIDENCE_DIR="$output/overhead"
+          (
+            cd "$agents"
+            timeout 35m env -i PATH="$PATH" HOME="$HOME" CODEX_HOME="$CODEX_HOME" GESTALT_HOME="$GESTALT_HOME" \
+              npm_config_cache="$npm_config_cache" GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0 \
+              OVERHEAD_BASE_REVISION="$OVERHEAD_BASE_REVISION" OVERHEAD_EVIDENCE_DIR="$OVERHEAD_EVIDENCE_DIR" \
+              TMPDIR="$toolchain" CI=true bash tests/ci.sh </dev/null
+          ) > "$output/agents-ci.stdout" 2> "$output/agents-ci.stderr" || status=$?
+          printf '%s\n' "${status:-0}" > "$output/agents-ci.exit"
+          test "${status:-0}" -eq 0
+          test "$(grep -Ec '^\[(repository|gestalt|context-mode)\] tests/.*/test-.*\.sh$' "$output/agents-ci.stdout")" -eq 44
+          grep -Fx 'complete CI validation passed' "$output/agents-ci.stdout"
+          git -C "$agents" diff --check
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: final-linux-agents-${{ github.run_attempt }}
+          path: native-evidence/final-linux-agents/
+          if-no-files-found: error

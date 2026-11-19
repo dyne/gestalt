@@ -1,0 +1,383 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Final current focused and full-shard transport receipts",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "lane",
+    "state",
+    "platform",
+    "arch",
+    "node",
+    "startedAt",
+    "finishedAt",
+    "groups",
+    "commands",
+    "failure"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "lane": {
+      "enum": [
+        "windows-producer",
+        "windows-consumer",
+        "windows-standard-user",
+        "linux-full"
+      ]
+    },
+    "state": {
+      "enum": [
+        "pass",
+        "fail"
+      ]
+    },
+    "platform": {
+      "enum": [
+        "win32",
+        "linux"
+      ]
+    },
+    "arch": {
+      "const": "x64"
+    },
+    "node": {
+      "const": "v24.22.3"
+    },
+    "startedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "finishedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "failure": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "state",
+          "blockedBy"
+        ],
+        "properties": {
+          "state": {
+            "enum": [
+              "pass",
+              "fail",
+              "started",
+              "unexecuted"
+            ]
+          },
+          "blockedBy": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "argv",
+          "cwd",
+          "timeout",
+          "startedAt",
+          "observedAt",
+          "exit",
+          "signal",
+          "error",
+          "stdout",
+          "stderr"
+        ],
+        "properties": {
+          "exit": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "stdout": {
+            "$ref": "#/$defs/file"
+          },
+          "stderr": {
+            "$ref": "#/$defs/file"
+          }
+        }
+      }
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "state",
+          "reason"
+        ],
+        "properties": {
+          "state": {
+            "enum": [
+              "unexecuted",
+              "started",
+              "pass",
+              "fail"
+            ]
+          },
+          "kind": {
+            "enum": [
+              "lifecycle",
+              "runtime"
+            ]
+          }
+        }
+      },
+      "allOf": [
+        {
+          "prefixItems": [
+            {
+              "properties": {
+                "id": {
+                  "const": "lifecycle"
+                }
+              }
+            },
+            {
+              "properties": {
+                "id": {
+                  "const": "runtime-1"
+                }
+              }
+            },
+            {
+              "properties": {
+                "id": {
+                  "const": "runtime-2"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "caseCounts": {
+      "type": "object",
+      "required": [
+        "pass",
+        "fail",
+        "started",
+        "unexecuted"
+      ],
+      "properties": {
+        "pass": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "fail": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "started": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "unexecuted": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        }
+      }
+    },
+    "historicalOrdinaryEvidence": {
+      "type": "object",
+      "required": [
+        "scope",
+        "passedIds",
+        "runs"
+      ],
+      "properties": {
+        "passedIds": {
+          "const": [
+            "installed",
+            "transaction-1",
+            "transaction-2",
+            "transaction-3",
+            "transaction-4",
+            "transaction-5"
+          ]
+        },
+        "runs": {
+          "const": [
+            {
+              "run": "44475385702",
+              "head": "87b3e1829b3731483fc98b7d0fea982b88d294fe",
+              "artifactId": "14508361764",
+              "artifactSha256": "f501e83fdfedb15aaf8ba13b6efe77cdc1c325900c7ef175f3583e02ac133e8f",
+              "helperSha256": "33af40b211fa3b9a80e75a2d2fc66c37f7a915d704a221421b5e909915a66af2",
+              "passedIds": [
+                "installed",
+                "transaction-1",
+                "transaction-2",
+                "transaction-3"
+              ]
+            },
+            {
+              "run": "44483226630",
+              "head": "a0c14a6a82f47a29a634cd0edb0e989cea9dcc86",
+              "artifactId": "14510311664",
+              "artifactSha256": "ee11d341eeecb6c2e4f65f0bfeecdc1c2c57ff3821678ff7a252a8aedfc0207d",
+              "helperSha256": "a4066f7b11f41ba05cc1d196d573a7448874d8946400eafbfc7a136a35619808",
+              "passedIds": [
+                "transaction-4",
+                "transaction-5"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "pass"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "head",
+          "run",
+          "attempt"
+        ],
+        "properties": {
+          "failure": {
+            "const": null
+          },
+          "groups": {
+            "minItems": 1,
+            "items": {
+              "properties": {
+                "state": {
+                  "const": "pass"
+                }
+              }
+            }
+          },
+          "commands": {
+            "minItems": 1,
+            "items": {
+              "properties": {
+                "exit": {
+                  "const": 0
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "lane": {
+            "const": "windows-standard-user"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "cases",
+          "caseCounts",
+          "historicalOrdinaryEvidence"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "lane": {
+            "const": "windows-standard-user"
+          },
+          "state": {
+            "const": "pass"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "caseCounts": {
+            "properties": {
+              "pass": {
+                "const": 3
+              },
+              "fail": {
+                "const": 0
+              },
+              "started": {
+                "const": 0
+              },
+              "unexecuted": {
+                "const": 0
+              }
+            }
+          },
+          "cases": {
+            "items": {
+              "properties": {
+                "state": {
+                  "const": "pass"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "file": {
+      "type": "object",
+      "required": [
+        "path",
+        "bytes",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}

@@ -44,7 +44,7 @@ jobs:
           GIT_CONFIG_VALUE_0: 'false'
         with:
           repository: dyne/gestalt-agents
-          ref: 8827347387ee32e2c5bd7eb912f9b80185cdad45
+          ref: b4f783d75c0543010c665072bf7aef07f74f973f
           path: .native-dependencies/agents
           persist-credentials: false
       - uses: actions/setup-node@v6
@@ -94,7 +94,7 @@ jobs:
           GIT_CONFIG_VALUE_0: 'false'
         with:
           repository: dyne/gestalt-agents
-          ref: 8827347387ee32e2c5bd7eb912f9b80185cdad45
+          ref: b4f783d75c0543010c665072bf7aef07f74f973f
           path: .native-dependencies/agents
           persist-credentials: false
       - uses: actions/setup-node@v6

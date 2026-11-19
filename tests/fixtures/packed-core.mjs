@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFile, realpath, writeFile } from 'node:fs/promises';
+import { lstat, open, readFile, realpath, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { commandTarget, NativeExecutables } from '../../src/cli/platform/executables.ts';
 
@@ -41,6 +41,19 @@ export async function npmPrerequisiteTarget(executable, receipt, nodeExecutable 
   const target = { executable: node, prefix: [entry] };
   receipt.kind = 'verified-bundled-npm11-node-entry'; receipt.target = target;
   return target;
+}
+
+// A plain JS environment object loses the case-insensitive lookup of
+// Windows process.env. Node keeps only the first spelling when spawning.
+export function windowsPackedShimEnvironment(environment, commandDirectory) {
+  const pathKeys = Object.keys(environment).filter(key => key.toUpperCase() === 'PATH');
+  assert.equal(pathKeys.length, 1, 'Windows packed shim requires exactly one PATH key');
+  const key = pathKeys[0], configuredPath = environment[key];
+  assert.ok(typeof configuredPath === 'string' && configuredPath.trim(), 'Windows packed shim requires a nonempty PATH');
+  const childEnvironment = { ...environment };
+  delete childEnvironment[key];
+  childEnvironment.PATH = [commandDirectory, configuredPath].join(path.win32.delimiter);
+  return childEnvironment;
 }
 
 export async function installPackedCore(tarball, fixture, environment, agents, evidence, { npm12Entry } = {}) {
@@ -83,7 +96,43 @@ export async function installPackedCore(tarball, fixture, environment, agents, e
       ...(npm12Entry ? [`--allow-scripts=file:${tarball}`] : []), tarball]);
     assert.equal(install.status, 0, install.stderr);
     const commandDirectory = process.platform === 'win32' ? prefix : path.join(prefix, 'bin');
-    env.PATH = [commandDirectory, env.PATH].join(path.delimiter);
+    const actualGlobalShim = path.join(commandDirectory, process.platform === 'win32' ? 'gestalt.cmd' : 'gestalt');
+    if (process.platform === 'win32') {
+      const observed = prerequisite.literalShim = { path: actualGlobalShim, observedAt: new Date().toISOString(),
+        inputPathKeys: Object.keys(env).filter(key => key.toUpperCase() === 'PATH') };
+      env = windowsPackedShimEnvironment(env, commandDirectory);
+      observed.pathKeys = Object.keys(env).filter(key => key.toUpperCase() === 'PATH');
+      observed.pathEntries = env.PATH.split(path.win32.delimiter);
+      const extensionKeys = Object.keys(env).filter(key => key.toUpperCase() === 'PATHEXT').sort();
+      observed.pathExt = env[extensionKeys[0]] ?? null;
+
+      const info = await lstat(actualGlobalShim);
+      assert.ok(info.isFile() && !info.isSymbolicLink(), 'Packed Windows shim must be a regular file');
+      const physical = await realpath(actualGlobalShim);
+      assert.equal(path.relative(await realpath(commandDirectory), physical), 'gestalt.cmd', 'Packed Windows shim escaped its owned prefix');
+      const limit = 64 * 1024;
+      assert.ok(info.size > 0 && info.size <= limit, 'Packed Windows shim exceeds its bounded observation size');
+      const handle = await open(physical, 'r');
+      try {
+        const buffer = Buffer.alloc(limit + 1);
+        const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+        assert.equal(bytesRead, info.size, 'Packed Windows shim changed during observation');
+        const bytes = buffer.subarray(0, bytesRead);
+        const saved = 'packed-installed-shim.cmd.raw';
+        await writeFile(path.join(evidence, saved), bytes, { flag: 'wx', mode: 0o600 });
+        observed.script = { file: saved, bytes: bytesRead, sha256: hash(bytes) };
+      } finally { await handle.close(); }
+
+      const expectedNode = await realpath(process.execPath);
+      const resolvedNode = await new NativeExecutables().resolve('node', env);
+      const expectedSha256 = hash(await readFile(expectedNode));
+      observed.node = { expectedPath: expectedNode, expectedSha256, resolvedPath: resolvedNode, resolvedSha256: null };
+      assert.equal(resolvedNode, expectedNode, 'Packed Windows shim must resolve the same Node executable');
+      observed.node.resolvedSha256 = hash(await readFile(resolvedNode));
+      assert.equal(observed.node.resolvedSha256, expectedSha256, 'Packed Windows shim Node bytes differ');
+    } else {
+      env.PATH = [commandDirectory, env.PATH].join(path.delimiter);
+    }
     // Fixed test commands exercise npm's literal global shim from cmd or PATH.
     // No caller-controlled argument enters shell text.
     for (const argv of [['--help'], ['--version'], ['doctor'], ['skills', '--help'], ['scratch', '--help']]) {
@@ -108,7 +157,7 @@ export async function installPackedCore(tarball, fixture, environment, agents, e
       assert.equal(result.stdout.split(/\r?\n/, 1)[0], `gestalt ${manifest.version}`);
     }
     return { entry, packageRoot, environment: env, receipt: { tarball, sha256: hash(await readFile(tarball)), manifest,
-      prefix, actualGlobalShim: path.join(commandDirectory, process.platform === 'win32' ? 'gestalt.cmd' : 'gestalt'),
+      prefix, actualGlobalShim,
       npmVersion: prerequisite.version, lifecycleRequested: process.platform === 'win32', observedAt: new Date().toISOString() } };
   } catch (error) {
     failure = { message: error.message, stack: error.stack }; throw error;

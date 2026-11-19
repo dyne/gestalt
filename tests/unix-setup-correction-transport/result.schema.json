@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Focused Unix setup correction transport evidence",
+  "type": "object",
+  "required": ["schemaVersion", "state", "target", "node", "uid", "startedAt", "finishedAt", "commands", "groups", "prerequisites", "cleanup", "failure", "exclusions"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "state": {"enum": ["pass", "fail"]},
+    "target": {"type": "string"},
+    "node": {"type": "string"},
+    "uid": {"type": ["integer", "null"]},
+    "startedAt": {"type": "string", "format": "date-time"},
+    "finishedAt": {"type": "string", "format": "date-time"},
+    "failure": {"type": ["object", "null"]},
+    "exclusions": {"type": "array", "minItems": 3, "items": {"type": "string"}},
+    "cleanup": {
+      "type": "object",
+      "required": ["path", "attempted", "removed", "retainedForMacManagedAuthority", "retentionReasons"],
+      "properties": {
+        "path": {"type": ["string", "null"]},
+        "attempted": {"type": "boolean"},
+        "removed": {"type": "boolean"},
+        "retainedForMacManagedAuthority": {"type": "boolean"},
+        "retentionReasons": {"type": "array", "uniqueItems": true, "items": {"enum": ["failed-or-unexecuted", "macos-managed-authority"]}}
+      },
+      "allOf": [{"if": {"properties": {"retentionReasons": {"minItems": 1}}},
+        "then": {"properties": {"attempted": {"const": false}, "removed": {"const": false}}}}]
+    },
+    "prerequisites": {"type": "object"},
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "argv", "cwd", "timeout", "startedAt", "observedAt", "exit", "signal", "error", "stdout", "stderr"],
+        "properties": {"exit": {"type": ["integer", "null"]}, "stdout": {"$ref": "#/$defs/file"}, "stderr": {"$ref": "#/$defs/file"}}
+      }
+    },
+    "groups": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["id", "state", "expected"],
+        "properties": {
+          "id": {"enum": ["ordinary-public", "portable", "ordinary-managed", "installed-public", "installed-managed-macos", "linux-package"]},
+          "state": {"enum": ["pass", "fail", "unexecuted"]},
+          "blockedBy": {"type": "array", "items": {"enum": ["ancestry", "managed-host", "codex"]}},
+          "tap": {
+            "type": "object",
+            "required": ["cases", "counts"],
+            "properties": {
+              "cases": {
+                "type": "array",
+                "items": {"type": "object", "required": ["name", "state", "skipReason"], "properties": {"state": {"enum": ["pass", "fail", "skip"]}}}
+              },
+              "counts": {"type": "object"}
+            }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {"if": {"properties": {"state": {"const": "pass"}}}, "then": {
+      "required": ["manager", "agents", "npm", "lockfileModules"],
+      "properties": {
+        "target": {"enum": ["linux-x64", "darwin-arm64"]},
+        "node": {"const": "v24.22.3"},
+        "uid": {"type": "integer", "minimum": 1},
+        "failure": {"type": "null"},
+        "groups": {"minItems": 5, "items": {"properties": {"state": {"const": "pass"}}}}
+      }
+    }}
+  ],
+  "$defs": {
+    "file": {
+      "type": "object",
+      "required": ["path", "bytes", "mode", "sha256"],
+      "properties": {"path": {"type": "string"}, "bytes": {"type": "integer", "minimum": 0}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
+    }
+  }
+}

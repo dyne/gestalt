@@ -1,0 +1,55 @@
+name: Unix setup correction test transport
+on:
+  push:
+    branches: [test/unix-setup-correction-r1]
+permissions:
+  contents: read
+jobs:
+  focused-unix:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: linux-x64
+          - runner: macos-latest
+            target: darwin-arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - name: Verify disposable runner
+        shell: bash
+        env:
+          SETUP_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: test "$SETUP_RUNNER_ENVIRONMENT" = github-hosted
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: dyne/gestalt-agents
+          ref: 8827347387ee32e2c5bd7eb912f9b80185cdad45
+          path: .native-dependencies/agents
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.3
+          package-manager-cache: false
+      - name: Verify ordinary Unix setup and portable fixture groups
+        shell: bash
+        timeout-minutes: 54
+        env:
+          SETUP_EXPECTED_TARGET: ${{ matrix.target }}
+          SETUP_SCHEDULED_LABEL: ${{ matrix.runner }}
+        run: |
+          set -euo pipefail
+          mkdir -p native-evidence/unix-setup-correction
+          node tests/unix-setup-correction-transport/driver.mjs .native-dependencies/agents native-evidence/unix-setup-correction \
+            > native-evidence/unix-setup-correction/driver.stdout 2> native-evidence/unix-setup-correction/driver.stderr
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: unix-setup-correction-${{ matrix.target }}
+          path: native-evidence/unix-setup-correction/
+          if-no-files-found: error

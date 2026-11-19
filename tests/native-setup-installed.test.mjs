@@ -149,7 +149,7 @@ async function copyAcceptedAgents(destination, evidenceDirectory) {
 }
 
 async function unixInstalledFixture(t, lane) {
-  const logs = path.join(evidence, lane);
+  const logs = path.resolve(evidence, lane);
   await mkdir(logs, { recursive: true });
   assert.ok(!Object.hasOwn(process.env, 'GESTALT_SESSION_TMP_CONTEXT'), 'Run installed setup with no inherited scratch owner');
   const base = await realpath(await mkdtemp(path.join(tmpdir(), 'gestalt core installed ü & ')));

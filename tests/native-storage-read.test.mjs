@@ -9,6 +9,7 @@ import { createScratchOwner } from '../src/cli/runtime/scratch-owner.mjs';
 import { releasedBorrowerInventory } from './fixtures/native-released-borrowers.mjs';
 import { verifyOwnershipBuildInputs } from './fixtures/native-runtime/source-binding.mjs';
 import { createReadinessObserver } from './fixtures/native-cli-spawn-capture.mjs';
+import { routeWindowsStorageRead } from '../src/cli/platform/windows-system.ts';
 
 test('Windows native read requests preserve literal paths and reject unsupported/missing/oversized operations', () => {
   const request = { operation: 'assert-private', path: 'C:\\private space é\\lease.json' }, before = { ...request };
@@ -67,6 +68,150 @@ test('native read stage diagnostics remain refusals and preserve stage, error an
   for (const incomplete of ['GESTALT_STORAGE_CHECK_V1 security error=5', 'GESTALT_STORAGE_CHECK_V1 metadata error=5 index=0\nextra'])
     assert.match(windowsReadFailure({ stderr: Buffer.from(incomplete) }), /unconfirmed/);
 });
+
+const helperExecutable = 'C:\\Program Files\\Gestalt\\native\\gestalt-owned-process.exe';
+const privateRequest = Object.freeze({ operation: 'assert-private', path: 'C:\\private space é\\settings.json' });
+const namespaceRequest = Object.freeze({ operation: 'assert-namespace',
+  paths: Object.freeze(['\\\\?\\C:\\private space é', '\\\\?\\C:\\']) });
+const validReply = { stdout: Buffer.from(storageReadToken), stderr: Buffer.alloc(0) };
+const unexpectedLegacy = () => assert.fail('Unexpected legacy dispatch');
+const unexpectedNative = () => assert.fail('Unexpected native dispatch');
+
+test('explicit Windows storage helper binding preserves read requests and ancestor order', async () => {
+  for (const request of [privateRequest, namespaceRequest]) {
+    const events = [];
+    await routeWindowsStorageRead(request, async () => { events.push('bind'); return helperExecutable; },
+      unexpectedLegacy, async (executable, argv) => {
+        assert.equal(executable, helperExecutable);
+        assert.deepEqual(argv, windowsReadArguments(request));
+        events.push('close');
+        return validReply;
+      });
+    assert.deepEqual(events, ['bind', 'close']);
+  }
+});
+
+test('helperless, unsupported and mutating Windows requests preserve the original legacy dispatch', async () => {
+  for (const request of [privateRequest, namespaceRequest]) {
+    await routeWindowsStorageRead(request, undefined, async original => assert.equal(original, request), unexpectedNative);
+  }
+  const invalidPaths = [
+    '\\\\server\\share\\directory', '\\\\?\\UNC\\server\\share\\directory', 'C:relative',
+    '\\root-relative', 'C:/private', 'C:\\private\\..\\elsewhere',
+    'C:\\private\\trailing.', 'C:\\private\\nul.txt', 'C:\\private\\ConIn$', 'C:\\private\\',
+    'C:\\' + 'a'.repeat(16350),
+  ];
+  const legacyInputs = [
+    ...invalidPaths.map(value => ({ operation: 'assert-private', path: value })),
+    { operation: 'assert-namespace', paths: [] },
+    { operation: 'assert-namespace', paths: Array(129).fill(privateRequest.path) },
+    { operation: 'assert-namespace', paths: Array(2) },
+    { operation: 'create-directory', path: privateRequest.path },
+    { operation: 'replace', source: 'C:\\private\\stage', path: privateRequest.path },
+    { operation: 'connect-pipe', name: 'fixture' },
+  ];
+  for (const request of legacyInputs) {
+    await routeWindowsStorageRead(request, unexpectedNative, async original => assert.equal(original, request), unexpectedNative);
+  }
+  for (const helper of ['\\\\server\\share\\gestalt-owned-process.exe',
+    '\\\\?\\unc\\server\\share\\gestalt-owned-process.exe', 'C:\\' + 'x'.repeat(16350) + '.exe']) {
+    await routeWindowsStorageRead(privateRequest, async () => helper,
+      async original => assert.equal(original, privateRequest), unexpectedNative);
+  }
+});
+
+test('relative, unbound and malformed native helper identities fail before spawning', async () => {
+  for (const helper of ['gestalt-owned-process.exe', '\\native\\gestalt-owned-process.exe',
+    'C:gestalt-owned-process.exe', 'C:\\Gestalt\\shim.cmd', '\\\\.\\pipe\\helper.exe']) {
+    await assert.rejects(routeWindowsStorageRead(privateRequest, async () => helper, unexpectedLegacy, unexpectedNative), /absolute executable/);
+  }
+  const absent = new Error('configured helper is missing');
+  await assert.rejects(routeWindowsStorageRead(privateRequest, async () => { throw absent; }, unexpectedLegacy, unexpectedNative), error => error === absent);
+});
+
+function nativeReadFailure(diagnostic, options = {}) {
+  return Object.assign(new Error('native check exited'), {
+    code: 1, signal: null, killed: false, stdout: Buffer.alloc(0), stderr: Buffer.from(diagnostic), ...options,
+  });
+}
+
+test('exact unsupported ACE result revalidates the entire request once using PowerShell', async () => {
+  const failure = nativeReadFailure('GESTALT_STORAGE_CHECK_V1 ace error=50 index=1\n');
+  const legacyDenial = new Error('unchanged legacy guard denied');
+  let legacyCalls = 0;
+  await assert.rejects(routeWindowsStorageRead(namespaceRequest, async () => helperExecutable, async original => {
+    assert.equal(original, namespaceRequest);
+    legacyCalls++;
+    throw legacyDenial;
+  }, async () => { throw failure; }), error => error === legacyDenial);
+  assert.equal(legacyCalls, 1);
+  await routeWindowsStorageRead(namespaceRequest, async () => helperExecutable, async original => {
+    assert.equal(original, namespaceRequest);
+    legacyCalls++;
+  }, async () => { throw failure; });
+  assert.equal(legacyCalls, 2);
+});
+
+test('exact native private ACE denial preserves the legacy refusal text and native cause without fallback', async () => {
+  const diagnostic = 'GESTALT_STORAGE_CHECK_V1 ace error=5 index=0\n';
+  const denial = nativeReadFailure(diagnostic);
+  const invoke = (request, failure) => routeWindowsStorageRead(request, async () => helperExecutable,
+    unexpectedLegacy, async () => { throw failure; });
+  await assert.rejects(invoke(privateRequest, denial), error => {
+    assert.equal(error.message, 'Windows private storage: ACL permits another principal');
+    assert.equal(error.cause, denial);
+    assert.equal(error.cause.stderr.toString(), diagnostic);
+    return true;
+  });
+  for (const [request, failure] of [
+    [namespaceRequest, denial],
+    [privateRequest, nativeReadFailure(diagnostic.replace('ace ', 'owner '))],
+    [privateRequest, nativeReadFailure(diagnostic.replace('index=0', 'index=1'))],
+    [privateRequest, nativeReadFailure(diagnostic.trimEnd())],
+    [privateRequest, nativeReadFailure(diagnostic + '\n')],
+    [privateRequest, nativeReadFailure(diagnostic, { code: 2 })],
+    [privateRequest, nativeReadFailure(diagnostic, { stdout: Buffer.from('partial output') })],
+    [privateRequest, nativeReadFailure(diagnostic, { killed: true })],
+    [privateRequest, nativeReadFailure(diagnostic, { signal: 'SIGTERM' })],
+  ]) {
+    await assert.rejects(invoke(request, failure), error => {
+      assert.doesNotMatch(error.message, /ACL permits another principal/);
+      assert.equal(error.cause, failure);
+      return true;
+    });
+  }
+});
+
+test('native denials, signals, timeouts and ambiguous replies never fall back to PowerShell', async () => {
+  const unsupported = 'GESTALT_STORAGE_CHECK_V1 ace error=50 index=0\n';
+  const failures = [
+    nativeReadFailure('GESTALT_STORAGE_CHECK_V1 ace error=5 index=0\n'),
+    nativeReadFailure('GESTALT_STORAGE_CHECK_V1 owner error=50 index=0\n'),
+    nativeReadFailure('GESTALT_STORAGE_CHECK_V1 ace error=50 index=1\n'),
+    nativeReadFailure('GESTALT_STORAGE_CHECK_V1 ace error=50 index=01\n'),
+    nativeReadFailure(unsupported + '\n'),
+    nativeReadFailure(unsupported + 'more diagnostics\n'),
+    nativeReadFailure(unsupported, { stdout: Buffer.from('partial') }),
+    nativeReadFailure(unsupported, { killed: true }),
+    nativeReadFailure(unsupported, { signal: 'SIGTERM' }),
+    nativeReadFailure(unsupported, { code: 2 }),
+    nativeReadFailure(unsupported, { code: 'ENOENT' }),
+    nativeReadFailure(unsupported, { code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' }),
+    nativeReadFailure(unsupported, { signal: undefined }),
+  ];
+  for (const failure of failures) {
+    await assert.rejects(routeWindowsStorageRead(privateRequest, async () => helperExecutable, unexpectedLegacy,
+      async () => { throw failure; }), error => error.cause === failure);
+  }
+  for (const reply of [
+    { ...validReply, stdout: Buffer.from(storageReadToken.trimEnd()) },
+    { ...validReply, stderr: Buffer.from(unsupported) },
+  ]) {
+    await assert.rejects(routeWindowsStorageRead(privateRequest, async () => helperExecutable, unexpectedLegacy,
+      async () => reply), /unconfirmed|unexpected diagnostics/);
+  }
+});
+
 function inventory() {
   const context = { ownerId: 'service-' + randomUUID(), workspacePath: 'C:\\private\\workspace' }, primaryId = randomUUID();
   const make = (leaseId, state, consumers) => ({ file: 'C:\\private\\leases\\' + leaseId + '.json', sha256: 'a'.repeat(64), lease: {
@@ -106,10 +251,30 @@ test('Windows native provenance requires every translation and header byte, not 
   await assert.rejects(verifyOwnershipBuildInputs({ ...provenance, sourceInputs: sourceInputs.slice(0, 1) }, directory));
   await writeFile(path.join(directory, paths[2]), 'changed header'); await assert.rejects(verifyOwnershipBuildInputs(provenance, directory));
 });
-test('native read extension preserves the complete old ownership/Unix C after removing only its additive dispatch/include', async () => {
+test('native read hooks preserve shared and Unix code and the reviewed Windows ownership baseline', async () => {
   const source = await readFile(new URL('../src/cli/platform/native/owned-process.c', import.meta.url), 'utf8');
+  const include = '#include "windows-storage-check.h"\n';
   const dispatch = `  if (argc > 1 && !wcscmp(argv[1], L"--storage-check-v1")) {\n    size_t units;\n    if (!command_line_quote(argc, argv, NULL, WINDOWS_COMMAND_LINE_UNITS - 1, &units)) return 2;\n    return gestalt_windows_storage_check(argc, argv);\n  }\n`;
+  assert.equal(source.split(include).length, 2);
   assert.equal(source.split(dispatch).length, 2);
-  const previous = source.replace('#include "windows-storage-check.h"\n', '').replace(dispatch, '');
-  assert.equal(createHash('sha256').update(previous).digest('hex'), 'c146a03458442268e16e1f0ae8db7276563deac8a63e0b88b611daad7b6b3871');
+  assert.ok(source.includes(`#include <fcntl.h>\n${include}#else\n#include <unistd.h>`));
+  const windowsEntry = '\n#ifdef _WIN32\nint wmain(int argc, wchar_t **argv) {\n';
+  assert.ok(source.includes(`${windowsEntry}${dispatch}  InitializeCriticalSection(&output_lock);`));
+
+  const splitAt = (body, boundary) => {
+    const parts = body.split(boundary);
+    assert.equal(parts.length, 2, 'Expected one platform boundary: ' + boundary.trim());
+    return [parts[0], boundary + parts[1]];
+  };
+  const digest = body => createHash('sha256').update(body).digest('hex');
+  const withoutStorage = source.replace(include, '').replace(dispatch, '');
+  const [sharedAndUnix, ownershipTail] = splitAt(withoutStorage, '\n#else\nstatic volatile LONG output_failed = 0;\n');
+  const [windowsOwnership, entryPoints] = splitAt(ownershipTail, '\n#endif\n\n#ifndef _WIN32\nint main(');
+  const [unixMain, windowsMain] = splitAt(entryPoints, windowsEntry);
+
+  // These regions match the accepted 283c74b helper before the Windows byte-input correction.
+  assert.equal(digest(sharedAndUnix + unixMain), 'c33fde90b40c0e60d1376dd9d617ac3109d620e8a869a898959e846567cd39ac');
+  assert.equal(digest(windowsMain), '284f6d2b86dc0ee89bb2ab7bc575bac190c14c88f2289053411548f7d0215b4b');
+  // Only the Windows ownership region is re-sealed for the reviewed byte-input worker (source SHA-256 8b8499245e42).
+  assert.equal(digest(windowsOwnership), '67c94f4bda37b138897f671aae5e044f51c7a0c2c33454559dcf865d3028dc6c');
 });

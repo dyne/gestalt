@@ -15,9 +15,10 @@ function deferredTool(name: string): CommandHandler {
   };
 }
 
-export function createRuntimeHandlers(metadata: CliMetadata, terminal?: RuntimeTerminal): CommandHandlers {
-  return { ...createDiagnosticHandlers(metadata), skills: skillsHandler(metadata),
-    'skills-export': skillsTransferHandler(metadata, 'export'), 'skills-import': skillsTransferHandler(metadata, 'import'),
+export function createRuntimeHandlers(metadata: CliMetadata, terminal?: RuntimeTerminal, ownershipHelper?: string): CommandHandlers {
+  return { ...createDiagnosticHandlers(metadata, undefined, ownershipHelper), skills: skillsHandler(metadata, ownershipHelper),
+    'skills-export': skillsTransferHandler(metadata, 'export', ownershipHelper),
+    'skills-import': skillsTransferHandler(metadata, 'import', ownershipHelper),
     scratch: scratchHandler, '__scratch-hook': scratchHookHandler, '__codex-app-server': appServerHandler(),
     cli: cliHandler(metadata, false, undefined, terminal), '__cli-owned': cliHandler(metadata, true, undefined, terminal),
     serena: deferredTool('serena'), playwright: deferredTool('playwright'),

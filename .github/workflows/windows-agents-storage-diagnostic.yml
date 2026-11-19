@@ -1,0 +1,85 @@
+name: Windows Agents storage verification
+on:
+  push:
+    branches: [test/final-current-r8]
+permissions:
+  contents: read
+jobs:
+  agents-storage-diagnostic:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v6
+        env:
+          GIT_CONFIG_COUNT: 1
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: 'false'
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        env:
+          GIT_CONFIG_COUNT: 1
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: 'false'
+        with:
+          repository: dyne/gestalt-agents
+          ref: b4f783d75c0543010c665072bf7aef07f74f973f
+          path: .native-dependencies/agents
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.3
+          architecture: x64
+          package-manager-cache: false
+      - name: Verify two Agents storage operations as a standard user
+        shell: powershell
+        env:
+          PROBE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          & ./tests/windows-agents-storage-diagnostic/standard-user.ps1
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: windows-agents-storage-diagnostic-evidence-${{ github.run_attempt }}
+          path: native-evidence/windows-agents-storage-diagnostic/
+          if-no-files-found: error
+  linux-agents-setup:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v6
+        env:
+          GIT_CONFIG_COUNT: 1
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: 'false'
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        env:
+          GIT_CONFIG_COUNT: 1
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: 'false'
+        with:
+          repository: dyne/gestalt-agents
+          ref: b4f783d75c0543010c665072bf7aef07f74f973f
+          path: .native-dependencies/agents
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.3
+          architecture: x64
+          package-manager-cache: false
+      - name: Verify existing Agents storage, setup, and helper suites
+        shell: bash
+        env:
+          PROBE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          bash tests/windows-agents-storage-diagnostic/linux-setup-checks.sh
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: linux-agents-storage-evidence-${{ github.run_attempt }}
+          path: native-evidence/linux-agents-storage/
+          if-no-files-found: error

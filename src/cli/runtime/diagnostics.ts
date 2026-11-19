@@ -280,11 +280,11 @@ export async function doctor(context: DiagnosticContext, argv: readonly string[]
   return context.commands.interrupted || (failed ? 1 : 0);
 }
 
-export function createDiagnosticHandlers(metadata: CliMetadata, port?: OwnedProcessPort): CommandHandlers {
+export function createDiagnosticHandlers(metadata: CliMetadata, port?: OwnedProcessPort, ownershipHelper?: string): CommandHandlers {
   const wrap = (body: (context: DiagnosticContext, argv: readonly string[]) => Promise<number>) => async (invocation: CommandInvocation, streams: CommandStreams) => {
     let context: DiagnosticContext | undefined, unlisten: (() => void) | undefined;
     try {
-      const selected = await setupPaths(invocation.environment);
+      const selected = await setupPaths(invocation.environment, ownershipHelper);
       context = new DiagnosticContext(selected, { ...invocation, environment: diagnosticEnvironment({ ...invocation.environment, CODEX_HOME: selected.codexHome, GESTALT_HOME: selected.gestaltHome }) }, streams, port);
       unlisten = context.commands.listen(); return await body(context, invocation.argv);
     } catch (error) { await streams.stderr(Buffer.from(`gestalt: ${error instanceof Error ? error.message : 'diagnostic failed'}\n`)); return context?.commands.interrupted || 1; }

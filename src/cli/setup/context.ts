@@ -46,7 +46,8 @@ export async function setupPaths(environment: Environment, ownershipHelper?: str
       throw new Error('CODEX_HOME and GESTALT_HOME must be separate, non-nested directories');
   }
   const marketplaceName = environment.GESTALT_MARKETPLACE_NAME || 'dyne-gestalt-agents';
-  if (!/^[A-Za-z0-9._+-]+$/.test(marketplaceName)) throw new Error('invalid marketplace name');
+  if (!/^[A-Za-z0-9._+-]+$/.test(marketplaceName) || marketplaceName === '.' || marketplaceName === '..')
+    throw new Error('invalid marketplace name');
   const manager = fileURLToPath(import.meta.url);
   return { userHome, codexHome, gestaltHome, marketplaceName,
     marketplace: environment.GESTALT_MARKETPLACE || 'dyne/gestalt-agents', manager,

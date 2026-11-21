@@ -121,6 +121,13 @@ if(index>=0){const prefix=args[index+1],bin=path.join(prefix,'node_modules/.bin'
   await command(bin, 'codex', `import fs from 'node:fs';import path from 'node:path';
 const args=process.argv.slice(2);fs.appendFileSync(process.env.FIXTURE_LOG,JSON.stringify(['codex',...args])+'\\n');
 if(args[0]==='plugin'&&args[1]==='marketplace'){
+  if(process.env.FIXTURE_FRESH_MARKETPLACE==='1'){
+    const cache=path.join(process.env.CODEX_HOME,'.tmp/marketplaces/dyne-gestalt-agents');
+    if(args[2]==='upgrade'){console.error('marketplace is not configured as a Git marketplace');process.exit(7);}
+    if(fs.existsSync(cache)){console.error('marketplace is already added from a different source');process.exit(7);}
+    fs.cpSync(process.env.FIXTURE_AGENTS_SOURCE,cache,{recursive:true});
+    fs.appendFileSync(path.join(process.env.CODEX_HOME,'config.toml'),'\\n[marketplaces.dyne-gestalt-agents]\\nsource_type="git"\\n');
+  }
   if(process.env.FIXTURE_MARKETPLACE_FAIL==='1'){fs.appendFileSync(process.env.FIXTURE_LOG,JSON.stringify(['phase','marketplace-failure',7])+'\\n');process.exit(7);}
   if(process.env.FIXTURE_PUBLIC_UNIX==='1'){
     const cache=path.join(process.env.CODEX_HOME,'.tmp/marketplaces/dyne-gestalt-agents');
@@ -176,6 +183,32 @@ await fs.appendFile(process.env.FIXTURE_LOG,JSON.stringify(['phase','owner-compl
     provenance: () => readFile(path.join(codex, '.gestalt-setup-provenance.json'), 'utf8'),
     events: async () => (await readFile(log, 'utf8')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line)) };
 }
+for (const orphaned of [false, true]) test(`first update registers an unconfigured marketplace ${orphaned ? 'with a stale cache' : 'on a clean profile'}`, async t => {
+  const f = await fixture(t);
+  const cache = path.join(f.codex, '.tmp/marketplaces/dyne-gestalt-agents');
+  const stale = path.join(cache, 'stale');
+  const environment = { GESTALT_AGENTS_SOURCE: '', GESTALT_MARKETPLACE: '',
+    FIXTURE_AGENTS_SOURCE: f.ownerRoot, FIXTURE_FRESH_MARKETPLACE: '1' };
+  if (orphaned) {
+    await mkdir(cache, { recursive: true });
+    await writeFile(stale, 'previous marketplace');
+    const failure = await f.run(['agents', 'update'], { ...environment, FIXTURE_FAIL: '1' });
+    assert.equal(failure.status, 9, failure.stderr);
+    if (process.platform === 'darwin') return;
+    assert.equal(await f.config(), custom);
+    assert.equal(await readFile(stale, 'utf8'), 'previous marketplace');
+    await writeFile(f.log, '');
+  }
+  const result = await f.run(['agents', 'update'], environment);
+  assert.equal(result.status, 0, result.stderr);
+  const marketplaceCalls = (await f.events()).filter(event => event[0] === 'codex' && event[2] === 'marketplace');
+  const { acceptedCommit } = JSON.parse(await readFile(new URL('./fixtures/native-runtime/agents-source.json', import.meta.url)));
+  const source = process.platform === 'win32' ? `dyne/gestalt-agents@${acceptedCommit}` : 'dyne/gestalt-agents';
+  assert.deepEqual(marketplaceCalls, [['codex', 'plugin', 'marketplace', 'add', source]]);
+  assert.ok((await f.events()).some(event => event[0] === 'setup'));
+  assert.equal(await exists(stale), false);
+});
+
 async function until(check, message, timeoutMs = 15_000, operation) {
   const deadline = Date.now() + timeoutMs;
   let completed;

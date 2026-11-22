@@ -135,6 +135,19 @@ test('interactive capability launch uses the owned terminal and restores it afte
   assert.equal(f.commands.active.size, 0); assert.equal(f.commands.unknown.length, 0);
 });
 
+test('a selected skill profile produces one session override and stays out of the Codex environment', async t => {
+  const f = await fixture(t, true, true, true);
+  const rule = { path: path.resolve('skills/work/SKILL.md'), enabled: false };
+  f.invocation.environment.GESTALT_LAUNCH_SKILL_RULES = JSON.stringify([rule]);
+  assert.equal(await launchCapabilities(f.commands, f.invocation, process.execPath), 23);
+  assert.ok(f.calls.every(call => !Object.hasOwn(call.environment, 'GESTALT_LAUNCH_SKILL_RULES')));
+  const launch = f.calls.find(call => call.argv[0] !== 'app-server');
+  const values = launch.argv.filter(value => value.startsWith('skills.config='));
+  assert.equal(values.length, 1);
+  assert.deepEqual({ ...parse(values[0]).skills.config[0] }, rule);
+  assert.ok(launch.argv.some(value => value.startsWith('hooks.state=')));
+});
+
 function capabilityClock(t) {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 100000 });
   const original = globalThis.setTimeout, snapshots = [];

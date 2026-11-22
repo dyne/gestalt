@@ -28,6 +28,8 @@ try {
 
 const scratchNames=['GESTALT_SESSION_TMP_CONTEXT','TMPDIR','TMP','TEMP'];
 const environment={...process.env};
+const profileRules = environment.GESTALT_LAUNCH_SKILL_RULES;
+delete environment.GESTALT_LAUNCH_SKILL_RULES;
 let cliOwned=false,scratchApi;
 if(Object.hasOwn(environment,scratchNames[0])) {
  scratchApi={scratchEnvironment,scratchJson,scratchBorrow,scratchRelease};
@@ -246,7 +248,7 @@ async function resolveNamedProfile(state, deadline = readinessDeadline, includeS
 }
 try { state = await resolveNamedProfile(state); } catch { state = undefined; diagnose('profile-discovery-unavailable'); }
 const session = state?.layers?.find(layer => layer.name?.type === 'sessionFlags')?.config ?? {};
-let rules = session.skills?.config ?? explicitSkills?.config ?? [];
+let rules = profileRules ? JSON.parse(profileRules) : session.skills?.config ?? explicitSkills?.config ?? [];
 if (!Array.isArray(rules)) rules = [];
 // Preserve unrelated selectors from effective config and user session flags.
 const servers = state?.config?.mcp_servers ?? {};

@@ -73,7 +73,7 @@ cancels the launch. Open the editor directly with `gestalt skill-profiles`.
 
 The editor uses the current workspace and saves profiles alongside Gestalt
 Mobile's profiles in `~/.gestalt/skill-profiles`, or in `GESTALT_HOME` when set.
-None starts the session with all discovered skills disabled. A saved profile
+None starts the session with only mandatory Gestalt skills. A saved profile
 changes skills for this launch. Browser consent is stored with the
 profile and the platform's existing availability rules still apply.
 

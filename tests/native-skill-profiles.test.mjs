@@ -35,7 +35,7 @@ test('profiles rebind updated plugin skills, retain missing entries, and leave m
     { path: current.path, enabled: true }, { path: fresh.path, enabled: false }, { path: fixed.path, enabled: true },
   ]);
   assert.deepEqual(profileSkillRules(discovered), {
-    rules: discovered.map(({ path }) => ({ path, enabled: false })), missing: [],
+    rules: discovered.map(({ path }) => ({ path, enabled: path === fixed.path })), missing: [],
   });
 });
 

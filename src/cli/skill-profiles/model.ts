@@ -108,11 +108,12 @@ export function reconcileSkills(catalog: readonly CatalogSkill[], selection?: re
   };
 }
 
-/** Named profiles keep Gestalt infrastructure available. None disables the entire catalog. */
+/** None keeps only mandatory Gestalt skills. Capability skills remain optional. */
 export function profileSkillRules(catalog: readonly CatalogSkill[], selection?: readonly SkillEntry[]) {
-  if (selection === undefined) return { rules: catalog.map(({ path }) => ({ path, enabled: false })), missing: [] };
+  const mandatory = (skill: CatalogSkill) => managedSkill(skill) && !['gestalt:serena', 'gestalt:playwright'].includes(skill.name);
+  if (selection === undefined) return { rules: catalog.map(skill => ({ path: skill.path, enabled: mandatory(skill) })), missing: [] };
   const { skills, missing } = reconcileSkills(catalog, selection);
-  const fixed = catalog.filter(skill => managedSkill(skill) && !['gestalt:serena', 'gestalt:playwright'].includes(skill.name));
+  const fixed = catalog.filter(mandatory);
   const rules = [...skills.map(({ path, enabled }) => ({ path, enabled })), ...fixed.map(({ path }) => ({ path, enabled: true }))];
   return { rules, missing };
 }

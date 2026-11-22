@@ -57,7 +57,16 @@ $privacyPattern = '^install/update reject existing permissive (codex|gestalt) ro
 $preflightStart = [DateTime]::UtcNow.ToString('o')
 try {
   $env:GESTALT_NATIVE_SETUP_EVIDENCE = $preflightEvidence
-  $preflight = Start-Process -FilePath $Node -ArgumentList ('--test --test-reporter=tap --test-name-pattern "' + $privacyPattern + '" tests/native-setup-transactions.test.mjs') -NoNewWindow -Wait -PassThru -RedirectStandardOutput (Join-Path $preflightEvidence 'contracts.tap') -RedirectStandardError (Join-Path $preflightEvidence 'runner.stderr')
+  $preflight = Start-Process -FilePath $Node -ArgumentList ('--test --test-reporter=tap --test-name-pattern "' + $privacyPattern + '" tests/native-setup-transactions.test.mjs') -NoNewWindow -PassThru -RedirectStandardOutput (Join-Path $preflightEvidence 'contracts.tap') -RedirectStandardError (Join-Path $preflightEvidence 'runner.stderr')
+  $handle = $preflight.Handle
+  if ($handle -eq [IntPtr]::Zero -or $handle -eq [IntPtr](-1)) { throw 'Privacy preflight process handle unavailable' }
+  # Allow both existing ten-minute test limits and time to build the helper.
+  if (-not $preflight.WaitForExit(1320000)) {
+    try { $preflight.Kill() } catch { Write-Warning $_.Exception.Message }
+    throw 'Privacy preflight exceeded 22 minutes; inspect partial evidence'
+  }
+  $exit = $preflight.ExitCode
+  if ($null -eq $exit) { throw 'Privacy preflight exit code was unavailable' }
   $tap = [IO.File]::ReadAllText((Join-Path $preflightEvidence 'contracts.tap'))
   $counts = @{}
   foreach ($metric in @('tests', 'pass', 'fail', 'cancelled', 'skipped')) {
@@ -66,9 +75,9 @@ try {
     $counts[$metric] = [int]$matchesForMetric[0].Groups[1].Value
   }
   $counts.executed = $counts.tests - $counts.skipped
-  $receipt = @{ scope='two-privacy-test-preflight'; command=@($Node, '--test', '--test-reporter=tap', '--test-name-pattern', $privacyPattern, 'tests/native-setup-transactions.test.mjs'); cwd=$Repository; exit=$preflight.ExitCode; counts=$counts; standardUser=$true; noBashPath=$true; startedAt=$preflightStart; observedAt=[DateTime]::UtcNow.ToString('o'); fullSuiteStillRequired=$true }
+  $receipt = @{ scope='two-privacy-test-preflight'; command=@($Node, '--test', '--test-reporter=tap', '--test-name-pattern', $privacyPattern, 'tests/native-setup-transactions.test.mjs'); cwd=$Repository; exit=$exit; counts=$counts; standardUser=$true; noBashPath=$true; startedAt=$preflightStart; observedAt=[DateTime]::UtcNow.ToString('o'); fullSuiteStillRequired=$true }
   [IO.File]::WriteAllText((Join-Path $preflightEvidence 'result.json'), ($receipt | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding($false)))
-  if ($preflight.ExitCode -ne 0 -or $counts.executed -ne 2 -or $counts.pass -ne 2 -or $counts.fail -ne 0 -or $counts.cancelled -ne 0) { throw 'Standard-user privacy preflight did not pass both intended tests; inspect privacy-preflight evidence' }
+  if ($exit -ne 0 -or $counts.executed -ne 2 -or $counts.pass -ne 2 -or $counts.fail -ne 0 -or $counts.cancelled -ne 0) { throw 'Standard-user privacy preflight did not pass both intended tests; inspect privacy-preflight evidence' }
 } finally {
   $env:GESTALT_NATIVE_SETUP_EVIDENCE = $fullEvidence
 }

@@ -65,6 +65,22 @@ installed command. On Windows use `gestalt.cmd` explicitly from PowerShell
 or cmd if needed. The version's first line names the manager version. The
 remaining lines report local component status, including deferrals.
 
+## Skill profiles
+
+The npm CLI shows a skill-profile picker before an interactive `gestalt cli`
+session. Choose a saved profile, Manage skill profiles, or None. Escape
+cancels the launch. Open the editor directly with `gestalt skill-profiles`.
+
+The editor uses the current workspace and saves profiles alongside Gestalt
+Mobile's profiles in `~/.gestalt/skill-profiles`, or in `GESTALT_HOME` when set.
+None starts the session with all discovered skills disabled. A saved profile
+changes skills for this launch. Browser consent is stored with the
+profile and the platform's existing availability rules still apply.
+
+Use `gestalt cli --skill-profile NAME` to select a saved profile directly or
+`gestalt cli --no-skill-profile` to use the native Codex selection. Piped and
+administrative commands run without the picker.
+
 Update the npm-installed command with:
 
 ```sh

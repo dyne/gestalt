@@ -7,6 +7,10 @@ import { managerHelp, managerVersion } from './manager-metadata.mjs';
 
 export async function buildCli(root, output = join(root, 'dist/cli/gestalt.mjs')) {
   const source = await readFile(join(root, 'public/gestalt'), 'utf8');
+  const notices = await Promise.all(['tuiuiu.js', 'yaml'].map(async dependency => {
+    const license = await readFile(join(root, 'node_modules', dependency, 'LICENSE'), 'utf8');
+    return `/*! ${dependency}\n${license}*/`;
+  }));
   // This is an unchanged Unix backend, distinct from the Node entry. Public
   // bin/npm cutover remains a later packaging gate.
   const legacy = join(dirname(output), 'legacy/gestalt');
@@ -17,7 +21,10 @@ export async function buildCli(root, output = join(root, 'dist/cli/gestalt.mjs')
     absWorkingDir: root,
     entryPoints: [join(root, 'src/cli/main.ts')], outfile: output,
     bundle: true, platform: 'node', target: 'node24', format: 'esm',
-    banner: { js: `// GESTALT_CLI_VERSION='${managerVersion(source)}'\n// GESTALT_UPDATED_MANAGER_API='1'` },
+    // The YAML Node export uses CommonJS for its built-in process import.
+    banner: { js: [`// GESTALT_CLI_VERSION='${managerVersion(source)}'`, `// GESTALT_UPDATED_MANAGER_API='1'`, ...notices,
+      "import { createRequire as bundledCreateRequire } from 'node:module';",
+      'const require = bundledCreateRequire(import.meta.url);'].join('\n') },
     define: { GESTALT_BUILD_VERSION: JSON.stringify(managerVersion(source)), GESTALT_BUILD_HELP: JSON.stringify(managerHelp(source)) },
   });
   await chmod(output, 0o755);

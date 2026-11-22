@@ -21,7 +21,8 @@ async function fixture(t) {
     await copyFile(join(repository, file), join(root, file));
   }
   await cp(join(repository, 'src'), join(root, 'src'), { recursive: true });
-  await cp(join(repository, 'node_modules/smol-toml'), join(root, 'node_modules/smol-toml'), { recursive: true });
+  for (const dependency of ['smol-toml', 'tuiuiu.js', 'yaml'])
+    await cp(join(repository, 'node_modules', dependency), join(root, 'node_modules', dependency), { recursive: true });
   // These Unix fixture tests deliberately omit the native delivery artifact.
   // Actual Windows support uses the unmodified manifest and source-bound PE in
   // the explicit installed package target gate.

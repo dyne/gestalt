@@ -60,6 +60,10 @@ test('compiled Windows Node artifact runs without Bash, a runtime compiler or so
   const paths = run(['path', 'codex-home']);
   assert.equal(paths.status, 0, paths.stderr); assert.equal(paths.stdout, join(fixture, 'isolated Codex') + '\n');
   const skills = run(['skills', '--help']); assert.equal(skills.status, 0, skills.stderr); assert.match(skills.stdout, /^Usage: gestalt skills/);
+  const profiles = run(['skill-profiles', '--help']); assert.equal(profiles.status, 0, profiles.stderr);
+  assert.match(profiles.stdout, /^Usage: gestalt skill-profiles/);
+  const headlessProfiles = run(['skill-profiles']); assert.equal(headlessProfiles.status, 1, headlessProfiles.stderr);
+  assert.match(headlessProfiles.stderr, /requires an interactive terminal/);
   const retired = run(['xerj', 'mcp']);
   assert.equal(retired.status, 1);
   assert.equal(retired.stdout, '');

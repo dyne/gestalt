@@ -42,23 +42,37 @@ function write(stream: Writable, bytes: Bytes): Promise<void> {
 }
 
 export async function main(): Promise<number> {
-  // A direct Unix entry replaces itself before reading stdin or acquiring any
-  // JS-owned resource. The unchanged legacy launcher retains its private-fd,
-  // sandbox and cleanup contracts; imported continuations never call execve.
-  if (process.platform === 'linux' || process.platform === 'darwin') {
-    const selected = selectInteractiveRuntime({ legacyManager: fileURLToPath(new URL('./legacy/gestalt', import.meta.url)) });
-    if (selected.kind === 'unix-compatibility') selected.exec({ argv: process.argv.slice(2), cwd: process.cwd(), environment: process.env });
-  }
   const streams: CommandStreams = {
     stdin: process.stdin,
     stdout: bytes => write(process.stdout, bytes),
     stderr: bytes => write(process.stderr, bytes),
   };
+  const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  const subcommand = process.argv[2];
+  let argv = process.argv.slice(2);
+  const environment = { ...process.env };
+  delete environment.GESTALT_LAUNCH_SKILL_RULES;
+  if (subcommand === 'skill-profiles' || subcommand === 'cli') {
+    const { manageSkillProfiles, prepareProfileLaunch } = await import('./skill-profiles/commands.ts');
+    const request = { argv: argv.slice(1), cwd: process.cwd(), environment };
+    if (subcommand === 'skill-profiles') return manageSkillProfiles(request, streams, interactive);
+    const prepared = await prepareProfileLaunch(request, streams, interactive);
+    if (!prepared) return 130;
+    argv = [subcommand, ...prepared.argv];
+    if (prepared.skillRules) environment.GESTALT_LAUNCH_SKILL_RULES = prepared.skillRules;
+  }
+  // A direct Unix entry replaces itself before reading stdin or acquiring any
+  // persistent JS-owned resource. An optional picker has already closed; the
+  // legacy launcher retains its private-fd, sandbox and cleanup contracts.
+  if (process.platform === 'linux' || process.platform === 'darwin') {
+    const selected = selectInteractiveRuntime({ legacyManager: fileURLToPath(new URL('./legacy/gestalt', import.meta.url)) });
+    if (selected.kind === 'unix-compatibility') selected.exec({ argv, cwd: process.cwd(), environment });
+  }
   const metadata = { version: GESTALT_BUILD_VERSION, help: GESTALT_BUILD_HELP };
   const ownershipHelper = packagedWindowsHelper();
-  return runCli({ argv: process.argv.slice(2), cwd: process.cwd(), environment: process.env }, streams,
+  return runCli({ argv, cwd: process.cwd(), environment }, streams,
     metadata, { ...createSetupHandlers(metadata, undefined, false, undefined, process.platform, ownershipHelper), ...createRuntimeHandlers(metadata,
-      process.stdin.isTTY && process.stdout.isTTY ? {
+      interactive ? {
         size: () => ({ columns: process.stdout.columns || 80, rows: process.stdout.rows || 24 }),
         enter: () => {
           const wasRaw = process.stdin.isRaw;

@@ -61,8 +61,7 @@ jobs:
 
   windows:
     runs-on: windows-latest
-    # Snapshot3 spent ~21m in transactions despite five early fixture failures;
-    # successful repeat/selection phases plus owned cleanup need more headroom.
+    # Leave time outside the harness deadline for preparation and evidence upload.
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
@@ -89,11 +88,12 @@ jobs:
           $password = ConvertTo-SecureString ([Guid]::NewGuid().ToString('N') + '!aA1') -AsPlainText -Force
           $user = New-LocalUser -Name $name -Password $password -AccountNeverExpires
           $work = Join-Path $env:RUNNER_TEMP $name
+          $source = Join-Path $work 'source'
+          $timedOut = $false
           try {
             $users = Get-LocalGroup -SID 'S-1-5-32-545'
             Add-LocalGroupMember -Group $users -Member $user
             New-Item -ItemType Directory -Path $work | Out-Null
-            $source = Join-Path $work 'source'
             # Preserve installed dependency dist directories and native binaries.
             # An unqualified /XD dist removes those at every depth.
             & robocopy $env:GITHUB_WORKSPACE $source /E /XD .git /NFL /NDL /NJH /NJS /NP
@@ -105,13 +105,29 @@ jobs:
             $gitDirectory = Split-Path -Parent (Get-Command git.exe).Source
             $script = Join-Path $source 'scripts/test-core-setup-standard-user.ps1'
             $arguments = '-NoLogo -NoProfile -NonInteractive -File "' + $script + '" -Repository "' + $source + '" -Node "' + $node + '" -GitDirectory "' + $gitDirectory + '"'
-            $process = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Credential $credential -LoadUserProfile -ArgumentList $arguments -Wait -PassThru -RedirectStandardOutput (Join-Path $work 'contracts.tap') -RedirectStandardError (Join-Path $work 'runner.stderr')
-            Copy-Item (Join-Path $work 'contracts.tap') native-evidence/setup/
-            Copy-Item (Join-Path $work 'runner.stderr') native-evidence/setup/
-            Copy-Item -Path (Join-Path $source 'native-evidence/setup/*') -Destination native-evidence/setup/ -Recurse -Force
-            if ($process.ExitCode -ne 0) { throw "Native standard-user core setup exited $($process.ExitCode)" }
+            $process = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Credential $credential -LoadUserProfile -ArgumentList $arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $work 'contracts.tap') -RedirectStandardError (Join-Path $work 'runner.stderr')
+            $handle = $process.Handle
+            if ($handle -eq [IntPtr]::Zero -or $handle -eq [IntPtr](-1)) { throw 'Standard-user setup harness handle unavailable' }
+            # Observe the harness exit only. The tests establish product process ownership.
+            if (-not $process.WaitForExit(3300000)) {
+              $timedOut = $true
+              try { $process.Kill() } catch { Write-Warning $_.Exception.Message }
+              throw 'Standard-user setup harness exceeded 55 minutes; fixture teardown is deferred to the disposable runner'
+            }
+            $exit = $process.ExitCode
+            if ($null -eq $exit) { throw 'Standard-user setup harness exit code was unavailable' }
+            if ($exit -ne 0) { throw "Native standard-user core setup exited $exit" }
           } finally {
-            Remove-LocalUser -Name $name -ErrorAction SilentlyContinue
+            try {
+              foreach ($file in @('contracts.tap', 'runner.stderr')) {
+                $partial = Join-Path $work $file
+                if (Test-Path -LiteralPath $partial) { Copy-Item -LiteralPath $partial -Destination native-evidence/setup/ -Force }
+              }
+              $evidence = Join-Path $source 'native-evidence/setup'
+              if (Test-Path -LiteralPath $evidence) { Copy-Item -Path (Join-Path $evidence '*') -Destination native-evidence/setup/ -Recurse -Force }
+            } finally {
+              if (-not $timedOut) { Remove-LocalUser -Name $name -ErrorAction SilentlyContinue }
+            }
           }
       - uses: actions/upload-artifact@v6
         if: always()

@@ -34,11 +34,18 @@ export class DiagnosticContext {
     this.commands = new RuntimeCommands(invocation, streams, paths.manager, port);
   }
   async print(label: string, value: string): Promise<void> { await this.streams.stdout(Buffer.from(label.padEnd(24) + value + '\n')); }
+  /** Reject unsupported shims before asking the command owner to launch a probe. */
+  async probeTarget(name: string): Promise<Awaited<ReturnType<typeof commandTarget>> | null> {
+    const executable = await this.commands.resolve(name);
+    if (!executable) return null;
+    try { return await commandTarget(executable); } catch { return null; }
+  }
   async query(name: string, argv: readonly string[]): Promise<string | null> {
     if (!this.commandQueries) return null;
-    if (!await this.commands.resolve(name)) return null;
+    const target = await this.probeTarget(name);
+    if (!target) return null;
     try {
-      const result = await this.commands.capture(name, argv);
+      const result = await this.commands.capture(target.executable, [...target.prefix, ...argv]);
       if (result.status !== 0) return null;
       // macOS may observe a successful command while complete lifetime remains
       // unknown. Diagnostics never delete state or turn that into a release.
@@ -70,8 +77,20 @@ export class DiagnosticContext {
     try { return JSON.parse(result); } catch { return null; }
   }
   async executableVersion(name: string): Promise<string | null> {
-    if (this.commandQueries) return this.query(name, ['--version']);
     const executable = await this.commands.resolve(name); if (!executable) return null;
+    if (name === 'npm' && process.platform === 'win32' && path.basename(executable).toLowerCase() === 'npm.cmd') {
+      // Node's bundled npm.cmd is a bespoke batch launcher. The sibling npm
+      // package supplies its version without invoking or interpreting the wrapper.
+      try {
+        const root = path.join(path.dirname(executable), 'node_modules/npm');
+        const manifest = await json(path.join(root, 'package.json'));
+        if (manifest.name === 'npm' && manifest.bin?.npm === 'bin/npm-cli.js' &&
+            typeof manifest.version === 'string' && /^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/.test(manifest.version) &&
+            (await lstat(path.join(root, 'bin/npm-cli.js'))).isFile())
+          return manifest.version + ' (package metadata; command not run)';
+      } catch { /* An npm-generated Node shim can still be queried below. */ }
+    }
+    if (this.commandQueries) return this.query(name, ['--version']);
     try {
       const target = await commandTarget(executable); let directory = path.dirname(target.prefix[0] || executable);
       for (let depth = 0; depth < 7; depth++) {
@@ -243,7 +262,8 @@ export async function doctor(context: DiagnosticContext, argv: readonly string[]
   await context.streams.stdout(Buffer.from('\nOptional skill collection\n'));
   const skillsContext = new SetupContext(context.invocation, context.streams, context.paths, metadata.version);
   if (await manageSkills(skillsContext, 'status') !== 0) failed = true;
-  if (context.commandQueries && await context.commands.resolve('codex')) {
+  const codex = context.commandQueries ? await context.probeTarget('codex') : null;
+  if (codex) {
     const args = ['doctor', '--summary', '--ascii', '--no-color'];
     try {
       const config = parse(await readFile(path.join(context.paths.codexHome, 'config.toml'), 'utf8'));
@@ -255,7 +275,7 @@ export async function doctor(context: DiagnosticContext, argv: readonly string[]
       }
     } catch { /* native doctor reports malformed or missing config */ }
     await context.streams.stdout(Buffer.from('\nCodex doctor\n'));
-    const result = await context.commands.capture('codex', args); await context.streams.stdout(Buffer.from(result.stdout)); await context.streams.stderr(Buffer.from(result.stderr));
+    const result = await context.commands.capture(codex.executable, [...codex.prefix, ...args]); await context.streams.stdout(Buffer.from(result.stdout)); await context.streams.stderr(Buffer.from(result.stderr));
     if (result.status !== 0 || result.claim.kind !== 'released' && process.platform !== 'darwin') failed = true;
   }
   if (context.commandQueries && runtime && await optionalStat(path.join(runtime, 'cli.bundle.mjs'))) {

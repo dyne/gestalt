@@ -3906,6 +3906,16 @@ command_update() {
   elif [[ $update_component == all ]]; then
     log 'skipping Playwright (not installed; use gestalt playwright install)'
   fi
+  log 'running post-update diagnostics'
+  if ! (
+    case $update_component in
+      all | gestalt) command_doctor ;;
+      serena) run_doctor_command 'Serena doctor' command_serena doctor ;;
+      playwright) run_doctor_command 'Playwright doctor' command_playwright doctor ;;
+    esac
+  ); then
+    log 'post-update diagnostics reported a problem; see the checks above'
+  fi
   log "update complete ($update_component)"
 }
 
@@ -5198,7 +5208,6 @@ command_cli() {
 command_cli_owned() {
   check_node_version
   require_command codex
-  run_startup_diagnostics
   verify_context_mode_installation
   forwarded_args=("$@")
   resolve_manager_target
@@ -5330,7 +5339,7 @@ command_mobile() {
   local mobile_restart_dir mobile_restart_state mobile_restart_staged restart_cwd
   local context_mode_runtime context_mode_plugin_root gestalt_plugin_root
   local plugin_inventory='' gestalt_agents_version='' context_mode_version=''
-  local mobile_workspace=$PWD mobile_arg_index
+  local mobile_arg_index
 
   strip_separator "$@"
   # Reject obsolete manually supplied options before installation or startup.
@@ -5344,12 +5353,6 @@ command_mobile() {
     log 'Gestalt Mobile is not installed; installing it now'
     install_mobile
   fi
-  for ((mobile_arg_index = 0; mobile_arg_index < ${#forwarded_args[@]}; mobile_arg_index++)); do
-    if [[ ${forwarded_args[mobile_arg_index]} == --cwd && -d ${forwarded_args[mobile_arg_index+1]:-} ]]; then
-      mobile_workspace=${forwarded_args[mobile_arg_index+1]}
-    fi
-  done
-  run_startup_diagnostics --cwd "$mobile_workspace"
   plugin_inventory=$(CODEX_HOME=$codex_home codex plugin list \
     --marketplace "$marketplace_name" --json 2>/dev/null) || plugin_inventory=''
   if [[ -n $plugin_inventory ]]; then
@@ -5432,8 +5435,9 @@ command_version() {
   print_check 'Serena' "${value:-NOT INSTALLED (optional)}"
   value=$(command_playwright version 2>/dev/null || true)
   print_check 'Playwright' "${value:-NOT INSTALLED (optional)}"
-  value=$(command_playwright doctor 2>/dev/null || true)
-  print_check 'Playwright readiness' "$value"
+  if [[ -n $value ]]; then
+    print_check 'Playwright readiness' 'NOT PROBED (use gestalt playwright doctor)'
+  fi
   value=$(serena_versions uv 2>/dev/null || true)
   print_check 'uv (Serena)' "${value:-NOT INSTALLED (optional)}"
   value=$(serena_versions python 2>/dev/null || true)
@@ -5794,13 +5798,6 @@ run_doctor_command() {
   return 1
 }
 
-run_startup_diagnostics() {
-  log 'running startup diagnostics'
-  if ! command_doctor "$@"; then
-    log 'startup diagnostics reported a problem; launch will continue after required runtime checks'
-  fi
-}
-
 run_codex_doctor() {
   # Session scratch forwarding is required for session launches, but is optional
   # for an operator's read-only diagnostics. Do not invent an owner or edit config.
@@ -5961,7 +5958,7 @@ command_doctor() {
     printf "\nDiagnostics reported a problem; follow the failing check's guidance above. Use 'gestalt install' or 'gestalt update' only for missing or incompatible managed components.\n" >&2
     return 1
   fi
-  printf "\nAll startup diagnostics passed.\n"
+  printf "\nAll diagnostics passed.\n"
 }
 
 main() {

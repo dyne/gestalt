@@ -55,7 +55,7 @@ parse arguments or change the current permissive/strict behavior of handlers.
 | path | No args/text, `--json`, or one managed name: bin, org-plan, context-mode-cli, mobile, context-mode/context-mode-runtime, context-mode-plugin, gestalt-plugin, codex-home, gestalt-home. |
 | skills | help; `install`, `update`, `status [--json]`; collection maintenance is separate from profile activation. |
 | skills-export, skills-import | Export optional archive path; import requires archive; preserve profile and archive validation/transaction rules. |
-| doctor | No args or `--cwd EXISTING_ROOT`; diagnostics can fail even when a launch may continue. |
+| doctor | No args or `--cwd EXISTING_ROOT`; request diagnostics explicitly. Successful updates run post-update diagnostics automatically. |
 | xerj | Always exit 1 with retirement/update guidance and retained-data notice; never resolve/install a runtime. `update xerj` and `--component xerj` also fail. |
 
 Internal hooks are compatibility boundaries, not public features:
@@ -70,7 +70,7 @@ these contracts; do not turn them into generic public passthrough commands.
 
 Unknown commands and validation errors write `gestalt:` diagnostics to stderr
 and exit 1. Help/path/machine JSON use stdout. MCP stdout contains protocol only;
-logs and startup diagnostics stay on stderr. Child argv includes empty strings,
+logs stay on stderr. Child argv includes empty strings,
 spaces, quotes, literal dollar signs and everything after `--` without shell
 evaluation. Preserve binary stdin/stdout/stderr, child exit status and signal
 delivery; distinguish spawn errors, signals and numeric exits. Existing launch

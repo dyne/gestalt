@@ -9,6 +9,7 @@ import { retireManagedConfiguration } from './retirement.mjs';
 import { restartWorker, scheduleRestart } from './restart.ts';
 import { scratchEnvironment } from './scratch-context.mjs';
 import { manageSkills } from '../runtime/skills-owner.mjs';
+import { DiagnosticContext, doctor } from '../runtime/diagnostics.ts';
 
 export type UpdateComponent = 'all' | 'gestalt' | 'serena' | 'playwright';
 export interface UpdateOptions { readonly component: UpdateComponent; readonly extra: boolean; readonly help: boolean }
@@ -49,6 +50,7 @@ export interface SetupOperations {
   mobile(context: SetupContext): Promise<unknown>;
   manager(context: SetupContext, argv: readonly string[], resumed: boolean): Promise<boolean>;
   component(context: SetupContext, component: 'serena' | 'playwright'): Promise<void>;
+  diagnostics?(context: SetupContext): Promise<void>;
 }
 const defaults: SetupOperations = {
   agents: setupAgents,
@@ -60,7 +62,27 @@ const defaults: SetupOperations = {
   },
   mobile: context => installMobile(context), manager: updateManager,
   component: async (_context, component) => { throw new Error(`native ${component} update is not available in this development artifact`); },
+  diagnostics: runUpdateDiagnostics,
 };
+
+/** Report readiness after update while keeping probes in the setup command owner. */
+async function runUpdateDiagnostics(context: SetupContext): Promise<void> {
+  await context.log('running post-update diagnostics');
+  const stopListening = context.listen();
+  let diagnostic: DiagnosticContext | undefined;
+  try {
+    diagnostic = new DiagnosticContext(context.paths, { ...context.invocation, environment: context.environment },
+      context.streams, await context.managedCommands(), true);
+    if (await doctor(diagnostic, [], { version: context.version }) !== 0)
+      await context.log('post-update diagnostics reported a problem; see the checks above');
+  } catch (error) {
+    await context.log(`post-update diagnostics could not complete: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    await diagnostic?.commands.stop();
+    stopListening();
+  }
+  context.check();
+}
 
 function deferredSelection(component: string, platform: NodeJS.Platform): string | undefined {
   if (platform !== 'win32' || !['serena', 'playwright', 'mobile'].includes(component)) return;
@@ -123,6 +145,7 @@ export async function runUpdate(context: SetupContext, options: UpdateOptions, o
     else if (options.component === 'all') await context.log(component === 'serena'
       ? 'skipping Serena (not installed; use gestalt update serena to install)' : 'skipping Playwright (not installed; use gestalt playwright install)');
   }
+  if (options.component === 'all' || options.component === 'gestalt') await operations.diagnostics?.(context);
   await context.log(`update complete (${options.component})`);
   return false;
 }

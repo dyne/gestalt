@@ -120,7 +120,9 @@ if(process.env.FIXTURE_MOBILE_FAIL==='1')process.exit(41);
 if(index>=0){const prefix=args[index+1],bin=path.join(prefix,'node_modules/.bin');fs.mkdirSync(bin,{recursive:true,mode:0o700});fs.mkdirSync(path.join(prefix,'node_modules/gestalt-mobile'),{recursive:true,mode:0o700});fs.writeFileSync(path.join(prefix,'node_modules/gestalt-mobile/package.json'),JSON.stringify({name:'gestalt-mobile',version:'0.0.1'}));fs.writeFileSync(path.join(bin,'gestalt-mobile'),'#!/usr/bin/env node\\n',{mode:0o755});}`);
   await command(bin, 'codex', `import fs from 'node:fs';import path from 'node:path';
 const args=process.argv.slice(2);fs.appendFileSync(process.env.FIXTURE_LOG,JSON.stringify(['codex',...args])+'\\n');
-if(args[0]==='plugin'&&args[1]==='marketplace'){
+if(args[0]==='--version')console.log('codex fixture');
+else if(args[0]==='doctor')console.log('Codex doctor fixture passed');
+else if(args[0]==='plugin'&&args[1]==='marketplace'){
   if(process.env.FIXTURE_FRESH_MARKETPLACE==='1'){
     const cache=path.join(process.env.CODEX_HOME,'.tmp/marketplaces/dyne-gestalt-agents');
     if(args[2]==='upgrade'){console.error('marketplace is not configured as a Git marketplace');process.exit(7);}
@@ -774,6 +776,8 @@ test(process.platform === 'win32'
     return;
   }
   assert.equal(updated.status, 0, updated.stderr);
+  assert.match(updated.stdout, /Codex doctor fixture passed/);
+  assert.match(updated.stdout, /Context-mode doctor/);
   assert.equal(await readFile(path.join(f.codex, 'skills/native-fixture/SKILL.md'), 'utf8'), skill);
   assert.equal(await readFile(path.join(f.codex, 'gestalt-skills/receipt.json'), 'utf8'), JSON.stringify(receipt, null, 2) + '\n');
   if (process.platform === 'win32') assert.doesNotMatch(updated.stderr, /Mobile, and context-mode are up to date/);

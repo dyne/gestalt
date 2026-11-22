@@ -65,11 +65,11 @@ for (const selected of ['all', 'gestalt', 'serena', 'playwright']) test(`Unix up
   // This contract exercises orchestration ordering. Real mode/ACL checks and
   // absent-home creation execute in the native composition contracts.
   context.prepareHomes = async () => { order.push('homes'); };
-  const operations = { manager: async () => { order.push('manager'); return false; }, skills: async (_c, mode) => { order.push(`skills:${mode}`); }, agents: async (_c, mode, extra) => { order.push(`agents:${mode}:${extra}`); }, mobile: async () => { order.push('mobile'); }, component: async (_c, component) => { order.push(component); } };
+  const operations = { manager: async () => { order.push('manager'); return false; }, skills: async (_c, mode) => { order.push(`skills:${mode}`); }, agents: async (_c, mode, extra) => { order.push(`agents:${mode}:${extra}`); }, mobile: async () => { order.push('mobile'); }, component: async (_c, component) => { order.push(component); }, diagnostics: async () => { order.push('doctor'); } };
   await runUpdate(context, parseUpdateOptions([selected]), ['update', selected], false, operations, 'linux');
   const core = ['manager', 'homes', 'skills:update', 'agents:upgrade:false', 'mobile'];
-  assert.deepEqual(order, selected === 'all' ? [...core, 'serena', 'playwright'] : selected === 'gestalt' ? core : [selected]);
-  for (const failed of [...order]) {
+  assert.deepEqual(order, selected === 'all' ? [...core, 'serena', 'playwright', 'doctor'] : selected === 'gestalt' ? [...core, 'doctor'] : [selected]);
+  for (const failed of order.filter(step => step !== 'doctor')) {
     const seen = [];
     const fail = label => { seen.push(label); if (label === failed) throw new Error('controlled failure'); };
     context.prepareHomes = async () => fail('homes');

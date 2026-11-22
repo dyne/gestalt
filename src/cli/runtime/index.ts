@@ -20,7 +20,7 @@ export function createRuntimeHandlers(metadata: CliMetadata, terminal?: RuntimeT
     'skills-export': skillsTransferHandler(metadata, 'export', ownershipHelper),
     'skills-import': skillsTransferHandler(metadata, 'import', ownershipHelper),
     scratch: scratchHandler, '__scratch-hook': scratchHookHandler, '__codex-app-server': appServerHandler(),
-    cli: cliHandler(metadata, false, undefined, terminal), '__cli-owned': cliHandler(metadata, true, undefined, terminal),
+    cli: cliHandler(false, undefined, terminal), '__cli-owned': cliHandler(true, undefined, terminal),
     serena: deferredTool('serena'), playwright: deferredTool('playwright'),
     mobile: async (invocation, streams) => {
       // The selected Mobile owner must supply its host-side/native lifecycle

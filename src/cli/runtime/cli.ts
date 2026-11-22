@@ -1,15 +1,14 @@
 import path from 'node:path';
 import { setupPaths } from '../setup/context.ts';
 import type { CommandHandler, OwnedProcessPort } from '../contracts.ts';
-import type { CliMetadata } from '../dispatch.ts';
 import { cliScratch } from './scratch.ts';
 import { scratchReleaseReady, scratchContext, scratchEnvironment } from './scratch-runtime.mjs';
-import { DiagnosticContext, verifyContextRuntime, doctor } from './diagnostics.ts';
+import { DiagnosticContext, verifyContextRuntime } from './diagnostics.ts';
 import { resultStatus, RuntimeCommands, type RuntimeTerminal } from './commands.ts';
 import { launchCapabilities } from './capabilities.mjs';
 
 const administrative = ['-h', '--help', '-V', '--version', 'help', 'login', 'logout', 'plugin', 'mcp', 'doctor', 'features', 'completion'];
-export function cliHandler(metadata: CliMetadata, owned = false, port?: OwnedProcessPort, terminal?: RuntimeTerminal): CommandHandler {
+export function cliHandler(owned = false, port?: OwnedProcessPort, terminal?: RuntimeTerminal): CommandHandler {
   return async (invocation, streams) => {
     let commands: RuntimeCommands | undefined, unlisten: (() => void) | undefined;
     let primary: ReturnType<typeof cliScratch>['ownership'] = null;
@@ -34,16 +33,10 @@ export function cliHandler(metadata: CliMetadata, owned = false, port?: OwnedPro
       }
       commands = new RuntimeCommands(selected, streams, paths.manager, port, terminal); unlisten = commands.listen();
       const codex = await commands.resolve('codex'); if (!codex) throw new Error('codex is required and was not found on PATH');
-      const diagnostic = new DiagnosticContext(paths, selected, streams, port);
       const required = new DiagnosticContext(paths, selected, streams, port, true), unlistenDiagnostic = required.commands.listen();
       try {
-        await streams.stderr(Buffer.from('gestalt: running startup diagnostics\n'));
-        if (await doctor(diagnostic, [], metadata) !== 0)
-          await streams.stderr(Buffer.from('gestalt: startup diagnostics reported a problem; launch will continue after required runtime checks\n'));
-        if (required.commands.interrupted) return required.commands.interrupted;
-        // Required launch checks are owned commands, distinct from read-only
-        // diagnostics. They retain the caller's validated namespace/borrowers.
         await verifyContextRuntime(required);
+        if (required.commands.interrupted) return required.commands.interrupted;
       } finally { await required.commands.stop(); unlistenDiagnostic(); }
       await streams.stderr(Buffer.from(`gestalt: starting Codex with CODEX_HOME=${paths.codexHome}\n`));
       if (admin) {

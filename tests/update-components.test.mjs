@@ -36,8 +36,12 @@ update_manager() { record_update manager; }
 run_marketplace_setup() { record_update "agents:$1:$2"; }
 command_skills() { [[ $1 == update ]]; record_update "skills:$1"; }
 install_mobile() { record_update mobile; }
-command_serena() { [[ $1 == update ]]; record_update serena; }
-command_playwright() { [[ $1 == update ]]; record_update playwright; }
+command_doctor() {
+  printf 'doctor:all\\n' >> "$GESTALT_TEST_UPDATE_DIAGNOSTICS"
+  [[ $GESTALT_TEST_UPDATE_FAIL != doctor ]]
+}
+command_serena() { if [[ $1 == doctor ]]; then printf 'doctor:serena\\n' >> "$GESTALT_TEST_UPDATE_DIAGNOSTICS"; else record_update serena; fi; }
+command_playwright() { if [[ $1 == doctor ]]; then printf 'doctor:playwright\\n' >> "$GESTALT_TEST_UPDATE_DIAGNOSTICS"; else record_update playwright; fi; }
 command_xerj() {
   [[ $1 == update ]]; record_update xerj
   if [[ -n \${GESTALT_TEST_RESOLVED_HOME:-} ]]; then gestalt_home=$GESTALT_TEST_RESOLVED_HOME; fi
@@ -57,6 +61,7 @@ main "$@"
     CODEX_HOME: join(root, 'codex'),
     GESTALT_HOME: home,
     GESTALT_TEST_UPDATE_LOG: log,
+    GESTALT_TEST_UPDATE_DIAGNOSTICS: join(root, 'diagnostics'),
     GESTALT_TEST_UPDATE_FAIL: '',
   };
   const operations = async () => readFile(log, 'utf8').then(
@@ -86,6 +91,7 @@ run_marketplace_setup() { record_update "agents:$1:$2"; }
 command_skills() { [[ $1 == update ]]; record_update "skills:$1"; }
 install_mobile() { record_update mobile; }
 command_serena() { record_update serena; }
+command_doctor() { printf '${revision}:doctor:all\\n' >> "$GESTALT_TEST_UPDATE_DIAGNOSTICS"; }
 command_xerj() { record_update xerj; }
 command_mobile() {
   if [[ -n \${GESTALT_TEST_RESTART_ARGV:-} ]]; then
@@ -117,6 +123,7 @@ for (const [args, extra, optional] of [
     'download', 'new:skills:update', `new:agents:upgrade:${extra}`, 'new:mobile',
     ...(optional ? ['new:serena'] : []),
   ]);
+  assert.equal(await readFile(f.env.GESTALT_TEST_UPDATE_DIAGNOSTICS, 'utf8'), 'new:doctor:all\n');
   assert.equal(await readFile(f.manager, 'utf8'), f.replacement);
   assert.deepEqual((await readdir(f.root)).filter(name => name.startsWith('gestalt-update.')), []);
 });
@@ -132,6 +139,7 @@ test('a replacement manager failure propagates without continuing old component 
   const f = await reloadFixture(t);
   await assert.rejects(f.run(['update'], { GESTALT_TEST_UPDATE_FAIL: 'mobile' }), { code: 42 });
   assert.deepEqual(await f.operations(), ['download', 'new:skills:update', 'new:agents:upgrade:false', 'new:mobile']);
+  await assert.rejects(readFile(f.env.GESTALT_TEST_UPDATE_DIAGNOSTICS), { code: 'ENOENT' });
 });
 
 test('an invalid replacement leaves the installed manager intact and runs no components', async t => {
@@ -169,6 +177,13 @@ test('default update skips absent optional components with an explicit message',
   assert.doesNotMatch(stderr, /skipping XERJ/);
 });
 
+test('post-update diagnostics report a problem without failing the completed update', async t => {
+  const f = await fixture(t, false);
+  const { stderr } = await f.run(['update'], { GESTALT_TEST_UPDATE_FAIL: 'doctor' });
+  assert.match(stderr, /post-update diagnostics reported a problem/);
+  assert.match(stderr, /update complete/);
+});
+
 for (const component of ['all', 'gestalt', 'serena']) {
   for (const selector of [[component], ['--component', component]]) {
     test(`update ${selector.join(' ')} changes only the selected component group`, async t => {
@@ -177,6 +192,8 @@ for (const component of ['all', 'gestalt', 'serena']) {
       const core = ['manager', 'skills:update', 'agents:upgrade:false', 'mobile'];
       assert.deepEqual(await f.operations(), component === 'all' ? [...core, 'serena']
         : component === 'gestalt' ? core : [component]);
+      assert.equal(await readFile(f.env.GESTALT_TEST_UPDATE_DIAGNOSTICS, 'utf8'),
+        component === 'serena' ? 'doctor:serena\n' : 'doctor:all\n');
     });
   }
 }

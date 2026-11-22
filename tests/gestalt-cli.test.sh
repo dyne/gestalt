@@ -286,7 +286,9 @@ cp "$repo_root/public/gestalt" "$managed_bin/gestalt"
 printf '\n# stale local manager copy\n' >> "$managed_bin/gestalt"
 chmod 0755 "$managed_bin/gestalt"
 
-bash "$managed_bin/gestalt" update --extra-skills
+bash "$managed_bin/gestalt" update --extra-skills > "$test_root/update.out"
+grep -F 'Codex doctor passed' "$test_root/update.out" >/dev/null
+grep -F 'Context-mode doctor passed' "$test_root/update.out" >/dev/null
 [[ $(skills_fetch_count) == 2 ]]
 cmp "$repo_root/public/gestalt" "$managed_bin/gestalt"
 [[ $(grep -Fc 'default_permissions = "workspace-git"' "$CODEX_HOME/config.toml") == 1 ]]
@@ -344,10 +346,9 @@ if GESTALT_INSTALL_BASE_URL=file://$bad_update_source \
 fi
 cmp "$test_root/manager-before-rejected-update" "$bad_managed_bin/gestalt"
 
-bash "$repo_root/public/gestalt" cli -- --help
+bash "$repo_root/public/gestalt" cli -- --help > "$test_root/cli-start.out" 2>&1
 assert_log "codex|CODEX_HOME=$CODEX_HOME|--help"
-assert_log "codex|CODEX_HOME=$CODEX_HOME|doctor|--summary|--ascii|--no-color"
-assert_log "context-mode|doctor"
+if grep -Ei 'doctor|diagnostics' "$test_root/cli-start.out"; then exit 1; fi
 grep -F "codex|CODEX_HOME=$CODEX_HOME|--help|GESTALT_HOME=$GESTALT_HOME|PATH=$GESTALT_HOME/bin:$CODEX_HOME/bin:" \
   "$command_log" >/dev/null
 
@@ -406,7 +407,8 @@ $real_node -e '
   "$CODEX_HOME/plugins/cache/dyne-gestalt-agents/context-mode/2.1.0" \
   "$CODEX_HOME/plugins/cache/dyne-gestalt-agents/gestalt/2.1.0" "$CODEX_HOME" "$GESTALT_HOME"
 
-bash "$repo_root/public/gestalt" mobile -- --cwd "$test_home/workspace"
+bash "$repo_root/public/gestalt" mobile -- --cwd "$test_home/workspace" > "$test_root/mobile-start.out" 2>&1
+if grep -Ei 'doctor|diagnostics' "$test_root/mobile-start.out"; then exit 1; fi
 assert_log "mobile|CODEX_HOME=$CODEX_HOME|GESTALT_HOME=$GESTALT_HOME"
 grep -F "|GESTALT_MANAGER_VERSION=$manager_version|GESTALT_AGENTS_VERSION=2.1.0|GESTALT_CONTEXT_MODE_VERSION=2.1.0" "$command_log" >/dev/null
 grep -F "|GESTALT_MOBILE_BIN=$GESTALT_HOME/mobile/node_modules/.bin/gestalt-mobile|GESTALT_CONTEXT_MODE_RUNTIME=$prepared_runtime" "$command_log" >/dev/null
@@ -547,7 +549,7 @@ grep -E '^context-mode +2\.1\.0$' <<< "$check_versions" >/dev/null
 grep -E '^Codex CLI +codex-cli 1\.0\.0$' <<< "$check_versions" >/dev/null
 grep -E '^Supervision contract +ready \(v1; offline manifests\)$' "$test_root/doctor.out" >/dev/null
 grep -E '^L1 model policy +LEGACY ' "$test_root/doctor.out" >/dev/null
-grep -F 'All startup diagnostics passed.' "$test_root/doctor.out" >/dev/null
+grep -F 'All diagnostics passed.' "$test_root/doctor.out" >/dev/null
 grep -E '^Gestalt skills +READY \(0\.1\.0; [a-f0-9]+\)$' "$test_root/doctor.out" >/dev/null
 grep -F 'Skills integrity         ok (source override; unverified)' "$test_root/doctor.out" >/dev/null
 mv "$CODEX_HOME/gestalt-skills" "$test_root/collection-backup"
@@ -583,7 +585,7 @@ EXAMPLES
 PATH="$documented_bin:$PATH" bash "$test_root/documented-verification.sh" > "$test_root/documented-verification.out"
 grep -F "gestalt $manager_version" "$test_root/documented-verification.out" >/dev/null
 grep -F '"codexHome"' "$test_root/documented-verification.out" >/dev/null
-grep -F 'All startup diagnostics passed.' "$test_root/documented-verification.out" >/dev/null
+grep -F 'All diagnostics passed.' "$test_root/documented-verification.out" >/dev/null
 
 # Upgrade each package independently to exercise doctor negotiation and rollback.
 upgrade_policy_manifest() {

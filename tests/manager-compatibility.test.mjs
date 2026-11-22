@@ -17,9 +17,8 @@ async function fixture(t, mode = 'current', installed = true) {
   await mkdir(bin);
   await writeFile(join(bin, 'codex'), '#!/usr/bin/env bash\nprintf \'[]\'\n', { mode: 0o755 });
   // Exercise the candidate's actual Mobile argv/environment/restart boundary.
-  // External diagnostics/package setup are excluded from this isolated fixture.
+  // External package setup is excluded from this isolated fixture.
   await writeFile(manager, source.replace(/\nmain "\$@"\s*$/, `
-run_startup_diagnostics() { :; }
 install_mobile() { printf called > "$GESTALT_HOME/unexpected-install"; return 99; }
 main "$@"
 `), { mode: 0o755 });

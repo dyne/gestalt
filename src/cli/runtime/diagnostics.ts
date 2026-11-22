@@ -203,7 +203,7 @@ export function supervisionCompatibility(agents: any, mobile: any): { ready: boo
   return { ready: false, message: 'INCOMPATIBLE (update or roll back Agents and Mobile together; then restart Mobile)', model: 'NOT VERIFIED' };
 }
 
-export async function doctor(context: DiagnosticContext, argv: readonly string[], metadata: CliMetadata): Promise<number> {
+export async function doctor(context: DiagnosticContext, argv: readonly string[], metadata: Pick<CliMetadata, 'version'>): Promise<number> {
   let probe = false, selected: string | undefined;
   for (let index = 0; index < argv.length; index++) {
     if (argv[index] === '--probe-sandbox' && !probe) probe = true;

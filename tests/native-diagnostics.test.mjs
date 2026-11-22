@@ -80,6 +80,25 @@ test('diagnostic version selectors cannot escape the plugin cache', () => {
   assert.equal(pluginVersion({ installed: [{ name: 'gestalt', installed: false, version: '1.2.3' }] }, 'gestalt'), null);
   assert.equal(pluginVersion({ installed: [{ name: 'gestalt', version: '2.26.0' }] }, 'gestalt'), '2.26.0');
 });
+test('Windows diagnostics keep unsupported npm launchers out of the setup command owner',
+  { skip: process.platform !== 'win32' }, async t => {
+    const f = await fixture(t), bin = path.join(f.root, 'bin');
+    await mkdir(bin);
+    await writeFile(path.join(bin, 'npm.cmd'), '@echo off\r\nexit /b 99\r\n');
+    f.environment.PATH = bin;
+    let launches = 0;
+    const port = { launch: async () => { launches++; throw new Error('unsupported launcher reached the command owner'); } };
+    const context = new DiagnosticContext(await setupPaths(f.environment), { argv: [], cwd: f.root, environment: f.environment }, f.streams, port, true);
+    assert.equal(await context.executableVersion('npm'), null);
+    assert.equal(launches, 0);
+
+    const bundled = path.join(bin, 'node_modules/npm');
+    await mkdir(path.join(bundled, 'bin'), { recursive: true });
+    await writeFile(path.join(bundled, 'package.json'), JSON.stringify({ name: 'npm', version: '11.19.1', bin: { npm: 'bin/npm-cli.js' } }));
+    await writeFile(path.join(bundled, 'bin/npm-cli.js'), '#!/usr/bin/env node\nprocess.exit(99);\n');
+    assert.equal(await context.executableVersion('npm'), '11.19.1 (package metadata; command not run)');
+    assert.equal(launches, 0);
+  });
 test('diagnostics reject an invalid inherited scratch context before any probe or mutation', async t => {
   const f = await fixture(t), before = await inventory(f.root);
   assert.throws(() => diagnosticEnvironment({ ...f.environment, GESTALT_SESSION_TMP_CONTEXT: '{}' }), /SESSION_SCRATCH_INVALID_CONTEXT/);

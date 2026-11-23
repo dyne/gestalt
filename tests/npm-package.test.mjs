@@ -187,7 +187,7 @@ main "$@"
   // npm 12 approves file dependencies by resolved file identity, rather than
   // the name declared inside the tarball. Never enable unrelated scripts.
   const approval = npmMajor >= 12 ? [`--allow-scripts=file:${tarball}`] : [];
-  const install = (extra = {}, options = []) => exec('npm', ['install', '--global', '--prefix', prefix, '--offline',
+  const install = (extra = {}, options = [], global = true) => exec('npm', ['install', ...(global ? ['--global'] : []), '--prefix', prefix, '--offline',
     '--no-audit', '--no-fund', '--ignore-scripts=false', '--foreground-scripts',
     '--cache', join(root, 'cache'), ...approval, ...options, tarball], {
     cwd: root, env: { ...env, ...extra }, timeout: 30_000,
@@ -197,7 +197,10 @@ main "$@"
 
 test('global npm installation automatically reconciles Agents without installing Mobile or optional skills', async t => {
   const f = await agentsBootstrap(t);
-  await f.install();
+  const { stdout } = await f.install();
+  const report = (await exec(f.binary, ['version'], { env: f.env })).stdout;
+  assert.match(report, /^gestalt \d+\.\d+\.\d+\n/);
+  assert.ok(stdout.includes(report));
   const expected = `install|false|${f.env.CODEX_HOME}|${f.env.GESTALT_HOME}|false|unset\n`;
   assert.equal(await readFile(f.log, 'utf8'), expected);
   assert.equal(await readFile(join(f.env.CODEX_HOME, 'agents/fixture.toml'), 'utf8'), 'installed\n');
@@ -215,6 +218,7 @@ test('an automatic Agents failure fails npm installation and supplies a recovery
   await assert.rejects(f.install({ AGENTS_TEST_FAIL: 'true' }), error => {
     assert.notEqual(error.code, 0);
     assert.match(error.stderr, /Agents setup failed/);
+    assert.doesNotMatch(error.stdout, /^gestalt \d+\.\d+\.\d+/m);
     assert.match(error.stderr, /gestalt agents install/);
     return true;
   });
@@ -230,10 +234,12 @@ test('disabling lifecycle scripts leaves setup explicit and the installed comman
   assert.match(await readFile(f.log, 'utf8'), /^install\|false\|/);
 });
 
-test('non-global package setup does not provision a user profile', async t => {
+test('local npm install prints the installed version report without provisioning a profile', async t => {
   const f = await agentsBootstrap(t);
-  await exec(process.execPath, [join(f.destination, 'postinstall.mjs')], {
-    env: { ...f.env, npm_config_global: 'false', NPM_CONFIG_GLOBAL: 'false' },
-  });
+  const { stdout } = await f.install({}, [], false);
+  assert.match(stdout, /^gestalt \d+\.\d+\.\d+$/m);
+  assert.match(stdout, /^Python \(Serena\)\s+/m);
+  for (const home of [f.env.CODEX_HOME, f.env.GESTALT_HOME])
+    await assert.rejects(stat(home), { code: 'ENOENT' });
   await assert.rejects(stat(f.log), { code: 'ENOENT' });
 });

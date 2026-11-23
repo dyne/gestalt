@@ -59,7 +59,8 @@ for (const selected of ['all', 'gestalt', 'serena', 'playwright']) test(`Unix up
   t.after(() => rm(root, { recursive: true, force: true }));
   const paths = { userHome: root, codexHome: path.join(root, 'codex'), gestaltHome: path.join(root, 'gestalt'), marketplace: 'fixture', marketplaceName: 'fixture', manager: path.join(root, 'manager'), unixProbe: undefined };
   for (const component of ['serena', 'playwright']) { await mkdir(path.join(paths.gestaltHome, component), { recursive: true }); await writeFile(path.join(paths.gestaltHome, component, 'active.json'), '{}'); }
-  const streams = { stdin: (async function* () {})(), stdout: async () => {}, stderr: async () => {} };
+  let report = '';
+  const streams = { stdin: (async function* () {})(), stdout: async bytes => { report += Buffer.from(bytes); }, stderr: async () => {} };
   const context = new SetupContext({ argv: [], cwd: root, environment: { GESTALT_MANAGER_DISTRIBUTION: 'npm' } }, streams, paths, '0.0.0');
   const order = [];
   // This contract exercises orchestration ordering. Real mode/ACL checks and
@@ -67,6 +68,8 @@ for (const selected of ['all', 'gestalt', 'serena', 'playwright']) test(`Unix up
   context.prepareHomes = async () => { order.push('homes'); };
   const operations = { manager: async () => { order.push('manager'); return false; }, skills: async (_c, mode) => { order.push(`skills:${mode}`); }, agents: async (_c, mode, extra) => { order.push(`agents:${mode}:${extra}`); }, mobile: async () => { order.push('mobile'); }, component: async (_c, component) => { order.push(component); }, diagnostics: async () => { order.push('doctor'); } };
   await runUpdate(context, parseUpdateOptions([selected]), ['update', selected], false, operations, 'linux');
+  assert.match(report, /^gestalt 0\.0\.0\n/);
+  assert.match(report, /^Playwright\s+/m);
   const core = ['manager', 'homes', 'skills:update', 'agents:upgrade:false', 'mobile'];
   assert.deepEqual(order, selected === 'all' ? [...core, 'serena', 'playwright', 'doctor'] : selected === 'gestalt' ? [...core, 'doctor'] : [selected]);
   for (const failed of order.filter(step => step !== 'doctor')) {

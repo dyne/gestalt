@@ -3274,7 +3274,7 @@ calculate_sha256() {
 
 update_manager() {
   if [[ ${GESTALT_MANAGER_DISTRIBUTION:-} == npm ]]; then
-    log 'manager is installed with npm; update it with: npm install -g @jaromil/gestalt@latest'
+    log 'manager is installed with npm; update it with: npm install -g @jaromil/gestalt@latest --foreground-scripts'
     return 0
   fi
   # The replacement has already been installed and validated by this invocation.
@@ -3907,7 +3907,7 @@ command_update() {
       run_marketplace_setup upgrade "$include_extra_skills"
       install_mobile
       if [[ ${GESTALT_MANAGER_DISTRIBUTION:-} == npm ]]; then
-        log 'Agents, optional skills, Mobile, and context-mode are up to date; update the manager with npm install -g @jaromil/gestalt@latest'
+        log 'Agents, optional skills, Mobile, and context-mode are up to date; update the manager with npm install -g @jaromil/gestalt@latest --foreground-scripts'
       else
         log 'manager, Agents, optional skills, Mobile, and context-mode are up to date'
       fi
@@ -3935,6 +3935,7 @@ command_update() {
     log 'post-update diagnostics reported a problem; see the checks above'
   fi
   log "update complete ($update_component)"
+  command_version
 }
 
 parse_update_options() {
@@ -5461,6 +5462,7 @@ command_version() {
     value=$("$mobile_bin" --version 2>/dev/null) && print_check 'Gestalt Mobile' "$value"
   fi
   for plugin in gestalt context-mode; do
+    [[ -d $codex_home ]] || break
     value=$(CODEX_HOME=$codex_home codex plugin list --marketplace "$marketplace_name" --json 2>/dev/null |
       read_plugin_version "$plugin" 2>/dev/null) || continue
     print_check "$plugin" "$value"

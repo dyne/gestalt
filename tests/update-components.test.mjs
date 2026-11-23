@@ -41,7 +41,7 @@ command_doctor() {
   [[ $GESTALT_TEST_UPDATE_FAIL != doctor ]]
 }
 command_serena() { if [[ $1 == doctor ]]; then printf 'doctor:serena\\n' >> "$GESTALT_TEST_UPDATE_DIAGNOSTICS"; else record_update serena; fi; }
-command_playwright() { if [[ $1 == doctor ]]; then printf 'doctor:playwright\\n' >> "$GESTALT_TEST_UPDATE_DIAGNOSTICS"; else record_update playwright; fi; }
+command_playwright() { if [[ $1 == version ]]; then printf '1.2.3'; elif [[ $1 == doctor ]]; then printf 'doctor:playwright\\n' >> "$GESTALT_TEST_UPDATE_DIAGNOSTICS"; else record_update playwright; fi; }
 command_xerj() {
   [[ $1 == update ]]; record_update xerj
   if [[ -n \${GESTALT_TEST_RESOLVED_HOME:-} ]]; then gestalt_home=$GESTALT_TEST_RESOLVED_HOME; fi
@@ -91,6 +91,7 @@ run_marketplace_setup() { record_update "agents:$1:$2"; }
 command_skills() { [[ $1 == update ]]; record_update "skills:$1"; }
 install_mobile() { record_update mobile; }
 command_serena() { record_update serena; }
+command_version() { echo "${revision} manager version report"; }
 command_doctor() { printf '${revision}:doctor:all\\n' >> "$GESTALT_TEST_UPDATE_DIAGNOSTICS"; }
 command_xerj() { record_update xerj; }
 command_mobile() {
@@ -118,7 +119,8 @@ for (const [args, extra, optional] of [
   [['update', '--component', 'gestalt', '--extra-skills'], true, false],
 ]) test(`${args.join(' ')} resumes component updates in the replacement manager exactly once`, async t => {
   const f = await reloadFixture(t);
-  await f.run(args);
+  const result = await f.run(args);
+  assert.equal(result.stdout.trim(), 'new manager version report');
   assert.deepEqual(await f.operations(), [
     'download', 'new:skills:update', `new:agents:upgrade:${extra}`, 'new:mobile',
     ...(optional ? ['new:serena'] : []),
@@ -165,7 +167,8 @@ test('update help lists component groups without invoking any installer', async 
 
 test('default update includes all installed managed components in order', async t => {
   const f = await fixture(t);
-  await f.run(['update', '--extra-skills']);
+  const { stdout } = await f.run(['update', '--extra-skills']);
+  assert.equal(stdout, (await f.run(['version'])).stdout);
   assert.deepEqual(await f.operations(), ['manager', 'skills:update', 'agents:upgrade:true', 'mobile', 'serena']);
 });
 
@@ -215,6 +218,7 @@ for (const failed of ['manager', 'skills:update', 'agents:upgrade:false', 'mobil
     const order = ['manager', 'skills:update', 'agents:upgrade:false', 'mobile', 'serena'];
     await assert.rejects(f.run(['update'], { GESTALT_TEST_UPDATE_FAIL: failed }), error => {
       assert.doesNotMatch(error.stderr, /update complete/);
+      assert.doesNotMatch(error.stdout, /^gestalt /m);
       return true;
     });
     assert.deepEqual(await f.operations(), order.slice(0, order.indexOf(failed) + 1));

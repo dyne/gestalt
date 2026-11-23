@@ -154,7 +154,7 @@ export async function verifyContextRuntime(context: DiagnosticContext): Promise<
   return runtime;
 }
 
-async function version(context: DiagnosticContext, metadata: CliMetadata): Promise<number> {
+export async function version(context: DiagnosticContext, metadata: Pick<CliMetadata, 'version'>): Promise<number> {
   await context.streams.stdout(Buffer.from(`gestalt ${metadata.version}\n`));
   if (process.platform !== 'win32') { const mobile = await context.query(context.mobile(), ['--version']); if (mobile !== null) await context.print('Gestalt Mobile', mobile); }
   const inventory = await context.inventory();

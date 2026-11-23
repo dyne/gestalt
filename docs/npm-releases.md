@@ -50,7 +50,7 @@ After the release job succeeds, verify the public version:
 
 ```bash
 npm view @jaromil/gestalt version dist-tags os gitHead --json
-npm install -g @jaromil/gestalt --allow-scripts=@jaromil/gestalt
+npm install -g @jaromil/gestalt@latest --foreground-scripts --allow-scripts=@jaromil/gestalt
 gestalt --version
 ```
 
@@ -104,7 +104,7 @@ npm view @jaromil/gestalt version dist-tags --json
 Approval requires your 2FA. After approval, check installation on a supported host:
 
 ```bash
-npm install -g @jaromil/gestalt
+npm install -g @jaromil/gestalt@latest --foreground-scripts
 gestalt --version
 gestalt install
 ```

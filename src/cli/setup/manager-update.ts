@@ -12,7 +12,7 @@ import { windowsSystem } from '../platform/windows-system.ts';
  * normal control flow. A crash never implies that continuation completed. */
 export async function updateManager(context: SetupContext, originalArgv: readonly string[], resumed: boolean): Promise<boolean> {
   if (context.environment.GESTALT_MANAGER_DISTRIBUTION === 'npm') {
-    await context.log('manager is installed with npm; update it with: npm install -g @jaromil/gestalt@latest');
+    await context.log('manager is installed with npm; update it with: npm install -g @jaromil/gestalt@latest --foreground-scripts');
     return false;
   }
   if (resumed) return false;

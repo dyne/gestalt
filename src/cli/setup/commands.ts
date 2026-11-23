@@ -9,7 +9,7 @@ import { retireManagedConfiguration } from './retirement.mjs';
 import { restartWorker, scheduleRestart } from './restart.ts';
 import { scratchEnvironment } from './scratch-context.mjs';
 import { manageSkills } from '../runtime/skills-owner.mjs';
-import { DiagnosticContext, doctor } from '../runtime/diagnostics.ts';
+import { DiagnosticContext, doctor, version } from '../runtime/diagnostics.ts';
 
 export type UpdateComponent = 'all' | 'gestalt' | 'serena' | 'playwright';
 export interface UpdateOptions { readonly component: UpdateComponent; readonly extra: boolean; readonly help: boolean }
@@ -132,7 +132,7 @@ export async function runUpdate(context: SetupContext, options: UpdateOptions, o
     const mobile = await optionalMobile(context, operations, platform);
     const summary = mobile === false ? 'Agents, optional skills, and context-mode' : 'Agents, optional skills, Mobile, and context-mode';
     await context.log(context.environment.GESTALT_MANAGER_DISTRIBUTION === 'npm'
-      ? `${summary} are up to date; update the manager with npm install -g @jaromil/gestalt@latest`
+      ? `${summary} are up to date; update the manager with npm install -g @jaromil/gestalt@latest --foreground-scripts`
       : `manager, ${summary} are up to date`);
   }
   for (const component of ['serena', 'playwright'] as const) {
@@ -147,6 +147,9 @@ export async function runUpdate(context: SetupContext, options: UpdateOptions, o
   }
   if (options.component === 'all' || options.component === 'gestalt') await operations.diagnostics?.(context);
   await context.log(`update complete (${options.component})`);
+  // Match the native version command's metadata-only inventory.
+  await version(new DiagnosticContext(context.paths, { ...context.invocation, environment: context.environment }, context.streams), context);
+  context.check();
   return false;
 }
 

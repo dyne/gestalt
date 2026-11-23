@@ -25,14 +25,20 @@ On Linux or macOS, or once the registry lists a Windows-enabled release, use the
 following command with npm 11.
 
 ```sh
-npm install -g @jaromil/gestalt
+npm install -g @jaromil/gestalt@latest --foreground-scripts
 ```
+
+For an existing local dependency, run `npm install @jaromil/gestalt@latest --foreground-scripts`
+from its project. The explicit tag selects the current release even when the project's
+saved version range excludes it. Foreground scripts show the installed version report
+when npm runs the install hook. If npm reports that everything is already up to date,
+use `npm exec -- gestalt version` in that project to see the report again.
 
 With npm 12, approve the package's lifecycle script. Use a Node version supported
 by your npm client. npm 12.2.2 requires at least Node 24.15.0 on the Node 24 line.
 
 ```sh
-npm install -g @jaromil/gestalt --allow-scripts=@jaromil/gestalt
+npm install -g @jaromil/gestalt@latest --foreground-scripts --allow-scripts=@jaromil/gestalt
 ```
 
 For a verified local tarball, approve the resolved file instead. In PowerShell,
@@ -73,7 +79,7 @@ lists `win32` first. On npm 12, supply the lifecycle approval again unless
 already configured.
 
 ```sh
-npm install -g @jaromil/gestalt@latest
+npm install -g @jaromil/gestalt@latest --foreground-scripts
 ```
 
 `gestalt update` updates managed components and preserves the npm executable

@@ -26,7 +26,7 @@ macOS retains its best-effort Unix behavior.
 With npm 11, install a release available for your platform.
 
 ```sh
-npm install -g @jaromil/gestalt
+npm install -g @jaromil/gestalt@latest --foreground-scripts
 gestalt cli
 ```
 
@@ -39,7 +39,7 @@ lifecycle script with the following command. npm 12.2.2 requires at least
 Node 24.15.0 when using Node 24.
 
 ```sh
-npm install -g @jaromil/gestalt --allow-scripts=@jaromil/gestalt
+npm install -g @jaromil/gestalt@latest --foreground-scripts --allow-scripts=@jaromil/gestalt
 ```
 
 Use the same flag for npm 12 updates unless the package is already approved in
@@ -56,7 +56,7 @@ On Windows it installs the available core and reports deferred components.
 Retry or refresh only Agents with `gestalt agents install` or `gestalt agents update`.
 Setup errors fail the npm installation and print recovery instructions.
 
-To install only the wrapper, use `npm install -g @jaromil/gestalt --ignore-scripts`;
+To install only the wrapper, use `npm install -g @jaromil/gestalt@latest --ignore-scripts`;
 run `gestalt agents install` later. Local dependency installs and npx inspection
 do not automatically provision a user profile.
 
@@ -84,8 +84,14 @@ administrative commands run without the picker.
 Update the npm-installed command with:
 
 ```sh
-npm install -g @jaromil/gestalt@latest
+npm install -g @jaromil/gestalt@latest --foreground-scripts
 ```
+
+For an existing local dependency, run `npm install @jaromil/gestalt@latest --foreground-scripts`
+from its project. The explicit tag selects the current release even when the project's
+saved version range excludes it. Foreground scripts show the installed version report
+when npm runs the install hook. If npm reports that everything is already up to date,
+use `npm exec -- gestalt version` in that project to see the report again.
 
 `gestalt update` updates the managed components and prints the npm command for
 updating this package. It preserves the npm-managed executable and package metadata.

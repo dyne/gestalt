@@ -31,7 +31,8 @@ npm install -g @jaromil/gestalt@latest --foreground-scripts
 For an existing local dependency, run `npm install @jaromil/gestalt@latest --foreground-scripts`
 from its project. The explicit tag selects the current release even when the project's
 saved version range excludes it. Foreground scripts show the installed version report
-when npm runs the install hook. If npm reports that everything is already up to date,
+when npm runs the install hook. With npm 12, local installs require the project to
+approve the package’s install script. If npm reports that everything is already up to date,
 use `npm exec -- gestalt version` in that project to see the report again.
 
 With npm 12, approve the package's lifecycle script. Use a Node version supported

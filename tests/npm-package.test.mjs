@@ -187,11 +187,18 @@ main "$@"
   // npm 12 approves file dependencies by resolved file identity, rather than
   // the name declared inside the tarball. Never enable unrelated scripts.
   const approval = npmMajor >= 12 ? [`--allow-scripts=file:${tarball}`] : [];
-  const install = (extra = {}, options = [], global = true) => exec('npm', ['install', ...(global ? ['--global'] : []), '--prefix', prefix, '--offline',
-    '--no-audit', '--no-fund', '--ignore-scripts=false', '--foreground-scripts',
-    '--cache', join(root, 'cache'), ...approval, ...options, tarball], {
-    cwd: root, env: { ...env, ...extra }, timeout: 30_000,
-  });
+  const install = async (extra = {}, options = [], global = true) => {
+    const target = global ? prefix : join(root, 'project');
+    if (!global) {
+      await mkdir(target);
+      await writeFile(join(target, 'package.json'), JSON.stringify({ private: true, allowScripts: { [`file:${tarball}`]: true } }));
+    }
+    return exec('npm', ['install', ...(global ? ['--global', ...approval] : []), '--prefix', target, '--offline',
+      '--no-audit', '--no-fund', '--ignore-scripts=false', '--foreground-scripts',
+      '--cache', join(root, 'cache'), ...options, tarball], {
+      cwd: global ? root : target, env: { ...env, ...extra }, timeout: 30_000,
+    });
+  };
   return { root, log, env, install, destination, binary: join(prefix, 'bin/gestalt') };
 }
 

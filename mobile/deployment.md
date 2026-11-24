@@ -63,6 +63,20 @@ and port. Once credentials exist, Mobile refuses an RP-ID hostname change that
 would strand them. Multiple instances on the same hostname can use different
 ports and share authorization.
 
+### Move to a different hostname
+
+Stop every Gestalt Mobile relay on the hosting account. Run the reset locally
+with the new origin.
+
+```sh
+npx gestalt mobile reset-passkeys --public-origin https://new-relay.example.org --confirm
+```
+
+This revokes the account's existing Mobile passkeys and browser sessions.
+Saved Codex sessions and workspaces remain available. Start Mobile with the
+same workspace and state options and the new origin. Enroll the first
+device before exposing the relay.
+
 ## Unsafe mode
 
 `--disable-passkey-auth` gives every reachable client complete access to

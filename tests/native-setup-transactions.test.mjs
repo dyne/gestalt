@@ -367,22 +367,27 @@ const interval=setInterval(()=>{if(fs.existsSync(${JSON.stringify(release)})){cl
 
 for (const initial of [null, custom]) test(`${compiledBackend} ${initial === null ? 'fresh' : 'custom'} Agents setup ${process.platform === 'darwin' ? 'retains unknown authority and refuses repeat' : 'repeats with stable config and provenance'}`, async t => {
   const f = await fixture(t, initial);
-  const first = await f.run(); assert.equal(first.status, 0, first.stderr);
+  const cacheHome = path.join(f.root, 'cache home');
+  const cacheEnvironment = process.platform === 'win32' ? { LOCALAPPDATA: cacheHome } : { XDG_CACHE_HOME: cacheHome };
+  const first = await f.run(undefined, cacheEnvironment); assert.equal(first.status, 0, first.stderr);
+  const config = await f.config(), parsed = parse(config), filesystem = parsed.permissions['workspace-git'].filesystem;
+  assert.equal(filesystem[path.join(cacheHome, 'ccache')], 'write');
+  assert.equal(filesystem[cacheHome], undefined);
+  assert.ok((await stat(path.join(cacheHome, 'ccache'))).isDirectory());
   if (process.platform === 'darwin') {
     assert.match(first.stderr, /command succeeded.*snapshot and setup locks retained/);
-    const config = await f.config();
     const retained = (await readdir(f.codex)).filter(name => name.startsWith('.gestalt-setup.'));
     assert.equal(retained.length, 1);
     assert.equal(JSON.parse(await readFile(path.join(f.codex, retained[0], 'ownership-unknown.json'), 'utf8')).status, 'command-succeeded-cleanup-unknown');
     assert.equal(await exists(path.join(f.codex, '.gestalt-manager-setup.lock')), true);
     assert.equal(await exists(path.join(f.codex, '.gestalt-setup-provenance.json')), false);
-    const repeat = await f.run(['agents', 'update']);
+    const repeat = await f.run(['agents', 'update'], cacheEnvironment);
     assert.notEqual(repeat.status, 0); assert.match(repeat.stderr, /EEXIST|already running/);
     assert.equal(await f.config(), config);
     assert.equal(await readFile(path.join(f.codex, 'AGENTS.md'), 'utf8'), 'user instructions\n');
     return;
   }
-  const config = await f.config(), provenance = await f.provenance(), parsed = parse(config), metadata = JSON.parse(provenance);
+  const provenance = await f.provenance(), metadata = JSON.parse(provenance);
   assert.equal(parsed.approval_policy, 'never'); assert.equal(parsed.default_permissions, 'workspace-git');
   assert.equal(parsed.mcp_servers['context-mode'].default_tools_approval_mode, 'approve');
   if (initial) { assert.ok(config.includes('# keep custom model')); assert.equal(parsed.model, 'fixture-custom'); }
@@ -391,7 +396,7 @@ for (const initial of [null, custom]) test(`${compiledBackend} ${initial === nul
   assert.equal(metadata.scope, 'setup-artifacts-only'); assert.equal(metadata.runtimeEnforcement, false);
   assert.equal(metadata.manager.sha256, hash(await readFile(manager))); assert.equal(metadata.delegatedSetupSha256, hash(await readFile(f.owner)));
   assert.equal(metadata.outputs['config.toml'], hash(Buffer.from(config)));
-  const repeat = await f.run(['agents', 'update']); assert.equal(repeat.status, 0, repeat.stderr);
+  const repeat = await f.run(['agents', 'update'], cacheEnvironment); assert.equal(repeat.status, 0, repeat.stderr);
   assert.equal(await f.config(), config); assert.equal(await f.provenance(), provenance);
   const retained = (await readdir(f.codex)).filter(name => name.startsWith('.gestalt-setup.'));
   assert.deepEqual(retained, []);

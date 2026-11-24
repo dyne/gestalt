@@ -3339,14 +3339,24 @@ configure_codex_permissions() {
 
   node --input-type=module - \
     "$config_path" "${BASH_SOURCE[0]}" "$codex_home" "$gestalt_home" "$HOME/.agents" \
-    "$HOME/.local" "$HOME/.config" <<'NODE'
+    "$HOME/.local" "$HOME/.config" "$HOME" <<'NODE'
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 
 const configPath = process.argv[2];
 const managerPath = process.argv[3];
-const homeReadRoots = [...new Set(process.argv.slice(4))];
+const homeReadRoots = [...new Set(process.argv.slice(4, -1))];
+const userHome = process.argv.at(-1);
+const { XDG_CACHE_HOME, XDG_RUNTIME_DIR } = process.env;
+const legacyCache = join(userHome, '.ccache');
+const cacheHome = isAbsolute(XDG_CACHE_HOME || '') ? XDG_CACHE_HOME
+  : join(userHome, process.platform === 'darwin' ? 'Library/Caches' : '.cache');
+const cacheDir = statSync(legacyCache, { throwIfNoEntry: false })?.isDirectory()
+  ? legacyCache : join(cacheHome, 'ccache');
+const writeRoots = new Set(['/tmp', cacheDir]);
+if (isAbsolute(XDG_RUNTIME_DIR || '')) writeRoots.add(join(XDG_RUNTIME_DIR, 'ccache-tmp'));
+for (const root of homeReadRoots) writeRoots.delete(root);
 const bundle = readFileSync(managerPath, 'utf8').match(/^\/\/ BEGIN BUNDLED PROFILE TOML PARSER\n([\s\S]*?)^\/\/ END BUNDLED PROFILE TOML PARSER/m);
 if (!bundle) throw new Error('Bundled TOML parser missing');
 const { parse } = runInNewContext(bundle[1] + '\ngestaltProfileToml');
@@ -3396,7 +3406,7 @@ const profile = [
   'allow_local_binding = true',
   '',
   '[permissions.workspace-git.filesystem]',
-  '"/tmp" = "write"',
+  ...[...writeRoots].map((path) => `${JSON.stringify(path)} = "write"`),
   ...homeReadRoots.map((path) => `${JSON.stringify(path)} = "read"`),
   '',
   '[permissions.workspace-git.filesystem.":workspace_roots"]',
@@ -3414,6 +3424,13 @@ if (before && !/[\r\n]$/.test(before)) before += newline;
 const output = root.join(newline) + newline + before +
   profile.filter(line => line !== '').join(newline) + newline + retained.slice(position).join('');
 parse(output);
+if (writeRoots.has(cacheDir)) {
+  // Codex needs an existing mount target for writes beneath a read-only home.
+  try { mkdirSync(cacheDir, { recursive: true, mode: 0o700 }); }
+  catch (error) {
+    if (!['EACCES', 'EPERM', 'EROFS', 'ENOTDIR', 'EEXIST'].includes(error.code)) throw error;
+  }
+}
 if (output === source) process.exit(0);
 
 mkdirSync(dirname(configPath), { recursive: true });

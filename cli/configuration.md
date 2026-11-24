@@ -74,6 +74,13 @@ The manager migrates the dedicated profile away from legacy `sandbox_mode` and
 Gestalt Mobile selects `workspace-git` for new Codex sessions by default and
 sends it to app-server as a named permission profile.
 
+Setup creates ccache's standard cache directory when needed and grants write
+access to it. This includes an existing legacy `~/.ccache` directory or the platform
+default, with support for an absolute `XDG_CACHE_HOME` on Unix. Setup also grants
+write access to the `ccache-tmp` subdirectory of an absolute `XDG_RUNTIME_DIR`
+on Unix. If you set custom `CCACHE_DIR` or `CCACHE_TEMPDIR` values, point them
+inside the workspace or another writable directory.
+
 ## Pin Mobile
 
 ```sh

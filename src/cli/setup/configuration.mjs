@@ -3,7 +3,7 @@ import { parse, stringify } from 'smol-toml';
 
 import { managedMcpApprovals } from '../runtime/approvals.mjs';
 
-export function permissionConfiguration(source, homeReadRoots, temporaryRoot = '/tmp') {
+export function permissionConfiguration(source, homeReadRoots, temporaryRoot = '/tmp', cacheRoots = []) {
 parse(source); // Reject invalid input before any replacement is staged.
 const newline = source.match(/\r\n|\n|\r/)?.[0] ?? '\n';
 const retained = [];
@@ -38,6 +38,8 @@ const root = [
   'approval_policy = "never"',
   'default_permissions = "workspace-git"',
 ];
+const writeRoots = new Set([temporaryRoot, ...cacheRoots]);
+for (const path of homeReadRoots) writeRoots.delete(path);
 const profile = [
   '[permissions.workspace-git]',
   'description = "Workspace and Git writable with local test support"',
@@ -49,7 +51,7 @@ const profile = [
   'allow_local_binding = true',
   '',
   '[permissions.workspace-git.filesystem]',
-  `${JSON.stringify(temporaryRoot)} = "write"`,
+  ...[...writeRoots].map((path) => `${JSON.stringify(path)} = "write"`),
   ...homeReadRoots.map((path) => `${JSON.stringify(path)} = "read"`),
   '',
   '[permissions.workspace-git.filesystem.":workspace_roots"]',

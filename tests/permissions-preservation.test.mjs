@@ -19,9 +19,39 @@ async function fixture(t, bytes) {
   assert.match(source, /\nmain "\$@"\s*$/);
   await writeFile(manager, source.replace(/\nmain "\$@"\s*$/, '\nload_paths\nconfigure_codex_permissions\n'), { mode: 0o755 });
   await writeFile(config, bytes, { mode: 0o640 });
-  const run = () => exec('bash', [manager], { env: { ...process.env, HOME: home, CODEX_HOME: codex, GESTALT_HOME: join(root, 'managed') }, timeout: 10000 });
-  return { config, run };
+  const run = (environment = {}) => exec('bash', [manager], { env: {
+    ...process.env, HOME: home, CODEX_HOME: codex, GESTALT_HOME: join(root, 'managed'),
+    XDG_CACHE_HOME: '', XDG_RUNTIME_DIR: '', ...environment,
+  }, timeout: 10000 });
+  return { config, home, root, run };
 }
+
+test('permissions writer grants write access to standard ccache paths only', async t => {
+  const f = await fixture(t, '');
+  const cache = join(f.root, 'cache home');
+  const runtime = join(f.root, 'runtime');
+  const override = join(f.root, 'custom cache');
+  const env = { XDG_CACHE_HOME: cache, XDG_RUNTIME_DIR: runtime, CCACHE_DIR: override, CCACHE_TEMPDIR: override };
+  const filesystem = async () => parse(await readFile(f.config, 'utf8')).permissions['workspace-git'].filesystem;
+  await f.run({ XDG_CACHE_HOME: 'relative' });
+  const defaultCache = join(f.home, process.platform === 'darwin' ? 'Library/Caches' : '.cache', 'ccache');
+  assert.equal((await filesystem())[defaultCache], 'write');
+  assert.ok((await stat(defaultCache)).isDirectory());
+  await f.run(env);
+  const configured = await filesystem();
+  assert.equal(configured[join(cache, 'ccache')], 'write');
+  assert.ok((await stat(join(cache, 'ccache'))).isDirectory());
+  assert.equal(configured[join(runtime, 'ccache-tmp')], 'write');
+  for (const unwritable of [defaultCache, cache, runtime, override]) assert.equal(configured[unwritable], undefined);
+  assert.equal(configured[join(f.home, '.config')], 'read');
+  await mkdir(join(f.home, '.ccache'));
+  await f.run(env);
+  assert.equal((await filesystem())[join(f.home, '.ccache')], 'write');
+  assert.equal((await filesystem())[join(cache, 'ccache')], undefined);
+  const once = await readFile(f.config, 'utf8');
+  await f.run(env);
+  assert.equal(await readFile(f.config, 'utf8'), once);
+});
 
 const user = '[mcp_servers.xerj]\ncommand = "/user/own-server"\nargs = ["--custom"]\nenabled = false\n';
 for (const [label, newline, suffix] of [

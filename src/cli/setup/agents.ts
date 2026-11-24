@@ -1,11 +1,11 @@
-import { readFile, realpath, rename, rm, unlink } from 'node:fs/promises';
+import { mkdir, readFile, realpath, rename, rm, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parse } from 'smol-toml';
 import { approvalConfiguration, permissionConfiguration } from './configuration.mjs';
 import { acquireSetupGate, digest, readProfile, replaceProfile } from './profile-files.ts';
 import type { ProfileSnapshot } from './profile-files.ts';
-import { CommandFailure, optionalStat, SetupContext } from './context.ts';
+import { absent, CommandFailure, optionalStat, SetupContext } from './context.ts';
 import type { NativePrivateStorage } from '../platform/storage.ts';
 
 type Plugin = { name?: string; version?: string; installed?: boolean; enabled?: boolean };
@@ -82,10 +82,26 @@ export async function setupAgents(context: SetupContext, _mode: 'install' | 'upg
   const configFile = path.join(codexHome, 'config.toml');
   const normalize = async () => {
     const before = await readProfile(configFile), source = before?.bytes.toString('utf8') ?? '';
-    const temporaryRoot = process.platform === 'win32'
-      ? path.join(context.environment.LOCALAPPDATA || path.join(userHome, 'AppData/Local'), 'Temp') : '/tmp';
-    const output = permissionConfiguration(approvalConfiguration(source, manager, codexHome),
-      [...new Set([codexHome, gestaltHome, path.join(userHome, '.agents'), path.join(userHome, '.local'), path.join(userHome, '.config')])], temporaryRoot);
+    const { LOCALAPPDATA, XDG_CACHE_HOME, XDG_RUNTIME_DIR } = context.environment;
+    const windows = process.platform === 'win32';
+    const localAppData = LOCALAPPDATA || path.join(userHome, 'AppData/Local');
+    const temporaryRoot = windows ? path.join(localAppData, 'Temp') : '/tmp';
+    const cacheHome = windows ? localAppData : XDG_CACHE_HOME && path.isAbsolute(XDG_CACHE_HOME) ? XDG_CACHE_HOME
+      : path.join(userHome, process.platform === 'darwin' ? 'Library/Caches' : '.cache');
+    const legacyCache = path.join(userHome, '.ccache');
+    const legacy = await stat(legacyCache).catch(error => { if (!absent(error)) throw error; });
+    const cacheDir = legacy?.isDirectory() ? legacyCache : path.join(cacheHome, 'ccache');
+    const cacheRoots = [cacheDir];
+    if (!windows && XDG_RUNTIME_DIR && path.isAbsolute(XDG_RUNTIME_DIR))
+      cacheRoots.push(path.join(XDG_RUNTIME_DIR, 'ccache-tmp'));
+    const readRoots = [...new Set([codexHome, gestaltHome, ...['.agents', '.local', '.config'].map(name => path.join(userHome, name))])];
+    const output = permissionConfiguration(approvalConfiguration(source, manager, codexHome), readRoots, temporaryRoot, cacheRoots);
+    if (!readRoots.includes(cacheDir)) {
+      // Codex needs an existing mount target for writes beneath a read-only home.
+      await mkdir(cacheDir, { recursive: true, mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
+        if (!['EACCES', 'EPERM', 'EROFS', 'ENOTDIR', 'EEXIST'].includes(error.code ?? '')) throw error;
+      });
+    }
     await replaceProfile(codexStorage, configFile, Buffer.from(output), before);
   };
   const unlisten = context.listen();

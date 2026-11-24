@@ -837,6 +837,8 @@ Commands:
   cli [--] [args...]        Start Codex with ~/.codex-gestalt as CODEX_HOME.
   mobile [--] [args...]     Start the managed Gestalt Mobile executable.
                             Workspace defaults to ~/gestalt; override with --cwd ROOT.
+  mobile reset-passkeys --public-origin ORIGIN --confirm
+                            Reset the local Mobile passkeys and browser sessions for a new hostname.
   scratch inspect --cwd ROOT --owner ID
                             Inspect an empty Mobile containment fence (read-only).
   scratch recover --cwd ROOT --owner ID --expect TOKEN --confirm-quiescent
@@ -5376,6 +5378,10 @@ command_mobile() {
   local mobile_arg_index
 
   strip_separator "$@"
+  if [[ ${forwarded_args[0]:-} == reset-passkeys ]]; then
+    [[ -x $mobile_bin ]] || die 'Gestalt Mobile is not installed; install it with gestalt update first'
+    exec "$mobile_bin" "${forwarded_args[@]}"
+  fi
   # Reject obsolete manually supplied options before installation or startup.
   # Stored descriptors are adapted separately by the explicit restart worker.
   for ((mobile_arg_index = 0; mobile_arg_index < ${#forwarded_args[@]}; mobile_arg_index++)); do

@@ -92,6 +92,25 @@ test('a file at the default Mobile workspace path stops launch', async t => {
   await assert.rejects(stat(join(f.root, 'launch.json')), { code: 'ENOENT' });
 });
 
+test('passkey reset reaches the installed Mobile CLI without creating a workspace or restart state', async t => {
+  const f = await fixture(t);
+  const args = ['reset-passkeys', '--public-origin', 'https://new.example', '--confirm'];
+  await f.run(args);
+  const launch = JSON.parse(await readFile(join(f.root, 'launch.json'), 'utf8'));
+  assert.deepEqual(launch.args, args);
+  await assert.rejects(stat(f.workspace), { code: 'ENOENT' });
+  await assert.rejects(stat(join(f.home, 'run')), { code: 'ENOENT' });
+});
+
+test('passkey reset reports a missing Mobile executable without attempting installation', async t => {
+  const f = await fixture(t, 'current', false);
+  await assert.rejects(f.run(['reset-passkeys']), {
+    code: 1,
+    stderr: /Gestalt Mobile is not installed/,
+  });
+  await assert.rejects(stat(join(f.home, 'unexpected-install')), { code: 'ENOENT' });
+});
+
 for (const args of [['--xerj', 'auto'], ['--xerj', 'manual'], ['--xerj', 'off'], ['--xerj=auto']])
   test(`obsolete explicit Mobile option fails before installation: ${args.join(' ')}`, async t => {
     const f = await fixture(t, 'current', false);

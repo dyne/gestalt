@@ -32,10 +32,13 @@ machine.
 
 ## Start it
 
+Run this command from the directory where you [installed Gestalt](../start/install.md#install-with-npm).
+
 ```sh
-gestalt mobile --cwd "$HOME/devel"
+npx gestalt mobile
 ```
 
+The manager creates `~/gestalt` if needed and uses it as the workspace root.
 The relay listens on `127.0.0.1:3000` by default and prints its URL. Press
 Ctrl-C to stop the HTTP server, active Codex subprocesses, and database cleanly.
 
@@ -43,7 +46,7 @@ Ctrl-C to stop the HTTP server, active Codex subprocesses, and database cleanly.
 
 - Node.js 24 or newer.
 - An installed and authenticated Codex CLI.
-- The Gestalt environment created by `gestalt install`.
+- A [Gestalt Agents installation](../start/install.md#install-with-npm).
 
 The manager establishes `CODEX_HOME`, `GESTALT_HOME`, and `PATH`; Mobile starts
 `codex app-server --stdio` directly in that environment. It also exports the
@@ -55,7 +58,7 @@ discover those managed components without depending on installation layout.
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `--cwd <path>` | Current directory | Root of selectable workspaces |
+| `--cwd <path>` | `~/gestalt` when launched through the manager | Root of selectable workspaces |
 | `--host <address>` | `127.0.0.1` | Relay listen address |
 | `--port <number>` | `3000` | HTTP port |
 | `--public-origin <origin>` | Loopback origin | Exact browser origin for passkeys |

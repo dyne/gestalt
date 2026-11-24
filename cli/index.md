@@ -2,14 +2,15 @@
 
 `gestalt` manages an isolated Codex profile and its Agents and skills. Existing
 Linux and macOS installations can also manage the Mobile relay. Run
-`gestalt help` to see the command forms.
+`npx gestalt` from your local npm project to see the command forms. You can
+prefix the commands below with `npx` when using a local npm install.
 
-The unreleased native Windows x64 candidate covers CLI launch and resume,
+The native Windows x64 build supports CLI launch and resume,
 AppServer, Agents/context-mode setup, skills and scratch handling. Serena,
 Playwright/Chrome and Mobile hosting are deferred on native Windows. The
 shared command help includes the existing Unix routes. Check
-[installation availability](../start/install.md#install-with-npm) before using
-the Windows examples with a public npm package.
+[installation requirements](../start/install.md#install-with-npm) before
+running Gestalt on Windows.
 
 ## Commands
 
@@ -42,8 +43,8 @@ the Windows examples with a public npm package.
 ## Launch Codex
 
 ```sh
-gestalt cli
-gestalt cli --help
+npx gestalt cli
+npx gestalt cli --help
 ```
 
 On native Windows x64, use `gestalt.cmd cli` from PowerShell or cmd if the shell
@@ -265,12 +266,14 @@ permissions or language readiness of a later session. See
 
 ## Launch Mobile
 
-The Mobile launch route applies to Linux and macOS.
+The Mobile launch route applies to Linux and macOS. The manager creates
+`~/gestalt` if needed and uses it as the default workspace root. Pass
+`--cwd` to select another directory.
 
 ```sh
-gestalt mobile --cwd "$HOME/devel"
-gestalt mobile --cwd "$HOME/devel" --port 3000
-gestalt mobile --cwd "$HOME/devel" --skills focused
+npx gestalt mobile
+npx gestalt mobile --cwd "$HOME/devel" --port 3000
+npx gestalt mobile --cwd "$HOME/devel" --skills focused
 ```
 
 Every option after `mobile` is passed to `gestalt-mobile`. See [network

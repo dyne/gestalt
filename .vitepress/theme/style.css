@@ -199,16 +199,6 @@ html {
   box-shadow: var(--vp-shadow-2);
 }
 
-.install-card__eyebrow {
-  margin: 0 0 .5rem;
-  color: var(--vp-c-brand-2);
-  font-family: "JetBrains Mono", var(--vp-font-family-mono);
-  font-size: .8rem;
-  font-weight: 700;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-}
-
 .install-card h2 {
   margin: 0;
   border: 0;
@@ -217,7 +207,7 @@ html {
   line-height: 1.1;
 }
 
-.install-card > p:not(.install-card__eyebrow) { max-width: 60ch; }
+.install-card > p { max-width: 60ch; }
 
 .install-card__command {
   display: flex;

@@ -1,9 +1,11 @@
 # Your first session
 
+Run these commands from the directory where you [installed Gestalt](./install.md#install-with-npm).
+
 ## Terminal route
 
 ```sh
-gestalt cli
+npx gestalt cli
 ```
 
 This is equivalent to launching Codex with
@@ -17,10 +19,12 @@ This is equivalent to launching Codex with
 ## Mobile route
 
 ```sh
-gestalt mobile --cwd "$HOME/devel"
+npx gestalt mobile
 ```
 
-Open the loopback URL printed by the command. Create the first passkey before
+Mobile starts with `~/gestalt` as the workspace root. Run
+`npx gestalt mobile --cwd "$PWD"` to use the current directory. Open the
+loopback URL printed by the command. Create the first passkey before
 placing the relay behind a network endpoint. In the Sessions tab, select a
 workspace and model, then start a session.
 

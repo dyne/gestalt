@@ -836,6 +836,7 @@ Commands:
                             Update from a live Mobile session, then restart Mobile.
   cli [--] [args...]        Start Codex with ~/.codex-gestalt as CODEX_HOME.
   mobile [--] [args...]     Start the managed Gestalt Mobile executable.
+                            Workspace defaults to ~/gestalt; override with --cwd ROOT.
   scratch inspect --cwd ROOT --owner ID
                             Inspect an empty Mobile containment fence (read-only).
   scratch recover --cwd ROOT --owner ID --expect TOKEN --confirm-quiescent
@@ -4104,6 +4105,10 @@ command_update_restart_worker() {
   restart_args=(${migrated_restart_args[@]+"${migrated_restart_args[@]}"})
   [[ $restart_cwd == /* && -d $restart_cwd ]] ||
     die "the Gestalt Mobile restart directory is invalid: $restart_cwd"
+  # Older descriptors without --cwd used the recorded working directory.
+  if mobile_workspace_is_implicit ${restart_args[@]+"${restart_args[@]}"}; then
+    restart_args+=(--cwd "$restart_cwd")
+  fi
   [[ $worker_extra_skills == false || $worker_extra_skills == true ]] ||
     die 'the update-restart worker received an invalid setup mode'
   if [[ $worker_extra_skills == true ]]; then
@@ -5352,6 +5357,18 @@ process.on('SIGTERM',()=>stop(143));process.on('SIGINT',()=>stop(130));
 NODE
 }
 
+mobile_workspace_is_implicit() {
+  [[ ${1:-} != trace ]] || return 1
+  while (($#)); do
+    case $1 in
+      --cwd | --cwd=* | --help | --version | --) return 1 ;;
+      --skills) [[ ${2:-} != list ]] || return 1 ;;
+    esac
+    shift
+  done
+  return 0
+}
+
 command_mobile() {
   local mobile_restart_dir mobile_restart_state mobile_restart_staged restart_cwd
   local context_mode_runtime context_mode_plugin_root gestalt_plugin_root
@@ -5366,6 +5383,12 @@ command_mobile() {
       --xerj | --xerj=*) die 'Xerj has been retired; omit --xerj when starting Mobile. Run gestalt update before restarting older generated launchers.' ;;
     esac
   done
+  if mobile_workspace_is_implicit ${forwarded_args[@]+"${forwarded_args[@]}"}; then
+    local -r mobile_workspace=$HOME/gestalt
+    (umask 077; mkdir -p -- "$mobile_workspace") ||
+      die "could not create the default Mobile workspace: $mobile_workspace"
+    forwarded_args+=(--cwd "$mobile_workspace")
+  fi
   if [[ ! -x $mobile_bin ]]; then
     log 'Gestalt Mobile is not installed; installing it now'
     install_mobile

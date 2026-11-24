@@ -1,8 +1,7 @@
 # Install Gestalt
 
-Use npm for the core CLI. Linux and macOS users can also use the existing Bash
-installer. The native Windows x64 candidate has been validated separately from
-the public npm release. The published `0.16.1` package supports Linux and macOS.
+Install Gestalt in an npm project and run it with `npx`. A global npm install
+is also available, and Linux and macOS users can use the Bash installer.
 
 ## Install with npm
 
@@ -13,16 +12,38 @@ privileges or compiler for core setup. On Windows, full `gestalt install` and
 the default `gestalt update` also require Git on `PATH` for the Git-backed skill
 collection. Use Git to clone or update a local Agents checkout.
 
-On Windows, check the registry before installing from `latest`. Use a release
-whose `os` includes `win32`, or an explicitly supplied and verified Windows-enabled
-tarball.
+Run these commands from your npm project directory. If you want a dedicated
+directory, create it and run `npm init -y` there first.
 
-```powershell
-npm view @jaromil/gestalt@latest version os
+```sh
+npm i @jaromil/gestalt
+npx gestalt
 ```
 
-On Linux or macOS, or once the registry lists a Windows-enabled release, use the
-following command with npm 11.
+`npx gestalt` prints command help. On a fresh local install, set up Agents
+and context-mode before starting your first session.
+
+```sh
+npx gestalt agents install
+```
+
+Run the [quick start](./index.md) commands to install optional components and
+start the terminal or mobile web app.
+
+### Update a local npm installation
+
+Run these commands from the directory where you installed Gestalt. The first
+command updates the npm-installed manager. The second updates components
+managed by Gestalt.
+
+```sh
+npm i @jaromil/gestalt@latest
+npx gestalt update
+```
+
+### Install globally with npm
+
+With npm 11, install the command globally.
 
 ```sh
 npm install -g @jaromil/gestalt
@@ -45,8 +66,7 @@ npm install -g "--allow-scripts=file:$tarball" $tarball
 
 When lifecycle scripts are allowed, a global install reconciles Agents and
 context-mode in the isolated Codex profile. Use `--ignore-scripts` to install
-only the command, then run `gestalt agents install` when ready. Local dependency
-installs and `npx @jaromil/gestalt --help` leave profile setup explicit. If setup fails,
+only the command, then run `gestalt agents install` when ready. If setup fails,
 its diagnostic names the next action. Retry Agents with `gestalt agents install`
 or refresh them with `gestalt agents update`.
 
@@ -62,11 +82,11 @@ gestalt.cmd cli
 
 Native Windows defers Serena, Playwright/Chrome and Mobile hosting. Core
 setup and updates report these omissions. An explicit request for a deferred
-component fails before profile or install state changes. Linux and macOS keep
-their existing optional routes. Use `gestalt install` there to add Mobile and
-the optional skill collection.
+component fails before profile or install state changes. Linux and macOS
+support these optional components. Mobile installs when you first launch it
+with `gestalt mobile`.
 
-### Upgrade or roll back an npm installation
+### Upgrade or roll back a global npm installation
 
 Use npm to upgrade the command. On Windows, verify that the requested release
 lists `win32` first. On npm 12, supply the lifecycle approval again unless

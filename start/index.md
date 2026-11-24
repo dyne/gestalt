@@ -1,45 +1,64 @@
-# Choose your Gestalt journey
+# Get started with Gestalt
 
-Gestalt combines an agent workflow and a browser relay. Install both once, then
-choose the interface that fits the moment.
+## Install with npm
 
-## 1. Check the requirements
+You’ll need Node.js 24 or newer, npm, and the Codex CLI. Linux and macOS
+also need Bash. See [installation options](./install.md) for platform support.
 
-- macOS or Linux with Bash, `curl`, and Git-capable network access.
-- Node.js 24 or newer and npm.
-- The Codex CLI installed, on `PATH`, and authenticated.
-- `python3`, `make`, and a C/C++ compiler for the context-mode native runtime.
-
-## 2. Install
+Run both commands from your npm project directory.
 
 ```sh
-curl -fsSL https://dyne.github.io/gestalt/install.sh | bash
+npm i @jaromil/gestalt
+npx gestalt
 ```
 
-The installer places `gestalt` in `~/.local/bin`, prepares the Agents plugins in
-`~/.codex-gestalt`, and installs Mobile under `~/.gestalt/mobile`.
+`npx gestalt` prints the command list. If this is your first Gestalt setup,
+install Agents and context-mode in the isolated Codex profile.
 
-## 3. Pick an interface
+```sh
+npx gestalt agents install
+```
+
+## Install extras
+
+Run the commands for the extras you want. Serena and Playwright are available
+on Linux and macOS.
+
+```sh
+npx gestalt skills install
+npx gestalt serena install
+npx gestalt playwright install
+```
+
+## Start a session
 
 ::: code-group
 
 ```sh [Terminal]
-gestalt cli
+npx gestalt cli
 ```
 
-```sh [Browser relay]
-gestalt mobile --cwd "$PWD"
+```sh [Mobile web app]
+npx gestalt mobile
 ```
 
 :::
 
-## 4. Make the first check
+On Linux or macOS, Mobile installs on first launch and prints the URL to open
+in your browser. The manager creates `~/gestalt` if needed and uses it as the
+workspace root. Pass `--cwd` to use another directory. See
+[your first session](./first-session.md) for what to do next.
 
-In a new terminal session, run:
+## Update
+
+Update the npm-installed manager from the same project directory.
 
 ```sh
-gestalt doctor
+npm i @jaromil/gestalt@latest
 ```
 
-Then start Codex and ask it to run `ctx-doctor`. Continue with [your first
-session](./first-session.md).
+Update the components managed by Gestalt.
+
+```sh
+npx gestalt update
+```

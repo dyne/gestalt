@@ -49,7 +49,7 @@ export default defineConfig({
         text: 'Welcome',
         items: [
           { text: 'Overview', link: '/' },
-          { text: 'Choose your journey', link: '/start/' },
+          { text: 'Get started', link: '/start/' },
           { text: 'Install Gestalt', link: '/start/install' },
           { text: 'Your first session', link: '/start/first-session' }
         ]

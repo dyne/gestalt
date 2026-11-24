@@ -231,11 +231,12 @@ async function until(predicate) {
 }
 
 for (const [name, args, expected, extraSkills] of [
-  ['no options', [], [], false],
-  ['no options with extra skills', [], [], true],
+  ['an old implicit workspace', [], ['--cwd', null], false],
+  ['an old implicit workspace with extra skills', [], ['--cwd', null], true],
+  ['an explicit relative workspace', ['--cwd', './workspace'], ['--cwd', './workspace'], false],
   ['empty and literal arguments', ['', 'space é 東京', '$(not-evaluated)', '"quoted"', '--', '--xerj', 'auto', ''],
     ['', 'space é 東京', '$(not-evaluated)', '"quoted"', '--', '--xerj', 'auto', ''], false],
-  ['retired options and separate port arguments', ['--xerj', 'auto', '--port', '4321'], ['--port', '4321'], false],
+  ['retired options and separate port arguments', ['--xerj', 'auto', '--port', '4321'], ['--port', '4321', '--cwd', null], false],
 ]) test(`reloaded detached worker preserves ${name} as exact NUL-delimited argv`, async t => {
   const f = await reloadFixture(t);
   const relay = spawn('sleep', ['30']);
@@ -250,7 +251,7 @@ for (const [name, args, expected, extraSkills] of [
   });
   await until(async () => (await f.operations()).includes('new:restart-argv'));
   await stopped;
-  assert.deepEqual((await readFile(argvFile, 'utf8')).split('\0').slice(0, -1), ['--', ...expected]);
+  assert.deepEqual((await readFile(argvFile, 'utf8')).split('\0').slice(0, -1), ['--', ...expected.map(value => value ?? f.root)]);
   assert.deepEqual(await f.operations(), ['download', 'new:skills:update', `new:agents:upgrade:${extraSkills}`, 'new:mobile', 'new:restart-argv']);
   await assert.rejects(readFile(state), { code: 'ENOENT' });
   await assert.rejects(readFile(join(f.home, 'run/update-restart.lock')), { code: 'ENOENT' });

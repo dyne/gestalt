@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import { withBase } from 'vitepress'
 
-const command = 'curl -fsSL https://dyne.org/gestalt/install.sh | bash'
+const command = 'npm i @jaromil/gestalt'
 const status = ref('')
 
 async function copyCommand() {
@@ -17,17 +17,16 @@ async function copyCommand() {
 
 <template>
   <section class="install-card" aria-labelledby="install-title">
-    <p class="install-card__eyebrow">One command. One profile.</p>
-    <h2 id="install-title">Install the complete Gestalt toolset</h2>
-    <p>Install Gestalt agents and mobile client in `~/.codex-gestalt` and `~/.gestalt`</p>
+    <h2 id="install-title">Install Gestalt with npm</h2>
+    <p>Run <code>npx gestalt</code> to see the available commands.</p>
     <div class="install-card__command">
       <code>{{ command }}</code>
       <button type="button" @click="copyCommand">Copy</button>
     </div>
     <p class="visually-hidden" aria-live="polite">{{ status }}</p>
     <div class="install-card__links">
-      <a :href="withBase('/start/install')">Read before installing</a>
-      <a :href="withBase('/install.sh')" download>Download script</a>
+      <a :href="withBase('/start/')">Quick start</a>
+      <a :href="withBase('/start/install')">Installation options</a>
     </div>
   </section>
 </template>

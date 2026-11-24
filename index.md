@@ -32,7 +32,6 @@ features:
 
 ## One journey, two interfaces
 
-Start with `gestalt cli` when you are at a terminal. Use `gestalt mobile` when
-you want the relay in a browser or on another trusted device. Both start the
-same isolated Codex profile at `~/.codex-gestalt`; neither rewrites your normal
-Codex home.
+Run `npx gestalt cli` for a terminal session or `npx gestalt mobile` to open
+the web app on Linux or macOS. Both use the isolated Codex profile at
+`~/.codex-gestalt`.

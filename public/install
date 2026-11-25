@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Install Gestalt Manager and Agents for the current user.
+set -eu
+
+exec npm install -g --prefix "${HOME:?HOME is required}/.local" \
+  --allow-scripts=@jaromil/gestalt @jaromil/gestalt@latest

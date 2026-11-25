@@ -81,7 +81,7 @@ The first upgrades Gestalt Manager in `~/.local`. The second updates Agents,
 Context Mode, Mobile, and the Dyne.org skill collection.
 
 ```sh
-npm install -g --prefix "$HOME/.local" --allow-scripts=@jaromil/gestalt @jaromil/gestalt@latest
+curl -fsSL https://dyne.org/gestalt/install | bash
 gestalt update
 ```
 

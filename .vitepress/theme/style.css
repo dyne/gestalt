@@ -223,9 +223,9 @@ html {
 
 .install-card__command code {
   min-width: 0;
-  overflow-x: auto;
   color: inherit;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .install-card__command button {
@@ -241,11 +241,14 @@ html {
 }
 
 .install-card__links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem 1.5rem;
-  margin-top: 1rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  gap: .75rem;
+  max-width: 26rem;
+  margin: 2rem auto 0;
 }
+
+.install-card__links .VPButton { text-decoration: none; }
 
 @media (max-width: 640px) {
   .install-card { margin: 1rem 1.25rem 3rem; }

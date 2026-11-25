@@ -21,6 +21,8 @@ running Gestalt on Windows.
 | `gestalt update [COMPONENT]` | Update Gestalt core and installed optional components; optionally select one component group |
 | `gestalt update-restart` | From a supported Unix Mobile session, update and gracefully restart Mobile |
 | `gestalt cli [args…]` | Launch Codex with the isolated Gestalt home |
+| `gestalt agent <provider> [args…]` | Launch another agent CLI (antigravity, claude, ollama, opencode) |
+| `gestalt agent list` | Show which agent providers are installed |
 | `gestalt serena install` | Prepare the optional managed Serena release |
 | `gestalt serena update [VERSION]` | Validate and activate a Serena update |
 | `gestalt serena version` | Print the installed Serena version without startup |
@@ -414,3 +416,114 @@ Recovery preserves payload and provider history. An unknown ownership result
 means Gestalt retained the affected state for review. See
 [troubleshooting](../troubleshooting.md#an-update-fails-or-retains-state) before
 retrying or removing retained files.
+
+## Other agent CLIs
+
+`gestalt cli` is specific to Codex: it wraps the executable to intercept
+approvals, proxies `app-server`, and verifies the context-mode installation.
+Other agent CLIs do not have those integration points, so they are launched by
+a separate command rather than a flag on `cli`:
+
+```sh
+gestalt agent list                              # which providers are installed
+gestalt agent claude                            # interactive Claude Code session
+gestalt agent claude -- -p "explain tar -xzf"   # one-shot
+gestalt agent antigravity                       # Google Antigravity session
+gestalt agent ollama -- run qwen2.5-coder:3b    # local chat REPL
+gestalt agent opencode                          # OpenCode session
+```
+
+Each provider runs as it is installed on your system, with its own
+authentication. `gestalt agent claude` is your local Claude Code and your own
+sign-in; nothing is configured or required. Arguments after the provider are
+forwarded unchanged, and as with `cli` no model, approval or permission policy
+is injected: that stays in the agent's own configuration.
+
+`GESTALT_HOME` is exported to the child. Nothing else is set by default.
+
+A provider name is not always its executable: `antigravity` runs Google's `agy`.
+The executable name is accepted as an alias, so `gestalt agent agy` works too.
+
+For unattended sessions, prefer `claude setup-token` over an interactive
+sign-in: an interactive login can lapse and leave a session stuck at a prompt.
+
+### Chaining print-mode calls
+
+A provider's interactive session keeps its context for as long as the process
+runs, the same way `gestalt cli` does with Codex. Print mode is different:
+each `-p` call is a complete conversation that starts fresh and exits. Within
+one call the agent still runs its whole loop of tool calls and file reads; what
+it does not carry over is anything from a previous call.
+
+Sessions are saved to disk, so a script can chain them. Capture the id from the
+first call and resume it on the next:
+
+```sh
+sid=$(gestalt agent claude -- -p --output-format json "analyze this repo" | jq -r .session_id)
+gestalt agent claude -- -r "$sid" -p "now fix the issues you found"
+```
+
+For a simple sequence in one directory, `-c` continues the most recent session
+and needs no bookkeeping:
+
+```sh
+gestalt agent claude -- -p    "analyze this repo"
+gestalt agent claude -- -c -p "now fix the issues you found"
+```
+
+The flags are close to uniform across the agentic providers:
+
+| Provider | Continue the latest | Resume a specific session |
+| --- | --- | --- |
+| `claude` | `-c`, `--continue` | `-r`, `--resume <id>` |
+| `antigravity` | `-c`, `--continue` | `-r`, `--conversation <id>` |
+| `opencode` | `-c`, `--continue` | `-s`, `--session <id>` |
+| `ollama` | not applicable | not applicable |
+
+`ollama` is a chat REPL with no stored sessions, so nothing carries between
+invocations.
+
+Gestalt adds no session layer of its own: these are the provider's own flags,
+forwarded unchanged. The `providerThreads` entries that Gestalt records in a
+workspace's scratch marker track which threads still borrow its temporary
+directory, so recovery knows who is using it; they are not conversation
+bookkeeping and cannot be used to resume one.
+
+Two things to know before relying on a chain:
+
+- A resumed session keeps the system prompt it started with. Passing different
+  system-prompt flags on a later call has no effect until the conversation is
+  compacted or a new one starts.
+- `--fork-session` (with `-r` or `-c`) branches under a new id and leaves the
+  original untouched, which is useful when a chain needs to try two directions.
+  `--no-session-persistence` saves nothing, so that session cannot be resumed.
+
+Claude Code's own flag reference is the authority for the rest; Gestalt does not
+filter or rewrite them.
+
+### Optional: point a provider at a different endpoint
+
+Only needed if you want a provider to talk to something other than its
+default. Leave these unset for normal use.
+
+| Variable | Becomes | Provider |
+| --- | --- | --- |
+| `GESTALT_OLLAMA_HOST` | `OLLAMA_HOST` | `ollama` |
+| `GESTALT_CLAUDE_BASE_URL` | `ANTHROPIC_BASE_URL` | `claude` |
+| `GESTALT_CLAUDE_AUTH_TOKEN` | `ANTHROPIC_AUTH_TOKEN` | `claude` |
+
+`GESTALT_OLLAMA_HOST` reaches a remote Ollama server instead of localhost.
+`antigravity` documents no endpoint override, so none is invented for it.
+
+The two `claude` variables are for running Claude Code against a self-hosted
+gateway rather than Anthropic, so that it serves open-weight models. Setting
+either one **takes precedence over your `claude.ai` login**, so set them only
+when that is what you want, and only for that session. The gateway must speak
+the Anthropic Messages API; `ANTHROPIC_AUTH_TOKEN` is the bearer-token path,
+while `ANTHROPIC_API_KEY` is the separate `x-api-key` path and is never set
+here.
+
+Credentials are never read or written by `gestalt agent`; export them yourself.
+
+For `opencode`, the endpoint and credentials live in opencode's own
+configuration (`~/.config/opencode/opencode.json`), not in gestalt.

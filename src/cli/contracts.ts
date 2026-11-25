@@ -1,6 +1,6 @@
 /** Migration inventory, not a replacement parser. public/gestalt owns dispatch until cutover. */
 export const commandNames = [
-  'install', 'agents', 'update', 'update-restart', 'cli', 'mobile', 'scratch',
+  'install', 'agents', 'agent', 'update', 'update-restart', 'cli', 'mobile', 'scratch',
   'serena', 'playwright', 'path', 'skills', 'skills-export', 'skills-import',
   'doctor', 'version', 'help',
 ] as const;

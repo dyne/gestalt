@@ -835,6 +835,9 @@ Commands:
   update-restart [COMPONENT] [--extra-skills]
                             Update from a live Mobile session, then restart Mobile.
   cli [--] [args...]        Start Codex with ~/.codex-gestalt as CODEX_HOME.
+  agent <provider> [--] [args...]
+                            Start another agent CLI (claude, ollama, opencode).
+  agent list                Show which agent providers are installed.
   mobile [--] [args...]     Start the managed Gestalt Mobile executable.
                             Workspace defaults to ~/gestalt; override with --cwd ROOT.
   mobile reset-passkeys --public-origin ORIGIN --confirm
@@ -5214,6 +5217,119 @@ process.exitCode = interrupted ? interruptionCode : result.code;
 NODE
 }
 
+# --- Alternative agent CLIs -------------------------------------------------
+#
+# `gestalt cli` is a Codex integration: it wraps Codex to intercept approvals
+# and proxy app-server, and verifies context-mode. None of that applies to
+# other agent CLIs, so they get their own command rather than a flag on `cli`.
+#
+# Deliberately no policy injection: the operator's arguments are forwarded
+# untouched, matching how `cli` treats native Codex invocation. Model choice,
+# approval mode and provider credentials stay with the agent's own config.
+
+agent_provider_names=(antigravity claude ollama opencode)
+
+# The provider name is not always the executable name: Google's Antigravity
+# ships as `agy`.
+agent_provider_binary() {
+  case $1 in
+    antigravity) printf 'agy' ;;
+    claude) printf 'claude' ;;
+    ollama) printf 'ollama' ;;
+    opencode) printf 'opencode' ;;
+    *) return 1 ;;
+  esac
+}
+
+agent_provider_summary() {
+  case $1 in
+    antigravity) printf 'Google Antigravity (agy)' ;;
+    claude) printf 'Claude Code (interactive agent)' ;;
+    ollama) printf 'Ollama chat REPL for local models' ;;
+    opencode) printf 'OpenCode agent over any OpenAI-compatible endpoint' ;;
+    *) return 1 ;;
+  esac
+}
+
+# Environment a provider needs, read from the operator's environment only.
+# Nothing is written to persistent configuration and no secret is constructed
+# here; an unset variable simply means the agent uses its own defaults.
+agent_provider_environment() {
+  local provider=$1
+  agent_provider_env=()
+  case $provider in
+    claude)
+      [[ -n ${GESTALT_CLAUDE_BASE_URL:-} ]] &&
+        agent_provider_env+=("ANTHROPIC_BASE_URL=$GESTALT_CLAUDE_BASE_URL")
+      # A gateway authenticates with a bearer token, which Claude Code reads
+      # from ANTHROPIC_AUTH_TOKEN. ANTHROPIC_API_KEY is the x-api-key path and
+      # is deliberately not set here.
+      [[ -n ${GESTALT_CLAUDE_AUTH_TOKEN:-} ]] &&
+        agent_provider_env+=("ANTHROPIC_AUTH_TOKEN=$GESTALT_CLAUDE_AUTH_TOKEN") ;;
+    ollama)
+      [[ -n ${GESTALT_OLLAMA_HOST:-} ]] &&
+        agent_provider_env+=("OLLAMA_HOST=$GESTALT_OLLAMA_HOST") ;;
+  esac
+  return 0
+}
+
+command_agent() {
+  local provider=${1:-}
+  case $provider in
+    '' | -h | --help | help)
+      printf 'Usage: gestalt agent <provider> [--] [args...]\n\nProviders:\n'
+      local name summary
+      for name in "${agent_provider_names[@]}"; do
+        summary=$(agent_provider_summary "$name")
+        printf '  %-12s %s\n' "$name" "$summary"
+      done
+      printf '\nArguments after the provider are forwarded to it unchanged.\n'
+      printf '\nEach provider runs with its own installation and authentication;\n'
+      printf 'nothing else is required. Optional endpoint overrides:\n'
+      printf '  GESTALT_OLLAMA_HOST        remote Ollama instead of localhost\n'
+      printf '  GESTALT_CLAUDE_BASE_URL    run claude against a gateway\n'
+      printf '  GESTALT_CLAUDE_AUTH_TOKEN  that gateway bearer token\n'
+      printf '                             (takes precedence over your claude.ai login)\n'
+      return 0 ;;
+    list)
+      local name summary
+      for name in "${agent_provider_names[@]}"; do
+        summary=$(agent_provider_summary "$name")
+        if command -v "$(agent_provider_binary "$name")" >/dev/null 2>&1; then
+          printf '%-12s INSTALLED   %s\n' "$name" "$summary"
+        else
+          printf '%-12s not found   %s\n' "$name" "$summary"
+        fi
+      done
+      return 0 ;;
+  esac
+
+  # Accept the executable name as an alias for the provider.
+  case $provider in
+    agy) provider=antigravity ;;
+  esac
+
+  local known=false name
+  for name in "${agent_provider_names[@]}"; do
+    [[ $name == "$provider" ]] && known=true && break
+  done
+  $known || die "unknown agent provider: $provider (run 'gestalt agent list')"
+
+  shift
+  strip_separator "$@"
+
+  local binary
+  binary=$(agent_provider_binary "$provider")
+  require_command "$binary"
+
+  agent_provider_environment "$provider"
+  log "starting $provider with GESTALT_HOME=$gestalt_home"
+  exec env GESTALT_HOME="$gestalt_home" \
+    PATH="$gestalt_home/bin:$PATH" \
+    ${agent_provider_env[@]+"${agent_provider_env[@]}"} \
+    "$binary" ${forwarded_args[@]+"${forwarded_args[@]}"}
+}
+
 command_cli() {
   check_node_version
   require_command codex
@@ -5478,6 +5594,18 @@ command_version() {
   fi
   if command -v kimi >/dev/null 2>&1; then
     value=$(kimi --version 2>/dev/null) && print_check 'Kimi CLI' "$value"
+  fi
+  if command -v claude >/dev/null 2>&1; then
+    value=$(claude --version 2>/dev/null) && print_check 'Claude Code CLI' "$value"
+  fi
+  if command -v ollama >/dev/null 2>&1; then
+    value=$(ollama --version 2>/dev/null | head -1) && print_check 'Ollama CLI' "$value"
+  fi
+  if command -v opencode >/dev/null 2>&1; then
+    value=$(opencode --version 2>/dev/null | head -1) && print_check 'OpenCode CLI' "$value"
+  fi
+  if command -v agy >/dev/null 2>&1; then
+    value=$(agy --version 2>/dev/null | head -1) && print_check 'Antigravity CLI' "$value"
   fi
   value=$(serena_versions serena 2>/dev/null || true)
   print_check 'Serena' "${value:-NOT INSTALLED (optional)}"
@@ -6050,6 +6178,7 @@ main() {
       fi
       ;;
     cli) command_cli "$@" ;;
+    agent) command_agent "$@" ;;
     mobile) command_mobile "$@" ;;
     xerj) die 'Xerj has been retired; run gestalt update to migrate managed configuration. User data is retained.' ;;
     serena) command_serena "$@" ;;

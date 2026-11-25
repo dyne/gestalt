@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "Codex</br>On The Road"
   text: "CLI & mobile"
-  tagline: "Stop assembling the pieces and start perceiving the whole."
+  tagline: "Run Codex in your terminal or use your phone to review plans and follow sessions."
   image:
     src: https://dyne.org/images/logos/gestalt_logo.svg
     alt: Hands-on, Dyne.org style
@@ -29,6 +29,8 @@ features:
 <HomeScreenshotCarousel />
 
 <InstallCommand />
+
+Already installed? [Jump to update instructions](#update-gestalt).
 
 ## Start your first session
 
@@ -69,5 +71,28 @@ tool on Linux or macOS, run either command below.
 ```sh
 npx gestalt serena install
 npx gestalt playwright install
+```
+:::
+
+## Update Gestalt
+
+If you installed Gestalt for your user, run these commands from any directory.
+The first upgrades Gestalt Manager in `~/.local`. The second updates Agents,
+Context Mode, Mobile, and the Dyne.org skill collection.
+
+```sh
+npm install -g --prefix "$HOME/.local" --allow-scripts=@jaromil/gestalt @jaromil/gestalt@latest
+gestalt update
+```
+
+Serena and Playwright are updated if installed. The update finishes by printing
+the component versions. Run `gestalt version` to see them again later.
+
+::: details Update a project-local installation
+Run both commands from the directory containing your project's `package.json`.
+
+```sh
+npm install @jaromil/gestalt@latest
+npx gestalt update
 ```
 :::

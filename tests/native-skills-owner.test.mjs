@@ -42,6 +42,8 @@ test('host skills transaction delegates binary-safe Git only and preserves exact
   const receiptFile = path.join(f.home, 'gestalt-skills/receipt.json'), before = await readFile(receiptFile), names = await readdir(f.home), calls = f.calls.length;
   assert.equal(await manageSkills(f.context, 'status', 'json'), 0);
   const report = JSON.parse(f.output.at(-1)); assert.equal(report.status, 'ready'); assert.equal(report.verifiedSource, false);
+  assert.equal(await manageSkills(f.context, 'status', 'version'), 0);
+  assert.match(f.output.at(-1).toString(), /^Gestalt Skills +0\.1\.0$/m);
   assert.deepEqual(await readFile(receiptFile), before); assert.deepEqual(await readdir(f.home), names); assert.equal(f.calls.length, calls);
 });
 test('host skills keeps transaction stage/lock on successful Git with unknown lifetime and refuses automatic repeat', async t => {

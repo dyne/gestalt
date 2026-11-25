@@ -107,7 +107,7 @@ for (const tag of ['v0.14.2', 'v0.15.1']) {
     assert.equal(events.filter(value => value === '__updated-manager').length, 1);
     for (const edge of ['skills:update', 'agents:upgrade:true', 'mobile', 'serena:update', 'playwright:update']) assert.equal(events.filter(value => value === edge).length, 1);
     assert.equal(events.find(value => value.startsWith('stage:')).slice(6).startsWith(`${f.bin}/.gestalt.`), true);
-    assert.equal((await f.run(['version'])).stdout.split('\n')[0], `gestalt ${candidateVersion}`);
+    assert.equal((await f.run(['version'])).stdout.split('\n')[0], `Gestalt Manager ${candidateVersion}`);
     assert.deepEqual((await readdir(f.directory)).filter(value => value.startsWith('gestalt-update.')), []);
   });
 }
@@ -189,5 +189,5 @@ test('released bootstrap installs the complete current standalone asset using a 
   await exec('bash', [installer, '--no-setup'], { env: { ...f.env, GESTALT_BIN_DIR: f.bin }, timeout: 15000 });
   assert.deepEqual(f.requests, ['/gestalt']); assert.deepEqual(await readFile(f.manager), candidate);
   assert.equal((await stat(f.manager)).mode & 0o777, 0o755);
-  assert.equal((await f.run(['version'])).stdout.split('\n')[0], `gestalt ${candidateVersion}`);
+  assert.equal((await f.run(['version'])).stdout.split('\n')[0], `Gestalt Manager ${candidateVersion}`);
 });

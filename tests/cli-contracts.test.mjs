@@ -40,7 +40,7 @@ test('real standalone and npm wrappers preserve read-only help/version/error con
     for (const alias of ['version', '--version', '-V']) {
       const result = run([alias]);
       assert.equal(result.status, 0, result.stderr);
-      assert.equal(result.stdout.split('\n')[0], `gestalt ${version}`);
+      assert.equal(result.stdout.split('\n')[0], `Gestalt Manager ${version}`);
     }
     for (const [args, message] of [
       [['unknown command'], "unknown command: unknown command (run 'gestalt help')"],

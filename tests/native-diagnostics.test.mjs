@@ -40,7 +40,8 @@ test('version aliases route to runtime diagnostics with no implicit setup or met
   for (const token of ['version', '--version', '-V']) {
     const f = await fixture(t), before = await inventory(f.root);
     assert.equal(await runCli({ argv: [token], cwd: f.root, environment: f.environment }, f.streams, metadata, createDiagnosticHandlers(metadata)), 0);
-    assert.match(f.output(), /^gestalt 0\.16\.1\n/); assert.match(f.output(), process.platform === 'win32' ? /DEFERRED \(native optional feature\)/ : /NOT INSTALLED \(optional\)/);
+    assert.match(f.output(), /^Gestalt Manager 0\.16\.1\n/); assert.match(f.output(), process.platform === 'win32' ? /DEFERRED \(native optional feature\)/ : /NOT INSTALLED \(optional\)/);
+    assert.match(f.output(), /^Gestalt Skills +NOT INSTALLED \(optional\)$/m);
     assert.deepEqual(await inventory(f.root), before); assert.equal(f.error(), '');
   }
 });
@@ -72,6 +73,8 @@ test('default diagnostics read exact installed metadata without launching comman
     await runCli({ argv, cwd: f.root, environment: selected }, f.streams, metadata, handlers);
     assert.deepEqual(await inventory(f.root), before);
   }
+  assert.match(f.output(), /^Gestalt Agents +2\.26\.0$/m);
+  assert.match(f.output(), /^Context Mode +2\.26\.0$/m);
   assert.equal(launches, 0); assert.match(f.output(), /Codex sandbox\s+NOT PROBED.*--probe-sandbox/);
   assert.doesNotMatch(f.output(), /Codex sandbox\s+ready/);
 });

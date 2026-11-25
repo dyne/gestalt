@@ -102,7 +102,7 @@ async function fixture(t) {
     const literal = execFileSync(path.join(process.env.SystemRoot, 'System32/cmd.exe'), ['/d', '/s', '/c', 'gestalt --version'],
       { cwd: root, env: { ...environment, PATH: [prefix, environment.PATH].join(path.delimiter) }, encoding: 'utf8', shell: false });
     const packedManifest = JSON.parse(await readFile(path.join(packageRoot, 'package.json')));
-    assert.ok(literal.startsWith(`gestalt ${packedManifest.version}\n`));
+    assert.ok(literal.startsWith(`Gestalt Manager ${packedManifest.version}\n`));
     await evidence(`package-binding-${path.basename(outer)}.json`, { observedAt: new Date().toISOString(), packageRoot, globalShim, launchTarget,
       manifest: packedManifest, installed: await captureCopyTree(packageRoot), literalVersion: literal });
   } else {

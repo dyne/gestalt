@@ -2468,6 +2468,11 @@ command_skills() {
     *) die 'usage: gestalt skills install|update|status [--json]' ;;
   esac
   [[ $operation == status ]] || (($# == 1)) || die 'skills maintenance does not accept additional arguments'
+  run_skills "$operation" "$output_mode"
+}
+
+run_skills() {
+  local -r operation=$1 output_mode=$2
   require_command node
   if [[ $operation != status ]]; then require_command git; fi
   node - "$operation" "$codex_home" "$DEFAULT_SKILLS_SOURCE" "$DEFAULT_SKILLS_REF" "$output_mode" <<'JS'
@@ -2740,6 +2745,13 @@ function status() {
   } catch (error) {
     report.status = 'damaged'; report.integrity = 'invalid'; report.verifiedSource = false;
     report.recoveryCommand = 'gestalt skills update'; report.reason = error.message.slice(0, 512);
+  }
+  if (outputMode === 'version') {
+    const value = report.status === 'ready' ? report.version
+      : report.status === 'missing' ? 'NOT INSTALLED (optional)'
+      : `${report.status.toUpperCase()} (see gestalt skills status)`;
+    console.log(value);
+    return;
   }
   if (outputMode === 'json') console.log(JSON.stringify(report));
   else {
@@ -5462,8 +5474,8 @@ print_check() {
 }
 
 command_version() {
-  local value plugin
-  printf 'gestalt %s\n' "$GESTALT_CLI_VERSION"
+  local value plugin label
+  printf 'Gestalt Manager %s\n' "$GESTALT_CLI_VERSION"
   if [[ -x $mobile_bin ]]; then
     value=$("$mobile_bin" --version 2>/dev/null) && print_check 'Gestalt Mobile' "$value"
   fi
@@ -5471,8 +5483,12 @@ command_version() {
     [[ -d $codex_home ]] || break
     value=$(CODEX_HOME=$codex_home codex plugin list --marketplace "$marketplace_name" --json 2>/dev/null |
       read_plugin_version "$plugin" 2>/dev/null) || continue
-    print_check "$plugin" "$value"
+    label='Context Mode'
+    if [[ $plugin == gestalt ]]; then label='Gestalt Agents'; fi
+    print_check "$label" "$value"
   done
+  value=$(run_skills status version 2>/dev/null) || value='UNKNOWN (see gestalt skills status)'
+  print_check 'Gestalt Skills' "$value"
   if command -v codex >/dev/null 2>&1; then
     value=$(codex --version 2>/dev/null) && print_check 'Codex CLI' "$value"
   fi

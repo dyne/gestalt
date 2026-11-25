@@ -22,7 +22,7 @@ export async function runCli(
   if ((retiredCommandNames as readonly string[]).includes(token))
     return fail('Xerj has been retired; run gestalt update to migrate managed configuration. User data is retained.');
   if (alias === 'help') { await write(metadata.help); return 0; }
-  if (alias === 'version' && !handlers.version) { await write(`gestalt ${metadata.version}\n`); return 0; }
+  if (alias === 'version' && !handlers.version) { await write(`Gestalt Manager ${metadata.version}\n`); return 0; }
   if (!(commandNames as readonly string[]).includes(alias)) {
     if ((internalCommandNames as readonly string[]).includes(token)) {
       const handler = handlers[token as typeof internalCommandNames[number]];

@@ -68,7 +68,7 @@ for (const selected of ['all', 'gestalt', 'serena', 'playwright']) test(`Unix up
   context.prepareHomes = async () => { order.push('homes'); };
   const operations = { manager: async () => { order.push('manager'); return false; }, skills: async (_c, mode) => { order.push(`skills:${mode}`); }, agents: async (_c, mode, extra) => { order.push(`agents:${mode}:${extra}`); }, mobile: async () => { order.push('mobile'); }, component: async (_c, component) => { order.push(component); }, diagnostics: async () => { order.push('doctor'); } };
   await runUpdate(context, parseUpdateOptions([selected]), ['update', selected], false, operations, 'linux');
-  assert.match(report, /^gestalt 0\.0\.0\n/);
+  assert.match(report, /^Gestalt Manager 0\.0\.0\n/);
   assert.match(report, /^Playwright\s+/m);
   const core = ['manager', 'homes', 'skills:update', 'agents:upgrade:false', 'mobile'];
   assert.deepEqual(order, selected === 'all' ? [...core, 'serena', 'playwright', 'doctor'] : selected === 'gestalt' ? [...core, 'doctor'] : [selected]);

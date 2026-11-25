@@ -259,6 +259,13 @@ function status() {
     report.status = 'damaged'; report.integrity = 'invalid'; report.verifiedSource = false;
     report.recoveryCommand = 'gestalt skills update'; report.reason = error.message.slice(0, 512);
   }
+  if (outputMode === 'version') {
+    const value = report.status === 'ready' ? report.version
+      : report.status === 'missing' ? 'NOT INSTALLED (optional)'
+      : `${report.status.toUpperCase()} (see gestalt skills status)`;
+    console.log('Gestalt Skills'.padEnd(24) + value);
+    return;
+  }
   if (outputMode === 'json') console.log(JSON.stringify(report));
   else {
     console.log(`Gestalt skills           ${report.status.toUpperCase()}${report.version ? ` (${report.version}; ${report.revision})` : ''}`);

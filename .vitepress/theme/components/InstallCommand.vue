@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import { withBase } from 'vitepress'
 
-const command = 'npm i @jaromil/gestalt'
+const command = 'npm install -g --prefix "$HOME/.local" --allow-scripts=@jaromil/gestalt @jaromil/gestalt'
 const status = ref('')
 
 async function copyCommand() {
@@ -17,13 +17,14 @@ async function copyCommand() {
 
 <template>
   <section class="install-card" aria-labelledby="install-title">
-    <h2 id="install-title">Install Gestalt with npm</h2>
-    <p>Run <code>npx gestalt</code> to see the available commands.</p>
+    <h2 id="install-title">Install Gestalt for your user</h2>
+    <p>On Linux or macOS, use Node.js 24+, npm, and the Codex CLI. This installs the command in <code>~/.local/bin</code> and sets up Gestalt Agents without <code>sudo</code>.</p>
     <div class="install-card__command">
       <code>{{ command }}</code>
       <button type="button" @click="copyCommand">Copy</button>
     </div>
     <p class="visually-hidden" aria-live="polite">{{ status }}</p>
+    <p>If <code>~/.local/bin</code> is missing from your PATH, run <code>export PATH="$HOME/.local/bin:$PATH"</code> and add the same line to <code>~/.bashrc</code> (Bash) or <code>~/.zshrc</code> (Zsh).</p>
     <div class="install-card__links">
       <a :href="withBase('/start/')">Quick start</a>
       <a :href="withBase('/start/install')">Installation options</a>

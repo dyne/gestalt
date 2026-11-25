@@ -30,8 +30,37 @@ features:
 
 <InstallCommand />
 
-## One journey, two interfaces
+## Start your first session
 
-Run `npx gestalt cli` for a terminal session or `npx gestalt mobile` to open
-the web app on Linux or macOS. Both use the isolated Codex profile at
-`~/.codex-gestalt`.
+From any directory, run `gestalt version` to check the installation. Run
+`gestalt cli` to start a terminal session, or `gestalt mobile` to start the
+web app and open the URL it prints. [Your first session](./start/first-session.md)
+
+### Optional tools
+
+On Linux or macOS, install Serena for code navigation or Playwright for browser automation.
+Run the command for the tool you want.
+
+```sh
+gestalt serena install
+gestalt playwright install
+```
+
+::: details Install inside an npm project
+From the directory containing your `package.json`, install Gestalt, approve its
+install script, and set up Agents.
+
+```sh
+npm i @jaromil/gestalt
+npm install-scripts approve @jaromil/gestalt
+npx gestalt agents install
+```
+
+Use `npx gestalt cli` to start a session in this project. To add an optional
+tool on Linux or macOS, run either command below.
+
+```sh
+npx gestalt serena install
+npx gestalt playwright install
+```
+:::

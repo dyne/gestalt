@@ -223,9 +223,9 @@ html {
 
 .install-card__command code {
   min-width: 0;
-  overflow-x: auto;
   color: inherit;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .install-card__command button {

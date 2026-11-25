@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { withBase } from 'vitepress'
+import { VPButton } from 'vitepress/theme'
 
 const command = 'npm install -g --prefix "$HOME/.local" --allow-scripts=@jaromil/gestalt @jaromil/gestalt'
 const status = ref('')
@@ -26,8 +26,8 @@ async function copyCommand() {
     <p class="visually-hidden" aria-live="polite">{{ status }}</p>
     <p>If <code>~/.local/bin</code> is missing from your PATH, run <code>export PATH="$HOME/.local/bin:$PATH"</code> and add the same line to <code>~/.bashrc</code> (Bash) or <code>~/.zshrc</code> (Zsh).</p>
     <div class="install-card__links">
-      <a :href="withBase('/start/')">Quick start</a>
-      <a :href="withBase('/start/install')">Installation options</a>
+      <VPButton size="big" theme="brand" href="/start/" text="Quick start" />
+      <VPButton size="big" theme="alt" href="/start/install" text="Installation options" />
     </div>
   </section>
 </template>

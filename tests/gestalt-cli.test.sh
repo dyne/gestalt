@@ -4,7 +4,7 @@ set -Eeuo pipefail
 repo_root=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 manager_version=$(bash "$repo_root/public/gestalt" version)
 manager_version=${manager_version%%$'\n'*}
-manager_version=${manager_version#gestalt }
+manager_version=${manager_version#Gestalt Manager }
 test_root=$(mktemp -d "${TMPDIR:-/tmp}/gestalt-cli-test.XXXXXXXX")
 test_relay_pid=''
 cleanup() {

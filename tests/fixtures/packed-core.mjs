@@ -154,7 +154,7 @@ export async function installPackedCore(tarball, fixture, environment, agents, e
       const result = run(path.join(env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'),
         ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', 'gestalt.cmd --version']);
       assert.equal(result.status, 0, result.stderr);
-      assert.equal(result.stdout.split(/\r?\n/, 1)[0], `gestalt ${manifest.version}`);
+      assert.equal(result.stdout.split(/\r?\n/, 1)[0], `Gestalt Manager ${manifest.version}`);
     }
     return { entry, packageRoot, environment: env, receipt: { tarball, sha256: hash(await readFile(tarball)), manifest,
       prefix, actualGlobalShim,

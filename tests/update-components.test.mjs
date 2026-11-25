@@ -218,7 +218,7 @@ for (const failed of ['manager', 'skills:update', 'agents:upgrade:false', 'mobil
     const order = ['manager', 'skills:update', 'agents:upgrade:false', 'mobile', 'serena'];
     await assert.rejects(f.run(['update'], { GESTALT_TEST_UPDATE_FAIL: failed }), error => {
       assert.doesNotMatch(error.stderr, /update complete/);
-      assert.doesNotMatch(error.stdout, /^gestalt /m);
+      assert.doesNotMatch(error.stdout, /^Gestalt Manager /m);
       return true;
     });
     assert.deepEqual(await f.operations(), order.slice(0, order.indexOf(failed) + 1));

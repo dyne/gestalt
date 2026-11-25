@@ -546,7 +546,7 @@ check_versions=$(bash "$repo_root/public/gestalt" version)
 grep -E '^Gestalt Mobile +0\.1\.0$' <<< "$check_versions" >/dev/null
 grep -E '^Gestalt Skills +0\.1\.0$' <<< "$check_versions" >/dev/null
 grep -E '^Gestalt Agents +2\.1\.0$' <<< "$check_versions" >/dev/null
-grep -E '^context-mode +2\.1\.0$' <<< "$check_versions" >/dev/null
+grep -E '^Context Mode +2\.1\.0$' <<< "$check_versions" >/dev/null
 grep -E '^Codex CLI +codex-cli 1\.0\.0$' <<< "$check_versions" >/dev/null
 grep -E '^Supervision contract +ready \(v1; offline manifests\)$' "$test_root/doctor.out" >/dev/null
 grep -E '^L1 model policy +LEGACY ' "$test_root/doctor.out" >/dev/null
@@ -584,7 +584,7 @@ if (!example) throw new Error('Documented installed-verification example missing
 fs.writeFileSync(process.argv[3], 'set -Eeuo pipefail\n' + example[1]);
 EXAMPLES
 PATH="$documented_bin:$PATH" bash "$test_root/documented-verification.sh" > "$test_root/documented-verification.out"
-grep -F "gestalt $manager_version" "$test_root/documented-verification.out" >/dev/null
+grep -F "Gestalt Manager $manager_version" "$test_root/documented-verification.out" >/dev/null
 grep -F '"codexHome"' "$test_root/documented-verification.out" >/dev/null
 grep -F 'All diagnostics passed.' "$test_root/documented-verification.out" >/dev/null
 
@@ -609,7 +609,7 @@ fi
 grep -E '^L1 model policy +INCOMPATIBLE ' "$test_root/partial-policy-doctor.out" >/dev/null
 # A diagnostic mismatch must not block unrelated commands.
 bash "$repo_root/public/gestalt" version > "$test_root/partial-policy-version.out"
-grep -F "gestalt $manager_version" "$test_root/partial-policy-version.out" >/dev/null
+grep -F "Gestalt Manager $manager_version" "$test_root/partial-policy-version.out" >/dev/null
 upgrade_policy_manifest "$mobile_capability_manifest"
 bash "$repo_root/public/gestalt" doctor > "$test_root/policy-doctor.out"
 grep -E '^L1 model policy +SUPPORTED .*runtimeEnforcement=false; automatic policy launches unsupported' \

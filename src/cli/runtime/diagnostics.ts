@@ -155,10 +155,10 @@ export async function verifyContextRuntime(context: DiagnosticContext): Promise<
 }
 
 export async function version(context: DiagnosticContext, metadata: Pick<CliMetadata, 'version'>): Promise<number> {
-  await context.streams.stdout(Buffer.from(`gestalt ${metadata.version}\n`));
+  await context.streams.stdout(Buffer.from(`Gestalt Manager ${metadata.version}\n`));
   if (process.platform !== 'win32') { const mobile = await context.query(context.mobile(), ['--version']); if (mobile !== null) await context.print('Gestalt Mobile', mobile); }
   const inventory = await context.inventory();
-  for (const [name, label] of [['gestalt', 'Gestalt Agents'], ['context-mode', 'context-mode']] as const) {
+  for (const [name, label] of [['gestalt', 'Gestalt Agents'], ['context-mode', 'Context Mode']] as const) {
     const value = pluginVersion(inventory, name);
     if (value) await context.print(label, value);
   }

@@ -5475,7 +5475,7 @@ print_check() {
 
 command_version() {
   local value plugin label
-  printf 'gestalt %s\n' "$GESTALT_CLI_VERSION"
+  printf 'Gestalt Manager %s\n' "$GESTALT_CLI_VERSION"
   if [[ -x $mobile_bin ]]; then
     value=$("$mobile_bin" --version 2>/dev/null) && print_check 'Gestalt Mobile' "$value"
   fi
@@ -5483,7 +5483,7 @@ command_version() {
     [[ -d $codex_home ]] || break
     value=$(CODEX_HOME=$codex_home codex plugin list --marketplace "$marketplace_name" --json 2>/dev/null |
       read_plugin_version "$plugin" 2>/dev/null) || continue
-    label=$plugin
+    label='Context Mode'
     if [[ $plugin == gestalt ]]; then label='Gestalt Agents'; fi
     print_check "$label" "$value"
   done

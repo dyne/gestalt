@@ -84,7 +84,7 @@ test('installs the actual npm tarball offline and preserves symlinks, arguments,
     ...npmOptions, join(root, packed.filename)], { cwd: root, timeout: 30_000 });
   const binary = join(prefix, 'bin/gestalt');
   assert.ok((await lstat(binary)).isSymbolicLink());
-  assert.match((await exec(binary, ['--version'])).stdout, new RegExp(`^gestalt ${manifest.version.replaceAll('.', '\\.')}\\n`));
+  assert.match((await exec(binary, ['--version'])).stdout, new RegExp(`^Gestalt Manager ${manifest.version.replaceAll('.', '\\.')}\\n`));
   assert.match((await exec(binary, ['--help'])).stdout, /Usage: gestalt/);
   const installedManager = join(prefix, 'lib/node_modules/@jaromil/gestalt/lib/legacy/gestalt');
   await writeFile(installedManager, '#!/usr/bin/env bash\nprintf "%s\\n" "$GESTALT_MANAGER_DISTRIBUTION" "$@"\ncat\nexit 23\n');
@@ -206,7 +206,7 @@ test('global npm installation automatically reconciles Agents without installing
   const f = await agentsBootstrap(t);
   const { stdout } = await f.install();
   const report = (await exec(f.binary, ['version'], { env: f.env })).stdout;
-  assert.match(report, /^gestalt \d+\.\d+\.\d+\n/);
+  assert.match(report, /^Gestalt Manager \d+\.\d+\.\d+\n/);
   assert.ok(stdout.includes(report));
   const expected = `install|false|${f.env.CODEX_HOME}|${f.env.GESTALT_HOME}|false|unset\n`;
   assert.equal(await readFile(f.log, 'utf8'), expected);
@@ -225,7 +225,7 @@ test('an automatic Agents failure fails npm installation and supplies a recovery
   await assert.rejects(f.install({ AGENTS_TEST_FAIL: 'true' }), error => {
     assert.notEqual(error.code, 0);
     assert.match(error.stderr, /Agents setup failed/);
-    assert.doesNotMatch(error.stdout, /^gestalt \d+\.\d+\.\d+/m);
+    assert.doesNotMatch(error.stdout, /^Gestalt Manager \d+\.\d+\.\d+/m);
     assert.match(error.stderr, /gestalt agents install/);
     return true;
   });
@@ -244,7 +244,7 @@ test('disabling lifecycle scripts leaves setup explicit and the installed comman
 test('local npm install prints the installed version report without provisioning a profile', async t => {
   const f = await agentsBootstrap(t);
   const { stdout } = await f.install({}, [], false);
-  assert.match(stdout, /^gestalt \d+\.\d+\.\d+$/m);
+  assert.match(stdout, /^Gestalt Manager \d+\.\d+\.\d+$/m);
   assert.match(stdout, /^Python \(Serena\)\s+/m);
   for (const home of [f.env.CODEX_HOME, f.env.GESTALT_HOME])
     await assert.rejects(stat(home), { code: 'ENOENT' });

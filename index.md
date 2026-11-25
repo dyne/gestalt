@@ -32,6 +32,12 @@ features:
 
 ## Start your first session
 
+Install the Dyne.org skill collection before opening a session that uses it.
+
+```sh
+gestalt skills install
+```
+
 From any directory, run `gestalt version` to check the installation. Run
 `gestalt cli` to start a terminal session, or `gestalt mobile` to start the
 web app and open the URL it prints. [Your first session](./start/first-session.md)
@@ -48,12 +54,13 @@ gestalt playwright install
 
 ::: details Install inside an npm project
 From the directory containing your `package.json`, install Gestalt, approve its
-install script, and set up Agents.
+install script, then install Agents and the Dyne.org skill collection.
 
 ```sh
 npm i @jaromil/gestalt
 npm install-scripts approve @jaromil/gestalt
 npx gestalt agents install
+npx gestalt skills install
 ```
 
 Use `npx gestalt cli` to start a session in this project. To add an optional

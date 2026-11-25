@@ -158,7 +158,12 @@ export async function version(context: DiagnosticContext, metadata: Pick<CliMeta
   await context.streams.stdout(Buffer.from(`gestalt ${metadata.version}\n`));
   if (process.platform !== 'win32') { const mobile = await context.query(context.mobile(), ['--version']); if (mobile !== null) await context.print('Gestalt Mobile', mobile); }
   const inventory = await context.inventory();
-  for (const name of ['gestalt', 'context-mode']) { const value = pluginVersion(inventory, name); if (value) await context.print(name, value); }
+  for (const [name, label] of [['gestalt', 'Gestalt Agents'], ['context-mode', 'context-mode']] as const) {
+    const value = pluginVersion(inventory, name);
+    if (value) await context.print(label, value);
+  }
+  const skillsContext = new SetupContext(context.invocation, context.streams, context.paths, metadata.version);
+  await manageSkills(skillsContext, 'status', 'version');
   for (const [name, label] of [['codex', 'Codex CLI'], ['kimi', 'Kimi CLI']] as const) {
     const value = await context.executableVersion(name); if (value !== null) await context.print(label, value);
   }

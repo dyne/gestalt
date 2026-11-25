@@ -544,7 +544,8 @@ if grep -i xerj "$test_root/doctor.out" >/dev/null; then
 fi
 check_versions=$(bash "$repo_root/public/gestalt" version)
 grep -E '^Gestalt Mobile +0\.1\.0$' <<< "$check_versions" >/dev/null
-grep -E '^gestalt +2\.1\.0$' <<< "$check_versions" >/dev/null
+grep -E '^Gestalt Skills +0\.1\.0$' <<< "$check_versions" >/dev/null
+grep -E '^Gestalt Agents +2\.1\.0$' <<< "$check_versions" >/dev/null
 grep -E '^context-mode +2\.1\.0$' <<< "$check_versions" >/dev/null
 grep -E '^Codex CLI +codex-cli 1\.0\.0$' <<< "$check_versions" >/dev/null
 grep -E '^Supervision contract +ready \(v1; offline manifests\)$' "$test_root/doctor.out" >/dev/null

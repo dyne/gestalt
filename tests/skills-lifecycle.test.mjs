@@ -138,6 +138,27 @@ if (process.argv[1] === '-') {
 function success(result) { assert.equal(result.code, 0, result.stderr); }
 function failure(result, pattern) { assert.notEqual(result.code, 0, result.stdout); assert.match(result.stderr, pattern); }
 
+test('version distinguishes Agents from the optional skills collection', async t => {
+  const f = await fixture(t);
+  await writeFile(join(f.temp, 'bin/codex'), `#!/bin/sh
+case "$1" in
+  plugin) echo '[{"name":"gestalt","version":"2.7.0"}]' ;;
+  --version) echo 'codex-cli fixture' ;;
+esac
+`, { mode: 0o755 });
+  async function versions() {
+    const result = await f.runCommand('version');
+    success(result);
+    assert.match(result.stdout, /^Gestalt Agents +2\.7\.0$/m);
+    return result.stdout;
+  }
+  assert.match(await versions(), /^Gestalt Skills +NOT INSTALLED \(optional\)$/m);
+  success(await f.run('install'));
+  assert.match(await versions(), /^Gestalt Skills +0\.1\.0$/m);
+  await writeFile(join(f.root, 'receipt.json'), 'invalid');
+  assert.match(await versions(), /^Gestalt Skills +DAMAGED \(see gestalt skills status\)$/m);
+});
+
 test('aliased temporary parents produce canonical skill fixture receipts and discovery paths', async t => {
   const outer = await realpath(await mkdtemp(join(tmpdir(), 'skills alias ')));
   t.after(() => rm(outer, { recursive: true, force: true }));

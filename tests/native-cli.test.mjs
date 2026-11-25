@@ -40,7 +40,7 @@ test('compiled Windows Node artifact runs without Bash, a runtime compiler or so
   for (const alias of ['version', '--version', '-V']) {
     const result = run([alias]);
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout, `gestalt ${metadata.version}\n` + ['Serena', 'Playwright', 'Playwright readiness', 'Gestalt Mobile'].map(label => label.padEnd(24) + 'DEFERRED (native optional feature)\n').join('') +
+    assert.equal(result.stdout, `gestalt ${metadata.version}\n` + 'Gestalt Skills'.padEnd(24) + 'NOT INSTALLED (optional)\n' + ['Serena', 'Playwright', 'Playwright readiness', 'Gestalt Mobile'].map(label => label.padEnd(24) + 'DEFERRED (native optional feature)\n').join('') +
       ['uv (Serena)', 'Python (Serena)'].map(label => label.padEnd(24) + 'NOT REQUIRED (native Serena deferred)\n').join(''));
     assert.equal(result.stderr, '');
   }

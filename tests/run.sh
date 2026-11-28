@@ -47,7 +47,7 @@ npm --prefix "$repo_root" run test:contracts
 node --test "$repo_root/tests/unix-compatibility.test.mjs"
 npm --prefix "$repo_root" run test:core-runtime:focused
 bash -n "$repo_root/public/gestalt"
-bash -n "$repo_root/public/install.sh"
+bash -n "$repo_root/public/install"
 node --check "$repo_root/npm/gestalt"
 bash "$repo_root/tests/gestalt-cli.test.sh"
 bash "$repo_root/tests/install.test.sh"
@@ -63,7 +63,7 @@ node --test "$repo_root/tests/npm-package.test.mjs" "$repo_root/tests/npm-public
 if command -v shellcheck >/dev/null 2>&1; then
   shellcheck \
     "$repo_root/public/gestalt" \
-    "$repo_root/public/install.sh" \
+    "$repo_root/public/install" \
     "$repo_root/tests/gestalt-cli.test.sh" \
     "$repo_root/tests/install.test.sh" \
     "$repo_root/tests/skills-transfer.test.sh"

@@ -22,7 +22,7 @@ running Gestalt on Windows.
 | `gestalt update-restart` | From a supported Unix Mobile session, update and gracefully restart Mobile |
 | `gestalt cli [args…]` | Launch Codex with the isolated Gestalt home |
 | `gestalt serena install` | Prepare the optional managed Serena release |
-| `gestalt serena update [VERSION]` | Validate and activate a Serena update |
+| `gestalt serena update [VERSION] [--prune-offline]` | Update Serena and optionally remove inactive releases after shutdown |
 | `gestalt serena version` | Print the installed Serena version without startup |
 | `gestalt serena doctor [--cwd ROOT] [--json]` | Check install, connection, and optional project language readiness |
 | `gestalt serena index --cwd ROOT` | Explicitly warm native project caches |

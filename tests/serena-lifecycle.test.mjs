@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, chmod } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, chmod, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
@@ -92,6 +92,23 @@ test('top-level Serena selector uses the verified managed installer without inst
   assert.deepEqual((await readdir(f.managed)).sort(), ['serena']);
   assert.deepEqual(await readdir(f.home), []);
 });
+test('explicit, latest, and top-level updates reuse a healthy same-version installation', async t => {
+  const f = await fixture(t);
+  let r = f.run(['install']); assert.equal(r.status, 0, r.stderr);
+  const directory = join(f.managed, 'serena');
+  const active = join(directory, 'active.json');
+  const before = await readFile(active, 'utf8');
+  const entries = (await readdir(directory)).sort();
+  r = f.run(['update', '1.7.0'], {FAIL_STAGE:'network'});
+  assert.equal(r.status, 0, r.stderr);
+  r = f.run(['update']); assert.equal(r.status, 0, r.stderr);
+  r = spawnSync('bash', [manager, 'update', 'serena'], {
+    env: f.env, input: '', encoding: 'utf8', timeout: 20000,
+  });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(await readFile(active, 'utf8'), before);
+  assert.deepEqual((await readdir(directory)).sort(), entries);
+});
 test('private unattended install with spaces; idempotence; staged update leaves live prior release usable', async t => {
   const f = await fixture(t);
   let r = f.run(['install']); assert.equal(r.status, 0, r.stderr);
@@ -100,11 +117,48 @@ test('private unattended install with spaces; idempotence; staged update leaves 
   assert.ok(d.executable.startsWith(f.managed));
   r = f.run(['install'], {FAIL_STAGE:'network'}); assert.equal(r.status, 0, r.stderr);
   assert.equal(await readFile(active, 'utf8'), before);
-  r = f.run(['update']); assert.equal(r.status, 0, r.stderr);
+  r = f.run(['update', '1.8.0']); assert.equal(r.status, 0, r.stderr);
   assert.notEqual(await readFile(active, 'utf8'), before);
   assert.ok((await readFile(d.executable)).length);
   assert.deepEqual(await readdir(f.home), []);
   assert.ok(!(await readdir(join(f.managed, 'serena'))).includes('.install-lock'));
+});
+test('offline pruning preserves the active installation and unrelated entries', async t => {
+  const f = await fixture(t);
+  let r = f.run(['install']); assert.equal(r.status, 0, r.stderr);
+  r = f.run(['update', '1.8.0']); assert.equal(r.status, 0, r.stderr);
+  const directory = join(f.managed, 'serena');
+  const active = join(directory, 'active.json');
+  const before = await readFile(active, 'utf8');
+  const release = JSON.parse(before).executable.split('/').at(-3);
+  await mkdir(join(directory, 'notes'));
+  await symlink(join(directory, 'notes'), join(directory, 'release-9.9.9.abcd1234'), 'dir');
+  const entries = (await readdir(directory)).sort();
+  r = f.run(['update', '1.9.0', '--prune-offline'], {FAIL_STAGE:'network'});
+  assert.notEqual(r.status, 0);
+  assert.deepEqual((await readdir(directory)).sort(), entries);
+  r = f.run(['update', '1.8.0', '--prune-offline'], {FAIL_STAGE:'network'});
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(await readFile(active, 'utf8'), before);
+  assert.deepEqual((await readdir(directory)).sort(),
+    ['active.json', 'notes', release, 'release-9.9.9.abcd1234'].sort());
+  r = f.run(['update', '--prune-offline'], {LATEST_VERSION:'1.9.0'});
+  assert.equal(r.status, 0, r.stderr);
+  const next = JSON.parse(await readFile(active, 'utf8'));
+  assert.equal(next.version, '1.9.0');
+  assert.deepEqual((await readdir(directory)).sort(),
+    ['active.json', 'notes', next.executable.split('/').at(-3), 'release-9.9.9.abcd1234'].sort());
+});
+test('same-version update repairs a damaged installation', async t => {
+  const f = await fixture(t);
+  let r = f.run(['install']); assert.equal(r.status, 0, r.stderr);
+  const active = join(f.managed, 'serena', 'active.json');
+  const before = JSON.parse(await readFile(active, 'utf8'));
+  await chmod(before.executable, 0o644);
+  r = f.run(['update', before.version]); assert.equal(r.status, 0, r.stderr);
+  const after = JSON.parse(await readFile(active, 'utf8'));
+  assert.equal(after.version, before.version);
+  assert.notEqual(after.executable, before.executable);
 });
 for (const [failure, extra] of Object.entries({ network:{FAIL_STAGE:'network'}, checksum:{FAKE_CHECKSUM:'0'.repeat(64)},
   version:{UV_BAD_VERSION:'9.0.0'}, python:{FAIL_STAGE:'python'}, package:{FAIL_STAGE:'download'},
@@ -113,7 +167,7 @@ for (const [failure, extra] of Object.entries({ network:{FAIL_STAGE:'network'}, 
     const f = await fixture(t); let r = f.run(['install']); assert.equal(r.status, 0, r.stderr);
     const active = join(f.managed, 'serena/active.json'), before = await readFile(active, 'utf8');
     const data = join(f.root, 'memory.md'); await writeFile(data, 'retained');
-    r = f.run(['update'], extra); assert.notEqual(r.status, 0);
+    r = f.run(['update', '1.8.0'], extra); assert.notEqual(r.status, 0);
     assert.equal(await readFile(active, 'utf8'), before); assert.equal(await readFile(data, 'utf8'), 'retained');
     assert.deepEqual((await readdir(join(f.managed, 'serena'))).sort(),
       ['active.json', JSON.parse(before).executable.split('/').at(-3)].sort());
@@ -122,7 +176,7 @@ for (const [failure, extra] of Object.entries({ network:{FAIL_STAGE:'network'}, 
 test('signal immediately after promotion cannot delete the activated release', async t => {
   const f=await fixture(t);let r=f.run(['install']);assert.equal(r.status,0,r.stderr);
   const active=join(f.managed,'serena/active.json'), before=JSON.parse(await readFile(active,'utf8'));
-  r=f.run(['update'],{FAIL_STAGE:'promotion'});assert.notEqual(r.status,0);
+  r=f.run(['update','1.8.0'],{FAIL_STAGE:'promotion'});assert.notEqual(r.status,0);
   const after=JSON.parse(await readFile(active,'utf8'));assert.notEqual(after.executable,before.executable);
   assert.ok((await readFile(after.executable)).length);assert.ok((await readFile(before.executable)).length);
   assert.ok(!(await readdir(join(f.managed,'serena'))).includes('.install-lock'));
@@ -145,7 +199,6 @@ test('latest compatible release is promoted; explicit incompatible candidate ret
 test('missing dependency is diagnosed before creating installation state', async t => {
   const f = await fixture(t);
   const minimal = join(f.root, 'minimal'); await mkdir(minimal);
-  const { symlink } = await import('node:fs/promises');
   await symlink(process.execPath, join(minimal, 'node'));
   const r = spawnSync('/bin/bash', [manager, 'serena', 'install'], { env: { ...process.env,
     PATH:minimal, HOME:f.home, GESTALT_HOME:f.managed, CODEX_HOME:join(f.root,'codex') }, encoding:'utf8' });

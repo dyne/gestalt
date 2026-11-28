@@ -123,7 +123,8 @@ the owner is quiescent. See [scratch inspection](cli/index.md#inspect-retained-s
 This route applies to Linux and macOS. Native Windows core setup omits Serena.
 
 Use `gestalt serena install` to prepare missing tooling and
-`gestalt serena update` to repair or refresh the supported release. Download,
+`gestalt serena update` to repair or refresh the supported release. An update
+reuses a healthy installation of the requested version. Download,
 checksum, Python, package and MCP validation failures leave the prior active
 installation intact. Check network access to official GitHub releases, Python
 distribution downloads and the Python package index. No system uv is required.
@@ -132,6 +133,15 @@ The install lock prevents concurrent promotion. Interrupts clean up the candidat
 and lock. After an uncatchable kill, verify no installer is still running before
 removing `$GESTALT_HOME/serena/.install-lock` and retrying. Unactivated candidate
 directories can then be removed; retain active and in-use releases.
+
+After stopping Gestalt Mobile, Codex, and any standalone Serena processes that
+use this Gestalt home, run `gestalt serena update VERSION --prune-offline` to
+keep the active release and remove the other managed release directories. Use
+the output of `gestalt serena version` to clean up without changing versions.
+Some workspace uv environments may still link to an interpreter in a removed
+release. If a workspace's language server then fails, set aside its
+`.gestalt/serena/uv-tools`, `uv-bin`, and `uv-cache` directories and let Serena
+recreate them. Keep the rest of the workspace's Serena state.
 
 Run `gestalt serena doctor --cwd /absolute/project/path` to distinguish missing
 installation, a failed MCP connection, and a failed project language service.

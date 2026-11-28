@@ -849,7 +849,8 @@ Commands:
   playwright doctor [--json] [--launch] [--executable-path PATH] Check package and Chrome; optionally test a local page.
   playwright mcp --cwd ROOT    Managed headless stdio (workspace profile).
   serena install            Install private uv, Python 3.13 and tested Serena.
-  serena update [VERSION]   Validate and activate a release; retain prior tooling.
+  serena update [VERSION] [--prune-offline]
+                            Update Serena; optionally remove inactive releases after shutdown.
   serena version, -V        Read installed package metadata without creating state.
   serena doctor [--cwd ROOT] Check install, sandbox, MCP tools and optional language readiness.
   serena index --cwd ROOT    Explicit native symbol/cache warmup for one project.
@@ -1163,7 +1164,7 @@ JS
 }
 
 install_serena() {
-  local version=${1:-$MANAGED_SERENA_VERSION} os cpu target asset base expected actual listing candidate
+  local version=${1:-$MANAGED_SERENA_VERSION} prune=${2:-false} os cpu target asset base expected actual listing candidate
   [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die 'Serena release must be a stable VERSION (major.minor.patch)'
   require_command node
   require_command curl
@@ -1189,6 +1190,11 @@ install_serena() {
   serena_install_lock=$gestalt_home/serena/.install-lock
   trap 'exit 130' INT
   trap 'exit 143' TERM
+  if [[ $# -gt 0 ]] && serena_install_valid "$version" "$MANAGED_UV_VERSION"; then
+    log "Serena $version already installed and validated"
+    if [[ $prune == true ]]; then prune_serena_releases; fi
+    return
+  fi
   # Construct at the final path: uv environments contain absolute interpreter paths.
   serena_install_candidate=$(mktemp -d "$gestalt_home/serena/release-$version.XXXXXXXX")
   candidate=$serena_install_candidate
@@ -1299,6 +1305,31 @@ PYTHON
   rm -rf -- "$candidate/probe" "$candidate/probe-workspace" "${candidate:?}/home" "$candidate/tmp" "$candidate/cache"
   rm -f -- "$candidate/uv.tar.gz" "$candidate/uv.sha256"
   log "installed Serena $version with uv $MANAGED_UV_VERSION and Python 3.13"
+  if [[ $prune == true ]]; then prune_serena_releases; fi
+}
+
+# Called only with the installation lock and explicit offline authorization.
+prune_serena_releases() {
+  node - "$gestalt_home/serena" <<'JS'
+const fs = require('node:fs'), path = require('node:path');
+const root = process.argv[2], pattern = /^release-\d+\.\d+\.\d+\.[A-Za-z0-9]{8}$/;
+const active = JSON.parse(fs.readFileSync(path.join(root, 'active.json'), 'utf8'));
+const release = path.dirname(path.dirname(active.executable));
+if (path.dirname(release) !== root || !pattern.test(path.basename(release)) ||
+    !fs.lstatSync(release).isDirectory() ||
+    ![[active.executable, 'bin/serena'], [active.python, 'tools/serena-agent/bin/python'],
+      [active.uv, 'bin/uv'], [active.pythonInstallDir, 'python']].every(([value, relative]) =>
+      value === path.join(release, relative) &&
+      fs.realpathSync(value).startsWith(fs.realpathSync(release) + path.sep))) {
+  throw new Error('cannot identify the active managed Serena release for pruning');
+}
+for (const entry of fs.readdirSync(root, {withFileTypes: true})) {
+  const candidate = path.join(root, entry.name);
+  if (candidate === release || !entry.isDirectory() || !pattern.test(entry.name)) continue;
+  fs.rmSync(candidate, {recursive: true});
+  console.error('gestalt: removed inactive Serena release ' + entry.name);
+}
+JS
 }
 
 # Embedded to preserve the manager's single-file distribution contract.
@@ -1874,7 +1905,8 @@ Usage: gestalt serena <command> [options]
 
 Commands:
   install                    Install private uv, Python 3.13 and tested Serena.
-  update [VERSION]           Validate and activate a release; retain prior tooling.
+  update [VERSION] [--prune-offline]
+                             Update Serena; remove inactive releases only after shutdown.
   version                    Read the installed version without starting Serena.
   doctor [--cwd ROOT] [--json] Check installation and optional workspace readiness.
   index --cwd ROOT           Warm symbol and language caches for a project.
@@ -1895,7 +1927,12 @@ EOF
       fi
       ;;
     update)
-      (($# <= 1)) || die 'usage: gestalt serena update [VERSION]'
+      local prune=false
+      if [[ ${!#} == --prune-offline ]]; then
+        prune=true
+        set -- "${@:1:$#-1}"
+      fi
+      (($# <= 1)) || die 'usage: gestalt serena update [VERSION] [--prune-offline]'
       local version=${1:-latest}
       if [[ $version == latest ]]; then
         require_command curl
@@ -1905,7 +1942,7 @@ EOF
           node -e 'let s=""; process.stdin.on("data",b=>s+=b); process.stdin.on("end",()=>{const d=JSON.parse(s);const versions=Object.keys(d.releases??{}).filter(v=>/^\d+\.\d+\.\d+$/.test(v)&&d.releases[v]?.some(f=>!f.yanked)).sort((a,b)=>{const x=a.split(".").map(Number),y=b.split(".").map(Number);return x[0]-y[0]||x[1]-y[1]||x[2]-y[2];});if(!versions.length)process.exit(1);process.stdout.write(versions.at(-1));});') ||
           die 'could not resolve the latest stable Serena release; prior installation preserved'
       fi
-      install_serena "$version"
+      install_serena "$version" "$prune"
       ;;
     mcp)
       [[ $# == 2 && $1 == --cwd && -n $2 ]] || die 'usage: gestalt serena mcp --cwd ROOT; context, mode and project cannot be overridden'
@@ -1933,16 +1970,18 @@ EOF
       [[ $action != index || -n $workspace ]] || die 'usage: gestalt serena index --cwd ROOT'
       serena_operator "$action" "$workspace" "$json_output"
       ;;
-    *) die 'usage: gestalt serena install | update [VERSION] | version | doctor [--cwd ROOT] | index --cwd ROOT | mcp --cwd ROOT' ;;
+    *) die 'usage: gestalt serena install | update [VERSION] [--prune-offline] | version | doctor [--cwd ROOT] | index --cwd ROOT | mcp --cwd ROOT' ;;
   esac
 }
 
 serena_install_valid() {
   require_command node
-  node - "$gestalt_home/serena/active.json" <<'JS'
+  node - "$gestalt_home/serena/active.json" "${1:-}" "${2:-}" <<'JS'
 const fs = require('node:fs'), {spawnSync} = require('node:child_process');
 try {
   const d = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+  const [, , , expectedVersion, expectedUv] = process.argv;
+  if (expectedVersion && d.version !== expectedVersion) process.exit(1);
   if (d.schemaVersion !== 1 || (d.contractVersion !== 1 && d.version !== '1.7.0') || !Array.isArray(d.tools) ||
       !['get_symbols_overview', 'find_symbol', 'replace_symbol_body'].every(n => d.tools.some(t => t.name === n && t.inputSchema))) process.exit(1);
   for (const p of [d.executable, d.python, d.uv]) fs.accessSync(p, fs.constants.X_OK);
@@ -1950,6 +1989,10 @@ try {
   const result = spawnSync(d.python, ['-I', '-B', '-c', 'import importlib.metadata; print(importlib.metadata.version("serena-agent"))'],
     {encoding: 'utf8', timeout: 5000});
   if (result.status !== 0 || result.stdout.trim() !== d.version) process.exit(1);
+  if (expectedUv) {
+    const uv = spawnSync(d.uv, ['--version'], {encoding: 'utf8', timeout: 5000});
+    if (uv.status !== 0 || uv.stdout.trim().split(/\s+/).slice(0, 2).join(' ') !== 'uv ' + expectedUv) process.exit(1);
+  }
 } catch { process.exit(1); }
 JS
 }

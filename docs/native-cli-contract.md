@@ -50,7 +50,7 @@ parse arguments or change the current permissive/strict behavior of handlers.
 | cli | Strip one leading `--`; preserve remaining Codex argv, native stdin and approvals/selectors. `resume` stays a Codex argument, not a manager command. |
 | mobile | Strip one leading `--`; preserve remaining Mobile argv; reject `--xerj`/`--xerj=...` before setup. |
 | scratch | help; `inspect`, `recover`, `inspect-tool-leases`, `recover-tool-leases`; `--cwd ROOT --owner ID`; recovery additionally requires matching `--expect TOKEN --confirm-quiescent`. |
-| serena | help; `install`; `update [VERSION]`; `version`/`-V`/`--version`; `doctor [--cwd ROOT] [--json]`; `index --cwd ROOT`; `mcp --cwd ROOT`. MCP context/mode/project cannot be overridden. |
+| serena | help; `install`; `update [VERSION] [--prune-offline]`; `version`/`-V`/`--version`; `doctor [--cwd ROOT] [--json]`; `index --cwd ROOT`; `mcp --cwd ROOT`. MCP context/mode/project cannot be overridden. |
 | playwright | help; `install [VERSION]`, `update [VERSION]`, `version [--json]`, `doctor [--json] [--launch] [--executable-path PATH]`, `mcp --cwd ROOT`; reject direct `__backend`. Embedded runtime owns detailed validation. |
 | path | No args/text, `--json`, or one managed name: bin, org-plan, context-mode-cli, mobile, context-mode/context-mode-runtime, context-mode-plugin, gestalt-plugin, codex-home, gestalt-home. |
 | skills | help; `install`, `update`, `status [--json]`; collection maintenance is separate from profile activation. |

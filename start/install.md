@@ -225,14 +225,17 @@ questions, shell profile changes or client configuration rewrites. Ordinary
 agent sessions never install or upgrade Serena. Linux and macOS x86_64/aarch64
 artifacts are supported; real installation has been verified on Linux only.
 
-`gestalt serena update [VERSION]` prepares a fresh environment at its permanent
-path, verifies package metadata and the Codex editing MCP tool contract, then
-activates it atomically. With no VERSION, update resolves the latest stable official PyPI release. An
+`gestalt serena update [VERSION]` reuses a healthy installation of the requested
+version. Otherwise it prepares a fresh environment at its permanent path,
+verifies package metadata and the Codex editing MCP tool contract, and activates
+it atomically. With no VERSION, update resolves the latest stable official PyPI release. An
 explicit VERSION selects that release. Every candidate must pass native storage
 preparation, Python/package identity, CLI options and Codex editing tool checks;
 incompatible releases are rejected before activation. Failed
 updates preserve the active installation and workspace data. Previous releases
 remain available to running sessions and to existing workspace uv caches.
+For cleanup after shutting down the consumers, see
+[offline Serena pruning](../troubleshooting.md#serena-installation).
 Only exact validated managed interpreter targets are allowed for uv venv Python
 links; other project-state links that escape the workspace are rejected. Shared prepared tooling lives below
 `$GESTALT_HOME/serena`; project data belongs to the session workspace's
